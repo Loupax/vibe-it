@@ -1265,13 +1265,6 @@ Shared rules for this block:
       (`--perf-report`, QOBS3 phases/by_caller once merged); make the ancestor checks one walk (or cached per layout
       generation). Gate: one read at 5 000 deep < 100 ms; tests: IO visibility semantics unchanged (display:none /
       visibility:hidden ancestor still hides the target).
-- [ ] [WIP] QY53l [S] (P2, from QOBS3 319f933; Opus measure then Sonnet) YouTube's `g.k.getPlayerSize` (player base.js:15474)
-      forces 74 of 135 forced layouts per 60 s (2.3 s), and 54 % of all forced layouts change no box. Find what it reads
-      (offsetWidth/clientWidth/getBoundingClientRect of the player?) and what write dirties geometry between its calls
-      (a style/attribute write that changes nothing? our own media prelude, e.g. QM1k1n1's off-screen parking `top`?).
-      If the dirtying write is a no-op for layout (same value, or a property that cannot move boxes), skip the GEOM_GEN
-      bump for it (QY53c did this for some writes). Gate: YT watch getPlayerSize layouts / 60 s at least halved,
-      median of 3, default UA; tests for the skipped write kind.
 - [ ] QOBS5b [S] (P3, from QOBS5 bf9aea1; Sonnet, measure first) With the window idle (no input, nothing animating),
       Wikipedia and YouTube both show a steady ~125-135 ms of page JS per wall second and zero redraws. Find out whether
       that is a real timer/rAF/poll (which one: QOBS4b's named `longest` sources) or an accounting artifact of the window
@@ -1283,6 +1276,20 @@ Shared rules for this block:
       text parsed; `js_enabled()` change; rule list still shared elsewhere), or is it another phase (build_children,
       rule_index)? If it is the `@layer` fallback, make layered pieces splice too (keep layer ranks per piece) or cache
       per layer. Gate: YT watch max_ms median of 3 lower than main by >= 30 %, default UA, own wire; tests if code changes.
+- [ ] [WIP] QY53l2 [M] (P2, from QY53l 4608cd4, R43 section 10; Opus) Skip the geometry-generation bump for DOM writes
+      (attribute/style/class/tree insert-remove) whose target lies entirely inside a `display:none` subtree as recorded by
+      the last GeomCache layout (the subtree has no boxes, so no rect can change), EXCEPT writes that can change whether
+      that subtree is displayed (any write on the display:none root itself or its ancestors, class/attribute writes that
+      a rule with `display` can match, inserts that move nodes out of it). On YT watch after QY53l: 30 of 52 getPlayerSize
+      layouts still change no box; 9 follow tree inserts/removes only (hidden player chrome, svg icon swaps). Upper bound
+      ~9-13 of 51 layouts. Gate: YT watch getPlayerSize layouts / 60 s median of 3 >= 20 % lower than main, no_change
+      lower; tests: a write inside a hidden subtree forces no layout; un-hiding it (class/style on the root) still does;
+      moving a node out of the hidden subtree still does; offsetWidth of hidden nodes stays 0.
+- [ ] QY53l3 [S] (P3, optional, from QY53l, R43 section 10; Sonnet) Skip the bump for `style` writes that only change
+      properties that cannot move any box in scratchy's layout (today: e.g. `transform: scalex()`, colors, opacity,
+      cursor), when no stylesheet rule tests `[style]`. ~5-8 of 51 getPlayerSize layouts. Revisit when transforms reach
+      getBoundingClientRect (then scale DOES change rects). Tests: a color-only style write forces no layout; a width
+      write still does; a `[style*=..]` rule present disables the skip.
 - [ ] QMEM1 [S] (P2 memory, from QOBS7 67b6f0d; Sonnet, measure first; touches js_style.rs StyleCache: not alongside
       QY53f1 if that touches page_css/StyleCache) YT watch 60 s: `style_cache` = 861 entries, ~183.5 MB (~213 KB per entry)
       of 732 MB RSS. Find what one entry holds (a whole ComputedStyle per element? the full page CSS string or rule list

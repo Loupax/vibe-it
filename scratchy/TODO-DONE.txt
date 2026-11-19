@@ -6634,3 +6634,12 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       Smoke: profile.sh on a local fixture still resolves JS frames. Can pair with any item (tools/PERF.md only).
       ALSO (from QOBS10 352ad4f): benches/layout.rs runs every bench on a 256 MB-stack thread (custom `main`) because
       big-css overflowed before QSTK1 (ae9204f); drop that thread now and check `cargo bench --no-run` + one bench run.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY53l DONE 4608cd4 (gate PARTLY met: getPlayerSize layouts -28 % not -50 %; all forced -21 %; follow-ups QY53l2/QY53l3; R43 section 10) [S] (P2, from QOBS3 319f933; Opus measure then Sonnet) YouTube's `g.k.getPlayerSize` (player base.js:15474)
+      forces 74 of 135 forced layouts per 60 s (2.3 s), and 54 % of all forced layouts change no box. Find what it reads
+      (offsetWidth/clientWidth/getBoundingClientRect of the player?) and what write dirties geometry between its calls
+      (a style/attribute write that changes nothing? our own media prelude, e.g. QM1k1n1's off-screen parking `top`?).
+      If the dirtying write is a no-op for layout (same value, or a property that cannot move boxes), skip the GEOM_GEN
+      bump for it (QY53c did this for some writes). Gate: YT watch getPlayerSize layouts / 60 s at least halved,
+      median of 3, default UA; tests for the skipped write kind.
