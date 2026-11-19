@@ -6413,3 +6413,14 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       paste the summary's top 10 inclusive lines in the PR. Accept: the Wikipedia summary shows
       `GeomCache::refresh` and `El::has_class` with Rust callers resolved (not `[unknown]`) and at least
       one `JS:` frame with a URL.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QOBS2 DONE aadd319 [S] (P1, R44 section 1, Sonnet, measure first) `SCRATCHY_V8_FLAGS='--perf-basic-prof
+      --interpreted-frames-native-stack'` with the default V8 startup snapshot segfaults on Wikipedia Rust
+      (`--perf-report --seconds 3`): 3/3 (exit 139); each flag alone 1/1 ok; both with
+      `SCRATCHY_V8_SNAPSHOT=0` 3/3 ok. Find the cause first (gdb backtrace of the core: `coredumpctl`
+      or `ulimit -c`; do not guess). Likely fix: when `SCRATCHY_V8_FLAGS` is non-empty, either bake the
+      snapshot with the same flags or skip the snapshot (and print one stderr line saying so). Test
+      (child-process pattern like `SCRATCHY_QV8_4A_CHILD`, V8 flags are process-global): a child with
+      both flags runs a page that defines and calls a few hundred functions and exits 0. Accept: test;
+      the R44 command 5/5 ok without `SCRATCHY_V8_SNAPSHOT=0`.
