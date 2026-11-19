@@ -20,6 +20,18 @@ struct Piece {
     layer: bool,
     mask: u8,
     kf: KeyframesRegistry,
+    /// QMEM3e: some selector uses `:has(` / reads earlier siblings (what `getComputedStyle` needs).
+    has: bool,
+    sib: bool,
+}
+
+/// QMEM3e: what the caller's extra (external + adopted) CSS is.
+#[derive(Clone, Copy)]
+pub(crate) enum Extra<'a> {
+    /// The text itself (the layout build).
+    Text(&'a str),
+    /// `js_style::css_ver()`: the text is `js_style::page_css()`, built only if the version moved.
+    Ver((u64, u64)),
 }
 
 pub(crate) struct RulesCache {
@@ -33,6 +45,35 @@ pub(crate) struct RulesCache {
     rules: Rc<Vec<StyleRule>>,
     mask: u8,
     kf: Rc<KeyframesRegistry>,
+    /// Bumped whenever `rules` changes (a rule-list identity that does not hold the `Rc`).
+    generation: u64,
+    /// `Some(v)`: the last piece equals `page_css()` at css version `v`.
+    extra_ver: Option<(u64, u64)>,
+    ua_flags: (bool, bool),
+}
+
+thread_local! {
+    static GENERATION: Cell<u64> = const { Cell::new(0) };
+}
+
+fn next_generation() -> u64 {
+    GENERATION.with(|g| {
+        g.set(g.get() + 1);
+        g.get()
+    })
+}
+
+/// QMEM3e: the current rule list with its generation and `(has, sib)` flags, for
+/// `StyleCache`. `StyleCache` does not keep the `Rc` (a second owner would force
+/// every layout-side splice into a full re-parse).
+pub(crate) fn current() -> Option<(Rc<Vec<StyleRule>>, u64, bool, bool)> {
+    RULES_CACHE.with(|c| {
+        c.borrow().as_ref().map(|rc| {
+            let has = rc.ua_flags.0 || rc.pieces.iter().any(|p| p.has);
+            let sib = rc.ua_flags.1 || rc.pieces.iter().any(|p| p.sib);
+            (rc.rules.clone(), rc.generation, has, sib)
+        })
+    })
 }
 
 #[cfg(test)]
@@ -80,7 +121,8 @@ fn parse_piece(text: String, out: &mut Vec<StyleRule>) -> Piece {
     let n0 = out.len();
     let (kf, mask) = with_mask(|| parse_stylesheet_into(&text, out));
     let layer = has_layer(&text);
-    Piece { count: out.len() - n0, text, layer, mask, kf }
+    let (has, sib) = crate::js_style::rule_flags(&out[n0..]);
+    Piece { count: out.len() - n0, text, layer, mask, kf, has, sib }
 }
 
 /// Whether the node's effective text equals `key`, without building a string
@@ -123,6 +165,21 @@ fn finish_hit(rc: &RulesCache) -> Rc<Vec<StyleRule>> {
 /// The parsed rules for `document`'s `<style>` elements followed by `extra_css`
 /// (UA rules first), re-parsing only what changed since the previous call.
 pub(crate) fn cached_rules(document: &Handle, extra_css: &str) -> Rc<Vec<StyleRule>> {
+    cached_rules_for(document, Extra::Text(extra_css))
+}
+
+pub(crate) fn cached_rules_for(document: &Handle, extra: Extra) -> Rc<Vec<StyleRule>> {
+    let built = std::cell::OnceCell::<String>::new();
+    let extra_css = || -> &str {
+        match extra {
+            Extra::Text(t) => t,
+            Extra::Ver(_) => built.get_or_init(crate::js_style::page_css).as_str(),
+        }
+    };
+    let new_ver = match extra {
+        Extra::Ver(v) => Some(v),
+        Extra::Text(_) => None,
+    };
     let mut nodes = Vec::new();
     crate::images::collect_style_nodes(document, &mut nodes);
     let js = js_enabled();
@@ -133,7 +190,10 @@ pub(crate) fn cached_rules(document: &Handle, extra_css: &str) -> Rc<Vec<StyleRu
         {
             let n = nodes.len();
             let old = rc.pieces.len() - 1;
-            let ex_same = rc.pieces[old].text == extra_css;
+            let ex_same = match (extra, rc.extra_ver) {
+                (Extra::Ver(v), Some(o)) if v == o => true,
+                _ => rc.pieces[old].text == extra_css(),
+            };
             let mut p = 0;
             while p < old.min(n) && node_matches(&nodes[p], &rc.pieces[p].text) {
                 p += 1;
@@ -144,6 +204,9 @@ pub(crate) fn cached_rules(document: &Handle, extra_css: &str) -> Rc<Vec<StyleRu
                     s += 1;
                 }
             }
+            if ex_same && new_ver.is_some() {
+                rc.extra_ver = new_ver;
+            }
             if ex_same && p == old && n == old {
                 return finish_hit(rc);
             }
@@ -151,7 +214,7 @@ pub(crate) fn cached_rules(document: &Handle, extra_css: &str) -> Rc<Vec<StyleRu
                 let old_end = if ex_same { old - s } else { old + 1 };
                 let mut texts: Vec<String> = nodes[p..n - s].iter().map(crate::images::effective_style_text).collect();
                 if !ex_same {
-                    texts.push(extra_css.to_string());
+                    texts.push(extra_css().to_string());
                 }
                 let layered = rc.pieces[p..old_end].iter().any(|x| x.layer) || texts.iter().any(|t| has_layer(t));
                 if !layered {
@@ -171,6 +234,10 @@ pub(crate) fn cached_rules(document: &Handle, extra_css: &str) -> Rc<Vec<StyleRu
                         rc.pieces.splice(p..old_end, new_pieces);
                         rc.mask = rc.ua_mask | rc.pieces.iter().fold(0, |a, x| a | x.mask);
                         rc.kf = merged_keyframes(&rc.pieces);
+                        rc.generation = next_generation();
+                        if !ex_same {
+                            rc.extra_ver = new_ver;
+                        }
                         return finish_hit(rc);
                     }
                 }
@@ -180,7 +247,7 @@ pub(crate) fn cached_rules(document: &Handle, extra_css: &str) -> Rc<Vec<StyleRu
         #[cfg(test)]
         FULL_PARSES.with(|c| c.set(c.get() + 1));
         let mut texts: Vec<String> = nodes.iter().map(crate::images::effective_style_text).collect();
-        texts.push(extra_css.to_string());
+        texts.push(extra_css().to_string());
         let ((mut rules, ua_count), ua_mask) = with_mask(|| {
             let mut rules = parse_ua_stylesheet(DEFAULT_CSS);
             if js {
@@ -191,9 +258,11 @@ pub(crate) fn cached_rules(document: &Handle, extra_css: &str) -> Rc<Vec<StyleRu
             let n = rules.len();
             (rules, n)
         });
+        let ua_flags = crate::js_style::rule_flags(&rules);
         let concat = texts.iter().any(|t| has_layer(t));
         let mut pieces = Vec::with_capacity(texts.len());
         let (mask, kf);
+        let concat_flags;
         if concat {
             // Layer ranks are numbered across sheets: parse the joined text as one.
             let mut src = String::new();
@@ -201,11 +270,13 @@ pub(crate) fn cached_rules(document: &Handle, extra_css: &str) -> Rc<Vec<StyleRu
                 src.push_str(t);
                 src.push('\n');
             }
+            let n0 = rules.len();
             let (k, m) = with_mask(|| parse_stylesheet_into(&src, &mut rules));
+            concat_flags = crate::js_style::rule_flags(&rules[n0..]);
             mask = ua_mask | m;
             kf = Rc::new(k);
             for t in texts {
-                pieces.push(Piece { text: t, count: 0, layer: true, mask: 0, kf: KeyframesRegistry::new() });
+                pieces.push(Piece { text: t, count: 0, layer: true, mask: 0, kf: KeyframesRegistry::new(), has: concat_flags.0, sib: concat_flags.1 });
             }
         } else {
             for t in texts {
@@ -226,6 +297,9 @@ pub(crate) fn cached_rules(document: &Handle, extra_css: &str) -> Rc<Vec<StyleRu
             }),
             mask,
             kf,
+            generation: next_generation(),
+            extra_ver: new_ver,
+            ua_flags,
         };
         let out = finish_hit(&rc);
         *slot = Some(rc);

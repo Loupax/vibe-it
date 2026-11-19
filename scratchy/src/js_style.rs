@@ -73,16 +73,9 @@ pub(crate) fn page_css() -> String {
     s
 }
 
-/// What one author stylesheet piece of the cascade came from (QY52).
-#[derive(Clone, PartialEq)]
-enum PieceKey {
-    /// One `<style>` element's effective text.
-    Dom(String),
-    /// The external stylesheets, by `CSS_VER.0`.
-    Extra(u64),
-    /// The adopted stylesheets, by `CSS_VER.1`.
-    Adopted(u64),
-}
+/// One `<style>` element's effective text (QY52). Only documents other than the page use this
+/// (QMEM3e: the page's rules are `rules_cache`'s, shared with the layout build).
+type PieceKey = String;
 
 struct Piece {
     key: PieceKey,
@@ -110,6 +103,10 @@ pub(crate) struct StyleCache {
     ua_count: usize,
     /// `@layer` rank numbering spans sheets, so such pages are parsed as one text.
     concat: bool,
+    /// QMEM3e: the page's rules are `rules_cache`'s (its generation, not an `Rc`: a second
+    /// owner would make every layout-side splice a full re-parse); `rules`/`pieces` stay empty.
+    shared: bool,
+    shared_gen: Option<u64>,
     /// Some rule uses `:has(`, which reads descendants: no per-element reuse across writes.
     has_rules: bool,
     sib_rules: bool,
@@ -217,21 +214,20 @@ fn sel_flags(sel: &selectors::parser::Selector<OurSelectorImpl>, has: &mut bool,
     }
 }
 
-fn parse_piece(key: &PieceKey) -> (Vec<StyleRule>, bool, bool, bool) {
-    PARSES.with(|c| c.set(c.get() + 1));
-    let run = |text: &str| {
-        let rules = parse_stylesheet(text);
-        let (mut has, mut sib) = (false, false);
-        for r in &rules {
-            r.selectors.slice().iter().for_each(|s| sel_flags(s, &mut has, &mut sib));
-        }
-        (rules, text.contains("@layer"), has, sib)
-    };
-    match key {
-        PieceKey::Dom(t) => run(t),
-        PieceKey::Extra(_) => EXTRA_CSS.with(|c| run(&c.borrow())),
-        PieceKey::Adopted(_) => ADOPTED_CSS.with(|c| run(&c.borrow())),
+/// `(uses :has(, reads earlier siblings)` over `rules`.
+pub(crate) fn rule_flags(rules: &[StyleRule]) -> (bool, bool) {
+    let (mut has, mut sib) = (false, false);
+    for r in rules {
+        r.selectors.slice().iter().for_each(|s| sel_flags(s, &mut has, &mut sib));
     }
+    (has, sib)
+}
+
+fn parse_piece(text: &str) -> (Vec<StyleRule>, bool, bool, bool) {
+    PARSES.with(|c| c.set(c.get() + 1));
+    let rules = parse_stylesheet(text);
+    let (has, sib) = rule_flags(&rules);
+    (rules, text.contains("@layer"), has, sib)
 }
 
 /// Properties reported by `length`/`item(i)`; every other name returns `''`.
@@ -481,7 +477,8 @@ impl StyleCache {
     fn refresh(&mut self, root: &Handle, wgen: u64, page: bool) {
         let rp = Rc::as_ptr(root) as usize;
         let ver = CSS_VER.with(|v| v.get());
-        if self.rules.is_some() && self.wgen == wgen && self.root_ptr == rp && self.css_ver == ver {
+        let ready = if page { self.shared_gen.is_some() } else { self.rules.is_some() };
+        if ready && self.shared == page && self.wgen == wgen && self.root_ptr == rp && self.css_ver == ver {
             return;
         }
         if self.root_ptr != rp {
@@ -491,13 +488,33 @@ impl StyleCache {
         }
         self.wgen = wgen;
         self.css_ver = ver;
-        let mut doms = Vec::new();
-        collect_style_pieces(root, &mut doms);
-        let mut keys: Vec<PieceKey> = doms.into_iter().map(PieceKey::Dom).collect();
-        if page {
-            keys.push(PieceKey::Extra(ver.0));
-            keys.push(PieceKey::Adopted(ver.1));
+        if self.shared != page {
+            // Switching between the page (shared rules) and another document's own parse.
+            self.shared = page;
+            self.shared_gen = None;
+            self.rules = None;
+            self.pieces.clear();
+            self.index = None;
+            self.map.clear();
+            self.root_inherited = None;
         }
+        if page {
+            // QMEM3e: the layout build's parsed rules (each piece is parsed once for both).
+            let _ = crate::rules_cache::cached_rules_for(root, crate::rules_cache::Extra::Ver(ver));
+            let Some((rules, generation, has, sib)) = crate::rules_cache::current() else { return };
+            if self.shared_gen == Some(generation) {
+                return;
+            }
+            self.shared_gen = Some(generation);
+            self.index = Some(RuleIndex::build(&rules));
+            self.map.clear();
+            self.root_inherited = None;
+            self.has_rules = has;
+            self.sib_rules = sib;
+            return;
+        }
+        let mut keys: Vec<PieceKey> = Vec::new();
+        collect_style_pieces(root, &mut keys);
         let mut flags = String::new();
         if !js_enabled() {
             flags.push_str("nojs;");
@@ -573,11 +590,7 @@ impl StyleCache {
             // Layer ranks are numbered across sheets: parse the joined text as one.
             let mut src = String::new();
             for (k, _, _, has, sib) in &parsed {
-                match k {
-                    PieceKey::Dom(t) => src.push_str(t),
-                    PieceKey::Extra(_) => EXTRA_CSS.with(|c| src.push_str(&c.borrow())),
-                    PieceKey::Adopted(_) => ADOPTED_CSS.with(|c| src.push_str(&c.borrow())),
-                }
+                src.push_str(k);
                 src.push('\n');
                 self.pieces.push(Piece { key: k.clone(), count: 0, layer: true, has: *has, sib: *sib });
             }
@@ -597,7 +610,7 @@ impl StyleCache {
     /// is not an element connected to `root` (CSSOM: all-empty values).
     pub(crate) fn style_of(&mut self, root: &Handle, wgen: u64, h: &Handle, pseudo: Option<&str>, page: bool) -> Option<ComputedStyle> {
         self.refresh(root, wgen, page);
-        let rules = self.rules.clone()?;
+        let rules = if self.shared { crate::rules_cache::current()?.0 } else { self.rules.clone()? };
         // Ancestor chain, outermost first; must end at the document.
         let mut chain = Vec::new();
         let mut cur = h.clone();
