@@ -174,6 +174,76 @@ fn qm1k1c_seek_outside_the_buffer_waits_then_reloads_at_t() {
     assert_eq!(c.current_time, 20.0);
 }
 
+fn last_paused(f: &FakeHandle) -> Option<String> {
+    calls(f).into_iter().rev().find(|c| c.starts_with("paused "))
+}
+
+#[test]
+fn qysk1a_out_of_buffer_seek_holds_the_old_generation_until_data_comes() {
+    let (mut c, f, feed) = started(1);
+    c.mse_set_duration(60.0);
+    c.set_muted(true);
+    settle(&mut c, &f, 0.0);
+    c.play(1);
+    names(&mut c);
+    c.set_current_time(20.0);
+    names(&mut c);
+    assert_eq!(last_paused(&f).as_deref(), Some("paused true"), "{:?}", calls(&f));
+    // YouTube's sequence: pause() then play() while the seek waits: the element's state
+    // changes, the backend stays paused
+    let before = count(&f, "paused");
+    c.pause();
+    c.play(2);
+    assert!(!c.paused);
+    assert_eq!(count(&f, "paused"), before, "{:?}", calls(&f));
+    names(&mut c);
+    // the old generation's events do not leak
+    f.push(BackendEvent::Time(5.0));
+    f.push(BackendEvent::Eof);
+    f.push(BackendEvent::Buffering(true));
+    f.push(BackendEvent::Restart);
+    let n = pump(&mut c, 3.0);
+    assert!(n.is_empty(), "{n:?}");
+    assert_eq!(c.current_time, 20.0);
+    assert!(c.seeking);
+    assert_eq!(c.ready_state, HAVE_METADATA);
+    // a second seek that also waits keeps the hold
+    c.set_current_time(30.0);
+    names(&mut c);
+    assert_eq!(last_paused(&f).as_deref(), Some("paused true"));
+    assert_eq!(count(&f, "load_mse"), 1);
+    // data at 30 arrives: new generation, resumed because the element is not paused
+    append(&mut c, &feed, 0, &seg4(28, 100), 5.0);
+    append(&mut c, &feed, 1, &seg4(28, 100), 6.0);
+    assert_eq!(count(&f, "load_mse"), 2, "{:?}", calls(&f));
+    assert_eq!(last_paused(&f).as_deref(), Some("paused false"), "{:?}", calls(&f));
+    names(&mut c);
+    let n = settle(&mut c, &f, 7.0);
+    assert!(has(&n, "seeked"), "{n:?}");
+    f.push(BackendEvent::Time(30.5));
+    pump(&mut c, 8.0);
+    assert_eq!(c.current_time, 30.5);
+}
+
+#[test]
+fn qysk1a_in_generation_seek_back_while_held_resumes_and_a_paused_element_stays_paused() {
+    let (mut c, f, _feed) = started(2);
+    c.mse_set_duration(60.0);
+    c.set_muted(true);
+    settle(&mut c, &f, 0.0);
+    c.play(1);
+    c.pause();
+    names(&mut c);
+    c.set_current_time(40.0);
+    names(&mut c);
+    assert_eq!(last_paused(&f).as_deref(), Some("paused true"));
+    c.set_current_time(2.0); // back into the live run
+    assert_eq!(count(&f, "seek"), 1, "{:?}", calls(&f));
+    assert_eq!(last_paused(&f).as_deref(), Some("paused true"), "the element is paused: the backend stays paused");
+    c.play(2);
+    assert_eq!(last_paused(&f).as_deref(), Some("paused false"), "hold cleared: play reaches the backend");
+}
+
 #[test]
 fn qm1k1c_ended_only_after_end_of_stream() {
     let (mut c, f, _feed) = started(2);

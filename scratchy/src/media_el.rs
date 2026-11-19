@@ -352,6 +352,9 @@ struct MseAttach {
     /// `endOfStream()` was called: only then may `ended` happen.
     ended: bool,
     last_progress: f64,
+    /// QYSK1a: an out-of-buffer seek waits for data, so the old generation is held paused (the
+    /// backend stays paused whatever play()/pause() say; its Time/Eof/Buffering/Restart are ignored).
+    hold: bool,
 }
 
 /// Intersection of several sorted range lists (an empty list in = nothing out).
@@ -700,7 +703,7 @@ impl MediaCore {
         self.current_src = format!("blob:scratchy-mse/{}", feed.id);
         self.fire("loadstart");
         self.outs.push(Out::MseOpen(feed.id));
-        self.mse = Some(MseAttach { feed, meta: false, issued: false, want: None, ended: false, last_progress: f64::NEG_INFINITY });
+        self.mse = Some(MseAttach { feed, meta: false, issued: false, want: None, ended: false, last_progress: f64::NEG_INFINITY, hold: false });
     }
 
     /// A `blob:` src that names nothing (revoked before the load): the load algorithm with one
@@ -843,7 +846,13 @@ impl MediaCore {
         let Some(m) = self.mse.as_mut() else { return };
         m.want = Some(t);
         let (issued, feed) = (m.issued, m.feed.clone());
-        let playable = feed.with_store(|st| st.in_generation(t) || st.covers(t, MSE_COVER_SLACK));
+        let (in_gen, covered) = feed.with_store(|st| (st.in_generation(t), st.covers(t, MSE_COVER_SLACK)));
+        let playable = in_gen || covered;
+        if issued && !playable && !m.hold {
+            // QYSK1a: nothing to play at `t` yet; freeze the old generation until data comes
+            m.hold = true;
+            self.backend.set_paused(true);
+        }
         if issued && !playable && self.ready_state > HAVE_METADATA {
             self.ready_state = HAVE_METADATA;
             self.playing_fired = false;
@@ -864,13 +873,18 @@ impl MediaCore {
         let (issued, feed) = (m.issued, m.feed.clone());
         if issued && feed.with_store(|st| st.in_generation(t)) {
             m.want = None;
+            let held = std::mem::take(&mut m.hold);
             self.backend.seek(t);
+            if held {
+                self.backend.set_paused(self.paused);
+            }
             return;
         }
         if !feed.with_store(|st| st.covers(t, MSE_COVER_SLACK)) {
             return;
         }
         m.want = None;
+        m.hold = false;
         if issued {
             self.backend.unload();
         }
@@ -931,9 +945,16 @@ impl MediaCore {
         self.muted || self.activated
     }
 
+    /// QYSK1a: the old generation is frozen while an MSE seek waits for data.
+    fn mse_held(&self) -> bool {
+        self.mse.as_ref().is_some_and(|m| m.hold)
+    }
+
     fn start_playing(&mut self) {
         self.paused = false;
-        self.backend.set_paused(false);
+        if !self.mse_held() {
+            self.backend.set_paused(false);
+        }
         self.sync_keep();
         self.fire("play");
         if self.ready_state <= HAVE_CURRENT_DATA {
@@ -957,7 +978,9 @@ impl MediaCore {
         }
         self.paused = true;
         self.playing_fired = false;
-        self.backend.set_paused(true);
+        if !self.mse_held() {
+            self.backend.set_paused(true);
+        }
         self.sync_keep();
         self.fire("timeupdate");
         self.fire("pause");
@@ -1039,6 +1062,9 @@ impl MediaCore {
     pub(crate) fn handle(&mut self, ev: BackendEvent, now: f64) {
         if self.network_state == NETWORK_EMPTY {
             return; // a late event of an aborted load
+        }
+        if self.mse_held() && matches!(ev, BackendEvent::Time(_) | BackendEvent::Eof | BackendEvent::Buffering(_) | BackendEvent::Restart) {
+            return; // QYSK1a: the held old generation's events say nothing about the seek target
         }
         match ev {
             BackendEvent::Loaded { width, height, .. } if self.mse.is_some() => {
