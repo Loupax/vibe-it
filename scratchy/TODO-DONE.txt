@@ -7805,3 +7805,11 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       60 s same input, median of 3: builds.n and builds.ms drop by the no-op count; screenshot unchanged; unit test: a
       same-value setAttribute leaves layout_dirty false.
   (queue line) 14d [WIP] QY53m [S] App::js_sync skips the restyle after no-op write batches (after QM1k1n6: same code)
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QFLK1 DONE 8f4fc79 #387 JS_ENABLED thread-local under cfg(test), single /proc read for rss, test-only layout limits lift; 10/10 runs clean at load ~60 [S] (P3, coordinator 2026-11-19, from the QM1k1n5 agent; Sonnet) Load-sensitive test flakes in a full parallel
+      default-config run on a busy machine: qy14_js_report_run_timers_finds_timer_and_channel_errors,
+      qy14_js_report_run_timers_is_bounded, qobs7_memory_fields_are_present (pass when re-run alone; "shared global state"
+      suspected). Seen by 6 agents on 2026-11-19 (qy14 pair every time at load 20-40). Also
+      perf_tests::qmem3c_explained_bytes_is_the_sum_of_its_parts failed once after QMEM3b #380: its sum list may lack the new
+      js_extra_css/dom/report_* probes (check it is not a real bug first). Find the shared state or timing assumption and make them deterministic.
