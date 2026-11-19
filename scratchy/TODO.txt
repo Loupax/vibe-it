@@ -2754,9 +2754,12 @@ QSTASH — persistent web storage (user design session 2026-11-19; full design i
       the first script) load the origin's pairs into the prelude's Storage Map; opaque
       origins (file:, data:, about:) keep today's in-memory Storage. setItem/removeItem/
       clear record ops; the App hands them to the stash writer thread at the end of each
-      task; QuotaExceededError over 5 MB. Tests: a value set on one page is there on the
+      task; QuotaExceededError over 5 MB. Keys and values cross from V8 as UTF-16 code
+      units, encoded to WTF-8 by stash: never `to_rust_string_lossy` or another UTF-8
+      conversion, which turns lone surrogates into U+FFFD. Tests: a value set on one page is there on the
       next page load and after a new App with the same --state-dir; file: pages do not
-      persist; quota throws; ops from one task land together. Real check: social.loupax.com
+      persist; quota throws; ops from one task land together; a value with a lone
+      surrogate (`"a\uD83D"`) reads back identical after a reload. Real check: social.loupax.com
       `:set novim` survives a restart (user's vim.js case, TODO "social.loupax.com").
 
 - [ ] QSTASH3 [S] (P3, after QSTASH1 and QSTASH5) `scratchy --forget-site <site or
