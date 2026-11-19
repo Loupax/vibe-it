@@ -40,6 +40,16 @@ A perf item that turns out to be wrong or bigger than its size: stop and report,
       thrown exception in appendBuffer/SourceBuffer (QuotaExceeded, InvalidState), SABR/videoplayback HTTP errors or
       aborts, and YouTube's own error report beacon (`/api/stats/qoe` or `/error_204` request: its query has the error
       code, e.g. `ec=`/`errorcode=`; log it from wire).
+      RUN WITH THE DEFAULT USER AGENT (no `--user-agent`), as the user does: the R43 recipe's Chrome 131 UA is NOT what the
+      user sends (checked 2026-11-19: their process has no override; HTTP UA = wire's `wire/0.1 ...`, navigator.userAgent =
+      `Mozilla/5.0 (X11; Linux x86_64) scratchy/<ver>`). If the stop is the PoToken/BotGuard attestation (QM1k2, parked),
+      report that and stop: the user decides whether QM1k2 is unparked. Never forge, replay or borrow tokens.
+- [ ] QUA1 [S] (P3, coordinator 2026-11-19, Sonnet) The default HTTP `User-Agent` (wire's `wire/0.1 (+https://github.com/
+      Loupax/vibe-it) scratchy's real-networking daemon`) differs from the default `navigator.userAgent` (`Mozilla/5.0 (X11;
+      Linux x86_64) scratchy/<ver>`, user_agent.rs `navigator_user_agent_for`). Real browsers send the same string in both;
+      the mismatch is an extra bot signal. Make scratchy send its own default (the navigator string) as `X-Wire-User-Agent`
+      when there is no override, so both agree; both stay honest (no browser preset, QY39b rule). Test: without an override
+      the request builders carry the navigator string; with an override both carry the override.
 
 PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; search the name):
  Step 1, measurement that every later step uses (small, do first):
