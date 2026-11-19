@@ -1,7 +1,7 @@
 //! QAN1a: CSS animations, PARSING ONLY. `@keyframes` rules go into a side
 //! registry, the eight `animation-*` longhands and the `animation`
 //! shorthand into `Declarations::anim`, and the cascaded per-element result
-//! is an interned `&'static AnimLonghands` (so `ComputedStyle` stays `Copy`,
+//! is an interned `AnimRef` handle (QY53i3, so `ComputedStyle` stays `Copy`,
 //! same trick as `custom_props`). Nothing evaluates any of it yet (QAN1b).
 use super::*;
 
@@ -115,20 +115,89 @@ impl AnimLonghands {
     }
 }
 
-thread_local! {
-    static ANIM_INTERNER: RefCell<HashMap<String, &'static AnimLonghands>> = RefCell::new(HashMap::new());
+/// QY53i3: a `Copy` handle to one interned `AnimLonghands` in this thread's
+/// arena (same scheme as `CustomPropsRef`, QY53i2): `generation` names the
+/// arena it came from, so a handle that outlived its document (or is read on
+/// another thread) resolves to nothing instead of another list set.
+/// Two handles of one generation are equal iff their lists are equal.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub(crate) struct AnimRef {
+    generation: std::num::NonZeroU32,
+    index: u32,
 }
 
-/// Leaks one copy of each distinct list set (bounded by the number of
-/// distinct values on a page). The default (nothing declared) is `None`.
-pub(crate) fn intern_anim(a: AnimLonghands) -> Option<&'static AnimLonghands> {
+impl AnimRef {
+    /// The lists (an `Rc` clone, so the arena is not borrowed while the caller
+    /// works with them); `None` for a handle of another generation.
+    pub(crate) fn table(self) -> Option<Rc<AnimLonghands>> {
+        ANIM_ARENA.with(|a| a.borrow().get(self).cloned())
+    }
+
+    /// `AnimLonghands::resolve` of the referenced lists (empty for a stale handle).
+    #[cfg(test)]
+    pub(crate) fn resolve(self) -> Vec<Animation> {
+        self.table().map(|t| t.resolve()).unwrap_or_default()
+    }
+}
+
+struct AnimArena {
+    generation: std::num::NonZeroU32,
+    tables: Vec<Rc<AnimLonghands>>,
+    index: HashMap<String, u32>,
+}
+
+/// Generation of the next arena; process-wide (see `AnimRef`).
+static ANIM_GENERATION: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+
+impl AnimArena {
+    fn new() -> Self {
+        let g = ANIM_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let generation = std::num::NonZeroU32::new(g).unwrap_or(std::num::NonZeroU32::MIN);
+        AnimArena { generation, tables: Vec::new(), index: HashMap::new() }
+    }
+
+    fn get(&self, r: AnimRef) -> Option<&Rc<AnimLonghands>> {
+        if r.generation != self.generation {
+            return None;
+        }
+        self.tables.get(r.index as usize)
+    }
+}
+
+thread_local! {
+    static ANIM_ARENA: RefCell<AnimArena> = RefCell::new(AnimArena::new());
+}
+
+/// QY53i3: frees every interned animation list set of this thread and starts
+/// a new generation. Called from `reset_custom_props_arena` (a navigation).
+pub(crate) fn reset_anim_arena() {
+    let old = ANIM_ARENA.with(|a| std::mem::replace(&mut *a.borrow_mut(), AnimArena::new()));
+    drop(old);
+}
+
+/// Test-only: number of interned list sets in this thread's arena.
+#[cfg(test)]
+pub(crate) fn anim_arena_len() -> usize {
+    ANIM_ARENA.with(|a| a.borrow().tables.len())
+}
+
+/// Interns one copy of each distinct list set in this thread's arena (bounded
+/// by the distinct values of one document). The default (nothing declared) is `None`.
+pub(crate) fn intern_anim(a: AnimLonghands) -> Option<AnimRef> {
     if a == AnimLonghands::default() {
         return None;
     }
-    ANIM_INTERNER.with(|i| {
-        let mut i = i.borrow_mut();
+    ANIM_ARENA.with(|ar| {
+        let mut ar = ar.borrow_mut();
+        let generation = ar.generation;
         let key = format!("{a:?}");
-        Some(*i.entry(key).or_insert_with(|| Box::leak(Box::new(a))))
+        if let Some(&index) = ar.index.get(&key) {
+            return Some(AnimRef { generation, index });
+        }
+        let index = u32::try_from(ar.tables.len()).expect("fewer than 2^32 animation list sets");
+        ar.tables.push(Rc::new(a));
+        ar.index.insert(key, index);
+        Some(AnimRef { generation, index })
     })
 }
 
@@ -459,7 +528,7 @@ impl DeclParser<'_> {
 pub(crate) fn cascade_animations(
     matches: &[(u64, &Declarations)],
     inline: Option<&Declarations>,
-) -> Option<&'static AnimLonghands> {
+) -> Option<AnimRef> {
     if !(matches.iter().any(|(_, d)| d.anim.is_some()) || inline.is_some_and(|d| d.anim.is_some())) {
         return None;
     }
@@ -486,12 +555,12 @@ pub(crate) fn cascade_animations(
 /// `inherit`/`initial` of one longhand: copies that longhand's list from
 /// `src` (the parent, or the initial style).
 pub(crate) fn copy_animation_longhand(
-    dst: &mut Option<&'static AnimLonghands>,
-    src: Option<&'static AnimLonghands>,
+    dst: &mut Option<AnimRef>,
+    src: Option<AnimRef>,
     key: &str,
 ) {
-    let mut a = dst.cloned().unwrap_or_default();
-    let s = src.cloned().unwrap_or_default();
+    let mut a = dst.and_then(AnimRef::table).map(|t| (*t).clone()).unwrap_or_default();
+    let s = src.and_then(AnimRef::table).map(|t| (*t).clone()).unwrap_or_default();
     match key {
         "animation-name" => a.name = s.name,
         "animation-duration" => a.duration = s.duration,

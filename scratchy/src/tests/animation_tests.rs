@@ -545,3 +545,26 @@ fn qan1d0_reduced_motion_default_and_set_motion_flip() {
     set_reduced_motion(true);
     assert_eq!(qan1d0_match("(prefers-reduced-motion: reduce)"), "log:true");
 }
+
+// ---- QY53i3: animation list sets in a per-thread arena freed on navigation ----
+
+#[test]
+fn qy53i3_intern_same_lists_same_handle_and_reset_frees() {
+    reset_anim_arena();
+    let mk = |n: &str| AnimLonghands { name: vec![Some(n.to_string())], ..Default::default() };
+    let a = intern_anim(mk("a")).expect("handle");
+    let a2 = intern_anim(mk("a")).expect("handle");
+    let b = intern_anim(mk("b")).expect("handle");
+    assert_eq!(a, a2, "equal lists, equal handle");
+    assert_ne!(a, b);
+    assert_eq!(anim_arena_len(), 2);
+    assert_eq!(a.resolve()[0].name.as_deref(), Some("a"));
+    assert!(intern_anim(AnimLonghands::default()).is_none());
+    reset_anim_arena();
+    assert_eq!(anim_arena_len(), 0, "navigation clears the arena");
+    assert!(a.table().is_none() && a.resolve().is_empty(), "stale handle reads as nothing");
+    let c = intern_anim(mk("a")).expect("handle");
+    assert_eq!(c.resolve()[0].name.as_deref(), Some("a"), "new handles work");
+    assert_ne!(c, a, "a stale handle never aliases a new one");
+    assert_eq!(anim_arena_len(), 1);
+}

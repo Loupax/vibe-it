@@ -6307,6 +6307,7 @@ thread_local! {
 pub(crate) fn reset_custom_props_arena() {
     let old = CUSTOM_PROPS_ARENA.with(|a| std::mem::replace(&mut *a.borrow_mut(), CustomPropsArena::new()));
     CUSTOM_PROPS_MEMO.with(|m| m.borrow_mut().clear());
+    crate::animation::reset_anim_arena(); // QY53i3
     #[cfg(test)]
     CUSTOM_PROPS_FREED.with(|c| c.set(c.get() + old.tables.len()));
     drop(old);
