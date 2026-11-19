@@ -581,7 +581,7 @@ impl StyleCache {
                 src.push('\n');
                 self.pieces.push(Piece { key: k.clone(), count: 0, layer: true, has: *has, sib: *sib });
             }
-            rules.extend(parse_stylesheet(&src));
+            let _ = parse_stylesheet_into(&src, &mut rules);
         } else {
             for (k, r, layer, has, sib) in parsed {
                 self.pieces.push(Piece { key: k, count: r.len(), layer, has, sib });

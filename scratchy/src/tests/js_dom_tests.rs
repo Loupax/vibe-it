@@ -557,6 +557,21 @@ fn qa16_get_computed_style_cascade_inheritance_and_unknowns() {
     assert_eq!(l[7], "log:te true", "{l:?}");
 }
 
+// QY53f1e: several <style> pieces with @layer take the concatenated-parse path
+// (parse_stylesheet_into straight into the rule list); results unchanged.
+#[test]
+fn qy53f1e_get_computed_style_layered_multi_style() {
+    let (_e, _d, log) = events_engine(
+        "<html><head><style>@layer a, b; @layer a { #x { color: red; margin-left: 1px } }</style>\
+         <style>@layer b { #x { color: blue } } .y { margin-left: 9px }</style>\
+         <style>#x { padding-top: 4px }</style></head><body><p id=x class=y>t</p></body></html>",
+        "var cs=getComputedStyle(document.getElementById('x'));\
+         console.log(cs.color, cs.marginLeft, cs.paddingTop);",
+    );
+    let l = log.borrow();
+    assert_eq!(l[0], "log:rgb(0, 0, 255) 9px 4px", "{l:?}");
+}
+
 // QW3: wikipedia.org language-button divider. A later z-auto relative 1px
 // line pulled up by a negative margin must be hidden by the earlier
 // z-index:1 inline button's white background / outline, not drawn over it.
