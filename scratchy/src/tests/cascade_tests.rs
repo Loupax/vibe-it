@@ -2974,3 +2974,26 @@ fn qy53f1_repeated_insert_and_change_keeps_the_cache_bounded() {
     }
     assert_eq!(crate::style::rules_cache_mem().0.0, entries0, "no rules left behind by removed pieces");
 }
+
+/// QY53f1b: parsing into an existing list appends (the earlier rules are untouched, layer ranks
+/// are fixed on the appended tail only) and equals `parse_stylesheet_with_keyframes`.
+#[test]
+fn qy53f1b_parse_stylesheet_into_appends_and_matches_the_returning_form() {
+    let a = "p { color: red } @keyframes k { from { opacity: 0 } to { opacity: 1 } }";
+    let b = "@layer base, over; @layer over { p { color: blue } } @layer base { p { color: green } } div { margin: 0 }";
+    let (ra, ka) = crate::css::parse_stylesheet_with_keyframes(a);
+    let (rb, kb) = crate::css::parse_stylesheet_with_keyframes(b);
+    let mut into = Vec::new();
+    let ka2 = crate::css::parse_stylesheet_into(a, &mut into);
+    assert_eq!(into.len(), ra.len());
+    let n = into.len();
+    let kb2 = crate::css::parse_stylesheet_into(b, &mut into);
+    assert_eq!(into.len(), ra.len() + rb.len());
+    assert_eq!(ka.len(), ka2.len());
+    assert_eq!(kb.len(), kb2.len());
+    for (x, y) in ra.iter().chain(rb.iter()).zip(into.iter()) {
+        assert_eq!(x.layer, y.layer, "layer ranks preserved");
+    }
+    assert!(into[..n].iter().all(|r| r.layer == 0), "the head keeps its unlayered rank");
+    assert!(into[n..].iter().any(|r| r.layer >= 2), "the tail got layer ranks");
+}
