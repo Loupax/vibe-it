@@ -84,10 +84,14 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
   25 QP3 [S]  font-match cache miss cost      26 QY47b [S] fewer JS frames per createElement
   27 QOBS9 [S, Opus] re-baseline PERF.md on the new machine (after 9, 18, 20)
   28 QM1k-mouse: the USER's re-check after steps 2-4 (the user deferred it until then; ask the user)
+ Step 6, re-profile before leaving performance (user 2026-11-19):
+  29 QPROF1 [M, Opus, measure only] LAST performance item: runs when every item above is done, blocked or
+     waiting for the user. The backlog does NOT start until it is done and any items it files are worked off.
+     Detail entry: search `QPROF1`.
  Not in this list on purpose: QY26 and QY47d (QuickJS-specific: bytecode cache via JS_WriteObject,
  256 MB QuickJS heap; re-check on V8 only if QOBS4/QOBS7 point there), QAN1p (parked by the user),
  QY49-D (budget policy: the user decides; decide it from the post-step-2 numbers).
-After this list: the rest of the queue as before (QM1k1n7, QM1k1n3, ...).
+After this list (including QPROF1 and anything it files): the rest of the queue as before (QM1k1n7, QM1k1n3, ...).
 Unblocked by user answers 2026-11-19 (after the ready perf items are all assigned): QY49-D option (c), QV8-6
 (remove QuickJS; alone in js_engine*.rs/Cargo.toml/ci.yml), QCFG1 -> QTB1, QCI2, QM1g2e (window fullscreen), QM1a.
 Deferred until after the perf queue: QM1k-AB (test video G1AeBgalFZk), QY55 (profile in the user's session). Dropped: QM1k-r.
@@ -1375,6 +1379,18 @@ Shared rules for this block:
       at main (after QOBS3/4/7 so the new fields are in it), plus the YT watch 60 s (R43 UA) and
       Wikipedia Rust 30 s pages; QOBS1 summaries for both; QOBS10 numbers. New section "Baseline (V8,
       <hash>, 5700X, <date>)"; mark the old tables "old machine".
+
+- [ ] QPROF1 [M] (user 2026-11-19, Opus, measure only, docs) Full re-profile after the PERFORMANCE QUEUE, before
+      the backlog: find what is slow NOW, since R44's hotspots should be gone by then. On main, with `tools/profile.sh`
+      (QOBS1), `--perf-report` (QOBS3/4/7 fields) and `SCRATCHY_FRAME_STATS` (QOBS5), own wire, DEFAULT user agent:
+      headless 30-60 s profiles of YouTube watch (G1AeBgalFZk), YouTube results, Wikipedia Rust, github.com,
+      bbc.com/news, social.loupax.com/discover; a live nested-dwl window on YouTube watch (play 60 s, pointer moving
+      10 s via tools/inject) and Wikipedia (scroll + hover). No DuckDuckGo automated runs (bot challenge, QY55).
+      Per page: top 15 inclusive/self frames, forced layouts (count, ms, by_caller), longest callbacks, redraw rate and
+      input->present latency in the window, RSS. Compare with R44 and the PERF.md baseline (QOBS9). Output: a new
+      REGRESSIONS.md section and, for every hotspot >= 5 % of CPU or every user-visible stall >= 100 ms with a
+      nameable cause, a sized perf item added to the PERFORMANCE QUEUE (as Step 7) by the coordinator. If nothing
+      qualifies, say so; then the backlog starts.
 
 social.loupax.com/discover (the user's own site; source read at
 /home/loupax/src/social, internal/web/js/vim.js): vim.js is NOT in the
