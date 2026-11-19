@@ -709,7 +709,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
 - [x] QM1k1n1 [S] DONE 2026-11-19 (93b7bc0; measured: 0.48 s CPU per 3 s hidden at 320x240, first frame 40... [archived: TODO-DONE.txt]
 - [x] QM1k1n2 [S] DONE 2026-11-19 (2163172, REGRESSIONS.md R42 section 6; docs only. click -> `playing` [archived: TODO-DONE.txt]
 - [x] QM1k1n4 [S] DONE (6f4ad31: start_generation takes the init of the segment covering t, switch_point +... [archived: TODO-DONE.txt]
-- [ ] QM1k1n5 [S] READY (P1, R42 section 6, Sonnet, measure first) Page network results reach JS
+- [ ] [WIP] QM1k1n5 [S] READY (P1, R42 section 6, Sonnet, measure first) Page network results reach JS
       1-19 s after wire finished them (run 3: wire done after 0.01-0.95 s, delivered after
       1.1-19.1 s, median ~5 s), so YouTube's own timeout aborts most SABR fetches first (run 2: 18
       of the first 22; run 3: 7 of 17; 1.1-3.6 MB downloads thrown away) and playback starts late
