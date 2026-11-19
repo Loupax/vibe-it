@@ -743,6 +743,26 @@ deadline; YouTube: about half of 31-43 IO layouts (~0.8 s per 60 s). Keep QY53e1
 
 **Not established:** why yt1 froze (QM1k-mouse/QM1k1n6 own that); the App build phases (only its total was
 timed); whether Wikipedia's no-op write batches are the page's or our preludes'.
+### 12. QY53f1b: why YouTube's slowest forced layout did not get faster after QY53f1 (Sonnet, 2026-11-19, FIXED)
+
+Throwaway logging (reverted): per forced layout the phase deltas and the `rules_cache` path. YT watch 60 s, default UA,
+130 layouts: 126 `hit`, 3 `splice`, 1 `full` (the cold first build, no cache yet). The 5 slowest: #1 is that first build,
+226 ms (css 200, rule_index 20, build_children 5); #2-#5 are cache hits of 45-54 ms (pre 13-15, build_children 27-34,
+measure 3-4, css under 1 ms). The splices cost 34-44 ms (css 8, rule_index 16-18). So `max_ms` 250-305 is NOT the `@layer`
+or shared-list fallback: it is the one unavoidable cold parse of the 4.4 MB sheet, 22 343 rules. Inside it: the parse
+itself 126-132 ms, then 55-75 ms in `rules.extend(r)`: `size_of::<StyleRule>()` is 4040 bytes, so moving the parsed Vec into
+the final one copies ~90 MB (memcpy plus page faults). Fix: `css::parse_stylesheet_into` parses straight into the target Vec
+(`rules_cache::parse_piece` appends, no intermediate list), final list `shrink_to_fit`. Test:
+`qy53f1b_parse_stylesheet_into_appends_and_matches_the_returning_form`.
+
+Numbers (interleaved, `--seconds 6`, machine load 9-13 on 16 cores, so absolute values are inflated): `forced_layout.max_ms`
+main 501 / 426 / 349 / 552 / 339 (median 426), branch 257 / 194 / 254 / 251 / 174 (median 251): -41 %. css_collect total median
+main 477 -> 256 ms. A 60 s interleaved run (3 pairs) was too load-noisy: max_ms main 343 / 359 / 606, branch 257 / 401 / 316.
+
+Left: the cold parse is still ~130 ms (cssparser + selector building, 4.4 MB), and the first rule_index build ~16-20 ms;
+`js_style::StyleCache` has the same `rules.extend(parse_stylesheet(..))` move (js_style.rs:584). Proposed items: QY53f1c
+(`StyleRule` 4 KB: box the cold fields / shrink `Declarations`, which would also cut rules_cache's 96 MB), QY53f1d (parse
+the big external sheet lazily or off-thread).
 
 ## R42: YouTube through the MSE stack (QM1k-m2): the player script runs, picks avc1 + mp4a, attaches, appends and plays ~60 s of AUDIO, but NO PICTURE because YouTube adds the AUDIO SourceBuffer first and scratchy always makes SourceBuffer 0 the main (video) stream; with that swapped (throwaway patch) 640x360 video plays to the PoToken stop at ~60 s, then YouTube's own error card. The main thread is busy 100% of the time (294 forced layouts = 116 s of CPU in 60 s), so everything arrives 10-45 s late (Opus investigator QM1k-m2, 2026-11-19) — OPEN: QM1k1k (P1), QM1k1l, QM1k1m, QM1k-u, QY53 (now also blocks YouTube playback; measured in R43, fix items QY53a-QY53h); QM1k1n DONE 2026-11-19 (section 5: YouTube parks the `<video>` at `top:-360px` until `playing`, page design, not a CSS gap): QM1k1n1 DONE, QM1k1n3; QM1k1n2 DONE 2026-11-19 (section 6: start 3-6x faster after QY53a-c, but playback freezes at YouTube's first quality switch, a second init segment reloads into an empty generation): QM1k1n4 (P1), QM1k1n5 (P1, fetch results reach JS 1-19 s late), QM1k1n6, QM1k1n7
 

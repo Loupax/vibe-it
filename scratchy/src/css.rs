@@ -6049,9 +6049,17 @@ pub(crate) fn parse_stylesheet(css: &str) -> Vec<StyleRule> {
 
 /// `parse_stylesheet` plus the `@keyframes` registry (QAN1a).
 pub(crate) fn parse_stylesheet_with_keyframes(css: &str) -> (Vec<StyleRule>, KeyframesRegistry) {
+    let mut rules = Vec::new();
+    let kf = parse_stylesheet_into(css, &mut rules);
+    (rules, kf)
+}
+
+/// QY53f1b: `parse_stylesheet_with_keyframes` appending to `rules` (a `StyleRule` is ~4 KB, so
+/// moving a 22k-rule list into another Vec costs 60+ ms of memcpy and page faults).
+pub(crate) fn parse_stylesheet_into(css: &str, rules: &mut Vec<StyleRule>) -> KeyframesRegistry {
+    let start = rules.len();
     let mut input = CssParser::new(css);
     let mut top = TopLevelParser::default();
-    let mut rules = Vec::new();
     let mut stylesheet = StyleSheetParser::new(&mut input, &mut top);
     while let Some(result) = stylesheet.next() {
         match result {
@@ -6062,11 +6070,11 @@ pub(crate) fn parse_stylesheet_with_keyframes(css: &str) -> (Vec<StyleRule>, Key
     // Rules carry registry index + 2; turn it into the order rank + 2.
     if !top.layers.reg.is_empty() {
         let ranks = top.layers.ranks();
-        for r in rules.iter_mut().filter(|r| r.layer >= 2) {
+        for r in rules[start..].iter_mut().filter(|r| r.layer >= 2) {
             r.layer = ranks[(r.layer - 2) as usize] + 2;
         }
     }
-    (rules, build_registry(top.keyframes))
+    build_registry(top.keyframes)
 }
 
 /// QY17: the user-agent sheet. Its rules sit in the user-agent origin

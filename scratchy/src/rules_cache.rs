@@ -72,12 +72,14 @@ fn with_mask<T>(f: impl FnOnce() -> T) -> (T, u8) {
     (r, m)
 }
 
-fn parse_piece(text: String) -> (Piece, Vec<StyleRule>) {
+/// Parses `text` and appends its rules to `out` (no intermediate list to move: QY53f1b).
+fn parse_piece(text: String, out: &mut Vec<StyleRule>) -> Piece {
     #[cfg(test)]
     PIECES_PARSED.with(|c| c.set(c.get() + 1));
-    let ((rules, kf), mask) = with_mask(|| parse_stylesheet_with_keyframes(&text));
+    let n0 = out.len();
+    let (kf, mask) = with_mask(|| parse_stylesheet_into(&text, out));
     let layer = has_layer(&text);
-    (Piece { count: rules.len(), text, layer, mask, kf }, rules)
+    Piece { count: out.len() - n0, text, layer, mask, kf }
 }
 
 /// Whether the node's effective text equals `key`, without building a string
@@ -160,9 +162,7 @@ pub(crate) fn cached_rules(document: &Handle, extra_css: &str) -> Rc<Vec<StyleRu
                         let mut new_pieces = Vec::new();
                         let mut new_rules = Vec::new();
                         for t in texts {
-                            let (piece, r) = parse_piece(t);
-                            new_pieces.push(piece);
-                            new_rules.extend(r);
+                            new_pieces.push(parse_piece(t, &mut new_rules));
                         }
                         // Grow by exactly what is needed (a doubling Vec would double the cache's memory).
                         v.reserve_exact(new_rules.len().saturating_sub(rem));
@@ -200,8 +200,7 @@ pub(crate) fn cached_rules(document: &Handle, extra_css: &str) -> Rc<Vec<StyleRu
                 src.push_str(t);
                 src.push('\n');
             }
-            let ((r, k), m) = with_mask(|| parse_stylesheet_with_keyframes(&src));
-            rules.extend(r);
+            let (k, m) = with_mask(|| parse_stylesheet_into(&src, &mut rules));
             mask = ua_mask | m;
             kf = Rc::new(k);
             for t in texts {
@@ -209,9 +208,7 @@ pub(crate) fn cached_rules(document: &Handle, extra_css: &str) -> Rc<Vec<StyleRu
             }
         } else {
             for t in texts {
-                let (piece, r) = parse_piece(t);
-                rules.extend(r);
-                pieces.push(piece);
+                pieces.push(parse_piece(t, &mut rules));
             }
             mask = ua_mask | pieces.iter().fold(0, |a, x| a | x.mask);
             kf = merged_keyframes(&pieces);
@@ -222,7 +219,10 @@ pub(crate) fn cached_rules(document: &Handle, extra_css: &str) -> Rc<Vec<StyleRu
             ua_mask,
             pieces,
             concat,
-            rules: Rc::new(rules),
+            rules: Rc::new({
+                rules.shrink_to_fit();
+                rules
+            }),
             mask,
             kf,
         };
