@@ -6616,3 +6616,13 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       Accept: tests; a nested-dwl run (`tools/nest.sh`, own wire) on Wikipedia Rust 30 s and on the R42 YT
       watch URL with `tools/inject` moving the pointer for 10 s: paste 5 lines of each. This is the tool
       QM1k1n6, QM1k-mouse and QY53e3 need; their items stay as they are.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY53f1 DONE 01d20dd (big-css+style insert -69 %; YT max_ms not lower -> QY53f1b) [S/M] (P2, from QY53f design 9fb583a, R43 section 8; Sonnet; AFTER QOBS3 merges: same build step) Incremental
+      stylesheet parse in the layout build. The 4 slowest YouTube forced layouts (249-293 ms = every max_ms) are a full
+      re-parse of the 4.4 MB stylesheet after YouTube inserts a `<style>` (1.0-1.7 s per 60 s). Key `RULES_CACHE` per piece
+      (each `<style>` element's effective text; `css_ver()` for external/adopted CSS), like StyleCache's refresh/splice;
+      parse only the changed piece and splice it in; full parse fallback for `@layer`. Also stops building/comparing the
+      4.4 MB string on every layout. Gate: big-css fixture + a script appending a small `<style>` and reading offsetWidth
+      10x: forced_layout.total_ms >= 50 % lower and max_ms lower, median of 3. Tests: cascade order equals a full parse
+      after insert/change/remove in the middle; `@layer` fallback. Report YT watch max_ms (default UA).

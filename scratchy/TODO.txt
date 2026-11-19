@@ -54,7 +54,7 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
   16 QM1g2 (a) [M] render mpv frames off the main thread (33-39 ms per frame today); split (a) out
                  as its own item QM1g2a when taken, (b)-(d) stay where they are     | QM1g block
   17 DONE 9fb583a QY53f [L, Opus design first] incremental style between forced layouts (80 % change nothing) | QY53 block
-  17a [WIP] QY53f1 [S/M] incremental stylesheet parse (YT max_ms = full 4.4 MB re-parse); after QOBS3 | QY53 block
+  17a DONE 01d20dd QY53f1 [S/M] incremental stylesheet parse (YT max_ms = full 4.4 MB re-parse); after QOBS3 | QY53 block
  Step 5, memory, regression guards, re-measure:
   18 DONE 67b6f0d QOBS7 [S]  memory breakdown (YT: 714 MB RSS vs 124 MB JS heap)                 | QOBS block
   19 DONE 4123b55 QOBS8 [S]  perf-diff tool       20 DONE 352ad4f QOBS10 [S] offline forced-layout benchmark  | QOBS block
@@ -1251,14 +1251,6 @@ Shared rules for this block:
       small Copy handle into a per-document arena cleared on navigation. Design: handle type vs Rc, cost of losing
       `Copy`, where the arena lives (one per document; the JS thread's GeomCache builds too), then Sonnet items. Test: a
       navigation frees the arena (test-only counter); var() tests unchanged. Use QOBS7's memory numbers when available.
-- [ ] [WIP] QY53f1 [S/M] (P2, from QY53f design 9fb583a, R43 section 8; Sonnet; AFTER QOBS3 merges: same build step) Incremental
-      stylesheet parse in the layout build. The 4 slowest YouTube forced layouts (249-293 ms = every max_ms) are a full
-      re-parse of the 4.4 MB stylesheet after YouTube inserts a `<style>` (1.0-1.7 s per 60 s). Key `RULES_CACHE` per piece
-      (each `<style>` element's effective text; `css_ver()` for external/adopted CSS), like StyleCache's refresh/splice;
-      parse only the changed piece and splice it in; full parse fallback for `@layer`. Also stops building/comparing the
-      4.4 MB string on every layout. Gate: big-css fixture + a script appending a small `<style>` and reading offsetWidth
-      10x: forced_layout.total_ms >= 50 % lower and max_ms lower, median of 3. Tests: cascade order equals a full parse
-      after insert/change/remove in the middle; `@layer` fallback. Report YT watch max_ms (default UA).
 - [ ] QY53f2 [M] (P3, optional, from QY53f; ONLY if QPROF1 still shows selector matching on top) Cross-build match memo
       (R43 section 8 design steps 1-2): keep MATCH_MEMO across builds, validated by a top-down selector-context
       fingerprint (hover/focus, form state, `:has` re-test, shadow parents, viewport width). Gate: nested big-css
@@ -1284,6 +1276,13 @@ Shared rules for this block:
       Wikipedia and YouTube both show a steady ~125-135 ms of page JS per wall second and zero redraws. Find out whether
       that is a real timer/rAF/poll (which one: QOBS4b's named `longest` sources) or an accounting artifact of the window
       mode recorder (idle-poll time counted as JS). If real and ours (prelude polling), make it event-driven.
+- [ ] [WIP] QY53f1b [S] (P2, from QY53f1 01d20dd; Sonnet, measure first; area rules_cache.rs) QY53f1 made the big-css +
+      appended-<style> case -69 %, but YT watch max_ms is still 250-305 ms (130-135 layouts, total 2.5-3.0 s per 60 s).
+      Find what the slowest YT forced layouts are now (QOBS3 phases per layout: temporary per-layout log of phases for
+      the top 5 by ms, removed before commit): does YouTube hit QY53f1's full-parse fallbacks (`@layer` anywhere -> joined
+      text parsed; `js_enabled()` change; rule list still shared elsewhere), or is it another phase (build_children,
+      rule_index)? If it is the `@layer` fallback, make layered pieces splice too (keep layer ranks per piece) or cache
+      per layer. Gate: YT watch max_ms median of 3 lower than main by >= 30 %, default UA, own wire; tests if code changes.
 - [ ] QMEM1 [S] (P2 memory, from QOBS7 67b6f0d; Sonnet, measure first; touches js_style.rs StyleCache: not alongside
       QY53f1 if that touches page_css/StyleCache) YT watch 60 s: `style_cache` = 861 entries, ~183.5 MB (~213 KB per entry)
       of 732 MB RSS. Find what one entry holds (a whole ComputedStyle per element? the full page CSS string or rule list
@@ -1291,7 +1290,7 @@ Shared rules for this block:
       older generations, share immutable parts (Rc/Arc), or store a compact form. Gate: YT watch memory.caches.style_cache
       bytes >= 70 % lower and RSS lower, median of 3; forced_layout.total_ms not worse (perf-diff). Tests: entry count
       bounded after N relayouts of a page whose elements are replaced; cached styles still correct.
-- [ ] QMEM2 [S] (P2 memory, from QOBS7; Sonnet; AFTER QY53f1, which reworks RULES_CACHE per piece) YT watch: `rules_cache`
+- [ ] QMEM2 [S] (P2 memory, from QOBS7; Sonnet; AFTER QY53f1 (done 01d20dd: per-piece cache in rules_cache.rs, still 95.6 MB on YT; 186 MB before its reserve_exact fix)) YT watch: `rules_cache`
       = 22 564 entries, ~95.6 MB (~4 KB per rule). Check after QY53f1 whether old versions are kept (YouTube inserts many
       `<style>`s) and what a parsed rule costs (selector + declaration storage; QOBS7 says the estimate undercounts selector
       heap); compact or dedupe. Gate: YT watch rules_cache bytes >= 50 % lower, no forced-layout regression.
