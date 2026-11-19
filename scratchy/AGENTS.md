@@ -1,8 +1,8 @@
 # scratchy — agent instructions
 
 ## Before starting
-- **FREEZE LIFTED (coordinator, 2026-11-18, after QV8-m at 92dd513/0c25634).** V8 is the default
-  engine (QuickJS only behind `engine-quickjs` until QV8-6, which needs the user's OK). Work
+- **FREEZE LIFTED (coordinator, 2026-11-18, after QV8-m at 92dd513/0c25634).** V8 is the only
+  engine (QuickJS was removed in QV8-6, user 2026-11-19; `git revert` of that commit restores it). Work
   the TODO.txt queue again in order (READY items). QV8-5b (clippy in media_mpv.rs) is done;
   the MSE build (QM1k4 onward, plan in TODO.txt QM1k-PLAN) is allowed now.
 - **PERFORMANCE FIRST (user, 2026-11-19):** the "PERFORMANCE QUEUE" at the top of TODO.txt's QUEUE
@@ -33,15 +33,11 @@
    `tools/clippy-baseline.txt` (a single number; CI reads it, and lowering it is a
    one-line change; the list of warnings goes to `outfile`, diff it against
    main's to find new ones). CI (`.github/workflows/ci.yml`: `scratchy` = the DEFAULT build, V8 + media, V8 archive cached and
-   sha256-pinned; `wire`, `snag`: build + test; `scratchy-quickjs` = the QuickJS fallback,
-   `--no-default-features --features engine-quickjs,media`, until QV8-6 removes it; the clippy
+   sha256-pinned; `wire`, `snag`: build + test; the clippy
    count runs in the `scratchy` job on the DEFAULT config, baseline 74, QV8-5b) must be
-   green on the PR before merge. Check all four in `statusCheckRollup`. All tests must pass on
-   BOTH configs (run the second with its own target dir:
-   `CARGO_TARGET_DIR=... cargo test --release --no-default-features --features engine-quickjs,media`).
+   green on the PR before merge. Check all three in `statusCheckRollup`.
    A plain `cargo build --release` / `cargo install --path .` gives V8 + media (libmpv is loaded
-   by dlopen; without it installed the inert placeholder stays). Exactly one of `engine-v8` /
-   `engine-quickjs` must be on (compile_error! otherwise). The first clean V8 build takes ~15 min.
+   by dlopen; without it installed the inert placeholder stays). The `engine-v8` feature must stay on (compile_error! otherwise). The first clean V8 build takes ~15 min.
 4. WPT subset (checkout: /home/loupax/src/wpt, sparse: css html/rendering fonts resources images,
    at WPT ac78b567f5404b6f2dc0418ea380af3946a47fca; main matched wpt-expected.txt there on 2026-11-19, 322 pass / 292 fail): `scratchy --wpt /home/loupax/src/wpt` (run from `scratchy/`; reads
    `wpt-subset.txt`, compares with `wpt-expected.txt`, exits 1 on any change;
@@ -117,7 +113,7 @@
 ## Clean up after your PR merges (user rule 2026-11-19)
 After your PR is MERGED, free the disk you used (a full disk once stopped all agents):
 - Delete your worktree's build output: `rm -rf <worktree>/scratchy/target` (and any
-  `CARGO_TARGET_DIR` you created for the QuickJS config, and scratch dirs you made).
+  `CARGO_TARGET_DIR` you created, and scratch dirs you made).
 - Do not delete your worktree or branch yourself if the harness has locked it; just remove
   the build directories. Never delete anything you did not create, and never another agent's files.
 - If your PR is NOT merged (blocker), keep the worktree and its target so the work can resume.
