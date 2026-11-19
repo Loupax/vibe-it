@@ -418,6 +418,37 @@ mod qm1f {
     }
 
     #[test]
+    fn qysk1b_stale_time_pos_after_seek_restart_is_ignored() {
+        let (mut c, f) = playing();
+        f.borrow_mut().auto_restart = false;
+        c.set_current_time(8.0);
+        assert!(c.seeking);
+        // mpv: Restart, then the stale pre-seek position, then the real one
+        f.push(BackendEvent::Restart);
+        f.push(BackendEvent::Time(2.0));
+        c.pump(100.0, std::time::Duration::ZERO);
+        assert!(!c.seeking);
+        assert_eq!(c.current_time, 8.0, "stale 2.0 must not be read");
+        f.push(BackendEvent::Time(8.04));
+        c.pump(150.0, std::time::Duration::ZERO);
+        assert_eq!(c.current_time, 8.04);
+        // past the window a far time is accepted again
+        f.push(BackendEvent::Time(2.0));
+        c.pump(700.0, std::time::Duration::ZERO);
+        assert_eq!(c.current_time, 2.0);
+    }
+
+    #[test]
+    fn qysk1b_a_large_jump_without_a_recent_seek_is_accepted() {
+        let (mut c, f) = playing();
+        f.push(BackendEvent::Time(1.0));
+        c.pump(0.0, std::time::Duration::ZERO);
+        f.push(BackendEvent::Time(8.0));
+        c.pump(10.0, std::time::Duration::ZERO);
+        assert_eq!(c.current_time, 8.0);
+    }
+
+    #[test]
     fn seek_fires_seeking_then_seeked() {
         let (mut c, f) = playing();
         c.set_current_time(5.0);
