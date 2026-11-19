@@ -6807,3 +6807,14 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       that YouTube's visible content (thumbnails, comments) loads as before (nested-dwl screenshot at 30 s).
       QOBS3 (319f933) YT watch sample, 60 s, loaded machine: 135 forced layouts / 7.3 s, no_change 73 (54 %), by_reason
       io 21 / 2.1 s, script 114 / 5.2 s; top caller `g.k.getPlayerSize` (player base.js:15474) 74 layouts / 2.3 s.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY53o3a DONE 2c3c39c (shape memo survives forced layouts: Wikipedia measure 234 -> 63 ms/layout, total -180 ms/layout, memory unchanged) [S] (P1, from QY53o3 573ab64, R47 QY53o3 addendum; Sonnet; AFTER QY53l2 #351 merges: js_geom.rs) The JS thread's
+      shape memo is cleared before EVERY forced layout: `SHAPE_MEMO_CAP = 4096` is checked at the start of
+      `GeomCache::refresh` and one Wikipedia Rust layout stores 7 508 entries, so every layout reshapes the page (7 508
+      shape_spans, 128-174 ms; 0 cross-layout hits). Replace the clear-at-start cap with a per-layout sweep: tag entries with
+      the refresh generation that last used them, after each refresh drop entries that layout did not use; keep a safety
+      cap applied only after the sweep; a viewport change still clears. Test: a document with > 4 096 text runs, two
+      refreshes after a `title` write -> the second shapes nothing. Gate (addendum recipe, headless --perf-report, median
+      of 3): phases.measure_document / count <= 45 ms (today 130-136), warm measure <= 25 ms, shape_memo bytes <= ~5.1 MB,
+      forced_layout.total_ms / count >= 80 ms below main (interleaved).

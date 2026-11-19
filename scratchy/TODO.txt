@@ -60,7 +60,7 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
   14e DONE 732438c QY53o -> QY53o1 (P1) / QY53o3 / QY53o2 below
   14f QY53o1 [S] value-changing attribute write no selector/attr() can read -> no geometry bump (after QY53l2 merges) | R47
   14g DONE 573ab64 QY53o3 -> QY53o3a (P1) below
-  14h [WIP] QY53o3a [S] JS-thread shape memo: per-layout sweep instead of clear-at-start cap (measure 130 -> ~35 ms/layout) after QY53l2 | R47
+  14h DONE 2c3c39c QY53o3a [S] JS-thread shape memo: per-layout sweep instead of clear-at-start cap (measure 130 -> ~35 ms/layout) after QY53l2 | R47
   14d QY53m [S] App::js_sync skips the restyle after no-op write batches (after QM1k1n6: same code)
   15 QY53e2 [M]  IO uses the App's own layout                                       | QY53 block
   16 QM1g2 (a) [M] render mpv frames off the main thread (33-39 ms per frame today); split (a) out
@@ -1312,16 +1312,7 @@ Shared rules for this block:
 - [ ] QY53o2 [M] (P3, from QY53o; Opus design first; ONLY if QY53o1 leaves > ~3 s per run) Writes inside an abs/fixed
       positioned subtree do not invalidate rects outside it (Page Previews' popup: 7-21 layouts per run). Gate: forced.n <= 5
       after QY53o1.
-- [ ] [WIP] QY53o3a [S] (P1, from QY53o3 573ab64, R47 QY53o3 addendum; Sonnet; AFTER QY53l2 #351 merges: js_geom.rs) The JS thread's
-      shape memo is cleared before EVERY forced layout: `SHAPE_MEMO_CAP = 4096` is checked at the start of
-      `GeomCache::refresh` and one Wikipedia Rust layout stores 7 508 entries, so every layout reshapes the page (7 508
-      shape_spans, 128-174 ms; 0 cross-layout hits). Replace the clear-at-start cap with a per-layout sweep: tag entries with
-      the refresh generation that last used them, after each refresh drop entries that layout did not use; keep a safety
-      cap applied only after the sweep; a viewport change still clears. Test: a document with > 4 096 text runs, two
-      refreshes after a `title` write -> the second shapes nothing. Gate (addendum recipe, headless --perf-report, median
-      of 3): phases.measure_document / count <= 45 ms (today 130-136), warm measure <= 25 ms, shape_memo bytes <= ~5.1 MB,
-      forced_layout.total_ms / count >= 80 ms below main (interleaved).
-- [ ] QY53o3b [S] (P3, from QY53o3; Sonnet; after QY53o3a) Cheaper memo keys: non-SipHash hasher, build word/chunk keys from
+- [ ] [WIP] QY53o3b [S] (P3, from QY53o3; Sonnet; after QY53o3a) Cheaper memo keys: non-SipHash hasher, build word/chunk keys from
       (&str, &SpanStyle) without `to_string` copies, deadline check once per paragraph. Gate: warm measure_document <= 14 ms.
 - [ ] QY53o3c [S] (P4, from QY53o3; Opus measure) The App's shaping-worker memo has no size cap (cleared only when
       reuse_shaping is false): does it grow without bound on a long-lived page? Measure 10 min on YT/Wikipedia; cap/sweep if so.
