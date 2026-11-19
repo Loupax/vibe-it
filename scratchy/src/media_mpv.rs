@@ -15,6 +15,7 @@
 //! `absolute+exact` (QM1b: plain seeks land on keyframes).
 
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
@@ -26,6 +27,7 @@ use std::sync::Arc;
 
 use crate::css::ObjectFit;
 use crate::media_video::{VideoFrame, VideoTarget};
+use crate::mse_store::{FeedRead, MseFeed};
 
 #[repr(C)]
 struct RenderParam {
@@ -174,6 +176,80 @@ struct Reg {
     err: Mutex<Option<MediaNetError>>,
     cancel: Mutex<Option<CancelHandle>>,
     opened: AtomicBool,
+    /// QM1k1b: the MSE feeds `scratchy-mse://<feed>/..` may name (set by `load_mse`).
+    feeds: Mutex<HashMap<u64, Arc<MseFeed>>>,
+}
+
+/// One open `scratchy-mse://<feed>/<gid>/<track>` stream (QM1k1b). `cancel` and `feed`
+/// are touched by `cancel_fn` from another thread (only those two fields); `pos` only by
+/// the reader thread.
+struct MseCookie {
+    feed: Arc<MseFeed>,
+    track: usize,
+    gid: u64,
+    pos: u64,
+    cancel: AtomicBool,
+}
+
+unsafe extern "C" fn mse_open(ud: *mut c_void, uri: *mut c_char, info: *mut StreamCbInfo) -> c_int {
+    unsafe {
+        let reg = &*(ud as *const Reg);
+        let uri = CStr::from_ptr(uri).to_string_lossy();
+        let Some(rest) = uri.strip_prefix("scratchy-mse://") else { return MPV_LOADING_FAILED };
+        let mut it = rest.split('/');
+        let (Some(f), Some(g), Some(t), None) = (it.next(), it.next(), it.next(), it.next()) else { return MPV_LOADING_FAILED };
+        let (Ok(f), Ok(gid), Ok(track)) = (f.parse::<u64>(), g.parse::<u64>(), t.parse::<usize>()) else { return MPV_LOADING_FAILED };
+        let Some(feed) = reg.feeds.lock().unwrap().get(&f).cloned() else { return MPV_LOADING_FAILED };
+        let ck = Box::new(MseCookie { feed, track, gid, pos: 0, cancel: AtomicBool::new(false) });
+        *info = StreamCbInfo {
+            cookie: Box::into_raw(ck) as *mut c_void,
+            read_fn: Some(mse_read),
+            seek_fn: Some(mse_seek),
+            size_fn: Some(mse_size),
+            close_fn: Some(mse_close),
+            cancel_fn: Some(mse_cancel),
+        };
+        0
+    }
+}
+unsafe extern "C" fn mse_read(c: *mut c_void, buf: *mut c_char, n: u64) -> i64 {
+    unsafe {
+        let ck = c as *mut MseCookie;
+        let out = std::slice::from_raw_parts_mut(buf as *mut u8, n as usize);
+        let pos = *std::ptr::addr_of!((*ck).pos);
+        let r = (*std::ptr::addr_of!((*ck).feed)).read((*ck).track, (*ck).gid, pos, out, &*std::ptr::addr_of!((*ck).cancel));
+        match r {
+            FeedRead::Bytes(k) => {
+                *std::ptr::addr_of_mut!((*ck).pos) = pos + k as u64;
+                k as i64
+            }
+            FeedRead::Eof => 0,
+            FeedRead::Gone => -1,
+        }
+    }
+}
+unsafe extern "C" fn mse_seek(c: *mut c_void, off: i64) -> i64 {
+    unsafe {
+        let ck = c as *mut MseCookie;
+        if off < 0 || !(*std::ptr::addr_of!((*ck).feed)).seekable((*ck).track, (*ck).gid, off as u64) {
+            return -1;
+        }
+        *std::ptr::addr_of_mut!((*ck).pos) = off as u64;
+        off
+    }
+}
+unsafe extern "C" fn mse_size(_c: *mut c_void) -> i64 {
+    MPV_UNSUPPORTED as i64 // a growing stream has no known size
+}
+unsafe extern "C" fn mse_close(c: *mut c_void) {
+    unsafe { drop(Box::from_raw(c as *mut MseCookie)) };
+}
+unsafe extern "C" fn mse_cancel(c: *mut c_void) {
+    unsafe {
+        let ck = c as *mut MseCookie;
+        (*std::ptr::addr_of!((*ck).cancel)).store(true, Ordering::SeqCst);
+        (*std::ptr::addr_of!((*ck).feed)).wake();
+    }
 }
 
 struct Cookie {
@@ -274,11 +350,13 @@ pub(crate) struct MpvBackend {
     shared: *const Shared,
     target: Option<VideoTarget>,
     vid_off: bool,
+    /// QM1k1b: the MSE feed of the current load (stopped on unload/reload).
+    feed: Option<Arc<MseFeed>>,
 }
 
 impl MpvBackend {
     pub(crate) fn new(ctx: BackendCtx) -> Self {
-        MpvBackend { ctx, h: std::ptr::null_mut(), reg: std::ptr::null_mut(), loaded_file: false, meta_sent: false, cache_end: 0.0, seekable: false, duration: f64::NAN, rc: std::ptr::null_mut(), shared: std::ptr::null(), target: None, vid_off: false }
+        MpvBackend { ctx, h: std::ptr::null_mut(), reg: std::ptr::null_mut(), loaded_file: false, meta_sent: false, cache_end: 0.0, seekable: false, duration: f64::NAN, rc: std::ptr::null_mut(), shared: std::ptr::null(), target: None, vid_off: false, feed: None }
     }
 
     fn cs(s: &str) -> CString {
@@ -302,6 +380,11 @@ impl MpvBackend {
             for (k, v) in [("vo", "libmpv"), ("ao", ao.as_str()), ("pause", "yes"), ("idle", "yes")] {
                 (l.set_opt)(h, Self::cs(k).as_ptr(), Self::cs(v).as_ptr());
             }
+            // Debugging aid: SCRATCHY_MPV_LOG_FILE=<path> writes mpv's log (v-level) there.
+            if let Ok(p) = std::env::var("SCRATCHY_MPV_LOG_FILE") {
+                (l.set_opt)(h, Self::cs("log-file").as_ptr(), Self::cs(&p).as_ptr());
+                (l.set_opt)(h, Self::cs("msg-level").as_ptr(), Self::cs("all=v").as_ptr());
+            }
             if (l.init)(h) < 0 {
                 (l.destroy)(h);
                 return Err(LoadError::Unavailable);
@@ -313,8 +396,10 @@ impl MpvBackend {
                 err: Mutex::new(None),
                 cancel: Mutex::new(None),
                 opened: AtomicBool::new(false),
+                feeds: Mutex::new(HashMap::new()),
             }));
             (l.stream_add)(h, Self::cs("scratchy-media").as_ptr(), reg as *mut c_void, st_open);
+            (l.stream_add)(h, Self::cs("scratchy-mse").as_ptr(), reg as *mut c_void, mse_open);
             // QM1g: the software render context (frames are rendered by `take_frame`).
             let mut rc: *mut c_void = std::ptr::null_mut();
             let sw = Self::cs("sw");
@@ -356,6 +441,12 @@ impl MpvBackend {
         if let (Some(l), false) = (lib(), self.h.is_null()) {
             unsafe { (l.set_prop_str)(self.h, Self::cs(name).as_ptr(), Self::cs(val).as_ptr()) };
         }
+    }
+
+    /// A numeric mpv property (diagnostics; the MSE tests read `avsync` and the drop counters).
+    #[allow(dead_code)]
+    pub(crate) fn prop_f64(&self, name: &str) -> Option<f64> {
+        if self.h.is_null() { None } else { self.get_f64(name) }
     }
 
     fn get_f64(&self, name: &str) -> Option<f64> {
@@ -410,6 +501,12 @@ impl MpvBackend {
         if self.reg.is_null() { None } else { Some(unsafe { &*self.reg }) }
     }
 
+    fn stop_feed(&mut self) {
+        if let Some(f) = self.feed.take() {
+            f.stop();
+        }
+    }
+
     fn cancel_streams(&self) {
         if let Some(c) = self.reg().and_then(|r| r.cancel.lock().unwrap().clone()) {
             c.cancel();
@@ -439,6 +536,7 @@ impl MediaBackend for MpvBackend {
         self.ensure()?;
         let Ok(url) = url::Url::parse(&req.url) else { return Err(LoadError::Other("invalid media URL".into())) };
         let Ok(page) = url::Url::parse(&req.page) else { return Err(LoadError::Other("invalid page URL".into())) };
+        self.stop_feed();
         self.cancel_streams();
         if let Some(r) = self.reg() {
             *r.src.lock().unwrap() = Some(MediaSource { url, page, mode: req.mode });
@@ -457,10 +555,47 @@ impl MediaBackend for MpvBackend {
         self.cmd(&["loadfile", "scratchy-media://1", "replace"]);
         Ok(())
     }
+    fn load_mse(&mut self, feed: Arc<MseFeed>, start: f64) -> Result<(), LoadError> {
+        self.ensure()?;
+        let tracks = feed.track_count();
+        if tracks == 0 || tracks > 2 || !feed.all_have_init() {
+            return Err(LoadError::Other("MSE load needs 1 or 2 SourceBuffers that all have an init segment".into()));
+        }
+        // The previous load (any kind) ends: wake its blocked readers first.
+        self.stop_feed();
+        self.cancel_streams();
+        if let Some(r) = self.reg() {
+            r.feeds.lock().unwrap().insert(feed.id, feed.clone());
+            *r.err.lock().unwrap() = None;
+        }
+        let gid = feed.start_generation(start.max(0.0));
+        self.feed = Some(feed.clone());
+        self.loaded_file = true;
+        self.meta_sent = false;
+        self.cache_end = 0.0;
+        self.seekable = false;
+        self.duration = f64::NAN;
+        self.set("pause", "yes");
+        if self.vid_off {
+            self.set("vid", "auto");
+            self.vid_off = false;
+        }
+        // The second SourceBuffer is an external audio track. `audio-files` is a path
+        // list split on ':' (the URL has one), so it is cleared and then APPENDED as one
+        // element (`change-list ... append` does not split).
+        self.cmd(&["change-list", "audio-files", "clr", ""]);
+        if tracks == 2 {
+            self.cmd(&["change-list", "audio-files", "append", &format!("scratchy-mse://{}/{gid}/1", feed.id)]);
+        }
+        let opts = format!("start={start:.3},rebase-start-time=no,demuxer-max-bytes=16MiB,demuxer-max-back-bytes=8MiB,demuxer-lavf-o=fflags=+ignidx");
+        self.cmd(&["loadfile", &format!("scratchy-mse://{}/{gid}/0", feed.id), "replace", "-1", &opts]);
+        Ok(())
+    }
     fn unload(&mut self) {
         if self.h.is_null() {
             return;
         }
+        self.stop_feed();
         self.cancel_streams();
         self.cmd(&["stop"]);
         self.loaded_file = false;
@@ -604,6 +739,7 @@ impl Drop for MpvBackend {
         if self.h.is_null() {
             return;
         }
+        self.stop_feed();
         self.cancel_streams();
         if let Some(l) = lib() {
             unsafe {

@@ -14,7 +14,9 @@
 //!   the `MSE_MAX_BYTES` cap (env `SCRATCHY_MSE_MAX_BYTES`) across its buffers.
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
 
 /// Default cap on stored media per MediaSource (all its SourceBuffers).
 pub const MSE_MAX_BYTES: usize = 64 * 1024 * 1024;
@@ -419,6 +421,13 @@ pub struct Generation {
     read_off: u64,
 }
 
+impl Generation {
+    /// Length of the init segment (virtual offsets below it are the init).
+    pub fn init_len(&self) -> u64 {
+        self.init.len() as u64
+    }
+}
+
 /// Result of [`SourceBufferStore::read_at`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReadAt {
@@ -565,6 +574,11 @@ impl SourceBufferStore {
         });
         self.extend_run();
         true
+    }
+
+    /// Drop the live generation (readers of it get `ReadAt::Stale`).
+    pub fn stop_generation(&mut self) {
+        self.live = None;
     }
 
     /// End time of the live run (None when it is empty or there is no generation).
@@ -769,5 +783,140 @@ impl MseStore {
             return Err(MseError::QuotaExceeded);
         }
         self.buffers[bi].append(data)
+    }
+}
+
+// ---------- the shared feed (QM1k1b) ----------
+
+/// What a blocking feed read answers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FeedRead {
+    /// This many bytes were copied (> 0).
+    Bytes(usize),
+    /// End of stream: `endOfStream()` was called and no byte exists at that offset.
+    Eof,
+    /// Cancelled, the generation is stale, or the bytes were evicted.
+    Gone,
+}
+
+struct FeedState {
+    store: MseStore,
+    ended: bool,
+}
+
+/// One per MediaSource: the [`MseStore`] behind a Mutex + Condvar. The JS thread appends
+/// (never waits on mpv); mpv's demux threads block in [`read`](Self::read) until bytes
+/// arrive, `endOfStream` is called, or the generation goes away.
+pub struct MseFeed {
+    pub id: u64,
+    state: Mutex<FeedState>,
+    cv: Condvar,
+}
+
+static NEXT_FEED_ID: AtomicU64 = AtomicU64::new(1);
+
+impl MseFeed {
+    pub fn new(store: MseStore) -> Arc<MseFeed> {
+        Arc::new(MseFeed { id: NEXT_FEED_ID.fetch_add(1, Ordering::Relaxed), state: Mutex::new(FeedState { store, ended: false }), cv: Condvar::new() })
+    }
+
+    /// A feed with `tracks` fMP4 SourceBuffers and the default cap.
+    pub fn with_fmp4_tracks(tracks: usize) -> Arc<MseFeed> {
+        let mut st = MseStore::from_env();
+        for _ in 0..tracks {
+            st.add_buffer(SourceBufferStore::fmp4());
+        }
+        Self::new(st)
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, FeedState> {
+        self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// `appendBuffer` on buffer `bi` at page time `now`; wakes blocked readers.
+    pub fn append(&self, bi: usize, data: &[u8], now: f64) -> Result<AppendOutcome, MseError> {
+        let r = self.lock().store.append(bi, data, now);
+        self.cv.notify_all();
+        r
+    }
+
+    /// `endOfStream()`: readers that run out of bytes now see EOF.
+    pub fn end_of_stream(&self) {
+        self.lock().ended = true;
+        self.cv.notify_all();
+    }
+
+    pub fn track_count(&self) -> usize {
+        self.lock().store.buffers.len()
+    }
+
+    /// Every buffer has its init segment (an mpv load may be issued).
+    pub fn all_have_init(&self) -> bool {
+        let g = self.lock();
+        !g.store.buffers.is_empty() && g.store.buffers.iter().all(|b| b.has_init())
+    }
+
+    /// Run `f` on the store under the lock (buffered ranges, remove, ...).
+    pub fn with_store<R>(&self, f: impl FnOnce(&mut MseStore) -> R) -> R {
+        let mut g = self.lock();
+        let r = f(&mut g.store);
+        drop(g);
+        self.cv.notify_all();
+        r
+    }
+
+    /// A new generation at `t` (the previous one goes stale and its readers return).
+    pub fn start_generation(&self, t: f64) -> u64 {
+        let id = self.lock().store.start_generation(t);
+        self.cv.notify_all();
+        id
+    }
+
+    /// Drop the live generation: every blocked reader returns [`FeedRead::Gone`].
+    pub fn stop(&self) {
+        for b in &mut self.lock().store.buffers {
+            b.stop_generation();
+        }
+        self.cv.notify_all();
+    }
+
+    /// Wake blocked readers so they re-check their cancel flag (takes the lock first, so
+    /// a reader between its flag check and its wait cannot miss it).
+    pub fn wake(&self) {
+        drop(self.lock());
+        self.cv.notify_all();
+    }
+
+    /// Whether virtual offset `off` of generation `gid` on buffer `bi` can be seeked to
+    /// now: inside the init, or inside the still-held part of the run, up to the bytes
+    /// known so far.
+    pub fn seekable(&self, bi: usize, gid: u64, off: u64) -> bool {
+        let g = self.lock();
+        let Some(b) = g.store.buffers.get(bi) else { return false };
+        let Some(live) = b.generation() else { return false };
+        live.id == gid && off <= b.generation_len() && (off < live.init_len() || off >= b.generation_base())
+    }
+
+    /// Blocking read of virtual bytes `[off, ..)` of generation `gid` of buffer `bi`.
+    /// Waits on the Condvar (in 200 ms slices, to notice `cancel`) while no byte is
+    /// there yet and `endOfStream` has not been called.
+    pub fn read(&self, bi: usize, gid: u64, off: u64, out: &mut [u8], cancel: &AtomicBool) -> FeedRead {
+        let mut g = self.lock();
+        loop {
+            if cancel.load(Ordering::SeqCst) {
+                return FeedRead::Gone;
+            }
+            let Some(b) = g.store.buffers.get_mut(bi) else { return FeedRead::Gone };
+            match b.read_at(gid, off, out) {
+                ReadAt::Bytes(n) => return FeedRead::Bytes(n),
+                ReadAt::Evicted | ReadAt::Stale => return FeedRead::Gone,
+                ReadAt::Wait => {
+                    if g.ended {
+                        return FeedRead::Eof;
+                    }
+                    g = self.cv.wait_timeout(g, Duration::from_millis(200)).unwrap_or_else(|e| e.into_inner()).0;
+                }
+            }
+        }
     }
 }

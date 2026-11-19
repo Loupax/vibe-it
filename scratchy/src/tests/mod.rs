@@ -17,6 +17,7 @@ mod js_geometry_tests;
 mod js_observers_tests;
 mod media_tests;
 mod mse_tests;
+mod mse_mpv_tests;
 mod navigation_tests;
 mod net_policy_tests;
 mod paint_tests;
