@@ -1268,15 +1268,20 @@ pub(crate) fn warm_up() {
     }
 }
 
+/// QV8-4b: the startup snapshot's blob, if it exists. EVERY non-baking isolate is made from it
+/// (V8 shares one read-only heap per process and tolerates only one snapshot in it), whether it
+/// then uses the prebuilt page context or an empty one.
 fn snapshot_for_engine() -> Option<&'static Snapshot> {
-    if NO_SNAPSHOT.with(Cell::get) {
-        return None;
-    }
     // (the QV8-4a race test sets the env var: it needs page engines to start the slow way beside the bake)
     if cfg!(test) && std::env::var_os("SCRATCHY_QV8_4A_CHILD").is_none() {
         ensure_snapshot();
     }
     SNAPSHOT.get().and_then(Option::as_ref)
+}
+
+/// True when this thread's page engines must start the slow way (tests compare).
+fn slow_start_requested() -> bool {
+    NO_SNAPSHOT.with(Cell::get)
 }
 
 /// Runs `f` with this thread's page engines made WITHOUT the startup snapshot (tests compare).
@@ -1323,9 +1328,12 @@ impl Engine {
             // (started by `warm_up`, or start it here); a no-op once done or with SCRATCHY_V8_SNAPSHOT=0.
             ensure_snapshot();
         }
-        let snap = if baking || opts.page.is_none() { None } else { snapshot_for_engine() };
+        let blob = if baking { None } else { snapshot_for_engine() };
+        // QV8-4b: bare and slow-start engines use the blob too (one snapshot per process) but
+        // only with its empty default context, and run the slow path below.
+        let snap = if opts.page.is_none() || slow_start_requested() { None } else { blob };
         let mut params = v8::CreateParams::default().heap_limits(0, opts.memory_limit);
-        if let Some(s) = snap {
+        if let Some(s) = blob {
             params = params.snapshot_blob(v8::StartupData::from(std::borrow::Cow::Borrowed(s.data))).external_references(external_refs());
         }
         // SAFETY: the address is inside this thread's stack and the isolate is only used here.
@@ -1355,7 +1363,17 @@ impl Engine {
         }
         let context = {
             v8::scope!(let hs, &mut isolate);
-            let c = v8::Context::new(hs, Default::default());
+            let c = if baking {
+                // QV8-4b: the snapshot's DEFAULT context is an empty one made before any prelude
+                // runs; the page context is added as context 0 in `finish_bake`.
+                let empty = v8::Context::new(hs, Default::default());
+                hs.set_default_context(empty);
+                v8::Context::new(hs, Default::default())
+            } else if snap.is_some() {
+                v8::Context::from_snapshot(hs, 0, Default::default()).expect("startup snapshot: page context 0")
+            } else {
+                v8::Context::new(hs, Default::default())
+            };
             v8::Global::new(hs, c)
         };
         let eng = Engine { watchdog, context, isolate: UnsafeCell::new(isolate), _oom_handle: oom_handle, budget, depth: Cell::new(0), attached: snap.is_some() };
@@ -1386,7 +1404,7 @@ impl Engine {
         {
             v8::scope!(let hs, &mut isolate);
             let c = v8::Local::new(hs, &context);
-            hs.set_default_context(c);
+            hs.add_context(c);
         }
         drop(context);
         let state = isolate.remove_slot::<State>()?;

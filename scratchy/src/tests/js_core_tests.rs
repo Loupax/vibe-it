@@ -1090,7 +1090,7 @@ fn qy15b_atob_btoa_and_invalid_character() {
 // ---- QY46: each promise job gets its own budget; the drain is capped at 2 s and defers the rest.
 
 /// Runs `code` with the fake CPU clock `(1 s, step)`, pumping timers up to `rounds` times.
-fn qy46_run(code: &str, step: u64, rounds: usize) -> Vec<String> {
+pub(super) fn qy46_run(code: &str, step: u64, rounds: usize) -> Vec<String> {
     use crate::js::FAKE_CLOCK;
     let out = Rc::new(RefCell::new(Vec::new()));
     let o = out.clone();

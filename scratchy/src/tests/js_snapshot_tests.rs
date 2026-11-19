@@ -145,3 +145,60 @@ fn qv8_4a_stress_many_fresh_processes() {
 fn qv8_4a_snapshot_off_still_works() {
     qv8_4a_children(Some("0"), 3);
 }
+
+// ---- QV8-4b (R41): ONE snapshot per process. V8 builds its process-wide read-only heap from the
+// snapshot of the first isolate made when none exists; a bare engine (V8's built-in blob) alive
+// next to a page engine (the startup blob) used to abort in `Isolate::New`. ----
+
+fn qv8_4b_scenario() {
+    crate::js_engine::ensure_snapshot();
+    let opts = || crate::js_engine::EngineOpts { memory_limit: 1 << 28, stack_limit: 1 << 20, page: None };
+    // a bare engine stays alive while page engines are made
+    let bare = crate::js_engine::Engine::new(opts()).unwrap();
+    bare.with(|_ctx| {});
+    let (a, out_a) = qb8_start("<script>console.log(1 + 1, typeof document.body)</script>");
+    assert_eq!(*out_a.borrow(), ["log:2 object"]);
+    // a slow-start (`without_snapshot`) page engine next to a snapshot page engine
+    let (slow, out_s) = crate::js_engine::without_snapshot(|| qb8_start("<script>console.log(typeof atob, typeof document.body)</script>"));
+    assert_eq!(*out_s.borrow(), ["log:function object"]);
+    let (b, out_b) = qb8_start("<script>console.log(3 + 4, typeof document.body)</script>");
+    assert_eq!(*out_b.borrow(), ["log:7 object"]);
+    // (V8 isolates must be dropped in reverse order of creation)
+    // a bare engine made while page engines live, then another page engine
+    let bare2 = crate::js_engine::Engine::new(opts()).unwrap();
+    let (c, out_c) = qb8_start("<script>console.log(5 + 6)</script>");
+    assert_eq!(*out_c.borrow(), ["log:11"]);
+    drop(c);
+    drop(bare2);
+    drop(b);
+    drop(slow);
+    drop(a);
+    drop(bare);
+    // and with no isolate left, a bare engine first again, then a page engine
+    let bare3 = crate::js_engine::Engine::new(opts()).unwrap();
+    let (d, out_d) = qb8_start("<script>console.log(8)</script>");
+    assert_eq!(*out_d.borrow(), ["log:8"]);
+    drop(d);
+    drop(bare3);
+}
+
+/// Not a test of its own when run normally: the parent test below selects it with the env var.
+#[test]
+fn qv8_4b_child_scenario() {
+    if std::env::var("SCRATCHY_QV8_4B_CHILD").is_ok() {
+        qv8_4b_scenario();
+    }
+}
+
+#[test]
+fn qv8_4b_bare_slow_and_snapshot_engines_share_one_process() {
+    let exe = std::env::current_exe().unwrap();
+    for n in 0..10 {
+        let out = std::process::Command::new(&exe)
+            .args(["--exact", "tests::js_snapshot_tests::qv8_4b_child_scenario", "--nocapture", "--test-threads=1"])
+            .env("SCRATCHY_QV8_4B_CHILD", "1")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "run {n} died ({:?}): {}", out.status, String::from_utf8_lossy(&out.stderr));
+    }
+}

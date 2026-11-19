@@ -1585,9 +1585,13 @@ fn qy22_promise_jobs_after_a_tripped_task_get_a_fresh_budget() {
 /// one line, not logged once each.
 #[test]
 fn qy22_tripped_job_drain_logs_one_line_with_a_count() {
-    let log = run_with_timers(
+    // QY22t: the budget is CPU time, so burn FAKE CPU (the test seam) instead of spinning on the
+    // wall clock, which flaked under load (R41).
+    let log = super::js_core_tests::qy46_run(
         // QY46: each job has its own 500 ms budget now, so each must overrun it by itself.
-        "setTimeout(()=>{for(var i=0;i<4;i++)Promise.resolve().then(()=>{var e=Date.now()+700;while(Date.now()<e){}});},0);",
+        "setTimeout(()=>{for(var i=0;i<4;i++)Promise.resolve().then(()=>{__test_burn(700)});},0);",
+        0,
+        10_000,
     );
     // QY44a: a trip stops the drain and defers the rest, so one line per
     // turn that tripped (each names the kill and the deferral), never one per job.

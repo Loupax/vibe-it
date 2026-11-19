@@ -264,7 +264,7 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
       scenario) so it really starts from an unbaked state; (b) the existing QV8-4 snapshot tests
       stay green. ACCEPTANCE: nested dwl, the R40 local copy 20 runs (`timeout 5`) with 0 crashes,
       plus a grim of one run showing the four boxes.
-- [ ] QV8-4b [S] READY, Sonnet (found by Opus investigator 2026-11-19, R41; bug from QV8-4 f62d0b0,
+- [x] QV8-4b [S] DONE (HASH), Sonnet (found by Opus investigator 2026-11-19, R41; bug from QV8-4 f62d0b0,
       not fixed by QV8-4a) ONE V8 SNAPSHOT PER PROCESS. The default test suite aborts in 7/31 runs:
       `vector.h:415: libc++ Hardening assertion __n < size() failed` in `v8::Isolate::New` <-
       `Engine::new` (perf_tests threads). V8 builds the process-wide read-only heap from the
@@ -295,7 +295,7 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
       there; (b) all QV8-4/QV8-4a tests stay green. ACCEPTANCE: 20 consecutive full default
       `cargo test --release` runs with no abort (`for` loop over the test binary, report the
       count; today ~5/20 abort).
-- [ ] QY22t [XS] READY, Sonnet/Haiku (R41, test-only) `qy22_tripped_job_drain_logs_one_line_with_a_count`
+- [x] QY22t [XS] DONE (HASH), Sonnet/Haiku (R41, test-only) `qy22_tripped_job_drain_logs_one_line_with_a_count`
       (js_observers_tests.rs) failed 1/31 full runs with an empty log: each job spins 700 ms of
       WALL clock (`Date.now()`) but the V8 budget is thread CPU time (500 ms per job, QY46), so
       under load no job trips. Burn fake CPU instead (`__test_burn(700)` per job with FAKE_CLOCK,
