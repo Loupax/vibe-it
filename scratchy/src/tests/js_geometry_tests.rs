@@ -1201,20 +1201,22 @@ fn qy52_unrelated_writes_keep_cached_styles_and_stylesheets_invalidate() {
     );
     let ev = |code: &str| -> String { e.eval_value("q", code).expect("eval") };
     assert_eq!(ev("rd()"), "rgb(9, 9, 9)");
-    let (c0, p0) = (crate::js_style::cascade_count(), crate::js_style::parse_count());
+    let (c0, p0) = (crate::js_style::cascade_count(), crate::rules_cache::PIECES_PARSED.with(|c| c.get() as u64));
     // Attribute and text writes elsewhere: every read is answered from the cache.
     assert_eq!(ev("var r; for (var i=0;i<5;i++){ u.setAttribute('data-x',''+i); u.textContent='n'+i; r=rd(); } r"), "rgb(9, 9, 9)");
     assert_eq!(crate::js_style::cascade_count(), c0, "unrelated writes must not re-cascade");
-    assert_eq!(crate::js_style::parse_count(), p0, "unrelated writes must not re-parse");
+    assert_eq!(crate::rules_cache::PIECES_PARSED.with(|c| c.get() as u64), p0, "unrelated writes must not re-parse");
     // A write on the element itself re-cascades just that element.
     assert_eq!(ev("t.className=''; rd()"), "rgb(0, 0, 0)");
     let c1 = crate::js_style::cascade_count();
     assert!(c1 > c0 && c1 - c0 <= 2, "{c0} -> {c1}");
     // A new stylesheet invalidates everything and is re-parsed (only the new piece).
     assert_eq!(ev("var st=document.createElement('style'); st.textContent='.t{color:rgb(1,1,1)}'; document.head.appendChild(st); t.className='t'; rd()"), "rgb(1, 1, 1)");
-    assert_eq!(crate::js_style::parse_count() - p0, 1, "only the new <style> is parsed");
+    assert_eq!(crate::rules_cache::PIECES_PARSED.with(|c| c.get() as u64) - p0, 1, "only the new <style> is parsed");
     assert_eq!(ev("st.textContent='.t{color:rgb(2,2,2)}'; rd()"), "rgb(2, 2, 2)");
-    assert_eq!(crate::js_style::parse_count() - p0, 2);
+    assert_eq!(crate::rules_cache::PIECES_PARSED.with(|c| c.get() as u64) - p0, 2);
+    // QMEM3e: the page's rules are the layout cache's, StyleCache parses nothing of its own.
+    assert_eq!(crate::js_style::parse_count(), 0, "StyleCache must not parse the page's CSS itself");
 }
 
 // ---------- QY53c: only connected, value-changing writes invalidate geometry ----------
@@ -1618,4 +1620,37 @@ fn qy53o1_a_new_rule_list_invalidates_the_inert_verdict() {
     );
     assert!(log.contains(&"log:h 40".to_string()), "{log:?}");
     assert_eq!(n, 2, "{log:?}");
+}
+
+// ---------- QMEM3e: getComputedStyle shares the layout build's parsed rules ----------
+
+fn qmem3e_parsed() -> usize {
+    crate::rules_cache::PIECES_PARSED.with(|c| c.get())
+}
+
+#[test]
+fn qmem3e_pieces_are_parsed_once_across_computed_style_and_forced_layout() {
+    // 3 <style> pieces + the (empty) extra piece = 4, parsed once although both
+    // getComputedStyle and the forced layout read the rules.
+    let n0 = qmem3e_parsed();
+    let log = run_in_html(
+        "<html><head><style>.a{color:rgb(1,2,3)}</style><style>.b{font-size:20px}</style><style>#c{margin-left:7px}</style></head>\
+         <body><p id=c class='a b'>x</p></body></html>",
+        "var c=document.getElementById('c'); var cs=getComputedStyle(c); var o=[cs.color, cs.fontSize, cs.marginLeft]; \
+         o.push(c.offsetWidth>=0); o.push(getComputedStyle(c).color); console.log(o.join('|'));",
+    );
+    assert_eq!(log.join("\n"), "log:rgb(1, 2, 3)|20px|7px|true|rgb(1, 2, 3)", "{log:?}");
+    assert_eq!(qmem3e_parsed() - n0, 4, "each piece parsed once across both caches");
+}
+
+#[test]
+fn qmem3e_layer_page_and_sibling_rule_page_unchanged() {
+    let log = run_in_html(
+        "<html><head><style>@layer a, b; @layer b{.x{color:rgb(0,0,255)}} @layer a{.x{color:rgb(255,0,0)}}</style>\
+         <style>.y{color:rgb(9,9,9)} p + p{margin-left:11px}</style></head>\
+         <body><p id=p class=x><span></span></p><p id=q class=y></p></body></html>",
+        "var p=document.getElementById('p'), q=document.getElementById('q'); var o=[getComputedStyle(p).color, getComputedStyle(q).marginLeft, getComputedStyle(q).color]; \
+         q.parentNode.removeChild(p); o.push(getComputedStyle(q).marginLeft); console.log(o.join('|'));",
+    );
+    assert_eq!(log.join("\n"), "log:rgb(0, 0, 255)|11px|rgb(9, 9, 9)|0px", "{log:?}");
 }
