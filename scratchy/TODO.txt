@@ -1294,10 +1294,9 @@ Shared rules for this block:
 - [ ] QMEM3b [S] (P2 memory, from QMEM3, R48; Sonnet, measure first) Name the ~65 MB of main-thread malloc no probe explains
       (candidates: fetched script sources/HTML kept until report_page ends, FontSystem/fontdb on main + shaping worker, JS DOM
       id table); add `memory` probes. Gate: explained bytes >= 60 % of (anonymous RSS - malloc free bytes).
-- [ ] [WIP] QMEM3c [S] (P3, from QMEM3; Sonnet) Honest `memory` estimates: rule caches count their real heap (real ~40 MB vs 18
-      estimated), shape_memo counts cosmic-text buffers, peak_rss_bytes matches VmHWM (it read below it in every run).
 - [ ] QMEM3d [S] (P3, from QMEM3; Sonnet; after QMEM3a) `malloc_trim(0)` after a navigation and once when the window goes
       idle. Gate: RSS after leaving YouTube for a small page >= 25 MB lower.
+      DATA (QMEM3c): with the arena cap (QMEM3a), YT watch after 60 s still has malloc free_kept = 111 MB (in_use 133 MB) of ~496 MB RSS.
 - [ ] [WIP] QMEM3e [M] (P3, from QMEM3; Sonnet) StyleCache (getComputedStyle) reuses rules_cache's parsed rule list instead of
       parsing the same CSS again (~15-20 MB). Gate: that RSS saving; getComputedStyle tests unchanged.
       FINDING (QY53f1e): StyleCache in js_style.rs keeps its own per-piece parse cache (`parse_piece` -> parse_stylesheet),

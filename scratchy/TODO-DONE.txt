@@ -6842,3 +6842,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
 - [x] QY53o3b DONE b4e12ab (fast memo hasher, no String copies; warm measure ~-13 %; 64-bit key without verify-on-hit, same exposure as before) [S] (P3, from QY53o3; Sonnet; after QY53o3a) Cheaper memo keys: non-SipHash hasher, build word/chunk keys from
       (&str, &SpanStyle) without `to_string` copies, deadline check once per paragraph. Gate: warm measure_document <= 14 ms.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QMEM3c DONE 06cd98a (heap counts honest; peak=VmHWM; malloc in_use/free_kept; walk 5.5 ms) [S] (P3, from QMEM3; Sonnet) Honest `memory` estimates: rule caches count their real heap (real ~40 MB vs 18
+      estimated), shape_memo counts cosmic-text buffers, peak_rss_bytes matches VmHWM (it read below it in every run).
