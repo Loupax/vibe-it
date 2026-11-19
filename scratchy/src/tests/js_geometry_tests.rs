@@ -1654,3 +1654,124 @@ fn qmem3e_layer_page_and_sibling_rule_page_unchanged() {
     );
     assert_eq!(log.join("\n"), "log:rgb(0, 0, 255)|11px|rgb(9, 9, 9)|0px", "{log:?}");
 }
+
+// ---------- QYTC1a: contained inline-style writes move the cached boxes in place ----------
+
+/// A YouTube-progress-bar-like fixture: absolutely positioned bars inside a relative track.
+fn qytc1a_page(css: &str, extra: &str) -> String {
+    format!(
+        "<html><head><style>{css}</style></head><body style='margin:0'>\
+<div id=wrap style='padding:5px'><div id=bar style='position:relative;width:400px;height:10px;margin:7px 3px'>\
+<div id=play style='position:absolute;left:0px;width:100%;height:3px;transform:scalex(0.5);background-size:10px 10px;opacity:0.8;background-color:blue'></div>\
+<div id=hover style='position:absolute;left:42.19px;top:2px;width:30px;height:4px'><span>x y</span><div style='width:5px;height:5px'></div></div>\
+<div id=scrub style='position:absolute;width:13px;height:13px;transform:translateX(42.19px)'>\
+<div id=knob style='position:absolute;left:3px;top:3px;width:7px;height:7px'></div><p style='margin:0'>t</p>{extra}</div>\
+<div id=auto style='position:absolute;left:10px;top:0px'>auto width</div>\
+<div id=rel style='position:relative;left:10px;width:20px;height:2px'></div>\
+</div></div><div id=after style='height:50px'>after</div></body></html>"
+    )
+}
+
+/// Lays `page` out, writes `style=new` on `#id`, and returns whether the write was applied in
+/// place. When it was, every rect (and ink extent) must equal a fresh full layout's.
+fn qytc1a_write(page: &str, id: &str, new: &str) -> bool {
+    let doc = parse_html(page);
+    let t = by_id(&doc, id);
+    let mut g = crate::js_geom::GeomCache::default();
+    g.rect_of(&doc, 1, &t, 800.0, 600.0);
+    let old = element_attr(&t, "style").map(|s| s.to_string());
+    crate::js_dom::set_attr(&t, "style", new);
+    if !g.style_write_in_place(&t, old.as_deref(), Some(new), 1) {
+        return false;
+    }
+    let mut fresh = crate::js_geom::GeomCache::default();
+    fresh.rect_of(&doc, 2, &t, 800.0, 600.0);
+    let (a, b) = (g.all_rects(), fresh.all_rects());
+    assert_eq!(a.len(), b.len());
+    for (x, y) in a.iter().zip(&b) {
+        assert_eq!((x.0, x.2), (y.0, y.2));
+        for k in 0..6 {
+            assert!((x.1[k] - y.1[k]).abs() < 0.01, "node {} field {k}: in place {} vs fresh {} ({id} -> {new})", x.0, x.1[k], y.1[k]);
+        }
+    }
+    true
+}
+
+#[test]
+fn qytc1a_contained_writes_match_a_fresh_layout() {
+    let p = qytc1a_page("", "");
+    let h = "position:absolute;top:2px;width:30px;height:4px";
+    assert!(qytc1a_write(&p, "hover", &format!("{h};left:42.45px")), "abs left, fractional");
+    // Past the track's right edge: the ancestors' ink extents grow.
+    assert!(qytc1a_write(&p, "hover", &format!("{h};left:600px")), "abs left beyond the parent");
+    assert!(qytc1a_write(&p, "hover", "position:absolute;left:42.19px;top:30px;width:30px;height:4px"), "abs top");
+    let s = "position:absolute;width:13px;height:13px";
+    assert!(qytc1a_write(&p, "scrub", &format!("{s};transform:translateX(42.45px)")), "translate");
+    assert!(qytc1a_write(&p, "scrub", &format!("{s};transform:translate(50%, 700px)")), "translate % and down");
+    assert!(
+        qytc1a_write(&p, "play", "position:absolute;left:0px;width:100%;height:3px;transform:scalex(0.7);background-size:12px 10px;opacity:0.5;background-color:red"),
+        "paint only"
+    );
+    // Added (not changed) opacity / background colour: their cascaded old value is unknown.
+    assert!(!qytc1a_write(&p, "hover", &format!("{h};left:42.19px;opacity:0.5;background-color:red")), "paint fields added");
+    // Positioned descendants that layout hoists into the stacking-context owner (`#knob`, a
+    // z-indexed one, a relative one, nested) move with the box and their owner's extent follows.
+    let deep = "<div style='position:absolute;z-index:2;left:20px;top:30px;width:3px;height:3px'>\
+<div style='position:relative;left:900px;width:4px;height:4px'></div></div>";
+    let p = qytc1a_page("", deep);
+    assert!(qytc1a_write(&p, "scrub", &format!("{s};transform:translateX(160px)")), "hoisted descendants");
+    assert!(qytc1a_write(&p, "scrub", &format!("{s};transform:translateX(-30px)")), "hoisted descendants, back");
+    let p = qytc1a_page("#bar{opacity:0.9}", deep);
+    assert!(qytc1a_write(&p, "scrub", &format!("{s};transform:translate(10px, 9px)")), "owner is the track");
+}
+
+#[test]
+fn qytc1a_uncontained_writes_fall_back_to_a_full_layout() {
+    let h = "position:absolute;top:2px;width:30px;height:4px";
+    let s = "position:absolute;width:13px;height:13px";
+    let w = |css: &str, extra: &str, id: &str, new: &str| qytc1a_write(&qytc1a_page(css, extra), id, new);
+    assert!(!w("[style*=left]{color:red}", "", "hover", &format!("{h};left:60px")), "a selector reads style");
+    assert!(!w("div::before{content: attr(style)}", "", "hover", &format!("{h};left:60px")), "attr(style)");
+    assert!(!w("#bar > #hover{left:1px !important}", "", "hover", &format!("{h};left:60px")), "an !important left rule");
+    assert!(!w("div{transform:none !important}", "", "scrub", &format!("{s};transform:translateX(60px)")), "!important transform");
+    assert!(!w("div{left:var(--l) !important}", "", "hover", &format!("{h};left:60px")), "!important var()");
+    // An `!important` rule that does not match the written element does not matter.
+    assert!(w("#knob{left:1px !important}", "", "hover", &format!("{h};left:60px")), "!important elsewhere");
+    assert!(!w("", "", "hover", &format!("{h};left:60px !important")), "inline !important");
+    assert!(!w("", "", "auto", "position:absolute;left:30px;top:0px"), "width: auto");
+    assert!(!w("", "", "hover", &format!("{h};left:42.19px;display:none")), "display change");
+    assert!(!w("", "", "hover", &format!("{h};left:42.19px;width:31px")), "width change");
+    assert!(!w("", "", "rel", "position:relative;left:30px;width:20px;height:2px"), "relative offset");
+    let fixed = "<div style='position:fixed;width:3px;height:3px'></div>";
+    assert!(!w("", fixed, "scrub", &format!("{s};transform:translateX(60px)")), "fixed descendant");
+    assert!(!w("", "", "scrub", &format!("{s};transform:translateX(2em)")), "em translate");
+    assert!(!w("", "", "hover", &format!("{h};left:42.19px;opacity:1")), "opacity added at 1");
+    assert!(!w("", "", "hover", &format!("{h};left:var(--x)")), "var()");
+    assert!(!w("", "", "hover", h), "left removed");
+}
+
+#[test]
+fn qytc1a_style_writes_between_reads_force_no_layout() {
+    let (log, n) = qy53c_run(
+        &qytc1a_page("", ""),
+        "var hv = document.getElementById('hover'), sc = document.getElementById('scrub'), pl = document.getElementById('play');
+         var wr = document.getElementById('wrap');
+         var x0 = hv.getBoundingClientRect().left, s0 = sc.getBoundingClientRect().left;
+         for (var i = 1; i <= 5; i++) {
+           hv.style.left = (42.19 + i) + 'px'; console.log('hv', Math.round(hv.getBoundingClientRect().left - x0));
+           sc.style.transform = 'translateX(' + (42.19 + 2 * i) + 'px)'; console.log('sc', Math.round(sc.getBoundingClientRect().left - s0));
+           pl.style.transform = 'scalex(0.' + i + ')'; pl.offsetWidth;
+         }
+         hv.style.left = '600px'; var sw = wr.scrollWidth;
+         wr.className = 'relayout'; console.log('sw', sw === wr.scrollWidth, sw > 600);",
+    );
+    assert!(log.contains(&"log:hv 5".to_string()) && log.contains(&"log:sc 10".to_string()), "{log:?}");
+    assert!(log.contains(&"log:sw true true".to_string()), "{log:?}");
+    assert_eq!(n, 2, "only the first read and the class change lay out: {log:?}");
+    // The same write with a selector reading `style` lays out on the next read.
+    let (_, n) = qy53c_run(
+        &qytc1a_page("[style*=zz]{color:red}", ""),
+        "var hv = document.getElementById('hover'); hv.offsetLeft; hv.style.left = '50px'; hv.offsetLeft;",
+    );
+    assert_eq!(n, 2);
+}

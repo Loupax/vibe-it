@@ -238,7 +238,7 @@ Side note: `seeking` is queued (`Out::Fire`) and can be dispatched after `playba
   frozen frame + YouTube's spinner, then YouTube's own error card after its 10 retries, instead of the wrong
   part of the video playing. QM1k1n5 (late fetch results) sets how long a successful out-of-buffer seek waits.
 
-## R50: QYTC1: why YouTube's visible player controls cost ~10 forced layouts/s. About 2/3 of them (and of their ms) come after nothing but YouTube's progress-bar `style` writes (`transform: translateX(..)` on the scrubber, `transform: scalex(..)` on the play progress, `left: Npx` on the absolutely positioned hover progress), ~5 times a second, each followed by a geometry read (`uib`, then `getPlayerSize`). Each read is a whole-document layout (436 boxes, 27-58 ms here). 12-13 % change no box at all; ~20 % follow `class` toggles (`ytp-autohide*`, suggested-action badges) (Opus, 2026-11-19, measure only) — OPEN: proposed QYTC1a-QYTC1c (below). The fix needs a hook in js_dom.rs's attribute-write bump, which QY53o1 is changing now (question in the draft PR)
+## R50: QYTC1: why YouTube's visible player controls cost ~10 forced layouts/s. About 2/3 of them (and of their ms) come after nothing but YouTube's progress-bar `style` writes (`transform: translateX(..)` on the scrubber, `transform: scalex(..)` on the play progress, `left: Npx` on the absolutely positioned hover progress), ~5 times a second, each followed by a geometry read (`uib`, then `getPlayerSize`). Each read is a whole-document layout (436 boxes, 27-58 ms here). 12-13 % change no box at all; ~20 % follow `class` toggles (`ytp-autohide*`, suggested-action badges) (Opus, 2026-11-19, measure only) — FIXED: QYTC1a (result at the end of the section: ~1 forced layout/s); OPEN: QYTC1b, QYTC1c
 
 **Status: measurement only. No product change; the trace counters were reverted.** Branch from main
 d7984e5 (includes QCUR1 6b3520e), release build (V8 + media), own worktree, own wire on a scratchpad
@@ -331,6 +331,48 @@ layout faster; the reads must stop needing one.
   11-13 % no-op layouts). Needs the same hook (old value at layout time per written attribute).
 - **QYTC1c [S] (P3, measure)** css_collect + rule_index are 18 % of every forced layout on the JS
   thread (~5 ms each here): check whether `RULE_DERIVED`'s index is rebuilt per layout there.
+
+### QYTC1a result (2026-11-19, release build of the branch, main 66fc252 + QYTC1a)
+`GeomCache` keeps a flat pre-order skeleton of the laid tree (every `Laid`, anonymous ones too:
+node, box, `walk` extent, subtree end, parent, a few computed-style flags). `__d_setattr` of `style`
+calls `GeomCache::style_write_in_place` before bumping: if the cache is the current layout, no
+selector/`attr()` reads `style` (QY53o1's `AttrReaders`), no `!important` rule declaring
+`left`/`top`/`transform` (or an `!important` `var()`/CSS-wide value) MATCHES the element, and the parsed
+old/new declarations (normal parts; the `!important` parts must be equal and not set those three)
+differ only in `opacity` (both declared and < 1: `opacity < 1` is a stacking boundary that changes
+hoisting), `background-color` (both declared: an inherited inline background adds a spacer box),
+`background-position/-size`, `transform`, `left`, `top`, then:
+- nothing moves (paint fields, `scalex` beside or instead of a translate): no bump, on any box;
+- on an `absolute`/`fixed` box with no running animation: a translate delta (`px` / `%` of the box),
+  `left` in px (needs a definite `width` and `right: auto`), `top` in px (needs `bottom: auto`), both
+  sides declared inline; the box's laid subtree shifts, PLUS the subtrees of its DOM descendants that
+  `hoist_negative_z` moved into a stacking-context owner (they were placed inside it before hoisting;
+  YouTube's scrubber knob is one); a descendant inside a `fixed` subtree makes it fall back. The
+  ancestors' extents are redone bottom-up from their children's. Glyph rects are not shifted:
+  `glyphs_stale` makes the next `text_rects` read lay out. A shift adds to a counter that `__d_ggen`
+  adds to the geometry generation, so the IntersectionObserver recheck and the Range glyph cache see
+  the move (the recheck is served from the fresh cache).
+Anything else bumps as before. An abs box in normal flow cannot move a sibling: `in_flow_bottom`
+(the root height) never enters `positioned` lists, so the page size stays exact; an in-flow
+translate could change it, which is one reason in-flow boxes only take the no-move path.
+
+R50 recipe (own nested dwl 960x1006, own wire, `SCRATCHY_MEDIA_AO=null`, `SCRATCHY_FRAME_STATS`,
+seconds with >= 40 pointer moves), every run under the perf flock, load average 13-24 (other agents
+building). "main" is the installed binary of main at e017cd0 (QY53o1 included), copied before the runs.
+| run | forced/s (median) | ms per layout | forced ms/s | video painted/s | lat_p95 ms | js_ms/s |
+|---|---|---|---|---|---|---|
+| main base1 (load 24 -> 15) | 11.0 | 46.8 | 570 | 15.0 | 120 | 738 |
+| main base2 (load 19 -> 16) | 17.0 | 33.5 | 594 | 20.0 | 78 | 760 |
+| QYTC1a new1 (first build: no effect, see below) | 12.0 | 48.0 | 583 | 15.0 | 114 | 763 |
+| QYTC1a new2 (load 23 -> 19) | 1.0 | 55.6 | 57 | 21.0 | 77 | 420 |
+| QYTC1a new3 (load 16 -> 13) | 1.0 | 39.1 | 44 | 42.0 | 51 | 323 |
+
+Forced layouts while the controls show: ~11-17/s -> ~1/s (gate was ~3-4/s), forced ms/s ~580 -> ~50,
+script+layout ms/s ~750 -> ~320-420. new1 was the first version, which refused the write when ANY
+rule of the list declared an `!important` `left`/`top`/`transform` (YouTube has such rules); the
+check is per element now (selectors of those few rules matched against the written element). A
+throwaway trace (reverted) of one run counted 306 in-place shifts, 160 no-move writes, 66 writes on
+an already stale cache and ~20 fallbacks (`width` changes on resize, `display: none` boxes).
 
 ## R49: QAN1h: GitHub restyle re-measured. R31's 15-18 s restyle is gone: a page of that size (github.com repo page, 1 809 elements, 16 220 rules) now builds in 126 ms headless and 210-250 ms in a window. But today's github.com HOME is a bigger page (~3 200 elements, 29 342 rules), and a full build of it still takes 0.65 s headless and 1.1-1.55 s in a window. That is the cost of every hover and every JS restyle (input-to-frame 1.3-1.6 s). About half of the build is selector matching (534 candidate rules per match call, 1 344 rules in the universal bucket, 2.3 % of full matches succeed). About a fifth is `var()` re-expansion: each element re-substitutes and re-parses each matched `var()` rule, 19 272 times per build for 694 distinct declaration blocks (Opus, 2026-11-19, measure only, docs only) — OPEN: proposed QAN1h1-QAN1h3 (below)
 

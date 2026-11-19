@@ -875,6 +875,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     }
     let (geom3, geom4) = (geom.clone(), geom.clone());
     let geom5 = geom.clone();
+    let geom7 = geom.clone();
     native!(ctx, "__d_rect", move |c: Ctx<'_>, id: i32, vw: f64, vh: f64| -> Vec<f64> {
         let (page, h) = {
             let t = t.borrow();
@@ -909,7 +910,9 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     native!(ctx, "__d_io", |on: bool| crate::perf::set_io(on));
     let gn = wgen.clone();
     native!(ctx, "__d_wgen", move || -> f64 { gn.get() as f64 });
-    native!(ctx, "__d_ggen", move || -> f64 { geom_gen() as f64 });
+    // QYTC1a: plus the in-place shifts, so script caches keyed on it (IntersectionObserver,
+    // Range glyph rects) still see a box that moved without a geometry-generation bump.
+    native!(ctx, "__d_ggen", move || -> f64 { (geom_gen() + crate::js_geom::geom_shifts()) as f64 });
     native!(ctx, "__d_csprops", move || -> Vec<String> { js_style::PROPS.iter().map(|s| s.to_string()).collect() });
     // ---- Q33c mutation. Every write marks the page dirty; the event
     // loop rebuilds layout once per turn, not once per call.
@@ -917,11 +920,19 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     native!(ctx, "__d_setattr", move |id: i32, name: String, val: String| {
         if let Some(h) = t.borrow().get(id) {
             let name = name.to_ascii_lowercase();
-            let changed = element_attr(&h, &name).as_deref() != Some(val.as_str());
+            let old = element_attr(&h, &name).map(|s| s.to_string());
+            let changed = old.as_deref() != Some(val.as_str());
             set_attr(&h, &name, &val);
             d.set(true);
             gn.set(gn.get() + 1);
-            geom_bump_attr(&t.borrow(), &h, changed, &name);
+            // QYTC1a: a contained `style` write moves the cached boxes in place instead.
+            let in_place = changed
+                && name == "style"
+                && page_connected(&t.borrow(), &h)
+                && geom7.try_borrow_mut().is_ok_and(|mut g| g.style_write_in_place(&h, old.as_deref(), Some(&val), geom_gen()));
+            if !in_place {
+                geom_bump_attr(&t.borrow(), &h, changed, &name);
+            }
         }
     });
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
