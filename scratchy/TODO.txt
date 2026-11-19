@@ -767,7 +767,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       through the MSE path (fixture made by ffmpeg; skip if the local ffmpeg cannot encode it)
       and a QM1k-AB-style drift check for WebM audio + mp4 video (YouTube's default pair).
       Then re-run QM1k-m2 without the mp4-only answers.
-- [ ] QM1k2 [M, Opus, investigate only] PARKED (user 2026-11-18, Q4.1: ~60 s is the first
+- [ ] QM1k2 [M, Opus, investigate only] SCHEDULED (unparked 2026-11-19: after the perf queue + QPROF1 + QYS1; was PARKED 2026-11-18, Q4.1: ~60 s is the first
       UNPARKED 2026-11-19 (user): "work on it once we are satisfied with the performance". Runs right AFTER the
       performance queue (after QPROF1 and the items it files), BEFORE the rest of the backlog. Evidence that it is THE
       stop today (QM1k-stop, 15:37 run): SABR answered STREAM_PROTECTION_STATUS 3 (attestation required) 10x from ~7 s
