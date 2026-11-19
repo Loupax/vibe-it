@@ -63,6 +63,55 @@ pub(crate) struct SpanStyle {
     pub(crate) tnode: usize,
 }
 
+impl SpanStyle {
+    /// Feeds every field into `h` (replaces the old `format!("{span:?}")`
+    /// hash, QP4). The destructuring has NO `..` on purpose: adding a field
+    /// to `SpanStyle` is a compile error here until it is hashed too, so the
+    /// shape-memo key can never silently ignore a field that affects shaping
+    /// or measuring. f32 goes in through `to_bits()`.
+    pub(crate) fn hash_into<H: std::hash::Hasher>(&self, h: &mut H) {
+        use std::hash::Hash;
+        let SpanStyle {
+            color,
+            background_color,
+            font_size,
+            font_weight,
+            font_style,
+            font_family,
+            text_decoration,
+            decoration_style,
+            vertical_align,
+            line_height,
+            visibility,
+            cursor,
+            word_spacing,
+            word_break,
+            white_space,
+            href,
+            node,
+            tnode,
+        } = self;
+        color.hash(h);
+        background_color.hash(h);
+        font_size.to_bits().hash(h);
+        font_weight.hash(h);
+        font_style.hash(h);
+        font_family.hash(h);
+        text_decoration.hash(h);
+        decoration_style.hash(h);
+        vertical_align.hash(h);
+        line_height.to_bits().hash(h);
+        visibility.hash(h);
+        cursor.hash(h);
+        word_spacing.to_bits().hash(h);
+        word_break.hash(h);
+        white_space.hash(h);
+        href.hash(h);
+        node.hash(h);
+        tnode.hash(h);
+    }
+}
+
 impl From<InheritedStyle> for SpanStyle {
     fn from(s: InheritedStyle) -> Self {
         SpanStyle {
@@ -1182,12 +1231,15 @@ pub(crate) fn memo_key(kind: u8, items: &[InlineItem], width: f32, pre: bool, al
     kind.hash(&mut h);
     width.to_bits().hash(&mut h);
     pre.hash(&mut h);
-    format!("{align:?}").hash(&mut h);
+    std::mem::discriminant(&align).hash(&mut h);
+    if let Some(a) = align {
+        std::mem::discriminant(&a).hash(&mut h);
+    }
     for item in items {
         match item {
             InlineItem::Text(t, span) => {
                 t.hash(&mut h);
-                format!("{span:?}").hash(&mut h);
+                span.hash_into(&mut h);
             }
             _ => return None,
         }

@@ -1262,7 +1262,7 @@ pub(crate) struct Declarations {
 /// `true`) — a mixed run with an inline `<img>`/inline-block doesn't
 /// look at `white_space` at all yet, same pre-existing gap `white-space:
 /// pre` already has there (see TODO.txt).
-#[derive(Clone, Copy, PartialEq, Default, Debug)]
+#[derive(Clone, Copy, PartialEq, Default, Debug, Hash)]
 pub(crate) enum WhiteSpace {
     #[default]
     Normal,
@@ -1280,7 +1280,7 @@ pub(crate) enum WhiteSpace {
 /// `BreakWord` is the same as `Normal` here (a deliberate deviation from
 /// real CSS, where plain `normal` overflows); only `BreakAll` changes
 /// shaping (`Wrap::Glyph`).
-#[derive(Clone, Copy, PartialEq, Default, Debug)]
+#[derive(Clone, Copy, PartialEq, Default, Debug, Hash)]
 pub(crate) enum WordBreak {
     #[default]
     Normal,
@@ -1453,7 +1453,7 @@ impl TextAlign {
 /// property; see `collect_children`'s `valign` parameter for how it
 /// actually propagates (ambient, like `background-color`/
 /// `text-decoration`, not real inheritance).
-#[derive(Clone, Copy, PartialEq, Default, Debug)]
+#[derive(Clone, Copy, PartialEq, Default, Debug, Hash)]
 pub enum VerticalAlign {
     #[default]
     Baseline,
@@ -1510,7 +1510,7 @@ impl VerticalAlign {
 /// element's own `inherited.visibility` at the point a text node or box
 /// is built already reflects the correctly-cascaded value, descendant
 /// overrides included, with no extra propagation parameter needed).
-#[derive(Clone, Copy, PartialEq, Default, Debug)]
+#[derive(Clone, Copy, PartialEq, Default, Debug, Hash)]
 pub enum Visibility {
     #[default]
     Visible,
@@ -1619,7 +1619,7 @@ impl MaxLen {
 /// changes at all for this extension — it's already keyed on "which
 /// `CursorStyle` does this element/glyph resolve to," never on
 /// `Pointer` specifically.
-#[derive(Clone, Copy, PartialEq, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Debug, Default, Hash)]
 pub enum CursorStyle {
     #[default]
     Auto,
@@ -2691,7 +2691,7 @@ pub(crate) fn parse_font_weight(input: &mut CssParser) -> Result<FontWeightValue
 /// formulas; see `paint_decorations`'s own docs). `pub` — appears in the
 /// public `ShapedParagraph`/`ShapeCache` type aliases, same reason
 /// `VerticalAlign`/`CursorStyle` are `pub` too.
-#[derive(Clone, Copy, PartialEq, Default, Debug)]
+#[derive(Clone, Copy, PartialEq, Default, Debug, Hash)]
 pub enum DecorationStyle {
     #[default]
     Solid,

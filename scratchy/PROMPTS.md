@@ -7646,3 +7646,9 @@ Done: R38. The `true` is `<img alt="true">` (YouTube calls `setAttribute('alt', 
 **Prompt:** Implement QY53h: GeomCache::refresh called js_style::page_css() on every geometry read (cloning 3.8 MB on YouTube); key the cache on the CSS version counters and only build the string on a miss, usable by QY53e1 without building the CSS.
 
 **What changed:** js_style.rs (css_ver() accessor, test-only PAGE_CSS_BUILDS counter), js_geom.rs (key = wgen, viewport, css_ver(); page_css() only on a miss; also fixes a same-length CSS change not invalidating), test qy53h_geometry_hit_does_not_build_page_css_and_stylesheet_changes_invalidate (external, adopted, inline style, insertRule). TODO.txt left to the coordinator.
+
+## QP4: shape-memo key without Debug strings (Sonnet)
+
+**Prompt:** Implement QP4: `layout::memo_key` hashed `format!("{align:?}")` and `format!("{span:?}")` per text item (5.5 % of Wikipedia Rust CPU); hash the fields directly, exhaustively, with a test per field.
+
+**What changed:** layout.rs (`SpanStyle::hash_into`, destructuring without `..`; `memo_key` hashes the align discriminant), css.rs (`Hash` derived on DecorationStyle, VerticalAlign, Visibility, CursorStyle, WordBreak, WhiteSpace), positioning_tests.rs (`qp4_memo_key_equal_spans_equal_key_and_each_field_changes_it`).
