@@ -6382,3 +6382,34 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       key; each field changed alone -> different key; memo hits on a re-layout unchanged (existing QP2
       tests). Accept: Wikipedia Rust `--perf-report --seconds 30` forced_layout.total_ms median of 3
       lower than main, and QOBS1's summary shows `memo_key` < 1 %.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QOBS1 DONE ba3322e [S] (P1, R44 section 1, Haiku/Sonnet; tools + docs only) Permanent profiler recipe.
+      (a) `Cargo.toml`: `[profile.profiling]` with `inherits = "release"`, `debug = "line-tables-only"`
+      (check `strip` stays off). (b) `tools/profile.sh [--seconds N] [--ua UA] <url|file>`: builds that
+      profile with `RUSTFLAGS="-C force-frame-pointers=yes"` into `${PROF_TARGET:-$HOME/.cache/
+      scratchy-prof-target}` (NEVER the repo's `target/`, so normal builds are not invalidated; reuse
+      `RUSTY_V8_ARCHIVE` when set, else copy `target/release/build/gn_out/obj/librusty_v8.a` if present),
+      then runs `perf record -e cycles:u -F 999 -g` on `--perf-report --budget-ms 20000` with
+      `SCRATCHY_V8_FLAGS='--perf-basic-prof --interpreted-frames-native-stack'` (and
+      `SCRATCHY_V8_SNAPSHOT=0` until QOBS2 is merged), writes `perf.data`, the `--perf-report` JSON,
+      folded stacks, and a text summary into `perf/profile-<commit>-<slug>/` (perf/ is gitignored):
+      per-thread share, top 30 self, top 40 inclusive, and the nearest PAGE JS frames above
+      `GeomCache::refresh` (frames starting `JS:` that are not scratchy prelude `eval:`/`timers:`).
+      Remove `/tmp/perf-<pid>.map` afterwards. Run scratchy with the output directory as its working
+      directory: these V8 flags also write `isolate-0x...-<pid>-v8.log` files into the CWD (R44 left
+      22 of them in `scratchy/`); delete the ones of that run by name, and add `isolate-*-v8.log` to
+      `.gitignore`. (c) `tools/perf-fold.py` (stdlib only, run with
+      `python3 -I`): `fold`, `incl <regex>...`, `callers <regex> [depth]`, `jscallers <regex>`
+      subcommands (R44 used exactly these four; rewrite them, do not guess other features). If
+      `inferno-flamegraph` is on PATH, also write `flame.svg` (optional; `cargo install inferno` is local).
+      (d) Preflight: `perf` missing -> print "install perf (dnf install perf)" and exit 2;
+      `/proc/sys/kernel/perf_event_paranoid` > 1 -> print the one-line non-persistent fix
+      (`echo 1 | sudo tee /proc/sys/kernel/perf_event_paranoid`) and exit 2. Never run sudo.
+      (e) PERF.md section "Profiling (perf)": the recipe, how to read the summary, the paranoid note,
+      and that a `-F 999` run costs ~5-10 % wall. tools/README one line.
+      Tests: no cargo test (tools only, say so in the PR); smoke-run on a local fixture
+      (`echo '<p>x<script>for(let i=0;i<3e6;i++);</script>' > f.html`) and on Wikipedia Rust 30 s,
+      paste the summary's top 10 inclusive lines in the PR. Accept: the Wikipedia summary shows
+      `GeomCache::refresh` and `El::has_class` with Rust callers resolved (not `[unknown]`) and at least
+      one `JS:` frame with a URL.
