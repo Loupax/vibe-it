@@ -771,7 +771,7 @@ never freed, for the life of the process, across navigations. YouTube defines hu
    `benches/layout.rs` covers tree build + shaping of a synthetic page) (QOBS10).
 7. **The baseline is from the old machine** (QOBS9).
 
-## R43: Where forced layout goes (QY53): on the YouTube watch page 88 % of it is the player's `getPlayerSize` reading `#movie_player.clientWidth`, 80 % of those layouts change no box at all, and 99.5 % of each one is STYLE and BOX BUILD (layout proper 0.4 %); half of that is one O(elements x rules) scan for `::first-line`/`::first-letter` rules. On Wikipedia it is scratchy's OWN IntersectionObserver evaluation (Opus investigator QY53, 2026-11-19) — OPEN: QY53a-QY53h (a-d DONE; QY53e designed in section 7, PARTIAL, split into QY53e1-e3); QY53l PARTIAL (section 10: getPlayerSize layouts -28 %, proposed QY53l2/l3); QY53e3 measured in section 11; QY53l2 PARTIAL (section 13: a further -17 %, the safe rule's ceiling; the rest are writes to VISIBLE elements)
+## R43: Where forced layout goes (QY53): on the YouTube watch page 88 % of it is the player's `getPlayerSize` reading `#movie_player.clientWidth`, 80 % of those layouts change no box at all, and 99.5 % of each one is STYLE and BOX BUILD (layout proper 0.4 %); half of that is one O(elements x rules) scan for `::first-line`/`::first-letter` rules. On Wikipedia it is scratchy's OWN IntersectionObserver evaluation (Opus investigator QY53, 2026-11-19) — OPEN: QY53a-QY53h (a-d DONE; QY53e designed in section 7, PARTIAL, split into QY53e1-e3); QY53l PARTIAL (section 10: getPlayerSize layouts -28 %, proposed QY53l2/l3); QY53e3 measured in section 11; QY53l2 PARTIAL (section 13: getPlayerSize layouts a further -8 %, the safe rule's ceiling; the rest are writes to VISIBLE elements)
 
 **Status: investigation only, docs only.** Main b8d865f, own worktree release build (V8 + media,
 RUSTY_V8_ARCHIVE = existing librusty_v8.a, `nice -n 19 -j2`). Own wire on a scratchpad socket.
@@ -1327,13 +1327,19 @@ rule disables the whole thing (scratchy's selector parser does not accept `:has(
 defensive). Reads of hidden nodes are unchanged (`ioShown` checks computed style, which keys on the
 DOM write generation, not the geometry one).
 
-**Result, YT watch, 3+3 interleaved (main 7bf6875 / branch), default UA, own wire:**
+**Result, YT watch, default UA, own wire.** Round 2 (the merge base), 5+5 interleaved, main b8d9761 /
+branch dff4eca:
 | | main | branch | change (median) |
 |---|---|---|---|
-| getPlayerSize layouts | 54 / 49 / 56 | 50 / 44 / 45 | 54 -> 45, **-17 %** |
-| all forced layouts | 105 / 102 / 107 | 102 / 96 / 95 | 105 -> 96, -9 % |
-| `no_change` | 45 / 40 / 44 | 39 / 34 / 34 | 44 -> 34, -23 % |
-Gate (getPlayerSize -20 %) NOT met. **What is left** (throwaway instrumentation, reverted: the writes
+| getPlayerSize layouts | 49 / 52 / 49 / 49 / 49 | 44 / 45 / (103) / 45 / 45 | 49 -> 45, **-8 %** |
+| all forced layouts | 101 / 102 / 101 / 101 / 101 | 95 / 96 / (187) / 96 / 93 | 101 -> 95.5, -5 % |
+| `no_change` | 40 / 42 / 40 / 40 / 40 | 34 / 35 / (87) / 35 / 34 | 40 -> 34.5, -14 % |
+(branch run 3 got a different YouTube page variant, 1.88 MB HTML instead of 1.34 MB, with every count
+doubled; excluded.) Round 1, 3+3, against main 7bf6875 (before QY53f1b 9415fb2): getPlayerSize
+54 / 49 / 56 vs 50 / 44 / 45 (-17 %), `no_change` 45 / 40 / 44 vs 39 / 34 / 34; main itself dropped
+to 49 with QY53f1b, so round 2 is the number that counts. 4 of 4 comparable pairs: 4-7 fewer
+getPlayerSize layouts and 5-6 fewer no-change layouts per 60 s.
+Gate (getPlayerSize -20 %) NOT met; merged as a safe net win. **What is left** (throwaway instrumentation, reverted: the writes
 logged before each layout, run on the branch): of 71 no-change layouts, 44 follow only writes to
 VISIBLE elements (`.ytp-chapter-hover-container`, `.ytp-load-progress` `transform: scalex()`,
 `#movie_player` state classes, `video` attributes), 8 follow only writes inside an inline `<svg>` (7 more mix those with visible writes)
