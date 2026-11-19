@@ -1239,13 +1239,6 @@ Shared rules for this block:
       that YouTube's visible content (thumbnails, comments) loads as before (nested-dwl screenshot at 30 s).
       QOBS3 (319f933) YT watch sample, 60 s, loaded machine: 135 forced layouts / 7.3 s, no_change 73 (54 %), by_reason
       io 21 / 2.1 s, script 114 / 5.2 s; top caller `g.k.getPlayerSize` (player base.js:15474) 74 layouts / 2.3 s.
-- [ ] [WIP] QY53i2 [L] (P2 memory, coordinator 2026-11-19, from QY53i 4946d83; Opus design first, then Sonnet) Interned
-      custom-property tables are `Box::leak`ed and never freed: ~97 tables x ~125 KB = ~12 MB leaked per YouTube watch
-      load, across navigations (and QY53i's `CUSTOM_PROPS_MEMO` also lives as long as the thread). Freeing them needs
-      `ComputedStyle`/`InheritedStyle` (both `Copy`, ~120 sites carry `&'static CustomProps`) to hold a non-Copy Rc or a
-      small Copy handle into a per-document arena cleared on navigation. Design: handle type vs Rc, cost of losing
-      `Copy`, where the arena lives (one per document; the JS thread's GeomCache builds too), then Sonnet items. Test: a
-      navigation frees the arena (test-only counter); var() tests unchanged. Use QOBS7's memory numbers when available.
 - [ ] QY53f2 [M] (P3, optional, from QY53f; ONLY if QPROF1 still shows selector matching on top) Cross-build match memo
       (R43 section 8 design steps 1-2): keep MATCH_MEMO across builds, validated by a top-down selector-context
       fingerprint (hover/focus, form state, `:has` re-test, shadow parents, viewport width). Gate: nested big-css
@@ -1300,6 +1293,9 @@ Shared rules for this block:
       2..4)` before threads start; measure 2 vs 4): YT watch has 42 arenas holding 85-94 MB freed-but-kept; MALLOC_ARENA_MAX=2
       gave -63 MB RSS in one run. Gate: YT watch memory.rss_bytes >= 40 MB lower, median of 3; forced_layout.total_ms and JS
       time not worse over 3+3 interleaved runs (perf-diff); live-window frame stats not worse (R46 recipe).
+- [ ] QY53i3 [S] (P3 memory, from QY53i2; Sonnet) `animation.rs` still `Box::leak`s interned `&'static AnimLonghands` (same
+      pattern QY53i2 removed for custom props). Give it the same per-thread arena + Copy handle, cleared on navigation.
+      Gate: a multi-page --perf-report run (QY53i2 harness) shows no growth across navigations; animation tests unchanged.
 - [ ] QMEM3b [S] (P2 memory, from QMEM3, R48; Sonnet, measure first) Name the ~65 MB of main-thread malloc no probe explains
       (candidates: fetched script sources/HTML kept until report_page ends, FontSystem/fontdb on main + shaping worker, JS DOM
       id table); add `memory` probes. Gate: explained bytes >= 60 % of (anonymous RSS - malloc free bytes).
@@ -1504,7 +1500,7 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       a nested-dwl window before/after. Test: animate() opacity 0->1 200 ms, fake
       clock: finished resolves at 200, getAnimations() length 1 then 0.
 - [x] QAN1j [S] DONE e1fd29b (noise, no code change) Is the DuckDuckGo restyle 4-5x slower after QAN1b [archived: TODO-DONE.txt]
-- [ ] QAN1h [S, Opus, investigate only] (P2) Why does a restyle of the static
+- [ ] [WIP] QAN1h [S, Opus, investigate only] (P2) Why does a restyle of the static
       github.com copy take 15-18 s with cached rules (R31 section 4: 2 077 elements,
       16 192 rules; en.wikipedia 1.6-2.9 s, BBC 1.7 s, Guardian 1.1 s)? Profile
       `build_layout_tree_with_resources` (RuleIndex::build, HoverKeys::build,
