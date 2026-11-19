@@ -3,6 +3,8 @@ tools/ - dev-only helpers, not part of the scratchy crate build.
 Profiling: tools/profile.sh <url|file> = perf + V8 JIT map profile into perf/profile-*/, tools/perf-fold.py
 queries it (fold/incl/callers/jscallers); PERF.md "Profiling (perf)".
 
+perf-diff.py: `python3 -I tools/perf-diff.py old.json new.json [--threshold 5]` diffs two --perf-report / perf-suite outputs (PERF.md).
+
 Driving a real scratchy window (click, type, wheel-scroll)
 ----------------------------------------------------------
 1. Build the injector once (own Cargo project; needs no change to the main
