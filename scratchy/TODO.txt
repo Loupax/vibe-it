@@ -2761,7 +2761,7 @@ divs with 3 classes each, a script that does 50 x (write one attribute, read `of
       matched at most once per build. Accept: big-css fixture forced_layout.total_ms >= 25 % lower
       than after QY53b; Wikipedia Rust `--perf-report --seconds 30` mean per forced layout (R43:
       2.36-2.42 s) >= 25 % lower, median of 3.
-- [x] QY53e DESIGNED 2026-11-19 (Opus, docs only; R43 section 7; PARTIAL: the coordinator drained the
+- [x] QY53e DESIGNED 2026-11-19 064eca5 (Opus, docs only; R43 section 7; PARTIAL: the coordinator drained the
       machine before the live-window measurement, filed as QY53e3). Split into QY53e1/e2/e3 below.
       Headless after QY53d: Wikipedia Rust 30 s, 3 runs: 7 of 8 forced layouts (8.3-8.7 of 9.4-9.8 s
       = 88-89 %) are IO rechecks, and only the FIRST (initial `observe`) delivers an entry; the other

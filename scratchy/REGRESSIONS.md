@@ -122,7 +122,7 @@ Rough projection for YouTube (multiplying measured or upper-bound factors, NOT m
 1+2 (-57 %), 3 (-34 % of layouts), 4 (up to -40 % of the rest): 101 s -> ~17 s of forced layout per
 60 s. That would still leave ~30 % of the main thread busy; 7 is what removes the rest.
 
-### 7. QY53e design: IntersectionObserver without its own forced layout (Opus, 2026-11-19, PARTIAL)
+### 7. QY53e design: IntersectionObserver without its own forced layout (Opus, 2026-11-19, 064eca5, PARTIAL)
 **Partial:** the coordinator drained the machine before the live-window (nested dwl) runs, so the
 App-vs-GeomCache duplication is still not measured (QY53e3). Headless numbers below are measured.
 Main 9473913 (after QY53d), own worktree release build, own wire on a scratchpad socket, R43 mode
