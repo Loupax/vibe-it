@@ -3626,3 +3626,16 @@ the bar rect when the quantised state (250 ms) or visibility changed (`recomposi
 under it), and returns the next deadline (hide after 2 s, 250 ms refresh while playing). Bar presses are
 UA chrome: the page gets no mouse events for them; keys (D6) only act on the focused element, after the
 page's keydown.
+
+## QY53g: selector matching inside a layout build (src/style.rs, src/dom.rs)
+
+`matching_indices_for` tests only the `RuleIndex` candidates of an element (buckets by the id / class /
+tag of each selector's rightmost compound; for a pseudo-element selector such as `.a::before` the
+compound LEFT of the pseudo-element, since `::before` is its own compound behind a pseudo-element
+combinator). Inside a build (`ANCESTOR_BLOOM` set next to `MATCH_MEMO` in images.rs) a counting bloom
+filter holds the tag, namespace, id and classes of the element's ancestors (`AncestorBloom`, a stack
+synced to each element's parent chain, cheap in document order); a selector whose `AncestorHashes`
+(precomputed per rule in `RuleIndex`) are not all in it is skipped without walking ancestors. Hashes
+must equal `Atom::precomputed_hash` (`dom::atom_hash`). `El::has_class` splits on HTML ASCII whitespace
+only, byte-wise (`dom::class_list_contains`). Outside a build (no index registered) every rule is
+tested with no filter.
