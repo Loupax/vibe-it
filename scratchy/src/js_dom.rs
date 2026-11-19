@@ -2296,7 +2296,9 @@ const DOM_PRELUDE: &str = r#"
   Object.defineProperty(g, '__scratchy_dn', { value: function (id, type, init) {
     var t = id === -2 ? (doc.body || doc) : wrap(id);
     if (!t) return true;
-    var C = { click: MouseEvent, mousedown: MouseEvent, mouseup: MouseEvent, keydown: KeyboardEvent, keypress: KeyboardEvent,
+    var PE = g.PointerEvent;
+    var C = { mousemove: MouseEvent, mouseenter: MouseEvent, mouseleave: MouseEvent, pointermove: PE, pointerover: PE, pointerout: PE,
+      pointerenter: PE, pointerleave: PE, click: MouseEvent, mousedown: MouseEvent, mouseup: MouseEvent, keydown: KeyboardEvent, keypress: KeyboardEvent,
       keyup: KeyboardEvent, mouseover: MouseEvent, mouseout: MouseEvent, focus: FocusEvent, blur: FocusEvent, focusin: FocusEvent, focusout: FocusEvent,
       animationstart: AnimationEvent, animationend: AnimationEvent, animationiteration: AnimationEvent, animationcancel: AnimationEvent }[type] || Event;
     if (type === '__dialogclose') { t.close(init && init.rv !== undefined ? init.rv : undefined); return true; }

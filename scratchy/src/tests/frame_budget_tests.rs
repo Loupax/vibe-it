@@ -154,3 +154,90 @@ fn qm1k1n6b_pending_input_counts_as_recent() {
     app.queue_pointer_move((1.0, 1.0));
     assert!(app.input_recent());
 }
+
+// QCUR1: mousemove/pointermove (and enter/leave/pointerover/out) reach the page.
+
+fn qcur1_app(html: &str, script: &str) -> Option<App> {
+    let mut app = qm1k1n6a_app(html)?;
+    let doc = app.document.clone();
+    // Lay out the app's OWN document (node ids are addresses), not the fixture's copy.
+    let tree = build_layout_tree(&doc, 1920.0);
+    let mut cache = ShapeCache::new();
+    let mut next_id = 0usize;
+    let mut incomplete = false;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    app.cached = Some(measure(
+        &tree, &mut new_font_system(), 0.0, 0.0, 400.0, None, &mut next_id, &mut cache, deadline, &mut incomplete,
+        &mut Vec::new(), &Floats::default(), None,
+    ));
+    app.js =run_page_scripts(&doc, &[src(script)], None);
+    Some(app)
+}
+
+fn qcur1_log(app: &App) -> String {
+    app.js.as_ref().unwrap().eval_value::<String>("t", "window.L.join('|')").unwrap_or_default()
+}
+
+const QCUR1_HTML: &str = "<html><body style='margin:0'><p id=p style='margin:0;height:40px'>hello</p></body></html>";
+
+#[test]
+fn qcur1_mousemove_once_per_turn_with_latest_coordinates() {
+    let script = "window.L=[]; document.addEventListener('mousemove', function(e){ L.push('m'+e.clientX+','+e.clientY+','+e.movementX+','+e.target.id+','+e.buttons+','+e.isTrusted); });\
+                  document.addEventListener('pointermove', function(e){ L.push('p'+e.pointerId+e.pointerType+e.isPrimary+e.clientX); });";
+    let Some(mut app) = qcur1_app(QCUR1_HTML, script) else { return };
+    for i in 0..50 {
+        app.queue_pointer_move((i as f32, 5.0));
+    }
+    app.flush_pointer_move();
+    assert_eq!(qcur1_log(&app), "p1mousetrue49|m49,5,0,p,0,true");
+    app.queue_pointer_move((51.0, 6.0));
+    app.flush_pointer_move();
+    assert_eq!(qcur1_log(&app).matches("|m").count(), 1, "a second turn inside the throttle interval dispatches nothing");
+    std::thread::sleep(MOVE_DISPATCH_INTERVAL * 2);
+    app.queue_pointer_move((52.0, 6.0));
+    app.flush_pointer_move();
+    app.flush_pointer_move();
+    let l = qcur1_log(&app);
+    assert!(l.ends_with("|p1mousetrue52|m52,6,3,p,0,true"), "{l}");
+    assert_eq!(l.matches("|m").count(), 1, "one more mousemove, not one per queued move: {l}");
+}
+
+#[test]
+fn qcur1_no_listener_no_dispatch_and_mouseover_unchanged() {
+    let script = "window.L=[]; document.addEventListener('mouseover', function(e){ L.push('over'); });";
+    let Some(mut app) = qcur1_app(QCUR1_HTML, script) else { return };
+    app.queue_pointer_move((5.0, 5.0));
+    app.flush_pointer_move();
+    assert_eq!(qcur1_log(&app), "over");
+    assert_eq!(app.last_move_dispatched, None, "no move listener: nothing built or dispatched");
+}
+
+#[test]
+fn qcur1_removed_listener_stops_dispatch() {
+    let script = "window.L=[]; window.f=function(){ L.push('m'); }; document.addEventListener('mousemove', f);";
+    let Some(mut app) = qcur1_app(QCUR1_HTML, script) else { return };
+    app.queue_pointer_move((5.0, 5.0));
+    app.flush_pointer_move();
+    app.js.as_ref().unwrap().eval("t", "document.removeEventListener('mousemove', f)");
+    std::thread::sleep(MOVE_DISPATCH_INTERVAL * 2);
+    app.queue_pointer_move((6.0, 5.0));
+    app.flush_pointer_move();
+    assert_eq!(qcur1_log(&app), "m");
+}
+
+#[test]
+fn qcur1_entering_an_element_fires_over_enter_move_in_order() {
+    let html = "<html><body style='margin:0'><div id=o style='height:40px'><p id=p style='margin:0;height:40px'>hello</p></div></body></html>";
+    let script = "window.L=[]; var o=document.getElementById('o');\
+                  ['pointerover','pointerenter','mouseover','mouseenter'].forEach(function(t){ o.addEventListener(t, function(e){ L.push(t+':'+e.target.id); }); });\
+                  o.addEventListener('pointermove', function(e){ L.push('pm:'+e.target.id); });\
+                  document.addEventListener('mousemove', function(e){ L.push('mm'); });";
+    let Some(mut app) = qcur1_app(html, script) else { return };
+    app.queue_pointer_move((5.0, 5.0));
+    app.flush_pointer_move();
+    let l = qcur1_log(&app);
+    let pos = |s: &str| l.find(s).unwrap_or_else(|| panic!("{s} in {l}"));
+    assert!(pos("pointerover:p") < pos("pointerenter:o") && pos("pointerenter:o") < pos("mouseover:p"), "{l}");
+    assert!(pos("mouseover:p") < pos("mouseenter:o") && pos("mouseenter:o") < pos("pm:p"), "{l}");
+    assert!(pos("pm:p") < pos("mm"), "{l}");
+}

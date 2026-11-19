@@ -381,9 +381,11 @@ const PRELUDE: &str = r#"
     UIEvent.call(this, type, init);
     init = init || {};
     var self = this;
-    ['clientX', 'clientY', 'screenX', 'screenY', 'button', 'buttons'].forEach(function (k) { self[k] = Number(init[k]) || 0; });
+    ['clientX', 'clientY', 'screenX', 'screenY', 'button', 'buttons', 'movementX', 'movementY'].forEach(function (k) { self[k] = Number(init[k]) || 0; });
     ['ctrlKey', 'shiftKey', 'altKey', 'metaKey'].forEach(function (k) { self[k] = !!init[k]; });
-    this.pageX = this.clientX; this.pageY = this.clientY; this.offsetX = this.clientX; this.offsetY = this.clientY;
+    this.pageX = init.pageX === undefined ? this.clientX : Number(init.pageX) || 0;
+    this.pageY = init.pageY === undefined ? this.clientY : Number(init.pageY) || 0;
+    this.offsetX = this.clientX; this.offsetY = this.clientY;
     this.relatedTarget = init.relatedTarget || null;
   });
   var KeyboardEvent = ctor('KeyboardEvent', UIEvent, function (type, init) {
@@ -559,18 +561,33 @@ const PRELUDE: &str = r#"
   };
   Object.defineProperty(g, '__scratchy_dispatch', { value: dispatch });
   var ETP = EventTarget.prototype;
+  // QCUR1: how many listeners exist per pointer-motion event type, so Rust only builds
+  // and dispatches those events when a page can see them. Bit i of the mask = PTR_TYPES[i].
+  var PTR_TYPES = ['mousemove', 'pointermove', 'mouseenter', 'mouseleave', 'pointerover', 'pointerout', 'pointerenter', 'pointerleave'];
+  var ptrCount = {};
+  Object.defineProperty(g, '__scratchy_ptr_mask', { value: function () {
+    var m = 0;
+    for (var i = 0; i < PTR_TYPES.length; i++) if (ptrCount[PTR_TYPES[i]] > 0) m |= 1 << i;
+    return m;
+  } });
   ETP.addEventListener = function (type, fn, opt) {
     if (fn == null || (typeof fn !== 'function' && typeof fn !== 'object')) return;
     var o = normOpts(opt), l = lists(this, String(type), true);
     for (var i = 0; i < l.length; i++) if (l[i].fn === fn && l[i].capture === o.capture) return;
     l.push({ fn: fn, capture: o.capture, once: o.once, passive: o.passive, removed: false });
+    type = String(type);
+    if (PTR_TYPES.indexOf(type) >= 0) ptrCount[type] = (ptrCount[type] | 0) + 1;
   };
   ETP.removeEventListener = function (type, fn, opt) {
     var l = lists(this, String(type), false);
     if (!l) return;
     var c = normOpts(opt).capture;
     for (var i = 0; i < l.length; i++) {
-      if (l[i].fn === fn && l[i].capture === c) { l[i].removed = true; l.splice(i, 1); return; }
+      if (l[i].fn === fn && l[i].capture === c) {
+        l[i].removed = true; l.splice(i, 1);
+        if (ptrCount[String(type)]) ptrCount[String(type)]--;
+        return;
+      }
     }
   };
   ETP.dispatchEvent = function (ev) {
@@ -1348,6 +1365,13 @@ impl JsEngine {
     /// `target` (`None` = `<body>`, else the document) with the given init fields, through
     /// capture/target/bubble. Returns false when a page handler called
     /// `preventDefault`, so the caller must skip its default action.
+    /// QCUR1: bit i set when a page listener exists for `PTR_TYPES[i]` (mousemove,
+    /// pointermove, mouseenter, mouseleave, pointerover, pointerout, pointerenter,
+    /// pointerleave). Cheap: reads a JS-side counter kept by add/removeEventListener.
+    pub(crate) fn pointer_listener_mask(&self) -> u32 {
+        self.eval_value::<f64>("ptrmask", "__scratchy_ptr_mask()").map_or(0, |v| v as u32)
+    }
+
     pub(crate) fn dispatch_event(&self, target: Option<&Handle>, kind: &str, init: &[(&str, EventField)]) -> bool {
         let id = match target {
             Some(h) => self.table.borrow_mut().intern(h),
