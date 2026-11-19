@@ -164,6 +164,8 @@ pub(crate) fn cached_rules(document: &Handle, extra_css: &str) -> Rc<Vec<StyleRu
                             new_pieces.push(piece);
                             new_rules.extend(r);
                         }
+                        // Grow by exactly what is needed (a doubling Vec would double the cache's memory).
+                        v.reserve_exact(new_rules.len().saturating_sub(rem));
                         v.splice(start..start + rem, new_rules);
                         rc.pieces.splice(p..old_end, new_pieces);
                         rc.mask = rc.ua_mask | rc.pieces.iter().fold(0, |a, x| a | x.mask);
