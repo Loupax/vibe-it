@@ -462,7 +462,8 @@ older and were only partly corrected in place):
   gap is QY53 + the `vid=no` round trip): QM1k1n1 DONE (93b7bc0), QM1k1n2 DONE 2026-11-19
   (2163172, R42 section 6: start 3-6x faster; NEXT YouTube blockers in order: QM1k1n4 [P1, second init
   segment freezes playback], QM1k1n5 [P1, fetch results 1-19 s late -> SABR aborts], then
-  QY53d -> QY53e -> QY53g -> QY53f and QM1k1n6 [redraw starvation, Opus design], QM1k1n7 [P3]),
+  QY53d DONE -> QY53h -> QY53e1 -> QY53g -> QY53e2 -> QY53f (QY53e designed 2026-11-19, R43 section 7,
+  PARTIAL: live window not measured, QY53e3) and QM1k1n6 [redraw starvation, Opus design], QM1k1n7 [P3]),
   QM1k1n3 (P3).
   QM1k2 (PoToken) and QM1k3 (native HLS) PARKED by the user. Open: QUESTIONS.md Q7.
 - Still WAITING FOR USER: QCI2 (WPT in CI), QF14b2 (d) `--profile` (later),
@@ -2701,7 +2702,8 @@ shows) -> QY60 (P2, Opus) -> QY58 (P3) -> QY59 (P3). Evidence: REGRESSIONS.md R3
 
 --- NEW 2026-11-19 (Opus, QY53: what forced layouts cost and who forces them; R43) ---
 Ranked by measured gain / effort: QY53a -> QY53b -> QY53c -> QY53d -> QY53e (Opus design first)
--> QY53g -> QY53f (Opus design) -> QY53h. a, b, c are small and independent (any order, one at a
+-> QY53g -> QY53f (Opus design) -> QY53h. RE-RANKED 2026-11-19 after QY53d (R43 section 7):
+QY53h -> QY53e1 -> QY53g -> QY53e2 -> QY53f, QY53e3 (Opus measure) any time before QY53e2 is merged. a, b, c are small and independent (any order, one at a
 time: a and b touch images.rs, c touches js_dom.rs/js_geom.rs). All READY except e/f (design).
 Shared acceptance recipe ("YT watch check"): own wire, `scratchy --perf-report --budget-ms 20000
 --seconds 60 --user-agent '<the Chrome 131 UA of R43>' https://www.youtube.com/watch?v=G1AeBgalFZk`,
@@ -2759,15 +2761,60 @@ divs with 3 classes each, a script that does 50 x (write one attribute, read `of
       matched at most once per build. Accept: big-css fixture forced_layout.total_ms >= 25 % lower
       than after QY53b; Wikipedia Rust `--perf-report --seconds 30` mean per forced layout (R43:
       2.36-2.42 s) >= 25 % lower, median of 3.
-- [ ] QY53e [M] (P2, R43, Opus design first, then Sonnet) IntersectionObserver evaluation must not
-      force its own layout. Wikipedia Rust: 7 of 8 forced layouts (16.9 of 18.9 s, 2.4 s each) are
-      scratchy's `obsFlush` -> `ioEval` -> `gViewRect`, re-run because a timer wrote 1-3 attributes.
-      A browser evaluates IO after its own rendering update. DESIGN (Opus, docs): can the App hand
-      the JS side the rects of observed targets after its own per-turn relayout (it lays the same
-      DOM out anyway), with IO rechecks deferred to that point; what happens headless (no App
-      layout: keep today's path); how stale may a target rect be. Measure the App's relayout vs
-      GeomCache duplication in a live window first (R43 "not established"). Accept (implementation):
-      Wikipedia Rust in a live window: forced layouts from `obsFlush` 0; headless unchanged or better.
+- [x] QY53e DESIGNED 2026-11-19 (Opus, docs only; R43 section 7; PARTIAL: the coordinator drained the
+      machine before the live-window measurement, filed as QY53e3). Split into QY53e1/e2/e3 below.
+      Headless after QY53d: Wikipedia Rust 30 s, 3 runs: 7 of 8 forced layouts (8.3-8.7 of 9.4-9.8 s
+      = 88-89 %) are IO rechecks, and only the FIRST (initial `observe`) delivers an entry; the other
+      5-6 (~6-7 s per 30 s) deliver nothing. YouTube watch 60 s: IO 24/142 layouts (9.0 of 24.7 s,
+      36 %), 13/217 (4.2 of 37.1 s, 11 %), 7/194 (1.1 of 21.4 s, 5 %, run cut at ~60 s).
+- [ ] QY53e1 [S] (P2, R43 section 7, Sonnet) READY after QY53h. Deferred, rate-limited IO rechecks
+      (works headless and in the window). A recheck caused ONLY by a geometry-generation change
+      (`ioSigOf` moved but scroll/viewport/`gScrollGen` did not; not `observe()`, not `takeRecords()`)
+      must not force a layout: new native `__d_geom_fresh(vw, vh)` (GeomCache key == current key,
+      no layout, no `page_css()` clone: needs QY53h's CSS version key). Fresh -> evaluate now (free).
+      Stale -> keep `st.need`, remember `ioDue = now + max(100 ms, 4 x last forced-layout CPU ms,
+      capped at 2000 ms)` (new native or a perf getter for the last forced-layout cost) and evaluate at
+      the first of: (a) the end of any task after which the geometry is fresh (a script read forced
+      it: free), checked in `__scratchy_ioTick`; (b) `ioDue` passed (one timer at `ioDue`, NOT one
+      per write; later writes do not move `ioDue`). Scroll, resize, element scroll and `observe()`
+      keep today's immediate path (user-visible / initial entries). Bound: IO forced layouts use at
+      most ~20 % of the main thread. Tests (js_dom_tests.rs, test-only GEOM_LAYOUTS counter + a
+      test clock if the timer queue has one): observe -> initial entry with one layout; 10 writes
+      100 ms apart that move nothing -> at most ceil(1000 / ioDue) layouts, entries still correct
+      after a write that moves the target out of view (delivered by `ioDue`); a script read after
+      a write -> IO re-evaluates on that layout without a second one; scroll -> immediate entry.
+      Accept: tests; Wikipedia Rust headless `--perf-report --seconds 30`, median of 3: forced
+      layouts from IO <= 3 (today 7) and forced_layout.total_ms >= 40 % lower; YT watch check
+      reported. Risk: lazy-load/infinite-scroll observers fire up to `ioDue` late after a DOM-only
+      change (spec gives IO no timing guarantee; browsers deliver at the next frame).
+- [ ] QY53e2 [M] (P2, R43 section 7, Sonnet) after QY53e1. In a window, IO uses the App's own
+      layout instead of forcing one. On a COMPLETE `ShapeResult` for the current `layout_generation`
+      (`App::handle_shape_result`, `!incomplete`), the App calls a new `JsEngine::rendered_geometry(
+      &laid, built_gen, vw, vh)` (`built_gen` = `geom_gen()` recorded when that tree was built in
+      `App::redraw`; JS and App share the main thread, so `geom_gen()` is readable there). The JS side
+      keeps a second, read-only rect map `rendered` in GeomCache (filled with the existing `walk()`,
+      ~ms; no glyphs) and runs every pending IO evaluation against it (`gRect` in "rendered" mode via
+      a new `__d_rect_r`, never refreshing). Rules: a target with no entry in `rendered` while
+      `built_gen != geom_gen()` stays pending (it was inserted after the build; avoids a false
+      `isIntersecting:false`); `ioShown`'s `__d_cs` style checks stay as they are (style only);
+      `rendered` is dropped on navigation and viewport change. QY53e1's deadline stays as the
+      fallback (no App layout completes in time, headless, hidden window). Do NOT serve script
+      reads from `rendered` here (images are sized there but not in GeomCache: two geometries; that is
+      QY53e3's question). Tests: unit test that installs a fake rendered map and checks IO entries
+      without a GeomCache layout (GEOM_LAYOUTS unchanged); target inserted after the build stays
+      pending; navigation clears it. Accept: tests; live window (nested dwl, own wire) Wikipedia
+      Rust 30 s: forced layouts from `obsFlush` <= 1 (the initial one before the first App layout);
+      screenshot unchanged; YT watch live run reported.
+- [ ] QY53e3 [S] (P2, R43 section 7, Opus measure, docs only) The part of the QY53e design the drain
+      cut off: in a live window (nested dwl, own wire, Wikipedia Rust and YT watch 60 s) measure
+      (A) App tree builds at a geometry generation GeomCache already laid out (App could reuse the
+      JS side's `LayoutBox` tree), (B) forced layouts at a generation an App build already built
+      (script reads could be served by the App's layout), (C) delay from an IO recheck to the next
+      complete App layout (QY53e2's latency), (D) complete App layouts still current at completion,
+      and App rebuilds after only no-op writes (`dirty` is set on EVERY write, also those QY53c
+      skips for `GEOM_GEN`; code reading 2026-11-19, not measured). Recipe: the throwaway lines of
+      R43 section 7 (one stderr line per forced layout / App build / complete ShapeResult with
+      `geom_gen()`). Output: numbers in R43 + items if A or B is large.
 - [ ] QY53g [M] (P2, R43, Sonnet, measure first) Faster selector matching. After QY53a+b the
       YouTube profile is `matching_declarations_for` 25 %, `str::SplitWhitespace` 24 % (`El::has_class`
       in dom.rs splits the class attribute with Unicode `split_whitespace` on EVERY check, also for
@@ -2788,7 +2835,7 @@ divs with 3 classes each, a script that does 50 x (write one attribute, read `of
       do about `:hover`/animations/viewport units. Not incremental LAYOUT: `measure_document` is
       0.4 % of a YouTube forced layout (13 % on Wikipedia). Output: design + Sonnet items with
       fixture gates.
-- [ ] QY53h [S] (P3, R43, Sonnet/Haiku) READY. `GeomCache::refresh` calls `js_style::page_css()`
+- [ ] QY53h [S] (P2 since 2026-11-19: prerequisite of QY53e1's cheap freshness check; R43, Sonnet/Haiku) READY. `GeomCache::refresh` calls `js_style::page_css()`
       on every geometry read, cache hit or not, which clones the whole external + adopted CSS
       (3.8 MB on YouTube): 0.77 s per 60 s (0.8 %). Key the cache on the CSS version counters
       (`CSS_VER`) and only build the string on a miss. Test: a hit does not call `page_css`

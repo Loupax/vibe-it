@@ -1,6 +1,6 @@
 # scratchy — regressions
 
-## R43: Where forced layout goes (QY53): on the YouTube watch page 88 % of it is the player's `getPlayerSize` reading `#movie_player.clientWidth`, 80 % of those layouts change no box at all, and 99.5 % of each one is STYLE and BOX BUILD (layout proper 0.4 %); half of that is one O(elements x rules) scan for `::first-line`/`::first-letter` rules. On Wikipedia it is scratchy's OWN IntersectionObserver evaluation (Opus investigator QY53, 2026-11-19) — OPEN: QY53a-QY53h
+## R43: Where forced layout goes (QY53): on the YouTube watch page 88 % of it is the player's `getPlayerSize` reading `#movie_player.clientWidth`, 80 % of those layouts change no box at all, and 99.5 % of each one is STYLE and BOX BUILD (layout proper 0.4 %); half of that is one O(elements x rules) scan for `::first-line`/`::first-letter` rules. On Wikipedia it is scratchy's OWN IntersectionObserver evaluation (Opus investigator QY53, 2026-11-19) — OPEN: QY53a-QY53h (a-d DONE; QY53e designed in section 7, PARTIAL, split into QY53e1-e3)
 
 **Status: investigation only, docs only.** Main b8d865f, own worktree release build (V8 + media,
 RUSTY_V8_ARCHIVE = existing librusty_v8.a, `nice -n 19 -j2`). Own wire on a scratchpad socket.
@@ -121,6 +121,70 @@ YouTube forced layout and 13 % on Wikipedia; nothing to win until style is cheap
 Rough projection for YouTube (multiplying measured or upper-bound factors, NOT measured together):
 1+2 (-57 %), 3 (-34 % of layouts), 4 (up to -40 % of the rest): 101 s -> ~17 s of forced layout per
 60 s. That would still leave ~30 % of the main thread busy; 7 is what removes the rest.
+
+### 7. QY53e design: IntersectionObserver without its own forced layout (Opus, 2026-11-19, PARTIAL)
+**Partial:** the coordinator drained the machine before the live-window (nested dwl) runs, so the
+App-vs-GeomCache duplication is still not measured (QY53e3). Headless numbers below are measured.
+Main 9473913 (after QY53d), own worktree release build, own wire on a scratchpad socket, R43 mode
+(`--perf-report --budget-ms 20000`, Wikipedia 30 s default UA, YouTube 60 s Chrome 131 UA). No
+challenge or consent wall. **Throwaway instrumentation (reverted with `git checkout`):** one stderr
+line per GeomCache miss (time, `geom_gen`, viewport, wall/CPU ms, whether `ioEval` was on the stack,
+CSS length); one per `ioRecheck` and `ioEval` (and whether it queued an entry); one when a script
+read later hit a layout IO had forced; one per App tree build (`geom_gen` at build, CPU ms) and per
+complete `ShapeResult` (`geom_gen` at build vs now). The App lines are for QY53e3 (not run).
+
+**How it works today (code reading).** `__scratchy_timers_run_one` calls `__scratchy_ioTick` before
+and after EVERY timer; when `ioSigOf()` (geometry generation, viewport, window scroll, `gScrollGen`)
+differs, `ioRecheck` (a 0 ms timer) marks every active observer `need` and `obsFlush` runs `ioEval`,
+whose `gViewRect` -> `gRect` -> `__d_rect` -> `GeomCache::refresh` lays the whole page out when the
+key moved. So any connected value-changing write followed by a timer turn = one full forced layout,
+whether or not any observed box could have moved.
+
+**Measured (headless, after QY53d):**
+| page | runs | forced layouts | of them IO | IO CPU | IO evaluations that queued an entry |
+|---|---|---|---|---|---|
+| Wikipedia Rust 30 s | 3 | 8 / 8 / 8 (9.8 / 9.5 / 9.4 s, mean 1.17-1.23 s each) | 7 / 7 / 7 | 8.7 / 8.4 / 8.3 s (88-89 %) | run 3: 1 of 7 IO layouts (the first, initial `observe`); the 6 rechecks (~7 s) queued nothing |
+| YouTube watch 60 s | 3 (3rd cut at ~60 s) | 142 / 217 / 194 (24.7 / 37.1 / 21.4 s; mean 110-174 ms) | 24 / 13 / 7 | 9.0 / 4.2 / 1.1 s (36 / 11 / 5 %) | run 3: 7 of 7; 4 of those 7 generations were read again by page script later (the layout was not wasted) |
+Wikipedia's shape: after the load, a page timer writes 1-5 attributes about every 1.2 s for ~10 s;
+each write -> `ioRecheck` -> a 1.1-1.3 s layout -> the next write lands during it -> again, so IO is
+busy back to back and never changes its answer. YouTube's IO layouts come in bursts (every ~0.5 s for
+10 s in run 1) and do change answers. Per-layout cost after QY53a-d: YouTube 110-174 ms mean (R43
+main: 274-467), Wikipedia 1.17-1.23 s (R43: 2.36-2.42 s).
+
+**Design.**
+1. Deferred, rate-limited rechecks (QY53e1, headless and window). Only rechecks triggered by a
+   geometry-generation change are deferred; `observe()`, `takeRecords()`, window/element scroll and
+   viewport changes keep the immediate path. If GeomCache is already fresh (a script read laid out
+   this generation), evaluate now for free. Otherwise evaluate at the first of: the end of a task
+   after which the geometry became fresh, or a deadline `max(100 ms, 4 x last forced-layout CPU)`
+   capped at 2 s, set when the first deferral starts and not moved by later writes. That bounds IO
+   to ~20 % of the main thread and folds Wikipedia's 6 empty rechecks per 10 s into ~2. The
+   freshness check must be cheap: `GeomCache::refresh` clones `page_css()` per call today, so QY53h
+   (key on CSS version counters) comes first.
+2. Use the App's layout in a window (QY53e2). The App lays out the same DOM on the same thread after
+   every write batch (`js_sync` -> `request_js_restyle`, build in `App::redraw`, measure on the
+   shaping worker, complete `ShapeResult` back on the main thread). On a complete, current
+   `ShapeResult`, hand its `Laid` to GeomCache as a separate read-only `rendered` rect map (`walk()`,
+   tagged with `geom_gen()` at build time) and run pending IO evaluations against it. That is what a
+   browser does: IO runs in "update the rendering", after the frame's own layout. Staleness: at most
+   one App layout behind (spec: IO has no timing guarantee). A target missing from `rendered` while
+   the generation moved stays pending (inserted after the build). Script reads are NOT served from
+   `rendered` (the App sizes images, GeomCache does not: two geometries; QY53e3 decides).
+3. Headless: there is no App, so only design point 1 applies (unchanged behaviour otherwise).
+**Expected gain:** Wikipedia Rust headless: IO layouts 7 -> ~2-3, forced-layout CPU about -50-60 %
+(~5 of 9.5 s per 30 s); with 2 in a window, IO layouts -> 0-1. YouTube: up to the IO share (5-36 %
+of forced-layout CPU) in a window, less headless because about half of YouTube's IO generations
+are read by script anyway. **Risk:** observers (lazy load, infinite scroll, sticky headers) fire up to
+the deadline later after DOM-only changes (scroll stays immediate); a wrong "not intersecting" entry
+for targets inserted after the App build if the pending rule is missed (tested in QY53e2).
+
+**QY53g / QY53f after QY53d:** still the right next items, re-ranked. Wikipedia's forced-layout time
+is now 88 % IO, so QY53e1 (S) is the cheapest big win there; QY53h moves up because e1 needs its
+cheap key. YouTube's forced layouts are 64-95 % script reads (`getPlayerSize`, R43 section 2) that
+no IO change touches, and each still costs 110-174 ms of style: QY53g (faster matching) is the
+lever for those and for every remaining IO layout, then QY53e2, then QY53f (L). Not re-profiled in
+this run (the QY53g profile shares are R43 section 5, before QY53d). New order: QY53h -> QY53e1 ->
+QY53g -> QY53e2 -> QY53f; QY53e3 before QY53e2 merges.
 
 ### Not established
 Whether the App's own (main-thread, per-turn) relayout could serve geometry reads or IO directly
