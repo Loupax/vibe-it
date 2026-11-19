@@ -2140,7 +2140,11 @@ impl App {
     /// QF7: starts queued page requests, one thread each (like image
     /// fetches), as far as the policy's parallelism and byte caps allow.
     fn pump_net(&mut self) {
-        let (proxy, generation) = (self.proxy.clone(), self.nav_generation);
+        // QM1k1n6: borrow, never clone, the proxy here. Dropping an `EventLoopProxy`
+        // pings the event loop (calloop `Sender::drop`), and this runs every turn
+        // (`about_to_wait` -> `js_sync`), so a clone per call woke the loop at once,
+        // forever: 20-40k idle turns/s and one core at 100 % on any page with JS.
+        let (proxy, generation) = (&self.proxy, self.nav_generation);
         let exec = crate::js_net::net_executor();
         self.net.pump(&mut |job| {
             let (proxy, exec) = (proxy.clone(), exec.clone());
