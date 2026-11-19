@@ -68,12 +68,12 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
   17a QY53f1 [S/M] incremental stylesheet parse (YT max_ms = full 4.4 MB re-parse); after QOBS3 | QY53 block
  Step 5, memory, regression guards, re-measure:
   18 QOBS7 [S]  memory breakdown (YT: 714 MB RSS vs 124 MB JS heap)                 | QOBS block
-  19 [WIP] QOBS8 [S]  perf-diff tool       20 [WIP] QOBS10 [S] offline forced-layout benchmark  | QOBS block
+  19 DONE 4123b55 QOBS8 [S]  perf-diff tool       20 [WIP] QOBS10 [S] offline forced-layout benchmark  | QOBS block
   21 QY60 [S, Opus measure] main-thread throughput on YouTube results (re-measure after steps 2-4)
   22 QY54 [S, Opus measure] compositor disconnect under stalls (re-run after steps 2-4)
   23 QAN1h [S, Opus] GitHub restyle 15-18 s: re-measure with QOBS1 first (likely changed by QY53a-d)
   24 QY33 [M] YouTube post-load timer callbacks over budget: re-measure first (numbers are QuickJS-era)
-  25 QP3 [S]  font-match cache miss cost      26 QY47b [S] fewer JS frames per createElement
+  25 [WIP] QP3 [S]  font-match cache miss cost      26 QY47b [S] fewer JS frames per createElement
   27 QOBS9 [S, Opus] re-baseline PERF.md on the new machine (after 9, 18, 20)
   28 QM1k-mouse: the USER's re-check after steps 2-4 (the user deferred it until then; ask the user)
  Step 6, re-profile before leaving performance (user 2026-11-19):
@@ -499,7 +499,7 @@ dropped selectors summed across those pages. Caveats:
 - [x] QP0 [Opus, investigate only] (DONE 2026-11-17, evidence REGRESSIONS.md R32; [archived: TODO-DONE.txt]
 - [x] QP1 [S] (DONE 2026-11-17, commit 6c1ae4e; P1, TOP of the perf items, R32) One-word fix in `shape_spans` [archived: TODO-DONE.txt]
 - [x] QP2 [S] DONE 2026-11-17 (d5fe517) (P3, after QP1, R32 secondary 1-2) Let forced layouts on the JS thread [archived: TODO-DONE.txt]
-- [ ] QP3 [S] (P3, measure first, after QP1) Cost of a font-match cache MISS: each
+- [ ] [WIP] QP3 [S] (P3, measure first, after QP1) Cost of a font-match cache MISS: each
       miss runs `FontMatchKey::new` for every face, and for each face whose weight
       differs it calls `fontdb::Database::with_face_data`, which with the memmap
       feature opens and mmaps the font file every time. After QP1 misses happen once
@@ -1335,11 +1335,6 @@ Shared rules for this block:
       (sum of string/vec capacities), documented as such. YouTube today: 714 MB RSS vs 124 MB JS heap,
       ~590 MB unexplained. Tests: fields present; an interned map shows up in the interner count.
       Accept: tests; YT watch JSON pasted with the share of RSS the listed caches explain.
-- [ ] [WIP] QOBS8 [S] (P2, Haiku/Sonnet; tools only) `tools/perf-diff.py old.json new.json [--threshold 5]`:
-      reads two `--perf-report` objects OR two `perf-suite.sh` outputs (per-page medians) and prints a
-      table of numeric fields whose change is above the threshold (%), sorted by size, with the page,
-      field, old, new and %. stdlib only, `python3 -I`. PERF.md: "every perf PR pastes perf-diff of
-      main vs branch". Smoke: diff two runs of the same commit (expect only noise) and paste.
 - [ ] [WIP] QOBS10 [S] (P2, Sonnet) Offline, deterministic forced-layout benchmark: add the QY53 "big-css"
       fixture (generated in code, never vendored) to `benches/layout.rs` (criterion), measuring one
       `build_layout_tree_with_resources` + `measure_document` after a single attribute write, plus a

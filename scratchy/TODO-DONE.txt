@@ -6524,3 +6524,10 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       do about `:hover`/animations/viewport units. Not incremental LAYOUT: `measure_document` is
       0.4 % of a YouTube forced layout (13 % on Wikipedia). Output: design + Sonnet items with
       fixture gates.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QOBS8 DONE 4123b55 [S] (P2, Haiku/Sonnet; tools only) `tools/perf-diff.py old.json new.json [--threshold 5]`:
+      reads two `--perf-report` objects OR two `perf-suite.sh` outputs (per-page medians) and prints a
+      table of numeric fields whose change is above the threshold (%), sorted by size, with the page,
+      field, old, new and %. stdlib only, `python3 -I`. PERF.md: "every perf PR pastes perf-diff of
+      main vs branch". Smoke: diff two runs of the same commit (expect only noise) and paste.
