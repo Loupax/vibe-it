@@ -138,6 +138,16 @@ fn walk(l: &Laid, fixed: bool, out: &mut HashMap<usize, GeomRect>) -> (f32, f32)
 const SHAPE_MEMO_CAP: usize = 4096;
 
 impl GeomCache {
+    /// QOBS7: `((rect entries, bytes), (glyph entries = text nodes, bytes))`, by capacity.
+    pub(crate) fn mem_estimate(&self) -> ((usize, usize), (usize, usize)) {
+        let rects = (self.rects.len(), self.rects.capacity() * (std::mem::size_of::<(usize, GeomRect)>() + 1));
+        let glyphs = (
+            self.glyphs.len(),
+            self.glyphs.capacity() * (std::mem::size_of::<(usize, Vec<Glyph>)>() + 1) + self.glyphs.values().map(|v| v.capacity() * std::mem::size_of::<Glyph>()).sum::<usize>(),
+        );
+        (rects, glyphs)
+    }
+
     /// QY53e1: would a read at this viewport be served without a layout? Cheap: no layout, no CSS string.
     pub(crate) fn is_fresh(&self, wgen: u64, vw: f32, vh: f32) -> bool {
         self.key == Some((wgen, vw as u32, vh as u32, crate::js_style::css_ver()))

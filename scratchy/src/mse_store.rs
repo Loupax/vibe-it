@@ -1031,6 +1031,11 @@ pub struct MseFeed {
 static NEXT_FEED_ID: AtomicU64 = AtomicU64::new(1);
 
 impl MseFeed {
+    /// QOBS7: bytes of media this feed stores (init + segments); 0 when the lock is busy.
+    pub fn stored_bytes(&self) -> usize {
+        self.state.try_lock().map_or(0, |s| s.store.total_bytes())
+    }
+
     pub fn new(store: MseStore) -> Arc<MseFeed> {
         Arc::new(MseFeed { id: NEXT_FEED_ID.fetch_add(1, Ordering::Relaxed), state: Mutex::new(FeedState { store, ended: false }), cv: Condvar::new() })
     }

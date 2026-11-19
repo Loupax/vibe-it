@@ -1498,6 +1498,12 @@ impl Engine {
         self.iso().get_heap_statistics().used_heap_size() as i64
     }
 
+    /// QOBS7: `(used, total, external)` heap bytes from V8's `get_heap_statistics`.
+    pub(crate) fn heap_stats(&self) -> (i64, i64, Option<i64>) {
+        let h = self.iso().get_heap_statistics();
+        (h.used_heap_size() as i64, h.total_heap_size() as i64, Some(h.external_memory() as i64))
+    }
+
     /// Runs every queued promise job, ignoring failures and the budget (the bare corpus eval).
     pub(crate) fn run_all_jobs(&self) {
         self.iso().perform_microtask_checkpoint();

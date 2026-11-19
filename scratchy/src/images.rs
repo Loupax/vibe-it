@@ -2225,3 +2225,16 @@ pub(crate) fn collect_style_css(handle: &Handle, out: &mut String) {
         collect_style_css(child, out);
     }
 }
+
+/// QOBS7: `(entries, approx bytes)` of `SVG_SIZED_CACHE` (decoded pixels dominate).
+pub(crate) fn svg_sized_cache_mem() -> (usize, usize) {
+    SVG_SIZED_CACHE.with(|c| {
+        let c = c.borrow();
+        let b = c
+            .values()
+            .flatten()
+            .map(|i| std::mem::size_of::<DecodedImage>() + i.pixels.capacity() * std::mem::size_of::<TextColor>())
+            .sum::<usize>();
+        (c.len(), b)
+    })
+}

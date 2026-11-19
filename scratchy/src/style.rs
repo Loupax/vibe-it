@@ -2553,3 +2553,36 @@ pub(crate) fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
 pub(crate) fn normalize_whitespace(s: &str) -> String {
     s.split(is_css_ws).filter(|w| !w.is_empty()).collect::<Vec<_>>().join(" ")
 }
+
+/// QOBS7: `(entries, approx bytes)` of `RULES_CACHE` (source text + parsed rules; a rule's
+/// selector heap is not counted, so this undercounts) and of `RULE_INDEX` + `HOVER_KEYS`.
+pub(crate) fn rules_cache_mem() -> ((usize, usize), (usize, usize)) {
+    let rules = RULES_CACHE.with(|c| match &*c.borrow() {
+        Some((css, rules, _, _)) => (rules.len(), css.capacity() + rules.capacity() * std::mem::size_of::<StyleRule>()),
+        None => (0, 0),
+    });
+    let buckets = |b: &RuleBuckets| -> (usize, usize) {
+        let m = |h: &HashMap<String, Vec<usize>>| -> (usize, usize) {
+            (h.len(), h.iter().map(|(k, v)| k.capacity() + 24 + v.capacity() * 8 + 24).sum::<usize>())
+        };
+        let (a, b1) = m(&b.by_id);
+        let (c, b2) = m(&b.by_class);
+        let (d, b3) = m(&b.by_tag);
+        (a + c + d, b1 + b2 + b3 + b.universal.capacity() * 8)
+    };
+    let index = RULE_INDEX.with(|c| match &*c.borrow() {
+        Some((_, _, ix)) => {
+            let (n1, b1) = buckets(&ix.normal);
+            let (n2, b2) = buckets(&ix.pseudo);
+            let anc: usize = ix.ancestor_hashes.iter().map(|s| 16 + s.len() * std::mem::size_of::<selectors::parser::AncestorHashes>()).sum();
+            (n1 + n2 + ix.ancestor_hashes.len(), b1 + b2 + anc)
+        }
+        None => (0, 0),
+    });
+    let hover = HOVER_KEYS.with(|h| {
+        let h = h.borrow();
+        let set = |s: &std::collections::HashSet<String>| s.iter().map(|k| k.capacity() + 24).sum::<usize>();
+        (h.ids.len() + h.classes.len() + h.tags.len(), set(&h.ids) + set(&h.classes) + set(&h.tags))
+    });
+    (rules, (index.0 + hover.0, index.1 + hover.1))
+}

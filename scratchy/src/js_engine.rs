@@ -386,6 +386,12 @@ impl Engine {
         self.rt.memory_usage().memory_used_size
     }
 
+    /// QOBS7: `(used, total, external)` heap bytes; QuickJS has no external figure.
+    pub(crate) fn heap_stats(&self) -> (i64, i64, Option<i64>) {
+        let m = self.rt.memory_usage();
+        (m.memory_used_size, m.malloc_size, None)
+    }
+
     /// Runs every queued promise job, ignoring failures and the budget (the bare corpus eval).
     pub(crate) fn run_all_jobs(&self) {
         while self.rt.is_job_pending() {
