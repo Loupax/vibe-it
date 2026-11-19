@@ -7976,3 +7976,27 @@ Done: R38. The `true` is `<img alt="true">` (YouTube calls `setAttribute('alt', 
 > Item QYTC1a [M] (P1 perf): a `style` attribute write whose parsed declarations differ from the old ones ONLY in paint-only fields, a translate transform, or px `left`/`top` on an abs/fixed box with definite width (R50 conditions) shifts the cached rects in place (GeomCache flat pre-order skeleton) instead of bumping the geometry generation; everything else falls back to the full layout. Correctness over coverage. Tests: abs `left` + translate fixture -> 0 extra forced layouts and the same rects as a fresh layout; `[style*=x]` / attr(style) / `!important` / `width: auto` / `display` / fixed descendant -> full layout. Measure with the R50 recipe before and after under the perf flock. Not QYTC1b.
 
 **What changed:** js_geom.rs: `Skel` skeleton built by `walk`, `style_write_delta` (parse old/new, compare everything but the allowed fields, translate/left/top deltas), `GeomCache::style_write_in_place` (current layout, `AttrReaders`, per-element `!important` match via `rules_important_geo` + `important_geo_matches`, abs/fixed + no animation for a move, hoisted descendants shifted with the box, `fixed` ones refuse, ancestors' extents redone), `glyphs_stale`, `GEOM_SHIFTS`. js_dom.rs: `__d_setattr` tries it before `geom_bump_attr`; `__d_ggen` adds the shift count. css.rs: `StyleRule::may_declare_important` (a `!` scan, no parse). Tests `qytc1a_*` in js_geometry_tests.rs (every rect and ink extent compared with a fresh layout). R50 "QYTC1a result": forced layouts with the controls shown ~11-17/s -> ~1/s. QYTC1b (restore-value cancel) does not fall out of this hook and is not done.
+
+## QSTASH-D: persistent storage design, STASH.md (design session, docs only)
+
+The prompts of the design session, in order:
+
+> I've been thinking, we'll need some persistance soon in scratchy. history, local storage, things like that. I wonder if we can have the store external similarly to how we do with wire. I can have an "in memory" store that persists changes between scratchy sessions, and I can give it commands to have it store data to the disk later. give me a critical review of such a feature
+
+> I agree with the overall design, but I don't like how wire becomes an "everything io" tool
+
+> try and show me how this daemon will work. paint me a picture during a browsing session
+
+> first of all, like the name stash. second, any specific reason we use HTTP vocabulary?
+
+> we got the design of wire for free because it's basically an http client. I want to think about stash a bit more. Initially I was thinking of being able to have an in-memory version of stash, an HDD backed version, maybe an s3 version later all in separate binaries. Or even if we keep a single binary this design choice will force our design to be extendable. On the other hand storing data is basically "writing to disk". Maybe we could mimic the "everything is a file" philosophy of linux and lean on the existing file io interface. how would an interface needed by scratchy look like?
+
+> I agree using the FS as an absraction is likely the best solution for this. Is the netstring still necessary? what problem does it solve?
+
+> what will happen if I open a WTF-8 encoded file in nvim and make changes to it? will parsing break?
+
+> regarding data races. Can we introduce a locking system between scratchy instances?
+
+> do it in a PR so I can review it first
+
+**What changed:** docs only. New `STASH.md` (no daemon; `--state-dir` with one file per localStorage key, WTF-8 values with a one-trailing-newline rule, per-site flock with a generation number, sessionStorage never on disk, wire keeps the jar with `--cookie-file`, history deferred). TODO.txt: decision QSTASH-D, items QSTASH1-QSTASH5, a queue note (after the perf queue), QF-D7 marked superseded for these stores. wire/TODO.txt: W-PERSIST1.
