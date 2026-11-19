@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, Criterion};
 use scratchy::{build_layout_tree, measure, new_font_system, parse_html, Floats, ShapeCache};
 use std::hint::black_box;
 
@@ -176,5 +176,136 @@ fn bench_real_page(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_build_layout_tree, bench_measure, bench_measure_mixed_inline, bench_real_page);
-criterion_main!(benches);
+/// QOBS10: the QY53 "big-css" fixture (generated here, never vendored): 20 000
+/// class rules (`.c<i> .d<i> { margin-left: 1px }`), 200 `::before` rules, and
+/// 1 000 nested divs with 3 classes each. `custom_props` adds 200 custom
+/// properties on `:root` plus an inline override on every 10th div (QY53i);
+/// `long_text` appends 100 paragraphs of ~2 000 characters (QP4).
+fn big_css_html(custom_props: bool, long_text: bool) -> String {
+    let mut s = String::from("<!doctype html><html><head><style>\n");
+    for i in 0..20_000 {
+        s.push_str(&format!(".c{i} .d{i} {{ margin-left: 1px }}\n"));
+    }
+    for i in 0..200 {
+        s.push_str(&format!(".e{i}::before {{ content: \"x\" }}\n"));
+    }
+    if custom_props {
+        s.push_str(":root {");
+        for i in 0..200 {
+            s.push_str(&format!(" --p{i}: {i}px;"));
+        }
+        s.push_str(" }\ndiv { padding-left: var(--p1, 0px); margin-top: var(--p2, 0px) }\n");
+    }
+    s.push_str("</style></head><body>\n");
+    for i in 0..1000 {
+        if custom_props && i % 10 == 0 {
+            s.push_str(&format!("<div id=\"n{i}\" class=\"c{i} d{i} e{}\" style=\"--p{}: 7px\">", i % 200, i % 200));
+        } else {
+            s.push_str(&format!("<div id=\"n{i}\" class=\"c{i} d{i} e{}\">", i % 200));
+        }
+    }
+    s.push_str("leaf");
+    for _ in 0..1000 {
+        s.push_str("</div>");
+    }
+    if long_text {
+        for p in 0..100 {
+            s.push_str(&format!("<p>Paragraph {p}: "));
+            for w in 0..300 {
+                s.push_str(&format!("word{} ", (p * 31 + w * 7) % 997));
+            }
+            s.push_str("</p>\n");
+        }
+    }
+    s.push_str("</body></html>");
+    s
+}
+
+fn find_by_id(h: &markup5ever_rcdom::Handle, id: &str) -> Option<markup5ever_rcdom::Handle> {
+    if let markup5ever_rcdom::NodeData::Element { attrs, .. } = &h.data
+        && attrs.borrow().iter().any(|a| a.name.local.as_ref() == "id" && &*a.value == id)
+    {
+        return Some(h.clone());
+    }
+    h.children.borrow().iter().find_map(|c| find_by_id(c, id))
+}
+
+fn find_tag(h: &markup5ever_rcdom::Handle, tag: &str) -> Option<markup5ever_rcdom::Handle> {
+    if let markup5ever_rcdom::NodeData::Element { name, .. } = &h.data
+        && name.local.as_ref() == tag
+    {
+        return Some(h.clone());
+    }
+    h.children.borrow().iter().find_map(|c| find_tag(c, tag))
+}
+
+/// One forced layout as the page script's `write attribute; read offsetWidth`
+/// pays it: write one attribute (`data-w`), then
+/// `build_layout_tree_sized` (= `build_layout_tree_with_resources` with no
+/// extra CSS) + `measure_document`. With `style_append`, a small `<style>`
+/// element with different text each iteration is appended to `<head>` before
+/// the build (and removed after), so the stylesheet source changes and the
+/// rule cache misses: that measures the stylesheet re-parse cost (QY53f1).
+fn bench_big_css_variant(c: &mut Criterion, name: &str, custom_props: bool, long_text: bool, style_append: bool) {
+    let document = parse_html(&big_css_html(custom_props, long_text));
+    let target = find_by_id(&document, "n999").expect("innermost div");
+    let head = find_tag(&document, "head").expect("head");
+    let mut font_system = new_font_system();
+    let mut cache = ShapeCache::new();
+    let mut tick = 0u64;
+    let mut group = c.benchmark_group("forced_layout");
+    group.sample_size(10);
+    group.bench_function(name, |b| {
+        b.iter(|| {
+            tick += 1;
+            if let markup5ever_rcdom::NodeData::Element { attrs, .. } = &target.data {
+                let mut attrs = attrs.borrow_mut();
+                let v: html5ever::tendril::StrTendril = tick.to_string().into();
+                match attrs.iter_mut().find(|a| a.name.local.as_ref() == "data-w") {
+                    Some(a) => a.value = v,
+                    None => attrs.push(html5ever::Attribute { name: html5ever::QualName::new(None, html5ever::ns!(), html5ever::LocalName::from("data-w")), value: v }),
+                }
+            }
+            let extra = style_append.then(|| {
+                let frag = parse_html(&format!("<style>.s{tick} {{ color: red }}</style>"));
+                let style = find_tag(&frag, "style").unwrap();
+                head.children.borrow_mut().push(style.clone());
+                style
+            });
+            let tree = scratchy::build_layout_tree_sized(black_box(&document), 1052.0, 1050.0);
+            if extra.is_some() {
+                head.children.borrow_mut().pop();
+            }
+            let mut next_id = 0usize;
+            let mut incomplete = false;
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(600);
+            black_box(scratchy::measure_document(&tree, &mut font_system, 1052.0, 1050.0, &mut next_id, &mut cache, deadline, &mut incomplete))
+        });
+    });
+    group.finish();
+}
+
+fn bench_big_css(c: &mut Criterion) {
+    bench_big_css_variant(c, "big_css", false, false, false);
+    bench_big_css_variant(c, "big_css, 200 custom props + overrides", true, false, false);
+    bench_big_css_variant(c, "big_css, 100 long text paragraphs", false, true, false);
+    bench_big_css_variant(c, "big_css, small <style> appended (stylesheet re-parse)", false, false, true);
+}
+
+criterion_group!(benches, bench_build_layout_tree, bench_measure, bench_measure_mixed_inline, bench_real_page, bench_big_css);
+
+/// The big-css fixture nests 1 000 divs, which overflows the default 8 MB
+/// main-thread stack in style/layout recursion until QSTK1 merges, so the
+/// whole bench body runs on a thread with a 256 MB stack (same rule/element
+/// counts as the QY53 fixture, no shallower structure).
+fn main() {
+    std::thread::Builder::new()
+        .stack_size(256 << 20)
+        .spawn(|| {
+            benches();
+            Criterion::default().configure_from_args().final_summary();
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
