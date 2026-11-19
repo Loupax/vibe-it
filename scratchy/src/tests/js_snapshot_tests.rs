@@ -87,3 +87,61 @@ fn qv8_4_dom_of_the_page_not_the_snapshots_empty_document() {
     );
     assert_eq!(*out.borrow(), ["log:DIV c 2 HTML 1"]);
 }
+
+// ---- QV8-4a: the bake must never overlap another isolate (V8's read-only heap is process-wide) ----
+
+/// The racing scenario, run in a CHILD process so the snapshot starts unbaked (it is a process-wide
+/// OnceLock): the background bake starts, and at once this thread makes and drops bare and page
+/// engines. Before QV8-4a this crashed (trap / abort / SIGSEGV) in most runs.
+fn qv8_4a_scenario() {
+    crate::js_engine::warm_up();
+    let t0 = std::time::Instant::now();
+    let mut i = 0;
+    // keep making engines for longer than a bake takes (~60 ms), at least 20
+    while i < 20 || t0.elapsed() < std::time::Duration::from_millis(200) {
+        i += 1;
+        let eng = crate::js_engine::Engine::new(crate::js_engine::EngineOpts { memory_limit: 1 << 28, stack_limit: 1 << 20, page: None }).unwrap();
+        eng.with(|_ctx| {});
+        drop(eng);
+        if i % 2 == 0 && i < 40 {
+            let (_e, out) = qb8_start("<script>console.log(1 + 1, typeof document.body)</script>");
+            assert_eq!(*out.borrow(), ["log:2 object"]);
+        }
+    }
+}
+
+fn qv8_4a_children(snapshot_env: Option<&str>, runs: usize) {
+    let exe = std::env::current_exe().unwrap();
+    for n in 0..runs {
+        let mut cmd = std::process::Command::new(&exe);
+        cmd.args(["--exact", "tests::js_snapshot_tests::qv8_4a_child_scenario", "--nocapture", "--test-threads=1"]).env("SCRATCHY_QV8_4A_CHILD", "1");
+        if let Some(v) = snapshot_env {
+            cmd.env("SCRATCHY_V8_SNAPSHOT", v);
+        }
+        let out = cmd.output().unwrap();
+        assert!(out.status.success(), "run {n} died ({:?}): {}", out.status, String::from_utf8_lossy(&out.stderr));
+    }
+}
+
+/// Not a test of its own when run normally: the parent tests below select it with the env var.
+#[test]
+fn qv8_4a_child_scenario() {
+    if std::env::var("SCRATCHY_QV8_4A_CHILD").is_ok() {
+        qv8_4a_scenario();
+    }
+}
+
+#[test]
+fn qv8_4a_bake_and_engines_on_two_threads_do_not_crash() {
+    qv8_4a_children(None, 10);
+}
+
+#[test]
+fn qv8_4a_stress_many_fresh_processes() {
+    qv8_4a_children(None, 40);
+}
+
+#[test]
+fn qv8_4a_snapshot_off_still_works() {
+    qv8_4a_children(Some("0"), 3);
+}

@@ -1260,8 +1260,8 @@ pub(crate) fn ensure_snapshot() {
     SNAPSHOT.get_or_init(build_snapshot);
 }
 
-/// Starts building the startup snapshot on a background thread: page engines made before it is
-/// ready start the slow way (the same result, ~20 ms more CPU), later ones use it.
+/// Starts building the startup snapshot on a background thread. The first engine made
+/// waits for it (QV8-4a: no isolate may exist next to the bake), so every page engine uses it.
 pub(crate) fn warm_up() {
     if SNAPSHOT.get().is_none() {
         let _ = std::thread::Builder::new().name("v8-warm".into()).spawn(ensure_snapshot);
@@ -1272,7 +1272,8 @@ fn snapshot_for_engine() -> Option<&'static Snapshot> {
     if NO_SNAPSHOT.with(Cell::get) {
         return None;
     }
-    if cfg!(test) {
+    // (the QV8-4a race test sets the env var: it needs page engines to start the slow way beside the bake)
+    if cfg!(test) && std::env::var_os("SCRATCHY_QV8_4A_CHILD").is_none() {
         ensure_snapshot();
     }
     SNAPSHOT.get().and_then(Option::as_ref)
@@ -1316,6 +1317,12 @@ impl Engine {
         let sp = &probe as *const u8 as usize;
         let limit = sp.saturating_sub(opts.stack_limit.max(64 * 1024));
         let baking = BAKING.with(Cell::get);
+        if !baking {
+            // QV8-4a: V8's read-only heap is shared by every isolate in the process and the snapshot
+            // creator rewrites it (`CreateBlob`). No isolate may exist next to a bake: wait for it
+            // (started by `warm_up`, or start it here); a no-op once done or with SCRATCHY_V8_SNAPSHOT=0.
+            ensure_snapshot();
+        }
         let snap = if baking || opts.page.is_none() { None } else { snapshot_for_engine() };
         let mut params = v8::CreateParams::default().heap_limits(0, opts.memory_limit);
         if let Some(s) = snap {
