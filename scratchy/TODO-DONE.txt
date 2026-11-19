@@ -6829,3 +6829,12 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QY53f1e DONE 6245a20 (one-line parse_into on the @layer path; no measurable gain after QY53f1c) [XS] (P3, from QY53f1b; Sonnet) `js_style.rs` (~line 584, getComputedStyle path) still does
       `rules.extend(parse_stylesheet(..))` (parse to a temp Vec, then move 4 KB rules); use `css::parse_stylesheet_into`
       like rules_cache does. Test: results equal; measure one getComputedStyle-heavy page before/after.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QAN1h DONE c8ea18a (R49: R31's 15-18 s case fixed, ~126-230 ms; github.com home still 0.65-1.5 s per build -> QAN1h1-3) [S, Opus, investigate only] (P2) Why does a restyle of the static
+      github.com copy take 15-18 s with cached rules (R31 section 4: 2 077 elements,
+      16 192 rules; en.wikipedia 1.6-2.9 s, BBC 1.7 s, Guardian 1.1 s)? Profile
+      `build_layout_tree_with_resources` (RuleIndex::build, HoverKeys::build,
+      precompute_generated, matching, var() expansion) with temporary Instant timing;
+      file fix items. Every hover/JS restyle on these pages pays it today, and
+      layout-affecting animations/transitions (QAN1d/QAN1e) depend on it.

@@ -72,7 +72,7 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
   19 DONE 4123b55 QOBS8 [S]  perf-diff tool       20 DONE 352ad4f QOBS10 [S] offline forced-layout benchmark  | QOBS block
   21 QY60 [S, Opus measure] main-thread throughput on YouTube results (re-measure after steps 2-4)
   22 QY54 [S, Opus measure] compositor disconnect under stalls (re-run after steps 2-4)
-  23 QAN1h [S, Opus] GitHub restyle 15-18 s: re-measure with QOBS1 first (likely changed by QY53a-d)
+  23 DONE c8ea18a QAN1h [S, Opus] GitHub restyle 15-18 s: re-measure with QOBS1 first (likely changed by QY53a-d)
   24 QY33 [M] YouTube post-load timer callbacks over budget: re-measure first (numbers are QuickJS-era)
   25 DONE 6083910 QP3 [S]  font-match cache miss cost      26 QY47b [S] fewer JS frames per createElement
   27 QOBS9 [S, Opus] re-baseline PERF.md on the new machine (after 9, 18, 20)
@@ -1280,6 +1280,17 @@ Shared rules for this block:
 - [ ] QY53i3 [S] (P3 memory, from QY53i2; Sonnet) `animation.rs` still `Box::leak`s interned `&'static AnimLonghands` (same
       pattern QY53i2 removed for custom props). Give it the same per-thread arena + Copy handle, cleared on navigation.
       Gate: a multi-page --perf-report run (QY53i2 harness) shows no growth across navigations; animation tests unchanged.
+- [ ] [WIP] QAN1h1 [S] (P2, from QAN1h, R49; Sonnet) Memoize `var()` expansion during each build, keyed on (declaration
+      block identity, the element's custom-property table handle (QY53i2)): github.com home does 19 272 expansions per build
+      over only 694 distinct declaration blocks (17 % of a build). Gate (R49 recipe, home page headless forced restyles,
+      median of 3): build_children -30 %, forced_layout total -12 %; var() tests unchanged.
+- [ ] QAN1h2 [M] (P2, from QAN1h, R49; Sonnet) Fewer universal candidates in RuleIndex: an attribute-name bucket, keys found
+      inside `:is()`/`:where()`, index each selector of a selector list separately. github.com home: 534 candidates per match
+      call, 1 344 rules in the universal bucket, 1.28 M full matches per build (2.3 % match). Gate: candidates per build -40 %,
+      precompute_generated -25 %; selector tests unchanged.
+- [ ] QAN1h3 [S] (P3, from QAN1h, R49; Sonnet) Class lookup without re-scanning the class attribute string per check (cache a
+      per-element class atom set, invalidated on class writes). Gate: has_class < 4 % of GeomCache::refresh samples on the
+      R49 home recipe.
 - [ ] QMEM3b [S] (P2 memory, from QMEM3, R48; Sonnet, measure first) Name the ~65 MB of main-thread malloc no probe explains
       (candidates: fetched script sources/HTML kept until report_page ends, FontSystem/fontdb on main + shaping worker, JS DOM
       id table); add `memory` probes. Gate: explained bytes >= 60 % of (anonymous RSS - malloc free bytes).
@@ -1479,13 +1490,6 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       a nested-dwl window before/after. Test: animate() opacity 0->1 200 ms, fake
       clock: finished resolves at 200, getAnimations() length 1 then 0.
 - [x] QAN1j [S] DONE e1fd29b (noise, no code change) Is the DuckDuckGo restyle 4-5x slower after QAN1b [archived: TODO-DONE.txt]
-- [ ] [WIP] QAN1h [S, Opus, investigate only] (P2) Why does a restyle of the static
-      github.com copy take 15-18 s with cached rules (R31 section 4: 2 077 elements,
-      16 192 rules; en.wikipedia 1.6-2.9 s, BBC 1.7 s, Guardian 1.1 s)? Profile
-      `build_layout_tree_with_resources` (RuleIndex::build, HoverKeys::build,
-      precompute_generated, matching, var() expansion) with temporary Instant timing;
-      file fix items. Every hover/JS restyle on these pages pays it today, and
-      layout-affecting animations/transitions (QAN1d/QAN1e) depend on it.
 - [ ] QAN1i [S] (P3) The WPT runner does not do the QW6 whole-window canvas fill
       (`wpt::Renderer::render` paints `Laid` onto white; `App::redraw` fills the window
       with the canvas colour first). R31: the in-body reference renders an 8 px olive
