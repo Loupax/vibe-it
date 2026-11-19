@@ -7964,3 +7964,9 @@ Done: R38. The `true` is `<img alt="true">` (YouTube calls `setAttribute('alt', 
 > Do TODO.txt item QMEM3b: name the ~65 MB of main-thread malloc that no probe explains (fetched script sources, FontSystem, ...). Use heap profiling or a temporary counting allocator on YouTube watch and a smaller page, measured under the perf flock. Output new --perf-report memory probes with tests, or the smallest fix with a test and before/after RSS; otherwise a sized proposal in REGRESSIONS.md.
 
 **What changed:** REGRESSIONS.md R48 "QMEM3b" (breakdown from a temporary sampling allocator: 106 MB Rust + ~25 MB C++ of 131 MB in use; ~39 MB is unprobed script/CSS/HTML/DOM text, ~23 MB of it held only by the harness). New `memory` probes `js_extra_css`, `dom`, `report_html`, `report_scripts`, `report_css` and `rss_anon_bytes` (perf.rs, js_style.rs, PERF.md, tests in perf_tests.rs). Fix: `fetch_stylesheets` shrinks its joined CSS (8.8 -> 4.4 MB capacity on YouTube).
+
+## QYSK1b: ignore mpv's stale time-pos right after a seek's playback-restart (Sonnet)
+
+> Do TODO.txt item QYSK1b (R51 section 4): after an in-buffer seek mpv sometimes sends a stale `time-pos` right after `playback-restart`, so `seeking`/`seeked`/currentTime read the pre-seek time. Ignore `Time` events more than 1 s from the seek target for up to 500 ms after Restart. FakeBackend test [Restart, Time(2.0), Time(12.04)] plus a test that a large jump without a recent seek is still accepted.
+
+**What changed:** media_el.rs: `MediaCore.stale_guard` (deadline, target) is set when `Restart` ends a seek (deadline = page clock + `STALE_TIME_MS` 500); a `Time` more than `STALE_TIME_SECS` (1 s) from the target before the deadline is dropped; the guard clears once the deadline passes. Normal playback (no recent seek) is unaffected. Tests in media_tests.rs: `qysk1b_stale_time_pos_after_seek_restart_is_ignored`, `qysk1b_a_large_jump_without_a_recent_seek_is_accepted`.

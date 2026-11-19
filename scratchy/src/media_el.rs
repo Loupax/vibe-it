@@ -384,6 +384,11 @@ const MSE_SWITCH_LEAD: f64 = 0.1;
 /// `progress` is fired at most this often while appending (ms).
 const MSE_PROGRESS_MS: f64 = 350.0;
 
+/// QYSK1b: after a seek's Restart, a `Time` more than STALE_TIME_SECS from the target is dropped
+/// for STALE_TIME_MS (mpv's stale pre-seek time-pos).
+const STALE_TIME_MS: f64 = 500.0;
+const STALE_TIME_SECS: f64 = 1.0;
+
 pub(crate) struct MediaCore {
     backend: Box<dyn MediaBackend>,
     /// QM1k1g: the in-memory bytes of the current `blob:` src (None for a network src).
@@ -394,6 +399,9 @@ pub(crate) struct MediaCore {
     pub paused: bool,
     pub seeking: bool,
     seek_target: f64,
+    /// QYSK1b: (page-clock deadline, seek target) after a seek's Restart; a `Time` far from the
+    /// target before the deadline is mpv's stale pre-seek time-pos.
+    stale_guard: Option<(f64, f64)>,
     pub current_time: f64,
     pub duration: f64,
     pub volume: f64,
@@ -439,6 +447,7 @@ impl MediaCore {
             paused: true,
             seeking: false,
             seek_target: 0.0,
+            stale_guard: None,
             current_time: 0.0,
             duration: f64::NAN,
             volume: 1.0,
@@ -1103,6 +1112,7 @@ impl MediaCore {
                 if self.seeking {
                     self.seeking = false;
                     self.current_time = self.seek_target;
+                    self.stale_guard = Some((now + STALE_TIME_MS, self.seek_target));
                     self.fire("timeupdate");
                     self.fire("seeked");
                     if !self.paused && self.ready_state >= HAVE_FUTURE_DATA {
@@ -1127,6 +1137,13 @@ impl MediaCore {
                 }
             }
             BackendEvent::Time(p) => {
+                if let Some((deadline, target)) = self.stale_guard {
+                    if now >= deadline {
+                        self.stale_guard = None;
+                    } else if (p - target).abs() > STALE_TIME_SECS {
+                        return; // QYSK1b: stale time-pos right after playback-restart
+                    }
+                }
                 if !self.seeking {
                     self.current_time = p;
                     if !self.paused && now - self.last_tu >= TIMEUPDATE_MS {
