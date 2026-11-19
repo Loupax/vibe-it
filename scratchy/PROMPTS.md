@@ -8047,3 +8047,9 @@ The prompts of the design session, in order:
 > Item QPT1a [M] (P1): the first slice of "same-origin iframes get their own V8 realm, like Chrome" (R53 section 6): `__scratchy_realm_new` (Context::from_snapshot(0) in the page isolate, page security token), a baked `__scratchy_realm_init` binding the iframe's document id, parent/top/frameElement, about:blank env with the parent's origin; realm timers, fetch/XHR/WebSocket/EventSource and unhandled-rejection reporting forwarded to the parent's; `frameOf` returns the realm's global. Without a snapshot keep today's stand-in. R53's QPT1a tests; live gate: YouTube G1AeBgalFZk, integrity token in >= 2 of 3 runs and SABR status 1 past 64 s.
 
 **What changed:** js_engine_v8.rs `install_realm_native` (`State.realms`), js.rs PRELUDE `__scratchy_realm_init` and TIMERS_PRELUDE forwarding (`__scratchy_timers_add/clear/fwd`, a timer's `recv`), fetch_prelude.js `__net_fwd` (and the `mk` builder argument of `__net_request`), globals_prelude.js `__scratchy_rej_sub`, js_dom.rs `__d_bind_doc`, `inPage` per realm, `frameOf`, `srcdoc` reflection, the about:blank base fallback. Tests `qpt1a_*` in js_dom_tests.rs; NOTES.md "iframe realms". scratchy has no EventSource, so there was nothing to forward.
+
+## Q33b2v: live nested-dwl check of Q33b2 (scratchy/q33b2v-live-check, Sonnet)
+
+**Prompt:** Do TODO.txt item Q33b2v: in a release build in a nested dwl (own wire, own socket), check on a small local page that innerWidth/innerHeight/clientWidth and a 50% box equal the window's real size at start, follow a window resize, one `resize` event per change; screenshot each state. Docs only, no product code.
+
+**Result:** REGRESSIONS.md R43 section 15. Values follow every resize (956 -> 428 -> 956 wide, 50% box 478 -> 214 -> 478, one `resize` per change). One finding: scripts running before the first window configure (parse time, `load`) still see 1024x768; one `resize` corrects it afterwards. Proposed Q33b2w.

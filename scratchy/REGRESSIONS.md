@@ -2244,6 +2244,23 @@ box and comment skeletons; the comments are still skeletons at 30 s in both (an 
 Verdict: noise; QY53e1 is not making YouTube worse. No code change. The deferral stays.
 
 
+### 15. Q33b2v: live check of Q33b2 (window size -> innerWidth/innerHeight, forced-layout viewport) (Sonnet, 2026-11-20, docs only)
+Main c63b17b release build, own wire on a scratchpad socket, nested dwl (tools/nest.sh, 956x1002 output), page = a 50%-width
+box plus a script logging `innerWidth`, `innerHeight`, `documentElement.clientWidth`, the box's `getBoundingClientRect().width`
+at script time, at `load`, at +500 ms and in every `resize` handler (console output + printed into the page). The window was
+resized by opening/closing a second scratchy window in the nest (dwl tiles: 956 -> 428 -> 956 wide). Files (scratchpad, not
+committed): q/p.html, q/p2.html, q/s1.log, q/s2.log, q/s3.log, q/shot1.png .. q/shot4.png.
+- Window at rest (956x1002): iw=956 ih=1002 cw=956 half=478 (screenshot 1, orange box = half the page). HOLDS.
+- Second window opened: first window iw=428 ih=1002 cw=428 half=214; the new window iw=524 half=262 (screenshot 2). One `resize`
+  per change in each window (resize#2 for the old, resize#1 for the new). HOLDS.
+- Second window closed: first window back to iw=956 half=478, exactly one more `resize` (resize#3; screenshot 3). HOLDS.
+- ih changed 768 -> 1002 on the first configure and followed with it. Only width changes were exercised after that (dwl tiling).
+- **Finding:** a script that reads the size synchronously at parse time or in `load` still sees the headless default
+  (iw=1024 ih=768 half=512), because the first window configure arrives after the page's scripts started; one `resize` then
+  fixes it (+500 ms reads 956x1002). Later reads and the `resize` handler are right. A real browser reports the real size
+  from the first script. Proposed: Q33b2w (publish the surface size to the JS thread before the first page script runs, or
+  hold the first script run until the first configure; no `resize` event for the initial correction).
+
 ## R42: YouTube through the MSE stack (QM1k-m2): the player script runs, picks avc1 + mp4a, attaches, appends and plays ~60 s of AUDIO, but NO PICTURE because YouTube adds the AUDIO SourceBuffer first and scratchy always makes SourceBuffer 0 the main (video) stream; with that swapped (throwaway patch) 640x360 video plays to the PoToken stop at ~60 s, then YouTube's own error card. The main thread is busy 100% of the time (294 forced layouts = 116 s of CPU in 60 s), so everything arrives 10-45 s late (Opus investigator QM1k-m2, 2026-11-19) — OPEN: QM1k1k (P1), QM1k1l, QM1k1m, QM1k-u, QY53 (now also blocks YouTube playback; measured in R43, fix items QY53a-QY53h); QM1k1n DONE 2026-11-19 (section 5: YouTube parks the `<video>` at `top:-360px` until `playing`, page design, not a CSS gap): QM1k1n1 DONE, QM1k1n3; QM1k1n2 DONE 2026-11-19 (section 6: start 3-6x faster after QY53a-c, but playback freezes at YouTube's first quality switch, a second init segment reloads into an empty generation): QM1k1n4 (P1), QM1k1n5 (P1, fetch results reach JS 1-19 s late), QM1k1n6, QM1k1n7
 
 **Status: investigation only, docs only.** Main 5bf4e03 (QM1k1e merged), own worktree release build
