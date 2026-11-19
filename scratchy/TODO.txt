@@ -50,8 +50,8 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
   12 QM1k1n5 [S] page network results reach JS 1-19 s late                          | QM1k block
   13 DONE ad764fa QY53e3 [S, Opus measure] App layout vs forced layout, live window (uses QOBS5)  | QY53 block
   14 DONE 8383e9d QM1k1n6 [M, Opus design then Sonnet] redraw starvation / frame budget (uses QOBS5) | QM1k block
-  14a1 [WIP] QM1k1n6a [S] pointer-motion coalescing (once per turn, flush on button/wheel/key) | R46
-  14a2 QM1k1n6b [M] run_due time slice (16 ms while video plays or input pending, else 50 ms) | R46
+  14a1 DONE 5642cbb QM1k1n6a [S] pointer-motion coalescing (once per turn, flush on button/wheel/key) | R46
+  14a2 [WIP] QM1k1n6b [M] run_due time slice (16 ms while video plays or input pending, else 50 ms) | R46
   14a3 QM1k1n6c [S] video damage-present while layout is dirty (no full redraw + tree build) | R46
   14a4 QOBS5c [S] forced.by_caller top 3 + longest callback source in each frame-stats line | R46
   14b Q33b2 [S] real innerWidth/innerHeight + forced-layout viewport = window size (QY53e3: prerequisite of QY53e2) | Tier 7
@@ -1286,15 +1286,7 @@ Shared rules for this block:
 - [ ] QY53f1e [XS] (P3, from QY53f1b; Sonnet) `js_style.rs` (~line 584, getComputedStyle path) still does
       `rules.extend(parse_stylesheet(..))` (parse to a temp Vec, then move 4 KB rules); use `css::parse_stylesheet_into`
       like rules_cache does. Test: results equal; measure one getComputedStyle-heavy page before/after.
-- [ ] [WIP] QM1k1n6a [S] (P1 mouse freeze, from QM1k1n6 8383e9d, R46; Sonnet) Pointer-motion coalescing: keep only the newest
-      CursorMoved per event-loop turn; do its hit test + hover/mouseover/mouseout + controls in `about_to_wait`; flush the
-      pending move first on button, wheel and key events (so clicks land where the pointer is). Today every queued
-      CursorMoved runs its own hit test + JS dispatch. Gate: input.pending <= 2 at every roll-up, no oldest_pending_ms >
-      250, lat_p95_ms <= 100, video painted median >= 20/s. Tests: N queued moves -> one hit test; a click after moves
-      hits the latest position.
-      Recipe (R46): nested dwl, YT watch G1AeBgalFZk, default UA, own wire, SCRATCHY_FRAME_STATS, tools/inject moving the
-      pointer at 60 Hz along the player controls bar for 8-10 s; baseline = the user's file (R46).
-- [ ] QM1k1n6b [M] (P1 mouse freeze, from QM1k1n6, R46; Sonnet; AFTER QM1k1n6a, same code) `run_due` time slice: today one
+- [ ] [WIP] QM1k1n6b [M] (P1 mouse freeze, from QM1k1n6, R46; Sonnet; AFTER QM1k1n6a, same code) `run_due` time slice: today one
       turn runs up to 100 due timers with no time limit (1.2-2.5 s after a hover on YouTube's controls). Run timers until
       16 ms of CPU while video plays or input is pending (50 ms otherwise), then yield; the rest run next turn in order.
       Gate: gap_max_ms <= 100 in >= 90 % of seconds from click to first frame; video painted >= 10 in any second with

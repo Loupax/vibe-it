@@ -6708,3 +6708,13 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       can see; reuse boxes when the change is paint-only, e.g. color/background/text-decoration/opacity; relayout only
       if a layout-affecting property changed). Gate (frame stats): builds.ms per hover_restyle <= 20 % of today's with
       pointer moves only over Wikipedia links; input.lat_p95_ms reported. Coordinate with QM1k1n6 (pointer coalescing).
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QM1k1n6a DONE 5642cbb (gates hold in the bar phase; main with 8383e9d no longer froze in the agent's run; play-click stall left for QM1k1n6b) [S] (P1 mouse freeze, from QM1k1n6 8383e9d, R46; Sonnet) Pointer-motion coalescing: keep only the newest
+      CursorMoved per event-loop turn; do its hit test + hover/mouseover/mouseout + controls in `about_to_wait`; flush the
+      pending move first on button, wheel and key events (so clicks land where the pointer is). Today every queued
+      CursorMoved runs its own hit test + JS dispatch. Gate: input.pending <= 2 at every roll-up, no oldest_pending_ms >
+      250, lat_p95_ms <= 100, video painted median >= 20/s. Tests: N queued moves -> one hit test; a click after moves
+      hits the latest position.
+      Recipe (R46): nested dwl, YT watch G1AeBgalFZk, default UA, own wire, SCRATCHY_FRAME_STATS, tools/inject moving the
+      pointer at 60 Hz along the player controls bar for 8-10 s; baseline = the user's file (R46).
