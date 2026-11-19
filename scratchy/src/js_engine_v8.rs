@@ -309,6 +309,17 @@ impl<'js> JsObject<'js> {
         Ok(())
     }
 
+    /// QOBS4: `name url:line:col` of this object when it is a function (empty otherwise).
+    pub(crate) fn function_source(&self) -> String {
+        let Ok(f) = v8::Local::<v8::Function>::try_from(self.o) else { return String::new() };
+        let sc = self.ctx.sc();
+        let name = f.get_name(sc).to_rust_string_lossy(sc);
+        let url = f.get_script_origin(sc).resource_name().filter(|v| v.is_string()).map(|v| v.to_rust_string_lossy(sc)).unwrap_or_default();
+        let (l, c) = (f.get_script_line_number().map_or(0, |l| l + 1), f.get_script_column_number().map_or(0, |c| c + 1));
+        let name = if name.is_empty() { "(anonymous)" } else { &name };
+        if url.is_empty() { name.to_string() } else { format!("{name} {url}:{l}:{c}") }
+    }
+
     /// The property converted to `T`; `None` when it is missing or not a `T`.
     pub(crate) fn get<T: FromJs<'js>>(&self, key: &str) -> Option<T> {
         let k = key.into_js(&self.ctx).ok()?;

@@ -53,6 +53,44 @@ struct Open {
     bud0: u64,
     child_cpu: u64,
     child_bud: u64,
+    /// QOBS4: forced layouts that ran directly in this span (count, thread CPU ns).
+    forced_n: u32,
+    forced_ns: u64,
+    /// QOBS4: the callback's function (`name url:line:col`) or script/event label.
+    source: Option<String>,
+}
+
+/// QOBS4: how many callbacks `longest` keeps.
+pub(crate) const LONGEST_N: usize = 20;
+
+/// QOBS4: one of the longest callbacks of the run.
+struct Longest {
+    raw_ns: u64,
+    bud_ns: u64,
+    kind: Kind,
+    forced_n: u32,
+    forced_ns: u64,
+    at_ms: f64,
+    source: String,
+    /// Tie-break so the order is total (older first).
+    seq: u64,
+}
+
+impl PartialEq for Longest {
+    fn eq(&self, o: &Self) -> bool {
+        (self.raw_ns, o.seq) == (o.raw_ns, self.seq)
+    }
+}
+impl Eq for Longest {}
+impl PartialOrd for Longest {
+    fn partial_cmp(&self, o: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(o))
+    }
+}
+impl Ord for Longest {
+    fn cmp(&self, o: &Self) -> std::cmp::Ordering {
+        (self.raw_ns, o.seq).cmp(&(o.raw_ns, self.seq))
+    }
 }
 
 #[derive(Default)]
@@ -72,6 +110,9 @@ struct Rec {
     job_kind: Option<Kind>,
     start: Option<(Instant, u64)>,
     marks: Vec<(&'static str, f64, u64)>,
+    /// QOBS4: min-heap (smallest on top) of the `LONGEST_N` longest callbacks; one allocation, never grows.
+    longest: std::collections::BinaryHeap<std::cmp::Reverse<Longest>>,
+    seq: u64,
 }
 
 thread_local! {
@@ -164,7 +205,7 @@ pub(crate) fn begin(kind: Option<Kind>) -> Span {
     }
     REC.with(|r| {
         let mut r = r.borrow_mut();
-        r.stack.push(Open { kind, cpu0: thread_cpu_nanos(), bud0: script_clock_nanos(), child_cpu: 0, child_bud: 0 });
+        r.stack.push(Open { kind, cpu0: thread_cpu_nanos(), bud0: script_clock_nanos(), child_cpu: 0, child_bud: 0, forced_n: 0, forced_ns: 0, source: None });
         Span(Some(r.stack.len() - 1))
     })
 }
@@ -182,10 +223,31 @@ pub(crate) fn end(span: Span, killed: bool) {
         let cpu = thread_cpu_nanos().saturating_sub(o.cpu0);
         let bud = script_clock_nanos().saturating_sub(o.bud0);
         let idx = KINDS.iter().position(|(k, _)| *k == o.kind).unwrap_or(0);
-        let pk = &mut r.kinds[idx];
-        pk.samples.push((bud.saturating_sub(o.child_bud), cpu.saturating_sub(o.child_cpu)));
+        let (b, c) = (bud.saturating_sub(o.child_bud), cpu.saturating_sub(o.child_cpu));
+        r.kinds[idx].samples.push((b, c));
         if killed {
-            pk.kills += 1;
+            r.kinds[idx].kills += 1;
+        }
+        r.seq += 1;
+        let seq = r.seq;
+        if r.longest.len() < LONGEST_N || r.longest.peek().is_some_and(|m| c > m.0.raw_ns) {
+            if r.longest.capacity() == 0 {
+                r.longest.reserve(LONGEST_N + 1);
+            }
+            if r.longest.len() >= LONGEST_N {
+                r.longest.pop();
+            }
+            let at_ms = r.start.map_or(0.0, |(t0, _)| t0.elapsed().as_secs_f64() * 1000.0);
+            r.longest.push(std::cmp::Reverse(Longest {
+                raw_ns: c,
+                bud_ns: b,
+                kind: o.kind,
+                forced_n: o.forced_n,
+                forced_ns: o.forced_ns,
+                at_ms,
+                source: o.source.unwrap_or_default(),
+                seq,
+            }));
         }
         if let Some(p) = r.stack.last_mut() {
             p.child_cpu += cpu;
@@ -213,6 +275,22 @@ pub(crate) fn observer_end() {
     }
 }
 
+/// QOBS4: names the innermost open span of `kind` (`name url:line:col`, a script name, an event).
+/// Only the first name of a span sticks (a timer's function, not what it later evals).
+pub(crate) fn set_source(kind: Kind, source: impl FnOnce() -> String) {
+    if !enabled() {
+        return;
+    }
+    REC.with(|r| {
+        let mut r = r.borrow_mut();
+        if let Some(o) = r.stack.iter_mut().rev().find(|o| o.kind == kind)
+            && o.source.is_none()
+        {
+            o.source = Some(source());
+        }
+    });
+}
+
 /// Promise jobs run as `kind` (a module entry's drain) until reset with `None`.
 pub(crate) fn set_job_kind(kind: Option<Kind>) {
     if enabled() {
@@ -227,7 +305,14 @@ pub(crate) fn job_kind() -> Kind {
 /// One forced layout of `cpu_ns` thread CPU (called from `pause_budget_since`).
 pub(crate) fn forced_layout(cpu_ns: u64) {
     if enabled() {
-        REC.with(|r| r.borrow_mut().forced.push(cpu_ns));
+        REC.with(|r| {
+            let mut r = r.borrow_mut();
+            r.forced.push(cpu_ns);
+            if let Some(o) = r.stack.last_mut() {
+                o.forced_n += 1;
+                o.forced_ns += cpu_ns;
+            }
+        });
     }
 }
 
@@ -311,6 +396,24 @@ pub(crate) fn body_json() -> String {
                 stats_json(pk.samples.iter().map(|s| s.1).collect())
             ));
         }
+        let mut lg: Vec<&Longest> = r.longest.iter().map(|x| &x.0).collect();
+        lg.sort_by(|a, b| b.raw_ns.cmp(&a.raw_ns).then(a.seq.cmp(&b.seq)));
+        let longest: Vec<String> = lg
+            .iter()
+            .map(|l| {
+                let name = KINDS.iter().find(|(k, _)| *k == l.kind).map_or("", |k| k.1);
+                format!(
+                    "{{\"kind\":{},\"raw_ms\":{},\"budget_ms\":{},\"forced_layouts\":{},\"forced_ms\":{},\"at_ms\":{},\"source\":{}}}",
+                    json_str(name),
+                    ms(l.raw_ns),
+                    ms(l.bud_ns),
+                    l.forced_n,
+                    ms(l.forced_ns),
+                    (l.at_ms * 1000.0).round() / 1000.0,
+                    json_str(&l.source)
+                )
+            })
+            .collect();
         let ftotal: u64 = r.forced.iter().sum();
         let fmax = r.forced.iter().copied().max().unwrap_or(0);
         let mark = |name: &str| r.marks.iter().find(|m| m.0 == name).map(|m| (m.1, m.2)).unwrap_or((0.0, 0));
@@ -321,10 +424,11 @@ pub(crate) fn body_json() -> String {
         let (_, es) = mark("engine_start");
         let (_, ee) = mark("engine_ready");
         format!(
-            "\"callbacks\":{{{}}},\"budget_kills\":{},\"forced_layout\":{{\"count\":{},\"total_ms\":{},\"max_ms\":{}}},\
+            "\"callbacks\":{{{}}},\"longest\":[{}],\"budget_kills\":{},\"forced_layout\":{{\"count\":{},\"total_ms\":{},\"max_ms\":{}}},\
              \"compile_cpu_ms\":{},\"engine_startup_cpu_ms\":{},\
              \"load\":{{\"fetch_wall_ms\":{},\"fetch_cpu_ms\":{},\"dom_content_loaded_wall_ms\":{},\"dom_content_loaded_cpu_ms\":{},\"load_wall_ms\":{},\"load_cpu_ms\":{}}}",
             kinds.join(","),
+            longest.join(","),
             kills,
             r.forced.len(),
             ms(ftotal),
@@ -392,7 +496,7 @@ pub(crate) const DEFAULT_SECONDS: f64 = 5.0;
 fn envelope(opts: &ReportOpts, outcome: &str, challenge: bool, page_bytes: usize, title: &str) -> String {
     let (name, version) = engine_info();
     format!(
-        "\"schema\":1,\"engine\":{},\"engine_version\":{},\"commit\":{},\"target\":{},\"budget_ms\":{},\"seconds\":{},\
+        "\"schema\":2,\"engine\":{},\"engine_version\":{},\"commit\":{},\"target\":{},\"budget_ms\":{},\"seconds\":{},\
          \"outcome\":{},\"challenge\":{},\"page_bytes\":{},\"title\":{}",
         json_str(name),
         json_str(&version),
