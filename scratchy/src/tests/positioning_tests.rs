@@ -722,3 +722,52 @@ fn relative_box_with_auto_z_index_does_not_establish_a_stacking_context() {
         "z-index:auto relative box paints above later non-positioned in-flow content (layer 6)"
     );
 }
+
+fn qp4_key(span: SpanStyle) -> Option<u64> {
+    SHAPE_MEMO_ENABLED.with(|m| m.set(true));
+    let k = memo_key(0, &[InlineItem::Text("abc".into(), span)], 100.0, false, None);
+    SHAPE_MEMO_ENABLED.with(|m| m.set(false));
+    k
+}
+
+#[test]
+fn qp4_memo_key_equal_spans_equal_key_and_each_field_changes_it() {
+    let base = SpanStyle::from(ROOT_STYLE);
+    let k0 = qp4_key(base).expect("key");
+    assert_eq!(Some(k0), qp4_key(base));
+    // One mutation per SpanStyle field; `hash_into` destructures without `..`,
+    // so a new field fails to compile there, and this list must grow with it.
+    type Mutation = (&'static str, Box<dyn Fn(&mut SpanStyle)>);
+    let muts: Vec<Mutation> = vec![
+        ("color", Box::new(|s| s.color = TextColor(s.color.0 ^ 0x00ff00))),
+        ("background_color", Box::new(|s| s.background_color = Some(TextColor(0x123456)))),
+        ("font_size", Box::new(|s| s.font_size += 1.0)),
+        ("font_weight", Box::new(|s| s.font_weight = FontWeight(s.font_weight.0 + 100))),
+        ("font_style", Box::new(|s| s.font_style = FontStyle::Italic)),
+        ("font_family", Box::new(|s| s.font_family = FontFamily(&[FontFamilyItem::Monospace]))),
+        ("text_decoration", Box::new(|s| s.text_decoration.strikethrough = true)),
+        ("decoration_style", Box::new(|s| s.decoration_style = DecorationStyle::Dashed)),
+        ("vertical_align", Box::new(|s| s.vertical_align = VerticalAlign::Super)),
+        ("line_height", Box::new(|s| s.line_height += 1.0)),
+        ("visibility", Box::new(|s| s.visibility = Visibility::Hidden)),
+        ("cursor", Box::new(|s| s.cursor = CursorStyle::Pointer)),
+        ("word_spacing", Box::new(|s| s.word_spacing += 1.0)),
+        ("word_break", Box::new(|s| s.word_break = WordBreak::BreakAll)),
+        ("white_space", Box::new(|s| s.white_space = WhiteSpace::Pre)),
+        ("href", Box::new(|s| s.href = Some("https://x.test/"))),
+        ("node", Box::new(|s| s.node = 77)),
+        ("tnode", Box::new(|s| s.tnode = 78)),
+    ];
+    for (name, m) in &muts {
+        let mut s = base;
+        m(&mut s);
+        assert_ne!(Some(k0), qp4_key(s), "changing {name} must change the memo key");
+    }
+    // Alignment is part of the key too.
+    SHAPE_MEMO_ENABLED.with(|m| m.set(true));
+    let items = [InlineItem::Text("abc".into(), base)];
+    let a = memo_key(0, &items, 100.0, false, None);
+    let b = memo_key(0, &items, 100.0, false, Some(CosmicAlign::Center));
+    SHAPE_MEMO_ENABLED.with(|m| m.set(false));
+    assert_ne!(a, b);
+}
