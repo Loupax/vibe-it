@@ -669,7 +669,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
 - [x] QM1k4 [S] DONE 2026-11-18 (commit c292223; src/media_el.rs parse_mime+params_valid+MSE_CODECS+mse_typ... [archived: TODO-DONE.txt]
 - [x] QM1k1a [M] DONE 2026-11-19 (commit 0bb4ea6; src/mse_store.rs, tests qm1k1a_* in src/tests/mse_tests.r... [archived: TODO-DONE.txt]
 - [x] QM1k1b [M] DONE 2026-11-19 (commit 367f953; MseFeed in src/mse_store.rs, scratchy-mse:// stream_cb +... [archived: TODO-DONE.txt]
-- [ ] QYSK1 [S/M] (P1 bug, user report 2026-11-19 ~21:00, real window, installed main 6b3520e incl. QCUR1; Opus
+- [ ] [WIP] QYSK1 [S/M] (P1 bug, user report 2026-11-19 ~21:00, real window, installed main 6b3520e incl. QCUR1; Opus
       investigate first, then Sonnet) Seeking on YouTube does not work: clicking somewhere on the player's progress bar
       pauses the video for a moment, then it continues from where it was, not from the clicked position. Find where the
       seek is lost: does the click reach YouTube's progress bar (QCUR1 pointer events, hit-test)? Does YouTube set
