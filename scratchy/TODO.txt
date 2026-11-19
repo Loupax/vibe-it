@@ -1230,15 +1230,6 @@ Shared rules for this block:
 - Local tools only. Nothing here may upload a profile anywhere (no profiler.firefox.com, no
   ui.perfetto.dev links in tools output), and scratchy itself still opens no socket.
 
-- [ ] [WIP] QY53e1b [S] (P2, coordinator 2026-11-19, from QY53e1 c5098fa; Sonnet, measure first; AFTER QOBS3 so `by_reason`
-      io/script is available) QY53e1 cut Wikipedia Rust forced layouts 8 -> 4 and total_ms -64 %, but its YT watch sample
-      (2+2 runs, loaded machine) was WORSE on the branch: 272/284 layouts, 63.1/48.4 s vs main 144/223, 26.7/31.7 s.
-      Could be YouTube's 170-313 run-to-run spread, or the deferred IO evaluation changing what YouTube does (e.g. a
-      lazy-load observer firing late -> more continuation loads -> more layouts). Measure 5+5 interleaved runs of c5098fa
-      vs its parent with QOBS3's by_reason/by_caller; if the branch really is worse, find why and fix or file. Also check
-      that YouTube's visible content (thumbnails, comments) loads as before (nested-dwl screenshot at 30 s).
-      QOBS3 (319f933) YT watch sample, 60 s, loaded machine: 135 forced layouts / 7.3 s, no_change 73 (54 %), by_reason
-      io 21 / 2.1 s, script 114 / 5.2 s; top caller `g.k.getPlayerSize` (player base.js:15474) 74 layouts / 2.3 s.
 - [ ] QY53f2 [M] (P3, optional, from QY53f; ONLY if QPROF1 still shows selector matching on top) Cross-build match memo
       (R43 section 8 design steps 1-2): keep MATCH_MEMO across builds, validated by a top-down selector-context
       fingerprint (hover/focus, form state, `:has` re-test, shadow parents, viewport width). Gate: nested big-css
@@ -1270,7 +1261,7 @@ Shared rules for this block:
 - [ ] QY53f1d [M] (P3, from QY53f1b; Opus design) The cold parse of YouTube's 4.4 MB sheet still costs ~130 ms on the first
       forced layout. Options: parse external sheets as they arrive (off the forced-layout path, on the JS thread's idle
       time or a worker), or lazily per rule block. Measure first (R43 section 12); design + items.
-- [ ] QY53f1e [XS] (P3, from QY53f1b; Sonnet) `js_style.rs` (~line 584, getComputedStyle path) still does
+- [ ] [WIP] QY53f1e [XS] (P3, from QY53f1b; Sonnet) `js_style.rs` (~line 584, getComputedStyle path) still does
       `rules.extend(parse_stylesheet(..))` (parse to a temp Vec, then move 4 KB rules); use `css::parse_stylesheet_into`
       like rules_cache does. Test: results equal; measure one getComputedStyle-heavy page before/after.
 - [ ] [WIP] QCUR1 [S] (P1, user report 2026-11-19 18:50; Sonnet, confirm first; AFTER QM1k1n6c, same app.rs input code) The mouse

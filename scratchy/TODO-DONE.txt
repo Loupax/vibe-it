@@ -6796,3 +6796,14 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       small Copy handle into a per-document arena cleared on navigation. Design: handle type vs Rc, cost of losing
       `Copy`, where the arena lives (one per document; the JS thread's GeomCache builds too), then Sonnet items. Test: a
       navigation frees the arena (test-only counter); var() tests unchanged. Use QOBS7's memory numbers when available.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY53e1b DONE 7a59522 (deferral NOT worse on YT: 102 vs 105 layouts; R43 section 14) [S] (P2, coordinator 2026-11-19, from QY53e1 c5098fa; Sonnet, measure first; AFTER QOBS3 so `by_reason`
+      io/script is available) QY53e1 cut Wikipedia Rust forced layouts 8 -> 4 and total_ms -64 %, but its YT watch sample
+      (2+2 runs, loaded machine) was WORSE on the branch: 272/284 layouts, 63.1/48.4 s vs main 144/223, 26.7/31.7 s.
+      Could be YouTube's 170-313 run-to-run spread, or the deferred IO evaluation changing what YouTube does (e.g. a
+      lazy-load observer firing late -> more continuation loads -> more layouts). Measure 5+5 interleaved runs of c5098fa
+      vs its parent with QOBS3's by_reason/by_caller; if the branch really is worse, find why and fix or file. Also check
+      that YouTube's visible content (thumbnails, comments) loads as before (nested-dwl screenshot at 30 s).
+      QOBS3 (319f933) YT watch sample, 60 s, loaded machine: 135 forced layouts / 7.3 s, no_change 73 (54 %), by_reason
+      io 21 / 2.1 s, script 114 / 5.2 s; top caller `g.k.getPlayerSize` (player base.js:15474) 74 layouts / 2.3 s.
