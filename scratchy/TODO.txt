@@ -72,8 +72,8 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
  Not in this list on purpose: QY26 and QY47d (QuickJS-specific: bytecode cache via JS_WriteObject,
  256 MB QuickJS heap; re-check on V8 only if QOBS4/QOBS7 point there), QAN1p (parked by the user),
  QY49-D (budget policy: the user decides; decide it from the post-step-2 numbers).
-After this list (including QPROF1 and anything it files): QM1k2 (YouTube attestation research, unparked by the user
-2026-11-19), then the rest of the queue as before (QM1k1n7, QM1k1n3, ...).
+After this list (including QPROF1 and anything it files): QYS1 (YouTube search re-test, user 2026-11-19), QM1k2
+(YouTube attestation research, unparked by the user 2026-11-19), then the rest of the queue as before (QM1k1n7, QM1k1n3, ...).
 Unblocked by user answers 2026-11-19 (after the ready perf items are all assigned): QY49-D option (c), QV8-6
 (remove QuickJS; alone in js_engine*.rs/Cargo.toml/ci.yml), QCFG1 -> QTB1, QCI2, QM1g2e (window fullscreen), QM1a.
 Deferred until after the perf queue: QM1k-AB (test video G1AeBgalFZk), QY55 (profile in the user's session). Dropped: QM1k-r.
@@ -725,6 +725,17 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       there too? If not, find what differs in scratchy's rejection (timing of the rejection, the
       `play`/`pause` events around it, `paused`/`readyState` values) and fix it. Test for the
       fixed case.
+- [ ] QYS1 [S] (user 2026-11-19; Opus, investigate only; runs AFTER the performance queue incl. QPROF1, before QM1k2)
+      YouTube search does not work for the user (real window, current main). Re-test the REAL flow on V8 (R36 wall 1 was
+      never re-tested after the V8 switch): live nested-dwl window, own wire, default UA: www.youtube.com home -> type a
+      query via tools/inject -> Enter (and the search button) -> wait 30 s. Report what stops it, with evidence: a
+      callback killed by the 500 ms budget (which one: `--perf-report` `longest` / `by_caller` name it now; note the
+      user's QY49-D answer (c) only raises the budget WHILE LOADING, and a search runs after load), a JS error, the
+      `/youtubei/v1/search` request (status, timing, CORS), the SPA navigation (pushState), or results fetched but not
+      drawn (screenshot). The `GET https://youtube.com/` CORS line (`ACAO https://www.youtube.com` vs page origin "null",
+      js_net.rs tainted-origin rule after wire follows the youtube.com -> www redirect while still sending the ORIGINAL
+      Origin header) is QM1k-u: check whether it matters for search (probably not: search is same-origin) and note the
+      wire/scratchy Origin inconsistency for QM1k-u. Output: REGRESSIONS.md R36 addendum + sized fix items.
 - [ ] QM1k-u [S] READY (P3, R42 section 4, Sonnet, measure first) On the YouTube watch page a
       `GET https://youtube.com/` is CORS-checked against page origin `"null"` and blocked. Find
       which context makes it (an iframe with an opaque origin? `Request` with
