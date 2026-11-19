@@ -32,7 +32,7 @@ A perf item that turns out to be wrong or bigger than its size: stop and report,
 
 
 PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; search the name; steps 1-3 are done, see TODO-DONE.txt):
- Ahead of this list by user decision (2026-11-19): QPT1 [WIP design] (iframe realm, YouTube PoToken).
+ Ahead of this list by user decision (2026-11-19): QPT1a [WIP] then QPT1b-f (iframe realm, YouTube PoToken; R53).
  Step 4, the main thread in the live window (YouTube playback, scrolling, mouse):
   14b Q33b2 [S] real innerWidth/innerHeight + forced-layout viewport = window size (QY53e3: prerequisite of QY53e2) | Tier 7
   14d [WIP] QY53m [S] App::js_sync skips the restyle after no-op write batches (after QM1k1n6: same code)
@@ -549,16 +549,26 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       really decode here, or the player fails after the first append. (g) segment-granular
       remove/overlap (not frame-exact) can leave `buffered` slightly larger than Chrome's.
 
-- [ ] [WIP] QPT1 [L] (P1 for YouTube past ~60 s; from QM1k2 R52 #376) USER 2026-11-19 ~22:40: GO, "do what Chrome does" (same-origin
-      iframe = new V8 context in the same isolate/thread with its own built-ins). Goes ahead of the perf queue, AFTER QV8-6 merges
-      (same js_engine*.rs/js.rs files). Opus designs + splits into QPT1a.. first (docs PR), then implementation.
-      A real V8
-      realm for same-origin about:blank/srcdoc/data: iframes (new v8::Context, same isolate + security token, preludes or
-      snapshot); `contentWindow`/`defaultView` return that context's global, its `document` is the existing second
-      document. BotGuard reads `iframe.contentWindow.String`; today `frameOf` is a bare Object.create(null) -> early-exit
-      answer -> no integrity token -> no PoToken -> SABR status 3 at ~64 s (11/11 runs). A stand-in proved it: token in 3/4
-      runs, SABR status 1 through +119 s. Files: js_engine_v8.rs, js.rs, js_dom.rs frameOf, js_net.rs. Split into
-      sub-items when taken. QuickJS keeps the old object until QV8-6.
+- [ ] QPT1 [L] (P1 for YouTube past ~60 s; user 2026-11-19 ~22:40: GO, "do what Chrome does"; ahead of the perf queue)
+      DESIGNED: REGRESSIONS.md R53 (PR #384). Same-origin iframe = second v8::Context from snapshot context 0 in the page
+      isolate with the page's security token. Done when QPT1a-QPT1f are done (QPT1g only if needed). Ordered split below.
+- [ ] [WIP] QPT1a [M] (P1; Opus) BotGuard slice (R53 section 6 "QPT1a"): `__scratchy_realm_new` + baked `__scratchy_realm_init`
+      (iframe document id, parent/top/frameElement, about:blank env with the parent's origin), realm timers/fetch/XHR/WS/ES/
+      rejection reporting forwarded to the parent's, `frameOf` returns the realm. js_engine_v8.rs, js.rs, js_dom.rs. Unit tests
+      per R53 + live gate: YouTube token >= 2 of 3 runs and SABR status 1 past 64 s.
+- [ ] QPT1b [S] (after QPT1a) Realm lifetime (R53 D6): drop on removal / src change / navigation, cancel its timers, detach
+      the global, cap 64 realms per page, new realm on re-insert. Test: heap back to baseline after 50 create/remove cycles.
+- [ ] QPT1c [M] (after QPT1a) Cross-realm wrapper identity (R53 D7): one wrapper per node across realms, created by the
+      realm owning the node's document (Chrome's rule).
+- [ ] QPT1d [S] (after QPT1a) WindowProxy surface (R53 D8): frames, length, window[i], window[name], cross-realm postMessage,
+      closed, name.
+- [ ] QPT1e [S] (after QPT1a) No-snapshot path (R53): Context::new, natives re-bound by name, preludes replayed.
+- [ ] QPT1f [M] (after QPT1a/c) Scripts in same-origin iframes (R53 D9): srcdoc, document.open/write/close,
+      DOMContentLoaded/load.
+- [ ] QPT1g [M] (backlog, only if a page shows the forwarding is wrong) Per-realm event-loop queues (R53).
+- [ ] QPT1-D [?] WAITING FOR USER (R53 end): `data:` iframes: Chrome gives them an opaque origin (contentDocument null);
+      scratchy (QA18b) gives a readable same-origin document. Keep scratchy's behaviour or match Chrome? Not blocking QPT1a
+      (data: iframes get no realm for now).
 - [ ] QPT2 [S] (R52; backlog: user chose QPT1 only for now, 2026-11-19) `navigator` in WebIDL shape (Navigator.prototype accessors, Illegal invocation on
       wrong receiver) + truthful values: webdriver false, cookieEnabled, hardwareConcurrency, empty PluginArray/MimeTypeArray,
       pdfViewerEnabled false.
