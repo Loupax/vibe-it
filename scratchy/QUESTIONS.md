@@ -6,6 +6,7 @@ Everything else in the queue is being worked on without you; these are the only 
 need your input. Evidence for each is in the file/section named.
 
 ## Q1. CPU budget policy for scripts (QY49-D; REGRESSIONS.md R37 section 3)
+**ANSWERED 2026-11-19: (c); "loading" = until `load` + 2 s.**
 **DEFERRED (user, 2026-11-18): decided after the V8 migration, from the QV8-m numbers.**
 **QV8-m numbers are in (PERF.md "QV8-m", 2026-11-18):** on V8 only bbc.com/news still loses a timer at
 500 ms (it needs 520-536 ms); YouTube results now fits (worst job 446-460 ms, 8-11% margin); every kill
@@ -24,6 +25,7 @@ and already stalls up to 3.9 s, so 500 ms is not a bound on the stall today.
 Also: what counts as "loading" for (c): until the `load` event plus 2 s? (my default)
 
 ## Q2. Settings rules so nested-dwl runs are never blocked
+**ANSWERED 2026-11-19: yes, all three (already in .claude/settings.json).**
 You gave a standing OK for agents' nested-dwl runs (saved in memory), but the permission
 classifier is separate and denied one run once. I can add allow rules to
 `.claude/settings.json` (today only `Bash(gh pr merge:*)`): `Bash(tools/nest.sh:*)`,
@@ -31,6 +33,7 @@ classifier is separate and denied one run once. I can add allow rules to
 Add them? (yes / yes but drop the wide one / no, keep approving)
 
 ## Q3. DuckDuckGo (QY55)
+**ANSWERED 2026-11-19: yes, results show; pretty slow but it works.**
 The investigator's one automated load got DuckDuckGo's bot challenge ("select all squares with a
 duck", the grid empty). You earlier said it did not show the challenge for you.
 - Does scratchy show you search RESULTS on DuckDuckGo now, or the challenge, or nothing?
@@ -63,10 +66,12 @@ samples, mpv still does all demuxing and decoding. New codecs still cost nothing
 - (b) No: take `buffered` from mpv (it lags behind `updateend`; players may refetch or stall).
 
 ## Q5. WPT in CI (QCI2)
+**ANSWERED 2026-11-19: yes.**
 Run the WPT subset in GitHub Actions: sparse-checkout only the directories `wpt-subset.txt`
 uses, pinned to your WPT commit. Download size is small but non-zero. Do it? (yes / no / later)
 
 ## Q6. `--profile` jar name (QF14b2 (d))
+**ANSWERED 2026-11-19: skip for now.**
 Cookie jars are in memory and named `scratchy` today. Do you want a `--profile NAME` flag so
 different windows use separate jars, or skip it for now? (my default: skip)
 
@@ -80,3 +85,7 @@ before/after table in PERF.md), then lift the freeze. Details: TODO.txt top bloc
 Paused until then (kept READY): QY53, QY54, QY57-QY61, QAN1e, QM1k5, QY15a, QY33, Q30e2/Q30d2/
 Q30d3/Q30g2/Q30a2, QM1f1/QM1g2, QY44d/e, QSD5, QC2. Q3-Q6 above still stand.
 Reinstall scratchy after merges; I will not restart your wire.
+
+
+## Answered 2026-11-19 (user, in session)
+QV8-6 remove QuickJS: yes. QM1g2e: window fullscreen. QM1k-r: dropped for now. QM1k-AB: deferred until after the perf queue (test video https://www.youtube.com/watch?v=G1AeBgalFZk visualises the sound). QM1a: agents may open the window on the real dwl, or together. QCFG1 + QTB1: into the queue.

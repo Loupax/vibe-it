@@ -60,6 +60,9 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
  256 MB QuickJS heap; re-check on V8 only if QOBS4/QOBS7 point there), QAN1p (parked by the user),
  QY49-D (budget policy: the user decides; decide it from the post-step-2 numbers).
 After this list: the rest of the queue as before (QM1k1n7, QM1k1n3, ...).
+Unblocked by user answers 2026-11-19 (after the ready perf items are all assigned): QY49-D option (c), QV8-6
+(remove QuickJS; alone in js_engine*.rs/Cargo.toml/ci.yml), QCFG1 -> QTB1, QCI2, QM1g2e (window fullscreen), QM1a.
+Deferred until after the perf queue: QM1k-AB (test video G1AeBgalFZk), QY55 (profile in the user's session). Dropped: QM1k-r.
 
 (History: 2026-11-18 TOP PRIORITY "switch the JS engine to V8, drain, then freeze" is DONE, freeze
 lifted after QV8-m; QV8-6 (remove QuickJS) still needs the user's OK. The 2026-11-19 blockers QV8-4a
@@ -144,7 +147,8 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
 - [x] QM1n2 [S] DONE (b84f0af) (found by QM1n, R40 section 4; D5/D6 allow it; interim before QM1g2d and KEPT [archived: TODO-DONE.txt]
 - [x] QM1g2d [M] DONE (4a2eb36) (D6 decided 2026-11-17; from QM1g2 (d); after QM1n2) scratchy's own controls [archived: TODO-DONE.txt]
 - [ ] QM1g2d1 [S] (left out of QM1g2d) tools/inject has no separate press/move/release, so drag on the seek/volume tracks (CtlDrag, throttled 80 ms) is only code-reviewed, not driven in a real window: add `press`/`release` to inject and check a drag. Also: no controlsList, no rate/captions menu.
-- [ ] QM1g2e [S] WAITING FOR USER (design first: fullscreen is not in D1-D8) Fullscreen for
+- [ ] QM1g2e [S] ANSWERED 2026-11-19 (was: waiting for user) Fullscreen for
+      USER ANSWER 2026-11-19: fullscreen = the scratchy WINDOW goes fullscreen (winit borderless), as proposed. Page JS `requestFullscreen()` (with user activation) maps onto the same state, as proposed (the user did not object). READY after the perf queue.
       `<video controls>`: a fullscreen button at the right end of the QM1g2d bar, `f` key and
       double-click toggle it, `Escape` leaves. Proposal for the user: scratchy paints ONLY that
       video (letterboxed, object-fit contain) over the whole window, with the same bar, and asks
@@ -159,6 +163,7 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
 - [x] QV8-5b [S] DONE 2026-11-18 (abf61e7) (Sonnet) media is now a default feature, so `src/media_mpv.rs` i... [archived: TODO-DONE.txt]
 - [x] QV8-m [M] DONE 2026-11-18 (measured at 8dfe2f9, docs commit 92dd513; PERF.md "QV8-m") [archived: TODO-DONE.txt]
 - [ ] QV8-6 [S] (after QV8-m, when the user agrees) Remove QuickJS (`engine-quickjs`, rquickjs
+      USER ANSWER 2026-11-19: YES, remove QuickJS (also drop the `scratchy-quickjs` CI job and the second test config from AGENTS.md). READY, after the ready perf items are assigned; touches js_engine*.rs, Cargo.toml, ci.yml: run it alone in that area.
       dependency, the seam's QuickJS backend).
 
 --- CURRENT STATUS (2026-11-16, docs audit; read after the V8 block above) -------------
@@ -650,6 +655,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
 - [x] QM1k1a [M] DONE 2026-11-19 (commit 0bb4ea6; src/mse_store.rs, tests qm1k1a_* in src/tests/mse_tests.r... [archived: TODO-DONE.txt]
 - [x] QM1k1b [M] DONE 2026-11-19 (commit 367f953; MseFeed in src/mse_store.rs, scratchy-mse:// stream_cb +... [archived: TODO-DONE.txt]
 - [ ] QM1k-AB [M, Opus, measure only] READY after QM1k1b. THE EARLY TEST THAT DECIDES A vs B
+      USER ANSWER 2026-11-19: A/V seems to sync well for now, but the page is too slow to test properly: DEFERRED until after the performance queue. Good test video (it visualises the sound): https://www.youtube.com/watch?v=G1AeBgalFZk
       (user Q4.3). Run `mse_ab_drift_60s` 3 times on the user's machine (quiet machine, release
       build, ao=null; ao=pulse once only if the user is present and agrees, audio is audible).
       PASS for option A = all of: |avsync| <= 40 ms in every sample from 1 s after each (re)start;
@@ -716,7 +722,8 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       which context makes it (an iframe with an opaque origin? `Request` with
       `referrerPolicy`/`mode`? a sandboxed srcdoc?) and whether `null` is right there (Chrome's
       DevTools on the same page is the reference; do not guess). Test for the fixed case.
-- [ ] QM1k-r [S] WITH THE USER (R42 Reddit row) Reddit `r/oddlysatisfying` through an agent's own
+- [ ] QM1k-r [S] DROPPED 2026-11-19 (user) (R42 Reddit row) Reddit `r/oddlysatisfying` through an agent's own
+      USER 2026-11-19: DROPPED for now (do not schedule).
       wire on 2026-11-19 answered `?js_challenge=1&jsc_token=...` and then "You've been blocked by
       network security." (it played on 2026-11-17, R34). Never solve or evade it. Ask the user
       whether their own scratchy session sees the block too; if not, re-check the QM1k1f-era
@@ -815,6 +822,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
 - [x] QM1k1 [L] SPLIT 2026-11-18 into QM1k1a-QM1k1j + QM1k-AB/QM1k-B/QM1k-m2 (QM1k-PLAN above; [archived: TODO-DONE.txt]
 - [x] QY45 [S] DONE 2026-11-17 (Sonnet; hash 77101f3) (from R34) `Element.prototype.setAttributeNS`, `getAt... [archived: TODO-DONE.txt]
 - [ ] QM1a [S, Opus, investigate only] READY (no design needed) On the user's REAL
+      USER 2026-11-19: OK for an agent to open the mpv test window on the user's real dwl (or do it together with the user). READY (Opus, docs only), after the perf queue.
       dwl (GPU renderer) check that zwp_linux_dmabuf_v1 is offered and that
       `mpv --no-config --ao=null --vo=gpu` / `--vo=dmabuf-wayland` work; only the
       nested pixman dwl was tested here (no linux_dmabuf there, dmabuf-wayland
@@ -909,6 +917,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
 - [x] QCI0b [S] DONE (090431c) (P1, Sonnet; ranked first in this block, before QCI0a and QT1) [archived: TODO-DONE.txt]
 - [x] QCI1 [S] DONE (74239ec, PR #272; pinned Rust 1.96.1 added later, baseline in tools/clippy-baseline.tx... [archived: TODO-DONE.txt]
 - [ ] QCI2 [S] (P4, optional, after QCI1; ask the user first: download size)
+      USER ANSWER 2026-11-19: YES (sparse checkout pinned to the user's WPT commit). READY after the perf queue.
       WPT subset in CI: sparse-checkout only the directories `wpt-subset.txt`
       references, pinned to the WPT commit the user's ~/src/wpt is at (record it
       next to wpt-expected.txt), then `scratchy --wpt <dir>`. Headless already
@@ -1073,7 +1082,8 @@ Ranked: QY50 (P1) -> QY51 (P1) -> QY49-D (user decision, can be asked now) -> QY
 
 - [x] QY50 [S] DONE 5409a4a (YouTube nested-dwl run: no Symbol.iterator error; results still blank at 500 m... [archived: TODO-DONE.txt]
 - [x] QY51 [S] DONE (44e46c3) (P1, R37, Sonnet) `document.body`/`head` walk the whole tree on every [archived: TODO-DONE.txt]
-- [ ] QY49-D WAITING FOR USER (budget policy; R37 section 3 has the trade-off). Real pages
+- [ ] QY49-D ANSWERED 2026-11-19 (c) (budget policy; R37 section 3 has the trade-off). Real pages
+      USER ANSWER 2026-11-19: option (c). Budget 2 s while the page is loading (until the `load` event + 2 s), 500 ms afterwards. READY (not a perf-queue item: starts after the ready perf items are assigned).
       need 0.5-1.7 s of budget clock in single callbacks (YouTube 1659 ms promise job,
       DuckDuckGo a killed 500+ ms timer), all during page load. R8/QB3: a long stall while
       the pointer moves gets scratchy disconnected by the compositor. Options: (a) only
@@ -1091,6 +1101,7 @@ Ranked: QY50 (P1) -> QY51 (P1) -> QY49-D (user decision, can be asked now) -> QY
       scratchy with today's stalls? Decides whether QY49-D option (d) is needed and
       whether forced layout needs its own cap. Record in R37.
 - [ ] QY55 [S] (P3, R37, WITH THE USER) DuckDuckGo: the investigator's one direct load got
+      USER ANSWER 2026-11-19: scratchy DOES show DuckDuckGo results for the user (pretty slow, but it works). Profile the slow timer later in a session the user runs; after the perf queue.
       the bot challenge, so the timer that trips (and the empty duck grid) was not
       profiled. Ask the user whether they see the challenge in scratchy (and in a normal
       browser on the same IP). If DuckDuckGo shows results for them, profile the tripping
@@ -2184,6 +2195,7 @@ QF13a, QF14b2, QF18 open; QF19 waits for the user):
 - [x] QF14 (wire half, 4d62f87) Cookie jar in WIRE (design QF-D2a). Done in [archived: TODO-DONE.txt]
 - [x] QF14b-scratchy (bc2fb00) [S] The scratchy half of QF14 (needs the wire above, [archived: TODO-DONE.txt]
 - [ ] QF14b2 [S] (a)-(c) READY, no decision needed; (d)-(f) WAITING FOR
+      USER ANSWER 2026-11-19: (d) `--profile NAME`: SKIP for now.
       USER (see CURRENT STATUS) Left out of QF14b-scratchy: (a) `crossorigin` attribute
       credentials mode for img/script/link/module (today they always use the
       jar; spec: `crossorigin=anonymous` and module scripts are same-origin
@@ -2206,6 +2218,7 @@ QF13a, QF14b2, QF18 open; QF19 waits for the user):
       parked as QTB2. (d) `--profile`: still later, a `profile` key in the
       QCFG1 file when it is built.
 - [ ] QCFG1 [S] (when prioritised; prerequisite of QTB1) A user config file:
+      USER 2026-11-19: add to the queue. READY after the perf queue (then QTB1).
       `$XDG_CONFIG_HOME/scratchy/config.toml` (default `~/.config/scratchy/
       config.toml`), read once at startup with the `toml` crate. Command-line
       flags and `:set` override it. Missing file = today's defaults, silently.
@@ -2216,6 +2229,7 @@ QF13a, QF14b2, QF18 open; QF19 waits for the user):
       `motion` once QAN1d0 lands). Document the file in `:help` and NOTES.md.
       Tests: missing file, valid file, bad TOML, unknown key, flag overrides file.
 - [ ] QTB1 [M] (after QCFG1; user decisions QF14b2 (e) 2026-11-17) Tracker blocking,
+      USER 2026-11-19: add to the queue. READY after QCFG1 (both after the perf queue).
       mode B: a THIRD-PARTY sub-resource request to a listed tracker is not made.
       List: `scratchy --update-trackers` and `:update-trackers` download
       https://raw.githubusercontent.com/disconnectme/disconnect-tracking-protection/master/services.json
