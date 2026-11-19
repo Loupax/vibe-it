@@ -225,7 +225,7 @@ never freed, for the life of the process, across navigations. YouTube defines hu
    `benches/layout.rs` covers tree build + shaping of a synthetic page) (QOBS10).
 7. **The baseline is from the old machine** (QOBS9).
 
-## R43: Where forced layout goes (QY53): on the YouTube watch page 88 % of it is the player's `getPlayerSize` reading `#movie_player.clientWidth`, 80 % of those layouts change no box at all, and 99.5 % of each one is STYLE and BOX BUILD (layout proper 0.4 %); half of that is one O(elements x rules) scan for `::first-line`/`::first-letter` rules. On Wikipedia it is scratchy's OWN IntersectionObserver evaluation (Opus investigator QY53, 2026-11-19) — OPEN: QY53a-QY53h (a-d DONE; QY53e designed in section 7, PARTIAL, split into QY53e1-e3); QY53l PARTIAL (section 10: getPlayerSize layouts -28 %, proposed QY53l2/l3)
+## R43: Where forced layout goes (QY53): on the YouTube watch page 88 % of it is the player's `getPlayerSize` reading `#movie_player.clientWidth`, 80 % of those layouts change no box at all, and 99.5 % of each one is STYLE and BOX BUILD (layout proper 0.4 %); half of that is one O(elements x rules) scan for `::first-line`/`::first-letter` rules. On Wikipedia it is scratchy's OWN IntersectionObserver evaluation (Opus investigator QY53, 2026-11-19) — OPEN: QY53a-QY53h (a-d DONE; QY53e designed in section 7, PARTIAL, split into QY53e1-e3); QY53l PARTIAL (section 10: getPlayerSize layouts -28 %, proposed QY53l2/l3); QY53e3 measured in section 11
 
 **Status: investigation only, docs only.** Main b8d865f, own worktree release build (V8 + media,
 RUSTY_V8_ARCHIVE = existing librusty_v8.a, `nice -n 19 -j2`). Own wire on a scratchpad socket.
@@ -631,6 +631,118 @@ getPlayerSize layouts. **QY53l3 [S, optional]** a `style` write whose changed de
 properties that cannot move a box in scratchy (scale/rotate-only `transform`, `opacity`, colors,
 `background-*`), and no selector tests the `style` attribute (RuleIndex): skip the bump; ~5-8 of 51,
 must be revisited when scale transforms reach getBoundingClientRect.
+### 11. QY53e3: App layout vs forced layout in a live window (Opus, 2026-11-19, docs only)
+**Setup.** Main 15a3222 (QY53e1 c5098fa, QY53g/h/i, QY53f1 01d20dd, QOBS5 bf9aea1 in), own worktree release
+build (V8 + media), own wire on a scratchpad socket, nested dwl (tools/nest.sh), DEFAULT user agent,
+`SCRATCHY_MEDIA_AO=null`, `SCRATCHY_FRAME_STATS=<file>`, 66 s per run (`timeout`). Input through tools/inject
+from t = 8 s (YouTube: 13 s, after a click on the player's play button in runs 3-4): 6 x (4 pointer moves over
+links/controls, wheel 3 down, 2 moves, wheel 2 down, wheel 1 up), ~36 s. The nested output was 956x1002 in
+Wikipedia run 1 and 956x485 in all other runs (the host compositor re-tiled the nested window; not ours).
+**Throwaway instrumentation (reverted with `git checkout`, never committed):** one stderr line per GeomCache
+miss (`F`: time, `geom_gen`, `css_ver`, viewport, `in_io`, thread-CPU ms, no-change), per App tree build in
+`App::redraw` (`B`: `layout_generation`, `geom_gen`, `css_ver`, window size, build ms), per COMPLETE
+`ShapeResult` (`S`: generation, current `layout_generation`, `geom_gen`/`css_ver` now), per `js_sync` that took
+`dirty` (`D`), and from the IO prelude per `ioRecheck` (`IOR`) and per QY53e1 deferral start (`IOD`, with its
+deadline). A "generation" below is the pair (`geom_gen`, `css_ver`).
+QY53l (section 10, `styleSet` updates a declaration in place) was merged after these runs: it turns some formerly
+value-changing `style` writes into same-value ones, so the no-op rebuild counts below can only grow on newer main.
+
+**Runs.** Wikipedia Rust: 3 runs (wp1-3). YouTube watch G1AeBgalFZk: 4 runs; yt1/yt2 without a play click,
+yt3/yt4 played (30 frames/s from ~18 s until YouTube's attestation stop at ~57 s, R45). **yt1 froze at
+t = 29.5 s**: 0 redraws for the rest of the run while inputs piled up (`input.pending` 2 -> 22, wheel events
+included) and page JS kept running (~135 ms/s); no App build after 21 s. That is the freeze signature of
+QM1k-mouse / QM1k1n6 (not caused by the instrumentation: yt2-4 with the same binary did not freeze); yt1's
+numbers below cover its first ~30 s only. No challenge or consent wall.
+
+**Totals per run (frame stats and the lines; ms = main-thread ms):**
+| run | App builds (n / ms / median ms) | forced layouts (n / ms; IO n / ms) | hover restyles | redraws |
+|---|---|---|---|---|
+| wp1 | 57 / 8 548 / 161 | 19 / 5 993; 13 / 4 091 | 23 | 159 |
+| wp2 | 63 / 7 994 / 131 | 13 / 3 360; 11 / 2 862 | 22 | 166 |
+| wp3 | 24 / 4 202 / 170 | 7 / 3 021; 6 / 2 517 | 13 | 80 |
+| yt1 (froze) | 40 / 1 834 / 49 | 142 / 3 195; 29 / 1 008 | 3 | 64 |
+| yt2 | 10 / 341 / 27 | 105 / 2 653; 5 / 175 | 1 | 35 |
+| yt3 (played) | 80 / 3 817 / 46 | 228 / 7 398; 43 / 1 752 | 22 | 157 |
+| yt4 (played) | 87 / 4 039 / 46 | 208 / 6 936; 31 / 1 368 | 25 | 172 |
+**In a window on Wikipedia the App's own tree builds now cost MORE main-thread time than forced layout**
+(4.2-8.5 s vs 3.0-6.0 s per run); on YouTube forced layout is still 1.7-1.9x the App builds in the played runs.
+
+**Finding 0: the two layouts are never at the same viewport.** Every forced layout ran at 1024x768
+(`DEFAULT_VIEWPORT`, js.rs: `innerWidth/innerHeight` are fixed, open item Q33b2), the App at the window size
+(956x1002 / 956x485). So today no App layout can serve a script read or an IO evaluation, and no GeomCache tree
+can serve the App, whatever the generation. Also: the App sizes images, GeomCache does not (section 7).
+
+**(A) App tree builds at a generation GeomCache had already laid out:** counted against the latest forced layout
+before the build. All builds: wp 22/57, 24/63, 12/24; yt 23/40, 4/10, 40/80, 38/87. But almost all of those are
+REBUILDS of a generation the App had itself built just before (hover restyles, no-op writes, below). Counting only
+the FIRST App build of each generation: **wp 1/22, 2/20, 0/7 (0-0.26 s per run); yt 2/18, 3/9, 5/35, 7/41
+(0.07-0.26 s)**. Reusing the JS side's `LayoutBox` tree in the App is not worth an item (and needs Finding 0
+fixed and image sizes in GeomCache first).
+
+**(B) Forced layouts at a generation an App build had already built** (built / already completed): wp 10/8,
+7/4, 4/4 of 19/13/7; yt 7/2, 1/0, 17/13, 19/16 of 142/105/228/208. Nearly all of them are IO evaluations; page
+SCRIPT reads at an App-built generation: **wp 0, 1, 0; yt 0, 1, 4, 1** (completed: 0-1 per run). YouTube's script
+reads (`getPlayerSize` etc.) come in bursts right after writes, before the App builds. Serving script reads from
+the App's layout: not worth it.
+
+**(C) Delay from an IO recheck to the next complete App layout covering its generation** (0 = the latest complete
+App layout already had that generation):
+| run | QY53e1 deferrals (`IOD`): n, median / p90 / max ms to an App layout | e1 deadline ms | App layout before the deadline | IO forced layouts: median / p90 / max ms to an App layout |
+|---|---|---|---|---|
+| wp1 | 11: 204 / 532 / 539 | 934-1 322 | 11 of 11 | 0 / 209 / 1 021 |
+| wp2 | 9: 150 / 436 / 436 | 919-1 093 | 9 of 9 | 3 / 169 / 678 |
+| wp3 | 4: 241 / 336 / 336 | 1 518-1 719 | 4 of 4 | 0 / 1 360 / 1 360 |
+| yt1 | 20: 1 093 / 2 039 / 2 046 | 100-190 | 5 of 20 | 1 110 / 1 909 / 2 063 |
+| yt2 | 4: 763 / 1 226 / 1 226 | 100-182 | 1 of 4 | 562 / 1 265 / 1 265 |
+| yt3 | 35: 437 / 1 629 / 2 419 | 100-170 | 16 of 35 | 801 / 1 615 / 2 266 |
+| yt4 | 33: 77 / 1 807 / 2 743 | 100-190 | 19 of 33 | 30 / 1 426 / 2 197 |
+Wikipedia: the App's layout always arrives well inside QY53e1's deadline (its forced layouts cost 260-410 ms, so
+the deadline is ~1-1.7 s), and at a median IO forced layout the App ALREADY had a complete layout of that
+generation. YouTube: the deadline is 100-190 ms (forced layouts are cheap there) and the App's layout comes later
+in about half the cases (the main thread is in page JS; the App defers a rebuild while one is in flight), with a
+2-2.7 s tail.
+
+**(D) Complete App layouts current at completion:** every complete `ShapeResult` was for the current
+`layout_generation` (wp 57/57, 63/63, 24/24; yt 40/40, 10/10, 79/80, 87/87): the App never wastes a whole shaping
+pass. The DOM generation had NOT moved during the build in **wp 42/57, 53/63, 21/24 (74-88 %)** and **yt 25/40,
+4/10, 58/80, 68/87 (40-78 %)**; the rest are complete but one write batch behind, so QY53e2's "target missing
+from `rendered` stays pending" rule will trigger often on YouTube.
+
+**App rebuilds after only no-op writes** (`dirty` set by a write batch that moved neither `geom_gen` nor `css_ver`,
+same window size, so the rebuilt tree is the same as the previous one): **wp 9/57 (1 408 ms), 18/63 (2 313 ms),
+2/24 (336 ms); yt 19/40 (942 ms), 0/10, 23/80 (1 135 ms), 21/87 (880 ms)**. Builds at an unchanged generation
+WITHOUT any JS write in between (hover restyles; frame stats `hover_restyles` 13-25 per Wikipedia run): **wp 26
+(3 847 ms), 25 (3 197 ms), 15 (2 572 ms); yt 3, 1, 22 (1 147 ms), 25 (1 315 ms)**. On Wikipedia each hover change
+over a link is a full 130-170 ms App tree build on the main thread, the largest single main-thread item there in
+a window.
+
+**Verdict on QY53e2.** Still worth doing, but NOT as specified: as written it would evaluate App rects (window
+viewport, sized images) against an IO root of `innerWidth x innerHeight` = 1024x768 (Finding 0), i.e. a third
+geometry. Do Q33b2 (real `innerWidth/innerHeight` from the window, QY10a's plumbing) first, or let QY53e2 take
+the root rect from the App's viewport and run only when the two agree. Gain once that holds: Wikipedia IO =
+6-13 forced layouts per 60 s, 2.5-4.1 s (68-85 % of forced-layout CPU in the window), all replaceable within the
+deadline; YouTube: about half of 31-43 IO layouts (~0.8 s per 60 s). Keep QY53e1's deadline as the fallback.
+
+**Proposed items (coordinator files them):**
+- Q33b2 promoted to P1 and ordered BEFORE QY53e2 (S, existing). Gate: in a window `innerWidth/innerHeight` equal
+  the App's viewport (unit test on the env update; live: a forced layout's viewport equals the window size);
+  `--perf-report` headless unchanged (1024x768 there).
+- QY53m [S] (after QM1k1n6, same function): `App::js_sync` skips `request_js_restyle` when no write of the batch
+  changed a value (and `css_ver()` and `media_size_changed()` did not move). Key it on its own "value changed"
+  generation (QY53c's same-value check only), NOT on `geom_gen()`: QY53l2/l3 (section 10) would stop bumping
+  `geom_gen` for style-only and `display:none` writes that still need a repaint. Gate: Wikipedia Rust
+  live 60 s with this section's input script, frame stats `builds.n` and `builds.ms` drop by the no-op count
+  above (median of 3), screenshot unchanged; test: a same-value `setAttribute` leaves `layout_dirty` false.
+- QY53n [M, Opus design] hover restyle without a whole App tree build (restyle and re-box only the subtrees whose
+  `:hover` match changed, or keep the box tree and patch the styles of the HoverKeys-matched elements). Gate: frame
+  stats on Wikipedia Rust with pointer moves only over links: `builds.ms` per `hover_restyles` <= 20 % of today's
+  130-170 ms, `input.lat_p95_ms` reported. Overlaps QM1k1n6 (pointer coalescing caps how OFTEN this runs; this item
+  is what each one costs) and QM1k-mouse.
+- Not proposed: App reusing GeomCache's `LayoutBox` tree ((A): <= 7 first builds per run), script reads from the
+  App's layout ((B): <= 4 per run).
+
+**Not established:** why yt1 froze (QM1k-mouse/QM1k1n6 own that); the App build phases (only its total was
+timed); whether Wikipedia's no-op write batches are the page's or our preludes'.
 
 ## R42: YouTube through the MSE stack (QM1k-m2): the player script runs, picks avc1 + mp4a, attaches, appends and plays ~60 s of AUDIO, but NO PICTURE because YouTube adds the AUDIO SourceBuffer first and scratchy always makes SourceBuffer 0 the main (video) stream; with that swapped (throwaway patch) 640x360 video plays to the PoToken stop at ~60 s, then YouTube's own error card. The main thread is busy 100% of the time (294 forced layouts = 116 s of CPU in 60 s), so everything arrives 10-45 s late (Opus investigator QM1k-m2, 2026-11-19) — OPEN: QM1k1k (P1), QM1k1l, QM1k1m, QM1k-u, QY53 (now also blocks YouTube playback; measured in R43, fix items QY53a-QY53h); QM1k1n DONE 2026-11-19 (section 5: YouTube parks the `<video>` at `top:-360px` until `playing`, page design, not a CSS gap): QM1k1n1 DONE, QM1k1n3; QM1k1n2 DONE 2026-11-19 (section 6: start 3-6x faster after QY53a-c, but playback freezes at YouTube's first quality switch, a second init segment reloads into an empty generation): QM1k1n4 (P1), QM1k1n5 (P1, fetch results reach JS 1-19 s late), QM1k1n6, QM1k1n7
 
