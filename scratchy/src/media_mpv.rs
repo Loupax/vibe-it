@@ -5,12 +5,13 @@
 //! given `scratchy-media://1` and our `stream_cb` reader, never a real URL.
 //!
 //! QM1g: mpv runs with `vo=libmpv` and a SOFTWARE render context (`sw`, format
-//! `bgr0` = the page buffer's 0RGB). The render-update callback fires on an mpv
-//! thread and only flags + posts a user event (`media_video::wake`); the frame is
-//! rendered on the main thread by `take_frame`, at the visible box's size. With no
-//! visible box the video track is switched off (`vid=no`) once metadata is known
-//! (audio keeps playing) and any frame mpv still queues is consumed with
-//! SKIP_RENDERING. Audio: `ao=null` unless `SCRATCHY_MEDIA_AO` names an output
+//! `bgr0` = the page buffer's 0RGB). QM1g2a: the render context lives on its own
+//! thread (`media_render::RenderWorker`, one per backend): mpv's render-update callback
+//! wakes that thread, which renders the frame at the visible box's size into a fresh
+//! buffer and posts the user event (`media_video::wake`); `take_frame` on the main thread
+//! only takes the newest finished frame. With no visible box the video track is switched
+//! off (`vid=no`) once metadata is known (audio keeps playing) and any frame mpv still
+//! queues is consumed with SKIP_RENDERING by the worker. Audio: `ao=null` unless `SCRATCHY_MEDIA_AO` names an output
 //! (e.g. `pulse`); an element only opens it while it plays. Seeks use
 //! `absolute+exact` (QM1b: plain seeks land on keyframes).
 
@@ -26,6 +27,7 @@ use crate::net_policy::RequestPolicy;
 use std::sync::Arc;
 
 use crate::css::ObjectFit;
+use crate::media_render::{FrameRenderer, RenderWorker, Signal};
 use crate::media_video::{VideoFrame, VideoTarget};
 use crate::mse_store::{FeedRead, MseFeed};
 
@@ -45,7 +47,7 @@ const RENDER_UPDATE_FRAME: u64 = 1;
 
 /// The parameter list of a software `mpv_render_context_render` call (zero-terminated).
 /// QM1k1n6: `BLOCK_FOR_TARGET_TIME` = 0. Its default (1) makes render() SLEEP until the
-/// frame's display time; it runs on the main thread (`App::video_tick`), so playback
+/// frame's display time; it ran on the main thread then (QM1g2a moved it to a worker), so playback
 /// held the event loop ~31 ms per frame (93-100 % of every playing second) and any page
 /// task or input waited behind it. Frames are rendered when mpv reports one ready
 /// (`RENDER_UPDATE_FRAME`), so pacing stays mpv's.
@@ -70,14 +72,85 @@ pub(crate) fn sw_render_param_ints() -> Vec<(c_int, c_int)> {
     p.iter().filter(|r| r.ty == RP_BLOCK_FOR_TARGET_TIME).map(|r| (r.ty, unsafe { *(r.data as *const c_int) })).collect()
 }
 
-/// Set by mpv's render-update callback (any thread).
-struct Shared {
-    ready: AtomicBool,
-}
+/// mpv's render-update callback (any mpv thread): wakes the render worker. It must not
+/// call mpv; `Signal::notify` only takes the worker's state lock briefly.
 unsafe extern "C" fn rc_update_cb(d: *mut c_void) {
-    // SAFETY: `d` is the `Shared` leaked by `ensure`, freed after the render context.
-    unsafe { (*(d as *const Shared)).ready.store(true, Ordering::SeqCst) };
-    crate::media_video::wake();
+    // SAFETY: `d` is the `Signal` an `MpvRenderer` holds; it is released only after
+    // `mpv_render_context_free`, after which mpv makes no more calls.
+    unsafe { (*(d as *const Signal)).notify() };
+}
+
+/// The mpv handle, moved to the render worker (the client API is thread-safe; the core
+/// outlives the worker: `MpvBackend::drop` joins it before `mpv_terminate_destroy`).
+struct SendHandle(*mut c_void);
+// SAFETY: see above; only `mpv_render_context_create` is called with it on the worker.
+unsafe impl Send for SendHandle {}
+
+/// QM1g2a: the software render context. Created, updated, rendered with and freed on the
+/// render worker thread only (`mpv_render_context` is not thread-safe).
+struct MpvRenderer {
+    l: &'static Lib,
+    rc: *mut c_void,
+    sig: *const Signal,
+}
+
+impl MpvRenderer {
+    fn create(h: SendHandle, sig: Arc<Signal>) -> Option<MpvRenderer> {
+        let l = lib()?;
+        let mut rc: *mut c_void = std::ptr::null_mut();
+        let sw = MpvBackend::cs("sw");
+        let mut p = [RenderParam { ty: RP_API_TYPE, data: sw.as_ptr() as *mut c_void }, RenderParam { ty: 0, data: std::ptr::null_mut() }];
+        // SAFETY: `h` is an initialized core that outlives this renderer (see SendHandle).
+        unsafe {
+            if (l.rc_create)(&mut rc, h.0, p.as_mut_ptr()) < 0 {
+                return None;
+            }
+            let sig = Arc::into_raw(sig);
+            (l.rc_cb)(rc, rc_update_cb, sig as *mut c_void);
+            Some(MpvRenderer { l, rc, sig })
+        }
+    }
+}
+
+impl FrameRenderer for MpvRenderer {
+    fn update(&mut self) -> bool {
+        // SAFETY: `rc` is live and only used on this thread.
+        unsafe { (self.l.rc_update)(self.rc) & RENDER_UPDATE_FRAME != 0 }
+    }
+    fn render(&mut self, t: VideoTarget) -> Option<Vec<u32>> {
+        let mut px = vec![0u32; t.w as usize * t.h as usize];
+        let mut size = [t.w as c_int, t.h as c_int];
+        let fmt = MpvBackend::cs("bgr0");
+        let mut stride: usize = t.w as usize * 4;
+        let mut noblock: c_int = 0;
+        let mut p = sw_render_params(&mut size, &fmt, &mut stride, &mut px, &mut noblock);
+        // SAFETY: the params point at live locals; `px` holds w*h pixels of `stride` bytes.
+        if unsafe { (self.l.rc_render)(self.rc, p.as_mut_ptr()) } < 0 {
+            return None;
+        }
+        // `bgr0` leaves the pad byte 0; keep the top byte clear (the page sentinel is 0xFE).
+        for v in px.iter_mut() {
+            *v &= 0x00FF_FFFF;
+        }
+        Some(px)
+    }
+    fn skip(&mut self) {
+        let mut one: c_int = 1;
+        let mut p = [RenderParam { ty: RP_SKIP_RENDERING, data: &mut one as *mut c_int as *mut c_void }, RenderParam { ty: 0, data: std::ptr::null_mut() }];
+        // SAFETY: as in `render`.
+        unsafe { (self.l.rc_render)(self.rc, p.as_mut_ptr()) };
+    }
+}
+
+impl Drop for MpvRenderer {
+    fn drop(&mut self) {
+        // SAFETY: freed on the thread that created it, before the core is destroyed; no
+        // update callback runs after `mpv_render_context_free` returns.
+        unsafe {
+            (self.l.rc_free)(self.rc);
+            drop(Arc::from_raw(self.sig));
+        }
+    }
 }
 
 #[repr(C)]
@@ -412,8 +485,8 @@ pub(crate) struct MpvBackend {
     cache_end: f64,
     seekable: bool,
     duration: f64,
-    rc: *mut c_void,
-    shared: *const Shared,
+    /// QM1g2a: the render worker (owns the render context); None until `ensure`.
+    worker: Option<RenderWorker>,
     target: Option<VideoTarget>,
     vid_off: bool,
     /// QM1k1n1: no target, but keep the video track decoding (playing, box laid but invisible).
@@ -424,7 +497,7 @@ pub(crate) struct MpvBackend {
 
 impl MpvBackend {
     pub(crate) fn new(ctx: BackendCtx) -> Self {
-        MpvBackend { ctx, h: std::ptr::null_mut(), reg: std::ptr::null_mut(), loaded_file: false, meta_sent: false, cache_end: 0.0, seekable: false, duration: f64::NAN, rc: std::ptr::null_mut(), shared: std::ptr::null(), target: None, vid_off: false, keep_video: false, feed: None }
+        MpvBackend { ctx, h: std::ptr::null_mut(), reg: std::ptr::null_mut(), loaded_file: false, meta_sent: false, cache_end: 0.0, seekable: false, duration: f64::NAN, worker: None, target: None, vid_off: false, keep_video: false, feed: None }
     }
 
     fn cs(s: &str) -> CString {
@@ -469,19 +542,17 @@ impl MpvBackend {
             }));
             (l.stream_add)(h, Self::cs("scratchy-media").as_ptr(), reg as *mut c_void, st_open);
             (l.stream_add)(h, Self::cs("scratchy-mse").as_ptr(), reg as *mut c_void, mse_open);
-            // QM1g: the software render context (frames are rendered by `take_frame`).
-            let mut rc: *mut c_void = std::ptr::null_mut();
-            let sw = Self::cs("sw");
-            let mut p = [RenderParam { ty: RP_API_TYPE, data: sw.as_ptr() as *mut c_void }, RenderParam { ty: 0, data: std::ptr::null_mut() }];
-            if (l.rc_create)(&mut rc, h, p.as_mut_ptr()) < 0 {
+            // QM1g/QM1g2a: the software render context, on its own thread.
+            let hs = SendHandle(h);
+            let make = move |sig: Arc<Signal>| MpvRenderer::create(hs, sig).map(|r| Box::new(r) as Box<dyn FrameRenderer>);
+            let Some(worker) = RenderWorker::spawn(make, Arc::new(crate::media_video::wake)) else {
                 drop(Box::from_raw(reg));
                 (l.destroy)(h);
                 return Err(LoadError::Unavailable);
-            }
-            let shared = Arc::into_raw(Arc::new(Shared { ready: AtomicBool::new(false) }));
-            (l.rc_cb)(rc, rc_update_cb, shared as *mut c_void);
-            self.rc = rc;
-            self.shared = shared;
+            };
+            // A target set before the first load (no worker yet) applies now.
+            worker.set_target(self.target);
+            self.worker = Some(worker);
             for (id, name, fmt) in [
                 (P_TIME, "time-pos", FMT_DOUBLE),
                 (P_DURATION, "duration", FMT_DOUBLE),
@@ -572,6 +643,19 @@ impl MpvBackend {
         }
     }
 
+    /// QM1g2a: a load or unload; no frame of the previous file is shown.
+    fn reset_frames(&self) {
+        if let Some(w) = &self.worker {
+            w.reset();
+        }
+    }
+
+    /// Test seam: the thread that rendered the newest frame.
+    #[cfg(test)]
+    pub(crate) fn render_thread(&self) -> Option<std::thread::ThreadId> {
+        self.worker.as_ref()?.rendered_on()
+    }
+
     fn reg(&self) -> Option<&Reg> {
         if self.reg.is_null() { None } else { Some(unsafe { &*self.reg }) }
     }
@@ -623,6 +707,7 @@ impl MediaBackend for MpvBackend {
         self.cache_end = 0.0;
         self.seekable = false;
         self.duration = f64::NAN;
+        self.reset_frames();
         self.set("pause", "yes");
         if self.vid_off {
             self.set("vid", "auto");
@@ -651,6 +736,7 @@ impl MediaBackend for MpvBackend {
         self.cache_end = 0.0;
         self.seekable = false;
         self.duration = f64::NAN;
+        self.reset_frames();
         self.set("pause", "yes");
         if self.vid_off {
             self.set("vid", "auto");
@@ -676,6 +762,7 @@ impl MediaBackend for MpvBackend {
         self.stop_feed();
         self.cancel_streams();
         self.cmd(&["stop"]);
+        self.reset_frames();
         self.loaded_file = false;
         self.meta_sent = false;
         // QM1k1l: nothing is buffered once unloaded (a late cache event of the stopped file
@@ -689,6 +776,10 @@ impl MediaBackend for MpvBackend {
     }
     fn seek(&mut self, secs: f64) {
         self.cmd(&["seek", &format!("{secs}"), "absolute+exact"]);
+        // QM1g2a: a frame rendered before the seek must not be shown after it.
+        if let Some(w) = &self.worker {
+            w.flush();
+        }
     }
     fn set_volume(&mut self, v: f64) {
         self.set("volume", &format!("{}", v * 100.0));
@@ -704,11 +795,6 @@ impl MediaBackend for MpvBackend {
         let Some(l) = lib() else { return out };
         if self.h.is_null() {
             return out;
-        }
-        // Nobody wants the picture: still consume mpv's frames (vo=libmpv stalls
-        // playback, audio included, when they pile up).
-        if self.target.is_none() {
-            self.take_frame();
         }
         let mut w = wait.as_secs_f64();
         loop {
@@ -764,6 +850,11 @@ impl MediaBackend for MpvBackend {
     }
     fn set_video_target(&mut self, t: Option<VideoTarget>) {
         self.target = t;
+        // The worker renders at the new size (or skips, hidden) from now on; a frame it
+        // finished for the old one is dropped.
+        if let Some(w) = &self.worker {
+            w.set_target(t);
+        }
         self.apply_target();
     }
     fn set_video_keep(&mut self, keep: bool) {
@@ -773,39 +864,11 @@ impl MediaBackend for MpvBackend {
         }
     }
     fn frame_pending(&self) -> bool {
-        !self.shared.is_null() && unsafe { (*self.shared).ready.load(Ordering::SeqCst) }
+        self.worker.as_ref().is_some_and(|w| w.pending())
     }
     fn take_frame(&mut self) -> Option<Arc<VideoFrame>> {
-        let l = lib()?;
-        if self.rc.is_null() || self.shared.is_null() || !unsafe { (*self.shared).ready.swap(false, Ordering::SeqCst) } {
-            return None;
-        }
-        unsafe {
-            if (l.rc_update)(self.rc) & RENDER_UPDATE_FRAME == 0 {
-                return None;
-            }
-            let Some(t) = self.target.filter(|t| t.w > 0 && t.h > 0 && t.w <= 8192 && t.h <= 8192) else {
-                // Nobody looks at it: consume the frame without rendering.
-                let mut one: c_int = 1;
-                let mut p = [RenderParam { ty: RP_SKIP_RENDERING, data: &mut one as *mut c_int as *mut c_void }, RenderParam { ty: 0, data: std::ptr::null_mut() }];
-                (l.rc_render)(self.rc, p.as_mut_ptr());
-                return None;
-            };
-            let mut px = vec![0u32; t.w as usize * t.h as usize];
-            let mut size = [t.w as c_int, t.h as c_int];
-            let fmt = Self::cs("bgr0");
-            let mut stride: usize = t.w as usize * 4;
-            let mut noblock: c_int = 0;
-            let mut p = sw_render_params(&mut size, &fmt, &mut stride, &mut px, &mut noblock);
-            if (l.rc_render)(self.rc, p.as_mut_ptr()) < 0 {
-                return None;
-            }
-            // `bgr0` leaves the pad byte 0; keep the top byte clear (the page sentinel is 0xFE).
-            for v in px.iter_mut() {
-                *v &= 0x00FF_FFFF;
-            }
-            Some(Arc::new(VideoFrame { w: t.w, h: t.h, px }))
-        }
+        // QM1g2a: rendered by the worker; this only takes the newest finished frame.
+        self.worker.as_ref()?.take()
     }
     fn buffered(&self) -> Vec<(f64, f64)> {
         if self.cache_end > 0.0 { vec![(0.0, self.cache_end)] } else { Vec::new() }
@@ -825,17 +888,11 @@ impl Drop for MpvBackend {
         }
         self.stop_feed();
         self.cancel_streams();
+        // The render context must go before the core: dropping the worker joins its
+        // thread, which frees the context there.
+        self.worker = None;
         if let Some(l) = lib() {
-            unsafe {
-                // The render context must go before the core.
-                if !self.rc.is_null() {
-                    (l.rc_free)(self.rc);
-                }
-                (l.destroy)(self.h);
-            }
-        }
-        if !self.shared.is_null() {
-            unsafe { drop(Arc::from_raw(self.shared)) };
+            unsafe { (l.destroy)(self.h) };
         }
         if !self.reg.is_null() {
             unsafe { drop(Box::from_raw(self.reg)) };

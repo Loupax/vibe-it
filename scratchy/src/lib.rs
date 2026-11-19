@@ -88,6 +88,9 @@ mod media_net;
 mod media_el;
 mod media_controls;
 mod media_video;
+// QM1g2a: the video render worker (used by media_mpv; tested with a stub without it).
+#[cfg_attr(not(feature = "media"), allow(dead_code))]
+mod media_render;
 #[allow(dead_code)] // QM1k1a: the pure MSE store; QM1k1b+ (feed, element, JS) are the first callers
 mod mse_store;
 mod js_media;

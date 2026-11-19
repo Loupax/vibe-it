@@ -1311,6 +1311,54 @@ mod qm1f_real {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// QM1g2a: frames are rendered by the render worker, not the thread that takes them; a
+    /// resize drops frames of the old size; dropping the backend joins the worker.
+    #[test]
+    fn qm1g2a_mpv_frames_arrive_from_the_render_worker() {
+        if !crate::media_mpv::libmpv_available() {
+            eprintln!("SKIP: libmpv.so.2 not available");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("qm1g2a-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let Some(file) = make_clip(&dir) else {
+            eprintln!("SKIP: ffmpeg could not make a test clip");
+            return;
+        };
+        let w = qm1e_wire(Qm1eCfg { file, ..Default::default() });
+        let mut be = crate::media_mpv::MpvBackend::new(BackendCtx { socket: Some(w.path.clone()), policy: Default::default() });
+        let fit = crate::css::ObjectFit::Contain;
+        be.set_video_target(Some(crate::media_video::VideoTarget { w: 160, h: 120, fit }));
+        be.load(&LoadReq { url: "https://cdn.test/c.mp4".into(), page: "https://cdn.test/".into(), mode: MediaMode::NoCors, blob: None }).unwrap();
+        be.set_muted(true);
+        be.set_paused(false);
+        let t0 = std::time::Instant::now();
+        let (mut small, mut big, mut resized) = (0, 0, false);
+        while t0.elapsed() < std::time::Duration::from_secs(20) && big < 3 {
+            let _ = be.poll(std::time::Duration::from_millis(10));
+            let Some(f) = be.take_frame() else { continue };
+            assert!(f.px.iter().all(|&p| p >> 24 == 0), "top byte must stay clear");
+            if resized {
+                assert_eq!((f.w, f.h), (200, 100), "no frame of the old size after a resize");
+                big += 1;
+            } else {
+                assert_eq!((f.w, f.h), (160, 120));
+                small += 1;
+                if small == 3 {
+                    be.set_video_target(Some(crate::media_video::VideoTarget { w: 200, h: 100, fit }));
+                    resized = true;
+                }
+            }
+        }
+        assert!(small == 3 && big >= 3, "frames: {small} small, {big} after the resize");
+        let on = be.render_thread().expect("a render thread");
+        assert_ne!(on, std::thread::current().id(), "frames are rendered off the polling thread");
+        let t = std::time::Instant::now();
+        drop(be);
+        assert!(t.elapsed() < std::time::Duration::from_secs(5), "shutdown joined the worker promptly: {:?}", t.elapsed());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn mpv_without_wire_is_a_media_error_not_a_hang() {
         if !crate::media_mpv::libmpv_available() {

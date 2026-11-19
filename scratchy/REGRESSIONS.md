@@ -1376,6 +1376,30 @@ fallback (`vt_fail_dirty` 1-9/s in bursts) and keeps frames flowing during resty
 (`forced.by_caller`, top 3, ms) and the longest callback's source, so the next burst can be blamed on
 a function without headless reruns.
 
+### QM1g2a (2026-11-19): mpv frames rendered off the main thread
+The "33-39 ms per frame" in QM1g2 (a) predates this section's `BLOCK_FOR_TARGET_TIME = 0` fix; the
+main-thread render cost before QM1g2a was 3-7 ms per frame. QM1g2a moves the render context to a
+worker thread (`media_render.rs`) and adds `video.tick_ms`/`video.fetch_ms` (main-thread ms per
+second in `App::video_tick` / in getting the frames) to the frame stats. Before = this branch's first
+commit (the stats only), after = the worker. Nested dwl 960x1006, own wire on its own socket,
+`SCRATCHY_MEDIA_AO=null`, tools/inject: 6 s still, 10 s of 60 Hz moves in a circle over the picture,
+10 s zig-zag over the page. Each run under `flock /tmp/scratchy-perf.lock`, before/after interleaved,
+load average 36-70 (other agents building). Numbers are over the seconds with a rendered frame.
+
+| run | main ms per frame (tick / of it fetch) | frames taken | painted/s median (min) | input lat p95 median / worst max (ms) |
+|---|---|---|---|---|
+| local 1280x720 30 fps H.264 -> 640x360, before 1/2/3 | 4.09/2.88, 4.54/3.09, 5.86/4.13 | 1143, 1131, 1152 | 30 (30, 23, 12) | 34.4/77.6, 34.2/54.9, 36.4/74.1 |
+| local, after 1/2/3 | 0.96/0.00, 1.18/0.00, 1.08/0.00 | 1130, 1128, 1166 | 30 (22, 20, 27) | 33.1/42.7, 33.4/51.9, 32.2/42.5 |
+| YouTube G1AeBgalFZk (click play, then the same phases), before 1/2 | 8.48/6.09, 9.98/6.88 | 116, 91 | 5 (2), 6 (3) | 419/984, 365/867 |
+| YouTube, after 1/2 | 2.40/0.00, 2.15/0.00 | 200, 192 | 6 (4), 7 (3) | 284/548, 259/1984 |
+
+What is left on the main thread per frame (~1-2.4 ms): copying the frame through the box mask into
+`page_buf` and the softbuffer buffer, the controls bar and the damage present. Local video fps is
+mpv's 30 either way; YouTube stays at 5-7 painted/s in both builds because its page JS (js_ms 220-310
+per second here) holds the main thread, which is QY53/QYTC1 work, not rendering. The YouTube latency
+spread is page-JS noise (one after run had a 1984 ms second); the local runs show no input-latency
+change beyond the smaller worst case.
+
 ## R45: QM1k-stop: YouTube's "Ein Fehler ist aufgetreten" overlay a few seconds into playback is the SABR attestation stop (`ump.spsrejectfailure` / `HTML5_SPS_UMP_STATUS_REJECTED`): after ~60-64 s of media has been served with STREAM_PROTECTION_STATUS 2 (pending), every SABR answer is status 3 (attestation required, 10 retries), and after the 10th YouTube calls `stopVideo()` and shows the error, with 27-40 s of media still buffered. Same with the default UA, the R43 Chrome UA and a second video; no MediaError, no SourceBuffer exception, no scratchy crash (Opus investigator QM1k-stop, 2026-11-19) — OPEN: QM1k2 (PARKED, user decides); no scratchy fix
 
 **Status: investigation only, docs only.** Release build of main 42a5ef5 (V8 + media, libmpv 0.41),
