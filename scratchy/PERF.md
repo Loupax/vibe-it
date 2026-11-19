@@ -562,3 +562,33 @@ Upper bound from a standalone experiment (stub natives, same preludes): 20.6 ms 
 memory only. Decision: KEPT (>= 10 ms per page start).
 Not measured: RSS (a snapshot-made isolate shares nothing with the next one), page load on slow disks
 (there is no disk), many tabs.
+
+## Offline benchmarks
+
+### QOBS10: forced layout on the "big-css" fixture (`cargo bench --bench layout -- forced_layout`)
+
+Offline and deterministic input (the fixture is generated in `benches/layout.rs`, never vendored; no network, no
+script engine): 20 000 class rules (`.c<i> .d<i> { margin-left: 1px }`), 200 `::before` rules, 1 000 nested divs with
+3 classes each. One iteration = write one attribute (`data-w` on the innermost div), then
+`build_layout_tree_sized` (a thin wrapper of `build_layout_tree_with_resources`) + `measure_document`, i.e. what
+`write attribute; read offsetWidth` costs. The bench body runs on a 256 MB-stack thread because 1 000 nested divs
+overflow the default 8 MB main-thread stack until QSTK1 merges (same element and rule counts as the QY53 fixture).
+Variants: `big_css`; `200 custom props + overrides` (200 `--p<i>` on `:root`, an inline override on every 10th div,
+`var()` use; QY53i); `100 long text paragraphs` (100 x ~2 000 chars appended; QP4); `small <style> appended`
+(a different small `<style>` appended to `<head>` before every build, so the stylesheet source changes and the
+rule cache misses; the stylesheet re-parse cost QY53f1 will remove). CI only compiles it (`--all-targets` already
+builds benches); no bench timing in CI.
+
+Measured on main + this change (Ryzen 7 5700X, 16 threads, V8 build, release, 10 samples, 1 s warm-up, 5 s
+measurement), while other agents were building (load average ~11.5, so spread is wide; criterion
+[low median high]):
+
+| variant | time per forced layout |
+|---|---|
+| big_css | [25.0 ms 28.6 ms 35.4 ms] |
+| 200 custom props + overrides | [75.5 ms 100.8 ms 144.4 ms] |
+| 100 long text paragraphs | [33.5 ms 37.7 ms 48.2 ms] |
+| small `<style>` appended (re-parse) | [24.2 ms 25.4 ms 27.3 ms] |
+
+Caveat: the appended-style variant is not measurably slower than plain big_css here (the fixture's CSS is ~0.6 MB,
+much smaller than YouTube's 4.4 MB, and the run was noisy); re-take the table on an idle machine (QOBS9).
