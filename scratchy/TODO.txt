@@ -1161,7 +1161,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       a LOCAL TEST PAGE (fixture html + the QM1k1b fMP4 files served by the test fake wire) whose
       own JS fetches and appends segments and plays to `ended` with the real mpv (skip without
       libmpv), the end-to-end proof before YouTube.
-- [x] QM1k-m2 [M, Opus, measure only] DONE 2026-11-19 (R42; docs only): YouTube runs its player, picks avc1 +
+- [x] QM1k-m2 [M, Opus, measure only] DONE 2026-11-19 (46ae436, R42; docs only): YouTube runs its player, picks avc1 +
       mp4a, attaches and appends, but plays AUDIO ONLY: it adds the audio SourceBuffer first and
       load_mse always makes SourceBuffer 0 the main file (QM1k1k); with that swapped (throwaway
       patch) 640x360 video plays ~64 s to the PoToken stop (status 3 x10, YouTube error card, no
