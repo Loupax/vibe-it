@@ -376,6 +376,8 @@ pub(crate) fn intersect_ranges(all: &[Vec<(f64, f64)>]) -> Vec<(f64, f64)> {
 /// A start time this close to a range edge counts as inside (first frames rarely start at
 /// exactly the requested time).
 const MSE_COVER_SLACK: f64 = 0.1;
+/// QM1k1n4: how long before the end of a run (at an init change) the next generation loads.
+const MSE_SWITCH_LEAD: f64 = 0.1;
 /// `progress` is fired at most this often while appending (ms).
 const MSE_PROGRESS_MS: f64 = 350.0;
 
@@ -813,6 +815,23 @@ impl MediaCore {
         self.mse_resolve();
     }
 
+    /// QM1k1n4: a live run ends where the stored media changes init (quality switch). When
+    /// playback gets there, the next generation is loaded at the first segment of the new init.
+    fn mse_check_switch(&mut self) {
+        let t = self.current_time;
+        let Some(m) = self.mse.as_mut() else { return };
+        if !m.issued || m.want.is_some() {
+            return;
+        }
+        let at = m.feed.with_store(|st| st.switch_point());
+        if let Some(b) = at
+            && t >= b - MSE_SWITCH_LEAD
+        {
+            m.want = Some(b);
+            self.mse_resolve();
+        }
+    }
+
     /// A seek on an MSE element: inside the live generation it is a backend seek; anywhere
     /// else it waits (`waiting`, readyState HAVE_METADATA) until every track covers `t`,
     /// then the next generation is loaded at `t`.
@@ -1088,6 +1107,7 @@ impl MediaCore {
                         self.last_tu = now;
                         self.fire("timeupdate");
                     }
+                    self.mse_check_switch();
                 }
             }
             BackendEvent::Eof => {

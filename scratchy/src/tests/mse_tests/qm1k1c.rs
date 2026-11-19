@@ -281,3 +281,35 @@ fn qm1k1c_a_new_load_or_element_removal_detaches() {
     host.mse.drop_feed(feed.id);
     assert!(host.mse.get(feed.id).is_none());
 }
+
+/// QM1k1n4: a quality switch at 20 s while playing at 18 s: the reload keeps the old init and
+/// its segments (it used to find no run), and playback loads the new init at the boundary.
+#[test]
+fn qm1k1n4_a_quality_switch_reloads_on_the_old_init_then_switches_at_the_boundary() {
+    use super::{frag, Dur};
+    let (mut c, f, feed) = started(5);
+    settle(&mut c, &f, 0.0);
+    f.push(BackendEvent::Time(18.0));
+    pump(&mut c, 100.0);
+    let init_b = init_seg(1, 48_000, 1024);
+    for bi in 0..2 {
+        append(&mut c, &feed, bi, &init_b, 200.0);
+    }
+    // the reload at 18 s found the 16-20 s segment under the old init
+    let at18 = format!("load_mse {} 18", feed.id);
+    assert!(calls(&f).iter().any(|x| x == &at18), "{:?}", calls(&f));
+    assert_eq!(feed.with_store(|s| s.buffers.iter().map(|b| b.run_end()).collect::<Vec<_>>()), vec![Some(20.0), Some(20.0)]);
+    let loads = count(&f, "load_mse");
+    // the new init's media arrives: no reload yet, playback is still before the boundary
+    for t in [20u64, 24] {
+        for bi in 0..2 {
+            append(&mut c, &feed, bi, &frag(1, t * 48_000, Dur::Explicit(10, 19_200), 40, false), 300.0);
+        }
+    }
+    assert_eq!(count(&f, "load_mse"), loads, "{:?}", calls(&f));
+    // playback reaches the end of the old run: the next generation starts at 20 s
+    f.push(BackendEvent::Time(19.95));
+    pump(&mut c, 400.0);
+    assert_eq!(count(&f, "load_mse"), loads + 1, "{:?}", calls(&f));
+    assert!(calls(&f).iter().any(|x| x == &format!("load_mse {} 20", feed.id)), "{:?}", calls(&f));
+}
