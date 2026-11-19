@@ -290,11 +290,17 @@ pub(crate) fn memory_json(engine: Option<&crate::js::JsEngine>) -> String {
     };
     let (seg, seg_bytes) = crate::stack::spare_segments();
     let malloc = malloc_stats();
+    // QFLK1: one rss sample; the peak is never below it (other threads may free between two /proc reads).
+    let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    let field = |key: &str| status.lines().find_map(|l| l.strip_prefix(key).and_then(|v| v.trim().trim_end_matches("kB").trim().parse::<u64>().ok())).map_or(0, |k| k * 1024);
+    // RssAnon: anonymous resident bytes (heaps, stacks, V8 pages, no mapped files); `rss_anon_bytes - malloc.free_kept` is the live anonymous memory `explained_bytes` is compared with.
+    let (rss, rss_anon) = (field("VmRSS:"), field("RssAnon:"));
+    let peak = peak_rss_bytes().max(rss);
     format!(
         "\"memory\":{{\"rss_bytes\":{},\"rss_anon_bytes\":{},\"peak_rss_bytes\":{},\"js_heap\":{},\"caches\":{{{}}},\"caches_bytes\":{},\"explained_bytes\":{},\"walk_us\":{},\"malloc\":{},\"stack_segments\":{{\"kept\":{},\"mapped_bytes\":{}}},\"media_players\":{}}}",
-        rss_bytes(),
-        rss_anon_bytes(),
-        peak_rss_bytes(),
+        rss,
+        rss_anon,
+        peak,
         js,
         body.join(","),
         total,
@@ -859,16 +865,6 @@ pub(crate) fn rss_bytes() -> u64 {
     std::fs::read_to_string("/proc/self/status")
         .ok()
         .and_then(|s| s.lines().find_map(|l| l.strip_prefix("VmRSS:").map(|v| v.trim().trim_end_matches("kB").trim().parse::<u64>().unwrap_or(0) * 1024)))
-        .unwrap_or(0)
-}
-
-/// QMEM3b: anonymous resident bytes (`RssAnon` of /proc/self/status: heaps, stacks, V8 pages, no
-/// mapped files); 0 when unreadable. `rss_anon_bytes - malloc.free_kept` is the live anonymous
-/// memory `explained_bytes` is compared with.
-pub(crate) fn rss_anon_bytes() -> u64 {
-    std::fs::read_to_string("/proc/self/status")
-        .ok()
-        .and_then(|s| s.lines().find_map(|l| l.strip_prefix("RssAnon:").map(|v| v.trim().trim_end_matches("kB").trim().parse::<u64>().unwrap_or(0) * 1024)))
         .unwrap_or(0)
 }
 
