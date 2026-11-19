@@ -484,6 +484,23 @@ pub(crate) fn build_box_for_element(
     viewport_width: f32,
     image_cache: &HashMap<String, Arc<DecodedImage>>,
 ) -> LayoutBox {
+    crate::stack::grow(|| {
+        build_box_for_element_body(
+            handle, rules, inherited, decoration, href, viewport_width, image_cache,
+        )
+    })
+}
+
+/// QSTK1: the body of `build_box_for_element`, run through `crate::stack::grow`.
+fn build_box_for_element_body(
+    handle: &Handle,
+    rules: &[StyleRule],
+    inherited: InheritedStyle,
+    decoration: DecorationValue,
+    href: Option<&'static str>,
+    viewport_width: f32,
+    image_cache: &HashMap<String, Arc<DecodedImage>>,
+) -> LayoutBox {
     let mut style = resolve_style(handle, rules, inherited, viewport_width);
     style.canvas_src = match element_tag(handle) {
         "html" => 1,

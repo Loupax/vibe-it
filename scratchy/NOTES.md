@@ -20,6 +20,15 @@ explained in its own section near the end of this file.
 - `src/js_engine.rs`: the engine seam (QV8-2). The only file that names `rquickjs`: natives (`native!`), values (`Bytes`, `JsObject`), compile/run, `Engine` (budget, job drain, module loader), error formatting.
 - V8 startup snapshot (QV8-4, `js_engine_v8.rs` `Snapshot`, `js::bake_engine`, `js::startup_engine`): page engines are deserialized from a snapshot of scratchy's own startup over an empty document, built in-process on a background thread (`warm_up`; blocking `ensure_snapshot` in tests and the one-shot report modes; `SCRATCHY_V8_SNAPSHOT=0` disables; a non-empty `SCRATCHY_V8_FLAGS` also skips it with one stderr line, QOBS2: `--perf-basic-prof --interpreted-frames-native-stack` + snapshot jumped to a stale code address from `Builtins_LoadIC_NoFeedback`, SIGSEGV). Natives are baked as functions whose data is their arena index (`register` re-attaches the closure by name); per-page state is applied by `__scratchy_apply_env` (+ `__scratchy_env_hooks`, `__media_sweep`) after attaching. A prelude must NOT read page state (env, document, clock) at top level except through those hooks.
 - `src/js_modules.rs`: ES module graph pre-fetch and import maps (QY15).
+- `src/stack.rs` (QSTK1): `stack::grow(|| ...)` runs a recursive walk on a further stack segment
+  (`psm::on_stack`, mmap'd with a guard page, 2 kept per thread for reuse) when less than 512 KB of
+  the current stack is left. The per-nesting-level walks call it once per level through a thin
+  wrapper around a `*_body` fn: `build_box_for_element`, `measure_inner`, `walk_negative_z`,
+  `paint_inner`, `hit_test_inner`. Before it, ~375 nested elements overflowed the 8 MB main thread
+  (headless, window, and forced layout from a V8 native all run there) and ~150 the 2 MB shaping
+  worker (now spawned with 32 MB). A NEW recursive walk over the box/laid/DOM tree with a frame
+  over ~400 bytes a level needs the same wrapper (`src/tests/deep_nesting_tests.rs` lays out a
+  5 000-deep page on a 2 MB test thread; find the overflowing frame with gdb on that test).
 - `src/js_net.rs`: page-JS network queue `NetState`, `__net_send`,
   CORS/preflight handling, cookie control natives (QF7, QF13, QF14b).
 - `src/net_policy.rs`: `RequestPolicy` (every network limit and policy

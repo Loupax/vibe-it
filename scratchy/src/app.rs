@@ -1724,7 +1724,10 @@ impl App {
     /// to at most one tick instead of an entire shape pass.
     pub(crate) fn spawn_shaping_worker(proxy: EventLoopProxy<AppEvent>) -> mpsc::Sender<ShapingRequest> {
         let (tx, rx) = mpsc::channel::<ShapingRequest>();
-        thread::spawn(move || {
+        // QSTK1: measure recurses once per nesting level (~14 KB a level); the 2 MB default stack
+        // reached `crate::stack::grow`'s red zone ~100 levels deep, so give the worker room.
+        let worker = thread::Builder::new().name("shaping".into()).stack_size(32 << 20);
+        let spawned = worker.spawn(move || {
             let mut font_system = new_font_system();
             SHAPE_MEMO_ENABLED.with(|m| m.set(true));
             // `rx.recv()` blocks here whenever there's no page waiting
@@ -1832,6 +1835,7 @@ impl App {
                 };
             }
         });
+        spawned.expect("shaping worker thread");
         tx
     }
 

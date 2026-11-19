@@ -1837,6 +1837,27 @@ pub(crate) fn paint_inner(
     font_system: &mut FontSystem,
     swash_cache: &mut SwashCache,
     cache: &mut ShapeCache,
+    scroll_offsets: &HashMap<usize, f32>,
+    pixels: &mut [u32],
+    win_w: u32,
+    win_h: u32,
+    scroll_offset: f32,
+    clip: Option<(f32, f32, f32, f32)>,
+) {
+    crate::stack::grow(|| {
+        paint_inner_body(
+            laid, font_system, swash_cache, cache, scroll_offsets, pixels, win_w, win_h, scroll_offset, clip,
+        )
+    })
+}
+
+/// QSTK1: the body of `paint_inner`, run through `crate::stack::grow`.
+#[allow(clippy::too_many_arguments)]
+fn paint_inner_body(
+    laid: &Laid,
+    font_system: &mut FontSystem,
+    swash_cache: &mut SwashCache,
+    cache: &mut ShapeCache,
     // `overflow: scroll`/`auto`'s own *live* per-element scroll amounts
     // (v62), keyed by `ScrollInfo::id` — see that type's own docs for
     // why this lives outside `Laid` entirely. Read fresh here (via
@@ -2229,6 +2250,20 @@ pub(crate) fn hit_test_node(
 /// counts as a hit when the point is inside its own border box.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn hit_test_inner(
+    laid: &Laid,
+    x: f32,
+    y: f32,
+    cache: &ShapeCache,
+    scroll_offsets: &HashMap<usize, f32>,
+    scroll_offset: f32,
+    viewport_h: f32,
+) -> Option<(CursorStyle, Option<&'static str>, usize)> {
+    crate::stack::grow(|| hit_test_inner_body(laid, x, y, cache, scroll_offsets, scroll_offset, viewport_h))
+}
+
+/// QSTK1: the body of `hit_test_inner`, run through `crate::stack::grow`.
+#[allow(clippy::too_many_arguments)]
+fn hit_test_inner_body(
     laid: &Laid,
     x: f32,
     y: f32,
