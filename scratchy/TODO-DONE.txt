@@ -6852,3 +6852,23 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       block identity, the element's custom-property table handle (QY53i2)): github.com home does 19 272 expansions per build
       over only 694 distinct declaration blocks (17 % of a build). Gate (R49 recipe, home page headless forced restyles,
       median of 3): build_children -30 %, forced_layout total -12 %; var() tests unchanged.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QCUR1 DONE 6b3520e (mousemove/pointermove + enter/leave dispatched, throttled while video plays; cursor, controls and progress bar back; video cost while controls visible -> QYTC1) [S] (P1, user report 2026-11-19 18:50; Sonnet, confirm first; AFTER QM1k1n6c, same app.rs input code) The mouse
+      cursor disappears while over the YouTube video, worst during lag. Likely: YouTube's `ytp-autohide` sets `cursor: none`
+      on the player after idle and removes it on `mousemove`; scratchy dispatches NO mousemove/pointermove to pages (R46),
+      only mouseover/mouseout when the hit element changes, so moving inside the player never un-hides it. Confirm in a
+      nested window (computed `cursor` of the element under the pointer + the autohide class over time). Fix = Q33d2's
+      mousemove part: dispatch `mousemove` + `pointermove` (clientX/Y, buttons, movementX/Y) at most once per event-loop
+      turn with the latest position, via QM1k1n6a's flush_pointer_move; no dispatch when no listener exists (cheap check).
+      Gate: after 3 s idle over the playing video, a small pointer move shows the cursor again within one frame (screenshot
+      or computed cursor); R46 recipe frame stats not worse than the user's 18:45 run (scratchpad user-runs/fs2-user-yt-
+      1845.jsonl): painted median >= 29, lat_p95 median <= 70. Tests: mousemove dispatched once per turn with the latest
+      coordinates; none dispatched with no listeners.
+      ALSO (user 18:55): the YouTube progress bar / player controls no longer appear while moving over the video (unknown
+      whether it was like that before). Same likely cause (controls are shown on mousemove, hidden by ytp-autohide). Check
+      both on current main AND on 8383e9d (before QM1k1n6a's coalescing, 5642cbb): if coalescing changed which mouseover/
+      mouseout/mouseenter the player gets, fix that too. Gate adds: moving over the playing video shows the controls bar
+      (screenshot) within 200 ms. User runs for reference: scratchpad user-runs/fs3-user-yt.jsonl (18:48 build).
+      USER 2026-11-19 ~20:25 (main 20:17 build): the YouTube progress bar disappears the moment the mouse hovers over it
+      and never appears again. Same likely cause (no mousemove). Gate adds: hovering the progress bar keeps it visible.
