@@ -671,6 +671,10 @@ pub(crate) struct App {
     /// back to the page's own top-level scroll in that case, same as
     /// "cursor not over any scroll region."
     pub(crate) last_mouse_pos: Option<(f32, f32)>,
+    /// QM1k1n6a: newest not-yet-processed `CursorMoved` position.
+    pub(crate) pending_pointer_move: Option<(f32, f32)>,
+    /// QM1k1n6a: pointer moves actually processed (test counter).
+    pub(crate) pointer_moves_processed: u64,
     /// Document-space position at the most recent `MouseInput`
     /// `Pressed(Left)`, if any — compared against `last_mouse_pos` at
     /// the matching `Released(Left)` to tell a real click (navigates)
@@ -1066,6 +1070,71 @@ pub(crate) struct SavedPage {
 }
 
 impl App {
+    /// QM1k1n6a: remember the newest pointer position; the hit test, hover
+    /// and `mouseover`/`mouseout` work happens once in `flush_pointer_move`.
+    pub(crate) fn queue_pointer_move(&mut self, pos: (f32, f32)) {
+        self.pending_pointer_move = Some(pos);
+    }
+
+    /// QM1k1n6a: process the queued pointer move, if any (one hit test no
+    /// matter how many moves were queued). Called from `about_to_wait` and
+    /// before any button, wheel or key event, so those see the latest position.
+    pub(crate) fn flush_pointer_move(&mut self) {
+        if let Some(pos) = self.pending_pointer_move.take() {
+            self.pointer_moves_processed += 1;
+            self.process_pointer_move(pos);
+        }
+    }
+
+    fn process_pointer_move(&mut self, position: (f32, f32)) {
+        // Remembered in window/screen space, same form this event
+        // itself reports — `MouseWheel` (just below) needs it to
+        // pick the right scroll region, since that event carries
+        // no position of its own at all.
+        self.last_mouse_pos = Some(position);
+        self.last_pointer_move = Some(std::time::Instant::now());
+        // `position` is window/screen space; `Laid.x`/`.y` are
+        // document space (scroll isn't applied until paint time),
+        // so the same `+ scroll_offset` adjustment `paint` itself
+        // makes (in reverse) is needed here too.
+        self.text_mouse_drag(position);
+        if self.video.drag.is_some() {
+            self.controls_drag_move(position, false);
+            return;
+        }
+        self.controls_pointer(position);
+        if self.select_popup_hover(position) {
+            return;
+        }
+        let hovered = self.element_at(position);
+        self.update_hover(hovered);
+        if let (Some(laid), Some(window)) = (&self.cached, &self.window) {
+            let doc_x = position.0;
+            let doc_y = position.1 + self.scroll_offset;
+            let (style, _href) = hit_test_cursor(
+                laid, doc_x, doc_y, &self.shape_cache, &self.scroll_offsets, self.scroll_offset,
+                self.surface_size.1 as f32,
+            );
+            let icon = style.to_winit();
+            if icon != self.last_cursor {
+                match icon {
+                    // Restore visibility too, in case the cursor
+                    // was hidden (`cursor: none`) immediately
+                    // beforehand — only when actually transitioning
+                    // out of that state, not on every tick.
+                    Some(ic) => {
+                        window.set_cursor(ic);
+                        if self.last_cursor.is_none() {
+                            window.set_cursor_visible(true);
+                        }
+                    }
+                    None => window.set_cursor_visible(false),
+                }
+                self.last_cursor = icon;
+            }
+        }
+    }
+
     pub(crate) fn new_static(document: Handle, proxy: EventLoopProxy<AppEvent>, socket_path: Option<PathBuf>) -> Self {
         install_video_wake(&proxy);
         crate::js_net::set_net_executor(match &socket_path {
@@ -1094,6 +1163,8 @@ impl App {
             node_scroll: HashMap::new(),
             node_scroll_dirty: false,
             last_mouse_pos: None,
+            pending_pointer_move: None,
+            pointer_moves_processed: 0,
             mouse_down_pos: None,
             interaction: InteractionState::default(),
             state_rules: 0,
@@ -1182,6 +1253,8 @@ impl App {
             node_scroll: HashMap::new(),
             node_scroll_dirty: false,
             last_mouse_pos: None,
+            pending_pointer_move: None,
+            pointer_moves_processed: 0,
             mouse_down_pos: None,
             interaction: InteractionState::default(),
             state_rules: 0,
@@ -3635,6 +3708,7 @@ impl ApplicationHandler<AppEvent> for App {
     /// indefinitely when none are pending, so timer-less pages never
     /// wake up on their own).
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        self.flush_pointer_move();
         let els = self.sync_node_scroll();
         if let Some(js) = &self.js {
             js.set_scroll(self.scroll_offset, els);
@@ -3760,6 +3834,9 @@ impl ApplicationHandler<AppEvent> for App {
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        if event_flushes_pointer(&event) {
+            self.flush_pointer_move();
+        }
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::RedrawRequested => self.redraw(),
@@ -3871,52 +3948,10 @@ impl ApplicationHandler<AppEvent> for App {
                 if let Some(fs) = &mut self.frame_stats {
                     fs.input(crate::frame_stats::InputKind::Move, std::time::Instant::now());
                 }
-                // Remembered in window/screen space, same form this event
-                // itself reports — `MouseWheel` (just below) needs it to
-                // pick the right scroll region, since that event carries
-                // no position of its own at all.
-                self.last_mouse_pos = Some((position.x as f32, position.y as f32));
-                self.last_pointer_move = Some(std::time::Instant::now());
-                // `position` is window/screen space; `Laid.x`/`.y` are
-                // document space (scroll isn't applied until paint time),
-                // so the same `+ scroll_offset` adjustment `paint` itself
-                // makes (in reverse) is needed here too.
-                self.text_mouse_drag((position.x as f32, position.y as f32));
-                if self.video.drag.is_some() {
-                    self.controls_drag_move((position.x as f32, position.y as f32), false);
-                    return;
-                }
-                self.controls_pointer((position.x as f32, position.y as f32));
-                if self.select_popup_hover((position.x as f32, position.y as f32)) {
-                    return;
-                }
-                let hovered = self.element_at((position.x as f32, position.y as f32));
-                self.update_hover(hovered);
-                if let (Some(laid), Some(window)) = (&self.cached, &self.window) {
-                    let doc_x = position.x as f32;
-                    let doc_y = position.y as f32 + self.scroll_offset;
-                    let (style, _href) = hit_test_cursor(
-                        laid, doc_x, doc_y, &self.shape_cache, &self.scroll_offsets, self.scroll_offset,
-                        self.surface_size.1 as f32,
-                    );
-                    let icon = style.to_winit();
-                    if icon != self.last_cursor {
-                        match icon {
-                            // Restore visibility too, in case the cursor
-                            // was hidden (`cursor: none`) immediately
-                            // beforehand — only when actually transitioning
-                            // out of that state, not on every tick.
-                            Some(ic) => {
-                                window.set_cursor(ic);
-                                if self.last_cursor.is_none() {
-                                    window.set_cursor_visible(true);
-                                }
-                            }
-                            None => window.set_cursor_visible(false),
-                        }
-                        self.last_cursor = icon;
-                    }
-                }
+                // QM1k1n6a: only the newest position of a turn is processed
+                // (once, in `about_to_wait`, or first thing when a button,
+                // wheel or key event arrives).
+                self.queue_pointer_move((position.x as f32, position.y as f32));
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 if let Some(fs) = &mut self.frame_stats {
@@ -4080,6 +4115,12 @@ impl ApplicationHandler<AppEvent> for App {
             _ => {}
         }
     }
+}
+
+/// QM1k1n6a: events that must see the latest pointer position, so a queued
+/// move is processed first (everything but moves, redraws and modifier changes).
+pub(crate) fn event_flushes_pointer(event: &WindowEvent) -> bool {
+    !matches!(event, WindowEvent::CursorMoved { .. } | WindowEvent::RedrawRequested | WindowEvent::ModifiersChanged(_))
 }
 
 /// Q35a: starts a fetch for every external `background-image`/`mask-image`
