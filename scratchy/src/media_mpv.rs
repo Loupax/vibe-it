@@ -30,17 +30,45 @@ use crate::media_video::{VideoFrame, VideoTarget};
 use crate::mse_store::{FeedRead, MseFeed};
 
 #[repr(C)]
-struct RenderParam {
+pub(crate) struct RenderParam {
     ty: c_int,
     data: *mut c_void,
 }
 const RP_API_TYPE: c_int = 1;
+pub(crate) const RP_BLOCK_FOR_TARGET_TIME: c_int = 12;
 const RP_SKIP_RENDERING: c_int = 13;
 const RP_SW_SIZE: c_int = 17;
 const RP_SW_FORMAT: c_int = 18;
 const RP_SW_STRIDE: c_int = 19;
 const RP_SW_POINTER: c_int = 20;
 const RENDER_UPDATE_FRAME: u64 = 1;
+
+/// The parameter list of a software `mpv_render_context_render` call (zero-terminated).
+/// QM1k1n6: `BLOCK_FOR_TARGET_TIME` = 0. Its default (1) makes render() SLEEP until the
+/// frame's display time; it runs on the main thread (`App::video_tick`), so playback
+/// held the event loop ~31 ms per frame (93-100 % of every playing second) and any page
+/// task or input waited behind it. Frames are rendered when mpv reports one ready
+/// (`RENDER_UPDATE_FRAME`), so pacing stays mpv's.
+pub(crate) fn sw_render_params(size: &mut [c_int; 2], fmt: &std::ffi::CStr, stride: &mut usize, px: &mut [u32], noblock: &mut c_int) -> [RenderParam; 6] {
+    *noblock = 0;
+    [
+        RenderParam { ty: RP_BLOCK_FOR_TARGET_TIME, data: noblock as *mut c_int as *mut c_void },
+        RenderParam { ty: RP_SW_SIZE, data: size.as_mut_ptr() as *mut c_void },
+        RenderParam { ty: RP_SW_FORMAT, data: fmt.as_ptr() as *mut c_void },
+        RenderParam { ty: RP_SW_STRIDE, data: stride as *mut usize as *mut c_void },
+        RenderParam { ty: RP_SW_POINTER, data: px.as_mut_ptr() as *mut c_void },
+        RenderParam { ty: 0, data: std::ptr::null_mut() },
+    ]
+}
+
+/// Test seam: `(type, int value)` of each `sw_render_params` entry whose data is a `c_int`.
+#[cfg(test)]
+pub(crate) fn sw_render_param_ints() -> Vec<(c_int, c_int)> {
+    let (mut size, mut stride, mut px, mut nb) = ([2, 2], 8usize, vec![0u32; 4], 1);
+    let fmt = std::ffi::CString::new("bgr0").unwrap();
+    let p = sw_render_params(&mut size, &fmt, &mut stride, &mut px, &mut nb);
+    p.iter().filter(|r| r.ty == RP_BLOCK_FOR_TARGET_TIME).map(|r| (r.ty, unsafe { *(r.data as *const c_int) })).collect()
+}
 
 /// Set by mpv's render-update callback (any thread).
 struct Shared {
@@ -767,13 +795,8 @@ impl MediaBackend for MpvBackend {
             let mut size = [t.w as c_int, t.h as c_int];
             let fmt = Self::cs("bgr0");
             let mut stride: usize = t.w as usize * 4;
-            let mut p = [
-                RenderParam { ty: RP_SW_SIZE, data: size.as_mut_ptr() as *mut c_void },
-                RenderParam { ty: RP_SW_FORMAT, data: fmt.as_ptr() as *mut c_void },
-                RenderParam { ty: RP_SW_STRIDE, data: &mut stride as *mut usize as *mut c_void },
-                RenderParam { ty: RP_SW_POINTER, data: px.as_mut_ptr() as *mut c_void },
-                RenderParam { ty: 0, data: std::ptr::null_mut() },
-            ];
+            let mut noblock: c_int = 0;
+            let mut p = sw_render_params(&mut size, &fmt, &mut stride, &mut px, &mut noblock);
             if (l.rc_render)(self.rc, p.as_mut_ptr()) < 0 {
                 return None;
             }
