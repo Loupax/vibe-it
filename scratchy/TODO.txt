@@ -34,8 +34,7 @@ A perf item that turns out to be wrong or bigger than its size: stop and report,
 PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; search the name; steps 1-3 are done, see TODO-DONE.txt):
  Ahead of this list by user decision (2026-11-19): QPT1a [WIP] then QPT1b-f (iframe realm, YouTube PoToken; R53).
  Step 4, the main thread in the live window (YouTube playback, scrolling, mouse):
-  14b [WIP] Q33b2 [S] real innerWidth/innerHeight + forced-layout viewport = window size (QY53e3: prerequisite of QY53e2) | Tier 7
-  15 QY53e2 [M]  IO uses the App's own layout                                       | QY53 block
+  15 [WIP] QY53e2 [M]  IO uses the App's own layout                                       | QY53 block
  Step 5, memory, regression guards, re-measure:
   21 QY60 [S, Opus measure] main-thread throughput on YouTube results (re-measure after steps 2-4)
   22 QY54 [S, Opus measure] compositor disconnect under stalls (re-run after steps 2-4)
@@ -995,7 +994,7 @@ challenge/consent wall. Fixture "big-css" (generate in the test, never vendor): 
 (`.c<i> .d<i> { margin-left: 1px }`, plus 200 `::before { content: "x" }` rules), 1 000 nested
 divs with 3 classes each, a script that does 50 x (write one attribute, read `offsetWidth`).
 
-- [ ] QY53e2 [M] (P2, R43 section 7, Sonnet) after QY53e1. In a window, IO uses the App's own
+- [ ] [WIP] QY53e2 [M] (P2, R43 section 7, Sonnet) after QY53e1. In a window, IO uses the App's own
       layout instead of forcing one. On a COMPLETE `ShapeResult` for the current `layout_generation`
       (`App::handle_shape_result`, `!incomplete`), the App calls a new `JsEngine::rendered_geometry(
       &laid, built_gen, vw, vh)` (`built_gen` = `geom_gen()` recorded when that tree was built in
@@ -2613,13 +2612,6 @@ as the JS measurement corpus (same role the four CSS pages played).
       `makeDoc` documents do. Test: `<title> a  b </title>` -> 'a b'.
 - [ ] Q33b2v [S] (P3, from Q33b2 #389; Sonnet) Nested-dwl check (release build, tools/nest.sh + inject): innerWidth equals the
       window width and follows a resize (log the value / screenshot). Q33b2 shipped with a unit test only.
-- [ ] [WIP] Q33b2 [S] (filed inline under Q33b1) real `innerWidth/innerHeight`
-      from the window (fixed 1024x768 now); the old note "`location` from
-      the page URL, not `<base href>`" was not re-checked by the audit:
-      verify before fixing. Same plumbing as QY10a. Element geometry is
-      QY-IO-GEOMETRY.
-      PROMOTED 2026-11-19 into the PERFORMANCE QUEUE (step 14b, QY53e3 ad764fa): prerequisite of QY53e2. Gate: in a
-      window a forced layout's viewport equals the window size; headless `--perf-report` unchanged; resize updates it.
 - [ ] Q33d2 [S] Leftovers of Q33d1: window `scroll` event (after the scroll
       offset changes, coalesced once per frame) and `resize` (after a
       window resize), `mousemove` (coalesced per frame, never from the

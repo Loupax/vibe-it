@@ -7820,3 +7820,13 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       scroll/hover/JS responsive. Gate: main-thread time per video frame ~0 in frame stats while video plays; video fps not
       worse; no tearing/stale frames (tests + a nested-window run).
   (queue line) 16 [WIP] QM1g2a [M] render mpv frames off the main thread (33-39 ms per frame today)
+
+=== from TODO.txt: --- Tier 7: JavaScript (Q33, split 2026-11-14; user ordered it last) ----
+- [x] Q33b2 DONE c42f84b #389 window size drives innerWidth/innerHeight + forced-layout viewport; resize once per change [S] (filed inline under Q33b1) real `innerWidth/innerHeight`
+      from the window (fixed 1024x768 now); the old note "`location` from
+      the page URL, not `<base href>`" was not re-checked by the audit:
+      verify before fixing. Same plumbing as QY10a. Element geometry is
+      QY-IO-GEOMETRY.
+      PROMOTED 2026-11-19 into the PERFORMANCE QUEUE (step 14b, QY53e3 ad764fa): prerequisite of QY53e2. Gate: in a
+      window a forced layout's viewport equals the window size; headless `--perf-report` unchanged; resize updates it.
+  (queue line) 14b [WIP] Q33b2 [S] real innerWidth/innerHeight + forced-layout viewport = window size (QY53e3: prerequisite of QY53e2) | Tier 7
