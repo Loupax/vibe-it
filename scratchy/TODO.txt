@@ -56,7 +56,9 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
   14a4 QOBS5c [S] forced.by_caller top 3 + longest callback source in each frame-stats line | R46
   14b Q33b2 [S] real innerWidth/innerHeight + forced-layout viewport = window size (QY53e3: prerequisite of QY53e2) | Tier 7
   14c DONE 140bef3 QY53n (design, R47) -> QY53n1-5 below; hover builds are NOT the YouTube freeze (6 of 55 builds)
-  14e [WIP] QY53o [S, Opus measure] who forces Wikipedia's 35 layouts (15 s/run) while hovering links | R47
+  14e DONE 732438c QY53o -> QY53o1 (P1) / QY53o3 / QY53o2 below
+  14f QY53o1 [S] value-changing attribute write no selector/attr() can read -> no geometry bump (after QY53l2 merges) | R47
+  14g [WIP] QY53o3 [S, Opus measure] measure_document 116-144 ms per forced layout with unchanged text | R47
   14d QY53m [S] App::js_sync skips the restyle after no-op write batches (after QM1k1n6: same code)
   15 QY53e2 [M]  IO uses the App's own layout                                       | QY53 block
   16 QM1g2 (a) [M] render mpv frames off the main thread (33-39 ms per frame today); split (a) out
@@ -1294,9 +1296,20 @@ Shared rules for this block:
 - [ ] QOBS5c [S] (P2, from QM1k1n6, R46; Sonnet; app.rs/perf.rs: not alongside QM1k1n6a-c) frame-stats lines get
       `forced.by_caller` top 3 and the longest callback's source per second (window mode today has neither). Gate: present
       on the R46 recipe; overhead <= 2 %.
-- [ ] [WIP] QY53o [S] (P1, from QY53n 140bef3, R47; Opus measure) Wikipedia Rust with JS on, pointer over links: 35 forced
-      layouts per run (14.5-16.8 s) that nobody has attributed. Find the callers (QOBS3 by_caller via a headless replay of
-      the hover JS, or temporary window instrumentation) and why each forces a layout; file sized fix items.
+- [ ] QY53o1 [S] (P1, from QY53o 732438c, R47 addendum; Sonnet; AFTER QY53l2 #351 merges, same js_dom.rs write paths; share
+      the check with QY53m2) An attribute write that changes a value but that no selector or `attr()` can read on that
+      element must not bump the geometry generation (`geom_bump_if` in js_dom.rs). Wikipedia Page Previews sets `title=""`
+      on every hovered link (no `[title]` selector matches `<a>`; only `abbr[title]`), forcing a full 10.6k-element layout
+      (250-330 ms) on the next read: 63-86 % of hover forced-layout ms. Gate (R47 addendum recipe: nested dwl, Wikipedia
+      Rust, inject hovering 8 body links 29 s, frame stats pointer phase, median of 3): forced.n <= 22 and forced.ms <=
+      6 500 (today 52 / 16 485). Tests: title write on <a> with no [title] rule -> no layout; with `a[title]` rule -> layout;
+      `attr(title)` in a ::before -> layout.
+- [ ] [WIP] QY53o3 [S] (P2, from QY53o, R47 addendum; Opus measure only) In each Wikipedia forced layout measure_document takes
+      116-144 ms (45 %) although no text changed and the shape cache is warm. Find where (memo misses? per-box work that
+      does not depend on text? float/table passes?) with tools/profile.sh / temporary timing; file sized fix items.
+- [ ] QY53o2 [M] (P3, from QY53o; Opus design first; ONLY if QY53o1 leaves > ~3 s per run) Writes inside an abs/fixed
+      positioned subtree do not invalidate rects outside it (Page Previews' popup: 7-21 layouts per run). Gate: forced.n <= 5
+      after QY53o1.
 - [ ] QY53m2 [S] (P2, from QY53n, R47; Sonnet; AFTER QY53m; js_dom.rs, not alongside QY53l2) A value-changing write to an
       attribute no selector reads (e.g. `title`; check RuleIndex/HoverKeys attribute keys) does not trigger an App restyle.
       Wikipedia's mouseover JS writes `li style="display: none;"` (same value) 154-165x and toggles `title` per run ->

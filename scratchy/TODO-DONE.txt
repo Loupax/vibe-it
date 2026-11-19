@@ -6744,3 +6744,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       older generations, share immutable parts (Rc/Arc), or store a compact form. Gate: YT watch memory.caches.style_cache
       bytes >= 70 % lower and RSS lower, median of 3; forced_layout.total_ms not worse (perf-diff). Tests: entry count
       bounded after N relayouts of a page whose elements are replaced; cached styles still correct.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY53o DONE 732438c (R47 addendum: Page Previews title toggles + IO rechecks force full layouts; items QY53o1-3) [S] (P1, from QY53n 140bef3, R47; Opus measure) Wikipedia Rust with JS on, pointer over links: 35 forced
+      layouts per run (14.5-16.8 s) that nobody has attributed. Find the callers (QOBS3 by_caller via a headless replay of
+      the hover JS, or temporary window instrumentation) and why each forces a layout; file sized fix items.
