@@ -1530,8 +1530,6 @@ impl RuleIndex {
     }
 }
 
-/// `(css source, parsed rules, STATE_* mask seen while parsing)`.
-pub(crate) type ParsedRules = (String, Rc<Vec<StyleRule>>, u8, Rc<KeyframesRegistry>);
 
 /// Which elements a `:hover` rule can possibly restyle (R2.4): for every
 /// selector compound containing `:hover`, the id / class / tag it
@@ -1678,7 +1676,7 @@ thread_local! {
     /// `HoverKeys` of the most recent `build_layout_tree_with_resources`.
     pub(crate) static HOVER_KEYS: RefCell<HoverKeys> = RefCell::new(HoverKeys::default());
     /// Last parsed stylesheet: `(css source, rules, STATE_* mask seen while parsing)`.
-    pub(crate) static RULES_CACHE: RefCell<Option<ParsedRules>> = const { RefCell::new(None) };
+    pub(crate) static RULES_CACHE: RefCell<Option<crate::rules_cache::RulesCache>> = const { RefCell::new(None) };
     /// `(rules.as_ptr(), rules.len(), index)` for the rule slice of the
     /// `build_layout_tree_with_resources` call in progress. Matched by
     /// slice identity, so any other caller falls back to a full scan.
@@ -2558,7 +2556,7 @@ pub(crate) fn normalize_whitespace(s: &str) -> String {
 /// selector heap is not counted, so this undercounts) and of `RULE_INDEX` + `HOVER_KEYS`.
 pub(crate) fn rules_cache_mem() -> ((usize, usize), (usize, usize)) {
     let rules = RULES_CACHE.with(|c| match &*c.borrow() {
-        Some((css, rules, _, _)) => (rules.len(), css.capacity() + rules.capacity() * std::mem::size_of::<StyleRule>()),
+        Some(rc) => rc.mem(),
         None => (0, 0),
     });
     let buckets = |b: &RuleBuckets| -> (usize, usize) {

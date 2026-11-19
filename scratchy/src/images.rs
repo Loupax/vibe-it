@@ -2023,41 +2023,12 @@ pub(crate) fn build_layout_tree_with_resources(
     set_viewport(viewport_width, viewport_height.unwrap_or(1080.0));
     // QOBS3: phase timers sit at these boundaries (free unless a forced layout is recorded).
     let t_phase = crate::perf::phase(crate::perf::Phase::CssCollect);
-    let mut css_source = String::new();
-    collect_style_css(document, &mut css_source);
-    css_source.push('\n');
-    css_source.push_str(extra_css);
-    if !js_enabled() {
-        css_source.push_str("\n/* nojs */");
-    }
     let html_handle = find_html_element(document);
     STATE_RULES.with(|m| m.set(0));
     VIEWPORT_H_READ.with(|m| m.set(false));
-    // R3.1: a restyle of an unchanged document re-uses the parsed rules.
-    // Parsing also records which state pseudo-classes appear
-    // (`note_state_rule`), so that mask is cached with the rules.
-    let rules: Rc<Vec<StyleRule>> = RULES_CACHE.with(|c| {
-        if let Some((src, rules, mask, kf)) = c.borrow().as_ref()
-            && *src == css_source
-        {
-            note_state_rule(*mask);
-            set_keyframes(kf.clone());
-            return rules.clone();
-        }
-        let mut rules = parse_ua_stylesheet(DEFAULT_CSS);
-        if js_enabled() {
-            rules.extend(parse_ua_stylesheet("noscript { display: none; }"));
-        }
-        // QM1n1: always a replaced box (inert placeholder without media/libmpv).
-        rules.extend(parse_ua_stylesheet("video { display: inline-block; object-fit: contain; } audio[controls] { display: inline-block; }"));
-        let (author, kf) = parse_stylesheet_with_keyframes(&css_source);
-        rules.extend(author);
-        let rules = Rc::new(rules);
-        let kf = Rc::new(kf);
-        set_keyframes(kf.clone());
-        *c.borrow_mut() = Some((css_source.clone(), rules.clone(), state_rules_mask(), kf));
-        rules
-    });
+    // R3.1 / QY53f1: a restyle re-uses the parsed rules; a changed, added or
+    // removed `<style>` re-parses only that piece (see `rules_cache.rs`).
+    let rules: Rc<Vec<StyleRule>> = crate::rules_cache::cached_rules(document, extra_css);
     drop(t_phase);
     let t_phase = crate::perf::phase(crate::perf::Phase::RuleIndex);
     // QY53b: index, hover keys and the flags depend only on the rule list, so
@@ -2182,6 +2153,37 @@ pub(crate) fn set_style_override(node: usize, orig: String, css: String) {
     STYLE_OVERRIDES.with(|m| {
         m.borrow_mut().insert(node, (orig, css));
     });
+}
+
+/// QY53f1: whether the `<style>` node at this address has a CSSOM override.
+pub(crate) fn has_style_override(node: usize) -> bool {
+    STYLE_OVERRIDES.with(|m| m.borrow().contains_key(&node))
+}
+
+/// QY53f1: one `<style>` element's effective text (its own text, or the CSSOM
+/// override while that still applies), without the trailing newline
+/// `collect_style_css` adds.
+pub(crate) fn effective_style_text(handle: &Handle) -> String {
+    let mut text = String::new();
+    collect_text_only(handle, &mut text);
+    let key = std::rc::Rc::as_ptr(handle) as usize;
+    STYLE_OVERRIDES.with(|m| match m.borrow().get(&key) {
+        Some((orig, css)) if *orig == text => css.clone(),
+        _ => text,
+    })
+}
+
+/// QY53f1: the `<style>` elements in document order (same traversal as `collect_style_css`).
+pub(crate) fn collect_style_nodes(handle: &Handle, out: &mut Vec<Handle>) {
+    if let NodeData::Element { name, .. } = &handle.data
+        && name.local.as_ref() == "style"
+    {
+        out.push(handle.clone());
+        return;
+    }
+    for child in handle.children.borrow().iter() {
+        collect_style_nodes(child, out);
+    }
 }
 
 pub(crate) fn clear_style_overrides() {
