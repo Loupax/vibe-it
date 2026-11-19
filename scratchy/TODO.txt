@@ -669,6 +669,16 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
 - [x] QM1k4 [S] DONE 2026-11-18 (commit c292223; src/media_el.rs parse_mime+params_valid+MSE_CODECS+mse_typ... [archived: TODO-DONE.txt]
 - [x] QM1k1a [M] DONE 2026-11-19 (commit 0bb4ea6; src/mse_store.rs, tests qm1k1a_* in src/tests/mse_tests.r... [archived: TODO-DONE.txt]
 - [x] QM1k1b [M] DONE 2026-11-19 (commit 367f953; MseFeed in src/mse_store.rs, scratchy-mse:// stream_cb +... [archived: TODO-DONE.txt]
+- [ ] QYSK1 [S/M] (P1 bug, user report 2026-11-19 ~21:00, real window, installed main 6b3520e incl. QCUR1; Opus
+      investigate first, then Sonnet) Seeking on YouTube does not work: clicking somewhere on the player's progress bar
+      pauses the video for a moment, then it continues from where it was, not from the clicked position. Find where the
+      seek is lost: does the click reach YouTube's progress bar (QCUR1 pointer events, hit-test)? Does YouTube set
+      `video.currentTime`? Does MediaCore/MseHost turn it into an in-generation mpv seek or a new generation (QM1k1b/c
+      design: an out-of-buffer seek = YouTube's new SABR request + appends at the new time)? Does `seeking`/`seeked` fire
+      with the right currentTime, and does `buffered` cover the target? Or does the old generation keep playing because the
+      new appends never reach mpv? Repro on G1AeBgalFZk; check scratchy's own controls bar on a plain `<video controls>`
+      too (QM1g2d seek, QM1g2d1 says drag was never driven in a real window). Fix with a test (MSE fixture: seek outside
+      the buffer -> playback resumes at the target). NOT a perf item: needs the user's OK to go ahead of the perf queue.
 - [ ] QM1k-AB [M, Opus, measure only] READY after QM1k1b. THE EARLY TEST THAT DECIDES A vs B
       USER ANSWER 2026-11-19: A/V seems to sync well for now, but the page is too slow to test properly: DEFERRED until after the performance queue. Good test video (it visualises the sound): https://www.youtube.com/watch?v=G1AeBgalFZk
       (user Q4.3). Run `mse_ab_drift_60s` 3 times on the user's machine (quiet machine, release
