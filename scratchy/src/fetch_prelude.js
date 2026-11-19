@@ -423,7 +423,7 @@
   function uuid() { return hex(8) + '-' + hex(4) + '-4' + hex(3) + '-' + '89ab'[Math.floor(Math.random() * 4)] + hex(3) + '-' + hex(12); }
   function key(u) { u = String(u); var i = u.indexOf('#'); return i < 0 ? u : u.slice(0, i); }
   g.URL.createObjectURL = function createObjectURL(obj) {
-    if (!isBlob(obj)) throw new TypeError("Failed to execute 'createObjectURL' on 'URL': Overload resolution failed.");
+    if (!isBlob(obj) && !(typeof g.__mse_is === 'function' && g.__mse_is(obj))) throw new TypeError("Failed to execute 'createObjectURL' on 'URL': Overload resolution failed.");
     var o = g.location && g.location.origin;
     var u = 'blob:' + (o && o !== 'null' ? o : 'null') + '/' + uuid();
     store.set(u, obj);
@@ -1173,7 +1173,7 @@
         return Promise.resolve(local(d.bytes, d.type, url));
       }
       var blob = g.__blob_lookup(url);
-      if (!blob) return Promise.reject(te('Failed to fetch'));
+      if (!blob || typeof blob.arrayBuffer !== 'function') return Promise.reject(te('Failed to fetch'));
       return blob.arrayBuffer().then(function (ab) {
         if (signal.aborted) throw signal.reason;
         return local(new Uint8Array(ab), blob.type || '', url);

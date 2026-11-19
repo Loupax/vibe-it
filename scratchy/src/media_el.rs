@@ -180,7 +180,6 @@ pub(crate) const MSE_CODECS: &[(&str, &str, bool)] = &[
 
 /// `MediaSource.isTypeSupported(t)`: pure, no backend. True only when the container and
 /// every listed codec are enabled in `MSE_CODECS` and the probing parameters are valid.
-#[allow(dead_code)] // the MediaSource global that calls it comes with the MSE build (QM1k1+)
 pub(crate) fn mse_type_supported(t: &str) -> bool {
     let p = parse_mime(t);
     if !params_valid(&p.params) {
@@ -661,8 +660,36 @@ impl MediaCore {
         self.mse = Some(MseAttach { feed, meta: false, issued: false, want: None, ended: false, last_progress: f64::NEG_INFINITY });
     }
 
+    /// A `blob:` src that names nothing (revoked before the load): the load algorithm with one
+    /// candidate that fails at once (MEDIA_ERR_SRC_NOT_SUPPORTED).
+    pub(crate) fn fail_src(&mut self, page: String, msg: &str) {
+        self.reset_for_load();
+        self.begin(Vec::new(), true, MediaMode::NoCors, page);
+        self.network_state = NETWORK_LOADING;
+        self.fire("loadstart");
+        self.fatal_error(MEDIA_ERR_SRC_NOT_SUPPORTED, msg);
+    }
+
     pub(crate) fn mse_attached(&self) -> bool {
         self.mse.is_some()
+    }
+
+    /// The id of the attached MediaSource feed.
+    pub(crate) fn mse_feed_id(&self) -> Option<u64> {
+        self.mse.as_ref().map(|m| m.feed.id)
+    }
+
+    /// `endOfStream('network' | 'decode')`: like [`mse_end_of_stream`](Self::mse_end_of_stream)
+    /// (EOF to the player, `sourceended`) and the element gets a MediaError.
+    pub(crate) fn mse_end_of_stream_error(&mut self, code: u16) {
+        let Some(m) = self.mse.as_mut() else { return };
+        if m.ended {
+            return;
+        }
+        m.ended = true;
+        m.feed.end_of_stream();
+        self.outs.push(Out::MseEnded(m.feed.id));
+        self.fatal_error(code, if code == MEDIA_ERR_DECODE { "MediaSource decode error" } else { "MediaSource network error" });
     }
 
     /// The element goes away (removed from the page): backend unloaded, MediaSource closed.
@@ -1283,6 +1310,9 @@ impl MseHost {
     pub(crate) fn get(&self, id: u64) -> Option<Arc<MseFeed>> {
         self.feeds.get(&id).cloned()
     }
+    pub(crate) fn len(&self) -> usize {
+        self.feeds.len()
+    }
     /// The MediaSource was collected: stop its readers and forget it.
     pub(crate) fn drop_feed(&mut self, id: u64) {
         if let Some(f) = self.feeds.remove(&id) {
@@ -1321,6 +1351,12 @@ impl MediaHost {
         let c = &mut self.els.entry(id).or_insert_with(|| (MediaCore::new(f(&ctx)), 0)).0;
         c.activated = act;
         c
+    }
+
+    /// Runs `f` on the element the MediaSource feed `feed` is attached to (None: not attached).
+    pub(crate) fn with_mse<R>(&mut self, feed: u64, f: impl FnOnce(&mut MediaCore) -> R) -> Option<(R, Vec<HostOut>)> {
+        let id = self.els.iter().find(|(_, (c, _))| c.mse_feed_id() == Some(feed)).map(|(i, _)| *i)?;
+        Some(self.with(id, f))
     }
 
     pub(crate) fn peek(&self, id: i32) -> Option<&MediaCore> {
