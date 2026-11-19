@@ -2607,8 +2607,6 @@ as the JS measurement corpus (same role the four CSS pages played).
       configure), so innerWidth/innerHeight/clientWidth and forced layout are the real size at parse time and at `load`,
       with no initial `resize`. Test: an engine created after set_window_viewport sees the size in its first script. Live
       check: nested dwl, start iw == window width.
-- [ ] [WIP] Q33b2v [S] (P3, from Q33b2 #389; Sonnet) Nested-dwl check (release build, tools/nest.sh + inject): innerWidth equals the
-      window width and follows a resize (log the value / screenshot). Q33b2 shipped with a unit test only.
 - [ ] Q33d2 [S] Leftovers of Q33d1: window `scroll` event (after the scroll
       offset changes, coalesced once per frame) and `resize` (after a
       window resize), `mousemove` (coalesced per frame, never from the

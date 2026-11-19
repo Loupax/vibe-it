@@ -7850,3 +7850,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       (iframe document id, parent/top/frameElement, about:blank env with the parent's origin), realm timers/fetch/XHR/WS/ES/
       rejection reporting forwarded to the parent's, `frameOf` returns the realm. js_engine_v8.rs, js.rs, js_dom.rs. Unit tests
       per R53 + live gate: YouTube token >= 2 of 3 runs and SABR status 1 past 64 s.
+
+=== from TODO.txt: --- Tier 7: JavaScript (Q33, split 2026-11-14; user ordered it last) ----
+- [x] Q33b2v DONE c9da1f1 #393 live check holds after configure; initial-size gap -> Q33b2w [S] (P3, from Q33b2 #389; Sonnet) Nested-dwl check (release build, tools/nest.sh + inject): innerWidth equals the
+      window width and follows a resize (log the value / screenshot). Q33b2 shipped with a unit test only.
