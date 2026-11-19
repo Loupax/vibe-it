@@ -1449,7 +1449,82 @@ pub(crate) struct RuleBuckets {
     pub(crate) by_id: HashMap<String, Vec<usize>>,
     pub(crate) by_class: HashMap<String, Vec<usize>>,
     pub(crate) by_tag: HashMap<String, Vec<usize>>,
+    /// QAN1h2: keyed by the lowercased name of an attribute the rightmost compound requires.
+    pub(crate) by_attr: HashMap<String, Vec<usize>>,
+    /// QAN1h2: rules whose rightmost compound requires `:root`.
+    pub(crate) root: Vec<usize>,
     pub(crate) universal: Vec<usize>,
+}
+
+const KEY_ID: u8 = 0;
+const KEY_CLASS: u8 = 1;
+const KEY_TAG: u8 = 2;
+const KEY_ATTR: u8 = 3;
+const KEY_ROOT: u8 = 4;
+
+/// QAN1h2: the index keys of one rightmost compound (its components, with the
+/// pseudo-element compound merged in): every element this compound matches has
+/// at least one of the returned keys, so a rule is a candidate only for an
+/// element that has one. `None` when nothing here constrains the element
+/// (the rule must then stay universal). Preference: id, class, the union of the
+/// branches of an `:is()`/`:where()` (only when every branch has keys), `:root`,
+/// attribute name, tag.
+fn compound_keys(comps: &[&Component<OurSelectorImpl>]) -> Option<Vec<(u8, String)>> {
+    let (mut id, mut class, mut tag, mut attr, mut root) = (None, None, None, None, false);
+    let mut is_keys: Option<Vec<(u8, String)>> = None;
+    for c in comps {
+        match c {
+            Component::ID(a) => id = Some(a.0.clone()),
+            Component::Class(a) => class = class.or_else(|| Some(a.0.clone())),
+            Component::LocalName(n) => tag = Some(n.lower_name.0.clone()),
+            Component::AttributeInNoNamespaceExists { local_name_lower, .. } => {
+                attr = attr.or_else(|| Some(local_name_lower.0.to_ascii_lowercase()));
+            }
+            Component::AttributeInNoNamespace { local_name, .. } => {
+                attr = attr.or_else(|| Some(local_name.0.to_ascii_lowercase()));
+            }
+            // Mixed-case or namespaced names are parsed into this boxed form;
+            // the lowercase of either spelling is what the lookup uses.
+            Component::AttributeOther(a) => {
+                attr = attr.or_else(|| Some(a.local_name_lower.0.to_ascii_lowercase()));
+            }
+            Component::Root | Component::NonTSPseudoClass(OurPseudoClass::Root) => root = true,
+            Component::Is(list) | Component::Where(list) if is_keys.is_none() => {
+                // Every branch's own rightmost compound must be keyed.
+                let mut all = Vec::new();
+                let mut ok = !list.slice().is_empty();
+                for sel in list.slice() {
+                    let inner: Vec<&Component<OurSelectorImpl>> = sel.iter().collect();
+                    match compound_keys(&inner) {
+                        Some(ks) => all.extend(ks),
+                        None => {
+                            ok = false;
+                            break;
+                        }
+                    }
+                }
+                if ok {
+                    all.sort();
+                    all.dedup();
+                    is_keys = Some(all);
+                }
+            }
+            _ => {}
+        }
+    }
+    if let Some(i) = id {
+        Some(vec![(KEY_ID, i)])
+    } else if let Some(c) = class {
+        Some(vec![(KEY_CLASS, c)])
+    } else if let Some(k) = is_keys {
+        Some(k)
+    } else if root {
+        Some(vec![(KEY_ROOT, String::new())])
+    } else if let Some(a) = attr {
+        Some(vec![(KEY_ATTR, a)])
+    } else {
+        tag.map(|t| vec![(KEY_TAG, t)])
+    }
 }
 
 #[derive(Default)]
@@ -1484,37 +1559,27 @@ impl RuleIndex {
                         continue;
                     }
                     any = true;
-                    let (mut id, mut class, mut tag) = (None, None, None);
                     // QY53g: a pseudo-element selector (`.a::before`) stores
                     // `::before` as its own rightmost compound behind a
                     // pseudo-element combinator; the keys live in the
                     // originating element's compound left of it. Without
                     // this every pseudo rule landed in `universal` (673 on
                     // YouTube, tested for every element and pseudo slot).
+                    let mut comps: Vec<&Component<OurSelectorImpl>> = Vec::new();
                     let mut it = sel.iter();
                     loop {
-                        for c in it.by_ref() {
-                            match c {
-                                Component::ID(a) => id = Some(a.0.clone()),
-                                Component::Class(a) => class = class.or_else(|| Some(a.0.clone())),
-                                Component::LocalName(n) => tag = Some(n.lower_name.0.clone()),
-                                _ => {}
-                            }
-                        }
+                        comps.extend(it.by_ref());
                         if it.next_sequence() != Some(selectors::parser::Combinator::PseudoElement) {
                             break;
                         }
                     }
-                    let key = match (id, class, tag) {
-                        (Some(id), _, _) => Some((0u8, id)),
-                        (_, Some(c), _) => Some((1, c)),
-                        (_, _, Some(t)) => Some((2, t)),
-                        _ => None,
-                    };
+                    let key = compound_keys(&comps);
                     match key {
-                        Some(k) => {
-                            if !placed.contains(&k) {
-                                placed.push(k);
+                        Some(ks) => {
+                            for k in ks {
+                                if !placed.contains(&k) {
+                                    placed.push(k);
+                                }
                             }
                         }
                         None => universal = true,
@@ -1528,9 +1593,14 @@ impl RuleIndex {
                     continue;
                 }
                 for (kind, name) in placed {
+                    if kind == KEY_ROOT {
+                        buckets.root.push(i);
+                        continue;
+                    }
                     let map = match kind {
-                        0 => &mut buckets.by_id,
-                        1 => &mut buckets.by_class,
+                        KEY_ID => &mut buckets.by_id,
+                        KEY_CLASS => &mut buckets.by_class,
+                        KEY_ATTR => &mut buckets.by_attr,
                         _ => &mut buckets.by_tag,
                     };
                     map.entry(name).or_default().push(i);
@@ -1561,6 +1631,20 @@ impl RuleIndex {
                     out.extend_from_slice(v);
                 }
             }
+        }
+        if !b.by_attr.is_empty()
+            && let NodeData::Element { attrs, .. } = &handle.data
+        {
+            for a in attrs.borrow().iter() {
+                let n = a.name.local.as_ref();
+                let v = if n.bytes().any(|c| c.is_ascii_uppercase()) { b.by_attr.get(&n.to_ascii_lowercase()) } else { b.by_attr.get(n) };
+                if let Some(v) = v {
+                    out.extend_from_slice(v);
+                }
+            }
+        }
+        if !b.root.is_empty() && El(handle.clone()).parent_element().is_none() {
+            out.extend_from_slice(&b.root);
         }
         out.sort_unstable();
         out.dedup();
@@ -2761,7 +2845,8 @@ pub(crate) fn rules_cache_mem() -> ((usize, usize), (usize, usize)) {
         let (a, b1) = m(&b.by_id);
         let (c, b2) = m(&b.by_class);
         let (d, b3) = m(&b.by_tag);
-        (a + c + d, b1 + b2 + b3 + b.universal.capacity() * 8)
+        let (e, b4) = m(&b.by_attr);
+        (a + c + d + e, b1 + b2 + b3 + b4 + (b.universal.capacity() + b.root.capacity()) * 8)
     };
     let size_index = |ix: &RuleIndex| -> (usize, usize) {
         let (n1, b1) = buckets(&ix.normal);

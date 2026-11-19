@@ -2835,6 +2835,62 @@ fn qy53g_index_and_ancestor_bloom_give_the_same_matches_as_a_full_scan() {
     assert!(full.iter().any(|m| !m[1].is_empty()), "some ::before rule matches");
 }
 
+// ---------- QAN1h2: attribute / :is() / :where() / :root keys in RuleIndex ----------
+
+#[test]
+fn qan1h2_keys_inside_is_where_attributes_and_root_leave_the_universal_bucket() {
+    let rules = parse_stylesheet(
+        ":where(.a):where([data-v=x]){color:red} :is(.b, #c, p){color:red} [hidden]{color:red} \
+         .x [data-Component=S]{color:red} :root{color:red} :is(.a, *){color:red} *{color:red} \
+         .k, [title]{color:red} .k, :not(.q){color:red} :is(.a, .b)::before{content:'x'} p[lang]::after{content:'y'}",
+    );
+    let ix = RuleIndex::build(&rules);
+    assert_eq!(ix.normal.by_class.get("a"), Some(&vec![0]), ":where(.a) is the key; `:is(.a, *)` has an unkeyed branch");
+    assert_eq!(ix.normal.by_class.get("b"), Some(&vec![1]));
+    assert_eq!(ix.normal.by_id.get("c"), Some(&vec![1]));
+    assert_eq!(ix.normal.by_tag.get("p"), Some(&vec![1]));
+    assert_eq!(ix.normal.by_attr.get("hidden"), Some(&vec![2]));
+    assert_eq!(ix.normal.by_attr.get("data-component"), Some(&vec![3]), "attribute names are lowercased");
+    assert_eq!(ix.normal.root, vec![4]);
+    assert_eq!(ix.normal.by_attr.get("title"), Some(&vec![7]));
+    assert_eq!(ix.normal.by_class.get("k"), Some(&vec![7]));
+    assert_eq!(ix.normal.universal, vec![5, 6, 8], "unkeyed branches/selectors keep the whole rule universal");
+    assert_eq!(ix.pseudo.by_class.get("a"), Some(&vec![9]));
+    assert_eq!(ix.pseudo.by_attr.get("lang"), Some(&vec![10]));
+}
+
+#[test]
+fn qan1h2_index_gives_the_same_matches_as_a_full_scan_for_the_new_keys() {
+    let css = ":where(.a):where([data-v=x]){color:red} :is(.b, #c, p){margin:0} [hidden]{padding:0} \
+               .x [data-Component=S]{color:blue} :root{color:green} :is(.a, *){padding:1px} \
+               .k, [title]{margin:1px} .k, :not(.q){color:pink} :is(.a, .b)::before{content:'x'} \
+               p[lang]::after{content:'y'} :is(div, span) > :is(.b, em){color:red} \
+               input[type=text], textarea[rows]{color:red} [DATA-Z]{margin:3px} :is([data-v], .nope){padding:2px} \
+               :is(:root, .zz) body{color:red} html:root{margin:4px}";
+    let doc = parse_html(
+        "<html lang=en><body id=c><div class=a data-v=x data-Component=S><p class=b lang=fr>t<em>s</em></p>\
+         <span class=x><i data-component=S>i</i></span><input type=text><textarea rows=3></textarea></div>\
+         <section hidden title=t class=k><b data-z=1 class=q>w</b></section><div class=\"b\" data-v=y>z</div></body></html>",
+    );
+    let rules = parse_stylesheet(css);
+    let mut elements = Vec::new();
+    qy53g_elements(&doc, &mut elements);
+    let pseudos = [None, Some("before"), Some("after")];
+    let summarize = |h: &Handle| -> Vec<Vec<(u64, usize)>> {
+        pseudos
+            .iter()
+            .map(|p| matching_declarations_for(h, &rules, 800.0, *p).iter().map(|(sp, d)| (*sp, std::ptr::from_ref::<Declarations>(d) as usize)).collect())
+            .collect()
+    };
+    let full: Vec<_> = elements.iter().map(summarize).collect();
+    RULE_INDEX.with(|ri| *ri.borrow_mut() = Some((rules.as_ptr() as usize, rules.len(), RuleIndex::build(&rules))));
+    let indexed: Vec<_> = elements.iter().map(summarize).collect();
+    RULE_INDEX.with(|ri| *ri.borrow_mut() = None);
+    assert_eq!(full, indexed);
+    assert!(full.iter().filter(|m| !m[0].is_empty()).count() >= 8, "{full:?}");
+    assert!(full.iter().any(|m| !m[1].is_empty()) && full.iter().any(|m| !m[2].is_empty()));
+}
+
 #[test]
 fn qy53g_ancestor_bloom_holds_exactly_the_ancestor_chain() {
     use crate::dom::atom_hash;
@@ -3155,4 +3211,53 @@ fn qan1h1_no_memo_outside_a_build() {
     use crate::style::VAR_EXPAND_MEMO;
     let _ = span_colors_of("<html><body><p>x</p></body></html>");
     assert!(VAR_EXPAND_MEMO.with(|m| m.borrow().is_none()), "the memo only lives during a build");
+}
+
+/// QAN1h2 measurement (not a regression test): `QAN1H2_HTML=page.html cargo test --release
+/// qan1h2_report -- --ignored --nocapture` prints rules, universal-bucket size and the
+/// candidates `RuleIndex` hands out per element on a real page with inlined stylesheets.
+#[test]
+#[ignore]
+fn qan1h2_report_candidates_per_element() {
+    let Ok(path) = std::env::var("QAN1H2_HTML") else { return };
+    let doc = parse_html(&std::fs::read_to_string(path).expect("page"));
+    let rules = crate::rules_cache::cached_rules(&doc, "");
+    let t = std::time::Instant::now();
+    let ix = RuleIndex::build(&rules);
+    let build = t.elapsed();
+    let mut elements = Vec::new();
+    qy53g_elements(&doc, &mut elements);
+    let t = std::time::Instant::now();
+    let (mut n, mut p) = (0usize, 0usize);
+    for e in &elements {
+        n += ix.candidates(e, false).len();
+        p += ix.candidates(e, true).len();
+    }
+    println!(
+        "QAN1H2 rules={} elements={} universal={}/{} candidates={} ({:.1}/el) pseudo_candidates={} ({:.1}/el) index_build={:?} candidates_time={:?}",
+        rules.len(),
+        elements.len(),
+        ix.normal.universal.len(),
+        ix.pseudo.universal.len(),
+        n,
+        n as f64 / elements.len() as f64,
+        p,
+        p as f64 / elements.len() as f64,
+        build,
+        t.elapsed()
+    );
+    // Every 15th element: the indexed match must equal the full scan, pseudo-elements too.
+    let sample: Vec<&Handle> = elements.iter().step_by(15).collect();
+    let run = |h: &Handle| -> Vec<Vec<(u64, usize)>> {
+        [None, Some("before"), Some("after")]
+            .iter()
+            .map(|p| matching_declarations_for(h, &rules, 1280.0, *p).iter().map(|(sp, d)| (*sp, std::ptr::from_ref::<Declarations>(d) as usize)).collect())
+            .collect()
+    };
+    let full: Vec<_> = sample.iter().map(|h| run(h)).collect();
+    RULE_INDEX.with(|ri| *ri.borrow_mut() = Some((rules.as_ptr() as usize, rules.len(), ix)));
+    let indexed: Vec<_> = sample.iter().map(|h| run(h)).collect();
+    RULE_INDEX.with(|ri| *ri.borrow_mut() = None);
+    assert_eq!(full, indexed);
+    println!("QAN1H2 verified {} sampled elements, {} matches", sample.len(), full.iter().flatten().map(Vec::len).sum::<usize>());
 }
