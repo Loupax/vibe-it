@@ -1,5 +1,96 @@
 # scratchy — regressions
 
+## R41: after QV8-4a the default `cargo test --release` still aborts in ~23% of runs: `vector.h:415: libc++ Hardening assertion __n < size() failed` in `Isolate::New` of a snapshot engine made while a DEFAULT-snapshot isolate (`page: None` / `without_snapshot`) is alive; plus a CPU-vs-wall-clock flake in `qy22_tripped_job_drain_logs_one_line_with_a_count` (Opus investigator, 2026-11-19) — OPEN: QV8-4b, QY22t
+
+### What reproduces, and how often
+- Test binary of main 3185656 (default config: V8 + media), run directly 31 times
+  (`nice -n 19`, default 8 test threads, LD_PRELOAD'ed SIGABRT/SIGSEGV backtrace catcher):
+  **7/31 aborted** (batches: 4/10, 0/6, 3/15), each ~22-25 s into the run, exit 134 (abort) or
+  139 (two threads hit it at the same moment; the second dies inside the abort). The message is
+  always the one the other agent saw (`vector.h:415 ... vector[] index out of bounds`). That
+  agent's log (`r_default.log`, agent-a5014959) has the same timing and the same in-flight tests.
+  One more run failed `qy22_tripped_job_drain_logs_one_line_with_a_count` (below).
+- Windowed browser (same commit, nested dwl, `timeout 5`, LD_PRELOAD catcher): R40 local copy
+  10/10, a 1-line script page 10/10, a local HN copy 10/10 alive. **The browser is not affected**
+  (see "Why the browser is safe").
+- Deterministic reproduction (throwaway local test, NOT committed): in a fresh test process,
+  `ensure_snapshot()`, then keep a bare engine (`EngineOpts { page: None, .. }`) alive and make a
+  page engine (`qb8_start`): **3/3 abort** with the same message. Page engine first, then a bare
+  engine: 3/3 fine. Bare engine dropped before the page engine: 3/3 fine.
+
+### The failing test and the stack
+- Every caught abort is on a `tests::perf_tests` thread (`qv8_0_budget_flag_kills_the_50ms_loop_only_when_lower`,
+  `qv8_0_perf_report_json_shape`, `qv8_0_recorder_is_a_no_op_when_off`; twice two of them at
+  once). Symbolized (llvm-symbolizer on the test binary):
+  `Deserializer::ReadReadOnlyHeapRef <- Deserializer::ReadObject <-
+  SharedHeapDeserializer::DeserializeStringTable <- Isolate::Init <- Snapshot::Initialize <-
+  v8::Isolate::New <- js_engine::Engine::new <- js::startup_engine <- js::start_scripts_clocked <-
+  perf::perf_report <- tests::perf_tests::qv8_report`.
+- In flight at every crash: `qv8_0_perf_corpus_json_shape_on_a_tiny_script` (its `bare_eval` makes
+  `page: None` engines) or it had just run; otherwise only tests that hold no isolate (the two
+  `mse_mpv_tests::real` mpv tests, `qv8_4a_stress_many_fresh_processes` which runs children, paint
+  tests). The libc++ is V8's own (in the static archive; libmpv and its deps use libstdc++), so mpv
+  is a bystander.
+
+### Cause (confirmed in the V8 152.2 source in ~/.cargo/registry)
+- The read-only heap is per isolate GROUP (process-wide here) and is built from the read-only
+  snapshot of the FIRST isolate created when none exists (`ReadOnlyHeap::SetUp`,
+  `heap/read-only-heap.cc`); later isolates reuse it whatever blob they were given. The check that
+  all isolates use the same read-only snapshot (`ReadOnlyArtifacts::VerifyChecksum`) is
+  `#ifdef DEBUG` only, so release builds just read wrong offsets.
+- When the LAST isolate goes away, `IsolateGroup::RemoveIsolate` does
+  `read_only_artifacts_.reset()`: the next isolate rebuilds the read-only heap from ITS snapshot.
+- scratchy has two blobs in one process: page engines use the startup snapshot baked by QV8-4
+  (its read-only space has more pages: the creator adds read-only objects), while `page: None`
+  engines (`perf::bare_eval`, `js_engine_tests`) and `without_snapshot` engines
+  (`js_snapshot_tests::qv8_4_snapshot_engine_matches_the_slow_start` etc.) use V8's built-in
+  blob. If a built-in-blob isolate is created at a moment when no isolate exists, the read-only
+  heap is rebuilt from the built-in blob; a startup-snapshot isolate created while it lives
+  references read-only page indices that do not exist -> `pages()[chunk_index]` out of bounds.
+  Late in the suite (perf tests run near the end, alongside tests that hold no isolate) "no
+  isolate alive" moments are common, hence ~23%.
+- QV8-4a (ensure_snapshot in Engine::new) fixed the bake-vs-isolate race; this is a different
+  bug: two snapshots mixed in one process. The "page engine first, bare second" order works only
+  because the baked read-only space is a superset; it is still unsupported by V8.
+
+### Why the browser is safe (today)
+- Outside tests, the only `page: None` engine is `perf::bare_eval` (`--perf-corpus`), whose bare
+  engine is dropped before the next engine is made (sequential, no overlap). The windowed browser
+  makes only page engines; after the bake isolate is disposed the read-only heap is rebuilt from
+  the startup snapshot and stays consistent. Any future code that makes a `page: None` engine next
+  to a page (a worker, a bare eval context) would crash the browser the same way.
+
+### Proposed fix (QV8-4b) and test
+- One blob per process: when the startup snapshot exists, EVERY non-baking isolate is created from
+  it. In the bake, make the creator's DEFAULT context an empty `v8::Context::new` (made before the
+  preludes run) and add the page context with `SnapshotCreator::add_context` (index 0). Page
+  engines (attached) use `v8::Context::from_snapshot(scope, 0, ..)`; bare (`page: None`) and
+  `without_snapshot` engines use the same blob with `v8::Context::new` (the empty default context)
+  and run the slow path exactly as today (delete Intl/queueMicrotask, BASE64_JS, preludes). With
+  `SCRATCHY_V8_SNAPSHOT=0` or a failed bake nobody uses the blob, which is also consistent.
+  (Rejected: a mutex or keeping one "keeper" isolate alive forever: it hides the order dependence,
+  and V8 forbids mixed read-only snapshots anyway.)
+- Test (engine-v8, `js_snapshot_tests.rs`, child process like QV8-4a so the process starts with no
+  isolate): `ensure_snapshot()`, keep a bare engine alive, make a page engine and run a script;
+  also a `without_snapshot` page engine alive next to a snapshot page engine; 10 child runs, none
+  may die. Fails 100% on 3185656 (measured above). ACCEPTANCE: 20 consecutive full default
+  `cargo test --release` runs with no abort (today ~5 of 20 would abort).
+
+### Second flake: qy22_tripped_job_drain_logs_one_line_with_a_count (1/31 runs)
+- Failed with an EMPTY log (`assert!(!errs.is_empty() ...)`, js_observers_tests.rs). Each promise
+  job busy-waits 700 ms of WALL clock (`Date.now()`) but the V8 budget is the thread's CPU clock
+  (`script_clock_nanos`, 500 ms per job, QY46). Under load (8 test threads at nice 19 plus other
+  agents' builds) a job gets < 500 ms CPU in 700 ms wall, no job trips, nothing is logged.
+  Not V8-crash related. Fix (QY22t): burn fake CPU with the test seam (`__test_burn(700)` per job
+  under `FAKE_CLOCK`, as the QV8-0/QV8-3b tests do) instead of a wall-clock spin.
+
+### Not established
+- Whether the 4 crashes of the first batch (no backtrace yet) were all perf tests: their in-flight
+  sets and timing match, but only 3 crashes (5 aborting threads) were symbolized.
+- No core files or full register state (no gdb/lldb on this machine); the backtrace comes from
+  glibc `backtrace()` in an LD_PRELOAD signal handler (scratchpad `v4b/btcatch.c`).
+- Whether the `page_then_bare` order can ever misbehave (V8 calls it unsupported; 3/3 runs fine).
+
 ## R40: justinwhitney.com/HTML5Example: on current main all four `<video controls>` boxes are drawn (640x360, first frame each) but there is no controls bar and nothing starts playback; the "no video box" report was a `~/v8-target` binary built WITHOUT `media`; NEW: the V8 startup-snapshot bake races page isolates and crashes scratchy on fast (local) page loads (Opus investigator QM1n, 2026-11-19) — OPEN: QV8-4a (crash, blocker), QM1n1, QM1n2, QM1g2d, QM1g2e
 
 **Status: investigation only, docs only.** Main 6583b38 (QV8-5b merged; V8 + media default),
