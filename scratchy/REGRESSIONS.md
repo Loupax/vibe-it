@@ -1,5 +1,130 @@
 # scratchy — regressions
 
+## R52: QM1k2: why scratchy gets no PoToken. BotGuard makes an `<iframe>` and reads `iframe.contentWindow.String` to get clean built-ins from a fresh realm. scratchy's iframe window (QA18b) is a null-prototype object with ten own properties, so `String` is `undefined`. BotGuard then skips its whole fingerprint pass and sends an early-exit answer (~2.9 KB). `GenerateIT` answers `[null,43200,null,"<fallback>"]`: NO integrity token, so no PoToken is minted, SABR stays at status 2 and then goes to 3 (R45). A throwaway stand-in that only gives that object the page's globals turns the answer into a real integrity token. YouTube then mints an 87-byte PoToken, and every SABR answer is status **1** (OK) for the whole 119 s run, past the old ~64 s stop (Opus investigator QM1k2, 2026-11-19, research only, docs only) — OPEN: proposed QPT1 (the fix, L) and QPT2-QPT8 (fingerprint gaps, not blocking today)
+
+**Status: research only, docs only. No product change.** A temporary 6-line loader in `js.rs` (`QPROBE_JS=<file>` evaluated
+after the preludes) and throwaway probe scripts in the scratchpad were used. The loader is reverted (`git checkout`). Release build
+of main 6b3520e (V8 + media) in the item's worktree. Own wire on a scratchpad socket (fresh in-memory cookie jar per run, so
+LOGGED OUT). DEFAULT user agent (`Mozilla/5.0 (X11; Linux x86_64) scratchy/0.1.0`), no disguise. Nested dwl window 960x1006,
+`SCRATCHY_MEDIA_AO=null`, `SCRATCHY_V8_SNAPSHOT=0`, `--budget-ms 120000` (the probes are slow). URL
+`https://www.youtube.com/watch?v=G1AeBgalFZk`. Comparison: the local Google Chrome 156 (fresh profile, a window in the same
+nested dwl, driven over the DevTools protocol only to read the network log and the console; the same probe script injected
+with `Page.addScriptToEvaluateOnNewDocument`). Machine load average 12-23 (other agents building), so every time below is
+rough and is not a performance claim. Nothing was forged, replayed, borrowed or fetched: every token below was produced by
+YouTube's own scripts running in the browser under test. The stand-in experiment (section 3) is diagnostic only and is NOT a fix.
+
+### 1. The flow, as it runs today (both browsers)
+- The player loads `//www.google.com/js/th/<hash>.js` with a `<script>` element (the BotGuard interpreter; no
+  `/api/jnn/v1/Create` request, the challenge is already in the page). The interpreter `eval`s a 63 KB control-flow-flattened
+  VM, which runs the challenge program. Then the player POSTs `/api/jnn/v1/GenerateIT` (XHR) with
+  `["O43z0dpjhgX20SCx4KAo","$<botguard response>"]`.
+- **Chrome:** 0.04-0.4 s from the th script to GenerateIT. The request body is ~2 030 B, and the answer is
+  `["<88-char integrity token>",43200,100]` (5 of 5 runs, including 2 with the probe injected).
+- **scratchy (main):** the request body is ~2 920 B, and the answer is **`[null,43200,null,"Mk…<108 chars>"]`** (11 of 11 runs):
+  integrity token `null`, ttl 43200, and a 4th field = websafe fallback token. That is the "no attestation" answer.
+- SABR (`videoplayback?…sabr=1`, protobuf body): `streamerContext` (field 19) field 2 is the PoToken slot. Before a token
+  exists it holds a 10-byte placeholder `{4: <8 bytes>}` in BOTH browsers, and the answer carries UMP part 58 `08 02`
+  (status 2, pending). After a valid integrity token, YouTube's minter fills it with an 87-byte token `{6: <85 bytes>}`
+  (seen only in section 3). With only the placeholder, scratchy gets ~64 s of media and then status 3 (R45).
+
+### 2. Which probes run, and where scratchy diverges
+The probe logged every read of a window global, of `navigator`/`screen`/`performance`/`history`, and of selected `document`
+and prototype members, plus calls to `getOwnPropertyDescriptor`/`getOwnPropertyNames`/`addEventListener`/`instanceof`. It
+logged these only when the calling stack contains a `/js/th/` frame (BotGuard's VM runs in `eval` code whose stack names the th
+script). Same probe in both browsers:
+
+| step | Chrome | scratchy |
+|---|---|---|
+| setup reads: Date, eval, Array, Math, Object, Symbol, String, Error, Number, requestIdleCallback, Reflect, performance.now/timeOrigin, readyState, atob, hidden, body, createElement | same | same (no `trustedTypes`, so the VM also reads `window.Proxy`) |
+| `createElement('iframe')`, `instanceof DocumentFragment` (false) / `Element` (true) | yes | yes |
+| `iframe.contentWindow.String` | `function` (a fresh realm), 0.08 s later | **`undefined`** (5-24 s later, when the busy main thread gets to it), then `.replace` -> `undefined` |
+| later: iframe `Object`, ~15 interface names (`WebKitCSSMatrix`, `SubtleCrypto`, `Navigator`, `HTMLElement`, `SVGRectElement`, …), `getOwnPropertyDescriptor` through the iframe's `Object` | yes | **never reached** |
+| fingerprint: listeners on `<body>` (focusin/out, key*, input, copy/cut/paste, click, pointer*, mouse*, drag*, touch*, wheel), `navigator.webdriver/platform/connection/hardwareConcurrency/maxTouchPoints/keyboard/doNotTrack/plugins/userAgent/language(s)/deviceMemory/gpu/userActivation/mediaDevices`, `screen.*`, `devicePixelRatio`, `history.length`, `menubar/toolbar/locationbar/statusbar`, `performance.memory/getEntriesByType`, `chrome`, `Permissions`, `isSecureContext`, `opener`, `matchMedia`, `HTMLCanvasElement.prototype.getContext`, `getOwnPropertyDescriptor(navigator,'plugins'/'mimeTypes')` then the getter called on the prototype (expects `Illegal invocation`), `getOwnPropertyDescriptor(iframe,'srcdoc'/'contentWindow')`, `Function.prototype.toString` on the `HTMLAnchorElement` `hrefTranslate` getter (expects `function get hrefTranslate() { [native code] }`) and on `window` (expects TypeError), `outer*/inner*`, `hasFocus`, `getElementsByTagName` | yes | **never reached**: right after the `undefined` it reads `Promise`, `btoa` and sends |
+| GenerateIT | token | `null` |
+
+Gaps observed directly in scratchy (a local env page, scratchy vs Chrome; `env.html` in the scratchpad):
+- **iframe window** (`js_dom.rs` `frameOf`): `Object.create(null)` with `document, window, self, parent, top, frameElement, name,
+  length, location, getComputedStyle`. It has no built-ins and no interfaces, and `String(iframe.contentWindow)` THROWS
+  `TypeError: Cannot convert object to primitive value` (Chrome: `[object Window]`).
+- `navigator`: own data properties on the instance (Chrome: accessors on `Navigator.prototype`, `Object.keys(navigator)` is
+  empty). `webdriver`/`plugins`/`mimeTypes`/`pdfViewerEnabled`/`deviceMemory`/`connection`/`permissions`/`mediaDevices`/
+  `storage` are undefined. `cookieEnabled` is `false` although wire's jar works. `hardwareConcurrency` is 1 (this machine has 16).
+- `Object.prototype.toString` gives `[object Object]` for `navigator`, `document`, `window` and `performance` (Chrome:
+  `Navigator`, `HTMLDocument`, `Window`, `Performance`). `performance` is a plain object, not a `Performance`, and has no
+  navigation entry.
+- `Function.prototype.toString` of every prelude-made API (`fetch`, `setTimeout`, `addEventListener`, `createElement`,
+  `performance.now`, `crypto.subtle.digest`, …) prints JS source (Chrome: `[native code]`). `createElement.name` is `''`.
+  About 65 internal names (`__scratchy_*`, `__d_*`, `__mse_*`, `__net_*`, `__hist_*`) are visible to
+  `Object.getOwnPropertyNames(window)`.
+- `Intl.DateTimeFormat().resolvedOptions().timeZone` is `UTC` while `new Date().getTimezoneOffset()` is `-60`
+  (Europe/Berlin). That is an inconsistent clock.
+- `performance.now()` steps by ~1 µs (Chrome 100 µs). Canvas `getContext` is `null` and `toDataURL()` is `"data:,"`.
+  `screen` equals the viewport. `menubar`/`toolbar`/… are undefined. `Event.isTrusted` is a writable own data property.
+- Stack frames of inline scripts read `inline script #N:line:col` (Chrome: the document URL).
+
+### 3. The deciding experiment (throwaway stand-in, diagnostic only)
+The probe replaced the `contentWindow` getter. On first access it defined getters on the iframe window object for every name
+the main window has (443 names), returning the MAIN window's values. Same realm, so this is NOT what a browser does.
+
+| runs | iframe window | GenerateIT answer | SABR |
+|---|---|---|---|
+| light probe, no stand-in (2) | main | `null` token, body 2 919-2 920 B | (not played) |
+| light probe + stand-in (3) | filled | **token** in 2 of 3 (body 1 687-1 692 B); 1 run `null` (body 3 031 B; why not known) | |
+| deep probe + stand-in (1) | filled | **token**. The VM now runs the whole fingerprint pass of section 2 against scratchy's own values (`webdriver` undefined, `plugins` undefined, `hardwareConcurrency` 1, UA `scratchy/0.1.0`, no canvas, …) | |
+| light probe + stand-in, clicked play (run 22) | filled | **token** at +10.4 s | 87-byte PoToken in `streamerContext`; **40 SABR answers, all `08 01` (status 1, OK), media 0.77-3.6 MB each, through +119 s**; no status 3 |
+
+So the ONE thing between scratchy and a PoToken today is the iframe realm. The other gaps are reported to Google inside the
+fingerprint, but they did not stop the token in this test. They may matter later, or for other Google properties.
+
+### Fix list (sized; the coordinator files the items; honest only, no UA or identity changes)
+- **QPT1 [L] (P1 for YouTube past 60 s) A real window realm for same-origin `about:blank`/`srcdoc`/`data:` iframes (V8 build).**
+  `frameOf` makes a new `v8::Context` in the page's isolate (same security token), from the startup snapshot when available,
+  and runs the same preludes. Its `document` is the iframe's existing second document (QA18b), and `parent`/`top`/`frameElement`
+  point at the page. `contentWindow`/`defaultView` return that context's global, so `String(w)` is `[object Window]`, and
+  `w.String !== window.String`, `w.Object`, `w.Navigator` and `w.HTMLElement` are its own. Prelude natives are installed per
+  context (`install_dom`/`install_net` take a context + document). The iframe dies with the element/navigation. Files:
+  js_engine_v8.rs (multi-context `Ctx`, `with_context`), js.rs (`start_scripts` split: per-isolate vs per-context), js_dom.rs
+  (`frameOf`, per-document install), js_net.rs (shared executor), tests in js_dom_tests.rs: an iframe has its own `Array`
+  (`[] instanceof w.Array` false), `w.String('x')`, `Object.prototype.toString.call(w)`, `w.document === iframe.contentDocument`,
+  `w.parent === window`, and the window is freed after `iframe.remove()` plus a GC. QuickJS keeps today's object (or JS_NewContext;
+  it goes away at QV8-6). Expected effect: GenerateIT returns an integrity token, YouTube mints a PoToken, SABR status 1, and
+  playback goes past ~64 s (section 3). Risk: memory per iframe (one context each; YouTube makes 2-3), and the scripts
+  of a network iframe still do not run (QA18b2).
+- **QPT2 [S] `navigator` the WebIDL way (truthful values).** Accessors on `Navigator.prototype` that throw `TypeError: Illegal
+  invocation` on a wrong receiver, `Symbol.toStringTag` `Navigator`, `webdriver: false` (scratchy is not automation-driven),
+  `cookieEnabled: true` when wire's jar is on, `hardwareConcurrency` = `std::thread::available_parallelism()`, and empty
+  `PluginArray`/`MimeTypeArray` with `pdfViewerEnabled: false` (scratchy has no PDF viewer). Files: js.rs PRELUDE (+ apply_env).
+  Effect: BotGuard's plugins/mimeTypes descriptor probes see a real browser shape. Not needed for the token today.
+- **QPT3 [S] `Symbol.toStringTag` and prototypes for window, document, performance, screen, history, location** (`Window`,
+  `HTMLDocument`, `Performance`, …). `performance` becomes a `Performance` with a `PerformanceNavigationTiming` entry.
+  Files: js.rs, cssom/globals preludes. Effect: `Object.prototype.toString` probes match a browser.
+- **QPT4 [M] Built-ins print as native.** `Function.prototype.toString` returns `function <name>() { [native code] }` for
+  functions that scratchy's preludes define (a registry filled at prelude time, in a native `toString` override; Firefox does the
+  same for its self-hosted JS built-ins). Every API function also gets its WebIDL `name`/`length`. Files: js.rs, js_engine_v8.rs
+  (one native), all `*_prelude.js` (registration). Effect: BotGuard's `hrefTranslate`-getter style checks pass. Honest: these ARE
+  scratchy's built-ins.
+- **QPT5 [M] Hide scratchy's internal globals** (~65 `__*` names): keep them in a prelude closure, or behind one non-enumerable
+  private-symbol-keyed holder, so that `Object.getOwnPropertyNames(window)` lists only web APIs. Files: every prelude plus the
+  Rust callers that read them by name.
+- **QPT6 [S] One clock identity.** Intl's default time zone = the system zone (the one `Date` already uses; V8/ICU default tz from
+  `TZ`/`/etc/localtime`), not UTC. Files: js_engine_v8.rs init (ICU default zone) or intl_prelude.js. Effect: removes an
+  inconsistency that bot checks look for.
+- **QPT7 [S] Coarsen `performance.now()` to 100 µs** (Chrome's cross-origin-isolation-off value; it is also a timing-attack
+  mitigation). File: js.rs `perf.now`. Check that QAN1/animation and perf tests do not depend on µs steps.
+- **QPT8 [L, existing plans] Canvas 2D, network-iframe scripts (QA18b2), `trustedTypes`, Permissions/NetworkInformation/
+  mediaDevices.** These are probed in the fingerprint but are features, not bot-check fixes. Track them under their own items,
+  not for the token.
+- Not a new item: BotGuard's steps are slow in scratchy (th script -> GenerateIT 1-25 s instead of 0.04-0.4 s), because its
+  `setTimeout`/`requestIdleCallback` steps queue behind page work. That is the existing main-thread/perf work (QY53*, QM1k1n5).
+  The token still arrived in time (+10 s in run 22, while 64 s of unattested media had been allowed).
+
+### Not established
+Whether the stand-in run that still got `null` (1 of 3) was a different challenge or a timing effect. Whether Google will later
+require the iframe built-ins to come from a separate realm (with the stand-in they are the main realm's, and the token was still
+issued). Whether the PoToken holds for a whole long video, and for seeks and quality switches (run 22 played 119 s). What the
+other fingerprint values (no `webdriver`, no plugins, no canvas) do to the token's score over time. No Chrome comparison was made
+logged in, and none with Firefox.
+
 ## R51: QYSK1: a click on YouTube's progress bar "pauses, then continues from where it was". The click, YouTube's seek and scratchy's MSE seek all WORK; what fails is what happens while an out-of-buffer seek waits for data: MediaCore leaves mpv's OLD generation loaded and unpaused, so YouTube's `play()` after its scrub-pause resumes the old position's picture and sound while the element reports `seeking` at the target. The target's data often never comes (SABR attestation status 3 past ~64 s media time, QM1k2) or comes late (QM1k1n5). Plus a smaller bug: after an in-generation seek mpv sometimes delivers a stale `time-pos` right after `playback-restart`, so `seeking`/`seeked` report the pre-seek time (Opus investigator, 2026-11-19, docs only) — OPEN: proposed QYSK1a (P1, hold the old generation while an MSE seek waits) and QYSK1b (P2, drop the stale time-pos), section 4
 
 **Status: investigation only, docs only; the instrumentation was reverted.** Main d7984e5 (QCUR1 6b3520e
@@ -112,6 +237,7 @@ Side note: `seeking` is queued (`Out::Fire`) and can be dispatched after `playba
 - Not scratchy's: the SABR refusal past ~64 s (QM1k2, user decision). With QYSK1a a refused seek shows a
   frozen frame + YouTube's spinner, then YouTube's own error card after its 10 retries, instead of the wrong
   part of the video playing. QM1k1n5 (late fetch results) sets how long a successful out-of-buffer seek waits.
+
 
 ## R50: QYTC1: why YouTube's visible player controls cost ~10 forced layouts/s. About 2/3 of them (and of their ms) come after nothing but YouTube's progress-bar `style` writes (`transform: translateX(..)` on the scrubber, `transform: scalex(..)` on the play progress, `left: Npx` on the absolutely positioned hover progress), ~5 times a second, each followed by a geometry read (`uib`, then `getPlayerSize`). Each read is a whole-document layout (436 boxes, 27-58 ms here). 12-13 % change no box at all; ~20 % follow `class` toggles (`ytp-autohide*`, suggested-action badges) (Opus, 2026-11-19, measure only) — OPEN: proposed QYTC1a-QYTC1c (below). The fix needs a hook in js_dom.rs's attribute-write bump, which QY53o1 is changing now (question in the draft PR)
 
