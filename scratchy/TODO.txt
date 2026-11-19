@@ -1191,7 +1191,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       with the QM1k1e page variant whose two addSourceBuffer lines are swapped (audio first) plays
       to `ended` with `videoWidth` 320 (R42 "local B" reproduces the bug today). Live accept: the
       R42 YouTube URL shows video pixels after play (grim).
-- [x] QM1k1l [S] DONE (HASH) (P2, R42 section 4, Sonnet/Haiku) `buffered` after an MSE detach. Run 2
+- [x] QM1k1l [S] DONE (c63c12e) (P2, R42 section 4, Sonnet/Haiku) `buffered` after an MSE detach. Run 2
       of R42: after `emptied` (ct 0, readyState 0, MediaSource gone) `video.buffered` stayed
       `[0, 61.8]`: `MediaCore::buffered` falls back to `MpvBackend::buffered` (`cache_end`), which
       still holds the unloaded MSE file's demuxer cache time (or a late cache property event set it
@@ -1199,7 +1199,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       then fix (reset on unload/detach and ignore cache events of a stopped file). Test: FakeBackend
       and real mpv: attach, append, detach (`removeAttribute('src'); load()`), `buffered.length`
       is 0.
-- [x] QM1k1m [S] MEASURED, not fixed (HASH; cause is page-side and needs a DOM probe, see QM1k1n) (P2, R42 section 4, Sonnet, measure first) The video track was switched off
+- [x] QM1k1m [S] MEASURED, not fixed (c63c12e; cause is page-side and needs a DOM probe, see QM1k1n) (P2, R42 section 4, Sonnet, measure first) The video track was switched off
       (`vid=no`, QM1g "no visible box target") 8 s after the MSE load and only re-enabled ~41 s
       after playback started, although YouTube's player box was on screen. Log
       `set_video_target` changes and the `<video>` box (size, visibility, which layout produced
