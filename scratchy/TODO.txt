@@ -706,6 +706,10 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       (one fair queue, or check the net results between page tasks). Test: a fetch whose response
       arrives while a chain of busy timers runs is delivered before the next timer callback;
       `AbortSignal.timeout(…)`-style abort does not win against a response that arrived earlier.
+      USER RUN 2026-11-19 18:54 (QM1k1n6b 60925e7 build; scratchpad user-runs/fs4-user-yt-n6b.jsonl): main-thread stalls
+      are gone at startup (gaps > 1 s: 2), but for ~5 s after play mpv renders 0 new frames (painted 7-12/s = repaints);
+      >= 20 fps only 8 s after the first frame. The slow start is now media data arriving late: measure this first
+      (QOBS6's per-request delivery delay, or temporary stamps), it is the next user-visible startup cost.
 - [ ] QM1k1n7 [S] (P3, R42 section 6, Sonnet, measure first) One SABR POST to googlevideo was
       answered `411 Length Required` (1 564 B). Find which request (empty body? streamed
       `ReadableStream` body? `Content-Length` missing on the wire request) and compare with what
