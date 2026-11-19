@@ -1307,6 +1307,21 @@ Shared rules for this block:
       both on current main AND on 8383e9d (before QM1k1n6a's coalescing, 5642cbb): if coalescing changed which mouseover/
       mouseout/mouseenter the player gets, fix that too. Gate adds: moving over the playing video shows the controls bar
       (screenshot) within 200 ms. User runs for reference: scratchpad user-runs/fs3-user-yt.jsonl (18:48 build).
+- [ ] [WIP] QMEM3a [S] (P2 memory, from QMEM3 5700e35, R48; Sonnet) Cap glibc malloc arenas at startup (`mallopt(M_ARENA_MAX,
+      2..4)` before threads start; measure 2 vs 4): YT watch has 42 arenas holding 85-94 MB freed-but-kept; MALLOC_ARENA_MAX=2
+      gave -63 MB RSS in one run. Gate: YT watch memory.rss_bytes >= 40 MB lower, median of 3; forced_layout.total_ms and JS
+      time not worse over 3+3 interleaved runs (perf-diff); live-window frame stats not worse (R46 recipe).
+- [ ] QMEM3b [S] (P2 memory, from QMEM3, R48; Sonnet, measure first) Name the ~65 MB of main-thread malloc no probe explains
+      (candidates: fetched script sources/HTML kept until report_page ends, FontSystem/fontdb on main + shaping worker, JS DOM
+      id table); add `memory` probes. Gate: explained bytes >= 60 % of (anonymous RSS - malloc free bytes).
+- [ ] QMEM3c [S] (P3, from QMEM3; Sonnet) Honest `memory` estimates: rule caches count their real heap (real ~40 MB vs 18
+      estimated), shape_memo counts cosmic-text buffers, peak_rss_bytes matches VmHWM (it read below it in every run).
+- [ ] QMEM3d [S] (P3, from QMEM3; Sonnet; after QMEM3a) `malloc_trim(0)` after a navigation and once when the window goes
+      idle. Gate: RSS after leaving YouTube for a small page >= 25 MB lower.
+- [ ] QMEM3e [M] (P3, from QMEM3; Sonnet) StyleCache (getComputedStyle) reuses rules_cache's parsed rule list instead of
+      parsing the same CSS again (~15-20 MB). Gate: that RSS saving; getComputedStyle tests unchanged.
+- [ ] QMEM3f [S] (P4, from QMEM3; Opus measure) 10-minute live-window RSS sample on YT watch: the window grows ~0.22 MB/s
+      in the first minute; leak or warm-up?
 - [ ] QOBS5c [S] (P2, from QM1k1n6, R46; Sonnet; app.rs/perf.rs: not alongside QM1k1n6a-c) frame-stats lines get
       `forced.by_caller` top 3 and the longest callback's source per second (window mode today has neither). Gate: present
       on the R46 recipe; overhead <= 2 %.
@@ -1343,9 +1358,6 @@ Shared rules for this block:
       build (16 of 58 YT hover builds, 0 on Wikipedia).
 - [ ] QY53n5 [S] (P3, from QY53n; after QM1k1n6a and QY53n2) Patched hovers skip the R2.3/QB3 coalescing delay; frame stats
       `hover` {patched, skipped, built} + hover_patch_ms. Gate: Wikipedia --no-js lat_p95 median <= 50 ms.
-- [ ] [WIP] QMEM3 [S] (P3 memory, from QOBS7; Opus measure only) ~280 MB (38 %) of YT watch RSS is unexplained by caches + JS
-      heap (peak 839 MB). One measured pass: /proc/self/smaps_rollup + malloc_info at end of run, V8 heap space stats
-      (code/large-object/zone), mpv buffers for the 2 players, DOM/box trees; name the top 3 and file items.
 - [ ] QOBS6 [S] (P2, R44 section 4.4, Sonnet; after QOBS5) Network delivery delay. Stamp an `Instant`
       when a page request's result is complete (where the `AppEvent::JsNet` / headless equivalent is
       created) and again when `deliver_net` runs it; record the delay per request. `--perf-report`:
