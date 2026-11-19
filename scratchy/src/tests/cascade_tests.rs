@@ -2812,3 +2812,165 @@ fn qy53g_ancestor_bloom_holds_exactly_the_ancestor_chain() {
         assert!(!f.might_contain_hash(atom_hash(k)), "{k} was popped when moving to em");
     }
 }
+
+// ---------- QY53f1: per-piece rule cache (incremental `<style>` parse) ----------
+
+fn qy53f1_page(styles: &[&str]) -> Handle {
+    let mut s = String::from("<html><head>");
+    for st in styles {
+        s.push_str(&format!("<style>{st}</style>"));
+    }
+    s.push_str("</head><body><p id=a class=k0>x</p><p id=b class=k1>y</p><p id=c class=k0 title=t>z</p></body></html>");
+    parse_html(&s)
+}
+
+fn qy53f1_style_nodes(doc: &Handle) -> Vec<Handle> {
+    let mut v = Vec::new();
+    crate::images::collect_style_nodes(doc, &mut v);
+    v
+}
+
+fn qy53f1_set_text(style: &Handle, css: &str) {
+    for c in style.children.borrow().iter() {
+        if let NodeData::Text { contents } = &c.data {
+            *contents.borrow_mut() = css.into();
+            return;
+        }
+    }
+    panic!("style without text node");
+}
+
+fn qy53f1_parsed() -> usize {
+    crate::rules_cache::PIECES_PARSED.with(|c| c.get())
+}
+
+fn qy53f1_reset() {
+    crate::rules_cache::PIECES_PARSED.with(|c| c.set(0));
+    crate::rules_cache::FULL_PARSES.with(|c| c.set(0));
+}
+
+/// Colours from the warm (incremental) cache, then from a forced full parse; they must agree.
+fn qy53f1_check(doc: &Handle) -> Vec<TextColor> {
+    let warm = qy53_colors(doc);
+    let warm_len = crate::rules_cache::rule_count();
+    RULES_CACHE.with(|c| *c.borrow_mut() = None);
+    let full = qy53_colors(doc);
+    assert_eq!(warm, full, "incremental cascade equals a full parse");
+    assert_eq!(warm_len, crate::rules_cache::rule_count(), "same rule list length");
+    warm
+}
+
+#[test]
+fn qy53f1_insert_change_remove_in_the_middle_equals_full_parse() {
+    let doc = qy53f1_page(&[".k0 { color: #ff0000 }", ".k1 { color: #0000ff }", "#c { color: #00ff00 }"]);
+    qy53f1_check(&doc);
+    let head = find_by_tag(&doc, "head").unwrap();
+    // Insert a piece in the middle.
+    let frag = parse_html("<style>.k1 { color: #123456 } p[title] { color: #654321 }</style>");
+    let mut nodes = qy53f1_style_nodes(&doc);
+    let new = qy53f1_style_nodes(&frag).remove(0);
+    let pos = head.children.borrow().iter().position(|c| Rc::ptr_eq(c, &nodes[1])).unwrap();
+    head.children.borrow_mut().insert(pos, new);
+    qy53f1_reset();
+    let after_insert = qy53_colors(&doc);
+    assert_eq!(qy53f1_parsed(), 1, "only the inserted piece parsed");
+    assert_eq!(after_insert, qy53f1_check(&doc));
+    // Change the first piece.
+    nodes = qy53f1_style_nodes(&doc);
+    qy53f1_set_text(&nodes[0], ".k0 { color: #abcdef }");
+    qy53f1_reset();
+    let changed = qy53_colors(&doc);
+    assert_eq!(qy53f1_parsed(), 1, "only the edited piece parsed");
+    assert_ne!(changed, after_insert);
+    assert_eq!(changed, qy53f1_check(&doc));
+    // Remove the middle piece.
+    let mid = nodes[1].clone();
+    head.children.borrow_mut().retain(|c| !Rc::ptr_eq(c, &mid));
+    qy53f1_reset();
+    let removed = qy53_colors(&doc);
+    assert_eq!(qy53f1_parsed(), 0, "removal parses nothing");
+    assert_eq!(removed, qy53f1_check(&doc));
+}
+
+#[test]
+fn qy53f1_unchanged_document_parses_nothing() {
+    let doc = qy53f1_page(&[".k0 { color: #ff0000 }", ".k1 { color: #0000ff }"]);
+    qy53_colors(&doc);
+    qy53f1_reset();
+    qy53_colors(&doc);
+    assert_eq!(qy53f1_parsed(), 0);
+    assert_eq!(crate::rules_cache::FULL_PARSES.with(|c| c.get()), 0);
+}
+
+#[test]
+fn qy53f1_layer_falls_back_to_full_parse() {
+    let doc = qy53f1_page(&["@layer a, b; @layer b { .k0 { color: #ff0000 } } @layer a { .k0 { color: #0000ff } }", ".k1 { color: #00ff00 }"]);
+    let first = qy53f1_check(&doc);
+    // b is later than a, so b's red wins over a's blue.
+    assert_eq!(format!("{:?}", first[0]), format!("{:?}", qy53_colors(&qy53f1_page(&[".k0 { color: #ff0000 }"]))[0]));
+    let nodes = qy53f1_style_nodes(&doc);
+    qy53f1_set_text(&nodes[1], ".k1 { color: #111111 }");
+    qy53f1_reset();
+    let c = qy53_colors(&doc);
+    assert_eq!(crate::rules_cache::FULL_PARSES.with(|c| c.get()), 1, "layered sheet: full parse");
+    assert_eq!(c, qy53f1_check(&doc));
+}
+
+#[test]
+fn qy53f1_order_and_specificity_ties_across_pieces() {
+    // Equal specificity: the later piece wins; higher specificity wins regardless of order.
+    let doc = qy53f1_page(&[".k0 { color: #ff0000 } p#a { color: #0000ff }", ".k0 { color: #00ff00 }"]);
+    let c = qy53f1_check(&doc);
+    assert_ne!(c[0], c[2], "id selector beats the later class on #a only");
+    let green = qy53_colors(&qy53f1_page(&[".k0 { color: #00ff00 }"]))[0];
+    assert_eq!(c[2], green, "later piece wins an equal-specificity tie");
+    // Insert a piece before: it now loses the tie to both of the others.
+    let head = find_by_tag(&doc, "head").unwrap();
+    let frag = parse_html("<style>.k0 { color: #010101 }</style>");
+    let new = qy53f1_style_nodes(&frag).remove(0);
+    head.children.borrow_mut().insert(0, new);
+    let c = qy53f1_check(&doc);
+    assert_eq!(c[2], green);
+}
+
+#[test]
+fn qy53f1_external_css_piece_changes_reparse_only_it() {
+    let doc = qy53f1_page(&[".k0 { color: #ff0000 }"]);
+    let t = |extra: &str| {
+        let tree = build_layout_tree_with_resources(&doc, 800.0, None, extra, &HashMap::new());
+        let mut out = Vec::new();
+        find_all_span_colors(&tree, &mut out);
+        out
+    };
+    let a = t(".k0 { color: #0000ff }");
+    qy53f1_reset();
+    let a2 = t(".k0 { color: #0000ff }");
+    assert_eq!(qy53f1_parsed(), 0);
+    assert_eq!(a, a2);
+    let b = t(".k0 { color: #00ff00 }");
+    assert_eq!(qy53f1_parsed(), 1, "only the external piece");
+    assert_ne!(a, b);
+}
+
+#[test]
+fn qy53f1_repeated_insert_and_change_keeps_the_cache_bounded() {
+    let doc = qy53f1_page(&[".k0 { color: #ff0000 }", ".k1 { color: #0000ff }"]);
+    qy53_colors(&doc);
+    let head = find_by_tag(&doc, "head").unwrap();
+    let (entries0, _) = crate::style::rules_cache_mem().0;
+    let pieces = |_: ()| RULES_CACHE.with(|c| c.borrow().as_ref().map_or(0, |r| r.piece_count()));
+    for i in 0..20 {
+        // Insert a new <style>, build, then change its text and build, then remove it.
+        let frag = parse_html(&format!("<style>.s{i} {{ color: #00000{} }}</style>", i % 10));
+        let new = qy53f1_style_nodes(&frag).remove(0);
+        head.children.borrow_mut().push(new.clone());
+        qy53_colors(&doc);
+        qy53f1_set_text(&new, &format!(".t{i} {{ color: #0a0b0c }}"));
+        qy53_colors(&doc);
+        assert_eq!(pieces(()), 4, "2 originals + 1 inserted + the external piece");
+        head.children.borrow_mut().retain(|c| !Rc::ptr_eq(c, &new));
+        qy53_colors(&doc);
+        assert_eq!(pieces(()), 3);
+    }
+    assert_eq!(crate::style::rules_cache_mem().0.0, entries0, "no rules left behind by removed pieces");
+}

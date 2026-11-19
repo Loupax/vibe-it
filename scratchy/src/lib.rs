@@ -70,6 +70,7 @@ mod anim_app;
 mod style;
 mod layout;
 mod images;
+mod rules_cache;
 mod forms;
 mod forms_text;
 mod forms_select;
