@@ -1261,9 +1261,6 @@ Shared rules for this block:
 - [ ] QY53f1d [M] (P3, from QY53f1b; Opus design) The cold parse of YouTube's 4.4 MB sheet still costs ~130 ms on the first
       forced layout. Options: parse external sheets as they arrive (off the forced-layout path, on the JS thread's idle
       time or a worker), or lazily per rule block. Measure first (R43 section 12); design + items.
-- [ ] [WIP] QY53f1e [XS] (P3, from QY53f1b; Sonnet) `js_style.rs` (~line 584, getComputedStyle path) still does
-      `rules.extend(parse_stylesheet(..))` (parse to a temp Vec, then move 4 KB rules); use `css::parse_stylesheet_into`
-      like rules_cache does. Test: results equal; measure one getComputedStyle-heavy page before/after.
 - [ ] [WIP] QCUR1 [S] (P1, user report 2026-11-19 18:50; Sonnet, confirm first; AFTER QM1k1n6c, same app.rs input code) The mouse
       cursor disappears while over the YouTube video, worst during lag. Likely: YouTube's `ytp-autohide` sets `cursor: none`
       on the player after idle and removes it on `mousemove`; scratchy dispatches NO mousemove/pointermove to pages (R46),
@@ -1290,8 +1287,12 @@ Shared rules for this block:
       estimated), shape_memo counts cosmic-text buffers, peak_rss_bytes matches VmHWM (it read below it in every run).
 - [ ] QMEM3d [S] (P3, from QMEM3; Sonnet; after QMEM3a) `malloc_trim(0)` after a navigation and once when the window goes
       idle. Gate: RSS after leaving YouTube for a small page >= 25 MB lower.
-- [ ] QMEM3e [M] (P3, from QMEM3; Sonnet) StyleCache (getComputedStyle) reuses rules_cache's parsed rule list instead of
+- [ ] [WIP] QMEM3e [M] (P3, from QMEM3; Sonnet) StyleCache (getComputedStyle) reuses rules_cache's parsed rule list instead of
       parsing the same CSS again (~15-20 MB). Gate: that RSS saving; getComputedStyle tests unchanged.
+      FINDING (QY53f1e): StyleCache in js_style.rs keeps its own per-piece parse cache (`parse_piece` -> parse_stylesheet),
+      separate from rules_cache's Piece list, so every <style> is parsed twice. Both are text-keyed per piece, so sharing
+      rules_cache's parsed list is feasible; StyleCache also needs per-piece `has`/`sib` flags (rules_cache tracks `layer`
+      and a mask but not has/sib) and the layer-concat decision.
 - [ ] QMEM3f [S] (P4, from QMEM3; Opus measure) 10-minute live-window RSS sample on YT watch: the window grows ~0.22 MB/s
       in the first minute; leak or warm-up?
 - [ ] QOBS5c [S] (P2, from QM1k1n6, R46; Sonnet; app.rs/perf.rs: not alongside QM1k1n6a-c) frame-stats lines get

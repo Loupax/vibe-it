@@ -6824,3 +6824,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       2..4)` before threads start; measure 2 vs 4): YT watch has 42 arenas holding 85-94 MB freed-but-kept; MALLOC_ARENA_MAX=2
       gave -63 MB RSS in one run. Gate: YT watch memory.rss_bytes >= 40 MB lower, median of 3; forced_layout.total_ms and JS
       time not worse over 3+3 interleaved runs (perf-diff); live-window frame stats not worse (R46 recipe).
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY53f1e DONE 6245a20 (one-line parse_into on the @layer path; no measurable gain after QY53f1c) [XS] (P3, from QY53f1b; Sonnet) `js_style.rs` (~line 584, getComputedStyle path) still does
+      `rules.extend(parse_stylesheet(..))` (parse to a temp Vec, then move 4 KB rules); use `css::parse_stylesheet_into`
+      like rules_cache does. Test: results equal; measure one getComputedStyle-heavy page before/after.
