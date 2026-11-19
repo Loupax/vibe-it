@@ -6675,3 +6675,21 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       text parsed; `js_enabled()` change; rule list still shared elsewhere), or is it another phase (build_children,
       rule_index)? If it is the `@layer` fallback, make layered pieces splice too (keep layer ranks per piece) or cache
       per layer. Gate: YT watch max_ms median of 3 lower than main by >= 30 %, default UA, own wire; tests if code changes.
+
+=== from TODO.txt: --- Rust `__*` native wrapped in a JS timer); none of it was committed. -------
+- [x] QM1k1n6 DONE 8383e9d (DESIGNED R46 + fixed idle event-loop spin and mpv render sleeping on the main thread; items QM1k1n6a-c, QOBS5c) [M] (P2, R42 section 6, Opus design first, then Sonnet) The App cannot redraw while
+      page tasks run back to back: during playback (run 3) 3 redraws in 16 s, forced layouts every
+      ~0.33 s (~300 ms each), App tree builds ~300-650 ms; the `top: 0px` write reached the screen
+      11.3 s later and only ONE video frame was rendered in the whole run (frames are rendered in
+      `App::redraw`, QM1g). Design a frame budget: a redraw (with the newest video frame, and the
+      relayout if one is pending) gets a turn at least every ~50-100 ms of page work, and a video
+      frame can be composited without a relayout. Likely the same cause as QM1k-mouse. Measure
+      redraws/s and frames shown per second on the R42 URL before/after. QY53d/e/g/f reduce the
+      work itself and remain needed.
+      MORE EVIDENCE 2026-11-19 (QM1k-stop, R45 run 7, real audio): mpv decoded the first video frame 0.22 s after
+      unpause but scratchy did not paint for ~6 s (29 mpv "render not being called" warnings), so sound led the
+      picture by ~6 s at every start. User-visible on every YouTube play.
+      MEASURED 2026-11-19 by QOBS5 (bf9aea1, SCRATCHY_FRAME_STATS, nested dwl, YT watch, default UA): pointer IDLE -> video
+      ~30 frames/s rendered+painted, 0 full redraws; pointer MOVING -> rendered/painted 1-5/s, full redraws 1-5/s, page JS
+      1.0-1.8 s per wall second, 12-36 forced layouts/s, input->present 0.4-1.6 s with up to 30 moves pending; paint 2-14
+      ms, present ~0. Cause: page mouse-move JS + App tree builds (60-250 ms) starve the main thread; paint is not it.
