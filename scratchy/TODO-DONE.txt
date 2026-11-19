@@ -6768,3 +6768,14 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QY53o3 DONE 573ab64 (JS-thread SHAPE_MEMO cap 4096 < 7 508 entries per Wikipedia layout -> cleared every layout; items QY53o3a/b) [S] (P2, from QY53o, R47 addendum; Opus measure only) In each Wikipedia forced layout measure_document takes
       116-144 ms (45 %) although no text changed and the shape cache is warm. Find where (memo misses? per-box work that
       does not depend on text? float/table passes?) with tools/profile.sh / temporary timing; file sized fix items.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY53l2 DONE b493ad2 (gate NOT met: getPlayerSize -8 %, no_change -14 %; rest = visible/svg writes -> QY53l3; R43 section 13) [M] (P2, from QY53l 4608cd4, R43 section 10; Opus) Skip the geometry-generation bump for DOM writes
+      (attribute/style/class/tree insert-remove) whose target lies entirely inside a `display:none` subtree as recorded by
+      the last GeomCache layout (the subtree has no boxes, so no rect can change), EXCEPT writes that can change whether
+      that subtree is displayed (any write on the display:none root itself or its ancestors, class/attribute writes that
+      a rule with `display` can match, inserts that move nodes out of it). On YT watch after QY53l: 30 of 52 getPlayerSize
+      layouts still change no box; 9 follow tree inserts/removes only (hidden player chrome, svg icon swaps). Upper bound
+      ~9-13 of 51 layouts. Gate: YT watch getPlayerSize layouts / 60 s median of 3 >= 20 % lower than main, no_change
+      lower; tests: a write inside a hidden subtree forces no layout; un-hiding it (class/style on the root) still does;
+      moving a node out of the hidden subtree still does; offsetWidth of hidden nodes stays 0.

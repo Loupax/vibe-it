@@ -60,7 +60,7 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
   14e DONE 732438c QY53o -> QY53o1 (P1) / QY53o3 / QY53o2 below
   14f QY53o1 [S] value-changing attribute write no selector/attr() can read -> no geometry bump (after QY53l2 merges) | R47
   14g DONE 573ab64 QY53o3 -> QY53o3a (P1) below
-  14h QY53o3a [S] JS-thread shape memo: per-layout sweep instead of clear-at-start cap (measure 130 -> ~35 ms/layout) after QY53l2 | R47
+  14h [WIP] QY53o3a [S] JS-thread shape memo: per-layout sweep instead of clear-at-start cap (measure 130 -> ~35 ms/layout) after QY53l2 | R47
   14d QY53m [S] App::js_sync skips the restyle after no-op write batches (after QM1k1n6: same code)
   15 QY53e2 [M]  IO uses the App's own layout                                       | QY53 block
   16 QM1g2 (a) [M] render mpv frames off the main thread (33-39 ms per frame today); split (a) out
@@ -1260,20 +1260,14 @@ Shared rules for this block:
       (`--perf-report`, QOBS3 phases/by_caller once merged); make the ancestor checks one walk (or cached per layout
       generation). Gate: one read at 5 000 deep < 100 ms; tests: IO visibility semantics unchanged (display:none /
       visibility:hidden ancestor still hides the target).
-- [ ] [WIP] QY53l2 [M] (P2, from QY53l 4608cd4, R43 section 10; Opus) Skip the geometry-generation bump for DOM writes
-      (attribute/style/class/tree insert-remove) whose target lies entirely inside a `display:none` subtree as recorded by
-      the last GeomCache layout (the subtree has no boxes, so no rect can change), EXCEPT writes that can change whether
-      that subtree is displayed (any write on the display:none root itself or its ancestors, class/attribute writes that
-      a rule with `display` can match, inserts that move nodes out of it). On YT watch after QY53l: 30 of 52 getPlayerSize
-      layouts still change no box; 9 follow tree inserts/removes only (hidden player chrome, svg icon swaps). Upper bound
-      ~9-13 of 51 layouts. Gate: YT watch getPlayerSize layouts / 60 s median of 3 >= 20 % lower than main, no_change
-      lower; tests: a write inside a hidden subtree forces no layout; un-hiding it (class/style on the root) still does;
-      moving a node out of the hidden subtree still does; offsetWidth of hidden nodes stays 0.
 - [ ] QY53l3 [S] (P3, optional, from QY53l, R43 section 10; Sonnet) Skip the bump for `style` writes that only change
       properties that cannot move any box in scratchy's layout (today: e.g. `transform: scalex()`, colors, opacity,
       cursor), when no stylesheet rule tests `[style]`. ~5-8 of 51 getPlayerSize layouts. Revisit when transforms reach
       getBoundingClientRect (then scale DOES change rects). Tests: a color-only style write forces no layout; a width
       write still does; a `[style*=..]` rule present disables the skip.
+      QY53l2 (b493ad2, R43 section 13): of 71 remaining YT no-change layouts, 44 follow writes to VISIBLE elements only
+      (.ytp-chapter-hover-container, .ytp-load-progress scale transform, #movie_player state classes, video attributes) and
+      8 follow writes inside an inline <svg> only: consider a rule for svg-internal writes that cannot change the svg box.
 - [ ] QY53m [S] (P2, from QY53e3; Sonnet; AFTER QM1k1n6, same code in app.rs) `App::js_sync` skips the restyle when no
       write in the batch changed a value and neither css_ver nor the media size moved. Use its own "value changed"
       generation, NOT geom_gen (QY53l2/l3 stop bumping geom_gen for writes that still need a repaint). Wikipedia/YT in a
@@ -1337,7 +1331,7 @@ Shared rules for this block:
 - [ ] QY53o2 [M] (P3, from QY53o; Opus design first; ONLY if QY53o1 leaves > ~3 s per run) Writes inside an abs/fixed
       positioned subtree do not invalidate rects outside it (Page Previews' popup: 7-21 layouts per run). Gate: forced.n <= 5
       after QY53o1.
-- [ ] QY53o3a [S] (P1, from QY53o3 573ab64, R47 QY53o3 addendum; Sonnet; AFTER QY53l2 #351 merges: js_geom.rs) The JS thread's
+- [ ] [WIP] QY53o3a [S] (P1, from QY53o3 573ab64, R47 QY53o3 addendum; Sonnet; AFTER QY53l2 #351 merges: js_geom.rs) The JS thread's
       shape memo is cleared before EVERY forced layout: `SHAPE_MEMO_CAP = 4096` is checked at the start of
       `GeomCache::refresh` and one Wikipedia Rust layout stores 7 508 entries, so every layout reshapes the page (7 508
       shape_spans, 128-174 ms; 0 cross-layout hits). Replace the clear-at-start cap with a per-layout sweep: tag entries with
