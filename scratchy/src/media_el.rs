@@ -329,7 +329,51 @@ pub(crate) enum Out {
     Unavailable,
     /// Host-only: the backend accepted a load (log `media: mpv` once).
     BackendStarted,
+    /// QM1k1c: fire `sourceopen` / `sourceended` / `sourceclose` at the MediaSource
+    /// whose feed has this id (the JS side routes it, QM1k1d).
+    MseOpen(u64),
+    MseEnded(u64),
+    MseClose(u64),
 }
+
+/// QM1k1c: the MSE attachment of one element (the QM1k-PLAN "Element" paragraph).
+struct MseAttach {
+    feed: Arc<MseFeed>,
+    /// `loadedmetadata` was fired (every SourceBuffer has its init segment).
+    meta: bool,
+    /// A `load_mse` is live (a generation exists in the backend).
+    issued: bool,
+    /// Where the next (re)load starts, until both tracks cover it.
+    want: Option<f64>,
+    /// `endOfStream()` was called: only then may `ended` happen.
+    ended: bool,
+    last_progress: f64,
+}
+
+/// Intersection of several sorted range lists (an empty list in = nothing out).
+pub(crate) fn intersect_ranges(all: &[Vec<(f64, f64)>]) -> Vec<(f64, f64)> {
+    let Some((first, rest)) = all.split_first() else { return Vec::new() };
+    let mut cur = first.clone();
+    for other in rest {
+        let mut next = Vec::new();
+        for &(a, b) in &cur {
+            for &(c, d) in other {
+                let (lo, hi) = (a.max(c), b.min(d));
+                if hi > lo {
+                    next.push((lo, hi));
+                }
+            }
+        }
+        cur = next;
+    }
+    cur
+}
+
+/// A start time this close to a range edge counts as inside (first frames rarely start at
+/// exactly the requested time).
+const MSE_COVER_SLACK: f64 = 0.1;
+/// `progress` is fired at most this often while appending (ms).
+const MSE_PROGRESS_MS: f64 = 350.0;
 
 pub(crate) struct MediaCore {
     backend: Box<dyn MediaBackend>,
@@ -367,6 +411,8 @@ pub(crate) struct MediaCore {
     /// QM1g: the newest rendered frame and the size the backend was asked for.
     pub last_frame: Option<Arc<VideoFrame>>,
     pub target: Option<VideoTarget>,
+    mse: Option<MseAttach>,
+    loadeddata_fired: bool,
 }
 
 impl MediaCore {
@@ -405,6 +451,8 @@ impl MediaCore {
             activated: false,
             last_frame: None,
             target: None,
+            mse: None,
+            loadeddata_fired: false,
         }
     }
 
@@ -443,10 +491,32 @@ impl MediaCore {
         self.backend.active()
     }
     pub(crate) fn buffered(&self) -> Vec<(f64, f64)> {
-        self.backend.buffered()
+        match &self.mse {
+            Some(m) => {
+                let ended = m.ended;
+                m.feed.with_store(|st| {
+                    let mut per: Vec<Vec<(f64, f64)>> = st.buffers.iter().map(|b| b.buffered()).collect();
+                    if ended {
+                        // after endOfStream every track's last range reaches the highest end
+                        let hi = per.iter().filter_map(|r| r.last().map(|x| x.1)).fold(0.0, f64::max);
+                        for r in per.iter_mut() {
+                            if let Some(l) = r.last_mut() {
+                                l.1 = hi;
+                            }
+                        }
+                    }
+                    intersect_ranges(&per)
+                })
+            }
+            None => self.backend.buffered(),
+        }
     }
     pub(crate) fn seekable(&self) -> Vec<(f64, f64)> {
-        self.backend.seekable()
+        match &self.mse {
+            Some(_) if self.duration.is_finite() && self.duration > 0.0 => vec![(0.0, self.duration)],
+            Some(_) => Vec::new(),
+            None => self.backend.seekable(),
+        }
     }
     fn fire(&mut self, n: &'static str) {
         self.outs.push(Out::Fire(n));
@@ -468,6 +538,24 @@ impl MediaCore {
     /// element); otherwise `<source>` children (failure = `error` on the
     /// source, next candidate, no MediaError).
     pub(crate) fn load(&mut self, cands: Vec<Candidate>, from_attr: bool, mode: MediaMode, page: String) {
+        self.reset_for_load();
+        self.begin(cands, from_attr, mode, page);
+        if self.cands.is_empty() {
+            return;
+        }
+        self.network_state = NETWORK_NO_SOURCE;
+        self.network_state = NETWORK_LOADING;
+        self.fire("loadstart");
+        self.start_candidate();
+    }
+
+    /// The first half of the load algorithm: abort what is loaded (an MSE attachment is
+    /// detached: its feed stops and its MediaSource gets `sourceclose`).
+    fn reset_for_load(&mut self) {
+        if let Some(m) = self.mse.take() {
+            m.feed.stop();
+            self.outs.push(Out::MseClose(m.feed.id));
+        }
         if self.network_state != NETWORK_EMPTY {
             self.backend.unload();
             if self.network_state == NETWORK_LOADING || self.network_state == NETWORK_IDLE {
@@ -484,6 +572,10 @@ impl MediaCore {
             self.video_height = 0;
             self.last_frame = None;
         }
+        self.loadeddata_fired = false;
+    }
+
+    fn begin(&mut self, cands: Vec<Candidate>, from_attr: bool, mode: MediaMode, page: String) {
         self.error = None;
         self.playing_fired = false;
         self.default_start = None;
@@ -496,13 +588,6 @@ impl MediaCore {
         self.mode = mode;
         self.page = page;
         self.idx = 0;
-        if self.cands.is_empty() {
-            return;
-        }
-        self.network_state = NETWORK_NO_SOURCE;
-        self.network_state = NETWORK_LOADING;
-        self.fire("loadstart");
-        self.start_candidate();
     }
 
     fn start_candidate(&mut self) {
@@ -556,6 +641,163 @@ impl MediaCore {
         self.network_state = if self.ready_state == HAVE_NOTHING { NETWORK_NO_SOURCE } else { NETWORK_IDLE };
         self.fire("error");
         self.reject_pending(if code == MEDIA_ERR_SRC_NOT_SUPPORTED { "NotSupportedError" } else { "AbortError" });
+    }
+
+
+    // ---- MSE (QM1k1c) ----
+
+    /// Attach a MediaSource feed as this element's resource (`el.src = blobUrl`): the load
+    /// algorithm with no candidate. `sourceopen` follows; `loadedmetadata` once every
+    /// SourceBuffer has its init segment, the first backend load once both tracks cover the
+    /// start time. `duration` is the MediaSource's current duration (NaN until set).
+    pub(crate) fn attach_mse(&mut self, feed: Arc<MseFeed>, duration: f64, page: String) {
+        self.reset_for_load();
+        self.begin(Vec::new(), true, MediaMode::NoCors, page);
+        self.network_state = NETWORK_LOADING;
+        self.duration = duration;
+        self.current_src = format!("blob:scratchy-mse/{}", feed.id);
+        self.fire("loadstart");
+        self.outs.push(Out::MseOpen(feed.id));
+        self.mse = Some(MseAttach { feed, meta: false, issued: false, want: None, ended: false, last_progress: f64::NEG_INFINITY });
+    }
+
+    pub(crate) fn mse_attached(&self) -> bool {
+        self.mse.is_some()
+    }
+
+    /// The element goes away (removed from the page): backend unloaded, MediaSource closed.
+    pub(crate) fn detach(&mut self) {
+        self.backend.unload();
+        if let Some(m) = self.mse.take() {
+            m.feed.stop();
+            self.outs.push(Out::MseClose(m.feed.id));
+        }
+    }
+
+    /// `MediaSource.duration = d`: the element's duration follows (mpv's is ignored).
+    pub(crate) fn mse_set_duration(&mut self, d: f64) {
+        if self.mse.is_some() && !(d == self.duration || (d.is_nan() && self.duration.is_nan())) {
+            self.duration = d;
+            self.fire("durationchange");
+        }
+    }
+
+    /// `MediaSource.endOfStream()`: the feed reports EOF to the player, the duration becomes
+    /// the highest buffered end and `ended` may now happen.
+    pub(crate) fn mse_end_of_stream(&mut self) {
+        let Some(m) = self.mse.as_mut() else { return };
+        if m.ended {
+            return;
+        }
+        m.ended = true;
+        m.feed.end_of_stream();
+        let id = m.feed.id;
+        let hi = m.feed.with_store(|st| st.buffers.iter().filter_map(|b| b.buffered().last().map(|r| r.1)).fold(0.0, f64::max));
+        self.outs.push(Out::MseEnded(id));
+        if hi > 0.0 {
+            self.mse_set_duration(hi);
+        }
+    }
+
+    /// The JS side appended or removed data (`new_init`: the append carried a second init
+    /// segment, a quality switch / changeType). `now` = page clock in ms.
+    pub(crate) fn mse_data_changed(&mut self, now: f64, new_init: bool) {
+        let Some(m) = self.mse.as_mut() else { return };
+        let mut fire_meta = false;
+        if !m.meta && m.feed.all_have_init() {
+            m.meta = true;
+            fire_meta = true;
+        }
+        if new_init && m.issued && m.want.is_none() {
+            m.want = Some(self.current_time);
+        }
+        let progress = now - m.last_progress >= MSE_PROGRESS_MS;
+        if progress {
+            m.last_progress = now;
+        }
+        if fire_meta {
+            self.loaded = true;
+            self.ready_state = HAVE_METADATA;
+            self.fire("loadedmetadata");
+            if let Some(t) = self.default_start.take() {
+                self.seeking = true;
+                self.seek_target = t;
+                self.current_time = t;
+                self.fire("seeking");
+            }
+            let t = if self.seeking { self.seek_target } else { self.current_time };
+            if let Some(m) = self.mse.as_mut() {
+                m.want = Some(t);
+            }
+        }
+        if progress {
+            self.fire("progress");
+        }
+        self.mse_resolve();
+    }
+
+    /// A seek on an MSE element: inside the live generation it is a backend seek; anywhere
+    /// else it waits (`waiting`, readyState HAVE_METADATA) until every track covers `t`,
+    /// then the next generation is loaded at `t`.
+    fn mse_seek(&mut self, t: f64) {
+        self.seeking = true;
+        self.seek_target = t;
+        self.current_time = t;
+        self.fire("seeking");
+        let Some(m) = self.mse.as_mut() else { return };
+        m.want = Some(t);
+        let (issued, feed) = (m.issued, m.feed.clone());
+        let playable = feed.with_store(|st| st.in_generation(t) || st.covers(t, MSE_COVER_SLACK));
+        if issued && !playable && self.ready_state > HAVE_METADATA {
+            self.ready_state = HAVE_METADATA;
+            self.playing_fired = false;
+            if !self.paused {
+                self.fire("waiting");
+            }
+        }
+        self.mse_resolve();
+    }
+
+    /// Acts on `want`: a backend seek, a new generation, or keeps waiting.
+    fn mse_resolve(&mut self) {
+        let Some(m) = self.mse.as_mut() else { return };
+        let Some(t) = m.want else { return };
+        if !m.meta {
+            return;
+        }
+        let (issued, feed) = (m.issued, m.feed.clone());
+        if issued && feed.with_store(|st| st.in_generation(t)) {
+            m.want = None;
+            self.backend.seek(t);
+            return;
+        }
+        if !feed.with_store(|st| st.covers(t, MSE_COVER_SLACK)) {
+            return;
+        }
+        m.want = None;
+        if issued {
+            self.backend.unload();
+        }
+        match self.backend.load_mse(feed, t) {
+            Ok(()) => {
+                if let Some(m) = self.mse.as_mut() {
+                    m.issued = true;
+                }
+                self.backend.set_volume(self.volume);
+                self.backend.set_muted(self.muted);
+                self.backend.set_rate(self.rate);
+                self.backend.set_paused(self.paused);
+                if !self.announced {
+                    self.announced = true;
+                    self.outs.push(Out::BackendStarted);
+                }
+            }
+            Err(LoadError::Unavailable) => {
+                self.outs.push(Out::Unavailable);
+                self.fatal_error(MEDIA_ERR_SRC_NOT_SUPPORTED, "libmpv not available");
+            }
+            Err(LoadError::Other(m)) => self.fatal_error(MEDIA_ERR_SRC_NOT_SUPPORTED, &m),
+        }
     }
 
     // ---- play / pause / seek ----
@@ -637,6 +879,9 @@ impl MediaCore {
         if self.duration.is_finite() {
             t = t.min(self.duration);
         }
+        if self.mse.is_some() {
+            return self.mse_seek(t);
+        }
         self.seeking = true;
         self.seek_target = t;
         self.current_time = t;
@@ -698,6 +943,20 @@ impl MediaCore {
             return; // a late event of an aborted load
         }
         match ev {
+            BackendEvent::Loaded { width, height, .. } if self.mse.is_some() => {
+                // MSE: the duration is the MediaSource's, loadedmetadata already fired
+                self.video_width = width;
+                self.video_height = height;
+            }
+            BackendEvent::DurationChanged(_) if self.mse.is_some() => {}
+            BackendEvent::Eof if self.mse.as_ref().is_some_and(|m| !m.ended) => {
+                // the player ran out of appended data: a stall, never `ended`
+                if !self.paused && self.ready_state >= HAVE_FUTURE_DATA {
+                    self.ready_state = HAVE_CURRENT_DATA;
+                    self.playing_fired = false;
+                    self.fire("waiting");
+                }
+            }
             BackendEvent::Loaded { duration, width, height } => {
                 self.loaded = true;
                 self.duration = duration;
@@ -729,7 +988,10 @@ impl MediaCore {
                 }
                 if self.ready_state == HAVE_METADATA {
                     self.ready_state = HAVE_CURRENT_DATA;
-                    self.fire("loadeddata");
+                    if !self.loadeddata_fired {
+                        self.loadeddata_fired = true;
+                        self.fire("loadeddata");
+                    }
                     self.ready_state = HAVE_ENOUGH_DATA;
                     self.fire("canplay");
                     if self.paused && self.autoplay && self.can_autoplay() {
@@ -1001,6 +1263,32 @@ pub(crate) struct MediaHost {
     log: MediaLog,
     avail: Option<bool>,
     sizes_seen: HashMap<i32, (u32, u32)>,
+    /// QM1k1c: the MediaSource feeds of this page.
+    pub(crate) mse: MseHost,
+}
+
+/// QM1k1c: per page, owns the [`MseFeed`] of every MediaSource (the JS objects hold ids).
+#[derive(Default)]
+pub(crate) struct MseHost {
+    feeds: HashMap<u64, Arc<MseFeed>>,
+}
+
+impl MseHost {
+    /// A new MediaSource: an empty feed (SourceBuffers are added with `add_buffer`).
+    pub(crate) fn create(&mut self) -> Arc<MseFeed> {
+        let f = MseFeed::new(crate::mse_store::MseStore::from_env());
+        self.feeds.insert(f.id, f.clone());
+        f
+    }
+    pub(crate) fn get(&self, id: u64) -> Option<Arc<MseFeed>> {
+        self.feeds.get(&id).cloned()
+    }
+    /// The MediaSource was collected: stop its readers and forget it.
+    pub(crate) fn drop_feed(&mut self, id: u64) {
+        if let Some(f) = self.feeds.remove(&id) {
+            f.stop();
+        }
+    }
 }
 
 impl MediaHost {
@@ -1016,6 +1304,7 @@ impl MediaHost {
             log,
             avail: None,
             sizes_seen: HashMap::new(),
+            mse: MseHost::default(),
         }
     }
 
@@ -1038,9 +1327,15 @@ impl MediaHost {
         self.els.get(&id).map(|e| &e.0)
     }
 
-    pub(crate) fn remove(&mut self, id: i32) {
-        if let Some((mut c, _)) = self.els.remove(&id) {
-            c.backend.unload();
+    /// The element left the page; returns what it still owes the page (`sourceclose`).
+    pub(crate) fn remove(&mut self, id: i32) -> Vec<HostOut> {
+        match self.els.remove(&id) {
+            Some((mut c, _)) => {
+                c.detach();
+                let outs = c.take_outs();
+                self.absorb(id, outs)
+            }
+            None => Vec::new(),
         }
     }
 

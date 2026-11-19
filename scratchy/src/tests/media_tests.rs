@@ -322,6 +322,7 @@ mod qm1f {
                 Out::Reject(t, n) => format!("reject {t} {n}"),
                 Out::Unavailable => "unavailable".into(),
                 Out::BackendStarted => "started".into(),
+                Out::MseOpen(_) | Out::MseEnded(_) | Out::MseClose(_) => "mse".into(),
             })
             .filter(|s| s != "started")
             .collect()
