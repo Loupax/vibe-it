@@ -2473,3 +2473,63 @@ fn qa14_dom_methods_throw_domexception() {
         "{log:?}"
     );
 }
+
+// ---------- QY53a: first-line / first-letter rule presence is computed once per rule list ----------
+
+fn qy53_any_first_line(b: &LayoutBox) -> bool {
+    b.style.first_line.is_some()
+        || match &b.content {
+            BoxContent::Blocks(c) => c.iter().any(qy53_any_first_line),
+            _ => false,
+        }
+}
+
+fn qy53_page(extra_css: &str, paragraphs: usize) -> String {
+    let mut body = String::new();
+    for i in 0..paragraphs {
+        body.push_str(&format!("<p class=\"k{i}\">alpha beta gamma delta {i}</p>"));
+    }
+    format!("<html><head><style>p {{ margin: 0 }} {extra_css}</style></head><body>{body}</body></html>")
+}
+
+#[test]
+fn qy53a_pseudo_rule_scan_runs_once_per_rule_list_not_per_element() {
+    let doc = parse_html(&qy53_page("", 60));
+    crate::style::PSEUDO_SCANS.with(|c| c.set(0));
+    let tree = build_layout_tree(&doc, 800.0);
+    let first = crate::style::PSEUDO_SCANS.with(|c| c.get());
+    assert_eq!(first, 2, "one first-line and one first-letter scan for the whole build");
+    assert!(!qy53_any_first_line(&tree));
+    // Same CSS again: the parsed rules (and their flags) are reused, no scan at all.
+    let _ = build_layout_tree(&doc, 800.0);
+    assert_eq!(crate::style::PSEUDO_SCANS.with(|c| c.get()), first);
+}
+
+#[test]
+fn qy53a_a_first_line_rule_added_later_is_seen() {
+    let doc = parse_html(&qy53_page("", 3));
+    assert!(!qy53_any_first_line(&build_layout_tree(&doc, 800.0)));
+    // A script adds a stylesheet with a ::first-line rule: new CSS text, new rule list, flags recomputed.
+    let head = find_by_tag(&doc, "head").unwrap();
+    let style = markup5ever_rcdom::Node::new(NodeData::Element {
+        name: html5ever::QualName::new(None, html5ever::ns!(html), html5ever::LocalName::from("style")),
+        attrs: std::cell::RefCell::new(Vec::new()),
+        template_contents: std::cell::RefCell::new(None),
+        mathml_annotation_xml_integration_point: false,
+    });
+    let text = markup5ever_rcdom::Node::new(NodeData::Text { contents: std::cell::RefCell::new("p::first-line { color: #f00 }".into()) });
+    text.parent.set(Some(std::rc::Rc::downgrade(&style)));
+    style.children.borrow_mut().push(text);
+    style.parent.set(Some(std::rc::Rc::downgrade(&head)));
+    head.children.borrow_mut().push(style);
+    assert!(qy53_any_first_line(&build_layout_tree(&doc, 800.0)), "::first-line applied after the rule appeared");
+}
+
+#[test]
+fn qy53a_style_text_change_drops_the_flag() {
+    let with = parse_html(&qy53_page("p::first-line { color: #f00 }", 2));
+    assert!(qy53_any_first_line(&build_layout_tree(&with, 800.0)));
+    let without = parse_html(&qy53_page("", 2));
+    assert!(!qy53_any_first_line(&build_layout_tree(&without, 800.0)));
+    assert!(qy53_any_first_line(&build_layout_tree(&with, 800.0)), "flipping back works too");
+}

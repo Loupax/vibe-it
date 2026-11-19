@@ -2662,7 +2662,7 @@ challenge/consent wall. Fixture "big-css" (generate in the test, never vendor): 
 (`.c<i> .d<i> { margin-left: 1px }`, plus 200 `::before { content: "x" }` rules), 1 000 nested
 divs with 3 classes each, a script that does 50 x (write one attribute, read `offsetWidth`).
 
-- [ ] QY53a [S] (P1, R43, Sonnet) READY. `apply_first_line` / `apply_first_letter` (images.rs) scan
+- [x] QY53a [S] DONE HASHA (P1, R43, Sonnet) (big-css fixture forced_layout.total_ms 44.6 s -> 6.9 s median of 3 = -84 %; 50 layouts both). `apply_first_line` / `apply_first_letter` (images.rs) scan
       every selector of every rule (`rules.iter().any(...)`) for EVERY element to learn whether
       any `::first-line` / `::first-letter` rule exists: O(elements x rules), 44 % of all samples
       inside YouTube forced layouts (R43 section 4). Compute both flags once per rule list (with

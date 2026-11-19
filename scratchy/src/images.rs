@@ -998,9 +998,7 @@ pub(crate) fn apply_first_line(
     result: &mut [LayoutBox],
 ) {
     if !matches!(handle.data, NodeData::Element { .. })
-        || !rules.iter().any(|r| {
-            r.selectors.slice().iter().any(|s| matches!(s.pseudo_element(), Some(OurPseudoElement::Named("first-line"))))
-        })
+        || !rules_have_pseudo(rules, "first-line")
     {
         return;
     }
@@ -1165,9 +1163,7 @@ pub(crate) fn apply_first_letter(
     result: &mut [LayoutBox],
 ) {
     if !matches!(handle.data, NodeData::Element { .. })
-        || !rules.iter().any(|r| {
-            r.selectors.slice().iter().any(|s| matches!(s.pseudo_element(), Some(OurPseudoElement::Named("first-letter"))))
-        })
+        || !rules_have_pseudo(rules, "first-letter")
     {
         return;
     }
@@ -2045,6 +2041,15 @@ pub(crate) fn build_layout_tree_with_resources(
     });
     HOVER_KEYS.with(|k| *k.borrow_mut() = HoverKeys::build(&rules));
     RULE_INDEX.with(|ri| *ri.borrow_mut() = Some((rules.as_ptr() as usize, rules.len(), RuleIndex::build(&rules))));
+    let (first_line, first_letter) = RULE_DERIVED.with(|d| {
+        let mut d = d.borrow_mut();
+        if !d.as_ref().is_some_and(|x| Rc::ptr_eq(&x.rules, &rules)) {
+            *d = Some(RuleDerived::new(&rules));
+        }
+        let x = d.as_ref().expect("just set");
+        (x.first_line, x.first_letter)
+    });
+    PSEUDO_FLAGS.with(|f| f.set(Some((rules.as_ptr() as usize, rules.len(), first_line, first_letter))));
     precompute_generated(document, &rules, viewport_width);
     // `var()` is resolved per element in `resolve_style` (Q13).
     // `rem` lengths resolve against `<html>`'s own cascaded font-size, not
@@ -2076,6 +2081,7 @@ pub(crate) fn build_layout_tree_with_resources(
         )),
     };
     RULE_INDEX.with(|ri| *ri.borrow_mut() = None);
+    PSEUDO_FLAGS.with(|f| f.set(None));
     let mut tree = tree;
     finish_animation_pass();
     propagate_canvas_background(&mut tree);
