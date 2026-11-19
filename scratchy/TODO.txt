@@ -123,9 +123,6 @@ DRAIN RULE (coordinator and every agent, from 2026-11-18):
 Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> QV8-m -> QV8-6. One at a time
 (each touches js*.rs); QV8-4 may overlap QV8-5 if the coordinator wants.
 
-- [x] QV8-0 [M] DONE 2026-11-18 (baseline taken at 2437284; numbers in PERF.md, commit 11f18a4; harness 93f... [archived: TODO-DONE.txt]
-- [x] QV8-1 [M] DONE 2026-11-18: GO WITH CONDITIONS (REGRESSIONS.md R39, docs 02106f8; spike on branch [archived: TODO-DONE.txt]
-- [x] QV8-2 [L] DONE 2026-11-18 (commit 2e88add; src/js_engine.rs; no rquickjs outside it) (after QV8-1) En... [archived: TODO-DONE.txt]
 - [ ] QV8-3 [L] SPLIT 2026-11-18 into QV8-3a/3b/3c/3d below (the original text is kept in them; tick QV8-3 when
       all four are ticked). Overall: V8 backend behind `engine-v8`: all `__d_*` natives (js_dom,
       js_media, js_net, js_ws, js_modules), classic + module scripts, importmap, dynamic
@@ -135,16 +132,11 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
       working; where V8 text differs (error messages, stack frames), normalise in the seam
       or adapt the test with a comment. ALL tests green on both engines; WPT subset no new
       failures under V8. R39 conditions C1-C6 are repeated verbatim in 3b (C1-C4), 3d (C5), 3a (C6).
-- [x] QV8-3a [L] DONE 2026-11-18 (commit 0e9afc6; src/js_engine_v8.rs; engine-v8: 1008/1030 tests pass, def... [archived: TODO-DONE.txt]
-- [x] QV8-3a2 [S] DONE 2026-11-18 (commit 9c03194; src/js_engine_v8.rs mark_htmldda) (after QV8-3a) `docume... [archived: TODO-DONE.txt]
-- [x] QV8-3b [M] DONE 2026-11-18 (commit 9c03194; src/js_engine_v8.rs; engine-v8: 1017/1033 tests pass, the... [archived: TODO-DONE.txt]
-- [x] QV8-3c [M] DONE 2026-11-18 (commit 4bff254; src/js_engine_v8.rs modules section; engine-v8: all tests... [archived: TODO-DONE.txt]
 - [ ] QV8-3c1 [S] (found by QV8-3c) V8-only page errors that the slower QuickJS never reached: github.com
       landing-pages-*.js `Cannot read properties of undefined (reading 'ready')` (React prepare, 2x) and
       `Hero video failed to load` (media, libmpv absent); old.reddit.com `assignedElements`/`assignedNodes is
       not a function` (HTMLSlotElement), `createRange().createContextualFragment is not a function`. Same on
       QuickJS only after its budget would allow. Triage each (Opus) before fixing.
-- [x] QV8-3d [S] (after QV8-3b/3c) CI job (R39 C5): a fourth scratchy job with `--features engine-v8`; [archived: TODO-DONE.txt]
 - [ ] QM1n [S] BUG (user 2026-11-18, reported with screenshots): https://justinwhitney.com/HTML5Example/
       (plain `<video width=640 height=360 preload controls>` with `<source>` children: H264 .mov typed
       video/mp4, .ogv, .webm). Firefox shows four 640x360 players; scratchy shows NO video box at all
@@ -168,12 +160,6 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
       starts a script-less `controls` video (QM1n2 interim, QM1g2d bar, QM1g2e fullscreen).
       FOUND ON THE WAY, BLOCKER: main crashes on fast (local) page loads, 8/10 runs on this page,
       0/10 with SCRATCHY_V8_SNAPSHOT=0: QV8-4a. QM1n is closed: QV8-4a, QM1n1, QM1n2 are done.
-- [x] QV8-4a [S] DONE (ba72dff), BLOCKER (found by QM1n, R40 section 3; regression from QV8-4 f62d0b0) [archived: TODO-DONE.txt]
-- [x] QV8-4b [S] DONE (6468fb9), Sonnet (found by Opus investigator 2026-11-19, R41; bug from QV8-4 f62d0b0, [archived: TODO-DONE.txt]
-- [x] QY22t [XS] DONE (6468fb9, 2123320), Sonnet/Haiku (R41, test-only) `qy22_tripped_job_drain_logs_one_li... [archived: TODO-DONE.txt]
-- [x] QM1n1 [S] DONE (b84f0af) (found by QM1n, R40 section 2) Inert `<video>` placeholder when media is [archived: TODO-DONE.txt]
-- [x] QM1n2 [S] DONE (b84f0af) (found by QM1n, R40 section 4; D5/D6 allow it; interim before QM1g2d and KEPT [archived: TODO-DONE.txt]
-- [x] QM1g2d [M] DONE (4a2eb36) (D6 decided 2026-11-17; from QM1g2 (d); after QM1n2) scratchy's own controls [archived: TODO-DONE.txt]
 - [ ] QM1g2d1 [S] (left out of QM1g2d) tools/inject has no separate press/move/release, so drag on the seek/volume tracks (CtlDrag, throttled 80 ms) is only code-reviewed, not driven in a real window: add `press`/`release` to inject and check a drag. (QYSK1 R51: one click on scratchy's own seek track fires seeking/seeked TWICE, the release re-applies the drag position.) Also: no controlsList, no rate/captions menu.
 - [ ] QM1g2e [S] ANSWERED 2026-11-19 (was: waiting for user) Fullscreen for
       USER ANSWER 2026-11-19: fullscreen = the scratchy WINDOW goes fullscreen (winit borderless), as proposed. Page JS `requestFullscreen()` (with user activation) maps onto the same state, as proposed (the user did not object). READY after the perf queue.
@@ -186,10 +172,6 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
       require user activation. Questions: OK to make the scratchy WINDOW fullscreen (it leaves the
       dwl tiling for the duration), or fullscreen only within the window? Should page JS be able
       to request it (with a gesture), or only the user via the bar?
-- [x] QV8-4 [M] DONE 2026-11-18 (commit f62d0b0; PERF.md "QV8-4": startup CPU 30-53 ms -> 8-13 ms per page... [archived: TODO-DONE.txt]
-- [x] QV8-5 [S] DONE 2026-11-18 (commit 21f8b6c) (after QV8-3) Make V8 the default engine: `engine-v8` on b... [archived: TODO-DONE.txt]
-- [x] QV8-5b [S] DONE 2026-11-18 (abf61e7) (Sonnet) media is now a default feature, so `src/media_mpv.rs` i... [archived: TODO-DONE.txt]
-- [x] QV8-m [M] DONE 2026-11-18 (measured at 8dfe2f9, docs commit 92dd513; PERF.md "QV8-m") [archived: TODO-DONE.txt]
 - [ ] [WIP] QV8-6 [S] USER 2026-11-19 ~22:20: "Remove QuickJS, we can add it again later if we decide." GO NOW (next free slot, alone in js_engine*.rs/Cargo.toml/ci.yml). (after QV8-m, when the user agrees) Remove QuickJS (`engine-quickjs`, rquickjs
       USER ANSWER 2026-11-19: YES, remove QuickJS (also drop the `scratchy-quickjs` CI job and the second test config from AGENTS.md). READY, after the ready perf items are assigned; touches js_engine*.rs, Cargo.toml, ci.yml: run it alone in that area.
       dependency, the seam's QuickJS backend).
@@ -499,9 +481,6 @@ dropped selectors summed across those pages. Caveats:
 --- 2026-11-17). Evidence: REGRESSIONS.md R32. All numbers from TEMPORARY ----
 --- `Instant` timing, callgrind and `cargo bench`; none of it was committed. --
 
-- [x] QP0 [Opus, investigate only] (DONE 2026-11-17, evidence REGRESSIONS.md R32; [archived: TODO-DONE.txt]
-- [x] QP1 [S] (DONE 2026-11-17, commit 6c1ae4e; P1, TOP of the perf items, R32) One-word fix in `shape_spans` [archived: TODO-DONE.txt]
-- [x] QP2 [S] DONE 2026-11-17 (d5fe517) (P3, after QP1, R32 secondary 1-2) Let forced layouts on the JS thread [archived: TODO-DONE.txt]
 
 --- YOUTUBE CPU BUDGET + SOCIAL VIM.JS (Opus investigator, 2026-11-16) -------
 --- Evidence: REGRESSIONS.md R24 (YouTube) and R25 (social.loupax.com). ------
@@ -521,69 +500,6 @@ script finishes after 12.7 s of run (host 11.2 s = `__d_query` 1646 calls
 `getComputedStyle` 67 calls 7.6 ms; no relayout is ever triggered (JS has
 no geometry). So: not the engine, not our hooks in general, ONE hook.
 
-- [x] QY28 [Opus, investigate only] (DONE 2026-11-17, evidence REGRESSIONS.md R26; [archived: TODO-DONE.txt]
-- [x] QM1 [Opus, investigate only] (user request 2026-11-17) Can scratchy EMBED an [archived: TODO-DONE.txt]
-- [x] QM1-D ANSWERED (D1-D8 all decided 2026-11-17; MSE is QM1k): D1 = in-page video using mpv (libmpv A1; the
-      page console/status logs "media: mpv"; an extra "open in mpv" action is not asked
-      for), D4 = all bytes through wire, always. D2 = libmpv in-process, D3 = optional
-      dependency, D5-D7 = coordinator defaults (decided 2026-11-17, see the status block).
-      D8 = no MSE for now (QM1j/QM1k).
-      MEDIA DESIGN COMPLETE 2026-11-17 (D1-D8): QM1b/QM1e/QM1f/QM1g may now be built in order. Media is still "Off limits" in AGENTS.md until the design is
-      agreed; QM1b/QM1e/QM1f/QM1g stay gated on D2/D3/D5-D7.
-      (design first; media is "Off limits" in AGENTS.md)
-      product questions, answers gate everything below except QM1a/QM1c/QM1d:
-      D1 In-page video (A1) at all, or first only a "open in mpv" action on the
-         placeholder (C: own dwl tile, mpv does its own networking unless D4 says
-         otherwise)? Or both, C first because it is a day of work?
-      D2 libmpv inside scratchy's process (simplest; ffmpeg parses untrusted media
-         next to the JS engine and page state) or a separate media helper process
-         that renders frames into shared memory (memfd) for scratchy (isolation,
-         about 2x the work)?
-      D3 Hard dependency on libmpv, or optional (cargo feature or dlopen at run
-         time; without it `<video>` stays the inert placeholder)? Recommended:
-         optional, so scratchy still builds and runs without mpv.
-      D4 All media bytes through wire (recommended: same policy, cookies, CORS as
-         everything else; needs a Range-capable media channel, QM1d/QM1e), or may
-         the player fetch directly (bypasses wire's policy and jar)?
-      D5 Autoplay: never / muted only / allowed. D6 Controls: who draws them
-         (scratchy paints a simple bar; mpv's OSC is a Lua script and would be off),
-         which keys (vim-mode conflicts: space, j/k, arrows). D7 `<audio>` too
-         (same backend, no video), and how many players at once (each ~100 MB RSS;
-         suggest 2, pause the oldest). D8 Accept "no MSE/EME" (YouTube stays
-         without video), or ask for a separate MSE investigation later.
-         [D8 REVISED 2026-11-17 by the user: goal = video on all sites except DRM;
-         YouTube and Reddit first; measure first (QM1k-m), then plan (QM1k).]
-- [x] QM1k-m [M, Opus, investigate only] DONE 2026-11-17 (R34; docs only): YouTube = MSE only (SABR/UMP, no... [archived: TODO-DONE.txt]
-- [x] QM1k [L, Opus investigate, then PLAN WITH THE USER PRESENT] PLANNED 2026-11-18 (user
-      answered QUESTIONS.md Q4 the same day; plan = the QM1k-PLAN block right below; the build
-      items start AFTER the V8 freeze is lifted, QV8-m, and after QV8-5b because they touch
-      media_mpv.rs). Original text: (user
-      2026-11-17: "create action item for investigating the MSE and planning it with me
-      present") MediaSource Extensions for libmpv (QM1j): how a `blob:` URL from
-      `URL.createObjectURL(mediaSource)` could be backed by the appended SourceBuffer
-      segments (fragmented mp4 / webm), one growing byte stream per track fed to libmpv
-      via stream_cb (audio and video are separate SourceBuffers on most sites; mpv
-      needs them merged or `--audio-file`-style external tracks), buffered ranges,
-      seeking/`remove()`, `endOfStream`, codec strings and `isTypeSupported`, timing
-      (`timeupdate`, `waiting`, `canplay`), memory caps, what YouTube/Twitch/Vimeo
-      actually need (DASH/HLS pages, botguard, EME/DRM which is out of scope), and
-      what a minimal spike would look like (a local fragmented-mp4 page whose JS
-      appends segments). DO NOT start this autonomously: when the user asks, do the
-      Opus investigation first, then walk through the plan together before any build.
-      REFINED 2026-11-17 by QM1k-m (R34), what the plan must cover:
-      - YouTube is the only measured site that NEEDS MSE; its own base.js does SABR/UMP
-        (POST videoplayback, application/vnd.yt-ump) through fetch, so scratchy needs only
-        MediaSource/SourceBuffer + `blob:` attach, not a UMP parser. Two SourceBuffers:
-        default answers give AV1-in-fMP4 video + Opus-in-WebM audio; refusing webm gives
-        avc1 + mp4a, both fMP4 (one container to support first). Appends: init (ftyp+moov
-        700 B / EBML+Tracks 259 B) then moof+mdat 4-7 s or one Cluster per 10 s. In 2 min
-        no remove(), timestampOffset, mode, changeType or endOfStream; a quality switch
-        builds a NEW MediaSource (revoke + re-add both buffers); a seek is a new SABR POST.
-      - isTypeSupported must reject YouTube's invalid probes (QM1k4).
-      - PoToken (QM1k2) decides whether YouTube plays past ~60 s.
-      - Reddit needs nothing (progressive); Vimeo/BBC/Twitch/X are blocked before media
-        (QY15a, QM1k5, Workers/WebAssembly, login).
-      - Product questions 1-6 in R34 "Open product questions".
 
       QM1k-PLAN (Opus, 2026-11-18; evidence R34 + the "QM1k plan" addendum under it; user
       decisions = QUESTIONS.md Q4, all answered 2026-11-18):
@@ -666,9 +582,6 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       really decode here, or the player fails after the first append. (g) segment-granular
       remove/overlap (not frame-exact) can leave `buffered` slightly larger than Chrome's.
 
-- [x] QM1k4 [S] DONE 2026-11-18 (commit c292223; src/media_el.rs parse_mime+params_valid+MSE_CODECS+mse_typ... [archived: TODO-DONE.txt]
-- [x] QM1k1a [M] DONE 2026-11-19 (commit 0bb4ea6; src/mse_store.rs, tests qm1k1a_* in src/tests/mse_tests.r... [archived: TODO-DONE.txt]
-- [x] QM1k1b [M] DONE 2026-11-19 (commit 367f953; MseFeed in src/mse_store.rs, scratchy-mse:// stream_cb +... [archived: TODO-DONE.txt]
 - [ ] [WIP] QYSK1a [S/M] (P1, from QYSK1 R51 #375; Sonnet; user OK to go ahead of the perf queue; media_el.rs) While an
       out-of-buffer MSE seek waits for data, hold the backend: a `hold` flag on `MseAttach` + `backend.set_paused(true)`;
       while held, play/pause do not touch the backend and the old generation's Time/Eof/Buffering events are ignored;
@@ -719,17 +632,6 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       WebM->fMP4 remux) before QM1k1h; seeks need slice alignment. Tests: the QM1k1b fixtures
       through the remuxer (ffprobe sees 2 streams, durations match), `mse_ab_drift_60s` with
       B passes QM1k-AB's criteria.
-- [x] QM1k1c [M] DONE 2026-11-19 (commit 398e611; MediaCore MSE attachment + MseHost in src/media_el.rs, te... [archived: TODO-DONE.txt]
-- [x] QM1k1d [M] DONE 2026-11-19 (commit f20c422; src/mse_prelude.js + __mse_* natives in src/js_media.rs,... [archived: TODO-DONE.txt]
-- [x] QM1k1e [M] DONE 2026-11-19 (commit 4912561; SourceBuffer in src/mse_prelude.js + __mse_append/abort/r... [archived: TODO-DONE.txt]
-- [x] QM1k-m2 [M, Opus, measure only] DONE 2026-11-19 (46ae436, R42; docs only): YouTube runs its player, p... [archived: TODO-DONE.txt]
-- [x] QM1k1k [S] DONE 2026-11-19 (97c9c77) (P1, R42 section 2, Sonnet) MSE track roles by TYPE, not by order. [archived: TODO-DONE.txt]
-- [x] QM1k1l [S] DONE (1385e74) (P2, R42 section 4, Sonnet/Haiku) `buffered` after an MSE detach. Run 2 [archived: TODO-DONE.txt]
-- [x] QM1k1m [S] MEASURED, not fixed (1385e74; cause is page-side and needs a DOM probe, see QM1k1n) (P2, R... [archived: TODO-DONE.txt]
-- [x] QM1k1n [S] MEASURED 2026-11-19 (3296eba; Opus investigator, R42 section 5; no code change) (P2, QM1k1... [archived: TODO-DONE.txt]
-- [x] QM1k1n1 [S] DONE 2026-11-19 (93b7bc0; measured: 0.48 s CPU per 3 s hidden at 320x240, first frame 40... [archived: TODO-DONE.txt]
-- [x] QM1k1n2 [S] DONE 2026-11-19 (2163172, REGRESSIONS.md R42 section 6; docs only. click -> `playing` [archived: TODO-DONE.txt]
-- [x] QM1k1n4 [S] DONE (6f4ad31: start_generation takes the init of the segment covering t, switch_point +... [archived: TODO-DONE.txt]
 - [ ] QM1k1n7 [S] (P3, R42 section 6, Sonnet, measure first) One SABR POST to googlevideo was
       answered `411 Length Required` (1 564 B). Find which request (empty body? streamed
       `ReadableStream` body? `Content-Length` missing on the wire request) and compare with what
@@ -772,14 +674,12 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       -> droppedVideoFrames, frames shown -> totalVideoFrames; creationTime =
       performance.now()); `played` always empty; no `progress`/`stalled`/`suspend` events for
       progressive media either. Tests per gap.
-- [x] QM1k1g [S] DONE 2026-11-19 (035f759) Blob media: `video.src = URL.createObjectURL( [archived: TODO-DONE.txt]
 - [ ] QM1k1h [M] READY after QM1k-m2 (Sonnet) WebM byte-stream reader for mse_store (user
       Q4.2 "enable the others later"): EBML header + Segment (unknown size) + Info
       (TimecodeScale) + Tracks = init; each Cluster (Timecode; unknown size ends at the next
       Cluster/Cues) = one media segment, end = last SimpleBlock/BlockGroup time (+ its
       BlockDuration if present); still header-only. Tests: synthetic EBML, split appends, a
       ffmpeg-made WebM (skip without ffmpeg) with buffered within one frame. No table flip here.
-- [x] QM1k1i [S] DONE 2026-11-19 (commit fd1af2d; real mpv plays an offset stream at the shifted media time... [archived: TODO-DONE.txt]
 - [ ] QM1k1j [S] READY after QM1k1h (Sonnet, one PR per codec family) Enable codecs in
       `MSE_CODECS`: webm vp9/vp09 + opus/vorbis, mp4 vp09/opus, av01 (ffmpeg here has dav1d
       and opus; libmpv 0.41, ffmpeg 8.1). Each needs a real-mpv test that the codec plays
@@ -798,7 +698,6 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       SMP player area stays empty (bbc.com/news/videos/c6grew79p7qdo; bump-4.js loads,
       no mediaselector request, no `<video>` with a src). Find the JS gap. Its media then
       exists as progressive mp4 (mediaset mobile-tablet-main), HLS (TS) and DASH (R34).
-- [x] QM1k6 [S] REPLACED 2026-11-18 by the QWK chain below (user Q4.6: Workers/WebAssembly [archived: TODO-DONE.txt]
 - [ ] QWK0 [M, Opus, investigate only] READY after QM1k-m2. Worker design memo (REGRESSIONS.md
       entry) from source only, no site loads unless on the user's machine: (1) a worker = its
       own OS thread + its own V8 isolate (isolates are single-thread; the platform is shared;
@@ -848,8 +747,6 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
 - [ ] QWK-m [M, Opus, measure only] READY after QWK4 and QM1k1e. Twitch live channel page in a
       live window on the user's machine: does the IVS worker start, which build (wasm/JS), what
       it appends (container/codecs, `mode`, timestampOffset), does it play; file the next items.
-- [x] QM1k1 [L] SPLIT 2026-11-18 into QM1k1a-QM1k1j + QM1k-AB/QM1k-B/QM1k-m2 (QM1k-PLAN above; [archived: TODO-DONE.txt]
-- [x] QY45 [S] DONE 2026-11-17 (Sonnet; hash 77101f3) (from R34) `Element.prototype.setAttributeNS`, `getAt... [archived: TODO-DONE.txt]
 - [ ] QM1a [S, Opus, investigate only] READY (no design needed) On the user's REAL
       USER 2026-11-19: OK for an agent to open the mpv test window on the user's real dwl (or do it together with the user). READY (Opus, docs only), after the perf queue.
       dwl (GPU renderer) check that zwp_linux_dmabuf_v1 is offered and that
@@ -857,11 +754,6 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       nested pixman dwl was tested here (no linux_dmabuf there, dmabuf-wayland
       failed). Needs the user's permission to open a window on their session, or
       the user runs it. Only matters for option A2/B, not A1.
-- [x] QM1b [M] DONE 2026-11-17 (Sonnet; hash 6cab99c) Spike, OUTSIDE scratchy's crate (like tools/inject: own [archived: TODO-DONE.txt]
-- [x] QM1c [S, Opus, investigate only] READY Measure `App::redraw` (src/app.rs) full [archived: TODO-DONE.txt]
-- [x] QM1d [S, Opus, investigate only] READY Does wire pass `Range` through and [archived: TODO-DONE.txt]
-- [x] QM1e [M] DONE 2026-11-17 (93148a4; byte channel only, src/media_net.rs, 14 qm1e_* tests over a fake w... [archived: TODO-DONE.txt]
-- [x] QM1f [M] DONE 2026-11-17 (Sonnet; hash 242e468; src/media_el.rs state machine + fake backend, src/js_... [archived: TODO-DONE.txt]
 - [ ] QM1f1 [S] (from QM1f) Leftovers: (a) cap on live mpv HANDLES (D7 is only enforced
       on PLAYING: a 3rd play() pauses the oldest, but paused elements keep their libmpv
       instance; drop the oldest paused backend and reload on next play/seek);
@@ -871,8 +763,6 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       `played` ranges are always empty, `srcObject`/`captureStream` stubs, no TextTracks;
       (e) audio is `ao=null` unless SCRATCHY_MEDIA_AO is set: QM1g chooses the real default;
       (f) user activation is "sticky" (any trusted click/key/mouse press once per page).
-- [x] QM1g [M] DONE 2026-11-17 (Sonnet; hash 4be7575; src/media_video.rs, media_mpv.rs vo=libmpv SW render;... [archived: TODO-DONE.txt]
-- [x] QM1g1 [M] DONE 2026-11-17 (Sonnet; hash 4be7575; overlay mask via sentinel pixels, App::video_tick, p... [archived: TODO-DONE.txt]
 - [ ] QM1g2 [M] (from QM1g) Leftovers: (a) mpv frames are rendered on the MAIN thread (33-39 ms per
       720p->640x360 frame at load average 14-20; a worker thread owning the render context
       would keep scroll/hover responsive); (b) a `<video>` inside a mask-image or opacity
@@ -882,12 +772,6 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       toggle, QM1g2d controls bar, QM1g2e fullscreen (waiting for user)]; (e) QM1f1 (a) paused elements still
       hold a libmpv handle; (f) webm/vp9 was not tested (no encoder on this machine);
       (g) `vid=no` is only used for files with an audio track.
-- [x] QM1i DROPPED 2026-11-17 (user): a standalone mpv fetches by itself, which breaks [archived: TODO-DONE.txt]
-- [x] QM1j SUPERSEDED 2026-11-17 by QM1k/QM1k-m (MSE is now a goal). Original: (not planned; D8) MediaSourc... [archived: TODO-DONE.txt]
-- [x] QY21 [S] (959cd39) (P2, YouTube load wall) QY6e `define()` is quadratic. Root [archived: TODO-DONE.txt]
-- [x] QY22 [S] (P2) Budget policy fixes, all measured on YouTube: [archived: TODO-DONE.txt]
-- [x] QY23 [S] (done 5fee1a6) (P2, YouTube next error after QY21) `element.style = "..."` [archived: TODO-DONE.txt]
-- [x] QY24 [S] (done 413322c) (P2, YouTube) `classList` dies with `cannot read property [archived: TODO-DONE.txt]
 - [ ] QY25 [S] (P3, diagnostics) Custom element and MutationObserver
       callback errors lose the message: `ceReport` (js_dom.rs) prints only
       `e.stack`, and a QuickJS stack has no `Name: message` line, so the
@@ -926,8 +810,6 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       too (the 301 has no ACAO); ~1 MB is downloaded for nothing (QF7b/QF13a
       per-hop handling would stop at the 301). Keep QY27 for the re-measure
       after QY29-QY32 (window + peak memory).
-- [x] QY29 [S] (done 7b48596) (P1, THE YouTube blocker; R26) `data` must not exist on every node. [archived: TODO-DONE.txt]
-- [x] QC1 [S] DONE 2026-11-17 (22b98d2) clippy baseline: ONE counting method, `tools/clippy-count.sh` [archived: TODO-DONE.txt]
 - [ ] QC2 [M] clippy: the remaining 78 warnings are pre-existing style lints (collapsible_if x25,
       field_reassign_with_default x13, let_and_return x7, too_many_arguments x7, ...) and were
       left alone: collapsible_if/let_and_return are cosmetic edits across many files that
@@ -938,20 +820,12 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
 --- The repo has no CI (.github/ does not exist), so a failing test can sit ---
 --- on main unnoticed; and every branch edits the one src/tests.rs. ----------
 
-- [x] QCI0 [S] DONE (752aaa1) (P1, do before QCI1) A test fails on a clean checkout of main: [archived: TODO-DONE.txt]
-- [x] QCI0a [S] DONE (c319350) (P3) `shrink_to_fit_table_is_sum_of_column_maxima_so_no_cell_wraps` [archived: TODO-DONE.txt]
-- [x] QCI0b [S] DONE (090431c) (P1, Sonnet; ranked first in this block, before QCI0a and QT1) [archived: TODO-DONE.txt]
-- [x] QCI1 [S] DONE (74239ec, PR #272; pinned Rust 1.96.1 added later, baseline in tools/clippy-baseline.tx... [archived: TODO-DONE.txt]
 - [ ] QCI2 [S] (P4, optional, after QCI1; ask the user first: download size)
       USER ANSWER 2026-11-19: YES (sparse checkout pinned to the user's WPT commit). READY after the perf queue.
       WPT subset in CI: sparse-checkout only the directories `wpt-subset.txt`
       references, pinned to the WPT commit the user's ~/src/wpt is at (record it
       next to wpt-expected.txt), then `scratchy --wpt <dir>`. Headless already
       (the runner renders to PNG without a window).
-- [x] QT1 [M] DONE 2026-11-18 (365a515; src/tests.rs split into src/tests/mod.rs + 21 area files, 1029 test... [archived: TODO-DONE.txt]
-- [x] QY30 [S] (P2, R26) DONE 2026-11-17 (f9900b8) rAF due time can equal "now": TIMERS_PRELUDE `add()` (js... [archived: TODO-DONE.txt]
-- [x] QY31 [S] (done 419b856) (P2, tooling, R26) `--js-report --run-timers` stops pumping at the first [archived: TODO-DONE.txt]
-- [x] QY32 [S] (done 1f6e003) (P1, R26) `position: fixed` inside an absolutely positioned box is never [archived: TODO-DONE.txt]
 - [ ] QY33 [M] (P3, R26, measure first) YouTube's post-load timer callbacks exceed the
       500 ms CALLBACK_BUDGET on main: first callback 764-1416 ms thread CPU, then
       several 500-684 ms (budget raised locally to see them); default budget =>
@@ -990,8 +864,6 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       promise jobs up to 1647 ms; default budget kills one 1659 ms job (no results).
       Cost: `__d_cs` ~50 ms/call, `__d_special` full walks, `__d_parent` walks (24-87k
       calls per callback), Shady DOM polyfill. Items QY51-QY53, policy QY49-D.
-- [x] QY34 [M] (done 281d281) (P3, R26) Script-inserted `<script>` elements never run. Fixture: [archived: TODO-DONE.txt]
-- [x] QY35 [S] (P3, Opus bisect first, after QY29+QY32+QY24) Remaining YouTube masthead/ [archived: TODO-DONE.txt]
 - [ ] QY36 [S] (P3, R26) getComputedStyle serialises percentages as fractions:
       `width:50%` -> "0.5%", `100%` -> "1%" (js_style.rs, `__d_cs` value
       formatting). Test: 50%/100%/12.5% widths and a `calc()`-free max-width
@@ -1017,18 +889,11 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       the App does (same `ExternalResources` path) when a socket is given.
       Test: a copy with an external sheet that sets `display:flex` reads back
       `flex` in the report.
-- [x] QY40 [S] DONE 2026-11-17 (fefde2b) (P1, R28) `document.all` does not exist, so polymer-resin turns every [archived: TODO-DONE.txt]
-- [x] QY41 [S] (P1, R28) (done, commit 0880d95) max-content of a box whose content holds an inline-block [archived: TODO-DONE.txt]
-- [x] QY42 [S] (P2, R28, after QY41) (done, commit 1c2724d; also row flex containers now SUM their items' m... [archived: TODO-DONE.txt]
-- [x] QY43 [S] DONE 2026-11-17 (399d16f) (P2, R28) Preserved newlines overprint in a paragraph that takes the [archived: TODO-DONE.txt]
 
 --- QY44: new errors after QY34 (Opus investigator, 2026-11-17, R29) ---------
 QY34 (281d281) is NOT reverted: every new error is code that never ran before
 hitting an existing gap; QY34's own order/timing/currentScript/load/error
 behaviour checked fine (R29 fixture). Do in this order:
-- [x] QY44a [S] (1972dbd) (P1, R29) A CPU-budget trip in one promise job kills EVERY later [archived: TODO-DONE.txt]
-- [x] QY44b [S] (21e27b9) (P1, R29) `window.screen` does not exist. Shreddit's concat chunk [archived: TODO-DONE.txt]
-- [x] QY44c (82ebe4f) [S] (P1, R29; = QSD4a with real-page acceptance, do them as one) [archived: TODO-DONE.txt]
 - [ ] QY44d [S] (P3, R29, media PLACEHOLDER only, AGENTS.md) `video.textTracks`,
       `audioTracks`, `videoTracks` are undefined; the Guardian's
       SelfHostedVideo island (3030.client.web...js `e=t.textTracks; e[0]`)
@@ -1059,8 +924,6 @@ Ranked: QY46 (P1, Sonnet) -> QY47 (Opus, investigate; can run in parallel with
 QY46) -> QJ12 (P2) -> QF11 (refined, P2; general, NOT the YouTube cause) -> QY48 (P3).
 Evidence and the probe recipe: REGRESSIONS.md R36.
 
-- [x] QY46 [S] DONE (a2b8454) (P1, R36, Sonnet; concrete casualty of QY33) The promise-job drain [archived: TODO-DONE.txt]
-- [x] QY49 [S] DONE 2026-11-17 (Opus investigation, docs only; REGRESSIONS.md R37). [archived: TODO-DONE.txt]
 - QY49 [S] (from QY46, user report: DuckDuckGo search shows no results and prints
       twice "js: timer stopped: exceeded the 500 ms CPU-time callback budget") TIMER
       callbacks are a SEPARATE path from the promise drain: `run_due` ->
@@ -1071,16 +934,11 @@ Evidence and the probe recipe: REGRESSIONS.md R36.
       cost (QY33) or a separate, larger timer budget (needs the R8/QB3 trade-off
       agreed). Not done in QY46.
 - [ ] QY47 [M] READY (Opus, investigate only; R36 wall 2) `yt-lockup-view-model`
-- [x] QY47 [M] DONE 2026-11-17 (Opus investigation, docs only; R36 "QY47 addendum"). [archived: TODO-DONE.txt]
-- [x] QJ12 [S] DONE 29259f6 (P2, R36, Sonnet) Trusted KeyboardEvents from the App carry [archived: TODO-DONE.txt]
-- [x] QY48 [S] DONE 1a21475 (P3, R36; do with or after QF11, before QY13b) `history.pushState`/ [archived: TODO-DONE.txt]
 
 --- NEW 2026-11-17 (Opus, QY47: YouTube results render nothing = JS stack limit; R36 addendum) ---
 Ranked: QY47a (P1, Sonnet; independent of QY46, either order) -> QY47c (P2, Opus,
 after QY47a) -> QY47b (P3, Sonnet) -> QY47d (P3).
 
-- [x] QY47a [S] DONE 064a664 (P1, R36/QY47, Sonnet) Raise QuickJS's max stack size from the [archived: TODO-DONE.txt]
-- [x] QY47c DONE 2026-11-18 c9e048c (R38: `true` = `<img alt="true">` (YouTube sets alt to the [archived: TODO-DONE.txt]
 - [ ] QY47b [S] (P3, Sonnet, measure first) Fewer JS frames per `document.createElement`:
       today a page call goes through three JS wrappers (js_dom.rs custom-elements
       `doc.createElement` -> `created`, media_prelude.js `document.createElement`
@@ -1106,8 +964,6 @@ after QY47a) -> QY47b (P3, Sonnet) -> QY47d (P3).
 Ranked: QY50 (P1) -> QY51 (P1) -> QY49-D (user decision, can be asked now) -> QY52 (P2)
 -> QY53 (P2) -> QY54 (P2, Opus) -> QY55 (P3, with the user). Evidence: REGRESSIONS.md R37.
 
-- [x] QY50 [S] DONE 5409a4a (YouTube nested-dwl run: no Symbol.iterator error; results still blank at 500 m... [archived: TODO-DONE.txt]
-- [x] QY51 [S] DONE (44e46c3) (P1, R37, Sonnet) `document.body`/`head` walk the whole tree on every [archived: TODO-DONE.txt]
 - [ ] QY49-D ANSWERED 2026-11-19 (c) (budget policy; R37 section 3 has the trade-off). Real pages
       USER ANSWER 2026-11-19: option (c). Budget 2 s while the page is loading (until the `load` event + 2 s), 500 ms afterwards. READY (not a perf-queue item: starts after the ready perf items are assigned).
       need 0.5-1.7 s of budget clock in single callbacks (YouTube 1659 ms promise job,
@@ -1119,8 +975,6 @@ Ranked: QY50 (P1) -> QY51 (P1) -> QY49-D (user decision, can be asked now) -> QY
       and stalls reach 3.9 s, so today's 500 ms is not a bound on the stall anyway (QY53/QY54).
       After the decision: one Sonnet item [S] in js.rs (`eval_value`/`drain_jobs` arm the
       chosen budget), fake-clock tests.
-- [x] QY52 [M] DONE b41787b (YouTube __d_cs 1.1-3.4 ms per call after writes, was ~50; CSS change 25 ms, wa... [archived: TODO-DONE.txt]
-- [x] QY53 DONE 2026-11-19 (investigation, R43, commit 792ee1f; fix items QY53a-QY53h in the "NEW 2026-11-19 [archived: TODO-DONE.txt]
 - [ ] QY54 [S] (P2, R37, Opus measure) Re-run the R8 recipe (nested dwl, pointer motion
       every 2 ms via tools/inject) on YouTube results (QY50 shim or merged) and on a fixture
       with a 3 s forced layout inside a timer: does the compositor still disconnect
@@ -1137,8 +991,6 @@ Ranked: QY50 (P1) -> QY51 (P1) -> QY49-D (user decision, can be asked now) -> QY
 --- NEW 2026-11-18 (Opus, QY47c: YouTube `true` thumbnails, grey masthead circles; R38) ---
 Ranked: QY56 (P1) and QY57 (P1, either order; BOTH are needed before a YouTube thumbnail
 shows) -> QY60 (P2, Opus) -> QY58 (P3) -> QY59 (P3). Evidence: REGRESSIONS.md R38.
-- [x] QY56 [M] DONE (42c5ffa) (P1, R38, Sonnet) Load `<img>` sources that appear after page load. Today [archived: TODO-DONE.txt]
-- [x] QY57 [M] DONE (e1f79e8) (P1, R38, Sonnet; a slice of QY-IO-GEOMETRY) IntersectionObserver with real [archived: TODO-DONE.txt]
 - [ ] QY60 [S] (P2, R38, Opus measure; coordinate with QY53/R37) Main-thread throughput on
       YouTube results: with a 20 s budget rAF fired ~0.6-0.7 times per second (max latency
       3.6 s; rIC 3.35 s; timers up to 4.1 s late), so YouTube's scheduler needs 47-53 s to
@@ -1161,7 +1013,6 @@ shows) -> QY60 (P2, Opus) -> QY58 (P3) -> QY59 (P3). Evidence: REGRESSIONS.md R3
       inside it; with no size and non-empty alt it is inline text (current behaviour). Tests:
       `<img alt="x" width=240 height=180>` without src lays out 240x180; CSS `width:100%`
       likewise; no size keeps today's inline text.
-- [x] QY61 [S] (DONE 2026-11-18, commit 81572ce; both parts. Part 1: NOT a regression, same line on [archived: TODO-DONE.txt]
 
 --- NEW 2026-11-19 (Opus, QY53: what forced layouts cost and who forces them; R43) ---
 Ranked by measured gain / effort: QY53a -> QY53b -> QY53c -> QY53d -> QY53e (Opus design first)
@@ -1179,16 +1030,6 @@ challenge/consent wall. Fixture "big-css" (generate in the test, never vendor): 
 (`.c<i> .d<i> { margin-left: 1px }`, plus 200 `::before { content: "x" }` rules), 1 000 nested
 divs with 3 classes each, a script that does 50 x (write one attribute, read `offsetWidth`).
 
-- [x] QY53a [S] DONE a3fc15e (P1, R43, Sonnet) (big-css fixture forced_layout.total_ms 44.6 s -> 6.9 s medi... [archived: TODO-DONE.txt]
-- [x] QY53b [S] DONE 12646d2 (P1, R43, Sonnet) (big-css forced_layout.total_ms 6.9 s -> 5.6 s median of 3 =... [archived: TODO-DONE.txt]
-- [x] QY53c [S] DONE d9d2343 (P1, R43, Sonnet) (YouTube 3+3: median forced-layout ms per layout 419 -> 292,... [archived: TODO-DONE.txt]
-- [x] QY53d [M] DONE 02518df (big-css forced_layout 10.05 s -> 5.48 s median of 3 = -45 %; Wikipedia Rust m... [archived: TODO-DONE.txt]
-- [x] QY53e DESIGNED 2026-11-19 064eca5 (Opus, docs only; R43 section 7; PARTIAL: the coordinator drained the
-      machine before the live-window measurement, filed as QY53e3). Split into QY53e1/e2/e3 below.
-      Headless after QY53d: Wikipedia Rust 30 s, 3 runs: 7 of 8 forced layouts (8.3-8.7 of 9.4-9.8 s
-      = 88-89 %) are IO rechecks, and only the FIRST (initial `observe`) delivers an entry; the other
-      5-6 (~6-7 s per 30 s) deliver nothing. YouTube watch 60 s: IO 24/142 layouts (9.0 of 24.7 s,
-      36 %), 13/217 (4.2 of 37.1 s, 11 %), 7/194 (1.1 of 21.4 s, 5 %, run cut at ~60 s).
 - [ ] QY53e2 [M] (P2, R43 section 7, Sonnet) after QY53e1. In a window, IO uses the App's own
       layout instead of forcing one. On a COMPLETE `ShapeResult` for the current `layout_generation`
       (`App::handle_shape_result`, `!incomplete`), the App calls a new `JsEngine::rendered_geometry(
@@ -1373,7 +1214,6 @@ page loads with 0 errors and the vim UI works headless (j/k/G/gg/Ctrl-D/}/:tag
 picker/:feed/:help/search all respond; `:tag` reads #vimtags+#vimpagetags).
 IntersectionObserver and matchMedia are not used by any of the site's scripts.
 
-- [x] QJ4 [M] (DONE 2026-11-17, commit 674231c; src/js_geom.rs forced [archived: TODO-DONE.txt]
 - [ ] QJ4b [S] (P3, found by QJ4) Layout PANIC in `measure_grid`
       (src/layout.rs, `col_widths[p.col_start..p.col_end]`: "range end index 2
       out of range for slice of length 1") on theguardian.com/international
@@ -1389,22 +1229,11 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       [39.1-39.6]; 200 paragraphs + list + table 3.40 s [3.06-3.77] -> 42.2 ms
       [41.6-42.9]. The 1.4 MB page itself was not re-measured here: a perf item if pages read
       geometry at load.
-- [x] QJ5 [S] (DONE 2026-11-17, commit 8229ae6; DOM_PRELUDE scrollIntoView [archived: TODO-DONE.txt]
 - [ ] QJ6b [S] (P3, left out by QJ6) scrollLeft/horizontal scroll regions (ScrollInfo is vertical
       only), overflow:hidden boxes programmatically scrollable, wheel routing into
       position:fixed/absolute scroll boxes (hit_test_scroll_region skips positioned
       children: #vimhelp is fixed, so the wheel does not scroll it, keys do), `scroll`
       events for wheel scrolls, scroll-behavior: smooth.
-- [x] QJ6 [M] (DONE 2026-11-17, commit dfd8bc1 (rebased); ScrollInfo::node + App::node_scroll, js_dom [archived: TODO-DONE.txt]
-- [x] QJ7 [M] (DONE 2026-11-17, commit d48951f; spec boundary points, compare*/ [archived: TODO-DONE.txt]
-- [x] QJ8 [S] (P3) DONE (50ba6d0) `document.activeElement` (+ `document.hasFocus()`): the [archived: TODO-DONE.txt]
-- [x] (DONE 2026-11-17, hash 27ce684; wire reinstall + restart needed, scratchy checks `X-Wire-Features: ua... [archived: TODO-DONE.txt]
-- [x] (DONE 2026-11-17, hash 97c3d8e; named presets deliberately skipped, strings go stale) QY39b [S] (user... [archived: TODO-DONE.txt]
-- [x] QAN1 [Opus, investigate only] (user 2026-11-17: "make sure the feature is in the [archived: TODO-DONE.txt]
-- [x] QAN1-0 [S] DONE e2dbdf5 (do FIRST, before any QAN1 code) Guard the WPT accidental passes: [archived: TODO-DONE.txt]
-- [x] QAN1a [M] DONE e5da906 Parse `@keyframes` and the animation longhands. css.rs: a [archived: TODO-DONE.txt]
-- [x] QAN1b [M] DONE f965c9a (after QAN1a) Evaluate CSS animations at a document time in [archived: TODO-DONE.txt]
-- [x] QAN1c [M] (after QAN1b) Drive animations in the App, settle-first. App: after DONE 4c45340 (settle-fi... [archived: TODO-DONE.txt]
 - [ ] QAN1d [M] (after QAN1c and QM1g1's damage-redraw helper, or build that helper
       here and let QM1g1 reuse it) Paint-only animation frames. A full live redraw is
       67-101 ms on en.wikipedia (QM1c, R30), so frames must repaint only the damage:
@@ -1430,7 +1259,6 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       after, value held); 30 fps; none while hidden/unfocused (D3). With QAN1d0's
       default `reduce`, measure the duckduckgo/github CPU numbers both with the default
       and with `:set motion`.
-- [x] QAN1d0 (ba9954a) [S] READY (QAN1-D D1, before QAN1d) Answer `prefers-reduced-motion: reduce` [archived: TODO-DONE.txt]
 - [ ] QAN1e [M] (after QAN1d) CSS transitions. Parse `transition-property/-duration/
       -timing-function/-delay` + shorthand + `-webkit-` (`all`, comma lists). On a
       restyle (hover/focus/active from `set_interaction_state`, JS writes), compare
@@ -1468,32 +1296,12 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       currentTime pause reverse ...` check); run YouTube `--js-report --run-timers` and
       a nested-dwl window before/after. Test: animate() opacity 0->1 200 ms, fake
       clock: finished resolves at 200, getAnimations() length 1 then 0.
-- [x] QAN1j [S] DONE e1fd29b (noise, no code change) Is the DuckDuckGo restyle 4-5x slower after QAN1b [archived: TODO-DONE.txt]
 - [ ] QAN1i [S] (P3) The WPT runner does not do the QW6 whole-window canvas fill
       (`wpt::Renderer::render` paints `Laid` onto white; `App::redraw` fills the window
       with the canvas colour first). R31: the in-body reference renders an 8 px olive
       band where a browser shows a full olive 800x600. Share the fill (one helper used
       by both). Acceptance: full `--wpt`; record every flip (both directions) in the
       PR, do not assume.
-- [x] QAN1-D DECIDED 2026-11-17 (user: "I accept your recommendations for now. Leave a
-      parked todo of improving their performance later" -> QAN1p in Parked). Answers:
-      D1 YES: answer `prefers-reduced-motion: reduce` by default; `:set motion` /
-         `:set nomotion` (and a `--motion` flag) switch to `no-preference`. Item QAN1d0.
-      D2 Infinite animations (iteration-count `infinite`, or total active duration
-         > 5 s) animate at the frame cap, then FREEZE 5 s after they start at their
-         current value (no more frames, no more `animationiteration`); a restyle that
-         restarts the animation (new name/element) starts a new 5 s window. In QAN1d.
-      D3 30 fps cap (constant), no frames while the window is hidden or unfocused
-         (when winit reports it; check on dwl), as already written in QAN1d.
-      Original questions:
-      D1 Should scratchy answer `prefers-reduced-motion: reduce` (today always
-         `no-preference`)? GitHub has 97 and YouTube 49 such queries; with `reduce`
-         most decorative motion switches itself off (battery), while UI feedback
-         stays. Or a `--reduced-motion` flag / `:set` option.
-      D2 Infinite animations (GitHub's logo marquee, DDG's spinner): animate them at
-         the 30 fps cap, freeze them after N seconds, or freeze them always?
-      D3 Frame cap (proposed 30 fps), and stop animating when the window is hidden or
-         not focused?
 - [ ] QFF1a [M] (P2) `@font-face` web fonts, ttf/otf/woff first. Parse `@font-face`
       (font-family, `src` list with `url()` + `format()` and `local()`, font-weight /
       font-style (single values and ranges), `unicode-range`; ignore `font-display`
@@ -1521,7 +1329,6 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
 - [ ] QFF1c [S] (after QFF1a) `document.fonts` / `FontFace` minimal (`ready` promise
       resolved after the faces loaded, `check()`, `load()`, `add()`): GitHub
       references `FontFace`/`document.fonts` (2); keep it honest (QY6g style).
-- [x] QJ9 [S] DONE b3fbf60 (log-only; `open` _self navigation waits for QF11) (P3) `window.open(url, target... [archived: TODO-DONE.txt]
 - [ ] QJ10 [M] (P4, after QJ7) CSS Custom Highlight API: `CSS.highlights`
       (maplike), `Highlight` (setlike of Ranges), `::highlight(name)`
       parsed and painted (background-color/color only) over the ranges'
@@ -1529,8 +1336,6 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       but its cursor (`cursor` highlight) and search hits (`find`) are
       invisible; layout.html styles both. Also `caretPositionFromPoint`
       (click-to-move-cursor; feature-detected, silently does nothing).
-- [x] QW4 (commit cf159bc) [M] (P1, user bug report 2026-11-16) Horizontal margin and padding on [archived: TODO-DONE.txt]
-- [x] QW5 [S] (96906cb) (P1, user bug report 2026-11-16) The HTML `hidden` attribute is not [archived: TODO-DONE.txt]
 
 - [ ] QW4a [S] (P2, found by the QW4 agent) `white-space: nowrap` set on an INLINE
       element (not its block) is not honoured inside it: on social.loupax.com a
@@ -1541,25 +1346,6 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       box is not a stacking context; a transformed box is not a containing block for
       fixed descendants; `transform: inherit/initial` and `-webkit-transform` are
       ignored; transforms do not affect scrollable overflow.
-- [x] QW6 [S] DONE 2026-11-17 commit dba5942 (P2, CSS, visible on the user's site) The canvas background [archived: TODO-DONE.txt]
-- [x] QJ11 DECIDED 2026-11-17 (user): pages in general may override the user-agent
-      defaults, so a page may cancel ANY key; scratchy keeps no reserved chord. The
-      user turns vim mode off on social.loupax.com for themself. Nothing to build.
-      Original analysis (kept for reference):
-      Page key handlers vs scratchy's
-      own keys. `js_key` (app.rs) gives the page every keydown first and
-      lets it cancel; only scratchy's own `:` command-line mode is exempt.
-      Once QJ4-QJ6 land, vim.js (document keydown, vim.js:1213) cancels
-      `:` `/` h j k l g G n N w b e 0 ^ $ { } * # Enter Esc and Ctrl-D/U/O/I,
-      so on social.loupax.com scratchy's `:` command line, `:go`, `:q` and
-      its own vim scrolling are unreachable. Also the page's own `:` line
-      is an `<input>`, and typing into inputs is forms-off-limits, so
-      `:Tag` cannot be TYPED (clicking the `:tag` link at the top of the
-      page opens the same picker without typing, and j/k/Enter/Esc work
-      in it). Options: (a) a reserved chord the page never sees (e.g.
-      Ctrl-`:` or Esc Esc) that opens scratchy's command line; (b) a
-      per-site "page keys off" toggle; (c) scratchy wins for a fixed key
-      set (breaks vim.js by design). Recommendation: (a).
 
 --- DESIGN MEMO (QSD): Shadow DOM, <template> content, GitHub's module wall --
 --- (Opus investigator, 2026-11-16; supersedes the QY6 memo's "no measured --
@@ -1705,39 +1491,11 @@ DSD content from "hidden template" into "hidden shadow root" with no
 gain.
 
 User decisions:
-- [x] SD-D1 (USER; ANSWERED YES 2026-11-16) Is B1 acceptable as a first step: `attachShadow`
-      works and the JS sees a real shadow tree, but scratchy keeps
-      rendering the host's light children and NOT the shadow content
-      (logged once per page as `not implemented: shadow root rendering`)?
-      (Recommended: yes, with B2 queued right behind it.) Or A (keep
-      throwing until B2 is ready), or go straight to B2.
-- [x] SD-D2 (USER; ANSWERED YES 2026-11-16) Event retargeting fidelity. (Recommended) basic:
-      composed events (all UA input events, `composed:true` custom
-      events) continue from a shadow root to its host; `event.target`
-      is retargeted to the host for listeners outside the shadow tree;
-      `composedPath()` omits nodes inside closed roots; non-composed
-      events stop at the shadow root. Cut: `relatedTarget` retargeting,
-      focus/blur retargeting, `delegatesFocus`.
-- [x] SD-D3 (USER; ANSWERED YES 2026-11-16) Declarative shadow DOM (`<template shadowrootmode>`,
-      parsed by html5ever via a sink wrapper). (Recommended) yes, but
-      only after QSD6/QSD7 render shadow trees.
-- [x] SD-D4 (USER; ANSWERED YES 2026-11-16) Style scoping scope for B2. (Recommended) `<style>`,
-      `<link rel=stylesheet>` and `adoptedStyleSheets` per shadow root,
-      `:host`, `:host(<sel>)`, `::slotted(<compound>)`; CUT `::part`/
-      `exportparts` and `:host-context` (parsed and dropped, logged).
 
 Items (in order):
-- [x] QSD0 [S] (824954b) READY Fragment wrappers must not assign query methods per [archived: TODO-DONE.txt]
-- [x] QY6f [M] (ac492ca) READY (moved here from the QY6 block; Detail: search [archived: TODO-DONE.txt]
-- [x] QSD1 [S] (f704a73) READY Document gaps github's modules hit right after [archived: TODO-DONE.txt]
-- [x] QSD1b [S] (e2929d5) READY `crypto.getRandomValues(typedArray)` (<= 65536 [archived: TODO-DONE.txt]
-- [x] QSD2 [S] (0239f7b) READY `Node.getRootNode({composed})` and `Node.isConnected` [archived: TODO-DONE.txt]
 - [ ] QSD2b [S] READY `Node.prototype.lookupNamespaceURI(prefix)`/
       `lookupPrefix`/`isDefaultNamespace` (left out of QSD2: need the
       xmlns attribute walk and the element's namespace/prefix natives).
-- [x] QSD3 [M] (49c65a4) READY (SD-D1 answered YES 2026-11-16) B1: real ShadowRoot, [archived: TODO-DONE.txt]
-- [x] QSD4 [M] (ec80dfd) READY Constructable stylesheets: `new CSSStyleSheet()` [archived: TODO-DONE.txt]
-- [x] QSD4a (82ebe4f, with QY44c; baseURL url() rebasing and CSSMediaRule/CSSImportRule subclasses and link... [archived: TODO-DONE.txt]
 - [ ] QSD4b [S] WAITING (after QSD3/QSD7) `ShadowRoot.adoptedStyleSheets`: hook
       is the `A`/`publish` pair in cssom_prelude.js (one list per root).
 - [ ] QSD5 [M] READY `display: contents` (general CSS, no shadow DOM
@@ -2046,58 +1804,12 @@ coordinator recorded them from the user's message):
 
 USER DECISIONS (ALL ANSWERED 2026-11-16, see USER ANSWERS above; the
 original option text below is kept for history):
-- [x] QF-D1 (DECIDED 2026-11-16: browser rules) CORS stance. (B, default, recommended) browser rules for
-      reads as above. (A) ignore CORS: every response is readable. (C)
-      every cross-origin response is opaque. Security: with no cookies,
-      CORS mainly protects what only the user's machine can reach
-      (intranet, router admin pages, localhost dev servers). QF-D5
-      already blocks those, and B also keeps pages on the code paths
-      they were tested on in Chrome. Measured cost of B: none (guardian
-      and bbc send ACAO, reddit's events call fails in Chrome too).
-- [x] QF-D2 (DECIDED 2026-11-16: QF-D2a in-memory partitioned jar in wire, built QF14/QF14b) Cookies/credentials. (default) none, as in point 7. Or Q30f
-      (an in-memory jar in wire): then every JS request also needs a
-      third-party-cookie rule (does a cross-site fetch send the
-      cross-site cookies?) and CORS credentials mode (ACAO `*` is
-      not allowed with credentials). Without cookies these break:
-      anything logged in (HN votes), youtube's EU consent (it comes
-      back on every load), CSRF-token forms, reddit's tokens.
-- [x] QF-D3 (DECIDED 2026-11-16: log in detail, do not send; `beacons_send`) Analytics. (default) drop `no-cors` fetches and
-      `sendBeacon` (measured: guardian 9 ophan beacons in 5 s, ddg 4).
-      Or send them like a browser does.
-- [x] QF-D4 (DECIDED 2026-11-16: all methods, built QF13) POST/PUT/PATCH/DELETE and request bodies (QF13). (default)
-      GET/HEAD only. Allowing POST is what youtube's content needs.
-      Without cookies a POST is anonymous, but it can still change
-      server state and send data.
-- [x] QF-D5 (DECIDED 2026-11-16: warn and allow, `private_targets: Warn`) SSRF policy. (default) http(s) only. No `file:`. No
-      localhost, loopback, private (RFC 1918), link-local (incl. the
-      169.254.169.254 cloud metadata address), CGNAT, ULA, multicast
-      or "bad ports" destinations, unless the target has the same
-      origin as the page itself. Blocked in scratchy by name and in wire
-      by resolved address (QF6). https pages cannot fetch http.
-      Alternatives: let a private page reach other private hosts; a
-      user allowlist (e.g. `:set netallow host`).
-- [x] QF-D6 (DECIDED 2026-11-16: warn and allow, `file_targets: Warn`) file:// pages. (default) their JS can fetch only public
-      http(s), never `file:`. Today wire would hand any page any file
-      (e.g. a saved HTML attachment reading ~/.ssh). Alternatives: the
-      page's own directory subtree; anything.
-- [x] QF-D7 (DECIDED 2026-11-16: nothing persisted, memory only) Persistence. (default) nothing on disk: no HTTP cache, no
-      cookies, no storage (QY13a is the localStorage half).
-- [x] QF-D8 (DECIDED 2026-11-16: log and block, `sync_xhr_timeout_ms`, built QF9) Sync XHR. (default) `send()` throws `NetworkError` with a
-      log line. Alternative: block the main thread up to N s (R8: the
-      compositor drops a client that stalls).
-- [x] QF-D9 (DECIDED 2026-11-16: these numbers, all in `RequestPolicy`) Limits. 16 MiB per response, 64 MiB in flight per page, 6
-      requests at a time, 1000 requests per page, 30 s per request.
-      youtube made 337 requests in R21.
 
 Items, in order. READY means: take it like any QUEUE item. Each lists
 its prerequisites. Tests go in src/tests.rs. "Payoff" is what the R22
 survey predicts; measure it with `--js-report --run-timers 5000` on the
 R22 copies and paste the before/after numbers in the commit.
 
-- [x] QF1 [S] DONE (= QY15b, commit 148b6de; implemented as pure JS in [archived: TODO-DONE.txt]
-- [x] QF2 9e085ec [S] DONE `Blob`, `File`, blob: URLs (new [archived: TODO-DONE.txt]
-- [x] QF3 cc1b1ff [S] DONE `FormData` as a data class only (no submission: [archived: TODO-DONE.txt]
-- [x] QF4 3781057 [S] DONE `Headers`, `Request`, `Response` data classes and a [archived: TODO-DONE.txt]
 - [ ] QF4a [S] READY Gaps left by QF4 (src/fetch_prelude.js): ReadableStream
       `tee/pipeTo/pipeThrough`, BYOB readers, byte streams, `strategy.size`,
       TransformStream/WritableStream (all deliberately absent); cloning a
@@ -2110,10 +1822,6 @@ R22 copies and paste the before/after numbers in the commit.
       Guardian after QF4: `new Request('')` succeeds and the next failure is
       `ActiveXObject is not defined` (the polyfill.io fetch polyfill falls
       back to XHR; expected until QF8).
-- [x] QF5 [S] DONE (commits 315d309 + 88b0376; src/net_policy.rs + codec in src/net.rs; [archived: TODO-DONE.txt]
-- [x] QF6 [S] DONE (commit ce2175a; wire/src/main.rs, wire/NOTES.md). All of (a)-(f) [archived: TODO-DONE.txt]
-- [x] QF7 [M] DONE (commit da6a5c7; src/js_net.rs + glue in src/fetch_prelude.js; [archived: TODO-DONE.txt]
-- [x] QF7a [S] DONE (commit 4f58afe) Gaps left by QF7. Done: page networking (fetch/XHR/beacons, [archived: TODO-DONE.txt]
 - [ ] QF7b [M] READY (needs a wire change) Per-hop CORS. wire would have to send
       each hop's URL and its CORS headers (e.g. `X-Wire-Hop-Urls`,
       `X-Wire-Hop-Acao`), or scratchy asks wire to NOT follow redirects
@@ -2122,16 +1830,10 @@ R22 copies and paste the before/after numbers in the commit.
       each hop). The second is a scratchy-only change but costs one wire round
       trip per hop and needs the cookie jar rules per hop.
       Original QF7 text follows (kept for reference):
-- [x] (QF7 original, kept for reference; built as QF7 da6a5c7) The engine/App plumbing. [archived: TODO-DONE.txt]
-- [x] QF8 5cff36f [S] DONE `fetch()`: pure JS in src/fetch_prelude.js over `__net_request` [archived: TODO-DONE.txt]
-- [x] QF9 b676a4a [S] DONE `XMLHttpRequest` over the same queue (sync mode included; see NOTES.md "XMLHttpR... [archived: TODO-DONE.txt]
-- [x] QF9a [S] DONE (commit 8fa9351) XHR responseType 'document' / responseXML: parse HTML/XML via DOMParse... [archived: TODO-DONE.txt]
-- [x] QF10 [S] DONE (commit 67b71f2) `navigator.sendBeacon(url, data)`: TypeError for an [archived: TODO-DONE.txt]
 - [ ] QF10a [S] READY `<a ping="urls">`: on a link click/activation log one line
       `scratchy: a ping suppressed <urls>` (QF-D3). `activate_focus` has the
       element; the mouse path (`hit_test_cursor`) returns only the href, so
       it needs the hit element too.
-- [x] QF11 [S] DONE 81b3c6e Navigation from JS (the other half of Q33f). [archived: TODO-DONE.txt]
 - [ ] QF12 [S] READY (after QF10) Re-measure. Run the R22 corpus
       (8 pages, `--js-report --run-timers 5000`, now with the network
       section), record the new first errors and the request lists in
@@ -2141,15 +1843,12 @@ R22 copies and paste the before/after numbers in the commit.
 Later items (QF13/QF14 done; QF15-QF17 closed by the user's answers;
 QF13a, QF14b2, QF18 open; QF19 waits for the user):
 
-- [x] QF13 (b7528ce) [M] DONE (QF-D4 decided: all methods) Non-GET methods [archived: TODO-DONE.txt]
 - [ ] QF13a [S] READY (same mechanism as QF7b: do them together) Redirects of a PREFLIGHTED request: today wire is told
       `X-Wire-Max-Redirects: 0` and a 3xx fails closed. Follow it by hand
       in scratchy (re-run the policy and a new preflight for the new URL,
       `Origin: null` after a cross-origin hop) instead. Plain cors requests
       are only checked on the final answer (against `Origin: null` after a
       cross-origin redirect); per-hop ACAO needs the same manual follow.
-- [x] QF14 (wire half, 4d62f87) Cookie jar in WIRE (design QF-D2a). Done in [archived: TODO-DONE.txt]
-- [x] QF14b-scratchy (bc2fb00) [S] The scratchy half of QF14 (needs the wire above, [archived: TODO-DONE.txt]
 - [ ] QF14b2 [S] (a)-(c) READY, no decision needed; (d)-(f) WAITING FOR
       USER ANSWER 2026-11-19: (d) `--profile NAME`: SKIP for now.
       USER (see CURRENT STATUS) Left out of QF14b-scratchy: (a) `crossorigin` attribute
@@ -2218,12 +1917,6 @@ QF13a, QF14b2, QF18 open; QF19 waits for the user):
       navigation not blocked; missing/stale file messages. Real page: count
       blocked hosts on github.com, youtube.com and bbc.com and check each still
       renders (grim); report any breakage instead of widening the allow list.
-- [x] QF15 [S] CLOSED 2026-11-16 (user, QF-D7: nothing persisted yet, [archived: TODO-DONE.txt]
-- [x] QF16 [S] CLOSED 2026-11-16 (user DECIDED QF-D8: log and block; built
-      in QF9 b676a4a) Sync XHR that blocks.
-- [x] QF17 [S] CLOSED 2026-11-16 (user DECIDED QF-D5/QF-D6: warn and allow
-      through `file_targets`/`private_targets` in `RequestPolicy`, QF5) Let
-      file:// pages fetch local files.
 - [ ] QF18 [M] Streaming bodies (wire streams already: chunked
       `AppEvent`s feeding a real ReadableStream). Not a user decision,
       but only when a measured page needs incremental delivery.
@@ -2235,25 +1928,6 @@ QF13a, QF14b2, QF18 open; QF19 waits for the user):
       agent must FIRST check whether a buffered poll-style implementation is
       honest enough; if it needs a wire protocol change, STOP and report (that is
       a design question for the user), do not change wire's protocol on its own.
-- [x] QWU1 [S] DONE 2026-11-17 (Sonnet; hash 75b330b; one line after a 400 ms quiet period, see NETWORKING.... [archived: TODO-DONE.txt]
-- [x] QNET1 [S] DONE 2026-11-17 (Sonnet; hash 749f4ed; src/netlock.rs hand-assembled seccomp-BPF over libc,... [archived: TODO-DONE.txt]
-- [x] (DONE 2026-11-17, hash 35ad5f8; wire reinstall + restart needed, scratchy checks `X-Wire-Features: ws`) QF19w1 [M] (wire; design DECIDED 2026-11-17 after discussion: wire is a pipe) Upgrade passthrough.
-      A request with `Connection: Upgrade` + `Upgrade: websocket` (scratchy marks it
-      with `X-Wire-Upgrade: websocket` so ordinary clients are unaffected) goes
-      through the SAME checks as any request (`X-Wire-Policy`, target class, bad
-      ports, mixed content: `ws:` from an https page is blocked in scratchy), with
-      the cookie jar (`X-Wire-Jar`/`X-Wire-Top-Site`, cookies on the handshake as
-      for a fetch) and `Origin` passed through. wire connects (TLS for `wss:`),
-      sends the handshake, and if upstream answers `101 Switching Protocols`
-      returns that 101 head to scratchy and then copies bytes both ways on that
-      unix-socket connection until either side closes (no framing, no buffering
-      beyond the copy). Any other status: a normal buffered response, connection
-      closed. Not pooled. Caps: `X-Wire-Timeout-Ms` applies to the handshake only;
-      an idle limit is NOT applied (pages keep sockets open for hours). Advertise
-      `X-Wire-Features: ws`. Tests over a local echo server: 101 + echo both ways,
-      non-101 answer, policy-blocked target, close from each side. Log in wire's
-      PROMPTS.md/NOTES.md/TODO.txt.
-- [x] (DONE 2026-11-17, hash 5e4693c) QF19w2 [M] (after QF19w1; the framing lives in scratchy, over wire's... [archived: TODO-DONE.txt]
 - [ ] QF19m [S, Opus, investigate only] READY Who needs WebSocket? Run the user's
       sites (social.loupax.com, YouTube, GitHub, reddit, the R21/R22 corpus) with a
       logging `WebSocket` stub (constructor records url + protocols, then fails
@@ -2275,90 +1949,46 @@ reuse QF7's queue (it exists now, da6a5c7).
 
 --- Tier 0: tooling that makes every later measurement honest ---------
 
-- [x] Q1 [S] (287fdab) Make `SCRATCHY_CSS_DEBUG` tell different failures apart. [archived: TODO-DONE.txt]
 
 --- Tier 1: whole rules or content silently lost; cheap, broad --------
 
-- [x] Q2 [S] (66bdc60) Pseudo-classes that are dropped today (n=225 selectors on [archived: TODO-DONE.txt]
 
-- [x] Q3 [S] (5001376) Pseudo-elements. scratchy uses `NoPseudoElement`, so any [archived: TODO-DONE.txt]
 
-- [x] Q4 [M] (3e80aae) Per-side borders (n=150+, the biggest real visual gap [archived: TODO-DONE.txt]
 
-- [x] Q4b [S] (c13703c) Per-side borders with `border-radius`: when the four [archived: TODO-DONE.txt]
 
-- [x] Q4c [S] (96bb7b1) Uniform non-solid borders (dashed/dotted/double/bevel) with [archived: TODO-DONE.txt]
 
-- [x] Q5 [S] (1000951) Anonymous flex items for bare text. Text placed directly [archived: TODO-DONE.txt]
 
-- [x] Q6 [S] (ea2eba6) `!important` (n=86 Wikipedia, 60 gentoo). Today [archived: TODO-DONE.txt]
 
-- [x] Q7 [M] (407d3bf) CSS-wide keywords `inherit`, `initial`, `unset`, `revert` [archived: TODO-DONE.txt]
 
-- [x] Q7b [S] (c416ff6) CSS-wide keywords for the remaining properties (margin, [archived: TODO-DONE.txt]
 
-- [x] Q7c [S] (042f538) CSS-wide keywords for `text-decoration`/`-line`/`-style`/ [archived: TODO-DONE.txt]
 
-- [x] Q8 [S] (9f77259) Charset decoding. Today `scratchy google.html` dies [archived: TODO-DONE.txt]
 
-- [x] Q9 [S] (f43f902) `vertical-align` beyond `sub`/`super` (n=109: `middle` 49, [archived: TODO-DONE.txt]
 
-- [x] Q10 [S] (a4f4d91) `@supports` (n=75 blocks on Wikipedia, including the [archived: TODO-DONE.txt]
 
-- [x] Q11 [M] (33bd57f) `calc()`, `min()`, `max()` and `clamp()` (n=60+: [archived: TODO-DONE.txt]
 
 --- Tier 2: page structure and common visuals ----------------------
 
-- [x] Q12 [L] (commit: af12757) SVG images. Today there is ZERO SVG support: [archived: TODO-DONE.txt]
 
-- [x] Q13 [M] (commit: b23fd53) Custom properties that cascade per element (n=300+ ignored [archived: TODO-DONE.txt]
 
-- [x] Q14 [M] (commit: 35c826a) Viewport units and initial-containing-block height. Add [archived: TODO-DONE.txt]
 
-- [x] Q15 [L] Grid gaps that block Wikipedia's page skeleton. Do these [archived: TODO-DONE.txt]
 
-- [x] Q16 [M] (93209c2) Background longhands: `background-position` (n=30), [archived: TODO-DONE.txt]
 
-- [x] Q17 [M] (dd101c7) `opacity` (n=30). The user decided 2026-11-12: multiply [archived: TODO-DONE.txt]
 
-- [x] Q18 [M] (3a7054b) `@import`, for wire-fetched stylesheets only. The user [archived: TODO-DONE.txt]
 
-- [x] Q19 [M] (bb7c64d) Generated content: `::before`/`::after` with `content: [archived: TODO-DONE.txt]
 
-- [x] Q19b [S] (baee567) Generated content, dynamic parts: `attr(name)`, [archived: TODO-DONE.txt]
 
-- [x] Q19c [S] (76a9d25) `::marker` styling: `li::marker { color; content }` (today [archived: TODO-DONE.txt]
-- [x] Q19d [S] (c1507db) `content: url(...)`: an image as generated content (fetch [archived: TODO-DONE.txt]
-- [x] Q19e [M] (17346a8) `::first-letter` and `::first-line`: split the first text [archived: TODO-DONE.txt]
-- [x] Q19e2 [M] (0e57f9d) `::first-line`: style the first laid-out line. [archived: TODO-DONE.txt]
-- [x] Q19f [S] (cfa71ec) Counter polish: implicit `list-item` counter, no counting [archived: TODO-DONE.txt]
 
-- [x] Q20 [S×6] Small, independent property gaps. Do them as one [archived: TODO-DONE.txt]
 
-- [x] Q21 [M] (3a5e687) `overflow-x`/`overflow-y` (n=11) and `text-overflow: [archived: TODO-DONE.txt]
 
-- [x] Q22 [S] (c3d42f7) Local files through wire: `file://`, and relative `src`/ [archived: TODO-DONE.txt]
-- [x] Q22b [S] (ad60ed4) Sub-resources for a streamed (stdin) page: no file path to [archived: TODO-DONE.txt]
 
 --- Tier 3: polish --------------------------------------------------
 
-- [x] Q23 [S] (4661363) Flex `order` (stable sort of the flex items in [archived: TODO-DONE.txt]
-- [x] Q23b [S] (c446586) Flex `align-content` (row containers). [archived: TODO-DONE.txt]
-- [x] Q23c [S] (18c8812) Flex leftovers, cheapest first: the column-axis [archived: TODO-DONE.txt]
-- [x] Q24 [M] (00648b9) `overflow: scroll|auto` on flex, grid and table [archived: TODO-DONE.txt]
-- [x] Q25 [M] (3c7a36a) `box-shadow`: blur (a cheap box blur is fine), multiple [archived: TODO-DONE.txt]
-- [x] Q34 [L] Floats across section boundaries, BFC roots beside floats, [archived: TODO-DONE.txt]
 - [~] Q26 [S] PARKED 2026-11-14 (moved to the "Parked" list at the end of
       the QUEUE so it no longer blocks it). `letter-spacing`, BLOCKED on
       cosmic-text. See the Parked entry.
-- [x] Q27 [M] (96bb7b1, done by Q4b+Q4c) `border-radius` with dashed, dotted, double or bevel [archived: TODO-DONE.txt]
-- [x] Q28 [S] (0867a4c) Images: `object-fit`/`object-position`, plus bilinear [archived: TODO-DONE.txt]
-- [x] Q29 [M] (312a345) `mask-image`/`-webkit-mask-image` (n=438, all icon [archived: TODO-DONE.txt]
 
 --- Tier 4: interaction state (done) -----------------------------------
 
-- [x] Q31 [M] (a4b93c4) Real `:hover`/`:focus`/`:active`/`:focus-visible`/ [archived: TODO-DONE.txt]
-- [x] Q31b [S] (9552b38) `:target` (needs fragment navigation), scroll-into-view on Tab [archived: TODO-DONE.txt]
 
 ========================================================================
 RE-PLAN 2026-11-14: rendering is "good enough" (user's call). Order is
@@ -2450,45 +2080,31 @@ Order rationale: Phase 1 items each unblock or help 2-5 of the surveyed
 pages for S effort; ES modules turn github/lobste.rs/guardian from "no
 JS" into "JS runs"; fetch is what everything waits on next.
 
-- [x] D0 (USER) CLOSED 2026-11-16: the coordinator proceeded with C [archived: TODO-DONE.txt]
 
 Phase 1 (each S, independent; do in this order):
 
-- [x] QY8 [S] (P2, perf, all JS pages) `nextSibling`/`previousSibling` [archived: TODO-DONE.txt]
-- [x] QY9 [S] (99c1df0) (P2; ddg, reddit challenge, yt/gh/bbc/guardian use it) [archived: TODO-DONE.txt]
-- [x] QY10 [S] (P2; ddg, yt) `window.matchMedia(q)`. Symptom: duckduckgo's [archived: TODO-DONE.txt]
 - [ ] QY10a [S] (P3) matchMedia with the real window size and `change`
       events. `matchMedia` evaluates against `DEFAULT_VIEWPORT`
       (1024x768) like `innerWidth`, so `matches` never changes and
       `change` never fires. Do together with Q33b2: pass the live
       viewport into the JS env, and on resize re-evaluate each live
       MediaQueryList and dispatch `change` (needs a list of live MQLs).
-- [x] QY11 [S] (ec87a8e) (P2; guardian, yt, ddg, bbc; overlaps Q33c1's "reflected [archived: TODO-DONE.txt]
 - [ ] QY11a [S] Left out of QY11: `Attr` nodes are views (no
       `setAttributeNode/removeAttributeNode`, `createAttribute`,
       attribute-node identity); `a.relList`, `img.complete/naturalWidth`,
       `style` as a full `CSSStyleDeclaration` (Q33g).
-- [x] QY12 [S] (2ca83db) (P3; yt, plus `instanceof` checks everywhere) Interface [archived: TODO-DONE.txt]
-- [x] QY13 [S] (P3; yt, ddg, bbc) 9218dc9: done in src/globals_prelude.js [archived: TODO-DONE.txt]
-- [x] QY13a [S] CLOSED 2026-11-16 (user, QF-D7: nothing is persisted yet, [archived: TODO-DONE.txt]
 - [ ] QY13b [S] (P3; split from QY13a by the 2026-11-16 audit; do after
       QF11) `history.back/forward/go` across real App history entries ask
       the App to navigate (`JsRequests.nav`) instead of only replaying the
       JS-side entry list.
-- [x] QY14 [S] (P2, diagnostics; needed to measure everything above) f50722d [archived: TODO-DONE.txt]
 
 Phase 2 (big enablers, after phase 1):
 
-- [x] QY15 [M] (P2; github, lobste.rs, guardian islands, old.reddit) ES [archived: TODO-DONE.txt]
 - [ ] QY15a [S] Run-time fetching for dynamic `import()` of a URL that was
       not pre-fetched (computed specifiers; literal ones inside non-entry
       modules, deliberately skipped so lazy chunks are not all pulled in),
       `import.meta.resolve`, JSON modules, worker modules,
       `modulepreload`. Today these reject with "module was not pre-fetched".
-- [x] QY15b [S] `TextEncoder`/`TextDecoder` (UTF-8) in the JS prelude: the [archived: TODO-DONE.txt]
-- [x] QY15c [S] CLOSED 2026-11-16 (audit: `customElements` exists since [archived: TODO-DONE.txt]
-- [x] Q33f [L] SUPERSEDED (pointer; the item itself is closed in Tier 7: replaced by QF1-QF19) fetch()/XHR... [archived: TODO-DONE.txt]
-- [x] QY16 [M] (P3; duckduckgo; yt/gh/bbc reference it) ef90a15 A minimal `Intl`. [archived: TODO-DONE.txt]
 - [ ] QY16a [S] (follow-up of QY16, src/intl_prelude.js) What the minimal
       `Intl` deliberately does NOT do. Everything answers as en-US:
       `resolvedOptions().locale` is always 'en-US' for any well-formed tag
@@ -2509,26 +2125,10 @@ Phase 2 (big enablers, after phase 1):
       of throwing RangeError. 12-hour clock uses a plain space before AM/PM
       (not U+202F). Needed only if a measured page wants real localisation:
       then it is a product decision (ship ICU data or not).
-- [x] QY16b [S] (P3; duckduckgo; found by QY16) d193263 `Node.prototype.isEqualNode` [archived: TODO-DONE.txt]
-- [x] QY16c [S] (DONE in QSD2, 0239f7b; tests in tests.rs) (P3; duckduckgo) `Node.prototype.compareDocument... [archived: TODO-DONE.txt]
 - [ ] QY16d [M] (P3; duckduckgo) React #418 ("Minified React error #418",
       hydration text mismatch) in the timer phase of `--js-report
       --run-timers 5000` on a curl'd duckduckgo.com with `<base href>`. First
       new error after QY16b; investigate which DOM/text behaviour differs.
-- [x] QY16e [S] (NOT REPRODUCIBLE, closed by the coordinator 2026-11-16) `SyntaxError: expecting ';'` for [archived: TODO-DONE.txt]
-- [x] QY17 [S] (DONE 3825da6: `@layer` block/nested/anonymous/statement [archived: TODO-DONE.txt]
-- [x] QY18 [S] (DONE 07bc68b; user OK 2026-11-16; left out: static boxes are not stacking contexts, a trans... [archived: TODO-DONE.txt]
-- [x] QY19 [S] (done, bd86d6e; 0 s and <=10 s url= redirects, chain cap 3, bare N reload never; split: [ ]... [archived: TODO-DONE.txt]
-- [x] QY20 [S] (DONE 88d1911; paint.rs `paint` and `hit_test_scroll_region` honour computed visibility; test qy20_visibility_hidden_scroll_container_paints_no_scrollbar_and_takes_no_wheel) (P3, paint; bbc) Do not paint scrollbars of boxes that
-      are `visibility:hidden`. Symptom: bbc.com/news shows a grey
-      vertical scrollbar strip with tick marks over the page at x≈318,
-      from its hidden nav drawer (`visibility:hidden` on the drawer,
-      inherited by an `overflow-y:scroll` child). Fix: in the paint code
-      that draws a scroll container's scrollbar, skip it when the box's
-      computed `visibility` is not `visible` (and skip hit-testing the
-      scrollbar likewise). Test: `<div style="visibility:hidden;
-      overflow-y:scroll;height:50px"><div style=height:500px></div></div>`
-      paints no scrollbar pixels.
 
 Phase 3 (Web Components; only after D0 says so AND after Q33f; see
 QY6 below for the re-split): QY6a MutationObserver (M), QY6e
@@ -2549,9 +2149,6 @@ bot challenge (needs QY9 + `requestSubmit` POST = Q30e + cookies Q30f).
 --- (DONE 2026-11-16) was TOP PRIORITY: wikipedia.org wordmark missing (coordinator, 2026-11-15) ---
 [QW1-QW3 done; QW3a and QW2b are P3 leftovers.]
 
-- [x] QW1 [S] (done, commit 89be128; PR #157 layer-list parse + Q35a url fetching; wordmark verified on a l... [archived: TODO-DONE.txt]
-- [x] QW2 [S] On https://wikipedia.org (both JS and --no-js) the "Search" [archived: TODO-DONE.txt]
-- [x] QW3 [S] (done, commit a0aa4e3; the old 79d338b was a pre-rebase hash) On https://wikipedia.org a hori... [archived: TODO-DONE.txt]
 - [ ] QW3a [S] Plain `display:inline` elements still paint no border, outline or
       vertical padding (only a per-glyph background); real inline-box painting
       is a larger feature.
@@ -2575,7 +2172,6 @@ P3/P4). Does NOT override the queue any more.]
 https://www.youtube.com shows console errors and a BLANK window. Video
 playback is explicitly out of scope for now.
 
-- [x] QY0 [Opus investigator, NO FIXES] Test scratchy against [archived: TODO-DONE.txt]
 
 Read REGRESSIONS.md "R20" before starting any QY item. Short version:
 - Blank with JS on AND with `--no-js` / `:set nojs` + `:refresh`. The
@@ -2595,8 +2191,6 @@ Read REGRESSIONS.md "R20" before starting any QY item. Short version:
   https://www.youtube.com`, grim after ~20 s, plus the `--js-report` run
   from R20 (paste the before/after error lines into the commit message).
 
-- [x] QY1 [M] (P1, R20; supersedes QA9, tick QA9 and R17 too) DONE ebea7ae (see "QY1 done" below). Paint [archived: TODO-DONE.txt]
-- [x] QY1 done ebea7ae: `hoist_negative_z` (layout.rs) now moves EVERY positioned [archived: TODO-DONE.txt]
 - [ ] QY1a [S] (P3) Leftovers of QY1: `<body>`'s propagated `overflow` is
       exempt only if it is `<html>`'s sole child; a positioned inline-block
       inside a `MixedInline` run is not hoisted; `opacity<1` and `sticky`
@@ -2604,104 +2198,12 @@ Read REGRESSIONS.md "R20" before starting any QY item. Short version:
       flex/grid items with `z-index` on a static box do not create a
       stacking context; `tree_order` is only valid within one style pass
       (a partial restyle would hand out later numbers).
-- [x] QY2 [S] (P2, R20 error 1) DONE 2026-11-15 (22bb105; note: `performance` did not exist at all, now def... [archived: TODO-DONE.txt]
-- [x] QY3 (0f048a1) [S] (P2, R20 error 2) `<canvas>` element interface without [archived: TODO-DONE.txt]
-- [x] QY4 (f00ca10) [S] (P2, R20 error 3; do QA15 here and tick it) The [archived: TODO-DONE.txt]
-- [x] QY4a [S] (2ca83db, done in QY12) (P2, found by QY4) `SVGElement` global (and `SVGSVGElement` [archived: TODO-DONE.txt]
-- [x] QY5[S] (5a32839) (P3, R20 error 4) The page-load script budget is eaten by [archived: TODO-DONE.txt]
-- [x] QY6 [L] CLOSED AS AN UMBRELLA 2026-11-16 (audit): QY6a 6f4e412,
-      QY6b = QA17, QY6c = QA18a, QY6e f887f67, QY6f ac492ca, QY6g 4c01526
-      are done; the open children below (QY6a1, QY-IO-GEOMETRY) stay open
-      and QY6d is merged into QSD12. (P4, needs a user decision before starting) Web Components,
-      the only path to real YouTube content (and to the EU consent dialog
-      a logged-out visitor sees first). Everything visible on youtube.com
-      is `ytd-*` Polymer custom elements built by the 10.8 MB app script
-      from the inline `ytInitialData` JSON; the shipped polyfill
-      (`webcomponents-all-noPatch.js`, ShadyDOM + custom-elements
-      polyfill) needs, natively: `MutationObserver` (Q33g) with real
-      childList/subtree records, `document.createTreeWalker` (QA17;
-      ShadyDOM reads "native" `parentNode`/`firstChild` through TreeWalker
-      objects), `document.implementation.createHTMLDocument` (QA18),
-      `importNode`/`adoptNode`, `template.content` (Q33c1), and every
-      `Node`/`Element` accessor as a configurable prototype getter (Q33b1
-      already does that). Then Polymer itself needs `fetch`/XHR (Q33f)
-      for anything past the first screen, `getComputedStyle` (QA16),
-      `IntersectionObserver` (polyfill is shipped, needs
-      `getBoundingClientRect`, Q33g) and QY5. Split before starting, in
-      this order: QY6a MutationObserver (M), QY6b TreeWalker/
-      NodeIterator = QA17 (M), QY6c `createHTMLDocument` = the
-      document-only half of QA18 (M), QY6d re-run `--js-report` and file
-      what the app script hits next. Native `customElements`/Shadow DOM
-      is a later, separate decision (the polyfill path is cheaper).
-      UPDATE 2026-11-16 (R21, DECISION MEMO block at the top of the
-      QUEUE): the "polyfill path" no longer exists. YouTube now ships
-      `webcomponents-sd.js` (ShadyDOM + ShadyCSS, NO custom-elements
-      polyfill; it reads `window.customElements.define` at load) and
-      forces ShadyDOM (`ShadyDOM={force:true,noPatch:true}`), so native
-      Shadow DOM is NOT needed but a native `customElements` and
-      `template.content` are. QY6b (= QA17) and QY6c (= QA18a) are done.
-      New split, gated on the memo's D0 and on Q33f:
-      - [x] QY6a [M] DONE (commit 6f4e412) MutationObserver with real records. All DOM writes go
-        through a few JS wrappers over natives in `DOM_PRELUDE`
-        (`__d_insert`, `__d_remove`, `__d_setattr`, `__d_rmattr`,
-        `__d_settext`, `__d_sethtml`, `__d_write`, plus `clone`-free
-        paths): queue `MutationRecord`s (`childList` with added/removed
-        nodes and siblings, `attributes` with `oldValue`,
-        `characterData`) for observers whose target or (with `subtree`)
-        an ancestor matches, deliver in one microtask per batch
-        (`queueMicrotask`), `takeRecords`, `disconnect`,
-        `attributeFilter`, `*OldValue`. Writes coming from the parser or
-        from Rust (form state) do not notify (documented cut). Tests:
-        appendChild + setAttribute in one script -> one callback with 2
-        records in order; subtree observation; disconnect stops delivery.
-        DONE: one shared hook layer (`hookInstall`, also used by QY6e),
-        installed at the first `observe()`; childList/attributes/
-        characterData records with oldValue, attributeFilter, subtree,
-        transient observers for removed subtrees, microtask batch delivery
-        in creation order, takeRecords/disconnect, one record per call for
-        replaceChild/append/prepend/before/after/replaceWith/
-        replaceChildren/innerHTML/textContent/outerHTML (new setter),
-        CharacterData appendData/insertData/deleteData/replaceData/
-        substringData (new), `WebKitMutationObserver`. 5000
-        createElement/setAttribute/appendChild with no observer: unchanged
-        (~300 ms both); with one observer on body (subtree, childList +
-        attributes): ~1.2 s (5000 records). NEXT BLOCKERS (--js-report
-        --run-timers 5000): github core/marketing-essentials/landing-pages
-        now die on `ReferenceError: IntersectionObserver is not defined`
-        (3 errors, was MutationObserver); youtube webcomponents-sd.js is
-        past MutationObserver, the first error is now kevlar_base_module
-        `TypeError: Failed to execute 'appendChild': parameter 1 is not of
-        type 'Node'.` at script line 10725:29.
       - [ ] QY6a1 [S] MutationObserver leftovers: `Comment.data =` is a
         native no-op (QA18e: Comment contents is not a RefCell), so it
         queues no record; `insertAdjacentHTML/Element/Text` do not exist
         yet (same gap as Q33c1: implement once, with records); writes from the parser or Rust (form state, `load_html`) never
         notify; `attributeNamespace` is always null (no namespaced
         attributes); `normalize()`/`splitText()` are missing.
-      - [x] QY6g [M] (4c01526) IntersectionObserver / ResizeObserver /
-        PerformanceObserver with HONEST MINIMAL semantics (NOTES.md "QY6g"):
-        one initial entry per observed target (IO: visible once, ratio 1,
-        unless detached or display:none; RO: width/height attribute size
-        else 0x0), rootBounds = fixed 1024x768, then NOTHING is ever
-        delivered again; PerformanceObserver is inert. Also minimal
-        `DOMRect`/`DOMRectReadOnly` (no DOMRectList/DOMPoint). Tests qy6g_*.
-        Risk (QY6 memo): "visible once" is a guess; lazy loaders load all
-        content, infinite-scroll sentinels fire once, "is it on screen"
-        analytics lie. SURVEY (--js-report --run-timers 5000): github's 3
-        IntersectionObserver errors are gone. NEXT BLOCKERS: (1) 13x
-        `not implemented: Element.attachShadow` (NotSupportedError thrown
-        into `relative-time` custom element constructors and one
-        connectedCallback in f18-*.js; needs the shadow DOM decision),
-        (2) core/marketing-essentials/landing-pages each die on
-        `TypeError: cannot read property 'appendChild' of undefined` at
-        f18-10a827ef5e40729a.js:223:27350 (called from webpack module
-        core-*.js:27:77453; unidentified, probably something that
-        attachShadow/shadowRoot would return; R23: it is NOT shadow DOM,
-        it is `template.content`, QY6f). youtube: first error
-        unchanged (kevlar_base `appendChild: parameter 1 is not of type
-        Node`, QY6a note); youtube does not reach IO. The other 6 pages:
-        0 errors; bbc has the pre-existing timer-phase `Route did not
-        complete loading: /_error`.
       - [ ] QY-IO-GEOMETRY [L] (2026-11-16: first slice split out as QJ4,
         then QJ5/QJ6/QJ7; QJ4 replaces the "stale cache" read below with a
         forced synchronous layout, see why there) the geometry bridge. Today JS cannot see
@@ -2729,55 +2231,6 @@ Read REGRESSIONS.md "R20" before starting any QY item. Short version:
         run only when the event loop turns) and iframes/transforms (cut).
         NOT built here: the cache alone is small, but it needs the
         layout-generation hook in app.rs that the Q33g/Q33b2 work owns.
-      - [x] QY6e [M] DONE (commit f887f67) `customElements` (define, get, getName,
-        whenDefined, upgrade; `CustomElementRegistry`). `HTMLElement`
-        (and QY12's subclasses) become constructors that, while an
-        upgrade is in progress, return the element being upgraded (a
-        construction stack), else create a new element whose tag is the
-        registered name of `new.target`. Upgrade: on `define` (all
-        matching elements in the document, tree order), on `wrap` of an
-        element whose name is defined (hook the existing `tagProto`
-        lookup: set the prototype, then run the constructor), on
-        insertion. Reactions: `connectedCallback`/`disconnectedCallback`
-        from the insert/remove wrappers (tree-order walk of the inserted
-        subtree), `attributeChangedCallback` for `observedAttributes` from
-        set/removeAttribute, `adoptedCallback` from `adoptNode`.
-        Customized built-ins (`is=`) are a cut. Measured shim (R21) that
-        worked for YouTube is the reference design. Tests: define after
-        parse upgrades; `document.createElement('x-a')` is upgraded;
-        callbacks fire in order; `new XA()` works.
-        DONE: define/get/getName/whenDefined/upgrade, upgrade of
-        existing elements, createElement/new/innerHTML/cloneNode/
-        document.write construction, connected/disconnected/
-        attributeChanged (synchronous, not microtask-queued), `is=`
-        customized built-ins (`extends`), `attachShadow` logs
-        `not implemented` and throws NotSupportedError. NOT done:
-        adoptedCallback, `:defined`, shadow DOM. NEXT BLOCKERS measured
-        after it (--js-report --run-timers 5000): github core/
-        marketing-essentials/landing-pages all now die on
-        `ReferenceError: fetch is not defined` (QF); YouTube first
-        error `MutationObserver is not defined` in
-        webcomponents-all-noPatch.js (QY6a), then kevlar_base `TypeError:
-        not a function` at line 8854:192 (unidentified). old.reddit could
-        not be fetched (blocks curl). wikipedia/HN: 0 errors.
-      - [x] QY6f [M] (ac492ca) `<template>` content. html5ever puts template
-        children in `template_contents`, which nothing exposes: JS sees
-        an empty template and `outerHTML` drops the content. Expose the
-        contents node as a `DocumentFragment` id (`__d_template_content`),
-        make `innerHTML` get/set and serialization go through it,
-        `cloneNode(true)`/`importNode` copy it (`clone_node` in js_dom.rs),
-        `HTMLTemplateElement` with `content`. Tests: parsed template's
-        `content.childNodes.length`, innerHTML round trip, a cloned
-        template has its own content.
-        NOTE 2026-11-16 (R23): promoted to the top of the QUEUE in the
-        "DESIGN MEMO (QSD)" block (after QSD0). It is the cause of github's
-        `appendChild of undefined` (f18 223:27350) and youtube's
-        kevlar_base `appendChild: parameter 1 is not of type Node`
-        (10725:29); `document.importNode` is also missing and is added
-        there.
-      - [x] QY6d MERGED into QSD12 (2026-11-16 audit; its prerequisites
-        QY6a/e/f and the QF fetch/XHR items are done) re-run `--js-report --run-timers` (QY14) on YouTube after
-        QY6a/e/f and Q33f, and file what it hits next.
 - [ ] QY7 [M] (P4) CSS container queries: `container-type`/
       `container-name`, `@container (min-width|max-width|width: …)`.
       YouTube's CSS has 269 `@container` rules; its skeleton grid
@@ -2811,12 +2264,10 @@ Acid3: `--js-report` on the per-test harness described in REGRESSIONS.md
 "Acid3" (score 28/100 at `e7a090d`); paste the before/after harness score
 into the commit message of every JS item.
 
-- [x] QA1 [S] (P1, R13) (done, commit 10e4006) `border-style` initial value is `none`, not [archived: TODO-DONE.txt]
 - [ ] QA1a [S] `border` / `border-<side>` shorthand resets omitted parts:
       style to `none`, width to `medium`, colour to currentColor (today only
       the parts present are written, so `border: 1px blue` after
       `border: solid` stays solid). Fold in with Q52.
-- [x] QA2 (80395ee) [S] (P1, R14) U+00A0 (`&nbsp;`) is not collapsible white space. [archived: TODO-DONE.txt]
 - [ ] QA2a [S] (from QA2) WPT `css/CSS2/normal-flow/block-formatting-contexts-011.xht`:
       `<span style="display:table-cell;width:100px">&nbsp;&nbsp;...</span>`
       then a span in a block div. We draw a 35px blue stub inline with
@@ -2832,15 +2283,10 @@ into the commit message of every JS item.
       NBSP no longer collapses); needs `text-decoration-inset` and
       `text-decoration-skip-spaces`, which are unsupported, so it fails
       for the right reason now.
-- [x] QA3 [S] (P1, R12) (bd2945f) Margins on `position:absolute`/`fixed` boxes are [archived: TODO-DONE.txt]
-- [x] QA4 [S] (065b61b) (P1, R15) The `background` shorthand must reset what it [archived: TODO-DONE.txt]
-- [x] QA5 [S] (P1, R16) (e9232f3) `data:` URLs. (a) `decode_data_uri` (images.rs) [archived: TODO-DONE.txt]
 - [ ] QA5a [S] (P3) `data:` URL corner cases: strip the `#fragment` (the
       decoder keeps it as payload, so an unescaped `#` in SVG still works
       by accident), check the mime of `data:` stylesheets/scripts (an
       `image/png` data: script should not run), `data:` for `<object>`.
-- [x] QA6 [S] (P2, R18) (done, commit e8fb789) A fragment in the URL of the first page load is [archived: TODO-DONE.txt]
-- [x] QA7 [S] (00530a0) (P2, R19) Shrink-to-fit width ignores floats. An abspos box [archived: TODO-DONE.txt]
 - [ ] QA7a [S] (P3) A non-float block child or inline-block with a definite
       px `width` should also contribute that width to its container's
       intrinsic widths (today its content is measured). Blocked on parsing
@@ -2850,13 +2296,10 @@ into the commit message of every JS item.
       float's outer width to the line it sits on, and min-content should
       count a float next to a long word. Today floats and inline runs are
       only max'd against each other.
-- [x] QA8 [S] (P2) (38099dd) `background-attachment` (none parsed today, the [archived: TODO-DONE.txt]
 - [ ] QA8a [S] (P3) Leftovers of QA8: `background-attachment: local` is
       treated as `scroll` (should scroll with an `overflow` box's content),
       `fixed` is stored per element (first layer only; no multi-layer
       lists), and the viewport is taken to be the whole paint buffer.
-- [x] QA9 [M] (P2, R17) DONE via QY1 (ebea7ae); SUPERSEDED by QY1 (same fix plus a tree-order [archived: TODO-DONE.txt]
-- [x] QA10 [S] (done, commit 977027a) Promoted for Acid2 line 14: do Q50a now, with this extra [archived: TODO-DONE.txt]
 - [ ] QA10a [S] Table cells with `vertical-align: top/baseline` don't stretch
       to the row height, so a short cell's background/border stops early
       (Acid2 line 14 "gets stretched to fit row"). Needs `q9_vertical_align_box_
@@ -2866,30 +2309,23 @@ into the commit message of every JS item.
 - [ ] QA10b [S] Leading block/inline content in a table before the first cell
       (no cell yet) is still stacked, not wrapped in an anonymous row+cell;
       `display:table-caption` and real `<caption>` keep their special path.
-- [x] QA11 [M] (DONE, PR #162, after QA11a/PR #167; Q74 was already done by Q48d; Acid2 smile moved up 60px... [archived: TODO-DONE.txt]
-- [x] QA18d [S] (P2, JS) `Text.data = x` was a no-op (getter-only [archived: TODO-DONE.txt]
 - [ ] QA18e [S] (P3, JS) `Comment.data =`/`nodeValue =` and
       CharacterData `appendData/insertData/deleteData/replaceData/
       substringData` on comments: `__d_settext` ignores Comment nodes
       (contents is not a RefCell). Test: createComment('a'), set data,
       read back.
-- [x] QA12 [S] (P2, JS) Event-handler content attributes. `<body [archived: TODO-DONE.txt]
 - [ ] QA12a [S] (P3, JS) Leftovers of QA12: `el.onclick` / `window.onload`
       getters reflecting the attribute text as a function, the spec's
       `with(document){with(form){with(element)` scope chain, and the
       `onerror(message, source, line, col, error)` window signature.
-- [x] QA13 [S] (P2, JS) `document.write`/`writeln` during the page-load [archived: TODO-DONE.txt]
 - [ ] QA13a [S] (P3, JS) Leftovers of QA13: concatenate writes before
       parsing (a tag split across two `write` calls), execute `<script>`
       elements written by `document.write`, and `document.open()` /
       post-load `write` wiping the document (spec behaviour).
-- [x] QA14 (43f568f) [S] (P3, JS) `DOMException` with the legacy `code` constants [archived: TODO-DONE.txt]
 - [ ] QA14a [S] (P3, JS) Element `prefix`, `localName`, `namespaceURI`
       (split from QA14): `createElementNS` keeps the qualified name as the
       local name today; store the prefix/local/ns separately. Acid3 T21
       ("wrong prefix"). T25 needs `document.implementation` (QA18).
-- [x] QA15 (f00ca10, done inside QY4) [S] (P3, JS; done inside QY4, tick both) `document.createEvent(iface)... [archived: TODO-DONE.txt]
-- [x] QA16 (d899537, safe subset; the old 37ca064 was a pre-rebase hash) [M] (P3, JS) `getComputedStyle(el,... [archived: TODO-DONE.txt]
 - [ ] QA16a [M] (P4, JS) getComputedStyle leftovers: used-value `width`/`height`
       /margins (needs layout results exposed to JS, same prerequisite as
       `getBoundingClientRect`, Q33g), `calc()` lengths (read back as `auto`
@@ -2898,26 +2334,19 @@ into the commit message of every JS item.
       `Debug`), shorthands (`margin`, `border`, `font`), `::first-line`
       and other pseudo-elements (only `::before`/`::after`), and
       `float`+`display:flex` (blockified here).
-- [x] QA17 (af82572) [M] (P3, JS) DOM Traversal: `document.createNodeIterator`, [archived: TODO-DONE.txt]
 - [ ] QA17a [S] (P4, JS) NodeIterator live fix-up only runs for removeChild,
       replaceChild and Element.remove; also run it for moves through
       insertBefore/appendChild of an attached node, innerHTML/textContent
       replacement and replaceChildren.
-- [x] QA18 [L] CLOSED AS AN UMBRELLA 2026-11-16 (audit): split into [archived: TODO-DONE.txt]
-- [x] QA18a (f335250) [M] (P4, JS) `document.implementation` (createHTMLDocument, [archived: TODO-DONE.txt]
-- [x] QA18b (2fdcec8) [M] (P4, JS) `iframe.contentDocument`/`contentWindow` for [archived: TODO-DONE.txt]
-- [x] QA18b1 (8475619) [M] (P4, JS) Same-origin iframe `src` (http(s)/file, e.g. [archived: TODO-DONE.txt]
 - [ ] QA18b2 [M] (P4, JS) Iframe loading beyond the pre-fetch: iframes
       inserted/`src` set by script (needs a JsRequests-style fetch queue
       drained by `App`), `load` for markup/innerHTML/document.write
       iframes, `window.frames`, frame `readyState`.
-- [x] QA18c (8475619) [M] (P4, JS) Styles for a second document: `__d_cs` [archived: TODO-DONE.txt]
 - [ ] QA18c1 [S] (P4, JS) `createElement` in XML documents keeps case and
       the non-HTML namespace; `new Document()` constructor.
 - [ ] QA19 [L] (P4, JS) DOM Range (`document.createRange`, boundary
       points, `extractContents`/`deleteContents`/`cloneContents`/
       `insertNode`, mutation fixups). Acid3 T7-T13. Only after QA18.
-- [x] QA20 (9bbd08b) [M] (P4, JS) HTML element DOM interfaces Acid3 bucket 4 uses: [archived: TODO-DONE.txt]
 - [ ] QA20a [S] (P4, JS) Left out of QA20: radio-group `checked` semantics
       (T56), `input.click()` and form `submit` events (T54, Q33d1), named
       access on the form object itself (`form.fieldname`), `new Option()`/
@@ -2946,17 +2375,6 @@ are in REGRESSIONS.md "R8–R11". That section also has the nested-dwl +
 virtual-input recipe for driving real clicks, keys and scrolls without
 touching the user's desktop: use it for the live check of each item.
 
-- [x] QB1 [S] (P0, crash, R8) (637fef5) Never panic when the Wayland connection [archived: TODO-DONE.txt]
-- [x] QB2 [M] (P0, R9) (d78587f) JS DOM writes must go through the restyle path. [archived: TODO-DONE.txt]
-- [x] QB3 [M] (P0, R8) (dbf1610) Keep the main thread from stalling while input [archived: TODO-DONE.txt]
-- [x] QB3b [S] (7c584ac) Pre-existing, seen while verifying QB3 (also on the [archived: TODO-DONE.txt]
-- [x] QB4 [S] (P1, user report, R11) (a29738f) `HTMLDialogElement`: `show()`, [archived: TODO-DONE.txt]
-- [x] QB5 [S] (ac60599) (P1, R11c) Fix the portal's last JS error [archived: TODO-DONE.txt]
-- [x] QB6 [S] (c150951; the old 5f2dabf was a pre-rebase hash) (P1, R10) `:help` must suspend the current p... [archived: TODO-DONE.txt]
-- [x] QB7 [S] (9fae631) (P2) Render `text/plain` responses instead of refusing them. [archived: TODO-DONE.txt]
-- [x] QB8 (6705e70) [S] (P2) `document.currentScript`: set it to the executing [archived: TODO-DONE.txt]
-- [x] QB9 [S] (P3) (939cafb) Don't panic when stderr/stdout is a closed pipe [archived: TODO-DONE.txt]
-- [x] QB10 [S] (P2, tooling) (03f5a6f) Commit the virtual-input tool from [archived: TODO-DONE.txt]
 - [ ] QB11 [S] (P2, from QB4) `dialog::backdrop` (dimmed layer behind a
       modal dialog, and blocking clicks outside it), the `cancel` event and
       Escape-to-close, `<dialog>` `requestClose()`, and `<form
@@ -2964,7 +2382,6 @@ touching the user's desktop: use it for the live check of each item.
       (the last waits for Q30e). QB4 only did the API plus centring; the
       modal marker is the internal `data-scratchy-modal` attribute and the
       UA rule is in `default.css`.
-- [x] QB12 (ee35824) [S] (P2, from QB10) Vim `gg` / `G` (scroll to top / bottom). [archived: TODO-DONE.txt]
 
 --- (DONE 2026-11-15) was TOP PRIORITY: JS on real pages (user report, 2026-11-15) ----------
 [QJ1-QJ3 and the Q33b/Q33b1/Q33t items it promoted are done.]
@@ -3003,10 +2420,6 @@ paste the before/after error counts into the commit message):
 count on each corpus page drops item by item, and no page looks worse
 with JS on than with `--no-js` (compare `grim` screenshots of both).
 
-- [x] QJ1 [S] (e76d162) Fix REGRESSIONS.md R5: evaluate classic scripts in sloppy [archived: TODO-DONE.txt]
-- [x] QJ2 [S] (a56d276) Fix REGRESSIONS.md R6: error lines carry `Name: message` [archived: TODO-DONE.txt]
-- [x] QJ3 [S] (e76d162, code landed inside the QJ1 commit) Headless JS report: `scratchy --js-report [--soc... [archived: TODO-DONE.txt]
-- [x] Next: Q33b, Q33b1, Q33t in Tier 7 (they're in that order there). [archived: TODO-DONE.txt]
 
 --- (DONE 2026-11-15) was TOP PRIORITY: WPT audit of "done" features (user, 2026-11-14) -----
 [Q40/Q40a/Q40b/Q40c done; their open fix items (Q41b..Q75) are normal
@@ -3017,21 +2430,15 @@ Q1-Q34 is actually correct before building forms on top of it.
 WPT checkout: /home/loupax/src/wpt (upstream 49726b1613, 2026-11-14).
 Not vendored; pass the path to the runner.
 
-- [x] Q40a [M] (9b66b74) WPT reftest runner. `scratchy --wpt <wpt> [--subset F] [--expected F] [archived: TODO-DONE.txt]
 
-- [x] Q40b [L] (be89177) Run the audit and write up findings. One area at a time, [archived: TODO-DONE.txt]
 
 --- Q40b fix items (WPT audit, 2026-11-14) -----------------------------
 
-- [x] Q41 [S] (09b8e63) `<br>` (W3, NOT CLAIMED but Wikipedia-relevant): there is no [archived: TODO-DONE.txt]
-- [x] Q41a [S] (e7100ba; trailing-space trim done; clear / flex-child left as Q41b) `<br>` leftovers: `<br... [archived: TODO-DONE.txt]
 - [ ] Q41b [S] `<br clear=...>`/`br{clear}` and `<br>` as a direct child of a
       flex container (anonymous item drops it).
-- [x] Q42 [S] (done, commit b79a100; `ex`/`ch` are half an em; `ic`/`lh`/`rlh`/`cap` left as Q42a) Physical... [archived: TODO-DONE.txt]
 - [ ] Q42a [S] Remaining units: `ic`, `lh`, `rlh`, `cap`; real x-height
       for `ex` and the advance of `0` for `ch` (today half an em); negative
       lengths for other length-only properties (W5) are still accepted.
-- [x] Q43 [M] (done, commit c8e334c; trailing collapsible space no longer counted; leading-space and sub-pi... [archived: TODO-DONE.txt]
 - [ ] Q43a [S] The shrink-to-fit widths are now right (Ahem 20px "X" float is
       20, inline-block "X" at 100px is 100), but `inline-block-non-replaced-
       width-001..004` and `clear-applies-to-000` still fail: (a) the
@@ -3039,49 +2446,32 @@ Not vendored; pass the path to the runner.
       (box lands 4px right; strip leading collapsible spaces at line start in
       `measure_mixed_inline`), (b) `PA`+`SS` floats render visually the same
       as the reference but differ by a few pixels (investigate sub-pixel x).
-- [x] Q44 [M] (done, commit 0e42655; shrink-to-fit and left+right stretch; remaining failures in Q44a) Absp... [archived: TODO-DONE.txt]
 - [ ] Q44a [S] After Q44, `absolute-non-replaced-width-002/003` and
       `linebox/border-padding-bleed-001` (now in wpt-subset.txt) still fail,
       and abspos auto width ignores margins when stretching between
       `left`+`right` (margins are not subtracted). Diagnose with --out.
-- [x] Q45 [S] (done, commit 2ce2b2a) An abspos box contains its floats (W11): it is a BFC, so its [archived: TODO-DONE.txt]
-- [x] Q46 [M] (done, commit 9abe87b; row containers only, rest in Q46a) Flex items with an explicit `width`... [archived: TODO-DONE.txt]
 - [ ] Q46a [S] After Q46: a flex item that is itself a table/flex/grid container
       still keeps its own `width` (the forced size only reaches ordinary
       blocks); column containers still overwrite `lc.h` post hoc;
       `margin: 0 10px` shorthand on a flex item in an inline `style` seemed to
       give margin 0 (check). `flex-grow-008` still fails for other reasons.
-- [x] Q47 [S] (done, commit d0d8e67) Single-line flex container with definite `height`: the line's [archived: TODO-DONE.txt]
 - [ ] Q47a [S] After Q47: `align-self-015/016` (column wrap with auto margins
       and per-column centring) still fail; auto margins in flex items.
-- [x] Q48 [S] CLOSED AS AN UMBRELLA 2026-11-16 (audit): Q48a b55ccac, [archived: TODO-DONE.txt]
-- [x] Q48a [M] (done, commit b55ccac) Adjacent in-flow sibling margins collapse (CSS2.1 8.3.1: [archived: TODO-DONE.txt]
-- [x] Q48d [S] (done, commit 4ae204c; WPT clear-clearance-calculation-001 and margin-collapse-023 newly pas... [archived: TODO-DONE.txt]
-- [x] Q48b [M] (DONE in PR #162/QA11) (promoted: QA11, Acid2) After Q48a: margins collapse through empty bl... [archived: TODO-DONE.txt]
 - [ ] Q48c [M] After Q48a: parent and first/last child margins collapse
       (no padding/border/BFC between them), and an auto-height parent's
       bottom margin collapses with its last child's.
-- [x] Q49 [M] (done, commit ab0678c) A float that follows inline content on the same line goes at [archived: TODO-DONE.txt]
-- [x] Q49a [S] (ba0de68; part 2 only, rest in Q49b) After Q49: `inlines-013` still fails. Needs (1) an `<im... [archived: TODO-DONE.txt]
 - [ ] Q49b [S] Left from Q49a: (1) an `<img>` line box strut so the 1x1 image run
       is 64px high (`inlines-013`), (2) the Q49 fit check ignores `text-align`
       other than left.
-- [x] Q50 [S] (done, commit bf93cba) Block-level `display:table` (no float, no width) shrinks to fit [archived: TODO-DONE.txt]
 - [ ] Q50a [S] (anonymous-table part done in QA10; the border/border-collapse part remains) `border-applies-to-*` / `float-applies-to-*` still fail: they
       need anonymous table objects (`display:table-row-group|cell` outside a
       table) and `border-collapse`/`border-spacing` (W16). Subset now includes
       `border-applies-to-001..012` and `float-applies-to-001..015`.
-- [x] Q51 [S] (done, commit e09c450) Table `width` includes the table's border and padding (W15). [archived: TODO-DONE.txt]
 - [ ] Q51a [S] Table `height` is still content-box and rows ignore their cells'
       `height`; browsers treat table height as border-box with cell heights
       as a floor (kept authored sizing to avoid regressing `floats-038`).
-- [x] Q52 [S] (DONE in QA11a, 20c9e93, PR #167; test [archived: TODO-DONE.txt]
-- [x] Q52a [S] (done, commit 36afdb4) `<iframe>` is a replaced inline-block, default 300x150. [archived: TODO-DONE.txt]
 - [ ] Q52a1 [S] (`<object>` rendering itself is QA21) iframe `frameborder`/`border` UA behaviour and `<object>`/`<embed>`/`<video>`/`<canvas>`
       replaced default sizes (300x150).
-- [x] Q52b [S] (0606580) Expand `var()` declarations in source order relative to the [archived: TODO-DONE.txt]
-- [x] Q52c [S] (DONE in QA11a, 20c9e93, PR #167: unset border colour = [archived: TODO-DONE.txt]
-- [x] Q52c1 [S] (0606580) Table rows in the separated model. [archived: TODO-DONE.txt]
 - [ ] QA11a2 [L] Real `border-collapse: collapse` layout (merged cell/row/group
       borders, `border-style: hidden`) plus table `rules`/`border` presentational
       attributes and `writing-mode: vertical-*`. Needed by two WPT tests that
@@ -3093,29 +2483,18 @@ Not vendored; pass the path to the runner.
       comment pointing here; they are the acceptance tests for this item: when
       QA11a2 lands both must pass for the right reason. Do the proper fix
       (real collapsed-border layout) as a normal queue item.
-- [x] QA11a [M] (prerequisite of QA11/PR #162) DONE (PR #167, user accepted the two accidental WPT passes a... [archived: TODO-DONE.txt]
-- [x] Q53 [S] Reject values CSS says are invalid (W5): negative `padding-*`, [archived: TODO-DONE.txt]
 - [ ] Q53a [S] `border-width: 1px -2px` should drop the whole declaration.
-- [x] Q54 [S] Over-constrained `width:auto` block (borders+padding wider than [archived: TODO-DONE.txt]
-- [x] Q55 [S] Negative `z-index` children of a positioned, non-stacking-context [archived: TODO-DONE.txt]
-- [x] Q55a [S] DONE via QY1 (ebea7ae; relative/sticky in-flow boxes are hoisted in the same walk; a sticky... [archived: TODO-DONE.txt]
-- [x] Q56 [S] `<img width="NN%">`/`height="NN%"` attributes are percentages [archived: TODO-DONE.txt]
-- [x] Q57 [M] (done, commit dde81b5) `var()` correctness (W22): (a) reject invalid custom property [archived: TODO-DONE.txt]
 - [ ] Q57a [S] (`background` part done in QA4, 065b61b) Strict full-value parsing for all properties (leftover tokens make the
       declaration invalid) and `unset` semantics for inline-style var() declarations.
 
-- [x] Q40c [L] (dacd49d) Audit the areas Q40b did not reach, same method and write-up: [archived: TODO-DONE.txt]
 
 --- Q40c fix items (WPT audit, 2026-11-15) -----------------------------
 
-- [x] Q58 [S] (6b8f773) Multi-value box shorthands (W34): `margin`, `padding`, [archived: TODO-DONE.txt]
 - [ ] Q58a [S] `border-radius` multi-value/per-corner (`5px 10px`, `/` elliptical)
       (left out of Q58): `Declarations.border_radius` is one `Length`, so a
       multi-value list still uses only the first value. Needs four corner
       lengths through style.rs and paint.rs. `border-width/-color/-style`
       already used `parse_box4`, so W34's border part was stale.
-- [x] Q59 [S] (510e93f) Text-node whitespace (W29): `inline_text` appends a space to [archived: TODO-DONE.txt]
-- [x] Q59p [S] (4aa4617) Horizontal auto margins (prerequisite of Q59): `margin-left/right: [archived: TODO-DONE.txt]
 - [ ] Q59q [S] Auto margins elsewhere: flex/grid items (`margin-left:auto`
       pushes), abspos with insets, `margin: auto` vertical in flex, auto
       margin on `display:table` with shrink-to-fit width is only centred via
@@ -3182,18 +2561,12 @@ Not vendored; pass the path to the runner.
 - [ ] Q73 [S] `display:inline-grid` / `inline-flex` are inline-level (W50): a
       following `inline-block` sits beside them (shrink-to-fit, baseline
       aligned). WPT: `grid-model/*-inline-*`, `display-inline-grid`.
-- [x] Q74 [S] (DONE, Q48d + QA11) (promoted: QA11, Acid2) Clearance (W53): a cleared block's margin-top is... [archived: TODO-DONE.txt]
 - [ ] Q75 [S] `position:relative` on an inline that contains a block
       (block-in-inline) offsets the block part too (W59). WPT:
       `block-in-inline-relpos-001/002`.
 
 --- Tier 5: rendering close-out (small, then stop polishing) -----------
 
-- [x] Q35 [S] (done, commit fbce742; both leftovers diagnosed, fix queued as Q35a) Live-window verification... [archived: TODO-DONE.txt]
-- [x] Q35a [M] (done, commit 89be128; background-image + mask-image, cap 64 fetches; follow-up Q35b) Extern... [archived: TODO-DONE.txt]
-- [x] Q35b [S] (done, parts 1 and 3; part 2 split into Q35b2) Leftovers from Q35a. [archived: TODO-DONE.txt]
-- [x] Q35b2 [M] (done, commit 537decb: debounce + defer while in flight; the paint-only [archived: TODO-DONE.txt]
-- [x] Q36 [M] (done, commit 3a5df87; `rowspan="0"` is treated as 1, not [archived: TODO-DONE.txt]
 - [ ] Q36a [S] Table span leftovers from Q36. `rowspan="0"` (span to the
       end of the row group) is treated as 1, and `<col span>`/`<colgroup>`
       widths are ignored by `measure_table`. Scope: `rowspan=0` extends to
@@ -3201,7 +2574,6 @@ Not vendored; pass the path to the runner.
       width|style=width>` with `span` feeds the column's min/max sizing.
       Test: a `rowspan=0` cell covers all later rows of its tbody; a
       `<col span=2 style="width:100px">` fixes two columns at 100px.
-- [x] Q37 [S] (36c8d2d) Cleanup of stale entries, no code: tick the history items [archived: TODO-DONE.txt]
 
 --- Tier 6: forms (Q30, split 2026-11-14) ------------------------------
 [GO-AHEAD 2026-11-17 (user): "the only reason I wanted to be present for the form
@@ -3229,15 +2601,11 @@ must not rebuild the whole layout tree (R2/R3 lesson; full rebuild is
 ~0.4s on Wikipedia). Measure keystroke-to-paint latency on a real page
 with temporary `Instant` timing, and say the number in the commit.
 
-- [x] Q30a [M] DONE (hash: 433da13) Form controls get real boxes and UA styles (render only, [archived: TODO-DONE.txt]
 - [ ] Q30a2 [S] READY Form controls: real inline baseline alignment (inline-blocks are
       still bottom-aligned, so a control's text sits 2-3px off the surrounding text
       baseline), `<select>` width from real option text widths (now an estimate of
       0.55em per char), `type=image` with a loaded `src`, focus-visible/`:checked`
       styling for the native look. Needs a real baseline in `measure_mixed_inline`.
-- [x] Q30b [S] DONE (hash: a7bc403) Controls are focusable and clickable. `is_focusable` [archived: TODO-DONE.txt]
-- [x] Q30c [S] DONE (hash: 6ebc5b4) Checkbox/radio live state. A per-element map on `App` [archived: TODO-DONE.txt]
-- [x] Q30d [M] DONE (hash: 04ae508) Text editing in `input` and `textarea`. When a text control [archived: TODO-DONE.txt]
 - [ ] Q30d2 [S] READY Text control polish left out of Q30d: Up/Down by VISUAL line in a wrapped
       textarea (today by logical line), triple click selects the line/paragraph, PageUp/PageDown
       in a textarea, wheel scrolling of an overflowing textarea (QJ6 element scroll), caret blink
@@ -3248,14 +2616,11 @@ with temporary `Instant` timing, and say the number in the commit.
       preedit/composition events (today only committed UTF-8 text via winit's `logical_key`),
       `type=number` stepping/validation, editable date/time inputs (still static boxes), RTL caret
       placement (the caret/selection geometry assumes left-to-right glyph order).
-- [x] Q30e [M] DONE (hash: f164a2b) Form submission. Build the form data set per the HTML spec [archived: TODO-DONE.txt]
 - [ ] Q30e2 [S] READY Form submission leftovers: constraint validation (`required`, `pattern`, `min/max`, `type=email`,
       `novalidate`, `checkValidity/reportValidity/setCustomValidity`, `:invalid` styling, a validation bubble),
       `type=image` click coordinates, `accept-charset`, real file bodies (needs the file chooser), `target=_blank`
       in a new tab (no tabs), keeping a POST result's document in history instead of re-GET, `action` against the
       document URL (not `<base href>`) when missing, `formnovalidate`, `<output>`/`<object>` in the data set.
-- [x] Q30f [S] DONE as QF14 (wire half 4d62f87, wire/src/cookies.rs) + [archived: TODO-DONE.txt]
-- [x] Q30g [M] DONE (hash: 2836959) (go-ahead 2026-11-17) Open `<select>`. Click or Space/Enter opens a lis... [archived: TODO-DONE.txt]
 - [ ] Q30g2 [S] READY Select leftovers: wheel scrolling inside a listbox, real label widths for the popup (now 0.55em
       per char), `new Option()`, `select.options.add/length=`, Ctrl/Shift-click only unit-tested (tools/inject has no held
       modifiers), popup anchoring inside inner scroll containers / position:fixed ancestors, a `selected` attribute on an
@@ -3273,13 +2638,6 @@ SPA frameworks need a much larger API surface and are a long shot.
 Before Q33a, the user picks 2-3 JS-needing sites they actually browse
 as the JS measurement corpus (same role the four CSS pages played).
 
-- [x] Q33-0 [S] (done, bda28d4) Spike, measure before committing (no feature [archived: TODO-DONE.txt]
-- [x] Q38 [M] (done, 38ca872) Split `src/lib.rs` (~27k lines) into [archived: TODO-DONE.txt]
-- [x] Q33a [M] (done, 2646dd1) Run scripts (engine: rquickjs, user decided 2026-11-15). [archived: TODO-DONE.txt]
-- [x] Q33b [M] (cda0cb7) (top priority, see "JS on real pages") DOM read API: `document.getElementById/quer... [archived: TODO-DONE.txt]
-- [x] Q33b1 [S] (062c3c8) (top priority, see "JS on real pages") Global [archived: TODO-DONE.txt]
-- [x] Q33t [M] (bec5507, code in b4b21df) (top priority, see "JS on real pages"; takes over Q33a1 [archived: TODO-DONE.txt]
-- [x] Q33c [M] (80b5e0a) DOM mutation: `setAttribute/removeAttribute`, [archived: TODO-DONE.txt]
 - [ ] Q33c1 [S] Left out of Q33c: `insertAdjacentHTML/Element/Text`,
       writing reflected `href/src/value/...` properties, `<script>`
       elements inserted by JS never run, `template.content`, `style`
@@ -3301,10 +2659,6 @@ as the JS measurement corpus (same role the four CSS pages played).
       QY-IO-GEOMETRY.
       PROMOTED 2026-11-19 into the PERFORMANCE QUEUE (step 14b, QY53e3 ad764fa): prerequisite of QY53e2. Gate: in a
       window a forced layout's viewport equals the window size; headless `--perf-report` unchanged; resize updates it.
-- [x] Q33c2 [S] (1b02dd5) A `<dialog>` without `open` must be `display:none` (UA [archived: TODO-DONE.txt]
-- [x] Q33c3 [S] (5bd6b26) `select{color:transparent}` still paints the option [archived: TODO-DONE.txt]
-- [x] Q33d [M] (46dfc45) Events: `addEventListener/removeEventListener/ [archived: TODO-DONE.txt]
-- [x] Q33d1 [S] (41d7a98) (inline `on*` handlers done in QA12, 51efed9) Left out of Q33d, needs Q30: native... [archived: TODO-DONE.txt]
 - [ ] Q33d2 [S] Leftovers of Q33d1: window `scroll` event (after the scroll
       offset changes, coalesced once per frame) and `resize` (after a
       window resize), `mousemove` (coalesced per frame, never from the
@@ -3314,7 +2668,6 @@ as the JS measurement corpus (same role the four CSS pages played).
 - [ ] Q33e [S] Forms <-> JS: `.value`, `.checked`, `.selectedIndex`,
       `.disabled` read and write the Q30 live state; `form.submit()`,
       `form.elements`, `input`/`change` events fire from Q30d/Q30c.
-- [x] Q33f [L] SUPERSEDED 2026-11-16 by QF1-QF19 (fetch/XHR done: QF8, [archived: TODO-DONE.txt]
 - [ ] Q33g (AUDIT 2026-11-16: `localStorage` done QY13 9218dc9 (memory
       only), `document.cookie` done QF14b bc2fb00, `MutationObserver` done
       QY6a 6f4e412, `getComputedStyle` done QA16; `getBoundingClientRect` is
@@ -3410,15 +2763,10 @@ It reproduced twice on 2026-11-12. Belongs in `snag/TODO.txt`.
 HISTORY AND DETAIL (everything below is the original log)
 ========================================================================
 
-- [x] `%` lengths (v49): `width`/`height` and their `min-`/`max-` forms, [archived: TODO-DONE.txt]
 
-- [x] Table layout (53bab7a) now does real CSS2.1 §17.5.2.2 [archived: TODO-DONE.txt]
 
-- [x] `font-family` (PROMPTS.md v16, named families/fallback lists: [archived: TODO-DONE.txt]
 
-- [x] `text-decoration` (PROMPTS.md v17) originally only tracked the line [archived: TODO-DONE.txt]
 
-- [x] `<title>`/`<head>` now hidden (PROMPTS.md v53): `head, title, meta, [archived: TODO-DONE.txt]
 
 The rest of this file is a full html-rendering feature-gap survey done
 after v20 (commit 7950fc2), not individual things hit mid-feature like
@@ -3426,30 +2774,7 @@ the items above — see the conversation that asked "what features are
 missing in regards to rendering html?" Grouped by area so a future
 session can pick a coherent slice rather than one property at a time.
 
-- [x] `position: relative`/`absolute`/`fixed` (bb97e60) now [archived: TODO-DONE.txt]
 
-- [x] `float: left`/`right` (5fc83ce) now takes a box out
-      of normal block-level flow (no vertical space reserved for it by
-      its own parent, same as `position: absolute`) but, unlike
-      `absolute`, still participates in the surrounding *inline*
-      formatting context: a later sibling's own text genuinely wraps
-      around it — narrower lines while they overlap its vertical range,
-      full width again once past it — not just a block-level
-      skip-reserving-space approximation. `clear: left`/`right`/`both`
-      moves a box down past the bottom of any earlier same-BFC float on
-      the named side(s) (CSS2.1 §9.5.2). A `width: auto` float uses real
-      shrink-to-fit sizing (§10.3.5), not "fill the container" the way
-      an ordinary auto-width block does. Real CSS's own "computed
-      `display`" rule (§9.7) applies to `float` too, same as `position`
-      already got in v52. A float now also paints *above* a later,
-      non-cleared, full-width sibling's own background where they
-      legitimately overlap (real CSS2.1 Appendix E stacking order for
-      floats vs. ordinary in-flow block boxes) — found as a real,
-      visible bug via a screenshot mid-session, not a hypothetical edge
-      case.
-
-      A few narrower things deliberately not attempted, scoped out
-      rather than silently folded into "done":
 
       - [ ] Multiple floats competing for the same side at the same
             flow position don't get CSS2.1 §9.5.1's full placement
@@ -3473,61 +2798,8 @@ session can pick a coherent slice rather than one property at a time.
             the markup, not whichever one is actually on top. None of
             these affect the common single-float case this item's own
             tests/screenshots cover.
-      - [x] (Q34a-c, acbcb00) Floats don't escape their parent `Blocks` box, BFC roots
-            (`overflow:hidden`, `flow-root`) don't avoid or contain
-            floats, and `table-caption` is a plain block. These were
-            queued as Q34a-c (2026-11-13, Wikipedia Nvidia page); all
-            three done in acbcb00.
 
-- [x] `position: sticky` (636f369) now parses and works — [archived: TODO-DONE.txt]
 
-- [x] Real CSS2.1 Appendix E stacking-context semantics (v56, bc3b696): the
-      seven-layer bottom-to-top paint order
-      (https://www.w3.org/TR/CSS21/zindex.html) is now genuinely modeled
-      per stacking context — (1) this box's own background/border, (2)
-      negative-`z-index` descendant stacking contexts, (3) in-flow
-      non-positioned non-floated block descendants, (4) floats, (5)
-      in-flow inline descendants, (6) `z-index: 0`/`auto` positioned
-      descendants, (7) positive-`z-index` descendant stacking contexts —
-      verified layer-by-layer with a permanent pixel test, not assumed.
-      Two concrete fixes over the old, narrower model (every out-of-flow
-      box used to paint in one flat ascending-`z-index` group, always
-      *after* its containing block's own content, regardless of sign):
-
-      Negative `z-index` now paints *above* its own containing/stacking-
-      context box's own background/border but *below* that box's normal
-      content (layer 2 sits between layers 1 and 3). Checked directly
-      against the spec rather than assumed: the intuitive "negative
-      z-index hides behind its own box's background" is a common but
-      *inaccurate* paraphrase of the real rule — Appendix E lists
-      background (layer 1) *before* negative stacking contexts (layer 2)
-      in its bottommost-first order, meaning negative paints on top of
-      it; it only looks "hidden behind everything" when the relevant box
-      happens to have no background of its own, leaving nothing else for
-      it to appear in front of.
-
-      `position: relative`/`sticky` with an *explicit* `z-index` now
-      establishes its own descendant stacking context (real CSS2
-      §9.9.1) — pulled out of plain document-order painting to compete
-      by `z-index` with its containing block's other out-of-flow
-      descendants instead, the same way `absolute`/`fixed` already did.
-      `z-index: auto` on `relative`/`sticky` is unaffected (still
-      today's plain paint-position-only treatment — real CSS: `auto`
-      does not establish a stacking context).
-
-      The "two unrelated in-flow subtrees overlapping" generality the
-      original item worried about turned out to be reachable, just not
-      in the unbounded way the old wording implied: a `position:
-      relative` box's own offset can already overlap a *sibling* in the
-      same parent's `Blocks` list (float/clear, v54, only narrows
-      content *around* a float — it doesn't let two unrelated block
-      subtrees overlap arbitrarily anywhere on the page). Scoped to
-      exactly that reachable case — sibling-level, same immediate parent
-      — rather than building a fully general cross-subtree stacking
-      search for a case that doesn't occur in this layout model.
-
-      Deliberately scoped out, each documented precisely rather than
-      silently dropped:
       - [ ] A `relative`/`sticky` box's own explicit-`z-index` stacking
             context is always anchored at its *immediate* containing
             block (the same box that already catches its own
@@ -3554,103 +2826,7 @@ session can pick a coherent slice rather than one property at a time.
             when a negative stacking entry and normal content genuinely
             overlap at the exact same screen pixel.
 
-- [x] `display: flex` (440e03b) now does real CSS Flexible Box
-      Layout (https://www.w3.org/TR/css-flexbox-1/), scoped to the common
-      "flex row/column of items, growing/shrinking/justified/aligned"
-      case — grid explicitly deferred, see its own item just below (same
-      "bundling both would risk landing neither well" latitude the
-      `position`/`float` items already used). Landed: `flex-direction`
-      (`row`/`row-reverse`/`column`/`column-reverse`), `flex-wrap`
-      (`nowrap`/`wrap`/`wrap-reverse` — real for `row`/`row-reverse`
-      only, see its own item below), `flex-flow` shorthand,
-      `justify-content` (all 6 keywords, including `space-evenly`, which
-      the original task wording treated as optional — it fell out of the
-      same arithmetic as `space-between`/`space-around` for free),
-      `align-items`/`align-self` (`flex-start`/`flex-end`/`center`/
-      `stretch`/`baseline` — `baseline` approximates to `flex-start`, see
-      its own item below), `flex-grow`/`flex-shrink`/`flex-basis` and the
-      `flex` shorthand (real proportional space distribution — verified
-      with permanent tests that growth/shrink is genuinely proportional
-      to the declared factors, not just "fits content"), and
-      `gap`/`row-gap`/`column-gap` (new — nothing in this codebase had
-      `gap` before). `order` was deliberately not attempted (see its own
-      item below). `inline-flex` was not attempted either — a flex
-      container is always block-level in the outer flow here (same as
-      `display: table`); real `inline-flex` would need the same hand-
-      rolled inline-level embedding `measure_mixed_inline` (v48) built
-      for `<img>`, not attempted for this item.
 
-      Architecturally: a new `BoxContent::Blocks`-shaped build path
-      (`build_flex_children`, parallel to `build_table_children`) plus
-      `measure_flex`/`measure_flex_row`/`measure_flex_column` (parallel
-      to `measure_table`/`measure_row_with_widths`), reusing `box_model_
-      entry` for the container's own box model and `cell_natural_width`
-      (v50's min/max-content measurement, originally built for table
-      columns, already reused once for `float`'s shrink-to-fit sizing —
-      now a third use) for a `width`-axis item's content-based basis. See
-      NOTES.md for the full architecture writeup, including the one
-      real insight that made cross-axis stretch/grow/shrink cheap: this
-      engine's own `height` property already doesn't affect how a box's
-      children are laid out (v42), so a flexed/stretched final size on
-      whichever axis is *height* is a pure post-hoc `Laid::h` overwrite,
-      never a second `measure()` call.
-
-      **Deliberately cut within flexbox itself, each precise and
-      documented, not silently dropped:**
-
-      - [x] (4661363) `order` is not implemented — every flex item lays out (and
-            paints/hit-tests) in plain document order, `row-reverse`/
-            `column-reverse` only mirror *position* along the main axis,
-            not reordering anything. Nothing in `default.css` or a real
-            test page needs it yet; same shape of cut `z-index`'s own
-            stacking-context work (v56) left for an analogous "not
-            reachable by anything real yet" reason.
-      - [x] (c446586) `align-content` (multi-line cross-axis distribution — e.g.
-            spreading several wrapped lines apart when a `flex-wrap`
-            container's own cross size is larger than its lines' summed
-            cross size) isn't implemented — lines always stack with no
-            extra distribution (`align-content: flex-start`'s behavior
-            unconditionally). Not in this item's own requirements list;
-            flagged here for completeness since `flex-wrap` is real.
-      - [x] (18c8812) `flex-wrap` is only genuinely real for `flex-direction: row`/
-            `row-reverse` — a `column`/`column-reverse` flex container
-            always lays its items out as a single column regardless of
-            the declared `flex-wrap` value. Wrapping a *column* means
-            wrapping across the *width* into multiple side-by-side
-            columns, a materially different (and much rarer in real page
-            chrome) shape than the classic wrapped-multi-line-row case
-            this item prioritized — see `measure_flex_column`'s own docs.
-      - [x] (18c8812) `align-items`/`align-self: baseline` resolves identically to
-            `flex-start` — real baseline alignment needs each item's own
-            font ascent threaded out of `measure`'s box-model math (no
-            box here tracks its own baseline today, only cosmic-text's
-            per-glyph shaping does, several layers below `measure`) — a
-            disproportionate amount of new plumbing for a value most
-            real "flex row of items" pages don't rely on. Explicitly
-            permitted as an approximation by this item's own task
-            wording, not silently dropped.
-      - [x] (18c8812) No CSS Flexbox §9.7 iterative constraint resolution — `flex-
-            grow`/`flex-shrink` distribution (`resolve_flex_main_sizes`)
-            is a single pass: an item whose flexed size gets clamped by
-            its own `min-width`/`max-width`/`min-height`/`max-height`
-            doesn't have its own under/overshoot redistributed a second
-            time among its unclamped siblings, the way the real spec's
-            freeze-and-retry algorithm would. Fine for the common case
-            (no unusually tight min/max relative to an item's own
-            basis); a real divergence only once several siblings'
-            constraints interact non-trivially.
-      - [x] (18c8812) (Row axis DONE in `500bd16` — see "Flex items' automatic
-            minimum size" below. Only the *column* axis's implicit
-            `min-height` floor in `measure_flex_column` is still open.)
-            Original text: No CSS Flexbox "automatic minimum size" — an item's own
-            `min-width`/`min-height` only clamps if explicitly declared;
-            there's no implicit min-content floor preventing `flex-
-            shrink` from shrinking an item's content below its own
-            natural min-content width/height the way real Flexbox does
-            by default (`overflow: visible`'s own automatic-minimum-size
-            rule, CSS Flexbox §4.5) — an item can shrink to (or past)
-            zero, clipping/overflowing its own content, if nothing else
-            stops it.
       - [ ] On a `flex-direction: row`/`row-reverse` container, an
             item's own explicit, conflicting CSS `width` wins over a
             flex-grown/shrunk main size (the distributed size is still
@@ -3665,16 +2841,6 @@ session can pick a coherent slice rather than one property at a time.
             `Laid::h` write that always applies regardless (see
             `measure_flex_column`'s own docs for exactly why the two
             axes differ here).
-      - [x] (1000951) A bare, non-whitespace text node placed directly inside a
-            flex container (no wrapping element) doesn't become its own
-            anonymous flex item the way real CSS would (CSS Flexbox §4:
-            "runs of text... are treated as anonymous flex items") —
-            `build_flex_children` only collects real element children,
-            matching this item's own explicitly-permitted scope-
-            narrowing latitude. Uncommon in real page chrome (which
-            almost always wraps each flex item in an element) — silently
-            dropped rather than rendered, worth fixing if a real page's
-            flex container loses visible text because of it.
       - [ ] `gap`/`row-gap`/`column-gap` only accept `px`/`em`/`rem` —
             real CSS also allows a `%` (resolving against the flex
             container's own cross/main size respectively), parsed with
@@ -3683,118 +2849,8 @@ session can pick a coherent slice rather than one property at a time.
             not-yet-supported value. Nothing in `default.css` or a real
             test page has needed one yet.
 
-- [x] `display: grid` (2f593a1, v58) now does a real but [archived: TODO-DONE.txt]
 
-- [x] `grid-template-areas` + `grid-area` named placement, and
-      `minmax()` track sizing (4e7a27d) — the two gaps the `@media` item below
-      flagged as the reason a real Wikipedia page "still renders single-
-      column as predicted" even with `display: grid` otherwise working;
-      prompted by live-testing scratchy against a real Wikipedia article
-      and finding its page-shell layout (logo/user-links header, left
-      TOC rail, title+body) collapsing to one stacked column where
-      Firefox shows a real two-column shell, then confirming the actual
-      cause by pulling Wikipedia's real CSS directly (`curl`) rather
-      than guessing: every page-shell grid container declares its
-      layout via `grid-template-areas` with `minmax()`-sized tracks,
-      neither of which scratchy parsed at all — both declarations were
-      silently dropped, leaving every one of those containers with no
-      explicit tracks and falling back to a single full-width column.
 
-      `minmax(<min>, <max>)` (`GridTrackSpec::MinMax`, a new `TrackBreadth`
-      grammar for each argument — a plain length/`%`/`fr`, no content-
-      based keywords inside `minmax()` either, still the same separate,
-      not-yet-attempted cut named below) now resolves via a real,
-      single-pass floor-then-distribute algorithm in `resolve_grid_
-      tracks` — a flexible track's own floor is reserved before the
-      remaining free space is distributed by `fr` factor, then added
-      back on top (exactly correct whenever every floor is `0`, which is
-      every real `minmax()` call found in Wikipedia's own CSS — confirmed
-      by grep, not assumed; a real but bounded approximation otherwise,
-      same "single-pass, not the spec's iterative freeze-and-retry"
-      simplification `resolve_flex_main_sizes` already carries for
-      flexbox). `grid-template-areas` (`parse_grid_template_areas`,
-      storing each template row's raw string, leaked the same way
-      `font-family`'s fallback list already is) plus `grid-area: <name>`
-      on an item (`parse_grid_area_name`, bare-identifier form only) now
-      place an item into its named area's own bounding rectangle —
-      computed from the template by `grid_area_rect`, real multi-column
-      spans included (confirmed against real Wikipedia CSS, e.g.
-      `grid-template-areas:'siteNotice siteNotice'`) — ahead of, and
-      taking priority over, the pre-existing auto-placement cursor,
-      which still places everything else (no `grid-area` at all, or one
-      naming nothing in the template) exactly as before, skipping
-      whatever a named item already claimed. `grid-template-columns`
-      absent entirely but `grid-template-areas` present now falls back
-      to one equal-`fr` implicit column per template column (narrower
-      than real CSS, which treats that combination as an author error)
-      rather than collapsing to one full-width column — the one honest
-      single-pass answer when a container's *real* explicit column
-      sizes are themselves unparseable (exactly Wikipedia's own shape,
-      see below). 7 new permanent tests (named placement overriding
-      document order, a two-column span getting both columns' widths
-      combined, the no-explicit-columns equal-fr fallback, an unnamed
-      item auto-placing around a named one, and three `minmax()` shapes
-      — a `0` floor, a nonzero floor, and a fixed ceiling). Live-verified
-      with a real `grim` screenshot against a
-      synthetic local page exercising both features together (named
-      placement reordering the visual layout away from document order,
-      a `minmax()` column claiming its real proportional share, a
-      third area spanning both columns) — see `NOTES.md` for the full
-      writeup.
-
-      **Does not, on its own, fix the real Wikipedia page this was built
-      against, and that's a real, confirmed finding, not a bug in this
-      landing**: Wikipedia's own page-shell `grid-template-areas` for
-      the *logo/TOC/content* split (`.mw-page-container-inner`) is
-      itself only declared inside `@media screen and (min-width:
-      1120px)` — narrower than this, there's no special layout rule for
-      that container in Wikipedia's own CSS at all (confirmed by reading
-      the actual stylesheet, not assumed), so a scratchy window tiled
-      narrower than 1120px stacks that specific container exactly as
-      correctly as real Firefox resized to the same width would. The
-      header row (`.mw-header`, logo left / user-links right) *is*
-      ungated and did pick up real named placement from this landing —
-      but still not its own real 15.5rem/`1fr` column *proportions*,
-      since those are declared via the `grid-template` shorthand
-      (`grid-template: auto / 15.5rem minmax(0,1fr)`), which this item
-      doesn't parse (see below) — it falls back to this item's own
-      equal-`fr` default instead.
-
-      - [x] (Q15b, 9397a18) `grid-template` (the `<rows> / <columns>` shorthand,
-            optionally combined with area strings) isn't parsed at
-            all — only the two longhands (`grid-template-columns`/
-            `-rows`) and the standalone `grid-template-areas` are.
-            Real Wikipedia CSS uses this shorthand for every page-shell
-            container's own row sizing (`grid-template: auto / 15.5rem
-            minmax(0,1fr)` for the header) — unlocking its *column*
-            half doesn't strictly need the row half to parse too, but
-            doing one without the other wasn't attempted this session;
-            the bigger blocker in practice is that most of these rows
-            use `min-content` (a content-based keyword, see below), not
-            just `auto`, so parsing the shorthand's syntax alone
-            wouldn't be enough to make most of these specific
-            declarations resolve anyway.
-      - [x] (Q10, a4f4d91) `@supports` isn't parsed at all (falls through to the same
-            "any at-rule but `media` is dropped" policy named below) —
-            found as a *second*, independent reason part of Wikipedia's
-            own left rail (`.vector-pinned-container`, which the TOC and
-            main menu both live inside) stays invisible even once its
-            own column is real: its default `display: none` is only
-            overridden back to `display: block` by a rule wrapped in
-            `@supports (display: grid){...}`, which scratchy drops
-            entirely regardless of whether it actually supports
-            `display: grid` by then. Not attempted as part of this item
-            — a real, separate at-rule feature, same shape `@media`
-            itself was before v64, not a grid gap.
-      - [x] (Q15c, a665a34) No numeric explicit item placement — `grid-column`/`grid-
-            row`/their `-start`/`-end` longhands, and `grid-area`'s own
-            fuller `<grid-line> / <grid-line> / <grid-line> / <grid-
-            line>` numeric form, still aren't parsed; only a bare
-            `grid-area: <name>` naming a `grid-template-areas` area is
-            recognized. Narrowed by this item, not closed — auto-
-            placement (or now, named-area placement) still covers "just
-            make a grid and drop items in," the dominant real-world
-            case, without this.
       - [ ] A named area spanning multiple *rows* has its own height
             attributed entirely to its first row, not distributed across
             every row it spans the way real CSS Grid would (the same
@@ -3808,24 +2864,6 @@ session can pick a coherent slice rather than one property at a time.
             cell's full width (the same "stretch" a table cell already
             gets) and sits at its row's own top edge, with no
             alternative alignment/sizing-within-the-cell behavior.
-      - [x] (Q15a, 1154431) No content-based track-sizing keywords (`auto`/`min-
-            content`/`max-content`) — now parsed bare and inside `minmax()`;
-            columns are sized from single-column items via
-            `cell_natural_width` (multi-column spans don't contribute;
-            rows still size from content as before). Original gap: every column/row track `grid-
-            template-columns`/`-rows` declares must still be a plain
-            fixed `<length-percentage>`, `fr`, or `minmax()` of either
-            (`GridTrackSpec`'s own grammar, now including `minmax()` —
-            see the item just above); a bare `auto`/`min-content`/
-            `max-content`, inside `minmax()` or not, still simply fails
-            to parse, dropping the whole declaration.
-      - [x] (Q15d, 86e1dcb) `repeat(auto-fill, ...)`/`repeat(auto-fit, ...)` aren't
-            recognized — only `repeat(<integer>, ...)` — real available-
-            space-driven track-count resolution (how many tracks fit)
-            is a different, bigger problem than this item's own
-            fixed-count expansion; the `auto-fill`/`auto-fit` keyword
-            simply fails `expect_integer`, dropping the whole
-            declaration.
       - [ ] An explicit `grid-template-rows` entry only gets a *real*
             track size when it's a fixed `px`/`em`/`rem` length — a `%`
             or `fr` row track always falls back to the same content-
@@ -3845,86 +2883,14 @@ session can pick a coherent slice rather than one property at a time.
             there (deliberately prioritized, per this item's own task
             wording, as grid's single most load-bearing primitive).
 
-- [x] Last member of what was once a cluster of CSS properties: [archived: TODO-DONE.txt]
 
-- [x] `text-decoration-style`/`-color` (PROMPTS.md v33, remaining gaps [archived: TODO-DONE.txt]
 
-- [x] `cursor` (PROMPTS.md v32, extended to the full real keyword set [archived: TODO-DONE.txt]
 
-- [x] `overflow` (v31, extended to box decoration in v40; `scroll`/
-      `auto` landed 701a334, v62): an `overflow: scroll`/`auto`
-      box is now a genuinely independent, interactively-scrollable
-      region, not just a `hidden`-equivalent clip. Landed: a per-element
-      live scroll offset (`App::scroll_offsets: HashMap<usize, f32>`,
-      keyed by a stable id `measure`'s own `BoxContent::Blocks` arm
-      assigns from the same shared counter its paragraph ids already
-      use — a different, unrelated-by-value id space, no collision
-      risk) — resolved the same "bounds at layout time, live value read
-      fresh at paint time" split `position: sticky` (v55) already
-      established, so a mouse-wheel tick still can't trigger a
-      relayout; real mouse-wheel routing to the deepest `overflow:
-      scroll`/`auto` ancestor under the cursor (`hit_test_scroll_
-      region`, reusing `hit_test_cursor`'s own recursive-walk shape),
-      falling back to the page's own top-level scroll when the cursor
-      isn't over any such region; clipping to the box's own border box
-      (the same bounds `hidden` already clips to) plus a real paint-time
-      translation of its content by its own live scroll offset, nesting
-      correctly with `position: sticky`/`fixed`'s own ambient-offset
-      tricks (and, architecturally, with a nested scroll region too,
-      though that specific case isn't covered by a dedicated test — see
-      below); `auto` only actually scrolls/shows a scrollbar once its
-      content genuinely overflows (`ScrollInfo::max_scroll() > 0.0`),
-      `scroll` always shows the indicator; a minimal flat overlay
-      scrollbar (`paint_scrollbar` — a translucent track + thumb,
-      doesn't reserve any box-model space, matching modern overlay-
-      scrollbar OS convention, not a 90s classic-scrollbar reservation).
-      5 new permanent tests.
-
-      Deliberately scoped out, each precise rather than silently folded
-      into "done":
 
       - [ ] **Scrollbar drag-to-scroll isn't implemented** — only mouse-
             wheel scrolling is interactive; the painted indicator is
             display-only (per this item's own explicit latitude to scope
             this out as a nice-to-have).
-      - [x] (Q24, 00648b9) **Only an ordinary `measure`'s `BoxContent::Blocks` arm
-            assigns a `ScrollInfo`** — a `display: table`/`flex`/`grid`
-            container's own box (`measure_table`/`measure_flex`/
-            `measure_grid`, each a separate tail from the ordinary
-            `Blocks` arm) never does, so `overflow: scroll`/`auto` on a
-            table/flex/grid container itself has no effect at all (its
-            own content still just overflows per `overflow: visible`,
-            or clips-but-doesn't-scroll if it's `hidden`, unaffected by
-            this item). Scoped the same way `overflow: hidden`'s own
-            v31/v40 "narrowest real choke point over the general case"
-            precedent was — the single most common real case (a plain
-            block container) is what's covered.
-      - [x] (Q24, 00648b9) **Explicitly-stacked (`position: relative`/`sticky` with its
-            own `z-index`) and out-of-flow (`position: absolute`/
-            `fixed`) content *inside* a scroll region doesn't scroll
-            with it at all** — `paint`'s own `paint_z_layer` calls
-            (layers 2 and 6+7) and `hit_test_cursor`'s/`hit_test_scroll_
-            region`'s own "above" stacking-children loops deliberately
-            keep using the *un*-adjusted ambient scroll offset/query
-            point, never threading in the scrollable box's own live
-            `own_scroll` the way the ordinary in-flow `Blocks`/
-            `TableRow` loops do. A `position: absolute` child anchored
-            inside an `overflow: scroll` ancestor (a real, if uncommon,
-            pattern) will sit frozen in place while the rest of the
-            region's content scrolls underneath it, rather than
-            scrolling along with its containing block.
-      - [x] (Q24, 00648b9) **A scroll region nested inside another scroll region is
-            architecturally supported (the same ambient-offset-
-            composition trick `position: fixed`/`sticky` already use
-            for their own nesting generalizes for free — see `paint`'s
-            own `content_scroll_offset` docs) but has no dedicated
-            test** — the permanent test suite for this item covers only
-            independent, sibling scroll regions (confirming `hit_test_
-            scroll_region` tells two side-by-side regions apart and
-            falls through to `None` outside both), not a genuinely
-            nested pair. Worth a real test before trusting the nested
-            case in production, even though the mechanism should
-            already be correct by construction.
       - [ ] **Not live-verified interactively, same category as v32's
             `cursor`/v55's `position: sticky` gaps**: this sandbox still
             has no tool to synthesize a real mouse-wheel event, so the
@@ -3937,11 +2903,8 @@ session can pick a coherent slice rather than one property at a time.
             rendering at the pre-scroll (zero-offset) position. Worth a
             real interactive check next time a human's at the keyboard.
 
-- [x] `border-style` (PROMPTS.md v30) originally only distinguished [archived: TODO-DONE.txt]
 
-- [x] (96bb7b1, Q4b+Q4c) `border-radius` (v38) combined with a non-`solid` `border-style` [archived: TODO-DONE.txt]
 
-- [x] (dd101c7) **`opacity` was deliberately skipped, not attempted** (DONE as Q17: user chose multiply-alp... [archived: TODO-DONE.txt]
 
 - [ ] (2026-11-17: the "cosmic-text bug" below was OUR unit mismatch, px passed to an EM
       API; see R33 and the QUEUE item Q26, now READY) **`letter-spacing` was attempted and reverted (no commit) after
@@ -3974,11 +2937,8 @@ session can pick a coherent slice rather than one property at a time.
       lossy enough to want explicit sign-off before shipping, which is
       why this was skipped rather than guessed at).
 
-- [x] (3c7a36a, Q25: blur, multiple (max 4), inset, currentColor all done) `box-shadow` (PROMPTS.md v27) is... [archived: TODO-DONE.txt]
 
-- [x] (Q13, commit: b23fd53) CSS custom properties (v45) only resolve `var()` against `:root`/ [archived: TODO-DONE.txt]
 
-- [x] `@media` (1282285, v64) now parses real `<media-query-list>` [archived: TODO-DONE.txt]
 
 - [ ] `@font-face`, `@keyframes`, and transitions/animations are still
       skipped at the stylesheet-parsing stage (any at-rule other than
@@ -3990,13 +2950,9 @@ session can pick a coherent slice rather than one property at a time.
       2026-11-17: surveyed by QAN1 (R31); now tracked as QAN1-0, QAN1a-QAN1i and
       QFF1a-QFF1c in the QUEUE section.
 
-- [x] (a4b93c4, Q31: hover/active/focus/focus-visible/focus-within done, see [archived: TODO-DONE.txt]
 
-- [x] (0867a4c, Q28: `object-fit`/`object-position` and bilinear/box-averaged [archived: TODO-DONE.txt]
 
-- [x] (93209c2) `background-image` (v47) only decodes a `data:` URI `url(...)` — [archived: TODO-DONE.txt]
 
-- [x] `list-style: none` (fe7350c, CSS-gap report: 40 occurrences, almost always [archived: TODO-DONE.txt]
 
 - [ ] No forms/interactive widgets (`input`/`button`/`select`/
       `textarea` render as plain unstyled DOM nodes, not widgets), no
@@ -4014,7 +2970,6 @@ session can pick a coherent slice rather than one property at a time.
       images/external stylesheets through `wire`, were both carved out
       of this item and are now resolved; see their own entries below.)
 
-- [x] **Link navigation (click an `<a href>` to load a new page)** [archived: TODO-DONE.txt]
 
 The items below are a forward-looking plan, written up for the user to
 review and prioritize before any of it is built — not yet-attempted
@@ -4322,22 +3277,13 @@ last, per the user's own call.
         unverified-live-in-this-sandbox bucket v32/v55/v62/v65 already
         flagged (no synthetic mouse/keyboard event tool here).
 
-- [x] (Q1 follow-up done, see QUEUE; dropped selectors/at-rules now reported, duplicate-valued declarations... [archived: TODO-DONE.txt]
-- [x] **Debug tools: `SCRATCHY_CSS_DEBUG=1` prints every CSS declaration [archived: TODO-DONE.txt]
 
-- [x] **A real CSS-gap report, built from `SCRATCHY_CSS_DEBUG=1` against [archived: TODO-DONE.txt]
 
-- [x] `display: flow-root` (a4852af) now maps to `Display::Block` — same scoped [archived: TODO-DONE.txt]
 
-- [x] **`display: inline-block`/`inline-flex`** (244a8f4) — the CSS-gap report's [archived: TODO-DONE.txt]
 
-- [x] `pt` unit (17dd346, CSS-gap report: 64 `font-size` + 20 `line-height` [archived: TODO-DONE.txt]
 
-- [x] `white-space: nowrap` (CSS-gap report: 42 occurrences — found via [archived: TODO-DONE.txt]
 
-- [x] **Flex items' "automatic minimum size" (CSS Flexbox §4.5) — [archived: TODO-DONE.txt]
 
-- [x] (312a345) **`mask-image`/`-webkit-mask-image` (icon alpha-masking) — real [archived: TODO-DONE.txt]
 
 - [ ] **JavaScript — engine choice (split into QUEUE Tier 7, Q33-0..Q33g,
       on 2026-11-14), investigated, not started; last
@@ -4414,38 +3360,7 @@ last, per the user's own call.
       which engine is chosen.
 
 
-- [x] **Vim-inspired keybindings + a `:` command bar** (the plan recorded [archived: TODO-DONE.txt]
 
-- [x] **Move page shaping off the main thread** (the 4-step sequencing
-      plan recorded here, now built — `968df78`, `81fb1cc`, `b5184e4`,
-      `a58e2b0`). Steps 1–3 landed as planned: `Rc<DecodedImage>` ->
-      `Arc<DecodedImage>` everywhere; `layout_generation` bumped on every
-      resize/`@media`/navigation/streaming-chunk, threaded into every
-      background-shaping request and checked against on arrival so a
-      stale result from a since-superseded reshape is silently dropped;
-      `measure_document` now runs on its own background thread with its
-      own independent `FontSystem`/`SwashCache` pair, isolated behind
-      `catch_unwind` so a panic on one pathological page can't
-      permanently break every navigation after it.
-
-      Step 4 (revisit `PROGRESSIVE_LAYOUT_TICK_BUDGET` once step 3
-      landed) surfaced a real problem real-world testing against a live
-      Wikipedia page found in the first one-shot-thread-per-rebuild
-      version of step 3, and both of this plan's own open questions got
-      resolved in the fix, not left open: a *persistent* background
-      worker (`spawn_shaping_worker`, started once at construction, not
-      spawned fresh per rebuild — avoids re-paying `new_font_system()`'s
-      system-font-database scan on every navigation) that still ticks
-      internally at roughly the same budget and still delivers progress
-      per tick (`AppEvent::ShapeResult`), so a big page keeps filling in
-      progressively on the main thread exactly as before this plan
-      started, despite shaping now happening on a different thread
-      entirely — chosen over one unticked call to completion, which
-      turned "laggy while loading" into "blank for most of a minute" on
-      a big real page when tried.
-
-      **Explicitly NOT fixed by this plan, exactly as flagged when it
-      was written**:
 
       - [ ] `build_layout_tree_with_resources`'s own DOM-walk-and-
             cascade-match cost is still a fully synchronous, unbudgeted,
@@ -4457,9 +3372,7 @@ last, per the user's own call.
             loading" symptom from this one step alone, even though
             `measure_document` itself is now fully backgrounded.
 
-- [x] **(Done, `f7dfda9`.) User-reported, investigated 2026-11-11, base [archived: TODO-DONE.txt]
 
-- [x] (66bdc60) **Parse `:focus`/`:hover`/`:active`/`:focus-visible`/`:focus- [archived: TODO-DONE.txt]
 
 - [ ] QM1k-mouse [?] USER RE-TEST 2026-11-19 22:21 (installed main incl. QCUR1/QM1k1n6a-c/QY53o1; file
       .coordinator/user-runs/fs5-user-yt-mouse.jsonl, 3 appended runs; machine load ~23 from agent builds): STILL SLOW while

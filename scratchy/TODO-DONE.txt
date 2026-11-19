@@ -6978,3 +6978,743 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
         are not the scrollbar (no track fill). Not root-caused: check
         which hidden or clipped box paints them (the nav drawer's
         content or an icon), then fix or file it.
+
+=== Closed items moved out of TODO.txt by the coordinator 2026-11-19 (user: keep TODO.txt small) ===
+- [x] QM1-D ANSWERED (D1-D8 all decided 2026-11-17; MSE is QM1k): D1 = in-page video using mpv (libmpv A1; the
+      page console/status logs "media: mpv"; an extra "open in mpv" action is not asked
+      for), D4 = all bytes through wire, always. D2 = libmpv in-process, D3 = optional
+      dependency, D5-D7 = coordinator defaults (decided 2026-11-17, see the status block).
+      D8 = no MSE for now (QM1j/QM1k).
+      MEDIA DESIGN COMPLETE 2026-11-17 (D1-D8): QM1b/QM1e/QM1f/QM1g may now be built in order. Media is still "Off limits" in AGENTS.md until the design is
+      agreed; QM1b/QM1e/QM1f/QM1g stay gated on D2/D3/D5-D7.
+      (design first; media is "Off limits" in AGENTS.md)
+      product questions, answers gate everything below except QM1a/QM1c/QM1d:
+      D1 In-page video (A1) at all, or first only a "open in mpv" action on the
+         placeholder (C: own dwl tile, mpv does its own networking unless D4 says
+         otherwise)? Or both, C first because it is a day of work?
+      D2 libmpv inside scratchy's process (simplest; ffmpeg parses untrusted media
+         next to the JS engine and page state) or a separate media helper process
+         that renders frames into shared memory (memfd) for scratchy (isolation,
+         about 2x the work)?
+      D3 Hard dependency on libmpv, or optional (cargo feature or dlopen at run
+         time; without it `<video>` stays the inert placeholder)? Recommended:
+         optional, so scratchy still builds and runs without mpv.
+      D4 All media bytes through wire (recommended: same policy, cookies, CORS as
+         everything else; needs a Range-capable media channel, QM1d/QM1e), or may
+         the player fetch directly (bypasses wire's policy and jar)?
+      D5 Autoplay: never / muted only / allowed. D6 Controls: who draws them
+         (scratchy paints a simple bar; mpv's OSC is a Lua script and would be off),
+         which keys (vim-mode conflicts: space, j/k, arrows). D7 `<audio>` too
+         (same backend, no video), and how many players at once (each ~100 MB RSS;
+         suggest 2, pause the oldest). D8 Accept "no MSE/EME" (YouTube stays
+         without video), or ask for a separate MSE investigation later.
+         [D8 REVISED 2026-11-17 by the user: goal = video on all sites except DRM;
+         YouTube and Reddit first; measure first (QM1k-m), then plan (QM1k).]
+- [x] QM1k [L, Opus investigate, then PLAN WITH THE USER PRESENT] PLANNED 2026-11-18 (user
+      answered QUESTIONS.md Q4 the same day; plan = the QM1k-PLAN block right below; the build
+      items start AFTER the V8 freeze is lifted, QV8-m, and after QV8-5b because they touch
+      media_mpv.rs). Original text: (user
+      2026-11-17: "create action item for investigating the MSE and planning it with me
+      present") MediaSource Extensions for libmpv (QM1j): how a `blob:` URL from
+      `URL.createObjectURL(mediaSource)` could be backed by the appended SourceBuffer
+      segments (fragmented mp4 / webm), one growing byte stream per track fed to libmpv
+      via stream_cb (audio and video are separate SourceBuffers on most sites; mpv
+      needs them merged or `--audio-file`-style external tracks), buffered ranges,
+      seeking/`remove()`, `endOfStream`, codec strings and `isTypeSupported`, timing
+      (`timeupdate`, `waiting`, `canplay`), memory caps, what YouTube/Twitch/Vimeo
+      actually need (DASH/HLS pages, botguard, EME/DRM which is out of scope), and
+      what a minimal spike would look like (a local fragmented-mp4 page whose JS
+      appends segments). DO NOT start this autonomously: when the user asks, do the
+      Opus investigation first, then walk through the plan together before any build.
+      REFINED 2026-11-17 by QM1k-m (R34), what the plan must cover:
+      - YouTube is the only measured site that NEEDS MSE; its own base.js does SABR/UMP
+        (POST videoplayback, application/vnd.yt-ump) through fetch, so scratchy needs only
+        MediaSource/SourceBuffer + `blob:` attach, not a UMP parser. Two SourceBuffers:
+        default answers give AV1-in-fMP4 video + Opus-in-WebM audio; refusing webm gives
+        avc1 + mp4a, both fMP4 (one container to support first). Appends: init (ftyp+moov
+        700 B / EBML+Tracks 259 B) then moof+mdat 4-7 s or one Cluster per 10 s. In 2 min
+        no remove(), timestampOffset, mode, changeType or endOfStream; a quality switch
+        builds a NEW MediaSource (revoke + re-add both buffers); a seek is a new SABR POST.
+      - isTypeSupported must reject YouTube's invalid probes (QM1k4).
+      - PoToken (QM1k2) decides whether YouTube plays past ~60 s.
+      - Reddit needs nothing (progressive); Vimeo/BBC/Twitch/X are blocked before media
+        (QY15a, QM1k5, Workers/WebAssembly, login).
+      - Product questions 1-6 in R34 "Open product questions".
+- [x] QY53e DESIGNED 2026-11-19 064eca5 (Opus, docs only; R43 section 7; PARTIAL: the coordinator drained the
+      machine before the live-window measurement, filed as QY53e3). Split into QY53e1/e2/e3 below.
+      Headless after QY53d: Wikipedia Rust 30 s, 3 runs: 7 of 8 forced layouts (8.3-8.7 of 9.4-9.8 s
+      = 88-89 %) are IO rechecks, and only the FIRST (initial `observe`) delivers an entry; the other
+      5-6 (~6-7 s per 30 s) deliver nothing. YouTube watch 60 s: IO 24/142 layouts (9.0 of 24.7 s,
+      36 %), 13/217 (4.2 of 37.1 s, 11 %), 7/194 (1.1 of 21.4 s, 5 %, run cut at ~60 s).
+- [x] QAN1-D DECIDED 2026-11-17 (user: "I accept your recommendations for now. Leave a
+      parked todo of improving their performance later" -> QAN1p in Parked). Answers:
+      D1 YES: answer `prefers-reduced-motion: reduce` by default; `:set motion` /
+         `:set nomotion` (and a `--motion` flag) switch to `no-preference`. Item QAN1d0.
+      D2 Infinite animations (iteration-count `infinite`, or total active duration
+         > 5 s) animate at the frame cap, then FREEZE 5 s after they start at their
+         current value (no more frames, no more `animationiteration`); a restyle that
+         restarts the animation (new name/element) starts a new 5 s window. In QAN1d.
+      D3 30 fps cap (constant), no frames while the window is hidden or unfocused
+         (when winit reports it; check on dwl), as already written in QAN1d.
+      Original questions:
+      D1 Should scratchy answer `prefers-reduced-motion: reduce` (today always
+         `no-preference`)? GitHub has 97 and YouTube 49 such queries; with `reduce`
+         most decorative motion switches itself off (battery), while UI feedback
+         stays. Or a `--reduced-motion` flag / `:set` option.
+      D2 Infinite animations (GitHub's logo marquee, DDG's spinner): animate them at
+         the 30 fps cap, freeze them after N seconds, or freeze them always?
+      D3 Frame cap (proposed 30 fps), and stop animating when the window is hidden or
+         not focused?
+- [x] QJ11 DECIDED 2026-11-17 (user): pages in general may override the user-agent
+      defaults, so a page may cancel ANY key; scratchy keeps no reserved chord. The
+      user turns vim mode off on social.loupax.com for themself. Nothing to build.
+      Original analysis (kept for reference):
+      Page key handlers vs scratchy's
+      own keys. `js_key` (app.rs) gives the page every keydown first and
+      lets it cancel; only scratchy's own `:` command-line mode is exempt.
+      Once QJ4-QJ6 land, vim.js (document keydown, vim.js:1213) cancels
+      `:` `/` h j k l g G n N w b e 0 ^ $ { } * # Enter Esc and Ctrl-D/U/O/I,
+      so on social.loupax.com scratchy's `:` command line, `:go`, `:q` and
+      its own vim scrolling are unreachable. Also the page's own `:` line
+      is an `<input>`, and typing into inputs is forms-off-limits, so
+      `:Tag` cannot be TYPED (clicking the `:tag` link at the top of the
+      page opens the same picker without typing, and j/k/Enter/Esc work
+      in it). Options: (a) a reserved chord the page never sees (e.g.
+      Ctrl-`:` or Esc Esc) that opens scratchy's command line; (b) a
+      per-site "page keys off" toggle; (c) scratchy wins for a fixed key
+      set (breaks vim.js by design). Recommendation: (a).
+- [x] SD-D1 (USER; ANSWERED YES 2026-11-16) Is B1 acceptable as a first step: `attachShadow`
+      works and the JS sees a real shadow tree, but scratchy keeps
+      rendering the host's light children and NOT the shadow content
+      (logged once per page as `not implemented: shadow root rendering`)?
+      (Recommended: yes, with B2 queued right behind it.) Or A (keep
+      throwing until B2 is ready), or go straight to B2.
+- [x] SD-D2 (USER; ANSWERED YES 2026-11-16) Event retargeting fidelity. (Recommended) basic:
+      composed events (all UA input events, `composed:true` custom
+      events) continue from a shadow root to its host; `event.target`
+      is retargeted to the host for listeners outside the shadow tree;
+      `composedPath()` omits nodes inside closed roots; non-composed
+      events stop at the shadow root. Cut: `relatedTarget` retargeting,
+      focus/blur retargeting, `delegatesFocus`.
+- [x] SD-D3 (USER; ANSWERED YES 2026-11-16) Declarative shadow DOM (`<template shadowrootmode>`,
+      parsed by html5ever via a sink wrapper). (Recommended) yes, but
+      only after QSD6/QSD7 render shadow trees.
+- [x] SD-D4 (USER; ANSWERED YES 2026-11-16) Style scoping scope for B2. (Recommended) `<style>`,
+      `<link rel=stylesheet>` and `adoptedStyleSheets` per shadow root,
+      `:host`, `:host(<sel>)`, `::slotted(<compound>)`; CUT `::part`/
+      `exportparts` and `:host-context` (parsed and dropped, logged).
+- [x] QF-D1 (DECIDED 2026-11-16: browser rules) CORS stance. (B, default, recommended) browser rules for
+      reads as above. (A) ignore CORS: every response is readable. (C)
+      every cross-origin response is opaque. Security: with no cookies,
+      CORS mainly protects what only the user's machine can reach
+      (intranet, router admin pages, localhost dev servers). QF-D5
+      already blocks those, and B also keeps pages on the code paths
+      they were tested on in Chrome. Measured cost of B: none (guardian
+      and bbc send ACAO, reddit's events call fails in Chrome too).
+- [x] QF-D2 (DECIDED 2026-11-16: QF-D2a in-memory partitioned jar in wire, built QF14/QF14b) Cookies/credentials. (default) none, as in point 7. Or Q30f
+      (an in-memory jar in wire): then every JS request also needs a
+      third-party-cookie rule (does a cross-site fetch send the
+      cross-site cookies?) and CORS credentials mode (ACAO `*` is
+      not allowed with credentials). Without cookies these break:
+      anything logged in (HN votes), youtube's EU consent (it comes
+      back on every load), CSRF-token forms, reddit's tokens.
+- [x] QF-D3 (DECIDED 2026-11-16: log in detail, do not send; `beacons_send`) Analytics. (default) drop `no-cors` fetches and
+      `sendBeacon` (measured: guardian 9 ophan beacons in 5 s, ddg 4).
+      Or send them like a browser does.
+- [x] QF-D4 (DECIDED 2026-11-16: all methods, built QF13) POST/PUT/PATCH/DELETE and request bodies (QF13). (default)
+      GET/HEAD only. Allowing POST is what youtube's content needs.
+      Without cookies a POST is anonymous, but it can still change
+      server state and send data.
+- [x] QF-D5 (DECIDED 2026-11-16: warn and allow, `private_targets: Warn`) SSRF policy. (default) http(s) only. No `file:`. No
+      localhost, loopback, private (RFC 1918), link-local (incl. the
+      169.254.169.254 cloud metadata address), CGNAT, ULA, multicast
+      or "bad ports" destinations, unless the target has the same
+      origin as the page itself. Blocked in scratchy by name and in wire
+      by resolved address (QF6). https pages cannot fetch http.
+      Alternatives: let a private page reach other private hosts; a
+      user allowlist (e.g. `:set netallow host`).
+- [x] QF-D6 (DECIDED 2026-11-16: warn and allow, `file_targets: Warn`) file:// pages. (default) their JS can fetch only public
+      http(s), never `file:`. Today wire would hand any page any file
+      (e.g. a saved HTML attachment reading ~/.ssh). Alternatives: the
+      page's own directory subtree; anything.
+- [x] QF-D7 (DECIDED 2026-11-16: nothing persisted, memory only) Persistence. (default) nothing on disk: no HTTP cache, no
+      cookies, no storage (QY13a is the localStorage half).
+- [x] QF-D8 (DECIDED 2026-11-16: log and block, `sync_xhr_timeout_ms`, built QF9) Sync XHR. (default) `send()` throws `NetworkError` with a
+      log line. Alternative: block the main thread up to N s (R8: the
+      compositor drops a client that stalls).
+- [x] QF-D9 (DECIDED 2026-11-16: these numbers, all in `RequestPolicy`) Limits. 16 MiB per response, 64 MiB in flight per page, 6
+      requests at a time, 1000 requests per page, 30 s per request.
+      youtube made 337 requests in R21.
+- [x] QF16 [S] CLOSED 2026-11-16 (user DECIDED QF-D8: log and block; built
+      in QF9 b676a4a) Sync XHR that blocks.
+- [x] QF17 [S] CLOSED 2026-11-16 (user DECIDED QF-D5/QF-D6: warn and allow
+      through `file_targets`/`private_targets` in `RequestPolicy`, QF5) Let
+      file:// pages fetch local files.
+- [x] (DONE 2026-11-17, hash 35ad5f8; wire reinstall + restart needed, scratchy checks `X-Wire-Features: ws`) QF19w1 [M] (wire; design DECIDED 2026-11-17 after discussion: wire is a pipe) Upgrade passthrough.
+      A request with `Connection: Upgrade` + `Upgrade: websocket` (scratchy marks it
+      with `X-Wire-Upgrade: websocket` so ordinary clients are unaffected) goes
+      through the SAME checks as any request (`X-Wire-Policy`, target class, bad
+      ports, mixed content: `ws:` from an https page is blocked in scratchy), with
+      the cookie jar (`X-Wire-Jar`/`X-Wire-Top-Site`, cookies on the handshake as
+      for a fetch) and `Origin` passed through. wire connects (TLS for `wss:`),
+      sends the handshake, and if upstream answers `101 Switching Protocols`
+      returns that 101 head to scratchy and then copies bytes both ways on that
+      unix-socket connection until either side closes (no framing, no buffering
+      beyond the copy). Any other status: a normal buffered response, connection
+      closed. Not pooled. Caps: `X-Wire-Timeout-Ms` applies to the handshake only;
+      an idle limit is NOT applied (pages keep sockets open for hours). Advertise
+      `X-Wire-Features: ws`. Tests over a local echo server: 101 + echo both ways,
+      non-101 answer, policy-blocked target, close from each side. Log in wire's
+      PROMPTS.md/NOTES.md/TODO.txt.
+- [x] QY20 [S] (DONE 88d1911; paint.rs `paint` and `hit_test_scroll_region` honour computed visibility; test qy20_visibility_hidden_scroll_container_paints_no_scrollbar_and_takes_no_wheel) (P3, paint; bbc) Do not paint scrollbars of boxes that
+      are `visibility:hidden`. Symptom: bbc.com/news shows a grey
+      vertical scrollbar strip with tick marks over the page at x≈318,
+      from its hidden nav drawer (`visibility:hidden` on the drawer,
+      inherited by an `overflow-y:scroll` child). Fix: in the paint code
+      that draws a scroll container's scrollbar, skip it when the box's
+      computed `visibility` is not `visible` (and skip hit-testing the
+      scrollbar likewise). Test: `<div style="visibility:hidden;
+      overflow-y:scroll;height:50px"><div style=height:500px></div></div>`
+      paints no scrollbar pixels.
+- [x] QY6 [L] CLOSED AS AN UMBRELLA 2026-11-16 (audit): QY6a 6f4e412,
+      QY6b = QA17, QY6c = QA18a, QY6e f887f67, QY6f ac492ca, QY6g 4c01526
+      are done; the open children below (QY6a1, QY-IO-GEOMETRY) stay open
+      and QY6d is merged into QSD12. (P4, needs a user decision before starting) Web Components,
+      the only path to real YouTube content (and to the EU consent dialog
+      a logged-out visitor sees first). Everything visible on youtube.com
+      is `ytd-*` Polymer custom elements built by the 10.8 MB app script
+      from the inline `ytInitialData` JSON; the shipped polyfill
+      (`webcomponents-all-noPatch.js`, ShadyDOM + custom-elements
+      polyfill) needs, natively: `MutationObserver` (Q33g) with real
+      childList/subtree records, `document.createTreeWalker` (QA17;
+      ShadyDOM reads "native" `parentNode`/`firstChild` through TreeWalker
+      objects), `document.implementation.createHTMLDocument` (QA18),
+      `importNode`/`adoptNode`, `template.content` (Q33c1), and every
+      `Node`/`Element` accessor as a configurable prototype getter (Q33b1
+      already does that). Then Polymer itself needs `fetch`/XHR (Q33f)
+      for anything past the first screen, `getComputedStyle` (QA16),
+      `IntersectionObserver` (polyfill is shipped, needs
+      `getBoundingClientRect`, Q33g) and QY5. Split before starting, in
+      this order: QY6a MutationObserver (M), QY6b TreeWalker/
+      NodeIterator = QA17 (M), QY6c `createHTMLDocument` = the
+      document-only half of QA18 (M), QY6d re-run `--js-report` and file
+      what the app script hits next. Native `customElements`/Shadow DOM
+      is a later, separate decision (the polyfill path is cheaper).
+      UPDATE 2026-11-16 (R21, DECISION MEMO block at the top of the
+      QUEUE): the "polyfill path" no longer exists. YouTube now ships
+      `webcomponents-sd.js` (ShadyDOM + ShadyCSS, NO custom-elements
+      polyfill; it reads `window.customElements.define` at load) and
+      forces ShadyDOM (`ShadyDOM={force:true,noPatch:true}`), so native
+      Shadow DOM is NOT needed but a native `customElements` and
+      `template.content` are. QY6b (= QA17) and QY6c (= QA18a) are done.
+      New split, gated on the memo's D0 and on Q33f:
+      - [x] QY6a [M] DONE (commit 6f4e412) MutationObserver with real records. All DOM writes go
+        through a few JS wrappers over natives in `DOM_PRELUDE`
+        (`__d_insert`, `__d_remove`, `__d_setattr`, `__d_rmattr`,
+        `__d_settext`, `__d_sethtml`, `__d_write`, plus `clone`-free
+        paths): queue `MutationRecord`s (`childList` with added/removed
+        nodes and siblings, `attributes` with `oldValue`,
+        `characterData`) for observers whose target or (with `subtree`)
+        an ancestor matches, deliver in one microtask per batch
+        (`queueMicrotask`), `takeRecords`, `disconnect`,
+        `attributeFilter`, `*OldValue`. Writes coming from the parser or
+        from Rust (form state) do not notify (documented cut). Tests:
+        appendChild + setAttribute in one script -> one callback with 2
+        records in order; subtree observation; disconnect stops delivery.
+        DONE: one shared hook layer (`hookInstall`, also used by QY6e),
+        installed at the first `observe()`; childList/attributes/
+        characterData records with oldValue, attributeFilter, subtree,
+        transient observers for removed subtrees, microtask batch delivery
+        in creation order, takeRecords/disconnect, one record per call for
+        replaceChild/append/prepend/before/after/replaceWith/
+        replaceChildren/innerHTML/textContent/outerHTML (new setter),
+        CharacterData appendData/insertData/deleteData/replaceData/
+        substringData (new), `WebKitMutationObserver`. 5000
+        createElement/setAttribute/appendChild with no observer: unchanged
+        (~300 ms both); with one observer on body (subtree, childList +
+        attributes): ~1.2 s (5000 records). NEXT BLOCKERS (--js-report
+        --run-timers 5000): github core/marketing-essentials/landing-pages
+        now die on `ReferenceError: IntersectionObserver is not defined`
+        (3 errors, was MutationObserver); youtube webcomponents-sd.js is
+        past MutationObserver, the first error is now kevlar_base_module
+        `TypeError: Failed to execute 'appendChild': parameter 1 is not of
+        type 'Node'.` at script line 10725:29.
+      - [x] QY6g [M] (4c01526) IntersectionObserver / ResizeObserver /
+        PerformanceObserver with HONEST MINIMAL semantics (NOTES.md "QY6g"):
+        one initial entry per observed target (IO: visible once, ratio 1,
+        unless detached or display:none; RO: width/height attribute size
+        else 0x0), rootBounds = fixed 1024x768, then NOTHING is ever
+        delivered again; PerformanceObserver is inert. Also minimal
+        `DOMRect`/`DOMRectReadOnly` (no DOMRectList/DOMPoint). Tests qy6g_*.
+        Risk (QY6 memo): "visible once" is a guess; lazy loaders load all
+        content, infinite-scroll sentinels fire once, "is it on screen"
+        analytics lie. SURVEY (--js-report --run-timers 5000): github's 3
+        IntersectionObserver errors are gone. NEXT BLOCKERS: (1) 13x
+        `not implemented: Element.attachShadow` (NotSupportedError thrown
+        into `relative-time` custom element constructors and one
+        connectedCallback in f18-*.js; needs the shadow DOM decision),
+        (2) core/marketing-essentials/landing-pages each die on
+        `TypeError: cannot read property 'appendChild' of undefined` at
+        f18-10a827ef5e40729a.js:223:27350 (called from webpack module
+        core-*.js:27:77453; unidentified, probably something that
+        attachShadow/shadowRoot would return; R23: it is NOT shadow DOM,
+        it is `template.content`, QY6f). youtube: first error
+        unchanged (kevlar_base `appendChild: parameter 1 is not of type
+        Node`, QY6a note); youtube does not reach IO. The other 6 pages:
+        0 errors; bbc has the pre-existing timer-phase `Route did not
+        complete loading: /_error`.
+      - [x] QY6e [M] DONE (commit f887f67) `customElements` (define, get, getName,
+        whenDefined, upgrade; `CustomElementRegistry`). `HTMLElement`
+        (and QY12's subclasses) become constructors that, while an
+        upgrade is in progress, return the element being upgraded (a
+        construction stack), else create a new element whose tag is the
+        registered name of `new.target`. Upgrade: on `define` (all
+        matching elements in the document, tree order), on `wrap` of an
+        element whose name is defined (hook the existing `tagProto`
+        lookup: set the prototype, then run the constructor), on
+        insertion. Reactions: `connectedCallback`/`disconnectedCallback`
+        from the insert/remove wrappers (tree-order walk of the inserted
+        subtree), `attributeChangedCallback` for `observedAttributes` from
+        set/removeAttribute, `adoptedCallback` from `adoptNode`.
+        Customized built-ins (`is=`) are a cut. Measured shim (R21) that
+        worked for YouTube is the reference design. Tests: define after
+        parse upgrades; `document.createElement('x-a')` is upgraded;
+        callbacks fire in order; `new XA()` works.
+        DONE: define/get/getName/whenDefined/upgrade, upgrade of
+        existing elements, createElement/new/innerHTML/cloneNode/
+        document.write construction, connected/disconnected/
+        attributeChanged (synchronous, not microtask-queued), `is=`
+        customized built-ins (`extends`), `attachShadow` logs
+        `not implemented` and throws NotSupportedError. NOT done:
+        adoptedCallback, `:defined`, shadow DOM. NEXT BLOCKERS measured
+        after it (--js-report --run-timers 5000): github core/
+        marketing-essentials/landing-pages all now die on
+        `ReferenceError: fetch is not defined` (QF); YouTube first
+        error `MutationObserver is not defined` in
+        webcomponents-all-noPatch.js (QY6a), then kevlar_base `TypeError:
+        not a function` at line 8854:192 (unidentified). old.reddit could
+        not be fetched (blocks curl). wikipedia/HN: 0 errors.
+      - [x] QY6f [M] (ac492ca) `<template>` content. html5ever puts template
+        children in `template_contents`, which nothing exposes: JS sees
+        an empty template and `outerHTML` drops the content. Expose the
+        contents node as a `DocumentFragment` id (`__d_template_content`),
+        make `innerHTML` get/set and serialization go through it,
+        `cloneNode(true)`/`importNode` copy it (`clone_node` in js_dom.rs),
+        `HTMLTemplateElement` with `content`. Tests: parsed template's
+        `content.childNodes.length`, innerHTML round trip, a cloned
+        template has its own content.
+        NOTE 2026-11-16 (R23): promoted to the top of the QUEUE in the
+        "DESIGN MEMO (QSD)" block (after QSD0). It is the cause of github's
+        `appendChild of undefined` (f18 223:27350) and youtube's
+        kevlar_base `appendChild: parameter 1 is not of type Node`
+        (10725:29); `document.importNode` is also missing and is added
+        there.
+      - [x] QY6d MERGED into QSD12 (2026-11-16 audit; its prerequisites
+        QY6a/e/f and the QF fetch/XHR items are done) re-run `--js-report --run-timers` (QY14) on YouTube after
+        QY6a/e/f and Q33f, and file what it hits next.
+- [x] `float: left`/`right` (5fc83ce) now takes a box out
+      of normal block-level flow (no vertical space reserved for it by
+      its own parent, same as `position: absolute`) but, unlike
+      `absolute`, still participates in the surrounding *inline*
+      formatting context: a later sibling's own text genuinely wraps
+      around it — narrower lines while they overlap its vertical range,
+      full width again once past it — not just a block-level
+      skip-reserving-space approximation. `clear: left`/`right`/`both`
+      moves a box down past the bottom of any earlier same-BFC float on
+      the named side(s) (CSS2.1 §9.5.2). A `width: auto` float uses real
+      shrink-to-fit sizing (§10.3.5), not "fill the container" the way
+      an ordinary auto-width block does. Real CSS's own "computed
+      `display`" rule (§9.7) applies to `float` too, same as `position`
+      already got in v52. A float now also paints *above* a later,
+      non-cleared, full-width sibling's own background where they
+      legitimately overlap (real CSS2.1 Appendix E stacking order for
+      floats vs. ordinary in-flow block boxes) — found as a real,
+      visible bug via a screenshot mid-session, not a hypothetical edge
+      case.
+
+      A few narrower things deliberately not attempted, scoped out
+      rather than silently folded into "done":
+      - [x] (Q34a-c, acbcb00) Floats don't escape their parent `Blocks` box, BFC roots
+            (`overflow:hidden`, `flow-root`) don't avoid or contain
+            floats, and `table-caption` is a plain block. These were
+            queued as Q34a-c (2026-11-13, Wikipedia Nvidia page); all
+            three done in acbcb00.
+- [x] Real CSS2.1 Appendix E stacking-context semantics (v56, bc3b696): the
+      seven-layer bottom-to-top paint order
+      (https://www.w3.org/TR/CSS21/zindex.html) is now genuinely modeled
+      per stacking context — (1) this box's own background/border, (2)
+      negative-`z-index` descendant stacking contexts, (3) in-flow
+      non-positioned non-floated block descendants, (4) floats, (5)
+      in-flow inline descendants, (6) `z-index: 0`/`auto` positioned
+      descendants, (7) positive-`z-index` descendant stacking contexts —
+      verified layer-by-layer with a permanent pixel test, not assumed.
+      Two concrete fixes over the old, narrower model (every out-of-flow
+      box used to paint in one flat ascending-`z-index` group, always
+      *after* its containing block's own content, regardless of sign):
+
+      Negative `z-index` now paints *above* its own containing/stacking-
+      context box's own background/border but *below* that box's normal
+      content (layer 2 sits between layers 1 and 3). Checked directly
+      against the spec rather than assumed: the intuitive "negative
+      z-index hides behind its own box's background" is a common but
+      *inaccurate* paraphrase of the real rule — Appendix E lists
+      background (layer 1) *before* negative stacking contexts (layer 2)
+      in its bottommost-first order, meaning negative paints on top of
+      it; it only looks "hidden behind everything" when the relevant box
+      happens to have no background of its own, leaving nothing else for
+      it to appear in front of.
+
+      `position: relative`/`sticky` with an *explicit* `z-index` now
+      establishes its own descendant stacking context (real CSS2
+      §9.9.1) — pulled out of plain document-order painting to compete
+      by `z-index` with its containing block's other out-of-flow
+      descendants instead, the same way `absolute`/`fixed` already did.
+      `z-index: auto` on `relative`/`sticky` is unaffected (still
+      today's plain paint-position-only treatment — real CSS: `auto`
+      does not establish a stacking context).
+
+      The "two unrelated in-flow subtrees overlapping" generality the
+      original item worried about turned out to be reachable, just not
+      in the unbounded way the old wording implied: a `position:
+      relative` box's own offset can already overlap a *sibling* in the
+      same parent's `Blocks` list (float/clear, v54, only narrows
+      content *around* a float — it doesn't let two unrelated block
+      subtrees overlap arbitrarily anywhere on the page). Scoped to
+      exactly that reachable case — sibling-level, same immediate parent
+      — rather than building a fully general cross-subtree stacking
+      search for a case that doesn't occur in this layout model.
+
+      Deliberately scoped out, each documented precisely rather than
+      silently dropped:
+- [x] `display: flex` (440e03b) now does real CSS Flexible Box
+      Layout (https://www.w3.org/TR/css-flexbox-1/), scoped to the common
+      "flex row/column of items, growing/shrinking/justified/aligned"
+      case — grid explicitly deferred, see its own item just below (same
+      "bundling both would risk landing neither well" latitude the
+      `position`/`float` items already used). Landed: `flex-direction`
+      (`row`/`row-reverse`/`column`/`column-reverse`), `flex-wrap`
+      (`nowrap`/`wrap`/`wrap-reverse` — real for `row`/`row-reverse`
+      only, see its own item below), `flex-flow` shorthand,
+      `justify-content` (all 6 keywords, including `space-evenly`, which
+      the original task wording treated as optional — it fell out of the
+      same arithmetic as `space-between`/`space-around` for free),
+      `align-items`/`align-self` (`flex-start`/`flex-end`/`center`/
+      `stretch`/`baseline` — `baseline` approximates to `flex-start`, see
+      its own item below), `flex-grow`/`flex-shrink`/`flex-basis` and the
+      `flex` shorthand (real proportional space distribution — verified
+      with permanent tests that growth/shrink is genuinely proportional
+      to the declared factors, not just "fits content"), and
+      `gap`/`row-gap`/`column-gap` (new — nothing in this codebase had
+      `gap` before). `order` was deliberately not attempted (see its own
+      item below). `inline-flex` was not attempted either — a flex
+      container is always block-level in the outer flow here (same as
+      `display: table`); real `inline-flex` would need the same hand-
+      rolled inline-level embedding `measure_mixed_inline` (v48) built
+      for `<img>`, not attempted for this item.
+
+      Architecturally: a new `BoxContent::Blocks`-shaped build path
+      (`build_flex_children`, parallel to `build_table_children`) plus
+      `measure_flex`/`measure_flex_row`/`measure_flex_column` (parallel
+      to `measure_table`/`measure_row_with_widths`), reusing `box_model_
+      entry` for the container's own box model and `cell_natural_width`
+      (v50's min/max-content measurement, originally built for table
+      columns, already reused once for `float`'s shrink-to-fit sizing —
+      now a third use) for a `width`-axis item's content-based basis. See
+      NOTES.md for the full architecture writeup, including the one
+      real insight that made cross-axis stretch/grow/shrink cheap: this
+      engine's own `height` property already doesn't affect how a box's
+      children are laid out (v42), so a flexed/stretched final size on
+      whichever axis is *height* is a pure post-hoc `Laid::h` overwrite,
+      never a second `measure()` call.
+
+      **Deliberately cut within flexbox itself, each precise and
+      documented, not silently dropped:**
+      - [x] (4661363) `order` is not implemented — every flex item lays out (and
+            paints/hit-tests) in plain document order, `row-reverse`/
+            `column-reverse` only mirror *position* along the main axis,
+            not reordering anything. Nothing in `default.css` or a real
+            test page needs it yet; same shape of cut `z-index`'s own
+            stacking-context work (v56) left for an analogous "not
+            reachable by anything real yet" reason.
+      - [x] (c446586) `align-content` (multi-line cross-axis distribution — e.g.
+            spreading several wrapped lines apart when a `flex-wrap`
+            container's own cross size is larger than its lines' summed
+            cross size) isn't implemented — lines always stack with no
+            extra distribution (`align-content: flex-start`'s behavior
+            unconditionally). Not in this item's own requirements list;
+            flagged here for completeness since `flex-wrap` is real.
+      - [x] (18c8812) `flex-wrap` is only genuinely real for `flex-direction: row`/
+            `row-reverse` — a `column`/`column-reverse` flex container
+            always lays its items out as a single column regardless of
+            the declared `flex-wrap` value. Wrapping a *column* means
+            wrapping across the *width* into multiple side-by-side
+            columns, a materially different (and much rarer in real page
+            chrome) shape than the classic wrapped-multi-line-row case
+            this item prioritized — see `measure_flex_column`'s own docs.
+      - [x] (18c8812) `align-items`/`align-self: baseline` resolves identically to
+            `flex-start` — real baseline alignment needs each item's own
+            font ascent threaded out of `measure`'s box-model math (no
+            box here tracks its own baseline today, only cosmic-text's
+            per-glyph shaping does, several layers below `measure`) — a
+            disproportionate amount of new plumbing for a value most
+            real "flex row of items" pages don't rely on. Explicitly
+            permitted as an approximation by this item's own task
+            wording, not silently dropped.
+      - [x] (18c8812) No CSS Flexbox §9.7 iterative constraint resolution — `flex-
+            grow`/`flex-shrink` distribution (`resolve_flex_main_sizes`)
+            is a single pass: an item whose flexed size gets clamped by
+            its own `min-width`/`max-width`/`min-height`/`max-height`
+            doesn't have its own under/overshoot redistributed a second
+            time among its unclamped siblings, the way the real spec's
+            freeze-and-retry algorithm would. Fine for the common case
+            (no unusually tight min/max relative to an item's own
+            basis); a real divergence only once several siblings'
+            constraints interact non-trivially.
+      - [x] (18c8812) (Row axis DONE in `500bd16` — see "Flex items' automatic
+            minimum size" below. Only the *column* axis's implicit
+            `min-height` floor in `measure_flex_column` is still open.)
+            Original text: No CSS Flexbox "automatic minimum size" — an item's own
+            `min-width`/`min-height` only clamps if explicitly declared;
+            there's no implicit min-content floor preventing `flex-
+            shrink` from shrinking an item's content below its own
+            natural min-content width/height the way real Flexbox does
+            by default (`overflow: visible`'s own automatic-minimum-size
+            rule, CSS Flexbox §4.5) — an item can shrink to (or past)
+            zero, clipping/overflowing its own content, if nothing else
+            stops it.
+      - [x] (1000951) A bare, non-whitespace text node placed directly inside a
+            flex container (no wrapping element) doesn't become its own
+            anonymous flex item the way real CSS would (CSS Flexbox §4:
+            "runs of text... are treated as anonymous flex items") —
+            `build_flex_children` only collects real element children,
+            matching this item's own explicitly-permitted scope-
+            narrowing latitude. Uncommon in real page chrome (which
+            almost always wraps each flex item in an element) — silently
+            dropped rather than rendered, worth fixing if a real page's
+            flex container loses visible text because of it.
+- [x] `grid-template-areas` + `grid-area` named placement, and
+      `minmax()` track sizing (4e7a27d) — the two gaps the `@media` item below
+      flagged as the reason a real Wikipedia page "still renders single-
+      column as predicted" even with `display: grid` otherwise working;
+      prompted by live-testing scratchy against a real Wikipedia article
+      and finding its page-shell layout (logo/user-links header, left
+      TOC rail, title+body) collapsing to one stacked column where
+      Firefox shows a real two-column shell, then confirming the actual
+      cause by pulling Wikipedia's real CSS directly (`curl`) rather
+      than guessing: every page-shell grid container declares its
+      layout via `grid-template-areas` with `minmax()`-sized tracks,
+      neither of which scratchy parsed at all — both declarations were
+      silently dropped, leaving every one of those containers with no
+      explicit tracks and falling back to a single full-width column.
+
+      `minmax(<min>, <max>)` (`GridTrackSpec::MinMax`, a new `TrackBreadth`
+      grammar for each argument — a plain length/`%`/`fr`, no content-
+      based keywords inside `minmax()` either, still the same separate,
+      not-yet-attempted cut named below) now resolves via a real,
+      single-pass floor-then-distribute algorithm in `resolve_grid_
+      tracks` — a flexible track's own floor is reserved before the
+      remaining free space is distributed by `fr` factor, then added
+      back on top (exactly correct whenever every floor is `0`, which is
+      every real `minmax()` call found in Wikipedia's own CSS — confirmed
+      by grep, not assumed; a real but bounded approximation otherwise,
+      same "single-pass, not the spec's iterative freeze-and-retry"
+      simplification `resolve_flex_main_sizes` already carries for
+      flexbox). `grid-template-areas` (`parse_grid_template_areas`,
+      storing each template row's raw string, leaked the same way
+      `font-family`'s fallback list already is) plus `grid-area: <name>`
+      on an item (`parse_grid_area_name`, bare-identifier form only) now
+      place an item into its named area's own bounding rectangle —
+      computed from the template by `grid_area_rect`, real multi-column
+      spans included (confirmed against real Wikipedia CSS, e.g.
+      `grid-template-areas:'siteNotice siteNotice'`) — ahead of, and
+      taking priority over, the pre-existing auto-placement cursor,
+      which still places everything else (no `grid-area` at all, or one
+      naming nothing in the template) exactly as before, skipping
+      whatever a named item already claimed. `grid-template-columns`
+      absent entirely but `grid-template-areas` present now falls back
+      to one equal-`fr` implicit column per template column (narrower
+      than real CSS, which treats that combination as an author error)
+      rather than collapsing to one full-width column — the one honest
+      single-pass answer when a container's *real* explicit column
+      sizes are themselves unparseable (exactly Wikipedia's own shape,
+      see below). 7 new permanent tests (named placement overriding
+      document order, a two-column span getting both columns' widths
+      combined, the no-explicit-columns equal-fr fallback, an unnamed
+      item auto-placing around a named one, and three `minmax()` shapes
+      — a `0` floor, a nonzero floor, and a fixed ceiling). Live-verified
+      with a real `grim` screenshot against a
+      synthetic local page exercising both features together (named
+      placement reordering the visual layout away from document order,
+      a `minmax()` column claiming its real proportional share, a
+      third area spanning both columns) — see `NOTES.md` for the full
+      writeup.
+
+      **Does not, on its own, fix the real Wikipedia page this was built
+      against, and that's a real, confirmed finding, not a bug in this
+      landing**: Wikipedia's own page-shell `grid-template-areas` for
+      the *logo/TOC/content* split (`.mw-page-container-inner`) is
+      itself only declared inside `@media screen and (min-width:
+      1120px)` — narrower than this, there's no special layout rule for
+      that container in Wikipedia's own CSS at all (confirmed by reading
+      the actual stylesheet, not assumed), so a scratchy window tiled
+      narrower than 1120px stacks that specific container exactly as
+      correctly as real Firefox resized to the same width would. The
+      header row (`.mw-header`, logo left / user-links right) *is*
+      ungated and did pick up real named placement from this landing —
+      but still not its own real 15.5rem/`1fr` column *proportions*,
+      since those are declared via the `grid-template` shorthand
+      (`grid-template: auto / 15.5rem minmax(0,1fr)`), which this item
+      doesn't parse (see below) — it falls back to this item's own
+      equal-`fr` default instead.
+      - [x] (Q15b, 9397a18) `grid-template` (the `<rows> / <columns>` shorthand,
+            optionally combined with area strings) isn't parsed at
+            all — only the two longhands (`grid-template-columns`/
+            `-rows`) and the standalone `grid-template-areas` are.
+            Real Wikipedia CSS uses this shorthand for every page-shell
+            container's own row sizing (`grid-template: auto / 15.5rem
+            minmax(0,1fr)` for the header) — unlocking its *column*
+            half doesn't strictly need the row half to parse too, but
+            doing one without the other wasn't attempted this session;
+            the bigger blocker in practice is that most of these rows
+            use `min-content` (a content-based keyword, see below), not
+            just `auto`, so parsing the shorthand's syntax alone
+            wouldn't be enough to make most of these specific
+            declarations resolve anyway.
+      - [x] (Q10, a4f4d91) `@supports` isn't parsed at all (falls through to the same
+            "any at-rule but `media` is dropped" policy named below) —
+            found as a *second*, independent reason part of Wikipedia's
+            own left rail (`.vector-pinned-container`, which the TOC and
+            main menu both live inside) stays invisible even once its
+            own column is real: its default `display: none` is only
+            overridden back to `display: block` by a rule wrapped in
+            `@supports (display: grid){...}`, which scratchy drops
+            entirely regardless of whether it actually supports
+            `display: grid` by then. Not attempted as part of this item
+            — a real, separate at-rule feature, same shape `@media`
+            itself was before v64, not a grid gap.
+      - [x] (Q15c, a665a34) No numeric explicit item placement — `grid-column`/`grid-
+            row`/their `-start`/`-end` longhands, and `grid-area`'s own
+            fuller `<grid-line> / <grid-line> / <grid-line> / <grid-
+            line>` numeric form, still aren't parsed; only a bare
+            `grid-area: <name>` naming a `grid-template-areas` area is
+            recognized. Narrowed by this item, not closed — auto-
+            placement (or now, named-area placement) still covers "just
+            make a grid and drop items in," the dominant real-world
+            case, without this.
+      - [x] (Q15a, 1154431) No content-based track-sizing keywords (`auto`/`min-
+            content`/`max-content`) — now parsed bare and inside `minmax()`;
+            columns are sized from single-column items via
+            `cell_natural_width` (multi-column spans don't contribute;
+            rows still size from content as before). Original gap: every column/row track `grid-
+            template-columns`/`-rows` declares must still be a plain
+            fixed `<length-percentage>`, `fr`, or `minmax()` of either
+            (`GridTrackSpec`'s own grammar, now including `minmax()` —
+            see the item just above); a bare `auto`/`min-content`/
+            `max-content`, inside `minmax()` or not, still simply fails
+            to parse, dropping the whole declaration.
+      - [x] (Q15d, 86e1dcb) `repeat(auto-fill, ...)`/`repeat(auto-fit, ...)` aren't
+            recognized — only `repeat(<integer>, ...)` — real available-
+            space-driven track-count resolution (how many tracks fit)
+            is a different, bigger problem than this item's own
+            fixed-count expansion; the `auto-fill`/`auto-fit` keyword
+            simply fails `expect_integer`, dropping the whole
+            declaration.
+- [x] `overflow` (v31, extended to box decoration in v40; `scroll`/
+      `auto` landed 701a334, v62): an `overflow: scroll`/`auto`
+      box is now a genuinely independent, interactively-scrollable
+      region, not just a `hidden`-equivalent clip. Landed: a per-element
+      live scroll offset (`App::scroll_offsets: HashMap<usize, f32>`,
+      keyed by a stable id `measure`'s own `BoxContent::Blocks` arm
+      assigns from the same shared counter its paragraph ids already
+      use — a different, unrelated-by-value id space, no collision
+      risk) — resolved the same "bounds at layout time, live value read
+      fresh at paint time" split `position: sticky` (v55) already
+      established, so a mouse-wheel tick still can't trigger a
+      relayout; real mouse-wheel routing to the deepest `overflow:
+      scroll`/`auto` ancestor under the cursor (`hit_test_scroll_
+      region`, reusing `hit_test_cursor`'s own recursive-walk shape),
+      falling back to the page's own top-level scroll when the cursor
+      isn't over any such region; clipping to the box's own border box
+      (the same bounds `hidden` already clips to) plus a real paint-time
+      translation of its content by its own live scroll offset, nesting
+      correctly with `position: sticky`/`fixed`'s own ambient-offset
+      tricks (and, architecturally, with a nested scroll region too,
+      though that specific case isn't covered by a dedicated test — see
+      below); `auto` only actually scrolls/shows a scrollbar once its
+      content genuinely overflows (`ScrollInfo::max_scroll() > 0.0`),
+      `scroll` always shows the indicator; a minimal flat overlay
+      scrollbar (`paint_scrollbar` — a translucent track + thumb,
+      doesn't reserve any box-model space, matching modern overlay-
+      scrollbar OS convention, not a 90s classic-scrollbar reservation).
+      5 new permanent tests.
+
+      Deliberately scoped out, each precise rather than silently folded
+      into "done":
+      - [x] (Q24, 00648b9) **Only an ordinary `measure`'s `BoxContent::Blocks` arm
+            assigns a `ScrollInfo`** — a `display: table`/`flex`/`grid`
+            container's own box (`measure_table`/`measure_flex`/
+            `measure_grid`, each a separate tail from the ordinary
+            `Blocks` arm) never does, so `overflow: scroll`/`auto` on a
+            table/flex/grid container itself has no effect at all (its
+            own content still just overflows per `overflow: visible`,
+            or clips-but-doesn't-scroll if it's `hidden`, unaffected by
+            this item). Scoped the same way `overflow: hidden`'s own
+            v31/v40 "narrowest real choke point over the general case"
+            precedent was — the single most common real case (a plain
+            block container) is what's covered.
+      - [x] (Q24, 00648b9) **Explicitly-stacked (`position: relative`/`sticky` with its
+            own `z-index`) and out-of-flow (`position: absolute`/
+            `fixed`) content *inside* a scroll region doesn't scroll
+            with it at all** — `paint`'s own `paint_z_layer` calls
+            (layers 2 and 6+7) and `hit_test_cursor`'s/`hit_test_scroll_
+            region`'s own "above" stacking-children loops deliberately
+            keep using the *un*-adjusted ambient scroll offset/query
+            point, never threading in the scrollable box's own live
+            `own_scroll` the way the ordinary in-flow `Blocks`/
+            `TableRow` loops do. A `position: absolute` child anchored
+            inside an `overflow: scroll` ancestor (a real, if uncommon,
+            pattern) will sit frozen in place while the rest of the
+            region's content scrolls underneath it, rather than
+            scrolling along with its containing block.
+      - [x] (Q24, 00648b9) **A scroll region nested inside another scroll region is
+            architecturally supported (the same ambient-offset-
+            composition trick `position: fixed`/`sticky` already use
+            for their own nesting generalizes for free — see `paint`'s
+            own `content_scroll_offset` docs) but has no dedicated
+            test** — the permanent test suite for this item covers only
+            independent, sibling scroll regions (confirming `hit_test_
+            scroll_region` tells two side-by-side regions apart and
+            falls through to `None` outside both), not a genuinely
+            nested pair. Worth a real test before trusting the nested
+            case in production, even though the mechanism should
+            already be correct by construction.
+- [x] **Move page shaping off the main thread** (the 4-step sequencing
+      plan recorded here, now built — `968df78`, `81fb1cc`, `b5184e4`,
+      `a58e2b0`). Steps 1–3 landed as planned: `Rc<DecodedImage>` ->
+      `Arc<DecodedImage>` everywhere; `layout_generation` bumped on every
+      resize/`@media`/navigation/streaming-chunk, threaded into every
+      background-shaping request and checked against on arrival so a
+      stale result from a since-superseded reshape is silently dropped;
+      `measure_document` now runs on its own background thread with its
+      own independent `FontSystem`/`SwashCache` pair, isolated behind
+      `catch_unwind` so a panic on one pathological page can't
+      permanently break every navigation after it.
+
+      Step 4 (revisit `PROGRESSIVE_LAYOUT_TICK_BUDGET` once step 3
+      landed) surfaced a real problem real-world testing against a live
+      Wikipedia page found in the first one-shot-thread-per-rebuild
+      version of step 3, and both of this plan's own open questions got
+      resolved in the fix, not left open: a *persistent* background
+      worker (`spawn_shaping_worker`, started once at construction, not
+      spawned fresh per rebuild — avoids re-paying `new_font_system()`'s
+      system-font-database scan on every navigation) that still ticks
+      internally at roughly the same budget and still delivers progress
+      per tick (`AppEvent::ShapeResult`), so a big page keeps filling in
+      progressively on the main thread exactly as before this plan
+      started, despite shaping now happening on a different thread
+      entirely — chosen over one unticked call to completion, which
+      turned "laggy while loading" into "blank for most of a minute" on
+      a big real page when tried.
+
+      **Explicitly NOT fixed by this plan, exactly as flagged when it
+      was written**:
