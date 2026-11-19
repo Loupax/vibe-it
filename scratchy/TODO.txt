@@ -35,7 +35,6 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
  Ahead of this list by user decision (2026-11-19): QPT1a [WIP] then QPT1b-f (iframe realm, YouTube PoToken; R53).
  Step 4, the main thread in the live window (YouTube playback, scrolling, mouse):
   14b Q33b2 [S] real innerWidth/innerHeight + forced-layout viewport = window size (QY53e3: prerequisite of QY53e2) | Tier 7
-  14d [WIP] QY53m [S] App::js_sync skips the restyle after no-op write batches (after QM1k1n6: same code)
   15 QY53e2 [M]  IO uses the App's own layout                                       | QY53 block
   16 [WIP] QM1g2a [M] render mpv frames off the main thread (33-39 ms per frame today)
  Step 5, memory, regression guards, re-measure:
@@ -1060,12 +1059,6 @@ Shared rules for this block:
       QY53l2 (b493ad2, R43 section 13): of 71 remaining YT no-change layouts, 44 follow writes to VISIBLE elements only
       (.ytp-chapter-hover-container, .ytp-load-progress scale transform, #movie_player state classes, video attributes) and
       8 follow writes inside an inline <svg> only: consider a rule for svg-internal writes that cannot change the svg box.
-- [ ] [WIP] QY53m [S] (P2, from QY53e3; Sonnet; AFTER QM1k1n6, same code in app.rs) `App::js_sync` skips the restyle when no
-      write in the batch changed a value and neither css_ver nor the media size moved. Use its own "value changed"
-      generation, NOT geom_gen (QY53l2/l3 stop bumping geom_gen for writes that still need a repaint). Wikipedia/YT in a
-      window: App rebuilds after only no-op writes 2-18 / 0-23 per run (up to 2.3 s). Gate: Wikipedia Rust live window
-      60 s same input, median of 3: builds.n and builds.ms drop by the no-op count; screenshot unchanged; unit test: a
-      same-value setAttribute leaves layout_dirty false.
 - [ ] QY53f1d [M] (P3, from QY53f1b; Opus design) The cold parse of YouTube's 4.4 MB sheet still costs ~130 ms on the first
       forced layout. Options: parse external sheets as they arrive (off the forced-layout path, on the JS thread's idle
       time or a worker), or lazily per rule block. Measure first (R43 section 12); design + items.

@@ -7796,3 +7796,12 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       instead of bumping the geometry generation. Full text, bail-outs and tests: REGRESSIONS.md R50 "QYTC1a". Expected
       (estimate): YT controls-visible forced layouts ~10/s -> ~3-4/s.
   (queue line) 14a5 QYTC1a [WIP] [M, P1] contained style writes (YouTube controls-visible forced layouts, R50); then QYTC1b, QYTC1c
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY53m DONE ee4897f #386 js_sync skips restyle after no-op write batches (gain to re-measure: QY53m-m) [S] (P2, from QY53e3; Sonnet; AFTER QM1k1n6, same code in app.rs) `App::js_sync` skips the restyle when no
+      write in the batch changed a value and neither css_ver nor the media size moved. Use its own "value changed"
+      generation, NOT geom_gen (QY53l2/l3 stop bumping geom_gen for writes that still need a repaint). Wikipedia/YT in a
+      window: App rebuilds after only no-op writes 2-18 / 0-23 per run (up to 2.3 s). Gate: Wikipedia Rust live window
+      60 s same input, median of 3: builds.n and builds.ms drop by the no-op count; screenshot unchanged; unit test: a
+      same-value setAttribute leaves layout_dirty false.
+  (queue line) 14d [WIP] QY53m [S] App::js_sync skips the restyle after no-op write batches (after QM1k1n6: same code)
