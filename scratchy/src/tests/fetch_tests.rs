@@ -1625,3 +1625,41 @@ mod qm1g_real {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+// ---------- QM1k1n5: a finished page request is not queued behind a busy timer chain ----------
+
+/// The event loop's turn is `run_due_slice` (bounded) and then whatever is queued, so a
+/// `JsNet` that arrives while a chain of busy timers is due is delivered after at most one
+/// slice, not after the chain: the response is seen before most of the chain has run, and
+/// before a page-side timeout (the YouTube SABR abort) that became due after it arrived.
+#[test]
+fn qm1k1n5_response_arriving_during_a_busy_timer_chain_is_delivered_between_slices() {
+    let fake = QfFake::new(vec![("/seg", qf7_ok("media", &[]))]);
+    let (engine, log) = qf7_engine("https://page.test/", &fake);
+    let go = qf7_go("https://page.test/seg", "").replace("console.log('ok', r.status, r.type, t)", "console.log('ok ' + ran + ' ' + timedOut)");
+    engine.eval(
+        "t",
+        &format!(
+            "window.__spin = function(ms){{ var e = Date.now() + ms; while (Date.now() < e); }};\
+             var ran = 0, timedOut = false;\
+             for (var i = 0; i < 30; i++) setTimeout(function(){{ __spin(8); ran++; }}, 0);\
+             setTimeout(function(){{ timedOut = true; }}, 40);\
+             {go}"
+        ),
+    );
+    // The page's request goes out; the "network thread" finishes it at once.
+    let reqs = engine.take_requests();
+    assert_eq!(reqs.net.len(), 1);
+    let id = reqs.net[0].id;
+    let done = fake.execute(&reqs.net[0]);
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    // Loop turns: one 16 ms slice of the (now due) chain, then the queued JsNet.
+    assert!(engine.run_due_slice(Some(std::time::Duration::from_millis(16))));
+    engine.deliver_net(id, done);
+    let l = log.borrow().clone();
+    let ok = l.iter().find(|x| x.starts_with("log:ok ")).unwrap_or_else(|| panic!("not delivered: {l:?}"));
+    let parts: Vec<&str> = ok.split(' ').collect();
+    let ran: usize = parts[1].parse().unwrap();
+    assert!(ran <= 4, "delivered after one slice, not after the 30-timer chain (ran {ran})");
+    assert_eq!(parts[2], "false", "the 40 ms page timeout must not win against a response that arrived first");
+}

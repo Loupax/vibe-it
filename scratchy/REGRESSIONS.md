@@ -1960,6 +1960,22 @@ whether the AbortErrors are caused by late callbacks; why `vid=no` was set; whet
 `getVideoPlaybackQuality`/`played`/`webkitDecodedFrameCount` (not instrumented; QM1k1f stays as filed);
 anything after a valid PoToken; seeks and quality switches (not tried, the page was too slow to drive);
 Reddit (blocked); the user's own network/UA conditions (own wire, Chrome UA).
+### 6a. QM1k1n5 addendum (Sonnet, 2026-11-19, main 1b83534 + QOBS6): the delay does NOT reproduce
+
+Own worktree release build (V8 + media), own wire, nested dwl, `SCRATCHY_FRAME_STATS`, `SCRATCHY_MEDIA_AO=null`,
+youtube.com/watch?v=G1AeBgalFZk, play clicked at +18 s, ~25 s of moving pointer, 110 s window, under the perf lock
+(uptime load average 7.7 at the start, 1.8 at the end; other agents were building). 124 page network results were
+delivered (QOBS6 `net`): approximate median 41 ms, per-second p95 at most 187 ms except one second at startup
+(+6 s) with max 494 ms, nothing after +12 s above 63 ms. Result to JS is 0-0.5 s after the transport finished,
+not 1-19 s. Event-loop ordering is not at fault: `user_event(JsNet)` calls `deliver_net` directly (no queue in
+scratchy behind timers), `about_to_wait` runs timers in a 16/50 ms slice (QM1k1n6b) and winit hands the next queued
+user event to the next turn. The 1-19 s of run 3 were main-thread stalls (forced layouts, the 20-40k turns/s
+spin, mpv sleeping in render), which QY53a-c, QM1k1n6 and QM1k1n6b removed. Playback in this run still ended
+~5 s after the first frames (YouTube's own stop, R45), unrelated to delivery. Permanent guard:
+`qm1k1n5_response_arriving_during_a_busy_timer_chain_is_delivered_between_slices` (fetch_tests.rs). The
+`net` field now shows any regression of this directly. Not covered: wire-to-main-thread time is measured from
+the transport thread's stamp, so time inside wire itself is not in `net`.
+
 
 ## R41: after QV8-4a the default `cargo test --release` still aborts in ~23% of runs: `vector.h:415: libc++ Hardening assertion __n < size() failed` in `Isolate::New` of a snapshot engine made while a DEFAULT-snapshot isolate (`page: None` / `without_snapshot`) is alive; plus a CPU-vs-wall-clock flake in `qy22_tripped_job_drain_logs_one_line_with_a_count` (Opus investigator, 2026-11-19) — OPEN: QV8-4b, QY22t
 
