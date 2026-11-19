@@ -62,7 +62,7 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
   22 QY54 [S, Opus measure] compositor disconnect under stalls (re-run after steps 2-4)
   23 QAN1h [S, Opus] GitHub restyle 15-18 s: re-measure with QOBS1 first (likely changed by QY53a-d)
   24 QY33 [M] YouTube post-load timer callbacks over budget: re-measure first (numbers are QuickJS-era)
-  25 [WIP] QP3 [S]  font-match cache miss cost      26 QY47b [S] fewer JS frames per createElement
+  25 DONE 6083910 QP3 [S]  font-match cache miss cost      26 QY47b [S] fewer JS frames per createElement
   27 QOBS9 [S, Opus] re-baseline PERF.md on the new machine (after 9, 18, 20)
   28 QM1k-mouse: the USER's re-check after steps 2-4 (the user deferred it until then; ask the user)
  Step 6, re-profile before leaving performance (user 2026-11-19):
@@ -488,19 +488,6 @@ dropped selectors summed across those pages. Caveats:
 - [x] QP0 [Opus, investigate only] (DONE 2026-11-17, evidence REGRESSIONS.md R32; [archived: TODO-DONE.txt]
 - [x] QP1 [S] (DONE 2026-11-17, commit 6c1ae4e; P1, TOP of the perf items, R32) One-word fix in `shape_spans` [archived: TODO-DONE.txt]
 - [x] QP2 [S] DONE 2026-11-17 (d5fe517) (P3, after QP1, R32 secondary 1-2) Let forced layouts on the JS thread [archived: TODO-DONE.txt]
-- [ ] [WIP] QP3 [S] (P3, measure first, after QP1) Cost of a font-match cache MISS: each
-      miss runs `FontMatchKey::new` for every face, and for each face whose weight
-      differs it calls `fontdb::Database::with_face_data`, which with the memmap
-      feature opens and mmaps the font file every time. After QP1 misses happen once
-      per distinct attrs per `FontSystem` (16 on /u/loupax; scratchy has 3
-      FontSystems: App, shaping worker, JS thread). Measure the first-paint cost on
-      a page with many attrs (Wikipedia, YouTube) with `Instant` around
-      `get_font_matches` misses (cosmic-text is not vendored: time it from
-      `shape_spans`, or count with callgrind as in R32). If it is > 20 ms per page,
-      consider calling `db.make_shared_face_data(id)` for each face once in
-      `new_font_system_with` (the faces stay mmapped, so `with_face_data` stops
-      touching the disk) and measure memory (RSS) before/after. Else close as
-      not worth it, with the numbers.
 
 --- YOUTUBE CPU BUDGET + SOCIAL VIM.JS (Opus investigator, 2026-11-16) -------
 --- Evidence: REGRESSIONS.md R24 (YouTube) and R25 (social.loupax.com). ------
@@ -1289,7 +1276,7 @@ Shared rules for this block:
       If the dirtying write is a no-op for layout (same value, or a property that cannot move boxes), skip the GEOM_GEN
       bump for it (QY53c did this for some writes). Gate: YT watch getPlayerSize layouts / 60 s at least halved,
       median of 3, default UA; tests for the skipped write kind.
-- [ ] QOBS1b [XS] (coordinator 2026-11-19, from QOBS2 aadd319; Sonnet/Haiku, tools only) `tools/profile.sh` still sets
+- [ ] [WIP] QOBS1b [XS] (coordinator 2026-11-19, from QOBS2 aadd319; Sonnet/Haiku, tools only) `tools/profile.sh` still sets
       `SCRATCHY_V8_SNAPSHOT=0` (the QOBS1 workaround "until QOBS2 is merged"). QOBS2 made scratchy skip the snapshot itself
       whenever `SCRATCHY_V8_FLAGS` is set, so drop the env var from profile.sh and the PERF.md "Profiling (perf)" note.
       Smoke: profile.sh on a local fixture still resolves JS frames. Can pair with any item (tools/PERF.md only).

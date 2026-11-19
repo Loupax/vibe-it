@@ -6576,3 +6576,18 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       fixture are `js_style::StyleCache::style_of` and SipHash hashing. Profile with tools/profile.sh (big-css and YT
       watch); if StyleCache lookups hash large keys with SipHash, try a cheaper key/hasher (FxHash-style) and measure;
       file what is left. Accept: big-css forced_layout.total_ms lower than main, median of 3.
+
+=== from TODO.txt: --- `Instant` timing, callgrind and `cargo bench`; none of it was committed. --
+- [x] QP3 DONE 6083910 (CLOSED not worth it: <= 10 ms/page; R32 addendum) [S] (P3, measure first, after QP1) Cost of a font-match cache MISS: each
+      miss runs `FontMatchKey::new` for every face, and for each face whose weight
+      differs it calls `fontdb::Database::with_face_data`, which with the memmap
+      feature opens and mmaps the font file every time. After QP1 misses happen once
+      per distinct attrs per `FontSystem` (16 on /u/loupax; scratchy has 3
+      FontSystems: App, shaping worker, JS thread). Measure the first-paint cost on
+      a page with many attrs (Wikipedia, YouTube) with `Instant` around
+      `get_font_matches` misses (cosmic-text is not vendored: time it from
+      `shape_spans`, or count with callgrind as in R32). If it is > 20 ms per page,
+      consider calling `db.make_shared_face_data(id)` for each face once in
+      `new_font_system_with` (the faces stay mmapped, so `with_face_data` stops
+      touching the disk) and measure memory (RSS) before/after. Else close as
+      not worth it, with the numbers.
