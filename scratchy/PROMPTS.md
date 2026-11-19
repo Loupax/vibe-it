@@ -7742,3 +7742,8 @@ Done: R38. The `true` is `<img alt="true">` (YouTube calls `setAttribute('alt', 
 **Prompt:** Implement QY53f1: key the layout build RULES_CACHE per stylesheet piece (each <style> element effective text, the external/adopted CSS as the last piece), parse only the changed piece and splice it into the rule list, full-parse fallback for @layer, and stop building/comparing the 4.4 MB concatenated string on every layout. Gate: big-css + script appending a small <style> and reading offsetWidth 10x, forced_layout.total_ms >= 50 % lower.
 
 **What changed:** new src/rules_cache.rs (RulesCache: per-piece text/rule count/state mask/keyframes; unchanged documents compare <style> text in place without allocating; insert/change/remove splices only the changed pieces; fallbacks: any @layer piece (layer ranks span sheets, joined parse), different js_enabled, rule list still shared). images.rs build calls it; collect_style_nodes/effective_style_text helpers; five qy53f1_* cascade tests. @import needs no fallback (the parser skips it). Coordinator override: TODO files untouched.
+## QOBS1b: profile.sh and layout bench cleanup (Sonnet, tools only)
+
+**Prompt:** Drop `SCRATCHY_V8_SNAPSHOT=0` from tools/profile.sh and PERF.md (QOBS2 skips the snapshot when SCRATCHY_V8_FLAGS is set); remove the 256 MB-stack thread and custom main from benches/layout.rs now that QSTK1 is merged, prove with `cargo bench --no-run` and one big_css run.
+
+**What changed:** tools/profile.sh, PERF.md (Profiling, Offline benchmarks), benches/layout.rs (criterion_main!).
