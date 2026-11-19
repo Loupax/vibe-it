@@ -903,10 +903,79 @@ fn qy57_take_records_and_dom_writes_recheck() {
            const r = io.takeRecords();
            console.log('took', r.length, r[0].isIntersecting, io.takeRecords().length);
            setTimeout(() => { $('t').style.marginTop = '900px'; }, 50);
-           setTimeout(() => { $('t').style.marginTop = '0'; }, 100);"#,
+           setTimeout(() => { $('t').style.marginTop = '0'; }, 400);"#,
     );
     // A layout change moves the target out of and back into view.
     assert_eq!(log, ["log:took 1 true 0", "log:cb false 100", "log:cb true 100"], "{log:?}");
+}
+
+// ---- QY53e1: deferred, rate-limited IO rechecks after DOM-only changes ----
+
+/// `qy57_run` that also returns how many forced layouts ran.
+fn qy53e1_run(body: &str, code: &str) -> (Vec<String>, usize) {
+    crate::js_geom::GEOM_LAYOUTS.with(|c| c.set(0));
+    let log = qy57_run(body, code);
+    (log, crate::js_geom::GEOM_LAYOUTS.with(|c| c.get()))
+}
+
+#[test]
+fn qy53e1_observe_delivers_initial_entry_with_one_layout() {
+    let (log, layouts) = qy53e1_run(
+        "<div id=t style='height:100px'></div>",
+        "new IntersectionObserver(es => es.forEach(e => console.log(e.isIntersecting))).observe($('t'));",
+    );
+    assert_eq!(log, ["log:true"], "{log:?}");
+    assert_eq!(layouts, 1);
+}
+
+#[test]
+fn qy53e1_writes_that_move_nothing_are_rate_limited() {
+    let (log, layouts) = qy53e1_run(
+        "<div id=t style='height:100px'></div><div id=o></div>",
+        r#"new IntersectionObserver(es => es.forEach(e => console.log(e.isIntersecting))).observe($('t'));
+           for (let i = 1; i <= 10; i++) setTimeout(() => $('o').setAttribute('data-x', String(i)), i * 30);"#,
+    );
+    assert_eq!(log, ["log:true"], "{log:?}");
+    // Undeferred this is 1 + 10. The deadline is >= 100 ms and not moved by later writes: 300 ms of writes.
+    assert!((1..=4).contains(&layouts), "layouts {layouts}");
+}
+
+#[test]
+fn qy53e1_moved_target_is_delivered_by_the_deadline() {
+    let (log, layouts) = qy53e1_run(
+        "<div id=t style='height:100px'></div>",
+        r#"new IntersectionObserver(es => es.forEach(e => console.log(Math.round(performance.now()), e.isIntersecting))).observe($('t'));
+           setTimeout(() => { $('t').style.marginTop = '900px'; }, 50);"#,
+    );
+    assert_eq!(log.len(), 2, "{log:?}");
+    assert_eq!(log[0], "log:0 true");
+    let (t, v) = log[1].strip_prefix("log:").unwrap().split_once(' ').unwrap();
+    assert_eq!(v, "false");
+    let t: i64 = t.parse().unwrap();
+    assert!((150..=2100).contains(&t), "delivered at {t} ms: after the write (50) + the 100 ms floor, not immediately");
+    assert_eq!(layouts, 2);
+}
+
+#[test]
+fn qy53e1_script_read_after_a_write_feeds_io_without_a_second_layout() {
+    let (log, layouts) = qy53e1_run(
+        "<div id=t style='height:100px'></div>",
+        r#"new IntersectionObserver(es => es.forEach(e => console.log(Math.round(performance.now()), e.isIntersecting))).observe($('t'));
+           setTimeout(() => { $('t').style.marginTop = '900px'; $('t').offsetWidth; }, 50);"#,
+    );
+    // The read laid the page out; IO re-evaluates on that layout right after the task (no deadline wait).
+    assert_eq!(log, ["log:0 true", "log:50 false"], "{log:?}");
+    assert_eq!(layouts, 2);
+}
+
+#[test]
+fn qy53e1_scroll_keeps_the_immediate_path() {
+    let (log, _) = qy53e1_run(
+        "<div style='height:2000px'></div><div id=t style='height:100px'></div><div style='height:2000px'></div>",
+        r#"new IntersectionObserver(es => es.forEach(e => console.log(Math.round(performance.now()), e.isIntersecting))).observe($('t'));
+           setTimeout(() => window.scrollTo(0, 1900), 50);"#,
+    );
+    assert_eq!(log, ["log:0 false", "log:50 true"], "{log:?}");
 }
 
 #[test]
