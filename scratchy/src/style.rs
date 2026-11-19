@@ -1432,6 +1432,9 @@ pub(crate) struct RuleDerived {
     pub(crate) rules: Rc<Vec<StyleRule>>,
     pub(crate) first_line: bool,
     pub(crate) first_letter: bool,
+    /// QY53b: the selector index; moved into `RULE_INDEX` for the duration of a
+    /// build and back afterwards (`None` while a build is running).
+    pub(crate) index: Option<RuleIndex>,
 }
 
 fn scan_pseudo(rules: &[StyleRule], name: &str) -> bool {
@@ -1444,7 +1447,14 @@ fn scan_pseudo(rules: &[StyleRule], name: &str) -> bool {
 
 impl RuleDerived {
     pub(crate) fn new(rules: &Rc<Vec<StyleRule>>) -> Self {
-        RuleDerived { rules: rules.clone(), first_line: scan_pseudo(rules, "first-line"), first_letter: scan_pseudo(rules, "first-letter") }
+        #[cfg(test)]
+        DERIVED_BUILDS.with(|c| c.set(c.get() + 1));
+        RuleDerived {
+            rules: rules.clone(),
+            first_line: scan_pseudo(rules, "first-line"),
+            first_letter: scan_pseudo(rules, "first-letter"),
+            index: Some(RuleIndex::build(rules)),
+        }
     }
 }
 
@@ -1454,6 +1464,9 @@ thread_local! {
     /// `(rules.as_ptr(), len, first-line rule exists, first-letter rule exists)`
     /// for the build in progress; callers with another slice scan the rules.
     pub(crate) static PSEUDO_FLAGS: std::cell::Cell<Option<(usize, usize, bool, bool)>> = const { std::cell::Cell::new(None) };
+    /// Test-only: how many times the derived data (index, hover keys, flags) was built.
+    #[cfg(test)]
+    pub(crate) static DERIVED_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     /// Test-only: how many full rule scans for a pseudo-element rule ran.
     #[cfg(test)]
     pub(crate) static PSEUDO_SCANS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };

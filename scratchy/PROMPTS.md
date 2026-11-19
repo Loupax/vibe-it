@@ -7594,3 +7594,9 @@ Done: R38. The `true` is `<img alt="true">` (YouTube calls `setAttribute('alt', 
 **Prompt:** Do QY53a: `apply_first_line`/`apply_first_letter` must not scan every rule for every element; compute both flags once per parsed rule list; tests that the scan runs once per build and that a later-added ::first-line rule is seen; measure on a generated big-css fixture with --perf-report.
 
 **What changed:** src/style.rs (`RuleDerived`, `rules_have_pseudo`, `PSEUDO_FLAGS`, test-only `PSEUDO_SCANS`), src/images.rs (flags set per build, read by the two functions), src/tests/cascade_tests.rs (qy53a_*), TODO.txt. Measured (--perf-report --budget-ms 20000, generated 20 000-rule fixture, 50 write+offsetWidth pairs, median of 3): forced_layout total 44.6 s -> 6.9 s. WPT: no change.
+
+## QY53b: RuleIndex/HoverKeys kept while the rule list is unchanged (scratchy/qy53abc-forced-layout)
+
+**Prompt:** Do QY53b: build `RuleIndex` and `HoverKeys` once per parsed rule list (keyed by the RULES_CACHE `Rc`, holding a clone) instead of on every `build_layout_tree_with_resources`; tests: built once for unchanged CSS, rebuilt on CSS change, matching unchanged after a class change.
+
+**What changed:** src/style.rs (`RuleDerived.index`, test-only `DERIVED_BUILDS`), src/images.rs (index moved into RULE_INDEX for the build and back; HoverKeys built on a miss; RULE_INDEX still None outside a build), src/tests/cascade_tests.rs (qy53b_*), TODO.txt. Measured (same fixture, median of 3): 6.9 s -> 5.6 s (-19 

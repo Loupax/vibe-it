@@ -2673,7 +2673,7 @@ divs with 3 classes each, a script that does 50 x (write one attribute, read `of
       shows the rule scan runs once per build, not per element. Accept: big-css fixture
       `--perf-report` forced_layout.total_ms >= 35 % lower than main (median of 3); YT watch check
       reported (R43 throwaway: -44 % per styled element).
-- [ ] QY53b [S] (P1, R43, Sonnet) READY. `RuleIndex::build` and `HoverKeys::build` run on every
+- [x] QY53b [S] DONE HASHB (P1, R43, Sonnet) (big-css forced_layout.total_ms 6.9 s -> 5.6 s median of 3 = -19 % vs after QY53a). `RuleIndex::build` and `HoverKeys::build` run on every
       `build_layout_tree_with_resources` although `RULES_CACHE` returned the same `Rc<Vec<StyleRule>>`
       (40 ms per YouTube forced layout, 8.5-13 %). Cache both next to the parsed rules (keyed by the
       `Rc` pointer + len, holding an `Rc` clone so the pointer cannot be reused) and rebuild only

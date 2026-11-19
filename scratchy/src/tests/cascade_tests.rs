@@ -2533,3 +2533,55 @@ fn qy53a_style_text_change_drops_the_flag() {
     assert!(!qy53_any_first_line(&build_layout_tree(&without, 800.0)));
     assert!(qy53_any_first_line(&build_layout_tree(&with, 800.0)), "flipping back works too");
 }
+
+// ---------- QY53b: RuleIndex / HoverKeys are kept while the rule list is unchanged ----------
+
+fn qy53_derived_builds() -> usize {
+    crate::style::DERIVED_BUILDS.with(|c| c.get())
+}
+
+fn qy53_colors(doc: &Handle) -> Vec<TextColor> {
+    let tree = build_layout_tree(doc, 800.0);
+    let mut out = Vec::new();
+    find_all_span_colors(&tree, &mut out);
+    out
+}
+
+#[test]
+fn qy53b_index_is_built_once_for_unchanged_rules_and_rebuilt_on_css_change() {
+    let html = qy53_page(".k0 { color: #ff0000 } .k1 { color: #0000ff } p:hover { color: #00ff00 }", 4);
+    let doc = parse_html(&html);
+    let before = qy53_derived_builds();
+    let c1 = qy53_colors(&doc);
+    assert_eq!(qy53_derived_builds(), before + 1);
+    let c2 = qy53_colors(&doc);
+    let c3 = qy53_colors(&doc);
+    assert_eq!(qy53_derived_builds(), before + 1, "same CSS: no rebuild");
+    assert_eq!(c1, c2);
+    assert_eq!(c1, c3);
+    assert!(c1.contains(&TextColor::rgb(0xff, 0, 0)) && c1.contains(&TextColor::rgb(0, 0, 0xff)), "{c1:?}");
+    // The hover keys survive with the cached rules too.
+    let hk = crate::style::HOVER_KEYS.with(|k| k.borrow().clone());
+    let doc2 = parse_html(&qy53_page(".k0 { color: #ff0000 } .k1 { color: #0000ff } p:hover { color: #00ff00 }", 4));
+    let _ = build_layout_tree(&doc2, 800.0);
+    assert_eq!(crate::style::HOVER_KEYS.with(|k| k.borrow().clone()).tags, hk.tags);
+    // Changed CSS: rebuilt, and the new rules apply.
+    let doc3 = parse_html(&qy53_page(".k0 { color: #00ffff } .k1 { color: #0000ff }", 4));
+    let c4 = qy53_colors(&doc3);
+    assert_eq!(qy53_derived_builds(), before + 2);
+    assert!(c4.contains(&TextColor::rgb(0, 0xff, 0xff)) && !c4.contains(&TextColor::rgb(0xff, 0, 0)), "{c4:?}");
+}
+
+#[test]
+fn qy53b_class_change_with_cached_index_matches_the_new_class() {
+    let doc = parse_html(&qy53_page(".k0 { color: #ff0000 } .k1 { color: #0000ff } .z { color: #00aa00 }", 2));
+    let first = qy53_colors(&doc);
+    assert!(first.contains(&TextColor::rgb(0xff, 0, 0)), "{first:?}");
+    let builds = qy53_derived_builds();
+    // A script changes the class of the first <p>: same rules, cached index.
+    let p = find_by_tag(&doc, "p").unwrap();
+    crate::js_dom::set_attr(&p, "class", "z");
+    let second = qy53_colors(&doc);
+    assert_eq!(qy53_derived_builds(), builds, "rules unchanged: index reused");
+    assert!(second.contains(&TextColor::rgb(0, 0xaa, 0)) && !second.contains(&TextColor::rgb(0xff, 0, 0)), "{second:?}");
+}

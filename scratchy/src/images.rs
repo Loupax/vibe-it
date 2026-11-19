@@ -2039,16 +2039,18 @@ pub(crate) fn build_layout_tree_with_resources(
         *c.borrow_mut() = Some((css_source.clone(), rules.clone(), state_rules_mask(), kf));
         rules
     });
-    HOVER_KEYS.with(|k| *k.borrow_mut() = HoverKeys::build(&rules));
-    RULE_INDEX.with(|ri| *ri.borrow_mut() = Some((rules.as_ptr() as usize, rules.len(), RuleIndex::build(&rules))));
-    let (first_line, first_letter) = RULE_DERIVED.with(|d| {
+    // QY53b: index, hover keys and the flags depend only on the rule list, so
+    // they are rebuilt only when the cached `Rc` is a different one.
+    let (index, first_line, first_letter) = RULE_DERIVED.with(|d| {
         let mut d = d.borrow_mut();
-        if !d.as_ref().is_some_and(|x| Rc::ptr_eq(&x.rules, &rules)) {
+        if !d.as_ref().is_some_and(|x| Rc::ptr_eq(&x.rules, &rules) && x.index.is_some()) {
+            HOVER_KEYS.with(|k| *k.borrow_mut() = HoverKeys::build(&rules));
             *d = Some(RuleDerived::new(&rules));
         }
-        let x = d.as_ref().expect("just set");
-        (x.first_line, x.first_letter)
+        let x = d.as_mut().expect("just set");
+        (x.index.take().expect("checked"), x.first_line, x.first_letter)
     });
+    RULE_INDEX.with(|ri| *ri.borrow_mut() = Some((rules.as_ptr() as usize, rules.len(), index)));
     PSEUDO_FLAGS.with(|f| f.set(Some((rules.as_ptr() as usize, rules.len(), first_line, first_letter))));
     precompute_generated(document, &rules, viewport_width);
     // `var()` is resolved per element in `resolve_style` (Q13).
@@ -2080,7 +2082,15 @@ pub(crate) fn build_layout_tree_with_resources(
             image_cache,
         )),
     };
-    RULE_INDEX.with(|ri| *ri.borrow_mut() = None);
+    if let Some((_, _, index)) = RULE_INDEX.with(|ri| ri.borrow_mut().take()) {
+        RULE_DERIVED.with(|d| {
+            if let Some(x) = d.borrow_mut().as_mut()
+                && Rc::ptr_eq(&x.rules, &rules)
+            {
+                x.index = Some(index);
+            }
+        });
+    }
     PSEUDO_FLAGS.with(|f| f.set(None));
     let mut tree = tree;
     finish_animation_pass();
