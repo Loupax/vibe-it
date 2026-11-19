@@ -1,13 +1,13 @@
 # scratchy — regressions
 
-## R48: QMEM3: where the YouTube watch RSS goes. Of ~677 MB at the end of a 60 s headless run (731 MB in a live window), the part QOBS7 could not explain is mostly THREE things its estimates miss or misstate: the page's 22.6k CSS rules are parsed and held TWICE (layout's `rules_cache` and getComputedStyle's own `StyleCache` copy, ~107 MB RSS each), glibc keeps ~93 MB of freed memory in 42 per-thread arenas, and loading libmpv maps ~70 MB of shared libraries (-101 MB RSS in all with libmpv not loaded). No leak grows over the run: RSS is flat from 5 s to 60 s in the window (Opus, measure only, 2026-11-19) — OPEN: proposed QMEM3a-QMEM3d (in the PR); related QY53f1c, QY53i2, QMEM1
+## R48: QMEM3: where the YouTube watch RSS goes after QY53f1c. At ~488 MB at the end of a 60 s headless run (568-581 MB in a live window), the QOBS7 `memory` block explains only 149 MB (caches 32 + JS heap 117). Most of the rest is: V8's own overhead beyond `used` and its code range (~18 MB), glibc keeping ~85-94 MB of freed memory in 42 per-thread arenas, libmpv (-112 MB RSS when it is not loaded: 70 MB mapped libraries + ~42 MB in its threads), the scratchy binary (34 MB), and ~65 MB of main-thread malloc that no probe names. The rule caches are ~2.5x their estimates but now small (~40 MB both). No leak in the headless minute; the live window grows ~0.2 MB/s (Opus, measure only, 2026-11-19) — OPEN: proposed QMEM3a-QMEM3e (in the PR); related QY53i2, QMEM1
 
-**Status: measurement only, docs only, no product change.** Main be7c460 (branch base), own worktree
-release build (V8 + media), own wire on a scratchpad socket, DEFAULT user agent, `SCRATCHY_MEDIA_AO=null`,
-https://www.youtube.com/watch?v=G1AeBgalFZk. Five headless runs
-`scratchy --perf-report --socket S --budget-ms 20000 --seconds 60 URL` (a, d: default; b, e:
-`MALLOC_ARENA_MAX=2`; c: libmpv not loaded) and one live nested-dwl window (tools/nest.sh), sampled from
-outside for 60 s.
+**Status: measurement only, docs only, no product change.** Base **b276712** (QY53f1c, StyleRule 4040 -> 72
+bytes), own worktree release build (V8 + media), own wire on a scratchpad socket, DEFAULT user agent,
+`SCRATCHY_MEDIA_AO=null`, https://www.youtube.com/watch?v=G1AeBgalFZk. Four headless runs
+`scratchy --perf-report --socket S --budget-ms 20000 --seconds 60 URL` (f, g: default; h:
+`MALLOC_ARENA_MAX=2`; i: libmpv not loaded) and one live nested-dwl window (tools/nest.sh), sampled from
+outside for 60 s. A first pass on be7c460 (before QY53f1c) is summarised at the end.
 
 ### How this was measured (recipe; the probe code was NOT committed)
 Temporary code in `perf.rs` `report_page`, right before `memory_json` (so it sees the same state as the
@@ -19,10 +19,11 @@ Temporary code in `perf.rs` `report_page`, right before `memory_json` (so it see
 3. V8: `get_heap_statistics` (incl. `malloced_memory`, `peak_malloced_memory`), every
    `get_heap_space_statistics(i)`, `get_heap_code_and_metadata_statistics`.
 4. DOM census: walk `dom.document` (incl. template contents): nodes, elements, text bytes, attributes;
-   `size_of` of rcdom `Node` (120 B), `LayoutBox` (1344), `Laid` (1464), `ComputedStyle` (1304).
+   `size_of` of rcdom `Node` (120 B), `StyleRule` (72), `ComputedStyle` (1304).
 5. Staged frees, each followed by `malloc_trim(0)`, with `mallinfo2()` (`uordblks + hblkhd`) and RSS after
-   each: drop `RULES_CACHE`; reset the `StyleCache` (reached through a temporary thread-local `Weak`);
-   clear `SHAPE_MEMO`.
+   each: reset the `StyleCache` (reached through a temporary thread-local `Weak`); drop `RULES_CACHE` +
+   `RULE_DERIVED` + `RULE_INDEX` (the derived index holds the same `Rc`, so dropping only `RULES_CACHE`
+   frees just the piece text); clear `SHAPE_MEMO`.
 6. "No libmpv": `load_lib()` in media_mpv.rs returns `None` under a temporary env var (the inert
    placeholder path, as on a machine without libmpv).
 smaps mappings were classified by a small script: `[heap]` = glibc main arena; anonymous rw mappings
@@ -30,49 +31,50 @@ starting at a 64 MB-aligned 0x7f.. address = glibc thread arenas; anonymous mapp
 (scattered 256 KB pages) = V8 heap pages; the 256 MB rwx region = V8 code range; other anonymous 0x7f..
 = glibc mmapped chunks, thread stacks, mpv; file mappings by path. RSS throughout, never VSZ.
 
-### Results (run d unless stated; a/b/c/e agree within a few MB)
-End of run: VmRSS 677 MB, VmHWM 677 MB: the peak IS the end now. QOBS7's 732 MB / 839 MB peak predate
-QY53f1b (9415fb2), which removed the transient copy of the cold rule list. Headless spread: a 673, d 677
-MB (default); b 611, e 618 MB (`MALLOC_ARENA_MAX=2`); c 572 MB (no libmpv). The `memory` block:
-caches_bytes 313 MB + js_heap.used 123 MB = 436 MB "explained". (Its `peak_rss_bytes` was below VmHWM
-in every run, e.g. 659 vs 676 MB in run a; not chased.)
+### Results (run f; g agrees within 7 MB)
+End of run: VmRSS 488 / 489 MB (f / g), VmHWM 488 / 490 MB: the peak is the end. h (`MALLOC_ARENA_MAX=2`)
+425 MB; i (no libmpv) 376 MB. The `memory` block: caches_bytes 32 MB (custom_props_interner 29-30,
+mse_store 2, rules_cache 10.6, style_cache 7.7) + js_heap.used 117 MB = 149 MB "explained" = 31 %.
 
-| Part | RSS MB | Evidence |
+| Part (base b276712) | RSS MB | Evidence |
 |---|---:|---|
-| V8 heap pages + code range | 143 | 477 anon 256 KB pages (137 MB) + rwx code range 6 MB. V8 `total_physical_size` 147 MB: old 85, large-object 25, new 16.8 (3.4 used), trusted 7.9 + 4.4, code 7.1; `used` 124 MB. Zones now 1 MB (`malloced_memory`), `peak_malloced_memory` 61 MB |
-| CSS rules, copy 1: `StyleCache` (getComputedStyle, js_style.rs) | 106 | staged reset: malloc in-use -206 MB, RSS -106 MB. Its `Rc<Vec<StyleRule>>` is ONE mmapped chunk of 173.8 MiB VSZ with 86.9 MiB resident: capacity ~45k x 4040 B for 22.6k rules (growth in `splice`), so QOBS7's 183 MB counts never-touched capacity. ~19 MB is selector/declaration heap, the RuleIndex and the 865-entry map, which no estimate counts |
-| CSS rules, copy 2: layout's `rules_cache` (same `Rc` also in `RULE_DERIVED`) | ~107 | a second mmapped chunk of exactly 86.9 MiB = 22 564 x 4040 B, resident, + inner heap (~20 MB by symmetry with copy 1). Dropping `RULES_CACHE` alone frees only 4.5 MB (the piece text): `RULE_DERIVED.rules` keeps the list alive |
-| glibc: freed but retained in arenas | 93 | malloc_info: 42 arenas, system 236 MB, free 93 MB (main 14.7; 41 thread arenas ~79 MB: 15 V8 workers, mpv/ffmpeg threads, the shaping worker; 1.3-12 MB each, most with < 1 MB in use). `MALLOC_ARENA_MAX=2`: 2 arenas, free 30 MB, RSS -59 / -62 MB (e vs d, b vs a). `malloc_trim(0)` at the end: only -29 / -32 MB |
-| Files: libmpv and its dependency tree | 70 | ~1300 file mappings (54 MB other libs + 16 MB libav*), absent in run c; mostly Shared_Clean (62 MB vs 5 MB in c): page cache, Pss lower |
-| libmpv: anonymous (its threads' arenas, decoders) | ~31 | c vs a: RSS -101 MB = 70 MB files + 43 MB less thread-arena RSS (overlaps the "retained" row) |
+| V8 heap pages + code range | 135 | 461 anon 256 KB pages (129 MB) + rwx code range 6 MB. `total_physical_size` 142 MB vs `used` 123 MB: ~18 MB is V8 slack (new space 16.8 MB mostly empty). Zones now 1 MB (`malloced_memory`); `peak_malloced_memory` 61 MB |
+| glibc: freed but retained in arenas | 94 (g: 85) | malloc_info: 42 arenas, system 231 MB, free 94 MB (main 18; 41 thread arenas ~76: 15 V8 workers, mpv/ffmpeg threads, the shaping worker; 1.3-12 MB each, most with < 1 MB in use). `MALLOC_ARENA_MAX=2` (h): 2 arenas, free 24 MB, RSS **-63 MB**. `malloc_trim(0)` at the end: only -29 / -34 MB |
+| libmpv: mapped library files | 70 | ~1300 file mappings (54.6 MB other libs + 15.8 MB libav*), absent in run i; mostly Shared_Clean (44-62 MB vs 5 MB in i): page cache, Pss lower |
+| libmpv: anonymous (its threads' arenas, decoders) | ~42 | i vs f: RSS -112 MB = 70 MB files + 41 MB less thread-arena RSS (overlaps the "retained" row) |
 | Files: scratchy binary | 34 | r-x 26 MB + r-- 7 MB |
-| `custom_props_interner` (leaked, QY53i2) | 31 | QOBS7 estimate, not re-measured |
-| Shape memo (this thread) | 3.7 | staged clear: -3.7 MB in-use (QOBS7 estimate 0.3 MB: 12x undercount). The shaping worker's copy was not reachable |
-| DOM | ~4 | 9 018 nodes (4 847 elements, 3 406 texts) x 120 B + 1.3 MB text + 8 405 attributes (0.4 MB values) |
-| Page CSS strings | ~9 | `EXTRA_CSS` 4.4 MB + rules_cache piece text 4.5 MB |
+| `custom_props_interner` (leaked, QY53i2) | 29 | QOBS7 estimate, not re-measured |
+| Layout rules: `rules_cache` + `RULE_DERIVED` + `RULE_INDEX` | 20 | staged drop: malloc in-use -24 MB, RSS -20 MB. Estimate 10.6 MB (+ hover keys 0.02): 2.3x undercount (selector heap, index) |
+| getComputedStyle rules: `StyleCache` (its own parse of the same CSS) | 20 | staged reset: in-use -21 MB, RSS -20 MB. Estimate 7.7 MB: 2.7x undercount |
+| Page CSS strings | ~9 | `EXTRA_CSS` 4.4 MB + rules_cache piece text ~4.5 MB (inside the rows above / below) |
+| Shape memo (this thread) | 1.5 | staged clear: in-use -4 MB, RSS -1.5 MB (QOBS7 estimate 0.3 MB). The shaping worker's copy is not reachable |
+| DOM | ~4 | 9 011 nodes (4 855 elements, 3 415 texts) x 120 B + 1.3 MB text + 8 402 attributes (0.4 MB values) |
 | MSE store | 2.4 | QOBS7 probe |
-| Thread stacks, mpv misc mappings, other 0x7f.. chunks | ~9 | QSTK1 kept segments: 0; 26 threads, a few touched pages each; the 32 MB shaping stack is not resident |
-| Not attributed (malloc in use) | ~45 | arena in-use 143 MB minus the rows above; candidates: fontdb/FontSystem copies (main + shaping worker), the worker's shape memo, net buffers |
+| Thread stacks, mpv misc mappings, other 0x7f.. chunks | ~11 | QSTK1 kept segments: 0; 26 threads, a few touched pages each; the 32 MB shaping stack is not resident |
+| **Not attributed: malloc in use** | **~65** | malloc in use 148 MB (arenas 137 + mmapped 11) minus the rows above. Main arena alone holds 119 MB in use. Candidates (not measured): the fetched script sources and HTML kept until the end of `report_page`, cosmic-text FontSystem/fontdb (main thread + shaping worker), the JS DOM id table and bindings, net buffers |
 
-Live nested-dwl window (same page, 60 s, sampled from outside): VmRSS 726 MB at 5 s, 731 MB at 60 s
-(flat, no growth), +54 MB over headless: thread arenas 135 MB vs 90 MB (App, shaping and render
-threads), fonts 3.7 MB. The same two 86.9 MiB rule chunks, same V8 and libmpv sizes. The live numbers do
-not change the picture, so no malloc_info was taken in the window.
+Live nested-dwl window (b276712, same page): VmRSS 568 MB at 5 s, 581 MB at 60 s (+0.22 MB/s, steady),
++80-93 MB over headless: thread arenas 137 MB vs 87 MB (App, shaping and render threads), V8 pages 148 vs
+129 MB, main arena 148 vs 137 MB, fonts 4.5 MB. No malloc_info was taken in the window (external probe only).
 
-### Top 3 consumers QOBS7 could not explain
-1. **The rule list twice: ~213 MB** (2 x 87 MB `Vec<StyleRule>` + ~2 x 20 MB inner heap). QOBS7 showed
-   `style_cache` 183 MB and `rules_cache` 96 MB, but they are the SAME CSS parsed by two caches, and
-   the estimates are wrong both ways (StyleCache counts 95 MB of never-touched capacity; neither counts
-   selector/declaration heap). QY53f1c (shrinking the 4 KB `StyleRule`) shrinks both copies; sharing one
-   parse removes one of them.
-2. **glibc arena retention: ~93 MB free in 42 arenas**, ~60 MB of it returned with `MALLOC_ARENA_MAX=2`
-   (forced-layout totals of the capped runs, 3552 / 3283 ms, are inside the default runs' spread
-   3170-4836 ms; not a speed measurement). V8's 61 MB compile-zone peak and mpv's threads are the
-   likely fillers. `malloc_trim(0)` alone gets back only ~30 MB.
-3. **libmpv loaded: ~101 MB** (70 MB of mapped library files, mostly shared page cache, + ~31-43 MB
-   anonymous in its threads). It is needed while a video plays. It is loaded on any page with a media
-   element.
-Not a leak: RSS is flat over the minute. The only known leak is still QY53i2's interner (31 MB).
+### Top 3 consumers QOBS7 cannot explain (b276712)
+1. **libmpv: ~112 MB** (70 MB mapped libraries, mostly shared page cache, + ~42 MB anonymous in its
+   threads). Needed while a video plays; loaded on any page with a media element.
+2. **glibc arena retention: 85-94 MB** freed but kept in 42 arenas; `MALLOC_ARENA_MAX=2` returns 63 MB
+   (forced-layout total of the capped run 4156 ms vs 2848 / 3109 ms default: ONE run, inside the noise
+   seen on be7c460 (3170-4836 ms), so it needs a real 3+3 gate). `malloc_trim(0)` alone: ~30 MB.
+3. **~65 MB of main-thread malloc in use that no probe names**, plus the rule caches being ~2.5x their
+   estimates (40 MB real vs 18 MB estimated).
+V8's slack (~18 MB beyond `used`) and the 34 MB binary are the remaining smaller items.
+
+### First pass on be7c460 (before QY53f1c), for the record
+Same recipe, 5 headless runs + a live window: 673-677 MB headless, 731 MB live. The page's 22.6k rules were
+held TWICE at 4040 B per `StyleRule`: StyleCache's `Vec` as one 173.8 MiB mmapped chunk with 86.9 MiB
+resident (capacity ~2x len, so QOBS7's 183 MB `style_cache` counted ~95 MB of untouched capacity), and
+layout's list as a second 86.9 MiB chunk; staged reset of StyleCache: RSS -106 MB. QY53f1c's 72-byte
+`StyleRule` removed both chunks (-~190 MB RSS, consistent with its own 698 -> 507 MB). Everything else
+(V8 ~143 MB, glibc retained 93 MB with -59 / -62 MB under `MALLOC_ARENA_MAX=2`, libmpv -101 MB, binary
+34 MB) matched the b276712 numbers above.
 
 ## R47: QY53n: what one `:hover` restyle costs and how to make it cheap. On Wikipedia every hover change over a link is a whole App tree build (174-180 ms on a quiet machine) that changes the matched rules of 1-2 of 10 650 elements, and the change is ALWAYS paint-only (`a:hover` colour/underline; 37 of 37 hover builds). With page JS on, pointer moves over links cost far more elsewhere: 33-38 JS-triggered builds per run that change NO style (same-value `li style="display: none;"` writes, `title` toggles; 6.6-7.9 s) and 35 forced layouts (14.5-16.8 s). On YouTube hover builds are a minority (25-33 of 95-108 builds per run), and in the user's frozen session 6 of 55 (Opus, 2026-11-19, docs only) — OPEN: QY53n1-QY53n5, QY53m2, QY53o1-QY53o3 (proposed below; QY53o measured in the addendum at the end: the forced layouts are Page Previews' `getBoundingClientRect` and scratchy's own IntersectionObserver recheck, 63-86 % of them after nothing but a `title` toggle)
 
