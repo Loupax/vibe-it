@@ -678,7 +678,8 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       with the right currentTime, and does `buffered` cover the target? Or does the old generation keep playing because the
       new appends never reach mpv? Repro on G1AeBgalFZk; check scratchy's own controls bar on a plain `<video controls>`
       too (QM1g2d seek, QM1g2d1 says drag was never driven in a real window). Fix with a test (MSE fixture: seek outside
-      the buffer -> playback resumes at the target). NOT a perf item: needs the user's OK to go ahead of the perf queue.
+      the buffer -> playback resumes at the target). USER 2026-11-19 ~21:05: may go ahead of the perf queue, but an Opus INVESTIGATION (docs only, findings + sized fix
+      in REGRESSIONS.md) comes first; implementation is a separate step after that.
 - [ ] QM1k-AB [M, Opus, measure only] READY after QM1k1b. THE EARLY TEST THAT DECIDES A vs B
       USER ANSWER 2026-11-19: A/V seems to sync well for now, but the page is too slow to test properly: DEFERRED until after the performance queue. Good test video (it visualises the sound): https://www.youtube.com/watch?v=G1AeBgalFZk
       (user Q4.3). Run `mse_ab_drift_60s` 3 times on the user's machine (quiet machine, release
