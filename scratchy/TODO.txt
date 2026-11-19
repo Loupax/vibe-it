@@ -84,8 +84,9 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
  Not in this list on purpose: QY26 and QY47d (QuickJS-specific: bytecode cache via JS_WriteObject,
  256 MB QuickJS heap; re-check on V8 only if QOBS4/QOBS7 point there), QAN1p (parked by the user),
  QY49-D (budget policy: the user decides; decide it from the post-step-2 numbers).
-After this list (including QPROF1 and anything it files): QYS1 (YouTube search re-test, user 2026-11-19), QM1k2
-(YouTube attestation research, unparked by the user 2026-11-19), then the rest of the queue as before (QM1k1n7, QM1k1n3, ...).
+EXCEPTION (user 2026-11-19 ~20:30): QM1k2's RESEARCH starts at the top of the next session in one slot, alongside this list.
+After this list (including QPROF1 and anything it files): QYS1 (YouTube search re-test, user 2026-11-19), QM1k2's
+fixes not yet chosen by the user, then the rest of the queue as before (QM1k1n7, QM1k1n3, ...).
 Unblocked by user answers 2026-11-19 (after the ready perf items are all assigned): QY49-D option (c), QV8-6
 (remove QuickJS; alone in js_engine*.rs/Cargo.toml/ci.yml), QCFG1 -> QTB1, QCI2, QM1g2e (window fullscreen), QM1a.
 Deferred until after the perf queue: QM1k-AB (test video G1AeBgalFZk), QY55 (profile in the user's session). Dropped: QM1k-r.
@@ -767,7 +768,9 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       through the MSE path (fixture made by ffmpeg; skip if the local ffmpeg cannot encode it)
       and a QM1k-AB-style drift check for WebM audio + mp4 video (YouTube's default pair).
       Then re-run QM1k-m2 without the mp4-only answers.
-- [ ] QM1k2 [M, Opus, investigate only] SCHEDULED (unparked 2026-11-19: after the perf queue + QPROF1 + QYS1; was PARKED 2026-11-18, Q4.1: ~60 s is the first
+- [ ] QM1k2 [M, Opus, investigate only] BYPASSES THE QUEUE (user 2026-11-19 ~20:30: start the RESEARCH at the top of the next
+      session in one agent slot, alongside the perf queue; its fix list then gets sized and the user decides which fixes go
+      ahead of the remaining perf items; was PARKED 2026-11-18, Q4.1: ~60 s is the first
       UNPARKED 2026-11-19 (user): "work on it once we are satisfied with the performance". Runs right AFTER the
       performance queue (after QPROF1 and the items it files), BEFORE the rest of the backlog. Evidence that it is THE
       stop today (QM1k-stop, 15:37 run): SABR answered STREAM_PROTECTION_STATUS 3 (attestation required) 10x from ~7 s
