@@ -67,8 +67,8 @@ What it does: builds the `profiling` cargo profile (release + line tables, no st
 `-C force-frame-pointers=yes` into `${PROF_TARGET:-$HOME/.cache/scratchy-prof-target}` (never
 the repo's `target/`; reuses `RUSTY_V8_ARCHIVE` or the local `gn_out` archive), then runs
 `perf record -e cycles:u -F 999 -g` on `--perf-report --budget-ms 20000` with
-`SCRATCHY_V8_FLAGS='--perf-basic-prof --interpreted-frames-native-stack'` (and
-`SCRATCHY_V8_SNAPSHOT=0` until QOBS2 lands). The wire socket is `$WIRE_SOCKET` or
+`SCRATCHY_V8_FLAGS='--perf-basic-prof --interpreted-frames-native-stack'` (scratchy skips the
+V8 snapshot itself whenever `SCRATCHY_V8_FLAGS` is set, QOBS2). The wire socket is `$WIRE_SOCKET` or
 `/run/user/$UID/wire.sock`. Output goes to `perf/profile-<commit>-<slug>/` (gitignored):
 `perf.data`, `report.json` (the `--perf-report` JSON), `folded.txt`, `summary.txt`,
 `flame.svg` (only if `inferno-flamegraph` is on PATH). The JIT maps (`/tmp/perf-<pid>.map`) and
@@ -572,8 +572,7 @@ Offline and deterministic input (the fixture is generated in `benches/layout.rs`
 script engine): 20 000 class rules (`.c<i> .d<i> { margin-left: 1px }`), 200 `::before` rules, 1 000 nested divs with
 3 classes each. One iteration = write one attribute (`data-w` on the innermost div), then
 `build_layout_tree_sized` (a thin wrapper of `build_layout_tree_with_resources`) + `measure_document`, i.e. what
-`write attribute; read offsetWidth` costs. The bench body runs on a 256 MB-stack thread because 1 000 nested divs
-overflow the default 8 MB main-thread stack until QSTK1 merges (same element and rule counts as the QY53 fixture).
+`write attribute; read offsetWidth` costs. 1 000 nested divs run on the default criterion harness (no big-stack thread since QSTK1; same element and rule counts as the QY53 fixture).
 Variants: `big_css`; `200 custom props + overrides` (200 `--p<i>` on `:root`, an inline override on every 10th div,
 `var()` use; QY53i); `100 long text paragraphs` (100 x ~2 000 chars appended; QP4); `small <style> appended`
 (a different small `<style>` appended to `<head>` before every build, so the stylesheet source changes and the

@@ -73,10 +73,9 @@ ARGS=(--perf-report --budget-ms 20000 --seconds "$SECS")
 [ -z "$UA" ] || ARGS+=(--user-agent "$UA")
 
 echo "profile.sh: recording $SECS s of $PAGE" >&2
-# SCRATCHY_V8_SNAPSHOT=0 until QOBS2 lands (flags + snapshot segfault). cwd = $OUT because
+# cwd = $OUT because
 # the V8 flags also write isolate-0x...-v8.log files into the CWD.
-(cd "$OUT" && SCRATCHY_V8_SNAPSHOT=0 \
-  SCRATCHY_V8_FLAGS='--perf-basic-prof --interpreted-frames-native-stack' \
+(cd "$OUT" && SCRATCHY_V8_FLAGS='--perf-basic-prof --interpreted-frames-native-stack' \
   perf record -e cycles:u -F 999 -g -o perf.data -- "$BIN" "${ARGS[@]}" "$PAGE" > report.json 2> run.err) \
   || { echo "profile.sh: perf record failed, see $OUT/run.err" >&2; exit 1; }
 

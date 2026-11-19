@@ -1,4 +1,4 @@
-use criterion::{criterion_group, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use scratchy::{build_layout_tree, measure, new_font_system, parse_html, Floats, ShapeCache};
 use std::hint::black_box;
 
@@ -293,19 +293,4 @@ fn bench_big_css(c: &mut Criterion) {
 }
 
 criterion_group!(benches, bench_build_layout_tree, bench_measure, bench_measure_mixed_inline, bench_real_page, bench_big_css);
-
-/// The big-css fixture nests 1 000 divs, which overflows the default 8 MB
-/// main-thread stack in style/layout recursion until QSTK1 merges, so the
-/// whole bench body runs on a thread with a 256 MB stack (same rule/element
-/// counts as the QY53 fixture, no shallower structure).
-fn main() {
-    std::thread::Builder::new()
-        .stack_size(256 << 20)
-        .spawn(|| {
-            benches();
-            Criterion::default().configure_from_args().final_summary();
-        })
-        .unwrap()
-        .join()
-        .unwrap();
-}
+criterion_main!(benches);
