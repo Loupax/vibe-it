@@ -7652,3 +7652,9 @@ Done: R38. The `true` is `<img alt="true">` (YouTube calls `setAttribute('alt', 
 **Prompt:** Implement QP4: `layout::memo_key` hashed `format!("{align:?}")` and `format!("{span:?}")` per text item (5.5 % of Wikipedia Rust CPU); hash the fields directly, exhaustively, with a test per field.
 
 **What changed:** layout.rs (`SpanStyle::hash_into`, destructuring without `..`; `memo_key` hashes the align discriminant), css.rs (`Hash` derived on DecorationStyle, VerticalAlign, Visibility, CursorStyle, WordBreak, WhiteSpace), positioning_tests.rs (`qp4_memo_key_equal_spans_equal_key_and_each_field_changes_it`).
+
+## QOBS1: permanent profiler recipe (tools + docs only)
+
+**Prompt:** Implement QOBS1: `[profile.profiling]`, `tools/profile.sh`, `tools/perf-fold.py`, preflight checks, `isolate-*-v8.log` in .gitignore, PERF.md "Profiling (perf)", one tools/README line; smoke-run on a fixture and Wikipedia Rust.
+
+**What changed:** Cargo.toml `[profile.profiling]`; tools/profile.sh; tools/perf-fold.py (fold, incl, callers, jscallers, plus an internal summary); .gitignore; PERF.md; tools/README. No cargo test (tools only). profile.sh sets `SCRATCHY_V8_SNAPSHOT=0` until QOBS2 merges.
