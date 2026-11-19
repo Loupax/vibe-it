@@ -14,6 +14,8 @@ thread_local! {
     static CSS_VER: std::cell::Cell<(u64, u64)> = const { std::cell::Cell::new((0, 0)) };
     /// QY52 test seams: cascades run / stylesheet pieces parsed by `StyleCache`.
     static CASCADES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// QSTK1b test seam: ancestor-chain elements visited by `style_chain` calls.
+    static CHAIN_STEPS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     static PARSES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     static EXTRA_CSS: RefCell<String> = const { RefCell::new(String::new()) };
 }
@@ -102,6 +104,9 @@ struct Entry {
     wgen: Option<u64>,
     style: ComputedStyle,
 }
+
+/// QSTK1b: per-element callback of a `style_of_chain` walk.
+type ChainVisit<'a> = dyn FnMut(&Handle, &ComputedStyle) + 'a;
 
 #[derive(Default)]
 pub(crate) struct StyleCache {
@@ -200,6 +205,12 @@ fn interaction_hash() -> u64 {
 #[cfg(test)]
 pub(crate) fn cascade_count() -> u64 {
     CASCADES.with(|c| c.get())
+}
+
+/// Ancestor-chain steps taken by computed-style walks so far on this thread (test seam, QSTK1b).
+#[cfg(test)]
+pub(crate) fn chain_steps() -> u64 {
+    CHAIN_STEPS.with(|c| c.get())
 }
 
 /// Stylesheet pieces parsed so far on this thread (test seam, QY52).
@@ -625,6 +636,41 @@ impl StyleCache {
     /// Style of `h` (optionally its `::before`/`::after`), or `None` if it
     /// is not an element connected to `root` (CSSOM: all-empty values).
     pub(crate) fn style_of(&mut self, root: &Handle, wgen: u64, h: &Handle, pseudo: Option<&str>, page: bool) -> Option<ComputedStyle> {
+        self.style_of_chain(root, wgen, h, pseudo, page, None)
+    }
+
+    /// QSTK1b: is `display:none` on `h` or any element ancestor? One cascade walk down the chain
+    /// (what `style_of` does once for the target), instead of one `style_of` per ancestor (O(depth^2)).
+    pub(crate) fn display_none_in_chain(&mut self, root: &Handle, wgen: u64, h: &Handle, page: bool) -> bool {
+        let mut none = false;
+        self.style_of_chain(root, wgen, h, None, page, Some(&mut |_, st| none |= display(st) == "none"));
+        none
+    }
+
+    /// QSTK1b: the `offsetParent` search in one cascade walk: the nearest element ancestor of `h`
+    /// that is `body`, a table/td/th, or positioned. `None` when the chain cannot be resolved.
+    pub(crate) fn offset_parent_in_chain(&mut self, root: &Handle, wgen: u64, h: &Handle, page: bool) -> Option<Handle> {
+        let mut seen: Vec<(Handle, bool)> = Vec::new();
+        self.style_of_chain(root, wgen, h, None, page, Some(&mut |n, st| seen.push((n.clone(), serialize(st, "position") != "static"))))?;
+        seen.pop(); // the element itself
+        while let Some((n, positioned)) = seen.pop() {
+            let t = element_tag(&n);
+            if positioned || matches!(t, "body" | "td" | "th" | "table") {
+                return Some(n);
+            }
+        }
+        None
+    }
+
+    fn style_of_chain(
+        &mut self,
+        root: &Handle,
+        wgen: u64,
+        h: &Handle,
+        pseudo: Option<&str>,
+        page: bool,
+        mut visit: Option<&mut ChainVisit<'_>>,
+    ) -> Option<ComputedStyle> {
         self.refresh(root, wgen, page);
         let rules = if self.shared { self.adopt_shared()? } else { self.rules.clone()? };
         // Ancestor chain, outermost first; must end at the document.
@@ -643,6 +689,8 @@ impl StyleCache {
             return None;
         }
         chain.reverse();
+        #[cfg(test)]
+        CHAIN_STEPS.with(|c| c.set(c.get() + chain.len() as u64));
         let vw = current_viewport().0;
         if self.map.len() > 50_000 {
             self.map.clear();
@@ -693,6 +741,9 @@ impl StyleCache {
                     s
                 }
             };
+            if let Some(f) = visit.as_deref_mut() {
+                f(n, &st);
+            }
             if i == last {
                 out = Some(match pseudo {
                     Some(p) => {
