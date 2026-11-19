@@ -22,6 +22,7 @@ use std::time::Duration;
 use crate::media_video::{VideoFrame, VideoTarget};
 
 use crate::media_net::MediaMode;
+use crate::mse_store::MseFeed;
 use crate::net_policy::RequestPolicy;
 
 pub(crate) const NETWORK_EMPTY: u8 = 0;
@@ -241,6 +242,12 @@ pub(crate) trait MediaBackend {
     fn available(&self) -> bool;
     /// Starts loading; always paused. Events follow through `poll`.
     fn load(&mut self, req: &LoadReq) -> Result<(), LoadError>;
+    /// QM1k1b: loads a MediaSource feed (generation starting at `start`, media time). The
+    /// bytes come from memory (`scratchy-mse://`), never from the wire. Default: refused.
+    #[allow(dead_code)] // the element core calls it from QM1k1c
+    fn load_mse(&mut self, _feed: Arc<MseFeed>, _start: f64) -> Result<(), LoadError> {
+        Err(LoadError::Other("MSE not supported".into()))
+    }
     fn unload(&mut self);
     fn set_paused(&mut self, paused: bool);
     fn seek(&mut self, secs: f64);
@@ -867,6 +874,18 @@ impl MediaBackend for FakeBackend {
         }
         s.loaded = Some(req.clone());
         s.position = 0.0;
+        s.playing = false;
+        Ok(())
+    }
+    fn load_mse(&mut self, feed: Arc<MseFeed>, start: f64) -> Result<(), LoadError> {
+        let mut s = self.0.borrow_mut();
+        s.calls.push(format!("load_mse {} {start}", feed.id));
+        if let Some(e) = s.fail_load.clone() {
+            return Err(e);
+        }
+        let gid = feed.start_generation(start);
+        s.loaded = Some(LoadReq { url: format!("scratchy-mse://{}/{gid}/0", feed.id), page: String::new(), mode: MediaMode::NoCors });
+        s.position = start;
         s.playing = false;
         Ok(())
     }

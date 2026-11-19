@@ -15,7 +15,7 @@ fn be(n: u32) -> [u8; 4] {
 }
 
 /// ftyp + moov with one track (tkhd v0, mdhd v0) and a trex default duration.
-fn init_seg(track: u32, timescale: u32, trex_dur: u32) -> Vec<u8> {
+pub(super) fn init_seg(track: u32, timescale: u32, trex_dur: u32) -> Vec<u8> {
     let mut tkhd = vec![0, 0, 0, 3];
     tkhd.extend_from_slice(&[0; 8]); // ctime, mtime
     tkhd.extend_from_slice(&be(track));
