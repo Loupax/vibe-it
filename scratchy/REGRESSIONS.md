@@ -1,6 +1,6 @@
 # scratchy — regressions
 
-## R47: QY53n: what one `:hover` restyle costs and how to make it cheap. On Wikipedia every hover change over a link is a whole App tree build (174-180 ms on a quiet machine) that changes the matched rules of 1-2 of 10 650 elements, and the change is ALWAYS paint-only (`a:hover` colour/underline; 37 of 37 hover builds). With page JS on, pointer moves over links cost far more elsewhere: 33-38 JS-triggered builds per run that change NO style (same-value `li style="display: none;"` writes, `title` toggles; 6.6-7.9 s) and 35 forced layouts (14.5-16.8 s). On YouTube hover builds are a minority (25-33 of 95-108 builds per run), and in the user's frozen session 6 of 55 (Opus, 2026-11-19, docs only) — OPEN: QY53n1-QY53n5, QY53m2, QY53o (proposed below)
+## R47: QY53n: what one `:hover` restyle costs and how to make it cheap. On Wikipedia every hover change over a link is a whole App tree build (174-180 ms on a quiet machine) that changes the matched rules of 1-2 of 10 650 elements, and the change is ALWAYS paint-only (`a:hover` colour/underline; 37 of 37 hover builds). With page JS on, pointer moves over links cost far more elsewhere: 33-38 JS-triggered builds per run that change NO style (same-value `li style="display: none;"` writes, `title` toggles; 6.6-7.9 s) and 35 forced layouts (14.5-16.8 s). On YouTube hover builds are a minority (25-33 of 95-108 builds per run), and in the user's frozen session 6 of 55 (Opus, 2026-11-19, docs only) — OPEN: QY53n1-QY53n5, QY53m2, QY53o1-QY53o3 (proposed below; QY53o measured in the addendum at the end: the forced layouts are Page Previews' `getBoundingClientRect` and scratchy's own IntersectionObserver recheck, 63-86 % of them after nothing but a `title` toggle)
 
 **Status: measured live, design + items, docs only (no code change; the instrumentation was reverted).**
 Release build of main ad764fa (V8 + media), own worktree, own wire on a scratchpad socket (`$!`), nested
@@ -187,6 +187,99 @@ Who writes `li style="display: none;"` and the `title` toggles (inferred: Wikipe
 extensions); who forces the 35 Wikipedia layouts (QY53o); the split of `resolve_style_for` into cascade vs
 `var()`/value computation; whether `top` in YouTube's player hover rules is on relative boxes (QY53n3 must
 check at patch time); numbers at a full-size window (the host gave 956x312).
+(The writers and the forced-layout callers are now established: QY53o addendum below.)
+
+### QY53o addendum: who forces Wikipedia's layouts while the pointer hovers links (Opus, 2026-11-19, docs only)
+
+**Status: measured live, docs only (the instrumentation was reverted).** Release build of main 140bef3
+(V8 + media) plus throwaway instrumentation (env `QY53O_DIAG`, never committed): one line per forced layout
+in `GeomCache::refresh` with wall/CPU ms, the QOBS3 phase split (read from the window-mode recorder's
+`fl.phase_ns`, which runs whenever `SCRATCHY_FRAME_STATS` is set), `no_change`, the old/new cache key, the
+reading native (`__d_rect`/`__d_textrects`), its target element and the WHOLE V8 stack (40 frames, prelude
+frames included), plus every geometry-generation bump since the previous layout (`#[track_caller]` on
+`geom_bump`/`geom_bump_if`: which write native, which attribute, which element); and one line per
+`__d_setattr`/`__d_setq`/`__d_rmq` with name, same-value flag and stack. Own worktree, own wire on a
+scratchpad socket (`$!`), nested dwl (tools/nest.sh), DEFAULT UA, `SCRATCHY_MEDIA_AO=null`,
+`SCRATCHY_FRAME_STATS`. The host gave the nested window **960x1006** (960x489 in the first run d1); the
+page's JS still sees 1024x768 (R43 Finding 0). Load average 3-5 (quiet-ish).
+**Input (tools/inject, from t = 12 s, 29 s):** 6 rounds of `move:` over 8 links IN THE ARTICLE BODY
+(general-purpose programming language, performance, type safety, concurrency, memory safety, functional
+programming, immutability, garbage collector) with `wait:600`. R47's recipe had 5 lead links + Talk/Edit/View
+history; the tabs are not Page Previews targets (its selector is `#mw-content-text a[href][title]`), which is
+why R47 saw 35 per run and this recipe 50-56 (5/8 of the positions).
+
+**Baseline (frame stats, instrumentation off, b1-b3), pointer phase (t >= 12 s):**
+| run | forced n / ms | builds n / ms | page JS ms | lat_p95 median / max ms |
+|---|---|---|---|---|
+| b1 | 51 / 17 174 | 61 / 10 076 | 18 739 | 514 / 1 063 |
+| b2 | 52 / 16 485 | 71 / 10 861 | 18 058 | 493 / 886 |
+| b3 | 54 / 15 609 | 83 / 11 461 | 17 082 | 510 / 902 |
+| **median** | **52 / 16 485** | 71 / 10 861 | 18 058 | 510 / 902 |
+Whole run (incl. load): forced 55-58 / 16.8-19.3 s. Of the 30 s of pointer phase, ~16.5 s are forced layouts.
+
+**Callers (instrumented runs d2, d3; pointer phase; d1 at 960x489 had the same callers, 30 forced):**
+| reader (function url:line:col) | read | d2 n / ms | d3 n / ms | `no_change` | what changed the geometry generation before it |
+|---|---|---|---|---|---|
+| Page Previews dwell handler, `(anon) load.php?modules=ext.cite.referencePreviews\|ext.math.popup\|ext.popups.main:34:41125` (called from the link-hover dispatcher `34:35849`) | `link.getBoundingClientRect()` (`ElementProto.getBoundingClientRect` -> `gViewRect` -> `gRect` -> `__d_rect`); the `offsetWidth`, `offsetHeight`, `getClientRects()` it reads next hit the fresh cache | 38 / 10 716 | 34 / 10 991 | 19 / 29 | **only `title` toggles: 19 / 29**; the rest: the previous preview's popup (`div.mwe-popups` inserted/removed at the end of `<body>`, its `class`/`style="left:..;top:.."`, its links' `href`) |
+| scratchy's own IntersectionObserver recheck, `ioEval0 eval:3102` <- `obsFlush` (timer) on `h1#firstHeading` (Vector's sticky-header observer) | `gViewRect` -> `__d_rect` (the QY53e1 deferred recheck: `ioDue` = 4 x last layout CPU, so ~1 s after a geometry-generation bump) | 18 / 5 110 | 16 / 5 165 | 16 / 14 | **only `title` toggles: 16 / 14**; the rest: popup insert/remove/style |
+| **total** | | **56 / 15 826** | **50 / 16 156** | 35 / 43 | **`title` only: 35 (10 354 ms) / 43 (13 968 ms) = 63-86 % of the ms** |
+During load (t < 12 s) 4 more: IO on `#mw-content-text`/`#firstHeading` and Vector's TOC
+`scrollToActiveSection` (`load.php?...skins.vector...:914:902`, via `offsetParent`/`offsetTop` -> `gOffParent`).
+No forced layout came from `getComputedStyle` (it uses the style cache, not the geometry cache), from
+`__d_textrects`, or from a viewport change (the key's viewport stayed 1024x768).
+
+**The writers (both are Page Previews, `ext.popups.main`, fetched copy of the same version):**
+- `title` toggles: its store listener (`me`) runs on every `activeLink` change: the old link gets its title
+  back (`r.setAttribute("title", e)`) and the new one `t.setAttribute("title", "")` (to suppress the native
+  tooltip). 95-103 `setAttribute('title')` per run in the pointer phase, each VALUE-CHANGING, so each bumps the
+  geometry generation (`__d_setq` -> `geom_bump_if(changed)`). No stylesheet on the page tests `title` on an
+  `<a>`: the only `[title]` selectors are `abbr[title]` (default.css and the skin CSS), no `attr(title)` (the
+  page's `attr()` uses `data-mw-footnote-number`/`data-line`). So every layout after a title-only change
+  recomputes a tree whose rects equal the previous one: all 35/43 have `no_change = true`.
+- `li style="display: none;"`: the footer "Enable previews" link (`#footer-places` li) that the extension
+  appends; its subscriber `34:21894` does `t.style.display = shouldShowFooterLink ? "" : "none"` on EVERY store
+  change -> 264-272 writes per run (more than R47's 154-165: more preview targets in this recipe), **all
+  same-value, and none bumped the geometry generation** (none appears in any layout's bump list: QY53l's
+  same-value check holds). They still set the App's JS dirty flag on every batch: QY53m's case (App builds,
+  not forced layouts).
+- The popup changes are real DOM changes (a positioned `div.mwe-popups` appended to `<body>`, `left/top`
+  writes, `class` flips for the fade-in, the preview link `href`); the hovered link's box does not move
+  because of them, but scratchy's geometry cache has one global generation, so the next read lays out the
+  whole page.
+
+**Why each one costs 250-330 ms (median wall 255 ms in d2, 325 ms in d3; CPU = wall, nothing waits):** each
+is a whole-document layout at 1024x768 (10.6k elements). Median phases d2 / d3 (ms): css_collect 1 / 1,
+rule_index 0 / 0, precompute_generated 59 / 75 (23 %), build_children 72 / 91 (28 %), **measure_document
+116 / 144 (45 %, even with the content-keyed SHAPE_MEMO warm: nothing in the text changed)**, glyph_walk
+7 / 9, rect_walk 1 / 2. R47's ~450 ms were at load average 11-13.
+
+**Proposed items (coordinator files them):**
+- **QY53o1 [S]** (P1; js_dom.rs `geom_bump_if` + the predicate QY53m2 needs, style.rs rule list; NOT alongside
+  QY53l2 (#351, same write paths); do it together with QY53m2 or right after it, one predicate for both) a
+  value-changing write of an attribute that no selector and no `attr()` of the current rule list can read on
+  that element does NOT bump the geometry generation (and, via QY53m2, does not restyle). Inert = not
+  class/id/style, not an attribute the cascade or box build reads (QY53m2's list: width, height, hidden,
+  bgcolor, align, dir, lang, type, value, checked, disabled, open, colspan/rowspan, src/alt/srcset, ...), and
+  every compound selector that tests `[name]` has a type selector that is not this element's tag (so
+  `abbr[title]` does not make `title` on `<a>` relevant); `attr(name)` anywhere -> relevant. Must be
+  invalidated when the rule list changes (css_ver). Tests: `a.setAttribute('title','x')` after a layout ->
+  `__d_geom_fresh` stays true and `GEOM_LAYOUTS` does not grow on the next `getBoundingClientRect`; with
+  `a[title]{padding:5px}` or `content:attr(title)` it does; `abbr[title]` in the sheet + a write on `<a>` ->
+  fresh. **Gate (this recipe, frame stats, pointer phase, median of 3): forced.n <= 22 (today 52) and
+  forced.ms <= 6 500 (today 16 485);** the IO recheck count drops with it (it only runs after a bump).
+- **QY53o2 [M, Opus design first]** (P3; js_geom.rs) scoped geometry invalidation: writes inside an
+  out-of-flow subtree (absolutely/fixed positioned, containing block outside the read target's ancestors)
+  do not invalidate the rects of elements outside that subtree; a read of such an element reuses the cached
+  rects (the page size/scroll extent must still be right). Covers the 7-21 layouts per run after Page
+  Previews' popup changes. Gate (after QY53o1): forced.n <= 5 per run on this recipe. Only if QY53o1 leaves
+  more than ~3 s per run.
+- **QY53o3 [S, Opus measure]** (P3) where `measure_document` spends 116-144 ms in a forced layout whose text
+  did not change (SHAPE_MEMO warm): memo hit rate, per-paragraph buffer rebuilds, box measurement; a perf
+  profile with `--perf-report` on a headless replay of this page plus a title write and a
+  `getBoundingClientRect` loop. Feeds the general forced-layout cost (QY53 block), worth ~45 % of every
+  remaining forced layout.
+- The IO rechecks (16-18 per run, 5.1 s) are QY53e2's case (IO on the App's own layout, after Q33b2);
+  QY53o1 alone removes 14-16 of them. The same-value footer-li writes are QY53m's case (App builds only).
 
 ## R46: QM1k1n6 / QM1k-mouse: where a "pointer moving over YouTube" second goes. Moving the pointer is NOT what freezes the video; YouTube's player-controls JS does, when the pointer crosses its controls: each `mouseover`/`mouseout` on a `ytp-*` control costs 40-180 ms of page JS (~2 forced layouts of ~60 ms), the timers it schedules then run back to back in ONE `run_due` turn (up to 100 timers, no time limit: 1.2-2.5 s), and every queued `CursorMoved` is processed one by one. Two main-thread stalls under everything were scratchy's own and are FIXED here: the event loop spun at 20-40k turns/s on any page with JS (an `EventLoopProxy` clone dropped every turn wakes the loop), and mpv's software render SLEPT on the main thread until each frame's display time (~31 ms per frame = 93-100 % of every playing second) (Opus, 2026-11-19) — OPEN: QM1k1n6a-c, QOBS5c (proposed in the PR); FIXED: the spin and the render block (this PR)
 
