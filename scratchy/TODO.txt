@@ -52,8 +52,8 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
   14 DONE 8383e9d QM1k1n6 [M, Opus design then Sonnet] redraw starvation / frame budget (uses QOBS5) | QM1k block
   14a1 DONE 5642cbb QM1k1n6a [S] pointer-motion coalescing (once per turn, flush on button/wheel/key) | R46
   14a2 DONE 60925e7 QM1k1n6b [M] run_due time slice (16 ms while video plays or input pending, else 50 ms) | R46
-  14a3 [WIP] QM1k1n6c [S] video damage-present while layout is dirty (no full redraw + tree build) | R46
-  14a3b QCUR1 [S] cursor vanishes over the YouTube video: confirm cursor:none (ytp-autohide) + dispatch coalesced mousemove/pointermove (Q33d2) | user 2026-11-19
+  14a3 DONE 6c315c0 QM1k1n6c [S] video damage-present while layout is dirty (no full redraw + tree build) | R46
+  14a3b [WIP] QCUR1 [S] cursor vanishes over the YouTube video: confirm cursor:none (ytp-autohide) + dispatch coalesced mousemove/pointermove (Q33d2) | user 2026-11-19
   14a4 QOBS5c [S] forced.by_caller top 3 + longest callback source in each frame-stats line | R46
   14b Q33b2 [S] real innerWidth/innerHeight + forced-layout viewport = window size (QY53e3: prerequisite of QY53e2) | Tier 7
   14c DONE 140bef3 QY53n (design, R47) -> QY53n1-5 below; hover builds are NOT the YouTube freeze (6 of 55 builds)
@@ -1280,13 +1280,7 @@ Shared rules for this block:
 - [ ] QY53f1e [XS] (P3, from QY53f1b; Sonnet) `js_style.rs` (~line 584, getComputedStyle path) still does
       `rules.extend(parse_stylesheet(..))` (parse to a temp Vec, then move 4 KB rules); use `css::parse_stylesheet_into`
       like rules_cache does. Test: results equal; measure one getComputedStyle-heavy page before/after.
-- [ ] [WIP] QM1k1n6c [S] (P1 mouse freeze, from QM1k1n6, R46; Sonnet; AFTER QM1k1n6b, same code) `video_tick` presents the video
-      rect into the kept page while a relayout is pending (today it falls back to a full redraw + a 55-60 ms tree build,
-      1-9x per burst second). Gate: in playing seconds with builds.n >= 1, damage_presents >= 25; a screenshot after a
-      restyle shows the video in place.
-      Recipe (R46): nested dwl, YT watch G1AeBgalFZk, default UA, own wire, SCRATCHY_FRAME_STATS, tools/inject moving the
-      pointer at 60 Hz along the player controls bar for 8-10 s; baseline = the user's file (R46).
-- [ ] QCUR1 [S] (P1, user report 2026-11-19 18:50; Sonnet, confirm first; AFTER QM1k1n6c, same app.rs input code) The mouse
+- [ ] [WIP] QCUR1 [S] (P1, user report 2026-11-19 18:50; Sonnet, confirm first; AFTER QM1k1n6c, same app.rs input code) The mouse
       cursor disappears while over the YouTube video, worst during lag. Likely: YouTube's `ytp-autohide` sets `cursor: none`
       on the player after idle and removes it on `mousemove`; scratchy dispatches NO mousemove/pointermove to pages (R46),
       only mouseover/mouseout when the hit element changes, so moving inside the player never un-hides it. Confirm in a
