@@ -459,7 +459,7 @@ older and were only partly corrected in place):
   element for a+b and up to 34 % fewer layouts for c; then QY53d, e, g, f, h);
   QM1k1l/QM1k1m/QM1k-u small; QM1k-r with the user. QM1k1n DONE 2026-11-19 (R42 section 5:
   YouTube parks the `<video>` at `top:-360px` until `playing`, page design; the 40-60 s picture
-  gap is QY53 + the `vid=no` round trip): QM1k1n1 DONE (HASH), QM1k1n2 after QY53a-c
+  gap is QY53 + the `vid=no` round trip): QM1k1n1 DONE (93b7bc0), QM1k1n2 after QY53a-c
   (Opus re-measure), QM1k1n3 (P3).
   QM1k2 (PoToken) and QM1k3 (native HLS) PARKED by the user. Open: QUESTIONS.md Q7.
 - Still WAITING FOR USER: QCI2 (WPT in CI), QF14b2 (d) `--profile` (later),
@@ -1240,7 +1240,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       first frame +1.1 s when data is buffered (run 1). The delay is QY53 (main thread) plus the
       `vid=no` round trip. Follow-ups QM1k1n1, QM1k1n2, QM1k1n3; `getComputedStyle` "1%" seen
       again (QY58).
-- [x] QM1k1n1 [S] DONE 2026-11-19 (HASH; measured: 0.48 s CPU per 3 s hidden at 320x240, first frame 40 ms vs 86-106 ms; see REGRESSIONS.md R42 section 5) (P2, R42 section 5, Sonnet, measure first) Keep the video track decoding
+- [x] QM1k1n1 [S] DONE 2026-11-19 (93b7bc0; measured: 0.48 s CPU per 3 s hidden at 320x240, first frame 40 ms vs 86-106 ms; see REGRESSIONS.md R42 section 5) (P2, R42 section 5, Sonnet, measure first) Keep the video track decoding
       while a PLAYING element's box is laid but clipped away or off-screen, so a page that parks
       its `<video>` outside the clip until `playing` (YouTube: inline `top:-360px` in an
       `overflow:hidden` player) shows a current frame on the first redraw that brings the box in,
