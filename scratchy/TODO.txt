@@ -10114,3 +10114,10 @@ last, per the user's own call.
       reason to stop rejecting these). Note: `clip:` is not supported,
       but `width/height:1px` + `overflow:hidden` + `position:absolute`
       should already hide the text in practice. Verify by rendering.
+
+- [ ] QM1k-mouse [?] (P2, user report 2026-11-19) WATCHING YouTube video in the real window: the video
+      FREEZES while the mouse cursor moves over the page, and the page is still slow to start.
+      DEFERRED by the user: finish the QY53 performance items first (QY53d, QY53h, e, g, f), then
+      re-check whether it still happens; only if it does, an Opus agent investigates the pointer
+      path (hover recompute, hit test, JS mouse events, relayout/repaint, media pump starvation).
+      No existing item covers it (R1-R4 hover storms were a different, fixed cause).
