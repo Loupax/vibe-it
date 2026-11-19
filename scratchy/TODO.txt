@@ -1068,9 +1068,6 @@ Shared rules for this block:
 - [ ] [WIP] QAN1h3 [S] (P3, from QAN1h, R49; Sonnet) Class lookup without re-scanning the class attribute string per check (cache a
       per-element class atom set, invalidated on class writes). Gate: has_class < 4 % of GeomCache::refresh samples on the
       R49 home recipe.
-- [ ] [WIP] QMEM3b [S] (P2 memory, from QMEM3, R48; Sonnet, measure first) Name the ~65 MB of main-thread malloc no probe explains
-      (candidates: fetched script sources/HTML kept until report_page ends, FontSystem/fontdb on main + shaping worker, JS DOM
-      id table); add `memory` probes. Gate: explained bytes >= 60 % of (anonymous RSS - malloc free bytes).
 - [ ] QMEM3g [M] (P3, from QMEM3b #380 R48; Sonnet) Feature-gated counting `#[global_allocator]` (sampling, live-pointer
       table, backtrace) + a resolve script, so the next heap breakdown needs no throwaway patch (QMEM3b's prototype:
       /home/loupax/src/vibe-it/.coordinator/artifacts/qmem3b/memprof.rs.txt + hooks.diff, not in git).

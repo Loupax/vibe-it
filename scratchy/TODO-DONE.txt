@@ -7778,3 +7778,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QV8-6 DONE b717000 #382 QuickJS removed, V8 only (revert 6fe95da's squash b717000 to bring it back) [S] USER 2026-11-19 ~22:20: "Remove QuickJS, we can add it again later if we decide." GO NOW (next free slot, alone in js_engine*.rs/Cargo.toml/ci.yml). (after QV8-m, when the user agrees) Remove QuickJS (`engine-quickjs`, rquickjs
       USER ANSWER 2026-11-19: YES, remove QuickJS (also drop the `scratchy-quickjs` CI job and the second test config from AGENTS.md). READY, after the ready perf items are assigned; touches js_engine*.rs, Cargo.toml, ci.yml: run it alone in that area.
       dependency, the seam's QuickJS backend).
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QMEM3b DONE 4f58672 #380 named the 65 MB (text/DOM, probe undercounts, ~25 MB C++); new probes; follow-ups QMEM3g/h/j [S] (P2 memory, from QMEM3, R48; Sonnet, measure first) Name the ~65 MB of main-thread malloc no probe explains
+      (candidates: fetched script sources/HTML kept until report_page ends, FontSystem/fontdb on main + shaping worker, JS DOM
+      id table); add `memory` probes. Gate: explained bytes >= 60 % of (anonymous RSS - malloc free bytes).
