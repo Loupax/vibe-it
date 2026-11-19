@@ -6718,3 +6718,29 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       hits the latest position.
       Recipe (R46): nested dwl, YT watch G1AeBgalFZk, default UA, own wire, SCRATCHY_FRAME_STATS, tools/inject moving the
       pointer at 60 Hz along the player controls bar for 8-10 s; baseline = the user's file (R46).
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY53f1c DONE b276712 (StyleRule 4040 -> 72 B, lazy declarations; YT rules_cache 95.6 -> 10.6 MB, style_cache 183 -> 7.7 MB, RSS -27 %, cold max_ms -61 %) [M] (P2 speed+memory, from QY53f1b 9415fb2, R43 section 12; Opus; ABSORBS QMEM2) `StyleRule` is 4040
+      bytes: YouTube's 22 343 rules = ~90 MB, moved/copied on every cold parse (55-75 ms of memcpy + page faults in the
+      226 ms cold build) and held by rules_cache (~95.6 MB, QOBS7). Shrink it: box or side-table the rarely-used parts
+      (the declaration block is probably a large inline struct of Option<..> fields), share immutable declaration blocks
+      (Rc/Arc) between identical rules, keep the hot matching data (selector, specificity, order, index keys) compact.
+      Gate: size_of::<StyleRule>() <= 512 bytes (test asserts it), YT watch memory.caches.rules_cache bytes >= 50 % lower,
+      cold first forced layout (max_ms) lower, no forced_layout.total_ms regression (perf-diff), cascade tests unchanged,
+      WPT no change. If the honest shrink is L, ship a first slice and file the rest.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QMEM2 DONE b276712 (absorbed by QY53f1c) [S] (P2 memory, from QOBS7; Sonnet; AFTER QY53f1 (done 01d20dd: per-piece cache in rules_cache.rs, still 95.6 MB on YT; 186 MB before its reserve_exact fix)) YT watch: `rules_cache`
+      = 22 564 entries, ~95.6 MB (~4 KB per rule). Check after QY53f1 whether old versions are kept (YouTube inserts many
+      `<style>`s) and what a parsed rule costs (selector + declaration storage; QOBS7 says the estimate undercounts selector
+      heap); compact or dedupe. Gate: YT watch rules_cache bytes >= 50 % lower, no forced-layout regression.
+      ABSORBED 2026-11-19 into QY53f1c (the 4 KB StyleRule is the cause; QY53f1b 9415fb2).
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QMEM1 DONE b276712 (CLOSED: QY53f1c made style_cache 183 -> 7.7 MB; it held 4 KB rule copies) [S] (P2 memory, from QOBS7 67b6f0d; Sonnet, measure first; touches js_style.rs StyleCache: not alongside
+      QY53f1 if that touches page_css/StyleCache) YT watch 60 s: `style_cache` = 861 entries, ~183.5 MB (~213 KB per entry)
+      of 732 MB RSS. Find what one entry holds (a whole ComputedStyle per element? the full page CSS string or rule list
+      per entry? per-generation copies never evicted?) and bound it: evict entries of elements no longer in the document /
+      older generations, share immutable parts (Rc/Arc), or store a compact form. Gate: YT watch memory.caches.style_cache
+      bytes >= 70 % lower and RSS lower, median of 3; forced_layout.total_ms not worse (perf-diff). Tests: entry count
+      bounded after N relayouts of a page whose elements are replaced; cached styles still correct.

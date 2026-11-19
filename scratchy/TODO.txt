@@ -1231,7 +1231,7 @@ Shared rules for this block:
       that YouTube's visible content (thumbnails, comments) loads as before (nested-dwl screenshot at 30 s).
       QOBS3 (319f933) YT watch sample, 60 s, loaded machine: 135 forced layouts / 7.3 s, no_change 73 (54 %), by_reason
       io 21 / 2.1 s, script 114 / 5.2 s; top caller `g.k.getPlayerSize` (player base.js:15474) 74 layouts / 2.3 s.
-- [ ] QY53i2 [L] (P2 memory, coordinator 2026-11-19, from QY53i 4946d83; Opus design first, then Sonnet) Interned
+- [ ] [WIP] QY53i2 [L] (P2 memory, coordinator 2026-11-19, from QY53i 4946d83; Opus design first, then Sonnet) Interned
       custom-property tables are `Box::leak`ed and never freed: ~97 tables x ~125 KB = ~12 MB leaked per YouTube watch
       load, across navigations (and QY53i's `CUSTOM_PROPS_MEMO` also lives as long as the thread). Freeing them needs
       `ComputedStyle`/`InheritedStyle` (both `Copy`, ~120 sites carry `&'static CustomProps`) to hold a non-Copy Rc or a
@@ -1272,14 +1272,6 @@ Shared rules for this block:
       window: App rebuilds after only no-op writes 2-18 / 0-23 per run (up to 2.3 s). Gate: Wikipedia Rust live window
       60 s same input, median of 3: builds.n and builds.ms drop by the no-op count; screenshot unchanged; unit test: a
       same-value setAttribute leaves layout_dirty false.
-- [ ] [WIP] QY53f1c [M] (P2 speed+memory, from QY53f1b 9415fb2, R43 section 12; Opus; ABSORBS QMEM2) `StyleRule` is 4040
-      bytes: YouTube's 22 343 rules = ~90 MB, moved/copied on every cold parse (55-75 ms of memcpy + page faults in the
-      226 ms cold build) and held by rules_cache (~95.6 MB, QOBS7). Shrink it: box or side-table the rarely-used parts
-      (the declaration block is probably a large inline struct of Option<..> fields), share immutable declaration blocks
-      (Rc/Arc) between identical rules, keep the hot matching data (selector, specificity, order, index keys) compact.
-      Gate: size_of::<StyleRule>() <= 512 bytes (test asserts it), YT watch memory.caches.rules_cache bytes >= 50 % lower,
-      cold first forced layout (max_ms) lower, no forced_layout.total_ms regression (perf-diff), cascade tests unchanged,
-      WPT no change. If the honest shrink is L, ship a first slice and file the rest.
 - [ ] QY53f1d [M] (P3, from QY53f1b; Opus design) The cold parse of YouTube's 4.4 MB sheet still costs ~130 ms on the first
       forced layout. Options: parse external sheets as they arrive (off the forced-layout path, on the JS thread's idle
       time or a worker), or lazily per rule block. Measure first (R43 section 12); design + items.
@@ -1324,18 +1316,6 @@ Shared rules for this block:
       build (16 of 58 YT hover builds, 0 on Wikipedia).
 - [ ] QY53n5 [S] (P3, from QY53n; after QM1k1n6a and QY53n2) Patched hovers skip the R2.3/QB3 coalescing delay; frame stats
       `hover` {patched, skipped, built} + hover_patch_ms. Gate: Wikipedia --no-js lat_p95 median <= 50 ms.
-- [ ] QMEM1 [S] (P2 memory, from QOBS7 67b6f0d; Sonnet, measure first; touches js_style.rs StyleCache: not alongside
-      QY53f1 if that touches page_css/StyleCache) YT watch 60 s: `style_cache` = 861 entries, ~183.5 MB (~213 KB per entry)
-      of 732 MB RSS. Find what one entry holds (a whole ComputedStyle per element? the full page CSS string or rule list
-      per entry? per-generation copies never evicted?) and bound it: evict entries of elements no longer in the document /
-      older generations, share immutable parts (Rc/Arc), or store a compact form. Gate: YT watch memory.caches.style_cache
-      bytes >= 70 % lower and RSS lower, median of 3; forced_layout.total_ms not worse (perf-diff). Tests: entry count
-      bounded after N relayouts of a page whose elements are replaced; cached styles still correct.
-- [ ] QMEM2 [S] (P2 memory, from QOBS7; Sonnet; AFTER QY53f1 (done 01d20dd: per-piece cache in rules_cache.rs, still 95.6 MB on YT; 186 MB before its reserve_exact fix)) YT watch: `rules_cache`
-      = 22 564 entries, ~95.6 MB (~4 KB per rule). Check after QY53f1 whether old versions are kept (YouTube inserts many
-      `<style>`s) and what a parsed rule costs (selector + declaration storage; QOBS7 says the estimate undercounts selector
-      heap); compact or dedupe. Gate: YT watch rules_cache bytes >= 50 % lower, no forced-layout regression.
-      ABSORBED 2026-11-19 into QY53f1c (the 4 KB StyleRule is the cause; QY53f1b 9415fb2).
 - [ ] [WIP] QMEM3 [S] (P3 memory, from QOBS7; Opus measure only) ~280 MB (38 %) of YT watch RSS is unexplained by caches + JS
       heap (peak 839 MB). One measured pass: /proc/self/smaps_rollup + malloc_info at end of run, V8 heap space stats
       (code/large-object/zone), mpv buffers for the 2 players, DOM/box trees; name the top 3 and file items.
