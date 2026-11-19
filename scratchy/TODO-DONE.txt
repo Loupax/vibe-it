@@ -7718,3 +7718,35 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 
       **Explicitly NOT fixed by this plan, exactly as flagged when it
       was written**:
+
+=== PERFORMANCE QUEUE list lines that were DONE, moved out of TODO.txt 2026-11-19 (coordinator) ===
+   1 DONE aadd319 QOBS2 [S]  V8 profiling flags crash with the snapshot (js_engine_v8.rs)       | QOBS block
+   2 DONE ba3322e QOBS1 [S]  tools/profile.sh + [profile.profiling] (tools/docs only; can pair with 1) | QOBS block
+   3 DONE a86d821 QY53g [M]  selector matching; do its step (2) has_class FIRST (29-32 % of all CPU) | QY53 block
+   4 DONE 4749910 QY53h [S]  page_css clone on every geometry read (js_geom.rs; pairs with 3)    | QY53 block
+   5 DONE c5098fa QY53e1 [S] deferred IO rechecks (92 % of Wikipedia CPU is IO-driven layout)    | QY53 block
+   6 DONE 4fae30f QP4 [S]    shape-memo key via Debug strings (layout.rs; pairs with 5)          | QOBS block
+   7 DONE 4946d83 QY53i [M]  custom-property interning clone/hash/leak (css.rs)                  | QOBS block
+   8 DONE f9a8c27 QOBS4 [S]  name the slowest callbacks (YT: a 5.5 s timer, a 2.8 s promise job) | QOBS block
+   9 DONE 319f933 QOBS3 [M]  forced-layout phases / callers / no-op rate in --perf-report         | QOBS block
+  10 DONE bf9aea1 QOBS5 [M]  window frame stats (redraw, paint, input latency, video frames)    | QOBS block
+  11 DONE 1b83534 QOBS6 [S]  network delivery delay (tool for 12)                                | QOBS block
+  12 DONE 7b50455 QM1k1n5 [S] page network results reach JS 1-19 s late                          | QM1k block
+  13 DONE ad764fa QY53e3 [S, Opus measure] App layout vs forced layout, live window (uses QOBS5)  | QY53 block
+  14 DONE 8383e9d QM1k1n6 [M, Opus design then Sonnet] redraw starvation / frame budget (uses QOBS5) | QM1k block
+  14a1 DONE 5642cbb QM1k1n6a [S] pointer-motion coalescing (once per turn, flush on button/wheel/key) | R46
+  14a2 DONE 60925e7 QM1k1n6b [M] run_due time slice (16 ms while video plays or input pending, else 50 ms) | R46
+  14a3 DONE 6c315c0 QM1k1n6c [S] video damage-present while layout is dirty (no full redraw + tree build) | R46
+  14c DONE 140bef3 QY53n (design, R47) -> QY53n1-5 below; hover builds are NOT the YouTube freeze (6 of 55 builds)
+  14e DONE 732438c QY53o -> QY53o1 (P1) / QY53o3 / QY53o2 below
+  14g DONE 573ab64 QY53o3 -> QY53o3a (P1) below
+  14h DONE 2c3c39c QY53o3a [S] JS-thread shape memo: per-layout sweep instead of clear-at-start cap (measure 130 -> ~35 ms/layout) after QY53l2 | R47
+  17 DONE 9fb583a QY53f [L, Opus design first] incremental style between forced layouts (80 % change nothing) | QY53 block
+  17a DONE 01d20dd QY53f1 [S/M] incremental stylesheet parse (YT max_ms = full 4.4 MB re-parse); after QOBS3 | QY53 block
+  18 DONE 67b6f0d QOBS7 [S]  memory breakdown (YT: 714 MB RSS vs 124 MB JS heap)                 | QOBS block
+  19 DONE 4123b55 QOBS8 [S]  perf-diff tool       20 DONE 352ad4f QOBS10 [S] offline forced-layout benchmark  | QOBS block
+  23 DONE c8ea18a QAN1h [S, Opus] GitHub restyle 15-18 s: re-measure with QOBS1 first (likely changed by QY53a-d)
+  25 DONE 6083910 QP3 [S]  font-match cache miss cost
+  14a3b [WIP] QCUR1 [S] cursor vanishes over the YouTube video: confirm cursor:none (ytp-autohide) + dispatch coalesced mousemove/pointermove (Q33d2) | user 2026-11-19
+  14a4 QOBS5c [S] forced.by_caller top 3 + longest callback source in each frame-stats line | R46
+  14f QY53o1 [S] value-changing attribute write no selector/attr() can read -> no geometry bump (after QY53l2 merges) | R47
