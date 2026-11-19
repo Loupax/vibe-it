@@ -6872,3 +6872,12 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       (screenshot) within 200 ms. User runs for reference: scratchpad user-runs/fs3-user-yt.jsonl (18:48 build).
       USER 2026-11-19 ~20:25 (main 20:17 build): the YouTube progress bar disappears the moment the mouse hovers over it
       and never appears again. Same likely cause (no mousemove). Gate adds: hovering the progress bar keeps it visible.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QOBS6 DONE 1b83534 #370 net delivery delay in --perf-report + frame stats [S] (P2, R44 section 4.4, Sonnet; after QOBS5) Network delivery delay. Stamp an `Instant`
+      when a page request's result is complete (where the `AppEvent::JsNet` / headless equivalent is
+      created) and again when `deliver_net` runs it; record the delay per request. `--perf-report`:
+      `net_delivery` {count, p50_ms, p95_ms, max_ms} (headless delivery may be ~0: the harness network is
+      synchronous; say so in PERF.md); QOBS5 lines: the same per second. QM1k1n5 ("results 1-19 s late,
+      measure first") uses this instead of temporary stamps. Test: a fetch whose result arrives while a
+      busy timer chain runs records a delay >= the timer's duration (test clock or a known busy loop).
