@@ -1239,6 +1239,13 @@ fn build_snapshot() -> Option<Snapshot> {
     if std::env::var("SCRATCHY_V8_SNAPSHOT").is_ok_and(|v| v == "0") {
         return None;
     }
+    // QOBS2 (R44): V8 code-generation flags such as `--perf-basic-prof --interpreted-frames-native-stack`
+    // together with the startup snapshot jump to a stale code address from `Builtins_LoadIC_NoFeedback`
+    // (SIGSEGV, found with gdb). Any user-supplied V8 flags: start the slow way, say so once.
+    if std::env::var("SCRATCHY_V8_FLAGS").is_ok_and(|f| !f.trim().is_empty()) {
+        eprintln!("scratchy: SCRATCHY_V8_FLAGS is set, so the V8 startup snapshot is skipped (slower start)");
+        return None;
+    }
     std::thread::Builder::new()
         .name("v8-snapshot".into())
         .stack_size(16 << 20)
