@@ -2064,6 +2064,7 @@ pub(crate) fn build_layout_tree_with_resources(
     RULE_INDEX.with(|ri| *ri.borrow_mut() = Some((rules.as_ptr() as usize, rules.len(), index)));
     PSEUDO_FLAGS.with(|f| f.set(Some((rules.as_ptr() as usize, rules.len(), first_line, first_letter))));
     MATCH_MEMO.with(|m| *m.borrow_mut() = Some(Default::default()));
+    VAR_EXPAND_MEMO.with(|m| *m.borrow_mut() = Some(Default::default()));
     ANCESTOR_BLOOM.with(|b| *b.borrow_mut() = Some(Default::default()));
     drop(t_phase);
     let t_phase = crate::perf::phase(crate::perf::Phase::PrecomputeGenerated);
@@ -2110,6 +2111,7 @@ pub(crate) fn build_layout_tree_with_resources(
     }
     PSEUDO_FLAGS.with(|f| f.set(None));
     MATCH_MEMO.with(|m| *m.borrow_mut() = None);
+    VAR_EXPAND_MEMO.with(|m| *m.borrow_mut() = None);
     ANCESTOR_BLOOM.with(|b| *b.borrow_mut() = None);
     let mut tree = tree;
     finish_animation_pass();

@@ -3100,3 +3100,59 @@ fn qy53f1c_precompute_generated_parses_only_candidate_blocks() {
     assert!(rules[1].is_parsed() && rules[2].is_parsed() && rules[3].is_parsed());
     assert!(!rules[0].may_declare_generated() && rules[1].may_declare_generated());
 }
+
+// ---------- QAN1h1: var() expansion memo (declaration block, custom-property table) ----------
+
+fn span_colors_of(html: &str) -> Vec<TextColor> {
+    let doc = parse_html(html);
+    let tree = build_layout_tree(&doc, 1920.0);
+    let mut colors = Vec::new();
+    find_all_span_colors(&tree, &mut colors);
+    colors
+}
+
+#[test]
+fn qan1h1_identical_blocks_under_one_table_expand_once() {
+    use crate::style::{VAR_EXPAND_HITS, VAR_EXPANSIONS};
+    let html = r#"<html><head><style>:root{--c:#010101} p{color:var(--c)}</style></head><body>
+        <p>a</p><p>b</p><p>c</p><p>d</p></body></html>"#;
+    let (e0, h0) = (VAR_EXPANSIONS.with(|c| c.get()), VAR_EXPAND_HITS.with(|c| c.get()));
+    let colors = span_colors_of(html);
+    let (e1, h1) = (VAR_EXPANSIONS.with(|c| c.get()), VAR_EXPAND_HITS.with(|c| c.get()));
+    assert_eq!(colors, vec![TextColor::rgb(1, 1, 1); 4]);
+    assert!(e1 - e0 <= 2, "one expansion for the shared block, got {}", e1 - e0);
+    assert!(h1 - h0 >= 3, "the repeated paragraphs hit the memo, got {}", h1 - h0);
+}
+
+#[test]
+fn qan1h1_siblings_with_different_tables_do_not_share() {
+    let html = r#"<html><head><style>p{color:var(--c)}</style></head><body>
+        <div style="--c:#010101"><p>a</p></div><div style="--c:#020202"><p>b</p></div>
+        <div style="--c:#010101"><p>c</p></div><div><p>d</p></div></body></html>"#;
+    let colors = span_colors_of(html);
+    assert_eq!(colors.len(), 4);
+    assert_eq!(colors[..3], [TextColor::rgb(1, 1, 1), TextColor::rgb(2, 2, 2), TextColor::rgb(1, 1, 1)]);
+    assert_ne!(colors[3], TextColor::rgb(1, 1, 1), "no --c: not a stale hit");
+}
+
+#[test]
+fn qan1h1_fallback_override_cycle_and_important_with_memo() {
+    let html = r#"<html><head><style>
+        p{color:var(--nope,#030303)}
+        .o{--c:#040404} .o p{color:var(--c) !important}
+        .y{--a:var(--b);--b:var(--a)} .y p{color:var(--a,#050505)}
+        </style></head><body>
+        <p>f1</p><p>f2</p>
+        <div class="o"><p style="color:#ffffff">i1</p></div><div class="o"><p style="color:#ffffff">i2</p></div>
+        <div class="y"><p>y1</p></div><div class="y"><p>y2</p></div></body></html>"#;
+    let colors = span_colors_of(html);
+    let c = |n| TextColor::rgb(n, n, n);
+    assert_eq!(colors, vec![c(3), c(3), c(4), c(4), c(5), c(5)]);
+}
+
+#[test]
+fn qan1h1_no_memo_outside_a_build() {
+    use crate::style::VAR_EXPAND_MEMO;
+    let _ = span_colors_of("<html><body><p>x</p></body></html>");
+    assert!(VAR_EXPAND_MEMO.with(|m| m.borrow().is_none()), "the memo only lives during a build");
+}
