@@ -66,6 +66,8 @@ fn q33a_runaway_script_is_interrupted() {
 
 #[test]
 fn q33a_classic_script_types_and_collection_order() {
+    // JS_ENABLED is process-wide; tests that read or flip it hold this lock (main CI flake 4608cd4).
+    let _g = JS_FLAG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let doc = parse_html(
         "<html><head><script>var a=1;</script><script src=\"x.js\"></script>\
          <script type=\"module\">import 'z';</script><script type=\"application/json\">{}</script>\

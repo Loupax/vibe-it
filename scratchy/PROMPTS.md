@@ -7761,3 +7761,9 @@ Done: R38. The `true` is `<img alt="true">` (YouTube calls `setAttribute('alt', 
 **Prompt:** `longest[].source` names scratchy's wrappers (the media pump `run media:108:22`, the rIC shim `globals:151:35`), not the page function. Attribute through the shims, name the slowest listener for prelude-dispatched events, name promise reaction handlers if V8 exposes them cheaply, and measure the media pump's own cost on YT watch.
 
 **What changed:** src/globals_prelude.js (rIC shim carries `__scratchy_cb` only while recording), `function_source` in js_engine_v8.rs / js_engine.rs (follows `__scratchy_cb`), src/js.rs (`dispatch` times each listener and calls `__perf_lis` only while recording), src/perf.rs (`note_listener`, `is_prelude_source`, source fallback at span end), tests in src/tests/perf_tests.rs, PERF.md glossary. Promise jobs left unnamed (rusty_v8 exposes no reaction handler).
+
+## Red main CI 4608cd4: JS_ENABLED test race (coordinator, test-only)
+
+**Prompt:** (coordinator) main CI failed on 4608cd4: `q33a_classic_script_types_and_collection_order` saw `inline_scripts(&doc).len() == 0` instead of 3.
+
+**What changed:** `JS_ENABLED` is process-wide; `qy19_noscript_meta_only_with_js_off` flipped it without `JS_FLAG_LOCK`, and two readers (`q33a_classic_script_types_and_collection_order`, `qf14b_every_loader_sends_the_jar_headers_with_the_pages_top_site`) read it without the lock, so a parallel test run could see JS off. All three now hold `JS_FLAG_LOCK`. Test-only; no product change.
