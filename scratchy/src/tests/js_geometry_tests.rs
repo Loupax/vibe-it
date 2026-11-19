@@ -1320,3 +1320,33 @@ fn qy53c_stylesheet_change_and_class_change_relayout() {
     }
     assert_eq!(n, 4, "{log:?}");
 }
+
+// ---------- QY53h: GeomCache keyed on the CSS version, no page_css() on a hit ----------
+
+#[test]
+fn qy53h_geometry_hit_does_not_build_page_css_and_stylesheet_changes_invalidate() {
+    let builds = || crate::js_style::PAGE_CSS_BUILDS.with(|c| c.get());
+    let layouts = || crate::js_geom::GEOM_LAYOUTS.with(|c| c.get());
+    crate::js_style::set_js_extra_css("");
+    crate::js_style::set_js_adopted_css("");
+    let e = events_engine(
+        "<html><head><style>#a{width:10px}</style></head><body style='margin:0'><div id=a style='height:5px'>x</div></body></html>",
+        "var a=document.getElementById('a'); window.w=function(){return a.offsetWidth};",
+    )
+    .0;
+    let ev = |code: &str| -> String { e.eval_value("q", code).expect("eval") };
+    assert_eq!(ev("''+w()"), "10");
+    let (b0, l0) = (builds(), layouts());
+    assert_eq!(ev("var r=0; for (var i=0;i<20;i++) r+=w(); ''+r"), "200");
+    assert_eq!(builds(), b0, "a cache hit must not build page_css");
+    assert_eq!(layouts(), l0);
+    crate::js_style::set_js_extra_css("#a{width:20px}");
+    assert_eq!(ev("''+w()"), "20");
+    assert!(layouts() > l0);
+    crate::js_style::set_js_adopted_css("#a{width:30px}");
+    assert_eq!(ev("''+w()"), "30");
+    assert_eq!(ev("var s=document.createElement('style'); s.textContent='#a{width:40px !important}'; document.head.appendChild(s); ''+w()"), "40");
+    assert_eq!(ev("s.sheet.insertRule('#a{width:50px !important}', 1); ''+w()"), "50");
+    crate::js_style::set_js_extra_css("");
+    crate::js_style::set_js_adopted_css("");
+}
