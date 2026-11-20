@@ -7924,3 +7924,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- Rust `__*` native wrapped in a JS timer); none of it was committed. -------
 - [x] QPT1d DONE 418fbd4 #401 frames/length/window[i]/[name]/postMessage/closed/name; DetachGlobal hack dropped; live YT token + SABR 1 through 175 s [S] (after QPT1a) WindowProxy surface (R53 D8): frames, length, window[i], window[name], cross-realm postMessage,
       closed, name.
+
+=== from TODO.txt: --- Rust `__*` native wrapped in a JS timer); none of it was committed. -------
+- [x] QPT1d3 DONE 78c8441 #403 closed-window timers/requests are no-ops (fetch never settles, sync XHR throws) [XS] (P2, from QPT1d #401; Sonnet) Timers and requests created on a CLOSED window (`w.setTimeout` after the iframe
+      was removed) still forward to the parent's queue and run: drop them (Chrome: a closed window's timers never fire).
