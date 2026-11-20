@@ -8409,3 +8409,9 @@ Prompt: item QY53n3 (P3): hover changes that only gain/lose PAINT plus OFFSET ru
 > and similar to how bash does it, if you have only one match, select it
 
 **What changed:** docs only. KEYS.md T53 (Tab with exactly one match: the ghost becomes typed text, plus a space after a command name or `:set` argument, none after a URL); T47/T48 now need 2+ matches. TODO.txt C8 and QCOMP1 tests follow.
+
+## QCOMP-D: menu dropped; Right/End accept and Delete hides confirmed (user, docs only)
+
+> drop the menu, agree with 2 and 3
+
+**What changed:** docs only. KEYS.md: MENU state and rows T35-T44 dropped (numbers not reused), T51 (Right/End take the ghost) and T52 (Delete hides it) confirmed, "Completion" without the menu (no `MENU_CMD`; external sources feed the ghost; safety: context only in env vars, no shell), decision log. STASH.md: the title is for scripts, the ranking is the ghost order. TODO.txt: C2 dropped, C8 updated, QCOMP2 reduced to external sources [S], QCOMP3/QCOMP4 text without `o`/menu.

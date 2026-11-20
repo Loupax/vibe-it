@@ -112,8 +112,8 @@ The first reader is `:go` completion (KEYS.md "Completion", QCOMP-D). Settings
 - **File:** `DIR/history`, mode 0600, one line per visit:
   `<unix time in ms>\t<url>\t<title>\n`. Plain text so scripts can read it:
   `cut -f2 history` = the URLs; `cut -f2 history | sort | uniq -c | sort -rn` = URLs by
-  number of visits. The title lets the menu match a page by its name; the time breaks
-  ties and allows "forget the last hour" later.
+  number of visits. The title is for scripts (scratchy's own completion matches URLs
+  only); the time breaks ties and allows "forget the last hour" later.
 - **What is a visit** (user, 2026-11-20): a top-level navigation the user or the page
   started and that loaded: a link click, `:go`, a page-script navigation
   (`location`, form submit). After redirects the FINAL URL is recorded. The `#fragment`
@@ -138,7 +138,7 @@ The first reader is `:go` completion (KEYS.md "Completion", QCOMP-D). Settings
 ### Ranking (the built-in `:go` source, user 2026-11-20)
 
 `complete_history_urls` reads the whole file each time (one pass; ~100k lines is tens of
-ms) and prints two groups, each filtered by the word being completed (prefix match on
+ms; once per command line, KEYS.md "Completion") and returns two groups, each filtered by the word being completed (prefix match on
 the URL with `https://`/`http://` and `www.` stripped; empty word = everything):
 
 1. **Sites:** one entry per host, the site root `scheme://host/` (host as visited,
@@ -148,10 +148,7 @@ the URL with `https://`/`http://` and `www.` stripped; empty word = everything):
 2. **Pages:** one entry per URL, ranked by that URL's own visit count. A URL that is a
    site root already listed in group 1 is not repeated.
 
-Ties (both groups): the most recent visit first. Each candidate line is
-`<url>\t<title>`; scratchy uses the text before the first tab of the chosen line (a
-typed line with no tab, e.g. tofi `--require-match=false`, is used whole). Whether the
-menu keeps this order while filtering is up to the menu (tofi's fuzzy matching or its
-own `--history` may reorder): checked with the user's tofi script in QCOMP4's real test.
+Ties (both groups): the most recent visit first. This is the order of the ghost
+suggestion: the first match is shown, Tab walks down the list (KEYS.md T45-T53).
 
 - `--forget-site` does not touch history (yet).

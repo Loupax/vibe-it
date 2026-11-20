@@ -26,7 +26,6 @@ home-row mods, e.g. a Corne where Ctrl is a held `a`, or a tap-hold Caps Lock).
 | NORMAL | `NORMAL` | sticky | scratchy's bindings; the page gets no key events *(proposed, P2)* |
 | SEARCH | `/` + the query | one line | the status-bar line editor |
 | COMMAND | `:` + the command | one line | the status-bar line editor |
-| MENU | `MENU` | waiting | ON HOLD (see T35-T44): the external menu program's window (tofi etc.); scratchy only listens for Esc |
 
 Two short-lived helper states hold the timing rules: **ESC1** (in INPUT, one Esc seen,
 waiting for a second) and **G** (in NORMAL, one `g` seen, waiting for a second). The
@@ -112,7 +111,7 @@ timer is needed. The pure function is `resolve_esc_esc(state, key, repeat, now)`
 User, 2026-11-20: completion is a suggestion shown AS YOU TYPE after the cursor, e.g.
 `:go https://google|.com` (`|` = cursor, `.com` drawn dimmed: "ghost text"). Tab cycles
 the suggestion through the other matches; Enter runs the line WITH the suggestion.
-These rows replace T35-T38 and T42-T44 (kept below, ON HOLD, for the menu question).
+These rows replace T35-T44 (the external menu, DROPPED by the user the same day).
 
 | # | From | Event | Guard | To | Effect |
 |---|---|---|---|---|---|
@@ -123,21 +122,12 @@ These rows replace T35-T38 and T42-T44 (kept below, ON HOLD, for the menu questi
 | T48 | COMMAND | Shift-Tab | a ghost is shown, 2+ matches | COMMAND | ghost = the previous match (wraps) |
 | T49 | COMMAND | Tab / Shift-Tab | no ghost | COMMAND | nothing |
 | T50 | COMMAND | Enter | a ghost is shown | NORMAL | run the typed text + the ghost (`:go https://google.com/`) |
-| T51 | COMMAND | Right / End | a ghost is shown | COMMAND | the ghost becomes typed text (keep typing after it); then T45 for the longer word *(proposed)* |
-| T52 | COMMAND | Delete | a ghost is shown | COMMAND | hide the ghost until the next edit, so Enter runs only what was typed *(proposed)* |
+| T51 | COMMAND | Right / End | a ghost is shown | COMMAND | the ghost becomes typed text (keep typing after it); then T45 for the longer word (user, 2026-11-20) |
+| T52 | COMMAND | Delete | a ghost is shown | COMMAND | hide the ghost until the next edit, so Enter runs only what was typed (user, 2026-11-20). Needed to go to a URL that is a prefix of a history entry |
 
-ON HOLD (superseded by T45-T52 for Tab; the menu has no key until the user decides):
-
-| # | From | Event | Guard | To | Effect |
-|---|---|---|---|---|---|
-| T35 | COMMAND | Tab | the word's source gives 0 candidates | COMMAND | nothing |
-| T36 | COMMAND | Tab | 1 candidate, or `MENU_CMD` is `None` | COMMAND | inline: complete to the first candidate; further Tabs cycle, Shift-Tab cycles back; any other key ends the cycle (today's behaviour) |
-| T37 | COMMAND | Tab | 2+ candidates and `MENU_CMD` is set | MENU (from COMMAND) | spawn the menu, candidates on its stdin |
-| T38 | MENU (from COMMAND) | menu exits 0 with a line | none | COMMAND | the line replaces the word being completed; the user still presses Enter |
-| T39-T41 | | | | | DROPPED (user, 2026-11-20): the `o` key is not planned; `:go` + Tab (T37, T38) is the way to reach history. Numbers kept so later rows keep theirs |
-| T42 | MENU | menu exits non-zero, prints nothing, or cannot be started | none | COMMAND | nothing changes (cannot start: a status-bar message) |
-| T43 | MENU | Esc in scratchy's window | none | COMMAND | kill the menu process, as T42 |
-| T44 | MENU | any other key in scratchy's window | none | MENU | ignored (not delivered to the page) |
+T35-T44 are DROPPED (user, 2026-11-20): T35-T38 and T42-T44 were the external dmenu-style
+menu (tofi) and its MENU state, T39-T41 the `o` key. The ghost rows above replace them.
+Numbers are not reused.
 
 ### Events that are not keys
 
@@ -217,27 +207,23 @@ set per command, like bash's `complete`:
   is kept and filtered by scratchy per keystroke (it is not re-run per key).
 - **The built-in `:go` source** (`complete_history_urls`) reads the history file and
   ranks it (`STASH.md` "History" / "Ranking"): site roots by visits to the site, then
-  pages by their own visits, ties by recency; candidate lines are `<url>\t<title>` and
-  scratchy keeps the text before the first tab of the chosen line. It does no fuzzy
-  matching itself: it keeps the entries whose URL, with `https://`/`http://` and `www.`
-  stripped, starts with the word (the word empty = all). Fuzzy matching is the menu's job.
-- **The menu (ON HOLD, 2026-11-20: Tab now cycles the ghost; open whether the menu gets
-  a key of its own or is dropped)** (`MENU_CMD` in `src/config.rs`, an argv, `None` = no menu, inline Tab
-  only) speaks the dmenu protocol: candidates on stdin, one per line; the choice on
-  stdout; non-zero exit = cancelled. Any dmenu-style program works: tofi, fuzzel,
-  bemenu, wmenu, or fzf through a terminal wrapper. The user's own: a script that
-  starts tofi (useful tofi options: `--fuzzy-match=true`, `--require-match=false`).
-- **Safety:** candidate text (page titles and URLs come from websites) only ever goes
-  through stdin. Nothing from a page or the history is put into an argv or a shell.
-- The menu and external sources run on a thread each; scratchy keeps drawing and
-  handling events while they run, and the result arrives as an `AppEvent`. A result
-  that arrives after its MENU state was left (T43) is dropped.
+  pages by their own visits, ties by recency. That order is the ghost order: the first
+  match is shown, Tab walks down the list. It keeps the entries whose URL, with
+  `https://`/`http://` and `www.` stripped, starts with the word. No fuzzy matching.
+- **No menu** (user, 2026-11-20): an external dmenu-style menu (tofi) was planned and
+  DROPPED in favour of the ghost; there is no `MENU_CMD`.
+- **Safety:** nothing from a page or the history is put into an argv or a shell; an
+  external source gets its context only in environment variables, and runs without a
+  shell.
+- External sources run on a thread; scratchy keeps drawing and handling events while
+  they run, and the result arrives as an `AppEvent`. A result that arrives after its
+  command line was closed, or for another argument position, is dropped.
 
 ## Configuration
 
 Everything a user may want to change lives in **one file, `src/config.rs`**, in the dwm
 `config.h` spirit: edit, rebuild (user, 2026-11-20). That includes the key bindings
-(today the `match` in `resolve_binding`), `ESC_ESC_MS`, `MENU_CMD`, `COMPLETERS`, the
+(today the `match` in `resolve_binding`), `ESC_ESC_MS`, `COMPLETERS`, the
 history settings and the scroll steps. Moving the existing knobs there is its own
 refactoring item (QCONF1, no behaviour change) and comes first; every later item adds
 its knobs there. Exception (user, 2026-11-20): the tracker block/allow lists stay in
@@ -252,9 +238,10 @@ Esc Esc, so there is nothing left to switch off, and Esc Esc cannot be locked ou
 ## Decision log
 
 - QKEYS-D D1-D8, QSEARCH-D S1-S7: `TODO.txt` (user, 2026-11-20).
-- 2026-11-20 (user): completion is scriptable through the dmenu protocol and
-  per-command sources (QCOMP-D); `:go` Tab uses it (`o` dropped the same day); configuration stays in
-  code, all of it in `src/config.rs`.
+- 2026-11-20 (user): completion is per-command sources, built in or scripts (QCOMP-D),
+  shown as a ghost suggestion while typing; Tab cycles, one match is selected, Enter
+  accepts, Right/End take it, Delete hides it (T45-T53). The dmenu menu and `o` were
+  planned and dropped the same day. Configuration stays in code, in `src/config.rs`.
 - 2026-11-20: "page mode" is called **INPUT** mode ("input passthrough"); first match
   after a search = first at or below the top of the screen; a match touching 2+ links
   warns and does nothing; this file written as the state machine (user).
