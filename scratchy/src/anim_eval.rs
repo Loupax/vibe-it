@@ -499,6 +499,7 @@ pub(crate) fn evaluate(
         None => base,
         Some(mut r) => {
             r.node = base.node;
+            r.pseudo = base.pseudo;
             r.tree_order = base.tree_order;
             r.animations = base.animations;
             r

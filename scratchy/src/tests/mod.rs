@@ -38,6 +38,7 @@ mod qmem3a_tests;
 mod qy53n1_tests;
 mod qmem3d_tests;
 mod shape_memo_tests;
+mod qy53n2_tests;
 
 // ---------- v37: `:link`/`:visited` pseudo-classes ----------
 

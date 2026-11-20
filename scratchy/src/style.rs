@@ -140,6 +140,9 @@ pub(crate) struct ComputedStyle {
     /// Q31: `node_id` of the element this style was resolved for (0 for
     /// anonymous boxes). Lets a hit test name the element under the mouse.
     pub(crate) node: usize,
+    /// QY53n2: which pseudo-element of `node` this is the style of (the
+    /// `pseudo_slot`: 0 = the element itself, 1 `::before`, 2 `::after`, ...).
+    pub(crate) pseudo: u8,
     /// QY1: creation sequence number, ascending in the order styles are
     /// computed (parent before children, siblings in document order), so
     /// it is a tree-order key. Used as the tie-break when positioned boxes
@@ -1868,14 +1871,76 @@ pub(crate) fn stash_last_match(memo: Option<MatchMemo>, rules: &[StyleRule], vie
 
 const PSEUDO_SLOTS: [Option<&str>; 6] = [None, Some("before"), Some("after"), Some("first-line"), Some("first-letter"), Some("marker")];
 
-/// QY53n1: after a hover change (the new state is already installed with
-/// `set_interaction`), did every element the change can affect keep exactly
-/// the rule set the last App build matched for it? `false` also when that
-/// cannot be told (no kept memo, rules or width changed, an element the build
-/// never matched, an unbounded `:hover`): the caller then builds.
-pub(crate) fn hover_matches_unchanged(keys: &HoverKeys, changed: &[Handle]) -> bool {
+/// QY53n2: an element whose matched rule set a hover change altered, in one
+/// pseudo slot (0 = the element itself, see `PSEUDO_SLOTS`).
+pub(crate) struct MatchChange {
+    pub(crate) handle: Handle,
+    pub(crate) slot: u8,
+    pub(crate) old: Rc<Vec<(u64, u32, bool)>>,
+    pub(crate) new: Rc<Vec<(u64, u32, bool)>>,
+}
+
+/// QY53n2: runs `f` with the last build's rules, their index (`RULE_INDEX`),
+/// pseudo-element flags and its kept match memo installed (`MATCH_MEMO`, so
+/// a cascade outside a build reuses the build's matches), then puts them
+/// back (the memo with whatever `f` changed in it). `None` when there is no
+/// kept build to work from (no memo, or one for other rules).
+pub(crate) fn with_kept_build<R>(f: impl FnOnce(&Rc<Vec<StyleRule>>, f32) -> R) -> Option<R> {
+    let (rules, index, first_line, first_letter) = RULE_DERIVED.with(|d| {
+        let mut d = d.borrow_mut();
+        let x = d.as_mut()?;
+        Some((x.rules.clone(), x.index.take()?, x.first_line, x.first_letter))
+    })?;
+    let (rp, rl) = (rules.as_ptr() as usize, rules.len());
+    let restore_index = |index: RuleIndex| {
+        RULE_DERIVED.with(|d| {
+            if let Some(x) = d.borrow_mut().as_mut()
+                && Rc::ptr_eq(&x.rules, &rules)
+            {
+                x.index = Some(index);
+            }
+        })
+    };
+    let kept = LAST_MATCH.with(|l| l.borrow_mut().take_if(|l| l.rules_ptr == rp && l.rules_len == rl));
+    let Some(kept) = kept else {
+        restore_index(index);
+        return None;
+    };
+    let vw = f32::from_bits(kept.viewport_bits);
+    RULE_INDEX.with(|ri| *ri.borrow_mut() = Some((rp, rl, index)));
+    PSEUDO_FLAGS.with(|f| f.set(Some((rp, rl, first_line, first_letter))));
+    let outer_memo = MATCH_MEMO.with(|m| m.borrow_mut().replace(kept.memo));
+    let out = f(&rules, vw);
+    let memo = MATCH_MEMO.with(|m| std::mem::replace(&mut *m.borrow_mut(), outer_memo));
+    PSEUDO_FLAGS.with(|f| f.set(None));
+    LAST_MATCH.with(|l| *l.borrow_mut() = memo.map(|memo| LastMatch { memo, rules_ptr: rp, rules_len: rl, viewport_bits: kept.viewport_bits }));
+    if let Some((_, _, index)) = RULE_INDEX.with(|ri| ri.borrow_mut().take()) {
+        restore_index(index);
+    }
+    Some(out)
+}
+
+/// QY53n2: replaces the kept memo's entry for `(handle, slot)` (inside
+/// `with_kept_build` only), so the next hover diff compares with what is
+/// on screen after a patch.
+pub(crate) fn set_kept_match(handle: &Handle, slot: u8, rules: &[StyleRule], vw: f32, set: Rc<Vec<(u64, u32, bool)>>) {
+    let key = (Rc::as_ptr(handle) as usize, slot, rules.as_ptr() as usize, rules.len(), vw.to_bits());
+    MATCH_MEMO.with(|m| {
+        if let Some(m) = m.borrow_mut().as_mut() {
+            m.insert(key, set);
+        }
+    });
+}
+
+/// QY53n1/QY53n2: after a hover change (the new state is already installed
+/// with `set_interaction`), re-match every element the change can affect and
+/// return those whose matched rule set differs from what the last App build
+/// matched for them (empty = nothing changed, no build needed). `None` when
+/// that cannot be told (no kept memo, rules or width changed, an element the
+/// build never matched, an unbounded `:hover`): the caller then builds.
+pub(crate) fn hover_match_diff(keys: &HoverKeys, changed: &[Handle]) -> Option<Vec<MatchChange>> {
     if keys.unbounded {
-        return false;
+        return None;
     }
     let mut affected: Vec<Handle> = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -1912,48 +1977,158 @@ pub(crate) fn hover_matches_unchanged(keys: &HoverKeys, changed: &[Handle]) -> b
         }
     }
     if affected.is_empty() {
-        return true;
+        return Some(Vec::new());
     }
-    // The last build's rules and index (left in `RULE_DERIVED` after it).
-    let Some((rules, index)) = RULE_DERIVED.with(|d| {
-        let mut d = d.borrow_mut();
-        let x = d.as_mut()?;
-        Some((x.rules.clone(), x.index.take()?))
-    }) else {
-        return false;
-    };
-    let (rp, rl) = (rules.as_ptr() as usize, rules.len());
-    RULE_INDEX.with(|ri| *ri.borrow_mut() = Some((rp, rl, index)));
-    let same = LAST_MATCH.with(|l| {
-        let l = l.borrow();
-        let Some(l) = l.as_ref() else { return false };
-        if l.rules_ptr != rp || l.rules_len != rl {
-            return false;
-        }
-        let vw = f32::from_bits(l.viewport_bits);
-        affected.iter().all(|h| {
+    with_kept_build(|rules, vw| {
+        let (rp, rl) = (rules.as_ptr() as usize, rules.len());
+        // The memo is only read here: `matching_indices_for` bypasses it.
+        let memo = MATCH_MEMO.with(|m| m.borrow_mut().take())?;
+        let mut out = Vec::new();
+        let mut ok = true;
+        'outer: for h in &affected {
             let p = Rc::as_ptr(h) as usize;
-            let key = |slot: usize| (p, slot as u8, rp, rl, l.viewport_bits);
+            let key = |slot: usize| (p, slot as u8, rp, rl, vw.to_bits());
             // The element itself must have been matched by the build.
-            if !l.memo.contains_key(&key(0)) {
-                return false;
+            if !memo.contains_key(&key(0)) {
+                ok = false;
+                break 'outer;
             }
-            PSEUDO_SLOTS.iter().enumerate().all(|(slot, pseudo)| match l.memo.get(&key(slot)) {
-                Some(old) => **old == matching_indices_for(h, &rules, vw, *pseudo),
-                None => true,
-            })
-        })
-    });
-    if let Some((_, _, index)) = RULE_INDEX.with(|ri| ri.borrow_mut().take()) {
-        RULE_DERIVED.with(|d| {
-            if let Some(x) = d.borrow_mut().as_mut()
-                && Rc::ptr_eq(&x.rules, &rules)
-            {
-                x.index = Some(index);
+            for (slot, pseudo) in PSEUDO_SLOTS.iter().enumerate() {
+                if let Some(old) = memo.get(&key(slot)) {
+                    let new = matching_indices_for(h, rules, vw, *pseudo);
+                    if **old != new {
+                        out.push(MatchChange { handle: h.clone(), slot: slot as u8, old: old.clone(), new: Rc::new(new) });
+                    }
+                }
             }
-        });
+        }
+        MATCH_MEMO.with(|m| *m.borrow_mut() = Some(memo));
+        ok.then_some(out)
+    })
+    .flatten()
+}
+
+/// QY53n1: did every element the hover change can affect keep exactly the
+/// rule set the last App build matched for it (see `hover_match_diff`)?
+#[cfg(test)]
+pub(crate) fn hover_matches_unchanged(keys: &HoverKeys, changed: &[Handle]) -> bool {
+    hover_match_diff(keys, changed).is_some_and(|d| d.is_empty())
+}
+
+/// QY53n2: what a declaration block can change when it starts or stops
+/// applying (R47 design point 3). Ordered: a set of rules takes the highest.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub(crate) enum Effect {
+    /// Only painted colours (text, background, border, outline, text
+    /// decoration): no box moves or changes size, nothing is re-shaped.
+    Paint = 1,
+    /// Additionally moves boxes without resizing them (`transform`
+    /// translate, `top`/`right`/`bottom`/`left`).
+    Offset = 2,
+    /// Anything else (sizes, fonts, display, visibility, opacity, custom
+    /// properties, `content`, animations, ...).
+    Layout = 3,
+}
+
+const PAINT_PROPS: &[&str] = &[
+    "color",
+    "background-color",
+    "border-color",
+    "border-top-color",
+    "border-right-color",
+    "border-bottom-color",
+    "border-left-color",
+    "outline-color",
+    "text-decoration",
+    "text-decoration-line",
+    "text-decoration-style",
+    "text-decoration-color",
+];
+const OFFSET_PROPS: &[&str] = &["transform", "translate", "top", "right", "bottom", "left"];
+
+/// QY53n2: the effect class of one declaration block (by its typed fields,
+/// CSS-wide keywords and `var()` declarations by property name, and its
+/// `late` layers).
+pub(crate) fn decls_effect(d: &Declarations) -> Effect {
+    if d.anim.is_some() || !d.custom_props.is_empty() {
+        return Effect::Layout;
     }
-    same
+    let mut c = d.clone();
+    c.color = None;
+    c.background_color = None;
+    c.border_color = Default::default();
+    c.outline_color = None;
+    c.text_decoration = None;
+    c.text_decoration_line = None;
+    c.text_decoration_style = None;
+    c.text_decoration_color = None;
+    let mut worst = Effect::Paint;
+    if c.transform.is_some() || c.top.is_some() || c.right.is_some() || c.bottom.is_some() || c.left.is_some() {
+        worst = Effect::Offset;
+    }
+    (c.transform, c.top, c.right, c.bottom, c.left) = (None, None, None, None, None);
+    let names = c.wide.iter().map(|(k, _)| *k).chain(c.var_decls.iter().map(|(n, _)| n.as_str()));
+    for n in names {
+        let n = n.to_ascii_lowercase();
+        if OFFSET_PROPS.contains(&n.as_str()) {
+            worst = worst.max(Effect::Offset);
+        } else if !PAINT_PROPS.contains(&n.as_str()) {
+            return Effect::Layout;
+        }
+    }
+    for l in &d.late {
+        worst = worst.max(decls_effect(l));
+    }
+    (c.wide, c.var_decls, c.var_seg, c.late) = Default::default();
+    if c != Declarations::default() {
+        return Effect::Layout;
+    }
+    worst
+}
+
+/// QY53n2: the effect class of rule `idx`'s normal or `!important` half,
+/// classified once per rule list (kept in `RuleDerived::effects`).
+pub(crate) fn rule_effect(rules: &Rc<Vec<StyleRule>>, idx: u32, important: bool) -> Effect {
+    let slot = idx as usize * 2 + important as usize;
+    let from = |b: u8| match b {
+        1 => Some(Effect::Paint),
+        2 => Some(Effect::Offset),
+        3 => Some(Effect::Layout),
+        _ => None,
+    };
+    let same = |x: &RuleDerived| Rc::ptr_eq(&x.rules, rules);
+    let cached = RULE_DERIVED.with(|d| d.borrow().as_ref().filter(|x| same(x)).and_then(|x| x.effects.get(slot).copied()).and_then(from));
+    if let Some(e) = cached {
+        return e;
+    }
+    let Some(rule) = rules.get(idx as usize) else { return Effect::Layout };
+    let e = decls_effect(if important { rule.important() } else { rule.decls() });
+    RULE_DERIVED.with(|d| {
+        if let Some(x) = d.borrow_mut().as_mut().filter(|x| same(x)) {
+            if x.effects.len() < rules.len() * 2 {
+                x.effects.resize(rules.len() * 2, 0);
+            }
+            x.effects[slot] = e as u8;
+        }
+    });
+    e
+}
+
+/// QY53n2: the highest effect class among the rules that start or stop
+/// matching in `changes` (the symmetric difference of each old/new set).
+pub(crate) fn changes_effect(rules: &Rc<Vec<StyleRule>>, changes: &[MatchChange]) -> Effect {
+    let mut worst = Effect::Paint;
+    for c in changes {
+        let old: std::collections::HashSet<(u32, bool)> = c.old.iter().map(|m| (m.1, m.2)).collect();
+        let new: std::collections::HashSet<(u32, bool)> = c.new.iter().map(|m| (m.1, m.2)).collect();
+        for &(i, imp) in old.symmetric_difference(&new) {
+            worst = worst.max(rule_effect(rules, i, imp));
+            if worst == Effect::Layout {
+                return worst;
+            }
+        }
+    }
+    worst
 }
 
 /// QY53a: whether some rule targets `::first-line` / `::first-letter`, worked
@@ -1973,6 +2148,9 @@ pub(crate) struct RuleDerived {
     /// QY53b: the selector index; moved into `RULE_INDEX` for the duration of a
     /// build and back afterwards (`None` while a build is running).
     pub(crate) index: Option<RuleIndex>,
+    /// QY53n2: `Effect` per (rule, important half) as `u8`, filled on first
+    /// use by `rule_effect` (0 = not classified yet).
+    pub(crate) effects: Vec<u8>,
 }
 
 fn scan_pseudo(rules: &[StyleRule], name: &str) -> bool {
@@ -2136,6 +2314,7 @@ impl RuleDerived {
             empty_sel,
             attr_readers: Rc::new(AttrReaders::build(rules)),
             index: Some(RuleIndex::build(rules)),
+            effects: Vec::new(),
         }
     }
 }
@@ -2825,6 +3004,7 @@ pub(crate) fn resolve_style_core<'a>(
 
     let mut cs = ComputedStyle {
         node: node_id(handle),
+        pseudo: pseudo_slot(pseudo).unwrap_or(u8::MAX),
         tree_order: next_style_order(),
         custom_props,
         color,
@@ -2954,6 +3134,7 @@ pub(crate) fn next_style_order() -> usize {
 pub(crate) fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
     ComputedStyle {
         node: 0,
+        pseudo: 0,
         tree_order: 0,
         custom_props: inherited.custom_props,
         color: inherited.color,

@@ -13,7 +13,7 @@ use std::thread;
 use arboard::Clipboard;
 use cosmic_text::{
     Align as CosmicAlign, Attrs, Buffer, Color as TextColor, Family as CosmicFamily, FontSystem,
-    LegacyRenderer, Metrics, Renderer, Shaping, Style as FontStyle, SwashCache,
+    AttrsList, LegacyRenderer, Metrics, Renderer, Shaping, Style as FontStyle, SwashCache,
     TextDecoration, UnderlineStyle, Weight as FontWeight, Wrap,
 };
 use cssparser::{
@@ -73,6 +73,7 @@ mod style;
 mod layout;
 mod images;
 mod rules_cache;
+mod hover_patch;
 mod forms;
 mod forms_text;
 mod forms_select;

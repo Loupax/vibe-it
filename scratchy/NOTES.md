@@ -3070,6 +3070,29 @@ Measured (release, synthetic 5000-item list): a restyle rebuild is ~113 ms
 hovered handle from its id and building its ancestor chain is ~0.15 ms.
 Not done: focus restoration across navigation.
 
+Hover without a build (QY53n1/QY53n2, R47): the App's builds keep their
+`MATCH_MEMO` (`LAST_MATCH`). `apply_hover` (nothing pending) re-matches only
+the elements the change can affect (`hover_match_diff`, `HoverKeys` follow);
+no matched set changed -> no build. Otherwise, when every rule that starts or
+stops matching is PAINT-class (`rule_effect`/`decls_effect`: colour,
+background-colour, border/outline colour, text-decoration; per rule list in
+`RuleDerived::effects`) and no layout is in flight, `hover_patch::paint_patch`
+patches the installed `Laid` tree and shape cache instead: it resolves the
+affected elements (changed ones + element descendants, plus their
+`::before`/`::after`) down their ancestor chains with the kept memo, under the
+old and the new state, requires the old values to equal what the tree and
+spans hold (so the derivation provably agrees with the build for exactly these
+elements), writes the new paint fields into boxes (`ComputedStyle::node` +
+`ComputedStyle::pseudo`, the pseudo slot) and into copies of the affected
+`ShapedParagraph`s (span attrs colour/decoration by `SpanStyle::node`/`tnode`;
+the copy is re-laid at the same width on the main thread; the worker's
+`SHAPE_MEMO` entry is never mutated), and updates the kept memo so the next
+diff compares with the screen. Anything it cannot do exactly (layout/offset
+rules, `::marker`/first-line, list items and form controls whose text has no
+`node`, an animated affected element, `<html>`/`<body>`, a mismatch) returns
+`Err` before changing anything and the build runs as before. The next real
+build recomputes everything from the DOM, so a patch never outlives it.
+
 JS DOM writes (QB2): `App::js_sync` is a restyle request like a hover
 change (`layout_dirty` + `restyle_requested` + `keep_scroll_on_rebuild`).
 `layout_in_flight` is true from the moment `redraw` queues a shaping pass
