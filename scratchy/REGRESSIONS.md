@@ -1,5 +1,166 @@
 # scratchy — regressions
 
+## R58: QY54b: why each inline-preview `getPlayerSize` forced layout on YouTube results costs ~58 ms. Every one is a FULL-document forced layout: `GeomCache::refresh` has no partial path, so each read rebuilds the whole page, ~4 900-6 500 elements (2 150-2 770 boxes, the document is ~7.7k px tall). Style work is ~80 % of it (`precompute_generated` 10-22 ms + `build_children` 30-42 ms of 54-80 ms); text measuring is 10-15 ms. Before each read the player has changed its own DOM: 45 % of the reads follow a node insert/remove, 24 % a `style` size write that QYTC1a refuses, 14 % a first `style` attribute. In-place shifts and skips cannot cover that. The "~5 ms on watch" in R56 is not the window vs headless: on watch the player reads its size in the first 2-3.5 s, while the document has 144-472 elements. The cost per element is the same (headless results: 53 ms at 5 024 elements; headless watch later: 81-107 ms at ~7 000). NEW: YouTube inserts `www-player.css` from script, and scratchy never fetches a script-inserted `<link rel=stylesheet>`. So the preview player has no CSS: it is laid out static and auto-height (150-1 791 px tall in a 232 px slot) and paints in the wrong result slot with stray controls. Applying that sheet (throwaway probe) fixes the size and the paint, but the reads are NOT fewer (41-43 vs 33-36 per preview) and each costs the same (Opus, 2026-11-20, measure only, docs only) — OPEN: proposed QY54b1-QY54b4 (below)
+
+**Setup.** Main 6cdc00a (the same code as d36a809 / 343f615 for everything this measures; the commits after it change only
+`wl_drain` docs and TODO files). The binary is a release build (V8 + media) of my worktree at 6cdc00a, in my own target dir,
+copied aside. It has THROWAWAY logging that was never committed and does not change behaviour:
+(a) every `geom_bump` records its call site, the node it hit and the write (attribute name, old -> new `style` value, the
+QYTC1a refusal point, whether a QYTC1d probe ran); (b) every `GeomCache::refresh` miss prints its CPU ms, the QOBS3 phase
+split, `style_resolves` / `elements`, the rect and skeleton counts, the page caller and the bumps since the last layout;
+(c) every `__d_rect` read that has to lay out prints the element, its rect before and after, and the deepest common ancestor of
+the nodes written since the last layout; (d) `QMEAS_PROBE=<file>` runs a JS file before the page scripts (the R56 hook; unset
+in every run except the probe runs below). Own wire (a copy of the installed binary) on a scratchpad socket, restarted for
+every run. Own nested dwl (tools/nest.sh). The window size changed between launches (960x489 or 960x1006; the per-layout cost
+does not depend on it: the page width is 956 in both). `SCRATCHY_FRAME_STATS`, `SCRATCHY_MEDIA_AO=null`, default UA.
+**Every run was under `flock /tmp/scratchy-perf.lock`.** Other agents were active on the machine (QY54a3, QY53n1c builds). The 1-min
+load average at the start and end of the runs was **0.28-3.31**. The run-to-run spread of the per-layout cost (median 54-80 ms) comes
+from that, not from the page.
+
+**Recipe (window).** `https://www.youtube.com/results?search_query=rust`. At 15 s (the page has loaded), tools/inject moves the pointer
+onto the first result's thumbnail (300,230) and nudges it 5 px. YouTube starts the inline-preview player. 6 s later it moves to the
+second result's thumbnail (300,420), and 6 s after that (first 3 runs: to the top bar). 20 s of input, 9 runs (hov2-4, rd1-3,
+base1-3). **Headless:** `--perf-report --seconds 30` on watch G1AeBgalFZk (3 runs), `--seconds 10` on results (1 run, no input).
+
+### 1. What one `getPlayerSize` read costs, and why
+
+`getPlayerSize` (`g.k.getPlayerSize`, player_ias base.js:15479) reads `#inline-preview-player`'s rect.
+
+| run | gPS layouts | per layout, median (min-max) | elements resolved | boxes | worst second (frame stats `longest`) |
+|---|---|---|---|---|---|
+| hov2 | 45 | 57.1 (54.1-61.8) ms | 4 999-5 177 | 2 144-2 219 | promise job 792 ms: 12 gPS = 688 ms |
+| hov3 | 34 | 75.0 (73.3-84.4) | 5 209-5 401 | 2 240-2 322 | 958 ms: 11 gPS = 820 ms |
+| hov4 | 51 | 72.3 (59.0-92.5) | 5 122-5 300 | 2 201-2 276 | 939 ms: 22 gPS = 1 623 ms in that second |
+| rd1 | 34 | 55.0 (54.3-61.2) | 5 040-5 240 | 2 158-2 244 | 706 ms: 11 gPS = 603 ms |
+| rd2 | 35 | 58.9 (57.1-65.5) | 5 243-5 424 | 2 243-2 320 | 747 ms: 11 gPS = 637 ms |
+| rd3 | 35 | 53.7 (52.0-58.3) | 4 877-5 077 | 2 299-2 385 | 685 ms: 11 gPS = 592 ms |
+| base1 | 33 | 71.4 (68.9-87.6) | 6 342-6 522 | 2 698-2 774 | 897 ms: 11 gPS = 781 ms |
+| base2 | 36 | 58.8 (56.7-66.5) | 5 251-5 443 | 2 250-2 332 | 744 ms: 11 gPS = 635 ms |
+| base3 | 35 | 78.9 (73.3-104.3) | 5 211-5 403 | 2 236-2 318 | 1 034 ms: 11 gPS = 884 ms |
+| headless watch x3 | 42, 42, 42 | 5.2, 5.7, 5.2 (2.2-15.2) | **144-472** | 44-165 | (242-260 ms in all) |
+
+That is R56's burst again: one promise job with 11-12 reads of 54-80 ms each (0.69-1.03 s). Phase medians per gPS layout
+(QOBS3 phases, 6 runs rd/base): css_collect 0.4-0.9, rule_index 0.0, **precompute_generated 10.5-19.1**, **build_children
+29.7-41.7**, **measure_document 9.8-14.6**, glyph_walk 0.5-0.8, rect_walk 0.5-1.0 ms. Style resolution is ~80 %. Headless
+watch gPS layouts split the same way at 1/10-1/30 of the size: 1.6 / 3.0 / 0.1 ms.
+
+**Reason / path.** All of them are the `script` reason (none is `io`). The path is the only one `GeomCache::refresh` has: a
+full `build_layout_tree_with_resources` + `measure_document` of the whole page. No QYTC1a shift and no QYTC1d skip happened
+before any of these reads. The cache was invalid at every read, because the player had changed its own DOM since the previous read.
+
+**Is it the window?** No. The headless watch page reads `getPlayerSize` 42 times, all in the first 2.3-3.5 s while YouTube
+builds the player before the rest of the page: 144-472 elements, hence ~5 ms. Later forced layouts on the same headless watch
+page cost 29-40 ms median and up to 81-107 ms at 6 930-7 208 elements. Headless results without input: up to 53 ms at 5 024
+elements. **The cost per element is the same (~11 us); R56's "~10x" is the element count at the moment of the read.**
+
+### 2. What invalidates between the reads
+
+The first write after each layout (the one that invalidated the cache), over the 207 gPS layouts of rd1-3 + base1-3:
+
+| first invalidating write | count | share |
+|---|---|---|
+| structural: insert/remove/`textContent`/`innerHTML` inside the player (`.ytp-chrome-top-buttons`, `.ytp-overlay-*`, `.ytp-title-*`, `.ytp-overflow-panel-*`, `#inline-preview-player` itself) | 93 | 45 % |
+| `style` write refused by QYTC1a at the delta step (`style_write_delta` = None): `<video>` `width`/`height` (300x150 -> 412x887 -> 412x1339 -> 412x232...), `<video>` `top` (the video is static, see section 3), the progress bar's `width: 0.15%`, `.caption-window` `max-width`/`bottom` | 50 | 24 % |
+| `style` attribute set for the first time (QYTC1a needs an old value): `display: none` on `.ytp-spinner` / `.ytp-cued-thumbnail-overlay`, `width: 300px` on the video, `--yt-delhi-*` custom properties on the player, `top: 112px; left: 96px` on the abs preview container | 30 | 14 % |
+| `aria-label` (a selector reads it, so QY53o1's skip does not apply) | 10 | 5 % |
+| `style` through another native (`setAttributeNS`/`style` property path) | 9 | 4 % |
+| `<video src>` | 6 | 3 % |
+| `class` with no QYTC1d verdict (probe not possible) / probe ran and a rule changed | 6 / 1 | 3 % |
+| `style` on a node without a skeleton entry (QYTC1a r5) | 3 | 1 % |
+
+So it is YouTube building the preview player's DOM between its size reads: the overlays, title, chrome and caption window
+are created, and the video size is set. The reads are not repeated because nothing changes. They are spaced by real changes.
+
+**Where the writes land.** For each read I took the deepest common ancestor of every node written since the previous layout.
+In 24-26 of 33-36 reads all writes were inside `#inline-preview-player` (or on it). In 9-13 they reached the preview's own
+containers (`.ytdVideoPreviewMediaContainer`, `.ytdVideoPreviewLoaderVideoPreviewContainer`, `ytd-video-preview`
+class), or the preview's inline controls (`yt-inline-player-controls`: the controls container, progress bar, time badge).
+**No common ancestor named a results-list element.** (The logged chain stops 6 levels up, so "inside `#video-preview`" is
+shown only for the chains that reach it.) The
+player sits in `.ytdVideoPreviewPlayerContainerWrapper` (`position: absolute; width: 440px; height: 248px; overflow: hidden`)
+inside `ytd-video-preview`. A subtree layout under that box would answer every one of these reads (section 4, QY54b3).
+
+**Why QYTC1a/QYTC1d do not apply.** QYTC1a moves a box in place only for `left`/`top`/translate of an abs/fixed box, or for
+paint-only fields. 45 % of the reads follow structural changes. The 24 % refused at the delta step are size changes (width,
+height, max-width), or a `top` on a box that is not absolutely positioned (the `<video>` is static here because its CSS is
+missing, section 3). The 14 % are a `style` attribute that did not exist before; QYTC1a refuses `old = None` (r1). Most of those
+change layout anyway (`display: none`, a width). The exceptions are the abs container's `top`/`left` and maybe the
+custom-property-only writes. QYTC1d had no verdict for the few class writes that came first. **At most ~1-2 reads per burst
+could be saved by widening the in-place paths.** The cost has to come down in the full layout itself (QY54b2) or by laying out
+less than the whole page (QY54b3).
+
+### 3. NEW: script-inserted stylesheets are never applied (the preview player has no CSS)
+
+The player's rect cycled between reads: 300x150 -> 412x434 -> 484 -> 903 -> 1 305 -> 886 -> 1 624 -> 1 339 -> 1 791 -> 684 ->
+996 px tall, in a 232 px slot. Only 21-26 of 33-36 reads returned the previous rect. A probe of computed styles
+(`QMEAS_PROBE`, 2 diagnostic runs) showed `.html5-video-player` as `position: static; height: auto; overflow: visible`, and its
+`.ytp-chrome-top`, `.ytp-overlays-container`, `.html5-video-container` children as `static` (in flow). On the watch page the
+same element is `position: relative; overflow: hidden; width/height 100%` (640x360). Cause: on results, `www-player.css` is not in
+the HTML. A probe that runs before the page scripts sees 4 stylesheet links; YouTube inserts
+`https://www.youtube.com/s/player/<hash>/www-player.css` into `<head>` at ~5.2 s (MutationObserver). Scratchy fetches only
+the `<link rel=stylesheet>` of the parsed document (net.rs `fetch_stylesheets` over `resources.stylesheets`). A script-inserted
+link is never fetched, never applied, and fires no `load`. The same is true of the two Google Fonts links inserted at ~4.6 s.
+
+Counterfactual (throwaway probe `QMEAS_PROBE=probe4.js`: on that link's insertion it `fetch()`es the href and appends the
+text as a `<style>`; 3 runs css1-3 interleaved with base1-3, the same binary):
+
+| | base1-3 (main) | css1-3 (player CSS applied) |
+|---|---|---|
+| player rect unchanged between reads | 22, 26, 24 of 33, 36, 35 | **40, 41, 39 of 42, 43, 41** (412x232) |
+| gPS layouts per run | 33, 36, 35 | 42, 43, 41 |
+| per layout, median | 71.4, 58.8, 78.9 ms | 61.8, 63.2, 79.6 ms |
+| worst promise job | 897, 744, 1 034 ms (11 gPS) | 865, 886, 1 137 ms (13 gPS) |
+| first invalidating write | structural 45 %, size 24 %, new `style` 14 % | structural 42 %, new `style` 19 %, class with a rule change 10 %, size 10 % |
+| screenshot (pointer on the 2nd result) | the preview plays over the **1st** result's thumbnail; a `1:34:30` label and a red dot float above it, at the filter bar | the preview plays over the **2nd** result, no stray controls |
+
+So the missing sheet is a real rendering bug (wrong size, wrong slot, stray chrome) and should be fixed (QY54b1). **It is
+not the cause of the freeze.** With the sheet the size is stable, but YouTube reads slightly more often and every read is still
+a full ~60-80 ms layout.
+
+### 4. Proposed items (coordinator files them)
+
+- **QY54b1 [M]** (P1, Sonnet; net.rs/app.rs/js_dom.rs, correctness) A `<link rel=stylesheet href>` that a script inserts
+  (or whose `href`/`rel` changes while connected) is never fetched or applied. YouTube results inserts `www-player.css` at ~5 s,
+  so the inline-preview player has no CSS (R58 section 3: 412x684-1 791 instead of 412x232, it paints over the wrong result with
+  stray controls). Fetch it through wire like a page subresource (async, not on the JS thread). When it arrives, add its text
+  to the page's external CSS at the link's document position (one `css_ver` bump, so the JS thread's `page_css` and the App
+  build both see it; `@import` one level as for parsed links). Fire `load` (or `error`) on the element. Removing the link (or
+  `disabled = true`) removes its CSS. Media-attribute handling as for parsed links. Tests: a fixture page whose script
+  appends a link to a local CSS file that makes a div `position: absolute; height: 10px`: the div's rect changes after the
+  link's `load` fires; removing the link restores it; a 404 fires `error` and changes nothing; a link inserted twice applies
+  once. Gate: YouTube results in the nested window, pointer on a result: `#inline-preview-player` computed `position: relative`,
+  its rect stays 412x232-ish across reads (R58 throwaway logging or a probe), and grim shows the preview over the hovered
+  result with no controls above it. Also check that the YT watch page and Wikipedia do not change (their links are parsed).
+- **QY54b2 [S]** (P1, Sonnet; images.rs `precompute_generated`) The counters/quotes/`content` pre-pass costs 10-22 ms of every
+  forced layout on YouTube results (18-27 %), and of every App build: its walk calls `matching_declarations_for` three times per
+  element (element, `::before`, `::after`) against the FULL rule list, on top of `build_children`'s own matching. It only needs
+  `display` (to prune `display: none` subtrees), `content`, `counter-*` and `quotes`. Match against a prefiltered rule list
+  (the `may_declare_generated` rules plus the rules that declare `display`, cached per `rules_cache` generation; inline
+  `style` still applies). That is exact, because a property's cascade depends only on the rules that declare it. Alternative if
+  measuring shows matching is not the cost: memo the element match for `build_children`. Tests: the existing generated
+  content / counters / quotes / Q19f tests unchanged; a test with a `display: none` set by a rule that declares nothing
+  generated still prunes its counters. Gate: R58 recipe, `precompute_generated` median per gPS layout < 4 ms (from 10-22),
+  total per layout -15 % or more; WPT no pass->fail.
+- **QY54b3 [L]** (P2, Opus design first; supersedes/absorbs QY53o2) Subtree forced layout: when every node written since
+  the last forced layout is inside a box that is a layout boundary in the last layout (abs/fixed positioned, definite
+  `width` and `height`, `overflow` not visible or a size that cannot change from its content), and no CSS / viewport change
+  happened, lay out only that subtree (style from its parent's cached computed style, measure at the cached containing block),
+  splice its rects and skeleton into `GeomCache`, and leave the rest of the page as it is. On YouTube results the writes
+  before a `getPlayerSize` read are all in the preview (player, its containers, its inline controls), and 70-75 % stay inside `#inline-preview-player` under
+  `.ytdVideoPreviewPlayerContainerWrapper` (abs, 440x248, overflow hidden) (R58 section 2). The design must cover: which
+  boxes qualify (a box whose own size depends on its content does not, nor does a parent with `display: contents`), hoisted
+  descendants (QYTC1a's `SK_FIXED_IN` logic), the IO/`io` reads, `glyphs` for the subtree, counters/`::before` text that
+  depends on document order (QY54b2's pass), and an exactness check (a test mode that compares a subtree layout with a full
+  layout, rect by rect). Gate: R58 recipe, gPS layouts median < 10 ms (from 54-80) and the worst promise job of a preview
+  start < 300 ms (from 685-1 137 ms); full-suite and WPT unchanged.
+- **QY54b4 [S]** (P4, Sonnet; js_geom.rs `style_write_in_place`) Treat an absent old `style` attribute as an empty one, so a
+  first `style="top: 112px; left: 96px"` on an abs box (YouTube's `.ytdVideoPreviewLoaderVideoPreviewContainer`) shifts in
+  place like a change would. 14-19 % of the R58 reads follow a first `style`, but most of those change layout anyway (`display:
+  none`, a width), so expect ~1 read per preview at most. Only after QY54b3's design (it may make this moot). Tests: as
+  QYTC1a's, with the attribute absent before the write.
+- No item for the QYTC1d class probes (6-7 of ~125 first writes had no verdict) or `aria-label` (a selector reads it): too
+  rare to matter here.
+
 ## R57: QY54a design: a helper thread keeps reading the Wayland socket while the main thread is busy, so the compositor never fills its send buffer for scratchy (R56 section 2: lost at ~190-225 unread motion events). libwayland supports this: several threads may read one `wl_display` (`wl_display_prepare_read_queue` / `wl_display_read_events`), and the events still go to winit's queue, which only the main thread dispatches. So input order and hit-testing do not change. winit 0.30.13 uses the system libwayland (`wayland-backend` `client_system`), gives the `wl_display*` through its raw display handle, and runs the same pattern itself in its `pump_events` notifier thread. A throwaway winit 0.30.13 + softbuffer 0.4.8 prototype in the nested dwl: without the thread, a 450 ms and a 3 s busy loop at ~460 Hz motion are lost at the first stall. With it, 3/3 busy450 and 3/3 busy3000 survive all stalls, no move is lost, the order is kept, and the cost is +0.08 s sys CPU per 15 s of motion (Opus, 2026-11-20, design only, docs only) — OPEN: proposed QY54a1-QY54a3 (below)
 
 ### 1. How scratchy talks to the compositor today
