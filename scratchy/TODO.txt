@@ -1098,7 +1098,7 @@ Shared rules for this block:
 - [ ] QY53n2b [S] (P4, from QY53n2 #407; Sonnet) Paint-patch hovers that touch list items, form controls, `::marker` or
       `<br>`/alt text: they fall back to a build because those text spans carry no element `node` (`marker_prefix`, forms.rs
       `text_span`); set span.node there.
-- [ ] QY53n3 [S] (P3, from QY53n; after QY53n2) Offset hover patch (translate/top) via shift_laid_tree. Gate: YT hover builds
+- [ ] [WIP] QY53n3 [S] (P3, from QY53n; after QY53n2) Offset hover patch (translate/top) via shift_laid_tree. Gate: YT hover builds
       that are only PAINT/OFFSET -> 0 (today 36 of 58).
 - [ ] QY53n4 [M] (P4, later, from QY53n) Subtree re-box for layout-changing hovers + re-applying patches after an in-flight
       build (16 of 58 YT hover builds, 0 on Wikipedia).
