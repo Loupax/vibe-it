@@ -542,3 +542,66 @@ fn qinc1f_fix_removing_a_freed_subtree_drops_its_descendant_entries() {
     assert!(!s.full, "{s:?}");
     assert!(s.boxes.contains(&node_id(&q)), "the edit marks q's box: {s:?}");
 }
+
+// ---------- QINC1j-ab: invalidation precision and per-update cost ----------
+
+/// YouTube watch (R60 "QINC1j DONE"): `:hover` on `ytd-app` marked ~7 500 descendants because the map
+/// never checked the compound carrying `:hover` on the element entering the state. A hover on an
+/// ancestor now re-matches only what its rules can change; hovering the `.menu` itself still reaches
+/// its icons.
+#[test]
+fn qinc1j_ab_hover_on_an_ancestor_rematches_only_what_its_rules_reach() {
+    let _g = LogOnly::new();
+    let mut body = String::from("<div id=app>");
+    for i in 0..60 {
+        body += &format!("<div class=menu id=m{i}><span class=icon>i</span><span class=label>l</span><b>x</b></div>");
+    }
+    body += "</div>";
+    let doc = page(".menu:hover .icon{color:red} .menu:hover > b{font-weight:bold} .card:hover span{color:blue} #m3:hover .label{color:green}", &body);
+    let s = build(&doc);
+    assert!(s.full);
+    let app = by_id(&doc, "app");
+    set_interaction(&InteractionState { hover: ancestor_ids(&app).into_iter().collect(), ..Default::default() });
+    let s = build(&doc);
+    assert!(!s.full, "{s:?}");
+    assert_eq!(s.rematched, 0, "html, body and #app carry no `.menu` / `.card` / `#m3`: nothing can change: {s:?}");
+    let m3 = by_id(&doc, "m3");
+    set_interaction(&InteractionState { hover: ancestor_ids(&m3).into_iter().collect(), ..Default::default() });
+    let s = build(&doc);
+    // #m3's icon, label and <b> (its own three rules), nothing in the other 59 menus
+    assert_eq!(s.rematched, 3, "{s:?}");
+    assert_eq!(style_of(&find_by_tag(&m3, "span").unwrap()).color, TextColor::rgb(255, 0, 0));
+}
+
+/// QINC1j-ab: the document-wide counter / quote walk runs only when what it reads changed (a DOM write, a
+/// stored match); a hover that changes no match list leaves its output as it was. Every build compares the
+/// engine's generated content with the from-scratch walk, so a skipped walk that should have run fails here.
+#[test]
+fn qinc1j_ab_counter_walk_only_after_a_change_it_can_see() {
+    let _g = LogOnly::new();
+    let doc = page(
+        "ol{counter-reset:n} li{counter-increment:n} li::before{content:counter(n) \". \"} .h:hover{color:red} li.h:hover{counter-increment:n 5}",
+        "<ol id=o><li id=x>a</li><li id=y class=h>b</li><li id=z>c</li></ol><p id=p class=h>p</p>",
+    );
+    assert!(build(&doc).gen_walked);
+    // nothing changed: no walk
+    let s = build(&doc);
+    assert!(!s.gen_walked && s.rematched == 0, "{s:?}");
+    // a hover on elements whose rules cannot change (html, body, the ol): nothing re-matched, no walk
+    let o = by_id(&doc, "o");
+    set_interaction(&InteractionState { hover: ancestor_ids(&o).into_iter().collect(), ..Default::default() });
+    let s = build(&doc);
+    assert!(s.rematched == 0 && !s.gen_walked, "{s:?}");
+    // a hover that changes a match list re-walks (the walk reads the stored matches)
+    let p = by_id(&doc, "p");
+    set_interaction(&InteractionState { hover: ancestor_ids(&p).into_iter().collect(), ..Default::default() });
+    let s = build(&doc);
+    assert!(s.rematched >= 1 && s.gen_walked, "{s:?}");
+    // hovering the li changes the counters: walked, and the next li's text follows
+    let y = by_id(&doc, "y");
+    set_interaction(&InteractionState { hover: ancestor_ids(&y).into_iter().collect(), ..Default::default() });
+    let s = build(&doc);
+    assert!(s.gen_walked, "{s:?}");
+    let text = crate::images::GENERATED_TEXT.with(|g| g.borrow().get(&(node_id(&by_id(&doc, "z")), false)).cloned());
+    assert_eq!(text.as_deref(), Some("7. "), "x 1, y 1 + 5, z 7");
+}

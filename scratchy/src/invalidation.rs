@@ -52,7 +52,7 @@ pub(crate) enum StateKind {
 }
 
 /// One step from an element carrying a feature towards the subject it influences.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub(crate) enum Hop {
     Child,
     Desc,
@@ -62,17 +62,22 @@ pub(crate) enum Hop {
     AnySib,
 }
 
-#[derive(PartialEq, Eq, Hash, Debug)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub(crate) struct Filter {
     tag: Option<String>,
     id: Option<String>,
     classes: Vec<String>,
 }
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub(crate) struct Entry {
     hops: Box<[Hop]>,
     filter: Option<Rc<Filter>>,
+    /// QINC1j-ab: the tag / id / classes of the compound that holds the feature, checked on the element
+    /// carrying it (the change point) before any hop is walked. A state change on an element that does
+    /// not have them cannot change whether that compound matches (`:hover` on `ytd-app` does not reach
+    /// `.menu:hover .icon`). Not checked for a `class` / `id` write, which changes those very features.
+    carrier: Option<Rc<Filter>>,
 }
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
@@ -117,10 +122,15 @@ pub(crate) struct InvalidationMap {
 }
 
 /// The result accumulator: one mark per element (the strongest), in first-reached order.
+type NodeSet = HashSet<usize, std::hash::BuildHasherDefault<crate::dom::PtrHasher>>;
+
+/// Entries of one key sharing a hop path: the path and their subject filters (`None` = no filter).
+type HopGroup<'a> = (&'a [Hop], Option<Vec<&'a Rc<Filter>>>);
+
 #[derive(Default)]
 struct Marks {
     out: Vec<(Handle, Mark)>,
-    idx: HashMap<usize, usize>,
+    idx: HashMap<usize, usize, std::hash::BuildHasherDefault<crate::dom::PtrHasher>>,
 }
 
 impl Marks {
@@ -172,6 +182,36 @@ fn passes(h: &Handle, f: &Option<Rc<Filter>>) -> bool {
     true
 }
 
+/// Whether `h` passes at least one of `fs` (an empty list passes everything): `passes` for a group of
+/// entries sharing one hop path, reading the element's tag / id / class once.
+fn passes_any(h: &Handle, fs: &[&Rc<Filter>]) -> bool {
+    if fs.is_empty() {
+        return true;
+    }
+    let tag = element_tag(h);
+    let id = element_attr(h, "id");
+    let class = element_attr(h, "class");
+    fs.iter().any(|f| {
+        if let Some(t) = &f.tag
+            && !tag.eq_ignore_ascii_case(t)
+        {
+            return false;
+        }
+        if let Some(i) = &f.id
+            && id.as_ref().is_none_or(|v| **v != **i)
+        {
+            return false;
+        }
+        if !f.classes.is_empty() {
+            let Some(c) = &class else { return false };
+            if !f.classes.iter().all(|k| c.split_ascii_whitespace().any(|t| t == k)) {
+                return false;
+            }
+        }
+        true
+    })
+}
+
 fn later_siblings(h: &Handle, include_self: bool) -> Vec<Handle> {
     let Some(p) = parent_handle(h) else { return Vec::new() };
     let ch = p.children.borrow();
@@ -180,13 +220,13 @@ fn later_siblings(h: &Handle, include_self: bool) -> Vec<Handle> {
     ch[from..].iter().filter(|c| is_el(c)).cloned().collect()
 }
 
-/// `hop` applied to every element of `cur`; the result is deduplicated and, when `filter` is given, only holds
-/// elements passing it (the last hop of an entry).
-fn step(cur: &[Handle], hop: Hop, filter: Option<&Option<Rc<Filter>>>) -> Vec<Handle> {
+/// `hop` applied to every element of `cur`; the result is deduplicated and only holds elements passing
+/// one of `filters` (the last hop of a group of entries; empty = no filter).
+fn step(cur: &[Handle], hop: Hop, filters: &[&Rc<Filter>]) -> Vec<Handle> {
     let mut out: Vec<Handle> = Vec::new();
-    let mut seen: HashSet<usize> = HashSet::new();
+    let mut seen = NodeSet::default();
     let push = |h: &Handle, out: &mut Vec<Handle>| {
-        if filter.is_none_or(|f| passes(h, f)) {
+        if passes_any(h, filters) {
             out.push(h.clone());
         }
     };
@@ -269,17 +309,18 @@ fn subject_filter(comps: &[&Component<OurSelectorImpl>]) -> Option<Rc<Filter>> {
 }
 
 struct Builder {
+    /// The carrier filter of the compound being collected (`Entry::carrier`).
+    carrier: Option<Rc<Filter>>,
+    /// Deduplicated (sorted) per key at the end of the build: one hash per add instead of a set of
+    /// `(Key, Entry)` pairs (QINC1j-ab: the map is rebuilt for every rule-list generation).
     keys: HashMap<Key, Vec<Entry>>,
-    seen: HashSet<(Key, Entry)>,
     global: bool,
 }
 
 impl Builder {
     fn add(&mut self, key: Key, hops: &[Hop], filter: &Option<Rc<Filter>>) {
-        let e = Entry { hops: hops.into(), filter: filter.clone() };
-        if self.seen.insert((key.clone(), e.clone())) {
-            self.keys.entry(key).or_default().push(e);
-        }
+        let e = Entry { hops: hops.into(), filter: filter.clone(), carrier: self.carrier.clone() };
+        self.keys.entry(key).or_default().push(e);
     }
 
     /// Collect the features of `sel`. `outer` = hops from `sel`'s subject to the top-level subject (empty at the top).
@@ -316,8 +357,12 @@ impl Builder {
             h.extend_from_slice(outer);
             h
         };
+        let saved = self.carrier.take();
         for k in 0..seqs.len() {
             let hops = if k < s { outer.to_vec() } else { hops_from(self, k) };
+            // A pseudo-element compound's state pseudo-classes sit on the subject: no carrier filter.
+            let car = if k < s { None } else { subject_filter(&seqs[k].0) };
+            self.carrier = car.clone();
             // A sibling combinator left of compound `k` makes the sibling list matter for the element it matches.
             if k >= s && k + 1 < seqs.len() {
                 let key = match seqs[k].1 {
@@ -331,8 +376,11 @@ impl Builder {
             }
             for c in &seqs[k].0 {
                 self.component(c, &hops, filter);
+                // a nested selector list sets its own carriers
+                self.carrier = car.clone();
             }
         }
+        self.carrier = saved;
     }
 
     fn component(&mut self, c: &Component<OurSelectorImpl>, hops: &[Hop], filter: &Option<Rc<Filter>>) {
@@ -416,7 +464,7 @@ impl Builder {
 
 impl InvalidationMap {
     pub(crate) fn build(rules: &[StyleRule], generation: u64) -> InvalidationMap {
-        let mut b = Builder { keys: HashMap::new(), seen: HashSet::new(), global: false };
+        let mut b = Builder { carrier: None, keys: HashMap::new(), global: false };
         let mut attr_all = false;
         for rule in rules {
             for sel in rule.selectors.slice() {
@@ -431,10 +479,15 @@ impl InvalidationMap {
                 let filter = subject_filter(&comps);
                 b.selector(sel, &[], &filter);
                 if rule.may_declare_generated() {
+                    b.carrier = None;
                     b.content_reads(rule.decls(), &filter, &mut attr_all);
                     b.content_reads(rule.important(), &filter, &mut attr_all);
                 }
             }
+        }
+        for v in b.keys.values_mut() {
+            v.sort_unstable();
+            v.dedup();
         }
         let has_state_checked = b.keys.contains_key(&Key::State(StateKind::Checked));
         let has_state_disabled = b.keys.contains_key(&Key::State(StateKind::Disabled)) || b.keys.contains_key(&Key::State(StateKind::Enabled));
@@ -450,19 +503,43 @@ impl InvalidationMap {
         self.keys.values().map(Vec::len).sum()
     }
 
+    /// `filter_self`: the change cannot have altered `from`'s own tag / id / classes, so the entries'
+    /// carrier filters (and, for an entry without hops, the subject filter) are checked on it.
     fn apply(&self, key: &Key, from: &Handle, filter_self: bool, out: &mut Marks) {
         let Some(entries) = self.keys.get(key) else { return };
+        // Entries with the same hop path are walked once, keeping what passes any of their subject
+        // filters (`None` in the group = no filter): a `:hover` on an ancestor walks its subtree once,
+        // not once per rule.
+        let mut groups: Vec<HopGroup> = Vec::new();
         for e in entries {
+            if filter_self && !passes(from, &e.carrier) {
+                continue;
+            }
             if e.hops.is_empty() {
                 if !filter_self || passes(from, &e.filter) {
                     out.add(from, Mark::Restyle);
                 }
                 continue;
             }
+            let g = match groups.iter().position(|g| *g.0 == *e.hops) {
+                Some(i) => &mut groups[i],
+                None => {
+                    groups.push((&e.hops, Some(Vec::new())));
+                    groups.last_mut().expect("just pushed")
+                }
+            };
+            match (&e.filter, &mut g.1) {
+                (Some(f), Some(v)) => v.push(f),
+                (None, f) => *f = None,
+                (Some(_), None) => {}
+            }
+        }
+        for (hops, filters) in groups {
+            let filters = filters.unwrap_or_default();
             let mut cur = vec![from.clone()];
-            for (i, hop) in e.hops.iter().enumerate() {
-                let last = i + 1 == e.hops.len();
-                cur = step(&cur, *hop, last.then_some(&e.filter));
+            for (i, hop) in hops.iter().enumerate() {
+                let last = i + 1 == hops.len();
+                cur = step(&cur, *hop, if last { &filters } else { &[] });
                 if cur.is_empty() {
                     break;
                 }
@@ -518,7 +595,7 @@ impl InvalidationMap {
             "indeterminate" => self.apply(&Key::State(StateKind::Indeterminate), el, true, &mut out),
             "lang" => {
                 self.apply(&Key::State(StateKind::Lang), el, true, &mut out);
-                for d in step(std::slice::from_ref(el), Hop::Desc, None) {
+                for d in step(std::slice::from_ref(el), Hop::Desc, &[]) {
                     self.apply(&Key::State(StateKind::Lang), &d, true, &mut out);
                 }
             }
@@ -535,7 +612,7 @@ impl InvalidationMap {
         }
         let mut carriers = vec![el.clone()];
         if element_tag(el) == "fieldset" {
-            carriers.extend(step(std::slice::from_ref(el), Hop::Desc, None).into_iter().filter(is_form_control));
+            carriers.extend(step(std::slice::from_ref(el), Hop::Desc, &[]).into_iter().filter(is_form_control));
         }
         for c in &carriers {
             self.apply(&Key::State(StateKind::Disabled), c, true, out);
@@ -563,7 +640,7 @@ impl InvalidationMap {
             }
         }
         if let Some(s) = select {
-            for o in step(&[s], Hop::Desc, None).into_iter().filter(|o| element_tag(o) == "option") {
+            for o in step(&[s], Hop::Desc, &[]).into_iter().filter(|o| element_tag(o) == "option") {
                 self.apply(&Key::State(StateKind::Checked), &o, true, out);
             }
         }
@@ -587,7 +664,7 @@ impl InvalidationMap {
                 while let Some(p) = parent_handle(&top) {
                     top = p;
                 }
-                let mut peers = step(&[top], Hop::Desc, None);
+                let mut peers = step(&[top], Hop::Desc, &[]);
                 peers.retain(|p| element_tag(p) == "input" && attr_str(p, "name").as_deref() == Some(name.as_str()));
                 for p in &peers {
                     self.apply(&Key::State(StateKind::Checked), p, true, &mut out);
@@ -635,7 +712,7 @@ impl InvalidationMap {
             && is_el(n)
         {
             out.add(n, Mark::Restyle);
-            for d in step(std::slice::from_ref(n), Hop::Desc, None) {
+            for d in step(std::slice::from_ref(n), Hop::Desc, &[]) {
                 out.add(&d, Mark::Restyle);
             }
         }
