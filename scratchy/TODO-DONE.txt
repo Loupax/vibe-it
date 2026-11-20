@@ -7873,3 +7873,9 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QSTK1x DONE 2ae82ac #397 five unguarded recursions wrapped in stack::grow; debug cargo test passes [S] (P3, from QFLK1 #387; Sonnet; after QSTK1b) tests::deep_nesting_tests::qstk1_5000_deep_* overflow the stack
       in the DEBUG test profile (SIGABRT; CI runs --release). Give them a bigger test-thread stack (spawn with
       stack_size) so `cargo test` in debug passes without RUST_MIN_STACK.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY53n1 DONE 9d999dd #398 exact hover affected-set; YT 7 of 15 hover restyles skipped [S] (P2, from QY53n, R47; Sonnet; AFTER QM1k1n6a, same apply_hover code) Exact hover affected-set: HoverKeys
+      records what follows each :hover compound; keep the last build's MATCH_MEMO, re-match only affected elements, skip
+      the build when no matched set changed. Gate: YT watch pointer over the player: frame stats hover.skipped > 0 and
+      builds per hover_restyle drop by that count; Wikipedia hovered-link screenshot unchanged.
