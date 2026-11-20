@@ -8143,3 +8143,9 @@ The prompts of the design session, in order:
 **What changed:** js_dom.rs DOM prelude: `frameSrcdoc`/`loadFrame`/`bootFrames` (srcdoc wins over src, loads as a task after insertion/srcdoc change/innerHTML, the page's markup ones after DOMContentLoaded via `__scratchy_frames_boot`), realm `frameLoad` (`__scratchy_frame_load`: parse, scripts through `sRun` = `__scratchy_run_global` inside `__scratchy_enter`, external ones through the page's queue, DCL, nested frames, load, parent `onLoad`), iframe-document `open/write/close`, page-wide script table `xr.s` + `xr.prep[doc]` (the sweep runs a script in its document's realm), `ceIsConn`/define/created per realm document, `DomTable.ce` keyed by realm document (`__d_ce_add/candidates/drop`). js.rs: `frames-boot` in `run_page`. Tests `qpt1f_*` in js_dom_tests.rs.
 
 **Live gate (one run, the QPT1a recipe):** YouTube G1AeBgalFZk, logged out, default UA, own wire on a scratchpad socket, nested dwl, `SCRATCHY_MEDIA_AO=null`, play clicked at +25 s, 170 s, under `flock /tmp/scratchy-perf.lock` (load average 7.2 at start, 3.6 at end). Observation by a temporary, uncommitted `QPROBE_JS` loader that only logs the GenerateIT answer: HTTP 200, a real integrity token (`["6Rkh0SZG…`, 98 B), video still playing at the end. Nothing forged, replayed or borrowed.
+
+## QMEM3g: feature-gated sampling heap profiler + resolve script (Sonnet)
+
+**Item:** a `memprof` cargo feature (off by default) with a sampling counting global allocator, a live-pointer table with a backtrace per sample, dumps on SIGUSR2 / exit / end of `--perf-report`, `tools/memprof-resolve.py` for a top-N by function, usage in PERF.md.
+
+**What changed:** src/memprof.rs (cfg feature), lib.rs/main.rs/perf.rs hooks (all cfg-gated), Cargo.toml feature, tests in src/tests/memprof_tests.rs (feature on only), tools/memprof-resolve.py, PERF.md section. Based on the QMEM3b throwaway prototype (R48).

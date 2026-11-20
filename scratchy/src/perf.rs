@@ -1049,6 +1049,8 @@ pub(crate) fn perf_report(opts: &ReportOpts) -> String {
     }
     let challenge = looks_like_challenge(&html);
     let outcome = if challenge { "challenge" } else { "ok" };
+    #[cfg(feature = "memprof")]
+    crate::memprof::dump_perf_report(); // QMEM3g
     let memory = memory_json(engine.as_ref());
     stop();
     format!(

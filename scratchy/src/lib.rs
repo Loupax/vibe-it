@@ -63,6 +63,9 @@ macro_rules! out {
 pub mod netlock;
 pub mod malloc_arenas;
 pub mod mem_trim;
+// QMEM3g: sampling heap profiler, only with `--features memprof`.
+#[cfg(feature = "memprof")]
+pub mod memprof;
 mod wpt;
 mod dom;
 mod css;
