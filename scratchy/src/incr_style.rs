@@ -110,6 +110,7 @@ pub(crate) fn take_mismatches() -> Vec<String> {
     MISMATCHES.with(|m| std::mem::take(&mut *m.borrow_mut()))
 }
 
+/// Check mode reconciles the table with the DOM; `SCRATCHY_INCR=1` alone trusts the log (no fingerprints).
 fn reconcile_on() -> bool {
     #[cfg(test)]
     {
@@ -117,7 +118,7 @@ fn reconcile_on() -> bool {
     }
     #[cfg(not(test))]
     {
-        true
+        mode() == Mode::Check
     }
 }
 
@@ -900,7 +901,15 @@ impl Engine {
                         }
                         _ => match_slot(h, rules, cx.vw, slot),
                     };
-                    if !m.is_empty() {
+                    // `::before`/`::after` exist only with a string / generated / image `content`
+                    // (`generated_content`): a universal `*::before{box-sizing:..}` styles nothing.
+                    let has_box = !m.is_empty()
+                        && (slot > 2
+                            || matches!(
+                                cascade_css(&decls_of(rules, &m), None, "content", |d| d.content.clone()),
+                                Cascaded::Value(ContentDecl::Text(_) | ContentDecl::Parts(_) | ContentDecl::Image(_))
+                            ));
+                    if has_box {
                         let ps = resolve_style_for(h, rules, own, cx.vw, slot_pseudo(slot));
                         animated |= crate::anim_eval::is_animated(&ps, cx.vw);
                         pseudo[slot as usize - 1] = Some(Box::new(ps));
