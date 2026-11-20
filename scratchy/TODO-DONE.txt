@@ -7943,3 +7943,9 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       qy53e2_app_layout_gives_the_same_entries_as_a_forced_layout_without_forcing (QY53e2 3ef1344) fails in a full local run
       (2 of 2) and passes alone; CI green. Find the shared state / order / timing dependence (thread-local render map,
       js_geom::set_rendered, a static deadline, test ordering) and make it deterministic, QFLK1-style (prove: 10 full runs).
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QHOV1 DONE - CLOSED (not a bug) by the QY53n2 agent (#407): underline paints on main and branch with the pointer held 1.5 s; earlier screenshot was taken before the frame [S] (P3, from QY53n1 #398; Sonnet, check first) The QY53n1 agent saw no hover underline on a Wikipedia link in
+      screenshots from main AND its branch. Check in a nested window (pointer held on a link, screenshot after the frame)
+      whether `a:hover { text-decoration: underline }` paints; if not, find why (hover state, text-decoration paint, or the
+      screenshot timing) and fix or close.
