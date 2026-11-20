@@ -7860,3 +7860,11 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       the global, cap 64 realms per page, new realm on re-insert. Test: heap back to baseline after 50 create/remove cycles.
       FROM QPT1a #392: `State.realms` keeps every realm alive until the page ends; the parent's timer entries carry `recv`
       (the realm's window), so a drop can cancel that realm's timers by receiver.
+
+=== from TODO.txt: --- Tier 7: JavaScript (Q33, split 2026-11-14; user ordered it last) ----
+- [x] Q33b2w DONE c578ba4 #395 viewport published at window creation + Resized; dwl's pre-tile 1024x768 configure still gives one resize on fast pages (accepted, user may revisit) [S] (P3, from Q33b2v #393 R43 section 15; Sonnet) Initial window size before the first page script: page
+      scripts and `load` see the headless default 1024x768 (half=512 on a 956-wide window), one `resize` corrects it later.
+      Publish the surface size to the JS thread before page scripts run (or hold the first script run until the first
+      configure), so innerWidth/innerHeight/clientWidth and forced layout are the real size at parse time and at `load`,
+      with no initial `resize`. Test: an engine created after set_window_viewport sees the size in its first script. Live
+      check: nested dwl, start iw == window width.
