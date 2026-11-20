@@ -1280,6 +1280,38 @@ images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom
   Proposed: QINC1j-ab1 (incremental invalidation map: per selector-list contributions cached across rule-list
   generations (`SelectorList::thin_arc_heap_ptr`), so a `<style>` splice costs its own selectors instead of ~25-30 ms
   for YouTube's 26.5k), QINC1i4 remainder (adopt the build's styles, not only its matches, on a restart).
+  QINC1i5 DONE (Opus, 2026-11-20; `js_geom.rs` `refresh_engine`, `layout.rs` `memo_trim`, one line in
+  `incr_layout::live_update`; test in `incr_forced_tests.rs`): the Wikipedia `SCRATCHY_INCR=1` App build regression of
+  QINC1i (#460) was SHAPING, not the relayout's reach: the layout counters were the same before and after (138k
+  `boxes_remeasured`, 75k `miss_not_cacheable`, 133-134 walks to the root also on QINC1j's runs: 132k / 66k / 117), only
+  the time per re-measured box grew ~5x. Cause: `refresh_engine` kept the from-scratch forced layout's memo bracket
+  (`memo_track_begin` ... `memo_sweep(cap, keep = 1)`: keep only the keys THIS layout used). A from-scratch layout uses
+  every paragraph of the page; an engine update re-measures a few boxes, so each forced layout (~100 per Wikipedia run
+  with the QYTC1a / QYTC1d / HiddenSnap / ATTR_SNAP skips bypassed) emptied the main thread's shape memo, and the next App
+  frame's relayout (same thread, same memo) shaped every paragraph of its root walk again. Fix: the engine path no
+  longer tracks / sweeps; `layout::memo_trim(cap)` bounds the memo instead (over the cap: drop the entries no kept shape
+  cache shares (`Arc::strong_count == 1`), then clear if still over), after each engine forced layout and each Main
+  frame relayout. The from-scratch path and the worker are unchanged. No style / box / layout semantics.
+  Test: `qinc1i5_engine_forced_layout_keeps_the_shape_memo` (30 paragraphs, a from-scratch read, then 3 small writes
+  read through the engine with the check-mode oracle off (`js_geom::NO_ORACLE` seam: its from-scratch layout refills
+  the memo itself): >= 30 memo entries remain; fails on main with 0-1). Suite 1 716 passed (debug), WPT 333 / 293 no
+  change (flag off and `SCRATCHY_INCR=1`), clippy 77. Fuzz: see below.
+  Gate (release, QINC1j's R55 input and scripts: own wire per run, own nested dwl 960x1006, `SCRATCHY_FRAME_STATS`, 6G
+  scope, every run under `flock /tmp/scratchy-perf.lock`; main = 30a23cb, fix = the same + this change, both
+  `SCRATCHY_INCR=1`, interleaved, order flipped per round; 1-min load 1.8 at the start (4.3 just before), 0.3 at the end):
+  | run | main: builds n / ms, forced n / ms, `layout_ms`, lat_p95, RSS | fix: builds n / ms, forced n / ms, `layout_ms`, lat_p95, RSS |
+  |---|---|---|
+  | Wikipedia 1 | 211 / 8 352, 104 / 1 735, 6 734, 110 ms, 359 MB | 212 / 4 356, 104 / 1 240, 1 626, 43 ms, 323 MB |
+  | Wikipedia 2 | 212 / 8 214, 99 / 1 794, 6 549, 114 ms, 377 MB | 212 / 3 639, 105 / 825, 1 402, 36 ms, 329 MB |
+  | Wikipedia 3 | 212 / 8 315, 104 / 1 303, 6 420, 105 ms, 380 MB | 212 / 3 635, 105 / 839, 1 455, 36 ms, 326 MB |
+  | YouTube watch 1, 2, 3 | 105 / 927, 91 / 1 021, 74 / 997; forced 540-597 ms; 477-511 MB | 66 / 1 055, 71 / 831, 70 / 1 008; forced 515-691 ms; 505-524 MB |
+  Wikipedia App builds 8.2-8.4 s -> 3.6-4.4 s (QINC1j's #459 runs: 3.9-4.2 s; run 1 at 4.36 s came right after a load
+  of 4.3), forced layouts 1.3-1.8 s -> 0.8-1.2 s, per-second input p95 105-114 -> 36-43 ms, RSS -35 to -55 MB (fewer
+  duplicate paragraphs: the re-shaped ones no longer replace shared memo entries). YouTube watch (quiet regime every
+  run): no change (builds 0.83-1.06 s vs 0.93-1.02 s; RSS +10-30 MB, within run-to-run spread). `SCRATCHY_INCR_CHECK=1`
+  (fix): Wikipedia 3 runs, YouTube 3 runs: **0 mismatches**.
+  Left: the main thread's memo is OFF until the page's first script forced layout (`SHAPE_MEMO_ENABLED` is set only by
+  `js_geom`), so on a page without forced layouts every Main frame re-shapes what it re-measures: proposed QINC1i6.
 - **QINC1k [M]** (P2, Opus, measure only, docs; AFTER QINC1i, j, h2) Exactness sweep and gates (R60 section 12):
   `SCRATCHY_INCR_CHECK=1` headless + window on YouTube results (R58 recipe), YouTube watch (R50/R55 recipes), Wikipedia (R55),
   github.com, bbc.com/news, social.loupax.com/discover: 0 mismatches (each mismatch = a P1 fix item); then `SCRATCHY_INCR=1`
