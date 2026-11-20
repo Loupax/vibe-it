@@ -56,7 +56,7 @@ Keyboard modes (user 2026-11-20, design QKEYS-D in its own block near the end of
 Esc Esc, `i`, always-visible status bar, start in input mode; then `/` search (QSEARCH-D, block right after it). Feature
 work: waits for the perf queue. Order: QKEYS1 -> QKEYS2 -> QKEYS3 and QKEYS4 (either order); QSEARCH1 -> 2 -> 3 after QKEYS2. State machine: KEYS.md.
 Completion (user 2026-11-20, QCOMP-D, block after QSEARCH): QCONF1 (all config in src/config.rs, refactor) first, then
-QCOMP1-QCOMP5 (completer table, dmenu-protocol menu = the user's tofi script, history file, `:go` source, `o`). QKEYS-D's P2-P6 are Claude's proposals; confirm with the user before QKEYS2 starts.
+QCOMP1-QCOMP4 (completer table + ghost suggestion, external sources, history file, `:go` source); the menu and `o` were dropped. QKEYS-D's P2-P6 are Claude's proposals; confirm with the user before QKEYS2 starts.
 
 (History: 2026-11-18 TOP PRIORITY "switch the JS engine to V8, drain, then freeze" is DONE, freeze
 lifted after QV8-m; QV8-6 (remove QuickJS) still needs the user's OK. The 2026-11-19 blockers QV8-4a
@@ -2665,7 +2665,7 @@ QSTASH — persistent web storage (user design session 2026-11-19; full design i
   bumped by forget-site). No storage mutex, no cross-window storage events (same as
   browsers). sessionStorage never on disk. wire keeps the jar, gains --cookie-file.
   History: not now (waits for a reader). Supersedes QF-D7 for these stores.
-  [2026-11-20: the reader exists: `:go` completion and `o` (QCOMP-D). History file design in
+  [2026-11-20: the reader exists: `:go` completion (QCOMP-D). History file design in
   STASH.md "History", item QCOMP3.]
 
 - [ ] QSTASH1 [M] (P2, after the perf queue) `src/stash.rs`: the state directory and
@@ -2890,35 +2890,51 @@ QSEARCH — `/` search, n/N, Enter (user design session 2026-11-20; needs QKEYS2
       Enter opens the watch page through the page's router (no full reload in the log).
 
 ========================================================================
-QCOMP — scriptable command completion, `o`, history file, config in code (user design session 2026-11-20)
+QCOMP — scriptable command completion, history file, config in code (user design session 2026-11-20)
 ========================================================================
 
 - QCOMP-D DESIGN (user, 2026-11-20). Full design: KEYS.md "Completion", "Configuration",
-  rows T35-T44 (state MENU), and STASH.md "History"; those files win on any conflict.
+  rows T45-T53 (ghost suggestion), and STASH.md "History"; those files win on any conflict.
   C1 Tab completion per command, like bash's `complete`: a `COMPLETERS` table (command ->
      source); a source is a built-in Rust function or an external program (argv, no
      shell; context in SCRATCHY_LINE / _WORD / _ARG / _URL / _STATE_DIR; candidates one
      per line on stdout). The first word still completes from the command names.
-  C2 Picking is delegated to an external menu with the dmenu protocol (stdin candidates,
+  C2 [DROPPED 2026-11-20 by the user, see C8: no menu] Picking is delegated to an external menu with the dmenu protocol (stdin candidates,
      stdout choice, non-zero = cancel): `MENU_CMD`, an argv. The user's menu is their own
      script that starts tofi. No menu configured or one candidate: today's inline Tab
      cycling (+ Shift-Tab back). scratchy gets no fuzzy matcher of its own.
   C3 BOTH entry points (user): `:go` + Tab inserts the choice into the line (Enter still
      needed); `o` in normal mode opens the menu over history and navigates straight away
      (with tofi `--require-match=false` it is the address bar).
+     [SUPERSEDED 2026-11-20 (user): `o` is DROPPED, "`:go` should be enough". `:go` + Tab
+     is the only entry point; QCOMP5 dropped; KEYS.md T39-T41 dropped.]
   C4 Configuration STAYS IN CODE (user: "the spirit of suckless"), and ALL configurable
-     items live TOGETHER in one file, `src/config.rs` (bindings, ESC_ESC_MS, MENU_CMD,
+     items live TOGETHER in one file, `src/config.rs` (bindings, ESC_ESC_MS,
      COMPLETERS, history settings, scroll steps, ...). Gathering today's knobs there is
      its own refactoring item (QCONF1), done first.
   C5 History file: plain TSV `ms<TAB>url<TAB>title` appended once per top-level visit,
      O_APPEND lines <= 4096 bytes (no lock), trimmed at startup; details STASH.md.
+  C7 (user 2026-11-20, history discussion) Ranking by number of visits: the `:go` source
+     lists site roots ranked by visits to the whole site, then pages by their own visits,
+     ties by recency; the startup trim to HISTORY_MAX_LINES is the only "decay". A visit
+     is a user/page-started top-level navigation that loaded (final URL after redirects,
+     fragment stripped); reload, back/forward, same-document navigations are not
+     visits. Title and time stay in the file. Details: STASH.md "History", "Ranking".
+  C8 (user 2026-11-20) Completion is a GHOST SUGGESTION shown as you type, after the
+     cursor (`:go https://google|.com`, `.com` dimmed). Tab cycles the suggestion through
+     what matches; Enter runs the line WITH the suggestion. Rows KEYS.md T45-T52 (T51
+     Right/End accepts into the line and T52 Delete hides it are Claude's proposals).
+     Like bash, Tab with exactly ONE match selects it: the ghost becomes typed text, plus
+     a space after a command name or `:set` argument (T53, user 2026-11-20).
+     Replaces C2's "Tab opens the menu" and inline cycling. The dmenu menu is DROPPED
+     (user 2026-11-20); T51 (Right/End accept) and T52 (Delete hides) CONFIRMED by the user.
   C6 (user 2026-11-20, answering "QCFG1 vs C4") QCFG1 STAYS as written: the tracker lists
      are updated separately and stay independent of the code config, so they are not moved
      into `src/config.rs`. Maybe made scriptable later; not now. C4 covers the settings
      a user edits and rebuilds; QCFG1's runtime file is the stated exception.
 
 Order (feature work: after the perf queue): QCONF1 -> QCOMP1 -> QCOMP2; QCOMP3 after QSTASH1
-(state directory); QCOMP4 after QCOMP1 and QCOMP3; QCOMP5 after QCOMP2, QCOMP4 and QKEYS2.
+(state directory); QCOMP4 after QCOMP1 and QCOMP3.
 
 - [ ] QCONF1 [S] (P2, after the perf queue) REFACTOR ONLY, no behaviour change: new
       `src/config.rs` holding every user-tunable constant that exists today, with a short
@@ -2929,34 +2945,67 @@ Order (feature work: after the perf queue): QCONF1 -> QCOMP1 -> QCOMP2; QCOMP3 a
       why, in the PR). Header comment: "edit and rebuild; every new user-tunable knob
       goes here". Tests: all existing tests pass unchanged; one test that every binding in
       the table resolves as before.
-- [ ] QCOMP1 [S] (P2, after QCONF1) `COMPLETERS` table in config.rs (C1, built-in sources
-      only): `command_completions` asks the table for words after the first; candidates
-      become `String`; `:set` moves to `Source::Builtin(complete_set_args)`; Shift-Tab
-      cycles back (KEYS.md T35, T36). Tests: today's completion tests unchanged; a
-      command without a row completes nothing; Shift-Tab.
-- [ ] QCOMP2 [M] (P2, after QCOMP1) External sources and the menu (C1, C2; KEYS.md T37,
-      T38, T42-T44, state MENU): `Source::Cmd(argv)` with the SCRATCHY_* environment;
-      `MENU_CMD: Option<&[&str]>` (default `None`); both run on a thread, results as an
-      `AppEvent` tagged so a stale result is dropped; Esc in MENU kills the child. Page
-      text only ever reaches the child through stdin. Tests (fake menu/source scripts in
-      a temp dir): chosen line replaces the word; non-zero exit and empty output change
-      nothing; a missing program gives a status-bar message; a candidate containing
-      `$(...)`/`;` is passed through stdin untouched; Esc kills the child; a stale result
-      is ignored. Real check with the user's tofi script in the nested dwl window.
+- [ ] QCOMP1 [M] (P2, after QCONF1) `COMPLETERS` table in config.rs (C1, built-in sources
+      only) and the GHOST SUGGESTION (C8, KEYS.md T45-T52) for every completable word
+      (command names, `:set` arguments): computed after each edit with the cursor at the
+      end, drawn dimmed after the cursor in the status bar, Tab/Shift-Tab cycle (2+
+      matches) or select the only match (1 match, T53: `:se` Tab -> `:set `), Enter
+      runs typed + ghost, Right/End accept, Delete hides. Replaces today's inline
+      replace-and-cycle (`CommandCompletion`). Candidates become `String`; `:set` moves
+      to `Source::Builtin(complete_set_args)`. Tests (pure functions over line + cursor):
+      `:se` ghosts `t` and Tab gives `:set `; a single URL match is selected with no
+      space; Tab cycles and wraps with 2+, Shift-Tab back; Enter runs the full text;
+      Delete then Enter runs the typed text; cursor not at the end -> no ghost; a command
+      without a row gets no ghost after its name.
+- [ ] QCOMP2 [S] (P3, after QCOMP1) External sources (C1, C8; the menu part was DROPPED
+      2026-11-20): `Source::Cmd(argv)`, run with no shell and the SCRATCHY_* environment,
+      once per command line and argument position on a thread; its stdout lines are kept
+      and prefix-filtered per keystroke to feed the ghost; the result is an `AppEvent`
+      tagged so a stale one is dropped. Tests (fake source scripts in a temp dir): its
+      lines become ghost candidates in order; non-zero exit and empty output give no
+      ghost; a missing program gives a status-bar message; a line containing `$(...)`/`;`
+      is used as plain text; the source runs once per line, not per key; a stale result
+      is ignored.
 - [ ] QCOMP3 [S] (P2, after QSTASH1) History file writer (C5, STASH.md "History"):
-      append on load, skip opaque origins / :help / failed loads, title escaping, 4096
-      byte cap, startup trim under `.history.lock`, `HISTORY` and `HISTORY_MAX_LINES` in
-      config.rs. Tests: one line per visit with the title; a title with a tab/newline;
-      file: not recorded; a long title is cut and the line stays <= 4096 bytes; trim
-      keeps the newest lines; two writers appending concurrently produce whole lines.
-- [ ] QCOMP4 [S] (P2, after QCOMP1 and QCOMP3) Built-in `:go` source
-      `complete_history_urls` (KEYS.md "Completion"): newest first, one per URL, prefix
-      match after stripping the scheme and `www.`; bad lines skipped. Tests: order,
-      dedup, `you` finds `https://www.youtube.com/...`, empty word gives all.
-- [ ] QCOMP5 [S] (P2, after QCOMP2, QCOMP4 and QKEYS2) `o` in normal mode (C3; KEYS.md
-      T39-T41): the menu over the `:go` source, navigate as `:go <line>`; no menu
-      configured -> the command line opens with `go `. Tests: chosen line navigates;
-      a line not in history navigates too; cancel does nothing; `MENU_CMD = None` path.
+      append on load for visits only (C7: link, :go, page script; final URL after
+      redirects; fragment stripped), skip reload / back-forward / same-document / iframes
+      / opaque origins / :help / failed loads, title escaping, 4096 byte cap, startup trim
+      under `.history.lock`, `HISTORY` and `HISTORY_MAX_LINES` in config.rs. Tests: one
+      line per visit with the title; a redirect records the final URL; `#a` stripped;
+      `:refresh` and `h`/`l` add nothing; a title with a tab/newline; file: not recorded;
+      a long title is cut and the line stays <= 4096 bytes; trim keeps the newest lines;
+      two writers appending concurrently produce whole lines.
+- [ ] QCOMP4 [S] (P2, after QCOMP1 and QCOMP3; feeds C8's ghost) Built-in `:go` source
+      `complete_history_urls` (C7; STASH.md "Ranking"): site roots by site visits, then
+      pages by own visits, ties by recency, prefix match after stripping the scheme and
+      `www.`; bad lines skipped; this order is the ghost order. Tests: a site with many
+      single-visit pages outranks a page visited twice; a root URL appears once; ties go
+      to the newest; `you` finds `https://www.youtube.com/`; `https://google` ghosts
+      `.com/` against `https://www.google.com/` and Enter runs `https://google.com/`;
+      Delete then Enter runs `https://google`; history read once per line, not per key.
+- [x] QCOMP5 DROPPED 2026-11-20 (user: "`:go` should be enough"). Was: `o` in normal mode, the
+      history menu navigating straight away (KEYS.md T39-T41, also dropped). Nothing to build.
+
+- [ ] QPASTE1 [S] (P2, user bug 2026-11-20: "we cannot paste into the command mode bar")
+      Paste into every status-bar mode that takes typing: today `:` COMMAND, and SEARCH
+      when QSEARCH1 adds it (KEYS.md "Paste", T22, T26). A Ctrl-v handler exists
+      (`paste_into_command_line`, app.rs), so first REPRODUCE in the nested dwl window
+      (tools/nest.sh + tools/inject, copy with `wl-copy`). Likely cause, found while
+      planning: `arboard` is built without its `wayland-data-control` feature (Cargo.lock
+      lists `x11rb`, no `wl-clipboard-rs`), so it only reads the X11 clipboard through
+      Xwayland, which is empty or stale while scratchy's Wayland window has focus (or
+      fails with no DISPLAY). Fix: enable the feature (new dependency `wl-clipboard-rs`,
+      no network; uses wlr-data-control, which dwl provides), keep X11 as the fallback;
+      if data-control turns out unavailable, report back before writing a wl_data_device
+      path by hand. Also: Ctrl-Shift-v and Shift-Insert paste (today Ctrl-Shift-v
+      inserts a literal `V`); pasted newlines/tabs/control characters become a space,
+      trailing whitespace dropped. The same clipboard code serves page text fields
+      (`forms_text.rs` `clipboard_get`/`clipboard_set`), so check paste there and copy
+      out of a field too. Tests: the paste-text cleaning as a pure function (newline,
+      CRLF, tab, trailing newline, empty); Ctrl-v / Ctrl-Shift-v / Shift-Insert all
+      reach the paste path, a bare `v`/`V` still inserts. Real check: `wl-copy
+      https://example.com/` then `:go ` + Ctrl-v + Enter loads it; same into a page
+      `<input>`.
 
 ========================================================================
 HISTORY AND DETAIL (everything below is the original log)

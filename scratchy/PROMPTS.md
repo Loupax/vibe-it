@@ -8379,3 +8379,45 @@ Prompt: item QY53n3 (P3): hover changes that only gain/lose PAINT plus OFFSET ru
 > Coordinator: TODO.txt QOBS9: re-baseline PERF.md on the new machine: `tools/perf-suite.sh` at main, YT watch 60 s with the R43 UA, Wikipedia Rust 30 s, QOBS1 summaries, QOBS10 numbers; new section "Baseline (V8, <hash>, 5700X, <date>)"; mark the old tables "old machine". Also the "before" for QINC1: per page App builds per run and their total ms, JS forced layouts per run with median/p95 ms and element counts, hover counters (patched/built/skipped), YouTube results with the pointer on a result from 15 s (R58 recipe). >= 3 runs per scenario, median and spread; flock and load noted.
 
 **What changed:** PERF.md only: new section "Baseline (V8, 5888220, 5700X, 2026-11-20)" (suite, long headless runs, live-window builds/forced layouts/hover, profiles, corpus, QOBS10 bench), and the QuickJS baseline, QV8-m, QV8-3b and QV8-4 sections are marked "old machine". The per-layout numbers come from a throwaway build of the same commit with one env-gated stderr line per forced layout (not committed). The machine was not quiet (another agent's tests); suite pages 1-3 were re-taken at load < 1.2, and window runs that caught the user's real pointer or got a short page are dropped and named. Headline: YouTube results 4.5 s raw CPU per 10 s headless (forced 1.0 s); in the window every preview `getPlayerSize` read is a full ~5 000-element layout at ~58-67 ms, worst preview job 0.77-0.9 s; watch 60 s 6.3 s of forced layout with one 0.9-1.4 s timer; Wikipedia ~10 650 elements per layout at ~115-125 ms.
+## QCOMP-D C7: history ranked by visits (user design session, docs only)
+
+> finally, in a new branch/PR let's discuss persisting history. I'm thinking just having scratchy appending URLs in a file that our autocomplete logic can grep. We can order by number of visits on site so the user can easily navigate to frequently visited websites
+
+> I agree with your recomendations
+
+**What changed:** docs only. STASH.md "History": what counts as a visit (link, `:go`, `o`, page script; final URL after redirects; fragment stripped; not reload, back/forward, same-document, iframes, failures, opaque origins), the trim doubles as the ranking's decay, new "Ranking" subsection (site roots by visits to the whole site, then pages by their own visits, ties by recency; `url<TAB>title` candidate lines). KEYS.md "Completion" follows. TODO.txt: QCOMP-D C7, QCOMP3 and QCOMP4 updated (tests, tofi ordering check).
+
+## QCOMP-D: `o` dropped, `:go` + Tab is enough (user, docs only)
+
+> what does `o` do again?
+
+> I think :go should be enough. I thought that was the one that was doing autocomplete as we type with tab
+
+**What changed:** docs only. KEYS.md: T39-T41 and the NORMAL<->MENU diagram edges dropped (row numbers kept), MENU always returns to COMMAND (T42, T43). STASH.md: `o` removed from the readers and the visit list. TODO.txt: C3 marked superseded, QCOMP5 ticked as DROPPED, the order and queue notes no longer mention `o`.
+
+## QCOMP-D C8: completion is a ghost suggestion as you type; Tab cycles, Enter accepts (user, docs only)
+
+> It should do something like this:
+> :go https://google|.com (where | is the location of the cursor on this example)
+
+> and tab cycles what matches after the cursor. Enter selects it.
+
+**What changed:** docs only. KEYS.md: rows T45-T52 (ghost after each edit with the cursor at the end, Tab/Shift-Tab cycle, Enter runs typed + ghost; proposed: Right/End accept, Delete hides), "Completion" rewritten around the ghost (prefix match with scheme/`www.` stripped, ghost continues what was typed, history read once per line, external sources run once per line), MENU and T35-T44 ON HOLD. TODO.txt: QCOMP-D C8; QCOMP1 now builds the ghost; QCOMP2's menu part on hold; QCOMP4 tests updated.
+
+## QCOMP-D C8: one match is selected on Tab, like bash (user, docs only)
+
+> and similar to how bash does it, if you have only one match, select it
+
+**What changed:** docs only. KEYS.md T53 (Tab with exactly one match: the ghost becomes typed text, plus a space after a command name or `:set` argument, none after a URL); T47/T48 now need 2+ matches. TODO.txt C8 and QCOMP1 tests follow.
+
+## QCOMP-D: menu dropped; Right/End accept and Delete hides confirmed (user, docs only)
+
+> drop the menu, agree with 2 and 3
+
+**What changed:** docs only. KEYS.md: MENU state and rows T35-T44 dropped (numbers not reused), T51 (Right/End take the ghost) and T52 (Delete hides it) confirmed, "Completion" without the menu (no `MENU_CMD`; external sources feed the ghost; safety: context only in env vars, no shell), decision log. STASH.md: the title is for scripts, the ranking is the ghost order. TODO.txt: C2 dropped, C8 updated, QCOMP2 reduced to external sources [S], QCOMP3/QCOMP4 text without `o`/menu.
+
+## QPASTE1: paste into the status bar (user bug report, docs only)
+
+> finally, something tangentially related. Right now we cannot paste into the command mode bar. We should be able to paste to all modes of the status bar that accept typing text (for now I think it's :command and /search mode only)
+
+**What changed:** docs only. KEYS.md: new "Paste" section (Ctrl-v, Ctrl-Shift-v, Shift-Insert in COMMAND and SEARCH; newlines/control characters become a space, trailing whitespace dropped; Wayland clipboard), T22/T26 mention paste. TODO.txt: QPASTE1 [S] with the likely cause found while planning (arboard built without `wayland-data-control`: Cargo.lock has `x11rb` only, so paste reads Xwayland's X11 clipboard), reproduce first, fix, page text fields share the code.

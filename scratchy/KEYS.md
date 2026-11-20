@@ -26,7 +26,6 @@ home-row mods, e.g. a Corne where Ctrl is a held `a`, or a tap-hold Caps Lock).
 | NORMAL | `NORMAL` | sticky | scratchy's bindings; the page gets no key events *(proposed, P2)* |
 | SEARCH | `/` + the query | one line | the status-bar line editor |
 | COMMAND | `:` + the command | one line | the status-bar line editor |
-| MENU | `MENU` | waiting | the external menu program's window (tofi etc.); scratchy only listens for Esc |
 
 Two short-lived helper states hold the timing rules: **ESC1** (in INPUT, one Esc seen,
 waiting for a second) and **G** (in NORMAL, one `g` seen, waiting for a second). The
@@ -52,10 +51,6 @@ stateDiagram-v2
     COMMAND --> NORMAL: Enter = run, Esc = cancel
     SEARCH --> INPUT: click into a text field or select
     COMMAND --> INPUT: click into a text field or select
-    COMMAND --> MENU: Tab, menu configured, 2+ candidates
-    MENU --> COMMAND: chosen = replace the word / cancelled = unchanged
-    NORMAL --> MENU: o (history)
-    MENU --> NORMAL: chosen = navigate / cancelled = nothing
 ```
 
 ## Transition table
@@ -103,28 +98,36 @@ timer is needed. The pure function is `resolve_esc_esc(state, key, repeat, now)`
 
 | # | From | Event | Guard | To | Effect |
 |---|---|---|---|---|---|
-| T22 | SEARCH | text editing keys | none | SEARCH | edit the query (`TextEditBuffer`, same as `:`) |
+| T22 | SEARCH | text editing keys, paste | none | SEARCH | edit the query (`TextEditBuffer`, same as `:`); paste as in "Paste" below |
 | T23 | SEARCH | Enter | query not empty | NORMAL | the query becomes the kept query; find matches; current = the first match whose top is at or below the top of the screen, in document order (none below: wrap to the first match, with the wrap message); bring the screen to it (S4); `[i/N]` in the status bar. No matches: T16's message |
 | T24 | SEARCH | Enter | query empty | NORMAL | same as Esc (T25) |
 | T25 | SEARCH | Esc | none | NORMAL | cancel: highlights and the kept query as they were before `/` |
-| T26 | COMMAND | text editing keys | none | COMMAND | as today |
+| T26 | COMMAND | text editing keys, paste | none | COMMAND | as today; paste as in "Paste" below (a paste is an edit for T45) |
 | T27 | COMMAND | Enter | none | NORMAL | run the command (`:q` may quit) |
 | T28 | COMMAND | Esc | none | NORMAL | cancel |
 
-### Completion and MENU (see "Completion" below)
+### Completion: ghost suggestion (see "Completion" below)
+
+User, 2026-11-20: completion is a suggestion shown AS YOU TYPE after the cursor, e.g.
+`:go https://google|.com` (`|` = cursor, `.com` drawn dimmed: "ghost text"). Tab cycles
+the suggestion through the other matches; Enter runs the line WITH the suggestion.
+These rows replace T35-T44 (the external menu, DROPPED by the user the same day).
 
 | # | From | Event | Guard | To | Effect |
 |---|---|---|---|---|---|
-| T35 | COMMAND | Tab | the word's source gives 0 candidates | COMMAND | nothing |
-| T36 | COMMAND | Tab | 1 candidate, or `MENU_CMD` is `None` | COMMAND | inline: complete to the first candidate; further Tabs cycle, Shift-Tab cycles back; any other key ends the cycle (today's behaviour) |
-| T37 | COMMAND | Tab | 2+ candidates and `MENU_CMD` is set | MENU (from COMMAND) | spawn the menu, candidates on its stdin |
-| T38 | MENU (from COMMAND) | menu exits 0 with a line | none | COMMAND | the line replaces the word being completed; the user still presses Enter |
-| T39 | NORMAL | `o` | `MENU_CMD` is set | MENU (from NORMAL) | spawn the menu with the `:go` source's candidates (history) |
-| T40 | NORMAL | `o` | `MENU_CMD` is `None` | COMMAND | open the command line with `go ` typed, so Tab completes inline |
-| T41 | MENU (from NORMAL) | menu exits 0 with a line | none | NORMAL | navigate exactly as `:go <line>` (a line that is not in the history works too, e.g. tofi `--require-match=false`) |
-| T42 | MENU | menu exits non-zero, prints nothing, or cannot be started | none | the state it came from | nothing changes (cannot start: a status-bar message) |
-| T43 | MENU | Esc in scratchy's window | none | the state it came from | kill the menu process, as T42 |
-| T44 | MENU | any other key in scratchy's window | none | MENU | ignored (not delivered to the page) |
+| T45 | COMMAND | an edit (insert, Backspace, paste, Ctrl-w ...) | cursor at the end of the line, the word under it is not empty, its source has 1+ matches | COMMAND | ghost = the rest of the FIRST match in the source's order (history: the C7 ranking); match index 0 |
+| T46 | COMMAND | an edit or a cursor move | otherwise (no match, empty word, cursor not at the end) | COMMAND | no ghost |
+| T47 | COMMAND | Tab | a ghost is shown, 2+ matches | COMMAND | ghost = the next match (wraps to the first); the typed text does not change |
+| T53 | COMMAND | Tab | a ghost is shown, exactly 1 match | COMMAND | like bash: the match is selected, i.e. the ghost becomes typed text; after a command name or a `:set` argument a space follows (`:se` Tab -> `:set `), after a URL none. Then T45 for the new word (user, 2026-11-20) |
+| T48 | COMMAND | Shift-Tab | a ghost is shown, 2+ matches | COMMAND | ghost = the previous match (wraps) |
+| T49 | COMMAND | Tab / Shift-Tab | no ghost | COMMAND | nothing |
+| T50 | COMMAND | Enter | a ghost is shown | NORMAL | run the typed text + the ghost (`:go https://google.com/`) |
+| T51 | COMMAND | Right / End | a ghost is shown | COMMAND | the ghost becomes typed text (keep typing after it); then T45 for the longer word (user, 2026-11-20) |
+| T52 | COMMAND | Delete | a ghost is shown | COMMAND | hide the ghost until the next edit, so Enter runs only what was typed (user, 2026-11-20). Needed to go to a URL that is a prefix of a history entry |
+
+T35-T44 are DROPPED (user, 2026-11-20): T35-T38 and T42-T44 were the external dmenu-style
+menu (tofi) and its MENU state, T39-T41 the `o` key. The ghost rows above replace them.
+Numbers are not reused.
 
 ### Events that are not keys
 
@@ -172,7 +175,10 @@ errors). Other fields (load progress, hovered link target, pending `g`) only on 
 
 ## Completion
 
-Tab in COMMAND completes the word under the cursor, like bash's `complete`.
+In COMMAND, the word under the cursor gets a **ghost suggestion** as you type (T45-T52):
+the rest of the best match, drawn dimmed after the cursor; Tab / Shift-Tab cycle it
+through the other matches, Enter runs the line with it. Where the matches come from is
+set per command, like bash's `complete`:
 
 - **The first word** completes from the command names (built in).
 - **Later words** ask the command's **source**, from the `COMPLETERS` table in
@@ -190,26 +196,43 @@ Tab in COMMAND completes the word under the cursor, like bash's `complete`.
   `SCRATCHY_WORD` (the word being completed), `SCRATCHY_ARG` (its index, 1 = first
   argument), `SCRATCHY_URL` (the current page), `SCRATCHY_STATE_DIR`. It prints one
   candidate per line on stdout. Non-zero exit or nothing printed = no candidates.
-- **The built-in `:go` source** (`complete_history_urls`) reads the history file
-  (`STASH.md` "History"): newest first, one entry per URL. It does no fuzzy matching
-  itself: it keeps the entries whose URL, with `https://`/`http://` and `www.` stripped,
-  starts with the word (the word empty = all). Fuzzy matching is the menu's job.
-- **The menu** (`MENU_CMD` in `src/config.rs`, an argv, `None` = no menu, inline Tab
-  only) speaks the dmenu protocol: candidates on stdin, one per line; the choice on
-  stdout; non-zero exit = cancelled. Any dmenu-style program works: tofi, fuzzel,
-  bemenu, wmenu, or fzf through a terminal wrapper. The user's own: a script that
-  starts tofi (useful tofi options: `--fuzzy-match=true`, `--require-match=false`).
-- **Safety:** candidate text (page titles and URLs come from websites) only ever goes
-  through stdin. Nothing from a page or the history is put into an argv or a shell.
-- The menu and external sources run on a thread each; scratchy keeps drawing and
-  handling events while they run, and the result arrives as an `AppEvent`. A result
-  that arrives after its MENU state was left (T43) is dropped.
+- **Matching and the ghost text.** A candidate matches when the typed word is a prefix
+  of it. For `:go` both sides are compared with `https://`/`http://` and `www.` removed,
+  and the ghost is the candidate's rest after that point, so it always continues exactly
+  what was typed: typed `https://google`, candidate `https://www.google.com/`, ghost
+  `.com/`, Enter runs `:go https://google.com/`.
+- **Per keystroke cost.** Built-in sources answer from memory: the history is read and
+  ranked once when the `:go` argument is first edited and kept while the line is open.
+  An external source runs once per line and argument position, on a thread; its output
+  is kept and filtered by scratchy per keystroke (it is not re-run per key).
+- **The built-in `:go` source** (`complete_history_urls`) reads the history file and
+  ranks it (`STASH.md` "History" / "Ranking"): site roots by visits to the site, then
+  pages by their own visits, ties by recency. That order is the ghost order: the first
+  match is shown, Tab walks down the list. It keeps the entries whose URL, with
+  `https://`/`http://` and `www.` stripped, starts with the word. No fuzzy matching.
+- **No menu** (user, 2026-11-20): an external dmenu-style menu (tofi) was planned and
+  DROPPED in favour of the ghost; there is no `MENU_CMD`.
+- **Safety:** nothing from a page or the history is put into an argv or a shell; an
+  external source gets its context only in environment variables, and runs without a
+  shell.
+- External sources run on a thread; scratchy keeps drawing and handling events while
+  they run, and the result arrives as an `AppEvent`. A result that arrives after its
+  command line was closed, or for another argument position, is dropped.
+
+## Paste
+
+Every status-bar mode you type into (today COMMAND and SEARCH; user, 2026-11-20) takes a
+paste: Ctrl-v, Ctrl-Shift-v (terminal habit) and Shift-Insert insert the system
+clipboard's text at the cursor. Newlines, tabs and other control characters in the
+pasted text become a space and trailing whitespace is dropped (a copied URL often ends
+in a newline, and the bar is one line). An empty or unreadable clipboard changes
+nothing. The clipboard is the Wayland one (scratchy is a Wayland window; item QPASTE1).
 
 ## Configuration
 
 Everything a user may want to change lives in **one file, `src/config.rs`**, in the dwm
 `config.h` spirit: edit, rebuild (user, 2026-11-20). That includes the key bindings
-(today the `match` in `resolve_binding`), `ESC_ESC_MS`, `MENU_CMD`, `COMPLETERS`, the
+(today the `match` in `resolve_binding`), `ESC_ESC_MS`, `COMPLETERS`, the
 history settings and the scroll steps. Moving the existing knobs there is its own
 refactoring item (QCONF1, no behaviour change) and comes first; every later item adds
 its knobs there. Exception (user, 2026-11-20): the tracker block/allow lists stay in
@@ -224,9 +247,10 @@ Esc Esc, so there is nothing left to switch off, and Esc Esc cannot be locked ou
 ## Decision log
 
 - QKEYS-D D1-D8, QSEARCH-D S1-S7: `TODO.txt` (user, 2026-11-20).
-- 2026-11-20 (user): completion is scriptable through the dmenu protocol and
-  per-command sources (QCOMP-D); `:go` Tab and `o` both use it; configuration stays in
-  code, all of it in `src/config.rs`.
+- 2026-11-20 (user): completion is per-command sources, built in or scripts (QCOMP-D),
+  shown as a ghost suggestion while typing; Tab cycles, one match is selected, Enter
+  accepts, Right/End take it, Delete hides it (T45-T53). The dmenu menu and `o` were
+  planned and dropped the same day. Configuration stays in code, in `src/config.rs`.
 - 2026-11-20: "page mode" is called **INPUT** mode ("input passthrough"); first match
   after a search = first at or below the top of the screen; a match touching 2+ links
   warns and does nothing; this file written as the state machine (user).
