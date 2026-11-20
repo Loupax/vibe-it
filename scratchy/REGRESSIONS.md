@@ -890,7 +890,7 @@ Proposed (not done, > S): QMEM3g [M] a counting `#[global_allocator]` behind a c
 (`malloced_memory`, ArrayBuffer backing stores) and per-library mapped RSS as probes (names the ~25 MB C++);
 QMEM3i [M] drop `StyleCache`'s second parse (already QMEM3e) and measure the 1.2-1.3x probe undercounts.
 
-### QMEM3j: SHAPE_MEMO hits vs bytes, and the fix (Opus, 2026-11-20, base 777faf3)
+### QMEM3j: SHAPE_MEMO hits vs bytes, and the fix (Opus, 2026-11-20, base 777faf3, fix 80d5353)
 Method: throwaway probes (not committed) at the end of `--perf-report`: malloc `in_use` before and after
 replacing every memo buffer by a clone (a clone has exact capacities) and after clearing the memo; per-component
 capacity slack read through cosmic-text's public `shape_opt`/`layout_opt`. Own wire, every measured run under
