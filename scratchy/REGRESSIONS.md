@@ -1,5 +1,77 @@
 # scratchy — regressions
 
+## R61: QYSCR1: scrolling did not work on YouTube (user 2026-11-20). Three causes, all fixed: (1) `<body>`'s `overflow` was never propagated to the viewport in layout (only the stacking-boundary check and, since QY57r, IntersectionObserver knew the rule), so YouTube's `body{overflow-y:scroll}` made the 0 px tall body a scroll region and stopped the page-height walk at it; (2) the page height (`laid.h`, the top-level scroll limit) ignored absolutely positioned boxes, and YouTube's whole page lives in the absolute `ytd-app`, so the page was one viewport tall; (3) Space, PageDown/PageUp and the arrow keys were not bound at all. Fix: one propagation rule in the layout tree, the page height includes absolute boxes, a wheel tick a region cannot use goes to the page, and the usual scroll keys (Opus, 2026-11-20) — FIXED
+
+**Reproduced** (baseline = installed main at 094b4b5 code, own nested dwl 960x316/489, own wire): on YouTube results
+(`/results?search_query=rust`) and watch (`G1AeBgalFZk`) neither the wheel (5-10 notches over the page) nor Space,
+PageDown or Down moved the page at all (grim before/after identical). Local fixtures:
+
+| fixture | wheel before | wheel after |
+|---|---|---|
+| plain page, 60 rows | scrolls | scrolls |
+| `body{overflow-y:scroll}`, rows in flow | **no** | scrolls |
+| `#app{position:absolute;top:0;left:0;right:0}` holding the rows, body visible | **no** | scrolls |
+| YouTube's shape: both of the above | **no** | scrolls |
+| `html,body{height:100%} body{overflow:auto}` | scrolls (body region) | scrolls (viewport) |
+
+**Causes.**
+1. CSS Overflow 3 (overflow viewport propagation): the root's `overflow` applies to the viewport; when it is `visible`, the
+   `<body>`'s does instead, and the element it came from then uses `visible`. scratchy kept the body's `overflow` on the body
+   box. `layout::is_stacking_boundary` had a special case (`VIEWPORT_ROOT_NODE`) and js_dom.rs `ioEval0` another (QY57r), but
+   `measure` still gave `<body>` a `ScrollInfo` (client height 0 on YouTube) and `in_flow_bottom` stopped at the body because
+   its overflow was not `visible`. With rows in flow the body was as tall as its content, so `laid.h` was right, but
+   `hit_test_scroll_region` returned the body region (max scroll 0) for every point, so the wheel went to a region that cannot
+   move and never to the page.
+2. `in_flow_bottom` (what `measure_document` grows the root's `h` to, and `redraw` clamps `scroll_offset` against) only walked
+   in-flow children. YouTube's `ytd-app` is absolutely positioned (body 956x0, `ytd-search` 884x7687 in R56), so the maximum
+   scroll was 0.
+3. `resolve_binding` had only vim keys (`j`/`k`, `Ctrl-d`/`u`, `G`, `gg`, Home/End).
+
+**Fix (one rule).**
+- images.rs `propagate_viewport_overflow` (next to the canvas-background propagation, QW6) runs once per layout-tree build, so
+  App frames and the JS thread's forced layouts (GeomCache) both get it: `<html>`'s non-visible `overflow` becomes `visible`
+  on `<html>`; otherwise `<body>`'s does on `<body>`. Layout/paint containment (`contain: layout|paint|strict|content`,
+  newly parsed as `ComputedStyle::contain_lp`) on `<html>` or `<body>` stops the body propagation (WPT
+  overflow-body-propagation-011). The viewport is the page's own top-level scroll, so nothing else is needed: the body gets no
+  `ScrollInfo`, clips nothing, is no stacking boundary (`VIEWPORT_ROOT_NODE` removed) and does not stop the page-height walk.
+  `getComputedStyle` still reports the specified value.
+- js_dom.rs `gViewportBody()` is the same rule for script: `gScrollable` (element `scrollTop`, `scrollIntoView` ancestors)
+  and `ioEval0`'s clip exemption (QY57r) both use it, so `body.scrollTop = 50` does nothing and `scrollIntoView` scrolls the
+  window.
+- layout.rs `in_flow_bottom` also walks `positioned` boxes that are not `fixed` (scrollable overflow includes absolute boxes;
+  fixed ones never scroll). A clipping box still contributes only its own edge.
+- app.rs `region_takes_wheel`: a wheel tick that the region under the cursor cannot use (nothing to scroll, or already at its
+  end in that direction) scrolls the page instead (one-level scroll chaining).
+- app.rs `resolve_binding`: Space / PageDown = `Action::PageDown` (viewport less 40 px), Shift+Space / PageUp = `PageUp`,
+  ArrowDown / ArrowUp = one 40 px line. Page `keydown` handlers, focused text controls/selects and focused buttons and
+  checkboxes still see the keys first (unchanged order in `WindowEvent::KeyboardInput`).
+
+**Tests** (interaction_tests.rs, `qyscr1_*`, 8): YouTube-shaped document is >= 1500 px tall with no scroll region and no
+wheel target; in-flow body `overflow-y:scroll` is no region; `html{overflow:hidden}` leaves `<body>`'s `overflow:auto` on
+the body; `contain:paint` on `<html>` stops the propagation; fixed boxes add no page height, an absolute box at `top:2000px`
+does; `region_takes_wheel` chains at both ends and on a region that fits; key bindings and `page_step`; script:
+`getComputedStyle(body).overflowY` stays `scroll`, `body.scrollTop = 50` reads 0, `scrollIntoView` scrolls the window.
+Full suite 1398 pass. WPT: no pass->fail; the other 12 overflow-body-propagation reftests were added to the subset:
+001, 005, 006 and 010 pass newly (fail on main), 002-004, 007-009, 011, 013 pass on both, 012 fails on both (body
+`overflow:hidden` under `html{overflow:hidden}` with a 0x0 body: needs the body's clip of its border-box overflow), 014-016
+need script (skipped, not added). 333 pass / 293 fail. Clippy 77 (local; no new warning).
+
+**Real check** (own nested dwl + tools/inject, release build of this branch; grim shots viewed): YouTube results: wheel 5
+notches scrolls ~200 px, PageDown one page, Down 40 px. Watch G1AeBgalFZk: wheel 10 notches over the player reaches the
+title/channel row and "345 Kommentare", 2x PageDown reaches the comment list, wheel over the related column scrolls the page
+further (related videos move with it). Home: logged out with history off YouTube shows one short card, nothing to scroll
+(same in other browsers). Wikipedia (Rust article) and Hacker News scroll by wheel, PageDown/Space and Down as before.
+
+**Left out (proposed items).**
+- QYSCR1a [S]: on YouTube results the "Alle" filter chip (`button.ytChipShapeButtonReset`) has focus after load without any
+  click, so Space presses that button (Q30e, correct for a focused button) instead of scrolling; PageDown/arrows work. Find
+  out who focuses it (YouTube's `focus()` call vs scratchy's autofocus/focus rules; Chrome scrolls on Space there).
+- QYSCR1b [S]: viewport `overflow: hidden` (propagated from `<html>`/`<body>`, e.g. YouTube's `body.no-scroll` while a dialog
+  is open) should block user scrolling (wheel and keys) but not script scrolling; scratchy still scrolls.
+- QYSCR1c [S]: full scroll chaining: a tick an inner region cannot use goes to the page, not to the next scrollable ancestor;
+  and the innermost region under the cursor wins even when it has nothing to scroll and an outer one has.
+- QYSCR1d [S]: WPT overflow-body-propagation-012 (body clips its own overflow when `html{overflow:hidden}` takes the viewport).
+
 ## R60: QINC1 design: one incremental style + layout engine for App frames AND script forced layouts. Persistent per-element styles with a match cache, Blink/Stylo-style invalidation sets and early cut-off; a box tree kept between layouts and rebuilt per container; the last laid tree reused as the fragment cache (a clean box is moved, not re-measured; a dirty box is re-measured at its cached constraints and the change goes up only while the parent-visible result changes). Measured first (throwaway probe): between two consecutive forced layouts the median page restyles 3-33 elements of 261-1 128 styled ones (1-5 %), and touches 1-6 % of the boxes; today every one of them redoes 100 %. Projected: YouTube results `getPlayerSize` 54-80 ms -> ~2-5 ms (preview job 685-1 137 ms -> ~150-220 ms), YouTube watch / Wikipedia App builds 38-90 ms -> ~2-6 ms each, and a frame after a forced layout costs ~0. Size: XL (14 items, 4 of them L), landed in shadow mode first, then behind `SCRATCHY_INCR=1`, then flipped, then the special cases deleted. RECOMMENDED; supersedes R59/QY54b3a-f (Opus, 2026-11-20, design only, docs only) — OPEN: proposed QINC1a-QINC1m (section 15), open questions (section 16)
 
 Inputs: R43 sections 4/8 (phase split, 84 % of styles reusable), R47 (hover restyles), R50 (QYTC1a/b/d), R55 (App builds per run:
