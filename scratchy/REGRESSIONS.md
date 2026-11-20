@@ -6868,3 +6868,18 @@ Design points 3-4 above, with two findings: (1) Wikipedia declares `animation-*`
 
 ### QY53n3 addendum (Sonnet, 2026-11-20): offset hover patch
 `hover_patch::paint_patch` now also accepts `Effect::Offset` rule changes (slot 0 only). Per changed element the shift is `offset_delta(old, new)` from the build's own resolved styles (old values checked against the tree): translate change (`px + frac * own w/h`, exact because the size is unchanged) plus, by `position`: static = insets ignored; relative = px `left-right` / `top-bottom` change; absolute = only with explicit width, no auto margins, px insets and the same placing edge (left wins over right, top over bottom) in old and new. Refused (build as before): percentage/calc insets, auto-width absolute boxes (shrink-to-fit follows the insets), auto -> set edge changes (needs the static position), sticky/fixed inset changes, pseudo-element offset rules, inline-level boxes (the build's line layout drops a translate on an inline-block, so a shift would differ from a rebuild), animated elements, any positioned DOM descendant (`hoist_negative_z` moves them out of the box's subtree and static positions of fixed/abs descendants follow the box at build time), and a move that changes the root's grown height (`in_flow_bottom`; the moves are undone). `shift_laid_tree` does not move `ink`, so `compute_ink` runs over the tree after the shifts; the App refreshes IntersectionObserver geometry and the cursor when a box moved. Tests compare boxes, ink and pixels of the patched tree with a rebuild for enter and leave. NOT measured: the YT watch gate (hover builds that are only PAINT/OFFSET -> 0; nested dwl + own wire under flock), see the follow-up in the PR.
+
+### R36 addendum 2 (QY47b, Sonnet, 2026-11-20): the extra createElement wrapper costs no measurable page time on V8 -> close QY47b
+
+QY47b proposed folding the `media_prelude.js` `document.createElement` wrapper (`String(n).toLowerCase()`, compare with `video`/`audio`, `ce.apply`) into the DOM prelude to save a JS frame. The motivation (QuickJS's 1 MB stack, R36 wall 2) is gone: V8's limit is the real thread stack (QV8-3b) and frames are far smaller. Measured whether the wrapper still costs anything.
+
+Method: installed main binary (commit 4e807b4e31), `--perf-report --seconds 0` on a local page that calls `document.createElement("div")` 1,000,000 times in one inline script; `cur` = main as is, `extra` = the same page with ONE more identical wrapper layered on in the page (a faithful stand-in for the media wrapper being removed: String + toLowerCase + two compares + `apply`). 4 interleaved pairs, each run under `flock /tmp/scratchy-perf.lock`, load 0.38-0.47 (quiet).
+
+| pair | cur (ms / 1M calls) | extra (ms / 1M calls) | delta |
+|---|---|---|---|
+| 1 | 993.7 | 1079.8 | +86 |
+| 2 | 1002.8 | 1085.0 | +82 |
+| 3 | 1003.7 | 1101.6 | +98 |
+| 4 | 999.7 | 1104.9 | +105 |
+
+So one wrapper costs about 85-105 ns per call (createElement itself is about 1.0 us). On YouTube results (about 24k elements, not all created through createElement: the parser builds most) that is at most ~2.5 ms of a multi-second load, below run-to-run noise of any page metric. No stack-depth benefit either (V8 stack is not the limit). The folding would also need a cross-prelude hook (the DOM prelude is evaluated before `observe()` exists), adding a check on the hot path anyway, and risks the QM1f lazy-observer behaviour. Verdict: NO MEASURABLE SAVING on V8; close QY47b without code. (The custom-elements `created`/`ceUpgrade` and script-creation wrappers are the same order of cost per call and are not worth touching either.)
