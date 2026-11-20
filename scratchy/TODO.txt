@@ -563,6 +563,14 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       FROM QPT1a #392: the script sweep, custom-element upgrade (`__d_query(0, ...)`) and `ceIsConn` treat document 0 as
       the only connected document (scripts inserted into an iframe document do not run, CEs there are not upgraded);
       `DomTable.ce_names` is page-wide. WebSocket in a realm is the parent's class (R53 D5 deviation).
+- [ ] QPT1f2 [S] (P3, from QPT1f #408) about:blank document.write in an iframe parses and runs nothing until close() (Chrome
+      parses as it goes); a write without close never runs.
+- [ ] QPT1f3 [S] (P3, from QPT1f #408) A srcdoc iframe inside a subtree added with appendChild (not innerHTML) does not load;
+      only the iframe itself, a srcdoc change or innerHTML trigger the load.
+- [ ] QPT1f4 [S] (P3, from QPT1f #408; same family as QPT1c2) Custom-element reactions follow the realm whose DOM method made
+      the mutation: an element inserted into an iframe document through the page's methods is not upgraded by the realm's
+      registry.
+- [ ] QPT1f5 [S] (P3, from QPT1f #408; R53 D9) Scripts in pre-fetched same-origin (QA18b1) iframe documents still do not run.
 - [ ] QPT1g [M] (backlog, only if a page shows the forwarding is wrong) Per-realm event-loop queues (R53).
 - [ ] QPT1-D [?] WAITING FOR USER (R53 end): `data:` iframes: Chrome gives them an opaque origin (contentDocument null);
       scratchy (QA18b) gives a readable same-origin document. Keep scratchy's behaviour or match Chrome? Not blocking QPT1a
