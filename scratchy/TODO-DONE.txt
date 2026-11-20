@@ -7883,3 +7883,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- Rust `__*` native wrapped in a JS timer); none of it was committed. -------
 - [x] QPT1c DONE b33c53a #399 one wrapper per node across realms (owner realm's prototypes); YT token still issued [M] (after QPT1a) Cross-realm wrapper identity (R53 D7): one wrapper per node across realms, created by the
       realm owning the node's document (Chrome's rule).
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QMEM3d DONE 8ce75f2 #400 malloc_trim on a helper thread after navigation + once per idle period (RSS gate -> QMEM3d-m) [S] (P3, from QMEM3; Sonnet; after QMEM3a) `malloc_trim(0)` after a navigation and once when the window goes
+      idle. Gate: RSS after leaving YouTube for a small page >= 25 MB lower.
+      DATA (QMEM3c): with the arena cap (QMEM3a), YT watch after 60 s still has malloc free_kept = 111 MB (in_use 133 MB) of ~496 MB RSS.

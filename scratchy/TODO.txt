@@ -1075,9 +1075,6 @@ Shared rules for this block:
       per-library mapped RSS, to name the ~20-25 MB of C++ malloc (V8, libmpv).
 - [ ] [WIP] QMEM3j [S] (P2, from QMEM3b; same family as QY53o3c; Opus measure then Sonnet) SHAPE_MEMO holds ~60 MB of cosmic-text
       shaped buffers on a 7.7k-paragraph page (Wikipedia; 2.6x the old estimate): measure its hit rate vs bytes and cap/sweep it.
-- [ ] [WIP] QMEM3d [S] (P3, from QMEM3; Sonnet; after QMEM3a) `malloc_trim(0)` after a navigation and once when the window goes
-      idle. Gate: RSS after leaving YouTube for a small page >= 25 MB lower.
-      DATA (QMEM3c): with the arena cap (QMEM3a), YT watch after 60 s still has malloc free_kept = 111 MB (in_use 133 MB) of ~496 MB RSS.
 - [ ] QMEM3d-m [S] (P3, from QMEM3d #400; Opus measure, quiet machine) Interleaved before/after RSS: YouTube watch -> a small
       page (example.com / local), live nested-dwl window, own wire, with vs without the malloc_trim (#400 lacks a switch: add
       a throwaway env toggle), under the perf flock, uptime noted. Gate >= 25 MB lower. #400 shipped measured only
