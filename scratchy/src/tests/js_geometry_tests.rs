@@ -1813,3 +1813,17 @@ fn q33b2_viewport_follows_window_size_and_forced_layout_matches() {
     assert!(out2.borrow().iter().any(|l| l == "log:s 640 480 640 480 640 320 0"), "{:?}", out2.borrow());
     crate::js::set_window_viewport(0, 0);
 }
+
+#[test]
+fn q33b2w_engine_created_after_publish_sees_size_in_first_script_and_no_resize() {
+    crate::js::set_window_viewport(956, 312);
+    let code = "var n = 0; addEventListener('resize', function () { n++; }); console.log('first', innerWidth, innerHeight);";
+    let (eng, out) = q33b2_engine("<html><body></body></html>", code);
+    // The App's first about_to_wait pushes the same size: no event.
+    eng.set_viewport(956, 312);
+    eng.eval("t", "console.log('after', n);");
+    let o = out.borrow();
+    assert!(o.iter().any(|l| l == "log:first 956 312"), "{o:?}");
+    assert!(o.iter().any(|l| l == "log:after 0"), "{o:?}");
+    crate::js::set_window_viewport(0, 0);
+}
