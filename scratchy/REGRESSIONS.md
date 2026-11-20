@@ -753,7 +753,7 @@ smaller share of what is left. Next step if wanted: let `style_write_in_place` a
 bumps since the layout came from ledger-recorded writes whose boxes the shift does not touch
 (it requires the cache to be the current layout today).
 
-### QYTC1d result (2026-11-20, release builds, main 83a9d93 vs main + QYTC1d 0b33452 + 8e4c818)
+### QYTC1d result (2026-11-20, release builds, main 83a9d93 vs main + QYTC1d 9303ef0 + 91b9e73)
 Instead of a ledger, the writes that are provably inert no longer move the geometry generation at all,
 so the cache stays the current layout (and QYTC1a's in-place path and QY53o1's unread-attribute skip
 keep working after them). `aria-*` writes were already inert (QY53o1) whenever the cache was current;
