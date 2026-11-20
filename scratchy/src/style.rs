@@ -354,6 +354,9 @@ pub(crate) struct ComputedStyle {
     /// Lets `build_layout_tree_with_resources` propagate the root/body
     /// background to the canvas (CSS Backgrounds 3 2.11.2). Not inherited.
     pub(crate) canvas_src: u8,
+    /// QYSCR1b: on the document root box only: the overflow propagated to the viewport is `hidden`
+    /// (user scrolling blocked, script scrolling still works). Not inherited.
+    pub(crate) viewport_hidden: bool,
     /// `mask-position`/`-size`/`-repeat` (Q29), same shape as `bg_layout`.
     pub(crate) mask_layout: BgLayout,
     /// `object-fit` and `object-position` (Q28), applied by `blit_image`.
@@ -3160,6 +3163,7 @@ pub(crate) fn resolve_style_core<'a>(
         box_shadow,
         bg_layout,
         canvas_src: 0,
+        viewport_hidden: false,
         mask_layout,
         object_fit,
         object_pos,
@@ -3285,6 +3289,7 @@ pub(crate) fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         box_shadow: [None; MAX_SHADOWS],
         bg_layout: BgLayout::default(),
         canvas_src: 0,
+        viewport_hidden: false,
         mask_layout: BgLayout::default(),
         object_fit: ObjectFit::Fill,
         object_pos: ((0.5, 0.0), (0.5, 0.0)),

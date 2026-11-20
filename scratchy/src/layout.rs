@@ -375,7 +375,7 @@ fn compute_ink_body(l: &mut Laid) -> Ink {
         }
         LaidContent::Text(_) | LaidContent::Image(_) => {}
     }
-    let extra = l.scroll.map_or(0.0, |i| i.max_scroll());
+    let extra = l.scroll.filter(|i| i.user).map_or(0.0, |i| i.max_scroll());
     for p in l.positioned.iter_mut() {
         let pi = compute_ink(p);
         if p.fixed {
@@ -566,16 +566,21 @@ pub(crate) struct ScrollInfo {
     /// QJ6: the DOM node (`Style::node`) this region belongs to (0 = anonymous),
     /// so script's `scrollTop` and the wheel agree across relayouts.
     pub(crate) node: usize,
+    /// QYSCR1b: false for an `overflow: hidden` box: script can scroll it
+    /// (`scrollTop`, `scrollIntoView`) but the wheel and keys never do, and it
+    /// draws no scrollbar.
+    pub(crate) user: bool,
 }
 
 /// `Some(ScrollInfo)` (with a fresh id) for an `overflow: scroll`/`auto`
 /// box, `None` otherwise. Shared by the ordinary `Blocks` arm of `measure`
 /// and the table/flex/grid container tails (Q24).
 pub(crate) fn make_scroll_info(overflow: Overflow, node: usize, next_id: &mut usize, content_h: f32, border_h: f32, extra_h: f32) -> Option<ScrollInfo> {
-    matches!(overflow, Overflow::Scroll | Overflow::Auto).then(|| {
+    matches!(overflow, Overflow::Scroll | Overflow::Auto | Overflow::Hidden).then(|| {
         let id = *next_id;
         *next_id += 1;
-        ScrollInfo { id, content_h: content_h.max(0.0), client_h: (border_h - extra_h).max(0.0), node }
+        let user = overflow != Overflow::Hidden;
+        ScrollInfo { id, content_h: content_h.max(0.0), client_h: (border_h - extra_h).max(0.0), node, user }
     })
 }
 
