@@ -8301,3 +8301,52 @@ Prompt: item QY53n3 (P3): hover changes that only gain/lose PAINT plus OFFSET ru
 > Implement QNAV9a and QNAV9b (one PR): (a) `scratchy file:///abs/path.html` must open the file (classify_input accepts file:// via Url::to_file_path; percent-encoded paths; non-local hosts rejected with a clear error). (b) Without --socket a file page gets base_url from file_page_url, so relative hrefs resolve and #frag scrolls; following a relative file link without wire should load the local file or give a clear message; no network access added.
 
 **What changed:** `classify_input` (dom.rs) turns a `file://` URL into `Input::File(<decoded local path>)` (`%20` etc. decoded, `localhost` accepted); `parse_args` first calls the new `file_url_error` and exits with a clear message for `file://host/...` (other host) or a path-less URL. A statically opened file with no `--socket` now gets `base_url = file_page_url(path)` (lib.rs), so relative hrefs resolve and `#frag` scrolls. `fetch_url_inner` (app.rs) with no socket and a `file:` URL calls the new `read_local_file_page` (net.rs): reads the file from disk (no network, no wire), picks html / text / image wrapping by extension (unknown = html), no sub-resources (stylesheets, images and external scripts need wire); inline scripts still run (`handle_nav_result`). With `--socket`, `file:` links still go through wire as before. Missing files give "cannot open <path>: <io error>" on the message page. Tests: `qnav9a_file_url_argument_opens_the_local_path`, `qnav9b_without_wire_a_relative_file_link_loads_the_local_file`. Real check in a nested dwl on a page in a directory with a space (`file:///.../dir%20with%20space/index.html`), with and without `--socket` (own wire): the `#frag` link scrolls to the anchor, the relative link loads `two.html`.
+
+## QKEYS-D: page mode / scratchy mode, Esc Esc, status bar (user design session, docs only)
+
+> Let's discuss UX again. I think just mimiking vims normal mode is problematic because it assumes the keystrokes we use aren't already used by any website. I'm thinking introducing a keystroke or gesture that toggle vim motions, something like holding down ctrl, or maybe hitting control two times in succession. Let's discuss that
+
+> oof, you are right. My ctrl key is basically A held down so this will be poor UX for me specifically. I guess also for any corne keyboard users
+
+> Esc Esc works for me, write it up in TODO.txt
+> also mention introducing an always visible status bar showing the current mode, and start in page mode by default for now
+
+**What changed:** docs only. TODO.txt: new QKEYS block (design QKEYS-D: decided D1 two modes, D2 Esc Esc trigger, D3 always-visible status bar that reserves its height, D4 start in page mode; proposals P1-P6 awaiting confirmation: sticky scratchy mode, page gets no keys in scratchy mode, a cancelled first Esc still counts, auto-return to page mode on navigation/text-control click, remove `:set vim`/`novim` and SIGUSR1, page-mode default scroll keys), items QKEYS1-QKEYS4, a queue note, and a pointer from QJ11.
+
+## QKEYS-D update: modes are sticky, "scratchy mode" is NORMAL (user design session, docs only)
+
+> I forgot to answer, modes are sticky unless otherwise mentioned. Let's call "scratchy" mode NORMAL instead. what else do we have?
+
+**What changed:** docs only. TODO.txt QKEYS block: new D5 (the mode is called NORMAL; modes are sticky unless stated otherwise; replaces proposal P1); D4 narrowed to "page mode at process start, a navigation keeps the mode" (the earlier "every page starts in page mode" conflicted with stickiness: `h h h` would drop out after one step); P4 reduced to its one exception (a click into a text control/select switches to page mode); the open question about non-navigating `:` commands is closed by D5; QKEYS2 tests follow.
+
+## QKEYS-D update + QSEARCH-D: `i` leaves NORMAL, `/` search with n/N and Enter (user design session, docs only)
+
+> let's think a bit more long term on this. I plan to introduce a `/search` mode, similar to vim, with n and N keystrokes for navigating the results. When the selected result is a link, hitting enter should navigate. I think with this UX in mind it makes sense to keep modes sticky between navigations because one will want to leave NORMAL mode only if the page asks them to requiring the scratchy keystrokes in order to work
+
+> yes, write it up. I just don't want this, leave the following out for now
+> Safety rule: Enter only acts if the current match is on screen. If you've scrolled away with j/k, Enter does nothing and the status bar says why.
+
+**What changed:** docs only. TODO.txt QKEYS block: D6 (`i` leaves normal mode; Esc in normal mode only cancels, supersedes D5's "Esc leaves"), D7 (PAGE/NORMAL sticky, COMMAND/SEARCH one-line), D8 (status bar shows mode, URL, messages), QKEYS1/QKEYS2 updated. New QSEARCH block: design QSEARCH-D S1-S7 (rendered-text search, smartcase, painted highlights, n/N with wrap, recompute after relayout, query kept across navigations, Enter = a real click on the match's element, no on-screen requirement) and items QSEARCH1-QSEARCH3. Queue note updated.
+
+## QSEARCH-D S4 clarified: moving to a match brings the screen there (user, docs only)
+
+> just a clarification. Navigating through search results should focus the screen there too
+
+**What changed:** docs only. TODO.txt QSEARCH-D S4: every move to a match (`n`, `N`, the committing Enter) scrolls a not-fully-visible match to the vertical centre (clamped), does not scroll a visible one, and scrolls inner scroll containers too; QSEARCH2 tests follow.
+
+## KEYS.md: the keyboard design as a state machine; "page mode" renamed INPUT (user design session, docs only)
+
+> Just making sure I understood correctly. With this plan:
+> Pages start in normal mode
+> i enters in "input" mode, which disables normal mode and all keystrokes go directly to the page.
+> While in normal mode, the / key starts the search flow where the user can type their search term in the status bar. Enter selects the first result, and once there's search results in the page N and n navigate around them
+> While in normal mode, hitting enter while a search result is selected, send a "click event" to it. (what happens if the search results touches two links at the same time? if it's cheap to check we should have a warning and do nothing, other wise just let them race I'd say)
+> While in Input mode Esc brings you in Normal mode.
+> While in Search mode, escape brings you in Normal mode
+> What did I miss? What double escape does now?
+
+> do you think it makes sense to design a finite state machine for this? It's going to be easier for me to follow at least, not sure if the agents can understand those
+
+> yes, write KEYS.md with those defaults. Call "page" mode input mode from now on, as in "input passthrough"
+
+**What changed:** docs only. New `KEYS.md`: modes (INPUT, NORMAL, SEARCH, COMMAND; helper states ESC1 and G), a Mermaid state diagram, transition table T1-T34 (incl. edge cases: a page-cancelled first Esc, `n` with no query, Enter on a match spanning 2+ links, script focus never changes the mode, no orphan `keyup` after `i`/Esc Esc), search rules, status bar, removals; KEYS.md wins over TODO.txt text. Defaults: start in INPUT; first match after a search = first at or below the top of the screen; a match in 2+ links warns and does nothing. TODO.txt: "page mode" renamed INPUT in the QKEYS/QSEARCH blocks (D9), S1/S7 updated, items point at the table rows.
