@@ -1043,9 +1043,6 @@ Shared rules for this block:
       rules_cache generation on YouTube (counter).
 - [ ] QY53f1d3 [M] (P4, from QY53f1d #409; measure first) Rebuild RuleDerived/HoverKeys incrementally when a <style> is spliced
       in (~16-20 ms per insert today).
-- [ ] [WIP] QY53f1d [M] (P3, from QY53f1b; Opus design) The cold parse of YouTube's 4.4 MB sheet still costs ~130 ms on the first
-      forced layout. Options: parse external sheets as they arrive (off the forced-layout path, on the JS thread's idle
-      time or a worker), or lazily per rule block. Measure first (R43 section 12); design + items.
 - [ ] QAN1h2b [S] (P3, from QAN1h2 #372; Sonnet; css area) Per-selector candidates: a rule whose selector list mixes keyed
       and unkeyed selectors (e.g. `.k, :not(.q)`) is indexed by its keyed selectors, with a per-candidate selector mask so
       the unkeyed ones are tested only via the universal list. Remaining 289 universal rules on github.com home are mostly
