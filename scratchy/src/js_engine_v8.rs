@@ -644,10 +644,6 @@ unsafe extern "C" {
     /// name carries no libc++ types.
     #[link_name = "_ZN2v814ObjectTemplate18MarkAsUndetectableEv"]
     fn v8_object_template_mark_as_undetectable(this: *const v8::ObjectTemplate);
-    /// `v8::Context::DetachGlobal()` (QPT1b; public API, not bound by the `v8` crate): the global
-    /// proxy stops reaching the context's global object, so a stale `w` of a dropped realm is inert.
-    #[link_name = "_ZN2v87Context12DetachGlobalEv"]
-    fn v8_context_detach_global(this: *const v8::Context);
 }
 
 /// The stand-in's handlers forward to the JS Proxy kept as the handler data.
@@ -748,19 +744,56 @@ pub(crate) fn install_realm_native(ctx: &Ctx<'_>) {
         state(&ctx).realms.push((v8::Global::new(sc, c), v8::Global::new(sc, gl)));
         Ok(RawValue(st(gl.into())))
     });
-    // QPT1b (R53 D6): `__scratchy_realm_drop(w)` forgets the realm whose global proxy is `w` and
-    // detaches that global, so V8 frees the context once no JS reference is left and a stale `w`
-    // reaches nothing. Returns whether a realm was dropped.
+    // QPT1b (R53 D6): `__scratchy_realm_drop(w)` forgets the realm whose global proxy is `w`, so V8
+    // frees the context once no JS reference is left. Returns whether a realm was dropped.
     register(ctx, "__scratchy_realm_drop", |ctx: Ctx<'_>, w: JsObject<'_>| -> JsResult<bool> {
         let sc = ctx.sc();
         let st_ = state(&ctx);
         let wv: L<v8::Value> = st(w.o.into());
         let Some(i) = st_.realms.iter().position(|(_, g)| v8::Local::new(sc, g).strict_equals(wv)) else { return Ok(false) };
-        let (c, _) = st_.realms.remove(i);
-        let c = v8::Local::new(sc, &c);
-        // SAFETY: `c` is a live context handle; the call only detaches its global proxy.
-        unsafe { v8_context_detach_global(&*c) };
+        // QPT1d (R53 D8): no `Context::DetachGlobal` any more. A detached global throws `no access` on every
+        // property read, so a stale `w.closed` could not be true (Chrome: true). The context now lives exactly
+        // as long as JS references the window (as in Chrome; the realm's timers, requests and wrapper-cache
+        // entries are gone, so a held window costs only its own heap).
+        st_.realms.remove(i);
         Ok(true)
+    });
+    // QPT1d (R53 D8): the window of the code that is running ("incumbent": the context Rust entered, which for
+    // a script run in a realm, or code run through `__scratchy_enter`, is that realm). `postMessage` reports
+    // it as `event.source`; a page that only calls into a realm's functions stays the page.
+    register(ctx, "__scratchy_incumbent", |ctx: Ctx<'_>| -> JsResult<RawValue> {
+        let sc = ctx.sc();
+        let c = sc.get_entered_or_microtask_context();
+        Ok(RawValue(st(c.global(sc).into())))
+    });
+    // `__scratchy_enter(w, f)`: calls `f()` (this = w) with the realm `w` entered, so code `f` runs in the
+    // realm sees `w` as the incumbent window. For a `w` that is no live realm it is a plain call.
+    register(ctx, "__scratchy_enter", |ctx: Ctx<'_>, w: JsObject<'_>, f: JsObject<'_>| -> JsResult<RawValue> {
+        let sc = ctx.sc();
+        let Ok(func) = v8::Local::<v8::Function>::try_from(f.o) else { return Err(not_a_function()) };
+        let wv: L<v8::Value> = st(w.o.into());
+        let target = state(&ctx).realms.iter().find(|(_, g)| v8::Local::new(sc, g).strict_equals(wv)).map(|(c, _)| v8::Local::new(sc, c));
+        let recv: v8::Local<v8::Value> = w.o.into();
+        let Some(c) = target else {
+            v8::tc_scope!(let tc, sc);
+            return match func.call(tc, recv, &[]) {
+                Some(v) => Ok(RawValue(st(v))),
+                None => {
+                    stash(&ctx, tc);
+                    Err(JsError::Exception)
+                }
+            };
+        };
+        let cs = &mut v8::ContextScope::new(sc, c);
+        let rctx = Ctx::new(cs);
+        v8::tc_scope!(let tc, cs);
+        match func.call(tc, recv, &[]) {
+            Some(v) => Ok(RawValue(st(v))),
+            None => {
+                stash(&rctx, tc);
+                Err(JsError::Exception)
+            }
+        }
     });
     // Test seams: the number of live realms, and V8's used heap after a full collection.
     #[cfg(test)]

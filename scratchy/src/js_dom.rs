@@ -3064,7 +3064,7 @@ const DOM_PRELUDE: &str = r#"
         if (pg.length) { __d_load_html(did, pg[1]); href = pg[0]; }
         var dim = function (a, dflt) { var v = parseInt(__d_attr(el.__id, a) || '', 10); return v >= 0 ? v : dflt; };
         w.__scratchy_realm_init({ docId: did, dom: { cache: cache, owners: owners, xr: xr }, href: href, base: pg.length ? null : doc.baseURI, parent: g, top: g.top,
-          frameElement: el, name: __d_attr(el.__id, 'name') || '', width: dim('width', 300), height: dim('height', 150) });
+          frameElement: el, name: __d_attr(el.__id, 'name') || '', onName: function () { syncWin(); }, width: dim('width', 300), height: dim('height', 150) });
         nFrames++;
         return (frames[el.__id] = { doc: w.document, win: w, el: el, realm: true });
       }
@@ -3090,7 +3090,7 @@ const DOM_PRELUDE: &str = r#"
       html.appendChild(d.createElement('head')); html.appendChild(d.createElement('body'));
     }
     var win = Object.create(null);
-    var props = { document: d, window: win, self: win, parent: g, top: g, frameElement: el, name: '', length: 0,
+    var props = { document: d, window: win, self: win, frames: win, parent: g, top: g, frameElement: el, name: __d_attr(el.__id, 'name') || '', length: 0, closed: false,
       location: { href: href, toString: function () { return href; } } };
     Object.keys(props).forEach(function (k) { Object.defineProperty(win, k, { value: props[k], writable: true, configurable: true, enumerable: true }); });
     win.getComputedStyle = function (e, p) { return g.getComputedStyle(e, p); };
@@ -3105,6 +3105,7 @@ const DOM_PRELUDE: &str = r#"
     var f = frames[id];
     if (!f) return;
     delete frames[id]; nFrames--;
+    if (!f.realm) f.win.closed = true;
     if (f.realm) {
       try { f.win.__scratchy_realm_release(); } catch (e) {}
       g.__scratchy_realm_drop(f.win);
@@ -3128,9 +3129,46 @@ const DOM_PRELUDE: &str = r#"
     xr.n--; mine = myDocs = null;
   } });
   var sweepFrames = function () {
-    if (!nFrames) return;
-    for (var k in frames) if (!inPage(frames[k].el)) dropFrame(k);
+    if (nFrames) for (var k in frames) if (!inPage(frames[k].el)) dropFrame(k);
+    if (ixN) syncWin();
   };
+  // QPT1d (R53 D8): the window's child list. `window.length`, `window[i]` and `window[name]` follow the
+  // connected iframes of this realm's document that have a window, in document order (Chrome's order; a
+  // window made lazily by `contentWindow` still counts). V8 has no global interceptor here, so the
+  // indexed/named properties are getters (each resolves live, creating the window on first use) that
+  // `syncWin` adds/removes when an iframe is inserted or removed or its src/srcdoc/name changes.
+  // Deviation: an iframe that enters through a subtree (appendChild of a wrapper, innerHTML without the
+  // text `<iframe`) is counted by `length` at once but gets its `window[i]` property at the next sync
+  // (a `length` read, a `contentWindow` read, or the next iframe change).
+  var ixN = 0, nmSet = {};
+  var frameList = function () {
+    var out = [], l = doc.getElementsByTagName('iframe');
+    for (var i = 0; i < l.length; i++) if (frameSrcOk(l[i])) out.push(l[i]);
+    return out;
+  };
+  var frameName = function (el) { var f = frames[el.__id]; return String(f ? f.win.name : (__d_attr(el.__id, 'name') || '')); };
+  var winAt = function (i) { var el = frameList()[i]; var f = el && frameOf(el); return f ? f.win : undefined; };
+  var winNamed = function (nm) {
+    var l = frameList();
+    for (var i = 0; i < l.length; i++) if (frameName(l[i]) === nm) { var f = frameOf(l[i]); return f ? f.win : undefined; }
+    return undefined;
+  };
+  var syncWin = function () {
+    var l = frameList(), n = l.length, i, nm;
+    for (i = ixN; i < n; i++) (function (k) {
+      Object.defineProperty(g, k, { get: function () { return winAt(k); }, set: function (v) { Object.defineProperty(g, k, { value: v, writable: true, configurable: true, enumerable: true }); }, configurable: true, enumerable: true });
+    })(i);
+    for (i = n; i < ixN; i++) delete g[i];
+    ixN = n;
+    var want = {};
+    for (i = 0; i < n; i++) { nm = frameName(l[i]); if (nm !== '' && !/^\d+$/.test(nm) && (nmSet[nm] || !(nm in g))) want[nm] = 1; }
+    for (nm in nmSet) if (!want[nm]) { delete g[nm]; delete nmSet[nm]; }
+    for (nm in want) if (!nmSet[nm]) (function (k) {
+      Object.defineProperty(g, k, { get: function () { return winNamed(k); }, set: function (v) { delete nmSet[k]; Object.defineProperty(g, k, { value: v, writable: true, configurable: true, enumerable: false }); }, configurable: true, enumerable: false });
+      nmSet[k] = 1;
+    })(nm);
+  };
+  Object.defineProperty(g, 'length', { get: function () { var n = frameList().length; if (n !== ixN) syncWin(); return n; }, set: function () {}, configurable: true, enumerable: true });
   var sfRem = __d_remove, sfHtml = __d_sethtml, sfTxt = __d_settext, sfSet = __d_setattr, sfRm = __d_rmattr, sfSq = __d_setq, sfRq = __d_rmq;
   var isSrc = function (n) { n = String(n).toLowerCase(); return n === 'src' || n === 'srcdoc'; };
   // QPT1c: while iframe realms exist, a removed node remembers the document it left (its wrapper
@@ -3147,18 +3185,29 @@ const DOM_PRELUDE: &str = r#"
     if (ok && owners[c] !== undefined) { var r = __d_root(p); if (__d_kind(r) === 9) owners[c] = wrap(r); }
     return ok;
   };
-  __d_sethtml = function (id, h) { sfHtml(id, h); sweepFrames(); };
+  __d_sethtml = function (id, h) { sfHtml(id, h); sweepFrames(); if (!ixN && /<iframe/i.test(h)) syncWin(); };
   __d_settext = function (id, t) { sfTxt(id, t); sweepFrames(); };
-  __d_setattr = function (id, n, v) { sfSet(id, n, v); if (nFrames && isSrc(n)) dropFrame(id); };
-  __d_rmattr = function (id, n) { sfRm(id, n); if (nFrames && isSrc(n)) dropFrame(id); };
-  __d_setq = function (id, n, v) { sfSq(id, n, v); if (nFrames && isSrc(n)) dropFrame(id); };
-  __d_rmq = function (id, n) { sfRq(id, n); if (nFrames && isSrc(n)) dropFrame(id); };
+  // QPT1d: a src/srcdoc/name change of an iframe changes the window list (and `window[name]`).
+  var ifrAttr = function (id, n) {
+    n = String(n).toLowerCase();
+    var s = n === 'src' || n === 'srcdoc', nm = n === 'name';
+    if (!s && !nm) return;
+    if (__d_tag(id).toLowerCase() !== 'iframe') return;
+    if (s && nFrames) dropFrame(id);
+    else if (nm && frames[id] && frames[id].realm && inPage(frames[id].el)) frames[id].win.name = __d_attr(id, 'name') || '';
+    if (inPage(wrap(id))) syncWin();
+  };
+  __d_setattr = function (id, n, v) { sfSet(id, n, v); ifrAttr(id, n); };
+  __d_rmattr = function (id, n) { sfRm(id, n); ifrAttr(id, n); };
+  __d_setq = function (id, n, v) { sfSq(id, n, v); ifrAttr(id, n); };
+  __d_rmq = function (id, n) { sfRq(id, n); ifrAttr(id, n); };
   def(IFP, 'contentDocument', function () { var f = frameOf(this); return f ? f.doc : null; });
   def(IFP, 'contentWindow', function () { var f = frameOf(this); return f ? f.win : null; });
   IFP.getSVGDocument = function () { return this.contentDocument; };
   rStr(IFP, 'src', 'src'); rStr(IFP, 'srcdoc', 'srcdoc'); rStr(IFP, 'name', 'name'); rStr(IFP, 'width', 'width'); rStr(IFP, 'height', 'height');
   afterIns = function (c) {
     if (c.nodeType !== 1 || __d_tag(c.__id).toLowerCase() !== 'iframe' || !inPage(c)) return;
+    syncWin();
     g.setTimeout(function () { if (inPage(c) && frameSrcOk(c)) c.dispatchEvent(new Event('load')); }, 0);
   };
   def(doc, 'implementation', function () { return impl; });

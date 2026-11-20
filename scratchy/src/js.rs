@@ -630,6 +630,11 @@ const PRELUDE: &str = r#"
   var Window = ctor('Window', EventTarget, function () { throw new TypeError('Illegal constructor'); });
   try { Object.setPrototypeOf(g, Window.prototype); } catch (e) {}
   g.top = g.parent = g.frames = g; g.opener = null;
+  // QPT1d (R53 D8): `name` (settable), `closed` (a getter; a dropped iframe realm sets it, `__scratchy_closed`).
+  var closedFlag = false;
+  Object.defineProperty(g, 'name', { value: '', writable: true, configurable: true, enumerable: true });
+  Object.defineProperty(g, 'closed', { get: function () { return closedFlag; }, configurable: true, enumerable: true });
+  Object.defineProperty(g, '__scratchy_set_closed', { value: function () { closedFlag = true; } });
   var Image = ctor('Image', HTMLElement, function (w, h) {
     this.tagName = 'IMG'; this.src = ''; this.width = w || 0; this.height = h || 0;
   });
@@ -854,9 +859,12 @@ const PRELUDE: &str = r#"
     Object.defineProperty(g, 'isSecureContext', { value: !!p.isSecureContext, writable: true, configurable: true, enumerable: true });
     g.__d_bind_doc(o.docId, o.base, o.dom);
     doc.readyState = 'complete';
-    [['parent', p], ['top', o.top], ['frameElement', o.frameElement], ['name', String(o.name || '')], ['opener', null], ['frames', g]].forEach(function (kv) {
+    [['parent', p], ['top', o.top], ['frameElement', o.frameElement], ['opener', null], ['frames', g]].forEach(function (kv) {
       Object.defineProperty(g, kv[0], { value: kv[1], writable: true, configurable: true, enumerable: true });
     });
+    // QPT1d: the browsing context name; a script's `name = x` tells the parent (its `window[name]` props).
+    var nm = String(o.name || '');
+    Object.defineProperty(g, 'name', { get: function () { return nm; }, set: function (v) { nm = String(v); if (o.onName) o.onName(); }, configurable: true, enumerable: true });
     g.__scratchy_timers_fwd(p);
     g.__net_fwd(p);
     g.WebSocket = p.WebSocket;
@@ -865,6 +873,7 @@ const PRELUDE: &str = r#"
     Object.defineProperty(g, '__scratchy_realm_release', { value: function () {
       g.__d_frames_drop_all();
       g.__d_realm_purge();
+      g.__scratchy_set_closed();
       g.__scratchy_timers_cancel(g);
       g.__net_cancel(g);
       try { g.__scratchy_rej_flush(); } catch (e) {}  // report what is pending before the realm goes

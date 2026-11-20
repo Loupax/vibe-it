@@ -1515,3 +1515,86 @@ fn qpt1c_dropped_realm_leaves_no_wrappers_behind() {
     assert!(delta < 1_048_576.0, "heap grew by {delta} bytes over 30 realms with page-made wrappers: {log:?}");
     assert!(log.contains(&"log:kept true true true false".to_string()), "a moved node keeps its wrapper: {log:?}");
 }
+
+// ---------- QPT1d: WindowProxy surface of same-origin iframe realms (R53 D8) ----------
+
+#[test]
+fn qpt1d_frames_length_indices_and_names() {
+    crate::js::set_page_url(Url::parse("https://qpt1d.test/p.html").ok().as_ref());
+    let log = run_with_timers(
+        "console.log('n0', window.length, window.frames===window, window[0], window.name==='', window.closed);\
+         var a=document.createElement('iframe'); a.name='fa'; document.body.appendChild(a);\
+         var b=document.createElement('iframe'); b.name='fb'; document.body.appendChild(b);\
+         var c=document.createElement('iframe'); document.body.appendChild(c);\
+         console.log('n3', length, window[0]===a.contentWindow, window[1]===b.contentWindow, window[2]===c.contentWindow, window[3],\
+           window.fa===a.contentWindow, window.fb===b.contentWindow, frames[1]===b.contentWindow, a.contentWindow.name, window.frames.length);\
+         var f0=document.createElement('iframe'); document.body.insertBefore(f0, a);\
+         console.log('order', window.length, window[0]===f0.contentWindow, window[1]===a.contentWindow, window[3]===c.contentWindow);\
+         f0.remove(); a.remove();\
+         console.log('removed', window.length, window[0]===b.contentWindow, window[1]===c.contentWindow, window[2], window.fa, window.fb===b.contentWindow);\
+         b.setAttribute('name','renamed'); console.log('rename', window.fb, window.renamed===b.contentWindow);\
+         b.contentWindow.name='inner'; console.log('setname', window.renamed, window.inner===b.contentWindow, b.contentWindow.name);\
+         var n=document.createElement('iframe'); n.src='https://other.test/x'; document.body.appendChild(n);\
+         console.log('net', window.length);\
+         var cw=c.contentWindow; c.remove(); b.remove();\
+         console.log('none', window.length, window[0], window.inner, cw.length);\
+         var d=document.createElement('div'); d.innerHTML='<iframe name=\"hh\"></iframe>'; document.body.appendChild(d);\
+         console.log('html', window.length, window[0]===d.firstChild.contentWindow, window.hh===d.firstChild.contentWindow);\
+         var nest=d.firstChild.contentWindow; nest.document.body.appendChild(nest.document.createElement('iframe'));\
+         console.log('nested', nest.length, window.length, nest[0]===nest.document.querySelector('iframe').contentWindow);",
+    );
+    let logs: Vec<&str> = log.iter().filter_map(|l| l.strip_prefix("log:")).collect();
+    assert_eq!(logs[0], "n0 0 true undefined true false", "{log:?}");
+    assert_eq!(logs[1], "n3 3 true true true undefined true true true fa 3", "{log:?}");
+    assert_eq!(logs[2], "order 4 true true true", "{log:?}");
+    assert_eq!(logs[3], "removed 2 true true undefined undefined true", "{log:?}");
+    assert_eq!(logs[4], "rename undefined true", "{log:?}");
+    assert_eq!(logs[5], "setname undefined true inner", "{log:?}");
+    assert_eq!(logs[6], "net 2", "{log:?}");
+    assert_eq!(logs[7], "none 0 undefined undefined 0", "{log:?}");
+    assert_eq!(logs[8], "html 1 true true", "{log:?}");
+    assert_eq!(logs[9], "nested 1 1 true", "{log:?}");
+}
+
+#[test]
+fn qpt1d_post_message_between_page_and_realm() {
+    crate::js::set_page_url(Url::parse("https://qpt1d.test/p.html").ok().as_ref());
+    let log = run_with_timers(
+        "var f=document.createElement('iframe'); document.body.appendChild(f); var w=f.contentWindow;\
+         window.addEventListener('message', function(e){ console.log('page got', JSON.stringify(e.data), e.origin, e.source===w, e.data instanceof Object, e.data instanceof w.Object); });\
+         w.addEventListener('message', function(e){ console.log('realm got', JSON.stringify(e.data), e.origin, e.source===window, e.data instanceof w.Object, e.data instanceof Object, e instanceof w.MessageEvent); });\
+         w.postMessage({a:1}, '*'); w.postMessage({b:2}, '/'); w.postMessage({c:3}, 'https://qpt1d.test'); w.postMessage({d:4}, 'https://evil.test');\
+         __scratchy_enter(w, function(){ w.eval(\"parent.postMessage({up:1}, '*'); parent.postMessage({no:1}, 'https://evil.test'); parent.postMessage({up:2}, location.origin)\"); });\
+         console.log('sync-end');",
+    );
+    let logs: Vec<&str> = log.iter().filter_map(|l| l.strip_prefix("log:")).collect();
+    assert_eq!(logs[0], "sync-end", "{log:?}");
+    let o = "https://qpt1d.test";
+    let rest: Vec<&str> = logs[1..].to_vec();
+    assert_eq!(rest.len(), 5, "{log:?}");
+    for want in [
+        format!("realm got {{\"a\":1}} {o} true true false true"),
+        format!("realm got {{\"b\":2}} {o} true true false true"),
+        format!("realm got {{\"c\":3}} {o} true true false true"),
+        format!("page got {{\"up\":1}} {o} true true false"),
+        format!("page got {{\"up\":2}} {o} true true false"),
+    ] {
+        assert!(rest.contains(&want.as_str()), "missing {want:?} in {log:?}");
+    }
+}
+
+#[test]
+fn qpt1d_closed_after_removal() {
+    crate::js::set_page_url(Url::parse("https://qpt1d.test/p.html").ok().as_ref());
+    let log = run_with_timers(
+        "var f=document.createElement('iframe'); document.body.appendChild(f); var w=f.contentWindow;\
+         var got=0; w.addEventListener('message', function(){ got++; });\
+         console.log('open', w.closed, window.closed);\
+         f.remove();\
+         w.postMessage('late','*');\
+         setTimeout(function(){ console.log('after', w.closed, got, f.contentWindow); }, 20);",
+    );
+    let logs: Vec<&str> = log.iter().filter_map(|l| l.strip_prefix("log:")).collect();
+    assert_eq!(logs[0], "open false false", "{log:?}");
+    assert_eq!(logs[1], "after true 0 null", "{log:?}");
+}

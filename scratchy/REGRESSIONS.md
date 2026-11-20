@@ -146,7 +146,7 @@ keeps the wrapper too).
 purge of the dropped realm's wrappers (QPT1b's no-leak test stays green). Deviation: MutationObserver registries stay per realm,
 so an observer sees only mutations made through its own realm's DOM methods (Chrome: all mutations of the observed node).
 
-**D8. WindowProxy surface (QPT1d).**
+**D8. WindowProxy surface (QPT1d).** *Done in QPT1d* (NOTES.md "iframe realms"): as designed, plus natives `__scratchy_incumbent`/`__scratchy_enter`; `Context::DetachGlobal` was dropped so that a stale `w.closed` is true (a detached global throws `no access`). Deviation: `window[i]` of an iframe added through a subtree appears at the next sync.
 - `window.frames === window`.
 - `window.length` = the number of connected iframes in the document that have a window.
 - `window[i]` and `window[name]` = their `contentWindow`. These are getters kept in sync on insert/remove: V8 has no global
