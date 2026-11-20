@@ -964,7 +964,7 @@ impl LayoutEngine {
             } else if !matches!(parent_box.content, BoxContent::Blocks(_)) {
                 "inline_or_row_parent"
             } else if abs {
-                if !ck.pos.is_some_and(|p| p.fixed == (nb.style.position == Position::Fixed))
+                if ck.pos.is_none_or(|p| p.fixed != (nb.style.position == Position::Fixed))
                     || old.style.position != nb.style.position
                     || old.style.z_index != nb.style.z_index
                 {
@@ -1100,7 +1100,7 @@ impl LayoutEngine {
                 "pending_out_changed"
             } else if !same_entries {
                 "z_entries_changed"
-            } else if !new.ck.as_ref().is_some_and(|ck| ck.cacheable) {
+            } else if new.ck.as_ref().is_none_or(|ck| !ck.cacheable) {
                 "new_not_cacheable"
             } else {
                 "parent_view_changed"
