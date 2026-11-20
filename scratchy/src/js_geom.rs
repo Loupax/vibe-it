@@ -820,7 +820,7 @@ fn style_write_delta(old: &str, new: &str, flags: u8, w: f32, h: f32) -> Option<
 
 /// QP2/QY53o3a: safety cap on the paragraphs the JS thread's memo keeps AFTER a layout's sweep
 /// dropped what it did not use (a layout's own entries are never capped: 7.5k on Wikipedia).
-const SHAPE_MEMO_CAP: usize = 32768;
+pub(crate) const SHAPE_MEMO_CAP: usize = 32768;
 
 impl GeomCache {
     /// QOBS7: `((rect entries, bytes), (glyph entries = text nodes, bytes))`, by capacity.
@@ -1014,7 +1014,9 @@ impl GeomCache {
             crate::layout::memo_clear();
         }
         self.last_vp = Some(vp);
-        crate::layout::memo_track_begin();
+        // QINC1i5: no "used by this layout" sweep here: an engine update re-measures only what changed,
+        // so its used set is a few keys, and sweeping the rest emptied the memo the App frames'
+        // relayouts (same thread) shape from (Wikipedia: layout_ms 1.2 s -> 5.8 s). Trimmed below instead.
         let t0 = std::time::Instant::now();
         let recording = crate::perf::begin_forced();
         let cpu0 = crate::js::thread_cpu_nanos();
@@ -1050,7 +1052,7 @@ impl GeomCache {
             })
         }));
         set_viewport(prev_vp.0, prev_vp.1);
-        crate::layout::memo_sweep(SHAPE_MEMO_CAP, 1);
+        crate::layout::memo_trim(SHAPE_MEMO_CAP);
         let (ok, fresh) = match done {
             Ok(r) => r,
             Err(_) => {
