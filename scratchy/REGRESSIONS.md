@@ -1365,6 +1365,9 @@ images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom
   one run per page, every adopted style re-cascaded and compared): **0 mismatches** (Wikipedia 20 072 adopted, results
   309, watch 1 126). RSS at the end: Wikipedia main 277-287 vs this 287-288 MB; results 362-439 vs 365-434; watch
   488-544 vs 500-526 (run noise; an unboxed record was +20 MB on Wikipedia, hence the boxes).
+  After the rebase onto QINC1i5 (#462): Wikipedia, 3 interleaved pairs vs main dc6ba98 (`INCR=1`, load 0.8-7.8):
+  `incr_shadow` 193 / 221 / 152 ms (2 / 3 / 2 restarts) -> 130 / 81 / 111 ms (3 / 2 / 3), per restart 97 / 74 / 76 ->
+  43 / 41 / 37 ms; forced totals 622 / 669 / 490 -> 636 / 449 / 570 (the restart count differs per run); 0 mismatches.
   Proposed: QINC1i6 (YouTube incremental restyle cost: ~65 % of INCR=1 forced time, ~60-70 us per resolved style
   incl. per-update fixed costs such as the counter walk; profile and cut), QINC1i4b (restart hand-over leftovers:
   `BoxEngine::start` clones the build's tree that the forced restart then drops: move it, ~7 ms + the drop per
