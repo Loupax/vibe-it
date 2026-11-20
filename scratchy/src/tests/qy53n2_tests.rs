@@ -210,7 +210,7 @@ fn qy53n5_patchable_hover_skips_the_coalescing_delay() {
     set_interaction(&InteractionState::default());
     let (laid, cache) = build(&doc, &mut fs);
     let mut app = App::new_static(doc, event_loop.create_proxy(), None);
-    app.cached = Some(laid);
+    app.cached = Some(Rc::new(laid));
     app.shape_cache = cache;
     app.font_system = fs;
     app.hover_keys = HOVER_KEYS.with(|k| k.borrow().clone());

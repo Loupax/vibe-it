@@ -294,7 +294,7 @@ fn qb2_app(proxy: &winit::event_loop::EventLoopProxy<AppEvent>) -> App {
     let doc = parse_html("<html><body><p>hello</p></body></html>");
     let mut app = App::new_static(doc.clone(), proxy.clone(), None);
     app.js = run_page_scripts(&doc, &[src("document.body.setAttribute('data-tick', '1')")], None);
-    app.cached = Some(measure_fixture("<p>hello</p>", 400.0));
+    app.cached = Some(Rc::new(measure_fixture("<p>hello</p>", 400.0)));
     app.layout_dirty = false;
     app.restyle_requested = false;
     app.keep_scroll_on_rebuild = false;
@@ -368,7 +368,7 @@ fn qy53m_noop_write_no_restyle(proxy: &winit::event_loop::EventLoopProxy<AppEven
     let doc = parse_html("<html><head><style id=s>p{color:red}</style></head><body id=b class=x><p>hello</p></body></html>");
     let mut app = App::new_static(doc.clone(), proxy.clone(), None);
     app.js = run_page_scripts(&doc, &[src("window.__noop = function(){ var b = document.body; b.setAttribute('class','x'); b.removeAttribute('nope'); document.getElementById('s').textContent = 'p{color:red}'; }; window.__chg = function(){ document.body.setAttribute('class','y'); }; window.__css = function(){ document.getElementById('s').textContent = 'p{color:blue}'; };")], None);
-    app.cached = Some(measure_fixture("<p>hello</p>", 400.0));
+    app.cached = Some(Rc::new(measure_fixture("<p>hello</p>", 400.0)));
     let reset = |app: &mut App| {
         app.js.as_ref().unwrap().take_dirty();
         app.layout_dirty = false;

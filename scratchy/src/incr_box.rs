@@ -45,6 +45,19 @@ thread_local! {
     static REC: RefCell<Recording> = RefCell::new(Recording::default());
     static RB: RefCell<Option<Rebuild>> = const { RefCell::new(None) };
     static ENGINE: RefCell<Option<BoxEngine>> = const { RefCell::new(None) };
+    /// QINC1j: the rebuild runs for an App frame (its results are used): what it reads that the App
+    /// fetches (missing images, CSS images) is recorded as a from-scratch build records it.
+    static LIVE: Cell<bool> = const { Cell::new(false) };
+    /// QINC1j: bumped whenever a kept tree is started or rebuilt (a worker result is adopted only
+    /// when the tree it was laid out from is still the kept one).
+    static EPOCH: Cell<u64> = const { Cell::new(0) };
+}
+
+fn next_epoch() -> u64 {
+    EPOCH.with(|e| {
+        e.set(e.get() + 1);
+        e.get()
+    })
 }
 
 /// What the boxes built in one build read, per element box (key 0: the root's own content).
@@ -93,6 +106,8 @@ pub(crate) struct BoxEngine {
     fresh_sig: (usize, usize),
     /// QINC1h1: document-order index of every (node | pseudo << 56) after the last renumbering.
     orders: HashMap<usize, usize, std::hash::BuildHasherDefault<crate::dom::PtrHasher>>,
+    /// QINC1j: identity of the current kept tree (`EPOCH`).
+    epoch: u64,
 }
 
 /// QINC1h1: the current document-order index (`style.tree_order`) of a box, when the last update
@@ -176,6 +191,13 @@ pub(crate) fn active() -> bool {
 #[inline]
 pub(crate) fn rebuilding() -> bool {
     MODE.with(Cell::get) == REBUILD
+}
+
+/// QINC1j: a SHADOW rebuild (the from-scratch build already recorded what the App must fetch):
+/// the builder's per-build "wanted" tables are left alone. A live rebuild (App frame) fills them.
+#[inline]
+pub(crate) fn quiet_wants() -> bool {
+    rebuilding() && !LIVE.with(Cell::get)
 }
 
 /// `build_box_for_element` in shadow mode: reuse a clean old box (rebuild), else build it as the
@@ -358,6 +380,7 @@ impl BoxEngine {
             lay_full: true,
             fresh_sig: tree_sig(fresh),
             orders: Default::default(),
+            epoch: next_epoch(),
         }
     }
 
@@ -465,6 +488,7 @@ impl BoxEngine {
             }
         });
         MODE.with(|m| m.set(OFF));
+        self.epoch = next_epoch();
         self.orders = crate::images::renumber_document_order(&mut tree);
         crate::images::propagate_canvas_background(&mut tree);
         crate::images::propagate_viewport_overflow(&mut tree);
@@ -529,13 +553,7 @@ pub(crate) fn update(
             return Vec::new();
         }
     };
-    use crate::perf::{incr_add, Incr};
-    if eng.stats.rebuilt + eng.stats.reused > 0 {
-        incr_add(Incr::BoxUpdates, 1);
-    }
-    incr_add(Incr::BoxesRebuilt, eng.stats.rebuilt);
-    incr_add(Incr::BoxesReused, eng.stats.reused);
-    crate::perf::incr_box_ns(t0.elapsed().as_nanos() as u64);
+    count(&eng.stats, t0);
     let mut out = Vec::new();
     if crate::incr_style::checking()
         && cmp_boxes(&Names::default(), "", fresh, &eng.tree).is_err()
@@ -553,6 +571,149 @@ pub(crate) fn update(
     }
     ENGINE.with(|x| *x.borrow_mut() = Some(eng));
     out
+}
+
+fn count(stats: &BoxStats, t0: std::time::Instant) {
+    use crate::perf::{incr_add, Incr};
+    if stats.rebuilt + stats.reused > 0 {
+        incr_add(Incr::BoxUpdates, 1);
+    }
+    incr_add(Incr::BoxesRebuilt, stats.rebuilt);
+    incr_add(Incr::BoxesReused, stats.reused);
+    crate::perf::incr_box_ns(t0.elapsed().as_nanos() as u64);
+}
+
+// ---------- QINC1j: App frames (live) ----------
+
+/// QINC1j: a kept tree exists for `doc` (an App frame can update it instead of building from scratch).
+pub(crate) fn live_ready(doc: &Handle) -> bool {
+    ENGINE.with(|e| e.try_borrow().ok().is_some_and(|e| e.as_ref().is_some_and(|e| e.doc_key == node_id(doc))))
+}
+
+/// QINC1j: forget the kept tree (it missed an update; the next build starts it over).
+pub(crate) fn drop_engine() {
+    ENGINE.with(|e| *e.borrow_mut() = None);
+}
+
+/// QINC1j: `(document, base_ver)` of the kept tree (a laid tree with the same pair was laid out from it).
+pub(crate) fn base() -> Option<(usize, u64)> {
+    ENGINE.with(|e| e.try_borrow().ok()?.as_ref().map(|e| (e.doc_key, e.base_ver)))
+}
+
+/// QINC1j: nothing the box stage reads changed since its last update (viewport height, image cache,
+/// media sizes) and the relayout has consumed every change.
+pub(crate) fn is_current(doc: &Handle, vh: Option<f32>, cache: &HashMap<String, Arc<DecodedImage>>) -> bool {
+    ENGINE.with(|e| {
+        let Ok(e) = e.try_borrow() else { return false };
+        let Some(e) = e.as_ref() else { return false };
+        e.doc_key == node_id(doc)
+            && e.vh == vh.map(f32::to_bits)
+            && !e.lay_full
+            && e.lay_touched.is_empty()
+            && cache.len() == e.images.len()
+            && cache.iter().all(|(k, v)| e.images.get(k.as_str()) == Some(&(Arc::as_ptr(v) as usize)))
+            && e.videos.iter().all(|(k, size)| crate::media_video::intrinsic(*k) == *size)
+    })
+}
+
+/// QINC1j: the box stage of an App frame (called by `incr_style::live_update`, inside its
+/// environment). `false` = the kept tree cannot be updated (the caller builds from scratch).
+pub(crate) fn live_update(doc: &Handle, rules: &Rc<Vec<StyleRule>>, vw: f32, vh: Option<f32>, cache: &HashMap<String, Arc<DecodedImage>>) -> bool {
+    let t0 = std::time::Instant::now();
+    let Some(marks) = crate::incr_style::take_box_marks() else { return false };
+    if marks.full || !live_ready(doc) {
+        return false;
+    }
+    let mut eng = ENGINE.with(|e| e.borrow_mut().take());
+    let e = eng.as_mut().expect("checked");
+    MODE.with(|m| m.set(OFF));
+    LIVE.with(|l| l.set(true));
+    struct Off;
+    impl Drop for Off {
+        fn drop(&mut self) {
+            LIVE.with(|l| l.set(false));
+            MODE.with(|m| m.set(OFF));
+        }
+    }
+    let off = Off;
+    e.update(doc, rules, vw, vh, cache, marks.touched, marks.kids_changed);
+    drop(off);
+    // No from-scratch tree goes with this update (the shadow relayout of `after_measure` must not run).
+    e.fresh_sig = (0, 0);
+    count(&e.stats, t0);
+    ENGINE.with(|x| *x.borrow_mut() = eng);
+    true
+}
+
+/// QINC1j: what changed since the last relayout, for an App frame's relayout of the kept tree.
+pub(crate) fn take_live_request() -> Option<LayoutReq> {
+    ENGINE.with(|e| {
+        let mut e = e.try_borrow_mut().ok()?;
+        let e = e.as_mut()?;
+        e.fresh_sig = (0, 0);
+        let full = std::mem::replace(&mut e.lay_full, false);
+        Some(LayoutReq { full, touched: std::mem::take(&mut e.lay_touched), doc_key: e.doc_key, base_ver: e.base_ver, doc: e.doc.clone() })
+    })
+}
+
+/// QINC1j: a worker layout of the kept tree (R60 section 9): what its `ck`s must record and which
+/// kept tree it was laid out from.
+#[derive(Clone)]
+pub(crate) struct WorkerJob {
+    pub(crate) ver: crate::incr_layout::WorkerVer,
+    pub(crate) epoch: u64,
+    pub(crate) doc_key: usize,
+}
+
+impl BoxEngine {
+    fn job(&mut self) -> WorkerJob {
+        // The worker lays the whole tree out: the relayout starts from its result.
+        self.lay_full = false;
+        self.lay_touched.clear();
+        self.fresh_sig = (0, 0);
+        WorkerJob {
+            ver: crate::incr_layout::WorkerVer { base: self.base_ver, bver: Arc::new(self.bver.clone()) },
+            epoch: self.epoch,
+            doc_key: self.doc_key,
+        }
+    }
+}
+
+/// QINC1j: a copy of the kept tree for the shaping worker (big updates), and its job.
+pub(crate) fn clone_for_worker() -> Option<(LayoutBox, WorkerJob)> {
+    ENGINE.with(|e| {
+        let mut e = e.try_borrow_mut().ok()?;
+        let e = e.as_mut()?;
+        Some((clone_box(&e.tree), e.job()))
+    })
+}
+
+/// QINC1j: `fresh` is the from-scratch tree the last build started the kept tree from (a copy of
+/// it): the job that lets the engine adopt the worker's layout of it.
+pub(crate) fn job_for_fresh(fresh: &LayoutBox) -> Option<WorkerJob> {
+    let sig = tree_sig(fresh);
+    ENGINE.with(|e| {
+        let mut e = e.try_borrow_mut().ok()?;
+        let e = e.as_mut()?;
+        if sig.0 == 0 || e.fresh_sig != sig || !e.lay_full {
+            return None;
+        }
+        Some(e.job())
+    })
+}
+
+/// QINC1j: the worker laid out `tree`, a copy of the kept tree as of `job`: when the kept tree has
+/// not changed since, the worker's copy becomes the kept tree (the laid tree's `ck`s point into it).
+pub(crate) fn adopt_tree(job: &WorkerJob, tree: LayoutBox) -> bool {
+    ENGINE.with(|e| {
+        let Ok(mut e) = e.try_borrow_mut() else { return false };
+        let Some(e) = e.as_mut() else { return false };
+        if e.epoch != job.epoch || e.doc_key != job.doc_key || !e.lay_touched.is_empty() || e.lay_full {
+            return false;
+        }
+        e.tree = tree;
+        true
+    })
 }
 
 /// `(element boxes, bytes)` of the kept tree (styles, items, text, side tables).

@@ -736,6 +736,8 @@ impl Engine {
                 Change::Write | Change::Global => self.full = true,
                 // The rule list's identity decides (a new list is a full re-match).
                 Change::SheetText | Change::Adopted | Change::CssVer => {}
+                // QINC1j: the engine diffs App-side inputs itself (interaction, vh, images, clock).
+                Change::Ambient(_) => {}
             }
         }
         self.child_lists(map, old_lists);
@@ -1240,7 +1242,6 @@ impl Engine {
 
     /// Membership-based ageing of animation start times (R60 6.5): keeps the start time of every
     /// animation of an element the table lists as animated, whether or not it was restyled.
-    #[allow(dead_code)] // the engine owns ageing once its results are used (QINC1i/j); tests call it now
     pub(crate) fn age_animations(&self) {
         let animated: HashSet<usize> = self.table.iter().filter(|(_, e)| e.animated).map(|(k, _)| *k).collect();
         crate::anim_eval::retain_starts(|node, _| animated.contains(&node));
@@ -1317,6 +1318,11 @@ struct Env {
 
 impl Env {
     fn enter(rules: &Rc<Vec<StyleRule>>) -> Env {
+        Env::enter_as(rules, false)
+    }
+
+    /// `live`: an App frame's update (QINC1j): animation evaluation creates and reports start times.
+    fn enter_as(rules: &Rc<Vec<StyleRule>>, live: bool) -> Env {
         let flags = (
             crate::dom::STATE_RULES.with(Cell::get),
             crate::dom::VIEWPORT_H_READ.with(Cell::get),
@@ -1350,7 +1356,7 @@ impl Env {
         Env {
             flags,
             perf: crate::perf::suspend_forced(),
-            anim: crate::anim_eval::set_readonly(true),
+            anim: crate::anim_eval::set_readonly(!live),
             #[cfg(test)]
             counters,
         }
@@ -1465,6 +1471,93 @@ pub(crate) fn after_build(
     if !box_mism.is_empty() {
         report_mismatches("incremental box tree differs from the from-scratch build", box_mism);
     }
+}
+
+// ---------- QINC1j: App frames (live) ----------
+
+/// QINC1j: the element table can be updated for `doc` without a full restyle (same rule list,
+/// viewport width and custom-property arena; the log is not Global; the invalidation map exists).
+pub(crate) fn live_ready(doc: &Handle, rules: &Rc<Vec<StyleRule>>, vw: f32) -> bool {
+    let rkey = (crate::rules_cache::generation_of(rules).unwrap_or(u64::MAX), Rc::as_ptr(rules) as usize);
+    let ok = ENGINE.with(|e| {
+        e.try_borrow().ok().is_some_and(|e| {
+            e.as_ref().is_some_and(|e| {
+                e.doc_key == node_id(doc)
+                    && e.doc.upgrade().is_some()
+                    && !e.table.is_empty()
+                    && rkey.0 != u64::MAX
+                    && e.rules_key == rkey
+                    && e.vw.to_bits() == vw.to_bits()
+                    && e.arena == ARENA_EPOCH.with(Cell::get)
+            })
+        })
+    });
+    ok && !crate::incr_log::pending().1 && crate::invalidation::current().is_some_and(|m| !m.is_global())
+}
+
+/// QINC1j: nothing the restyle reads changed since its last update (no DOM / CSS write in the log,
+/// same interaction state and viewport height, no running animation). Call after `live_ready`.
+pub(crate) fn is_current(vh: f32) -> bool {
+    if crate::incr_log::has_writes() {
+        return false;
+    }
+    ENGINE.with(|e| {
+        e.try_borrow().ok().is_some_and(|e| {
+            e.as_ref().is_some_and(|e| {
+                e.vh.to_bits() == vh.to_bits()
+                    && INTERACTION.with(|i| *i.borrow() == e.inter)
+                    && !e.table.values().any(|x| x.animated)
+            })
+        })
+    })
+}
+
+/// QINC1j: what an App frame's restyle did.
+pub(crate) struct LiveStyle {
+    /// Restyled / styled elements (the worker takes the relayout above `incr_frame::WORKER_SHARE`).
+    pub(crate) share: f32,
+}
+
+/// QINC1j: an App frame's restyle + box update, results USED (R60 section 9). `None`: the engine
+/// restyled everything or the box tree cannot be updated (the caller builds from scratch).
+/// Animation start times are created and reported as a build's pass does, and aged by membership.
+pub(crate) fn live_update(
+    doc: &Handle,
+    rules: &Rc<Vec<StyleRule>>,
+    vw: f32,
+    viewport_height: Option<f32>,
+    image_cache: &HashMap<String, std::sync::Arc<DecodedImage>>,
+) -> Option<LiveStyle> {
+    let vh = viewport_height.unwrap_or(1080.0);
+    let t0 = std::time::Instant::now();
+    let env = Env::enter_as(rules, true);
+    let stats = ENGINE.with(|e| {
+        let mut slot = e.borrow_mut();
+        let eng = slot.as_mut()?;
+        eng.update(doc, rules, vw, vh);
+        eng.age_animations();
+        Some((eng.stats.clone(), eng.table.len() as u64))
+    });
+    crate::anim_eval::finish_report_only();
+    let style_ns = t0.elapsed().as_nanos() as u64;
+    let full = stats.as_ref().is_none_or(|s| s.0.full);
+    let boxes_ok = !full && crate::incr_box::live_update(doc, rules, vw, viewport_height, image_cache);
+    if !boxes_ok {
+        // The kept box tree missed this update's marks: it starts over from the next build.
+        crate::incr_box::drop_engine();
+    }
+    env.exit(rules);
+    let (stats, styled) = stats?;
+    use crate::perf::{incr_add, Incr};
+    incr_add(Incr::Updates, 1);
+    incr_add(Incr::RestyledMatched, stats.rematched);
+    incr_add(Incr::RestyledCascaded, stats.recascaded);
+    incr_add(Incr::GlobalUpdates, u64::from(stats.full));
+    crate::perf::incr_restyle_sample(stats.restyled(), styled, style_ns);
+    if !boxes_ok {
+        return None;
+    }
+    Some(LiveStyle { share: if styled == 0 { 1.0 } else { stats.restyled() as f32 / styled as f32 } })
 }
 
 /// Check mode: counts `incr.check_mismatch`; tests panic (or collect, `Seam::panic` off), release

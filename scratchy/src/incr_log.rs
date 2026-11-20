@@ -73,6 +73,21 @@ pub(crate) enum Change {
     CssVer,
     /// A write the log cannot describe.
     Global,
+    /// QINC1j: an App-side input changed (no node): the engine diffs these itself on its next update
+    /// (interaction state, viewport, image cache, media sizes, animation clock); the entry only says
+    /// that a frame has work to do.
+    Ambient(Ambient),
+}
+
+/// QINC1j: the App-side inputs of a layout (R60 section 5's table, last rows).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Ambient {
+    Interaction,
+    Viewport,
+    /// An image or CSS image entered the App's image cache.
+    Image,
+    MediaSize,
+    AnimTick,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -124,6 +139,23 @@ pub(crate) fn note(node: usize, change: Change) {
         }
         l.entries.push(Entry { node, change });
     });
+}
+
+/// QINC1j: whether the log holds anything since it was last taken: `(entries or overflow, global)`.
+pub(crate) fn pending() -> (bool, bool) {
+    LOG.with(|l| {
+        let l = l.borrow();
+        let global = l.overflow || l.entries.iter().any(|e| e.change == Change::Global);
+        (global || !l.entries.is_empty(), global)
+    })
+}
+
+/// QINC1j: whether the log holds something other than `Ambient` entries (a DOM / CSS write).
+pub(crate) fn has_writes() -> bool {
+    LOG.with(|l| {
+        let l = l.borrow();
+        l.overflow || l.entries.iter().any(|e| !matches!(e.change, Change::Ambient(_)))
+    })
 }
 
 /// The siblings of `h` under its parent, as keys.

@@ -110,10 +110,46 @@ struct Ctx {
     touched: Vec<(usize, Touch)>,
 }
 
+/// QINC1j: the kept laid tree, shared with the App's view of it (`view`). Copy on write: a mutable
+/// access clones the tree only while a view still holds it (the App drops its handle before a frame
+/// update; a forced layout between two frames pays one copy).
+pub(crate) struct SharedLaid(std::rc::Rc<Laid>);
+
+impl SharedLaid {
+    fn new(l: Laid) -> SharedLaid {
+        SharedLaid(std::rc::Rc::new(l))
+    }
+
+    fn into_inner(self) -> Laid {
+        std::rc::Rc::unwrap_or_clone(self.0)
+    }
+}
+
+impl std::ops::Deref for SharedLaid {
+    type Target = Laid;
+    fn deref(&self) -> &Laid {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for SharedLaid {
+    fn deref_mut(&mut self) -> &mut Laid {
+        std::rc::Rc::make_mut(&mut self.0)
+    }
+}
+
+/// QINC1j: what a worker layout of a kept-tree copy records in each `Ck::bver` (the worker thread
+/// has no box engine): the box engine's `bver` table as of the copy.
+#[derive(Clone)]
+pub(crate) struct WorkerVer {
+    pub(crate) base: u64,
+    pub(crate) bver: std::sync::Arc<HashMap<usize, u64>>,
+}
+
 pub(crate) struct LayoutEngine {
     doc_key: usize,
     base_ver: u64,
-    laid: Laid,
+    laid: SharedLaid,
     cache: ShapeCache,
     next_id: usize,
     vw: f32,
@@ -129,6 +165,11 @@ pub(crate) struct LayoutEngine {
     touched: Vec<(usize, Touch)>,
     /// Old parent views of boxes whose subtree an attempt of this update opened (see `attempt`).
     views: HashMap<usize, View>,
+    /// QINC1j: an App frame could not update the tree (it went to the worker): kept only as the view
+    /// the App shows meanwhile; the next update starts over.
+    stale: bool,
+    /// QINC1j: bumped on every change of `laid` (the App installs a new view when it moved).
+    ver: u64,
 }
 
 thread_local! {
@@ -138,6 +179,9 @@ thread_local! {
     /// Element boxes whose old `Laid` this update opened because they changed (a later lookup is a
     /// "dirty" miss, not "no old").
     static OPENED: RefCell<HashSet<usize>> = RefCell::new(HashSet::new());
+    /// QINC1j: set on the shaping worker while it lays out a kept-tree copy.
+    static WORKER_VER: RefCell<Option<WorkerVer>> = const { RefCell::new(None) };
+    static VER: Cell<u64> = const { Cell::new(0) };
 }
 
 thread_local! {
@@ -206,7 +250,17 @@ fn nat_sweep() {
 }
 
 fn bver(node: usize) -> u64 {
+    if let Some(v) = WORKER_VER.with(|w| w.borrow().as_ref().map(|w| w.bver.get(&node).copied().unwrap_or(w.base))) {
+        return v;
+    }
     crate::incr_box::bver(node).unwrap_or(u64::MAX)
+}
+
+fn next_ver() -> u64 {
+    VER.with(|v| {
+        v.set(v.get() + 1);
+        v.get()
+    })
 }
 
 fn same(a: Option<f32>, b: Option<f32>) -> bool {
@@ -870,7 +924,7 @@ impl LayoutEngine {
         Some(LayoutEngine {
             doc_key: req.doc_key,
             base_ver: req.base_ver,
-            laid,
+            laid: SharedLaid::new(laid),
             cache,
             next_id: next,
             vw,
@@ -883,6 +937,8 @@ impl LayoutEngine {
             stats: LayoutStats { full: true, ..Default::default() },
             touched: vec![(0, Touch::Remeasured)],
             views: HashMap::new(),
+            stale: false,
+            ver: next_ver(),
         })
     }
 
@@ -931,6 +987,7 @@ impl LayoutEngine {
         }
         let starts_n = starts.len();
         self.views.clear();
+        self.ver = next_ver();
         let mut inc = false;
         let (ok, ctx) = with_ctx(true, || {
             let mut failed: HashMap<usize, usize> = HashMap::new();
@@ -975,7 +1032,7 @@ impl LayoutEngine {
                 }
             }
             if root {
-                let mut old = std::mem::replace(&mut self.laid, empty_laid());
+                let mut old = std::mem::replace(&mut self.laid, SharedLaid::new(empty_laid())).into_inner();
                 CTX.with(|c| {
                     if let Some(c) = c.borrow_mut().as_mut() {
                         open(&mut old, &mut c.harvest);
@@ -986,7 +1043,7 @@ impl LayoutEngine {
                 let (laid, rh) = crate::layout::measure_document_engine(
                     tree, fs, self.vw, self.vh, &mut self.next_id, &mut self.cache, LayoutEngine::far(), &mut inc,
                 );
-                self.laid = laid;
+                self.laid = SharedLaid::new(laid);
                 self.root_h = rh;
             } else {
                 finish_root(&mut self.laid, self.root_h);
@@ -1077,7 +1134,7 @@ impl LayoutEngine {
         // The old views of the box and of every box above it, before anything below them is opened
         // (a failed attempt leaves an emptied shell; the first view taken of a box is its old one).
         {
-            let mut l = &self.laid;
+            let mut l: &Laid = &self.laid;
             for s in &lpath {
                 l = step_ref(l, *s);
                 if l.style.node != 0 && l.style.pseudo == 0 && !self.views.contains_key(&l.style.node) {
@@ -1094,7 +1151,7 @@ impl LayoutEngine {
         let mut slots: Vec<Slot> = Vec::new();
         for key in &keys {
             let mut found = None;
-            let mut l = &self.laid;
+            let mut l: &Laid = &self.laid;
             let mut owners = vec![(0usize, l)];
             for (d, s) in lpath[..lpath.len() - 1].iter().enumerate() {
                 l = step_ref(l, *s);
@@ -1241,7 +1298,7 @@ impl LayoutEngine {
             owner.positioned.sort_by_key(stack_key);
         }
         // The ancestors' ink and in-flow extents are recomputed (`finish_root`).
-        let mut l = &mut self.laid;
+        let mut l: &mut Laid = &mut self.laid;
         for s in &lpath[..lpath.len() - 1] {
             l = step_mut(l, *s);
             if let Some(ck) = l.ck.as_mut() {
@@ -1289,7 +1346,7 @@ impl LayoutEngine {
         if !find_laid(&self.laid, node, &ancestors(&h), &mut path) {
             return false;
         }
-        let mut l = &self.laid;
+        let mut l: &Laid = &self.laid;
         for s in &path {
             l = step_ref(l, *s);
         }
@@ -1374,7 +1431,7 @@ pub(crate) fn after_measure(b: &LayoutBox, fs: &mut FontSystem, vw: f32, vh: f32
         let tree = tree?;
         let restart = req.full
             || eng.as_ref().is_none_or(|e| {
-                e.doc_key != req.doc_key || e.base_ver != req.base_ver || e.vw.to_bits() != vw.to_bits() || e.since_full + 1 >= DRIFT_UPDATES
+                e.stale || e.doc_key != req.doc_key || e.base_ver != req.base_ver || e.vw.to_bits() != vw.to_bits() || e.since_full + 1 >= DRIFT_UPDATES
             });
         if restart {
             return LayoutEngine::full(tree, fs, vw, vh, req, next_id);
@@ -1391,6 +1448,25 @@ pub(crate) fn after_measure(b: &LayoutBox, fs: &mut FontSystem, vw: f32, vh: f32
     let ns = t0.elapsed().as_nanos() as u64;
     nat_sweep();
     let Some(mut eng) = eng else { return };
+    finish_update(&mut eng, ns);
+    if crate::incr_style::checking() && cmp_laid(&Names::default(), "root", fresh, fresh_cache, &eng.laid, &eng.cache).is_err() {
+        let names = req.doc.upgrade().map(|d| Names::from_dom(&d)).unwrap_or_default();
+        let m = cmp_laid(&names, "root", fresh, fresh_cache, &eng.laid, &eng.cache).err().map(|m| m.to_string()).unwrap_or_default();
+        let s = &eng.stats;
+        let report = format!(
+            "laid {m} (update {}, full {}, root {}, starts {}, splices {}, levels {:?}, hits {}, remeasured {})",
+            eng.updates, s.full, s.root, s.starts, s.splices, s.levels, s.hits, s.remeasured
+        );
+        // No longer trusted: the next update starts over (before a test panics on the report).
+        drop(eng);
+        crate::incr_style::report_mismatches("incremental relayout differs from the from-scratch layout", vec![report]);
+        return;
+    }
+    ENGINE.with(|e| *e.borrow_mut() = Some(eng));
+}
+
+/// Shape-cache sweep and counters after one relayout.
+fn finish_update(eng: &mut LayoutEngine, ns: u64) {
     // Shape cache: drop paragraphs no live `Laid` uses once it is twice the live set.
     if eng.cache.len() > 2 * eng.live.max(64) {
         let mut live = HashSet::new();
@@ -1422,20 +1498,157 @@ pub(crate) fn after_measure(b: &LayoutBox, fs: &mut FontSystem, vw: f32, vh: f32
         crate::perf::incr_stop_at(*l);
     }
     crate::perf::incr_layout_ns(ns, s.full);
-    if crate::incr_style::checking() && cmp_laid(&Names::default(), "root", fresh, fresh_cache, &eng.laid, &eng.cache).is_err() {
-        let names = req.doc.upgrade().map(|d| Names::from_dom(&d)).unwrap_or_default();
-        let m = cmp_laid(&names, "root", fresh, fresh_cache, &eng.laid, &eng.cache).err().map(|m| m.to_string()).unwrap_or_default();
-        let s = &eng.stats;
-        let report = format!(
-            "laid {m} (update {}, full {}, root {}, starts {}, splices {}, levels {:?}, hits {}, remeasured {})",
-            eng.updates, s.full, s.root, s.starts, s.splices, s.levels, s.hits, s.remeasured
-        );
-        // No longer trusted: the next update starts over (before a test panics on the report).
-        drop(eng);
-        crate::incr_style::report_mismatches("incremental relayout differs from the from-scratch layout", vec![report]);
-        return;
+}
+
+// ---------- QINC1j: App frames (live) ----------
+
+/// QINC1j: relayout the kept tree for an App frame, on the main thread. `false` = it cannot be done
+/// incrementally (no engine, the box tree started over, viewport width, drift guard): the caller
+/// lays the kept tree out on the worker; the old tree stays as the App's view until one is adopted.
+pub(crate) fn live_update(fs: &mut FontSystem, vw: f32, vh: f32) -> bool {
+    let Some(mut req) = crate::incr_box::take_live_request() else { return false };
+    let t0 = std::time::Instant::now();
+    WALKED.with(|w| w.set(0));
+    let Some(mut e) = ENGINE.with(|e| e.borrow_mut().take()) else { return false };
+    let restart = req.full
+        || e.stale
+        || e.doc_key != req.doc_key
+        || e.base_ver != req.base_ver
+        || e.vw.to_bits() != vw.to_bits()
+        || e.since_full + 1 >= DRIFT_UPDATES;
+    let ok = !restart
+        && crate::incr_box::with_tree(|tree| match tree {
+            Some(tree) => e.update(tree, fs, vh, std::mem::take(&mut req.touched)),
+            None => false,
+        });
+    if !ok {
+        e.stale = true;
+        ENGINE.with(|x| *x.borrow_mut() = Some(e));
+        return false;
     }
-    ENGINE.with(|e| *e.borrow_mut() = Some(eng));
+    e.updates += 1;
+    e.since_full += 1;
+    finish_update(&mut e, t0.elapsed().as_nanos() as u64);
+    ENGINE.with(|x| *x.borrow_mut() = Some(e));
+    true
+}
+
+/// QINC1j: the engine's tree is laid out at `vw` x `vh` from the current kept box tree (see
+/// `incr_box::is_current` for whether anything waits for a relayout).
+pub(crate) fn is_current(vw: f32, vh: f32) -> bool {
+    let Some(base) = crate::incr_box::base() else { return false };
+    ENGINE.with(|e| {
+        e.try_borrow().ok().is_some_and(|e| {
+            e.as_ref().is_some_and(|e| {
+                !e.stale && e.vw.to_bits() == vw.to_bits() && e.vh.to_bits() == vh.to_bits() && (e.doc_key, e.base_ver) == base
+            })
+        })
+    })
+}
+
+/// QINC1j: the App's view of the kept laid tree.
+pub(crate) struct LiveView {
+    pub(crate) laid: std::rc::Rc<Laid>,
+    /// Empty when the caller already shows this version.
+    pub(crate) cache: ShapeCache,
+    pub(crate) ver: u64,
+}
+
+/// QINC1j: the engine's current tree (`None`: no engine). `known` = the version the caller shows.
+pub(crate) fn view(known: u64) -> Option<LiveView> {
+    ENGINE.with(|e| {
+        let e = e.try_borrow().ok()?;
+        let e = e.as_ref()?;
+        let cache = if e.ver == known { ShapeCache::new() } else { e.cache.clone() };
+        Some(LiveView { laid: e.laid.0.clone(), cache, ver: e.ver })
+    })
+}
+
+/// QINC1j: whether `l` is the engine's own tree.
+pub(crate) fn owns(l: &std::rc::Rc<Laid>) -> bool {
+    ENGINE.with(|e| e.try_borrow().ok().is_some_and(|e| e.as_ref().is_some_and(|e| std::rc::Rc::ptr_eq(&e.laid.0, l))))
+}
+
+/// QINC1j: the next paragraph id the engine hands out (the worker never goes below it).
+pub(crate) fn next_id() -> usize {
+    ENGINE.with(|e| e.try_borrow().ok().and_then(|e| e.as_ref().map(|e| e.next_id)).unwrap_or(0))
+}
+
+/// Clears the worker's `bver` table even when a measure panics.
+struct VerGuard;
+
+impl Drop for VerGuard {
+    fn drop(&mut self) {
+        WORKER_VER.with(|w| *w.borrow_mut() = None);
+    }
+}
+
+/// QINC1j: the shaping worker lays out a kept-tree copy as the engine would (every element `Laid`
+/// records its `Ck`, with the box versions of `ver`), so the main thread can adopt the result.
+/// Returns the tree and the root's measured height.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn worker_measure(
+    tree: &LayoutBox,
+    fs: &mut FontSystem,
+    vw: f32,
+    vh: f32,
+    next_id: &mut usize,
+    cache: &mut ShapeCache,
+    deadline: std::time::Instant,
+    incomplete: &mut bool,
+    ver: &WorkerVer,
+) -> (Laid, f32) {
+    WORKER_VER.with(|w| *w.borrow_mut() = Some(ver.clone()));
+    let _g = VerGuard;
+    with_ctx(false, || crate::layout::measure_document_engine(tree, fs, vw, vh, next_id, cache, deadline, incomplete)).0
+}
+
+/// QINC1j: a complete worker layout of the kept tree becomes the engine's tree.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn adopt(
+    job: &crate::incr_box::WorkerJob,
+    root_style: ComputedStyle,
+    laid: std::rc::Rc<Laid>,
+    root_h: f32,
+    cache: ShapeCache,
+    next_id: usize,
+    vw: f32,
+    vh: f32,
+) -> u64 {
+    let live = cache.len();
+    let e = LayoutEngine {
+        doc_key: job.doc_key,
+        base_ver: job.ver.base,
+        laid: SharedLaid(laid),
+        cache,
+        next_id: next_id.max(self::next_id()),
+        vw,
+        vh,
+        root_h,
+        root_style,
+        updates: 0,
+        since_full: 0,
+        live,
+        stats: LayoutStats { full: true, ..Default::default() },
+        touched: vec![(0, Touch::Remeasured)],
+        views: HashMap::new(),
+        stale: false,
+        ver: next_ver(),
+    };
+    let ver = e.ver;
+    ENGINE.with(|x| *x.borrow_mut() = Some(e));
+    ver
+}
+
+/// QINC1j: an App frame went to the worker: the engine's tree is only the view shown meanwhile.
+pub(crate) fn mark_stale() {
+    ENGINE.with(|e| {
+        if let Ok(mut e) = e.try_borrow_mut()
+            && let Some(e) = e.as_mut()
+        {
+            e.stale = true;
+        }
+    });
 }
 
 /// R60 9: the subtrees the last relayout re-measured or moved (node 0: the whole tree).

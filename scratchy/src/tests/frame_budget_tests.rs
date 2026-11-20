@@ -33,7 +33,7 @@ fn qm1k1n6a_app(html: &str) -> Option<App> {
     use winit::platform::wayland::EventLoopBuilderExtWayland;
     let event_loop = EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build().ok()?;
     let mut app = App::new_static(parse_html(html), event_loop.create_proxy(), None);
-    app.cached = Some(measure_fixture(html, 400.0));
+    app.cached = Some(Rc::new(measure_fixture(html, 400.0)));
     app.layout_dirty = false;
     // Leak the loop: only one can be built per process and the proxy must stay valid.
     std::mem::forget(event_loop);
@@ -166,10 +166,10 @@ fn qcur1_app(html: &str, script: &str) -> Option<App> {
     let mut next_id = 0usize;
     let mut incomplete = false;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    app.cached = Some(measure(
+    app.cached = Some(Rc::new(measure(
         &tree, &mut new_font_system(), 0.0, 0.0, 400.0, None, &mut next_id, &mut cache, deadline, &mut incomplete,
         &mut Vec::new(), &Floats::default(), None,
-    ));
+    )));
     app.js =run_page_scripts(&doc, &[src(script)], None);
     Some(app)
 }
