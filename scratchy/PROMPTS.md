@@ -8312,3 +8312,9 @@ Prompt: item QY53n3 (P3): hover changes that only gain/lose PAINT plus OFFSET ru
 > also mention introducing an always visible status bar showing the current mode, and start in page mode by default for now
 
 **What changed:** docs only. TODO.txt: new QKEYS block (design QKEYS-D: decided D1 two modes, D2 Esc Esc trigger, D3 always-visible status bar that reserves its height, D4 start in page mode; proposals P1-P6 awaiting confirmation: sticky scratchy mode, page gets no keys in scratchy mode, a cancelled first Esc still counts, auto-return to page mode on navigation/text-control click, remove `:set vim`/`novim` and SIGUSR1, page-mode default scroll keys), items QKEYS1-QKEYS4, a queue note, and a pointer from QJ11.
+
+## QKEYS-D update: modes are sticky, "scratchy mode" is NORMAL (user design session, docs only)
+
+> I forgot to answer, modes are sticky unless otherwise mentioned. Let's call "scratchy" mode NORMAL instead. what else do we have?
+
+**What changed:** docs only. TODO.txt QKEYS block: new D5 (the mode is called NORMAL; modes are sticky unless stated otherwise; replaces proposal P1); D4 narrowed to "page mode at process start, a navigation keeps the mode" (the earlier "every page starts in page mode" conflicted with stickiness: `h h h` would drop out after one step); P4 reduced to its one exception (a click into a text control/select switches to page mode); the open question about non-navigating `:` commands is closed by D5; QKEYS2 tests follow.
