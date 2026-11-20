@@ -1901,7 +1901,8 @@ const TIMERS_PRELUDE: &str = r#"
       fn = function () { (0, eval)(code); };
       args = [];
     }
-    if (fwd) return fwd(fn, delay, args, repeat, raf, recv || g);
+    // QPT1d3: a closed window's timers never fire (Chrome); the call still returns an id.
+    if (fwd) return g.closed ? nextId++ : fwd(fn, delay, args, repeat, raf, recv || g);
     var id = nextId++;
     delay = Number(delay);
     if (!(delay > 0)) delay = 0;

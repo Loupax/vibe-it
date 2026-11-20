@@ -1087,7 +1087,15 @@
   // in the page context only), building the answers with its own classes.
   def(g, '__net_fwd', function (p) {
     var pr = p.__net_request;
-    def(g, '__net_request', function (init, mk, owner) { return pr(init, mk || build, owner || g); });
+    // QPT1d3: a CLOSED window sends nothing: a sync XHR throws NetworkError, an async request/fetch gets a
+    // handle whose promise never settles (same as the pending requests QPT1b cancels on release).
+    def(g, '__net_request', function (init, mk, owner) {
+      if (g.closed) {
+        if (init.sync) throw domErr('NetworkError', "Failed to execute 'send' on 'XMLHttpRequest': Failed to load '" + init.url + "'.");
+        return { id: 0, promise: new Promise(function () {}), abort: function () {} };
+      }
+      return pr(init, mk || build, owner || g);
+    });
     // QPT1b (R53 D6): the requests of a dropped realm are cancelled in the table that holds them.
     var pc = p.__net_cancel;
     def(g, '__net_cancel', function (o) { return pc(o); });

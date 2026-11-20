@@ -911,6 +911,24 @@ fn qpt1a_realm_fetch_and_xhr_go_through_the_page_queue() {
     }
 }
 
+#[test]
+fn qpt1d3_closed_window_timers_never_fire_and_requests_are_not_sent() {
+    let fake = QfFake::new(vec![("/a", qf7_ok("A", &[]))]);
+    let log = qf8_run(
+        "https://page.test/dir/page.html",
+        &fake,
+        "var f=document.createElement('iframe'); document.body.appendChild(f); var w=f.contentWindow; f.remove();\
+         console.log('closed', w.closed, typeof w.setTimeout(function(){ console.log('FIRED timeout'); }, 1), typeof w.setInterval(function(){ console.log('FIRED interval'); }, 1));\
+         w.requestAnimationFrame(function(){ console.log('FIRED raf'); }); w.requestIdleCallback(function(){ console.log('FIRED idle'); });\
+         w.fetch('/a').then(function(){ console.log('FIRED fetch'); }, function(){ console.log('FIRED fetch'); });\
+         var x=new w.XMLHttpRequest(); x.open('GET', '/a'); x.onload=x.onerror=function(){ console.log('FIRED xhr'); }; x.send();\
+         setTimeout(function(){ console.log('page ok'); }, 50);",
+    );
+    assert!(fake.urls().is_empty(), "{:?} {log:?}", fake.urls());
+    assert!(!log.iter().any(|l| l.contains("FIRED")), "{log:?}");
+    assert!(log.contains(&"log:closed true number number".to_string()), "{log:?}");
+}
+
 // ---------- QY8: O(1) sibling access ----------
 
 #[test]
