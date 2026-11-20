@@ -1794,6 +1794,47 @@ fn qpt1f_custom_elements_upgrade_per_realm() {
 }
 
 #[test]
+fn qpt1f4_page_methods_drive_the_realm_registry_for_iframe_elements() {
+    let log = run_with_timers(
+        "var c=document.createElement('iframe'); document.body.appendChild(c); var cw=c.contentWindow, cd=c.contentDocument; window.L=[];\
+         cw.eval(\"customElements.define('x-a', class extends HTMLElement { static get observedAttributes(){ return ['k']; } \
+           connectedCallback(){ parent.L.push('conn:' + (window !== parent)); } disconnectedCallback(){ parent.L.push('disc'); } \
+           attributeChangedCallback(n,o,v){ parent.L.push('attr:'+n+':'+o+':'+v+':'+(window !== parent)); } \
+           adoptedCallback(a,b){ parent.L.push('adopt:'+(a===document)+':'+(b===parent.document)); } })\");\
+         var X=cw.customElements.get('x-a');\
+         var e=document.createElement('x-a'); Node.prototype.appendChild.call(cd.body, e);\
+         L.push('up:'+(e instanceof X));\
+         Element.prototype.setAttribute.call(e,'k','1'); Element.prototype.removeAttribute.call(e,'k');\
+         var h=document.createElement('div'); h.innerHTML='<x-a></x-a>'; Node.prototype.appendChild.call(cd.body, h);\
+         L.push('html:'+(h.firstChild instanceof X));\
+         Node.prototype.appendChild.call(document.body, e);\
+         L.push('moved:'+(e instanceof X));\
+         document.body.removeChild(e);\
+         console.log(L.join());",
+    );
+    assert_eq!(
+        log,
+        ["log:conn:true,up:true,attr:k:null:1:true,attr:k:1:null:true,conn:true,html:true,disc,adopt:true:true,conn:true,moved:true,disc"],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qpt1f4_moved_to_page_uses_page_registry_when_not_upgraded_and_dropped_realm_is_inert() {
+    let log = run_with_timers(
+        "var c=document.createElement('iframe'); document.body.appendChild(c); var cw=c.contentWindow, cd=c.contentDocument; window.L=[];\
+         var u=cd.createElement('x-b'); cd.body.appendChild(u);\
+         customElements.define('x-b', class extends HTMLElement { connectedCallback(){ L.push('page-conn'); } });\
+         document.body.appendChild(u); L.push('page:'+(u instanceof customElements.get('x-b')));\
+         cw.eval(\"customElements.define('x-c', class extends HTMLElement { connectedCallback(){ parent.L.push('dead-conn'); } disconnectedCallback(){ parent.L.push('dead-disc'); } static get observedAttributes(){ return ['q']; } attributeChangedCallback(){ parent.L.push('dead-attr'); } })\");\
+         var k=cd.createElement('x-c'); cd.body.appendChild(k);\
+         c.remove(); k.setAttribute('q','1'); k.remove(); document.body.appendChild(k);\
+         console.log(L.join());",
+    );
+    assert_eq!(log, ["log:page-conn,page:true,dead-conn"], "{log:?}");
+}
+
+#[test]
 fn qpt1f_srcdoc_external_script_goes_through_the_page_queue() {
     let fake = QfFake::new(vec![("/dir/e.js", qf7_ok("var E = (window !== parent) + ' ' + document.currentScript.src;", &[("content-type", "text/javascript")]))]);
     let log = qf8_run(

@@ -8169,3 +8169,7 @@ Prompt: item QY53n5 (P3): apply a paint-patchable or skipped hover immediately o
 
 ## QY53n3 (Sonnet, 2026-11-20): offset hover patch
 Prompt: item QY53n3 (P3): hover changes that only gain/lose PAINT plus OFFSET rules (translate transforms, top/left/right/bottom) shift the affected boxes laid subtrees (shift_laid_tree) and recompute ink instead of building. hover_patch.rs (plan_moves/offset_delta, Ok(bool moved)), app.rs apply_hover_cheap (geometry refresh + cursor after a move), tests src/tests/qy53n3_tests.rs (pixel + box/ink equality vs rebuild, fallbacks).
+
+> Item QPT1f4 [S]: custom-element reactions across realms (route each reaction to the realm that owns the element definition / the document it is in, regardless of which realm method ran).
+
+**What changed:** js_dom.rs: `xr.ce` (doc id -> realm reaction API), `xr.cs` (element id -> realm whose definition upgraded it), `xr.cn`; first define() in any realm installs every realm hooks; hooks collect/fire disconnects, scan connects/upgrades and run attributeChangedCallback through those APIs, each callback run in its owning realm (entered). Connected = in any live realm document; a realm upgrades only elements in its own document. adoptedCallback implemented (insert across documents, adoptNode). Dropped realm: removed from xr.ce/xr.cs, no more reactions. Tests qpt1f4_*. Deviation kept Chrome-like: an already upgraded element keeps its own realm definition after moving to another document (the new registry only upgrades non-upgraded elements).
