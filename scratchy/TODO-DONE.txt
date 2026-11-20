@@ -8226,3 +8226,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QNAV9 DONE - link click outside glyphs: enclosing <a href> fallback (#435) [S] (P3, from QY54a2 #425; Sonnet, verify first) A plain `<a href>` click on a local-file page (file path
       opened directly) did not navigate even without a stall (the QY54a2 fixture had to use a JS click handler). Reproduce,
       find out whether relative/local hrefs from file pages are resolved and navigated; fix + test, or close as intended.
+
+=== from TODO.txt: --- Rust `__*` native wrapped in a JS timer); none of it was committed. -------
+- [x] QPT1b2 DONE c00c518 realm WebSockets closed on drop (#436) [S] (P3, from QPT1b #394; Sonnet) Close a dropped realm's WebSockets (they use the parent's class and stay open
+      until they close on their own). (QPT1d #401 drops the DetachGlobal symbol hack: a removed realm stays alive while JS references its window, as in Chrome.)
