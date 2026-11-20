@@ -554,6 +554,9 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       152.2.0 has no binding); on a v8 crate upgrade check it still links, or switch to a binding if one appears.
 - [ ] [WIP] QPT1c [M] (after QPT1a) Cross-realm wrapper identity (R53 D7): one wrapper per node across realms, created by the
       realm owning the node's document (Chrome's rule).
+- [ ] QPT1c2 [S] (P3, from QPT1c #399; Sonnet) Cross-realm MutationObserver: an observer registered in one realm does not see
+      mutations made through another realm's DOM methods on the node it observes (Chrome reports every mutation). Share the
+      observer registry (moReg/moN) page-wide like the wrapper cache (R53 D7 deviation).
 - [ ] QPT1d [S] (after QPT1a) WindowProxy surface (R53 D8): frames, length, window[i], window[name], cross-realm postMessage,
       closed, name.
 - [ ] QPT1e [S] (after QPT1a) No-snapshot path (R53): Context::new, natives re-bound by name, preludes replayed.
