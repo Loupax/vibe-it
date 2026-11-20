@@ -226,7 +226,15 @@ pub fn run() {
                     app.extra_css = res.css;
                     res.scripts
                 }
-                None => inline_scripts(&app.document),
+                None => {
+                    // QNAV9b: no wire: the page still gets its file:// base, so relative
+                    // links resolve and `#frag` scrolls (a link to another local file is
+                    // read from disk by `fetch_url_inner`; nothing touches the network).
+                    if app.base_url.is_none() {
+                        app.base_url = file_page_url(&path);
+                    }
+                    inline_scripts(&app.document)
+                }
             };
             app.js = run_page_scripts(&app.document, &scripts, app.base_url.as_ref());
             app
