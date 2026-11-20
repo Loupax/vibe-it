@@ -8095,3 +8095,18 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       thumbnails never get `src` (paint `true`). Body's overflow propagates to the viewport when html's is visible, so body
       must not clip then. Gate: YT results imgs get a src; real thumbnails in a grim shot; regression test.
   (queue line) 27a [WIP] QY57r [S, Sonnet, P1] IO body-clip bug: YouTube thumbnails paint `true` (R56) -- next, before QOBS9
+
+=== from TODO.txt: --- NEW 2026-11-17 (Opus, QY47: YouTube results render nothing = JS stack limit; R36 addendum) ---
+- [x] QY47b DONE - closed: no measurable saving on V8, R36 addendum 2 (#422) [S] (P3, Sonnet, measure first) Fewer JS frames per `document.createElement`:
+      today a page call goes through three JS wrappers (js_dom.rs custom-elements
+      `doc.createElement` -> `created`, media_prelude.js `document.createElement`
+      wrapper with `ce.apply`, DOM prelude `doc.createElement`) plus `ceUpgrade` and
+      `Reflect.construct`, each nested custom element pays them again. Fold the media
+      check (`video`/`audio` -> `observe()`) into the DOM prelude's createElement path
+      so the media wrapper goes away (keep behaviour: the media observer still starts
+      when the first video/audio is created). STEP 1: measure remaining stack (the
+      R36 addendum `depth()` probe) inside createElement on the YouTube results page
+      before/after; ship only if it saves something measurable. Test: creating a
+      `<video>` via `document.createElement('VIDEO')` still starts the media observer
+      (existing QM1f tests stay green).
+  (queue line) 26 [WIP] QY47b [S] fewer JS frames per createElement
