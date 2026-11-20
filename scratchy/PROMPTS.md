@@ -8064,3 +8064,9 @@ The prompts of the design session, in order:
 > Item Q33b2w [S] (P3): in a window, page scripts and `load` saw 1024x768 because the real size reached the page engine only at the first redraw; publish it earlier, no spurious resize, headless unchanged.
 
 **What changed:** app.rs `resumed` publishes `window.inner_size()` via `js::set_window_viewport` (surface_size stays 0 so the first redraw still resizes the surface), `WindowEvent::Resized` publishes the new size immediately, `about_to_wait` publishes only once the surface is measured (no reset to 0). Test `q33b2w_engine_created_after_publish_...`. Live (nested dwl 956x312, own wire, 1.5 s slow page): SCRIPT 956x312, LOAD 956x312, no resize. Limit: a page whose scripts start before the compositor's final configure (nested dwl sends 1024x768 first, then tiles to 956x312 right after map) still sees the first configured size and gets one `resize`.
+
+## QY53n1: exact hover affected-set (Sonnet)
+
+> Do TODO.txt item QY53n1: HoverKeys records what follows each :hover compound; keep the last build's MATCH_MEMO; on a hover change re-match only the affected elements and skip the build when no element's matched rule set changed; frame-stats hover {skipped, built}.
+
+**What changed:** style.rs `HoverKeys` keys now carry `HoverFollow {desc, sib}` (which combinators follow the `:hover` compound) and `unbounded` (`:hover` nested in `:not()`/`:is()`/`:has()`). The App build (`KEEP_MATCH`) leaves its `MATCH_MEMO` in `LAST_MATCH`; `hover_matches_unchanged` re-matches the hovered/unhovered elements plus (by follow) their subtrees and later siblings against it, using the build's rule index. `App::apply_hover` skips the build when nothing changed (only when no build is pending); any doubt (no memo, new element, other width/rules, unbounded) builds. frame_stats line gains `"hover":{"skipped":N,"built":M}`. Tests: qy53n1_tests.rs.

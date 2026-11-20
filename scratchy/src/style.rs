@@ -1661,28 +1661,108 @@ impl RuleIndex {
 /// style, so it needs no restyle. Over-approximate by construction.
 #[derive(Default, Clone)]
 pub(crate) struct HoverKeys {
+    /// Some `:hover` compound has no id/class/tag to key on, or `:hover` sits
+    /// somewhere the scan cannot see (`:not()`, `:has()`...).
     pub(crate) any: bool,
-    pub(crate) ids: std::collections::HashSet<String>,
-    pub(crate) classes: std::collections::HashSet<String>,
-    pub(crate) tags: std::collections::HashSet<String>,
+    /// QY53n1: `:hover` sits where the scan cannot bound what it affects;
+    /// the exact affected-set path then always builds.
+    pub(crate) unbounded: bool,
+    pub(crate) ids: HashMap<String, HoverFollow>,
+    pub(crate) classes: HashMap<String, HoverFollow>,
+    pub(crate) tags: HashMap<String, HoverFollow>,
+    /// Follow of the key-less compounds.
+    pub(crate) any_follow: HoverFollow,
+}
+
+/// QY53n1: what the selector asks of the elements after a `:hover` compound.
+/// `desc`: a descendant/child combinator follows (the hovered element's
+/// subtree is affected); `sib`: a sibling combinator follows (its later
+/// siblings and their subtrees are too).
+#[derive(Default, Clone, Copy, PartialEq, Debug)]
+pub(crate) struct HoverFollow {
+    pub(crate) desc: bool,
+    pub(crate) sib: bool,
+}
+
+impl HoverFollow {
+    fn union(self, o: HoverFollow) -> HoverFollow {
+        HoverFollow { desc: self.desc || o.desc, sib: self.sib || o.sib }
+    }
+}
+
+type OurSel = selectors::parser::Selector<OurSelectorImpl>;
+
+fn sel_has_hover(sel: &OurSel) -> bool {
+    sel.iter_raw_match_order().any(|c| matches!(c, Component::NonTSPseudoClass(OurPseudoClass::Hover)) || nested_hover(c) != NestedHover::No)
+}
+
+#[derive(PartialEq, Clone, Copy)]
+enum NestedHover {
+    No,
+    /// `:not(:hover)`, `:is(:hover)`: the same element's state, so the enclosing compound keys it.
+    Compound,
+    /// Reaches other elements (`:has(:hover)`, `:not(.a :hover)`...).
+    Unbounded,
+}
+
+/// QY53n1: how a `:hover` inside the functional pseudo-class `c` (`:not()`, `:is()`,
+/// `:where()`, `:has()`, `:nth-child(of)`) affects matching.
+fn nested_hover(c: &Component<OurSelectorImpl>) -> NestedHover {
+    let list = |l: &[OurSel]| {
+        let mut out = NestedHover::No;
+        for s in l.iter().filter(|s| sel_has_hover(s)) {
+            let reaches = s.iter_raw_match_order().any(|c| matches!(c, Component::Combinator(_)));
+            // A hover nested one more level down is not keyed either.
+            let deeper = s.iter_raw_match_order().any(|c| nested_hover(c) != NestedHover::No);
+            if reaches || deeper {
+                return NestedHover::Unbounded;
+            }
+            out = NestedHover::Compound;
+        }
+        out
+    };
+    match c {
+        Component::Negation(l) | Component::Is(l) | Component::Where(l) => list(l.slice()),
+        Component::Has(l) => {
+            if l.iter().any(|h| sel_has_hover(&h.selector)) {
+                NestedHover::Unbounded
+            } else {
+                NestedHover::No
+            }
+        }
+        Component::NthOf(d) => {
+            if d.selectors().iter().any(sel_has_hover) {
+                NestedHover::Unbounded
+            } else {
+                NestedHover::No
+            }
+        }
+        _ => NestedHover::No,
+    }
+}
+
+fn note_follow(map: &mut HashMap<String, HoverFollow>, key: String, f: HoverFollow) {
+    let e = map.entry(key).or_default();
+    *e = e.union(f);
 }
 
 impl HoverKeys {
     pub(crate) fn build(rules: &[StyleRule]) -> Self {
+        use selectors::parser::Combinator;
         let mut k = HoverKeys::default();
         for rule in rules {
             for sel in rule.selectors.slice() {
-                // Debug/css text of the whole selector: counts every `:hover`,
-                // including ones nested in `:not()`/`:is()` this scan can't see
-                // (a class merely named "hover" only makes us more cautious).
-                let total = format!("{sel:?}").to_ascii_lowercase().matches("hover").count();
-                let mut found = 0;
+                let mut follow = HoverFollow::default();
                 let mut it = sel.iter();
                 loop {
                     let comps: Vec<_> = it.by_ref().collect();
-                    let hover = comps.iter().filter(|c| matches!(c, Component::NonTSPseudoClass(OurPseudoClass::Hover))).count();
-                    if hover > 0 {
-                        found += hover;
+                    let top = comps.iter().any(|c| matches!(c, Component::NonTSPseudoClass(OurPseudoClass::Hover)));
+                    let nest: Vec<NestedHover> = comps.iter().map(|c| nested_hover(c)).collect();
+                    if nest.contains(&NestedHover::Unbounded) {
+                        k.any = true;
+                        k.unbounded = true;
+                    }
+                    if top || nest.contains(&NestedHover::Compound) {
                         let (mut id, mut class, mut tag) = (None, None, None);
                         for c in &comps {
                             match c {
@@ -1693,24 +1773,26 @@ impl HoverKeys {
                             }
                         }
                         match (id, class, tag) {
-                            (Some(i), _, _) => {
-                                k.ids.insert(i);
+                            (Some(i), _, _) => note_follow(&mut k.ids, i, follow),
+                            (_, Some(c), _) => note_follow(&mut k.classes, c, follow),
+                            (_, _, Some(t)) => note_follow(&mut k.tags, t, follow),
+                            _ => {
+                                k.any = true;
+                                k.any_follow = k.any_follow.union(follow);
                             }
-                            (_, Some(c), _) => {
-                                k.classes.insert(c);
-                            }
-                            (_, _, Some(t)) => {
-                                k.tags.insert(t);
-                            }
-                            _ => k.any = true,
                         }
                     }
-                    if it.next_sequence().is_none() {
-                        break;
+                    match it.next_sequence() {
+                        None => break,
+                        Some(Combinator::Descendant | Combinator::Child) => follow.desc = true,
+                        Some(Combinator::NextSibling | Combinator::LaterSibling) => follow.sib = true,
+                        // A pseudo-element hangs off the same element.
+                        Some(Combinator::PseudoElement) => {}
+                        Some(_) => {
+                            follow.desc = true;
+                            follow.sib = true;
+                        }
                     }
-                }
-                if found < total {
-                    k.any = true;
                 }
             }
         }
@@ -1722,16 +1804,156 @@ impl HoverKeys {
             return true;
         }
         let NodeData::Element { name, .. } = &handle.data else { return false };
-        if self.tags.contains(&name.local.as_ref().to_ascii_lowercase()) {
+        if self.tags.contains_key(&name.local.as_ref().to_ascii_lowercase()) {
             return true;
         }
         if let Some(id) = element_attr(handle, "id")
-            && self.ids.contains(&*id)
+            && self.ids.contains_key(&*id)
         {
             return true;
         }
-        element_attr(handle, "class").is_some_and(|c| c.split_ascii_whitespace().any(|c| self.classes.contains(c)))
+        element_attr(handle, "class").is_some_and(|c| c.split_ascii_whitespace().any(|c| self.classes.contains_key(c)))
     }
+
+    /// QY53n1: the union of the follow of every `:hover` compound `handle` could
+    /// match (`None` when it cannot match any).
+    pub(crate) fn follow_of(&self, handle: &Handle) -> Option<HoverFollow> {
+        let NodeData::Element { name, .. } = &handle.data else { return None };
+        let mut out: Option<HoverFollow> = self.any.then_some(self.any_follow);
+        let mut add = |f: HoverFollow| out = Some(out.map_or(f, |o| o.union(f)));
+        if let Some(f) = self.tags.get(&name.local.as_ref().to_ascii_lowercase()) {
+            add(*f);
+        }
+        if let Some(id) = element_attr(handle, "id")
+            && let Some(f) = self.ids.get(&*id)
+        {
+            add(*f);
+        }
+        if let Some(c) = element_attr(handle, "class") {
+            for c in c.split_ascii_whitespace() {
+                if let Some(f) = self.classes.get(c) {
+                    add(*f);
+                }
+            }
+        }
+        out
+    }
+}
+
+/// QY53n1: the memo of the last App build (`KEEP_MATCH`), so a hover change
+/// can re-match only the elements it can affect instead of rebuilding.
+pub(crate) struct LastMatch {
+    memo: MatchMemo,
+    rules_ptr: usize,
+    rules_len: usize,
+    viewport_bits: u32,
+}
+
+thread_local! {
+    pub(crate) static LAST_MATCH: RefCell<Option<LastMatch>> = const { RefCell::new(None) };
+    /// Set by the App around its own builds: the build then leaves its memo in `LAST_MATCH`.
+    pub(crate) static KEEP_MATCH: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Called at the end of a build with the memo it used.
+pub(crate) fn stash_last_match(memo: Option<MatchMemo>, rules: &[StyleRule], viewport_width: f32) {
+    let keep = KEEP_MATCH.with(|k| k.get());
+    LAST_MATCH.with(|l| {
+        *l.borrow_mut() = match memo {
+            Some(memo) if keep => Some(LastMatch { memo, rules_ptr: rules.as_ptr() as usize, rules_len: rules.len(), viewport_bits: viewport_width.to_bits() }),
+            _ => None,
+        }
+    });
+}
+
+const PSEUDO_SLOTS: [Option<&str>; 6] = [None, Some("before"), Some("after"), Some("first-line"), Some("first-letter"), Some("marker")];
+
+/// QY53n1: after a hover change (the new state is already installed with
+/// `set_interaction`), did every element the change can affect keep exactly
+/// the rule set the last App build matched for it? `false` also when that
+/// cannot be told (no kept memo, rules or width changed, an element the build
+/// never matched, an unbounded `:hover`): the caller then builds.
+pub(crate) fn hover_matches_unchanged(keys: &HoverKeys, changed: &[Handle]) -> bool {
+    if keys.unbounded {
+        return false;
+    }
+    let mut affected: Vec<Handle> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    fn add_subtree(h: &Handle, out: &mut Vec<Handle>, seen: &mut std::collections::HashSet<usize>) {
+        if matches!(h.data, NodeData::Element { .. }) && seen.insert(Rc::as_ptr(h) as usize) {
+            out.push(h.clone());
+        }
+        for c in h.children.borrow().iter() {
+            add_subtree(c, out, seen);
+        }
+    }
+    for e in changed {
+        let Some(f) = keys.follow_of(e) else { continue };
+        if seen.insert(Rc::as_ptr(e) as usize) {
+            affected.push(e.clone());
+        }
+        if f.desc || f.sib {
+            for c in e.children.borrow().iter() {
+                add_subtree(c, &mut affected, &mut seen);
+            }
+        }
+        if f.sib
+            && let Some(p) = parent_handle(e)
+        {
+            let kids = p.children.borrow().clone();
+            let mut after = false;
+            for s in &kids {
+                if Rc::ptr_eq(s, e) {
+                    after = true;
+                } else if after {
+                    add_subtree(s, &mut affected, &mut seen);
+                }
+            }
+        }
+    }
+    if affected.is_empty() {
+        return true;
+    }
+    // The last build's rules and index (left in `RULE_DERIVED` after it).
+    let Some((rules, index)) = RULE_DERIVED.with(|d| {
+        let mut d = d.borrow_mut();
+        let x = d.as_mut()?;
+        Some((x.rules.clone(), x.index.take()?))
+    }) else {
+        return false;
+    };
+    let (rp, rl) = (rules.as_ptr() as usize, rules.len());
+    RULE_INDEX.with(|ri| *ri.borrow_mut() = Some((rp, rl, index)));
+    let same = LAST_MATCH.with(|l| {
+        let l = l.borrow();
+        let Some(l) = l.as_ref() else { return false };
+        if l.rules_ptr != rp || l.rules_len != rl {
+            return false;
+        }
+        let vw = f32::from_bits(l.viewport_bits);
+        affected.iter().all(|h| {
+            let p = Rc::as_ptr(h) as usize;
+            let key = |slot: usize| (p, slot as u8, rp, rl, l.viewport_bits);
+            // The element itself must have been matched by the build.
+            if !l.memo.contains_key(&key(0)) {
+                return false;
+            }
+            PSEUDO_SLOTS.iter().enumerate().all(|(slot, pseudo)| match l.memo.get(&key(slot)) {
+                Some(old) => **old == matching_indices_for(h, &rules, vw, *pseudo),
+                None => true,
+            })
+        })
+    });
+    if let Some((_, _, index)) = RULE_INDEX.with(|ri| ri.borrow_mut().take()) {
+        RULE_DERIVED.with(|d| {
+            if let Some(x) = d.borrow_mut().as_mut()
+                && Rc::ptr_eq(&x.rules, &rules)
+            {
+                x.index = Some(index);
+            }
+        });
+    }
+    same
 }
 
 /// QY53a: whether some rule targets `::first-line` / `::first-letter`, worked
@@ -2861,7 +3083,7 @@ pub(crate) fn rules_cache_mem() -> ((usize, usize), (usize, usize)) {
     let index = held.unwrap_or_else(|| RULE_DERIVED.with(|d| d.borrow().as_ref().and_then(|d| d.index.as_ref()).map_or((0, 0), size_index)));
     let hover = HOVER_KEYS.with(|h| {
         let h = h.borrow();
-        let set = |s: &std::collections::HashSet<String>| s.iter().map(|k| k.capacity() + 24).sum::<usize>();
+        let set = |s: &HashMap<String, HoverFollow>| s.keys().map(|k| k.capacity() + 24 + 2).sum::<usize>();
         (h.ids.len() + h.classes.len() + h.tags.len(), set(&h.ids) + set(&h.classes) + set(&h.tags))
     });
     (rules, (index.0 + hover.0, index.1 + hover.1))

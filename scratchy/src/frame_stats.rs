@@ -83,6 +83,9 @@ pub(crate) struct FrameStats {
     paint_ns: u64,
     present_ns: u64,
     hover_restyles: u32,
+    /// QY53n1: relevant hover changes that skipped the build / went to a build.
+    hover_skipped: u32,
+    hover_built: u32,
     inputs: [u32; 4],
     /// Input events not yet followed by a present (their arrival times).
     pending: [Option<Instant>; MAX_INPUT],
@@ -132,6 +135,8 @@ impl FrameStats {
             paint_ns: 0,
             present_ns: 0,
             hover_restyles: 0,
+            hover_skipped: 0,
+            hover_built: 0,
             inputs: [0; 4],
             pending: [None; MAX_INPUT],
             npending: 0,
@@ -187,6 +192,16 @@ impl FrameStats {
 
     pub(crate) fn hover_restyle(&mut self) {
         self.hover_restyles += 1;
+    }
+
+    /// QY53n1: a hover change whose affected elements kept their matched rules (no build).
+    pub(crate) fn hover_skipped(&mut self) {
+        self.hover_skipped += 1;
+    }
+
+    /// QY53n1: a hover change that requested a build.
+    pub(crate) fn hover_built(&mut self) {
+        self.hover_built += 1;
     }
 
     pub(crate) fn input(&mut self, kind: InputKind, now: Instant) {
@@ -287,7 +302,7 @@ impl FrameStats {
         let line = format!(
             "{{\"t\":{:.1},\"dt_ms\":{:.0},\"redraws\":{},\"damage_presents\":{},\"gap_max_ms\":{:.1},\
 \"builds\":{{\"n\":{},\"ms\":{:.2}}},\"shape\":{{\"complete\":{},\"incomplete\":{},\"worker_ms\":{:.2}}},\
-\"paint_ms\":{:.2},\"present_ms\":{:.2},\"js_ms\":{:.2},\"forced\":{{\"n\":{},\"ms\":{:.2},\"by_caller\":[{}]}},\"longest\":{},\"hover_restyles\":{},\
+\"paint_ms\":{:.2},\"present_ms\":{:.2},\"js_ms\":{:.2},\"forced\":{{\"n\":{},\"ms\":{:.2},\"by_caller\":[{}]}},\"longest\":{},\"hover_restyles\":{},\"hover\":{{\"skipped\":{},\"built\":{}}},\
 \"input\":{{\"move\":{},\"button\":{},\"key\":{},\"wheel\":{},\"lat_max_ms\":{:.2},\"lat_p95_ms\":{:.2},\"pending\":{},\"oldest_pending_ms\":{:.1}}},\
 \"net\":{{\"n\":{},\"p50_ms\":{:.2},\"p95_ms\":{:.2},\"max_ms\":{:.2}}},\"video\":{{\"wakes\":{},\"tick_ms\":{:.2},\"fetch_ms\":{:.2},\"v\":[{}]}}}}",
             now.saturating_duration_since(self.t0).as_secs_f64(),
@@ -308,6 +323,8 @@ impl FrameStats {
             by_caller,
             longest,
             self.hover_restyles,
+            self.hover_skipped,
+            self.hover_built,
             self.inputs[0],
             self.inputs[1],
             self.inputs[2],
@@ -336,6 +353,8 @@ impl FrameStats {
         self.paint_ns = 0;
         self.present_ns = 0;
         self.hover_restyles = 0;
+        self.hover_skipped = 0;
+        self.hover_built = 0;
         self.inputs = [0; 4];
         self.lat.clear();
         self.video_wakes = 0;

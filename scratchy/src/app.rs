@@ -1431,7 +1431,9 @@ impl App {
             // inside it — gets handed off below.
             set_app_clock(self.nav_generation);
             let build_started = std::time::Instant::now();
+            crate::style::KEEP_MATCH.with(|k| k.set(true));
             let tree = build_layout_tree_with_resources(&self.document, width as f32, Some(height as f32), &crate::images::with_adopted_css(&self.extra_css, &self.adopted_css), &self.image_cache);
+            crate::style::KEEP_MATCH.with(|k| k.set(false));
             self.last_build_time = Some(build_started.elapsed());
             if let Some(fs) = &mut self.frame_stats {
                 fs.build(build_started.elapsed());
@@ -3028,6 +3030,25 @@ impl App {
         if relevant {
             if let Some(fs) = &mut self.frame_stats {
                 fs.hover_restyle();
+            }
+            // QY53n1: nothing pending and the last build's matches kept: re-match
+            // only the elements the change can affect; none changed -> no build.
+            if !self.layout_dirty && !self.restyle_requested && self.state_rules & STATE_HOVER != 0 {
+                let changed: Option<Vec<Handle>> =
+                    st.hover.symmetric_difference(&self.interaction.hover).map(|&id| find_node_by_id(&self.document, id)).collect();
+                set_interaction(&st);
+                if changed.is_some_and(|c| crate::style::hover_matches_unchanged(&self.hover_keys, &c)) {
+                    self.interaction.hover = st.hover;
+                    if let Some(fs) = &mut self.frame_stats {
+                        fs.hover_skipped();
+                    }
+                    return;
+                }
+            }
+            if self.state_rules & STATE_HOVER != 0
+                && let Some(fs) = &mut self.frame_stats
+            {
+                fs.hover_built();
             }
             self.last_hover_restyle = Some(std::time::Instant::now());
             self.set_interaction_state(st);
