@@ -833,6 +833,50 @@ fn qy57_offscreen_becomes_visible_after_document_scroll() {
     assert_eq!(log, ["log:false 0 2000 0", "log:true 1 100 100", "log:false 0 2000 0"], "{log:?}");
 }
 
+/// QY57r: like `qy57_run` but with the whole document given.
+fn qy57r_run(html: &str, code: &str) -> Vec<String> {
+    crate::js_geom::TEST_FIXED_COST_MS.with(|c| c.set(Some(1.0)));
+    let out = Rc::new(RefCell::new(Vec::new()));
+    let o = out.clone();
+    let clock = Rc::new(std::cell::Cell::new(0.0));
+    let engine = crate::js::start_scripts_clocked(
+        &parse_html(html),
+        &[src(&format!("const $ = id => document.getElementById(id);\n{code}"))],
+        Rc::new(move |level, text| o.borrow_mut().push(format!("{level}:{text}"))),
+        Some(clock.clone()),
+    )
+    .unwrap();
+    for _ in 0..1000 {
+        let Some(due) = engine.next_due_ms() else { break };
+        clock.set(clock.get().max(due));
+        engine.run_due();
+    }
+    out.borrow().clone()
+}
+
+#[test]
+fn qy57r_body_overflow_propagates_to_viewport_and_does_not_clip() {
+    let code = "new IntersectionObserver(es => es.forEach(e => console.log(e.isIntersecting, e.intersectionRatio, e.intersectionRect.height))).observe($('t'));";
+    // html visible: body's overflow:scroll goes to the viewport; a zero-height body must not clip.
+    let log = qy57r_run(
+        "<html><body style='margin:0;overflow:scroll;height:0'><div id=t style='height:100px'></div></body></html>",
+        code,
+    );
+    assert_eq!(log, ["log:true 1 100"], "{log:?}");
+    // html's own overflow is the viewport's too.
+    let log = qy57r_run(
+        "<html style='overflow:hidden'><body style='margin:0'><div id=t style='height:100px'></div></body></html>",
+        code,
+    );
+    assert_eq!(log, ["log:true 1 100"], "{log:?}");
+    // Not propagated (html overflow:hidden): body is a real clip with its small box.
+    let log = qy57r_run(
+        "<html style='overflow:hidden'><body style='margin:0;overflow:hidden;height:20px'><div id=t style='height:100px'></div></body></html>",
+        code,
+    );
+    assert_eq!(log, ["log:true 0.2 20"], "{log:?}");
+}
+
 #[test]
 fn qy57_scrolling_container_and_explicit_root() {
     let body = "<div id=box style='height:200px;overflow:auto'><div style='height:600px'></div><div id=t style='height:50px'></div><div style='height:900px'></div></div>";

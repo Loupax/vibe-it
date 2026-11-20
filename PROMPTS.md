@@ -82,3 +82,10 @@
 > Do TODO.txt item QM1k1n5: measure first where AppEvent::JsNet waits (60-90 s YouTube watch, nested dwl, own wire, QOBS6 `net` field); fix if it reproduces, else write up with numbers.
 
 **What changed:** did not reproduce on 1b83534: 124 results, median ~41 ms, max 494 ms (startup). No code change; REGRESSIONS.md section 6a addendum; test `qm1k1n5_response_arriving_during_a_busy_timer_chain_is_delivered_between_slices` in fetch_tests.rs.
+
+## QY57r: IntersectionObserver must not clip by a propagated body overflow (Sonnet)
+
+> Do TODO.txt item QY57r: ioEval0 clips by every overflow ancestor, so YouTube's `body{overflow:scroll}` (956x0) gives every entry an empty intersectionRect and thumbnails never get a `src`. Reuse the layout rule (body overflow propagates to the viewport when html is visible) and treat html as the viewport, not a clip.
+
+**What changed:** js_dom.rs `ioEval0` skips `document.body` as a clip when html's computed overflow is visible (same rule as layout.rs `VIEWPORT_ROOT_NODE`); html was already skipped. Test `qy57r_body_overflow_propagates_to_viewport_and_does_not_clip` in js_observers_tests.rs. YouTube results (nested dwl, own wire): real thumbnails paint; 2 core ytimg imgs got a `src` (the 2 on screen, others lazy), 88 imgs total, 4 with a src.
+

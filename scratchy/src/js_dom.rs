@@ -5148,6 +5148,14 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       rb = [base[0] - ioPx(m[3], bw), base[1] - ioPx(m[0], bh), base[2] + ioPx(m[1], bw), base[3] + ioPx(m[2], bh)];
     }
     var clips = new Map();
+    // QY57r: <body>'s overflow is propagated to the viewport when <html>'s is `visible` (CSS Overflow 3;
+    // layout.rs VIEWPORT_ROOT_NODE), so <body> is then not an element clip.
+    var bodyEl = document.body, de = document.documentElement;
+    var propBody = null;
+    if (bodyEl && de) {
+      var hs = __d_cs(de.__id, '', 'overflow-x') + __d_cs(de.__id, '', 'overflow-y');
+      if (hs.indexOf('hidden') < 0 && hs.indexOf('auto') < 0 && hs.indexOf('scroll') < 0 && hs.indexOf('clip') < 0) propBody = bodyEl;
+    }
     var now = g.performance && g.performance.now ? g.performance.now() : 0;
     for (var i = 0; i < st.targets.length; i++) {
       var t = st.targets[i], v = rb ? gViewRect(t) : null;
@@ -5159,7 +5167,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
         // Clip by overflow ancestors between the target and the root.
         for (var a = t.parentNode; a && a.nodeType === 1; a = a.parentNode) {
           if (a === rootEl) { inRoot = true; break; }
-          if (gRoot(a)) continue;
+          if (gRoot(a) || a === propBody) continue;
           var c = clips.get(a);
           if (c === undefined) {
             var cs = __d_cs(a.__id, '', 'overflow-x') + __d_cs(a.__id, '', 'overflow-y');
