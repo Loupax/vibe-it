@@ -1,5 +1,309 @@
 # scratchy — regressions
 
+## R59: QY54b3 design: lay out less than the whole page for a script geometry read. Two stages that share one piece: the JS thread records WHERE each geometry-changing DOM write landed ("dirty points") and keeps, from the last full forced layout, the inputs needed to restyle one box (its parent's `InheritedStyle`, its own `ComputedStyle`, its containing-block size). Stage 1 ("unchanged box"): when every dirty point is inside a box whose size and position cannot depend on its content (an "insulating" box), a `getBoundingClientRect`/`offset*` read of that box or of anything outside it is answered from the stale cache with NO layout. Stage 2 ("subtree layout"): when the read is inside such a box and the box is absolutely/fixed positioned, re-build and measure only that box at its cached containing block, translate it to its cached place and splice its rects, skeleton and glyphs into `GeomCache`. Both are exact by construction for the cases they accept, and both run under a check mode (tests always, `SCRATCHY_GEOM_CHECK=1` on real pages) that compares with a full layout. A throwaway prototype confirms the core claim of stage 2: a box built from its parent's inherited style and measured alone at a provisional origin, then translated, equals the full layout's boxes to 0.00024 px. Estimated win on the R58 recipe: stage 1 alone answers ~55-70 % of the `getPlayerSize` reads in ~0 ms (only after QY54b1 gives the player its CSS), which meets the median gate but probably not the 300 ms job gate; stages 1+2 answer ~all of them at ~3-8 ms each, which should meet both (~190-330 ms) if the non-layout part of the job stays at R58's 93-150 ms. RECOMMENDED, staged: QY54b3a-QY54b3f (Opus, 2026-11-20, design only, docs only) — OPEN: proposed QY54b3a-QY54b3f (section 11)
+
+Inputs: R58 (the recipe, the per-read cost 54-80 ms, sections 1-2: where the writes land), R50/QYTC1a (`style_write_in_place`,
+`Skel`, `SK_FIXED_IN`, `redo_ancestor_extents`), QYTC1d (`ClassDeps`, `CF_SIB`), QY53l2 (`HiddenSnap`), QY53o1 (`ATTR_SNAP`,
+`attr_write_unread`), QY54b2 (#429, R58 note: no code change; the pre-pass does every element's match and `build_children` reuses it). Code read at
+022830a: js_geom.rs `GeomCache::refresh`/`walk`/`walk_glyphs`/`style_write_in_place`, js_dom.rs `geom_bump*` and the
+`__d_rect` / `gRect` JS readers, images.rs `build_layout_tree_with_resources`/`build_box_for_element`/`collect_real_nodes`/
+`precompute_generated`, style.rs `matching_declarations_for` (MATCH_MEMO, ANCESTOR_BLOOM), layout.rs `measure_document`/
+`resolve_positioned`/`hoist_negative_z`/`is_stacking_boundary`, anim_eval.rs `finish_animation_pass`.
+
+### 1. What the cache does today and why a partial path is possible
+
+`GeomCache` is keyed on `(geom_gen, vw, vh, css_ver)`. Any write that may change geometry bumps `geom_gen`
+(`js_dom::geom_bump`), and the next read runs `refresh`: `build_layout_tree_with_resources` (css collect, rule index,
+`precompute_generated`, `build_children` over the whole DOM) + `measure_document` + `walk_glyphs` + `walk` (rects and the
+QYTC1a skeleton). `geom_bump` records nothing about WHERE the write was, so the only answer to "something changed" is the
+whole page. QYTC1a/QYTC1d/QY53l2/QY53o1 avoid the bump for writes that provably change nothing (or only shift an abs box);
+R58 section 2 shows that the preview player's writes are real changes (45 % structural, 24 % size, 14 % first `style`),
+so they need a layout, but all of them stay inside the preview, never in the results list. Selector matching walks the real
+DOM (`El(handle)`), so a box restyled on its own still sees its ancestors, siblings, `:nth-child` position and `:hover` state
+exactly as a full build does; what a partial path must supply is the state a full build threads down from the root (the
+parent's `InheritedStyle`: inherited properties, custom properties, `root_font_size`; the `DecorationValue` and `href`
+carried through inline ancestors; the counters/quotes state of `precompute_generated`) and the box's containing block.
+
+### 2. Dirty points (shared by both stages)
+
+A thread-local `GEOM_DIRTY` next to `GEOM_GEN`: `Clean | Points(Vec<(WeakHandle, Kind)>) | Unknown`, reset by every full
+or subtree layout. `geom_bump()` (unknown cause: adopted sheets, `__d_sheet_text`, anything without a node) sets `Unknown`;
+the write paths call `geom_bump_at(node, kind)` instead, which pushes a point (cap 64, then `Unknown`):
+
+| write | point | kind |
+|---|---|---|
+| attribute set/remove (`geom_bump_attr`, `geom_bump_if` on an element) | the element | `Attr(name)` |
+| insert / remove / move (`__d_insert`, `__d_remove`), `textContent`, `innerHTML` (`geom_bump_children`) | the parent whose child list changed (both parents for a move) | `Children` |
+| text node data | the text's parent element | `Children` |
+| form state (`__d_setchecked`, `__d_settvalue`, `__d_selset`, select/option, reset) | the control | `Form` |
+| a moved/inserted subtree containing `style`/`link`/`meta`/`base`/`slot` (QY53l2 `subtree_sensitive`) | - | `Unknown` |
+
+A point whose node is no longer connected when the read comes is ignored: the remove/insert that disconnected or moved it
+left its own point on the parent(s). QYTC1a in-place shifts do not bump and leave no point (the skeleton is already
+up to date). The cost is one `Vec` push per bumping write.
+
+### 3. The stash: what the last full layout keeps for later partial work
+
+While `GeomCache::refresh` runs a full layout (a thread-local recorder flag; the App's builds never record), keep for every
+element that passes the STATIC insulation test of section 4:
+
+- `build_box_for_element_body` (or `collect_real_nodes` at its block arm) records `inherited` (the parent's
+  `InheritedStyle`, which holds the parent's custom properties `Rc` and `root_font_size`), `decoration`, `href`, and the
+  element's own resolved `ComputedStyle` (it derives `PartialEq` since QY53n2c);
+- `resolve_positioned` records `(cb_w, cb_h)` for the box it places (`item.b.style.node`); `measure`'s block path records
+  whether a percentage `height` resolved against a definite containing height;
+- `GEOM_INTERACTION`: `js_style::interaction_hash()` (hover/active/focus/target) at the layout;
+- `fixed_roots`: the nodes of the `fixed` boxes resolved at the document root (the only boxes whose `Laid` lives outside
+  their DOM ancestors' `Skel` ranges besides z-index hoisting).
+
+Keyed by node id with a `WeakHandle` (address reuse). A few hundred entries on YouTube results (the box must be
+block-level, BFC-establishing, with a definite height), a few hundred bytes each. Replaced by the next full layout.
+
+### 4. Which boxes qualify ("insulating" box E)
+
+E's border box (x, y, w, h) and every box outside E's subtree can not change when only E's content changes:
+
+1. An element with exactly one `Skel` entry (not in `skel_multi`), not inside an `OPAQUE_CONTAINERS` element, not
+   replaced (`img`, `video`, `svg`, `canvas`, `iframe`, form controls), not `display: contents` (it has no box) and not
+   inline-level (`inline-block`/`inline-flex` have a content baseline that aligns the line, `inline` is split into the
+   line).
+2. It establishes an independent formatting context: `position: absolute | fixed`, or `overflow` not `visible`, or
+   `display: flex | grid`. (A plain block lets a first child's top margin collapse through it and floats escape from it;
+   both move things outside.)
+3. Its size does not depend on its content. Width: a length, or a percentage (the containing block is outside and
+   unchanged), or `auto` for an in-flow block-level box (fill-available, content-independent); never `auto` for abs/fixed
+   (shrink-to-fit). Height: a length, or a percentage that resolved in the last layout; never `auto`. No `min-*`/`max-*`
+   content keywords. `position: sticky` and floats are out.
+4. Its parent formats it as a block: E is abs/fixed (any parent), or E's parent box is a block container in normal flow.
+   A flex/grid/table item is out: the container sizes items from their content (`min-width: auto`, `flex-basis: auto`).
+5. No rule uses `:has()` (`rule_child_deps().0`; scratchy does not parse it today, R47: 0 rules on YouTube/Wikipedia,
+   but the guard keeps a future parser honest).
+
+Why nothing outside changes then: selectors reach from an element to its ancestors, its previous siblings and (for
+`:nth-*`/`:last-child`) its siblings; an element outside E has no ancestor or sibling inside E, so a write strictly inside
+E changes no outside element's matched rules (except via `:has()`, rule 5). Layout reaches outside E only through E's
+margin box (fixed by rules 2-4) and, for abs/fixed descendants, through their containing block, which is never outside
+the flow. What DOES change outside: the scrollable-overflow extents (`ink_r`/`ink_b` of E and its ancestors,
+`walk`'s unclipped union), and the root's `in_flow_bottom` for an overflowing in-flow E. Neither changes a rect.
+
+**Points ON E itself** (not strictly inside): an `Attr(name)` point qualifies only when no selector reads `name`
+(`ATTR_SNAP.reads(name, tag)`, the QY53o1 table; `style` is normally unread) and E's re-resolved style is equal to the
+stashed one in every field except `custom_props` (custom properties only reach E's own fields through `var()`, which the
+re-resolved fields already reflect). A `Children` point on E qualifies with the same style comparison (it catches
+`:empty`). A `class` write on E is refused in v1 (it can match `.c + .x` / `.c ~ .x` on outside siblings; QYTC1d's
+`CF_SIB` could open it later). Re-resolving E's style needs the rule index installed (see section 6: one `resolve_style`,
+well under 1 ms).
+
+**Global refusals** (full layout as today): key differs in viewport or `css_ver`; `GEOM_DIRTY` is `Unknown`; the
+interaction hash changed; the cached layout panicked or was incomplete; `GEOM_DIRTY` is `Clean` but the key differs (a
+bump that recorded nothing: a bug guard).
+
+**Choosing E**: take the deepest common ancestor-or-self L of the connected points; walk up from L to the first element
+that passes the stash's static test (section 3) and the point rules above. For stage 2, keep walking to the first
+abs/fixed one (section 6).
+
+### 5. Stage 1: answer the read without a layout ("unchanged box")
+
+`rect_of(target)` with a stale key: if E exists and the target is E or is NOT inside E, return the cached `x, y, w, h,
+fixed` and leave the cache stale (key, points and stash untouched: the next read inside E still needs a layout, and the
+points keep accumulating; they stay inside E or the next read falls back). The ink extents and the page size may be stale,
+so only callers that use the border box may take this path: the JS side gets a second native `__d_rect_box` (4 values +
+fixed) used by `gViewRect` (`getBoundingClientRect`, `getClientRects`), `offsetLeft/Top/Width/Height` and `gClient`
+(`clientWidth/Height`); `scrollWidth/Height` (`gScrollSize`, which reads `ink_r/ink_b`/page size), `scrollIntoView` and
+IntersectionObserver keep `__d_rect`. `text_rects` keeps the full path. The cost per served read is the LCA walk over at
+most 64 points (~25 levels each) plus, if a point is on E, one style resolve: tens of microseconds.
+
+Side effect to note: a served read leaves the cache stale, so an IntersectionObserver check that follows (it needs a fresh
+cache or the App's `rendered` layout) pays the full layout that the read used to pay. In the R58 burst that is at most one
+full layout per rendering step instead of 11-13 inside one promise job.
+
+### 6. Stage 2: lay out only box B ("subtree layout")
+
+B = the nearest abs/fixed insulating ancestor-or-self of L (rules 1-5 plus): B `is_stacking_boundary` in the last layout
+(overflow not visible, or a `z-index`, or `opacity < 1`, or fixed), so z-index hoisting (`hoist_negative_z`) never moves a
+descendant's `Laid` out of B; and no node of `fixed_roots` is now inside B or detached (a fixed descendant's `Laid` sits at
+the document root, outside B's `Skel` range).
+
+**Style.** A new `images::build_subtree_box(B, rules, stash)` does what `build_layout_tree_with_resources` does around
+`build_children`, for one element: `set_viewport`, the cached rule list (`rules_cache::current()`; refuse if its
+generation is not the stashed one), the `RULE_DERIVED` index installed in `RULE_INDEX`, fresh `MATCH_MEMO`,
+`VAR_EXPAND_MEMO`, `ANCESTOR_BLOOM` (its `sync_to` already pushes B's real ancestor chain, so `.a:hover .b` with `.a`
+outside B is filtered and matched exactly as in a full build), `CLASS_CACHE`, `PSEUDO_FLAGS`; then
+`build_box_for_element(B, rules, stash.inherited, stash.decoration, stash.href, vw, &HashMap::new())`. The parent's
+inherited style (including its custom properties and `root_font_size`) is exactly what the full build would pass, because
+no point is outside B and CSS, viewport and interaction state are unchanged. Then B's new `ComputedStyle` must equal the
+stashed one (minus `custom_props`), else refuse. What it must NOT do (the audit list for QY54b3d; each is a thread-local the
+full build resets): no `finish_animation_pass` (its `retain(seen == pass)` would drop the start times of every animation
+outside B, restarting them; merge B's `ANIM_REPORT` entries into `ANIM_LAST` instead), no `stash_last_match` (the App's kept
+hover memo, QY53n1c), no `propagate_canvas_background`, no reset of `VIEWPORT_ROOT_NODE`, no `memo_sweep` of the shape memo
+(it evicts every paragraph the subtree did not use, i.e. the whole page's), `DISPLAY_NONE_ROOTS` collected for B only.
+
+**Generated content and counters.** `precompute_generated` fills `GENERATED_TEXT`/`ELEMENT_CONTENT` in one document-order
+walk because counters and quotes flow in document order, also out of B into later content. It is also where every element's
+match is computed first (QY54b2 note in R58: the pre-pass fills `MATCH_MEMO` and `build_children` reuses all of it, ~1.4 us per
+match, 3 per element). So a whole-document walk costs the whole page's matching (10.5-13 ms on YouTube results) and is out of
+the question for stage 2. Instead: factor the walk as `generated_walk(root, rules, vw, &mut State)` with `State` (counters,
+quote depth, quotes) named and `Clone + PartialEq`. In the full layout the walk records, for every element whose cascaded
+`position` (from the `own` match it already has) is `absolute`/`fixed`, the `State` on entry and on exit (a clone each, a few
+hundred elements). The subtree pass runs `generated_walk(B, entry_state)` and compares its exit state with the recorded one:
+different = a counter or quote inside B changed what follows B = refuse. Equal = every entry outside B is unchanged, so only
+B's entries are replaced (the maps are cleared to B's entries for the subtree build, then restored from the full layout's
+copy). A rule list with no counter/quote use at all (one `RuleDerived` flag) skips the state handling. This also makes the
+pre-pass the place where B's matching happens once, as in a full build. (QY54b2b's cross-layout match memo, if built, makes
+both paths cheaper; stage 2 does not depend on it.)
+
+**Measure.** `resolve_positioned(PendingPositioned { b, fixed, static_x: 0, static_y: 0 }, 0, 0, cb_w, cb_h, ...)` with the
+stashed containing-block SIZE at a provisional origin, then `shift_laid_tree` by (cached `x`, `y`) - (new `x`, `y`). The stashed
+absolute coordinates of the containing block or static position cannot be used: an ancestor placed by `right`/`bottom`, a
+relative offset or flex alignment is measured first and shifted afterwards, so the coordinates `resolve_positioned` saw
+are pre-shift. B's position is a function of its unchanged style, its unchanged containing block and its unchanged static
+position, so the cached `x, y` IS the new one; its size is definite and must come out equal to the cached `w, h` (else
+refuse). Then `hoist_negative_z` on B as owner (B is a boundary) and nothing else; `bubble_out` must be empty (a new fixed
+descendant escapes B: refuse); an incomplete shaping pass (deadline) refuses. The `ShapeCache` is a new one, as in `refresh`.
+
+**Splice into `GeomCache`.** With i = `skel_of[B]` and the old range `[i, end)`:
+1. remove `rects`, `skel_of`, `skel_multi` entries of every node owned by the old range (this also drops removed nodes,
+   whose addresses may be reused by new nodes), and the `glyphs` of the text nodes laid in it: `walk_glyphs` records, per
+   text node, the pre-order index of the `Laid` it came from (it visits the same `Laid`s in the same order as `walk`);
+2. `tail = skel.split_off(end)`, `skel.truncate(i)`, `walk(newB, fixed_of_old_B, ...)` appends B's entries with correct
+   absolute indices; for the tail add `delta = new_len - old_len` to `end` and to every `parent >= end`; add `delta` to
+   `end` of B's ancestors (entries before i whose `end >= old end`); append the tail; rebuild `skel_of`/`skel_multi`
+   (O(entries), ~3k on YouTube) and shift the tail's glyph indices;
+3. insert B's new rects and glyphs; `redo_ancestor_extents(parent of B)`; `self.page` is unchanged (B is out of flow);
+4. `HiddenSnap`: drop roots that are inside B or detached, add B's new display-none roots through the
+   `hidden_snapshot` filter, set its `ggen`; `ATTR_SNAP`: set its `ggen`; `imp_geo` stays (same rule list);
+5. update the stash for nodes inside B (their inherited styles, cb sizes); key = the current key; `GEOM_DIRTY = Clean`;
+   `last_cpu_ms` = this cost; `--perf-report` counts it as a forced layout of kind `subtree` (see section 8).
+
+A panic in any step: catch, drop the partial state, run the full layout. IntersectionObserver reads after a subtree layout
+see a fresh cache, so it also removes the IO layout of stage 1's side effect.
+
+### 7. Prototype (throwaway, never committed)
+
+`scratchpad/qy54b3/qy54b3_proto_tests.rs` (a test module dropped into `src/tests/` for one debug run at 022830a, then removed):
+a page with 2x30 result items around a `position: relative` slot (fractional margins/padding) holding an abs wrapper
+`#w` (`left: 21.13px; top: 17.71px; width: 440px; height: 248px; overflow: hidden`, placed at y ~2 089) with a player inside:
+`width: 100%; height: 93.5%`, `rem` font size, a custom property from `<body>` through `var()`, a `.list > :nth-child(3) .x`
+rule whose `:nth-child` is decided OUTSIDE the box, `::before { content: attr(data-t) }`, a flex row with `gap: var(--gap)`
+and an `<img>`, an abs overlay placed by `right`/`bottom` with a % width, an abs caption with % insets, and a table.
+Full layout through `GeomCache::rect_of`; then, for `#w` alone: the parent's `InheritedStyle` by resolving the ancestor chain
+(standing in for the stash), `precompute_generated`, `build_box_for_element(#w, ...)`, `resolve_positioned` at (0, 0) with the
+slot's size, `shift_laid_tree` to the cached position. Result: **13 boxes, max |difference| 0.00024 px** (the translation's f32
+rounding at y ~2 089; the 0.01 px tolerance is 40x that), no bubbled `fixed` entry, complete in one pass. Not covered by the
+prototype (left for the tests of QY54b3d/e): z-index hoisting inside B, the splice itself, glyphs, counters, a write.
+
+### 8. Exactness check mode and observability
+
+- `#[cfg(test)]`: check mode is ALWAYS on. Every served read (stage 1) and every subtree layout (stage 2) also runs a full
+  layout into a scratch `GeomCache` at the same key and compares: for stage 1 the served `x, y, w, h, fixed`; for stage 2
+  every rect (same node set, `fixed` equal, `x, y, w, h, ink_r, ink_b` within 0.01 px, the QYTC1a test tolerance; the
+  translation adds f32 rounding), every glyph list of a text node inside B (same chars, coordinates within 0.01 px), the
+  skeleton's node sequence, `page`, and the hidden roots. A mismatch panics with the node's tag/id/class, the field, both
+  values, B and the points. So every existing js_geometry/observer test that takes either path is also an exactness test.
+- `SCRATCHY_GEOM_CHECK=1` (read once): the same comparison on real pages; a mismatch prints one `scratchy: geom-check:
+  MISMATCH ...` diag line, counts `geom_check.mismatch` in `--perf-report`, and the full result is adopted. Animations
+  outside B are the one expected source of noise (the cache already ignores animation time today: its key has no clock), so
+  the line says whether the node runs an animation.
+- `--perf-report`: `forced` gets `served` (stage 1 count), `subtree` (count, ms, median) and `partial_refused` by reason
+  (unknown, outside, no_boundary, point_on_box, style_changed, size_changed, fixed_escape, generated_outside, css/vp/
+  interaction, has_sel, incomplete). QY54b3a adds these counters (as "would") before any behaviour changes.
+
+### 9. Estimate on the R58 recipe
+
+From R58 sections 1-3 (no layout code changed yet; ranges because the data were logged without the player CSS):
+
+| | reads per preview | full layout | after |
+|---|---|---|---|
+| R58 base (no player CSS) | 33-36 per run, 11-13 in the worst job | 54-80 ms each | - |
+| reads whose writes all stay inside `#inline-preview-player` (or on it) | 24-26 of 33-36 (~70 %) | | stage 1 only if the player is insulating, i.e. AFTER QY54b1: without its CSS it is static, `height: auto` (R58 section 3), so stage 1 serves none of them today |
+| reads whose writes reach the preview containers / inline controls | 9-13 (~30 %) | | stage 2 at the nearest abs boundary (the wrapper `.ytdVideoPreviewPlayerContainerWrapper`, abs 440x248 overflow hidden, or a qualifying preview container: QY54b3a finds out) |
+| reads whose writes reach the results list | 0 | | - |
+
+Per read: stage 1 ~0.05 ms. Stage 2: a subtree of a few hundred elements (matching ~1.4 us x 3 per element, R58 QY54b2 note, ~1-2 ms of it); R58's headless watch reads, which laid out a
+WHOLE document of 144-472 elements (the player being built), cost 5.2-5.7 ms median (2.2-15.2), so ~3-8 ms. Worst
+preview-start job today: 685-1 137 ms, of which 592-884 ms are `getPlayerSize` layouts and 93-150 ms are everything else.
+- Stage 1 alone (after QY54b1; a full layout stays 54-80 ms, QY54b2 found nothing to cut): ~55-70 % served, 3-5 full
+  layouts per job = ~160-400 ms + 93-150 ms = **~255-550 ms**: the median gate (< 10 ms) is met, the job gate (< 300 ms)
+  only at the very good end.
+- Stages 1 + 2: 11-13 reads at <= 8 ms (stage 2 ones) or ~0 ms = <= ~100 ms + 93-150 ms = **~190-250 ms**, plus one full
+  layout if the first read of a preview follows the container's creation outside any boundary (+54-80 ms, so up to ~330 ms).
+  The gate is reachable but not guaranteed; QY54b3a measures the real split before stage 2 is built.
+
+### 10. Risk, and what not to do
+
+Risk is moderate and mostly scratchy-specific coupling the CSS argument does not see: an abs box splits its parent's inline
+run (`collect_real_nodes` flushes `pending` at a block-level child) - harmless, it depends on the box's existence, not its
+content; shrink-to-fit and table/flex intrinsic sizes read descendants (excluded by rules 3-4); margin collapsing and float
+escape (rule 2); the root's `in_flow_bottom` (not a rect). The check mode turns any wrong assumption into a failing test or a
+diag line instead of a wrong answer, and both stages can be switched off (`SCRATCHY_GEOM_PARTIAL=0`). Stage 1 is small (no
+layout code, no splice) and is the cheap first half. Not worth doing: a general incremental layout (dirty bits on boxes,
+relayout of in-flow ancestors): XL, and R58 shows the reads here never need it. Alternatives if the design is rejected:
+QY54b2 found nothing to cut in the full build; QY54b2b (a match memo kept across forced layouts) could take at most the
+matching (~10-13 ms of 54-80) off each full layout, so the worst job stays > 500 ms; answering
+`getPlayerSize` from the App's `rendered` layout (QY53e2) does not help because the player changed since the App's build.
+
+### 11. Proposed items (coordinator files them; they supersede QY54b3 [L] and absorb QY53o2)
+
+- **QY54b3a [M]** (P2, Sonnet; js_dom.rs `geom_bump*`, js_geom.rs, images.rs/layout.rs recorder hooks, perf.rs; NO behaviour
+  change) Dirty points + stash + classifier (R59 sections 2-4, 8). `GEOM_DIRTY` (`Clean | Points(<=64 (WeakHandle, Kind)) |
+  Unknown`) filled by `geom_bump_at` at every write path of the R59 section 2 table, `geom_bump()` = Unknown, reset by
+  `refresh`. The full-layout recorder (on only inside `GeomCache::refresh`): per insulating candidate the parent's
+  `InheritedStyle`, `decoration`, `href`, own `ComputedStyle`, cb size from `resolve_positioned`, %-height-resolved flag;
+  `interaction_hash`; `fixed_roots`. `GeomCache::partial_verdict(target) -> Serve(E) | Subtree(B) | Refuse(reason)` applying
+  R59 section 4 (+ section 6's B rules) without acting on it; `--perf-report` `forced.partial_would` {serve, subtree, refused by
+  reason} plus, under the QOBS3 recorder, the tag#id.class of E/B. Tests (js_geometry_tests.rs): one per rule and per refusal
+  reason (write outside, point on E with a read attribute, class on E, style change on E, auto height, flex item, float,
+  plain block without BFC, display:contents, :has guard via a test seam, Unknown cap, detached point ignored, css/vp/interaction
+  change); the verdict never changes a rect (all existing tests unchanged). Gate: R58 recipe (window, 3 runs, flock; with
+  QY54b1 merged, else say so) reports per gPS read and per worst promise job the would-serve / would-subtree / refused split;
+  write it into R59 as go/no-go: build QY54b3b if >= 50 % of gPS reads would be served, QY54b3c-e if serve + subtree >= 85 %.
+  If neither, stop and report (the design is then not worth its cost on this page).
+- **QY54b3b [M]** (P2, Sonnet; AFTER QY54b3a and QY54b1; js_geom.rs, js_dom.rs JS readers) Stage 1, "unchanged box" (R59
+  section 5): `rect_of_box` serves `x, y, w, h, fixed` of E or of any element not inside E from the stale cache without a layout;
+  new native `__d_rect_box` used by `gViewRect` (getBoundingClientRect/getClientRects), `offset*` and `gClient`; `scroll*`,
+  `scrollIntoView`, `text_rects` and IntersectionObserver keep the full path. Check mode (R59 section 8): always on under
+  `cfg(test)` (a scratch full layout per served read, panic on mismatch), `SCRATCHY_GEOM_CHECK=1` on real pages (diag line +
+  `geom_check.mismatch` counter, full result used); `SCRATCHY_GEOM_PARTIAL=0` disables. Tests: served reads equal a fresh
+  layout (insert/remove/text/style inside an abs box, an overflow:hidden in-flow box with definite height, a flex container
+  with definite size; reads of E, a sibling after E, an ancestor), refused when the target is inside E, a read of
+  `scrollHeight` after a served read lays out, a served read then a write outside then a read = full layout. Gate: full
+  suite + WPT unchanged; `SCRATCHY_GEOM_CHECK=1` 0 mismatches on R58 recipe x3, YT watch 60 s, Wikipedia Rust with pointer
+  (Page Previews); then without it, R58 recipe x3 (flock): gPS layouts per run and median ms, worst preview-start job.
+- **QY54b3c [S]** (P2, Sonnet; images.rs `precompute_generated`; no behaviour change) Factor the walk as
+  `generated_walk(root, rules, vw, &mut State)` (`State` named, `Clone + PartialEq`); while the full-layout recorder is on, record
+  the entry and exit `State` of every element whose cascaded `position` is absolute/fixed; `RuleDerived` flag `doc_order` (a
+  rule declares counter-*/quotes or `content` with counter()/counters()/quote keywords). Tests: generated content/counters/
+  quotes tests unchanged; walking a recorded abs element's subtree from its entry state reproduces its entries and its
+  exit state; `doc_order` false on a page with only `attr()` content.
+- **QY54b3d [M]** (P2, Sonnet; AFTER QY54b3a/c; images.rs, anim_eval.rs) `build_subtree_box(B, rules, stash) -> Option<LayoutBox>`
+  (R59 section 6 "Style" + "Generated content"): the per-build thread-locals of `build_layout_tree_with_resources` for one
+  element (rule index, memos, bloom, class cache, pseudo flags, viewport, DISPLAY_NONE_ROOTS for B only), B's generated entries
+  from its recorded entry state (refuse if its exit state differs), and NOT: `finish_animation_pass` (merge B's report into
+  `ANIM_LAST` without ageing other start times), `stash_last_match`, `propagate_canvas_background`, `VIEWPORT_ROOT_NODE` reset.
+  Refuse when B's new `ComputedStyle` (minus `custom_props`) differs from the stashed one. Not wired to GeomCache yet. Tests
+  (images_tests.rs): the subtree box equals the matching box of a full build (a structural compare helper) on the R59 section 7
+  fixture plus `.a:hover .b` with `.a` outside (interaction state set), `:nth-child` decided outside, `rem`/`vh`, inherited
+  font/colour, a custom property from an ancestor, a counter running through B (exit state equal) and one changed inside B
+  (refused), `display: none` inside B; an animation outside B keeps its start time across a subtree build.
+- **QY54b3e [M]** (P2, Sonnet; AFTER QY54b3b/d; js_geom.rs) Stage 2 measure + splice (R59 section 6 "Measure"/"Splice"):
+  `resolve_positioned` at a provisional origin with the stashed cb size, `shift_laid_tree` to the cached x/y, `hoist_negative_z`
+  on B, refuse on size change / bubbled fixed / incomplete shaping / panic; splice `skel` (tail index fix-up), `rects`,
+  `skel_of`/`skel_multi` rebuild, glyphs by owner index (`walk_glyphs` records the pre-order index), `redo_ancestor_extents`,
+  `HiddenSnap`/`ATTR_SNAP` ggen, stash entries inside B; no `memo_sweep`; `--perf-report` kind `subtree` (n, ms). Check mode
+  extended to every subtree layout (all rects, glyphs inside B, skeleton node sequence, page, hidden roots). Tests
+  (js_geometry_tests.rs): subtree after insert/remove/text/style writes inside an abs box equals a fresh full layout (all rects
+  + glyphs, 0.01 px), with a z-index child inside B, a new fixed descendant (refused), a removed fixed descendant (refused),
+  node address reuse (create/remove 1 000 nodes inside B between reads), text_rects after a subtree layout, an IO observing a
+  node inside B, a QYTC1a shift of B's ancestor before the subtree layout. Gate: full suite + WPT unchanged;
+  `SCRATCHY_GEOM_CHECK=1` 0 mismatches over R58 recipe x3 + YT watch 60 s; then R58 recipe x3 under flock: gPS layouts median
+  < 10 ms and worst preview-start promise job < 300 ms (QY54b3 overall gate; if missed, report the refusal mix and stop).
+- **QY54b3f [S]** (P2, Opus, measure only, docs; AFTER QY54b3e) Real-page exactness sweep and QY53o2's gate:
+  `SCRATCHY_GEOM_CHECK=1` headless + window on YouTube results/watch, Wikipedia Rust (pointer over links: Page Previews),
+  github.com, bbc.com/news: 0 mismatches (any mismatch = a P1 fix item); partial verdict mix per page; Wikipedia Page Previews
+  forced layouts per run (QY53o2 gate: forced.n <= 5, or the cost of the remaining ones). Close QY53o2 or file what is left.
+- QY54b4 (first `style` attribute shifts in place) stays as filed and is independent: it moves the preview container in place,
+  after which the writes inside it are stage 1/2 material.
+
 ## R58: QY54b: why each inline-preview `getPlayerSize` forced layout on YouTube results costs ~58 ms. Every one is a FULL-document forced layout: `GeomCache::refresh` has no partial path, so each read rebuilds the whole page, ~4 900-6 500 elements (2 150-2 770 boxes, the document is ~7.7k px tall). Style work is ~80 % of it (`precompute_generated` 10-22 ms + `build_children` 30-42 ms of 54-80 ms); text measuring is 10-15 ms. Before each read the player has changed its own DOM: 45 % of the reads follow a node insert/remove, 24 % a `style` size write that QYTC1a refuses, 14 % a first `style` attribute. In-place shifts and skips cannot cover that. The "~5 ms on watch" in R56 is not the window vs headless: on watch the player reads its size in the first 2-3.5 s, while the document has 144-472 elements. The cost per element is the same (headless results: 53 ms at 5 024 elements; headless watch later: 81-107 ms at ~7 000). NEW: YouTube inserts `www-player.css` from script, and scratchy never fetches a script-inserted `<link rel=stylesheet>`. So the preview player has no CSS: it is laid out static and auto-height (150-1 791 px tall in a 232 px slot) and paints in the wrong result slot with stray controls. Applying that sheet (throwaway probe) fixes the size and the paint, but the reads are NOT fewer (41-43 vs 33-36 per preview) and each costs the same (Opus, 2026-11-20, measure only, docs only) — OPEN: proposed QY54b1-QY54b4 (below)
 
 **Setup.** Main 6cdc00a (the same code as d36a809 / 343f615 for everything this measures; the commits after it change only
