@@ -103,3 +103,27 @@ wire owns the cookie jar (W-PERSIST1):
 1. stash: exclusive lock, `rm -r storage/<site>`, increment the generation.
 2. wire: `X-Wire-Cookie-Op: clear-site`. If wire is unreachable, step 1 still
    runs and the log says the cookies were not cleared.
+
+## History
+
+The first reader is `:go` completion and `o` (KEYS.md "Completion", QCOMP-D). Settings
+(`HISTORY`, on/off, and `HISTORY_MAX_LINES`) are constants in `src/config.rs`.
+
+- **File:** `DIR/history`, mode 0600, one line per visit:
+  `<unix time in ms>\t<url>\t<title>\n`. Plain text so scripts can read it
+  (`cut -f2 history | tac | awk '!seen[$0]++'` = URLs, newest first, deduplicated).
+- **When:** once per top-level navigation that loads, at the page's `load` (or when the
+  load gives up), with `document.title` at that moment (empty if none). History
+  traversal (`h`/`l`) and `:refresh` add a line too: the file records visits.
+- **Not recorded:** opaque origins (`file:`, `data:`, `about:`), `:help`, iframes,
+  failed loads (no response).
+- **Escaping:** tabs, newlines and other control characters in the title become a
+  space; the URL is the serialised URL (no tabs or newlines). A line is cut at 4096
+  bytes (the title is shortened), so a single `write` with `O_APPEND` is atomic and
+  several scratchy processes can append at the same time without a lock.
+- **Size:** at startup, when the file has more than `HISTORY_MAX_LINES` lines, scratchy
+  keeps the newest ones: write a temp file + rename, under an exclusive flock on
+  `DIR/.history.lock` (appenders do not lock: an append that lands between the read
+  and the rename is lost, which is acceptable for history).
+- **Hand edits** are fine; lines that do not parse are skipped by the built-in reader.
+- `--forget-site` does not touch history (yet).
