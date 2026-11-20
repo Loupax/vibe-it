@@ -1065,6 +1065,16 @@ QPROF1 PART A FOLLOW-UPS (R62 section 7, #451; non-layout hotspots; START AFTER 
 - [ ] QINC1j-c [S] (P3, from #459; Sonnet; tests only; after the architecture discussion) winit allows one event loop
       per process: ~20 App tests that build their own silently return when another test holds it. Move them to the shared
       proxy helper in incr_frame_tests.rs so they actually run.
+- [ ] QINC1i4 [M] (P2, from QINC1i #460; folded into QINC1j-ab if it fits, else after it; Opus; area incr_style) Engine
+      restart cost: a restart (first layout / new rule-list generation) re-restyles everything after a from-scratch build,
+      then lays out again through the engine; adopt the build's styles + matches instead. Makes Wikipedia forced layouts
+      slower with INCR=1 (660-1133 vs 567-600 ms off).
+- [ ] QINC1i2 [S/M] (P3, from #460; Sonnet; after the architecture discussion) headless --perf-report should decode the
+      page's images so headless forced layouts see real sizes too.
+- [ ] QINC1i3 [S] (P3, from #460; Opus investigate) one 619 ms IntersectionObserver forced layout with INCR=1 (YouTube
+      results, 28 s, 1 of 9 window runs). Reproduce; suspect a long bottom-up walk from many touched boxes.
+- [ ] QFLK5 [S] (P2, from #460 CI; Sonnet) V8 heap-growth tests qpt1b_fifty_create_remove_cycles_return_to_baseline (main
+      CI e219bee) and qpt1e_nosnap_create_remove_cycles (#460) flake on CI. Make them robust (GC before measuring, margins).
 QINC1 IMPLEMENTATION (design R60, #434; full item text in REGRESSIONS.md R60 section 15; USER ANSWERED 2026-11-20 ~11:45: "go with the
 recommendations" = R60 section 16 Q1-Q9 all as recommended: one engine on the main thread; real image sizes for script
 geometry; superseded items dropped (archived); FREEZE on other style/box/layout semantic changes while QINC1f-h1 are in
@@ -1072,7 +1082,7 @@ flight (correctness fixes allowed, rebased onto the shadow comparisons); memory 
 accepted; flip after 0 mismatches on 6 pages x 3 runs + gates, delete after >= 3 days of user use; QINC1n/o later; models
 as stated). Items QINC1a DONE 81e23d7 #447 (engine test infra + style_diff + fuzz), QINC1b (stable paragraph ids) DONE 23d604f #446, QINC1c (bottom-up hoisting) DONE 9890847 #450,
 QINC1d (InvalidationMap) DONE 18d0527 #445, QINC1e (write log) DONE 4700801 #448, QINC1f [L] (incremental restyle, shadow) DONE b20ed27 #452, QINC1g [L] DONE 8ec1c1a #455 (persistent box tree,
-shadow), QINC1h1 [L] DONE 109445c #457 (relayout from last tree, shadow), QINC1h2 DONE ce886a5 #458 (intrinsic-size cache), [WIP] QINC1i (forced layouts via engine,
+shadow), QINC1h1 [L] DONE 109445c #457 (relayout from last tree, shadow), QINC1h2 DONE ce886a5 #458 (intrinsic-size cache), QINC1i DONE 9c55521 #460 (forced layouts via engine,
 SCRATCHY_INCR=1), QINC1j [L] DONE e219bee #459 (App frames via engine), [WIP] QINC1j-ab, QINC1k (exactness sweep + gates), QINC1l (flip default, user OK),
 QINC1m (delete superseded special cases). Waves: 1 = a, b, d, e; 2 = c, f; 3 = g; 4 = h1; 5 = i, j, h2; then k, l, m.
 Superseded and archived (Q3): QY54b3a-f, QY54b4, QY53o2, QY53f2, QY53f3, QY53n4, QY53n1d, QY53n2d, QYTC1a2, QYTC1e,
