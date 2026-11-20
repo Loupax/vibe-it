@@ -8156,3 +8156,9 @@ Prompt: item QY53n5 (P3): apply a paint-patchable or skipped hover immediately o
 > Item QPT1c2 [S]: cross-realm MutationObserver (observer registry page-wide like the wrapper cache; records and delivery in the observer's realm; purge removes a dropped realm's observers).
 
 **What changed:** js_dom.rs DOM prelude: `moReg/moN/moSeq` moved into `xr.mo`; `xr.hk` lists each realm's `hookInstall` and `observe()` installs them all (a realm created later installs its own in `__d_bind_doc`); observer state carries `rec`/`sched` of its realm; `__d_realm_purge` disconnects the realm's observers. Tests `qpt1c2_*` in js_dom_tests.rs. QPT1f4 (CE reactions follow the mutating realm) does NOT fall out: CE hooks need `ceOn` per realm and the state is per realm; left.
+
+## QPT1e: iframe realms without the V8 startup snapshot (Sonnet)
+
+> Item QPT1e [S]: when the engine runs without the snapshot, `__scratchy_realm_new` creates the realm with `Context::new` (same isolate, the page's security token), re-binds the natives by name, replays the preludes (minus page-only parts), then `__scratchy_realm_init` as with the snapshot. Realms must behave the same; run the QPT1a-d/f tests in both configurations; measure creation cost.
+
+**What changed:** js_engine_v8.rs `State.live` (name -> arena index of natives registered on a snapshot-less engine) and the no-snapshot branch of `__scratchy_realm_new`; js.rs `realm_preludes()`; js_dom.rs `DOM_PRELUDE` pub(crate), the "stand-in: no snapshot" warning removed. Tests: `qpt1e_nosnap_*` twins (macro `qpt1e_nosnap_twins!`) of 14 realm tests run under `without_snapshot`, plus a built-ins identity test. **Measured** (release, 60 iframes, wall clock, load average ~25 so noisy): snapshot 0.9-1.6 ms/realm, no snapshot 4.1 ms/realm; heap after GC (20 realms) 669 KB vs 758 KB per realm.

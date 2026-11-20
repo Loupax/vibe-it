@@ -1739,6 +1739,13 @@ fn startup_engine(document: &Handle, store: Rc<js_modules::ModuleStore>, log: Lo
     Some(engine)
 }
 
+/// QPT1e: the prelude sources in the order the page engine runs them at startup without a snapshot
+/// (`startup_engine`), for an iframe realm made without the snapshot to replay. Page-only parts
+/// (`__scratchy_apply_env`, `__media_sweep`) are left out: `__scratchy_realm_init` applies the env.
+pub(crate) fn realm_preludes() -> [&'static str; 11] {
+    [PRELUDE, TIMERS_PRELUDE, URL_PRELUDE, GLOBALS_PRELUDE, INTL_PRELUDE, FETCH_PRELUDE, WS_PRELUDE, js_dom::DOM_PRELUDE, CSSOM_PRELUDE, js_media::MEDIA_PRELUDE, js_media::MSE_PRELUDE]
+}
+
 /// The page's own scripts and lifecycle events, over a started engine.
 fn run_page(engine: JsEngine, document: &Handle, scripts: &[ScriptSource]) -> Option<JsEngine> {
     let mut script_els = Vec::new();

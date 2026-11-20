@@ -879,19 +879,45 @@ fn qpt1a_realm_unhandled_rejection_is_logged_and_nested_realms_work() {
     assert!(log.contains(&"log:nested timeout true".to_string()), "{log:?}");
 }
 
+/// QPT1e: realm tests run a second time on a page engine without the startup snapshot (`Context::new`,
+/// natives re-bound by name, preludes replayed): the realm must behave the same.
+macro_rules! qpt1e_nosnap_twins {
+    ($($name:ident => $twin:ident),* $(,)?) => {
+        $(
+            #[test]
+            fn $twin() {
+                crate::js_engine::without_snapshot($name);
+            }
+        )*
+    };
+}
+
+qpt1e_nosnap_twins! {
+    qpt1a_iframe_window_is_its_own_realm => qpt1e_nosnap_iframe_window_is_its_own_realm,
+    qpt1a_realm_unhandled_rejection_is_logged_and_nested_realms_work => qpt1e_nosnap_unhandled_rejection_and_nested_realms,
+    qpt1a_realm_fetch_and_xhr_go_through_the_page_queue => qpt1e_nosnap_fetch_and_xhr_through_the_page_queue,
+    qpt1b_removal_drops_the_realm_and_cancels_its_timers => qpt1e_nosnap_removal_drops_the_realm,
+    qpt1b_src_change_makes_a_new_realm => qpt1e_nosnap_src_change_makes_a_new_realm,
+    qpt1b_cap_of_64_realms_logs_once_and_falls_back_to_the_stand_in => qpt1e_nosnap_cap_of_64_realms,
+    qpt1b_fifty_create_remove_cycles_return_to_baseline => qpt1e_nosnap_create_remove_cycles,
+    qpt1c_one_wrapper_per_node_made_by_the_owner_documents_realm => qpt1e_nosnap_one_wrapper_per_node,
+    qpt1c_mutation_observers_see_the_same_wrapper_in_both_realms => qpt1e_nosnap_mutation_observers,
+    qpt1d_post_message_between_page_and_realm => qpt1e_nosnap_post_message,
+    qpt1f_srcdoc_scripts_run_in_the_realm_in_order_then_dcl_load_and_iframe_load => qpt1e_nosnap_srcdoc_scripts,
+    qpt1f_document_open_write_close_runs_the_written_scripts_in_the_realm => qpt1e_nosnap_document_write,
+    qpt1f_js_inserted_scripts_run_in_the_realm_of_their_document => qpt1e_nosnap_inserted_scripts,
+    qpt1f_custom_elements_upgrade_per_realm => qpt1e_nosnap_custom_elements,
+}
+
 #[test]
-fn qpt1a_without_the_snapshot_the_iframe_window_stays_a_stand_in() {
+fn qpt1e_nosnap_realm_has_its_own_builtins_and_no_stand_in_warning() {
     let log = crate::js_engine::without_snapshot(|| {
         run_with_timers(
             "var f=document.createElement('iframe'); document.body.appendChild(f); var w=f.contentWindow;\
-             console.log(typeof w.String, w.document===f.contentDocument, w.parent===window); f.contentWindow;",
+             console.log(w.String!==String, w.Object!==Object, w.Array!==Array, w.Promise!==Promise, w.document===f.contentDocument, w.parent===window);",
         )
     });
-    assert_eq!(
-        log,
-        ["warn:scratchy: iframe window is a stand-in object: this engine has no V8 startup snapshot (QPT1e)", "log:undefined true true"],
-        "{log:?}"
-    );
+    assert_eq!(log, ["log:true true true true true true"], "{log:?}");
 }
 
 #[test]
@@ -1782,3 +1808,4 @@ fn qpt1f_srcdoc_external_script_goes_through_the_page_queue() {
     assert_eq!(fake.urls(), vec!["https://page.test/dir/e.js"], "{log:?}");
     assert_eq!(log, ["log:after true https://page.test/dir/e.js", "log:iframe load"], "{log:?}");
 }
+
