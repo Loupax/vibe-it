@@ -962,8 +962,9 @@ Shared rules for this block:
       a cold Wikipedia layout, 8k entries): move it off the critical path (e.g. compact in the shaping worker while idle).
       Only if cold forced layouts matter more later.
 - [ ] [WIP] QOOM1 [M] (P1, user 2026-11-20 ~14:10; Opus investigate + fix) A scratchy process reached 15 GB anon RSS (44 GB
-      virtual) and was OOM-killed at 13:39 (kernel log: pid 787397, started from a tmux scope); most likely the user's own
-      window, which usually has YouTube open (installed build of ~11:26-11:15 main). Reproduce under a memory cap
+      virtual) and was OOM-killed at 13:39 (kernel log: pid 787397, started from a tmux scope); NOT the user's window: it was QPROF1's
+      headless run `--perf-report --seconds 30 https://github.com/` (R62; ~185 MB/s, dav1d/hevc hero videos); was thought
+      to be the user's YouTube window (installed build of ~11:26-11:15 main). Reproduce under a memory cap
       (systemd-run --user --scope -p MemoryMax=6G): YouTube watch playing for 30-60 min in a nested window (with periodic
       pointer motion, a few navigations watch -> watch -> results), sample RSS + V8 heap (--perf-report / memprof QMEM3g)
       every 30 s; find what grows (V8 heap, ArrayBuffers/MSE SourceBuffers, mpv, shape/image caches, wire responses, the
