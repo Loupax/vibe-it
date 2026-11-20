@@ -1173,6 +1173,47 @@ pub type ShapedParagraph = (
 /// now that shaping runs off the main thread.
 pub type ShapeCache = std::collections::HashMap<usize, Arc<Mutex<ShapedParagraph>>>;
 
+/// QINC1b (R60 4.4): a persistent `ShapeCache` is swept only when it holds more than this many
+/// times the entries the live `Laid` references.
+pub(crate) const SHAPE_SWEEP_FACTOR: usize = 2;
+
+/// QINC1b: adds every paragraph id (`LaidContent::Text`, `MixedPositioned::Word`) under `l`.
+pub(crate) fn collect_live_ids(l: &Laid, out: &mut std::collections::HashSet<usize>) {
+    crate::stack::grow(|| collect_live_ids_body(l, out)) // QSTK1x: recursive per nesting level
+}
+
+fn collect_live_ids_body(l: &Laid, out: &mut std::collections::HashSet<usize>) {
+    match &l.content {
+        LaidContent::Blocks(c) | LaidContent::TableRow(c) => c.iter().for_each(|c| collect_live_ids(c, out)),
+        LaidContent::Text(id) => {
+            out.insert(*id);
+        }
+        LaidContent::MixedInline(items) => {
+            for it in items {
+                match it {
+                    MixedPositioned::Embedded(b) => collect_live_ids(b, out),
+                    MixedPositioned::Word { id, .. } => {
+                        out.insert(*id);
+                    }
+                }
+            }
+        }
+        LaidContent::Image(_) => {}
+    }
+    l.positioned.iter().for_each(|p| collect_live_ids(p, out));
+}
+
+/// QINC1b: drops the entries of `cache` no live id names, but only when it holds more than
+/// `SHAPE_SWEEP_FACTOR` times the live count. Returns how many entries were dropped.
+pub(crate) fn sweep_shape_cache(cache: &mut ShapeCache, live: &std::collections::HashSet<usize>) -> usize {
+    if cache.len() <= SHAPE_SWEEP_FACTOR * live.len() {
+        return 0;
+    }
+    let before = cache.len();
+    cache.retain(|id, _| live.contains(id));
+    before - cache.len()
+}
+
 /// Height assumed for a paragraph that hasn't been shaped yet, so content
 /// below it has somewhere reasonable to sit until the real height arrives.
 pub(crate) const PLACEHOLDER_LINE_HEIGHT: f32 = 20.0;
