@@ -283,10 +283,8 @@ fn qinc1g_display_none_roots_per_element_match_the_build() {
     build(&doc);
     let built: HashSet<usize> =
         crate::images::DISPLAY_NONE_ROOTS.with(|r| r.borrow_mut().take().unwrap().iter().map(node_id).collect());
-    let mine: HashSet<usize> = incr_style::display_none_roots().iter().map(node_id).filter(|k| built.contains(k) || {
-        // `<head>` and its children are display:none roots the build never visits under <body> only
-        true
-    }).collect();
+    // The table also lists `<head>` (a `display: none` root the builder skips without noting it).
+    let mine: HashSet<usize> = incr_style::display_none_roots().iter().map(node_id).collect();
     assert!(built.contains(&node_id(&by_id(&doc, "h1"))) && built.contains(&node_id(&by_id(&doc, "h2"))));
     assert!(built.is_subset(&mine), "{built:?} vs {mine:?}");
 }
