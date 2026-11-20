@@ -1950,6 +1950,23 @@ fn qytc1d_class_index_keeps_style_inserts_incremental() {
     assert!(!qytc1d_class(&knob, Some("later later2")), "the spliced-in class rule is seen");
 }
 
+/// The probe only runs for the first few class writes after a geometry read: a script churning
+/// classes without reading pays one layout on its next read instead of a probe per write.
+#[test]
+fn qytc1d_class_churn_without_reads_stops_probing() {
+    let code = |read_every: u32| {
+        format!(
+            "var wr = document.getElementById('wrap'); wr.offsetWidth;
+             for (var i = 1; i <= 100; i++) {{ wr.classList.toggle('js-state'); if (i % {read_every} == 0) wr.offsetWidth; }}
+             wr.offsetWidth;"
+        )
+    };
+    let (_, n) = qy53c_run(&qytc1a_page(QYTC1D_CSS, ""), &code(1000));
+    assert_eq!(n, 2, "100 writes without a read: the budget runs out, one more layout");
+    let (_, n) = qy53c_run(&qytc1a_page(QYTC1D_CSS, ""), &code(10));
+    assert_eq!(n, 1, "a read every 10 writes refills the budget");
+}
+
 #[test]
 fn qytc1d_inert_writes_between_reads_force_no_layout() {
     let (log, n) = qy53c_run(

@@ -377,6 +377,13 @@ pub(crate) struct ClassProbe {
     before: Vec<bool>,
 }
 
+/// QYTC1d: class probes allowed between two geometry reads (`GeomCache::refresh` refills it).
+const CLASS_PROBES_PER_READ: u32 = 32;
+
+thread_local! {
+    static PROBE_BUDGET: Cell<u32> = const { Cell::new(CLASS_PROBES_PER_READ) };
+}
+
 /// QYTC1d: most selector matches one side of a probe may run (elements x selectors).
 const CLASS_PROBE_MAX: usize = 20_000;
 
@@ -400,19 +407,25 @@ fn class_tokens(v: Option<&str>) -> std::collections::HashSet<&str> {
     v.map(|v| v.split_ascii_whitespace().collect()).unwrap_or_default()
 }
 
+/// QYTC1d: cheap gate checked before anything else per `class` write: the last forced layout is
+/// current (no geometry bump or CSS change since) and the probe budget is not used up.
+pub(crate) fn class_probe_possible() -> bool {
+    PROBE_BUDGET.with(Cell::get) > 0
+        && ATTR_SNAP.with(|s| matches!(s.borrow().as_ref(), Some(((g, css), _)) if *g == crate::js_dom::geom_gen() && *css == crate::js_style::css_ver()))
+}
+
 /// QYTC1d, before `x`'s `class` goes from `old` to `new` (`None` = absent): `Some` when the last
 /// forced layout is current (no geometry bump or CSS change since), no `content` reads
 /// `attr(class)`, and the rules naming a class that changes (plus those reading `class` as an
 /// attribute) are bounded (not inside `:has()`/`:nth-child(of)`); it records which of their
 /// selectors match each element the change can reach.
 pub(crate) fn class_write_pre(x: &Handle, old: Option<&str>, new: Option<&str>) -> Option<ClassProbe> {
-    if !matches!(x.data, NodeData::Element { .. }) {
+    if !matches!(x.data, NodeData::Element { .. }) || !class_probe_possible() {
         return None;
     }
-    let current = ATTR_SNAP.with(|s| matches!(s.borrow().as_ref(), Some(((g, css), _)) if *g == crate::js_dom::geom_gen() && *css == crate::js_style::css_ver()));
-    if !current {
-        return None;
-    }
+    // A probe only pays off when a geometry read follows; a script that churns classes without
+    // reading gets a few probes, then one bump, and every later write finds the cache stale.
+    PROBE_BUDGET.with(|b| b.set(b.get().saturating_sub(1)));
     let deps = current_class_deps()?;
     if deps.content_reads {
         return None;
@@ -824,6 +837,8 @@ impl GeomCache {
     fn refresh(&mut self, page: &Handle, wgen: u64, vw: f32, vh: f32) {
         // QY53h: keyed on the CSS version counters; the CSS string is only built on a miss.
         let key = (wgen, vw as u32, vh as u32, crate::js_style::css_ver());
+        // QYTC1d: a geometry read: class writes after it may be probed again.
+        PROBE_BUDGET.with(|b| b.set(CLASS_PROBES_PER_READ));
         if self.key == Some(key) {
             return;
         }

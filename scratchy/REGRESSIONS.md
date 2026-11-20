@@ -798,6 +798,26 @@ the edge of the noise at this window size. The 960x230 bursts QYTC1b saw could n
 paint (a "flipped rules declare only box-neutral properties" tier, proposed QYTC1f, needs care:
 `opacity < 1` makes a stacking context, which moves hoisted boxes).
 
+**Probe cost (coordinator review of #414).** Headless `--perf-report`, throwaway counters (reverted),
+every run under the perf flock, interleaved:
+- Worst case, a local fixture (200 elements, each with 10 children; per rAF frame 3 class toggles on
+  each, all inert: `.a .nomatch`, `.b > .nope`, a `[class*=zz]` rule; one forced read at the start,
+  none after; 12 s). The first version probed EVERY write: 360 000 probes, 495-1 230 ms of probe
+  time, JS 794-1 038 ms (main) -> 1 365-3 101 ms (+60 % or more), load 4-12. Fix: a probe budget
+  of 32 class writes per geometry read (`PROBE_BUDGET`, refilled in `GeomCache::refresh`, which
+  every read goes through); after it the write bumps, the cache is stale, and every later class write
+  stops at the cheap `class_probe_possible` gate (budget + `ATTR_SNAP` current) BEFORE the
+  `page_connected` walk. Final, 4 interleaved pairs at load 0.2-1.0: JS 794/819/811/807 ms (main)
+  vs 824/814/832/806 ms (mean 808 -> 819, +1.4 %); process CPU 960/980/960/960 vs 980/970/1000/960
+  (+1.3 %).
+- github.com home (15 s, load 1.6-4.1): a single class write per load reaches the probe; JS
+  16 962/17 205/21 509 ms (main) vs 17 233/17 487/21 768 (first, unbudgeted version) vs
+  17 146/18 167/21 967 (budgeted): the run-to-run spread (forced layouts 13.4-17.5 s per run) hides
+  any difference.
+- YouTube watch page headless (15 s, load 0.5-3.7): 402 class writes, 11 probes, 17.6 ms probe time in
+  total (mostly building `ClassDeps` for YouTube's rule list once), i.e. ~0.6 % of ~3.1 s JS;
+  JS 3 305/3 280 ms (main) vs 3 090/3 115 ms (budgeted), forced layouts 86-87 -> 78-79.
+
 ## R49: QAN1h: GitHub restyle re-measured. R31's 15-18 s restyle is gone: a page of that size (github.com repo page, 1 809 elements, 16 220 rules) now builds in 126 ms headless and 210-250 ms in a window. But today's github.com HOME is a bigger page (~3 200 elements, 29 342 rules), and a full build of it still takes 0.65 s headless and 1.1-1.55 s in a window. That is the cost of every hover and every JS restyle (input-to-frame 1.3-1.6 s). About half of the build is selector matching (534 candidate rules per match call, 1 344 rules in the universal bucket, 2.3 % of full matches succeed). About a fifth is `var()` re-expansion: each element re-substitutes and re-parses each matched `var()` rule, 19 272 times per build for 694 distinct declaration blocks (Opus, 2026-11-19, measure only, docs only) — OPEN: proposed QAN1h1-QAN1h3 (below)
 
 **Status: measurement only. No product change; the temporary counters were reverted.** Main **a116be4**,

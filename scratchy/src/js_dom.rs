@@ -1006,7 +1006,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             let old = element_attr(&h, &name).map(|s| s.to_string());
             let changed = old.as_deref() != Some(val.as_str());
             // QYTC1d: a `class` write that changes no element's matched rules keeps the layout.
-            let probe = (changed && name == "class" && page_connected(&t.borrow(), &h))
+            let probe = (changed && name == "class" && crate::js_geom::class_probe_possible() && page_connected(&t.borrow(), &h))
                 .then(|| crate::js_geom::class_write_pre(&h, old.as_deref(), Some(&val)))
                 .flatten();
             set_attr(&h, &name, &val);
@@ -1029,7 +1029,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         if let Some(h) = t.borrow().get(id) {
             let name = name.to_ascii_lowercase();
             let changed = element_attr(&h, &name).is_some();
-            let probe = (changed && name == "class" && page_connected(&t.borrow(), &h))
+            let probe = (changed && name == "class" && crate::js_geom::class_probe_possible() && page_connected(&t.borrow(), &h))
                 .then(|| crate::js_geom::class_write_pre(&h, element_attr(&h, "class").as_deref(), None))
                 .flatten();
             remove_attr(&h, &name);
