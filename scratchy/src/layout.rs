@@ -1226,11 +1226,28 @@ thread_local! {
     /// and an identical request later is served from here.
     pub(crate) static SHAPE_MEMO: RefCell<HashMap<u64, Arc<Mutex<ShapedParagraph>>, MemoBuild>> = RefCell::new(HashMap::default());
     pub(crate) static SHAPE_MEMO_ENABLED: Cell<bool> = const { Cell::new(false) };
-    /// QY53o3a: keys the current JS-thread layout used (hit or stored); `None` = not tracking
-    /// (the shaping worker keeps its own policy). `memo_sweep` drops every other entry.
+    /// QY53o3a: keys the current layout used (hit or stored); `None` = not tracking.
+    /// `memo_sweep` drops the entries no recent layout used.
     static SHAPE_MEMO_USED: RefCell<Option<std::collections::HashSet<u64, MemoBuild>>> = const { RefCell::new(None) };
     #[cfg(test)]
     pub(crate) static SHAPE_MEMO_PUTS: Cell<usize> = const { Cell::new(0) };
+    /// QMEM3j: this thread's memo lookups `(hits, misses)` (a key was computed), for the report.
+    static SHAPE_MEMO_LOOKUPS: Cell<(u64, u64)> = const { Cell::new((0, 0)) };
+    /// QY53o3c: per memo key, the last swept layout that used it (`memo_sweep` with `keep > 1`),
+    /// and the number of swept layouts so far.
+    static SHAPE_MEMO_AGE: RefCell<HashMap<u64, u32, MemoBuild>> = RefCell::new(HashMap::default());
+    static SHAPE_MEMO_PASS: Cell<u32> = const { Cell::new(0) };
+}
+
+/// Empties this thread's memo (a new viewport width or document: every key is stale).
+pub(crate) fn memo_clear() {
+    SHAPE_MEMO.with(|m| m.borrow_mut().clear());
+    SHAPE_MEMO_AGE.with(|a| a.borrow_mut().clear());
+}
+
+/// QMEM3j: `(hits, misses)` of this thread's `SHAPE_MEMO` lookups so far.
+pub(crate) fn shape_memo_lookups() -> (u64, u64) {
+    SHAPE_MEMO_LOOKUPS.with(|c| c.get())
 }
 
 /// QY53o3a: start recording which memo entries this layout uses.
@@ -1238,15 +1255,33 @@ pub(crate) fn memo_track_begin() {
     SHAPE_MEMO_USED.with(|u| *u.borrow_mut() = Some(std::collections::HashSet::default()));
 }
 
-/// QY53o3a: end the layout: drop the entries it did not use, then (only afterwards, so one big
-/// layout never loses its own entries) clear the memo if it still exceeds `cap`.
-pub(crate) fn memo_sweep(cap: usize) {
+/// QY53o3a: end the layout: drop the entries that none of the last `keep` swept layouts (this
+/// one included) used, then (only afterwards, so one big layout never loses its own entries)
+/// clear the memo if it still exceeds `cap`. The JS thread keeps 1 (its forced layouts re-read
+/// the same page); the shaping worker keeps a few, so a hover toggled off finds its old shape.
+pub(crate) fn memo_sweep(cap: usize, keep: u32) {
     let Some(used) = SHAPE_MEMO_USED.with(|u| u.borrow_mut().take()) else { return };
     SHAPE_MEMO.with(|m| {
         let mut m = m.borrow_mut();
-        m.retain(|k, _| used.contains(k));
+        if keep <= 1 {
+            m.retain(|k, _| used.contains(k));
+        } else {
+            let pass = SHAPE_MEMO_PASS.with(|p| {
+                p.set(p.get().wrapping_add(1));
+                p.get()
+            });
+            SHAPE_MEMO_AGE.with(|a| {
+                let mut a = a.borrow_mut();
+                for &k in &used {
+                    a.insert(k, pass);
+                }
+                a.retain(|_, last| pass.wrapping_sub(*last) < keep);
+                m.retain(|k, _| a.contains_key(k));
+            });
+        }
         if m.len() > cap {
             m.clear();
+            SHAPE_MEMO_AGE.with(|a| a.borrow_mut().clear());
         }
     });
 }
@@ -1379,6 +1414,10 @@ pub(crate) fn memo_key_text(kind: u8, text: &str, span: &SpanStyle, width: f32) 
 
 pub(crate) fn memo_get(key: Option<u64>) -> Option<Arc<Mutex<ShapedParagraph>>> {
     let hit = SHAPE_MEMO.with(|m| m.borrow().get(&key?).cloned());
+    SHAPE_MEMO_LOOKUPS.with(|c| {
+        let (h, m) = c.get();
+        c.set(if hit.is_some() { (h + 1, m) } else { (h, m + 1) });
+    });
     if hit.is_some() {
         memo_mark_used(key);
     }
@@ -1399,6 +1438,13 @@ pub(crate) fn memo_put(key: Option<u64>, entry: &Arc<Mutex<ShapedParagraph>>) {
     if let Some(k) = key {
         #[cfg(test)]
         SHAPE_MEMO_PUTS.with(|c| c.set(c.get() + 1));
+        // QMEM3j: a memoized paragraph lives for many layouts, so give back the capacity slack
+        // cosmic-text's shaping leaves in it (span list reserved per byte, glyph vectors grown by
+        // doubling: ~3.3 KB of 7.2 KB per Wikipedia entry). A clone allocates exact capacities;
+        // nothing else holds this entry yet (it was just made), so the swap is invisible.
+        if let Ok(mut g) = entry.lock() {
+            g.0 = g.0.clone();
+        }
         memo_mark_used(key);
         SHAPE_MEMO.with(|m| m.borrow_mut().insert(k, entry.clone()));
     }
@@ -1480,6 +1526,23 @@ pub(crate) fn shape_spans(
     pre: bool,
     align: Option<CosmicAlign>,
 ) -> ShapedParagraph {
+    shape_spans_with(font_system, items, width, pre, align, false)
+}
+
+/// QMEM3j test hook: `shape_spans` with the old empty line defaults (shaping must match).
+#[cfg(test)]
+pub(crate) fn shape_spans_legacy_defaults(font_system: &mut FontSystem, items: &[InlineItem], width: f32, pre: bool, align: Option<CosmicAlign>) -> ShapedParagraph {
+    shape_spans_with(font_system, items, width, pre, align, true)
+}
+
+fn shape_spans_with(
+    font_system: &mut FontSystem,
+    items: &[InlineItem],
+    width: f32,
+    pre: bool,
+    align: Option<CosmicAlign>,
+    legacy_defaults: bool,
+) -> ShapedParagraph {
     let spans: Vec<(&str, &SpanStyle)> = items
         .iter()
         .filter_map(|item| match item {
@@ -1531,8 +1594,15 @@ pub(crate) fn shape_spans(
             (*text, attrs)
         })
         .collect();
-    buffer.set_rich_text(rich, &Attrs::new(), Shaping::Advanced, align);
+    // QMEM3j: the first span's attrs as the line default: cosmic-text stores a span only when it
+    // differs from the default, so a one-span paragraph (nearly all of them) keeps no attribute
+    // `RangeMap` (a 1.5 KB B-tree leaf per line; Wikipedia: 12 MB). Shaping reads the same attrs
+    // either way (an empty line already takes the span's attrs).
+    let defaults = if legacy_defaults { Attrs::new() } else { rich.first().map_or_else(Attrs::new, |r| r.1.clone()) };
+    buffer.set_rich_text(rich, &defaults, Shaping::Advanced, align);
     buffer.shape_until_scroll(font_system, false);
+    // QMEM3j: `lines` grows by push from capacity 4 (BufferLine is 328 B): ~1 KB slack per buffer.
+    buffer.lines.shrink_to_fit();
     let mut height = 0.0f32;
     for run in buffer.layout_runs() {
         height = height.max(run.line_top + run.line_height);
@@ -5857,28 +5927,49 @@ pub(crate) fn shrink_to_fit(min_mb: f32, max_mb: f32, avail: f32) -> f32 {
 }
 
 /// QOBS7: `(entries, approx bytes)` of this thread's `SHAPE_MEMO` (the shaping worker's
-/// own copy is not reachable). Each paragraph is estimated at ~32 bytes per source character
-/// of shaped text plus the fixed tuple; cosmic-text's buffers are opaque, so this is rough.
+/// own copy is not reachable).
 pub(crate) fn shape_memo_mem() -> (usize, usize) {
-    // QMEM3c: cosmic-text keeps its shaped/laid-out lines in private fields, so per line this
-    // estimates one `ShapeGlyph` + one `LayoutGlyph` per char, the line struct and its attrs.
-    const PER_CHAR: usize = std::mem::size_of::<cosmic_text::ShapeGlyph>() + std::mem::size_of::<cosmic_text::LayoutGlyph>();
-    const PER_LINE: usize = 256;
     SHAPE_MEMO.with(|m| {
         let m = m.borrow();
-        let b = m
-            .values()
-            .map(|p| {
-                std::mem::size_of::<ShapedParagraph>()
-                    + p.try_lock().map_or(0, |g| {
-                        let spans = (g.2.capacity() + g.3.capacity() + g.4.capacity() + g.5.capacity() + g.6.capacity() + g.7.capacity()) * 24;
-                        spans + g.0.lines.iter().map(|l| l.text().len() + l.text().chars().count() * PER_CHAR + PER_LINE).sum::<usize>()
-                    })
-            })
-            .sum::<usize>();
-        // QMEM3b: calibrated against a heap profile (live cosmic-text allocations: Wikipedia 62 MB
-        // for 7 694 paragraphs vs 23.8 MB estimated, YouTube 3.8 vs 1.3 MB): the opaque per-run
-        // buffers, attribute range maps and fallback shaping are ~2.7x what the struct sizes say.
-        (m.len(), b / 10 * 27)
+        let b = m.values().map(|p| p.try_lock().map_or(std::mem::size_of::<ShapedParagraph>(), |g| shaped_paragraph_bytes(&g))).sum::<usize>();
+        (m.len(), b)
     })
+}
+
+/// QMEM3j: heap bytes of one shaped paragraph, from the capacities cosmic-text exposes (its
+/// shaped and laid-out lines are public through `shape_opt`/`layout_opt`), plus glibc's 16-byte
+/// chunk header per allocation. Wikipedia's memo: 29.5 MB estimated, 31.4 MB freed by clearing
+/// it (malloc in_use); the old per-char guess times 2.7 said 67 MB.
+pub(crate) fn shaped_paragraph_bytes(g: &ShapedParagraph) -> usize {
+    use cosmic_text::{AttrsOwned, BufferLine, DecorationSpan, LayoutGlyph, LayoutLine, ShapeGlyph, ShapeSpan, ShapeWord};
+    use std::mem::size_of;
+    const CHUNK: usize = 16;
+    // An attribute `RangeMap` is a B-tree: its first span allocates a whole 11-slot leaf.
+    const ATTR_LEAF: usize = 11 * (size_of::<std::ops::Range<usize>>() + size_of::<AttrsOwned>()) + 16;
+    let vec = |cap: usize, elem: usize| if cap == 0 { 0 } else { cap * elem + CHUNK };
+    let mut b = size_of::<ShapedParagraph>() + 2 * size_of::<usize>() + CHUNK;
+    b += vec(g.2.capacity(), size_of::<Option<TextColor>>())
+        + vec(g.3.capacity(), size_of::<VerticalAlign>())
+        + vec(g.4.capacity(), size_of::<bool>())
+        + vec(g.5.capacity(), size_of::<CursorStyle>())
+        + vec(g.6.capacity(), size_of::<DecorationStyle>())
+        + vec(g.7.capacity(), size_of::<(Option<&'static str>, usize, usize)>());
+    b += vec(g.0.lines.capacity(), size_of::<BufferLine>());
+    for l in &g.0.lines {
+        b += vec(l.text().len(), 1);
+        let spans = l.attrs_list().spans_iter().count();
+        b += spans.div_ceil(11) * ATTR_LEAF;
+        if let Some(sh) = l.shape_opt() {
+            b += vec(sh.spans.capacity(), size_of::<ShapeSpan>());
+            for sp in &sh.spans {
+                b += vec(sp.words.capacity(), size_of::<ShapeWord>()) + vec(sp.decoration_spans.capacity(), size_of::<(std::ops::Range<usize>, cosmic_text::GlyphDecorationData)>());
+                b += sp.words.iter().map(|w| vec(w.glyphs.capacity(), size_of::<ShapeGlyph>())).sum::<usize>();
+            }
+        }
+        if let Some(ll) = l.layout_opt() {
+            b += vec(ll.capacity(), size_of::<LayoutLine>());
+            b += ll.iter().map(|x| vec(x.glyphs.capacity(), size_of::<LayoutGlyph>()) + vec(x.decorations.capacity(), size_of::<DecorationSpan>())).sum::<usize>();
+        }
+    }
+    b
 }

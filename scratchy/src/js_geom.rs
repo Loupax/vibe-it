@@ -581,7 +581,7 @@ impl GeomCache {
         crate::layout::SHAPE_MEMO_ENABLED.with(|m| m.set(true));
         let vp = (vw as u32, vh as u32);
         if self.last_vp != Some(vp) {
-            crate::layout::SHAPE_MEMO.with(|m| m.borrow_mut().clear());
+            crate::layout::memo_clear();
         }
         self.last_vp = Some(vp);
         crate::layout::memo_track_begin();
@@ -636,7 +636,7 @@ impl GeomCache {
             (laid, glyphs, deps)
         }));
         set_viewport(prev_vp.0, prev_vp.1);
-        crate::layout::memo_sweep(SHAPE_MEMO_CAP);
+        crate::layout::memo_sweep(SHAPE_MEMO_CAP, 1);
         let found = crate::images::DISPLAY_NONE_ROOTS.with(|r| r.borrow_mut().take()).unwrap_or_default();
         let t_phase = crate::perf::phase(crate::perf::Phase::RectWalk);
         let prev = std::mem::take(&mut self.rects);
