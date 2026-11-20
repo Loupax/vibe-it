@@ -705,19 +705,7 @@ impl GeomCache {
             return Vec::new();
         }
         self.refresh(page, wgen, vw, vh);
-        let r = self.lookup(h).or_else(|| self.union_below(h)).or_else(|| {
-            // An inline element has no box: use the nearest box ancestor.
-            let mut cur = parent_handle(h);
-            while let Some(a) = cur {
-                if matches!(a.data, NodeData::Element { .. })
-                    && let Some(r) = self.lookup(&a)
-                {
-                    return Some(r);
-                }
-                cur = parent_handle(&a);
-            }
-            None
-        });
+        let r = find_in(&self.rects, h);
         let Some(r) = r else { return Vec::new() };
         vec![
             r.x as f64,
@@ -853,35 +841,97 @@ impl GeomCache {
         v.sort_by_key(|e| e.0);
         v
     }
+}
 
-    fn lookup(&self, h: &Handle) -> Option<GeomRect> {
-        self.rects.get(&node_id(h)).copied()
-    }
-
-    /// Union of the boxes of the nearest element descendants that have one
-    /// (an inline element, or `display: contents`).
-    fn union_below(&self, h: &Handle) -> Option<GeomRect> {
-        let mut acc: Option<GeomRect> = None;
-        let mut stack: Vec<Handle> = h.children.borrow().iter().cloned().collect();
-        while let Some(n) = stack.pop() {
-            if !matches!(n.data, NodeData::Element { .. }) {
-                continue;
+/// The box of element `h` in `rects`: its own, else the union of its nearest boxed descendants
+/// (an inline element, `display: contents`), else the nearest box ancestor's.
+fn find_in(rects: &HashMap<usize, GeomRect>, h: &Handle) -> Option<GeomRect> {
+    lookup_in(rects, h).or_else(|| union_below_in(rects, h)).or_else(|| {
+        let mut cur = parent_handle(h);
+        while let Some(a) = cur {
+            if matches!(a.data, NodeData::Element { .. })
+                && let Some(r) = lookup_in(rects, &a)
+            {
+                return Some(r);
             }
-            if let Some(r) = self.lookup(&n) {
-                acc = Some(match acc {
-                    None => r,
-                    Some(a) => {
-                        let (x, y) = (a.x.min(r.x), a.y.min(r.y));
-                        let (rr, bb) = ((a.x + a.w).max(r.x + r.w), (a.y + a.h).max(r.y + r.h));
-                        GeomRect { x, y, w: rr - x, h: bb - y, fixed: a.fixed, ink_r: a.ink_r.max(r.ink_r), ink_b: a.ink_b.max(r.ink_b) }
-                    }
-                });
-            } else {
-                stack.extend(n.children.borrow().iter().cloned());
-            }
+            cur = parent_handle(&a);
         }
-        acc
+        None
+    })
+}
+
+fn lookup_in(rects: &HashMap<usize, GeomRect>, h: &Handle) -> Option<GeomRect> {
+    rects.get(&node_id(h)).copied()
+}
+
+/// Union of the boxes of the nearest element descendants that have one.
+fn union_below_in(rects: &HashMap<usize, GeomRect>, h: &Handle) -> Option<GeomRect> {
+    let mut acc: Option<GeomRect> = None;
+    let mut stack: Vec<Handle> = h.children.borrow().iter().cloned().collect();
+    while let Some(n) = stack.pop() {
+        if !matches!(n.data, NodeData::Element { .. }) {
+            continue;
+        }
+        if let Some(r) = lookup_in(rects, &n) {
+            acc = Some(match acc {
+                None => r,
+                Some(a) => {
+                    let (x, y) = (a.x.min(r.x), a.y.min(r.y));
+                    let (rr, bb) = ((a.x + a.w).max(r.x + r.w), (a.y + a.h).max(r.y + r.h));
+                    GeomRect { x, y, w: rr - x, h: bb - y, fixed: a.fixed, ink_r: a.ink_r.max(r.ink_r), ink_b: a.ink_b.max(r.ink_b) }
+                }
+            });
+        } else {
+            stack.extend(n.children.borrow().iter().cloned());
+        }
     }
+    acc
+}
+
+/// QY53e2: the App's own complete layout, as a read-only rect map for IntersectionObserver.
+struct Rendered {
+    stamp: RenderStamp,
+    vp: (u32, u32),
+    rects: HashMap<usize, GeomRect>,
+}
+
+/// What a layout was built from: the geometry generation (plus in-place shifts) and the CSS versions.
+pub(crate) type RenderStamp = (u64, (u64, u64));
+
+thread_local! {
+    static RENDERED: RefCell<Option<Rendered>> = const { RefCell::new(None) };
+}
+
+/// QY53e2: the stamp of the DOM/CSS as they are now; the App records it when it builds a tree.
+pub(crate) fn render_stamp() -> RenderStamp {
+    (crate::js_dom::geom_gen() + geom_shifts(), crate::js_style::css_ver())
+}
+
+/// QY53e2: keeps the rects of the App's complete layout `l`, built at `stamp` for a `vw` x `vh` window.
+pub(crate) fn set_rendered(l: &Laid, stamp: RenderStamp, vw: u32, vh: u32) {
+    let mut rects = HashMap::new();
+    walk(l, false, &mut rects, &mut Vec::new(), u32::MAX);
+    RENDERED.with(|r| *r.borrow_mut() = Some(Rendered { stamp, vp: (vw, vh), rects }));
+}
+
+pub(crate) fn clear_rendered() {
+    RENDERED.with(|r| *r.borrow_mut() = None);
+}
+
+/// QY53e2: is the kept App layout of the page as it is now (same DOM/CSS stamp) at this viewport?
+pub(crate) fn rendered_ok(vw: u32, vh: u32) -> bool {
+    RENDERED.with(|r| r.borrow().as_ref().is_some_and(|x| x.stamp == render_stamp() && x.vp == (vw, vh)))
+}
+
+/// QY53e2: `GeomCache::rect_of`'s `[x, y, w, h, fixed, ink_r, ink_b, page_w, page_h]` from the App layout
+/// (page size 0); empty when the element has no box or no valid App layout is kept.
+pub(crate) fn rendered_rect(h: &Handle) -> Vec<f64> {
+    RENDERED.with(|r| {
+        let r = r.borrow();
+        let Some(r) = r.as_ref() else { return Vec::new() };
+        let Some(b) = find_in(&r.rects, h) else { return Vec::new() };
+        vec![b.x as f64, b.y as f64, b.w as f64, b.h as f64, if b.fixed { 1.0 } else { 0.0 }, b.ink_r as f64, b.ink_b as f64, 0.0, 0.0]
+    })
 }
 
 /// Aligns a DOM text node's UTF-16 units with the glyphs laid out for it

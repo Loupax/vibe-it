@@ -40,6 +40,11 @@ pub(crate) fn set_window_viewport(w: u32, h: u32) {
     WINDOW_VIEWPORT.with(|v| v.set((w, h)));
 }
 
+/// QY53e2: is there a window (the App has published its size)?
+pub(crate) fn has_window_viewport() -> bool {
+    WINDOW_VIEWPORT.with(|v| v.get().0 != 0 && v.get().1 != 0)
+}
+
 fn env_viewport() -> (u32, u32) {
     let v = WINDOW_VIEWPORT.with(|v| v.get());
     if v.0 == 0 || v.1 == 0 { DEFAULT_VIEWPORT } else { v }
@@ -1386,6 +1391,21 @@ impl JsEngine {
         let Some(id) = self.table.borrow().id_of_ptr(node) else { return false };
         let (name, arg) = op.js();
         self.eval_value::<bool>("media-ui", &format!("__scratchy_media_ui({id},'{name}',{arg})")).unwrap_or(false)
+    }
+
+    /// QY53e2: the App finished a COMPLETE layout `laid` of the page for a `vw` x `vh` window, built when
+    /// the DOM/CSS were at `stamp` (`js_geom::render_stamp()` taken at the build). If a deferred
+    /// IntersectionObserver recheck is waiting and the page is still as built, the observers evaluate on
+    /// it instead of forcing a layout of their own; otherwise this does nothing (the forced path stays).
+    pub(crate) fn rendered_geometry(&self, laid: &crate::layout::Laid, stamp: crate::js_geom::RenderStamp, vw: u32, vh: u32) {
+        if stamp != crate::js_geom::render_stamp() {
+            return;
+        }
+        if !self.eval_value::<bool>("io-want", "!!globalThis.__scratchy_ioWant && globalThis.__scratchy_ioWant()").unwrap_or(false) {
+            return;
+        }
+        crate::js_geom::set_rendered(laid, stamp, vw, vh);
+        self.eval("io-rendered", "globalThis.__scratchy_ioRendered()");
     }
 
     /// QM1g: true once when a video's size became known/changed (relayout).

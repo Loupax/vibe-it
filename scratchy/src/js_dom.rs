@@ -911,6 +911,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     });
     // QJ4: layout rect of element `id` (document space), see js_geom.rs.
     let t = table.clone();
+    crate::js_geom::clear_rendered();
     let geom = Rc::new(RefCell::new(crate::js_geom::GeomCache::default()));
     let geom2 = geom.clone();
     for glyphs in [false, true] {
@@ -957,6 +958,15 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         }
         geom2.borrow_mut().text_rects(&page, geom_gen(), &h, vw as f32, vh as f32)
     });
+    // QY53e2: the App's own layout (js_geom::set_rendered) as a read-only rect source for IntersectionObserver.
+    let t = table.clone();
+    native!(ctx, "__d_rect_r", move |id: i32| -> Vec<f64> {
+        let Some(h) = t.borrow().get(id) else { return Vec::new() };
+        crate::js_geom::rendered_rect(&h)
+    });
+    native!(ctx, "__d_rend_ok", |vw: f64, vh: f64| -> bool { crate::js_geom::rendered_ok(vw as u32, vh as u32) });
+    native!(ctx, "__d_win", || crate::js::has_window_viewport());
+    native!(ctx, "__d_rend_clear", || crate::js_geom::clear_rendered());
     // QY53e1: is the geometry cache current for this viewport (no layout), and what the last layout cost.
     native!(ctx, "__d_geom_fresh", move |vw: f64, vh: f64| -> bool { geom3.borrow().is_fresh(geom_gen(), vw as f32, vh as f32) });
     native!(ctx, "__d_geom_cost", move || -> f64 { geom4.borrow().last_cost_ms() });
@@ -4305,9 +4315,11 @@ const DOM_PRELUDE: &str = r#"
   // (cached until the next DOM write) and returns the element's document-
   // space box [x, y, w, h, fixed, inkR, inkB, pageW, pageH], or [] when the
   // element has no box. Detached / display:none elements read as zeros.
+  // QY53e2: while `gRend` is on (IO evaluating on the App's own layout) rects come from it, no layout.
+  var gRend = false;
   var gRect = function (el) {
     if (!ioShown(el)) return null;
-    var r = __d_rect(el.__id, Number(g.innerWidth) || 0, Number(g.innerHeight) || 0);
+    var r = gRend ? __d_rect_r(el.__id) : __d_rect(el.__id, Number(g.innerWidth) || 0, Number(g.innerHeight) || 0);
     return r.length ? r : null;
   };
   var gElScroll = new Map(), gScrollGen = 0, gScrollable, gNid, gAncestorScroll, gSetScroll, gScrollEvent;
@@ -4712,6 +4724,7 @@ const DOM_PRELUDE: &str = r#"
       if (recs.length) { try { st.cb.call(st.obs, recs, st.obs); } catch (e) { obsErr(st.name, e); } }
     }
     if (g.__perf_e) g.__perf_e();
+    if (ioRendNext) { ioRendNext = false; __d_rend_clear(); }
   };
   var obsSchedule = function (st) {
     if (!st.pending) { st.pending = true; obsPending.push(st); }
@@ -4769,7 +4782,7 @@ const DOM_PRELUDE: &str = r#"
   // geometry is already fresh (a script read laid it out), else evaluated at the first of the end
   // of a task after which it is fresh, or `ioDue` (one timer; later writes do not move it).
   // Scroll, viewport and element scroll keep the immediate path.
-  var ioActive = new Set(), ioSig = '', ioGen = -1, ioTickQ = false, ioDueT = null;
+  var ioActive = new Set(), ioSig = '', ioGen = -1, ioTickQ = false, ioDueT = null, ioRendNext = false;
   var ioHardSig = function () { return g.innerWidth + 'x' + g.innerHeight + ':' + g.scrollX + ',' + g.scrollY + ':' + gScrollGen; };
   var ioRecheck = function () {
     ioTickQ = false;
@@ -4790,9 +4803,22 @@ const DOM_PRELUDE: &str = r#"
     if (gen === ioGen) return;
     if (__d_geom_fresh(Number(g.innerWidth) || 0, Number(g.innerHeight) || 0)) { ioNudge(); return; }
     if (ioDueT === null) {
-      var d = Math.min(2000, Math.max(100, 4 * __d_geom_cost()));
+      // QY53e2: in a window the App's own layout of this DOM is on its way (it runs after every write
+      // batch): wait for it up to the cap; headless keeps the cost-based deadline.
+      var d = __d_win() ? 2000 : Math.min(2000, Math.max(100, 4 * __d_geom_cost()));
       ioDueT = sTimeout.call(g, function () { ioDueT = null; ioNudge(); }, d);
     }
+  };
+  // QY53e2: the App finished a complete layout of this very DOM (`__d_rend_ok`): is a geometry-only
+  // recheck waiting? (cheap; the App builds its rect map only when this says yes)
+  g.__scratchy_ioWant = function () {
+    return ioActive.size > 0 && !ioTickQ && ioHardSig() === ioSig && __d_ggen() !== ioGen;
+  };
+  // ... then evaluate every observer on it, with no layout of our own.
+  g.__scratchy_ioRendered = function () {
+    if (!g.__scratchy_ioWant() || !__d_rend_ok(Number(g.innerWidth) || 0, Number(g.innerHeight) || 0)) return;
+    ioRendNext = true;
+    ioRecheck();
   };
   var ioPx = function (v, size) { var n = parseFloat(v) || 0; return v.slice(-1) === '%' ? size * n / 100 : n; };
   // [l, t, r, b] viewport-space padding box of an overflow ancestor / root.
@@ -4853,7 +4879,12 @@ const DOM_PRELUDE: &str = r#"
     }
   };
   // QOBS3: geometry reads made while this runs are the `io` reason of a forced layout (--perf-report).
-  var ioEval = function (st) { __d_io(true); try { ioEval0(st); } finally { __d_io(false); } };
+  // QY53e2: on the App's layout when it is still the page as it is (else the forced path, as before).
+  var ioEval = function (st) {
+    __d_io(true);
+    gRend = ioRendNext && __d_rend_ok(Number(g.innerWidth) || 0, Number(g.innerHeight) || 0);
+    try { ioEval0(st); } finally { gRend = false; __d_io(false); }
+  };
   IO.prototype.observe =function (target) {
     var st = ioSt(this, 'observe');
     if (arguments.length < 1) throw new TypeError("Failed to execute 'observe' on 'IntersectionObserver': 1 argument required, but only 0 present.");
