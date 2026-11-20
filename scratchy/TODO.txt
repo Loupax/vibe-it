@@ -988,6 +988,9 @@ challenge/consent wall. Fixture "big-css" (generate in the test, never vendor): 
 (`.c<i> .d<i> { margin-left: 1px }`, plus 200 `::before { content: "x" }` rules), 1 000 nested
 divs with 3 classes each, a script that does 50 x (write one attribute, read `offsetWidth`).
 
+- [ ] QFLK3 [S] (P2, from the QPT1f4 and QY53m agents; Sonnet) tests::js_dom_tests::qb2_js_dom_writes_use_restyle_path fails
+      intermittently, also on main when run alone ("stale-promise" assertion; the QY53m agent saw it fail in debug at its QF7
+      section: `done` undefined, expected "AAA"). Find the order/timing dependence and make it deterministic (prove: 10 runs).
 - [ ] QY53e2b [M] (P2, from QY53e2 #396; Opus design then Sonnet) IO during script churn: the App's complete layouts on
       Wikipedia/YouTube are almost always one DOM write behind (geom_gen > 600 in the first second), so #396's "current
       layout only" path serves ~0 rechecks there (YT: 1 of 23). Options: evaluate on the last complete App layout, hold
