@@ -2176,6 +2176,9 @@ pub(crate) fn build_layout_tree_with_resources(
     }
     PSEUDO_FLAGS.with(|f| f.set(None));
     let memo = MATCH_MEMO.with(|m| m.borrow_mut().take());
+    // QINC1j-ab: the shadow update runs on this very DOM and state, so every match the build made is
+    // the engine's answer too (a full restyle after a restart re-matches nothing).
+    let shadow_memo = if shadow { memo.clone() } else { None };
     crate::style::stash_last_match(memo, &rules, viewport_width);
     VAR_EXPAND_MEMO.with(|m| *m.borrow_mut() = None);
     ANCESTOR_BLOOM.with(|b| *b.borrow_mut() = None);
@@ -2190,7 +2193,7 @@ pub(crate) fn build_layout_tree_with_resources(
     }
     drop(_t_phase);
     if shadow {
-        crate::incr_style::after_build(document, &rules, viewport_width, viewport_height, image_cache, &tree);
+        crate::incr_style::after_build(document, &rules, viewport_width, viewport_height, image_cache, &tree, shadow_memo);
     }
     tree
 }

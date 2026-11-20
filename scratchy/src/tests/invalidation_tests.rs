@@ -119,6 +119,47 @@ fn shape_hover_and_focus_within() {
     assert!(m.for_state(&q, StateKind::FocusWithin).is_empty());
 }
 
+/// QINC1j-ab: the compound carrying `:hover` is checked on the element entering the state before its
+/// descendants are walked: `:hover` on an ancestor without `.menu` marks nothing for `.menu:hover .icon`,
+/// while a key-less `:hover .icon` still reaches the icons below it.
+#[test]
+fn hover_on_ancestor_filters_by_carrier_compound() {
+    let page = "<body><div id=app><div id=menu class=menu><i id=i1 class=icon></i></div><span id=s><i id=i2 class=icon></i></span></div></body>";
+    let d = parse_html(page);
+    let app = by_id(&d, "app");
+    let menu = by_id(&d, "menu");
+    // only the `.menu` compound reads `:hover`
+    let m = map(".menu:hover .icon{color:red} div.menu:hover > i{color:blue} #menu:hover i{color:green}");
+    assert!(m.for_state(&app, StateKind::Hover).is_empty(), "#app has no .menu: no descendant can change");
+    assert_eq!(ids(&d, &m.for_state(&menu, StateKind::Hover)), ["i1"]);
+    // a descendant-dependent rule whose hover compound has no tag / id / class: the subtree is walked
+    let m = map(".menu:hover .icon{color:red} :hover > .icon{color:blue}");
+    assert_eq!(ids(&d, &m.for_state(&app, StateKind::Hover)), Vec::<String>::new(), "`:hover > .icon`: #app has no .icon child");
+    let s = by_id(&d, "s");
+    assert_eq!(ids(&d, &m.for_state(&s, StateKind::Hover)), ["i2"]);
+    let m = map("[data-x]:hover .icon{color:red} :hover .icon{color:blue}");
+    assert_eq!(ids(&d, &m.for_state(&app, StateKind::Hover)), ["i1", "i2"]);
+    // an attribute write on the carrier is filtered by its classes, a class write is not
+    let m = map(".menu[x] .icon{color:red}");
+    assert!(m.for_attr(&app, "x", None, Some("1")).is_empty());
+    assert_eq!(ids(&d, &m.for_attr(&menu, "x", None, Some("1"))), ["i1"]);
+    let old = set_class(&app, Some("menu"));
+    assert_eq!(ids(&d, &m.for_class(&app, old.as_deref(), Some("menu"))), ["i1", "i2"]);
+}
+
+/// QINC1j-ab: entries sharing a hop path are walked once and keep what passes any of their subject
+/// filters; the result equals the union of the entries' own walks.
+#[test]
+fn grouped_walk_is_union_of_entries() {
+    let page = "<body><div id=app><p id=p1 class=a></p><p id=p2 class=b></p><span id=s1 class=a></span><em id=e1></em></div></body>";
+    let d = parse_html(page);
+    let app = by_id(&d, "app");
+    let m = map(":hover p.a{color:red} :hover .b{color:red} :hover span{color:red}");
+    assert_eq!(ids(&d, &m.for_state(&app, StateKind::Hover)), ["p1", "p2", "s1"]);
+    let m = map(":hover p.a{color:red} :hover *{color:red}");
+    assert_eq!(ids(&d, &m.for_state(&app, StateKind::Hover)), ["e1", "p1", "p2", "s1"]);
+}
+
 #[test]
 fn shape_structural() {
     let m = map("li:nth-child(2n){color:red}");
@@ -273,13 +314,16 @@ fn rand_html(r: &mut Rng, depth: usize, ids: &mut usize) -> String {
     s
 }
 
-const SHAPES: [&str; 40] = [
+const SHAPES: [&str; 48] = [
     ".K", "#i1", "[x]", "[x=1]", ".K .K", ".K > .K", ".K + .K", ".K ~ .K", ".K ~ .K .K", "[x] .K", ":hover .K", ".K:hover",
     "#i1:focus-within", "li:nth-child(2n)", ":empty", "p:empty", ":not(.K) .K", ":is(.K,.K) .K", ":where(.K .K) span",
     "div:first-child", "div:last-child > .K", "li:only-child", "li:nth-of-type(2)", ".K:checked", "input:disabled",
     ":disabled + .K", "a:link .K", ".K[x] + div > span", ":nth-child(odd) .K", "p:nth-last-child(2)", "div .K:not(.K)",
     "[class*=a]", "input[type=checkbox]:checked ~ .K", "fieldset:disabled input", ":lang(en) .K", ".K:focus", ".K:active .K",
     "span::before", ".K::after", ":nth-child(2 of .K)",
+    // QINC1j-ab: carrier filters (the compound holding the state / attribute is keyed by tag, id, class)
+    "div.K:hover .K", "#i1:hover > span", "li.K:active ~ .K", ".K:hover + .K .K", "span.K[x] .K", ":is(.K:hover) span",
+    ".K:not(:hover) .K", "p.K:focus-within .K",
 ];
 
 fn rand_css(r: &mut Rng) -> String {

@@ -1226,6 +1226,60 @@ images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom
   precision: `:hover` on `ytd-app` marks 7.5k descendants; find the rules and filter the descendant set by the
   subject's features), QINC1j-c (App-level tests share one event loop per test process: ~20 existing App tests build
   their own and silently return when another test holds it; move them to the shared proxy in incr_frame_tests.rs).
+  QINC1j-ab DONE (Opus, 2026-11-20; `src/invalidation.rs`, `src/incr_style.rs`, two lines in `images.rs`; tests in
+  `invalidation_tests.rs`, `incr_style_tests.rs`): the quiet-regime YouTube slowdown was the INVALIDATION, not the
+  re-match. Temporary timing diag (removed) on one hover-into-`ytd-app` frame: update 295 ms = marks 235 ms + visit 53 ms
+  (re-match + cascade of 4 062 elements: ~13 us each, about what the build pays) + 6 ms counter walk. The selectors
+  behind the 7.5k marks: `.ytLpFaqEntryViewModelHost:hover [class$=icon-hover-highlighting]` (subject without
+  tag/id/class: every descendant), `.ytp-info-panel-detail-close:hover path`, ...: the map never checked the compound
+  holding `:hover` on the element ENTERING the state, and walked the subtree once per entry. Changes (no style / box /
+  layout semantics; the shadow compares and the fuzz harness keep them exact):
+  (1) **carrier filters**: every `Entry` keeps the tag / id / classes of the compound that holds its feature; `apply`
+  drops an entry whose carrier filter the changed element fails (same `filter_self` rule as before: not for a `class` /
+  `id` write, which changes those features; a pseudo-element compound's state sits on the subject: no filter). A
+  `:hover` on `ytd-app` now reaches only rules whose `:hover` compound can match `ytd-app`.
+  (2) **one walk per hop path**: entries of a key that share a hop path are walked once, keeping the elements that pass
+  any of their subject filters (`None` in the group = everything); node sets use `PtrHasher`.
+  (3) **map build**: dedup by sorting each key's entries instead of a `HashSet<(Key, Entry)>` (YouTube: 26.5k
+  selectors, 55k adds, 32k entries: ~40 -> ~25-30 ms per rule-list generation).
+  (4) **counter / quote walk skipped** when nothing it reads changed (no DOM write in the log, no stored match list
+  changed, no unlogged change found by the check-mode reconcile; `Stats::gen_walked`).
+  (5) (QINC1i4, matches half) **the shadow update after a from-scratch build starts from the build's match memo**
+  (`after_build(.., build_memo)`, `Env::enter_as(.., memo)`): it runs on the same DOM and state, so a restart's full
+  restyle re-matches nothing; the cascade half (adopting the build's styles) is left for QINC1i4.
+  Tests: `hover_on_ancestor_filters_by_carrier_compound` (hover on an ancestor with only `.menu:hover` rules marks
+  nothing; key-less `:hover > .icon` / `:hover .icon` still walk; attribute write filtered by the carrier's class, a
+  class write not), `grouped_walk_is_union_of_entries`, `qinc1j_ab_hover_on_an_ancestor_rematches_only_what_its_rules_reach`
+  (60 menus: hover on `#app` re-matches 0, on `#m3` exactly 3), `qinc1j_ab_counter_walk_only_after_a_change_it_can_see`;
+  8 new carrier shapes in the invalidation soundness fuzz (5 000 cases x 12 steps: 0 unsound, tightness 1.48 on steps
+  with a change). Fuzz harness (release, `SCRATCHY_FUZZ_KEEP_GOING=1`): 7 windows x 3 000 cases (seeds 0 ... 60 000):
+  0 mismatches. Suite 1 715 passed (debug, after rebasing on QINC1i #460).
+  Gate (release, rebased on #460; own wire per run, own nested dwl 960x1006, QINC1j's R55 input; `yt` = click on play,
+  `ytq` = the same without the click; flag off vs `SCRATCHY_INCR=1` of the SAME binary, interleaved, order flipped per
+  round, every run under `flock /tmp/scratchy-perf.lock` and the 6G scope; 1-min load 0.2-1.2):
+  | run | off: builds n / ms, worker ms | INCR=1: builds n / ms, worker ms |
+  |---|---|---|
+  | YouTube `yt` 1, 2, 3 | 86 / 3 317, 438; 95 / 3 074, 384; 66 / 2 601, 341 | 74 / 1 017, 47; 70 / 936, 45; 77 / 981, 39 |
+  | YouTube `ytq` 1, 2, 3 | 62 / 2 482, 323; 75 / 2 459, 319; 93 / 3 084, 406 | 73 / 966, 47; 71 / 1 007, 40; 81 / 979, 38 |
+  | Wikipedia 1, 2, 3 | 103 / 9 428, 2 212; 103 / 9 483, 2 204; 103 / 9 338, 1 959 | 196 / 7 790, 201; 212 / 8 279, 197; 212 / 8 402, 201 |
+  Every YouTube run was in the QUIET regime this time (61-95 builds off; playback never started, with or without the
+  click), so no active-regime pair exists; QINC1j's quiet runs were +50-80 % with INCR=1, now -60 to -70 % (2.4-3.3 s ->
+  0.94-1.02 s), and forced layouts with INCR=1 are 0.55-0.63 s vs 2.6-2.9 s off (QINC1i). Before the rebase (QINC1j
+  base, same input): YouTube off 2 338-2 623 vs INCR=1 907-1 134 ms; Wikipedia INCR=1 3 312-3 414 ms (QINC1j: 3 852-4 199).
+  INCR=1 vs main #460 (same flag, interleaved): YouTube 854 / 964 ms vs 4 865 / 5 071 ms builds (13 `restyled_share`
+  worker frames per run on main, 0 here; engine restyle 0.88 s vs 4.9 s); Wikipedia builds 8 209 / 8 127 vs 7 218 / 7 391
+  ms but forced 1 541 / 1 469 vs 3 769 / 3 366 ms (builds + forced -11 %: 9.6-9.8 s vs 10.8-11.0 s; engine restyle
+  2.1 s vs 3.9 s). Attribution (temporary env toggles in one binary, removed; 2 runs each): the counter-walk skip saves
+  1.1 s of restyle (3.2 -> 2.05 s), the build-memo start 0.45 s (2.5 -> 2.05 s), carrier filters + grouped walks + map
+  build the rest (3.9 -> 3.2 s). The work moved from forced layouts into App builds: with identical layout counters
+  (`boxes_remeasured` 138 016 in every run) `layout_ms` is 6.4 s with the walk skipped vs 6.0-6.1 s with it (main
+  5.7-5.8 s), apparently the walk warmed the DOM / style memory the next relayout reads. The Wikipedia INCR=1 builds went from ~3.4 s to ~7.2-8.4 s with QINC1i itself
+  (`layout_ms` 1.2 s -> 5.8 s, `boxes_remeasured` 138k, `miss_not_cacheable` 75k): proposed QINC1i5.
+  `SCRATCHY_INCR_CHECK=1`: `yt`, `ytq`, Wikipedia one run each after the rebase and one each before: **0 mismatches**.
+  RSS at the end: YouTube off 485-522 MB vs INCR=1 501-518 MB; Wikipedia off 339-342 MB vs INCR=1 ~350-365 MB.
+  Proposed: QINC1j-ab1 (incremental invalidation map: per selector-list contributions cached across rule-list
+  generations (`SelectorList::thin_arc_heap_ptr`), so a `<style>` splice costs its own selectors instead of ~25-30 ms
+  for YouTube's 26.5k), QINC1i4 remainder (adopt the build's styles, not only its matches, on a restart).
 - **QINC1k [M]** (P2, Opus, measure only, docs; AFTER QINC1i, j, h2) Exactness sweep and gates (R60 section 12):
   `SCRATCHY_INCR_CHECK=1` headless + window on YouTube results (R58 recipe), YouTube watch (R50/R55 recipes), Wikipedia (R55),
   github.com, bbc.com/news, social.loupax.com/discover: 0 mismatches (each mismatch = a P1 fix item); then `SCRATCHY_INCR=1`

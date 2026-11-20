@@ -304,6 +304,8 @@ pub(crate) struct Stats {
     /// Box owners marked `BOX`.
     pub(crate) boxes: Vec<usize>,
     pub(crate) mismatches: usize,
+    /// QINC1j-ab: the counter / quote walk ran (skipped when nothing it reads changed).
+    pub(crate) gen_walked: bool,
 }
 
 impl Stats {
@@ -344,6 +346,9 @@ pub(crate) struct Engine {
     touched: Vec<usize>,
     /// QINC1g: elements whose child list or text changed in this update (list markers count siblings).
     kids_changed: HashSet<usize>,
+    /// QINC1j-ab: what the counter / quote walk reads changed in this update (a DOM write, a stored match,
+    /// an entry); otherwise its output is the last one and the document-wide walk is skipped.
+    gen_dirty: bool,
 }
 
 /// Matches per slot of the element (`seed_match` input or `match_slot` output).
@@ -513,6 +518,7 @@ impl Engine {
             full: true,
             touched: Vec::new(),
             kids_changed: HashSet::new(),
+            gen_dirty: false,
         }
     }
 
@@ -1037,6 +1043,9 @@ impl Engine {
             // slot's style or presence, a match list: `content`, `background-image`) touches its box.
             {
                 let e = &self.table[&k];
+                if e.m != ms {
+                    self.gen_dirty = true;
+                }
                 let changed = old_style.is_none_or(|o| !same_style(&o, &s))
                     || e.pseudo.iter().zip(pseudo.iter()).any(|(a, b)| match (a, b) {
                         (None, None) => false,
@@ -1116,10 +1125,16 @@ impl Engine {
         if !self.full
             && let Some(map) = map.as_ref()
         {
+            if log.entries.iter().any(|e| !matches!(e.change, Change::Ambient(_))) {
+                self.gen_dirty = true;
+            }
             self.process_log(map, &log.entries);
             self.interaction(map);
             if reconcile_on() && !self.full {
                 self.reconcile(map, doc);
+                if self.stats.unlogged > 0 {
+                    self.gen_dirty = true;
+                }
             }
             // animated elements are re-cascaded on every update (the clock moved)
             let anim: Vec<usize> = self.table.iter().filter(|(_, e)| e.animated).map(|(k, _)| *k).collect();
@@ -1181,7 +1196,11 @@ impl Engine {
             let ep = self.epoch;
             self.table.retain(|_, e| e.seen == ep);
         }
-        self.generated(doc, rules, vw);
+        if self.full || self.gen_dirty || self.gen_out.is_none() {
+            self.stats.gen_walked = true;
+            self.generated(doc, rules, vw);
+        }
+        self.gen_dirty = false;
         // Entries whose DOM the log or the reconcile saw change but the traversal did not reach.
         let rec = reconcile_on();
         for k in self.kids_dirty.iter().chain(self.fp_dirty.iter()) {
@@ -1351,12 +1370,10 @@ struct Env {
 }
 
 impl Env {
-    fn enter(rules: &Rc<Vec<StyleRule>>) -> Env {
-        Env::enter_as(rules, false)
-    }
-
     /// `live`: an App frame's update (QINC1j): animation evaluation creates and reports start times.
-    fn enter_as(rules: &Rc<Vec<StyleRule>>, live: bool) -> Env {
+    /// `memo`: the match memo to start from (the from-scratch build's own, for the shadow update that
+    /// follows it on the same DOM and state); `None` = empty.
+    fn enter_as(rules: &Rc<Vec<StyleRule>>, live: bool, memo: Option<crate::style::MatchMemo>) -> Env {
         let flags = (
             crate::dom::STATE_RULES.with(Cell::get),
             crate::dom::VIEWPORT_H_READ.with(Cell::get),
@@ -1383,7 +1400,7 @@ impl Env {
             }
             crate::style::PSEUDO_FLAGS.with(|f| f.set(Some((rules.as_ptr() as usize, rules.len(), fl, flt))));
         }
-        crate::style::MATCH_MEMO.with(|m| *m.borrow_mut() = Some(Default::default()));
+        crate::style::MATCH_MEMO.with(|m| *m.borrow_mut() = Some(memo.unwrap_or_default()));
         crate::style::VAR_EXPAND_MEMO.with(|m| *m.borrow_mut() = Some(Default::default()));
         crate::style::ANCESTOR_BLOOM.with(|b| *b.borrow_mut() = Some(Default::default()));
         crate::dom::CLASS_CACHE.with(|c| *c.borrow_mut() = Some(Default::default()));
@@ -1438,12 +1455,13 @@ pub(crate) fn after_build(
     viewport_height: Option<f32>,
     image_cache: &HashMap<String, std::sync::Arc<DecodedImage>>,
     tree: &LayoutBox,
+    build_memo: Option<crate::style::MatchMemo>,
 ) {
     let vh = viewport_height.unwrap_or(1080.0);
     let fresh = RECORD.with(|r| r.borrow_mut().take());
     let t0 = std::time::Instant::now();
     let t_phase = crate::perf::phase(crate::perf::Phase::IncrShadow);
-    let env = Env::enter(rules);
+    let env = Env::enter_as(rules, false, build_memo);
     let report = ENGINE.with(|e| {
         let mut slot = e.borrow_mut();
         if slot.as_ref().is_none_or(|e| e.doc_key != node_id(doc) || e.doc.upgrade().is_none()) {
@@ -1565,7 +1583,7 @@ pub(crate) fn live_update(
 ) -> Option<LiveStyle> {
     let vh = viewport_height.unwrap_or(1080.0);
     let t0 = std::time::Instant::now();
-    let env = Env::enter_as(rules, true);
+    let env = Env::enter_as(rules, true, None);
     let stats = ENGINE.with(|e| {
         let mut slot = e.borrow_mut();
         let eng = slot.as_mut()?;

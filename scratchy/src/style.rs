@@ -1024,7 +1024,7 @@ pub(crate) fn pseudo_slot(pseudo: Option<&str>) -> Option<u8> {
 /// One (element, pseudo) match: `(cascade key, rule index, is the important half)`.
 pub(crate) type MatchList = Rc<Vec<(u64, u32, bool)>>;
 
-type MatchMemo = HashMap<(usize, u8, usize, usize, u32), MatchList>;
+pub(crate) type MatchMemo = HashMap<(usize, u8, usize, usize, u32), MatchList>;
 
 /// QINC1f: the pseudo-element name of memo slot `slot` (inverse of `pseudo_slot`).
 pub(crate) fn slot_pseudo(slot: u8) -> Option<&'static str> {
