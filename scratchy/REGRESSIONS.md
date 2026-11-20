@@ -1132,31 +1132,31 @@ images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom
   `incr.check_mismatch`), every stage is dropped and the from-scratch result is used. QOBS3 phases: engine restyle + box
   = `incr_shadow`, relayout = `measure_document`. Tests: 5 new; js_geometry (Range included) and observer suites re-run
   with the engine (`*_incr_forced_tests`, seam = thread name, or `SCRATCHY_TEST_INCR_FORCED=1` for the whole suite); the
-  16 tests of the bypassed special cases return early there. Suite: 1 696 passed with the flag off, 1 696 with
-  `SCRATCHY_TEST_INCR_FORCED=1`. WPT 333 / 293, no change, flag off and `SCRATCHY_INCR=1`. Clippy 77.
+  16 tests of the bypassed special cases return early there. Suite (rebased onto QINC1h2 + QINC1j): 1 711 passed with the
+  flag off, 1 711 with `SCRATCHY_TEST_INCR_FORCED=1`. WPT 333 / 293, no change, flag off and `SCRATCHY_INCR=1`. Clippy 77.
+  In check mode a forced layout skips QINC1j's "nothing changed" shortcut: the update's reconcile then also sees writes
+  that bypass the log (a Rust-side text write in a test was otherwise reported by the oracle).
   Gate (R58 recipe, own nested dwl 1052x1050, own wire, `SCRATCHY_FRAME_STATS`, under the perf lock; per-layout ms from a
-  throwaway `eprintln` in `perf::forced_detail`, not committed; 1-min load 0.5-3.8 except where noted):
-  | run (final code) | `getPlayerSize` reads | median ms | p90 | max | worst promise job after 15 s (preview start) |
+  throwaway `eprintln` in `perf::forced_detail`, not committed; 1-min load 0.3-7.5):
+  | run | `getPlayerSize` reads | median ms | p90 | max | worst promise job after 15 s (preview start) |
   |---|---|---|---|---|---|
-  | INCR=1 on2 (load 11-15: my own test run) | 39 | 5.37 | 8.3 | 9.0 | 174 ms |
-  | INCR=1 on3 | 39 | 6.13 | 8.4 | 10.8 | 174 ms |
-  | INCR=1 on4 | 38 | 5.84 | 8.6 | 9.4 | 179 ms |
-  | INCR=1 on1 | 0 (a 500 ms page job was killed at load 15, the preview never started: dropped) | | | | |
-  | earlier build (before the global-restyle precheck), 3 runs | 40 / 40 / 40 | 5.75 / 6.07 / 5.76 | 8.4-9.5 | 9.5-26.5 | 174-180 ms |
-  | flag off (same binary), 2 runs | 26 / 27 | 62.6 / 61.4 | 64-65 | 65-66 | 825-856 ms |
-  `_CHECK=1` in the window: 4 runs, 0 mismatches (forced layouts 18-99 ms there: the oracle and the reconcile run too).
-  One outlier with the flag: a 619 ms IntersectionObserver forced layout at 28 s (earlier build, run 2 of 3; observer
-  delivery 697 ms), not seen in the other 6 runs; not investigated (proposed QINC1i3).
-  Headless (`--perf-report --budget-ms 20000`, own wire, perf lock, 6G scope, load 0.2-2.7; forced layout ms total per run):
-  | page | off (3 runs) | main 109445c `INCR=1` | this `INCR=1` (3 runs, final code) | engine / restarts per run | `_CHECK=1` mismatches |
+  | INCR=1, final code (41fdae0 on e219bee), 3 runs | 39 / 38 / 40 | 5.80 / 5.39 / 5.91 | 8.0-9.0 | 32-35 | 182 / 176 / 183 ms |
+  | INCR=1, before the rebase onto QINC1h2/QINC1j, 6 runs (1 more dropped: a 500 ms page job killed at load 15, no preview) | 38-40 | 5.37-6.13 | 8.3-9.5 | 9.0-26.5 | 174-180 ms |
+  | flag off (same binary), 3 runs | 26 / 27 / 26 | 62.6 / 61.4 / 75.8 | 64-81 | 65-87 | 825-1 040 ms |
+  `_CHECK=1` in the window: 6 runs, 0 mismatches (forced layouts 18-99 ms there: the oracle and the reconcile run too; with
+  QINC1j every App frame is checked as well, and one of the two final-code runs never started the preview).
+  One outlier with the flag: a 619 ms IntersectionObserver forced layout at 28 s (pre-rebase run 2; observer delivery
+  697 ms), not seen in the other 8 runs; not investigated (proposed QINC1i3).
+  Headless (`--perf-report --budget-ms 20000`, own wire, perf lock, 6G scope, load 0.2-3.6; forced layout ms total per run):
+  | page | off (3 runs) | main 109445c `INCR=1` | this `INCR=1`, final code (3 runs) | engine / restarts per run | `_CHECK=1` mismatches |
   |---|---|---|---|---|---|
-  | YouTube results 30 s | 887-981 (35-36 layouts) | 1 358 / 1 984 | 537 / 619 / 733 (36-43) | 36-43 / 3 | 0 (4 runs) |
-  | YouTube watch 30 s | 2 457-3 396 (108-141) | - | 1 105 / 2 147 / 2 350 (120-274: more reads, the page runs further) | all / 4 | 0 (4 runs) |
-  | Wikipedia Rust 20 s | 567 / 600 (4) | 846 / 1 701 | 663 / 663 / 1 529 (4-5) | 4-5 / 2-3 | 0 (4 runs) |
+  | YouTube results 30 s | 887-981 (35-36 layouts) | 1 358 / 1 984 | 525 / 634 / 585 (36-42) | all / 3 | 0 (6 runs) |
+  | YouTube watch 30 s | 2 457-3 396 (108-141) | - | 1 289 / 1 103 / 1 020 (119-122) | all / 4 | 0 (6 runs) |
+  | Wikipedia Rust 20 s | 567 / 600 (4) | 846 / 1 701 | 1 133 / 951 / 660 (4-5) | all / 2-3 | 0 (6 runs) |
   Wikipedia is SLOWER than off: 2-3 of its 4-5 forced layouts are restarts (new stylesheets), and a restart is a
-  from-scratch build whose shadow update restyles everything again, plus the engine's own full layout (~335 ms vs 244-262
-  ms for the plain path): proposed QINC1i4. Memory (`rss_bytes`): no growth over main with `INCR=1` (results 371-433 vs
-  371-441 MB, Wikipedia 281-284 vs 285-286); vs the flag off +~50 MB on Wikipedia (the kept trees, QINC1f-h1).
+  from-scratch build whose shadow update restyles everything again, plus the engine's own full layout (~330-450 ms vs
+  244-262 ms for the plain path): proposed QINC1i4. Memory (`rss_bytes`): no growth over main with `INCR=1` (results
+  368-431 vs 371-441 MB, Wikipedia 268-284 vs 285-286); vs the flag off +~40-50 MB on Wikipedia (the kept trees, QINC1f-h1).
 - **QINC1j [L]** (P2, Opus; area app; AFTER QINC1h1; parallel with QINC1i) App frames through the engine behind
   `SCRATCHY_INCR=1` (R60 sections 3, 9): incremental updates install at once; worker path for first layout, width change, new
   rule-list generation, restyled share > 25 %, with the box tree cloned for it and the result adopted; `App::cached` -> view
