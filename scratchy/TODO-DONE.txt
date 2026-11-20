@@ -7854,3 +7854,9 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- Tier 7: JavaScript (Q33, split 2026-11-14; user ordered it last) ----
 - [x] Q33b2v DONE c9da1f1 #393 live check holds after configure; initial-size gap -> Q33b2w [S] (P3, from Q33b2 #389; Sonnet) Nested-dwl check (release build, tools/nest.sh + inject): innerWidth equals the
       window width and follows a resize (log the value / screenshot). Q33b2 shipped with a unit test only.
+
+=== from TODO.txt: --- Rust `__*` native wrapped in a JS timer); none of it was committed. -------
+- [x] QPT1b DONE 2e6a2a8 #394 realm dropped on removal/src change/page end; timers, requests, rejections cancelled; cap 64 [S] (after QPT1a) Realm lifetime (R53 D6): drop on removal / src change / navigation, cancel its timers, detach
+      the global, cap 64 realms per page, new realm on re-insert. Test: heap back to baseline after 50 create/remove cycles.
+      FROM QPT1a #392: `State.realms` keeps every realm alive until the page ends; the parent's timer entries carry `recv`
+      (the realm's window), so a drop can cancel that realm's timers by receiver.
