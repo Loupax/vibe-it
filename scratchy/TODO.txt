@@ -1007,7 +1007,8 @@ Shared rules for this block:
 USER 2026-11-20 ~14:40: "once we are done with the layout engine changes, I'd like to have a pause on implementation and
 have an architecture discussion before we continue" -> after QINC1 (through QINC1m, or wherever the user calls it done) the
 coordinator STOPS assigning implementation items and holds an architecture discussion with the user first.
-- [ ] QINC1f-mem [S/M] (P2, part of QINC1; from QINC1f #452; Sonnet; incr_style.rs table storage; AFTER QINC1g) Stored element
+- [ ] QINC1f-mem [S/M] (P3, NOT a blocker: user 2026-11-20 ~16:30 "I don't consider the memory thing a deal breaker for now so
+      don't have it block deployment for that" -> does not gate QINC1k/QINC1l; do it when a slot is free; from QINC1f #452; Sonnet; incr_style.rs table storage; AFTER QINC1g) Stored element
       styles cost +24 MB on Wikipedia (12.2 MB styles; RSS 256 vs 232 MB) vs the user-accepted +8-18 MB: share them as
       Rc<ComputedStyle> (or slim table entries). Gate: Wikipedia SCRATCHY_INCR=1 RSS delta <= +18 MB, 0 check mismatches.
 - [ ] QPROF1B [?] (user 2026-11-19, PART B of QPROF1; WITH THE USER) Joint session: the user drives their real window on the
