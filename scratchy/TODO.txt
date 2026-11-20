@@ -2924,6 +2924,8 @@ QCOMP — scriptable command completion, history file, config in code (user desi
      cursor (`:go https://google|.com`, `.com` dimmed). Tab cycles the suggestion through
      what matches; Enter runs the line WITH the suggestion. Rows KEYS.md T45-T52 (T51
      Right/End accepts into the line and T52 Delete hides it are Claude's proposals).
+     Like bash, Tab with exactly ONE match selects it: the ghost becomes typed text, plus
+     a space after a command name or `:set` argument (T53, user 2026-11-20).
      Replaces C2's "Tab opens the menu" and inline cycling: the dmenu menu (QCOMP2's
      MENU part) is ON HOLD until the user says whether it gets its own key or is dropped.
   C6 (user 2026-11-20, answering "QCFG1 vs C4") QCFG1 STAYS as written: the tracker lists
@@ -2946,11 +2948,13 @@ Order (feature work: after the perf queue): QCONF1 -> QCOMP1 -> QCOMP2; QCOMP3 a
 - [ ] QCOMP1 [M] (P2, after QCONF1) `COMPLETERS` table in config.rs (C1, built-in sources
       only) and the GHOST SUGGESTION (C8, KEYS.md T45-T52) for every completable word
       (command names, `:set` arguments): computed after each edit with the cursor at the
-      end, drawn dimmed after the cursor in the status bar, Tab/Shift-Tab cycle, Enter
+      end, drawn dimmed after the cursor in the status bar, Tab/Shift-Tab cycle (2+
+      matches) or select the only match (1 match, T53: `:se` Tab -> `:set `), Enter
       runs typed + ghost, Right/End accept, Delete hides. Replaces today's inline
       replace-and-cycle (`CommandCompletion`). Candidates become `String`; `:set` moves
       to `Source::Builtin(complete_set_args)`. Tests (pure functions over line + cursor):
-      `:se` ghosts `t`; Tab cycles and wraps, Shift-Tab back; Enter runs the full text;
+      `:se` ghosts `t` and Tab gives `:set `; a single URL match is selected with no
+      space; Tab cycles and wraps with 2+, Shift-Tab back; Enter runs the full text;
       Delete then Enter runs the typed text; cursor not at the end -> no ghost; a command
       without a row gets no ghost after its name.
 - [ ] QCOMP2 [M] (P2, after QCOMP1) External sources and the menu (C1, C2; KEYS.md T37,

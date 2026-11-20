@@ -8403,3 +8403,9 @@ Prompt: item QY53n3 (P3): hover changes that only gain/lose PAINT plus OFFSET ru
 > and tab cycles what matches after the cursor. Enter selects it.
 
 **What changed:** docs only. KEYS.md: rows T45-T52 (ghost after each edit with the cursor at the end, Tab/Shift-Tab cycle, Enter runs typed + ghost; proposed: Right/End accept, Delete hides), "Completion" rewritten around the ghost (prefix match with scheme/`www.` stripped, ghost continues what was typed, history read once per line, external sources run once per line), MENU and T35-T44 ON HOLD. TODO.txt: QCOMP-D C8; QCOMP1 now builds the ghost; QCOMP2's menu part on hold; QCOMP4 tests updated.
+
+## QCOMP-D C8: one match is selected on Tab, like bash (user, docs only)
+
+> and similar to how bash does it, if you have only one match, select it
+
+**What changed:** docs only. KEYS.md T53 (Tab with exactly one match: the ghost becomes typed text, plus a space after a command name or `:set` argument, none after a URL); T47/T48 now need 2+ matches. TODO.txt C8 and QCOMP1 tests follow.

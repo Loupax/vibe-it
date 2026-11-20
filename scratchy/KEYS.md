@@ -118,8 +118,9 @@ These rows replace T35-T38 and T42-T44 (kept below, ON HOLD, for the menu questi
 |---|---|---|---|---|---|
 | T45 | COMMAND | an edit (insert, Backspace, paste, Ctrl-w ...) | cursor at the end of the line, the word under it is not empty, its source has 1+ matches | COMMAND | ghost = the rest of the FIRST match in the source's order (history: the C7 ranking); match index 0 |
 | T46 | COMMAND | an edit or a cursor move | otherwise (no match, empty word, cursor not at the end) | COMMAND | no ghost |
-| T47 | COMMAND | Tab | a ghost is shown | COMMAND | ghost = the next match (wraps to the first); the typed text does not change |
-| T48 | COMMAND | Shift-Tab | a ghost is shown | COMMAND | ghost = the previous match (wraps) |
+| T47 | COMMAND | Tab | a ghost is shown, 2+ matches | COMMAND | ghost = the next match (wraps to the first); the typed text does not change |
+| T53 | COMMAND | Tab | a ghost is shown, exactly 1 match | COMMAND | like bash: the match is selected, i.e. the ghost becomes typed text; after a command name or a `:set` argument a space follows (`:se` Tab -> `:set `), after a URL none. Then T45 for the new word (user, 2026-11-20) |
+| T48 | COMMAND | Shift-Tab | a ghost is shown, 2+ matches | COMMAND | ghost = the previous match (wraps) |
 | T49 | COMMAND | Tab / Shift-Tab | no ghost | COMMAND | nothing |
 | T50 | COMMAND | Enter | a ghost is shown | NORMAL | run the typed text + the ghost (`:go https://google.com/`) |
 | T51 | COMMAND | Right / End | a ghost is shown | COMMAND | the ghost becomes typed text (keep typing after it); then T45 for the longer word *(proposed)* |
