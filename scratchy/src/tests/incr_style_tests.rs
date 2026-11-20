@@ -431,3 +431,15 @@ fn qinc1f_script_writes_feed_the_engine_through_the_log() {
     assert_eq!(s.rematched, 2, "the two spans of `.on span`: {s:?}");
     incr_style::reset();
 }
+
+#[test]
+fn qinc1f_a_bare_animation_duration_is_not_animation_membership() {
+    // Wikipedia's reduced-motion style `* { animation-duration: ... }` made every element "animated"
+    // (re-cascaded on every update) until membership required a named animation with keyframes.
+    let _g = LogOnly::new();
+    let doc = page("*{animation-duration:1ms;animation-iteration-count:1}", KIDS);
+    build(&doc);
+    set_attr(&by_id(&doc, "c"), "style", Some("color:red"));
+    let s = build(&doc);
+    assert_eq!((s.rematched, s.recascaded), (0, 1), "{s:?}");
+}

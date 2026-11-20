@@ -880,7 +880,7 @@ impl Engine {
             let mut pseudo: [Option<Box<ComputedStyle>>; PSEUDOS] = Default::default();
             let mut ms: [Option<MatchList>; 1 + PSEUDOS] = Default::default();
             ms[0] = Some(m0);
-            let mut animated = s.animations.is_some();
+            let mut animated = crate::anim_eval::is_animated(&s, cx.vw);
             if s.display != Display::None {
                 let own = for_children(tag, &s);
                 for slot in 1..=PSEUDOS as u8 {
@@ -902,7 +902,7 @@ impl Engine {
                     };
                     if !m.is_empty() {
                         let ps = resolve_style_for(h, rules, own, cx.vw, slot_pseudo(slot));
-                        animated |= ps.animations.is_some();
+                        animated |= crate::anim_eval::is_animated(&ps, cx.vw);
                         pseudo[slot as usize - 1] = Some(Box::new(ps));
                     }
                     ms[slot as usize] = Some(m);
@@ -1369,6 +1369,30 @@ pub(crate) fn after_build(doc: &Handle, rules: &Rc<Vec<StyleRule>>, vw: f32, vh:
     for m in mism {
         diag!("scratchy: incr-check: MISMATCH {m}");
     }
+}
+
+/// QOBS7-style estimate of the element table: `(entries, bytes)` (match lists counted per entry
+/// even when an `Rc` is shared, so an upper bound).
+pub(crate) fn mem() -> (usize, usize) {
+    ENGINE.with(|e| {
+        let Ok(e) = e.try_borrow() else { return (0, 0) };
+        let Some(e) = e.as_ref() else { return (0, 0) };
+        let cs = std::mem::size_of::<ComputedStyle>();
+        let mut bytes = e.table.capacity() * (std::mem::size_of::<Entry>() + std::mem::size_of::<usize>() + 8);
+        for x in e.table.values() {
+            bytes += x.style.as_ref().map_or(0, |_| cs);
+            bytes += x.pseudo.iter().flatten().count() * cs;
+            bytes += x.children.len() * std::mem::size_of::<usize>();
+            bytes += x.m.iter().flatten().map(|m| 40 + m.len() * 16).sum::<usize>();
+            bytes += x.fp.as_ref().map_or(0, |f| {
+                std::mem::size_of::<Fp>()
+                    + f.attrs.len() * 16
+                    + f.class.as_ref().map_or(0, |s| s.len())
+                    + f.id.as_ref().map_or(0, |s| s.len())
+            });
+        }
+        (e.table.len(), bytes)
+    })
 }
 
 /// Test / diagnostic access to the engine of this thread.

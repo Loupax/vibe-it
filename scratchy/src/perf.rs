@@ -267,6 +267,8 @@ pub(crate) fn memory_json(engine: Option<&crate::js::JsEngine>) -> String {
     add("rules_cache", rules);
     add("rule_index_hover_keys", index);
     add("svg_sized_cache", crate::images::svg_sized_cache_mem());
+    // QINC1f: the incremental restyle's element table (0 unless SCRATCHY_INCR*=1).
+    add("incr_style", crate::incr_style::mem());
     // QMEM3b: the page's CSS text kept for getComputedStyle (EXTRA_CSS), by capacity.
     add("js_extra_css", crate::js_style::extra_css_mem());
     // The perf run has no App, so there is no image cache to size.

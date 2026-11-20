@@ -50,6 +50,18 @@ pub(crate) fn retain_starts(keep: impl Fn(usize, bool) -> bool) {
     ANIM_STARTS.with(|s| s.borrow_mut().retain(|k, e| e._node.strong_count() > 0 && keep(k.0, k.1)));
 }
 
+/// QINC1f (R60 6.5): whether `style` runs an animation `evaluate` would apply (a named animation
+/// whose `@keyframes` exist), i.e. its value depends on the clock. A bare `animation-duration` (a
+/// reduced-motion `*` rule) does not.
+pub(crate) fn is_animated(style: &ComputedStyle, viewport_width: f32) -> bool {
+    let Some(a) = style.animations else { return false };
+    let Some(lists) = a.table() else { return false };
+    lists
+        .resolve()
+        .iter()
+        .any(|a| a.name.as_deref().is_some_and(|n| lookup_keyframes(n, viewport_width).is_some_and(|k| !k.is_empty())))
+}
+
 /// QINC1f test seam: the start time kept for `(node, is pseudo, index, name)`.
 #[cfg(test)]
 pub(crate) fn start_of(node: usize, pseudo: bool, idx: usize, name: &str) -> Option<f64> {
