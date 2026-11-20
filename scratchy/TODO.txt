@@ -54,6 +54,9 @@ Deferred until after the perf queue: QM1k-AB (test video G1AeBgalFZk), QY55 (pro
 Persistent storage (user 2026-11-19, design in STASH.md, decision QSTASH-D): QSTASH1-QSTASH5 are feature work, so they
 wait for the perf queue like everything else. READY once the PR that adds STASH.md is merged. Order: QSTASH1 -> QSTASH2;
 QSTASH4 and QSTASH5 (wire) any time, in parallel; QSTASH3 last (needs 1 and 5).
+Keyboard modes (user 2026-11-20, design QKEYS-D in its own block near the end of the QUEUE): page mode / scratchy mode,
+Esc Esc, always-visible status bar, start in page mode. Feature work: waits for the perf queue. Order: QKEYS1 -> QKEYS2 ->
+QKEYS3 and QKEYS4 (either order). QKEYS-D's P1-P6 are Claude's proposals; confirm with the user before QKEYS2 starts.
 
 (History: 2026-11-18 TOP PRIORITY "switch the JS engine to V8, drain, then freeze" is DONE, freeze
 lifted after QV8-m; QV8-6 (remove QuickJS) still needs the user's OK. The 2026-11-19 blockers QV8-4a
@@ -385,7 +388,7 @@ WAITING FOR USER (skip until answered):
   EventSource is QF19a (READY). QY16a real localisation (ICU data?); persistence
   of jar/storage/cache (QF-D7: not now). Q26 UNBLOCKED (READY, R33); Q32's
   scrollbar drag split out as QSB1 (READY), the rest of Q32 stays parked.
-- (ANSWERED 2026-11-17: pages may cancel any key) QJ11: which keys may page JS cancel? Once QJ4-QJ6 land, social.loupax.com's
+- (ANSWERED 2026-11-17: pages may cancel any key; for scratchy mode REVISITED 2026-11-20 in QKEYS-D P2/P3) QJ11: which keys may page JS cancel? Once QJ4-QJ6 land, social.loupax.com's
   vim.js cancels `:` `/` j k h l g G n N Enter Esc Ctrl-D/U/O/I, so scratchy's
   own `:` command line and vim keys become unreachable on that site.
 Standing rules:
@@ -2716,6 +2719,100 @@ QSTASH — persistent web storage (user design session 2026-11-19; full design i
 
 - [ ] QSTASH5 [S] (P2, wire; any time after the perf queue) `wire --cookie-file PATH`
       and `X-Wire-Cookie-Op: clear-site`. See wire/TODO.txt W-PERSIST1.
+
+========================================================================
+QKEYS — page mode / scratchy mode, Esc Esc, status bar (user design session 2026-11-20)
+========================================================================
+
+- QKEYS-D DESIGN (user, 2026-11-20). Replaces the bare-key vim bindings that are always on
+  ([archived: TODO-DONE.txt] "Vim-inspired keybindings + a `:` command bar") as the way keys
+  are shared between the page and scratchy.
+  PROBLEM: today every key goes to the page's keydown handlers first, and any key the page
+  does not cancel falls through to scratchy's bare `j k h l g G :`. That breaks both ways:
+  (1) scratchy steals keys pages use without preventDefault (YouTube `l` seeks AND goes
+  history-forward, `k` pauses AND scrolls; GitHub/Gmail/Reddit `j/k`, `g` prefixes);
+  (2) pages steal scratchy's keys (QJ11: vim.js on social.loupax.com cancels `:`, so the
+  command line can't be reached; only SIGUSR1 gets you out). Per-key fixes can't solve it:
+  the two sides fight over the same bare keys.
+  Rejected triggers: holding Ctrl (Ctrl chords are what pages and text fields use: Ctrl-K
+  palettes, Ctrl-Enter, Ctrl-A/C/V/W/H in inputs; would break copy/paste in fields);
+  double-tapping a lone Ctrl or any other lone modifier (impossible with home-row mods,
+  e.g. the user's Corne where Ctrl is a held `a`; same for a tap-hold Caps Lock).
+  DECIDED (user 2026-11-20):
+  D1 Two modes. PAGE MODE: scratchy claims no key except the Esc Esc trigger, and every
+     key goes to the page and to the UA defaults (text controls, selects, Tab focus, media
+     keys, as today). SCRATCHY MODE: scratchy's bindings (today's `resolve_binding` set:
+     j k h l gg G Ctrl-d Ctrl-u Home End :) own every key.
+  D2 Trigger: Esc pressed twice (two non-repeat presses, no other key between, within
+     `ESC_ESC_MS` = 300, a const next to `resolve_binding`, dwm config.h style, so a QMK
+     user can swap in F13 etc. in one line) enters scratchy mode from page mode. The first
+     Esc still goes to the page as usual (closes its modal, blurs a focused text control as
+     today); the second Esc is not delivered to the page.
+  D3 An always-visible STATUS BAR at the bottom of the window shows the current mode
+     (PAGE / SCRATCHY; the `:` command line takes the same strip while in command mode).
+     Unlike today's `:` bar (painted OVER the page, paint_command_bar), it RESERVES its
+     height: the page viewport (layout height, `innerHeight`, scroll max, hit-testing,
+     the JS thread's GeomCache viewport) is the window minus the bar.
+  D4 scratchy STARTS IN PAGE MODE (for now), for every page, `:help` included.
+  PROPOSED (Claude 2026-11-20, not yet confirmed by the user; build the proposal unless
+  the user says otherwise before the item starts):
+  P1 Scratchy mode is STICKY (stays on until left, so `jjjj` works), not one-shot like a
+     tmux prefix. A single Esc leaves it (back to page mode). Esc in the `:` command line
+     goes back to scratchy mode, as it goes back to Normal today.
+  P2 In scratchy mode the page gets NO key events at all (keydown/keyup are not
+     dispatched), so a page cannot cancel scratchy's keys. This reverses QJ11 ("a page may
+     cancel any key, no reserved chord") for scratchy mode only; in page mode QJ11 stands.
+  P3 The first Esc counts toward Esc Esc even when the page cancels it (preventDefault),
+     otherwise vim.js-style pages that cancel Esc would lock the user out again (QJ11).
+  P4 Back to page mode automatically when: a navigation (`:go`, `h`/`l`, link follow,
+     `:refresh`) starts a new page (D4: every page starts in page mode); the user clicks
+     into a text control or select. Mouse input always goes to the page in both modes.
+  P5 Remove `:set vim`/`:set novim` (`App::vim_enabled`, `SET_ARGS` "vim"/"novim") and the
+     SIGUSR1 bootstrap (`AppEvent::ToggleVimMode`, the signal-hook thread): with nothing
+     but Esc Esc claimed in page mode, there's nothing left to turn off, and Esc Esc can't
+     be locked out (P3). QCFG1's `vim` config key goes with them.
+  P6 Page mode gets the UA default scroll keys every browser has when the page does not
+     cancel them: ArrowUp/ArrowDown (line), PageUp/PageDown and Space/Shift-Space (page
+     minus a bit), Home/End (already exist), only when no text control/select/media owns
+     the key. Today only Home/End exist because j/k covered the rest.
+  OPEN: whether `:` commands that don't navigate (`:set`, `:help` from inside the bar)
+  leave you in scratchy mode (proposed: yes, same as P1).
+
+- [ ] QKEYS1 [M] (P2, after the perf queue) Status bar (D3, D4). Paint a one-line strip at
+      the bottom (chrome, like paint_command_bar, which it absorbs: the `:` line is drawn
+      in the same strip) showing the mode name; for now the mode is "PAGE" while vim
+      bindings are off and "SCRATCHY" while on, until QKEYS2 lands. The viewport the page
+      sees shrinks by the bar height everywhere it is computed (layout width/height,
+      `innerHeight`/`visualViewport`, `resize` event, max scroll, fixed-position boxes,
+      hit-testing offsets, the JS thread's viewport). Tests: the layout viewport height is
+      window height minus the bar; a `position: fixed; bottom: 0` box sits above the bar;
+      `innerHeight` matches; the bar text follows the mode. Real check: grim of a long page
+      scrolled to the bottom, its last line visible above the bar.
+
+- [ ] QKEYS2 [M] (P2, after QKEYS1) Page mode / scratchy mode and Esc Esc (D1, D2, D4,
+      P1-P4). A pure, unit-testable `resolve_esc_esc(state, key, repeat, now) -> (state,
+      enter)` next to `resolve_pending_g` (timestamps passed in, no clock inside). Key
+      routing in the `WindowEvent::KeyboardInput` branch: page mode = today's order
+      (js_key, select popup, select, text control, media, Tab) with bindings never
+      consulted; scratchy mode = no js_key, straight to the bindings. Start in page mode;
+      navigation and a click into a text control/select switch to page mode. Tests:
+      Esc Esc within 300 ms enters, slower / another key between / a repeat does not; the
+      second Esc never reaches the page; a page that cancels the first Esc still lets Esc
+      Esc through; in scratchy mode a page keydown listener sees nothing and `j` scrolls;
+      in page mode `j`/`l` reach the page and scroll/navigate nothing; single Esc leaves;
+      a navigation lands in page mode. Real checks (tools/nest.sh + tools/inject): YouTube
+      watch `l` seeks without going forward in history; social.loupax.com (vim.js) Esc Esc
+      then `:` opens scratchy's command line.
+
+- [ ] QKEYS3 [S] (P3, after QKEYS2) Removals (P5): `:set vim`/`:set novim`, `vim_enabled`,
+      SIGUSR1/ToggleVimMode and signal-hook (if nothing else uses it), the `vim` key in
+      QCFG1's list; `:help` and NOTES.md describe the two modes and Esc Esc instead. Keep
+      every existing test that still applies; rewrite the ones that tested the toggle.
+
+- [ ] QKEYS4 [S] (P3, after QKEYS2) Page-mode default scroll keys (P6): arrows,
+      PageUp/PageDown, Space/Shift-Space, after the page's keydown and only when nothing
+      focused owns the key. Tests: each key scrolls; a page that cancels it stops it; a
+      focused text control keeps Space and the arrows.
 
 ========================================================================
 HISTORY AND DETAIL (everything below is the original log)
