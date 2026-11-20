@@ -54,9 +54,9 @@ Deferred until after the perf queue: QM1k-AB (test video G1AeBgalFZk), QY55 (pro
 Persistent storage (user 2026-11-19, design in STASH.md, decision QSTASH-D): QSTASH1-QSTASH5 are feature work, so they
 wait for the perf queue like everything else. READY once the PR that adds STASH.md is merged. Order: QSTASH1 -> QSTASH2;
 QSTASH4 and QSTASH5 (wire) any time, in parallel; QSTASH3 last (needs 1 and 5).
-Keyboard modes (user 2026-11-20, design QKEYS-D in its own block near the end of the QUEUE): page mode / normal mode,
-Esc Esc, `i`, always-visible status bar, start in page mode; then `/` search (QSEARCH-D, block right after it). Feature
-work: waits for the perf queue. Order: QKEYS1 -> QKEYS2 -> QKEYS3 and QKEYS4 (either order); QSEARCH1 -> 2 -> 3 after QKEYS2. QKEYS-D's P2-P6 are Claude's proposals; confirm with the user before QKEYS2 starts.
+Keyboard modes (user 2026-11-20, design QKEYS-D in its own block near the end of the QUEUE): input mode / normal mode,
+Esc Esc, `i`, always-visible status bar, start in input mode; then `/` search (QSEARCH-D, block right after it). Feature
+work: waits for the perf queue. Order: QKEYS1 -> QKEYS2 -> QKEYS3 and QKEYS4 (either order); QSEARCH1 -> 2 -> 3 after QKEYS2. State machine: KEYS.md. QKEYS-D's P2-P6 are Claude's proposals; confirm with the user before QKEYS2 starts.
 
 (History: 2026-11-18 TOP PRIORITY "switch the JS engine to V8, drain, then freeze" is DONE, freeze
 lifted after QV8-m; QV8-6 (remove QuickJS) still needs the user's OK. The 2026-11-19 blockers QV8-4a
@@ -388,7 +388,7 @@ WAITING FOR USER (skip until answered):
   EventSource is QF19a (READY). QY16a real localisation (ICU data?); persistence
   of jar/storage/cache (QF-D7: not now). Q26 UNBLOCKED (READY, R33); Q32's
   scrollbar drag split out as QSB1 (READY), the rest of Q32 stays parked.
-- (ANSWERED 2026-11-17: pages may cancel any key; for normal mode REVISITED 2026-11-20 in QKEYS-D P2/P3) QJ11: which keys may page JS cancel? Once QJ4-QJ6 land, social.loupax.com's
+- (ANSWERED 2026-11-17: pages may cancel any key; for normal mode REVISITED 2026-11-20 in QKEYS-D P2/P3, KEYS.md) QJ11: which keys may page JS cancel? Once QJ4-QJ6 land, social.loupax.com's
   vim.js cancels `:` `/` j k h l g G n N Enter Esc Ctrl-D/U/O/I, so scratchy's
   own `:` command line and vim keys become unreachable on that site.
 Standing rules:
@@ -2721,10 +2721,12 @@ QSTASH — persistent web storage (user design session 2026-11-19; full design i
       and `X-Wire-Cookie-Op: clear-site`. See wire/TODO.txt W-PERSIST1.
 
 ========================================================================
-QKEYS — page mode / normal mode, Esc Esc, `i`, status bar (user design session 2026-11-20)
+QKEYS — input mode / normal mode, Esc Esc, `i`, status bar (user design session 2026-11-20)
 ========================================================================
 
-- QKEYS-D DESIGN (user, 2026-11-20). Replaces the bare-key vim bindings that are always on
+- QKEYS-D DESIGN (user, 2026-11-20). THE STATE MACHINE IS IN KEYS.md (modes, diagram,
+  transition table T1-T34): items follow KEYS.md; on any conflict with this text KEYS.md
+  wins. This text is the decision history. Replaces the bare-key vim bindings that are always on
   ([archived: TODO-DONE.txt] "Vim-inspired keybindings + a `:` command bar") as the way keys
   are shared between the page and scratchy.
   PROBLEM: today every key goes to the page's keydown handlers first, and any key the page
@@ -2739,39 +2741,42 @@ QKEYS — page mode / normal mode, Esc Esc, `i`, status bar (user design session
   double-tapping a lone Ctrl or any other lone modifier (impossible with home-row mods,
   e.g. the user's Corne where Ctrl is a held `a`; same for a tap-hold Caps Lock).
   DECIDED (user 2026-11-20):
-  D1 Two modes. PAGE MODE: scratchy claims no key except the Esc Esc trigger, and every
+  D1 Two modes. INPUT MODE: scratchy claims no key except the Esc Esc trigger, and every
      key goes to the page and to the UA defaults (text controls, selects, Tab focus, media
      keys, as today). NORMAL MODE: scratchy's bindings (today's `resolve_binding` set:
      j k h l gg G Ctrl-d Ctrl-u Home End :) own every key.
   D2 Trigger: Esc pressed twice (two non-repeat presses, no other key between, within
      `ESC_ESC_MS` = 300, a const next to `resolve_binding`, dwm config.h style, so a QMK
-     user can swap in F13 etc. in one line) enters normal mode from page mode. The first
+     user can swap in F13 etc. in one line) enters normal mode from input mode. The first
      Esc still goes to the page as usual (closes its modal, blurs a focused text control as
      today); the second Esc is not delivered to the page.
   D3 An always-visible STATUS BAR at the bottom of the window shows the current mode
-     (PAGE / NORMAL; the `:` command line takes the same strip while in command mode).
+     (INPUT / NORMAL; the `:` command line takes the same strip while in command mode).
      Unlike today's `:` bar (painted OVER the page, paint_command_bar), it RESERVES its
      height: the page viewport (layout height, `innerHeight`, scroll max, hit-testing,
      the JS thread's GeomCache viewport) is the window minus the bar.
-  D4 scratchy STARTS IN PAGE MODE (for now), at process start. A navigation does NOT
+  D4 scratchy STARTS IN INPUT MODE (for now), at process start. A navigation does NOT
      reset the mode (D5: sticky), so `h h h` in normal mode walks back through history.
-  D5 (user 2026-11-20) The mode that isn't PAGE is called NORMAL (vim's name), in the
+  D5 (user 2026-11-20) The mode that isn't INPUT is called NORMAL (vim's name), in the
      status bar and in code/docs ("normal mode"). Modes are STICKY unless a rule here says
      otherwise: normal mode stays on until left, so `jjjj` works (not one-shot like a tmux
-     prefix). A single Esc leaves it (back to page mode). Esc in the `:` command line goes
+     prefix). A single Esc leaves it (back to input mode). Esc in the `:` command line goes
      back to normal mode, as it goes back to Normal today.
      [SUPERSEDED by D6 the same day: Esc no longer leaves normal mode, `i` does.]
-  D6 (user 2026-11-20, with /search in mind) `i` leaves normal mode for page mode (like vim's
+  D6 (user 2026-11-20, with /search in mind) `i` leaves normal mode for input mode (like vim's
      insert: "hand the keyboard to the page"). Esc in normal mode NEVER changes the mode; it
      only cancels (clears search highlights, a pending `g`). So: Esc Esc = keyboard to
      scratchy, `i` = keyboard to the page. You leave normal mode only on purpose, when a page
      needs its own keys; that is also why modes stay sticky across navigations (D4).
   D7 (user 2026-11-20) The modes and their kind:
-       PAGE     sticky    -> NORMAL by Esc Esc
-       NORMAL   sticky    -> PAGE by `i` (or P4's click into a text control/select)
+       INPUT    sticky    -> NORMAL by Esc Esc
+       NORMAL   sticky    -> INPUT by `i` (or P4's click into a text control/select)
        COMMAND  one line  `:` from NORMAL; Enter runs, Esc cancels; both back to NORMAL
        SEARCH   one line  `/` from NORMAL; Enter commits, Esc cancels; both back to NORMAL
      COMMAND and SEARCH are the stated exceptions to D5's stickiness.
+  D9 (user 2026-11-20) "page mode" is renamed INPUT MODE ("input passthrough"), status bar
+     `INPUT`; the text in this block was renamed to match. The design is written as a
+     state machine in KEYS.md.
   D8 (user 2026-11-20) The status bar (D3) shows the mode, the current URL and messages
      (search counts `[3/17]`, "search hit BOTTOM, continuing at TOP", errors); COMMAND and
      SEARCH are typed in it. Other fields (load progress, hovered link target, pending `g`)
@@ -2780,24 +2785,24 @@ QKEYS — page mode / normal mode, Esc Esc, `i`, status bar (user design session
   the user says otherwise before the item starts):
   P2 In normal mode the page gets NO key events at all (keydown/keyup are not
      dispatched), so a page cannot cancel scratchy's keys. This reverses QJ11 ("a page may
-     cancel any key, no reserved chord") for normal mode only; in page mode QJ11 stands.
+     cancel any key, no reserved chord") for normal mode only; in input mode QJ11 stands.
   P3 The first Esc counts toward Esc Esc even when the page cancels it (preventDefault),
      otherwise vim.js-style pages that cancel Esc would lock the user out again (QJ11).
   P4 The one exception to D5's stickiness: clicking into a text control or select switches
-     to page mode (you clearly want to type into the page). Mouse input always goes to the
+     to input mode (you clearly want to type into the page). Mouse input always goes to the
      page in both modes.
   P5 Remove `:set vim`/`:set novim` (`App::vim_enabled`, `SET_ARGS` "vim"/"novim") and the
      SIGUSR1 bootstrap (`AppEvent::ToggleVimMode`, the signal-hook thread): with nothing
-     but Esc Esc claimed in page mode, there's nothing left to turn off, and Esc Esc can't
+     but Esc Esc claimed in input mode, there's nothing left to turn off, and Esc Esc can't
      be locked out (P3). QCFG1's `vim` config key goes with them.
-  P6 Page mode gets the UA default scroll keys every browser has when the page does not
+  P6 Input mode gets the UA default scroll keys every browser has when the page does not
      cancel them: ArrowUp/ArrowDown (line), PageUp/PageDown and Space/Shift-Space (page
      minus a bit), Home/End (already exist), only when no text control/select/media owns
      the key. Today only Home/End exist because j/k covered the rest.
 
 - [ ] QKEYS1 [M] (P2, after the perf queue) Status bar (D3, D4). Paint a one-line strip at
       the bottom (chrome, like paint_command_bar, which it absorbs: the `:` line is drawn
-      in the same strip) showing the mode name, the current URL and the last message (D8); for now the mode is "PAGE" while vim
+      in the same strip) showing the mode name, the current URL and the last message (D8); for now the mode is "INPUT" while vim
       bindings are off and "NORMAL" while on, until QKEYS2 lands. The viewport the page
       sees shrinks by the bar height everywhere it is computed (layout width/height,
       `innerHeight`/`visualViewport`, `resize` event, max scroll, fixed-position boxes,
@@ -2806,17 +2811,17 @@ QKEYS — page mode / normal mode, Esc Esc, `i`, status bar (user design session
       `innerHeight` matches; the bar text follows the mode. Real check: grim of a long page
       scrolled to the bottom, its last line visible above the bar.
 
-- [ ] QKEYS2 [M] (P2, after QKEYS1) Page mode / normal mode, Esc Esc and `i` (D1, D2, D4,
-      D5, D6, D7, P2-P4). A pure, unit-testable `resolve_esc_esc(state, key, repeat, now) -> (state,
+- [ ] QKEYS2 [M] (P2, after QKEYS1) Input mode / normal mode, Esc Esc and `i` (KEYS.md T1-T21,
+      T29-T34; D1, D2, D4-D7, D9, P2-P4). A pure, unit-testable `resolve_esc_esc(state, key, repeat, now) -> (state,
       enter)` next to `resolve_pending_g` (timestamps passed in, no clock inside). Key
-      routing in the `WindowEvent::KeyboardInput` branch: page mode = today's order
+      routing in the `WindowEvent::KeyboardInput` branch: input mode = today's order
       (js_key, select popup, select, text control, media, Tab) with bindings never
-      consulted; normal mode = no js_key, straight to the bindings. Start in page mode;
-      a click into a text control/select switches to page mode, a navigation keeps the mode. Tests:
+      consulted; normal mode = no js_key, straight to the bindings. Start in input mode;
+      a click into a text control/select switches to input mode, a navigation keeps the mode. Tests:
       Esc Esc within 300 ms enters, slower / another key between / a repeat does not; the
       second Esc never reaches the page; a page that cancels the first Esc still lets Esc
       Esc through; in normal mode a page keydown listener sees nothing and `j` scrolls;
-      in page mode `j`/`l` reach the page and scroll/navigate nothing; `i` leaves (D6);
+      in input mode `j`/`l` reach the page and scroll/navigate nothing; `i` leaves (D6);
       Esc in normal mode does NOT leave; a navigation keeps normal mode. Real checks (tools/nest.sh + tools/inject): YouTube
       watch `l` seeks without going forward in history; social.loupax.com (vim.js) Esc Esc
       then `:` opens scratchy's command line.
@@ -2826,7 +2831,7 @@ QKEYS — page mode / normal mode, Esc Esc, `i`, status bar (user design session
       QCFG1's list; `:help` and NOTES.md describe the two modes and Esc Esc instead. Keep
       every existing test that still applies; rewrite the ones that tested the toggle.
 
-- [ ] QKEYS4 [S] (P3, after QKEYS2) Page-mode default scroll keys (P6): arrows,
+- [ ] QKEYS4 [S] (P3, after QKEYS2) Input-mode default scroll keys (P6): arrows,
       PageUp/PageDown, Space/Shift-Space, after the page's keydown and only when nothing
       focused owns the key. Tests: each key scrolls; a page that cancels it stops it; a
       focused text control keeps Space and the arrows.
@@ -2835,10 +2840,12 @@ QKEYS — page mode / normal mode, Esc Esc, `i`, status bar (user design session
 QSEARCH — `/` search, n/N, Enter (user design session 2026-11-20; needs QKEYS2)
 ========================================================================
 
-- QSEARCH-D DESIGN (user, 2026-11-20). Vim-style search in normal mode (QKEYS-D D7).
+- QSEARCH-D DESIGN (user, 2026-11-20; state machine rows in KEYS.md, which wins on any
+  conflict). Vim-style search in normal mode (QKEYS-D D7).
   S1 `/` in normal mode opens SEARCH: the query is typed in the status bar (same editor as
-     `:`, TextEditBuffer). Enter commits and goes back to normal mode with the current
-     match on screen; Esc cancels (no change) and goes back to normal mode.
+     `:`, TextEditBuffer). Enter commits and goes back to normal mode; the current match
+     is the first one at or below the top of the screen in document order (none below:
+     wrap to the first, with the wrap message) (user 2026-11-20, KEYS.md T23); Esc cancels (no change) and goes back to normal mode.
   S2 What is searched: the RENDERED text of the laid-out page (layout text runs), not DOM
      text, so hidden text never matches and every match has a position to scroll to and
      paint. A match may span inline element boundaries (`foo<b>bar</b>` finds "foobar"),
@@ -2862,25 +2869,28 @@ QSEARCH — `/` search, n/N, Enter (user design session 2026-11-20; needs QKEYS2
      not a direct navigation to an href. So a plain link navigates, an SPA router link
      (YouTube, GitHub) goes through the page's own click handler instead of a full reload,
      and buttons/summary/etc. work too. No on-screen requirement (user 2026-11-20: left out).
-     Enter with no current match does nothing.
+     Enter with no current match does nothing. A match whose text runs lie inside 2+
+     different links: a status-bar warning and nothing else (user 2026-11-20, KEYS.md
+     T19); one link: click inside that link; none: the first character's element.
   Not now (each only on request): `?` backward search, `*`/`#`, regex, incremental
   highlighting while typing, search in iframes or text controls.
 
-- [ ] QSEARCH1 [M] (P2, after QKEYS2) Find + highlight (S1, S2, S3, S5): SEARCH mode in the
+- [ ] QSEARCH1 [M] (P2, after QKEYS2) Find + highlight (S1, S2, S3, S5; KEYS.md T7, T8, T22-T25, T31): SEARCH mode in the
       status bar, a pure match finder over the layout's text runs (input: laid-out runs +
       query; output: ordered match rects; unit-testable without a window), smartcase,
       inline-spanning matches, highlight painting, recompute after relayout, Esc in normal
       mode clears. Tests: matches across `<b>`, none across blocks, `display:none` text
       never matches, smartcase both ways, recompute keeps the nearest current match.
 
-- [ ] QSEARCH2 [S] (P2, after QSEARCH1) `n`/`N` (S4, S6): next/previous with wrap and the
+- [ ] QSEARCH2 [S] (P2, after QSEARCH1) `n`/`N` (S4, S6; KEYS.md T15-T17): next/previous with wrap and the
       status-bar message, bring the screen to the match (S4: centre when not fully visible,
       no scroll when visible, inner scroll containers too), query kept across navigations.
       Tests: wrap both ways, `[i/N]` text, an off-screen match ends up centred, a visible
       one does not scroll, a match in an `overflow: auto` box scrolls the box, the kept
       query on a new page.
 
-- [ ] QSEARCH3 [S] (P2, after QSEARCH2) Enter clicks the current match (S7). Tests: a match
+- [ ] QSEARCH3 [S] (P2, after QSEARCH2) Enter clicks the current match (S7; KEYS.md T18-T20). Tests: a match
+      spanning two links warns and clicks nothing; a match
       in a plain link navigates; a match in a link whose click handler calls
       preventDefault does not navigate and the handler ran; a match in a `<button>` fires
       its click; Enter with no match does nothing. Real check: YouTube results, `/` a title,

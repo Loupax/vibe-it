@@ -8333,3 +8333,20 @@ Prompt: item QY53n3 (P3): hover changes that only gain/lose PAINT plus OFFSET ru
 > just a clarification. Navigating through search results should focus the screen there too
 
 **What changed:** docs only. TODO.txt QSEARCH-D S4: every move to a match (`n`, `N`, the committing Enter) scrolls a not-fully-visible match to the vertical centre (clamped), does not scroll a visible one, and scrolls inner scroll containers too; QSEARCH2 tests follow.
+
+## KEYS.md: the keyboard design as a state machine; "page mode" renamed INPUT (user design session, docs only)
+
+> Just making sure I understood correctly. With this plan:
+> Pages start in normal mode
+> i enters in "input" mode, which disables normal mode and all keystrokes go directly to the page.
+> While in normal mode, the / key starts the search flow where the user can type their search term in the status bar. Enter selects the first result, and once there's search results in the page N and n navigate around them
+> While in normal mode, hitting enter while a search result is selected, send a "click event" to it. (what happens if the search results touches two links at the same time? if it's cheap to check we should have a warning and do nothing, other wise just let them race I'd say)
+> While in Input mode Esc brings you in Normal mode.
+> While in Search mode, escape brings you in Normal mode
+> What did I miss? What double escape does now?
+
+> do you think it makes sense to design a finite state machine for this? It's going to be easier for me to follow at least, not sure if the agents can understand those
+
+> yes, write KEYS.md with those defaults. Call "page" mode input mode from now on, as in "input passthrough"
+
+**What changed:** docs only. New `KEYS.md`: modes (INPUT, NORMAL, SEARCH, COMMAND; helper states ESC1 and G), a Mermaid state diagram, transition table T1-T34 (incl. edge cases: a page-cancelled first Esc, `n` with no query, Enter on a match spanning 2+ links, script focus never changes the mode, no orphan `keyup` after `i`/Esc Esc), search rules, status bar, removals; KEYS.md wins over TODO.txt text. Defaults: start in INPUT; first match after a search = first at or below the top of the screen; a match in 2+ links warns and does nothing. TODO.txt: "page mode" renamed INPUT in the QKEYS/QSEARCH blocks (D9), S1/S7 updated, items point at the table rows.
