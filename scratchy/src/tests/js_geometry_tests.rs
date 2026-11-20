@@ -1607,7 +1607,8 @@ fn qy53o1_attr_function_makes_the_write_relevant() {
 #[test]
 fn qy53o1_layout_relevant_attributes_still_relayout() {
     assert_eq!(qy53o1_layouts("p{color:red}", "d.setAttribute('width', '50')"), 2);
-    assert_eq!(qy53o1_layouts("p{color:red}", "d.className = 'k'"), 2);
+    // QYTC1d: a class no rule names is inert now, so the class must be one a rule names.
+    assert_eq!(qy53o1_layouts("p{color:red} .k{color:blue}", "d.className = 'k'"), 2);
 }
 
 #[test]
@@ -1787,7 +1788,7 @@ fn qytc1a_uncontained_writes_fall_back_to_a_full_layout() {
 #[test]
 fn qytc1a_style_writes_between_reads_force_no_layout() {
     let (log, n) = qy53c_run(
-        &qytc1a_page("", ""),
+        &qytc1a_page(".relayout{color:red}", ""), // QYTC1d: a class some rule names
         "var hv = document.getElementById('hover'), sc = document.getElementById('scrub'), pl = document.getElementById('play');
          var wr = document.getElementById('wrap');
          var x0 = hv.getBoundingClientRect().left, s0 = sc.getBoundingClientRect().left;
@@ -1841,6 +1842,148 @@ fn qy53f1d_important_geo_check_keeps_style_inserts_incremental() {
     let new = format!("{h};left:70px");
     crate::js_dom::set_attr(&hover, "style", &new);
     assert!(!g.style_write_in_place(&hover, old.as_deref(), Some(&new), 2), "the spliced-in !important left rule is seen");
+}
+
+// ---------- QYTC1d: `class` writes that change no element's matched rules keep the layout ----------
+
+/// `class` of `x` becomes `new` (`None`: removed) the way `__d_setattr`/`__d_rmattr` do it;
+/// returns whether the write was found inert (no geometry bump).
+fn qytc1d_class(x: &Handle, new: Option<&str>) -> bool {
+    let old = element_attr(x, "class").map(|s| s.to_string());
+    let probe = crate::js_geom::class_write_pre(x, old.as_deref(), new);
+    match new {
+        Some(v) => crate::js_dom::set_attr(x, "class", v),
+        None => crate::js_dom::remove_attr(x, "class"),
+    }
+    probe.is_some_and(crate::js_geom::class_write_post)
+}
+
+const QYTC1D_CSS: &str = ".autohide .no-such{display:none} .q.r{height:9px} .on #bar{padding-top:10px} .tint #knob{color:red} \
+.sib ~ #auto{width:5px} #hover.big{width:60px}";
+
+#[test]
+fn qytc1d_mixed_inert_writes_match_a_fresh_layout() {
+    let doc = parse_html(&qytc1a_page(QYTC1D_CSS, ""));
+    let (wrap, bar, hover, scrub) = (by_id(&doc, "wrap"), by_id(&doc, "bar"), by_id(&doc, "hover"), by_id(&doc, "scrub"));
+    let g0 = crate::js_dom::geom_gen();
+    let mut g = crate::js_geom::GeomCache::default();
+    g.rect_of(&doc, g0, &wrap, 800.0, 600.0);
+    assert!(qytc1d_class(&wrap, Some("js-state")), "a class no rule names");
+    assert!(qytc1d_class(&bar, Some("q")), ".q.r needs both classes");
+    assert!(qytc1d_class(&wrap, Some("js-state autohide")), "a descendant rule matching nothing below");
+    let old = element_attr(&hover, "style").map(|s| s.to_string());
+    let new = "position:absolute;left:50px;top:2px;width:30px;height:4px";
+    crate::js_dom::set_attr(&hover, "style", new);
+    assert!(g.style_write_in_place(&hover, old.as_deref(), Some(new), g0), "an in-place shift after inert class writes");
+    assert!(crate::js_geom::attr_write_unread(&bar, "aria-valuenow"), "aria after inert class writes");
+    crate::js_dom::set_attr(&bar, "aria-valuenow", "5");
+    assert!(qytc1d_class(&scrub, Some("x y")), "classes on a box that moved");
+    assert!(qytc1d_class(&bar, None), "class removed");
+    assert!(qytc1d_class(&wrap, Some("autohide js-state")), "token order");
+    let mut fresh = crate::js_geom::GeomCache::default();
+    fresh.rect_of(&doc, g0 + 1, &wrap, 800.0, 600.0);
+    let (a, b) = (g.all_rects(), fresh.all_rects());
+    assert_eq!(a.len(), b.len());
+    for (x, y) in a.iter().zip(&b) {
+        assert_eq!((x.0, x.2), (y.0, y.2));
+        for k in 0..6 {
+            assert!((x.1[k] - y.1[k]).abs() < 0.01, "node {} field {k}: kept {} vs fresh {}", x.0, x.1[k], y.1[k]);
+        }
+    }
+}
+
+#[test]
+fn qytc1d_class_writes_that_change_matched_rules_are_not_inert() {
+    let fresh = |css: &str| {
+        let doc = parse_html(&qytc1a_page(css, ""));
+        let mut g = crate::js_geom::GeomCache::default();
+        g.rect_of(&doc, crate::js_dom::geom_gen(), &by_id(&doc, "wrap"), 800.0, 600.0);
+        (doc, g)
+    };
+    let (doc, _g) = fresh(QYTC1D_CSS);
+    assert!(!qytc1d_class(&by_id(&doc, "wrap"), Some("on")), "a descendant's rule starts to match");
+    let (doc, _g) = fresh(QYTC1D_CSS);
+    // Exactness first: a paint-only rule that starts to match still counts.
+    assert!(!qytc1d_class(&by_id(&doc, "scrub"), Some("tint")), "a colour rule on a descendant");
+    let (doc, _g) = fresh(QYTC1D_CSS);
+    assert!(!qytc1d_class(&by_id(&doc, "scrub"), Some("sib")), "a later sibling's rule");
+    let (doc, _g) = fresh(QYTC1D_CSS);
+    assert!(!qytc1d_class(&by_id(&doc, "hover"), Some("big")), "the element's own rule");
+    let (doc, _g) = fresh(QYTC1D_CSS);
+    assert!(!qytc1d_class(&by_id(&doc, "bar"), Some("q r")), "both classes of a compound");
+    // (`:has()` / `:nth-child(of)` are not parsed today, so their rules never reach the probe; it
+    // treats a class inside them as unbounded should that change.)
+    // Selectors reading `class` as an attribute are probed with every `class` write.
+    let (doc, _g) = fresh("[class*=z]{padding:1px}");
+    assert!(!qytc1d_class(&by_id(&doc, "knob"), Some("qq z1")), "[class*=] starts to match");
+    let (doc, _g) = fresh("[class*=z]{padding:1px}");
+    assert!(qytc1d_class(&by_id(&doc, "knob"), Some("qq")), "[class*=] still does not match");
+    let (doc, _g) = fresh("[class='b a']{padding:1px}");
+    assert!(!qytc1d_class(&by_id(&doc, "knob"), Some("b a")), "[class=] on the whole string");
+    let (doc, _g) = fresh("p::before{content: attr(class)}");
+    assert!(!qytc1d_class(&by_id(&doc, "knob"), Some("qq")), "attr(class)");
+    // A stale cache (some other write since the layout) gives no verdict either.
+    let (doc, _g) = fresh(QYTC1D_CSS);
+    let k = by_id(&doc, "knob");
+    crate::js_dom::geom_bump_for_tests();
+    assert!(!qytc1d_class(&k, Some("js-state")), "stale cache");
+}
+
+/// Like QY53f1d's `!important` cache, the class index must not pin the rule list (a `<style>`
+/// insert after it must still splice), and must see a class rule the insert brings.
+#[test]
+fn qytc1d_class_index_keeps_style_inserts_incremental() {
+    let doc = parse_html(&qytc1a_page(QYTC1D_CSS, ""));
+    let knob = by_id(&doc, "knob");
+    let mut g = crate::js_geom::GeomCache::default();
+    g.rect_of(&doc, crate::js_dom::geom_gen(), &knob, 800.0, 600.0);
+    assert!(qytc1d_class(&knob, Some("later")), "no rule names it yet");
+    let head = find_by_tag(&doc, "head").unwrap();
+    let frag = parse_html("<style>.later2{margin-left:3px}</style>");
+    let mut v = Vec::new();
+    crate::images::collect_style_nodes(&frag, &mut v);
+    head.children.borrow_mut().push(v.remove(0));
+    crate::rules_cache::FULL_PARSES.with(|c| c.set(0));
+    crate::js_dom::geom_bump_for_tests();
+    g.rect_of(&doc, crate::js_dom::geom_gen(), &knob, 800.0, 600.0);
+    assert_eq!(crate::rules_cache::FULL_PARSES.with(|c| c.get()), 0, "the insert is spliced, not a full re-parse");
+    assert!(!qytc1d_class(&knob, Some("later later2")), "the spliced-in class rule is seen");
+}
+
+/// The probe only runs for the first few class writes after a geometry read: a script churning
+/// classes without reading pays one layout on its next read instead of a probe per write.
+#[test]
+fn qytc1d_class_churn_without_reads_stops_probing() {
+    let code = |read_every: u32| {
+        format!(
+            "var wr = document.getElementById('wrap'); wr.offsetWidth;
+             for (var i = 1; i <= 100; i++) {{ wr.classList.toggle('js-state'); if (i % {read_every} == 0) wr.offsetWidth; }}
+             wr.offsetWidth;"
+        )
+    };
+    let (_, n) = qy53c_run(&qytc1a_page(QYTC1D_CSS, ""), &code(1000));
+    assert_eq!(n, 2, "100 writes without a read: the budget runs out, one more layout");
+    let (_, n) = qy53c_run(&qytc1a_page(QYTC1D_CSS, ""), &code(10));
+    assert_eq!(n, 1, "a read every 10 writes refills the budget");
+}
+
+#[test]
+fn qytc1d_inert_writes_between_reads_force_no_layout() {
+    let (log, n) = qy53c_run(
+        &qytc1a_page(QYTC1D_CSS, ""),
+        "var wr = document.getElementById('wrap'), hv = document.getElementById('hover'), bar = document.getElementById('bar');
+         var x0 = hv.getBoundingClientRect().left;
+         for (var i = 1; i <= 5; i++) {
+           wr.classList.toggle('autohide'); wr.classList.toggle('js-active');
+           bar.setAttribute('aria-valuenow', String(i)); bar.setAttribute('aria-valuetext', i + ' s');
+           hv.style.left = (42.19 + i) + 'px';
+           console.log('hv', Math.round(hv.getBoundingClientRect().left - x0), bar.offsetHeight);
+         }
+         wr.classList.add('on'); console.log('bar', bar.offsetHeight);",
+    );
+    assert!(log.contains(&"log:hv 5 10".to_string()), "{log:?}");
+    assert!(log.contains(&"log:bar 20".to_string()), "{log:?}");
+    assert_eq!(n, 2, "only the first read and the rule-changing class lay out: {log:?}");
 }
 
 // ---------- Q33b2: the real window size ----------
