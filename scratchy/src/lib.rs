@@ -62,6 +62,7 @@ macro_rules! out {
 
 pub mod netlock;
 pub mod malloc_arenas;
+pub mod mem_trim;
 mod wpt;
 mod dom;
 mod css;

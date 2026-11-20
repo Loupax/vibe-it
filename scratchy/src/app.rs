@@ -695,6 +695,8 @@ pub(crate) struct App {
     pub(crate) last_move_seen: Option<std::time::Instant>,
     pub(crate) move_trailing: Option<(f32, f32)>,
     pub(crate) last_video_frame: Option<std::time::Instant>,
+    /// QMEM3d: once-per-idle-period malloc_trim gate.
+    pub(crate) idle_trim: crate::mem_trim::IdleTrim,
     /// Q31: live `:hover`/`:active`/`:focus*` state (also mirrored into the
     /// `INTERACTION` thread-local style matching reads).
     pub(crate) interaction: InteractionState,
@@ -1218,6 +1220,7 @@ impl App {
             last_move_seen: None,
             move_trailing: None,
             last_video_frame: None,
+            idle_trim: Default::default(),
             interaction: InteractionState::default(),
             state_rules: 0,
             hover_node: 0,
@@ -1316,6 +1319,7 @@ impl App {
             last_move_seen: None,
             move_trailing: None,
             last_video_frame: None,
+            idle_trim: Default::default(),
             interaction: InteractionState::default(),
             state_rules: 0,
             hover_node: 0,
@@ -3583,6 +3587,9 @@ impl App {
         crate::js_dom::clear_image_states();
         let generation = self.nav_generation;
         self.show_message("Loading…");
+        // QMEM3d: the old page (engine, DOM, layout) is gone: hand its freed heap back.
+        self.idle_trim.activity();
+        crate::mem_trim::request();
         let proxy = self.proxy.clone();
         let socket_path = self.socket_path.clone();
         let initiator = self.nav_initiator.take();
@@ -3983,7 +3990,14 @@ impl ApplicationHandler<AppEvent> for App {
             }
             None => None,
         };
-        let flow = match [js_at, anim_at, ctl_at, stats_at, trail_at].into_iter().flatten().min() {
+        // QMEM3d: trim once when the window has been idle (no input, no video) for a while.
+        let input_age = self.last_input.map(|t| t.elapsed());
+        let video_age = self.last_video_frame.map(|t| t.elapsed());
+        if self.idle_trim.should_trim(input_age, video_age, !self.video.boxes.is_empty()) {
+            crate::mem_trim::request();
+        }
+        let idle_at = self.idle_trim.wake_in(input_age, video_age).map(|d| std::time::Instant::now() + d);
+        let flow = match [js_at, anim_at, ctl_at, stats_at, trail_at, idle_at].into_iter().flatten().min() {
             Some(t) => ControlFlow::WaitUntil(t),
             None => ControlFlow::Wait,
         };
@@ -4087,6 +4101,7 @@ impl ApplicationHandler<AppEvent> for App {
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         if event_flushes_pointer(&event) {
+            self.idle_trim.activity();
             self.last_input = Some(std::time::Instant::now());
             self.flush_pointer_move();
         }

@@ -36,6 +36,7 @@ mod deep_nesting_tests;
 mod xhr_tests;
 mod qmem3a_tests;
 mod qy53n1_tests;
+mod qmem3d_tests;
 
 // ---------- v37: `:link`/`:visited` pseudo-classes ----------
 
