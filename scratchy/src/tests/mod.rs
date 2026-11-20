@@ -45,6 +45,7 @@ mod wl_drain_tests;
 mod link_css_tests;
 mod invalidation_tests;
 mod para_id_tests;
+mod incr_log_tests;
 #[cfg(feature = "memprof")]
 mod memprof_tests;
 

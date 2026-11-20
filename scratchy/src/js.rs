@@ -972,6 +972,7 @@ pub(crate) fn pause_budget_since(start: u64) -> u64 {
     let d = thread_cpu_nanos().saturating_sub(start);
     PAUSED_NANOS.with(|p| p.set(p.get() + d));
     perf::forced_layout(d);
+    crate::incr_log::layout_boundary();
     d
 }
 

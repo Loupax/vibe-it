@@ -37,6 +37,7 @@ pub(crate) fn set_js_extra_css(css: &str) {
         if *c != css {
             *c = css.to_string();
             CSS_VER.with(|v| v.set((v.get().0 + 1, v.get().1)));
+            crate::incr_log::note(0, crate::incr_log::Change::CssVer);
         }
     });
 }
@@ -52,6 +53,7 @@ pub(crate) fn set_js_adopted_css(css: &str) {
         if *c != css {
             *c = css.to_string();
             CSS_VER.with(|v| v.set((v.get().0, v.get().1 + 1)));
+            crate::incr_log::note(0, crate::incr_log::Change::CssVer);
         }
     });
 }

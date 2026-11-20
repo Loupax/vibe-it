@@ -825,6 +825,8 @@ pub(crate) fn incr_json() -> String {
         parts.push(format!("\"bottom_up_stops_by_level\":[{}]", levels.join(",")));
         let wf: Vec<String> = i.worker_fallbacks.iter().map(|(r, n)| format!("{}:{n}", json_str(r))).collect();
         parts.push(format!("\"worker_fallbacks\":{{{}}}", wf.join(",")));
+        // QINC1e: the write log's per-layout counters.
+        parts.push(format!("\"log\":{}", crate::incr_log::stats_json()));
         format!("{{{}}}", parts.join(","))
     })
 }
