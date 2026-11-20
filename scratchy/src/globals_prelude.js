@@ -139,8 +139,13 @@
     var origin = g.location.origin;
     if (target && typeof target === 'object') target = target.targetOrigin;
     if (target !== undefined && target !== '*' && target !== '/' && String(target) !== origin) return;
-    var d = clone(msg);
-    tm(function () { g.dispatchEvent(new MessageEvent('message', { data: d, origin: origin, source: g, ports: [] })); });
+    if (g.closed) return;
+    // QPT1d (R53 D8): runs in the TARGET realm (`g`): cloned with the target's intrinsics, a target-realm
+    // MessageEvent. The sender is the incumbent window (`__scratchy_incumbent`: the realm Rust or
+    // `__scratchy_enter` entered), so `parent.postMessage` from a realm has that realm as `source`/`origin`.
+    var d = clone(msg), src = g, sorigin = origin;
+    try { src = g.__scratchy_incumbent(); sorigin = src.location.origin; } catch (e) { src = g; sorigin = origin; }
+    tm(function () { if (!g.closed) g.dispatchEvent(new MessageEvent('message', { data: d, origin: sorigin, source: src, ports: [] })); });
   });
 
   // ---- requestIdleCallback ----
