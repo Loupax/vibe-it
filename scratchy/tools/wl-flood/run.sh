@@ -99,12 +99,12 @@ run_one() {
   local t0 t1 sp ip alive_end
   t0=$(date +%s.%N)
   env WAYLAND_DISPLAY="$SOCK" SCRATCHY_FRAME_STATS="$stats" SCRATCHY_MEDIA_AO=null \
-    timeout $((SECS + 30)) "$SCRATCHY" --socket "$WSOCK" "$URL" >"$log" 2>&1 &
+    timeout $((SECS + 30)) "$SCRATCHY" --socket "$WSOCK" "$URL" >"$log" 2>&1 9>&- &
   sp=$!
   PIDS+=($sp)
   sleep 1
   # shellcheck disable=SC2086
-  WAYLAND_DISPLAY="$SOCK" timeout "$SECS" "$INJECT" "$W" "$H" $CMDS >"$ilog" 2>&1 &
+  WAYLAND_DISPLAY="$SOCK" timeout "$SECS" "$INJECT" "$W" "$H" $CMDS >"$ilog" 2>&1 9>&- &
   ip=$!
   PIDS+=($ip)
   # until the injector ends (SECONDS) or scratchy exits
