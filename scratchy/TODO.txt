@@ -39,7 +39,6 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
   28 QM1k-mouse: user re-tested 2026-11-19 22:21: still slow while the controls show (= QYTC1 cause); QYTC1a merged 9219065 -> ASK THE USER TO RE-TEST (quiet machine)
   27b4 [WIP] QY54a4 [S, Sonnet, P2] wl-drain sleeps while main is idle (CPU +1.4 % -> < 1 %; R57 section 7)
   27e QY54b1 [M, Opus, P1, correctness] script-inserted <link rel=stylesheet> is fetched and applied (YT player CSS; R58)
-  27f [WIP] QY54b3 [L, Opus DESIGN only here, P2] subtree forced layout (gPS 54-80 ms -> < 10 ms; absorbs QY53o2; R58)
  Step 6, re-profile before leaving performance (user 2026-11-19):
   29 QPROF1 [M, Opus, measure only] LAST performance item: runs when every item above is done, blocked or
      waiting for the user. The backlog does NOT start until it is done and any items it files are worked off.
@@ -1053,16 +1052,21 @@ Shared rules for this block:
       404 fires error and changes nothing; inserted twice applies once. Gate: YT results in the nested window, pointer on a
       result: #inline-preview-player computed position:relative, rect ~412x232 across reads, grim shows the preview over the
       hovered result with no controls above it; YT watch and Wikipedia unchanged.
-- [ ] [WIP] QY54b3 [L] (P2, from QY54b #428 R58; Opus DESIGN first; absorbs QY53o2) Subtree forced layout: when every node written
-      since the last forced layout is inside a box that was a layout boundary in the last layout (abs/fixed, definite width
-      and height, overflow not visible or size independent of content), and no CSS/viewport change happened, lay out only
-      that subtree (style from the parent's cached computed style, measure at the cached containing block), splice rects and
-      skeleton into GeomCache. YT results: writes before getPlayerSize reads are all in the preview, 70-75 % inside
-      #inline-preview-player under .ytdVideoPreviewPlayerContainerWrapper (abs, 440x248, overflow hidden). Design must cover
-      which boxes qualify (not content-sized, not display:contents parents), hoisted descendants (QYTC1a SK_FIXED_IN), IO
-      reads, glyphs for the subtree, counters/::before depending on document order (QY54b2's pass), and an exactness test
-      mode (subtree vs full layout rect by rect). Gate: R58 recipe, gPS layouts median < 10 ms (from 54-80), worst promise
-      job of a preview start < 300 ms (from 685-1137 ms); full suite and WPT unchanged.
+QY54b3 IMPLEMENTATION (design R59 #431 f1013b0; full item text in REGRESSIONS.md R59 section 11; WAITING FOR USER GO-AHEAD;
+supersedes QY54b3 [L], absorbs QY53o2). Order a -> (b) -> c -> d -> e -> f, each with a go/no-go gate:
+- [ ] QY54b3a [M] (P2, Sonnet; NO behaviour change; AFTER QY54b1) Dirty points (GEOM_DIRTY via geom_bump_at) + full-layout
+      stash + GeomCache::partial_verdict classifier + --perf-report forced.partial_would. Gate: R58 recipe x3 split; build
+      QY54b3b if >= 50 % of gPS reads would be served, QY54b3c-e if serve+subtree >= 85 %; else stop and report.
+- [ ] QY54b3b [M] (P2, Sonnet; after a + QY54b1) Stage 1: serve rect reads of an unchanged box / anything outside the dirty
+      box from the stale cache (__d_rect_box); check mode (cfg(test) always; SCRATCHY_GEOM_CHECK=1); SCRATCHY_GEOM_PARTIAL=0.
+- [ ] QY54b3c [S] (P2, Sonnet; no behaviour change) precompute_generated factored as generated_walk with recorded entry/exit
+      state per abs/fixed element; RuleDerived doc_order flag.
+- [ ] QY54b3d [M] (P2, Sonnet; after a/c) build_subtree_box(B) with stashed inherited style, generated state, no global
+      side effects (animations, last match, canvas bg, viewport root).
+- [ ] QY54b3e [M] (P2, Sonnet; after b/d) Stage 2 measure + splice into GeomCache; check mode on every subtree layout.
+      Gate: gPS layouts median < 10 ms, worst preview-start promise job < 300 ms (R58 recipe x3).
+- [ ] QY54b3f [S] (P2, Opus measure, docs; after e) Real-page exactness sweep with SCRATCHY_GEOM_CHECK=1 (YT results/watch,
+      Wikipedia Page Previews, github.com, bbc.com/news): 0 mismatches; close QY53o2 or file the rest.
 - [ ] QY54b4 [S] (P4, from QY54b #428; Sonnet; js_geom.rs style_write_in_place; ONLY after QY54b3's design) Treat an absent
       old `style` attribute as empty so a first `style="top:..;left:.."` on an abs box shifts in place (~1 read per preview).
 - [ ] QOBS9 [S] (P2, R44 section 0, Opus measure, docs only; LAST in this block) Re-baseline PERF.md on

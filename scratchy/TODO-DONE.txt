@@ -8171,3 +8171,16 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       nothing generated still prunes its counters. Gate: R58 recipe, precompute_generated median per gPS layout < 4 ms,
       total per layout -15 % or more; WPT no pass->fail.
   (queue line) 27d [WIP] QY54b2 [S, Sonnet, P1] precompute_generated matches a prefiltered rule list (10-22 ms of every forced layout; R58)
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY54b3 DONE - design done (R59, #431); implementation = QY54b3a-f, waiting for user go [L] (P2, from QY54b #428 R58; Opus DESIGN first; absorbs QY53o2) Subtree forced layout: when every node written
+      since the last forced layout is inside a box that was a layout boundary in the last layout (abs/fixed, definite width
+      and height, overflow not visible or size independent of content), and no CSS/viewport change happened, lay out only
+      that subtree (style from the parent's cached computed style, measure at the cached containing block), splice rects and
+      skeleton into GeomCache. YT results: writes before getPlayerSize reads are all in the preview, 70-75 % inside
+      #inline-preview-player under .ytdVideoPreviewPlayerContainerWrapper (abs, 440x248, overflow hidden). Design must cover
+      which boxes qualify (not content-sized, not display:contents parents), hoisted descendants (QYTC1a SK_FIXED_IN), IO
+      reads, glyphs for the subtree, counters/::before depending on document order (QY54b2's pass), and an exactness test
+      mode (subtree vs full layout rect by rect). Gate: R58 recipe, gPS layouts median < 10 ms (from 54-80), worst promise
+      job of a preview start < 300 ms (from 685-1137 ms); full suite and WPT unchanged.
+  (queue line) 27f [WIP] QY54b3 [L, Opus DESIGN only here, P2] subtree forced layout (gPS 54-80 ms -> < 10 ms; absorbs QY53o2; R58)
