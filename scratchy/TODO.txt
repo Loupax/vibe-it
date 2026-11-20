@@ -1027,10 +1027,6 @@ Shared rules for this block:
 - [ ] [WIP] QYSCR1a [S] (P2, from QYSCR1 #437 R61; Sonnet) YT results: the "Alle" chip (button.ytChipShapeButtonReset) has focus
       after load without a click, so Space presses it instead of scrolling. Find who focuses it (YouTube focus() vs scratchy's
       focus rules / autofocus); fix if scratchy's.
-- [ ] [WIP] QYSCR1b [S] (P3, from #437 R61; Sonnet) Viewport `overflow: hidden` (e.g. YT body.no-scroll while a dialog is open)
-      must block wheel/key scrolling but allow script scrolling.
-- [ ] [WIP] QYSCR1c [S] (P3, from #437 R61; Sonnet) Scroll chaining: an unusable tick goes to the next scrollable ancestor, not
-      straight to the page; the innermost region under the cursor with nothing to scroll yields to an outer one.
 - [ ] QYSCR1d [S] (P4, from #437 R61; Sonnet) WPT overflow-body-propagation-012: body clips its own overflow when
       html{overflow:hidden} takes the viewport.
 - [ ] QY54a5 [S] (P4, from QY54a4 #430; Sonnet; tools only) tools/wl-flood/run.sh: add a DELAY option (motion start time,
@@ -1134,7 +1130,7 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       geometry at load.
 - [ ] QJ6b [S] (P3, left out by QJ6) scrollLeft/horizontal scroll regions (ScrollInfo is vertical
       only), overflow:hidden boxes programmatically scrollable, wheel routing into
-      position:fixed/absolute scroll boxes (hit_test_scroll_region skips positioned
+      position:fixed/absolute scroll boxes [still open after QYSCR1c #440: scroll_chain_into skips `positioned` children; walk laid.positioned] (hit_test_scroll_region skips positioned
       children: #vimhelp is fixed, so the wheel does not scroll it, keys do), `scroll`
       events for wheel scrolls, scroll-behavior: smooth.
 - [ ] QAN1d [M] (after QAN1c and QM1g1's damage-redraw helper, or build that helper
