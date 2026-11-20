@@ -118,6 +118,29 @@ fn qinc1j_hover_paint_and_layout_frames_run_on_main() {
     assert_eq!(frame(&mut app), CURRENT);
 }
 
+/// QINC1i6: with no script forced layout ever, the main thread's shape memo is on for engine
+/// relayouts: re-measuring a paragraph at a width it was already shaped at is a memo hit.
+#[test]
+fn qinc1i6_main_frames_use_the_shape_memo_without_forced_layouts() {
+    let html = "<html><head><style>body{margin:0}#b{width:600px}#b:hover{width:300px}</style></head>\
+                <body><div id=b><p>Some paragraph text that needs shaping to measure.</p></div><p id=c>c</p></body></html>";
+    crate::layout::SHAPE_MEMO_ENABLED.with(|m| m.set(false));
+    crate::layout::memo_clear();
+    let Some((mut app, _l)) = live_app(html) else { return };
+    hover(&mut app, "b");
+    assert_eq!(frame(&mut app), MAIN);
+    assert!(crate::layout::SHAPE_MEMO_ENABLED.with(|m| m.get()), "the first Main frame turns the memo on");
+    hover(&mut app, "c");
+    assert_eq!(frame(&mut app), MAIN);
+    let (h0, _) = crate::layout::shape_memo_lookups();
+    hover(&mut app, "b");
+    assert_eq!(frame(&mut app), MAIN);
+    let (h1, _) = crate::layout::shape_memo_lookups();
+    assert!(h1 > h0, "the 300px shape of the paragraph came from the memo ({h0} -> {h1})");
+    crate::layout::SHAPE_MEMO_ENABLED.with(|m| m.set(false));
+    crate::layout::memo_clear();
+}
+
 /// Focus is an interaction-state input like hover.
 #[test]
 fn qinc1j_focus_frame() {
