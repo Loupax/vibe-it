@@ -350,6 +350,10 @@ fn serialize_node(h: &Handle, outer: bool) -> String {
         }
     }
     fn node<S: Serializer>(s: &mut S, h: &Handle) -> std::io::Result<()> {
+        // QSTK1x: recursive per nesting level; grow the stack (debug frames overflow 2 MB at 5000 deep).
+        crate::stack::grow(|| node_body(s, h))
+    }
+    fn node_body<S: Serializer>(s: &mut S, h: &Handle) -> std::io::Result<()> {
         match &h.data {
             NodeData::Element { name, attrs, .. } => {
                 // QY45: html5ever's writer ignores attribute prefixes (it prints
@@ -406,6 +410,11 @@ fn serialize_node(h: &Handle, outer: bool) -> String {
 }
 
 fn clone_node(h: &Handle, deep: bool) -> Handle {
+    // QSTK1x: recursive per nesting level; grow the stack.
+    crate::stack::grow(|| clone_node_body(h, deep))
+}
+
+fn clone_node_body(h: &Handle, deep: bool) -> Handle {
     let data = match &h.data {
         NodeData::Element { name, attrs, mathml_annotation_xml_integration_point, .. } => NodeData::Element {
             name: name.clone(),

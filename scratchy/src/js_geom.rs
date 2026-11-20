@@ -308,6 +308,10 @@ type Glyph = (char, f32, f32, f32, f32);
 
 /// QJ7: records the glyphs of every paragraph under `l`, keyed by DOM text node.
 fn walk_glyphs(l: &Laid, cache: &ShapeCache, out: &mut HashMap<usize, Vec<Glyph>>) {
+    crate::stack::grow(|| walk_glyphs_body(l, cache, out)) // QSTK1x: recursive per nesting level
+}
+
+fn walk_glyphs_body(l: &Laid, cache: &ShapeCache, out: &mut HashMap<usize, Vec<Glyph>>) {
     fn para(cache: &ShapeCache, id: usize, ox: f32, oy: f32, out: &mut HashMap<usize, Vec<Glyph>>) {
         let Some(entry) = cache.get(&id) else { return };
         let guard = entry.lock().unwrap();
@@ -363,7 +367,7 @@ fn walk(l: &Laid, fixed: bool, out: &mut HashMap<usize, GeomRect>, skel: &mut Ve
         out.insert(l.style.node, GeomRect { x: l.x, y: l.y, w: l.w, h: l.h, fixed, ink_r: ext.0, ink_b: ext.1 });
     }
     let mut sub = |c: &Laid, ext: &mut (f32, f32)| {
-        let e = walk(c, fixed, out, skel, me);
+        let e = crate::stack::grow(|| walk(c, fixed, out, skel, me)); // QSTK1x: deep recursion
         ext.0 = ext.0.max(e.0);
         ext.1 = ext.1.max(e.1);
     };
