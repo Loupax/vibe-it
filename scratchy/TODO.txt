@@ -37,7 +37,6 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
  Step 5, memory, regression guards, re-measure:
   27 [WIP] QOBS9 [S, Opus] re-baseline PERF.md on the new machine (after 9, 18, 20)
   28 QM1k-mouse: user re-tested 2026-11-19 22:21: still slow while the controls show (= QYTC1 cause); QYTC1a merged 9219065 -> ASK THE USER TO RE-TEST (quiet machine)
-  27g [WIP] QYSCR1 [M, Opus, P1, user bug] scrolling does not work on YouTube (user 2026-11-20)
  Step 6, re-profile before leaving performance (user 2026-11-19):
   29 QPROF1 [M, Opus, measure only] LAST performance item: runs when every item above is done, blocked or
      waiting for the user. The backlog does NOT start until it is done and any items it files are worked off.
@@ -1029,6 +1028,15 @@ Shared rules for this block:
       "no <base href>" and #frag can't resolve: set base_url from file_page_url even without wire. Test.
 - [ ] QFLK4 [S] (P3, from QNAV9 #435; Sonnet) forms test q30d_typing_through_the_app_events_maxlength_readonly_escape failed
       once in a full suite run while the machine was loaded (passed in 2 later runs). Find the timing dependence; prove 20x.
+- [ ] QYSCR1a [S] (P2, from QYSCR1 #437 R61; Sonnet) YT results: the "Alle" chip (button.ytChipShapeButtonReset) has focus
+      after load without a click, so Space presses it instead of scrolling. Find who focuses it (YouTube focus() vs scratchy's
+      focus rules / autofocus); fix if scratchy's.
+- [ ] QYSCR1b [S] (P3, from #437 R61; Sonnet) Viewport `overflow: hidden` (e.g. YT body.no-scroll while a dialog is open)
+      must block wheel/key scrolling but allow script scrolling.
+- [ ] QYSCR1c [S] (P3, from #437 R61; Sonnet) Scroll chaining: an unusable tick goes to the next scrollable ancestor, not
+      straight to the page; the innermost region under the cursor with nothing to scroll yields to an outer one.
+- [ ] QYSCR1d [S] (P4, from #437 R61; Sonnet) WPT overflow-body-propagation-012: body clips its own overflow when
+      html{overflow:hidden} takes the viewport.
 - [ ] QY54a5 [S] (P4, from QY54a4 #430; Sonnet; tools only) tools/wl-flood/run.sh: add a DELAY option (motion start time,
       default 1 s) so the "YT results from 15 s" run is repeatable without a patched copy.
 - [ ] QY54b1a [M] (P2, from QY54b1 #432 R58 note; Opus; layout + paint hit test; SHIP TOGETHER) (1) abs `height:auto` with
@@ -1044,12 +1052,6 @@ Shared rules for this block:
 - [ ] QY57r2 [S] (P4, from QY57r #420 grim check; Sonnet) YT results thumbnail overlay: the "Läuft gerade"/now-playing
       label and the duration badge (1:34:40) overlap in the bottom-right corner of the first thumbnail. Find which
       overlay rule (hover/now-playing vs time-status) should hide or position the other; fix + grim check.
-- [ ] [WIP] QYSCR1 [M] (P1, user 2026-11-20 ~10:00: "scrolling doesn't work on youtube in general"; Opus investigate+fix)
-      Reproduce wheel / keyboard (Space, PageDown, arrows) / scrollbar scrolling on YouTube home, results and watch in a
-      nested window. Suspect: body `overflow: scroll` with a 0 px box (R56) is treated as the scroll container instead of
-      propagating to the viewport (QY57r #420 fixed this only for IntersectionObserver); also check `ytd-app`/fixed
-      containers (QJ6b: wheel skips positioned scroll boxes), JS scroll handlers / preventDefault, and window.scrollTo.
-      Fix + tests (body overflow:scroll + 0-height body under visible html: the wheel scrolls the viewport); grim before/after.
 QINC1 IMPLEMENTATION (design R60, #434; full item text in REGRESSIONS.md R60 section 15; WAITING FOR USER answers to R60
 section 16). Items QINC1a (engine test infra + style_diff + fuzz), QINC1b (stable paragraph ids), QINC1c (bottom-up hoisting),
 QINC1d (InvalidationMap), QINC1e (write log), QINC1f [L] (incremental restyle, shadow), QINC1g [L] (persistent box tree,
