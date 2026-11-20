@@ -745,7 +745,7 @@ enum Attempt {
 fn reads_intrinsic(b: &LayoutBox) -> bool {
     let s = &b.style;
     let out_of_flow = matches!(s.position, Position::Absolute | Position::Fixed);
-    let stretched = out_of_flow && s.inset.left.is_some() && s.inset.right.is_some() && !(s.margin_auto.0 || s.margin_auto.1);
+    let stretched = out_of_flow && s.inset.left.is_some() && s.inset.right.is_some() && !s.margin_auto.0 && !s.margin_auto.1;
     matches!(s.display, Display::Table | Display::Flex | Display::InlineFlex | Display::Grid)
         || s.width_kw.is_some()
         || s.min_width_kw.is_some()
