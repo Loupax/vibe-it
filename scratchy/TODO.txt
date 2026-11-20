@@ -1104,6 +1104,10 @@ Shared rules for this block:
       `text_span`); set span.node there.
 - [ ] [WIP] QY53n3 [S] (P3, from QY53n; after QY53n2) Offset hover patch (translate/top) via shift_laid_tree. Gate: YT hover builds
       that are only PAINT/OFFSET -> 0 (today 36 of 58).
+- [ ] QY53n3m [S] (P3, from QY53n3 #416; Opus measure, quiet machine) YT watch G1AeBgalFZk hover {patched, built, skipped} at
+      main vs before #416, interleaved, under flock, uptime noted; report which remaining YT hover builds are refused and why
+      (positioned descendants, inline-level boxes, % insets, auto-width absolutes). Candidates to widen: re-hoisting
+      positioned descendants; % insets via the containing-block basis on Laid.
 - [ ] QY53n4 [M] (P4, later, from QY53n) Subtree re-box for layout-changing hovers + re-applying patches after an in-flight
       build (16 of 58 YT hover builds, 0 on Wikipedia).
 - [ ] QOBS9 [S] (P2, R44 section 0, Opus measure, docs only; LAST in this block) Re-baseline PERF.md on
