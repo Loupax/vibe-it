@@ -965,8 +965,8 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         crate::js_geom::rendered_rect(&h)
     });
     native!(ctx, "__d_rend_ok", |vw: f64, vh: f64| -> bool { crate::js_geom::rendered_ok(vw as u32, vh as u32) });
-    native!(ctx, "__d_win", || crate::js::has_window_viewport());
-    native!(ctx, "__d_rend_clear", || crate::js_geom::clear_rendered());
+    native!(ctx, "__d_win", crate::js::has_window_viewport);
+    native!(ctx, "__d_rend_clear", crate::js_geom::clear_rendered);
     // QY53e1: is the geometry cache current for this viewport (no layout), and what the last layout cost.
     native!(ctx, "__d_geom_fresh", move |vw: f64, vh: f64| -> bool { geom3.borrow().is_fresh(geom_gen(), vw as f32, vh as f32) });
     native!(ctx, "__d_geom_cost", move || -> f64 { geom4.borrow().last_cost_ms() });
