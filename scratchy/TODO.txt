@@ -1026,9 +1026,9 @@ Shared rules for this block:
       build (16 of 58 YT hover builds, 0 on Wikipedia).
 - [ ] QFLK4 [S] (P3, from QNAV9 #435; Sonnet) forms test q30d_typing_through_the_app_events_maxlength_readonly_escape failed
       once in a full suite run while the machine was loaded (passed in 2 later runs). Find the timing dependence; prove 20x.
-- [ ] [WIP] QYSCR1a [S] (P2, from QYSCR1 #437 R61; Sonnet) YT results: the "Alle" chip (button.ytChipShapeButtonReset) has focus
-      after load without a click, so Space presses it instead of scrolling. Find who focuses it (YouTube focus() vs scratchy's
-      focus rules / autofocus); fix if scratchy's.
+- [ ] QYSCR1f [S] (P3, from QYSCR1a #441; Sonnet, investigate) YT results: after the guide drawer toggles (Space on the
+      focused guide button, or a click on it) the chip bar disappears and the first result is offset. Compare with Chrome;
+      fix + grim check.
 - [ ] QYSCR1d [S] (P4, from #437 R61; Sonnet) WPT overflow-body-propagation-012: body clips its own overflow when
       html{overflow:hidden} takes the viewport.
 - [ ] QY54a5 [S] (P4, from QY54a4 #430; Sonnet; tools only) tools/wl-flood/run.sh: add a DELAY option (motion start time,
