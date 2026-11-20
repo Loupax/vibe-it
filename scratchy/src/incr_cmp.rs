@@ -126,6 +126,10 @@ fn cmp_span(path: &str, i: usize, a: &SpanStyle, b: &SpanStyle) -> Result<(), Mi
 /// Boxes, structurally: styles (minus `node`/`tree_order`), background image, content kind, inline
 /// items' text and spans, children.
 pub(crate) fn cmp_boxes(names: &Names, path: &str, a: &LayoutBox, b: &LayoutBox) -> Result<(), Mismatch> {
+    crate::stack::grow(|| cmp_boxes_body(names, path, a, b))
+}
+
+fn cmp_boxes_body(names: &Names, path: &str, a: &LayoutBox, b: &LayoutBox) -> Result<(), Mismatch> {
     cmp_styles(path, &a.style, &b.style)?;
     cmp_image(path, "background_image", &a.background_image, &b.background_image)?;
     match (&a.content, &b.content) {
@@ -134,7 +138,7 @@ pub(crate) fn cmp_boxes(names: &Names, path: &str, a: &LayoutBox, b: &LayoutBox)
                 return Err(mm(path, "children.len", x.len(), y.len()));
             }
             for (i, (p, q)) in x.iter().zip(y).enumerate() {
-                cmp_boxes(names, &child_path(names, path, i, p.style.node), p, q)?;
+                cmp_boxes(names, "", p, q).map_err(|m| under(names, path, i, p.style.node, m))?;
             }
             Ok(())
         }
@@ -161,7 +165,7 @@ pub(crate) fn cmp_boxes(names: &Names, path: &str, a: &LayoutBox, b: &LayoutBox)
                         cmp_image(path, &format!("item[{i}].background_image"), b1, b2)?;
                     }
                     (InlineItem::Embedded(e1), InlineItem::Embedded(e2)) => {
-                        cmp_boxes(names, &child_path(names, path, i, e1.style.node), e1, e2)?;
+                        cmp_boxes(names, "", e1, e2).map_err(|m| under(names, path, i, e1.style.node, m))?;
                     }
                     (
                         InlineItem::Spacer { w: w1, pad_w: p1, bg: g1, start: s1 },
@@ -185,6 +189,12 @@ pub(crate) fn cmp_boxes(names: &Names, path: &str, a: &LayoutBox, b: &LayoutBox)
         }
         (x, y) => Err(mm(path, "content kind", box_kind(x), box_kind(y))),
     }
+}
+
+/// A child's mismatch (found with an empty path: paths are only built when something differs).
+fn under(names: &Names, path: &str, i: usize, node: usize, mut m: Mismatch) -> Mismatch {
+    m.path = format!("{}{}", child_path(names, path, i, node), m.path);
+    m
 }
 
 fn item_kind(i: &InlineItem) -> &'static str {

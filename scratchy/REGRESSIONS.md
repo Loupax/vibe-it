@@ -964,6 +964,46 @@ images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom
   block -> inline -> contents -> flex -> table-cell runs), list renumbering after an insert, `::before` content change, image
   arrival, first-line; fuzz harness on boxes. Gate: full suite in shadow mode, WPT unchanged, `incr.boxes_rebuilt` on the
   three pages (headless, `_CHECK=1`, 0 mismatches).
+  QINC1g DONE (Opus, 2026-11-20; `src/incr_box.rs`, tests `src/tests/incr_box_tests.rs`): the engine keeps the box tree
+  (a copy of the from-scratch tree after a full restyle). An incremental update takes QINC1f's marks (box owners marked
+  `BOX`, plus every element whose style, pseudo styles, match lists or ambient inputs changed and every new element:
+  `incr_style::take_box_marks`), image arrivals (each element box records the image `src`s / CSS urls it looked up;
+  a cache entry that appears / changes / goes rebuilds exactly those boxes) and video intrinsic-size changes, closes
+  them over DOM ancestors (the PATH) and rebuilds the root with today's builder, reading styles and matches from the
+  element table (rebuild-only hooks in `resolve_style_for` and the match memo; generated content from the engine's own
+  walk). Every element box OFF the path is moved over from a pool filled lazily (rebuilding a box first detaches its old
+  element-owned descendants through anonymous boxes, table rows and inline-block items). Always rebuilt with their
+  container: `<html>`/`<body>` (the canvas-background and viewport-overflow fix-ups are redone on the new root and take
+  from them), form controls and media (live state, intrinsic sizes; cheap leaves), boxes with inline content (leaves
+  whose parent may rewrite `text-overflow`), list items whose parent's child list changed (the marker counts siblings).
+  Document-order ties are renumbered on the kept tree (`renumber_document_order`, without QINC1c's test bookkeeping).
+  `bver` / `ldirty` are side tables by node (rebuilt path; QINC1h1 reads them). Per element instead of per build:
+  image srcs, video sizes, generated content, `display: none` roots (`incr_style::display_none_roots`); the rebuild
+  leaves `WANTED_IMG_SRCS` / `WANTED_CSS_IMAGES` / `DISPLAY_NONE_ROOTS` alone. Design choice: the whole PATH is
+  rebuilt (each ancestor's own content list, siblings moved), not only the box owner spliced in place: it needs no
+  "where is this box" search through anonymous wrappers and makes box ownership imprecision harmless; cost is
+  O(path x children). Check: `cmp_boxes` of the kept tree vs the from-scratch tree after every shadowed build (tests
+  panic; release diag + `incr.check_mismatch` + restart from the fresh tree); `incr_cmp` is compiled in release and
+  builds paths only on a difference. Fuzz: the harness also compares the kept tree after every step; 3 000 cases
+  (`SCRATCHY_FUZZ_KEEP_GOING=1`): 7 998 incremental box rebuilds (42 823 boxes rebuilt, 33 992 moved), 0 box mismatches;
+  it found 7 STYLE mismatches of QINC1f on seeds above the default 200 (462, 519, 733, 1956, 2080, 2084, 2475:
+  first-child / nth-child / sibling invalidation after inserts and moves; QINC1f-fix proposed). Suite (debug, shadow
+  on every build): 1 488 passed in 40.2 s (load 0.5). WPT unchanged (333 / 293), also under `SCRATCHY_INCR_CHECK=1`
+  (0 mismatches). Clippy 77 (local limit 77, none in the new files).
+  Numbers (release, own wire, headless `--perf-report --budget-ms 20000`, YouTube 30 s, Wikipedia 20 s, each run under
+  the perf lock and the 6G scope, 1-min load 0.14-2.35; `rebuilt`/`moved` = element boxes per run):
+  | page | check runs | box updates | rebuilt | moved | box ms total | mismatches | kept tree estimate | RSS: off / main INCR=1 / this INCR=1 |
+  |---|---|---|---|---|---|---|---|---|
+  | YouTube results | 3 | 31 / 33 / 30 | 3 780 / 3 825 / 3 793 | 1 864 / 1 923 / 1 855 | 17.9 / 18.9 / 17.7 | 0 | 5.7 MB (2 200 element boxes) | 348, 419 / 426, 436 / 442, 432 MB (noise > delta) |
+  | YouTube watch | 3 | 114 / 106 / 106 | 6 245 / 6 020 / 6 016 | 3 205 / 2 774 / 2 720 | 40.5 / 37.6 / 38.3 | 0 | 7.5 MB (3 200) | 470, 468 / 505, 493 / 500, 494 MB (noise > delta) |
+  | Wikipedia Rust | 3 | 2 each | 100 each | 50 each | 1.0 / 1.1 / 1.0 | 0 | 15.2 MB (1 595) | 226, 226 / 247, 254 / 273, 276 MB (+24 MB) |
+  Per incremental update: ~120 boxes rebuilt / 0.6 ms (results), ~57 / 0.36 ms (watch), 50 / 0.5 ms (Wikipedia), vs
+  1 600-3 200 element boxes per from-scratch build. `incr.unlogged` 0. MEMORY is above the accepted envelope on
+  Wikipedia: the kept tree is 15.2 MB because `InlineItem` is 1 328 B (its `Image` variant carries a whole
+  `ComputedStyle`; `SpanStyle` is 112 B) and Wikipedia has ~10k inline items; RSS +24 MB over QINC1f's INCR=1, +48 MB
+  over off. Boxing `InlineItem::Image::style` (layout.rs, outside this item's area) would cut every inline item to
+  ~120 B (both the kept and every fresh tree); proposed as QINC1g-mem. The copy lives only with `SCRATCHY_INCR*=1`
+  until QINC1j makes it THE tree (then no second tree exists).
 - **QINC1h1 [L]** (P2, Opus; area layout; AFTER QINC1b, c, g) Relayout from the last tree in SHADOW mode (R60 sections 4.3,
   8.1-8.5): `ck` + `cacheable` on element `Laid`s; harvest along dirty paths; reuse in `measure_inner` (shift by the origin
   delta); bottom-up re-measure at the old `ck` with the parent-view comparison and splice, else one level up; abs/fixed via

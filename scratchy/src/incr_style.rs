@@ -304,6 +304,12 @@ pub(crate) struct Engine {
     covered_attr: HashSet<(usize, Box<str>)>,
     covered_kids: HashSet<usize>,
     full: bool,
+    /// QINC1g: elements whose box content may have changed in this update (box owners marked `BOX`,
+    /// elements whose style / pseudo styles / matches / ambient changed, new entries). The box stage
+    /// rebuilds every box on the path from these to the root.
+    touched: Vec<usize>,
+    /// QINC1g: elements whose child list or text changed in this update (list markers count siblings).
+    kids_changed: HashSet<usize>,
 }
 
 /// Matches per slot of the element (`seed_match` input or `match_slot` output).
@@ -471,6 +477,8 @@ impl Engine {
             covered_attr: HashSet::new(),
             covered_kids: HashSet::new(),
             full: true,
+            touched: Vec::new(),
+            kids_changed: HashSet::new(),
         }
     }
 
@@ -532,6 +540,16 @@ impl Engine {
         let owner = self.table.get(&key).map_or(key, |e| e.box_owner);
         self.flag(owner, BOX);
         self.stats.boxes.push(owner);
+        self.touched.push(key);
+        self.touched.push(owner);
+    }
+
+    /// `BOX` on `owner` because of a change of `key` (QINC1g: both are touched).
+    fn box_mark_owner(&mut self, key: usize, owner: usize) {
+        self.flag(owner, BOX);
+        self.stats.boxes.push(owner);
+        self.touched.push(key);
+        self.touched.push(owner);
     }
 
     /// Drops the entries of `h`'s subtree (removed from the document, or no longer rendered).
@@ -926,8 +944,7 @@ impl Engine {
                 match style_diff(&old, &s) {
                     StyleDiff::Box => {
                         self.box_mark(k);
-                        self.flag(powner, BOX);
-                        self.stats.boxes.push(powner);
+                        self.box_mark_owner(k, powner);
                     }
                     StyleDiff::Layout if !owns_box(tag, &s) => self.box_mark(k),
                     _ => {}
@@ -936,8 +953,22 @@ impl Engine {
                     self.drop_subtree(h, false);
                 }
             } else {
-                self.flag(powner, BOX);
-                self.stats.boxes.push(powner);
+                self.box_mark_owner(k, powner);
+            }
+            // QINC1g: any change of what the builder reads for this element (its style, a pseudo
+            // slot's style or presence, a match list: `content`, `background-image`) touches its box.
+            {
+                let e = &self.table[&k];
+                let changed = old_style.is_none_or(|o| !same_style(&o, &s))
+                    || e.pseudo.iter().zip(pseudo.iter()).any(|(a, b)| match (a, b) {
+                        (None, None) => false,
+                        (Some(a), Some(b)) => !same_style(a, b),
+                        _ => true,
+                    })
+                    || e.m != ms;
+                if changed {
+                    self.touched.push(k);
+                }
             }
             let e = self.table.get_mut(&k).expect("inserted above");
             e.why = why;
@@ -956,8 +987,7 @@ impl Engine {
         let amb = child_ambient(h, tag, &s, pamb);
         if amb != old_amb && !new_entry {
             child_policy = child_policy.max(Policy::Ambient);
-            self.flag(owner, BOX);
-            self.stats.boxes.push(owner);
+            self.box_mark_owner(k, owner);
         }
         let refresh = new_entry || self.full || self.kids_dirty.contains(&k);
         let rec = reconcile_on();
@@ -987,6 +1017,8 @@ impl Engine {
     fn update(&mut self, doc: &Handle, rules: &Rc<Vec<StyleRule>>, vw: f32, vh: f32) {
         self.stats = Stats::default();
         self.updates += 1;
+        self.touched.clear();
+        self.kids_changed.clear();
         let log = crate::incr_log::take();
         // A list that is not the cache's current one has no generation: always a full re-match.
         let rkey = (crate::rules_cache::generation_of(rules).unwrap_or(u64::MAX), Rc::as_ptr(rules) as usize);
@@ -1084,6 +1116,7 @@ impl Engine {
                 }
             }
         }
+        self.kids_changed = self.kids_dirty.iter().copied().collect();
         // clear the per-update state
         for k in std::mem::take(&mut self.flagged) {
             if let Some(e) = self.table.get_mut(&k) {
@@ -1205,6 +1238,16 @@ impl Engine {
     }
 }
 
+/// Equal styles minus identity (`node`, `tree_order`): cheap, and conservative (a NaN field is a change).
+fn same_style(a: &ComputedStyle, b: &ComputedStyle) -> bool {
+    let (mut x, mut y) = (*a, *b);
+    x.node = 0;
+    y.node = 0;
+    x.tree_order = 0;
+    y.tree_order = 0;
+    x == y
+}
+
 fn collect_desc(h: &Handle, out: &mut Vec<Handle>) {
     for c in h.children.borrow().iter() {
         if is_el(c) {
@@ -1306,7 +1349,15 @@ impl Env {
 
 /// Called at the end of `build_layout_tree_with_resources` when `begin_build` said so: the shadow
 /// update, then (check mode) the comparison with what the build resolved.
-pub(crate) fn after_build(doc: &Handle, rules: &Rc<Vec<StyleRule>>, vw: f32, vh: f32) {
+pub(crate) fn after_build(
+    doc: &Handle,
+    rules: &Rc<Vec<StyleRule>>,
+    vw: f32,
+    viewport_height: Option<f32>,
+    image_cache: &HashMap<String, std::sync::Arc<DecodedImage>>,
+    tree: &LayoutBox,
+) {
+    let vh = viewport_height.unwrap_or(1080.0);
     let fresh = RECORD.with(|r| r.borrow_mut().take());
     let t0 = std::time::Instant::now();
     let t_phase = crate::perf::phase(crate::perf::Phase::IncrShadow);
@@ -1350,6 +1401,9 @@ pub(crate) fn after_build(doc: &Handle, rules: &Rc<Vec<StyleRule>>, vw: f32, vh:
         eng.stats.mismatches = mism.len();
         (eng.stats.clone(), mism)
     });
+    let style_ns = t0.elapsed().as_nanos() as u64;
+    // QINC1g: the box stage, in the same environment (stored styles and matches, rule index).
+    let box_mism = crate::incr_box::update(doc, rules, vw, viewport_height, image_cache, tree, report.1.is_empty());
     env.exit(rules);
     drop(t_phase);
     let (stats, mism) = report;
@@ -1360,24 +1414,126 @@ pub(crate) fn after_build(doc: &Handle, rules: &Rc<Vec<StyleRule>>, vw: f32, vh:
     incr_add(Incr::StyledFresh, stats.styled_fresh);
     incr_add(Incr::Unlogged, stats.unlogged);
     incr_add(Incr::GlobalUpdates, u64::from(stats.full));
-    crate::perf::incr_restyle_sample(stats.restyled(), stats.styled_fresh, t0.elapsed().as_nanos() as u64);
-    if mism.is_empty() {
-        return;
+    crate::perf::incr_restyle_sample(stats.restyled(), stats.styled_fresh, style_ns);
+    if !mism.is_empty() {
+        // The engine is no longer trusted: the next update starts from scratch.
+        ENGINE.with(|e| *e.borrow_mut() = None);
+        report_mismatches("incremental restyle differs from the from-scratch build", mism);
     }
-    incr_add(Incr::CheckMismatch, mism.len() as u64);
-    // The engine is no longer trusted: the next update starts from scratch.
-    ENGINE.with(|e| *e.borrow_mut() = None);
+    if !box_mism.is_empty() {
+        report_mismatches("incremental box tree differs from the from-scratch build", box_mism);
+    }
+}
+
+/// Check mode: counts `incr.check_mismatch`; tests panic (or collect, `Seam::panic` off), release
+/// prints one `scratchy: incr-check: MISMATCH` diag line per difference.
+pub(crate) fn report_mismatches(what: &str, mism: Vec<String>) {
+    crate::perf::incr_add(crate::perf::Incr::CheckMismatch, mism.len() as u64);
     #[cfg(test)]
     {
         if SEAM.with(|s| s.get().panic) {
-            panic!("incremental restyle differs from the from-scratch build:\n{}", mism.join("\n"));
+            panic!("{what}:\n{}", mism.join("\n"));
         }
         MISMATCHES.with(|m| m.borrow_mut().extend(mism));
     }
     #[cfg(not(test))]
-    for m in mism {
-        diag!("scratchy: incr-check: MISMATCH {m}");
+    {
+        let _ = what;
+        for m in mism {
+            diag!("scratchy: incr-check: MISMATCH {m}");
+        }
     }
+}
+
+/// Whether the shadow stages compare with the from-scratch build (tests, `SCRATCHY_INCR_CHECK=1`).
+pub(crate) fn checking() -> bool {
+    mode() == Mode::Check
+}
+
+// ---------- QINC1g: what the box stage reads from the element table ----------
+// (accessors only, so the table's storage can change without touching the box stage)
+
+/// What the last update means for the box tree.
+pub(crate) struct BoxMarks {
+    /// The update restyled everything without describing what changed (the box tree starts over).
+    pub(crate) full: bool,
+    pub(crate) touched: Vec<usize>,
+    pub(crate) kids_changed: HashSet<usize>,
+}
+
+pub(crate) fn take_box_marks() -> Option<BoxMarks> {
+    ENGINE.with(|e| {
+        let mut e = e.try_borrow_mut().ok()?;
+        let e = e.as_mut()?;
+        Some(BoxMarks { full: e.stats.full, touched: std::mem::take(&mut e.touched), kids_changed: std::mem::take(&mut e.kids_changed) })
+    })
+}
+
+fn with_entry<R>(h: &Handle, f: impl FnOnce(&Entry) -> Option<R>) -> Option<R> {
+    ENGINE.with(|e| {
+        let e = e.try_borrow().ok()?;
+        let x = e.as_ref()?.table.get(&node_id(h))?;
+        if x.node.as_ptr() != Rc::as_ptr(h) {
+            return None;
+        }
+        f(x)
+    })
+}
+
+/// The stored style of `(h, memo slot)`.
+pub(crate) fn stored_style(h: &Handle, slot: u8) -> Option<ComputedStyle> {
+    with_entry(h, |e| if slot == 0 { e.style.as_deref().copied() } else { e.pseudo.get(slot as usize - 1)?.as_deref().copied() })
+}
+
+/// The stored match of `(h, memo slot)`.
+pub(crate) fn stored_match(h: &Handle, slot: u8) -> Option<MatchList> {
+    with_entry(h, |e| e.m.get(slot as usize)?.clone())
+}
+
+/// The live node of a table key.
+pub(crate) fn handle_of_key(k: usize) -> Option<Handle> {
+    ENGINE.with(|e| e.try_borrow().ok()?.as_ref()?.handle_of(k))
+}
+
+pub(crate) fn has_entry(k: usize) -> bool {
+    ENGINE.with(|e| e.try_borrow().ok().and_then(|e| e.as_ref().map(|e| e.table.contains_key(&k))).unwrap_or(false))
+}
+
+/// The `rem` base of the last update.
+pub(crate) fn root_font_size() -> Option<f32> {
+    ENGINE.with(|e| e.try_borrow().ok()?.as_ref().map(|e| e.rfs).filter(|f| !f.is_nan()))
+}
+
+/// R60 14.4 per element: the elements the build skips as `display: none` roots (the table keeps an
+/// entry for each, none for their descendants).
+#[allow(dead_code)] // the forced-layout path reads it from QINC1i on (`HiddenSnap`); tests now
+pub(crate) fn display_none_roots() -> Vec<Handle> {
+    ENGINE.with(|e| {
+        let Ok(e) = e.try_borrow() else { return Vec::new() };
+        let Some(e) = e.as_ref() else { return Vec::new() };
+        e.table.values().filter(|x| x.styled && x.style.as_ref().is_some_and(|s| s.display == Display::None)).filter_map(Entry::handle).collect()
+    })
+}
+
+/// Runs `f` with the engine's generated content (counters / quotes / dynamic `content`, R60 6.4) in
+/// the builder's `GENERATED_TEXT` / `ELEMENT_CONTENT` instead of the from-scratch build's.
+pub(crate) fn with_engine_generated<R>(f: impl FnOnce() -> R) -> R {
+    let mine = ENGINE.with(|e| e.borrow_mut().as_mut().and_then(|e| e.gen_out.take()));
+    let had = mine.is_some();
+    let g = mine.unwrap_or_default();
+    let saved_text = crate::images::GENERATED_TEXT.with(|t| t.replace(g.text));
+    let saved_el = crate::images::ELEMENT_CONTENT.with(|t| t.replace(g.element));
+    let r = f();
+    let text = crate::images::GENERATED_TEXT.with(|t| t.replace(saved_text));
+    let element = crate::images::ELEMENT_CONTENT.with(|t| t.replace(saved_el));
+    if had {
+        ENGINE.with(|e| {
+            if let Some(e) = e.borrow_mut().as_mut() {
+                e.gen_out = Some(GeneratedOut { text, element });
+            }
+        });
+    }
+    r
 }
 
 /// QOBS7-style estimate of the element table: `(entries, bytes)` (match lists counted per entry

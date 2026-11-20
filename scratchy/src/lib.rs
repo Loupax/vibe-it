@@ -112,8 +112,8 @@ mod js_engine;
 mod js;
 mod perf;
 mod incr_diff;
-#[cfg(test)]
 mod incr_cmp;
+mod incr_box;
 mod stack;
 mod frame_stats;
 mod js_modules;
