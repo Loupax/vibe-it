@@ -431,6 +431,17 @@ list (border-radius, opacity, visibility, cursor as paint). So on YouTube, the o
 positioned descendants, % insets through the containing-block basis) are worth nothing today. The classification gaps
 and the stale kept memo are what keep YouTube hovers on the build path.
 
+### QY53n2c note (Sonnet, 2026-11-20): resolved-value classification, measured
+Hover rules are now judged by the resolved `ComputedStyle` change (`Effect::Value`, hover_patch.rs `value_same`), and a list
+item or form control no longer refuses the patch when its inherited text paint is the same in both states (the YouTube
+buttons). Same R55 yt input (960x1006, own wire/dwl, `flock`, uptime load 1-25 at the starts, other agents building), 3
+interleaved pairs, main (installed binary) vs the branch: hover restyles / built / **patched** per run: branch 22/10/**12**,
+26/10/**16**, 22/12/**10** (38 patched of 70, 54 %); main 24/24/0, 26/26/0, 26/26/0 (all 76 built). Builds per run are 177-292
+vs 220-311 (noisy: YouTube state). Gate was >= 40 patched over 3 runs: 38, narrowly missed. What still builds (debug run,
+`eprintln` of the refusal, not committed): about a third `hover_match_diff` = None (stale memo after a `<style>` splice or an
+element never rendered: QY53n1c/QY53n1d), the rest a build already pending (`layout_dirty`/`restyle_requested`, page JS busy)
+and a few `.ytp-button` opacity rules (QY53n2d). Before the list/control relaxation the same recipe patched 6 per run.
+
 ### Proposed items (coordinator files them)
 - **QY53n2c [S]** (P3, style.rs `decls_effect` + hover_patch.rs; Sonnet) Classify by the resolved VALUE change, not by the
   declared property, for the cases measured here: `border-radius`, SVG `fill`/`stroke`, the `background` shorthand (also

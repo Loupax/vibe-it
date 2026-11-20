@@ -95,7 +95,7 @@ pub(crate) const ROOT_STYLE: InheritedStyle = InheritedStyle {
 /// `margin`/`padding` on `ComputedStyle` can't know at cascade time. See
 /// `BoxLength`'s own docs for exactly when/how that final resolution
 /// happens.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq)]
 pub(crate) struct Sides {
     pub(crate) top: BoxLength,
     pub(crate) right: BoxLength,
@@ -105,7 +105,7 @@ pub(crate) struct Sides {
 
 /// The properties a `::first-line` rule actually changed relative to the
 /// element's own style (each `None` means "leave the span alone").
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq)]
 pub(crate) struct FirstLineStyle {
     pub(crate) color: Option<TextColor>,
     pub(crate) background_color: Option<TextColor>,
@@ -135,7 +135,7 @@ pub(crate) struct TranslateAxis {
     pub(crate) frac: f32,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub(crate) struct ComputedStyle {
     /// Q31: `node_id` of the element this style was resolved for (0 for
     /// anonymous boxes). Lets a hit test name the element under the mouse.
@@ -474,7 +474,7 @@ pub(crate) struct ComputedStyle {
 /// element's own font-size, same timing as `border-width`/`padding`'s
 /// own `em` resolution) and its color converted to a paintable
 /// `TextColor` — the form `paint_box_decoration` actually draws.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub(crate) struct ResolvedBoxShadow {
     pub(crate) offset_x: f32,
     pub(crate) offset_y: f32,
@@ -2027,9 +2027,15 @@ pub(crate) enum Effect {
     /// Additionally moves boxes without resizing them (`transform`
     /// translate, `top`/`right`/`bottom`/`left`).
     Offset = 2,
-    /// Anything else (sizes, fonts, display, visibility, opacity, custom
-    /// properties, `content`, animations, ...).
-    Layout = 3,
+    /// QY53n2c: properties whose whole effect is in the resolved
+    /// `ComputedStyle` (sizes, borders, radius, `background` shorthand, `var()`
+    /// values, SVG `fill`/`stroke`, ...). The declared names say nothing; the
+    /// hover patch compares the old and new resolved styles and builds when
+    /// anything but paint/offset fields differs.
+    Value = 3,
+    /// Something the resolved style does not hold (custom properties,
+    /// `content`, counters, quotes, animations, `mask-image`): always builds.
+    Layout = 4,
 }
 
 const PAINT_PROPS: &[&str] = &[
@@ -2048,11 +2054,38 @@ const PAINT_PROPS: &[&str] = &[
 ];
 const OFFSET_PROPS: &[&str] = &["transform", "translate", "top", "right", "bottom", "left"];
 
+/// QY53n2c: the properties (by name, as a CSS-wide keyword or a `var()`
+/// declaration) whose effect `ComputedStyle` does not hold.
+fn unjudgeable_name(n: &str) -> bool {
+    n.starts_with("--")
+        || n == "content"
+        || n == "quotes"
+        || n.starts_with("counter-")
+        || n.starts_with("animation")
+        || n.contains("mask")
+}
+
+/// QY53n2c: whether the whole effect of `d` shows in the resolved
+/// `ComputedStyle` (plus the background image key the hover patch compares).
+fn judgeable(d: &Declarations) -> bool {
+    d.anim.is_none()
+        && d.custom_props.is_empty()
+        && d.content.is_none()
+        && d.counter_reset.is_none()
+        && d.counter_increment.is_none()
+        && d.counter_set.is_none()
+        && d.quotes.is_none()
+        && d.mask_image.is_none()
+        && !d.wide.iter().any(|(k, _)| unjudgeable_name(&k.to_ascii_lowercase()))
+        && !d.var_decls.iter().any(|(k, _)| unjudgeable_name(&k.to_ascii_lowercase()))
+        && d.late.iter().all(judgeable)
+}
+
 /// QY53n2: the effect class of one declaration block (by its typed fields,
 /// CSS-wide keywords and `var()` declarations by property name, and its
 /// `late` layers).
 pub(crate) fn decls_effect(d: &Declarations) -> Effect {
-    if d.anim.is_some() || !d.custom_props.is_empty() {
+    if !judgeable(d) {
         return Effect::Layout;
     }
     let mut c = d.clone();
@@ -2075,7 +2108,7 @@ pub(crate) fn decls_effect(d: &Declarations) -> Effect {
         if OFFSET_PROPS.contains(&n.as_str()) {
             worst = worst.max(Effect::Offset);
         } else if !PAINT_PROPS.contains(&n.as_str()) {
-            return Effect::Layout;
+            worst = worst.max(Effect::Value);
         }
     }
     for l in &d.late {
@@ -2083,9 +2116,37 @@ pub(crate) fn decls_effect(d: &Declarations) -> Effect {
     }
     (c.wide, c.var_decls, c.var_seg, c.late) = Default::default();
     if c != Declarations::default() {
-        return Effect::Layout;
+        return Effect::Value;
     }
     worst
+}
+
+/// QY53n2c: the background and mask image `url()` each element cascades to
+/// (what `resolve_background_image` decodes), for comparing two interaction
+/// states: `ComputedStyle` does not hold the image.
+pub(crate) fn background_image_key(handle: &Handle, rules: &[StyleRule], viewport_width: f32, custom_props: Option<CustomPropsRef>) -> [Option<String>; 2] {
+    let base_matches = matching_declarations(handle, rules, viewport_width);
+    let synth = expand_var_decls(&base_matches, custom_props);
+    let mut matches = merge_var_matches(&base_matches, &synth);
+    let var_lookup = |n: &str| custom_props.and_then(|p| p.get(n));
+    let inline_src = element_attr(handle, "style").map(|s| substitute_css_vars(&s, &var_lookup).unwrap_or_default());
+    let inline_split = inline_src.map(|s| parse_declarations_split(&s));
+    let (inline_decls, inline_important) = match inline_split {
+        Some((n, i)) => (Some(n), Some(i)),
+        None => (None, None),
+    };
+    if let Some(i) = inline_important.as_ref() {
+        matches.push((u64::MAX, i));
+    }
+    let key = |c: Cascaded<BackgroundImageDecl>| match c {
+        Cascaded::Value(BackgroundImageDecl::Url(u)) => Some(u),
+        Cascaded::Wide(CssWide::Inherit) => Some(String::from("\0inherit")),
+        _ => None,
+    };
+    [
+        key(cascade_css(&matches, inline_decls.as_ref(), "background-image", |d| d.background_image.clone())),
+        key(cascade_css(&matches, inline_decls.as_ref(), "mask-image", |d| d.mask_image.clone())),
+    ]
 }
 
 /// QY53n2: the effect class of rule `idx`'s normal or `!important` half,
@@ -2095,7 +2156,8 @@ pub(crate) fn rule_effect(rules: &Rc<Vec<StyleRule>>, idx: u32, important: bool)
     let from = |b: u8| match b {
         1 => Some(Effect::Paint),
         2 => Some(Effect::Offset),
-        3 => Some(Effect::Layout),
+        3 => Some(Effect::Value),
+        4 => Some(Effect::Layout),
         _ => None,
     };
     let same = |x: &RuleDerived| Rc::ptr_eq(&x.rules, rules);
