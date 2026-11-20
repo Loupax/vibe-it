@@ -7990,3 +7990,12 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QPT1 DONE 53c5368 core done: QPT1a bb0d258, b 2e6a2a8, c b33c53a, d 418fbd4, d3 78c8441, f f2ccf31, e 53c5368, c2 98fc30f; YT token + SABR status 1 past 64 s; follow-ups stay as own items [L] (P1 for YouTube past ~60 s; user 2026-11-19 ~22:40: GO, "do what Chrome does"; ahead of the perf queue)
       DESIGNED: REGRESSIONS.md R53 (PR #384). Same-origin iframe = second v8::Context from snapshot context 0 in the page
       isolate with the page's security token. Done when QPT1a-QPT1f are done (QPT1g only if needed). Ordered split below.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY53f1d2 DONE 3e153a7 #412 one RuleIndex per rules_cache generation, shared (YT 9 -> 5 builds/10 s) [S] (P3, from QY53f1d #409; Sonnet) One RuleIndex per rule list: StyleCache::adopt_shared and
+      RuleDerived::new each build one for the same list (~13 ms each on YouTube, quiet). Gate: one RuleIndex::build per
+      rules_cache generation on YouTube (counter).
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY53n3 DONE 09ea0d5 #416 offset hover patch (translate/insets) via shift_laid_tree; YT gate -> QY53n3m [S] (P3, from QY53n; after QY53n2) Offset hover patch (translate/top) via shift_laid_tree. Gate: YT hover builds
+      that are only PAINT/OFFSET -> 0 (today 36 of 58).

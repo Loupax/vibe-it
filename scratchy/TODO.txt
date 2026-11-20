@@ -1037,9 +1037,6 @@ Shared rules for this block:
       mask; no preparse under --css-debug; wait for the worker rather than parse twice. Gate: headless YT main thread spends
       <= 2 ms on the external piece. Tests: preparsed list == in-thread parse (selectors, specificity, order, @media/@supports,
       layer, !important, keyframes, mask).
-- [ ] [WIP] QY53f1d2 [S] (P3, from QY53f1d #409; Sonnet) One RuleIndex per rule list: StyleCache::adopt_shared and
-      RuleDerived::new each build one for the same list (~13 ms each on YouTube, quiet). Gate: one RuleIndex::build per
-      rules_cache generation on YouTube (counter).
 - [ ] QY53f1d3 [M] (P4, from QY53f1d #409; measure first) Rebuild RuleDerived/HoverKeys incrementally when a <style> is spliced
       in (~16-20 ms per insert today).
 - [ ] QAN1h2b [S] (P3, from QAN1h2 #372; Sonnet; css area) Per-selector candidates: a rule whose selector list mixes keyed
@@ -1101,8 +1098,6 @@ Shared rules for this block:
 - [ ] QY53n2b [S] (P4, from QY53n2 #407; Sonnet) Paint-patch hovers that touch list items, form controls, `::marker` or
       `<br>`/alt text: they fall back to a build because those text spans carry no element `node` (`marker_prefix`, forms.rs
       `text_span`); set span.node there.
-- [ ] [WIP] QY53n3 [S] (P3, from QY53n; after QY53n2) Offset hover patch (translate/top) via shift_laid_tree. Gate: YT hover builds
-      that are only PAINT/OFFSET -> 0 (today 36 of 58).
 - [ ] QY53n3m [S] (P3, from QY53n3 #416; Opus measure, quiet machine) YT watch G1AeBgalFZk hover {patched, built, skipped} at
       main vs before #416, interleaved, under flock, uptime noted; report which remaining YT hover builds are refused and why
       (positioned descendants, inline-level boxes, % insets, auto-width absolutes). Candidates to widen: re-hoisting
