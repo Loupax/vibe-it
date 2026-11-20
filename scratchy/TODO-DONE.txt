@@ -8221,3 +8221,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       Opus DESIGN first, docs only) Real incremental style + layout (dirty bits, partial restyle, relayout of only the
       affected boxes and their dependants) for both the JS thread's forced layouts (GeomCache) and the App build, instead of
       the R59 staged shortcut. Design -> user review -> implementation items. QY54b3a-f below are ON HOLD until it decides.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QNAV9 DONE - link click outside glyphs: enclosing <a href> fallback (#435) [S] (P3, from QY54a2 #425; Sonnet, verify first) A plain `<a href>` click on a local-file page (file path
+      opened directly) did not navigate even without a stall (the QY54a2 fixture had to use a JS click handler). Reproduce,
+      find out whether relative/local hrefs from file pages are resolved and navigated; fix + test, or close as intended.
