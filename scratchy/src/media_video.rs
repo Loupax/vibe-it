@@ -107,7 +107,12 @@ thread_local! {
 }
 
 pub(crate) fn set_intrinsic(sizes: HashMap<usize, (u32, u32)>) {
-    let changed = INTRINSIC.with(|m| std::mem::replace(&mut *m.borrow_mut(), sizes) != *m.borrow());
+    let changed = INTRINSIC.with(|m| {
+        let mut m = m.borrow_mut();
+        let changed = *m != sizes;
+        *m = sizes;
+        changed
+    });
     if changed {
         // QINC1j: a media size arrived / changed (the box engine diffs the sizes it read).
         crate::incr_frame::note_ambient(crate::incr_log::Ambient::MediaSize);
