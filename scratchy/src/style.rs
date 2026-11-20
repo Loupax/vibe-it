@@ -1851,6 +1851,9 @@ pub(crate) struct LastMatch {
     memo: MatchMemo,
     rules_ptr: usize,
     rules_len: usize,
+    /// QY53n1c: `rules_cache`'s generation of the build's list (`None`: not the cache's list). A
+    /// splice edits the list in place, so pointer and length alone can survive a change of rules.
+    generation: Option<u64>,
     viewport_bits: u32,
 }
 
@@ -1860,14 +1863,23 @@ thread_local! {
     pub(crate) static KEEP_MATCH: Cell<bool> = const { Cell::new(false) };
 }
 
-/// Called at the end of a build with the memo it used.
-pub(crate) fn stash_last_match(memo: Option<MatchMemo>, rules: &[StyleRule], viewport_width: f32) {
-    let keep = KEEP_MATCH.with(|k| k.get());
+/// Called at the end of a build with the memo it used. Only an App build (`KEEP_MATCH`)
+/// replaces the kept memo. QY53n1c: any other build (a script's forced layout, R55) leaves it
+/// alone: it changes nothing on screen, and clearing the memo there sent a third of YouTube's
+/// hover changes to a build (`hover_match_diff` = None).
+pub(crate) fn stash_last_match(memo: Option<MatchMemo>, rules: &Rc<Vec<StyleRule>>, viewport_width: f32) {
+    if !KEEP_MATCH.with(|k| k.get()) {
+        return;
+    }
+    let generation = crate::rules_cache::generation_of(rules);
     LAST_MATCH.with(|l| {
-        *l.borrow_mut() = match memo {
-            Some(memo) if keep => Some(LastMatch { memo, rules_ptr: rules.as_ptr() as usize, rules_len: rules.len(), viewport_bits: viewport_width.to_bits() }),
-            _ => None,
-        }
+        *l.borrow_mut() = memo.map(|memo| LastMatch {
+            memo,
+            rules_ptr: rules.as_ptr() as usize,
+            rules_len: rules.len(),
+            generation,
+            viewport_bits: viewport_width.to_bits(),
+        })
     });
 }
 
@@ -1903,7 +1915,13 @@ pub(crate) fn with_kept_build<R>(f: impl FnOnce(&Rc<Vec<StyleRule>>, f32) -> R) 
             }
         })
     };
-    let kept = LAST_MATCH.with(|l| l.borrow_mut().take_if(|l| l.rules_ptr == rp && l.rules_len == rl));
+    // QY53n1c: the same list, unchanged since the App build (a `<style>` splice keeps the `Rc`
+    // and can keep pointer and length too, so the cache's generation decides).
+    let generation = crate::rules_cache::generation_of(&rules);
+    let kept = LAST_MATCH.with(|l| {
+        l.borrow_mut()
+            .take_if(|l| l.rules_ptr == rp && l.rules_len == rl && l.generation.is_some() && l.generation == generation)
+    });
     let Some(kept) = kept else {
         restore_index(index);
         return None;
@@ -1915,7 +1933,7 @@ pub(crate) fn with_kept_build<R>(f: impl FnOnce(&Rc<Vec<StyleRule>>, f32) -> R) 
     let out = f(&rules, vw);
     let memo = MATCH_MEMO.with(|m| std::mem::replace(&mut *m.borrow_mut(), outer_memo));
     PSEUDO_FLAGS.with(|f| f.set(None));
-    LAST_MATCH.with(|l| *l.borrow_mut() = memo.map(|memo| LastMatch { memo, rules_ptr: rp, rules_len: rl, viewport_bits: kept.viewport_bits }));
+    LAST_MATCH.with(|l| *l.borrow_mut() = memo.map(|memo| LastMatch { memo, rules_ptr: rp, rules_len: rl, generation, viewport_bits: kept.viewport_bits }));
     if let Some((_, _, index)) = RULE_INDEX.with(|ri| ri.borrow_mut().take()) {
         restore_index(index);
     }

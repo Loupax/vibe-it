@@ -79,6 +79,11 @@ pub(crate) fn current() -> Option<(Rc<Vec<StyleRule>>, u64, bool, bool)> {
     })
 }
 
+/// QY53n1c: the generation of `rules` when it is the cache's current list, else `None`.
+pub(crate) fn generation_of(rules: &Rc<Vec<StyleRule>>) -> Option<u64> {
+    RULES_CACHE.with(|c| c.borrow().as_ref().filter(|rc| Rc::ptr_eq(&rc.rules, rules)).map(|rc| rc.generation))
+}
+
 /// QY53f1d2: the selector index of `rules`: the cache's own (built once per generation) when `rules` is
 /// the cache's current list, else a fresh one.
 pub(crate) fn shared_index(rules: &Rc<Vec<StyleRule>>) -> Rc<RuleIndex> {

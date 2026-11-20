@@ -95,3 +95,62 @@ fn qy53n1_stale_memo_never_skips() {
     assert!(!crate::style::hover_matches_unchanged(&keys, &chain));
     set_interaction(&InteractionState::default());
 }
+
+/// QY53n1c: a build that is not the App's (a script's forced layout) between the App build and
+/// the hover keeps the App's match memo: the hover still patches, and the patch equals a rebuild.
+#[test]
+fn qy53n1c_forced_layout_keeps_hover_patching() {
+    use super::qy53n2_tests as n2;
+    let doc = parse_html(
+        "<html><head><style>body{margin:0;font-size:16px}a:hover{color:red}</style></head>\
+         <body><p>x <a id=t href=/>link</a> y</p></body></html>",
+    );
+    let t = n2::find_id(&doc, "t").unwrap();
+    let (off, on) = (InteractionState::default(), n2::hover_state(&t));
+    let mut fs = new_font_system();
+    set_interaction(&off);
+    let (mut laid, mut cache) = n2::build(&doc, &mut fs);
+    let before = n2::render(&laid, &mut cache, &mut fs);
+    // What `GeomCache` does for a geometry read: a plain build whose memo is not kept.
+    build_layout_tree_with_resources(&doc, 640.0, Some(480.0), "", &HashMap::new());
+    assert_eq!(n2::patch(&doc, &mut laid, &mut cache, &mut fs, &off, &on), Ok(()), "the hover is patched, not built");
+    let patched = n2::render(&laid, &mut cache, &mut fs);
+    set_interaction(&on);
+    let (rebuilt, mut rcache) = n2::build(&doc, &mut fs);
+    let full = n2::render(&rebuilt, &mut rcache, &mut fs);
+    set_interaction(&off);
+    assert!(full != before, "the hover rule must change the frame");
+    assert!(patched == full, "patched frame differs from a full rebuild");
+}
+
+/// QY53n1c: a `<style>` change after the App build makes the kept memo unusable, also when the
+/// spliced list keeps its pointer and length (one rule for one) and a forced layout re-derived
+/// its index; and when the splice adds a matching `:hover` rule. The hover then builds.
+#[test]
+fn qy53n1c_style_splice_after_build_falls_back_to_build() {
+    use super::qy53n2_tests as n2;
+    for (id, text, added) in [("s", "a{color:green}", 0usize), ("s2", "a:hover{color:green}", 1)] {
+        let doc = parse_html(
+            "<html><head><style>a:hover{color:red}</style><style id=s>.u{color:blue}</style><style id=s2>/**/</style></head>\
+             <body><p>x <a id=t href=/>link</a> y</p></body></html>",
+        );
+        let t = n2::find_id(&doc, "t").unwrap();
+        let (off, on) = (InteractionState::default(), n2::hover_state(&t));
+        let mut fs = new_font_system();
+        set_interaction(&off);
+        let _ = n2::build(&doc, &mut fs);
+        let keys = HOVER_KEYS.with(|k| k.borrow().clone());
+        let n0 = crate::rules_cache::rule_count();
+        let s = n2::find_id(&doc, id).unwrap();
+        let node = s.children.borrow()[0].clone();
+        if let NodeData::Text { contents } = &node.data {
+            *contents.borrow_mut() = text.into();
+        }
+        build_layout_tree_with_resources(&doc, 640.0, Some(480.0), "", &HashMap::new());
+        assert_eq!(crate::rules_cache::rule_count(), n0 + added);
+        let changed: Vec<Handle> = on.hover.iter().filter_map(|&id| find_node_by_id(&doc, id)).collect();
+        set_interaction(&on);
+        assert!(crate::style::hover_match_diff(&keys, &changed).is_none(), "{text}: a stale memo must not be used");
+        set_interaction(&off);
+    }
+}
