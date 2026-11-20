@@ -9,7 +9,12 @@
 //! script that only reads costs one layout; a read/write loop costs one
 //! layout per read, which is counted and logged once.
 //!
-//! Limits: images are laid out without their decoded size (only
+//! QINC1i: with `SCRATCHY_INCR=1` (or `_CHECK=1`) a read updates the incremental engine instead
+//! (`incr_engine.rs`, `refresh_engine`): no from-scratch build, rects from the engine's kept laid
+//! tree, glyphs on the first text read, the window's decoded images, and the QYTC1a / QYTC1d /
+//! HiddenSnap / ATTR_SNAP skips and the App-layout IntersectionObserver source bypassed.
+//!
+//! Limits (from scratch): images are laid out without their decoded size (only
 //! `width`/`height` attributes and CSS count), the viewport is the one the
 //! JS window reports, inline (non-box) elements get the union of their
 //! element descendants or else their nearest box ancestor, and `:hover`-type
@@ -55,7 +60,8 @@ fn attr_never_read_by_layout(name: &str) -> bool {
 /// forced layout is current (no geometry bump or CSS change since) and its rule list has no
 /// selector or `attr()` that reads `name` on an element of this tag.
 pub(crate) fn attr_write_unread(x: &Handle, name: &str) -> bool {
-    if !matches!(x.data, NodeData::Element { .. }) || !attr_never_read_by_layout(name) {
+    // QINC1i: the engine's invalidation sets decide what a write restyles (R60 1: ATTR_SNAP bypassed).
+    if !matches!(x.data, NodeData::Element { .. }) || !attr_never_read_by_layout(name) || crate::incr_engine::forced_on() {
         return false;
     }
     ATTR_SNAP.with(|s| {
@@ -163,6 +169,11 @@ fn hidden_root_of(snap: &HiddenSnap, n: &Handle) -> Option<Handle> {
 }
 
 fn with_current_snap<R>(f: impl FnOnce(&HiddenSnap) -> Option<R>) -> Option<R> {
+    // QINC1i: a write inside a `display: none` subtree invalidates nothing rendered in the engine (R60 1:
+    // HiddenSnap bypassed).
+    if crate::incr_engine::forced_on() {
+        return None;
+    }
     HIDDEN.with(|s| {
         let s = s.borrow();
         let snap = s.as_ref()?;
@@ -410,7 +421,9 @@ fn class_tokens(v: Option<&str>) -> std::collections::HashSet<&str> {
 /// QYTC1d: cheap gate checked before anything else per `class` write: the last forced layout is
 /// current (no geometry bump or CSS change since) and the probe budget is not used up.
 pub(crate) fn class_probe_possible() -> bool {
-    PROBE_BUDGET.with(Cell::get) > 0
+    // QINC1i: class writes go through the engine's invalidation sets (R60 1: QYTC1d bypassed).
+    !crate::incr_engine::forced_on()
+        && PROBE_BUDGET.with(Cell::get) > 0
         && ATTR_SNAP.with(|s| matches!(s.borrow().as_ref(), Some(((g, css), _)) if *g == crate::js_dom::geom_gen() && *css == crate::js_style::css_ver()))
 }
 
@@ -517,6 +530,9 @@ pub(crate) struct GeomCache {
     next_para_id: usize,
     /// QINC1b: persists per owner, swept of ids no live `Laid` uses (none is kept here).
     shape_cache: ShapeCache,
+    /// QINC1i: the rects came from the engine's kept laid tree; `glyphs` are collected from it on the
+    /// first `text_rects` read (R60 9: lazy glyphs).
+    glyphs_lazy: bool,
 }
 
 /// QYTC1a: one `Laid` of the last forced layout (see `GeomCache::skel`).
@@ -846,9 +862,13 @@ impl GeomCache {
         if self.key == Some(key) {
             return;
         }
-        let css = crate::js_style::page_css();
         #[cfg(test)]
         GEOM_LAYOUTS.with(|c| c.set(c.get() + 1));
+        // QINC1i: through the incremental engine (`SCRATCHY_INCR=1`); from scratch when it has no tree.
+        if crate::incr_engine::forced_on() && self.refresh_engine(page, vw, vh, key) {
+            return;
+        }
+        let css = crate::js_style::page_css();
         // One-off cost (system font scan), kept out of the forced-layout stats.
         FONTS.with(|f| {
             f.borrow_mut().get_or_insert_with(new_font_system);
@@ -923,6 +943,7 @@ impl GeomCache {
         self.page = (0.0, 0.0);
         self.glyphs.clear();
         self.glyphs_stale = false;
+        self.glyphs_lazy = false;
         self.imp_geo = None;
         self.skel.clear();
         self.skel_of.clear();
@@ -976,6 +997,138 @@ impl GeomCache {
         }
     }
 
+    /// QINC1i (R60 9): `refresh` through the incremental engine: one engine update (restyle from the
+    /// write log, box tree update, relayout of the kept laid tree) with the window's images, rects
+    /// from the kept laid tree, glyphs on the first `text_rects` read. Check mode (tests,
+    /// `SCRATCHY_INCR_CHECK=1`) also lays the page out from scratch and compares; a difference is
+    /// reported, every stage starts over and the from-scratch result is used. False when the engine
+    /// produced no tree (nothing changed here: the caller lays out from scratch).
+    fn refresh_engine(&mut self, page: &Handle, vw: f32, vh: f32, key: (u64, u32, u32, (u64, u64))) -> bool {
+        let css = crate::js_style::page_css();
+        FONTS.with(|f| {
+            f.borrow_mut().get_or_insert_with(new_font_system);
+        });
+        crate::layout::SHAPE_MEMO_ENABLED.with(|m| m.set(true));
+        let vp = (vw as u32, vh as u32);
+        if self.last_vp != Some(vp) {
+            crate::layout::memo_clear();
+        }
+        self.last_vp = Some(vp);
+        crate::layout::memo_track_begin();
+        let t0 = std::time::Instant::now();
+        let recording = crate::perf::begin_forced();
+        let cpu0 = crate::js::thread_cpu_nanos();
+        let prev_vp = current_viewport();
+        HIDDEN.with(|h| *h.borrow_mut() = None);
+        ATTR_SNAP.with(|h| *h.borrow_mut() = None);
+        let images = crate::incr_engine::window_images(page);
+        let checking = crate::incr_style::checking();
+        let cache = &mut self.shape_cache;
+        let next_para = &mut self.next_para_id;
+        let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            set_viewport(vw, vh);
+            FONTS.with(|f| {
+                let mut f = f.borrow_mut();
+                let fs = f.get_or_insert_with(new_font_system);
+                let ok = crate::incr_engine::update(page, vw, vh, &css, &images, fs);
+                // The oracle: today's from-scratch layout, without the shadow update (it would update
+                // the engine a second time).
+                let fresh = (ok && checking).then(|| {
+                    crate::incr_style::without_shadow(|| {
+                        let tree = build_layout_tree_with_resources(page, vw, Some(vh), &css, &images);
+                        let mut next_id = *next_para;
+                        let mut inc = false;
+                        let far = std::time::Instant::now() + std::time::Duration::from_secs(3600);
+                        let t_phase = crate::perf::phase(crate::perf::Phase::MeasureDocument);
+                        let l = measure_document(&tree, fs, vw, vh, &mut next_id, cache, far, &mut inc);
+                        drop(t_phase);
+                        *next_para = (*next_para).max(next_id);
+                        l
+                    })
+                });
+                (ok, fresh)
+            })
+        }));
+        set_viewport(prev_vp.0, prev_vp.1);
+        crate::layout::memo_sweep(SHAPE_MEMO_CAP, 1);
+        let (ok, fresh) = match done {
+            Ok(r) => r,
+            Err(_) => {
+                diag!("scratchy: js: incremental layout panicked while reading geometry; laying out from scratch");
+                crate::incr_style::drop_engines();
+                (false, None)
+            }
+        };
+        if !ok {
+            crate::layout::sweep_shape_cache(&mut self.shape_cache, &std::collections::HashSet::new());
+            return false;
+        }
+        let t_phase = crate::perf::phase(crate::perf::Phase::RectWalk);
+        let prev = std::mem::take(&mut self.rects);
+        self.page = (0.0, 0.0);
+        self.glyphs.clear();
+        self.glyphs_stale = false;
+        self.glyphs_lazy = false;
+        self.imp_geo = None;
+        self.skel.clear();
+        self.skel_of.clear();
+        self.skel_multi.clear();
+        let mismatch = fresh.as_ref().and_then(|f| {
+            let names = crate::incr_cmp::Names::default();
+            crate::incr_layout::with_laid(|l, c| crate::incr_cmp::cmp_laid(&names, "root", f, &self.shape_cache, l, c).is_err())
+                .unwrap_or(true)
+                .then(|| {
+                    let names = crate::incr_cmp::Names::from_dom(page);
+                    let m = crate::incr_layout::with_laid(|l, c| crate::incr_cmp::cmp_laid(&names, "root", f, &self.shape_cache, l, c).err().map(|m| m.to_string()))
+                        .flatten()
+                        .unwrap_or_else(|| "no kept laid tree".into());
+                    format!("laid {m} {}", crate::incr_layout::describe_last())
+                })
+        });
+        let mut skel = Vec::new();
+        match (&mismatch, &fresh) {
+            (Some(_), Some(l)) => {
+                // Not trusted any more: every stage starts over; this read uses the from-scratch layout.
+                crate::incr_style::drop_engines();
+                self.page = (l.w, l.h);
+                walk(l, false, &mut self.rects, &mut skel, u32::MAX);
+                walk_glyphs(l, &self.shape_cache, &mut self.glyphs);
+            }
+            _ => {
+                let rects = &mut self.rects;
+                self.page = crate::incr_layout::with_laid(|l, _| {
+                    walk(l, false, rects, &mut skel, u32::MAX);
+                    (l.w, l.h)
+                })
+                .unwrap_or((0.0, 0.0));
+                self.glyphs_lazy = true;
+            }
+        }
+        drop(skel);
+        drop(fresh);
+        crate::layout::sweep_shape_cache(&mut self.shape_cache, &std::collections::HashSet::new());
+        let no_change = recording && self.key.is_some() && prev.len() == self.rects.len() && prev.iter().all(|(k, v)| self.rects.get(k) == Some(v));
+        drop(prev);
+        drop(t_phase);
+        self.last_cpu_ms = crate::js::thread_cpu_nanos().saturating_sub(cpu0) as f64 / 1e6;
+        let d = crate::js::pause_budget_since(cpu0);
+        if recording {
+            crate::perf::end_forced();
+            crate::perf::forced_detail(d, no_change);
+        }
+        self.key = Some(key);
+        self.forced += 1;
+        self.forced_ms += t0.elapsed().as_millis();
+        if !self.logged && (self.forced >= 20 || self.forced_ms >= 1000) {
+            self.logged = true;
+            diag!("scratchy: js: {} forced layouts, {} ms (script reads geometry after DOM writes)", self.forced, self.forced_ms);
+        }
+        if let Some(m) = mismatch {
+            crate::incr_style::report_mismatches("forced layout through the engine differs from the from-scratch layout", vec![m]);
+        }
+        true
+    }
+
     /// `[x, y, w, h, fixed, ink_r, ink_b, page_w, page_h]` of element `h` in
     /// document space; empty when it is not connected to the page or has no
     /// box at all (the caller has already ruled out `display:none`).
@@ -1013,6 +1166,10 @@ impl GeomCache {
     /// hoisted into a stacking-context owner moved with it and are shifted too).
     pub(crate) fn style_write_in_place(&mut self, x: &Handle, old: Option<&str>, new: Option<&str>, ggen: u64) -> bool {
         let (Some(old), Some(new)) = (old, new) else { return false };
+        // QINC1i: an offset-only write re-places the box in the engine (R60 8.3: QYTC1a bypassed).
+        if crate::incr_engine::forced_on() {
+            return false;
+        }
         let Some(key) = self.key else { return false };
         if key.0 != ggen || key.3 != crate::js_style::css_ver() || !matches!(x.data, NodeData::Element { .. }) {
             return false;
@@ -1203,6 +1360,10 @@ pub(crate) fn clear_rendered() {
 
 /// QY53e2: is the kept App layout of the page as it is now (same DOM/CSS stamp) at this viewport?
 pub(crate) fn rendered_ok(vw: u32, vh: u32) -> bool {
+    // QINC1i: IntersectionObserver reads the engine's tree (a recheck runs an incremental update).
+    if crate::incr_engine::forced_on() {
+        return false;
+    }
     RENDERED.with(|r| r.borrow().as_ref().is_some_and(|x| x.stamp == render_stamp() && x.vp == (vw, vh)))
 }
 
@@ -1269,6 +1430,12 @@ impl GeomCache {
             self.key = None;
         }
         self.refresh(page, wgen, vw, vh);
+        if self.glyphs_lazy {
+            // QINC1i: glyphs of the engine's kept laid tree, collected on the first read after a layout.
+            self.glyphs_lazy = false;
+            let glyphs = &mut self.glyphs;
+            crate::incr_layout::with_laid(|l, c| walk_glyphs(l, c, glyphs));
+        }
         match self.glyphs.get(&node_id(h)) {
             Some(g) => align_text(&contents.borrow(), g),
             None => Vec::new(),

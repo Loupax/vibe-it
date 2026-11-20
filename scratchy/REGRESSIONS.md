@@ -1110,6 +1110,53 @@ images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom
   `SCRATCHY_INCR_CHECK=1` diag + counter. Tests: the js_geometry / observer / Range suites run twice (flag off and on, a test
   seam), image sizes visible to JS with the flag. Gate: full suite both ways; R58 recipe (window, 3 runs, flock) with the flag:
   `getPlayerSize` median < 10 ms, worst preview-start promise job < 300 ms, `_CHECK=1` 0 mismatches.
+  QINC1i DONE (Opus, 2026-11-20; `src/incr_engine.rs`, `js_geom.rs` `refresh_engine`, tests `src/tests/incr_forced_tests.rs`
+  + the two suites re-run): with `SCRATCHY_INCR=1` (or `_CHECK=1`) a script forced layout runs ONE engine update and no
+  from-scratch layout: the same checks and restyle + box update as an App frame (QINC1j's `incr_style::live_ready` /
+  `is_current` / `live_update`, rebased onto #459; nothing changed since the engine's last update = no work), then
+  `incr_layout::update_kept` (a complete relayout of the kept box tree on the main thread; from scratch through the engine
+  when it cannot be incremental: stale App view, box tree started over, viewport width, drift guard). First layout of a
+  document, and a restyle that cannot be incremental (new rule-list generation, viewport width, `Global` log entry, no
+  table yet: `live_ready` says so before restyling): the from-scratch build with the shadow update on (re)starts the kept
+  box tree (counter `incr.forced_restarts`), then the engine lays it out. Rects: a full
+  `walk` of the kept laid tree (measured 0.19 ms per forced layout on YouTube results, `rect_walk` 8 ms / 43 layouts, so
+  the touched-roots map was not worth its bookkeeping; `incr_layout::touched_roots` stays for QINC1o). Glyphs: collected
+  from the kept tree on the first `text_rects` read after a layout. Images: the App hands its image cache over at each of
+  its builds (`incr_engine::sync_window_images`, copied only when an entry changed; one line in app.rs); forced layouts of
+  that document lay images out at their decoded size (so App builds and forced layouts feed the box engine the same
+  images); headless and other documents: none (headless decoding NOT done: proposed QINC1i2). IntersectionObserver: the
+  App-layout source (`rendered_ok`) is off with the flag, so its reads update the engine (cheap). Bypassed with the flag:
+  QYTC1a `style_write_in_place`, QYTC1d class probes, QY53l2 HiddenSnap, QY53o1 ATTR_SNAP (every write bumps; the next read
+  updates). Check mode (tests, `SCRATCHY_INCR_CHECK=1`): the oracle is today's from-scratch layout with the shadow update
+  off (`incr_style::without_shadow`), compared with `cmp_laid`; a difference is reported (`incr-check: MISMATCH laid ...`,
+  `incr.check_mismatch`), every stage is dropped and the from-scratch result is used. QOBS3 phases: engine restyle + box
+  = `incr_shadow`, relayout = `measure_document`. Tests: 5 new; js_geometry (Range included) and observer suites re-run
+  with the engine (`*_incr_forced_tests`, seam = thread name, or `SCRATCHY_TEST_INCR_FORCED=1` for the whole suite); the
+  16 tests of the bypassed special cases return early there. Suite: 1 696 passed with the flag off, 1 696 with
+  `SCRATCHY_TEST_INCR_FORCED=1`. WPT 333 / 293, no change, flag off and `SCRATCHY_INCR=1`. Clippy 77.
+  Gate (R58 recipe, own nested dwl 1052x1050, own wire, `SCRATCHY_FRAME_STATS`, under the perf lock; per-layout ms from a
+  throwaway `eprintln` in `perf::forced_detail`, not committed; 1-min load 0.5-3.8 except where noted):
+  | run (final code) | `getPlayerSize` reads | median ms | p90 | max | worst promise job after 15 s (preview start) |
+  |---|---|---|---|---|---|
+  | INCR=1 on2 (load 11-15: my own test run) | 39 | 5.37 | 8.3 | 9.0 | 174 ms |
+  | INCR=1 on3 | 39 | 6.13 | 8.4 | 10.8 | 174 ms |
+  | INCR=1 on4 | 38 | 5.84 | 8.6 | 9.4 | 179 ms |
+  | INCR=1 on1 | 0 (a 500 ms page job was killed at load 15, the preview never started: dropped) | | | | |
+  | earlier build (before the global-restyle precheck), 3 runs | 40 / 40 / 40 | 5.75 / 6.07 / 5.76 | 8.4-9.5 | 9.5-26.5 | 174-180 ms |
+  | flag off (same binary), 2 runs | 26 / 27 | 62.6 / 61.4 | 64-65 | 65-66 | 825-856 ms |
+  `_CHECK=1` in the window: 4 runs, 0 mismatches (forced layouts 18-99 ms there: the oracle and the reconcile run too).
+  One outlier with the flag: a 619 ms IntersectionObserver forced layout at 28 s (earlier build, run 2 of 3; observer
+  delivery 697 ms), not seen in the other 6 runs; not investigated (proposed QINC1i3).
+  Headless (`--perf-report --budget-ms 20000`, own wire, perf lock, 6G scope, load 0.2-2.7; forced layout ms total per run):
+  | page | off (3 runs) | main 109445c `INCR=1` | this `INCR=1` (3 runs, final code) | engine / restarts per run | `_CHECK=1` mismatches |
+  |---|---|---|---|---|---|
+  | YouTube results 30 s | 887-981 (35-36 layouts) | 1 358 / 1 984 | 537 / 619 / 733 (36-43) | 36-43 / 3 | 0 (4 runs) |
+  | YouTube watch 30 s | 2 457-3 396 (108-141) | - | 1 105 / 2 147 / 2 350 (120-274: more reads, the page runs further) | all / 4 | 0 (4 runs) |
+  | Wikipedia Rust 20 s | 567 / 600 (4) | 846 / 1 701 | 663 / 663 / 1 529 (4-5) | 4-5 / 2-3 | 0 (4 runs) |
+  Wikipedia is SLOWER than off: 2-3 of its 4-5 forced layouts are restarts (new stylesheets), and a restart is a
+  from-scratch build whose shadow update restyles everything again, plus the engine's own full layout (~335 ms vs 244-262
+  ms for the plain path): proposed QINC1i4. Memory (`rss_bytes`): no growth over main with `INCR=1` (results 371-433 vs
+  371-441 MB, Wikipedia 281-284 vs 285-286); vs the flag off +~50 MB on Wikipedia (the kept trees, QINC1f-h1).
 - **QINC1j [L]** (P2, Opus; area app; AFTER QINC1h1; parallel with QINC1i) App frames through the engine behind
   `SCRATCHY_INCR=1` (R60 sections 3, 9): incremental updates install at once; worker path for first layout, width change, new
   rule-list generation, restyled share > 25 %, with the box tree cloned for it and the result adopted; `App::cached` -> view

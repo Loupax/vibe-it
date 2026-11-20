@@ -1626,6 +1626,8 @@ impl App {
 
     /// The layout part of a frame (`redraw`'s rebuild branch; tests call it without a window).
     pub(crate) fn rebuild_layout(&mut self, width: u32, height: u32, height_rebuild: bool) {
+        // QINC1i: script forced layouts through the engine use the images this frame lays out with.
+        crate::incr_engine::sync_window_images(&self.document, &self.image_cache);
         if crate::incr_frame::live() {
             self.rebuild_live(width, height, height_rebuild);
             return;
