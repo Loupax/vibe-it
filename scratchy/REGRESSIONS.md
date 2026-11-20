@@ -1,5 +1,148 @@
 # scratchy — regressions
 
+## R55: Quiet-machine re-measurement of QY53m (#386), QMEM3d (#400) and QY53n3 (#416). QY53m: gate MET. With JS on, the App rebuilds that followed only no-op writes go from 54 to 0 per run on Wikipedia and from 123-155 to 0 on YouTube watch. That is builds 133 -> 104 (-22 %) and 12.2 -> 9.4 s on Wikipedia, 371 -> 268 (-28 %) and 14.3 -> 10.1 s on YouTube. The Wikipedia screenshots are byte-identical. QMEM3d: gate MET. After leaving YouTube watch for a small local page, RSS is 104-117 MB lower 3 s after the navigation and 119-135 MB lower after 35 s (gate >= 25 MB). QY53n3: gate met only trivially, NO EFFECT on YouTube watch. No YouTube hover change in two pointer recipes involves an OFFSET rule, so `hover.patched` is 0 before and after. The remaining hover builds are refused for other reasons: Layout-classified rules (73 % of builds with the yt input, 33 % with yt2: opacity, `border-radius`, `fill` and `background` through `var()`, `border` restating the same width/style), `hover_match_diff` = None (27 % / 45 %: the kept match memo is stale after a `<style>` splice, or an element was never rendered), and list items (yt2: 22 %) (Opus, 2026-11-20, measure only, docs only) — OPEN: proposed QY53n2c, QY53n2d, QY53n1c, QY53n1d, QMEM3l (below)
+
+**Setup (all three items).** Main 3361054. Every binary is a release build (V8 + media) of a `git archive` export of main
+into the scratchpad, plus THROWAWAY instrumentation that is identical in all variants (never committed): (a) per-`js_sync`
+batch flags: a write at one of QY53m's seven value-checked sites marks the batch "real" or "no-op", and every other
+`dirty.set(true)` site marks it "real". Two frame-stats counters come from that: `noop_batches` (js_sync turns whose writes
+were ALL no-op) and `noop_rebuilds` (those turns that still queued a restyle). (b) On every hover build, `eprintln` of WHY the
+cheap path refused it, plus the non-paint rules in the change set (selector + declared fields). (c) Env `QMEAS_NO_TRIM`
+skips `mem_trim::spawn_trim` (the request is still counted). The "before" binaries are the same tree with ONE change undone:
+**bm** = QY53m reverted (the seven `d.set(d.get() | changed)` back to `d.set(true)`); **bn** = QY53n3 reverted
+(`patch_with_rules` refuses every effect but Paint again; then the offset path and the `moved` refresh in app.rs never
+run). That restores the exact pre-change behaviour while keeping the counters identical. Separate CARGO_TARGET_DIRs. All
+builds were done before the measurement and nothing else ran. Own wire (copied binary) on a scratchpad socket, restarted
+per run (fresh cookie jar). Own nested dwl (tools/nest.sh), window **960x1006**. `SCRATCHY_MEDIA_AO=null`,
+`SCRATCHY_FRAME_STATS`, default UA. **Every run under `flock /tmp/scratchy-perf.lock`.** Load average (1 min) at the start
+and end of the runs was **0.14-1.38** (the only agent running). Before/after runs are interleaved, and the order flips every
+round.
+
+**Input (tools/inject, R47 recipe adapted to 960x1006).** *Wikipedia* Rust (programming language), JS on, 52 s: from
+t = 12 s, 6 rounds x 8 links x 600 ms (`general-purpose`, `performance`, `type safety`, `concurrency`, `memory safety`,
+Talk, Edit, View history), then the pointer is parked on body text, with a screenshot at 50 s. *YouTube* watch G1AeBgalFZk,
+56 s: a click on the big play button at 13 s, then from 15 s 6 rounds x 8 positions x 600 ms (2 points in the picture,
+the progress bar, the play/pause button, settings, search button, menu, "Anmelden"), then parked, with a screenshot at
+54 s. *yt2* (item 3 only, 60 s): the same click, then 6 rounds x 10 positions (3 on the progress bar, CC, settings,
+play/pause, "mehr", 2 recommendation thumbnails, a recommendation title).
+
+### 1. QY53m-m: js_sync skips the restyle after no-op write batches (ee4897f #386) — gate MET
+
+Whole-run totals from frame stats, 3 interleaved pairs per page.
+
+| run | builds n / ms | noop_batches | noop_rebuilds | forced n / ms | js_ms | hover restyles (all patched on WP) |
+|---|---|---|---|---|---|---|
+| WP after 1 / 2 / 3 | 104 / 9 393, 104 / 9 441, 103 / 9 345 | 54, 54, 54 | **0, 0, 0** | 22 / 2 734, 21 / 2 639, 21 / 2 640 | 3 239, 3 144, 3 145 | 38, 38, 38 |
+| WP bm (before) 1 / 2 / 3 | 132 / 12 177, 133 / 12 241, 133 / 12 274 | 54, 54, 54 | **54, 54, 54** | 22 / 2 820, 21 / 2 629, 21 / 2 636 | 3 336, 3 141, 3 147 | 26, 26, 26 |
+| YT after 1 / 2 / 3 | 268 / 10 088, 267 / 10 056, 279 / 10 287 | 285, 273, 276 | **0, 0, 0** | 234 / 7 604, 233 / 7 541, 234 / 7 615 | 14 100, 14 075, 14 379 | 30, 31, 30 (built) |
+| YT bm (before) 1 / 2 / 3 | 363 / 13 737, 375 / 14 336, 371 / 14 454 | 123, 155, 147 | **123, 155, 147** | 230 / 7 497, 193 / 5 826, 196 / 6 012 | 13 951, 12 204, 12 421 | 23, 25, 22 (built) |
+
+Medians: **Wikipedia builds 133 -> 104 (-29, -22 %), 12 241 -> 9 393 ms (-2.85 s); YouTube 371 -> 268 (-103, -28 %),
+14 336 -> 10 088 ms (-4.2 s).** The no-op rebuild requests drop to 0 on both pages. On Wikipedia the build count falls by 29,
+not by the 54 requests, because the requests coalesce: a request that comes while a build is in flight, or in the same
+turn as a real write, does not add a build (QB2). The gate ("builds.n and builds.ms drop by the no-op count") is met in
+that sense: every build that only no-op writes caused is gone. Side effect, with the same input: with fewer pending JS
+builds, more hover changes take QY53n2's patch path instead of waiting for a build. Wikipedia `hover_restyles` is 38 (all
+patched) after vs 26 before. YouTube's `noop_batches` is higher after (273-285 vs 123-155) because nothing coalesces them
+into builds any more; the count is per js_sync turn. **Screenshots:** the 6 Wikipedia end screenshots are byte-identical
+(same md5) across before and after. On YouTube, outside the player box, they differ only in the recommendations column
+(x >= 674), and that column differs just as much between two "after" runs (thumbnails load in a different order). Forced
+layouts and page JS time do not change (QY53m does not touch the geometry generation).
+
+### 2. QMEM3d-m: malloc_trim after navigation / idle (8ce75f2 #400) — gate MET
+
+The "after" binary, with (`trim`) and without (`notrim`, `QMEAS_NO_TRIM=1`) the trim. YouTube watch: play at 13 s, a few
+pointer moves until 18 s, idle until 40 s, then `:go <scratchpad>/pages/small.html` (a 2-line local page). VmRSS of the
+scratchy process from /proc. "nav+N" = N s after the `:go` Enter. 4 trim requests per run (start, `:go`, 2 idle periods).
+
+| run (order) | RSS on YT at 38 s | nav+3 | nav+6 | nav+10 | nav+15 | nav+25 | nav+35 |
+|---|---|---|---|---|---|---|---|
+| trim 1 (1st) | 509 | **306** | 305 | 280 | 199 | 199 | **199** |
+| notrim 1 (2nd) | 513 | **423** | 423 | 331 | 331 | 328 | **328** |
+| notrim 2 (1st) | 513 | **410** | 410 | 410 | 410 | 312 | **312** |
+| trim 2 (2nd) | 476 | **310** | 310 | 289 | 289 | 193 | **193** |
+| trim 3 (1st) | 519 | **314** | 314 | 289 | 289 | 193 | **193** |
+| notrim 3 (2nd) | 517 | **420** | 420 | 420 | 420 | 325 | **325** |
+
+(MB.) **With the trim, RSS is 104-117 MB lower at nav+3 (medians 310 vs 420) and 119-135 MB lower at nav+35 (193 vs 325).
+Gate >= 25 MB: met by ~4-5x.** For scale: a fresh scratchy on the same small page is **98 MB** (3 runs: 97.6 / 97.5 /
+97.5 MB after 20 s). So with the trim, ~95-100 MB is still held after leaving YouTube, and ~215-230 MB without it. In
+BOTH variants a second step of ~90-100 MB is freed 10-25 s after the navigation (nav+10 -> nav+25), not at the
+navigation. Something of the old page (the mpv player and its threads? the V8 isolate's deferred dispose? a cache TTL?)
+lives on for 10-25 s: QMEM3l below.
+
+### 3. QY53n3m: offset hover patch (09ea0d5 #416) — gate met only trivially; no effect on YouTube watch
+
+Frame-stats hover counters, totals per run. "after" = main, "bn" = QY53n3 reverted. Three series: the item-1 series (yt
+input), a v2 series (yt input, with per-build refusal reasons), and a v3 series (both inputs, with the reason of a
+`hover_match_diff` = None split out).
+
+| run | hover restyles | skipped | built | **patched** | builds n / ms |
+|---|---|---|---|---|---|
+| yt after (item-1 series) 1 / 2 / 3 | 30, 31, 30 | 0, 0, 0 | 30, 31, 30 | **0, 0, 0** | 268 / 10 088, 267 / 10 056, 279 / 10 287 |
+| yt bn 1 / 2 / 3 | 32, 31, 29 | 0, 0, 0 | 32, 31, 29 | **0, 0, 0** | 281 / 10 360, 280 / 10 481, 266 / 10 565 |
+| yt after (v2) 1 / 2 / 3 | 34, 31, 33 | 0, 0, 0 | 34, 31, 33 | **0, 0, 0** | 275 / 10 434, 272 / 10 348, 273 / 10 331 |
+| yt bn (v2) 1 / 2 / 3 | 31, 27, 33 | 0, 0, 0 | 31, 27, 33 | **0, 0, 0** | 277 / 10 381, 269 / 10 374, 276 / 10 465 |
+| yt2 after (v3) 1 / 2 / 3 | 39, 35, 39 | 10, 11, 10 | 29, 24, 29 | **0, 0, 0** | 346 / 11 933, 342 / 11 549, 340 / 11 870 |
+| yt2 bn 1 / 2 / 3 | 55*, 39, 35 | 25*, 11, 8 | 30*, 28, 27 | **0, 0, 0** | 141* / 4 123, 335 / 11 619, 339 / 11 824 |
+
+(* yt2 bn 1 is an outlier: 141 builds and 26 no-op batches vs ~550. YouTube served a different page state that run, so
+leave it out.) Before and after are the same within noise: **QY53n3 patched no YouTube hover with either input.** Why each
+hover BUILD was refused on main (the reason that the last cheap attempt before the build returned), totals over 3 runs
+per input:
+
+| refusal (main) | yt, v2 (98 builds) | yt, v3 (92 builds) | yt2, v3 (82 builds) |
+|---|---|---|---|
+| `a changed rule is not paint/offset-only` (Effect::Layout) | 72 | 67 | 27 |
+| `hover_match_diff` = None: the kept match memo is for another rule list (YouTube spliced a `<style>` after the last build) | 26 (v2: one "no diff" bucket for both None reasons) | 15 | 19 |
+| `hover_match_diff` = None: an affected element the last build never matched (not rendered) | (in the 26) | 10 | 18 |
+| `a list item or form control` (QY53n2b's case) | 0 | 0 | 18 |
+| any OFFSET refusal (positioned descendant, inline-level box, % / calc() inset, auto-width or auto-margin absolute, edge change, sticky/fixed, pseudo-element, document height) | **0** | **0** | **0** |
+
+**None of the four candidate refusals named in the item
+(positioned descendants, inline-level boxes, % insets, auto-width absolutes) occurs.** No YouTube hover change in these
+recipes reaches `plan_moves` at all: no changed rule set holds an OFFSET-class rule. YouTube moves its progress-bar pieces
+from JS `style` writes, not from `:hover` rules (R50). The Layout-classified rules in the refused change sets (each counted
+once per build; yt + yt2, v2 + v3):
+
+| rule (selector, declared fields) | builds | really layout? |
+|---|---|---|
+| `.ytSpecButtonShapeNextCallToAction.ytSpecButtonShapeNextOutline:hover:not(...)` {`background: var(..)`, border-color} | 53 | no: `background` through `var()` is classified by its name, and the shorthand is not in PAINT_PROPS |
+| `yt-icon-button.ytd-masthead:hover, ...topbar...:hover` {`border-radius`, `background-color: var(..)`} | 49 | no: `border-radius` only paints (its clipping is a paint concern too) |
+| `.ytSearchboxComponentSearchButton:hover` {background-color, `border-width`, border-color, `border-style`} | 53 | only if the width/style values differ; the hover rule restates the same `border: 1px solid` with another colour |
+| `.ytp-chrome-controls .ytp-button:not(...):hover, ...` {`opacity`} | 60 | paint, except opacity 1 <-> < 1 starts/ends a stacking context (QYTC1f's caution) |
+| `.ytp-cued-thumbnail-overlay:hover .ytp-large-play-button-bg, ...` {`fill: var(..)`} | 15 | no: SVG `fill` only paints |
+
+The original QY53n3 gate ("hover builds whose differing rules are all PAINT/OFFSET -> 0") holds only because no hover
+build has an all-PAINT/OFFSET change set by scratchy's `Effect` classification. R47's 36-of-58 count used a wider paint
+list (border-radius, opacity, visibility, cursor as paint). So on YouTube, the offset widening candidates (re-hoisting
+positioned descendants, % insets through the containing-block basis) are worth nothing today. The classification gaps
+and the stale kept memo are what keep YouTube hovers on the build path.
+
+### Proposed items (coordinator files them)
+- **QY53n2c [S]** (P3, style.rs `decls_effect` + hover_patch.rs; Sonnet) Classify by the resolved VALUE change, not by the
+  declared property, for the cases measured here: `border-radius`, SVG `fill`/`stroke`, the `background` shorthand (also
+  through `var()`) when the computed change is only `background-color`, and `border-*-width`/`border-*-style` declarations
+  whose computed values equal the old ones (compare the old and new ComputedStyle of the affected element: only paint
+  fields may differ). The patch must still match a rebuild pixel for pixel (the QY53n2 tests style). Gate: YT watch, this
+  section's yt input, under flock: `hover.patched` >= 40 of ~95 hover builds per 3 runs (the search button, masthead
+  icon buttons, CTA button and play-button-bg sets), builds per run down by the same count.
+- **QY53n2d [S]** (P4, after QYTC1f's design) `opacity` hover changes: patch when old and new are both < 1, or both 1 and
+  nothing else changes, or the element has no positioned descendants and already forms a stacking context; otherwise
+  build. 60 YT builds per 6 runs are the `.ytp-button` opacity rule.
+- **QY53n1c [M]** (P3, style.rs `with_kept_build` / rules_cache; Opus design first) Keep the kept match memo valid across a
+  QY53f1 `<style>` splice. YouTube splices a `<style>` after the last build, so the memo's rule list no longer matches and
+  the hover builds (15-19 per 3 runs). Options: re-key the memo when the splice only appended rules that cannot match the
+  affected elements (check the new rules' RuleIndex buckets), or keep a rule-index remap.
+- **QY53n1d [S]** (P4) `hover_match_diff` -> None when an affected element was never matched by the last build (10-18 per
+  3 runs): if it is inside a `display:none` subtree (no box), its match change cannot change the picture. Count it as
+  skipped (exactness: only when an ancestor is display:none in the build's styles).
+- **QMEM3l [S]** (P3, Opus measure first) Leaving YouTube frees ~100 MB of RSS 10-25 s AFTER the navigation, with or
+  without the trim (table 2: nav+10 -> nav+25). Find what lives on (mpv player/threads, V8 isolate teardown, a cache TTL)
+  and release it at the navigation. Today RSS after leaving YT is 193-199 MB vs 98 MB for a fresh start.
+- The offset-patch widening candidates named in QY53n3m (re-hoisting positioned descendants, % insets) are NOT proposed:
+  0 occurrences on YouTube watch. Revisit only if a page with `:hover` offset rules shows up.
+
 ## R54: QY53f1d: YouTube's cold stylesheet parse is no longer ~130 ms. Since QY53f1c it is ~35-55 ms on a quiet machine (the 4.4 MB sheet, 22 344 rules), and it now runs in the first `getComputedStyle`, not in a forced layout. But the same parse ran 3-4 MORE times per minute: QYTC1a's `!important` geometry check (js_geom.rs `IMP_GEO`) kept a clone of the rule list's `Rc`, so every `<style>` that YouTube inserts after a forced layout did a full re-parse instead of QY53f1's splice. FIXED here (the check keeps selectors + a generation, not the `Rc`): 4-5 full parses per 60 s -> 1. Design for the rest: parse the external CSS on a worker thread as soon as it is fetched (QY53f1d1) and build the RuleIndex once per rule list instead of twice (QY53f1d2). Lazy selector parsing is not worth it (Opus, 2026-11-20) — FIXED: the re-parses; OPEN: QY53f1d1-QY53f1d3 (proposed)
 
 **Setup.** Main bd1ead7, own worktree release build (V8 + media), own wire on a scratchpad socket, default UA,
