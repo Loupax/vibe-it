@@ -1021,7 +1021,7 @@ Shared rules for this block:
       `text_span`); set span.node there.
 - [ ] QY53n2d [S] (P4, from #418 R55; after QYTC1f's design) Paint-patch opacity hovers when the stacking context does not
       change (`.ytp-button:hover {opacity}`; ~60 YT builds over 6 runs).
-- [ ] QY53n1c [M] (P3, from #418 R55; Opus design first) Keep the kept hover match memo valid across a QY53f1 `<style>`
+- [ ] [WIP] QY53n1c [M] (P3, from #418 R55; Opus design first) Keep the kept hover match memo valid across a QY53f1 `<style>`
       splice (hover_match_diff None; 15-19 YT builds over 3 runs).
 - [ ] QY53n1d [S] (P4, from #418 R55; Sonnet) An affected element never matched (inside a display:none subtree) counts as
       skipped instead of forcing a build (10-18 YT builds over 3 runs).
