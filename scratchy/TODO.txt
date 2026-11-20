@@ -1007,6 +1007,14 @@ Shared rules for this block:
 USER 2026-11-20 ~14:40: "once we are done with the layout engine changes, I'd like to have a pause on implementation and
 have an architecture discussion before we continue" -> after QINC1 (through QINC1m, or wherever the user calls it done) the
 coordinator STOPS assigning implementation items and holds an architecture discussion with the user first.
+- [ ] [WIP] QINC1f-fix [M] (P1 for the engine, part of QINC1; from QINC1g #455's fuzz; Opus; incr_style.rs + invalidation.rs)
+      The fuzz (3000 cases) found 7 STYLE mismatches in QINC1f's incremental restyle on seeds 462, 519, 733, 1956, 2080,
+      2084, 2475 (default run uses 200 so CI never saw them): :first-child / :nth-child / + / ~ invalidation after inserts and
+      moves. Repro: SCRATCHY_FUZZ_SEED=<s> SCRATCHY_FUZZ_N=1. Fix the invalidation (InvalidationMap.for_children / sibling
+      reach, or the engine's handling of moves); add each seed's minimal case as a test; then raise CI's default fuzz count
+      or add a fixed seed list so these can't regress. Gate: 0 mismatches over 5000 cases (several seeds), suite green.
+- [ ] QINC1g-mem [S/M] (P3, NOT a blocker per user; from QINC1g #455; Sonnet; layout area: data structure only) Box
+      InlineItem::Image's ComputedStyle (InlineItem 1328 B -> ~120 B): shrinks every box tree (Wikipedia kept tree 15 MB).
 - [ ] QINC1f-mem [S/M] (P3, NOT a blocker: user 2026-11-20 ~16:30 "I don't consider the memory thing a deal breaker for now so
       don't have it block deployment for that" -> does not gate QINC1k/QINC1l; do it when a slot is free; from QINC1f #452; Sonnet; incr_style.rs table storage; AFTER QINC1g) Stored element
       styles cost +24 MB on Wikipedia (12.2 MB styles; RSS 256 vs 232 MB) vs the user-accepted +8-18 MB: share them as
@@ -1055,8 +1063,8 @@ geometry; superseded items dropped (archived); FREEZE on other style/box/layout 
 flight (correctness fixes allowed, rebased onto the shadow comparisons); memory +8-18 MB accepted; slower shadow-mode tests
 accepted; flip after 0 mismatches on 6 pages x 3 runs + gates, delete after >= 3 days of user use; QINC1n/o later; models
 as stated). Items QINC1a DONE 81e23d7 #447 (engine test infra + style_diff + fuzz), QINC1b (stable paragraph ids) DONE 23d604f #446, QINC1c (bottom-up hoisting) DONE 9890847 #450,
-QINC1d (InvalidationMap) DONE 18d0527 #445, QINC1e (write log) DONE 4700801 #448, QINC1f [L] (incremental restyle, shadow) DONE b20ed27 #452, [WIP] QINC1g [L] (persistent box tree,
-shadow), QINC1h1 [L] (relayout from last tree, shadow), QINC1h2 (intrinsic-size cache), QINC1i (forced layouts via engine,
+QINC1d (InvalidationMap) DONE 18d0527 #445, QINC1e (write log) DONE 4700801 #448, QINC1f [L] (incremental restyle, shadow) DONE b20ed27 #452, QINC1g [L] DONE 8ec1c1a #455 (persistent box tree,
+shadow), [WIP] QINC1h1 [L] (relayout from last tree, shadow), QINC1h2 (intrinsic-size cache), QINC1i (forced layouts via engine,
 SCRATCHY_INCR=1), QINC1j [L] (App frames via engine), QINC1k (exactness sweep + gates), QINC1l (flip default, user OK),
 QINC1m (delete superseded special cases). Waves: 1 = a, b, d, e; 2 = c, f; 3 = g; 4 = h1; 5 = i, j, h2; then k, l, m.
 Superseded and archived (Q3): QY54b3a-f, QY54b4, QY53o2, QY53f2, QY53f3, QY53n4, QY53n1d, QY53n2d, QYTC1a2, QYTC1e,
