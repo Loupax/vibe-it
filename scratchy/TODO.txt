@@ -555,7 +555,11 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       only the iframe itself, a srcdoc change or innerHTML trigger the load.
 - [ ] QPT1f5 [S] (P3, from QPT1f #408; R53 D9) Scripts in pre-fetched same-origin (QA18b1) iframe documents still do not run.
 - [ ] QPT1g [M] (backlog, only if a page shows the forwarding is wrong) Per-realm event-loop queues (R53).
-- [ ] QPT1-D [?] WAITING FOR USER (R53 end): `data:` iframes: Chrome gives them an opaque origin (contentDocument null);
+- [x] QPT1-D ANSWERED (user 2026-11-20 ~11:45: match Chrome, opaque origin)  (R53 end): `data:` iframes: Chrome gives them an opaque origin (contentDocument null);
+- [ ] QPT1-D1 [S] (P3, from QPT1-D user answer 2026-11-20; Sonnet; iframe realm code) `data:` iframes get an OPAQUE origin as in
+      Chrome: contentDocument / contentWindow.document null for the parent (cross-origin access throws), no shared realm
+      access, scripts inside still run in their own realm. Tests; existing QPT1 tests updated where they relied on reading
+      into a data: iframe.
       scratchy (QA18b) gives a readable same-origin document. Keep scratchy's behaviour or match Chrome? Not blocking QPT1a
       (data: iframes get no realm for now).
 - [ ] QPT2 [S] (R52; backlog: user chose QPT1 only for now, 2026-11-19) `navigator` in WebIDL shape (Navigator.prototype accessors, Illegal invocation on
@@ -920,12 +924,6 @@ challenge/consent wall. Fixture "big-css" (generate in the test, never vendor): 
 (`.c<i> .d<i> { margin-left: 1px }`, plus 200 `::before { content: "x" }` rules), 1 000 nested
 divs with 3 classes each, a script that does 50 x (write one attribute, read `offsetWidth`).
 
-- [ ] QY53e2b [M] (P2, from QY53e2 #396; Opus design then Sonnet) IO during script churn: the App's complete layouts on
-      Wikipedia/YouTube are almost always one DOM write behind (geom_gen > 600 in the first second), so #396's "current
-      layout only" path serves ~0 rechecks there (YT: 1 of 23). Options: evaluate on the last complete App layout, hold
-      targets without an entry pending and leave ioGen unmarked so the deadline or the next layout corrects it (spec allows
-      entries one write behind), and/or keep geom_gen bumps that provably move nothing (unread attributes, QY53o1) out of
-      the render stamp. NOT via a longer IO deadline (coordinator rejected #396's flat 2 s window deadline: late lazy-load).
 
 --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
 Why: every perf investigation so far (R37, R42, R43) needed throwaway instrumentation that was then
@@ -945,21 +943,6 @@ Shared rules for this block:
 - Local tools only. Nothing here may upload a profile anywhere (no profiler.firefox.com, no
   ui.perfetto.dev links in tools output), and scratchy itself still opens no socket.
 
-- [ ] QY53f2 [M] (P3, optional, from QY53f; ONLY if QPROF1 still shows selector matching on top) [QY54b2 #429: also the forced-layout case -- keep per-element matches across script forced layouts, keyed (node, rules generation, viewport width), invalidated by own/ancestor/preceding-sibling mutation, off when has/sib rules exist; ~10.5-13 ms (~8 %) per YT results gPS layout] Cross-build match memo
-      (R43 section 8 design steps 1-2): keep MATCH_MEMO across builds, validated by a top-down selector-context
-      fingerprint (hover/focus, form state, `:has` re-test, shadow parents, viewport width). Gate: nested big-css
-      forced_layout.total_ms >= 15 % lower; tests: one-leaf write re-matches only that element (test-only MATCH_RUNS),
-      invalidation by hover, form state, sibling combinator, viewport change.
-- [ ] QY53f3 [M] (P4, deferred, from QY53f; after QY53f2 and a fresh measurement) ComputedStyle reuse across builds (R43
-      section 8 design step 3); must be cleared together with QY53i2's arena if that lands.
-- [ ] QY53l3 [S] (P3, optional, from QY53l, R43 section 10; Sonnet) Skip the bump for `style` writes that only change
-      properties that cannot move any box in scratchy's layout (today: e.g. `transform: scalex()`, colors, opacity,
-      cursor), when no stylesheet rule tests `[style]`. ~5-8 of 51 getPlayerSize layouts. Revisit when transforms reach
-      getBoundingClientRect (then scale DOES change rects). Tests: a color-only style write forces no layout; a width
-      write still does; a `[style*=..]` rule present disables the skip.
-      QY53l2 (b493ad2, R43 section 13): of 71 remaining YT no-change layouts, 44 follow writes to VISIBLE elements only
-      (.ytp-chapter-hover-container, .ytp-load-progress scale transform, #movie_player state classes, video attributes) and
-      8 follow writes inside an inline <svg> only: consider a rule for svg-internal writes that cannot change the svg box.
 - [ ] QY53f1d1 [M] (P3, from QY53f1d #409 R54 section 4; Opus/Sonnet) Parse the page's external CSS on a worker as soon as
       fetch_stylesheets returns (overlapping script fetching); rules_cache uses the result when the external piece's text is
       identical. Needs StyleRule: Send (compile-time assert), raw KeyframesDefs back (registry holds Rc), the STATE_RULES
@@ -984,9 +967,6 @@ Shared rules for this block:
       Only if cold forced layouts matter more later.
 - [ ] QMEM3f [S] (P4, from QMEM3; Opus measure) 10-minute live-window RSS sample on YT watch: the window grows ~0.22 MB/s
       in the first minute; leak or warm-up?
-- [ ] QYTC1a2 [S] (P3, from QYTC1a #381; Sonnet) In-flow translate / relative `left`/`top` writes shift in place too
-      (today only abs/fixed boxes move in place; in-flow boxes only take the nothing-moves path). Needs `self.page` and the
-      root `in_flow_bottom` redone, because an in-flow translate can change the root height. YouTube does not need it.
 - [ ] QBBC1 [M, Opus, investigate first] (P3, user screenshot 2026-11-19 ~22:50, installed main 10a9d6e, window ~958 px wide;
       .coordinator/user-runs/bbc-news-2026-11-19.png) bbc.com/news renders wrong: (1) the lead story's "LIVE" badge wraps
       "LIV/E" and overlaps the headline text; (2) the lead story column is ~200 px wide (headline breaks every 2 words);
@@ -994,18 +974,8 @@ Shared rules for this block:
       sits right of centre; (5) a tall grey band under the header (empty ad slot? may be correct). Compare with a normal
       browser at the same width, find the cause of each (CSS feature, layout bug, image loading), write a sized fix list in
       REGRESSIONS.md. Not a perf item: backlog order unless the user raises it.
-- [ ] QYTC1e [S] (P3, from QYTC1d #414 R50; measure first) YouTube replaces the `.ytp-time-current` text node once a second;
-      that is the whole remaining ~1 forced layout/s while the controls show (960x1006). Check whether a text change inside
-      a box whose size cannot change (definite width/height, or abs-positioned in the controls) can update the cache
-      without a full layout. Exactness first.
-- [ ] QYTC1f [M] (P4, from QYTC1d #414; Opus design) Class writes whose flipped rules declare only box-neutral properties
-      (ytp-autohide toggles opacity rules). Careful: opacity < 1 makes a stacking context (moves hoisted boxes);
-      visibility / background-color on inline content (spacer boxes) need the same care.
 - [ ] QYTC1c [S] (P3, from R50; measure) css_collect + rule_index are 18 % of every forced layout on the JS thread
       (~5 ms each): is RULE_DERIVED's index rebuilt per layout there? (css area: not alongside QAN1h2/QAN1h3)
-- [ ] QY53o2 [M] [ABSORBED into QY54b3 (#428 R58); kept for its text] (P3, from QY53o; Opus design first; ONLY if QY53o1 leaves > ~3 s per run) Writes inside an abs/fixed
-      positioned subtree do not invalidate rects outside it (Page Previews' popup: 7-21 layouts per run). Gate: forced.n <= 5
-      after QY53o1.
 - [ ] QY53m2 [S] (P2, from QY53n, R47; Sonnet; AFTER QY53m; js_dom.rs, not alongside QY53l2) A value-changing write to an
       attribute no selector reads (e.g. `title`; check RuleIndex/HoverKeys attribute keys) does not trigger an App restyle.
       Wikipedia's mouseover JS writes `li style="display: none;"` (same value) 154-165x and toggles `title` per run ->
@@ -1015,14 +985,8 @@ Shared rules for this block:
 - [ ] QY53n2b [S] (P4, from QY53n2 #407; Sonnet) Paint-patch hovers that touch list items, form controls, `::marker` or
       `<br>`/alt text [list items + form controls with unchanged inherited text paint are patched since QY53n2c #424]: they fall back to a build because those text spans carry no element `node` (`marker_prefix`, forms.rs
       `text_span`); set span.node there.
-- [ ] QY53n2d [S] (P4, from #418 R55; after QYTC1f's design) Paint-patch opacity hovers when the stacking context does not
-      change (`.ytp-button:hover {opacity}`; ~60 YT builds over 6 runs).
-- [ ] QY53n1d [S] (P4, from #418 R55; Sonnet) An affected element never matched (inside a display:none subtree) counts as
-      skipped instead of forcing a build (10-18 YT builds over 3 runs).
 - [ ] QMEM3l [S] (P3, from QMEM3d-m #418 R55; Opus measure first) ~100 MB is freed 10-25 s after leaving YouTube with or
       without the trim: find what lives on (mpv, V8 teardown, a cache TTL) and release it at the navigation.
-- [ ] QY53n4 [M] (P4, later, from QY53n) Subtree re-box for layout-changing hovers + re-applying patches after an in-flight
-      build (16 of 58 YT hover builds, 0 on Wikipedia).
 - [ ] QFLK4 [S] (P3, from QNAV9 #435; Sonnet) forms test q30d_typing_through_the_app_events_maxlength_readonly_escape failed
       once in a full suite run while the machine was loaded (passed in 2 later runs). Find the timing dependence; prove 20x.
 - [ ] QYSCR1f [S] (P3, from QYSCR1a #441; Sonnet, investigate) YT results: after the guide drawer toggles (Space on the
@@ -1045,31 +1009,20 @@ Shared rules for this block:
 - [ ] QY57r2 [S] (P4, from QY57r #420 grim check; Sonnet) YT results thumbnail overlay: the "Läuft gerade"/now-playing
       label and the duration badge (1:34:40) overlap in the bottom-right corner of the first thumbnail. Find which
       overlay rule (hover/now-playing vs time-status) should hide or position the other; fix + grim check.
-QINC1 IMPLEMENTATION (design R60, #434; full item text in REGRESSIONS.md R60 section 15; WAITING FOR USER answers to R60
-section 16). Items QINC1a (engine test infra + style_diff + fuzz), QINC1b (stable paragraph ids), QINC1c (bottom-up hoisting),
-QINC1d (InvalidationMap), QINC1e (write log), QINC1f [L] (incremental restyle, shadow), QINC1g [L] (persistent box tree,
+QINC1 IMPLEMENTATION (design R60, #434; full item text in REGRESSIONS.md R60 section 15; USER ANSWERED 2026-11-20 ~11:45: "go with the
+recommendations" = R60 section 16 Q1-Q9 all as recommended: one engine on the main thread; real image sizes for script
+geometry; superseded items dropped (archived); FREEZE on other style/box/layout semantic changes while QINC1f-h1 are in
+flight (correctness fixes allowed, rebased onto the shadow comparisons); memory +8-18 MB accepted; slower shadow-mode tests
+accepted; flip after 0 mismatches on 6 pages x 3 runs + gates, delete after >= 3 days of user use; QINC1n/o later; models
+as stated). Items [WIP] QINC1a (engine test infra + style_diff + fuzz), [WIP] QINC1b (stable paragraph ids), QINC1c (bottom-up hoisting),
+[WIP] QINC1d (InvalidationMap), [WIP] QINC1e (write log), QINC1f [L] (incremental restyle, shadow), QINC1g [L] (persistent box tree,
 shadow), QINC1h1 [L] (relayout from last tree, shadow), QINC1h2 (intrinsic-size cache), QINC1i (forced layouts via engine,
 SCRATCHY_INCR=1), QINC1j [L] (App frames via engine), QINC1k (exactness sweep + gates), QINC1l (flip default, user OK),
 QINC1m (delete superseded special cases). Waves: 1 = a, b, d, e; 2 = c, f; 3 = g; 4 = h1; 5 = i, j, h2; then k, l, m.
-Supersedes (if the user agrees, Q3): QY54b3a-f, QY54b4, QY53o2, QY53f2, QY53f3, QY53n4, QY53n1d, QY53n2d, QYTC1a2, QYTC1e,
+Superseded and archived (Q3): QY54b3a-f, QY54b4, QY53o2, QY53f2, QY53f3, QY53n4, QY53n1d, QY53n2d, QYTC1a2, QYTC1e,
 QYTC1f, QY53l3, QY53e2b.
 ON HOLD (user wants QINC1 instead; may be superseded) ON HOLD (user wants QINC1 instead; may be superseded) QY54b3 IMPLEMENTATION (design R59 #431 f1013b0; full item text in REGRESSIONS.md R59 section 11; WAITING FOR USER GO-AHEAD;
 supersedes QY54b3 [L], absorbs QY53o2). Order a -> (b) -> c -> d -> e -> f, each with a go/no-go gate:
-- [ ] QY54b3a [M] (P2, Sonnet; NO behaviour change; AFTER QY54b1) Dirty points (GEOM_DIRTY via geom_bump_at) + full-layout
-      stash + GeomCache::partial_verdict classifier + --perf-report forced.partial_would. Gate: R58 recipe x3 split; build
-      QY54b3b if >= 50 % of gPS reads would be served, QY54b3c-e if serve+subtree >= 85 %; else stop and report.
-- [ ] QY54b3b [M] (P2, Sonnet; after a + QY54b1) Stage 1: serve rect reads of an unchanged box / anything outside the dirty
-      box from the stale cache (__d_rect_box); check mode (cfg(test) always; SCRATCHY_GEOM_CHECK=1); SCRATCHY_GEOM_PARTIAL=0.
-- [ ] QY54b3c [S] (P2, Sonnet; no behaviour change) precompute_generated factored as generated_walk with recorded entry/exit
-      state per abs/fixed element; RuleDerived doc_order flag.
-- [ ] QY54b3d [M] (P2, Sonnet; after a/c) build_subtree_box(B) with stashed inherited style, generated state, no global
-      side effects (animations, last match, canvas bg, viewport root).
-- [ ] QY54b3e [M] (P2, Sonnet; after b/d) Stage 2 measure + splice into GeomCache; check mode on every subtree layout.
-      Gate: gPS layouts median < 10 ms, worst preview-start promise job < 300 ms (R58 recipe x3).
-- [ ] QY54b3f [S] (P2, Opus measure, docs; after e) Real-page exactness sweep with SCRATCHY_GEOM_CHECK=1 (YT results/watch,
-      Wikipedia Page Previews, github.com, bbc.com/news): 0 mismatches; close QY53o2 or file the rest.
-- [ ] QY54b4 [S] (P4, from QY54b #428; Sonnet; js_geom.rs style_write_in_place; ONLY after QY54b3's design) Treat an absent
-      old `style` attribute as empty so a first `style="top:..;left:.."` on an abs box shifts in place (~1 read per preview).
 
 - [ ] [WIP] QPROF1 [M] (user 2026-11-19, Opus, measure only, docs) Full re-profile after the PERFORMANCE QUEUE, before
       the backlog: find what is slow NOW, since R44's hotspots should be gone by then. On main, with `tools/profile.sh`

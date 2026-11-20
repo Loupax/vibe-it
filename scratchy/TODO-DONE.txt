@@ -8269,3 +8269,94 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       Wikipedia Rust 30 s pages; QOBS1 summaries for both; QOBS10 numbers. New section "Baseline (V8,
       <hash>, 5700X, <date>)"; mark the old tables "old machine".
   (queue line) 27 [WIP] QOBS9 [S, Opus] re-baseline PERF.md on the new machine (after 9, 18, 20)
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY54b3a DONE - SUPERSEDED by QINC1 (user 2026-11-20 ~11:45, R60 Q3) [M] (P2, Sonnet; NO behaviour change; AFTER QY54b1) Dirty points (GEOM_DIRTY via geom_bump_at) + full-layout
+      stash + GeomCache::partial_verdict classifier + --perf-report forced.partial_would. Gate: R58 recipe x3 split; build
+      QY54b3b if >= 50 % of gPS reads would be served, QY54b3c-e if serve+subtree >= 85 %; else stop and report.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY54b3b DONE - SUPERSEDED by QINC1 (user 2026-11-20 ~11:45, R60 Q3) [M] (P2, Sonnet; after a + QY54b1) Stage 1: serve rect reads of an unchanged box / anything outside the dirty
+      box from the stale cache (__d_rect_box); check mode (cfg(test) always; SCRATCHY_GEOM_CHECK=1); SCRATCHY_GEOM_PARTIAL=0.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY54b3c DONE - SUPERSEDED by QINC1 (user 2026-11-20 ~11:45, R60 Q3) [S] (P2, Sonnet; no behaviour change) precompute_generated factored as generated_walk with recorded entry/exit
+      state per abs/fixed element; RuleDerived doc_order flag.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY54b3d DONE - SUPERSEDED by QINC1 (user 2026-11-20 ~11:45, R60 Q3) [M] (P2, Sonnet; after a/c) build_subtree_box(B) with stashed inherited style, generated state, no global
+      side effects (animations, last match, canvas bg, viewport root).
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY54b3e DONE - SUPERSEDED by QINC1 (user 2026-11-20 ~11:45, R60 Q3) [M] (P2, Sonnet; after b/d) Stage 2 measure + splice into GeomCache; check mode on every subtree layout.
+      Gate: gPS layouts median < 10 ms, worst preview-start promise job < 300 ms (R58 recipe x3).
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY54b3f DONE - SUPERSEDED by QINC1 (user 2026-11-20 ~11:45, R60 Q3) [S] (P2, Opus measure, docs; after e) Real-page exactness sweep with SCRATCHY_GEOM_CHECK=1 (YT results/watch,
+      Wikipedia Page Previews, github.com, bbc.com/news): 0 mismatches; close QY53o2 or file the rest.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY54b4 DONE - SUPERSEDED by QINC1 (user 2026-11-20 ~11:45, R60 Q3) [S] (P4, from QY54b #428; Sonnet; js_geom.rs style_write_in_place; ONLY after QY54b3's design) Treat an absent
+      old `style` attribute as empty so a first `style="top:..;left:.."` on an abs box shifts in place (~1 read per preview).
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY53o2 DONE - SUPERSEDED by QINC1 (user 2026-11-20 ~11:45, R60 Q3) [M] [ABSORBED into QY54b3 (#428 R58); kept for its text] (P3, from QY53o; Opus design first; ONLY if QY53o1 leaves > ~3 s per run) Writes inside an abs/fixed
+      positioned subtree do not invalidate rects outside it (Page Previews' popup: 7-21 layouts per run). Gate: forced.n <= 5
+      after QY53o1.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY53f2 DONE - SUPERSEDED by QINC1 (user 2026-11-20 ~11:45, R60 Q3) [M] (P3, optional, from QY53f; ONLY if QPROF1 still shows selector matching on top) [QY54b2 #429: also the forced-layout case -- keep per-element matches across script forced layouts, keyed (node, rules generation, viewport width), invalidated by own/ancestor/preceding-sibling mutation, off when has/sib rules exist; ~10.5-13 ms (~8 %) per YT results gPS layout] Cross-build match memo
+      (R43 section 8 design steps 1-2): keep MATCH_MEMO across builds, validated by a top-down selector-context
+      fingerprint (hover/focus, form state, `:has` re-test, shadow parents, viewport width). Gate: nested big-css
+      forced_layout.total_ms >= 15 % lower; tests: one-leaf write re-matches only that element (test-only MATCH_RUNS),
+      invalidation by hover, form state, sibling combinator, viewport change.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY53f3 DONE - SUPERSEDED by QINC1 (user 2026-11-20 ~11:45, R60 Q3) [M] (P4, deferred, from QY53f; after QY53f2 and a fresh measurement) ComputedStyle reuse across builds (R43
+      section 8 design step 3); must be cleared together with QY53i2's arena if that lands.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY53n4 DONE - SUPERSEDED by QINC1 (user 2026-11-20 ~11:45, R60 Q3) [M] (P4, later, from QY53n) Subtree re-box for layout-changing hovers + re-applying patches after an in-flight
+      build (16 of 58 YT hover builds, 0 on Wikipedia).
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY53n1d DONE - SUPERSEDED by QINC1 (user 2026-11-20 ~11:45, R60 Q3) [S] (P4, from #418 R55; Sonnet) An affected element never matched (inside a display:none subtree) counts as
+      skipped instead of forcing a build (10-18 YT builds over 3 runs).
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY53n2d DONE - SUPERSEDED by QINC1 (user 2026-11-20 ~11:45, R60 Q3) [S] (P4, from #418 R55; after QYTC1f's design) Paint-patch opacity hovers when the stacking context does not
+      change (`.ytp-button:hover {opacity}`; ~60 YT builds over 6 runs).
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QYTC1a2 DONE - SUPERSEDED by QINC1 (user 2026-11-20 ~11:45, R60 Q3) [S] (P3, from QYTC1a #381; Sonnet) In-flow translate / relative `left`/`top` writes shift in place too
+      (today only abs/fixed boxes move in place; in-flow boxes only take the nothing-moves path). Needs `self.page` and the
+      root `in_flow_bottom` redone, because an in-flow translate can change the root height. YouTube does not need it.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QYTC1e DONE - SUPERSEDED by QINC1 (user 2026-11-20 ~11:45, R60 Q3) [S] (P3, from QYTC1d #414 R50; measure first) YouTube replaces the `.ytp-time-current` text node once a second;
+      that is the whole remaining ~1 forced layout/s while the controls show (960x1006). Check whether a text change inside
+      a box whose size cannot change (definite width/height, or abs-positioned in the controls) can update the cache
+      without a full layout. Exactness first.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QYTC1f DONE - SUPERSEDED by QINC1 (user 2026-11-20 ~11:45, R60 Q3) [M] (P4, from QYTC1d #414; Opus design) Class writes whose flipped rules declare only box-neutral properties
+      (ytp-autohide toggles opacity rules). Careful: opacity < 1 makes a stacking context (moves hoisted boxes);
+      visibility / background-color on inline content (spacer boxes) need the same care.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY53l3 DONE - SUPERSEDED by QINC1 (user 2026-11-20 ~11:45, R60 Q3) [S] (P3, optional, from QY53l, R43 section 10; Sonnet) Skip the bump for `style` writes that only change
+      properties that cannot move any box in scratchy's layout (today: e.g. `transform: scalex()`, colors, opacity,
+      cursor), when no stylesheet rule tests `[style]`. ~5-8 of 51 getPlayerSize layouts. Revisit when transforms reach
+      getBoundingClientRect (then scale DOES change rects). Tests: a color-only style write forces no layout; a width
+      write still does; a `[style*=..]` rule present disables the skip.
+      QY53l2 (b493ad2, R43 section 13): of 71 remaining YT no-change layouts, 44 follow writes to VISIBLE elements only
+      (.ytp-chapter-hover-container, .ytp-load-progress scale transform, #movie_player state classes, video attributes) and
+      8 follow writes inside an inline <svg> only: consider a rule for svg-internal writes that cannot change the svg box.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, QY53: what forced layouts cost and who forces them; R43) ---
+- [x] QY53e2b DONE - SUPERSEDED by QINC1 (user 2026-11-20 ~11:45, R60 Q3) [M] (P2, from QY53e2 #396; Opus design then Sonnet) IO during script churn: the App's complete layouts on
+      Wikipedia/YouTube are almost always one DOM write behind (geom_gen > 600 in the first second), so #396's "current
+      layout only" path serves ~0 rechecks there (YT: 1 of 23). Options: evaluate on the last complete App layout, hold
+      targets without an entry pending and leave ioGen unmarked so the deadline or the next layout corrects it (spec allows
+      entries one write behind), and/or keep geom_gen bumps that provably move nothing (unread attributes, QY53o1) out of
+      the render stamp. NOT via a longer IO deadline (coordinator rejected #396's flat 2 s window deadline: late lazy-load).
