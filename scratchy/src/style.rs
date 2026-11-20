@@ -983,6 +983,17 @@ pub(crate) fn matching_declarations_for<'a>(
     {
         return resolve(&hit);
     }
+    // QINC1g: the incremental box rebuild reads the element table's stored match.
+    if let Some(k) = memo_key
+        && let Some(found) = crate::incr_box::stored_match(handle, k.1)
+    {
+        MATCH_MEMO.with(|m| {
+            if let Some(m) = m.borrow_mut().as_mut() {
+                m.insert(k, found.clone());
+            }
+        });
+        return resolve(&found);
+    }
     #[cfg(test)]
     MATCH_RUNS.with(|c| c.set(c.get() + 1));
     let found = matching_indices_for(handle, rules, viewport_width, pseudo);
@@ -1033,6 +1044,9 @@ pub(crate) fn match_slot(handle: &Handle, rules: &[StyleRule], viewport_width: f
     let key = (Rc::as_ptr(handle) as usize, slot, rules.as_ptr() as usize, rules.len(), viewport_width.to_bits());
     if let Some(hit) = MATCH_MEMO.with(|m| m.borrow().as_ref().and_then(|m| m.get(&key).cloned())) {
         return hit;
+    }
+    if let Some(found) = crate::incr_box::stored_match(handle, slot) {
+        return found;
     }
     #[cfg(test)]
     MATCH_RUNS.with(|c| c.set(c.get() + 1));
@@ -1368,8 +1382,12 @@ fn lookup_css_image(url: &str, image_cache: &HashMap<String, Arc<DecodedImage>>)
     if url.is_empty() {
         return None;
     }
+    crate::incr_box::note_src(url);
     if let Some(img) = image_cache.get(url) {
         return Some(img.clone());
+    }
+    if crate::incr_box::rebuilding() {
+        return None;
     }
     WANTED_CSS_IMAGES.with(|w| {
         let mut w = w.borrow_mut();
@@ -2512,6 +2530,10 @@ pub(crate) fn resolve_style_for(
     viewport_width: f32,
     pseudo: Option<&str>,
 ) -> ComputedStyle {
+    // QINC1g: the incremental box rebuild reads the element table's stored style.
+    if let Some(s) = crate::incr_box::stored_style(handle, pseudo) {
+        return s;
+    }
     crate::perf::count_style_resolve(pseudo.is_none());
     let base = resolve_style_core(handle, rules, inherited, viewport_width, pseudo, &[]);
     // QAN1b: no `animation` declared (the overwhelmingly common case) costs

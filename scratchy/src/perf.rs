@@ -269,6 +269,8 @@ pub(crate) fn memory_json(engine: Option<&crate::js::JsEngine>) -> String {
     add("svg_sized_cache", crate::images::svg_sized_cache_mem());
     // QINC1f: the incremental restyle's element table (0 unless SCRATCHY_INCR*=1).
     add("incr_style", crate::incr_style::mem());
+    // QINC1g: the kept box tree (0 unless SCRATCHY_INCR*=1).
+    add("incr_box", crate::incr_box::mem());
     // QMEM3b: the page's CSS text kept for getComputedStyle (EXTRA_CSS), by capacity.
     add("js_extra_css", crate::js_style::extra_css_mem());
     // The perf run has no App, so there is no image cache to size.
@@ -772,9 +774,13 @@ pub(crate) enum Incr {
     /// QINC1f: DOM / form-state changes the check-mode reconcile found that the write log did not
     /// describe (parser insertions, Rust-side writes).
     Unlogged,
+    /// QINC1g: element boxes the incremental box update moved over unchanged from the kept tree.
+    BoxesReused,
+    /// QINC1g: box updates that rebuilt something (the rest found nothing to do or started over).
+    BoxUpdates,
 }
 
-const INCR_NAMES: [&str; 15] = [
+const INCR_NAMES: [&str; 17] = [
     "updates",
     "restyled_matched",
     "restyled_cascaded",
@@ -790,6 +796,8 @@ const INCR_NAMES: [&str; 15] = [
     "styled_fresh",
     "global_updates",
     "unlogged",
+    "boxes_reused",
+    "box_updates",
 ];
 
 /// Bottom-up relayout stops are counted per tree level (the last bucket takes every deeper level).
@@ -797,7 +805,9 @@ pub(crate) const INCR_LEVELS: usize = 8;
 
 #[derive(Default)]
 struct IncrCounters {
-    flat: [u64; 15],
+    flat: [u64; 17],
+    /// QINC1g: thread CPU time of the incremental box updates, ns.
+    box_ns: u64,
     stops_by_level: [u64; INCR_LEVELS],
     /// QINC1f: per shadowed build `(elements restyled, elements the from-scratch build styled)`.
     restyle_samples: Vec<(u32, u32)>,
@@ -832,6 +842,11 @@ pub(crate) fn incr_restyle_sample(restyled: u64, styled: u64, ns: u64) {
         }
         i.update_ns += ns;
     });
+}
+
+/// QINC1g: time of one incremental box update.
+pub(crate) fn incr_box_ns(ns: u64) {
+    INCR.with(|i| i.borrow_mut().box_ns += ns);
 }
 
 /// A bottom-up relayout stopped `level` levels below the root.
@@ -885,6 +900,7 @@ pub(crate) fn incr_json() -> String {
             pct(&share, 0.9) as f64 / 10.0,
             ms(i.update_ns)
         ));
+        parts.push(format!("\"box_ms\":{}", ms(i.box_ns)));
         format!("{{{}}}", parts.join(","))
     })
 }

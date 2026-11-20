@@ -271,6 +271,7 @@ pub(crate) fn resolve_img(handle: &Handle, mut style: ComputedStyle, image_cache
     let decoded = element_attr(handle, "src").and_then(|src| match decode_data_uri(&src) {
         Some(bytes) => decode_image_bytes(&bytes).map(Arc::new),
         None => {
+            crate::incr_box::note_src(&src);
             let hit = image_cache.get(&*src).cloned();
             if hit.is_none() {
                 note_wanted_img_src(&src);
@@ -291,7 +292,7 @@ thread_local! {
 }
 
 fn note_wanted_img_src(src: &str) {
-    if src.trim().is_empty() {
+    if src.trim().is_empty() || crate::incr_box::rebuilding() {
         return;
     }
     WANTED_IMG_SRCS.with(|w| {
@@ -451,10 +452,14 @@ pub(crate) fn build_video_box(
     }
     let poster = element_attr(handle, "poster").and_then(|src| match decode_data_uri(&src) {
         Some(bytes) => decode_image_bytes(&bytes).map(Arc::new),
-        None => image_cache.get(&*src).cloned(),
+        None => {
+            crate::incr_box::note_src(&src);
+            image_cache.get(&*src).cloned()
+        }
     });
     // QM1g2d: `<audio controls>` is a bar-only box, 300x32 unless CSS/attributes say more.
     let audio = element_tag(handle) == "audio";
+    crate::incr_box::note_video(node_id(handle));
     let (w, h) = if audio {
         (crate::media_video::DEFAULT_W, 32)
     } else {
@@ -484,11 +489,18 @@ pub(crate) fn build_box_for_element(
     viewport_width: f32,
     image_cache: &HashMap<String, Arc<DecodedImage>>,
 ) -> LayoutBox {
-    crate::stack::grow(|| {
-        build_box_for_element_body(
-            handle, rules, inherited, decoration, href, viewport_width, image_cache,
-        )
-    })
+    let build = || {
+        crate::stack::grow(|| {
+            build_box_for_element_body(
+                handle, rules, inherited, decoration, href, viewport_width, image_cache,
+            )
+        })
+    };
+    // QINC1g: shadow mode records what each box read; the incremental rebuild reuses clean boxes.
+    if crate::incr_box::active() {
+        return crate::incr_box::build_hooked(handle, build);
+    }
+    build()
 }
 
 /// QSTK1: the body of `build_box_for_element`, run through `crate::stack::grow`.
@@ -1616,7 +1628,10 @@ pub(crate) fn generated_content(
         Cascaded::Value(ContentDecl::Image(url)) => {
             let img = match decode_data_uri(&url) {
                 Some(bytes) => decode_image_bytes(&bytes).map(Arc::new),
-                None => image_cache.get(&*url).cloned(),
+                None => {
+                    crate::incr_box::note_src(&url);
+                    image_cache.get(&*url).cloned()
+                }
             }?;
             GenContent::Image(img)
         }
@@ -2059,6 +2074,9 @@ thread_local! {
 }
 
 fn note_display_none(h: &Handle) {
+    if crate::incr_box::rebuilding() {
+        return;
+    }
     DISPLAY_NONE_ROOTS.with(|r| {
         if let Some(v) = r.borrow_mut().as_mut() {
             v.push(h.clone());
@@ -2085,6 +2103,7 @@ pub(crate) fn build_layout_tree_with_resources(
     // QINC1f: shadow mode (tests; `SCRATCHY_INCR=1` / `SCRATCHY_INCR_CHECK=1`): record what this build
     // resolves, then run the incremental restyle after it and compare (nothing else changes).
     let shadow = crate::incr_style::begin_build();
+    crate::incr_box::begin_build(shadow);
     // QOBS3: phase timers sit at these boundaries (free unless a forced layout is recorded).
     let t_phase = crate::perf::phase(crate::perf::Phase::CssCollect);
     let html_handle = find_html_element(document);
@@ -2171,7 +2190,7 @@ pub(crate) fn build_layout_tree_with_resources(
     }
     drop(_t_phase);
     if shadow {
-        crate::incr_style::after_build(document, &rules, viewport_width, viewport_height.unwrap_or(1080.0));
+        crate::incr_style::after_build(document, &rules, viewport_width, viewport_height, image_cache, &tree);
     }
     tree
 }
@@ -2185,40 +2204,51 @@ fn assign_document_order(tree: &mut LayoutBox) {
     crate::layout::OLD_TREE_ORDER.with(|m| m.borrow_mut().clear());
     let mut seen = OrderMap::default();
     let mut next = 0usize;
-    order_box(tree, &mut seen, &mut next);
+    order_box(tree, &mut seen, &mut next, true);
+}
+
+/// QINC1g: `assign_document_order` for the engine's kept tree (no test bookkeeping of the old order).
+pub(crate) fn renumber_document_order(tree: &mut LayoutBox) {
+    let mut seen = OrderMap::default();
+    let mut next = 0usize;
+    order_box(tree, &mut seen, &mut next, false);
 }
 
 /// (node address | pseudo slot << 56) -> index; node addresses fit in 48 bits.
 type OrderMap = HashMap<usize, usize, std::hash::BuildHasherDefault<crate::dom::PtrHasher>>;
 
-fn order_style(s: &mut ComputedStyle, seen: &mut OrderMap, next: &mut usize) {
+fn order_style(s: &mut ComputedStyle, seen: &mut OrderMap, next: &mut usize, old: bool) {
     if s.node == 0 {
         return;
     }
     #[cfg(test)]
-    crate::layout::OLD_TREE_ORDER.with(|m| {
-        m.borrow_mut().entry((s.node, s.pseudo)).or_insert(s.tree_order);
-    });
+    if old {
+        crate::layout::OLD_TREE_ORDER.with(|m| {
+            m.borrow_mut().entry((s.node, s.pseudo)).or_insert(s.tree_order);
+        });
+    }
+    #[cfg(not(test))]
+    let _ = old;
     s.tree_order = *seen.entry(s.node | ((s.pseudo as usize) << 56)).or_insert_with(|| {
         *next += 1;
         *next
     });
 }
 
-fn order_box(b: &mut LayoutBox, seen: &mut OrderMap, next: &mut usize) {
+fn order_box(b: &mut LayoutBox, seen: &mut OrderMap, next: &mut usize, old: bool) {
     crate::stack::grow(|| {
-        order_style(&mut b.style, seen, next);
+        order_style(&mut b.style, seen, next, old);
         match &mut b.content {
             BoxContent::Blocks(children) | BoxContent::TableRow(children) => {
                 for c in children {
-                    order_box(c, seen, next);
+                    order_box(c, seen, next, old);
                 }
             }
             BoxContent::Inline(items) => {
                 for item in items {
                     match item {
-                        InlineItem::Embedded(e) => order_box(e, seen, next),
-                        InlineItem::Image { style, .. } => order_style(style, seen, next),
+                        InlineItem::Embedded(e) => order_box(e, seen, next, old),
+                        InlineItem::Image { style, .. } => order_style(style, seen, next, old),
                         _ => {}
                     }
                 }
@@ -2233,7 +2263,7 @@ fn order_box(b: &mut LayoutBox, seen: &mut OrderMap, next: &mut usize) {
 /// `<body>`'s instead. The source box then paints no background of its own.
 /// The (anonymous) document root box carries the canvas background, so it
 /// paints over the whole document.
-fn propagate_canvas_background(tree: &mut LayoutBox) {
+pub(crate) fn propagate_canvas_background(tree: &mut LayoutBox) {
     type Bg = (Option<TextColor>, BgLayout, Option<Arc<DecodedImage>>);
     fn has_bg(b: &LayoutBox) -> bool {
         b.style.background_color.is_some() || b.background_image.is_some()
@@ -2274,7 +2304,7 @@ fn propagate_canvas_background(tree: &mut LayoutBox) {
 /// then blocks user scrolling (wheel, keys) while script scrolling (`scrollTo`, `scrollIntoView`) still works.
 /// Layout/paint containment on either element stops the propagation from `<body>`
 /// (WPT css-overflow/overflow-body-propagation-011).
-fn propagate_viewport_overflow(tree: &mut LayoutBox) {
+pub(crate) fn propagate_viewport_overflow(tree: &mut LayoutBox) {
     let hidden = (|| {
         let BoxContent::Blocks(top) = &mut tree.content else { return false };
         let Some(html) = top.iter_mut().find(|b| b.style.canvas_src == 1) else { return false };

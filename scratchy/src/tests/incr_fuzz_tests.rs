@@ -409,14 +409,38 @@ fn fuzz_case(seed: u64, fs: &mut FontSystem) {
             }
         }
         // A: from scratch; B: the incremental restyle the build's shadow run computed.
-        let _a = layout_from_scratch(&doc, width, fs);
-        let stats = crate::incr_style::with_engine(|e| e.map(|e| e.stats.clone())).expect("the shadow run made an engine");
-        incremental += usize::from(!stats.full);
-        let mism = crate::incr_style::take_mismatches();
+        let a = layout_from_scratch(&doc, width, fs);
+        let mut mism = crate::incr_style::take_mismatches();
+        // (a style mismatch drops the style engine: report the mismatch, not the missing engine)
+        let full = crate::incr_style::with_engine(|e| e.map(|e| e.stats.full)).unwrap_or(true);
+        incremental += usize::from(!full);
+        // QINC1g: the kept box tree after this step equals the from-scratch tree (the build checks it
+        // too; this also covers a kept tree a future change stops checking inside the build).
+        let bs = crate::incr_box::with_engine(|e| {
+            let Some(e) = e else { return Default::default() };
+            if mism.is_empty() {
+                let names = Names::from_dom(&doc);
+                if let Err(m) = cmp_boxes(&names, &root_path(&names, 0), &a.tree, e.tree()) {
+                    mism.push(format!("kept box tree {m}"));
+                }
+            }
+            e.stats.clone()
+        });
+        FUZZ_BOXES.with(|c| {
+            let (n, rb, ru) = c.get();
+            c.set((n + usize::from(bs.rebuilt > 0), rb + bs.rebuilt as usize, ru + bs.reused as usize));
+        });
         if !mism.is_empty() {
+            let report = format!("incr fuzz mismatch: seed {seed} step {step} (width {width}):\n{}\n{}", mism.join("\n"), log.join("\n"));
+            if env::var("SCRATCHY_FUZZ_KEEP_GOING").is_ok_and(|v| v == "1") {
+                // a long local run: note the case and go on with the next one
+                diag!("{}", report.lines().take(3).collect::<Vec<_>>().join(" | "));
+                FUZZ_FAILED.with(|c| c.set(c.get() + 1));
+                break;
+            }
             set_interaction(&InteractionState::default());
             crate::incr_style::set_seam(saved);
-            panic!("incr fuzz mismatch: seed {seed} step {step} (width {width}):\n{}\n{}", mism.join("\n"), log.join("\n"));
+            panic!("{report}");
         }
     }
     crate::incr_style::set_seam(saved);
@@ -427,6 +451,10 @@ fn fuzz_case(seed: u64, fs: &mut FontSystem) {
 thread_local! {
     /// Steps the engine answered incrementally (not a full restyle), for the run's report.
     static FUZZ_INCREMENTAL: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// Cases that failed under `SCRATCHY_FUZZ_KEEP_GOING=1`.
+    static FUZZ_FAILED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// QINC1g: (steps with an incremental box rebuild, boxes rebuilt, boxes reused).
+    static FUZZ_BOXES: std::cell::Cell<(usize, usize, usize)> = const { std::cell::Cell::new((0, 0, 0)) };
 }
 
 fn env_usize(name: &str, default: usize) -> usize {
@@ -444,8 +472,15 @@ fn qinc1a_fuzz_two_from_scratch_layouts_never_differ() {
         fuzz_case(base + i, &mut fs);
     }
     let inc = FUZZ_INCREMENTAL.with(|c| c.replace(0));
-    diag!("qinc1a/qinc1f fuzz: {n} cases in {:.1}s, {inc} incremental restyle steps", t0.elapsed().as_secs_f64());
+    let (bsteps, rebuilt, reused) = FUZZ_BOXES.with(|c| c.replace((0, 0, 0)));
+    diag!(
+        "qinc1a/qinc1f/qinc1g fuzz: {n} cases in {:.1}s, {inc} incremental restyle steps, {bsteps} incremental box rebuilds ({rebuilt} boxes rebuilt, {reused} reused)",
+        t0.elapsed().as_secs_f64()
+    );
+    let failed = FUZZ_FAILED.with(|c| c.replace(0));
+    assert_eq!(failed, 0, "{failed} failing cases (SCRATCHY_FUZZ_KEEP_GOING=1 printed them)");
     assert!(n < 20 || inc > n, "the fuzz must exercise incremental updates, not only full ones ({inc} for {n} cases)");
+    assert!(n < 20 || (bsteps > n && reused > 0), "the fuzz must exercise incremental box rebuilds ({bsteps} for {n} cases, {reused} reused)");
 }
 
 // ---------- generator sanity ----------

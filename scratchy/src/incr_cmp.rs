@@ -126,6 +126,10 @@ fn cmp_span(path: &str, i: usize, a: &SpanStyle, b: &SpanStyle) -> Result<(), Mi
 /// Boxes, structurally: styles (minus `node`/`tree_order`), background image, content kind, inline
 /// items' text and spans, children.
 pub(crate) fn cmp_boxes(names: &Names, path: &str, a: &LayoutBox, b: &LayoutBox) -> Result<(), Mismatch> {
+    crate::stack::grow(|| cmp_boxes_body(names, path, a, b))
+}
+
+fn cmp_boxes_body(names: &Names, path: &str, a: &LayoutBox, b: &LayoutBox) -> Result<(), Mismatch> {
     cmp_styles(path, &a.style, &b.style)?;
     cmp_image(path, "background_image", &a.background_image, &b.background_image)?;
     match (&a.content, &b.content) {
