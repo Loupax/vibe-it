@@ -37,6 +37,7 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
  Step 5, memory, regression guards, re-measure:
   27 [WIP] QOBS9 [S, Opus] re-baseline PERF.md on the new machine (after 9, 18, 20)
   28 QM1k-mouse: user re-tested 2026-11-19 22:21: still slow while the controls show (= QYTC1 cause); QYTC1a merged 9219065 -> ASK THE USER TO RE-TEST (quiet machine)
+  27g [WIP] QYSCR1 [M, Opus, P1, user bug] scrolling does not work on YouTube (user 2026-11-20)
  Step 6, re-profile before leaving performance (user 2026-11-19):
   29 QPROF1 [M, Opus, measure only] LAST performance item: runs when every item above is done, blocked or
      waiting for the user. The backlog does NOT start until it is done and any items it files are worked off.
@@ -1042,6 +1043,12 @@ Shared rules for this block:
 - [ ] QNAV9 [S] (P3, from QY54a2 #425; Sonnet, verify first) A plain `<a href>` click on a local-file page (file path
       opened directly) did not navigate even without a stall (the QY54a2 fixture had to use a JS click handler). Reproduce,
       find out whether relative/local hrefs from file pages are resolved and navigated; fix + test, or close as intended.
+- [ ] [WIP] QYSCR1 [M] (P1, user 2026-11-20 ~10:00: "scrolling doesn't work on youtube in general"; Opus investigate+fix)
+      Reproduce wheel / keyboard (Space, PageDown, arrows) / scrollbar scrolling on YouTube home, results and watch in a
+      nested window. Suspect: body `overflow: scroll` with a 0 px box (R56) is treated as the scroll container instead of
+      propagating to the viewport (QY57r #420 fixed this only for IntersectionObserver); also check `ytd-app`/fixed
+      containers (QJ6b: wheel skips positioned scroll boxes), JS scroll handlers / preventDefault, and window.scrollTo.
+      Fix + tests (body overflow:scroll + 0-height body under visible html: the wheel scrolls the viewport); grim before/after.
 - [ ] [WIP] QINC1 [XL] (P1, user 2026-11-20 ~09:45: "can we focus on doing incremental layout properly in one go?";
       Opus DESIGN first, docs only) Real incremental style + layout (dirty bits, partial restyle, relayout of only the
       affected boxes and their dependants) for both the JS thread's forced layouts (GeomCache) and the App build, instead of
