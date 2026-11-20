@@ -2101,6 +2101,25 @@ thread_local! {
     static INTR: Cell<u32> = const { Cell::new(0) };
 }
 
+/// QINC1h2: a bottom-up re-measure of a box below an intrinsic-size reader runs as if inside it, so
+/// the boxes it records keep `intr_anc`.
+pub(crate) struct IntrAncGuard(bool);
+
+pub(crate) fn intr_anc_guard(on: bool) -> IntrAncGuard {
+    if on {
+        INTR.with(|c| c.set(c.get() + 1));
+    }
+    IntrAncGuard(on)
+}
+
+impl Drop for IntrAncGuard {
+    fn drop(&mut self) {
+        if self.0 {
+            INTR.with(|c| c.set(c.get().saturating_sub(1)));
+        }
+    }
+}
+
 struct IntrGuard(bool);
 
 impl Drop for IntrGuard {

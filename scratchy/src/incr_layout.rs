@@ -174,7 +174,9 @@ fn nat_peek(node: usize, as_child: bool) -> Option<(f32, f32)> {
 pub(crate) fn nat_put(node: usize, as_child: bool, v: (f32, f32)) {
     let cur = bver(node);
     if cur != u64::MAX {
-        NAT.with(|n| n.borrow_mut().insert((node, as_child), (cur, v.0, v.1)));
+        NAT.with(|n| {
+            n.borrow_mut().insert((node, as_child), (cur, v.0, v.1))
+        });
     }
 }
 
@@ -1017,6 +1019,8 @@ impl LayoutEngine {
         let abs = matches!(nb.style.position, Position::Absolute | Position::Fixed);
         // QINC1h2: the natural widths an intrinsic-size reader above may have read (old version).
         let mut intr_old: [Option<(f32, f32)>; 2] = [None, None];
+        let mut under_intr = false;
+        let mut was_intr = false;
         {
             let old = at(&mut self.laid, &lpath);
             let Some(ck) = old.ck.as_ref() else { return Attempt::Up(parent_el) };
@@ -1026,6 +1030,13 @@ impl LayoutEngine {
             // Out-of-flow boxes are measured outside their ancestors' recursion, but some intrinsic
             // walks still see them (inline-level items, table columns): any ancestor box whose size
             // comes from its content's intrinsic size keeps the change from stopping below it.
+            // The natural widths the readers above saw of this box (a flavor nobody asked for has no entry:
+            // no reader depends on it); compared with the new ones after the re-measure.
+            if ck.intr {
+                intr_old = nat_old(e, ck.bver);
+                under_intr = ck.intr_anc;
+                was_intr = true;
+            }
             let why = if intrinsic_above_out_of_flow(nb, &bpath) {
                 "intrinsic_above_out_of_flow"
             } else if !ck.cacheable {
@@ -1047,11 +1058,6 @@ impl LayoutEngine {
                 "float"
             } else if matches!(parent_box.style.display, Display::Table | Display::Flex | Display::InlineFlex | Display::Grid) {
                 "flex_grid_table_parent"
-            } else if ck.intr && {
-                intr_old = nat_old(e, ck.bver);
-                intr_old.iter().all(Option::is_none)
-            } {
-                "intrinsic_ancestor"
             } else if ck.pos.is_some() || ck.psig != PSig::of(&nb.style) {
                 "parent_read_style_changed"
             } else {
@@ -1136,6 +1142,7 @@ impl LayoutEngine {
         let mut out = Vec::new();
         let mut new = {
             let _z = crate::layout::z_active_guard();
+            let _i = crate::layout::intr_anc_guard(under_intr);
             let _s = ck_key.zskip.then(crate::layout::z_skip_guard);
             if abs {
                 let p = pos.expect("checked");
@@ -1164,7 +1171,7 @@ impl LayoutEngine {
             && slots.iter().all(|(_, _, k, z)| new_keys.iter().any(|n| (n.0, n.1) == *k && n.2 == *z));
         let pending_ok = self.pending_unchanged(&old_pending, &out);
         // QINC1h2: what the readers above saw of this box (its natural widths) is unchanged.
-        let intr_ok = intr_old.iter().all(Option::is_none) || {
+        let intr_ok = {
             let mut ok = true;
             for (i, o) in intr_old.iter().enumerate() {
                 if let Some(o) = o {
@@ -1242,7 +1249,7 @@ impl LayoutEngine {
                 c.touched.push((e, Touch::Remeasured));
             }
         });
-        if intr_old.iter().any(Option::is_some) {
+        if was_intr {
             CTX.with(|c| {
                 if let Some(c) = c.borrow_mut().as_mut() {
                     c.stats.intr_stops += 1;
