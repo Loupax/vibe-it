@@ -555,7 +555,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
 - [ ] QPT1c2 [S] (P3, from QPT1c #399; Sonnet) Cross-realm MutationObserver: an observer registered in one realm does not see
       mutations made through another realm's DOM methods on the node it observes (Chrome reports every mutation). Share the
       observer registry (moReg/moN) page-wide like the wrapper cache (R53 D7 deviation).
-- [ ] QPT1d [S] (after QPT1a) WindowProxy surface (R53 D8): frames, length, window[i], window[name], cross-realm postMessage,
+- [ ] [WIP] QPT1d [S] (after QPT1a) WindowProxy surface (R53 D8): frames, length, window[i], window[name], cross-realm postMessage,
       closed, name.
 - [ ] QPT1e [S] (after QPT1a) No-snapshot path (R53): Context::new, natives re-bound by name, preludes replayed.
 - [ ] QPT1f [M] (after QPT1a/c) Scripts in same-origin iframes (R53 D9): srcdoc, document.open/write/close,
@@ -1078,6 +1078,10 @@ Shared rules for this block:
 - [ ] [WIP] QMEM3d [S] (P3, from QMEM3; Sonnet; after QMEM3a) `malloc_trim(0)` after a navigation and once when the window goes
       idle. Gate: RSS after leaving YouTube for a small page >= 25 MB lower.
       DATA (QMEM3c): with the arena cap (QMEM3a), YT watch after 60 s still has malloc free_kept = 111 MB (in_use 133 MB) of ~496 MB RSS.
+- [ ] QMEM3d-m [S] (P3, from QMEM3d #400; Opus measure, quiet machine) Interleaved before/after RSS: YouTube watch -> a small
+      page (example.com / local), live nested-dwl window, own wire, with vs without the malloc_trim (#400 lacks a switch: add
+      a throwaway env toggle), under the perf flock, uptime noted. Gate >= 25 MB lower. #400 shipped measured only
+      synthetically (3.3 ms on a 423 MB heap, no RSS drop in that synthetic case).
 - [ ] QMEM3f [S] (P4, from QMEM3; Opus measure) 10-minute live-window RSS sample on YT watch: the window grows ~0.22 MB/s
       in the first minute; leak or warm-up?
 - [ ] QYTC1a2 [S] (P3, from QYTC1a #381; Sonnet) In-flow translate / relative `left`/`top` writes shift in place too
