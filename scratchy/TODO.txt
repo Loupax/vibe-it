@@ -1069,12 +1069,14 @@ QPROF1 PART A FOLLOW-UPS (R62 section 7, #451; non-layout hotspots; START AFTER 
       results, 28 s, 1 of 9 window runs). Reproduce; suspect a long bottom-up walk from many touched boxes.
 - [ ] QFLK5 [S] (P2, from #460 CI; Sonnet) V8 heap-growth tests qpt1b_fifty_create_remove_cycles_return_to_baseline (main
       CI e219bee) and qpt1e_nosnap_create_remove_cycles (#460) flake on CI. Make them robust (GC before measuring, margins).
-- [ ] [WIP] QINC1i5 [M] (P2, from QINC1j-ab #461; Opus; area layout/incr_layout; before QINC1k) Wikipedia with INCR=1
-      regressed after QINC1i #460: App builds 3.4 s (#459) -> 7.2-7.6 s; layout_ms 1.2 -> 5.8 s, 138k boxes re-measured,
-      miss_not_cacheable 75k, every relayout walks to the root. Find why and fix. Gate: Wikipedia R55 INCR=1 builds <= #459.
 - [ ] QINC1j-ab1 [M] (P3, from #461; after the architecture discussion) Incremental invalidation map: cache each selector
       list's contributions across rule-list generations (key SelectorList::thin_arc_heap_ptr), so a <style> splice costs
       only its own selectors (today ~25-30 ms x ~6 generations per YouTube load).
+- [ ] [WIP] QINC1i6 [S] (P2, from QINC1i5 #462; Sonnet; area layout/js_geom memo; before QINC1k) With SCRATCHY_INCR=1 the
+      main-thread shape memo stays OFF until the page's first script forced layout (SHAPE_MEMO_ENABLED set only in js_geom),
+      so Main-frame relayouts (incr_layout::live_update) re-shape every re-measured paragraph on pages without forced
+      layouts. Turn it on for main-thread engine relayouts, bounded by memo_trim. Test: memo-hit counter on a 2nd Main frame
+      with no forced layout. Gate: R55 Wikipedia + YouTube INCR=1 not slower; _CHECK=1 0 mismatches.
 QINC1 IMPLEMENTATION (design R60, #434; full item text in REGRESSIONS.md R60 section 15; USER ANSWERED 2026-11-20 ~11:45: "go with the
 recommendations" = R60 section 16 Q1-Q9 all as recommended: one engine on the main thread; real image sizes for script
 geometry; superseded items dropped (archived); FREEZE on other style/box/layout semantic changes while QINC1f-h1 are in
@@ -1083,7 +1085,7 @@ accepted; flip after 0 mismatches on 6 pages x 3 runs + gates, delete after >= 3
 as stated). Items QINC1a DONE 81e23d7 #447 (engine test infra + style_diff + fuzz), QINC1b (stable paragraph ids) DONE 23d604f #446, QINC1c (bottom-up hoisting) DONE 9890847 #450,
 QINC1d (InvalidationMap) DONE 18d0527 #445, QINC1e (write log) DONE 4700801 #448, QINC1f [L] (incremental restyle, shadow) DONE b20ed27 #452, QINC1g [L] DONE 8ec1c1a #455 (persistent box tree,
 shadow), QINC1h1 [L] DONE 109445c #457 (relayout from last tree, shadow), QINC1h2 DONE ce886a5 #458 (intrinsic-size cache), QINC1i DONE 9c55521 #460 (forced layouts via engine,
-SCRATCHY_INCR=1), QINC1j [L] DONE e219bee #459 (App frames via engine), QINC1j-ab DONE 30a23cb #461, [WIP] QINC1i5, [WIP] QINC1i4, QINC1k (exactness sweep + gates), QINC1l (flip default, user OK),
+SCRATCHY_INCR=1), QINC1j [L] DONE e219bee #459 (App frames via engine), QINC1j-ab DONE 30a23cb #461, QINC1i5 DONE dc6ba98 #462, [WIP] QINC1i4, [WIP] QINC1i6, QINC1k (exactness sweep + gates), QINC1l (flip default, user OK),
 QINC1m (delete superseded special cases). Waves: 1 = a, b, d, e; 2 = c, f; 3 = g; 4 = h1; 5 = i, j, h2; then k, l, m.
 Superseded and archived (Q3): QY54b3a-f, QY54b4, QY53o2, QY53f2, QY53f3, QY53n4, QY53n1d, QY53n2d, QYTC1a2, QYTC1e,
 QYTC1f, QY53l3, QY53e2b.

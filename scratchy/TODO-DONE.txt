@@ -8427,3 +8427,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       from-scratch build instead of re-resolving); (b) invalidation precision: :hover on ytd-app / div#content.ytd-app marks
       ~7.5k descendants and re-matches 4061/4289 elements (~290 ms): find the rules, filter the descendant set by the
       subject's features. Gate: R55 YouTube watch window, quiet runs INCR=1 <= off; 0 _CHECK mismatches; fuzz 0.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QINC1i5 DONE dc6ba98 engine forced layouts no longer empty the shape memo; Wiki INCR=1 builds 8.2-8.4s -> 3.6-4.4s [M] (P2, from QINC1j-ab #461; Opus; area layout/incr_layout; before QINC1k) Wikipedia with INCR=1
+      regressed after QINC1i #460: App builds 3.4 s (#459) -> 7.2-7.6 s; layout_ms 1.2 -> 5.8 s, 138k boxes re-measured,
+      miss_not_cacheable 75k, every relayout walks to the root. Find why and fix. Gate: Wikipedia R55 INCR=1 builds <= #459.
