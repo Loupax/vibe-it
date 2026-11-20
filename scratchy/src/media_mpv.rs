@@ -117,22 +117,21 @@ impl FrameRenderer for MpvRenderer {
         // SAFETY: `rc` is live and only used on this thread.
         unsafe { (self.l.rc_update)(self.rc) & RENDER_UPDATE_FRAME != 0 }
     }
-    fn render(&mut self, t: VideoTarget) -> Option<Vec<u32>> {
-        let mut px = vec![0u32; t.w as usize * t.h as usize];
+    fn render(&mut self, t: VideoTarget, px: &mut [u32]) -> bool {
         let mut size = [t.w as c_int, t.h as c_int];
         let fmt = MpvBackend::cs("bgr0");
         let mut stride: usize = t.w as usize * 4;
         let mut noblock: c_int = 0;
-        let mut p = sw_render_params(&mut size, &fmt, &mut stride, &mut px, &mut noblock);
+        let mut p = sw_render_params(&mut size, &fmt, &mut stride, px, &mut noblock);
         // SAFETY: the params point at live locals; `px` holds w*h pixels of `stride` bytes.
         if unsafe { (self.l.rc_render)(self.rc, p.as_mut_ptr()) } < 0 {
-            return None;
+            return false;
         }
         // `bgr0` leaves the pad byte 0; keep the top byte clear (the page sentinel is 0xFE).
         for v in px.iter_mut() {
             *v &= 0x00FF_FFFF;
         }
-        Some(px)
+        true
     }
     fn skip(&mut self) {
         let mut one: c_int = 1;

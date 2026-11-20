@@ -49,7 +49,7 @@ impl FrameRenderer for Stub {
             false
         }
     }
-    fn render(&mut self, t: VideoTarget) -> Option<Vec<u32>> {
+    fn render(&mut self, t: VideoTarget, px: &mut [u32]) -> bool {
         self.note("render");
         if let Some((started, go)) = &self.gate {
             let _ = started.send(());
@@ -57,7 +57,10 @@ impl FrameRenderer for Stub {
         }
         let mut l = self.log.lock().unwrap();
         l.renders += 1;
-        Some(vec![l.renders; (t.w * t.h) as usize])
+        assert_eq!(px.len(), (t.w * t.h) as usize);
+        assert!(px.iter().all(|&v| v == 0), "a recycled buffer must be zeroed");
+        px.fill(l.renders);
+        true
     }
     fn skip(&mut self) {
         self.note("skip");
@@ -250,4 +253,40 @@ fn qm1g2a_resize_with_a_picture_redraws_at_once_and_reset_forgets_the_picture() 
 fn qm1g2a_a_renderer_that_cannot_be_created_fails_the_spawn() {
     let wake: HostWake = Arc::new(|| {});
     assert!(RenderWorker::spawn(|_sig| None, wake).is_none());
+}
+
+#[test]
+fn qm1g2a1_buffers_are_recycled_after_warm_up() {
+    let r = Rig::new(None);
+    r.w.set_target(tgt(16, 9));
+    for i in 1..=30u32 {
+        r.frame();
+        r.wait_wake();
+        let f = r.w.take().expect("frame");
+        assert_eq!(f.px[0], i, "each frame is rendered fresh into a zeroed recycled buffer");
+        drop(f); // the main thread is done with it: the buffer goes back to the pool
+    }
+    assert!(r.w.buffer_allocs() <= 2, "30 frames allocated {} buffers", r.w.buffer_allocs());
+}
+
+#[test]
+fn qm1g2a1_a_frame_still_held_is_never_overwritten_and_a_resize_does_not_reuse_old_buffers() {
+    let r = Rig::new(None);
+    r.w.set_target(tgt(4, 4));
+    r.frame();
+    r.wait_wake();
+    let held = r.w.take().unwrap();
+    for _ in 0..5 {
+        r.frame();
+        r.wait_wake();
+        let f = r.w.take().unwrap();
+        assert!(!std::ptr::eq(f.px.as_ptr(), held.px.as_ptr()));
+        assert!(held.px.iter().all(|&v| v == 1), "the held frame keeps its pixels");
+    }
+    // A resize: the stub asserts that `render` gets a zeroed buffer of exactly the new size.
+    r.w.set_target(tgt(8, 2));
+    r.wait_wake();
+    let f = r.w.take().unwrap();
+    assert_eq!((f.w, f.h, f.px.len()), (8, 2, 16));
+    drop(held);
 }

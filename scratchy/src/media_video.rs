@@ -40,6 +40,22 @@ pub(crate) struct VideoFrame {
     pub w: u32,
     pub h: u32,
     pub px: Vec<u32>,
+    /// QM1g2a1: where `px` goes back to when the last holder drops the frame.
+    pub pool: Option<Arc<crate::media_render::FramePool>>,
+}
+
+impl VideoFrame {
+    pub(crate) fn new(w: u32, h: u32, px: Vec<u32>) -> VideoFrame {
+        VideoFrame { w, h, px, pool: None }
+    }
+}
+
+impl Drop for VideoFrame {
+    fn drop(&mut self) {
+        if let Some(p) = self.pool.take() {
+            p.put(std::mem::take(&mut self.px));
+        }
+    }
 }
 
 /// What the backend should render: the video box's content size in device
