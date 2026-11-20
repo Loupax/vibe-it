@@ -556,7 +556,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
 - [ ] QPT1f5 [S] (P3, from QPT1f #408; R53 D9) Scripts in pre-fetched same-origin (QA18b1) iframe documents still do not run.
 - [ ] QPT1g [M] (backlog, only if a page shows the forwarding is wrong) Per-realm event-loop queues (R53).
 - [x] QPT1-D ANSWERED (user 2026-11-20 ~11:45: match Chrome, opaque origin)  (R53 end): `data:` iframes: Chrome gives them an opaque origin (contentDocument null);
-- [ ] QPT1-D1 [S] (P3, from QPT1-D user answer 2026-11-20; Sonnet; iframe realm code) `data:` iframes get an OPAQUE origin as in
+- [ ] [WIP] QPT1-D1 [S] (P3, from QPT1-D user answer 2026-11-20; Sonnet; iframe realm code) `data:` iframes get an OPAQUE origin as in
       Chrome: contentDocument / contentWindow.document null for the parent (cross-origin access throws), no shared realm
       access, scripts inside still run in their own realm. Tests; existing QPT1 tests updated where they relied on reading
       into a data: iframe.
