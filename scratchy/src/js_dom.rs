@@ -4967,7 +4967,11 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   defs(ElementProto, 'offsetHeight', function () { var r = gRect(this); return r ? Math.round(r[3]) : 0; });
   var gOffParent = function (el) {
     var r = gRect(el);
-    if (!r || r[4] || gRoot(el) || el === document.body) return null;
+    // CSSOM View: null for the root, <body>, a display:none box and a position:fixed box ITSELF. A
+    // descendant of a fixed box has an offsetParent (the fixed box or a nearer positioned one): YouTube
+    // picks the element to focus after loading a page by `offsetParent != null` (QYSCR1a).
+    if (!r || gRoot(el) || el === document.body) return null;
+    if (r[4] && __d_cs(el.__id, '', 'position') === 'fixed') return null;
     var pid = __d_offset_parent(el.__id);
     return pid >= 0 ? wrap(pid) : document.body;
   };
