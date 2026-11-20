@@ -271,6 +271,8 @@ pub(crate) fn memory_json(engine: Option<&crate::js::JsEngine>) -> String {
     add("incr_style", crate::incr_style::mem());
     // QINC1g: the kept box tree (0 unless SCRATCHY_INCR*=1).
     add("incr_box", crate::incr_box::mem());
+    // QINC1h1: the kept laid tree and its shape cache (0 unless SCRATCHY_INCR*=1).
+    add("incr_layout", crate::incr_layout::mem());
     // QMEM3b: the page's CSS text kept for getComputedStyle (EXTRA_CSS), by capacity.
     add("js_extra_css", crate::js_style::extra_css_mem());
     // The perf run has no App, so there is no image cache to size.
@@ -778,9 +780,16 @@ pub(crate) enum Incr {
     BoxesReused,
     /// QINC1g: box updates that rebuilt something (the rest found nothing to do or started over).
     BoxUpdates,
+    /// QINC1h1: relayouts of the kept tree; of them laid out from scratch, and top-down from the root.
+    LayoutUpdates,
+    LayoutFull,
+    LayoutRoot,
+    /// QINC1h1: reused boxes that moved; bottom-up splices.
+    LayoutShifted,
+    LayoutSplices,
 }
 
-const INCR_NAMES: [&str; 17] = [
+const INCR_NAMES: [&str; 22] = [
     "updates",
     "restyled_matched",
     "restyled_cascaded",
@@ -798,6 +807,11 @@ const INCR_NAMES: [&str; 17] = [
     "unlogged",
     "boxes_reused",
     "box_updates",
+    "layout_updates",
+    "layout_full",
+    "layout_root",
+    "layout_shifted",
+    "layout_splices",
 ];
 
 /// Bottom-up relayout stops are counted per tree level (the last bucket takes every deeper level).
@@ -805,7 +819,10 @@ pub(crate) const INCR_LEVELS: usize = 8;
 
 #[derive(Default)]
 struct IncrCounters {
-    flat: [u64; 17],
+    flat: [u64; 22],
+    /// QINC1h1: time of the incremental relayouts (and of the engine's from-scratch ones), ns.
+    layout_ns: u64,
+    layout_full_ns: u64,
     /// QINC1g: thread CPU time of the incremental box updates, ns.
     box_ns: u64,
     stops_by_level: [u64; INCR_LEVELS],
@@ -815,6 +832,10 @@ struct IncrCounters {
     update_ns: u64,
     /// Shaping-worker fallbacks by reason (name -> count), in first-seen order.
     worker_fallbacks: Vec<(&'static str, u64)>,
+    /// QINC1h1: why a relayout went top-down from the root (reason -> count).
+    layout_root_reasons: Vec<(&'static str, u64)>,
+    /// QINC1h1: why a bottom-up step could not stop at a box and went one level up.
+    layout_up_reasons: Vec<(&'static str, u64)>,
 }
 
 thread_local! {
@@ -849,7 +870,21 @@ pub(crate) fn incr_box_ns(ns: u64) {
     INCR.with(|i| i.borrow_mut().box_ns += ns);
 }
 
-/// A bottom-up relayout stopped `level` levels below the root.
+/// QINC1h1: time of one relayout of the kept tree.
+pub(crate) fn incr_layout_ns(ns: u64, full: bool) {
+    INCR.with(|i| {
+        let mut i = i.borrow_mut();
+        if full {
+            i.layout_full_ns += ns;
+        } else {
+            i.layout_ns += ns;
+        }
+    });
+}
+
+/// QINC1h1: a bottom-up relayout stopped after walking `level` levels up from where it started
+/// (0 = the touched box itself; the last bucket takes every higher level; reaching the root is
+/// counted as `layout_root` instead).
 #[allow(dead_code)]
 pub(crate) fn incr_stop_at(level: usize) {
     INCR.with(|i| i.borrow_mut().stops_by_level[level.min(INCR_LEVELS - 1)] += 1);
@@ -867,6 +902,23 @@ pub(crate) fn incr_worker_fallback(reason: &'static str) {
     });
 }
 
+fn bump(v: &mut Vec<(&'static str, u64)>, reason: &'static str) {
+    match v.iter_mut().find(|r| r.0 == reason) {
+        Some(r) => r.1 += 1,
+        None => v.push((reason, 1)),
+    }
+}
+
+/// QINC1h1: a relayout went top-down from the root, for `reason`.
+pub(crate) fn incr_root_reason(reason: &'static str) {
+    INCR.with(|i| bump(&mut i.borrow_mut().layout_root_reasons, reason));
+}
+
+/// QINC1h1: a bottom-up step went one level up, for `reason`.
+pub(crate) fn incr_up_reason(reason: &'static str) {
+    INCR.with(|i| bump(&mut i.borrow_mut().layout_up_reasons, reason));
+}
+
 fn incr_reset() {
     INCR.with(|i| *i.borrow_mut() = IncrCounters::default());
 }
@@ -880,6 +932,10 @@ pub(crate) fn incr_json() -> String {
         parts.push(format!("\"bottom_up_stops_by_level\":[{}]", levels.join(",")));
         let wf: Vec<String> = i.worker_fallbacks.iter().map(|(r, n)| format!("{}:{n}", json_str(r))).collect();
         parts.push(format!("\"worker_fallbacks\":{{{}}}", wf.join(",")));
+        let rr: Vec<String> = i.layout_root_reasons.iter().map(|(r, n)| format!("{}:{n}", json_str(r))).collect();
+        parts.push(format!("\"layout_root_reasons\":{{{}}}", rr.join(",")));
+        let ur: Vec<String> = i.layout_up_reasons.iter().map(|(r, n)| format!("{}:{n}", json_str(r))).collect();
+        parts.push(format!("\"layout_up_reasons\":{{{}}}", ur.join(",")));
         // QINC1e: the write log's per-layout counters.
         parts.push(format!("\"log\":{}", crate::incr_log::stats_json()));
         // QINC1f: restyled vs styled per shadowed build (medians / p90; share = restyled / styled).
@@ -901,6 +957,7 @@ pub(crate) fn incr_json() -> String {
             ms(i.update_ns)
         ));
         parts.push(format!("\"box_ms\":{}", ms(i.box_ns)));
+        parts.push(format!("\"layout_ms\":{},\"layout_full_ms\":{}", ms(i.layout_ns), ms(i.layout_full_ns)));
         format!("{{{}}}", parts.join(","))
     })
 }

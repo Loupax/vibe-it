@@ -2208,10 +2208,12 @@ fn assign_document_order(tree: &mut LayoutBox) {
 }
 
 /// QINC1g: `assign_document_order` for the engine's kept tree (no test bookkeeping of the old order).
-pub(crate) fn renumber_document_order(tree: &mut LayoutBox) {
+/// Returns the new index of every (node | pseudo << 56) (QINC1h1 re-keys reused laid boxes with it).
+pub(crate) fn renumber_document_order(tree: &mut LayoutBox) -> HashMap<usize, usize, std::hash::BuildHasherDefault<crate::dom::PtrHasher>> {
     let mut seen = OrderMap::default();
     let mut next = 0usize;
     order_box(tree, &mut seen, &mut next, false);
+    seen
 }
 
 /// (node address | pseudo slot << 56) -> index; node addresses fit in 48 bits.
