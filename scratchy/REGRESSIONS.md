@@ -1,5 +1,178 @@
 # scratchy — regressions
 
+## R56: Quiet-machine re-measurement of QY60, QY54 and QY33 on V8 main. QY60: FIXED. On YouTube results the masthead is finished at 4.3-4.6 s (R38: 47-53 s with a 20 s budget), all 20 results are in by 3.3-4.4 s, the worst rAF wait is 623-634 ms (R38: 3.6 s) and the worst timer lateness 701-725 ms (R38: 4.1 s). Forced layout is 0.6-1.0 s per 10 s headless (QV8-m: 14.6 s). The main thread is saturated only for ~5 s of load (page JS ~0.8-0.95 s per second), then idle. NEW: the thumbnails still show `true`: scratchy's IntersectionObserver clips every target by `<body>` (YouTube's body is 956x0 with `overflow: scroll`), so every entry has an empty intersection and YouTube never sets `src`. QY54: STILL OPEN. The nested compositor drops scratchy when about 190-225 pointer-motion events queue up unread: 3/3 lost with a 450 ms busy loop at 500 Hz, which is INSIDE the 500 ms callback budget. YouTube results at 500 Hz: lost 3/3 during load and 3/3 after load, on the inline-preview player's `getPlayerSize` layouts (0.7-0.98 s in one promise job). At 125 Hz it survives 3/3. QY33: FIXED. In 21 headless runs (home, results, watch) and 9 window runs: 0 budget kills, and the largest callback after load is 130 / 233 / 264 ms budget clock (327 ms raw) (Opus, 2026-11-20, measure only, docs only) — OPEN: proposed QY57r, QY54a, QY54b (below)
+
+**Setup (all three items).** Main b88b3db (its code is 86635e3: the commits after it change only TODO files). The binary is
+a release build (V8 + media) of a `git archive` export of main in the scratchpad. It has ONE throwaway line, never committed:
+when the env var `QMEAS_PROBE=<file>` is set, that JS file is run after the preludes and before the page scripts
+(`start_scripts_clocked`). With the variable unset the binary is main. All probe-free numbers come from runs without the
+variable. The injector (tools/inject) and the binary were built before any measurement, each with its own CARGO_TARGET_DIR.
+Own wire (a copy of the installed binary) on a scratchpad socket, restarted for every run (fresh cookie jar). Own nested dwl
+(tools/nest.sh), window **960x1006**, `SCRATCHY_MEDIA_AO=null`, `SCRATCHY_FRAME_STATS` on every window run, default UA.
+**Every run was under `flock /tmp/scratchy-perf.lock`.** I was the only agent on the machine (16 threads, 31 GB).
+The 1-min load average at the start of the runs was **0.09-0.90**. Headless = `--perf-report --socket <own wire>`, the
+PERF.md suite command (`--seconds 10` for results, 30 for home and watch), budgets 500 and 20000 interleaved.
+**Machine note:** R37/R38 and PERF.md QV8-m were measured on the old 8-thread Ryzen 5 PRO 2500U. Their absolute ms are not
+comparable 1:1, but the changes below are 5-20x, far beyond a machine difference.
+
+### 1. QY60: main-thread throughput on YouTube results — FIXED (close)
+
+Page: `https://www.youtube.com/results?search_query=rust`, 60 s window, no input, 3 runs without the probe (frame stats) and
+3 with a rAF/rIC/setTimeout latency probe (R38 style: it wraps the three functions before the page scripts run, and a 1 s
+ticker logs when `ytd-masthead.masthead-finish` and the result renderers appear; t = 0 is engine start, after the HTML
+arrived).
+
+| | R38 (2026-11-18, QuickJS, 20 s budget) | now (3 probe runs) |
+|---|---|---|
+| `masthead-finish` (the grey circles go away) | 47.3 s, 52.8 s (not by 40 s in a 3rd run) | **4.6, 4.4, 4.3 s** |
+| results stamped | 4 results by ~60-90 s | 3 at 1.1-1.2 s, 11-12 at 2.2 s, 18-20 at 3.2-3.4 s, 20 at 4.3-4.4 s |
+| max rAF latency (request -> callback) | 3 619 ms | **633, 634, 623 ms** (all in the first 5 s) |
+| rAF callbacks | ~0.6-0.7/s for 87 s | 31-45 in the first 5 s, then ~0.2/s (YouTube stops asking; nothing waits) |
+| max setTimeout lateness | 4 101 ms | **710, 725, 701 ms**; 0 timers > 1 s late |
+| max rIC latency | 3 350 ms | 408, 153, 316 ms |
+
+Where the window's main thread goes (frame stats, whole 60 s, 3 probe-free runs):
+
+| run | builds n / ms | page JS ms (forced n / ms) | paint ms | busy (builds+JS+paint) | busy in the first 10 s | redraws | longest single callback |
+|---|---|---|---|---|---|---|---|
+| 1 | 52 / 1 693 | 4 308 (31 / 797) | 208 | 6 210 ms (11 %) | 6 060 ms (61 %) | 83 | 273 ms |
+| 2 | 54 / 1 797 | 4 691 (32 / 944) | 190 | 6 680 ms (11 %) | 6 507 ms (67 %) | 81 | 269 ms |
+| 3 | 52 / 1 672 | 3 147 (33 / 904) | 211 | 5 032 ms (8 %) | 4 870 ms (52 %) | 82 | 267 ms |
+
+Per second, the load looks the same in all 3 runs: from t = 3-4 s to t = 7-8 s page JS is 0.72-0.95 s of every second
+(forced layout 0.1-0.36 s of that), then 1-2 s of App builds (0.47-0.74 s per second), and from t = 8-10 s the thread is idle
+(js_ms < 30 per second). So during those ~5 s the thread is saturated, and **page JS outside forced layout dominates**
+(2.1-3.6 s of the 3.0-4.5 s JS in the first 10 s). App builds come second (1.7-1.8 s). Forced layout is third (0.8-0.9 s,
+31-33 layouts). No single callback goes over 273 ms. That is a ~5 s load, not a throughput problem. YouTube's scheduler gets
+its rAF/rIC/timer ticks within 0.7 s at worst.
+
+Headless (`--perf-report`, 10 s, 3 runs per budget; QV8-m for comparison):
+
+| | QV8-m 8dfe2f9 (old machine) | now, budget 500 | now, budget 20000 |
+|---|---|---|---|
+| budget kills | 0 | 0, 0, 0 | 0, 0, 0 |
+| largest callback, budget clock | 446-460 ms | 205, 233, 218 ms (promise jobs) | 199, 218, 219 ms |
+| forced layout total (count) | 14 561-14 569 ms (23-25) | **993 (37), 896 (35), 715 (28)** | 1 025 (32), 636 (27), 801 (30) |
+| forced layout share of JS CPU | 70 % | 17-22 % | 18-19 % |
+| of it from scratchy's own IntersectionObserver (`io`) | - | 874 of 993 ms | 877 of 1 025 ms |
+| JS errors | 0 | 0 | 0 |
+
+(Run b500-1 got a different YouTube front-end, `base_module_set` instead of `kevlar_base`, load CPU 180 ms vs 660 ms. Its
+forced-layout and callback numbers are in the same range.) The QY53 series (getPlayerSize, `::first-line` scan, IO recheck,
+QY53m no-op builds) took forced layout from ~70 % of the JS thread to ~20 %. Most of what is left is the `io` reason.
+
+**NEW, found here: the thumbnails still paint `true`** (grim at 57 s, all 3 runs, viewed). QY56 and QY57 are merged, and
+TODO-DONE says real thumbnails showed after QY57. Throwaway probes (3 diagnostic runs, not measurements):
+- 41-47 `img.ytCoreImageHost`, **0 with `src`** at 10 s and at 25 s.
+- YouTube's lazy-image observer (`rootMargin: "10%"`, `threshold: .01`) got 835-882 entries over 10-11 observers.
+  **Every one** had `isIntersecting: false` and `intersectionRect` 0,0,0,0. The first img's `boundingClientRect` was
+  291,112 20x230: on screen, well inside `rootBounds` -95.6,-100.2 1147x1202.
+- Walking up from that img, three ancestors have a clipping `overflow`: `a#thumbnail` (hidden, 291,112 20x230: contains
+  the img), `ytd-search` (hidden, 72,56 884x7687: contains it) and **`body` (`overflow: scroll`, 0,0 956x0)**.
+  js_dom.rs `ioEval0` clips by every ancestor whose computed `overflow-x/-y` is not visible (it skips only `gRoot`). So the
+  0-height body box empties every intersection. In CSS, `body`'s `overflow` propagates to the viewport when the root
+  element's is `visible` (CSS Overflow 3, overflow viewport propagation). Body then does not clip at all. Chrome shows these thumbnails.
+- So YouTube's filter (`intersectionRect.height > 0`) drops every entry, `onViewportEntered` never runs, and no `src`
+  is set. That is R38 section 1 again, now with a different cause. Not bisected: whether a later change made YouTube's
+  body `overflow: scroll` reach `ioEval0`, or YouTube changed its CSS.
+
+### 2. QY54: does the compositor still disconnect scratchy under today's stalls? — STILL OPEN (yes; cause narrowed)
+
+R8 recipe: tools/inject moves the pointer in a circle over the window with a `wait:2` (500 Hz) or `wait:8` (125 Hz) between
+moves, starting 1-2 s (fixtures, YT "load") or 15 s (YT "late") after launch. "lost" = scratchy exits with QB1's `lost the
+connection to the Wayland compositor` (after two `Io error: Broken pipe`). Fixtures (scratchpad, not committed):
+**stall_kN** = 8 000 rows plus a timer every 4 s that does N `style.width` write + `offsetHeight` read pairs. Each pair is one
+whole-document forced layout of ~170-210 ms, which the callback budget does not count (QJ4). **busyN** = a tiny page whose
+timer busy-loops N ms every 4 s (inside the 500 ms budget).
+
+| page | motion | stall per timer (measured in the window) | result |
+|---|---|---|---|
+| stall_k0 (same DOM, no stall) | 500 Hz | 0 | 2/2 survive 30 s |
+| busy100 / busy200 / busy300 / busy375 | 500 Hz | 100 / 200 / 300 / 375 ms | 2/2 survive each (7 stalls per run) |
+| **busy450** | 500 Hz | 450 ms | **2/2 lost at the first stall** (3.5 s) |
+| stall_k2 / k3 / k5 / k7 / k10 | 500 Hz | 582-590 / 738-755 / 1 050 / 1 360-1 405 / 1 814-1 827 ms | **2/2 lost each**, at the first stall |
+| stall_k18 ("3 s forced layout", the item's fixture) | 500 Hz | 3 061-3 074 ms | **3/3 lost** |
+| stall_k2 / k5 / k7 | 125 Hz | 313-587 / 841-1 052 / 1 124-1 346 ms | 1/1 survive each |
+| **stall_k10 / stall_k18** | 125 Hz | 1 814-1 842 / 3 003-3 074 ms | **2/2 lost each** |
+| YT results, motion from 1 s | 500 Hz | page load: HTML parse + page scripts (475 ms JS in that second; 2.0 s between redraws) | **3/3 lost at 2.4-2.7 s** |
+| YT results, motion from 15 s (after load) | 500 Hz | see below | **3/3 lost at 17.2-19.7 s** |
+| YT results, motion from 1 s | 125 Hz | longest per-second callback 272-279 ms; gap_max 2.0-2.4 s | **3/3 survive 60 s** |
+
+**The threshold is a count of unread motion events, not a time:** survive at 375 ms x 500 Hz (~188 moves) and 1.35 s x
+125 Hz (~168), lost at 450 ms x 500 Hz (~225) and 1.81 s x 125 Hz (~227). So it is lost at **~190-225 queued moves**,
+whatever stalls the thread (JS busy loop or forced layout). That is the compositor's per-client send buffer (each move is
+`wl_pointer.motion` + `frame` + `zwp_relative_pointer_v1.relative_motion`, R8). libwayland-server here is 1.26 (nested dwl).
+The user's session compositor may allow a different count (not measured).
+
+What this answers:
+- **Yes, today's stalls still disconnect.** QB3's 500 ms callback budget is no bound at 500 Hz: a 450 ms callback that the
+  budget allows is enough. Forced layout makes it worse (not counted, any length), but **a forced-layout cap alone would not
+  fix it**, and neither would QY49-D option (d) (a budget is a time; the limit is ~0.4 s at 500 Hz, ~1.5 s at 125 Hz).
+- **YouTube results after load (the realistic case): the pointer over a result starts YouTube's inline-preview player.**
+  In the fatal second of all 3 "late" runs, one promise job did **12-15 `g.k.getPlayerSize` forced layouts of ~58 ms each
+  (693-857 ms; the job 809-984 ms)** (frame stats `forced.by_caller` and `longest`). That is the R43 pattern on the results
+  page. In headless watch-page runs `getPlayerSize` layouts are ~5 ms each (39-42 per run, 207-226 ms in all). The window's
+  results-page layout costs ~10x more each (a 7 600 px tall document; not split further).
+- At 125 Hz YouTube results survived 60 s with the pointer moving, but the main thread was busy 74-80 % of the minute
+  (builds 415-491 / 18.0-19.8 s, page JS 23.9-27.9 s with 192-234 forced layouts / 9.5-11.9 s; process CPU 54-59 s of 60).
+  Without input the same page is 8-11 %. Input-to-present latency max 1.15-1.57 s. That is QY53n/QYTC-type hover work and
+  the preview player's layouts.
+
+### 3. QY33: YouTube post-load timer callbacks over budget — FIXED (close)
+
+R26's numbers (QuickJS, home page, first callback after load 764-1 416 ms, then 500-684 ms, 1-2 `timer stopped` + 2-4
+`promise jobs stopped` per load) re-measured on V8. Headless `--perf-report`, 3 runs per (page, budget); "POST" = the
+callback ended after the `load` event.
+
+| page (s) | budget | kills | largest callback (budget clock / raw), kind | largest after load | load CPU |
+|---|---|---|---|---|---|
+| home (30) | 500 | 0, 0, 0 | 128, 128, 129 / same, observer delivery | same | 662-670 ms |
+| home (30) | 20000 | 0, 0, 0 | 125-130, observer delivery | same | 658-660 ms |
+| results (10) | 500 | 0, 0, 0 | 205-233 / 224-267, promise job | same | 180*, 659, 660 ms |
+| results (10) | 20000 | 0, 0, 0 | 199-219 / 231-260 | same | 658-666 ms |
+| watch G1AeBgalFZk (30) | 500 | 0, 0, 0 | 258, 258, 264 / 317, 321, 327, timer | same | 979-992 ms |
+
+Window (frame stats, 60 s, no input): home 3 runs, results 6 runs (section 1): the longest callback of any second is
+**252-279 ms** (a page-load classic script); 0 seconds with a callback > 500 ms; no `timer stopped` / `promise jobs stopped`
+line in any stderr; 0 `js error` lines in the window runs (headless watch has 2 per run, both lottie-light: a null canvas context, not budget-related). **Gate "no callback > 500 ms on an idle simulated viewport": met with ~2x margin on
+all three pages.** Caveat: today's home page (logged out, fresh jar) is YouTube's "Der YouTube-Verlauf ist deaktiviert"
+card with no video grid. That is lighter than R26's page, so results and watch stand in for the heavy case. The kebab, the
+"Anmelden" pill and the guide icons that R28 section 4 / QY33 lost to the budget all paint (grim, home and results).
+
+Top callbacks today (none over budget; for the record, so a later regression can be named):
+1. Watch: `d` in `web-animations-next-lite.min.js` (the animation polyfill's rAF tick, R26/R37), **317-327 ms raw / 258-264
+   budget**, 4 forced layouts (59-64 ms), at ~5.5 s.
+2. Results/home: the `yt-page-data-fetched` promise job (`(anonymous)` in ytmainappweb kevlar_base), 186-233 ms budget,
+   3-4 forced layouts.
+3. Results: `bound onYtAction_` promise job 205 ms; observer deliveries 126-193 ms (the largest on home).
+4. Load-time scripts (own 5 s budget): watch `inline script #28` 337-350 ms raw with 25-27 forced layouts; kevlar_base 190-281 ms.
+
+### Proposed items (coordinator files them)
+- **QY57r [S]** (P1, js_dom.rs `ioEval0`; Sonnet) IntersectionObserver clips by `<body>` even when body's `overflow`
+  propagates to the viewport, so on YouTube results (body `overflow: scroll`, box 956x0) every entry has an empty
+  `intersectionRect`, YouTube never sets an img `src`, and every thumbnail paints `true` (R56 section 1). Do what CSS
+  overflow propagation says: when the root element's computed `overflow` is `visible`, `body`'s overflow applies to the
+  viewport and body does not clip (and the root element's own overflow never clips, as `gRoot` already does). If scratchy's
+  cascade/layout also lacks this propagation, check the paint/scroll side too (out of scope unless it is wrong there).
+  Tests: a target inside `<body style="overflow:scroll;height:0">` under a visible-overflow html reports a non-empty
+  intersection; a target inside a `div` with `overflow:hidden; height:0` still reports empty; body clips when html has
+  `overflow: hidden`. Gate: YouTube results in the nested window: imgs with `src` > 0 by 10 s and real thumbnails in grim.
+- **QY54a [M]** (P1, Opus design first, then Sonnet; app.rs / winit Wayland) Keep reading the Wayland socket while the main
+  thread is busy, so the compositor never sees a full client buffer. Measured (R56 section 2): it is lost at ~190-225 unread
+  motion events (~0.4 s at 500 Hz, ~1.5 s at 125 Hz). That is inside today's 500 ms callback budget, so no budget or
+  forced-layout cap can bound it. Design options to weigh: (1) a helper thread that drains the socket into the client-side
+  queue (libwayland's `wl_display_prepare_read`/`wl_display_read_events` are thread-safe by design; get the `wl_display` from
+  winit's raw display handle, and the main thread still dispatches); (2) pump winit events from inside long work (re-entrancy
+  risk); (3) interrupt long JS/forced layouts when input is pending. Gate: stall_k18 (3 s forced layout) and busy450 with
+  500 Hz motion survive 3/3 in the nested dwl (R56 table), with no change in input order.
+- **QY54b [S]** (P2, Opus measure) YouTube results: the inline-preview player started by the pointer over a result runs one
+  promise job with 12-15 `getPlayerSize` forced layouts of ~58 ms each (0.7-0.86 s). In headless watch runs the same reads
+  cost ~5 ms each. Measure why a results-page layout costs ~10x more here (document size? not in place? the QYTC1a in-place
+  path refused?) and file fixes. With the pointer moving at 125 Hz the page keeps the main thread 74-80 % busy for a minute
+  (vs 8-11 % idle). Gate: numbers in R56 and fix items.
+- No item for QY60's remaining load (~5 s saturated, page JS outside forced layout dominates): it is a normal page load
+  now; QOBS9/QPROF1 re-profile it anyway.
+
 ## R55: Quiet-machine re-measurement of QY53m (#386), QMEM3d (#400) and QY53n3 (#416). QY53m: gate MET. With JS on, the App rebuilds that followed only no-op writes go from 54 to 0 per run on Wikipedia and from 123-155 to 0 on YouTube watch. That is builds 133 -> 104 (-22 %) and 12.2 -> 9.4 s on Wikipedia, 371 -> 268 (-28 %) and 14.3 -> 10.1 s on YouTube. The Wikipedia screenshots are byte-identical. QMEM3d: gate MET. After leaving YouTube watch for a small local page, RSS is 104-117 MB lower 3 s after the navigation and 119-135 MB lower after 35 s (gate >= 25 MB). QY53n3: gate met only trivially, NO EFFECT on YouTube watch. No YouTube hover change in two pointer recipes involves an OFFSET rule, so `hover.patched` is 0 before and after. The remaining hover builds are refused for other reasons: Layout-classified rules (73 % of builds with the yt input, 33 % with yt2: opacity, `border-radius`, `fill` and `background` through `var()`, `border` restating the same width/style), `hover_match_diff` = None (27 % / 45 %: the kept match memo is stale after a `<style>` splice, or an element was never rendered), and list items (yt2: 22 %) (Opus, 2026-11-20, measure only, docs only) — OPEN: proposed QY53n2c, QY53n2d, QY53n1c, QY53n1d, QMEM3l (below)
 
 **Setup (all three items).** Main 3361054. Every binary is a release build (V8 + media) of a `git archive` export of main
