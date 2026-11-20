@@ -3002,11 +3002,15 @@ impl App {
         // most one per `HOVER_RESTYLE_INTERVAL`, none while a restyle is
         // still in flight or the wheel was just used. The latest hover
         // target is applied by a deferred `AppEvent::HoverFlush`.
+        // QY53n5: a hover that needs no build (skip / paint patch) is applied now.
+        if self.apply_hover_cheap() {
+            return;
+        }
         if let Some(delay) = self.hover_restyle_delay() {
             self.schedule_hover_flush(delay);
             return;
         }
-        self.apply_hover();
+        self.apply_hover_build();
     }
 
     pub(crate) fn hover_restyle_delay(&self) -> Option<std::time::Duration> {
@@ -3043,10 +3047,21 @@ impl App {
     /// Installs the latest hover chain as interaction state (restyling
     /// if a `:hover` rule exists).
     pub(crate) fn apply_hover(&mut self) {
+        if !self.apply_hover_cheap() {
+            self.apply_hover_build();
+        }
+    }
+
+    /// QY53n5: the hover change that needs no build: same chain, a chain no
+    /// `:hover` rule can read (R2.4), a re-match that changed nothing
+    /// (QY53n1) or a paint-only patch (QY53n2). Returns false, with the
+    /// state untouched, when a build is needed. These cost 4-10 ms, so
+    /// `update_hover` applies them without the R2.3/QB3 coalescing delay.
+    fn apply_hover_cheap(&mut self) -> bool {
         let mut st = self.interaction.clone();
         st.hover = self.chain_for(self.hover_node);
         if st.hover == self.interaction.hover {
-            return;
+            return true;
         }
         // R2.4: only elements entering/leaving the hover chain can change
         // style. If none of them could match a `:hover` compound, record
@@ -3054,64 +3069,76 @@ impl App {
         let relevant = st.hover.symmetric_difference(&self.interaction.hover).any(|&id| {
             find_node_by_id(&self.document, id).is_none_or(|h| self.hover_keys.may_match(&h))
         });
-        if relevant {
-            if let Some(fs) = &mut self.frame_stats {
-                fs.hover_restyle();
-            }
-            // QY53n1: nothing pending and the last build's matches kept: re-match
-            // only the elements the change can affect; none changed -> no build.
-            if !self.layout_dirty && !self.restyle_requested && self.state_rules & STATE_HOVER != 0 {
-                let changed: Option<Vec<Handle>> =
-                    st.hover.symmetric_difference(&self.interaction.hover).map(|&id| find_node_by_id(&self.document, id)).collect();
-                set_interaction(&st);
-                let started = std::time::Instant::now();
-                let diff = changed.and_then(|c| crate::style::hover_match_diff(&self.hover_keys, &c));
-                if diff.as_ref().is_some_and(|d| d.is_empty()) {
-                    self.interaction.hover = st.hover;
-                    if let Some(fs) = &mut self.frame_stats {
-                        fs.hover_skipped();
-                    }
-                    return;
-                }
-                // QY53n2: only paint-only rules changed and the installed tree is
-                // current: patch it and repaint, no build.
-                if let Some(diff) = diff
-                    && !self.layout_in_flight
-                    && !self.hold_old_frame
-                    && let Some(laid) = self.cached.as_mut()
-                {
-                    let r = crate::hover_patch::paint_patch(
-                        &self.document,
-                        laid,
-                        &mut self.shape_cache,
-                        &mut self.font_system,
-                        &diff,
-                        &self.interaction,
-                        &st,
-                    );
-                    if r.is_ok() {
-                        self.interaction.hover = st.hover;
-                        if let Some(fs) = &mut self.frame_stats {
-                            fs.hover_patched(started.elapsed());
-                        }
-                        if let Some(w) = &self.window {
-                            w.request_redraw();
-                        }
-                        return;
-                    }
-                }
-            }
-            if self.state_rules & STATE_HOVER != 0
-                && let Some(fs) = &mut self.frame_stats
-            {
-                fs.hover_built();
-            }
-            self.last_hover_restyle = Some(std::time::Instant::now());
-            self.set_interaction_state(st);
-        } else {
+        if !relevant {
             self.interaction.hover = st.hover;
             set_interaction(&self.interaction);
+            return true;
         }
+        // QY53n1: nothing pending and the last build's matches kept: re-match
+        // only the elements the change can affect; none changed -> no build.
+        if self.layout_dirty || self.restyle_requested || self.state_rules & STATE_HOVER == 0 {
+            return false;
+        }
+        let changed: Option<Vec<Handle>> =
+            st.hover.symmetric_difference(&self.interaction.hover).map(|&id| find_node_by_id(&self.document, id)).collect();
+        set_interaction(&st);
+        let started = std::time::Instant::now();
+        let diff = changed.and_then(|c| crate::style::hover_match_diff(&self.hover_keys, &c));
+        if diff.as_ref().is_some_and(|d| d.is_empty()) {
+            self.interaction.hover = st.hover;
+            if let Some(fs) = &mut self.frame_stats {
+                fs.hover_restyle();
+                fs.hover_skipped();
+            }
+            return true;
+        }
+        // QY53n2: only paint-only rules changed and the installed tree is
+        // current: patch it and repaint, no build.
+        if let Some(diff) = diff
+            && !self.layout_in_flight
+            && !self.hold_old_frame
+            && let Some(laid) = self.cached.as_mut()
+        {
+            let r = crate::hover_patch::paint_patch(
+                &self.document,
+                laid,
+                &mut self.shape_cache,
+                &mut self.font_system,
+                &diff,
+                &self.interaction,
+                &st,
+            );
+            if r.is_ok() {
+                self.interaction.hover = st.hover;
+                if let Some(fs) = &mut self.frame_stats {
+                    fs.hover_restyle();
+                    fs.hover_patched(started.elapsed());
+                }
+                if let Some(w) = &self.window {
+                    w.request_redraw();
+                }
+                return true;
+            }
+        }
+        set_interaction(&self.interaction);
+        false
+    }
+
+    /// The hover change that needs a full build (R2.3: coalesced by the caller).
+    fn apply_hover_build(&mut self) {
+        let mut st = self.interaction.clone();
+        st.hover = self.chain_for(self.hover_node);
+        if st.hover == self.interaction.hover {
+            return;
+        }
+        if let Some(fs) = &mut self.frame_stats {
+            fs.hover_restyle();
+            if self.state_rules & STATE_HOVER != 0 {
+                fs.hover_built();
+            }
+        }
+        self.last_hover_restyle = Some(std::time::Instant::now());
+        self.set_interaction_state(st);
     }
 
     /// Focuses `h` (or blurs on `None`). `visible` = reached by keyboard

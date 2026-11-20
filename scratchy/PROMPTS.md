@@ -8149,3 +8149,6 @@ The prompts of the design session, in order:
 **Item:** a `memprof` cargo feature (off by default) with a sampling counting global allocator, a live-pointer table with a backtrace per sample, dumps on SIGUSR2 / exit / end of `--perf-report`, `tools/memprof-resolve.py` for a top-N by function, usage in PERF.md.
 
 **What changed:** src/memprof.rs (cfg feature), lib.rs/main.rs/perf.rs hooks (all cfg-gated), Cargo.toml feature, tests in src/tests/memprof_tests.rs (feature on only), tools/memprof-resolve.py, PERF.md section. Based on the QMEM3b throwaway prototype (R48).
+
+## QY53n5 (Sonnet, 2026-11-20): hover patch/skip without the coalescing delay
+Prompt: item QY53n5 (P3): apply a paint-patchable or skipped hover immediately on pointer motion; keep the R2.3/QB3 delay only for hovers that need a build. app.rs: apply_hover split into apply_hover_cheap + apply_hover_build; update_hover tries cheap first. Test qy53n5_patchable_hover_skips_the_coalescing_delay. Measured: lat_p95 median 175 -> 20.8 ms (REGRESSIONS.md QY53n5 addendum).
