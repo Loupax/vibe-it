@@ -503,11 +503,16 @@ fn run_in_html(html: &str, code: &str) -> Vec<String> {
 /// everything logged. Every registration made while the script runs
 /// happens at t=0 ms, which makes due-time ordering fully deterministic.
 fn run_with_timers(code: &str) -> Vec<String> {
+    run_html_with_timers("", code)
+}
+
+/// `run_with_timers` against the document `html` (QPT1f: srcdoc iframes in the markup).
+fn run_html_with_timers(html: &str, code: &str) -> Vec<String> {
     let out = Rc::new(RefCell::new(Vec::new()));
     let o = out.clone();
     let clock = Rc::new(std::cell::Cell::new(0.0));
     let engine = crate::js::start_scripts_clocked(
-        &parse_html(""),
+        &parse_html(html),
         &[src(code)],
         Rc::new(move |level, text| o.borrow_mut().push(format!("{level}:{text}"))),
         Some(clock.clone()),
