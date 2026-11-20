@@ -38,7 +38,6 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
   26 QY47b [S] fewer JS frames per createElement
   27 QOBS9 [S, Opus] re-baseline PERF.md on the new machine (after 9, 18, 20)
   28 QM1k-mouse: user re-tested 2026-11-19 22:21: still slow while the controls show (= QYTC1 cause); QYTC1a merged 9219065 -> ASK THE USER TO RE-TEST (quiet machine)
-  27a [WIP] QY57r [S, Sonnet, P1] IO body-clip bug: YouTube thumbnails paint `true` (R56) -- next, before QOBS9
   27b [WIP] QY54a [M, Opus design -> Sonnet, P1] read the Wayland socket while the main thread is busy (R56; QY54 closed)
   27c QY54b [S, Opus measure, P2] inline-preview getPlayerSize ~58 ms per forced layout in the window (R56)
  Step 6, re-profile before leaving performance (user 2026-11-19):
@@ -1045,14 +1044,13 @@ Shared rules for this block:
       without the trim: find what lives on (mpv, V8 teardown, a cache TTL) and release it at the navigation.
 - [ ] QY53n4 [M] (P4, later, from QY53n) Subtree re-box for layout-changing hovers + re-applying patches after an in-flight
       build (16 of 58 YT hover builds, 0 on Wikipedia).
-- [ ] [WIP] QY57r [S] (P1, from #419 R56; Sonnet) `ioEval0` (js_dom.rs) clips by every non-visible-overflow ancestor; YouTube's
-      `body` has `overflow: scroll` and a 956x0 box, so every IntersectionObserver entry gets an empty intersectionRect and
-      thumbnails never get `src` (paint `true`). Body's overflow propagates to the viewport when html's is visible, so body
-      must not clip then. Gate: YT results imgs get a src; real thumbnails in a grim shot; regression test.
 - [ ] [WIP] QY54a [M] (P1, from QY54 #419 R56; Opus design first, then Sonnet) dwl drops scratchy at ~190-225 unread pointer
       events whatever blocks the main thread (450 ms busy loop at 500 Hz is lost). Keep reading the Wayland socket while
       the main thread is busy (helper thread with wl_display_prepare_read/read_events, or similar). Gate: busy450 and
       stall_k18 at 500 Hz motion survive 3/3 (R56 recipe).
+- [ ] QY57r2 [S] (P4, from QY57r #420 grim check; Sonnet) YT results thumbnail overlay: the "Läuft gerade"/now-playing
+      label and the duration badge (1:34:40) overlap in the bottom-right corner of the first thumbnail. Find which
+      overlay rule (hover/now-playing vs time-status) should hide or position the other; fix + grim check.
 - [ ] QY54b [S] (P2, from #419 R56; Opus measure) YT results inline-preview player: one promise job runs 12-15
       getPlayerSize forced layouts of ~58 ms each in the window (vs ~5 ms headless on watch). Find why; file fix items.
 - [ ] QOBS9 [S] (P2, R44 section 0, Opus measure, docs only; LAST in this block) Re-baseline PERF.md on
