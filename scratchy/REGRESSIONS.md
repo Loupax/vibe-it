@@ -496,6 +496,7 @@ images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom
   per layout, Global count). App-side sources (interaction, viewport, images, media sizes, animation ticks) come with QINC1j.
   Tests (table-driven, one per native): the expected entries; a no-op write (QY53m) logs nothing; a write to a detached node
   logs nothing. Gate: full suite, YouTube watch headless `--perf-report` JS ms within noise of main (flock, 3 runs).
+  QINC1e DONE: src/incr_log.rs + `incr_log::note` in the js_dom.rs natives; `--perf-report` `incr.log` (sub-object of QINC1a's `incr`); the log is drained at each forced layout (nothing consumes it yet; QINC1f should take it there instead).
 - **QINC1f [L]** (P2, Opus; area style + incr-new; AFTER QINC1a, d, e) Incremental restyle in SHADOW mode (R60 sections 4.1,
   6): the element table (node id + `WeakHandle`; per slot matched rules, `ComputedStyle`, ambient inputs, generated entries,
   animation membership; flags `RESTYLE`/`RECASCADE`/`DESC_DIRTY`/`BOX`; box owner), filled by a from-scratch build and

@@ -8439,3 +8439,9 @@ Prompt: item QY53n3 (P3): hover changes that only gain/lose PAINT plus OFFSET ru
 > You implement item QINC1b of the incremental style+layout engine: stable paragraph ids, next_id from a per-owner counter that never restarts (App, GeomCache; the shaping worker request carries a base and returns the next value); the ShapeCache persists per owner and is swept of ids no live Laid references; readers unchanged.
 
 **What changed:** `layout.rs` `collect_live_ids` / `sweep_shape_cache` (2x rule); `app.rs` `next_para_id`, `ShapingRequest::id_base`, `ShapeResult` next id, persistent worker cache swept after a finished layout and at each request start; `js_geom.rs` `GeomCache` counter and cache. Tests: `src/tests/para_id_tests.rs`.
+
+## QINC1e: the write log (R60 section 5; agent item, no behaviour change)
+
+> Implement QINC1e: `incr::note(node, Change)` at every DOM-writing native, bounded log (overflow -> Global), consumed by nothing yet, `--perf-report` counters.
+
+**What changed:** new `src/incr_log.rs` (`Change`, `note`, bounded `CAP` = 4096 entries per window, attribute values over 512 bytes kept as `Val::Big`, `drain`, `layout_boundary` called from `js::pause_budget_since`, `stats_json`). `js_dom.rs` natives log only when the write changed a value of a node connected to the page: setattr/rmattr/setq/rmq/setns/rmns (name, old, new), insert/remove/move (parent, child, siblings), text data, textContent, innerHTML, document.write, form state (checked, indeterminate, reset, selectedIndex, option selected, value, selection), sheet text; adopted CSS and `css_ver` bumps log with no node. `--perf-report` gets `incr.log` {layouts, entries, max_per_layout, global, overflows}, a sub-object of QINC1a's `incr` object. Tests: `src/tests/incr_log_tests.rs`.

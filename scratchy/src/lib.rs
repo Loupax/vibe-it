@@ -117,6 +117,7 @@ mod incr_cmp;
 mod stack;
 mod frame_stats;
 mod js_modules;
+mod incr_log;
 mod js_dom;
 mod js_net;
 mod ws_frames;

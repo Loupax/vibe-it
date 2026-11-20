@@ -601,6 +601,41 @@ fn page_connected(t: &DomTable, h: &Handle) -> bool {
     t.get(0).is_some_and(|root| is_ancestor_or_self(&root, h.clone()))
 }
 
+/// QINC1e: logs a changed attribute of a connected node.
+fn log_attr(t: &DomTable, h: &Handle, changed: bool, name: &str, old: Option<&str>, new: Option<&str>) {
+    if changed && page_connected(t, h) {
+        crate::incr_log::note(
+            crate::incr_log::key(h),
+            crate::incr_log::Change::Attr { name: name.into(), old: crate::incr_log::Val::of(old), new: crate::incr_log::Val::of(new) },
+        );
+    }
+}
+
+/// QINC1e: logs a form-state change of a connected control.
+fn log_form(t: &DomTable, h: &Handle, kind: crate::incr_log::FormKind) {
+    if page_connected(t, h) {
+        crate::incr_log::note(crate::incr_log::key(h), crate::incr_log::Change::Form(kind));
+    }
+}
+
+/// QINC1e: `moved` (contiguous, in order) was just inserted under the connected `p`.
+fn log_inserted(p: &Handle, moved: &[Handle]) {
+    let Some(first) = moved.first() else { return };
+    let kids = p.children.borrow();
+    let Some(at) = kids.iter().position(|k| Rc::ptr_eq(k, first)) else { return };
+    for (i, m) in moved.iter().enumerate() {
+        let i = at + i;
+        crate::incr_log::note(
+            crate::incr_log::key(p),
+            crate::incr_log::Change::ChildInsert {
+                child: crate::incr_log::key(m),
+                prev: i.checked_sub(1).and_then(|j| kids.get(j)).map(crate::incr_log::key),
+                next: kids.get(i + 1).map(crate::incr_log::key),
+            },
+        );
+    }
+}
+
 /// Bumps the geometry generation when a change happened to a connected node.
 fn geom_bump_if(t: &DomTable, h: &Handle, changed: bool) {
     if changed && page_connected(t, h) {
@@ -1026,6 +1061,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
                 .then(|| crate::js_geom::class_write_pre(&h, old.as_deref(), Some(&val)))
                 .flatten();
             set_attr(&h, &name, &val);
+            log_attr(&t.borrow(), &h, changed, &name, old.as_deref(), Some(&val));
             // QY53m: a write that changed no value does not wake the App's restyle.
             d.set(d.get() | changed);
             gn.set(gn.get() + 1);
@@ -1044,12 +1080,14 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     native!(ctx, "__d_rmattr", move |id: i32, name: String| {
         if let Some(h) = t.borrow().get(id) {
             let name = name.to_ascii_lowercase();
-            let changed = element_attr(&h, &name).is_some();
+            let old = element_attr(&h, &name).map(|s| s.to_string());
+            let changed = old.is_some();
             note_link_attr(&lk, &t.borrow(), &h, &name, changed);
             let probe = (changed && name == "class" && crate::js_geom::class_probe_possible() && page_connected(&t.borrow(), &h))
                 .then(|| crate::js_geom::class_write_pre(&h, element_attr(&h, "class").as_deref(), None))
                 .flatten();
             remove_attr(&h, &name);
+            log_attr(&t.borrow(), &h, changed, &name, old.as_deref(), None);
             // QY53m: a write that changed no value does not wake the App's restyle.
             d.set(d.get() | changed);
             gn.set(gn.get() + 1);
@@ -1095,10 +1133,12 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         if let Some(h) = t.borrow().get(id) {
             let n = attr_lookup_name(&h, &name);
             let mut changed = false;
+            let mut old: Option<String> = None;
             if let NodeData::Element { attrs, .. } = &h.data {
                 let mut attrs = attrs.borrow_mut();
                 if let Some(a) = attrs.iter_mut().find(|a| attr_qname_eq(a, &n)) {
                     changed = &*a.value != val.as_str();
+                    old = Some(a.value.to_string());
                     a.value = val.as_str().into();
                 } else {
                     changed = true;
@@ -1107,6 +1147,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
                 }
             }
             note_link_attr(&lk, &t.borrow(), &h, &n, changed);
+            log_attr(&t.borrow(), &h, changed, &n, old.as_deref(), Some(&val));
             // QY53m: a write that changed no value does not wake the App's restyle.
             d.set(d.get() | changed);
             gn.set(gn.get() + 1);
@@ -1118,13 +1159,16 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         if let Some(h) = t.borrow().get(id) {
             let n = attr_lookup_name(&h, &name);
             let mut changed = false;
+            let mut old: Option<String> = None;
             if let NodeData::Element { attrs, .. } = &h.data {
                 let mut attrs = attrs.borrow_mut();
                 let before = attrs.len();
+                old = attrs.iter().find(|a| attr_qname_eq(a, &n)).map(|a| a.value.to_string());
                 attrs.retain(|a| !attr_qname_eq(a, &n));
                 changed = attrs.len() != before;
             }
             note_link_attr(&lk, &t.borrow(), &h, &n, changed);
+            log_attr(&t.borrow(), &h, changed, &n, old.as_deref(), None);
             // QY53m: a write that changed no value does not wake the App's restyle.
             d.set(d.get() | changed);
             gn.set(gn.get() + 1);
@@ -1135,10 +1179,12 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     native!(ctx, "__d_setns", move |id: i32, ns: String, prefix: String, local: String, val: String| {
         if let Some(h) = t.borrow().get(id) {
             let mut changed = false;
+            let mut old: Option<String> = None;
             if let NodeData::Element { attrs, .. } = &h.data {
                 let mut attrs = attrs.borrow_mut();
                 if let Some(a) = attrs.iter_mut().find(|a| a.name.ns.as_ref() == ns && a.name.local.as_ref() == local) {
                     changed = &*a.value != val.as_str();
+                    old = Some(a.value.to_string());
                     a.value = val.as_str().into();
                 } else {
                     changed = true;
@@ -1150,6 +1196,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
                     attrs.push(html5ever::Attribute { name: qn, value: val.as_str().into() });
                 }
             }
+            log_attr(&t.borrow(), &h, changed, &local, old.as_deref(), Some(&val));
             // QY53m: a write that changed no value does not wake the App's restyle.
             d.set(d.get() | changed);
             gn.set(gn.get() + 1);
@@ -1160,12 +1207,15 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     native!(ctx, "__d_rmns", move |id: i32, ns: String, local: String| {
         if let Some(h) = t.borrow().get(id) {
             let mut changed = false;
+            let mut old: Option<String> = None;
             if let NodeData::Element { attrs, .. } = &h.data {
                 let mut attrs = attrs.borrow_mut();
                 let before = attrs.len();
+                old = attrs.iter().find(|a| a.name.ns.as_ref() == ns && a.name.local.as_ref() == local).map(|a| a.value.to_string());
                 attrs.retain(|a| !(a.name.ns.as_ref() == ns && a.name.local.as_ref() == local));
                 changed = attrs.len() != before;
             }
+            log_attr(&t.borrow(), &h, changed, &local, old.as_deref(), None);
             // QY53m: a write that changed no value does not wake the App's restyle.
             d.set(d.get() | changed);
             gn.set(gn.get() + 1);
@@ -1197,6 +1247,10 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
                 NodeData::Comment { .. } => {}
                 _ => set_children_text(&h, &text),
             }
+            if conn {
+                let c = if matches!(h.data, NodeData::Text { .. }) { crate::incr_log::Change::Text } else { crate::incr_log::Change::TextContent };
+                crate::incr_log::note(crate::incr_log::key(&h), c);
+            }
             d.set(d.get() | changed);
             gn.set(gn.get() + 1);
             if conn {
@@ -1221,6 +1275,9 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
                 None
             };
             set_inner_html(&h, &html);
+            if conn {
+                crate::incr_log::note(crate::incr_log::key(&h), crate::incr_log::Change::InnerHtml);
+            }
             d.set(true);
             gn.set(gn.get() + 1);
             if conn {
@@ -1237,6 +1294,9 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             lk.borrow_mut().links_changed = true;
         }
         let last = write_after(&a, &html);
+        if page_connected(&t, &a) {
+            crate::incr_log::note(crate::incr_log::key(&a), crate::incr_log::Change::Write);
+        }
         d.set(true);
         gn.set(gn.get() + 1);
         geom_bump_if(&t, &a, true);
@@ -1414,7 +1474,17 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         if moved.iter().any(crate::link_css::has_link) {
             lk.borrow_mut().links_changed = true;
         }
+        let removed_from = old_conn.as_ref().map(|o| (crate::incr_log::key(o), crate::incr_log::siblings(&c)));
         let ok = insert_child(&p, &c, t.get(before).as_ref(), frag);
+        if ok {
+            // QINC1e: the node left its old (connected) parent, and entered the new one.
+            if let Some((o, (prev, next))) = removed_from {
+                crate::incr_log::note(o, crate::incr_log::Change::ChildRemove { child: crate::incr_log::key(&c), prev, next });
+            }
+            if new_conn {
+                log_inserted(&p, &moved);
+            }
+        }
         d.set(true);
         gn.set(gn.get() + 1);
         if ok && (new_conn || old_conn.is_some()) {
@@ -1437,6 +1507,10 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
                 lk.borrow_mut().links_changed = true;
             }
             let pre = old_parent.as_ref().and_then(|o| crate::js_geom::children_write_pre(o, std::slice::from_ref(&h)));
+            if let Some(o) = &old_parent {
+                let (prev, next) = crate::incr_log::siblings(&h);
+                crate::incr_log::note(crate::incr_log::key(o), crate::incr_log::Change::ChildRemove { child: crate::incr_log::key(&h), prev, next });
+            }
             detach(&h);
             d.set(true);
             gn.set(gn.get() + 1);
@@ -1458,6 +1532,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         if let Some(h) = t_sc.borrow().get(id)
             && crate::set_checked(&h, v)
         {
+            log_form(&t_sc.borrow(), &h, crate::incr_log::FormKind::Checked);
             r_sc.borrow_mut().check_changed = true;
             gn_sc.set(gn_sc.get() + 1);
             geom_bump();
@@ -1467,6 +1542,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     native!(ctx, "__d_setindet", move |id: i32, v: bool| {
         if let Some(h) = t_si.borrow().get(id) {
             crate::set_indeterminate(&h, v);
+            log_form(&t_si.borrow(), &h, crate::incr_log::FormKind::Indeterminate);
             r_si.borrow_mut().check_changed = true;
             gn_si.set(gn_si.get() + 1);
             geom_bump();
@@ -1484,6 +1560,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         if let Some(h) = t_rf.borrow().get(id)
             && crate::reset_form_state(&h)
         {
+            log_form(&t_rf.borrow(), &h, crate::incr_log::FormKind::Reset);
             r_rf.borrow_mut().check_changed = true;
             gn_rf.set(gn_rf.get() + 1);
             geom_bump();
@@ -1497,6 +1574,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         if let Some(h) = t_ssi.borrow().get(id) {
             let idx: Vec<usize> = if v >= 0 { vec![v as usize] } else { Vec::new() };
             crate::set_selected_indices(&h, &idx);
+            log_form(&t_ssi.borrow(), &h, crate::incr_log::FormKind::SelectedIndex);
             r_ssi.borrow_mut().check_changed = true;
             gn_ssi.set(gn_ssi.get() + 1);
             geom_bump();
@@ -1508,6 +1586,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     native!(ctx, "__d_setoptsel", move |id: i32, v: bool| {
         if let Some(h) = t_sos.borrow().get(id) {
             crate::set_option_selected(&h, v);
+            log_form(&t_sos.borrow(), &h, crate::incr_log::FormKind::OptionSelected);
             r_sos.borrow_mut().check_changed = true;
             gn_sos.set(gn_sos.get() + 1);
             geom_bump();
@@ -1520,6 +1599,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     native!(ctx, "__d_settvalue", move |id: i32, v: String| {
         if let Some(h) = t_stv.borrow().get(id) {
             crate::set_text_value(&h, &v);
+            log_form(&t_stv.borrow(), &h, crate::incr_log::FormKind::Value);
             r_stv.borrow_mut().text_changed = true;
             gn_stv.set(gn_stv.get() + 1);
             geom_bump();
@@ -1533,6 +1613,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     native!(ctx, "__d_selset", move |id: i32, a: i32, b: i32| {
         if let Some(h) = t_ss.borrow().get(id) {
             crate::set_text_selection(&h, a.max(0) as usize, b.max(0) as usize);
+            log_form(&t_ss.borrow(), &h, crate::incr_log::FormKind::Selection);
             r_ss.borrow_mut().text_changed = true;
             gn_ss.set(gn_ss.get() + 1);
             geom_bump();
@@ -1555,7 +1636,11 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     });
     let (r, d, gn) = (reqs.clone(), dirty.clone(), wgen.clone());
     native!(ctx, "__d_adopted", move |css: String| {
+        let ver = crate::js_style::css_ver();
         crate::js_style::set_js_adopted_css(&css);
+        if crate::js_style::css_ver() != ver {
+            crate::incr_log::note(0, crate::incr_log::Change::Adopted);
+        }
         r.borrow_mut().adopted_css = Some(css);
         d.set(true);
         gn.set(gn.get() + 1);
@@ -1565,6 +1650,9 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     native!(ctx, "__d_sheet_text", move |id: i32, orig: String, css: String| {
         if let Some(h) = t.borrow().get(id) {
             crate::images::set_style_override(std::rc::Rc::as_ptr(&h) as usize, orig, css);
+            if page_connected(&t.borrow(), &h) {
+                crate::incr_log::note(crate::incr_log::key(&h), crate::incr_log::Change::SheetText);
+            }
             d.set(true);
             gn.set(gn.get() + 1);
             geom_bump();
