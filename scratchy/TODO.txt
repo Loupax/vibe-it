@@ -37,7 +37,6 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
  Step 5, memory, regression guards, re-measure:
   27 QOBS9 [S, Opus] re-baseline PERF.md on the new machine (after 9, 18, 20)
   28 QM1k-mouse: user re-tested 2026-11-19 22:21: still slow while the controls show (= QYTC1 cause); QYTC1a merged 9219065 -> ASK THE USER TO RE-TEST (quiet machine)
-  27e [WIP] QY54b1 [M, Opus, P1, correctness] script-inserted <link rel=stylesheet> is fetched and applied (YT player CSS; R58)
  Step 6, re-profile before leaving performance (user 2026-11-19):
   29 QPROF1 [M, Opus, measure only] LAST performance item: runs when every item above is done, blocked or
      waiting for the user. The backlog does NOT start until it is done and any items it files are worked off.
@@ -1027,23 +1026,22 @@ Shared rules for this block:
       build (16 of 58 YT hover builds, 0 on Wikipedia).
 - [ ] QY54a5 [S] (P4, from QY54a4 #430; Sonnet; tools only) tools/wl-flood/run.sh: add a DELAY option (motion start time,
       default 1 s) so the "YT results from 15 s" run is repeatable without a patched copy.
+- [ ] QY54b1a [M] (P2, from QY54b1 #432 R58 note; Opus; layout + paint hit test; SHIP TOGETHER) (1) abs `height:auto` with
+      both top and bottom fills the containing block (CSS2.1 10.6.4); (2) hit testing skips visibility:hidden boxes (paint.rs
+      hit_test_inner_body returns `own` without checking); (3) `pointer-events: none`. (1) alone made YT's
+      `tp-yt-app-drawer #scrim` (inset:0, inherited visibility:hidden) cover the results page and eat every hover. Throwaway
+      patch for (1): scratchpad qy54b1/abs-stretch.patch. Afterwards drop QY54b1's "duplicate link URL fires nothing" rule
+      and recheck YT watch (#player-container sized). Gate: YT watch player + YT results hover preview correct in grim;
+      inline-controls host no longer 0 px (red playhead dot gone); WPT no pass->fail; tests for each part.
+- [ ] QY54b1b [M] (P3, from #432; Sonnet) `aspect-ratio` for boxes (width:auto + aspect-ratio): YT preview player 300x232 ->
+      ~412x232. Tests + WPT.
+- [ ] QY54b1c [S] (P4, from #432; Sonnet) `transform: scale(0)` paints nothing (YT playhead dot).
 - [ ] QY57r2 [S] (P4, from QY57r #420 grim check; Sonnet) YT results thumbnail overlay: the "Läuft gerade"/now-playing
       label and the duration badge (1:34:40) overlap in the bottom-right corner of the first thumbnail. Find which
       overlay rule (hover/now-playing vs time-status) should hide or position the other; fix + grim check.
 - [ ] QNAV9 [S] (P3, from QY54a2 #425; Sonnet, verify first) A plain `<a href>` click on a local-file page (file path
       opened directly) did not navigate even without a stall (the QY54a2 fixture had to use a JS click handler). Reproduce,
       find out whether relative/local hrefs from file pages are resolved and navigated; fix + test, or close as intended.
-- [ ] [WIP] QY54b1 [M] (P1, from QY54b #428 R58 section 4; Opus (cross-cutting); net.rs/app.rs/js_dom.rs, correctness) A
-      `<link rel=stylesheet href>` that a script inserts (or whose href/rel changes while connected) is never fetched or
-      applied. YouTube results inserts www-player.css at ~5 s (and Google Fonts links at ~4.6 s): the inline-preview
-      player has no CSS (412x684-1791 instead of 412x232, paints over the wrong result with stray controls). Fetch through
-      wire like a page subresource (async, not on the JS thread); on arrival add its text to the page's external CSS at the
-      link's document position (one css_ver bump so the JS thread's page_css and the App build both see it; @import one
-      level as for parsed links); fire load/error; removing the link or disabled=true removes its CSS; media attribute as
-      for parsed links. Tests: script-appended link to a local CSS file changes a div's rect after `load`; removal restores;
-      404 fires error and changes nothing; inserted twice applies once. Gate: YT results in the nested window, pointer on a
-      result: #inline-preview-player computed position:relative, rect ~412x232 across reads, grim shows the preview over the
-      hovered result with no controls above it; YT watch and Wikipedia unchanged.
 QY54b3 IMPLEMENTATION (design R59 #431 f1013b0; full item text in REGRESSIONS.md R59 section 11; WAITING FOR USER GO-AHEAD;
 supersedes QY54b3 [L], absorbs QY53o2). Order a -> (b) -> c -> d -> e -> f, each with a go/no-go gate:
 - [ ] QY54b3a [M] (P2, Sonnet; NO behaviour change; AFTER QY54b1) Dirty points (GEOM_DIRTY via geom_bump_at) + full-layout
