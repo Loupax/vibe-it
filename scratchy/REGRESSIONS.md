@@ -551,6 +551,29 @@ vs 220-311 (noisy: YouTube state). Gate was >= 40 patched over 3 runs: 38, narro
 element never rendered: QY53n1c/QY53n1d), the rest a build already pending (`layout_dirty`/`restyle_requested`, page JS busy)
 and a few `.ytp-button` opacity rules (QY53n2d). Before the list/control relaxation the same recipe patched 6 per run.
 
+### QY53n1c note (Opus, 2026-11-20): the kept memo was cleared by forced layouts, not by `<style>` splices
+Design-first measurement (throwaway `eprintln` of why `with_kept_build` / `hover_match_diff` gave up, of every
+`rules_cache` splice and of every build that dropped the kept memo; main b2599bb, same yt input as above, own
+wire/dwl, `flock`, load 1.2-2.7). Splices happen only during the load (77 -> 22 467 -> 22 472 rules in the first
+seconds); after that the rule list never changed. Every `hover_match_diff` = None but one was `LAST_MATCH` = None:
+`stash_last_match` CLEARED the App's kept memo at the end of every build that was not the App's, i.e. every script
+forced layout (`GeomCache`, 117 of them in one 58 s run vs 207 App builds). The one other None was an element the App
+build never matched (`<svg>`, QY53n1d). So the options of the item (remap the memo across a splice, re-match only the
+spliced sheet's rules, keep it when the splice adds nothing that can match) would have changed nothing on this page.
+**Fix:** a non-App build leaves `LAST_MATCH` alone (it changes nothing on screen; the memo still describes the App's
+tree, and every DOM write still makes the App dirty, which the hover path already refuses). Because a forced layout
+can now re-derive `RULE_DERIVED` for a list that a splice changed in place (one rule for one: same pointer and length),
+the kept memo is also keyed by `rules_cache`'s generation (`rules_cache::generation_of`): any splice or re-parse after
+the App build -> None -> build, as before. A splice remap is NOT done (0 occurrences after load). Tests
+`qy53n1c_forced_layout_keeps_hover_patching` (patch after a forced layout equals a rebuild; fails on main) and
+`qy53n1c_style_splice_after_build_falls_back_to_build` (same-count edit and an added `:hover` rule; fails without the
+generation key). **Result, 3 interleaved pairs** (same throwaway counter in both binaries, `flock`, load 0.6-2.7):
+hover refusals with `hover_match_diff` = None main 21/17/3 = **41**, branch 0/0/2 = **2** (gate: drop >= 10);
+`hover.patched` main 13/10/17 = 40, branch 20/20/19 = **59**; `hover.built` main 13/14/9 = 36, branch 6/6/6 = 18.
+Builds per run are noisy (main 214/209/268, branch 264/276/314: YouTube state). The rest of the hover builds: a build
+already pending (`layout_dirty`/`restyle_requested`) and 6 patch refusals per run (an element not rendered or animated,
+a rule changing more than paint).
+
 ### Proposed items (coordinator files them)
 - **QY53n2c [S]** (P3, style.rs `decls_effect` + hover_patch.rs; Sonnet) Classify by the resolved VALUE change, not by the
   declared property, for the cases measured here: `border-radius`, SVG `fill`/`stroke`, the `background` shorthand (also
