@@ -97,6 +97,27 @@ pub(crate) struct Seam {
 thread_local! {
     static SEAM: Cell<Seam> = const { Cell::new(Seam { shadow: true, reconcile: true, panic: true }) };
     static MISMATCHES: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    /// QINC1i4: check mode cascades every adopted style again and compares (off: adopt as
+    /// `SCRATCHY_INCR=1` does; the comparisons with the build then see the adopted styles themselves).
+    static ADOPT_VERIFY: Cell<bool> = const { Cell::new(true) };
+}
+
+/// Test seam: verify adopted styles (default) or take them as `SCRATCHY_INCR=1` does.
+#[cfg(test)]
+pub(crate) fn set_adopt_verify(on: bool) -> bool {
+    ADOPT_VERIFY.with(|c| c.replace(on))
+}
+
+/// Whether a full update cascades the styles it adopts anyway and compares them.
+fn adopt_verify() -> bool {
+    #[cfg(test)]
+    {
+        checking() && ADOPT_VERIFY.with(Cell::get)
+    }
+    #[cfg(not(test))]
+    {
+        checking()
+    }
 }
 
 #[cfg(test)]
@@ -122,9 +143,22 @@ fn reconcile_on() -> bool {
     }
 }
 
+/// QINC1i4: what the from-scratch build resolved for one `(node, memo slot)`: the style and whether
+/// resolving it read the viewport height (`VIEWPORT_H_READ` within that one resolve).
+pub(crate) struct Rec {
+    style: ComputedStyle,
+    vh: bool,
+}
+
+type Record = HashMap<(usize, u8), Rec>;
+
 thread_local! {
-    /// The from-scratch build's resolved styles, `(node, memo slot)` -> style, while a checked build runs.
-    static RECORD: RefCell<Option<HashMap<(usize, u8), ComputedStyle>>> = const { RefCell::new(None) };
+    /// The from-scratch build's resolved styles, `(node, memo slot)` -> style, while a shadowed build
+    /// runs: check mode compares them with the engine's; a full shadow update (a restart) ADOPTS them
+    /// instead of cascading every element again (QINC1i4).
+    static RECORD: RefCell<Option<Record>> = const { RefCell::new(None) };
+    /// QINC1i4: `RECORD` is collecting (one `Cell` test per resolve when off).
+    static RECORDING: Cell<bool> = const { Cell::new(false) };
     static ENGINE: RefCell<Option<Engine>> = const { RefCell::new(None) };
     /// Bumped by `css::reset_custom_props_arena`: stored styles hold handles into the old arena.
     static ARENA_EPOCH: Cell<u64> = const { Cell::new(0) };
@@ -165,31 +199,42 @@ pub(crate) fn arena_reset() {
     ARENA_EPOCH.with(|e| e.set(e.get() + 1));
 }
 
-/// Called at the start of `build_layout_tree_with_resources`: whether the shadow update runs after it
-/// (and, in check mode, starts recording the build's styles).
+/// Called at the start of `build_layout_tree_with_resources`: whether the shadow update runs after it;
+/// if so, starts recording the build's styles (check mode compares them, a restart adopts them).
 pub(crate) fn begin_build() -> bool {
-    if SUPPRESS.with(Cell::get) {
+    if SUPPRESS.with(Cell::get) || mode() == Mode::Off {
         return false;
     }
-    match mode() {
-        Mode::Off => false,
-        Mode::Run => true,
-        Mode::Check => {
-            RECORD.with(|r| *r.borrow_mut() = Some(HashMap::new()));
-            true
-        }
-    }
+    RECORD.with(|r| *r.borrow_mut() = Some(HashMap::new()));
+    RECORDING.with(|r| r.set(true));
+    true
 }
 
-/// `resolve_style_for` reports each result here (a no-op unless a checked build is recording).
+/// Stops recording and returns what the build resolved.
+fn take_record() -> Option<Record> {
+    RECORDING.with(|r| r.set(false));
+    RECORD.with(|r| r.borrow_mut().take())
+}
+
+/// QINC1i4: `resolve_style_for` calls this before resolving: while a build records, the viewport-height
+/// read flag is cleared for the one resolve (the token holds the flag as it was); `None` otherwise.
 #[inline]
-pub(crate) fn record(handle: &Handle, pseudo: Option<&str>, style: &ComputedStyle) {
+pub(crate) fn record_begin() -> Option<bool> {
+    if RECORDING.with(Cell::get) { Some(crate::dom::VIEWPORT_H_READ.with(|v| v.replace(false))) } else { None }
+}
+
+/// `resolve_style_for` reports each result here with `record_begin`'s token (a no-op unless a build
+/// records); the viewport-height read flag gets back its old value OR this resolve's read.
+#[inline]
+pub(crate) fn record(handle: &Handle, pseudo: Option<&str>, style: &ComputedStyle, token: Option<bool>) {
+    let Some(before) = token else { return };
+    let vh = crate::dom::VIEWPORT_H_READ.with(|v| v.replace(before || v.get()));
     RECORD.with(|r| {
         if let Ok(mut r) = r.try_borrow_mut()
             && let Some(m) = r.as_mut()
             && let Some(slot) = crate::style::pseudo_slot(pseudo)
         {
-            m.insert((node_id(handle), slot), *style);
+            m.insert((node_id(handle), slot), Rec { style: *style, vh });
         }
     });
 }
@@ -306,6 +351,10 @@ pub(crate) struct Stats {
     pub(crate) mismatches: usize,
     /// QINC1j-ab: the counter / quote walk ran (skipped when nothing it reads changed).
     pub(crate) gen_walked: bool,
+    /// QINC1i4: styles (element and pseudo slots) a full update after a from-scratch build took from
+    /// the build instead of cascading them again; `resolved`: styles it cascaded itself (any update).
+    pub(crate) adopted: u64,
+    pub(crate) resolved: u64,
 }
 
 impl Stats {
@@ -349,6 +398,8 @@ pub(crate) struct Engine {
     /// QINC1j-ab: what the counter / quote walk reads changed in this update (a DOM write, a stored match,
     /// an entry); otherwise its output is the last one and the document-wide walk is skipped.
     gen_dirty: bool,
+    /// QINC1i4 check mode: adopted styles that differ from the engine's own cascade.
+    adopt_mism: Vec<String>,
 }
 
 /// Matches per slot of the element (`seed_match` input or `match_slot` output).
@@ -519,6 +570,7 @@ impl Engine {
             touched: Vec::new(),
             kids_changed: HashSet::new(),
             gen_dirty: false,
+            adopt_mism: Vec::new(),
         }
     }
 
@@ -969,9 +1021,7 @@ impl Engine {
                 seed_match(h, rules, cx.vw, 0, m.clone());
                 m
             };
-            let vh_before = crate::dom::VIEWPORT_H_READ.with(|v| v.replace(false));
-            let s = resolve_style_for(h, rules, *inh, cx.vw, None);
-            let reads_vh = crate::dom::VIEWPORT_H_READ.with(|v| v.replace(vh_before));
+            let (s, reads_vh) = self.style_of(cx, h, k, 0, inh);
             let wide = decls_of(rules, &m0).iter().any(|(_, d)| !d.wide.is_empty())
                 || element_attr(h, "style").is_some_and(|v| ["inherit", "unset", "revert", "initial"].iter().any(|w| v.contains(w)));
             if need_match {
@@ -1012,7 +1062,7 @@ impl Engine {
                                 Cascaded::Value(ContentDecl::Text(_) | ContentDecl::Parts(_) | ContentDecl::Image(_))
                             ));
                     if has_box {
-                        let ps = resolve_style_for(h, rules, own, cx.vw, slot_pseudo(slot));
+                        let ps = self.style_of(cx, h, k, slot, &own).0;
                         animated |= crate::anim_eval::is_animated(&ps, cx.vw);
                         pseudo[slot as usize - 1] = Some(Box::new(ps));
                     }
@@ -1100,8 +1150,40 @@ impl Engine {
         }
     }
 
-    /// One incremental update after a from-scratch build of `doc`.
-    fn update(&mut self, doc: &Handle, rules: &Rc<Vec<StyleRule>>, vw: f32, vh: f32) {
+    /// The style of `(h, memo slot)` inheriting `inh` (its match is seeded) and whether resolving it
+    /// read the viewport height. QINC1i4: a full update right after a from-scratch build ADOPTS what the
+    /// build resolved (same DOM, rules, state and inherited input; check mode cascades anyway and
+    /// compares).
+    fn style_of(&mut self, cx: &Cx, h: &Handle, k: usize, slot: u8, inh: &InheritedStyle) -> (ComputedStyle, bool) {
+        let adopted = if self.full { cx.adopt.and_then(|a| a.get(&(k, slot))) } else { None };
+        if let Some(r) = adopted
+            && !cx.verify
+        {
+            self.stats.adopted += 1;
+            return (r.style, r.vh);
+        }
+        let vh_before = crate::dom::VIEWPORT_H_READ.with(|v| v.replace(false));
+        let s = resolve_style_for(h, cx.rules, *inh, cx.vw, slot_pseudo(slot));
+        let reads_vh = crate::dom::VIEWPORT_H_READ.with(|v| v.replace(vh_before));
+        match adopted {
+            None => self.stats.resolved += 1,
+            Some(r) => {
+                self.stats.adopted += 1;
+                if !same_style(&r.style, &s) || r.vh != reads_vh {
+                    let what = style_changes(&r.style, &s).into_iter().next().map_or_else(
+                        || format!("reads vh: build {} vs engine {reads_vh}", r.vh),
+                        |c| format!("field {}: build {} vs engine {}", c.field, c.old, c.new),
+                    );
+                    self.adopt_mism.push(format!("{}: adopted {} style {what}", path_of(h), slot_pseudo(slot).unwrap_or("element")));
+                }
+            }
+        }
+        (s, reads_vh)
+    }
+
+    /// One incremental update after a from-scratch build of `doc`. `adopt`: what that build resolved
+    /// (a full update takes it instead of cascading again; `None` for an App frame's live update).
+    fn update(&mut self, doc: &Handle, rules: &Rc<Vec<StyleRule>>, vw: f32, vh: f32, adopt: Option<&Record>) {
         self.stats = Stats::default();
         self.updates += 1;
         self.touched.clear();
@@ -1157,7 +1239,7 @@ impl Engine {
             .with(|f| f.get())
             .map(|(_, _, a, b)| (a, b))
             .unwrap_or_else(|| (crate::style::rules_have_pseudo(rules, "first-line"), crate::style::rules_have_pseudo(rules, "first-letter")));
-        let cx = Cx { rules, vw, first_line, first_letter };
+        let cx = Cx { rules, vw, first_line, first_letter, adopt, verify: adopt_verify() };
         // `rem`: the `<html>` element's own font-size, cascaded against the root style first.
         let mut root_policy = Policy::None;
         let html = find_html_element(doc);
@@ -1301,9 +1383,10 @@ impl Engine {
     }
 
     /// Compares every style the from-scratch build resolved with the table: the mismatch reports.
-    fn compare(&self, fresh: &HashMap<(usize, u8), ComputedStyle>) -> Vec<String> {
+    fn compare(&self, fresh: &Record) -> Vec<String> {
         let mut out = Vec::new();
-        for (&(k, slot), fs) in fresh {
+        for (&(k, slot), rec) in fresh {
+            let fs = &rec.style;
             let e = self.table.get(&k);
             let es = e.and_then(|e| if slot == 0 { e.style.as_deref() } else { e.pseudo[slot as usize - 1].as_deref() });
             let what = match es {
@@ -1358,6 +1441,10 @@ struct Cx<'a> {
     vw: f32,
     first_line: bool,
     first_letter: bool,
+    /// QINC1i4: the from-scratch build's styles (a full update adopts them).
+    adopt: Option<&'a Record>,
+    /// Check mode: cascade an adopted style anyway and compare.
+    verify: bool,
 }
 
 /// Saved per-build state the shadow run must not disturb.
@@ -1458,7 +1545,8 @@ pub(crate) fn after_build(
     build_memo: Option<crate::style::MatchMemo>,
 ) {
     let vh = viewport_height.unwrap_or(1080.0);
-    let fresh = RECORD.with(|r| r.borrow_mut().take());
+    let fresh = take_record();
+    let check = checking();
     let t0 = std::time::Instant::now();
     let t_phase = crate::perf::phase(crate::perf::Phase::IncrShadow);
     let env = Env::enter_as(rules, false, build_memo);
@@ -1468,11 +1556,14 @@ pub(crate) fn after_build(
             *slot = Some(Engine::new(doc));
         }
         let eng = slot.as_mut().expect("just set");
-        eng.update(doc, rules, vw, vh);
+        eng.update(doc, rules, vw, vh, fresh.as_ref());
         let styled = fresh.as_ref().map_or(0, |f| f.keys().filter(|k| k.1 == 0).count() as u64);
         eng.stats.styled_fresh = styled;
-        let mut mism = fresh.as_ref().map(|f| eng.compare(f)).unwrap_or_default();
-        if fresh.is_some() {
+        let mut mism = std::mem::take(&mut eng.adopt_mism);
+        if check && let Some(f) = fresh.as_ref() {
+            mism.extend(eng.compare(f));
+        }
+        if check && fresh.is_some() {
             // R60 6.4: the counter / quote walk over stored matches equals the build's own walk.
             let text = crate::images::GENERATED_TEXT.with(|g| g.borrow().clone());
             let element = crate::images::ELEMENT_CONTENT.with(|g| g.borrow().clone());
@@ -1514,6 +1605,8 @@ pub(crate) fn after_build(
     incr_add(Incr::StyledFresh, stats.styled_fresh);
     incr_add(Incr::Unlogged, stats.unlogged);
     incr_add(Incr::GlobalUpdates, u64::from(stats.full));
+    incr_add(Incr::RestyleAdopted, stats.adopted);
+    incr_add(Incr::RestyleResolved, stats.resolved);
     crate::perf::incr_restyle_sample(stats.restyled(), stats.styled_fresh, style_ns);
     if !mism.is_empty() {
         // The engine is no longer trusted: the next update starts from scratch.
@@ -1587,7 +1680,7 @@ pub(crate) fn live_update(
     let stats = ENGINE.with(|e| {
         let mut slot = e.borrow_mut();
         let eng = slot.as_mut()?;
-        eng.update(doc, rules, vw, vh);
+        eng.update(doc, rules, vw, vh, None);
         eng.age_animations();
         Some((eng.stats.clone(), eng.table.len() as u64))
     });
@@ -1606,6 +1699,7 @@ pub(crate) fn live_update(
     incr_add(Incr::RestyledMatched, stats.rematched);
     incr_add(Incr::RestyledCascaded, stats.recascaded);
     incr_add(Incr::GlobalUpdates, u64::from(stats.full));
+    incr_add(Incr::RestyleResolved, stats.resolved);
     crate::perf::incr_restyle_sample(stats.restyled(), styled, style_ns);
     if !boxes_ok {
         return None;

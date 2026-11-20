@@ -605,3 +605,50 @@ fn qinc1j_ab_counter_walk_only_after_a_change_it_can_see() {
     let text = crate::images::GENERATED_TEXT.with(|g| g.borrow().get(&(node_id(&by_id(&doc, "z")), false)).cloned());
     assert_eq!(text.as_deref(), Some("7. "), "x 1, y 1 + 5, z 7");
 }
+
+// ---------- QINC1i4: a restart adopts the from-scratch build's styles ----------
+
+fn set_style_text(doc: &Handle, css: &str) {
+    let style = find_by_tag(doc, "style").unwrap();
+    let text = style.children.borrow()[0].clone();
+    if let NodeData::Text { contents } = &text.data {
+        *contents.borrow_mut() = css.into();
+    }
+    incr_log::note(node_id(&text), Change::Text);
+}
+
+/// A restart (first build, a new rule-list generation) takes every style the build resolved, element
+/// and pseudo slots, with its viewport-height read flag: the engine cascades none of them itself
+/// (check mode still cascades each one to verify it, outside the `resolved` counter). Then the same
+/// with the verification off, as `SCRATCHY_INCR=1` runs it; incremental updates keep resolving.
+#[test]
+fn qinc1i4_restart_adopts_the_builds_styles() {
+    let _g = LogOnly::new();
+    let css = "span{color:red} #a::before{content:'>'} #b::after{content:'<'} #c{display:block;height:10vh} li{color:blue}";
+    let doc = page(css, &format!("{KIDS}<ul><li id=l>x</li></ul>"));
+    let s = build(&doc);
+    assert!(s.full, "{s:?}");
+    assert_eq!(s.resolved, 0, "first build: every style adopted: {s:?}");
+    assert!(s.adopted >= 10, "elements + ::before + ::after + ::marker: {s:?}");
+    set_style_text(&doc, &css.replace("red", "green"));
+    let s = build(&doc);
+    assert!(s.full, "new rule-list generation: {s:?}");
+    assert_eq!(s.resolved, 0, "restart: nothing re-resolved: {s:?}");
+    assert_eq!(style_of(&by_id(&doc, "a")).color, TextColor::rgb(0, 128, 0));
+    // the adopted viewport-height flag: a height change re-cascades #c alone
+    let s = build_vh(&doc, 700.0);
+    assert!(!s.full);
+    assert_eq!((s.rematched, s.recascaded, s.resolved), (0, 1, 1), "{s:?}");
+    // SCRATCHY_INCR=1: adopted without the verifying cascade; the box / layout shadows still compare
+    let v = incr_style::set_adopt_verify(false);
+    set_style_text(&doc, &css.replace("red", "navy"));
+    let s = build_vh(&doc, 700.0);
+    assert!(s.full && s.resolved == 0 && s.adopted >= 10, "{s:?}");
+    assert_eq!(style_of(&by_id(&doc, "b")).color, TextColor::rgb(0, 0, 128));
+    let s = build_vh(&doc, 640.0);
+    assert_eq!((s.recascaded, s.resolved), (1, 1), "vh flag adopted without verification: {s:?}");
+    set_attr(&by_id(&doc, "p"), "class", Some("x"));
+    let s = build_vh(&doc, 640.0);
+    assert!(!s.full && s.adopted == 0, "{s:?}");
+    incr_style::set_adopt_verify(v);
+}
