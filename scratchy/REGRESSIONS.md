@@ -247,8 +247,9 @@ asks a native for the id's tree root (a document id, or the `owners` entry for d
 construction. `adoptNode`/`appendChild` of an iframe node into the page keeps its wrapper and its realm's prototype (Blink
 keeps the wrapper too).
 *Done in QPT1c* (NOTES.md "iframe realms"): as designed, plus a native `__d_root`, owners kept on removal/adoption, and a
-purge of the dropped realm's wrappers (QPT1b's no-leak test stays green). Deviation: MutationObserver registries stay per realm,
-so an observer sees only mutations made through its own realm's DOM methods (Chrome: all mutations of the observed node).
+purge of the dropped realm's wrappers (QPT1b's no-leak test stays green). MutationObserver registries were per realm until QPT1c2: the registry (`xr.mo`) is now page-wide, every realm's mutation hooks are
+installed once any observer exists (`xr.hk`), records are built by the observer's realm (`st.rec`) and delivered in its microtask,
+and a dropped realm's observers are disconnected on purge.
 
 **D8. WindowProxy surface (QPT1d).** *Done in QPT1d* (NOTES.md "iframe realms"): as designed, plus natives `__scratchy_incumbent`/`__scratchy_enter`; `Context::DetachGlobal` was dropped so that a stale `w.closed` is true (a detached global throws `no access`). Deviation: `window[i]` of an iframe added through a subtree appears at the next sync.
 - `window.frames === window`.

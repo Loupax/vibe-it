@@ -8152,3 +8152,7 @@ The prompts of the design session, in order:
 
 ## QY53n5 (Sonnet, 2026-11-20): hover patch/skip without the coalescing delay
 Prompt: item QY53n5 (P3): apply a paint-patchable or skipped hover immediately on pointer motion; keep the R2.3/QB3 delay only for hovers that need a build. app.rs: apply_hover split into apply_hover_cheap + apply_hover_build; update_hover tries cheap first. Test qy53n5_patchable_hover_skips_the_coalescing_delay. Measured: lat_p95 median 175 -> 20.8 ms (REGRESSIONS.md QY53n5 addendum).
+
+> Item QPT1c2 [S]: cross-realm MutationObserver (observer registry page-wide like the wrapper cache; records and delivery in the observer's realm; purge removes a dropped realm's observers).
+
+**What changed:** js_dom.rs DOM prelude: `moReg/moN/moSeq` moved into `xr.mo`; `xr.hk` lists each realm's `hookInstall` and `observe()` installs them all (a realm created later installs its own in `__d_bind_doc`); observer state carries `rec`/`sched` of its realm; `__d_realm_purge` disconnects the realm's observers. Tests `qpt1c2_*` in js_dom_tests.rs. QPT1f4 (CE reactions follow the mutating realm) does NOT fall out: CE hooks need `ceOn` per realm and the state is per realm; left.
