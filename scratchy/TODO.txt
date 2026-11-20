@@ -1082,7 +1082,7 @@ Shared rules for this block:
 - [ ] QYTC1a2 [S] (P3, from QYTC1a #381; Sonnet) In-flow translate / relative `left`/`top` writes shift in place too
       (today only abs/fixed boxes move in place; in-flow boxes only take the nothing-moves path). Needs `self.page` and the
       root `in_flow_bottom` redone, because an in-flow translate can change the root height. YouTube does not need it.
-- [ ] QYTC1b [S] (P2, from R50; Sonnet; after QYTC1a, same hook) A write restoring an attribute's value at the last forced
+- [ ] [WIP] QYTC1b [S] (P2, from R50; Sonnet; after QYTC1a, same hook) A write restoring an attribute's value at the last forced
       layout cancels its own bump (`ytp-autohide-active` toggled between two reads: the 11-13 % no-op layouts).
 - [ ] QBBC1 [M, Opus, investigate first] (P3, user screenshot 2026-11-19 ~22:50, installed main 10a9d6e, window ~958 px wide;
       .coordinator/user-runs/bbc-news-2026-11-19.png) bbc.com/news renders wrong: (1) the lead story's "LIVE" badge wraps
