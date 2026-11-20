@@ -8411,3 +8411,11 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       `setsid timeout 3600 dwl` inherits the caller's flock fd, so a leftover nested dwl holds /tmp/scratchy-perf.lock for up
       to an hour. Close inherited fds in nest.sh (e.g. exec {fd}>&- / setsid with closed fds), and document "start nest before
       taking the lock". Test: a script holding the lock starts nest.sh, releases; the lock is free while dwl runs.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QINC1f-fix DONE - for_child_list + drop_key (#456); fuzz 15k cases 0 mismatches [M] (P1 for the engine, part of QINC1; from QINC1g #455's fuzz; Opus; incr_style.rs + invalidation.rs)
+      The fuzz (3000 cases) found 7 STYLE mismatches in QINC1f's incremental restyle on seeds 462, 519, 733, 1956, 2080,
+      2084, 2475 (default run uses 200 so CI never saw them): :first-child / :nth-child / + / ~ invalidation after inserts and
+      moves. Repro: SCRATCHY_FUZZ_SEED=<s> SCRATCHY_FUZZ_N=1. Fix the invalidation (InvalidationMap.for_children / sibling
+      reach, or the engine's handling of moves); add each seed's minimal case as a test; then raise CI's default fuzz count
+      or add a fixed seed list so these can't regress. Gate: 0 mismatches over 5000 cases (several seeds), suite green.

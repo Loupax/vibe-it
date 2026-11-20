@@ -1007,12 +1007,6 @@ Shared rules for this block:
 USER 2026-11-20 ~14:40: "once we are done with the layout engine changes, I'd like to have a pause on implementation and
 have an architecture discussion before we continue" -> after QINC1 (through QINC1m, or wherever the user calls it done) the
 coordinator STOPS assigning implementation items and holds an architecture discussion with the user first.
-- [ ] [WIP] QINC1f-fix [M] (P1 for the engine, part of QINC1; from QINC1g #455's fuzz; Opus; incr_style.rs + invalidation.rs)
-      The fuzz (3000 cases) found 7 STYLE mismatches in QINC1f's incremental restyle on seeds 462, 519, 733, 1956, 2080,
-      2084, 2475 (default run uses 200 so CI never saw them): :first-child / :nth-child / + / ~ invalidation after inserts and
-      moves. Repro: SCRATCHY_FUZZ_SEED=<s> SCRATCHY_FUZZ_N=1. Fix the invalidation (InvalidationMap.for_children / sibling
-      reach, or the engine's handling of moves); add each seed's minimal case as a test; then raise CI's default fuzz count
-      or add a fixed seed list so these can't regress. Gate: 0 mismatches over 5000 cases (several seeds), suite green.
 - [ ] QINC1g-mem [S/M] (P3, NOT a blocker per user; from QINC1g #455; Sonnet; layout area: data structure only) Box
       InlineItem::Image's ComputedStyle (InlineItem 1328 B -> ~120 B): shrinks every box tree (Wikipedia kept tree 15 MB).
 - [ ] QINC1f-mem [S/M] (P3, NOT a blocker: user 2026-11-20 ~16:30 "I don't consider the memory thing a deal breaker for now so
