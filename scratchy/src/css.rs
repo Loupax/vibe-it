@@ -6328,6 +6328,7 @@ thread_local! {
 /// old document that are still around read their custom properties as empty.
 /// A future cross-build `ComputedStyle` cache (QY53f3) must be cleared here too.
 pub(crate) fn reset_custom_props_arena() {
+    crate::incr_style::arena_reset(); // QINC1f: stored styles hold handles into the old arena
     let old = CUSTOM_PROPS_ARENA.with(|a| std::mem::replace(&mut *a.borrow_mut(), CustomPropsArena::new()));
     CUSTOM_PROPS_MEMO.with(|m| m.borrow_mut().clear());
     crate::animation::reset_anim_arena(); // QY53i3

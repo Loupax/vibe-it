@@ -917,6 +917,43 @@ images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom
   reuse (1 000 create/remove); the fuzz harness on styles. Gate: full suite green in shadow mode (it now checks every build),
   WPT unchanged; headless `--perf-report` with `SCRATCHY_INCR_CHECK=1` on YouTube results/watch, Wikipedia: 0 style
   mismatches, `incr.restyled` median <= 10 % of styled.
+  QINC1f DONE (Opus, 2026-11-20; `src/incr_style.rs`, tests `src/tests/incr_style_tests.rs`): element table per element
+  (node key + `Weak`; matches of 6 slots kept as the memo's `Rc` lists, element + pseudo `ComputedStyle`s, `reads_parent` (a
+  CSS-wide keyword reads the parent), `reads_vh`, animation membership, ambient inputs, box owner, child keys, check-mode
+  fingerprint), filled by the engine's own full pass (first build, new rule-list generation by `rules_cache` generation +
+  address, viewport width, Global, `:has`-style global map) and updated from the write log (taken at every shadowed build:
+  App and forced layouts alike) through `InvalidationMap`, the interaction-state diff, animated elements and `vh` readers.
+  Traversal top-down along `DESC_DIRTY`; `RESTYLE` = `match_slot` (the per-build memo as the match cache), `RECASCADE` /
+  parent change = `seed_match` + `resolve_style_for` (no matching); early cut-off: equal style -> nothing below, only
+  non-inherited fields -> only `reads_parent` children; `rem` from the `<html>` pre-cascade; `style_diff` -> `BOX` on the box
+  owner (and the parent's for `Box` diffs); counters/quotes by the shared `generated_walk` over stored matches (changed
+  generated text -> `BOX`). Membership ageing (`Engine::age_animations`, `anim_eval::retain_starts`) exists but the build's
+  pass still ages (shadow mode). `::before/::after` are styled only with a `content` (as `generated_content`).
+  Shadow: after every `build_layout_tree_with_resources` (tests always, `SCRATCHY_SHADOW=0` skips; release only with
+  `SCRATCHY_INCR=1` / `SCRATCHY_INCR_CHECK=1`), in an environment that restores the build's per-build tables, flags, the
+  tree-order counter, test counters and the animation registry (read-only evaluation). Check mode compares EVERY style the
+  build resolved (slot by slot) and the generated content; it also reconciles the table with the DOM (attributes, child
+  lists, text, live form state) and counts writes the log did not describe as `incr.unlogged` (0 on the three pages).
+  Found on the way: Wikipedia's reduced-motion `*{animation-duration}` made every element "animated" (membership now needs
+  a named animation with keyframes); a `Weak` on the rule list stopped `rules_cache` from splicing in place (the identity is
+  now generation + address). A deliberately broken cut-off fails 10 suite tests (the check has teeth); a mismatch inside a
+  JS forced layout is caught by `GeomCache`'s panic guard (rects read as zero), so it surfaces as a geometry failure.
+  Numbers (release, own wire, headless `--perf-report`, `SCRATCHY_INCR_CHECK=1`, 3 runs each under the perf lock, load
+  5.7 -> 0.3; `share` = restyled / styled per build, median over the run's builds):
+  | page | builds | full | mismatches | unlogged | restyled median | styled median | share median / p90 | table entries / MB | engine ms total |
+  |---|---|---|---|---|---|---|---|---|---|
+  | YouTube results 30 s | 40 / 40 / 39 | 3 each | 0 | 0 | 110 / 94 / 110 | 1 130 / 1 117 / 1 184 | 5.1 / 5.1 / 6.2 % ; 31-73 % | 3 050 / 5.9 | 346-354 |
+  | YouTube watch 30 s | 114 / 118 / 111 | 4 each | 0 | 0 | 32 / 36 / 31 | 313 / 466 / 313 | 6.2 / 7.0 / 5.9 % ; 20-26 % | 4 275 / 8.8 | 736-910 |
+  | Wikipedia Rust 20 s | 4 each | 2 each | 0 | 0 | 70 (the 2 incremental: 3, 70) | 9 207 | 0.7 % ; 100 % (the full ones) | 9 305 / 20.2 | 243-247 |
+  Wikipedia's two full builds are the first build and one new rule-list generation (a script-inserted stylesheet: v1 rule,
+  QINC1q). Memory: the table estimate is 5.9 / 8.8 / 20.2 MB (element `ComputedStyle`s 12.2 MB of Wikipedia's); RSS on
+  Wikipedia `SCRATCHY_INCR=1` vs off 256 vs 232 MB (+24 MB, a little above the accepted +8-18 MB; `Rc<ComputedStyle>`
+  sharing would be the fix). Suite (debug, shadow mode on every build): 1 461 passed in 41-55 s vs main 50.7 s (load 5-18,
+  noisy); the fuzz harness, the long pole, went 44 s -> 20 s because each step now builds once (its second run is the
+  incremental restyle, fed by the log only, reconcile off) and has 564 incremental steps in 200 cases. WPT unchanged (333 /
+  293, also under `SCRATCHY_INCR_CHECK=1`: 0 mismatches). Left for later: App-side sources in the log (QINC1j: until then the
+  check-mode reconcile covers the parser), `:has`/global maps restyle everything, stylesheet changes re-match everything
+  (QINC1q).
 - **QINC1g [L]** (P2, Opus; area build; AFTER QINC1f) Persistent box tree in SHADOW mode (R60 sections 4.2, 7): the engine keeps
   the `LayoutBox` tree; containers with `BOX` rebuild their content from stored styles, reusing clean element-owned children
   by node; anonymous boxes, inline runs, markers, tables, flex/grid anonymous items, `display: contents`, inline-block,

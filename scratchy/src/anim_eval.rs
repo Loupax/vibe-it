@@ -31,6 +31,41 @@ thread_local! {
     /// QAN1c: the animations styled in the current pass / in the last finished pass.
     static ANIM_REPORT: RefCell<Vec<AnimRecord>> = const { RefCell::new(Vec::new()) };
     static ANIM_LAST: RefCell<Vec<AnimRecord>> = const { RefCell::new(Vec::new()) };
+    /// QINC1f: while set (the incremental restyle's shadow run), evaluation reads start times without
+    /// creating, marking or reporting anything, so the from-scratch build's pass is unaffected.
+    static ANIM_READONLY: Cell<bool> = const { Cell::new(false) };
+}
+
+/// QINC1f: switches the read-only evaluation mode; returns the previous value.
+pub(crate) fn set_readonly(on: bool) -> bool {
+    ANIM_READONLY.with(|r| r.replace(on))
+}
+
+/// QINC1f (R60 6.5): ageing by membership instead of by pass. Drops the start time of every
+/// animation whose `(node, is pseudo)` the incremental engine no longer lists as animated (the
+/// element lost its animation or left the document); every other start time is kept, whether or not
+/// the element was restyled. Not called while the engine runs in shadow mode (the build's pass ages).
+#[allow(dead_code)] // via `incr_style::Engine::age_animations`
+pub(crate) fn retain_starts(keep: impl Fn(usize, bool) -> bool) {
+    ANIM_STARTS.with(|s| s.borrow_mut().retain(|k, e| e._node.strong_count() > 0 && keep(k.0, k.1)));
+}
+
+/// QINC1f (R60 6.5): whether `style` runs an animation `evaluate` would apply (a named animation
+/// whose `@keyframes` exist), i.e. its value depends on the clock. A bare `animation-duration` (a
+/// reduced-motion `*` rule) does not.
+pub(crate) fn is_animated(style: &ComputedStyle, viewport_width: f32) -> bool {
+    let Some(a) = style.animations else { return false };
+    let Some(lists) = a.table() else { return false };
+    lists
+        .resolve()
+        .iter()
+        .any(|a| a.name.as_deref().is_some_and(|n| lookup_keyframes(n, viewport_width).is_some_and(|k| !k.is_empty())))
+}
+
+/// QINC1f test seam: the start time kept for `(node, is pseudo, index, name)`.
+#[cfg(test)]
+pub(crate) fn start_of(node: usize, pseudo: bool, idx: usize, name: &str) -> Option<f64> {
+    ANIM_STARTS.with(|s| s.borrow().get(&(node, pseudo, idx, name.to_string())).map(|e| e.start))
 }
 
 /// Identity of one running animation: node address, pseudo-element name,
@@ -140,6 +175,10 @@ pub(crate) fn finish_animation_pass() {
 fn start_time(handle: &Handle, pseudo: bool, idx: usize, name: &str) -> f64 {
     let now = DOC_CLOCK.with(|c| c.get());
     let pass = ANIM_PASS.with(|p| p.get());
+    if ANIM_READONLY.with(Cell::get) {
+        let key = (node_id(handle), pseudo, idx, name.to_string());
+        return ANIM_STARTS.with(|s| s.borrow().get(&key).map_or(now, |e| e.start));
+    }
     ANIM_STARTS.with(|s| {
         let mut s = s.borrow_mut();
         let key = (node_id(handle), pseudo, idx, name.to_string());
@@ -466,14 +505,16 @@ pub(crate) fn evaluate(
             continue;
         }
         let start = start_time(handle, pseudo.is_some(), idx, name);
-        ANIM_REPORT.with(|r| {
-            r.borrow_mut().push(AnimRecord {
-                key: (node_id(handle), pseudo.map(|p| format!("::{}", p.trim_start_matches(':'))), idx, name.to_string()),
-                node: Rc::downgrade(handle),
-                anim: a.clone(),
-                start,
-            })
-        });
+        if !ANIM_READONLY.with(Cell::get) {
+            ANIM_REPORT.with(|r| {
+                r.borrow_mut().push(AnimRecord {
+                    key: (node_id(handle), pseudo.map(|p| format!("::{}", p.trim_start_matches(':'))), idx, name.to_string()),
+                    node: Rc::downgrade(handle),
+                    anim: a.clone(),
+                    start,
+                })
+            });
+        }
         let elapsed = if a.play_state == AnimPlayState::Paused { 0.0 } else { now - start };
         let Some(p) = directed_progress(&a, elapsed) else { continue };
         let (lo, from, hi, to) = interval(&kf, p);

@@ -460,7 +460,7 @@ fn qobs3_phases_add_up_to_the_forced_layout_total() {
     let total = fl.get("total_ms").num();
     let ph = fl.get("phases");
     let mut sum = 0.0;
-    for p in ["css_collect", "rule_index", "precompute_generated", "build_children", "measure_document", "glyph_walk", "rect_walk"] {
+    for p in ["css_collect", "rule_index", "precompute_generated", "build_children", "measure_document", "glyph_walk", "rect_walk", "incr_shadow"] {
         sum += ph.get(p).get("total_ms").num();
     }
     assert!(total > 5.0, "layout too small to compare: {total}");
@@ -488,6 +488,7 @@ fn qobs7_memory_fields_are_present() {
         "rules_cache",
         "rule_index_hover_keys",
         "svg_sized_cache",
+        "incr_style",
         "image_cache",
         "style_cache",
         "mse_store",
@@ -537,6 +538,7 @@ fn qmem3c_explained_bytes_is_the_sum_of_its_parts() {
         "rules_cache",
         "rule_index_hover_keys",
         "svg_sized_cache",
+        "incr_style",
         "image_cache",
         "style_cache",
         "mse_store",

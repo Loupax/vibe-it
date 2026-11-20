@@ -1,0 +1,445 @@
+//! QINC1f (R60 sections 4.1, 5, 6): the incremental restyle in shadow mode. Every build in the suite
+//! already compares the engine with the from-scratch styles (a mismatch panics inside the build); these
+//! tests feed the engine through the write log ONLY (the check-mode reconcile is off) and pin how much
+//! it redoes: one test per row of R60 section 5's table, the early cut-off, custom properties, `rem`,
+//! counters, animation membership and node address reuse.
+use super::*;
+use crate::incr_log::{self, Change, Val};
+use crate::incr_style::{self, Seam, Stats};
+
+/// Log-only engine for the test's duration (panics on a mismatch stay on).
+struct LogOnly(Seam);
+
+impl LogOnly {
+    fn new() -> LogOnly {
+        incr_style::reset();
+        let _ = incr_log::drain();
+        set_interaction(&InteractionState::default());
+        LogOnly(incr_style::set_seam(Seam { shadow: true, reconcile: false, panic: true }))
+    }
+}
+
+impl Drop for LogOnly {
+    fn drop(&mut self) {
+        incr_style::set_seam(self.0);
+        set_interaction(&InteractionState::default());
+        incr_style::reset();
+    }
+}
+
+fn build(doc: &Handle) -> Stats {
+    build_vh(doc, 600.0)
+}
+
+fn build_vh(doc: &Handle, vh: f32) -> Stats {
+    let _ = build_layout_tree_sized(doc, 800.0, vh);
+    incr_style::with_engine(|e| e.expect("shadow engine").stats.clone())
+}
+
+fn page(css: &str, body: &str) -> Handle {
+    parse_html(&format!("<html><head><style>{css}</style></head><body>{body}</body></html>"))
+}
+
+fn set_attr(h: &Handle, name: &str, v: Option<&str>) {
+    let old = element_attr(h, name).map(|s| s.to_string());
+    match v {
+        Some(v) => crate::js_dom::set_attr(h, name, v),
+        None => {
+            if let NodeData::Element { attrs, .. } = &h.data {
+                attrs.borrow_mut().retain(|a| a.name.local.as_ref() != name);
+            }
+        }
+    }
+    incr_log::note(node_id(h), Change::Attr { name: name.into(), old: Val::of(old.as_deref()), new: Val::of(v) });
+}
+
+fn append(parent: &Handle, child: &Handle) {
+    child.parent.set(Some(Rc::downgrade(parent)));
+    parent.children.borrow_mut().push(child.clone());
+    let (prev, next) = incr_log::siblings(child);
+    incr_log::note(node_id(parent), Change::ChildInsert { child: node_id(child), prev, next });
+}
+
+fn insert_at(parent: &Handle, child: &Handle, at: usize) {
+    child.parent.set(Some(Rc::downgrade(parent)));
+    parent.children.borrow_mut().insert(at, child.clone());
+    let (prev, next) = incr_log::siblings(child);
+    incr_log::note(node_id(parent), Change::ChildInsert { child: node_id(child), prev, next });
+}
+
+fn remove(child: &Handle) {
+    let p = parent_handle(child).expect("attached");
+    let (prev, next) = incr_log::siblings(child);
+    p.children.borrow_mut().retain(|c| !Rc::ptr_eq(c, child));
+    child.parent.set(None);
+    incr_log::note(node_id(&p), Change::ChildRemove { child: node_id(child), prev, next });
+}
+
+fn element(html: &str) -> Handle {
+    let d = parse_html(&format!("<html><body>{html}</body></html>"));
+    let body = find_by_tag(&d, "body").unwrap();
+    let c = body.children.borrow()[0].clone();
+    body.children.borrow_mut().clear();
+    c.parent.set(None);
+    c
+}
+
+fn style_of(h: &Handle) -> ComputedStyle {
+    incr_style::with_engine(|e| *e.unwrap().entry(h).expect("styled").style().unwrap())
+}
+
+const KIDS: &str = "<div id=p><span id=a>a</span><span id=b>b</span><span id=c>c</span></div><div id=q><i>x</i></div>";
+
+// ---------- section 5, one test per row ----------
+
+#[test]
+fn qinc1f_first_build_is_full_and_a_clean_rebuild_restyles_nothing() {
+    let _g = LogOnly::new();
+    let doc = page("#p span{color:red}", KIDS);
+    let s = build(&doc);
+    assert!(s.full);
+    assert!(s.restyled() >= 7, "{s:?}");
+    let s = build(&doc);
+    assert!(!s.full, "{s:?}");
+    assert_eq!(s.restyled(), 0, "nothing changed: {s:?}");
+}
+
+#[test]
+fn qinc1f_class_write_rematches_only_what_the_map_names() {
+    let _g = LogOnly::new();
+    let doc = page(".on span{color:red} .x{font-weight:bold}", KIDS);
+    build(&doc);
+    set_attr(&by_id(&doc, "p"), "class", Some("on"));
+    let s = build(&doc);
+    assert!(!s.full);
+    // the three spans (descendant set of `.on span`); p's own match cannot change (no `.on` subject); q untouched.
+    assert_eq!(s.rematched, 3, "{s:?}");
+    assert_eq!(style_of(&by_id(&doc, "a")).color, TextColor::rgb(255, 0, 0));
+    set_attr(&by_id(&doc, "p"), "class", None);
+    let s = build(&doc);
+    assert_eq!(s.rematched, 3, "{s:?}");
+    assert_eq!(style_of(&by_id(&doc, "a")).color, TextColor::rgb(0, 0, 0));
+}
+
+#[test]
+fn qinc1f_id_and_other_attribute_writes() {
+    let _g = LogOnly::new();
+    let doc = page("#z{color:blue} [data-k=\"1\"]{color:green}", KIDS);
+    build(&doc);
+    set_attr(&by_id(&doc, "b"), "id", Some("z"));
+    let s = build(&doc);
+    assert_eq!(s.rematched, 1, "{s:?}");
+    let b = find_by_tag(&by_id(&doc, "p"), "span").unwrap();
+    set_attr(&b, "data-k", Some("1"));
+    let s = build(&doc);
+    assert_eq!(s.rematched, 1, "{s:?}");
+    assert_eq!(style_of(&b).color, TextColor::rgb(0, 128, 0));
+    // An attribute no selector reads restyles nothing (its box is marked for the box stage).
+    set_attr(&b, "title", Some("t"));
+    let s = build(&doc);
+    assert_eq!(s.restyled(), 0, "{s:?}");
+    assert!(s.boxes.contains(&node_id(&by_id(&doc, "p"))), "the span's box owner is p: {s:?}");
+}
+
+#[test]
+fn qinc1f_style_attribute_recascades_without_matching() {
+    let _g = LogOnly::new();
+    let doc = page("", KIDS);
+    build(&doc);
+    set_attr(&by_id(&doc, "a"), "style", Some("width:10px;display:inline-block"));
+    let s = build(&doc);
+    assert_eq!((s.rematched, s.recascaded), (0, 1), "{s:?}");
+    assert_eq!(style_of(&by_id(&doc, "a")).display, Display::InlineBlock);
+}
+
+#[test]
+fn qinc1f_child_insert_remove_and_move() {
+    let _g = LogOnly::new();
+    let doc = page("span:last-child{color:red} span+span{font-weight:bold}", KIDS);
+    build(&doc);
+    let p = by_id(&doc, "p");
+    let n = element("<span id=n><b>new</b></span>");
+    append(&p, &n);
+    let s = build(&doc);
+    assert!(!s.full);
+    // the new span and its <b>, plus the old last child (`:last-child`)
+    assert!(s.rematched >= 3 && s.rematched <= 5, "{s:?}");
+    assert_eq!(style_of(&n).color, TextColor::rgb(255, 0, 0));
+    assert_eq!(style_of(&by_id(&doc, "c")).color, TextColor::rgb(0, 0, 0));
+    let before = incr_style::with_engine(|e| e.unwrap().len());
+    remove(&n);
+    let s = build(&doc);
+    assert!(!s.full);
+    assert_eq!(style_of(&by_id(&doc, "c")).color, TextColor::rgb(255, 0, 0));
+    assert_eq!(incr_style::with_engine(|e| e.unwrap().len()), before - 2, "the removed subtree left the table");
+    // move: `a` to the end
+    let a = by_id(&doc, "a");
+    remove(&a);
+    append(&p, &a);
+    let s = build(&doc);
+    assert!(!s.full && s.rematched <= p.children.borrow().len() as u64 + 1, "{s:?}");
+    assert_eq!(style_of(&a).color, TextColor::rgb(255, 0, 0));
+}
+
+#[test]
+fn qinc1f_text_data_text_content_and_inner_html() {
+    let _g = LogOnly::new();
+    let doc = page("i:empty{display:block;width:5px}", "<p id=t>hello</p><i id=e></i>");
+    build(&doc);
+    let t = by_id(&doc, "t");
+    let text = t.children.borrow()[0].clone();
+    if let NodeData::Text { contents } = &text.data {
+        *contents.borrow_mut() = "changed".into();
+    }
+    incr_log::note(node_id(&text), Change::Text);
+    let s = build(&doc);
+    assert_eq!(s.restyled(), 0, "text data restyles nothing here: {s:?}");
+    assert!(s.boxes.contains(&node_id(&t)), "the paragraph's box is marked: {s:?}");
+    // textContent on the empty <i>: it stops matching `:empty`
+    let e = by_id(&doc, "e");
+    let tn = parse_html("<html><body>x</body></html>");
+    let x = find_by_tag(&tn, "body").unwrap().children.borrow()[0].clone();
+    x.parent.set(Some(Rc::downgrade(&e)));
+    e.children.borrow_mut().push(x);
+    incr_log::note(node_id(&e), Change::TextContent);
+    let s = build(&doc);
+    assert_eq!(s.rematched, 1, "{s:?}");
+    assert_eq!(style_of(&e).display, Display::Inline);
+    // innerHTML replacing the children with elements
+    let frag = element("<b id=in>z</b>");
+    e.children.borrow_mut().clear();
+    frag.parent.set(Some(Rc::downgrade(&e)));
+    e.children.borrow_mut().push(frag.clone());
+    incr_log::note(node_id(&e), Change::InnerHtml);
+    let s = build(&doc);
+    assert!(!s.full && s.rematched <= 2, "the new <b> (and <i> for `:empty`): {s:?}");
+}
+
+#[test]
+fn qinc1f_form_state_checked() {
+    let _g = LogOnly::new();
+    let doc = page("input:checked + span{color:red}", "<input id=c type=checkbox><span id=s>s</span>");
+    build(&doc);
+    let c = by_id(&doc, "c");
+    crate::forms::set_checked(&c, true);
+    incr_log::note(node_id(&c), Change::Form(crate::incr_log::FormKind::Checked));
+    let s = build(&doc);
+    assert!(!s.full && s.rematched == 1, "the span after the checkbox: {s:?}");
+    assert_eq!(style_of(&by_id(&doc, "s")).color, TextColor::rgb(255, 0, 0));
+    crate::forms::set_checked(&c, false);
+}
+
+#[test]
+fn qinc1f_hover_focus_and_target_are_state_diffs() {
+    let _g = LogOnly::new();
+    let doc = page("#a:hover{color:red} #b:focus{color:blue} #c:target{color:green} #q:hover i{color:red}", KIDS);
+    build(&doc);
+    let a = by_id(&doc, "a");
+    set_interaction(&InteractionState { hover: ancestor_ids(&a).into_iter().collect(), ..Default::default() });
+    let s = build(&doc);
+    // a, plus the <i> of `#q:hover i` (the map keys a descendant set by its subject only: conservative)
+    assert!(s.rematched >= 1 && s.rematched <= 2, "{s:?}");
+    assert_eq!(style_of(&a).color, TextColor::rgb(255, 0, 0));
+    let b = by_id(&doc, "b");
+    let c = by_id(&doc, "c");
+    set_interaction(&InteractionState { focus: Some(node_id(&b)), target: Some(node_id(&c)), ..Default::default() });
+    let s = build(&doc);
+    // a leaves hover, b gains focus, c becomes the target
+    assert!((3..=4).contains(&s.rematched), "{s:?}");
+    let q = by_id(&doc, "q");
+    set_interaction(&InteractionState { hover: ancestor_ids(&q).into_iter().collect(), ..Default::default() });
+    let s = build(&doc);
+    assert_eq!(style_of(&find_by_tag(&q, "i").unwrap()).color, TextColor::rgb(255, 0, 0));
+    assert!(!s.full, "{s:?}");
+}
+
+#[test]
+fn qinc1f_new_rule_list_and_viewport_width_are_full_updates() {
+    let _g = LogOnly::new();
+    let doc = page("span{color:red}", KIDS);
+    build(&doc);
+    let style = find_by_tag(&doc, "style").unwrap();
+    let text = style.children.borrow()[0].clone();
+    if let NodeData::Text { contents } = &text.data {
+        *contents.borrow_mut() = "span{color:blue}".into();
+    }
+    incr_log::note(node_id(&text), Change::Text);
+    let s = build(&doc);
+    assert!(s.full, "a new rule-list generation re-matches everything: {s:?}");
+    let _ = build_layout_tree_sized(&doc, 500.0, 600.0);
+    assert!(incr_style::with_engine(|e| e.unwrap().stats.full), "viewport width");
+}
+
+#[test]
+fn qinc1f_viewport_height_recascades_only_vh_readers() {
+    let _g = LogOnly::new();
+    let doc = page("#a{display:block;height:10vh}", KIDS);
+    build_vh(&doc, 600.0);
+    let s = build_vh(&doc, 700.0);
+    assert!(!s.full);
+    assert_eq!((s.rematched, s.recascaded), (0, 1), "{s:?}");
+}
+
+#[test]
+fn qinc1f_unknown_write_is_global() {
+    let _g = LogOnly::new();
+    let doc = page("", KIDS);
+    build(&doc);
+    incr_log::note(0, Change::Global);
+    assert!(build(&doc).full);
+}
+
+// ---------- early cut-off, custom properties, rem ----------
+
+#[test]
+fn qinc1f_inherited_change_recascades_children_a_width_change_does_not() {
+    let _g = LogOnly::new();
+    let doc = page("", KIDS);
+    build(&doc);
+    let p = by_id(&doc, "p");
+    set_attr(&p, "style", Some("color:red"));
+    let s = build(&doc);
+    assert_eq!((s.rematched, s.recascaded), (0, 4), "p and its three spans: {s:?}");
+    assert_eq!(style_of(&by_id(&doc, "b")).color, TextColor::rgb(255, 0, 0));
+    set_attr(&p, "style", Some("color:red;width:100px"));
+    let s = build(&doc);
+    assert_eq!((s.rematched, s.recascaded), (0, 1), "a non-inherited change stops at p: {s:?}");
+    // ... unless a child reads the parent through `inherit`
+    set_attr(&by_id(&doc, "c"), "style", Some("width:inherit;display:inline-block"));
+    build(&doc);
+    set_attr(&p, "style", Some("color:red;width:120px"));
+    let s = build(&doc);
+    assert_eq!(s.recascaded, 2, "p and the `inherit` reader: {s:?}");
+}
+
+#[test]
+fn qinc1f_custom_property_change_reaches_var_users() {
+    let _g = LogOnly::new();
+    let doc = page("span{width:var(--w);display:inline-block}", KIDS);
+    build(&doc);
+    set_attr(&by_id(&doc, "p"), "style", Some("--w:33px"));
+    let s = build(&doc);
+    assert_eq!((s.rematched, s.recascaded), (0, 4), "{s:?}");
+    assert_eq!(style_of(&by_id(&doc, "a")).width, Some(BoxLength::Px(33.0)));
+}
+
+#[test]
+fn qinc1f_rem_follows_the_html_font_size() {
+    let _g = LogOnly::new();
+    let doc = page("span{display:inline-block;width:2rem}", KIDS);
+    build(&doc);
+    let html = find_by_tag(&doc, "html").unwrap();
+    set_attr(&html, "style", Some("font-size:20px"));
+    let s = build(&doc);
+    assert!(!s.full);
+    assert_eq!(s.rematched, 0, "only re-cascades: {s:?}");
+    assert_eq!(style_of(&by_id(&doc, "a")).width, Some(BoxLength::Px(40.0)));
+}
+
+// ---------- counters, animations, address reuse ----------
+
+#[test]
+fn qinc1f_counters_follow_an_inserted_li() {
+    let _g = LogOnly::new();
+    let doc = page("ol{counter-reset:n} li{counter-increment:n} li::before{content:counter(n) \". \"}", "<ol id=o><li id=x>a</li><li id=y>b</li></ol>");
+    build(&doc);
+    let o = by_id(&doc, "o");
+    let li = element("<li id=z>new</li>");
+    insert_at(&o, &li, 0);
+    let s = build(&doc);
+    assert!(!s.full);
+    // the inserted li is styled; the two old ones are not, but their generated text changed
+    assert_eq!(s.rematched, 1, "{s:?}");
+    for id in ["x", "y"] {
+        assert!(s.boxes.contains(&node_id(&by_id(&doc, id))), "{id}: {s:?}");
+    }
+    let text = crate::images::GENERATED_TEXT.with(|g| g.borrow().get(&(node_id(&by_id(&doc, "y")), false)).cloned());
+    assert_eq!(text.as_deref(), Some("3. "));
+}
+
+#[test]
+fn qinc1f_animation_outside_the_dirty_set_keeps_its_start_time() {
+    let _g = LogOnly::new();
+    let doc = page("@keyframes k{from{opacity:0}to{opacity:1}} #a{animation:k 1000ms linear}", KIDS);
+    set_document_clock(100.0);
+    build(&doc);
+    let a = by_id(&doc, "a");
+    let start = crate::anim_eval::start_of(node_id(&a), false, 0, "k");
+    assert_eq!(start, Some(100.0));
+    set_document_clock(400.0);
+    set_attr(&by_id(&doc, "c"), "style", Some("color:red"));
+    let s = build(&doc);
+    // c (written) and a (animated: re-cascaded on every update); a's start stands
+    assert_eq!(s.recascaded, 2, "{s:?}");
+    assert_eq!(crate::anim_eval::start_of(node_id(&a), false, 0, "k"), Some(100.0));
+    let op = style_of(&a).opacity;
+    assert!((op - 0.3).abs() < 0.01, "{op}");
+    // membership ageing keeps it; dropping the animation drops it
+    incr_style::with_engine(|e| e.unwrap().age_animations());
+    assert_eq!(crate::anim_eval::start_of(node_id(&a), false, 0, "k"), Some(100.0));
+    set_attr(&a, "style", Some("animation:none"));
+    build(&doc);
+    incr_style::with_engine(|e| e.unwrap().age_animations());
+    assert_eq!(crate::anim_eval::start_of(node_id(&a), false, 0, "k"), None);
+    set_document_clock(0.0);
+}
+
+#[test]
+fn qinc1f_node_address_reuse_never_confuses_entries() {
+    let _g = LogOnly::new();
+    let doc = page(".k{color:red} div > .k{font-weight:bold}", "<div id=host></div>");
+    build(&doc);
+    let host = by_id(&doc, "host");
+    let base = incr_style::with_engine(|e| e.unwrap().len());
+    for i in 0..1000 {
+        let cls = if i % 2 == 0 { "k" } else { "j" };
+        let n = element(&format!("<span class={cls}>{i}</span>"));
+        append(&host, &n);
+        let s = build(&doc);
+        assert!(!s.full);
+        let want = if i % 2 == 0 { TextColor::rgb(255, 0, 0) } else { TextColor::rgb(0, 0, 0) };
+        assert_eq!(style_of(&n).color, want, "iteration {i}");
+        remove(&n);
+        drop(n);
+        build(&doc);
+        assert_eq!(incr_style::with_engine(|e| e.unwrap().len()), base, "iteration {i}: the table stays bounded");
+    }
+}
+
+#[test]
+fn qinc1f_box_owner_of_inline_content_is_its_block() {
+    let _g = LogOnly::new();
+    let doc = page("", "<p id=p><span id=s><b id=b>x</b></span></p>");
+    build(&doc);
+    let owner = |id: &str| incr_style::with_engine(|e| e.unwrap().entry(&by_id(&doc, id)).unwrap().box_owner());
+    assert_eq!(owner("b"), node_id(&by_id(&doc, "p")));
+    assert_eq!(owner("p"), node_id(&by_id(&doc, "p")));
+}
+
+#[test]
+fn qinc1f_script_writes_feed_the_engine_through_the_log() {
+    // Real natives write the log; the reconcile (on, as in the suite) must find nothing unlogged.
+    incr_style::reset();
+    let log = run_in_html(
+        "<html><head><style>.on span{color:red}</style></head><body><div id=p><span>a</span><span>b</span></div><div><i>q</i></div></body></html>",
+        "var p=document.getElementById('p'); var w=p.offsetWidth; p.className='on'; w=p.offsetWidth; console.log('ok');",
+    );
+    assert_eq!(log, vec!["log:ok".to_string()], "{log:?}");
+    let s = incr_style::with_engine(|e| e.expect("engine").stats.clone());
+    assert!(!s.full, "{s:?}");
+    assert_eq!(s.unlogged, 0, "{s:?}");
+    assert_eq!(s.rematched, 2, "the two spans of `.on span`: {s:?}");
+    incr_style::reset();
+}
+
+#[test]
+fn qinc1f_a_bare_animation_duration_is_not_animation_membership() {
+    // Wikipedia's reduced-motion style `* { animation-duration: ... }` made every element "animated"
+    // (re-cascaded on every update) until membership required a named animation with keyframes.
+    let _g = LogOnly::new();
+    let doc = page("*{animation-duration:1ms;animation-iteration-count:1}", KIDS);
+    build(&doc);
+    set_attr(&by_id(&doc, "c"), "style", Some("color:red"));
+    let s = build(&doc);
+    assert_eq!((s.rematched, s.recascaded), (0, 1), "{s:?}");
+}

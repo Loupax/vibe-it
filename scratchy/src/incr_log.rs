@@ -148,17 +148,30 @@ pub(crate) fn drain() -> Drained {
     })
 }
 
-/// A layout (forced, on the JS thread) is starting from the page as the log left it: count what
-/// accumulated since the last one, then reset. Nothing consumes the entries yet.
-pub(crate) fn layout_boundary() {
+/// Drains the log and adds what it held to the counters.
+fn drain_counted() -> Drained {
     let d = drain();
     let n = d.entries.len() as u64;
-    LAYOUTS.fetch_add(1, Relaxed);
     ENTRIES.fetch_add(n, Relaxed);
     MAX_PER_LAYOUT.fetch_max(n, Relaxed);
     if d.global {
         GLOBALS.fetch_add(1, Relaxed);
     }
+    d
+}
+
+/// QINC1f: the incremental restyle takes the log at every layout build it shadows (App and forced
+/// layouts alike: one engine, one log); the entries are counted as `layout_boundary` counts them.
+pub(crate) fn take() -> Drained {
+    drain_counted()
+}
+
+/// A layout (forced, on the JS thread) is starting from the page as the log left it: count what
+/// accumulated since the last one, then reset. When the incremental engine runs (QINC1f) it already
+/// took the log inside the build, so this only counts the layout.
+pub(crate) fn layout_boundary() {
+    LAYOUTS.fetch_add(1, Relaxed);
+    drain_counted();
 }
 
 /// The `incr.log` object of the `--perf-report` body (a JSON object text).

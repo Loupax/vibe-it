@@ -998,7 +998,7 @@ pub(crate) fn matching_declarations_for<'a>(
 }
 
 /// Memo slot of the pseudo-elements the build matches; `None` = never memoized.
-fn pseudo_slot(pseudo: Option<&str>) -> Option<u8> {
+pub(crate) fn pseudo_slot(pseudo: Option<&str>) -> Option<u8> {
     match pseudo {
         None => Some(0),
         Some("before") => Some(1),
@@ -1010,7 +1010,51 @@ fn pseudo_slot(pseudo: Option<&str>) -> Option<u8> {
     }
 }
 
-type MatchMemo = HashMap<(usize, u8, usize, usize, u32), Rc<Vec<(u64, u32, bool)>>>;
+/// One (element, pseudo) match: `(cascade key, rule index, is the important half)`.
+pub(crate) type MatchList = Rc<Vec<(u64, u32, bool)>>;
+
+type MatchMemo = HashMap<(usize, u8, usize, usize, u32), MatchList>;
+
+/// QINC1f: the pseudo-element name of memo slot `slot` (inverse of `pseudo_slot`).
+pub(crate) fn slot_pseudo(slot: u8) -> Option<&'static str> {
+    match slot {
+        1 => Some("before"),
+        2 => Some("after"),
+        3 => Some("first-line"),
+        4 => Some("first-letter"),
+        5 => Some("marker"),
+        _ => None,
+    }
+}
+
+/// QINC1f: the match of `(handle, slot)` through the build memo (which must be active): a memo hit, or
+/// a real match that is then memoized. The incremental restyle stores the result per element.
+pub(crate) fn match_slot(handle: &Handle, rules: &[StyleRule], viewport_width: f32, slot: u8) -> MatchList {
+    let key = (Rc::as_ptr(handle) as usize, slot, rules.as_ptr() as usize, rules.len(), viewport_width.to_bits());
+    if let Some(hit) = MATCH_MEMO.with(|m| m.borrow().as_ref().and_then(|m| m.get(&key).cloned())) {
+        return hit;
+    }
+    #[cfg(test)]
+    MATCH_RUNS.with(|c| c.set(c.get() + 1));
+    let found = Rc::new(matching_indices_for(handle, rules, viewport_width, slot_pseudo(slot)));
+    MATCH_MEMO.with(|m| {
+        if let Some(m) = m.borrow_mut().as_mut() {
+            m.insert(key, found.clone());
+        }
+    });
+    found
+}
+
+/// QINC1f: puts a stored match into the build memo, so the cascade of `(handle, slot)` reuses it
+/// instead of matching (a re-cascade from the element table).
+pub(crate) fn seed_match(handle: &Handle, rules: &[StyleRule], viewport_width: f32, slot: u8, found: MatchList) {
+    let key = (Rc::as_ptr(handle) as usize, slot, rules.as_ptr() as usize, rules.len(), viewport_width.to_bits());
+    MATCH_MEMO.with(|m| {
+        if let Some(m) = m.borrow_mut().as_mut() {
+            m.insert(key, found);
+        }
+    });
+}
 
 thread_local! {
     /// QY53d: `Some` only while `build_layout_tree_with_resources` runs.
@@ -2472,13 +2516,16 @@ pub(crate) fn resolve_style_for(
     let base = resolve_style_core(handle, rules, inherited, viewport_width, pseudo, &[]);
     // QAN1b: no `animation` declared (the overwhelmingly common case) costs
     // exactly this one test.
-    match base.animations {
+    let out = match base.animations {
         None => base,
         Some(a) => match a.table() {
             Some(lists) => evaluate(base, &lists, handle, rules, inherited, viewport_width, pseudo),
             None => base, // QY53i3: a handle of a freed arena
         },
-    }
+    };
+    // QINC1f: the shadow check records what the from-scratch build resolved (off: one flag test).
+    crate::incr_style::record(handle, pseudo, &out);
+    out
 }
 
 /// The cascade proper. `over` are keyframe declarations of running

@@ -118,6 +118,7 @@ mod stack;
 mod frame_stats;
 mod js_modules;
 mod incr_log;
+mod incr_style;
 mod js_dom;
 mod js_net;
 mod ws_frames;
