@@ -2624,6 +2624,13 @@ impl App {
                 // QA6: only now is the document the one the fragment names.
                 self.pending_fragment = self.nav_fragment.take();
                 self.js_viewport = None;
+                // QNAV9b: a local file read without wire has no fetched scripts: its
+                // inline ones run like those of a file opened from the command line.
+                let scripts = if scripts.is_empty() && self.socket_path.is_none() && self.base_url.as_ref().is_some_and(|b| b.scheme() == "file") {
+                    inline_scripts(&self.document)
+                } else {
+                    scripts
+                };
                 self.js = run_page_scripts(&self.document, &scripts, self.base_url.as_ref());
                 self.js_sync();
                 if let Some((delay, target)) = meta {
@@ -3827,6 +3834,7 @@ impl App {
                         }
                     }
                 }
+                None if url.scheme() == "file" => read_local_file_page(&url),
                 None => {
                     print_fallback_request(&request_text);
                     Err("no --socket given — scratchy never fetches a page on its own without \

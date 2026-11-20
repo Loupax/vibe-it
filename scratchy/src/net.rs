@@ -1505,6 +1505,25 @@ pub(crate) fn file_page_url(path: &str) -> Option<Url> {
     Url::from_file_path(fs::canonicalize(path).ok()?).ok()
 }
 
+/// QNAV9b: following a `file://` link with no `--socket`: the local file is read from
+/// disk (no network, no wire) and rendered by its extension like a wire response.
+/// No sub-resources (stylesheets, images, scripts) are loaded: those need wire.
+pub(crate) fn read_local_file_page(url: &Url) -> Result<crate::app::FetchedPage, String> {
+    let path = url.to_file_path().map_err(|()| format!("cannot open {url}: not a local file path (a file URL with a host is not supported)"))?;
+    let bytes = fs::read(&path).map_err(|e| format!("cannot open {}: {e}", path.display()))?;
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    let mime = match ext.as_str() {
+        "txt" | "text" | "log" | "md" => "text/plain",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        _ => "text/html",
+    };
+    let html = dispatch_wire_response(Some(mime.to_string()), bytes)?;
+    Ok(crate::app::FetchedPage { html, extra_css: String::new(), sheets: Default::default(), scripts: Vec::new(), url: url.clone() })
+}
+
 /// Q22: a statically opened file with `--socket` given gets its own
 /// base URL and its external stylesheets/images fetched through `wire`
 /// exactly like a live-navigated page (`process_external_resources`).

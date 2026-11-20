@@ -30,7 +30,27 @@ pub(crate) enum Input {
 pub(crate) fn classify_input(arg: &str) -> Input {
     match Url::parse(arg) {
         Ok(url) if url.scheme() == "http" || url.scheme() == "https" => Input::Url(url),
+        // QNAV9a: `file:///abs/path.html` opens that local file (percent-escapes decoded).
+        // A URL that is not a local path falls through to `Input::File(arg)` here;
+        // `parse_args` reports it first via `file_url_error`.
+        Ok(url) if url.scheme() == "file" => match url.to_file_path() {
+            Ok(path) => Input::File(path.to_string_lossy().into_owned()),
+            Err(()) => Input::File(arg.to_string()),
+        },
         _ => Input::File(arg.to_string()),
+    }
+}
+
+/// QNAV9a: why `arg` is a `file:` URL scratchy cannot open (a non-local host such as
+/// `file://server/share/x.html`, or no usable path), `None` for anything else.
+pub(crate) fn file_url_error(arg: &str) -> Option<String> {
+    let url = Url::parse(arg).ok().filter(|u| u.scheme() == "file")?;
+    match url.to_file_path() {
+        Ok(_) => None,
+        Err(()) => Some(match url.host_str().filter(|h| !h.is_empty() && *h != "localhost") {
+            Some(host) => format!("scratchy: cannot open {arg}: file URLs on another host ({host}) are not supported; use file:///absolute/path"),
+            None => format!("scratchy: cannot open {arg}: not a usable local file path"),
+        }),
     }
 }
 
@@ -86,7 +106,13 @@ pub(crate) fn parse_args() -> Args {
     }
     let input = match rest.len() {
         0 => Input::Stdin,
-        1 => classify_input(&rest[0]),
+        1 => {
+            if let Some(message) = file_url_error(&rest[0]) {
+                diag!("{message}");
+                std::process::exit(1);
+            }
+            classify_input(&rest[0])
+        }
         _ => {
             diag!("usage: scratchy [--socket <path>] [--no-js] [--motion] [--user-agent <string>] [--budget-ms <ms>] [file|url]");
             std::process::exit(1);

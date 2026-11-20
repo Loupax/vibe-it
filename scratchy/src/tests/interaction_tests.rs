@@ -53,8 +53,49 @@ fn classify_input_treats_everything_else_as_a_file_path() {
     // A scheme scratchy has no `wire`-backed fetch path for — same
     // "parsed successfully isn't the same question as fetchable"
     // reasoning `classify_input`'s own docs give.
-    assert!(matches!(classify_input("file:///etc/hosts"), Input::File(_)));
     assert!(matches!(classify_input("data:text/plain,hi"), Input::File(_)));
+}
+
+#[test]
+fn qnav9a_file_url_argument_opens_the_local_path() {
+    match classify_input("file:///etc/hosts") {
+        Input::File(p) => assert_eq!(p, "/etc/hosts"),
+        _ => panic!("file URL should be Input::File"),
+    }
+    // Percent-escapes are decoded; `localhost` is local.
+    match classify_input("file://localhost/tmp/a%20b/c%C3%A9.html") {
+        Input::File(p) => assert_eq!(p, "/tmp/a b/cé.html"),
+        _ => panic!("file URL should be Input::File"),
+    }
+    assert!(file_url_error("file:///etc/hosts").is_none());
+    assert!(file_url_error("page.html").is_none());
+    assert!(file_url_error("https://example.com/").is_none());
+    let err = file_url_error("file://fileserver/share/x.html").expect("non-local host rejected");
+    assert!(err.contains("fileserver") && err.contains("not supported"), "{err}");
+}
+
+#[test]
+fn qnav9b_without_wire_a_relative_file_link_loads_the_local_file() {
+    let dir = std::env::temp_dir().join(format!("scratchy-qnav9b-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let a = dir.join("a b.html");
+    let b = dir.join("next.html");
+    std::fs::write(&a, "<html><body><a href=\"next.html\">n</a></body></html>").unwrap();
+    std::fs::write(&b, "<html><body><p>second</p></body></html>").unwrap();
+    let base = file_page_url(a.to_str().unwrap()).expect("file url");
+    let target = resolve_href(Some(&base), "next.html").unwrap();
+    let page = read_local_file_page(&target).expect("local file read");
+    assert!(String::from_utf8_lossy(&page.html).contains("second"));
+    assert_eq!(page.url, target);
+    // A missing file is a clear message, not a panic.
+    let missing = resolve_href(Some(&base), "gone.html").unwrap();
+    let err = read_local_file_page(&missing).err().expect("missing file errors");
+    assert!(err.contains("gone.html"), "{err}");
+    // A plain-text file is wrapped, not parsed as HTML.
+    std::fs::write(dir.join("t.txt"), "<b>x</b>").unwrap();
+    let txt = read_local_file_page(&resolve_href(Some(&base), "t.txt").unwrap()).unwrap();
+    assert!(String::from_utf8_lossy(&txt.html).contains("&lt;b&gt;"));
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
