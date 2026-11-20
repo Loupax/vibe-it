@@ -994,6 +994,12 @@ challenge/consent wall. Fixture "big-css" (generate in the test, never vendor): 
 (`.c<i> .d<i> { margin-left: 1px }`, plus 200 `::before { content: "x" }` rules), 1 000 nested
 divs with 3 classes each, a script that does 50 x (write one attribute, read `offsetWidth`).
 
+- [ ] QY53e2b [M] (P2, from QY53e2 #396; Opus design then Sonnet) IO during script churn: the App's complete layouts on
+      Wikipedia/YouTube are almost always one DOM write behind (geom_gen > 600 in the first second), so #396's "current
+      layout only" path serves ~0 rechecks there (YT: 1 of 23). Options: evaluate on the last complete App layout, hold
+      targets without an entry pending and leave ioGen unmarked so the deadline or the next layout corrects it (spec allows
+      entries one write behind), and/or keep geom_gen bumps that provably move nothing (unread attributes, QY53o1) out of
+      the render stamp. NOT via a longer IO deadline (coordinator rejected #396's flat 2 s window deadline: late lazy-load).
 - [ ] [WIP] QY53e2 [M] (P2, R43 section 7, Sonnet) after QY53e1. In a window, IO uses the App's own
       layout instead of forcing one. On a COMPLETE `ShapeResult` for the current `layout_generation`
       (`App::handle_shape_result`, `!incomplete`), the App calls a new `JsEngine::rendered_geometry(
