@@ -8419,3 +8419,11 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       moves. Repro: SCRATCHY_FUZZ_SEED=<s> SCRATCHY_FUZZ_N=1. Fix the invalidation (InvalidationMap.for_children / sibling
       reach, or the engine's handling of moves); add each seed's minimal case as a test; then raise CI's default fuzz count
       or add a fixed seed list so these can't regress. Gate: 0 mismatches over 5000 cases (several seeds), suite green.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QINC1j-ab DONE 30a23cb invalidation carrier filter + grouped walks + counter-walk skip; YT INCR=1 builds 0.94-1.02s vs 2.5-3.3s off [M] (P2, from QINC1j #459; Opus; area incr_style + invalidation; BLOCKS QINC1k/QINC1l: with SCRATCHY_INCR=1
+      YouTube watch quiet runs are 50-80 % WORSE in App build ms) (a) the engine re-matches an element at ~70 us vs ~10 us in
+      a from-scratch build: a full/near-full restyle must cost what a build costs (or adopt the build's styles after a
+      from-scratch build instead of re-resolving); (b) invalidation precision: :hover on ytd-app / div#content.ytd-app marks
+      ~7.5k descendants and re-matches 4061/4289 elements (~290 ms): find the rules, filter the descendant set by the
+      subject's features. Gate: R55 YouTube watch window, quiet runs INCR=1 <= off; 0 _CHECK mismatches; fuzz 0.
