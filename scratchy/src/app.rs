@@ -3064,12 +3064,41 @@ impl App {
                 let changed: Option<Vec<Handle>> =
                     st.hover.symmetric_difference(&self.interaction.hover).map(|&id| find_node_by_id(&self.document, id)).collect();
                 set_interaction(&st);
-                if changed.is_some_and(|c| crate::style::hover_matches_unchanged(&self.hover_keys, &c)) {
+                let started = std::time::Instant::now();
+                let diff = changed.and_then(|c| crate::style::hover_match_diff(&self.hover_keys, &c));
+                if diff.as_ref().is_some_and(|d| d.is_empty()) {
                     self.interaction.hover = st.hover;
                     if let Some(fs) = &mut self.frame_stats {
                         fs.hover_skipped();
                     }
                     return;
+                }
+                // QY53n2: only paint-only rules changed and the installed tree is
+                // current: patch it and repaint, no build.
+                if let Some(diff) = diff
+                    && !self.layout_in_flight
+                    && !self.hold_old_frame
+                    && let Some(laid) = self.cached.as_mut()
+                {
+                    let r = crate::hover_patch::paint_patch(
+                        &self.document,
+                        laid,
+                        &mut self.shape_cache,
+                        &mut self.font_system,
+                        &diff,
+                        &self.interaction,
+                        &st,
+                    );
+                    if r.is_ok() {
+                        self.interaction.hover = st.hover;
+                        if let Some(fs) = &mut self.frame_stats {
+                            fs.hover_patched(started.elapsed());
+                        }
+                        if let Some(w) = &self.window {
+                            w.request_redraw();
+                        }
+                        return;
+                    }
                 }
             }
             if self.state_rules & STATE_HOVER != 0
