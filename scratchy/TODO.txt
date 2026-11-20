@@ -2920,6 +2920,12 @@ QCOMP — scriptable command completion, history file, config in code (user desi
      is a user/page-started top-level navigation that loaded (final URL after redirects,
      fragment stripped); reload, back/forward, same-document navigations are not
      visits. Title and time stay in the file. Details: STASH.md "History", "Ranking".
+  C8 (user 2026-11-20) Completion is a GHOST SUGGESTION shown as you type, after the
+     cursor (`:go https://google|.com`, `.com` dimmed). Tab cycles the suggestion through
+     what matches; Enter runs the line WITH the suggestion. Rows KEYS.md T45-T52 (T51
+     Right/End accepts into the line and T52 Delete hides it are Claude's proposals).
+     Replaces C2's "Tab opens the menu" and inline cycling: the dmenu menu (QCOMP2's
+     MENU part) is ON HOLD until the user says whether it gets its own key or is dropped.
   C6 (user 2026-11-20, answering "QCFG1 vs C4") QCFG1 STAYS as written: the tracker lists
      are updated separately and stay independent of the code config, so they are not moved
      into `src/config.rs`. Maybe made scriptable later; not now. C4 covers the settings
@@ -2937,13 +2943,20 @@ Order (feature work: after the perf queue): QCONF1 -> QCOMP1 -> QCOMP2; QCOMP3 a
       why, in the PR). Header comment: "edit and rebuild; every new user-tunable knob
       goes here". Tests: all existing tests pass unchanged; one test that every binding in
       the table resolves as before.
-- [ ] QCOMP1 [S] (P2, after QCONF1) `COMPLETERS` table in config.rs (C1, built-in sources
-      only): `command_completions` asks the table for words after the first; candidates
-      become `String`; `:set` moves to `Source::Builtin(complete_set_args)`; Shift-Tab
-      cycles back (KEYS.md T35, T36). Tests: today's completion tests unchanged; a
-      command without a row completes nothing; Shift-Tab.
+- [ ] QCOMP1 [M] (P2, after QCONF1) `COMPLETERS` table in config.rs (C1, built-in sources
+      only) and the GHOST SUGGESTION (C8, KEYS.md T45-T52) for every completable word
+      (command names, `:set` arguments): computed after each edit with the cursor at the
+      end, drawn dimmed after the cursor in the status bar, Tab/Shift-Tab cycle, Enter
+      runs typed + ghost, Right/End accept, Delete hides. Replaces today's inline
+      replace-and-cycle (`CommandCompletion`). Candidates become `String`; `:set` moves
+      to `Source::Builtin(complete_set_args)`. Tests (pure functions over line + cursor):
+      `:se` ghosts `t`; Tab cycles and wraps, Shift-Tab back; Enter runs the full text;
+      Delete then Enter runs the typed text; cursor not at the end -> no ghost; a command
+      without a row gets no ghost after its name.
 - [ ] QCOMP2 [M] (P2, after QCOMP1) External sources and the menu (C1, C2; KEYS.md T37,
-      T38, T42-T44, state MENU): `Source::Cmd(argv)` with the SCRATCHY_* environment;
+      T38, T42-T44, state MENU). 2026-11-20 (C8): the MENU part is ON HOLD (no key for it
+      now); the external-source part stays: run once per line and argument position on a
+      thread, output kept and prefix-filtered per keystroke to feed the ghost: `Source::Cmd(argv)` with the SCRATCHY_* environment;
       `MENU_CMD: Option<&[&str]>` (default `None`); both run on a thread, results as an
       `AppEvent` tagged so a stale result is dropped; Esc in MENU kills the child. Page
       text only ever reaches the child through stdin. Tests (fake menu/source scripts in
@@ -2960,16 +2973,16 @@ Order (feature work: after the perf queue): QCONF1 -> QCOMP1 -> QCOMP2; QCOMP3 a
       `:refresh` and `h`/`l` add nothing; a title with a tab/newline; file: not recorded;
       a long title is cut and the line stays <= 4096 bytes; trim keeps the newest lines;
       two writers appending concurrently produce whole lines.
-- [ ] QCOMP4 [S] (P2, after QCOMP1 and QCOMP3) Built-in `:go` source
+- [ ] QCOMP4 [S] (P2, after QCOMP1 and QCOMP3; feeds C8's ghost) Built-in `:go` source
       `complete_history_urls` (C7; STASH.md "Ranking"): site roots by site visits, then
       pages by own visits, ties by recency, `<url>\t<title>` lines (the chosen line's
       text before the first tab is used), prefix match after stripping the scheme and
       `www.`; bad lines skipped. Tests: a site with many single-visit pages outranks a
       page visited twice; a root URL appears once; ties go to the newest; `you` finds
       `https://www.youtube.com/`; empty word gives all; a chosen `url\ttitle` line and a
-      typed line without a tab. Real check with the user's tofi script: does tofi keep
-      the order while filtering (fuzzy match, its own --history)? Note the answer in
-      STASH.md.
+      typed line without a tab; `https://google` ghosts `.com/` against
+      `https://www.google.com/` and Enter runs `https://google.com/`; history read once
+      per line, not per key. (The tofi ordering check moves with the menu, ON HOLD.)
 - [x] QCOMP5 DROPPED 2026-11-20 (user: "`:go` should be enough"). Was: `o` in normal mode, the
       history menu navigating straight away (KEYS.md T39-T41, also dropped). Nothing to build.
 

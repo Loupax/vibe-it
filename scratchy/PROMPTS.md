@@ -8394,3 +8394,12 @@ Prompt: item QY53n3 (P3): hover changes that only gain/lose PAINT plus OFFSET ru
 > I think :go should be enough. I thought that was the one that was doing autocomplete as we type with tab
 
 **What changed:** docs only. KEYS.md: T39-T41 and the NORMAL<->MENU diagram edges dropped (row numbers kept), MENU always returns to COMMAND (T42, T43). STASH.md: `o` removed from the readers and the visit list. TODO.txt: C3 marked superseded, QCOMP5 ticked as DROPPED, the order and queue notes no longer mention `o`.
+
+## QCOMP-D C8: completion is a ghost suggestion as you type; Tab cycles, Enter accepts (user, docs only)
+
+> It should do something like this:
+> :go https://google|.com (where | is the location of the cursor on this example)
+
+> and tab cycles what matches after the cursor. Enter selects it.
+
+**What changed:** docs only. KEYS.md: rows T45-T52 (ghost after each edit with the cursor at the end, Tab/Shift-Tab cycle, Enter runs typed + ghost; proposed: Right/End accept, Delete hides), "Completion" rewritten around the ghost (prefix match with scheme/`www.` stripped, ghost continues what was typed, history read once per line, external sources run once per line), MENU and T35-T44 ON HOLD. TODO.txt: QCOMP-D C8; QCOMP1 now builds the ghost; QCOMP2's menu part on hold; QCOMP4 tests updated.

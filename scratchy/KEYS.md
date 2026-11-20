@@ -26,7 +26,7 @@ home-row mods, e.g. a Corne where Ctrl is a held `a`, or a tap-hold Caps Lock).
 | NORMAL | `NORMAL` | sticky | scratchy's bindings; the page gets no key events *(proposed, P2)* |
 | SEARCH | `/` + the query | one line | the status-bar line editor |
 | COMMAND | `:` + the command | one line | the status-bar line editor |
-| MENU | `MENU` | waiting | the external menu program's window (tofi etc.); scratchy only listens for Esc |
+| MENU | `MENU` | waiting | ON HOLD (see T35-T44): the external menu program's window (tofi etc.); scratchy only listens for Esc |
 
 Two short-lived helper states hold the timing rules: **ESC1** (in INPUT, one Esc seen,
 waiting for a second) and **G** (in NORMAL, one `g` seen, waiting for a second). The
@@ -52,8 +52,6 @@ stateDiagram-v2
     COMMAND --> NORMAL: Enter = run, Esc = cancel
     SEARCH --> INPUT: click into a text field or select
     COMMAND --> INPUT: click into a text field or select
-    COMMAND --> MENU: Tab, menu configured, 2+ candidates
-    MENU --> COMMAND: chosen = replace the word / cancelled = unchanged
 ```
 
 ## Transition table
@@ -109,7 +107,25 @@ timer is needed. The pure function is `resolve_esc_esc(state, key, repeat, now)`
 | T27 | COMMAND | Enter | none | NORMAL | run the command (`:q` may quit) |
 | T28 | COMMAND | Esc | none | NORMAL | cancel |
 
-### Completion and MENU (see "Completion" below)
+### Completion: ghost suggestion (see "Completion" below)
+
+User, 2026-11-20: completion is a suggestion shown AS YOU TYPE after the cursor, e.g.
+`:go https://google|.com` (`|` = cursor, `.com` drawn dimmed: "ghost text"). Tab cycles
+the suggestion through the other matches; Enter runs the line WITH the suggestion.
+These rows replace T35-T38 and T42-T44 (kept below, ON HOLD, for the menu question).
+
+| # | From | Event | Guard | To | Effect |
+|---|---|---|---|---|---|
+| T45 | COMMAND | an edit (insert, Backspace, paste, Ctrl-w ...) | cursor at the end of the line, the word under it is not empty, its source has 1+ matches | COMMAND | ghost = the rest of the FIRST match in the source's order (history: the C7 ranking); match index 0 |
+| T46 | COMMAND | an edit or a cursor move | otherwise (no match, empty word, cursor not at the end) | COMMAND | no ghost |
+| T47 | COMMAND | Tab | a ghost is shown | COMMAND | ghost = the next match (wraps to the first); the typed text does not change |
+| T48 | COMMAND | Shift-Tab | a ghost is shown | COMMAND | ghost = the previous match (wraps) |
+| T49 | COMMAND | Tab / Shift-Tab | no ghost | COMMAND | nothing |
+| T50 | COMMAND | Enter | a ghost is shown | NORMAL | run the typed text + the ghost (`:go https://google.com/`) |
+| T51 | COMMAND | Right / End | a ghost is shown | COMMAND | the ghost becomes typed text (keep typing after it); then T45 for the longer word *(proposed)* |
+| T52 | COMMAND | Delete | a ghost is shown | COMMAND | hide the ghost until the next edit, so Enter runs only what was typed *(proposed)* |
+
+ON HOLD (superseded by T45-T52 for Tab; the menu has no key until the user decides):
 
 | # | From | Event | Guard | To | Effect |
 |---|---|---|---|---|---|
@@ -168,7 +184,10 @@ errors). Other fields (load progress, hovered link target, pending `g`) only on 
 
 ## Completion
 
-Tab in COMMAND completes the word under the cursor, like bash's `complete`.
+In COMMAND, the word under the cursor gets a **ghost suggestion** as you type (T45-T52):
+the rest of the best match, drawn dimmed after the cursor; Tab / Shift-Tab cycle it
+through the other matches, Enter runs the line with it. Where the matches come from is
+set per command, like bash's `complete`:
 
 - **The first word** completes from the command names (built in).
 - **Later words** ask the command's **source**, from the `COMPLETERS` table in
@@ -186,13 +205,23 @@ Tab in COMMAND completes the word under the cursor, like bash's `complete`.
   `SCRATCHY_WORD` (the word being completed), `SCRATCHY_ARG` (its index, 1 = first
   argument), `SCRATCHY_URL` (the current page), `SCRATCHY_STATE_DIR`. It prints one
   candidate per line on stdout. Non-zero exit or nothing printed = no candidates.
+- **Matching and the ghost text.** A candidate matches when the typed word is a prefix
+  of it. For `:go` both sides are compared with `https://`/`http://` and `www.` removed,
+  and the ghost is the candidate's rest after that point, so it always continues exactly
+  what was typed: typed `https://google`, candidate `https://www.google.com/`, ghost
+  `.com/`, Enter runs `:go https://google.com/`.
+- **Per keystroke cost.** Built-in sources answer from memory: the history is read and
+  ranked once when the `:go` argument is first edited and kept while the line is open.
+  An external source runs once per line and argument position, on a thread; its output
+  is kept and filtered by scratchy per keystroke (it is not re-run per key).
 - **The built-in `:go` source** (`complete_history_urls`) reads the history file and
   ranks it (`STASH.md` "History" / "Ranking"): site roots by visits to the site, then
   pages by their own visits, ties by recency; candidate lines are `<url>\t<title>` and
   scratchy keeps the text before the first tab of the chosen line. It does no fuzzy
   matching itself: it keeps the entries whose URL, with `https://`/`http://` and `www.`
   stripped, starts with the word (the word empty = all). Fuzzy matching is the menu's job.
-- **The menu** (`MENU_CMD` in `src/config.rs`, an argv, `None` = no menu, inline Tab
+- **The menu (ON HOLD, 2026-11-20: Tab now cycles the ghost; open whether the menu gets
+  a key of its own or is dropped)** (`MENU_CMD` in `src/config.rs`, an argv, `None` = no menu, inline Tab
   only) speaks the dmenu protocol: candidates on stdin, one per line; the choice on
   stdout; non-zero exit = cancelled. Any dmenu-style program works: tofi, fuzzel,
   bemenu, wmenu, or fzf through a terminal wrapper. The user's own: a script that
