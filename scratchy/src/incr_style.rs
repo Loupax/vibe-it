@@ -145,8 +145,9 @@ fn reconcile_on() -> bool {
 
 /// QINC1i4: what the from-scratch build resolved for one `(node, memo slot)`: the style and whether
 /// resolving it read the viewport height (`VIEWPORT_H_READ` within that one resolve).
+/// Boxed: a restart moves the box into the element table (no second copy of every style).
 pub(crate) struct Rec {
-    style: ComputedStyle,
+    style: Box<ComputedStyle>,
     vh: bool,
 }
 
@@ -159,6 +160,8 @@ thread_local! {
     static RECORD: RefCell<Option<Record>> = const { RefCell::new(None) };
     /// QINC1i4: `RECORD` is collecting (one `Cell` test per resolve when off).
     static RECORDING: Cell<bool> = const { Cell::new(false) };
+    /// The last record's size (the next one is sized for it: no rehash while the build runs).
+    static RECORD_LEN: Cell<usize> = const { Cell::new(0) };
     static ENGINE: RefCell<Option<Engine>> = const { RefCell::new(None) };
     /// Bumped by `css::reset_custom_props_arena`: stored styles hold handles into the old arena.
     static ARENA_EPOCH: Cell<u64> = const { Cell::new(0) };
@@ -205,7 +208,7 @@ pub(crate) fn begin_build() -> bool {
     if SUPPRESS.with(Cell::get) || mode() == Mode::Off {
         return false;
     }
-    RECORD.with(|r| *r.borrow_mut() = Some(HashMap::new()));
+    RECORD.with(|r| *r.borrow_mut() = Some(HashMap::with_capacity(RECORD_LEN.with(Cell::get))));
     RECORDING.with(|r| r.set(true));
     true
 }
@@ -213,7 +216,9 @@ pub(crate) fn begin_build() -> bool {
 /// Stops recording and returns what the build resolved.
 fn take_record() -> Option<Record> {
     RECORDING.with(|r| r.set(false));
-    RECORD.with(|r| r.borrow_mut().take())
+    let r = RECORD.with(|r| r.borrow_mut().take());
+    RECORD_LEN.with(|n| n.set(r.as_ref().map_or(0, HashMap::len)));
+    r
 }
 
 /// QINC1i4: `resolve_style_for` calls this before resolving: while a build records, the viewport-height
@@ -234,7 +239,7 @@ pub(crate) fn record(handle: &Handle, pseudo: Option<&str>, style: &ComputedStyl
             && let Some(m) = r.as_mut()
             && let Some(slot) = crate::style::pseudo_slot(pseudo)
         {
-            m.insert((node_id(handle), slot), Rec { style: *style, vh });
+            m.insert((node_id(handle), slot), Rec { style: Box::new(*style), vh });
         }
     });
 }
@@ -1021,7 +1026,8 @@ impl Engine {
                 seed_match(h, rules, cx.vw, 0, m.clone());
                 m
             };
-            let (s, reads_vh) = self.style_of(cx, h, k, 0, inh);
+            let (sb, reads_vh) = self.style_of(cx, h, k, 0, inh);
+            let s = *sb;
             let wide = decls_of(rules, &m0).iter().any(|(_, d)| !d.wide.is_empty())
                 || element_attr(h, "style").is_some_and(|v| ["inherit", "unset", "revert", "initial"].iter().any(|w| v.contains(w)));
             if need_match {
@@ -1064,7 +1070,7 @@ impl Engine {
                     if has_box {
                         let ps = self.style_of(cx, h, k, slot, &own).0;
                         animated |= crate::anim_eval::is_animated(&ps, cx.vw);
-                        pseudo[slot as usize - 1] = Some(Box::new(ps));
+                        pseudo[slot as usize - 1] = Some(ps);
                     }
                     ms[slot as usize] = Some(m);
                 }
@@ -1110,7 +1116,7 @@ impl Engine {
             let e = self.table.get_mut(&k).expect("inserted above");
             e.why = why;
             e.m = ms;
-            e.style = Some(Box::new(s));
+            e.style = Some(sb);
             e.pseudo = pseudo;
             e.reads_parent = wide;
             e.reads_vh = reads_vh;
@@ -1154,10 +1160,10 @@ impl Engine {
     /// read the viewport height. QINC1i4: a full update right after a from-scratch build ADOPTS what the
     /// build resolved (same DOM, rules, state and inherited input; check mode cascades anyway and
     /// compares).
-    fn style_of(&mut self, cx: &Cx, h: &Handle, k: usize, slot: u8, inh: &InheritedStyle) -> (ComputedStyle, bool) {
-        let adopted = if self.full { cx.adopt.and_then(|a| a.get(&(k, slot))) } else { None };
-        if let Some(r) = adopted
-            && !cx.verify
+    fn style_of(&mut self, cx: &Cx, h: &Handle, k: usize, slot: u8, inh: &InheritedStyle) -> (Box<ComputedStyle>, bool) {
+        let adopt = cx.adopt.filter(|_| self.full);
+        if !cx.verify
+            && let Some(r) = adopt.and_then(|a| a.borrow_mut().remove(&(k, slot)))
         {
             self.stats.adopted += 1;
             return (r.style, r.vh);
@@ -1165,7 +1171,8 @@ impl Engine {
         let vh_before = crate::dom::VIEWPORT_H_READ.with(|v| v.replace(false));
         let s = resolve_style_for(h, cx.rules, *inh, cx.vw, slot_pseudo(slot));
         let reads_vh = crate::dom::VIEWPORT_H_READ.with(|v| v.replace(vh_before));
-        match adopted {
+        let rec = adopt.map(RefCell::borrow);
+        match rec.as_ref().and_then(|a| a.get(&(k, slot))) {
             None => self.stats.resolved += 1,
             Some(r) => {
                 self.stats.adopted += 1;
@@ -1178,12 +1185,12 @@ impl Engine {
                 }
             }
         }
-        (s, reads_vh)
+        (Box::new(s), reads_vh)
     }
 
     /// One incremental update after a from-scratch build of `doc`. `adopt`: what that build resolved
     /// (a full update takes it instead of cascading again; `None` for an App frame's live update).
-    fn update(&mut self, doc: &Handle, rules: &Rc<Vec<StyleRule>>, vw: f32, vh: f32, adopt: Option<&Record>) {
+    fn update(&mut self, doc: &Handle, rules: &Rc<Vec<StyleRule>>, vw: f32, vh: f32, adopt: Option<&RefCell<Record>>) {
         self.stats = Stats::default();
         self.updates += 1;
         self.touched.clear();
@@ -1386,7 +1393,7 @@ impl Engine {
     fn compare(&self, fresh: &Record) -> Vec<String> {
         let mut out = Vec::new();
         for (&(k, slot), rec) in fresh {
-            let fs = &rec.style;
+            let fs = &*rec.style;
             let e = self.table.get(&k);
             let es = e.and_then(|e| if slot == 0 { e.style.as_deref() } else { e.pseudo[slot as usize - 1].as_deref() });
             let what = match es {
@@ -1442,7 +1449,7 @@ struct Cx<'a> {
     first_line: bool,
     first_letter: bool,
     /// QINC1i4: the from-scratch build's styles (a full update adopts them).
-    adopt: Option<&'a Record>,
+    adopt: Option<&'a RefCell<Record>>,
     /// Check mode: cascade an adopted style anyway and compare.
     verify: bool,
 }
@@ -1546,6 +1553,8 @@ pub(crate) fn after_build(
 ) {
     let vh = viewport_height.unwrap_or(1080.0);
     let fresh = take_record();
+    let styled = fresh.as_ref().map_or(0, |f| f.keys().filter(|k| k.1 == 0).count() as u64);
+    let fresh = fresh.map(RefCell::new);
     let check = checking();
     let t0 = std::time::Instant::now();
     let t_phase = crate::perf::phase(crate::perf::Phase::IncrShadow);
@@ -1557,11 +1566,10 @@ pub(crate) fn after_build(
         }
         let eng = slot.as_mut().expect("just set");
         eng.update(doc, rules, vw, vh, fresh.as_ref());
-        let styled = fresh.as_ref().map_or(0, |f| f.keys().filter(|k| k.1 == 0).count() as u64);
         eng.stats.styled_fresh = styled;
         let mut mism = std::mem::take(&mut eng.adopt_mism);
         if check && let Some(f) = fresh.as_ref() {
-            mism.extend(eng.compare(f));
+            mism.extend(eng.compare(&f.borrow()));
         }
         if check && fresh.is_some() {
             // R60 6.4: the counter / quote walk over stored matches equals the build's own walk.

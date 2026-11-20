@@ -495,6 +495,9 @@ fn qinc1a_fuzz_two_from_scratch_layouts_never_differ() {
     let n = env_usize("SCRATCHY_FUZZ_N", default_n);
     let base = env_usize("SCRATCHY_FUZZ_SEED", 0) as u64;
     let custom = env::var("SCRATCHY_FUZZ_N").is_ok() || env::var("SCRATCHY_FUZZ_SEED").is_ok();
+    // QINC1i4: `SCRATCHY_FUZZ_ADOPT_VERIFY=0` adopts the build's styles on full updates as
+    // `SCRATCHY_INCR=1` does (no verifying cascade; the box and laid-tree compares still run).
+    let verify = crate::incr_style::set_adopt_verify(!env::var("SCRATCHY_FUZZ_ADOPT_VERIFY").is_ok_and(|v| v == "0"));
     let mut fs = new_font_system();
     let t0 = std::time::Instant::now();
     let window = base..base + n as u64;
@@ -509,6 +512,7 @@ fn qinc1a_fuzz_two_from_scratch_layouts_never_differ() {
         "qinc1a/qinc1f/qinc1g/qinc1h1 fuzz: {n} cases in {:.1}s, {inc} incremental restyle steps, {bsteps} incremental box rebuilds ({rebuilt} boxes rebuilt, {reused} reused), {lsteps} incremental relayouts ({hits} cache hits, {splices} bottom-up splices)",
         t0.elapsed().as_secs_f64()
     );
+    crate::incr_style::set_adopt_verify(verify);
     let failed = FUZZ_FAILED.with(|c| c.replace(0));
     assert_eq!(failed, 0, "{failed} failing cases (SCRATCHY_FUZZ_KEEP_GOING=1 printed them)");
     assert!(n < 20 || inc > n, "the fuzz must exercise incremental updates, not only full ones ({inc} for {n} cases)");
