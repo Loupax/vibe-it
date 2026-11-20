@@ -1,0 +1,106 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>incr-gate hover fixture</title>
+<!-- QINC1k: script-free, hover-heavy page. No forced layouts at all: every frame the pointer
+     causes is an App frame (paint-only hovers: colour / background / outline; layout hovers:
+     padding, border width, font size, flex-grow, display of a submenu, an abs tooltip, ::before).
+     tools/incr-gate/run.sh sweeps the pointer over it in a raster. -->
+<style>
+  body { margin: 0; font: 14px/1.4 sans-serif; background: #fafafa; }
+  header { display: flex; gap: 4px; padding: 6px; background: #234; }
+  header > div { position: relative; color: #fff; padding: 6px 10px; }
+  header > div:hover { background: #456; }
+  header ul { display: none; position: absolute; left: 0; top: 100%; margin: 0; padding: 4px 0;
+              list-style: none; background: #fff; border: 1px solid #999; min-width: 140px; z-index: 5; }
+  header > div:hover > ul { display: block; }
+  header li { color: #123; padding: 3px 10px; }
+  header li:hover { background: #def; padding-left: 16px; }
+  main { display: flex; gap: 16px; padding: 10px; }
+  main > div { flex: 3; }
+  .grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+  .card { background: #fff; border: 1px solid #ccc; padding: 6px; min-height: 60px; }
+  .card:hover { background: #ffe; border-color: #c80; }
+  .card .t { font-weight: bold; }
+  .card:hover .t { color: #c00; text-decoration: underline; }
+  .card.l:hover { padding: 10px; border-width: 3px; }
+  .card.f:hover .b { font-size: 17px; }
+  .card .tip { display: none; position: absolute; background: #333; color: #fff; padding: 2px 6px; }
+  .card.p { position: relative; }
+  .card.p:hover .tip { display: block; left: 10px; top: -18px; }
+  aside { flex: 1; }
+  aside a { display: block; color: #06c; padding: 2px 0; }
+  aside a:hover { color: #fff; background: #06c; outline: 2px solid #039; }
+  table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+  td { border: 1px solid #ddd; padding: 3px 5px; }
+  tr:hover td { background: #eef; }
+  td:hover { font-weight: bold; }
+  .list li:hover::before { content: "> "; color: #c00; }
+  .flexrow { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 10px; }
+  .flexrow span { flex: 1 1 60px; background: #eee; padding: 4px; text-align: center; }
+  .flexrow span:hover { flex-grow: 2; background: #cfc; }
+</style></head>
+<body>
+<header>
+  <div>File<ul><li>New</li><li>Open</li><li>Save</li><li>Close</li></ul></div>
+  <div>Edit<ul><li>Undo</li><li>Redo</li><li>Cut</li><li>Copy</li><li>Paste</li></ul></div>
+  <div>View<ul><li>Zoom in</li><li>Zoom out</li><li>Full screen</li></ul></div>
+  <div>Tools<ul><li>Options</li><li>Extensions</li></ul></div>
+  <div>Help<ul><li>About</li><li>Manual</li></ul></div>
+</header>
+<main>
+<div>
+<div class="grid">
+  <div class="card"><div class="t">Card 1</div><div class="b">paint-only hover</div></div>
+  <div class="card l"><div class="t">Card 2</div><div class="b">padding + border</div></div>
+  <div class="card f"><div class="t">Card 3</div><div class="b">font-size hover</div></div>
+  <div class="card p"><div class="tip">tooltip 4</div><div class="t">Card 4</div><div class="b">abs tooltip</div></div>
+  <div class="card"><div class="t">Card 5</div><div class="b">paint-only hover</div></div>
+  <div class="card l"><div class="t">Card 6</div><div class="b">padding + border</div></div>
+  <div class="card f"><div class="t">Card 7</div><div class="b">font-size hover</div></div>
+  <div class="card p"><div class="tip">tooltip 8</div><div class="t">Card 8</div><div class="b">abs tooltip</div></div>
+  <div class="card"><div class="t">Card 9</div><div class="b">paint-only hover</div></div>
+  <div class="card l"><div class="t">Card 10</div><div class="b">padding + border</div></div>
+  <div class="card f"><div class="t">Card 11</div><div class="b">font-size hover</div></div>
+  <div class="card p"><div class="tip">tooltip 12</div><div class="t">Card 12</div><div class="b">abs tooltip</div></div>
+  <div class="card"><div class="t">Card 13</div><div class="b">paint-only hover</div></div>
+  <div class="card l"><div class="t">Card 14</div><div class="b">padding + border</div></div>
+  <div class="card f"><div class="t">Card 15</div><div class="b">font-size hover</div></div>
+  <div class="card p"><div class="tip">tooltip 16</div><div class="t">Card 16</div><div class="b">abs tooltip</div></div>
+  <div class="card"><div class="t">Card 17</div><div class="b">paint-only hover</div></div>
+  <div class="card l"><div class="t">Card 18</div><div class="b">padding + border</div></div>
+  <div class="card f"><div class="t">Card 19</div><div class="b">font-size hover</div></div>
+  <div class="card p"><div class="tip">tooltip 20</div><div class="t">Card 20</div><div class="b">abs tooltip</div></div>
+  <div class="card"><div class="t">Card 21</div><div class="b">paint-only hover</div></div>
+  <div class="card l"><div class="t">Card 22</div><div class="b">padding + border</div></div>
+  <div class="card f"><div class="t">Card 23</div><div class="b">font-size hover</div></div>
+  <div class="card p"><div class="tip">tooltip 24</div><div class="t">Card 24</div><div class="b">abs tooltip</div></div>
+</div>
+<div class="flexrow"><span>one</span><span>two</span><span>three</span><span>four</span><span>five</span><span>six</span><span>seven</span><span>eight</span><span>nine</span><span>ten</span></div>
+<table>
+  <tr><td>a1</td><td>b1</td><td>c1</td><td>d1</td><td>e1</td><td>f1</td></tr>
+  <tr><td>a2</td><td>b2</td><td>c2</td><td>d2</td><td>e2</td><td>f2</td></tr>
+  <tr><td>a3</td><td>b3</td><td>c3</td><td>d3</td><td>e3</td><td>f3</td></tr>
+  <tr><td>a4</td><td>b4</td><td>c4</td><td>d4</td><td>e4</td><td>f4</td></tr>
+  <tr><td>a5</td><td>b5</td><td>c5</td><td>d5</td><td>e5</td><td>f5</td></tr>
+  <tr><td>a6</td><td>b6</td><td>c6</td><td>d6</td><td>e6</td><td>f6</td></tr>
+  <tr><td>a7</td><td>b7</td><td>c7</td><td>d7</td><td>e7</td><td>f7</td></tr>
+  <tr><td>a8</td><td>b8</td><td>c8</td><td>d8</td><td>e8</td><td>f8</td></tr>
+</table>
+<ul class="list">
+  <li>List item one with some text that wraps when the window is narrow enough to need it</li>
+  <li>List item two</li><li>List item three</li><li>List item four</li><li>List item five</li>
+  <li>List item six</li><li>List item seven</li><li>List item eight</li><li>List item nine</li>
+</ul>
+<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore
+magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo
+consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.</p>
+</div>
+<aside>
+  <a href="#1">Sidebar link one</a><a href="#2">Sidebar link two</a><a href="#3">Sidebar link three</a>
+  <a href="#4">Sidebar link four</a><a href="#5">Sidebar link five</a><a href="#6">Sidebar link six</a>
+  <a href="#7">Sidebar link seven</a><a href="#8">Sidebar link eight</a><a href="#9">Sidebar link nine</a>
+  <a href="#10">Sidebar link ten</a><a href="#11">Sidebar link eleven</a><a href="#12">Sidebar link twelve</a>
+  <a href="#13">Sidebar link thirteen</a><a href="#14">Sidebar link fourteen</a><a href="#15">Sidebar link fifteen</a>
+  <a href="#16">Sidebar link sixteen</a><a href="#17">Sidebar link seventeen</a><a href="#18">Sidebar link eighteen</a>
+</aside>
+</main>
+</body></html>
