@@ -974,6 +974,9 @@ Shared rules for this block:
       QY54a wl-drain queue, DOM/realm leaks from iframes QPT1). Fix the leak(s); add a guard if a cache is unbounded.
       Gate: 60 min of YouTube watch stays under ~1 GB RSS and flat after warm-up; regression test for the leaking structure.
       Absorbs QMEM3f.
+      LEAD 2026-11-20 14:08 (QPROF1 run): a HEADLESS `--perf-report --seconds 30` run hit the 6 GB cap in 33 s, OOM
+      triggered by `dav1d-worker` (AV1 decode) -> video decode path (media_video.rs / mpv frames / frame pool QM1g2a1 #405 /
+      render thread QM1g2a #388); reproducible in ~30 s, start there. QPROF1's report names the page.
 - [ ] QMEM3f [S] (P4, from QMEM3; Opus measure) 10-minute live-window RSS sample on YT watch: the window grows ~0.22 MB/s
       in the first minute; leak or warm-up?
 - [ ] QBBC1 [M, Opus, investigate first] (P3, user screenshot 2026-11-19 ~22:50, installed main 10a9d6e, window ~958 px wide;
