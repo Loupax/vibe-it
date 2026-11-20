@@ -55,8 +55,8 @@ Persistent storage (user 2026-11-19, design in STASH.md, decision QSTASH-D): QST
 wait for the perf queue like everything else. READY once the PR that adds STASH.md is merged. Order: QSTASH1 -> QSTASH2;
 QSTASH4 and QSTASH5 (wire) any time, in parallel; QSTASH3 last (needs 1 and 5).
 Keyboard modes (user 2026-11-20, design QKEYS-D in its own block near the end of the QUEUE): page mode / normal mode,
-Esc Esc, always-visible status bar, start in page mode. Feature work: waits for the perf queue. Order: QKEYS1 -> QKEYS2 ->
-QKEYS3 and QKEYS4 (either order). QKEYS-D's P2-P6 are Claude's proposals; confirm with the user before QKEYS2 starts.
+Esc Esc, `i`, always-visible status bar, start in page mode; then `/` search (QSEARCH-D, block right after it). Feature
+work: waits for the perf queue. Order: QKEYS1 -> QKEYS2 -> QKEYS3 and QKEYS4 (either order); QSEARCH1 -> 2 -> 3 after QKEYS2. QKEYS-D's P2-P6 are Claude's proposals; confirm with the user before QKEYS2 starts.
 
 (History: 2026-11-18 TOP PRIORITY "switch the JS engine to V8, drain, then freeze" is DONE, freeze
 lifted after QV8-m; QV8-6 (remove QuickJS) still needs the user's OK. The 2026-11-19 blockers QV8-4a
@@ -2721,7 +2721,7 @@ QSTASH — persistent web storage (user design session 2026-11-19; full design i
       and `X-Wire-Cookie-Op: clear-site`. See wire/TODO.txt W-PERSIST1.
 
 ========================================================================
-QKEYS — page mode / normal mode, Esc Esc, status bar (user design session 2026-11-20)
+QKEYS — page mode / normal mode, Esc Esc, `i`, status bar (user design session 2026-11-20)
 ========================================================================
 
 - QKEYS-D DESIGN (user, 2026-11-20). Replaces the bare-key vim bindings that are always on
@@ -2760,6 +2760,22 @@ QKEYS — page mode / normal mode, Esc Esc, status bar (user design session 2026
      otherwise: normal mode stays on until left, so `jjjj` works (not one-shot like a tmux
      prefix). A single Esc leaves it (back to page mode). Esc in the `:` command line goes
      back to normal mode, as it goes back to Normal today.
+     [SUPERSEDED by D6 the same day: Esc no longer leaves normal mode, `i` does.]
+  D6 (user 2026-11-20, with /search in mind) `i` leaves normal mode for page mode (like vim's
+     insert: "hand the keyboard to the page"). Esc in normal mode NEVER changes the mode; it
+     only cancels (clears search highlights, a pending `g`). So: Esc Esc = keyboard to
+     scratchy, `i` = keyboard to the page. You leave normal mode only on purpose, when a page
+     needs its own keys; that is also why modes stay sticky across navigations (D4).
+  D7 (user 2026-11-20) The modes and their kind:
+       PAGE     sticky    -> NORMAL by Esc Esc
+       NORMAL   sticky    -> PAGE by `i` (or P4's click into a text control/select)
+       COMMAND  one line  `:` from NORMAL; Enter runs, Esc cancels; both back to NORMAL
+       SEARCH   one line  `/` from NORMAL; Enter commits, Esc cancels; both back to NORMAL
+     COMMAND and SEARCH are the stated exceptions to D5's stickiness.
+  D8 (user 2026-11-20) The status bar (D3) shows the mode, the current URL and messages
+     (search counts `[3/17]`, "search hit BOTTOM, continuing at TOP", errors); COMMAND and
+     SEARCH are typed in it. Other fields (load progress, hovered link target, pending `g`)
+     are later items, only on request.
   PROPOSED (Claude 2026-11-20, not yet confirmed by the user; build the proposal unless
   the user says otherwise before the item starts):
   P2 In normal mode the page gets NO key events at all (keydown/keyup are not
@@ -2781,7 +2797,7 @@ QKEYS — page mode / normal mode, Esc Esc, status bar (user design session 2026
 
 - [ ] QKEYS1 [M] (P2, after the perf queue) Status bar (D3, D4). Paint a one-line strip at
       the bottom (chrome, like paint_command_bar, which it absorbs: the `:` line is drawn
-      in the same strip) showing the mode name; for now the mode is "PAGE" while vim
+      in the same strip) showing the mode name, the current URL and the last message (D8); for now the mode is "PAGE" while vim
       bindings are off and "NORMAL" while on, until QKEYS2 lands. The viewport the page
       sees shrinks by the bar height everywhere it is computed (layout width/height,
       `innerHeight`/`visualViewport`, `resize` event, max scroll, fixed-position boxes,
@@ -2790,8 +2806,8 @@ QKEYS — page mode / normal mode, Esc Esc, status bar (user design session 2026
       `innerHeight` matches; the bar text follows the mode. Real check: grim of a long page
       scrolled to the bottom, its last line visible above the bar.
 
-- [ ] QKEYS2 [M] (P2, after QKEYS1) Page mode / normal mode and Esc Esc (D1, D2, D4,
-      D5, P2-P4). A pure, unit-testable `resolve_esc_esc(state, key, repeat, now) -> (state,
+- [ ] QKEYS2 [M] (P2, after QKEYS1) Page mode / normal mode, Esc Esc and `i` (D1, D2, D4,
+      D5, D6, D7, P2-P4). A pure, unit-testable `resolve_esc_esc(state, key, repeat, now) -> (state,
       enter)` next to `resolve_pending_g` (timestamps passed in, no clock inside). Key
       routing in the `WindowEvent::KeyboardInput` branch: page mode = today's order
       (js_key, select popup, select, text control, media, Tab) with bindings never
@@ -2800,8 +2816,8 @@ QKEYS — page mode / normal mode, Esc Esc, status bar (user design session 2026
       Esc Esc within 300 ms enters, slower / another key between / a repeat does not; the
       second Esc never reaches the page; a page that cancels the first Esc still lets Esc
       Esc through; in normal mode a page keydown listener sees nothing and `j` scrolls;
-      in page mode `j`/`l` reach the page and scroll/navigate nothing; single Esc leaves;
-      a navigation keeps normal mode. Real checks (tools/nest.sh + tools/inject): YouTube
+      in page mode `j`/`l` reach the page and scroll/navigate nothing; `i` leaves (D6);
+      Esc in normal mode does NOT leave; a navigation keeps normal mode. Real checks (tools/nest.sh + tools/inject): YouTube
       watch `l` seeks without going forward in history; social.loupax.com (vim.js) Esc Esc
       then `:` opens scratchy's command line.
 
@@ -2814,6 +2830,54 @@ QKEYS — page mode / normal mode, Esc Esc, status bar (user design session 2026
       PageUp/PageDown, Space/Shift-Space, after the page's keydown and only when nothing
       focused owns the key. Tests: each key scrolls; a page that cancels it stops it; a
       focused text control keeps Space and the arrows.
+
+========================================================================
+QSEARCH — `/` search, n/N, Enter (user design session 2026-11-20; needs QKEYS2)
+========================================================================
+
+- QSEARCH-D DESIGN (user, 2026-11-20). Vim-style search in normal mode (QKEYS-D D7).
+  S1 `/` in normal mode opens SEARCH: the query is typed in the status bar (same editor as
+     `:`, TextEditBuffer). Enter commits and goes back to normal mode with the current
+     match on screen; Esc cancels (no change) and goes back to normal mode.
+  S2 What is searched: the RENDERED text of the laid-out page (layout text runs), not DOM
+     text, so hidden text never matches and every match has a position to scroll to and
+     paint. A match may span inline element boundaries (`foo<b>bar</b>` finds "foobar"),
+     not block boundaries. Plain text, SMARTCASE (case-insensitive unless the query has a
+     capital). No regex. Only the top-level document (not iframes, not inside text controls).
+  S3 Highlights are chrome painted over the page (like the scrollbar): every match one
+     colour, the current match a stronger one. Esc in normal mode clears them (QKEYS-D D6);
+     the query is kept. The status bar shows `[i/N]` and the wrap message (D8).
+  S4 `n` / `N`: next / previous match in document order, wrapping with the status-bar
+     message; scroll so the current match is visible.
+  S5 Matches are recomputed after every relayout (live pages keep changing); the current
+     match stays the nearest one to where it was.
+  S6 Across navigations: the last query is kept (like vim's last-search register), the
+     highlights are not: `n` on a new page runs the kept query there.
+  S7 Enter in normal mode with a current match: a real CLICK on the element holding the
+     match (JS click dispatch with its default action, the same path as a mouse click),
+     not a direct navigation to an href. So a plain link navigates, an SPA router link
+     (YouTube, GitHub) goes through the page's own click handler instead of a full reload,
+     and buttons/summary/etc. work too. No on-screen requirement (user 2026-11-20: left out).
+     Enter with no current match does nothing.
+  Not now (each only on request): `?` backward search, `*`/`#`, regex, incremental
+  highlighting while typing, search in iframes or text controls.
+
+- [ ] QSEARCH1 [M] (P2, after QKEYS2) Find + highlight (S1, S2, S3, S5): SEARCH mode in the
+      status bar, a pure match finder over the layout's text runs (input: laid-out runs +
+      query; output: ordered match rects; unit-testable without a window), smartcase,
+      inline-spanning matches, highlight painting, recompute after relayout, Esc in normal
+      mode clears. Tests: matches across `<b>`, none across blocks, `display:none` text
+      never matches, smartcase both ways, recompute keeps the nearest current match.
+
+- [ ] QSEARCH2 [S] (P2, after QSEARCH1) `n`/`N` (S4, S6): next/previous with wrap and the
+      status-bar message, scroll into view, query kept across navigations. Tests: wrap both
+      ways, `[i/N]` text, the kept query on a new page.
+
+- [ ] QSEARCH3 [S] (P2, after QSEARCH2) Enter clicks the current match (S7). Tests: a match
+      in a plain link navigates; a match in a link whose click handler calls
+      preventDefault does not navigate and the handler ran; a match in a `<button>` fires
+      its click; Enter with no match does nothing. Real check: YouTube results, `/` a title,
+      Enter opens the watch page through the page's router (no full reload in the log).
 
 ========================================================================
 HISTORY AND DETAIL (everything below is the original log)

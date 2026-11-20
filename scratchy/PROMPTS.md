@@ -8318,3 +8318,12 @@ Prompt: item QY53n3 (P3): hover changes that only gain/lose PAINT plus OFFSET ru
 > I forgot to answer, modes are sticky unless otherwise mentioned. Let's call "scratchy" mode NORMAL instead. what else do we have?
 
 **What changed:** docs only. TODO.txt QKEYS block: new D5 (the mode is called NORMAL; modes are sticky unless stated otherwise; replaces proposal P1); D4 narrowed to "page mode at process start, a navigation keeps the mode" (the earlier "every page starts in page mode" conflicted with stickiness: `h h h` would drop out after one step); P4 reduced to its one exception (a click into a text control/select switches to page mode); the open question about non-navigating `:` commands is closed by D5; QKEYS2 tests follow.
+
+## QKEYS-D update + QSEARCH-D: `i` leaves NORMAL, `/` search with n/N and Enter (user design session, docs only)
+
+> let's think a bit more long term on this. I plan to introduce a `/search` mode, similar to vim, with n and N keystrokes for navigating the results. When the selected result is a link, hitting enter should navigate. I think with this UX in mind it makes sense to keep modes sticky between navigations because one will want to leave NORMAL mode only if the page asks them to requiring the scratchy keystrokes in order to work
+
+> yes, write it up. I just don't want this, leave the following out for now
+> Safety rule: Enter only acts if the current match is on screen. If you've scrolled away with j/k, Enter does nothing and the status bar says why.
+
+**What changed:** docs only. TODO.txt QKEYS block: D6 (`i` leaves normal mode; Esc in normal mode only cancels, supersedes D5's "Esc leaves"), D7 (PAGE/NORMAL sticky, COMMAND/SEARCH one-line), D8 (status bar shows mode, URL, messages), QKEYS1/QKEYS2 updated. New QSEARCH block: design QSEARCH-D S1-S7 (rendered-text search, smartcase, painted highlights, n/N with wrap, recompute after relayout, query kept across navigations, Enter = a real click on the match's element, no on-screen requirement) and items QSEARCH1-QSEARCH3. Queue note updated.
