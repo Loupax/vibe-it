@@ -785,6 +785,7 @@ fn qy6g_zero_cost_before_use() {
 
 /// Like `qy6g_run` with a caller-supplied body (viewport 1024x768).
 fn qy57_run(body: &str, code: &str) -> Vec<String> {
+    crate::js_geom::TEST_FIXED_COST_MS.with(|c| c.set(Some(1.0))); // QFLK2
     let out = Rc::new(RefCell::new(Vec::new()));
     let o = out.clone();
     let clock = Rc::new(std::cell::Cell::new(0.0));
@@ -913,6 +914,8 @@ fn qy57_take_records_and_dom_writes_recheck() {
 
 /// `qy57_run` that also returns how many forced layouts ran.
 fn qy53e1_run(body: &str, code: &str) -> (Vec<String>, usize) {
+    // QFLK2: the recheck deadline is 4x the measured (CPU) layout cost; pin it so load cannot move delivery times.
+    crate::js_geom::TEST_FIXED_COST_MS.with(|c| c.set(Some(1.0)));
     crate::js_geom::GEOM_LAYOUTS.with(|c| c.set(0));
     let log = qy57_run(body, code);
     (log, crate::js_geom::GEOM_LAYOUTS.with(|c| c.get()))
@@ -1715,6 +1718,8 @@ const QY53E2_CODE: &str = r#"const f = n => n.toFixed(1);
 /// mode 0: forced layout only; 1: the App's layout is handed over after the write; 2: the DOM changes
 /// again after the App built its layout (stale).
 fn qy53e2_run(mode: u8) -> (Vec<String>, usize) {
+    // QFLK2: pin the measured layout cost (the IO recheck deadline is max(100, 4 x cost) ms).
+    crate::js_geom::TEST_FIXED_COST_MS.with(|c| c.set(Some(1.0)));
     let out = Rc::new(RefCell::new(Vec::new()));
     let o = out.clone();
     let clock = Rc::new(std::cell::Cell::new(0.0));
