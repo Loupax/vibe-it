@@ -1314,8 +1314,11 @@ fn qf7_app_net(proxy: &winit::event_loop::EventLoopProxy<AppEvent>) {
     let mut app = App::new_static(doc.clone(), proxy.clone(), None);
     crate::js_net::set_net_executor(fake.clone());
     let page = Url::parse("https://page.test/").unwrap();
-    let code = format!("{} h.promise.then(function(r){{ return r.text(); }}).then(function(t){{ window.__done = t; }});", qf7_go("https://page.test/a", ""));
-    app.js = run_page_scripts(&doc, &[src(&code)], Some(&page));
+    // Not `qf7_go`: its own `.then` already consumes the body with `r.text()`, so a second
+    // `r.text()` here rejects with "body already used" and `__done` is never set (QFLK3).
+    let code = "var h = __net_request({method:'GET', url:'https://page.test/a', headers:[], body:null}); \
+                h.promise.then(function(r){ return r.text(); }).then(function(t){ window.__done = t; });";
+    app.js = run_page_scripts(&doc, &[src(code)], Some(&page));
     app.js_sync();
     for _ in 0..200 {
         if !fake.urls().is_empty() {
