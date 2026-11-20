@@ -161,6 +161,30 @@ a full ~60-80 ms layout.
 - No item for the QYTC1d class probes (6-7 of ~125 first writes had no verdict) or `aria-label` (a selector reads it): too
   rare to matter here.
 
+### QY54b2 note: the prefiltered rule list does not pay (measured, no code change)
+
+The premise of QY54b2 is that `precompute_generated`'s matching is *on top of* `build_children`'s own. It is not. Both use the same
+per-layout `MATCH_MEMO` (set before the pre-pass runs), so the pre-pass pays the first, and only, match of every
+(element, pseudo): the later passes hit the memo. Measured (temporary counters and `Instant`, release build of main 022830a plus the
+counters, headless `--perf-report --seconds 15` on the YouTube results page, own wire, under flock, load 1-2.4, 45 forced layouts):
+- Matching is 90 % of the pre-pass: walk 11.6-14.9 ms, of which `matching_declarations_for` 10.5-13.4 ms (3 calls per element:
+  none, `::before`, `::after`). So the first half of the claim holds (the item's alternative is not needed).
+- But `matching_indices_for` ran 7 745 times in the pre-pass and **once** more in the whole `build_children` (7 746 vs 7 745;
+  8 454 vs 8 453). Everything `build_children` needs is already memoized by the pre-pass.
+- Phase totals of the 45 layouts (main): precompute_generated 401 ms, build_children 780, measure_document 358, all 1 616 ms.
+
+A matcher restricted to the rules that declare `display`/generated properties would make the pre-pass cheap (<4 ms), but its results
+cannot seed the memo (they are partial), so `build_children` would run the full match for every element itself: the
+~10.5-13 ms moves from one phase to the other, and the total goes up by the (small) cost of the extra restricted pass. The gate
+"total per layout -15 %" cannot be met this way; the < 4 ms gate would be met only by relabelling work. Nothing was implemented.
+
+What would reduce the total: the match itself (about 1.4 us per call, 7.7k calls a layout) must not be redone, i.e. a match memo that
+survives from one forced layout to the next for elements whose own attributes, ancestors, preceding siblings and the rule
+generation did not change (the same validity question as QY53n1c's hover memo, but for script forced layouts). With 45 % of
+the reads following a node insert/remove, the unchanged part of the 5-6.5k elements is most of them. Proposed: QY54b2b (size M,
+Opus design first: key = (node, rules generation, viewport width); invalidation by DOM mutation epoch per subtree/ancestor chain and
+`:has`/sibling flags from `rules_cache::current()`; with `has`/`sib` rules present, drop the memo).
+
 ## R57: QY54a design: a helper thread keeps reading the Wayland socket while the main thread is busy, so the compositor never fills its send buffer for scratchy (R56 section 2: lost at ~190-225 unread motion events). libwayland supports this: several threads may read one `wl_display` (`wl_display_prepare_read_queue` / `wl_display_read_events`), and the events still go to winit's queue, which only the main thread dispatches. So input order and hit-testing do not change. winit 0.30.13 uses the system libwayland (`wayland-backend` `client_system`), gives the `wl_display*` through its raw display handle, and runs the same pattern itself in its `pump_events` notifier thread. A throwaway winit 0.30.13 + softbuffer 0.4.8 prototype in the nested dwl: without the thread, a 450 ms and a 3 s busy loop at ~460 Hz motion are lost at the first stall. With it, 3/3 busy450 and 3/3 busy3000 survive all stalls, no move is lost, the order is kept, and the cost is +0.08 s sys CPU per 15 s of motion (Opus, 2026-11-20, design only, docs only) — OPEN: proposed QY54a1-QY54a3 (below)
 
 ### 1. How scratchy talks to the compositor today
