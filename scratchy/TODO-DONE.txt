@@ -7961,3 +7961,10 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QY53f1d DONE b3f6589 #409 R54: cold parse 34-54 ms quiet (130 ms was load); fixed IMP_GEO Rc pin that forced full re-parses on every <style> insert (4-5 -> 1/min) [M] (P3, from QY53f1b; Opus design) The cold parse of YouTube's 4.4 MB sheet still costs ~130 ms on the first
       forced layout. Options: parse external sheets as they arrive (off the forced-layout path, on the JS thread's idle
       time or a worker), or lazily per rule block. Measure first (R43 section 12); design + items.
+
+=== from TODO.txt: --- Rust `__*` native wrapped in a JS timer); none of it was committed. -------
+- [x] QPT1f DONE f2ccf31 #408 scripts in same-origin iframe realms (srcdoc, open/write/close, inserted scripts, per-realm CEs); live YT token yes [M] (after QPT1a/c) Scripts in same-origin iframes (R53 D9): srcdoc, document.open/write/close,
+      DOMContentLoaded/load.
+      FROM QPT1a #392: the script sweep, custom-element upgrade (`__d_query(0, ...)`) and `ceIsConn` treat document 0 as
+      the only connected document (scripts inserted into an iframe document do not run, CEs there are not upgraded);
+      `DomTable.ce_names` is page-wide. WebSocket in a realm is the parent's class (R53 D5 deviation).
