@@ -861,6 +861,14 @@ const PRELUDE: &str = r#"
     g.__net_fwd(p);
     g.WebSocket = p.WebSocket;
     p.__scratchy_rej_sub(g.__scratchy_rej_flush);
+    // QPT1b (R53 D6): the parent calls this when it drops the realm.
+    Object.defineProperty(g, '__scratchy_realm_release', { value: function () {
+      g.__d_frames_drop_all();
+      g.__scratchy_timers_cancel(g);
+      g.__net_cancel(g);
+      try { g.__scratchy_rej_flush(); } catch (e) {}  // report what is pending before the realm goes
+      p.__scratchy_rej_unsub(g.__scratchy_rej_flush);
+    }, configurable: true });
     // Navigation, history and scrolling of an iframe are not implemented (they would act on the
     // PAGE through the shared natives): they log and do nothing.
     ['__d_navigate', '__d_nav_replace', '__d_reload', '__d_url_update', '__d_url_move', '__d_scroll'].forEach(function (k) {
@@ -1861,7 +1869,7 @@ const TIMERS_PRELUDE: &str = r#"
   var timers = [], nextId = 1, level = 0, FRAME = 1000 / 60;
   // QPT1a (R53 D5): an iframe realm queues its timers on its parent's table (`fwd`), so the one pump
   // Rust drives runs them; a callback still runs in its own realm, with that realm's window as `this`.
-  var fwd = null, fwdClear = null;
+  var fwd = null, fwdClear = null, fwdCancel = null;
   var add = function (fn, delay, args, repeat, raf, recv) {
     if (typeof fn !== 'function') {
       var code = String(fn);
@@ -1888,10 +1896,16 @@ const TIMERS_PRELUDE: &str = r#"
     if (fwdClear) return fwdClear(id);
     for (var i = 0; i < timers.length; i++) if (timers[i].id === id) { timers.splice(i, 1); return; }
   };
+  // QPT1b (R53 D6): drops every timer, idle callback and rAF a dropped realm (`recv`) queued.
+  var cancelFor = function (recv) {
+    if (fwdCancel) return fwdCancel(recv);
+    for (var i = timers.length - 1; i >= 0; i--) if (timers[i].recv === recv) timers.splice(i, 1);
+  };
+  Object.defineProperty(g, '__scratchy_timers_cancel', { value: cancelFor });
   Object.defineProperty(g, '__scratchy_timers_add', { value: add });
   Object.defineProperty(g, '__scratchy_timers_clear', { value: clear });
   Object.defineProperty(g, '__scratchy_timers_fwd', { value: function (p) {
-    fwd = p.__scratchy_timers_add; fwdClear = p.__scratchy_timers_clear;
+    fwd = p.__scratchy_timers_add; fwdClear = p.__scratchy_timers_clear; fwdCancel = p.__scratchy_timers_cancel;
     delete g.__scratchy_timers_fwd;
   }, configurable: true });
   var def = function (name, fn) {

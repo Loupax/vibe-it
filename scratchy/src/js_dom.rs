@@ -2985,7 +2985,7 @@ const DOM_PRELUDE: &str = r#"
   // one (QA18b1), gets a real window: its own V8 realm, made from the startup snapshot, whose
   // `document` is the iframe's second document. `data:` iframes (D4), and every iframe when the
   // engine has no snapshot (QPT1e), keep the stand-in object below.
-  var standInNoted = false;
+  var standInNoted = false, capNoted = false, nFrames = 0;
   var frameOf = function (el) {
     if (!inPage(el) || !frameSrcOk(el)) return null;
     var f = frames[el.__id];
@@ -2999,9 +2999,17 @@ const DOM_PRELUDE: &str = r#"
         var dim = function (a, dflt) { var v = parseInt(__d_attr(el.__id, a) || '', 10); return v >= 0 ? v : dflt; };
         w.__scratchy_realm_init({ docId: did, href: href, base: pg.length ? null : doc.baseURI, parent: g, top: g.top,
           frameElement: el, name: __d_attr(el.__id, 'name') || '', width: dim('width', 300), height: dim('height', 150) });
-        return (frames[el.__id] = { doc: w.document, win: w });
+        nFrames++;
+        return (frames[el.__id] = { doc: w.document, win: w, el: el, realm: true });
       }
-      if (!standInNoted) {
+      if (w === null) {
+        // QPT1b (R53 D6): over the cap of live realms the extra frame gets the stand-in (an older
+        // frame's window is never pulled from under its scripts), and this is logged once.
+        if (!capNoted) {
+          capNoted = true;
+          __scratchy_log('warn', 'scratchy: too many iframe windows (64): the extra frames get a stand-in object');
+        }
+      } else if (!standInNoted) {
         standInNoted = true;
         __scratchy_log('warn', 'scratchy: iframe window is a stand-in object: this engine has no V8 startup snapshot (QPT1e)');
       }
@@ -3021,8 +3029,35 @@ const DOM_PRELUDE: &str = r#"
     Object.keys(props).forEach(function (k) { Object.defineProperty(win, k, { value: props[k], writable: true, configurable: true, enumerable: true }); });
     win.getComputedStyle = function (e, p) { return g.getComputedStyle(e, p); };
     Object.defineProperty(d, 'defaultView', { get: function () { return win; }, configurable: true, enumerable: true });
-    return (frames[el.__id] = { doc: d, win: win });
+    nFrames++;
+    return (frames[el.__id] = { doc: d, win: win, el: el, realm: false });
   };
+  // QPT1b (R53 D6): a frame's window lives while its iframe is connected and keeps its src. Dropping
+  // cancels the realm's timers, requests and rejection reports, drops the nested frames, and detaches
+  // the global (`contentWindow` of a removed iframe is null; a re-inserted one gets a NEW realm).
+  var dropFrame = function (id) {
+    var f = frames[id];
+    if (!f) return;
+    delete frames[id]; nFrames--;
+    if (f.realm) {
+      try { f.win.__scratchy_realm_release(); } catch (e) {}
+      g.__scratchy_realm_drop(f.win);
+    }
+  };
+  Object.defineProperty(g, '__d_frames_drop_all', { value: function () { for (var k in frames) dropFrame(k); } });
+  var sweepFrames = function () {
+    if (!nFrames) return;
+    for (var k in frames) if (!inPage(frames[k].el)) dropFrame(k);
+  };
+  var sfRem = __d_remove, sfHtml = __d_sethtml, sfTxt = __d_settext, sfSet = __d_setattr, sfRm = __d_rmattr, sfSq = __d_setq, sfRq = __d_rmq;
+  var isSrc = function (n) { n = String(n).toLowerCase(); return n === 'src' || n === 'srcdoc'; };
+  __d_remove = function (id) { sfRem(id); sweepFrames(); };
+  __d_sethtml = function (id, h) { sfHtml(id, h); sweepFrames(); };
+  __d_settext = function (id, t) { sfTxt(id, t); sweepFrames(); };
+  __d_setattr = function (id, n, v) { sfSet(id, n, v); if (nFrames && isSrc(n)) dropFrame(id); };
+  __d_rmattr = function (id, n) { sfRm(id, n); if (nFrames && isSrc(n)) dropFrame(id); };
+  __d_setq = function (id, n, v) { sfSq(id, n, v); if (nFrames && isSrc(n)) dropFrame(id); };
+  __d_rmq = function (id, n) { sfRq(id, n); if (nFrames && isSrc(n)) dropFrame(id); };
   def(IFP, 'contentDocument', function () { var f = frameOf(this); return f ? f.doc : null; });
   def(IFP, 'contentWindow', function () { var f = frameOf(this); return f ? f.win : null; });
   IFP.getSVGDocument = function () { return this.contentDocument; };

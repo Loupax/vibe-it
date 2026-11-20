@@ -282,6 +282,7 @@
   // calls, flushes theirs first.
   var rejSubs = [];
   def(g, '__scratchy_rej_sub', function (f) { rejSubs.push(f); });
+  def(g, '__scratchy_rej_unsub', function (f) { var i = rejSubs.indexOf(f); if (i >= 0) rejSubs.splice(i, 1); });
   def(g, '__scratchy_rej_push', function (p, reason, handled) { rejQ.push([p, reason, handled]); });
   def(g, '__scratchy_rej_flush', function () {
     var subMore = false;

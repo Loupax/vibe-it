@@ -1032,7 +1032,7 @@
   }
   // `mk` (QPT1a): an iframe realm's own response builder, so its fetch/XHR answers are its own
   // `Response` objects although the request goes through the page's queue (`__net_fwd`).
-  def(g, '__net_request', function (init, mk) {
+  def(g, '__net_request', function (init, mk, owner) {
     var signal = init.signal;
     mk = mk || build;
     if (init.sync) {
@@ -1047,7 +1047,7 @@
     var h = { id: 0 };
     h.promise = new Promise(function (resolve, reject) {
       var onabort = null;
-      var entry = { raw: !!init.raw, mk: mk, resolve: resolve, reject: reject, cleanup: function () { if (signal && onabort) signal.removeEventListener('abort', onabort); } };
+      var entry = { raw: !!init.raw, mk: mk, owner: owner, resolve: resolve, reject: reject, cleanup: function () { if (signal && onabort) signal.removeEventListener('abort', onabort); } };
       h.id = g.__net_send(descOf(init));
       pending[h.id] = entry;
       h.abort = function (reason) {
@@ -1064,6 +1064,17 @@
     });
     return h;
   });
+  // QPT1b (R53 D6): a dropped realm's pending requests (`owner` = its window) are aborted and forgotten:
+  // their promises stay unsettled, so nothing runs in (or keeps alive) the dead realm.
+  def(g, '__net_cancel', function (o) {
+    Object.keys(pending).forEach(function (id) {
+      var e = pending[id];
+      if (e.owner !== o) return;
+      delete pending[id];
+      e.cleanup();
+      g.__net_abort(+id);
+    });
+  });
   def(g, '__net_complete', function (res) {
     var p = pending[res.id];
     if (!p) return;   // aborted
@@ -1076,7 +1087,10 @@
   // in the page context only), building the answers with its own classes.
   def(g, '__net_fwd', function (p) {
     var pr = p.__net_request;
-    def(g, '__net_request', function (init) { return pr(init, build); });
+    def(g, '__net_request', function (init, mk, owner) { return pr(init, mk || build, owner || g); });
+    // QPT1b (R53 D6): the requests of a dropped realm are cancelled in the table that holds them.
+    var pc = p.__net_cancel;
+    def(g, '__net_cancel', function (o) { return pc(o); });
     delete g.__net_fwd;
   });
 })(globalThis);

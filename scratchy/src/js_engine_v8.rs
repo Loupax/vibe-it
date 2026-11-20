@@ -368,7 +368,8 @@ struct State {
     mod_cache: std::collections::HashMap<String, v8::Global<v8::Module>>,
     mod_names: std::collections::HashMap<i32, String>,
     /// QPT1a (R53 D1): the iframe realms made by `__scratchy_realm_new` (QPT1b drops them).
-    realms: Vec<Option<v8::Global<v8::Context>>>,
+    /// QPT1b: the live ones (context, its global proxy); `__scratchy_realm_drop` removes an entry.
+    realms: Vec<(v8::Global<v8::Context>, v8::Global<v8::Object>)>,
 }
 
 fn state<'a>(ctx: &Ctx<'_>) -> &'a mut State {
@@ -643,6 +644,10 @@ unsafe extern "C" {
     /// name carries no libc++ types.
     #[link_name = "_ZN2v814ObjectTemplate18MarkAsUndetectableEv"]
     fn v8_object_template_mark_as_undetectable(this: *const v8::ObjectTemplate);
+    /// `v8::Context::DetachGlobal()` (QPT1b; public API, not bound by the `v8` crate): the global
+    /// proxy stops reaching the context's global object, so a stale `w` of a dropped realm is inert.
+    #[link_name = "_ZN2v87Context12DetachGlobalEv"]
+    fn v8_context_detach_global(this: *const v8::Context);
 }
 
 /// The stand-in's handlers forward to the JS Proxy kept as the handler data.
@@ -714,11 +719,19 @@ pub(crate) fn mark_htmldda(ctx: &Ctx<'_>, name: &str) {
 /// binds the realm to its frame (`__scratchy_realm_init`). A native called from the realm runs in
 /// the realm's context (V8 enters a function's creation context) with the page's closures and
 /// `DomTable`, so the realm drives its iframe document by node id as the page does.
+/// QPT1b: live same-origin iframe realms per page (Chrome has no cap; this bounds a pathological page).
+const MAX_REALMS: usize = 64;
+
 pub(crate) fn install_realm_native(ctx: &Ctx<'_>) {
     register(ctx, "__scratchy_realm_new", |ctx: Ctx<'_>| -> JsResult<RawValue> {
         let sc = ctx.sc();
         if !state(&ctx).attached {
             return Ok(RawValue(st(v8::undefined(sc).into())));
+        }
+        // QPT1b (R53 D6): at most MAX_REALMS live realms per page; `null` = over the cap (the caller
+        // keeps the stand-in for the extra frame and logs once), `undefined` = no snapshot.
+        if state(&ctx).realms.len() >= MAX_REALMS {
+            return Ok(RawValue(st(v8::null(sc).into())));
         }
         let token = sc.get_current_context().get_security_token(sc);
         let Some(c) = v8::Context::from_snapshot(sc, 0, Default::default()) else {
@@ -731,10 +744,34 @@ pub(crate) fn install_realm_native(ctx: &Ctx<'_>) {
             mark_htmldda(&rctx, "__d_all");
             remove_global(&rctx, "__d_all");
         }
-        let g = v8::Global::new(sc, c);
-        state(&ctx).realms.push(Some(g));
-        Ok(RawValue(st(c.global(sc).into())))
+        let gl = c.global(sc);
+        state(&ctx).realms.push((v8::Global::new(sc, c), v8::Global::new(sc, gl)));
+        Ok(RawValue(st(gl.into())))
     });
+    // QPT1b (R53 D6): `__scratchy_realm_drop(w)` forgets the realm whose global proxy is `w` and
+    // detaches that global, so V8 frees the context once no JS reference is left and a stale `w`
+    // reaches nothing. Returns whether a realm was dropped.
+    register(ctx, "__scratchy_realm_drop", |ctx: Ctx<'_>, w: JsObject<'_>| -> JsResult<bool> {
+        let sc = ctx.sc();
+        let st_ = state(&ctx);
+        let wv: L<v8::Value> = st(w.o.into());
+        let Some(i) = st_.realms.iter().position(|(_, g)| v8::Local::new(sc, g).strict_equals(wv)) else { return Ok(false) };
+        let (c, _) = st_.realms.remove(i);
+        let c = v8::Local::new(sc, &c);
+        // SAFETY: `c` is a live context handle; the call only detaches its global proxy.
+        unsafe { v8_context_detach_global(&*c) };
+        Ok(true)
+    });
+    // Test seams: the number of live realms, and V8's used heap after a full collection.
+    #[cfg(test)]
+    {
+        register(ctx, "__scratchy_realm_count", |ctx: Ctx<'_>| -> JsResult<f64> { Ok(state(&ctx).realms.len() as f64) });
+        register(ctx, "__scratchy_heap_gc", |ctx: Ctx<'_>| -> JsResult<f64> {
+            let sc = ctx.sc();
+            sc.low_memory_notification();
+            Ok(sc.get_heap_statistics().used_heap_size() as f64)
+        });
+    }
 }
 
 // ---------------------------------------------------------------- errors
