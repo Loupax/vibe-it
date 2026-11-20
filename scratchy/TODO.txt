@@ -39,7 +39,7 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
   27 QOBS9 [S, Opus] re-baseline PERF.md on the new machine (after 9, 18, 20)
   28 QM1k-mouse: user re-tested 2026-11-19 22:21: still slow while the controls show (= QYTC1 cause); QYTC1a merged 9219065 -> ASK THE USER TO RE-TEST (quiet machine)
   27a [WIP] QY57r [S, Sonnet, P1] IO body-clip bug: YouTube thumbnails paint `true` (R56) -- next, before QOBS9
-  27b QY54a [M, Opus design -> Sonnet, P1] read the Wayland socket while the main thread is busy (R56; QY54 closed)
+  27b [WIP] QY54a [M, Opus design -> Sonnet, P1] read the Wayland socket while the main thread is busy (R56; QY54 closed)
   27c QY54b [S, Opus measure, P2] inline-preview getPlayerSize ~58 ms per forced layout in the window (R56)
  Step 6, re-profile before leaving performance (user 2026-11-19):
   29 QPROF1 [M, Opus, measure only] LAST performance item: runs when every item above is done, blocked or
@@ -1049,7 +1049,7 @@ Shared rules for this block:
       `body` has `overflow: scroll` and a 956x0 box, so every IntersectionObserver entry gets an empty intersectionRect and
       thumbnails never get `src` (paint `true`). Body's overflow propagates to the viewport when html's is visible, so body
       must not clip then. Gate: YT results imgs get a src; real thumbnails in a grim shot; regression test.
-- [ ] QY54a [M] (P1, from QY54 #419 R56; Opus design first, then Sonnet) dwl drops scratchy at ~190-225 unread pointer
+- [ ] [WIP] QY54a [M] (P1, from QY54 #419 R56; Opus design first, then Sonnet) dwl drops scratchy at ~190-225 unread pointer
       events whatever blocks the main thread (450 ms busy loop at 500 Hz is lost). Keep reading the Wayland socket while
       the main thread is busy (helper thread with wl_display_prepare_read/read_events, or similar). Gate: busy450 and
       stall_k18 at 500 Hz motion survive 3/3 (R56 recipe).
