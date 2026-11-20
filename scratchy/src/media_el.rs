@@ -1354,7 +1354,7 @@ impl MediaBackend for FakeBackend {
         let t = s.target?;
         s.renders += 1;
         let v = 0x0010_0000 + s.renders;
-        Some(Arc::new(VideoFrame { w: t.w, h: t.h, px: vec![v; t.w as usize * t.h as usize] }))
+        Some(Arc::new(VideoFrame::new(t.w, t.h, vec![v; t.w as usize * t.h as usize])))
     }
     fn buffered(&self) -> Vec<(f64, f64)> {
         self.0.borrow().buffered.clone()

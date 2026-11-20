@@ -1466,6 +1466,8 @@ per second here) holds the main thread, which is QY53/QYTC1 work, not rendering.
 spread is page-JS noise (one after run had a 1984 ms second); the local runs show no input-latency
 change beyond the smaller worst case.
 
+QM1g2a1 (2026-11-20): frame buffers are pooled (`FramePool`, media_render.rs). Measured on a quiet machine the whole main-thread `video_tick` is ~0.3 ms/frame for 640x360 in a 960x489 window (page_buf copy 0.13, present-buffer copy 0.13, present 0.01, everything else under 0.01); the 1-2.4 ms in the table above was machine load. Interleaved before/after, 3 pairs (tick ms/frame, load 1-28): 0.43/0.34/0.91 vs 0.28/0.44/0.91, no measurable difference; the pool removes the per-frame 0.9 MB zeroed allocation on the worker and the free on the main thread. YouTube not re-measured (its main thread is page-JS bound).
+
 ## R45: QM1k-stop: YouTube's "Ein Fehler ist aufgetreten" overlay a few seconds into playback is the SABR attestation stop (`ump.spsrejectfailure` / `HTML5_SPS_UMP_STATUS_REJECTED`): after ~60-64 s of media has been served with STREAM_PROTECTION_STATUS 2 (pending), every SABR answer is status 3 (attestation required, 10 retries), and after the 10th YouTube calls `stopVideo()` and shows the error, with 27-40 s of media still buffered. Same with the default UA, the R43 Chrome UA and a second video; no MediaError, no SourceBuffer exception, no scratchy crash (Opus investigator QM1k-stop, 2026-11-19) — OPEN: QM1k2 (PARKED, user decides); no scratchy fix
 
 **Status: investigation only, docs only.** Release build of main 42a5ef5 (V8 + media, libmpv 0.41),

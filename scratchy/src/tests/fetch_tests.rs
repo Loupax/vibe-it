@@ -1193,7 +1193,7 @@ mod qm1g_video {
     use std::sync::Arc;
 
     fn frame(w: u32, h: u32, v: u32) -> Arc<VideoFrame> {
-        Arc::new(VideoFrame { w, h, px: vec![v; (w * h) as usize] })
+        Arc::new(VideoFrame::new(w, h, vec![v; (w * h) as usize]))
     }
 
     #[test]

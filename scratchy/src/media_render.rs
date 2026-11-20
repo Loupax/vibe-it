@@ -18,6 +18,7 @@
 //! worker then asks the renderer whether a frame is due (`update`), renders it, puts it
 //! in the slot and calls the host's wake function (the app's "video frame" user event).
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::{JoinHandle, ThreadId};
 
@@ -28,10 +29,51 @@ use crate::media_video::{VideoFrame, VideoTarget};
 pub(crate) trait FrameRenderer {
     /// After a [`Signal::notify`]: true when a new frame is due.
     fn update(&mut self) -> bool;
-    /// Renders the current frame at `t` (0RGB, top byte clear); None on failure.
-    fn render(&mut self, t: VideoTarget) -> Option<Vec<u32>>;
+    /// Renders the current frame at `t` into `px` (`t.w * t.h` pixels, zeroed; 0RGB, top
+    /// byte clear); false on failure.
+    fn render(&mut self, t: VideoTarget, px: &mut [u32]) -> bool;
     /// Consumes a due frame without rendering it (nobody looks at it).
     fn skip(&mut self);
+}
+
+/// QM1g2a1: recycles frame buffers between the worker and the main thread. A
+/// [`VideoFrame`] returns its pixels here when its last holder drops it, so a steady
+/// stream allocates nothing after warm-up (a fresh ~0.9 MB zeroed buffer per frame costs
+/// page faults on the worker and a free on the main thread).
+#[derive(Default)]
+pub(crate) struct FramePool {
+    free: Mutex<Vec<Vec<u32>>>,
+    /// Test seam: buffers ever allocated.
+    allocs: AtomicUsize,
+}
+
+/// Enough for the frame in the slot, one in the main thread's hands, one being rendered.
+const POOL_KEEP: usize = 4;
+
+impl FramePool {
+    /// A zeroed buffer of `len` pixels.
+    fn get(&self, len: usize) -> Vec<u32> {
+        let mut free = self.free.lock().unwrap_or_else(|e| e.into_inner());
+        free.retain(|b| b.len() == len); // the target size changed: the old ones are useless
+        if let Some(mut b) = free.pop() {
+            drop(free);
+            b.fill(0);
+            return b;
+        }
+        drop(free);
+        self.allocs.fetch_add(1, Ordering::Relaxed);
+        vec![0u32; len]
+    }
+    pub(crate) fn put(&self, b: Vec<u32>) {
+        let mut free = self.free.lock().unwrap_or_else(|e| e.into_inner());
+        if free.len() < POOL_KEEP && !b.is_empty() {
+            free.push(b);
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn allocs(&self) -> usize {
+        self.allocs.load(Ordering::Relaxed)
+    }
 }
 
 #[derive(Default)]
@@ -54,6 +96,7 @@ struct State {
 /// Shared between the host, the worker and the renderer's update callback.
 #[derive(Default)]
 pub(crate) struct Signal {
+    pool: Arc<FramePool>,
     st: Mutex<State>,
     cv: Condvar,
 }
@@ -150,6 +193,12 @@ impl RenderWorker {
         self.sig.lock().slot.take()
     }
 
+    /// Test seam: how many frame buffers were allocated so far.
+    #[cfg(test)]
+    pub(crate) fn buffer_allocs(&self) -> usize {
+        self.sig.pool.allocs()
+    }
+
     /// Test seam: the thread that rendered the last published frame.
     #[cfg(test)]
     pub(crate) fn rendered_on(&self) -> Option<ThreadId> {
@@ -201,12 +250,18 @@ fn run(mut r: Box<dyn FrameRenderer>, sig: &Signal, wake: &(dyn Fn() + Send + Sy
             }
             continue;
         };
-        let Some(px) = r.render(t) else { continue };
+        let mut px = sig.pool.get(t.w as usize * t.h as usize);
+        if !r.render(t, &mut px) {
+            sig.pool.put(px);
+            continue;
+        }
         let mut st = sig.lock();
         if st.epoch != epoch || st.target != Some(t) || st.quit {
+            drop(st);
+            sig.pool.put(px);
             continue; // resized, seeked, reloaded or stopping meanwhile: stale
         }
-        st.slot = Some(Arc::new(VideoFrame { w: t.w, h: t.h, px }));
+        st.slot = Some(Arc::new(VideoFrame { w: t.w, h: t.h, px, pool: Some(sig.pool.clone()) }));
         st.has_frame = true;
         st.rendered_on = Some(std::thread::current().id());
         drop(st);

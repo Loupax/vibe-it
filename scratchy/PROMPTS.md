@@ -8104,3 +8104,11 @@ The prompts of the design session, in order:
 > Item QPT1d3 [XS]: timers and requests created on a CLOSED window (iframe removed, `w.closed` true) must do nothing (Chrome).
 
 **What changed:** js.rs timers prelude: a realm `add` returns an id without queueing when `g.closed` (covers setTimeout/setInterval/rAF/rIC). fetch_prelude.js `__net_fwd`: a closed realm`s `__net_request` sends nothing: async/fetch gets a never-settling promise (same as QPT1b cancelled requests), sync XHR throws NetworkError. Test `qpt1d3_*` in js_dom_tests.rs.
+
+## QM1g2a1: video frame buffer pool (Sonnet)
+
+> Item QM1g2a1 [S] (P3): measure where the remaining main-thread video cost goes, then reuse frame buffers instead of allocating ~0.9 MB per frame.
+
+**What changed:** media_render.rs `FramePool`: the worker takes a zeroed buffer from the pool (`FrameRenderer::render` now fills `&mut [u32]`), a `VideoFrame` returns its pixels to the pool in `Drop` (last `Arc` holder, any thread), stale/failed renders return theirs at once, a size change discards old-size buffers, at most 4 kept. The #388 epoch/target/quit staleness checks are unchanged. Tests: media_render_tests.rs `qm1g2a1_*` (allocation counter seam, held frame never overwritten, resize).
+
+**Measured (temporary instrumentation, not committed):** main-thread ms per frame, local 720p -> 640x360, nested dwl 960x489: fetch 0.001, states 0.003, copy into page_buf 0.13, softbuffer buffer_mut 0.003, copy into the present buffer 0.13 (age 2: full page_buf copy), present_with_damage 0.011; total video_tick 0.29. Before/after interleaved 3 pairs under flock: tick 0.43/0.34/0.91 before, 0.28/0.44/0.91 after (load 1-28): inside noise. Not done: a direct present without the page_buf copy (needs the damage-only age handling, ~0.13 ms).
