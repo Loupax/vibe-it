@@ -814,6 +814,27 @@ mod qm1f {
         assert!(h.peek(1).unwrap().paused && !h.peek(2).unwrap().paused && !h.peek(3).unwrap().paused);
     }
 
+    /// QOOM1: dropping a removed element's core destroys its player (backend), the id stays
+    /// inert (touching it builds no backend) until it is revived.
+    #[test]
+    fn qoom1_host_remove_drops_player_and_keeps_id_inert() {
+        let (mut h, made) = host_with_fakes();
+        h.with(7, |c| c.load(vec![cand("https://cdn.test/v.mp4", "")], true, MediaMode::NoCors, "https://page.test/".into()));
+        assert_eq!(made.borrow().len(), 1);
+        assert_eq!(Rc::strong_count(&made.borrow()[0]), 2, "the host owns the backend");
+        h.remove(7);
+        assert_eq!(h.cores(), 0);
+        assert_eq!(Rc::strong_count(&made.borrow()[0]), 1, "the backend (the player) was dropped");
+        // a script touching the removed element: an inert core, no new backend
+        h.with(7, |c| c.pause());
+        assert!(h.core(7).paused);
+        assert_eq!((h.cores(), made.borrow().len()), (0, 1));
+        // back in the document: a new core and backend on the next load
+        h.revive(7);
+        h.with(7, |c| c.load(vec![cand("https://cdn.test/v.mp4", "")], true, MediaMode::NoCors, "https://page.test/".into()));
+        assert_eq!((h.cores(), made.borrow().len()), (1, 2));
+    }
+
     #[test]
     fn host_logs_placeholder_line_once() {
         set_backend_factory(Some(Rc::new(|_| Box::new(UnavailableBackend))));
@@ -941,6 +962,102 @@ mod qm1f {
         js.step(100.0);
         assert!(js.lines().contains(&"log:seeked false 4.5".to_string()), "{:?}", js.lines());
         assert!(f.borrow().calls.contains(&"seek 4.5".to_string()));
+    }
+
+    /// QOOM1 regression: a big site's landing page re-renders its hero every ~0.5 s, each time
+    /// inserting two new <video> elements and removing the old ones. A removed element used to be
+    /// only paused, so every one kept its libmpv player (~250 MB) until the page went away
+    /// (15 GB, OOM). Now the player of an element that is out of the document is dropped, so
+    /// the number of live players stays bounded by what the document holds.
+    #[test]
+    fn qoom1_removed_videos_drop_their_players() {
+        let js = Js::new(
+            "<div id=hero></div>",
+            "window.render = function () {\
+               var hero = document.getElementById('hero');\
+               hero.textContent = '';\
+               var v = document.createElement('video'); v.muted = true; v.setAttribute('src', '/hero.mp4');\
+               hero.appendChild(v); window.last = v; };",
+            false,
+        );
+        let live = |js: &Js| js.fakes.borrow().iter().filter(|f| Rc::strong_count(f) > 1).count();
+        for _ in 0..20 {
+            js.engine.eval("t", "render();");
+            js.step(50.0);
+        }
+        assert_eq!(js.fakes.borrow().len(), 20, "every rendered video loaded");
+        assert_eq!(live(&js), 1, "only the video in the document keeps a player");
+        // a script touching the removed element does not start a new player
+        js.engine.eval("t", "var old = window.last; document.getElementById('hero').textContent = '';");
+        js.step(50.0);
+        assert_eq!(live(&js), 0);
+        js.engine.eval(
+            "t",
+            "old.pause(); old.muted = false; old.currentTime = 1; old.load(); old.src = '/other.mp4';\
+             old.play().catch(function (e) { console.log('play', e.name); });\
+             console.log('state', old.paused, old.readyState, old.networkState);",
+        );
+        js.step(50.0);
+        assert_eq!((js.fakes.borrow().len(), live(&js)), (20, 0), "{:?}", js.lines());
+        assert!(js.lines().contains(&"log:play NotSupportedError".to_string()), "{:?}", js.lines());
+        assert!(js.lines().contains(&"log:state true 0 0".to_string()), "{:?}", js.lines());
+        // put back: it loads again (the current src)
+        js.engine.eval("t", "document.getElementById('hero').appendChild(old);");
+        js.step(50.0);
+        assert_eq!((js.fakes.borrow().len(), live(&js)), (21, 1));
+        let f = js.fakes.borrow()[20].clone();
+        assert_eq!(f.borrow().loaded.as_ref().map(|r| r.url.clone()).as_deref(), Some("https://page.test/other.mp4"));
+    }
+
+    /// QOOM1: moving an element inside one script (remove + insert) keeps its player.
+    #[test]
+    fn qoom1_moved_video_keeps_its_player() {
+        let js = Js::new("<div id=a><video id=v src='/a.mp4' muted></video></div><div id=b></div>", "", false);
+        js.step(50.0);
+        assert_eq!(js.fakes.borrow().len(), 1);
+        js.engine.eval("t", "var v = document.getElementById('v'); v.remove(); document.getElementById('b').appendChild(v);");
+        js.step(50.0);
+        assert_eq!(js.fakes.borrow().len(), 1, "no reload");
+        assert_eq!(Rc::strong_count(&js.fakes.borrow()[0]), 2, "the player lives");
+    }
+
+    /// QOOM1: a dropped element put back and played in the same script loads a new player
+    /// (no error from the inert core, no second load when the MutationObserver record comes).
+    #[test]
+    fn qoom1_reinserted_video_played_at_once_loads_again() {
+        let js = Js::new(
+            "<div id=a><video id=v src='/a.mp4' muted></video></div>",
+            "var v = document.getElementById('v'); v.addEventListener('error', function () { console.log('error'); });",
+            false,
+        );
+        js.step(50.0);
+        js.engine.eval("t", "v.remove();");
+        js.step(50.0);
+        assert_eq!(Rc::strong_count(&js.fakes.borrow()[0]), 1, "dropped");
+        js.engine.eval("t", "document.getElementById('a').appendChild(v); v.play().catch(function (e) { console.log('rej', e.name); });");
+        js.step(50.0);
+        assert_eq!(js.fakes.borrow().len(), 2, "{:?}", js.lines());
+        assert_eq!(Rc::strong_count(&js.fakes.borrow()[1]), 2);
+        assert!(!js.lines().iter().any(|l| l.contains("error") || l.contains("not implemented")), "{:?}", js.lines());
+    }
+
+    /// QOOM1: a removed playing element fires `pause` before its player is dropped.
+    #[test]
+    fn qoom1_removed_playing_video_fires_pause() {
+        let js = Js::new(
+            "<video id=v src='/a.mp4' muted></video>",
+            "var v = document.getElementById('v'); v.addEventListener('pause', function () { console.log('pause', v.isConnected); }); v.play();",
+            false,
+        );
+        js.step(50.0);
+        let f = js.fakes.borrow()[0].clone();
+        f.meta(10.0, 0, 0);
+        f.first_frame();
+        js.step(50.0);
+        js.engine.eval("t", "v.remove();");
+        js.step(50.0);
+        assert!(js.lines().contains(&"log:pause false".to_string()), "{:?}", js.lines());
+        assert_eq!(Rc::strong_count(&f), 2, "player dropped (left: this clone and js.fakes)");
     }
 
     #[test]

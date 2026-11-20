@@ -168,6 +168,10 @@ pub(crate) fn install_media<'js>(ctx: &Ctx<'js>, ctxb: BackendCtx, log: crate::m
         let outs = h.borrow_mut().remove(id);
         queue_outs(&h, &q, outs);
     });
+    let h = host.clone();
+    native!(ctx, "__media_revive", move |id: i32| {
+        h.borrow_mut().revive(id);
+    });
     install_mse(ctx, &host, &queue);
     let (h, q) = (host.clone(), queue);
     native!(ctx, "__media_pump", move |now: f64, wait: f64| -> Vec<String> {
