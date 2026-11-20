@@ -318,6 +318,7 @@ qy53m_noop_write_no_restyle(&proxy);
     qb6_help_suspends_js(&proxy);
     qf7_app_net(&proxy);
     qf14b_app_initiator(&proxy);
+    qnav9_app_file_links(&proxy);
 }
 
 // ---------- QB6: `:help` suspends the page's JS ----------
@@ -1357,6 +1358,36 @@ fn qf14b_app_initiator(proxy: &winit::event_loop::EventLoopProxy<AppEvent>) {
     let reqs = qf14b_wait(&seen, 2);
     let typed = reqs.iter().find(|r| r.contains("typed.example")).expect("typed request");
     assert!(qf14b_has(typed, "X-Wire-Nav: 1") && !typed.contains("Initiator"), "{typed}");
+    let _ = std::fs::remove_file(&path);
+}
+
+/// QNAV9, App side: every kind of `href` on a page opened from a local file
+/// (base `file:///...`) is resolved against the file base and dispatched to wire
+/// (a `#frag` is same-document: no request at all).
+fn qnav9_app_file_links(proxy: &winit::event_loop::EventLoopProxy<AppEvent>) {
+    let path = unique_test_socket_path("qnav9-app");
+    let seen = qf14b_fake_wire(&path);
+    let mut app = App::new_static(parse_html("<html><body></body></html>"), proxy.clone(), Some(path.clone()));
+    for (n, (href, want)) in [
+        ("other.html", "GET file:///home/u/site/pages/other.html "),
+        ("../x.html", "GET file:///home/u/site/x.html "),
+        ("file:///tmp/abs.html", "GET file:///tmp/abs.html "),
+        ("https://example.org/p", "GET https://example.org/p "),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        // Each navigation resolves against the original page.
+        app.base_url = Some(Url::parse("file:///home/u/site/pages/index.html").unwrap());
+        app.start_navigation(href);
+        let reqs = qf14b_wait(&seen, n + 1);
+        assert!(reqs.iter().any(|r| r.starts_with(want)), "{href}: wanted {want:?}, got {reqs:?}");
+    }
+    app.base_url = Some(Url::parse("file:///home/u/site/pages/index.html").unwrap());
+    let before = seen.lock().unwrap().len();
+    app.start_navigation("#frag");
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    assert_eq!(seen.lock().unwrap().len(), before, "a fragment link is not a fetch");
     let _ = std::fs::remove_file(&path);
 }
 

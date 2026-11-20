@@ -190,6 +190,62 @@ fn an_anchor_with_no_href_is_not_a_link() {
     assert_eq!(hit_test_cursor(&laid, x, y, &cache, &scroll_offsets, 0.0, 600.0).1, None);
 }
 
+// -- QNAV9: a click anywhere on a link follows it, not only on its text glyphs --
+
+/// The glyph href and the href `enclosing_link_href` finds from the element under `(x, y)`.
+fn qnav9_link_at(html: &str, x: f32, y: f32) -> (Option<&'static str>, Option<String>) {
+    let doc = parse_html(html);
+    let tree = build_layout_tree(&doc, 1920.0);
+    let mut font_system = new_font_system();
+    let mut cache = ShapeCache::new();
+    let mut next_id = 0usize;
+    let mut incomplete = false;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let laid = measure(
+        &tree, &mut font_system, 0.0, 0.0, 400.0, None, &mut next_id, &mut cache, deadline, &mut incomplete,
+        &mut Vec::new(), &Floats::default(), None,
+    );
+    let (_, glyph_href, node) = hit_test_node(&laid, x, y, &cache, &HashMap::new(), 0.0, 600.0);
+    let from_node = (node != 0).then(|| find_node_by_id(&doc, node)).flatten().and_then(|h| enclosing_link_href(&h));
+    (glyph_href, from_node)
+}
+
+#[test]
+fn qnav9_blank_area_of_a_block_link_resolves_to_its_href() {
+    let html = r#"<html><body style="margin:0"><a href="other.html" style="display:block;height:80px;background:#fc8">x</a></body></html>"#;
+    // Far right of the 80 px tall block: no glyph there, so the glyph hit test has no href.
+    let (glyph, node) = qnav9_link_at(html, 300.0, 60.0);
+    assert_eq!(glyph, None, "no text under the point");
+    assert_eq!(node.as_deref(), Some("other.html"), "the enclosing <a href> is still the click target");
+}
+
+#[test]
+fn qnav9_image_inside_a_link_resolves_to_its_href() {
+    let html = r##"<html><body style="margin:0"><a href="#frag"><img src="x.png" width=100 height=60 style="display:block"></a></body></html>"##;
+    let (_, node) = qnav9_link_at(html, 50.0, 30.0);
+    assert_eq!(node.as_deref(), Some("#frag"));
+}
+
+#[test]
+fn qnav9_outside_a_link_and_anchor_without_href_are_not_links() {
+    let html = r#"<html><body style="margin:0"><a name="n" style="display:block;height:80px">x</a><p>plain</p></body></html>"#;
+    let (_, node) = qnav9_link_at(html, 300.0, 40.0);
+    assert_eq!(node, None, "<a> without href is not a link");
+    let (_, node) = qnav9_link_at(html, 300.0, 95.0);
+    assert_eq!(node, None);
+}
+
+#[test]
+fn qnav9_hrefs_of_a_file_page_resolve_against_the_file_base() {
+    let base = Url::parse("file:///home/u/site/pages/index.html").unwrap();
+    let r = |h: &str| resolve_href(Some(&base), h).unwrap().to_string();
+    assert_eq!(r("other.html"), "file:///home/u/site/pages/other.html");
+    assert_eq!(r("../x.html"), "file:///home/u/site/x.html");
+    assert_eq!(r("#frag"), "file:///home/u/site/pages/index.html#frag");
+    assert_eq!(r("file:///tmp/a.html"), "file:///tmp/a.html");
+    assert_eq!(r("https://example.org/"), "https://example.org/");
+}
+
 // -- building the absolute-form request `wire` itself parses --
 
 #[test]

@@ -4481,11 +4481,15 @@ impl ApplicationHandler<AppEvent> for App {
                         // a label forwarding to one) never follows a link
                         // around it ("the control wins").
                         let mut in_control = false;
+                        // QNAV9: the `<a href>` around the clicked element, for a hit
+                        // outside any link text (block link padding, an `<img>` in a link).
+                        let mut node_href: Option<String> = None;
                         let allowed = match clicked {
                             Some(up) => {
                                 let node = self.element_at(up);
                                 let target = if node == 0 { None } else { find_node_by_id(&self.document, node) };
                                 let control = target.as_ref().and_then(enclosing_control);
+                                node_href = target.as_ref().and_then(enclosing_link_href);
                                 in_control = control.is_some();
                                 if control.as_ref().is_some_and(is_disabled_control) {
                                     in_control = true;
@@ -4516,8 +4520,9 @@ impl ApplicationHandler<AppEvent> for App {
                             _ => None,
                         };
                         self.mouse_down_pos = None;
+                        let href = href.map(str::to_string).or(node_href);
                         if let (Some(href), true, false) = (href, allowed, in_control) {
-                            self.start_navigation(href);
+                            self.start_navigation(&href);
                         }
                     }
                 }
