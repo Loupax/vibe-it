@@ -26,6 +26,12 @@ psm = "0.1.32"
 sys-locale = "0.3.2"
 url = "2"
 winit = "0.30.13"
+# QY54a2 (R57): the wl-drain thread (src/wl_drain.rs) reads winit's Wayland socket while the main thread is busy.
+# Same versions/features winit already pulls in (Cargo.lock: wayland-client 0.31.15, wayland-backend 0.3.17 with the
+# system libwayland, rustix 1.1.6 with "event"/"net"): no new crate. Local unix socket only, no network.
+wayland-client = "0.31.15"
+wayland-backend = { version = "0.3.17", features = ["client_system"] }
+rustix = { version = "1.1.6", features = ["event", "net"] }
 libloading = { version = "0.8", optional = true }
 # QV8-3a: V8 (rusty_v8), the default engine since QV8-5; its build script downloads a prebuilt static library at
 # BUILD time (user OK 2026-11-18); V8 never opens a socket at run time.

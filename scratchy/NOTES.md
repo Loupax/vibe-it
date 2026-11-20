@@ -29,6 +29,18 @@ explained in its own section near the end of this file.
   worker (now spawned with 32 MB). A NEW recursive walk over the box/laid/DOM tree with a frame
   over ~400 bytes a level needs the same wrapper (`src/tests/deep_nesting_tests.rs` lays out a
   5 000-deep page on a 2 MB test thread; find the overflowing frame with gdb on that test).
+- `src/wl_drain.rs` (QY54a2, design REGRESSIONS.md R57): the `wl-drain` THREAD, started in
+  `App::resumed` after the window exists and joined in `App::exiting`. It reads winit's Wayland socket
+  while the main thread is busy (a long callback, a forced layout), so the compositor never fills its
+  send buffer and drops scratchy (R56: ~190-225 unread motion events). It holds a second
+  `wayland_client::Connection` made from winit's `wl_display*` (`Backend::from_foreign_display`, the
+  only `unsafe`; private, always-empty queue) and loops prepare_read / poll(socket, wake pipe) /
+  `read_without_dispatch`. It NEVER dispatches: libwayland files each event on its owner's queue
+  (winit's), and the main thread dispatches as before, so input order, coalescing and hit-testing are
+  unchanged. It stops at the first error or POLLHUP (the main thread reports the loss as before, QB1),
+  on `stop` (flag + pipe byte, join), and when the starting thread panics (a chained panic hook joins it
+  before an unwind can drop the display; `about_to_wait` restarts it if the panic was caught).
+  `SCRATCHY_WL_DRAIN=0` disables it (A/B switch); X11 gets no thread. Gate harness: tools/wl-flood.
 - `src/js_net.rs`: page-JS network queue `NetState`, `__net_send`,
   CORS/preflight handling, cookie control natives (QF7, QF13, QF14b).
 - `src/net_policy.rs`: `RequestPolicy` (every network limit and policy

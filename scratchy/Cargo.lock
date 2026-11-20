@@ -2533,12 +2533,15 @@ dependencies = [
  "psm",
  "resvg",
  "roxmltree 0.21.2",
+ "rustix 1.1.6",
  "selectors",
  "signal-hook",
  "softbuffer",
  "sys-locale",
  "url",
  "v8",
+ "wayland-backend",
+ "wayland-client",
  "winit",
 ]
 

@@ -139,6 +139,34 @@ one core) and nothing when the pointer is still.
   `getPlayerSize` layouts cost ~10x more) stays as filed: with QY54a2 those 0.7-0.98 s jobs no longer disconnect, but they
   still freeze input for that long.
 
+### 6. QY54a2: the drain thread is in (gate MET on the fixtures; YouTube re-run is QY54a3)
+
+`src/wl_drain.rs` as in section 4 (NOTES.md index has the architecture note). Differences from the section 4 sketch: the
+wake "pipe" is a `UnixStream::pair` and `poll` is `rustix::event::poll` (rustix 1.1.6 with `event`, already in the lock
+through wayland-backend), so the one `unsafe` is `Backend::from_foreign_display`. The deps sit in plain `[dependencies]`
+(scratchy has no other target cfg anywhere). The panic hook only acts on panics of the thread that started the drain, and it
+joins the thread (bounded, 1 s). scratchy catches some main-thread panics (js_geom's layout guard), so `about_to_wait`
+starts a new drain when the hook stopped the old one and the app is still running. Cargo.lock gains only the three
+dependency edges (no new package; built `--offline`).
+
+Gate, release build of the PR branch, copied aside, `tools/wl-flood/run.sh PAGE 500 15 3` (own wire, own nested dwl,
+perf flock per run). The nested dwl output was 960x489 that day (run.sh's default W/H 1052x1050 only scales the circle):
+
+| page | drain | result | load avg (1 min) |
+|---|---|---|---|
+| busy450 | on | **survived 3/3** (7 024-7 026 moves dispatched, longest callback 446 ms) | 10.16 |
+| stall_k18 | on | **survived 3/3** (6 730-6 812 moves, longest callback 1 524-1 538 ms) | 0.89 |
+| busy450 | `SCRATCHY_WL_DRAIN=0` | lost 3/3 at 4.5 s (the first stall) | 0.90 |
+| stall_k18 | `SCRATCHY_WL_DRAIN=0` | lost 3/3 at 5.9 s (the first stall) | 1.06 |
+
+Click during a stall: stall.html (k=18) plus a fixed 300x250 `<a>` with a click handler. A 500 Hz circle runs until the
+second stall starts, then one inject does `move` to the link's centre + `click` + a small 500 Hz circle inside the link.
+3/3 runs: the click was injected 307-328 ms into a 1 336-1 354 ms stall, dispatched 3-4 ms after the stall ended, and
+`e.target` was the link at the injected position (478,242 client px). With `SCRATCHY_WL_DRAIN=0` the same run is lost
+during that stall. Normal use (Wikipedia Rust in the nested dwl, move/scroll, a link click navigates): `:q` exits rc 0 in
+~370 ms. Killing the nested dwl gives rc 1 with the same three stderr lines as with the drain off (2x winit's
+`Io error: Broken pipe` + QB1's one line); the thread logs nothing.
+
 ## R56: Quiet-machine re-measurement of QY60, QY54 and QY33 on V8 main. QY60: FIXED. On YouTube results the masthead is finished at 4.3-4.6 s (R38: 47-53 s with a 20 s budget), all 20 results are in by 3.3-4.4 s, the worst rAF wait is 623-634 ms (R38: 3.6 s) and the worst timer lateness 701-725 ms (R38: 4.1 s). Forced layout is 0.6-1.0 s per 10 s headless (QV8-m: 14.6 s). The main thread is saturated only for ~5 s of load (page JS ~0.8-0.95 s per second), then idle. NEW (FIXED by QY57r: ioEval0 no longer clips by a propagated body overflow; thumbnails now paint): the thumbnails still show `true`: scratchy's IntersectionObserver clips every target by `<body>` (YouTube's body is 956x0 with `overflow: scroll`), so every entry has an empty intersection and YouTube never sets `src`. QY54: STILL OPEN. The nested compositor drops scratchy when about 190-225 pointer-motion events queue up unread: 3/3 lost with a 450 ms busy loop at 500 Hz, which is INSIDE the 500 ms callback budget. YouTube results at 500 Hz: lost 3/3 during load and 3/3 after load, on the inline-preview player's `getPlayerSize` layouts (0.7-0.98 s in one promise job). At 125 Hz it survives 3/3. QY33: FIXED. In 21 headless runs (home, results, watch) and 9 window runs: 0 budget kills, and the largest callback after load is 130 / 233 / 264 ms budget clock (327 ms raw) (Opus, 2026-11-20, measure only, docs only) — OPEN: proposed QY57r, QY54a, QY54b (below)
 
 **Setup (all three items).** Main b88b3db (its code is 86635e3: the commits after it change only TODO files). The binary is
