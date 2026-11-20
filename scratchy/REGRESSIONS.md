@@ -142,6 +142,9 @@ asks a native for the id's tree root (a document id, or the `owners` entry for d
 `wrap`. `instanceof` across realms then behaves as in Chrome. Built-ins are distinct per realm (`w.Array !== Array`) by
 construction. `adoptNode`/`appendChild` of an iframe node into the page keeps its wrapper and its realm's prototype (Blink
 keeps the wrapper too).
+*Done in QPT1c* (NOTES.md "iframe realms"): as designed, plus a native `__d_root`, owners kept on removal/adoption, and a
+purge of the dropped realm's wrappers (QPT1b's no-leak test stays green). Deviation: MutationObserver registries stay per realm,
+so an observer sees only mutations made through its own realm's DOM methods (Chrome: all mutations of the observed node).
 
 **D8. WindowProxy surface (QPT1d).**
 - `window.frames === window`.
