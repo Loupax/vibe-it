@@ -3916,6 +3916,11 @@ impl ApplicationHandler<AppEvent> for App {
         let context = Context::new(window.clone()).unwrap();
         let surface = Surface::new(&context, window.clone()).unwrap();
 
+        // Q33b2w: scripts may start before the first redraw measures the surface, so publish the
+        // window's size now (new engines read it; `surface_size` stays 0 so the first redraw still
+        // resizes the surface).
+        let size = window.inner_size();
+        crate::js::set_window_viewport(size.width, size.height);
         self.window = Some(window);
         self.surface = Some(surface);
     }
@@ -3928,7 +3933,9 @@ impl ApplicationHandler<AppEvent> for App {
         let trail_at = self.flush_move_trailing();
         let els = self.sync_node_scroll();
         // Q33b2: the page sees the real window size; one `resize` per changed frame.
-        crate::js::set_window_viewport(self.surface_size.0, self.surface_size.1);
+        if self.surface_size.0 > 0 {
+            crate::js::set_window_viewport(self.surface_size.0, self.surface_size.1);
+        }
         if let Some(js) = &self.js {
             if self.surface_size.0 > 0 && self.js_viewport != Some(self.surface_size) {
                 self.js_viewport = Some(self.surface_size);
@@ -4065,7 +4072,10 @@ impl ApplicationHandler<AppEvent> for App {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::RedrawRequested => self.redraw(),
-            WindowEvent::Resized(_) => {
+            WindowEvent::Resized(size) => {
+                if size.width > 0 && size.height > 0 {
+                    crate::js::set_window_viewport(size.width, size.height);
+                }
                 if let Some(window) = &self.window {
                     window.request_redraw();
                 }
