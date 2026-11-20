@@ -274,3 +274,20 @@ fn qinc1j_big_restyle_goes_to_the_worker_with_the_kept_tree() {
     assert_eq!(frame(&mut app), MAIN);
     assert!(shown(&app, "t").h != 9.0, "back to auto height");
 }
+
+/// App-side inputs reach the write log only when they change (and only with the flag).
+#[test]
+fn qinc1j_media_size_change_is_logged_once() {
+    use crate::incr_log::{Ambient, Change};
+    let prev = crate::incr_frame::set_live(true);
+    let _ = crate::incr_log::drain();
+    let sizes: HashMap<usize, (u32, u32)> = [(1usize, (320u32, 240u32))].into_iter().collect();
+    crate::media_video::set_intrinsic(sizes.clone());
+    crate::media_video::set_intrinsic(sizes);
+    let n = crate::incr_log::drain().entries.iter().filter(|e| e.change == Change::Ambient(Ambient::MediaSize)).count();
+    assert_eq!(n, 1);
+    crate::incr_frame::set_live(false);
+    crate::media_video::set_intrinsic(HashMap::new());
+    assert!(crate::incr_log::drain().entries.is_empty(), "flag off: nothing logged");
+    crate::incr_frame::set_live(prev);
+}

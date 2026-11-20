@@ -1746,25 +1746,29 @@ impl App {
                 #[cfg(test)]
                 {
                     let _ = reuse;
-                    let (mut cache, mut next, mut inc) = (ShapeCache::new(), id_base, false);
-                    let far = std::time::Instant::now() + std::time::Duration::from_secs(3600);
-                    let (w, h) = (width as f32, height as f32);
-                    let (laid, adopt) = match job {
-                        Some(job) => {
-                            let (laid, root_h) = crate::incr_layout::worker_measure(&tree, &mut self.font_system, w, h, &mut next, &mut cache, far, &mut inc, &job.ver);
-                            (laid, Some(Box::new(crate::incr_frame::WorkerResult { tree, job, root_h, vw: w, vh: h })))
-                        }
-                        None => (measure_document(&tree, &mut self.font_system, w, h, &mut next, &mut cache, far, &mut inc), None),
-                    };
-                    self.next_para_id = self.next_para_id.max(next);
-                    let generation = self.layout_generation;
-                    self.handle_shape_result_job(generation, Box::new(laid), cache, false, adopt.map(|a| (a, next)));
-                    return;
+                    self.shape_inline(tree, width as f32, height as f32, id_base, job);
                 }
                 #[cfg(not(test))]
                 Self::queue_shaping_request(&self.shaping_requests, tree, width as f32, height as f32, self.layout_generation, reuse, id_base, job);
             }
         }
+    }
+
+    /// Test stand-in for the shaping worker (no event loop delivers its result).
+    #[cfg(test)]
+    fn shape_inline(&mut self, tree: LayoutBox, w: f32, h: f32, id_base: usize, job: Option<crate::incr_box::WorkerJob>) {
+        let (mut cache, mut next, mut inc) = (ShapeCache::new(), id_base, false);
+        let far = std::time::Instant::now() + std::time::Duration::from_secs(3600);
+        let (laid, adopt) = match job {
+            Some(job) => {
+                let (laid, root_h) = crate::incr_layout::worker_measure(&tree, &mut self.font_system, w, h, &mut next, &mut cache, far, &mut inc, &job.ver);
+                (laid, Some(Box::new(crate::incr_frame::WorkerResult { tree, job, root_h, vw: w, vh: h })))
+            }
+            None => (measure_document(&tree, &mut self.font_system, w, h, &mut next, &mut cache, far, &mut inc), None),
+        };
+        self.next_para_id = self.next_para_id.max(next);
+        let generation = self.layout_generation;
+        self.handle_shape_result_job(generation, Box::new(laid), cache, false, adopt.map(|a| (a, next)));
     }
 
     /// QM1g1: an mpv frame is ready. Renders it and, when the page itself is
@@ -2041,6 +2045,7 @@ impl App {
     /// own caller already holds `self.window`/`self.surface` borrowed
     /// apart from the rest of `self` (see its own destructuring `let`),
     /// which an `&self` method call can't see past.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn queue_shaping_request(
         requests: &mpsc::Sender<ShapingRequest>, tree: LayoutBox, width: f32, height: f32, generation: u64,
         reuse_shaping: bool, id_base: usize, engine: Option<crate::incr_box::WorkerJob>,
@@ -4363,6 +4368,10 @@ impl ApplicationHandler<AppEvent> for App {
     /// clean exit and on the ExitFailure path, before it drops the event loop).
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
         self.wl_drain.take();
+        // QINC1j: with frame stats on, the window's engine counters (the gate reads them).
+        if self.frame_stats.is_some() && (crate::incr_frame::live() || crate::incr_style::checking()) {
+            diag!("scratchy: incr: {}", crate::perf::incr_json());
+        }
     }
 
     /// Q33t: run due JS timers, then sleep until the next one (or
