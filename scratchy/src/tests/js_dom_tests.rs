@@ -1616,3 +1616,125 @@ fn qpt1d_closed_after_removal() {
     assert_eq!(logs[0], "open false false", "{log:?}");
     assert_eq!(logs[1], "after true 0 null", "{log:?}");
 }
+
+// ---------- QPT1f: scripts in same-origin iframe realms (R53 D9) ----------
+
+#[test]
+fn qpt1f_srcdoc_scripts_run_in_the_realm_in_order_then_dcl_load_and_iframe_load() {
+    crate::js::set_page_url(Url::parse("https://qpt1f.test/dir/p.html").ok().as_ref());
+    let log = run_with_timers(
+        "var order=[], srcs=[];\
+         addEventListener('message', function(e){ srcs.push(e.source===f.contentWindow, e.data); });\
+         var f=document.createElement('iframe');\
+         f.srcdoc=\"<p id=a>A</p><script>parent.order.push(['s1', window!==parent, String!==parent.String, document.getElementById('a').textContent, parent.x,\
+           location.href, frameElement===parent.f, document.readyState, document.currentScript.tagName, document.baseURI].join());\
+           document.addEventListener('DOMContentLoaded', function(){ parent.order.push('dcl ' + document.readyState); });\
+           addEventListener('load', function(){ parent.order.push('load ' + document.readyState); });\
+           parent.postMessage('hi', '*');</script>\
+           <script>parent.order.push('s2 ' + typeof S1); var S1 = 1;</script><script>parent.order.push('s3 ' + S1);</script>\";\
+         f.addEventListener('load', function(){ order.push('iframe load ' + f.contentDocument.readyState); });\
+         document.body.appendChild(f); window.x=7; order.push('sync');\
+         setTimeout(function(){ console.log(order.join(' | ')); console.log(srcs.join()); }, 50);",
+    );
+    let logs: Vec<&str> = log.iter().filter_map(|l| l.strip_prefix("log:")).collect();
+    assert_eq!(
+        logs,
+        [
+            "sync | s1,true,true,A,7,about:srcdoc,true,loading,SCRIPT,https://qpt1f.test/dir/p.html | s2 undefined | s3 1 | dcl interactive | load complete | iframe load complete",
+            "true,hi"
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qpt1f_page_markup_srcdoc_loads_before_the_page_load_event() {
+    let log = run_html_with_timers(
+        "<body><iframe id=f srcdoc=\"<script>parent.ev.push('f script ' + (window !== parent)); \
+         document.addEventListener('DOMContentLoaded', function(){ parent.ev.push('f dcl'); }); \
+         addEventListener('load', function(){ parent.ev.push('f load'); });</script>\"></iframe></body>",
+        "var ev=[]; document.addEventListener('DOMContentLoaded', function(){ ev.push('page dcl'); });\
+         addEventListener('load', function(){ ev.push('page load'); });\
+         document.getElementById('f').addEventListener('load', function(){ ev.push('iframe load'); });\
+         setTimeout(function(){ console.log(ev.join(' | ')); }, 50);",
+    );
+    assert_eq!(log, ["log:page dcl | f script true | f dcl | f load | iframe load | page load"], "{log:?}");
+}
+
+#[test]
+fn qpt1f_document_open_write_close_runs_the_written_scripts_in_the_realm() {
+    let log = run_with_timers(
+        "var g=document.createElement('iframe'); document.body.appendChild(g); var gw=g.contentWindow, d=g.contentDocument, loads=[];\
+         setTimeout(function(){\
+           g.addEventListener('load', function(){ loads.push('iframe load'); });\
+           gw.addEventListener('load', function(){ loads.push('window load'); });\
+           console.log(d.open()===d, d.readyState, d.body);\
+           d.write('<body><p>x</p><script>parent.wr=[window===parent.gw, document===parent.d, document.body.tagName, document.readyState].join(); document.write(\"<i id=w>w</i>\");</scr' + 'ipt></body>');\
+           console.log(typeof wr);\
+           d.close();\
+           console.log(wr, d.getElementById('w').textContent, d.body.lastElementChild.tagName, d.readyState, loads.join());\
+           gw.eval(\"document.open(); document.write('<script>parent.r2 = location.href + \\\" \\\" + (window === parent.gw)</scr' + 'ipt>'); document.close();\");\
+           console.log(r2, d.getElementsByTagName('p').length);\
+           d.write('<script>parent.r3 = 1</scr' + 'ipt>'); d.close(); console.log(r3);\
+         }, 5);",
+    );
+    let logs: Vec<&str> = log.iter().filter_map(|l| l.strip_prefix("log:")).collect();
+    assert_eq!(
+        logs,
+        ["true loading null", "undefined", "true,true,BODY,loading w I complete window load,iframe load", "about:blank true 0", "1"],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qpt1f_js_inserted_scripts_run_in_the_realm_of_their_document() {
+    let log = run_with_timers(
+        "var h=document.createElement('iframe'); document.body.appendChild(h); var hw=h.contentWindow;\
+         var s1=document.createElement('script'); s1.textContent='parent.ins1=[window===parent.hw, String===parent.hw.String, document.currentScript===parent.s1].join()';\
+         hw.document.body.appendChild(s1);\
+         var s2=hw.document.createElement('script'); s2.text='parent.ins2=(window===parent.hw)'; hw.document.head.appendChild(s2);\
+         var s3=hw.document.createElement('script'); s3.text='var ins3=(String===top.String)'; document.body.appendChild(s3);\
+         console.log(ins1, ins2, ins3);\
+         var r=document.createElement('iframe'); document.body.appendChild(r); var rw=r.contentWindow, rs=rw.document.createElement('script');\
+         r.remove(); rs.text='parent.RAN1=1'; rw.document.body.appendChild(rs);\
+         var q=document.createElement('iframe'); q.srcdoc='<script>parent.RAN2=1</scr'+'ipt>'; document.body.appendChild(q); q.remove();\
+         var k=document.createElement('iframe'); k.srcdoc='<script>parent.RAN3a=1; frameElement.remove();</scr'+'ipt><script>parent.RAN3=1</scr'+'ipt>';\
+         k.onload=function(){ console.log('FIRED load'); }; document.body.appendChild(k);\
+         setTimeout(function(){ console.log(typeof RAN1, typeof RAN2, typeof RAN3a, typeof RAN3); }, 50);",
+    );
+    let logs: Vec<&str> = log.iter().filter_map(|l| l.strip_prefix("log:")).collect();
+    assert_eq!(logs, ["true,true,true true true", "undefined undefined number undefined"], "{log:?}");
+}
+
+#[test]
+fn qpt1f_custom_elements_upgrade_per_realm() {
+    let log = run_with_timers(
+        "var c=document.createElement('iframe'); document.body.appendChild(c); var cw=c.contentWindow, cd=c.contentDocument, ceLog=[];\
+         cd.body.innerHTML='<x-a></x-a>'; document.body.appendChild(document.createElement('x-a'));\
+         cw.eval(\"customElements.define('x-a', class extends HTMLElement { connectedCallback(){ parent.ceLog.push('realm ' + (this.ownerDocument === document)); } })\");\
+         var X=cw.customElements.get('x-a');\
+         console.log(ceLog.join(), cd.body.firstChild instanceof X, document.querySelector('x-a') instanceof X, customElements.get('x-a'));\
+         cd.body.appendChild(cd.createElement('x-a'));\
+         customElements.define('x-a', class extends HTMLElement { connectedCallback(){ ceLog.push('page'); } });\
+         var p=document.createElement('x-a'); document.body.appendChild(p);\
+         console.log(ceLog.join(), p instanceof X, p instanceof customElements.get('x-a'), cd.body.firstChild instanceof customElements.get('x-a'));",
+    );
+    let logs: Vec<&str> = log.iter().filter_map(|l| l.strip_prefix("log:")).collect();
+    assert_eq!(logs, ["realm true true false undefined", "realm true,realm true,page,page false true false"], "{log:?}");
+}
+
+#[test]
+fn qpt1f_srcdoc_external_script_goes_through_the_page_queue() {
+    let fake = QfFake::new(vec![("/dir/e.js", qf7_ok("var E = (window !== parent) + ' ' + document.currentScript.src;", &[("content-type", "text/javascript")]))]);
+    let log = qf8_run(
+        "https://page.test/dir/page.html",
+        &fake,
+        "var f=document.createElement('iframe');\
+         f.srcdoc='<script src=\"e.js\"></scr'+'ipt><script>console.log(\"after\", E)</scr'+'ipt>';\
+         f.onload=function(){ console.log('iframe load'); }; document.body.appendChild(f);\
+         /* this harness pumps the network only, not timers: run the srcdoc load task's body directly */\
+         f.contentWindow.__scratchy_frame_load(f.srcdoc, true);",
+    );
+    assert_eq!(fake.urls(), vec!["https://page.test/dir/e.js"], "{log:?}");
+    assert_eq!(log, ["log:after true https://page.test/dir/e.js", "log:iframe load"], "{log:?}");
+}

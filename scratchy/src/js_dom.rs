@@ -16,9 +16,15 @@ pub(crate) struct DomTable {
     /// of rcdom (its `template_contents` field changes serialization).
     shadow_of: HashMap<i32, i32>,
     shadow_host: HashMap<i32, i32>,
-    // QY21: defined custom element names / customized-built-in tags.
-    ce_names: std::collections::HashSet<String>,
-    ce_exts: std::collections::HashSet<String>,
+    // QY21: defined custom element names / customized-built-in tags, per realm (QPT1f: keyed by
+    // the id of the realm's document, 0 = the page; each realm has its own CustomElementRegistry).
+    ce: HashMap<i32, CeNames>,
+}
+
+#[derive(Default)]
+struct CeNames {
+    names: std::collections::HashSet<String>,
+    exts: std::collections::HashSet<String>,
 }
 
 impl DomTable {
@@ -650,30 +656,38 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         }
         Some(out)
     });
-    // QY21: `__d_ce_add(name, ext)` registers a definition (`ext` = the
-    // extended built-in tag or ""); `__d_ce_candidates(root)` walks `root`
+    // QY21: `__d_ce_add(realm, name, ext)` registers a definition (`ext` = the
+    // extended built-in tag or ""); `__d_ce_candidates(realm, root)` walks `root`
     // ONCE and returns, in tree order, the elements whose local name is a
     // defined name, or that carry `is` and whose local name is an extended tag.
+    // QPT1f: `realm` = the id of the defining realm's document (0 = the page);
+    // `__d_ce_drop(realm)` forgets a dropped iframe realm's names.
     let t = table.clone();
-    native!(ctx, "__d_ce_add", move |name: String, ext: String| {
+    native!(ctx, "__d_ce_add", move |realm: i32, name: String, ext: String| {
         let mut t = t.borrow_mut();
-        if ext.is_empty() { t.ce_names.insert(name); } else { t.ce_exts.insert(ext); }
+        let e = t.ce.entry(realm).or_default();
+        if ext.is_empty() { e.names.insert(name); } else { e.exts.insert(ext); }
     });
     let t = table.clone();
-    native!(ctx, "__d_ce_candidates", move |root: i32| -> Vec<i32> {
+    native!(ctx, "__d_ce_drop", move |realm: i32| {
+        t.borrow_mut().ce.remove(&realm);
+    });
+    let t = table.clone();
+    native!(ctx, "__d_ce_candidates", move |realm: i32, root: i32| -> Vec<i32> {
         let mut t = t.borrow_mut();
         let Some(root) = t.get(root) else { return Vec::new() };
+        let Some(ce) = t.ce.get(&realm) else { return Vec::new() };
         let mut all = Vec::new();
         descendants(&root, &mut all);
-        let mut out = Vec::new();
-        for h in &all {
-            let NodeData::Element { name, .. } = &h.data else { continue };
-            let local = name.local.as_ref();
-            if t.ce_names.contains(local) || (t.ce_exts.contains(local) && element_attr(h, "is").is_some()) {
-                out.push(t.intern(h));
-            }
-        }
-        out
+        let hits: Vec<Handle> = all
+            .into_iter()
+            .filter(|h| {
+                let NodeData::Element { name, .. } = &h.data else { return false };
+                let local = name.local.as_ref();
+                ce.names.contains(local) || (ce.exts.contains(local) && element_attr(h, "is").is_some())
+            })
+            .collect();
+        hits.iter().map(|h| t.intern(h)).collect()
     });
     let t = table.clone();
     native!(ctx, "__d_matches", move |id: i32, sel: String| -> Option<bool> {
@@ -1597,7 +1611,10 @@ const DOM_PRELUDE: &str = r#"
   // the page's `cache`, `owners` and `xr` (bound in `__d_bind_doc`); `xr.byDoc` maps a document id
   // to the `mk` of the realm that owns it, and `xr.n` counts the live iframe realms (0: no lookup).
   // `mine`/`myDocs`: the wrappers and documents an iframe realm made (purged when it is dropped).
-  var xr = { n: 0, byDoc: {} }, mine = null, myDocs = null;
+  // QPT1f: `xr.prep` maps a browsing-context document (the page's, an iframe realm's) to the
+  // `sPrepare` of its realm (script-inserted scripts run in the realm of the document they enter),
+  // `xr.s` is the page-wide table of script-inserted <script> elements that may still run.
+  var xr = { n: 0, byDoc: {}, prep: {}, s: { el: {}, n: 0, ord: {}, cr: {} } }, mine = null, myDocs = null;
   var ownerDocId = function (id) {
     var r = __d_root(id);
     if (__d_kind(r) === 9) return r;
@@ -2809,7 +2826,7 @@ const DOM_PRELUDE: &str = r#"
   // QPT1a (R53 D2): an iframe realm (a context from the startup snapshot, whose `document` is id 0
   // here) binds its `document` to the iframe's second document `id`; `base` = the creator's base URL
   // (an about:blank document's fallback base). Builds <html><head><body> in an empty document.
-  var baseFallback = null;
+  var baseFallback = null, frameDoc = false, frameOnLoad = null;
   Object.defineProperty(g, '__d_bind_doc', { value: function (id, base, shared) {
     delete g.__d_bind_doc;
     delete cache[doc.__id];
@@ -2817,6 +2834,8 @@ const DOM_PRELUDE: &str = r#"
       // QPT1c: the page-wide wrapper cache, owners and realm table (this realm's own are dropped).
       cache = shared.cache; owners = shared.owners; xr = shared.xr;
       mine = []; myDocs = [id]; xr.byDoc[id] = mk; xr.n++;
+      xr.prep[id] = function (sid) { sPrepare(sid); };
+      frameDoc = true; frameOnLoad = shared.onLoad || null;
     }
     cache[id] = doc;
     Object.defineProperty(doc, '__id', { value: id, configurable: false });
@@ -2895,18 +2914,40 @@ const DOM_PRELUDE: &str = r#"
   // after what earlier writes of the same script inserted). Otherwise the
   // spec would wipe the document; we log and ignore. <script> in the
   // written markup is inserted but not executed.
+  // QPT1f (R53 D9): an iframe realm's document (about:blank, about:srcdoc) also supports
+  // `open()`/`write()`/`close()` outside its own parser scripts: `open()` empties it, `write()`
+  // collects markup (opening it first if needed), `close()` parses the markup as a new document and
+  // runs it like a srcdoc load (scripts in order, DOMContentLoaded, load, the <iframe>'s load).
+  // Deviation: nothing is parsed or run before `close()` (Chrome parses as it is written).
+  var wBuf = null;
   function dwrite(nl) {
     return function () {
-      if (!curScript || wlast < 0) { console.warn('document.' + (nl ? 'writeln' : 'write') + ' after page load ignored'); return; }
       var s = Array.prototype.join.call(arguments, '') + (nl ? '\n' : '');
+      if (frameDoc && this === doc && (!curScript || wlast < 0)) {
+        if (g.closed) return;
+        if (wBuf === null) doc.open();
+        wBuf += s;
+        return;
+      }
+      if (!curScript || wlast < 0) { console.warn('document.' + (nl ? 'writeln' : 'write') + ' after page load ignored'); return; }
       var r = __d_write(wlast, s);
       if (r >= 0) wlast = r;
     };
   }
   doc.write = dwrite(false);
   doc.writeln = dwrite(true);
-  doc.open = function () { return doc; };
-  doc.close = function () {};
+  doc.open = function () {
+    if (!frameDoc || this !== doc || (curScript && wlast >= 0) || g.closed) return doc;
+    var kids = __d_children(doc.__id, false);
+    for (var i = 0; i < kids.length; i++) __d_remove(kids[i]);
+    wBuf = ''; doc.readyState = 'loading';
+    return doc;
+  };
+  doc.close = function () {
+    if (!frameDoc || this !== doc || wBuf === null) return;
+    var h = wBuf; wBuf = null;
+    frameLoad(h, false);
+  };
   def(doc, 'currentScript', function () { return curScript; });
   def(doc, 'head', function () { return wrap(__d_special(1, this.__id)); });
   def(doc, 'body', function () { return wrap(__d_special(2, this.__id)); });
@@ -3043,7 +3084,10 @@ const DOM_PRELUDE: &str = r#"
   // (QPT1a: "in this realm's document", which is the page in the page realm.)
   var inPage = function (n) { for (; n && n.parentNode; n = n.parentNode); return !!n && n.__id === doc.__id; };
   var frameSrc = function (el) { return (__d_attr(el.__id, 'src') || '').replace(/^\s+|\s+$/g, ''); };
+  // QPT1f (R53 D9): `srcdoc` wins over `src` (an about:srcdoc document, same origin as the parent).
+  var frameSrcdoc = function (el) { return __d_attr(el.__id, 'srcdoc'); };
   var frameSrcOk = function (el) {
+    if (frameSrcdoc(el) != null) return true;
     var s = frameSrc(el);
     return s === '' || /^about:blank/i.test(s) || /^data:/i.test(s) || __d_iframe_page(el.__id).length > 0;
   };
@@ -3056,17 +3100,20 @@ const DOM_PRELUDE: &str = r#"
     if (!inPage(el) || !frameSrcOk(el)) return null;
     var f = frames[el.__id];
     if (f) return f;
-    var pg = __d_iframe_page(el.__id), href = 'about:blank';
-    if (!/^data:/i.test(frameSrc(el))) {
+    var sd = frameSrcdoc(el) != null, pg = sd ? [] : __d_iframe_page(el.__id), href = sd ? 'about:srcdoc' : 'about:blank';
+    if (sd || !/^data:/i.test(frameSrc(el))) {
       var w = g.__scratchy_realm_new();
       if (w) {
         var did = __d_newdoc();
         if (pg.length) { __d_load_html(did, pg[1]); href = pg[0]; }
         var dim = function (a, dflt) { var v = parseInt(__d_attr(el.__id, a) || '', 10); return v >= 0 ? v : dflt; };
-        w.__scratchy_realm_init({ docId: did, dom: { cache: cache, owners: owners, xr: xr }, href: href, base: pg.length ? null : doc.baseURI, parent: g, top: g.top,
+        // QPT1f: the realm reports its window `load` (end of a srcdoc load or of document.close()),
+        // and the parent then fires `load` on the <iframe> (while it still shows that window).
+        var fr = null, onLoad = function () { if (fr && frames[el.__id] === fr && inPage(el)) el.dispatchEvent(new g.Event('load')); };
+        w.__scratchy_realm_init({ docId: did, dom: { cache: cache, owners: owners, xr: xr, onLoad: onLoad }, href: href, base: pg.length ? null : doc.baseURI, parent: g, top: g.top,
           frameElement: el, name: __d_attr(el.__id, 'name') || '', onName: function () { syncWin(); }, width: dim('width', 300), height: dim('height', 150) });
         nFrames++;
-        return (frames[el.__id] = { doc: w.document, win: w, el: el, realm: true });
+        return (frames[el.__id] = fr = { doc: w.document, win: w, el: el, realm: true, loaded: false });
       }
       if (w === null) {
         // QPT1b (R53 D6): over the cap of live realms the extra frame gets the stand-in (an older
@@ -3125,7 +3172,8 @@ const DOM_PRELUDE: &str = r#"
       if (d < 0 || docs[d]) delete cache[mine[i]];
     }
     for (id in owners) if (docs[owners[id].__id]) delete owners[id];
-    for (i = 0; i < myDocs.length; i++) { delete cache[myDocs[i]]; if (xr.byDoc[myDocs[i]] === mk) delete xr.byDoc[myDocs[i]]; }
+    for (i = 0; i < myDocs.length; i++) { delete cache[myDocs[i]]; if (xr.byDoc[myDocs[i]] === mk) delete xr.byDoc[myDocs[i]]; delete xr.prep[myDocs[i]]; }
+    __d_ce_drop(doc.__id);
     xr.n--; mine = myDocs = null;
   } });
   var sweepFrames = function () {
@@ -3185,7 +3233,15 @@ const DOM_PRELUDE: &str = r#"
     if (ok && owners[c] !== undefined) { var r = __d_root(p); if (__d_kind(r) === 9) owners[c] = wrap(r); }
     return ok;
   };
-  __d_sethtml = function (id, h) { sfHtml(id, h); sweepFrames(); if (!ixN && /<iframe/i.test(h)) syncWin(); };
+  __d_sethtml = function (id, h) {
+    sfHtml(id, h); sweepFrames();
+    if (!ixN && /<iframe/i.test(h)) syncWin();
+    // QPT1f: srcdoc iframes made by innerHTML load (as tasks).
+    if (/srcdoc/i.test(h) && /<iframe/i.test(h)) {
+      var l = __d_query(id, 'iframe[srcdoc]', false) || [];
+      for (var i = 0; i < l.length; i++) if (!frames[l[i]] && inPage(wrap(l[i]))) loadFrameLater(wrap(l[i]));
+    }
+  };
   __d_settext = function (id, t) { sfTxt(id, t); sweepFrames(); };
   // QPT1d: a src/srcdoc/name change of an iframe changes the window list (and `window[name]`).
   var ifrAttr = function (id, n) {
@@ -3194,6 +3250,7 @@ const DOM_PRELUDE: &str = r#"
     if (!s && !nm) return;
     if (__d_tag(id).toLowerCase() !== 'iframe') return;
     if (s && nFrames) dropFrame(id);
+    if (s && __d_attr(id, 'srcdoc') != null && inPage(wrap(id))) loadFrameLater(wrap(id));
     else if (nm && frames[id] && frames[id].realm && inPage(frames[id].el)) frames[id].win.name = __d_attr(id, 'name') || '';
     if (inPage(wrap(id))) syncWin();
   };
@@ -3205,9 +3262,33 @@ const DOM_PRELUDE: &str = r#"
   def(IFP, 'contentWindow', function () { var f = frameOf(this); return f ? f.win : null; });
   IFP.getSVGDocument = function () { return this.contentDocument; };
   rStr(IFP, 'src', 'src'); rStr(IFP, 'srcdoc', 'srcdoc'); rStr(IFP, 'name', 'name'); rStr(IFP, 'width', 'width'); rStr(IFP, 'height', 'height');
+  // QPT1f (R53 D9): load an iframe's `srcdoc` into its window: the realm parses it, runs its scripts
+  // in document order (realm entered), fires DOMContentLoaded and its window `load`, then the parent
+  // fires `load` on the <iframe> (`onLoad` above). Once per window; a removed iframe never loads.
+  // `top`: nothing else on the JS stack (a task), so each script gets the page-load CPU budget.
+  var loadFrame = function (el, top) {
+    if (!inPage(el)) return;
+    var html = frameSrcdoc(el);
+    if (html == null) return;
+    var f = frameOf(el);
+    if (!f || f.loaded) return;
+    f.loaded = true;
+    if (f.realm) { f.win.__scratchy_frame_load(html, top); return; }
+    // The stand-in (no snapshot, QPT1e): the document only, no scripts.
+    __d_load_html(f.doc.__id, html);
+    el.dispatchEvent(new g.Event('load'));
+  };
+  var loadFrameLater = function (el) { g.setTimeout(function () { loadFrame(el, true); }, 0); };
+  // The srcdoc iframes already in this realm's document (page load; a frame document's parse).
+  var bootFrames = function () {
+    var l = __d_query(doc.__id, 'iframe[srcdoc]', false) || [];
+    for (var i = 0; i < l.length; i++) loadFrame(wrap(l[i]), true);
+  };
+  Object.defineProperty(g, '__scratchy_frames_boot', { value: function () { bootFrames(); } });
   afterIns = function (c) {
     if (c.nodeType !== 1 || __d_tag(c.__id).toLowerCase() !== 'iframe' || !inPage(c)) return;
     syncWin();
+    if (frameSrcdoc(c) != null) { loadFrameLater(c); return; }
     g.setTimeout(function () { if (inPage(c) && frameSrcOk(c)) c.dispatchEvent(new Event('load')); }, 0);
   };
   def(doc, 'implementation', function () { return impl; });
@@ -3215,8 +3296,8 @@ const DOM_PRELUDE: &str = r#"
   // attributes, getAttributeNames, iterable classList. Pure JS over the
   // attribute natives; the base is `document.baseURI` (honours <base href>).
   var docBase = function () {
-    // QPT1a: an about:blank iframe document's fallback base is its creator's base URL (HTML spec).
-    var b = doc.querySelector('base[href]'), loc = baseFallback && g.location.href === 'about:blank' ? baseFallback : g.location.href;
+    // QPT1a: an about:blank (QPT1f: or about:srcdoc) iframe document's fallback base is its creator's base URL (HTML spec).
+    var b = doc.querySelector('base[href]'), loc = baseFallback && /^about:(blank|srcdoc)$/.test(g.location.href) ? baseFallback : g.location.href;
     if (b) { try { return new URL(__d_attr(b.__id, 'href'), loc).href; } catch (e) {} }
     return loc;
   };
@@ -3247,9 +3328,11 @@ const DOM_PRELUDE: &str = r#"
   // Inline code runs synchronously inside the inserting call; `src` goes through
   // the QF7 queue (api 'script': RequestPolicy, mixed content, CORS apply) and
   // runs as its own task (async), or in insertion order after `async = false`.
-  var sEl = {}, sN = 0, sOrd = {}, sCr = {}, sQ = [], sNames = 0, sTimeout = g.setTimeout;
+  // QPT1f: the eligible scripts are a page-wide table (`xr.s`: el, n, ord, cr) shared by every realm;
+  // a script runs in the realm whose document it is connected to (`xr.prep`), with that realm entered.
+  var sQ = [], sNames = 0, sTimeout = g.setTimeout;
   var sFire = function (el, type) { sTimeout.call(g, function () { el.dispatchEvent(new g.Event(type)); }, 0); };
-  var sMark = function (el) { if (el && el.__id !== undefined) { sCr[el.__id] = 1; if (!sEl[el.__id]) { sEl[el.__id] = 1; sN++; } } return el; };
+  var sMark = function (el) { var S = xr.s; if (el && el.__id !== undefined) { S.cr[el.__id] = 1; if (!S.el[el.__id]) { S.el[el.__id] = 1; S.n++; } } return el; };
   var sOCreate = doc.createElement, sOCreateNS = doc.createElementNS, sOClone = NodeProto.cloneNode;
   doc.createElement = function (t) {
     var e = sOCreate.apply(this, arguments);
@@ -3263,19 +3346,28 @@ const DOM_PRELUDE: &str = r#"
   };
   var sCopy = function (a, b) {
     if (a.__id === undefined || b.__id === undefined) return;
-    if (sEl[a.__id]) sMark(b);
+    if (xr.s.el[a.__id]) sMark(b);
     var ka = a.childNodes, kb = b.childNodes;
     for (var i = 0; i < ka.length && i < kb.length; i++) sCopy(ka[i], kb[i]);
   };
   NodeProto.cloneNode = function () {
     var c = sOClone.apply(this, arguments);
-    if (sN > 0 && c) sCopy(this, c);
+    if (xr.s.n > 0 && c) sCopy(this, c);
     return c;
   };
-  var sCur = function (el, f) {
+  var sCur = function (el, f, w) {
     var prev = curScript, pw = wlast;
-    curScript = el; wlast = -1;
+    curScript = el; wlast = w === undefined ? -1 : w;
     try { return f(); } finally { curScript = prev; wlast = pw; }
+  };
+  // QPT1f: runs classic script text as `el` (document.currentScript), compiled and run in this realm
+  // with the realm ENTERED in an iframe (so the incumbent window, e.g. postMessage's source, is it).
+  // `wl` >= 0: document.write inserts after that node (a parser script of a frame document).
+  var sRun = function (el, text, name, top, wl) {
+    sCur(el, function () {
+      if (frameDoc) g.__scratchy_enter(g, function () { __scratchy_run_global(text, name, top); });
+      else __scratchy_run_global(text, name, top);
+    }, wl);
   };
   var sErrText = function (e) { return (e && e.name ? e.name + ': ' + e.message : 'Uncaught ' + String(e)) + (e && e.stack ? '\n' + e.stack : ''); };
   // One request through the QF7 queue; ok(text) / bad(message) run as promise jobs.
@@ -3318,7 +3410,7 @@ const DOM_PRELUDE: &str = r#"
     var cors = __d_attr(id, 'crossorigin'), cred;
     if (mod) cred = cors != null && cors.toLowerCase() === 'use-credentials' ? 'include' : 'same-origin';
     else cred = cors == null || cors.toLowerCase() === 'use-credentials' ? 'include' : 'same-origin';
-    var slot = sOrd[id] ? { done: false, fn: null } : null;
+    var slot = xr.s.ord[id] ? { done: false, fn: null } : null;
     if (slot) sQ.push(slot);
     var settle = function (fn) {
       if (!slot) { fn(); return; }
@@ -3332,24 +3424,30 @@ const DOM_PRELUDE: &str = r#"
         sModuleGraph(url, text, { n: 200 }, function () { settle(function () { sImport(el, url, true); }); }, fail);
       } else {
         settle(function () {
-          sCur(el, function () { __scratchy_run_global(text, url, true); });
+          sRun(el, text, url, true);
           el.dispatchEvent(new g.Event('load'));
         });
       }
     }, fail);
   };
   var JSMIME = /^(text\/javascript|application\/javascript|application\/x-javascript|text\/ecmascript|application\/ecmascript|text\/jscript|text\/livescript|text\/x-javascript|text\/x-ecmascript)$/;
-  var sPrepare = function (id) {
-    var ty = __d_attr(id, 'type'), lang = __d_attr(id, 'language'), src = __d_attr(id, 'src'), t;
+  // 'classic', 'module', or null (not a script this browser runs).
+  var sType = function (id) {
+    var ty = __d_attr(id, 'type'), lang = __d_attr(id, 'language'), t;
     if (ty != null) t = ty.trim() === '' ? 'text/javascript' : ty.trim().toLowerCase();
     else if (lang != null && lang.trim() !== '') t = 'text/' + lang.trim().toLowerCase();
     else t = 'text/javascript';
-    var mod = t === 'module';
-    if (!mod && !JSMIME.test(t)) return;
-    if (!mod && __d_attr(id, 'nomodule') != null) return;
+    if (t === 'module') return 'module';
+    if (!JSMIME.test(t) || __d_attr(id, 'nomodule') != null) return null;
+    return 'classic';
+  };
+  var sPrepare = function (id) {
+    var st = sType(id), src = __d_attr(id, 'src');
+    if (!st) return;
+    var mod = st === 'module';
     var el = wrap(id), text = src == null ? el.textContent : '';
     if (src == null && text === '') return; // empty: stays eligible (text or src may come later)
-    delete sEl[id]; sN--;
+    delete xr.s.el[id]; xr.s.n--;
     if (src != null) {
       if (src.trim() === '') { sFire(el, 'error'); return; }
       sExternal(el, id, src, mod);
@@ -3358,22 +3456,92 @@ const DOM_PRELUDE: &str = r#"
       __mod_register(name, text);
       sModuleGraph(name, text, { n: 200 }, function () { sImport(el, name, false); }, function () {});
     } else {
-      sCur(el, function () { __scratchy_run_global(text, 'inline script (inserted)', false); });
+      sRun(el, text, 'inline script (inserted)', false);
     }
   };
+  // QPT1f: every connected eligible script, in the realm of the document it is in (the page's, or a
+  // live iframe realm's; a script in a dropped frame's document or in an inert document never runs).
   var sSweep = function () {
-    var ids = Object.keys(sEl);
+    var S = xr.s, ids = Object.keys(S.el);
     for (var i = 0; i < ids.length; i++) {
       var id = +ids[i];
-      if (sEl[id] && composedRootId(id) === 0) sPrepare(id);
+      if (!S.el[id]) continue;
+      var p = xr.prep[composedRootId(id)];
+      if (p) p(id);
     }
   };
+  xr.prep[0] = sPrepare;
+  // QPT1f (R53 D9): load `html` as this iframe realm's document (a srcdoc, or what document.write
+  // collected until close()): parse it (scripting on), run its classic and module scripts in document
+  // order with the realm entered (an external one through the page's request queue, blocking the
+  // ones after it), then DOMContentLoaded, nested srcdoc frames, the window `load`, and the parent's
+  // `load` on the <iframe>. Stops as soon as the frame is dropped (`closed`).
+  var frameLoad = function (html, top) {
+    if (!frameDoc || g.closed) return;
+    wBuf = null;
+    var kids = __d_children(doc.__id, false);
+    for (var i = 0; i < kids.length; i++) __d_remove(kids[i]);
+    doc.readyState = 'loading';
+    __d_load_html(doc.__id, String(html));
+    if (ceOn) ceScan(doc.__id, false);
+    if (/<iframe/i.test(html)) syncWin();
+    var ids = __d_query(doc.__id, 'script', false) || [], k = 0, n = 0;
+    var finish = function () {
+      if (g.closed) return;
+      doc.readyState = 'interactive';
+      g.__scratchy_dispatch(doc, new g.Event('DOMContentLoaded', { bubbles: true }));
+      if (g.closed) return;
+      bootFrames();
+      if (g.closed) return;
+      doc.readyState = 'complete';
+      g.__scratchy_dispatch(g, new g.Event('load'));
+      if (frameOnLoad && !g.closed) frameOnLoad();
+    };
+    var step = function (top) {
+      while (k < ids.length) {
+        if (g.closed) return;
+        var id = ids[k++];
+        if (composedRootId(id) !== doc.__id) continue; // removed by an earlier script
+        var t = sType(id);
+        if (!t) continue;
+        var el = wrap(id), src = __d_attr(id, 'src');
+        if (t === 'module') {
+          if (src != null) { if (src.trim() !== '') sExternal(el, id, src, true); continue; }
+          var mn = String(g.location.href).split('#')[0] + '#inline-module-f' + (++sNames), mt = el.textContent;
+          __mod_register(mn, mt);
+          sModuleGraph(mn, mt, { n: 200 }, (function (nm, e) { return function () { sImport(e, nm, false); }; })(mn, el), function () {});
+          continue;
+        }
+        if (src != null) {
+          if (src.trim() === '') { sFire(el, 'error'); continue; }
+          var url;
+          try { url = new g.URL(src, doc.baseURI).href; } catch (e) { sFire(el, 'error'); continue; }
+          var cors = __d_attr(id, 'crossorigin');
+          sFetch(url, cors != null, cors == null || cors.toLowerCase() === 'use-credentials' ? 'include' : 'same-origin', (function (e, u) {
+            return function (text) {
+              if (g.closed) return;
+              sRun(e, text, u, true, e.__id);
+              e.dispatchEvent(new g.Event('load'));
+              step(true);
+            };
+          })(el, url), (function (e) {
+            return function () { if (g.closed) return; e.dispatchEvent(new g.Event('error')); step(true); };
+          })(el));
+          return;
+        }
+        sRun(el, el.textContent, doc.URL + ' inline script #' + (++n), top, id);
+      }
+      finish();
+    };
+    step(top);
+  };
+  Object.defineProperty(g, '__scratchy_frame_load', { value: function (html, top) { frameLoad(html, !!top); } });
   var sOAfter = afterIns, sOTxt = __d_settext, sOSet = __d_setattr;
-  afterIns = function (c) { if (sOAfter) sOAfter(c); if (sN > 0) sSweep(); };
-  __d_settext = function (id, t) { sOTxt(id, t); if (sN > 0 && sEl[id]) sSweep(); };
-  __d_setattr = function (id, n, v) { sOSet(id, n, v); if (sN > 0 && sEl[id] && String(n).toLowerCase() === 'src') sSweep(); };
-  defs(SCP, 'async', function () { return __d_attr(this.__id, 'async') != null || (!!sCr[this.__id] && !sOrd[this.__id]); },
-    function (v) { if (v) { delete sOrd[this.__id]; __d_setattr(this.__id, 'async', ''); } else { sOrd[this.__id] = 1; __d_rmattr(this.__id, 'async'); } });
+  afterIns = function (c) { if (sOAfter) sOAfter(c); if (xr.s.n > 0) sSweep(); };
+  __d_settext = function (id, t) { sOTxt(id, t); if (xr.s.n > 0 && xr.s.el[id]) sSweep(); };
+  __d_setattr = function (id, n, v) { sOSet(id, n, v); if (xr.s.n > 0 && xr.s.el[id] && String(n).toLowerCase() === 'src') sSweep(); };
+  defs(SCP, 'async', function () { return __d_attr(this.__id, 'async') != null || (!!xr.s.cr[this.__id] && !xr.s.ord[this.__id]); },
+    function (v) { if (v) { delete xr.s.ord[this.__id]; __d_setattr(this.__id, 'async', ''); } else { xr.s.ord[this.__id] = 1; __d_rmattr(this.__id, 'async'); } });
   var IMP = mkProto('HTMLImageElement', ['img']);
   rUrl(IMP, 'src', 'src'); rStrs(IMP, ['alt', 'srcset', 'sizes', 'crossOrigin', 'useMap', 'decoding', 'loading', 'referrerPolicy', 'name', 'align']);
   rBool(IMP, 'isMap', 'ismap');
@@ -3836,7 +4004,8 @@ const DOM_PRELUDE: &str = r#"
   // constructor (`ceNew`, reached through `super()`) returns the element
   // being upgraded (per-definition construction stack). Reactions run
   // synchronously after the API call (a microtask-free simplification of
-  // the CEReactions stack). Only the main document (id 0) is ever upgraded.
+  // the CEReactions stack). Only the realm's own document is ever upgraded
+  // (the page: id 0; an iframe realm: its document, with its own registry, QPT1f).
   // Cuts: adoptedCallback, `:defined`, no shadow DOM (attachShadow throws).
   var ceOn = false, ceByName = Object.create(null), ceByCtor = new Map(), ceWhen = Object.create(null);
   var ceState = Object.create(null), ceConnFlag = Object.create(null), ceNConn = 0;
@@ -3849,7 +4018,8 @@ const DOM_PRELUDE: &str = r#"
     if (typeof fn !== 'function') return;
     try { fn.apply(el, args); } catch (e) { ceReport(e, fn.name || 'callback'); }
   };
-  var ceIsConn = function (id) { return composedRootId(id) === 0; };
+  // QPT1f: "connected" = in this realm's document (the page, or an iframe realm's own document).
+  var ceIsConn = function (id) { return composedRootId(id) === doc.__id; };
   var ceDefFor = function (id) {
     var raw = __d_tag(id);
     if (raw !== raw.toUpperCase()) return null; // not an HTML-namespace element
@@ -3873,9 +4043,9 @@ const DOM_PRELUDE: &str = r#"
     }
   };
   var ceQueryDeep = function (id) {
-    var l = __d_ce_candidates(id);
+    var l = __d_ce_candidates(doc.__id, id);
     for (var i = 0; i < srHosts.length; i++) {
-      if (srUnder(srHosts[i], id)) l = l.concat(__d_ce_candidates(__d_shadow_of(srHosts[i])));
+      if (srUnder(srHosts[i], id)) l = l.concat(__d_ce_candidates(doc.__id, __d_shadow_of(srHosts[i])));
     }
     return l;
   };
@@ -4043,7 +4213,7 @@ const DOM_PRELUDE: &str = r#"
     hookInstall();
     var oCE = doc.createElement, oCENS = doc.createElementNS, oClone = NodeProto.cloneNode;
     var created = function (el, opts, self) {
-      if (self && self.__id > 0) return el; // second documents: never upgraded
+      if (self && self.__id !== doc.__id) return el; // second documents: never upgraded
       var id = el.__id, raw = __d_tag(id), tg = raw.toLowerCase(), is = opts && opts.is != null ? String(opts.is) : null, d = null;
       if (raw !== raw.toUpperCase()) return el;
       if (is !== null && ceByName[is] && ceByName[is].ext === tg) { d = ceByName[is]; oSet(id, 'is', is); }
@@ -4103,10 +4273,10 @@ const DOM_PRELUDE: &str = r#"
       connected: P.connectedCallback, disconnected: P.disconnectedCallback, changed: observed.length ? P.attributeChangedCallback : undefined };
     if (!ceOn) { ceOn = true; ceInstall(); }
     ceByName[name] = d; ceByCtor.set(ctor, d);
-    __d_ce_add(name, ext || '');
+    __d_ce_add(doc.__id, name, ext || '');
     // QY21: only the NEW name is looked up (the old all-names selector made define() quadratic).
     ceStats.defineQueries++;
-    var l = __d_query(0, name.indexOf('.') >= 0 ? '*' : ext ? ext + '[is]' : name, false);
+    var l = __d_query(doc.__id, name.indexOf('.') >= 0 ? '*' : ext ? ext + '[is]' : name, false);
     for (var i = 0; i < l.length; i++) { if (!ceState[l[i]] && ceDefFor(l[i]) === d) ceUpgrade(l[i], d, true); }
     if (ceWhen[name]) { var w = ceWhen[name]; delete ceWhen[name]; w.resolve(ctor); }
   };

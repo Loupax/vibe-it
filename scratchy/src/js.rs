@@ -898,7 +898,7 @@ const FIRE_LOAD: &str = "document.readyState='complete';__scratchy_dispatch(wind
 pub(crate) type LogFn = Rc<dyn Fn(&str, &str)>;
 
 /// QOBS3: the names scratchy's own preludes are compiled under (`by_caller` skips their frames).
-pub(crate) const PRELUDE_SCRIPTS: &[&str] = &["prelude", "timers", "url", "globals", "intl", "fetch", "websocket", "cssom", "media", "mse", "env", "img-sweep", "prereq", "media-wait", "eval"];
+pub(crate) const PRELUDE_SCRIPTS: &[&str] = &["prelude", "timers", "url", "globals", "intl", "fetch", "websocket", "cssom", "media", "mse", "env", "frames-boot", "img-sweep", "prereq", "media-wait", "eval"];
 
 pub(crate) const SCRIPT_BUDGET: Duration = Duration::from_secs(5);
 // QB3: budget for one timer or event callback. The page-load run keeps
@@ -1763,6 +1763,9 @@ fn run_page(engine: JsEngine, document: &Handle, scripts: &[ScriptSource]) -> Op
     }
     engine.eval_as(Some(perf::Kind::Event), "DOMContentLoaded", FIRE_DOM_CONTENT_LOADED);
     perf::mark("dom_content_loaded");
+    // QPT1f (R53 D9): the page's srcdoc iframes load (their scripts, DOMContentLoaded, load and the
+    // <iframe>'s load) before the page's own load event, as in Chrome.
+    engine.eval("frames-boot", "__scratchy_frames_boot()");
     engine.eval("img-sweep", "__scratchy_img_sweep()");
     engine.eval_as(Some(perf::Kind::Event), "load", FIRE_LOAD);
     perf::mark("load");
