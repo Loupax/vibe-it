@@ -102,6 +102,7 @@ mod js_media;
 #[cfg(feature = "media")]
 mod media_mpv;
 mod app;
+mod wl_drain;
 #[cfg(not(feature = "engine-v8"))]
 compile_error!("no JS engine selected: enable the `engine-v8` feature (default); QuickJS was removed in QV8-6 (git revert to bring it back)");
 // QV8-6: V8 is the only engine behind the seam (src/js_engine_v8.rs).

@@ -973,6 +973,9 @@ pub(crate) struct App {
     pub(crate) video: AppVideo,
     /// QOBS5: `SCRATCHY_FRAME_STATS` aggregator; `None` (the default) costs one test per hook.
     pub(crate) frame_stats: Option<crate::frame_stats::FrameStats>,
+    /// QY54a2 (R57): the `wl-drain` thread reading the Wayland socket while the main thread is busy;
+    /// started in `resumed`, joined in `exiting`. `None` off Wayland or with `SCRATCHY_WL_DRAIN=0`.
+    pub(crate) wl_drain: Option<crate::wl_drain::WlDrain>,
 }
 
 /// QM1g1: what the video-rect-only redraw keeps between full redraws.
@@ -1286,6 +1289,7 @@ impl App {
             pre_help_page: None,
             video: AppVideo::default(),
             frame_stats: new_frame_stats(),
+            wl_drain: None,
         }
     }
 
@@ -1386,6 +1390,7 @@ impl App {
             pre_help_page: None,
             video: AppVideo::default(),
             frame_stats: new_frame_stats(),
+            wl_drain: None,
         }
     }
 
@@ -4037,12 +4042,24 @@ impl ApplicationHandler<AppEvent> for App {
         crate::js::set_window_viewport(size.width, size.height);
         self.window = Some(window);
         self.surface = Some(surface);
+        self.wl_drain = crate::wl_drain::WlDrain::start(event_loop);
+    }
+
+    /// QY54a2: join the wl-drain thread while winit's display is still alive (winit calls this on a
+    /// clean exit and on the ExitFailure path, before it drops the event loop).
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        self.wl_drain.take();
     }
 
     /// Q33t: run due JS timers, then sleep until the next one (or
     /// indefinitely when none are pending, so timer-less pages never
     /// wake up on their own).
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // QY54a2: a panic on this thread stopped the drain; we are still running, so it was caught.
+        if self.wl_drain.as_ref().is_some_and(crate::wl_drain::WlDrain::stopped_by_panic) {
+            self.wl_drain = None;
+            self.wl_drain = crate::wl_drain::WlDrain::start(event_loop);
+        }
         self.flush_pointer_move();
         let trail_at = self.flush_move_trailing();
         let els = self.sync_node_scroll();
