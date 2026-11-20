@@ -1039,10 +1039,6 @@ QPROF1 PART A FOLLOW-UPS (R62 section 7, #451; non-layout hotspots; START AFTER 
       at 4 vs 8 threads (dropped frames, CPU, RSS) before choosing.
 - [ ] QOOM1c [S] (P3, from #453; Sonnet) Cap players that EXIST at once (not only playing, D7): release the oldest paused,
       out-of-view player, reload on play.
-- [ ] [WIP] QTOOL1 [S] (P2, from #453; Sonnet; tools only, ALLOWED during the QINC1 phase: it unblocks measurements) tools/nest.sh's
-      `setsid timeout 3600 dwl` inherits the caller's flock fd, so a leftover nested dwl holds /tmp/scratchy-perf.lock for up
-      to an hour. Close inherited fds in nest.sh (e.g. exec {fd}>&- / setsid with closed fds), and document "start nest before
-      taking the lock". Test: a script holding the lock starts nest.sh, releases; the lock is free while dwl runs.
 - [ ] QM1k-blank [S] (P3, from R62; Opus investigate) In 1 of 3 YT watch window runs no video frame for 24 s while the main
       thread was idle; a 2nd <video> started at 58 s. Reproduce and find the cause.
 - [ ] QINC1c-ib [S] (P3, AFTER the QINC1 freeze; from QINC1c #450 + its review) Static inline-blocks: the z-index hoist never

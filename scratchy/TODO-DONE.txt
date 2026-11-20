@@ -8405,3 +8405,9 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       LEAD 2026-11-20 14:08 (QPROF1 run): a HEADLESS `--perf-report --seconds 30` run hit the 6 GB cap in 33 s, OOM
       triggered by `dav1d-worker` (AV1 decode) -> video decode path (media_video.rs / mpv frames / frame pool QM1g2a1 #405 /
       render thread QM1g2a #388); reproducible in ~30 s, start there. QPROF1's report names the page.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QTOOL1 DONE - nest.sh closes inherited fds (#454) [S] (P2, from #453; Sonnet; tools only, ALLOWED during the QINC1 phase: it unblocks measurements) tools/nest.sh's
+      `setsid timeout 3600 dwl` inherits the caller's flock fd, so a leftover nested dwl holds /tmp/scratchy-perf.lock for up
+      to an hour. Close inherited fds in nest.sh (e.g. exec {fd}>&- / setsid with closed fds), and document "start nest before
+      taking the lock". Test: a script holding the lock starts nest.sh, releases; the lock is free while dwl runs.
