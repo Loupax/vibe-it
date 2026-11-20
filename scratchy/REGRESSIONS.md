@@ -570,9 +570,32 @@ the App build -> None -> build, as before. A splice remap is NOT done (0 occurre
 generation key). **Result, 3 interleaved pairs** (same throwaway counter in both binaries, `flock`, load 0.6-2.7):
 hover refusals with `hover_match_diff` = None main 21/17/3 = **41**, branch 0/0/2 = **2** (gate: drop >= 10);
 `hover.patched` main 13/10/17 = 40, branch 20/20/19 = **59**; `hover.built` main 13/14/9 = 36, branch 6/6/6 = 18.
-Builds per run are noisy (main 214/209/268, branch 264/276/314: YouTube state). The rest of the hover builds: a build
-already pending (`layout_dirty`/`restyle_requested`) and 6 patch refusals per run (an element not rendered or animated,
-a rule changing more than paint).
+The rest of the hover builds: a build already pending (`layout_dirty`/`restyle_requested`) and 6 patch refusals per
+run (an element not rendered or animated, a rule changing more than paint).
+**Total builds (coordinator check).** In those 3 pairs the branch had MORE builds per run every time (main 214/209/268,
+branch 264/276/314). Two more interleaved pairs on main 6cdc00a vs the branch rebased onto it, with a second throwaway
+counter that is the same in both binaries: each App build logs WHY it ran (a bit per `layout_dirty` site: script DOM write
+in `js_sync`, the script restyle deferred while a pass was in flight, animation tick, `set_interaction_state` = a hover
+or focus build, image relayout, document/CSS arrival, `:checked`, resize), and every `GeomCache` forced layout is counted.
+`flock`, load 0.7-1.3. App builds per run, by reason:
+
+| run | all | script restyle after in-flight pass | script write | both | + image | hover/focus | document | forced layouts |
+|---|---|---|---|---|---|---|---|---|
+| main 4 | 213 | 111 | 65 | 18 | 4 | 13 | 2 | 272 |
+| branch 4 | 150 | 80 | 39 | 18 | 6 | 5 | 2 | 202 |
+| branch 5 | 219 | 117 | 69 | 18 | 4 | 9 | 2 | 229 |
+| main 5 | 234 | 145 | 58 | 12 | 5 | 12 | 2 | 227 |
+
+This time the branch has FEWER builds in both pairs (150 vs 213, 219 vs 234). Over all 5 pairs: main 1138, branch 1223
+(+7 %), direction 3:2. The run-to-run spread is in the script-driven categories (script writes and script restyles
+deferred behind an in-flight pass): 143-220 per run whichever binary. The change cannot touch these. It only decides
+whether a hover goes to a patch or a build, and it does not set or clear any dirty flag. The one category it can affect,
+hover/focus builds, is down on the branch (13+12 -> 5+9). No build ran without a reason bit (a dirty flag left set would
+show as one): 0 in all 4 runs. A stale memo that led to a wrong patch and then a corrective build would show as an extra
+hover/focus or script build right after a `patched` hover. Hover/focus builds went down, and the script categories vary as much between two runs of one binary
+(main 198 vs 220, branch 143 vs 208). Hover in these runs: `hover_match_diff` = None main 20/13, branch 3/6; patched main 15/14,
+branch 10/23. (Note: the frame-stats file of the first 2-pair attempt was appended to, because `inject` was missing and
+those runs got no input. The App build counts above come from the per-run log, which is overwritten each run.)
 
 ### Proposed items (coordinator files them)
 - **QY53n2c [S]** (P3, style.rs `decls_effect` + hover_patch.rs; Sonnet) Classify by the resolved VALUE change, not by the
