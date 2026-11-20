@@ -39,6 +39,8 @@ default = ["engine-v8", "media"]
 media = ["dep:libloading"]
 # QV8-3a: the V8 engine backend (src/js_engine_v8.rs), the default.
 engine-v8 = ["dep:v8"]
+# QMEM3g: sampling heap profiler (counting global allocator). OFF by default; see PERF.md.
+memprof = []
 
 [dev-dependencies]
 criterion = "0.5"

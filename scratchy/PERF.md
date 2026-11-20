@@ -124,6 +124,41 @@ new, change. It walks the JSON generically (every numeric leaf by dotted path, s
 fields appear without changes); arrays of objects with a `name` are keyed by it, other arrays
 such as `longest` are skipped (see `--help`). Diff main against main first to see the noise floor.
 
+## Heap breakdown by call site (`--features memprof`, QMEM3g)
+
+A sampling counting `#[global_allocator]` (src/memprof.rs), compiled ONLY with the `memprof`
+cargo feature. Default builds and CI do not contain it (no allocator wrapper, no extra code).
+It is not built in CI (it would need a second full V8 build); check it locally:
+`cargo test --lib --features memprof memprof_tests`.
+
+```
+cargo build --release --features memprof          # add --profile profiling for line tables
+MEMPROF_SAMPLE_KB=8 MEMPROF_OUT=/tmp/m.out target/release/scratchy --perf-report https://example.org/
+python3 -I tools/memprof-resolve.py /tmp/m.out --top 10 [--frames 3] [--threads]
+```
+
+- About one allocation per `MEMPROF_SAMPLE_KB` KB (default 8; per-thread byte counter) gets a
+  32-frame backtrace and a slot in a static live-pointer table (1M slots); `free`/`realloc`
+  remove it. Each live sample counts as `max(size, interval)` bytes, so allocations of at
+  least the interval are exact and small ones are an estimate. Lower the interval (1-2 KB) for
+  small-object detail at a higher run-time cost (a backtrace per sample).
+- The dump is written at the end of `--perf-report`, on normal exit, and on `kill -USR2 <pid>`
+  (your own PID only) for a live window. `MEMPROF_OUT` defaults to `./memprof.out`.
+- `tools/memprof-resolve.py` maps the frames through the dump's `/proc/self/maps` lines and
+  `addr2line`, drops allocator/std/libc frames, and prints live MiB, samples and share per
+  function (`--frames N` groups by the top N callers, `--threads` splits by thread name).
+- A `--perf-report` dump replaces the exit dump (the exit one would see a torn-down heap).
+- Demo (QMEM3g, Wikipedia "Rust (programming language)", `--profile profiling`, own wire,
+  `--budget-ms 20000 --seconds 10`, 8 KB interval, under the perf flock, load average ~7.3
+  from other agents): top 10 live sites, 47.7 MiB estimated of ~269 MiB RSS (the rest is V8,
+  libmpv and glibc-kept memory, which this does not see):
+  `Buffer::clone` 13.0 MiB, `ShapeSpan::clone` 11.5, `MediaStream::exchange` 2.3,
+  `js_geom::walk_glyphs_body::para` 2.1, `Engine::finish_bake` 1.7, `perf_report` 1.4,
+  `RcDom::create_element` 1.3, `ParsedBlock::new` 1.3, `measure_mixed_inline` 1.3,
+  `RcDom::append` 1.1 (the two cosmic-text clones are the SHAPE_MEMO copies of QMEM3j).
+- Limits: only Rust-side `GlobalAlloc` traffic. V8 and libmpv C++ `malloc` is not seen (that is
+  QMEM3h). Sampling slows the run down; never compare timings from a memprof build.
+
 ## JSON field glossary (`--perf-report`)
 
 | field | meaning |
