@@ -167,6 +167,87 @@ during that stall. Normal use (Wikipedia Rust in the nested dwl, move/scroll, a 
 ~370 ms. Killing the nested dwl gives rc 1 with the same three stderr lines as with the drain off (2x winit's
 `Io error: Broken pipe` + QB1's one line); the thread logs nothing.
 
+### 7. QY54a3: YouTube re-run and CPU cost with the drain (YouTube gate MET, CPU gate MISSED: +1.4 % of one core)
+
+**Setup.** Release build (V8 + media) of origin/main 8c211e9 (#425, the drain is in), own CARGO_TARGET_DIR, copied aside.
+Own wire (a copy of the installed binary) on a scratchpad socket and own nested dwl per run, `tools/wl-flood/run.sh` with
+two scratchpad-only changes: the motion start is a variable (1 s or 15 s) and scratchy runs under a wrapper that reads
+`/proc/<pid>/stat` (process and per-thread utime/stime) when run.sh stops it (`timeout --foreground`, so the sample is
+taken before scratchy gets the signal). 500 Hz = `wait:2` circle. `SCRATCHY_FRAME_STATS` on every run, default UA,
+`SCRATCHY_MEDIA_AO=null`. **Every run under `flock /tmp/scratchy-perf.lock`**; before each run the 1-min load was waited
+down to < 2 (3 min at most); the load is in the tables. Another agent was building at times (spikes to 7-13 during some
+runs, noted). Machine: Ryzen 7 5700X, 16 threads.
+
+**(1) YouTube results** (`/results?search_query=rust`), 500 Hz. "load" = motion from 1 s for 60 s; "late" = motion from
+15 s for 45 s (to 60 s). R56: lost 3/3 each.
+
+| case | drain | result | longest callback | input->present max | load (1 min) at start |
+|---|---|---|---|---|---|
+| load | on | **survived 3/3** (27 396-27 756 moves dispatched) | 326-343 ms | 1.39 / 1.86 s (run 1: frame stats lost to a driver bug; harness line: gap 2.36 s, longest 334 ms) | 1.76, 1.66, 2.62 |
+| late | on | **survived 3/3** (20 138-20 585 moves) | 882 / 1 053 / 1 061 ms (promise job) | 0.82 / 1.25 / 1.26 s | 1.98, 1.29, 1.32 |
+| load | `SCRATCHY_WL_DRAIN=0` | lost 1/1 at 2.9 s (434 moves) | 293 ms | - | 1.07 |
+| late | `SCRATCHY_WL_DRAIN=0` | lost 1/1 at 16.2 s (98 moves), on the first preview job (11 `getPlayerSize` layouts, 653 ms; job 727 ms) | 727 ms | - | 0.89 |
+
+**0 lost of 6 with the drain; the drain-off baseline still loses at the same places as R56.** Drain thread CPU on YouTube:
+0.34-0.56 s per 60 s (user 0.11-0.17, sys 0.23-0.39). Process CPU 57-65 s per 60 s (the page keeps one core busy:
+frame-stats busy share builds + paint/present + page JS = 87 % (load runs) and 79-83 % (late runs, whole 60 s)).
+
+**For QY54b (input freeze on YouTube results).** After load, with the pointer over the results, the inline-preview player
+runs one promise job every ~2-3 s with **13-15 `g.k.getPlayerSize` forced layouts of ~61-63 ms each (0.91-0.95 s), the
+job 0.98-1.06 s** (`event:abort (anonymous) fetch:793:51` or no source), and in between an `observer_delivery` /
+`event:durationchange` timer second with 2-5 more `getPlayerSize` layouts and 5-11 builds. One second of late run 3 had
+29 `getPlayerSize` layouts (1.81 s, two jobs). Over the 45 s: 223 / 355 / 317 `getPlayerSize` layouts, 12.5 / 22.0 /
+19.6 s. **The longest input freeze is ~1.06 s (input->present max 1.26 s)**, repeating every 2-3 s. During load the longest
+freeze is the page-script second at 2-3 s (redraw gap 1.4-2.7 s, input->present max 1.86 s), not `getPlayerSize`. The
+first preview job (t ~16 s) is shorter (11 layouts, 0.65-0.72 s). The 5.6-7.9 s "redraw gap" at 15.5-16 s in the late runs
+is the idle page before the motion starts (no redraw needed), not a freeze (input latency in that second 70-200 ms).
+
+**(2) CPU cost**, a static fixture (60 `<p>` of text, no script, no hover rule), 60 s of 500 Hz motion from 1 s, process
+CPU at the end (61 s of process life). Pairs 1-3 are the item's 3 interleaved pairs; pairs 4-5 were added on a quieter
+machine because pairs 1 and 3 had load spikes during the drain-on run.
+
+| pair (order) | drain on: process user+sys | of it: main / wl-drain | drain off: process | of it: main | delta | load start (on / off), spikes |
+|---|---|---|---|---|---|---|
+| 1 (on, off) | 2.01 s (23 454 moves) | 1.35 / 0.56 | 1.10 s (28 019) | 1.00 | +0.91 s | 0.58 (13.5 during) / 3.76 |
+| 2 (off, on) | 1.66 s (28 007) | 1.13 / 0.42 | 1.12 s (28 008) | 1.03 | +0.54 s | 1.79 / 1.93 |
+| 3 (on, off) | 2.07 s (24 334) | 1.39 / 0.53 | 1.04 s (28 089) | 0.95 | +1.03 s | 1.97 (7.4 during) / 1.95 |
+| 4 (off, on) | 2.03 s (27 685) | 1.38 / 0.54 | 1.04 s (28 096) | 0.95 | +0.99 s | 0.37 (3.5 at end) / 0.99 |
+| 5 (on, off) | 1.48 s (28 094) | 0.99 / 0.39 | 1.05 s (28 082) | 0.95 | +0.43 s | 1.97 / 0.59 |
+
+- **Cost of the drain: +0.43 to +1.03 s per 60 s of 500 Hz motion = 0.7-1.7 % of one core** (pairs 1-3: +0.54-1.03 s,
+  mean +0.83 s = **1.4 %**; all 5: mean +0.78 s = 1.3 %). That is **above the < 1 % gate** and higher than the prototype's
+  +0.1 s per 15 s (~0.7 %). Without the drain the same motion costs 1.04-1.12 s (1.7-1.9 %), so the drain roughly doubles
+  what pointer motion over an idle page costs.
+- About half is the `wl-drain` thread itself (0.39-0.56 s, mostly sys: `poll` + `read`), the other half is **extra work on
+  the main thread** (+0.04 to +0.44 s, user and sys both up): while the main thread is idle in calloop, both threads poll
+  the same fd, so every motion batch wakes both; libwayland makes one of them read and the other wait or cancel, and the
+  main thread then dispatches with more, smaller wake-ups. The cost is only paid while the main thread is idle, i.e. exactly
+  when the drain is not needed.
+- Frame-stats busy share is **0.0 %** with and without the drain (builds + paint/present + JS = 10-18 ms per 61 s; the
+  static page does not redraw on motion). Event dispatch is not in frame stats, so the cost shows only in process CPU.
+- With the pointer still the drain costs nothing (the thread sleeps in `poll`).
+
+**Verdict.** QY54's user-visible goal is met: with the drain YouTube results at 500 Hz survives 6/6 (R56: 0/6), and the
+baseline without it still loses 2/2. The CPU gate is missed (1.4 % vs < 1 %), so per section 5 the follow-up below is
+proposed. The YouTube page still freezes input for ~1 s every 2-3 s while the pointer is over the results (QY54b).
+
+Proposed item (coordinator files it):
+
+- **QY54a4 [S]** (P2, Sonnet; src/wl_drain.rs + app.rs only) The wl-drain thread sleeps while the main thread is idle in
+  calloop. Measured (R57 section 7): the drain adds +0.43-1.03 s per 60 s of 500 Hz motion over a static page (0.7-1.7 %
+  of one core, mean 1.4 %; gate < 1 %), half in the thread's own poll/read and half as extra main-thread wake-ups, because
+  both threads poll the Wayland fd while the main thread is idle. Fix: the main thread publishes a "busy since" timestamp
+  (`AtomicU64`, monotonic ns; set at the start of each event-loop iteration in `ApplicationHandler::new_events`, set to 0
+  at the end of `about_to_wait` just before returning to calloop). The thread does not poll the Wayland fd while the stamp
+  is 0 or younger than ~50 ms; it waits on its wake socket with a ~50 ms timeout and re-checks, and only when the main
+  thread has been busy longer than that does it do today's `prepare_read` / `poll` / `read_without_dispatch` until the
+  stamp goes back to 0. 50 ms at 500 Hz is ~25 moves, far below the ~190-225 that get scratchy dropped. Keep stop/wake,
+  POLLHUP and the panic hook as they are. Tests: the existing wl_drain_tests still pass with the main thread marked busy;
+  new: with the stamp 0 the thread consumes nothing (the socketpair server's bytes stay unread) and with a stamp older
+  than the threshold it drains. Gate (`tools/wl-flood/run.sh`, release build, perf flock): busy450 and stall_k18 at 500 Hz
+  still survive 3/3, YouTube results at 500 Hz from 15 s survives 3/3, and on a static page 3 interleaved pairs of 60 s
+  of 500 Hz motion, drain on vs `SCRATCHY_WL_DRAIN=0`, differ by < 0.6 s process CPU (< 1 % of one core).
+
 ## R56: Quiet-machine re-measurement of QY60, QY54 and QY33 on V8 main. QY60: FIXED. On YouTube results the masthead is finished at 4.3-4.6 s (R38: 47-53 s with a 20 s budget), all 20 results are in by 3.3-4.4 s, the worst rAF wait is 623-634 ms (R38: 3.6 s) and the worst timer lateness 701-725 ms (R38: 4.1 s). Forced layout is 0.6-1.0 s per 10 s headless (QV8-m: 14.6 s). The main thread is saturated only for ~5 s of load (page JS ~0.8-0.95 s per second), then idle. NEW (FIXED by QY57r: ioEval0 no longer clips by a propagated body overflow; thumbnails now paint): the thumbnails still show `true`: scratchy's IntersectionObserver clips every target by `<body>` (YouTube's body is 956x0 with `overflow: scroll`), so every entry has an empty intersection and YouTube never sets `src`. QY54: STILL OPEN. The nested compositor drops scratchy when about 190-225 pointer-motion events queue up unread: 3/3 lost with a 450 ms busy loop at 500 Hz, which is INSIDE the 500 ms callback budget. YouTube results at 500 Hz: lost 3/3 during load and 3/3 after load, on the inline-preview player's `getPlayerSize` layouts (0.7-0.98 s in one promise job). At 125 Hz it survives 3/3. QY33: FIXED. In 21 headless runs (home, results, watch) and 9 window runs: 0 budget kills, and the largest callback after load is 130 / 233 / 264 ms budget clock (327 ms raw) (Opus, 2026-11-20, measure only, docs only) — OPEN: proposed QY57r, QY54a, QY54b (below)
 
 **Setup (all three items).** Main b88b3db (its code is 86635e3: the commits after it change only TODO files). The binary is
