@@ -3941,6 +3941,47 @@ fn natural_width_impl(
     incomplete: &mut bool,
     as_child: bool,
 ) -> (f32, f32) {
+    // QINC1h2: during an engine measure a clean element box's (min, max) is served from the kept
+    // intrinsic-size cache (keyed by `bver`); a complete result is stored.
+    let el = ENG_ON.with(Cell::get) && cell.style.node != 0 && cell.style.pseudo == 0;
+    if el {
+        if let Some(v) = crate::incr_layout::nat_get(cell.style.node, as_child) {
+            return v;
+        }
+        let was = *incomplete;
+        let v = natural_width_body(cell, font_system, next_id, cache, deadline, incomplete, as_child);
+        if !was && !*incomplete {
+            crate::incr_layout::nat_put(cell.style.node, as_child, v);
+        }
+        return v;
+    }
+    natural_width_body(cell, font_system, next_id, cache, deadline, incomplete, as_child)
+}
+
+/// QINC1h2: `natural_width_impl` through the engine's cache, for the bottom-up check of an
+/// intrinsic-size reader (`incr_layout::attempt`).
+pub(crate) fn natural_width_probe(
+    cell: &LayoutBox,
+    font_system: &mut FontSystem,
+    next_id: &mut usize,
+    cache: &mut ShapeCache,
+    as_child: bool,
+) -> Option<(f32, f32)> {
+    let mut inc = false;
+    let far = std::time::Instant::now() + std::time::Duration::from_secs(3600);
+    let v = natural_width_impl(cell, font_system, next_id, cache, far, &mut inc, as_child);
+    (!inc).then_some(v)
+}
+
+fn natural_width_body(
+    cell: &LayoutBox,
+    font_system: &mut FontSystem,
+    next_id: &mut usize,
+    cache: &mut ShapeCache,
+    deadline: std::time::Instant,
+    incomplete: &mut bool,
+    as_child: bool,
+) -> (f32, f32) {
     // Effectively unconstrained, same constant/reasoning as `measure_
     // mixed_inline`'s own `WORD_MEASURE_WIDTH`.
     const UNBOUNDED: f32 = 1_000_000.0;

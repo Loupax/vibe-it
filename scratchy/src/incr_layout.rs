@@ -76,6 +76,11 @@ pub(crate) struct LayoutStats {
     pub(crate) miss_no_old: u64,
     /// Boxes measured for real (element and anonymous).
     pub(crate) remeasured: u64,
+    /// QINC1h2: intrinsic-size (min, max) lookups served from the cache / computed.
+    pub(crate) intr_hits: u64,
+    pub(crate) intr_misses: u64,
+    /// QINC1h2: bottom-up steps under an intrinsic-size reader that stopped (natural widths unchanged).
+    pub(crate) intr_stops: u64,
     /// Reused boxes that moved.
     pub(crate) shifted: u64,
     /// Bottom-up splices, and the levels each walked up before it stopped.
@@ -133,6 +138,67 @@ thread_local! {
     /// Element boxes whose old `Laid` this update opened because they changed (a later lookup is a
     /// "dirty" miss, not "no old").
     static OPENED: RefCell<HashSet<usize>> = RefCell::new(HashSet::new());
+}
+
+thread_local! {
+    /// QINC1h2: `cell_natural_width` results of element boxes: (node, as_child) -> (bver, min, max).
+    /// Used only during an engine measure; cleared when the engine starts over.
+    static NAT: RefCell<HashMap<(usize, bool), (u64, f32, f32)>> = RefCell::new(HashMap::new());
+}
+
+/// The cached (min, max) natural width of element box `node` when it is still clean.
+pub(crate) fn nat_get(node: usize, as_child: bool) -> Option<(f32, f32)> {
+    let v = nat_peek(node, as_child);
+    CTX.with(|c| {
+        if let Ok(mut c) = c.try_borrow_mut()
+            && let Some(c) = c.as_mut()
+        {
+            if v.is_some() {
+                c.stats.intr_hits += 1;
+            } else {
+                c.stats.intr_misses += 1;
+            }
+        }
+    });
+    v
+}
+
+fn nat_peek(node: usize, as_child: bool) -> Option<(f32, f32)> {
+    let cur = bver(node);
+    if cur == u64::MAX {
+        return None;
+    }
+    NAT.with(|n| n.borrow().get(&(node, as_child)).filter(|e| e.0 == cur).map(|e| (e.1, e.2)))
+}
+
+pub(crate) fn nat_put(node: usize, as_child: bool, v: (f32, f32)) {
+    let cur = bver(node);
+    if cur != u64::MAX {
+        NAT.with(|n| n.borrow_mut().insert((node, as_child), (cur, v.0, v.1)));
+    }
+}
+
+/// The cached entries of `node` that were valid for `ver` (its version when it was last laid out).
+fn nat_old(node: usize, ver: u64) -> [Option<(f32, f32)>; 2] {
+    NAT.with(|n| {
+        let n = n.borrow();
+        let get = |c: bool| n.get(&(node, c)).filter(|e| e.0 == ver).map(|e| (e.1, e.2));
+        [get(false), get(true)]
+    })
+}
+
+fn nat_clear() {
+    NAT.with(|n| n.borrow_mut().clear());
+}
+
+/// Entries of boxes that no longer exist or changed are dropped once the map is large.
+fn nat_sweep() {
+    NAT.with(|n| {
+        let mut n = n.borrow_mut();
+        if n.len() > 20_000 {
+            n.retain(|k, e| e.0 == bver(k.0));
+        }
+    });
 }
 
 fn bver(node: usize) -> u64 {
@@ -788,6 +854,7 @@ impl LayoutEngine {
         let mut cache = ShapeCache::new();
         let mut next = next_id;
         let mut inc = false;
+        nat_clear();
         let (laid, root_h) = with_ctx(false, || {
             crate::layout::measure_document_engine(tree, fs, vw, vh, &mut next, &mut cache, LayoutEngine::far(), &mut inc)
         })
@@ -948,6 +1015,8 @@ impl LayoutEngine {
         }
         let cur = bver(e);
         let abs = matches!(nb.style.position, Position::Absolute | Position::Fixed);
+        // QINC1h2: the natural widths an intrinsic-size reader above may have read (old version).
+        let mut intr_old: [Option<(f32, f32)>; 2] = [None, None];
         {
             let old = at(&mut self.laid, &lpath);
             let Some(ck) = old.ck.as_ref() else { return Attempt::Up(parent_el) };
@@ -978,7 +1047,10 @@ impl LayoutEngine {
                 "float"
             } else if matches!(parent_box.style.display, Display::Table | Display::Flex | Display::InlineFlex | Display::Grid) {
                 "flex_grid_table_parent"
-            } else if ck.intr {
+            } else if ck.intr && {
+                intr_old = nat_old(e, ck.bver);
+                intr_old.iter().all(Option::is_none)
+            } {
                 "intrinsic_ancestor"
             } else if ck.pos.is_some() || ck.psig != PSig::of(&nb.style) {
                 "parent_read_style_changed"
@@ -1091,13 +1163,27 @@ impl LayoutEngine {
         let same_entries = new_keys.len() == slots.len()
             && slots.iter().all(|(_, _, k, z)| new_keys.iter().any(|n| (n.0, n.1) == *k && n.2 == *z));
         let pending_ok = self.pending_unchanged(&old_pending, &out);
+        // QINC1h2: what the readers above saw of this box (its natural widths) is unchanged.
+        let intr_ok = intr_old.iter().all(Option::is_none) || {
+            let mut ok = true;
+            for (i, o) in intr_old.iter().enumerate() {
+                if let Some(o) = o {
+                    let n = crate::layout::natural_width_probe(nb, fs, &mut self.next_id, &mut self.cache, i == 1);
+                    ok &= n.is_some_and(|n| n.0.to_bits() == o.0.to_bits() && n.1.to_bits() == o.1.to_bits());
+                }
+            }
+            ok
+        };
         let fits = pending_ok
+            && intr_ok
             && same_entries
             && new.ck.as_ref().is_some_and(|ck| ck.cacheable)
             && if abs { stack_key(&new).0 == old_view.key } else { View::of(&new, &self.cache).same(&old_view) };
         if !fits {
             crate::perf::incr_up_reason(if !pending_ok {
                 "pending_out_changed"
+            } else if !intr_ok {
+                "intrinsic_size_changed"
             } else if !same_entries {
                 "z_entries_changed"
             } else if new.ck.as_ref().is_none_or(|ck| !ck.cacheable) {
@@ -1156,6 +1242,13 @@ impl LayoutEngine {
                 c.touched.push((e, Touch::Remeasured));
             }
         });
+        if intr_old.iter().any(Option::is_some) {
+            CTX.with(|c| {
+                if let Some(c) = c.borrow_mut().as_mut() {
+                    c.stats.intr_stops += 1;
+                }
+            });
+        }
         Attempt::Done
     }
 
@@ -1284,6 +1377,7 @@ pub(crate) fn after_measure(b: &LayoutBox, fs: &mut FontSystem, vw: f32, vh: f32
         }
     });
     let ns = t0.elapsed().as_nanos() as u64;
+    nat_sweep();
     let Some(mut eng) = eng else { return };
     // Shape cache: drop paragraphs no live `Laid` uses once it is twice the live set.
     if eng.cache.len() > 2 * eng.live.max(64) {
@@ -1301,6 +1395,9 @@ pub(crate) fn after_measure(b: &LayoutBox, fs: &mut FontSystem, vw: f32, vh: f32
         crate::perf::incr_root_reason(s.root_why);
     }
     incr_add(Incr::BoxesRemeasured, s.remeasured);
+    incr_add(Incr::IntrHits, s.intr_hits);
+    incr_add(Incr::IntrMisses, s.intr_misses);
+    incr_add(Incr::IntrStops, s.intr_stops);
     incr_add(Incr::CacheHits, s.hits);
     incr_add(Incr::MissDirty, s.miss_dirty);
     incr_add(Incr::MissKey, s.miss_key);
@@ -1409,4 +1506,5 @@ pub(crate) fn walked() -> u64 {
 #[cfg(test)]
 pub(crate) fn reset() {
     ENGINE.with(|e| *e.borrow_mut() = None);
+    nat_clear();
 }

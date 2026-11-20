@@ -291,3 +291,73 @@ fn qinc1h1_offset_only_change_re_places_the_box() {
     incremental(&s);
     assert!(!s.root, "{s:?}");
 }
+
+const ROW: &str = "#fx{display:flex;height:100px} #fx > div{flex:1} #fx.g{gap:3px}";
+const ROW_HTML: &str = "<div id=fx><div id=a><div>aa aa</div></div><div id=b><div>bb bb</div></div><div id=c><div>cc cc</div></div></div><section><div>x</div></section>";
+
+#[test]
+fn qinc1h2_a_full_layout_fills_the_intrinsic_cache_and_an_unchanged_one_asks_nothing() {
+    let _g = LogOnly::new();
+    let doc = page(ROW, ROW_HTML);
+    let s = lay(&doc);
+    assert!(s.full, "{s:?}");
+    let s = lay(&doc);
+    incremental(&s);
+    assert_eq!((s.intr_hits, s.intr_misses), (0, 0), "{s:?}");
+}
+
+#[test]
+fn qinc1h2_a_change_on_the_container_reuses_every_items_intrinsic_sizes() {
+    let _g = LogOnly::new();
+    let doc = page(ROW, ROW_HTML);
+    lay(&doc);
+    // The row re-runs (its gap changed) but its items are clean: their (min, max) come from the cache.
+    set_attr(&by_id(&doc, "fx"), "class", "g");
+    let s = lay(&doc);
+    incremental(&s);
+    assert!(s.intr_hits >= 3, "{s:?}");
+    assert_eq!(s.intr_misses, 0, "{s:?}");
+}
+
+#[test]
+fn qinc1h2_a_change_inside_one_item_recomputes_only_that_item() {
+    let _g = LogOnly::new();
+    let doc = page(ROW, ROW_HTML);
+    lay(&doc);
+    let inner = by_id(&doc, "a").children.borrow().iter().find(|c| matches!(c.data, NodeData::Element { .. })).cloned().unwrap();
+    set_text(&inner, "aa aa aa aa aa");
+    let s = lay(&doc);
+    incremental(&s);
+    assert!(s.intr_hits >= 2, "#b and #c are served from the cache: {s:?}");
+    assert!(s.intr_misses >= 1 && s.intr_misses <= 3, "only #a (and its inner box) are computed: {s:?}");
+}
+
+#[test]
+fn qinc1h2_a_paint_only_change_under_an_intrinsic_reader_stops_at_the_box() {
+    let _g = LogOnly::new();
+    let doc = page(
+        "#fx{display:flex} #w{display:inline-block}",
+        "<div id=fx><div id=w><div id=p>some words</div></div><div>other</div></div><section><div>x</div></section>",
+    );
+    lay(&doc);
+    set_attr(&by_id(&doc, "p"), "style", "color:red");
+    let s = lay(&doc);
+    incremental(&s);
+    assert!(!s.root, "{s:?}");
+    assert!(s.splices >= 1 && s.intr_stops >= 1, "the natural widths did not change: {s:?}");
+    assert_eq!(s.levels, vec![0], "{s:?}");
+}
+
+#[test]
+fn qinc1h2_a_text_change_that_changes_the_natural_width_goes_up() {
+    let _g = LogOnly::new();
+    let doc = page(
+        "#fx{display:flex} #w{display:inline-block}",
+        "<div id=fx><div id=w><div id=p>some words</div></div><div>other</div></div><section><div>x</div></section>",
+    );
+    lay(&doc);
+    set_text(&by_id(&doc, "p"), "some more words than there were");
+    let s = lay(&doc);
+    incremental(&s);
+    assert_eq!(s.intr_stops, 0, "{s:?}");
+}
