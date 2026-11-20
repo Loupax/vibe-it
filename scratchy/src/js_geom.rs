@@ -39,6 +39,10 @@ thread_local! {
     /// Test-only: how many forced layouts (cache misses) ran on this thread.
     #[cfg(test)]
     pub(crate) static GEOM_LAYOUTS: Cell<usize> = const { Cell::new(0) };
+    /// QINC1i5 test seam: engine forced layouts skip the check-mode oracle (a from-scratch layout that
+    /// would also refill the shape memo, hiding what the engine path alone leaves in it).
+    #[cfg(test)]
+    pub(crate) static NO_ORACLE: Cell<bool> = const { Cell::new(false) };
     static FONTS: RefCell<Option<FontSystem>> = const { RefCell::new(None) };
     /// QY53l2: the `display: none` subtrees of the last forced layout on this thread.
     static HIDDEN: RefCell<Option<HiddenSnap>> = const { RefCell::new(None) };
@@ -1025,6 +1029,8 @@ impl GeomCache {
         ATTR_SNAP.with(|h| *h.borrow_mut() = None);
         let images = crate::incr_engine::window_images(page);
         let checking = crate::incr_style::checking();
+        #[cfg(test)]
+        let checking = checking && !NO_ORACLE.with(Cell::get);
         let cache = &mut self.shape_cache;
         let next_para = &mut self.next_para_id;
         let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

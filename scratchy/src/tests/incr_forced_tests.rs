@@ -140,3 +140,30 @@ fn qinc1i_text_rects_after_engine_updates() {
     assert_eq!(on, off);
     assert!(n >= 3);
 }
+
+#[test]
+fn qinc1i5_engine_forced_layout_keeps_the_shape_memo() {
+    // QINC1i5: an engine forced layout re-measures only what changed; its memo sweep used to keep only
+    // the keys IT used, so a forced layout after a tiny write emptied the main thread's shape memo and
+    // the next App frame relayout (Wikipedia: 138k boxes re-measured, walks to the root) shaped every
+    // paragraph again (layout_ms 1.2 s -> 5.8 s). The oracle is off here: its from-scratch layout
+    // would refill the memo itself.
+    let paras: String = (0..30).map(|i| format!("<p>paragraph number {i} with some words to shape</p>")).collect();
+    let html = format!(
+        "<html><head><style>#box{{position:absolute;left:5px;top:7px;width:20px;height:9px}}</style></head>\
+         <body><div id=a style='height:10px'></div>{paras}<div id=box></div><div id=b>after</div></body></html>"
+    );
+    let code = "var b = document.getElementById('b').getBoundingClientRect().y;\
+         for (var i = 0; i < 3; i++) { document.getElementById('box').style.left = (10 + i) + 'px';\
+           b += document.getElementById('box').getBoundingClientRect().x; }\
+         console.log(b > 0);";
+    crate::js_geom::NO_ORACLE.with(|c| c.set(true));
+    crate::layout::memo_clear();
+    let (log, n, restarts) = forced_run(&html, code, true);
+    crate::js_geom::NO_ORACLE.with(|c| c.set(false));
+    assert_eq!(log, vec!["log:true".to_string()]);
+    assert_eq!(restarts, 1, "the first read builds from scratch");
+    assert!(n >= 4, "the box writes were read through the engine: {n}");
+    let kept = crate::layout::memo_len();
+    assert!(kept >= 30, "the paragraphs' shapes stay in the memo after small engine updates: {kept}");
+}
