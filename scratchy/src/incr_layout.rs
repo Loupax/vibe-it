@@ -1600,6 +1600,7 @@ pub(crate) fn worker_measure(
 ) -> (Laid, f32) {
     WORKER_VER.with(|w| *w.borrow_mut() = Some(ver.clone()));
     let _g = VerGuard;
+    nat_clear(); // the worker thread's cache may hold another job's boxes
     with_ctx(false, || crate::layout::measure_document_engine(tree, fs, vw, vh, next_id, cache, deadline, incomplete)).0
 }
 
@@ -1615,6 +1616,8 @@ pub(crate) fn adopt(
     vw: f32,
     vh: f32,
 ) -> u64 {
+    // QINC1h2: the natural-width cache belonged to the tree the engine had (the worker filled its own).
+    nat_clear();
     let live = cache.len();
     let e = LayoutEngine {
         doc_key: job.doc_key,
