@@ -7920,3 +7920,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
 - [x] QY53o3c DONE 7fef1a9 answered + fixed by QMEM3j #402: worker memo grew ~10 MB/h on a long YT page; now swept (keep last 8 builds) [S] (P4, from QY53o3; Opus measure) The App's shaping-worker memo has no size cap (cleared only when
       reuse_shaping is false): does it grow without bound on a long-lived page? Measure 10 min on YT/Wikipedia; cap/sweep if so.
+
+=== from TODO.txt: --- Rust `__*` native wrapped in a JS timer); none of it was committed. -------
+- [x] QPT1d DONE 418fbd4 #401 frames/length/window[i]/[name]/postMessage/closed/name; DetachGlobal hack dropped; live YT token + SABR 1 through 175 s [S] (after QPT1a) WindowProxy surface (R53 D8): frames, length, window[i], window[name], cross-realm postMessage,
+      closed, name.
