@@ -600,9 +600,12 @@ fn hover_keys_cover_exactly_the_elements_a_hover_rule_can_restyle() {
     assert!(keys.may_match(&find("a", None)));
     assert!(keys.may_match(&find("p", Some("btn"))));
     assert!(!keys.may_match(&find("div", None)));
-    // `:hover` with no id/class/tag requirement, or nested, matches anything.
+    // `:hover` with no id/class/tag requirement, or nested where it reaches other elements, matches anything.
     assert!(HoverKeys::build(&parse_stylesheet(":hover{color:red}")).any);
-    assert!(HoverKeys::build(&parse_stylesheet("div:not(:hover){color:red}")).any);
+    assert!(HoverKeys::build(&parse_stylesheet("p:not(.a :hover){color:red}")).any);
+    // QY53n1: `:not(:hover)` is the element's own state, keyed by its compound.
+    let own = HoverKeys::build(&parse_stylesheet("div:not(:hover){color:red}"));
+    assert!(!own.any && own.may_match(&find("div", None)) && !own.may_match(&find("a", None)));
     assert!(!HoverKeys::build(&parse_stylesheet("div{color:red}")).any);
 }
 
