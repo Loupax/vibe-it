@@ -7982,3 +7982,11 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QPT1c2 DONE 98fc30f #413 page-wide MutationObserver registry; records/delivery in the observer's realm [S] (P3, from QPT1c #399; Sonnet) Cross-realm MutationObserver: an observer registered in one realm does not see
       mutations made through another realm's DOM methods on the node it observes (Chrome reports every mutation). Share the
       observer registry (moReg/moN) page-wide like the wrapper cache (R53 D7 deviation).
+
+=== from TODO.txt: --- Rust `__*` native wrapped in a JS timer); none of it was committed. -------
+- [x] QPT1e DONE 53c5368 #415 realms without the snapshot (Context::new, natives re-bound, preludes replayed) [S] (after QPT1a) No-snapshot path (R53): Context::new, natives re-bound by name, preludes replayed.
+
+=== from TODO.txt: --- Rust `__*` native wrapped in a JS timer); none of it was committed. -------
+- [x] QPT1 DONE 53c5368 core done: QPT1a bb0d258, b 2e6a2a8, c b33c53a, d 418fbd4, d3 78c8441, f f2ccf31, e 53c5368, c2 98fc30f; YT token + SABR status 1 past 64 s; follow-ups stay as own items [L] (P1 for YouTube past ~60 s; user 2026-11-19 ~22:40: GO, "do what Chrome does"; ahead of the perf queue)
+      DESIGNED: REGRESSIONS.md R53 (PR #384). Same-origin iframe = second v8::Context from snapshot context 0 in the page
+      isolate with the page's security token. Done when QPT1a-QPT1f are done (QPT1g only if needed). Ordered split below.
