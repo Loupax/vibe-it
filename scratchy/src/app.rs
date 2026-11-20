@@ -1742,6 +1742,26 @@ impl App {
                 self.hold_old_frame = restyle;
                 self.layout_in_flight = true;
                 let id_base = self.next_para_id.max(crate::incr_layout::next_id());
+                // Tests: no event loop delivers the worker's result; lay it out here, the same way.
+                #[cfg(test)]
+                {
+                    let _ = reuse;
+                    let (mut cache, mut next, mut inc) = (ShapeCache::new(), id_base, false);
+                    let far = std::time::Instant::now() + std::time::Duration::from_secs(3600);
+                    let (w, h) = (width as f32, height as f32);
+                    let (laid, adopt) = match job {
+                        Some(job) => {
+                            let (laid, root_h) = crate::incr_layout::worker_measure(&tree, &mut self.font_system, w, h, &mut next, &mut cache, far, &mut inc, &job.ver);
+                            (laid, Some(Box::new(crate::incr_frame::WorkerResult { tree, job, root_h, vw: w, vh: h })))
+                        }
+                        None => (measure_document(&tree, &mut self.font_system, w, h, &mut next, &mut cache, far, &mut inc), None),
+                    };
+                    self.next_para_id = self.next_para_id.max(next);
+                    let generation = self.layout_generation;
+                    self.handle_shape_result_job(generation, Box::new(laid), cache, false, adopt.map(|a| (a, next)));
+                    return;
+                }
+                #[cfg(not(test))]
                 Self::queue_shaping_request(&self.shaping_requests, tree, width as f32, height as f32, self.layout_generation, reuse, id_base, job);
             }
         }

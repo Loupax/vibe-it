@@ -1516,6 +1516,7 @@ pub(crate) fn is_current(vh: f32) -> bool {
 pub(crate) struct LiveStyle {
     /// Restyled / styled elements (the worker takes the relayout above `incr_frame::WORKER_SHARE`).
     pub(crate) share: f32,
+    pub(crate) restyled: u64,
 }
 
 /// QINC1j: an App frame's restyle + box update, results USED (R60 section 9). `None`: the engine
@@ -1557,7 +1558,7 @@ pub(crate) fn live_update(
     if !boxes_ok {
         return None;
     }
-    Some(LiveStyle { share: if styled == 0 { 1.0 } else { stats.restyled() as f32 / styled as f32 } })
+    Some(LiveStyle { share: if styled == 0 { 1.0 } else { stats.restyled() as f32 / styled as f32 }, restyled: stats.restyled() })
 }
 
 /// Check mode: counts `incr.check_mismatch`; tests panic (or collect, `Seam::panic` off), release

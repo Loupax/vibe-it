@@ -9,7 +9,7 @@
 //! 3. **Worker**: the big updates go to the shaping worker, laid out the way the engine lays out
 //!    (every element `Laid` records its `Ck`), and the engine adopts the result
 //!    (`adopt_worker_result`): a copy of the kept box tree when the restyle was incremental but
-//!    touched more than `WORKER_SHARE` of the styled elements or the relayout could not run (the laid
+//!    touched more than `WORKER_SHARE` of the styled elements (and `WORKER_MIN_RESTYLED`) or the relayout could not run (the laid
 //!    tree is stale: box tree started over, viewport width, drift guard); a from-scratch build when
 //!    the restyle cannot be incremental (first layout, viewport width, new rule-list generation,
 //!    Global log entry, arena reset), whose shadow stage starts the kept trees from it.
@@ -24,8 +24,10 @@
 use super::*;
 use crate::incr_box::WorkerJob;
 
-/// Above this share of restyled / styled elements a frame's relayout goes to the worker.
+/// Above this share of restyled / styled elements a frame's relayout goes to the worker ...
 pub(crate) const WORKER_SHARE: f32 = 0.25;
+/// ... when it restyled at least this many elements (a small page's relayout is cheap anyway).
+pub(crate) const WORKER_MIN_RESTYLED: u64 = 200;
 
 #[cfg(test)]
 thread_local! {
@@ -102,7 +104,7 @@ pub(crate) fn frame(
             return Frame::Current;
         }
         match crate::incr_style::live_update(doc, &rules, vw, Some(vh), image_cache) {
-            Some(st) if st.share <= WORKER_SHARE => {
+            Some(st) if st.share <= WORKER_SHARE || st.restyled < WORKER_MIN_RESTYLED => {
                 if crate::incr_layout::live_update(fs, vw, vh) {
                     incr_add(Incr::FramesMain, 1);
                     return check(doc, vw, vh, css, image_cache, fs);
