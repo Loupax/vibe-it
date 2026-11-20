@@ -1022,9 +1022,9 @@ Shared rules for this block:
       without the trim: find what lives on (mpv, V8 teardown, a cache TTL) and release it at the navigation.
 - [ ] QY53n4 [M] (P4, later, from QY53n) Subtree re-box for layout-changing hovers + re-applying patches after an in-flight
       build (16 of 58 YT hover builds, 0 on Wikipedia).
-- [ ] QNAV9a [S] (P3, from QNAV9 #435; Sonnet; dom.rs classify_input) `scratchy file:///abs/path.html` is read as a file
+- [ ] [WIP] QNAV9a [S] (P3, from QNAV9 #435; Sonnet; dom.rs classify_input) `scratchy file:///abs/path.html` is read as a file
       named "file:///..." ("No such file"): accept file:// URLs as Input::File via Url::to_file_path. Test.
-- [ ] QNAV9b [S] (P3, from QNAV9 #435; Sonnet) Without --socket a file page has base_url None, so a relative link says
+- [ ] [WIP] QNAV9b [S] (P3, from QNAV9 #435; Sonnet) Without --socket a file page has base_url None, so a relative link says
       "no <base href>" and #frag can't resolve: set base_url from file_page_url even without wire. Test.
 - [ ] QFLK4 [S] (P3, from QNAV9 #435; Sonnet) forms test q30d_typing_through_the_app_events_maxlength_readonly_escape failed
       once in a full suite run while the machine was loaded (passed in 2 later runs). Find the timing dependence; prove 20x.
