@@ -787,9 +787,15 @@ pub(crate) enum Incr {
     /// QINC1h1: reused boxes that moved; bottom-up splices.
     LayoutShifted,
     LayoutSplices,
+    /// QINC1h2: intrinsic-size (min, max) cache: served from the kept cache / computed.
+    IntrHits,
+    IntrMisses,
+    /// QINC1h2: bottom-up steps under an intrinsic-size reader that stopped because the box's natural
+    /// widths did not change.
+    IntrStops,
 }
 
-const INCR_NAMES: [&str; 22] = [
+const INCR_NAMES: [&str; 25] = [
     "updates",
     "restyled_matched",
     "restyled_cascaded",
@@ -812,6 +818,9 @@ const INCR_NAMES: [&str; 22] = [
     "layout_root",
     "layout_shifted",
     "layout_splices",
+    "intr_hits",
+    "intr_misses",
+    "intr_stops",
 ];
 
 /// Bottom-up relayout stops are counted per tree level (the last bucket takes every deeper level).
@@ -819,7 +828,7 @@ pub(crate) const INCR_LEVELS: usize = 8;
 
 #[derive(Default)]
 struct IncrCounters {
-    flat: [u64; 22],
+    flat: [u64; 25],
     /// QINC1h1: time of the incremental relayouts (and of the engine's from-scratch ones), ns.
     layout_ns: u64,
     layout_full_ns: u64,
