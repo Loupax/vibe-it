@@ -2146,6 +2146,16 @@ deadline; YouTube: about half of 31-43 IO layouts (~0.8 s per 60 s). Keep QY53e1
 
 **Not established:** why yt1 froze (QM1k-mouse/QM1k1n6 own that); the App build phases (only its total was
 timed); whether Wikipedia's no-op write batches are the page's or our preludes'.
+
+**QY53e2 result (Sonnet, 2026-11-20): the App-layout path works but its gate is NOT met.** In a window IntersectionObserver
+rechecks now run on the App's own complete layout when the DOM/CSS stamp taken at the App's tree build still equals the page
+(`JsEngine::rendered_geometry`); otherwise the forced path (QY53e1 deadline, unchanged) runs. Local fixture (write after the page
+is quiet): 1 forced layout (the initial one) + 2 App-served rechecks delivered 46 ms after the write. Nested dwl, own wire, flock,
+Wikipedia Rust 30 s x 3 (load 4-11, WITH the flat 2 s window deadline described below): IO forced layouts 2-4 per run, 0 App-served (gate was <= 1). YouTube watch 60 s: 23 IO forced
+layouts, 1 App-served. Why: page scripts write the DOM through the whole load (geometry generation past 600 within the first
+second), so every complete App layout is already one write behind and the stale rule rejects it (33 of 34 on YouTube, 3-4 of 4 on
+Wikipedia). That deadline is what cut Wikipedia's IO layouts (R43 section 11 had 6-13); it was dropped by the coordinator: up
+to 2 s late IO delivery is not worth it. The churn case is QY53e2b (use the last complete layout during churn).
 ### 12. QY53f1b: why YouTube's slowest forced layout did not get faster after QY53f1 (Sonnet, 2026-11-19, FIXED)
 
 Throwaway logging (reverted): per forced layout the phase deltas and the `rules_cache` path. YT watch 60 s, default UA,

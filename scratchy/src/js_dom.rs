@@ -965,7 +965,6 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         crate::js_geom::rendered_rect(&h)
     });
     native!(ctx, "__d_rend_ok", |vw: f64, vh: f64| -> bool { crate::js_geom::rendered_ok(vw as u32, vh as u32) });
-    native!(ctx, "__d_win", crate::js::has_window_viewport);
     native!(ctx, "__d_rend_clear", crate::js_geom::clear_rendered);
     // QY53e1: is the geometry cache current for this viewport (no layout), and what the last layout cost.
     native!(ctx, "__d_geom_fresh", move |vw: f64, vh: f64| -> bool { geom3.borrow().is_fresh(geom_gen(), vw as f32, vh as f32) });
@@ -4803,9 +4802,7 @@ const DOM_PRELUDE: &str = r#"
     if (gen === ioGen) return;
     if (__d_geom_fresh(Number(g.innerWidth) || 0, Number(g.innerHeight) || 0)) { ioNudge(); return; }
     if (ioDueT === null) {
-      // QY53e2: in a window the App's own layout of this DOM is on its way (it runs after every write
-      // batch): wait for it up to the cap; headless keeps the cost-based deadline.
-      var d = __d_win() ? 2000 : Math.min(2000, Math.max(100, 4 * __d_geom_cost()));
+      var d = Math.min(2000, Math.max(100, 4 * __d_geom_cost()));
       ioDueT = sTimeout.call(g, function () { ioDueT = null; ioNudge(); }, d);
     }
   };

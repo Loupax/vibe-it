@@ -40,11 +40,6 @@ pub(crate) fn set_window_viewport(w: u32, h: u32) {
     WINDOW_VIEWPORT.with(|v| v.set((w, h)));
 }
 
-/// QY53e2: is there a window (the App has published its size)?
-pub(crate) fn has_window_viewport() -> bool {
-    WINDOW_VIEWPORT.with(|v| v.get().0 != 0 && v.get().1 != 0)
-}
-
 fn env_viewport() -> (u32, u32) {
     let v = WINDOW_VIEWPORT.with(|v| v.get());
     if v.0 == 0 || v.1 == 0 { DEFAULT_VIEWPORT } else { v }

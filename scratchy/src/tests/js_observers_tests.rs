@@ -1794,7 +1794,7 @@ fn qy53e2_new_engine_drops_the_kept_app_layout() {
 }
 
 #[test]
-fn qy53e2_window_without_an_app_layout_falls_back_to_forcing_at_the_cap() {
+fn qy53e2_window_without_an_app_layout_falls_back_to_forcing_at_the_normal_deadline() {
     crate::js::set_window_viewport(1024, 768);
     let (log, layouts) = qy53e1_run(
         "<div id=t style='height:100px'></div>",
@@ -1802,9 +1802,9 @@ fn qy53e2_window_without_an_app_layout_falls_back_to_forcing_at_the_cap() {
            setTimeout(() => { $('t').style.marginTop = '900px'; }, 50);"#,
     );
     crate::js::set_window_viewport(0, 0);
-    // No App layout arrives (headless test): the recheck waits the window-mode cap (2 s), then forces one.
+    // No App layout arrives (headless test): the recheck is forced at the normal deadline, as without a window.
     assert_eq!(log.len(), 2, "{log:?}");
     let t: i64 = log[1].strip_prefix("log:").unwrap().split_once(' ').unwrap().0.parse().unwrap();
-    assert!((2000..=2100).contains(&t), "delivered at {t} ms");
+    assert!((150..=2100).contains(&t) && t < 1900, "delivered at {t} ms");
     assert_eq!(layouts, 2);
 }
