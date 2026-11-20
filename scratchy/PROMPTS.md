@@ -8100,3 +8100,7 @@ The prompts of the design session, in order:
 > Item QPT1d [S]: R53 D8, the WindowProxy surface of same-origin iframe realms: `frames`, `length`, `window[i]`, `window[name]`, cross-realm `postMessage` (target realm's clone and MessageEvent, sender window as `source`, targetOrigin respected), `closed`, `name`.
 
 **What changed:** js_dom.rs `syncWin` (child list getters, document order, lazy windows counted); js.rs page/realm `name` and `closed`; globals_prelude.js `postMessage` (incumbent source/origin, closed target drops); js_engine_v8.rs natives `__scratchy_incumbent` and `__scratchy_enter`, and `DetachGlobal` removed (stale `w.closed` must read true). Tests `qpt1d_*` in js_dom_tests.rs.
+
+> Item QPT1d3 [XS]: timers and requests created on a CLOSED window (iframe removed, `w.closed` true) must do nothing (Chrome).
+
+**What changed:** js.rs timers prelude: a realm `add` returns an id without queueing when `g.closed` (covers setTimeout/setInterval/rAF/rIC). fetch_prelude.js `__net_fwd`: a closed realm`s `__net_request` sends nothing: async/fetch gets a never-settling promise (same as QPT1b cancelled requests), sync XHR throws NetworkError. Test `qpt1d3_*` in js_dom_tests.rs.
