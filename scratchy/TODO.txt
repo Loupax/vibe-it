@@ -965,6 +965,15 @@ Shared rules for this block:
 - [ ] QMEM3k [S] (P4, from QMEM3j #402; Sonnet) memo_put's compacting clone costs ~2-3 us per new SHAPE_MEMO entry (16-25 ms on
       a cold Wikipedia layout, 8k entries): move it off the critical path (e.g. compact in the shaping worker while idle).
       Only if cold forced layouts matter more later.
+- [ ] QOOM1 [M] (P1, user 2026-11-20 ~14:10; Opus investigate + fix) A scratchy process reached 15 GB anon RSS (44 GB
+      virtual) and was OOM-killed at 13:39 (kernel log: pid 787397, started from a tmux scope); most likely the user's own
+      window, which usually has YouTube open (installed build of ~11:26-11:15 main). Reproduce under a memory cap
+      (systemd-run --user --scope -p MemoryMax=6G): YouTube watch playing for 30-60 min in a nested window (with periodic
+      pointer motion, a few navigations watch -> watch -> results), sample RSS + V8 heap (--perf-report / memprof QMEM3g)
+      every 30 s; find what grows (V8 heap, ArrayBuffers/MSE SourceBuffers, mpv, shape/image caches, wire responses, the
+      QY54a wl-drain queue, DOM/realm leaks from iframes QPT1). Fix the leak(s); add a guard if a cache is unbounded.
+      Gate: 60 min of YouTube watch stays under ~1 GB RSS and flat after warm-up; regression test for the leaking structure.
+      Absorbs QMEM3f.
 - [ ] QMEM3f [S] (P4, from QMEM3; Opus measure) 10-minute live-window RSS sample on YT watch: the window grows ~0.22 MB/s
       in the first minute; leak or warm-up?
 - [ ] QBBC1 [M, Opus, investigate first] (P3, user screenshot 2026-11-19 ~22:50, installed main 10a9d6e, window ~958 px wide;
