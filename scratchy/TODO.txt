@@ -1047,7 +1047,7 @@ Shared rules for this block:
       selector class atoms pre-resolved to ids at RuleIndex build vs a per-element sorted id list.
 - [ ] QMEM3h [S] (P3, from QMEM3b; Sonnet) Probes for V8 off-heap memory (`malloced_memory`, ArrayBuffer backing stores) and
       per-library mapped RSS, to name the ~20-25 MB of C++ malloc (V8, libmpv).
-- [ ] QMEM3d-m [S] (P3, from QMEM3d #400; Opus measure, quiet machine) Interleaved before/after RSS: YouTube watch -> a small
+- [ ] [WIP] QMEM3d-m [S] (P3, from QMEM3d #400; Opus measure, quiet machine) Interleaved before/after RSS: YouTube watch -> a small
       page (example.com / local), live nested-dwl window, own wire, with vs without the malloc_trim (#400 lacks a switch: add
       a throwaway env toggle), under the perf flock, uptime noted. Gate >= 25 MB lower. #400 shipped measured only
       synthetically (3.3 ms on a 423 MB heap, no RSS drop in that synthetic case).
@@ -1059,11 +1059,6 @@ Shared rules for this block:
 - [ ] QYTC1a2 [S] (P3, from QYTC1a #381; Sonnet) In-flow translate / relative `left`/`top` writes shift in place too
       (today only abs/fixed boxes move in place; in-flow boxes only take the nothing-moves path). Needs `self.page` and the
       root `in_flow_bottom` redone, because an in-flow translate can change the root height. YouTube does not need it.
-- [ ] [WIP] QYTC1d [S] (P3, from QYTC1b #404 R50; Sonnet) Let GeomCache::style_write_in_place work when the cache is stale only
-      because of attribute writes whose boxes the shift cannot touch: after QYTC1a the remaining YT controls layouts come in
-      bursts of 9-10/s that start from a stale cache (progress-bar style writes, aria-valuenow/valuetext, player class
-      writes), so the in-place path refuses them. Needs the write ledger idea from QYTC1b (code on branch
-      scratchy/qytc1b-ledger-code). Measure with the R50 recipe (window 960x230, click at 346,150).
 - [ ] QBBC1 [M, Opus, investigate first] (P3, user screenshot 2026-11-19 ~22:50, installed main 10a9d6e, window ~958 px wide;
       .coordinator/user-runs/bbc-news-2026-11-19.png) bbc.com/news renders wrong: (1) the lead story's "LIVE" badge wraps
       "LIV/E" and overlaps the headline text; (2) the lead story column is ~200 px wide (headline breaks every 2 words);
@@ -1071,7 +1066,7 @@ Shared rules for this block:
       sits right of centre; (5) a tall grey band under the header (empty ad slot? may be correct). Compare with a normal
       browser at the same width, find the cause of each (CSS feature, layout bug, image loading), write a sized fix list in
       REGRESSIONS.md. Not a perf item: backlog order unless the user raises it.
-- [ ] QY53m-m [S] (P3, from QY53m #386; Opus measure, quiet machine) Re-measure QY53m's gate: Wikipedia + YouTube live
+- [ ] [WIP] QY53m-m [S] (P3, from QY53m #386; Opus measure, quiet machine) Re-measure QY53m's gate: Wikipedia + YouTube live
       window, same input, count js_sync rebuilds that follow only no-op writes (throwaway counter) and builds.n/ms, main vs
       #386's parent; screenshots compared. The agent's runs at load 9-26 were noise (builds.n median 20 -> 19).
 - [ ] QYTC1e [S] (P3, from QYTC1d #414 R50; measure first) YouTube replaces the `.ytp-time-current` text node once a second;
@@ -1095,7 +1090,7 @@ Shared rules for this block:
 - [ ] QY53n2b [S] (P4, from QY53n2 #407; Sonnet) Paint-patch hovers that touch list items, form controls, `::marker` or
       `<br>`/alt text: they fall back to a build because those text spans carry no element `node` (`marker_prefix`, forms.rs
       `text_span`); set span.node there.
-- [ ] QY53n3m [S] (P3, from QY53n3 #416; Opus measure, quiet machine) YT watch G1AeBgalFZk hover {patched, built, skipped} at
+- [ ] [WIP] QY53n3m [S] (P3, from QY53n3 #416; Opus measure, quiet machine) YT watch G1AeBgalFZk hover {patched, built, skipped} at
       main vs before #416, interleaved, under flock, uptime noted; report which remaining YT hover builds are refused and why
       (positioned descendants, inline-level boxes, % insets, auto-width absolutes). Candidates to widen: re-hoisting
       positioned descendants; % insets via the containing-block basis on Laid.

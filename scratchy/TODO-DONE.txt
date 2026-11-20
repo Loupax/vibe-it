@@ -8004,3 +8004,10 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QPT1f4 DONE 755ca70 #417 CE reactions follow the owning realm (page-wide registry, adoptedCallback); YT js_ms unchanged, token issued [S] (P3, from QPT1f #408; same family as QPT1c2) Custom-element reactions follow the realm whose DOM method made
       the mutation: an element inserted into an iframe document through the page's methods is not upgraded by the realm's
       registry.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QYTC1d DONE 3361054 #414 inert class writes keep the forced layout (probe budget 32/read; churn +1.4 % JS; YT forced 86->78) [S] (P3, from QYTC1b #404 R50; Sonnet) Let GeomCache::style_write_in_place work when the cache is stale only
+      because of attribute writes whose boxes the shift cannot touch: after QYTC1a the remaining YT controls layouts come in
+      bursts of 9-10/s that start from a stale cache (progress-bar style writes, aria-valuenow/valuetext, player class
+      writes), so the in-place path refuses them. Needs the write ledger idea from QYTC1b (code on branch
+      scratchy/qytc1b-ledger-code). Measure with the R50 recipe (window 960x230, click at 346,150).
