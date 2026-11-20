@@ -8112,3 +8112,12 @@ The prompts of the design session, in order:
 **What changed:** media_render.rs `FramePool`: the worker takes a zeroed buffer from the pool (`FrameRenderer::render` now fills `&mut [u32]`), a `VideoFrame` returns its pixels to the pool in `Drop` (last `Arc` holder, any thread), stale/failed renders return theirs at once, a size change discards old-size buffers, at most 4 kept. The #388 epoch/target/quit staleness checks are unchanged. Tests: media_render_tests.rs `qm1g2a1_*` (allocation counter seam, held frame never overwritten, resize).
 
 **Measured (temporary instrumentation, not committed):** main-thread ms per frame, local 720p -> 640x360, nested dwl 960x489: fetch 0.001, states 0.003, copy into page_buf 0.13, softbuffer buffer_mut 0.003, copy into the present buffer 0.13 (age 2: full page_buf copy), present_with_damage 0.011; total video_tick 0.29. Before/after interleaved 3 pairs under flock: tick 0.43/0.34/0.91 before, 0.28/0.44/0.91 after (load 1-28): inside noise. Not done: a direct present without the page_buf copy (needs the damage-only age handling, ~0.13 ms).
+
+## QYTC1b: a write that restores an attribute to its layout-time value cancels its geometry bump (Sonnet)
+
+> Item QYTC1b [S] (P2, from R50): `ytp-autohide-active` added and removed between two reads forced a layout that changes no box (11-13 % of YouTube's controls-visible forced layouts).
+
+**Not merged (docs only):** measured no effect after QYTC1a; code on branch `scratchy/qytc1b-ledger-code`.
+
+**What changed (on that branch):** js_geom.rs `GeomCache::ledger` (`AttrLedger`) + `attr_write_bumped`: every attribute write through `__d_setattr/__d_rmattr/__d_setq/__d_rmq` that bumps the geometry generation is recorded (node, name, value at layout time, current value) while the cache is the current layout; the ledger is exact only while every bump since the layout came from a recorded write (`expected` generation) and the CSS version is unchanged, otherwise it is dropped (next layout re-anchors). When all recorded attributes equal their layout-time value again the cache key is rebased onto the new generation (the generation still moves, so other caches stay conservative; HIDDEN/ATTR_SNAP are rebased too). js_dom.rs `geom_bump_attr_tracked`. Any other bump (insert/remove, innerHTML, text, sheet, style non-in-place, setns) poisons it. Tests `qytc1b_*` in js_geometry_tests.rs.
+
