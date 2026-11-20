@@ -556,12 +556,8 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
 - [ ] QPT1f5 [S] (P3, from QPT1f #408; R53 D9) Scripts in pre-fetched same-origin (QA18b1) iframe documents still do not run.
 - [ ] QPT1g [M] (backlog, only if a page shows the forwarding is wrong) Per-realm event-loop queues (R53).
 - [x] QPT1-D ANSWERED (user 2026-11-20 ~11:45: match Chrome, opaque origin)  (R53 end): `data:` iframes: Chrome gives them an opaque origin (contentDocument null);
-- [ ] [WIP] QPT1-D1 [S] (P3, from QPT1-D user answer 2026-11-20; Sonnet; iframe realm code) `data:` iframes get an OPAQUE origin as in
-      Chrome: contentDocument / contentWindow.document null for the parent (cross-origin access throws), no shared realm
-      access, scripts inside still run in their own realm. Tests; existing QPT1 tests updated where they relied on reading
-      into a data: iframe.
-      scratchy (QA18b) gives a readable same-origin document. Keep scratchy's behaviour or match Chrome? Not blocking QPT1a
-      (data: iframes get no realm for now).
+- [ ] QPT1-D2 [S] (P3, backlog after the architecture discussion; from QPT1-D1 #449; Sonnet) Opaque realms: own storage/cookie
+      partition, and close the shared-native raw-node-id path (isolation is by API surface today, R53 note).
 - [ ] QPT2 [S] (R52; backlog: user chose QPT1 only for now, 2026-11-19) `navigator` in WebIDL shape (Navigator.prototype accessors, Illegal invocation on
       wrong receiver) + truthful values: webdriver false, cookieEnabled, hardwareConcurrency, empty PluginArray/MimeTypeArray,
       pdfViewerEnabled false.
@@ -1030,7 +1026,7 @@ geometry; superseded items dropped (archived); FREEZE on other style/box/layout 
 flight (correctness fixes allowed, rebased onto the shadow comparisons); memory +8-18 MB accepted; slower shadow-mode tests
 accepted; flip after 0 mismatches on 6 pages x 3 runs + gates, delete after >= 3 days of user use; QINC1n/o later; models
 as stated). Items QINC1a DONE 81e23d7 #447 (engine test infra + style_diff + fuzz), QINC1b (stable paragraph ids) DONE 23d604f #446, [WIP] QINC1c (bottom-up hoisting),
-QINC1d (InvalidationMap) DONE 18d0527 #445, [WIP] QINC1e (write log), QINC1f [L] (incremental restyle, shadow), QINC1g [L] (persistent box tree,
+QINC1d (InvalidationMap) DONE 18d0527 #445, QINC1e (write log) DONE 4700801 #448, [WIP] QINC1f [L] (incremental restyle, shadow), QINC1g [L] (persistent box tree,
 shadow), QINC1h1 [L] (relayout from last tree, shadow), QINC1h2 (intrinsic-size cache), QINC1i (forced layouts via engine,
 SCRATCHY_INCR=1), QINC1j [L] (App frames via engine), QINC1k (exactness sweep + gates), QINC1l (flip default, user OK),
 QINC1m (delete superseded special cases). Waves: 1 = a, b, d, e; 2 = c, f; 3 = g; 4 = h1; 5 = i, j, h2; then k, l, m.

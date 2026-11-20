@@ -8360,3 +8360,11 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       targets without an entry pending and leave ioGen unmarked so the deadline or the next layout corrects it (spec allows
       entries one write behind), and/or keep geom_gen bumps that provably move nothing (unread attributes, QY53o1) out of
       the render stamp. NOT via a longer IO deadline (coordinator rejected #396's flat 2 s window deadline: late lazy-load).
+
+=== from TODO.txt: --- Rust `__*` native wrapped in a JS timer); none of it was committed. -------
+- [x] QPT1-D1 DONE - opaque data: iframes (#449) [S] (P3, from QPT1-D user answer 2026-11-20; Sonnet; iframe realm code) `data:` iframes get an OPAQUE origin as in
+      Chrome: contentDocument / contentWindow.document null for the parent (cross-origin access throws), no shared realm
+      access, scripts inside still run in their own realm. Tests; existing QPT1 tests updated where they relied on reading
+      into a data: iframe.
+      scratchy (QA18b) gives a readable same-origin document. Keep scratchy's behaviour or match Chrome? Not blocking QPT1a
+      (data: iframes get no realm for now).
