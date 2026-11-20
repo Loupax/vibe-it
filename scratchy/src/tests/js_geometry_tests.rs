@@ -1827,3 +1827,54 @@ fn q33b2w_engine_created_after_publish_sees_size_in_first_script_and_no_resize()
     assert!(o.iter().any(|l| l == "log:after 0"), "{o:?}");
     crate::js::set_window_viewport(0, 0);
 }
+
+// ---------- QYTC1b: a write restoring every attribute to its layout-time value cancels its bump ----------
+
+const QYTC1B_PAGE: &str = "<html><head><style>.big { width: 200px !important } .tall { min-height: 50px !important }</style></head><body style='margin:0'><div id=a class=k style='width:100px;height:20px'>hello</div><div id=b class=k style='min-height:10px'>x</div></body></html>";
+
+#[test]
+fn qytc1b_class_added_and_removed_between_reads_forces_no_layout() {
+    let (log, n) = qy53c_run(
+        QYTC1B_PAGE,
+        "var a = document.getElementById('a'), b = document.getElementById('b');
+         var r0 = JSON.stringify(a.getBoundingClientRect()) + JSON.stringify(b.getBoundingClientRect());
+         for (var i = 0; i < 5; i++) { a.classList.add('big'); a.classList.remove('big'); a.classList.toggle('big'); a.classList.toggle('big'); a.setAttribute('data-x', '1'); a.removeAttribute('data-x');
+           a.setAttribute('title', 't'); a.removeAttribute('title'); }
+         var r1 = JSON.stringify(a.getBoundingClientRect()) + JSON.stringify(b.getBoundingClientRect());
+         console.log('same', r0 === r1);",
+    );
+    assert!(log.contains(&"log:same true".to_string()), "{log:?}");
+    assert_eq!(n, 1, "{log:?}");
+}
+
+#[test]
+fn qytc1b_add_remove_add_and_partial_restore_lay_out() {
+    let (log, n) = qy53c_run(
+        QYTC1B_PAGE,
+        "var a = document.getElementById('a'), b = document.getElementById('b'); a.offsetWidth;
+         a.className = 'big'; a.className = 'k'; a.className = 'big'; console.log('w1', a.offsetWidth);
+         a.className = 'k'; console.log('w2', a.offsetWidth);
+         a.className = 'big'; b.className = 'k tall'; a.className = 'k'; console.log('h', b.offsetHeight, a.offsetWidth);",
+    );
+    for l in ["log:w1 200", "log:w2 100", "log:h 50 100"] {
+        assert!(log.contains(&l.to_string()), "{l} in {log:?}");
+    }
+    assert_eq!(n, 4, "{log:?}");
+}
+
+#[test]
+fn qytc1b_other_invalidations_in_between_lay_out() {
+    let (log, n) = qy53c_run(
+        QYTC1B_PAGE,
+        "var a = document.getElementById('a'), b = document.getElementById('b'); a.offsetWidth;
+         a.className = 'big'; b.innerHTML = '<p style=\"height:30px;margin:0\">p</p>'; a.className = 'k'; console.log('h1', b.offsetHeight);
+         a.className = 'big'; document.body.appendChild(document.createElement('div')).style.height = '7px'; a.className = 'k';
+         console.log('h2', document.body.offsetHeight);
+         a.className = 'big'; var st = document.createElement('style'); st.textContent = '#a{height:40px !important}'; document.head.appendChild(st); a.className = 'k';
+         console.log('h3', a.offsetHeight);",
+    );
+    for l in ["log:h1 30", "log:h2 57", "log:h3 40"] {
+        assert!(log.contains(&l.to_string()), "{l} in {log:?}");
+    }
+    assert_eq!(n, 4, "{log:?}");
+}

@@ -253,7 +253,21 @@ pub(crate) struct GeomCache {
     /// QYTC1a: a subtree was shifted in place; glyph rects are not shifted, so a `text_rects`
     /// read lays out again.
     glyphs_stale: bool,
+    /// QYTC1b: the attribute writes that bumped the geometry generation since the last layout.
+    ledger: Option<AttrLedger>,
 }
+
+/// QYTC1b: every geometry bump since the last forced layout came from one of `attrs`
+/// (`expected` is the generation after the latest); each entry holds the attribute's value at
+/// layout time and its current one. When all are equal again the DOM is what the cache laid out.
+struct AttrLedger {
+    expected: u64,
+    css: (u64, u64),
+    attrs: Vec<(Handle, String, Option<String>, Option<String>)>,
+}
+
+/// QYTC1b: most distinct attributes tracked between two layouts.
+const LEDGER_MAX: usize = 16;
 
 /// QYTC1a: one `Laid` of the last forced layout (see `GeomCache::skel`).
 #[derive(Clone, Copy)]
@@ -593,6 +607,7 @@ impl GeomCache {
         // QY53l2: a layout replaces the hidden-subtree snapshot; collect the new one.
         HIDDEN.with(|h| *h.borrow_mut() = None);
         ATTR_SNAP.with(|h| *h.borrow_mut() = None);
+        self.ledger = None;
         crate::images::DISPLAY_NONE_ROOTS.with(|r| *r.borrow_mut() = Some(Vec::new()));
         // A layout bug must not take the whole browser down with a page
         // script: on a panic the page simply has no geometry (all zeros).
@@ -718,6 +733,49 @@ impl GeomCache {
             self.page.0 as f64,
             self.page.1 as f64,
         ]
+    }
+
+    /// QYTC1b: attribute `name` of the connected element `x` goes from `old` to `new` and the
+    /// caller is about to bump the geometry generation from `g`. Returns true when, with this
+    /// write, every attribute written since the last layout is back at its layout-time value and
+    /// nothing else moved the generation or the CSS: the cache then stays current at `g + 1`
+    /// (rebased here; the caller still bumps). Otherwise false (the bump invalidates).
+    pub(crate) fn attr_write_bumped(&mut self, x: &Handle, name: &str, old: Option<&str>, new: Option<&str>, g: u64) -> bool {
+        let css = crate::js_style::css_ver();
+        let Some(key) = self.key else { return false };
+        let mut ledger = match self.ledger.take() {
+            Some(l) if l.expected == g && l.css == css && key.0 != g => l,
+            // Anchor: the cache is the current layout and no bump happened since.
+            _ if key.0 == g && key.3 == css => AttrLedger { expected: g, css, attrs: Vec::new() },
+            _ => return false,
+        };
+        let id = node_id(x);
+        let pos = ledger.attrs.iter().position(|e| node_id(&e.0) == id && e.1 == name);
+        match pos {
+            Some(i) => ledger.attrs[i].3 = new.map(str::to_string),
+            None if ledger.attrs.len() >= LEDGER_MAX => return false,
+            None => ledger.attrs.push((x.clone(), name.to_string(), old.map(str::to_string), new.map(str::to_string))),
+        }
+        ledger.expected = g + 1;
+        if ledger.attrs.iter().all(|e| e.2 == e.3) {
+            let mut key = key;
+            key.0 = g + 1;
+            self.key = Some(key);
+            HIDDEN.with(|h| {
+                if let Some(s) = h.borrow_mut().as_mut().filter(|s| s.ggen == g) {
+                    s.ggen = g + 1;
+                }
+            });
+            ATTR_SNAP.with(|a| {
+                if let Some(x) = a.borrow_mut().as_mut().filter(|x| x.0.0 == g) {
+                    x.0.0 = g + 1;
+                }
+            });
+            self.ledger = None;
+            return true;
+        }
+        self.ledger = Some(ledger);
+        false
     }
 
     /// QYTC1a: a `style` attribute write on `x` (from `old` to `new`, both present) that only

@@ -8100,3 +8100,10 @@ The prompts of the design session, in order:
 > Item QPT1d [S]: R53 D8, the WindowProxy surface of same-origin iframe realms: `frames`, `length`, `window[i]`, `window[name]`, cross-realm `postMessage` (target realm's clone and MessageEvent, sender window as `source`, targetOrigin respected), `closed`, `name`.
 
 **What changed:** js_dom.rs `syncWin` (child list getters, document order, lazy windows counted); js.rs page/realm `name` and `closed`; globals_prelude.js `postMessage` (incumbent source/origin, closed target drops); js_engine_v8.rs natives `__scratchy_incumbent` and `__scratchy_enter`, and `DetachGlobal` removed (stale `w.closed` must read true). Tests `qpt1d_*` in js_dom_tests.rs.
+
+## QYTC1b: a write that restores an attribute to its layout-time value cancels its geometry bump (Sonnet)
+
+> Item QYTC1b [S] (P2, from R50): `ytp-autohide-active` added and removed between two reads forced a layout that changes no box (11-13 % of YouTube's controls-visible forced layouts).
+
+**What changed:** js_geom.rs `GeomCache::ledger` (`AttrLedger`) + `attr_write_bumped`: every attribute write through `__d_setattr/__d_rmattr/__d_setq/__d_rmq` that bumps the geometry generation is recorded (node, name, value at layout time, current value) while the cache is the current layout; the ledger is exact only while every bump since the layout came from a recorded write (`expected` generation) and the CSS version is unchanged, otherwise it is dropped (next layout re-anchors). When all recorded attributes equal their layout-time value again the cache key is rebased onto the new generation (the generation still moves, so other caches stay conservative; HIDDEN/ATTR_SNAP are rebased too). js_dom.rs `geom_bump_attr_tracked`. Any other bump (insert/remove, innerHTML, text, sheet, style non-in-place, setns) poisons it. Tests `qytc1b_*` in js_geometry_tests.rs.
+

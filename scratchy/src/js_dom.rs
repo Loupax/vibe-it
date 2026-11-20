@@ -590,6 +590,21 @@ fn geom_bump_attr(t: &DomTable, h: &Handle, changed: bool, name: &str) {
     }
 }
 
+/// QYTC1b: `geom_bump_attr` for a named attribute going from `old` to `new`: a write that puts
+/// every attribute written since the last layout back to its layout-time value keeps the
+/// geometry cache current (the generation still moves; the cache is rebased onto it).
+fn geom_bump_attr_tracked(t: &DomTable, h: &Handle, geom: &RefCell<crate::js_geom::GeomCache>, name: &str, old: Option<&str>, new: Option<&str>) {
+    if page_connected(t, h) && !crate::js_geom::attr_write_hidden(h) && !crate::js_geom::attr_write_unread(h, name) {
+        let g = geom_gen();
+        if matches!(h.data, NodeData::Element { .. })
+            && let Ok(mut c) = geom.try_borrow_mut()
+        {
+            c.attr_write_bumped(h, name, old, new, g);
+        }
+        geom_bump();
+    }
+}
+
 /// QY53l2: the child list of `p` (connected) changed; bumps unless the
 /// pre-check found it inside a hidden subtree and the root kept its `:empty`-ness.
 fn geom_bump_children(p: &Handle, pre: Option<crate::js_geom::HiddenChildren>) {
@@ -931,6 +946,9 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     let (geom3, geom4) = (geom.clone(), geom.clone());
     let geom5 = geom.clone();
     let geom7 = geom.clone();
+    let geom8 = geom.clone();
+    let geom9 = geom.clone();
+    let geom10 = geom.clone();
     native!(ctx, "__d_rect", move |c: Ctx<'_>, id: i32, vw: f64, vh: f64| -> Vec<f64> {
         let (page, h) = {
             let t = t.borrow();
@@ -994,8 +1012,8 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
                 && name == "style"
                 && page_connected(&t.borrow(), &h)
                 && geom7.try_borrow_mut().is_ok_and(|mut g| g.style_write_in_place(&h, old.as_deref(), Some(&val), geom_gen()));
-            if !in_place {
-                geom_bump_attr(&t.borrow(), &h, changed, &name);
+            if changed && !in_place {
+                geom_bump_attr_tracked(&t.borrow(), &h, &geom7, &name, old.as_deref(), Some(&val));
             }
         }
     });
@@ -1003,12 +1021,15 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     native!(ctx, "__d_rmattr", move |id: i32, name: String| {
         if let Some(h) = t.borrow().get(id) {
             let name = name.to_ascii_lowercase();
-            let changed = element_attr(&h, &name).is_some();
+            let old = element_attr(&h, &name).map(|s| s.to_string());
+            let changed = old.is_some();
             remove_attr(&h, &name);
             // QY53m: a write that changed no value does not wake the App's restyle.
             d.set(d.get() | changed);
             gn.set(gn.get() + 1);
-            geom_bump_attr(&t.borrow(), &h, changed, &name);
+            if changed {
+                geom_bump_attr_tracked(&t.borrow(), &h, &geom8, &name, old.as_deref(), None);
+            }
         }
     });
     // QY45: qualified-name / namespaced attribute access over the stored
@@ -1048,10 +1069,12 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         if let Some(h) = t.borrow().get(id) {
             let n = attr_lookup_name(&h, &name);
             let mut changed = false;
+            let mut old: Option<String> = None;
             if let NodeData::Element { attrs, .. } = &h.data {
                 let mut attrs = attrs.borrow_mut();
                 if let Some(a) = attrs.iter_mut().find(|a| attr_qname_eq(a, &n)) {
                     changed = &*a.value != val.as_str();
+                    old = Some(a.value.to_string());
                     a.value = val.as_str().into();
                 } else {
                     changed = true;
@@ -1062,7 +1085,9 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             // QY53m: a write that changed no value does not wake the App's restyle.
             d.set(d.get() | changed);
             gn.set(gn.get() + 1);
-            geom_bump_attr(&t.borrow(), &h, changed, &n);
+            if changed {
+                geom_bump_attr_tracked(&t.borrow(), &h, &geom9, &n, old.as_deref(), Some(&val));
+            }
         }
     });
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
@@ -1070,16 +1095,19 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         if let Some(h) = t.borrow().get(id) {
             let n = attr_lookup_name(&h, &name);
             let mut changed = false;
+            let mut old: Option<String> = None;
             if let NodeData::Element { attrs, .. } = &h.data {
                 let mut attrs = attrs.borrow_mut();
-                let before = attrs.len();
+                old = attrs.iter().find(|a| attr_qname_eq(a, &n)).map(|a| a.value.to_string());
                 attrs.retain(|a| !attr_qname_eq(a, &n));
-                changed = attrs.len() != before;
+                changed = old.is_some();
             }
             // QY53m: a write that changed no value does not wake the App's restyle.
             d.set(d.get() | changed);
             gn.set(gn.get() + 1);
-            geom_bump_attr(&t.borrow(), &h, changed, &n);
+            if changed {
+                geom_bump_attr_tracked(&t.borrow(), &h, &geom10, &n, old.as_deref(), None);
+            }
         }
     });
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
