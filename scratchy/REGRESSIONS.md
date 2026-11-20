@@ -753,6 +753,51 @@ smaller share of what is left. Next step if wanted: let `style_write_in_place` a
 bumps since the layout came from ledger-recorded writes whose boxes the shift does not touch
 (it requires the cache to be the current layout today).
 
+### QYTC1d result (2026-11-20, release builds, main 83a9d93 vs main + QYTC1d)
+Instead of a ledger, the writes that are provably inert no longer move the geometry generation at all,
+so the cache stays the current layout (and QYTC1a's in-place path and QY53o1's unread-attribute skip
+keep working after them). `aria-*` writes were already inert (QY53o1) whenever the cache was current;
+they only bumped because something else had made it stale first. The new case is `class`:
+`js_geom::class_write_pre/post` around the write in `__d_setattr`/`__d_rmattr` compare, before and
+after, whether each selector of the rules naming a changed class (plus the rules reading `class` as
+an attribute: YouTube has `[class*=..]` selectors, so `AttrReaders` alone would refuse every class
+write) matches each element the change can reach (the element; its subtree / later siblings' subtrees
+when the class sits left of a combinator). No difference = no element's matched rules changed = the
+cached layout is still the page's: no bump. Anything else (a rule starts/stops matching, even a
+paint-only one; a class inside `:has()`/`:nth-child(of)`, which scratchy does not parse today;
+`content: attr(class)`; a probe over 20 000 selector matches; a stale cache) bumps as before.
+Tests `qytc1d_*` (mixed inert writes + in-place shift + aria, rects and ink extents equal to a fresh
+layout; rule-changing classes, sibling/descendant reach, `[class*=]`, `attr(class)`, stale cache; JS
+loop with 5 toggles + aria + style writes = 1 layout; the class index keeps `<style>` inserts spliced).
+
+Trace of one run (throwaway, reverted): of the `class` writes made while the cache was current, about
+a third were found inert (`playing-mode`/`paused-mode`/`buffering-mode`, `ytp-autohide-active` removed,
+`ytp-large-width-mode`, `style-scope` on some elements, ...); the others really change matched rules
+(`ytp-autohide` turns on `.ytp-autohide:not(.ytp-autohide-active) .ytp-title` etc.: paint-only
+`opacity` rules, but exactness first), and a few probes hit the 20 000 cap (the player root's subtree
+times the many `[class*=]` rules).
+
+Measured: the nested dwl gave 960x1006 this time (not 960x230), so the R50 recipe ran with the click at
+(346,261) and the circle 346+-60, 200+-40, as in QYTC1a. At this size the controls phase is already at
+~1 forced layout/s, and the trace shows every one of them comes from the time display: YouTube replaces
+the text node of `span.ytp-time-current` once a second (remove + insert), a real text change no
+attribute rule can skip. Seconds with >= 40 pointer moves (9-10 per run), every run under the perf
+flock, interleaved, load average 13-25 (other agents building):
+| run | load (start -> end) | forced n | forced ms | ms per layout | lat_p95 median ms | js_ms/s median | whole-run forced n / ms |
+|---|---|---|---|---|---|---|---|
+| main base1 | 13.5 -> 23.3 | 11 | 495 | 45.0 | 66 | 283 | 107 / 3473 |
+| QYTC1d new1 | 23.3 -> 17.0 | 9 | 327 | 36.4 | 56 | 270 | 104 / 2271 |
+| main base2 | 15.7 -> 11.0 | 13 | 1062 | 81.7 | 87 | 359 | 129 / 5092 |
+| QYTC1d new2 | 8.7 -> 9.8 | 12 | 972 | 81.0 | 88 | 398 | 126 / 4391 |
+| main base3 | 9.8 -> 24.9 | 11 | 626 | 56.9 | 144 | 233 | 111 / 3677 |
+| QYTC1d new3 | 24.9 -> 19.4 | 9 | 275 | 30.6 | 39 | 218 | 111 / 3072 |
+Forced layouts in the controls phase 11-13 -> 9-12 per run, whole run 0-3 fewer: a small effect, at
+the edge of the noise at this window size. The 960x230 bursts QYTC1b saw could not be reproduced here
+(the window size is the user's tiling). Left: the per-second `ytp-time-current` text replacement
+(proposed QYTC1e below); the `ytp-autohide` toggles, whose rules only set `opacity`/`visibility`-like
+paint (a "flipped rules declare only box-neutral properties" tier, proposed QYTC1f, needs care:
+`opacity < 1` makes a stacking context, which moves hoisted boxes).
+
 ## R49: QAN1h: GitHub restyle re-measured. R31's 15-18 s restyle is gone: a page of that size (github.com repo page, 1 809 elements, 16 220 rules) now builds in 126 ms headless and 210-250 ms in a window. But today's github.com HOME is a bigger page (~3 200 elements, 29 342 rules), and a full build of it still takes 0.65 s headless and 1.1-1.55 s in a window. That is the cost of every hover and every JS restyle (input-to-frame 1.3-1.6 s). About half of the build is selector matching (534 candidate rules per match call, 1 344 rules in the universal bucket, 2.3 % of full matches succeed). About a fifth is `var()` re-expansion: each element re-substitutes and re-parses each matched `var()` rule, 19 272 times per build for 694 distinct declaration blocks (Opus, 2026-11-19, measure only, docs only) — OPEN: proposed QAN1h1-QAN1h3 (below)
 
 **Status: measurement only. No product change; the temporary counters were reverted.** Main **a116be4**,
