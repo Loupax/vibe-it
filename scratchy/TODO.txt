@@ -1020,7 +1020,7 @@ Shared rules for this block:
 - [ ] QY53n2b [S] (P4, from QY53n2 #407; Sonnet) Paint-patch hovers that touch list items, form controls, `::marker` or
       `<br>`/alt text: they fall back to a build because those text spans carry no element `node` (`marker_prefix`, forms.rs
       `text_span`); set span.node there.
-- [ ] QY53n2c [S] (P3, from QY53n3m #418 R55; Sonnet) Classify hover rules by the resolved value change, not the declared
+- [ ] [WIP] QY53n2c [S] (P3, from QY53n3m #418 R55; Sonnet) Classify hover rules by the resolved value change, not the declared
       property: border-radius, SVG fill/stroke, `background` whose computed change is only the colour, same-value border
       width/style go to the Paint patch. Gate: YT watch `hover.patched` >= 40 of ~95 hover builds over 3 runs.
 - [ ] QY53n2d [S] (P4, from #418 R55; after QYTC1f's design) Paint-patch opacity hovers when the stacking context does not
