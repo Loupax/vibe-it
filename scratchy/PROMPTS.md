@@ -8415,3 +8415,9 @@ Prompt: item QY53n3 (P3): hover changes that only gain/lose PAINT plus OFFSET ru
 > drop the menu, agree with 2 and 3
 
 **What changed:** docs only. KEYS.md: MENU state and rows T35-T44 dropped (numbers not reused), T51 (Right/End take the ghost) and T52 (Delete hides it) confirmed, "Completion" without the menu (no `MENU_CMD`; external sources feed the ghost; safety: context only in env vars, no shell), decision log. STASH.md: the title is for scripts, the ranking is the ghost order. TODO.txt: C2 dropped, C8 updated, QCOMP2 reduced to external sources [S], QCOMP3/QCOMP4 text without `o`/menu.
+
+## QPASTE1: paste into the status bar (user bug report, docs only)
+
+> finally, something tangentially related. Right now we cannot paste into the command mode bar. We should be able to paste to all modes of the status bar that accept typing text (for now I think it's :command and /search mode only)
+
+**What changed:** docs only. KEYS.md: new "Paste" section (Ctrl-v, Ctrl-Shift-v, Shift-Insert in COMMAND and SEARCH; newlines/control characters become a space, trailing whitespace dropped; Wayland clipboard), T22/T26 mention paste. TODO.txt: QPASTE1 [S] with the likely cause found while planning (arboard built without `wayland-data-control`: Cargo.lock has `x11rb` only, so paste reads Xwayland's X11 clipboard), reproduce first, fix, page text fields share the code.

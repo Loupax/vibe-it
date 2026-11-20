@@ -98,11 +98,11 @@ timer is needed. The pure function is `resolve_esc_esc(state, key, repeat, now)`
 
 | # | From | Event | Guard | To | Effect |
 |---|---|---|---|---|---|
-| T22 | SEARCH | text editing keys | none | SEARCH | edit the query (`TextEditBuffer`, same as `:`) |
+| T22 | SEARCH | text editing keys, paste | none | SEARCH | edit the query (`TextEditBuffer`, same as `:`); paste as in "Paste" below |
 | T23 | SEARCH | Enter | query not empty | NORMAL | the query becomes the kept query; find matches; current = the first match whose top is at or below the top of the screen, in document order (none below: wrap to the first match, with the wrap message); bring the screen to it (S4); `[i/N]` in the status bar. No matches: T16's message |
 | T24 | SEARCH | Enter | query empty | NORMAL | same as Esc (T25) |
 | T25 | SEARCH | Esc | none | NORMAL | cancel: highlights and the kept query as they were before `/` |
-| T26 | COMMAND | text editing keys | none | COMMAND | as today |
+| T26 | COMMAND | text editing keys, paste | none | COMMAND | as today; paste as in "Paste" below (a paste is an edit for T45) |
 | T27 | COMMAND | Enter | none | NORMAL | run the command (`:q` may quit) |
 | T28 | COMMAND | Esc | none | NORMAL | cancel |
 
@@ -218,6 +218,15 @@ set per command, like bash's `complete`:
 - External sources run on a thread; scratchy keeps drawing and handling events while
   they run, and the result arrives as an `AppEvent`. A result that arrives after its
   command line was closed, or for another argument position, is dropped.
+
+## Paste
+
+Every status-bar mode you type into (today COMMAND and SEARCH; user, 2026-11-20) takes a
+paste: Ctrl-v, Ctrl-Shift-v (terminal habit) and Shift-Insert insert the system
+clipboard's text at the cursor. Newlines, tabs and other control characters in the
+pasted text become a space and trailing whitespace is dropped (a copied URL often ends
+in a newline, and the bar is one line). An empty or unreadable clipboard changes
+nothing. The clipboard is the Wayland one (scratchy is a Wayland window; item QPASTE1).
 
 ## Configuration
 
