@@ -676,6 +676,67 @@ impl InvalidationMap {
         }
         out.out
     }
+
+    /// QINC1f-fix: the element children of `parent` went from `old` (their keys, `node_id`, at the last restyle) to
+    /// the current list, through any number of inserts, removes and moves. [`Self::for_children`] answers ONE change
+    /// against the DOM it sees; a batch of changes replayed against the final DOM misses carriers (two inserts at the
+    /// front leave the old first child third, outside the "first two" edge; a removal whose logged siblings moved too
+    /// loses its index). This compares the two lists directly: the old and new first / last element (`:first-child`,
+    /// `:last-child`, `:only-child`), every element whose previous element sibling changed (`+`), every element from
+    /// the first difference on (`~`: an element in the common prefix has the same earlier siblings), every element
+    /// (`:nth-*`). It does not mark the inserted subtrees (`for_children` does).
+    pub(crate) fn for_child_list(&self, parent: &Handle, old: &[usize]) -> Vec<(Handle, Mark)> {
+        if self.global {
+            return self.global_marks(parent);
+        }
+        let mut out = Marks::default();
+        if !is_el(parent) {
+            return out.out;
+        }
+        let els = el_children(parent);
+        let now: Vec<usize> = els.iter().map(node_id).collect();
+        if now.as_slice() == old {
+            return out.out;
+        }
+        self.apply(&Key::Empty, parent, true, &mut out);
+        let at = |k: Option<&usize>| k.and_then(|k| now.iter().position(|n| n == k)).map(|i| &els[i]);
+        // edges: the old and the new first / last (an old one that left needs nothing)
+        let mut firsts: Vec<&Handle> = Vec::new();
+        let mut lasts: Vec<&Handle> = Vec::new();
+        if old.first() != now.first() {
+            firsts.extend(els.first());
+            firsts.extend(at(old.first()));
+        }
+        if old.last() != now.last() {
+            lasts.extend(els.last());
+            lasts.extend(at(old.last()));
+        }
+        for h in &firsts {
+            self.apply(&Key::First, h, true, &mut out);
+        }
+        for h in &lasts {
+            self.apply(&Key::Last, h, true, &mut out);
+        }
+        // `:only-child` = first and last: it flips only where one of them does
+        for h in firsts.iter().chain(&lasts) {
+            self.apply(&Key::Only, h, true, &mut out);
+        }
+        if self.keys.contains_key(&Key::Nth) {
+            for h in &els {
+                self.apply(&Key::Nth, h, true, &mut out);
+            }
+        }
+        let old_prev: HashMap<usize, Option<usize>> = old.iter().enumerate().map(|(i, k)| (*k, i.checked_sub(1).map(|j| old[j]))).collect();
+        let pre = now.iter().zip(old).take_while(|(a, b)| a == b).count();
+        for (i, h) in els.iter().enumerate().skip(pre) {
+            let prev = i.checked_sub(1).map(|j| now[j]);
+            if old_prev.get(&now[i]) != Some(&prev) {
+                self.apply(&Key::SibNext, h, true, &mut out);
+            }
+            self.apply(&Key::SibLater, h, true, &mut out);
+        }
+        out.out
+    }
 }
 
 thread_local! {

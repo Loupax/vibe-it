@@ -564,20 +564,35 @@ impl Engine {
         }
     }
 
+    /// QINC1f-fix: drops the entry `k` and, through the stored child lists, its descendants' entries, for a removed
+    /// element whose node is already gone (no handle to walk). Left behind, those entries kept child lists naming
+    /// freed TEXT nodes, whose addresses a new text node can reuse: `text_parent` then found the stale parent and a
+    /// later edit of the new text was lost.
+    fn drop_key(&mut self, k: usize) {
+        let mut stack = vec![k];
+        while let Some(k) = stack.pop() {
+            if let Some(e) = self.table.remove(&k) {
+                stack.extend(e.children.iter().copied());
+            }
+        }
+    }
+
     // ---------- sources ----------
 
-    /// The parent element of the text node `text` (a reverse scan of the stored child lists).
-    fn text_parent(&self, text: usize, index: &mut Option<HashMap<usize, usize>>) -> Option<usize> {
+    /// The parent element of the text node `text` (a reverse scan of the stored child lists). A text node's address
+    /// can be reused after it is freed, so a stale list may name it too: only a live entry whose node still holds
+    /// `text` counts (QINC1f-fix).
+    fn text_parent(&self, text: usize, index: &mut Option<HashMap<usize, Vec<usize>>>) -> Option<usize> {
         let ix = index.get_or_insert_with(|| {
-            let mut m = HashMap::new();
+            let mut m: HashMap<usize, Vec<usize>> = HashMap::new();
             for (k, e) in &self.table {
                 for c in e.children.iter() {
-                    m.insert(*c, *k);
+                    m.entry(*c).or_default().push(*k);
                 }
             }
             m
         });
-        ix.get(&text).copied()
+        ix.get(&text)?.iter().copied().find(|k| self.handle_of(*k).is_some_and(|h| h.children.borrow().iter().any(|c| node_id(c) == text)))
     }
 
     fn removal(&mut self, map: &InvalidationMap, parent: &Handle, child: usize, prev: Option<usize>, next: Option<usize>) {
@@ -599,9 +614,7 @@ impl Engine {
         self.apply(m);
         match node {
             Some(n) => self.drop_subtree(&n, true),
-            None => {
-                self.table.remove(&child);
-            }
+            None => self.drop_key(child),
         }
     }
 
@@ -620,8 +633,35 @@ impl Engine {
         self.fp_dirty.insert(node_id(h));
     }
 
+    /// The element children of `pk` at the last restyle (its stored child keys that have an entry: text nodes never
+    /// do). Read before the log's removals drop entries.
+    fn old_el_children(&self, pk: usize) -> Option<Vec<usize>> {
+        let e = self.table.get(&pk)?;
+        Some(e.children.iter().copied().filter(|k| self.table.contains_key(k)).collect())
+    }
+
+    /// QINC1f-fix: the structural / sibling marks of every parent whose child list changed, from its old and new
+    /// element lists (the per-entry `for_children` calls replay each change against the FINAL DOM, which loses the
+    /// old edges after several inserts / moves in one batch).
+    fn child_lists(&mut self, map: &InvalidationMap, old: HashMap<usize, Vec<usize>>) {
+        for (pk, old) in old {
+            let Some(p) = self.handle_of(pk) else { continue };
+            let m = map.for_child_list(&p, &old);
+            self.apply(m);
+        }
+    }
+
     fn process_log(&mut self, map: &InvalidationMap, entries: &[crate::incr_log::Entry]) {
         let mut text_index = None;
+        let mut old_lists: HashMap<usize, Vec<usize>> = HashMap::new();
+        for e in entries {
+            if matches!(e.change, Change::ChildInsert { .. } | Change::ChildRemove { .. } | Change::TextContent | Change::InnerHtml)
+                && !old_lists.contains_key(&e.node)
+                && let Some(old) = self.old_el_children(e.node)
+            {
+                old_lists.insert(e.node, old);
+            }
+        }
         for e in entries {
             match &e.change {
                 Change::Attr { name, old, new } => {
@@ -662,9 +702,7 @@ impl Engine {
                     for k in old.into_iter().filter(|k| !now_keys.contains(k)) {
                         match self.handle_of(k) {
                             Some(n) => self.drop_subtree(&n, true),
-                            None => {
-                                self.table.remove(&k);
-                            }
+                            None => self.drop_key(k),
                         }
                     }
                     let m = map.for_text(&p);
@@ -700,6 +738,7 @@ impl Engine {
                 Change::SheetText | Change::Adopted | Change::CssVer => {}
             }
         }
+        self.child_lists(map, old_lists);
     }
 
     fn interaction(&mut self, map: &InvalidationMap) {
@@ -792,6 +831,7 @@ impl Engine {
                         self.apply(m);
                     }
                     if cur_kids != stored_kids {
+                        let old_els = self.old_el_children(k).unwrap_or_default();
                         let pre = cur_kids.iter().zip(stored_kids.iter()).take_while(|(a, b)| a == b).count();
                         let max_suf = cur_kids.len().min(stored_kids.len()) - pre;
                         let suf = cur_kids.iter().rev().zip(stored_kids.iter().rev()).take(max_suf).take_while(|(a, b)| a == b).count();
@@ -803,6 +843,8 @@ impl Engine {
                         for n in ins {
                             self.insertion(map, &c, &n);
                         }
+                        let m = map.for_child_list(&c, &old_els);
+                        self.apply(m);
                     }
                 }
                 drop(fp);
