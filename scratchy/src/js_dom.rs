@@ -1617,7 +1617,10 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   var xr = { n: 0, byDoc: {}, prep: {}, s: { el: {}, n: 0, ord: {}, cr: {} },
     // QPT1c2: the page-wide MutationObserver registry (`reg`: node id -> registrations, `n` live count,
     // `seq` observer ids) and `hk`, each realm's `hookInstall` (an observer anywhere hooks every realm's natives).
-    mo: { reg: Object.create(null), n: 0, seq: 0 }, hk: [] }, mine = null, myDocs = null, moSts = null;
+    mo: { reg: Object.create(null), n: 0, seq: 0 }, hk: [],
+    // QPT1f4: custom-element reactions are page-wide: `ce` = doc id -> a realm's reaction API (realms that
+    // called define()), `cs` = element id -> the API of the realm whose definition upgraded it, `cn` = live `ce` count.
+    ce: {}, cs: {}, cn: 0 }, mine = null, myDocs = null, moSts = null;
   var ownerDocId = function (id) {
     var r = __d_root(id);
     if (__d_kind(r) === 9) return r;
@@ -2208,7 +2211,10 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (!n || n.__id === undefined) throw new TypeError("Failed to execute 'adoptNode' on 'Document': parameter 1 is not of type 'Node'.");
     if (n.nodeType === 9) throw herr("Failed to execute 'adoptNode' on 'Document': The node provided is a document.", 'NotSupportedError');
     // QPT1c: the adopter is recorded (not just forgotten): the node may be another realm's wrapper.
-    __d_remove(n.__id); owners[n.__id] = doc; return n;
+    var od = xr.cn ? ownerDocId(n.__id) : -1;
+    __d_remove(n.__id); owners[n.__id] = doc;
+    if (xr.cn && n.nodeType === 1 && (od < 0 ? 0 : od) !== doc.__id) ceAdopt([n.__id], [od], doc.__id);
+    return n;
   };
   doc.createElement = function (t) { t = String(t); checkName('createElement', t); return wrap(__d_create(1, t)); };
   doc.createElementNS = function (ns, t) {
@@ -2837,7 +2843,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       // QPT1c: the page-wide wrapper cache, owners and realm table (this realm's own are dropped).
       cache = shared.cache; owners = shared.owners; xr = shared.xr;
       mine = []; myDocs = [id]; xr.byDoc[id] = mk; xr.n++;
-      xr.hk.push(hookInstall); if (xr.mo.n > 0) hookInstall();
+      xr.hk.push(hookInstall); if (xr.mo.n > 0 || xr.cn > 0) hookInstall();
       xr.prep[id] = function (sid) { sPrepare(sid); };
       frameDoc = true; frameOnLoad = shared.onLoad || null;
     }
@@ -3175,6 +3181,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     for (id in owners) if (docs[owners[id].__id]) delete owners[id];
     for (i = 0; i < myDocs.length; i++) { delete cache[myDocs[i]]; if (xr.byDoc[myDocs[i]] === mk) delete xr.byDoc[myDocs[i]]; delete xr.prep[myDocs[i]]; }
     __d_ce_drop(doc.__id);
+    if (ceOn) { for (id in xr.cs) if (xr.cs[id] === ceApi) delete xr.cs[id]; delete xr.ce[doc.__id]; xr.cn--; ceOn = false; }
     if (moSts) { for (i = 0; i < moSts.length; i++) { moDisc(moSts[i]); moSts[i].pending = false; } moSts = null; }
     moPending = [];
     i = xr.hk.indexOf(hookInstall); if (i >= 0) xr.hk.splice(i, 1);
@@ -4010,7 +4017,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   // synchronously after the API call (a microtask-free simplification of
   // the CEReactions stack). Only the realm's own document is ever upgraded
   // (the page: id 0; an iframe realm: its document, with its own registry, QPT1f).
-  // Cuts: adoptedCallback, `:defined`, no shadow DOM (attachShadow throws).
+  // Cuts: `:defined`, no shadow DOM (attachShadow throws).
   var ceOn = false, ceByName = Object.create(null), ceByCtor = new Map(), ceWhen = Object.create(null);
   var ceState = Object.create(null), ceConnFlag = Object.create(null), ceNConn = 0;
   var ceStats = { hooks: 0, defineQueries: 0 };
@@ -4018,9 +4025,12 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   var ceReport = function (e, what) {
     __scratchy_err('scratchy: js: uncaught exception in custom element ' + what + ': ' + (e && e.stack ? e.stack : String(e)));
   };
+  // Reactions run in the realm that owns the definition, with that realm entered (an iframe realm).
   var ceCall = function (el, fn, args) {
     if (typeof fn !== 'function') return;
-    try { fn.apply(el, args); } catch (e) { ceReport(e, fn.name || 'callback'); }
+    try {
+      if (frameDoc) g.__scratchy_enter(g, function () { fn.apply(el, args); }); else fn.apply(el, args);
+    } catch (e) { ceReport(e, fn.name || 'callback'); }
   };
   // QPT1f: "connected" = in this realm's document (the page, or an iframe realm's own document).
   var ceIsConn = function (id) { return composedRootId(id) === doc.__id; };
@@ -4072,13 +4082,16 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     var el = wrap(id), ok = false;
     d.stack.push({ el: el, done: false });
     try {
-      var r = Reflect.construct(d.ctor, [], d.ctor);
-      if (r !== el) throw new TypeError('The custom element constructor did not produce the element being upgraded.');
+      var run = function () {
+        var r = Reflect.construct(d.ctor, [], d.ctor);
+        if (r !== el) throw new TypeError('The custom element constructor did not produce the element being upgraded.');
+      };
+      if (frameDoc) g.__scratchy_enter(g, run); else run();
       ok = true;
     } catch (e) { ceReport(e, d.name + ' constructor'); }
     d.stack.pop();
     if (!ok) { ceState[id] = -1; return; }
-    ceState[id] = d;
+    ceState[id] = d; xr.cs[id] = ceApi;
     if (d.observed.length) {
       var names = __d_attr_names(id);
       for (var i = 0; i < names.length; i++) {
@@ -4088,25 +4101,69 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     }
     if (conn) ceSetConn(id);
   };
-  var ceProcess = function (id, conn) {
+  var ceProcess = function (id, conn, up) {
     var st = ceState[id];
-    if (!st) { var d = ceDefFor(id); if (d) ceUpgrade(id, d, conn); return; }
+    if (!st) { if (!up || xr.cs[id]) return; var d = ceDefFor(id); if (d) ceUpgrade(id, d, conn); return; }
     if (st !== -1 && conn && !ceConnFlag[id]) ceSetConn(id);
   };
   // Upgrade (and fire connectedCallback for) candidates under `id`, tree order.
   // `force` also upgrades inside a disconnected tree (customElements.upgrade, clones).
+  // QPT1f4: a realm scans for ITS elements wherever they are connected (any live realm's document), and
+  // upgrades with its own registry only what is in its own document (or `force`: upgrade(), clones, define()).
   var ceScan = function (id, force) {
-    var conn = ceIsConn(id);
+    var rd = composedRootId(id), conn = xr.byDoc[rd] !== undefined;
     if (!conn && !force) return;
+    var up = force || rd === doc.__id;
     var l = ceQueryDeep(id);
     if (__d_kind(id) === 1) l.unshift(id);
-    for (var i = 0; i < l.length; i++) ceProcess(l[i], conn);
+    for (var i = 0; i < l.length; i++) ceProcess(l[i], conn, up);
+  };
+  // The page-wide reaction drivers the hooks call (every realm with a registry takes part).
+  var cePre = function (id, self) {
+    var out = null;
+    for (var k in xr.ce) {
+      var a = xr.ce[k];
+      if (!a.n()) continue;
+      var l = a.collect(id, self);
+      if (l.length) (out || (out = [])).push([a, l]);
+    }
+    return out;
+  };
+  var ceFirePre = function (pre) { if (pre) for (var i = 0; i < pre.length; i++) pre[i][0].fire(pre[i][1]); };
+  var ceScanAll = function (id) { for (var k in xr.ce) xr.ce[k].scan(id); };
+  // adoptedCallback (old document, new document) for the upgraded elements under each root.
+  var ceAdopt = function (roots, olds, nd) {
+    for (var i = 0; i < roots.length; i++) {
+      var od = olds[i] < 0 ? 0 : olds[i];
+      if (od === nd) continue;
+      for (var k in xr.ce) xr.ce[k].adopt(roots[i], cache[od] || null, cache[nd] || null);
+    }
+  };
+  var ceOwners = function (ids) { return ids.map(ownerDocId); };
+  var ceApi = {
+    on: function () { return ceOn; }, n: function () { return ceNConn; }, st: function (id) { return ceState[id]; },
+    collect: function (id, self) { return ceCollect(id, self); }, fire: function (ids) { ceFire(ids); },
+    scan: function (id) { ceScan(id, false); },
+    call: function (id, fn, args) { ceCall(cache[id], fn, args); },
+    adopt: function (root, od, nd) {
+      var l = ceQueryDeep(root);
+      if (__d_kind(root) === 1) l.unshift(root);
+      for (var i = 0; i < l.length; i++) {
+        var st = ceState[l[i]];
+        if (st && st !== -1) ceCall(cache[l[i]], st.adopted, [od, nd]);
+      }
+    }
   };
   // The ONE shared mutation layer (QY6e custom elements + QY6a MutationObserver):
   // installed by the first `define()` or `observe()`, rebinding the natives to
   // hooked versions. Each hook does the CE work when `ceOn` and the record
   // work when observers exist (`xr.mo.n > 0`); neither runs otherwise.
   var hookOn = false;
+  // The realm whose definition upgraded element `id`, when it observes attributes (else null).
+  var ceHolder = function (id) {
+    var a = xr.cs[id], s = a && a.st(id);
+    return s && s !== -1 && s.observed.length ? a : null;
+  };
   var hookInstall = function () {
     if (hookOn) return;
     hookOn = true;
@@ -4116,43 +4173,47 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       var mo = xr.mo.n > 0, frag = __d_kind(c) === 11, kids = frag ? __d_children(c, false) : [c];
       var oldP = mo && !frag ? __d_parent(c) : -1, oPrev = -1, oNext = -1;
       if (oldP >= 0) { oPrev = __d_sibling(c, -1, false); oNext = __d_sibling(c, 1, false); }
-      var pre = ceNConn && __d_parent(c) >= 0 ? ceCollect(c, true) : null; // a move = disconnect + connect
+      var pre = xr.cn && __d_parent(c) >= 0 ? cePre(c, true) : null; // a move = disconnect + connect
+      var olds = xr.cn ? ceOwners(kids) : null;
       var ok = oIns(p, c, b);
       if (ok && mo) {
         if (oldP >= 0) moChild(oldP, [], [c], oPrev, oNext);
         if (kids.length) moChild(p, kids, [], __d_sibling(kids[0], -1, false), __d_sibling(kids[kids.length - 1], 1, false));
       }
-      if (pre) ceFire(pre);
-      if (ceOn) for (var i = 0; i < kids.length; i++) ceScan(kids[i], false);
+      ceFirePre(pre);
+      if (xr.cn) {
+        if (ok) ceAdopt(kids, olds, ownerDocId(p) < 0 ? 0 : ownerDocId(p));
+        for (var i = 0; i < kids.length; i++) ceScanAll(kids[i]);
+      }
       return ok;
     };
     __d_remove = function (id) {
       ceStats.hooks++;
       var p = xr.mo.n > 0 ? __d_parent(id) : -1, pv = -1, nx = -1;
       if (p >= 0) { pv = __d_sibling(id, -1, false); nx = __d_sibling(id, 1, false); }
-      var pre = ceNConn ? ceCollect(id, true) : null;
+      var pre = xr.cn ? cePre(id, true) : null;
       oRem(id);
       if (p >= 0) moChild(p, [], [id], pv, nx);
-      if (pre) ceFire(pre);
+      ceFirePre(pre);
     };
     __d_sethtml = function (id, html) {
       ceStats.hooks++;
       var old = xr.mo.n > 0 ? __d_children(id, false) : null;
-      var pre = ceNConn ? ceCollect(id, false) : null;
+      var pre = xr.cn ? cePre(id, false) : null;
       oHtml(id, html);
       if (old) { var nw = __d_children(id, false); if (old.length || nw.length) moChild(id, nw, old, -1, -1); }
-      if (pre) ceFire(pre);
-      if (ceOn) ceScan(id, false);
+      ceFirePre(pre);
+      if (xr.cn) ceScanAll(id);
     };
     __d_settext = function (id, t) {
       ceStats.hooks++;
       var k = __d_kind(id), mo = xr.mo.n > 0, old = null, oldTxt = null;
       if (mo) { if (k === 3) oldTxt = __d_text(id); else if (k !== 8) old = __d_children(id, false); }
-      var pre = ceNConn && (k === 1 || k === 11) ? ceCollect(id, false) : null;
+      var pre = xr.cn && (k === 1 || k === 11) ? cePre(id, false) : null;
       oTxt(id, t);
       if (old) { var nw = __d_children(id, false); if (old.length || nw.length) moChild(id, nw, old, -1, -1); }
       else if (oldTxt !== null) moChar(id, oldTxt);
-      if (pre) ceFire(pre);
+      ceFirePre(pre);
     };
     __d_write = function (a, h) {
       ceStats.hooks++;
@@ -4163,34 +4224,34 @@ pub(crate) const DOM_PRELUDE: &str = r#"
         while (c >= 0 && c !== nx) { added.push(c); c = __d_sibling(c, 1, false); }
         if (added.length) moChild(p, added, [], a, nx);
       }
-      if (ceOn && p >= 0) ceScan(p, false);
+      if (xr.cn && p >= 0) ceScanAll(p);
       return r;
     };
     __d_setattr = function (id, n, v) {
       ceStats.hooks++;
-      var d = ceState[id], ce = d && d !== -1 && d.observed.length, mo = xr.mo.n > 0, ln = '', old = null;
+      var ca = ceHolder(id), d = ca && ca.st(id), ce = !!ca, mo = xr.mo.n > 0, ln = '', old = null;
       if (ce || mo) { ln = String(n).toLowerCase(); old = __d_attr(id, ln); if (old == null) old = null; }
       oSet(id, n, v);
       if (mo) moAttr(id, ln, old);
-      if (ce && d.observed.indexOf(ln) >= 0) ceCall(cache[id], d.changed, [ln, old, __d_attr(id, ln)]);
+      if (ce && d.observed.indexOf(ln) >= 0) ca.call(id, d.changed, [ln, old, __d_attr(id, ln)]);
     };
     // QY45: the qualified-name / namespaced variants share the same hook work.
     var attrHook = function (oSetter, oRemover, getOld, key) {
       return [function (id, a, b, c, d) {
         ceStats.hooks++;
-        var st = ceState[id], ce = st && st !== -1 && st.observed.length, mo = xr.mo.n > 0, old = null, nm = key(id, a, b);
+        var ca = ceHolder(id), st = ca && ca.st(id), ce = !!ca, mo = xr.mo.n > 0, old = null, nm = key(id, a, b);
         if (ce || mo) { old = getOld(id, a, b); if (old == null) old = null; }
         oSetter(id, a, b, c, d);
         if (mo) moAttr(id, nm, old);
-        if (ce && st.observed.indexOf(nm) >= 0) ceCall(cache[id], st.changed, [nm, old, getOld(id, a, b)]);
+        if (ce && st.observed.indexOf(nm) >= 0) ca.call(id, st.changed, [nm, old, getOld(id, a, b)]);
       }, function (id, a, b) {
         ceStats.hooks++;
-        var st = ceState[id], ce = st && st !== -1 && st.observed.length, mo = xr.mo.n > 0, old = null, nm = key(id, a, b);
+        var ca = ceHolder(id), st = ca && ca.st(id), ce = !!ca, mo = xr.mo.n > 0, old = null, nm = key(id, a, b);
         if (ce || mo) old = getOld(id, a, b);
         oRemover(id, a, b);
         if (old != null) {
           if (mo) moAttr(id, nm, old);
-          if (ce && st.observed.indexOf(nm) >= 0) ceCall(cache[id], st.changed, [nm, old, null]);
+          if (ce && st.observed.indexOf(nm) >= 0) ca.call(id, st.changed, [nm, old, null]);
         }
       }];
     };
@@ -4204,12 +4265,12 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     __d_rmns = function (id, ns, loc) { hn[1](id, ns, loc); };
     __d_rmattr = function (id, n) {
       ceStats.hooks++;
-      var d = ceState[id], ce = d && d !== -1 && d.observed.length, mo = xr.mo.n > 0, ln = '', old = null;
+      var ca = ceHolder(id), d = ca && ca.st(id), ce = !!ca, mo = xr.mo.n > 0, ln = '', old = null;
       if (ce || mo) { ln = String(n).toLowerCase(); old = __d_attr(id, ln); }
       oRm(id, n);
       if (old != null) {
         if (mo) moAttr(id, ln, old);
-        if (ce && d.observed.indexOf(ln) >= 0) ceCall(cache[id], d.changed, [ln, old, null]);
+        if (ce && d.observed.indexOf(ln) >= 0) ca.call(id, d.changed, [ln, old, null]);
       }
     };
   };
@@ -4254,7 +4315,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     var id = __d_create(1, d.ext || d.name), el = wrap(id);
     if (d.ext) __d_setattr(id, 'is', d.name);
     Object.setPrototypeOf(el, nt.prototype);
-    ceState[id] = d;
+    ceState[id] = d; xr.cs[id] = ceApi;
     return el;
   };
   Object.defineProperty(g, '__ce_new', { value: ceNew });
@@ -4275,8 +4336,11 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     var P = ctor.prototype, observed = [], oa = ctor.observedAttributes;
     if (oa != null) observed = Array.prototype.map.call(Array.from(oa), String);
     var d = { name: name, ctor: ctor, ext: ext, stack: [], observed: observed,
-      connected: P.connectedCallback, disconnected: P.disconnectedCallback, changed: observed.length ? P.attributeChangedCallback : undefined };
-    if (!ceOn) { ceOn = true; ceInstall(); }
+      connected: P.connectedCallback, disconnected: P.disconnectedCallback, adopted: P.adoptedCallback, changed: observed.length ? P.attributeChangedCallback : undefined };
+    if (!ceOn) {
+      ceOn = true; ceInstall(); xr.ce[doc.__id] = ceApi; xr.cn++;
+      for (var hk = 0; hk < xr.hk.length; hk++) xr.hk[hk](); // every realm's natives drive this registry's reactions
+    }
     ceByName[name] = d; ceByCtor.set(ctor, d);
     __d_ce_add(doc.__id, name, ext || '');
     // QY21: only the NEW name is looked up (the old all-names selector made define() quadratic).
