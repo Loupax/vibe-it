@@ -8127,3 +8127,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       Document in tools/README. Gate: on main reproduces R56: busy450 and stall_k18 at 500 Hz lost 3/3; stall_k0 and
       busy300 at 500 Hz survive 3/3.
   (queue line) 27b1 [WIP] QY54a1 [S, Sonnet, P1] wl-flood stall harness in tools/ (R57 section 5)
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY53n2c DONE - hover by resolved value (#424): YT 38/70 patched vs 0/76 [S] (P3, from QY53n3m #418 R55; Sonnet) Classify hover rules by the resolved value change, not the declared
+      property: border-radius, SVG fill/stroke, `background` whose computed change is only the colour, same-value border
+      width/style go to the Paint patch. Gate: YT watch `hover.patched` >= 40 of ~95 hover builds over 3 runs.

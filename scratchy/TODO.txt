@@ -1017,11 +1017,8 @@ Shared rules for this block:
 - [ ] QY53n1b [S] (P3, from QY53n1 #398; Sonnet) Narrow the hover affected-set for key-less `:hover` compounds (no
       tag/class/id: today every changed chain element is re-matched); YT skipped 7 of 15 hover restyles with #398.
 - [ ] QY53n2b [S] (P4, from QY53n2 #407; Sonnet) Paint-patch hovers that touch list items, form controls, `::marker` or
-      `<br>`/alt text: they fall back to a build because those text spans carry no element `node` (`marker_prefix`, forms.rs
+      `<br>`/alt text [list items + form controls with unchanged inherited text paint are patched since QY53n2c #424]: they fall back to a build because those text spans carry no element `node` (`marker_prefix`, forms.rs
       `text_span`); set span.node there.
-- [ ] [WIP] QY53n2c [S] (P3, from QY53n3m #418 R55; Sonnet) Classify hover rules by the resolved value change, not the declared
-      property: border-radius, SVG fill/stroke, `background` whose computed change is only the colour, same-value border
-      width/style go to the Paint patch. Gate: YT watch `hover.patched` >= 40 of ~95 hover builds over 3 runs.
 - [ ] QY53n2d [S] (P4, from #418 R55; after QYTC1f's design) Paint-patch opacity hovers when the stacking context does not
       change (`.ytp-button:hover {opacity}`; ~60 YT builds over 6 runs).
 - [ ] QY53n1c [M] (P3, from #418 R55; Opus design first) Keep the kept hover match memo valid across a QY53f1 `<style>`
