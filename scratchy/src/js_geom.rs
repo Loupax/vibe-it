@@ -513,6 +513,10 @@ pub(crate) struct GeomCache {
     /// QYTC1a: a subtree was shifted in place; glyph rects are not shifted, so a `text_rects`
     /// read lays out again.
     glyphs_stale: bool,
+    /// QINC1b (R60 4.4): next unused paragraph id; never restarts.
+    next_para_id: usize,
+    /// QINC1b: persists per owner, swept of ids no live `Laid` uses (none is kept here).
+    shape_cache: ShapeCache,
 }
 
 /// QYTC1a: one `Laid` of the last forced layout (see `GeomCache::skel`).
@@ -874,7 +878,9 @@ impl GeomCache {
             let tree = build_layout_tree_with_resources(page, vw, Some(vh), &css, &HashMap::new());
             let deps = crate::style::rule_child_deps();
             let t_phase = crate::perf::phase(crate::perf::Phase::MeasureDocument);
-            let mut cache = ShapeCache::new();
+            let cache = &mut self.shape_cache;
+            let id_base = self.next_para_id;
+            let end_id = &mut self.next_para_id;
             let mut laid = None;
             // Shaping is progressive (a deadline per pass); keep going until
             // it completes or a hard cap, resuming from the same shape cache.
@@ -890,9 +896,10 @@ impl GeomCache {
                 let fs = f.get_or_insert_with(new_font_system);
                 loop {
                     let mut incomplete = false;
-                    let mut next_id = 0usize;
+                    let mut next_id = id_base;
                     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(pass_ms);
-                    laid = Some(measure_document(&tree, fs, vw, vh, &mut next_id, &mut cache, deadline, &mut incomplete));
+                    laid = Some(measure_document(&tree, fs, vw, vh, &mut next_id, cache, deadline, &mut incomplete));
+                    *end_id = (*end_id).max(next_id);
                     if !incomplete || t0.elapsed() > std::time::Duration::from_secs(cap_s) {
                         break;
                     }
@@ -903,9 +910,8 @@ impl GeomCache {
             let t_phase = crate::perf::phase(crate::perf::Phase::GlyphWalk);
             let mut glyphs = HashMap::new();
             if let Some(l) = &laid {
-                walk_glyphs(l, &cache, &mut glyphs);
+                walk_glyphs(l, cache, &mut glyphs);
             }
-            drop(cache);
             drop(t_phase);
             (laid, glyphs, deps)
         }));
@@ -947,6 +953,9 @@ impl GeomCache {
             Ok((None, ..)) => {}
             Err(_) => diag!("scratchy: js: layout panicked while reading geometry; element rects read as zero"),
         }
+        // QINC1b: the laid tree is gone, so no id is live: the sweep empties the cache (as the
+        // per-layout cache it replaces was dropped here).
+        crate::layout::sweep_shape_cache(&mut self.shape_cache, &std::collections::HashSet::new());
         // QOBS3: did this layout change any box? (only compared while recording)
         let no_change = recording && self.key.is_some() && prev.len() == self.rects.len() && prev.iter().all(|(k, v)| self.rects.get(k) == Some(v));
         drop(prev);

@@ -109,7 +109,8 @@ pub(crate) enum AppEvent {
     /// them pays for that on the stack (`clippy::large_enum_variant`);
     /// `self.cached: Option<Laid>` on the receiving end stays unboxed,
     /// same as before this plan.
-    ShapeResult(u64, Box<Laid>, ShapeCache, bool),
+    /// The last field is the worker's next free paragraph id (QINC1b).
+    ShapeResult(u64, Box<Laid>, ShapeCache, bool, usize),
     /// A deferred hover restyle (R2.3) is due; see `App::update_hover`.
     HoverFlush,
     /// Q35b2: the image-relayout debounce window (`IMAGE_RELAYOUT_DEBOUNCE`)
@@ -624,6 +625,8 @@ pub(crate) struct ShapingRequest {
     /// height-only resize): the worker keeps its content-keyed shaping
     /// memo so unchanged paragraphs aren't reshaped. `false` clears it.
     pub(crate) reuse_shaping: bool,
+    /// QINC1b: the App's paragraph-id counter; the worker never hands out an id below it.
+    pub(crate) id_base: usize,
 }
 
 pub(crate) struct App {
@@ -660,6 +663,9 @@ pub(crate) struct App {
     /// what makes a big page fill in progressively again despite
     /// shaping happening off the main thread entirely.
     pub(crate) shape_cache: ShapeCache,
+    /// QINC1b (R60 4.4): next unused paragraph id; never restarts (the worker request carries it,
+    /// the result returns the worker's next value).
+    pub(crate) next_para_id: usize,
     /// The size `surface.resize()` was last called with — skip the call
     /// when nothing changed instead of re-issuing it on every redraw.
     pub(crate) surface_size: (u32, u32),
@@ -1249,6 +1255,7 @@ impl App {
             cached_height: 0,
             layout_dirty: true,
             shape_cache: ShapeCache::new(),
+            next_para_id: 0,
             surface_size: (0, 0),
             pending_width: None,
             last_cursor: Some(CursorIcon::Default),
@@ -1351,6 +1358,7 @@ impl App {
             cached_height: 0,
             layout_dirty: true,
             shape_cache: ShapeCache::new(),
+            next_para_id: 0,
             surface_size: (0, 0),
             pending_width: None,
             last_cursor: Some(CursorIcon::Default),
@@ -1524,7 +1532,7 @@ impl App {
             self.layout_dirty = false;
             self.layout_in_flight = true;
             self.layout_generation += 1;
-            Self::queue_shaping_request(&self.shaping_requests, tree, width as f32, height as f32, self.layout_generation, reuse);
+            Self::queue_shaping_request(&self.shaping_requests, tree, width as f32, height as f32, self.layout_generation, reuse, self.next_para_id);
         } else if need_rebuild {
             window.request_redraw();
         }
@@ -1920,9 +1928,9 @@ impl App {
     /// which an `&self` method call can't see past.
     pub(crate) fn queue_shaping_request(
         requests: &mpsc::Sender<ShapingRequest>, tree: LayoutBox, width: f32, height: f32, generation: u64,
-        reuse_shaping: bool,
+        reuse_shaping: bool, id_base: usize,
     ) {
-        let _ = requests.send(ShapingRequest { tree, width, height, generation, reuse_shaping });
+        let _ = requests.send(ShapingRequest { tree, width, height, generation, reuse_shaping, id_base });
     }
 
     /// Starts the persistent background shaping worker — called once,
@@ -1991,6 +1999,11 @@ impl App {
             // by one arriving mid-shape (see its own comment), instead
             // of going back through `rx.recv()` and losing it.
             let mut next = rx.recv();
+            // QINC1b: persists across requests; swept after a finished layout.
+            let mut shape_cache = ShapeCache::new();
+            let mut worker_next_id = 0usize;
+            // Ids the last finished layout references (what the App may still be showing).
+            let mut last_live: std::collections::HashSet<usize> = std::collections::HashSet::new();
             while let Ok(mut request) = next {
                 // Jump straight to the newest already-queued request,
                 // if more than one piled up while this thread was busy
@@ -1999,20 +2012,28 @@ impl App {
                 while let Ok(newer) = rx.try_recv() {
                     request = newer;
                 }
-                let ShapingRequest { tree, width, height, generation, reuse_shaping } = request;
+                let ShapingRequest { tree, width, height, generation, reuse_shaping, id_base } = request;
                 if !reuse_shaping {
                     crate::layout::memo_clear();
+                    // A new document: nothing in the cache can be live.
+                    shape_cache.clear();
+                    last_live.clear();
                 }
+                // Superseded/abandoned builds leave ids no layout uses; drop them here so a
+                // storm of requests that never finish cannot grow the cache without bound.
+                crate::layout::sweep_shape_cache(&mut shape_cache, &last_live);
+                // QINC1b: ids never restart on this worker; every pass of this build reuses
+                // the same ids (a pass resumes the shaping of the one before it).
+                let build_base = id_base.max(worker_next_id);
                 // QY53o3c: record which memo entries this build uses; a finished build drops the
                 // entries no recent build used (the memo grew without bound on a long-lived page).
                 crate::layout::memo_track_begin();
-                let mut shape_cache = ShapeCache::new();
                 let mut superseded_by = None;
                 let mut finished = false;
                 loop {
                     let deadline = std::time::Instant::now() + PROGRESSIVE_LAYOUT_TICK_BUDGET;
                     let mut incomplete = false;
-                    let mut next_id = 0usize;
+                    let mut next_id = build_base;
                     // Isolated behind `catch_unwind` — this is the one
                     // persistent worker shaping *every* future page, for
                     // the life of the process (see this function's own
@@ -2072,10 +2093,18 @@ impl App {
                             diag!(
                                 "scratchy: shaping worker: measure_document panicked on generation {generation} ({message}) — abandoning this page, worker still running"
                             );
+                            shape_cache.clear(); // ids of the abandoned pass may be reused
                             break;
                         }
                     };
-                    if proxy.send_event(AppEvent::ShapeResult(generation, Box::new(laid), shape_cache.clone(), incomplete)).is_err() {
+                    worker_next_id = worker_next_id.max(next_id);
+                    if !incomplete {
+                        let mut live = std::collections::HashSet::new();
+                        crate::layout::collect_live_ids(&laid, &mut live);
+                        crate::layout::sweep_shape_cache(&mut shape_cache, &live);
+                        last_live = live;
+                    }
+                    if proxy.send_event(AppEvent::ShapeResult(generation, Box::new(laid), shape_cache.clone(), incomplete, worker_next_id)).is_err() {
                         return; // the event loop (and App) is gone
                     }
                     if !incomplete {
@@ -4301,7 +4330,10 @@ impl ApplicationHandler<AppEvent> for App {
             AppEvent::JsNet(generation, id, result, completed) => self.handle_js_net(generation, id, result, completed),
             AppEvent::JsWs => self.handle_js_ws(),
             AppEvent::ImageFetched(generation, src, image) => self.handle_image_fetched(generation, src, image),
-            AppEvent::ShapeResult(generation, laid, shape_cache, incomplete) => self.handle_shape_result(generation, laid, shape_cache, incomplete),
+            AppEvent::ShapeResult(generation, laid, shape_cache, incomplete, next_id) => {
+                self.next_para_id = self.next_para_id.max(next_id);
+                self.handle_shape_result(generation, laid, shape_cache, incomplete)
+            }
             AppEvent::MetaRefresh(generation, target) => self.handle_meta_refresh(generation, target),
             AppEvent::ImageFlush => {
                 self.image_flush_scheduled = false;

@@ -224,6 +224,8 @@ root epoch }` and `cacheable` (complete shaping; one `Laid` for its node; see 8.
 whose ids restart at 0 every layout (`next_id`). A reused `Laid` keeps its ids, so ids become engine-unique (a counter
 that never restarts; the worker path gets a base) and the `ShapeCache` persists, swept of ids no live `Laid` uses.
 
+**QINC1b DONE (Sonnet, 2026-11-20):** `App::next_para_id` and `GeomCache::next_para_id` never restart (`ShapingRequest::id_base`; `ShapeResult` returns the worker's next id; the worker takes max(base, its own counter); every pass of one build reuses the same ids so a pass resumes the one before). The shaping worker's `ShapeCache` and `GeomCache::shape_cache` persist; `layout::sweep_shape_cache` drops ids no live `Laid` names when the cache exceeds 2x the live count (worker: after a finished layout and at the start of every request, so a storm of superseded builds cannot grow it; a new document clears it; a panic clears it; GeomCache: no `Laid` outlives a forced layout, so it is emptied). Readers unchanged.
+
 **4.5 Paint order ties.** `stack_key` breaks z-index ties by `style.tree_order`, a global counter taken at resolve time.
 A partially restyled tree would order new elements after old ones. Ties are taken from document order instead (an order
 index the engine renumbers on structural change, or a DOM-position comparison inside the sort; only ties need it).

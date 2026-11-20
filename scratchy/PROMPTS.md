@@ -8433,3 +8433,9 @@ Prompt: item QY53n3 (P3): hover changes that only gain/lose PAINT plus OFFSET ru
 > Implement QINC1a: style_diff, comparators cmp_styles/cmp_boxes/cmp_laid with readable first-difference reports, the seeded differential fuzz harness in src/tests/incr_fuzz_tests.rs, the --perf-report `incr` counters object. No behaviour change.
 
 **What changed:** new `src/incr_diff.rs` (`style_diff`, exhaustive over `ComputedStyle`), test-only `src/incr_cmp.rs` (comparators), `src/tests/incr_fuzz_tests.rs` (fuzz harness, 200 cases by default, plus tests per diff class and comparator), `perf::Incr` counters and the `incr` object in `--perf-report`. `Debug` derived on style field types for reports. REGRESSIONS.md R60 note "QINC1a DONE".
+
+## QINC1b: stable paragraph ids (R60 4.4, no behaviour change)
+
+> You implement item QINC1b of the incremental style+layout engine: stable paragraph ids, next_id from a per-owner counter that never restarts (App, GeomCache; the shaping worker request carries a base and returns the next value); the ShapeCache persists per owner and is swept of ids no live Laid references; readers unchanged.
+
+**What changed:** `layout.rs` `collect_live_ids` / `sweep_shape_cache` (2x rule); `app.rs` `next_para_id`, `ShapingRequest::id_base`, `ShapeResult` next id, persistent worker cache swept after a finished layout and at each request start; `js_geom.rs` `GeomCache` counter and cache. Tests: `src/tests/para_id_tests.rs`.
