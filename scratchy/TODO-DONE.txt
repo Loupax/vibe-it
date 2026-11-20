@@ -8028,3 +8028,63 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       main vs before #416, interleaved, under flock, uptime noted; report which remaining YT hover builds are refused and why
       (positioned descendants, inline-level boxes, % insets, auto-width absolutes). Candidates to widen: re-hoisting
       positioned descendants; % insets via the containing-block basis on Laid.
+
+=== from TODO.txt: --- NEW 2026-11-18 (Opus, QY47c: YouTube `true` thumbnails, grey masthead circles; R38) ---
+- [x] QY60 DONE 4b9fe3b R56 quiet re-measure (#419) [S] (P2, R38, Opus measure; coordinate with QY53/R37) Main-thread throughput on
+      YouTube results: with a 20 s budget rAF fired ~0.6-0.7 times per second (max latency
+      3.6 s; rIC 3.35 s; timers up to 4.1 s late), so YouTube's scheduler needs 47-53 s to
+      stamp the masthead buttons (the three grey circles = YouTube's skeleton until then) and
+      draws results slowly. Measure per event-loop turn on this page: timer callbacks
+      (MAX_TIMERS_PER_TURN), promise drains, forced layouts, the App's own relayout/paint
+      between turns, and which one dominates; whether a relayout runs between every timer
+      batch. Output: numbers in R38 and fix items (no budget change: that is QY49-D).
+  (queue line) 21 [WIP] QY60 [S, Opus measure] main-thread throughput on YouTube results (re-measure after steps 2-4)
+
+=== from TODO.txt: --- on main unnoticed; and every branch edits the one src/tests.rs. ----------
+- [x] QY33 DONE 4b9fe3b R56 quiet re-measure (#419) [M] (P3, R26, measure first) YouTube's post-load timer callbacks exceed the
+      500 ms CALLBACK_BUDGET on main: first callback 764-1416 ms thread CPU, then
+      several 500-684 ms (budget raised locally to see them); default budget =>
+      1-2 `timer stopped` + 2-4 `promise jobs stopped` per load. QJ4's forced
+      layout costs 1130-1511 ms per layout in the window (R32 2026-11-17: most of
+      that is probably QP1's font-match cache wipe; re-measured after QP1, 2026-11-17:
+      social /u/loupax forced layout 1220-1401 ms -> line not printed; cold measure
+      42.2 ms [41.6-42.9] (was 3.40 s [3.06-3.77] on the same loaded machine) (`N forced layouts, M
+      ms` line) on this ~1600-element DOM. The window still painted the card
+      with the trips, but what the dropped work was is unknown. Do: profile
+      the >500 ms callbacks after QY29/QY32 (R26 recipe: per-callback timer +
+      wrapped natives; is it forced layout, `__d_query`, or JS?) and file the
+      fix (layout cost = QJ4b's perf note; R3 for the layout pipeline). Also
+      record: thread-CPU cost per run of the SAME binary/page varied ~2.5x with
+      machine load (kevlar compile-only 1080 ms vs 2676 ms), so budgets tuned
+      on an idle machine trip on a busy one; consider that when choosing
+      limits. Accept: numbers in R26 updated; no callback > 500 ms on an idle
+      machine, or an item explaining why not.
+      R28 (2026-11-17): one visible casualty of the trip: the masthead kebab
+      (MORE_VERT) icon never renders on main: its SVG is never even fetched
+      (fetch wrapper: only search/menu/logo icons requested, 3 fetches); with
+      CALLBACK_BUDGET raised to 30 s locally ~90 icon SVGs are fetched and the
+      kebab paints. YouTube's scheduler/icon job is the dropped work.
+      R29 (2026-11-17, QY44): local trip-stack logging (never committed) put the
+      interrupted jobs inside scratchy's own prelude as often as inside kevlar:
+      `rootId`/`composedRootId` parent walks from `ceIsConn`/`ceScan`
+      (custom-element insert hook), `isConnected`, `ioShown`
+      (IntersectionObserver), and `URL` parsing in `new Request`. Profile those
+      first. Since QY34 the player `base.js` (2.7-3 MB) and two kevlar lazy
+      chunks also execute (0.4-1.3 s wall each), so trips are likelier.
+      R36 (2026-11-17): user-visible casualty: YouTube's SPA search navigation is
+      killed in the promise drain after the /youtubei/v1/search response (one drain
+      shares one 500 ms budget: 377 ms job + 114 ms killed job). Fix filed as QY46.
+      R37 (2026-11-17, QY49): new YouTube front-end (ytmainappweb). Thread-CPU
+      distribution with the budget raised: timers max 494 ms budget clock (rAF tick),
+      promise jobs up to 1647 ms; default budget kills one 1659 ms job (no results).
+      Cost: `__d_cs` ~50 ms/call, `__d_special` full walks, `__d_parent` walks (24-87k
+      calls per callback), Shady DOM polyfill. Items QY51-QY53, policy QY49-D.
+  (queue line) 24 [WIP] QY33 [M] YouTube post-load timer callbacks over budget: re-measure first (numbers are QuickJS-era)
+
+=== from TODO.txt: --- NEW 2026-11-17 (Opus, QY49: DuckDuckGo bot challenge; YouTube ytmainappweb; callback cost; R37) ---
+- [x] QY54 DONE 4b9fe3b R56 quiet re-measure (#419) [S] (P2, R37, Opus measure) Re-run the R8 recipe (nested dwl, pointer motion
+      every 2 ms via tools/inject) on YouTube results (QY50 shim or merged) and on a fixture
+      with a 3 s forced layout inside a timer: does the compositor still disconnect
+      scratchy with today's stalls? Decides whether QY49-D option (d) is needed and
+      whether forced layout needs its own cap. Record in R37.
+  (queue line) 22 [WIP] QY54 [S, Opus measure] compositor disconnect under stalls (re-run after steps 2-4)
