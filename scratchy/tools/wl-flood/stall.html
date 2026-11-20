@@ -1,0 +1,29 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>wl-flood stall</title>
+<style>.r{height:20px;line-height:20px;background:#eef;margin:1px 0;width:300px}</style></head>
+<body>
+<!-- QY54a1: R56 stall_kN fixture. stall.html?k=N : 8000 rows, and a timer every 4 s doing
+     N pairs of (style.width write, offsetHeight read). Each pair is one whole-document
+     forced layout (~170-210 ms on the R56 machine), which the callback budget does not
+     count (QJ4). k=0 is the no-stall control. Used by tools/wl-flood/run.sh. -->
+<div id="rows"></div>
+<script>
+var k = parseInt((location.search.match(/[?&]k=(\d+)/) || [0, "18"])[1], 10);
+var rows = document.getElementById("rows"), i, d;
+for (i = 0; i < 8000; i++) {
+  d = document.createElement("div");
+  d.className = "r";
+  d.textContent = "row " + i;
+  rows.appendChild(d);
+}
+var n = 0, sink = 0;
+setInterval(function () {
+  var j;
+  for (j = 0; j < k; j++) {
+    rows.style.width = (300 + (j & 1) + (n & 1)) + "px";
+    sink += rows.offsetHeight;
+  }
+  n++;
+}, 4000);
+</script>
+</body></html>
