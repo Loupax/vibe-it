@@ -8386,3 +8386,11 @@ Prompt: item QY53n3 (P3): hover changes that only gain/lose PAINT plus OFFSET ru
 > I agree with your recomendations
 
 **What changed:** docs only. STASH.md "History": what counts as a visit (link, `:go`, `o`, page script; final URL after redirects; fragment stripped; not reload, back/forward, same-document, iframes, failures, opaque origins), the trim doubles as the ranking's decay, new "Ranking" subsection (site roots by visits to the whole site, then pages by their own visits, ties by recency; `url<TAB>title` candidate lines). KEYS.md "Completion" follows. TODO.txt: QCOMP-D C7, QCOMP3 and QCOMP4 updated (tests, tofi ordering check).
+
+## QCOMP-D: `o` dropped, `:go` + Tab is enough (user, docs only)
+
+> what does `o` do again?
+
+> I think :go should be enough. I thought that was the one that was doing autocomplete as we type with tab
+
+**What changed:** docs only. KEYS.md: T39-T41 and the NORMAL<->MENU diagram edges dropped (row numbers kept), MENU always returns to COMMAND (T42, T43). STASH.md: `o` removed from the readers and the visit list. TODO.txt: C3 marked superseded, QCOMP5 ticked as DROPPED, the order and queue notes no longer mention `o`.

@@ -106,7 +106,7 @@ wire owns the cookie jar (W-PERSIST1):
 
 ## History
 
-The first reader is `:go` completion and `o` (KEYS.md "Completion", QCOMP-D). Settings
+The first reader is `:go` completion (KEYS.md "Completion", QCOMP-D). Settings
 (`HISTORY`, on/off, and `HISTORY_MAX_LINES`) are constants in `src/config.rs`.
 
 - **File:** `DIR/history`, mode 0600, one line per visit:
@@ -115,7 +115,7 @@ The first reader is `:go` completion and `o` (KEYS.md "Completion", QCOMP-D). Se
   number of visits. The title lets the menu match a page by its name; the time breaks
   ties and allows "forget the last hour" later.
 - **What is a visit** (user, 2026-11-20): a top-level navigation the user or the page
-  started and that loaded: a link click, `:go`, `o`, a page-script navigation
+  started and that loaded: a link click, `:go`, a page-script navigation
   (`location`, form submit). After redirects the FINAL URL is recorded. The `#fragment`
   is stripped (`page#a` and `page#b` are one URL). One line at the page's `load` (or
   when the load gives up), with `document.title` at that moment (empty if none).

@@ -54,8 +54,6 @@ stateDiagram-v2
     COMMAND --> INPUT: click into a text field or select
     COMMAND --> MENU: Tab, menu configured, 2+ candidates
     MENU --> COMMAND: chosen = replace the word / cancelled = unchanged
-    NORMAL --> MENU: o (history)
-    MENU --> NORMAL: chosen = navigate / cancelled = nothing
 ```
 
 ## Transition table
@@ -119,11 +117,9 @@ timer is needed. The pure function is `resolve_esc_esc(state, key, repeat, now)`
 | T36 | COMMAND | Tab | 1 candidate, or `MENU_CMD` is `None` | COMMAND | inline: complete to the first candidate; further Tabs cycle, Shift-Tab cycles back; any other key ends the cycle (today's behaviour) |
 | T37 | COMMAND | Tab | 2+ candidates and `MENU_CMD` is set | MENU (from COMMAND) | spawn the menu, candidates on its stdin |
 | T38 | MENU (from COMMAND) | menu exits 0 with a line | none | COMMAND | the line replaces the word being completed; the user still presses Enter |
-| T39 | NORMAL | `o` | `MENU_CMD` is set | MENU (from NORMAL) | spawn the menu with the `:go` source's candidates (history) |
-| T40 | NORMAL | `o` | `MENU_CMD` is `None` | COMMAND | open the command line with `go ` typed, so Tab completes inline |
-| T41 | MENU (from NORMAL) | menu exits 0 with a line | none | NORMAL | navigate exactly as `:go <line>` (a line that is not in the history works too, e.g. tofi `--require-match=false`) |
-| T42 | MENU | menu exits non-zero, prints nothing, or cannot be started | none | the state it came from | nothing changes (cannot start: a status-bar message) |
-| T43 | MENU | Esc in scratchy's window | none | the state it came from | kill the menu process, as T42 |
+| T39-T41 | | | | | DROPPED (user, 2026-11-20): the `o` key is not planned; `:go` + Tab (T37, T38) is the way to reach history. Numbers kept so later rows keep theirs |
+| T42 | MENU | menu exits non-zero, prints nothing, or cannot be started | none | COMMAND | nothing changes (cannot start: a status-bar message) |
+| T43 | MENU | Esc in scratchy's window | none | COMMAND | kill the menu process, as T42 |
 | T44 | MENU | any other key in scratchy's window | none | MENU | ignored (not delivered to the page) |
 
 ### Events that are not keys
@@ -227,7 +223,7 @@ Esc Esc, so there is nothing left to switch off, and Esc Esc cannot be locked ou
 
 - QKEYS-D D1-D8, QSEARCH-D S1-S7: `TODO.txt` (user, 2026-11-20).
 - 2026-11-20 (user): completion is scriptable through the dmenu protocol and
-  per-command sources (QCOMP-D); `:go` Tab and `o` both use it; configuration stays in
+  per-command sources (QCOMP-D); `:go` Tab uses it (`o` dropped the same day); configuration stays in
   code, all of it in `src/config.rs`.
 - 2026-11-20: "page mode" is called **INPUT** mode ("input passthrough"); first match
   after a search = first at or below the top of the screen; a match touching 2+ links

@@ -56,7 +56,7 @@ Keyboard modes (user 2026-11-20, design QKEYS-D in its own block near the end of
 Esc Esc, `i`, always-visible status bar, start in input mode; then `/` search (QSEARCH-D, block right after it). Feature
 work: waits for the perf queue. Order: QKEYS1 -> QKEYS2 -> QKEYS3 and QKEYS4 (either order); QSEARCH1 -> 2 -> 3 after QKEYS2. State machine: KEYS.md.
 Completion (user 2026-11-20, QCOMP-D, block after QSEARCH): QCONF1 (all config in src/config.rs, refactor) first, then
-QCOMP1-QCOMP5 (completer table, dmenu-protocol menu = the user's tofi script, history file, `:go` source, `o`). QKEYS-D's P2-P6 are Claude's proposals; confirm with the user before QKEYS2 starts.
+QCOMP1-QCOMP4 (completer table, dmenu-protocol menu = the user's tofi script, history file, `:go` source); QCOMP5 (`o`) dropped. QKEYS-D's P2-P6 are Claude's proposals; confirm with the user before QKEYS2 starts.
 
 (History: 2026-11-18 TOP PRIORITY "switch the JS engine to V8, drain, then freeze" is DONE, freeze
 lifted after QV8-m; QV8-6 (remove QuickJS) still needs the user's OK. The 2026-11-19 blockers QV8-4a
@@ -2665,7 +2665,7 @@ QSTASH — persistent web storage (user design session 2026-11-19; full design i
   bumped by forget-site). No storage mutex, no cross-window storage events (same as
   browsers). sessionStorage never on disk. wire keeps the jar, gains --cookie-file.
   History: not now (waits for a reader). Supersedes QF-D7 for these stores.
-  [2026-11-20: the reader exists: `:go` completion and `o` (QCOMP-D). History file design in
+  [2026-11-20: the reader exists: `:go` completion (QCOMP-D). History file design in
   STASH.md "History", item QCOMP3.]
 
 - [ ] QSTASH1 [M] (P2, after the perf queue) `src/stash.rs`: the state directory and
@@ -2890,7 +2890,7 @@ QSEARCH — `/` search, n/N, Enter (user design session 2026-11-20; needs QKEYS2
       Enter opens the watch page through the page's router (no full reload in the log).
 
 ========================================================================
-QCOMP — scriptable command completion, `o`, history file, config in code (user design session 2026-11-20)
+QCOMP — scriptable command completion, history file, config in code (user design session 2026-11-20)
 ========================================================================
 
 - QCOMP-D DESIGN (user, 2026-11-20). Full design: KEYS.md "Completion", "Configuration",
@@ -2906,6 +2906,8 @@ QCOMP — scriptable command completion, `o`, history file, config in code (user
   C3 BOTH entry points (user): `:go` + Tab inserts the choice into the line (Enter still
      needed); `o` in normal mode opens the menu over history and navigates straight away
      (with tofi `--require-match=false` it is the address bar).
+     [SUPERSEDED 2026-11-20 (user): `o` is DROPPED, "`:go` should be enough". `:go` + Tab
+     is the only entry point; QCOMP5 dropped; KEYS.md T39-T41 dropped.]
   C4 Configuration STAYS IN CODE (user: "the spirit of suckless"), and ALL configurable
      items live TOGETHER in one file, `src/config.rs` (bindings, ESC_ESC_MS, MENU_CMD,
      COMPLETERS, history settings, scroll steps, ...). Gathering today's knobs there is
@@ -2924,7 +2926,7 @@ QCOMP — scriptable command completion, `o`, history file, config in code (user
      a user edits and rebuilds; QCFG1's runtime file is the stated exception.
 
 Order (feature work: after the perf queue): QCONF1 -> QCOMP1 -> QCOMP2; QCOMP3 after QSTASH1
-(state directory); QCOMP4 after QCOMP1 and QCOMP3; QCOMP5 after QCOMP2, QCOMP4 and QKEYS2.
+(state directory); QCOMP4 after QCOMP1 and QCOMP3.
 
 - [ ] QCONF1 [S] (P2, after the perf queue) REFACTOR ONLY, no behaviour change: new
       `src/config.rs` holding every user-tunable constant that exists today, with a short
@@ -2968,10 +2970,8 @@ Order (feature work: after the perf queue): QCONF1 -> QCOMP1 -> QCOMP2; QCOMP3 a
       typed line without a tab. Real check with the user's tofi script: does tofi keep
       the order while filtering (fuzzy match, its own --history)? Note the answer in
       STASH.md.
-- [ ] QCOMP5 [S] (P2, after QCOMP2, QCOMP4 and QKEYS2) `o` in normal mode (C3; KEYS.md
-      T39-T41): the menu over the `:go` source, navigate as `:go <line>`; no menu
-      configured -> the command line opens with `go `. Tests: chosen line navigates;
-      a line not in history navigates too; cancel does nothing; `MENU_CMD = None` path.
+- [x] QCOMP5 DROPPED 2026-11-20 (user: "`:go` should be enough"). Was: `o` in normal mode, the
+      history menu navigating straight away (KEYS.md T39-T41, also dropped). Nothing to build.
 
 ========================================================================
 HISTORY AND DETAIL (everything below is the original log)
