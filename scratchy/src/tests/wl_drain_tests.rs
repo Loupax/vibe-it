@@ -100,6 +100,7 @@ fn qy54a2_drain_reads_without_dispatching_and_keeps_order() {
 
     // With the drain, everything is consumed although nothing is dispatched.
     let drain = WlDrain::start_for_test(&conn).expect("drain starts");
+    drain.busy_for_test(Duration::from_secs(1)); // main has been busy for a second
     let rest = write_until(&server, &events[stuck..], Instant::now() + Duration::from_secs(5));
     assert_eq!(stuck + rest, events.len(), "the drain keeps the socket readable");
     let fd = conn.backend().poll_fd().try_clone_to_owned().unwrap();
@@ -129,6 +130,7 @@ fn qy54a2_stop_is_prompt_and_pollhup_ends_the_thread() {
 
     // The compositor goes away: the thread notices POLLHUP and exits by itself, once.
     let drain = WlDrain::start_for_test(&conn).expect("drain restarts");
+    drain.busy_for_test(Duration::from_secs(1)); // POLLHUP is only watched while main is busy
     drop(server);
     let deadline = Instant::now() + Duration::from_secs(2);
     while !drain.is_finished() && Instant::now() < deadline {
@@ -160,4 +162,44 @@ fn qy54a2_no_thread_off_wayland_or_when_disabled() {
     assert!(wanted(wl, Some("0")).is_none(), "SCRATCHY_WL_DRAIN=0 disables");
     assert!(wanted(wl, None).is_some(), "Wayland: on by default");
     assert!(wanted(wl, Some("1")).is_some());
+}
+
+/// The bytes still unread on the client socket.
+fn unread(conn: &Connection) -> usize {
+    let fd = conn.backend().poll_fd().try_clone_to_owned().unwrap();
+    rustix::io::ioctl_fionread(&fd).unwrap() as usize
+}
+
+#[test]
+fn qy54a4_idle_stamp_consumes_nothing_and_a_stale_stamp_drains() {
+    let (conn, server) = pair();
+    let queue = conn.new_event_queue::<Got>();
+    let events = sync_requests(&conn, &server, &queue.handle(), 20);
+    let drain = WlDrain::start_for_test(&conn).expect("drain starts");
+
+    // Stamp 0 (main idle): the thread leaves the socket to main.
+    (&server).write_all(&events).unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(unread(&conn), events.len(), "idle main: nothing consumed");
+
+    // Main busy for less than the threshold: still nothing.
+    drain.busy();
+    std::thread::sleep(Duration::from_millis(20));
+    assert_eq!(unread(&conn), events.len(), "a young stamp: nothing consumed");
+
+    // The stamp ages past the threshold (a real stall): the thread drains. The stamp was set
+    // by `busy()` (as new_events does) and never cleared, like a stall inside a callback.
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while unread(&conn) > 0 && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(unread(&conn), 0, "a stamp older than the threshold: drained");
+
+    // Main goes idle again: new bytes are left alone.
+    drain.idle();
+    std::thread::sleep(Duration::from_millis(100));
+    (&server).write_all(&events).unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(unread(&conn), events.len(), "idle again: nothing consumed");
+    drop(drain);
 }
