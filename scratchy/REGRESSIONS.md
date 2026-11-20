@@ -564,9 +564,9 @@ layout faster; the reads must stop needing one.
   attribute change). Tests: fixture with an abs `left` write and a translate write -> 0 extra forced
   layouts and the same rects as a fresh layout; `[style*=x]` rule / `!important` / `width: auto` /
   `display` change -> full layout.
-- **QYTC1b [S] (P2, after QYTC1a)** A write that puts an attribute back to its value at the last
-  forced layout cancels its own bump (`ytp-autohide-active` added and removed between two reads: the
-  11-13 % no-op layouts). Needs the same hook (old value at layout time per written attribute).
+- **QYTC1b [S] (P2, after QYTC1a)** MEASURED, NOT MERGED (implemented and tested, 0 restores on the YouTube
+  recipe; code on branch `scratchy/qytc1b-ledger-code`, see "QYTC1b result" below). A write that puts an attribute back to its value at the last forced layout
+  cancels its own bump.
 - **QYTC1c [S] (P3, measure)** css_collect + rule_index are 18 % of every forced layout on the JS
   thread (~5 ms each here): check whether `RULE_DERIVED`'s index is rebuilt per layout there.
 
@@ -611,6 +611,42 @@ rule of the list declared an `!important` `left`/`top`/`transform` (YouTube has 
 check is per element now (selectors of those few rules matched against the written element). A
 throwaway trace (reverted) of one run counted 306 in-place shifts, 160 no-move writes, 66 writes on
 an already stale cache and ~20 fallbacks (`width` changes on resize, `display: none` boxes).
+
+### QYTC1b result (2026-11-20, release builds, main 01545ab vs main + QYTC1b)
+**Not merged:** implemented exactly and tested, but 0 restores were observed, so the per-write bookkeeping is not worth it. The code is kept on branch `scratchy/qytc1b-ledger-code` for reference.
+
+`GeomCache::ledger`: while the cache is the current layout, each attribute write that would bump the
+geometry generation (`__d_setattr/rmattr/setq/rmq`; not the ones skipped as hidden/unread, not in-place
+style shifts) is recorded as (node, name, value at layout time, current value). The ledger is trusted
+only while every bump since the layout came from a recorded write (`expected` generation) and the CSS
+version is unchanged; any other bump (insert/remove, innerHTML, text, sheet, `setns`, a `style` write
+that was not shifted in place) makes the next write drop it and the next layout starts a new one. When
+all recorded attributes equal their layout-time values again the cache key is rebased onto the new
+generation (the generation still moves, so every other generation-keyed cache stays conservative;
+HIDDEN/ATTR_SNAP are rebased with it). Exact: `class="a b"` -> `"b a"` or absent -> `""` count as
+different. Tests `qytc1b_*` (class add+remove x5 -> 1 layout and the same rects; add+remove+add, a
+restore beside another changed attribute, innerHTML / insert / new sheet in between -> layout).
+
+R50 recipe, window 960x230 this time (the nested output gave 960x230, so inject used 960 230 with the
+click at (346,150) and the circle at 346+-60,150+-30; the 1006-high recipe clicked outside the window and
+showed no controls), seconds with >= 40 pointer moves (9 per run), every run under the perf flock, load
+average 13 -> 8 (base1), 3 (new1), 2 (base2), 0.4 -> 1.4 (new2):
+| run | forced n (9 s) | forced ms | forced/s (median) | ms per layout | lat_p95 median ms | js_ms/s |
+|---|---|---|---|---|---|---|
+| main base1 | 42 | 1728 | 2 | 41.1 | 64 | 361 |
+| QYTC1b new1 | 44 | 1841 | 2 | 41.8 | 57 | 363 |
+| main base2 | 39 | 1586 | 3 | 40.7 | 55 | 352 |
+| QYTC1b new2 | 45 | 2274 | 2 | 50.5 | 70 | 363 |
+No difference. A throwaway trace of one run (reverted) counted 0 restores in ~1900 ledger events:
+the ledger is almost always polluted before a restore can complete. After QYTC1a the layouts that remain
+come in bursts of 9-10 per second that start from a stale cache: the progress `style` writes
+(`transform: translateX(..)`, `left: 0px; transform: scalex(..)`, the tooltip's `left:`) plus
+`aria-valuenow/valuetext`, and `class` writes on the player (`ytp-autohide`... with other classes
+changing at the same time), none of which return to their layout-time value, so "every pending write
+restored" never holds. The restore pattern R50 saw (11-13 %) was measured before QYTC1a and is a much
+smaller share of what is left. Next step if wanted: let `style_write_in_place` also work when the only
+bumps since the layout came from ledger-recorded writes whose boxes the shift does not touch
+(it requires the cache to be the current layout today).
 
 ## R49: QAN1h: GitHub restyle re-measured. R31's 15-18 s restyle is gone: a page of that size (github.com repo page, 1 809 elements, 16 220 rules) now builds in 126 ms headless and 210-250 ms in a window. But today's github.com HOME is a bigger page (~3 200 elements, 29 342 rules), and a full build of it still takes 0.65 s headless and 1.1-1.55 s in a window. That is the cost of every hover and every JS restyle (input-to-frame 1.3-1.6 s). About half of the build is selector matching (534 candidate rules per match call, 1 344 rules in the universal bucket, 2.3 % of full matches succeed). About a fifth is `var()` re-expansion: each element re-substitutes and re-parses each matched `var()` rule, 19 272 times per build for 694 distinct declaration blocks (Opus, 2026-11-19, measure only, docs only) — OPEN: proposed QAN1h1-QAN1h3 (below)
 
