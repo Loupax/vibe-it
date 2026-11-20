@@ -1,0 +1,16 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>wl-flood busy</title></head>
+<body>
+<!-- QY54a1: R56 busyN fixture. busy.html?ms=N : a timer every 4 s busy-loops N ms
+     (inside the 500 ms callback budget for N < 500). Used by tools/wl-flood/run.sh. -->
+<p id="s">busy</p>
+<script>
+var ms = parseInt((location.search.match(/[?&]ms=(\d+)/) || [0, "450"])[1], 10);
+var n = 0;
+setInterval(function () {
+  var t = Date.now();
+  while (Date.now() - t < ms) {}
+  document.getElementById("s").textContent = "busy " + ms + " ms, run " + (++n);
+}, 4000);
+</script>
+</body></html>
