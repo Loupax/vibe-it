@@ -8239,3 +8239,11 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       containers (QJ6b: wheel skips positioned scroll boxes), JS scroll handlers / preventDefault, and window.scrollTo.
       Fix + tests (body overflow:scroll + 0-height body under visible html: the wheel scrolls the viewport); grim before/after.
   (queue line) 27g [WIP] QYSCR1 [M, Opus, P1, user bug] scrolling does not work on YouTube (user 2026-11-20)
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QNAV9a DONE - file:// arg + base without wire (#438) [S] (P3, from QNAV9 #435; Sonnet; dom.rs classify_input) `scratchy file:///abs/path.html` is read as a file
+      named "file:///..." ("No such file"): accept file:// URLs as Input::File via Url::to_file_path. Test.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QNAV9b DONE - file:// arg + base without wire (#438) [S] (P3, from QNAV9 #435; Sonnet) Without --socket a file page has base_url None, so a relative link says
+      "no <base href>" and #frag can't resolve: set base_url from file_page_url even without wire. Test.
