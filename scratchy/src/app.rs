@@ -1087,6 +1087,12 @@ pub(crate) struct SavedPage {
     pub(crate) js: Option<JsEngine>,
 }
 
+/// QY53o3c: the shaping worker's memo keeps what any of the last `WORKER_MEMO_KEEP` finished
+/// builds used (a hover toggled back, a JS write undone, finds its shape again); past
+/// `WORKER_MEMO_CAP` entries after that sweep it starts over (the JS thread's cap).
+const WORKER_MEMO_KEEP: u32 = 8;
+const WORKER_MEMO_CAP: usize = 32768;
+
 /// QCUR1: minimum gap between `mousemove`/`pointermove` dispatches to the page (no button down).
 pub(crate) const MOVE_DISPATCH_INTERVAL: std::time::Duration = std::time::Duration::from_millis(50);
 
@@ -1953,10 +1959,14 @@ impl App {
                 }
                 let ShapingRequest { tree, width, height, generation, reuse_shaping } = request;
                 if !reuse_shaping {
-                    SHAPE_MEMO.with(|m| m.borrow_mut().clear());
+                    crate::layout::memo_clear();
                 }
+                // QY53o3c: record which memo entries this build uses; a finished build drops the
+                // entries no recent build used (the memo grew without bound on a long-lived page).
+                crate::layout::memo_track_begin();
                 let mut shape_cache = ShapeCache::new();
                 let mut superseded_by = None;
+                let mut finished = false;
                 loop {
                     let deadline = std::time::Instant::now() + PROGRESSIVE_LAYOUT_TICK_BUDGET;
                     let mut incomplete = false;
@@ -2027,6 +2037,7 @@ impl App {
                         return; // the event loop (and App) is gone
                     }
                     if !incomplete {
+                        finished = true;
                         break;
                     }
                     // Mid-shape staleness check — see this function's
@@ -2038,6 +2049,9 @@ impl App {
                         superseded_by = Some(newer);
                         break;
                     }
+                }
+                if finished {
+                    crate::layout::memo_sweep(WORKER_MEMO_CAP, WORKER_MEMO_KEEP);
                 }
                 next = match superseded_by {
                     Some(newer) => Ok(newer),

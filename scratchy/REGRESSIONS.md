@@ -890,6 +890,69 @@ Proposed (not done, > S): QMEM3g [M] a counting `#[global_allocator]` behind a c
 (`malloced_memory`, ArrayBuffer backing stores) and per-library mapped RSS as probes (names the ~25 MB C++);
 QMEM3i [M] drop `StyleCache`'s second parse (already QMEM3e) and measure the 1.2-1.3x probe undercounts.
 
+### QMEM3j: SHAPE_MEMO hits vs bytes, and the fix (Opus, 2026-11-20, base 777faf3, fix 80d5353)
+Method: throwaway probes (not committed) at the end of `--perf-report`: malloc `in_use` before and after
+replacing every memo buffer by a clone (a clone has exact capacities) and after clearing the memo; per-component
+capacity slack read through cosmic-text's public `shape_opt`/`layout_opt`. Own wire, every measured run under
+`flock /tmp/scratchy-perf.lock`, load average 4-24 (other agents building), so the timing numbers are noisy;
+counts and bytes are exact.
+
+**Hit rate (Wikipedia Rust, headless, JS thread).** 7 982 entries, 104 k chars (13 chars/entry: most are the
+word/chunk shapes of mixed-inline paragraphs). 4 forced layouts: 62 985 hits / 7 984 misses (89 %); every key
+misses once and then hits ~2x per layout. The shaping worker in a window: 8 213 entries, 97-99 % hits over 20-50
+builds. YouTube watch: ~600 entries (headless, 98 % hits), ~150-300 in the worker. So nearly every entry is a hit
+that matters: an entry or byte cap below the page's own set would turn the full-page scans into LRU thrash
+(0 hits). The fix had to make each entry smaller, not drop entries.
+
+**Where the bytes were (69.6 MB real for 7 982 entries = 8.7 KB each):**
+- 26.6 MB capacity slack: `Buffer::lines` grows by push to capacity 4 (BufferLine is 328 B: 7.8 MB),
+  `ShapeLine::spans` is reserved per BYTE of the line (6.0 MB), word glyph vectors (5.4 MB), layout glyph
+  vectors grown by doubling (3.9 MB), word lists (0.8 MB).
+- 11.8 MB attribute B-tree leaves: `set_rich_text(.., &Attrs::new(), ..)` stores every span that differs from
+  the line default in a `RangeMap` (a BTreeMap: its first entry allocates an 11-slot leaf of ~1.5 KB), so even a
+  one-span paragraph paid 1.5 KB.
+- the rest (~31 MB) is the shaped/laid-out glyphs themselves (103 k ShapeGlyph at 96 B + 103 k LayoutGlyph at 88 B),
+  texts, the paragraph tuple and malloc headers.
+
+**Fix (layout.rs):** `shape_spans` passes the FIRST span's attrs as the line default (one-span lines keep no
+B-tree; cosmic-text already resets an empty line to the span's attrs, so shaping is identical: tested against
+the old default) and shrinks `lines`; `memo_put` replaces the new entry's buffer by its clone (exact
+capacities; the entry was just made, nothing else holds it). The clone costs 16-25 ms CPU per cold Wikipedia
+layout (8 k entries), inside the noise of the forced-layout totals (1.1-2.5 s per run here).
+`shape_memo_mem` now sums those public capacities (29.5 MB estimated vs 31.4 MB real; the old x2.7 guess said
+67 MB), and the report has `memory.shape_memo_lookups` {hits, misses}.
+
+| Wikipedia Rust, headless `--perf-report --seconds 10`, 5 interleaved runs each | base 777faf3 | QMEM3j |
+|---|---:|---:|
+| memo real bytes (freed by clearing it) | 69.6 MB | **31.4 MB** |
+| malloc `in_use` at the end (median) | 107.5 MB | **69.2 MB** (-38.3) |
+| VmRSS at the end (median) | 281.0 MB | **243.5 MB** (-37.5) |
+| memo hits / misses | (no counter) | 62 985 / 7 961 (same entries: 7 959 vs 7 982) |
+| forced layouts, ms per layout (median) | 266 | 194 |
+| slowest forced layout = the cold one (median) | 439 ms | 321 ms |
+| measure_document per layout (median) | 81 ms | 61 ms |
+
+Live window (nested dwl, own wire, 100 s, pointer moves over links every 10 s), Wikipedia, 4 interleaved pairs
+with RSS sampling: VmRSS at the end base 383/396/393/392 MB, QMEM3j 345/321/315/319 MB (**-55 to -78 MB**: the
+JS thread's memo and the worker's memo, which the App's displayed ShapeCache shares, both shrink). App builds:
+per-build ms base 378/397/382/275, QMEM3j 369/256/149/275; worker shaping ms per build likewise not worse. Screenshots
+at t=30 s byte-identical base vs QMEM3j (4 of 5 pairs; the 5th differs only because the nested output changed size between the two runs).
+YouTube headless (3 pairs, --seconds 20): memo ~1.6 MB (was ~3.8 real), in_use/RSS within noise (V8 and libmpv
+dominate), measure_document per layout 3.2 vs 3.5 ms (noise; the memo there is ~600 entries).
+
+**QY53o3c answered (same work): yes, the worker's memo grew without bound on a long-lived page.** It was cleared
+only on a navigation, resize or non-restyle rebuild (`reuse_shaping == false`), and YouTube's rebuilds are almost
+all restyles: with the sweep disabled a 300 s YouTube watch window went from 57 entries (build 18) to 291 entries /
+0.8 MB (build 249), +1.2 entries per build, ~3 KB/s (~10 MB/h; the clock and counters YouTube rewrites every
+second each leave a dead shape). Fix (app.rs `spawn_shaping_worker`): the worker tracks the keys each build uses
+and, when a build FINISHES (not superseded, not panicked), `memo_sweep(32768, keep = 8)` drops what none of the last
+8 finished builds used (a hover toggled off, a write undone, still finds its shape); the JS thread keeps its
+`keep = 1` sweep (QY53o3a).With the sweep, two YouTube windows (240 s, 300 s) held
+84-93 entries (0.2 MB) from build 66 to 195, and 584 entries (1.6 MB, a different page state) flat from build 44
+to 138. YouTube live RSS at the end: base 403 MB, QMEM3j 400 MB, sweep off 399 MB (the memo is too small there to
+show in RSS); per-build ms 24 (base) vs 29 (QMEM3j) vs 30 (sweep off), worker ms per build 2.2 vs 2.2 vs 2.0: noise
+(different build counts, 75 vs 190 vs 203, because YouTube's own timers differ per run).
+
 ### First pass on be7c460 (before QY53f1c), for the record
 Same recipe, 5 headless runs + a live window: 673-677 MB headless, 731 MB live. The page's 22.6k rules were
 held TWICE at 4040 B per `StyleRule`: StyleCache's `Vec` as one 173.8 MiB mmapped chunk with 86.9 MiB

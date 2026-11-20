@@ -297,7 +297,7 @@ pub(crate) fn memory_json(engine: Option<&crate::js::JsEngine>) -> String {
     let (rss, rss_anon) = (field("VmRSS:"), field("RssAnon:"));
     let peak = peak_rss_bytes().max(rss);
     format!(
-        "\"memory\":{{\"rss_bytes\":{},\"rss_anon_bytes\":{},\"peak_rss_bytes\":{},\"js_heap\":{},\"caches\":{{{}}},\"caches_bytes\":{},\"explained_bytes\":{},\"walk_us\":{},\"malloc\":{},\"stack_segments\":{{\"kept\":{},\"mapped_bytes\":{}}},\"media_players\":{}}}",
+        "\"memory\":{{\"rss_bytes\":{},\"rss_anon_bytes\":{},\"peak_rss_bytes\":{},\"js_heap\":{},\"caches\":{{{}}},\"caches_bytes\":{},\"explained_bytes\":{},\"walk_us\":{},\"malloc\":{},\"stack_segments\":{{\"kept\":{},\"mapped_bytes\":{}}},\"media_players\":{},\"shape_memo_lookups\":{{\"hits\":{},\"misses\":{}}}}}",
         rss,
         rss_anon,
         peak,
@@ -309,7 +309,9 @@ pub(crate) fn memory_json(engine: Option<&crate::js::JsEngine>) -> String {
         malloc.map_or("null".to_string(), |(u, f)| format!("{{\"in_use\":{u},\"free_kept\":{f}}}")),
         seg,
         seg_bytes,
-        players
+        players,
+        crate::layout::shape_memo_lookups().0,
+        crate::layout::shape_memo_lookups().1
     )
 }
 
