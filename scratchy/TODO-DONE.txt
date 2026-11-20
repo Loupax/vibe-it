@@ -8184,3 +8184,15 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       mode (subtree vs full layout rect by rect). Gate: R58 recipe, gPS layouts median < 10 ms (from 54-80), worst promise
       job of a preview start < 300 ms (from 685-1137 ms); full suite and WPT unchanged.
   (queue line) 27f [WIP] QY54b3 [L, Opus DESIGN only here, P2] subtree forced layout (gPS 54-80 ms -> < 10 ms; absorbs QY53o2; R58)
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY54a4 DONE 4f802f2 drain sleeps while idle: CPU diff ~0 (#430) [S] (P2, from QY54a3 #427 R57 section 7; Sonnet; src/wl_drain.rs + app.rs only) The wl-drain thread
+      sleeps while the main thread is idle in calloop. Today +0.43-1.03 s CPU per 60 s of 500 Hz motion on a static page
+      (mean 1.4 % of one core; gate < 1 %): half the thread's own poll/read, half extra main-thread wake-ups (both poll the
+      fd while main is idle). Fix: main publishes a "busy since" AtomicU64 (monotonic ns; set in new_events, 0 at the end
+      of about_to_wait); the thread only polls the Wayland fd once main has been busy > ~50 ms (else waits on its wake
+      socket with ~50 ms timeout and re-checks). Keep stop/wake, POLLHUP, panic hook. Tests: existing wl_drain_tests pass
+      with main marked busy; stamp 0 -> nothing consumed; stamp older than threshold -> drains. Gate (run.sh, release,
+      flock): busy450 + stall_k18 at 500 Hz survive 3/3, YT results 500 Hz from 15 s survives 3/3, static page 3
+      interleaved 60 s pairs drain on vs off differ by < 0.6 s process CPU.
+  (queue line) 27b4 [WIP] QY54a4 [S, Sonnet, P2] wl-drain sleeps while main is idle (CPU +1.4 % -> < 1 %; R57 section 7)

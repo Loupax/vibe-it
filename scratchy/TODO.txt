@@ -37,8 +37,7 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
  Step 5, memory, regression guards, re-measure:
   27 QOBS9 [S, Opus] re-baseline PERF.md on the new machine (after 9, 18, 20)
   28 QM1k-mouse: user re-tested 2026-11-19 22:21: still slow while the controls show (= QYTC1 cause); QYTC1a merged 9219065 -> ASK THE USER TO RE-TEST (quiet machine)
-  27b4 [WIP] QY54a4 [S, Sonnet, P2] wl-drain sleeps while main is idle (CPU +1.4 % -> < 1 %; R57 section 7)
-  27e QY54b1 [M, Opus, P1, correctness] script-inserted <link rel=stylesheet> is fetched and applied (YT player CSS; R58)
+  27e [WIP] QY54b1 [M, Opus, P1, correctness] script-inserted <link rel=stylesheet> is fetched and applied (YT player CSS; R58)
  Step 6, re-profile before leaving performance (user 2026-11-19):
   29 QPROF1 [M, Opus, measure only] LAST performance item: runs when every item above is done, blocked or
      waiting for the user. The backlog does NOT start until it is done and any items it files are worked off.
@@ -1026,22 +1025,15 @@ Shared rules for this block:
       without the trim: find what lives on (mpv, V8 teardown, a cache TTL) and release it at the navigation.
 - [ ] QY53n4 [M] (P4, later, from QY53n) Subtree re-box for layout-changing hovers + re-applying patches after an in-flight
       build (16 of 58 YT hover builds, 0 on Wikipedia).
+- [ ] QY54a5 [S] (P4, from QY54a4 #430; Sonnet; tools only) tools/wl-flood/run.sh: add a DELAY option (motion start time,
+      default 1 s) so the "YT results from 15 s" run is repeatable without a patched copy.
 - [ ] QY57r2 [S] (P4, from QY57r #420 grim check; Sonnet) YT results thumbnail overlay: the "Läuft gerade"/now-playing
       label and the duration badge (1:34:40) overlap in the bottom-right corner of the first thumbnail. Find which
       overlay rule (hover/now-playing vs time-status) should hide or position the other; fix + grim check.
 - [ ] QNAV9 [S] (P3, from QY54a2 #425; Sonnet, verify first) A plain `<a href>` click on a local-file page (file path
       opened directly) did not navigate even without a stall (the QY54a2 fixture had to use a JS click handler). Reproduce,
       find out whether relative/local hrefs from file pages are resolved and navigated; fix + test, or close as intended.
-- [ ] [WIP] QY54a4 [S] (P2, from QY54a3 #427 R57 section 7; Sonnet; src/wl_drain.rs + app.rs only) The wl-drain thread
-      sleeps while the main thread is idle in calloop. Today +0.43-1.03 s CPU per 60 s of 500 Hz motion on a static page
-      (mean 1.4 % of one core; gate < 1 %): half the thread's own poll/read, half extra main-thread wake-ups (both poll the
-      fd while main is idle). Fix: main publishes a "busy since" AtomicU64 (monotonic ns; set in new_events, 0 at the end
-      of about_to_wait); the thread only polls the Wayland fd once main has been busy > ~50 ms (else waits on its wake
-      socket with ~50 ms timeout and re-checks). Keep stop/wake, POLLHUP, panic hook. Tests: existing wl_drain_tests pass
-      with main marked busy; stamp 0 -> nothing consumed; stamp older than threshold -> drains. Gate (run.sh, release,
-      flock): busy450 + stall_k18 at 500 Hz survive 3/3, YT results 500 Hz from 15 s survives 3/3, static page 3
-      interleaved 60 s pairs drain on vs off differ by < 0.6 s process CPU.
-- [ ] QY54b1 [M] (P1, from QY54b #428 R58 section 4; Opus (cross-cutting); net.rs/app.rs/js_dom.rs, correctness) A
+- [ ] [WIP] QY54b1 [M] (P1, from QY54b #428 R58 section 4; Opus (cross-cutting); net.rs/app.rs/js_dom.rs, correctness) A
       `<link rel=stylesheet href>` that a script inserts (or whose href/rel changes while connected) is never fetched or
       applied. YouTube results inserts www-player.css at ~5 s (and Google Fonts links at ~4.6 s): the inline-preview
       player has no CSS (412x684-1791 instead of 412x232, paints over the wrong result with stray controls). Fetch through
