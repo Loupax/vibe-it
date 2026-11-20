@@ -1007,6 +1007,9 @@ Shared rules for this block:
 USER 2026-11-20 ~14:40: "once we are done with the layout engine changes, I'd like to have a pause on implementation and
 have an architecture discussion before we continue" -> after QINC1 (through QINC1m, or wherever the user calls it done) the
 coordinator STOPS assigning implementation items and holds an architecture discussion with the user first.
+- [ ] QINC1f-mem [S/M] (P2, part of QINC1; from QINC1f #452; Sonnet; incr_style.rs table storage; AFTER QINC1g) Stored element
+      styles cost +24 MB on Wikipedia (12.2 MB styles; RSS 256 vs 232 MB) vs the user-accepted +8-18 MB: share them as
+      Rc<ComputedStyle> (or slim table entries). Gate: Wikipedia SCRATCHY_INCR=1 RSS delta <= +18 MB, 0 check mismatches.
 - [ ] QPROF1B [?] (user 2026-11-19, PART B of QPROF1; WITH THE USER) Joint session: the user drives their real window on the
       pages they use, scratchy with SCRATCHY_FRAME_STATS (and perf if the user agrees); every stall the user notices becomes an
       item. Also the QM1k-mouse re-test. Whenever the user has time.
@@ -1051,7 +1054,7 @@ geometry; superseded items dropped (archived); FREEZE on other style/box/layout 
 flight (correctness fixes allowed, rebased onto the shadow comparisons); memory +8-18 MB accepted; slower shadow-mode tests
 accepted; flip after 0 mismatches on 6 pages x 3 runs + gates, delete after >= 3 days of user use; QINC1n/o later; models
 as stated). Items QINC1a DONE 81e23d7 #447 (engine test infra + style_diff + fuzz), QINC1b (stable paragraph ids) DONE 23d604f #446, QINC1c (bottom-up hoisting) DONE 9890847 #450,
-QINC1d (InvalidationMap) DONE 18d0527 #445, QINC1e (write log) DONE 4700801 #448, [WIP] QINC1f [L] (incremental restyle, shadow), QINC1g [L] (persistent box tree,
+QINC1d (InvalidationMap) DONE 18d0527 #445, QINC1e (write log) DONE 4700801 #448, QINC1f [L] (incremental restyle, shadow) DONE b20ed27 #452, [WIP] QINC1g [L] (persistent box tree,
 shadow), QINC1h1 [L] (relayout from last tree, shadow), QINC1h2 (intrinsic-size cache), QINC1i (forced layouts via engine,
 SCRATCHY_INCR=1), QINC1j [L] (App frames via engine), QINC1k (exactness sweep + gates), QINC1l (flip default, user OK),
 QINC1m (delete superseded special cases). Waves: 1 = a, b, d, e; 2 = c, f; 3 = g; 4 = h1; 5 = i, j, h2; then k, l, m.
