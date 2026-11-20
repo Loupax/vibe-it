@@ -32,7 +32,7 @@ A perf item that turns out to be wrong or bigger than its size: stop and report,
 
 
 PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; search the name; steps 1-3 are done, see TODO-DONE.txt):
- Ahead of this list by user decision (2026-11-19): QPT1a DONE bb0d258, QPT1b DONE 2e6a2a8; QPT1c [WIP], then QPT1d-f (iframe realm, YouTube PoToken; R53).
+ Ahead of this list by user decision (2026-11-19): QPT1a DONE bb0d258, QPT1b DONE 2e6a2a8, QPT1c DONE b33c53a; next QPT1d-f (iframe realm, YouTube PoToken; R53).
  Step 4, the main thread in the live window (YouTube playback, scrolling, mouse):
   15 [WIP] QY53e2 [M]  IO uses the App's own layout                                       | QY53 block
  Step 5, memory, regression guards, re-measure:
@@ -552,8 +552,6 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
 - [ ] QPT1b2 [S] (P3, from QPT1b #394; Sonnet) Close a dropped realm's WebSockets (they use the parent's class and stay open
       until they close on their own). Also: QPT1b calls v8::Context::DetachGlobal via its mangled C++ symbol (the v8 crate
       152.2.0 has no binding); on a v8 crate upgrade check it still links, or switch to a binding if one appears.
-- [ ] [WIP] QPT1c [M] (after QPT1a) Cross-realm wrapper identity (R53 D7): one wrapper per node across realms, created by the
-      realm owning the node's document (Chrome's rule).
 - [ ] QPT1c2 [S] (P3, from QPT1c #399; Sonnet) Cross-realm MutationObserver: an observer registered in one realm does not see
       mutations made through another realm's DOM methods on the node it observes (Chrome reports every mutation). Share the
       observer registry (moReg/moN) page-wide like the wrapper cache (R53 D7 deviation).

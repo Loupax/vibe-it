@@ -7879,3 +7879,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       records what follows each :hover compound; keep the last build's MATCH_MEMO, re-match only affected elements, skip
       the build when no matched set changed. Gate: YT watch pointer over the player: frame stats hover.skipped > 0 and
       builds per hover_restyle drop by that count; Wikipedia hovered-link screenshot unchanged.
+
+=== from TODO.txt: --- Rust `__*` native wrapped in a JS timer); none of it was committed. -------
+- [x] QPT1c DONE b33c53a #399 one wrapper per node across realms (owner realm's prototypes); YT token still issued [M] (after QPT1a) Cross-realm wrapper identity (R53 D7): one wrapper per node across realms, created by the
+      realm owning the node's document (Chrome's rule).
