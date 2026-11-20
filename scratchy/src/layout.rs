@@ -300,6 +300,27 @@ pub struct Laid {
     /// and hit testing prune on it instead of the border box.
     /// `Ink::UNKNOWN` (never prunes) until then.
     pub(crate) ink: Ink,
+    /// QINC1c: the z-index hoisting bubble of this box's finished subtree (see `finish_z`).
+    /// `None` for the vast majority of boxes.
+    pub(crate) zb: Option<Box<ZInfo>>,
+}
+
+/// QINC1c (R60 4.5, 8.2): what `finish_z` leaves on a box.
+/// - `bubble`: the stacking-context entries (relative/sticky in-flow boxes and the out-of-flow
+///   boxes of non-boundary positioned boxes) of this box's subtree that no stacking boundary below
+///   it has absorbed; the nearest boundary ancestor takes them when it finishes (the bottom-up
+///   replacement of the old whole-tree `hoist_negative_z` post-pass, like `pending`).
+/// - `fb`, `last_line`, `flow_emptied`: what the old end-of-layout pass let the PARENT read before
+///   the entries were moved (the pass ran after all of layout): the first baseline, the last line
+///   extent of an inline run and "had in-flow children" of a box whose in-flow children were
+///   moved out (`first_baseline`, `last_line_extent`, collapsing through an empty block). Set only
+///   on a box that moved such a child; shifted with the box.
+#[derive(Default)]
+pub(crate) struct ZInfo {
+    pub(crate) bubble: Vec<Laid>,
+    pub(crate) fb: Option<Option<f32>>,
+    pub(crate) last_line: Option<Option<(f32, f32)>>,
+    pub(crate) flow_emptied: bool,
 }
 
 /// See `Laid::ink`.
@@ -718,6 +739,9 @@ impl Floats {
 /// `(top, right)` in absolute coordinates — the line's top edge and the
 /// right edge of its content. `None` when the run has no placed content.
 fn last_line_extent(laid: &Laid, cache: &ShapeCache) -> Option<(f32, f32)> {
+    if let Some(v) = laid.zb.as_ref().and_then(|z| z.last_line) {
+        return v;
+    }
     match &laid.content {
         LaidContent::Text(id) => {
             let shaped = cache.get(id)?.lock().ok()?;
@@ -839,6 +863,20 @@ pub(crate) fn shift_laid_tree(laid: &mut Laid, dx: f32, dy: f32) {
         info.static_top += dy;
         info.cb_top += dy;
         info.cb_bottom += dy;
+    }
+    if let Some(z) = &mut laid.zb {
+        if let Some(Some(b)) = &mut z.fb {
+            *b += dy;
+        }
+        if let Some(Some((t, r))) = &mut z.last_line {
+            *t += dy;
+            *r += dx;
+        }
+        for item in &mut z.bubble {
+            if !item.fixed {
+                shift_laid_tree(item, dx, dy);
+            }
+        }
     }
     match &mut laid.content {
         LaidContent::Blocks(children) | LaidContent::TableRow(children) => {
@@ -1913,12 +1951,15 @@ fn measure_inner<'a>(
     auto_margin_box_override: Option<f32>,
     forced_border_w: Option<f32>,
 ) -> Laid {
-    crate::stack::grow(|| {
+    let mut laid = crate::stack::grow(|| {
         measure_inner_body(
             b, font_system, x, y, width, containing_height, next_id, cache, deadline, incomplete, pending, floats,
             auto_margin_box_override, forced_border_w,
         )
-    })
+    });
+    // QINC1c: this box's subtree is complete: absorb or pass up its z-index entries.
+    finish_z(&mut laid, cache, false);
+    laid
 }
 
 /// QSTK1: the body of `measure_inner`, run through `crate::stack::grow`.
@@ -2161,6 +2202,7 @@ fn measure_inner_body<'a>(
                 positioned: Vec::new(),
                 fixed: false,
                 ink: Ink::UNKNOWN,
+                zb: None,
                 sticky: None,
                 scroll: None,
             }
@@ -2270,6 +2312,7 @@ fn measure_inner_body<'a>(
                 positioned: Vec::new(),
                 fixed: false,
                 ink: Ink::UNKNOWN,
+                zb: None,
                 sticky: None,
                 scroll: None,
             }
@@ -2503,7 +2546,8 @@ fn measure_inner_body<'a>(
                     && child.style.display == Display::Block
                     && !child.style.establishes_bfc()
                     && lc.h == 0.0
-                    && matches!(&lc.content, LaidContent::Blocks(v) if v.is_empty());
+                    && matches!(&lc.content, LaidContent::Blocks(v) if v.is_empty())
+                    && !lc.zb.as_ref().is_some_and(|z| z.flow_emptied);
                 if through {
                     let old = prev_mb.unwrap_or((0.0, 0.0));
                     let base = cursor_pre_overlap - (old.0 + old.1);
@@ -2605,6 +2649,7 @@ fn measure_inner_body<'a>(
                 positioned: positioned_children,
                 fixed: false,
                 ink: Ink::UNKNOWN,
+                zb: None,
                 sticky: None,
                 scroll,
             }
@@ -2647,6 +2692,7 @@ fn measure_inner_body<'a>(
                 positioned: Vec::new(),
                 fixed: false,
                 ink: Ink::UNKNOWN,
+                zb: None,
                 sticky: None,
                 scroll: None,
             }
@@ -2682,6 +2728,7 @@ fn measure_inner_body<'a>(
                 positioned: Vec::new(),
                 fixed: false,
                 ink: Ink::UNKNOWN,
+                zb: None,
                 sticky: None,
                 scroll: None,
             }
@@ -3265,10 +3312,15 @@ pub(crate) fn measure_mixed_inline<'a>(
                     // call, not a new mechanism.
                     let mut own_pending: Vec<PendingPositioned<'a>> = Vec::new();
                     let embedded_floats = Floats::default();
+                    // QINC1c: the old end-of-layout pass never descended into a static inline-block (only
+                    // `relative`/`sticky` ones were hoisted), so nothing below one is hoisted either.
+                    let zskip = (!matches!(embedded_box.style.position, Position::Relative | Position::Sticky))
+                        .then(ZSkipGuard::new);
                     let laid = measure(
                         embedded_box, font_system, content_x, content_y, content_w, containing_height, next_id, cache,
                         deadline, incomplete, &mut own_pending, &embedded_floats, auto_override,
                     );
+                    drop(zskip);
                     let h = laid.h;
                     let advance_w = laid.style.margin.left.px() + laid.w + laid.style.margin.right.px();
                     let style = laid.style;
@@ -3483,6 +3535,7 @@ pub(crate) fn measure_mixed_inline<'a>(
                             positioned: Vec::new(),
                             fixed: false,
                             ink: Ink::UNKNOWN,
+                            zb: None,
                             sticky: None,
                             scroll: None,
                         })));
@@ -3554,6 +3607,7 @@ pub(crate) fn measure_mixed_inline<'a>(
                             positioned: Vec::new(),
                             fixed: false,
                             ink: Ink::UNKNOWN,
+                            zb: None,
                             sticky: None,
                             scroll: None,
                         })));
@@ -3576,6 +3630,7 @@ pub(crate) fn measure_mixed_inline<'a>(
                         positioned: Vec::new(),
                         fixed: false,
                         ink: Ink::UNKNOWN,
+                        zb: None,
                         sticky: None,
                         scroll: None,
                     })));
@@ -4138,6 +4193,7 @@ pub(crate) fn measure_row_with_widths<'a>(
         positioned: Vec::new(),
         fixed: false,
         ink: Ink::UNKNOWN,
+        zb: None,
         sticky: None,
         scroll: None,
     }
@@ -4329,6 +4385,7 @@ pub(crate) fn measure_table<'a>(
         positioned: positioned_children,
         fixed: false,
         ink: Ink::UNKNOWN,
+        zb: None,
         sticky: None,
         scroll: make_scroll_info(s.overflow, s.node, next_id, content_h, border_h, entry.extra_h),
     };
@@ -4580,6 +4637,7 @@ pub(crate) fn measure_flex<'a>(
         positioned: positioned_children,
         fixed: false,
         ink: Ink::UNKNOWN,
+        zb: None,
         sticky: None,
         scroll: make_scroll_info(s.overflow, s.node, next_id, content_h, border_h, entry.extra_h),
     };
@@ -5128,6 +5186,9 @@ pub(crate) fn measure_flex_column<'a>(
 /// one. `None` for boxes with no text (images, empty boxes) and for text
 /// not shaped yet; callers fall back to the border-box bottom edge.
 pub(crate) fn first_baseline(laid: &Laid, cache: &ShapeCache) -> Option<f32> {
+    if let Some(v) = laid.zb.as_ref().and_then(|z| z.fb) {
+        return v;
+    }
     match &laid.content {
         LaidContent::Text(id) => {
             let entry = cache.get(id)?;
@@ -5714,6 +5775,7 @@ pub(crate) fn measure_grid<'a>(
         positioned: positioned_children,
         fixed: false,
         ink: Ink::UNKNOWN,
+        zb: None,
         sticky: None,
         scroll: make_scroll_info(s.overflow, s.node, next_id, content_h, border_h, entry.extra_h),
     };
@@ -5751,6 +5813,67 @@ pub fn measure_document(
     deadline: std::time::Instant,
     incomplete: &mut bool,
 ) -> Laid {
+    #[cfg(not(test))]
+    {
+        measure_document_impl(b, font_system, width, viewport_h, next_id, cache, deadline, incomplete)
+    }
+    // QINC1c: every layout a test runs is laid a second time with the OLD post-pass
+    // (`hoist_negative_z`) and the two trees are compared (`cmp_laid`, 0 differences allowed).
+    #[cfg(test)]
+    {
+        let start_id = *next_id;
+        let inc_before = *incomplete;
+        let new = measure_document_impl(b, font_system, width, viewport_h, next_id, cache, deadline, incomplete);
+        if !inc_before && !*incomplete && !LEGACY_Z.with(|c| c.get()) && laid_depth(&new) <= 120 {
+            LEGACY_Z.with(|c| c.set(true));
+            let mut id2 = start_id;
+            let mut cache2 = ShapeCache::new();
+            let mut inc2 = false;
+            let old = measure_document_impl(b, font_system, width, viewport_h, &mut id2, &mut cache2, deadline, &mut inc2);
+            LEGACY_Z.with(|c| c.set(false));
+            if !inc2 {
+                let names = crate::incr_cmp::Names::default();
+                if let Err(m) = crate::incr_cmp::cmp_laid(&names, "root", &old, &cache2, &new, cache) {
+                    panic!("QINC1c: bottom-up z-index hoisting differs from the old post-pass: {m}");
+                }
+            }
+        }
+        new
+    }
+}
+
+#[cfg(test)]
+fn laid_depth(l: &Laid) -> usize {
+    let mut d = 0;
+    let kids: Vec<&Laid> = match &l.content {
+        LaidContent::Blocks(c) | LaidContent::TableRow(c) => c.iter().collect(),
+        LaidContent::MixedInline(items) => items
+            .iter()
+            .filter_map(|i| if let MixedPositioned::Embedded(e) = i { Some(&**e) } else { None })
+            .collect(),
+        _ => Vec::new(),
+    };
+    for k in kids.into_iter().chain(l.positioned.iter()) {
+        d = d.max(1 + laid_depth(k));
+        if d > 120 {
+            break;
+        }
+    }
+    d
+}
+
+#[allow(clippy::too_many_arguments)]
+fn measure_document_impl(
+    b: &LayoutBox,
+    font_system: &mut FontSystem,
+    width: f32,
+    viewport_h: f32,
+    next_id: &mut usize,
+    cache: &mut ShapeCache,
+    deadline: std::time::Instant,
+    incomplete: &mut bool,
+) -> Laid {
+    let _z_active = ZActiveGuard::new();
     let mut pending = Vec::new();
     // The document root starts a fresh BFC — the real initial
     // containing block has no floats of its own yet either.
@@ -5785,11 +5908,18 @@ pub fn measure_document(
     // initial-containing-block height an `html{height:100%}` box ends at
     // the window bottom while its content overflows, so grow `h` to the
     // lowest in-flow descendant edge.
+    // QINC1c: the root is the outermost owner: it absorbs what bubbled up to it (and the entries of
+    // the out-of-flow boxes resolved just above). Before the extent, which must see them (the old
+    // pass ran after it, over the unmoved tree: the same boxes are reached either way).
+    finish_z(&mut laid, cache, true);
     let extent = in_flow_bottom(&laid);
     if extent > laid.y + laid.h {
         laid.h = extent - laid.y;
     }
-    hoist_negative_z(&mut laid);
+    #[cfg(test)]
+    if LEGACY_Z.with(|c| c.get()) {
+        hoist_negative_z(&mut laid);
+    }
     compute_ink(&mut laid);
     laid
 }
@@ -5819,6 +5949,185 @@ fn is_stacking_boundary(l: &Laid) -> bool {
         || l.style.overflow != Overflow::Visible
 }
 
+thread_local! {
+    /// QINC1c test switch: run the old whole-tree post-pass instead of the bubble.
+    #[cfg(test)]
+    pub(crate) static LEGACY_Z: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Nesting depth of static inline-blocks being measured (nothing below one is hoisted).
+    static Z_SKIP: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    /// True while `measure_document` runs: only then does `measure` hoist (a bare `measure` call, as
+    /// tests make, still returns the unhoisted tree it always did; QINC1g's relayout of one box
+    /// will switch it on for itself).
+    static Z_ACTIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// QINC1c test aid: the resolve-time `tree_order` each (node, pseudo) had before the builder
+    /// renumbered it in document order (`images::assign_document_order`).
+    #[cfg(test)]
+    pub(crate) static OLD_TREE_ORDER: std::cell::RefCell<std::collections::HashMap<(usize, u8), usize>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// Turns hoisting on for the extent of one `measure_document`.
+struct ZActiveGuard(bool);
+
+impl ZActiveGuard {
+    fn new() -> ZActiveGuard {
+        ZActiveGuard(Z_ACTIVE.with(|c| c.replace(true)))
+    }
+}
+
+impl Drop for ZActiveGuard {
+    fn drop(&mut self) {
+        Z_ACTIVE.with(|c| c.set(self.0));
+    }
+}
+
+/// Raises `Z_SKIP` for the measure of a static inline-block; lowered on drop (also on a panic).
+struct ZSkipGuard;
+
+impl ZSkipGuard {
+    fn new() -> ZSkipGuard {
+        Z_SKIP.with(|c| c.set(c.get() + 1));
+        ZSkipGuard
+    }
+}
+
+impl Drop for ZSkipGuard {
+    fn drop(&mut self) {
+        Z_SKIP.with(|c| c.set(c.get().saturating_sub(1)));
+    }
+}
+
+fn take_bubble(l: &mut Laid) -> Vec<Laid> {
+    l.zb.as_mut().map(|z| std::mem::take(&mut z.bubble)).unwrap_or_default()
+}
+
+fn is_z_moved(c: &Laid) -> bool {
+    matches!(c.style.position, Position::Relative | Position::Sticky)
+}
+
+/// QINC1c (R60 4.5, 8.2, 14.6): the bottom-up form of the old `hoist_negative_z` post-pass.
+/// Called when `l`'s subtree is complete (end of `measure_inner`; `force_owner` for the document
+/// root, again after the root-level out-of-flow boxes were resolved). Every descendant z-index
+/// entry that a stacking boundary below `l` has not absorbed is in its child's `zb.bubble`
+/// (children finish first). A boundary (or the forced root) absorbs them into its `positioned`
+/// list, sorted by `stack_key`; any other box moves its `relative`/`sticky` in-flow children (and,
+/// when it is itself positioned, its out-of-flow children) out of its lists and hands everything up
+/// in its own bubble, like `pending`. Same visiting order and rules as the old pass, including that
+/// nothing below a static inline-block is touched. Idempotent on a finished box.
+fn finish_z(l: &mut Laid, cache: &ShapeCache, force_owner: bool) {
+    #[cfg(test)]
+    if LEGACY_Z.with(|c| c.get()) {
+        return;
+    }
+    if Z_SKIP.with(|c| c.get()) > 0 || !Z_ACTIVE.with(|c| c.get()) {
+        return;
+    }
+    let owner = force_owner || is_stacking_boundary(l);
+    let mut bag: Vec<Laid> = take_bubble(l);
+    // A positioned, non-boundary box: its out-of-flow children escape to the owner.
+    if !owner && l.style.position != Position::Static && !l.positioned.is_empty() {
+        for mut n in std::mem::take(&mut l.positioned) {
+            bag.append(&mut take_bubble(&mut n));
+            bag.push(n);
+        }
+    }
+    // The first baseline / "was empty" the parent reads must be those of the unmoved children.
+    let moves_flow = match &l.content {
+        LaidContent::Blocks(c) | LaidContent::TableRow(c) => c.iter().any(is_z_moved),
+        _ => false,
+    };
+    if moves_flow {
+        let fb = first_baseline(l, cache);
+        let z = l.zb.get_or_insert_with(Default::default);
+        z.fb = Some(fb);
+        z.flow_emptied = true;
+    }
+    if let LaidContent::Blocks(children) | LaidContent::TableRow(children) = &mut l.content {
+        let any_bubble = children.iter().any(|c| c.zb.is_some() || matches!(c.content, LaidContent::TableRow(_)));
+        if moves_flow || any_bubble {
+            let old = std::mem::take(children);
+            let mut kept = Vec::with_capacity(old.len());
+            for mut c in old {
+                // A table row built by `measure_row_with_widths` did not pass through `measure_inner`.
+                if matches!(c.content, LaidContent::TableRow(_)) {
+                    finish_z(&mut c, cache, false);
+                }
+                bag.append(&mut take_bubble(&mut c));
+                if is_z_moved(&c) {
+                    bag.push(c);
+                } else {
+                    kept.push(c);
+                }
+            }
+            *children = kept;
+        }
+    }
+    let moves_inline = match &l.content {
+        LaidContent::MixedInline(items) => {
+            items.iter().any(|i| matches!(i, MixedPositioned::Embedded(e) if is_z_moved(e)))
+        }
+        _ => false,
+    };
+    if moves_inline {
+        let ll = last_line_extent(l, cache);
+        l.zb.get_or_insert_with(Default::default).last_line = Some(ll);
+    }
+    if let LaidContent::MixedInline(items) = &mut l.content
+        && moves_inline
+    {
+        let old = std::mem::take(items);
+        let mut kept = Vec::with_capacity(old.len());
+        for item in old {
+            match item {
+                MixedPositioned::Embedded(mut e) if is_z_moved(&e) => {
+                    bag.append(&mut take_bubble(&mut e));
+                    bag.push(*e);
+                }
+                other => kept.push(other),
+            }
+        }
+        *items = kept;
+    }
+    // Out-of-flow children that stay (an owner's, or a static box's).
+    for c in l.positioned.iter_mut() {
+        bag.append(&mut take_bubble(c));
+    }
+    if owner {
+        if !bag.is_empty() {
+            // Hoisted entries first so that, on a z-index tie, tree-order in-flow entries stay
+            // before the owner's own out-of-flow list (the order `paint_z_layer` always used).
+            bag.append(&mut l.positioned);
+            l.positioned = bag;
+            l.positioned.sort_by_key(stack_key);
+            #[cfg(test)]
+            check_old_tie_order(&l.positioned);
+        }
+    } else if !bag.is_empty() {
+        l.zb.get_or_insert_with(Default::default).bubble = bag;
+    }
+}
+
+/// QINC1c test aid: ties of the z-index sort come out in the same order with the document-order
+/// index as with the old resolve-time counter.
+#[cfg(test)]
+fn check_old_tie_order(sorted: &[Laid]) {
+    OLD_TREE_ORDER.with(|m| {
+        let m = m.borrow();
+        for w in sorted.windows(2) {
+            let (a, b) = (&w[0], &w[1]);
+            if a.style.z_index.unwrap_or(0) != b.style.z_index.unwrap_or(0) {
+                continue;
+            }
+            if let (Some(x), Some(y)) =
+                (m.get(&(a.style.node, a.style.pseudo)), m.get(&(b.style.node, b.style.pseudo)))
+            {
+                assert!(x <= y, "QINC1c: document-order tie differs from resolve order ({x} > {y})");
+            }
+        }
+    });
+}
+
+/// The old whole-tree post-pass (kept for the QINC1c comparison tests).
 /// Q55 (W17) + QA9 (R17): every descendant that establishes its own stacking
 /// context (an out-of-flow child with an explicit `z-index`, or an in-flow
 /// `relative`/`sticky` child with one) is z-ordered in the *nearest ancestor
@@ -5828,10 +6137,12 @@ fn is_stacking_boundary(l: &Laid) -> bool {
 /// `paint`/`hit_test_cursor` already order by `z-index`). Coordinates are
 /// absolute, so no translation is needed. Entries with `z-index: auto`
 /// stay where they are.
+#[cfg(test)]
 fn hoist_negative_z(root: &mut Laid) {
     collect_negative_z(root);
 }
 
+#[cfg(test)]
 fn collect_negative_z(owner: &mut Laid) {
     let mut bag = Vec::new();
     walk_negative_z(owner, &mut bag, true);
@@ -5847,11 +6158,13 @@ fn collect_negative_z(owner: &mut Laid) {
 
 /// Visits the children (in-flow and out-of-flow) of `l`. `is_owner` is
 /// true for the boundary box itself.
+#[cfg(test)]
 fn walk_negative_z(l: &mut Laid, bag: &mut Vec<Laid>, is_owner: bool) {
     crate::stack::grow(|| walk_negative_z_body(l, bag, is_owner))
 }
 
 /// QSTK1: the body of `walk_negative_z`, run through `crate::stack::grow`.
+#[cfg(test)]
 fn walk_negative_z_body(l: &mut Laid, bag: &mut Vec<Laid>, is_owner: bool) {
     if !is_owner && l.style.position != Position::Static {
         // A positioned, non-boundary box: its z-indexed out-of-flow
@@ -5901,6 +6214,7 @@ fn walk_negative_z_body(l: &mut Laid, bag: &mut Vec<Laid>, is_owner: bool) {
 /// stacking-context boundary keeps its own descendants (they are collected
 /// into it); a `z-index: auto` box is transparent: its positioned
 /// descendants join the same owner bag.
+#[cfg(test)]
 fn hoist_into(mut n: Laid, bag: &mut Vec<Laid>) {
     if is_stacking_boundary(&n) {
         collect_negative_z(&mut n);
@@ -5910,6 +6224,7 @@ fn hoist_into(mut n: Laid, bag: &mut Vec<Laid>) {
     bag.push(n);
 }
 
+#[cfg(test)]
 fn visit_negative_z_child(c: &mut Laid, bag: &mut Vec<Laid>) {
     if is_stacking_boundary(c) {
         collect_negative_z(c);

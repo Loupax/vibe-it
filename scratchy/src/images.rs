@@ -2118,12 +2118,62 @@ pub(crate) fn build_layout_tree_with_resources(
     crate::dom::CLASS_CACHE.with(|c| *c.borrow_mut() = None);
     let mut tree = tree;
     finish_animation_pass();
+    assign_document_order(&mut tree);
     propagate_canvas_background(&mut tree);
     propagate_viewport_overflow(&mut tree);
     if tree_reads_viewport_height(&tree, false) {
         note_viewport_height_read();
     }
     tree
+}
+
+/// QINC1c (R60 4.5): `style.tree_order` is the box's index in DOCUMENT order (pre-order over the
+/// finished box tree, one index per element/pseudo-element), assigned here by the builder instead of
+/// the resolve-time counter (`next_style_order`), which a partial restyle would hand out of order.
+/// `layout::stack_key` breaks z-index ties with it. Anonymous boxes (`node == 0`) keep theirs.
+fn assign_document_order(tree: &mut LayoutBox) {
+    #[cfg(test)]
+    crate::layout::OLD_TREE_ORDER.with(|m| m.borrow_mut().clear());
+    let mut seen: HashMap<(usize, u8), usize> = HashMap::new();
+    let mut next = 0usize;
+    order_box(tree, &mut seen, &mut next);
+}
+
+fn order_style(s: &mut ComputedStyle, seen: &mut HashMap<(usize, u8), usize>, next: &mut usize) {
+    if s.node == 0 {
+        return;
+    }
+    #[cfg(test)]
+    crate::layout::OLD_TREE_ORDER.with(|m| {
+        m.borrow_mut().entry((s.node, s.pseudo)).or_insert(s.tree_order);
+    });
+    s.tree_order = *seen.entry((s.node, s.pseudo)).or_insert_with(|| {
+        *next += 1;
+        *next
+    });
+}
+
+fn order_box(b: &mut LayoutBox, seen: &mut HashMap<(usize, u8), usize>, next: &mut usize) {
+    crate::stack::grow(|| {
+        order_style(&mut b.style, seen, next);
+        match &mut b.content {
+            BoxContent::Blocks(children) | BoxContent::TableRow(children) => {
+                for c in children {
+                    order_box(c, seen, next);
+                }
+            }
+            BoxContent::Inline(items) => {
+                for item in items {
+                    match item {
+                        InlineItem::Embedded(e) => order_box(e, seen, next),
+                        InlineItem::Image { style, .. } => order_style(style, seen, next),
+                        _ => {}
+                    }
+                }
+            }
+            BoxContent::Image(_) => {}
+        }
+    })
 }
 
 /// QW6 (CSS Backgrounds 3 2.11.2): the canvas takes the root element's
