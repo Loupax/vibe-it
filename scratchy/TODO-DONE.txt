@@ -8154,3 +8154,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
 - [x] QY53n1c DONE - memo survives forced layouts (#426): YT diff-None 41->2, patched 40->59 [M] (P3, from #418 R55; Opus design first) Keep the kept hover match memo valid across a QY53f1 `<style>`
       splice (hover_match_diff None; 15-19 YT builds over 3 runs).
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY54b DONE - full-doc forced layouts at ~11 us/element (R58, #428) [S] (P2, from #419 R56; Opus measure) YT results inline-preview player: one promise job runs 12-15
+      getPlayerSize forced layouts of ~58 ms each in the window (vs ~5 ms headless on watch). Find why; file fix items.
+  (queue line) 27c [WIP] QY54b [S, Opus measure, P2] inline-preview getPlayerSize ~58 ms per forced layout in the window (R56)
