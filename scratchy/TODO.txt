@@ -1065,7 +1065,7 @@ Shared rules for this block:
 - [ ] QYTC1a2 [S] (P3, from QYTC1a #381; Sonnet) In-flow translate / relative `left`/`top` writes shift in place too
       (today only abs/fixed boxes move in place; in-flow boxes only take the nothing-moves path). Needs `self.page` and the
       root `in_flow_bottom` redone, because an in-flow translate can change the root height. YouTube does not need it.
-- [ ] QYTC1d [S] (P3, from QYTC1b #404 R50; Sonnet) Let GeomCache::style_write_in_place work when the cache is stale only
+- [ ] [WIP] QYTC1d [S] (P3, from QYTC1b #404 R50; Sonnet) Let GeomCache::style_write_in_place work when the cache is stale only
       because of attribute writes whose boxes the shift cannot touch: after QYTC1a the remaining YT controls layouts come in
       bursts of 9-10/s that start from a stale cache (progress-bar style writes, aria-valuenow/valuetext, player class
       writes), so the in-place path refuses them. Needs the write ledger idea from QYTC1b (code on branch
