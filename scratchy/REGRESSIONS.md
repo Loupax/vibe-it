@@ -1,5 +1,346 @@
 # scratchy — regressions
 
+## R62: QPROF1 part A: full re-profile of main bbc569d (after QOBS9). Layout and restyle are still the largest share (forced layout 24-57 % of the JS/main thread headless, App builds 34-49 % of the window main thread: all QINC1). Outside layout, four scratchy-side hotspots qualify: the iframe-window prelude walks the whole document on every DOM removal (12 % of YouTube watch, 18 % of YouTube results), IntersectionObserver evaluation re-cascades ancestor chains it does not need (10-12 % on YouTube), the MessagePort shim drains every message in one task (one 375-389 ms task on bbc.com), and `dlopen(libmpv)` runs on the JS thread at the first `<video>` (118-131 ms, ~10 % of Wikipedia headless); plus V8 compile on the JS thread (9-25 %), mpv's software scaler (~10 % of process CPU while playing), and a profiler artifact. github.com home grew to 5.4 GB in 23-29 s, reproduced 2 of 2 (QOOM1) (Opus, 2026-11-20, measure only, docs only) — OPEN: proposed QPROF1-a .. QPROF1-g (section 7); layout/restyle items covered by QINC1
+
+**Status: measurement only, docs only. No source change.** Part B (the joint session with the user) is not part of this section.
+
+### 0. Setup
+- **Binary:** origin/main **bbc569d** (QOBS9 #444 on top of 0954866 #441), clean tree, `cargo build --release`
+  (V8 + media) into the worktree's own target, copied aside; the `profiling` profile of the same tree
+  (`-C force-frame-pointers=yes`) for `tools/profile.sh` and the window profiles. Reports say `"commit":"bbc569d9d3"`.
+- **Machine:** the 5700X of PERF.md "Baseline (V8, 5888220, 5700X, 2026-11-20)". **Load:** quiet for the first
+  headless series (11:29-11:41, 1-min load 0.2-1.5). From ~11:45 the coordinator started 4 QINC1 build agents; the
+  rule then was "wait up to 3 min for load < 3, else run and record the load". Every measured run ran under
+  `flock /tmp/scratchy-perf.lock` and (after 14:00) inside `systemd-run --user --scope -p MemoryMax=6G -p
+  MemorySwapMax=0`. 1-min load at the start of each run is given with each table. CPU-share profiles are not
+  affected much by load; the window runs at load 13-19 have inflated ms (said where it matters).
+- **Wire:** own wire (built from the same tree) on a scratchpad socket. Default User-Agent everywhere; YouTube watch
+  also twice with the R43 Chrome 131 UA for comparison with QOBS9.
+- **Headless:** `--perf-report --budget-ms 20000`, YouTube watch 60 s, the rest 30 s, 2 runs each plus one
+  `tools/profile.sh` run (perf `-F 999 -g` + V8 JIT map). github.com was run as `github.com/Loupax/vibe-it` (the
+  QOBS9 page) because **github.com home is the QOOM1 runaway** (section 6).
+- **Window:** own nested dwl (`tools/nest.sh`) placed by KWin (960x1006; the first run got 960x489), own wire,
+  `SCRATCHY_FRAME_STATS`, `SCRATCHY_MEDIA_AO=null`. YouTube watch 80 s: click on the player at ~15 s (playback
+  starts), pointer moving over the player for ~8 s at ~28-36 s (200 moves, 40 ms apart), then parked on the top bar.
+  Wikipedia Rust 45 s: wheel 6 x 3 notches at ~13-17 s, pointer sweeping the text column (160 moves, 50 ms apart)
+  at ~20-28 s, wheel back up. 3 runs each, the third under `perf record` (profiling binary).
+- **Foreign input check:** every second's `input` counters are matched against the inject log. ytw-w1 had 182
+  pointer moves at 12-14 s that were not mine (the user's pointer crossed the window before the play click):
+  that run's first 15 s are dropped; its playback/pointer phase was clean. All other runs show only the single
+  enter event at t=1 s.
+- **Compared with:** R44 (8d7d692, before QOBS2-10/QY53/QY54/QINC1 design) and PERF.md's QOBS9 baseline
+  (5888220 = PR #432, QY54b1). Main moved since by #435/#438 (link clicks, file:// URLs), #436 (iframe realm
+  WebSockets), #437 (YouTube scrolling: body overflow propagation, absolute boxes in the page height, scroll keys),
+  #440 (hidden viewport, scroll chaining) and #441 (offsetParent of a fixed box), plus docs. Headless numbers below
+  are within run-to-run noise of QOBS9 on every page (section 1); none of these commits moved a measured hotspot.
+  R44's three unfiled hotspots are gone: `El::has_class` 28-32 % then, 1.8 % (YT watch) / 2.8 % (Wikipedia) of
+  the main thread now; `intern_custom_props` 5.3 % -> 0.2 %; `layout::memo_key` 5.5 % -> 0.1-0.7 % (`core::fmt`
+  0.5-3.1 %). QOBS9's `find_base_href` 2.5 % and `descendants` 2.5 % self are now 2.0-3.2 % and 2.1-2.7 % self, but
+  they are part of one 12-18 % inclusive cost (section 3.1).
+- **Profile caveat (tooling, QPROF1-g):** perf `-F 999` is frequency mode PER THREAD, so a thread that barely runs
+  gets a tiny period and is heavily oversampled. `js-watchdog` shows as 5-30 % of all samples (Wikipedia 30 %),
+  but `/proc/<pid>/task/*/stat` says it used 0.13-0.39 s of CPU in an 80 s window run (< 1 % of the process). Short
+  per-script fetch threads (bbc: 273 threads named `scratchy`) are inflated the same way, and `summary.txt`'s
+  per-thread split is by `comm`, so they are counted with the main thread. **All shares below are of the MAIN
+  thread only** (stacks rooted at `_start`; the headless JS thread is the main thread), never "all samples".
+
+### 1. Headless runs (median of 2, (min-max))
+
+| page | load | forced layouts n / ms (max) | IO-reason layouts n / ms | raw CPU ms | compile ms | load wall / CPU ms | RSS MB (peak) | JS heap MB | QOBS9 for comparison |
+|---|---|---|---|---|---|---|---|---|---|
+| YouTube watch G1AeBgalFZk, default UA, 60 s | 1.11, 0.48 | 114 (111-116) / 2630 (2543-2717) (80) | 28 / 875 | 7650 (7486-7815) | 303 | 3601 / 1027 | 450 (471) | 157 | (R43 UA only) |
+| YouTube watch, R43 UA, 60 s | 2.87, 1.52 | 109 / 2552 and 168 / 7369 (bimodal) | 22-32 / 712-1293 | 7306, 14671 | 353 | 3895 / 1160 | 465 (487) | 155 | 175 / 6330, raw 12328, RSS 502 (513) |
+| YouTube results `?search_query=rust`, 30 s | 0.98, 0.90 | 38 (34-42) / 983 (844-1121) (56) | 24 / 781 | 4542 (4380-4703) | 292 | 2607 / 677 | 360 (360) | 127 | 10 s suite: 39 / 1028, raw 4482, RSS 345 |
+| en.wikipedia Rust, 30 s | 1.44, 1.44 | 4 / 685 (592-779) (287) | 3 / 554 | 1068 (940-1196) | 17 | 252 / 44 | 233 (233) | 18 | 4 / 659, raw 1023, RSS 244 |
+| bbc.com/news, 30 s | 1.66, 1.26 | 14 / 395 (77-80 max) | 2 / 50 | 1136 | 59 | 1119 / 161 | 134 | 38 | 10 s: 14 / 416, raw 1196, RSS 142 |
+| social.loupax.com/discover, 30 s | 1.59, 1.59 | 10 / 95 (45) | 0 | 140 | 0.5 | 366 / 149 | 57 | 3.6 | 10 / 83, raw 121, RSS 58 |
+| github.com/Loupax/vibe-it, 30 s | 2.87, 1.85 | 0 | 0 | 124 | 0.2 (modules) | 1017 / 145 | 65 | 14 | raw 129, RSS 67 |
+| github.com home | - | killed by the 6 GB cap (section 6) | | | | | | | |
+
+No challenge page, no budget kill. js_errors: YouTube watch 2, github 10 (same as QOBS9), others 0. YouTube watch
+with the R43 UA is bimodal: run 2 got the player that does the 1.44 s `(anonymous) player_es6` timer with 13
+layouts (1312 ms) at 24.8 s (QOBS9's 0.9-1.4 s timer); run 1 and both default-UA runs did not.
+
+Forced layouts by page caller (`by_caller`, per run): YT watch default UA `calculateCanCollapse` 16-17 x 939-998 ms,
+`numberOfGhostCommentsChanged` 6 x 283-290, `getPlayerSize` 42 x 237-244, `attached` 2 x 45-47; R43-UA run 2:
+`getPlayerSize` 78 x 2877, `calculateCanCollapse` 18 x 1314, `e6a` 18 x 1266. YT results `_.k9s` 5 x 61-62, `nO`
+44-48. Wikipedia `scrollToActiveSection` 1 x 110-153 (the rest is scratchy's IO evaluation). bbc `(anonymous)` 10 x
+233-244. social `clamp.js` (anonymous) 6 x 62-65.
+
+Longest callbacks (raw ms, forced layouts in it / their ms, when):
+
+| page | longest callbacks |
+|---|---|
+| YT watch | `inline script #28` 360-364 (27 / 121-126) @3.1 s; timer `d` web-animations-next-lite 341-342 (4 / 63-65) @6 s; ytmainappweb script 199-207 (0) @3.5 s; **observer_delivery 194-195 (0 layouts)** @6.3 s; timer `d` 163-164 (2 / 149) @13 s |
+| YT results | ytmainappweb script 278-282 (1 / 14) @2.6 s; promise_job `event:yt-page-data-fetched` 267 (3 / 42) @3.1 s; **observer_delivery 158-167 (0)** @3.4 s; timer `bound` 139-149 (1 / 44-48) |
+| Wikipedia | observer_delivery 392-495 (2 IO layouts / 370-467) @1-1.4 s; observer_delivery 111-175 (1 / 111-173); **timer `(anonymous) media:98:54` 118-131 (0 layouts)** @0.5-0.7 s |
+| bbc | **timer `(anonymous) globals:114:17` 375-389 (1 / 77-80)** @1.5-2.7 s; observer_delivery 294-308 (12 / 283-296); promise_job 62-63 (0) `onScriptLoad` require.js |
+| social | `clamp.js` 82-85 (6 / 62-65); `egg.js` 53-57 (4 / 30-33) |
+| github repo | module `core-*.js` 68 (0); everything else < 25 |
+
+The bold ones are >= 100 ms with no or little forced layout; their causes are in sections 3-4.
+
+### 2. Where the main thread goes (profiles, headless)
+
+Main-thread samples (perf `-F 999`, profiling build, SCRATCHY_V8_FLAGS set so no startup snapshot), assigned to the
+FIRST matching bucket in this order: forced layout (`GeomCache::refresh`); iframe-window prelude (`sweepFrames`,
+`syncWin`, `frameList`, `frameSrcOk`); App build; text shaping; paint; image decode; CSS parse; HTML parse; V8
+compile/parse; V8 GC; native DOM bindings (`install_*::{closure}`, no layout under it); media; page/prelude JS
+(everything else in V8). Loads 0.2-1.6.
+
+| bucket, % of main thread | YT watch (7 482 samples) | YT results (4 850) | Wikipedia (1 113) | bbc (1 330) | social (328) | github repo (243) |
+|---|---|---|---|---|---|---|
+| forced layout (QINC1) | 31.9 | 23.4 | 56.8 | 29.2 | 52.1 | 0 |
+| **iframe-window prelude** | **12.0** | **17.6** | 0.1 | 0.1 | 0 | 0 |
+| native DOM bindings (no layout) | 16.7 | 20.7 | 19.7 (of it media load 9.6) | 3.4 | 4.3 | 4.5 |
+| page / prelude JS | 17.5 | 15.2 | 5.2 | 29.2 | 9.8 | 11.9 |
+| **V8 compile/parse** | **9.3** | **10.6** | 7.9 | **24.8** | 14.6 | 38.7 |
+| V8 GC (main-thread part) | 7.6 | 6.9 | 1.6 | 6.6 | 1.5 | 1.2 |
+| text shaping / paint / CSS parse / HTML parse | < 1 each | < 1.2 each | 3.1 / 0.2 / 0.4 / 1.8 | < 1.1 each | < 2 | < 1 |
+
+Cross-checks by frame (inclusive, main thread): `StyleCache::style_of_chain` 12.6 % (watch) / 16.3 % (results), of
+which from scratchy's IO prelude (`ioShown`, `ioEval0`, `ioPad`) ~10 % / ~12 %; `obsFlush|ioEval` 24.0 % / 37.5 %
+(includes the IO forced layouts); V8 Heap/Scavenger/MarkCompact 11.4 % / 10.7 % (incl. GC triggered inside page
+JS); `Compiler|Parser|Scanner` 12.2 % / 13.4 %. Wikipedia: `_dl_*|do_lookup_x|dlopen` 10.5 %, `media_mpv` 11.0 %
+(the libmpv load). bbc: inside `globals:114:17` (the MessagePort flush) 38.8 % of the main thread.
+
+Top 15 SELF, main thread (YT watch / YT results / Wikipedia / bbc):
+- YT watch: memmove 5.0, `matches_complex_selector` 2.2, [unknown] 2.1, **`js_dom::descendants` 2.1**, SipHash
+  `write` 2.0, memcmp 2.0, **`net::find_base_href` 2.0**, `unlikely` 1.7, `LocalNameStaticSet` deref 1.6, `u8to64_le`
+  1.3, V8 `Scanner::Next` 1.3, `_int_malloc` 1.3, `do_lookup_x` 1.1, `rotate_left` (SipHash) 1.0,
+  `Declarations::clone` 1.0.
+- YT results: memmove 5.9, **`find_base_href` 3.2**, [unknown] 2.8, **`descendants` 2.7**, SipHash 2.4,
+  `matches_complex_selector` 2.4, `unlikely` 1.9, memcmp 1.6, `is_element` 1.5, `Scanner::Next` 1.5,
+  `LocalNameStaticSet` 1.5, `rotate_left` 1.5, `u8to64_le` 1.4, `_int_malloc` 1.4, `LoadIC_Megamorphic` 1.0.
+- Wikipedia: **`do_lookup_x` 6.4** (libmpv relocation), [unknown] 5.8, memmove 3.1, `_int_malloc` 3.0,
+  `_int_free_create_chunk` 2.2, `descendants` 1.6, `matches_complex_selector` 1.6, closure 1.5, free 1.4,
+  `select_unpredictable` 1.3, `strcmp` 1.1 (dlopen), memcmp 1.1, `unlink_chunk` 1.0, `eq<CssWide>` 0.8, `unlikely` 0.8.
+- bbc: [unknown] 6.2, `Declarations::clone` 4.4, `Scanner::Next` 3.1, memmove 2.3, `Builtin_ArrayConcat` 1.4,
+  `LoadICGenericBaseline` 1.3, `LookupIterator` 1.2, `_int_malloc` 0.9, `eq<Length>` 0.8, free 0.8,
+  `Declarations::eq` 0.8, `LoadIC_Megamorphic` 0.7, `ElementsAccessor` 0.7, `Runtime_GetProperty` 0.7, JS `ec` 0.6.
+
+Top 15 INCLUSIVE (wrappers such as `Invoke`, trampolines, `run_due`, microtask entry dropped), main thread:
+- YT watch: ytmainappweb JS 38.1, `GeomCache::rect_of`/`refresh` 32.0/31.9, `build_layout_tree_with_resources`
+  27.7, `drain_jobs` 24.9, `obsFlush` 23.1, web-animations-next-lite `d` (and its two inner frames) 23.1, `ioEval`
+  22.4, `gRect` 21.1, `scheduler.js K` 20.5, `gClient` 20.0, two more ytmainappweb frames 18.8 / 17.6,
+  `resolve_style_for` 17.2.
+- YT results: `obsFlush` 36.9, ytmainappweb JS 36.5, `ioEval` 36.1, `drain_jobs` 26.0, `PromiseFulfillReactionJob`
+  25.0, `gRect` 23.5, `GeomCache::rect_of` 23.5, then `refresh`, `build_layout_tree_with_resources`, `sweepFrames`/
+  `syncWin`/`frameList` (17.6), `style_of_chain` 16.3, `ioShown` 8.6, `Compiler` ~10.
+- Wikipedia: `obsFlush` 58.2, `GeomCache::rect_of`/`refresh` 56.8, `ioEval` 47.3, `build_layout_tree_with_resources`
+  36.0, `gRect` 32.5, `gViewRect` 24.7, `ioEval0` 24.6, centralNotice load.php JS 21.7, `build_children_with_prefix`
+  .. `build_box_for_element_body` 17.9, media `doLoad` -> `MpvBackend` 11.0, `_dl_*` 10.5.
+- bbc: Next.js chunk `L` 31.5, `GeomCache::rect_of`/`refresh` 29.2, **`globals:114:17` 28.3** (+ the optimized
+  copy: 38.8 total), `P` 28.0, `build_layout_tree_with_resources` 23.7, `ld` 23.0, `iP` 22.3, `drain_jobs` 21.3,
+  `obsFlush` 20.3, `gClient` 20.2, `build_children_with_prefix` .. `build_box_for_element_body` 19.4.
+- social and github repo: too few samples (328 / 243) to rank; social is 52 % forced layout (clamp.js, egg.js),
+  github repo 39 % V8 compile (module scripts).
+
+### 3. Non-layout hotspots, with the cause
+
+**3.1 The iframe-window prelude walks the whole document on every DOM removal (YT watch 12.0 %, YT results
+17.6 % of the main thread).** js_dom.rs QPT1b/QPT1d prelude: `__d_remove` (every `removeChild`/`remove`),
+`__d_sethtml` (`innerHTML=`) and `__d_settext` (`textContent=`) call `sweepFrames()`, which, once the page has
+ever had a window-backed iframe (`ixN > 0`; YouTube does), calls `syncWin()` -> `frameList()` ->
+`doc.getElementsByTagName('iframe')` (a full-document `js_dom::descendants` walk) and, per iframe,
+`frameSrcOk(el)` -> `__d_iframe_page(id)` -> `net::find_base_url(&root)` -> `find_base_href`, a recursive walk of
+the WHOLE document looking for `<base>` (YouTube has none, so it never stops early), then `syncWin` re-checks
+names. So one DOM removal costs 1 + (number of iframes) full-document walks. Callers (nearest page JS):
+ytmainappweb (Polymer `_setUnmanagedPropertyToNode`, `disconnectedCallback`, `F2`), webcomponents-all-noPatch
+`m.Qa`. This is QOBS9's `find_base_href` 2.5 % + `descendants` 2.5 % self: inclusive it is 5x that. Not layout.
+Still present on current main (e01440f QPT1-D1 kept `frameSrcOk`/`frameList`/`sweepFrames`). -> **QPROF1-a**.
+
+**3.2 IntersectionObserver evaluation re-cascades ancestor chains (YT watch ~10 %, YT results ~12 % of the
+main thread, outside forced layout).** `gRect` calls `ioShown(el)` -> `__d_cs_hidden` ->
+`StyleCache::display_none_in_chain` -> `style_of_chain` (a cascade of the element and every ancestor) BEFORE
+`__d_rect`, which already returns `[]` for an element without a box (display:none in the chain = no box), and
+`ioEval0` reads `overflow-x`/`overflow-y` through `__d_cs` and `border-*-width` through `gPx` (`ioPad`) for every
+ancestor of every target: more `style_of_chain` calls. `StyleCache` is keyed by the write generation, so after each
+DOM write the chains are cascaded again. The forced layout that `__d_rect` runs computes the same styles for the
+same elements. This is restyle work, but redundant: QINC1p (getComputedStyle from the element table) would make
+it cheap after the engine flips; a prelude fix makes it go away now. -> **QPROF1-b**.
+
+**3.3 The MessagePort shim runs a whole message queue in one task (bbc: one 375-389 ms task, 38.8 % of bbc's main
+thread inside it).** globals_prelude.js `flush(p)`: one `setTimeout(0)` callback that `while (p.__q.length)`
+dispatches `message` events, INCLUDING messages posted during the loop. A scheduler that yields through
+`MessageChannel` (React's scheduler does: post a message, run ~5 ms of work, post again; bbc.com/news is a Next.js
+page and the work under the flush is its chunk `L`/`P`/`ld`/`iP`) never yields in scratchy: all its slices run in
+one callback, one 375-389 ms task (1 forced layout of 77-80 ms in it). In a browser each `postMessage` is its own
+task, so timers, input and rendering run between slices. -> **QPROF1-c**.
+
+**3.4 `dlopen(libmpv)` on the JS thread at the first media element (Wikipedia: one 118-131 ms timer
+`media:98:54`, `do_lookup_x`/`_dl_*` 10.5 % of the headless main thread).** The article has a `<video>`; the media
+prelude's `doLoad` creates the first `MpvBackend`, which loads libmpv and its ffmpeg libraries with symbol
+relocation on the JS thread. Once per process, but the page's JS is blocked for ~120 ms during load (R44 already
+saw `do_lookup_x` 1.4 % here). -> **QPROF1-d**.
+
+**3.5 V8 compile on the JS thread (YT watch 9.3 %, YT results 10.6 %, bbc 24.8 %, github repo 38.7 % of the main
+thread; `compile_cpu_ms` 290-350 per YouTube load, 59 bbc).** Every classic script is compiled synchronously in
+`compile_script` (js_engine_v8.rs: `v8::Script::compile` without `CompileOptions`/cached data), after all scripts
+were fetched. No code cache across loads of the same script (QY26 was the QuickJS version of this, parked), no
+background (streaming) compile while the other scripts are still being fetched. -> **QPROF1-e** (measure-first).
+
+**3.6 mpv's software scaler while a video plays (~10 % of the process's CPU in the window: `worker` thread
+272-456 ticks of 3152-5375).** `vo=libmpv` with the `sw` render context: frames are converted and resized by zimg
+in float (`depth_convert ... StoreF32`, `resize_line8_h_fp_avx2_xiter<f32, 6, 2>` = lanczos), off the main thread.
+`MPV_OPTIONS` (media_net.rs) sets no `zimg-scaler`. Not a stall, but a steady ~5 % of a core for a 30 fps 640x360
+video. -> **QPROF1-f**.
+
+**3.7 Profiler artifact (tooling).** See section 0: `-F` per-thread frequency mode; `js-watchdog` is NOT a
+hotspot (0.13-0.39 s CPU in 80 s by /proc). -> **QPROF1-g**.
+
+Checked and not filed:
+- **V8 GC** 6.6-7.6 % of the main thread on YouTube/bbc (V8 worker threads add more, but their sample share is
+  inflated by the artifact above). JS heap 155-157 MB on YouTube watch, no nameable scratchy cause found in this
+  data (no single allocation site); revisit after QPROF1-a/b remove their garbage (the frames prelude builds a fresh
+  array per removal).
+- **The YT observer_delivery 158-195 ms with 0 forced layouts** = scratchy's IO evaluation (`ioEval` without a layout
+  because the rects were current) plus page MutationObserver callbacks; its non-page part is 3.1 + 3.2.
+- **HTML parse, CSS parse, text shaping, paint, image decode, malloc**: each < 3.5 % of the main thread headless on
+  every page (shaping 3.1 % on Wikipedia).
+- **net delivery** (QOBS6): window `net` max 100-658 ms (p95 mostly < 10 ms); the large values sit behind App builds
+  (main thread busy), i.e. QINC1j.
+
+### 4. The live window
+
+Per run (whole run; ms = main-thread CPU, inflated by load where load > 3; RSS from /proc at t = end - 2 s):
+
+| run | load | App builds n / ms | JS forced layouts n / ms | page JS ms | paint ms | redraws/s | video frames rendered/s (whole) | input->present latency during the pointer phase: per-second p95 median / max | RSS MB (HWM) |
+|---|---|---|---|---|---|---|---|---|---|
+| YT watch w1 (first 15 s dropped: foreign pointer) | 14.5 | 163 / 7332 | 126 / 3521 | 10969 | 1179 | 3.1 | 22 | 64 / 93 | 496 (496) |
+| YT watch w2 | 13.5 | 132 / 9537 | 143 / 6934 | 17908 | 2099 | 2.3 | 10.3 (24 s with none, below) | 117 / 148 | 649 (649) |
+| YT watch w3 (perf) | 18.3 | 151 / 12437 | 155 / 8807 | 21775 | 2872 | 2.8 | 8.5 | 130 / 433 | 652 (652) |
+| Wikipedia w1 | 2.9 | 47 / 4948 | 13 / 1909 | 2359 | 794 | 3.6 | - | 144 / 459 (hover); wheel 8-10 ms | 313 (335) |
+| Wikipedia w2 | 2.3 | 40 / 5597 | 14 / 2722 | 3330 | 961 | 3.4 | - | 217 / 509 (hover) | 312 (333) |
+| Wikipedia w3 (perf) | 18.9 | 31 / 8181 | 13 / 5090 | 6244 | 1154 | 2.5 | - | 322 / 1274 (hover) | 315 (336) |
+
+(`lat_max_ms` of the whole run is not used: an input that needs no redraw stays pending until the next present, so
+the pointer parked at 4 s shows "8 496 ms" on Wikipedia w1. The per-second p95 during the pointer phases is the
+real number.)
+
+**YouTube: the video loses frames while the pointer moves over the player (QM1k-mouse, measured).** Per second
+(w1 / w2, video frames rendered): before the pointer phase 30 / 30; while the pointer moves over the player 9-18 /
+5-8; after it 30 / -. In those seconds the main thread does 5-11 App builds (45-115 ms each, 0.3-0.6 s per second)
+plus 290-430 ms of page JS (the player controls' hover handlers, R46/R50), and the video is painted only between
+them. Window main-thread profile (w3): App build 34.4 %, forced layout 20.2 %, native bindings 15.5 % (of it
+`style_of_chain` 8.5 %, `descendants` 4.6 %), page JS 7.4 %, paint 6.0 %, winit/wayland 5.5 %, iframe-window
+prelude 4.3 %, V8 compile 2.7 %, GC 2.3 %. The frame drop is App builds + forced layouts on the main thread:
+**covered by QINC1j/QINC1i**; QPROF1-a and QPROF1-b take ~9-13 % off the same thread.
+
+**YouTube w2: no video frame for 24 s (37-61 s), then a second `<video>` node appears at 58 s and plays from
+62 s.** No JS, no builds, no net results in that window; w1 and w3 did not show it. Cause not named from this data
+(not layout, not a main-thread stall: the thread was idle). Not filed as a perf item; noted for the QM1k track
+(see section 7, last bullet).
+
+**Wikipedia:** scrolling is fine (wheel latency 8-10 ms, 1 redraw per tick). The hover sweep over the text gives
+2-5 App builds per second at 100-165 ms each (page `mouseover` handlers write the DOM) and input->present p95
+120-320 ms, and hovering a reference fires the Reference Tooltips gadget's `reallyShow` timer: **837-1075 ms with
+6 forced layouts (822 ms)** (`getWidthOrHeight`, `offset`, `computeStyleTests`: jQuery). Window main thread (w3):
+App build 49.0 %, forced layout 30.8 %, everything else < 4 % each. **All covered by QINC1i/QINC1j.**
+
+### 5. Forced layout, App build and restyle (quantified; covered by QINC1)
+
+| where | count / ms | QINC1 item |
+|---|---|---|
+| YT watch headless 60 s | 111-168 layouts, 2.5-7.4 s (calculateCanCollapse, getPlayerSize, numberOfGhostCommentsChanged, e6a; 22-32 IO) | QINC1i (+ f/g/h1) |
+| YT results headless 30 s | 34-42, 0.84-1.12 s (24 IO) | QINC1i |
+| Wikipedia headless 30 s | 4, 0.59-0.78 s (3 IO, max 260-314 ms) | QINC1i |
+| bbc headless | 14, 0.39-0.40 s | QINC1i |
+| YT watch window 80 s | App builds 132-163 = 7.3-12.4 s; forced 126-155 = 3.5-8.8 s; builds during pointer motion 5-11/s | QINC1j, QINC1i |
+| Wikipedia window 45 s | App builds 31-47 = 4.9-8.2 s (100-165 ms each on hover); `reallyShow` 0.84-1.08 s (6 layouts) | QINC1j, QINC1i |
+| IO evaluation's style reads (`style_of_chain` outside layout) | 10-12 % of the main thread on YouTube | QPROF1-b now; QINC1p later |
+
+### 6. github.com home: runaway memory (QOOM1)
+
+`--perf-report --budget-ms 20000 --seconds 30 https://github.com/` (own wire, default UA):
+- 11:43:47 (batch run gh-1, load 10.6, no cap yet): stderr stopped at 11:44:35, the run never ended (a 30 s run) and
+  no JSON was written; the process (pid 787397) was OOM-killed at 13:39 at 15.4 GB anon RSS (total-vm 44 GB) and took
+  the whole session down. It was this run: the batch was still waiting on it.
+- 14:08 (profiling binary, capped, RSS sampled every ~2-4 s): 6 MB at 0 s, 68 MB at 2 s, 689 MB at 4 s, 1.26 GB at 7 s,
+  1.89 GB at 11 s, 2.89 GB at 15 s, 3.90 GB at 21 s, 5.38 GB at 29 s, then killed by the 6 GB cap (exit 137).
+  ~185 MB/s, main thread at ~100 % CPU (utime 18.6 s at 29 s).
+- 14:12 (same, perf attached at 4 s for 10 s): 756 MB at 4 s, 3.89 GB at 19 s, 5.38 GB at 23 s, killed. Busy threads:
+  main 44.8 % of samples, `dav1d-worker` 16.7 %, `av:hevc:df*` ~10 % together, mpv `core` 5.5 %: the page's hero
+  videos (AV1 and HEVC) are being decoded headless while memory grows. (The coordinator's note: the kill was
+  triggered on `dav1d-worker`.)
+- Reproduces 2 of 2 (3 of 3 counting the 13:39 kill). github.com/Loupax/vibe-it (no video) is normal: 65 MB.
+- Not chased further (QOOM1 has its own agent); the remaining github.com home runs were skipped.
+
+### 7. Proposed items (for the coordinator to file; PERFORMANCE QUEUE step 7)
+
+- **QPROF1-a [S]** (P2, Sonnet; area jsdom prelude (js_dom.rs QPT1b/QPT1d frames block) + net.rs; coordinate with
+  QPT1-D2 if it reworks the same block) Make the iframe-window bookkeeping proportional to iframe changes, not to
+  DOM removals. Today every `__d_remove`/`__d_sethtml`/`__d_settext` calls `sweepFrames()` -> `syncWin()` ->
+  `frameList()` = a full-document `getElementsByTagName('iframe')` plus, per iframe, `frameSrcOk` ->
+  `__d_iframe_page` -> `find_base_url` = a full-document `<base>` walk (R62 section 3.1: 12.0 % of YouTube watch's
+  main thread, 17.6 % of YouTube results'). Fix: (1) skip the sweep/sync when the removed or replaced subtree holds no
+  `<iframe>` (one `__d_query(id, 'iframe')` on the subtree before the native removal, or a per-document live iframe
+  count kept by the insert/remove natives) and when no frame exists; (2) cache the document base URL (invalidate on
+  `<base>` insert/remove/href write, i.e. the same hook) instead of `find_base_href` per call; (3) make `frameSrcOk`
+  not call `__d_iframe_page` for `about:blank`/empty/`data:` (already short-circuited) and memoise the pre-fetched
+  page lookup per element+src. Gate: `tools/profile.sh` on YT watch 60 s and YT results 30 s: `sweepFrames|syncWin|
+  frameList|frameSrcOk` < 1 % of the main thread, `find_base_href` and `descendants` self < 0.5 %; `--perf-report`
+  raw CPU on YT results not higher. Tests: removing a non-iframe node does not rebuild the window list (test-only
+  counter); removing an iframe still drops its window and `window.length` follows; a `<base href>` added later
+  changes `iframe.src` resolution; QPT1d tests unchanged.
+- **QPROF1-b [S]** (P2, Sonnet; area jsdom prelude (IO block: `gRect`, `ioShown`, `ioEval0`, `ioPad`) + js_dom.rs
+  natives) Stop IntersectionObserver evaluation from cascading ancestor chains it does not need (R62 section 3.2:
+  `style_of_chain` 10-12 % of the YouTube main thread from `ioShown`/`ioEval0`/`ioPad`). (1) `gRect`: call
+  `__d_rect`/`__d_rect_r` first and treat `[]` as hidden; call `ioShown` only where a rect cannot answer (detached
+  check stays, it is cheap). (2) `ioEval0`'s clip walk: get each ancestor's overflow and border widths from the laid
+  box (one native returning [overflow-x, overflow-y, border l/t/r/b] from the GeomCache's box, no cascade) instead of
+  three `__d_cs`/`gPx` calls. Must give identical IO entries. Gate: profile.sh YT results 30 s: `style_of_chain`
+  under `ioShown|ioEval0|ioPad` < 2 % of the main thread; the R38/QY57 IO tests and the IO WPT-ish fixtures unchanged.
+  Tests: display:none ancestor -> not intersecting (no cascade call, test-only counter); overflow:hidden ancestor
+  still clips; border widths still inset the root. (QINC1p would also cover the style part later; this is cheaper
+  now and independent of the engine flip.)
+- **QPROF1-c [S]** (P3, Sonnet; area globals_prelude.js MessageChannel) One `message` event per task. `flush(p)`
+  dispatches the whole queue, including messages posted while dispatching, in one timer callback, so a
+  MessageChannel-yielding scheduler (React) never yields: bbc.com/news has one 375-389 ms task (R62 section 3.3).
+  Fix: dispatch only the message at the head, then schedule the next task if more are queued (or: only the messages
+  present when the flush started, each in its own task). Gate: bbc.com/news headless `longest` has no `globals:114`
+  callback >= 100 ms (raw), total raw CPU within noise. Tests: two messages posted in a row arrive in two tasks (a
+  `setTimeout(0)` queued between them runs in between); a message posted from a handler runs in a later task;
+  `start()`/`close()` semantics unchanged.
+- **QPROF1-d [S]** (P3, Sonnet; area media_mpv.rs (library load) + app/perf startup) Load libmpv off the JS thread.
+  The first media element pays `dlopen` + relocation of libmpv/ffmpeg on the JS thread: Wikipedia Rust has a
+  118-131 ms `media:98:54` timer and `_dl_*` 10.5 % of the headless main thread (R62 section 3.4). Fix: start the
+  load on a background thread at startup when media is enabled (or as soon as the parser sees `<video>`/`<audio>`),
+  and have `MpvBackend::ensure` wait for it only if it is not done. Gate: Wikipedia headless: no callback under
+  `media:` >= 30 ms; `do_lookup_x` self < 1 % of the main thread. Tests: two players created concurrently share one
+  load; without libmpv the placeholder still appears (the load fails once, quietly).
+- **QPROF1-e [M]** (P3, Opus measure then Sonnet; area js_engine_v8.rs (`compile_script`) + js.rs script loading)
+  V8 compile off the critical path. Compile is 9-11 % of the YouTube main thread, 25 % on bbc, `compile_cpu_ms`
+  290-350 ms per YouTube load (R62 section 3.5). Two independent parts, measure each first: (1) a session code
+  cache: `CompileOptions::ConsumeCodeCache` with `v8::script_compiler::CachedData` kept in memory per (final URL,
+  content hash), produced after first run (`create_code_cache`), capped (e.g. 64 MB LRU); no disk (QF-D7); helps
+  reloads/revisits and the iframe realms. (2) background compile of classic scripts while the others are still
+  being fetched (V8 `ScriptStreamingTask` / `StartStreaming`), so the JS thread only finalises. Gate: YT results
+  second navigation in one process (`--perf-report URL URL`): compile_cpu_ms of the second load <= 40 % of the
+  first; first load's JS-thread compile time lower with (2). Tests: cached and uncached runs give the same results;
+  a changed script body misses the cache.
+- **QPROF1-f [S]** (P3, Sonnet; area media_net.rs `MPV_OPTIONS` / media_mpv.rs render size) Cheaper software
+  scaling for video. mpv's `sw` render path converts and lanczos-resizes every frame in float with zimg: ~10 % of
+  the process CPU while a 640x360 video plays (R62 section 3.6). Try `zimg-scaler=bilinear` (and `zimg-fast=yes`
+  explicitly), and render at the video's own size when the box is not larger (scale in paint instead). Gate: window
+  YT watch 30 s of playback: mpv `worker` thread CPU (/proc) -50 %, no visible quality loss on a grim screenshot
+  at 100 % zoom; frames rendered/s unchanged. Tests: the option list contains the scaler setting; render size
+  follows the rule.
+- **QPROF1-g [S]** (P4, Haiku/Sonnet; area tools/profile.sh, tools/perf-fold.py, PERF.md) Profile shares that mean
+  CPU: `-F 999` is per-thread frequency mode, so near-idle and short-lived threads are oversampled (js-watchdog
+  shows 5-30 % of samples for < 1 % of the CPU; 273 short fetch threads on bbc). Use a fixed period
+  (`-c 3000000` ~ 1 kHz at 3 GHz, or `-F` plus a per-thread CPU table from /proc in summary.txt), fold by tid (main
+  thread separately: stacks rooted at `_start`), and say in PERF.md which numbers compare across threads. Gate: on a
+  YT watch profile the summary's per-thread shares match `/proc/<pid>/task/*/stat` within 5 points.
+- **Covered by QINC1 (no new item):** all forced layouts (QINC1i; YT `calculateCanCollapse`/`getPlayerSize`/`e6a`,
+  Wikipedia IO and `reallyShow` 0.84-1.08 s, bbc 14 layouts), all App builds (QINC1j; YouTube 5-11 per second while
+  the pointer moves over the player = the video frame drop to 5-18 fps, Wikipedia 100-165 ms per hover build), the
+  style part of IO evaluation later (QINC1p; QPROF1-b now).
+- **Not filed, for the QM1k track:** YT watch w2 had 24 s with no video frame (37-61 s) while the main thread was
+  idle, then a second `<video>` node started at 58 s (section 4). Seen in 1 of 3 runs; the coordinator may want to add
+  it to QM1k-mouse / QM1k1n4's notes rather than a new item until it reproduces.
+- **QOOM1 (already filed):** github.com home grows ~185 MB/s to the cap with AV1/HEVC decoders busy (section 6).
+
 ## R61: QYSCR1: scrolling did not work on YouTube (user 2026-11-20). Three causes, all fixed: (1) `<body>`'s `overflow` was never propagated to the viewport in layout (only the stacking-boundary check and, since QY57r, IntersectionObserver knew the rule), so YouTube's `body{overflow-y:scroll}` made the 0 px tall body a scroll region and stopped the page-height walk at it; (2) the page height (`laid.h`, the top-level scroll limit) ignored absolutely positioned boxes, and YouTube's whole page lives in the absolute `ytd-app`, so the page was one viewport tall; (3) Space, PageDown/PageUp and the arrow keys were not bound at all. Fix: one propagation rule in the layout tree, the page height includes absolute boxes, a wheel tick a region cannot use goes to the page, and the usual scroll keys (Opus, 2026-11-20) — FIXED
 
 **Reproduced** (baseline = installed main at 094b4b5 code, own nested dwl 960x316/489, own wire): on YouTube results
