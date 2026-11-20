@@ -842,6 +842,8 @@ pub(crate) struct App {
     /// that thread, so the bookkeeping itself is proven not to regress
     /// anything before anything depends on it.
     pub(crate) layout_generation: u64,
+    /// QY53e2: `js_geom::render_stamp()` taken when the tree of the current `layout_generation` was built.
+    build_stamp: crate::js_geom::RenderStamp,
     /// Q33t: the current page's live JS engine (its timers). Replaced
     /// whenever a page's scripts run and cleared on navigation, so a
     /// stale page's timers never fire; driven from `about_to_wait`.
@@ -1254,6 +1256,7 @@ impl App {
             doc_gen: 0,
             nav_generation: 0,
             layout_generation: 0,
+            build_stamp: (0, (0, 0)),
             js: None,
             socket_path,
             net: NetScheduler::new(&RequestPolicy::default()),
@@ -1353,6 +1356,7 @@ impl App {
             doc_gen: 0,
             nav_generation: 0,
             layout_generation: 0,
+            build_stamp: (0, (0, 0)),
             js: None,
             socket_path,
             net: NetScheduler::new(&RequestPolicy::default()),
@@ -1436,6 +1440,7 @@ impl App {
             set_app_clock(self.nav_generation);
             let build_started = std::time::Instant::now();
             crate::style::KEEP_MATCH.with(|k| k.set(true));
+            self.build_stamp = crate::js_geom::render_stamp();
             let tree = build_layout_tree_with_resources(&self.document, width as f32, Some(height as f32), &crate::images::with_adopted_css(&self.extra_css, &self.adopted_css), &self.image_cache);
             crate::style::KEEP_MATCH.with(|k| k.set(false));
             self.last_build_time = Some(build_started.elapsed());
@@ -2159,6 +2164,10 @@ impl App {
             }
             // Q35b2: images that arrived during the pass rebuild now.
             self.flush_image_relayout();
+            // QY53e2: IntersectionObserver evaluates on this layout instead of forcing its own.
+            if let Some(js) = &self.js {
+                js.rendered_geometry(&laid, self.build_stamp, self.cached_width, self.cached_height);
+            }
         }
         // Replaced wholesale on every tick this generation's
         // worker reports, not merged — see `App::shape_cache`'s
