@@ -7977,3 +7977,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
 - [x] QY53n5 DONE 65e1359 #411 patched/skipped hovers skip the QB3 delay; Wikipedia lat_p95 median 175 -> 20.8 ms [S] (P3, from QY53n; after QM1k1n6a and QY53n2) Patched hovers skip the R2.3/QB3 coalescing delay; frame stats
       `hover` {patched, skipped, built} + hover_patch_ms. Gate: Wikipedia --no-js lat_p95 median <= 50 ms.
+
+=== from TODO.txt: --- Rust `__*` native wrapped in a JS timer); none of it was committed. -------
+- [x] QPT1c2 DONE 98fc30f #413 page-wide MutationObserver registry; records/delivery in the observer's realm [S] (P3, from QPT1c #399; Sonnet) Cross-realm MutationObserver: an observer registered in one realm does not see
+      mutations made through another realm's DOM methods on the node it observes (Chrome reports every mutation). Share the
+      observer registry (moReg/moN) page-wide like the wrapper cache (R53 D7 deviation).
