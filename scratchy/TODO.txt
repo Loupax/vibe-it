@@ -1048,7 +1048,7 @@ Shared rules for this block:
       home (was 34 %; gate < 4 %): ~1.3 M checks per build, cost = hash probe + TLS + RefCell per check. Options in order:
       per-element class-hash bitmask checked before has_class; ancestor class sets cached in the AncestorBloom stack entries;
       selector class atoms pre-resolved to ids at RuleIndex build vs a per-element sorted id list.
-- [ ] QMEM3g [M] (P3, from QMEM3b #380 R48; Sonnet) Feature-gated counting `#[global_allocator]` (sampling, live-pointer
+- [ ] [WIP] QMEM3g [M] (P3, from QMEM3b #380 R48; Sonnet) Feature-gated counting `#[global_allocator]` (sampling, live-pointer
       table, backtrace) + a resolve script, so the next heap breakdown needs no throwaway patch (QMEM3b's prototype:
       /home/loupax/src/vibe-it/.coordinator/artifacts/qmem3b/memprof.rs.txt + hooks.diff, not in git).
 - [ ] QMEM3h [S] (P3, from QMEM3b; Sonnet) Probes for V8 off-heap memory (`malloced_memory`, ArrayBuffer backing stores) and
@@ -1070,8 +1070,6 @@ Shared rules for this block:
       bursts of 9-10/s that start from a stale cache (progress-bar style writes, aria-valuenow/valuetext, player class
       writes), so the in-place path refuses them. Needs the write ledger idea from QYTC1b (code on branch
       scratchy/qytc1b-ledger-code). Measure with the R50 recipe (window 960x230, click at 346,150).
-- [ ] [WIP] QYTC1b [S] (P2, from R50; Sonnet; after QYTC1a, same hook) A write restoring an attribute's value at the last forced
-      layout cancels its own bump (`ytp-autohide-active` toggled between two reads: the 11-13 % no-op layouts).
 - [ ] QBBC1 [M, Opus, investigate first] (P3, user screenshot 2026-11-19 ~22:50, installed main 10a9d6e, window ~958 px wide;
       .coordinator/user-runs/bbc-news-2026-11-19.png) bbc.com/news renders wrong: (1) the lead story's "LIVE" badge wraps
       "LIV/E" and overlaps the headline text; (2) the lead story column is ~200 px wide (headline breaks every 2 words);

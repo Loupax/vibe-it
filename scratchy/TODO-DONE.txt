@@ -7933,3 +7933,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QM1g2a1 DONE f1c0e11 #405 pooled video frame buffers (main-thread video cost ~0.3 ms/frame; gain inside noise) [S] (P3, from QM1g2a #388; Sonnet, measure first) Reuse video frame buffers: the render worker allocates a
       new ~0.9 MB buffer per frame and the main thread copies twice (page buffer + present buffer); a small pool or presenting
       straight from the worker's buffer. Remaining main-thread cost ~1-2.4 ms/frame (R46 "QM1g2a").
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QYTC1b DONE 6fcacb0 #404 MEASURED, NOT MERGED: exact ledger had 0 restores after QYTC1a; code on branch scratchy/qytc1b-ledger-code; follow-up QYTC1d [S] (P2, from R50; Sonnet; after QYTC1a, same hook) A write restoring an attribute's value at the last forced
+      layout cancels its own bump (`ytp-autohide-active` toggled between two reads: the 11-13 % no-op layouts).
