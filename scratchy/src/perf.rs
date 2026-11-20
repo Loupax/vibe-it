@@ -138,14 +138,16 @@ pub(crate) enum Phase {
     MeasureDocument,
     GlyphWalk,
     RectWalk,
+    /// QINC1f: the incremental restyle's shadow run inside a build (tests, `SCRATCHY_INCR*=1`).
+    IncrShadow,
 }
 
-const PHASE_NAMES: [&str; 7] = ["css_collect", "rule_index", "precompute_generated", "build_children", "measure_document", "glyph_walk", "rect_walk"];
+const PHASE_NAMES: [&str; 8] = ["css_collect", "rule_index", "precompute_generated", "build_children", "measure_document", "glyph_walk", "rect_walk", "incr_shadow"];
 
 /// QOBS3: totals over every forced layout of the run.
 #[derive(Default)]
 struct ForcedAgg {
-    phase_ns: [u64; 7],
+    phase_ns: [u64; 8],
     style_resolves: u64,
     elements: u64,
     no_change: u64,
@@ -353,6 +355,16 @@ pub(crate) fn begin_forced() -> bool {
 
 pub(crate) fn end_forced() {
     FL_ACTIVE.with(|a| a.set(false));
+}
+
+/// QINC1f: pauses the forced-layout breakdown while the incremental engine's shadow run works inside
+/// a build (its style resolves are not the build's); returns the previous state for `resume_forced`.
+pub(crate) fn suspend_forced() -> bool {
+    FL_ACTIVE.with(|a| a.replace(false))
+}
+
+pub(crate) fn resume_forced(was: bool) {
+    FL_ACTIVE.with(|a| a.set(was));
 }
 
 /// QOBS3: the IO prelude's evaluation brackets its geometry reads with this.
@@ -750,9 +762,17 @@ pub(crate) enum Incr {
     MissNoOld,
     /// `SCRATCHY_INCR_CHECK=1` differences between the incremental and the from-scratch result.
     CheckMismatch,
+    /// QINC1f: elements the from-scratch builds styled (summed over the shadowed builds).
+    StyledFresh,
+    /// QINC1f: updates that restyled everything (first build of a document, new rule list, viewport
+    /// width, a Global log entry or invalidation).
+    GlobalUpdates,
+    /// QINC1f: DOM / form-state changes the check-mode reconcile found that the write log did not
+    /// describe (parser insertions, Rust-side writes).
+    Unlogged,
 }
 
-const INCR_NAMES: [&str; 12] = [
+const INCR_NAMES: [&str; 15] = [
     "updates",
     "restyled_matched",
     "restyled_cascaded",
@@ -765,6 +785,9 @@ const INCR_NAMES: [&str; 12] = [
     "miss_not_cacheable",
     "miss_no_old",
     "check_mismatch",
+    "styled_fresh",
+    "global_updates",
+    "unlogged",
 ];
 
 /// Bottom-up relayout stops are counted per tree level (the last bucket takes every deeper level).
@@ -772,8 +795,12 @@ pub(crate) const INCR_LEVELS: usize = 8;
 
 #[derive(Default)]
 struct IncrCounters {
-    flat: [u64; 12],
+    flat: [u64; 15],
     stops_by_level: [u64; INCR_LEVELS],
+    /// QINC1f: per shadowed build `(elements restyled, elements the from-scratch build styled)`.
+    restyle_samples: Vec<(u32, u32)>,
+    /// QINC1f: thread CPU time of the incremental updates, ns.
+    update_ns: u64,
     /// Shaping-worker fallbacks by reason (name -> count), in first-seen order.
     worker_fallbacks: Vec<(&'static str, u64)>,
 }
@@ -792,6 +819,17 @@ pub(crate) fn incr_add(c: Incr, n: u64) {
 #[allow(dead_code)]
 pub(crate) fn incr_get(c: Incr) -> u64 {
     INCR.with(|i| i.borrow().flat[c as usize])
+}
+
+/// QINC1f: one incremental restyle: elements restyled, elements the from-scratch build styled, CPU ns.
+pub(crate) fn incr_restyle_sample(restyled: u64, styled: u64, ns: u64) {
+    INCR.with(|i| {
+        let mut i = i.borrow_mut();
+        if i.restyle_samples.len() < 1 << 20 {
+            i.restyle_samples.push((restyled.min(u32::MAX as u64) as u32, styled.min(u32::MAX as u64) as u32));
+        }
+        i.update_ns += ns;
+    });
 }
 
 /// A bottom-up relayout stopped `level` levels below the root.
@@ -827,6 +865,24 @@ pub(crate) fn incr_json() -> String {
         parts.push(format!("\"worker_fallbacks\":{{{}}}", wf.join(",")));
         // QINC1e: the write log's per-layout counters.
         parts.push(format!("\"log\":{}", crate::incr_log::stats_json()));
+        // QINC1f: restyled vs styled per shadowed build (medians / p90; share = restyled / styled).
+        let mut r: Vec<u64> = i.restyle_samples.iter().map(|s| s.0 as u64).collect();
+        let mut st: Vec<u64> = i.restyle_samples.iter().map(|s| s.1 as u64).collect();
+        let mut share: Vec<u64> =
+            i.restyle_samples.iter().map(|s| if s.1 == 0 { 0 } else { (s.0 as u64 * 1000) / s.1 as u64 }).collect();
+        r.sort_unstable();
+        st.sort_unstable();
+        share.sort_unstable();
+        parts.push(format!(
+            "\"restyle\":{{\"n\":{},\"restyled_median\":{},\"restyled_p90\":{},\"styled_median\":{},\"share_median_pct\":{:.1},\"share_p90_pct\":{:.1},\"ms\":{}}}",
+            r.len(),
+            pct(&r, 0.5),
+            pct(&r, 0.9),
+            pct(&st, 0.5),
+            pct(&share, 0.5) as f64 / 10.0,
+            pct(&share, 0.9) as f64 / 10.0,
+            ms(i.update_ns)
+        ));
         format!("{{{}}}", parts.join(","))
     })
 }

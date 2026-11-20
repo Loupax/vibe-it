@@ -1355,6 +1355,24 @@ pub(crate) fn format_counter(n: i32, style: &str) -> String {
 pub(crate) fn precompute_generated(document: &Handle, rules: &[StyleRule], viewport_width: f32) {
     GENERATED_TEXT.with(|g| g.borrow_mut().clear());
     ELEMENT_CONTENT.with(|g| g.borrow_mut().clear());
+    let mut out = GeneratedOut::default();
+    let mut matcher = |h: &Handle, slot: u8| matching_declarations_for(h, rules, viewport_width, crate::style::slot_pseudo(slot));
+    if generated_walk(document, rules, &mut matcher, &mut out) {
+        GENERATED_TEXT.with(|g| *g.borrow_mut() = out.text);
+        ELEMENT_CONTENT.with(|g| *g.borrow_mut() = out.element);
+    }
+}
+
+/// QINC1f: what the generated-content walk produces: `GENERATED_TEXT` / `ELEMENT_CONTENT` contents.
+#[derive(Default, Debug, PartialEq)]
+pub(crate) struct GeneratedOut {
+    pub(crate) text: HashMap<(usize, bool), String>,
+    pub(crate) element: HashMap<usize, String>,
+}
+
+/// QINC1f: whether the rule list needs the generated-content walk (counters, quotes, dynamic
+/// `content`), and whether some rule puts `content` on an element itself.
+pub(crate) fn generated_wanted(rules: &[StyleRule]) -> (bool, bool) {
     // QY53f1c: `may_declare_generated` first, so unparsed blocks stay unparsed.
     let gen_rules = || rules.iter().filter(|r| r.may_declare_generated());
     let wanted = gen_rules().any(|r| {
@@ -1372,8 +1390,25 @@ pub(crate) fn precompute_generated(document: &Handle, rules: &[StyleRule], viewp
         r.selectors.slice().iter().any(|s| s.pseudo_element().is_none())
             && (r.decls().content.is_some() || r.important().content.is_some())
     });
+    (wanted, wants_element_content)
+}
+
+/// QINC1f: the match provider of `generated_walk`: `(element, memo slot)` -> matched declarations.
+pub(crate) type GenMatcher<'a, 'm> = dyn FnMut(&Handle, u8) -> Vec<(u64, &'a Declarations)> + 'm;
+
+/// The document-order walk behind `precompute_generated` (counters, quotes, `attr()`), over the
+/// matches `matcher(element, memo slot)` gives: the from-scratch build matches, the incremental
+/// restyle (QINC1f, R60 6.4) answers from its stored matches. Returns false (and fills nothing) when
+/// the rule list needs no walk.
+pub(crate) fn generated_walk<'a>(
+    document: &Handle,
+    rules: &'a [StyleRule],
+    matcher: &mut GenMatcher<'a, '_>,
+    out: &mut GeneratedOut,
+) -> bool {
+    let (wanted, wants_element_content) = generated_wanted(rules);
     if !wanted && !wants_element_content {
-        return;
+        return false;
     }
     struct State {
         counters: Vec<(String, i32, usize)>,
@@ -1420,12 +1455,18 @@ pub(crate) fn precompute_generated(document: &Handle, rules: &[StyleRule], viewp
         }
         out
     }
-    fn walk(handle: &Handle, rules: &[StyleRule], vw: f32, depth: usize, st: &mut State) {
+    fn walk<'a>(
+        handle: &Handle,
+        matcher: &mut GenMatcher<'a, '_>,
+        depth: usize,
+        st: &mut State,
+        out: &mut GeneratedOut,
+    ) {
         let is_el = matches!(handle.data, NodeData::Element { .. });
         let key = Rc::as_ptr(handle) as usize;
         let saved_quotes = st.quotes.clone();
         if is_el {
-            let own = matching_declarations_for(handle, rules, vw, None);
+            let own = matcher(handle, 0);
             // `display: none` elements generate no boxes: no counters, no
             // pseudos, nothing in the subtree.
             if matches!(cascade_css(&own, None, "display", |d| d.display), Cascaded::Value(Display::None)) {
@@ -1441,7 +1482,7 @@ pub(crate) fn precompute_generated(document: &Handle, rules: &[StyleRule], viewp
                     _ => None,
                 };
                 if let Some(t) = c {
-                    ELEMENT_CONTENT.with(|g| g.borrow_mut().insert(key, t));
+                    out.element.insert(key, t);
                 }
             }
             let tag = match &handle.data {
@@ -1485,27 +1526,28 @@ pub(crate) fn precompute_generated(document: &Handle, rules: &[StyleRule], viewp
                     None => st.counters.push((name, v, depth)),
                 }
             }
-            let m = matching_declarations_for(handle, rules, vw, Some("before"));
+            let m = matcher(handle, 1);
             if let Cascaded::Value(ContentDecl::Parts(parts)) = cascade_css(&m, None, "content", |d| d.content.clone()) {
                 let t = eval(&parts, handle, st);
-                GENERATED_TEXT.with(|g| g.borrow_mut().insert((key, false), t));
+                out.text.insert((key, false), t);
             }
         }
         for child in handle.children.borrow().iter() {
-            walk(child, rules, vw, depth + 1, st);
+            walk(child, matcher, depth + 1, st, out);
         }
         if is_el {
-            let m = matching_declarations_for(handle, rules, vw, Some("after"));
+            let m = matcher(handle, 2);
             if let Cascaded::Value(ContentDecl::Parts(parts)) = cascade_css(&m, None, "content", |d| d.content.clone()) {
                 let t = eval(&parts, handle, st);
-                GENERATED_TEXT.with(|g| g.borrow_mut().insert((key, true), t));
+                out.text.insert((key, true), t);
             }
             st.counters.retain(|c| c.2 <= depth);
         }
         st.quotes = saved_quotes;
     }
     let mut st = State { counters: Vec::new(), quote_depth: 0, quotes: default_quotes(), element_content: wants_element_content };
-    walk(document, rules, viewport_width, 0, &mut st);
+    walk(document, matcher, 0, &mut st, out);
+    true
 }
 
 pub(crate) fn collect_children(
@@ -2040,6 +2082,9 @@ pub(crate) fn build_layout_tree_with_resources(
     image_cache: &HashMap<String, Arc<DecodedImage>>,
 ) -> LayoutBox {
     set_viewport(viewport_width, viewport_height.unwrap_or(1080.0));
+    // QINC1f: shadow mode (tests; `SCRATCHY_INCR=1` / `SCRATCHY_INCR_CHECK=1`): record what this build
+    // resolves, then run the incremental restyle after it and compare (nothing else changes).
+    let shadow = crate::incr_style::begin_build();
     // QOBS3: phase timers sit at these boundaries (free unless a forced layout is recorded).
     let t_phase = crate::perf::phase(crate::perf::Phase::CssCollect);
     let html_handle = find_html_element(document);
@@ -2123,6 +2168,10 @@ pub(crate) fn build_layout_tree_with_resources(
     propagate_viewport_overflow(&mut tree);
     if tree_reads_viewport_height(&tree, false) {
         note_viewport_height_read();
+    }
+    drop(_t_phase);
+    if shadow {
+        crate::incr_style::after_build(document, &rules, viewport_width, viewport_height.unwrap_or(1080.0));
     }
     tree
 }

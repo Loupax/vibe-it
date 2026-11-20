@@ -1,11 +1,13 @@
 //! QINC1a (R60 section 10): the seeded differential fuzz harness for the incremental style + layout
 //! engine, plus the tests of `style_diff` and the comparators.
 //!
-//! Today every step lays the page out TWICE from scratch (two independent build + measure runs, fresh
-//! shape caches) and asserts that the comparators find no difference: that proves the comparators and
-//! the generator (determinism of the from-scratch path, including `positioned` order, which is why
-//! `tree_order` is skipped). When the engine exists (QINC1f onward) the second run becomes the
-//! incremental update and this harness is its safety net for the combinations nobody writes tests for.
+//! QINC1a laid every step out TWICE from scratch and asserted that the comparators find no difference
+//! (determinism of the from-scratch path, including `positioned` order, which is why `tree_order` is
+//! skipped). QINC1f: the second run is now the incremental restyle. Every mutation is written to the
+//! write log the way a script's native would (`incr_log::note`), the check-mode reconcile is OFF, and
+//! the shadow update inside each build must reproduce every style the from-scratch build resolved
+//! (`cmp_styles` semantics) and its generated content. Boxes and laid trees join when QINC1g / QINC1h1
+//! make them incremental (`compare_runs` is kept for them).
 //!
 //! Size: `SCRATCHY_FUZZ_N` cases (default 200); `SCRATCHY_FUZZ_SEED` offsets the seeds.
 
@@ -185,9 +187,24 @@ fn is_inside(anc: &Handle, mut n: Handle) -> bool {
     }
 }
 
+/// Whether `h` is in a document (its root is a `Document` node): only such writes are logged, as the
+/// natives do.
+fn connected(h: &Handle) -> bool {
+    let mut n = h.clone();
+    while let Some(p) = parent_handle(&n) {
+        n = p;
+    }
+    matches!(n.data, NodeData::Document)
+}
+
 fn detach_node(h: &Handle) {
     if let Some(p) = parent_handle(h) {
+        let log = connected(&p);
+        let (prev, next) = crate::incr_log::siblings(h);
         p.children.borrow_mut().retain(|c| !Rc::ptr_eq(c, h));
+        if log {
+            crate::incr_log::note(node_id(&p), crate::incr_log::Change::ChildRemove { child: node_id(h), prev, next });
+        }
     }
     h.parent.set(None);
 }
@@ -195,9 +212,41 @@ fn detach_node(h: &Handle) {
 fn insert_node(parent: &Handle, child: &Handle, at: usize) {
     detach_node(child);
     child.parent.set(Some(Rc::downgrade(parent)));
-    let mut kids = parent.children.borrow_mut();
-    let at = at.min(kids.len());
-    kids.insert(at, child.clone());
+    {
+        let mut kids = parent.children.borrow_mut();
+        let at = at.min(kids.len());
+        kids.insert(at, child.clone());
+    }
+    if connected(parent) {
+        let (prev, next) = crate::incr_log::siblings(child);
+        crate::incr_log::note(node_id(parent), crate::incr_log::Change::ChildInsert { child: node_id(child), prev, next });
+    }
+}
+
+/// `js_dom::set_attr` plus the log entry its native writes.
+fn set_attr_logged(h: &Handle, name: &str, v: &str) {
+    let old = element_attr(h, name).map(|s| s.to_string());
+    crate::js_dom::set_attr(h, name, v);
+    if old.as_deref() != Some(v) && connected(h) {
+        crate::incr_log::note(
+            node_id(h),
+            crate::incr_log::Change::Attr {
+                name: name.into(),
+                old: crate::incr_log::Val::of(old.as_deref()),
+                new: crate::incr_log::Val::of(Some(v)),
+            },
+        );
+    }
+}
+
+/// A text node's data, plus its log entry.
+fn set_text_logged(t: &Handle, v: &str) {
+    if let NodeData::Text { contents } = &t.data {
+        *contents.borrow_mut() = v.into();
+    }
+    if connected(t) {
+        crate::incr_log::note(node_id(t), crate::incr_log::Change::Text);
+    }
 }
 
 fn parse_fragment(html: &str) -> Vec<Handle> {
@@ -255,24 +304,22 @@ fn mutate_once(r: &mut Rng, doc: &Handle, width: &mut f32) -> String {
             }
             let t = texts[r.below(texts.len())].clone();
             let new = gen_text(r);
-            if let NodeData::Text { contents } = &t.data {
-                *contents.borrow_mut() = new.as_str().into();
-            }
+            set_text_logged(&t, &new);
             format!("text -> {new:?}")
         }
         5 => {
             let v = format!("c{} c{}", r.below(5), r.below(5));
-            crate::js_dom::set_attr(&target, "class", &v);
+            set_attr_logged(&target, "class", &v);
             format!("class of {} = {v:?}", label(&target))
         }
         6 => {
             let v = r.pick(DECLS).to_string();
-            crate::js_dom::set_attr(&target, "style", &v);
+            set_attr_logged(&target, "style", &v);
             format!("style of {} = {v:?}", label(&target))
         }
         7 => {
             let v = format!("i{}", r.below(6));
-            crate::js_dom::set_attr(&target, "id", &v);
+            set_attr_logged(&target, "id", &v);
             format!("id of {} = {v:?}", label(&target))
         }
         8 => {
@@ -302,8 +349,8 @@ fn mutate_once(r: &mut Rng, doc: &Handle, width: &mut f32) -> String {
                 find_styles(doc, &mut styles);
                 let css = gen_css(r);
                 let text = styles.first().and_then(|s| s.children.borrow().first().cloned());
-                if let Some(NodeData::Text { contents }) = text.as_ref().map(|t| &t.data) {
-                    *contents.borrow_mut() = css.as_str().into();
+                if let Some(t) = text {
+                    set_text_logged(&t, &css);
                 }
                 format!("stylesheet -> {css:?}")
             }
@@ -317,6 +364,7 @@ struct Run {
     tree: LayoutBox,
     laid: Laid,
     cache: ShapeCache,
+    #[allow(dead_code)] // read by `compare_runs` callers again from QINC1g/h1
     complete: bool,
 }
 
@@ -331,7 +379,9 @@ fn layout_from_scratch(doc: &Handle, width: f32, fs: &mut FontSystem) -> Run {
     Run { tree, laid, cache, complete: !incomplete }
 }
 
-/// Today: A and B are both from scratch. Later: B is the incremental engine's result.
+/// QINC1a: A and B both from scratch. Unused since QINC1f (the second run is the incremental
+/// restyle, checked inside the build); QINC1g / QINC1h1 compare their incremental boxes / laid trees here.
+#[allow(dead_code)]
 fn compare_runs(doc: &Handle, a: &Run, b: &Run) -> Result<(), String> {
     let names = Names::from_dom(doc);
     let path = root_path(&names, a.tree.style.node);
@@ -346,6 +396,11 @@ fn fuzz_case(seed: u64, fs: &mut FontSystem) {
     let mut width = r.pick(WIDTHS);
     let mut log: Vec<String> = vec![format!("initial page: {html}")];
     set_interaction(&InteractionState::default());
+    let _ = crate::incr_log::drain();
+    // The log alone feeds the engine (no reconcile); a mismatch is collected, not panicked on.
+    let saved = crate::incr_style::set_seam(crate::incr_style::Seam { shadow: true, reconcile: false, panic: false });
+    let _ = crate::incr_style::take_mismatches();
+    let mut incremental = 0;
     for step in 0..(3 + r.below(4)) {
         if step > 0 {
             for _ in 0..(1 + r.below(3)) {
@@ -353,17 +408,25 @@ fn fuzz_case(seed: u64, fs: &mut FontSystem) {
                 log.push(format!("step {step}: {what}"));
             }
         }
-        let a = layout_from_scratch(&doc, width, fs);
-        let b = layout_from_scratch(&doc, width, fs);
-        if !(a.complete && b.complete) {
-            continue; // deadline hit (heavily loaded machine): nothing to compare
-        }
-        if let Err(msg) = compare_runs(&doc, &a, &b) {
+        // A: from scratch; B: the incremental restyle the build's shadow run computed.
+        let _a = layout_from_scratch(&doc, width, fs);
+        let stats = crate::incr_style::with_engine(|e| e.map(|e| e.stats.clone())).expect("the shadow run made an engine");
+        incremental += usize::from(!stats.full);
+        let mism = crate::incr_style::take_mismatches();
+        if !mism.is_empty() {
             set_interaction(&InteractionState::default());
-            panic!("incr fuzz mismatch: seed {seed} step {step} (width {width}): {msg}\n{}", log.join("\n"));
+            crate::incr_style::set_seam(saved);
+            panic!("incr fuzz mismatch: seed {seed} step {step} (width {width}):\n{}\n{}", mism.join("\n"), log.join("\n"));
         }
     }
+    crate::incr_style::set_seam(saved);
     set_interaction(&InteractionState::default());
+    FUZZ_INCREMENTAL.with(|c| c.set(c.get() + incremental));
+}
+
+thread_local! {
+    /// Steps the engine answered incrementally (not a full restyle), for the run's report.
+    static FUZZ_INCREMENTAL: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 fn env_usize(name: &str, default: usize) -> usize {
@@ -380,7 +443,9 @@ fn qinc1a_fuzz_two_from_scratch_layouts_never_differ() {
     for i in 0..n as u64 {
         fuzz_case(base + i, &mut fs);
     }
-    diag!("qinc1a fuzz: {n} cases in {:.1}s", t0.elapsed().as_secs_f64());
+    let inc = FUZZ_INCREMENTAL.with(|c| c.replace(0));
+    diag!("qinc1a/qinc1f fuzz: {n} cases in {:.1}s, {inc} incremental restyle steps", t0.elapsed().as_secs_f64());
+    assert!(n < 20 || inc > n, "the fuzz must exercise incremental updates, not only full ones ({inc} for {n} cases)");
 }
 
 // ---------- generator sanity ----------
