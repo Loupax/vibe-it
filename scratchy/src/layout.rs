@@ -303,6 +303,116 @@ pub struct Laid {
     /// QINC1c: the z-index hoisting bubble of this box's finished subtree (see `finish_z`).
     /// `None` for the vast majority of boxes.
     pub(crate) zb: Option<Box<ZInfo>>,
+    /// QINC1h1 (R60 4.3): how this element box was measured (the fragment-cache key), set only by the
+    /// incremental engine's own measures (`incr_layout`); `None` everywhere else.
+    pub(crate) ck: Option<Box<Ck>>,
+}
+
+/// QINC1h1 (R60 4.3, 8.2): the constraints an element `Laid` was measured at, what its measure
+/// emitted past it, and the engine's ink / in-flow-bottom bookkeeping. A clean box (same `bver`)
+/// measured again at the same key minus the origin is its old `Laid` shifted by the origin delta.
+pub(crate) struct Ck {
+    /// `measure` inputs: origin, width, containing height, overrides, "inside a static inline-block".
+    pub(crate) x: f32,
+    pub(crate) y: f32,
+    pub(crate) width: f32,
+    pub(crate) ch: Option<f32>,
+    pub(crate) amo: Option<f32>,
+    pub(crate) fbw: Option<f32>,
+    pub(crate) zskip: bool,
+    /// Where `measure_inner` returned the box (later shifts by the ancestors = position - this).
+    pub(crate) ret_x: f32,
+    pub(crate) ret_y: f32,
+    /// The border box `measure_inner` returned (flex/table containers stretch it afterwards).
+    pub(crate) ret_w: f32,
+    pub(crate) ret_h: f32,
+    /// `incr_box::bver` of the box when it was measured.
+    pub(crate) bver: u64,
+    /// Floats in (none) and out (none), one key per box, complete: the result can be reused.
+    pub(crate) cacheable: bool,
+    /// An ancestor reads intrinsic sizes of this subtree (flex/grid/table, shrink-to-fit) or this box's
+    /// size came from one: a bottom-up change cannot stop at this box.
+    pub(crate) intr: bool,
+    /// The subtree has a mixed inline run, whose line width is `(x + w) - x` in document space
+    /// (`measure_mixed_inline`'s float bounds): not exactly translation-invariant in x, so the box is
+    /// reused only at the same x.
+    pub(crate) x_sensitive: bool,
+    /// Only the ancestors part of `intr` (an out-of-flow box's own shrink-to-fit is recomputed when
+    /// it is re-resolved; some intrinsic walks, e.g. table columns, still count it).
+    pub(crate) intr_anc: bool,
+    /// Out-of-flow descendants that bubbled past this box (`pending`), with their static positions.
+    pub(crate) pending: Vec<CkPending>,
+    /// Keys (node, pseudo) of the z-index entries this box's finished subtree bubbled up (`ZInfo::bubble`).
+    pub(crate) bubble: Vec<(usize, u8)>,
+    /// The box-style fields the parent's flow and the stacking pass read.
+    pub(crate) psig: PSig,
+    /// Set by `resolve_positioned`: the containing block and static position it was resolved at.
+    pub(crate) pos: Option<CkPos>,
+    /// `ink` (and `ifb`, the in-flow bottom relative to `ink_y`) are valid for the box at (ink_x, ink_y).
+    pub(crate) ink_ok: bool,
+    pub(crate) ink_x: f32,
+    pub(crate) ink_y: f32,
+    pub(crate) ifb: f32,
+}
+
+/// QINC1h1: what a `Blocks` parent, `finish_z` and the z-index sort read from a child's BOX style.
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) struct PSig {
+    position: Position,
+    float: Float,
+    clear: Clear,
+    display: Display,
+    margin: Sides,
+    margin_auto: (bool, bool),
+    margin_auto_v: (bool, bool),
+    bfc: bool,
+    z_index: Option<i32>,
+    opacity: u32,
+    overflow: Overflow,
+    vertical_align: VerticalAlign,
+}
+
+impl PSig {
+    pub(crate) fn of(s: &ComputedStyle) -> PSig {
+        PSig {
+            position: s.position,
+            float: s.float,
+            clear: s.clear,
+            display: s.display,
+            margin: s.margin,
+            margin_auto: s.margin_auto,
+            margin_auto_v: s.margin_auto_v,
+            bfc: s.establishes_bfc(),
+            z_index: s.z_index,
+            opacity: s.opacity.to_bits(),
+            overflow: s.overflow,
+            vertical_align: s.vertical_align,
+        }
+    }
+}
+
+/// An out-of-flow box that bubbled past a cached box: the `LayoutBox` address (a descendant of the
+/// cached box: while the box is clean its subtree is the same allocation, moved only as a whole),
+/// its key (checked) and static position at the cached origin.
+#[derive(Clone, Copy)]
+pub(crate) struct CkPending {
+    pub(crate) ptr: usize,
+    pub(crate) node: usize,
+    pub(crate) pseudo: u8,
+    pub(crate) fixed: bool,
+    pub(crate) sx: f32,
+    pub(crate) sy: f32,
+}
+
+/// `resolve_positioned`'s inputs for an out-of-flow box and where it returned it.
+#[derive(Clone, Copy)]
+pub(crate) struct CkPos {
+    pub(crate) cb: (f32, f32, f32, f32),
+    pub(crate) sx: f32,
+    pub(crate) sy: f32,
+    pub(crate) fixed: bool,
+    pub(crate) ret_x: f32,
+    pub(crate) ret_y: f32,
 }
 
 /// QINC1c (R60 4.5, 8.2): what `finish_z` leaves on a box.
@@ -1142,6 +1252,17 @@ pub(crate) fn resolve_positioned<'a>(
     }
     apply_transform_offset(&mut laid);
     laid.fixed = item.fixed;
+    // QINC1h1: an engine measure remembers the containing block (bottom-up re-resolve).
+    if let Some(ck) = laid.ck.as_mut() {
+        ck.pos = Some(CkPos {
+            cb: (cb_x, cb_y, cb_w, cb_h),
+            sx: item.static_x,
+            sy: item.static_y,
+            fixed: item.fixed,
+            ret_x: laid.x,
+            ret_y: laid.y,
+        });
+    }
     laid
 }
 
@@ -1954,6 +2075,12 @@ fn measure_inner<'a>(
     auto_margin_box_override: Option<f32>,
     forced_border_w: Option<f32>,
 ) -> Laid {
+    if ENG_ON.with(Cell::get) {
+        return measure_inner_engine(
+            b, font_system, x, y, width, containing_height, next_id, cache, deadline, incomplete, pending, floats,
+            auto_margin_box_override, forced_border_w,
+        );
+    }
     let mut laid = crate::stack::grow(|| {
         measure_inner_body(
             b, font_system, x, y, width, containing_height, next_id, cache, deadline, incomplete, pending, floats,
@@ -1962,6 +2089,81 @@ fn measure_inner<'a>(
     });
     // QINC1c: this box's subtree is complete: absorb or pass up its z-index entries.
     finish_z(&mut laid, cache, false);
+    laid
+}
+
+thread_local! {
+    /// QINC1h1: true while the incremental engine measures its kept tree (`incr_layout`): element
+    /// boxes record their `Ck` and clean ones are served from the harvested old tree.
+    pub(crate) static ENG_ON: Cell<bool> = const { Cell::new(false) };
+    /// QINC1h1: depth of boxes whose layout reads the intrinsic sizes of their content (flex / grid /
+    /// table containers, shrink-to-fit and keyword widths, flex items), during an engine measure.
+    static INTR: Cell<u32> = const { Cell::new(0) };
+}
+
+struct IntrGuard(bool);
+
+impl Drop for IntrGuard {
+    fn drop(&mut self) {
+        if self.0 {
+            INTR.with(|c| c.set(c.get().saturating_sub(1)));
+        }
+    }
+}
+
+/// QINC1h1: `measure_inner` during an engine measure: a cache hit returns the old `Laid` moved to the
+/// new origin (`incr_layout::try_hit`); otherwise the box is measured as usual and, for an element
+/// box, its `Ck` recorded.
+#[allow(clippy::too_many_arguments)]
+fn measure_inner_engine<'a>(
+    b: &'a LayoutBox,
+    font_system: &mut FontSystem,
+    x: f32,
+    y: f32,
+    width: f32,
+    containing_height: Option<f32>,
+    next_id: &mut usize,
+    cache: &mut ShapeCache,
+    deadline: std::time::Instant,
+    incomplete: &mut bool,
+    pending: &mut Vec<PendingPositioned<'a>>,
+    floats: &Floats,
+    amo: Option<f32>,
+    fbw: Option<f32>,
+) -> Laid {
+    let el = b.style.node != 0 && b.style.pseudo == 0;
+    let zskip = Z_SKIP.with(|c| c.get()) > 0;
+    let floats_in = !floats.is_empty();
+    if el {
+        let key = crate::incr_layout::Key { x, y, width, ch: containing_height, amo, fbw, zskip, floats_in };
+        if let Some(l) = crate::incr_layout::try_hit(b, &key, pending) {
+            return l;
+        }
+    }
+    let intr_anc = INTR.with(|c| c.get()) > 0;
+    let reads_intrinsic = matches!(b.style.display, Display::Table | Display::Flex | Display::InlineFlex | Display::Grid)
+        || b.style.width_kw.is_some()
+        || b.style.min_width_kw.is_some()
+        || amo.is_some()
+        || fbw.is_some();
+    if reads_intrinsic {
+        INTR.with(|c| c.set(c.get() + 1));
+    }
+    let guard = IntrGuard(reads_intrinsic);
+    let plen = pending.len();
+    let mut laid = crate::stack::grow(|| {
+        measure_inner_body(
+            b, font_system, x, y, width, containing_height, next_id, cache, deadline, incomplete, pending, floats, amo, fbw,
+        )
+    });
+    finish_z(&mut laid, cache, false);
+    drop(guard);
+    crate::incr_layout::note_remeasured();
+    if el {
+        let key = crate::incr_layout::Key { x, y, width, ch: containing_height, amo, fbw, zskip, floats_in };
+        let floats_out = !floats_in && !floats.is_empty();
+        crate::incr_layout::record(&mut laid, b, &key, intr_anc, amo.is_some() || fbw.is_some(), floats_out, &pending[plen..]);
+    }
     laid
 }
 
@@ -2206,6 +2408,7 @@ fn measure_inner_body<'a>(
                 fixed: false,
                 ink: Ink::UNKNOWN,
                 zb: None,
+                ck: None,
                 sticky: None,
                 scroll: None,
             }
@@ -2316,6 +2519,7 @@ fn measure_inner_body<'a>(
                 fixed: false,
                 ink: Ink::UNKNOWN,
                 zb: None,
+                ck: None,
                 sticky: None,
                 scroll: None,
             }
@@ -2653,6 +2857,7 @@ fn measure_inner_body<'a>(
                 fixed: false,
                 ink: Ink::UNKNOWN,
                 zb: None,
+                ck: None,
                 sticky: None,
                 scroll,
             }
@@ -2696,6 +2901,7 @@ fn measure_inner_body<'a>(
                 fixed: false,
                 ink: Ink::UNKNOWN,
                 zb: None,
+                ck: None,
                 sticky: None,
                 scroll: None,
             }
@@ -2732,6 +2938,7 @@ fn measure_inner_body<'a>(
                 fixed: false,
                 ink: Ink::UNKNOWN,
                 zb: None,
+                ck: None,
                 sticky: None,
                 scroll: None,
             }
@@ -3539,6 +3746,7 @@ pub(crate) fn measure_mixed_inline<'a>(
                             fixed: false,
                             ink: Ink::UNKNOWN,
                             zb: None,
+                            ck: None,
                             sticky: None,
                             scroll: None,
                         })));
@@ -3611,6 +3819,7 @@ pub(crate) fn measure_mixed_inline<'a>(
                             fixed: false,
                             ink: Ink::UNKNOWN,
                             zb: None,
+                            ck: None,
                             sticky: None,
                             scroll: None,
                         })));
@@ -3634,6 +3843,7 @@ pub(crate) fn measure_mixed_inline<'a>(
                         fixed: false,
                         ink: Ink::UNKNOWN,
                         zb: None,
+                        ck: None,
                         sticky: None,
                         scroll: None,
                     })));
@@ -4197,6 +4407,7 @@ pub(crate) fn measure_row_with_widths<'a>(
         fixed: false,
         ink: Ink::UNKNOWN,
         zb: None,
+        ck: None,
         sticky: None,
         scroll: None,
     }
@@ -4389,6 +4600,7 @@ pub(crate) fn measure_table<'a>(
         fixed: false,
         ink: Ink::UNKNOWN,
         zb: None,
+        ck: None,
         sticky: None,
         scroll: make_scroll_info(s.overflow, s.node, next_id, content_h, border_h, entry.extra_h),
     };
@@ -4641,6 +4853,7 @@ pub(crate) fn measure_flex<'a>(
         fixed: false,
         ink: Ink::UNKNOWN,
         zb: None,
+        ck: None,
         sticky: None,
         scroll: make_scroll_info(s.overflow, s.node, next_id, content_h, border_h, entry.extra_h),
     };
@@ -5779,6 +5992,7 @@ pub(crate) fn measure_grid<'a>(
         fixed: false,
         ink: Ink::UNKNOWN,
         zb: None,
+        ck: None,
         sticky: None,
         scroll: make_scroll_info(s.overflow, s.node, next_id, content_h, border_h, entry.extra_h),
     };
@@ -5818,7 +6032,13 @@ pub fn measure_document(
 ) -> Laid {
     #[cfg(not(test))]
     {
-        measure_document_impl(b, font_system, width, viewport_h, next_id, cache, deadline, incomplete)
+        let inc_before = *incomplete;
+        let laid = measure_document_impl(b, font_system, width, viewport_h, next_id, cache, deadline, incomplete);
+        // QINC1h1: shadow mode relayouts the engine's kept tree after a shadowed build's layout.
+        if !inc_before && !*incomplete {
+            crate::incr_layout::after_measure(b, font_system, width, viewport_h, &laid, cache);
+        }
+        laid
     }
     // QINC1c: every layout a test runs is laid a second time with the OLD post-pass
     // (`hoist_negative_z`) and the two trees are compared (`cmp_laid`, 0 differences allowed).
@@ -5840,6 +6060,10 @@ pub fn measure_document(
                     panic!("QINC1c: bottom-up z-index hoisting differs from the old post-pass: {m}");
                 }
             }
+        }
+        // QINC1h1: shadow mode relayouts the engine's kept tree after a shadowed build's layout.
+        if !inc_before && !*incomplete && !LEGACY_Z.with(|c| c.get()) {
+            crate::incr_layout::after_measure(b, font_system, width, viewport_h, &new, cache);
         }
         new
     }
@@ -5925,6 +6149,79 @@ fn measure_document_impl(
     }
     compute_ink(&mut laid);
     laid
+}
+
+/// QINC1h1: `measure_document_impl` for the engine (`ENG_ON` set by the caller): the same root
+/// pass, but ink and the root's in-flow extent come from `incr_layout::finish_root` (only what was
+/// re-measured or moved is walked). Returns the tree and the root's measured height (before the
+/// in-flow extent grows it).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn measure_document_engine(
+    b: &LayoutBox,
+    font_system: &mut FontSystem,
+    width: f32,
+    viewport_h: f32,
+    next_id: &mut usize,
+    cache: &mut ShapeCache,
+    deadline: std::time::Instant,
+    incomplete: &mut bool,
+) -> (Laid, f32) {
+    let _z_active = ZActiveGuard::new();
+    let mut pending = Vec::new();
+    let root_floats = Floats::default();
+    let mut laid = measure(
+        b, font_system, 0.0, 0.0, width, None, next_id, cache, deadline, incomplete, &mut pending, &root_floats, None,
+    );
+    if !pending.is_empty() {
+        let mut resolved: Vec<Laid> = Vec::new();
+        let mut work = pending;
+        while !work.is_empty() {
+            let mut next = Vec::new();
+            for item in work {
+                resolved.push(resolve_positioned(
+                    item, 0.0, 0.0, width, viewport_h, font_system, next_id, cache, deadline, incomplete, &mut next,
+                ));
+            }
+            work = next;
+        }
+        laid.positioned.append(&mut resolved);
+        laid.positioned.sort_by_key(stack_key);
+    }
+    finish_z(&mut laid, cache, true);
+    let measured_h = laid.h;
+    crate::incr_layout::finish_root(&mut laid, measured_h);
+    (laid, measured_h)
+}
+
+/// QINC1h1: `finish_z` for a box the engine re-measured on its own (bottom-up), with hoisting on.
+pub(crate) fn z_active_guard() -> impl Drop {
+    ZActiveGuard::new()
+}
+
+/// QINC1h1: `Z_SKIP` raised for a re-measure of a box that sits inside a static inline-block.
+pub(crate) fn z_skip_guard() -> impl Drop {
+    ZSkipGuard::new()
+}
+
+/// QINC1h1: `measure_inner` for the engine's bottom-up re-measure (all of `measure`'s inputs).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn measure_at<'a>(
+    b: &'a LayoutBox,
+    font_system: &mut FontSystem,
+    x: f32,
+    y: f32,
+    width: f32,
+    containing_height: Option<f32>,
+    next_id: &mut usize,
+    cache: &mut ShapeCache,
+    deadline: std::time::Instant,
+    incomplete: &mut bool,
+    pending: &mut Vec<PendingPositioned<'a>>,
+    floats: &Floats,
+    amo: Option<f32>,
+    fbw: Option<f32>,
+) -> Laid {
+    measure_inner(b, font_system, x, y, width, containing_height, next_id, cache, deadline, incomplete, pending, floats, amo, fbw)
 }
 
 /// Sort key for a stacking context's z-ordered entries (QY1): `z-index`
@@ -6126,6 +6423,10 @@ fn finish_z(l: &mut Laid, cache: &ShapeCache, force_owner: bool) {
 /// index as with the old resolve-time counter.
 #[cfg(test)]
 fn check_old_tie_order(sorted: &[Laid]) {
+    // The engine's kept tree is renumbered without the old-order bookkeeping.
+    if ENG_ON.with(Cell::get) {
+        return;
+    }
     OLD_TREE_ORDER.with(|m| {
         let m = m.borrow();
         for w in sorted.windows(2) {

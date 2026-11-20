@@ -82,6 +82,66 @@ pub(crate) struct BoxEngine {
     ldirty: HashSet<usize>,
     updates: u64,
     pub(crate) stats: BoxStats,
+    /// QINC1h1: the document (mismatch reports of the relayout).
+    doc: WeakHandle,
+    /// QINC1h1: what changed since the engine's last relayout (consumed by `layout_request`): elements
+    /// touched by the updates plus the boxes rebuilt off their path; `lay_full` = started over.
+    lay_touched: Vec<usize>,
+    lay_full: bool,
+    /// QINC1h1: identity of the from-scratch tree of the last build (its root child list's buffer):
+    /// the next `measure_document` of that tree runs the shadow relayout.
+    fresh_sig: (usize, usize),
+    /// QINC1h1: document-order index of every (node | pseudo << 56) after the last renumbering.
+    orders: HashMap<usize, usize, std::hash::BuildHasherDefault<crate::dom::PtrHasher>>,
+}
+
+/// QINC1h1: the current document-order index (`style.tree_order`) of a box, when the last update
+/// renumbered the kept tree.
+pub(crate) fn tree_order(node: usize, pseudo: u8) -> Option<usize> {
+    ENGINE.with(|e| e.try_borrow().ok()?.as_ref()?.orders.get(&(node | ((pseudo as usize) << 56))).copied())
+}
+
+/// QINC1h1: identity of a box tree while it is moved around (its root child list's heap buffer).
+pub(crate) fn tree_sig(t: &LayoutBox) -> (usize, usize) {
+    match &t.content {
+        BoxContent::Blocks(v) | BoxContent::TableRow(v) if !v.is_empty() => (v.as_ptr() as usize, v.len()),
+        BoxContent::Inline(v) if !v.is_empty() => (v.as_ptr() as usize, v.len()),
+        // An empty document (e.g. `<html>` hidden): nothing to tell two of them apart, nor to lay out.
+        _ => (usize::MAX, 0),
+    }
+}
+
+/// QINC1h1: what the relayout must redo.
+pub(crate) struct LayoutReq {
+    pub(crate) full: bool,
+    pub(crate) touched: Vec<usize>,
+    pub(crate) doc_key: usize,
+    pub(crate) base_ver: u64,
+    pub(crate) doc: WeakHandle,
+}
+
+/// QINC1h1: `Some` when `tree` is the from-scratch tree of the last shadowed build (consumes what
+/// changed since the last relayout).
+pub(crate) fn layout_request(tree: &LayoutBox) -> Option<LayoutReq> {
+    let sig = tree_sig(tree);
+    ENGINE.with(|e| {
+        let mut e = e.try_borrow_mut().ok()?;
+        let e = e.as_mut()?;
+        if e.fresh_sig != sig || sig.0 == 0 {
+            return None;
+        }
+        e.fresh_sig = (0, 0);
+        let full = std::mem::replace(&mut e.lay_full, false);
+        Some(LayoutReq { full, touched: std::mem::take(&mut e.lay_touched), doc_key: e.doc_key, base_ver: e.base_ver, doc: e.doc.clone() })
+    })
+}
+
+/// QINC1h1: the kept box tree.
+pub(crate) fn with_tree<R>(f: impl FnOnce(Option<&LayoutBox>) -> R) -> R {
+    ENGINE.with(|e| match e.try_borrow() {
+        Ok(e) => f(e.as_ref().map(|e| &e.tree)),
+        Err(_) => f(None),
+    })
 }
 
 /// What the last box update did (tests and counters).
@@ -293,6 +353,11 @@ impl BoxEngine {
             ldirty: HashSet::new(),
             updates: 0,
             stats: BoxStats { full: true, ..Default::default() },
+            doc: Rc::downgrade(doc),
+            lay_touched: Vec::new(),
+            lay_full: true,
+            fresh_sig: tree_sig(fresh),
+            orders: Default::default(),
         }
     }
 
@@ -344,6 +409,12 @@ impl BoxEngine {
             }
         }
         self.stats.touched = touched.len();
+        if self.lay_touched.len() + touched.len() > 4096 {
+            self.lay_full = true;
+            self.lay_touched.clear();
+        } else if !self.lay_full {
+            self.lay_touched.extend(touched.iter().copied());
+        }
         // The path: every touched element and its ancestors (key 0 = the root's own content).
         let mut path: HashSet<usize> = HashSet::new();
         let mut root = false;
@@ -394,7 +465,7 @@ impl BoxEngine {
             }
         });
         MODE.with(|m| m.set(OFF));
-        crate::images::renumber_document_order(&mut tree);
+        self.orders = crate::images::renumber_document_order(&mut tree);
         crate::images::propagate_canvas_background(&mut tree);
         crate::images::propagate_viewport_overflow(&mut tree);
         self.tree = tree;
@@ -402,6 +473,11 @@ impl BoxEngine {
         let rec = REC.with(|r| std::mem::take(&mut *r.borrow_mut()));
         // What the rebuilt boxes read replaces what their old versions read.
         self.srcs.remove(&0);
+        if !self.lay_full {
+            // Rebuilt off the path (always-rebuilt leaves, form controls, list items): their content
+            // may differ, so the relayout starts there too.
+            self.lay_touched.extend(rec.built.iter().filter(|k| !ldirty.contains(k)).copied());
+        }
         for k in &rec.built {
             self.srcs.remove(k);
             self.bver.insert(*k, self.next_ver);
@@ -444,6 +520,7 @@ pub(crate) fn update(
     let mut eng = match (incremental, eng.take(), marks) {
         (true, Some(mut e), Some(m)) => {
             e.update(doc, rules, vw, vh, cache, m.touched, m.kids_changed);
+            e.fresh_sig = tree_sig(fresh);
             e
         }
         _ => {
@@ -516,13 +593,12 @@ pub(crate) fn mem() -> (usize, usize) {
 }
 
 /// `bver` of the element box of `node` (R60 4.2: bumped on every rebuild).
-#[allow(dead_code)] // read by QINC1h1/h2
 pub(crate) fn bver(node: usize) -> Option<u64> {
     ENGINE.with(|e| e.borrow().as_ref().map(|e| e.bver.get(&node).copied().unwrap_or(e.base_ver)))
 }
 
 /// Whether the element box of `node` (or something below it) was rebuilt by the last update.
-#[allow(dead_code)] // read by QINC1h1
+#[allow(dead_code)] // QINC1h1 decides cleanliness by `bver`; kept for QINC1h2 / diagnostics
 pub(crate) fn ldirty(node: usize) -> bool {
     ENGINE.with(|e| e.borrow().as_ref().is_some_and(|e| e.ldirty.contains(&node)))
 }

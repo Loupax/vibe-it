@@ -288,6 +288,11 @@ fn cmp_paragraph(path: &str, what: &str, ia: usize, ca: &ShapeCache, ib: usize, 
 /// Laid trees: x/y/w/h/ink within 0.01 px, `fixed`, `positioned` (order and content), sticky and scroll
 /// info, content kind and glyphs (through the shape caches), styles minus `node`/`tree_order`.
 pub(crate) fn cmp_laid(names: &Names, path: &str, a: &Laid, ca: &ShapeCache, b: &Laid, cb: &ShapeCache) -> Result<(), Mismatch> {
+    // QINC1h1: the relayout compares trees of any depth.
+    crate::stack::grow(|| cmp_laid_body(names, path, a, ca, b, cb))
+}
+
+fn cmp_laid_body(names: &Names, path: &str, a: &Laid, ca: &ShapeCache, b: &Laid, cb: &ShapeCache) -> Result<(), Mismatch> {
     cmp_styles(path, &a.style, &b.style)?;
     for (field, x, y) in [("x", a.x, b.x), ("y", a.y, b.y), ("w", a.w, b.w), ("h", a.h, b.h)] {
         near_f(path, field, x, y)?;

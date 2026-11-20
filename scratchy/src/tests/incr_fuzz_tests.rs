@@ -6,8 +6,8 @@
 //! skipped). QINC1f: the second run is now the incremental restyle. Every mutation is written to the
 //! write log the way a script's native would (`incr_log::note`), the check-mode reconcile is OFF, and
 //! the shadow update inside each build must reproduce every style the from-scratch build resolved
-//! (`cmp_styles` semantics) and its generated content. Boxes and laid trees join when QINC1g / QINC1h1
-//! make them incremental (`compare_runs` is kept for them).
+//! (`cmp_styles` semantics) and its generated content. QINC1g: the kept box tree is compared after every
+//! step; QINC1h1: so is the engine's relayout of it (`cmp_laid` against the from-scratch laid tree).
 //!
 //! Size: `SCRATCHY_FUZZ_N` cases (default 1 000 in release, 200 in debug; plus `REGRESSION_SEEDS`);
 //! `SCRATCHY_FUZZ_SEED` offsets the seeds.
@@ -431,6 +431,23 @@ fn fuzz_case(seed: u64, fs: &mut FontSystem) {
             let (n, rb, ru) = c.get();
             c.set((n + usize::from(bs.rebuilt > 0), rb + bs.rebuilt as usize, ru + bs.reused as usize));
         });
+        // QINC1h1: the engine's relayout of the kept tree equals the from-scratch laid tree (the layout
+        // checks it too, inside `measure_document`).
+        if mism.is_empty() {
+            crate::incr_layout::with_engine(|e| {
+                // (a document whose tree has no children never got an engine)
+                let Some(e) = e.filter(|e| e.doc_key() == node_id(&doc)) else { return };
+                let names = Names::from_dom(&doc);
+                if let Err(m) = cmp_laid(&names, &root_path(&names, 0), &a.laid, &a.cache, e.laid(), e.cache()) {
+                    mism.push(format!("kept laid tree {m}"));
+                }
+                let s = &e.stats;
+                FUZZ_LAYOUT.with(|c| {
+                    let (n, h, sp) = c.get();
+                    c.set((n + usize::from(!s.full), h + s.hits as usize, sp + s.splices as usize));
+                });
+            });
+        }
         if !mism.is_empty() {
             let report = format!("incr fuzz mismatch: seed {seed} step {step} (width {width}):\n{}\n{}", mism.join("\n"), log.join("\n"));
             if env::var("SCRATCHY_FUZZ_KEEP_GOING").is_ok_and(|v| v == "1") {
@@ -456,6 +473,8 @@ thread_local! {
     static FUZZ_FAILED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     /// QINC1g: (steps with an incremental box rebuild, boxes rebuilt, boxes reused).
     static FUZZ_BOXES: std::cell::Cell<(usize, usize, usize)> = const { std::cell::Cell::new((0, 0, 0)) };
+    /// QINC1h1: (incremental relayouts, cache hits, bottom-up splices).
+    static FUZZ_LAYOUT: std::cell::Cell<(usize, usize, usize)> = const { std::cell::Cell::new((0, 0, 0)) };
 }
 
 fn env_usize(name: &str, default: usize) -> usize {
@@ -485,14 +504,16 @@ fn qinc1a_fuzz_two_from_scratch_layouts_never_differ() {
     }
     let inc = FUZZ_INCREMENTAL.with(|c| c.replace(0));
     let (bsteps, rebuilt, reused) = FUZZ_BOXES.with(|c| c.replace((0, 0, 0)));
+    let (lsteps, hits, splices) = FUZZ_LAYOUT.with(|c| c.replace((0, 0, 0)));
     diag!(
-        "qinc1a/qinc1f/qinc1g fuzz: {n} cases in {:.1}s, {inc} incremental restyle steps, {bsteps} incremental box rebuilds ({rebuilt} boxes rebuilt, {reused} reused)",
+        "qinc1a/qinc1f/qinc1g/qinc1h1 fuzz: {n} cases in {:.1}s, {inc} incremental restyle steps, {bsteps} incremental box rebuilds ({rebuilt} boxes rebuilt, {reused} reused), {lsteps} incremental relayouts ({hits} cache hits, {splices} bottom-up splices)",
         t0.elapsed().as_secs_f64()
     );
     let failed = FUZZ_FAILED.with(|c| c.replace(0));
     assert_eq!(failed, 0, "{failed} failing cases (SCRATCHY_FUZZ_KEEP_GOING=1 printed them)");
     assert!(n < 20 || inc > n, "the fuzz must exercise incremental updates, not only full ones ({inc} for {n} cases)");
     assert!(n < 20 || (bsteps > n && reused > 0), "the fuzz must exercise incremental box rebuilds ({bsteps} for {n} cases, {reused} reused)");
+    assert!(n < 20 || (lsteps > n && hits > 0 && splices > 0), "the fuzz must exercise incremental relayouts ({lsteps} for {n} cases, {hits} hits, {splices} splices)");
 }
 
 // ---------- generator sanity ----------

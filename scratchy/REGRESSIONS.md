@@ -1037,6 +1037,67 @@ images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom
   reused subtree, scroll container content change; the fuzz harness on layout. Gate: full suite in shadow mode, WPT
   unchanged; headless `_CHECK=1` 0 mismatches on YouTube results/watch, Wikipedia; `incr` hit rate and bottom-up stop levels
   reported.
+  QINC1h1 DONE (Opus, 2026-11-20; `src/incr_layout.rs`, tests `src/tests/incr_layout_tests.rs`): the engine keeps the
+  `Laid` tree it laid out last for QINC1g's kept box tree, with its own shape cache and never-restarting paragraph ids.
+  Every element `Laid` an engine measure produces carries `Laid::ck` (layout.rs `Ck`, `None` on every other path):
+  origin, width, containing height, auto-margin / forced-border overrides, "inside a static inline-block", where
+  `measure_inner` returned it (position and size: flex/table parents stretch it afterwards), the box's `bver`, the
+  out-of-flow boxes it sent past itself (`pending`: box address + static position) and the keys of its z-index bubble,
+  the box-style fields the parent's flow reads (`PSig`), `resolve_positioned`'s containing block, `intr` (an ancestor
+  reads its intrinsic size: flex/grid/table containers, shrink-to-fit/keyword widths, flex items) and ink /
+  in-flow-bottom bookkeeping. Hook: `measure_document` (after a complete from-scratch layout of the tree the last
+  shadowed build returned, identified by its root child list's buffer) -> `incr_layout::after_measure`; nothing runs
+  with the env vars unset. Update: (1) BOTTOM-UP from the elements the box updates touched since the last relayout
+  plus the boxes they rebuilt off the path (outermost only): re-measure the box alone at its old key (out-of-flow:
+  `resolve_positioned` at the cached containing block), clean children served from the old tree; splice when the
+  parent view is unchanged (border box, margins, first baseline, collapse-through inputs, the `finish_z` values,
+  sticky, z-index; out-of-flow boxes it sends past itself identical and clean; its z entries are swapped in their
+  owner's list, which is re-sorted with current document-order keys), else one level up; (2) the root reached:
+  TOP-DOWN `measure_document_engine` with reuse: the old tree is harvested along the dirty paths (clean = same
+  `bver`; clean element `Laid`s detached whole by node, hoisted entries by (node, pseudo)) and `measure_inner` returns
+  a clean box at the same key minus the origin as its old `Laid` shifted (`try_hit`), re-emitting `pending` and its
+  bubble (re-keyed `tree_order`). Ink and the root's in-flow extent are recomputed only through re-measured boxes
+  (`finish_root`; a moved reused subtree has its ink shifted). Drift guard: a full engine layout every 1 000 updates;
+  touched roots: `incr_layout::touched_roots`. Offset-only changes are the bottom-up case (the box is re-measured with
+  its children hits; an abs box is re-resolved at its containing block). Shadow: tests and `SCRATCHY_INCR_CHECK=1`
+  compare with `cmp_laid` (tests panic; release `incr-check: MISMATCH laid ...` diag, `incr.check_mismatch`, start
+  over); `SCRATCHY_INCR=1` alone relayouts without comparing. Not shadowed: App frames (measured on the shaping
+  worker thread, which has no engine; their builds still feed the dirty list): QINC1j.
+  Found on the way (all reproduce only when a laid box is reused, so they are guarded, not changed): (1) layout is NOT
+  exactly translation-invariant in x where a mixed inline run is involved: `measure_mixed_inline`'s line width is
+  `(x + w) - x` in document space, and a shrink-to-fit box whose text fits exactly wraps at another x (fuzz seed
+  11814); boxes with such content are reused only at the same x (`Ck::x_sensitive`). (2) Out-of-flow boxes are
+  measured outside their ancestors' recursion, yet some intrinsic walks see them (an inline-level fixed box in a
+  `max-content` box, an abs box in a table cell): a change below an out-of-flow box never stops under an ancestor
+  that reads intrinsic sizes. (3) flex/table containers mutate a child `Laid`'s size after `measure` (stretch): a hit
+  restores the returned size. (4) `cmp_laid` recursed without stack growth (a 4 000-deep compare overflowed): now
+  through `stack::grow`. (5) `renumber_document_order` returns its index (a reused entry is re-keyed with it).
+  Tests: one per case of the item (abs box stops at itself, `height: auto` box stops at itself with a walk of < 30
+  boxes on a 60-section page, growing paragraph moves the following siblings (2 shifted hits), floats in force a walk
+  up, flex item text change (container re-runs, 2 sibling hits), table cell, fixed descendant in a clean subtree
+  re-emitted / removed / added, z-index child in a reused subtree + an insertion before it, sticky in a reused subtree,
+  scroll container stops the walk, offset-only change re-places the box); the fuzz harness compares the kept laid tree
+  after every step and counts relayouts. Fuzz (release): 26 000 cases over 7 windows (seeds 0, 10 000 ... 60 000),
+  76 000 incremental relayouts, ~310 000 hits, ~30 000 splices, 0 laid / box / style mismatches (the 7 QINC1f-fix
+  regression seeds run by default and pass). Suite: 1 506 passed, debug 44.6 s (load 1.3 -> 8.9; QINC1g 40.2 s at
+  0.5), release 37.9 s. WPT unchanged (333 / 293), also under `SCRATCHY_INCR_CHECK=1` (0 mismatches). Clippy 77.
+  Numbers (release, own wire, headless `--perf-report --budget-ms 20000`, `SCRATCHY_INCR_CHECK=1`, YouTube 30 s,
+  Wikipedia 20 s, each run under the perf lock and the 6G scope, 1-min load 4.2 -> 0.3; `incr ms / update` = engine
+  relayout time over its incremental updates, `fresh ms / layout` = the from-scratch measure it shadows; hit rate =
+  hits / (hits + misses), a miss being a box measured for real):
+  | page | runs | mismatches | relayouts (full / top-down / spliced only) | splices | stops by level walked (0..6, 7+) | hits / misses (rate) | incr ms / update | fresh ms / layout | kept laid tree |
+  |---|---|---|---|---|---|---|---|---|---|
+  | YouTube results | 3 | 0 | 39 / 36 / 30 (full 3 each; top-down 15 / 14 / 16) | 20 / 18 / 11 | 0,0,1,0,0,0,0,19 (run 1) | 2 331 / 4 162 (0.36), 0.35, 0.34 | 2.8 / 2.8 / 2.6 | 7.0 / 6.8 / 6.5 | 5.0 MB (2 180 element `Laid`s) |
+  | YouTube watch | 3 | 0 | 109 each (4 / 42) | 66 each | 34,8,12,1,2,0,0,9 | 2 468 / 6 188 (0.29), 0.29, 0.28 | 0.75 | 2.9 | 7.8 MB (3 220) |
+  | Wikipedia Rust | 3 | 0 | 4 / 5 / 4 (2-3 full, 0-1 top-down) | 3 / 1 / 3 | 0,0,0,1,0,0,0,2 | 28 / 110 (0.20) | 0.5 | ~51 | 5.5 MB (1 595) |
+  Why a step went up (watch, per run): an ancestor reads intrinsic sizes 366, flex/grid/table parent 127, out-of-flow
+  boxes sent past it changed 96, z entries changed 22, float 16; the walks that reach the root (42 of 105 watch
+  updates, 15 of 36 results) are flex chains (YouTube lays out with nested flex; the item says "the container
+  re-runs"): QINC1h2's intrinsic-size cache is what lets them stop lower. Memory (`--perf-report` RSS, 2 runs each):
+  Wikipedia off 214 / 215 MB, main e61945b `SCRATCHY_INCR=1` 258 / 265, this `SCRATCHY_INCR=1` 266 / 266; YouTube
+  results off 334 / 333, main INCR=1 413 / 411, this INCR=1 417 / 423 (+1 to +12 MB over QINC1g, within run noise on
+  YouTube; the kept laid tree's paragraphs are mostly shared with the shape memo and counted there). The copy lives
+  only with `SCRATCHY_INCR*=1` until QINC1i/j make it THE tree.
 - **QINC1h2 [M]** (P2, Sonnet; area layout; AFTER QINC1h1; can run beside QINC1i/j) Intrinsic-size cache and flex/grid/table
   reuse (R60 8.2): `cell_natural_width` (min, max) per clean box keyed by `bver`; 2-entry `ck` cache for flex items; table cell
   natural widths. Exactness by shadow mode; tests: a change outside a flex row reuses its items' intrinsic sizes (count), a
