@@ -32,7 +32,7 @@ A perf item that turns out to be wrong or bigger than its size: stop and report,
 
 
 PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; search the name; steps 1-3 are done, see TODO-DONE.txt):
- Ahead of this list by user decision (2026-11-19): QPT1a DONE bb0d258, QPT1b DONE 2e6a2a8, QPT1c DONE b33c53a, QPT1d DONE 418fbd4, QPT1d3 DONE 78c8441; next QPT1e-f (iframe realm, YouTube PoToken; R53).
+ Ahead of this list by user decision (2026-11-19): QPT1a DONE bb0d258, QPT1b DONE 2e6a2a8, QPT1c DONE b33c53a, QPT1d DONE 418fbd4, QPT1d3 DONE 78c8441; QPT1f [WIP], then QPT1e (iframe realm, YouTube PoToken; R53).
  Step 4, the main thread in the live window (YouTube playback, scrolling, mouse):
  Step 5, memory, regression guards, re-measure:
   21 QY60 [S, Opus measure] main-thread throughput on YouTube results (re-measure after steps 2-4)
@@ -558,7 +558,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       goes through `__scratchy_enter`); wrap realm timer callbacks in `__scratchy_enter`. QPT1f's realm-entered script compile
       covers scripts.
 - [ ] QPT1e [S] (after QPT1a) No-snapshot path (R53): Context::new, natives re-bound by name, preludes replayed.
-- [ ] QPT1f [M] (after QPT1a/c) Scripts in same-origin iframes (R53 D9): srcdoc, document.open/write/close,
+- [ ] [WIP] QPT1f [M] (after QPT1a/c) Scripts in same-origin iframes (R53 D9): srcdoc, document.open/write/close,
       DOMContentLoaded/load.
       FROM QPT1a #392: the script sweep, custom-element upgrade (`__d_query(0, ...)`) and `ceIsConn` treat document 0 as
       the only connected document (scripts inserted into an iframe document do not run, CEs there are not upgraded);
