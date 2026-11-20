@@ -334,6 +334,12 @@ impl Ink {
 /// the live scroll offset). `fixed` boxes live in viewport space and are
 /// not unioned into their parent.
 pub(crate) fn compute_ink(l: &mut Laid) -> Ink {
+    // QSTK1x: recursive per nesting level, so it grows its stack like the other deep walks
+    // (unguarded it overflowed the 2 MB test thread at 5000 deep in debug builds).
+    crate::stack::grow(|| compute_ink_body(l))
+}
+
+fn compute_ink_body(l: &mut Laid) -> Ink {
     let mut ink = Ink { l: l.x, t: l.y, r: l.x + l.w, b: l.y + l.h };
     let clips = l.style.overflow != Overflow::Visible;
     match &mut l.content {
