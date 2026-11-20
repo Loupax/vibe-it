@@ -179,3 +179,58 @@ fn qy53n2_effect_classes() {
     assert_eq!(e("opacity:.5"), Effect::Layout);
     assert_eq!(e("visibility:hidden"), Effect::Layout);
 }
+
+/// QY53n5: a paint-patchable hover is applied in the very turn the pointer moved, even
+/// where the R2.3/QB3 delay would hold a build; a build-needing hover still waits; a
+/// back-and-forth over two patchable links builds nothing.
+#[test]
+fn qy53n5_patchable_hover_skips_the_coalescing_delay() {
+    use winit::platform::wayland::EventLoopBuilderExtWayland;
+    let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+        Ok(l) => l,
+        Err(_) => return, // no display available (headless CI)
+    };
+    let doc = parse_html(
+        "<html><head><style>body{margin:0}a:hover{color:red}b:hover{width:99px;padding:9px}</style></head>\
+         <body><p><a id=a1 href=/1>one</a> <a id=a2 href=/2>two</a> <b id=bb>bold</b></p></body></html>",
+    );
+    let (a1, a2, bb) = (
+        node_id(&find_id(&doc, "a1").unwrap()),
+        node_id(&find_id(&doc, "a2").unwrap()),
+        node_id(&find_id(&doc, "bb").unwrap()),
+    );
+    let mut fs = new_font_system();
+    set_interaction(&InteractionState::default());
+    let (laid, cache) = build(&doc, &mut fs);
+    let mut app = App::new_static(doc, event_loop.create_proxy(), None);
+    app.cached = Some(laid);
+    app.shape_cache = cache;
+    app.font_system = fs;
+    app.hover_keys = HOVER_KEYS.with(|k| k.borrow().clone());
+    app.state_rules = STATE_HOVER;
+    app.layout_dirty = false;
+    app.restyle_requested = false;
+    app.hold_old_frame = false;
+    app.layout_in_flight = false;
+    // A slow page with a moving pointer: every build would be deferred.
+    app.last_build_time = Some(std::time::Duration::from_millis(400));
+    app.last_pointer_move = Some(std::time::Instant::now());
+    assert!(app.hover_restyle_delay().is_some());
+    // Rapid back and forth over the two links: patched at once, never dirty, no flush.
+    for i in 0..20 {
+        let n = if i % 2 == 0 { a1 } else { a2 };
+        app.last_pointer_move = Some(std::time::Instant::now());
+        app.update_hover(n);
+        assert!(app.interaction.hover.contains(&n), "applied in the same turn");
+        assert!(!app.layout_dirty, "patched, not rebuilt");
+        assert!(!app.hover_flush_scheduled, "no deferred flush");
+        assert!(app.last_hover_restyle.is_none(), "no build storm");
+    }
+    // A layout-changing hover still waits for the delay.
+    app.last_pointer_move = Some(std::time::Instant::now());
+    app.update_hover(bb);
+    assert!(!app.interaction.hover.contains(&bb), "build-needing hover is deferred");
+    assert!(app.hover_flush_scheduled);
+    assert!(!app.layout_dirty);
+    set_interaction(&InteractionState::default());
+}
