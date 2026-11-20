@@ -855,11 +855,19 @@ const PRELUDE: &str = r#"
     try { u = new g.URL(o.href); } catch (e) { u = new g.URL('about:blank'); }
     g.__scratchy_apply_env({ userAgent: p.navigator.userAgent, appVersion: p.navigator.appVersion,
       innerWidth: o.width, innerHeight: o.height, title: '', href: u.href, protocol: u.protocol, host: u.host,
-      hostname: u.hostname, port: u.port, pathname: u.pathname, search: u.search, hash: u.hash, origin: p.location.origin });
+      hostname: u.hostname, port: u.port, pathname: u.pathname, search: u.search, hash: u.hash, origin: o.opaque ? 'null' : p.location.origin });
     Object.defineProperty(g, 'isSecureContext', { value: !!p.isSecureContext, writable: true, configurable: true, enumerable: true });
     g.__d_bind_doc(o.docId, o.base, o.dom);
     doc.readyState = 'complete';
-    [['parent', p], ['top', o.top], ['frameElement', o.frameElement], ['opener', null], ['frames', g]].forEach(function (kv) {
+    // QPT1-D1: an opaque-origin (data:) frame sees cross-origin views of its parent and top, has no
+    // frameElement, and tells the cross-origin proxy what its real parent/top are.
+    if (o.opaque) {
+      Object.defineProperty(g, '__scratchy_opaque', { value: true });
+      Object.defineProperty(g, '__scratchy_xo', { value: o.xo, configurable: true });
+      Object.defineProperty(g, '__scratchy_xparent', { value: p });
+      Object.defineProperty(g, '__scratchy_xtop', { value: o.top });
+    }
+    [['parent', o.opaque ? o.xo(p) : p], ['top', o.opaque ? o.xo(o.top) : o.top], ['frameElement', o.opaque ? null : o.frameElement], ['opener', null], ['frames', g]].forEach(function (kv) {
       Object.defineProperty(g, kv[0], { value: kv[1], writable: true, configurable: true, enumerable: true });
     });
     // QPT1d: the browsing context name; a script's `name = x` tells the parent (its `window[name]` props).

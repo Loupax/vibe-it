@@ -3234,6 +3234,75 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   var frameSrc = function (el) { return (__d_attr(el.__id, 'src') || '').replace(/^\s+|\s+$/g, ''); };
   // QPT1f (R53 D9): `srcdoc` wins over `src` (an about:srcdoc document, same origin as the parent).
   var frameSrcdoc = function (el) { return __d_attr(el.__id, 'srcdoc'); };
+  // QPT1-D1 (user 2026-11-20, as Chrome): a `data:` iframe has an OPAQUE origin. Its document is decoded and
+  // loaded into its own realm like a srcdoc (scripts run), but the parent only gets a cross-origin
+  // WindowProxy (`contentDocument` null; only postMessage, close, closed, focus, blur, frames, length,
+  // location, opener, parent, self, top, window readable; everything else throws SecurityError), and the
+  // frame gets cross-origin views of its parent and top and a null `frameElement`.
+  var dataHtml = function (s) {
+    var m = /^data:([^,]*),([\s\S]*)$/i.exec(s);
+    if (!m) return '';
+    var mime = m[1].split(';')[0].trim().toLowerCase(), b64 = /;\s*base64\s*$/i.test(m[1]), body = m[2];
+    if (mime !== '' && mime !== 'text/html' && mime !== 'application/xhtml+xml') return '';
+    try {
+      if (b64) { var bin = atob(body.replace(/\s+/g, '')); try { return decodeURIComponent(escape(bin)); } catch (e) { return bin; } }
+      return decodeURIComponent(body);
+    } catch (e) { try { return unescape(body); } catch (e2) { return ''; } }
+  };
+  var frameIsData = function (el) { return frameSrcdoc(el) == null && /^data:/i.test(frameSrc(el)); };
+  // The html a frame loads by itself (srcdoc, or a data: document), else null.
+  var frameHtml = function (el) {
+    var sd = frameSrcdoc(el);
+    if (sd != null) return sd;
+    return frameIsData(el) ? dataHtml(frameSrc(el)) : null;
+  };
+  var XO_NAMES = { postMessage: 1, close: 1, closed: 1, focus: 1, blur: 1, frames: 1, length: 1, location: 1, opener: 1, parent: 1, self: 1, top: 1, window: 1 };
+  var xoViews = new WeakMap();
+  var xoErr = function (win, k, w) {
+    return herr("Failed to " + w + " a named property '" + String(k) + "' " + (w === 'set' ? 'on' : 'from') + " 'Window': Blocked a frame with origin \"" + g.location.origin + "\" from accessing a cross-origin frame.", 'SecurityError');
+  };
+  // A cross-origin WindowProxy over `win` (one per window, so it compares equal).
+  var xoOf = function (win) {
+    if (win === null || typeof win !== 'object' && typeof win !== 'function') return win;
+    var v = xoViews.get(win);
+    if (v) return v;
+    var self;
+    var read = function (k) {
+      if (k === 'window' || k === 'self' || k === 'frames') return self;
+      if (k === 'opener') return null;
+      // The viewer of an opaque frame's proxy is its (real) parent chain; the viewer of anything else's proxy is cross-origin.
+      if (k === 'parent') return win.__scratchy_opaque ? win.__scratchy_xparent : xoOf(win.parent);
+      if (k === 'top') return win.__scratchy_opaque ? win.__scratchy_xtop : xoOf(win.top);
+      if (k === 'location') return { get href() { throw xoErr(win, 'href', 'read'); }, set href(u) { try { win.location.href = u; } catch (e) {} }, toString: function () { throw xoErr(win, 'toString', 'read'); } };
+      var r = win[k];
+      return typeof r === 'function' ? function () { return r.apply(win, arguments); } : r;
+    };
+    var keys = Object.keys(XO_NAMES);
+    self = new Proxy(Object.create(null), {
+      get: function (t, k) {
+        if (typeof k === 'symbol') return undefined;
+        if (XO_NAMES[k] === 1) return read(k);
+        throw xoErr(win, k, 'read');
+      },
+      set: function (t, k, val) {
+        if (k === 'location') { try { win.location.href = val; } catch (e) {} return true; }
+        throw xoErr(win, k, 'set');
+      },
+      has: function (t, k) { return typeof k === 'string' && XO_NAMES[k] === 1; },
+      ownKeys: function () { return keys.slice(); },
+      getOwnPropertyDescriptor: function (t, k) {
+        if (typeof k === 'string' && XO_NAMES[k] === 1) return { value: undefined, writable: false, enumerable: false, configurable: true };
+        throw xoErr(win, k, 'read');
+      },
+      getPrototypeOf: function () { return null; },
+      setPrototypeOf: function () { throw xoErr(win, '__proto__', 'set'); },
+      defineProperty: function (t, k) { throw xoErr(win, k, 'set'); },
+      deleteProperty: function (t, k) { throw xoErr(win, k, 'delete'); }
+    });
+    xoViews.set(win, self);
+    return self;
+  };
+  Object.defineProperty(g, '__scratchy_xo', { value: xoOf, configurable: true });
   var frameSrcOk = function (el) {
     if (frameSrcdoc(el) != null) return true;
     var s = frameSrc(el);
@@ -3248,8 +3317,8 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (!inPage(el) || !frameSrcOk(el)) return null;
     var f = frames[el.__id];
     if (f) return f;
-    var sd = frameSrcdoc(el) != null, pg = sd ? [] : __d_iframe_page(el.__id), href = sd ? 'about:srcdoc' : 'about:blank';
-    if (sd || !/^data:/i.test(frameSrc(el))) {
+    var sd = frameSrcdoc(el) != null, op = frameIsData(el), pg = (sd || op) ? [] : __d_iframe_page(el.__id), href = sd ? 'about:srcdoc' : op ? frameSrc(el) : 'about:blank';
+    {
       var w = g.__scratchy_realm_new();
       if (w) {
         var did = __d_newdoc();
@@ -3258,10 +3327,10 @@ pub(crate) const DOM_PRELUDE: &str = r#"
         // QPT1f: the realm reports its window `load` (end of a srcdoc load or of document.close()),
         // and the parent then fires `load` on the <iframe> (while it still shows that window).
         var fr = null, onLoad = function () { if (fr && frames[el.__id] === fr && inPage(el)) el.dispatchEvent(new g.Event('load')); };
-        w.__scratchy_realm_init({ docId: did, dom: { cache: cache, owners: owners, xr: xr, onLoad: onLoad }, href: href, base: pg.length ? null : doc.baseURI, parent: g, top: g.top,
-          frameElement: el, name: __d_attr(el.__id, 'name') || '', onName: function () { syncWin(); }, width: dim('width', 300), height: dim('height', 150) });
+        w.__scratchy_realm_init({ docId: did, dom: { cache: cache, owners: owners, xr: xr, onLoad: onLoad }, href: href, base: (pg.length || op) ? null : doc.baseURI, parent: g, top: g.top,
+          opaque: op, xo: xoOf, frameElement: el, name: __d_attr(el.__id, 'name') || '', onName: function () { syncWin(); }, width: dim('width', 300), height: dim('height', 150) });
         nFrames++;
-        return (frames[el.__id] = fr = { doc: w.document, win: w, el: el, realm: true, loaded: false });
+        return (frames[el.__id] = fr = { doc: w.document, win: w, view: op ? xoOf(w) : w, opaque: op, el: el, realm: true, loaded: false });
       }
       if (w === null) {
         // QPT1b (R53 D6): over the cap of live realms the extra frame gets the stand-in (an older
@@ -3288,7 +3357,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     win.getComputedStyle = function (e, p) { return g.getComputedStyle(e, p); };
     Object.defineProperty(d, 'defaultView', { get: function () { return win; }, configurable: true, enumerable: true });
     nFrames++;
-    return (frames[el.__id] = { doc: d, win: win, el: el, realm: false });
+    return (frames[el.__id] = { doc: d, win: win, view: op ? xoOf(win) : win, opaque: op, el: el, realm: false });
   };
   // QPT1b (R53 D6): a frame's window lives while its iframe is connected and keeps its src. Dropping
   // cancels the realm's timers, requests and rejection reports, drops the nested frames, and detaches
@@ -3344,10 +3413,10 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     return out;
   };
   var frameName = function (el) { var f = frames[el.__id]; return String(f ? f.win.name : (__d_attr(el.__id, 'name') || '')); };
-  var winAt = function (i) { var el = frameList()[i]; var f = el && frameOf(el); return f ? f.win : undefined; };
+  var winAt = function (i) { var el = frameList()[i]; var f = el && frameOf(el); return f ? f.view : undefined; };
   var winNamed = function (nm) {
     var l = frameList();
-    for (var i = 0; i < l.length; i++) if (frameName(l[i]) === nm) { var f = frameOf(l[i]); return f ? f.win : undefined; }
+    for (var i = 0; i < l.length; i++) if (frameName(l[i]) === nm) { var f = frameOf(l[i]); return f ? f.view : undefined; }
     return undefined;
   };
   var syncWin = function () {
@@ -3386,9 +3455,9 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     sfHtml(id, h); sweepFrames();
     if (!ixN && /<iframe/i.test(h)) syncWin();
     // QPT1f: srcdoc iframes made by innerHTML load (as tasks).
-    if (/srcdoc/i.test(h) && /<iframe/i.test(h)) {
-      var l = __d_query(id, 'iframe[srcdoc]', false) || [];
-      for (var i = 0; i < l.length; i++) if (!frames[l[i]] && inPage(wrap(l[i]))) loadFrameLater(wrap(l[i]));
+    if (/(srcdoc|data:)/i.test(h) && /<iframe/i.test(h)) {
+      var l = __d_query(id, 'iframe', false) || [];
+      for (var i = 0; i < l.length; i++) if (!frames[l[i]] && inPage(wrap(l[i])) && frameHtml(wrap(l[i])) != null) loadFrameLater(wrap(l[i]));
     }
   };
   __d_settext = function (id, t) { sfTxt(id, t); sweepFrames(); };
@@ -3399,7 +3468,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (!s && !nm) return;
     if (__d_tag(id).toLowerCase() !== 'iframe') return;
     if (s && nFrames) dropFrame(id);
-    if (s && __d_attr(id, 'srcdoc') != null && inPage(wrap(id))) loadFrameLater(wrap(id));
+    if (s && inPage(wrap(id)) && frameHtml(wrap(id)) != null) loadFrameLater(wrap(id));
     else if (nm && frames[id] && frames[id].realm && inPage(frames[id].el)) frames[id].win.name = __d_attr(id, 'name') || '';
     if (inPage(wrap(id))) syncWin();
   };
@@ -3407,8 +3476,8 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   __d_rmattr = function (id, n) { sfRm(id, n); ifrAttr(id, n); };
   __d_setq = function (id, n, v) { sfSq(id, n, v); ifrAttr(id, n); };
   __d_rmq = function (id, n) { sfRq(id, n); ifrAttr(id, n); };
-  def(IFP, 'contentDocument', function () { var f = frameOf(this); return f ? f.doc : null; });
-  def(IFP, 'contentWindow', function () { var f = frameOf(this); return f ? f.win : null; });
+  def(IFP, 'contentDocument', function () { var f = frameOf(this); return f && !f.opaque ? f.doc : null; });
+  def(IFP, 'contentWindow', function () { var f = frameOf(this); return f ? f.view : null; });
   IFP.getSVGDocument = function () { return this.contentDocument; };
   rStr(IFP, 'src', 'src'); rStr(IFP, 'srcdoc', 'srcdoc'); rStr(IFP, 'name', 'name'); rStr(IFP, 'width', 'width'); rStr(IFP, 'height', 'height');
   // QPT1f (R53 D9): load an iframe's `srcdoc` into its window: the realm parses it, runs its scripts
@@ -3417,7 +3486,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   // `top`: nothing else on the JS stack (a task), so each script gets the page-load CPU budget.
   var loadFrame = function (el, top) {
     if (!inPage(el)) return;
-    var html = frameSrcdoc(el);
+    var html = frameHtml(el);
     if (html == null) return;
     var f = frameOf(el);
     if (!f || f.loaded) return;
@@ -3430,14 +3499,14 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   var loadFrameLater = function (el) { g.setTimeout(function () { loadFrame(el, true); }, 0); };
   // The srcdoc iframes already in this realm's document (page load; a frame document's parse).
   var bootFrames = function () {
-    var l = __d_query(doc.__id, 'iframe[srcdoc]', false) || [];
-    for (var i = 0; i < l.length; i++) loadFrame(wrap(l[i]), true);
+    var l = __d_query(doc.__id, 'iframe', false) || [];
+    for (var i = 0; i < l.length; i++) if (frameHtml(wrap(l[i])) != null) loadFrame(wrap(l[i]), true);
   };
   Object.defineProperty(g, '__scratchy_frames_boot', { value: function () { bootFrames(); } });
   afterIns = function (c) {
     if (c.nodeType !== 1 || __d_tag(c.__id).toLowerCase() !== 'iframe' || !inPage(c)) return;
     syncWin();
-    if (frameSrcdoc(c) != null) { loadFrameLater(c); return; }
+    if (frameHtml(c) != null) { loadFrameLater(c); return; }
     g.setTimeout(function () { if (inPage(c) && frameSrcOk(c)) c.dispatchEvent(new Event('load')); }, 0);
   };
   def(doc, 'implementation', function () { return impl; });

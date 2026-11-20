@@ -2123,6 +2123,20 @@ Network iframes stay QA18b2. Rendering iframe content is not part of QPT1.
 `contentDocument` is `null` and the parent cannot reach into them. Scratchy (QA18b) gives them a readable same-origin
 document. Keep scratchy's behaviour, or match Chrome (then they get no realm and `contentDocument` becomes `null`)?
 
+**QPT1-D1 (2026-11-20, user answered D4: match Chrome) DONE.** `data:` iframes now have an OPAQUE origin. Their document is
+decoded (percent or base64; text/html only, other types load empty) and loaded into its own realm like a srcdoc, so its
+scripts run, `location.origin` is `null`, `frameElement` is null, and `parent`/`top` are cross-origin views. The parent gets
+`contentDocument === null` and `contentWindow` = a cross-origin WindowProxy (`xoOf` in js_dom.rs, a JS `Proxy`, one per window):
+only postMessage, close, closed, focus, blur, frames, length, location (href set only), opener, parent, self, top, window are
+readable (`parent`/`top` of an opaque frame give the real parent chain; the view of anything else is cross-origin); every other
+get/set/define/delete throws `SecurityError`. postMessage across the boundary gives the receiver a cross-origin view as
+`event.source`. Genuinely cross-origin (network) iframes had no path to reuse: they still give `null` (QA18b2), so this proxy is
+new and is what a future real cross-origin frame should use. Limits: the opaque realm shares the page's native tables, so
+isolation is by API surface (a script guessing raw node ids could still reach the page's natives, as for any realm); the
+realm is not given its own storage/cookie partition. Existing tests updated: `js_dom_tests.rs` the QA18b iframe test (`dd.contentDocument.nodeType`
+became `dd.contentDocument` = null) and the QPT1a nested-realm test (`typeof dd.contentWindow.String` became
+`typeof dd.contentWindow.postMessage`, `contentDocument` null). New: `qpt1_d1_*` tests.
+
 ## R52: QM1k2: why scratchy gets no PoToken. BotGuard makes an `<iframe>` and reads `iframe.contentWindow.String` to get clean built-ins from a fresh realm. scratchy's iframe window (QA18b) is a null-prototype object with ten own properties, so `String` is `undefined`. BotGuard then skips its whole fingerprint pass and sends an early-exit answer (~2.9 KB). `GenerateIT` answers `[null,43200,null,"<fallback>"]`: NO integrity token, so no PoToken is minted, SABR stays at status 2 and then goes to 3 (R45). A throwaway stand-in that only gives that object the page's globals turns the answer into a real integrity token. YouTube then mints an 87-byte PoToken, and every SABR answer is status **1** (OK) for the whole 119 s run, past the old ~64 s stop (Opus investigator QM1k2, 2026-11-19, research only, docs only) — OPEN: proposed QPT1 (the fix, L) and QPT2-QPT8 (fingerprint gaps, not blocking today)
 
 **Status: research only, docs only. No product change.** A temporary 6-line loader in `js.rs` (`QPROBE_JS=<file>` evaluated

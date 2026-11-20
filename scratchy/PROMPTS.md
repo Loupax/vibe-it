@@ -8445,3 +8445,9 @@ Prompt: item QY53n3 (P3): hover changes that only gain/lose PAINT plus OFFSET ru
 > Implement QINC1e: `incr::note(node, Change)` at every DOM-writing native, bounded log (overflow -> Global), consumed by nothing yet, `--perf-report` counters.
 
 **What changed:** new `src/incr_log.rs` (`Change`, `note`, bounded `CAP` = 4096 entries per window, attribute values over 512 bytes kept as `Val::Big`, `drain`, `layout_boundary` called from `js::pause_budget_since`, `stats_json`). `js_dom.rs` natives log only when the write changed a value of a node connected to the page: setattr/rmattr/setq/rmq/setns/rmns (name, old, new), insert/remove/move (parent, child, siblings), text data, textContent, innerHTML, document.write, form state (checked, indeterminate, reset, selectedIndex, option selected, value, selection), sheet text; adopted CSS and `css_ver` bumps log with no node. `--perf-report` gets `incr.log` {layouts, entries, max_per_layout, global, overflows}, a sub-object of QINC1a's `incr` object. Tests: `src/tests/incr_log_tests.rs`.
+
+## QPT1-D1: `data:` iframes get an opaque origin (coordinator assignment, user decision 2026-11-20)
+
+> Implement QPT1-D1: data: iframes get an OPAQUE origin as in Chrome: iframe.contentDocument is null and contentWindow is a cross-origin WindowProxy; the data: document's scripts still run in their own realm and cannot reach the parent's DOM. Reuse the cross-origin path.
+
+**What changed:** `js_dom.rs` (`dataHtml`, `frameHtml`, `xoOf` cross-origin WindowProxy; data: frames load like srcdoc into a realm with origin `null`), `js.rs` (`__scratchy_realm_init` `opaque`), `globals_prelude.js` (postMessage source is a cross-origin view across an opaque boundary). Two QPT1 tests updated (they read into a data: iframe), two `qpt1_d1_*` tests added. R53 note. There was no cross-origin path to reuse (network iframes give null), so the proxy is new.
