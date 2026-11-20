@@ -143,8 +143,10 @@ thread_local! {
 thread_local! {
     /// QINC1h2: `cell_natural_width` results of element boxes: (node, as_child) -> (bver, min, max).
     /// Used only during an engine measure; cleared when the engine starts over.
-    static NAT: RefCell<HashMap<(usize, bool), (u64, f32, f32)>> = RefCell::new(HashMap::new());
+    static NAT: RefCell<NatMap> = RefCell::new(HashMap::new());
 }
+
+type NatMap = HashMap<(usize, bool), (u64, f32, f32)>;
 
 /// The cached (min, max) natural width of element box `node` when it is still clean.
 pub(crate) fn nat_get(node: usize, as_child: bool) -> Option<(f32, f32)> {
@@ -1039,6 +1041,9 @@ impl LayoutEngine {
             }
             let why = if intrinsic_above_out_of_flow(nb, &bpath) {
                 "intrinsic_above_out_of_flow"
+            } else if ck.intr && !ck.bubble.is_empty() {
+                // Its z-index entries sit in owners above; a re-measure here mostly fails on them (YouTube).
+                "intrinsic_ancestor"
             } else if !ck.cacheable {
                 "not_cacheable"
             } else if !matches!(parent_box.content, BoxContent::Blocks(_)) {

@@ -8927,3 +8927,18 @@ Method: installed main binary (commit 4e807b4e31), `--perf-report --seconds 0` o
 | 4 | 999.7 | 1104.9 | +105 |
 
 So one wrapper costs about 85-105 ns per call (createElement itself is about 1.0 us). On YouTube results (about 24k elements, not all created through createElement: the parser builds most) that is at most ~2.5 ms of a multi-second load, below run-to-run noise of any page metric. No stack-depth benefit either (V8 stack is not the limit). The folding would also need a cross-prelude hook (the DOM prelude is evaluated before `observe()` exists), adding a check on the hot path anyway, and risks the QM1f lazy-observer behaviour. Verdict: NO MEASURABLE SAVING on V8; close QY47b without code. (The custom-elements `created`/`ceUpgrade` and script-creation wrappers are the same order of cost per call and are not worth touching either.)
+
+**QINC1h2 DONE (Sonnet, 2026-11-20).** Intrinsic-size cache: `natural_width_impl` memoises (min, max) per (node, as_child) with the
+box's `bver`, only during an engine measure (the shadow's from-scratch measure never uses it, so `cmp_laid` stays an independent
+check); incomplete (deadline) results are not stored. Bottom-up: a box below an intrinsic reader (`Ck::intr`) is re-measured and
+its old natural widths (entries valid for the old `bver`; a flavor nobody read has none) compared bit-exactly with the new ones;
+equal + same parent view = splice. The re-measure runs under `intr_anc_guard` so the new `Ck`s keep `intr_anc` (found by fuzz seed
+30608: without it a later step stopped below a shrink-to-fit fixed `html`). Boxes with z-index entries under a reader still go up
+(without that check `z_entries_changed` rose 22 -> ~300 per run and the engine was 2x slower from failed attempts). Flex/grid/table
+parents still always go up (the container stretches the item after measure; a splice would have to replay that).
+Fuzz (release): 7 windows x 3 700 cases (seeds 0 ... 60 000) + seed 70 000: 0 mismatches. Suite 1 511 passed.
+YouTube watch, 30 s, `SCRATCHY_INCR_CHECK=1`, 3 runs main (109445c) vs this, 0 mismatches all: walks reaching the root (of ~120
+updates) 55/50/54 -> 52/64/51 (NOT fewer: the blockers are z entries, pending out-of-flow boxes and flex parents); "intrinsic_ancestor"
+ups 480/449/481 -> 517/683/505 (it now also counts the z-entry precheck, which runs before the flex-parent rule: that one went
+190/161/184 -> 13/18/13); intrinsic hits / misses ~1 550 / ~3 950 per run (0.28); intrinsic stops 7-13 per run; engine relayout
+time `layout_ms` 86/81/92 -> 67/73/68. Counts vary by run (the page).
