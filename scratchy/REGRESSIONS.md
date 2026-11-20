@@ -737,6 +737,38 @@ Proposed item (coordinator files it):
   still survive 3/3, YouTube results at 500 Hz from 15 s survives 3/3, and on a static page 3 interleaved pairs of 60 s
   of 500 Hz motion, drain on vs `SCRATCHY_WL_DRAIN=0`, differ by < 0.6 s process CPU (< 1 % of one core).
 
+## R57 section 8: QY54a4 (the wl-drain thread sleeps while the main thread is idle): CPU gate MET
+
+Main publishes a "busy since" `AtomicU64` (`WlDrain::busy` in `ApplicationHandler::new_events`, also once in `resumed` after the
+drain starts; `WlDrain::idle` as the last statement of `about_to_wait`, which has no early return). The stamp is non-zero for the
+whole loop iteration, so a stall in any callback after `new_events` (window event, user event, timer slice, forced layout in
+`about_to_wait`) is seen. The thread sleeps on its wake socket (`poll` with a 50 ms timeout, or the rest of the 50 ms threshold)
+while the stamp is 0 or younger than 50 ms; once older it does `prepare_read` / `poll` (20 ms timeout, so it goes back to sleep
+soon after main does) / `read_without_dispatch` as before. Stop, POLLHUP (only watched while main is busy; main sees the same
+error in its own read) and the panic hook are unchanged. Not covered: a stall inside winit's own dispatch before `new_events`
+(short, winit-internal).
+
+Release build of the branch, own wire and nested dwl, `flock /tmp/scratchy-perf.lock` per run (run.sh holds it itself; the
+60 s runs used the QY54a3 wrapper, which also samples per-thread CPU from /proc). Load (1 min) at the start: 0.2-3.2.
+
+| gate | result |
+|---|---|
+| `run.sh busy450 500 20 3` | survived 3/3 (8885-9340 moves, longest callback 448 ms, redraw gap max 4.3 s) |
+| `run.sh stall_k18 500 20 3` | survived 3/3 (8561-8676 moves, longest callback 1.39-1.53 s) |
+| YouTube results, 500 Hz, motion from 15 s, 60 s | survived 3/3 (27 105-28 006 moves, longest callback 0.97-1.34 s) |
+
+Static page, 60 s of 500 Hz motion, 3 interleaved pairs (process CPU = user + sys, whole run incl. startup):
+
+| pair (order) | drain on | drain off (`SCRATCHY_WL_DRAIN=0`) | on - off | wl-drain thread CPU |
+|---|---|---|---|---|
+| 1 (on, off) | 1.02 s | 1.03 s | -0.01 s | 0.00 s |
+| 2 (on, off) | 1.04 s | 1.03 s | +0.01 s | 0.00 s |
+| 3 (on, off) | 1.05 s | 1.27 s | -0.22 s | 0.00 s |
+
+On - off is -0.22 to +0.01 s per 60 s (gate < 0.6 s); R57 section 7 with the always-polling thread: +0.43 to +1.03 s (mean +0.83 s).
+The thread itself rounds to 0.00 s (it wakes ~20 times a second while main is idle). Pair 3's "off" run is noise (the same
+binary without the thread normally costs 1.03-1.12 s).
+
 ## R56: Quiet-machine re-measurement of QY60, QY54 and QY33 on V8 main. QY60: FIXED. On YouTube results the masthead is finished at 4.3-4.6 s (R38: 47-53 s with a 20 s budget), all 20 results are in by 3.3-4.4 s, the worst rAF wait is 623-634 ms (R38: 3.6 s) and the worst timer lateness 701-725 ms (R38: 4.1 s). Forced layout is 0.6-1.0 s per 10 s headless (QV8-m: 14.6 s). The main thread is saturated only for ~5 s of load (page JS ~0.8-0.95 s per second), then idle. NEW (FIXED by QY57r: ioEval0 no longer clips by a propagated body overflow; thumbnails now paint): the thumbnails still show `true`: scratchy's IntersectionObserver clips every target by `<body>` (YouTube's body is 956x0 with `overflow: scroll`), so every entry has an empty intersection and YouTube never sets `src`. QY54: STILL OPEN. The nested compositor drops scratchy when about 190-225 pointer-motion events queue up unread: 3/3 lost with a 450 ms busy loop at 500 Hz, which is INSIDE the 500 ms callback budget. YouTube results at 500 Hz: lost 3/3 during load and 3/3 after load, on the inline-preview player's `getPlayerSize` layouts (0.7-0.98 s in one promise job). At 125 Hz it survives 3/3. QY33: FIXED. In 21 headless runs (home, results, watch) and 9 window runs: 0 budget kills, and the largest callback after load is 130 / 233 / 264 ms budget clock (327 ms raw) (Opus, 2026-11-20, measure only, docs only) — OPEN: proposed QY57r, QY54a, QY54b (below)
 
 **Setup (all three items).** Main b88b3db (its code is 86635e3: the commits after it change only TODO files). The binary is

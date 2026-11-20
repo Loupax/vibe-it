@@ -4043,6 +4043,17 @@ impl ApplicationHandler<AppEvent> for App {
         self.window = Some(window);
         self.surface = Some(surface);
         self.wl_drain = crate::wl_drain::WlDrain::start(event_loop);
+        if let Some(d) = &self.wl_drain {
+            d.busy(); // this iteration's new_events ran before the drain existed
+        }
+    }
+
+    /// QY54a4: a loop iteration starts: stamp "busy since" for the wl-drain thread. It stays set
+    /// through every callback until the end of `about_to_wait`, so a stall anywhere in between is seen.
+    fn new_events(&mut self, _event_loop: &ActiveEventLoop, _cause: winit::event::StartCause) {
+        if let Some(d) = &self.wl_drain {
+            d.busy();
+        }
     }
 
     /// QY54a2: join the wl-drain thread while winit's display is still alive (winit calls this on a
@@ -4055,6 +4066,7 @@ impl ApplicationHandler<AppEvent> for App {
     /// indefinitely when none are pending, so timer-less pages never
     /// wake up on their own).
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // (QY54a4: `new_events` marked the wl-drain busy; the stamp is cleared at the very end.)
         // QY54a2: a panic on this thread stopped the drain; we are still running, so it was caught.
         if self.wl_drain.as_ref().is_some_and(crate::wl_drain::WlDrain::stopped_by_panic) {
             self.wl_drain = None;
@@ -4105,6 +4117,10 @@ impl ApplicationHandler<AppEvent> for App {
             None => ControlFlow::Wait,
         };
         event_loop.set_control_flow(flow);
+        // QY54a4: main is about to sleep in calloop (which reads the Wayland socket itself).
+        if let Some(d) = &self.wl_drain {
+            d.idle();
+        }
     }
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: AppEvent) {

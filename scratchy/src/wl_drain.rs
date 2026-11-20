@@ -14,14 +14,21 @@
 //! sees the same error in its own read and QB1 prints its one line), when woken through a pipe by
 //! `stop` (`App::exiting`, `Drop`), and when the thread that started it panics (a chained panic
 //! hook, so an unwind through `run_app` never drops the display under a polling thread).
+//!
+//! QY54a4 (R57 section 7): while the main thread is idle in calloop it reads the socket itself, and a
+//! second poller on the same fd only costs CPU (thread polls/reads plus extra main wake-ups). So the
+//! main thread publishes a "busy since" stamp (`WlDrain::busy` in `new_events`, `WlDrain::idle` as the
+//! last thing in `about_to_wait`: the stamp is non-zero for the whole iteration, callbacks included);
+//! the thread only touches the Wayland fd once the stamp is older than `BUSY_AFTER`, and otherwise
+//! sleeps on its wake socket for at most `IDLE_POLL`, then re-checks.
 //! `SCRATCHY_WL_DRAIN=0` disables it; non-Wayland displays get no thread.
 
 use std::ffi::c_void;
 use std::io::{ErrorKind, Write};
 use std::os::unix::net::UnixStream;
 use std::ptr::NonNull;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, Once};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, Once, OnceLock};
 use std::thread::{JoinHandle, ThreadId};
 use std::time::{Duration, Instant};
 
@@ -31,9 +38,25 @@ use wayland_client::Connection;
 use winit::event_loop::ActiveEventLoop;
 use winit::raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
 
+/// The main thread must have been busy this long before the thread reads the socket (the
+/// compositor only gives up after ~190 unread motion events, i.e. ~400 ms at 500 Hz).
+const BUSY_AFTER: Duration = Duration::from_millis(50);
+/// How long the thread sleeps while main is idle before it re-checks the stamp.
+const IDLE_POLL: Duration = Duration::from_millis(50);
+/// Poll timeout while reading: how soon the thread notices that main went idle again.
+const READ_POLL: Duration = Duration::from_millis(20);
+
+/// Monotonic nanoseconds since the first call, plus one (0 is reserved for "idle").
+fn stamp_now() -> u64 {
+    static EPOCH: OnceLock<Instant> = OnceLock::new();
+    EPOCH.get_or_init(Instant::now).elapsed().as_nanos() as u64 + 1
+}
+
 /// State shared by the owner (`WlDrain`), the thread and the panic hook.
 struct Shared {
     stop: AtomicBool,
+    /// `stamp_now()` of the start of the main thread's current loop iteration, 0 while it is idle.
+    busy_since: AtomicU64,
     /// Set by the thread as its last action (after the foreign connection is dropped).
     exited: AtomicBool,
     /// Set when the panic hook stopped the thread (the owner may restart it if the panic was caught).
@@ -129,6 +152,7 @@ impl WlDrain {
         let conn = Connection::from_backend(unsafe { Backend::from_foreign_display(ptr.cast()) });
         let shared = Arc::new(Shared {
             stop: AtomicBool::new(false),
+            busy_since: AtomicU64::new(0),
             exited: AtomicBool::new(false),
             by_panic: AtomicBool::new(false),
             wake: wake_tx,
@@ -139,7 +163,7 @@ impl WlDrain {
         let handle = std::thread::Builder::new()
             .name("wl-drain".into())
             .spawn(move || {
-                drain_loop(&conn, &wake_rx, &s.stop);
+                drain_loop(&conn, &wake_rx, &s.stop, &s.busy_since);
                 drop(conn);
                 drop(keep_alive.take());
                 s.exited.store(true, Ordering::SeqCst);
@@ -149,6 +173,23 @@ impl WlDrain {
         HOOK.call_once(install_panic_hook);
         lock(&REGISTRY).push(shared.clone());
         Some(WlDrain { shared })
+    }
+
+    /// The main thread starts a loop iteration (`new_events`): the thread starts timing the stall.
+    pub(crate) fn busy(&self) {
+        self.shared.busy_since.store(stamp_now(), Ordering::Release);
+    }
+
+    /// The main thread is about to sleep in calloop (end of `about_to_wait`): it reads the socket itself.
+    pub(crate) fn idle(&self) {
+        self.shared.busy_since.store(0, Ordering::Release);
+    }
+
+    /// Tests: main has been busy for `ago` already.
+    #[cfg(test)]
+    pub(crate) fn busy_for_test(&self, ago: Duration) {
+        let now = stamp_now();
+        self.shared.busy_since.store(now.saturating_sub(ago.as_nanos() as u64).max(1), Ordering::Release);
     }
 
     /// Stops the thread (flag + one byte on the wake pipe) and joins it.
@@ -178,16 +219,38 @@ impl Drop for WlDrain {
     }
 }
 
-/// prepare_read / poll / read without dispatch, until stopped or the connection fails.
-fn drain_loop(conn: &Connection, wake: &UnixStream, stop: &AtomicBool) {
+/// While main is idle (stamp 0) or has been busy for less than `BUSY_AFTER`: sleep on the wake
+/// socket only. Otherwise prepare_read / poll / read without dispatch, with a short poll timeout so
+/// the thread goes back to sleep soon after main does. Runs until stopped or the connection fails.
+fn drain_loop(conn: &Connection, wake: &UnixStream, stop: &AtomicBool, busy_since: &AtomicU64) {
+    let poll_timeout = |d: Duration| rustix::event::Timespec::try_from(d).ok();
     while !stop.load(Ordering::SeqCst) {
+        let since = busy_since.load(Ordering::Acquire);
+        let sleep = if since == 0 {
+            Some(IDLE_POLL)
+        } else {
+            let age = Duration::from_nanos(stamp_now().saturating_sub(since));
+            BUSY_AFTER.checked_sub(age).filter(|d| !d.is_zero())
+        };
+        if let Some(d) = sleep {
+            let mut fds = [PollFd::new(wake, PollFlags::IN)];
+            match poll(&mut fds, poll_timeout(d).as_ref()) {
+                Ok(_) => {}
+                Err(rustix::io::Errno::INTR) => {}
+                Err(_) => break,
+            }
+            if !fds[0].revents().is_empty() {
+                break; // stop() wrote a byte (or the owner is gone)
+            }
+            continue; // re-check the stamp
+        }
         // Our private queue is never filled (we create no objects), so this only fails on a
         // broken display.
         let Some(guard) = conn.prepare_read() else { break };
         let (wl, woken) = {
             let fd = guard.connection_fd();
             let mut fds = [PollFd::new(&fd, PollFlags::IN), PollFd::new(wake, PollFlags::IN)];
-            match poll(&mut fds, None) {
+            match poll(&mut fds, poll_timeout(READ_POLL).as_ref()) {
                 Ok(_) => {}
                 Err(rustix::io::Errno::INTR) => continue, // drops the guard = cancel_read
                 Err(_) => break,
