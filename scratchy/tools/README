@@ -13,6 +13,11 @@ Driving a real scratchy window (click, type, wheel-scroll)
 
 2. Start a nested dwl and get its socket name:
      SOCK=$(tools/nest.sh /path/to/scratchpad/nest)  # e.g. wayland-1
+   Start nest BEFORE taking the perf lock (flock /tmp/scratchy-perf.lock is for
+   the measured command only). nest.sh closes every inherited fd above 2 for
+   dwl, so a leftover dwl (it lives up to an hour) never keeps a caller's lock
+   fd (QTOOL1); tools/wl-flood/run.sh likewise closes its lock fd (9) for the
+   scratchy and inject it starts. Test: tools/nest-lock-test.sh.
    It writes dwl.pid in that dir; kill only that PID when finished
    (never `pkill -f` a pattern that appears in your own command line, and
    never kill the user's scratchy/dwl: `pgrep -fa scratchy` first).
