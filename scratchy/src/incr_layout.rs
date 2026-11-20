@@ -1510,6 +1510,9 @@ pub(crate) fn live_update(fs: &mut FontSystem, vw: f32, vh: f32) -> bool {
     let t0 = std::time::Instant::now();
     WALKED.with(|w| w.set(0));
     let Some(mut e) = ENGINE.with(|e| e.borrow_mut().take()) else { return false };
+    // QINC1i6: the main thread's shape memo serves these relayouts from the first one on (it was on
+    // only after the page's first script forced layout); bounded by `memo_trim` below.
+    crate::layout::SHAPE_MEMO_ENABLED.with(|m| m.set(true));
     let restart = req.full
         || e.stale
         || e.doc_key != req.doc_key
@@ -1530,7 +1533,7 @@ pub(crate) fn live_update(fs: &mut FontSystem, vw: f32, vh: f32) -> bool {
     e.since_full += 1;
     finish_update(&mut e, t0.elapsed().as_nanos() as u64);
     ENGINE.with(|x| *x.borrow_mut() = Some(e));
-    // QINC1i5: the main thread's memo (on after its first forced layout) is bounded here too.
+    // QINC1i5/i6: the main thread's memo is bounded here too.
     crate::layout::memo_trim(crate::js_geom::SHAPE_MEMO_CAP);
     true
 }
