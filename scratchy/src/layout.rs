@@ -1520,6 +1520,30 @@ pub(crate) fn memo_sweep(cap: usize, keep: u32) {
     });
 }
 
+/// QINC1i5: bounds a memo whose layouts re-measure only part of the page (the incremental engine's
+/// forced layouts and App frames on the main thread), where "used by this layout" says nothing about
+/// what the next one needs. Over `cap`: drop the entries only the memo holds (no kept laid tree's
+/// shape cache shares them), then clear it if it is still over `cap`.
+pub(crate) fn memo_trim(cap: usize) {
+    SHAPE_MEMO.with(|m| {
+        let mut m = m.borrow_mut();
+        if m.len() <= cap {
+            return;
+        }
+        m.retain(|_, v| Arc::strong_count(v) > 1);
+        if m.len() > cap {
+            m.clear();
+        }
+        SHAPE_MEMO_AGE.with(|a| a.borrow_mut().retain(|k, _| m.contains_key(k)));
+    });
+}
+
+/// QINC1i5 tests: the number of paragraphs this thread's memo holds.
+#[cfg(test)]
+pub(crate) fn memo_len() -> usize {
+    SHAPE_MEMO.with(|m| m.borrow().len())
+}
+
 /// QY53o3b: fast non-cryptographic hasher for memo keys (replaces SipHash, ~21 % of a warm
 /// `measure_document`). Multiply-fold per 8-byte word (wyhash style) plus an avalanche finish.
 /// HashDoS is not a concern: the memo is keyed by hashes of our own derived data and a collision

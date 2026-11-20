@@ -1530,6 +1530,8 @@ pub(crate) fn live_update(fs: &mut FontSystem, vw: f32, vh: f32) -> bool {
     e.since_full += 1;
     finish_update(&mut e, t0.elapsed().as_nanos() as u64);
     ENGINE.with(|x| *x.borrow_mut() = Some(e));
+    // QINC1i5: the main thread's memo (on after its first forced layout) is bounded here too.
+    crate::layout::memo_trim(crate::js_geom::SHAPE_MEMO_CAP);
     true
 }
 

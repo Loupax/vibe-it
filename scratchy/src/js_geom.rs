@@ -39,6 +39,10 @@ thread_local! {
     /// Test-only: how many forced layouts (cache misses) ran on this thread.
     #[cfg(test)]
     pub(crate) static GEOM_LAYOUTS: Cell<usize> = const { Cell::new(0) };
+    /// QINC1i5 test seam: engine forced layouts skip the check-mode oracle (a from-scratch layout that
+    /// would also refill the shape memo, hiding what the engine path alone leaves in it).
+    #[cfg(test)]
+    pub(crate) static NO_ORACLE: Cell<bool> = const { Cell::new(false) };
     static FONTS: RefCell<Option<FontSystem>> = const { RefCell::new(None) };
     /// QY53l2: the `display: none` subtrees of the last forced layout on this thread.
     static HIDDEN: RefCell<Option<HiddenSnap>> = const { RefCell::new(None) };
@@ -820,7 +824,7 @@ fn style_write_delta(old: &str, new: &str, flags: u8, w: f32, h: f32) -> Option<
 
 /// QP2/QY53o3a: safety cap on the paragraphs the JS thread's memo keeps AFTER a layout's sweep
 /// dropped what it did not use (a layout's own entries are never capped: 7.5k on Wikipedia).
-const SHAPE_MEMO_CAP: usize = 32768;
+pub(crate) const SHAPE_MEMO_CAP: usize = 32768;
 
 impl GeomCache {
     /// QOBS7: `((rect entries, bytes), (glyph entries = text nodes, bytes))`, by capacity.
@@ -1014,7 +1018,9 @@ impl GeomCache {
             crate::layout::memo_clear();
         }
         self.last_vp = Some(vp);
-        crate::layout::memo_track_begin();
+        // QINC1i5: no "used by this layout" sweep here: an engine update re-measures only what changed,
+        // so its used set is a few keys, and sweeping the rest emptied the memo the App frames'
+        // relayouts (same thread) shape from (Wikipedia: layout_ms 1.2 s -> 5.8 s). Trimmed below instead.
         let t0 = std::time::Instant::now();
         let recording = crate::perf::begin_forced();
         let cpu0 = crate::js::thread_cpu_nanos();
@@ -1023,6 +1029,8 @@ impl GeomCache {
         ATTR_SNAP.with(|h| *h.borrow_mut() = None);
         let images = crate::incr_engine::window_images(page);
         let checking = crate::incr_style::checking();
+        #[cfg(test)]
+        let checking = checking && !NO_ORACLE.with(Cell::get);
         let cache = &mut self.shape_cache;
         let next_para = &mut self.next_para_id;
         let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1050,7 +1058,7 @@ impl GeomCache {
             })
         }));
         set_viewport(prev_vp.0, prev_vp.1);
-        crate::layout::memo_sweep(SHAPE_MEMO_CAP, 1);
+        crate::layout::memo_trim(SHAPE_MEMO_CAP);
         let (ok, fresh) = match done {
             Ok(r) => r,
             Err(_) => {
