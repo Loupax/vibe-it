@@ -66,6 +66,17 @@ further (related videos move with it). Home: logged out with history off YouTube
 - QYSCR1a [S]: on YouTube results the "Alle" filter chip (`button.ytChipShapeButtonReset`) has focus after load without any
   click, so Space presses that button (Q30e, correct for a focused button) instead of scrolling; PageDown/arrows work. Find
   out who focuses it (YouTube's `focus()` call vs scratchy's autofocus/focus rules; Chrome scrolls on Space there).
+  **QYSCR1a DONE (Sonnet, 2026-11-20): cause found and fixed.** Scratchy never focuses by itself. The only `focus()` call is
+  YouTube's kevlar `loadPage_` -> `Ph(parentComponent)` (focus the first DFS element that is focusable and has
+  `offsetParent != null`, else the component itself). Chrome 156 (headless, CDP, `HTMLElement.prototype.focus` logged)
+  focuses the masthead `yt-icon-button#guide-button > button`; scratchy's `offsetParent` returned null for every
+  descendant of a `position:fixed` box (the rect's "fixed" flag was tested, not the element's own position), skipped the
+  fixed masthead and found the first chip. Fix: js_dom.rs `gOffParent` returns null only for a fixed box itself (CSSOM
+  View). After the fix scratchy focuses the guide button like Chrome, and Space then toggles the guide (as it does in
+  headless Chrome: scrollY stays 0, scrollHeight changes 6839 -> 907), so Space scrolling right after load needs a click or
+  Tab away first in BOTH browsers; "Chrome scrolls on Space there" does not hold for a fresh load with focus on the guide
+  button. Seen in grim after Space: the toggled-guide layout glitches (chip bar gone, first thumbnail offset), not
+  investigated here. Gate: full suite 1408 pass, clippy 77 (baseline file 74, local limit 77), WPT no change (333/293).
 - QYSCR1b [S]: DONE (this PR, QYSCR1b+c): a propagated viewport `overflow: hidden` blocks wheel and scroll keys; `scrollTo`/`scrollBy`/`scrollIntoView` and `scrollTop` on `overflow: hidden` boxes still scroll (`ScrollInfo::user`, `Style::viewport_hidden`).
 - QYSCR1c [S]: DONE (same PR): `paint::hit_test_scroll_chain`; a tick goes to the first region under the cursor that can move, then the page. Keys always target the viewport (no focused scroll region in scratchy). Absolutely positioned regions are still not wheel targets.
 - QYSCR1d [S]: WPT overflow-body-propagation-012 (body clips its own overflow when `html{overflow:hidden}` takes the viewport).

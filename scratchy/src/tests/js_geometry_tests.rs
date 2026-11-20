@@ -2035,3 +2035,18 @@ fn q33b2w_engine_created_after_publish_sees_size_in_first_script_and_no_resize()
     assert!(o.iter().any(|l| l == "log:after 0"), "{o:?}");
     crate::js::set_window_viewport(0, 0);
 }
+
+/// QYSCR1a: `offsetParent` is null for a `position:fixed` box itself but NOT for its descendants (they get the
+/// fixed box). YouTube's post-load focus helper skips elements whose `offsetParent` is null, so the fixed
+/// masthead subtree was skipped and the first filter chip took the focus instead (Space then pressed it).
+#[test]
+fn qyscr1a_offset_parent_of_fixed_descendants() {
+    let log = run_in_html(
+        "<html><head><style>body{margin:0} #f{position:fixed;top:0;left:0;width:100px;height:40px} #g{position:absolute;top:5px;left:5px}</style></head>\
+         <body><div id=f><button id=b>x</button><div id=g><i id=i>y</i></div></div><p id=p>text</p></body></html>",
+        r#"var f = document.getElementById('f'), b = document.getElementById('b'), i = document.getElementById('i');
+         console.log('op', f.offsetParent, b.offsetParent && b.offsetParent.id, i.offsetParent && i.offsetParent.id,
+                     document.getElementById('p').offsetParent.tagName, document.body.offsetParent);"#,
+    );
+    assert!(log.iter().any(|l| l == "log:op null f g BODY null"), "{log:?}");
+}
