@@ -1059,10 +1059,6 @@ QPROF1 PART A FOLLOW-UPS (R62 section 7, #451; non-layout hotspots; START AFTER 
 - [ ] QINC1j-c [S] (P3, from #459; Sonnet; tests only; after the architecture discussion) winit allows one event loop
       per process: ~20 App tests that build their own silently return when another test holds it. Move them to the shared
       proxy helper in incr_frame_tests.rs so they actually run.
-- [ ] [WIP] QINC1i4 [M] (P2, from QINC1i #460; matches half DONE in #461; Opus; area incr_style) Engine
-      restart cost: a restart (first layout / new rule-list generation) re-restyles everything after a from-scratch build,
-      then lays out again through the engine; adopt the build's STYLES (cascade half) too. Makes Wikipedia forced layouts
-      slower with INCR=1 (660-1133 vs 567-600 ms off).
 - [ ] QINC1i2 [S/M] (P3, from #460; Sonnet; after the architecture discussion) headless --perf-report should decode the
       page's images so headless forced layouts see real sizes too.
 - [ ] QINC1i3 [S] (P3, from #460; Opus investigate) one 619 ms IntersectionObserver forced layout with INCR=1 (YouTube
@@ -1077,6 +1073,17 @@ QPROF1 PART A FOLLOW-UPS (R62 section 7, #451; non-layout hotspots; START AFTER 
       so Main-frame relayouts (incr_layout::live_update) re-shape every re-measured paragraph on pages without forced
       layouts. Turn it on for main-thread engine relayouts, bounded by memo_trim. Test: memo-hit counter on a 2nd Main frame
       with no forced layout. Gate: R55 Wikipedia + YouTube INCR=1 not slower; _CHECK=1 0 mismatches.
+- [ ] QINC1i7 [M] (P2, from QINC1i4 #463; Opus; area incr_style; NOT a QINC1k blocker (INCR=1 already beats off on YT);
+      after the architecture discussion) YouTube incremental restyle is ~65 % of INCR=1 forced time (results 230-300 ms,
+      watch 550-590 ms; ~60-70 us per resolved style incl. per-update fixed costs such as the counter walk). Profile + cut.
+- [ ] QINC1i4b [S] (P3, from #463) restart hand-over leftovers: BoxEngine::start clones the build's tree that the forced
+      restart then drops (move it, ~7 ms + drop per Wiki restart); the style record costs ~12 ms per restart (Vec in
+      resolve order instead of a map).
+- [ ] QINC1i4c [S] (P2, from #463; Opus; area incr_layout; NOT a QINC1k blocker) LayoutEngine::full starts a new ShapeCache
+      on every restart while the plain path keeps GeomCache::shape_cache; restart layout 120-160 ms vs ~50 ms warm plain.
+      Check what #462 already covers first.
+- [ ] QFLK6 [S] (P3, from #463; Sonnet) qinc1i_forced_layouts_see_the_windows_images flakes: window images keyed by a
+      document's node address, which a new document can reuse. Key by a document id.
 QINC1 IMPLEMENTATION (design R60, #434; full item text in REGRESSIONS.md R60 section 15; USER ANSWERED 2026-11-20 ~11:45: "go with the
 recommendations" = R60 section 16 Q1-Q9 all as recommended: one engine on the main thread; real image sizes for script
 geometry; superseded items dropped (archived); FREEZE on other style/box/layout semantic changes while QINC1f-h1 are in
@@ -1085,7 +1092,7 @@ accepted; flip after 0 mismatches on 6 pages x 3 runs + gates, delete after >= 3
 as stated). Items QINC1a DONE 81e23d7 #447 (engine test infra + style_diff + fuzz), QINC1b (stable paragraph ids) DONE 23d604f #446, QINC1c (bottom-up hoisting) DONE 9890847 #450,
 QINC1d (InvalidationMap) DONE 18d0527 #445, QINC1e (write log) DONE 4700801 #448, QINC1f [L] (incremental restyle, shadow) DONE b20ed27 #452, QINC1g [L] DONE 8ec1c1a #455 (persistent box tree,
 shadow), QINC1h1 [L] DONE 109445c #457 (relayout from last tree, shadow), QINC1h2 DONE ce886a5 #458 (intrinsic-size cache), QINC1i DONE 9c55521 #460 (forced layouts via engine,
-SCRATCHY_INCR=1), QINC1j [L] DONE e219bee #459 (App frames via engine), QINC1j-ab DONE 30a23cb #461, QINC1i5 DONE dc6ba98 #462, [WIP] QINC1i4, [WIP] QINC1i6, QINC1k (exactness sweep + gates), QINC1l (flip default, user OK),
+SCRATCHY_INCR=1), QINC1j [L] DONE e219bee #459 (App frames via engine), QINC1j-ab DONE 30a23cb #461, QINC1i5 DONE dc6ba98 #462, QINC1i4 DONE 2618ee3 #463, [WIP] QINC1i6, QINC1k (exactness sweep + gates), QINC1l (flip default, user OK),
 QINC1m (delete superseded special cases). Waves: 1 = a, b, d, e; 2 = c, f; 3 = g; 4 = h1; 5 = i, j, h2; then k, l, m.
 Superseded and archived (Q3): QY54b3a-f, QY54b4, QY53o2, QY53f2, QY53f3, QY53n4, QY53n1d, QY53n2d, QYTC1a2, QYTC1e,
 QYTC1f, QY53l3, QY53e2b.
