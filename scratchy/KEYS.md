@@ -212,7 +212,8 @@ Everything a user may want to change lives in **one file, `src/config.rs`**, in 
 (today the `match` in `resolve_binding`), `ESC_ESC_MS`, `MENU_CMD`, `COMPLETERS`, the
 history settings and the scroll steps. Moving the existing knobs there is its own
 refactoring item (QCONF1, no behaviour change) and comes first; every later item adds
-its knobs there.
+its knobs there. Exception (user, 2026-11-20): the tracker block/allow lists stay in
+QCFG1's separate runtime file, updated independently of the code.
 
 ## What goes away *(proposed, P5)*
 

@@ -2919,9 +2919,10 @@ QCOMP — scriptable command completion, `o`, history file, config in code (user
      its own refactoring item (QCONF1), done first.
   C5 History file: plain TSV `ms<TAB>url<TAB>title` appended once per top-level visit,
      O_APPEND lines <= 4096 bytes (no lock), trimmed at startup; details STASH.md.
-  OPEN for the user: QCFG1 (a `config.toml` for trackers/vim/js/user_agent, queued before
-  QTB1) contradicts C4's "configuration in code, in one place". Drop QCFG1 and put QTB1's
-  block/allow lists in `src/config.rs`, or keep both?
+  C6 (user 2026-11-20, answering "QCFG1 vs C4") QCFG1 STAYS as written: the tracker lists
+     are updated separately and stay independent of the code config, so they are not moved
+     into `src/config.rs`. Maybe made scriptable later; not now. C4 covers the settings
+     a user edits and rebuilds; QCFG1's runtime file is the stated exception.
 
 Order (feature work: after the perf queue): QCONF1 -> QCOMP1 -> QCOMP2; QCOMP3 after QSTASH1
 (state directory); QCOMP4 after QCOMP1 and QCOMP3; QCOMP5 after QCOMP2, QCOMP4 and QKEYS2.

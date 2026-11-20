@@ -8367,3 +8367,9 @@ Prompt: item QY53n3 (P3): hover changes that only gain/lose PAINT plus OFFSET ru
 > 1, let's do both. 2, let's stay in the spirit of suckless and have it in code. Try to keep all configurable items together. If doing so requires refactoring do it in its own item
 
 **What changed:** docs only. KEYS.md: state MENU, rows T35-T44 (inline Tab vs menu, `o`, cancel/kill/stale results), sections "Completion" (COMPLETERS table of built-in or external sources with SCRATCHY_* context, dmenu-protocol `MENU_CMD`, page text only through stdin) and "Configuration" (every knob in `src/config.rs`). STASH.md: "History" (TSV file, O_APPEND lines <= 4096 bytes, what is not recorded, startup trim). TODO.txt: QCOMP block (design QCOMP-D C1-C5, open question on QCFG1 vs config in code), items QCONF1 (refactor into config.rs, first), QCOMP1-QCOMP5; QSTASH-D history pointer; QKEYS4 note (QYSCR1 already added the scroll keys); queue note.
+
+## QCOMP-D C6: QCFG1 stays (user, docs only)
+
+> leave QCFG1. I think the trackers should be updated separately and stay independent. Maybe we can rewrite it to make it scriptable in the future but leave it for now
+
+**What changed:** docs only. TODO.txt QCOMP-D: the open QCFG1 question becomes decision C6 (QCFG1 unchanged; tracker lists stay in its separate runtime file, independent of `src/config.rs`; scriptable maybe later). KEYS.md "Configuration" names the exception.
