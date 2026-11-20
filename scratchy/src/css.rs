@@ -374,7 +374,7 @@ pub(crate) fn parse_track_keyword(input: &mut CssParser) -> Option<TrackBreadth>
 /// `Absolute`) is actually found, in `resolve_positioned`, same
 /// deferred-until-a-real-basis-exists timing `BoxLength` already uses
 /// for `width`/`margin`/etc.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq)]
 pub(crate) struct Insets {
     pub(crate) top: Option<BoxLength>,
     pub(crate) right: Option<BoxLength>,
@@ -791,7 +791,7 @@ impl Length {
 /// from `paint`/`hit_test_cursor`/the children-stacking code in `measure`
 /// itself, none of which have a containing-block basis of their own to
 /// resolve a `Percent` against.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub(crate) enum BoxLength {
     Px(f32),
     Percent(f32),

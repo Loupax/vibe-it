@@ -47,6 +47,8 @@ struct BoxPaint {
     text_decoration_line: Option<DecorationLine>,
     text_decoration_style: Option<DecorationStyle>,
     text_decoration_color: Option<TextColor>,
+    /// QY53n2c: painted (rounded background/border/clip), moves nothing.
+    border_radius: BoxLength,
 }
 
 impl BoxPaint {
@@ -60,6 +62,7 @@ impl BoxPaint {
             text_decoration_line: s.text_decoration_line,
             text_decoration_style: s.text_decoration_style,
             text_decoration_color: s.text_decoration_color,
+            border_radius: s.border_radius,
         }
     }
 
@@ -72,6 +75,7 @@ impl BoxPaint {
         s.text_decoration_line = self.text_decoration_line;
         s.text_decoration_style = self.text_decoration_style;
         s.text_decoration_color = self.text_decoration_color;
+        s.border_radius = self.border_radius;
     }
 }
 
@@ -206,11 +210,24 @@ impl<'a> Chain<'a> {
         });
         Some(ElPaint {
             own: (span_of(&n.style, n.bg, n.deco), BoxPaint::of(&n.style)),
+            style: n.style,
             spacer: n.spacer,
             list_item: n.style.list_item || element_tag(h) == "li",
             pseudo,
         })
     }
+}
+
+/// QY53n2c: whether two resolved styles differ only in what the patch writes
+/// or validates: paint fields, the offset (checked by `plan_moves`) and the
+/// creation counter.
+fn value_same(o: &ComputedStyle, n: &ComputedStyle) -> bool {
+    let mut m = *n;
+    BoxPaint::of(o).write(&mut m);
+    m.translate = o.translate;
+    m.inset = o.inset;
+    m.tree_order = o.tree_order;
+    m == *o
 }
 
 /// Whether some `animation` of `s` names existing, non-empty keyframes (many
@@ -226,6 +243,8 @@ fn animated(s: &ComputedStyle, vw: f32) -> bool {
 struct ElPaint {
     /// Its own text spans and its own box.
     own: (SpanPaint, BoxPaint),
+    /// QY53n2c: its whole resolved style (compared between the two states).
+    style: ComputedStyle,
     spacer: bool,
     /// A list item: its marker is generated text too.
     list_item: bool,
@@ -313,7 +332,9 @@ fn patch_with_rules(
     if effect == Effect::Layout {
         return Err("a changed rule is not paint/offset-only");
     }
-    let offset = effect == Effect::Offset;
+    // `Value`: the declared names say nothing; the resolved styles are compared below.
+    let value = effect == Effect::Value;
+    let offset = effect >= Effect::Offset;
     // An offset rule on a `::before`/`::after` box is not handled (its box style is not resolved here).
     if offset && changes.iter().any(|c| c.slot != 0 && changes_effect(rules, std::slice::from_ref(c)) != Effect::Paint) {
         return Err("an offset rule on a pseudo-element");
@@ -331,15 +352,15 @@ fn patch_with_rules(
     if affected.iter().any(|h| matches!(element_tag(h), "html" | "body")) {
         return Err("<html>/<body> (canvas background)");
     }
-    // Their text spans carry no element (`node` 0): a list marker, a form control's text.
-    if affected.iter().any(|h| matches!(element_tag(h), "li" | "input" | "textarea" | "select" | "button" | "option")) {
-        return Err("a list item or form control (text not tied to its element)");
-    }
     let mut paints: Paints = HashMap::new();
+    let mut bg_keys: HashMap<usize, [Option<String>; 2]> = HashMap::new();
     set_interaction(old);
     let mut chain = Chain::new(document, rules, vw);
     for h in &affected {
         paints.insert(node_id(h), (chain.paints(h), None));
+        if value && let Some(n) = chain.node(h) {
+            bg_keys.insert(node_id(h), background_image_key(h, rules, vw, n.style.custom_props));
+        }
     }
     let mut old_styles: HashMap<usize, ComputedStyle> = HashMap::new();
     if offset {
@@ -354,13 +375,50 @@ fn patch_with_rules(
     }
     set_interaction(new);
     let mut chain = Chain::new(document, rules, vw);
-    if paints.values().any(|p| p.0.is_some_and(|p| p.list_item)) {
-        return Err("a list item (its marker is not tied to its element)");
-    }
     for h in &affected {
         let p = chain.paints(h);
         if let Some(e) = paints.get_mut(&node_id(h)) {
             e.1 = p;
+        }
+        if value {
+            let new_key = chain.node(h).map(|n| background_image_key(h, rules, vw, n.style.custom_props));
+            if bg_keys.get(&node_id(h)) != new_key.as_ref() {
+                return Err("a background/mask image changed");
+            }
+        }
+    }
+    // A list item's marker and a form control's text carry no element (`node` 0), so they
+    // cannot be patched: allowed only when what they inherit (colour, background,
+    // decoration, cursor, visibility) is the same in both states.
+    for h in &affected {
+        let Some((o, n)) = paints.get(&node_id(h)) else { continue };
+        let tied = matches!(element_tag(h), "li" | "input" | "textarea" | "select" | "button" | "option")
+            || o.is_some_and(|p| p.list_item)
+            || n.is_some_and(|p| p.list_item);
+        if tied {
+            match (o, n) {
+                (None, None) => {}
+                (Some(o), Some(n)) if o.own.0 == n.own.0 => {}
+                _ => return Err("a list item or form control whose text paint changes (text not tied to its element)"),
+            }
+        }
+    }
+    // An inline SVG is rasterised with its `color` (`currentColor`) at build time.
+    for h in &affected {
+        if element_tag(h) == "svg"
+            && let Some((Some(o), Some(n))) = paints.get(&node_id(h))
+            && o.own.1.color != n.own.1.color
+        {
+            return Err("an inline svg changed colour");
+        }
+    }
+    if value {
+        for p in paints.values() {
+            match p {
+                (None, None) => {}
+                (Some(o), Some(n)) if value_same(&o.style, &n.style) => {}
+                _ => return Err("a changed rule changes more than paint (resolved value)"),
+            }
         }
     }
     // Boxes: the old values must be what the tree holds (checked for all

@@ -171,11 +171,20 @@ fn qy53n2_effect_classes() {
     assert_eq!(e("color:inherit"), Effect::Paint);
     assert_eq!(e("transform:translate(2px,0)"), Effect::Offset);
     assert_eq!(e("color:red;top:1px"), Effect::Offset);
-    assert_eq!(e("padding:5px"), Effect::Layout);
+    // QY53n2c: judged by the resolved value (hover patch compares old/new styles).
+    assert_eq!(e("padding:5px"), Effect::Value);
+    assert_eq!(e("width:var(--x)"), Effect::Value);
+    assert_eq!(e("opacity:.5"), Effect::Value);
+    assert_eq!(e("visibility:hidden"), Effect::Value);
+    assert_eq!(e("border-radius:4px"), Effect::Value);
+    assert_eq!(e("fill:var(--x)"), Effect::Value);
+    assert_eq!(e("background:var(--x)"), Effect::Value);
+    // What the resolved style does not hold always builds.
     assert_eq!(e("--x:1px"), Effect::Layout);
-    assert_eq!(e("width:var(--x)"), Effect::Layout);
-    assert_eq!(e("opacity:.5"), Effect::Layout);
-    assert_eq!(e("visibility:hidden"), Effect::Layout);
+    assert_eq!(e("content:'x'"), Effect::Layout);
+    assert_eq!(e("animation:k 1s"), Effect::Layout);
+    assert_eq!(e("mask-image:var(--m)"), Effect::Layout);
+    assert_eq!(e("counter-increment:a"), Effect::Layout);
 }
 
 /// QY53n5: a paint-patchable hover is applied in the very turn the pointer moved, even

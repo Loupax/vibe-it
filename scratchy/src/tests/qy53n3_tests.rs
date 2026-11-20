@@ -163,3 +163,52 @@ fn qy53n3_unhandled_offsets_fall_back() {
     // An animated element.
     assert!(enter_leave("@keyframes k{from{opacity:.5}to{opacity:1}}.c{animation:k 1s infinite}.c:hover{transform:translateX(5px)}", TXT).is_err());
 }
+
+// QY53n2c: rules judged by the resolved value change, not the declared property.
+#[test]
+fn qy53n2c_value_judged_hover_rules_patch() {
+    // border-radius (paint only).
+    assert_eq!(enter_leave(".c{background:#cde;width:80px;height:30px}.c:hover{border-radius:12px;background-color:#fa0}", TXT), Ok(false));
+    // A `background` shorthand whose computed change is only the colour, also through var().
+    assert_eq!(enter_leave(".c{--b:#fa0;background:#cde}.c:hover{background:var(--b)}", TXT), Ok(false));
+    assert_eq!(enter_leave(".c{background:#cde}.c:hover{background:#fa0}", TXT), Ok(false));
+    // Border width and style restated with the same value; only the colour differs.
+    assert_eq!(enter_leave(".c{border:2px solid #333}.c:hover{border:2px solid #c00}", TXT), Ok(false));
+    assert_eq!(enter_leave(".c{border:2px solid #333}.c:hover{border-width:2px;border-style:solid;border-color:#c00}", TXT), Ok(false));
+    // A custom property declared in the hover rule is not judged by value.
+    assert!(enter_leave(".c{border:2px solid #333}.c:hover{border:var(--w) solid #c00;--w:2px}", TXT).is_err());
+    // SVG fill/stroke through var() do not change the resolved style at all.
+    let svg = "<p>a</p><svg id=t class=c width=20 height=20><rect width=10 height=10 /></svg><p>b</p>";
+    assert_eq!(enter_leave(":root{--f:red}.c:hover{fill:var(--f);stroke:var(--f)}.c{background:#eee}.c:hover{background-color:#ddd}", svg), Ok(false));
+    // With an offset rule in the same hover.
+    assert_eq!(enter_leave(".c{background:#cde}.c:hover{border-radius:6px;transform:translateX(5px)}", TXT), Ok(true));
+}
+
+#[test]
+fn qy53n2c_real_layout_changes_still_build() {
+    // A real border-width change.
+    assert!(enter_leave(".c{border:2px solid #333}.c:hover{border:4px solid #c00}", TXT).is_err());
+    assert!(enter_leave(".c{border:2px solid #333}.c:hover{border-width:3px}", TXT).is_err());
+    assert!(enter_leave(".c:hover{width:200px;border-radius:5px}", TXT).is_err());
+    assert!(enter_leave(".c{--w:10px}.c:hover{--w:30px;width:var(--w)}", TXT).is_err());
+    assert!(enter_leave(".c{--w:10px;width:var(--w)}.c:hover{width:30px}", TXT).is_err());
+    // A background image appearing.
+    assert!(enter_leave(".c:hover{background:url(data:image/gif;base64,R0lGODlhAQABAAAAACw=) #fa0}", TXT).is_err());
+    // Style changes that alter the box: display, border style none, font size.
+    assert!(enter_leave(".c{border:2px solid #333}.c:hover{border-style:none}", TXT).is_err());
+    assert!(enter_leave(".c:hover{opacity:.5}", TXT).is_err());
+    assert!(enter_leave(".c:hover{font-size:20px}", TXT).is_err());
+}
+
+#[test]
+fn qy53n2c_controls_and_list_items_patch_when_their_text_paint_is_unchanged() {
+    // A button whose hover only changes its background and border: its label (no element node) keeps its paint.
+    let b = "<p>a</p><button id=t class=c>Go</button><p>b</p>";
+    assert_eq!(enter_leave(".c{background:#cde;border:1px solid #333}.c:hover{background:#fa0;border:1px solid #c00;border-radius:6px}", b), Ok(false));
+    let li = "<ul><li id=t class=c>item</li><li>two</li></ul>";
+    assert_eq!(enter_leave(".c{background:#cde}.c:hover{background-color:#fa0;border-radius:4px}", li), Ok(false));
+    // A colour change reaches the label / marker, which cannot be patched.
+    assert!(enter_leave(".c:hover{color:#c00}", b).is_err());
+    assert!(enter_leave(".c:hover{color:#c00}", li).is_err());
+    assert!(enter_leave(".c:hover{text-decoration:underline}", li).is_err());
+}
