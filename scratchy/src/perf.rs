@@ -394,6 +394,7 @@ pub(crate) fn enabled() -> bool {
 
 /// Turns the recorder on (fresh state) and starts the "time to ..." clocks.
 pub(crate) fn start() {
+    incr_reset();
     REC.with(|r| {
         *r.borrow_mut() = Rec { start: Some((Instant::now(), thread_cpu_nanos())), ..Default::default() };
     });
@@ -726,6 +727,108 @@ pub(crate) fn mark(name: &'static str) {
     });
 }
 
+/// QINC1a (R60 section 10): the incremental engine's counters, reported as the `incr` object of
+/// `--perf-report`. Every one is zero until the engine lands (QINC1f onward); each stage's gate reads
+/// them. Plain thread-local cells: bumping one costs a few ns whether or not the recorder is on.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[allow(dead_code)]
+pub(crate) enum Incr {
+    /// Incremental updates run (restyle + box update + relayout, once per layout).
+    Updates,
+    /// Elements re-matched (RESTYLE) / re-cascaded from a stored match (RECASCADE).
+    RestyledMatched,
+    RestyledCascaded,
+    /// Boxes rebuilt by the builder / re-measured by layout.
+    BoxesRebuilt,
+    BoxesRemeasured,
+    /// Fragment cache: hits, and misses by reason.
+    CacheHits,
+    MissDirty,
+    MissKey,
+    MissFloats,
+    MissNotCacheable,
+    MissNoOld,
+    /// `SCRATCHY_INCR_CHECK=1` differences between the incremental and the from-scratch result.
+    CheckMismatch,
+}
+
+const INCR_NAMES: [&str; 12] = [
+    "updates",
+    "restyled_matched",
+    "restyled_cascaded",
+    "boxes_rebuilt",
+    "boxes_remeasured",
+    "cache_hits",
+    "miss_dirty",
+    "miss_key",
+    "miss_floats",
+    "miss_not_cacheable",
+    "miss_no_old",
+    "check_mismatch",
+];
+
+/// Bottom-up relayout stops are counted per tree level (the last bucket takes every deeper level).
+pub(crate) const INCR_LEVELS: usize = 8;
+
+#[derive(Default)]
+struct IncrCounters {
+    flat: [u64; 12],
+    stops_by_level: [u64; INCR_LEVELS],
+    /// Shaping-worker fallbacks by reason (name -> count), in first-seen order.
+    worker_fallbacks: Vec<(&'static str, u64)>,
+}
+
+thread_local! {
+    static INCR: RefCell<IncrCounters> = RefCell::new(IncrCounters::default());
+}
+
+/// Adds `n` to a QINC1 counter.
+#[allow(dead_code)]
+pub(crate) fn incr_add(c: Incr, n: u64) {
+    INCR.with(|i| i.borrow_mut().flat[c as usize] += n);
+}
+
+/// Current value of a QINC1 counter (tests, gates).
+#[allow(dead_code)]
+pub(crate) fn incr_get(c: Incr) -> u64 {
+    INCR.with(|i| i.borrow().flat[c as usize])
+}
+
+/// A bottom-up relayout stopped `level` levels below the root.
+#[allow(dead_code)]
+pub(crate) fn incr_stop_at(level: usize) {
+    INCR.with(|i| i.borrow_mut().stops_by_level[level.min(INCR_LEVELS - 1)] += 1);
+}
+
+/// The shaping worker could not serve a request incrementally, for `reason`.
+#[allow(dead_code)]
+pub(crate) fn incr_worker_fallback(reason: &'static str) {
+    INCR.with(|i| {
+        let mut i = i.borrow_mut();
+        match i.worker_fallbacks.iter_mut().find(|r| r.0 == reason) {
+            Some(r) => r.1 += 1,
+            None => i.worker_fallbacks.push((reason, 1)),
+        }
+    });
+}
+
+fn incr_reset() {
+    INCR.with(|i| *i.borrow_mut() = IncrCounters::default());
+}
+
+/// The `incr` object (a JSON object text).
+pub(crate) fn incr_json() -> String {
+    INCR.with(|i| {
+        let i = i.borrow();
+        let mut parts: Vec<String> = INCR_NAMES.iter().zip(i.flat).map(|(n, v)| format!("\"{n}\":{v}")).collect();
+        let levels: Vec<String> = i.stops_by_level.iter().map(u64::to_string).collect();
+        parts.push(format!("\"bottom_up_stops_by_level\":[{}]", levels.join(",")));
+        let wf: Vec<String> = i.worker_fallbacks.iter().map(|(r, n)| format!("{}:{n}", json_str(r))).collect();
+        parts.push(format!("\"worker_fallbacks\":{{{}}}", wf.join(",")));
+        format!("{{{}}}", parts.join(","))
+    })
+}
+
 fn ms(ns: u64) -> f64 {
     (ns as f64 / 1e6 * 1000.0).round() / 1000.0
 }
@@ -841,7 +944,8 @@ pub(crate) fn body_json() -> String {
         format!(
             "\"callbacks\":{{{}}},\"longest\":[{}],\"budget_kills\":{},\"forced_layout\":{{\"count\":{},\"total_ms\":{},\"max_ms\":{},{}}},\
              \"net_delivery\":{},\"compile_cpu_ms\":{},\"engine_startup_cpu_ms\":{},\
-             \"load\":{{\"fetch_wall_ms\":{},\"fetch_cpu_ms\":{},\"dom_content_loaded_wall_ms\":{},\"dom_content_loaded_cpu_ms\":{},\"load_wall_ms\":{},\"load_cpu_ms\":{}}}",
+             \"load\":{{\"fetch_wall_ms\":{},\"fetch_cpu_ms\":{},\"dom_content_loaded_wall_ms\":{},\"dom_content_loaded_cpu_ms\":{},\"load_wall_ms\":{},\"load_cpu_ms\":{}}},\
+             \"incr\":{}",
             kinds.join(","),
             longest.join(","),
             kills,
@@ -857,7 +961,8 @@ pub(crate) fn body_json() -> String {
             wall(dw),
             ms(dc),
             wall(lw),
-            ms(lc)
+            ms(lc),
+            incr_json()
         )
     })
 }

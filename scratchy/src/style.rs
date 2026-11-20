@@ -95,7 +95,7 @@ pub(crate) const ROOT_STYLE: InheritedStyle = InheritedStyle {
 /// `margin`/`padding` on `ComputedStyle` can't know at cascade time. See
 /// `BoxLength`'s own docs for exactly when/how that final resolution
 /// happens.
-#[derive(Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub(crate) struct Sides {
     pub(crate) top: BoxLength,
     pub(crate) right: BoxLength,
@@ -105,7 +105,7 @@ pub(crate) struct Sides {
 
 /// The properties a `::first-line` rule actually changed relative to the
 /// element's own style (each `None` means "leave the span alone").
-#[derive(Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub(crate) struct FirstLineStyle {
     pub(crate) color: Option<TextColor>,
     pub(crate) background_color: Option<TextColor>,
@@ -481,7 +481,7 @@ pub(crate) struct ComputedStyle {
 /// element's own font-size, same timing as `border-width`/`padding`'s
 /// own `em` resolution) and its color converted to a paintable
 /// `TextColor` — the form `paint_box_decoration` actually draws.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct ResolvedBoxShadow {
     pub(crate) offset_x: f32,
     pub(crate) offset_y: f32,

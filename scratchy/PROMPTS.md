@@ -8427,3 +8427,9 @@ Prompt: item QY53n3 (P3): hover changes that only gain/lose PAINT plus OFFSET ru
 > finally, something tangentially related. Right now we cannot paste into the command mode bar. We should be able to paste to all modes of the status bar that accept typing text (for now I think it's :command and /search mode only)
 
 **What changed:** docs only. KEYS.md: new "Paste" section (Ctrl-v, Ctrl-Shift-v, Shift-Insert in COMMAND and SEARCH; newlines/control characters become a space, trailing whitespace dropped; Wayland clipboard), T22/T26 mention paste. TODO.txt: QPASTE1 [S] with the likely cause found while planning (arboard built without `wayland-data-control`: Cargo.lock has `x11rb` only, so paste reads Xwayland's X11 clipboard), reproduce first, fix, page text fields share the code.
+
+## QINC1a: incremental engine test infrastructure (coordinator item, R60 section 15)
+
+> Implement QINC1a: style_diff, comparators cmp_styles/cmp_boxes/cmp_laid with readable first-difference reports, the seeded differential fuzz harness in src/tests/incr_fuzz_tests.rs, the --perf-report `incr` counters object. No behaviour change.
+
+**What changed:** new `src/incr_diff.rs` (`style_diff`, exhaustive over `ComputedStyle`), test-only `src/incr_cmp.rs` (comparators), `src/tests/incr_fuzz_tests.rs` (fuzz harness, 200 cases by default, plus tests per diff class and comparator), `perf::Incr` counters and the `incr` object in `--perf-report`. `Debug` derived on style field types for reports. REGRESSIONS.md R60 note "QINC1a DONE".

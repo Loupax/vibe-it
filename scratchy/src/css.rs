@@ -255,7 +255,7 @@ pub(crate) enum AlignItems {
 /// resolved `BoxLength`) — resolved against the flex container's own
 /// main-axis content size, which `resolve_style` can't know at cascade
 /// time; see `measure_flex`'s own docs for where that happens.
-#[derive(Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub(crate) enum FlexBasis {
     #[default]
     Auto,
@@ -280,7 +280,7 @@ pub(crate) enum FlexBasis {
 /// genuinely differs by axis, which `BoxLength` has no slot for). `Fr`
 /// is the raw flex factor (`2.0` for `2fr`) — grid's own flexible-length
 /// primitive, directly analogous to flexbox's `flex-grow`.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum GridTrackSpec {
     Len(Length),
     Fr(f32),
@@ -333,7 +333,7 @@ pub(crate) enum GridTrackSpec {
 /// enforced here; a `MinMax(Fr(_), _)` simply never arises from real
 /// CSS and `resolve_grid_tracks` treats a flexible minimum as an
 /// (accepted, harmless) `0` floor if it ever did.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum TrackBreadth {
     Len(Length),
     Fr(f32),
@@ -374,7 +374,7 @@ pub(crate) fn parse_track_keyword(input: &mut CssParser) -> Option<TrackBreadth>
 /// `Absolute`) is actually found, in `resolve_positioned`, same
 /// deferred-until-a-real-basis-exists timing `BoxLength` already uses
 /// for `width`/`margin`/etc.
-#[derive(Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub(crate) struct Insets {
     pub(crate) top: Option<BoxLength>,
     pub(crate) right: Option<BoxLength>,
@@ -447,7 +447,7 @@ pub(crate) fn half_em_unit(unit: &str) -> bool {
     unit.eq_ignore_ascii_case("ex") || unit.eq_ignore_ascii_case("ch")
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Length {
     Px(f32),
     Em(f32),
@@ -481,7 +481,7 @@ pub(crate) enum Length {
     Intrinsic(IntrinsicSize),
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum IntrinsicSize {
     MinContent,
     MaxContent,
@@ -791,7 +791,7 @@ impl Length {
 /// from `paint`/`hit_test_cursor`/the children-stacking code in `measure`
 /// itself, none of which have a containing-block basis of their own to
 /// resolve a `Percent` against.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum BoxLength {
     Px(f32),
     Percent(f32),
@@ -878,7 +878,7 @@ impl BoxLength {
 /// `h1`'s own, larger font-size, not `body`'s). Only resolved to an
 /// actual pixel value at the point something needs one
 /// (`SpanStyle::from`, for `cosmic_text::Metrics`).
-#[derive(Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub(crate) enum LineHeight {
     #[default]
     Normal,
@@ -1292,7 +1292,7 @@ pub(crate) enum WordBreak {
 
 /// `text-transform` (Q20e), inherited; applied to the text when the
 /// inline items are collected, before shaping.
-#[derive(Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub(crate) enum TextTransform {
     #[default]
     None,
@@ -1366,7 +1366,7 @@ pub(crate) fn inline_text(raw: &str, ws: WhiteSpace, tt: TextTransform) -> Strin
 /// almost always `list-style: none` on a nav/menu `<ul>`) — no the-many-
 /// other-counter-styles (roman numerals, alpha, ...). `Disc` as
 /// `#[default]` matches the real CSS initial value.
-#[derive(Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub(crate) enum ListStyleType {
     #[default]
     Disc,
@@ -1417,7 +1417,7 @@ impl ListStyleType {
 /// declares them, and they're writing-mode-relative, which scratchy has
 /// no notion of). `Left` as `#[default]` matches the real CSS initial
 /// value (for left-to-right content, which is all scratchy renders).
-#[derive(Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub(crate) enum TextAlign {
     #[default]
     Left,
@@ -1540,14 +1540,14 @@ pub enum Visibility {
 /// overflows yet, `Auto` only when it does (see `paint_scrollbar`).
 /// `text-overflow` (Q21): `Ellipsis` replaces the clipped tail of a
 /// single-line (`nowrap`) text run with "…".
-#[derive(Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub(crate) enum TextOverflow {
     #[default]
     Clip,
     Ellipsis,
 }
 
-#[derive(Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub(crate) enum Overflow {
     #[default]
     Visible,
@@ -1561,7 +1561,7 @@ pub(crate) enum Overflow {
 /// padding/border, `BorderBox` includes them. Only these two real
 /// keywords; `padding-box` isn't a valid CSS value. Not inherited (same
 /// as `border_width`/`overflow`).
-#[derive(Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub(crate) enum BoxSizing {
     #[default]
     ContentBox,
@@ -2881,7 +2881,7 @@ pub(crate) struct DecorationLine {
 /// time — see `resolve_own_decoration`, which every call site that used
 /// to write `style.text_decoration.unwrap_or(decoration)` now goes through
 /// instead.
-#[derive(Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub(crate) struct DecorationValue {
     pub(crate) deco: TextDecoration,
     pub(crate) style: DecorationStyle,
