@@ -727,7 +727,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       `played` ranges are always empty, `srcObject`/`captureStream` stubs, no TextTracks;
       (e) audio is `ao=null` unless SCRATCHY_MEDIA_AO is set: QM1g chooses the real default;
       (f) user activation is "sticky" (any trusted click/key/mouse press once per page).
-- [ ] QM1g2a1 [S] (P3, from QM1g2a #388; Sonnet, measure first) Reuse video frame buffers: the render worker allocates a
+- [ ] [WIP] QM1g2a1 [S] (P3, from QM1g2a #388; Sonnet, measure first) Reuse video frame buffers: the render worker allocates a
       new ~0.9 MB buffer per frame and the main thread copies twice (page buffer + present buffer); a small pool or presenting
       straight from the worker's buffer. Remaining main-thread cost ~1-2.4 ms/frame (R46 "QM1g2a").
 - [ ] QM1g2 [M] (from QM1g) Leftovers ((a) split out as QM1g2a): (b) a `<video>` inside a mask-image or opacity
