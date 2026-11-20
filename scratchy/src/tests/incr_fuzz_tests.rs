@@ -9,7 +9,8 @@
 //! (`cmp_styles` semantics) and its generated content. Boxes and laid trees join when QINC1g / QINC1h1
 //! make them incremental (`compare_runs` is kept for them).
 //!
-//! Size: `SCRATCHY_FUZZ_N` cases (default 200); `SCRATCHY_FUZZ_SEED` offsets the seeds.
+//! Size: `SCRATCHY_FUZZ_N` cases (default 1 000 in release, 200 in debug; plus `REGRESSION_SEEDS`);
+//! `SCRATCHY_FUZZ_SEED` offsets the seeds.
 
 use super::*;
 use crate::incr_cmp::{cmp_boxes, cmp_laid, cmp_styles, root_path, Names};
@@ -461,15 +462,26 @@ fn env_usize(name: &str, default: usize) -> usize {
     env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
 }
 
-/// ~200 seeded cases by default; `SCRATCHY_FUZZ_N` for more, `SCRATCHY_FUZZ_SEED` to move the window.
+/// QINC1f-fix: seeds that once failed outside the default window, run on every default run (each has a named
+/// minimal test in incr_style_tests.rs as well): `:first-child` / `:nth-child` / sibling marks after several
+/// inserts in one batch (462 519 733 1956 2080 2084 2475), and a stale child list after a freed removal (2475).
+const REGRESSION_SEEDS: &[u64] = &[462, 519, 733, 1956, 2080, 2084, 2475];
+
+/// Default window: 1 000 cases in release (CI runs `cargo test --release`; ~6 s locally), 200 in a debug build
+/// (~10x slower per case). `SCRATCHY_FUZZ_N` for more, `SCRATCHY_FUZZ_SEED` to move the window; with neither set,
+/// [`REGRESSION_SEEDS`] run too.
 #[test]
 fn qinc1a_fuzz_two_from_scratch_layouts_never_differ() {
-    let n = env_usize("SCRATCHY_FUZZ_N", 200);
+    let default_n = if cfg!(debug_assertions) { 200 } else { 1000 };
+    let n = env_usize("SCRATCHY_FUZZ_N", default_n);
     let base = env_usize("SCRATCHY_FUZZ_SEED", 0) as u64;
+    let custom = env::var("SCRATCHY_FUZZ_N").is_ok() || env::var("SCRATCHY_FUZZ_SEED").is_ok();
     let mut fs = new_font_system();
     let t0 = std::time::Instant::now();
-    for i in 0..n as u64 {
-        fuzz_case(base + i, &mut fs);
+    let window = base..base + n as u64;
+    let extra = REGRESSION_SEEDS.iter().copied().filter(|s| !custom && !window.contains(s));
+    for seed in window.clone().chain(extra) {
+        fuzz_case(seed, &mut fs);
     }
     let inc = FUZZ_INCREMENTAL.with(|c| c.replace(0));
     let (bsteps, rebuilt, reused) = FUZZ_BOXES.with(|c| c.replace((0, 0, 0)));

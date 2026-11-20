@@ -132,6 +132,40 @@ fn shape_structural() {
     assert_eq!(r, ["l0", "l1", "l2", "l3"]);
 }
 
+/// QINC1f-fix: `for_child_list` compares the old and new element lists, so a batch of changes cannot hide an edge.
+#[test]
+fn child_list_marks_old_and_new_edges_and_changed_siblings() {
+    let d = parse_html("<body><ul id=u><li id=l1></li><li id=l2></li><li id=l3></li></ul></body>");
+    let u = by_id(&d, "u");
+    let old: Vec<usize> = ["l1", "l2", "l3"].iter().map(|i| node_id(&by_id(&d, i))).collect();
+    let n = parse_html("<body><li id=x></li><li id=y></li></body>");
+    let (x, y) = (by_id(&n, "x"), by_id(&n, "y"));
+    detach(&x);
+    detach(&y);
+    attach(&u, &x, 0);
+    attach(&u, &y, 1); // x y l1 l2 l3: the old first is third
+    // `for_children` on each insert, against this final DOM, never reaches l1
+    let m = map("li:first-child{color:red}");
+    let mut per: Vec<String> = ids(&d, &m.for_children(&u, &ChildChange::Inserted(x.clone())));
+    per.extend(ids(&d, &m.for_children(&u, &ChildChange::Inserted(y.clone()))));
+    assert!(!per.iter().any(|i| i == "l1"), "{per:?}");
+    assert_eq!(ids(&d, &m.for_child_list(&u, &old)), ["l1", "x"]);
+    assert_eq!(ids(&d, &map("li:last-child{color:red}").for_child_list(&u, &old)), Vec::<String>::new(), "last unchanged");
+    assert_eq!(ids(&d, &map("li:only-child{color:red}").for_child_list(&u, &old)), ["l1", "x"]);
+    // `+`: x (new), y (new) and l1 (prev changed); l2/l3 keep their previous sibling
+    assert_eq!(ids(&d, &map("li + li{color:red}").for_child_list(&u, &old)), ["l1", "x", "y"]);
+    // `~`: everything from the first difference
+    assert_eq!(ids(&d, &map("li ~ li{color:red}").for_child_list(&u, &old)), ["l1", "l2", "l3", "x", "y"]);
+    assert_eq!(ids(&d, &map("li:nth-child(2n){color:red}").for_child_list(&u, &old)), ["l1", "l2", "l3", "x", "y"]);
+    // unchanged list: nothing
+    let now: Vec<usize> = ["x", "y", "l1", "l2", "l3"].iter().map(|i| node_id(&by_id(&d, i))).collect();
+    assert!(m.for_child_list(&u, &now).is_empty());
+    // removal at the end: the new last (l2) and nothing in the common prefix
+    detach(&by_id(&d, "l3"));
+    let r = ids(&d, &map("li:last-child{color:red} li + li{color:blue} li ~ li{color:green}").for_child_list(&u, &now));
+    assert_eq!(r, ["l2"]);
+}
+
 #[test]
 fn shape_empty() {
     let m = map(":empty{color:red}");

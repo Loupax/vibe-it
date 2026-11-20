@@ -1004,6 +1004,27 @@ images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom
   over off. Boxing `InlineItem::Image::style` (layout.rs, outside this item's area) would cut every inline item to
   ~120 B (both the kept and every fresh tree); proposed as QINC1g-mem. The copy lives only with `SCRATCHY_INCR*=1`
   until QINC1j makes it THE tree (then no second tree exists).
+  QINC1f-fix DONE (Opus, 2026-11-20; `src/invalidation.rs`, `src/incr_style.rs`): the 7 fuzz seeds above the default
+  window had two causes. (1) All seven: the engine replays the write log against the FINAL DOM, and `for_children`
+  computed its structural edges per entry there ("first two / last two element children", the element after the change
+  point). One batch inserting several elements in front of the old first child (a parsed fragment goes in one node at a
+  time; seed 2084 after a leading text node) leaves the old first child third, outside every insert's edge: it kept
+  `div:first-child` (`position`, `width:fit-content`, `gap`, `clear`, `white-space` in the seeds; appends + `:last-child`
+  likewise). Fix: `InvalidationMap::for_child_list(parent, old)` compares the element children at the last restyle (the
+  stored child keys that have entries, captured before the log is processed) with the current list: old and new first
+  / last for `:first/last/only-child`, every element whose previous element sibling changed for `+`, everything from the
+  first difference for `~`, everything for `:nth-*`; called once per changed parent after the per-entry marks (and in the
+  check-mode reconcile). Moves (remove + insert) and stale logged `prev`/`next` need nothing special any more. (2) Seed
+  2475, hidden behind (1) (it then failed in the BOX check one step later): removing an element whose node is freed at
+  once (no handle) removed only its own entry; its descendants' entries stayed with child lists naming freed TEXT nodes,
+  whose addresses new text nodes reuse, so `text_parent` found the stale parent and a text edit was lost (the kept box
+  kept the old text). `drop_key` drops the descendants through the stored lists; `text_parent` accepts only a live
+  parent that still holds the text node. Tests: `qinc1f_fix_*` (incr_style_tests.rs; the first-child, last-child and
+  freed-subtree ones fail on main), `child_list_marks_old_and_new_edges_and_changed_siblings` (invalidation_tests.rs).
+  Fuzz (release, `SCRATCHY_FUZZ_KEEP_GOING=1`, 6G scope, load 1.3-5): seeds 0.., 10 000.., 100 000.. x 5 000 cases =
+  15 000 cases, 0 style and 0 box mismatches, 28.9 / 28.5 / 28.2 s (14 518 / 14 506 / 14 619 incremental restyle steps,
+  ~13.3k incremental box rebuilds each). CI: the fuzz test now runs 1 000 cases in release (5.4 s locally, was 200) and
+  200 in debug, plus the seven seeds as `REGRESSION_SEEDS`.
 - **QINC1h1 [L]** (P2, Opus; area layout; AFTER QINC1b, c, g) Relayout from the last tree in SHADOW mode (R60 sections 4.3,
   8.1-8.5): `ck` + `cacheable` on element `Laid`s; harvest along dirty paths; reuse in `measure_inner` (shift by the origin
   delta); bottom-up re-measure at the old `ck` with the parent-view comparison and splice, else one level up; abs/fixed via
