@@ -1929,6 +1929,27 @@ fn qytc1d_class_writes_that_change_matched_rules_are_not_inert() {
     assert!(!qytc1d_class(&k, Some("js-state")), "stale cache");
 }
 
+/// Like QY53f1d's `!important` cache, the class index must not pin the rule list (a `<style>`
+/// insert after it must still splice), and must see a class rule the insert brings.
+#[test]
+fn qytc1d_class_index_keeps_style_inserts_incremental() {
+    let doc = parse_html(&qytc1a_page(QYTC1D_CSS, ""));
+    let knob = by_id(&doc, "knob");
+    let mut g = crate::js_geom::GeomCache::default();
+    g.rect_of(&doc, crate::js_dom::geom_gen(), &knob, 800.0, 600.0);
+    assert!(qytc1d_class(&knob, Some("later")), "no rule names it yet");
+    let head = find_by_tag(&doc, "head").unwrap();
+    let frag = parse_html("<style>.later2{margin-left:3px}</style>");
+    let mut v = Vec::new();
+    crate::images::collect_style_nodes(&frag, &mut v);
+    head.children.borrow_mut().push(v.remove(0));
+    crate::rules_cache::FULL_PARSES.with(|c| c.set(0));
+    crate::js_dom::geom_bump_for_tests();
+    g.rect_of(&doc, crate::js_dom::geom_gen(), &knob, 800.0, 600.0);
+    assert_eq!(crate::rules_cache::FULL_PARSES.with(|c| c.get()), 0, "the insert is spliced, not a full re-parse");
+    assert!(!qytc1d_class(&knob, Some("later later2")), "the spliced-in class rule is seen");
+}
+
 #[test]
 fn qytc1d_inert_writes_between_reads_force_no_layout() {
     let (log, n) = qy53c_run(

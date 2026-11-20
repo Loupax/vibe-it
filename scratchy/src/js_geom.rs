@@ -238,9 +238,12 @@ const CF_UNBOUNDED: u8 = 4;
 /// (`[class*=x]`): they can change with any `class` write. (No class token is empty.)
 const CLASS_ATTR_KEY: &str = "";
 
-/// QYTC1d: per rule list, every class a selector names -> `(rule index, CF_* flags)`.
+/// QYTC1d: per rule list (by its `rules_cache` generation; never the list's `Rc`, see `ImpGeo`),
+/// every class a selector names -> `(index into sels, CF_* flags)`.
 struct ClassDeps {
-    rules: Rc<Vec<StyleRule>>,
+    generation: u64,
+    /// The selectors of every rule some class (or `[class]`) entry points at.
+    sels: Vec<SelectorList<OurSelectorImpl>>,
     by_class: HashMap<String, Vec<(u32, u8)>>,
     /// Some `content` reads `attr(class)` (or an `attr()` behind `var()`): no verdict.
     content_reads: bool,
@@ -306,7 +309,7 @@ fn note_classes(c: &Component<OurSelectorImpl>, follow: u8, rule: u32, out: &mut
     }
 }
 
-fn class_deps_build(rules: &Rc<Vec<StyleRule>>) -> ClassDeps {
+fn class_deps_build(rules: &[StyleRule], generation: u64) -> ClassDeps {
     use selectors::parser::Combinator;
     let mut by_class: HashMap<String, Vec<(u32, u8)>> = HashMap::new();
     let mut content_reads = false;
@@ -331,19 +334,36 @@ fn class_deps_build(rules: &Rc<Vec<StyleRule>>) -> ClassDeps {
             }
         }
     }
-    ClassDeps { rules: rules.clone(), by_class, content_reads }
+    // Rule indices -> positions in `sels`.
+    let mut pos: HashMap<u32, u32> = HashMap::new();
+    let mut sels = Vec::new();
+    for v in by_class.values_mut() {
+        for e in v.iter_mut() {
+            let ri = e.0;
+            e.0 = *pos.entry(ri).or_insert_with(|| {
+                sels.push(rules[ri as usize].selectors.clone());
+                sels.len() as u32 - 1
+            });
+        }
+    }
+    ClassDeps { generation, sels, by_class, content_reads }
 }
 
+/// QYTC1d: `ClassDeps` of the rule list of the latest build on this thread; `None` when that
+/// list is no longer `rules_cache`'s current one (as `current_important_geo`).
 fn current_class_deps() -> Option<Rc<ClassDeps>> {
-    let rules = crate::style::RULE_DERIVED.with(|d| d.borrow().as_ref().map(|x| x.rules.clone()))?;
+    let (rules, generation, _, _) = crate::rules_cache::current()?;
+    if !crate::style::RULE_DERIVED.with(|d| d.borrow().as_ref().is_some_and(|x| Rc::ptr_eq(&x.rules, &rules))) {
+        return None;
+    }
     CLASS_DEPS.with(|c| {
         let mut c = c.borrow_mut();
         if let Some(v) = c.as_ref()
-            && Rc::ptr_eq(&v.rules, &rules)
+            && v.generation == generation
         {
             return Some(v.clone());
         }
-        let v = Rc::new(class_deps_build(&rules));
+        let v = Rc::new(class_deps_build(&rules, generation));
         *c = Some(v.clone());
         Some(v)
     })
@@ -366,7 +386,7 @@ fn class_probe_bits(p: &ClassProbe) -> Vec<bool> {
     for e in &p.els {
         let el = crate::dom::El(e.clone());
         for &ri in &p.rules {
-            for sel in p.deps.rules[ri as usize].selectors.slice() {
+            for sel in p.deps.sels[ri as usize].slice() {
                 let mode = if sel.pseudo_element().is_some() { MatchingMode::ForStatelessPseudoElement } else { MatchingMode::Normal };
                 let mut ctx = MatchingContext::new(mode, None, &mut caches, QuirksMode::NoQuirks, NeedsSelectorFlags::No, MatchingForInvalidation::No);
                 out.push(matches_selector(sel, 0, None, &el, &mut ctx));
@@ -413,7 +433,7 @@ pub(crate) fn class_write_pre(x: &Handle, old: Option<&str>, new: Option<&str>) 
     rules.dedup();
     let mut els = Vec::new();
     if !rules.is_empty() {
-        let n_sel: usize = rules.iter().map(|&r| deps.rules[r as usize].selectors.slice().len()).sum();
+        let n_sel: usize = rules.iter().map(|&r| deps.sels[r as usize].slice().len()).sum();
         // `x` itself; its subtree when a descendant combinator reaches there; its later siblings'
         // subtrees for a sibling one (`.a ~ .b .c`). Elements below the siblings of `x`'s
         // descendants are `x`'s descendants, which `CF_SIB` alone also takes in (`.a .b ~ .c`).
