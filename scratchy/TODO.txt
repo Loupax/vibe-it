@@ -1032,6 +1032,17 @@ Shared rules for this block:
       QY53l2 (b493ad2, R43 section 13): of 71 remaining YT no-change layouts, 44 follow writes to VISIBLE elements only
       (.ytp-chapter-hover-container, .ytp-load-progress scale transform, #movie_player state classes, video attributes) and
       8 follow writes inside an inline <svg> only: consider a rule for svg-internal writes that cannot change the svg box.
+- [ ] QY53f1d1 [M] (P3, from QY53f1d #409 R54 section 4; Opus/Sonnet) Parse the page's external CSS on a worker as soon as
+      fetch_stylesheets returns (overlapping script fetching); rules_cache uses the result when the external piece's text is
+      identical. Needs StyleRule: Send (compile-time assert), raw KeyframesDefs back (registry holds Rc), the STATE_RULES
+      mask; no preparse under --css-debug; wait for the worker rather than parse twice. Gate: headless YT main thread spends
+      <= 2 ms on the external piece. Tests: preparsed list == in-thread parse (selectors, specificity, order, @media/@supports,
+      layer, !important, keyframes, mask).
+- [ ] [WIP] QY53f1d2 [S] (P3, from QY53f1d #409; Sonnet) One RuleIndex per rule list: StyleCache::adopt_shared and
+      RuleDerived::new each build one for the same list (~13 ms each on YouTube, quiet). Gate: one RuleIndex::build per
+      rules_cache generation on YouTube (counter).
+- [ ] QY53f1d3 [M] (P4, from QY53f1d #409; measure first) Rebuild RuleDerived/HoverKeys incrementally when a <style> is spliced
+      in (~16-20 ms per insert today).
 - [ ] [WIP] QY53f1d [M] (P3, from QY53f1b; Opus design) The cold parse of YouTube's 4.4 MB sheet still costs ~130 ms on the first
       forced layout. Options: parse external sheets as they arrive (off the forced-layout path, on the JS thread's idle
       time or a worker), or lazily per rule block. Measure first (R43 section 12); design + items.
