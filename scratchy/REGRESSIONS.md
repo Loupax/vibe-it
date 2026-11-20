@@ -1295,7 +1295,8 @@ images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom
   Test: `qinc1i5_engine_forced_layout_keeps_the_shape_memo` (30 paragraphs, a from-scratch read, then 3 small writes
   read through the engine with the check-mode oracle off (`js_geom::NO_ORACLE` seam: its from-scratch layout refills
   the memo itself): >= 30 memo entries remain; fails on main with 0-1). Suite 1 716 passed (debug), WPT 333 / 293 no
-  change (flag off and `SCRATCHY_INCR=1`), clippy 77. Fuzz: see below.
+  change (flag off and `SCRATCHY_INCR=1`), clippy 77. Fuzz harness (release, `SCRATCHY_FUZZ_KEEP_GOING=1`): 7 windows x
+  3 000 cases (seeds 0, 10 000, ... 60 000): 0 mismatches.
   Gate (release, QINC1j's R55 input and scripts: own wire per run, own nested dwl 960x1006, `SCRATCHY_FRAME_STATS`, 6G
   scope, every run under `flock /tmp/scratchy-perf.lock`; main = 30a23cb, fix = the same + this change, both
   `SCRATCHY_INCR=1`, interleaved, order flipped per round; 1-min load 1.8 at the start (4.3 just before), 0.3 at the end):
