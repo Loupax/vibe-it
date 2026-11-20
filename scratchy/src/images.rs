@@ -2134,12 +2134,15 @@ pub(crate) fn build_layout_tree_with_resources(
 fn assign_document_order(tree: &mut LayoutBox) {
     #[cfg(test)]
     crate::layout::OLD_TREE_ORDER.with(|m| m.borrow_mut().clear());
-    let mut seen: HashMap<(usize, u8), usize> = HashMap::new();
+    let mut seen = OrderMap::default();
     let mut next = 0usize;
     order_box(tree, &mut seen, &mut next);
 }
 
-fn order_style(s: &mut ComputedStyle, seen: &mut HashMap<(usize, u8), usize>, next: &mut usize) {
+/// (node address | pseudo slot << 56) -> index; node addresses fit in 48 bits.
+type OrderMap = HashMap<usize, usize, std::hash::BuildHasherDefault<crate::dom::PtrHasher>>;
+
+fn order_style(s: &mut ComputedStyle, seen: &mut OrderMap, next: &mut usize) {
     if s.node == 0 {
         return;
     }
@@ -2147,13 +2150,13 @@ fn order_style(s: &mut ComputedStyle, seen: &mut HashMap<(usize, u8), usize>, ne
     crate::layout::OLD_TREE_ORDER.with(|m| {
         m.borrow_mut().entry((s.node, s.pseudo)).or_insert(s.tree_order);
     });
-    s.tree_order = *seen.entry((s.node, s.pseudo)).or_insert_with(|| {
+    s.tree_order = *seen.entry(s.node | ((s.pseudo as usize) << 56)).or_insert_with(|| {
         *next += 1;
         *next
     });
 }
 
-fn order_box(b: &mut LayoutBox, seen: &mut HashMap<(usize, u8), usize>, next: &mut usize) {
+fn order_box(b: &mut LayoutBox, seen: &mut OrderMap, next: &mut usize) {
     crate::stack::grow(|| {
         order_style(&mut b.style, seen, next);
         match &mut b.content {

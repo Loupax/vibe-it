@@ -317,7 +317,7 @@ pub struct Laid {
 ///   on a box that moved such a child; shifted with the box.
 #[derive(Default)]
 pub(crate) struct ZInfo {
-    pub(crate) bubble: Vec<Laid>,
+    pub(crate) bubble: Vec<Box<Laid>>,
     pub(crate) fb: Option<Option<f32>>,
     pub(crate) last_line: Option<Option<(f32, f32)>>,
     pub(crate) flow_emptied: bool,
@@ -1000,6 +1000,8 @@ pub(crate) fn resolve_or_bubble_positioned<'a>(
     // a stable sort) — see `Laid::positioned`'s own docs for why this is
     // the paint/hit-test order, not a real stacking-context ordering.
     resolved.sort_by_key(stack_key);
+    #[cfg(test)]
+    check_old_tie_order(&resolved);
     resolved
 }
 
@@ -5997,8 +5999,18 @@ impl Drop for ZSkipGuard {
     }
 }
 
-fn take_bubble(l: &mut Laid) -> Vec<Laid> {
-    l.zb.as_mut().map(|z| std::mem::take(&mut z.bubble)).unwrap_or_default()
+/// Takes the bubble out of `l` (pointers only). A `ZInfo` that then carries nothing is dropped.
+fn take_bubble(l: &mut Laid) -> Vec<Box<Laid>> {
+    let Some(z) = l.zb.as_mut() else { return Vec::new() };
+    let b = std::mem::take(&mut z.bubble);
+    if z.fb.is_none() && z.last_line.is_none() && !z.flow_emptied {
+        l.zb = None;
+    }
+    b
+}
+
+fn has_bubble(c: &Laid) -> bool {
+    c.zb.as_ref().is_some_and(|z| !z.bubble.is_empty())
 }
 
 fn is_z_moved(c: &Laid) -> bool {
@@ -6023,12 +6035,12 @@ fn finish_z(l: &mut Laid, cache: &ShapeCache, force_owner: bool) {
         return;
     }
     let owner = force_owner || is_stacking_boundary(l);
-    let mut bag: Vec<Laid> = take_bubble(l);
+    let mut bag: Vec<Box<Laid>> = take_bubble(l);
     // A positioned, non-boundary box: its out-of-flow children escape to the owner.
     if !owner && l.style.position != Position::Static && !l.positioned.is_empty() {
         for mut n in std::mem::take(&mut l.positioned) {
             bag.append(&mut take_bubble(&mut n));
-            bag.push(n);
+            bag.push(Box::new(n));
         }
     }
     // The first baseline / "was empty" the parent reads must be those of the unmoved children.
@@ -6043,7 +6055,7 @@ fn finish_z(l: &mut Laid, cache: &ShapeCache, force_owner: bool) {
         z.flow_emptied = true;
     }
     if let LaidContent::Blocks(children) | LaidContent::TableRow(children) = &mut l.content {
-        let any_bubble = children.iter().any(|c| c.zb.is_some() || matches!(c.content, LaidContent::TableRow(_)));
+        let any_bubble = children.iter().any(|c| has_bubble(c) || matches!(c.content, LaidContent::TableRow(_)));
         if moves_flow || any_bubble {
             let old = std::mem::take(children);
             let mut kept = Vec::with_capacity(old.len());
@@ -6054,7 +6066,7 @@ fn finish_z(l: &mut Laid, cache: &ShapeCache, force_owner: bool) {
                 }
                 bag.append(&mut take_bubble(&mut c));
                 if is_z_moved(&c) {
-                    bag.push(c);
+                    bag.push(Box::new(c));
                 } else {
                     kept.push(c);
                 }
@@ -6081,7 +6093,7 @@ fn finish_z(l: &mut Laid, cache: &ShapeCache, force_owner: bool) {
             match item {
                 MixedPositioned::Embedded(mut e) if is_z_moved(&e) => {
                     bag.append(&mut take_bubble(&mut e));
-                    bag.push(*e);
+                    bag.push(e);
                 }
                 other => kept.push(other),
             }
@@ -6096,8 +6108,9 @@ fn finish_z(l: &mut Laid, cache: &ShapeCache, force_owner: bool) {
         if !bag.is_empty() {
             // Hoisted entries first so that, on a z-index tie, tree-order in-flow entries stay
             // before the owner's own out-of-flow list (the order `paint_z_layer` always used).
-            bag.append(&mut l.positioned);
-            l.positioned = bag;
+            let mut all: Vec<Laid> = bag.into_iter().map(|b| *b).collect();
+            all.append(&mut l.positioned);
+            l.positioned = all;
             l.positioned.sort_by_key(stack_key);
             #[cfg(test)]
             check_old_tie_order(&l.positioned);
