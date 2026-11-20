@@ -1051,6 +1051,11 @@ QPROF1 PART A FOLLOW-UPS (R62 section 7, #451; non-layout hotspots; START AFTER 
       descends into them (Z_SKIP keeps the old behaviour), so `z-index:5` inside an inline-block paints under a later
       `z-index:2` sibling, and abs boxes whose containing block is inside one are never hoisted. Remove Z_SKIP, accept the
       new trees, paint test for the z:5-over-z:2 case.
+- [ ] QINC1h3 [M] (P3, from QINC1h2 #458; Opus; area layout; NOT a QINC1k/l blocker; after the architecture discussion)
+      Get bottom-up walks off the root on YouTube watch (~52-64 of ~120 updates still reach root): let a splice cross
+      z-index entry owners above an intrinsic reader; cross flex/grid/table parents (replay the container's post-measure
+      stretch, or allow when the item's style + natural widths are unchanged); relax pending_out_changed (~120/run).
+      Optional: 2-entry ck for flex items only if key misses matter (~3% today). Gate: fewer root walks, 0 mismatches.
 QINC1 IMPLEMENTATION (design R60, #434; full item text in REGRESSIONS.md R60 section 15; USER ANSWERED 2026-11-20 ~11:45: "go with the
 recommendations" = R60 section 16 Q1-Q9 all as recommended: one engine on the main thread; real image sizes for script
 geometry; superseded items dropped (archived); FREEZE on other style/box/layout semantic changes while QINC1f-h1 are in
@@ -1058,7 +1063,7 @@ flight (correctness fixes allowed, rebased onto the shadow comparisons); memory 
 accepted; flip after 0 mismatches on 6 pages x 3 runs + gates, delete after >= 3 days of user use; QINC1n/o later; models
 as stated). Items QINC1a DONE 81e23d7 #447 (engine test infra + style_diff + fuzz), QINC1b (stable paragraph ids) DONE 23d604f #446, QINC1c (bottom-up hoisting) DONE 9890847 #450,
 QINC1d (InvalidationMap) DONE 18d0527 #445, QINC1e (write log) DONE 4700801 #448, QINC1f [L] (incremental restyle, shadow) DONE b20ed27 #452, QINC1g [L] DONE 8ec1c1a #455 (persistent box tree,
-shadow), QINC1h1 [L] DONE 109445c #457 (relayout from last tree, shadow), [WIP] QINC1h2 (intrinsic-size cache), [WIP] QINC1i (forced layouts via engine,
+shadow), QINC1h1 [L] DONE 109445c #457 (relayout from last tree, shadow), QINC1h2 DONE ce886a5 #458 (intrinsic-size cache), [WIP] QINC1i (forced layouts via engine,
 SCRATCHY_INCR=1), [WIP] QINC1j [L] (App frames via engine; includes shadowing App frames measured on the shaping worker, from #457), QINC1k (exactness sweep + gates), QINC1l (flip default, user OK),
 QINC1m (delete superseded special cases). Waves: 1 = a, b, d, e; 2 = c, f; 3 = g; 4 = h1; 5 = i, j, h2; then k, l, m.
 Superseded and archived (Q3): QY54b3a-f, QY54b4, QY53o2, QY53f2, QY53f3, QY53n4, QY53n1d, QY53n2d, QYTC1a2, QYTC1e,
