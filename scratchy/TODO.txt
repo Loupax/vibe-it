@@ -37,7 +37,7 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
  Step 5, memory, regression guards, re-measure:
   27 QOBS9 [S, Opus] re-baseline PERF.md on the new machine (after 9, 18, 20)
   28 QM1k-mouse: user re-tested 2026-11-19 22:21: still slow while the controls show (= QYTC1 cause); QYTC1a merged 9219065 -> ASK THE USER TO RE-TEST (quiet machine)
-  27b3 [WIP] QY54a3 [S, Opus measure, P2] YouTube re-run + CPU cost with the drain (after QY54a2)
+  27b4 [WIP] QY54a4 [S, Sonnet, P2] wl-drain sleeps while main is idle (CPU +1.4 % -> < 1 %; R57 section 7)
   27c [WIP] QY54b [S, Opus measure, P2] inline-preview getPlayerSize ~58 ms per forced layout in the window (R56)
  Step 6, re-profile before leaving performance (user 2026-11-19):
   29 QPROF1 [M, Opus, measure only] LAST performance item: runs when every item above is done, blocked or
@@ -1034,10 +1034,15 @@ Shared rules for this block:
 - [ ] QNAV9 [S] (P3, from QY54a2 #425; Sonnet, verify first) A plain `<a href>` click on a local-file page (file path
       opened directly) did not navigate even without a stall (the QY54a2 fixture had to use a JS click handler). Reproduce,
       find out whether relative/local hrefs from file pages are resolved and navigated; fix + test, or close as intended.
-- [ ] [WIP] QY54a3 [S] (P2, after QY54a2; Opus measure) Re-run R56 section 2 YouTube rows with the drain (results page at 500 Hz
-      from 1 s and from 15 s, 3 runs each) + CPU cost (60 s 500 Hz motion on a static fixture, drain on vs off, 3 interleaved
-      pairs under flock). Gate: 0 lost of 6, CPU < 1 % of one core, numbers in R57; if higher, file "thread sleeps while
-      main is idle in calloop".
+- [ ] [WIP] QY54a4 [S] (P2, from QY54a3 #427 R57 section 7; Sonnet; src/wl_drain.rs + app.rs only) The wl-drain thread
+      sleeps while the main thread is idle in calloop. Today +0.43-1.03 s CPU per 60 s of 500 Hz motion on a static page
+      (mean 1.4 % of one core; gate < 1 %): half the thread's own poll/read, half extra main-thread wake-ups (both poll the
+      fd while main is idle). Fix: main publishes a "busy since" AtomicU64 (monotonic ns; set in new_events, 0 at the end
+      of about_to_wait); the thread only polls the Wayland fd once main has been busy > ~50 ms (else waits on its wake
+      socket with ~50 ms timeout and re-checks). Keep stop/wake, POLLHUP, panic hook. Tests: existing wl_drain_tests pass
+      with main marked busy; stamp 0 -> nothing consumed; stamp older than threshold -> drains. Gate (run.sh, release,
+      flock): busy450 + stall_k18 at 500 Hz survive 3/3, YT results 500 Hz from 15 s survives 3/3, static page 3
+      interleaved 60 s pairs drain on vs off differ by < 0.6 s process CPU.
 - [ ] [WIP] QY54b [S] (P2, from #419 R56; Opus measure) YT results inline-preview player: one promise job runs 12-15
       getPlayerSize forced layouts of ~58 ms each in the window (vs ~5 ms headless on watch). Find why; file fix items.
 - [ ] QOBS9 [S] (P2, R44 section 0, Opus measure, docs only; LAST in this block) Re-baseline PERF.md on
