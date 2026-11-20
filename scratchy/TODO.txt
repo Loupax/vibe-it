@@ -1081,6 +1081,13 @@ Shared rules for this block:
 - [ ] QY53m-m [S] (P3, from QY53m #386; Opus measure, quiet machine) Re-measure QY53m's gate: Wikipedia + YouTube live
       window, same input, count js_sync rebuilds that follow only no-op writes (throwaway counter) and builds.n/ms, main vs
       #386's parent; screenshots compared. The agent's runs at load 9-26 were noise (builds.n median 20 -> 19).
+- [ ] QYTC1e [S] (P3, from QYTC1d #414 R50; measure first) YouTube replaces the `.ytp-time-current` text node once a second;
+      that is the whole remaining ~1 forced layout/s while the controls show (960x1006). Check whether a text change inside
+      a box whose size cannot change (definite width/height, or abs-positioned in the controls) can update the cache
+      without a full layout. Exactness first.
+- [ ] QYTC1f [M] (P4, from QYTC1d #414; Opus design) Class writes whose flipped rules declare only box-neutral properties
+      (ytp-autohide toggles opacity rules). Careful: opacity < 1 makes a stacking context (moves hoisted boxes);
+      visibility / background-color on inline content (spacer boxes) need the same care.
 - [ ] QYTC1c [S] (P3, from R50; measure) css_collect + rule_index are 18 % of every forced layout on the JS thread
       (~5 ms each): is RULE_DERIVED's index rebuilt per layout there? (css area: not alongside QAN1h2/QAN1h3)
 - [ ] QY53o2 [M] (P3, from QY53o; Opus design first; ONLY if QY53o1 leaves > ~3 s per run) Writes inside an abs/fixed
