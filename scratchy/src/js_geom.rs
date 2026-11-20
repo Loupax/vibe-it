@@ -224,6 +224,233 @@ pub(crate) fn html_sensitive(html: &str) -> bool {
     STYLE_SENSITIVE.iter().any(|t| l.contains(&format!("<{t}")))
 }
 
+// ---------- QYTC1d: `class` writes that change no element's matched rules ----------
+
+/// QYTC1d: where a class sits in a selector, as seen from the element that carries it: the
+/// subject compound only touches that element; a compound left of a descendant/child combinator
+/// reaches its subtree, left of a sibling combinator its later siblings' subtrees.
+const CF_DESC: u8 = 1;
+const CF_SIB: u8 = 2;
+/// Inside `:has()` / `:nth-child(of)`, or nested where the reach is not tracked: give up.
+const CF_UNBOUNDED: u8 = 4;
+
+/// QYTC1d: `ClassDeps::by_class` key of the rules whose selectors read `class` as an attribute
+/// (`[class*=x]`): they can change with any `class` write. (No class token is empty.)
+const CLASS_ATTR_KEY: &str = "";
+
+/// QYTC1d: per rule list, every class a selector names -> `(rule index, CF_* flags)`.
+struct ClassDeps {
+    rules: Rc<Vec<StyleRule>>,
+    by_class: HashMap<String, Vec<(u32, u8)>>,
+    /// Some `content` reads `attr(class)` (or an `attr()` behind `var()`): no verdict.
+    content_reads: bool,
+}
+
+/// QYTC1d: does this block's `content` read `attr(class)`? (`AttrReaders::scan_decls`' rules.)
+fn content_reads_class(d: &Declarations) -> bool {
+    let here = match &d.content {
+        Some(ContentDecl::Parts(parts)) => parts.iter().any(|p| matches!(p, ContentPart::Attr(n) if n.eq_ignore_ascii_case("class"))),
+        _ => d.var_decls.iter().any(|(n, v)| n.eq_ignore_ascii_case("content") && v.to_ascii_lowercase().contains("attr(")),
+    };
+    here || d.late.iter().any(content_reads_class)
+}
+
+thread_local! {
+    static CLASS_DEPS: RefCell<Option<Rc<ClassDeps>>> = const { RefCell::new(None) };
+}
+
+fn note_classes(c: &Component<OurSelectorImpl>, follow: u8, rule: u32, out: &mut HashMap<String, Vec<(u32, u8)>>) {
+    let mut add = |name: &str, f: u8| {
+        let v = out.entry(name.to_string()).or_default();
+        match v.last_mut() {
+            Some(e) if e.0 == rule => e.1 |= f,
+            _ => v.push((rule, f)),
+        }
+    };
+    match c {
+        Component::Class(a) => add(&a.0, follow),
+        Component::AttributeInNoNamespaceExists { local_name_lower, .. } if local_name_lower.0.eq_ignore_ascii_case("class") => add(CLASS_ATTR_KEY, follow),
+        Component::AttributeInNoNamespace { local_name, .. } if local_name.0.eq_ignore_ascii_case("class") => add(CLASS_ATTR_KEY, follow),
+        Component::AttributeOther(a) if a.local_name_lower.0.eq_ignore_ascii_case("class") => add(CLASS_ATTR_KEY, follow),
+        Component::Negation(l) | Component::Is(l) | Component::Where(l) => {
+            for s in l.slice() {
+                // A nested selector with its own combinators reaches other elements: count both ways.
+                let comb = s.iter_raw_match_order().any(|c| matches!(c, Component::Combinator(_)));
+                let f = if comb { follow | CF_DESC | CF_SIB } else { follow };
+                for n in s.iter_raw_match_order() {
+                    note_classes(n, f, rule, out);
+                }
+            }
+        }
+        Component::Has(l) => {
+            for h in l.iter() {
+                for n in h.selector.iter_raw_match_order() {
+                    note_classes(n, CF_UNBOUNDED, rule, out);
+                }
+            }
+        }
+        Component::NthOf(d) => {
+            for s in d.selectors() {
+                for n in s.iter_raw_match_order() {
+                    note_classes(n, CF_UNBOUNDED, rule, out);
+                }
+            }
+        }
+        // Not parsed today (like `:has()`/`:nth-child(of)`); unbounded should that change.
+        Component::Host(Some(s)) | Component::Slotted(s) => {
+            for n in s.iter_raw_match_order() {
+                note_classes(n, CF_UNBOUNDED, rule, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn class_deps_build(rules: &Rc<Vec<StyleRule>>) -> ClassDeps {
+    use selectors::parser::Combinator;
+    let mut by_class: HashMap<String, Vec<(u32, u8)>> = HashMap::new();
+    let mut content_reads = false;
+    for (ri, rule) in rules.iter().enumerate() {
+        if rule.may_declare_generated() && (content_reads_class(rule.decls()) || content_reads_class(rule.important())) {
+            content_reads = true;
+        }
+        for sel in rule.selectors.slice() {
+            let mut follow = 0u8;
+            let mut it = sel.iter();
+            loop {
+                for c in it.by_ref() {
+                    note_classes(c, follow, ri as u32, &mut by_class);
+                }
+                match it.next_sequence() {
+                    None => break,
+                    Some(Combinator::Descendant | Combinator::Child) => follow |= CF_DESC,
+                    Some(Combinator::NextSibling | Combinator::LaterSibling) => follow |= CF_SIB,
+                    Some(Combinator::PseudoElement) => {}
+                    Some(_) => follow |= CF_UNBOUNDED,
+                }
+            }
+        }
+    }
+    ClassDeps { rules: rules.clone(), by_class, content_reads }
+}
+
+fn current_class_deps() -> Option<Rc<ClassDeps>> {
+    let rules = crate::style::RULE_DERIVED.with(|d| d.borrow().as_ref().map(|x| x.rules.clone()))?;
+    CLASS_DEPS.with(|c| {
+        let mut c = c.borrow_mut();
+        if let Some(v) = c.as_ref()
+            && Rc::ptr_eq(&v.rules, &rules)
+        {
+            return Some(v.clone());
+        }
+        let v = Rc::new(class_deps_build(&rules));
+        *c = Some(v.clone());
+        Some(v)
+    })
+}
+
+/// QYTC1d: what `class_write_pre` saw before a `class` write; `class_write_post` decides.
+pub(crate) struct ClassProbe {
+    deps: Rc<ClassDeps>,
+    rules: Vec<u32>,
+    els: Vec<Handle>,
+    before: Vec<bool>,
+}
+
+/// QYTC1d: most selector matches one side of a probe may run (elements x selectors).
+const CLASS_PROBE_MAX: usize = 20_000;
+
+fn class_probe_bits(p: &ClassProbe) -> Vec<bool> {
+    let mut caches = SelectorCaches::default();
+    let mut out = Vec::with_capacity(p.before.len());
+    for e in &p.els {
+        let el = crate::dom::El(e.clone());
+        for &ri in &p.rules {
+            for sel in p.deps.rules[ri as usize].selectors.slice() {
+                let mode = if sel.pseudo_element().is_some() { MatchingMode::ForStatelessPseudoElement } else { MatchingMode::Normal };
+                let mut ctx = MatchingContext::new(mode, None, &mut caches, QuirksMode::NoQuirks, NeedsSelectorFlags::No, MatchingForInvalidation::No);
+                out.push(matches_selector(sel, 0, None, &el, &mut ctx));
+            }
+        }
+    }
+    out
+}
+
+fn class_tokens(v: Option<&str>) -> std::collections::HashSet<&str> {
+    v.map(|v| v.split_ascii_whitespace().collect()).unwrap_or_default()
+}
+
+/// QYTC1d, before `x`'s `class` goes from `old` to `new` (`None` = absent): `Some` when the last
+/// forced layout is current (no geometry bump or CSS change since), no `content` reads
+/// `attr(class)`, and the rules naming a class that changes (plus those reading `class` as an
+/// attribute) are bounded (not inside `:has()`/`:nth-child(of)`); it records which of their
+/// selectors match each element the change can reach.
+pub(crate) fn class_write_pre(x: &Handle, old: Option<&str>, new: Option<&str>) -> Option<ClassProbe> {
+    if !matches!(x.data, NodeData::Element { .. }) {
+        return None;
+    }
+    let current = ATTR_SNAP.with(|s| matches!(s.borrow().as_ref(), Some(((g, css), _)) if *g == crate::js_dom::geom_gen() && *css == crate::js_style::css_ver()));
+    if !current {
+        return None;
+    }
+    let deps = current_class_deps()?;
+    if deps.content_reads {
+        return None;
+    }
+    let (a, b) = (class_tokens(old), class_tokens(new));
+    let mut rules: Vec<u32> = Vec::new();
+    let mut follow = 0u8;
+    for c in a.symmetric_difference(&b).chain(std::iter::once(&CLASS_ATTR_KEY)) {
+        for &(ri, f) in deps.by_class.get(*c).map(Vec::as_slice).unwrap_or(&[]) {
+            follow |= f;
+            rules.push(ri);
+        }
+    }
+    if follow & CF_UNBOUNDED != 0 {
+        return None;
+    }
+    rules.sort_unstable();
+    rules.dedup();
+    let mut els = Vec::new();
+    if !rules.is_empty() {
+        let n_sel: usize = rules.iter().map(|&r| deps.rules[r as usize].selectors.slice().len()).sum();
+        // `x` itself; its subtree when a descendant combinator reaches there; its later siblings'
+        // subtrees for a sibling one (`.a ~ .b .c`). Elements below the siblings of `x`'s
+        // descendants are `x`'s descendants, which `CF_SIB` alone also takes in (`.a .b ~ .c`).
+        els.push(x.clone());
+        let mut stack = Vec::new();
+        if follow & (CF_DESC | CF_SIB) != 0 {
+            stack.extend(x.children.borrow().iter().cloned());
+        }
+        if follow & CF_SIB != 0
+            && let Some(p) = parent_handle(x)
+        {
+            let kids = p.children.borrow();
+            let at = kids.iter().position(|k| Rc::ptr_eq(k, x))?;
+            stack.extend(kids[at + 1..].iter().cloned());
+        }
+        while let Some(n) = stack.pop() {
+            if !matches!(n.data, NodeData::Element { .. }) {
+                continue;
+            }
+            stack.extend(n.children.borrow().iter().cloned());
+            els.push(n);
+            if els.len() * n_sel > CLASS_PROBE_MAX {
+                return None;
+            }
+        }
+    }
+    let mut p = ClassProbe { deps, rules, els, before: Vec::new() };
+    p.before = class_probe_bits(&p);
+    Some(p)
+}
+
+/// QYTC1d, after the write: did every reached element keep every selector match? Then no
+/// element's style changed and the cached layout is still the page's.
+pub(crate) fn class_write_post(p: ClassProbe) -> bool {
+    class_probe_bits(&p) == p.before
+}
+
 #[derive(Default)]
 pub(crate) struct GeomCache {
     key: Option<(u64, u32, u32, (u64, u64))>,

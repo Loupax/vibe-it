@@ -224,7 +224,7 @@ fn attr_lookup_name(h: &Handle, n: &str) -> String {
     }
 }
 
-fn remove_attr(h: &Handle, name: &str) {
+pub(crate) fn remove_attr(h: &Handle, name: &str) {
     if let NodeData::Element { attrs, .. } = &h.data {
         attrs.borrow_mut().retain(|a| a.name.local.as_ref() != name);
     }
@@ -573,6 +573,12 @@ pub(crate) fn geom_gen() -> u64 {
 
 fn geom_bump() {
     GEOM_GEN.with(|g| g.set(g.get() + 1));
+}
+
+/// Test-only: a geometry bump of unknown cause.
+#[cfg(test)]
+pub(crate) fn geom_bump_for_tests() {
+    geom_bump();
 }
 
 /// Is `h` part of the page document `t.get(0)`?
@@ -999,6 +1005,10 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             let name = name.to_ascii_lowercase();
             let old = element_attr(&h, &name).map(|s| s.to_string());
             let changed = old.as_deref() != Some(val.as_str());
+            // QYTC1d: a `class` write that changes no element's matched rules keeps the layout.
+            let probe = (changed && name == "class" && page_connected(&t.borrow(), &h))
+                .then(|| crate::js_geom::class_write_pre(&h, old.as_deref(), Some(&val)))
+                .flatten();
             set_attr(&h, &name, &val);
             // QY53m: a write that changed no value does not wake the App's restyle.
             d.set(d.get() | changed);
@@ -1008,7 +1018,8 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
                 && name == "style"
                 && page_connected(&t.borrow(), &h)
                 && geom7.try_borrow_mut().is_ok_and(|mut g| g.style_write_in_place(&h, old.as_deref(), Some(&val), geom_gen()));
-            if !in_place {
+            let neutral = probe.is_some_and(crate::js_geom::class_write_post);
+            if !in_place && !neutral {
                 geom_bump_attr(&t.borrow(), &h, changed, &name);
             }
         }
@@ -1018,11 +1029,16 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         if let Some(h) = t.borrow().get(id) {
             let name = name.to_ascii_lowercase();
             let changed = element_attr(&h, &name).is_some();
+            let probe = (changed && name == "class" && page_connected(&t.borrow(), &h))
+                .then(|| crate::js_geom::class_write_pre(&h, element_attr(&h, "class").as_deref(), None))
+                .flatten();
             remove_attr(&h, &name);
             // QY53m: a write that changed no value does not wake the App's restyle.
             d.set(d.get() | changed);
             gn.set(gn.get() + 1);
-            geom_bump_attr(&t.borrow(), &h, changed, &name);
+            if !probe.is_some_and(crate::js_geom::class_write_post) {
+                geom_bump_attr(&t.borrow(), &h, changed, &name);
+            }
         }
     });
     // QY45: qualified-name / namespaced attribute access over the stored
