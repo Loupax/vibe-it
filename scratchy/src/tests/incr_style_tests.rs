@@ -443,3 +443,102 @@ fn qinc1f_a_bare_animation_duration_is_not_animation_membership() {
     let s = build(&doc);
     assert_eq!((s.rematched, s.recascaded), (0, 1), "{s:?}");
 }
+
+// ---------- QINC1f-fix: the fuzz seeds above the default window (462, 519, 733, 1956, 2080, 2084, 2475) ----------
+
+/// The minimal form of all seven seeds: one batch inserts several elements in front of the old first child (a
+/// parsed fragment goes in one node at a time). Replayed against the final DOM, each insert's "first two element
+/// children" edge held only new nodes, so the old first child kept its `:first-child` rule.
+#[test]
+fn qinc1f_fix_two_inserts_before_the_first_child_restyle_the_old_first() {
+    let _g = LogOnly::new();
+    let doc = page("div:first-child{color:red}", "<section id=p>t<div id=old>o</div></section>");
+    build(&doc);
+    assert_eq!(style_of(&by_id(&doc, "old")).color, TextColor::rgb(255, 0, 0));
+    let p = by_id(&doc, "p");
+    // seed 2084: after a leading text node; seeds 462/519/733/1956/2080/2475: at 0 (a text first in 462)
+    insert_at(&p, &element("<i>a</i>"), 1);
+    insert_at(&p, &element("<b>b</b>"), 2);
+    let s = build(&doc); // the shadow check panics on a stale `:first-child`
+    assert!(!s.full, "{s:?}");
+    assert_ne!(style_of(&by_id(&doc, "old")).color, TextColor::rgb(255, 0, 0));
+}
+
+/// The mirror case: two appends after the old last child (two earlier siblings keep it out of the "first two" edge,
+/// which would re-match it by accident).
+#[test]
+fn qinc1f_fix_two_appends_after_the_last_child_restyle_the_old_last() {
+    let _g = LogOnly::new();
+    let doc = page("span:last-child{color:red}", "<div id=p><span>f</span><span>g</span><span id=old>o</span></div>");
+    build(&doc);
+    assert_eq!(style_of(&by_id(&doc, "old")).color, TextColor::rgb(255, 0, 0));
+    let p = by_id(&doc, "p");
+    append(&p, &element("<span>a</span>"));
+    append(&p, &element("<span>b</span>"));
+    let s = build(&doc);
+    assert!(!s.full, "{s:?}");
+    assert_ne!(style_of(&by_id(&doc, "old")).color, TextColor::rgb(255, 0, 0));
+}
+
+/// `:only-child` after two appends to a single child.
+#[test]
+fn qinc1f_fix_two_appends_to_an_only_child() {
+    let _g = LogOnly::new();
+    let doc = page("span:only-child{font-weight:bold}", "<div id=p><span id=old>o</span></div>");
+    build(&doc);
+    assert_eq!(style_of(&by_id(&doc, "old")).font_weight, FontWeight::BOLD);
+    let p = by_id(&doc, "p");
+    append(&p, &element("<span>a</span>"));
+    append(&p, &element("<span>b</span>"));
+    build(&doc);
+    assert_ne!(style_of(&by_id(&doc, "old")).font_weight, FontWeight::BOLD);
+}
+
+/// `:nth-child`, `+` and `~` after a move inside the parent plus inserts in the same batch (seed 2080's
+/// `:nth-child(2n+1)` / `.c1 ~ .c3` sheet).
+#[test]
+fn qinc1f_fix_move_and_inserts_in_one_batch_keep_sibling_rules() {
+    let _g = LogOnly::new();
+    let doc = page(
+        ":nth-child(2n+1){color:red} .a + .c{font-weight:bold} .b ~ .d{text-transform:uppercase}",
+        "<div id=p><i id=a class=a>a</i><i id=b class=b>b</i><i id=c class=c>c</i><i id=d class=d>d</i></div>",
+    );
+    build(&doc);
+    let p = by_id(&doc, "p");
+    let b = by_id(&doc, "b");
+    remove(&b);
+    insert_at(&p, &b, 3); // a c d b
+    insert_at(&p, &element("<i>x</i>"), 0);
+    insert_at(&p, &element("<i>y</i>"), 0); // y x a c d b
+    let s = build(&doc);
+    assert!(!s.full, "{s:?}");
+    assert_eq!(style_of(&by_id(&doc, "c")).font_weight, FontWeight::BOLD, ".a + .c now holds");
+}
+
+/// Seed 2475 (behind the first-child cause): removing an element whose node is freed at once left its
+/// descendants' entries in the table, with child lists naming freed text nodes. A new text node can reuse such an
+/// address; the text edit's parent lookup then found the stale entry and the edit was lost (a kept box kept the old
+/// text). The removal now drops the descendants through the stored lists.
+#[test]
+fn qinc1f_fix_removing_a_freed_subtree_drops_its_descendant_entries() {
+    let _g = LogOnly::new();
+    let doc = page("", "<div id=p><a id=gone><i><span>x<b>y</b></span></i></a><div id=q>q</div></div>");
+    build(&doc);
+    let before = incr_style::with_engine(|e| e.unwrap().len());
+    let gone = by_id(&doc, "gone");
+    remove(&gone);
+    drop(gone); // the last strong reference: only the table's `Weak` is left
+    build(&doc);
+    let after = incr_style::with_engine(|e| e.unwrap().len());
+    assert_eq!(before - after, 4, "a, i, span and b leave the table ({before} -> {after})");
+    // a text edit after the removal reaches its own parent
+    let q = by_id(&doc, "q");
+    let t = q.children.borrow()[0].clone();
+    if let NodeData::Text { contents } = &t.data {
+        *contents.borrow_mut() = "new text".into();
+    }
+    incr_log::note(node_id(&t), Change::Text);
+    let s = build(&doc);
+    assert!(!s.full, "{s:?}");
+    assert!(s.boxes.contains(&node_id(&q)), "the edit marks q's box: {s:?}");
+}
