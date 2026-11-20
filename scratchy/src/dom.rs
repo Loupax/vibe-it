@@ -554,6 +554,23 @@ pub(crate) fn enclosing_control(h: &Handle) -> Option<Handle> {
     None
 }
 
+/// QNAV9: the `href` of the nearest ancestor-or-self `<a href>`/`<area href>` of
+/// `h` (the element a click lands on): a browser follows the link whatever part of
+/// it was hit, not only its text glyphs. An `<a>` without `href` is not a link, the
+/// walk goes on past it.
+pub(crate) fn enclosing_link_href(h: &Handle) -> Option<String> {
+    let mut cur = Some(h.clone());
+    while let Some(n) = cur {
+        if matches!(element_tag(&n), "a" | "area")
+            && let Some(href) = element_attr(&n, "href")
+        {
+            return Some(href.to_string());
+        }
+        cur = parent_handle(&n);
+    }
+    None
+}
+
 /// The nearest ancestor-or-self `<label>` of `h`.
 pub(crate) fn enclosing_label(h: &Handle) -> Option<Handle> {
     let mut cur = Some(h.clone());
