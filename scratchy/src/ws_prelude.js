@@ -145,4 +145,16 @@
     message(ws, s, s.bt === 'arraybuffer' ? u8.buffer : new g.Blob([u8]));
   });
   def(g, 'WebSocket', WebSocket);
+  // QPT1b2 (R53 D6): `__ws_detach(ws)`, called by a dropped iframe realm for each socket it created
+  // (its `WebSocket` is a wrapper over this class, see __scratchy_realm_init): the connection is
+  // closed (going away; CONNECTING: failed) and no event reaches the realm any more, as when Chrome
+  // unloads a document. The socket is forgotten here, so wire's close reply is dropped silently.
+  def(g, '__ws_detach', function (ws) {
+    var s = ws !== null && typeof ws === 'object' ? map.get(ws) : undefined;
+    if (!s || s.rs === 3) return;
+    var was = s.rs;
+    s.rs = 3;
+    delete socks[s.id];
+    if (was === 0) N.abort(s.id); else if (was === 1) N.close(s.id, 1001, '');
+  });
 })(globalThis);

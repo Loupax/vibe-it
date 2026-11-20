@@ -867,7 +867,21 @@ const PRELUDE: &str = r#"
     Object.defineProperty(g, 'name', { get: function () { return nm; }, set: function (v) { nm = String(v); if (o.onName) o.onName(); }, configurable: true, enumerable: true });
     g.__scratchy_timers_fwd(p);
     g.__net_fwd(p);
-    g.WebSocket = p.WebSocket;
+    // QPT1b2: the realm's `WebSocket` is its own class over the page's, recording the sockets this
+    // realm creates (`__scratchy_realm_release` closes them); the page's own sockets are untouched.
+    var wsRoot = p.__ws_root || p.WebSocket, wsDetach = p.__ws_detach, wsMine = [];
+    function WebSocket(url, protocols) {
+      if (!new.target) return wsRoot.apply(this, arguments);  // throws the constructor's own TypeError
+      var ws = Reflect.construct(wsRoot, arguments, new.target);
+      wsMine.push(ws);
+      return ws;
+    }
+    WebSocket.prototype = Object.create(wsRoot.prototype, { constructor: { value: WebSocket, writable: true, configurable: true } });
+    Object.setPrototypeOf(WebSocket, wsRoot);
+    ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'].forEach(function (k) { Object.defineProperty(WebSocket, k, { value: wsRoot[k], enumerable: true }); });
+    Object.defineProperty(g, '__ws_root', { value: wsRoot, configurable: true });
+    Object.defineProperty(g, '__ws_detach', { value: wsDetach, configurable: true });
+    Object.defineProperty(g, 'WebSocket', { value: WebSocket, writable: true, configurable: true });
     p.__scratchy_rej_sub(g.__scratchy_rej_flush);
     // QPT1b (R53 D6): the parent calls this when it drops the realm.
     Object.defineProperty(g, '__scratchy_realm_release', { value: function () {
@@ -876,6 +890,7 @@ const PRELUDE: &str = r#"
       g.__scratchy_set_closed();
       g.__scratchy_timers_cancel(g);
       g.__net_cancel(g);
+      wsMine.splice(0).forEach(function (w) { try { wsDetach(w); } catch (e) {} });
       try { g.__scratchy_rej_flush(); } catch (e) {}  // report what is pending before the realm goes
       p.__scratchy_rej_unsub(g.__scratchy_rej_flush);
     }, configurable: true });

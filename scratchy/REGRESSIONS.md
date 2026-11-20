@@ -1921,6 +1921,11 @@ hook next to `afterIns`), on a src/srcdoc change, and on navigation of the page,
    `Context::DetachGlobal` (not bound by the `v8` crate: an `extern "C"` on `_ZN2v87Context12DetachGlobalEv`, like
    `MarkAsUndetectable`), so an old `w` reference stops reaching the window, as in Chrome.
 
+4. (QPT1b2) closes the WebSockets the realm created: a realm's `WebSocket` is its own wrapper class over the page's
+   (so `new w.WebSocket()` is recorded per realm; the page's sockets are not); `__scratchy_realm_release` calls the page's
+   `__ws_detach` on each: the connection is closed through wire (1001; a CONNECTING one is aborted) and the socket is
+   forgotten, so no event (error/close) reaches the dropped realm. Tests: qf19w2_tests `qpt1b2_*`.
+
 V8 frees the context once no JS reference is left (the spike freed 4 of 4). `contentWindow` is `null` while the iframe is
 disconnected. Re-inserting the iframe makes a new realm. The engine drop frees everything. A soft cap of 64 live realms per
 page logs once and makes the extra frames fall back to `null`, so a pathological page cannot use unbounded memory (Chrome

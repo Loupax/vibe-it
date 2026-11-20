@@ -715,3 +715,49 @@ fn ws_message_flood_keeps_order() {
     ));
     p.wait_for("all:true");
 }
+
+// QPT1b2 (R53 D6): a dropped iframe realm closes the WebSockets it created (through wire), fires no
+// event into the dropped realm, and leaves the page's own sockets alone.
+fn realm_ws_case(tag: &str, drop_js: &str) {
+    let Some(p) = real_page(tag, "http://page.test/") else { return };
+    let srv = start_echo(Echo::default());
+    p.eval(&format!(
+        "var f = document.createElement('iframe'); document.body.appendChild(f); var w = f.contentWindow;\
+         var url = 'ws://127.0.0.1:{}/';\
+         var pg = new WebSocket(url); pg.onopen = function(){{ console.log('page open'); }}; pg.onmessage = function(e){{ console.log('page msg ' + e.data); }}; pg.onclose = function(){{ console.log('page close'); }};\
+         var rs = new w.WebSocket(url); console.log('wrapper', rs instanceof w.WebSocket, rs instanceof WebSocket, w.WebSocket !== WebSocket, w.WebSocket.OPEN);\
+         rs.onopen = function(){{ console.log('realm open'); }}; rs.onclose = function(){{ console.log('REALM close'); }}; rs.onerror = function(){{ console.log('REALM error'); }}; rs.onmessage = function(){{ console.log('REALM msg'); }};\
+         rs.addEventListener('close', function(){{ console.log('REALM close2'); }});\
+         var rc = new w.WebSocket(url);",
+        srv.port
+    ));
+    p.wait_for("page open");
+    p.wait_for("realm open");
+    while p.engine.ws_socket_count() < 3 {
+        p.settle(5);
+    }
+    p.eval(drop_js);
+    let t0 = Instant::now();
+    while p.engine.ws_socket_count() != 1 {
+        assert!(t0.elapsed() < Duration::from_secs(10), "realm sockets still open: {}", p.engine.ws_socket_count());
+        p.settle(10);
+    }
+    p.settle(100);
+    p.eval("console.log('states', pg.readyState, rs.readyState); pg.send('hi');");
+    p.wait_for("page msg hi");
+    let logs = p.logs();
+    assert!(logs.contains(&"wrapper true true true 1".to_string()), "{logs:?}");
+    assert!(logs.contains(&"states 1 3".to_string()), "{logs:?}");
+    assert!(!logs.iter().any(|l| l.contains("REALM") || l == "page close"), "{logs:?}");
+    assert_eq!(p.engine.ws_socket_count(), 1);
+}
+
+#[test]
+fn qpt1b2_removing_the_iframe_closes_its_websockets_not_the_pages() {
+    realm_ws_case("rm", "f.remove();");
+}
+
+#[test]
+fn qpt1b2_changing_the_iframe_src_closes_its_websockets_not_the_pages() {
+    realm_ws_case("src", "f.src = 'about:blank#x';");
+}
