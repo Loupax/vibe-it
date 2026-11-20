@@ -8132,3 +8132,14 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QY53n2c DONE - hover by resolved value (#424): YT 38/70 patched vs 0/76 [S] (P3, from QY53n3m #418 R55; Sonnet) Classify hover rules by the resolved value change, not the declared
       property: border-radius, SVG fill/stroke, `background` whose computed change is only the colour, same-value border
       width/style go to the Paint patch. Gate: YT watch `hover.patched` >= 40 of ~95 hover builds over 3 runs.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY54a2 DONE - wl-drain thread (#425) [M] (P1, after QY54a1; Sonnet; new src/wl_drain.rs, app.rs resumed/exiting, Cargo.toml) The `wl-drain` thread
+      per REGRESSIONS.md R57 section 4: prepare_read / poll / read_without_dispatch on a Connection made from winit's
+      wl_display* (Backend::from_foreign_display), never dispatches, stops at first error or POLLHUP, woken by a pipe,
+      joined in `exiting`, stopped by a chained panic hook; SCRATCHY_WL_DRAIN=0 disables; non-Wayland gets no thread.
+      Direct deps wayland-client + wayland-backend (client_system), already in Cargo.lock at the same versions. Tests per
+      R57 section 5 (socketpair drain test, stop() < 100 ms + POLLHUP exit, None for non-Wayland/disabled; if the socketpair
+      test is impractical (> ~200 lines) say so and gate on QY54a1 only). Gate: QY54a1 harness busy450 + stall_k18 at
+      500 Hz survive 3/3, SCRATCHY_WL_DRAIN=0 still lost 3/3; a click injected during a stall_k18 stall hits the link.
+  (queue line) 27b2 [WIP] QY54a2 [M, Sonnet, P1] wl-drain helper thread (after QY54a1; R57 section 4)
