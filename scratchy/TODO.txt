@@ -37,7 +37,6 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
  Step 5, memory, regression guards, re-measure:
   28 QM1k-mouse: user re-tested 2026-11-19 22:21: still slow while the controls show (= QYTC1 cause); QYTC1a merged 9219065 -> ASK THE USER TO RE-TEST (quiet machine)
  Step 6, re-profile before leaving performance (user 2026-11-19):
-  29 [WIP] QPROF1 [M, Opus, measure only] LAST performance item: runs when every item above is done, blocked or
      waiting for the user. The backlog does NOT start until it is done and any items it files are worked off.
      Detail entry: search `QPROF1`.
  Not in this list on purpose: QY26 and QY47d (QuickJS-specific: bytecode cache via JS_WriteObject,
@@ -1021,12 +1020,42 @@ Shared rules for this block:
 USER 2026-11-20 ~14:40: "once we are done with the layout engine changes, I'd like to have a pause on implementation and
 have an architecture discussion before we continue" -> after QINC1 (through QINC1m, or wherever the user calls it done) the
 coordinator STOPS assigning implementation items and holds an architecture discussion with the user first.
+- [ ] QPROF1B [?] (user 2026-11-19, PART B of QPROF1; WITH THE USER) Joint session: the user drives their real window on the
+      pages they use, scratchy with SCRATCHY_FRAME_STATS (and perf if the user agrees); every stall the user notices becomes an
+      item. Also the QM1k-mouse re-test. Whenever the user has time.
+QPROF1 PART A FOLLOW-UPS (R62 section 7, #451; non-layout hotspots; START AFTER the user's architecture discussion, see below):
+- [ ] QPROF1-a [S] (P2; Sonnet; jsdom frames prelude + net.rs) Every DOM removal (__d_remove/__d_sethtml/__d_settext) runs
+      sweepFrames -> syncWin -> frameList: full-document getElementsByTagName('iframe') + per iframe a whole-document <base>
+      walk (find_base_url). 12 % of YT watch / 17.6 % of YT results main thread. Skip unless the removed subtree holds an
+      iframe (or a live iframe count) and cache the base URL. Gate < 1 %. Coordinate with QPT1-D2.
+- [ ] QPROF1-b [S] (P2; Sonnet; IO prelude + natives) IntersectionObserver: gRect -> ioShown -> __d_cs_hidden -> style_of_chain
+      before __d_rect (which already returns [] for hidden); ioEval0/ioPad read overflow/borders via the cascade per
+      ancestor. 10-12 % of YT main thread. Use the rect result and read overflow/borders from the laid box. Gate < 2 %.
+      (QINC1p may cover it.)
+- [ ] QPROF1-c [S] (P3; Sonnet; globals_prelude.js) MessagePort flush delivers the whole queue (incl. newly posted) in one
+      task: React's scheduler never yields (375-389 ms task on bbc). One message per task. Gate: no globals:114 cb >= 100 ms.
+- [ ] QPROF1-d [S] (P3; Sonnet; media_mpv.rs) dlopen of libmpv on the JS thread at the first <video> (118-131 ms on
+      Wikipedia, _dl_* 10.5 %). Preload on a background thread. Gate: no media: cb >= 30 ms.
+- [ ] QPROF1-e [M] (P3; Opus measure then Sonnet; js_engine_v8.rs compile_script) No code cache: 9-11 % YT, 25 % bbc
+      (compile_cpu_ms 290-350 per YT load). (1) in-memory session code cache keyed by URL+hash (no disk); (2) background
+      (streaming) compile. Gate: 2nd-load compile <= 40 % of the first.
+- [ ] QPROF1-f [S] (P3; Sonnet; MPV_OPTIONS / render size) mpv software path scales every frame with float lanczos (zimg),
+      ~10 % of process CPU during playback. Try zimg-scaler=bilinear and render at the video's size when the box isn't
+      larger. Gate: mpv worker CPU halves, no visible quality loss.
+- [ ] QPROF1-g [S] (P4; tooling) profile.sh -F oversamples idle threads (watchdog 5-30 % of samples, < 1 % CPU): fixed
+      period or a /proc per-thread CPU table; fold main by tid. Gate: shares within 5 points of /proc.
+- [ ] QM1k-blank [S] (P3, from R62; Opus investigate) In 1 of 3 YT watch window runs no video frame for 24 s while the main
+      thread was idle; a 2nd <video> started at 58 s. Reproduce and find the cause.
+- [ ] QINC1c-ib [S] (P3, AFTER the QINC1 freeze; from QINC1c #450 + its review) Static inline-blocks: the z-index hoist never
+      descends into them (Z_SKIP keeps the old behaviour), so `z-index:5` inside an inline-block paints under a later
+      `z-index:2` sibling, and abs boxes whose containing block is inside one are never hoisted. Remove Z_SKIP, accept the
+      new trees, paint test for the z:5-over-z:2 case.
 QINC1 IMPLEMENTATION (design R60, #434; full item text in REGRESSIONS.md R60 section 15; USER ANSWERED 2026-11-20 ~11:45: "go with the
 recommendations" = R60 section 16 Q1-Q9 all as recommended: one engine on the main thread; real image sizes for script
 geometry; superseded items dropped (archived); FREEZE on other style/box/layout semantic changes while QINC1f-h1 are in
 flight (correctness fixes allowed, rebased onto the shadow comparisons); memory +8-18 MB accepted; slower shadow-mode tests
 accepted; flip after 0 mismatches on 6 pages x 3 runs + gates, delete after >= 3 days of user use; QINC1n/o later; models
-as stated). Items QINC1a DONE 81e23d7 #447 (engine test infra + style_diff + fuzz), QINC1b (stable paragraph ids) DONE 23d604f #446, [WIP] QINC1c (bottom-up hoisting),
+as stated). Items QINC1a DONE 81e23d7 #447 (engine test infra + style_diff + fuzz), QINC1b (stable paragraph ids) DONE 23d604f #446, QINC1c (bottom-up hoisting) DONE 9890847 #450,
 QINC1d (InvalidationMap) DONE 18d0527 #445, QINC1e (write log) DONE 4700801 #448, [WIP] QINC1f [L] (incremental restyle, shadow), QINC1g [L] (persistent box tree,
 shadow), QINC1h1 [L] (relayout from last tree, shadow), QINC1h2 (intrinsic-size cache), QINC1i (forced layouts via engine,
 SCRATCHY_INCR=1), QINC1j [L] (App frames via engine), QINC1k (exactness sweep + gates), QINC1l (flip default, user OK),
@@ -1036,25 +1065,6 @@ QYTC1f, QY53l3, QY53e2b.
 ON HOLD (user wants QINC1 instead; may be superseded) ON HOLD (user wants QINC1 instead; may be superseded) QY54b3 IMPLEMENTATION (design R59 #431 f1013b0; full item text in REGRESSIONS.md R59 section 11; WAITING FOR USER GO-AHEAD;
 supersedes QY54b3 [L], absorbs QY53o2). Order a -> (b) -> c -> d -> e -> f, each with a go/no-go gate:
 
-- [ ] [WIP] QPROF1 [M] (user 2026-11-19, Opus, measure only, docs) Full re-profile after the PERFORMANCE QUEUE, before
-      the backlog: find what is slow NOW, since R44's hotspots should be gone by then. On main, with `tools/profile.sh`
-      (QOBS1), `--perf-report` (QOBS3/4/7 fields) and `SCRATCHY_FRAME_STATS` (QOBS5), own wire, DEFAULT user agent:
-      headless 30-60 s profiles of YouTube watch (G1AeBgalFZk), YouTube results, Wikipedia Rust, github.com,
-      bbc.com/news, social.loupax.com/discover; a live nested-dwl window on YouTube watch (play 60 s, pointer moving
-      10 s via tools/inject) and Wikipedia (scroll + hover). No DuckDuckGo automated runs (bot challenge, QY55).
-      Per page: top 15 inclusive/self frames, forced layouts (count, ms, by_caller), longest callbacks, redraw rate and
-      input->present latency in the window, RSS. Compare with R44 and the PERF.md baseline (QOBS9). Output: a new
-      REGRESSIONS.md section and, for every hotspot >= 5 % of CPU or every user-visible stall >= 100 ms with a
-      nameable cause, a sized perf item added to the PERFORMANCE QUEUE (as Step 7) by the coordinator. If nothing
-      qualifies, say so; then the backlog starts.
-      PART B, WITH THE USER (user 2026-11-19: "we should also do testing together"; percentages matter less than what the
-      user feels, e.g. video freezing when the mouse touches the window): the user drives their real window on the
-      pages they use (YouTube playback with the mouse moving, scrolling, hover), scratchy started with
-      `SCRATCHY_FRAME_STATS` (QOBS5) and, if the user agrees, under `perf record`; the user says when something feels
-      slow and the coordinator notes the wall time. EVERY stall the user notices becomes an item (a 5 % threshold does
-      not apply to these), sized after a look at the frame stats/profile around that moment.
-      ALSO: as soon as QOBS5 is merged, the coordinator offers the user a first joint session for QM1k-mouse (video
-      freezes while the mouse moves), not waiting for QPROF1.
 
 social.loupax.com/discover (the user's own site; source read at
 /home/loupax/src/social, internal/web/js/vim.js): vim.js is NOT in the

@@ -8368,3 +8368,25 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       into a data: iframe.
       scratchy (QA18b) gives a readable same-origin document. Keep scratchy's behaviour or match Chrome? Not blocking QPT1a
       (data: iframes get no realm for now).
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QPROF1 DONE 28d7473 part A done (R62, #451); part B (joint session with the user) still open -> QPROF1B [M] (user 2026-11-19, Opus, measure only, docs) Full re-profile after the PERFORMANCE QUEUE, before
+      the backlog: find what is slow NOW, since R44's hotspots should be gone by then. On main, with `tools/profile.sh`
+      (QOBS1), `--perf-report` (QOBS3/4/7 fields) and `SCRATCHY_FRAME_STATS` (QOBS5), own wire, DEFAULT user agent:
+      headless 30-60 s profiles of YouTube watch (G1AeBgalFZk), YouTube results, Wikipedia Rust, github.com,
+      bbc.com/news, social.loupax.com/discover; a live nested-dwl window on YouTube watch (play 60 s, pointer moving
+      10 s via tools/inject) and Wikipedia (scroll + hover). No DuckDuckGo automated runs (bot challenge, QY55).
+      Per page: top 15 inclusive/self frames, forced layouts (count, ms, by_caller), longest callbacks, redraw rate and
+      input->present latency in the window, RSS. Compare with R44 and the PERF.md baseline (QOBS9). Output: a new
+      REGRESSIONS.md section and, for every hotspot >= 5 % of CPU or every user-visible stall >= 100 ms with a
+      nameable cause, a sized perf item added to the PERFORMANCE QUEUE (as Step 7) by the coordinator. If nothing
+      qualifies, say so; then the backlog starts.
+      PART B, WITH THE USER (user 2026-11-19: "we should also do testing together"; percentages matter less than what the
+      user feels, e.g. video freezing when the mouse touches the window): the user drives their real window on the
+      pages they use (YouTube playback with the mouse moving, scrolling, hover), scratchy started with
+      `SCRATCHY_FRAME_STATS` (QOBS5) and, if the user agrees, under `perf record`; the user says when something feels
+      slow and the coordinator notes the wall time. EVERY stall the user notices becomes an item (a 5 % threshold does
+      not apply to these), sized after a look at the frame stats/profile around that moment.
+      ALSO: as soon as QOBS5 is merged, the coordinator offers the user a first joint session for QM1k-mouse (video
+      freezes while the mouse moves), not waiting for QPROF1.
+  (queue line) 29 [WIP] QPROF1 [M, Opus, measure only] LAST performance item: runs when every item above is done, blocked or
