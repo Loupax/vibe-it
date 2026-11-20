@@ -1021,12 +1021,15 @@ Shared rules for this block:
 - [ ] QY57r2 [S] (P4, from QY57r #420 grim check; Sonnet) YT results thumbnail overlay: the "Läuft gerade"/now-playing
       label and the duration badge (1:34:40) overlap in the bottom-right corner of the first thumbnail. Find which
       overlay rule (hover/now-playing vs time-status) should hide or position the other; fix + grim check.
+USER 2026-11-20 ~14:40: "once we are done with the layout engine changes, I'd like to have a pause on implementation and
+have an architecture discussion before we continue" -> after QINC1 (through QINC1m, or wherever the user calls it done) the
+coordinator STOPS assigning implementation items and holds an architecture discussion with the user first.
 QINC1 IMPLEMENTATION (design R60, #434; full item text in REGRESSIONS.md R60 section 15; USER ANSWERED 2026-11-20 ~11:45: "go with the
 recommendations" = R60 section 16 Q1-Q9 all as recommended: one engine on the main thread; real image sizes for script
 geometry; superseded items dropped (archived); FREEZE on other style/box/layout semantic changes while QINC1f-h1 are in
 flight (correctness fixes allowed, rebased onto the shadow comparisons); memory +8-18 MB accepted; slower shadow-mode tests
 accepted; flip after 0 mismatches on 6 pages x 3 runs + gates, delete after >= 3 days of user use; QINC1n/o later; models
-as stated). Items QINC1a DONE 81e23d7 #447 (engine test infra + style_diff + fuzz), [WIP] QINC1b (stable paragraph ids), QINC1c (bottom-up hoisting),
+as stated). Items QINC1a DONE 81e23d7 #447 (engine test infra + style_diff + fuzz), QINC1b (stable paragraph ids) DONE 23d604f #446, [WIP] QINC1c (bottom-up hoisting),
 QINC1d (InvalidationMap) DONE 18d0527 #445, [WIP] QINC1e (write log), QINC1f [L] (incremental restyle, shadow), QINC1g [L] (persistent box tree,
 shadow), QINC1h1 [L] (relayout from last tree, shadow), QINC1h2 (intrinsic-size cache), QINC1i (forced layouts via engine,
 SCRATCHY_INCR=1), QINC1j [L] (App frames via engine), QINC1k (exactness sweep + gates), QINC1l (flip default, user OK),
