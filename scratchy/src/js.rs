@@ -852,7 +852,7 @@ const PRELUDE: &str = r#"
       innerWidth: o.width, innerHeight: o.height, title: '', href: u.href, protocol: u.protocol, host: u.host,
       hostname: u.hostname, port: u.port, pathname: u.pathname, search: u.search, hash: u.hash, origin: p.location.origin });
     Object.defineProperty(g, 'isSecureContext', { value: !!p.isSecureContext, writable: true, configurable: true, enumerable: true });
-    g.__d_bind_doc(o.docId, o.base);
+    g.__d_bind_doc(o.docId, o.base, o.dom);
     doc.readyState = 'complete';
     [['parent', p], ['top', o.top], ['frameElement', o.frameElement], ['name', String(o.name || '')], ['opener', null], ['frames', g]].forEach(function (kv) {
       Object.defineProperty(g, kv[0], { value: kv[1], writable: true, configurable: true, enumerable: true });
@@ -864,6 +864,7 @@ const PRELUDE: &str = r#"
     // QPT1b (R53 D6): the parent calls this when it drops the realm.
     Object.defineProperty(g, '__scratchy_realm_release', { value: function () {
       g.__d_frames_drop_all();
+      g.__d_realm_purge();
       g.__scratchy_timers_cancel(g);
       g.__net_cancel(g);
       try { g.__scratchy_rej_flush(); } catch (e) {}  // report what is pending before the realm goes

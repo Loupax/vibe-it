@@ -1432,3 +1432,86 @@ fn qpt1b_navigation_drops_all_realms() {
     let r2 = run_with_timers("console.log('next page', __scratchy_realm_count());");
     assert!(r2.contains(&"log:next page 0".to_string()), "{r2:?}");
 }
+
+// ---------- QPT1c: one wrapper per node across realms (R53 D7) ----------
+
+#[test]
+fn qpt1c_one_wrapper_per_node_made_by_the_owner_documents_realm() {
+    let log = run_with_timers(
+        "var f=document.createElement('iframe'); document.body.appendChild(f); var w=f.contentWindow;\
+         var kids=Object.getOwnPropertyDescriptor(Node.prototype,'childNodes').get, first=Object.getOwnPropertyDescriptor(Node.prototype,'firstChild').get;\
+         var b=f.contentDocument.body;\
+         console.log('a', b===w.document.body, b instanceof w.HTMLElement, b instanceof HTMLElement, first.call(w.document.documentElement)===w.document.head);\
+         w.document.body.innerHTML='<div id=a><span>x</span><i><em>y</em></i></div>'; /* em: never wrapped in the realm */\
+         var span=kids.call(kids.call(w.document.body)[0])[0];\
+         console.log('b', span===w.document.querySelector('span'), span instanceof w.HTMLSpanElement, span instanceof HTMLElement, span.ownerDocument===w.document);\
+         var d=w.document.getElementById('a'); document.body.appendChild(d);\
+         var em=document.querySelector('em');\
+         console.log('c', document.body.lastChild===d, document.getElementById('a')===d, d instanceof w.HTMLDivElement, d instanceof HTMLElement,\
+           d.ownerDocument===document, d.firstChild===span, em instanceof HTMLElement, em instanceof w.HTMLElement, w.document.getElementById('a'));\
+         d.remove(); console.log('d', d.ownerDocument===document, span.ownerDocument===document);\
+         var q=w.document.createElement('q'); console.log('e', q.ownerDocument===w.document, first.call(q));\
+         document.adoptNode(q); console.log('f', q.ownerDocument===document, q instanceof w.HTMLElement);\
+         document.body.appendChild(q); console.log('g', document.body.lastChild===q, q.parentNode===document.body);\
+         var pn=document.createElement('b'); w.document.adoptNode(pn); console.log('h', pn.ownerDocument===w.document, pn instanceof HTMLElement);\
+         w.document.body.appendChild(pn); console.log('i', w.document.body.lastChild===pn, pn.ownerDocument===w.document, pn instanceof w.HTMLElement);\
+         var t=w.document.createElement('p'); t.innerHTML='<a>1</a>'; console.log('j', first.call(t) instanceof w.HTMLAnchorElement, first.call(t)===t.firstChild);",
+    );
+    let logs: Vec<&str> = log.iter().filter_map(|l| l.strip_prefix("log:")).collect();
+    assert_eq!(
+        logs,
+        [
+            "a true true false true",
+            "b true true false true",
+            "c true true true false true true true false null",
+            "d true true",
+            "e true null",
+            "f true true",
+            "g true true",
+            "h true true",
+            "i true true false",
+            "j true true",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qpt1c_mutation_observers_see_the_same_wrapper_in_both_realms() {
+    let log = run_with_timers(
+        "var f=document.createElement('iframe'); document.body.appendChild(f); var w=f.contentWindow;\
+         new MutationObserver(function(r){ console.log('page mo', r[0].addedNodes[0]===w.__n, r[0].addedNodes[0] instanceof w.HTMLElement); }).observe(document.body,{childList:true});\
+         w.eval(\"var n=document.createElement('i'); window.__n=n; parent.document.body.appendChild(n);\");\
+         w.eval(\"new MutationObserver(function(r){ parent.__rec=r[0].addedNodes[0]; }).observe(document.body,{childList:true})\");\
+         var pe=document.createElement('u'); f.contentDocument.body.appendChild(pe);\
+         w.setTimeout(function(){ console.log('realm mo', __rec===pe, __rec instanceof HTMLElement, __rec.ownerDocument===w.document); }, 1);",
+    );
+    assert!(log.contains(&"log:page mo true true".to_string()), "{log:?}");
+    assert!(log.contains(&"log:realm mo true true true".to_string()), "{log:?}");
+}
+
+#[test]
+fn qpt1c_dropped_realm_leaves_no_wrappers_behind() {
+    let log = run_with_timers(
+        "var kids=Object.getOwnPropertyDescriptor(Node.prototype,'childNodes').get, kept=[];\
+         function cycle(keep){ var f=document.createElement('iframe'); document.body.appendChild(f); var w=f.contentWindow;\
+           w.document.body.innerHTML=new Array(200).join('<div><p>x</p></div>');\
+           kids.call(w.document.body).forEach(function(n){ kids.call(n); });\
+           var lone=w.document.createElement('section'); lone.innerHTML='<b>1</b>'; kids.call(lone);\
+           if (keep) { var m=w.document.body.firstChild; document.body.appendChild(m); kept.push(m); }\
+           f.remove(); }\
+         for (var i=0;i<3;i++) cycle(false);\
+         var h0=__scratchy_heap_gc();\
+         for (var i=0;i<30;i++) cycle(false);\
+         var h1=__scratchy_heap_gc();\
+         cycle(true); var m=kept[0];\
+         console.log('heapdelta', h1-h0, 'realms', __scratchy_realm_count());\
+         console.log('kept', document.body.lastChild===m, m.firstChild===m.firstChild, m.ownerDocument===document, m instanceof HTMLElement);",
+    );
+    let l = log.iter().find(|l| l.starts_with("log:heapdelta")).unwrap_or_else(|| panic!("{log:?}"));
+    let p: Vec<&str> = l.split(' ').collect();
+    assert_eq!(p[3], "0", "{log:?}");
+    let delta: f64 = p[1].parse().unwrap();
+    assert!(delta < 1_048_576.0, "heap grew by {delta} bytes over 30 realms with page-made wrappers: {log:?}");
+    assert!(log.contains(&"log:kept true true true false".to_string()), "a moved node keeps its wrapper: {log:?}");
+}
