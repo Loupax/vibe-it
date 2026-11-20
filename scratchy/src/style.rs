@@ -1543,6 +1543,8 @@ pub(crate) struct RuleIndex {
 
 impl RuleIndex {
     pub(crate) fn build(rules: &[StyleRule]) -> Self {
+        #[cfg(test)]
+        INDEX_BUILDS.with(|c| c.set(c.get() + 1));
         let mut ix = RuleIndex {
             ancestor_hashes: Rc::new(
                 rules
@@ -1892,7 +1894,7 @@ pub(crate) fn with_kept_build<R>(f: impl FnOnce(&Rc<Vec<StyleRule>>, f32) -> R) 
         Some((x.rules.clone(), x.index.take()?, x.first_line, x.first_letter))
     })?;
     let (rp, rl) = (rules.as_ptr() as usize, rules.len());
-    let restore_index = |index: RuleIndex| {
+    let restore_index = |index: Rc<RuleIndex>| {
         RULE_DERIVED.with(|d| {
             if let Some(x) = d.borrow_mut().as_mut()
                 && Rc::ptr_eq(&x.rules, &rules)
@@ -2147,7 +2149,7 @@ pub(crate) struct RuleDerived {
     pub(crate) attr_readers: Rc<AttrReaders>,
     /// QY53b: the selector index; moved into `RULE_INDEX` for the duration of a
     /// build and back afterwards (`None` while a build is running).
-    pub(crate) index: Option<RuleIndex>,
+    pub(crate) index: Option<Rc<RuleIndex>>,
     /// QY53n2: `Effect` per (rule, important half) as `u8`, filled on first
     /// use by `rule_effect` (0 = not classified yet).
     pub(crate) effects: Vec<u8>,
@@ -2313,7 +2315,7 @@ impl RuleDerived {
             has_sel,
             empty_sel,
             attr_readers: Rc::new(AttrReaders::build(rules)),
-            index: Some(RuleIndex::build(rules)),
+            index: Some(crate::rules_cache::shared_index(rules)),
             effects: Vec::new(),
         }
     }
@@ -2328,6 +2330,9 @@ thread_local! {
     /// Test-only: how many times the derived data (index, hover keys, flags) was built.
     #[cfg(test)]
     pub(crate) static DERIVED_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// Test-only: how many times `RuleIndex::build` ran (QY53f1d2).
+    #[cfg(test)]
+    pub(crate) static INDEX_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     /// Test-only: how many full rule scans for a pseudo-element rule ran.
     #[cfg(test)]
     pub(crate) static PSEUDO_SCANS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
@@ -2359,7 +2364,7 @@ thread_local! {
     /// `(rules.as_ptr(), rules.len(), index)` for the rule slice of the
     /// `build_layout_tree_with_resources` call in progress. Matched by
     /// slice identity, so any other caller falls back to a full scan.
-    pub(crate) static RULE_INDEX: RefCell<Option<(usize, usize, RuleIndex)>> = const { RefCell::new(None) };
+    pub(crate) static RULE_INDEX: RefCell<Option<(usize, usize, Rc<RuleIndex>)>> = const { RefCell::new(None) };
 }
 
 pub(crate) fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, viewport_width: f32) -> ComputedStyle {
@@ -3261,7 +3266,7 @@ pub(crate) fn rules_cache_mem() -> ((usize, usize), (usize, usize)) {
         (n1 + n2 + ix.ancestor_hashes.len(), b1 + b2 + anc)
     };
     let held = RULE_INDEX.with(|c| c.borrow().as_ref().map(|(_, _, ix)| size_index(ix)));
-    let index = held.unwrap_or_else(|| RULE_DERIVED.with(|d| d.borrow().as_ref().and_then(|d| d.index.as_ref()).map_or((0, 0), size_index)));
+    let index = held.unwrap_or_else(|| RULE_DERIVED.with(|d| d.borrow().as_ref().and_then(|d| d.index.as_deref()).map_or((0, 0), size_index)));
     let hover = HOVER_KEYS.with(|h| {
         let h = h.borrow();
         let set = |s: &HashMap<String, HoverFollow>| s.keys().map(|k| k.capacity() + 24 + 2).sum::<usize>();

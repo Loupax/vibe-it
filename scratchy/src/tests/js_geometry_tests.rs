@@ -1645,6 +1645,38 @@ fn qmem3e_pieces_are_parsed_once_across_computed_style_and_forced_layout() {
     assert_eq!(qmem3e_parsed() - n0, 4, "each piece parsed once across both caches");
 }
 
+/// QY53f1d2: one `RuleIndex::build` per rules_cache generation across getComputedStyle, a forced
+/// layout and a plain layout build; a spliced `<style>` insert builds exactly one more.
+#[test]
+fn qy53f1d2_rule_index_is_built_once_per_generation() {
+    let builds = || crate::style::INDEX_BUILDS.with(|c| c.get());
+    let n0 = builds();
+    let log = run_in_html(
+        "<html><head><style>.qf2a{color:rgb(4,5,6)}</style></head><body><p id=c class=qf2a>x</p></body></html>",
+        "var c=document.getElementById('c'); var o=[getComputedStyle(c).color]; o.push(c.offsetWidth>=0); \
+         o.push(getComputedStyle(c).color); console.log(o.join('|'));",
+    );
+    assert_eq!(log.join("\n"), "log:rgb(4, 5, 6)|true|rgb(4, 5, 6)", "{log:?}");
+    assert_eq!(builds() - n0, 1, "getComputedStyle and the layout build share one index");
+    let doc = parse_html("<html><head><style>.qf2b{color:rgb(7,8,9)}</style></head><body><p class=qf2b>x</p></body></html>");
+    let n1 = builds();
+    let _ = build_layout_tree(&doc, 800.0);
+    let _ = build_layout_tree(&doc, 800.0);
+    let (rules, ..) = crate::rules_cache::current().unwrap();
+    let _ = crate::rules_cache::shared_index(&rules);
+    assert_eq!(builds() - n1, 1, "layout builds and a later shared_index reuse the cache's index");
+    drop(rules);
+    let head = find_by_tag(&doc, "head").unwrap();
+    let frag = parse_html("<style>.qf2c{color:red}</style>");
+    let mut v = Vec::new();
+    crate::images::collect_style_nodes(&frag, &mut v);
+    head.children.borrow_mut().push(v.remove(0));
+    crate::rules_cache::FULL_PARSES.with(|c| c.set(0));
+    let _ = build_layout_tree(&doc, 800.0);
+    assert_eq!(crate::rules_cache::FULL_PARSES.with(|c| c.get()), 0, "still spliced");
+    assert_eq!(builds() - n1, 2, "one rebuild for the new generation");
+}
+
 #[test]
 fn qmem3e_layer_page_and_sibling_rule_page_unchanged() {
     let log = run_in_html(

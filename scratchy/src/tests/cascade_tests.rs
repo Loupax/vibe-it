@@ -2821,7 +2821,7 @@ fn qy53g_index_and_ancestor_bloom_give_the_same_matches_as_a_full_scan() {
             .collect()
     };
     let full: Vec<_> = elements.iter().map(summarize).collect();
-    RULE_INDEX.with(|ri| *ri.borrow_mut() = Some((rules.as_ptr() as usize, rules.len(), RuleIndex::build(&rules))));
+    RULE_INDEX.with(|ri| *ri.borrow_mut() = Some((rules.as_ptr() as usize, rules.len(), Rc::new(RuleIndex::build(&rules)))));
     ANCESTOR_BLOOM.with(|b| *b.borrow_mut() = Some(Default::default()));
     // Document order, then reverse order (the filter must pop and re-push).
     let forward: Vec<_> = elements.iter().map(summarize).collect();
@@ -2883,7 +2883,7 @@ fn qan1h2_index_gives_the_same_matches_as_a_full_scan_for_the_new_keys() {
             .collect()
     };
     let full: Vec<_> = elements.iter().map(summarize).collect();
-    RULE_INDEX.with(|ri| *ri.borrow_mut() = Some((rules.as_ptr() as usize, rules.len(), RuleIndex::build(&rules))));
+    RULE_INDEX.with(|ri| *ri.borrow_mut() = Some((rules.as_ptr() as usize, rules.len(), Rc::new(RuleIndex::build(&rules)))));
     let indexed: Vec<_> = elements.iter().map(summarize).collect();
     RULE_INDEX.with(|ri| *ri.borrow_mut() = None);
     assert_eq!(full, indexed);
@@ -3255,7 +3255,7 @@ fn qan1h2_report_candidates_per_element() {
             .collect()
     };
     let full: Vec<_> = sample.iter().map(|h| run(h)).collect();
-    RULE_INDEX.with(|ri| *ri.borrow_mut() = Some((rules.as_ptr() as usize, rules.len(), ix)));
+    RULE_INDEX.with(|ri| *ri.borrow_mut() = Some((rules.as_ptr() as usize, rules.len(), Rc::new(ix))));
     let indexed: Vec<_> = sample.iter().map(|h| run(h)).collect();
     RULE_INDEX.with(|ri| *ri.borrow_mut() = None);
     assert_eq!(full, indexed);

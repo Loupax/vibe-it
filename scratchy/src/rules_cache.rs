@@ -47,6 +47,9 @@ pub(crate) struct RulesCache {
     kf: Rc<KeyframesRegistry>,
     /// Bumped whenever `rules` changes (a rule-list identity that does not hold the `Rc`).
     generation: u64,
+    /// QY53f1d2: the selector index of `rules` (built once, on first use, shared by the layout build and
+    /// `StyleCache`; it holds no `Rc` of the list). Dropped whenever `rules` changes.
+    index: Option<Rc<RuleIndex>>,
     /// `Some(v)`: the last piece equals `page_css()` at css version `v`.
     extra_ver: Option<(u64, u64)>,
     ua_flags: (bool, bool),
@@ -73,6 +76,15 @@ pub(crate) fn current() -> Option<(Rc<Vec<StyleRule>>, u64, bool, bool)> {
             let sib = rc.ua_flags.1 || rc.pieces.iter().any(|p| p.sib);
             (rc.rules.clone(), rc.generation, has, sib)
         })
+    })
+}
+
+/// QY53f1d2: the selector index of `rules`: the cache's own (built once per generation) when `rules` is
+/// the cache's current list, else a fresh one.
+pub(crate) fn shared_index(rules: &Rc<Vec<StyleRule>>) -> Rc<RuleIndex> {
+    RULES_CACHE.with(|c| match c.borrow_mut().as_mut() {
+        Some(rc) if Rc::ptr_eq(&rc.rules, rules) => rc.index.get_or_insert_with(|| Rc::new(RuleIndex::build(rules))).clone(),
+        _ => Rc::new(RuleIndex::build(rules)),
     })
 }
 
@@ -235,6 +247,7 @@ pub(crate) fn cached_rules_for(document: &Handle, extra: Extra) -> Rc<Vec<StyleR
                         rc.mask = rc.ua_mask | rc.pieces.iter().fold(0, |a, x| a | x.mask);
                         rc.kf = merged_keyframes(&rc.pieces);
                         rc.generation = next_generation();
+                        rc.index = None;
                         if !ex_same {
                             rc.extra_ver = new_ver;
                         }
@@ -298,6 +311,7 @@ pub(crate) fn cached_rules_for(document: &Handle, extra: Extra) -> Rc<Vec<StyleR
             mask,
             kf,
             generation: next_generation(),
+            index: None,
             extra_ver: new_ver,
             ua_flags,
         };
