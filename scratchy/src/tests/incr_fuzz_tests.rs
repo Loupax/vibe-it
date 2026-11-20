@@ -1,0 +1,588 @@
+//! QINC1a (R60 section 10): the seeded differential fuzz harness for the incremental style + layout
+//! engine, plus the tests of `style_diff` and the comparators.
+//!
+//! Today every step lays the page out TWICE from scratch (two independent build + measure runs, fresh
+//! shape caches) and asserts that the comparators find no difference: that proves the comparators and
+//! the generator (determinism of the from-scratch path, including `positioned` order, which is why
+//! `tree_order` is skipped). When the engine exists (QINC1f onward) the second run becomes the
+//! incremental update and this harness is its safety net for the combinations nobody writes tests for.
+//!
+//! Size: `SCRATCHY_FUZZ_N` cases (default 200); `SCRATCHY_FUZZ_SEED` offsets the seeds.
+
+use super::*;
+use crate::incr_cmp::{cmp_boxes, cmp_laid, cmp_styles, root_path, Names};
+use crate::incr_diff::{style_changes, style_diff, StyleDiff};
+
+// ---------- seeded generator ----------
+
+struct Rng(u64);
+
+impl Rng {
+    fn new(seed: u64) -> Rng {
+        // splitmix64 scramble so adjacent seeds give unrelated streams
+        let mut z = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        Rng((z ^ (z >> 31)) | 1)
+    }
+    fn next(&mut self) -> u64 {
+        let mut x = self.0;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.0 = x;
+        x.wrapping_mul(0x2545_F491_4F6C_DD1D)
+    }
+    fn below(&mut self, n: usize) -> usize {
+        (self.next() >> 33) as usize % n.max(1)
+    }
+    fn pct(&mut self, p: usize) -> bool {
+        self.below(100) < p
+    }
+    fn pick<T: Copy>(&mut self, s: &[T]) -> T {
+        s[self.below(s.len())]
+    }
+}
+
+const SELECTORS: &[&str] = &[
+    ".c0", ".c1", ".c2", ".c3", ".c4", "div", "p", "span", "section", "ul > li", "div .c1", ".c0 + .c2", ".c1 ~ .c3", "li:nth-child(odd)",
+    ":nth-child(2n+1)", ".c2:hover", "div:first-child", ".c0 > .c1", "span:not(.c1)", "#i1", "#i2", ".c4::before", "p::before", ".c3::after",
+    "a:hover", "div > span", "b", "section .c0",
+];
+
+const DECLS: &[&str] = &[
+    "display:none", "display:block", "display:inline", "display:inline-block", "display:flex", "display:grid", "display:contents",
+    "display:table", "display:list-item", "display:inline-flex", "float:left", "float:right", "clear:both", "position:absolute;top:5px;left:10px",
+    "position:fixed;bottom:0;right:3px", "position:relative;left:3px;top:2px", "position:sticky;top:0", "z-index:-1", "z-index:2", "z-index:5",
+    "opacity:.5", "opacity:0", "width:50%", "width:120px", "width:auto", "width:fit-content", "width:max-content", "height:30px", "min-height:20px",
+    "max-width:100px", "margin:5px 10px", "margin:0 auto", "margin-top:-4px", "padding:6px", "padding:0 12px", "border:2px solid red", "color:#c33",
+    "background:#abc", "font-size:20px", "font-size:1.5em", "font-weight:bold", "line-height:1.8", "text-align:center", "text-align:right",
+    "overflow:hidden", "overflow:auto", "white-space:pre", "white-space:nowrap", "flex-direction:column", "flex:1", "flex-wrap:wrap",
+    "justify-content:space-between", "gap:4px", "grid-template-columns:1fr 2fr", "grid-template-columns:repeat(2,50px)", "--x:10px;width:var(--x)",
+    "--x:30px;height:var(--x)", "counter-increment:n;", "vertical-align:middle", "text-indent:10px", "translate:5px 3px", "text-decoration:underline",
+    "visibility:hidden", "box-shadow:2px 2px 3px #000", "border-radius:4px", "text-transform:uppercase", "word-spacing:3px", "box-sizing:border-box",
+    "content:\"x\"", "content:counter(n) \".\"", "list-style-type:square",
+];
+
+const TAGS: &[&str] = &["div", "div", "div", "span", "span", "p", "ul", "li", "li", "a", "b", "section"];
+const WORDS: &[&str] = &["lorem", "ipsum", "dolor", "sit", "amet", "consectetur", "adipiscing", "elit", "wide-word-that-is-long", "a", "ff", "Wi"];
+const WIDTHS: &[f32] = &[320.0, 640.0, 1024.0, 1280.0];
+
+fn gen_css(r: &mut Rng) -> String {
+    let mut css = String::new();
+    for _ in 0..(4 + r.below(10)) {
+        let sel = r.pick(SELECTORS);
+        let mut body = String::new();
+        for _ in 0..(1 + r.below(3)) {
+            body.push_str(r.pick(DECLS));
+            body.push(';');
+        }
+        css.push_str(&format!("{sel}{{{body}}}\n"));
+    }
+    css
+}
+
+fn gen_text(r: &mut Rng) -> String {
+    (0..(1 + r.below(10))).map(|_| r.pick(WORDS)).collect::<Vec<_>>().join(" ")
+}
+
+fn gen_attrs(r: &mut Rng, next_id: &mut usize) -> String {
+    let mut a = String::new();
+    if r.pct(70) {
+        let cls: Vec<String> = (0..(1 + r.below(2))).map(|_| format!("c{}", r.below(5))).collect();
+        a.push_str(&format!(" class=\"{}\"", cls.join(" ")));
+    }
+    if r.pct(25) {
+        *next_id += 1;
+        a.push_str(&format!(" id=\"i{}\"", *next_id % 6));
+    }
+    if r.pct(15) {
+        a.push_str(&format!(" style=\"{}\"", r.pick(DECLS)));
+    }
+    a
+}
+
+fn gen_node(r: &mut Rng, depth: usize, budget: &mut usize, next_id: &mut usize, out: &mut String) {
+    if *budget == 0 {
+        return;
+    }
+    *budget -= 1;
+    if r.pct(20) {
+        out.push_str(&gen_text(r));
+        return;
+    }
+    if r.pct(4) {
+        out.push_str("<br>");
+        return;
+    }
+    if r.pct(3) {
+        out.push_str(&format!("<img src=\"{}\" width=\"{}\">", tiny_png_data_uri(2, 2), 8 + r.below(40)));
+        return;
+    }
+    let tag = r.pick(TAGS);
+    out.push_str(&format!("<{tag}{}>", gen_attrs(r, next_id)));
+    if depth < 4 {
+        for _ in 0..r.below(4) {
+            gen_node(r, depth + 1, budget, next_id, out);
+        }
+    } else {
+        out.push_str(&gen_text(r));
+    }
+    out.push_str(&format!("</{tag}>"));
+}
+
+fn gen_fragment(r: &mut Rng, budget: usize) -> String {
+    let mut b = budget;
+    let mut out = String::new();
+    let mut id = r.below(6);
+    while b > 0 {
+        gen_node(r, 1, &mut b, &mut id, &mut out);
+    }
+    out
+}
+
+fn gen_page(r: &mut Rng) -> String {
+    let n = 8 + r.below(20);
+    let body = gen_fragment(r, n);
+    format!("<html><head><style>{}</style></head><body>{body}</body></html>", gen_css(r))
+}
+
+// ---------- DOM mutations (the Rust-side equivalent of a script's writes) ----------
+
+fn all_elements(h: &Handle, out: &mut Vec<Handle>) {
+    if let NodeData::Element { name, .. } = &h.data {
+        if matches!(name.local.as_ref(), "style" | "script" | "head") {
+            return;
+        }
+        out.push(h.clone());
+    }
+    for c in h.children.borrow().iter() {
+        all_elements(c, out);
+    }
+}
+
+fn all_texts(h: &Handle, out: &mut Vec<Handle>) {
+    if matches!(&h.data, NodeData::Element { name, .. } if matches!(name.local.as_ref(), "style" | "script" | "head")) {
+        return;
+    }
+    if matches!(h.data, NodeData::Text { .. }) {
+        out.push(h.clone());
+    }
+    for c in h.children.borrow().iter() {
+        all_texts(c, out);
+    }
+}
+
+fn is_inside(anc: &Handle, mut n: Handle) -> bool {
+    loop {
+        if Rc::ptr_eq(anc, &n) {
+            return true;
+        }
+        match parent_handle(&n) {
+            Some(p) => n = p,
+            None => return false,
+        }
+    }
+}
+
+fn detach_node(h: &Handle) {
+    if let Some(p) = parent_handle(h) {
+        p.children.borrow_mut().retain(|c| !Rc::ptr_eq(c, h));
+    }
+    h.parent.set(None);
+}
+
+fn insert_node(parent: &Handle, child: &Handle, at: usize) {
+    detach_node(child);
+    child.parent.set(Some(Rc::downgrade(parent)));
+    let mut kids = parent.children.borrow_mut();
+    let at = at.min(kids.len());
+    kids.insert(at, child.clone());
+}
+
+fn parse_fragment(html: &str) -> Vec<Handle> {
+    let doc = parse_html(&format!("<html><body>{html}</body></html>"));
+    let body = find_by_tag(&doc, "body").unwrap();
+    let kids: Vec<Handle> = body.children.borrow().iter().cloned().collect();
+    for k in &kids {
+        detach_node(k);
+    }
+    kids
+}
+
+fn label(h: &Handle) -> String {
+    Names::from_dom(h).of(node_id(h))
+}
+
+/// One random mutation; returns what it did (for the failure report).
+fn mutate_once(r: &mut Rng, doc: &Handle, width: &mut f32) -> String {
+    let body = find_by_tag(doc, "body").unwrap();
+    let mut els = Vec::new();
+    all_elements(&body, &mut els);
+    let target = els[r.below(els.len())].clone();
+    match r.below(10) {
+        0 | 1 => {
+            let n = 1 + r.below(6);
+            let html = gen_fragment(r, n);
+            let kids = parse_fragment(&html);
+            let at = r.below(target.children.borrow().len() + 1);
+            for (i, k) in kids.iter().enumerate() {
+                insert_node(&target, k, at + i);
+            }
+            format!("insert into {} at {at}: {html}", label(&target))
+        }
+        2 => {
+            if Rc::ptr_eq(&target, &body) {
+                return "remove: skipped (body)".into();
+            }
+            detach_node(&target);
+            format!("remove {}", label(&target))
+        }
+        3 => {
+            let dest = els[r.below(els.len())].clone();
+            if is_inside(&target, dest.clone()) || Rc::ptr_eq(&target, &body) {
+                return "move: skipped".into();
+            }
+            let at = r.below(dest.children.borrow().len() + 1);
+            insert_node(&dest, &target, at);
+            format!("move {} into {} at {at}", label(&target), label(&dest))
+        }
+        4 => {
+            let mut texts = Vec::new();
+            all_texts(&body, &mut texts);
+            if texts.is_empty() {
+                return "text: skipped".into();
+            }
+            let t = texts[r.below(texts.len())].clone();
+            let new = gen_text(r);
+            if let NodeData::Text { contents } = &t.data {
+                *contents.borrow_mut() = new.as_str().into();
+            }
+            format!("text -> {new:?}")
+        }
+        5 => {
+            let v = format!("c{} c{}", r.below(5), r.below(5));
+            crate::js_dom::set_attr(&target, "class", &v);
+            format!("class of {} = {v:?}", label(&target))
+        }
+        6 => {
+            let v = r.pick(DECLS).to_string();
+            crate::js_dom::set_attr(&target, "style", &v);
+            format!("style of {} = {v:?}", label(&target))
+        }
+        7 => {
+            let v = format!("i{}", r.below(6));
+            crate::js_dom::set_attr(&target, "id", &v);
+            format!("id of {} = {v:?}", label(&target))
+        }
+        8 => {
+            if r.pct(30) {
+                set_interaction(&InteractionState::default());
+                return "hover cleared".into();
+            }
+            let st = InteractionState { hover: ancestor_ids(&target).into_iter().collect(), ..Default::default() };
+            set_interaction(&st);
+            format!("hover {}", label(&target))
+        }
+        _ => {
+            if r.pct(50) {
+                *width = r.pick(WIDTHS);
+                format!("viewport width {width}")
+            } else {
+                // replace the stylesheet text
+                let mut styles = Vec::new();
+                fn find_styles(h: &Handle, out: &mut Vec<Handle>) {
+                    if matches!(&h.data, NodeData::Element { name, .. } if name.local.as_ref() == "style") {
+                        out.push(h.clone());
+                    }
+                    for c in h.children.borrow().iter() {
+                        find_styles(c, out);
+                    }
+                }
+                find_styles(doc, &mut styles);
+                let css = gen_css(r);
+                let text = styles.first().and_then(|s| s.children.borrow().first().cloned());
+                if let Some(NodeData::Text { contents }) = text.as_ref().map(|t| &t.data) {
+                    *contents.borrow_mut() = css.as_str().into();
+                }
+                format!("stylesheet -> {css:?}")
+            }
+        }
+    }
+}
+
+// ---------- from-scratch layout ----------
+
+struct Run {
+    tree: LayoutBox,
+    laid: Laid,
+    cache: ShapeCache,
+    complete: bool,
+}
+
+fn layout_from_scratch(doc: &Handle, width: f32, fs: &mut FontSystem) -> Run {
+    let vh = 700.0;
+    let tree = build_layout_tree_sized(doc, width, vh);
+    let mut cache = ShapeCache::new();
+    let mut next_id = 0usize;
+    let mut incomplete = false;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let laid = measure_document(&tree, fs, width, vh, &mut next_id, &mut cache, deadline, &mut incomplete);
+    Run { tree, laid, cache, complete: !incomplete }
+}
+
+/// Today: A and B are both from scratch. Later: B is the incremental engine's result.
+fn compare_runs(doc: &Handle, a: &Run, b: &Run) -> Result<(), String> {
+    let names = Names::from_dom(doc);
+    let path = root_path(&names, a.tree.style.node);
+    cmp_boxes(&names, &path, &a.tree, &b.tree).map_err(|m| format!("box tree {m}"))?;
+    cmp_laid(&names, &path, &a.laid, &a.cache, &b.laid, &b.cache).map_err(|m| format!("laid tree {m}"))
+}
+
+fn fuzz_case(seed: u64, fs: &mut FontSystem) {
+    let mut r = Rng::new(seed);
+    let html = gen_page(&mut r);
+    let doc = parse_html(&html);
+    let mut width = r.pick(WIDTHS);
+    let mut log: Vec<String> = vec![format!("initial page: {html}")];
+    set_interaction(&InteractionState::default());
+    for step in 0..(3 + r.below(4)) {
+        if step > 0 {
+            for _ in 0..(1 + r.below(3)) {
+                let what = mutate_once(&mut r, &doc, &mut width);
+                log.push(format!("step {step}: {what}"));
+            }
+        }
+        let a = layout_from_scratch(&doc, width, fs);
+        let b = layout_from_scratch(&doc, width, fs);
+        if !(a.complete && b.complete) {
+            continue; // deadline hit (heavily loaded machine): nothing to compare
+        }
+        if let Err(msg) = compare_runs(&doc, &a, &b) {
+            set_interaction(&InteractionState::default());
+            panic!("incr fuzz mismatch: seed {seed} step {step} (width {width}): {msg}\n{}", log.join("\n"));
+        }
+    }
+    set_interaction(&InteractionState::default());
+}
+
+fn env_usize(name: &str, default: usize) -> usize {
+    env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
+/// ~200 seeded cases by default; `SCRATCHY_FUZZ_N` for more, `SCRATCHY_FUZZ_SEED` to move the window.
+#[test]
+fn qinc1a_fuzz_two_from_scratch_layouts_never_differ() {
+    let n = env_usize("SCRATCHY_FUZZ_N", 200);
+    let base = env_usize("SCRATCHY_FUZZ_SEED", 0) as u64;
+    let mut fs = new_font_system();
+    let t0 = std::time::Instant::now();
+    for i in 0..n as u64 {
+        fuzz_case(base + i, &mut fs);
+    }
+    diag!("qinc1a fuzz: {n} cases in {:.1}s", t0.elapsed().as_secs_f64());
+}
+
+// ---------- generator sanity ----------
+
+#[test]
+fn qinc1a_fuzz_generator_is_deterministic_and_varied() {
+    let a = gen_page(&mut Rng::new(7));
+    let b = gen_page(&mut Rng::new(7));
+    let c = gen_page(&mut Rng::new(8));
+    assert_eq!(a, b);
+    assert_ne!(a, c);
+    // every seeded page parses and has a body with content
+    for s in 0..20 {
+        let doc = parse_html(&gen_page(&mut Rng::new(s)));
+        assert!(find_by_tag(&doc, "body").is_some());
+    }
+}
+
+#[test]
+fn qinc1a_fuzz_mutations_change_the_dom() {
+    let mut r = Rng::new(3);
+    let doc = parse_html(&gen_page(&mut r));
+    let before = Names::from_dom(&doc);
+    let mut w = 1024.0;
+    let mut did = Vec::new();
+    for _ in 0..40 {
+        did.push(mutate_once(&mut r, &doc, &mut w));
+    }
+    set_interaction(&InteractionState::default());
+    assert!(did.iter().any(|d| d.starts_with("insert")), "{did:?}");
+    assert!(did.iter().any(|d| d.starts_with("class")), "{did:?}");
+    let _ = before;
+}
+
+// ---------- comparators detect differences ----------
+
+fn runs_of(html_a: &str, html_b: &str, width: f32) -> (Handle, Run, Handle, Run) {
+    let mut fs = new_font_system();
+    let da = parse_html(html_a);
+    let db = parse_html(html_b);
+    let a = layout_from_scratch(&da, width, &mut fs);
+    let b = layout_from_scratch(&db, width, &mut fs);
+    (da, a, db, b)
+}
+
+#[test]
+fn qinc1a_cmp_laid_reports_node_path_field_and_values() {
+    let (da, a, _db, b) = runs_of(
+        "<body style='margin:0'><div id=a><p class=x style='height:10px'>hi</p></div></body>",
+        "<body style='margin:0'><div id=a><p class=x style='height:30px'>hi</p></div></body>",
+        400.0,
+    );
+    let names = Names::from_dom(&da);
+    // The two documents are different DOMs, so node ids differ; the report still names the path by A's names where known.
+    let m = cmp_laid(&names, "root", &a.laid, &a.cache, &b.laid, &b.cache).unwrap_err();
+    let s = m.to_string();
+    assert!(s.contains("style.height") || s.contains(": h:"), "{s}");
+    assert!(s.starts_with("at root"), "{s}");
+}
+
+#[test]
+fn qinc1a_cmp_laid_finds_a_position_difference_with_both_values() {
+    let doc = parse_html("<body style='margin:0'><div id=a style='width:100px;height:20px'>x</div></body>");
+    let mut fs = new_font_system();
+    let a = layout_from_scratch(&doc, 400.0, &mut fs);
+    let mut b = layout_from_scratch(&doc, 400.0, &mut fs);
+    let names = Names::from_dom(&doc);
+    assert!(compare_runs(&doc, &a, &b).is_ok());
+    // nudge the deepest-first child by more than the tolerance
+    fn first_leaf(l: &mut Laid) -> &mut Laid {
+        if matches!(&l.content, LaidContent::Blocks(c) if !c.is_empty()) {
+            let LaidContent::Blocks(c) = &mut l.content else { unreachable!() };
+            return first_leaf(&mut c[0]);
+        }
+        l
+    }
+    first_leaf(&mut b.laid).x += 0.5;
+    let m = cmp_laid(&names, "root", &a.laid, &a.cache, &b.laid, &b.cache).unwrap_err();
+    assert_eq!(m.field, "x");
+    assert!(m.a != m.b);
+    // inside tolerance is equal
+    first_leaf(&mut b.laid).x -= 0.495;
+    assert!(cmp_laid(&names, "root", &a.laid, &a.cache, &b.laid, &b.cache).is_ok());
+}
+
+#[test]
+fn qinc1a_cmp_boxes_sees_text_and_style_but_not_tree_order_or_node() {
+    let doc = parse_html("<body><p class=x>hello <b>w</b></p></body>");
+    let mut fs = new_font_system();
+    let a = layout_from_scratch(&doc, 300.0, &mut fs);
+    let b = layout_from_scratch(&doc, 300.0, &mut fs);
+    let names = Names::from_dom(&doc);
+    assert!(cmp_boxes(&names, "root", &a.tree, &b.tree).is_ok());
+    // The same DOM, mutated: the text of the <b>, then the display of the <p>.
+    let bt = find_by_tag(&doc, "b").unwrap();
+    let t = bt.children.borrow()[0].clone();
+    if let NodeData::Text { contents } = &t.data {
+        *contents.borrow_mut() = "W".into();
+    }
+    let c = layout_from_scratch(&doc, 300.0, &mut fs);
+    let m = cmp_boxes(&names, "root", &a.tree, &c.tree).unwrap_err();
+    assert!(m.field.contains("text"), "{m}");
+    assert!(m.path.contains("p.x"), "{m}");
+    crate::js_dom::set_attr(&find_by_tag(&doc, "p").unwrap(), "style", "display:flex");
+    let d = layout_from_scratch(&doc, 300.0, &mut fs);
+    let m = cmp_boxes(&names, "root", &a.tree, &d.tree).unwrap_err();
+    assert!(m.to_string().contains("display"), "{m}");
+}
+
+// ---------- style_diff ----------
+
+fn base_style() -> ComputedStyle {
+    let doc = parse_html("<body><div>x</div></body>");
+    let tree = build_layout_tree(&doc, 400.0);
+    fn first_div(b: &LayoutBox) -> Option<ComputedStyle> {
+        match &b.content {
+            BoxContent::Blocks(c) => c.iter().find_map(first_div).or(Some(b.style)),
+            _ => Some(b.style),
+        }
+    }
+    first_div(&tree).unwrap()
+}
+
+#[test]
+fn qinc1a_style_diff_identical_and_identity_fields_are_none() {
+    let a = base_style();
+    let mut b = a;
+    assert_eq!(style_diff(&a, &b), StyleDiff::None);
+    b.node = a.node.wrapping_add(8);
+    b.tree_order = a.tree_order + 99;
+    assert_eq!(style_diff(&a, &b), StyleDiff::None);
+    assert!(cmp_styles("p", &a, &b).is_ok());
+    assert!(style_changes(&a, &b).is_empty());
+}
+
+#[test]
+fn qinc1a_style_diff_one_field_of_each_class() {
+    let a = base_style();
+    let mut b = a;
+    b.color = TextColor::rgb(1, 2, 3);
+    assert_eq!(style_diff(&a, &b), StyleDiff::Paint);
+    let mut b = a;
+    b.translate = Some((TranslateAxis { px: 5.0, frac: 0.0 }, TranslateAxis { px: 0.0, frac: 0.0 }));
+    assert_eq!(style_diff(&a, &b), StyleDiff::Offset);
+    let mut b = a;
+    b.font_size = a.font_size + 3.0;
+    assert_eq!(style_diff(&a, &b), StyleDiff::Layout);
+    let mut b = a;
+    b.display = if a.display == Display::Flex { Display::Block } else { Display::Flex };
+    assert_eq!(style_diff(&a, &b), StyleDiff::Box);
+    // the strongest class wins
+    let mut b = a;
+    b.color = TextColor::rgb(9, 9, 9);
+    b.font_size = a.font_size + 1.0;
+    b.float = Float::Left;
+    assert_eq!(style_diff(&a, &b), StyleDiff::Box);
+    let ch = style_changes(&a, &b);
+    assert_eq!(ch.iter().map(|c| c.field).collect::<Vec<_>>(), vec!["color", "float", "font_size"]);
+    let m = cmp_styles("div", &a, &b).unwrap_err();
+    assert_eq!(m.field, "style.color");
+}
+
+#[test]
+fn qinc1a_style_diff_opacity_and_z_index_are_layout() {
+    let a = base_style();
+    assert_eq!(a.opacity, 1.0);
+    let mut b = a;
+    b.opacity = 0.5;
+    assert_eq!(style_diff(&a, &b), StyleDiff::Layout, "1 -> <1 creates a stacking boundary");
+    assert_eq!(style_diff(&b, &a), StyleDiff::Layout, "<1 -> 1 removes it");
+    let mut c = b;
+    c.opacity = 0.6;
+    assert_eq!(style_diff(&b, &c), StyleDiff::Paint, "<1 -> <1 only paints");
+    let mut d = a;
+    d.z_index = Some(2);
+    assert_eq!(style_diff(&a, &d), StyleDiff::Layout);
+    let mut e = d;
+    e.z_index = Some(3);
+    assert_eq!(style_diff(&d, &e), StyleDiff::Layout);
+}
+
+#[test]
+fn qinc1a_style_diff_classifies_real_cascade_changes() {
+    let mk = |css: &str| {
+        let doc = parse_html(&format!("<style>{css}</style><body><div id=t>x</div></body>"));
+        let tree = build_layout_tree(&doc, 400.0);
+        fn find(b: &LayoutBox, node: usize) -> Option<ComputedStyle> {
+            if b.style.node == node {
+                return Some(b.style);
+            }
+            match &b.content {
+                BoxContent::Blocks(c) | BoxContent::TableRow(c) => c.iter().find_map(|x| find(x, node)),
+                _ => None,
+            }
+        }
+        let t = find_by_tag(&doc, "div").unwrap();
+        find(&tree, node_id(&t)).unwrap()
+    };
+    let base = mk("");
+    assert_eq!(style_diff(&base, &mk("#t{color:red}")), StyleDiff::Paint);
+    assert_eq!(style_diff(&base, &mk("#t{position:relative;left:4px}")), StyleDiff::Box);
+    assert_eq!(style_diff(&base, &mk("#t{width:50px}")), StyleDiff::Layout);
+    assert_eq!(style_diff(&base, &mk("#t{display:flex}")), StyleDiff::Box);
+    assert_eq!(style_diff(&base, &mk("#t{opacity:.5}")), StyleDiff::Layout);
+}

@@ -25,6 +25,7 @@ mod navigation_tests;
 mod net_policy_tests;
 mod paint_tests;
 mod perf_tests;
+mod incr_fuzz_tests;
 mod positioning_tests;
 mod qf19w2_tests;
 mod qnet1_tests;

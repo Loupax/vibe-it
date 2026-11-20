@@ -111,6 +111,9 @@ compile_error!("no JS engine selected: enable the `engine-v8` feature (default);
 mod js_engine;
 mod js;
 mod perf;
+mod incr_diff;
+#[cfg(test)]
+mod incr_cmp;
 mod stack;
 mod frame_stats;
 mod js_modules;

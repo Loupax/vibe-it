@@ -647,3 +647,26 @@ fn qmem3b_fetched_css_has_no_spare_capacity() {
     assert!(css.len() > 300);
     assert_eq!(css.capacity(), css.len());
 }
+
+#[test]
+fn qinc1a_perf_report_has_an_incr_object_with_zero_counters() {
+    use crate::perf::Incr;
+    let _g = PerfGuard;
+    crate::perf::start();
+    let j = pj_parse(&format!("{{{}}}", crate::perf::body_json()));
+    let i = j.get("incr");
+    for k in [
+        "updates", "restyled_matched", "restyled_cascaded", "boxes_rebuilt", "boxes_remeasured", "cache_hits", "miss_dirty", "miss_key",
+        "miss_floats", "miss_not_cacheable", "miss_no_old", "check_mismatch",
+    ] {
+        assert_eq!(i.get(k).num(), 0.0, "{k}");
+    }
+    // The counters work and `start` resets them.
+    crate::perf::incr_add(Incr::CacheHits, 3);
+    crate::perf::incr_stop_at(2);
+    crate::perf::incr_worker_fallback("busy");
+    let raw = crate::perf::incr_json();
+    assert!(raw.contains("\"cache_hits\":3") && raw.contains("[0,0,1,0,0,0,0,0]") && raw.contains("\"busy\":1"), "{raw}");
+    crate::perf::start();
+    assert_eq!(crate::perf::incr_get(Incr::CacheHits), 0);
+}
