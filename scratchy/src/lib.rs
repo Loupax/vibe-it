@@ -76,6 +76,7 @@ mod style;
 mod layout;
 mod images;
 mod rules_cache;
+mod invalidation;
 mod hover_patch;
 mod forms;
 mod forms_text;
