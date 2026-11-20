@@ -7868,3 +7868,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       configure), so innerWidth/innerHeight/clientWidth and forced layout are the real size at parse time and at `load`,
       with no initial `resize`. Test: an engine created after set_window_viewport sees the size in its first script. Live
       check: nested dwl, start iw == window width.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QSTK1x DONE 2ae82ac #397 five unguarded recursions wrapped in stack::grow; debug cargo test passes [S] (P3, from QFLK1 #387; Sonnet; after QSTK1b) tests::deep_nesting_tests::qstk1_5000_deep_* overflow the stack
+      in the DEBUG test profile (SIGABRT; CI runs --release). Give them a bigger test-thread stack (spawn with
+      stack_size) so `cargo test` in debug passes without RUST_MIN_STACK.
