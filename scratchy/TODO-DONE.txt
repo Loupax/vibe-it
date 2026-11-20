@@ -7928,3 +7928,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- Rust `__*` native wrapped in a JS timer); none of it was committed. -------
 - [x] QPT1d3 DONE 78c8441 #403 closed-window timers/requests are no-ops (fetch never settles, sync XHR throws) [XS] (P2, from QPT1d #401; Sonnet) Timers and requests created on a CLOSED window (`w.setTimeout` after the iframe
       was removed) still forward to the parent's queue and run: drop them (Chrome: a closed window's timers never fire).
+
+=== from TODO.txt: --- Rust `__*` native wrapped in a JS timer); none of it was committed. -------
+- [x] QM1g2a1 DONE f1c0e11 #405 pooled video frame buffers (main-thread video cost ~0.3 ms/frame; gain inside noise) [S] (P3, from QM1g2a #388; Sonnet, measure first) Reuse video frame buffers: the render worker allocates a
+      new ~0.9 MB buffer per frame and the main thread copies twice (page buffer + present buffer); a small pool or presenting
+      straight from the worker's buffer. Remaining main-thread cost ~1-2.4 ms/frame (R46 "QM1g2a").
