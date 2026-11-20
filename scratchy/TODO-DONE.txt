@@ -8438,3 +8438,10 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       restart cost: a restart (first layout / new rule-list generation) re-restyles everything after a from-scratch build,
       then lays out again through the engine; adopt the build's STYLES (cascade half) too. Makes Wikipedia forced layouts
       slower with INCR=1 (660-1133 vs 567-600 ms off).
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QINC1i6 DONE 42b99fd shape memo on for engine Main-frame relayouts [S] (P2, from QINC1i5 #462; Sonnet; area layout/js_geom memo; before QINC1k) With SCRATCHY_INCR=1 the
+      main-thread shape memo stays OFF until the page's first script forced layout (SHAPE_MEMO_ENABLED set only in js_geom),
+      so Main-frame relayouts (incr_layout::live_update) re-shape every re-measured paragraph on pages without forced
+      layouts. Turn it on for main-thread engine relayouts, bounded by memo_trim. Test: memo-hit counter on a 2nd Main frame
+      with no forced layout. Gate: R55 Wikipedia + YouTube INCR=1 not slower; _CHECK=1 0 mismatches.
