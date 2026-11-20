@@ -38,7 +38,7 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
   27 QOBS9 [S, Opus] re-baseline PERF.md on the new machine (after 9, 18, 20)
   28 QM1k-mouse: user re-tested 2026-11-19 22:21: still slow while the controls show (= QYTC1 cause); QYTC1a merged 9219065 -> ASK THE USER TO RE-TEST (quiet machine)
   27b3 [WIP] QY54a3 [S, Opus measure, P2] YouTube re-run + CPU cost with the drain (after QY54a2)
-  27c QY54b [S, Opus measure, P2] inline-preview getPlayerSize ~58 ms per forced layout in the window (R56)
+  27c [WIP] QY54b [S, Opus measure, P2] inline-preview getPlayerSize ~58 ms per forced layout in the window (R56)
  Step 6, re-profile before leaving performance (user 2026-11-19):
   29 QPROF1 [M, Opus, measure only] LAST performance item: runs when every item above is done, blocked or
      waiting for the user. The backlog does NOT start until it is done and any items it files are worked off.
@@ -1038,7 +1038,7 @@ Shared rules for this block:
       from 1 s and from 15 s, 3 runs each) + CPU cost (60 s 500 Hz motion on a static fixture, drain on vs off, 3 interleaved
       pairs under flock). Gate: 0 lost of 6, CPU < 1 % of one core, numbers in R57; if higher, file "thread sleeps while
       main is idle in calloop".
-- [ ] QY54b [S] (P2, from #419 R56; Opus measure) YT results inline-preview player: one promise job runs 12-15
+- [ ] [WIP] QY54b [S] (P2, from #419 R56; Opus measure) YT results inline-preview player: one promise job runs 12-15
       getPlayerSize forced layouts of ~58 ms each in the window (vs ~5 ms headless on watch). Find why; file fix items.
 - [ ] QOBS9 [S] (P2, R44 section 0, Opus measure, docs only; LAST in this block) Re-baseline PERF.md on
       the new machine (AMD Ryzen 7 5700X, 16 threads, Fedora 44): the QV8-0/QV8-m tables were taken on a
