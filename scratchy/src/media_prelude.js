@@ -47,8 +47,22 @@
   g.TimeRanges = TimeRanges;
 
   // ---- per-element bookkeeping
-  var S = {}, els = {}, tokN = 0, timer = 0;
+  var S = {}, els = {}, tokN = 0, timer = 0, dead = [];
+  var GONE = '__media_gone';
+  var inert = function (el) { return el[GONE] === true && !el.isConnected; };
+  // QOOM1: a dropped element back in the document (see `gone`) is a new element to us
+  var revive = function (el) {
+    if (el[GONE] !== true || !el.isConnected) return;
+    var id = el.__id;
+    delete el[GONE];
+    delete S[id];
+    delete els[id];
+    dead = dead.filter(function (x) { return x !== id; });
+    g.__media_revive(id);
+  };
   var st = function (el) {
+    revive(el);
+    if (inert(el)) return { key: null, proms: {} }; // QOOM1: not registered again
     var id = el.__id, s = S[id];
     if (!s) {
       observe();
@@ -79,6 +93,8 @@
     return { attr: false, list: list };
   };
   var doLoad = function (el, force) {
+    revive(el);
+    if (inert(el)) return;
     var s = st(el), c = candidates(el);
     var key = (c.attr ? 'a' : 's') + JSON.stringify(c.list);
     if (!force && s.key === key) return;
@@ -107,6 +123,8 @@
   };
   var run = function () {
     timer = 0;
+    var d = dead;
+    dead = [];
     var out = g.__media_pump(g.__scratchy_now(), g.__media_wait || 0), busy = false;
     for (var i = 0; i < out.length; i++) {
       var p = out[i].split(' '), id = +p[0], el = els[id];
@@ -131,6 +149,8 @@
         }
       }
     }
+    // QOOM1: dropped elements are forgotten once their last events went out
+    for (var k = 0; k < d.length; k++) { delete S[d[k]]; delete els[d[k]]; }
     if (busy) kick(30);
   };
 
@@ -177,6 +197,8 @@
   Object.defineProperty(g, '__media_reload', { value: function (el) { setTimeout(function () { doLoad(el, true); }, 0); }, configurable: true });
   MEP.load = function () { doLoad(this, true); };
   MEP.play = function () {
+    revive(this);
+    if (inert(this)) return Promise.reject(new DOMException('The element has no supported sources.', 'NotSupportedError'));
     var el = this, s = st(el);
     ensure(el);
     sync(el);
@@ -209,7 +231,26 @@
     if (isMedia(n)) f(n);
     else if (n.querySelectorAll) { var l = n.querySelectorAll('video,audio'); for (var i = 0; i < l.length; i++) f(l[i]); }
   };
+  // QOOM1: an element out of the document when the removal's MutationObserver record is
+  // delivered (a move inside one script is complete by then) is paused and its core
+  // dropped (its `pause` event and play() rejections still go out on the next pump): the player
+  // (a whole libmpv instance: decoder threads, frame pools, demuxer cache, ~250 MB for a
+  // 1080p AV1/HEVC file) is destroyed. Before, a removed element was only paused and its
+  // player lived until the page went away, so a page that re-renders its <video> elements
+  // (github.com's hero, every ~0.5 s) grew by a player per removed element until OOM.
+  // While it stays out of the document it is inert (GONE): it never loads (`load()`, a new
+  // src, play()), so a script touching it after removal cannot start a new player. Put back,
+  // it loads again from the start (touched -> revive -> schedule -> doLoad).
+  var gone = function (el) {
+    var id = el.__id;
+    if (!el.paused) g.__media_pause(id);
+    g.__media_drop(id);
+    Object.defineProperty(el, GONE, { value: true, configurable: true });
+    dead.push(id);
+    kick(0);
+  };
   var touched = function (el) {
+    revive(el);
     var c = candidates(el);
     if (c.list.length || S[el.__id]) schedule(el);
   };
@@ -233,7 +274,7 @@
           }
           for (var j = 0; j < r.removedNodes.length; j++) {
             each(r.removedNodes[j], function (el) {
-              setTimeout(function () { if (!el.isConnected && S[el.__id] && !el.paused) { g.__media_pause(el.__id); kick(0); } }, 0);
+              if (!el.isConnected && S[el.__id] && !el[GONE]) gone(el);
             });
           }
         }

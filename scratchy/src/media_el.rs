@@ -13,7 +13,7 @@
 //! Without it `UnavailableBackend` keeps the inert placeholder behaviour.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -1416,6 +1416,13 @@ pub(crate) struct MediaHost {
     log: MediaLog,
     avail: Option<bool>,
     sizes_seen: HashMap<i32, (u32, u32)>,
+    /// QOOM1: elements removed from the document whose core was dropped (`remove`). Until
+    /// `revive`, the natives see a fresh inert core (`gone_core`) that never loads, so a page
+    /// script touching a removed element (`pause()`, `muted = true`) cannot start a new player.
+    gone: HashSet<i32>,
+    gone_core: Option<MediaCore>,
+    /// QOOM1: when a dropped player last asked for a `malloc_trim` (at most one per second).
+    last_trim: Option<std::time::Instant>,
     /// QM1k1c: the MediaSource feeds of this page.
     pub(crate) mse: MseHost,
 }
@@ -1465,6 +1472,9 @@ impl MediaHost {
             log,
             avail: None,
             sizes_seen: HashMap::new(),
+            gone: HashSet::new(),
+            gone_core: None,
+            last_trim: None,
             mse: MseHost::default(),
         }
     }
@@ -1482,6 +1492,10 @@ impl MediaHost {
     }
 
     pub(crate) fn core(&mut self, id: i32) -> &mut MediaCore {
+        if self.gone.contains(&id) {
+            // A dropped element: a fresh inert core per call (no backend, never loads).
+            return self.gone_core.insert(MediaCore::new(Box::new(UnavailableBackend)));
+        }
         let (f, ctx) = (self.factory.clone(), self.ctx.clone());
         let act = self.activated;
         let c = &mut self.els.entry(id).or_insert_with(|| (MediaCore::new(f(&ctx)), 0)).0;
@@ -1504,16 +1518,38 @@ impl MediaHost {
         self.els.get(&id).map(|e| &e.0)
     }
 
+    /// QOOM1: live cores (each may own a player).
+    pub(crate) fn cores(&self) -> usize {
+        self.els.len()
+    }
+
     /// The element left the page; returns what it still owes the page (`sourceclose`).
+    /// Its core and player are dropped (QOOM1: the player is destroyed now, not at page
+    /// teardown) and the id stays inert until `revive`.
     pub(crate) fn remove(&mut self, id: i32) -> Vec<HostOut> {
+        self.gone.insert(id);
         match self.els.remove(&id) {
             Some((mut c, _)) => {
                 c.detach();
                 let outs = c.take_outs();
-                self.absorb(id, outs)
+                let v = self.absorb(id, outs);
+                drop(c); // the player (and its decoders) is destroyed here
+                // QOOM1: a player frees a few hundred MB that glibc keeps in its arenas
+                // (measured: free_kept 1.86 GB vs 0.78 GB in use after 282 players on github.com).
+                let now = std::time::Instant::now();
+                if self.last_trim.is_none_or(|t| now.duration_since(t) >= std::time::Duration::from_secs(1)) {
+                    self.last_trim = Some(now);
+                    crate::mem_trim::request();
+                }
+                v
             }
             None => Vec::new(),
         }
+    }
+
+    /// QOOM1: a removed element is back in the document: its next load makes a new core.
+    pub(crate) fn revive(&mut self, id: i32) {
+        self.gone.remove(&id);
     }
 
     /// QM1g: sets the render target of every element (ids absent from `t`
@@ -1525,7 +1561,7 @@ impl MediaHost {
     }
 
     /// QM1k1n1: which elements have a laid-out box (visible or not); others have none.
-    pub(crate) fn set_laid(&mut self, laid: &std::collections::HashSet<i32>) {
+    pub(crate) fn set_laid(&mut self, laid: &HashSet<i32>) {
         for (id, (c, _)) in self.els.iter_mut() {
             c.set_laid(laid.contains(id));
         }

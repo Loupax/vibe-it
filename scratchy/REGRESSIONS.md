@@ -1,5 +1,68 @@
 # scratchy — regressions
 
+## R63: QOOM1: a scratchy grew to 15 GB and took the session down (13:39, OOM killer; QPROF1's headless runs hit the 6 GB cap in 26-33 s). The page is the github.com home. Its hero section is re-rendered about once a second in scratchy, each time inserting two new `<video>` elements (an AV1 and an HEVC file) and removing the old ones. A removed media element was only paused: `__media_drop` existed but nothing called it, so each one kept its libmpv player (16 dav1d workers + 16 HEVC frame threads, decoded frames, demuxer cache: ~250 MB) until the page went away. Fix: a media element still out of the document when its removal's MutationObserver record is delivered is paused and its player destroyed; it stays inert until it is put back, then loads again; a destroyed player asks for a `malloc_trim` (Opus, 2026-11-20) — FIXED
+
+**Reproduced** (own wire, `scratchy --perf-report --budget-ms 20000 --seconds 30 https://github.com/` inside
+`systemd-run --user --scope -p MemoryMax=3G -p MemorySwapMax=0`, RSS and the per-thread names sampled every 0.5-1 s; main at
+18d0527): 152 MB at 2 s, 834 MB at 3 s, 1.35 GB at 5 s, 2.6 GB at 8 s, killed at ~9 s, every time (5 runs). The thread
+names give it away: one `scratchy-video` render worker, one `core`, 16 `dav1d-worker` and 16 `av:hevc:dfN` per player, and
+the player count went 2, 3, 4, 6, 8, 10, 12, 14 in 7 s (3.8 GB at 14 players, ~270 MB each). A temporary log showed the
+same two URLs (`hero-light-*.mp4`, `copilot-fusion-light-av1-crf60.mp4`) loaded again for new element ids every ~0.7 s,
+and the old elements removed (`removedNodes`) each time. With libmpv replaced by the placeholder backend (temporary switch)
+the same page stays flat at 336 MB for 30 s (the re-render loop needs the media events).
+
+**What did NOT grow** (bisected first): the QM1g2a render slot holds at most one frame, the QM1g2a1 frame pool keeps at
+most 4 buffers, so no frame queue builds up headless. QMEM3g memprof: Rust-allocated live heap 183 MB at 1.4 GB RSS
+(`compute_custom_props` ~100 MB, the rest small). V8 heap 53 MB. `smaps`: the growth is malloc arenas (`[heap]` 934 MB
+plus 62-267 MB anonymous mappings), i.e. C allocations by libmpv/ffmpeg/dav1d. A page-fault profile
+(`perf record -e page-faults --call-graph dwarf`): 33 % `dav1d_decode_frame_init` memset, the rest HEVC frame pools,
+lavf probing, set_sps: decoder start-up of new players, not one player growing.
+
+**Cause.** media_prelude.js's removal hook only paused a removed element (`setTimeout(..., 0)`, then `__media_pause`).
+The element's `MediaCore` (and with it the `MpvBackend`: the mpv core, its decoders and render worker) stayed in
+`MediaHost.els` until the page was torn down. The D7 cap (at most 2 PLAYING) does not bound this: all of these were paused.
+
+**Fix.**
+1. media_prelude.js `gone`: when the removal record is delivered (microtask after the removing script, so a move inside one
+   script is complete) and the element is not connected, it is paused, `__media_drop(id)` destroys its core and player
+   (`MpvBackend::drop`, ~1.5-6 ms), and its `pause` event / play() rejections still go out on the next pump. The first
+   attempt kept the old `setTimeout(0)` and dropped there: drops then lagged behind github's loop (16 drops for 34 loads,
+   18 players at 13 s), hence the drop in the observer callback itself.
+2. Inert while out of the document: github's code touches the removed elements (`pause()`, `muted`), and the element
+   layer used to answer such a call with a fresh load. A dropped element now never loads while disconnected (`load()`, a
+   new `src`, `play()` rejects `NotSupportedError`); `MediaHost` answers its id with a throwaway inert core (no backend)
+   until `revive`. Put back in the document (or touched while connected), it is revived and loads again from the start.
+   Spec difference: a removed element keeps its resource in browsers; here it reloads when reinserted.
+3. `MediaHost::remove` asks for a `malloc_trim` (at most one per second): after 282 player drops glibc held 1.86 GB free in
+   its arenas (`malloc.free_kept`) against 0.78 GB in use, and RSS crept from 0.8 to 2.8 GB in 160 s without the trim.
+
+**After** (same recipe, final build): github.com home, 3G cap, players 2-4 at every sample.
+
+| run | RSS | players | notes |
+|---|---|---|---|
+| main 18d0527, 30 s headless | 2.6 GB at 8 s, killed at ~9 s | 14 at 7 s | 5/5 runs |
+| fix (drop only), 170 s headless | 0.8-1.3 GB, then creeping to 2.8 GB | 2-4 | free_kept 1.86 GB |
+| fix + trim, 170 s headless | 0.8-1.3 GB | 2-4 | 278 players destroyed |
+| final, 300 s headless (quiet machine, load 0.4) | 1.0-2.0 GB, no trend after ~3 min (1.6-2.0 GB at 170-310 s), peak 2.18 GB | 2-4 | malloc in_use 1.26 GB, V8 heap 197 MB at the end |
+| experiment: final + `vd-lavc-threads=4`, 150 s | 0.9-1.3 GB | 2-4 | not committed (QOOM1b) |
+| YouTube watch, nested dwl 960x1006, 20 min, click to play + pointer motion every 10 s | 495 MB at start, 617-665 MB from 2 min to 19.6 min | 1 | flat (load avg 17 at start: other agents' builds) |
+
+YouTube watch does not remove its `<video>` (one player for the whole run), so it was not this bug: the 15 GB kill at
+13:39 was a github.com run (QPROF1, R62). YouTube is flat at ~0.64 GB over 20 min.
+
+The github.com page stays bounded but above the ~1 GB gate: it still starts two new decoders about once a second (the
+re-render loop, QOOM1a), so at any moment 2-4 players exist plus the ones being torn down, and glibc's arenas churn
+(`free_kept` 4.2 GB by mallinfo, mostly already trimmed). Without the loop the page holds its 2 hero players (~0.8 GB).
+
+**Left out (proposed).**
+- QOOM1a [S]: why github.com's hero re-renders every ~0.7 s in scratchy (a React error/retry loop? the
+  `':not(:defined),react-partial,...' is not a valid selector` SyntaxError from `querySelectorAll` repeats in the log). It
+  costs a player start-up (two decoders) per second even with this fix.
+- QOOM1b [S, measure]: per-player memory: mpv's default `vd-lavc-threads` gives 16 dav1d + 16 HEVC threads and ~250 MB per
+  player; Chrome caps decoder threads by resolution. Measure playback (YouTube 1080p/4K AV1) at 4/8 threads before capping.
+- QOOM1c [S]: a cap on players that exist at once (not only playing ones, D7), releasing the oldest paused,
+  out-of-view player transparently (reload on play), as a guard for pages that keep many `<video>` elements in the document.
+
 ## R62: QPROF1 part A: full re-profile of main bbc569d (after QOBS9). Layout and restyle are still the largest share (forced layout 24-57 % of the JS/main thread headless, App builds 34-49 % of the window main thread: all QINC1). Outside layout, four scratchy-side hotspots qualify: the iframe-window prelude walks the whole document on every DOM removal (12 % of YouTube watch, 18 % of YouTube results), IntersectionObserver evaluation re-cascades ancestor chains it does not need (10-12 % on YouTube), the MessagePort shim drains every message in one task (one 375-389 ms task on bbc.com), and `dlopen(libmpv)` runs on the JS thread at the first `<video>` (118-131 ms, ~10 % of Wikipedia headless); plus V8 compile on the JS thread (9-25 %), mpv's software scaler (~10 % of process CPU while playing), and a profiler artifact. github.com home grew to 5.4 GB in 23-29 s, reproduced 2 of 2 (QOOM1) (Opus, 2026-11-20, measure only, docs only) — OPEN: proposed QPROF1-a .. QPROF1-g (section 7); layout/restyle items covered by QINC1
 
 **Status: measurement only, docs only. No source change.** Part B (the joint session with the user) is not part of this section.
@@ -340,6 +403,7 @@ App build 49.0 %, forced layout 30.8 %, everything else < 4 % each. **All covere
   idle, then a second `<video>` node started at 58 s (section 4). Seen in 1 of 3 runs; the coordinator may want to add
   it to QM1k-mouse / QM1k1n4's notes rather than a new item until it reproduces.
 - **QOOM1 (already filed):** github.com home grows ~185 MB/s to the cap with AV1/HEVC decoders busy (section 6).
+
 
 ## R61: QYSCR1: scrolling did not work on YouTube (user 2026-11-20). Three causes, all fixed: (1) `<body>`'s `overflow` was never propagated to the viewport in layout (only the stacking-boundary check and, since QY57r, IntersectionObserver knew the rule), so YouTube's `body{overflow-y:scroll}` made the 0 px tall body a scroll region and stopped the page-height walk at it; (2) the page height (`laid.h`, the top-level scroll limit) ignored absolutely positioned boxes, and YouTube's whole page lives in the absolute `ytd-app`, so the page was one viewport tall; (3) Space, PageDown/PageUp and the arrow keys were not bound at all. Fix: one propagation rule in the layout tree, the page height includes absolute boxes, a wheel tick a region cannot use goes to the page, and the usual scroll keys (Opus, 2026-11-20) — FIXED
 
