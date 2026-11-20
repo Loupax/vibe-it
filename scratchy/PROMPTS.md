@@ -8327,3 +8327,9 @@ Prompt: item QY53n3 (P3): hover changes that only gain/lose PAINT plus OFFSET ru
 > Safety rule: Enter only acts if the current match is on screen. If you've scrolled away with j/k, Enter does nothing and the status bar says why.
 
 **What changed:** docs only. TODO.txt QKEYS block: D6 (`i` leaves normal mode; Esc in normal mode only cancels, supersedes D5's "Esc leaves"), D7 (PAGE/NORMAL sticky, COMMAND/SEARCH one-line), D8 (status bar shows mode, URL, messages), QKEYS1/QKEYS2 updated. New QSEARCH block: design QSEARCH-D S1-S7 (rendered-text search, smartcase, painted highlights, n/N with wrap, recompute after relayout, query kept across navigations, Enter = a real click on the match's element, no on-screen requirement) and items QSEARCH1-QSEARCH3. Queue note updated.
+
+## QSEARCH-D S4 clarified: moving to a match brings the screen there (user, docs only)
+
+> just a clarification. Navigating through search results should focus the screen there too
+
+**What changed:** docs only. TODO.txt QSEARCH-D S4: every move to a match (`n`, `N`, the committing Enter) scrolls a not-fully-visible match to the vertical centre (clamped), does not scroll a visible one, and scrolls inner scroll containers too; QSEARCH2 tests follow.

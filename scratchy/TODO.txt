@@ -2848,7 +2848,11 @@ QSEARCH — `/` search, n/N, Enter (user design session 2026-11-20; needs QKEYS2
      colour, the current match a stronger one. Esc in normal mode clears them (QKEYS-D D6);
      the query is kept. The status bar shows `[i/N]` and the wrap message (D8).
   S4 `n` / `N`: next / previous match in document order, wrapping with the status-bar
-     message; scroll so the current match is visible.
+     message. Every move to a match (`n`, `N`, and the Enter that commits S1) brings the
+     screen to it (user 2026-11-20): if the match is not fully visible the viewport
+     scrolls so it is vertically centred (clamped at the page ends; like Firefox's find
+     bar); if it is already fully visible nothing scrolls. A match inside a scrollable
+     element scrolls that element too (innermost first, then the page).
   S5 Matches are recomputed after every relayout (live pages keep changing); the current
      match stays the nearest one to where it was.
   S6 Across navigations: the last query is kept (like vim's last-search register), the
@@ -2870,8 +2874,11 @@ QSEARCH — `/` search, n/N, Enter (user design session 2026-11-20; needs QKEYS2
       never matches, smartcase both ways, recompute keeps the nearest current match.
 
 - [ ] QSEARCH2 [S] (P2, after QSEARCH1) `n`/`N` (S4, S6): next/previous with wrap and the
-      status-bar message, scroll into view, query kept across navigations. Tests: wrap both
-      ways, `[i/N]` text, the kept query on a new page.
+      status-bar message, bring the screen to the match (S4: centre when not fully visible,
+      no scroll when visible, inner scroll containers too), query kept across navigations.
+      Tests: wrap both ways, `[i/N]` text, an off-screen match ends up centred, a visible
+      one does not scroll, a match in an `overflow: auto` box scrolls the box, the kept
+      query on a new page.
 
 - [ ] QSEARCH3 [S] (P2, after QSEARCH2) Enter clicks the current match (S7). Tests: a match
       in a plain link navigates; a match in a link whose click handler calls
