@@ -523,9 +523,11 @@ struct BoxInfo {
     translate: Option<(TranslateAxis, TranslateAxis)>,
     inset: Insets,
     position: Position,
+    /// An inline-level box in a line (the build's inline layout places it itself).
+    inline: bool,
 }
 
-fn collect_box_infos(l: &Laid, nodes: &HashSet<usize>, out: &mut HashMap<usize, Vec<BoxInfo>>) {
+fn collect_box_infos(l: &Laid, inline: bool, nodes: &HashSet<usize>, out: &mut HashMap<usize, Vec<BoxInfo>>) {
     if l.style.pseudo == 0 && nodes.contains(&l.style.node) {
         out.entry(l.style.node).or_default().push(BoxInfo {
             w: l.w,
@@ -533,20 +535,21 @@ fn collect_box_infos(l: &Laid, nodes: &HashSet<usize>, out: &mut HashMap<usize, 
             translate: l.style.translate,
             inset: l.style.inset,
             position: l.style.position,
+            inline,
         });
     }
     match &l.content {
-        LaidContent::Blocks(c) | LaidContent::TableRow(c) => c.iter().for_each(|c| collect_box_infos(c, nodes, out)),
+        LaidContent::Blocks(c) | LaidContent::TableRow(c) => c.iter().for_each(|c| collect_box_infos(c, false, nodes, out)),
         LaidContent::MixedInline(items) => {
             for it in items {
                 if let MixedPositioned::Embedded(b) = it {
-                    collect_box_infos(b, nodes, out);
+                    collect_box_infos(b, true, nodes, out);
                 }
             }
         }
         LaidContent::Text(_) | LaidContent::Image(_) => {}
     }
-    l.positioned.iter().for_each(|c| collect_box_infos(c, nodes, out));
+    l.positioned.iter().for_each(|c| collect_box_infos(c, false, nodes, out));
 }
 
 /// Whether `find_box_mut` finds `node` below (or at) `l`.
@@ -694,7 +697,7 @@ fn plan_moves(
     }
     let nodes: HashSet<usize> = todo.iter().map(|t| node_id(&t.0)).collect();
     let mut infos = HashMap::new();
-    collect_box_infos(laid, &nodes, &mut infos);
+    collect_box_infos(laid, false, &nodes, &mut infos);
     let mut out = Vec::new();
     for (h, o, n) in todo {
         let id = node_id(&h);
@@ -715,6 +718,9 @@ fn plan_moves(
         let [b] = infos.get(&id).map(Vec::as_slice).unwrap_or(&[]) else {
             return Err("an offset change on an element without exactly one box");
         };
+        if b.inline {
+            return Err("an offset change on an inline-level box (the line layout places it)");
+        }
         // The tree must hold the old offset state.
         if b.translate != o.translate || b.position != o.position || !same_insets(&b.inset, &o.inset) {
             return Err("an offset change whose old values differ from the tree's");

@@ -3108,11 +3108,18 @@ impl App {
                 &self.interaction,
                 &st,
             );
-            if r.is_ok() {
+            if let Ok(moved) = r {
                 self.interaction.hover = st.hover;
                 if let Some(fs) = &mut self.frame_stats {
                     fs.hover_restyle();
                     fs.hover_patched(started.elapsed());
+                }
+                // QY53n3: boxes moved (an offset patch): what reads positions follows.
+                if moved {
+                    if let (Some(js), Some(laid)) = (&self.js, &self.cached) {
+                        js.rendered_geometry(laid, self.build_stamp, self.cached_width, self.cached_height);
+                    }
+                    self.refresh_cursor();
                 }
                 if let Some(w) = &self.window {
                     w.request_redraw();
