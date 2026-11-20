@@ -749,7 +749,7 @@ fn qa18b_iframe_content_document_and_window() {
          console.log(n.contentDocument, n.contentWindow);\
          var u=document.createElement('iframe'); u.setAttribute('src','about:blank'); document.body.appendChild(u);\
          var dd=document.createElement('iframe'); dd.src='data:text/html,hi'; document.body.appendChild(dd);\
-         console.log(u.contentDocument.nodeType, dd.contentDocument.nodeType, f instanceof HTMLIFrameElement);\
+         console.log(u.contentDocument.nodeType, dd.contentDocument, f instanceof HTMLIFrameElement);\
          var r=document.createElement('iframe'); document.body.appendChild(r); document.body.removeChild(r); console.log(r.contentDocument);\
          console.log('sync-end');",
     );
@@ -760,7 +760,7 @@ fn qa18b_iframe_content_document_and_window() {
             "log:true 9 HTML BODY HEAD true true true true true true",
             "log:1 0 true",
             "log:null null",
-            "log:9 9 true",
+            "log:9 null true",
             "log:null",
             "log:sync-end",
             "log:listener",
@@ -872,11 +872,11 @@ fn qpt1a_realm_unhandled_rejection_is_logged_and_nested_realms_work() {
          console.log(w2!==null, w2!==w, w2.parent===w, w2.top===window, w2.String!==w.String, w2.frameElement===g);\
          w2.setTimeout(function(){ console.log('nested timeout', this===w2); }, 1);\
          var sf=document.createElement('iframe'); document.body.appendChild(sf); /* QPT1b: a src/srcdoc change drops that frame's realm */ var dd=document.createElement('iframe'); dd.src='data:text/html,hi'; document.body.appendChild(dd);\
-         console.log(typeof dd.contentWindow.String, dd.contentDocument.nodeType, sf.srcdoc, (sf.srcdoc='<b>x</b>', sf.getAttribute('srcdoc')));",
+         console.log(typeof dd.contentWindow.postMessage, dd.contentDocument, sf.srcdoc, (sf.srcdoc='<b>x</b>', sf.getAttribute('srcdoc')));",
     );
     assert!(log.iter().any(|l| l.starts_with("error:Uncaught (in promise) TypeError: realm boom")), "{log:?}");
     assert!(log.contains(&"log:true true true true true true".to_string()), "{log:?}");
-    assert!(log.contains(&"log:undefined 9  <b>x</b>".to_string()), "data: iframes keep the stand-in (R53 D4): {log:?}");
+    assert!(log.contains(&"log:function null  <b>x</b>".to_string()), "data: iframes are opaque (QPT1-D1): {log:?}");
     assert!(log.contains(&"log:nested timeout true".to_string()), "{log:?}");
 }
 
@@ -1749,6 +1749,54 @@ fn qpt1f_srcdoc_scripts_run_in_the_realm_in_order_then_dcl_load_and_iframe_load(
         ],
         "{log:?}"
     );
+}
+
+/// QPT1-D1: a `data:` iframe has an opaque origin (Chrome): the parent gets no document and only a
+/// cross-origin WindowProxy; the frame's own scripts run in its realm and cannot reach the parent's DOM.
+#[test]
+fn qpt1_d1_data_iframe_is_opaque_to_the_parent_and_its_scripts_run() {
+    crate::js::set_page_url(Url::parse("https://qpt1d1.test/p.html").ok().as_ref());
+    let log = run_with_timers(
+        "var seen=[];\
+         addEventListener('message', function(e){ seen.push(e.data + (e.source===f.contentWindow ? '@frame' : '@other') + ' ' + e.origin); });\
+         var f=document.createElement('iframe');\
+         f.src='data:text/html,<p id=a>A</p><script>parent.postMessage(\"run \"+location.origin+\" \"+(frameElement===null)+\" \"+document.getElementById(\"a\").textContent+\" \"+(window.parent===window.top),\"*\");\
+try{parent.document;parent.postMessage(\"leak\",\"*\")}catch(e){parent.postMessage(\"blocked \"+e.name,\"*\")}\
+try{top.document.body;parent.postMessage(\"leak top\",\"*\")}catch(e){parent.postMessage(\"blocked top \"+e.name,\"*\")}</script>';\
+         document.body.appendChild(f);\
+         var w=f.contentWindow, r=[];\
+         r.push(f.contentDocument, w!==null, typeof w.postMessage, w.window===w, w.self===w, w.parent===window, w.top===window, w.length, w.closed, w.opener);\
+         ['document','location.href','String','a','name'].forEach(function(k){ try { r.push(k+' '+k.split('.').reduce(function(o,p){ return o[p]; }, w)); } catch(e) { r.push(k+' '+e.name); } });\
+         try { w.foo=1; r.push('set ok'); } catch(e) { r.push('set '+e.name); }\
+         try { r.push(String(w.location)); } catch(e) { r.push('loc '+e.name); }\
+         try { r.push(Object.keys(w).length > 0, 'x' in w, 'postMessage' in w); } catch(e) { r.push('keys '+e.name); }\
+         console.log(r.join('|'));\
+         setTimeout(function(){ console.log(seen.join(' ; ')); }, 50);",
+    );
+    let logs: Vec<&str> = log.iter().filter_map(|l| l.strip_prefix("log:")).collect();
+    assert_eq!(logs.len(), 2, "{log:?}");
+    assert_eq!(
+        logs[0],
+        "|true|function|true|true|true|true|0|false||document SecurityError|location.href SecurityError|String SecurityError|a SecurityError|name SecurityError|set SecurityError|loc SecurityError|false|false|true",
+        "{log:?}"
+    );
+    assert_eq!(
+        logs[1],
+        "run null true A true@frame null ; blocked SecurityError@frame null ; blocked top SecurityError@frame null",
+        "{log:?}"
+    );
+}
+
+/// QPT1-D1: the same-origin kinds keep a readable document and the page's origin.
+#[test]
+fn qpt1_d1_about_blank_and_srcdoc_iframes_stay_same_origin() {
+    crate::js::set_page_url(Url::parse("https://qpt1d1.test/p.html").ok().as_ref());
+    let log = run_with_timers(
+        "var a=document.createElement('iframe'), s=document.createElement('iframe'); s.srcdoc='<p id=q>Q</p>';\
+         document.body.appendChild(a); document.body.appendChild(s);\
+         setTimeout(function(){ console.log(a.contentDocument.nodeType, a.contentWindow.location.origin, s.contentDocument.getElementById('q').textContent, s.contentWindow.location.origin, typeof a.contentWindow.String, a.contentWindow.parent===window); }, 20);",
+    );
+    assert!(log.contains(&"log:9 https://qpt1d1.test Q https://qpt1d1.test function true".to_string()), "{log:?}");
 }
 
 #[test]

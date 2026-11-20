@@ -145,6 +145,8 @@
     // `__scratchy_enter` entered), so `parent.postMessage` from a realm has that realm as `source`/`origin`.
     var d = clone(msg), src = g, sorigin = origin;
     try { src = g.__scratchy_incumbent(); sorigin = src.location.origin; } catch (e) { src = g; sorigin = origin; }
+    // QPT1-D1: across an opaque (data:) boundary the receiver only gets a cross-origin view of the sender.
+    if (src !== g && g.__scratchy_xo && (src.__scratchy_opaque || g.__scratchy_opaque)) src = g.__scratchy_xo(src);
     tm(function () { if (!g.closed) g.dispatchEvent(new MessageEvent('message', { data: d, origin: sorigin, source: src, ports: [] })); });
   });
 
