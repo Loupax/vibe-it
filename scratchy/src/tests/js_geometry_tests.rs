@@ -1778,6 +1778,39 @@ fn qytc1a_style_writes_between_reads_force_no_layout() {
     assert_eq!(n, 2);
 }
 
+/// QY53f1d: QYTC1a's `!important` geometry check used to keep a clone of the rule list's `Rc`,
+/// so every `<style>` insert after a forced layout re-parsed the whole page CSS (YouTube: 3 extra
+/// 4.4 MB parses per minute) instead of splicing in the new piece. The check must still see a
+/// rule that arrives in the inserted piece.
+#[test]
+fn qy53f1d_important_geo_check_keeps_style_inserts_incremental() {
+    let page = qytc1a_page("#knob{left:1px !important}", "");
+    let doc = parse_html(&page);
+    let hover = by_id(&doc, "hover");
+    let mut g = crate::js_geom::GeomCache::default();
+    g.rect_of(&doc, 1, &hover, 800.0, 600.0);
+    let h = "position:absolute;top:2px;width:30px;height:4px";
+    let old = element_attr(&hover, "style").map(|s| s.to_string());
+    let new = format!("{h};left:60px");
+    crate::js_dom::set_attr(&hover, "style", &new);
+    assert!(g.style_write_in_place(&hover, old.as_deref(), Some(&new), 1), "an !important rule elsewhere does not matter");
+    // Insert a second `<style>` whose `!important` rule targets `#hover`, then lay out again.
+    let head = find_by_tag(&doc, "head").unwrap();
+    let frag = parse_html("<style>#bar > #hover{left:1px !important}</style>");
+    let mut v = Vec::new();
+    crate::images::collect_style_nodes(&frag, &mut v);
+    head.children.borrow_mut().push(v.remove(0));
+    crate::rules_cache::FULL_PARSES.with(|c| c.set(0));
+    crate::rules_cache::PIECES_PARSED.with(|c| c.set(0));
+    g.rect_of(&doc, 2, &hover, 800.0, 600.0);
+    assert_eq!(crate::rules_cache::FULL_PARSES.with(|c| c.get()), 0, "the insert is spliced, not a full re-parse");
+    assert_eq!(crate::rules_cache::PIECES_PARSED.with(|c| c.get()), 1, "only the new piece is parsed");
+    let old = element_attr(&hover, "style").map(|s| s.to_string());
+    let new = format!("{h};left:70px");
+    crate::js_dom::set_attr(&hover, "style", &new);
+    assert!(!g.style_write_in_place(&hover, old.as_deref(), Some(&new), 2), "the spliced-in !important left rule is seen");
+}
+
 // ---------- Q33b2: the real window size ----------
 
 fn q33b2_engine(html: &str, code: &str) -> (JsEngine, Rc<RefCell<Vec<String>>>) {

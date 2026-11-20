@@ -411,22 +411,25 @@ fn rules_important_geo(rules: &[StyleRule]) -> Vec<u32> {
         .collect()
 }
 
-/// QYTC1a: a rule list and its `rules_important_geo` indices.
-type ImpGeo = Rc<(Rc<Vec<StyleRule>>, Vec<u32>)>;
+/// QYTC1a: the selectors of a rule list's `rules_important_geo` rules, with the list's
+/// `rules_cache` generation. QY53f1d: never the list's `Rc` itself: a second owner makes
+/// `rules_cache` re-parse the whole page CSS (4.4 MB on YouTube) on every `<style>` insert
+/// instead of splicing in the new piece.
+type ImpGeo = Rc<(u64, Vec<SelectorList<OurSelectorImpl>>)>;
 
 /// QYTC1a: may one of those `!important` rules apply to element `x`? (`@media` is not
 /// evaluated: a rule whose selector matches counts.)
 fn important_geo_matches(imp: &ImpGeo, x: &Handle) -> bool {
     let el = crate::dom::El(x.clone());
     let mut caches = SelectorCaches::default();
-    imp.1.iter().any(|&i| {
+    imp.1.iter().any(|sel| {
         let mut ctx = MatchingContext::new(MatchingMode::Normal, None, &mut caches, QuirksMode::NoQuirks, NeedsSelectorFlags::No, MatchingForInvalidation::No);
-        matches_selector_list(&imp.0[i as usize].selectors, &el, &mut ctx)
+        matches_selector_list(sel, &el, &mut ctx)
     })
 }
 
 thread_local! {
-    /// QYTC1a: `rules_important_geo` of the last rule list it ran for (the `Rc` keeps the pointer unique).
+    /// QYTC1a: `rules_important_geo` of the last rule list it ran for (keyed by its `rules_cache` generation).
     static IMP_GEO: RefCell<Option<ImpGeo>> = const { RefCell::new(None) };
     /// QYTC1a: in-place shifts on this thread; `__d_ggen` adds it so script-side caches keyed on
     /// the geometry generation (IntersectionObserver, Range glyph rects) still see a move.
@@ -439,17 +442,21 @@ pub(crate) fn geom_shifts() -> u64 {
 }
 
 /// QYTC1a: `rules_important_geo` for the rule list of the latest build on this thread.
+/// `None` (every write lays out) when that build's list is no longer `rules_cache`'s current one.
 fn current_important_geo() -> Option<ImpGeo> {
-    let rules = crate::style::RULE_DERIVED.with(|d| d.borrow().as_ref().map(|x| x.rules.clone()))?;
+    let (rules, generation, _, _) = crate::rules_cache::current()?;
+    if !crate::style::RULE_DERIVED.with(|d| d.borrow().as_ref().is_some_and(|x| Rc::ptr_eq(&x.rules, &rules))) {
+        return None;
+    }
     IMP_GEO.with(|c| {
         let mut c = c.borrow_mut();
         if let Some(v) = c.as_ref()
-            && Rc::ptr_eq(&v.0, &rules)
+            && v.0 == generation
         {
             return Some(v.clone());
         }
-        let idx = rules_important_geo(&rules);
-        let v = Rc::new((rules, idx));
+        let sels = rules_important_geo(&rules).into_iter().map(|i| rules[i as usize].selectors.clone()).collect();
+        let v = Rc::new((generation, sels));
         *c = Some(v.clone());
         Some(v)
     })

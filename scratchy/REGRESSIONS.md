@@ -1,5 +1,109 @@
 # scratchy — regressions
 
+## R54: QY53f1d: YouTube's cold stylesheet parse is no longer ~130 ms. Since QY53f1c it is ~35-55 ms on a quiet machine (the 4.4 MB sheet, 22 344 rules), and it now runs in the first `getComputedStyle`, not in a forced layout. But the same parse ran 3-4 MORE times per minute: QYTC1a's `!important` geometry check (js_geom.rs `IMP_GEO`) kept a clone of the rule list's `Rc`, so every `<style>` that YouTube inserts after a forced layout did a full re-parse instead of QY53f1's splice. FIXED here (the check keeps selectors + a generation, not the `Rc`): 4-5 full parses per 60 s -> 1. Design for the rest: parse the external CSS on a worker thread as soon as it is fetched (QY53f1d1) and build the RuleIndex once per rule list instead of twice (QY53f1d2). Lazy selector parsing is not worth it (Opus, 2026-11-20) — FIXED: the re-parses; OPEN: QY53f1d1-QY53f1d3 (proposed)
+
+**Setup.** Main bd1ead7, own worktree release build (V8 + media), own wire on a scratchpad socket, default UA,
+`SCRATCHY_MEDIA_AO=null`, https://www.youtube.com/watch?v=G1AeBgalFZk. Headless: `--perf-report --budget-ms 20000
+--seconds 10|60`. Window: own nested dwl (tools/nest.sh), 45 s. Every measured run under `flock /tmp/scratchy-perf.lock`.
+Other agents were building, so the machine load varied a lot (`uptime` load 1.5-30 on 16 cores; noted per table).
+Throwaway instrumentation (reverted, never committed): an `Instant` around `rules_cache`'s full-parse branch that also logs
+WHY it fell back (`cold`, `js-changed`, `concat`, `layered`, `rc-shared` = `Rc::get_mut` failed, with the strong count),
+per-piece parse times, per-call totals in `QualifiedRuleParser::parse_prelude` (selectors) and `parse_block` (the
+lazy-block token scan), and a bench mode that parses the dumped external CSS of the page 7 times in-process.
+
+### 1. Where the cold parse goes (bench, the dumped 4 402 766-byte external CSS, load 1.5-1.9)
+| step | ms (rounds 2-7) |
+|---|---|
+| cssparser tokenize-only of the whole sheet (recursing into every block) | 18.7-20.4 |
+| `parse_stylesheet_into` (all of it) | **34.0-37.0** (round 1: 45.0) |
+| - selector lists (`SelectorList::parse`, 22 344 rules) | 12.5-13.5 |
+| - block token scan (finds the block end, `gen_hint`) | 12.2-13.2 |
+| - `StyleRule::lazy` (copy the block text) | 1.3-1.4 |
+| - rest (top-level tokenizing, `@media`/`@supports` preludes, pushes) | 8.0-9.3 |
+| `rule_flags` | 1.2-1.8 |
+| `RuleDerived::new` (RuleIndex, `:has`/`:empty`/pseudo scans, AttrReaders) | 13.1-17.6 |
+| `HoverKeys::build` | 2.4-3.3 |
+| dropping the parsed list | 3.0-3.4 |
+| the same parse on a spawned thread, incl. spawn + join | 36.0-40.5 |
+Declarations are NOT in this: QY53f1c (b276712) made them lazy, which is why the 126-132 ms of R43 section 12 is gone.
+The tokenizer alone is ~55 % of the parse; selectors are ~35 %.
+
+**In the page (headless, 10 s runs):** the first full parse is UA + 5 `<style>` pieces (under 5 KB together, 0.1 ms) +
+the 4.4 MB external piece. External piece 37-47 ms, whole full parse 42-54 ms at load 18-27 (runs 4-5); 99-265 ms in
+runs 1-3 at load 3-21 (others' builds starting: this is where "~130 ms" readings come from). It runs inside YouTube's
+first `getComputedStyle` (`js_style::StyleCache::refresh` -> `cached_rules_for(Extra::Ver)`), so it shows in a
+`classic_script`/`timer` callback, not in `forced_layout.max_ms` (37-145 ms in those runs, all style/box build).
+The first forced layout after it then pays `rule_index` (RuleDerived + HoverKeys) 16-17 ms (34-96 ms under load), and
+`StyleCache::adopt_shared` builds a SECOND RuleIndex of the same list (`RuleIndex::build`, ~13 ms) for getComputedStyle.
+In the window the order differs: the App builds before the CSS arrives (77 UA rules), and the 4.4 MB piece is then
+parsed by the splice path; same cost.
+
+### 2. The extra full parses (the bug fixed here)
+Every run had more full parses after the cold one, all `reason rc-shared strong 2`, each after YouTube inserted a
+`<style>` (5 -> 8 -> 9 -> 10 -> 11 pieces). The second owner of the rule list was QYTC1a's `IMP_GEO` thread-local
+(`Rc<(Rc<Vec<StyleRule>>, Vec<u32>)>`, "the `Rc` keeps the pointer unique"), set after every forced layout. With it,
+`rules_cache`'s splice (`Rc::get_mut`) always fails and the whole 4.4 MB is re-parsed (QY53f1b's 126 hit / 3 splice /
+1 full split from before QYTC1a became 1 cold + 3-4 full re-parses per minute). Fix (js_geom.rs
+`current_important_geo`): the cache keeps the matching rules' `SelectorList`s (servo_arc clones, a few rules) and the
+list's `rules_cache` generation, never the list's `Rc`; it returns `None` (= no in-place move, a normal layout) when
+the latest build's list is no longer `rules_cache`'s current one. Test:
+`qy53f1d_important_geo_check_keeps_style_inserts_incremental` (a `<style>` insert after a forced layout is spliced:
+1 piece parsed, 0 full parses; an `!important left` rule that arrives in the inserted piece still blocks the in-place
+move). It fails on main (full parse 1).
+
+**Result, 3+3 interleaved 60 s headless runs** (main = instrumented bd1ead7, fix = same + this change):
+| run | load | full parses | their ms | forced layouts | forced total ms | rule_index ms |
+|---|---|---|---|---|---|---|
+| main 1 | 14 | 4 | 422 | 92 | 3615 | 149 |
+| fix 1 | 15 | **1** | 134 | 94 | 3765 | 140 |
+| main 2 | 20 | 5 | 591 | 125 | 5695 | 190 |
+| fix 2 | 24 | **1** | 57 | 91 | 1279 | 60 |
+| main 3 | 11 | 4 | 161 | 94 | 1343 | 53 |
+| fix 3 | 3 | **1** | 43 | 102 | 1527 | 50 |
+Full parses 4-5 -> 1 in every pair; 120-530 ms of main-thread parse per minute removed (37-120 ms each, by load).
+The other totals are dominated by YouTube's own spread (R43 section 14) and the load, not by this change.
+Window (nested dwl, 45 s, load 7-9): main 2 extra full parses (41 ms each), fix 0; screenshots equal apart from
+YouTube's recommendations.
+
+### 3. What the first layout needs, and the options
+- Every selector is needed before the first layout: the RuleIndex keys every rule by its rightmost compound and the
+  first build matches the whole document. Declarations are already parsed on first use only (QY53f1c).
+- **Lazy selectors** (key-scan the prelude tokens for the index, parse the full selector on first candidate match):
+  saves at most the selector share, 12.5-18 ms, and the ~20 ms tokenizer floor stays. Five whole-list scans walk every
+  selector (`rule_flags`, `scan_child_deps`, `scan_pseudo`, `AttrReaders`, `HoverKeys`) and would all need a lazy
+  variant. L-size for ~13 ms: NOT recommended.
+- **Off-thread parse of the external CSS (recommended, QY53f1d1):** the CSS text is complete when `fetch_stylesheets`
+  returns (perf.rs headless, the App's navigation thread, `start_stream_resources`), while scripts are still being
+  fetched (hundreds of ms to seconds on YouTube). Parse it there on a worker and hand the result to `rules_cache`:
+  the main thread then pays nothing for the 4.4 MB (35-55 ms quiet, 100+ ms loaded, once per navigation). The bench's
+  thread run shows the parse is just as fast off the main thread. What it needs: `StyleRule: Send` (Cell/OnceCell are
+  Send; `Atom` is a `String`; selectors are servo_arc; check `Declarations` with a compile-time assert, it is only
+  filled eagerly under `--css-debug`); the `@keyframes` registry holds `Rc`, so the worker returns the raw
+  `KeyframesDef`s and the main thread builds the registry; the parse's `STATE_RULES` mask is returned and OR-ed in
+  (as `with_mask` does); under `css_debug_enabled()` no preparse. `rules_cache` takes the preparsed rules when the
+  external piece's text equals the preparsed text (a 4.4 MB `memcmp` is ~0.2 ms) and waits for an unfinished
+  worker instead of parsing twice. Wrong-result risk is low: the same parser function runs, only on another thread.
+- **Build the RuleIndex once per rule list (QY53f1d2):** `StyleCache::adopt_shared` (getComputedStyle) and
+  `RuleDerived::new` (layout) each build a RuleIndex of the same list: ~13 ms quiet (35-95 ms loaded) wasted on
+  each rule-list change (cold + every `<style>` insert).
+- **Splices still rebuild all derived data (QY53f1d3, lower):** a 1-rule `<style>` insert rebuilds RuleDerived +
+  HoverKeys for all 22 470 rules (~16-20 ms quiet). An index that shifts the rule numbers after the spliced range
+  and adds/removes only the piece's rules would make an insert cost the piece. Measure the remaining splice count
+  first (3-4 per minute on YouTube now).
+
+### 4. Proposed items
+- QY53f1d1 [M] (P3) parse the page's external CSS on a worker as soon as it is fetched; `rules_cache` adopts the
+  result for the identical external piece (design above). Gate: headless YT, the first full parse's external piece
+  <= 2 ms on the main thread, 5 runs; tests: preparsed list equals an in-thread parse (selectors via `to_css`,
+  specificity, order, `@media`/`@supports`, layer, `!important`, keyframes, state mask); a text mismatch parses
+  normally.
+- QY53f1d2 [S] (P3) one RuleIndex per rule list: StyleCache uses the layout's RuleDerived index when the generation
+  matches (or the derived data moves into `rules_cache`). Gate: `RuleIndex::build` runs once per generation on YT.
+- QY53f1d3 [M] (P4) incremental RuleDerived/HoverKeys for a `<style>` splice. Measure first.
+- Note for QFLK2: `qy53e2_app_layout_gives_the_same_entries_as_a_forced_layout_without_forcing` failed here alone
+  at load ~30 and passed at low load: the IO deadline is `max(100, 4 * __d_geom_cost())` ms of WALL-clock layout
+  cost, so a slow debug layout (> 27.5 ms) moves the entry from 150 to 160.
+
 ## R53: QPT1 design: a same-origin iframe gets its own V8 realm (a second `v8::Context` in the page's isolate, made from the startup snapshot), the way Chrome does it. This fixes R52: BotGuard reads real built-ins from `iframe.contentWindow`. Split into QPT1a-QPT1f (Opus, 2026-11-19, design only, docs only) — OPEN: QPT1a is the BotGuard slice
 
 **Status: design only. No product change.** The user approved it on 2026-11-19 ("ok, lets do what Chrome does then"). This
