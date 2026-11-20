@@ -7937,3 +7937,9 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
 - [x] QYTC1b DONE 6fcacb0 #404 MEASURED, NOT MERGED: exact ledger had 0 restores after QYTC1a; code on branch scratchy/qytc1b-ledger-code; follow-up QYTC1d [S] (P2, from R50; Sonnet; after QYTC1a, same hook) A write restoring an attribute's value at the last forced
       layout cancels its own bump (`ytp-autohide-active` toggled between two reads: the 11-13 % no-op layouts).
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, QY53: what forced layouts cost and who forces them; R43) ---
+- [x] QFLK2 DONE f32b0fe #406 IO deadline = 4x measured layout CPU cost; pinned in tests via TEST_FIXED_COST_MS; 10/10 full runs clean [S] (P2, coordinator 2026-11-20, from the QPT1d3 agent; Sonnet) tests::js_observers_tests::
+      qy53e2_app_layout_gives_the_same_entries_as_a_forced_layout_without_forcing (QY53e2 3ef1344) fails in a full local run
+      (2 of 2) and passes alone; CI green. Find the shared state / order / timing dependence (thread-local render map,
+      js_geom::set_rendered, a static deadline, test ordering) and make it deterministic, QFLK1-style (prove: 10 full runs).
