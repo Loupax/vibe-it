@@ -1042,7 +1042,11 @@ Shared rules for this block:
 - [ ] QNAV9 [S] (P3, from QY54a2 #425; Sonnet, verify first) A plain `<a href>` click on a local-file page (file path
       opened directly) did not navigate even without a stall (the QY54a2 fixture had to use a JS click handler). Reproduce,
       find out whether relative/local hrefs from file pages are resolved and navigated; fix + test, or close as intended.
-QY54b3 IMPLEMENTATION (design R59 #431 f1013b0; full item text in REGRESSIONS.md R59 section 11; WAITING FOR USER GO-AHEAD;
+- [ ] [WIP] QINC1 [XL] (P1, user 2026-11-20 ~09:45: "can we focus on doing incremental layout properly in one go?";
+      Opus DESIGN first, docs only) Real incremental style + layout (dirty bits, partial restyle, relayout of only the
+      affected boxes and their dependants) for both the JS thread's forced layouts (GeomCache) and the App build, instead of
+      the R59 staged shortcut. Design -> user review -> implementation items. QY54b3a-f below are ON HOLD until it decides.
+ON HOLD (user wants QINC1 instead; may be superseded) QY54b3 IMPLEMENTATION (design R59 #431 f1013b0; full item text in REGRESSIONS.md R59 section 11; WAITING FOR USER GO-AHEAD;
 supersedes QY54b3 [L], absorbs QY53o2). Order a -> (b) -> c -> d -> e -> f, each with a go/no-go gate:
 - [ ] QY54b3a [M] (P2, Sonnet; NO behaviour change; AFTER QY54b1) Dirty points (GEOM_DIRTY via geom_bump_at) + full-layout
       stash + GeomCache::partial_verdict classifier + --perf-report forced.partial_would. Gate: R58 recipe x3 split; build
