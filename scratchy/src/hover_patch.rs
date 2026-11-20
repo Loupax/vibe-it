@@ -8,6 +8,13 @@
 //! repainted. Anything this cannot do exactly returns `Err` before touching
 //! anything, and the caller builds as before.
 //!
+//! QY53n3: OFFSET-class rules (`transform: translate`, `top`/`right`/`bottom`/
+//! `left`) are patched too: the affected boxes' laid subtrees are shifted by the
+//! change of their offset (`shift_laid_tree`, what `apply_relative_offset` and
+//! `resolve_positioned` do at build time) and the ink extents are recomputed.
+//! Only offsets that are exact without a containing block are handled (see
+//! `offset_delta`); everything else returns `Err` and builds.
+//!
 //! The values are recomputed with the build's own rules: the style of every
 //! affected element (the changed ones and their element descendants) is
 //! resolved down its ancestor chain, with the build's kept match memo, once
@@ -259,6 +266,7 @@ fn pick<T: PartialEq + Copy>(held: impl Fn(&T) -> bool, candidates: impl Iterato
 /// the tree and cache paint exactly as a full rebuild would, and the kept
 /// match memo holds the new sets; on `Err` (the reason) nothing changed.
 /// Expects `new` to be installed (`set_interaction`) and leaves it so.
+/// `Ok(true)`: some box moved (the caller refreshes what depends on geometry).
 pub(crate) fn paint_patch(
     document: &Handle,
     laid: &mut Laid,
@@ -267,7 +275,7 @@ pub(crate) fn paint_patch(
     changes: &[MatchChange],
     old: &InteractionState,
     new: &InteractionState,
-) -> Result<(), &'static str> {
+) -> Result<bool, &'static str> {
     if changes.is_empty() {
         return Err("nothing changed");
     }
@@ -300,9 +308,15 @@ fn patch_with_rules(
     new: &InteractionState,
     rules: &Rc<Vec<StyleRule>>,
     vw: f32,
-) -> Result<(), &'static str> {
-    if changes_effect(rules, changes) != Effect::Paint {
-        return Err("a changed rule is not paint-only");
+) -> Result<bool, &'static str> {
+    let effect = changes_effect(rules, changes);
+    if effect == Effect::Layout {
+        return Err("a changed rule is not paint/offset-only");
+    }
+    let offset = effect == Effect::Offset;
+    // An offset rule on a `::before`/`::after` box is not handled (its box style is not resolved here).
+    if offset && changes.iter().any(|c| c.slot != 0 && changes_effect(rules, std::slice::from_ref(c)) != Effect::Paint) {
+        return Err("an offset rule on a pseudo-element");
     }
     if rules_have_pseudo(rules, "first-line") || rules_have_pseudo(rules, "first-letter") {
         return Err("::first-line/::first-letter rules");
@@ -327,6 +341,14 @@ fn patch_with_rules(
     for h in &affected {
         paints.insert(node_id(h), (chain.paints(h), None));
     }
+    let mut old_styles: HashMap<usize, ComputedStyle> = HashMap::new();
+    if offset {
+        for c in changes.iter().filter(|c| c.slot == 0) {
+            if let Some(n) = chain.node(&c.handle) {
+                old_styles.insert(node_id(&c.handle), n.style);
+            }
+        }
+    }
     for c in changes {
         set_kept_match(&c.handle, c.slot, rules, vw, c.new.clone());
     }
@@ -344,6 +366,7 @@ fn patch_with_rules(
     // Boxes: the old values must be what the tree holds (checked for all
     // before anything is written).
     check_boxes(laid, &paints)?;
+    let moves = if offset { plan_moves(laid, changes, &old_styles, &mut chain, &paints)? } else { Vec::new() };
     // Paragraphs: validate and re-lay copies first; commit nothing until all pass.
     let mut staged: Vec<(usize, ShapedParagraph)> = Vec::new();
     for (&id, entry) in cache.iter() {
@@ -448,13 +471,266 @@ fn patch_with_rules(
         }
         staged.push((id, sp2));
     }
-    // Commit.
+    // Commit. Moves first: they can still be undone (a changed document
+    // height is not handled).
+    if !moves.is_empty() {
+        let before = in_flow_bottom(laid);
+        for m in &moves {
+            if let Some(b) = find_box_mut(laid, m.node) {
+                shift_laid_tree(b, m.dx, m.dy);
+            }
+        }
+        let after = in_flow_bottom(laid);
+        let limit = laid.y + laid.h;
+        // The root's height was grown to the lowest in-flow edge at build time.
+        if after != before && !(before < limit && after <= limit) {
+            for m in moves.iter().rev() {
+                if let Some(b) = find_box_mut(laid, m.node) {
+                    shift_laid_tree(b, -m.dx, -m.dy);
+                }
+            }
+            compute_ink(laid);
+            return Err("the document height depends on a moved box");
+        }
+        for m in &moves {
+            if let Some(b) = find_box_mut(laid, m.node) {
+                b.style.translate = m.translate;
+                b.style.inset = m.inset;
+            }
+        }
+        compute_ink(laid);
+    }
     patch_boxes(laid, &paints);
     for (id, sp) in staged {
         cache.insert(id, Arc::new(Mutex::new(sp)));
     }
-    Ok(())
+    Ok(!moves.is_empty())
 }
+
+/// One box's new offset: the shift of its laid subtree and the style fields to store.
+struct Move {
+    node: usize,
+    dx: f32,
+    dy: f32,
+    translate: Option<(TranslateAxis, TranslateAxis)>,
+    inset: Insets,
+}
+
+/// What `plan_moves` reads of a laid box.
+struct BoxInfo {
+    w: f32,
+    h: f32,
+    translate: Option<(TranslateAxis, TranslateAxis)>,
+    inset: Insets,
+    position: Position,
+    /// An inline-level box in a line (the build's inline layout places it itself).
+    inline: bool,
+}
+
+fn collect_box_infos(l: &Laid, inline: bool, nodes: &HashSet<usize>, out: &mut HashMap<usize, Vec<BoxInfo>>) {
+    if l.style.pseudo == 0 && nodes.contains(&l.style.node) {
+        out.entry(l.style.node).or_default().push(BoxInfo {
+            w: l.w,
+            h: l.h,
+            translate: l.style.translate,
+            inset: l.style.inset,
+            position: l.style.position,
+            inline,
+        });
+    }
+    match &l.content {
+        LaidContent::Blocks(c) | LaidContent::TableRow(c) => c.iter().for_each(|c| collect_box_infos(c, false, nodes, out)),
+        LaidContent::MixedInline(items) => {
+            for it in items {
+                if let MixedPositioned::Embedded(b) = it {
+                    collect_box_infos(b, true, nodes, out);
+                }
+            }
+        }
+        LaidContent::Text(_) | LaidContent::Image(_) => {}
+    }
+    l.positioned.iter().for_each(|c| collect_box_infos(c, false, nodes, out));
+}
+
+/// Whether `find_box_mut` finds `node` below (or at) `l`.
+fn has_box(l: &Laid, node: usize) -> bool {
+    if l.style.pseudo == 0 && l.style.node == node {
+        return true;
+    }
+    let in_content = match &l.content {
+        LaidContent::Blocks(c) | LaidContent::TableRow(c) => c.iter().any(|c| has_box(c, node)),
+        LaidContent::MixedInline(items) => items.iter().any(|it| matches!(it, MixedPositioned::Embedded(b) if has_box(b, node))),
+        LaidContent::Text(_) | LaidContent::Image(_) => false,
+    };
+    in_content || l.positioned.iter().any(|c| has_box(c, node))
+}
+
+fn find_box_mut(l: &mut Laid, node: usize) -> Option<&mut Laid> {
+    if l.style.pseudo == 0 && l.style.node == node {
+        return Some(l);
+    }
+    match &mut l.content {
+        LaidContent::Blocks(c) | LaidContent::TableRow(c) => {
+            if let Some(i) = c.iter().position(|c| has_box(c, node)) {
+                return find_box_mut(&mut c[i], node);
+            }
+        }
+        LaidContent::MixedInline(items) => {
+            let at = items.iter().position(|it| matches!(it, MixedPositioned::Embedded(b) if has_box(b, node)));
+            if let Some(i) = at
+                && let MixedPositioned::Embedded(b) = &mut items[i]
+            {
+                return find_box_mut(b, node);
+            }
+        }
+        LaidContent::Text(_) | LaidContent::Image(_) => {}
+    }
+    let i = l.positioned.iter().position(|c| has_box(c, node))?;
+    find_box_mut(&mut l.positioned[i], node)
+}
+
+fn same_len(a: Option<BoxLength>, b: Option<BoxLength>) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(BoxLength::Px(a)), Some(BoxLength::Px(b))) | (Some(BoxLength::Percent(a)), Some(BoxLength::Percent(b))) => a == b,
+        _ => false,
+    }
+}
+
+fn same_insets(a: &Insets, b: &Insets) -> bool {
+    same_len(a.top, b.top) && same_len(a.right, b.right) && same_len(a.bottom, b.bottom) && same_len(a.left, b.left)
+}
+
+/// A pixel inset (`None` = auto); a percentage or `calc()` needs the containing block.
+fn px_inset(b: Option<BoxLength>) -> Result<Option<f32>, &'static str> {
+    match b {
+        None => Ok(None),
+        Some(BoxLength::Px(v)) => Ok(Some(v)),
+        Some(_) => Err("a percentage/calc() inset"),
+    }
+}
+
+fn translate_of(t: Option<(TranslateAxis, TranslateAxis)>, w: f32, h: f32) -> (f32, f32) {
+    t.map_or((0.0, 0.0), |(x, y)| (x.px + x.frac * w, y.px + y.frac * h))
+}
+
+/// The shift of a box of size `w` x `h` whose style changes from `o` to `n`
+/// (the same numbers `apply_relative_offset` / `resolve_positioned` add), or
+/// why it cannot be derived without the containing block.
+fn offset_delta(o: &ComputedStyle, n: &ComputedStyle, w: f32, h: f32) -> Result<(f32, f32), &'static str> {
+    if o.position != n.position {
+        return Err("position changed");
+    }
+    let (to, tn) = (translate_of(o.translate, w, h), translate_of(n.translate, w, h));
+    let (mut dx, mut dy) = (tn.0 - to.0, tn.1 - to.1);
+    if same_insets(&o.inset, &n.inset) {
+        return Ok((dx, dy));
+    }
+    match o.position {
+        // The insets are ignored.
+        Position::Static => {}
+        Position::Relative => {
+            let g = |s: &ComputedStyle| -> Result<(f32, f32), &'static str> {
+                let (l, r) = (px_inset(s.inset.left)?, px_inset(s.inset.right)?);
+                let (t, b) = (px_inset(s.inset.top)?, px_inset(s.inset.bottom)?);
+                Ok((l.unwrap_or(0.0) - r.unwrap_or(0.0), t.unwrap_or(0.0) - b.unwrap_or(0.0)))
+            };
+            let (go, gn) = (g(o)?, g(n)?);
+            dx += gn.0 - go.0;
+            dy += gn.1 - go.1;
+        }
+        Position::Absolute => {
+            // An explicit width: the insets do not stretch or shrink-wrap the box.
+            // No `auto` margins (they centre between two insets).
+            if o.width.is_none() || n.width.is_none() || o.margin_auto != (false, false) || o.margin_auto_v != (false, false) {
+                return Err("an absolute box with auto width or auto margins");
+            }
+            // The edge the position is solved from: `left` wins over `right`, `top` over `bottom`.
+            type L = Option<BoxLength>;
+            let axis = |lo: L, ln: L, ro: L, rn: L| -> Result<f32, &'static str> {
+                let (lo, ln) = (px_inset(lo)?, px_inset(ln)?);
+                let (ro, rn) = (px_inset(ro)?, px_inset(rn)?);
+                match (lo, ln) {
+                    (Some(a), Some(b)) => Ok(b - a),
+                    (None, None) => match (ro, rn) {
+                        (Some(a), Some(b)) => Ok(-(b - a)),
+                        (None, None) => Ok(0.0),
+                        _ => Err("an absolute box changes the edge it is placed from"),
+                    },
+                    _ => Err("an absolute box changes the edge it is placed from"),
+                }
+            };
+            dx += axis(o.inset.left, n.inset.left, o.inset.right, n.inset.right)?;
+            dy += axis(o.inset.top, n.inset.top, o.inset.bottom, n.inset.bottom)?;
+        }
+        // Sticky and fixed boxes keep their own offset state.
+        _ => return Err("an inset change on a sticky or fixed box"),
+    }
+    Ok((dx, dy))
+}
+
+/// The moves for the offset changes of `changes` (slot 0), validated against the
+/// installed tree; `Err` before anything is written.
+fn plan_moves(
+    laid: &Laid,
+    changes: &[MatchChange],
+    old_styles: &HashMap<usize, ComputedStyle>,
+    chain: &mut Chain,
+    paints: &Paints,
+) -> Result<Vec<Move>, &'static str> {
+    // (handle, old style, new style) of each changed element whose offset state differs.
+    let mut todo: Vec<(Handle, ComputedStyle, ComputedStyle)> = Vec::new();
+    let mut seen = HashSet::new();
+    for c in changes.iter().filter(|c| c.slot == 0) {
+        let id = node_id(&c.handle);
+        if !seen.insert(id) {
+            continue;
+        }
+        let (Some(o), Some(n)) = (old_styles.get(&id).copied(), chain.node(&c.handle).map(|n| n.style)) else { continue };
+        if o.translate == n.translate && same_insets(&o.inset, &n.inset) {
+            continue;
+        }
+        todo.push((c.handle.clone(), o, n));
+    }
+    if todo.is_empty() {
+        return Ok(Vec::new());
+    }
+    let nodes: HashSet<usize> = todo.iter().map(|t| node_id(&t.0)).collect();
+    let mut infos = HashMap::new();
+    collect_box_infos(laid, false, &nodes, &mut infos);
+    let mut out = Vec::new();
+    for (h, o, n) in todo {
+        let id = node_id(&h);
+        // Animated elements follow the clock (`paints` is `None` for them).
+        if !paints.get(&id).is_some_and(|p| p.0.is_some() && p.1.is_some()) {
+            return Err("an offset change on an element that is not rendered or animated");
+        }
+        // Positioned descendants were moved to the stacking context's list at
+        // build time (`hoist_negative_z`) and their static positions follow
+        // the box: not shifted with it here.
+        let mut below = Vec::new();
+        add_subtree(&h, &mut below, &mut HashSet::new());
+        for d in below.iter().skip(1) {
+            if chain.node(d).is_some_and(|c| c.style.position != Position::Static) {
+                return Err("a positioned element below an offset change");
+            }
+        }
+        let [b] = infos.get(&id).map(Vec::as_slice).unwrap_or(&[]) else {
+            return Err("an offset change on an element without exactly one box");
+        };
+        if b.inline {
+            return Err("an offset change on an inline-level box (the line layout places it)");
+        }
+        // The tree must hold the old offset state.
+        if b.translate != o.translate || b.position != o.position || !same_insets(&b.inset, &o.inset) {
+            return Err("an offset change whose old values differ from the tree's");
+        }
+        let (dx, dy) = offset_delta(&o, &n, b.w, b.h)?;
+        out.push(Move { node: id, dx, dy, translate: n.translate, inset: n.inset });
+    }
+    Ok(out)
+}
+
 
 fn element_tag_of(affected: &[Handle], node: usize) -> Option<&str> {
     affected.iter().find(|h| node_id(h) == node).map(element_tag)

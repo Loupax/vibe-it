@@ -39,6 +39,7 @@ mod qy53n1_tests;
 mod qmem3d_tests;
 mod shape_memo_tests;
 mod qy53n2_tests;
+mod qy53n3_tests;
 #[cfg(feature = "memprof")]
 mod memprof_tests;
 

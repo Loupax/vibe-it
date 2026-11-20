@@ -7,20 +7,20 @@ use super::*;
 const W: u32 = 300;
 const H: u32 = 200;
 
-fn find_id(h: &Handle, id: &str) -> Option<Handle> {
+pub(super) fn find_id(h: &Handle, id: &str) -> Option<Handle> {
     if element_attr(h, "id").is_some_and(|v| &*v == id) {
         return Some(h.clone());
     }
     h.children.borrow().iter().find_map(|c| find_id(c, id))
 }
 
-fn hover_state(h: &Handle) -> InteractionState {
+pub(super) fn hover_state(h: &Handle) -> InteractionState {
     InteractionState { hover: ancestor_ids(h).into_iter().collect(), ..Default::default() }
 }
 
 /// An App-like build under the installed interaction state: keeps the match memo,
 /// measures, returns the tree and its shape cache.
-fn build(doc: &Handle, fs: &mut FontSystem) -> (Laid, ShapeCache) {
+pub(super) fn build(doc: &Handle, fs: &mut FontSystem) -> (Laid, ShapeCache) {
     crate::style::KEEP_MATCH.with(|k| k.set(true));
     let tree = build_layout_tree_with_resources(doc, W as f32, Some(H as f32), "", &HashMap::new());
     crate::style::KEEP_MATCH.with(|k| k.set(false));
@@ -32,7 +32,7 @@ fn build(doc: &Handle, fs: &mut FontSystem) -> (Laid, ShapeCache) {
     (laid, cache)
 }
 
-fn render(laid: &Laid, cache: &mut ShapeCache, fs: &mut FontSystem) -> Vec<u32> {
+pub(super) fn render(laid: &Laid, cache: &mut ShapeCache, fs: &mut FontSystem) -> Vec<u32> {
     let mut swash = SwashCache::new();
     let mut pixels = vec![0xFFFF_FFFFu32; (W * H) as usize];
     paint(laid, fs, &mut swash, cache, &HashMap::new(), &mut pixels, W, H, 0.0, None);
@@ -40,7 +40,7 @@ fn render(laid: &Laid, cache: &mut ShapeCache, fs: &mut FontSystem) -> Vec<u32> 
 }
 
 /// Hover change of `#t` from `from` to `to` on the installed tree: the diff and the patch result.
-fn patch(
+pub(super) fn patch(
     doc: &Handle,
     laid: &mut Laid,
     cache: &mut ShapeCache,
@@ -52,12 +52,12 @@ fn patch(
     let changed: Vec<Handle> = from.hover.symmetric_difference(&to.hover).filter_map(|&id| find_node_by_id(doc, id)).collect();
     set_interaction(to);
     let diff = crate::style::hover_match_diff(&keys, &changed).ok_or("no diff")?;
-    crate::hover_patch::paint_patch(doc, laid, cache, fs, &diff, from, to)
+    crate::hover_patch::paint_patch(doc, laid, cache, fs, &diff, from, to).map(|_| ())
 }
 
 /// Enter and leave `#t` by patching; each patched frame must equal a full rebuild's.
 /// Returns the enter patch's result (Err = fell back; then nothing may have changed).
-fn enter_leave(css: &str, body: &str) -> Result<(), &'static str> {
+pub(super) fn enter_leave(css: &str, body: &str) -> Result<(), &'static str> {
     let doc = parse_html(&format!(
         "<html><head><style>body{{margin:0;font-size:16px}}{css}</style></head><body>{body}</body></html>"
     ));
@@ -159,8 +159,6 @@ fn qy53n2_non_paint_changes_fall_back() {
         "<p><a id=t href=/>link</a></p>"
     )
     .is_err());
-    // An offset-only rule is not patched (yet: QY53n3).
-    assert!(enter_leave("#t{position:relative}#t:hover{top:2px}", "<div id=t>a</div>").is_err());
 }
 
 #[test]
