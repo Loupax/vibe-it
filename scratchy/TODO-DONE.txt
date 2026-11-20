@@ -8390,3 +8390,18 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       ALSO: as soon as QOBS5 is merged, the coordinator offers the user a first joint session for QM1k-mouse (video
       freezes while the mouse moves), not waiting for QPROF1.
   (queue line) 29 [WIP] QPROF1 [M, Opus, measure only] LAST performance item: runs when every item above is done, blocked or
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QOOM1 DONE e5d5dc5 removed media elements drop their libmpv player (R63, #453) [M] (P1, user 2026-11-20 ~14:10; Opus investigate + fix) A scratchy process reached 15 GB anon RSS (44 GB
+      virtual) and was OOM-killed at 13:39 (kernel log: pid 787397, started from a tmux scope); NOT the user's window: it was QPROF1's
+      headless run `--perf-report --seconds 30 https://github.com/` (R62; ~185 MB/s, dav1d/hevc hero videos); was thought
+      to be the user's YouTube window (installed build of ~11:26-11:15 main). Reproduce under a memory cap
+      (systemd-run --user --scope -p MemoryMax=6G): YouTube watch playing for 30-60 min in a nested window (with periodic
+      pointer motion, a few navigations watch -> watch -> results), sample RSS + V8 heap (--perf-report / memprof QMEM3g)
+      every 30 s; find what grows (V8 heap, ArrayBuffers/MSE SourceBuffers, mpv, shape/image caches, wire responses, the
+      QY54a wl-drain queue, DOM/realm leaks from iframes QPT1). Fix the leak(s); add a guard if a cache is unbounded.
+      Gate: 60 min of YouTube watch stays under ~1 GB RSS and flat after warm-up; regression test for the leaking structure.
+      Absorbs QMEM3f.
+      LEAD 2026-11-20 14:08 (QPROF1 run): a HEADLESS `--perf-report --seconds 30` run hit the 6 GB cap in 33 s, OOM
+      triggered by `dav1d-worker` (AV1 decode) -> video decode path (media_video.rs / mpv frames / frame pool QM1g2a1 #405 /
+      render thread QM1g2a #388); reproducible in ~30 s, start there. QPROF1's report names the page.

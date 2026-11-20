@@ -960,19 +960,6 @@ Shared rules for this block:
 - [ ] QMEM3k [S] (P4, from QMEM3j #402; Sonnet) memo_put's compacting clone costs ~2-3 us per new SHAPE_MEMO entry (16-25 ms on
       a cold Wikipedia layout, 8k entries): move it off the critical path (e.g. compact in the shaping worker while idle).
       Only if cold forced layouts matter more later.
-- [ ] [WIP] QOOM1 [M] (P1, user 2026-11-20 ~14:10; Opus investigate + fix) A scratchy process reached 15 GB anon RSS (44 GB
-      virtual) and was OOM-killed at 13:39 (kernel log: pid 787397, started from a tmux scope); NOT the user's window: it was QPROF1's
-      headless run `--perf-report --seconds 30 https://github.com/` (R62; ~185 MB/s, dav1d/hevc hero videos); was thought
-      to be the user's YouTube window (installed build of ~11:26-11:15 main). Reproduce under a memory cap
-      (systemd-run --user --scope -p MemoryMax=6G): YouTube watch playing for 30-60 min in a nested window (with periodic
-      pointer motion, a few navigations watch -> watch -> results), sample RSS + V8 heap (--perf-report / memprof QMEM3g)
-      every 30 s; find what grows (V8 heap, ArrayBuffers/MSE SourceBuffers, mpv, shape/image caches, wire responses, the
-      QY54a wl-drain queue, DOM/realm leaks from iframes QPT1). Fix the leak(s); add a guard if a cache is unbounded.
-      Gate: 60 min of YouTube watch stays under ~1 GB RSS and flat after warm-up; regression test for the leaking structure.
-      Absorbs QMEM3f.
-      LEAD 2026-11-20 14:08 (QPROF1 run): a HEADLESS `--perf-report --seconds 30` run hit the 6 GB cap in 33 s, OOM
-      triggered by `dav1d-worker` (AV1 decode) -> video decode path (media_video.rs / mpv frames / frame pool QM1g2a1 #405 /
-      render thread QM1g2a #388); reproducible in ~30 s, start there. QPROF1's report names the page.
 - [ ] QMEM3f [S] (P4, from QMEM3; Opus measure) 10-minute live-window RSS sample on YT watch: the window grows ~0.22 MB/s
       in the first minute; leak or warm-up?
 - [ ] QBBC1 [M, Opus, investigate first] (P3, user screenshot 2026-11-19 ~22:50, installed main 10a9d6e, window ~958 px wide;
@@ -1044,6 +1031,18 @@ QPROF1 PART A FOLLOW-UPS (R62 section 7, #451; non-layout hotspots; START AFTER 
       larger. Gate: mpv worker CPU halves, no visible quality loss.
 - [ ] QPROF1-g [S] (P4; tooling) profile.sh -F oversamples idle threads (watchdog 5-30 % of samples, < 1 % CPU): fixed
       period or a /proc per-thread CPU table; fold main by tid. Gate: shares within 5 points of /proc.
+- [ ] QOOM1a [S] (P2, from QOOM1 #453 R63; Sonnet; AFTER the architecture discussion) github.com home re-renders its hero
+      every ~0.7 s in scratchy (2 new decoders/s); stderr repeats SyntaxError `':not(:defined),react-partial,.js-sub-
+      dependencies' is not a valid selector` from querySelectorAll -> support :defined (and check :not() with it). Gate: no
+      SyntaxError, hero re-renders stop, RSS ~0.8 GB flat.
+- [ ] QOOM1b [S] (P3, from #453; Opus measure first) Per-player decoder thread cap (vd-lavc-threads): measure YT 1080p/4K AV1
+      at 4 vs 8 threads (dropped frames, CPU, RSS) before choosing.
+- [ ] QOOM1c [S] (P3, from #453; Sonnet) Cap players that EXIST at once (not only playing, D7): release the oldest paused,
+      out-of-view player, reload on play.
+- [ ] QTOOL1 [S] (P2, from #453; Sonnet; tools only, ALLOWED during the QINC1 phase: it unblocks measurements) tools/nest.sh's
+      `setsid timeout 3600 dwl` inherits the caller's flock fd, so a leftover nested dwl holds /tmp/scratchy-perf.lock for up
+      to an hour. Close inherited fds in nest.sh (e.g. exec {fd}>&- / setsid with closed fds), and document "start nest before
+      taking the lock". Test: a script holding the lock starts nest.sh, releases; the lock is free while dwl runs.
 - [ ] QM1k-blank [S] (P3, from R62; Opus investigate) In 1 of 3 YT watch window runs no video frame for 24 s while the main
       thread was idle; a 2nd <video> started at 58 s. Reproduce and find the cause.
 - [ ] QINC1c-ib [S] (P3, AFTER the QINC1 freeze; from QINC1c #450 + its review) Static inline-blocks: the z-index hoist never
