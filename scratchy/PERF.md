@@ -212,7 +212,162 @@ per-field median of the corpus runs.
 moment 2.31.0, d3 7.9.2, lodash 4.18.1, three 0.159.0 (`build/three.min.js`, last release
 that ships it), jquery 4.1.0, react 18.3.1 and react-dom 18.3.1 (UMD, 19 has none).
 
-## Baseline (QuickJS, 2437284, 2026-11-18)
+## Baseline (V8, 5888220, 5700X, 2026-11-20)
+
+Taken by QOBS9 (Opus, measure only), 2026-11-20 10:09-11:15 CET. This is the reference for every number
+measured on this machine from now on, and the "before" of the incremental-layout work (QINC1). Every
+table further down this file that is marked **old machine** was taken on the Ryzen 5 PRO 2500U laptop and
+cannot be compared with these numbers.
+
+- **Binary:** origin/main 5888220 (PR #432, QY54b1), clean tree, `cargo build --release` (default =
+  `engine-v8` + `media`) into a scratchpad target dir, copied aside before measuring. Reports say
+  `"engine":"V8"`, `"engine_version":"15.2.124.1-rusty (v8 crate 152.2.0)"`, `"commit":"5888220422"` (no
+  `-dirty`). rustc 1.100.0 (local; CI pins 1.96.1). Profiles: `tools/profile.sh` built the `profiling`
+  profile of the same tree. The window runs (section 3) used a throwaway copy of the same commit with ONE
+  added `eprintln!` per forced layout, gated by an env var (`QOBS9_LAYOUT_LOG`; CPU ms, element/style
+  resolves, rect count, IO flag, caller), never committed: main has no per-layout record, only
+  totals.
+- **Machine:** AMD Ryzen 7 5700X (8 cores / 16 threads), 31 GB RAM, Fedora 44, Linux 7.2.11-200.fc44,
+  cpufreq governor `powersave` (amd-pstate). Measurements un-niced; every measured command ran under
+  `flock /tmp/scratchy-perf.lock` (one measurement at a time across agents). All builds were finished
+  before the first measurement.
+- **Load:** NOT quiet. Another agent's builds and test suite ran in bursts (normal priority, as the agent
+  rules allow); each run waited up to 3 min for 1-min load < 1.5 and went on otherwise. 1-min load at the
+  start of each run is below. Suite pages 1-3 were first taken at load 9.6-27 and then **re-taken at load
+  0.4-1.2** (11:11-11:15); only the re-take is in the tables (the loaded YouTube results run had 60 %
+  more raw CPU: 7.1 s vs 4.5 s, so loaded numbers are not usable). Pages 4-7 are from one series at
+  load 1.5-19.9 (social 4.3, github 1.5, reddit 19.9, bbc 8.4); their run-to-run spread is small
+  except reddit's largest callback (64-190 ms).
+- **Wire:** own wire (a copy of the installed binary) on a scratchpad socket, never the user's daemon.
+  Default UA everywhere except YouTube watch (the R43 Chrome 131 UA, user-approved in R43).
+- **Raw per-run JSON** was kept (a pass-through wrapper around the binary; the committed
+  `tools/perf-suite.sh` deletes its temp files), not committed. Each cell: median of 3 runs, (min-max)
+  when they differ.
+- **No page answered with a bot/JS challenge.** old.reddit.com again served the new Reddit app
+  ("Welcome to Reddit"). github.com has 10 `js_errors` and reddit 8 (not inspected; same counts in every
+  run).
+
+### 1. `tools/perf-suite.sh` (7 pages x 3 runs x 2 budgets, `--seconds 10`)
+
+Run page by page (`PAGES=<url> RUNS=3 SKIP_CORPUS=1 SCRATCHY=<bin> WIRE_SOCKET=<own> tools/perf-suite.sh`,
+same per-run command as the full suite) so the load could be checked between pages. "largest callback" =
+the largest single non-script callback in the BUDGET clock (kind after it); "largest script" = largest
+classic/module script, raw CPU. ms of CPU unless noted.
+
+| page | pass | kills | largest callback | largest script | load wall | load CPU | forced layout total (count) | forced max | elements per forced layout | budget clock total | raw CPU total | compile | engine startup | RSS MB (peak) | JS heap MB |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| YouTube results | true cost | 0 | 233 (226-236) promise | 284 (281-289) | 2713 (2616-3516) | 703 (692-705) | 1028 (895-1031) (39, 35-40) | 56 (55-58) | 2226 (2159-2269) | 3513 (3451-3516) | 4482 (4408-4543) | 301 (296-310) | 3.4 | 345 (345) | 130 |
+| YouTube results | default | 0 | 230 (209-250) promise | 282 (277-284) | 2742 (2645-2948) | 697 (682-703) | 870 (779-1056) (35, 33-40) | 56 (55-57) | 2150 (1998-2246) | 3488 (3384-3516) | 4357 (4162-4572) | 301 | 3.3 | 401 (401) | 132 |
+| YouTube home | true cost | 0 | 135 (133-136) observer | 291 (287-304) | 2632 (2410-2794) | 696 (691-706) | 147 (140-150) (18, 17-19) | 23 | 481 | 1287 (1176-1288) | 1433 (1315-1437) | 288 | 3.7 | 346 (347) | 90 |
+| YouTube home | default | 0 | 138 (130-143) observer | 287 (284-290) | 2380 (2114-2503) | 681 (680-688) | 145 (144-148) (18) | 22 | 480 | 1295 (1270-1298) | 1442 (1414-1442) | 287 | 3.2 | 351 (353) | 90 |
+| en.wikipedia Rust | true cost | 0 | 111 (107-111) timer | 5 | 190 (189-311) | 38 (37-39) | 702 (608-711) (5, 4-5) | 254 (254-267) | 10598 | 341 (329-342) | 1039 (950-1043) | 15 | 8.0 | 244 (244) | 19 |
+| en.wikipedia Rust | default | 0 | 108 (106-108) timer | 5 | 194 (183-196) | 38 | 713 (612-721) (5, 4-5) | 269 (264-273) | 10601 | 332 (329-337) | 1046 (950-1050) | 15 | 8.0 | 244 (244) | 19 |
+| social.loupax.com/discover | true cost | 0 | < 1 | 73 (72-73) | 276 (274-382) | 128 | 83 (10) | 39 | 485 | 38 | 121 | 0 | 4.1 | 58 | 4 |
+| social.loupax.com/discover | default | 0 | < 1 | 77 (74-78) | 285 (276-286) | 136 (129-140) | 88 (84-90) (10) | 41 | 485 | 40 | 128 | 0 | 5.1 | 59 | 4 |
+| github.com/Loupax/vibe-it | true cost | 0 | 6 observer | module 72 | 821 (746-1530) | 152 | 0 | - | - | 129 | 129 | (modules) | 4.4 | 67 | 14 |
+| github.com/Loupax/vibe-it | default | 0 | 7 observer | module 92 (87-93) | 809 (756-870) | 191 (182-196) | 0 | - | - | 165 | 165 | (modules) | 5.3 | 68 | 14 |
+| old.reddit.com (new Reddit) | true cost | 0 | 181 (64-190) promise | 109 (65-179) | 596 (378-621) | 44 (19-54) | 29 (17-43) (1) | 29 | 101 | 548 (250-701) | 578 (267-744) | 47 (30-85) | 11.6 (4.3-12.3) | 85 | 21 |
+| old.reddit.com (new Reddit) | default | 0 | 73 (69-73) promise | 71 (69-72) | 326 (304-367) | 21 | 19 (18-20) (1) | 19 | 101 | 272 | 290 | 33 | 4.7 | 85 | 21 |
+| bbc.com/news | true cost | 0 | 314 (313-317) timer | 17 | 4669 (3809-9437) (network) | 172 | 416 (409-438) (14) | 80 | 2322 | 781 | 1196 (1187-1232) | 64 | 3.7 | 142 | 40 |
+| bbc.com/news | default | 0 | 305 timer | 17 | 2122 (998-21791) (network) | 170 (89-171) | 401 (14) | 77 | 2322 | 758 | 1159 | 63 | 4.1 | 141 | 41 |
+
+bbc default: one of the three runs got a different page (load 21.8 s wall, no forced layout, 116 ms of
+callbacks); the medians are the two normal runs' values. Callback counts are left out (see QV8-m: V8's
+promise-job counting); they are in the raw JSON.
+
+### 2. Long headless runs (`--perf-report --budget-ms 20000`, 3 runs each, load 0.4-1.5)
+
+| page | seconds | kills | largest callback, budget clock | largest callback, RAW (forced layouts in it) | load wall / CPU | forced layout total (count, max) | elements per forced layout | `no_change` layouts | raw CPU total | RSS MB (peak) | JS heap MB | JS errors |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| YouTube watch G1AeBgalFZk, R43 UA | 60 | 0 | 285 (273-299) timer | **1308 (861-1367) timer** `base.js:1155:76` at 25-32 s (10-16 layouts = 771-1255 ms) | 3969 (3568-3980) / 1041 (1006-1044) | 6330 (5508-7450) (175, 172-191; max 91) | 2860 (2623-3371) | 57 (55-80) | 12328 (11083-13389) | 502 (513) | 165 | 2 |
+| en.wikipedia Rust | 30 | 0 | 109 (107-113) timer | 431 (399-431) observer delivery (2 IO layouts = 377-406 ms) | 194 (191-316) / 39 (39-43) | 659 (602-737) (4, 4-5; max 281) | 10585 | 0 (0-1) | 1023 (939-1074) | 244 (244) | 19 | 0 |
+
+Watch forced layouts by page caller (`by_caller`, run 1 / 2 / 3): `getPlayerSize` 87 / 88 / 85 layouts,
+2688 / 2150 / 2848 ms; `calculateCanCollapse` 18 / 17 / 17, 1192 / 978 / 985 ms; `e6a` 19 / 18 / 14,
+1026 / 896 / 620 ms; `numberOfGhostCommentsChanged` 6, ~280 ms. Phase split (run 2): `build_children`
+3299, `precompute_generated` 1507, `measure_document` 513, `css_collect` 61, `rect_walk` 64, `rule_index`
+26, `glyph_walk` 36 ms. Wikipedia's one page-caller layout is `scrollToActiveSection` (~120 ms); the rest
+are scratchy's IntersectionObserver evaluation.
+
+### 3. The live window (QINC1 "before"): App builds, forced layouts, hover
+
+Own nested dwl (`tools/nest.sh`, window 960x1006), own wire, `SCRATCHY_FRAME_STATS`,
+`SCRATCHY_MEDIA_AO=null`, under flock. Pointer by `tools/inject`: at 15 s onto a target and nudged 5 px,
+6 s later onto a second target, 6 s later onto the top bar (the R58 recipe). YouTube results 35 s,
+targets the 1st and 2nd result thumbnails (300,230), (300,420); YouTube watch 60 s with the R43 UA,
+the player (480,300) then the first related video (740,640) (no click: the video does not play);
+Wikipedia Rust 30 s, two body links (52,287), (520,443). 1-min load at run start 0.3-2.5.
+
+Which runs count: the user was using the desktop, and the nested window caught their real pointer in
+some runs (motion outside the inject times). Results run 1 stopped redrawing after 6.6 s (no present
+for the rest of the run, so no hover and no App build at all; cause not investigated) and run 4 got a
+short page (~1 200 elements instead of ~5 000): both dropped, the table uses runs 2, 3, 5. Watch run 4
+got a short page (no comments, max 3 059 elements): dropped; watch runs 1, 3 (and maybe 5) had the
+user's pointer cross the window after 18 s, which adds a few hover events; the table uses runs 1, 2, 3,
+5 and gives the one clean run (2) separately. Wikipedia: all 3 runs clean.
+
+Per run (median (min-max) over the runs; ms are CPU on the main thread for builds and on the JS thread
+for forced layouts; "elements" = `resolve_style_for` calls on real elements in one forced layout):
+
+| page | runs | App builds (n) | App builds total ms | JS forced layouts (n) | forced total ms | per layout median ms | per layout p95 ms | max | elements per layout (median) | of which IO evaluation (n) | hover patched / built / skipped | page JS ms |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| YouTube results, whole 35 s | 3 | 109 (83-125) | 4765 (3859-5770) | 88 (66-90) | 4002 (3355-4129) | 57.6 (55.8-63.0) | 66.7 (60.5-70.2) | 70.5 (62.4-73.5) | 4818 (4640-5095) | 29 (26-41) | 2 (2-3) / 1 (0-1) / 1 (0-3) | 9518 (9153-10971) |
+| YouTube results, from 15 s (pointer on results) | 3 | 60 (29-63) | 3117 (1625-3238) | 40 (33-54) | 2580 (2222-3120) | 64.1 (58.0-67.3) | 68.7 (61.3-72.0) | 70.5 | 5172 (4825-5302) | 7 (2-7) | 2 / 1 (0-1) / 0 (0-1) | 4913 (3542-5261) |
+| YouTube watch, whole 60 s | 4 | 74 (69-94) | 3291 (2796-3798) | 134 (129-137) | 3677 (3350-4428) | 18.1 (17.4-18.7) | 79.9 (75.9-86.7) | 86.2 (80.6-94.0) | 1259 (1255-1266) | 36 (29-41) | 4 (2-6) / 0 (0-1) / 2 (0-4) | 9300 (8595-9939) |
+| YouTube watch, clean run 2 only, whole / from 15 s | 1 | 69 / 5 | 2796 / 380 | 129 / 2 | 3350 / 162 | 17.4 / 80.9 | 75.9 / 81.3 | 81.3 | 1259 / 7055 | 38 / 1 | 2 / 0 / 1 (all after 15 s) | 8595 / 676 |
+| en.wikipedia Rust, whole 30 s | 3 | 20 (17-20) | 1578 (1409-1633) | 6 (5-6) | 840 (730-864) | 121.5 (115.3-124.0) | 259.7 (249.4-267.4) | 259.7 | 10650 | 3 | 3 / 0 / 0 | 1107 (1016-1163) |
+| en.wikipedia Rust, from 15 s (pointer on links) | 3 | 11 (9-11) | 1033 (860-1055) | 2 (1-3) | 243 (115-358) | 121.3 | 122.9 | 126.6 | 10669 | 0 (0-1) | 3 / 0 / 0 | 280 (152-394) |
+
+The same layouts split by who asked (per run, median ms / p95 ms / elements median):
+
+| page | `getPlayerSize` | scratchy IO evaluation | other page callers |
+|---|---|---|---|
+| YouTube results (runs 2, 3, 5) | 31 / 43 / 26 layouts, 63.4 / 57.7 / 67.1 ms, p95 69.7 / 60.8 / 70.2, ~4 800-5 300 elements (2 060-2 250 boxes) | 41 / 29 / 26, 46.3 / 40.6 / 50.1 ms, p95 60-72, ~3 700-4 300 | 14-18, 12.8-24.0 ms (early, ~1 150 elements) |
+| YouTube watch (runs 1, 2, 3, 5) | 45-48 layouts, 5.1-5.8 ms, p95 15-21, 322 elements (all in the first seconds, while the document is small) | 29-41, 30.0-37.5 ms, p95 77-86, ~2 400-2 900 | 46-60, 33.2-43.6 ms, p95 78-88, ~2 700-3 200 (`calculateCanCollapse` 17-19 layouts ~1.0-1.3 s, `numberOfGhostCommentsChanged`, `e6a`) |
+| en.wikipedia Rust | - | 3, 115-125 ms, p95 249-267 (the first one), 10 650 | 2-3 (`scrollToActiveSection`, a `load.php` anonymous fn), 116-122 ms, 10 650 |
+
+Hover cost in these runs: `patch_ms` 5-17 ms per run in total (all hover changes patched in place,
+~2-5 ms each); hover `built` (a full App build for a hover) 0-1 per run. The worst callback after the
+pointer reaches a YouTube result (frame stats `longest`): 773 / 773 / 905 ms (promise job, mostly the
+preview player's `getPlayerSize` layouts); the longest redraw gap during the preview 0.8-10 s (the
+window does not redraw while nothing changes, so this is not all stall).
+
+What this says for QINC1: on YouTube results every preview read is a full layout of ~5 000 elements at
+~58-67 ms; on watch the cost is the page's own comment/collapse reads plus scratchy's IO evaluation at
+~30-45 ms each (the headless 60 s run adds one 0.9-1.4 s timer of 10-16 such layouts at 25-32 s); on
+Wikipedia each layout is ~10 650 elements at ~115-125 ms (the first ~250 ms). App builds on the main
+thread cost ~40-50 ms each on YouTube and ~80-95 ms on Wikipedia.
+
+### 4. Profiles (`tools/profile.sh`, QOBS1)
+
+One run each (perf adds 5-10 % wall). YouTube watch 60 s with the R43 UA (load 1.36 at start): 15 847
+samples; main thread 77 %, V8 worker threads 20.5 % (GC). Inclusive: page JS 65 %, timers 49 %,
+`GeomCache::refresh` 23.6 %, of it `build_layout_tree_with_resources` 20.6 %; scratchy's IO prelude
+(`gRect` called from `web-animations-next-lite`'s `forEach`) 17.8 %. Top self: `[unknown]` 4.4 %,
+`memmove` 4.3 %, V8 concurrent marking 3.9 %, `js_dom::descendants` 2.5 %, **`net::find_base_href`
+2.5 %**, SipHash 1.5 %, `matches_complex_selector` 1.3 %, `Declarations::clone` 1.1 %. Page JS above
+`GeomCache::refresh`: the scratchy `invoke` prelude 49 % (IO / observers), no page frame 32 %,
+`getPlayerSize` 9 % (+0.9 % interpreted), then single-percent `attached`, `resize`, `onStamperFinished`,
+`e6a`. Wikipedia Rust 30 s (load **21** at start, shares only): 2 582 samples; `GeomCache::refresh`
+28.5 % inclusive, 79 % of it with no page JS frame (IO evaluation, `ioEval` 23.1 % inclusive),
+`scrollToActiveSection` 21 %; `[unknown]` self 32.6 %. Files in `perf/profile-5888220-*` (not committed).
+
+### 5. Corpus (`--perf-corpus`, 3 runs, load 1.46; sha256 of all 7 files matched)
+
+compile / first run, ms CPU, median (min-max): d3 7.15 (7.02-7.42) / 5.97 (5.89-6.02); jquery 1.47
+(1.43-1.72) / 2.75 (2.68-3.29); lodash 1.66 (1.66-1.81) / 3.60 (3.53-3.95); moment 0.99 (0.95-1.02) /
+1.37 (1.35-1.40); react 0.21 (0.21-0.27) / 0.20 (0.20-0.28); react-dom 2.42 (2.21-2.65) / 2.14
+(2.01-2.28); three 8.94 (8.74-9.62) / 3.54 (3.51-3.62). Loops: fib(25) 0.91 (0.90-0.93), sort 200k
+objects 59.5 (55.2-60.5), JSON round trip 27.9 (27.6-29.3). No `error`.
+
+### 6. QOBS10 (`cargo bench --bench layout -- forced_layout`, load 1.90 at start)
+
+Criterion [low median high] per forced layout: big_css [16.27 16.35 16.51] ms; 200 custom props +
+overrides [22.44 24.15 24.93] ms; 100 long text paragraphs [24.62 24.97 25.19] ms; small `<style>`
+appended (re-parse) [17.67 18.49 19.37] ms. The re-parse variant is ~2 ms (13 %) slower than plain
+big_css here, which the noisy first table (load 11.5) could not show.
+
+## Baseline (QuickJS, 2437284, 2026-11-18) — old machine (Ryzen 5 PRO 2500U)
 
 Taken by the QV8-0 measurement step (Opus), 2026-11-18 14:06-14:17 CET.
 
@@ -359,9 +514,9 @@ of this is the interpreter" number from another engine; QV8-m's V8 run is the fi
 | Chrome / jitless reference | Chrome not installed (see above) |
 | old.reddit.com's old listing | the server sent the new Reddit app to this client |
 
-## QuickJS vs V8
+## QuickJS vs V8 (old machine: Ryzen 5 PRO 2500U; the current baseline is "Baseline (V8, 5888220, 5700X, 2026-11-20)" above)
 
-### QV8-m: final comparison at 8dfe2f9 (both engines, same checkout, 2026-11-18 22:38-22:55 CET)
+### QV8-m: final comparison at 8dfe2f9 (both engines, same checkout, 2026-11-18 22:38-22:55 CET) — old machine (Ryzen 5 PRO 2500U)
 
 Taken by the QV8-m measurement step (Opus).
 
@@ -542,7 +697,7 @@ without it bbc keeps losing a timer and YouTube results is one slow day from los
 | DuckDuckGo | not in the suite (bot challenge, R37) |
 | the baseline's quiet-machine conditions in the first ~10 min | load 1.0-1.76 while the build load decayed; mitigated by interleaving both engines |
 
-### QV8-3b interim (V8 15.2.124.1 behind `engine-v8`, 103ff22 + QV8-3b, 2026-11-18)
+### QV8-3b interim (V8 15.2.124.1 behind `engine-v8`, 103ff22 + QV8-3b, 2026-11-18) — old machine
 
 Interim, NOT the final table (QV8-m writes that). `tools/perf-suite.sh` with
 `SCRATCHY=target/v8/release/scratchy` (release, 7 pages x 3 runs x 2 budgets + corpus), run on a quiet
@@ -573,7 +728,7 @@ QuickJS in brackets): d3 13.1 / 10.4 (37.6 / 3.22), jquery 2.2 / 5.6 (8.71 / 0.9
 Single run per row for the corpus numbers here (the suite's median of 3). Not measured: the standalone
 corpus run, Chrome reference, drawn output.
 
-### QV8-4: V8 startup snapshot (V8 15.2.124.1 behind `engine-v8`, 2026-11-18)
+### QV8-4: V8 startup snapshot (V8 15.2.124.1 behind `engine-v8`, 2026-11-18) — old machine
 
 What: a page engine's context is no longer built by running the ~198 KB of prelude JS (PRELUDE, timers,
 url, globals, intl, fetch, websocket, DOM, cssom, media) after registering ~180 natives; it is
@@ -635,6 +790,8 @@ measurement), while other agents were building (load average ~11.5, so spread is
 
 Caveat: the appended-style variant is not measurably slower than plain big_css here (the fixture's CSS is ~0.6 MB,
 much smaller than YouTube's 4.4 MB, and the run was noisy); re-take the table on an idle machine (QOBS9).
+QOBS9 re-took it at load ~1.9: see "Baseline (V8, 5888220, 5700X, 2026-11-20)" section 6 (big_css 16.4 ms,
+re-parse 18.5 ms).
 ## Frame stats (QOBS5): what the live window does each second
 
 `SCRATCHY_FRAME_STATS=<path>` (or `=1` for stderr) makes the window App append one JSON line per second of
