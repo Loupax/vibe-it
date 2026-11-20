@@ -558,6 +558,11 @@ impl GeomCache {
 
     /// QY53e1: CPU ms the last forced layout took.
     pub(crate) fn last_cost_ms(&self) -> f64 {
+        // QFLK2: the IO recheck deadline is 4x this (min 100 ms); tests that assert delivery times pin it.
+        #[cfg(test)]
+        if let Some(c) = TEST_FIXED_COST_MS.with(|c| c.get()) {
+            return c;
+        }
         self.last_cpu_ms
     }
 
@@ -993,5 +998,7 @@ impl GeomCache {
     }
 }
 
+#[cfg(test)]
+thread_local! { pub(crate) static TEST_FIXED_COST_MS: std::cell::Cell<Option<f64>> = const { std::cell::Cell::new(None) }; }
 #[cfg(test)]
 thread_local! { pub(crate) static TEST_NO_LAYOUT_LIMITS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
