@@ -89,3 +89,9 @@
 
 **What changed:** js_dom.rs `ioEval0` skips `document.body` as a clip when html's computed overflow is visible (same rule as layout.rs `VIEWPORT_ROOT_NODE`); html was already skipped. Test `qy57r_body_overflow_propagates_to_viewport_and_does_not_clip` in js_observers_tests.rs. YouTube results (nested dwl, own wire): real thumbnails paint; 2 core ytimg imgs got a `src` (the 2 on screen, others lazy), 88 imgs total, 4 with a src.
 
+
+## QY54b: why inline-preview getPlayerSize forced layouts cost ~58 ms on YouTube results (Opus, measure only)
+
+> Do TODO item QY54b: on YouTube results, hovering a result starts the inline-preview player; one promise job runs 12-15 `getPlayerSize` forced layouts of ~58 ms each in the window (vs ~5 ms headless on watch). Find out why each one costs ~58 ms: which forced-layout path, what invalidates between them, page size at that point, whether QYTC1a/QYTC1d-style in-place shifts or skips should apply and why they don't. --perf-report / SCRATCHY_FRAME_STATS, nested dwl + tools/inject hover, >= 3 runs. Docs only: a new REGRESSIONS.md R-section with method, numbers, cause and sized fix items.
+
+**What changed:** docs only. REGRESSIONS.md R58 (12 window hover runs + 4 headless runs under the perf flock, throwaway logging never committed). Each read is a full-document forced layout (~4 900-6 500 elements; style ~80 %), invalidated by the player building its own DOM (45 % structural, 24 % size writes, 14 % first `style`); the ~5 ms on watch is the small document at read time, same cost per element. New: script-inserted `<link rel=stylesheet>` (YouTube's `www-player.css`) is never fetched, so the preview player has no CSS (wrong size and slot); a counterfactual probe shows that fixing it does not reduce the reads. Proposed QY54b1 (dynamic stylesheet links), QY54b2 (precompute_generated pre-pass), QY54b3 (subtree forced layout, absorbs QY53o2), QY54b4 (first `style` attribute in place).
