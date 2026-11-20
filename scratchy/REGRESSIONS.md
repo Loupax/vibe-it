@@ -1313,6 +1313,69 @@ images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom
   (fix): Wikipedia 3 runs, YouTube 3 runs: **0 mismatches**.
   Left: the main thread's memo is OFF until the page's first script forced layout (`SHAPE_MEMO_ENABLED` is set only by
   `js_geom`), so on a page without forced layouts every Main frame re-shapes what it re-measures: proposed QINC1i6.
+  QINC1i4 DONE (Opus, 2026-11-20; `src/incr_style.rs`, the record bracket in `style.rs` `resolve_style_for`, two
+  counters in `perf.rs`; test in `incr_style_tests.rs`, fuzz knob in `incr_fuzz_tests.rs`): a restart (the full shadow
+  update right after a from-scratch build: first layout, new rule-list generation, viewport width, Global log) no
+  longer cascades every element again: it ADOPTS the build's styles. Every shadowed build now records (not only in
+  check mode), per `(node, memo slot)`, the style it resolved (boxed) and whether THAT resolve read the viewport
+  height (`record_begin` clears `VIEWPORT_H_READ` for the one resolve, `record` ORs the old value back, so the build's
+  global flag is unchanged; the per-element bit is the engine's `reads_vh`). `Engine::style_of`: in a full update
+  with a record, `SCRATCHY_INCR=1` moves the recorded box into the element table (no second copy; peak memory as
+  before); check mode (tests, `SCRATCHY_INCR_CHECK=1`) cascades anyway and reports a difference (`adopted <slot>
+  style field ...` / `reads vh`), so the old compare still holds. Matches come from the build's memo (#461); the rest
+  of the per-element state (ambient, box owner, `reads_parent` from the match, animated, child keys, counters walk)
+  is derived as before (cheap). The record map is pre-sized from the previous build's. Counters
+  `incr.restyle_adopted` / `incr.restyle_resolved` (styles the engine cascaded itself, any update). Box tree: a
+  restart already ADOPTS the build's tree (`BoxEngine::start` clones it, ~7 ms on Wikipedia); laid tree: a forced
+  restart builds without measuring and the engine lays out once, an App Worker frame lays out once on the worker
+  and the engine adopts it (QINC1j), so no restart lays out twice; nothing to change there.
+  Wikipedia restart, temporary `Instant` diag (removed): engine visit 20-23 ms for 10 000 adopted styles (match
+  memo + bookkeeping, ~2 us per element), counter walk 6-8 ms, box start 7-8 ms; main re-cascaded at ~65 ms.
+  Tests: `qinc1i4_restart_adopts_the_builds_styles` (first build and a new rule-list generation: `resolved` 0,
+  `adopted` >= 10 incl. `::before` / `::after` / `::marker`; the adopted vh bit makes a height change re-cascade the
+  vh reader alone; the same with the verification off as `SCRATCHY_INCR=1` runs it; an attribute write adopts
+  nothing). Fuzz (release, `SCRATCHY_FUZZ_KEEP_GOING=1`): 7 windows x 3 000 cases (seeds 0 ... 60 000, adopted styles
+  verified) + 3 windows with `SCRATCHY_FUZZ_ADOPT_VERIFY=0` (adopted unverified; box / laid compares still run):
+  0 mismatches. Suite 1 716 passed (debug), also with `SCRATCHY_TEST_INCR_FORCED=1`; one run of the plain suite
+  failed `qinc1i_forced_layouts_see_the_windows_images` ("images are per document": the window-image key is a
+  document's node address, which a new document can reuse), passed alone and on the rerun: proposed QFLK6. WPT
+  333 / 293 unchanged, flag off and `SCRATCHY_INCR=1`. Clippy 77.
+  Gate (release, headless `--perf-report --budget-ms 20000`, own wire, Wikipedia Rust 20 s, YouTube results
+  (`?search_query=rust`) 30 s and watch G1AeBgalFZk 30 s, default UA; main 30a23cb vs this, both `SCRATCHY_INCR=1`,
+  interleaved, order flipped per round, every run under the perf lock and the 6G scope; 1-min load 0.1-3.0;
+  forced layout ms total (layouts / restarts), `incr_shadow` phase ms, engine restyle ms):
+  | page | main 30a23cb, 3 runs | this, 3 runs |
+  |---|---|---|
+  | Wikipedia forced total | 742 (5/3), 734 (5/3), 832 (5/3) | 532 (4/2), 526 (4/2), 842 (5/3) |
+  | Wikipedia `incr_shadow` / restyle | 215 / 195, 210 / 190, 246 / 225 | 81 / 69, 77 / 65, 148 / 129 |
+  | Wikipedia per restart: shadow, restyle, `build_children` | 72, 65, 50; 70, 63, 50; 82, 75, 58 | 41, 35, 63; 39, 33, 61; 49, 43, 72 |
+  | YouTube results forced total (layouts) | 397 (41), 365 (36), 459 (36) | 358 (37), 385 (41), 451 (36) |
+  | YouTube watch forced total (layouts / restarts) | 1 253 (170/5), 812 (119/4), 885 (119/4) | 829 (120/4), 825 (120/4), 881 (118/4) |
+  Per Wikipedia restart the shadow stage is 30-35 ms cheaper (~70 -> ~40 ms: the restyle halves, 10 000 styles
+  adopted, ~108 resolved), the build ~12 ms dearer (the record: one box + insert per resolve), net ~-20 ms of
+  ~250 ms. The page loads with 2 OR 3 restarts (new stylesheets arriving), which moves its total more than the
+  change does (runs 1-2 vs 3). What restarts cost: Wikipedia: the 1-2 non-restart layouts are 1-3 ms each, so
+  restarts are ~99 % of the INCR=1 forced time before and after (734-832 ms for 3 restarts before; 526-532 ms for 2,
+  842 for 3 after). Remaining per restart (this): build ~60 + counters precompute ~37 + shadow ~40 + the engine's
+  from-scratch layout (`layout_full_ms` 245 for 2 restarts, 325 for 3: the first is cold). YouTube: restarts happen
+  on the early, small DOM (adopted 309 styles over 3 restarts on results, 1 126 over 4 on watch): build + precompute
+  + engine layout + shadow ~15-20 ms of 360-460 (results) and ~40 ms of 810-880 (watch), ~5 %. The YouTube INCR=1
+  forced time is the INCREMENTAL restyle: engine restyle 230-300 ms of 360-450 (results, 3 900-4 000 styles
+  resolved) and 550-590 of 810-880 (watch, 8 000-8 200 resolved), ~65 %: proposed QINC1i6. `_CHECK=1` (this binary,
+  one run per page, every adopted style re-cascaded and compared): **0 mismatches** (Wikipedia 20 072 adopted, results
+  309, watch 1 126). RSS at the end: Wikipedia main 277-287 vs this 287-288 MB; results 362-439 vs 365-434; watch
+  488-544 vs 500-526 (run noise; an unboxed record was +20 MB on Wikipedia, hence the boxes).
+  After the rebase onto QINC1i5 (#462): Wikipedia, 3 interleaved pairs vs main dc6ba98 (`INCR=1`, load 0.8-7.8):
+  `incr_shadow` 193 / 221 / 152 ms (2 / 3 / 2 restarts) -> 130 / 81 / 111 ms (3 / 2 / 3), per restart 97 / 74 / 76 ->
+  43 / 41 / 37 ms; forced totals 622 / 669 / 490 -> 636 / 449 / 570 (the restart count differs per run).
+  Proposed: QINC1i6 (YouTube incremental restyle cost: ~65 % of INCR=1 forced time, ~60-70 us per resolved style
+  incl. per-update fixed costs such as the counter walk; profile and cut), QINC1i4b (restart hand-over leftovers:
+  `BoxEngine::start` clones the build's tree that the forced restart then drops: move it, ~7 ms + the drop per
+  Wikipedia restart; the record's per-resolve box + insert, ~12 ms per restart: a Vec in resolve order), QINC1i4c
+  (layout side, for QINC1i5's owner: the engine's from-scratch layout of a restart starts a new `ShapeCache`
+  (`LayoutEngine::full`), the plain path keeps `GeomCache::shape_cache` across layouts; suspected part of the
+  restart's 120-160 ms layout vs ~50 ms for a warm plain measure), QFLK6 (`qinc1i_forced_layouts_see_the_windows_images`
+  keys window images by a reusable node address).
 - **QINC1k [M]** (P2, Opus, measure only, docs; AFTER QINC1i, j, h2) Exactness sweep and gates (R60 section 12):
   `SCRATCHY_INCR_CHECK=1` headless + window on YouTube results (R58 recipe), YouTube watch (R50/R55 recipes), Wikipedia (R55),
   github.com, bbc.com/news, social.loupax.com/discover: 0 mismatches (each mismatch = a P1 fix item); then `SCRATCHY_INCR=1`

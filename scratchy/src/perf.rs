@@ -802,9 +802,13 @@ pub(crate) enum Incr {
     /// first had to build from scratch (first layout of a document, a global restyle).
     ForcedEngine,
     ForcedRestarts,
+    /// QINC1i4: styles a restart's full restyle adopted from the from-scratch build; styles the
+    /// engine cascaded itself (restarts and incremental updates).
+    RestyleAdopted,
+    RestyleResolved,
 }
 
-const INCR_NAMES: [&str; 30] = [
+const INCR_NAMES: [&str; 32] = [
     "updates",
     "restyled_matched",
     "restyled_cascaded",
@@ -835,6 +839,8 @@ const INCR_NAMES: [&str; 30] = [
     "frames_worker",
     "forced_engine",
     "forced_restarts",
+    "restyle_adopted",
+    "restyle_resolved",
 ];
 
 /// Bottom-up relayout stops are counted per tree level (the last bucket takes every deeper level).
@@ -842,7 +848,7 @@ pub(crate) const INCR_LEVELS: usize = 8;
 
 #[derive(Default)]
 struct IncrCounters {
-    flat: [u64; 30],
+    flat: [u64; 32],
     /// QINC1h1: time of the incremental relayouts (and of the engine's from-scratch ones), ns.
     layout_ns: u64,
     layout_full_ns: u64,

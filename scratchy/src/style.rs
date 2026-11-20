@@ -2535,6 +2535,8 @@ pub(crate) fn resolve_style_for(
         return s;
     }
     crate::perf::count_style_resolve(pseudo.is_none());
+    // QINC1i4: a recording build notes whether THIS resolve read the viewport height (off: one flag test).
+    let rec = crate::incr_style::record_begin();
     let base = resolve_style_core(handle, rules, inherited, viewport_width, pseudo, &[]);
     // QAN1b: no `animation` declared (the overwhelmingly common case) costs
     // exactly this one test.
@@ -2546,7 +2548,7 @@ pub(crate) fn resolve_style_for(
         },
     };
     // QINC1f: the shadow check records what the from-scratch build resolved (off: one flag test).
-    crate::incr_style::record(handle, pseudo, &out);
+    crate::incr_style::record(handle, pseudo, &out, rec);
     out
 }
 
