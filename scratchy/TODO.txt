@@ -1026,7 +1026,7 @@ recommendations" = R60 section 16 Q1-Q9 all as recommended: one engine on the ma
 geometry; superseded items dropped (archived); FREEZE on other style/box/layout semantic changes while QINC1f-h1 are in
 flight (correctness fixes allowed, rebased onto the shadow comparisons); memory +8-18 MB accepted; slower shadow-mode tests
 accepted; flip after 0 mismatches on 6 pages x 3 runs + gates, delete after >= 3 days of user use; QINC1n/o later; models
-as stated). Items [WIP] QINC1a (engine test infra + style_diff + fuzz), [WIP] QINC1b (stable paragraph ids), QINC1c (bottom-up hoisting),
+as stated). Items QINC1a DONE 81e23d7 #447 (engine test infra + style_diff + fuzz), [WIP] QINC1b (stable paragraph ids), QINC1c (bottom-up hoisting),
 QINC1d (InvalidationMap) DONE 18d0527 #445, [WIP] QINC1e (write log), QINC1f [L] (incremental restyle, shadow), QINC1g [L] (persistent box tree,
 shadow), QINC1h1 [L] (relayout from last tree, shadow), QINC1h2 (intrinsic-size cache), QINC1i (forced layouts via engine,
 SCRATCHY_INCR=1), QINC1j [L] (App frames via engine), QINC1k (exactness sweep + gates), QINC1l (flip default, user OK),
