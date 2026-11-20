@@ -110,20 +110,48 @@ The first reader is `:go` completion and `o` (KEYS.md "Completion", QCOMP-D). Se
 (`HISTORY`, on/off, and `HISTORY_MAX_LINES`) are constants in `src/config.rs`.
 
 - **File:** `DIR/history`, mode 0600, one line per visit:
-  `<unix time in ms>\t<url>\t<title>\n`. Plain text so scripts can read it
-  (`cut -f2 history | tac | awk '!seen[$0]++'` = URLs, newest first, deduplicated).
-- **When:** once per top-level navigation that loads, at the page's `load` (or when the
-  load gives up), with `document.title` at that moment (empty if none). History
-  traversal (`h`/`l`) and `:refresh` add a line too: the file records visits.
-- **Not recorded:** opaque origins (`file:`, `data:`, `about:`), `:help`, iframes,
-  failed loads (no response).
+  `<unix time in ms>\t<url>\t<title>\n`. Plain text so scripts can read it:
+  `cut -f2 history` = the URLs; `cut -f2 history | sort | uniq -c | sort -rn` = URLs by
+  number of visits. The title lets the menu match a page by its name; the time breaks
+  ties and allows "forget the last hour" later.
+- **What is a visit** (user, 2026-11-20): a top-level navigation the user or the page
+  started and that loaded: a link click, `:go`, `o`, a page-script navigation
+  (`location`, form submit). After redirects the FINAL URL is recorded. The `#fragment`
+  is stripped (`page#a` and `page#b` are one URL). One line at the page's `load` (or
+  when the load gives up), with `document.title` at that moment (empty if none).
+- **Not a visit (not recorded):** `:refresh`/reload, history traversal (`h`/`l`,
+  `history.back()`), same-document navigations (fragment-only, `pushState`), iframes,
+  failed loads (no response), opaque origins (`file:`, `data:`, `about:`), `:help`. These
+  would only inflate the counts.
 - **Escaping:** tabs, newlines and other control characters in the title become a
   space; the URL is the serialised URL (no tabs or newlines). A line is cut at 4096
   bytes (the title is shortened), so a single `write` with `O_APPEND` is atomic and
   several scratchy processes can append at the same time without a lock.
 - **Size:** at startup, when the file has more than `HISTORY_MAX_LINES` lines, scratchy
-  keeps the newest ones: write a temp file + rename, under an exclusive flock on
+  keeps the newest ones. This is also what keeps the ranking current: counts only cover
+  the last `HISTORY_MAX_LINES` visits, so sites no longer visited sink out of the top
+  with no frecency formula. Trim: write a temp file + rename, under an exclusive flock on
   `DIR/.history.lock` (appenders do not lock: an append that lands between the read
   and the rename is lost, which is acceptable for history).
 - **Hand edits** are fine; lines that do not parse are skipped by the built-in reader.
+
+### Ranking (the built-in `:go` source, user 2026-11-20)
+
+`complete_history_urls` reads the whole file each time (one pass; ~100k lines is tens of
+ms) and prints two groups, each filtered by the word being completed (prefix match on
+the URL with `https://`/`http://` and `www.` stripped; empty word = everything):
+
+1. **Sites:** one entry per host, the site root `scheme://host/` (host as visited,
+   `www.` kept), ranked by the number of visits to ANY page of that host. Its title: the
+   newest title recorded for exactly that root URL, else the host. Typing `you` puts
+   YouTube's home page first even if most visits were to watch pages.
+2. **Pages:** one entry per URL, ranked by that URL's own visit count. A URL that is a
+   site root already listed in group 1 is not repeated.
+
+Ties (both groups): the most recent visit first. Each candidate line is
+`<url>\t<title>`; scratchy uses the text before the first tab of the chosen line (a
+typed line with no tab, e.g. tofi `--require-match=false`, is used whole). Whether the
+menu keeps this order while filtering is up to the menu (tofi's fuzzy matching or its
+own `--history` may reorder): checked with the user's tofi script in QCOMP4's real test.
+
 - `--forget-site` does not touch history (yet).

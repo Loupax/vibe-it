@@ -190,10 +190,12 @@ Tab in COMMAND completes the word under the cursor, like bash's `complete`.
   `SCRATCHY_WORD` (the word being completed), `SCRATCHY_ARG` (its index, 1 = first
   argument), `SCRATCHY_URL` (the current page), `SCRATCHY_STATE_DIR`. It prints one
   candidate per line on stdout. Non-zero exit or nothing printed = no candidates.
-- **The built-in `:go` source** (`complete_history_urls`) reads the history file
-  (`STASH.md` "History"): newest first, one entry per URL. It does no fuzzy matching
-  itself: it keeps the entries whose URL, with `https://`/`http://` and `www.` stripped,
-  starts with the word (the word empty = all). Fuzzy matching is the menu's job.
+- **The built-in `:go` source** (`complete_history_urls`) reads the history file and
+  ranks it (`STASH.md` "History" / "Ranking"): site roots by visits to the site, then
+  pages by their own visits, ties by recency; candidate lines are `<url>\t<title>` and
+  scratchy keeps the text before the first tab of the chosen line. It does no fuzzy
+  matching itself: it keeps the entries whose URL, with `https://`/`http://` and `www.`
+  stripped, starts with the word (the word empty = all). Fuzzy matching is the menu's job.
 - **The menu** (`MENU_CMD` in `src/config.rs`, an argv, `None` = no menu, inline Tab
   only) speaks the dmenu protocol: candidates on stdin, one per line; the choice on
   stdout; non-zero exit = cancelled. Any dmenu-style program works: tofi, fuzzel,

@@ -2912,6 +2912,12 @@ QCOMP — scriptable command completion, `o`, history file, config in code (user
      its own refactoring item (QCONF1), done first.
   C5 History file: plain TSV `ms<TAB>url<TAB>title` appended once per top-level visit,
      O_APPEND lines <= 4096 bytes (no lock), trimmed at startup; details STASH.md.
+  C7 (user 2026-11-20, history discussion) Ranking by number of visits: the `:go` source
+     lists site roots ranked by visits to the whole site, then pages by their own visits,
+     ties by recency; the startup trim to HISTORY_MAX_LINES is the only "decay". A visit
+     is a user/page-started top-level navigation that loaded (final URL after redirects,
+     fragment stripped); reload, back/forward, same-document navigations are not
+     visits. Title and time stay in the file. Details: STASH.md "History", "Ranking".
   C6 (user 2026-11-20, answering "QCFG1 vs C4") QCFG1 STAYS as written: the tracker lists
      are updated separately and stay independent of the code config, so they are not moved
      into `src/config.rs`. Maybe made scriptable later; not now. C4 covers the settings
@@ -2944,15 +2950,24 @@ Order (feature work: after the perf queue): QCONF1 -> QCOMP1 -> QCOMP2; QCOMP3 a
       `$(...)`/`;` is passed through stdin untouched; Esc kills the child; a stale result
       is ignored. Real check with the user's tofi script in the nested dwl window.
 - [ ] QCOMP3 [S] (P2, after QSTASH1) History file writer (C5, STASH.md "History"):
-      append on load, skip opaque origins / :help / failed loads, title escaping, 4096
-      byte cap, startup trim under `.history.lock`, `HISTORY` and `HISTORY_MAX_LINES` in
-      config.rs. Tests: one line per visit with the title; a title with a tab/newline;
-      file: not recorded; a long title is cut and the line stays <= 4096 bytes; trim
-      keeps the newest lines; two writers appending concurrently produce whole lines.
+      append on load for visits only (C7: link, :go, o, page script; final URL after
+      redirects; fragment stripped), skip reload / back-forward / same-document / iframes
+      / opaque origins / :help / failed loads, title escaping, 4096 byte cap, startup trim
+      under `.history.lock`, `HISTORY` and `HISTORY_MAX_LINES` in config.rs. Tests: one
+      line per visit with the title; a redirect records the final URL; `#a` stripped;
+      `:refresh` and `h`/`l` add nothing; a title with a tab/newline; file: not recorded;
+      a long title is cut and the line stays <= 4096 bytes; trim keeps the newest lines;
+      two writers appending concurrently produce whole lines.
 - [ ] QCOMP4 [S] (P2, after QCOMP1 and QCOMP3) Built-in `:go` source
-      `complete_history_urls` (KEYS.md "Completion"): newest first, one per URL, prefix
-      match after stripping the scheme and `www.`; bad lines skipped. Tests: order,
-      dedup, `you` finds `https://www.youtube.com/...`, empty word gives all.
+      `complete_history_urls` (C7; STASH.md "Ranking"): site roots by site visits, then
+      pages by own visits, ties by recency, `<url>\t<title>` lines (the chosen line's
+      text before the first tab is used), prefix match after stripping the scheme and
+      `www.`; bad lines skipped. Tests: a site with many single-visit pages outranks a
+      page visited twice; a root URL appears once; ties go to the newest; `you` finds
+      `https://www.youtube.com/`; empty word gives all; a chosen `url\ttitle` line and a
+      typed line without a tab. Real check with the user's tofi script: does tofi keep
+      the order while filtering (fuzzy match, its own --history)? Note the answer in
+      STASH.md.
 - [ ] QCOMP5 [S] (P2, after QCOMP2, QCOMP4 and QKEYS2) `o` in normal mode (C3; KEYS.md
       T39-T41): the menu over the `:go` source, navigate as `:go <line>`; no menu
       configured -> the command line opens with `go `. Tests: chosen line navigates;
