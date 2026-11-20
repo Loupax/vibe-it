@@ -6044,8 +6044,6 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 
 **What changed:** `Declarations` gained `mask_image` (url or `none`, reusing `BackgroundImageDecl`), `mask_position`/`mask_size`/`mask_repeat`, parsed from the standard and `-webkit-` spellings, including the `mask` shorthand (via `parse_background_shorthand`). `ComputedStyle::mask_layout` is a `BgLayout` built by the same code as `bg_layout` (now a `layout_for(mask)` closure). `DecodedImage` has a new `mask` field: `resolve_background_image` now cascades `background-image` and `mask-image` from one selector-matching pass; the mask is decoded (data URI, PNG/SVG) and turned white-with-alpha (`whiten_mask`); an element with a mask but no background image gets a 0x0 placeholder bundle. `paint` routes a box with a mask to `paint_masked`: it snapshots the border-box region, paints the box normally (decoration and descendants), paints the mask through `paint_background_image` onto a black scratch buffer to get coverage, then blends result back toward the snapshot by coverage. An SVG mask is re-rasterized at its tile size (new shared `bg_tile_size`) so icons stay sharp. Test: `q29_mask_image_clips_the_box_by_the_masks_alpha` (both spellings, `none`, shorthand, `mask-position`/`mask-size`/`mask-repeat`). `grim` worked: an 80px red box masked by an SVG circle showed a red disc on white. Left out (nothing re-queued): `mask-mode`/luminance masks, `mask-composite`, `mask-origin`/`mask-clip`, gradient masks (only `url()`), multiple mask layers (first layer only), masks on absolutely positioned descendants that paint outside the box, raster masks use nearest sampling, and SVG masks are re-rasterized every frame (no cache; icons are small).
 
-
-
 ---
 
 ## Q31 — real `:hover` / `:active` / `:focus*` state (queue item)
@@ -6053,8 +6051,6 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Implement Q31 of the ranked QUEUE in scratchy/TODO.txt: real `:hover`/`:focus`/`:active` (and `:focus-visible`/`:focus-within`), upgrading Q2's never-match rules. No form elements (Q30 later); keep the state plumbing reusable and restyle only when the matched set changes.
 
 **What changed:** new `InteractionState` (ancestor-expanded hover/active/focus-within id sets, `focus`, `focus_visible`) mirrored into the `INTERACTION` thread-local that `match_non_ts_pseudo_class` reads; new `OurPseudoClass::{Hover, Active, Focus, FocusVisible, FocusWithin}` (`:target` stays `NeverMatches`). Element identity is `node_id` (DOM node address), carried by the new `ComputedStyle::node` and `SpanStyle::node` (stored per glyph beside the href in `ShapedParagraph`); the hit test is now `hit_test_node` (`hit_test_cursor` is a wrapper, `hit_test_element` returns the id). `App` handles `CursorMoved` (hover), mouse press/release (active, plus click focus on the nearest link/`tabindex` ancestor), Tab/Shift+Tab (`:focus-visible`) and Enter on a focused link. `set_interaction_state` sets `layout_dirty` only when a changed kind is mentioned by a stylesheet (`STATE_RULES` mask filled by the selector parser), and keeps scroll offsets across that rebuild. Tests: `q31_hover_active_focus_state_matches_and_tracks_the_element_chain`, `q31_focusable_elements_and_tab_order`, `q31_state_rule_mask_is_zero_when_no_stylesheet_uses_state`; `q2_state_pseudo_classes_parse_and_match` now resets the state explicitly. Measured (release, 5000-item list): restyle rebuild ~113 ms, hovered-handle lookup ~0.15 ms. `grim`: a static screenshot of a page with `:hover`/`:focus` rules rendered normally, but interactive state could not be screenshotted (no `ydotool`/`wtype`/`wlrctl` to inject pointer or key events in this sandbox), so hover/Tab behavior is covered by the unit tests only. Left out (re-queued as Q31b): `:target`, scroll-into-view on Tab, a default focus ring; form controls remain Q30 (NOTES.md "Interaction state" says how to plug them in).
-
-
 
 ---
 
@@ -7277,8 +7273,6 @@ Done: `.github/workflows/ci.yml` (matrix, rust-cache, concurrency, permissions c
 Prompt (coordinator, 2026-11-17): measure the real-page effect of 752aaa1: build its parent and main, count `flex: N` uses on 11 saved pages, screenshot both in a nested dwl, view every differing pair, WPT with both; REGRESSIONS entry with a table; file a ranked Sonnet item if anything got worse. No source changes.
 Done: R35 (10 of 11 pages identical, bbc.com logo now centred = better, YouTube diffs are JS-budget noise, WPT PNGs byte-identical), QCI0b filed (automatic minimum size clamped to the new 0 basis: fixtures show mid-word breaks and overlapping column items).
 
-
-
 ## QY45 (scratchy/qy45-set-attribute-ns)
 
 **Prompt:** Implement the namespaced attribute family (setAttributeNS, getAttributeNS, hasAttributeNS, removeAttributeNS, Attr nodes, createAttribute(NS), Element.prefix/localName) so YouTube player bootstrap no longer dies on the missing Element.setAttributeNS (R34).
@@ -7298,8 +7292,6 @@ Done: R35 (10 of 11 pages identical, bbc.com logo now centred = better, YouTube 
 **What changed:** layout.rs (row Prep.min, column ColItem min); tests.rs: four `qci0b_*` tests (long word stays whole and overflows, column 3-line items do not overlap, `width:50px` caps the floor, ellipsis pattern floor 0) and the QCI0 50/50 test now uses single glyphs ("i" | "W"): the old "iiii" | "wwwwww" in 100px cannot stay 50/50 under the spec floor (an unbreakable 6-glyph word is wider than 50px); wpt-expected.txt: css/css-flexbox/flexbox-min-width-auto-003.html FAIL -> PASS.
 
 **Verified:** full `cargo test --release` green under the system fonts and under the CI font config (958 passed); clippy TOTAL 78; WPT no pass->fail (1 newly passing); fixtures fx/fx2 viewed (long word whole, column no overlap); bbc, github, youtube, en.wikipedia Main_Page, hn, duckduckgo, guardian screenshots byte-identical before/after (and baseline vs baseline).
-
-
 
 ## QF19w2 (scratchy/qf19w2-websocket)
 
@@ -7753,8 +7745,6 @@ Done: R38. The `true` is `<img alt="true">` (YouTube calls `setAttribute('alt', 
 **Prompt:** Work QY53l: `g.k.getPlayerSize` (player base.js:15474) forces 74 of 135 forced layouts per 60 s on the YouTube watch page and 54 % of forced layouts change no box. Find what it reads and which writes bump the geometry generation between its calls (temporary instrumentation, then remove it); if those writes are layout no-ops, skip the bump for that write kind (only when no rule depends on it). Gate: getPlayerSize layouts per 60 s at least halved, median of 3 interleaved main/branch, default UA, own wire; tests for the skipped write kind; else ship the measurement as a REGRESSIONS.md addendum and propose items.
 
 **What changed:** js_dom.rs `styleSet` (the `el.style.x = v` / `setProperty` / `removeProperty` path) updates an existing declaration in place instead of removing it and appending it again (CSSOM order). The old code rotated the declaration order on every same-value write, so the `style` string changed and QY53c's same-value check never fired: YouTube's progress bars (`left`/`transform` every tick) and `#movie_player`'s custom properties bumped `GEOM_GEN` before nearly every getPlayerSize read. YT watch, 3+3 interleaved: getPlayerSize layouts 71 -> 51 median (-28 %), all forced layouts 132 -> 104 (-21 %), `no_change` 73 -> 45. Gate (halved) NOT met: the rest follow real writes (inserts into hidden player chrome, state classes, scale transforms); measurement and proposed QY53l2 (skip bumps for writes inside `display:none` subtrees) / QY53l3 (paint-only style declarations) in REGRESSIONS.md R43 section 12. Tests: `qy53l_*` in js_geometry_tests.rs.
-
-
 
 ## QOBS4b: name the page function behind scratchy's wrappers in --perf-report longest[].source (scratchy/qobs4b-wrapper-sources, Sonnet)
 
@@ -8463,3 +8453,10 @@ Prompt: item QY53n3 (P3): hover changes that only gain/lose PAINT plus OFFSET ru
 > You implement item QINC1c of the incremental style+layout engine: hoist_negative_z post-pass becomes a bubble returned by measure (each stacking boundary absorbs its descendants z-index entries when it finishes; non-boundary boxes pass them up, like pending); stack_key ties use document order assigned by the builder. It must produce IDENTICAL laid trees; a test helper runs the old post-pass and the new bubble on every test page and the fuzz harness and compares with cmp_laid.
 
 **What changed:** `layout.rs` `finish_z` (called at the end of `measure_inner` while a `measure_document` runs, and for the root), `Laid::zb: Option<Box<ZInfo>>` (bubble plus the pre-move first baseline / last line extent / "had in-flow children" the parent readers need), `shift_laid_tree` shifts the bubble; the old pass stays under `cfg(test)`. `images.rs` `assign_document_order` renumbers `style.tree_order` in document order. In tests every `measure_document` is laid twice (bubble and old pass) and compared with `cmp_laid` inside it; `src/tests/zhoist_tests.rs` adds the reader-sensitive shapes.
+
+## QOOM1: 15 GB scratchy OOM: removed <video> elements kept their players (Opus, coordinator assignment)
+
+> Investigate and fix TODO item QOOM1 (P1): a scratchy reached 15 GB anon RSS and was OOM-killed; headless `--perf-report` runs hit the 6 GB cap in 26-33 s with `dav1d-worker` triggering the OOM. Reproduce headless under a cap with RSS sampled every second, bisect what grows (memprof, V8 heap, mpv/libdav1d, render thread, frame pool, wire buffering), fix the root cause, regression test for the bounded structure, verify 5 min headless + 20 min nested window on YouTube watch, R-section, PR.
+
+**What changed:** the page is the github.com home: its hero section is re-rendered about once a second, each time inserting two new `<video>` elements (AV1 + HEVC, ~250 MB per libmpv player with 16 decoder threads) and removing the old ones. A removed media element was only paused; `__media_drop` existed but nothing called it, so every player lived until the page went away (14 players / 3.8 GB at 7 s). media_prelude.js: when the removal's MutationObserver record is delivered and the element is still out of the document, it is paused and its core dropped (`__media_drop`); it stays inert (never loads, `play()` rejects) until it is put back, when it loads again. media_el.rs `MediaHost`: dropped ids get a throwaway inert core (no backend) until `revive`; a dropped player asks for `malloc_trim` (at most once a second; glibc kept 1.86 GB free in its arenas). Tests `qoom1_*` in media_tests.rs. REGRESSIONS.md R63.
+
