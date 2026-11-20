@@ -7949,3 +7949,10 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       screenshots from main AND its branch. Check in a nested window (pointer held on a link, screenshot after the frame)
       whether `a:hover { text-decoration: underline }` paints; if not, find why (hover state, text-decoration paint, or the
       screenshot timing) and fix or close.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY53n2 DONE 3cd175e #407 paint-only hover patch; Wikipedia link hovers 100 % patched, ~7 ms builds/hover vs 144 ms [M] (P2, from QY53n, R47; Sonnet; after QY53n1) Paint-only hover patch: per-rule effect class (PAINT/OFFSET/
+      LAYOUT) in RuleDerived; PAINT -> re-resolve affected elements, patch the installed Laid tree + affected paragraphs'
+      span attrs (span->element vector in ShapedParagraph), repaint; no build, no shaping. Gate: Wikipedia --no-js, links
+      only, median of 3: builds.ms / hover_restyles <= 36 ms (today 174-180), hover.patched >= 80 %; patched pixels equal
+      a full rebuild's; hovered-link screenshot equals main's.
