@@ -489,6 +489,34 @@ the reads following a node insert/remove, the unchanged part of the 5-6.5k eleme
 Opus design first: key = (node, rules generation, viewport width); invalidation by DOM mutation epoch per subtree/ancestor chain and
 `:has`/sibling flags from `rules_cache::current()`; with `has`/`sib` rules present, drop the memo).
 
+### QY54b1 note: script-inserted stylesheet links are applied (fixes section 3, with two remaining layout gaps)
+
+What changed: a `<link rel=stylesheet>` that a script inserts, removes, or whose `href`/`rel`/`disabled` it changes is now
+fetched through wire and applied at its document position, and fires `load`/`error` (`link_css.rs`, NOTES.md). Tested in the
+nested dwl (960x1006 window), own wire, under flock, load 0.5-2.3, release build of the branch (a throwaway build of the same
+code adds a `QMEAS_PROBE` script hook, as in this R; never committed). Recipe as above (pointer on result 1 at 15 s, result 2 at 21 s).
+
+- YouTube results: the two Google Fonts links load at ~4.2-4.4 s and `www-player.css` at ~5.3 s. `#inline-preview-player`
+  is `position: relative` and its rect is the same at every 250 ms read: 300x232 over result 1, then 300x232 over result 2.
+  The preview plays over the hovered result; main's stray `1:34:31` label at the filter bar is gone (screenshots main vs branch).
+- The width is 300, not section 3's 412: R58's own counterfactual (the sheet appended as a `<style>`, probe on this binary)
+  also gives 300x232 today. The wrapper `.ytdVideoPreviewPlayerContainer` is `position: absolute; width: auto;
+  aspect-ratio: var(--ytd-video-preview-aspect-ratio)` in the main CSS, and scratchy has no `aspect-ratio` for boxes, so it
+  shrink-to-fits to the `<video>`'s 300 px. Not this item.
+- A red dot remains at the preview's top-left corner: the inline controls' progress-bar playhead
+  (`.ytProgressBarPlayheadProgressBarPlayheadDotHide { transform: scale(0) }`), placed at the top because its host
+  `yt-inline-player-controls` (`position: absolute; inset: 0`) is laid out 0 px tall: scratchy keeps the content height of an
+  absolutely positioned `height: auto` box with both `top` and `bottom` (CSS2.1 §10.6.4 says it fills the containing block).
+- YouTube watch: it parses `www-player.css` and then inserts a second link to the same URL (written relatively). Browsers apply
+  the copy again at its place and fire `load`. Doing that here blanked the player: after `load`, YouTube re-measures
+  `#player-container` (`position: absolute; top: 0; bottom: 0` inside a padding-sized box), which scratchy lays out 0 px tall
+  (the §10.6.4 gap again), and moves the video out of view. So a link whose resolved URL an earlier link already applies is not
+  applied again and fires nothing (the parsed links are deduplicated the same way). A throwaway build with §10.6.4 implemented
+  showed the player correctly sized but made `tp-yt-app-drawer`'s `#scrim` (inset 0, `visibility: hidden` inherited) cover the
+  results page and take every hover: scratchy's hit test ignores `visibility: hidden` and has no `pointer-events`. Those three
+  belong together in a follow-up item.
+- YouTube watch (player region) and Wikipedia Rust are pixel-identical to main.
+
 ## R57: QY54a design: a helper thread keeps reading the Wayland socket while the main thread is busy, so the compositor never fills its send buffer for scratchy (R56 section 2: lost at ~190-225 unread motion events). libwayland supports this: several threads may read one `wl_display` (`wl_display_prepare_read_queue` / `wl_display_read_events`), and the events still go to winit's queue, which only the main thread dispatches. So input order and hit-testing do not change. winit 0.30.13 uses the system libwayland (`wayland-backend` `client_system`), gives the `wl_display*` through its raw display handle, and runs the same pattern itself in its `pump_events` notifier thread. A throwaway winit 0.30.13 + softbuffer 0.4.8 prototype in the nested dwl: without the thread, a 450 ms and a 3 s busy loop at ~460 Hz motion are lost at the first stall. With it, 3/3 busy450 and 3/3 busy3000 survive all stalls, no move is lost, the order is kept, and the cost is +0.08 s sys CPU per 15 s of motion (Opus, 2026-11-20, design only, docs only) — OPEN: proposed QY54a1-QY54a3 (below)
 
 ### 1. How scratchy talks to the compositor today

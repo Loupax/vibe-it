@@ -463,6 +463,9 @@ pub(crate) enum UrlEv {
 pub(crate) struct JsRequests {
     /// QY56: raw `<img src>` values script set (the App fetches them once).
     pub(crate) imgs: Vec<String>,
+    /// QY54b1: a connected `<link>` was inserted, removed, or had its `href`/`rel`/`disabled`
+    /// changed: the App re-syncs the page's external stylesheets (`link_css`).
+    pub(crate) links_changed: bool,
     pub(crate) focus: Option<FocusReq>,
     /// `window.scroll*`: target axes (`None` = keep), `relative` = scrollBy.
     pub(crate) scroll: Option<ScrollReq>,
@@ -582,6 +585,18 @@ pub(crate) fn geom_bump_for_tests() {
 }
 
 /// Is `h` part of the page document `t.get(0)`?
+/// QY54b1: flags a `href`/`rel`/`disabled` change on a connected `<link>` for the App.
+fn note_link_attr(reqs: &Rc<RefCell<JsRequests>>, t: &DomTable, h: &Handle, name: &str, changed: bool) {
+    if changed && crate::link_css::is_link_sheet_attr(h, name) && page_connected(t, h) {
+        reqs.borrow_mut().links_changed = true;
+    }
+}
+
+/// QY54b1: markup that may contain a `<link>` element (ASCII case-insensitive).
+fn html_has_link(html: &str) -> bool {
+    html.as_bytes().windows(5).any(|w| w[0] == b'<' && w[1..].eq_ignore_ascii_case(b"link"))
+}
+
 fn page_connected(t: &DomTable, h: &Handle) -> bool {
     t.get(0).is_some_and(|root| is_ancestor_or_self(&root, h.clone()))
 }
@@ -999,12 +1014,13 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     native!(ctx, "__d_csprops", move || -> Vec<String> { js_style::PROPS.iter().map(|s| s.to_string()).collect() });
     // ---- Q33c mutation. Every write marks the page dirty; the event
     // loop rebuilds layout once per turn, not once per call.
-    let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
+    let (t, d, gn, lk) = (table.clone(), dirty.clone(), wgen.clone(), reqs.clone());
     native!(ctx, "__d_setattr", move |id: i32, name: String, val: String| {
         if let Some(h) = t.borrow().get(id) {
             let name = name.to_ascii_lowercase();
             let old = element_attr(&h, &name).map(|s| s.to_string());
             let changed = old.as_deref() != Some(val.as_str());
+            note_link_attr(&lk, &t.borrow(), &h, &name, changed);
             // QYTC1d: a `class` write that changes no element's matched rules keeps the layout.
             let probe = (changed && name == "class" && crate::js_geom::class_probe_possible() && page_connected(&t.borrow(), &h))
                 .then(|| crate::js_geom::class_write_pre(&h, old.as_deref(), Some(&val)))
@@ -1024,11 +1040,12 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             }
         }
     });
-    let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
+    let (t, d, gn, lk) = (table.clone(), dirty.clone(), wgen.clone(), reqs.clone());
     native!(ctx, "__d_rmattr", move |id: i32, name: String| {
         if let Some(h) = t.borrow().get(id) {
             let name = name.to_ascii_lowercase();
             let changed = element_attr(&h, &name).is_some();
+            note_link_attr(&lk, &t.borrow(), &h, &name, changed);
             let probe = (changed && name == "class" && crate::js_geom::class_probe_possible() && page_connected(&t.borrow(), &h))
                 .then(|| crate::js_geom::class_write_pre(&h, element_attr(&h, "class").as_deref(), None))
                 .flatten();
@@ -1073,7 +1090,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         let h = t.borrow().get(id)?;
         attr_find(&h, |a| a.name.ns.as_ref() == ns && a.name.local.as_ref() == local)
     });
-    let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
+    let (t, d, gn, lk) = (table.clone(), dirty.clone(), wgen.clone(), reqs.clone());
     native!(ctx, "__d_setq", move |id: i32, name: String, val: String| {
         if let Some(h) = t.borrow().get(id) {
             let n = attr_lookup_name(&h, &name);
@@ -1089,13 +1106,14 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
                     attrs.push(html5ever::Attribute { name: qn, value: val.as_str().into() });
                 }
             }
+            note_link_attr(&lk, &t.borrow(), &h, &n, changed);
             // QY53m: a write that changed no value does not wake the App's restyle.
             d.set(d.get() | changed);
             gn.set(gn.get() + 1);
             geom_bump_attr(&t.borrow(), &h, changed, &n);
         }
     });
-    let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
+    let (t, d, gn, lk) = (table.clone(), dirty.clone(), wgen.clone(), reqs.clone());
     native!(ctx, "__d_rmq", move |id: i32, name: String| {
         if let Some(h) = t.borrow().get(id) {
             let n = attr_lookup_name(&h, &name);
@@ -1106,6 +1124,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
                 attrs.retain(|a| !attr_qname_eq(a, &n));
                 changed = attrs.len() != before;
             }
+            note_link_attr(&lk, &t.borrow(), &h, &n, changed);
             // QY53m: a write that changed no value does not wake the App's restyle.
             d.set(d.get() | changed);
             gn.set(gn.get() + 1);
@@ -1153,10 +1172,13 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             geom_bump_attr(&t.borrow(), &h, changed, "");
         }
     });
-    let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
+    let (t, d, gn, lk) = (table.clone(), dirty.clone(), wgen.clone(), reqs.clone());
     native!(ctx, "__d_settext", move |id: i32, text: String| {
         if let Some(h) = t.borrow().get(id) {
             let changed = text_write_changes(&h, &text);
+            if changed && matches!(h.data, NodeData::Element { .. }) && h.children.borrow().iter().any(crate::link_css::has_link) && page_connected(&t.borrow(), &h) {
+                lk.borrow_mut().links_changed = true;
+            }
             // QY53l2: the element whose child list (or child text) changes.
             let owner = match &h.data {
                 NodeData::Text { .. } | NodeData::Comment { .. } => parent_handle(&h),
@@ -1185,10 +1207,13 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             }
         }
     });
-    let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
+    let (t, d, gn, lk) = (table.clone(), dirty.clone(), wgen.clone(), reqs.clone());
     native!(ctx, "__d_sethtml", move |id: i32, html: String| {
         if let Some(h) = t.borrow().get(id) {
             let conn = page_connected(&t.borrow(), &h);
+            if conn && (html_has_link(&html) || h.children.borrow().iter().any(crate::link_css::has_link)) {
+                lk.borrow_mut().links_changed = true;
+            }
             let pre = if conn && !crate::js_geom::html_sensitive(&html) {
                 let old: Vec<Handle> = h.children.borrow().clone();
                 crate::js_geom::children_write_pre(&h, &old)
@@ -1204,10 +1229,13 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         }
     });
     // QA13: returns the id of the last inserted node, or -1.
-    let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
+    let (t, d, gn, lk) = (table.clone(), dirty.clone(), wgen.clone(), reqs.clone());
     native!(ctx, "__d_write", move |after: i32, html: String| -> i32 {
         let mut t = t.borrow_mut();
         let Some(a) = t.get(after) else { return -1 };
+        if html_has_link(&html) && page_connected(&t, &a) {
+            lk.borrow_mut().links_changed = true;
+        }
         let last = write_after(&a, &html);
         d.set(true);
         gn.set(gn.get() + 1);
@@ -1364,7 +1392,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         }
     });
     // `before` < 0 appends. `false` = HierarchyRequestError.
-    let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
+    let (t, d, gn, lk) = (table.clone(), dirty.clone(), wgen.clone(), reqs.clone());
     native!(ctx, "__d_insert", move |parent: i32, child: i32, before: i32| -> bool {
         let t = t.borrow();
         let (Some(p), Some(c)) = (t.get(parent), t.get(child)) else { return false };
@@ -1383,6 +1411,9 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         };
         let pre_new = if new_conn { crate::js_geom::children_write_pre(&p, &moved) } else { None };
         let pre_old = old_conn.as_ref().map(|o| crate::js_geom::children_write_pre(o, &moved));
+        if moved.iter().any(crate::link_css::has_link) {
+            lk.borrow_mut().links_changed = true;
+        }
         let ok = insert_child(&p, &c, t.get(before).as_ref(), frag);
         d.set(true);
         gn.set(gn.get() + 1);
@@ -1398,10 +1429,13 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         }
         ok
     });
-    let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
+    let (t, d, gn, lk) = (table.clone(), dirty.clone(), wgen.clone(), reqs.clone());
     native!(ctx, "__d_remove", move |id: i32| {
         if let Some(h) = t.borrow().get(id) {
             let old_parent = parent_handle(&h).filter(|o| page_connected(&t.borrow(), o));
+            if old_parent.is_some() && crate::link_css::has_link(&h) {
+                lk.borrow_mut().links_changed = true;
+            }
             let pre = old_parent.as_ref().and_then(|o| crate::js_geom::children_write_pre(o, std::slice::from_ref(&h)));
             detach(&h);
             d.set(true);

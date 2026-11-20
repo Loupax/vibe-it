@@ -1044,6 +1044,8 @@ pub(crate) fn prefetch_iframes(path: &std::path::Path, base: &Url, top: &Url, do
 /// stylesheets and the scripts ready to run, in document order.
 pub(crate) struct PageResources {
     pub(crate) css: String,
+    /// QY54b1: what `css` is made of.
+    pub(crate) sheets: crate::link_css::SheetParts,
     pub(crate) scripts: Vec<ScriptSource>,
 }
 
@@ -1296,13 +1298,9 @@ pub(crate) fn find_external_resources(handle: &Handle, out: &mut ExternalResourc
     if let NodeData::Element { name, .. } = &handle.data {
         match name.local.as_ref() {
             "link" => {
-                let is_stylesheet = element_attr(handle, "rel")
-                    .map(|r| r.split_ascii_whitespace().any(|t| t.eq_ignore_ascii_case("stylesheet")))
-                    .unwrap_or(false);
-                if is_stylesheet
-                    && let Some(href) = element_attr(handle, "href")
-                {
-                    out.stylesheets.push(href.to_string());
+                // QY54b1: the same test the live link sync uses (`disabled` links do not apply).
+                if let Some(href) = crate::link_css::stylesheet_link_href(handle) {
+                    out.stylesheets.push(href);
                 }
             }
             "script" => {
@@ -1361,46 +1359,66 @@ pub(crate) fn process_external_resources(
     html: &[u8],
     generation: u64,
 ) -> PageResources {
-    let Ok(dom) = new_parser().read_from(&mut &html[..]) else { return PageResources { css: String::new(), scripts: Vec::new() } };
+    let Ok(dom) = new_parser().read_from(&mut &html[..]) else { return PageResources { css: String::new(), sheets: Vec::new(), scripts: Vec::new() } };
     // The fetched page's own `<base href>`, if it declares one, wins —
     // same priority `resolve_href`'s every other caller already gives
     // an explicit `<base>` over the document's own URL.
     let base = find_base_url(&dom.document).unwrap_or_else(|| page_url.clone());
     let mut resources = ExternalResources::default();
     find_external_resources(&dom.document, &mut resources);
-    let extra_css = fetch_stylesheets(path, &base, page_url, &resources.stylesheets);
+    let (extra_css, sheets) = fetch_stylesheet_parts(path, &base, page_url, &resources.stylesheets);
     spawn_image_fetches(proxy, path, &base, page_url, resources.images, generation);
     let scripts = fetch_scripts(path, &base, page_url, resources.scripts);
     prefetch_iframes(path, &base, page_url, &dom.document);
-    PageResources { css: extra_css, scripts }
+    PageResources { css: extra_css, sheets, scripts }
 }
 
 /// Fetch (and `@import`-expand) every stylesheet href against `base`,
 /// concatenated in document order.
 pub(crate) fn fetch_stylesheets(path: &std::path::Path, base: &Url, top: &Url, hrefs: &[String]) -> String {
+    fetch_stylesheet_parts(path, base, top, hrefs).0
+}
+
+/// QY54b1: `fetch_stylesheets` plus what the text is made of (each href's range, `None` when its
+/// fetch failed), so later link changes can rebuild it (`link_css::LinkSheets`).
+pub(crate) fn fetch_stylesheet_parts(path: &std::path::Path, base: &Url, top: &Url, hrefs: &[String]) -> (String, crate::link_css::SheetParts) {
     let mut extra_css = String::new();
+    let mut parts: crate::link_css::SheetParts = Vec::with_capacity(hrefs.len());
     for href in hrefs {
-        if let Some(css) = decode_data_uri_text(href.trim()) {
-            // Local `data:` stylesheet (QA5); its `@import`s resolve like any other.
-            let url = Url::parse("data:text/css,").expect("static url");
-            let mut stack = vec![url.clone()];
-            let css = expand_css_imports(&css, base, &mut stack, &mut |u| fetch_stylesheet_via_wire(path, u, top));
-            extra_css.push_str(&css);
-            extra_css.push('\n');
+        // QY54b1: a sheet (by resolved URL) is applied once, at its first link (as `LinkSheets::sync` does).
+        let key = crate::link_css::link_key(Some(base), href);
+        if parts.iter().any(|(k, _)| *k == key) {
             continue;
         }
-        let Ok(url) = resolve_href(Some(base), href) else { continue };
-        if let Some(css) = fetch_stylesheet_via_wire(path, &url, top) {
-            let mut stack = vec![url.clone()];
-            let css = expand_css_imports(&css, &url, &mut stack, &mut |u| fetch_stylesheet_via_wire(path, u, top));
-            extra_css.push_str(&css);
-            extra_css.push('\n');
+        match fetch_one_stylesheet(path, base, top, href) {
+            Some(css) => {
+                let start = extra_css.len();
+                extra_css.push_str(&css);
+                parts.push((key, Some(start..extra_css.len())));
+                extra_css.push('\n');
+            }
+            None => parts.push((key, None)),
         }
     }
     // QMEM3b: push_str doubling leaves up to 2x capacity (4.4 MB of text held 8.8 MB on YouTube),
     // and this string lives as long as the page (the App keeps it, `EXTRA_CSS` copies it).
     extra_css.shrink_to_fit();
-    extra_css
+    (extra_css, parts)
+}
+
+/// One stylesheet href (a `data:` URI or a URL resolved against `base`), fetched through wire and
+/// `@import`-expanded. `None` when it cannot be resolved or fetched.
+pub(crate) fn fetch_one_stylesheet(path: &std::path::Path, base: &Url, top: &Url, href: &str) -> Option<String> {
+    if let Some(css) = decode_data_uri_text(href.trim()) {
+        // Local `data:` stylesheet (QA5); its `@import`s resolve like any other.
+        let url = Url::parse("data:text/css,").expect("static url");
+        let mut stack = vec![url.clone()];
+        return Some(expand_css_imports(&css, base, &mut stack, &mut |u| fetch_stylesheet_via_wire(path, u, top)));
+    }
+    let url = resolve_href(Some(base), href).ok()?;
+    let css = fetch_stylesheet_via_wire(path, &url, top)?;
+    let mut stack = vec![url.clone()];
+    Some(expand_css_imports(&css, &url, &mut stack, &mut |u| fetch_stylesheet_via_wire(path, u, top)))
 }
 
 /// One background thread per distinct image `src` (a real page commonly
@@ -1473,9 +1491,9 @@ pub(crate) fn start_stream_resources(proxy: &EventLoopProxy<AppEvent>, socket: &
     let top = base.clone();
     let (proxy, socket, hrefs, refs) = (proxy.clone(), socket.to_path_buf(), resources.stylesheets, resources.scripts);
     thread::spawn(move || {
-        let css = fetch_stylesheets(&socket, &base, &top, &hrefs);
+        let (css, sheets) = fetch_stylesheet_parts(&socket, &base, &top, &hrefs);
         let scripts = fetch_scripts(&socket, &base, &top, refs);
-        let _ = proxy.send_event(AppEvent::StreamCss(generation, css, scripts));
+        let _ = proxy.send_event(AppEvent::StreamCss(generation, css, sheets, scripts));
     });
 }
 
@@ -1493,9 +1511,9 @@ pub(crate) fn file_page_url(path: &str) -> Option<Url> {
 /// Runs synchronously before the window exists, so the stylesheets are
 /// in hand for the first layout; images arrive later through
 /// `AppEvent::ImageFetched` (generation 0, the app's initial one).
-pub(crate) fn load_file_resources(proxy: &EventLoopProxy<AppEvent>, socket: &std::path::Path, path: &str, html: &[u8]) -> (Option<Url>, String, Vec<ScriptSource>) {
-    let Some(url) = file_page_url(path) else { return (None, String::new(), Vec::new()) };
+pub(crate) fn load_file_resources(proxy: &EventLoopProxy<AppEvent>, socket: &std::path::Path, path: &str, html: &[u8]) -> (Option<Url>, PageResources) {
+    let Some(url) = file_page_url(path) else { return (None, PageResources { css: String::new(), sheets: Vec::new(), scripts: Vec::new() }) };
     begin_wire_load(0);
     let res = process_external_resources(proxy, socket, &url, html, 0);
-    (Some(url), res.css, res.scripts)
+    (Some(url), res)
 }

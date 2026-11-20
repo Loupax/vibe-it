@@ -65,6 +65,7 @@ fn qy19_meta_redirect_replaces_history_and_is_chained() {
     let page = FetchedPage {
         html: br#"<html><head><meta http-equiv="refresh" content="0; url=/final#sec"></head><body>old</body></html>"#.to_vec(),
         extra_css: String::new(),
+        sheets: Vec::new(),
         scripts: Vec::new(),
         url: Url::parse("http://127.0.0.1:9/redir").unwrap(),
     };
@@ -391,6 +392,7 @@ fn qy53i2_a_navigation_frees_the_custom_props_arena() {
     let page = FetchedPage {
         html: b"<html><body>next</body></html>".to_vec(),
         extra_css: String::new(),
+        sheets: Vec::new(),
         scripts: Vec::new(),
         url: Url::parse("http://127.0.0.1:9/next").unwrap(),
     };
