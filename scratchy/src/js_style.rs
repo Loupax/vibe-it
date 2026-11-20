@@ -126,7 +126,7 @@ pub(crate) struct StyleCache {
     sib_rules: bool,
     ua_flags: (bool, bool),
     rules: Option<Rc<Vec<StyleRule>>>,
-    index: Option<RuleIndex>,
+    index: Option<Rc<RuleIndex>>,
     map: HashMap<(usize, u8), Entry>,
     root_inherited: Option<(u64, InheritedStyle)>,
     /// QA18c: the document the cached rules/styles belong to.
@@ -550,7 +550,7 @@ impl StyleCache {
         let (rules, generation, has, sib) = crate::rules_cache::current()?;
         if self.shared_gen != Some(generation) {
             self.shared_gen = Some(generation);
-            self.index = Some(RuleIndex::build(&rules));
+            self.index = Some(crate::rules_cache::shared_index(&rules));
             self.map.clear();
             self.root_inherited = None;
             self.has_rules = has;
@@ -594,7 +594,7 @@ impl StyleCache {
         self.pieces.truncate(p);
         self.pieces.extend(pieces);
         self.pieces.extend(tail);
-        self.index = Some(RuleIndex::build(v));
+        self.index = Some(Rc::new(RuleIndex::build(v)));
         true
     }
 
@@ -629,7 +629,7 @@ impl StyleCache {
             }
         }
         self.flags = flags;
-        self.index = Some(RuleIndex::build(&rules));
+        self.index = Some(Rc::new(RuleIndex::build(&rules)));
         self.rules = Some(Rc::new(rules));
     }
 

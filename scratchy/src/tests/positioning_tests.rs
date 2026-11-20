@@ -563,7 +563,7 @@ fn rule_index_returns_the_same_matches_as_a_full_scan() {
         matching_declarations_for(h, &rules, 800.0, pseudo).iter().map(|(sp, _)| *sp).collect()
     };
     let full: Vec<_> = elements.iter().map(|h| (summarize(h, None), summarize(h, Some("before")))).collect();
-    RULE_INDEX.with(|ri| *ri.borrow_mut() = Some((rules.as_ptr() as usize, rules.len(), RuleIndex::build(&rules))));
+    RULE_INDEX.with(|ri| *ri.borrow_mut() = Some((rules.as_ptr() as usize, rules.len(), Rc::new(RuleIndex::build(&rules)))));
     let indexed: Vec<_> = elements.iter().map(|h| (summarize(h, None), summarize(h, Some("before")))).collect();
     RULE_INDEX.with(|ri| *ri.borrow_mut() = None);
     assert_eq!(full, indexed);
