@@ -317,6 +317,7 @@ pub struct Laid {
 ///   on a box that moved such a child; shifted with the box.
 #[derive(Default)]
 pub(crate) struct ZInfo {
+    #[allow(clippy::vec_box)] // boxed on purpose: passing an entry up moves a pointer, not a 1.5 KB Laid
     pub(crate) bubble: Vec<Box<Laid>>,
     pub(crate) fb: Option<Option<f32>>,
     pub(crate) last_line: Option<Option<(f32, f32)>>,
@@ -6000,6 +6001,7 @@ impl Drop for ZSkipGuard {
 }
 
 /// Takes the bubble out of `l` (pointers only). A `ZInfo` that then carries nothing is dropped.
+#[allow(clippy::vec_box)]
 fn take_bubble(l: &mut Laid) -> Vec<Box<Laid>> {
     let Some(z) = l.zb.as_mut() else { return Vec::new() };
     let b = std::mem::take(&mut z.bubble);
