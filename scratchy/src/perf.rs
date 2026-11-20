@@ -793,9 +793,14 @@ pub(crate) enum Incr {
     /// QINC1h2: bottom-up steps under an intrinsic-size reader that stopped because the box's natural
     /// widths did not change.
     IntrStops,
+    /// QINC1j: App frames with nothing to lay out (a forced layout already did it), laid out
+    /// incrementally on the main thread, sent to the shaping worker.
+    FramesCurrent,
+    FramesMain,
+    FramesWorker,
 }
 
-const INCR_NAMES: [&str; 25] = [
+const INCR_NAMES: [&str; 28] = [
     "updates",
     "restyled_matched",
     "restyled_cascaded",
@@ -821,6 +826,9 @@ const INCR_NAMES: [&str; 25] = [
     "intr_hits",
     "intr_misses",
     "intr_stops",
+    "frames_current",
+    "frames_main",
+    "frames_worker",
 ];
 
 /// Bottom-up relayout stops are counted per tree level (the last bucket takes every deeper level).
@@ -828,7 +836,7 @@ pub(crate) const INCR_LEVELS: usize = 8;
 
 #[derive(Default)]
 struct IncrCounters {
-    flat: [u64; 25],
+    flat: [u64; 28],
     /// QINC1h1: time of the incremental relayouts (and of the engine's from-scratch ones), ns.
     layout_ns: u64,
     layout_full_ns: u64,

@@ -1386,7 +1386,7 @@ fn lookup_css_image(url: &str, image_cache: &HashMap<String, Arc<DecodedImage>>)
     if let Some(img) = image_cache.get(url) {
         return Some(img.clone());
     }
-    if crate::incr_box::rebuilding() {
+    if crate::incr_box::quiet_wants() {
         return None;
     }
     WANTED_CSS_IMAGES.with(|w| {

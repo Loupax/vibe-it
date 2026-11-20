@@ -109,8 +109,9 @@ pub(crate) enum AppEvent {
     /// them pays for that on the stack (`clippy::large_enum_variant`);
     /// `self.cached: Option<Laid>` on the receiving end stays unboxed,
     /// same as before this plan.
-    /// The last field is the worker's next free paragraph id (QINC1b).
-    ShapeResult(u64, Box<Laid>, ShapeCache, bool, usize),
+    /// The last fields are the worker's next free paragraph id (QINC1b) and, on the complete
+    /// delivery of an engine job (QINC1j), the laid-out box-tree copy for the engine to adopt.
+    ShapeResult(u64, Box<Laid>, ShapeCache, bool, usize, Option<Box<crate::incr_frame::WorkerResult>>),
     /// A deferred hover restyle (R2.3) is due; see `App::update_hover`.
     HoverFlush,
     /// Q35b2: the image-relayout debounce window (`IMAGE_RELAYOUT_DEBOUNCE`)
@@ -627,6 +628,8 @@ pub(crate) struct ShapingRequest {
     pub(crate) reuse_shaping: bool,
     /// QINC1b: the App's paragraph-id counter; the worker never hands out an id below it.
     pub(crate) id_base: usize,
+    /// QINC1j: lay the tree out as the incremental engine does and return it for adoption.
+    pub(crate) engine: Option<crate::incr_box::WorkerJob>,
 }
 
 pub(crate) struct App {
@@ -643,7 +646,11 @@ pub(crate) struct App {
     /// take seconds under full bidi/complex-script shaping, worse on large
     /// or RTL-heavy pages) on every mouse-wheel tick is what made scrolling
     /// feel laggy.
-    pub(crate) cached: Option<Laid>,
+    /// QINC1j: shared with the incremental engine's kept tree when frames use it (a view, never
+    /// copied); otherwise the App's own.
+    pub(crate) cached: Option<Rc<Laid>>,
+    /// QINC1j: version of the engine tree `cached` shows (0: not the engine's).
+    pub(crate) live_ver: u64,
     pub(crate) cached_width: u32,
     /// Window height the cached tree was built for (`vh` units and the
     /// initial containing block depend on it).
@@ -1251,6 +1258,7 @@ impl App {
             swash_cache: SwashCache::new(),
             scroll_offset: 0.0,
             cached: None,
+            live_ver: 0,
             cached_width: 0,
             cached_height: 0,
             layout_dirty: true,
@@ -1354,6 +1362,7 @@ impl App {
             swash_cache: SwashCache::new(),
             scroll_offset: 0.0,
             cached: None,
+            live_ver: 0,
             cached_width: 0,
             cached_height: 0,
             layout_dirty: true,
@@ -1484,56 +1493,19 @@ impl App {
             self.cached_height = height;
         }
         let height_rebuild = self.cached_width == width && self.cached_height != height && self.cached.is_some();
+        if self.cached.is_some() && (self.cached_width, self.cached_height) != (width, height) {
+            crate::incr_frame::note_ambient(crate::incr_log::Ambient::Viewport);
+        }
         let need_rebuild = self.layout_dirty || self.cached_width != width || self.cached_height != height;
 
-        if need_rebuild && width_matches_pending {
-            // The DOM walk + cascade match itself stays synchronous,
-            // right here, on the main thread — `Handle` (`self.document`)
-            // is `Rc`-based, so it can never cross a thread boundary (see
-            // `spawn_shaping_worker`'s own docs). Only the `LayoutBox`
-            // tree this produces — plain owned data, no `Handle` left
-            // inside it — gets handed off below.
-            set_app_clock(self.nav_generation);
-            let build_started = std::time::Instant::now();
-            crate::style::KEEP_MATCH.with(|k| k.set(true));
-            self.build_stamp = crate::js_geom::render_stamp();
-            let tree = build_layout_tree_with_resources(&self.document, width as f32, Some(height as f32), &crate::images::with_adopted_css(&self.extra_css, &self.adopted_css), &self.image_cache);
-            crate::style::KEEP_MATCH.with(|k| k.set(false));
-            self.last_build_time = Some(build_started.elapsed());
-            if let Some(fs) = &mut self.frame_stats {
-                fs.build(build_started.elapsed());
-            }
-            self.anim.after_build(self.nav_generation, take_animation_report(), document_clock_ms());
-            fetch_wanted_css_images(&self.proxy, self.socket_path.as_deref(), self.base_url.as_ref(), &mut self.css_images_requested, self.nav_generation);
-            let late = crate::images::take_wanted_img_srcs();
-            fetch_late_images(&self.proxy, self.socket_path.as_deref(), self.base_url.as_ref(), &mut self.late_images_requested, &mut self.late_image_errors, self.nav_generation, late);
-            // Ids the worker is about to assign restart at `0` for this
-            // new tree (see `spawn_shaping_worker`'s own docs) — stale
-            // entries keyed by an old tree's ids would just be harmless
-            // dead weight otherwise, but clearing keeps this from
-            // growing unboundedly across many stdin chunks in
-            // streaming mode.
-            if !self.keep_scroll_on_rebuild {
-                self.scroll_offsets.clear();
-            }
-            self.keep_scroll_on_rebuild = false;
-            self.video.ctl_attr.clear();
-            self.state_rules = state_rules_mask();
-            self.reads_viewport_h = viewport_height_read();
-            self.hover_keys = HOVER_KEYS.with(|k| k.borrow().clone());
-            // R2.1: same document, new style/height -> keep painting the
-            // previous complete frame until the new one is fully shaped.
-            let restyle = (self.restyle_requested || height_rebuild || self.hold_old_frame) && self.cached.is_some();
-            self.restyle_requested = false;
-            self.hold_old_frame = restyle;
-            let reuse = restyle && self.cached_width == width;
-            self.cached_width = width;
-            self.cached_height = height;
-            self.layout_dirty = false;
-            self.layout_in_flight = true;
-            self.layout_generation += 1;
-            Self::queue_shaping_request(&self.shaping_requests, tree, width as f32, height as f32, self.layout_generation, reuse, self.next_para_id);
-        } else if need_rebuild {
+        let rebuild_now = need_rebuild && width_matches_pending;
+        if rebuild_now {
+            self.rebuild_layout(width, height, height_rebuild);
+        }
+        let (Some(window), Some(surface)) = (&self.window, &mut self.surface) else {
+            return;
+        };
+        if need_rebuild && !rebuild_now {
             window.request_redraw();
         }
 
@@ -1650,6 +1622,153 @@ impl App {
             js.media_set_targets(&targets);
             js.media_set_laid(&laid);
         }
+    }
+
+    /// The layout part of a frame (`redraw`'s rebuild branch; tests call it without a window).
+    pub(crate) fn rebuild_layout(&mut self, width: u32, height: u32, height_rebuild: bool) {
+        if crate::incr_frame::live() {
+            self.rebuild_live(width, height, height_rebuild);
+            return;
+        }
+        // The DOM walk + cascade match itself stays synchronous,
+        // right here, on the main thread — `Handle` (`self.document`)
+        // is `Rc`-based, so it can never cross a thread boundary (see
+        // `spawn_shaping_worker`'s own docs). Only the `LayoutBox`
+        // tree this produces — plain owned data, no `Handle` left
+        // inside it — gets handed off below.
+        set_app_clock(self.nav_generation);
+        let build_started = std::time::Instant::now();
+        crate::style::KEEP_MATCH.with(|k| k.set(true));
+        self.build_stamp = crate::js_geom::render_stamp();
+        let tree = build_layout_tree_with_resources(&self.document, width as f32, Some(height as f32), &crate::images::with_adopted_css(&self.extra_css, &self.adopted_css), &self.image_cache);
+        crate::style::KEEP_MATCH.with(|k| k.set(false));
+        self.last_build_time = Some(build_started.elapsed());
+        if let Some(fs) = &mut self.frame_stats {
+            fs.build(build_started.elapsed());
+        }
+        self.anim.after_build(self.nav_generation, take_animation_report(), document_clock_ms());
+        fetch_wanted_css_images(&self.proxy, self.socket_path.as_deref(), self.base_url.as_ref(), &mut self.css_images_requested, self.nav_generation);
+        let late = crate::images::take_wanted_img_srcs();
+        fetch_late_images(&self.proxy, self.socket_path.as_deref(), self.base_url.as_ref(), &mut self.late_images_requested, &mut self.late_image_errors, self.nav_generation, late);
+        // Ids the worker is about to assign restart at `0` for this
+        // new tree (see `spawn_shaping_worker`'s own docs) — stale
+        // entries keyed by an old tree's ids would just be harmless
+        // dead weight otherwise, but clearing keeps this from
+        // growing unboundedly across many stdin chunks in
+        // streaming mode.
+        if !self.keep_scroll_on_rebuild {
+            self.scroll_offsets.clear();
+        }
+        self.keep_scroll_on_rebuild = false;
+        self.video.ctl_attr.clear();
+        self.state_rules = state_rules_mask();
+        self.reads_viewport_h = viewport_height_read();
+        self.hover_keys = HOVER_KEYS.with(|k| k.borrow().clone());
+        // R2.1: same document, new style/height -> keep painting the
+        // previous complete frame until the new one is fully shaped.
+        let restyle = (self.restyle_requested || height_rebuild || self.hold_old_frame) && self.cached.is_some();
+        self.restyle_requested = false;
+        self.hold_old_frame = restyle;
+        let reuse = restyle && self.cached_width == width;
+        self.cached_width = width;
+        self.cached_height = height;
+        self.layout_dirty = false;
+        self.layout_in_flight = true;
+        self.layout_generation += 1;
+        Self::queue_shaping_request(&self.shaping_requests, tree, width as f32, height as f32, self.layout_generation, reuse, self.next_para_id, None);
+    }
+
+    /// QINC1j (R60 sections 3, 9): a frame through the incremental engine (`SCRATCHY_INCR=1`).
+    /// Incremental updates are shown at once; big ones go to the worker as before (the engine adopts
+    /// the result); nothing to lay out (a forced layout already did it) shows the engine's tree.
+    fn rebuild_live(&mut self, width: u32, height: u32, height_rebuild: bool) {
+        use crate::incr_frame::Frame;
+        set_app_clock(self.nav_generation);
+        let build_started = std::time::Instant::now();
+        self.build_stamp = crate::js_geom::render_stamp();
+        // The engine updates its tree in place when the App's view of it is the only other handle.
+        let shown = self.cached.take_if(|c| crate::incr_layout::owns(c)).is_some();
+        let css = crate::images::with_adopted_css(&self.extra_css, &self.adopted_css).into_owned();
+        let frame = crate::incr_frame::frame(&self.document, width as f32, height as f32, &css, &self.image_cache, &mut self.font_system);
+        if !matches!(frame, Frame::Current) {
+            self.last_build_time = Some(build_started.elapsed());
+            if let Some(fs) = &mut self.frame_stats {
+                fs.build(build_started.elapsed());
+            }
+            self.anim.after_build(self.nav_generation, take_animation_report(), document_clock_ms());
+            fetch_wanted_css_images(&self.proxy, self.socket_path.as_deref(), self.base_url.as_ref(), &mut self.css_images_requested, self.nav_generation);
+            let late = crate::images::take_wanted_img_srcs();
+            fetch_late_images(&self.proxy, self.socket_path.as_deref(), self.base_url.as_ref(), &mut self.late_images_requested, &mut self.late_image_errors, self.nav_generation, late);
+            if !self.keep_scroll_on_rebuild {
+                self.scroll_offsets.clear();
+            }
+            self.keep_scroll_on_rebuild = false;
+            self.video.ctl_attr.clear();
+            self.state_rules |= state_rules_mask();
+            self.reads_viewport_h |= viewport_height_read();
+            self.hover_keys = HOVER_KEYS.with(|k| k.borrow().clone());
+        }
+        let restyle = (self.restyle_requested || height_rebuild || self.hold_old_frame) && (self.cached.is_some() || shown);
+        self.restyle_requested = false;
+        let reuse = restyle && self.cached_width == width;
+        self.cached_width = width;
+        self.cached_height = height;
+        self.layout_dirty = false;
+        // A worker result still in flight is older than this frame.
+        self.layout_generation += 1;
+        match frame {
+            Frame::Current | Frame::Main => {
+                self.hold_old_frame = false;
+                match crate::incr_layout::view(if self.cached.is_none() && shown { self.live_ver } else { 0 }) {
+                    Some(v) => {
+                        let cache = if v.ver == self.live_ver && shown { std::mem::take(&mut self.shape_cache) } else { v.cache };
+                        self.live_ver = v.ver;
+                        self.install_laid(v.laid, cache, false);
+                    }
+                    None => self.layout_dirty = true,
+                }
+            }
+            Frame::Fresh(laid, cache) => {
+                self.hold_old_frame = false;
+                self.live_ver = 0;
+                self.install_laid(Rc::new(laid), cache, false);
+            }
+            Frame::Worker(tree, job) => {
+                if shown && self.cached.is_none() {
+                    // Keep painting the engine's (now stale) tree until the worker's arrives.
+                    self.cached = crate::incr_layout::view(self.live_ver).map(|v| v.laid);
+                }
+                let restyle = restyle && self.cached.is_some();
+                self.hold_old_frame = restyle;
+                self.layout_in_flight = true;
+                let id_base = self.next_para_id.max(crate::incr_layout::next_id());
+                // Tests: no event loop delivers the worker's result; lay it out here, the same way.
+                #[cfg(test)]
+                {
+                    let _ = reuse;
+                    self.shape_inline(tree, width as f32, height as f32, id_base, job);
+                }
+                #[cfg(not(test))]
+                Self::queue_shaping_request(&self.shaping_requests, tree, width as f32, height as f32, self.layout_generation, reuse, id_base, job);
+            }
+        }
+    }
+
+    /// Test stand-in for the shaping worker (no event loop delivers its result).
+    #[cfg(test)]
+    fn shape_inline(&mut self, tree: LayoutBox, w: f32, h: f32, id_base: usize, job: Option<crate::incr_box::WorkerJob>) {
+        let (mut cache, mut next, mut inc) = (ShapeCache::new(), id_base, false);
+        let far = std::time::Instant::now() + std::time::Duration::from_secs(3600);
+        let (laid, adopt) = match job {
+            Some(job) => {
+                let (laid, root_h) = crate::incr_layout::worker_measure(&tree, &mut self.font_system, w, h, &mut next, &mut cache, far, &mut inc, &job.ver);
+                (laid, Some(Box::new(crate::incr_frame::WorkerResult { tree, job, root_h, vw: w, vh: h })))
+            }
+            None => (measure_document(&tree, &mut self.font_system, w, h, &mut next, &mut cache, far, &mut inc), None),
+        };
+        self.next_para_id = self.next_para_id.max(next);
+        let generation = self.layout_generation;
+        self.handle_shape_result_job(generation, Box::new(laid), cache, false, adopt.map(|a| (a, next)));
     }
 
     /// QM1g1: an mpv frame is ready. Renders it and, when the page itself is
@@ -1926,11 +2045,12 @@ impl App {
     /// own caller already holds `self.window`/`self.surface` borrowed
     /// apart from the rest of `self` (see its own destructuring `let`),
     /// which an `&self` method call can't see past.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn queue_shaping_request(
         requests: &mpsc::Sender<ShapingRequest>, tree: LayoutBox, width: f32, height: f32, generation: u64,
-        reuse_shaping: bool, id_base: usize,
+        reuse_shaping: bool, id_base: usize, engine: Option<crate::incr_box::WorkerJob>,
     ) {
-        let _ = requests.send(ShapingRequest { tree, width, height, generation, reuse_shaping, id_base });
+        let _ = requests.send(ShapingRequest { tree, width, height, generation, reuse_shaping, id_base, engine });
     }
 
     /// Starts the persistent background shaping worker — called once,
@@ -2012,7 +2132,7 @@ impl App {
                 while let Ok(newer) = rx.try_recv() {
                     request = newer;
                 }
-                let ShapingRequest { tree, width, height, generation, reuse_shaping, id_base } = request;
+                let ShapingRequest { tree, width, height, generation, reuse_shaping, id_base, engine } = request;
                 if !reuse_shaping {
                     crate::layout::memo_clear();
                     // A new document: nothing in the cache can be live.
@@ -2059,7 +2179,16 @@ impl App {
                     // event; `shape_cache` is this request's own local
                     // value regardless, already discarded either way.
                     let worker_t0 = crate::frame_stats::worker_timing().then(std::time::Instant::now);
+                    let mut root_h = 0.0f32;
                     let measured = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        // QINC1j: an engine job records every `Ck` (the main thread adopts it).
+                        if let Some(job) = &engine {
+                            let (laid, h) = crate::incr_layout::worker_measure(
+                                &tree, &mut font_system, width, height, &mut next_id, &mut shape_cache, deadline, &mut incomplete, &job.ver,
+                            );
+                            root_h = h;
+                            return laid;
+                        }
                         measure_document(
                             &tree,
                             &mut font_system,
@@ -2104,7 +2233,14 @@ impl App {
                         crate::layout::sweep_shape_cache(&mut shape_cache, &live);
                         last_live = live;
                     }
-                    if proxy.send_event(AppEvent::ShapeResult(generation, Box::new(laid), shape_cache.clone(), incomplete, worker_next_id)).is_err() {
+                    if !incomplete && let Some(job) = engine {
+                        // The tree goes back with its layout (the `Ck`s point into it).
+                        let r = crate::incr_frame::WorkerResult { tree, job, root_h, vw: width, vh: height };
+                        let _ = proxy.send_event(AppEvent::ShapeResult(generation, Box::new(laid), shape_cache.clone(), false, worker_next_id, Some(Box::new(r))));
+                        finished = true;
+                        break;
+                    }
+                    if proxy.send_event(AppEvent::ShapeResult(generation, Box::new(laid), shape_cache.clone(), incomplete, worker_next_id, None)).is_err() {
                         return; // the event loop (and App) is gone
                     }
                     if !incomplete {
@@ -2221,7 +2357,21 @@ impl App {
         self.replace_document(parse_html(&html), String::new());
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // the event loop passes the engine job (`handle_shape_result_job`)
     pub(crate) fn handle_shape_result(&mut self, generation: u64, laid: Box<Laid>, shape_cache: ShapeCache, incomplete: bool) {
+        self.handle_shape_result_job(generation, laid, shape_cache, incomplete, None)
+    }
+
+    /// `handle_shape_result`, plus (QINC1j) the worker's box-tree copy of an engine job for the
+    /// engine to adopt with the complete layout (and the worker's next paragraph id).
+    pub(crate) fn handle_shape_result_job(
+        &mut self,
+        generation: u64,
+        laid: Box<Laid>,
+        shape_cache: ShapeCache,
+        incomplete: bool,
+        adopt: Option<(Box<crate::incr_frame::WorkerResult>, usize)>,
+    ) {
         // Same staleness guard `NavResult`/`ImageFetched` already
         // use, tagged with `layout_generation` instead of `nav_
         // generation` — a background shaping pass that only
@@ -2243,6 +2393,16 @@ impl App {
             }
             self.hold_old_frame = false;
         }
+        let laid = Rc::new(*laid);
+        self.live_ver = match adopt {
+            Some((r, next_id)) if !incomplete => crate::incr_frame::adopt_worker_result(*r, &laid, &shape_cache, next_id),
+            _ => 0,
+        };
+        self.install_laid(laid, shape_cache, incomplete);
+    }
+
+    /// Shows a laid tree (a worker delivery or, QINC1j, the engine's tree) with its shape cache.
+    fn install_laid(&mut self, laid: Rc<Laid>, shape_cache: ShapeCache, incomplete: bool) {
         if !incomplete {
             self.layout_in_flight = false;
             if self.js_restyle_pending {
@@ -2261,7 +2421,7 @@ impl App {
         // is a strict superset of the last delivery's, same
         // generation, same underlying tree).
         self.shape_cache = shape_cache;
-        self.cached = Some(*laid);
+        self.cached = Some(laid);
         self.restore_node_scroll();
         self.refresh_cursor();
         // Q31b: a fragment from a cross-page navigation waits for
@@ -2523,6 +2683,7 @@ impl App {
             self.js_dispatch(ev.node.as_ref(), ev.kind, &init);
         }
         if t.restyle {
+            crate::incr_frame::note_ambient(crate::incr_log::Ambient::AnimTick);
             if self.layout_in_flight && !self.layout_dirty {
                 self.js_restyle_pending = true;
             } else {
@@ -2731,6 +2892,7 @@ impl App {
         };
         let size = (image.width, image.height);
         self.image_cache.insert(src.clone(), Arc::new(image));
+        crate::incr_frame::note_ambient(crate::incr_log::Ambient::Image);
         self.image_settled(&src, Some(size));
         // A newly-arrived image can change this element's own
         // intrinsic size (no explicit CSS/HTML width/height —
@@ -2901,6 +3063,7 @@ impl App {
         let old = std::mem::replace(&mut self.interaction, new);
         let new = &self.interaction;
         set_interaction(new);
+        crate::incr_frame::note_ambient(crate::incr_log::Ambient::Interaction);
         let mut changed = 0;
         if old.hover != new.hover {
             changed |= STATE_HOVER;
@@ -3199,6 +3362,11 @@ impl App {
             set_interaction(&self.interaction);
             return true;
         }
+        // QINC1j: with the engine, a hover is an ordinary (incremental) frame: the match-memo and
+        // paint-patch shortcuts below are bypassed.
+        if crate::incr_frame::live() {
+            return false;
+        }
         // QY53n1: nothing pending and the last build's matches kept: re-match
         // only the elements the change can affect; none changed -> no build.
         if self.layout_dirty || self.restyle_requested || self.state_rules & STATE_HOVER == 0 {
@@ -3222,7 +3390,7 @@ impl App {
         if let Some(diff) = diff
             && !self.layout_in_flight
             && !self.hold_old_frame
-            && let Some(laid) = self.cached.as_mut()
+            && let Some(laid) = self.cached.as_mut().and_then(Rc::get_mut)
         {
             let r = crate::hover_patch::paint_patch(
                 &self.document,
@@ -4200,6 +4368,10 @@ impl ApplicationHandler<AppEvent> for App {
     /// clean exit and on the ExitFailure path, before it drops the event loop).
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
         self.wl_drain.take();
+        // QINC1j: with frame stats on, the window's engine counters (the gate reads them).
+        if self.frame_stats.is_some() && (crate::incr_frame::live() || crate::incr_style::checking()) {
+            diag!("scratchy: incr: {}", crate::perf::incr_json());
+        }
     }
 
     /// Q33t: run due JS timers, then sleep until the next one (or
@@ -4330,9 +4502,9 @@ impl ApplicationHandler<AppEvent> for App {
             AppEvent::JsNet(generation, id, result, completed) => self.handle_js_net(generation, id, result, completed),
             AppEvent::JsWs => self.handle_js_ws(),
             AppEvent::ImageFetched(generation, src, image) => self.handle_image_fetched(generation, src, image),
-            AppEvent::ShapeResult(generation, laid, shape_cache, incomplete, next_id) => {
+            AppEvent::ShapeResult(generation, laid, shape_cache, incomplete, next_id, adopt) => {
                 self.next_para_id = self.next_para_id.max(next_id);
-                self.handle_shape_result(generation, laid, shape_cache, incomplete)
+                self.handle_shape_result_job(generation, laid, shape_cache, incomplete, adopt.map(|a| (a, next_id)))
             }
             AppEvent::MetaRefresh(generation, target) => self.handle_meta_refresh(generation, target),
             AppEvent::ImageFlush => {

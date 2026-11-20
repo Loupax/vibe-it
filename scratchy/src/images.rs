@@ -292,7 +292,7 @@ thread_local! {
 }
 
 fn note_wanted_img_src(src: &str) {
-    if src.trim().is_empty() || crate::incr_box::rebuilding() {
+    if src.trim().is_empty() || crate::incr_box::quiet_wants() {
         return;
     }
     WANTED_IMG_SRCS.with(|w| {

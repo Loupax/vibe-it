@@ -1119,6 +1119,66 @@ images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom
   frames, image arrival, resize, link CSS arrival, a JS write + forced read + frame (the frame does no layout: counter);
   existing suite with the flag off. Gate: R55 recipes (Wikipedia, YouTube watch; nested window, 3 interleaved pairs, flock):
   App `builds.ms` per run, frame `lat_p95`, `_CHECK=1` 0 mismatches.
+  QINC1j DONE (Opus, 2026-11-20; `src/incr_frame.rs`, glue in `incr_style.rs` / `incr_box.rs` / `incr_layout.rs`, App
+  in `app.rs`; tests `src/tests/incr_frame_tests.rs`): with `SCRATCHY_INCR=1` every App frame goes through
+  `incr_frame::frame`: **Current** (the engine's laid tree already shows the page: no DOM / CSS write in the log, same
+  interaction state, viewport, image cache, media sizes, no running animation, nothing waiting for a relayout; a forced
+  layout since the last frame lands here, whichever path updated the engine, so it works before and after QINC1i),
+  **Main** (incremental restyle + box update + relayout on the main thread, installed at once: no worker round trip,
+  no `hold_old_frame`), **Worker** (first layout, width change, new rule-list generation, Global log, arena reset:
+  from-scratch build whose shadow stage restarts the kept trees; restyled share > 25 % AND >= 200 elements restyled,
+  or the relayout cannot run incrementally: a COPY of the kept box tree). The worker lays an engine job out with
+  `incr_layout::worker_measure` (every element `Laid` records its `Ck`, with the box engine's `bver` table shipped to
+  the worker thread) and sends the tree back with the complete result; the engine adopts both when the kept tree has
+  not changed since the copy (tree `EPOCH`), else `adopt_refused`. `App::cached` is `Option<Rc<Laid>>`: with the flag
+  it is the engine's kept tree itself (copy on write: `SharedLaid`; the App drops its handle before a frame update, a
+  forced layout between two frames pays one deep copy), with its shape cache cloned once per new version. Hover
+  match-memo / paint-patch paths (QY53n1/n2/n3) are bypassed with the flag. App-side inputs log `Change::Ambient`
+  (interaction, viewport, image, media size, animation tick); the engine diffs their state itself. A live rebuild
+  fills the App's "wanted image / CSS image" tables (a shadow rebuild still leaves them alone). Live restyles create
+  and report animation start times (`anim_eval::finish_report_only`) and age them by membership
+  (`Engine::age_animations`). Check mode (`SCRATCHY_INCR_CHECK=1`, and every test) re-runs a from-scratch build +
+  layout after each Main frame through the shadow comparisons; a mismatch shows the from-scratch layout. With frame
+  stats on, the window prints its `incr` counters at exit (`scratchy: incr: {...}`); new counters
+  `incr.frames_current/main/worker`, `worker_fallbacks` reasons. With the flag unset nothing of this runs.
+  Tests (10, App-level, through a shared event-loop proxy; the worker result is laid out inline in tests): paint-only
+  and layout hovers (Main, then Current), focus, animation frames at 250/500/750 ms, image arrival (only the reading
+  boxes rebuilt), resize (height = Main, width = Worker + adoption, then Current and Main), link CSS arrival (new
+  generation = Worker, then Main), a JS write + forced read + frame (Current: `updates`, `box_updates`,
+  `layout_updates` unchanged by the frame; the frame shows the forced layout's tree), big restyle (Worker with the
+  kept-tree copy, adopted), media-size logging, flag off = old path. Suite 1 516 passed (debug, 46 s), WPT unchanged
+  (333 / 293), clippy 77.
+  Gate (release, own wire per run, own nested dwl 960x1006, R55 input: Wikipedia Rust 52 s with 6 rounds x 8 links
+  x 600 ms; YouTube watch G1AeBgalFZk 56 s, click on play then 6 rounds x 8 positions; flag off vs `SCRATCHY_INCR=1`
+  of the SAME binary, interleaved, order flipped per round, every run under `flock /tmp/scratchy-perf.lock` and the 6G
+  scope; 1-min load 0.2-2.8 for the pairs; `builds` = main-thread frame work, `worker` = shaping-worker ms;
+  `lat_p95` = median over the seconds with input of the per-second p95):
+  | page, pair | off: builds n / ms, worker ms, lat_p95 | INCR=1: builds n / ms, worker ms, lat_p95 |
+  |---|---|---|
+  | Wikipedia 1 | 104 / 9 633, 2 021, 217 ms | 151 / 3 852, 209, 45 ms |
+  | Wikipedia 2 | 104 / 9 591, 1 987, 212 ms | 153 / 4 163, 225, 182 ms |
+  | Wikipedia 5 | 104 / 9 719, 2 061, 216 ms | 152 / 4 199, 228, 185 ms |
+  | Wikipedia 3, 4 (page stalled in both: 19-22 builds) | 19 / 1 523; 20 / 1 601 | 22 / 1 384; 20 / 715 |
+  | YouTube, "active" runs (~310 builds off) | 312 / 11 470, 1 363, 36 ms; 308 / 11 986, 1 404, 29 ms | 503 / 5 071, 107, 30 ms; 360 / 6 075, 150, 82 ms |
+  | YouTube, "quiet" runs (63-69 builds off) | 66 / 2 690; 63 / 2 426; 69 / 2 970 | 81 / 4 450; 89 / 5 432; 57 / 2 612 |
+  Wikipedia: main-thread build time -57 % (9.6 s -> 3.9-4.2 s) and worker time -89 % (2.0 s -> 0.2 s); the frames
+  are 147 Main + 5 Worker (first layout, 2 new generations, ...). YouTube runs fall in two regimes for both binaries
+  (the same input; probably whether playback starts), so they do not pair: in the active regime INCR=1 halves the
+  build time; in the quiet regime it is +50-80 % WORSE. Cause (temporary timing diag, removed): hovering in and out of
+  `ytd-app` / `div#content.ytd-app` makes the invalidation map mark 7 510-7 556 descendants (`:hover` descendant
+  sets), so the engine re-matches 4 061 of 4 289 styled elements, taking ~290 ms per such frame (~70 us per element,
+  the from-scratch build does the WHOLE page in ~40 ms, ~10 us per element); 12-13 such frames per run go on to the
+  worker (`restyled_share`). Forced layouts with INCR=1 are also slower (the shadow stage's update runs after each; and
+  their empty image cache makes the next frame rebuild every image box: QINC1i's "window image cache" fixes that).
+  `SCRATCHY_INCR_CHECK=1`: Wikipedia 3 runs, YouTube 2 runs: **0 mismatches** (YouTube: 33 Current / 127 Main / 13
+  Worker frames in one run; Wikipedia: 18 Main / 3 Worker). RSS at the end: Wikipedia off 335-342 MB vs INCR=1
+  347-364 MB; YouTube off 472-489 vs 498-563 MB (the kept trees; no second laid tree any more for App frames).
+  Proposed: QINC1j-a (engine restyle cost: ~70 us per re-matched element vs ~10 us in the build: the 6 match slots
+  per element and the per-update environment; a full / near-full restyle should cost what a build costs, or the
+  engine should adopt the build's styles instead of re-resolving after a from-scratch build), QINC1j-b (invalidation
+  precision: `:hover` on `ytd-app` marks 7.5k descendants; find the rules and filter the descendant set by the
+  subject's features), QINC1j-c (App-level tests share one event loop per test process: ~20 existing App tests build
+  their own and silently return when another test holds it; move them to the shared proxy in incr_frame_tests.rs).
 - **QINC1k [M]** (P2, Opus, measure only, docs; AFTER QINC1i, j, h2) Exactness sweep and gates (R60 section 12):
   `SCRATCHY_INCR_CHECK=1` headless + window on YouTube results (R58 recipe), YouTube watch (R50/R55 recipes), Wikipedia (R55),
   github.com, bbc.com/news, social.loupax.com/discover: 0 mismatches (each mismatch = a P1 fix item); then `SCRATCHY_INCR=1`

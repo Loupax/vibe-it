@@ -45,7 +45,6 @@ pub(crate) fn set_readonly(on: bool) -> bool {
 /// animation whose `(node, is pseudo)` the incremental engine no longer lists as animated (the
 /// element lost its animation or left the document); every other start time is kept, whether or not
 /// the element was restyled. Not called while the engine runs in shadow mode (the build's pass ages).
-#[allow(dead_code)] // via `incr_style::Engine::age_animations`
 pub(crate) fn retain_starts(keep: impl Fn(usize, bool) -> bool) {
     ANIM_STARTS.with(|s| s.borrow_mut().retain(|k, e| e._node.strong_count() > 0 && keep(k.0, k.1)));
 }
@@ -164,6 +163,18 @@ pub(crate) fn finish_animation_pass() {
     let pass = ANIM_PASS.with(|p| p.get());
     ANIM_STARTS.with(|s| s.borrow_mut().retain(|_, e| e.seen == pass));
     ANIM_PASS.with(|p| p.set(pass + 1));
+    let mut rep = ANIM_REPORT.with(|r| std::mem::take(&mut *r.borrow_mut()));
+    let mut seen = std::collections::HashSet::new();
+    rep.reverse();
+    rep.retain(|r| seen.insert(r.key.clone()));
+    rep.reverse();
+    ANIM_LAST.with(|l| *l.borrow_mut() = rep);
+}
+
+/// QINC1j: the end of an App frame's incremental restyle: the animations it styled become the
+/// report (as `finish_animation_pass`), without ageing by pass (the engine ages by membership, and
+/// every animated element is re-cascaded on every update, so the report lists all of them).
+pub(crate) fn finish_report_only() {
     let mut rep = ANIM_REPORT.with(|r| std::mem::take(&mut *r.borrow_mut()));
     let mut seen = std::collections::HashSet::new();
     rep.reverse();

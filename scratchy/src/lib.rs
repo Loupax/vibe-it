@@ -115,6 +115,7 @@ mod incr_diff;
 mod incr_cmp;
 mod incr_box;
 mod incr_layout;
+mod incr_frame;
 mod stack;
 mod frame_stats;
 mod js_modules;

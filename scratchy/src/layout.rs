@@ -231,6 +231,29 @@ pub struct LayoutBox {
 
 // ---------- measure + paint ----------
 
+/// QINC1j: a deep copy (the incremental engine's kept tree is copied on write while the App's view
+/// still holds it). Recursion grows the stack (deep documents).
+impl Clone for Laid {
+    fn clone(&self) -> Laid {
+        crate::stack::grow(|| Laid {
+            style: self.style,
+            x: self.x,
+            y: self.y,
+            w: self.w,
+            h: self.h,
+            background_image: self.background_image.clone(),
+            content: self.content.clone(),
+            positioned: self.positioned.clone(),
+            fixed: self.fixed,
+            sticky: self.sticky,
+            scroll: self.scroll,
+            ink: self.ink,
+            zb: self.zb.clone(),
+            ck: self.ck.clone(),
+        })
+    }
+}
+
 /// A laid-out box: resolved border-box rect (absolute document coordinates,
 /// not yet scroll-adjusted) plus either its laid-out children or a stable id
 /// identifying its shaped text in the shape cache (see `measure`).
@@ -311,6 +334,7 @@ pub struct Laid {
 /// QINC1h1 (R60 4.3, 8.2): the constraints an element `Laid` was measured at, what its measure
 /// emitted past it, and the engine's ink / in-flow-bottom bookkeeping. A clean box (same `bver`)
 /// measured again at the same key minus the origin is its old `Laid` shifted by the origin delta.
+#[derive(Clone)]
 pub(crate) struct Ck {
     /// `measure` inputs: origin, width, containing height, overrides, "inside a static inline-block".
     pub(crate) x: f32,
@@ -425,7 +449,7 @@ pub(crate) struct CkPos {
 ///   extent of an inline run and "had in-flow children" of a box whose in-flow children were
 ///   moved out (`first_baseline`, `last_line_extent`, collapsing through an empty block). Set only
 ///   on a box that moved such a child; shifted with the box.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct ZInfo {
     #[allow(clippy::vec_box)] // boxed on purpose: passing an entry up moves a pointer, not a 1.5 KB Laid
     pub(crate) bubble: Vec<Box<Laid>>,
@@ -1266,6 +1290,7 @@ pub(crate) fn resolve_positioned<'a>(
     laid
 }
 
+#[derive(Clone)]
 pub(crate) enum LaidContent {
     Blocks(Vec<Laid>),
     Text(usize),
@@ -1296,6 +1321,7 @@ pub(crate) enum LaidContent {
 /// free instead of a second, parallel painting path — this variant was
 /// named `Image` before `inline-block`/`inline-flex` existed, back when
 /// an inline `<img>` was the only thing it could ever hold.
+#[derive(Clone)]
 pub(crate) enum MixedPositioned {
     Word { id: usize, x: f32, y: f32, w: f32, h: f32 },
     Embedded(Box<Laid>),

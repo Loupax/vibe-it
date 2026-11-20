@@ -107,7 +107,16 @@ thread_local! {
 }
 
 pub(crate) fn set_intrinsic(sizes: HashMap<usize, (u32, u32)>) {
-    INTRINSIC.with(|m| *m.borrow_mut() = sizes);
+    let changed = INTRINSIC.with(|m| {
+        let mut m = m.borrow_mut();
+        let changed = *m != sizes;
+        *m = sizes;
+        changed
+    });
+    if changed {
+        // QINC1j: a media size arrived / changed (the box engine diffs the sizes it read).
+        crate::incr_frame::note_ambient(crate::incr_log::Ambient::MediaSize);
+    }
 }
 pub(crate) fn intrinsic(node: usize) -> Option<(u32, u32)> {
     INTRINSIC.with(|m| m.borrow().get(&node).copied())
