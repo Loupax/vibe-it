@@ -781,6 +781,18 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         }
     });
     let t = table.clone();
+    // QPT1c: the root of `id`'s tree (a document, or a detached node; `id` itself when it has no parent).
+    native!(ctx, "__d_root", move |id: i32| -> i32 {
+        let mut t = t.borrow_mut();
+        let Some(mut h) = t.get(id) else { return id };
+        let mut moved = false;
+        while let Some(p) = parent_handle(&h) {
+            h = p;
+            moved = true;
+        }
+        if moved { t.intern(&h) } else { id }
+    });
+    let t = table.clone();
     native!(ctx, "__d_parent", move |id: i32| -> i32 {
         let mut t = t.borrow_mut();
         match t.get(id).and_then(|h| parent_handle(&h)) {
@@ -1571,8 +1583,29 @@ const DOM_PRELUDE: &str = r#"
   var moBegin = function () { if (moN > 0 && !moBatch) { moBatch = []; return true; } return false; };
   var moEnd = function (own) { if (own) moFlush(); };
   var queries, svgProto = Object.create(null);
+  // QPT1c (R53 D7): ONE wrapper per node across every realm of the page, made by (and with the
+  // prototypes of) the realm that owns the node's document, as in Chrome. An iframe realm shares
+  // the page's `cache`, `owners` and `xr` (bound in `__d_bind_doc`); `xr.byDoc` maps a document id
+  // to the `mk` of the realm that owns it, and `xr.n` counts the live iframe realms (0: no lookup).
+  // `mine`/`myDocs`: the wrappers and documents an iframe realm made (purged when it is dropped).
+  var xr = { n: 0, byDoc: {} }, mine = null, myDocs = null;
+  var ownerDocId = function (id) {
+    var r = __d_root(id);
+    if (__d_kind(r) === 9) return r;
+    var od = owners[r] || owners[id];
+    return od ? od.__id : -1;
+  };
   var wrap = function (id) {
     if (id === undefined || id < 0) return null;
+    var o = cache[id];
+    if (o) return o;
+    if (xr.n) {
+      var ow = xr.byDoc[ownerDocId(id)];
+      if (ow && ow !== mk) return ow(id);
+    }
+    return mk(id);
+  };
+  var mk = function (id) {
     if (cache[id]) return cache[id];
     var k = __d_kind(id), raw = k === 1 ? __d_tag(id) : '', tg = raw.toLowerCase(), eP = null;
     if (k === 1) {
@@ -1586,7 +1619,13 @@ const DOM_PRELUDE: &str = r#"
       : k === 3 ? Text.prototype : k === 8 ? Comment.prototype : k === 11 ? DocumentFragment.prototype
       : k === 10 ? DocumentType.prototype : Node.prototype);
     Object.defineProperty(o, '__id', { value: id });
-    return (cache[id] = o);
+    cache[id] = o;
+    if (mine) {
+      mine.push(id);
+      // A detached root made here belongs to this realm's document (so another realm delegates).
+      if (owners[id] === undefined && __d_parent(id) < 0) owners[id] = doc;
+    }
+    return o;
   };
   var wrapAll = function (ids) { return ids.map(function (id) { return wrap(id); }); };
   var bad = function (sel) {
@@ -2139,7 +2178,8 @@ const DOM_PRELUDE: &str = r#"
   doc.adoptNode = function (n) {
     if (!n || n.__id === undefined) throw new TypeError("Failed to execute 'adoptNode' on 'Document': parameter 1 is not of type 'Node'.");
     if (n.nodeType === 9) throw herr("Failed to execute 'adoptNode' on 'Document': The node provided is a document.", 'NotSupportedError');
-    __d_remove(n.__id); delete owners[n.__id]; return n;
+    // QPT1c: the adopter is recorded (not just forgotten): the node may be another realm's wrapper.
+    __d_remove(n.__id); owners[n.__id] = doc; return n;
   };
   doc.createElement = function (t) { t = String(t); checkName('createElement', t); return wrap(__d_create(1, t)); };
   doc.createElementNS = function (ns, t) {
@@ -2754,15 +2794,21 @@ const DOM_PRELUDE: &str = r#"
   var ARP = mkProto('HTMLAreaElement', ['area']);
   ['alt', 'coords', 'shape', 'href', 'target', 'rel'].forEach(function (p) { rStr(ARP, p, p); });
   cache[0] = doc;
+  xr.byDoc[0] = mk;
   // `configurable` only so that an iframe realm can rebind it once (`__d_bind_doc`).
   Object.defineProperty(doc, '__id', { value: 0, configurable: true });
   // QPT1a (R53 D2): an iframe realm (a context from the startup snapshot, whose `document` is id 0
   // here) binds its `document` to the iframe's second document `id`; `base` = the creator's base URL
   // (an about:blank document's fallback base). Builds <html><head><body> in an empty document.
   var baseFallback = null;
-  Object.defineProperty(g, '__d_bind_doc', { value: function (id, base) {
+  Object.defineProperty(g, '__d_bind_doc', { value: function (id, base, shared) {
     delete g.__d_bind_doc;
     delete cache[doc.__id];
+    if (shared) {
+      // QPT1c: the page-wide wrapper cache, owners and realm table (this realm's own are dropped).
+      cache = shared.cache; owners = shared.owners; xr = shared.xr;
+      mine = []; myDocs = [id]; xr.byDoc[id] = mk; xr.n++;
+    }
     cache[id] = doc;
     Object.defineProperty(doc, '__id', { value: id, configurable: false });
     baseFallback = base || null;
@@ -2873,6 +2919,8 @@ const DOM_PRELUDE: &str = r#"
     var id = __d_newdoc();
     var d = Object.create(doc);
     cache[id] = d;
+    xr.byDoc[id] = mk;
+    if (myDocs) myDocs.push(id);
     Object.defineProperty(d, '__id', { value: id });
     var own = { readyState: 'complete', URL: 'about:blank', documentURI: 'about:blank', baseURI: 'about:blank',
       contentType: ct, compatMode: html ? 'CSS1Compat' : 'CSS1Compat', characterSet: 'UTF-8', title: undefined };
@@ -3006,7 +3054,7 @@ const DOM_PRELUDE: &str = r#"
         var did = __d_newdoc();
         if (pg.length) { __d_load_html(did, pg[1]); href = pg[0]; }
         var dim = function (a, dflt) { var v = parseInt(__d_attr(el.__id, a) || '', 10); return v >= 0 ? v : dflt; };
-        w.__scratchy_realm_init({ docId: did, href: href, base: pg.length ? null : doc.baseURI, parent: g, top: g.top,
+        w.__scratchy_realm_init({ docId: did, dom: { cache: cache, owners: owners, xr: xr }, href: href, base: pg.length ? null : doc.baseURI, parent: g, top: g.top,
           frameElement: el, name: __d_attr(el.__id, 'name') || '', width: dim('width', 300), height: dim('height', 150) });
         nFrames++;
         return (frames[el.__id] = { doc: w.document, win: w, el: el, realm: true });
@@ -3054,13 +3102,42 @@ const DOM_PRELUDE: &str = r#"
     }
   };
   Object.defineProperty(g, '__d_frames_drop_all', { value: function () { for (var k in frames) dropFrame(k); } });
+  // QPT1c (R53 D7): a dropped realm takes out of the page-wide tables what is still its own: the
+  // wrappers of nodes in its documents (or detached ones it made), its documents, and the owners
+  // entries naming them, so nothing keeps its context alive. A node moved into another document
+  // keeps its wrapper (and that wrapper keeps the realm's prototypes, as in Chrome).
+  Object.defineProperty(g, '__d_realm_purge', { value: function () {
+    if (!mine) return;
+    var docs = {}, i, id;
+    for (i = 0; i < myDocs.length; i++) docs[myDocs[i]] = 1;
+    for (i = 0; i < mine.length; i++) {
+      var d = ownerDocId(mine[i]);
+      if (d < 0 || docs[d]) delete cache[mine[i]];
+    }
+    for (id in owners) if (docs[owners[id].__id]) delete owners[id];
+    for (i = 0; i < myDocs.length; i++) { delete cache[myDocs[i]]; if (xr.byDoc[myDocs[i]] === mk) delete xr.byDoc[myDocs[i]]; }
+    xr.n--; mine = myDocs = null;
+  } });
   var sweepFrames = function () {
     if (!nFrames) return;
     for (var k in frames) if (!inPage(frames[k].el)) dropFrame(k);
   };
   var sfRem = __d_remove, sfHtml = __d_sethtml, sfTxt = __d_settext, sfSet = __d_setattr, sfRm = __d_rmattr, sfSq = __d_setq, sfRq = __d_rmq;
   var isSrc = function (n) { n = String(n).toLowerCase(); return n === 'src' || n === 'srcdoc'; };
-  __d_remove = function (id) { sfRem(id); sweepFrames(); };
+  // QPT1c: while iframe realms exist, a removed node remembers the document it left (its wrapper
+  // may come from another realm, whose `ownerDocument` fallback is that realm's document).
+  __d_remove = function (id) {
+    if (xr.n) { var r = __d_root(id); if (r !== id && __d_kind(r) === 9) owners[id] = wrap(r); }
+    sfRem(id); sweepFrames();
+  };
+  // QPT1c: a node with a recorded owner that is inserted under a document now belongs to that
+  // document (so it still does after a later removal; e.g. an iframe node moved into the page).
+  var sfIns = __d_insert;
+  __d_insert = function (p, c, b) {
+    var ok = sfIns(p, c, b);
+    if (ok && owners[c] !== undefined) { var r = __d_root(p); if (__d_kind(r) === 9) owners[c] = wrap(r); }
+    return ok;
+  };
   __d_sethtml = function (id, h) { sfHtml(id, h); sweepFrames(); };
   __d_settext = function (id, t) { sfTxt(id, t); sweepFrames(); };
   __d_setattr = function (id, n, v) { sfSet(id, n, v); if (nFrames && isSrc(n)) dropFrame(id); };
