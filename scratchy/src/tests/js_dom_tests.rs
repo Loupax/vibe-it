@@ -1509,6 +1509,50 @@ fn qpt1c_mutation_observers_see_the_same_wrapper_in_both_realms() {
 }
 
 #[test]
+fn qpt1c2_page_observer_sees_mutations_made_by_realm_code_on_the_iframe_document() {
+    let log = run_with_timers(
+        "var f=document.createElement('iframe'); document.body.appendChild(f); var w=f.contentWindow, d=f.contentDocument;\
+         var b=d.body, t=d.createTextNode('a'); b.appendChild(t);\
+         var got=[]; new MutationObserver(function(r){ r.forEach(function(x){ got.push(x.type+':'+(x instanceof MutationRecord)+':'+(x instanceof w.MutationRecord)+':'+(x.target===b||x.target===t)); }); }).observe(b,{childList:true,attributes:true,characterData:true,subtree:true});\
+         w.eval(\"var b=document.body; b.appendChild(document.createElement('i')); b.setAttribute('x','1'); b.firstChild.data='zz';\");\
+         setTimeout(function(){ console.log('page', got.join(',')); }, 5);",
+    );
+    let l = log.iter().find(|l| l.starts_with("log:page")).unwrap_or_else(|| panic!("{log:?}"));
+    for want in ["childList:true:false:true", "attributes:true:false:true", "characterData:true:false:true"] {
+        assert!(l.contains(want), "missing {want} in {l} {log:?}");
+    }
+}
+
+#[test]
+fn qpt1c2_realm_observer_sees_page_mutations_with_its_own_record_prototype() {
+    let log = run_with_timers(
+        "var f=document.createElement('iframe'); document.body.appendChild(f); var w=f.contentWindow;\
+         var t=document.createTextNode('a'); document.body.appendChild(t);\
+         w.__got=[]; w.eval(\"var pb=parent.document.body; new MutationObserver(function(r){ r.forEach(function(x){ __got.push(x.type+':'+(x instanceof MutationRecord)+':'+(x instanceof parent.MutationRecord)+':'+(x.target instanceof parent.Node)); }); }).observe(pb,{childList:true,attributes:true,characterData:true,subtree:true});\");\
+         document.body.appendChild(document.createElement('u')); document.body.setAttribute('y','2'); t.data='bb';\
+         w.setTimeout(function(){ console.log('realm', w.__got.join(',')); }, 5);",
+    );
+    let l = log.iter().find(|l| l.starts_with("log:realm")).unwrap_or_else(|| panic!("{log:?}"));
+    for want in ["childList:true:false:true", "attributes:true:false:true", "characterData:true:false:true"] {
+        assert!(l.contains(want), "missing {want} in {l} {log:?}");
+    }
+}
+
+#[test]
+fn qpt1c2_dropped_realm_observers_stop() {
+    let log = run_with_timers(
+        "var f=document.createElement('iframe'); document.body.appendChild(f); var w=f.contentWindow;\
+         w.eval(\"new MutationObserver(function(){ parent.console.log('FIRED realm mo'); }).observe(parent.document.body,{childList:true,attributes:true});\");\
+         var n=0; new MutationObserver(function(r){ n+=r.length; }).observe(document.body,{childList:true});\
+         f.remove();\
+         document.body.appendChild(document.createElement('p'));\
+         setTimeout(function(){ console.log('page', n, __scratchy_realm_count()); }, 5);",
+    );
+    assert!(!log.iter().any(|l| l.contains("FIRED")), "{log:?}");
+    assert!(log.contains(&"log:page 2 0".to_string()), "{log:?}");
+}
+
+#[test]
 fn qpt1c_dropped_realm_leaves_no_wrappers_behind() {
     let log = run_with_timers(
         "var kids=Object.getOwnPropertyDescriptor(Node.prototype,'childNodes').get, kept=[];\
