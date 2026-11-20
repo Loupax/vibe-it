@@ -3889,6 +3889,17 @@ impl App {
     /// at all.
     pub(crate) fn perform_action(&mut self, action: Action) {
         const SCROLL_LINE_PX: f32 = 40.0; // matches `MouseWheel`'s own `LineDelta` step
+        // QYSCR1b: a viewport with `overflow: hidden` ignores the scroll keys
+        // (scratchy has no focused scroll region, so keys always target the viewport).
+        if self.viewport_user_scroll_blocked()
+            && matches!(
+                action,
+                Action::ScrollDown | Action::ScrollUp | Action::HalfPageDown | Action::HalfPageUp | Action::PageDown
+                    | Action::PageUp | Action::ScrollTop | Action::ScrollBottom
+            )
+        {
+            return;
+        }
         match action {
             Action::ScrollDown => self.scroll_by(SCROLL_LINE_PX),
             Action::ScrollUp => self.scroll_by(-SCROLL_LINE_PX),
@@ -3926,6 +3937,12 @@ impl App {
     /// scroll)` is what enforces the upper bound, since `max_scroll`
     /// depends on `self.cached.h`, which this method has no reason to
     /// duplicate.
+    /// QYSCR1b: the viewport's propagated overflow is `hidden`: the user cannot
+    /// scroll it (wheel, keys); `window.scrollTo`/`scrollIntoView` still do.
+    pub(crate) fn viewport_user_scroll_blocked(&self) -> bool {
+        self.cached.as_ref().is_some_and(|l| l.style.viewport_hidden)
+    }
+
     pub(crate) fn scroll_by(&mut self, dy: f32) {
         self.scroll_offset = (self.scroll_offset + dy).max(0.0);
     }
@@ -4580,14 +4597,16 @@ impl ApplicationHandler<AppEvent> for App {
                 // through to the page's own top-level scroll (the
                 // pre-v62 behavior, unchanged) whenever the cursor isn't
                 // over one, or hasn't moved over the window at all yet.
-                let region = self.last_mouse_pos.zip(self.cached.as_ref()).and_then(|((mx, my), laid)| {
-                    let doc_x = mx;
-                    let doc_y = my + self.scroll_offset;
-                    hit_test_scroll_region(
-                        laid, doc_x, doc_y, &self.scroll_offsets, self.scroll_offset, self.surface_size.1 as f32,
+                // QYSCR1c: the chain of regions under the cursor, innermost
+                // first; the first one that can use the tick takes it, else
+                // it goes to the viewport (unless that is `overflow: hidden`).
+                let chain = self.last_mouse_pos.zip(self.cached.as_ref()).map_or_else(Vec::new, |((mx, my), laid)| {
+                    crate::paint::hit_test_scroll_chain(
+                        laid, mx, my + self.scroll_offset, &self.scroll_offsets, self.scroll_offset,
+                        self.surface_size.1 as f32,
                     )
                 });
-                match region.filter(|info| region_takes_wheel(info, &self.scroll_offsets, dy)) {
+                match chain.iter().find(|info| info.user && region_takes_wheel(info, &self.scroll_offsets, dy)) {
                     Some(info) => {
                         let current = self.scroll_offsets.get(&info.id).copied().unwrap_or(0.0);
                         let next = (current - dy).clamp(0.0, info.max_scroll());
@@ -4597,6 +4616,7 @@ impl ApplicationHandler<AppEvent> for App {
                             self.node_scroll_dirty = true;
                         }
                     }
+                    None if self.viewport_user_scroll_blocked() => {}
                     None => {
                         self.scroll_offset -= dy;
                         if self.scroll_offset < 0.0 {

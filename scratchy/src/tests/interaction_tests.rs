@@ -1156,7 +1156,7 @@ fn qj6_scroll_top_set_clamps_and_reads_back() {
          box.scrollTop = -5; console.log(box.scrollTop);\
          var p=document.getElementById('plain'); p.scrollTop = 20; console.log('hidden', p.scrollTop);",
     );
-    assert_eq!(log, ["log:200 100 0", "log:50", "log:100", "log:0", "log:hidden 0"], "{log:?}");
+    assert_eq!(log, ["log:200 100 0", "log:50", "log:100", "log:0", "log:hidden 20"], "{log:?}"); // QYSCR1b: overflow:hidden is scrollable by script
 }
 
 #[test]
@@ -1490,7 +1490,7 @@ fn qyscr1_a_region_with_nothing_to_scroll_is_no_wheel_target() {
     assert!(!region_takes_wheel(&fits, &HashMap::new(), -40.0), "nothing to scroll: the page takes the tick");
     assert!(!region_takes_wheel(&fits, &HashMap::new(), 40.0));
     // A region that can scroll takes ticks until its end, then chains.
-    let tall = ScrollInfo { id: 7, content_h: 300.0, client_h: 100.0, node: 0 };
+    let tall = ScrollInfo { id: 7, content_h: 300.0, client_h: 100.0, node: 0, user: true };
     let mut offs = HashMap::new();
     assert!(region_takes_wheel(&tall, &offs, -40.0), "down from the top");
     assert!(!region_takes_wheel(&tall, &offs, 40.0), "up at the top: chains to the page");
@@ -1528,4 +1528,89 @@ fn qyscr1_script_sees_body_as_no_scroll_container_and_scrolls_the_window() {
     // scrollIntoView moves the window towards the row (12 * 100 px), clamped to
     // the 1500 px page (the absolute app box) less the viewport.
     assert_eq!(log, ["log:scroll", "log:0", "log:true"], "{log:?}");
+}
+
+// ---------- QYSCR1b / QYSCR1c: hidden viewport, scroll chaining ----------
+
+#[test]
+fn qyscr1b_viewport_overflow_hidden_is_recorded_from_html_or_body() {
+    let rows = "<div style='height:100px'></div>".repeat(15);
+    for (name, html, hidden) in [
+        ("body hidden", format!("<html><body style='margin:0;overflow:hidden'>{rows}</body></html>"), true),
+        ("html hidden", format!("<html style='overflow:hidden'><body style='margin:0'>{rows}</body></html>"), true),
+        ("body scroll", format!("<html><body style='margin:0;overflow:scroll'>{rows}</body></html>"), false),
+        ("body visible", format!("<html><body style='margin:0'>{rows}</body></html>"), false),
+        // html's own non-visible value takes the viewport; body's hidden stays on body.
+        ("html scroll, body hidden", format!("<html style='overflow:scroll'><body style='margin:0;overflow:hidden'>{rows}</body></html>"), false),
+        ("contain:paint html", format!("<html style='contain:paint'><body style='margin:0;overflow:hidden'>{rows}</body></html>"), false),
+    ] {
+        let laid = measure_document_fixture(&html, 800.0, 600.0);
+        assert_eq!(laid.style.viewport_hidden, hidden, "{name}");
+        if hidden {
+            // The page keeps its full height: script scrolling (scrollTo) can reach it.
+            assert!(laid.h >= 1500.0, "{name}: h = {}", laid.h);
+        }
+    }
+}
+
+#[test]
+fn qyscr1b_overflow_hidden_element_is_a_script_only_scroll_region() {
+    let html = "<html><body style='margin:0'><div style='overflow:hidden;height:100px'><div style='height:300px'></div></div></body></html>";
+    let laid = measure_document_fixture(html, 800.0, 600.0);
+    let mut regions = Vec::new();
+    qyscr1_regions(&laid, &mut regions);
+    assert_eq!(regions.len(), 1, "hidden box has a region script can scroll");
+    assert!(!regions[0].user && regions[0].max_scroll() > 150.0);
+    // The wheel never targets it.
+    assert!(hit_test_scroll_region(&laid, 10.0, 10.0, &HashMap::new(), 0.0, 600.0).is_none());
+    let chain = crate::paint::hit_test_scroll_chain(&laid, 10.0, 10.0, &HashMap::new(), 0.0, 600.0);
+    assert_eq!(chain.len(), 1);
+    assert!(!chain[0].user);
+}
+
+#[test]
+fn qyscr1c_chain_lists_regions_innermost_first_and_skips_hidden_for_the_wheel() {
+    // outer auto > hidden box > inner auto that fits (nothing to scroll).
+    let html = "<html><body style='margin:0'>\
+        <div style='overflow:auto;height:200px;width:200px'>\
+          <div style='overflow:hidden;height:100px'>\
+            <div style='overflow:auto;height:50px'><div style='height:20px'></div></div>\
+            <div style='height:300px'></div>\
+          </div>\
+          <div style='height:600px'></div>\
+        </div></body></html>";
+    let laid = measure_document_fixture(html, 800.0, 600.0);
+    let chain = crate::paint::hit_test_scroll_chain(&laid, 10.0, 10.0, &HashMap::new(), 0.0, 600.0);
+    assert_eq!(chain.len(), 3, "inner auto, hidden, outer auto");
+    assert!(chain[0].user && !chain[1].user && chain[2].user);
+    assert_eq!(chain[0].max_scroll(), 0.0, "the innermost has nothing to scroll");
+    let offs = HashMap::new();
+    // The tick skips the innermost (nothing to scroll) and the hidden box: the outer region takes it.
+    let taker = chain.iter().find(|i| i.user && region_takes_wheel(i, &offs, -40.0)).expect("outer takes it");
+    assert_eq!(taker.id, chain[2].id);
+    // At the outer end nothing takes it: the page gets the tick.
+    let mut at_end = HashMap::new();
+    at_end.insert(chain[2].id, chain[2].max_scroll());
+    assert!(!chain.iter().any(|i| i.user && region_takes_wheel(i, &at_end, -40.0)));
+    // Scrolling back up still goes to the outer one.
+    assert!(chain.iter().any(|i| i.user && region_takes_wheel(i, &at_end, 40.0)));
+}
+
+#[test]
+fn qyscr1c_inner_at_its_end_chains_to_the_outer_region() {
+    let html = "<html><body style='margin:0'>\
+        <div style='overflow:auto;height:200px;width:200px'>\
+          <div style='overflow:auto;height:50px'><div style='height:150px'></div></div>\
+          <div style='height:600px'></div>\
+        </div></body></html>";
+    let laid = measure_document_fixture(html, 800.0, 600.0);
+    let chain = crate::paint::hit_test_scroll_chain(&laid, 10.0, 10.0, &HashMap::new(), 0.0, 600.0);
+    assert_eq!(chain.len(), 2);
+    let (inner, outer) = (chain[0], chain[1]);
+    let mut offs = HashMap::new();
+    let pick = |offs: &HashMap<usize, f32>, dy: f32| chain.iter().find(|i| region_takes_wheel(i, offs, dy)).map(|i| i.id);
+    assert_eq!(pick(&offs, -40.0), Some(inner.id), "inner scrolls first");
+    offs.insert(inner.id, inner.max_scroll());
+    assert_eq!(pick(&offs, -40.0), Some(outer.id), "inner at its end: the outer takes the tick");
+    assert_eq!(pick(&offs, 40.0), Some(inner.id), "scrolling back up: inner again");
 }

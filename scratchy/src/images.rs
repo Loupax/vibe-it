@@ -2168,23 +2168,29 @@ fn propagate_canvas_background(tree: &mut LayoutBox) {
 /// page height stopped at it, so nothing scrolled. Script still reads the
 /// computed value (`getComputedStyle`); js_dom.rs `gViewportBody` follows
 /// the same rule for element scrolling and IntersectionObserver clips.
-/// Not modelled: `overflow: hidden` on the viewport does not block user scrolling.
+/// QYSCR1b: a propagated `hidden` is recorded on the root box (`Style::viewport_hidden`): the App
+/// then blocks user scrolling (wheel, keys) while script scrolling (`scrollTo`, `scrollIntoView`) still works.
 /// Layout/paint containment on either element stops the propagation from `<body>`
 /// (WPT css-overflow/overflow-body-propagation-011).
 fn propagate_viewport_overflow(tree: &mut LayoutBox) {
-    let BoxContent::Blocks(top) = &mut tree.content else { return };
-    let Some(html) = top.iter_mut().find(|b| b.style.canvas_src == 1) else { return };
-    if html.style.overflow != Overflow::Visible {
-        html.style.overflow = Overflow::Visible;
-        return;
-    }
-    if html.style.contain_lp {
-        return;
-    }
-    let BoxContent::Blocks(kids) = &mut html.content else { return };
-    if let Some(body) = kids.iter_mut().find(|b| b.style.canvas_src == 2 && !b.style.contain_lp) {
+    let hidden = (|| {
+        let BoxContent::Blocks(top) = &mut tree.content else { return false };
+        let Some(html) = top.iter_mut().find(|b| b.style.canvas_src == 1) else { return false };
+        if html.style.overflow != Overflow::Visible {
+            let hidden = html.style.overflow == Overflow::Hidden;
+            html.style.overflow = Overflow::Visible;
+            return hidden;
+        }
+        if html.style.contain_lp {
+            return false;
+        }
+        let BoxContent::Blocks(kids) = &mut html.content else { return false };
+        let Some(body) = kids.iter_mut().find(|b| b.style.canvas_src == 2 && !b.style.contain_lp) else { return false };
+        let hidden = body.style.overflow == Overflow::Hidden;
         body.style.overflow = Overflow::Visible;
-    }
+        hidden
+    })();
+    tree.style.viewport_hidden = hidden;
 }
 
 pub(crate) fn collect_text_only(handle: &Handle, out: &mut String) {

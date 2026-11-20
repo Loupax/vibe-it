@@ -2138,7 +2138,7 @@ fn paint_inner_body(
     // docs for the real difference between the two keywords). QY20: a
     // `visibility: hidden` box paints no chrome, so its scrollbar is
     // skipped too (its visible descendants still paint normally).
-    if let Some(info) = laid.scroll.as_ref().filter(|_| s.visibility == Visibility::Visible) {
+    if let Some(info) = laid.scroll.as_ref().filter(|i| i.user && s.visibility == Visibility::Visible) {
         paint_scrollbar(
             info, own_scroll, s.overflow == Overflow::Scroll, pixels, win_w, win_h, laid.x, draw_y, laid.w, laid.h,
             clip,
@@ -2466,6 +2466,7 @@ fn hit_test_inner_body(
 /// to the nearest scrollable ancestor" behavior; `None` all the way up
 /// means "nothing scrollable under the cursor at all," the caller's own
 /// cue to fall back to the page's own top-level scroll.
+#[cfg(test)]
 pub(crate) fn hit_test_scroll_region(
     laid: &Laid,
     x: f32,
@@ -2474,44 +2475,67 @@ pub(crate) fn hit_test_scroll_region(
     scroll_offset: f32,
     viewport_h: f32,
 ) -> Option<ScrollInfo> {
+    hit_test_scroll_chain(laid, x, y, scroll_offsets, scroll_offset, viewport_h).into_iter().find(|i| i.user)
+}
+
+/// QYSCR1c: every scroll region whose border box contains `(x, y)`, innermost
+/// first (the wheel's scroll chain; `hit_test_scroll_region` is its first
+/// user-scrollable entry). Includes `overflow: hidden` regions (`user: false`)
+/// so callers can see them; they never take a wheel tick.
+pub(crate) fn hit_test_scroll_chain(
+    laid: &Laid,
+    x: f32,
+    y: f32,
+    scroll_offsets: &HashMap<usize, f32>,
+    scroll_offset: f32,
+    viewport_h: f32,
+) -> Vec<ScrollInfo> {
+    let mut out = Vec::new();
+    scroll_chain_into(laid, x, y, scroll_offsets, scroll_offset, viewport_h, &mut out);
+    out
+}
+
+fn scroll_chain_into(
+    laid: &Laid,
+    x: f32,
+    y: f32,
+    scroll_offsets: &HashMap<usize, f32>,
+    scroll_offset: f32,
+    viewport_h: f32,
+    out: &mut Vec<ScrollInfo>,
+) {
     if !laid.ink.contains(x, y) {
-        return None;
+        return;
     }
     let inside = x >= laid.x && x < laid.x + laid.w && y >= laid.y && y < laid.y + laid.h;
     // QY20: a `visibility: hidden` box is not a hit-test target (CSS),
     // so the wheel never lands on it; its visible descendants still do.
     let self_info = if inside && laid.style.visibility == Visibility::Visible { laid.scroll } else { None };
-    let (LaidContent::Blocks(children) | LaidContent::TableRow(children)) = &laid.content else {
-        return self_info;
-    };
-    // Same `own_scroll` shift `hit_test_cursor`'s own `Blocks`/
-    // `TableRow` arm applies, for the same reason — see that
-    // computation's own docs.
-    let own_scroll =
-        laid.scroll.map_or(0.0, |info| scroll_offsets.get(&info.id).copied().unwrap_or(0.0).clamp(0.0, info.max_scroll()));
-    let child_y = y + own_scroll;
-    let child_scroll_offset = scroll_offset + own_scroll;
-    for child in children.iter().filter(|c| !is_explicit_stacking_child(c)) {
-        if matches!(child.style.position, Position::Absolute | Position::Fixed) {
-            // Never actually appears here (see `measure`'s own `Blocks`
-            // arm — diverted to `own_pending`/`positioned` instead),
-            // defensive only.
-            continue;
-        }
-        if let Some(info) = &child.sticky {
-            let dy = sticky_shift(info, child.h, child_scroll_offset, viewport_h);
-            if let Some(sub) =
-                hit_test_scroll_region(child, x, child_y - dy, scroll_offsets, child_scroll_offset, viewport_h)
-            {
-                return Some(sub);
+    if let LaidContent::Blocks(children) | LaidContent::TableRow(children) = &laid.content {
+        // Same `own_scroll` shift `hit_test_cursor`'s own `Blocks`/
+        // `TableRow` arm applies, for the same reason.
+        let own_scroll = laid
+            .scroll
+            .map_or(0.0, |info| scroll_offsets.get(&info.id).copied().unwrap_or(0.0).clamp(0.0, info.max_scroll()));
+        let child_y = y + own_scroll;
+        let child_scroll_offset = scroll_offset + own_scroll;
+        for child in children.iter().filter(|c| !is_explicit_stacking_child(c)) {
+            if matches!(child.style.position, Position::Absolute | Position::Fixed) {
+                continue;
             }
-            continue;
-        }
-        if let Some(sub) = hit_test_scroll_region(child, x, child_y, scroll_offsets, child_scroll_offset, viewport_h) {
-            return Some(sub);
+            let before = out.len();
+            if let Some(info) = &child.sticky {
+                let dy = sticky_shift(info, child.h, child_scroll_offset, viewport_h);
+                scroll_chain_into(child, x, child_y - dy, scroll_offsets, child_scroll_offset, viewport_h, out);
+            } else {
+                scroll_chain_into(child, x, child_y, scroll_offsets, child_scroll_offset, viewport_h, out);
+            }
+            if out.len() > before {
+                break;
+            }
         }
     }
-    self_info
+    out.extend(self_info);
 }
 
 /// QJ6: the scroll region of DOM node `node` in a laid-out tree (any depth,

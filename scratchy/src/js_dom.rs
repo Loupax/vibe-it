@@ -5006,7 +5006,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   gScrollable = function (el) {
     if (el === gViewportBody()) return false;
     var o = __d_cs(el.__id, '', 'overflow-y');
-    return o === 'auto' || o === 'scroll';
+    return o === 'auto' || o === 'scroll' || o === 'hidden';
   };
   gNid = function (el) { return __d_nid(el.__id); };
   gAncestorScroll = function (el, stop) {
