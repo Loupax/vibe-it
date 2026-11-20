@@ -281,6 +281,7 @@ fn r7_image_fetched_before_nav_result_survives_document_swap() {
     let page = FetchedPage {
         html: b"<html><body><img src=\"globe.png\"></body></html>".to_vec(),
         extra_css: String::new(),
+        sheets: Vec::new(),
         scripts: Vec::new(),
         url: Url::parse("http://127.0.0.1:9/").unwrap(),
     };

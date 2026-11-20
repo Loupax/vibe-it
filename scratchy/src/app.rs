@@ -24,6 +24,8 @@ use crate::js_style;
 pub(crate) struct FetchedPage {
     pub(crate) html: Vec<u8>,
     pub(crate) extra_css: String,
+    /// QY54b1: what `extra_css` is made of (empty: unknown).
+    pub(crate) sheets: crate::link_css::SheetParts,
     pub(crate) scripts: Vec<ScriptSource>,
     pub(crate) url: Url,
 }
@@ -72,7 +74,10 @@ pub(crate) enum AppEvent {
     ImageFetched(u64, String, Option<DecodedImage>),
     /// Q22b: the stylesheets of a streamed page, fetched after EOF
     /// (`start_stream_resources`); replaces `App::extra_css`.
-    StreamCss(u64, String, Vec<ScriptSource>),
+    StreamCss(u64, String, crate::link_css::SheetParts, Vec<ScriptSource>),
+    /// QY54b1: a stylesheet a link asked for after load arrived (or failed):
+    /// (nav_generation, the sheet key from `link_css::link_key`, its text).
+    LinkCss(u64, String, Option<String>),
     /// One tick of the persistent background shaping worker's own
     /// progress (`App::spawn_shaping_worker`) — the "move page shaping
     /// off the main thread" plan in TODO.txt, landed, fires *once per
@@ -868,6 +873,9 @@ pub(crate) struct App {
     /// itself — cleared (to empty) on every navigation/`show_message`,
     /// never merged across pages.
     pub(crate) extra_css: String,
+    /// QY54b1: the stylesheet links `extra_css` is built from (script-inserted,
+    /// removed or changed links rebuild it).
+    pub(crate) link_sheets: crate::link_css::LinkSheets,
     /// QSD4: `document.adoptedStyleSheets` CSS, appended after `extra_css`.
     pub(crate) adopted_css: String,
     /// Already-decoded images fetched via `wire` for the current page's
@@ -1080,6 +1088,7 @@ fn install_video_wake(proxy: &EventLoopProxy<AppEvent>) {
 pub(crate) struct SavedPage {
     pub(crate) document: Handle,
     pub(crate) extra_css: String,
+    pub(crate) link_sheets: crate::link_css::LinkSheets,
     /// QSD4: `document.adoptedStyleSheets` CSS, appended after `extra_css`.
     pub(crate) adopted_css: String,
     pub(crate) image_cache: HashMap<String, Arc<DecodedImage>>,
@@ -1271,6 +1280,7 @@ impl App {
             net: NetScheduler::new(&RequestPolicy::default()),
             parked_net: Vec::new(),
             extra_css: String::new(),
+            link_sheets: Default::default(),
             adopted_css: String::new(),
             image_cache: HashMap::new(),
             css_images_requested: HashSet::new(),
@@ -1372,6 +1382,7 @@ impl App {
             net: NetScheduler::new(&RequestPolicy::default()),
             parked_net: Vec::new(),
             extra_css: String::new(),
+            link_sheets: Default::default(),
             adopted_css: String::new(),
             image_cache: HashMap::new(),
             css_images_requested: HashSet::new(),
@@ -2109,6 +2120,7 @@ impl App {
         // QY53i2: the old document's custom-property tables (and the QY53i memo) go with it.
         crate::css::reset_custom_props_arena();
         self.adopted_css.clear();
+        self.link_sheets = crate::link_css::LinkSheets::adopt(&self.document, self.base_url.as_ref(), extra_css.len(), Vec::new());
         self.extra_css = extra_css;
         self.layout_dirty = true;
         self.layout_generation += 1;
@@ -2238,6 +2250,7 @@ impl App {
         for src in std::mem::take(&mut self.late_image_errors) {
             self.image_settled(&src, None);
         }
+        let mut links_changed = false;
         // QB5: focus/blur and window.scroll* requests made by page script.
         if let Some(js) = &self.js {
             let mut reqs = js.take_requests();
@@ -2287,6 +2300,7 @@ impl App {
                 let _ = self.proxy.send_event(AppEvent::JsNet(self.nav_generation, id, result, std::time::Instant::now()));
             }
             self.pump_net();
+            links_changed = reqs.links_changed;
             let imgs = std::mem::take(&mut reqs.imgs);
             fetch_late_images(&self.proxy, self.socket_path.as_deref(), self.base_url.as_ref(), &mut self.late_images_requested, &mut self.late_image_errors, self.nav_generation, imgs);
             for (h, y) in reqs.el_scroll {
@@ -2310,6 +2324,9 @@ impl App {
                 }
             }
         }
+        if links_changed {
+            self.sync_link_sheets();
+        }
         if self.js.as_ref().is_some_and(|js| js.take_dirty() | js.media_size_changed()) {
             // QB2: a DOM write is a restyle of the same document. While a
             // layout is still being shaped, don't start another (it would
@@ -2321,6 +2338,42 @@ impl App {
                 return;
             }
             self.request_js_restyle();
+        }
+    }
+
+    /// QY54b1: rebuilds `extra_css` from the page's stylesheet links after one
+    /// changed or a sheet arrived, starts fetches for new hrefs (one thread each,
+    /// through wire, like images) and fires `load`/`error` at settled links.
+    pub(crate) fn sync_link_sheets(&mut self) {
+        let mut out = self.link_sheets.sync(&self.document, self.base_url.as_ref(), &self.extra_css);
+        let fetch = std::mem::take(&mut out.fetch);
+        match (&self.socket_path, &self.base_url) {
+            (Some(socket), Some(base)) => {
+                for href in fetch {
+                    let (proxy, socket, base, generation) = (self.proxy.clone(), socket.clone(), base.clone(), self.nav_generation);
+                    thread::spawn(move || {
+                        let css = crate::link_css::fetch_link_sheet(&socket, &base, &base, &href);
+                        let _ = proxy.send_event(AppEvent::LinkCss(generation, href, css));
+                    });
+                }
+            }
+            // No wire (or nothing to resolve against): the sheet cannot load.
+            _ => {
+                for href in fetch {
+                    let _ = self.proxy.send_event(AppEvent::LinkCss(self.nav_generation, href, None));
+                }
+            }
+        }
+        let fires = !out.fire.is_empty();
+        if crate::link_css::apply_sync(&mut out, &mut self.extra_css, self.js.as_ref()) {
+            self.layout_dirty = true;
+            self.layout_generation += 1;
+            if let Some(w) = &self.window {
+                w.request_redraw();
+            }
+        }
+        if fires {
+            self.js_sync();
         }
     }
 
@@ -2509,7 +2562,7 @@ impl App {
             return;
         }
         match result {
-            Ok(FetchedPage { html, extra_css, scripts, url }) => {
+            Ok(FetchedPage { html, extra_css, sheets, scripts, url }) => {
                 let dom = new_parser().read_from(&mut html.as_slice()).unwrap();
                 // Q30e: the history entry is where the page really is (after
                 // redirects), so back/refresh re-GET the result, never a POST.
@@ -2539,6 +2592,9 @@ impl App {
                     *slot = generation;
                 }
                 self.replace_document(dom.document, extra_css);
+                if !sheets.is_empty() {
+                    self.link_sheets = crate::link_css::LinkSheets::adopt(&self.document, self.base_url.as_ref(), self.extra_css.len(), sheets);
+                }
                 // QA6: only now is the document the one the fragment names.
                 self.pending_fragment = self.nav_fragment.take();
                 self.js_viewport = None;
@@ -2689,6 +2745,7 @@ impl App {
             self.pre_help_page = Some(SavedPage {
                 document: self.document.clone(),
                 extra_css: self.extra_css.clone(),
+                link_sheets: self.link_sheets.clone(),
                 adopted_css: self.adopted_css.clone(),
                 image_cache: self.image_cache.clone(),
                 scroll_offset: self.scroll_offset,
@@ -2723,6 +2780,7 @@ impl App {
     pub(crate) fn restore_saved_page(&mut self) {
         let Some(saved) = self.pre_help_page.take() else { return };
         self.replace_document(saved.document, saved.extra_css);
+        self.link_sheets = saved.link_sheets;
         self.adopted_css = saved.adopted_css;
         js_style::set_js_adopted_css(&self.adopted_css);
         self.image_cache = saved.image_cache;
@@ -3716,7 +3774,7 @@ impl App {
                                 // resolving independently and later, via its
                                 // own `AppEvent::ImageFetched`.
                                 let css_start = std::time::Instant::now();
-                                let PageResources { css: extra_css, scripts } = process_external_resources(&proxy, path, &url, &html, generation);
+                                let PageResources { css: extra_css, sheets, scripts } = process_external_resources(&proxy, path, &url, &html, generation);
                                 if timing_enabled() {
                                     diag!(
                                         "scratchy: TIMING stylesheets={:>7.1}ms {url_for_log}",
@@ -3727,7 +3785,7 @@ impl App {
                                 // search 302) moves the page: relative links
                                 // resolve against where it ended up.
                                 let url = final_url.and_then(|f| Url::parse(&f).ok()).filter(|f| matches!(f.scheme(), "http" | "https")).map(|mut f| { f.set_fragment(None); f }).unwrap_or(url);
-                                Ok(FetchedPage { html, extra_css, scripts, url })
+                                Ok(FetchedPage { html, extra_css, sheets, scripts, url })
                             }
                             Err(e) => Err(e),
                         },
@@ -4166,12 +4224,13 @@ impl ApplicationHandler<AppEvent> for App {
                     }
                 }
             }
-            AppEvent::StreamCss(generation, css, scripts) => {
+            AppEvent::StreamCss(generation, css, sheets, scripts) => {
                 if generation != self.nav_generation {
                     return;
                 }
                 if !css.is_empty() {
                     js_style::set_js_extra_css(&css);
+                    self.link_sheets = crate::link_css::LinkSheets::adopt(&self.document, self.base_url.as_ref(), css.len(), sheets);
                     self.extra_css = css;
                     self.layout_dirty = true;
                     self.layout_generation += 1;
@@ -4180,6 +4239,12 @@ impl ApplicationHandler<AppEvent> for App {
                 self.js_sync();
             }
             AppEvent::NavResult(generation, result) => self.handle_nav_result(generation, result),
+            AppEvent::LinkCss(generation, href, css) => {
+                if generation == self.nav_generation {
+                    self.link_sheets.settle(&href, css);
+                    self.sync_link_sheets();
+                }
+            }
             AppEvent::JsNet(generation, id, result, completed) => self.handle_js_net(generation, id, result, completed),
             AppEvent::JsWs => self.handle_js_ws(),
             AppEvent::ImageFetched(generation, src, image) => self.handle_image_fetched(generation, src, image),

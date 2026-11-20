@@ -982,6 +982,7 @@ fn qa6_fragment_waits_for_real_page_and_target() {
     let page = FetchedPage {
         html: b"<html><body><div style=\"height:900px\">x</div><p id=\"sec\">target</p></body></html>".to_vec(),
         extra_css: String::new(),
+        sheets: Vec::new(),
         scripts: Vec::new(),
         url: Url::parse("http://127.0.0.1:9/p").unwrap(),
     };

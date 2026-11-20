@@ -119,6 +119,7 @@ mod ws_frames;
 mod js_ws;
 mod js_style;
 mod js_geom;
+mod link_css;
 
 pub use dom::*;
 pub use css::*;
@@ -216,13 +217,14 @@ pub fn run() {
             let file_resources = socket.as_deref().map(|s| load_file_resources(&proxy, s, &path, html.as_bytes()));
             let mut app = App::new_static(dom.document, proxy, socket);
             let scripts = match file_resources {
-                Some((url, css, scripts)) => {
+                Some((url, res)) => {
                     if app.base_url.is_none() {
                         app.base_url = url;
                     }
-                    js_style::set_js_extra_css(&css);
-                    app.extra_css = css;
-                    scripts
+                    js_style::set_js_extra_css(&res.css);
+                    app.link_sheets = link_css::LinkSheets::adopt(&app.document, app.base_url.as_ref(), res.css.len(), res.sheets);
+                    app.extra_css = res.css;
+                    res.scripts
                 }
                 None => inline_scripts(&app.document),
             };
