@@ -1046,11 +1046,15 @@ Shared rules for this block:
       propagating to the viewport (QY57r #420 fixed this only for IntersectionObserver); also check `ytd-app`/fixed
       containers (QJ6b: wheel skips positioned scroll boxes), JS scroll handlers / preventDefault, and window.scrollTo.
       Fix + tests (body overflow:scroll + 0-height body under visible html: the wheel scrolls the viewport); grim before/after.
-- [ ] [WIP] QINC1 [XL] (P1, user 2026-11-20 ~09:45: "can we focus on doing incremental layout properly in one go?";
-      Opus DESIGN first, docs only) Real incremental style + layout (dirty bits, partial restyle, relayout of only the
-      affected boxes and their dependants) for both the JS thread's forced layouts (GeomCache) and the App build, instead of
-      the R59 staged shortcut. Design -> user review -> implementation items. QY54b3a-f below are ON HOLD until it decides.
-ON HOLD (user wants QINC1 instead; may be superseded) QY54b3 IMPLEMENTATION (design R59 #431 f1013b0; full item text in REGRESSIONS.md R59 section 11; WAITING FOR USER GO-AHEAD;
+QINC1 IMPLEMENTATION (design R60, #434; full item text in REGRESSIONS.md R60 section 15; WAITING FOR USER answers to R60
+section 16). Items QINC1a (engine test infra + style_diff + fuzz), QINC1b (stable paragraph ids), QINC1c (bottom-up hoisting),
+QINC1d (InvalidationMap), QINC1e (write log), QINC1f [L] (incremental restyle, shadow), QINC1g [L] (persistent box tree,
+shadow), QINC1h1 [L] (relayout from last tree, shadow), QINC1h2 (intrinsic-size cache), QINC1i (forced layouts via engine,
+SCRATCHY_INCR=1), QINC1j [L] (App frames via engine), QINC1k (exactness sweep + gates), QINC1l (flip default, user OK),
+QINC1m (delete superseded special cases). Waves: 1 = a, b, d, e; 2 = c, f; 3 = g; 4 = h1; 5 = i, j, h2; then k, l, m.
+Supersedes (if the user agrees, Q3): QY54b3a-f, QY54b4, QY53o2, QY53f2, QY53f3, QY53n4, QY53n1d, QY53n2d, QYTC1a2, QYTC1e,
+QYTC1f, QY53l3, QY53e2b.
+ON HOLD (user wants QINC1 instead; may be superseded) ON HOLD (user wants QINC1 instead; may be superseded) QY54b3 IMPLEMENTATION (design R59 #431 f1013b0; full item text in REGRESSIONS.md R59 section 11; WAITING FOR USER GO-AHEAD;
 supersedes QY54b3 [L], absorbs QY53o2). Order a -> (b) -> c -> d -> e -> f, each with a go/no-go gate:
 - [ ] QY54b3a [M] (P2, Sonnet; NO behaviour change; AFTER QY54b1) Dirty points (GEOM_DIRTY via geom_bump_at) + full-layout
       stash + GeomCache::partial_verdict classifier + --perf-report forced.partial_would. Gate: R58 recipe x3 split; build

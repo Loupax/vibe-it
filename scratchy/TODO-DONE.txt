@@ -8215,3 +8215,9 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QFLK3 DONE - test bug: body consumed twice (#433) [S] (P2, from the QPT1f4 and QY53m agents; Sonnet) tests::js_dom_tests::qb2_js_dom_writes_use_restyle_path fails
       intermittently, also on main when run alone ("stale-promise" assertion; the QY53m agent saw it fail in debug at its QF7
       section: `done` undefined, expected "AAA"). Find the order/timing dependence and make it deterministic (prove: 10 runs).
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QINC1 DONE - design done (R60, #434); implementation QINC1a-m waiting for user answers (R60 section 16) [XL] (P1, user 2026-11-20 ~09:45: "can we focus on doing incremental layout properly in one go?";
+      Opus DESIGN first, docs only) Real incremental style + layout (dirty bits, partial restyle, relayout of only the
+      affected boxes and their dependants) for both the JS thread's forced layouts (GeomCache) and the App build, instead of
+      the R59 staged shortcut. Design -> user review -> implementation items. QY54b3a-f below are ON HOLD until it decides.
