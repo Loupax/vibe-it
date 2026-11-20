@@ -1,5 +1,144 @@
 # scratchy — regressions
 
+## R57: QY54a design: a helper thread keeps reading the Wayland socket while the main thread is busy, so the compositor never fills its send buffer for scratchy (R56 section 2: lost at ~190-225 unread motion events). libwayland supports this: several threads may read one `wl_display` (`wl_display_prepare_read_queue` / `wl_display_read_events`), and the events still go to winit's queue, which only the main thread dispatches. So input order and hit-testing do not change. winit 0.30.13 uses the system libwayland (`wayland-backend` `client_system`), gives the `wl_display*` through its raw display handle, and runs the same pattern itself in its `pump_events` notifier thread. A throwaway winit 0.30.13 + softbuffer 0.4.8 prototype in the nested dwl: without the thread, a 450 ms and a 3 s busy loop at ~460 Hz motion are lost at the first stall. With it, 3/3 busy450 and 3/3 busy3000 survive all stalls, no move is lost, the order is kept, and the cost is +0.08 s sys CPU per 15 s of motion (Opus, 2026-11-20, design only, docs only) — OPEN: proposed QY54a1-QY54a3 (below)
+
+### 1. How scratchy talks to the compositor today
+
+- lib.rs `run`: `EventLoop::with_user_event()`, then `event_loop.run_app(&mut app)`. On `Err(ExitFailure)` QB1 prints
+  `lost the connection to the Wayland compositor` and exits 1 (`event_loop_exit_message`).
+- Crates (Cargo.lock): winit 0.30.13, softbuffer 0.4.8, wayland-client 0.31.15, wayland-backend 0.3.17 (winit turns on
+  `client_system`, so this is **libwayland-client** 1.26 here, not the pure-Rust backend), smithay-client-toolkit 0.19.2,
+  calloop 0.13.0, calloop-wayland-source 0.3.0, raw-window-handle 0.6.2. scratchy itself has no direct wayland dependency and
+  no code that touches the connection (grep `wayland|HasDisplayHandle` in src/: tests only).
+- winit's Wayland loop is a calloop loop on the main thread. `WaylandSource::before_sleep` flushes, takes a read guard
+  (`prepare_read`) and polls the socket together with the other sources. `before_handle_events` reads the socket **or drops
+  the guard before any user callback runs** ("the guard isn't held whilst process_events calls occur"). `process_events`
+  then dispatches the queue into `ApplicationHandler::window_event`/`user_event`/`about_to_wait`.
+- So the socket is read only while the main thread sits in calloop. All of scratchy's work runs inside those callbacks:
+  page scripts and timers (`about_to_wait` -> `run_due_slice`, `user_event` `StreamCss`/`JsNet`/...), forced layouts inside
+  JS, App builds and paint (`RedrawRequested` -> `redraw`), HTML chunks, image decode results. While any of them runs, the
+  compositor keeps writing `wl_pointer.motion` + `frame` + `relative_motion` into the socket. When the kernel buffer and then
+  libwayland-server's per-client buffer are full (~190-225 moves on dwl), the server drops the client (R56 section 2).
+- Pointer moves are already coalesced AFTER dispatch: `CursorMoved` only stores `pending_pointer_move` (QM1k1n6a). The newest
+  position is processed once in `about_to_wait`, or first when a button/wheel/key event arrives (`event_flushes_pointer`).
+  So a burst of thousands of moves after a stall costs a few µs each. That is not the problem; the bytes never reaching the
+  client is.
+
+### 2. Options
+
+| option | feasible with today's crates? | invasiveness | risk | input order / hit-test |
+|---|---|---|---|---|
+| **A. drain thread**: a second thread does `prepare_read` -> `poll(fd)` -> `read_events` (no dispatch) on a second `Connection` made from winit's `wl_display*` | **yes, proven** (section 3). `RawDisplayHandle::Wayland` gives the `wl_display*`; `wayland_backend::client::Backend::from_foreign_display` + `wayland_client::Connection::from_backend` wrap it with a private, never-used event queue. winit's own `PumpEventNotifier` (event_loop/mod.rs, `pump_events` only) and calloop-wayland-source ("some other thread read events before us ... expected") are written for this. | ~150 lines in one new file + start/stop in app.rs; 2 direct deps already in Cargo.lock (no new crate, no network) | low. Teardown must join the thread before winit disconnects the display (section 4). | **unchanged**: libwayland puts every event in winit's queue in socket order; only the main thread dispatches; hit-testing happens at dispatch time as today |
+| B. move JS + layout off the winit thread so the loop always runs | in principle | **XL**: the V8 isolate, the DOM (`Rc` everywhere), layout, `App` state and every `AppEvent` path would move to a second thread with a message protocol to the UI thread | high | needs a new input-forwarding design; hit-testing against a layout owned by another thread |
+| C. drain from inside long work on the main thread (a watchdog thread sets a flag / `isolate.request_interrupt` every ~100 ms; the interrupt and checkpoints in layout/style/parse/decode call `prepare_read` + `read_events`, never dispatch) | yes (same foreign-`Connection` read, no re-entrancy into winit) | M, and it grows: every long non-JS stretch (forced layout, App build, stylesheet parse, image decode, paint, a future one) needs its own checkpoint | medium: one missed stretch = a disconnect, so the bug class stays open | unchanged (no dispatch) |
+| D. abort or yield long JS / layout when input is pending | partly (JS only, via the budget/interrupt) | M | changes page semantics; does not bound non-interruptible work; the limit is ~0.4 s at 500 Hz, inside every sane budget | n/a |
+| E. coalesce motion earlier | no: coalescing needs the bytes read first, and the server side is the compositor's | - | - | already done after dispatch (QM1k1n6a) |
+| F. bigger buffers (client `SO_RCVBUF`, libwayland 1.23+ `wl_display_set_max_buffer_size`) | partly: the client call sizes the CLIENT's receive buffer; the limit that drops us is the server's per-client buffer (`wl_display_set_default_max_buffer_size`, the compositor's choice) | S | only moves the threshold; a 3 s forced layout still loses | n/a |
+
+**Recommendation: A.** It is the only option that bounds every kind of main-thread stall (JS, forced layout, builds,
+parse, decode, paint, and the next one) and needs no checkpoints. It leaves dispatch, input order and hit-testing exactly
+where they are now. B is the long-term "UI thread" architecture, far bigger than this bug, and not needed for it. C is a
+weaker A that has to be maintained.
+
+### 3. Prototype (throwaway, scratchpad, not committed)
+
+A standalone winit 0.30.13 + softbuffer 0.4.8 client built `--offline` against scratchy's Cargo.lock (so the same crate
+versions). Every 4 s from t = 3.5 s it busy-loops `BUSY_MS` in `about_to_wait`. `DRAIN=1` starts the drain thread in
+`resumed`. In `exiting` it stops the thread through a wake pipe and joins it. Own nested dwl (tools/nest.sh, libwayland
+1.26). tools/inject draws a circle with `wait:2` between moves (R56 recipe; measured rate ~460 moves/s). Each run under
+`flock /tmp/scratchy-perf.lock`, 1-min load average 5.4 at the first run, then 0.6-3.7 (other agents building; these are
+pass/fail runs, not timings).
+
+| run | drain | busy per stall | result |
+|---|---|---|---|
+| 1 | off | 450 ms | **lost at the first stall** (3.5 s): 2x `Io error: Broken pipe`, `run_app` -> `Err(ExitFailure(1))` |
+| 1 | off | 3 000 ms | **lost at the first stall** |
+| 3 | on | 450 ms | **3/3 survive** 16 s, 3 stalls each; 2 061-2 081 moves dispatched per 4 s period, the same as without stalls |
+| 3 | on | 3 000 ms | **3/3 survive** 20 s, 3 stalls each; 3 273-3 283 moves per 7 s period |
+| 2+2 | off / on | 0 (no stall) | 6 547-6 557 / 6 551-6 559 moves in 15 s (no loss); CPU user+sys **0.15-0.16 s / 0.25-0.27 s** |
+| 1 | on | 3 000 ms, 15 s | 6 558 moves (= the no-stall count), **0 jumps > 30 px** between consecutive positions (the circle steps ~10 px; a reorder would jump) |
+| 1 | on | compositor killed at 3 s | exits as today (`ExitFailure`, `exiting` ran, thread joined, no hang), but the thread logged ~29 extra `Io error: Broken pipe` lines before the main thread noticed: **the real thread must stop at the first error / POLLHUP** |
+
+So the mechanism holds with the exact crates scratchy ships: the thread reads while the main thread is busy, the compositor
+never sees a full buffer, and calloop dispatches what was read on the next turn (`before_sleep`'s `prepare_read` fails
+because the queue is not empty, so it dispatches without polling). The thread also reads while the loop is merely in
+dispatch callbacks (2 700 reads before the first stall), which costs ~0.1 s sys CPU per 15 s of 460 Hz motion (~0.7 % of
+one core) and nothing when the pointer is still.
+
+### 4. Design details (for QY54a2)
+
+- **New file `src/wl_drain.rs`**, `pub(crate) struct WlDrain { stop: Arc<AtomicBool>, wake: OwnedFd (pipe write end),
+  thread: Option<JoinHandle<()>> }`, `WlDrain::start(&ActiveEventLoop) -> Option<WlDrain>`, `fn stop(&mut self)` (set the
+  flag, write one byte, join), `Drop` calls `stop`. `start` returns `None` for any non-`RawDisplayHandle::Wayland`
+  handle (X11: no change) and when `SCRATCHY_WL_DRAIN=0` (A/B switch and safety valve; default on).
+- **Getting the connection**: `event_loop.display_handle()?.as_raw()` -> `WaylandDisplayHandle.display` ->
+  `unsafe { Backend::from_foreign_display(ptr) }` -> `Connection::from_backend`. The foreign backend makes its own empty
+  `wl_event_queue` and never disconnects the display. SAFETY argument: winit's `Connection` owns the display and outlives
+  the thread, because the thread is joined in `exiting` (below) and the foreign `Connection` is dropped on the thread
+  before `join` returns.
+- **Thread loop** (name `wl-drain`): `while !stop { let Some(g) = conn.prepare_read() else { break }; poll([conn fd,
+  wake pipe], -1); if wake or stop { drop(g) /* cancel_read */; break } if POLLERR|POLLHUP { break } if POLLIN {
+  match g.read_without_dispatch() { Ok(_) => {}, Err(WaylandError::Io(e)) if e.kind() == WouldBlock => {}, Err(_) => break } } }`.
+  It never dispatches and creates no objects, so `prepare_read` on its private queue only fails on a broken display (then it
+  stops). On any error it just stops; the main thread sees the same error in its own flush/dispatch and QB1 prints the
+  one line as today.
+- **Why it cannot deadlock** (libwayland 1.26 `read_events` / `cancel_read`): every thread that calls `prepare_read` adds
+  one reader. The LAST reader to call `read_events` does the read, and the others wait for it. `cancel_read` also counts as
+  done. calloop's guard is only held while the main thread sits in `poll` on the same fd, and it is released (read or
+  cancelled) before any callback. So whenever the drain thread waits in `read_events`, the main thread is a
+  prepared reader that will read or cancel within one poll wake-up (the fd is readable for both). When the main thread is
+  busy, the drain thread is the only reader and reads at once.
+- **Start/stop in app.rs**: start in `ApplicationHandler::resumed` right after the window and surface exist (field
+  `App.wl_drain: Option<WlDrain>`). Add `fn exiting(&mut self, _: &ActiveEventLoop) { self.wl_drain.take(); }`. winit calls
+  `exiting` (`Event::LoopExiting`) on a clean exit AND on the `ExitFailure` path, before `run_app` drops the event loop
+  (verified in the prototype). **Panics**: scratchy unwinds (no `panic = "abort"`), and an unwind through `run_app` would
+  drop the display while the thread may still poll it. Install a chained panic hook in `start` that stops the thread
+  (through a `static` stop flag + wake fd). The hook runs before unwinding.
+- **Memory**: events read during a stall wait in libwayland's client queue (~100-200 B per message). A 3 s stall at 500 Hz is
+  ~4 500 messages (< 1 MB). A 60 s hang is ~15 MB. Acceptable; nothing to cap (the alternative is being disconnected).
+- **Not changed**: dispatch order, `queue_pointer_move` coalescing, `event_flushes_pointer`, QCUR1 move throttling, key
+  repeat (calloop timers on the main thread), `xdg_wm_base.ping` (still answered at the next dispatch; dwl does not kill on a
+  late pong; a desktop may grey the window during a long stall, as for any busy client).
+- Deps: `wayland-client = "0.31"` and `wayland-backend = { version = "0.3", features = ["client_system"] }` under
+  `[target.'cfg(target_os = "linux")'.dependencies]`. Both are already in Cargo.lock at 0.31.15 / 0.3.17 with that feature
+  (the prototype built `--offline`). No new crate, no network.
+
+### 5. Proposed items (coordinator files them)
+
+- **QY54a1 [S]** (P1, harness, Sonnet; tools/ only) Commit the R56 stall harness so QY54a2 and later changes can be gated
+  the same way. `tools/wl-flood/`: `busy.html?ms=N` (a timer every 4 s busy-loops N ms, the R56 busyN fixture),
+  `stall.html?k=N` (8 000 rows + a timer every 4 s doing N `style.width` write + `offsetHeight` read pairs, the R56 stall_kN
+  fixture; k=0 is the no-stall control), and `tools/wl-flood/run.sh PAGE HZ SECONDS [RUNS]`. The script starts its own nested
+  dwl (tools/nest.sh into a given dir), runs the given scratchy binary on the page with `SCRATCHY_FRAME_STATS=1`, drives a
+  tools/inject circle at `wait:2` (500 Hz) or `wait:8` (125 Hz) from 1 s, and prints one line per run: `survived` /
+  `lost at T s` (QB1's line in stderr) plus the frame-stats stall lengths. It kills only the PIDs it started. Document it in
+  tools/README. Gate: on current main it reproduces R56: busy450 and stall_k18 at 500 Hz lost 3/3, stall_k0 and busy300 at
+  500 Hz survive 3/3.
+- **QY54a2 [M]** (P1, Sonnet; new src/wl_drain.rs, app.rs `resumed`/`exiting`, Cargo.toml) The drain thread as designed in
+  REGRESSIONS.md R57 section 4: a `wl-drain` thread that does `prepare_read` / `poll` / `read_without_dispatch` on a
+  `Connection` made from winit's `wl_display*` (`Backend::from_foreign_display`), never dispatches, stops at the first error
+  or POLLHUP, is woken by a pipe, joined in `exiting`, and stopped by a chained panic hook. `SCRATCHY_WL_DRAIN=0` turns it
+  off; non-Wayland handles get no thread. Tests (src/tests/wl_drain_tests.rs): (1) over a `socketpair`, a client
+  `Connection` (`Connection::from_socket`, system backend) sends 300 `wl_display.sync` requests on a queue that is never
+  dispatched; the test's "server" end writes 300 `wl_callback.done` (+ `delete_id`) events with a non-blocking socket. With
+  a `WlDrain` on that display, all bytes are consumed (the server's writes never hit `EAGAIN` / `FIONREAD` on the client end
+  goes to 0) while nothing is dispatched; then one `dispatch_pending` delivers the 300 callbacks in request order; without
+  the drain the server side backs up. (2) `stop()` returns within 100 ms with the thread idle in poll, and after the server
+  end closes (POLLHUP) the thread has exited by itself. (3) start with a non-Wayland handle (or `SCRATCHY_WL_DRAIN=0`) gives
+  `None`. If the socketpair test turns out impractical (> ~200 lines), say so in the PR and gate on QY54a1 only. Gate (the
+  QY54 overall gate): with the QY54a1 harness, **busy450 and stall_k18 at 500 Hz survive 3/3** in the nested dwl, and with
+  `SCRATCHY_WL_DRAIN=0` the same binary is still lost 3/3 (proves the thread is what fixes it). Clicking a link after a
+  stall_k18 stall still hits the link under the pointer (a click injected during the stall).
+- **QY54a3 [S]** (P2, Opus measure, after QY54a2) Re-run R56 section 2's YouTube rows with the drain: results page at 500 Hz
+  from 1 s and from 15 s, 3 runs each (lost 3/3 each in R56), plus the CPU cost: process CPU and frame-stats busy share for
+  60 s of 500 Hz motion over a static fixture, drain on vs `SCRATCHY_WL_DRAIN=0`, 3 interleaved pairs under the perf flock
+  (prototype: ~+0.1 s sys per 15 s). Gate: 0 lost of 6, CPU cost < 1 % of one core, numbers in R57. If the cost is higher,
+  file an item that lets the thread sleep while the main thread is idle in calloop (a "main busy since" timestamp it checks).
+- Not proposed: B (separate UI thread) is not needed for QY54. File it only if a later goal (a responsive scrollbar / input
+  while a script runs) needs it; it would be an XL architecture change and **needs the user**. QY54b (why the results-page
+  `getPlayerSize` layouts cost ~10x more) stays as filed: with QY54a2 those 0.7-0.98 s jobs no longer disconnect, but they
+  still freeze input for that long.
+
 ## R56: Quiet-machine re-measurement of QY60, QY54 and QY33 on V8 main. QY60: FIXED. On YouTube results the masthead is finished at 4.3-4.6 s (R38: 47-53 s with a 20 s budget), all 20 results are in by 3.3-4.4 s, the worst rAF wait is 623-634 ms (R38: 3.6 s) and the worst timer lateness 701-725 ms (R38: 4.1 s). Forced layout is 0.6-1.0 s per 10 s headless (QV8-m: 14.6 s). The main thread is saturated only for ~5 s of load (page JS ~0.8-0.95 s per second), then idle. NEW (FIXED by QY57r: ioEval0 no longer clips by a propagated body overflow; thumbnails now paint): the thumbnails still show `true`: scratchy's IntersectionObserver clips every target by `<body>` (YouTube's body is 956x0 with `overflow: scroll`), so every entry has an empty intersection and YouTube never sets `src`. QY54: STILL OPEN. The nested compositor drops scratchy when about 190-225 pointer-motion events queue up unread: 3/3 lost with a 450 ms busy loop at 500 Hz, which is INSIDE the 500 ms callback budget. YouTube results at 500 Hz: lost 3/3 during load and 3/3 after load, on the inline-preview player's `getPlayerSize` layouts (0.7-0.98 s in one promise job). At 125 Hz it survives 3/3. QY33: FIXED. In 21 headless runs (home, results, watch) and 9 window runs: 0 budget kills, and the largest callback after load is 130 / 233 / 264 ms budget clock (327 ms raw) (Opus, 2026-11-20, measure only, docs only) — OPEN: proposed QY57r, QY54a, QY54b (below)
 
 **Setup (all three items).** Main b88b3db (its code is 86635e3: the commits after it change only TODO files). The binary is
