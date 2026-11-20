@@ -35,7 +35,7 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
  Ahead of this list by user decision (2026-11-19): QPT1a DONE bb0d258, QPT1b DONE 2e6a2a8, QPT1c DONE b33c53a, QPT1d DONE 418fbd4, QPT1d3 DONE 78c8441, QPT1f DONE f2ccf31, QPT1e DONE 53c5368 -> QPT1 core DONE; follow-ups QPT1f4 [WIP], QPT1f2/f3/f5, QPT1d2, QPT1b2 (iframe realm, YouTube PoToken; R53).
  Step 4, the main thread in the live window (YouTube playback, scrolling, mouse):
  Step 5, memory, regression guards, re-measure:
-  26 QY47b [S] fewer JS frames per createElement
+  26 [WIP] QY47b [S] fewer JS frames per createElement
   27 QOBS9 [S, Opus] re-baseline PERF.md on the new machine (after 9, 18, 20)
   28 QM1k-mouse: user re-tested 2026-11-19 22:21: still slow while the controls show (= QYTC1 cause); QYTC1a merged 9219065 -> ASK THE USER TO RE-TEST (quiet machine)
   27b [WIP] QY54a [M, Opus design -> Sonnet, P1] read the Wayland socket while the main thread is busy (R56; QY54 closed)
@@ -855,7 +855,7 @@ Evidence and the probe recipe: REGRESSIONS.md R36.
 Ranked: QY47a (P1, Sonnet; independent of QY46, either order) -> QY47c (P2, Opus,
 after QY47a) -> QY47b (P3, Sonnet) -> QY47d (P3).
 
-- [ ] QY47b [S] (P3, Sonnet, measure first) Fewer JS frames per `document.createElement`:
+- [ ] [WIP] QY47b [S] (P3, Sonnet, measure first) Fewer JS frames per `document.createElement`:
       today a page call goes through three JS wrappers (js_dom.rs custom-elements
       `doc.createElement` -> `created`, media_prelude.js `document.createElement`
       wrapper with `ce.apply`, DOM prelude `doc.createElement`) plus `ceUpgrade` and
