@@ -1039,7 +1039,7 @@ Shared rules for this block:
       QY53l2 (b493ad2, R43 section 13): of 71 remaining YT no-change layouts, 44 follow writes to VISIBLE elements only
       (.ytp-chapter-hover-container, .ytp-load-progress scale transform, #movie_player state classes, video attributes) and
       8 follow writes inside an inline <svg> only: consider a rule for svg-internal writes that cannot change the svg box.
-- [ ] QY53f1d [M] (P3, from QY53f1b; Opus design) The cold parse of YouTube's 4.4 MB sheet still costs ~130 ms on the first
+- [ ] [WIP] QY53f1d [M] (P3, from QY53f1b; Opus design) The cold parse of YouTube's 4.4 MB sheet still costs ~130 ms on the first
       forced layout. Options: parse external sheets as they arrive (off the forced-layout path, on the JS thread's idle
       time or a worker), or lazily per rule block. Measure first (R43 section 12); design + items.
 - [ ] QAN1h2b [S] (P3, from QAN1h2 #372; Sonnet; css area) Per-selector candidates: a rule whose selector list mixes keyed
@@ -1062,6 +1062,9 @@ Shared rules for this block:
       page (example.com / local), live nested-dwl window, own wire, with vs without the malloc_trim (#400 lacks a switch: add
       a throwaway env toggle), under the perf flock, uptime noted. Gate >= 25 MB lower. #400 shipped measured only
       synthetically (3.3 ms on a 423 MB heap, no RSS drop in that synthetic case).
+- [ ] QMEM3k [S] (P4, from QMEM3j #402; Sonnet) memo_put's compacting clone costs ~2-3 us per new SHAPE_MEMO entry (16-25 ms on
+      a cold Wikipedia layout, 8k entries): move it off the critical path (e.g. compact in the shaping worker while idle).
+      Only if cold forced layouts matter more later.
 - [ ] QMEM3f [S] (P4, from QMEM3; Opus measure) 10-minute live-window RSS sample on YT watch: the window grows ~0.22 MB/s
       in the first minute; leak or warm-up?
 - [ ] QYTC1a2 [S] (P3, from QYTC1a #381; Sonnet) In-flow translate / relative `left`/`top` writes shift in place too
