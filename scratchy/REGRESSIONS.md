@@ -1,5 +1,522 @@
 # scratchy — regressions
 
+## R60: QINC1 design: one incremental style + layout engine for App frames AND script forced layouts. Persistent per-element styles with a match cache, Blink/Stylo-style invalidation sets and early cut-off; a box tree kept between layouts and rebuilt per container; the last laid tree reused as the fragment cache (a clean box is moved, not re-measured; a dirty box is re-measured at its cached constraints and the change goes up only while the parent-visible result changes). Measured first (throwaway probe): between two consecutive forced layouts the median page restyles 3-33 elements of 261-1 128 styled ones (1-5 %), and touches 1-6 % of the boxes; today every one of them redoes 100 %. Projected: YouTube results `getPlayerSize` 54-80 ms -> ~2-5 ms (preview job 685-1 137 ms -> ~150-220 ms), YouTube watch / Wikipedia App builds 38-90 ms -> ~2-6 ms each, and a frame after a forced layout costs ~0. Size: XL (14 items, 4 of them L), landed in shadow mode first, then behind `SCRATCHY_INCR=1`, then flipped, then the special cases deleted. RECOMMENDED; supersedes R59/QY54b3a-f (Opus, 2026-11-20, design only, docs only) — OPEN: proposed QINC1a-QINC1m (section 15), open questions (section 16)
+
+Inputs: R43 sections 4/8 (phase split, 84 % of styles reusable), R47 (hover restyles), R50 (QYTC1a/b/d), R55 (App builds per run:
+Wikipedia 104 / 9.4 s, YouTube watch 268 / 10.1 s), R57 (main-thread stalls), R58 (results `getPlayerSize`: full layout,
+~11 us/element, style ~80 %), R59 (subtree layout, translation invariance to 0.00024 px). Code read at 5888220: style.rs
+(`resolve_style_for`, `matching_indices_for`, `MATCH_MEMO`, `HoverKeys`, `RuleDerived`, `stash_last_match`), images.rs
+(`build_layout_tree_with_resources`, `build_box_for_element_body`, `collect_real_nodes`, `precompute_generated`), layout.rs
+(`LayoutBox`, `Laid`, `measure_inner_body`, `resolve_positioned`, `hoist_negative_z`, `compute_ink`, `shift_laid_tree`), js_geom.rs
+(`GeomCache::refresh`, `walk`, `style_write_in_place`, `ClassDeps`, `HiddenSnap`), js_dom.rs (25 `geom_bump*` call sites), app.rs
+(`redraw`, `spawn_shaping_worker`, `apply_hover_cheap`), hover_patch.rs, rules_cache.rs, anim_eval.rs, js_style.rs.
+
+### 0. Measured: how much really changes between two layouts
+
+Throwaway probe (scratchpad export of main 5888220, never committed): every `resolve_style_for` records its (node, slot) ->
+`ComputedStyle` (with `tree_order` zeroed); after every `GeomCache::refresh` the map is compared with the previous forced
+layout's, plus a per-element DOM fingerprint (tag, attributes, child ids, text of text children) and the rect maps. Release
+build, own wire on a scratchpad socket, headless `--perf-report` (default budget), one run per page, under
+`flock /tmp/scratchy-perf.lock`, load 17.7 -> 6.5 (other agents building; the ms are high, the counts are not affected).
+"styled" = (element, pseudo) pairs the build resolved (elements in `display: none` subtrees are never styled);
+"restyled" = changed + new pairs; "dirty" = elements whose own attributes, child list or child text changed;
+"anc" = distinct ancestors of the dirty and changed elements (the path a relayout walks); "rects touched" = resized + moved +
+new rects / all rects.
+
+| page (forced layouts) | ms per layout, median (max) | styled, median | restyled per layout: median / p90 / max | restyled share: median / p90 | dirty: median / p90 | anc: median / p90 | rects touched: median / p90 | layouts that changed no style |
+|---|---|---|---|---|---|---|---|---|
+| YouTube results 30 s (37) | 34.2 (77.5) | 1 128 (up to 2 871 of 6 924 elements) | 33 / 205 / 449 | 4.5 % / 23 % | 129 / 551 | 104 / 372 | 5.9 % / 35 % | 9 |
+| YouTube watch 30 s (72) | 18.9 (45.1) | 261 (up to 886 of 3 101) | 3 / 61 / 288 | 1.2 % / 17 % | 5 / 57 | 14 / 63 | 0.9 % / 23 % | 8 |
+| Wikipedia Rust 20 s (3) | 142.6 (146.3) | 10 071 (9 971 elements) | 6 / 75 / 75 | 0.1 % / 0.7 % | 22 / 69 | 25 / 55 | 5.8 % / 6.0 % | 0 |
+
+- The big shares (p90 17-23 %) are YouTube appending a batch of results/recommendations (new = 100-443 elements), or a
+  class flip on an ancestor that changes ~60-270 inherited styles (e.g. 270 changed after one `dirty` element). Both are real
+  work an incremental engine also has to do; everything else is a few elements.
+- Changed styles OUTSIDE every dirty subtree: 1 + 2 + 0 in 112 layouts. Sibling/`:has`-like reach is rare here (headless,
+  no pointer: hover was R47's job: 1-2 elements on Wikipedia, 0-6 plus up to 27 descendants on YouTube).
+- Phase totals of these runs (QOBS3): YouTube results 1 516 ms = precompute 329 + build_children 708 + measure 305 + walks
+  31; watch 1 558 = 446 + 781 + 100 + 21; Wikipedia 757 = 171 + 308 + 216 + 28. So 70-80 % is style, all of it redone for
+  1-5 % of real change. R43 section 8 saw the same from the other side (84 % of fingerprints unchanged, 2026-11-19); it judged
+  incremental style "not worth an L" because forced layouts were then 3 % of YouTube's CPU. Since then R55 (App builds:
+  9.4-10.1 s per run) and R58 (54-80 ms per results read, 11-13 per promise job) made the full rebuild the cost again.
+
+App builds were not probed (needs the nested window). They are fed by the same DOM writes (R55: 143-220 of 213-234 builds per
+YouTube run come from script writes) plus hover/focus (R47), so the forced-layout distribution above is the model for them.
+
+### 1. Today: one full pipeline, run twice, and the special cases around it
+
+Scripts run on the MAIN thread (the V8 isolate lives on the winit thread; only the watchdog and snapshot threads are
+separate). So the "JS thread" of R58/R59 and the App are the same thread, on the same `Rc` DOM. Two consumers run the same
+from-scratch pipeline (`build_layout_tree_with_resources`: css collect, rule index, `precompute_generated` (all matching),
+`build_children` (cascade + boxes) -> `measure_document`):
+- App frame (`App::redraw`, `layout_dirty`): build on main, measure on the shaping worker (progressive, `hold_old_frame`),
+  result installed in `App::cached`. With the window's image cache.
+- Script forced layout (`GeomCache::refresh`, key `(geom_gen, vw, vh, css_ver)`): build + measure on main, then `walk`
+  (rects + QYTC1a skeleton) and `walk_glyphs`. WITHOUT images (an empty cache).
+A forced layout and the App frame after it do the same work twice; nothing is kept between layouts except caches that
+work around that:
+
+| special case | what it does | in the engine |
+|---|---|---|
+| QYTC1a `style_write_in_place` + `Skel` (R50) | shift an abs box's laid subtree for `left`/`top`/translate writes, no bump | general: a style write restyles one element; an offset-only diff on an abs box re-places only that box (cache hit + shift). DELETED |
+| QYTC1d `ClassDeps` class probes (+`PROBE_BUDGET`) | class write that changes no rule match: no bump | invalidation sets (section 5) + early cut-off. `ClassDeps` is the seed of the class part. DELETED |
+| QY53l2 `HiddenSnap` | write inside a `display: none` subtree: no bump | elements without a box have no style entry; a write there invalidates nothing rendered. DELETED |
+| QY53o1 `ATTR_SNAP` / `AttrReaders` | write to an attribute no selector reads: no bump | `AttrReaders` becomes the attribute part of the invalidation map; the snapshot goes. DELETED (the reader table stays) |
+| QY53m no-op write skip | a write that changes nothing marks nothing | stays as is (the DOM layer only reports real changes) |
+| QY53n2/n3 hover paint/offset patch (hover_patch.rs, R55, #424, #426) | patch `App::cached` for paint-only / offset-only hover rules | hover = a state invalidation; paint-only diff = style patched into the kept box and fragment, no relayout. DELETED |
+| `MATCH_MEMO` (per build), QY54b2 note | each (element, pseudo) matched once per build | per-element match cache that survives builds (R43 item 7, QY53f2/f3, QY54b2b). The per-build memo goes |
+| QY53n1c kept memo (`KEEP_MATCH`, `LAST_MATCH`, `with_kept_build`, `hover_match_diff`) | the App build's matches kept for the hover patch | subsumed by the match cache. DELETED |
+| `HoverKeys` | which elements a hover change can restyle | becomes the state part of the invalidation map |
+| `RuleDerived` / `rules_cache` generation / QY53f1 splice | rule list + index cached per generation; a `<style>` edit re-parses one piece | stays; a new generation = "re-match everything, keep what compares equal" (section 6) |
+| QY54b1 link CSS (#432) | script-inserted sheets applied, one `css_ver` bump | stays; the bump is a stylesheet invalidation |
+| R59 / QY54b3a-f (on hold) | dirty points + stash + subtree layout of one abs box for a forced read | superseded: section 8's bottom-up relayout is stage 2 for every box, not only abs boxes with definite size, and also for App frames. R59's translation-invariance prototype, its generated-content and animation-pass analysis are reused |
+| QY53e1/e2 IO (`RENDERED`, render stamps) | IntersectionObserver reads the App's layout to avoid its own forced layout | one layout: IO reads the engine's current tree (QY53e2b moot) |
+
+### 2. What real browsers do, and what we take
+
+- **Blink:** `Node` flags `NeedsStyleRecalc` (local / subtree) + `ChildNeedsStyleRecalc` path bits, set by `StyleEngine`
+  from `RuleFeatureSet` invalidation sets (class/id/attribute/pseudo-class -> self, descendant set filtered by the rightmost
+  compound's features, sibling sets; `:nth-*` and `:has` have their own). Recalc walks the path bits; a recomputed style that is
+  equal to the old one stops (`StyleRecalcChange` decides whether children inherit-only recalc, full recalc or nothing).
+  `ComputedStyle::VisualInvalidationDiff` classifies a change as repaint / layout / reattach. Layout: `NeedsLayout` +
+  `ChildNeedsLayout`, relayout boundaries (fixed size + overflow clip + not a flex/grid item), LayoutNG caches each
+  `LayoutResult` per box keyed by the constraint space and reuses it when the box is clean and the space matches.
+- **Gecko/Stylo:** restyle hints from the invalidation map, a traversal over dirty-descendant bits, style sharing; frames
+  are reconstructed per container on "reframe" changes; `NS_FRAME_IS_DIRTY` / `HAS_DIRTY_CHILDREN` for reflow.
+- **WebKit (legacy):** persistent mutable render objects that hold their own geometry; `setNeedsLayout` marks up to a
+  relayout root; layout walks only marked objects.
+Taken here: Blink's invalidation sets and recalc-change propagation; Blink's style diff classes; Gecko's per-container box
+reconstruction; WebKit's "the last laid tree is the persistent geometry" (scratchy's `Laid` is already an owned, mutable
+tree in absolute coordinates, so it is the natural cache); LayoutNG's constraint-space keys and its "stop when the result the
+parent sees is unchanged". Not taken (yet): relative-coordinate shared fragments (section 14, QINC1n).
+
+### 3. Decision: ONE engine, on the main thread
+
+One `Engine` (new `src/incr*.rs`) per page document, owned by the main thread (a thread-local next to the DOM, like
+`INTERACTION`), used by BOTH the App frame and `GeomCache` (and the IntersectionObserver recheck). Reasons:
+- It can: DOM, V8, App build and forced layout already share the thread; no locks, no copies of the DOM.
+- A forced layout's result IS the next frame. Today a script write is laid out twice (forced read, then the App build);
+  with one engine the frame after a forced read costs ~0 when nothing changed since.
+- Two engines would need two sets of dirty bits fed by the same writes and two caches to keep exact; the special cases of
+  section 1 exist because of that split.
+Consequences:
+- **Forced layouts see decoded image sizes** (they use the window's image cache). Real browsers do; today JS reads 0x0 /
+  alt-text sizes for images the window shows at full size. This changes script-visible geometry (open question 2).
+- **Incremental work runs on main, synchronously and complete** (no deadline, as forced layouts already do). The shaping
+  worker stays for "big" updates (first layout of a page, viewport width change, a new rule-list generation, restyled share
+  over a threshold, kill switch): today's progressive path, whose result the engine adopts (section 9).
+- Headless `--perf-report` (no App) gets the engine through `GeomCache`, so the gates can be measured headless too.
+
+### 4. Data model
+
+**4.1 Element data (side table).** `HashMap<node_id, ElementData>` with a `WeakHandle` per entry (node ids are `Rc`
+addresses; a freed node's address can be reused: the weak check catches it, as `GeomCache` and the animation table do).
+Only elements that get a box (or are `display: contents`) have an entry; an element in a `display: none` subtree has none.
+Per element and slot (element, `::before`, `::after`, `::marker`):
+- `matched: Rc<[(u64, u32, bool)]>` (the match cache: what `matching_indices_for` returns), with the rules generation;
+- `style: ComputedStyle` (base + animated value; `tree_order` see 4.5) and `anim: bool`;
+- the ambient inputs the builder threads down (`DecorationValue`, `href`, inline `bg`, `valign`): compared like inherited
+  values;
+- the element's generated-content entries (`GENERATED_TEXT`/`ELEMENT_CONTENT` today) and its counter state on exit when the
+  rule list uses counters/quotes;
+- flags: `RESTYLE` (re-match), `RECASCADE` (inputs changed, matches valid), `DESC_DIRTY` (path bit: some descendant has
+  a flag), `BOX` (this element's box content must be rebuilt), plus `box_owner` (the element whose `LayoutBox` holds this
+  element's content: itself for block-level/flex/grid/table/abs/inline-block boxes, the nearest such ancestor for inline
+  elements and `display: contents`).
+Memory: ~1.4 KB per styled element (`ComputedStyle` is 1 304 B): ~4 MB on YouTube results, ~14 MB on Wikipedia (open
+question 5).
+
+**4.2 Box tree (kept).** The engine keeps the `LayoutBox` tree it built last (today it is dropped after measuring) and
+updates it in place. An element-owned box is identified by `style.node`. Anonymous boxes (inline runs, anonymous table
+wrappers, flex anonymous items, the root wrapper) and everything an inline element contributes (`InlineItem` spans with
+copied `SpanStyle`s, spacers) belong to their container and are rebuilt with it. `InlineItem::Embedded` (inline-block /
+inline-flex) is element-owned and reusable. Each element-owned box gets `ldirty: Cell<bool>` (its subtree changed since
+the last layout) and `bver: u64` (bumped on every rebuild).
+
+**4.3 The last laid tree is the fragment cache.** Every element `Laid` records how it was measured:
+`ck = { origin x, y; width; containing_height; auto_margin_box_override; forced_border_w; floats-in: empty | not; vw, vh,
+root epoch }` and `cacheable` (complete shaping; one `Laid` for its node; see 8.2 for out-of-flow and hoisted descendants).
+`measure` is translation-invariant in (x, y) (R59 section 7: 0.00024 px at y ~2 089), so a clean box measured with the same
+`ck` minus the origin equals its old `Laid` shifted by the origin delta.
+
+**4.4 Stable paragraph ids.** `LaidContent::Text(id)` / `MixedPositioned::Word { id }` index a per-layout `ShapeCache`
+whose ids restart at 0 every layout (`next_id`). A reused `Laid` keeps its ids, so ids become engine-unique (a counter
+that never restarts; the worker path gets a base) and the `ShapeCache` persists, swept of ids no live `Laid` uses.
+
+**4.5 Paint order ties.** `stack_key` breaks z-index ties by `style.tree_order`, a global counter taken at resolve time.
+A partially restyled tree would order new elements after old ones. Ties are taken from document order instead (an order
+index the engine renumbers on structural change, or a DOM-position comparison inside the sort; only ties need it).
+
+### 5. Invalidation: what marks what
+
+`InvalidationMap` per rule-list generation (new `src/invalidation.rs`; generalizes `ClassDeps`, `HoverKeys` and `AttrReaders`,
+which already answer this question for one feature each). From every selector: features (class, id, attribute name, state
+pseudo-class: `:hover :active :focus :focus-within :focus-visible :checked :disabled :enabled :target :placeholder-shown
+:link/:visited :default :indeterminate :required :optional :read-only/-write`) and where they sit:
+- in the rightmost compound -> **self**;
+- left of a descendant/child combinator -> **descendants**, filtered by the rightmost compound's class/id/tag (Blink's
+  descendant set; "all descendants" when the rightmost compound has no such key);
+- left of `+` / `~` -> **siblings** (adjacent or all following; then self or descendants of them);
+- inside `:not/:is/:where` -> treated as if outside (conservative); inside `:nth-child(of S)` -> structural;
+- structural flags: `:nth-*`, `:first/last/only-child`, `:*-of-type`, `:empty`; `:has()` (scratchy does not parse it; if a
+  future parser does, the guard is "any `:has` in the list -> every write invalidates its ancestors' `:has` subjects", i.e.
+  Global until designed).
+Sources -> marks (the `IncrLog`, filled where `geom_bump*` / `JsEngine.dirty` / `layout_dirty` are set today):
+
+| source | mark |
+|---|---|
+| attribute set/remove (name, old, new) | `class`/`id`/other: the map's sets for the changed tokens; `style`: `RECASCADE` on the element (+ the map if a selector reads `[style]`) |
+| child inserted / removed / moved (parent, prev/next sibling) | new subtree: `RESTYLE` all; parent: `BOX` on its box owner; structural selectors: siblings per flag (`:nth-child` -> all children, `+`/`~` -> following siblings); `:empty` -> parent; `<style>`/`<link>`/`<base>`/`<slot>`/`<meta>` in the subtree -> CSS/Global as today (`subtree_sensitive`) |
+| text node data / `textContent` / `innerHTML` | `BOX` on the text's box owner (+ the child-list rules) |
+| form state (checked, value, selection) | `:checked`/`:placeholder-shown`/... state sets; the control's `BOX` (its painted value is box content) |
+| hover / active / focus / target change | old vs new chain: the state sets of every element entering or leaving the state (HoverKeys' job today) |
+| rule list generation (style splice, link CSS, adopted sheets, js on/off) | v1: `RESTYLE` everything (re-match, early cut-off keeps boxes and layout for equal styles). Later: invalidate only by the added/removed rules' features (Blink RuleSet invalidation), QINC1q |
+| viewport width | full restyle (media queries, vw units) and full relayout: worker path |
+| viewport height | elements whose style read `vh` / the ICB height (`VIEWPORT_H_READ` per element instead of per build) |
+| image / CSS image decoded, video intrinsic size, font | `BOX` on the elements using that `src` (an index built while building) |
+| animation tick | `RECASCADE` on the elements with a running animation (the engine knows them) |
+| counters / quotes changed by a restyle | the generated walk (6.4) marks the elements whose generated text changed |
+| unknown (adopted sheets without node, a write the log cannot describe, log overflow) | Global = everything dirty (today's behaviour) |
+
+A soundness test drives this table (QINC1d): for random DOM/CSS fixtures and every mutation kind, the predicted set must
+contain every element whose match really changed (brute force: match all before and after).
+
+### 6. Incremental restyle
+
+**6.1 Traversal.** Top-down from the root along `DESC_DIRTY`, carrying the parent's `InheritedStyle` and ambient inputs, the
+ancestor bloom filter (`ANCESTOR_BLOOM` already keeps a chain) and the rule index. At element E:
+- `RESTYLE`: match (`matching_indices_for`), store the match, cascade;
+- `RECASCADE`, or the parent's inherited output / custom properties / `root_font_size` / ambient changed: cascade from the
+  stored match (no matching: the expensive half, ~1.4 us x 3 per element, R58 QY54b2 note);
+- neither: skip E (its style stands), visit only its dirty children.
+**6.2 Early cut-off.** New style == stored style (excluding `tree_order`, `node`) -> E's children get nothing from E. If only
+non-inherited fields changed, children are not re-cascaded either. Inherited fields, custom properties or ambient changed ->
+children `RECASCADE` (not re-match).
+**6.3 The diff decides the next stages** (`style_diff(old, new) -> None | Paint | Offset | Layout | Box`, an exhaustive
+destructuring of `ComputedStyle` like `SpanStyle::hash_into`, so a new field fails to compile until it is classified):
+`Box` (display, position, float, content, list-style, overflow's BFC-ness, table/flex/grid kinds, anything the builder
+branches on) -> `BOX` on the box owner (and its parent's for display/position changes); `Layout` -> `ldirty` on the box (an
+inline element's change -> `BOX` on its box owner, because `SpanStyle`s are copied into the run and the paragraph re-shapes);
+`Offset` (relative/abs insets, translate) -> the box re-placed only (8.3); `Paint` -> the new style is written into the kept
+`LayoutBox` and `Laid` (and the paragraph's span colours) without layout. `opacity` 1 <-> < 1 and `z-index` are `Layout`
+(stacking boundaries change hoisting).
+**6.4 Generated content and counters.** Rule lists without counters/quotes (a `RuleDerived` flag): `::before/::after`
+`content` is per element, recomputed when the element is restyled. With counters/quotes: a document-order walk over the
+STORED styles (no matching: a few hundred ns per element) recomputes counter values and marks the elements whose generated
+text changed (`BOX`). This is R59's `generated_walk`, made cheap by the stored styles.
+**6.5 Animations.** `finish_animation_pass` drops the start time of every animation not seen in the pass; an incremental
+pass sees few elements. The engine owns the list of animated elements, re-cascades them on each tick, and drops a start
+time only when its element lost the animation or left the document (R59 section 6's audit list applies: no
+`stash_last_match`, no `VIEWPORT_ROOT_NODE` reset, no full `DISPLAY_NONE_ROOTS`, no whole-memo sweep).
+
+### 7. Box tree update
+
+For every element with `BOX` (deepest first is not needed; containers are independent): rebuild its box owner's content with
+today's builder (`build_children` / `collect_real_nodes` / table / flex / grid / marker / first-line / first-letter /
+ellipsis), reading styles from the element table instead of resolving, and REUSING the old `LayoutBox` of every element-owned
+child that has no `BOX` in its subtree and the same inputs (moved out of the old content by node id). Anonymous boxes and
+inline runs are rebuilt (they are cheap: no style resolution). A rebuilt box gets a new `bver`; it and all its ancestors
+get `ldirty`. `propagate_canvas_background` is a root fix-up redone when `<html>`/`<body>` change. Whole-build
+thread-locals (`STATE_RULES`, `VIEWPORT_H_READ`, `DISPLAY_NONE_ROOTS`, `WANTED_IMG_SRCS`, `WANTED_CSS_IMAGES`,
+`STYLE_OVERRIDES`, the leaked `href` strings) become per element or are recomputed from the table. Equality with a fresh
+build is checked structurally in shadow mode (section 10).
+
+### 8. Incremental layout
+
+**8.1 Bottom-up first, top-down when needed.** For each `ldirty` box B that has an old `Laid` with a cacheable `ck`
+(outermost dirty boxes only): re-measure B alone at its old `ck` (in-flow box: `measure` at its old origin, width,
+containing height, overrides; abs/fixed box: `resolve_positioned` at its old containing-block size, as R59 stage 2 does);
+clean children inside B are reused (8.2). Then compare B's PARENT VIEW (border box w/h, finalized margins, first baseline,
+last line extent, what margin collapsing through B reads, B's out-of-flow and hoisted bubbles) with the old one:
+- equal -> splice B's new `Laid` into the tree in place of the old; nothing outside B moves (this is the "layout boundary",
+  decided by the result, not by a static size-containment rule, so it also covers `height: auto` boxes whose height did not
+  change);
+- different -> mark B's parent `ldirty` and repeat one level up.
+Floats-in not empty (B inside a block formatting context with floats), no old `Laid`, or a non-cacheable `ck` -> go up.
+When the walk reaches the root (or a viewport/global change), run `measure_document` top-down with reuse (8.2): that is
+still incremental, because every clean subtree is a move.
+**8.2 Reuse inside a measure.** Before relayout the engine "harvests" the old tree along the dirty paths: every clean
+element subtree hanging off a dirty path is detached whole into `node -> Laid` (O(path x siblings), no subtree walks).
+`measure_inner` on a clean box whose harvested `Laid` has the same `ck` minus origin returns it shifted (`shift_laid_tree`,
+O(subtree) only when the position changed; most writes do not move outside boxes). A clean subtree whose measure bubbled
+`pending` out-of-flow descendants or hoisted z-index entries keeps those lists in its cache entry and re-emits them shifted
+(requires the bottom-up hoisting of QINC1c; `PendingPositioned` borrows the `LayoutBox`, which the kept tree outlives).
+Flex/grid/table: the container re-runs its algorithm when it is on the dirty path; items/cells that are clean hit the cache
+for the measures whose `ck` matches (2 entries per box: flex measures items for the hypothetical and the final size) and an
+**intrinsic-size cache** (`cell_natural_width` min/max per clean box, invalidated with `bver`) serves the content
+contributions without walking the item.
+**8.3 Offset-only diffs.** A box whose diff is `Offset`: re-place it (its own `Laid` is a cache hit at the new origin) and
+the ancestors' extents; this is QYTC1a, but for every box kind the measure already handles (relative, abs with % insets,
+translate), because the position is recomputed by the real code with the cached size.
+**8.4 Post passes.** `compute_ink` only for re-measured or shifted `Laid`s and their ancestors; hoisting bottom-up
+(QINC1c); `in_flow_bottom` and the root height from the root's children; sticky/scroll info is part of each `Laid`.
+**8.5 Drift guard.** Repeated shifts accumulate f32 rounding (~0.25 ulp per shift at y ~8 000 = ~0.0002 px). A full layout
+every 1 000 incremental updates (or on idle) resets it; tests compare at 0.01 px.
+
+### 9. After layout: one tree, three readers
+
+- **App:** `App::cached` becomes a view of the engine's tree (paint, hit test, forms, media controls, scroll, sticky read
+  it). An incremental update installs at once (no worker round trip, no `hold_old_frame`: the update is complete). The
+  worker path (section 3) sends a CLONE of the kept box tree (~1-2 ms at 2.7k boxes) and the engine adopts the returned
+  `Laid` (with its `ck`s) and shape cache as its tree.
+- **GeomCache:** the rect map is updated for touched roots (re-measured, shifted, removed) instead of a full `walk`;
+  glyphs are computed on the first `text_rects`/Range read after a layout (today `walk_glyphs` runs on every forced layout).
+  `Skel` goes (QYTC1a's shift is 8.3).
+- **IntersectionObserver:** reads the current tree; an IO recheck with dirty state runs an incremental update instead of a
+  full forced layout.
+- **Paint invalidation:** v1 repaints the whole frame as today (2-5 ms on Wikipedia, R47). A damage-rect repaint (QAN1d's
+  plan) can take the engine's touched-roots list later (QINC1o).
+
+### 10. Correctness strategy
+
+- **Shadow mode (tests, always on):** under `cfg(test)` every layout that the old path performs ALSO runs the engine's
+  incremental update and compares (QINC1a comparators): every styled element's `ComputedStyle` (minus `tree_order`/`node`),
+  the box tree structurally (styles, content kinds, inline item text + spans, children), every `Laid` (x/y/w/h/ink within
+  0.01 px, `fixed`, `positioned` order, sticky/scroll info, glyph positions). A mismatch panics with the node's
+  tag#id.class, the field, both values, and the marks that led there. So the WHOLE existing suite (js_geometry, observer,
+  hover, forms, animation, box layout, ...) tests the engine from the day each stage lands, without any behaviour change.
+  After the flip the roles swap: the engine's result is used, the from-scratch path is the oracle.
+- **Differential fuzzing (tests):** a generator of small pages (classes, ids, attributes, sibling/descendant/child
+  combinators, `:nth-child`, `:hover`, inherited and custom properties, `display` none/contents/inline/inline-block/flex/
+  grid/table, floats, abs/fixed/sticky, z-index/opacity, counters, `::before`) and of mutation scripts (insert, remove,
+  move, text, attribute, class, style, hover, viewport). Fixed seeds, ~200 cases in the normal suite (`SCRATCHY_FUZZ_N` for
+  more); incremental == from scratch after every step. This is the main safety net for the combinations nobody writes tests
+  for.
+- **Real pages:** `SCRATCHY_INCR_CHECK=1` runs the from-scratch path after every incremental update, prints one
+  `scratchy: incr-check: MISMATCH ...` diag line per difference, counts `incr.check_mismatch` in `--perf-report`, and uses
+  the from-scratch result. `SCRATCHY_INCR=0|1` chooses the path (default 0 until QINC1l, then 1); `SCRATCHY_INCR=0` stays as
+  the kill switch.
+- **Counters (`--perf-report` `incr` object):** updates, restyled (re-matched / re-cascaded), boxes rebuilt, boxes
+  re-measured, cache hits, misses by reason (dirty, key, floats, not cacheable, no old), bottom-up stops by level, worker
+  fallbacks by reason, check mismatches. Every stage's gate reads these.
+- **WPT subset** (static pages: exercises the first layout and the adoption path) and the full suite with the flag on and
+  off at every integration item; no pass -> fail.
+
+### 11. Migration path (main stays green throughout)
+
+1. Infrastructure with NO behaviour change: comparators + `style_diff` + fuzz harness (full vs full) + counters (a), stable
+   paragraph ids (b), bottom-up hoisting with document-order ties (c, must reproduce today's trees), invalidation map (d),
+   write log (e).
+2. Engine stages in SHADOW mode (results computed and compared in tests, never used): restyle (f), box tree (g), relayout
+   (h1, h2). In release builds they run only with `SCRATCHY_INCR=1` / `SCRATCHY_INCR_CHECK=1`.
+3. Integration behind `SCRATCHY_INCR=1` (default off): forced layouts (i), App frames (j).
+4. Gate + exactness sweep on real pages (k). Flip the default (l) after the user's OK.
+5. Soak, then delete the special cases of section 1 (m). The from-scratch path stays as the oracle, the fallback for big
+   updates (worker) and the kill switch.
+Any stage can stop without leaving dead weight on main except its own files: until (l) nothing user-visible depends on it.
+
+### 12. Estimate (projections from section 0 and the R data; QINC1k measures the real numbers)
+
+Per-element costs today (R58, section 0): ~1.4 us per match x 3 slots, cascade + box ~6-8 us, measure ~2 us (more with
+shaping). Engine floor per update: harvest + splice + touched-rect update + ink on the path, ~0.2-1 ms on these pages
+(the full rect walk it replaces is 0.5-1.0 ms on YouTube results).
+
+| case | today | with the engine | why |
+|---|---|---|---|
+| YouTube results `getPlayerSize` (R58) | 54-80 ms each, 11-13 per preview job: job 685-1 137 ms | ~2-5 ms each (restyle tens of player elements + rebuild their containers + relayout inside the 440x248 abs wrapper, which stops the bottom-up walk); job ~120-220 ms (93-150 ms of it is not layout) | R58 section 2: all writes inside the preview; section 0: median 33 restyled |
+| YouTube watch controls (R50 after QYTC1a/d) | ~1 forced layout/s at 30-80 ms (time text), `ytp-autohide` class flips build | ~1-2 ms each | text change = one paragraph re-shape inside an abs box |
+| YouTube watch hover (R55: 18-36 hover builds per run left, 45-81 ms) | build | ~1-3 ms; paint-only hovers ~0.3 ms (no layout) | invalidation sets, `style_diff` |
+| YouTube watch App builds (R55: 268 per run, 10.1 s) | ~38 ms each | ~1-4 ms each, ~0 when a forced layout already ran: ~0.3-1 s per run | section 0 watch: median 3 restyled of 261 |
+| YouTube watch forced layouts (R55: 234 per run, 7.5 s) | ~32 ms | ~1-3 ms: ~0.3-0.7 s per run | same |
+| Wikipedia App builds (R55: 104 per run, 9.4 s) | ~90 ms | ~2-6 ms (10k-element page: harvest/ink paths are short; Page Previews popup = one abs subtree): ~0.3-0.6 s | section 0 Wikipedia: median 6 restyled of 10 071 |
+| Wikipedia forced layouts (21 per run, 2.6 s; probe 131-146 ms) | ~125 ms | ~2-6 ms | same |
+| loading YouTube (results appended, 100-450 new elements per update) | 30-77 ms | ~5-15 ms (new elements must be styled: no shortcut) | p90 restyled 205 |
+| first layout, resize, a new rule-list generation | full | full (worker), plus box/layout reuse where styles compare equal | by design |
+
+Gates proposed for QINC1k: R58 recipe `getPlayerSize` median < 10 ms and worst preview job < 300 ms (QY54b3's gates); R55
+Wikipedia and YouTube recipes: App `builds.ms` per run -80 % or more; 0 `incr-check` mismatches on 6 pages x 3 runs.
+
+### 13. Size and risk, honestly
+
+- **Size: XL.** 14 items (4 L, 9 M, 1 S) + 4 optional. The restyle (f), box (g) and relayout (h1) items each touch code paths
+  that took dozens of items to get right. Calendar: wave 1 (a, b, d, e) in parallel, then c ∥ f, then g, h1, then i ∥ j ∥ h2,
+  then k, l, m: about 7 sequential steps.
+- **Risk: high for exactness, low for main's stability.** Exactness bugs are the expected failure (a missed invalidation =
+  a stale style or rect). Shadow mode turns every one the suite or the fuzzer can reach into a failing test before anything
+  is used, and `SCRATCHY_INCR_CHECK=1` finds the rest on real pages. Nothing user-visible changes before (l), and
+  `SCRATCHY_INCR=0` remains.
+- **Perf risk:** floors (harvest, ink, rect map) and non-cacheable subtrees could keep some updates at 5-10 ms instead of 1-3;
+  the counters show which. Memory +4-14 MB (styles) + the kept box tree (~1.4 KB per box: ~4 MB on YouTube results).
+
+### 14. What scratchy's data structures make hard
+
+1. **Absolute coordinates in `Laid`.** A reused subtree that moved is shifted O(subtree). Fine for writes that move nothing
+   outside (the common case: section 0, "rects touched" median 0.9-5.9 %), costly when content is inserted above a long page
+   (everything below shifts: still ~ns per box, no allocation). The real fix is relative offsets + shared (`Rc`) fragments,
+   which touches every reader of `Laid` (paint, hit test, js_geom, forms, media, hover, scroll, sticky): optional QINC1n,
+   decided on QINC1k's numbers.
+2. **1.3 KB `ComputedStyle` copied everywhere** (element table, `LayoutBox`, `Laid` (a finalized copy), `InheritedStyle.parent`).
+   Keeping trees costs memory; sharing them (`Rc<ComputedStyle>`) is a separate refactor (not proposed now).
+3. **Node identity is the `Rc` address.** Every table needs the `WeakHandle` check (pattern exists).
+4. **Whole-build thread-locals.** `MATCH_MEMO`, `VAR_EXPAND_MEMO`, `ANCESTOR_BLOOM`, `CLASS_CACHE`, `GENERATED_TEXT`/
+   `ELEMENT_CONTENT`, `ANIM_*` passes, `VIEWPORT_ROOT_NODE`, `DISPLAY_NONE_ROOTS`, `STATE_RULES`, `VIEWPORT_H_READ`,
+   `WANTED_*`, `STYLE_OVERRIDES`, `next_style_order`: each assumes "one build sees every element". Each needs incremental
+   semantics; this audit is most of f and g's risk.
+5. **Inline content is copied into the container** (`SpanStyle`, spacers, `apply_first_line`): any change to an inline
+   element rebuilds and re-shapes its whole paragraph (the shape memo makes unchanged paragraphs free). Correct, just coarser
+   than a browser's line-level reuse.
+6. **Out-of-flow and hoisting are bubbles with borrowed references** (`PendingPositioned<'a>` borrows the box) and a post-pass
+   (`hoist_negative_z`). Both must become per-subtree cacheable (c, h1).
+7. **Tables** re-run the whole table algorithm when anything inside changes (cells reuse their layout and intrinsic widths);
+   **flex/grid** measure items several times with different constraints (2-entry cache). Floats are absolute-coordinate
+   `Floats` lists: a box with floats coming in is re-measured, not reused.
+8. **Progressive shaping** (deadline, `incomplete`) exists for cold loads; an incremental update must complete, so a big
+   re-shape goes to the worker path.
+9. **`App::cached` has ~45 readers** across app.rs, forms_text.rs, forms_select.rs and tests: moving ownership to the engine
+   is mechanical but wide (j).
+
+### 15. Proposed items (the coordinator files them; they supersede QY54b3a-QY54b3f, QY54b4, QY53o2, QY53f2, QY53f3, QY53n4, QY53n1d, QY53n2d, QYTC1a2, QYTC1e, QYTC1f, QY53l3, QY53e2b)
+
+Areas (for scheduling, at most one agent per area at a time): **incr-new** = new `src/incr*.rs`/`src/invalidation.rs` +
+their tests; **layout** = layout.rs; **style** = style.rs + anim_eval.rs + images.rs `precompute_generated`; **build** =
+images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom.rs; **app** = app.rs; **perf** = perf.rs.
+
+- **QINC1a [M]** (P2, Sonnet; areas incr-new + perf; no behaviour change; no deps) Engine test infrastructure (R60 sections 6.3,
+  10). (1) `style_diff(old, new) -> StyleDiff { None, Paint, Offset, Layout, Box }`: exhaustive destructuring of
+  `ComputedStyle` (no `..`), one test per class with a field of each kind, `opacity` 1 <-> < 1 and `z-index` = Layout.
+  (2) Comparators `cmp_styles`, `cmp_boxes` (structural: style minus `tree_order`/`node`, content kind, inline items text +
+  spans, children), `cmp_laid` (x/y/w/h/ink 0.01 px, `fixed`, `positioned` order, sticky/scroll info, glyphs via the shape
+  cache) with a readable first-difference report (node tag#id.class, path, field, both values). (3) Differential fuzz harness
+  in `src/tests/incr_fuzz_tests.rs`: seeded generator of pages + CSS + mutation scripts (R60 section 10's list); today it
+  lays out each step twice from scratch and asserts the comparators find NO difference (this proves determinism: it will
+  hit `tree_order`, which the comparators must skip while `positioned` order is compared). ~200 cases by default,
+  `SCRATCHY_FUZZ_N`. (4) `--perf-report` `incr` object with the counters of R60 section 10 (all zero for now). Tests: as listed;
+  gate: full suite, clippy count, WPT unchanged.
+- **QINC1b [M]** (P2, Sonnet; area layout (+ the shaping-worker loop in app.rs and `walk_glyphs` in js_geom.rs); no behaviour
+  change; no deps) Stable paragraph ids (R60 4.4): `next_id` from a per-owner counter that never restarts (App, GeomCache;
+  the worker request carries a base and returns the next value); the `ShapeCache` persists per owner and is swept of ids no
+  live `Laid` references (after a finished layout, when it exceeds 2x the live count). Readers (paint, hit test,
+  hover_patch, forms, `walk_glyphs`, Range) unchanged. Tests: two layouts of a changed page never give one id to different
+  text; a reused id still paints its paragraph; sweep keeps every live id; existing paint/hover tests unchanged. Gate: full
+  suite, WPT unchanged, `--perf-report` YouTube watch memory (`shape cache` bytes) within 10 % of main.
+- **QINC1c [M]** (P2, Sonnet, Opus review; area layout; AFTER QINC1b; no behaviour change) Bottom-up hoisting and
+  document-order ties (R60 4.5, 8.2, 14.6): `hoist_negative_z`'s post-pass becomes a bubble returned by `measure` (each
+  stacking boundary absorbs its descendants' z-index entries when it finishes; non-boundary boxes pass them up, like
+  `pending`); `stack_key` ties use document order (an index assigned by the builder in DOM order, not `next_style_order()`).
+  Must produce IDENTICAL trees: a test helper runs the old post-pass and the new bubble on every box-layout / z-index /
+  stacking / hoisting test page and on the fuzz harness and compares with `cmp_laid` (needs QINC1a; if a is not merged yet,
+  a local comparator). Gate: full suite, WPT unchanged, Acid2 information only.
+- **QINC1d [M]** (P2, Sonnet; area incr-new (reads css.rs/style.rs types; at most `pub(crate)` exports there); no deps)
+  `InvalidationMap` (R60 section 5): built per `rules_cache` generation from every selector; features class / id / attribute /
+  state pseudo-classes, positions self / descendants (rightmost-compound filter) / adjacent / general siblings, structural
+  flags, `:not/:is/:where` conservative, `:has` -> Global; API `for_attr(el, name, old, new)`, `for_class`, `for_state(el,
+  kind)`, `for_children(parent, change)` returning `Vec<(Handle, Mark)>`. Generalizes `ClassDeps` (js_geom.rs), `HoverKeys`
+  and `AttrReaders` (style.rs) without changing them yet. Tests: per selector shape (`.a .b`, `.a > .b`, `.a + .b`, `.a ~ .b
+  .c`, `[x] .b`, `:hover .b`, `#i:focus-within`, `:nth-child(2n)`, `:empty`, `:not(.a) .b`, `:is(.a,.b) .c`), and a SOUNDNESS
+  property test: random fixtures x mutations, brute-force re-match of every element before/after, predicted marks must be a
+  superset; report tightness (predicted / really changed) on the fuzz corpus. Gate: full suite.
+- **QINC1e [M]** (P2, Sonnet; area jsdom; no behaviour change; no deps) The write log (R60 section 5 table): `incr::note(node,
+  Change)` at every DOM-writing native (the 25 `geom_bump*` call sites and every site that marks the App dirty: attribute set/remove with
+  name/old/new, child insert/remove/move with siblings, text data, `textContent`/`innerHTML`, form state, adopted CSS,
+  `css_ver` bumps); bounded log (overflow -> Global), consumed by nothing yet; counters in `--perf-report` (`incr.log`: entries
+  per layout, Global count). App-side sources (interaction, viewport, images, media sizes, animation ticks) come with QINC1j.
+  Tests (table-driven, one per native): the expected entries; a no-op write (QY53m) logs nothing; a write to a detached node
+  logs nothing. Gate: full suite, YouTube watch headless `--perf-report` JS ms within noise of main (flock, 3 runs).
+- **QINC1f [L]** (P2, Opus; area style + incr-new; AFTER QINC1a, d, e) Incremental restyle in SHADOW mode (R60 sections 4.1,
+  6): the element table (node id + `WeakHandle`; per slot matched rules, `ComputedStyle`, ambient inputs, generated entries,
+  animation membership; flags `RESTYLE`/`RECASCADE`/`DESC_DIRTY`/`BOX`; box owner), filled by a from-scratch build and
+  updated from the write log + `InvalidationMap`; top-down traversal, re-match vs re-cascade, early cut-off, inherited /
+  custom property / `rem` / ambient propagation, `style_diff` -> marks, generated walk over stored styles (counters/quotes
+  flag), animation membership (no full-pass ageing). Shadow: under `cfg(test)` every `build_layout_tree_with_resources` also
+  runs the update and `cmp_styles` against the build's styles (panic on mismatch); release: only with `SCRATCHY_INCR=1`/
+  `_CHECK=1`. Tests (src/tests/incr_style_tests.rs): one per row of R60 section 5's table, inheritance cut-off (a colour
+  change re-cascades children, a width change does not), custom property change through `var()`, `rem` after an `<html>`
+  font-size change, counters through an inserted `li`, an animation outside the dirty set keeps its start time, node address
+  reuse (1 000 create/remove); the fuzz harness on styles. Gate: full suite green in shadow mode (it now checks every build),
+  WPT unchanged; headless `--perf-report` with `SCRATCHY_INCR_CHECK=1` on YouTube results/watch, Wikipedia: 0 style
+  mismatches, `incr.restyled` median <= 10 % of styled.
+- **QINC1g [L]** (P2, Opus; area build; AFTER QINC1f) Persistent box tree in SHADOW mode (R60 sections 4.2, 7): the engine keeps
+  the `LayoutBox` tree; containers with `BOX` rebuild their content from stored styles, reusing clean element-owned children
+  by node; anonymous boxes, inline runs, markers, tables, flex/grid anonymous items, `display: contents`, inline-block,
+  `::before/::after`, first-line/letter, replaced elements (image cache, media sizes, form controls), canvas background
+  fix-up; `bver` + `ldirty` up to the root; whole-build thread-locals per R60 14.4 made per element. Shadow: every build
+  also updates the kept tree and `cmp_boxes` with the fresh one. Tests (src/tests/incr_box_tests.rs): insert/remove block and
+  inline children, text edit inside an inline element (paragraph rebuilt, siblings reused: count), display changes (none ->
+  block -> inline -> contents -> flex -> table-cell runs), list renumbering after an insert, `::before` content change, image
+  arrival, first-line; fuzz harness on boxes. Gate: full suite in shadow mode, WPT unchanged, `incr.boxes_rebuilt` on the
+  three pages (headless, `_CHECK=1`, 0 mismatches).
+- **QINC1h1 [L]** (P2, Opus; area layout; AFTER QINC1b, c, g) Relayout from the last tree in SHADOW mode (R60 sections 4.3,
+  8.1-8.5): `ck` + `cacheable` on element `Laid`s; harvest along dirty paths; reuse in `measure_inner` (shift by the origin
+  delta); bottom-up re-measure at the old `ck` with the parent-view comparison and splice, else one level up; abs/fixed via
+  `resolve_positioned` at the cached containing block; cached bubbles (pending, hoisted); offset-only diffs; `compute_ink` on
+  touched paths; drift guard (full layout every 1 000 updates); touched-roots list. Shadow: every layout also relayouts the
+  kept tree and `cmp_laid` with the fresh one. Tests (src/tests/incr_layout_tests.rs): a write inside an abs box stops at it
+  (count), `height: auto` box whose height does not change stops there, a growing paragraph moves following siblings (shift
+  count), floats in force a walk up, flex item text change (container re-runs, siblings hit), table cell change, fixed
+  descendant added/removed inside a clean subtree, z-index child inside a reused subtree (paint order), sticky inside a
+  reused subtree, scroll container content change; the fuzz harness on layout. Gate: full suite in shadow mode, WPT
+  unchanged; headless `_CHECK=1` 0 mismatches on YouTube results/watch, Wikipedia; `incr` hit rate and bottom-up stop levels
+  reported.
+- **QINC1h2 [M]** (P2, Sonnet; area layout; AFTER QINC1h1; can run beside QINC1i/j) Intrinsic-size cache and flex/grid/table
+  reuse (R60 8.2): `cell_natural_width` (min, max) per clean box keyed by `bver`; 2-entry `ck` cache for flex items; table cell
+  natural widths. Exactness by shadow mode; tests: a change outside a flex row reuses its items' intrinsic sizes (count), a
+  change inside one item recomputes only that item. Gate: `incr` counters on YouTube watch (flex-heavy) show intrinsic hits;
+  0 mismatches.
+- **QINC1i [M/L]** (P2, Opus; areas geom + jsdom readers; AFTER QINC1h1; parallel with QINC1j) Script forced layouts through the
+  engine behind `SCRATCHY_INCR=1` (R60 sections 3, 9): `GeomCache::refresh` -> engine update; rect map from touched roots;
+  lazy glyphs; forced layouts use the window's image cache (thread-local handle the App sets; headless: its own decoded
+  images); IntersectionObserver reads the engine's tree; QYTC1a/QYTC1d/HiddenSnap/ATTR_SNAP bypassed when the flag is on;
+  `SCRATCHY_INCR_CHECK=1` diag + counter. Tests: the js_geometry / observer / Range suites run twice (flag off and on, a test
+  seam), image sizes visible to JS with the flag. Gate: full suite both ways; R58 recipe (window, 3 runs, flock) with the flag:
+  `getPlayerSize` median < 10 ms, worst preview-start promise job < 300 ms, `_CHECK=1` 0 mismatches.
+- **QINC1j [L]** (P2, Opus; area app; AFTER QINC1h1; parallel with QINC1i) App frames through the engine behind
+  `SCRATCHY_INCR=1` (R60 sections 3, 9): incremental updates install at once; worker path for first layout, width change, new
+  rule-list generation, restyled share > 25 %, with the box tree cloned for it and the result adopted; `App::cached` -> view
+  of the engine's tree for all readers; interaction state, viewport height, image / CSS image / media size arrival and
+  animation ticks feed the write log; a forced layout since the last frame = no work for the frame; hover patch paths
+  bypassed with the flag. Tests: App-level tests with the flag for hover (paint-only and layout hovers), focus, animation
+  frames, image arrival, resize, link CSS arrival, a JS write + forced read + frame (the frame does no layout: counter);
+  existing suite with the flag off. Gate: R55 recipes (Wikipedia, YouTube watch; nested window, 3 interleaved pairs, flock):
+  App `builds.ms` per run, frame `lat_p95`, `_CHECK=1` 0 mismatches.
+- **QINC1k [M]** (P2, Opus, measure only, docs; AFTER QINC1i, j, h2) Exactness sweep and gates (R60 section 12):
+  `SCRATCHY_INCR_CHECK=1` headless + window on YouTube results (R58 recipe), YouTube watch (R50/R55 recipes), Wikipedia (R55),
+  github.com, bbc.com/news, social.loupax.com/discover: 0 mismatches (each mismatch = a P1 fix item); then `SCRATCHY_INCR=1`
+  vs main, 3 interleaved runs each under flock: forced layout ms, App builds ms, `getPlayerSize` median, worst preview job,
+  hover latency; floors and refusal mix from the counters; go/no-go for the flip written into R60; files QINC1n if the floors
+  matter.
+- **QINC1l [S]** (P2, Sonnet; areas app + geom (one-line defaults) + NOTES.md; AFTER QINC1k + the user's OK) Flip the default:
+  `SCRATCHY_INCR` defaults to 1; `SCRATCHY_INCR=0` = the old path; `cfg(test)` keeps comparing with the from-scratch path;
+  NOTES.md section "Incremental style + layout engine" (data model, marks, kill switch, check mode).
+- **QINC1m [M]** (P3, Sonnet; areas geom + jsdom + app + style + hover_patch.rs; AFTER QINC1l and >= 3 days of the user's use with
+  no incr regression) Delete what the engine supersedes (R60 section 1 table): `Skel`/`style_write_in_place`/
+  `style_write_delta`/`IMP_GEO`/`GEOM_SHIFTS`, `ClassDeps`/`class_write_pre/post`/`PROBE_BUDGET`, `HiddenSnap`/
+  `children_write_pre/post`, `ATTR_SNAP`/`attr_write_unread`, hover_patch.rs, `KEEP_MATCH`/`LAST_MATCH`/`stash_last_match`/
+  `with_kept_build`/`hover_match_diff`/`set_kept_match`, the per-build `MATCH_MEMO`, `RENDERED` if unused. Their tests are
+  KEPT (rewritten against observable behaviour where they called a deleted function: same pages, same asserted rects /
+  pixels / layout counts). `SCRATCHY_INCR=0` then means "from scratch every time" (slow, correct). Gate: full suite, WPT,
+  clippy count does not rise, R58/R55 recipes not slower than after QINC1l.
+- Optional, filed only on QINC1k's numbers: **QINC1n [L]** relative-coordinate shared fragments (R60 14.1); **QINC1o [M]**
+  damage-rect repaint from the touched-roots list (with QAN1d); **QINC1p [S]** `getComputedStyle` from the element table for
+  rendered elements (`StyleCache` only for the rest); **QINC1q [M]** stylesheet invalidation by the added/removed rules'
+  features instead of a full re-match on a new generation.
+
+**Schedule (up to 5 agents, one per area):** wave 1: a (incr-new + perf), b (layout), d (incr-new: own file
+`src/invalidation.rs`; a and d share only `src/tests/mod.rs` lines), e (jsdom). Wave 2: c (layout, after b) ∥ f (style +
+incr-new, after a, d, e). Wave 3: g (build). Wave 4: h1 (layout). Wave 5: i (geom) ∥ j (app) ∥ h2 (layout). Then k, l, m.
+While f, g and h1 are in flight, other items should not change style.rs / images.rs builder / layout.rs measure semantics
+except correctness fixes (open question 4).
+
+### 16. Open questions for the user (with my recommendation)
+
+1. **One engine for App frames and script forced layouts, on the main thread; the shaping worker only for big updates?**
+   Recommend YES: it is what makes the frame after a forced read free and removes the reason for most special cases.
+2. **Script geometry with real image sizes** (forced layouts use the window's decoded images; JS reads change on pages with
+   images, toward what browsers return)? Recommend YES (one engine needs it; today's 0x0 images are a known limit, NOTES QJ4).
+3. **Drop R59 / QY54b3a-f and the narrow items listed in section 15's heading**, replaced by QINC1? Recommend YES. QY54b1-style
+   correctness items are not affected.
+4. **Freeze other changes to style/box/layout semantics while QINC1f-h1 are in flight** (correctness fixes still allowed, each
+   one rebased onto the shadow comparisons)? Recommend YES, otherwise every change has to be made twice.
+5. **Memory:** +4-14 MB (element styles) plus the kept box tree (~4 MB on YouTube results) on big pages. Recommend ACCEPT;
+   `Rc<ComputedStyle>` sharing can follow if QMEM measurements object.
+6. **Test time:** shadow mode lays out twice in every layout-running test (the suite gets slower, maybe 1.3-2x in layout-heavy
+   test files). Recommend ACCEPT (it is the main exactness net); `SCRATCHY_SHADOW=0` for a quick local run, never in CI.
+7. **Flip criteria:** 0 `incr-check` mismatches on the 6 pages x 3 runs + the section 12 gates, then flip; delete the old special
+   cases after >= 3 days of your normal use with no incr-related report. Recommend these.
+8. **Relative-coordinate fragments (QINC1n) and damage-rect paint (QINC1o)** now or later? Recommend LATER, only if QINC1k shows
+   the floors above ~2 ms on the gated pages.
+9. **Models:** Opus for f, g, h1, i, j, k (cross-cutting, exactness-critical), Sonnet for a, b, c (with Opus review), d, e,
+   h2, l, m. Recommend as stated.
+
 ## R59: QY54b3 design: lay out less than the whole page for a script geometry read. Two stages that share one piece: the JS thread records WHERE each geometry-changing DOM write landed ("dirty points") and keeps, from the last full forced layout, the inputs needed to restyle one box (its parent's `InheritedStyle`, its own `ComputedStyle`, its containing-block size). Stage 1 ("unchanged box"): when every dirty point is inside a box whose size and position cannot depend on its content (an "insulating" box), a `getBoundingClientRect`/`offset*` read of that box or of anything outside it is answered from the stale cache with NO layout. Stage 2 ("subtree layout"): when the read is inside such a box and the box is absolutely/fixed positioned, re-build and measure only that box at its cached containing block, translate it to its cached place and splice its rects, skeleton and glyphs into `GeomCache`. Both are exact by construction for the cases they accept, and both run under a check mode (tests always, `SCRATCHY_GEOM_CHECK=1` on real pages) that compares with a full layout. A throwaway prototype confirms the core claim of stage 2: a box built from its parent's inherited style and measured alone at a provisional origin, then translated, equals the full layout's boxes to 0.00024 px. Estimated win on the R58 recipe: stage 1 alone answers ~55-70 % of the `getPlayerSize` reads in ~0 ms (only after QY54b1 gives the player its CSS), which meets the median gate but probably not the 300 ms job gate; stages 1+2 answer ~all of them at ~3-8 ms each, which should meet both (~190-330 ms) if the non-layout part of the job stays at R58's 93-150 ms. RECOMMENDED, staged: QY54b3a-QY54b3f (Opus, 2026-11-20, design only, docs only) — OPEN: proposed QY54b3a-QY54b3f (section 11)
 
 Inputs: R58 (the recipe, the per-read cost 54-80 ms, sections 1-2: where the writes land), R50/QYTC1a (`style_write_in_place`,
