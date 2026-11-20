@@ -1047,10 +1047,6 @@ Shared rules for this block:
       selector class atoms pre-resolved to ids at RuleIndex build vs a per-element sorted id list.
 - [ ] QMEM3h [S] (P3, from QMEM3b; Sonnet) Probes for V8 off-heap memory (`malloced_memory`, ArrayBuffer backing stores) and
       per-library mapped RSS, to name the ~20-25 MB of C++ malloc (V8, libmpv).
-- [ ] [WIP] QMEM3d-m [S] (P3, from QMEM3d #400; Opus measure, quiet machine) Interleaved before/after RSS: YouTube watch -> a small
-      page (example.com / local), live nested-dwl window, own wire, with vs without the malloc_trim (#400 lacks a switch: add
-      a throwaway env toggle), under the perf flock, uptime noted. Gate >= 25 MB lower. #400 shipped measured only
-      synthetically (3.3 ms on a 423 MB heap, no RSS drop in that synthetic case).
 - [ ] QMEM3k [S] (P4, from QMEM3j #402; Sonnet) memo_put's compacting clone costs ~2-3 us per new SHAPE_MEMO entry (16-25 ms on
       a cold Wikipedia layout, 8k entries): move it off the critical path (e.g. compact in the shaping worker while idle).
       Only if cold forced layouts matter more later.
@@ -1066,9 +1062,6 @@ Shared rules for this block:
       sits right of centre; (5) a tall grey band under the header (empty ad slot? may be correct). Compare with a normal
       browser at the same width, find the cause of each (CSS feature, layout bug, image loading), write a sized fix list in
       REGRESSIONS.md. Not a perf item: backlog order unless the user raises it.
-- [ ] [WIP] QY53m-m [S] (P3, from QY53m #386; Opus measure, quiet machine) Re-measure QY53m's gate: Wikipedia + YouTube live
-      window, same input, count js_sync rebuilds that follow only no-op writes (throwaway counter) and builds.n/ms, main vs
-      #386's parent; screenshots compared. The agent's runs at load 9-26 were noise (builds.n median 20 -> 19).
 - [ ] QYTC1e [S] (P3, from QYTC1d #414 R50; measure first) YouTube replaces the `.ytp-time-current` text node once a second;
       that is the whole remaining ~1 forced layout/s while the controls show (960x1006). Check whether a text change inside
       a box whose size cannot change (definite width/height, or abs-positioned in the controls) can update the cache
@@ -1090,10 +1083,17 @@ Shared rules for this block:
 - [ ] QY53n2b [S] (P4, from QY53n2 #407; Sonnet) Paint-patch hovers that touch list items, form controls, `::marker` or
       `<br>`/alt text: they fall back to a build because those text spans carry no element `node` (`marker_prefix`, forms.rs
       `text_span`); set span.node there.
-- [ ] [WIP] QY53n3m [S] (P3, from QY53n3 #416; Opus measure, quiet machine) YT watch G1AeBgalFZk hover {patched, built, skipped} at
-      main vs before #416, interleaved, under flock, uptime noted; report which remaining YT hover builds are refused and why
-      (positioned descendants, inline-level boxes, % insets, auto-width absolutes). Candidates to widen: re-hoisting
-      positioned descendants; % insets via the containing-block basis on Laid.
+- [ ] QY53n2c [S] (P3, from QY53n3m #418 R55; Sonnet) Classify hover rules by the resolved value change, not the declared
+      property: border-radius, SVG fill/stroke, `background` whose computed change is only the colour, same-value border
+      width/style go to the Paint patch. Gate: YT watch `hover.patched` >= 40 of ~95 hover builds over 3 runs.
+- [ ] QY53n2d [S] (P4, from #418 R55; after QYTC1f's design) Paint-patch opacity hovers when the stacking context does not
+      change (`.ytp-button:hover {opacity}`; ~60 YT builds over 6 runs).
+- [ ] QY53n1c [M] (P3, from #418 R55; Opus design first) Keep the kept hover match memo valid across a QY53f1 `<style>`
+      splice (hover_match_diff None; 15-19 YT builds over 3 runs).
+- [ ] QY53n1d [S] (P4, from #418 R55; Sonnet) An affected element never matched (inside a display:none subtree) counts as
+      skipped instead of forcing a build (10-18 YT builds over 3 runs).
+- [ ] QMEM3l [S] (P3, from QMEM3d-m #418 R55; Opus measure first) ~100 MB is freed 10-25 s after leaving YouTube with or
+      without the trim: find what lives on (mpv, V8 teardown, a cache TTL) and release it at the navigation.
 - [ ] QY53n4 [M] (P4, later, from QY53n) Subtree re-box for layout-changing hovers + re-applying patches after an in-flight
       build (16 of 58 YT hover builds, 0 on Wikipedia).
 - [ ] QOBS9 [S] (P2, R44 section 0, Opus measure, docs only; LAST in this block) Re-baseline PERF.md on

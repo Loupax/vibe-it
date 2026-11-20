@@ -8011,3 +8011,20 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       bursts of 9-10/s that start from a stale cache (progress-bar style writes, aria-valuenow/valuetext, player class
       writes), so the in-place path refuses them. Needs the write ledger idea from QYTC1b (code on branch
       scratchy/qytc1b-ledger-code). Measure with the R50 recipe (window 960x230, click at 346,150).
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY53m-m DONE 86635e3 R55 quiet re-measure (#418) [S] (P3, from QY53m #386; Opus measure, quiet machine) Re-measure QY53m's gate: Wikipedia + YouTube live
+      window, same input, count js_sync rebuilds that follow only no-op writes (throwaway counter) and builds.n/ms, main vs
+      #386's parent; screenshots compared. The agent's runs at load 9-26 were noise (builds.n median 20 -> 19).
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QMEM3d-m DONE 86635e3 R55 quiet re-measure (#418) [S] (P3, from QMEM3d #400; Opus measure, quiet machine) Interleaved before/after RSS: YouTube watch -> a small
+      page (example.com / local), live nested-dwl window, own wire, with vs without the malloc_trim (#400 lacks a switch: add
+      a throwaway env toggle), under the perf flock, uptime noted. Gate >= 25 MB lower. #400 shipped measured only
+      synthetically (3.3 ms on a 423 MB heap, no RSS drop in that synthetic case).
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY53n3m DONE 86635e3 R55 quiet re-measure (#418) [S] (P3, from QY53n3 #416; Opus measure, quiet machine) YT watch G1AeBgalFZk hover {patched, built, skipped} at
+      main vs before #416, interleaved, under flock, uptime noted; report which remaining YT hover builds are refused and why
+      (positioned descendants, inline-level boxes, % insets, auto-width absolutes). Candidates to widen: re-hoisting
+      positioned descendants; % insets via the containing-block basis on Laid.
