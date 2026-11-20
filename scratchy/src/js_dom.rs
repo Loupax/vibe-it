@@ -1593,7 +1593,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
 
 /// Wrappers over the natives; runs after the base prelude (which defines
 /// `document`). Element event listeners are stored but never fired yet.
-const DOM_PRELUDE: &str = r#"
+pub(crate) const DOM_PRELUDE: &str = r#"
 (function (g) {
   var doc = g.document, cache = {}, tagProto = Object.create(null);
   // QY6e: the mutation natives the custom-element hooks rebind (once, at the
@@ -3096,10 +3096,10 @@ const DOM_PRELUDE: &str = r#"
     return s === '' || /^about:blank/i.test(s) || /^data:/i.test(s) || __d_iframe_page(el.__id).length > 0;
   };
   // QPT1a (R53 D1-D4): an iframe with an empty or about:blank src, or a pre-fetched same-origin
-  // one (QA18b1), gets a real window: its own V8 realm, made from the startup snapshot, whose
-  // `document` is the iframe's second document. `data:` iframes (D4), and every iframe when the
-  // engine has no snapshot (QPT1e), keep the stand-in object below.
-  var standInNoted = false, capNoted = false, nFrames = 0;
+  // one (QA18b1), gets a real window: its own V8 realm (from the startup snapshot, or without it a
+  // fresh context with the preludes replayed, QPT1e), whose `document` is the iframe's second
+  // document. `data:` iframes (D4) keep the stand-in object below.
+  var capNoted = false, nFrames = 0;
   var frameOf = function (el) {
     if (!inPage(el) || !frameSrcOk(el)) return null;
     var f = frames[el.__id];
@@ -3126,9 +3126,6 @@ const DOM_PRELUDE: &str = r#"
           capNoted = true;
           __scratchy_log('warn', 'scratchy: too many iframe windows (64): the extra frames get a stand-in object');
         }
-      } else if (!standInNoted) {
-        standInNoted = true;
-        __scratchy_log('warn', 'scratchy: iframe window is a stand-in object: this engine has no V8 startup snapshot (QPT1e)');
       }
     }
     var d = makeDoc(true, 'text/html');

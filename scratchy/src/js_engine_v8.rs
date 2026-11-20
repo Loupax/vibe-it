@@ -370,6 +370,9 @@ struct State {
     /// QPT1a (R53 D1): the iframe realms made by `__scratchy_realm_new` (QPT1b drops them).
     /// QPT1b: the live ones (context, its global proxy); `__scratchy_realm_drop` removes an entry.
     realms: Vec<(v8::Global<v8::Context>, v8::Global<v8::Object>)>,
+    /// QPT1e: on an engine without the snapshot, every native registered so far (name, arena index), in
+    /// registration order: `__scratchy_realm_new` re-binds them by name in a new context.
+    live: Vec<(String, usize)>,
 }
 
 fn state<'a>(ctx: &Ctx<'_>) -> &'a mut State {
@@ -520,6 +523,8 @@ where
     st_.arena.push(Some(boxed));
     if let Some(r) = st_.recorded.as_mut() {
         r.insert(name.to_string(), idx);
+    } else if !st_.attached {
+        st_.live.push((name.to_string(), idx));
     }
     let sc = ctx.sc();
     let data = v8::Integer::new(sc, idx as i32);
@@ -721,19 +726,41 @@ const MAX_REALMS: usize = 64;
 pub(crate) fn install_realm_native(ctx: &Ctx<'_>) {
     register(ctx, "__scratchy_realm_new", |ctx: Ctx<'_>| -> JsResult<RawValue> {
         let sc = ctx.sc();
-        if !state(&ctx).attached {
-            return Ok(RawValue(st(v8::undefined(sc).into())));
-        }
         // QPT1b (R53 D6): at most MAX_REALMS live realms per page; `null` = over the cap (the caller
         // keeps the stand-in for the extra frame and logs once), `undefined` = no snapshot.
         if state(&ctx).realms.len() >= MAX_REALMS {
             return Ok(RawValue(st(v8::null(sc).into())));
         }
         let token = sc.get_current_context().get_security_token(sc);
-        let Some(c) = v8::Context::from_snapshot(sc, 0, Default::default()) else {
-            return Err(JsError::Msg("iframe realm: the startup snapshot has no page context".into()));
+        let attached = state(&ctx).attached;
+        let c = if attached {
+            let Some(c) = v8::Context::from_snapshot(sc, 0, Default::default()) else {
+                return Err(JsError::Msg("iframe realm: the startup snapshot has no page context".into()));
+            };
+            c
+        } else {
+            // QPT1e: no snapshot: a plain context in the same isolate, the natives re-bound by name (the same
+            // arena closures as the page's), then the preludes the page engine ran at startup.
+            v8::Context::new(sc, Default::default())
         };
         c.set_security_token(token);
+        if !attached {
+            let cs = &mut v8::ContextScope::new(sc, c);
+            let rctx = Ctx::new(cs);
+            let live = state(&rctx).live.clone();
+            for (name, idx) in &live {
+                let data = v8::Integer::new(cs, *idx as i32);
+                let Some(func) = v8::Function::builder(trampoline).data(data.into()).build(cs) else { continue };
+                if let Ok(k) = name.as_str().into_js(&rctx) {
+                    rctx.global().set(cs, k, func.into());
+                }
+            }
+            eval_quiet(&rctx, "delete globalThis.Intl; delete globalThis.queueMicrotask;");
+            eval_quiet(&rctx, BASE64_JS);
+            for src in crate::js::realm_preludes() {
+                eval_quiet(&rctx, src);
+            }
+        }
         {
             let cs = &mut v8::ContextScope::new(sc, c);
             let rctx = Ctx::new(cs);
@@ -1487,7 +1514,7 @@ impl Engine {
         isolate.set_host_import_module_dynamically_callback(dyn_import_cb);
         isolate.set_host_initialize_import_meta_object_callback(import_meta_cb);
         let arena = snap.map(|s| (0..s.count).map(|_| None).collect()).unwrap_or_default();
-        isolate.set_slot(State { arena, attached: snap.is_some(), names: snap.map(|s| &s.names), recorded: baking.then(Default::default), pending: None, terminated: false, oom: false, modules: opts.page.clone(), mod_cache: Default::default(), mod_names: Default::default(), realms: Vec::new() });
+        isolate.set_slot(State { arena, attached: snap.is_some(), names: snap.map(|s| &s.names), recorded: baking.then(Default::default), pending: None, terminated: false, oom: false, modules: opts.page.clone(), mod_cache: Default::default(), mod_names: Default::default(), realms: Vec::new(), live: Vec::new() });
         JOBS.with(|j| j.set(0));
         PENDING.with(|p| p.set(false));
         OOM.with(|o| o.set(false));
