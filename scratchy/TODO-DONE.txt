@@ -7888,3 +7888,27 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QMEM3d DONE 8ce75f2 #400 malloc_trim on a helper thread after navigation + once per idle period (RSS gate -> QMEM3d-m) [S] (P3, from QMEM3; Sonnet; after QMEM3a) `malloc_trim(0)` after a navigation and once when the window goes
       idle. Gate: RSS after leaving YouTube for a small page >= 25 MB lower.
       DATA (QMEM3c): with the arena cap (QMEM3a), YT watch after 60 s still has malloc free_kept = 111 MB (in_use 133 MB) of ~496 MB RSS.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, QY53: what forced layouts cost and who forces them; R43) ---
+- [x] QY53e2 DONE 3ef1344 #396 IO uses the App's own complete current layout in a window (churn case -> QY53e2b) [M] (P2, R43 section 7, Sonnet) after QY53e1. In a window, IO uses the App's own
+      layout instead of forcing one. On a COMPLETE `ShapeResult` for the current `layout_generation`
+      (`App::handle_shape_result`, `!incomplete`), the App calls a new `JsEngine::rendered_geometry(
+      &laid, built_gen, vw, vh)` (`built_gen` = `geom_gen()` recorded when that tree was built in
+      `App::redraw`; JS and App share the main thread, so `geom_gen()` is readable there). The JS side
+      keeps a second, read-only rect map `rendered` in GeomCache (filled with the existing `walk()`,
+      ~ms; no glyphs) and runs every pending IO evaluation against it (`gRect` in "rendered" mode via
+      a new `__d_rect_r`, never refreshing). Rules: a target with no entry in `rendered` while
+      `built_gen != geom_gen()` stays pending (it was inserted after the build; avoids a false
+      `isIntersecting:false`); `ioShown`'s `__d_cs` style checks stay as they are (style only);
+      `rendered` is dropped on navigation and viewport change. QY53e1's deadline stays as the
+      fallback (no App layout completes in time, headless, hidden window). Do NOT serve script
+      reads from `rendered` here (images are sized there but not in GeomCache: two geometries; that is
+      QY53e3's question). Tests: unit test that installs a fake rendered map and checks IO entries
+      without a GeomCache layout (GEOM_LAYOUTS unchanged); target inserted after the build stays
+      pending; navigation clears it. Accept: tests; live window (nested dwl, own wire) Wikipedia
+      Rust 30 s: forced layouts from `obsFlush` <= 1 (the initial one before the first App layout);
+      screenshot unchanged; YT watch live run reported.
+      QY53e3 (ad764fa, R43 section 11): every forced layout runs at DEFAULT_VIEWPORT 1024x768 while the App lays out at
+      the window size, so as specified this would check App rects against a 1024x768 IO root. Do Q33b2 FIRST (or take the
+      IO root from the App viewport). Expected gain after that: 2.5-4.1 s per 60 s on Wikipedia, ~0.8 s on YouTube.
+  (queue line) 15 [WIP] QY53e2 [M]  IO uses the App's own layout                                       | QY53 block
