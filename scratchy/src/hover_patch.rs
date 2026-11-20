@@ -358,6 +358,11 @@ fn patch_with_rules(
                 held.entry(a.metadata).or_insert((a.color_opt, a.text_decoration));
             }
         }
+        // QMEM3j: the first span's attrs are the line default (no span entry).
+        for line in &sp.0.lines {
+            let d = line.attrs_list().defaults();
+            held.entry(d.metadata).or_insert((d.color_opt, d.text_decoration));
+        }
         let mut spans: HashMap<usize, SpanPaint> = HashMap::new();
         for (i, &(_, node, tnode)) in sp.7.iter().enumerate() {
             let Some(entry) = paints.get(&node) else { continue };
@@ -407,18 +412,25 @@ fn patch_with_rules(
             sp2.6[i] = p.deco_style;
         }
         for line in sp2.0.lines.iter_mut() {
-            if !line.attrs_list().spans_iter().any(|(_, a)| spans.contains_key(&a.metadata)) {
-                continue;
-            }
+            let patch = |at: &mut Attrs| {
+                if let Some(p) = spans.get(&at.metadata) {
+                    at.color_opt = Some(p.color);
+                    at.text_decoration = p.deco;
+                }
+            };
             let list = {
                 let old_list = line.attrs_list();
-                let mut l = AttrsList::new(&old_list.defaults());
+                if !spans.contains_key(&old_list.defaults().metadata)
+                    && !old_list.spans_iter().any(|(_, a)| spans.contains_key(&a.metadata))
+                {
+                    continue;
+                }
+                let mut d = old_list.defaults();
+                patch(&mut d);
+                let mut l = AttrsList::new(&d);
                 for (r, a) in old_list.spans_iter() {
                     let mut at = a.as_attrs();
-                    if let Some(p) = spans.get(&at.metadata) {
-                        at.color_opt = Some(p.color);
-                        at.text_decoration = p.deco;
-                    }
+                    patch(&mut at);
                     l.add_span(r.clone(), &at);
                 }
                 l
