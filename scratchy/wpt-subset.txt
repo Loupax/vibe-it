@@ -544,7 +544,20 @@ css/css-overflow/line-clamp/line-clamp-auto-with-ruby-005.tentative.html
 css/css-overflow/line-clamp/line-clamp-outside-list-marker-001.html
 css/css-overflow/line-clamp/line-clamp-with-floats-003.html
 css/css-overflow/line-clamp/webkit-line-clamp-031.html
+# QYSCR1: the rest of overflow-body-propagation (001/005/006/010 newly pass; 012 fails, 014-016 need script)
+css/css-overflow/overflow-body-propagation-001.html
+css/css-overflow/overflow-body-propagation-002.html
+css/css-overflow/overflow-body-propagation-003.html
+css/css-overflow/overflow-body-propagation-004.html
+css/css-overflow/overflow-body-propagation-005.html
+css/css-overflow/overflow-body-propagation-006.html
+css/css-overflow/overflow-body-propagation-007.html
+css/css-overflow/overflow-body-propagation-008.html
+css/css-overflow/overflow-body-propagation-009.html
+css/css-overflow/overflow-body-propagation-010.html
 css/css-overflow/overflow-body-propagation-011.html
+css/css-overflow/overflow-body-propagation-012.html
+css/css-overflow/overflow-body-propagation-013.html
 css/css-overflow/overflow-negative-margin.html
 css/css-overflow/scroll-markers/scroll-marker-007.html
 css/css-overflow/text-overflow-028.html

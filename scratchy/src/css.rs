@@ -1205,6 +1205,8 @@ pub(crate) struct Declarations {
     pub(crate) text_overflow: Option<TextOverflow>,
     /// `appearance` (also `-webkit-`/`-moz-`): `Some(true)` for `none`.
     pub(crate) appearance_none: Option<bool>,
+    /// QYSCR1: `contain` has `layout`/`paint`/`strict`/`content` (`Some(false)`: other values).
+    pub(crate) contain_lp: Option<bool>,
     pub(crate) cursor: Option<CursorStyle>,
     pub(crate) flex_direction: Option<FlexDirection>,
     pub(crate) flex_wrap: Option<FlexWrap>,
@@ -5318,6 +5320,13 @@ impl DeclParser<'_> {
             if let Ok(ident) = input.expect_ident() {
                 self.decls.appearance_none = Some(ident.eq_ignore_ascii_case("none"));
             }
+        } else if name.eq_ignore_ascii_case("contain") {
+            // QYSCR1: only "has layout/paint containment" is modelled.
+            let mut lp = false;
+            while let Ok(ident) = input.expect_ident() {
+                lp |= ["layout", "paint", "strict", "content"].iter().any(|k| ident.eq_ignore_ascii_case(k));
+            }
+            self.decls.contain_lp = Some(lp);
         } else if name.eq_ignore_ascii_case("cursor") {
             if let Ok(ident) = input.expect_ident() {
                 self.decls.cursor = cursor_style_from_keyword(ident);

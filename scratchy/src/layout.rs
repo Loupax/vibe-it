@@ -5767,15 +5767,10 @@ fn is_stacking_boundary(l: &Laid) -> bool {
         || l.style.position == Position::Sticky
         || (l.style.position != Position::Static && l.style.z_index.is_some())
         || l.style.opacity < 1.0
-        || (l.style.overflow != Overflow::Visible && !VIEWPORT_ROOT_NODE.with(|n| l.style.node != 0 && n.get().contains(&l.style.node)))
-}
-
-thread_local! {
-    /// `node` of `<html>` and, when `<html>`'s own `overflow` is
-    /// `visible`, of `<body>`: their `overflow` is propagated to the
-    /// viewport and so does not make them clipping stacking boundaries
-    /// (Acid2 has `html{overflow:hidden}`, YouTube `body{overflow-y:scroll}`).
-    static VIEWPORT_ROOT_NODE: std::cell::Cell<[usize; 2]> = const { std::cell::Cell::new([0, 0]) };
+        // `<html>`/`<body>` never get here with a non-visible `overflow`: the
+        // layout tree already propagated it to the viewport (QYSCR1,
+        // `images::propagate_viewport_overflow`).
+        || l.style.overflow != Overflow::Visible
 }
 
 /// Q55 (W17) + QA9 (R17): every descendant that establishes its own stacking
@@ -5788,23 +5783,7 @@ thread_local! {
 /// absolute, so no translation is needed. Entries with `z-index: auto`
 /// stay where they are.
 fn hoist_negative_z(root: &mut Laid) {
-    // `root` is the anonymous wrapper box; its only child is `<html>`,
-    // whose only child (head is `display:none`) is normally `<body>`.
-    let mut nodes = [0usize; 2];
-    if let LaidContent::Blocks(cs) = &root.content
-        && let [html] = cs.as_slice()
-    {
-        nodes[0] = html.style.node;
-        if html.style.overflow == Overflow::Visible
-            && let LaidContent::Blocks(hc) = &html.content
-            && let [body] = hc.as_slice()
-        {
-            nodes[1] = body.style.node;
-        }
-    }
-    VIEWPORT_ROOT_NODE.with(|n| n.set(nodes));
     collect_negative_z(root);
-    VIEWPORT_ROOT_NODE.with(|n| n.set([0, 0]));
 }
 
 fn collect_negative_z(owner: &mut Laid) {
@@ -5893,10 +5872,17 @@ fn visit_negative_z_child(c: &mut Laid, bag: &mut Vec<Laid>) {
     }
 }
 
-/// Lowest bottom edge (document space) of `l` and its in-flow
-/// descendants. A box that clips its overflow contributes only its own
-/// edge; out-of-flow (`positioned`) boxes are ignored.
+/// Lowest bottom edge (document space) of `l` and every descendant that
+/// adds to the viewport's scrollable overflow: in-flow boxes and (QYSCR1)
+/// `position: absolute` boxes, e.g. YouTube's `ytd-app`, which holds the
+/// whole page while `<body>` is 0 px tall. A box that clips its overflow
+/// contributes only its own edge; `position: fixed` boxes (and what they
+/// contain) never scroll with the document, so they add nothing.
 pub(crate) fn in_flow_bottom(l: &Laid) -> f32 {
+    crate::stack::grow(|| in_flow_bottom_body(l))
+}
+
+fn in_flow_bottom_body(l: &Laid) -> f32 {
     let mut bottom = l.y + l.h;
     if l.style.overflow != Overflow::Visible {
         return bottom;
@@ -5915,6 +5901,11 @@ pub(crate) fn in_flow_bottom(l: &Laid) -> f32 {
             }
         }
         LaidContent::Text(_) | LaidContent::Image(_) => {}
+    }
+    for p in &l.positioned {
+        if !p.fixed && p.style.position != Position::Fixed {
+            bottom = bottom.max(in_flow_bottom(p));
+        }
     }
     bottom
 }

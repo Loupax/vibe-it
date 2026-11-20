@@ -157,6 +157,10 @@ pub(crate) enum Action {
     ScrollUp,
     HalfPageDown,
     HalfPageUp,
+    /// QYSCR1: `Space` / `PageDown`: one viewport (less one line of overlap).
+    PageDown,
+    /// QYSCR1: `Shift+Space` / `PageUp`.
+    PageUp,
     EnterCommandMode,
     HistoryBack,
     HistoryFront,
@@ -210,10 +214,32 @@ pub(crate) fn resolve_binding(key: &Key, mods: ModifiersState, mode: VimMode) ->
         Key::Character(s) if s.as_str() == "h" => Some(Action::HistoryBack),
         Key::Character(s) if s.as_str() == "l" => Some(Action::HistoryFront),
         Key::Character(s) if s.as_str() == "G" => Some(Action::ScrollBottom),
+        // QYSCR1: the usual browser scroll keys (page keydown handlers and
+        // focused controls see them first, see `WindowEvent::KeyboardInput`).
+        Key::Named(NamedKey::ArrowDown) => Some(Action::ScrollDown),
+        Key::Named(NamedKey::ArrowUp) => Some(Action::ScrollUp),
+        Key::Named(NamedKey::Space) if mods.shift_key() => Some(Action::PageUp),
+        Key::Named(NamedKey::Space | NamedKey::PageDown) => Some(Action::PageDown),
+        Key::Named(NamedKey::PageUp) => Some(Action::PageUp),
         Key::Named(NamedKey::Home) => Some(Action::ScrollTop),
         Key::Named(NamedKey::End) => Some(Action::ScrollBottom),
         _ => None,
     }
+}
+
+/// QYSCR1: whether a wheel tick of `dy` px (positive = up, winit's sign)
+/// over scroll region `info` moves it. A region with nothing to scroll
+/// (`overflow: scroll` on a box whose content fits) or already at its end in
+/// that direction passes the tick on to the page (scroll chaining).
+pub(crate) fn region_takes_wheel(info: &ScrollInfo, offsets: &HashMap<usize, f32>, dy: f32) -> bool {
+    let current = offsets.get(&info.id).copied().unwrap_or(0.0);
+    (current - dy).clamp(0.0, info.max_scroll()) != current
+}
+
+/// QYSCR1: how far `Action::PageDown`/`PageUp` scroll for a viewport `view_h`
+/// px tall: a viewport less one 40 px line, so the last line stays in view.
+pub(crate) fn page_step(view_h: f32) -> f32 {
+    (view_h - 40.0).max(40.0)
 }
 
 /// The pending-`g` state machine for vim's `gg`: given whether a `g` is
@@ -3860,6 +3886,8 @@ impl App {
             Action::ScrollUp => self.scroll_by(-SCROLL_LINE_PX),
             Action::HalfPageDown => self.scroll_by(self.surface_size.1 as f32 / 2.0),
             Action::HalfPageUp => self.scroll_by(-(self.surface_size.1 as f32 / 2.0)),
+            Action::PageDown => self.scroll_by(page_step(self.surface_size.1 as f32)),
+            Action::PageUp => self.scroll_by(-page_step(self.surface_size.1 as f32)),
             Action::EnterCommandMode => {
                 self.vim_mode = VimMode::Command;
                 self.command_line.clear();
@@ -4551,7 +4579,7 @@ impl ApplicationHandler<AppEvent> for App {
                         laid, doc_x, doc_y, &self.scroll_offsets, self.scroll_offset, self.surface_size.1 as f32,
                     )
                 });
-                match region {
+                match region.filter(|info| region_takes_wheel(info, &self.scroll_offsets, dy)) {
                     Some(info) => {
                         let current = self.scroll_offsets.get(&info.id).copied().unwrap_or(0.0);
                         let next = (current - dy).clamp(0.0, info.max_scroll());

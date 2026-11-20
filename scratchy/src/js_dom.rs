@@ -4665,6 +4665,17 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     return r.length ? r : null;
   };
   var gElScroll = new Map(), gScrollGen = 0, gScrollable, gNid, gAncestorScroll, gSetScroll, gScrollEvent;
+  // QY57r/QYSCR1: <body> when its overflow is propagated to the viewport (CSS Overflow 3: <html>'s
+  // overflow is `visible`), else null. Same rule as images.rs propagate_viewport_overflow: that
+  // <body> is no scroll container and no clip (its computed style still says e.g. `scroll`).
+  var gViewportBody = function () {
+    var b = document.body, de = document.documentElement;
+    if (!b || !de || b.parentNode !== de || b.localName !== 'body') return null;
+    var ct = /layout|paint|strict|content/;
+    if (ct.test(__d_cs(de.__id, '', 'contain')) || ct.test(__d_cs(b.__id, '', 'contain'))) return null;
+    var hs = __d_cs(de.__id, '', 'overflow-x') + __d_cs(de.__id, '', 'overflow-y');
+    return hs.indexOf('hidden') < 0 && hs.indexOf('auto') < 0 && hs.indexOf('scroll') < 0 && hs.indexOf('clip') < 0 ? b : null;
+  };
   var gRoot = function (el) { return el === document.documentElement; };
   var gPx = function (el, p) { return parseFloat(__d_cs(el.__id, '', p)) || 0; };
   var gClient = function (el) {
@@ -4993,6 +5004,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   // (`__d_scrollel`) and a `scroll` event follows. Vertical only: scratchy has
   // no horizontal scroll regions, so scrollLeft stays 0 (QJ6b).
   gScrollable = function (el) {
+    if (el === gViewportBody()) return false;
     var o = __d_cs(el.__id, '', 'overflow-y');
     return o === 'auto' || o === 'scroll';
   };
@@ -5182,14 +5194,8 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       rb = [base[0] - ioPx(m[3], bw), base[1] - ioPx(m[0], bh), base[2] + ioPx(m[1], bw), base[3] + ioPx(m[2], bh)];
     }
     var clips = new Map();
-    // QY57r: <body>'s overflow is propagated to the viewport when <html>'s is `visible` (CSS Overflow 3;
-    // layout.rs VIEWPORT_ROOT_NODE), so <body> is then not an element clip.
-    var bodyEl = document.body, de = document.documentElement;
-    var propBody = null;
-    if (bodyEl && de) {
-      var hs = __d_cs(de.__id, '', 'overflow-x') + __d_cs(de.__id, '', 'overflow-y');
-      if (hs.indexOf('hidden') < 0 && hs.indexOf('auto') < 0 && hs.indexOf('scroll') < 0 && hs.indexOf('clip') < 0) propBody = bodyEl;
-    }
+    // QY57r: a <body> whose overflow is propagated to the viewport is not an element clip.
+    var propBody = gViewportBody();
     var now = g.performance && g.performance.now ? g.performance.now() : 0;
     for (var i = 0; i < st.targets.length; i++) {
       var t = st.targets[i], v = rb ? gViewRect(t) : null;
