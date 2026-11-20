@@ -486,6 +486,7 @@ images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom
   .c`, `[x] .b`, `:hover .b`, `#i:focus-within`, `:nth-child(2n)`, `:empty`, `:not(.a) .b`, `:is(.a,.b) .c`), and a SOUNDNESS
   property test: random fixtures x mutations, brute-force re-match of every element before/after, predicted marks must be a
   superset; report tightness (predicted / really changed) on the fuzz corpus. Gate: full suite.
+  QINC1d DONE (src/invalidation.rs, tests/invalidation_tests.rs): per-feature entries = combinator hop path + subject tag/id/class filter (generalizes ClassDeps/HoverKeys/AttrReaders, which are unchanged); `:is/:not/:where` exact reach, `:nth-child(of)` structural, `:has`/host/part Global; soundness fuzz on an own generator, 5000 cases / 59k steps sound; tightness 1.45 (steps with a change), 3.12 (all steps). Not covered: `:root` (the tree root never changes); radio-group / select option peers only through `for_state(Checked)`.
 - **QINC1e [M]** (P2, Sonnet; area jsdom; no behaviour change; no deps) The write log (R60 section 5 table): `incr::note(node,
   Change)` at every DOM-writing native (the 25 `geom_bump*` call sites and every site that marks the App dirty: attribute set/remove with
   name/old/new, child insert/remove/move with siblings, text data, `textContent`/`innerHTML`, form state, adopted CSS,

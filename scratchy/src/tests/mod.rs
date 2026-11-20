@@ -42,6 +42,7 @@ mod qy53n2_tests;
 mod qy53n3_tests;
 mod wl_drain_tests;
 mod link_css_tests;
+mod invalidation_tests;
 #[cfg(feature = "memprof")]
 mod memprof_tests;
 

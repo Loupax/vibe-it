@@ -8416,6 +8416,12 @@ Prompt: item QY53n3 (P3): hover changes that only gain/lose PAINT plus OFFSET ru
 
 **What changed:** docs only. KEYS.md: MENU state and rows T35-T44 dropped (numbers not reused), T51 (Right/End take the ghost) and T52 (Delete hides it) confirmed, "Completion" without the menu (no `MENU_CMD`; external sources feed the ghost; safety: context only in env vars, no shell), decision log. STASH.md: the title is for scripts, the ranking is the ghost order. TODO.txt: C2 dropped, C8 updated, QCOMP2 reduced to external sources [S], QCOMP3/QCOMP4 text without `o`/menu.
 
+## QINC1d: InvalidationMap (R60 section 5), new src/invalidation.rs (coordinator assignment)
+
+> Implement QINC1d: InvalidationMap built per rules_cache generation from every selector; class/id/attribute/state/structural features, positions self/descendants/adjacent/general siblings, :not/:is/:where, :has -> Global; API for_attr/for_class/for_state/for_children returning Vec<(Handle, Mark)>; generalizes ClassDeps/HoverKeys/AttrReaders without changing them; one test per selector shape and a soundness property test.
+
+**What changed:** new `src/invalidation.rs` (unused until QINC1f, `allow(dead_code)`): each selector feature becomes an entry (combinator hop path to the subject + the subject's tag/id/class filter); `for_attr/for_class/for_state/for_children/for_text`, `current()` per generation. `src/tests/invalidation_tests.rs`: 11 shape tests and a soundness fuzz (random DOM/CSS x 16 mutation kinds, brute-force `matches_selector` before/after; 5000 cases / 59k steps sound, `SCRATCHY_FUZZ_N` sets the count). Tightness (marked existing elements / really changed): 1.45 on steps where something changed, 3.12 over all steps. Own generator (QINC1a's fuzz harness not merged).
+
 ## QPASTE1: paste into the status bar (user bug report, docs only)
 
 > finally, something tangentially related. Right now we cannot paste into the command mode bar. We should be able to paste to all modes of the status bar that accept typing text (for now I think it's :command and /search mode only)
