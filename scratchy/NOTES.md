@@ -3231,7 +3231,7 @@ JS and `:help` (QB6): `SavedPage.js` parks the page's `JsEngine` while help is s
 context: every positioned descendant (abs/fixed, and relative/sticky with or
 without `z-index`) is moved into the `positioned` list of the nearest owner
 (the root, `fixed`, positioned with `z-index`, sticky, `opacity<1`, or a
-clipping `overflow` box; `<html>`'s propagated overflow is exempt). Lists are
+clipping `overflow` box; QYSCR1: `<html>`/`<body>` overflow is already `visible` in the layout tree: `images::propagate_viewport_overflow` gives it to the viewport, the page's top-level scroll, CSS Overflow 3). Lists are
 sorted by `layout::stack_key` = (z-index, `ComputedStyle.tree_order`), where
 `tree_order` is a counter bumped per `resolve_style` (document order).
 `paint_z_layer` and `hit_test_inner` use the same key, so hit testing equals

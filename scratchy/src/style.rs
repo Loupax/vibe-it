@@ -381,6 +381,10 @@ pub(crate) struct ComputedStyle {
     /// `appearance: none` (Q30a): form controls keep their text but get no
     /// widget decorations (check mark, select arrow, bar fill). Not inherited.
     pub(crate) appearance_none: bool,
+    /// QYSCR1: `contain` includes `layout` or `paint` (also via `strict`/`content`).
+    /// Only read on `<html>`/`<body>`: such containment stops `overflow`
+    /// propagation to the viewport (CSS Overflow 3). Not inherited.
+    pub(crate) contain_lp: bool,
     /// Q30c: `CHECK_*` bits of a checkbox/radio box (the painter draws its mark
     /// from the live state), 0 otherwise. Not inherited.
     pub(crate) check_widget: u8,
@@ -3163,6 +3167,7 @@ pub(crate) fn resolve_style_core<'a>(
         overflow,
         text_overflow,
         animations: cascade_animations(&matches, inl),
+        contain_lp: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.contain_lp), |d| d.contain_lp).unwrap_or(false),
         appearance_none: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.appearance_none), |d| d.appearance_none)
             .unwrap_or(false),
         check_widget: 0,
@@ -3287,6 +3292,7 @@ pub(crate) fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         overflow: Overflow::default(),
         text_overflow: TextOverflow::default(),
         animations: None,
+        contain_lp: false,
         appearance_none: false,
         check_widget: 0,
         text_widget: 0,

@@ -1344,3 +1344,147 @@ fn qy51_document_special_duplicates_and_frameset() {
     assert_eq!(log[0], "log:h1 b1", "{log:?}");
     assert_eq!(log[1], "log:fs", "{log:?}");
 }
+
+// ---------- QYSCR1: overflow viewport propagation (YouTube scrolling) ----------
+
+/// Every scroll region in `laid`, in-flow and positioned.
+fn qyscr1_regions(laid: &Laid, out: &mut Vec<ScrollInfo>) {
+    if let Some(i) = laid.scroll {
+        out.push(i);
+    }
+    let kids: &[Laid] = match &laid.content {
+        LaidContent::Blocks(c) | LaidContent::TableRow(c) => c,
+        _ => &[],
+    };
+    kids.iter().chain(laid.positioned.iter()).for_each(|c| qyscr1_regions(c, out));
+}
+
+/// YouTube's shape: `body{overflow-y:scroll}` and the whole page in an
+/// absolutely positioned app box, so `<body>` itself is 0 px tall.
+const QYSCR1_YT: &str = "<html><head><style>body{margin:0;padding:0;overflow-y:scroll}\
+    #app{position:absolute;top:0;left:0;right:0} .row{height:100px}</style></head><body>\
+    <div id=app><div class=row></div><div class=row></div><div class=row></div><div class=row></div><div class=row></div>\
+    <div class=row></div><div class=row></div><div class=row></div><div class=row></div><div class=row></div>\
+    <div class=row></div><div class=row></div><div class=row></div><div class=row></div><div class=row></div></div></body></html>";
+
+#[test]
+fn qyscr1_body_overflow_scroll_with_abs_content_scrolls_the_viewport() {
+    let laid = measure_document_fixture(QYSCR1_YT, 800.0, 600.0);
+    // The page is as tall as the absolutely positioned app (15 rows), so the
+    // top-level scroll (`redraw` clamps to `laid.h`) can reach its end.
+    assert!(laid.h >= 1500.0, "document height {} must include the absolute app box", laid.h);
+    // <body>'s `overflow` went to the viewport: no 0 px body scroll region.
+    let mut regions = Vec::new();
+    qyscr1_regions(&laid, &mut regions);
+    assert!(regions.is_empty(), "no element scroll region expected, got {}", regions.len());
+    // So the wheel finds no region anywhere and scrolls the page.
+    for y in [0.0, 50.0, 500.0, 1200.0] {
+        assert!(hit_test_scroll_region(&laid, 100.0, y, &HashMap::new(), 0.0, 600.0).is_none(), "y={y}");
+    }
+}
+
+#[test]
+fn qyscr1_body_overflow_scroll_with_in_flow_content_is_no_wheel_trap() {
+    let rows = "<div style='height:100px'></div>".repeat(15);
+    let html = format!("<html><head><style>body{{margin:0;overflow-y:scroll}}</style></head><body>{rows}</body></html>");
+    let laid = measure_document_fixture(&html, 800.0, 600.0);
+    assert!(laid.h >= 1500.0, "document height {}", laid.h);
+    let mut regions = Vec::new();
+    qyscr1_regions(&laid, &mut regions);
+    assert!(regions.is_empty(), "<body> must not be a scroll region");
+    assert!(hit_test_scroll_region(&laid, 100.0, 300.0, &HashMap::new(), 0.0, 600.0).is_none());
+}
+
+#[test]
+fn qyscr1_html_overflow_propagates_first_and_body_keeps_its_own() {
+    // <html>'s non-visible overflow goes to the viewport; <body>'s then stays
+    // on <body> (CSS Overflow 3), so a short overflow:auto body still scrolls.
+    let rows = "<div style='height:100px'></div>".repeat(5);
+    let html = format!(
+        "<html style='overflow:hidden'><head><style>body{{margin:0;height:200px;overflow:auto}}</style></head><body>{rows}</body></html>"
+    );
+    let laid = measure_document_fixture(&html, 800.0, 600.0);
+    let mut regions = Vec::new();
+    qyscr1_regions(&laid, &mut regions);
+    assert_eq!(regions.len(), 1, "only <body> is a scroll region");
+    assert!((regions[0].client_h - 200.0).abs() < 0.5 && regions[0].max_scroll() > 250.0);
+    assert!(hit_test_scroll_region(&laid, 100.0, 50.0, &HashMap::new(), 0.0, 600.0).is_some());
+}
+
+#[test]
+fn qyscr1_root_paint_containment_keeps_body_overflow_on_body() {
+    // WPT css-overflow/overflow-body-propagation-011: `contain: paint` on
+    // <html> stops the propagation, so <body> stays a scroll container.
+    let html = "<html style='contain:paint'><head><style>body{margin:0;height:100px;overflow:scroll}</style></head>\
+        <body><div style='height:300px'></div></body></html>";
+    let laid = measure_document_fixture(html, 800.0, 600.0);
+    let mut regions = Vec::new();
+    qyscr1_regions(&laid, &mut regions);
+    assert_eq!(regions.len(), 1, "<body> keeps its own scroll region");
+    let doc = parse_html("<html><head><style>html{contain: layout style} p{contain:size}</style></head><body><p>x</p></body></html>");
+    let tree = build_layout_tree(&doc, 800.0);
+    let BoxContent::Blocks(top) = &tree.content else { panic!("root blocks") };
+    assert!(top[0].style.contain_lp, "`layout` counts");
+}
+
+#[test]
+fn qyscr1_fixed_boxes_do_not_add_page_height_but_absolute_ones_do() {
+    let fixed = "<html><head><style>body{margin:0} #f{position:fixed;top:0;left:0;width:10px;height:5000px}</style></head>\
+        <body><div style='height:100px'></div><div id=f></div></body></html>";
+    let laid = measure_document_fixture(fixed, 800.0, 600.0);
+    assert!(laid.h < 1000.0, "a fixed box never scrolls, so it adds nothing (h = {})", laid.h);
+    let abs = "<html><head><style>body{margin:0} #a{position:absolute;top:2000px;left:0;width:10px;height:50px}</style></head>\
+        <body><div style='height:100px'></div><div id=a></div></body></html>";
+    let laid = measure_document_fixture(abs, 800.0, 600.0);
+    assert!(laid.h >= 2050.0, "an absolute box at top:2000px extends the page (h = {})", laid.h);
+}
+
+#[test]
+fn qyscr1_a_region_with_nothing_to_scroll_is_no_wheel_target() {
+    // `overflow: scroll` on a box whose content fits: the wheel goes past it.
+    let html = "<html><body style='margin:0'><div style='overflow:scroll;height:100px'><div style='height:50px'></div></div>\
+        <div style='height:2000px'></div></body></html>";
+    let laid = measure_document_fixture(html, 800.0, 600.0);
+    let fits = hit_test_scroll_region(&laid, 10.0, 10.0, &HashMap::new(), 0.0, 600.0).expect("the overflow:scroll box");
+    assert!(!region_takes_wheel(&fits, &HashMap::new(), -40.0), "nothing to scroll: the page takes the tick");
+    assert!(!region_takes_wheel(&fits, &HashMap::new(), 40.0));
+    // A region that can scroll takes ticks until its end, then chains.
+    let tall = ScrollInfo { id: 7, content_h: 300.0, client_h: 100.0, node: 0 };
+    let mut offs = HashMap::new();
+    assert!(region_takes_wheel(&tall, &offs, -40.0), "down from the top");
+    assert!(!region_takes_wheel(&tall, &offs, 40.0), "up at the top: chains to the page");
+    offs.insert(7, 200.0);
+    assert!(!region_takes_wheel(&tall, &offs, -40.0), "down at the end: chains to the page");
+    assert!(region_takes_wheel(&tall, &offs, 40.0));
+}
+
+#[test]
+fn qyscr1_space_page_and_arrow_keys_scroll() {
+    let n = VimMode::Normal;
+    let m = ModifiersState::empty();
+    assert_eq!(resolve_binding(&Key::Named(NamedKey::Space), m, n), Some(Action::PageDown));
+    assert_eq!(resolve_binding(&Key::Named(NamedKey::Space), ModifiersState::SHIFT, n), Some(Action::PageUp));
+    assert_eq!(resolve_binding(&Key::Named(NamedKey::PageDown), m, n), Some(Action::PageDown));
+    assert_eq!(resolve_binding(&Key::Named(NamedKey::PageUp), m, n), Some(Action::PageUp));
+    assert_eq!(resolve_binding(&Key::Named(NamedKey::ArrowDown), m, n), Some(Action::ScrollDown));
+    assert_eq!(resolve_binding(&Key::Named(NamedKey::ArrowUp), m, n), Some(Action::ScrollUp));
+    assert_eq!(resolve_binding(&Key::Named(NamedKey::Space), m, VimMode::Command), None);
+    assert!(!action_ignores_repeat(Action::PageDown));
+    assert_eq!(page_step(600.0), 560.0);
+    assert_eq!(page_step(10.0), 40.0);
+}
+
+#[test]
+fn qyscr1_script_sees_body_as_no_scroll_container_and_scrolls_the_window() {
+    let log = run_in_html(
+        QYSCR1_YT,
+        "var b=document.body, t=document.querySelectorAll('.row')[12];\
+         console.log(getComputedStyle(b).overflowY);\
+         b.scrollTop = 50; console.log(b.scrollTop);\
+         t.scrollIntoView({block:'start'}); console.log(scrollY > 0 && scrollY === Math.min(1200, 1500 - innerHeight));",
+    );
+    // The computed value stays `scroll`; the body is not scrollable, so
+    // scrollIntoView moves the window towards the row (12 * 100 px), clamped to
+    // the 1500 px page (the absolute app box) less the viewport.
+    assert_eq!(log, ["log:scroll", "log:0", "log:true"], "{log:?}");
+}
