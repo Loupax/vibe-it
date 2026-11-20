@@ -1376,6 +1376,23 @@ images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom
   (`LayoutEngine::full`), the plain path keeps `GeomCache::shape_cache` across layouts; suspected part of the
   restart's 120-160 ms layout vs ~50 ms for a warm plain measure), QFLK6 (`qinc1i_forced_layouts_see_the_windows_images`
   keys window images by a reusable node address).
+  QINC1i6 DONE (Opus, 2026-11-20; one line in `incr_layout::live_update`; test `qinc1i6_main_frames_use_the_shape_memo_without_forced_layouts`
+  in `incr_frame_tests.rs`, fails without the change): `live_update` turns the main thread's `SHAPE_MEMO_ENABLED` on, so Main
+  frames memoise from the first one on (bounded by the existing `memo_trim`). Flag off: unchanged (`live_update` is only reached
+  with the engine). No style / box / layout semantics. Suite 1 717 passed (debug), clippy 77, fuzz harness (release) 3 windows x
+  3 000 cases (seeds 0, 10 000, 20 000): 0 mismatches.
+  Gate (release, own nested dwl 960x1006, own wire, `SCRATCHY_INCR=1` both, main = the same tree with the one line disabled,
+  interleaved, order flipped per round, under flock; 1-min load 0.1-1.0 at each start; Wikipedia Rust = 18 wheel notches, 400-move
+  sweep, 18 back; YouTube watch = play click + pointer over the player): App builds ms / forced ms
+  | run | main | fix |
+  |---|---|---|
+  | Wikipedia 1, 2, 3 | 2 013 / 567, 1 993 / 886, 615 / 712 | 2 051 / 566, 2 032 / 579, 442 / 734 |
+  | YouTube watch 1, 2, 3 | 2 076 / 6 149, 2 300 / 1 892, 2 241 / 6 252 | 1 611 / 1 317, 2 318 / 6 079, 2 320 / 6 302 |
+  The runs are bimodal per page (a Wikipedia run with 13-23 builds instead of ~100, YouTube quiet vs active forced layouts), so
+  pairs are only comparable within a regime: not slower in any pair (Wikipedia 100-103 builds: +2 % / +2 %; quiet YouTube 1.6 s
+  vs 1.9-2.3 s; active 2.3 s vs 2.1-2.3 s). These pages DO have forced layouts, so the memo was already on after the first one:
+  the change targets pages without them and the gain shows in the unit test's counter, not here. `SCRATCHY_INCR_CHECK=1`
+  (fix): Wikipedia 2 runs, YouTube 2 runs: **0 mismatches**.
 - **QINC1k [M]** (P2, Opus, measure only, docs; AFTER QINC1i, j, h2) Exactness sweep and gates (R60 section 12):
   `SCRATCHY_INCR_CHECK=1` headless + window on YouTube results (R58 recipe), YouTube watch (R50/R55 recipes), Wikipedia (R55),
   github.com, bbc.com/news, social.loupax.com/discover: 0 mismatches (each mismatch = a P1 fix item); then `SCRATCHY_INCR=1`
