@@ -1056,8 +1056,6 @@ Shared rules for this block:
       /home/loupax/src/vibe-it/.coordinator/artifacts/qmem3b/memprof.rs.txt + hooks.diff, not in git).
 - [ ] QMEM3h [S] (P3, from QMEM3b; Sonnet) Probes for V8 off-heap memory (`malloced_memory`, ArrayBuffer backing stores) and
       per-library mapped RSS, to name the ~20-25 MB of C++ malloc (V8, libmpv).
-- [ ] [WIP] QMEM3j [S] (P2, from QMEM3b; same family as QY53o3c; Opus measure then Sonnet) SHAPE_MEMO holds ~60 MB of cosmic-text
-      shaped buffers on a 7.7k-paragraph page (Wikipedia; 2.6x the old estimate): measure its hit rate vs bytes and cap/sweep it.
 - [ ] QMEM3d-m [S] (P3, from QMEM3d #400; Opus measure, quiet machine) Interleaved before/after RSS: YouTube watch -> a small
       page (example.com / local), live nested-dwl window, own wire, with vs without the malloc_trim (#400 lacks a switch: add
       a throwaway env toggle), under the perf flock, uptime noted. Gate >= 25 MB lower. #400 shipped measured only
@@ -1087,8 +1085,6 @@ Shared rules for this block:
 - [ ] QY53o2 [M] (P3, from QY53o; Opus design first; ONLY if QY53o1 leaves > ~3 s per run) Writes inside an abs/fixed
       positioned subtree do not invalidate rects outside it (Page Previews' popup: 7-21 layouts per run). Gate: forced.n <= 5
       after QY53o1.
-- [ ] QY53o3c [S] (P4, from QY53o3; Opus measure) The App's shaping-worker memo has no size cap (cleared only when
-      reuse_shaping is false): does it grow without bound on a long-lived page? Measure 10 min on YT/Wikipedia; cap/sweep if so.
 - [ ] QY53m2 [S] (P2, from QY53n, R47; Sonnet; AFTER QY53m; js_dom.rs, not alongside QY53l2) A value-changing write to an
       attribute no selector reads (e.g. `title`; check RuleIndex/HoverKeys attribute keys) does not trigger an App restyle.
       Wikipedia's mouseover JS writes `li style="display: none;"` (same value) 154-165x and toggles `title` per run ->

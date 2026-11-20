@@ -7912,3 +7912,11 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       the window size, so as specified this would check App rects against a 1024x768 IO root. Do Q33b2 FIRST (or take the
       IO root from the App viewport). Expected gain after that: 2.5-4.1 s per 60 s on Wikipedia, ~0.8 s on YouTube.
   (queue line) 15 [WIP] QY53e2 [M]  IO uses the App's own layout                                       | QY53 block
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QMEM3j DONE 7fef1a9 #402 compact SHAPE_MEMO entries (Wikipedia memo 69.6->31.4 MB, RSS -37..-78 MB) + worker memo sweep [S] (P2, from QMEM3b; same family as QY53o3c; Opus measure then Sonnet) SHAPE_MEMO holds ~60 MB of cosmic-text
+      shaped buffers on a 7.7k-paragraph page (Wikipedia; 2.6x the old estimate): measure its hit rate vs bytes and cap/sweep it.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY53o3c DONE 7fef1a9 answered + fixed by QMEM3j #402: worker memo grew ~10 MB/h on a long YT page; now swept (keep last 8 builds) [S] (P4, from QY53o3; Opus measure) The App's shaping-worker memo has no size cap (cleared only when
+      reuse_shaping is false): does it grow without bound on a long-lived page? Measure 10 min on YT/Wikipedia; cap/sweep if so.
