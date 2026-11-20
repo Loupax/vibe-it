@@ -35,9 +35,9 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
  Ahead of this list by user decision (2026-11-19): QPT1a DONE bb0d258, QPT1b DONE 2e6a2a8, QPT1c DONE b33c53a, QPT1d DONE 418fbd4, QPT1d3 DONE 78c8441, QPT1f DONE f2ccf31, QPT1e DONE 53c5368 -> QPT1 core DONE; follow-ups QPT1f4 [WIP], QPT1f2/f3/f5, QPT1d2, QPT1b2 (iframe realm, YouTube PoToken; R53).
  Step 4, the main thread in the live window (YouTube playback, scrolling, mouse):
  Step 5, memory, regression guards, re-measure:
-  21 QY60 [S, Opus measure] main-thread throughput on YouTube results (re-measure after steps 2-4)
-  22 QY54 [S, Opus measure] compositor disconnect under stalls (re-run after steps 2-4)
-  24 QY33 [M] YouTube post-load timer callbacks over budget: re-measure first (numbers are QuickJS-era)
+  21 [WIP] QY60 [S, Opus measure] main-thread throughput on YouTube results (re-measure after steps 2-4)
+  22 [WIP] QY54 [S, Opus measure] compositor disconnect under stalls (re-run after steps 2-4)
+  24 [WIP] QY33 [M] YouTube post-load timer callbacks over budget: re-measure first (numbers are QuickJS-era)
   26 QY47b [S] fewer JS frames per createElement
   27 QOBS9 [S, Opus] re-baseline PERF.md on the new machine (after 9, 18, 20)
   28 QM1k-mouse: user re-tested 2026-11-19 22:21: still slow while the controls show (= QYTC1 cause); QYTC1a merged 9219065 -> ASK THE USER TO RE-TEST (quiet machine)
@@ -781,7 +781,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       references, pinned to the WPT commit the user's ~/src/wpt is at (record it
       next to wpt-expected.txt), then `scratchy --wpt <dir>`. Headless already
       (the runner renders to PNG without a window).
-- [ ] QY33 [M] (P3, R26, measure first) YouTube's post-load timer callbacks exceed the
+- [ ] [WIP] QY33 [M] (P3, R26, measure first) YouTube's post-load timer callbacks exceed the
       500 ms CALLBACK_BUDGET on main: first callback 764-1416 ms thread CPU, then
       several 500-684 ms (budget raised locally to see them); default budget =>
       1-2 `timer stopped` + 2-4 `promise jobs stopped` per load. QJ4's forced
@@ -930,7 +930,7 @@ Ranked: QY50 (P1) -> QY51 (P1) -> QY49-D (user decision, can be asked now) -> QY
       and stalls reach 3.9 s, so today's 500 ms is not a bound on the stall anyway (QY53/QY54).
       After the decision: one Sonnet item [S] in js.rs (`eval_value`/`drain_jobs` arm the
       chosen budget), fake-clock tests.
-- [ ] QY54 [S] (P2, R37, Opus measure) Re-run the R8 recipe (nested dwl, pointer motion
+- [ ] [WIP] QY54 [S] (P2, R37, Opus measure) Re-run the R8 recipe (nested dwl, pointer motion
       every 2 ms via tools/inject) on YouTube results (QY50 shim or merged) and on a fixture
       with a 3 s forced layout inside a timer: does the compositor still disconnect
       scratchy with today's stalls? Decides whether QY49-D option (d) is needed and
@@ -946,7 +946,7 @@ Ranked: QY50 (P1) -> QY51 (P1) -> QY49-D (user decision, can be asked now) -> QY
 --- NEW 2026-11-18 (Opus, QY47c: YouTube `true` thumbnails, grey masthead circles; R38) ---
 Ranked: QY56 (P1) and QY57 (P1, either order; BOTH are needed before a YouTube thumbnail
 shows) -> QY60 (P2, Opus) -> QY58 (P3) -> QY59 (P3). Evidence: REGRESSIONS.md R38.
-- [ ] QY60 [S] (P2, R38, Opus measure; coordinate with QY53/R37) Main-thread throughput on
+- [ ] [WIP] QY60 [S] (P2, R38, Opus measure; coordinate with QY53/R37) Main-thread throughput on
       YouTube results: with a 20 s budget rAF fired ~0.6-0.7 times per second (max latency
       3.6 s; rIC 3.35 s; timers up to 4.1 s late), so YouTube's scheduler needs 47-53 s to
       stamp the masthead buttons (the three grey circles = YouTube's skeleton until then) and
