@@ -7968,3 +7968,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       FROM QPT1a #392: the script sweep, custom-element upgrade (`__d_query(0, ...)`) and `ceIsConn` treat document 0 as
       the only connected document (scripts inserted into an iframe document do not run, CEs there are not upgraded);
       `DomTable.ce_names` is page-wide. WebSocket in a realm is the parent's class (R53 D5 deviation).
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QMEM3g DONE 64440c0 #410 feature-gated sampling heap profiler (--features memprof) + tools/memprof-resolve.py [M] (P3, from QMEM3b #380 R48; Sonnet) Feature-gated counting `#[global_allocator]` (sampling, live-pointer
+      table, backtrace) + a resolve script, so the next heap breakdown needs no throwaway patch (QMEM3b's prototype:
+      /home/loupax/src/vibe-it/.coordinator/artifacts/qmem3b/memprof.rs.txt + hooks.diff, not in git).
