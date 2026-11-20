@@ -1088,7 +1088,7 @@ Shared rules for this block:
 - [ ] QY53m-m [S] (P3, from QY53m #386; Opus measure, quiet machine) Re-measure QY53m's gate: Wikipedia + YouTube live
       window, same input, count js_sync rebuilds that follow only no-op writes (throwaway counter) and builds.n/ms, main vs
       #386's parent; screenshots compared. The agent's runs at load 9-26 were noise (builds.n median 20 -> 19).
-- [ ] QSTK1x [S] (P3, from QFLK1 #387; Sonnet; after QSTK1b) tests::deep_nesting_tests::qstk1_5000_deep_* overflow the stack
+- [ ] [WIP] QSTK1x [S] (P3, from QFLK1 #387; Sonnet; after QSTK1b) tests::deep_nesting_tests::qstk1_5000_deep_* overflow the stack
       in the DEBUG test profile (SIGABRT; CI runs --release). Give them a bigger test-thread stack (spawn with
       stack_size) so `cargo test` in debug passes without RUST_MIN_STACK.
 - [ ] QYTC1c [S] (P3, from R50; measure) css_collect + rule_index are 18 % of every forced layout on the JS thread
