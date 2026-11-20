@@ -1643,6 +1643,76 @@ pub(crate) fn adopt(
     ver
 }
 
+/// QINC1i: relayouts the kept box tree now for a script forced layout (on the main thread, complete):
+/// incrementally when the engine's tree can be updated, else from scratch through the engine (first
+/// layout of a kept tree, box tree started over, viewport width, drift guard, a stale App view).
+/// False when there is no kept tree or the layout could not complete (the caller lays out the old way).
+pub(crate) fn update_kept(fs: &mut FontSystem, vw: f32, vh: f32) -> bool {
+    if crate::layout::ENG_ON.with(Cell::get) {
+        return false;
+    }
+    let Some(mut req) = crate::incr_box::take_live_request() else { return false };
+    let t0 = std::time::Instant::now();
+    WALKED.with(|w| w.set(0));
+    let eng = ENGINE.with(|e| e.borrow_mut().take());
+    let next_id = eng.as_ref().map_or(0, |e| e.next_id);
+    let eng = crate::incr_box::with_tree(|tree| {
+        let tree = tree?;
+        let restart = req.full
+            || eng.as_ref().is_none_or(|e| {
+                e.stale || e.doc_key != req.doc_key || e.base_ver != req.base_ver || e.vw.to_bits() != vw.to_bits() || e.since_full + 1 >= DRIFT_UPDATES
+            });
+        if !restart {
+            let mut e = eng.expect("checked");
+            if e.update(tree, fs, vh, std::mem::take(&mut req.touched)) {
+                e.updates += 1;
+                e.since_full += 1;
+                return Some(e);
+            }
+        }
+        LayoutEngine::full(tree, fs, vw, vh, &req, next_id)
+    });
+    let ns = t0.elapsed().as_nanos() as u64;
+    nat_sweep();
+    let Some(mut eng) = eng else { return false };
+    finish_update(&mut eng, ns);
+    ENGINE.with(|e| *e.borrow_mut() = Some(eng));
+    true
+}
+
+/// QINC1i: the kept laid tree and its shape cache (`None` before the first relayout).
+pub(crate) fn with_laid<R>(f: impl FnOnce(&Laid, &ShapeCache) -> R) -> Option<R> {
+    ENGINE.with(|e| {
+        let e = e.try_borrow().ok()?;
+        let e = e.as_ref()?;
+        Some(f(&e.laid, &e.cache))
+    })
+}
+
+/// QINC1i: a description of the last relayout (mismatch reports of the forced-layout check).
+pub(crate) fn describe_last() -> String {
+    ENGINE.with(|e| {
+        e.try_borrow()
+            .ok()
+            .and_then(|e| {
+                e.as_ref().map(|e| {
+                    let s = &e.stats;
+                    format!(
+                        "(update {}, full {}, root {}, starts {}, splices {}, levels {:?}, hits {}, remeasured {})",
+                        e.updates, s.full, s.root, s.starts, s.splices, s.levels, s.hits, s.remeasured
+                    )
+                })
+            })
+            .unwrap_or_default()
+    })
+}
+
+/// QINC1i: forgets the kept laid tree (see `incr_style::drop_engines`).
+pub(crate) fn drop_engine() {
+    ENGINE.with(|e| *e.borrow_mut() = None);
+    nat_clear();
+}
+
 /// QINC1j: an App frame went to the worker: the engine's tree is only the view shown meanwhile.
 pub(crate) fn mark_stale() {
     ENGINE.with(|e| {

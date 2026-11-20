@@ -1110,6 +1110,53 @@ images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom
   `SCRATCHY_INCR_CHECK=1` diag + counter. Tests: the js_geometry / observer / Range suites run twice (flag off and on, a test
   seam), image sizes visible to JS with the flag. Gate: full suite both ways; R58 recipe (window, 3 runs, flock) with the flag:
   `getPlayerSize` median < 10 ms, worst preview-start promise job < 300 ms, `_CHECK=1` 0 mismatches.
+  QINC1i DONE (Opus, 2026-11-20; `src/incr_engine.rs`, `js_geom.rs` `refresh_engine`, tests `src/tests/incr_forced_tests.rs`
+  + the two suites re-run): with `SCRATCHY_INCR=1` (or `_CHECK=1`) a script forced layout runs ONE engine update and no
+  from-scratch layout: the same checks and restyle + box update as an App frame (QINC1j's `incr_style::live_ready` /
+  `is_current` / `live_update`, rebased onto #459; nothing changed since the engine's last update = no work), then
+  `incr_layout::update_kept` (a complete relayout of the kept box tree on the main thread; from scratch through the engine
+  when it cannot be incremental: stale App view, box tree started over, viewport width, drift guard). First layout of a
+  document, and a restyle that cannot be incremental (new rule-list generation, viewport width, `Global` log entry, no
+  table yet: `live_ready` says so before restyling): the from-scratch build with the shadow update on (re)starts the kept
+  box tree (counter `incr.forced_restarts`), then the engine lays it out. Rects: a full
+  `walk` of the kept laid tree (measured 0.19 ms per forced layout on YouTube results, `rect_walk` 8 ms / 43 layouts, so
+  the touched-roots map was not worth its bookkeeping; `incr_layout::touched_roots` stays for QINC1o). Glyphs: collected
+  from the kept tree on the first `text_rects` read after a layout. Images: the App hands its image cache over at each of
+  its builds (`incr_engine::sync_window_images`, copied only when an entry changed; one line in app.rs); forced layouts of
+  that document lay images out at their decoded size (so App builds and forced layouts feed the box engine the same
+  images); headless and other documents: none (headless decoding NOT done: proposed QINC1i2). IntersectionObserver: the
+  App-layout source (`rendered_ok`) is off with the flag, so its reads update the engine (cheap). Bypassed with the flag:
+  QYTC1a `style_write_in_place`, QYTC1d class probes, QY53l2 HiddenSnap, QY53o1 ATTR_SNAP (every write bumps; the next read
+  updates). Check mode (tests, `SCRATCHY_INCR_CHECK=1`): the oracle is today's from-scratch layout with the shadow update
+  off (`incr_style::without_shadow`), compared with `cmp_laid`; a difference is reported (`incr-check: MISMATCH laid ...`,
+  `incr.check_mismatch`), every stage is dropped and the from-scratch result is used. QOBS3 phases: engine restyle + box
+  = `incr_shadow`, relayout = `measure_document`. Tests: 5 new; js_geometry (Range included) and observer suites re-run
+  with the engine (`*_incr_forced_tests`, seam = thread name, or `SCRATCHY_TEST_INCR_FORCED=1` for the whole suite); the
+  16 tests of the bypassed special cases return early there. Suite (rebased onto QINC1h2 + QINC1j): 1 711 passed with the
+  flag off, 1 711 with `SCRATCHY_TEST_INCR_FORCED=1`. WPT 333 / 293, no change, flag off and `SCRATCHY_INCR=1`. Clippy 77.
+  In check mode a forced layout skips QINC1j's "nothing changed" shortcut: the update's reconcile then also sees writes
+  that bypass the log (a Rust-side text write in a test was otherwise reported by the oracle).
+  Gate (R58 recipe, own nested dwl 1052x1050, own wire, `SCRATCHY_FRAME_STATS`, under the perf lock; per-layout ms from a
+  throwaway `eprintln` in `perf::forced_detail`, not committed; 1-min load 0.3-7.5):
+  | run | `getPlayerSize` reads | median ms | p90 | max | worst promise job after 15 s (preview start) |
+  |---|---|---|---|---|---|
+  | INCR=1, final code (41fdae0 on e219bee), 3 runs | 39 / 38 / 40 | 5.80 / 5.39 / 5.91 | 8.0-9.0 | 32-35 | 182 / 176 / 183 ms |
+  | INCR=1, before the rebase onto QINC1h2/QINC1j, 6 runs (1 more dropped: a 500 ms page job killed at load 15, no preview) | 38-40 | 5.37-6.13 | 8.3-9.5 | 9.0-26.5 | 174-180 ms |
+  | flag off (same binary), 3 runs | 26 / 27 / 26 | 62.6 / 61.4 / 75.8 | 64-81 | 65-87 | 825-1 040 ms |
+  `_CHECK=1` in the window: 6 runs, 0 mismatches (forced layouts 18-99 ms there: the oracle and the reconcile run too; with
+  QINC1j every App frame is checked as well, and one of the two final-code runs never started the preview).
+  One outlier with the flag: a 619 ms IntersectionObserver forced layout at 28 s (pre-rebase run 2; observer delivery
+  697 ms), not seen in the other 8 runs; not investigated (proposed QINC1i3).
+  Headless (`--perf-report --budget-ms 20000`, own wire, perf lock, 6G scope, load 0.2-3.6; forced layout ms total per run):
+  | page | off (3 runs) | main 109445c `INCR=1` | this `INCR=1`, final code (3 runs) | engine / restarts per run | `_CHECK=1` mismatches |
+  |---|---|---|---|---|---|
+  | YouTube results 30 s | 887-981 (35-36 layouts) | 1 358 / 1 984 | 525 / 634 / 585 (36-42) | all / 3 | 0 (6 runs) |
+  | YouTube watch 30 s | 2 457-3 396 (108-141) | - | 1 289 / 1 103 / 1 020 (119-122) | all / 4 | 0 (6 runs) |
+  | Wikipedia Rust 20 s | 567 / 600 (4) | 846 / 1 701 | 1 133 / 951 / 660 (4-5) | all / 2-3 | 0 (6 runs) |
+  Wikipedia is SLOWER than off: 2-3 of its 4-5 forced layouts are restarts (new stylesheets), and a restart is a
+  from-scratch build whose shadow update restyles everything again, plus the engine's own full layout (~330-450 ms vs
+  244-262 ms for the plain path): proposed QINC1i4. Memory (`rss_bytes`): no growth over main with `INCR=1` (results
+  368-431 vs 371-441 MB, Wikipedia 268-284 vs 285-286); vs the flag off +~40-50 MB on Wikipedia (the kept trees, QINC1f-h1).
 - **QINC1j [L]** (P2, Opus; area app; AFTER QINC1h1; parallel with QINC1i) App frames through the engine behind
   `SCRATCHY_INCR=1` (R60 sections 3, 9): incremental updates install at once; worker path for first layout, width change, new
   rule-list generation, restyled share > 25 %, with the box tree cloned for it and the result adopted; `App::cached` -> view

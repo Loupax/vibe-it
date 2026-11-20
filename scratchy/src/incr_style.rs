@@ -130,6 +130,37 @@ thread_local! {
     static ARENA_EPOCH: Cell<u64> = const { Cell::new(0) };
 }
 
+thread_local! {
+    /// QINC1i: a from-scratch build that is the ORACLE of an engine update runs no shadow update.
+    static SUPPRESS: Cell<bool> = const { Cell::new(false) };
+}
+
+/// QINC1i: runs `f` (a from-scratch build used to check an engine update) without the shadow update.
+pub(crate) fn without_shadow<R>(f: impl FnOnce() -> R) -> R {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            SUPPRESS.with(|s| s.set(self.0));
+        }
+    }
+    let _restore = Restore(SUPPRESS.with(|s| s.replace(true)));
+    f()
+}
+
+/// QINC1i: whether the engine runs at all (release: `SCRATCHY_INCR=1` or `SCRATCHY_INCR_CHECK=1`;
+/// tests: unless the shadow seam is off).
+pub(crate) fn running() -> bool {
+    mode() != Mode::Off
+}
+
+/// QINC1i: forgets every stage's kept state (a checked engine update differed from the from-scratch
+/// result): the next update starts over from a from-scratch build.
+pub(crate) fn drop_engines() {
+    ENGINE.with(|e| *e.borrow_mut() = None);
+    crate::incr_box::drop_engine();
+    crate::incr_layout::drop_engine();
+}
+
 pub(crate) fn arena_reset() {
     ARENA_EPOCH.with(|e| e.set(e.get() + 1));
 }
@@ -137,6 +168,9 @@ pub(crate) fn arena_reset() {
 /// Called at the start of `build_layout_tree_with_resources`: whether the shadow update runs after it
 /// (and, in check mode, starts recording the build's styles).
 pub(crate) fn begin_build() -> bool {
+    if SUPPRESS.with(Cell::get) {
+        return false;
+    }
     match mode() {
         Mode::Off => false,
         Mode::Run => true,

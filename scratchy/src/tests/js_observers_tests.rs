@@ -1807,6 +1807,9 @@ fn qy53e2_run(mode: u8) -> (Vec<String>, usize) {
 
 #[test]
 fn qy53e2_app_layout_gives_the_same_entries_as_a_forced_layout_without_forcing() {
+    if special_cases_bypassed() {
+        return;
+    }
     let (forced, forced_layouts) = qy53e2_run(0);
     let (app, app_layouts) = qy53e2_run(1);
     assert!(forced.iter().any(|l| l.starts_with("log:150 far true")), "initial entries plus the ones the write changed: {forced:?}");
@@ -1829,6 +1832,9 @@ fn qy53e2_stale_app_layout_falls_back_to_a_forced_layout() {
 
 #[test]
 fn qy53e2_new_engine_drops_the_kept_app_layout() {
+    if special_cases_bypassed() {
+        return;
+    }
     let doc = parse_html("<html><body><div id=a style='height:10px'></div></body></html>");
     let tree = build_layout_tree_with_resources(&doc, 1024.0, Some(768.0), &crate::js_style::page_css(), &HashMap::new());
     let mut fs = new_font_system();
