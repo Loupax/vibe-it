@@ -67,6 +67,50 @@ const DECLS: &[&str] = &[
     "content:\"x\"", "content:counter(n) \".\"", "list-style-type:square",
 ];
 
+/// QINC1k1: fractional heights, far-down spacers and `%` heights of out-of-flow boxes against auto-height
+/// containing blocks (translation invariance in y), mixed in only by [`qinc1k1_fuzz_fractional_heights_far_down`]
+/// so the default window's cases (and [`REGRESSION_SEEDS`]) stay what they were.
+const YDRIFT_DECLS: &[&str] = &[
+    "height:32.1px", "height:17.3px", "height:4097.7px", "position:relative",
+    "position:absolute;inset:0;height:100%", "position:absolute;top:0;bottom:0;height:50%", "margin-top:3.3px",
+    "padding:2.7px 0", "min-height:33.3%",
+];
+
+thread_local! {
+    static YDRIFT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Kept below ~16 000 px of page: far beyond that the f32 ulp (0.002-0.008) makes a shifted box's
+/// geometry differ from a fresh sum by more than the comparator's `EPS` (0.01) after a few roundings,
+/// which is the absolute-coordinate limit (R60 14.1, QINC1n), not a translation-invariance bug.
+const YDRIFT_SPACERS: &[&str] = &["100px", "4100.3px", "4300.7px", "8191.9px", "3.3px", "6143.9px"];
+
+/// QINC1k1: a spacer `#ys` first (its height is what [`mutate_once`] moves), then a positioned auto-height box
+/// holding an `inset:0; height:100%` child and rows of fractional heights mixed with random content, and the
+/// random body around it.
+fn ydrift_body(r: &mut Rng, body: String) -> String {
+    let disp = r.pick(&["", "display:flex;flex-direction:column", "display:flex;flex-wrap:wrap", "display:grid", "display:flow-root"]);
+    let mut rows = String::new();
+    for _ in 0..(3 + r.below(20)) {
+        if r.pct(25) {
+            let n = 1 + r.below(3);
+            rows.push_str(&gen_fragment(r, n));
+        } else {
+            rows.push_str(&format!("<div style=\"height:{}.{}px\">r</div>", 5 + r.below(40), r.below(10)));
+        }
+    }
+    format!(
+        "<div id=\"ys\" style=\"height:{}\"></div><div class=\"c{}\" style=\"position:relative;{disp}\"><div style=\"position:absolute;inset:0;height:100%\"></div>{rows}</div>{body}",
+        r.pick(YDRIFT_SPACERS),
+        r.below(5)
+    )
+}
+
+/// A declaration; with [`YDRIFT`] on, 30 % of them from [`YDRIFT_DECLS`] (off: the RNG is used as before).
+fn pick_decl(r: &mut Rng) -> &'static str {
+    if YDRIFT.with(|y| y.get()) && r.pct(30) { r.pick(YDRIFT_DECLS) } else { r.pick(DECLS) }
+}
+
 const TAGS: &[&str] = &["div", "div", "div", "span", "span", "p", "ul", "li", "li", "a", "b", "section"];
 const WORDS: &[&str] = &["lorem", "ipsum", "dolor", "sit", "amet", "consectetur", "adipiscing", "elit", "wide-word-that-is-long", "a", "ff", "Wi"];
 const WIDTHS: &[f32] = &[320.0, 640.0, 1024.0, 1280.0];
@@ -100,7 +144,7 @@ fn gen_css(r: &mut Rng) -> String {
         let sel = r.pick(SELECTORS);
         let mut body = String::new();
         for _ in 0..(1 + r.below(3)) {
-            body.push_str(r.pick(DECLS));
+            body.push_str(pick_decl(r));
             body.push(';');
         }
         css.push_str(&format!("{sel}{{{body}}}\n"));
@@ -123,7 +167,7 @@ fn gen_attrs(r: &mut Rng, next_id: &mut usize) -> String {
         a.push_str(&format!(" id=\"i{}\"", *next_id % 6));
     }
     if r.pct(15) {
-        a.push_str(&format!(" style=\"{}\"", r.pick(DECLS)));
+        a.push_str(&format!(" style=\"{}\"", pick_decl(r)));
     }
     a
 }
@@ -169,7 +213,10 @@ fn gen_fragment(r: &mut Rng, budget: usize) -> String {
 
 fn gen_page(r: &mut Rng) -> String {
     let n = 8 + r.below(20);
-    let body = gen_fragment(r, n);
+    let mut body = gen_fragment(r, n);
+    if YDRIFT.with(|y| y.get()) {
+        body = ydrift_body(r, body);
+    }
     format!("<html><head><style>{}</style></head><body>{body}</body></html>", gen_css(r))
 }
 
@@ -293,6 +340,14 @@ fn mutate_once(r: &mut Rng, doc: &Handle, width: &mut f32) -> String {
     let mut els = Vec::new();
     all_elements(&body, &mut els);
     let target = els[r.below(els.len())].clone();
+    if YDRIFT.with(|y| y.get())
+        && r.pct(40)
+        && let Some(ys) = els.iter().find(|e| element_attr(e, "id").is_some_and(|v| &*v == "ys"))
+    {
+        let v = format!("height:{}", r.pick(YDRIFT_SPACERS));
+        set_attr_logged(ys, "style", &v);
+        return format!("spacer #ys {v:?}");
+    }
     match r.below(10) {
         0 | 1 => {
             let n = 1 + r.below(6);
@@ -337,7 +392,7 @@ fn mutate_once(r: &mut Rng, doc: &Handle, width: &mut f32) -> String {
             format!("class of {} = {v:?}", label(&target))
         }
         6 => {
-            let v = r.pick(DECLS).to_string();
+            let v = pick_decl(r).to_string();
             set_attr_logged(&target, "style", &v);
             format!("style of {} = {v:?}", label(&target))
         }
@@ -552,6 +607,29 @@ fn qinc1a_fuzz_two_from_scratch_layouts_never_differ() {
     assert!(n < 20 || inc > n, "the fuzz must exercise incremental updates, not only full ones ({inc} for {n} cases)");
     assert!(n < 20 || (bsteps > n && reused > 0), "the fuzz must exercise incremental box rebuilds ({bsteps} for {n} cases, {reused} reused)");
     assert!(n < 20 || (lsteps > n && hits > 0 && splices > 0), "the fuzz must exercise incremental relayouts ({lsteps} for {n} cases, {hits} hits, {splices} splices)");
+}
+
+/// QINC1k1: the fuzz with [`YDRIFT_DECLS`] mixed in (fractional heights summed far down the page, moved by
+/// mutations above them). 100 cases in debug, 500 in release; `SCRATCHY_FUZZ_N` / `SCRATCHY_FUZZ_SEED` as above
+/// (seeds start at 1 000 000 + `SCRATCHY_FUZZ_SEED`).
+#[test]
+fn qinc1k1_fuzz_fractional_heights_far_down() {
+    let n = env_usize("SCRATCHY_FUZZ_N", if cfg!(debug_assertions) { 100 } else { 500 });
+    let base = 1_000_000 + env_usize("SCRATCHY_FUZZ_SEED", 0) as u64;
+    let mut fs = new_font_system();
+    YDRIFT.with(|y| y.set(true));
+    struct Off;
+    impl Drop for Off {
+        fn drop(&mut self) {
+            YDRIFT.with(|y| y.set(false));
+        }
+    }
+    let _off = Off;
+    for seed in base..base + n as u64 {
+        fuzz_case(seed, &mut fs);
+    }
+    let failed = FUZZ_FAILED.with(|c| c.replace(0));
+    assert_eq!(failed, 0, "{failed} failing cases (SCRATCHY_FUZZ_KEEP_GOING=1 printed them)");
 }
 
 // ---------- generator sanity ----------

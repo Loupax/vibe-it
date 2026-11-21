@@ -1,0 +1,22 @@
+# QINC1k1: a fuzz-found incremental-layout mismatch NOT related to y translation (also on main 0bbbd0d).
+# Found by qinc1k1_fuzz_fractional_heights_far_down as seed 1003341 BEFORE its generator was tamed (the seed no
+# longer maps to this page). From-scratch vs engine: an 8 px style.width difference (50% of 1008 vs of 1024).
+# Full report (page + mutation steps; 'move li.c1.c4 into div at 1' picks the element list's div at random):
+incr fuzz mismatch: seed 1003341 step 1 (width 1024):
+laid at root/positioned[5]=li.c1.c4: style.width: Some(Px(504.0)) vs Some(Px(512.0)) (update 1, full false, root true, starts 1, splices 0, levels [], hits 57, remeasured 39)
+initial page: <html><head><style>div:first-child{opacity:0;text-align:center;z-index:-1;}
+.c2:hover{border:2px solid red;word-spacing:3px;}
+.c3::after{justify-content:space-between;}
+span{position:relative;border:2px solid red;}
+.c4{z-index:5;border:2px solid red;}
+section .c0{text-align:center;min-height:33.3%;}
+.c4::before{text-indent:10px;content:"x";width:50%;}
+div .c1{display:grid;width:auto;}
+div:first-child{min-height:20px;}
+div .c1{min-height:33.3%;box-sizing:border-box;width:50%;}
+div:first-child{white-space:pre;height:30px;}
+.c4::before{counter-increment:n;;position:absolute;inset:0;height:100%;list-style-type:square;}
+</style></head><body><div id="ys" style="height:100px"></div><div class="c0" style="position:relative;"><div style="position:absolute;inset:0;height:100%"></div><div style="height:28.6px">r</div><div style="height:5.6px">r</div><div style="height:37.1px">r</div><div style="height:40.5px">r</div><div style="height:20.0px">r</div><div style="height:36.1px">r</div><b class="c2 c3" style="min-height:4100.3px"><b><section class="c3" id="i3"></section></b></b><div class="c4 c3"><a class="c3"></a></div><div style="height:24.2px">r</div><div style="height:26.5px">r</div><div style="height:40.3px">r</div><div style="height:23.6px">r</div><ul class="c1"><div id="i2">a elit dolor</div></ul><div style="height:24.8px">r</div><li class="c4 c1"><span class="c1"><p class="c3"></p></span></li><div style="height:30.8px">r</div><div style="height:35.8px">r</div><div style="height:19.0px">r</div><div style="height:5.0px">r</div></div><br><span class="c0"><a class="c4 c4" id="i4"><span class="c0 c0"><li>consectetur wide-word-that-is-long amet adipiscing amet ipsum lorem Wi</li><section class="c2 c2">ipsum adipiscing lorem ff amet</section><ul class="c0">sit elit ipsum</ul></span><p class="c3" id="i5" style="z-index:5"><b>lorem adipiscing ipsum sit amet dolor ff sit consectetur lorem</b><section class="c4 c3">dolor adipiscing a wide-word-that-is-long ff</section><div class="c1 c0">wide-word-that-is-long adipiscing wide-word-that-is-long dolor sit sit elit adipiscing</div></p></a><p class="c1 c4"></p><li class="c1 c4"><div class="c4 c4"></div>consectetur adipiscing amet Wi ff a Wi dolor adipiscing dolor<section><a class="c1">sit dolor dolor sit elit</a><li class="c3 c1">wide-word-that-is-long</li></section></li></span><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAHUlEQVR4AQESAO3/AP8AAP//AAD/AP8AAP//AAD/R8oH+YOsvdsAAAAASUVORK5CYII=" width="34"></body></html>
+step 1: move li.c1.c4 into div at 1
+step 1: id of div#i3 = "i3"
+step 1: hover section
