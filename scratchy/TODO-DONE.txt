@@ -8885,3 +8885,13 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       SIGUSR1/ToggleVimMode and signal-hook (if nothing else uses it), the `vim` key in
       QCFG1's list; `:help` and NOTES.md describe the two modes and Esc Esc instead. Keep
       every existing test that still applies; rewrite the ones that tested the toggle.
+
+=== from TODO.txt: --- (no header)
+- [x] QCOMP4 DONE 57f65fa #519 [S] (P2, after QCOMP1 and QCOMP3; feeds C8's ghost) Built-in `:go` source
+      `complete_history_urls` (C7; STASH.md "Ranking"): site roots by site visits, then
+      pages by own visits, ties by recency, prefix match after stripping the scheme and
+      `www.`; bad lines skipped; this order is the ghost order. Tests: a site with many
+      single-visit pages outranks a page visited twice; a root URL appears once; ties go
+      to the newest; `you` finds `https://www.youtube.com/`; `https://google` ghosts
+      `.com/` against `https://www.google.com/` and Enter runs `https://google.com/`;
+      Delete then Enter runs `https://google`; history read once per line, not per key.

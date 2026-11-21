@@ -545,14 +545,6 @@ Order (feature work: after the perf queue): QCONF1 -> QCOMP1 -> QCOMP2; QCOMP3 a
       ghost; a missing program gives a status-bar message; a line containing `$(...)`/`;`
       is used as plain text; the source runs once per line, not per key; a stale result
       is ignored.
-- [ ] [WIP] QCOMP4 [S] (P2, after QCOMP1 and QCOMP3; feeds C8's ghost) Built-in `:go` source
-      `complete_history_urls` (C7; STASH.md "Ranking"): site roots by site visits, then
-      pages by own visits, ties by recency, prefix match after stripping the scheme and
-      `www.`; bad lines skipped; this order is the ghost order. Tests: a site with many
-      single-visit pages outranks a page visited twice; a root URL appears once; ties go
-      to the newest; `you` finds `https://www.youtube.com/`; `https://google` ghosts
-      `.com/` against `https://www.google.com/` and Enter runs `https://google.com/`;
-      Delete then Enter runs `https://google`; history read once per line, not per key.
 - [x] QCOMP5 DROPPED 2026-11-20 (user: "`:go` should be enough"). Was: `o` in normal mode, the
       history menu navigating straight away (KEYS.md T39-T41, also dropped). Nothing to build.
 
