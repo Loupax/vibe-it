@@ -437,7 +437,7 @@ QKEYS — input mode / normal mode, Esc Esc, `i`, status bar (user design sessio
 
 
 
-- [ ] QXSCR1 [M] (P2; USER 2026-11-21: "allow horizontal scrolling with mouse controls and arrows, but no hjkl-like
+- [ ] [WIP] QXSCR1 [M] (P2; USER 2026-11-21: "allow horizontal scrolling with mouse controls and arrows, but no hjkl-like
       bindings for that yet"; Opus; layout.rs ScrollInfo/Laid, style.rs overflow, app.rs, paint, js_dom.rs scroll APIs;
       findings in draft #522) Real horizontal scrolling. Today overflow-x and overflow-y collapse into one `overflow`
       (style.rs), ScrollInfo has only heights, `App::scroll_offsets` is y-only, the window has no x scroll and no
