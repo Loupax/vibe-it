@@ -1957,7 +1957,7 @@ fn startup_engine(document: &Handle, store: Rc<js_modules::ModuleStore>, log: Lo
         engine.eval("prelude", PRELUDE);
         engine.eval("timers", TIMERS_PRELUDE);
         engine.eval("url", URL_PRELUDE);
-        engine.eval("globals", GLOBALS_PRELUDE);
+        engine.eval("globals", globals_prelude());
         engine.eval("intl", INTL_PRELUDE);
         engine.eval("fetch", FETCH_PRELUDE);
         engine.eval("websocket", WS_PRELUDE);
@@ -1994,7 +1994,7 @@ fn startup_engine(document: &Handle, store: Rc<js_modules::ModuleStore>, log: Lo
 /// (`startup_engine`), for an iframe realm made without the snapshot to replay. Page-only parts
 /// (`__scratchy_apply_env`, `__media_sweep`) are left out: `__scratchy_realm_init` applies the env.
 pub(crate) fn realm_preludes() -> [&'static str; 11] {
-    [PRELUDE, TIMERS_PRELUDE, URL_PRELUDE, GLOBALS_PRELUDE, INTL_PRELUDE, FETCH_PRELUDE, WS_PRELUDE, js_dom::DOM_PRELUDE, CSSOM_PRELUDE, js_media::MEDIA_PRELUDE, js_media::MSE_PRELUDE]
+    [PRELUDE, TIMERS_PRELUDE, URL_PRELUDE, globals_prelude(), INTL_PRELUDE, FETCH_PRELUDE, WS_PRELUDE, js_dom::DOM_PRELUDE, CSSOM_PRELUDE, js_media::MEDIA_PRELUDE, js_media::MSE_PRELUDE]
 }
 
 /// The page's own scripts and lifecycle events, over a started engine.
@@ -2129,7 +2129,13 @@ const URL_PRELUDE: &str = include_str!("url_prelude.js");
 
 /// QY13: history, AbortController, MessageChannel, requestIdleCallback,
 /// Storage, structuredClone, queueMicrotask (plain JS, see the file).
-const GLOBALS_PRELUDE: &str = include_str!("globals_prelude.js");
+/// `globals_prelude.js` with `__LS_QUOTA_UNITS__` replaced by `config::QUOTA_UNITS` (QCONF2), so the
+/// page's synchronous quota check and the Rust side (`stash`) use the one value.
+fn globals_prelude() -> &'static str {
+    static SRC: std::sync::LazyLock<String> =
+        std::sync::LazyLock::new(|| include_str!("globals_prelude.js").replace("__LS_QUOTA_UNITS__", &crate::config::QUOTA_UNITS.to_string()));
+    SRC.as_str()
+}
 
 /// QY16: a minimal en-US `Intl` (QuickJS has none) and the `toLocale*String`
 /// methods routed through it. See the file header and TODO.txt QY16a.

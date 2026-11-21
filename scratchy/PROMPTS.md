@@ -8801,3 +8801,9 @@ Item QINC1h2 (REGRESSIONS.md R60 section 15). `layout.rs`: `natural_width_impl` 
 > QDOM1 [S] (P1; Sonnet; js.rs, js_dom.rs; R65) Window named access and indexed child windows: a WindowProperties object between Window.prototype and EventTarget.prototype; get/has by element id or embed/form/img/object name (native `__d_named`, cached by `wgen`), iframe name -> contentWindow, `window[i]`.
 
 **What changed:** js.rs: `WindowProperties` is a Proxy (get/has only; its target inherits EventTarget.prototype) set as the prototype of `Window.prototype`; names found anywhere else in the chain are not shadowed, own globals and `var`s win, nothing is enumerable. js_dom.rs: native `__d_named(doc, name)` builds one name -> element map per DOM write generation; the DOM prelude hands the proxy a resolver (index -> `winAt`, iframe -> its window, else the element wrapper). Known deviation: with a Proxy in the global's chain V8 does not throw ReferenceError for a strict-mode assignment to an undeclared name (reads still do); the qj1/qy15 tests probe strictness with `NaN = 1` instead. Tests: qdom1_window_named_access.
+
+## QCONF2: stash limits into config.rs (agent item)
+
+> QCONF2 [S] Move the localStorage quota (5 Mi UTF-16 units) and any other user-tunable stash limit into src/config.rs with a short comment, as QCONF1 did. Refactor only; mention the quota in help.html.
+
+**What changed:** `QUOTA_UNITS` now lives in config.rs (stash.rs re-exports it, tests unchanged). globals_prelude.js no longer hardcodes 5*1024*1024: it has a `__LS_QUOTA_UNITS__` placeholder that js.rs (`globals_prelude()`) fills from the config value, so page and Rust checks cannot diverge. help.html persistence section states the quota and where to change it. `MAX_NAME_BYTES` stays in stash.rs (on-disk filename format, not a tunable).

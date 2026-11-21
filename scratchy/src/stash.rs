@@ -24,8 +24,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 
-/// Per-origin limit, in UTF-16 code units of keys plus values (the unit JS `length` counts; Firefox's rule).
-pub(crate) const QUOTA_UNITS: usize = 5 * 1024 * 1024;
+// The per-origin quota lives in `config.rs` (QCONF2); re-exported so `stash::QUOTA_UNITS` keeps working.
+pub(crate) use crate::config::QUOTA_UNITS;
 
 /// An encoded key filename longer than this is stored as `%h<sha256 hex>` with the encoded key on its first line.
 pub(crate) const MAX_NAME_BYTES: usize = 200;

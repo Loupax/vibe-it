@@ -133,7 +133,9 @@ see below):</p>
 <ul>
 <li><code>localStorage</code>: one file per key under
 <code>&lt;dir&gt;/storage/</code>. <code>sessionStorage</code> is not saved: it
-lasts as long as the window and survives navigations.</li>
+lasts as long as the window and survives navigations. The quota is 5 Mi
+UTF-16 units of keys plus values per origin; change <code>QUOTA_UNITS</code> in
+<code>src/config.rs</code> and rebuild.</li>
 <li>Pages visited: the file <code>&lt;dir&gt;/history</code> (time, URL,
 title), one line per visit. Nothing reads it back yet.</li>
 <li>Cookies: kept by <code>wire</code>, saved only if you start it with
