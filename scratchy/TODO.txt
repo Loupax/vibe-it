@@ -38,9 +38,6 @@ CONFORMANCE (R64 plan, merged #474; user accepted all R64 s7 recommendations 202
 Order: QWPT2 -> QWPT3 -> QWPT4a -> QWPT4b -> QWPT5/QWPT6, with QMAPI1 and QREC1 in parallel (other
 crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details: REGRESSIONS.md R64.
 
-- [ ] [WIP] QWPT5 [S] (NOTE from #499: pass `--wire wire/target/release/wire`; the runner re-execs under systemd-run unless `--no-scope`, falls back with one line when unusable, untested on CI) (P1; Sonnet; ci.yml; after QWPT2, QWPT4b, QWPT6; user answered Q3, Q4 2026-11-21) CI step: build
-      wire in the scratchy job, run `--wpt-th --jobs 4`, fail on regressions, write the areas table
-      and its diff vs main into $GITHUB_STEP_SUMMARY. Measure and report the added minutes.
 - [ ] QWPT7 [M] (P2; Opus; testdriver-vendor.js + natives; after QEL1) testdriver: test_driver.click,
       send_keys, action_sequence (pointer + key) as synthetic input through the App's input path in
       the headless rendering loop (hit testing on the real layout). Unlocks dom/events (77 files),
@@ -99,11 +96,169 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QBUD1 [S] (P2; Sonnet; perf-budgets.txt, tools/budget-check.py; after QREC3) First budgets (R64 6
       table); local check in the AGENTS.md checklist for perf-touching PRs; CI only counts + RSS on
       synthetic or (per Q5) replayed pages.
-- [ ] [WIP] QAREA-DOM [M] (P1; Opus; docs only; after QWPT6) Triage the dom/* failures of the baseline by root
-      cause (probe hints: tagName case, document.charset, createProcessingInstruction, Range type
-      checks, replaceWith/splitText missing), file S fix items with target scores. Same pattern
-      later: QAREA-IDL, QAREA-EL, QAREA-CSSOM, QAREA-VIEW, QAREA-ENC (single-byte encodings: one gap,
-      ~6,800 subtests), QAREA-STREAMS.
+- [ ] [WIP] QDOM1 [S] (P1; Sonnet; js.rs, js_dom.rs; R65; after QWPT6) Window named access and indexed child windows. A
+      WindowProperties object between `Window.prototype` and `EventTarget.prototype` (a Proxy in the prototype chain set
+      up next to `Object.setPrototypeOf(g, Window.prototype)` in js.rs; own globals and `var`s still win). get/has: an
+      element with that id, or an embed/form/img/object with that name (new native `__d_named(doc, name)` next to
+      `__d_byid`, one walk, cached by the DOM write generation `wgen` because `typeof X` feature probes hit it), an iframe
+      with that name -> its contentWindow. `window[i]` / `frames[i]` / `window.length` = child browsing contexts in tree
+      order (the iframe realm code in js_dom.rs). Not enumerable. Tests in js_dom_tests.rs (id global, var shadows it,
+      removed element disappears, frames[0].document). WPT: abort/abort-signal-timeout, abort/reason-constructor,
+      nodes/Node-removeChild, Node-appendChild, querySelector-empty-id, querySelector-id-nth-child,
+      remove-and-adopt-thcrash, remove-next-sibling-during-replace-with, events/mouse-event-retarget,
+      EventListener-handleEvent-cross-realm, traversal/TreeWalker-acceptNode-filter-cross-realm,
+      ranges/Range-extractContents-dynamic-end. Target: nodes 42.4 -> 45, events 23.0 -> 25, other 55.2 -> 60;
+      re-run all areas (html/*, shadow-dom, uievents use id globals too) and record their new passes.
+- [ ] QDOM2 [M] (P1; Sonnet; js_dom.rs, js.rs; R65; after QDOM1) Real NodeList and HTMLCollection objects.
+      `childNodes`, `children`, `getElementsByTagName(NS)`, `getElementsByClassName`, `document.forms/images/links/
+      anchors/scripts/embeds` (`coll`), `querySelectorAll` (static NodeList): instances of `NodeList` / `HTMLCollection`
+      (prototype with `item`, `namedItem` (HTMLCollection), `length`, `forEach`/`entries`/`keys`/`values`/iterator
+      (NodeList only), supported indices/names as own properties, `[LegacyUnenumerableNamedProperties]`, delete/define
+      rules). Live: a Proxy that re-queries the native list when the DOM write generation `wgen` changed since the last
+      access (one query per generation, not per index). Prelude callers that use Array methods on these (`t.children.forEach`
+      in the table code, `kidsOf`, `wrapAll` results) switch to `Array.from` or an internal array helper. Check the perf
+      gate pages (getElementsByTagName in loops) before/after with --perf-report. WPT: dom/collections/* (10 files),
+      nodes/Element-children, ParentNode-children, ParentNode-properties, Node-childNodes, NodeList-live-mutations,
+      live-collections-batched-mutations, getElementsByClassName-03..25, ParentNode-querySelectorAll-scope-change.
+      Target: nodes -> +4, other -> +17.
+- [ ] QDOM3 [S] (P1; Sonnet; js_dom.rs; R65; after QDOM1) `ParentNode.moveBefore(node, child)` on Element, Document,
+      DocumentFragment: the pre-move checks (same shadow-including root, connected-ness equal, not a doctype/
+      ancestor; HierarchyRequestError otherwise), then a move WITHOUT the removing and insertion steps: no script re-run,
+      no iframe reload, focus/selection kept, custom elements get `connectedMoveCallback` (else disconnected+connected),
+      one MutationObserver childList record pair, live Ranges and NodeIterators updated as for remove+insert. Native
+      side: a variant of `insert_child` that skips the `log_inserted`/load hooks for the moved subtree. WPT:
+      dom/nodes/moveBefore/* (62 entries; 28 are blocked only by the missing method and id globals). Target: nodes +5
+      (bound +9.5; the rest needs CSS transitions, focus events, ElementInternals).
+- [ ] [WIP] QDOM4 [S] (P1; Sonnet; js.rs Event + ETP.dispatchEvent; R65) Event flags per DOM 2.x: stop propagation, stop
+      immediate, canceled, initialized, dispatch flags. `cancelBubble` setter (true only), `returnValue` (get = !canceled,
+      set false = preventDefault), `initEvent` is a no-op while dispatching and clears the stop/canceled flags,
+      `composedPath()` empty after dispatch, flags cleared at the end of dispatch, setting cancelBubble before dispatch
+      stops it. Listener exceptions are reported (window `error` event / `onerror`, `reportError` path) and dispatch
+      continues. `handleEvent` is looked up at every invoke. `isTrusted` is an own unforgeable getter. `srcElement` is
+      null before dispatch. Passive default true for touchstart/touchmove/wheel/mousewheel listeners on window, document,
+      `<html>`, `<body>`. WPT: dom/events/Event-initEvent, Event-returnValue, Event-propagation, Event-cancelBubble,
+      Event-dispatch-bubble-canceled, Event-dispatch-propagation-stopped, Event-stopPropagation-cancel-bubbling,
+      Event-dispatch-throwing, EventListener-handleEvent, Event-isTrusted.any, event-src-element-nullable,
+      window-composed-path, passive-by-default, AddEventListenerOptions-passive.any. Target: events 23.0 -> 30.
+- [ ] QDOM5 [M] (P2; Sonnet; js_dom.rs Range block (QJ7) + native helpers; R65; finishes archived QA19) Range content
+      operations: `cloneContents`, `extractContents`, `deleteContents`, `insertNode`, `surroundContents` (partially
+      selected CharacterData split/clone, DocumentFragment result, HierarchyRequestError/InvalidStateError rules), live
+      boundary-point updates on insert/remove/CharacterData changes/splitText/normalize (spec "live range pre-remove
+      steps"), and Attr nodes as boundary points (nodes without `__id` today: Range-attribute-nodes). WPT in subset:
+      ranges/Range-{clone,delete,extract}Contents-{around-shadow,in-ShadowRoot}, Range-attribute-nodes. Target: ranges
+      17.1 -> 30. After QWPT6c also the core Range-* suite.
+- [ ] QDOM6 [S] (P1; Sonnet; js.rs `ctor('Text'|'Comment'|'DocumentFragment'|'Document')`, js_dom.rs; R65) Node
+      constructors that create nodes: `new Text(data = '')`, `new Comment(data = '')`, `new DocumentFragment()` (owner =
+      the constructor's realm's document, `owners[]`), `new Document()` (an XML document: contentType
+      `application/xml`, no doctype, origin/URL of the realm's document, createElement does NOT lowercase; reuse
+      `makeDoc(false, ...)`). Calling without `new` still throws TypeError. WPT: nodes/Text-constructor,
+      Comment-constructor, DocumentFragment-constructor, Document-constructor, Document-adoptNode, Node-cloneNode,
+      insertion-removing-steps/*, events/Event-dispatch-bubbles-{true,false}. Target: nodes +1.5. Prerequisite for
+      dom/common.js (QDOM8).
+- [ ] QDOM7 [S] (P1; Sonnet; js_dom.rs `text_write_changes`, `cdReplace`, DomTable; R65) Mutable data for Comment
+      (and, for QDOM8, ProcessingInstruction): rcdom's `Comment { contents }` is not a cell, so a data write replaces the
+      node with a new one in its parent's child list and re-points the JS id in DomTable to it (id -> Handle and the
+      reverse map), or keeps an override table read by `__d_text`, `serialize_node`, `clone_node_body`. MutationObserver
+      characterData records as for Text. WPT: nodes/CharacterData-{data,appendData,insertData,deleteData,replaceData,
+      substringData,surrogates,appendChild} (the Comment.* halves). Target: nodes +0.7.
+- [ ] QDOM8 [S] (P1; Sonnet; js_dom.rs; R65; after QDOM6, QDOM7) ProcessingInstruction and CDATASection nodes:
+      `document.createProcessingInstruction(target, data)` (target must match Name, data must not contain `?>`:
+      InvalidCharacterError), `createCDATASection(data)` (NotSupportedError on HTML documents, `]]>` ->
+      InvalidCharacterError); rcdom `NodeData::ProcessingInstruction` (nodeType 7, nodeName = target, `target`),
+      CDATA = a Text node marked in DomTable (nodeType 4, `#cdata-section`, CDATASection.prototype); both in `__d_kind`,
+      `__d_tag`, `mk` prototypes, clone, isEqualNode, textContent, serialization; CharacterData methods work on both
+      (QDOM7). `XMLDocument` interface (prototype of createDocument/new Document results). Node constants:
+      CDATA_SECTION_NODE, ENTITY_REFERENCE_NODE, ENTITY_NODE, NOTATION_NODE, DOCUMENT_POSITION_* on Node and
+      instances. Not the WICG "PI attributes" proposal (processing-instruction-attributes*.html stay failing). WPT:
+      nodes/Document-createProcessingInstruction, Document-createCDATASection, Node-textContent, Node-constants,
+      CharacterData-appendChild, CharacterData-remove, rootNode, Node-isSameNode, Node-compareDocumentPosition,
+      Node-contains, Node-properties, ranges/StaticRange-constructor, traversal/NodeIterator, NodeIterator-removal,
+      TreeWalker, events/EventTarget-this-of-listener. Target: nodes +3, ranges +1.5, other +4.
+- [ ] QDOM9 [S] (P2; Sonnet; js_dom.rs DOMTokenList block (`var DTP = DOMTokenList.prototype`, `toks`/`putToks`); R65) DOMTokenList per
+      spec: an ordered set parsed from the attribute (dedupe, ASCII whitespace), add/remove/toggle/replace run the update
+      steps (serialize the set; no attribute write when the element had none and the set is empty), `value`, `length`,
+      `item`, iteration over the set, `supports()` throws TypeError without supported tokens, InvalidCharacterError /
+      SyntaxError for whitespace / empty tokens, one DOMTokenList object per element (`[SameObject]`), relList etc. on
+      the elements in lists/DOMTokenList-coverage-for-attributes. WPT: nodes/Element-classlist, lists/* (4 files).
+      Target: other +4.
+- [ ] QDOM10 [S] (P2; Sonnet; js.rs ETP.dispatchEvent, attrHandler; R65; after QDOM4) `window.event`: set to the
+      current event while a listener of a node in the page's realm runs, restored afterwards (also after a throwing
+      listener), `undefined` for listeners inside a shadow tree, unset outside dispatch. WPT: dom/events/event-global*,
+      window-event-restored-after-throwing-onerror. Target: events +3.
+- [ ] QDOM11 [M] (P2; Sonnet; wpt_th.rs, js.rs `run_page`, js_dom.rs `__d_load_xml`/`xml_to_dom`; R65) XML documents.
+      A response whose MIME type is XML (`application/xhtml+xml`, `image/svg+xml`, `text/xml`, `application/xml`,
+      `+xml`) is parsed with the existing roxmltree path, not html5ever, for the top-level document and for iframes. The
+      document is not an HTML document (QDOM17 flag); `<script>` elements in the XHTML/SVG namespaces run in tree order
+      (CDATA content, `href`/`xlink:href` for SVG). A well-formedness error shows the parsererror document. App rendering
+      of such documents can stay as it is (box tree from the same DOM); only the parse path changes. WPT: the 18 ERROR
+      `.xhtml/.xml` files and 13 CRASH `.svg` files in dom/nodes (Element-childElementCount-*, Element-firstElementChild-*,
+      ...), Document-createElement(NS) (XML iframes: 488 subtests), Document-createProcessingInstruction-xhtml,
+      Node-lookupPrefix.xhtml. Target: nodes +5 (13 SVG files also start counting).
+- [ ] QDOM12 [S] (P2; Sonnet; js_dom.rs; R65) `Text.splitText(offset)` (IndexSizeError, new node after it, live range
+      updates once QDOM5 has them), `Text.wholeText`, `Node.normalize()` (merge adjacent Text, drop empty, on Document and
+      Element). WPT: nodes/Text-splitText, Text-wholeText, Node-normalize, Node-normalize-2, ranges/Range-mutations-
+      normalize. Target: nodes +1, ranges +2.
+- [ ] QDOM13 [S] (P2; Sonnet; js.rs attrHandler/`fwd`, js_dom.rs; R65) Event handler IDL attributes as accessors:
+      GlobalEventHandlers/WindowEventHandlers/DocumentAndElementEventHandlers on HTMLElement, Document and Window
+      (default null; setting a non-function stores null; the content attribute still compiles lazily). `<body>`/
+      `<frameset>` `onload`/`onerror`/`onresize`/... get/set the Window's handler (WindowEventHandlers). Include
+      `onanimationstart/iteration/end/cancel`, `ontransitionrun/start/end/cancel`, and the legacy
+      `webkitAnimation*`/`webkitTransitionEnd` mapping (an unprefixed event with only a prefixed listener fires the
+      prefixed type). Only the names Chrome desktop exposes: NO `ontouch*` on window/document (sites treat
+      `'ontouchstart' in window` as "touch device"). Add `HTMLFrameSetElement`. WPT: dom/events/webkit-*-event (4),
+      Body-FrameSet-Event-Handlers. Target: events +2 (and the 40 non-cancelable-when-passive files, which assign
+      `document.body.onload`, then run once QWPT7 exists).
+- [ ] QDOM14 [S] (P2; Sonnet; js_dom.rs; R65) Namespaces: `lookupNamespaceURI`, `lookupPrefix`, `isDefaultNamespace`
+      (DOM "locate a namespace" over element ns/prefix and xmlns attributes), `Element.prefix` from the qualified name,
+      `getElementsByTagNameNS(ns, local)` on Document/Element, and `getElementsByTagName(qualifiedName)` matched natively
+      by qualified name (HTML elements in HTML documents compare lowercased; others exact; `*`), not through
+      `__d_query` (the selector parser rejects `te:st`). Returns QDOM2 collections when that has landed. WPT:
+      nodes/Node-lookupNamespaceURI, Node-lookupPrefix.xhtml (after QDOM11), case, Document-getElementsByTagName(NS),
+      Element-getElementsByTagName(NS), collections/HTMLCollection-empty-name. Target: nodes +1.2.
+- [ ] QDOM15 [S] (P2; Sonnet; js.rs Event ctors, js_dom.rs `doc.createEvent`; R65; after QDOM4) Event interfaces:
+      UIEvent/MouseEvent/KeyboardEvent/FocusEvent/WheelEvent/InputEvent/CompositionEvent constructors read their init
+      dictionaries (`view` must be a Window or null: TypeError otherwise, `detail`, modifier keys...), `Event.NONE/
+      CAPTURING_PHASE/AT_TARGET/BUBBLING_PHASE` on the constructor and prototype, `createEvent` accepts the spec's
+      interface list (BeforeUnloadEvent, CompositionEvent, DeviceMotionEvent, DeviceOrientationEvent, DragEvent, ...) and
+      throws NotSupportedError otherwise, `dispatchEvent` of an uninitialized or already-dispatching event throws
+      InvalidStateError. WPT: dom/events/Event-subclasses-constructors, EventTarget-dispatchEvent, Event-constructors.any,
+      Event-constants, EventTarget-constructible.any. Target: events +1.5.
+- [ ] QDOM16 [S] (P2; Sonnet; js_dom.rs; R65) ChildNode/ParentNode on every node kind: `before`, `after`,
+      `replaceWith`, `remove` on CharacterData and DocumentType (today only on `ElementProto`), `replaceChildren`/`append`/`prepend` on Document, `Symbol.unscopables` for them;
+      `document.doctype` on the page document (the page's DocumentType node). WPT: nodes/ChildNode-after,
+      ChildNode-before, ChildNode-replaceWith, DocumentType-remove, Document-doctype, ParentNode-replaceChildren,
+      remove-unscopable. Target: nodes +1.2.
+- [ ] QDOM17 [S] (P2; Sonnet; js_dom.rs `makeDoc`, `__d_tag`, `doc.createElement`; R65; after QDOM8) Document
+      flavours: a per-document "HTML document" flag (true for the page and createHTMLDocument, false for createDocument,
+      new Document(), XML parses). `createElement` lowercases only in HTML documents (XHTML namespace for
+      application/xhtml+xml, null otherwise); `tagName`/`nodeName` upper-case only for HTML-namespace elements in HTML
+      documents and include the prefix; `nodeValue` and `textContent` null for Document and DocumentType (setting is a
+      no-op); `charset` and `inputEncoding` aliases of `characterSet` on every document. WPT: nodes/DOMImplementation-
+      createDocument (306 subtests), DOMImplementation-createDocumentType, Element-tagName, Element-tagName-adopt,
+      Node-nodeValue, Node-textContent, DOMImplementation-createHTMLDocument. Target: nodes +1.2.
+- [ ] QDOM18 [S] (P3; Sonnet; js_dom.rs insert path (`insertBefore`/`appendChild`/`replaceChild`/`append`/`prepend`/
+      `replaceChildren`); R65) DOM "ensure pre-insert validity" and "replace" checks: HierarchyRequestError for a
+      Document parent with a second element, a fragment with two elements or with text, a doctype after the element,
+      text directly under a Document; NotFoundError for a wrong child; checks before any mutation (fragments keep their
+      children on failure). WPT: nodes/Node-insertBefore, Node-replaceChild, ParentNode-append, ParentNode-prepend,
+      ParentNode-replaceChildren, append-on-Document, prepend-on-Document. Target: nodes +0.8.
+- [ ] QDOM19 [S] (P3; Sonnet; js_dom.rs `checkName`; R65) Current DOM name validation (whatwg/dom 2025): "valid element
+      local name", "valid attribute local name", "valid doctype name", `validate and extract` for the NS variants
+      (NamespaceError rules for xml/xmlns prefixes). Used by createElement(NS), createAttribute(NS), setAttribute(NS),
+      toggleAttribute, createDocumentType, createDocument. WPT: nodes/DOMImplementation-createDocumentType,
+      DOMImplementation-createDocument, Document-createElementNS, Document-createAttribute, Document-createElement,
+      attributes, name-validation (timeout=long). Target: nodes +0.3 (many subtests in few files).
+- [ ] QWPT6b [S] (P2; Sonnet; tools/wpt-subset.py, wpt-th/; R65 2.1) The subset filter misses testdriver users
+      that load it from HTML (`<script src="/resources/testdriver.js">`); it only reads `// META: script=`. 102 dom
+      entries (94 dom/events) are in the phase-1 baseline although they need trusted input. Either drop them (as the
+      phase-1 rule says) or move them to their own area `<area>/testdriver` so the DOM scores show DOM work; regenerate
+      subset + expected + areas.txt.
+- [ ] QWPT6c [S] (P2; Sonnet; tools/wpt-subset.py; R65 2.1; after QDOM6, QDOM8) Include the dom/* timeout=long files
+      (46: the core Range-*, NodeIterator, TreeWalker, Document-characterSet-normalization-1/2, ParentNode-querySelector-
+      All, NodeList-static-length-getter-tampered-*). With the virtual clock they are cheap (all 46 ran in 9 s at 4 jobs).
+      31 of them ERROR at `xmlDocument.createCDATASection` today, so measure their wall time again after QDOM8.
+- [ ] QSCR404 [S] (P2; Sonnet; js.rs script fetch; R65 5) A classic/module script whose response status is not 2xx is
+      not run; fire `error` on the element (today a 404 "Not found" body runs and throws SyntaxError).
 
 ========================================================================
 RELIABILITY (flaky tests undermine CI, which the conformance plan relies on; crashes)
@@ -111,9 +266,6 @@ RELIABILITY (flaky tests undermine CI, which the conformance plan relies on; cra
 - [ ] QFLK6b [S] (P3, from QFLK6 #476; Sonnet) incr_box and incr_layout `doc_key` use `node_id(doc)` (a reusable address);
       `base_ver` hides it today. Key them by document identity like WINDOW_IMAGES, with a test that a reused address does
       not serve a stale kept tree.
-- [ ] [WIP] QFLK9 [S] (P3, from QFLK7 #496 and QSB2 #497; Sonnet) qy5_budget_clock_is_thread_cpu_time and
-      qb3_callback_budget_is_much_shorter_than_load_budget fail in a full parallel run under load (pass alone): make them
-      robust (relations with margin, or retry the measurement) without weakening what they prove.
 - [ ] QWIKI1 [S] (P3, seen by QSB1 #483; Opus, measure only) en.wikipedia United_States cold load blocked the main thread
       7-40 s in own-wire runs (gap_max_ms up to 38808 on the first redraw, JS forced layouts ~1 s). Reproduce on a quiet
       machine with --perf-report; if real, file the cause; do not fix site-specifically.
@@ -205,21 +357,6 @@ QSTASH — persistent web storage (user design session 2026-11-19; full design i
 ========================================================================
 HELP (user request 2026-11-21)
 ========================================================================
-- [ ] [WIP] QHELP1 [S] (P1; USER 2026-11-21: "the help page is out of date, create a ticket for updating the help page with
-      our features"; Sonnet; src/help.html, src/tests) Bring `:help` (src/help.html, HELP_PAGE_HTML) up to date with what
-      exists on main, and keep it there. Cover at least: the two modes (INPUT at start, Esc Esc -> NORMAL, `i` back; a
-      click into a text field -> INPUT; the second Esc never reaches the page), the status bar (mode, URL, messages, where
-      `:` and `/` are typed), every row of the BINDINGS table in src/config.rs (incl. `/`, Esc clearing highlights, `i`),
-      input-mode UA scroll keys (arrows, PageUp/PageDown, Space/Shift-Space, Home/End), `/` search (smartcase, highlights,
-      `[i/N]`, wrap message; `n`/`N` and Enter-click only once QSEARCH2/3 merge), paste (Ctrl-V, Ctrl-Shift-V, Shift-Insert
-      in the `:`/`/` line and fields), scrollbar drag/track-click/hold, persistence (--state-dir: localStorage files,
-      cookie file via wire, history file, sessionStorage per window), --forget-site, `src/config.rs` ("edit and rebuild"),
-      and the report/test modes (--js-report, --perf-report, --missing-api-report, --deterministic, --wpt, --wpt-th,
-      --wpt-th-one) in one short table. Rewrite the `:set vim`/`novim` rows to say what they do now (switch NORMAL/INPUT;
-      QKEYS3 removes them later). Remove anything that is no longer true. Plain, short wording; the page stays one page.
-      Keep it true: add tests next to the existing cli_options_are_documented_in_help: every BINDINGS row's key and every
-      `:` command name (dispatch_command / COMMAND_NAMES) appears in help.html. Real check: grim of `:help` in a window.
-      Later UI items (QSEARCH2/3, QKEYS3, QCOMP1/2/4) update help.html in their own PRs (the new tests force it).
 
 ========================================================================
 QKEYS — input mode / normal mode, Esc Esc, `i`, status bar (user design session 2026-11-20)
@@ -355,7 +492,7 @@ QSEARCH — `/` search, n/N, Enter (user design session 2026-11-20; needs QKEYS2
   highlighting while typing, search in iframes or text controls.
 
 
-- [ ] QSEARCH2 [S] (P2, after QSEARCH1) `n`/`N` (S4, S6; KEYS.md T15-T17): next/previous with wrap and the
+- [ ] [WIP] QSEARCH2 [S] (P2, after QSEARCH1) `n`/`N` (S4, S6; KEYS.md T15-T17): next/previous with wrap and the
       status-bar message, bring the screen to the match (S4: centre when not fully visible,
       no scroll when visible, inner scroll containers too), query kept across navigations.
       Tests: wrap both ways, `[i/N]` text, an off-screen match ends up centred, a visible
@@ -416,7 +553,7 @@ QCOMP — scriptable command completion, history file, config in code (user desi
 Order (feature work: after the perf queue): QCONF1 -> QCOMP1 -> QCOMP2; QCOMP3 after QSTASH1
 (state directory); QCOMP4 after QCOMP1 and QCOMP3.
 
-- [ ] QCOMP1 [M] (P2, after QCONF1) `COMPLETERS` table in config.rs (C1, built-in sources
+- [ ] [WIP] QCOMP1 [M] (P2, after QCONF1) `COMPLETERS` table in config.rs (C1, built-in sources
       only) and the GHOST SUGGESTION (C8, KEYS.md T45-T52) for every completable word
       (command names, `:set` arguments): computed after each edit with the cursor at the
       end, drawn dimmed after the cursor in the status bar, Tab/Shift-Tab cycle (2+
