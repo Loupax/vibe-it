@@ -64,6 +64,7 @@ mod search_tests;
 mod qkeys4_tests;
 mod forget_tests;
 mod history_tests;
+mod completion_tests;
 #[cfg(feature = "memprof")]
 mod memprof_tests;
 

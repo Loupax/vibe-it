@@ -139,6 +139,7 @@ mod link_css;
 #[cfg_attr(not(test), allow(dead_code))] // clear/forget: `--forget-site` is a later QSTASH item
 mod stash;
 mod history;
+mod completion;
 mod forget;
 mod js_storage;
 
@@ -159,7 +160,9 @@ pub(crate) use net::*;
 pub(crate) use net_policy::*;
 pub(crate) use user_agent::*;
 pub(crate) use app::*;
+#[cfg(test)]
 pub(crate) use config::SET_ARGS;
+pub(crate) use completion::*;
 pub(crate) use js::*;
 pub(crate) use js_net::{NetScheduler, WireExecutor};
 

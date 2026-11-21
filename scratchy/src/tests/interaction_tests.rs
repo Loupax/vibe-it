@@ -891,31 +891,6 @@ fn token_start_before_finds_the_last_whitespace_boundary() {
     assert_eq!(token_start_before("", 0), 0);
 }
 
-#[test]
-fn command_completions_offers_command_names_for_the_first_token() {
-    let candidates = command_completions("g", 0, 1);
-    assert_eq!(candidates, vec!["go"]);
-}
-
-#[test]
-fn command_completions_offers_set_args_only_for_sets_own_second_token() {
-    let candidates = command_completions("set v", 4, 5);
-    assert_eq!(candidates, vec!["vim"]);
-}
-
-#[test]
-fn command_completions_has_nothing_to_offer_for_an_arbitrary_argument() {
-    // `:go`'s own URL argument — no finite candidate pool exists for
-    // it, by design (see `command_completions`'s own docs).
-    assert_eq!(command_completions("go ht", 3, 5), Vec::<&str>::new());
-}
-
-#[test]
-fn command_completions_prefix_matches_only_not_substrings() {
-    // "o" is a substring of "go" but not a prefix of it — must not
-    // match.
-    assert_eq!(command_completions("o", 0, 1), Vec::<&str>::new());
-}
 
 /// DIAGNOSTIC, not a real regression test (no behavior assertion
 /// beyond "didn't run out of the deadline") — kept permanently,
