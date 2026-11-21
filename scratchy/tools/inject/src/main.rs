@@ -63,7 +63,7 @@ fn code(name: &str) -> Option<(u32, bool)> {
         "esc" => (1, false), "ret" => (28, false), "tab" => (15, false), "space" => (57, false), "bs" => (14, false),
         "colon" => (39, true), "slash" => (53, false), "up" => (103, false), "down" => (108, false),
         "left" => (105, false), "right" => (106, false), "pgdn" => (109, false), "pgup" => (104, false),
-        "home" => (102, false), "end" => (107, false),
+        "home" => (102, false), "end" => (107, false), "del" => (111, false),
         _ => return None,
     })
 }

@@ -40,7 +40,7 @@ Driving a real scratchy window (click, type, wheel-scroll)
      down up       left button press / release alone (drag: move down move up)
      scroll:N      N wheel notches (positive = down)
      key:NAME      one key; NAME is a letter/digit/punctuation (uppercase
-                   adds Shift) or esc ret tab space bs colon slash up down
+                   adds Shift) or esc ret tab space bs del colon slash up down
                    left right pgup pgdn home end; prefix c- for Ctrl
      type:TEXT     letters, digits, space . : / - _ = ? & # %
      wait:MS       roundtrip then sleep

@@ -1788,8 +1788,8 @@ pub(crate) fn paint_status_bar(
         if !bar.ghost.is_empty() {
             let gc = crate::config::GHOST_FG;
             bar_text(
-                font_system, swash_cache, pixels, win_w, win_h, bar.ghost, STATUS_BAR_PAD_X + text_w, bar_y, bar_h,
-                (avail - text_w).max(0.0), TextColor::rgb(gc.0, gc.1, gc.2), true,
+                font_system, swash_cache, pixels, win_w, win_h, bar.ghost, STATUS_BAR_PAD_X + text_w + 3.0, bar_y, bar_h,
+                (avail - text_w - 3.0).max(0.0), TextColor::rgb(gc.0, gc.1, gc.2), true,
             );
         }
         return;
