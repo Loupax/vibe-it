@@ -1048,3 +1048,95 @@ fn qy61_insert_adjacent_element_text_and_html() {
     assert!(l.contains("orphan null"), "{l}");
     assert!(l.contains("err SyntaxError"), "{l}");
 }
+
+fn qinc1k2_images(b: &LayoutBox, out: &mut Vec<Arc<DecodedImage>>) {
+    match &b.content {
+        BoxContent::Image(i) => out.push(i.clone()),
+        BoxContent::Inline(items) => {
+            for i in items {
+                match i {
+                    InlineItem::Image { image, .. } => out.push(image.clone()),
+                    InlineItem::Embedded(b) => qinc1k2_images(b, out),
+                    _ => {}
+                }
+            }
+        }
+        BoxContent::Blocks(bs) | BoxContent::TableRow(bs) => bs.iter().for_each(|b| qinc1k2_images(b, out)),
+    }
+}
+
+fn qinc1k2_svgs(h: &Handle, out: &mut Vec<Handle>) {
+    if matches!(h.data, NodeData::Element { .. }) && element_tag(h) == "svg" {
+        out.push(h.clone());
+    }
+    for c in h.children.borrow().iter() {
+        qinc1k2_svgs(c, out);
+    }
+}
+
+/// QINC1k2: two mounts of the same inline-SVG component that differ only in generated ids (React
+/// `useId`: github.com's card background grids) share one rasterization through the inline-SVG cache,
+/// and the pixels are those of the original markup (the pattern still resolves after the renaming).
+#[test]
+fn qinc1k2_inline_svg_ids_canonicalized_and_rasterized_once() {
+    let grid = |id: &str| {
+        format!(
+            r##"<svg width="8" height="8" viewBox="0 0 8 8"><defs><pattern id="grid-{id}" width="2" height="2" patternUnits="userSpaceOnUse"><rect width="1" height="2" fill="#00ff00"></rect></pattern></defs><rect width="8" height="8" fill="url(#grid-{id})"></rect></svg>"##
+        )
+    };
+    let html = format!(r#"<html><body style="margin:0">{}<div>{}</div><p>#grid-_r_1_ stays text</p></body></html>"#, grid("_r_1_"), grid("_r_2_"));
+    let doc = parse_html(&html);
+    let mut svgs = Vec::new();
+    qinc1k2_svgs(&doc, &mut svgs);
+    assert_eq!(svgs.len(), 2);
+    let black = TextColor::rgba(0, 0, 0, 255);
+    let raw = crate::images::serialize_inline_svg(&svgs[0], black);
+    let a = crate::images::canonical_svg_ids(raw.clone());
+    let b = crate::images::canonical_svg_ids(crate::images::serialize_inline_svg(&svgs[1], black));
+    assert_eq!(a, b, "only the generated ids differed");
+    assert!(a.contains(r#"id="scratchy-svg-id-0""#) && a.contains("url(#scratchy-svg-id-0)"), "{a}");
+    assert!(!a.contains("_r_1_"), "{a}");
+    crate::images::inline_svg_cache_clear();
+    let one = crate::images::decode_inline_svg(a).expect("decodes");
+    let two = crate::images::decode_inline_svg(b).expect("decodes");
+    assert!(Arc::ptr_eq(&one, &two), "the second mount is a cache hit");
+    assert_eq!(crate::images::inline_svg_cache_mem().0, 1);
+    // Same pixels as the original markup; the renamed pattern still paints (green first column of
+    // each 2 px tile, transparent second column).
+    let orig = crate::images::decode_svg_bytes(raw.as_bytes()).expect("decodes");
+    assert_eq!(one.pixels, orig.pixels);
+    assert_eq!(one.pixels[0], TextColor::rgba(0, 255, 0, 255));
+    assert_eq!(one.pixels[1].a(), 0);
+    // The box build goes through the cache: both boxes carry the one image.
+    let tree = build_layout_tree(&doc, 400.0);
+    let mut imgs = Vec::new();
+    qinc1k2_images(&tree, &mut imgs);
+    assert_eq!(imgs.len(), 2);
+    assert!(Arc::ptr_eq(&imgs[0], &imgs[1]));
+}
+
+/// QINC1k2: the renaming is conservative: markup it cannot prove self-contained is left alone.
+#[test]
+fn qinc1k2_canonical_svg_ids_leaves_unprovable_markup_alone() {
+    let c = crate::images::canonical_svg_ids;
+    for s in [
+        // No ids.
+        r#"<svg><rect width="1" height="1"></rect></svg>"#,
+        // A <style> element may select by id.
+        r#"<svg><style>#g1 { fill: red }</style><rect id="g1"></rect></svg>"#,
+        // Mentioned by something that is not a recognised reference (SMIL timing).
+        r#"<svg><rect id="a1"></rect><animate begin="a1.end"></animate></svg>"#,
+        // `#id` in text content is never rewritten, so the id stays mentioned.
+        r##"<svg><rect id="lbl" fill="url(#lbl)"></rect><text>#lbl </text></svg>"##,
+        // Already uses the prefix.
+        r#"<svg><rect id="scratchy-svg-id-0"></rect></svg>"#,
+    ] {
+        assert_eq!(c(s.to_string()), s);
+    }
+    // An id that is a prefix of another: each reference goes to its own id.
+    let out = c(r##"<svg><g id="k"></g><g id="kq"></g><use href="#kq"></use><use href="#k"></use></svg>"##.to_string());
+    assert_eq!(
+        out,
+        r##"<svg><g id="scratchy-svg-id-0"></g><g id="scratchy-svg-id-1"></g><use href="#scratchy-svg-id-1"></use><use href="#scratchy-svg-id-0"></use></svg>"##
+    );
+}

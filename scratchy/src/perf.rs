@@ -267,6 +267,7 @@ pub(crate) fn memory_json(engine: Option<&crate::js::JsEngine>) -> String {
     add("rules_cache", rules);
     add("rule_index_hover_keys", index);
     add("svg_sized_cache", crate::images::svg_sized_cache_mem());
+    add("inline_svg_cache", crate::images::inline_svg_cache_mem());
     // QINC1f: the incremental restyle's element table (0 unless SCRATCHY_INCR*=1).
     add("incr_style", crate::incr_style::mem());
     // QINC1g: the kept box tree (0 unless SCRATCHY_INCR*=1).
