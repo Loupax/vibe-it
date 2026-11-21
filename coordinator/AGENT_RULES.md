@@ -61,7 +61,7 @@ this cap, that is a bug to report (what ran, what grew), not a reason to raise t
 
 ## /tmp is RAM (tmpfs) — no build output there (2026-11-20 ~15:10: agents' scratch dirs held 9.9 GB of RAM)
 Never put a CARGO_TARGET_DIR, release binaries, profiles or big logs in /tmp or the scratchpad (both are tmpfs = RAM). Use a
-directory under your worktree, e.g. `<worktree>/scratchy/target` or `<worktree>/.qwork/` (git-ignored by .claude/), and
+directory under your worktree, e.g. `<worktree>/scratchy/target` or `<worktree>/.qwork/` (git-ignored by the root .gitignore since 2026-11-21), and
 delete it after your PR merges. Small notes/scripts in the scratchpad are fine; delete your scratchpad subdir when done.
 
 ## Power-loss safety (user 2026-11-20 ~16:40: "as long as you don't lose progress if the power goes down we are fine")
@@ -71,3 +71,8 @@ delete it after your PR merges. Small notes/scripts in the scratchpad are fine; 
 - Keep measurement notes/results you will need for the report in a file under your worktree (e.g. `.qwork/notes.md`,
   git-ignored), not only in the scratchpad.
 - If you are resumed after a crash: check `git status`/`git log` in your worktree and your notes file, and continue from there.
+
+## Never commit scratch (2026-11-21: #498 committed a whole .qwork/ dir, incl. a wire binary, token file, logs and screenshots, to public main)
+Stage files BY NAME (`git add path/to/file ...`), never `git add -A` / `git add .` / `git commit -a`. Before every commit run
+`git status --short` and `git diff --cached --stat` and check that every staged path is source, tests or docs for your item.
+Screenshots, logs, binaries, sockets, token files and anything under .qwork/, target/ or your scratchpad are never committed.
