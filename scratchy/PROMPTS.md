@@ -8759,3 +8759,9 @@ Item QINC1h2 (REGRESSIONS.md R60 section 15). `layout.rs`: `natural_width_impl` 
 > QAREA-DOM [M] (P1; Opus; docs only; after QWPT6) Triage the dom/* failures of the baseline by root cause (probe hints: tagName case, document.charset, createProcessingInstruction, Range type checks, replaceWith/splitText missing), file S fix items with target scores. Same pattern later: QAREA-IDL, QAREA-EL, QAREA-CSSOM, QAREA-VIEW, QAREA-ENC (single-byte encodings: one gap, ~6,800 subtests), QAREA-STREAMS.
 
 **What changed:** docs only. New REGRESSIONS.md section R65: every dom/* URL of the subset re-run with `--wpt-th-one` against a private wire (reproduces the baseline exactly), failure messages classified into 19 root causes, ranked by projected area-score gain per unit of work, with proposed items QDOM1-QDOM19 (16 S, 3 M) verbatim, the parts that belong elsewhere (testdriver/QWPT7, Observable, OpaqueRange, selectors, Selection, iframes/realms, a 404-script bug), and two tooling items (QWPT6b: the subset filter misses HTML testdriver users; QWPT6c: dom timeout=long files).
+
+## QFLK9: budget tests no longer depend on wall-clock timing (agent item)
+
+> QFLK9 [S] qy5_budget_clock_is_thread_cpu_time and qb3_callback_budget_is_much_shorter_than_load_budget fail in a full parallel run under load (pass alone): make them robust without weakening what they prove.
+
+**What changed:** tests only. qy5 spins until the thread CPU clock itself has advanced 20 ms (a 100 ms wall-clock spin got under 20 ms of CPU at load ~30); the sleep half (300 ms wall must cost < 100 ms CPU) is unchanged and is what fails if the clock is swapped for wall time. qb3 measures the callback run in thread CPU time (the unit of the budget) instead of wall time, keeping the 400 ms..2.5 s bounds. No production code touched.

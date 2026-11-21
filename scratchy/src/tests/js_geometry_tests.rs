@@ -146,9 +146,12 @@ fn qb3_callback_budget_is_much_shorter_than_load_budget() {
     )
     .unwrap();
     std::thread::sleep(std::time::Duration::from_millis(5));
-    let t = std::time::Instant::now();
+    // QFLK9: measured in thread CPU time (what the budget counts), not wall
+    // time, so a loaded machine that deschedules this thread cannot push the
+    // run past the bound.
+    let t = crate::js::thread_cpu_nanos();
     engine.run_due();
-    let took = t.elapsed();
+    let took = std::time::Duration::from_nanos(crate::js::thread_cpu_nanos() - t);
     assert!(took < std::time::Duration::from_millis(2500), "callback ran {took:?}");
     assert!(took >= std::time::Duration::from_millis(400), "callback ran {took:?}");
     assert!(log.borrow().iter().any(|m| m.contains("budget")), "{:?}", log.borrow());
@@ -320,14 +323,18 @@ fn qy5_budget_clock_is_thread_cpu_time() {
     std::thread::sleep(std::time::Duration::from_millis(300));
     let slept = crate::js::thread_cpu_nanos() - a;
     assert!(slept < 100_000_000, "sleeping used {slept} ns of CPU");
+    // QFLK9: spin until the CPU clock itself has advanced 20 ms (a wall-clock
+    // spin gets starved under load); the wall cap only catches a clock that
+    // never advances.
     let t = std::time::Instant::now();
+    let base = crate::js::thread_cpu_nanos();
     let mut x = 0u64;
-    while t.elapsed() < std::time::Duration::from_millis(100) {
+    while crate::js::thread_cpu_nanos() - base < 20_000_000 {
         x = x.wrapping_add(1);
         std::hint::black_box(x);
+        assert!(t.elapsed() < std::time::Duration::from_secs(120), "CPU clock did not advance while spinning");
     }
-    let spun = crate::js::thread_cpu_nanos() - a - slept;
-    assert!(spun > 20_000_000, "spinning used {spun} ns of CPU");
+    assert!(crate::js::thread_cpu_nanos() - a >= 20_000_000 + slept);
 }
 
 #[test]
