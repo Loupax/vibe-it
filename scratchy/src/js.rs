@@ -1005,11 +1005,85 @@ pub(crate) fn pause_budget_since(start: u64) -> u64 {
     d
 }
 
+/// QREC2: `--deterministic[=EPOCH_MS]` (report modes only): the epoch `Date` starts at; -1 = off.
+static DET_EPOCH: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(-1);
+pub(crate) const DET_SEED: u64 = 0x5C2A_7C41_D00D_F00D;
+/// Seeds `crypto.getRandomValues` (splitmix64 state).
+static DET_RNG: std::sync::Mutex<(u64,)> = std::sync::Mutex::new((DET_SEED,));
+/// Epoch used by a bare `--deterministic`: 2023-11-14T22:13:20Z.
+const DET_DEFAULT_EPOCH_MS: i64 = 1_700_000_000_000;
+
+pub(crate) fn det_epoch() -> Option<i64> {
+    let e = DET_EPOCH.load(std::sync::atomic::Ordering::Relaxed);
+    (e >= 0).then_some(e)
+}
+
+/// V8's `--random-seed` value (a positive i32) for deterministic runs.
+pub(crate) fn det_v8_seed() -> Option<u32> {
+    det_epoch().map(|_| ((DET_SEED >> 33) as u32) | 1)
+}
+
+/// QREC2: removes `--deterministic[=EPOCH_MS]` from `args` and arms the mode. Only the report modes
+/// (the first argument) accept it; anything else is an error (window mode never runs deterministic).
+pub(crate) fn take_deterministic_flag(args: &mut Vec<String>) -> Result<(), String> {
+    let mut epoch: Option<Result<i64, String>> = None;
+    args.retain(|a| {
+        if a == "--deterministic" {
+            epoch = Some(Ok(DET_DEFAULT_EPOCH_MS));
+            false
+        } else if let Some(v) = a.strip_prefix("--deterministic=") {
+            epoch = Some(v.parse::<i64>().ok().filter(|e| *e >= 0).ok_or_else(|| format!("--deterministic={v}: expected a non-negative epoch in milliseconds")));
+            false
+        } else {
+            true
+        }
+    });
+    let Some(epoch) = epoch else { return Ok(()) };
+    let epoch = epoch?;
+    let report = matches!(args.first().map(String::as_str), Some("--perf-report" | "--js-report" | "--missing-api-report" | "--wpt-th-one"));
+    if !report {
+        return Err("--deterministic is only for the report modes (--perf-report, --js-report, --missing-api-report, --wpt-th-one)".into());
+    }
+    DET_EPOCH.store(epoch, std::sync::atomic::Ordering::Relaxed);
+    Ok(())
+}
+
+/// QREC2: after the preludes, in `--deterministic` runs: `Date` starts at the epoch and advances by
+/// 1 ms per read (`Date.now()`, `new Date()`), so it never depends on the wall clock or timing.
+const DET_DATE_JS: &str = r#"(function (g, E) {
+  var N = g.Date, calls = 0;
+  function now() { return E + calls++; }
+  function D() {
+    if (!new.target) return new N(now()).toString();
+    if (arguments.length === 0) return new N(now());
+    return Reflect.construct(N, arguments, new.target === D ? N : new.target);
+  }
+  D.prototype = N.prototype;
+  Object.defineProperty(N.prototype, 'constructor', { value: D, writable: true, configurable: true });
+  D.now = function now_() { return now(); };
+  D.UTC = N.UTC; D.parse = N.parse;
+  Object.defineProperty(D, 'name', { value: 'Date', configurable: true });
+  Object.defineProperty(D, 'length', { value: 7, configurable: true });
+  Object.defineProperty(g, 'Date', { value: D, writable: true, configurable: true });
+})(globalThis, %EPOCH%);"#;
+
 /// QSD1b: `n` bytes from the kernel CSPRNG (`getrandom(2)`, via the `libc` crate that
 /// is already a dependency; no new crate). Falls back to `/dev/urandom`; if neither
 /// works the bytes stay zero and an error is logged to stderr rather than panicking.
 fn os_random_bytes(n: usize) -> Vec<u8> {
     let mut buf = vec![0u8; n];
+    if det_epoch().is_some() {
+        // QREC2: `--deterministic`: a seeded splitmix64 stream, the same bytes in every run.
+        let mut st = DET_RNG.lock().unwrap_or_else(|e| e.into_inner());
+        for b in buf.iter_mut() {
+            st.0 = st.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            let mut z = st.0;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            *b = ((z ^ (z >> 31)) >> 24) as u8;
+        }
+        return buf;
+    }
     let mut off = 0;
     while off < n {
         // SAFETY: the pointer/length describe the unfilled tail of `buf`.
@@ -1854,6 +1928,9 @@ fn startup_engine(document: &Handle, store: Rc<js_modules::ModuleStore>, log: Lo
     }
     // QSTASH2: the origin's stored pairs, before the first page script (opaque origins stay in memory).
     engine.eval("env", "__scratchy_ls_fill()");
+    if let Some(e) = det_epoch() {
+        engine.eval("deterministic", &DET_DATE_JS.replace("%EPOCH%", &e.to_string()));
+    }
     crate::missing_api::install(&engine); // QMAPI1: report mode only
     Some(engine)
 }
