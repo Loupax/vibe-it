@@ -696,6 +696,56 @@ fn text_write_changes(h: &Handle, text: &str) -> bool {
     }
 }
 
+/// `__d_insert` / `__d_move` (QDOM3): inserts `child` under `parent` before `before` (< 0 appends) and logs it
+/// for layout; `lk` is `None` for a move (no `<link>` rescan). `false` = HierarchyRequestError.
+fn insert_native(t: &DomTable, d: &Cell<bool>, gn: &Cell<u64>, lk: Option<&Rc<RefCell<JsRequests>>>, parent: i32, child: i32, before: i32) -> bool {
+    let (Some(p), Some(c)) = (t.get(parent), t.get(child)) else { return false };
+    if !matches!(p.data, NodeData::Element { .. } | NodeData::Document) {
+        return false;
+    }
+    let frag = t.is_frag(child, &c);
+    let old_parent = if frag { None } else { parent_handle(&c) };
+    // QY53l2: a move between (or within) hidden subtrees changes no box; both ends are checked.
+    let new_conn = page_connected(t, &p);
+    let old_conn = old_parent.filter(|o| page_connected(t, o));
+    let moved: Vec<Handle> = if new_conn || old_conn.is_some() {
+        if frag { c.children.borrow().clone() } else { vec![c.clone()] }
+    } else {
+        Vec::new()
+    };
+    let pre_new = if new_conn { crate::js_geom::children_write_pre(&p, &moved) } else { None };
+    let pre_old = old_conn.as_ref().map(|o| crate::js_geom::children_write_pre(o, &moved));
+    if let Some(lk) = lk
+        && moved.iter().any(crate::link_css::has_link)
+    {
+        lk.borrow_mut().links_changed = true;
+    }
+    let removed_from = old_conn.as_ref().map(|o| (crate::incr_log::key(o), crate::incr_log::siblings(&c)));
+    let ok = insert_child(&p, &c, t.get(before).as_ref(), frag);
+    if ok {
+        // QINC1e: the node left its old (connected) parent, and entered the new one.
+        if let Some((o, (prev, next))) = removed_from {
+            crate::incr_log::note(o, crate::incr_log::Change::ChildRemove { child: crate::incr_log::key(&c), prev, next });
+        }
+        if new_conn {
+            log_inserted(&p, &moved);
+        }
+    }
+    d.set(true);
+    gn.set(gn.get() + 1);
+    if ok && (new_conn || old_conn.is_some()) {
+        let skip_new = !new_conn || crate::js_geom::children_write_post(&p, pre_new);
+        let skip_old = match (&old_conn, pre_old) {
+            (Some(o), Some(pre)) => crate::js_geom::children_write_post(o, pre),
+            _ => true,
+        };
+        if !(skip_new && skip_old) {
+            geom_bump();
+        }
+    }
+    ok
+}
+
 pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>>, reqs: Rc<RefCell<JsRequests>>) -> Rc<RefCell<DomTable>> {
     let table = Rc::new(RefCell::new(DomTable::default()));
     table.borrow_mut().intern(document);
@@ -1519,50 +1569,13 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     // `before` < 0 appends. `false` = HierarchyRequestError.
     let (t, d, gn, lk) = (table.clone(), dirty.clone(), wgen.clone(), reqs.clone());
     native!(ctx, "__d_insert", move |parent: i32, child: i32, before: i32| -> bool {
-        let t = t.borrow();
-        let (Some(p), Some(c)) = (t.get(parent), t.get(child)) else { return false };
-        if !matches!(p.data, NodeData::Element { .. } | NodeData::Document) {
-            return false;
-        }
-        let frag = t.is_frag(child, &c);
-        let old_parent = if frag { None } else { parent_handle(&c) };
-        // QY53l2: a move between (or within) hidden subtrees changes no box; both ends are checked.
-        let new_conn = page_connected(&t, &p);
-        let old_conn = old_parent.filter(|o| page_connected(&t, o));
-        let moved: Vec<Handle> = if new_conn || old_conn.is_some() {
-            if frag { c.children.borrow().clone() } else { vec![c.clone()] }
-        } else {
-            Vec::new()
-        };
-        let pre_new = if new_conn { crate::js_geom::children_write_pre(&p, &moved) } else { None };
-        let pre_old = old_conn.as_ref().map(|o| crate::js_geom::children_write_pre(o, &moved));
-        if moved.iter().any(crate::link_css::has_link) {
-            lk.borrow_mut().links_changed = true;
-        }
-        let removed_from = old_conn.as_ref().map(|o| (crate::incr_log::key(o), crate::incr_log::siblings(&c)));
-        let ok = insert_child(&p, &c, t.get(before).as_ref(), frag);
-        if ok {
-            // QINC1e: the node left its old (connected) parent, and entered the new one.
-            if let Some((o, (prev, next))) = removed_from {
-                crate::incr_log::note(o, crate::incr_log::Change::ChildRemove { child: crate::incr_log::key(&c), prev, next });
-            }
-            if new_conn {
-                log_inserted(&p, &moved);
-            }
-        }
-        d.set(true);
-        gn.set(gn.get() + 1);
-        if ok && (new_conn || old_conn.is_some()) {
-            let skip_new = !new_conn || crate::js_geom::children_write_post(&p, pre_new);
-            let skip_old = match (&old_conn, pre_old) {
-                (Some(o), Some(pre)) => crate::js_geom::children_write_post(o, pre),
-                _ => true,
-            };
-            if !(skip_new && skip_old) {
-                geom_bump();
-            }
-        }
-        ok
+        insert_native(&t.borrow(), &d, &gn, Some(&lk), parent, child, before)
+    });
+    // QDOM3: `moveBefore`: the same tree edit and incremental-engine log (a remove + an insert of the
+    // subtree), but not the insertion steps: no `<link>` rescan (stylesheets are not refetched).
+    let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
+    native!(ctx, "__d_move", move |parent: i32, child: i32, before: i32| -> bool {
+        insert_native(&t.borrow(), &d, &gn, None, parent, child, before)
     });
     let (t, d, gn, lk) = (table.clone(), dirty.clone(), wgen.clone(), reqs.clone());
     native!(ctx, "__d_remove", move |id: i32| {
@@ -1801,7 +1814,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   var doc = g.document, cache = {}, tagProto = Object.create(null);
   // QY6e: the mutation natives the custom-element hooks rebind (once, at the
   // first `customElements.define`); until then nothing is wrapped (zero cost).
-  var __d_insert = g.__d_insert, __d_remove = g.__d_remove, __d_sethtml = g.__d_sethtml, __d_settext = g.__d_settext,
+  var __d_insert = g.__d_insert, __d_move = g.__d_move, __d_remove = g.__d_remove, __d_sethtml = g.__d_sethtml, __d_settext = g.__d_settext,
     __d_setattr = g.__d_setattr, __d_rmattr = g.__d_rmattr, __d_setq = g.__d_setq, __d_rmq = g.__d_rmq, __d_setns = g.__d_setns, __d_rmns = g.__d_rmns, __d_write = g.__d_write, ceNew;
   // QY6a: live MutationObserver registrations (0 until the first `observe()`),
   // and the childList batch used by multi-step APIs (replaceChild, append(...a, b)).
@@ -2577,6 +2590,49 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     } finally { moEnd(own); }
     return old;
   };
+  // QDOM3: ParentNode.moveBefore(node, child): the "move" algorithm. Not the removing/insertion steps: the
+  // native `__d_move` skips every insertion hook (no script prepare, no iframe reload, no `<link>` rescan),
+  // so focus and selection (native state keyed by node) stay. The reactions the spec keeps are done here:
+  // NodeIterator pre-remove steps, live range updates, one MutationObserver record pair, and per custom
+  // element `connectedMoveCallback` (else disconnected + connected).
+  var rangeMove = null; // set by the Range block: (node, oldParent, oldIndex) removal fix, then insertion fix
+  var moveBefore = function (self, node, child) {
+    if (!node || node.__id === undefined) throw new TypeError("Failed to execute 'moveBefore' on 'Node': parameter 1 is not of type 'Node'.");
+    if (child != null && child.__id === undefined) throw new TypeError("Failed to execute 'moveBefore' on 'Node': parameter 2 is not of type 'Node'.");
+    if (child === undefined) child = null;
+    var hre = function (m) { return herr("Failed to execute 'moveBefore' on 'Node': " + m, 'HierarchyRequestError'); };
+    if (composedRootId(self.__id) !== composedRootId(node.__id)) throw hre('The node and the new parent are not in the same tree, or one is connected and the other is not.');
+    for (var a = self.__id, h; a >= 0; ) {
+      if (a === node.__id) throw hre('The new child element contains the parent.');
+      h = __d_parent(a);
+      a = h >= 0 ? h : __d_shadow_host(a);
+    }
+    var t = node.nodeType;
+    if (t !== 1 && t !== 3 && t !== 4 && t !== 7 && t !== 8) throw hre('The node is not an Element or a CharacterData node.');
+    if (child !== null && child.parentNode !== self) throw herr("Failed to execute 'moveBefore' on 'Node': The node before which the new node is to be inserted is not a child of this node.", 'NotFoundError');
+    if (self.nodeType === 9 && (t === 1 || t === 3 || t === 4)) throw hre('Nodes of type \'' + node.nodeName + '\' may not be inserted here.');
+    var ref = child === node ? node.nextSibling : child;
+    var id = node.__id, oldP = __d_parent(id), oldIdx = __d_children(oldP, false).indexOf(id);
+    var pv = -1, nx = -1, mo = xr.mo.n > 0;
+    if (mo) { pv = __d_sibling(id, -1, false); nx = __d_sibling(id, 1, false); }
+    if (liveIters.length) preRemove(node);
+    if (rangeMove) rangeMove(node, wrap(oldP), oldIdx, null);
+    if (!__d_move(self.__id, id, ref ? ref.__id : -1)) throw hre('The new child element contains the parent.');
+    if (rangeMove) rangeMove(node, wrap(oldP), oldIdx, self);
+    if (mo) {
+      moChild(oldP, [], [id], pv, nx);
+      moChild(self.__id, [id], [], __d_sibling(id, -1, false), __d_sibling(id, 1, false));
+    }
+    if (xr.cn) for (var k in xr.ce) xr.ce[k].move(id);
+  };
+  var moveBeforeM = { moveBefore: function moveBefore2(node, child) {
+    if (arguments.length < 2) throw new TypeError("Failed to execute 'moveBefore' on 'Node': 2 arguments required, but only " + arguments.length + ' present.');
+    moveBefore(this, node, child);
+  } }.moveBefore;
+  Object.defineProperty(moveBeforeM, 'name', { value: 'moveBefore' });
+  [ElementProto, Document.prototype].forEach(function (P) {
+    Object.defineProperty(P, 'moveBefore', { value: moveBeforeM, writable: true, configurable: true, enumerable: true });
+  });
   // A clone keeps the node document of the original (matters for template content).
   NodeProto.cloneNode = function (deep) {
     var c = wrap(__d_clone(this.__id, !!deep)), od = this.ownerDocument;
@@ -4595,7 +4651,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   ['children', 'firstElementChild', 'lastElementChild', 'childElementCount'].forEach(function (k) {
     Object.defineProperty(DocumentFragment.prototype, k, Object.getOwnPropertyDescriptor(ElementProto, k));
   });
-  ['append', 'prepend', 'replaceChildren'].forEach(function (k) {
+  ['append', 'prepend', 'replaceChildren', 'moveBefore'].forEach(function (k) {
     if (ElementProto[k]) DocumentFragment.prototype[k] = ElementProto[k];
   });
 
@@ -4737,6 +4793,16 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     on: function () { return ceOn; }, n: function () { return ceNConn; }, st: function (id) { return ceState[id]; },
     collect: function (id, self) { return ceCollect(id, self); }, fire: function (ids) { ceFire(ids); },
     scan: function (id) { ceScan(id, false); },
+    // QDOM3: a move keeps the node connected: connectedMoveCallback, else disconnected + connected, per element in tree order.
+    move: function (id) {
+      var l = ceCollect(id, true);
+      for (var i = 0; i < l.length; i++) {
+        var d = ceState[l[i]];
+        if (!d || d === -1) continue;
+        if (typeof d.moved === 'function') ceCall(cache[l[i]], d.moved, []);
+        else { ceCall(cache[l[i]], d.disconnected, []); ceCall(cache[l[i]], d.connected, []); }
+      }
+    },
     call: function (id, fn, args) { ceCall(cache[id], fn, args); },
     adopt: function (root, od, nd) {
       var l = ceQueryDeep(root);
@@ -4929,7 +4995,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     var P = ctor.prototype, observed = [], oa = ctor.observedAttributes;
     if (oa != null) observed = Array.prototype.map.call(Array.from(oa), String);
     var d = { name: name, ctor: ctor, ext: ext, stack: [], observed: observed,
-      connected: P.connectedCallback, disconnected: P.disconnectedCallback, adopted: P.adoptedCallback, changed: observed.length ? P.attributeChangedCallback : undefined };
+      connected: P.connectedCallback, disconnected: P.disconnectedCallback, moved: P.connectedMoveCallback, adopted: P.adoptedCallback, changed: observed.length ? P.attributeChangedCallback : undefined };
     if (!ceOn) {
       ceOn = true; ceInstall(); xr.ce[doc.__id] = ceApi; xr.cn++;
       for (var hk = 0; hk < xr.hk.length; hk++) xr.hk[hk](); // every realm's natives drive this registry's reactions
@@ -5340,6 +5406,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     var Range = g.Range = function Range() {
       if (!new.target) throw new TypeError("Failed to construct 'Range': Please use the 'new' operator, this DOM object constructor cannot be called as a function.");
       this[RS] = { sc: doc, so: 0, ec: doc, eo: 0 };
+      live.push(new WeakRef(this));
     };
     Range.prototype = {};
     Object.defineProperty(Range.prototype, 'constructor', { value: Range, writable: true, configurable: true });
@@ -5507,6 +5574,22 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       l.forEach(function (q) { x = Math.min(x, q.left); y = Math.min(y, q.top); r = Math.max(r, q.right); b = Math.max(b, q.bottom); });
       return new DR(x, y, r - x, b - y);
     });
+    // QDOM3: live ranges, updated by moveBefore (removal fix at the old place, then the insertion fix).
+    var live = [];
+    rangeMove = function (node, oldP, oldIdx, newP) {
+      var rs = [];
+      live = live.filter(function (w) { var r = w.deref(); if (r) rs.push(r); return r; });
+      rs.forEach(function (r) {
+        var s = r[RS];
+        ['s', 'e'].forEach(function (k) {
+          var c = k + 'c', o = k + 'o';
+          if (!newP) {
+            if (node === s[c] || node.contains(s[c])) { s[c] = oldP; s[o] = oldIdx; }
+            else if (s[c] === oldP && s[o] > oldIdx) s[o]--;
+          } else if (s[c] === newP && s[o] > idxOf(node)) s[o]++;
+        });
+      });
+    };
     doc.createRange = function () {
       var r = new Range(), s = r[RS];
       s.sc = s.ec = this;

@@ -2097,3 +2097,22 @@ fn qyscr1a_offset_parent_of_fixed_descendants() {
     );
     assert!(log.iter().any(|l| l == "log:op null f g BODY null"), "{log:?}");
 }
+
+/// QDOM3: `moveBefore` is logged for layout like any tree edit: a moved box reads its new position (the
+/// incremental-engine twin of this suite checks every update against a from-scratch layout).
+#[test]
+fn qdom3_move_before_updates_layout() {
+    let log = run_in_html(
+        "<html><head><style>body{margin:0} div{display:block;height:20px;width:50px} #w{height:auto}</style></head>\
+         <body><div id=a></div><div id=b></div><section id=w><div id=c></div></section></body></html>",
+        r#"var a = document.getElementById('a'), b = document.getElementById('b'), c = document.getElementById('c'), w = document.getElementById('w');
+         console.log('before', a.getBoundingClientRect().top, b.getBoundingClientRect().top, c.getBoundingClientRect().top);
+         document.body.moveBefore(c, a);
+         console.log('mid', c.getBoundingClientRect().top, a.getBoundingClientRect().top, b.getBoundingClientRect().top, w.getBoundingClientRect().height);
+         w.moveBefore(a, null);
+         console.log('after', c.getBoundingClientRect().top, b.getBoundingClientRect().top, a.getBoundingClientRect().top, w.getBoundingClientRect().height);"#,
+    );
+    assert!(log.iter().any(|l| l == "log:before 0 20 40"), "{log:?}");
+    assert!(log.iter().any(|l| l == "log:mid 0 20 40 0"), "{log:?}");
+    assert!(log.iter().any(|l| l == "log:after 0 20 40 20"), "{log:?}");
+}
