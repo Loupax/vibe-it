@@ -828,8 +828,18 @@ pub(crate) fn install_realm_native(ctx: &Ctx<'_>) {
         register(ctx, "__scratchy_realm_count", |ctx: Ctx<'_>| -> JsResult<f64> { Ok(state(&ctx).realms.len() as f64) });
         register(ctx, "__scratchy_heap_gc", |ctx: Ctx<'_>| -> JsResult<f64> {
             let sc = ctx.sc();
-            sc.low_memory_notification();
-            Ok(sc.get_heap_statistics().used_heap_size() as f64)
+            // QFLK5: one collection can leave garbage that only dies after the first pass frees
+            // its owners (weak callbacks, finalizers); collect until the used size stops falling.
+            let mut last = f64::MAX;
+            for _ in 0..6 {
+                sc.low_memory_notification();
+                let now = sc.get_heap_statistics().used_heap_size() as f64;
+                if now >= last {
+                    return Ok(now);
+                }
+                last = now;
+            }
+            Ok(last)
         });
     }
 }
