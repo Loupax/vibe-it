@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-21 · main 237a0bf · 30 PRs merged today (#475–#504) · 5 agents running (QHELP1, QWPT5, QAREA-DOM, QEL1, QHIST1)</div>
+  <div class="meta" id="updated">Updated 2026-11-21 · main f53eef0 · 31 PRs merged today (#475–#505) · 5 agents running (QHELP1 fixing, QWPT5, QAREA-DOM, QEL1, QFLK9)</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -111,6 +111,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#505</td><td>QHIST1</td><td>A fast double back/forward (<code>h h</code>) stays on the page instead of reloading it and losing its state</td></tr>
     <tr><td class="n">2026-11-21</td><td class="n">#504</td><td>QWPT6</td><td>First real conformance baseline: 3,264 WPT JavaScript test files in 23 areas, recorded per file; identical over 4 runs (no flaky files)</td></tr>
     <tr><td class="n">2026-11-21</td><td class="n">#503</td><td>QSEARCH1</td><td><code>/</code> search in normal mode: typed in the status bar, all matches highlighted, <code>[i/N]</code>; Esc clears the highlights</td></tr>
     <tr><td class="n">2026-11-21</td><td class="n">#502</td><td>QFORM1</td><td>Submitting a form from script or a button click now fires a real <code>SubmitEvent</code> with its <code>submitter</code></td></tr>
@@ -149,12 +150,12 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 </section>
 
 <section>
-  <h2>Open work (38 items)</h2>
+  <h2>Open work (37 items)</h2>
   <div class="scroll"><table>
     <tr><th>Group</th><th>Items</th><th>Status</th></tr>
     <tr><td>Engine</td><td>QINC1m remove the old pipeline</td><td><span class="pill todo">after ~3 days of your use, with your OK</span></td></tr>
     <tr><td>Conformance</td><td>QWPT2 done · QWPT3–9 test runner and CI · QEL1–9 event loop · QMAPI1–3 missing-API report · QREC1–3 recorded pages · QBUD1 budgets · QAREA-DOM</td><td><span class="pill wip">QWPT2–4b, QWPT6, QMAPI1, QREC1/2, QERR1 done · QWPT5 (CI gate), QEL1 (rendering steps), QAREA-DOM (DOM failure triage) running</span></td></tr>
-    <tr><td>Reliability</td><td>QFLK7 (tests that never ran) · QFLK6b · QJ4c · QWIKI1 · QINC1k9</td><td><span class="pill wip">QFLK7, QFLK8, QFORM1 done · QHIST1 (fast double back/forward) running</span></td></tr>
+    <tr><td>Reliability</td><td>QFLK7 (tests that never ran) · QFLK6b · QJ4c · QWIKI1 · QINC1k9</td><td><span class="pill wip">QFLK7, QFLK8, QFORM1, QHIST1 done · QFLK9 (timing tests that fail under load) running</span></td></tr>
     <tr><td>Product choices</td><td>QCFG1 config file · QTB1 tracker blocking</td><td><span class="pill todo">queued</span></td></tr>
     <tr><td>UI: storage</td><td>QSTASH1–5 saved localStorage, cookies, forget-site</td><td><span class="pill done">all five done</span></td></tr>
     <tr><td>UI: keys</td><td>QKEYS1–4 status bar, input/normal mode · QSB1 scrollbar drag · QPASTE1</td><td><span class="pill wip">QKEYS1/2/4, QSB1/2, QPASTE1 done · QKEYS3 (remove <code>:set vim</code>) after search</span></td></tr>
