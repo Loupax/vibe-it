@@ -238,7 +238,7 @@ refactoring item (QCONF1, no behaviour change) and comes first; every later item
 its knobs there. Exception (user, 2026-11-20): the tracker block/allow lists stay in
 QCFG1's separate runtime file, updated independently of the code.
 
-## What goes away *(proposed, P5)*
+## What went away (QKEYS3)
 
 `:set vim` / `:set novim` (`App::vim_enabled`), the SIGUSR1 toggle
 (`AppEvent::ToggleVimMode`) and QCFG1's `vim` config key. Input mode takes no key except

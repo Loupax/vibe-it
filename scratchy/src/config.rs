@@ -155,7 +155,7 @@ pub(crate) const SEARCH_CURRENT_RGBA: (u8, u8, u8, u8) = (255, 140, 0, 180);
 // ---------- command bar ----------
 
 /// Arguments `:set` completes, alphabetical. `dispatch_command` decides what they do.
-pub(crate) const SET_ARGS: &[&str] = &["js", "motion", "nojs", "nomotion", "novim", "vim"];
+pub(crate) const SET_ARGS: &[&str] = &["js", "motion", "nojs", "nomotion"];
 
 /// Where a command's arguments complete from (QCOMP1, QCOMP-D C1). Only built-in sources for now;
 /// QCOMP2 adds `Cmd(argv)` (an external program).
@@ -172,7 +172,7 @@ pub(crate) enum Source {
 pub(crate) const COMPLETERS: &[(&str, Source)] = &[("set", Source::Builtin(crate::completion::complete_set_args))];
 
 /// Commands whose argument, once selected with Tab (a single match), is followed by a space
-/// (T53: `:set vim ` yes; a URL no). The command name itself always gets one.
+/// (T53: `:set js ` yes; a URL no). The command name itself always gets one.
 pub(crate) const SPACE_AFTER_ARG: &[&str] = &["set"];
 
 /// Ghost (suggestion) text colour in the `:` line, RGB (dimmed).

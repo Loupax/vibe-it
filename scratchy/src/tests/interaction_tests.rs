@@ -707,9 +707,7 @@ fn escape_html_escapes_the_characters_that_would_corrupt_the_synthetic_markup() 
 
 // ---------- vim mode: `resolve_binding`/`TextEditBuffer` ----------
 // (TODO.txt's own plan — the mode enum, real keyboard wiring, the
-// `:` command bar, `:set vim`/`:set novim`, `:go`, `:help`, `:q`/
-// `:quit`, Tab completion, and the `SIGUSR1` bootstrap for turning
-// vim mode back on once off.)
+// `:` command bar, `:go`, `:help`, `:q`/`:quit` and Tab completion.)
 
 // ---------- command bar: Tab completion, `:q`/`:quit`/`:help`/`:go` ----------
 

@@ -8807,3 +8807,9 @@ Item QINC1h2 (REGRESSIONS.md R60 section 15). `layout.rs`: `natural_width_impl` 
 > QCONF2 [S] Move the localStorage quota (5 Mi UTF-16 units) and any other user-tunable stash limit into src/config.rs with a short comment, as QCONF1 did. Refactor only; mention the quota in help.html.
 
 **What changed:** `QUOTA_UNITS` now lives in config.rs (stash.rs re-exports it, tests unchanged). globals_prelude.js no longer hardcodes 5*1024*1024: it has a `__LS_QUOTA_UNITS__` placeholder that js.rs (`globals_prelude()`) fills from the config value, so page and Rust checks cannot diverge. help.html persistence section states the quota and where to change it. `MAX_NAME_BYTES` stays in stash.rs (on-disk filename format, not a tunable).
+
+## QKEYS3: remove :set vim/novim and the SIGUSR1 toggle (agent item)
+
+> QKEYS3 [S] Removals (P5): `:set vim`/`:set novim`, `vim_enabled`, SIGUSR1/ToggleVimMode and signal-hook; `:help` and NOTES.md describe the two modes and Esc Esc.
+
+**What changed:** `:set vim`/`novim` are now unknown commands (dispatch_command arms and SET_ARGS entries gone); `AppEvent::ToggleVimMode`, the SIGUSR1 thread in `run()` and the signal-hook dependency (Cargo.toml/lock) removed; `:help` rows deleted (it already describes INPUT/NORMAL and Esc Esc; NOTES.md had no vim text); KEYS.md section now "went away". Completion tests use `set mo` instead of `set vi`. Real check: nested dwl + inject `Esc Esc :set vim` shows "unknown command: :set vim" and stays NORMAL.
