@@ -143,6 +143,8 @@ pub(crate) enum AppEvent {
 pub(crate) enum VimMode {
     Normal,
     Command,
+    /// QSEARCH1: the `/` line (status bar), same editor (`command_line`) as `:`.
+    Search,
 }
 
 /// QKEYS2 (KEYS.md): who gets the keys. `Input` = the page (and the UA defaults), scratchy's
@@ -196,6 +198,10 @@ pub(crate) enum Action {
     /// QYSCR1: `Shift+Space` / `PageUp`.
     PageUp,
     EnterCommandMode,
+    /// QSEARCH1 (T8): `/` opens the search line.
+    EnterSearchMode,
+    /// QSEARCH1 (T7): Esc in normal mode clears the search highlights.
+    ClearSearch,
     /// QKEYS2 (T6): `i` hands the keyboard back to the page.
     EnterInputMode,
     HistoryBack,
@@ -220,7 +226,7 @@ pub(crate) enum Action {
 /// either way — repeating it just re-clears an already-empty command
 /// line — but listed here too since repeating it serves no purpose.
 pub(crate) fn action_ignores_repeat(action: Action) -> bool {
-    matches!(action, Action::HistoryBack | Action::HistoryFront | Action::EnterCommandMode | Action::EnterInputMode)
+    matches!(action, Action::HistoryBack | Action::HistoryFront | Action::EnterCommandMode | Action::EnterSearchMode | Action::EnterInputMode)
 }
 
 /// The one chokepoint a real key event gets resolved into an `Action`
@@ -978,6 +984,8 @@ pub(crate) struct App {
     pub(crate) pending_g: bool,
     /// QKEYS1: the last message shown in the status bar (D8); empty = none.
     pub(crate) status_message: String,
+    /// QSEARCH1: the kept query, the matches and the current one.
+    pub(crate) search: crate::search::SearchState,
     /// The `:`-command line's own live text, editable only while `vim_
     /// mode` is `Command` — see `TextEditBuffer`'s own docs for why this
     /// is a standalone type rather than a plain `String` field.
@@ -1422,6 +1430,7 @@ impl App {
             status_message: String::new(),
             pending_g: false,
             command_line: TextEditBuffer::default(),
+            search: crate::search::SearchState::default(),
             modifiers: ModifiersState::empty(),
             completion: None,
             should_quit: false,
@@ -1533,6 +1542,7 @@ impl App {
             status_message: String::new(),
             pending_g: false,
             command_line: TextEditBuffer::default(),
+            search: crate::search::SearchState::default(),
             modifiers: ModifiersState::empty(),
             completion: None,
             should_quit: false,
@@ -1677,6 +1687,21 @@ impl App {
             crate::paint::paint_scrollbar(&info, self.scroll_offset, false, &mut pixels, width, height, rect.0, rect.1, rect.2, rect.3, None);
         }
 
+        // QSEARCH1 (S3): search highlights, chrome over the page (below the status bar).
+        if self.search.highlight {
+            for (i, m) in self.search.matches.iter().enumerate() {
+                let (r, g, b, a) = if self.search.current == Some(i) { crate::config::SEARCH_CURRENT_RGBA } else { crate::config::SEARCH_MATCH_RGBA };
+                for &(x, y, w, h) in &m.rects {
+                    let y = y - self.scroll_offset;
+                    if y + h < 0.0 || y > page_h as f32 {
+                        continue;
+                    }
+                    let clip = Some((0.0, 0.0, width as f32, page_h as f32));
+                    crate::paint::fill_rect(&mut pixels, width, height, x, y, w, h, cosmic_text::Color::rgba(r, g, b, a), clip);
+                }
+            }
+        }
+
         // Q30g: the open select dropdown is the top layer, above the page.
         if let (Some(p), Some(laid)) = (&self.select_popup, self.cached.as_ref())
             && let Some(view) = popup_view(&p.st, &self.document, laid, &self.shape_cache, self.scroll_offset, (width as f32, page_h as f32))
@@ -1707,7 +1732,8 @@ impl App {
                 mode: mode_name(self.key_mode),
                 url: &url,
                 message: &self.status_message,
-                command: (self.vim_mode == VimMode::Command).then_some(&self.command_line),
+                command: (self.vim_mode != VimMode::Normal).then_some(&self.command_line),
+                prompt: if self.vim_mode == VimMode::Search { '/' } else { ':' },
             };
             crate::paint::paint_status_bar(&bar, &mut self.font_system, &mut self.swash_cache, &mut pixels, width, height);
         }
@@ -2435,6 +2461,8 @@ impl App {
         self.layout_dirty = true;
         self.layout_generation += 1;
         self.cached = None;
+        // QSEARCH1 (T31, S6): a navigation clears the highlights; the query is kept.
+        self.search.clear_highlights();
         self.restyle_requested = false;
         self.hold_old_frame = false;
         self.js_restyle_pending = false;
@@ -2542,6 +2570,10 @@ impl App {
         // generation, same underlying tree).
         self.shape_cache = shape_cache;
         self.cached = Some(laid);
+        // QSEARCH1 (S5): matches follow every relayout; the current one stays the nearest.
+        if let Some(l) = &self.cached {
+            self.search.relayout(l, &self.shape_cache);
+        }
         self.restore_node_scroll();
         self.refresh_cursor();
         // Q31b: a fragment from a cross-page navigation waits for
@@ -4190,9 +4222,13 @@ impl App {
     /// A pressed key in the `:` line, or in normal mode (QKEYS2: `route_key` is the entry point for
     /// everything else). `vim_mode == Command` always goes to the command-line editor.
     pub(crate) fn handle_key_event(&mut self, event: &KeyEvent) {
-        if self.vim_mode == VimMode::Command {
+        if self.vim_mode != VimMode::Normal {
             self.pending_g = false;
-            self.handle_command_line_key(event);
+            if self.vim_mode == VimMode::Search {
+                self.handle_search_key(event);
+            } else {
+                self.handle_command_line_key(event);
+            }
             return;
         }
         self.handle_normal_key(&event.logical_key, event.repeat);
@@ -4221,7 +4257,7 @@ impl App {
         self.key_mode = mode;
         self.esc_state = EscState::Idle;
         self.pending_g = false;
-        if mode == KeyMode::Input && self.vim_mode == VimMode::Command {
+        if mode == KeyMode::Input && self.vim_mode != VimMode::Normal {
             self.vim_mode = VimMode::Normal;
             self.command_line.clear();
         }
@@ -4232,7 +4268,7 @@ impl App {
 
     /// QKEYS2 (P4, T29): a left press at `pos` on a text control or select switches to input mode.
     pub(crate) fn press_switches_to_input(&mut self, pos: (f32, f32)) {
-        if self.key_mode == KeyMode::Input && self.vim_mode != VimMode::Command {
+        if self.key_mode == KeyMode::Input && self.vim_mode == VimMode::Normal {
             return;
         }
         let node = self.element_at(pos);
@@ -4388,6 +4424,12 @@ impl App {
                 // now-empty one.
                 self.completion = None;
             }
+            Action::EnterSearchMode => {
+                self.vim_mode = VimMode::Search;
+                self.command_line.clear();
+                self.completion = None;
+            }
+            Action::ClearSearch => self.search.clear_highlights(),
             Action::EnterInputMode => self.set_key_mode(KeyMode::Input),
             Action::ScrollTop => self.scroll_offset = 0.0,
             // `redraw` clamps to the real max scroll every frame, same as `j`.
@@ -4585,10 +4627,74 @@ impl App {
                 self.vim_mode = VimMode::Normal;
                 self.run_command_line(&input);
             }
+            Key::Named(NamedKey::Tab) => self.cycle_command_completion(),
+            key => self.line_edit_key(key),
+        }
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
+    /// QSEARCH1 (T22-T25): a key in the `/` line. Enter commits, Esc cancels, the rest edits
+    /// the line exactly like the `:` line (`line_edit_key`, so paste is shared).
+    pub(crate) fn handle_search_key(&mut self, event: &KeyEvent) {
+        self.search_line_key(&event.logical_key);
+    }
+
+    /// `handle_search_key` on a bare key (tests call this: a `KeyEvent` cannot be built).
+    pub(crate) fn search_line_key(&mut self, key: &Key) {
+        match key {
+            Key::Named(NamedKey::Escape) => {
+                self.vim_mode = VimMode::Normal;
+                self.command_line.clear();
+            }
+            Key::Named(NamedKey::Enter) => {
+                let query = std::mem::take(&mut self.command_line.text);
+                self.command_line.cursor = 0;
+                self.vim_mode = VimMode::Normal;
+                self.commit_search(&query);
+            }
+            Key::Named(NamedKey::Tab) => {}
+            key => self.line_edit_key(key),
+        }
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
+    /// QSEARCH1 (T23, T24): commit `query`: find the matches, make the first one at or below the
+    /// top of the screen current (wrapping to the first). An empty query is a cancel (T24).
+    /// Scrolling to the match is QSEARCH2.
+    pub(crate) fn commit_search(&mut self, query: &str) {
+        if query.is_empty() {
+            return;
+        }
+        self.search.query = query.to_string();
+        self.search.highlight = true;
+        self.search.matches = match &self.cached {
+            Some(laid) => crate::search::find_in_laid(laid, &self.shape_cache, query),
+            None => Vec::new(),
+        };
+        if self.search.matches.is_empty() {
+            self.search.current = None;
+            self.status_message = format!("Pattern not found: {query}");
+            return;
+        }
+        let n = self.search.matches.len();
+        let first = crate::search::first_at_or_below(&self.search.matches, self.scroll_offset);
+        self.search.current = Some(first.unwrap_or(0));
+        self.status_message = match first {
+            Some(i) => format!("[{}/{n}]", i + 1),
+            None => format!("search hit BOTTOM, continuing at TOP [1/{n}]"),
+        };
+    }
+
+    /// The editing keys shared by the `:` and `/` lines.
+    fn line_edit_key(&mut self, key: &Key) {
+        match key {
             Key::Named(NamedKey::Backspace) => self.command_line.backspace(),
             Key::Named(NamedKey::ArrowLeft) => self.command_line.move_left(),
             Key::Named(NamedKey::ArrowRight) => self.command_line.move_right(),
-            Key::Named(NamedKey::Tab) => self.cycle_command_completion(),
             // Same `mods`-checked-alongside-`logical_key` shape `resolve_
             // binding`'s own `Ctrl`+`d`/`u` arms use, for the same reason:
             // `Ctrl` is excluded from `logical_key`'s own shift-adjustment,
@@ -4982,7 +5088,7 @@ impl ApplicationHandler<AppEvent> for App {
                 // QKEYS2: the `:` line takes its keys first (never the page, releases dropped);
                 // everything else goes through `route_key` (Input / Normal mode).
                 let pressed = event.state == ElementState::Pressed;
-                if self.vim_mode == VimMode::Command {
+                if self.vim_mode != VimMode::Normal {
                     if pressed {
                         self.handle_key_event(&event);
                     }

@@ -60,6 +60,7 @@ mod incr_frame_tests;
 mod stash_tests;
 mod status_bar_tests;
 mod keys_tests;
+mod search_tests;
 mod qkeys4_tests;
 mod forget_tests;
 mod history_tests;

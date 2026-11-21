@@ -1663,6 +1663,8 @@ pub(crate) struct StatusBar<'a> {
     pub message: &'a str,
     /// `Some` while the `:` line is being typed: it takes the whole strip.
     pub command: Option<&'a TextEditBuffer>,
+    /// The line's leading character: `:` (command) or `/` (search).
+    pub prompt: char,
 }
 
 /// Draws `text` on one line at `(x, y)` (top of a line `bar_h` tall), cut with an ellipsis to fit
@@ -1750,7 +1752,7 @@ pub(crate) fn paint_status_bar(
     if let Some(command_line) = bar.command {
         // The leading `:` is this bar's own display convention (`command_line.text` never stores
         // it), so a cursor byte offset into `text` needs a `+1` shift to land on its glyph.
-        let display = format!(":{}", command_line.text);
+        let display = format!("{}{}", bar.prompt, command_line.text);
         let metrics = Metrics::new(14.0, bar_h);
         let mut buffer = Buffer::new(font_system, metrics);
         buffer.set_size(Some(avail), Some(bar_h));
