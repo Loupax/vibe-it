@@ -112,3 +112,10 @@ pub(crate) const MIN_THUMB_H: f32 = 16.0;
 
 /// Arguments `:set` completes (Tab), alphabetical. `dispatch_command` decides what they do.
 pub(crate) const SET_ARGS: &[&str] = &["js", "motion", "nojs", "nomotion", "novim", "vim"];
+
+// ---------- history (QCOMP3, STASH.md "History") ----------
+
+/// Record visits in `DIR/history` (the `:go` completion reads it). false = never write the file.
+pub(crate) const HISTORY: bool = true;
+/// At startup a history file with more lines than this keeps only the newest ones.
+pub(crate) const HISTORY_MAX_LINES: usize = 50_000;

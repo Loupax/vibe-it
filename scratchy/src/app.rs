@@ -812,6 +812,8 @@ pub(crate) struct App {
     /// Q30e: the body of the form POST the next `fetch_url_inner` sends
     /// (taken there; back/forward/refresh never have one: they re-GET).
     pub(crate) pending_post: Option<PostBody>,
+    /// QCOMP3: the load in flight is a visit (link, `:go`, page script): record it once it loaded.
+    pub(crate) visit_pending: bool,
     /// Every URL navigated to via a real click or `:go`, oldest
     /// first — `:historyBack`/`:historyFront` (bound to `h`/`l` in vim
     /// Normal mode) move `history_index` through this instead of
@@ -1312,6 +1314,7 @@ impl App {
             base_url,
             nav_initiator: None,
             pending_post: None,
+            visit_pending: false,
             history: Vec::new(),
             history_index: 0,
             history_doc: Vec::new(),
@@ -1417,6 +1420,7 @@ impl App {
             base_url: None,
             nav_initiator: None,
             pending_post: None,
+            visit_pending: false,
             history: Vec::new(),
             history_index: 0,
             history_doc: Vec::new(),
@@ -2793,6 +2797,7 @@ impl App {
         match result {
             Ok(FetchedPage { html, extra_css, sheets, scripts, url }) => {
                 let dom = new_parser().read_from(&mut html.as_slice()).unwrap();
+                let final_url = url.clone();
                 // Q30e: the history entry is where the page really is (after
                 // redirects), so back/refresh re-GET the result, never a POST.
                 if let Some(slot) = self.history.get_mut(self.history_index) {
@@ -2836,6 +2841,7 @@ impl App {
                 };
                 self.js = run_page_scripts(&self.document, &scripts, self.base_url.as_ref());
                 self.js_sync();
+                self.record_visit_if_pending(&final_url);
                 if let Some((delay, target)) = meta {
                     let (proxy, generation) = (self.proxy.clone(), self.nav_generation);
                     thread::spawn(move || {
@@ -2846,9 +2852,23 @@ impl App {
             }
             Err(message) => {
                 self.nav_fragment = None;
+                self.visit_pending = false; // QCOMP3: failed load
                 self.show_message(&message);
             }
         }
+    }
+
+    /// QCOMP3: the page just loaded was a visit: one history line (final URL, current title).
+    fn record_visit_if_pending(&mut self, url: &Url) {
+        if !std::mem::take(&mut self.visit_pending) {
+            return;
+        }
+        let title = self
+            .js
+            .as_ref()
+            .and_then(|js| js.eval_value::<String>("title", "document.title"))
+            .unwrap_or_else(|| crate::history::dom_title(&self.document));
+        crate::history::record_visit(url, &title);
     }
 
     /// QY19: follows a meta refresh to `target`. Counts against
@@ -2869,6 +2889,7 @@ impl App {
             self.meta_chain += 1;
             self.push_history(target.clone());
             self.nav_initiator = self.base_url.clone();
+            self.visit_pending = true;
             self.fetch_url(target);
         }
     }
@@ -3746,6 +3767,7 @@ impl App {
         };
         self.push_or_replace_history(url.clone(), replace);
         self.nav_initiator = if page_initiated { self.base_url.clone() } else { None };
+        self.visit_pending = true;
         self.fetch_url(url);
     }
 
@@ -3899,6 +3921,7 @@ impl App {
         }
         self.history_index = new_index;
         self.meta_chain = 0;
+        self.visit_pending = false; // QCOMP3: back/forward is not a visit
         let url = self.history[new_index].clone();
         self.fetch_url(url);
     }
@@ -3919,6 +3942,7 @@ impl App {
     /// own) has truly nothing to refresh.
     pub(crate) fn refresh(&mut self) {
         self.meta_chain = 0;
+        self.visit_pending = false; // QCOMP3: reload is not a visit
         let url = match self.history.get(self.history_index).cloned() {
             Some(url) => url,
             None => match self.base_url.clone() {
@@ -3950,6 +3974,7 @@ impl App {
             if strip(base) == strip(&url) {
                 let frag = frag.to_string();
                 self.nav_initiator = None;
+                self.visit_pending = false; // QCOMP3: same-document
                 // QY48: the entry for this fragment lives in the current document.
                 if let Some(slot) = self.history_doc.get_mut(self.history_index) {
                     *slot = self.doc_gen;
