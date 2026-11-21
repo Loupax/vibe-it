@@ -1648,66 +1648,152 @@ pub(crate) fn paint_scrollbar(
     fill_rect(pixels, win_w, win_h, track_x, thumb_y, track_w, thumb_h, TextColor::rgba(0, 0, 0, 120), clip);
 }
 
-/// Paints vim mode's `:`-command bar — chrome drawn on top of the
-/// already-laid-out page, outside the DOM/layout tree entirely, same
-/// role `paint_scrollbar` already plays for the scrollbar overlay
-/// (that's the existing precedent TODO.txt's own vim-mode plan points
-/// at for "where chrome gets painted"). Bottom of the window, not top —
-/// matches real vim's own command line, and Vimium/qutebrowser's bars,
-/// rather than reading as a browser address bar (a placement TODO.txt
-/// explicitly left open; settled here as bottom).
-pub(crate) fn paint_command_bar(
-    command_line: &TextEditBuffer,
+/// What the status bar (QKEYS1, KEYS.md "Status bar") shows.
+pub(crate) struct StatusBar<'a> {
+    /// `INPUT` / `NORMAL` (the mode name).
+    pub mode: &'a str,
+    /// The current page's URL (may be empty).
+    pub url: &'a str,
+    /// The last message (D8), may be empty.
+    pub message: &'a str,
+    /// `Some` while the `:` line is being typed: it takes the whole strip.
+    pub command: Option<&'a TextEditBuffer>,
+}
+
+/// Draws `text` on one line at `(x, y)` (top of a line `bar_h` tall), cut with an ellipsis to fit
+/// `max_w`; returns the width drawn.
+#[allow(clippy::too_many_arguments)]
+fn bar_text(
     font_system: &mut FontSystem,
     swash_cache: &mut SwashCache,
     pixels: &mut [u32],
     win_w: u32,
     win_h: u32,
-) {
-    const BAR_H: f32 = 24.0;
-    const PAD_X: f32 = 4.0;
-    let bar_y = (win_h as f32 - BAR_H).max(0.0);
-    fill_rect(pixels, win_w, win_h, 0.0, bar_y, win_w as f32, BAR_H, TextColor::rgba(24, 24, 24, 255), None);
-
-    // The leading `:` is purely this bar's own display convention
-    // (vim's own prompt character) — `command_line.text` itself never
-    // stores it, so every real cursor byte offset into `text` needs a
-    // `+1` shift to land on the matching glyph in `display`.
-    let display = format!(":{}", command_line.text);
-    let metrics = Metrics::new(14.0, BAR_H);
-    let mut buffer = Buffer::new(font_system, metrics);
-    buffer.set_size(Some((win_w as f32 - PAD_X).max(0.0)), Some(BAR_H));
-    buffer.set_wrap(Wrap::None);
+    text: &str,
+    x: f32,
+    bar_y: f32,
+    bar_h: f32,
+    max_w: f32,
+    color: TextColor,
+    draw: bool,
+) -> f32 {
+    if text.is_empty() || max_w <= 0.0 {
+        return 0.0;
+    }
+    let metrics = Metrics::new(14.0, bar_h);
     let mut attrs = Attrs::new();
-    attrs.color_opt = Some(TextColor::rgb(225, 225, 225));
-    buffer.set_text(&display, &attrs, Shaping::Advanced, None);
+    attrs.color_opt = Some(color);
+    let mut buffer = Buffer::new(font_system, metrics);
+    buffer.set_size(None, Some(bar_h));
+    buffer.set_wrap(Wrap::None);
+    buffer.set_text(text, &attrs, Shaping::Advanced, None);
     buffer.shape_until_scroll(font_system, false);
-
-    let target = command_line.cursor + 1;
-    let caret_x = buffer
+    let (full_w, cut) = buffer
         .layout_runs()
         .next()
-        .map(|run| {
-            run.glyphs
-                .iter()
-                .find(|g| g.start >= target)
-                .map(|g| g.x)
-                .unwrap_or_else(|| run.glyphs.last().map(|g| g.x + g.w).unwrap_or(0.0))
-        })
-        .unwrap_or(0.0);
-
-    // One span (`Attrs::new()`'s own default `metadata: 0`), so every
-    // per-span array `paint_buffer` expects just needs that one entry.
+        .map(|run| (run.line_w, run.glyphs.iter().find(|g| g.x + g.w > max_w).map(|g| g.start)))
+        .unwrap_or((0.0, None));
+    let mut drawn_w = full_w.min(max_w);
+    if let Some(cut) = cut {
+        // Too long: keep the head (on a char boundary), then an ellipsis.
+        let mut end = cut.saturating_sub(1).min(text.len());
+        while end > 0 && !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        let shown = format!("{}\u{2026}", &text[..end]);
+        buffer.set_text(&shown, &attrs, Shaping::Advanced, None);
+        buffer.shape_until_scroll(font_system, false);
+        drawn_w = max_w;
+    }
+    if !draw {
+        return drawn_w;
+    }
     let backgrounds = [None];
     let valigns = [VerticalAlign::default()];
     let hidden = [false];
     let decoration_styles = [DecorationStyle::default()];
     paint_buffer(
         &mut buffer, font_system, swash_cache, &backgrounds, &valigns, &hidden, &decoration_styles, pixels, win_w,
-        win_h, PAD_X, bar_y + (BAR_H - 20.0) / 2.0, None, 0.0,
+        win_h, x, bar_y + (bar_h - 20.0) / 2.0, None, 0.0,
     );
+    drawn_w
+}
 
-    fill_rect(pixels, win_w, win_h, PAD_X + caret_x, bar_y + 3.0, 1.5, BAR_H - 6.0, TextColor::rgb(225, 225, 225), None);
+/// Paints the status bar (QKEYS1; absorbs the old `:` command bar): chrome in the bottom
+/// `config::STATUS_BAR_H` px of the window, outside the DOM and layout tree (the page's viewport
+/// is the window minus this strip). Shows the mode, the URL and the last message; while the `:`
+/// line is being typed it takes the whole strip (with a caret).
+pub(crate) fn paint_status_bar(
+    bar: &StatusBar,
+    font_system: &mut FontSystem,
+    swash_cache: &mut SwashCache,
+    pixels: &mut [u32],
+    win_w: u32,
+    win_h: u32,
+) {
+    use crate::config::{STATUS_BAR_BG, STATUS_BAR_FG, STATUS_BAR_H, STATUS_BAR_MODE_FG, STATUS_BAR_PAD_X};
+    let bar_h = STATUS_BAR_H as f32;
+    let bar_y = (win_h as f32 - bar_h).max(0.0);
+    let (bg, fg, accent) = (
+        TextColor::rgba(STATUS_BAR_BG.0, STATUS_BAR_BG.1, STATUS_BAR_BG.2, 255),
+        TextColor::rgb(STATUS_BAR_FG.0, STATUS_BAR_FG.1, STATUS_BAR_FG.2),
+        TextColor::rgb(STATUS_BAR_MODE_FG.0, STATUS_BAR_MODE_FG.1, STATUS_BAR_MODE_FG.2),
+    );
+    fill_rect(pixels, win_w, win_h, 0.0, bar_y, win_w as f32, bar_h, bg, None);
+    let avail = (win_w as f32 - 2.0 * STATUS_BAR_PAD_X).max(0.0);
+
+    if let Some(command_line) = bar.command {
+        // The leading `:` is this bar's own display convention (`command_line.text` never stores
+        // it), so a cursor byte offset into `text` needs a `+1` shift to land on its glyph.
+        let display = format!(":{}", command_line.text);
+        let metrics = Metrics::new(14.0, bar_h);
+        let mut buffer = Buffer::new(font_system, metrics);
+        buffer.set_size(Some(avail), Some(bar_h));
+        buffer.set_wrap(Wrap::None);
+        let mut attrs = Attrs::new();
+        attrs.color_opt = Some(fg);
+        buffer.set_text(&display, &attrs, Shaping::Advanced, None);
+        buffer.shape_until_scroll(font_system, false);
+        let target = command_line.cursor + 1;
+        let caret_x = buffer
+            .layout_runs()
+            .next()
+            .map(|run| {
+                run.glyphs
+                    .iter()
+                    .find(|g| g.start >= target)
+                    .map(|g| g.x)
+                    .unwrap_or_else(|| run.glyphs.last().map(|g| g.x + g.w).unwrap_or(0.0))
+            })
+            .unwrap_or(0.0);
+        let backgrounds = [None];
+        let valigns = [VerticalAlign::default()];
+        let hidden = [false];
+        let decoration_styles = [DecorationStyle::default()];
+        paint_buffer(
+            &mut buffer, font_system, swash_cache, &backgrounds, &valigns, &hidden, &decoration_styles, pixels, win_w,
+            win_h, STATUS_BAR_PAD_X, bar_y + (bar_h - 20.0) / 2.0, None, 0.0,
+        );
+        fill_rect(pixels, win_w, win_h, STATUS_BAR_PAD_X + caret_x, bar_y + 3.0, 1.5, bar_h - 6.0, fg, None);
+        return;
+    }
+
+    // Mode, then the URL; the message sits at the right (at most a third of the strip).
+    let gap = 12.0;
+    let msg_max = avail / 3.0;
+    let mut msg_w = 0.0;
+    if !bar.message.is_empty() {
+        // Measure first: it is drawn right-aligned below, and the URL gets what is left.
+        msg_w = bar_text(font_system, swash_cache, pixels, win_w, win_h, bar.message, 0.0, bar_y, bar_h, msg_max, fg, false);
+    }
+    let mode_w = bar_text(font_system, swash_cache, pixels, win_w, win_h, bar.mode, STATUS_BAR_PAD_X, bar_y, bar_h, avail, accent, true);
+    let url_x = STATUS_BAR_PAD_X + mode_w + gap;
+    let url_max = (win_w as f32 - STATUS_BAR_PAD_X - msg_w - if msg_w > 0.0 { gap } else { 0.0 } - url_x).max(0.0);
+    bar_text(font_system, swash_cache, pixels, win_w, win_h, bar.url, url_x, bar_y, bar_h, url_max, fg, true);
+    if msg_w > 0.0 {
+        let x = win_w as f32 - STATUS_BAR_PAD_X - msg_w;
+        bar_text(font_system, swash_cache, pixels, win_w, win_h, bar.message, x, bar_y, bar_h, msg_w, fg, true);
+    }
 }
 
 /// Real CSS2 §9.9.1: `position: relative`/`sticky` establishes its own

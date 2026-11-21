@@ -905,7 +905,7 @@ impl App {
     pub(crate) fn select_popup_view(&self) -> Option<PopupView> {
         let p = self.select_popup.as_ref()?;
         let laid = self.cached.as_ref()?;
-        popup_view(&p.st, &self.document, laid, &self.shape_cache, self.scroll_offset, (self.surface_size.0 as f32, self.surface_size.1 as f32))
+        popup_view(&p.st, &self.document, laid, &self.shape_cache, self.scroll_offset, { let (w, h) = self.page_size(); (w as f32, h as f32) })
     }
 
     pub(crate) fn select_popup_close(&mut self, why: PopupEvent) {

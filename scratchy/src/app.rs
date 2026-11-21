@@ -220,6 +220,17 @@ pub(crate) fn region_takes_wheel(info: &ScrollInfo, offsets: &HashMap<usize, f32
 
 /// QYSCR1: how far `Action::PageDown`/`PageUp` scroll for a viewport `view_h`
 /// px tall: a viewport less one 40 px line, so the last line stays in view.
+/// QKEYS1: the viewport the page sees for a window of `win` px: the window minus the status bar
+/// (every place that used the window size as the viewport uses this).
+pub(crate) fn page_viewport(win: (u32, u32)) -> (u32, u32) {
+    (win.0, win.1.saturating_sub(crate::config::STATUS_BAR_H).max(1))
+}
+
+/// QKEYS1: the status bar's mode name. Until QKEYS2: `NORMAL` while vim bindings are on.
+pub(crate) fn mode_name(vim_enabled: bool) -> &'static str {
+    if vim_enabled { "NORMAL" } else { "INPUT" }
+}
+
 pub(crate) fn page_step(view_h: f32) -> f32 {
     (view_h - crate::config::PAGE_OVERLAP_PX).max(crate::config::PAGE_MIN_PX)
 }
@@ -402,7 +413,7 @@ impl TextEditBuffer {
     /// Control characters (a trailing newline off the clipboard being
     /// the real-world case) are dropped rather than inserted literally:
     /// this buffer is always single-line, and a bare `\n` landing in
-    /// `text` would silently desync `paint_command_bar`'s own single-
+    /// `text` would silently desync `paint_status_bar`'s own single-
     /// `Buffer`/`Wrap::None` rendering from what `run_command_line` later
     /// splits on submit.
     pub(crate) fn insert_str(&mut self, s: &str) {
@@ -938,6 +949,8 @@ pub(crate) struct App {
     pub(crate) vim_mode: VimMode,
     /// A bare `g` was just pressed in Normal mode; the next `g` completes `gg`.
     pub(crate) pending_g: bool,
+    /// QKEYS1: the last message shown in the status bar (D8); empty = none.
+    pub(crate) status_message: String,
     /// The `:`-command line's own live text, editable only while `vim_
     /// mode` is `Command` — see `TextEditBuffer`'s own docs for why this
     /// is a standalone type rather than a plain `String` field.
@@ -1214,6 +1227,27 @@ impl App {
         self.refresh_cursor();
     }
 
+    /// QKEYS1: the viewport the page sees (window minus the status bar).
+    pub(crate) fn page_size(&self) -> (u32, u32) {
+        page_viewport(self.surface_size)
+    }
+
+    /// QKEYS1: publishes the page viewport (window minus the status bar) to new engines and to the
+    /// running one (`innerHeight`, `visualViewport`, `resize`).
+    pub(crate) fn sync_js_viewport(&mut self) {
+        if self.surface_size.0 == 0 {
+            return;
+        }
+        let vp = self.page_size();
+        crate::js::set_window_viewport(vp.0, vp.1);
+        if let Some(js) = &self.js
+            && self.js_viewport != Some(vp)
+        {
+            self.js_viewport = Some(vp);
+            js.set_viewport(vp.0, vp.1);
+        }
+    }
+
     /// The window cursor for the element under the last pointer position. Also run
     /// after each layout install (QCUR1): the page reacts to `mousemove` by clearing
     /// `cursor: none` (YouTube's `ytp-autohide`), which only the NEXT layout shows.
@@ -1224,7 +1258,7 @@ impl App {
             let doc_y = position.1 + self.scroll_offset;
             let (style, _href) = hit_test_cursor(
                 laid, doc_x, doc_y, &self.shape_cache, &self.scroll_offsets, self.scroll_offset,
-                self.surface_size.1 as f32,
+                self.page_size().1 as f32,
             );
             let icon = style.to_winit();
             if icon != self.last_cursor {
@@ -1335,6 +1369,7 @@ impl App {
             late_image_errors: Vec::new(),
             vim_enabled: true,
             vim_mode: VimMode::Normal,
+            status_message: String::new(),
             pending_g: false,
             command_line: TextEditBuffer::default(),
             modifiers: ModifiersState::empty(),
@@ -1441,6 +1476,7 @@ impl App {
             late_image_errors: Vec::new(),
             vim_enabled: true,
             vim_mode: VimMode::Normal,
+            status_message: String::new(),
             pending_g: false,
             command_line: TextEditBuffer::default(),
             modifiers: ModifiersState::empty(),
@@ -1494,22 +1530,24 @@ impl App {
             crate::media_video::set_frames(frames);
             crate::media_video::set_intrinsic(sizes);
         }
+        // QKEYS1: the page's viewport is the window minus the status bar.
+        let (_, page_h) = page_viewport((width, height));
         let width_matches_pending = self.pending_width == Some(width);
         self.pending_width = Some(width);
         // R4: a height-only change only needs a rebuild if the layout
         // actually read the viewport height; otherwise just track it.
-        if self.cached_width == width && self.cached_height != height && self.cached.is_some() && !self.reads_viewport_h {
-            self.cached_height = height;
+        if self.cached_width == width && self.cached_height != page_h && self.cached.is_some() && !self.reads_viewport_h {
+            self.cached_height = page_h;
         }
-        let height_rebuild = self.cached_width == width && self.cached_height != height && self.cached.is_some();
-        if self.cached.is_some() && (self.cached_width, self.cached_height) != (width, height) {
+        let height_rebuild = self.cached_width == width && self.cached_height != page_h && self.cached.is_some();
+        if self.cached.is_some() && (self.cached_width, self.cached_height) != (width, page_h) {
             crate::incr_frame::note_ambient(crate::incr_log::Ambient::Viewport);
         }
-        let need_rebuild = self.layout_dirty || self.cached_width != width || self.cached_height != height;
+        let need_rebuild = self.layout_dirty || self.cached_width != width || self.cached_height != page_h;
 
         let rebuild_now = need_rebuild && width_matches_pending;
         if rebuild_now {
-            self.rebuild_layout(width, height, height_rebuild);
+            self.rebuild_layout(width, page_h, height_rebuild);
         }
         let (Some(window), Some(surface)) = (&self.window, &mut self.surface) else {
             return;
@@ -1549,7 +1587,7 @@ impl App {
                     *pixel = crate::paint::blend(*pixel, c);
                 }
             }
-            let max_scroll = (laid.h - height as f32).max(0.0);
+            let max_scroll = (laid.h - page_h as f32).max(0.0);
             self.scroll_offset = self.scroll_offset.clamp(0.0, max_scroll);
 
             paint(
@@ -1577,20 +1615,16 @@ impl App {
         }
 
         // QSB1: the window's own scrollbar (overlay, same look as a region's).
-        if let Some((rect, content_h, client_h)) = Self::viewport_bar(&self.cached, self.surface_size) {
+        if let Some((rect, content_h, client_h)) = Self::viewport_bar(&self.cached, (width, page_h)) {
             let info = crate::layout::ScrollInfo { id: usize::MAX, content_h, client_h, node: 0, user: true };
             crate::paint::paint_scrollbar(&info, self.scroll_offset, false, &mut pixels, width, height, rect.0, rect.1, rect.2, rect.3, None);
         }
 
         // Q30g: the open select dropdown is the top layer, above the page.
         if let (Some(p), Some(laid)) = (&self.select_popup, self.cached.as_ref())
-            && let Some(view) = popup_view(&p.st, &self.document, laid, &self.shape_cache, self.scroll_offset, (width as f32, height as f32))
+            && let Some(view) = popup_view(&p.st, &self.document, laid, &self.shape_cache, self.scroll_offset, (width as f32, page_h as f32))
         {
             paint_select_popup(&view, &p.st, &mut self.font_system, &mut self.swash_cache, &mut pixels, width, height);
-        }
-
-        if self.vim_mode == VimMode::Command {
-            paint_command_bar(&self.command_line, &mut self.font_system, &mut self.swash_cache, &mut pixels, width, height);
         }
 
         // QM1g: video pixels go in last, through the overlay mask of whatever
@@ -1608,6 +1642,17 @@ impl App {
                     self.video.controls.entry(b.node).or_default().drawn = Some(st.key(*vis));
                 }
             }
+        }
+        // QKEYS1: the status bar is the top layer (over a video that reaches into its strip).
+        {
+            let url = self.history.get(self.history_index).map(|u| u.to_string()).unwrap_or_default();
+            let bar = crate::paint::StatusBar {
+                mode: mode_name(self.vim_enabled),
+                url: &url,
+                message: &self.status_message,
+                command: (self.vim_mode == VimMode::Command).then_some(&self.command_line),
+            };
+            crate::paint::paint_status_bar(&bar, &mut self.font_system, &mut self.swash_cache, &mut pixels, width, height);
         }
         self.video.page_buf.clear();
         if !boxes.is_empty() {
@@ -2095,7 +2140,7 @@ impl App {
     /// main thread blocking on the lock while this thread holds it
     /// mid-shape. So this thread keeps its own independent copy for its
     /// entire lifetime instead. `self.font_system`/`self.swash_cache`
-    /// stay exactly what `paint`/`paint_command_bar` already use to
+    /// stay exactly what `paint`/`paint_status_bar` already use to
     /// paint a finished `Laid` tree on the main thread; nothing about
     /// painting itself changes.
     ///
@@ -2365,6 +2410,7 @@ impl App {
     /// is never real content, so `replace_document` always clears
     /// `extra_css` for it.
     pub(crate) fn show_message(&mut self, text: &str) {
+        self.status_message = text.to_string();
         let html = format!("<html><body><p>{}</p></body></html>", escape_html(text));
         self.image_cache.clear();
         self.css_images_requested.clear();
@@ -3133,10 +3179,14 @@ impl App {
 
     /// The `node_id` of the element under window-space `pos` (0 = none).
     pub(crate) fn element_at(&self, pos: (f32, f32)) -> usize {
+        // QKEYS1: the status bar is chrome; the page is not under it.
+        if self.surface_size.1 > 0 && pos.1 >= self.page_size().1 as f32 {
+            return 0;
+        }
         match &self.cached {
             Some(laid) => hit_test_element(
                 laid, pos.0, pos.1 + self.scroll_offset, &self.shape_cache, &self.scroll_offsets, self.scroll_offset,
-                self.surface_size.1 as f32,
+                self.page_size().1 as f32,
             ),
             None => 0,
         }
@@ -3598,7 +3648,7 @@ impl App {
         }) else {
             return;
         };
-        let view = self.surface_size.1 as f32;
+        let view = self.page_size().1 as f32;
         const MARGIN: f32 = crate::config::SCROLL_INTO_VIEW_MARGIN;
         if top < self.scroll_offset {
             self.scroll_offset = (top - MARGIN).max(0.0);
@@ -4141,10 +4191,10 @@ impl App {
         match action {
             Action::ScrollDown => self.scroll_by(SCROLL_LINE_PX),
             Action::ScrollUp => self.scroll_by(-SCROLL_LINE_PX),
-            Action::HalfPageDown => self.scroll_by(self.surface_size.1 as f32 / 2.0),
-            Action::HalfPageUp => self.scroll_by(-(self.surface_size.1 as f32 / 2.0)),
-            Action::PageDown => self.scroll_by(page_step(self.surface_size.1 as f32)),
-            Action::PageUp => self.scroll_by(-page_step(self.surface_size.1 as f32)),
+            Action::HalfPageDown => self.scroll_by(self.page_size().1 as f32 / 2.0),
+            Action::HalfPageUp => self.scroll_by(-(self.page_size().1 as f32 / 2.0)),
+            Action::PageDown => self.scroll_by(page_step(self.page_size().1 as f32)),
+            Action::PageUp => self.scroll_by(-page_step(self.page_size().1 as f32)),
             Action::EnterCommandMode => {
                 self.vim_mode = VimMode::Command;
                 self.command_line.clear();
@@ -4183,7 +4233,7 @@ impl App {
 
     /// QSB1: the viewport's own bar: `(rect, content_h, client_h)`, `None` when the page fits
     /// or the viewport cannot be scrolled by the user.
-    fn viewport_bar(cached: &Option<Rc<Laid>>, size: (u32, u32)) -> Option<crate::scrollbar::ViewportBar> {
+    pub(crate) fn viewport_bar(cached: &Option<Rc<Laid>>, size: (u32, u32)) -> Option<crate::scrollbar::ViewportBar> {
         let laid = cached.as_ref()?;
         let (w, h) = (size.0 as f32, size.1 as f32);
         (laid.h > h && !laid.style.viewport_hidden).then_some(((0.0, 0.0, w, h), laid.h, h))
@@ -4196,8 +4246,8 @@ impl App {
     pub(crate) fn scrollbar_press(&mut self, pos: (f32, f32)) -> bool {
         use crate::scrollbar::{self as sb, BarHit};
         let (px, py) = pos;
-        let view_h = self.surface_size.1 as f32;
-        if let Some((rect, content_h, client_h)) = Self::viewport_bar(&self.cached, self.surface_size) {
+        let view_h = self.page_size().1 as f32;
+        if let Some((rect, content_h, client_h)) = Self::viewport_bar(&self.cached, self.page_size()) {
             let max = content_h - client_h;
             let cur = self.scroll_offset.clamp(0.0, max);
             if let Some(h) = sb::hit(rect, content_h, client_h, cur, px, py) {
@@ -4472,7 +4522,8 @@ impl ApplicationHandler<AppEvent> for App {
         // window's size now (new engines read it; `surface_size` stays 0 so the first redraw still
         // resizes the surface).
         let size = window.inner_size();
-        crate::js::set_window_viewport(size.width, size.height);
+        let (vw, vh) = page_viewport((size.width, size.height));
+        crate::js::set_window_viewport(vw, vh);
         self.window = Some(window);
         self.surface = Some(surface);
         self.wl_drain = crate::wl_drain::WlDrain::start(event_loop);
@@ -4513,14 +4564,8 @@ impl ApplicationHandler<AppEvent> for App {
         let trail_at = self.flush_move_trailing();
         let els = self.sync_node_scroll();
         // Q33b2: the page sees the real window size; one `resize` per changed frame.
-        if self.surface_size.0 > 0 {
-            crate::js::set_window_viewport(self.surface_size.0, self.surface_size.1);
-        }
+        self.sync_js_viewport();
         if let Some(js) = &self.js {
-            if self.surface_size.0 > 0 && self.js_viewport != Some(self.surface_size) {
-                self.js_viewport = Some(self.surface_size);
-                js.set_viewport(self.surface_size.0, self.surface_size.1);
-            }
             js.set_scroll(self.scroll_offset, els);
             js.run_due_slice(Some(timer_slice(self.input_recent(), !self.video.boxes.is_empty())));
         }
@@ -4676,7 +4721,8 @@ impl ApplicationHandler<AppEvent> for App {
             WindowEvent::RedrawRequested => self.redraw(),
             WindowEvent::Resized(size) => {
                 if size.width > 0 && size.height > 0 {
-                    crate::js::set_window_viewport(size.width, size.height);
+                    let (w, h) = page_viewport((size.width, size.height));
+                    crate::js::set_window_viewport(w, h);
                 }
                 if let Some(window) = &self.window {
                     window.request_redraw();
@@ -4905,7 +4951,7 @@ impl ApplicationHandler<AppEvent> for App {
                                 let doc_y = up.1 + self.scroll_offset;
                                 hit_test_cursor(
                                     laid, doc_x, doc_y, &self.shape_cache, &self.scroll_offsets,
-                                    self.scroll_offset, self.surface_size.1 as f32,
+                                    self.scroll_offset, self.page_size().1 as f32,
                                 )
                                 .1
                             }
@@ -4942,7 +4988,7 @@ impl ApplicationHandler<AppEvent> for App {
                 let chain = self.last_mouse_pos.zip(self.cached.as_ref()).map_or_else(Vec::new, |((mx, my), laid)| {
                     crate::paint::hit_test_scroll_chain(
                         laid, mx, my + self.scroll_offset, &self.scroll_offsets, self.scroll_offset,
-                        self.surface_size.1 as f32,
+                        self.page_size().1 as f32,
                     )
                 });
                 match chain.iter().find(|info| info.user && region_takes_wheel(info, &self.scroll_offsets, dy)) {
