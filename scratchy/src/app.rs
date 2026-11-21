@@ -4323,7 +4323,24 @@ impl App {
                 self.click_activate(Some(&h), (0.0, 0.0));
             }
             Key::Named(NamedKey::Enter) if self.interaction.focus.is_some() => self.activate_focus(),
-            _ => {}
+            // QKEYS4 (P6): the UA default scroll keys, after the page and every focused control declined.
+            _ => self.ua_scroll_key(key),
+        }
+    }
+
+    /// QKEYS4: ArrowUp/Down, PageUp/PageDown, Space/Shift-Space, Home/End scroll the page in input mode
+    /// (same actions as the normal-mode bindings, but only the named keys: `j`/`k`/`G` are the page's).
+    pub(crate) fn ua_scroll_key(&mut self, key: &Key) {
+        if !matches!(key, Key::Named(_)) {
+            return;
+        }
+        if let Some(a) = resolve_binding(key, self.modifiers, VimMode::Normal)
+            && matches!(
+                a,
+                Action::ScrollDown | Action::ScrollUp | Action::PageDown | Action::PageUp | Action::ScrollTop | Action::ScrollBottom
+            )
+        {
+            self.perform_action(a);
         }
     }
 
