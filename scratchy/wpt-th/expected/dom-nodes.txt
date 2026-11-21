@@ -1343,9 +1343,7 @@ OK           1/1  dom/nodes/MutationObserver-callback-arguments.html
 OK           3/3  dom/nodes/MutationObserver-callback-order.window.html
 OK           2/2  dom/nodes/MutationObserver-callback-tricky.html
 ERROR      12/12  dom/nodes/MutationObserver-characterData.html
-TIMEOUT    27/40  dom/nodes/MutationObserver-childList.html
-  FAIL      childList Node.normalize mutation
-  FAIL      childList Node.normalize mutations
+TIMEOUT    29/40  dom/nodes/MutationObserver-childList.html
   TIMEOUT   childList Node.insertBefore: fragment removal mutations
   TIMEOUT   childList Node.appendChild: fragment removal mutations
   FAIL      childList Node.replaceChild: internal replacement mutation
@@ -1566,10 +1564,7 @@ OK           1/7  dom/nodes/Node-nodeValue.html
 OK           0/2  dom/nodes/Node-normalize-2.html
   FAIL      normalize should move range's end boundary point into t1
   FAIL      normalize should move range's start boundary point into t1
-OK           0/4  dom/nodes/Node-normalize.html
-  FAIL      Node.normalize()
-  FAIL      Empty text nodes separated by a non-empty text node
-  FAIL      Empty text nodes
+OK           3/4  dom/nodes/Node-normalize.html
   FAIL      Non-text nodes with empty textContent values.
 OK         11/12  dom/nodes/Node-parentElement.html
   FAIL      When the parent is a document, parentElement should be null (doctype)
@@ -1762,15 +1757,8 @@ OK           0/1  dom/nodes/ProcessingInstruction-literal-1.xhtml
 OK           0/1  dom/nodes/ProcessingInstruction-literal-2.xhtml
   FAIL      ProcessingInstruction literals
 OK         16/16  dom/nodes/Text-constructor.html
-OK           0/6  dom/nodes/Text-splitText.html
-  FAIL      Split text after end of data
-  FAIL      Split empty text
-  FAIL      Split text at beginning
-  FAIL      Split text at end
-  FAIL      Split root
-  FAIL      Split child
-OK           0/1  dom/nodes/Text-wholeText.html
-  FAIL      wholeText returns text of all Text nodes logically adjacent to the node, in document order.
+OK           6/6  dom/nodes/Text-splitText.html
+OK           1/1  dom/nodes/Text-wholeText.html
 OK           2/6  dom/nodes/adoption.window.html
   FAIL      appendChild() and DocumentFragment with host
   FAIL      appendChild() and DocumentFragment
