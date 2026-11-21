@@ -66,6 +66,7 @@ pub mod mem_trim;
 pub mod memprof;
 mod wpt;
 mod wpt_th_run; // QWPT4b: the `--wpt-th` runner parent
+mod event_loop; // QEL1: the rendering-steps driver (HTML "update the rendering")
 mod wpt_th; // QWPT4a: the testharness.js test child (`--wpt-th-one`)
 mod dom;
 mod css;
