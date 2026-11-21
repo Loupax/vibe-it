@@ -3919,6 +3919,7 @@ impl App {
 
     /// QKEYS1b: the status bar's URL: the current history entry, else (a file or
     /// stdin start page has no history yet) the page's own address, else `(stdin)`.
+    #[cfg(test)]
     pub(crate) fn status_url(&self) -> String {
         status_url(&self.history, self.history_index, self.base_url.as_ref())
     }
