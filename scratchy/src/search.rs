@@ -8,6 +8,8 @@
 //! shaped paragraph holds `foo<b>bar</b>`) but never a block boundary (one `SearchLine` per
 //! block). Plain text, smartcase, no regex. Not inside iframes or text controls.
 
+use std::collections::HashMap;
+
 use crate::layout::{Laid, LaidContent, MixedPositioned, ShapeCache};
 
 /// A document-space rectangle `(x, y, w, h)`.
@@ -25,6 +27,19 @@ pub(crate) struct SearchChar {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct SearchLine {
     pub chars: Vec<SearchChar>,
+    /// The scroll regions the line sits in, outermost first (QSEARCH2).
+    pub regions: Vec<SearchRegion>,
+}
+
+/// A scroll region (an `overflow: scroll/auto/hidden` box) a match lies inside. `rect` is the
+/// box's border box in the frame of its parent's content (the same frame as the match rects
+/// of its own content, before the region's own offset).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct SearchRegion {
+    pub id: usize,
+    pub node: usize,
+    pub rect: Rect,
+    pub max_scroll: f32,
 }
 
 impl SearchLine {
@@ -32,6 +47,7 @@ impl SearchLine {
     #[cfg(test)]
     pub(crate) fn from_text(text: &str, x: f32, y: f32, cw: f32, h: f32) -> SearchLine {
         SearchLine {
+            regions: Vec::new(),
             chars: text
                 .chars()
                 .enumerate()
@@ -51,6 +67,101 @@ pub(crate) struct SearchMatch {
     pub start: usize,
     pub end: usize,
     pub rects: Vec<Rect>,
+    /// The scroll regions the match is inside, outermost first.
+    pub regions: Vec<SearchRegion>,
+}
+
+/// The current scroll offset of `r` (clamped like every read site does).
+fn region_offset(r: &SearchRegion, offsets: &HashMap<usize, f32>) -> f32 {
+    offsets.get(&r.id).copied().unwrap_or(0.0).clamp(0.0, r.max_scroll)
+}
+
+impl SearchMatch {
+    /// The match's bounding box in the frame of its content (before any region offset).
+    pub(crate) fn bbox(&self) -> Rect {
+        let mut it = self.rects.iter();
+        let Some(&(x, y, w, h)) = it.next() else { return (0.0, 0.0, 0.0, 0.0) };
+        let (mut x0, mut y0, mut x1, mut y1) = (x, y, x + w, y + h);
+        for &(x, y, w, h) in it {
+            x0 = x0.min(x);
+            y0 = y0.min(y);
+            x1 = x1.max(x + w);
+            y1 = y1.max(y + h);
+        }
+        (x0, y0, x1 - x0, y1 - y0)
+    }
+
+    /// The document y of the match's top once the scroll regions' offsets are applied.
+    pub(crate) fn doc_top(&self, offsets: &HashMap<usize, f32>) -> f32 {
+        self.origin().1 - self.regions.iter().map(|r| region_offset(r, offsets)).sum::<f32>()
+    }
+
+    /// The rectangles to paint, in document space (the page's own scroll not applied): each shifted
+    /// by the regions' offsets and clipped to every region's box; fully clipped ones are dropped.
+    pub(crate) fn visible_rects(&self, offsets: &HashMap<usize, f32>) -> Vec<Rect> {
+        let offs: Vec<f32> = self.regions.iter().map(|r| region_offset(r, offsets)).collect();
+        let total: f32 = offs.iter().sum();
+        // Clip boxes in document space: region i's box sits in the frame shifted by the outer offsets.
+        let mut acc = 0.0;
+        let mut clips = Vec::new();
+        for (r, o) in self.regions.iter().zip(&offs) {
+            clips.push((r.rect.0, r.rect.1 - acc, r.rect.2, r.rect.3));
+            acc += o;
+        }
+        let mut out = Vec::new();
+        'rects: for &(x, y, w, h) in &self.rects {
+            let (mut x0, mut y0, mut x1, mut y1) = (x, y - total, x + w, y - total + h);
+            for &(cx, cy, cw, ch) in &clips {
+                x0 = x0.max(cx);
+                y0 = y0.max(cy);
+                x1 = x1.min(cx + cw);
+                y1 = y1.min(cy + ch);
+                if x1 <= x0 || y1 <= y0 {
+                    continue 'rects;
+                }
+            }
+            out.push((x0, y0, x1 - x0, y1 - y0));
+        }
+        out
+    }
+
+    /// S4: the scroll offsets that bring the match on screen, innermost region first, then the
+    /// page. Returns the regions that must change `(id, node, new offset)` and the page's new
+    /// offset (`None`: the page stays). A region or the page that already shows the whole match
+    /// does not move; otherwise the match is vertically centred (clamped to the scroll range).
+    pub(crate) fn reveal(
+        &self,
+        offsets: &HashMap<usize, f32>,
+        page_offset: f32,
+        view_h: f32,
+        page_h: f32,
+    ) -> (Vec<(usize, usize, f32)>, Option<f32>) {
+        let (_, by, _, bh) = self.bbox();
+        let mut offs: Vec<f32> = self.regions.iter().map(|r| region_offset(r, offsets)).collect();
+        let mut changes = Vec::new();
+        for i in (0..self.regions.len()).rev() {
+            let r = &self.regions[i];
+            // The match's top in the frame the region's box lives in.
+            let top = by - offs[i..].iter().sum::<f32>();
+            let (_, ry, _, rh) = r.rect;
+            if top >= ry && top + bh <= ry + rh {
+                continue;
+            }
+            let want = offs[i] + (top + bh / 2.0) - (ry + rh / 2.0);
+            let next = want.clamp(0.0, r.max_scroll);
+            if (next - offs[i]).abs() > f32::EPSILON {
+                offs[i] = next;
+                changes.push((r.id, r.node, next));
+            }
+        }
+        let top = by - offs.iter().sum::<f32>();
+        let page = if top >= page_offset && top + bh <= page_offset + view_h {
+            None
+        } else {
+            Some((top + bh / 2.0 - view_h / 2.0).clamp(0.0, (page_h - view_h).max(0.0)))
+        };
+        (changes, page)
+    }
 }
 
 impl SearchMatch {
@@ -84,7 +195,7 @@ pub(crate) fn find_matches(lines: &[SearchLine], query: &str) -> Vec<SearchMatch
         while i + q.len() <= n {
             if q.iter().enumerate().all(|(k, &qc)| chars_eq(line.chars[i + k].ch, qc, sensitive)) {
                 let end = i + q.len();
-                out.push(SearchMatch { line: li, start: i, end, rects: match_rects(&line.chars[i..end]) });
+                out.push(SearchMatch { line: li, start: i, end, rects: match_rects(&line.chars[i..end]), regions: line.regions.clone() });
                 i = end;
             } else {
                 i += 1;
@@ -129,9 +240,15 @@ pub(crate) fn nearest_match(matches: &[SearchMatch], from: (f32, f32)) -> Option
     best.map(|(i, _)| i)
 }
 
-/// T23: the first match (document order) whose top is at or below `top` (document y), or `None`.
-pub(crate) fn first_at_or_below(matches: &[SearchMatch], top: f32) -> Option<usize> {
-    matches.iter().position(|m| m.origin().1 >= top)
+/// T23: the first match (document order) whose top is at or below `top` (document y), or `None`,
+/// with the scroll regions' offsets applied to every match.
+pub(crate) fn first_at_or_below_in(matches: &[SearchMatch], top: f32, offsets: &HashMap<usize, f32>) -> Option<usize> {
+    matches.iter().position(|m| m.doc_top(offsets) >= top)
+}
+
+/// The last match whose top is above `top` (document y), for `N` with no current match.
+pub(crate) fn last_above_in(matches: &[SearchMatch], top: f32, offsets: &HashMap<usize, f32>) -> Option<usize> {
+    matches.iter().rposition(|m| m.doc_top(offsets) < top)
 }
 
 /// The text of one shaped paragraph as `SearchLine`s (one per buffer line), placed at `(ox, oy)`;
@@ -168,13 +285,23 @@ fn buffer_lines(entry: &std::sync::Mutex<crate::layout::ShapedParagraph>, ox: f3
 /// Walks the laid-out tree in document order and collects every block of text. A `position:
 /// fixed` subtree is skipped (its rectangles are viewport-space, not document-space).
 pub(crate) fn collect_lines(laid: &Laid, cache: &ShapeCache, out: &mut Vec<SearchLine>) {
+    collect_in(laid, cache, &mut Vec::new(), out);
+}
+
+fn collect_in(laid: &Laid, cache: &ShapeCache, regions: &mut Vec<SearchRegion>, out: &mut Vec<SearchLine>) {
     if laid.fixed {
         return;
+    }
+    let start = out.len();
+    // This box's own content is inside its own scroll region (its positioned children are not).
+    let own = laid.scroll.map(|i| SearchRegion { id: i.id, node: i.node, rect: (laid.x, laid.y, laid.w, laid.h), max_scroll: i.max_scroll() });
+    if let Some(r) = own {
+        regions.push(r);
     }
     match &laid.content {
         LaidContent::Blocks(children) | LaidContent::TableRow(children) => {
             for c in children {
-                collect_lines(c, cache, out);
+                collect_in(c, cache, regions, out);
             }
         }
         LaidContent::Text(id) => {
@@ -210,13 +337,22 @@ pub(crate) fn collect_lines(laid: &Laid, cache: &ShapeCache, out: &mut Vec<Searc
                 out.push(joined);
             }
             for l in embedded {
-                collect_lines(l, cache, out);
+                collect_in(l, cache, regions, out);
             }
         }
         LaidContent::Image(_) => {}
     }
+    // Lines this box pushed itself have no chain yet; a child's chain already includes ours.
+    for l in &mut out[start..] {
+        if l.regions.is_empty() {
+            l.regions = regions.clone();
+        }
+    }
+    if own.is_some() {
+        regions.pop();
+    }
     for p in &laid.positioned {
-        collect_lines(p, cache, out);
+        collect_in(p, cache, regions, out);
     }
 }
 

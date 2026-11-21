@@ -76,6 +76,9 @@ pub(crate) const BINDINGS: &[Binding] = &[
     // QSEARCH1: `/` opens the search line, Esc clears the highlights (never changes the mode).
     bind(Char("/"), Mods::Any, A::EnterSearchMode),
     bind(Named(NamedKey::Escape), Mods::Any, A::ClearSearch),
+    // QSEARCH2: next / previous match (vim's `n` / `N`).
+    bind(Char("n"), Mods::Any, A::SearchNext),
+    bind(Char("N"), Mods::Any, A::SearchPrev),
     bind(Char("i"), Mods::Any, A::EnterInputMode),
     bind(Char("h"), Mods::Any, A::HistoryBack),
     bind(Char("l"), Mods::Any, A::HistoryFront),
