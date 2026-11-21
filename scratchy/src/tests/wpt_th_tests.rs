@@ -200,3 +200,137 @@ fn qwpt4a_no_result_without_the_hook() {
     let _ = fs::remove_file(&sock);
     let _ = fs::remove_dir_all(&root);
 }
+
+// ---------- QWPT4b: the runner parent (`--wpt-th`, src/wpt_th_run.rs) ----------
+
+mod qwpt4b {
+    use crate::wpt_th_run::*;
+    use std::collections::BTreeMap;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::Duration;
+
+    fn fr(status: &str, passed: usize, total: usize, np: &[(&str, &str)]) -> FileResult {
+        FileResult { status: status.into(), passed, total, nonpass: np.iter().map(|(s, n)| (s.to_string(), n.to_string())).collect() }
+    }
+
+    #[test]
+    fn child_json_parses_with_escapes_and_duplicate_names() {
+        let r = parse_child_json(r#"{"harness":"OK","message":null,"tests":[["a\tb\n","PASS",null],["x","FAIL","m \"q\""],["x","FAIL","m"],["x","PASS",null],["é","TIMEOUT",null]]}"#).unwrap();
+        assert_eq!((r.status.as_str(), r.passed, r.total), ("OK", 2, 5));
+        assert_eq!(r.nonpass, vec![("FAIL".into(), "x".into()), ("FAIL".into(), "x #2".into()), ("TIMEOUT".into(), "\u{e9}".into())]);
+        assert!(parse_child_json("not json").is_none());
+        assert!(parse_child_json(r#"{"harness":"OK"}"#).is_none());
+    }
+
+    #[test]
+    fn expected_format_round_trips() {
+        let mut m = BTreeMap::new();
+        m.insert("dom/a.html".to_string(), fr("OK", 2, 4, &[("FAIL", "tab\there"), ("PRECONDITION_FAILED", "  lead\\ing\nnl")]));
+        m.insert("dom/b.html".to_string(), fr("TIMEOUT", 0, 0, &[]));
+        m.insert("dom/w.worker.html".to_string(), fr("NOT-RUN", 0, 0, &[]));
+        let text = format_expected("dom", &m);
+        assert!(text.contains("OK           2/4  dom/a.html\n  FAIL      tab\\there\n"), "{text}");
+        assert!(text.contains("NOT-RUN           dom/w.worker.html\n"), "{text}");
+        assert_eq!(parse_expected(&text), m);
+    }
+
+    #[test]
+    fn verdicts() {
+        let e = fr("OK", 3, 4, &[("FAIL", "a")]);
+        assert_eq!(compare(&e, &e.clone()), Verdict::Same);
+        // a passing subtest now fails
+        assert!(matches!(compare(&e, &fr("OK", 2, 4, &[("FAIL", "a"), ("FAIL", "b")])), Verdict::Regression(_)));
+        // file got worse
+        assert!(matches!(compare(&e, &fr("ERROR", 0, 0, &[])), Verdict::Regression(_)));
+        assert!(matches!(compare(&e, &fr("CRASH", 0, 0, &[])), Verdict::Regression(_)));
+        // subtests appear
+        assert!(matches!(compare(&e, &fr("OK", 4, 5, &[("FAIL", "a")])), Verdict::Changed(_)));
+        // newly passing
+        assert!(matches!(compare(&e, &fr("OK", 4, 4, &[])), Verdict::NewlyPassing(_)));
+        assert!(matches!(compare(&fr("ERROR", 1, 2, &[("FAIL", "a")]), &fr("OK", 2, 2, &[])), Verdict::NewlyPassing(_)));
+        // FAIL -> TIMEOUT is a change, not a regression of a passing subtest
+        assert!(matches!(compare(&e, &fr("OK", 3, 4, &[("TIMEOUT", "a")])), Verdict::Changed(_)));
+    }
+
+    #[test]
+    fn subset_flaky_worker_and_areas() {
+        let s = parse_subset("# x\n# area: dom/nodes\na.html\n\nb.any.worker.html\n# area: url\nc.html\na.html\n");
+        assert_eq!(s.iter().map(|e| (e.path.as_str(), e.area.as_str())).collect::<Vec<_>>(), vec![("a.html", "dom/nodes"), ("b.any.worker.html", "dom/nodes"), ("c.html", "url")]);
+        assert_eq!(parse_flaky("# c\nx/y.html  # why\n\nz.html"), ["x/y.html", "z.html"].iter().map(|s| s.to_string()).collect());
+        assert!(is_worker_variant("fetch/x.any.worker.html") && is_worker_variant("a/b.serviceworker.html?x=1") && !is_worker_variant("a/worker/b.html"));
+        let a = fr("OK", 1, 2, &[("FAIL", "n")]);
+        let b = fr("OK", 2, 2, &[]);
+        let c = fr("CRASH", 0, 0, &[]);
+        let row = area_row("dom", 4, &[&a, &b, &c]);
+        assert_eq!((row.files, row.ran, row.all_pass, row.subtests, row.pass), (4, 2, 1, 4, 3));
+        assert!((row.score - 75.0).abs() < 1e-9, "{}", row.score);
+        let text = format_areas(std::slice::from_ref(&row));
+        assert!(text.contains("TOTAL"), "{text}");
+        let back = parse_areas(&text);
+        assert_eq!(back.len(), 1);
+        assert_eq!((back[0].files, back[0].pass), (4, 3));
+    }
+
+    /// A fake child: a shell script keyed on the URL it is given.
+    fn fake(dir: &std::path::Path, script: &str) -> ChildCmd {
+        let p = dir.join("child.sh");
+        fs::write(&p, script).unwrap();
+        ChildCmd { program: "sh".into(), args: vec![p.display().to_string()], verbose: false }
+    }
+
+    fn tmp(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("scratchy-qwpt4b-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    const OKJ: &str = r#"{"harness":"OK","message":null,"tests":[["one","PASS",null],["two","FAIL","x"]]}"#;
+
+    #[test]
+    fn runner_end_to_end_with_a_fake_child() {
+        let d = tmp("e2e");
+        let wd = d.join("wpt-th");
+        fs::create_dir_all(&wd).unwrap();
+        fs::write(wd.join("subset.txt"), "# area: dom\ndom/pass.html\ndom/hang.html\ndom/none.html\ndom/w.any.worker.html\ndom/flaky.html\n# area: url\nurl/p.html\n").unwrap();
+        fs::write(wd.join("flaky.txt"), "dom/flaky.html # unstable\n").unwrap();
+        let script = format!(
+            "case \"$1\" in\n *hang.html) sleep 30;;\n *none.html) ;;\n *flaky.html) echo '{{\"harness\":\"OK\",\"message\":null,\"tests\":[[\"r\",\"PASS\",null]]}}';;\n *) echo '{OKJ}';;\nesac\n"
+        );
+        let cmd = fake(&d, &script);
+        let cfg = |update: bool, area: Option<&str>| Config { dir: wd.clone(), update, area: area.map(String::from), jobs: 3, timeout: Duration::from_secs(1), verbose: false };
+        // Nothing recorded yet: UNRECORDED blocks.
+        assert_eq!(execute(&cfg(false, None), &cmd), 1);
+        assert_eq!(execute(&cfg(true, None), &cmd), 0);
+        let dom = fs::read_to_string(wd.join("expected/dom.txt")).unwrap();
+        assert!(dom.contains("OK           1/2  dom/pass.html\n  FAIL      two\n"), "{dom}");
+        assert!(dom.contains("TIMEOUT      0/0  dom/hang.html\n") && dom.contains("CRASH        0/0  dom/none.html\n"), "{dom}");
+        assert!(dom.contains("NOT-RUN           dom/w.any.worker.html\n") && !dom.contains("flaky"), "{dom}");
+        let areas = fs::read_to_string(wd.join("areas.txt")).unwrap();
+        assert!(areas.lines().any(|l| l.starts_with("url ") && l.ends_with("50.0")) && areas.contains("TOTAL"), "{areas}");
+        assert_eq!(execute(&cfg(false, None), &cmd), 0);
+        // --area only touches that area's row and file.
+        assert_eq!(execute(&cfg(false, Some("url")), &cmd), 0);
+        assert!(fs::read_to_string(wd.join("areas.txt")).unwrap().lines().any(|l| l.starts_with("dom ")));
+        // A passing subtest starts failing: REGRESSION.
+        let worse = fake(&d, &script.replace(OKJ, r#"{"harness":"OK","message":null,"tests":[["one","FAIL","x"],["two","FAIL","x"]]}"#));
+        assert_eq!(execute(&cfg(false, Some("url")), &worse), 1);
+        // A new pass does not block.
+        let better = fake(&d, &script.replace(OKJ, r#"{"harness":"OK","message":null,"tests":[["one","PASS",null],["two","PASS",null]]}"#));
+        assert_eq!(execute(&cfg(false, Some("url")), &better), 0);
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_hung_child_is_killed_and_recorded_timeout() {
+        let d = tmp("kill");
+        let cmd = fake(&d, "sleep 30\n");
+        let e = [Entry { path: "x.html".into(), area: "a".into() }];
+        let t0 = std::time::Instant::now();
+        let r = run_all(&cmd, &e, 1, Duration::from_millis(300));
+        assert_eq!(r[0].status, "TIMEOUT");
+        assert!(t0.elapsed() < Duration::from_secs(5));
+        let _ = fs::remove_dir_all(&d);
+    }
+}

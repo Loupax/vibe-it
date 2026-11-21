@@ -3811,3 +3811,29 @@ the same viewport as `innerWidth` in every mode). Ahem: `<origin>/fonts/Ahem.ttf
 wire and added to the forced-layout font system (`js_geom::install_extra_fonts`); missing = one
 stderr line. `visibilityState` is `visible` (always, E14). Not here yet: the rendering steps (rAF is
 still a timer, RO/IO as in `--js-report`; QEL1), stylesheets inserted after load, testdriver.
+
+## WPT testharness runner (QWPT4b, src/wpt_th_run.rs; R64 2.3, 2.5, 3.1)
+
+`scratchy --wpt-th <checkout> [--jobs N] [--update] [--area A] [--wire PATH] [--dir wpt-th] [--timeout SECS] [--no-scope] [-v]`,
+run from `scratchy/`. Reads `wpt-th/subset.txt` (paths relative to the checkout, one per line; `# area: NAME` comment lines
+start an area, e.g. `# area: dom/nodes`), `wpt-th/flaky.txt` (first token of a line = path, rest is the reason) and
+`wpt-th/expected/<area>.txt` (`/` in the area name becomes `-`); writes `wpt-th/areas.txt` and prints it on stdout.
+
+- **Wire:** the runner starts its OWN `wire --socket <tmp>/wire.sock --no-cookies --mount http://web-platform.test:8000=CHECKOUT
+  --mount-override /resources/testharnessreport.js=<tmp>/testharnessreport.js` (the vendor hook is embedded in the binary and
+  written to the temp dir). Never `/run/user/1000/wire.sock`; on exit only that child PID is killed. Wire binary: `--wire PATH`,
+  else `$SCRATCHY_WIRE`, else `wire` next to the scratchy executable, else `../wire/target/release/wire`, else `wire` on `$PATH`.
+- **Children:** one `--wpt-th-one` per file, `--jobs` threads (default: CPUs). 30 s real-time cap (`--timeout`): the runner
+  kills that child's own PID and records `TIMEOUT` (0/0); no output = `CRASH`. `*.worker.*`, `*.serviceworker.*`,
+  `*.sharedworker.*` are not run: `NOT-RUN` (recorded, compared, not counted in the score).
+- **Memory cap:** the runner re-execs itself once under `systemd-run --user --scope -q -p MemoryMax=6G -p MemorySwapMax=0`
+  (`SCRATCHY_WPT_TH_MEM` overrides, `--no-scope` skips; no usable systemd-run = one stderr line and no cap). One scope for runner,
+  wire and all children (a scope per child costs a D-Bus round trip per test). A runaway child is OOM-killed inside the cgroup and
+  recorded `CRASH`. Core dumps are disabled for the whole tree.
+- **Gate (exit 1):** REGRESSION (file status got worse; a subtest that was passing fails), UNRECORDED (file not in the
+  expected file), CHANGED (subtest count differs, a non-pass changed kind, harness status changed sideways). NEWLY-PASSING
+  is printed and does not block; `--update` records everything. Flaky files run and are printed, but are in neither the
+  expected files nor the areas table.
+- **areas.txt:** columns files, ran (got a result), all-pass, subtests, pass, pass%, score (mean per-file passed/total over ran
+  files, Q7 headline). With `--area` only that area's row is replaced. The R64 "scratchy <commit>" header field is left out
+  (it would change the committed file on every commit).

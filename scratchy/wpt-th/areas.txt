@@ -1,0 +1,6 @@
+# wpt-th areas at WPT ac78b567f5404b6f2dc0418ea380af3946a47fca; score = mean over files of passed/total subtests (files that ran; flaky.txt files and NOT-RUN/CRASH excluded)
+# area                        files    ran  all-pass  subtests    pass  pass%  score
+dom/nodes                         5      5         0       238     166   69.7   46.2
+dom/events                        4      3         0        26      17   65.4   58.9
+url                               2      2         0       914     578   63.2   69.1
+TOTAL                            11     10         0      1178     761   64.6   54.6

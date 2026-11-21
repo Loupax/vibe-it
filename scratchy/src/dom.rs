@@ -76,7 +76,7 @@ pub(crate) struct Args {
 /// when a parser grows an option missing from this list.
 #[cfg(test)]
 pub(crate) const CLI_OPTIONS: &[&str] =
-    &["--socket", "--no-js", "--state-dir", "--forget-site", "--motion", "--user-agent", "--js-report", "--run-timers", "--perf-report", "--missing-api-report", "--seconds", "--perf-corpus", "--budget-ms", "--wpt", "--wpt-th-one", "--subset", "--expected", "--update", "--out", "-v"];
+    &["--socket", "--no-js", "--state-dir", "--forget-site", "--motion", "--user-agent", "--js-report", "--run-timers", "--perf-report", "--missing-api-report", "--seconds", "--perf-corpus", "--budget-ms", "--wpt", "--wpt-th-one", "--wpt-th", "--jobs", "--area", "--wire", "--dir", "--timeout", "--no-scope", "--subset", "--expected", "--update", "--out", "-v"];
 
 pub(crate) fn parse_args() -> Args {
     let raw: Vec<String> = env::args().skip(1).collect();
