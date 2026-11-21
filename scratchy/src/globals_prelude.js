@@ -278,7 +278,7 @@
     if (arguments.length < 1) throw new TypeError("Failed to execute 'pushState' on 'History': 2 arguments required, but only 0 present.");
     var href = target(url), s = clone(state);
     entries.length = idx + 1;
-    entries.push({ state: s, href: href }); idx++;
+    entries.push({ state: s, href: href }); idx++; pend = idx;
     apply(href);
     if (g.__d_url_update) g.__d_url_update(href, false); // QY48: the App's URL/history
   });
@@ -294,16 +294,21 @@
   Object.defineProperty(g, '__hist_frag', { value: function (href, replace) {
     var old = loc.href;
     if (replace) entries[idx] = { state: entries[idx].state, href: href };
-    else { entries.length = idx + 1; entries.push({ state: null, href: href }); idx++; }
+    else { entries.length = idx + 1; entries.push({ state: null, href: href }); idx++; pend = idx; }
     apply(href);
     if (old !== href) tm(function () { g.dispatchEvent(new g.HashChangeEvent('hashchange', { oldURL: old, newURL: href })); });
   } });
   // `notify`: tell the App the entry moved (page-initiated go/back/forward);
   // false when the App itself drove the traversal (__hist_to).
+  // QHIST1: traversals are queued against the PENDING index (where the session history will be once the
+  // already-queued traversals have run); `idx` only moves inside the task. Any direct entry change
+  // (pushState/fragment) resyncs `pend` to `idx`.
+  var pend = 0;
   function go(n, notify, href) {
-    var to = idx + n;
+    var to = pend + n;
     if (n === 0 || to < 0 || to >= entries.length) return false;
     if (href !== undefined && entries[to].href !== href) return false;
+    pend = to;
     tm(function () {
       var old = entries[idx].href, from = idx;
       idx = to;
