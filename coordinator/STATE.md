@@ -175,3 +175,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-21 Merged #537 QREC3 a73c298.
 - 2026-11-21 #540 QREC1c READY, merging. Launched QWPT10.
 - 2026-11-21 Merged #540 QREC1c de6261b. READY: #538 QWPTPRINT (reftests 340), #542 QDOM9 (total pass 47.5 %). Filed QWPTPRINTb, QBLOBFRAME. Merge queue: #538, #542.
+- 2026-11-21 #539 QDOM8 READY (nodes 50.4 -> 53.3, total 31.8 -> 32.2); waits for QWPT10 (areas.txt). Filed QDOM8b. Launched QEL5, QDOM12.
