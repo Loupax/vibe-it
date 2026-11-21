@@ -8963,3 +8963,13 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       while `matchMedia` (`media_feature_eval`) already understands them. Make the stylesheet parser use the same
       evaluator (one implementation). Evidence: github.com 989 dropped range rules. Gates: reftests + --wpt-th
       (css/cssom, css/cssom-view areas), a grim of github.com before/after.
+
+=== from TODO.txt: --- (no header)
+- [x] QKEYS5 DONE 9eddc8a #530 [S] (P1; USER 2026-11-21: "the default mode for scratchy should be NORMAL mode"; supersedes D4's
+      "starts in input mode (for now)"; Sonnet; app.rs KeyMode init, config.rs, KEYS.md, help.html) scratchy starts
+      in NORMAL mode: a `START_MODE` knob in src/config.rs (default Normal) sets the initial `KeyMode`; navigations still
+      keep the current mode (D4 stickiness unchanged), and a click into a text control/select still switches to INPUT
+      (P4). Update KEYS.md (the start row and D4 text), src/help.html ("scratchy starts in NORMAL"), and the QKEYS2/QKEYS4
+      tests that assume the INPUT start (set the mode explicitly where a test is about input mode, and add one test
+      that a fresh App is NORMAL and one that START_MODE = Input still works). Real check: grim of a fresh window
+      showing NORMAL in the status bar, `j` scrolls straight away, `i` enters INPUT.
