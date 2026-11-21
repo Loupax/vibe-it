@@ -8789,3 +8789,9 @@ Item QINC1h2 (REGRESSIONS.md R60 section 15). `layout.rs`: `natural_width_impl` 
 > QSEARCH3 [S] Enter in normal mode with a current match does a real CLICK on the element holding the match (S7; KEYS.md T18-T20): a match spanning 2+ links warns and clicks nothing.
 
 **What changed:** `Enter` row in BINDINGS (`Action::ActivateMatch`, `App::activate_match`). `SearchChar`/`SearchMatch` now carry the DOM element of each char (`nodes`). The click goes through `click_activate` then the same link-follow as a mouse release (page handlers first, preventDefault cancels, buttons/labels work). Two or more distinct nearest `a[href]` ancestors: status `Match spans N links`, nothing clicked. New `dom::enclosing_link`. help.html documents Enter. Tests in search_tests.rs (qsearch3_*).
+
+## QDOM7: Mutable data for Comment (agent item)
+
+> QDOM7 [S] (P1; Sonnet; js_dom.rs `text_write_changes`, `cdReplace`, DomTable; R65) Mutable data for Comment: rcdom's `Comment { contents }` is not a cell; MutationObserver characterData records as for Text.
+
+**What changed:** js_dom.rs: instead of replacing the node (which would break every pointer-keyed table), a thread-local override map `COMMENT_DATA` (node pointer -> (Handle, text)) holds a written Comment's data; `comment_data()` is read by `__d_text`, `serialize_node`, `clone_node_body`, `text_write_changes`; `__d_settext` writes it, so `data`, `nodeValue`, `textContent` and the CharacterData editing methods work on Comment. The `__d_settext` observer hook records characterData (with old value) for kind 8 as for Text. Limit: rcdom's own serializer (used only by test helpers) does not see the override. WPT dom/nodes 42.4 -> 43.0 (CharacterData-{appendData,data,deleteData,insertData,replaceData,substringData,surrogates} and Node-textContent gain subtests); total 29.0 -> 29.1; reftests unchanged.

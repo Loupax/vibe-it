@@ -8,65 +8,23 @@ OK           4/9  dom/nodes/CharacterData-appendChild.html
   FAIL      ProcessingInstruction.appendChild(Text)
   FAIL      ProcessingInstruction.appendChild(Comment)
   FAIL      ProcessingInstruction.appendChild(ProcessingInstruction)
-OK          8/14  dom/nodes/CharacterData-appendData.html
+OK         12/14  dom/nodes/CharacterData-appendData.html
   FAIL      Text.appendData()
-  FAIL      Comment.appendData('bar')
-  FAIL      Comment.appendData(non-ASCII)
-  FAIL      Comment.appendData(null)
-  FAIL      Comment.appendData(undefined)
   FAIL      Comment.appendData()
-OK          8/16  dom/nodes/CharacterData-data.html
+OK         14/16  dom/nodes/CharacterData-data.html
   FAIL      Text.data = null
   FAIL      Comment.data = null
-  FAIL      Comment.data = undefined
-  FAIL      Comment.data = 0
-  FAIL      Comment.data = ''
-  FAIL      Comment.data = '--'
-  FAIL      Comment.data = '資料'
-  FAIL      Comment.data = '🌠 test 🌠 TEST'
-OK         11/18  dom/nodes/CharacterData-deleteData.html
-  FAIL      Comment.deleteData() at the start
-  FAIL      Comment.deleteData() at the end
-  FAIL      Comment.deleteData() in the middle
-  FAIL      Comment.deleteData() with small negative count
-  FAIL      Comment.deleteData() with large negative count
-  FAIL      Comment.deleteData() with non-ascii data
-  FAIL      Comment.deleteData() with non-BMP data
-OK         12/18  dom/nodes/CharacterData-insertData.html
-  FAIL      Comment.insertData() negative in bounds
-  FAIL      Comment.insertData() at the start
-  FAIL      Comment.insertData() in the middle
-  FAIL      Comment.insertData() at the end
-  FAIL      Comment.insertData() with non-ascii data
-  FAIL      Comment.insertData() with non-BMP data
+OK         18/18  dom/nodes/CharacterData-deleteData.html
+OK         18/18  dom/nodes/CharacterData-insertData.html
 ERROR        0/0  dom/nodes/CharacterData-remove.html
-OK         18/34  dom/nodes/CharacterData-replaceData.html
-  FAIL      Comment.replaceData() with clamped count
-  FAIL      Comment.replaceData() with negative clamped count
-  FAIL      Comment.replaceData() before the start
-  FAIL      Comment.replaceData() at the start (shorter)
-  FAIL      Comment.replaceData() at the start (equal length)
-  FAIL      Comment.replaceData() at the start (longer)
-  FAIL      Comment.replaceData() in the middle (shorter)
-  FAIL      Comment.replaceData() in the middle (equal length)
-  FAIL      Comment.replaceData() in the middle (longer)
-  FAIL      Comment.replaceData() at the end (shorter)
-  FAIL      Comment.replaceData() at the end (same length)
-  FAIL      Comment.replaceData() at the end (longer)
-  FAIL      Comment.replaceData() the whole string
-  FAIL      Comment.replaceData() with the empty string
-  FAIL      Comment.replaceData() with non-ASCII data
-  FAIL      Comment.replaceData() with non-BMP data
-OK         24/28  dom/nodes/CharacterData-substringData.html
+OK         34/34  dom/nodes/CharacterData-replaceData.html
+OK         26/28  dom/nodes/CharacterData-substringData.html
   FAIL      Text.substringData() with too few arguments
   FAIL      Comment.substringData() with too few arguments
-  FAIL      Comment.substringData() with non-ASCII data
-  FAIL      Comment.substringData() with non-BMP data
-OK           1/8  dom/nodes/CharacterData-surrogates.html
+OK           2/8  dom/nodes/CharacterData-surrogates.html
   FAIL      Text.replaceData() splitting and creating surrogate pairs
   FAIL      Text.deleteData() splitting and creating surrogate pairs
   FAIL      Text.insertData() splitting and creating surrogate pairs
-  FAIL      Comment.substringData() splitting surrogate pairs
   FAIL      Comment.replaceData() splitting and creating surrogate pairs
   FAIL      Comment.deleteData() splitting and creating surrogate pairs
   FAIL      Comment.insertData() splitting and creating surrogate pairs
@@ -1949,7 +1907,7 @@ OK         11/29  dom/nodes/Node-replaceChild.html
   FAIL      If the context node is an element, inserting a document or a doctype should throw a HierarchyRequestError.
   FAIL      Replacing a node with itself should not move the node
   FAIL      If the context node is a document, inserting a new doctype should work.
-OK         35/81  dom/nodes/Node-textContent.html
+OK         36/81  dom/nodes/Node-textContent.html
   FAIL      Element with children
   FAIL      Element with descendants
   FAIL      DocumentFragment with children
@@ -1990,7 +1948,6 @@ OK         35/81  dom/nodes/Node-textContent.html
   FAIL      DocumentFragment with children set to "d\\0e"
   FAIL      DocumentFragment with descendants set to "d\\0e"
   FAIL      For a ProcessingInstruction, textContent should set the data
-  FAIL      For a Comment, textContent should set the data
   FAIL      For Documents created by parser, setting textContent should do nothing
   FAIL      For Documents created by createDocument, setting textContent should do nothing
   FAIL      For Documents created by createHTMLDocument, setting textContent should do nothing

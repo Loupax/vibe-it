@@ -2057,3 +2057,23 @@ fn qdom4_passive_by_default_on_window_document_html_body() {
     );
     assert_eq!(log, ["log:touchstart ppppc", "log:wheel ppppc", "log:click ccccc", "log:true"], "{log:?}");
 }
+
+// QDOM7: Comment data is mutable (data setter, nodeValue, textContent, CharacterData editing), seen by serialization, clone
+// and characterData records.
+#[test]
+fn qdom7_comment_data_is_mutable() {
+    let (log, body) = mutate(
+        "<html><body><div id=d><!--abc--></div></body></html>",
+        "var d=document.getElementById('d'), c=d.firstChild;\
+         var mo=new MutationObserver(function(){}); mo.observe(d,{characterData:true,subtree:true,characterDataOldValue:true});\
+         c.data='xyz'; c.appendData('!'); c.insertData(1,'--'); c.deleteData(0,1); c.replaceData(0,1,'Q');\
+         console.log(c.data, c.nodeValue, c.textContent, c.length, c.substringData(1,2), c.cloneNode().data);\
+         console.log(mo.takeRecords().map(function(x){ return x.type+':'+x.oldValue; }).join(',')); c.nodeValue='nv'; c.textContent='tc'; console.log(c.data, d.innerHTML, d.textContent);",
+    );
+    let _ = body; // the helper serializes with rcdom's own serializer, which does not see the override
+    assert_eq!(
+        log,
+        ["log:Q-yz! Q-yz! Q-yz! 5 -y Q-yz!", "log:characterData:abc,characterData:xyz,characterData:xyz!,characterData:x--yz!,characterData:--yz!", "log:tc <!--tc--> "],
+        "{log:?}"
+    );
+}
