@@ -325,7 +325,7 @@ QKEYS — input mode / normal mode, Esc Esc, `i`, status bar (user design sessio
       QCFG1's list; `:help` and NOTES.md describe the two modes and Esc Esc instead. Keep
       every existing test that still applies; rewrite the ones that tested the toggle.
 
-- [ ] QKEYS4 [S] (P3, after QKEYS2) Input-mode default scroll keys (P6): arrows,
+- [ ] [WIP] QKEYS4 [S] (P3, after QKEYS2) Input-mode default scroll keys (P6): arrows,
       PageUp/PageDown, Space/Shift-Space, after the page's keydown and only when nothing
       focused owns the key. NOTE 2026-11-20: QYSCR1 (#437) already added these keys to
       `resolve_binding`; after QKEYS2 they must keep working in input mode, as UA defaults,
