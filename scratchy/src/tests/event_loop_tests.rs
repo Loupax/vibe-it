@@ -3,8 +3,10 @@
 use super::*;
 use crate::event_loop::{FRAME_MS, RenderingHost, headless_frame, headless_frame_due, update_the_rendering};
 
+type Clocked = (crate::js::JsEngine, Rc<std::cell::Cell<f64>>, Rc<RefCell<Vec<String>>>);
+
 /// An engine on a manual clock whose console lines go to the returned log.
-fn clocked(code: &str) -> (crate::js::JsEngine, Rc<std::cell::Cell<f64>>, Rc<RefCell<Vec<String>>>) {
+fn clocked(code: &str) -> Clocked {
     let out = Rc::new(RefCell::new(Vec::new()));
     let o = out.clone();
     let clock = Rc::new(std::cell::Cell::new(0.0));
@@ -150,6 +152,13 @@ fn qel1_driver_runs_the_html_step_order() {
     )
     .unwrap();
     let mut host = Probe { js, steps: steps.clone() };
-    assert_eq!(update_the_rendering(&mut host, FRAME_MS), 1);
+    assert_eq!(update_the_rendering(&mut host, Some(FRAME_MS)), 1);
     assert_eq!(*steps.borrow(), ["resize", "scroll", "mql", "animations", "rAF", "style+layout", "observers", "paint"]);
+    // An update that is not an animation frame (only a resize or an animation event is due) runs
+    // the other steps and leaves the rAF list alone.
+    host.js.eval("t", "requestAnimationFrame(function(){ console.log('early rAF'); });");
+    steps.borrow_mut().clear();
+    assert_eq!(update_the_rendering(&mut host, None), 0);
+    assert_eq!(*steps.borrow(), ["resize", "scroll", "mql", "animations", "style+layout", "observers", "paint"]);
+    assert!(host.js.raf_due_ms().is_some(), "the rAF still waits for its frame");
 }
