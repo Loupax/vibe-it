@@ -59,7 +59,7 @@ OK           0/6  css/cssom-view/MediaQueryListEvent.html
   FAIL      argument of onchange
   FAIL      constructor of "change" event
 OK           2/2  css/cssom-view/Screen-pixelDepth-Screen-colorDepth001.html
-TIMEOUT      0/1  css/cssom-view/background-change-during-smooth-scroll.html
+ERROR        0/1  css/cssom-view/background-change-during-smooth-scroll.html
   NOTRUN    background change during smooth scroll
 OK          0/21  css/cssom-view/checkVisibility.html
   FAIL      checkVisibility on visibility:hidden element.

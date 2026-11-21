@@ -87,8 +87,8 @@ OK           1/1  webmessaging/message-channels/basics.any.html
 OK           4/6  webmessaging/message-channels/close.any.html
   FAIL      Message sent to closed port from transferred port should not arrive.
   FAIL      close() detaches a MessagePort (but not the one its entangled with)
-OK           0/1  webmessaging/message-channels/cross-document.html
-  FAIL      cross-document channel
+TIMEOUT      0/1  webmessaging/message-channels/cross-document.html
+  TIMEOUT   cross-document channel
 ERROR        0/0  webmessaging/message-channels/detached-iframe.window.html
 OK           1/1  webmessaging/message-channels/dictionary-transferrable.any.html
 OK           3/3  webmessaging/message-channels/historical.any.html
@@ -161,12 +161,11 @@ OK           1/1  webmessaging/with-ports/014.html
 OK           1/1  webmessaging/with-ports/015.html
 OK           0/1  webmessaging/with-ports/016.html
   FAIL      origin of the script that invoked the method, data:
-OK           0/1  webmessaging/with-ports/017.html
-  FAIL      origin of the script that invoked the method, about:blank
+OK           1/1  webmessaging/with-ports/017.html
 OK           0/1  webmessaging/with-ports/018.html
   FAIL      origin of the script that invoked the method, javascript:
-OK           0/1  webmessaging/with-ports/019.html
-  FAIL      origin of the script that invoked the method, scheme/host/port
+TIMEOUT      0/1  webmessaging/with-ports/019.html
+  TIMEOUT   origin of the script that invoked the method, scheme/host/port
 TIMEOUT      0/1  webmessaging/with-ports/020.html
   NOTRUN    cross-origin test
 TIMEOUT      0/1  webmessaging/with-ports/021.html
@@ -203,12 +202,11 @@ OK           1/1  webmessaging/without-ports/014.html
 OK           1/1  webmessaging/without-ports/015.html
 OK           0/1  webmessaging/without-ports/016.html
   FAIL      origin of the script that invoked the method, data:
-OK           0/1  webmessaging/without-ports/017.html
-  FAIL      origin of the script that invoked the method, about:blank
+OK           1/1  webmessaging/without-ports/017.html
 OK           0/1  webmessaging/without-ports/018.html
   FAIL      origin of the script that invoked the method, javascript:
-OK           0/1  webmessaging/without-ports/019.html
-  FAIL      origin of the script that invoked the method, scheme/host/port
+TIMEOUT      0/1  webmessaging/without-ports/019.html
+  TIMEOUT   origin of the script that invoked the method, scheme/host/port
 TIMEOUT      0/1  webmessaging/without-ports/020.html
   NOTRUN    cross-origin test
 TIMEOUT      0/1  webmessaging/without-ports/021.html

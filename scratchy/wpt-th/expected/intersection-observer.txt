@@ -3,7 +3,8 @@ OK           0/1  intersection-observer/animating.html
   FAIL      IntersectionObserver generates notifications when a transform animation changes intersection state
 OK           0/1  intersection-observer/bounding-box.html
   FAIL      Test that the target's border bounding box is used to calculate intersection.
-TIMEOUT      0/0  intersection-observer/callback-cross-realm-report-exception.html
+OK           0/1  intersection-observer/callback-cross-realm-report-exception.html
+  FAIL      IntersectionObserver reports the exception from its callback in the callback's global object
 OK           0/1  intersection-observer/client-rect.html
   FAIL      IntersectionObserverEntry.boundingClientRect should match target.boundingClientRect()
 OK           0/1  intersection-observer/clip-path-animation.html

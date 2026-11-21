@@ -85,8 +85,11 @@ pub(crate) fn headless_frame(js: &JsEngine, now: f64) -> usize {
 }
 
 /// Headless: the earliest of the next timer and the next rendering frame (ms on the page clock).
+/// The frame is asked first: `next_due_ms` checks for deferred promise jobs after its own eval, so
+/// it must be the last eval before the caller jumps the clock.
 pub(crate) fn headless_next_due(js: &JsEngine) -> Option<f64> {
-    match (js.next_due_ms(), headless_frame_due(js)) {
+    let frame = headless_frame_due(js);
+    match (js.next_due_ms(), frame) {
         (Some(a), Some(b)) => Some(a.min(b)),
         (a, b) => a.or(b),
     }
