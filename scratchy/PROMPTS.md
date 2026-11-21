@@ -8899,3 +8899,9 @@ Item QINC1h2 (REGRESSIONS.md R60 section 15). `layout.rs`: `natural_width_impl` 
 > QREG1 [S] (P2, user 2026-11-21) Registers `%` (the status bar URL, read-only) and `+` (the system clipboard), `:let @dst = @src`, `yy` = `:let @+ = @%`, the pending-`g` machine as a `KEY_SEQUENCES` table in config.rs.
 
 **What changed:** new registers.rs (`:let` parsing and messages); `resolve_sequence` replaces `resolve_pending_g` (`App::pending_seq`); `Action::YankUrl` ignores key repeat; `clipboard_set` returns whether the system clipboard took the text; help rows; KEYS.md T54-T56 and "Registers" now built.
+
+## QREC3: record the gate pages, replay series (agent item)
+
+> QREC3 [S] Record the 7 gate pages; run.sh/gate.sh REPLAY=DIR; measure recording sizes and 3-run variance of the summarize.py columns live vs replay; write the numbers into R64.
+
+**What changed:** `tools/incr-gate/run.sh` takes `RECORD=DIR` (fresh wire, `--no-cookies --record DIR/<page>`, dirs 0700) and `REPLAY=DIR` (wire `--replay DIR/<page> --replay-rules tools/incr-gate/replay-rules.txt --replay-delay 5ms`; headless runs also `--deterministic=<index.jsonl mtime ms>`; `replay_misses=N` in the .meta); `gate.sh replay` / `replay-headless` (live vs replay interleaved) and `variance.py` (3-run min/median/max per summarize column). `replay-rules.txt` holds rules only (`* _,cb`, YouTube `rn,cpn,t`); no recording is in the repo (Q5, recordings in `~/.cache/scratchy/recordings`). Numbers in R64 section 6: 6 network pages record to 41 MB / 515 files; replay steadies counts (ytr forced n spread 53% to 7%) but not the ms columns on a shared machine; found a wire replay bug (path fallback answers a different query, wiki replay runs nothing).
