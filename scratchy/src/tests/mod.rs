@@ -28,6 +28,7 @@ mod navigation_tests;
 mod net_policy_tests;
 mod paint_tests;
 mod perf_tests;
+mod missing_api_tests;
 mod incr_fuzz_tests;
 mod zhoist_tests;
 mod positioning_tests;
