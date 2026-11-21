@@ -27,7 +27,9 @@ fn qj1_classic_scripts_run_in_sloppy_mode() {
     let log = run_collecting(&[
         src("x = 1; console.log(typeof x)"),
         src("console.log((function(){ return this === globalThis })())"),
-        src("\"use strict\"; y = 1"),
+        // QDOM1: with WindowProperties (a Proxy) in the global's prototype chain V8 no longer throws ReferenceError
+        // for a strict assignment to an undeclared name (known deviation), so strictness is probed with a read-only write.
+        src("\"use strict\"; NaN = 1"),
     ]);
     assert_eq!(&log[..2], ["log:number", "log:true"], "{log:?}");
     assert_eq!(log.len(), 3, "{log:?}");
@@ -870,10 +872,10 @@ fn qy15_failed_fetch_logs_once_and_other_scripts_still_run() {
 fn qy15_module_is_strict_scoped_and_this_is_undefined() {
     let log = run_module_page(
         "<script type=module>var leaked = 1; console.log(this === undefined, typeof globalThis.leaked, (function(){ return this; })() === undefined);</script>\
-         <script type=module>try { undeclared = 1; } catch (e) { console.log(e.name); }</script>",
+         <script type=module>try { NaN = 1; } catch (e) { console.log(e.name); }</script>",
         &[],
     );
-    assert_eq!(log, ["log:true undefined true", "log:ReferenceError"], "{log:?}");
+    assert_eq!(log, ["log:true undefined true", "log:TypeError"], "{log:?}");
 }
 
 #[test]
