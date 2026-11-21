@@ -652,3 +652,38 @@ fn qinc1i4_restart_adopts_the_builds_styles() {
     assert!(!s.full && s.adopted == 0, "{s:?}");
     incr_style::set_adopt_verify(v);
 }
+
+/// QINC1k4: a `::before`/`::after` whose `calc()` keeps a `%` captures the viewport pair at cascade
+/// time (`BoxLength::Calc`), so it reads the viewport height even when the element's own style does
+/// not. The engine kept only the element slot's read flag: after a height change the pseudo kept the
+/// old pair (github.com window check: `Calc(.., (956.0, 312.0)) vs (956.0, 485.0)`). Each build panics
+/// on a mismatch with the from-scratch styles; covered after a restart (adopted, verified and not),
+/// after an incremental re-match of the element, and with a `vh` leaf in the pseudo's calc.
+#[test]
+fn qinc1k4_pseudo_calc_viewport_height_change_recascades() {
+    let _g = LogOnly::new();
+    let css = "#a::before{content:'>';display:inline-block;width:calc(100% - 4px)} \
+               #b::after{content:'<';display:inline-block;height:calc(50% + 10vh)} .x{color:red}";
+    let doc = page(css, KIDS);
+    let s = build_vh(&doc, 600.0);
+    assert!(s.full && s.resolved == 0, "restart adopts: {s:?}");
+    // height change right after the (verified) adoption: both pseudo owners re-cascade
+    let s = build_vh(&doc, 312.0);
+    assert!(!s.full);
+    assert_eq!(s.recascaded, 2, "#a and #b re-cascade for their pseudos: {s:?}");
+    // the elements re-matched incrementally (not adopted), then the height moves again
+    set_attr(&by_id(&doc, "a"), "class", Some("x"));
+    set_attr(&by_id(&doc, "b"), "class", Some("x"));
+    let s = build_vh(&doc, 312.0);
+    assert!(!s.full && s.rematched == 2, "{s:?}");
+    let s = build_vh(&doc, 485.0);
+    assert_eq!(s.recascaded, 2, "{s:?}");
+    // SCRATCHY_INCR=1: a restart adopted without the verifying cascade keeps the pseudo's flag too
+    let v = incr_style::set_adopt_verify(false);
+    set_style_text(&doc, &css.replace("red", "navy"));
+    let s = build_vh(&doc, 485.0);
+    assert!(s.full && s.resolved == 0, "{s:?}");
+    let s = build_vh(&doc, 640.0);
+    assert_eq!(s.recascaded, 2, "vh flags of adopted pseudo slots: {s:?}");
+    incr_style::set_adopt_verify(v);
+}
