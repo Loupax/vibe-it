@@ -103,6 +103,8 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       matches and `not print` does not. Then css/printing/transition-in-media-print.tentative.html passes again for the
       right reason (it was accepted as failing in #527). Record changes with --update; list every print test that
       changes.
+- [ ] QWPTPRINTb [S] (P3, from QWPTPRINT #538; Sonnet; wpt.rs) `reftest-pages` print reftests: paginate at the print page
+      size and compare every listed page (today only page 1 is rendered).
 - [ ] QCSS1b [S] (P2, from QCSS1 #527; Sonnet; css.rs, dom.rs stylesheet collection) Honour `media` on `<link rel=stylesheet>`,
       `<style media>` and `@import url(...) media` with `media_query_string_matches` (today ignored: always applied).
 - [ ] QCSS2 [S] (P2, from QMAPI2 #523; Sonnet; css.rs parse_supports_condition, js.rs) `CSS.supports(prop, value)` and
