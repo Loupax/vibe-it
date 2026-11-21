@@ -38,7 +38,7 @@ CONFORMANCE (R64 plan, merged #474; user accepted all R64 s7 recommendations 202
 Order: QWPT2 -> QWPT3 -> QWPT4a -> QWPT4b -> QWPT5/QWPT6, with QMAPI1 and QREC1 in parallel (other
 crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details: REGRESSIONS.md R64.
 
-- [ ] QWPT3 [M] (P1; Sonnet; wire only; R64 2.4 option 3; user answered Q1 2026-11-21) wire static mount.
+- [ ] [WIP] QWPT3 [M] (P1; Sonnet; wire only; R64 2.4 option 3; user answered Q1 2026-11-21) wire static mount.
       `wire --mount http://web-platform.test:8000=DIR` (+ www/www1/www2 subdomains and :8001 as
       aliases): files with Content-Type by extension, `<file>.headers` and `__dir__.headers`,
       generated wrappers for `x.any.js` (served at x.any.html) and `x.window.js` (x.window.html, META
@@ -109,7 +109,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       parser-blocking scripts during parsing (scripts see the partial DOM), defer/async ordering,
       DOMContentLoaded/load as tasks. Measure html/semantics/scripting-1 and dynamic-markup-insertion
       first; write the design for the user.
-- [ ] QMAPI1 [M] (P1; Sonnet; new src/missing_api.rs + prelude; R64 section 5; independent) Missing-API
+- [ ] [WIP] QMAPI1 [M] (P1; Sonnet; new src/missing_api.rs + prelude; R64 section 5; independent) Missing-API
       report mode `scratchy --missing-api-report [--socket S] [--seconds N] URL...`: one forwarding
       Proxy at the end of the window and DOM prototype chains (get/has traps record misses, answers
       unchanged), IDL member list generated from WPT interfaces/*.idl (tool script + committed JSON),
@@ -236,13 +236,13 @@ QSTASH — persistent web storage (user design session 2026-11-19; full design i
 
 - [ ] QSB2 [S] (P3, from QSB1 #483; Sonnet) Scrollbar polish: holding the mouse on the track repeats page scroll
       (delay then repeat, like other browsers); thumb hover/active styling; horizontal scrollbars (window and regions).
-- [ ] QSTASH3 [S] (NOTE from #481: the clear-site request needs the control token: build it with `control_token(socket, false)` + `cookie_control_headers(op, page, token)` and re-read on a 403) (P3, after QSTASH1 and QSTASH5) `scratchy --forget-site <site or
+- [ ] [WIP] QSTASH3 [S] (NOTE from #481: the clear-site request needs the control token: build it with `control_token(socket, false)` + `cookie_control_headers(op, page, token)` and re-read on a 403) (P3, after QSTASH1 and QSTASH5) `scratchy --forget-site <site or
       URL>`: stash forget (lock, `rm -r`, generation bump) plus wire `X-Wire-Cookie-Op:
       clear-site`; if wire is unreachable the stash part still runs and the log says the
       cookies were not cleared. A key binding is a later item. Test: forget removes the
       directory, bumps the generation, and an open page's later commit is dropped.
 
-- [ ] QSTASH4 [S] (P3, any time after the perf queue) sessionStorage lives per window
+- [ ] [WIP] QSTASH4 [S] (P3, any time after the perf queue) sessionStorage lives per window
       across navigations: kept in Rust per origin for the life of the scratchy process,
       copied into each new page realm at start and written back from the page's ops.
       Never on disk. Today each page gets a new realm (`startup_engine`), so it is lost
@@ -475,7 +475,7 @@ QCOMP — scriptable command completion, history file, config in code (user desi
 Order (feature work: after the perf queue): QCONF1 -> QCOMP1 -> QCOMP2; QCOMP3 after QSTASH1
 (state directory); QCOMP4 after QCOMP1 and QCOMP3.
 
-- [ ] QCONF1 [S] (P2, after the perf queue) REFACTOR ONLY, no behaviour change: new
+- [ ] [WIP] QCONF1 [S] (P2, after the perf queue) REFACTOR ONLY, no behaviour change: new
       `src/config.rs` holding every user-tunable constant that exists today, with a short
       comment each: the key bindings (turn `resolve_binding`'s `match` into a table in
       config.rs that `resolve_binding` reads), scroll step sizes (`SCROLL_LINE_PX` etc.),
