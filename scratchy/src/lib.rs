@@ -103,6 +103,7 @@ mod mse_store;
 mod js_media;
 #[cfg(feature = "media")]
 mod media_mpv;
+mod config;
 mod app;
 mod wl_drain;
 #[cfg(not(feature = "engine-v8"))]
@@ -152,6 +153,7 @@ pub(crate) use net::*;
 pub(crate) use net_policy::*;
 pub(crate) use user_agent::*;
 pub(crate) use app::*;
+pub(crate) use config::SET_ARGS;
 pub(crate) use js::*;
 pub(crate) use js_net::{NetScheduler, WireExecutor};
 

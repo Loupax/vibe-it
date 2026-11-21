@@ -6,10 +6,8 @@
 //! `overflow: scroll|auto` region). The thumb length is `track * client / content`
 //! (at least 16 px) and its offset is `scroll / max_scroll * (track - thumb)`.
 
-/// Width of the overlay track, px.
-pub(crate) const TRACK_W: f32 = 8.0;
-/// Shortest thumb, px (never longer than the track).
-pub(crate) const MIN_THUMB_H: f32 = 16.0;
+// Tunables live in `config.rs` (QCONF1).
+pub(crate) use crate::config::{MIN_THUMB_H, TRACK_W};
 
 /// Where on a bar a press landed.
 #[derive(Clone, Copy, Debug, PartialEq)]
