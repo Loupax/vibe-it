@@ -6,6 +6,17 @@ use super::*;
 use markup5ever_rcdom::Node;
 use crate::js_engine::{self, native, Ctx};
 
+thread_local! {
+    /// QDOM7: rcdom's `Comment { contents }` is not a cell, so a data write keeps the new text here, keyed by the node's pointer
+    /// (the handle is held so the pointer cannot be reused while the entry lives).
+    static COMMENT_DATA: RefCell<HashMap<usize, (Handle, String)>> = RefCell::new(HashMap::new());
+}
+
+/// The current data of a Comment (the override if written, else the parsed contents).
+fn comment_data(h: &Handle, orig: &str) -> String {
+    COMMENT_DATA.with(|m| m.borrow().get(&(Rc::as_ptr(h) as usize)).map(|e| e.1.clone())).unwrap_or_else(|| orig.to_string())
+}
+
 #[derive(Default)]
 pub(crate) struct DomTable {
     nodes: Vec<Handle>,
@@ -383,7 +394,7 @@ fn serialize_node(h: &Handle, outer: bool) -> String {
             }
             NodeData::Doctype { name, .. } => s.write_doctype(name),
             NodeData::Text { contents } => s.write_text(&contents.borrow()),
-            NodeData::Comment { contents } => s.write_comment(contents),
+            NodeData::Comment { contents } => s.write_comment(&comment_data(h, contents)),
             NodeData::ProcessingInstruction { target, contents } => s.write_processing_instruction(target, contents),
             NodeData::Document => {
                 for c in h.children.borrow().clone() {
@@ -429,7 +440,7 @@ fn clone_node_body(h: &Handle, deep: bool) -> Handle {
             mathml_annotation_xml_integration_point: *mathml_annotation_xml_integration_point,
         },
         NodeData::Text { contents } => NodeData::Text { contents: RefCell::new(contents.borrow().clone()) },
-        NodeData::Comment { contents } => NodeData::Comment { contents: contents.clone() },
+        NodeData::Comment { contents } => NodeData::Comment { contents: comment_data(h, contents).as_str().into() },
         _ => NodeData::Document,
     };
     let n = Node::new(data);
@@ -669,7 +680,7 @@ fn geom_bump_children(p: &Handle, pre: Option<crate::js_geom::HiddenChildren>) {
 fn text_write_changes(h: &Handle, text: &str) -> bool {
     match &h.data {
         NodeData::Text { contents } => &*contents.borrow() != text,
-        NodeData::Comment { .. } => false,
+        NodeData::Comment { contents } => comment_data(h, contents) != text,
         _ => {
             let kids = h.children.borrow();
             match kids.as_slice() {
@@ -806,7 +817,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         let mut s = String::new();
         if let Some(h) = t.borrow().get(id) {
             match &h.data {
-                NodeData::Comment { contents } => s.push_str(contents),
+                NodeData::Comment { contents } => s.push_str(&comment_data(&h, contents)),
                 _ => text_content(&h, &mut s),
             }
         }
@@ -1249,7 +1260,9 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             };
             match &h.data {
                 NodeData::Text { contents } => *contents.borrow_mut() = text.as_str().into(),
-                NodeData::Comment { .. } => {}
+                NodeData::Comment { .. } => COMMENT_DATA.with(|m| {
+                    m.borrow_mut().insert(Rc::as_ptr(&h) as usize, (h.clone(), text.clone()));
+                }),
                 _ => set_children_text(&h, &text),
             }
             if conn {
@@ -4421,7 +4434,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     __d_settext = function (id, t) {
       ceStats.hooks++;
       var k = __d_kind(id), mo = xr.mo.n > 0, old = null, oldTxt = null;
-      if (mo) { if (k === 3) oldTxt = __d_text(id); else if (k !== 8) old = __d_children(id, false); }
+      if (mo) { if (k === 3 || k === 8) oldTxt = __d_text(id); else old = __d_children(id, false); }
       var pre = xr.cn && (k === 1 || k === 11) ? cePre(id, false) : null;
       oTxt(id, t);
       if (old) { var nw = __d_children(id, false); if (old.length || nw.length) moChild(id, nw, old, -1, -1); }
