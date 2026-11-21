@@ -9029,3 +9029,11 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- (no header)
 - [x] QEL5 DONE 2f619bf #545 [S] (P2; Sonnet; js.rs TIMERS_PRELUDE) Clamp setInterval to 4 ms only at nesting level > 5.
       Gate: WPT timers/setinterval-settimeout-clamping.
+
+=== from TODO.txt: --- (no header)
+- [x] QWPT10 DONE a970657 #543 [S] (P1, coordinator: every WPT PR now conflicts on wpt-th/areas.txt; Sonnet; src/wpt_th_run.rs,
+      coordinator/merge_pr.sh) `scratchy --wpt-th --areas-only [--dir wpt-th]`: recompute areas.txt from
+      wpt-th/expected/*.txt + subset.txt + flaky.txt without running any test (same format and numbers as a full run;
+      test: a full run's areas.txt equals --areas-only on its expected files). Then merge_pr.sh: on a rebase conflict
+      that is ONLY in wpt-th/areas.txt, take either side, run --areas-only with the binary built in CI or locally
+      (document which), commit, continue; any other conflict still goes back to the agent.
