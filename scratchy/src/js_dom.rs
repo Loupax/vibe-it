@@ -574,6 +574,11 @@ pub(crate) fn geom_gen() -> u64 {
     GEOM_GEN.with(Cell::get)
 }
 
+/// QINC1k6: a decoded image arrived in the window's cache: forced-layout geometry may have changed.
+pub(crate) fn geom_bump_image() {
+    geom_bump();
+}
+
 fn geom_bump() {
     GEOM_GEN.with(|g| g.set(g.get() + 1));
 }

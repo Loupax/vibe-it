@@ -200,6 +200,36 @@ fn qinc1j_image_arrival_frame() {
     assert!(found, "the decoded image is laid out");
 }
 
+/// QINC1k6: a forced layout in the image's `load` handler already sees the decoded size (the
+/// engine's window images are updated before `load` fires, not by the next frame).
+#[test]
+fn qinc1k6_load_handler_forced_layout_sees_the_decoded_image() {
+    let html = "<html><head><style>body{margin:0}</style></head><body><p>text</p><img id=i src=\"http://example.test/a.png\"></body></html>";
+    struct Seam(Option<bool>);
+    impl Drop for Seam {
+        fn drop(&mut self) {
+            crate::incr_engine::set_forced_seam(self.0);
+        }
+    }
+    let _seam = Seam(crate::incr_engine::set_forced_seam(Some(true)));
+    let Some((mut app, _l)) = live_app(html) else { return };
+    let doc = app.document.clone();
+    app.js = run_page_scripts(
+        &doc,
+        &[src("var i = document.getElementById('i'); window.seen = 'none'; i.addEventListener('load', function () { var b = i.getBoundingClientRect(); window.seen = b.width + 'x' + b.height; });")],
+        None,
+    );
+    let Some(js) = app.js.as_ref() else { return };
+    js.set_viewport(W, H);
+    let before = js.eval_value::<String>("t", "var b = document.getElementById('i').getBoundingClientRect(); b.width + 'x' + b.height");
+    assert_ne!(before.as_deref(), Some("40x30"), "placeholder size before the image arrives");
+    let img = DecodedImage { width: 40, height: 30, pixels: vec![TextColor::rgb(1, 2, 3); 1200], svg: None, mask: None };
+    let generation = app.nav_generation;
+    app.handle_image_fetched(generation, "http://example.test/a.png".into(), Some(img));
+    let seen = app.js.as_ref().expect("js").eval_value::<String>("t", "window.seen");
+    assert_eq!(seen.as_deref(), Some("40x30"), "load handler's forced layout sees the decoded size");
+}
+
 /// A width change goes to the worker (from scratch); a height change is a main frame (only `vh`
 /// readers and the viewport-dependent boxes change).
 #[test]
