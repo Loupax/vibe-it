@@ -8893,3 +8893,9 @@ Item QINC1h2 (REGRESSIONS.md R60 section 15). `layout.rs`: `natural_width_impl` 
 > QDOM6 [S] (P1) `new Text(data)`, `new Comment(data)`, `new DocumentFragment()`, `new Document()` create real nodes (owner = the realm document; XML document, createElement keeps case); calling without `new` throws TypeError.
 
 **What changed:** js_dom.rs `nodeCtor` (replaces the `g.Text/Comment/DocumentFragment` ctors, same prototypes, subclass-aware via new.target), `DocumentCtor` (makeDoc(false, application/xml)), native `__d_create_xml` (null-namespace element, name kept as given; used by createElement of non-HTML, non-XHTML created documents), `mk` gives null-namespace non-uppercase elements `Element.prototype`. Test: js_dom_tests.rs `qdom6_node_constructors`. WPT-th nodes 43.5 -> 45.3 (22 newly passing files recorded). Left out: `Object.getPrototypeOf(new Document()) === Document.prototype` and `XMLDocument` (QDOM8); URL stays about:blank as the WPT test asserts.
+
+## QREG1: registers `%` and `+`, `:let`, `yy`, KEY_SEQUENCES (agent item)
+
+> QREG1 [S] (P2, user 2026-11-21) Registers `%` (the status bar URL, read-only) and `+` (the system clipboard), `:let @dst = @src`, `yy` = `:let @+ = @%`, the pending-`g` machine as a `KEY_SEQUENCES` table in config.rs.
+
+**What changed:** new registers.rs (`:let` parsing and messages); `resolve_sequence` replaces `resolve_pending_g` (`App::pending_seq`); `Action::YankUrl` ignores key repeat; `clipboard_set` returns whether the system clipboard took the text; help rows; KEYS.md T54-T56 and "Registers" now built.
