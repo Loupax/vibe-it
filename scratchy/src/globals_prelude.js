@@ -177,9 +177,9 @@
   // in at page start (`__scratchy_ss_load`), its ops written straight back (`__scratchy_ss_op`); never on disk. ----
   var STOK = {};
   var Storage = sub('Storage', Object, function (tok) { if (tok !== STOK) throw new TypeError('Illegal constructor'); });
-  // stash::QUOTA_UNITS: 5 Mi UTF-16 code units of keys plus values per origin (Firefox's rule); checked here
+  // config::QUOTA_UNITS (substituted for the placeholder by js.rs): UTF-16 code units of keys plus values per origin; checked here
   // so the page sees QuotaExceededError synchronously, before the op is recorded.
-  var LS_QUOTA = 5 * 1024 * 1024;
+  var LS_QUOTA = __LS_QUOTA_UNITS__;
   function makeArea(op) { return { data: new Map(), units: 0, persist: false, op: op }; }
   function areaSet(a, k, v) {
     var old = a.data.get(k);

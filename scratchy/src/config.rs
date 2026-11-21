@@ -184,3 +184,9 @@ pub(crate) const GHOST_FG: (u8, u8, u8) = (120, 120, 120);
 pub(crate) const HISTORY: bool = true;
 /// At startup a history file with more lines than this keeps only the newest ones.
 pub(crate) const HISTORY_MAX_LINES: usize = 50_000;
+
+// ---------- localStorage (QCONF2, STASH.md) ----------
+
+/// Per-origin localStorage quota: UTF-16 code units of keys plus values (the unit JS `length` counts;
+/// Firefox's rule). Past it `setItem` throws QuotaExceededError. 5 Mi units = 10 MiB of text.
+pub(crate) const QUOTA_UNITS: usize = 5 * 1024 * 1024;
