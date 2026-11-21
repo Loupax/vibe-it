@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-21 · main f0cbd25 (history rewritten: .qwork purge) · 40 PRs merged today (#475–#515) · 5 agents running (QEL1 rebasing, QDOM1, QKEYS3, QCOMP4, QCONF2)</div>
+  <div class="meta" id="updated">Updated 2026-11-21 · main 0c22208 · 44 PRs merged today (#475–#519) · 5 agents running (QEL1 rebasing, QINC1n, QDOM2, QKEYS1b, QMAPI2)</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -74,7 +74,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Measurements</h2>
   <div class="stats">
     <div class="stat"><span class="v">333 / 626</span><span class="l">WPT visual CSS tests passing (reftests), now checked in CI</span></div>
-    <div class="stat"><span class="v">29.1</span><span class="l">WPT JavaScript tests, mean score per file (0–100) over the phase-1 subset: 3,264 files, 23 areas; 45.9% of 37,045 subtests pass. Baseline 28.4 (#504); every PR is gated on it in CI since #507</span></div>
+    <div class="stat"><span class="v">30.3</span><span class="l">WPT JavaScript tests, mean score per file (0–100) over the phase-1 subset: 3,264 files, 23 areas; 46.5% of 37,045 subtests pass. Baseline 28.4 (#504); every PR is gated on it in CI since #507</span></div>
     <div class="stat"><span class="v">1852 / 1852</span><span class="l">Unit and integration tests passing, engine on and off (CI runs both)</span></div>
     <div class="stat"><span class="v">0</span><span class="l">Engine mismatches on the 7 test pages (check mode)</span></div>
   </div>
@@ -82,17 +82,17 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
     <tr><th>Area</th><th>Files</th><th>Score</th><th>Subtests pass</th></tr>
     <tr><td>url</td><td class="n">44</td><td class="n">81.1</td><td class="n">77.6%</td></tr>
     <tr><td>requestidlecallback</td><td class="n">9</td><td class="n">64.8</td><td class="n">76.5%</td></tr>
-    <tr><td>dom/other</td><td class="n">46</td><td class="n">55.2</td><td class="n">75.8%</td></tr>
-    <tr><td>dom/nodes</td><td class="n">393</td><td class="n">43.0 <span class="note">(was 42.4)</span></td><td class="n">49.6%</td></tr>
+    <tr><td>dom/other</td><td class="n">46</td><td class="n">59.6 <span class="note">(was 55.2)</span></td><td class="n">75.8%</td></tr>
+    <tr><td>dom/nodes</td><td class="n">393</td><td class="n">43.5 <span class="note">(was 42.4)</span></td><td class="n">49.6%</td></tr>
     <tr><td>webidl</td><td class="n">44</td><td class="n">38.1</td><td class="n">48.0%</td></tr>
     <tr><td>html/dom</td><td class="n">180</td><td class="n">36.2</td><td class="n">26.9%</td></tr>
     <tr><td>webmessaging</td><td class="n">115</td><td class="n">35.5</td><td class="n">42.6%</td></tr>
     <tr><td>encoding</td><td class="n">41</td><td class="n">33.2</td><td class="n">43.5%</td></tr>
     <tr><td>html/semantics/scripting-1</td><td class="n">419</td><td class="n">31.4</td><td class="n">44.0%</td></tr>
-    <tr><td>css/cssom</td><td class="n">271</td><td class="n">31.2</td><td class="n">54.1%</td></tr>
+    <tr><td>css/cssom</td><td class="n">271</td><td class="n">36.3 <span class="note">(was 31.2)</span></td><td class="n">54.1%</td></tr>
     <tr><td>resize-observer</td><td class="n">36</td><td class="n">31.1</td><td class="n">31.9%</td></tr>
     <tr><td>hr-time</td><td class="n">9</td><td class="n">24.8</td><td class="n">31.2%</td></tr>
-    <tr><td>css/cssom-view</td><td class="n">220</td><td class="n">24.6</td><td class="n">40.5%</td></tr>
+    <tr><td>css/cssom-view</td><td class="n">220</td><td class="n">28.6 <span class="note">(was 24.6)</span></td><td class="n">40.5%</td></tr>
     <tr><td>html/webappapis</td><td class="n">308</td><td class="n">24.4</td><td class="n">49.0%</td></tr>
     <tr><td>dom/events</td><td class="n">194</td><td class="n">32.5 <span class="note">(was 23.0)</span></td><td class="n">54.7%</td></tr>
     <tr><td>domparsing</td><td class="n">93</td><td class="n">21.9</td><td class="n">5.4%</td></tr>
@@ -100,7 +100,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
     <tr><td>dom/ranges</td><td class="n">41</td><td class="n">17.1</td><td class="n">6.0%</td></tr>
     <tr><td>custom-elements</td><td class="n">204</td><td class="n">16.8</td><td class="n">30.3%</td></tr>
     <tr><td>uievents</td><td class="n">70</td><td class="n">12.8</td><td class="n">38.1%</td></tr>
-    <tr><td>intersection-observer</td><td class="n">150</td><td class="n">12.0</td><td class="n">19.6%</td></tr>
+    <tr><td>intersection-observer</td><td class="n">150</td><td class="n">16.5 <span class="note">(was 12.0)</span></td><td class="n">19.6%</td></tr>
     <tr><td>streams</td><td class="n">85</td><td class="n">11.1</td><td class="n">20.2%</td></tr>
     <tr><td>dom/observable</td><td class="n">29</td><td class="n">0.0</td><td class="n">0.0%</td></tr>
   </table></div>
@@ -111,6 +111,10 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#519</td><td>QCOMP4</td><td><code>:go you</code> suggests <code>tube.com/</code> from your history: sites you visit most first, then pages</td></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#518</td><td>QKEYS3</td><td><code>:set vim</code>/<code>novim</code> and the SIGUSR1 toggle removed (modes replace them); one dependency less</td></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#517</td><td>QCONF2</td><td>localStorage quota (5 Mi UTF-16 units) is now a setting in <code>src/config.rs</code> (your request); the page-side copy follows it</td></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#516</td><td>QDOM1</td><td>Elements are reachable as <code>window.&lt;id&gt;</code> and <code>frames[i]</code> like in browsers; WPT total 29.1 → 30.3 (cssom +5, cssom-view +4, intersection-observer +4.5)</td></tr>
     <tr><td class="n">2026-11-21</td><td class="n">#515</td><td>QDOM7</td><td>Comment nodes can be edited from script (data, appendData, replaceData...); dom/nodes 42.4 → 43.0</td></tr>
     <tr><td class="n">2026-11-21</td><td class="n">#514</td><td>QSEARCH3</td><td>Enter on the current search match clicks it, through the page's own click handling (YouTube opens the video without a reload); a match across two links warns instead</td></tr>
     <tr><td class="n">2026-11-21</td><td class="n">#511</td><td>QCOMP1</td><td>The <code>:</code> line suggests the rest of a command or <code>:set</code> argument in grey; Tab cycles or picks, Right/End accepts, Delete hides it</td></tr>
@@ -159,17 +163,17 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 </section>
 
 <section>
-  <h2>Open work (53 items)</h2>
+  <h2>Open work (52 items)</h2>
   <div class="scroll"><table>
     <tr><th>Group</th><th>Items</th><th>Status</th></tr>
     <tr><td>Engine</td><td>QINC1m remove the old pipeline</td><td><span class="pill todo">after ~3 days of your use, with your OK</span></td></tr>
-    <tr><td>Conformance</td><td>QWPT2 done · QWPT3–9 test runner and CI · QEL1–9 event loop · QMAPI1–3 missing-API report · QREC1–3 recorded pages · QBUD1 budgets · QAREA-DOM</td><td><span class="pill wip">QWPT2–6, QMAPI1, QREC1/2, QERR1, QAREA-DOM done · QEL1 (rendering steps), QDOM1 (window named access), QDOM4, QDOM7 done · QDOM2–19 queued</span></td></tr>
+    <tr><td>Conformance</td><td>QWPT2 done · QWPT3–9 test runner and CI · QEL1–9 event loop · QMAPI1–3 missing-API report · QREC1–3 recorded pages · QBUD1 budgets · QAREA-DOM</td><td><span class="pill wip">QWPT2–6, QMAPI1, QREC1/2, QERR1, QAREA-DOM done · QDOM1, QDOM4, QDOM7 done · QEL1 (rendering steps) rebasing, QDOM2 (real NodeList/HTMLCollection), QMAPI2 (CSS part of the report) running</span></td></tr>
     <tr><td>Reliability</td><td>QFLK7 (tests that never ran) · QFLK6b · QJ4c · QWIKI1 · QINC1k9</td><td><span class="pill wip">QFLK7, QFLK8, QFLK9, QFORM1, QHIST1 done</span></td></tr>
     <tr><td>Product choices</td><td>QCFG1 config file · QTB1 tracker blocking</td><td><span class="pill todo">queued</span></td></tr>
     <tr><td>UI: storage</td><td>QSTASH1–5 saved localStorage, cookies, forget-site</td><td><span class="pill done">all five done</span></td></tr>
     <tr><td>UI: keys</td><td>QKEYS1–4 status bar, input/normal mode · QSB1 scrollbar drag · QPASTE1</td><td><span class="pill wip">QKEYS1/2/4, QSB1/2, QPASTE1 done · QKEYS3 (remove <code>:set vim</code>) after search</span></td></tr>
     <tr><td>UI: search</td><td>QSEARCH1–3 <code>/</code>, n/N, Enter</td><td><span class="pill wip">all three done</span></td></tr>
-    <tr><td>UI: completion</td><td>QCONF1 · QCOMP1–4 completion sources, history file, <code>:go</code></td><td><span class="pill wip">QCONF1, QCOMP1, QCOMP3, QHELP1 done · QCOMP4 (<code>:go</code> completes from history), QCONF2 (storage limits into config.rs, your request), QKEYS3 (remove <code>:set vim</code>) running</span></td></tr>
+    <tr><td>UI: completion</td><td>QCONF1 · QCOMP1–4 completion sources, history file, <code>:go</code></td><td><span class="pill wip">QCONF1/2, QCOMP1/3/4, QKEYS3, QHELP1 done · QKEYS1b (URL in the bar for file: pages) running</span></td></tr>
   </table></div>
   <p class="note">Archived and not scheduled: site-specific fixes, media, and the spec-gap items that the WPT runs will surface again (<span class="mono">scratchy/TODO-ARCHIVE.txt</span>).</p>
 </section>
@@ -179,7 +183,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <ul id="waiting">
     <li><b>Public repo cleanup:</b> two PRs (#496, #498) accidentally committed an agent's scratch folder: a test wire binary, its private token (for a throwaway wire, not yours), logs, and logged-out screenshots of social.loupax.com and YouTube. They are removed from main and now ignored, but are still in git history (commits 40d9f8c, 97e5e83). <b>Done</b> (your OK): <code>.git</code> backed up to <span class="mono">~/src/vibe-it-git-backup-2026-11-21</span>, history rewritten without them, main force-pushed. GitHub still serves the old commits through its saved pull-request refs; only GitHub Support can drop those ("remove cached views / sensitive data").</li>
     <li>Skim <span class="mono">scratchy/DECISIONS.md</span> once and correct anything I misstated.</li>
-    <li>Old pipeline removal (QINC1m): today nothing tells you when the engine falls back. Proposed QINC1n first: a log line on a real fallback, a sampled check (1 frame in ~200) logging mismatches to <span class="mono">&lt;state-dir&gt;/engine-check.log</span>, and <code>:engine</code> showing the counts. Build it like that?</li>
+    <li>Old pipeline removal (QINC1m): today nothing tells you when the engine falls back. QINC1n (your yes) is being built: a log line on a real fallback, a sampled check (1 frame in ~200) logging mismatches to <span class="mono">&lt;state-dir&gt;/engine-check.log</span>, and <code>:engine</code> with the counts. After it lands: ~3 days, then you confirm QINC1m.</li>
   </ul>
 </section>
 </main>
