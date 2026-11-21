@@ -2221,6 +2221,12 @@ pub(crate) fn parse_media_query_list(input: &mut CssParser) -> Vec<MediaQuery> {
         }
     }
     out.push(MediaQuery::new(&text[from..]));
+    if crate::missing_api::enabled() {
+        // QMAPI2 report mode: evaluate once now so an unknown feature is counted (`media_feature_eval`).
+        for q in &out {
+            q.matches(current_viewport().0);
+        }
+    }
     out
 }
 

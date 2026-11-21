@@ -97,7 +97,7 @@ fn qmapi1_stubs_and_errors_reach_the_report() {
 
 const QMAPI2_CSS: &str = "a { frobnicate: 1; color: red } b { frobnicate: 2 } li::zzz-thing { color: blue } p:nth-foo(2n) { color: red }\
     @font-face { font-family: x } @property --y { syntax: '*'; } @supports (frobnicate: 1) { a { color: red } }\
-    @supports (display: grid) { a { color: red } } @media (hover: hover) and (min-width: 10px) { a { color: red } }\
+    @supports (display: grid) { a { color: red } } @media (hover: hover) and (min-width: 10px) and (frobnicate-feat: 3) { a { color: red } }\
     @media (min-width: 10px) { a:zork { color: red } }";
 
 #[test]
@@ -127,6 +127,7 @@ fn qmapi2_counts_css_gaps_and_keeps_the_rules() {
     assert!(json.contains("\"kind\":\"at_rule\",\"name\":\"@property\""), "{json}");
     assert!(json.contains("\"kind\":\"supports_false\",\"name\":\"(frobnicate: 1)\""), "{json}");
     assert!(!json.contains("display: grid"), "{json}");
-    assert!(json.contains("\"kind\":\"media_feature\",\"name\":\"hover\""), "{json}");
+    assert!(json.contains("\"kind\":\"media_feature\",\"name\":\"frobnicate-feat\""), "{json}");
+    assert!(!json.contains("\"name\":\"hover\""), "QCSS1: hover is supported now: {json}");
     assert!(json.starts_with("[{\"kind\":\"declaration\""), "sorted by hits: {json}");
 }
