@@ -85,7 +85,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       animation-frames/callback-exception and timers/errors pass.
 - [ ] [WIP] QEL5 [S] (P2; Sonnet; js.rs TIMERS_PRELUDE) Clamp setInterval to 4 ms only at nesting level > 5.
       Gate: WPT timers/setinterval-settimeout-clamping.
-- [ ] QEL6 [S] (P2; Sonnet; js.rs dispatch, __scratchy_dn) Microtask checkpoint between listeners of
+- [ ] [WIP] QEL6 [S] (P2; Sonnet; js.rs dispatch, __scratchy_dn) Microtask checkpoint between listeners of
       UA-dispatched (trusted) events. Test: two click listeners, a promise in the first resolves
       before the second runs; synthetic el.click() keeps today's order.
 - [ ] QEL7 [S] (P2; Sonnet; app.rs, js.rs; after QEL1) scroll events for user scrolling (window and
