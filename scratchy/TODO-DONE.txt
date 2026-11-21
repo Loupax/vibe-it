@@ -8807,3 +8807,11 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QFLK9 DONE bc0008c #509 [S] (P3, from QFLK7 #496 and QSB2 #497; Sonnet) qy5_budget_clock_is_thread_cpu_time and
       qb3_callback_budget_is_much_shorter_than_load_budget fail in a full parallel run under load (pass alone): make them
       robust (relations with margin, or retry the measurement) without weakening what they prove.
+
+=== from TODO.txt: --- (no header)
+- [x] QSEARCH2 DONE 670ed68 #512 [S] (P2, after QSEARCH1) `n`/`N` (S4, S6; KEYS.md T15-T17): next/previous with wrap and the
+      status-bar message, bring the screen to the match (S4: centre when not fully visible,
+      no scroll when visible, inner scroll containers too), query kept across navigations.
+      Tests: wrap both ways, `[i/N]` text, an off-screen match ends up centred, a visible
+      one does not scroll, a match in an `overflow: auto` box scrolls the box, the kept
+      query on a new page.

@@ -55,6 +55,13 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       is dirty or a rAF is pending); headless runs it on virtual 16.7 ms frames. Keep today's cost
       tricks. Tests: WPT html/webappapis/animation-frames all pass; order probe (R64 4) gives the
       HTML order.
+- [ ] QEL1a [S] (P2, from QEL1 #510; Sonnet; perf.rs --perf-report) Explain the YouTube results-page headless cost
+      increase after QEL1 (observer deliveries 41-59 -> 109-112 per 30 s, forced layouts 31-34 -> 41-49): add a per-observer
+      type breakdown (MO/IO/RO) and a rAF callback count to --perf-report, measure main vs QEL1, say whether the page simply
+      gets further (correct) or the driver does redundant work (fix item).
+- [ ] QWPTFLK1 [S] (P3, from QEL1 #510; Sonnet; wpt_th.rs virtual clock) dom/events/EventTarget-dispatchEvent.html ends
+      with harness ERROR "Timeout while running cleanup" under load in the test child (main too: 3 of 24 parallel runs).
+      Find which real-time behaviour leaks into the virtual clock's order, fix it, then remove the file from flaky.txt.
 - [ ] QEL2 [M] (P1; Sonnet; js_dom.rs RO, geometry; after QEL1; supersedes archived QRO1) ResizeObserver
       with real sizes (content/border/device-pixel boxes from the engine's layout), gathered and
       delivered in the rendering step, depth loop and the "ResizeObserver loop completed with
@@ -492,14 +499,8 @@ QSEARCH — `/` search, n/N, Enter (user design session 2026-11-20; needs QKEYS2
   highlighting while typing, search in iframes or text controls.
 
 
-- [ ] [WIP] QSEARCH2 [S] (P2, after QSEARCH1) `n`/`N` (S4, S6; KEYS.md T15-T17): next/previous with wrap and the
-      status-bar message, bring the screen to the match (S4: centre when not fully visible,
-      no scroll when visible, inner scroll containers too), query kept across navigations.
-      Tests: wrap both ways, `[i/N]` text, an off-screen match ends up centred, a visible
-      one does not scroll, a match in an `overflow: auto` box scrolls the box, the kept
-      query on a new page.
 
-- [ ] QSEARCH3 [S] (P2, after QSEARCH2) Enter clicks the current match (S7; KEYS.md T18-T20). Tests: a match
+- [ ] [WIP] QSEARCH3 [S] (P2, after QSEARCH2) Enter clicks the current match (S7; KEYS.md T18-T20). Tests: a match
       spanning two links warns and clicks nothing; a match
       in a plain link navigates; a match in a link whose click handler calls
       preventDefault does not navigate and the handler ran; a match in a `<button>` fires
