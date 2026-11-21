@@ -84,6 +84,9 @@ their section with the date.
 
 ## Keys and UI
 
+- **2026-11-21 Copying via vim registers** (user, #528; details KEYS.md "Registers", TODO QREG-D): `:let @+ = @%`
+  and `yy` copy the URL; clicking the status bar to copy dropped, mouse-selecting it deferred; a keyboard page cursor
+  (QCURSOR-D) is the long-term way to copy text, design first.
 - **2026-11-21 Horizontal scrolling** (user): real horizontal scrolling first (QXSCR1), driven by the mouse
   (horizontal wheel/touchpad, Shift+wheel) and ArrowLeft/ArrowRight; no hjkl-like letter bindings for it yet
   (h/l stay history). Horizontal scrollbars (QSB2b) after it.
