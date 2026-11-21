@@ -64,6 +64,58 @@ mod history_tests;
 #[cfg(feature = "memprof")]
 mod memprof_tests;
 
+// ---------- QFLK7: the one shared winit event loop for App-level tests ----------
+//
+// winit allows ONE event loop per process, so tests that need an `App` (it takes an `EventLoopProxy`)
+// used to build their own and silently `return` when the second build failed: in a parallel run most
+// bodies never executed. Now the loop is built once, leaked, and every test gets a handle that
+// hands out clones of the same proxy. No display (headless CI): the test is skipped with a visible
+// `QFLK7-SKIP` line on stderr (shown with `--nocapture`), or FAILS when `SCRATCHY_REQUIRE_DISPLAY`
+// is set (use it on any machine that has a compositor). A test that really ran prints `QFLK7-RAN`.
+
+/// A handle to the shared test loop: only `create_proxy` is exposed.
+pub(crate) struct TestLoop(EventLoopProxy<AppEvent>);
+
+impl TestLoop {
+    pub(crate) fn create_proxy(&self) -> EventLoopProxy<AppEvent> {
+        self.0.clone()
+    }
+}
+
+/// The skip / fail decision for a test that needs a display and found none.
+pub(crate) fn no_display_policy(test: &str) {
+    if std::env::var_os("SCRATCHY_REQUIRE_DISPLAY").is_some() {
+        panic!("{test}: no display available and SCRATCHY_REQUIRE_DISPLAY is set");
+    }
+    eprintln!("QFLK7-SKIP {test}: no display available (set SCRATCHY_REQUIRE_DISPLAY=1 to fail instead)");
+}
+
+/// The shared loop's handle, or `Err(())` without a display (after applying the policy above).
+pub(crate) fn test_event_loop() -> Result<TestLoop, ()> {
+    static LOOP: std::sync::OnceLock<Option<std::sync::Mutex<EventLoopProxy<AppEvent>>>> = std::sync::OnceLock::new();
+    let who = std::thread::current().name().unwrap_or("?").to_string();
+    let proxy = LOOP
+        .get_or_init(|| {
+            use winit::platform::wayland::EventLoopBuilderExtWayland;
+            let l = EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build().ok()?;
+            let p = l.create_proxy();
+            std::mem::forget(l); // the proxy must stay valid for the whole process
+            Some(std::sync::Mutex::new(p))
+        })
+        .as_ref()
+        .map(|m| m.lock().unwrap_or_else(|e| e.into_inner()).clone());
+    match proxy {
+        Some(p) => {
+            eprintln!("QFLK7-RAN {who}");
+            Ok(TestLoop(p))
+        }
+        None => {
+            no_display_policy(&who);
+            Err(())
+        }
+    }
+}
+
 // ---------- v37: `:link`/`:visited` pseudo-classes ----------
 
 fn find_first_span_color(b: &LayoutBox) -> Option<TextColor> {

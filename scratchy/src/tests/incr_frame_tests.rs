@@ -9,18 +9,9 @@ use crate::perf::{incr_get, Incr};
 const W: u32 = 600;
 const H: u32 = 400;
 
-/// One event loop per process (winit refuses a second one): built once, leaked, its proxy shared.
+/// The shared test loop's proxy (`test_event_loop`); `None` without a display.
 fn proxy() -> Option<EventLoopProxy<AppEvent>> {
-    static P: std::sync::OnceLock<Option<std::sync::Mutex<EventLoopProxy<AppEvent>>>> = std::sync::OnceLock::new();
-    P.get_or_init(|| {
-        use winit::platform::wayland::EventLoopBuilderExtWayland;
-        let l = EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build().ok()?;
-        let p = l.create_proxy();
-        std::mem::forget(l);
-        Some(std::sync::Mutex::new(p))
-    })
-    .as_ref()
-    .map(|m| m.lock().expect("proxy").clone())
+    test_event_loop().ok().map(|l| l.create_proxy())
 }
 
 struct Live(bool);

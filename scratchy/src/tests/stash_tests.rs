@@ -498,8 +498,7 @@ fn qstash2_an_unusable_state_dir_keeps_localstorage_in_memory() {
 /// starts, so the load must read the writer's queue back), then a new App on the same state dir.
 #[test]
 fn qstash2_app_page_loads_and_a_new_app_see_the_value() {
-    use winit::platform::wayland::EventLoopBuilderExtWayland;
-    let Ok(event_loop) = EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() else {
+    let Ok(event_loop) = test_event_loop() else {
         return; // no display available (headless CI)
     };
     let _g = JS_FLAG_LOCK.lock().unwrap_or_else(|e| e.into_inner());

@@ -47,8 +47,7 @@ fn qmem3d_trim_now_runs() {
 
 #[test]
 fn qmem3d_navigation_requests_trim() {
-    use winit::platform::wayland::EventLoopBuilderExtWayland;
-    let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+    let event_loop = match test_event_loop() {
         Ok(l) => l,
         Err(_) => return, // no display available (headless CI)
     };

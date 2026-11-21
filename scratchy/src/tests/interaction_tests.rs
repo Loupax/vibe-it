@@ -1064,8 +1064,7 @@ fn qa6_deliver_layout(app: &mut App, incomplete: bool) {
 
 #[test]
 fn qa6_fragment_waits_for_real_page_and_target() {
-    use winit::platform::wayland::EventLoopBuilderExtWayland;
-    let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+    let event_loop = match test_event_loop() {
         Ok(l) => l,
         Err(_) => return, // no display available (headless CI)
     };
@@ -1210,8 +1209,7 @@ fn qj6_scroll_into_view_scrolls_ancestor_then_window() {
 
 #[test]
 fn qj6_app_applies_element_scroll_request() {
-    use winit::platform::wayland::EventLoopBuilderExtWayland;
-    let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+    let event_loop = match test_event_loop() {
         Ok(l) => l,
         Err(_) => return, // no display available (headless CI)
     };
@@ -1288,8 +1286,7 @@ fn qj12_key_codes_table() {
 #[test]
 fn qj12_page_sees_codes_and_can_still_cancel() {
     use winit::keyboard::KeyCode as KC;
-    use winit::platform::wayland::EventLoopBuilderExtWayland;
-    let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+    let event_loop = match test_event_loop() {
         Ok(l) => l,
         Err(_) => return,
     };
@@ -1646,8 +1643,7 @@ fn paste_chords_are_ctrl_v_ctrl_shift_v_shift_insert() {
 
 #[test]
 fn paste_into_command_line_inserts_cleaned_clipboard_text() {
-    use winit::platform::wayland::EventLoopBuilderExtWayland;
-    let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+    let event_loop = match test_event_loop() {
         Ok(l) => l,
         Err(_) => return,
     };
