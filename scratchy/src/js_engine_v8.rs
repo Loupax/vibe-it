@@ -378,6 +378,8 @@ struct State {
     /// QV8-4: while baking, every registered native's name -> arena index.
     recorded: Option<std::collections::HashMap<String, usize>>,
     pending: Option<v8::Global<v8::Value>>,
+    /// QERR1: 1-based line and column of the pending exception's throw site (0, 0 when unknown).
+    pending_pos: (i32, i32),
     /// The script was stopped by `terminate_execution` (no JS exception exists then).
     terminated: bool,
     /// ... because the heap limit was hit (read by `describe_error`).
@@ -412,6 +414,24 @@ fn stash(ctx: &Ctx<'_>, tc: &mut v8::PinnedRef<'_, v8::TryCatch<v8::HandleScope>
     }
     st_.terminated = false;
     st_.pending = tc.exception().map(|e| v8::Global::new(ctx.sc(), e));
+    st_.pending_pos = match tc.message() {
+        Some(m) => (m.get_line_number(tc).unwrap_or(0) as i32, m.get_start_column() as i32 + 1),
+        None => (0, 0),
+    };
+}
+
+/// QERR1: copies the pending exception (not consuming it) to the global `name` and returns its
+/// throw position `(line, column)`, so page JS can build the `error` event's `error`.
+pub(crate) fn expose_pending(ctx: &Ctx<'_>, name: &str) -> (i32, i32) {
+    let st_ = state(ctx);
+    let Some(g) = st_.pending.as_ref() else { return (0, 0) };
+    let sc = ctx.sc();
+    let value = v8::Local::new(sc, g);
+    let global = sc.get_current_context().global(sc);
+    if let Some(k) = v8::String::new(sc, name) {
+        global.set(sc, k.into(), value);
+    }
+    st_.pending_pos
 }
 
 // ---------------------------------------------------------------- natives
@@ -1544,7 +1564,7 @@ impl Engine {
         isolate.set_host_import_module_dynamically_callback(dyn_import_cb);
         isolate.set_host_initialize_import_meta_object_callback(import_meta_cb);
         let arena = snap.map(|s| (0..s.count).map(|_| None).collect()).unwrap_or_default();
-        isolate.set_slot(State { arena, attached: snap.is_some(), names: snap.map(|s| &s.names), recorded: baking.then(Default::default), pending: None, terminated: false, oom: false, modules: opts.page.clone(), mod_cache: Default::default(), mod_names: Default::default(), realms: Vec::new(), live: Vec::new() });
+        isolate.set_slot(State { arena, attached: snap.is_some(), names: snap.map(|s| &s.names), recorded: baking.then(Default::default), pending: None, pending_pos: (0, 0), terminated: false, oom: false, modules: opts.page.clone(), mod_cache: Default::default(), mod_names: Default::default(), realms: Vec::new(), live: Vec::new() });
         JOBS.with(|j| j.set(0));
         PENDING.with(|p| p.set(false));
         OOM.with(|o| o.set(false));
