@@ -82,3 +82,53 @@ process, start it again. scratchy detects an old wire by `X-Wire-Version`.
 
 Details: [`NOTES.md`](NOTES.md). Overview from scratchy's side:
 [`../scratchy/NETWORKING.md`](../scratchy/NETWORKING.md).
+
+## Static mounts (`--mount`, `--mount-override`)
+
+```
+wire --mount http://HOST[:PORT]=DIR [--mount ...] [--mount-override PATH=FILE ...]
+```
+
+Serves an http origin straight from a directory; no socket is opened for it and
+nothing goes upstream. Built for scratchy's testharness.js runner (R64 2.4
+option 3), where `DIR` is a web-platform-tests checkout and the origin is
+`http://web-platform.test:8000`. Requests whose URL matches a mounted origin
+are answered from the mount before anything else (cookie control requests
+excepted), even with `X-Wire-Policy: public-only` (the operator opted in); the
+response says `X-Wire-Target-Class: file`.
+
+- Origin match: `HOST` plus `www.`, `www1.`, `www2.` of it, on `PORT` and
+  `PORT+1` (so `web-platform.test:8000` also answers `:8001`, a second origin
+  for cross-origin tests). Everything is the same tree.
+- Methods GET and HEAD (others 405). Query strings are ignored. A directory
+  serves its `index.html`.
+- `Content-Type` by file extension (html, xhtml, css, js, json, svg, images,
+  fonts, media, wasm; unknown = `application/octet-stream`).
+- `<file>.headers` and `__dir__.headers` (the mount root down to the file's
+  directory; the file's own wins): lines `Name: value`, replacing same-named
+  headers, so they can override `Content-Type`. `.headers` files are never
+  served themselves. Generated wrappers get no extra headers.
+- `x.any.html` is generated from `x.any.js` (window variant) and `x.window.html`
+  from `x.window.js` when no real file of that name exists, in the shape of
+  wptserve's wrappers: `// META: script=PATH` adds a `<script src>`,
+  `title=TEXT` a `<title>`, `timeout=long` a `<meta name=timeout content=long>`;
+  `global=` without `window` (e.g. `worker`) means no window variant (404).
+  Worker variants are not generated.
+- `/resources/WebIDLParser.js` is an alias of `/resources/webidl2/lib/webidl2.js`.
+- Files with `.sub.` in the name get `{{host}}` (the request's host),
+  `{{domains[]}}`, `{{domains[www]}}`, `{{domains[www1]}}`, `{{domains[www2]}}`,
+  `{{ports[http][0]}}` (= PORT) and `{{ports[http][1]}}` (= PORT+1) replaced;
+  other `{{...}}` text is left alone.
+- `--mount-override PATH=FILE`: requests for exactly `PATH` (any mounted
+  origin) get `FILE`'s bytes, typed by `PATH`'s extension. For
+  `/resources/testharnessreport.js` and `/resources/testdriver-vendor.js`.
+- `.py` files answer 501 and log one line (`wire: mount: URL needs a Python
+  handler`).
+- Safety: the path is percent-decoded and refused (403) if any segment is `..`,
+  contains `\`, NUL or an encoded `/`; the file's real path (symlinks
+  resolved) must stay under `DIR`, else 403. Code: `src/mount.rs`.
+
+```
+wire --socket "$S" --mount http://web-platform.test:8000=$HOME/src/wpt \
+     --mount-override /resources/testharnessreport.js=./my-report.js
+```

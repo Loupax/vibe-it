@@ -1,4 +1,5 @@
 mod cookies;
+mod mount;
 mod ws;
 
 use std::cell::{Cell, RefCell};
@@ -42,6 +43,18 @@ use url::Url;
 
 fn print_usage() {
     eprintln!("usage: wire [--socket <path>] [--print-socket] [--no-cookies] [--cookie-file <path>]");
+    eprintln!("            [--mount ORIGIN=DIR]... [--mount-override PATH=FILE]...");
+    eprintln!("  wire --mount http://HOST[:PORT]=DIR  serve that origin from the directory DIR, no socket");
+    eprintln!("                       opened (repeatable). www./www1./www2. subdomains and PORT+1 are");
+    eprintln!("                       aliases. Content-Type by extension, <file>.headers and");
+    eprintln!("                       __dir__.headers, x.any.html / x.window.html generated from");
+    eprintln!("                       x.any.js / x.window.js (// META: script/title/timeout/global),");
+    eprintln!("                       /resources/WebIDLParser.js -> /resources/webidl2/lib/webidl2.js,");
+    eprintln!("                       .sub. files substitute {{{{host}}}} {{{{domains[www]}}}} {{{{ports[http][0|1]}}}},");
+    eprintln!("                       .py -> 501. For web-platform-tests, e.g.");
+    eprintln!("                       --mount http://web-platform.test:8000=/path/to/wpt");
+    eprintln!("  wire --mount-override PATH=FILE  answer requests for exactly PATH (on any mount) with");
+    eprintln!("                       FILE, e.g. /resources/testharnessreport.js=./my-report.js");
     eprintln!("  wire                 listen on $XDG_RUNTIME_DIR/wire.sock (falling back to");
     eprintln!("                       /tmp/wire-$UID.sock), serving real HTTP requests read");
     eprintln!("                       off that socket in the absolute-form proxy shape");
@@ -66,6 +79,7 @@ fn main() {
     let mut print_socket = false;
     let mut cookies_enabled = true;
     let mut cookie_file: Option<PathBuf> = None;
+    let mut mounts = mount::Mounts::default();
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
@@ -87,6 +101,18 @@ fn main() {
                     std::process::exit(1);
                 };
                 cookie_file = Some(PathBuf::from(path));
+                i += 2;
+            }
+            "--mount" | "--mount-override" => {
+                let Some(spec) = args.get(i + 1) else {
+                    eprintln!("wire: {} needs an argument", args[i]);
+                    std::process::exit(1);
+                };
+                let r = if args[i] == "--mount" { mounts.add_mount(spec) } else { mounts.add_override(spec) };
+                if let Err(e) = r {
+                    eprintln!("wire: {e}");
+                    std::process::exit(1);
+                }
                 i += 2;
             }
             "--no-cookies" => {
@@ -124,6 +150,7 @@ fn main() {
 
     let agent = build_agent();
     let mut shared = Shared::new(cookies_enabled);
+    shared.mounts = mounts;
     if let Some(file) = cookie_file {
         shared = shared.with_cookie_file(file);
     }
@@ -198,6 +225,8 @@ struct Shared {
     /// request can leave a non-public connection in them.
     public_agent: ureq::Agent,
     public_manual_agent: ureq::Agent,
+    /// `--mount` / `--mount-override` (QWPT3): origins served from directories.
+    mounts: mount::Mounts,
 }
 
 impl Shared {
@@ -210,6 +239,7 @@ impl Shared {
             manual_agent: agent_builder().redirects(0).build(),
             public_agent: agent_builder().build(),
             public_manual_agent: agent_builder().redirects(0).build(),
+            mounts: mount::Mounts::default(),
         }
     }
 
@@ -928,6 +958,19 @@ fn execute_with(agent: &ureq::Agent, shared: &Shared, request: &ParsedRequest, w
     }
     if request.url.scheme() == "file" {
         return serve_file(request, &caps, w);
+    }
+    // QWPT3: a mounted origin is answered from its directory, never from the
+    // network (the operator opted in with --mount, so `public-only` does not apply).
+    if let Some(m) = shared.mounts.find(&request.url) {
+        let r = shared.mounts.serve(m, &request.method, &request.url);
+        let mut headers = r.headers;
+        headers.push(("X-Wire-Target-Class".into(), "file".into()));
+        headers.push(("X-Wire-Final-Url".into(), request.url.to_string()));
+        write_status_and_headers(w, r.status, r.reason, &headers)?;
+        w.write_all(&r.body)?;
+        w.flush()?;
+        log_timing(&request.method, &request.url, r.status, Duration::ZERO, Duration::ZERO);
+        return Ok(());
     }
     let Ok(ua) = resolve_user_agent(&request.headers) else {
         write_bad_ua_response(w)?;
@@ -2561,5 +2604,37 @@ mod tests {
         assert_eq!(hdr(&execute_for_test(&build_agent(), &down), "X-Wire-Features"), Some("ua,ws,jarfile,token"));
         let bad = with_headers(get_request(addr, "/"), &[("X-Wire-User-Agent", "a\r\nb")]);
         assert_eq!(hdr(&execute_for_test(&build_agent(), &bad), "X-Wire-Features"), Some("ua,ws,jarfile,token"));
+    }
+}
+
+#[cfg(test)]
+mod mount_wire_tests {
+    use super::*;
+
+    /// A mounted origin is answered through the normal request path with no
+    /// network involved (nothing listens on web-platform.test:8000).
+    #[test]
+    fn mounted_origin_is_served_without_a_socket_even_under_public_only() {
+        let dir = std::env::temp_dir().join(format!("wire-mount-e2e-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("resources")).unwrap();
+        std::fs::write(dir.join("resources/a.txt"), "hello").unwrap();
+        let mut shared = Shared::new(true);
+        shared.mounts.add_mount(&format!("http://web-platform.test:8000={}", dir.display())).unwrap();
+        let req = |m: &str, u: &str, h: &[(&str, &str)]| ParsedRequest {
+            method: m.into(),
+            url: Url::parse(u).unwrap(),
+            headers: h.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect(),
+            body: vec![],
+        };
+        let mut raw = Vec::new();
+        execute_with(&build_agent(), &shared, &req("GET", "http://www1.web-platform.test:8001/resources/a.txt", &[("X-Wire-Policy", "public-only")]), &mut raw).unwrap();
+        let text = String::from_utf8(raw).unwrap();
+        assert!(text.starts_with("HTTP/1.1 200 OK\r\n"), "{text}");
+        assert!(text.contains("Content-Type: text/plain\r\n") && text.contains("X-Wire-Version: 3\r\n"), "{text}");
+        assert!(text.ends_with("\r\n\r\nhello"), "{text}");
+        let mut raw = Vec::new();
+        execute_with(&build_agent(), &shared, &req("GET", "http://web-platform.test:8000/resources/../../etc/passwd", &[]), &mut raw).unwrap();
+        assert!(String::from_utf8(raw).unwrap().starts_with("HTTP/1.1 404"), "traversal collapsed by URL parsing stays inside the mount");
     }
 }

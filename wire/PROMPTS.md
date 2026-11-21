@@ -241,3 +241,9 @@ Result: `src/ws.rs`, `src/ws_tests.rs`, NOTES.md "The WebSocket pipe". Direct de
 (The full design session's prompts are in scratchy/PROMPTS.md, "QSTASH-D".)
 
 Result: wire/TODO.txt W-PERSIST1 (`--cookie-file PATH`, `X-Wire-Cookie-Op: clear-site`); design in scratchy/STASH.md "Cookies (wire)". No code.
+
+## QWPT3 — `--mount` static origins (agent task)
+
+> QWPT3 [M] wire static mount: `wire --mount http://web-platform.test:8000=DIR` (+ www/www1/www2 and the next port as aliases), `.headers` / `__dir__.headers`, generated `x.any.html` / `x.window.html` wrappers (META script/title/timeout/global), WebIDLParser.js alias, `.sub.` substitution, `--mount-override PATH=FILE`, `.py` -> 501, no socket, path traversal impossible and tested.
+
+Result: `src/mount.rs` (+ unit tests), hook in `execute_with`, `mount_wire_tests` end-to-end test, README "Static mounts". Wrapper templates written from memory of wptserve (tools/ is not in the sparse WPT checkout); checked against R64 2.4. Not done: `.sub.headers`, `.asis`, Range, `__dir__` on wrappers (wptserve does not apply it either, as far as recalled).
