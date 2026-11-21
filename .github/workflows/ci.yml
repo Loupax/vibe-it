@@ -85,6 +85,12 @@ jobs:
           fc-match sans-serif
           fc-match monospace
           cargo test --release --locked
+      - name: Test (scratchy, incremental engine OFF; old full-relayout path until QINC1m)
+        if: matrix.crate == 'scratchy'
+        # QINC1l: the suite above runs with the engine on (the default); this reuses the same build.
+        run: |
+          export FONTCONFIG_FILE="$(tools/ci-fontconfig.sh /usr/share/fonts/truetype/liberation "$RUNNER_TEMP/fc")"
+          SCRATCHY_TEST_INCR_FORCED=0 cargo test --release --locked
       - name: Test
         if: matrix.crate != 'scratchy'
         run: cargo test --release --locked

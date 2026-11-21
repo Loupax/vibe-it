@@ -1,4 +1,4 @@
-//! QINC1j (R60 sections 3, 9): App frames through the incremental engine, behind `SCRATCHY_INCR=1`.
+//! QINC1j (R60 sections 3, 9): App frames through the incremental engine, (default since QINC1l; `SCRATCHY_INCR=0` turns it off).
 //!
 //! One frame (`frame`) decides, in this order:
 //! 1. **Current**: the engine's laid tree already shows the page as it is (a script forced layout
@@ -40,7 +40,7 @@ pub(crate) fn set_live(on: bool) -> bool {
     LIVE_SEAM.with(|l| l.replace(on))
 }
 
-/// Whether App frames go through the engine (`SCRATCHY_INCR=1`; tests: `set_live`).
+/// Whether App frames go through the engine (default; `SCRATCHY_INCR=0` off; tests: `set_live`).
 pub(crate) fn live() -> bool {
     #[cfg(test)]
     {
@@ -48,8 +48,7 @@ pub(crate) fn live() -> bool {
     }
     #[cfg(not(test))]
     {
-        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        *ON.get_or_init(|| std::env::var("SCRATCHY_INCR").is_ok_and(|v| v == "1"))
+        crate::incr_style::engine_enabled()
     }
 }
 

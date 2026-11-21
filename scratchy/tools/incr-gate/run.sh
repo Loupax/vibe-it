@@ -4,8 +4,8 @@
 # Usage: tools/incr-gate/run.sh KIND MODE PAGE TAG
 #   KIND  window   (nested dwl + tools/inject + SCRATCHY_FRAME_STATS + grim screenshots)
 #         headless (--perf-report --budget-ms 20000 --seconds S)
-#   MODE  off      (no engine env vars: today's default)
-#         incr     (SCRATCHY_INCR=1)
+#   MODE  off      (SCRATCHY_INCR=0: the old full-relayout path; the engine is the default since QINC1l)
+#         incr     (SCRATCHY_INCR=1, same as the default)
 #         check    (SCRATCHY_INCR=1 SCRATCHY_INCR_CHECK=1: every engine update is re-done from scratch
 #                   and compared; differences print `scratchy: incr-check: MISMATCH ...`)
 #   PAGE  ytr (YouTube results, R58 recipe), ytw (YouTube watch G1AeBgalFZk, R55 recipe),
@@ -60,7 +60,7 @@ case $PAGE in
   *) echo "run.sh: unknown page $PAGE" >&2; exit 2 ;;
 esac
 case $MODE in
-  off) MENV=() ;;
+  off) MENV=(SCRATCHY_INCR=0) ;;
   incr) MENV=(SCRATCHY_INCR=1) ;;
   check) MENV=(SCRATCHY_INCR=1 SCRATCHY_INCR_CHECK=1) ;;
   *) echo "run.sh: unknown mode $MODE" >&2; exit 2 ;;

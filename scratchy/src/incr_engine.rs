@@ -37,10 +37,11 @@ thread_local! {
     static SEAM: Cell<Option<bool>> = const { Cell::new(None) };
 }
 
-/// Whether script forced layouts go through the engine (`SCRATCHY_INCR=1` / `SCRATCHY_INCR_CHECK=1`).
+/// Whether script forced layouts go through the engine (default; `SCRATCHY_INCR=0` turns it off; `SCRATCHY_INCR_CHECK=1` checks).
 /// Tests: off unless the seam says so; a test whose thread name contains `incr_forced` (the
-/// `*_incr_forced_tests` modules, which run whole suites a second time) has it on by default, and
-/// `SCRATCHY_TEST_INCR_FORCED=1` turns it on for the whole suite.
+/// `*_incr_forced_tests` modules, which run whole suites a second time) has it on regardless. QINC1l:
+/// on by default like shipping; `SCRATCHY_TEST_INCR_FORCED=0` runs the suite with the engine off
+/// (the old full-relayout path; CI runs it that way too).
 pub(crate) fn forced_on() -> bool {
     #[cfg(not(test))]
     {
@@ -49,8 +50,8 @@ pub(crate) fn forced_on() -> bool {
     #[cfg(test)]
     {
         static ENV_ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        let env = || *ENV_ON.get_or_init(|| std::env::var("SCRATCHY_TEST_INCR_FORCED").is_ok_and(|v| v == "1"));
-        let on = SEAM.with(Cell::get).unwrap_or_else(|| env() || std::thread::current().name().is_some_and(|n| n.contains("incr_forced")));
+        let env_off = || *ENV_ON.get_or_init(|| std::env::var("SCRATCHY_TEST_INCR_FORCED").is_ok_and(|v| v == "0"));
+        let on = SEAM.with(Cell::get).unwrap_or_else(|| !env_off() || std::thread::current().name().is_some_and(|n| n.contains("incr_forced")));
         on && crate::incr_style::running()
     }
 }
