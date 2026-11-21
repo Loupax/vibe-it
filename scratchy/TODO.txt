@@ -136,17 +136,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       side: a variant of `insert_child` that skips the `log_inserted`/load hooks for the moved subtree. WPT:
       dom/nodes/moveBefore/* (62 entries; 28 are blocked only by the missing method and id globals). Target: nodes +5
       (bound +9.5; the rest needs CSS transitions, focus events, ElementInternals).
-- [ ] [WIP] QDOM4 [S] (P1; Sonnet; js.rs Event + ETP.dispatchEvent; R65) Event flags per DOM 2.x: stop propagation, stop
-      immediate, canceled, initialized, dispatch flags. `cancelBubble` setter (true only), `returnValue` (get = !canceled,
-      set false = preventDefault), `initEvent` is a no-op while dispatching and clears the stop/canceled flags,
-      `composedPath()` empty after dispatch, flags cleared at the end of dispatch, setting cancelBubble before dispatch
-      stops it. Listener exceptions are reported (window `error` event / `onerror`, `reportError` path) and dispatch
-      continues. `handleEvent` is looked up at every invoke. `isTrusted` is an own unforgeable getter. `srcElement` is
-      null before dispatch. Passive default true for touchstart/touchmove/wheel/mousewheel listeners on window, document,
-      `<html>`, `<body>`. WPT: dom/events/Event-initEvent, Event-returnValue, Event-propagation, Event-cancelBubble,
-      Event-dispatch-bubble-canceled, Event-dispatch-propagation-stopped, Event-stopPropagation-cancel-bubbling,
-      Event-dispatch-throwing, EventListener-handleEvent, Event-isTrusted.any, event-src-element-nullable,
-      window-composed-path, passive-by-default, AddEventListenerOptions-passive.any. Target: events 23.0 -> 30.
 - [ ] QDOM5 [M] (P2; Sonnet; js_dom.rs Range block (QJ7) + native helpers; R65; finishes archived QA19) Range content
       operations: `cloneContents`, `extractContents`, `deleteContents`, `insertNode`, `surroundContents` (partially
       selected CharacterData split/clone, DocumentFragment result, HierarchyRequestError/InvalidStateError rules), live
@@ -162,7 +151,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       Comment-constructor, DocumentFragment-constructor, Document-constructor, Document-adoptNode, Node-cloneNode,
       insertion-removing-steps/*, events/Event-dispatch-bubbles-{true,false}. Target: nodes +1.5. Prerequisite for
       dom/common.js (QDOM8).
-- [ ] QDOM7 [S] (P1; Sonnet; js_dom.rs `text_write_changes`, `cdReplace`, DomTable; R65) Mutable data for Comment
+- [ ] [WIP] QDOM7 [S] (P1; Sonnet; js_dom.rs `text_write_changes`, `cdReplace`, DomTable; R65) Mutable data for Comment
       (and, for QDOM8, ProcessingInstruction): rcdom's `Comment { contents }` is not a cell, so a data write replaces the
       node with a new one in its parent's child list and re-points the JS id in DomTable to it (id -> Handle and the
       reverse map), or keeps an override table read by `__d_text`, `serialize_node`, `clone_node_body`. MutationObserver

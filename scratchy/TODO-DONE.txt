@@ -8815,3 +8815,16 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       Tests: wrap both ways, `[i/N]` text, an off-screen match ends up centred, a visible
       one does not scroll, a match in an `overflow: auto` box scrolls the box, the kept
       query on a new page.
+
+=== from TODO.txt: --- (no header)
+- [x] QDOM4 DONE 9e3a264 #513 [S] (P1; Sonnet; js.rs Event + ETP.dispatchEvent; R65) Event flags per DOM 2.x: stop propagation, stop
+      immediate, canceled, initialized, dispatch flags. `cancelBubble` setter (true only), `returnValue` (get = !canceled,
+      set false = preventDefault), `initEvent` is a no-op while dispatching and clears the stop/canceled flags,
+      `composedPath()` empty after dispatch, flags cleared at the end of dispatch, setting cancelBubble before dispatch
+      stops it. Listener exceptions are reported (window `error` event / `onerror`, `reportError` path) and dispatch
+      continues. `handleEvent` is looked up at every invoke. `isTrusted` is an own unforgeable getter. `srcElement` is
+      null before dispatch. Passive default true for touchstart/touchmove/wheel/mousewheel listeners on window, document,
+      `<html>`, `<body>`. WPT: dom/events/Event-initEvent, Event-returnValue, Event-propagation, Event-cancelBubble,
+      Event-dispatch-bubble-canceled, Event-dispatch-propagation-stopped, Event-stopPropagation-cancel-bubbling,
+      Event-dispatch-throwing, EventListener-handleEvent, Event-isTrusted.any, event-src-element-nullable,
+      window-composed-path, passive-by-default, AddEventListenerOptions-passive.any. Target: events 23.0 -> 30.
