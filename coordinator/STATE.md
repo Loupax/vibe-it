@@ -166,3 +166,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-21 QDOM6 #526 rerun green; #532 (user's QSMOOTH TODO PR) failed twice on custom-elements fieldset-elements-during-construction (flaky, also hit #531) -> #534 adds it to flaky.txt, QWPTFLK2 filed. READY: #531 QREG1, #533 QDOM3 (dom/nodes 48.5 -> 55.1). Merge queue 534, 526, 532, 531, 533. Filed QDOM3b, QKEYS1c.
 - 2026-11-21 #535 QXSCR1 READY (cssom-view 585 -> 674 subtests; added to merge queue). Filed QXSCR1a. Launched QSCR404. QSB2b and QSMOOTH1 wait for #535.
 - 2026-11-21 #536 QKEYS1c READY (queued after #535). Launched QWPTPRINT.
+- 2026-11-21 QEL2 #529 accepted (resize-observer 31.1 -> 59.3; live ytr -21 %, ytw +13-15 % within noise); filed QEL2b; queued after #536.

@@ -67,6 +67,11 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       delivered in the rendering step, depth loop and the "ResizeObserver loop completed with
       undelivered notifications" error event. Gate: resize-observer score up, github.com card grids
       no longer dropped (QINC1k5 finding).
+- [ ] QEL2b [M] (P2, from QEL2 #529; Sonnet; js_dom.rs RO, app.rs, event_loop.rs) Run ResizeObserver on the App/engine
+      layout in rendering step 7 (one layout per frame shared by style, layout and RO) instead of a JS-side forced layout
+      (`ro-run` forced layouts on YouTube results); microtask checkpoint after each RO callback; notice size changes
+      without a DOM write (image decode, CSS animation, :hover). Re-measure ytr/ytw --perf-report and live CPU on a
+      quiet machine (QEL2 measured ytw live +13-15 %, inside noise).
 - [ ] QEL3 [S] (P2; Sonnet; js_dom.rs IO; after QEL1) IntersectionObserver evaluated once per rendering
       update (after RO, before paint) with the frame time, callbacks queued as a task; remove the
       per-timer __scratchy_ioTick calls; keep the App-layout reuse. Gate: intersection-observer score
