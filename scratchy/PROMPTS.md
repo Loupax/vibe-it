@@ -8865,3 +8865,7 @@ Item QINC1h2 (REGRESSIONS.md R60 section 15). `layout.rs`: `natural_width_impl` 
 > keep the plan only. no implementation
 
 **What changed:** plan only, no code (an implementation was started by mistake and reverted at the user's request). KEYS.md: "Registers" section and T54-T56, marked planned; decision log. TODO.txt: QREG-D (the decisions), QREG1 (registers `%`/`+`, `:let`, `yy`), QREG2 (`:let @+ = <JS expr>`), QREG3 (`*` primary selection), QCURSOR-D (page cursor, waiting for user).
+
+> remove this. “plan only, do not start until the user schedules it”. the orcestrator will decide when to pick it up
+
+**What changed:** TODO.txt QREG1 no longer says "PLAN ONLY, do not start until the user schedules it"; the coordinator schedules it like any other item.
