@@ -172,3 +172,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-21 #537 QREC3 READY (6 pages recorded locally, 41 MB; replay steadies counts not ms; found wire replay query-fallback bug). Filed QREC1c (P1), QREC3b. Queued after #529. QREC3's first recordings ran before the state-dir rule (user's state dir; declared).
 - 2026-11-21 Merged #536 QKEYS1c 596a1d7. #535 QXSCR1 conflicts in wpt-th/areas.txt -> rebase request QUEUED until a slot frees (5 running). Queue: #529, #537 running in bg.
 - 2026-11-21 #529 also conflicts only in wpt-th/areas.txt. Filed QWPT10 (P1: --areas-only + merge_pr auto-resolve). Queued rebases: #535 QXSCR1, #529 QEL2 (send when slots free).
+- 2026-11-21 Merged #537 QREC3 a73c298.
