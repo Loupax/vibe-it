@@ -65,10 +65,8 @@ pub(crate) fn note_log(level: &str, text: &str) {
     if let Some(i) = text.find("not implemented") {
         let what: String = text[i..].chars().take(100).collect();
         STUBS.with(|s| *s.borrow_mut().entry(what).or_default() += 1);
-    } else if level == "error" {
-        if let Some((kind, name)) = classify_error(text) {
-            ERRORS.with(|e| *e.borrow_mut().entry((kind.to_string(), name)).or_default() += 1);
-        }
+    } else if let (true, Some((kind, name))) = (level == "error", classify_error(text)) {
+        ERRORS.with(|e| *e.borrow_mut().entry((kind.to_string(), name)).or_default() += 1);
     }
 }
 

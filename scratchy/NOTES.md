@@ -3754,3 +3754,7 @@ tables; an SPA that keeps one document forever keeps its tables). A cross-build 
 ## QY53i3: animation list sets in a per-thread arena (src/animation.rs)
 
 Same scheme as QY53i2: `AnimRef` handle into `ANIM_ARENA`, one `Rc<AnimLonghands>` per distinct list set, a new generation (and the old tables freed) on `reset_anim_arena()`, which `reset_custom_props_arena()` calls. Any future cross-build style cache must be cleared there too.
+
+## Missing-API report mode (QMAPI1, src/missing_api.rs)
+
+`scratchy --missing-api-report` is `--perf-report` plus a `missing_api` member. In report mode only, `startup_engine` ends by evaluating `missing_api_prelude.js`: ONE `Proxy` (target `Object.prototype`) becomes the prototype of every DOM interface prototype whose parent was `Object.prototype` (EventTarget among them) and of the namespace objects, so a lookup that found nothing reaches its `get`/`has` trap, which records and forwards (answers unchanged). `has` has no receiver, so its interface is `?`. Names are matched against `missing_api_idl.json` (regenerate: `tools/missing-api/gen-idl.py > src/missing_api_idl.json`); non-standard names only count in `ignored`. Not covered: iframe realms, the CSS counters of R64 5.4. Cost measured with tools/missing-api/cost.sh: at most 1.14x JS time on the gate pages.
