@@ -155,3 +155,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-21 Merged #521 QDOM2 43f8ace (total 31.5). Merging #524 QINC1n (rebased).
 - 2026-11-21 Merged #524 QINC1n ac1ed5a. QINC1m observation starts with tonight's install: earliest 2026-11-24, needs empty <state-dir>/engine-check.log + 0 fallbacks (:engine), user confirms.
 - 2026-11-21 USER asked to merge #528 (QREG-D plan: registers, yy; QREG1-3, QCURSOR-D). Its branch had QREG1 WIP+revert commits that conflicted in app.rs on rebase; applied the net docs diff onto main as 05b9be0, closed #528 with a note. QREG1 (UI, P2) takes the next free slot.
+- 2026-11-21 USER: default mode should be NORMAL -> QKEYS5 (P1, UI) filed + DECISIONS. Next free slots: QKEYS5, then QREG1.

@@ -84,6 +84,8 @@ their section with the date.
 
 ## Keys and UI
 
+- **2026-11-21 scratchy starts in NORMAL mode** (user), replacing KEYS D4's "starts in input mode (for now)".
+  The start mode is a knob in `src/config.rs`; stickiness and click-into-field -> INPUT stay (QKEYS5).
 - **2026-11-21 Copying via vim registers** (user, #528; details KEYS.md "Registers", TODO QREG-D): `:let @+ = @%`
   and `yy` copy the URL; clicking the status bar to copy dropped, mouse-selecting it deferred; a keyboard page cursor
   (QCURSOR-D) is the long-term way to copy text, design first.
