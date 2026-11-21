@@ -8717,3 +8717,9 @@ Item QINC1h2 (REGRESSIONS.md R60 section 15). `layout.rs`: `natural_width_impl` 
 > QFLK8 [S] (from QFLK7 #496; ci.yml) Run a headless compositor (weston --backend=headless, or cage, or sway headless) in the scratchy CI job so the 54 App-level tests run on CI, then set SCRATCHY_REQUIRE_DISPLAY=1 there. Measure added minutes.
 
 **What changed:** `.github/workflows/ci.yml`: the scratchy job installs `weston`, a new step starts `weston --backend=headless` on a private socket under `$RUNNER_TEMP/xdg` (bounded 10 s wait for the socket, PID recorded), exports `XDG_RUNTIME_DIR`, `WAYLAND_DISPLAY` and `SCRATCHY_REQUIRE_DISPLAY=1` through `GITHUB_ENV`, and a last `if: always()` step kills it by PID. Both test runs (engine on, `SCRATCHY_TEST_INCR_FORCED=0`) now use `--nocapture` and print the `QFLK7-RAN` / `QFLK7-SKIP` line counts.
+
+## QFORM1: SubmitEvent from requestSubmit (agent item)
+
+> QFORM1 [S] form.requestSubmit() and a submit-button click dispatch a plain Event; make it a SubmitEvent with `submitter` (the button, or null). Then un-ignore q30e_click_submit_event_preventdefault_requestsubmit_vs_submit_and_history.
+
+**What changed:** `FP.requestSubmit` in `src/js_dom.rs` builds `new SubmitEvent(...)` with `submitter` in the init (the Rust path for real clicks and implicit submission already did). The QFLK7-ignored test runs again; new `qform1_submit_event_is_a_submitevent_with_submitter_on_all_paths` covers the constructor, button click, requestSubmit(btn), requestSubmit(), Enter implicit submission (submitter null) and submit() firing nothing.

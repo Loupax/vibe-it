@@ -1278,11 +1278,7 @@ fn q30e_app(html: &str, script: &str) -> Option<(App, Handle)> {
     Some((app, doc))
 }
 
-// QFLK7: #[ignore] because `form.requestSubmit()` (and so a submit-button click) dispatches a plain `Event`
-// with `submitter` patched on, not a `SubmitEvent` (js_dom.rs `FP.requestSubmit`), so `e instanceof SubmitEvent`
-// is false. Product bug, found when this test first really ran; fix = `new SubmitEvent('submit', {..})`.
 #[test]
-#[ignore = "QFLK7: requestSubmit/click dispatch a plain Event, not a SubmitEvent (product bug, see PR)"]
 fn q30e_click_submit_event_preventdefault_requestsubmit_vs_submit_and_history() {
     // A navigation drops the page's JS (as for any page): the script is reinstalled after each one.
     let script = "window.L=[]; var f=document.getElementById('f'); f.addEventListener('submit',function(e){L.push('submit:'+(e.submitter&&e.submitter.id)+':'+(e instanceof SubmitEvent)); if(window.cancel)e.preventDefault();});";
@@ -1672,4 +1668,42 @@ fn q30g_listbox_arrows_and_space_toggle() {
     assert!(app.select_control_key(&m, &Key::Named(NamedKey::Space)));
     assert_eq!(selected_indices(&m), Vec::<usize>::new(), "space toggles the cursor option of a multiple");
     clear_select_state();
+}
+
+// QFORM1: SubmitEvent on every submit path; `submitter` is the button or null.
+#[test]
+fn qform1_submit_event_is_a_submitevent_with_submitter_on_all_paths() {
+    let script = "window.L=[]; document.addEventListener('submit',function(e){L.push((e instanceof SubmitEvent)+':'+(e instanceof Event)+':'+e.bubbles+':'+e.cancelable+':'+(e.submitter?e.submitter.id:null)); e.preventDefault();});";
+    let Some((mut app, doc)) = q30e_app(
+        "<form id=f action=/s><input id=i name=q value=1><button id=b>Go</button></form><form id=g action=/t><input id=o name=q></form>",
+        script,
+    ) else {
+        return;
+    };
+    let ev = |app: &App, js: &str| app.js.as_ref().unwrap().eval_value::<bool>("t", js);
+    // constructor
+    assert_eq!(
+        app.js.as_ref().unwrap().eval_value::<String>("t", "var s=new SubmitEvent('submit',{submitter:document.getElementById('b')}); (s instanceof Event)+':'+s.submitter.id+':'+(new SubmitEvent('submit').submitter)").unwrap_or_default(),
+        "true:b:null"
+    );
+    // button click
+    let b = q30c_by(&doc, "b");
+    app.click_activate(Some(&b), (0.0, 0.0));
+    assert_eq!(q30e_log(&app), "true:true:true:true:b");
+    // requestSubmit(btn), requestSubmit()
+    ev(&app, "L.length=0,document.getElementById('f').requestSubmit(document.getElementById('b')),true");
+    ev(&app, "document.getElementById('f').requestSubmit(),true");
+    assert_eq!(q30e_log(&app), "true:true:true:true:b|true:true:true:true:null");
+    // implicit submission (Enter in a lone text field): no submitter
+    ev(&app, "L.length=0,true");
+    let o = q30c_by(&doc, "o");
+    app.set_focus_element(Some(&o), false);
+    app.text_control_key(&o, &Key::Named(NamedKey::Enter), false);
+    assert_eq!(q30e_log(&app), "true:true:true:true:null");
+    // submit() fires nothing
+    ev(&app, "L.length=0,document.getElementById('f').submit(),true");
+    assert_eq!(q30e_log(&app), "");
+    app.js_sync();
+    clear_check_state();
+    clear_text_state();
 }
