@@ -1543,7 +1543,7 @@ images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom
     8 px `style.width` difference (50 % of 1008 vs of 1024) after moving an `li.c1.c4` under `div .c1{width:50%}`,
     not related to y: full page and steps in `tools/incr-gate/fuzz-width-504-512.txt` (not reproduced by a
     hand-written minimal test). Proposed (new item, the coordinator names it) **[S]** (P2, area incr-new): minimise
-    and fix it.
+    and fix it. (Fixed by QINC1k10, below.)
   - **QINC1k2 [M]** (P1, area incr-new (incr_box); AFTER nothing) github.com box-update floor: with
     `SCRATCHY_INCR=1` the incremental box update takes 17.0-17.2 s per window run (~63 ms per update, ~75 us per
     rebuilt box; restyle 4.3-4.6 s, relayout 1.5 s), so App builds are +54 % and input p95 2x vs flag off. Profile it
@@ -1743,6 +1743,24 @@ images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom
   the write generation and served the pre-image layout) before `load` fires. imggeom fixture, window,
   SCRATCHY_INCR=1 x2: A.load and A.raf-after-load = 400x300, textTop 398 (flag off still 600x21, QJ4); check
   mode 1 run: 0 mismatches. Test `qinc1k6_load_handler_forced_layout_sees_the_decoded_image`.
+  QINC1k10 DONE (2026-11-21; `incr_layout.rs` harvest `put_body`, no style / box / layout.rs change): the 504 vs 512
+  of `tools/incr-gate/fuzz-width-504-512.txt` is `li.c1.c4::before` (`position:absolute; inset:0; width:50%`), not
+  the li. Before the move its containing block is the viewport (1024); after it, `div.c0` (`position:relative`, 1008
+  = 1024 minus the body margins). Reproduced for every div destination with children (the report's "into div at 1"
+  does not name one; 36 of 38 replays failed, one of them as `style.opacity 0 vs 1`, the same cause). Cause: the
+  bottom-up walk reached the root through failed attempts, each of which `put` its freshly measured box into the
+  harvest with its z-index bubble entries (the `::before` at 504) beside it. A key that gets two `Laid`s is reused
+  by neither (both are opened), but only pairwise: two fresh copies cancelled out, then the top-down pass opened the
+  old root and put the OLD tree's copy (laid against the viewport, 512) under the same key. It was now the only
+  one, so the `<html>` hit (a fresh attempt result whose `ck.bubble` names the key; `try_hit` only checks the key is
+  present) took the stale entry. Fix: `AMBIGUOUS` (per update, cleared in `with_ctx`): once a key has held two
+  `Laid`s, every later `put` for it is opened too, so it is never served. Tests: `qinc1k10_replay_fuzz_width_504_512`
+  (replays the recorded page into each div, with and without the hover step; fails on main),
+  `qinc1k10_harvest_key_with_two_laids_stays_unserved` (test hook `incr_layout::harvest_after_puts`), and
+  `qinc1k10_moved_abs_pseudo_resolves_against_its_new_containing_block` (hand-made, 0-3 wrappers; like the earlier
+  hand-made attempt it passes on main too: the harvest's exact order matters). Fuzz (release): default window x 7
+  (`SCRATCHY_FUZZ_SEED` 0..6000, 1 000 each) + `REGRESSION_SEEDS` 0 mismatches; `qinc1k1_fuzz_fractional_heights_far_down`
+  x 7 (seeds 0..3000, 500 each) 0 mismatches. Suite 1 736 passed (debug and release), clippy 77.
 
 **Schedule (up to 5 agents, one per area):** wave 1: a (incr-new + perf), b (layout), d (incr-new: own file
 `src/invalidation.rs`; a and d share only `src/tests/mod.rs` lines), e (jsdom). Wave 2: c (layout, after b) ∥ f (style +
