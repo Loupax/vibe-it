@@ -179,3 +179,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #541 QSCR404 READY (scripting-1 31.4 -> 32.1), queued after #533. Launched QMSG1.
 - 2026-11-22 Merged #538 QWPTPRINT 4cb49d8 (reftests 340), #542 QDOM9 2c3eb15. Queue: #533, #541; waiting QWPT10: #535, #529, #539.
 - 2026-11-22 #533 QDOM3 conflicts again in js_dom_tests.rs (QDOM9 appended). AGENT_RULES: new tests in their own <item>_tests.rs. #533 rebase queued (5 running); it should move its qdom3 tests to qdom3_tests.rs.
+- 2026-11-22 #541 QSCR404 conflicts in areas.txt + expected/html-semantics-scripting-1.txt -> agent rebase queued. Rebase queue (send as slots free): #533 QDOM3 (test file), #541 QSCR404 (expected), #535/#529 (areas only: after QWPT10), #539 merges after QWPT10.

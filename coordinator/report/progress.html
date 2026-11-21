@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-21 · main 69c143b · 51 PRs merged today (#475–#527) · 5 agents running (QINC1n, QDOM2, QCOMP2, QCSS1, QEL2)</div>
+  <div class="meta" id="updated">Updated 2026-11-22 · main 78c705f · 62 PRs merged since 2026-11-21 morning (#475–#542) · 5 agents running (QWPT10, QEL5, QEL6, QDOM12, QMSG1)</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -73,8 +73,8 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 <section>
   <h2>Measurements</h2>
   <div class="stats">
-    <div class="stat"><span class="v">339 / 626</span><span class="l">WPT visual CSS tests passing (reftests), now checked in CI</span></div>
-    <div class="stat"><span class="v">31.5</span><span class="l">WPT JavaScript tests, mean score per file (0–100) over the phase-1 subset: 3,264 files, 23 areas; 46.5% of 37,045 subtests pass. Baseline 28.4 (#504); every PR is gated on it in CI since #507</span></div>
+    <div class="stat"><span class="v">340 / 626</span><span class="l">WPT visual CSS tests passing (reftests), now checked in CI</span></div>
+    <div class="stat"><span class="v">31.9</span><span class="l">WPT JavaScript tests, mean score per file (0–100) over the phase-1 subset: 3,264 files, 23 areas; 47.5% of 37,294 subtests pass. Waiting to merge: QDOM3 (nodes 57), QDOM8 (+3,600 subtests), QEL2 (resize-observer 59), QXSCR1 (cssom-view), QSCR404. Baseline 28.4 (#504); every PR is gated on it in CI since #507</span></div>
     <div class="stat"><span class="v">1852 / 1852</span><span class="l">Unit and integration tests passing, engine on and off (CI runs both)</span></div>
     <div class="stat"><span class="v">0</span><span class="l">Engine mismatches on the 7 test pages (check mode)</span></div>
   </div>
@@ -82,9 +82,9 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
     <tr><th>Area</th><th>Files</th><th>Score</th><th>Subtests pass</th></tr>
     <tr><td>url</td><td class="n">44</td><td class="n">81.1</td><td class="n">77.6%</td></tr>
     <tr><td>requestidlecallback</td><td class="n">9</td><td class="n">64.8</td><td class="n">76.5%</td></tr>
-    <tr><td>dom/other</td><td class="n">46</td><td class="n">79.1 <span class="note">(was 55.2)</span></td><td class="n">75.8%</td></tr>
-    <tr><td>dom/nodes</td><td class="n">393</td><td class="n">48.5 <span class="note">(was 42.4)</span></td><td class="n">49.6%</td></tr>
-    <tr><td>webidl</td><td class="n">44</td><td class="n">38.1</td><td class="n">48.0%</td></tr>
+    <tr><td>dom/other</td><td class="n">46</td><td class="n">82.9 <span class="note">(was 55.2)</span></td><td class="n">90.5%</td></tr>
+    <tr><td>dom/nodes</td><td class="n">393</td><td class="n">50.4 <span class="note">(was 42.4)</span></td><td class="n">56.0%</td></tr>
+    <tr><td>webidl</td><td class="n">44</td><td class="n">41.3 <span class="note">(was 38.1)</span></td><td class="n">52.0%</td></tr>
     <tr><td>html/dom</td><td class="n">180</td><td class="n">36.2</td><td class="n">26.9%</td></tr>
     <tr><td>webmessaging</td><td class="n">115</td><td class="n">35.5</td><td class="n">42.6%</td></tr>
     <tr><td>encoding</td><td class="n">41</td><td class="n">33.2</td><td class="n">43.5%</td></tr>
@@ -111,6 +111,15 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#542</td><td>QDOM9</td><td><code>classList</code> and other DOMTokenLists follow the spec (relList, sandbox, htmlFor added); nodes +140 subtests</td></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#538</td><td>QWPTPRINT</td><td>Print reftests render as print; the <code>@media not print</code> test passes again for the right reason (your option 1)</td></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#540</td><td>QREC1c</td><td>wire replay no longer serves a different query's response (Wikipedia replays were getting the wrong scripts)</td></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#537</td><td>QREC3</td><td>The 7 test pages recorded locally (41 MB, never committed); replay makes counts steady</td></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#536</td><td>QKEYS1c</td><td>Status-bar messages are shown in full; a long URL is shortened in the middle</td></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#531</td><td>QREG1</td><td><code>yy</code> and <code>:let @+ = @%</code> copy the URL to the clipboard (your plan, #528)</td></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#532</td><td>QSMOOTH</td><td>Your smooth-scrolling plan (QSMOOTH1/2) in the TODO</td></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#526</td><td>QDOM6</td><td><code>new Text()</code>, <code>new Comment()</code>, <code>new Document()</code> create real nodes; total 31.5 → 31.8</td></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#530</td><td>QKEYS5</td><td>scratchy starts in NORMAL mode (your request); <code>START_MODE</code> in config.rs</td></tr>
     <tr><td class="n">2026-11-21</td><td class="n">#527</td><td>QCSS1</td><td>Stylesheet <code>@media</code> uses the same evaluator as <code>matchMedia</code>: range syntax <code>(width &gt;= 600px)</code>, hover/pointer, orientation, <code>not</code>/<code>or</code>. 7 reftests newly pass; one print test accepted as failing (your call; QWPTPRINT renders print tests as print)</td></tr>
     <tr><td class="n">2026-11-21</td><td class="n">#528</td><td>QREG-D</td><td>Your plan: copy the URL via vim registers (<code>:let @+ = @%</code>, <code>yy</code>), page cursor later (QCURSOR-D). Docs only</td></tr>
     <tr><td class="n">2026-11-21</td><td class="n">#524</td><td>QINC1n</td><td>Engine evidence (your yes): a log line on a real fallback, 1 frame in 200 checked against a full layout with mismatches written to <span class="mono">&lt;state-dir&gt;/engine-check.log</span>, and <code>:engine</code> with the counts. Costs 0.6–2.3% CPU; 0 fallbacks, 0 mismatches so far</td></tr>
@@ -171,7 +180,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 </section>
 
 <section>
-  <h2>Open work (51 items)</h2>
+  <h2>Open work (62 items)</h2>
   <div class="scroll"><table>
     <tr><th>Group</th><th>Items</th><th>Status</th></tr>
     <tr><td>Engine</td><td>QINC1m remove the old pipeline</td><td><span class="pill todo">after ~3 days of your use, with your OK</span></td></tr>
