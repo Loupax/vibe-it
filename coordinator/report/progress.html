@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-21 · main 397bc5c · 25 PRs merged today (#475–#499) · 5 agents running (QREC2, QWPT6, QSEARCH1, QFORM1, QFLK8)</div>
+  <div class="meta" id="updated">Updated 2026-11-21 · main 237a0bf · 30 PRs merged today (#475–#504) · 5 agents running (QHELP1, QWPT5, QAREA-DOM, QEL1, QHIST1)</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -64,7 +64,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
     <div class="phase is-done"><span class="k">Step 1</span><span class="t">Incremental engine finished and tested</span><span class="pill done">done</span></div>
     <div class="phase is-done"><span class="k">Step 2</span><span class="t">Engine becomes the default (QINC1l)</span><span class="pill done">merged #473</span></div>
     <div class="phase is-done"><span class="k">Step 3</span><span class="t">Conformance plan (QWPT1, R64)</span><span class="pill done">approved, all 8 answers</span></div>
-    <div class="phase is-wip"><span class="k">Step 4</span><span class="t">Run WPT JavaScript tests, report per area</span><span class="pill todo">after the UI and storage items</span></div>
+    <div class="phase is-wip"><span class="k">Step 4</span><span class="t">Run WPT JavaScript tests, report per area</span><span class="pill wip">baseline recorded · CI gate in progress (QWPT5)</span></div>
     <div class="phase is-todo"><span class="k">Step 5</span><span class="t">Spec areas to conformance, in dependency order</span><span class="pill todo">later</span></div>
   </div>
   <p class="note">The order of the step 5 areas comes from the design memo. The current proposal is DOM core, events, the event loop and rendering steps, CSSOM, geometry, fetch and streams, then media.</p>
@@ -74,17 +74,48 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Measurements</h2>
   <div class="stats">
     <div class="stat"><span class="v">333 / 626</span><span class="l">WPT visual CSS tests passing (reftests), now checked in CI</span></div>
-    <div class="stat"><span class="v">~31%</span><span class="l">WPT JavaScript tests, average score per file: one-off probe of 1,522 serverless tests (44% of 23,389 checks). Not in CI yet</span></div>
-    <div class="stat"><span class="v">1815 / 1815</span><span class="l">Unit and integration tests passing, engine on and off (CI runs both)</span></div>
+    <div class="stat"><span class="v">28.4</span><span class="l">WPT JavaScript tests, mean score per file (0–100) over the phase-1 subset: 3,264 files, 23 areas; 45.6% of 37,045 subtests pass. Baseline #504; CI gate next</span></div>
+    <div class="stat"><span class="v">1852 / 1852</span><span class="l">Unit and integration tests passing, engine on and off (CI runs both)</span></div>
     <div class="stat"><span class="v">0</span><span class="l">Engine mismatches on the 7 test pages (check mode)</span></div>
   </div>
-  <p class="note">Once step 4 lands, this section gets a pass-rate table per spec area, with its history across PRs.</p>
+  <div class="scroll"><table>
+    <tr><th>Area</th><th>Files</th><th>Score</th><th>Subtests pass</th></tr>
+    <tr><td>url</td><td class="n">44</td><td class="n">81.1</td><td class="n">77.6%</td></tr>
+    <tr><td>requestidlecallback</td><td class="n">9</td><td class="n">64.8</td><td class="n">76.5%</td></tr>
+    <tr><td>dom/other</td><td class="n">46</td><td class="n">55.2</td><td class="n">75.8%</td></tr>
+    <tr><td>dom/nodes</td><td class="n">393</td><td class="n">42.4</td><td class="n">48.9%</td></tr>
+    <tr><td>webidl</td><td class="n">44</td><td class="n">38.1</td><td class="n">48.0%</td></tr>
+    <tr><td>html/dom</td><td class="n">180</td><td class="n">36.2</td><td class="n">26.9%</td></tr>
+    <tr><td>webmessaging</td><td class="n">115</td><td class="n">35.5</td><td class="n">42.6%</td></tr>
+    <tr><td>encoding</td><td class="n">41</td><td class="n">33.2</td><td class="n">43.5%</td></tr>
+    <tr><td>html/semantics/scripting-1</td><td class="n">419</td><td class="n">31.4</td><td class="n">44.0%</td></tr>
+    <tr><td>css/cssom</td><td class="n">271</td><td class="n">31.2</td><td class="n">54.1%</td></tr>
+    <tr><td>resize-observer</td><td class="n">36</td><td class="n">31.1</td><td class="n">31.9%</td></tr>
+    <tr><td>hr-time</td><td class="n">9</td><td class="n">24.8</td><td class="n">31.2%</td></tr>
+    <tr><td>css/cssom-view</td><td class="n">220</td><td class="n">24.6</td><td class="n">40.5%</td></tr>
+    <tr><td>html/webappapis</td><td class="n">308</td><td class="n">24.4</td><td class="n">49.0%</td></tr>
+    <tr><td>dom/events</td><td class="n">194</td><td class="n">23.0</td><td class="n">41.9%</td></tr>
+    <tr><td>domparsing</td><td class="n">93</td><td class="n">21.9</td><td class="n">5.4%</td></tr>
+    <tr><td>shadow-dom</td><td class="n">263</td><td class="n">21.6</td><td class="n">31.8%</td></tr>
+    <tr><td>dom/ranges</td><td class="n">41</td><td class="n">17.1</td><td class="n">6.0%</td></tr>
+    <tr><td>custom-elements</td><td class="n">204</td><td class="n">16.8</td><td class="n">30.3%</td></tr>
+    <tr><td>uievents</td><td class="n">70</td><td class="n">12.8</td><td class="n">38.1%</td></tr>
+    <tr><td>intersection-observer</td><td class="n">150</td><td class="n">12.0</td><td class="n">19.6%</td></tr>
+    <tr><td>streams</td><td class="n">85</td><td class="n">11.1</td><td class="n">20.2%</td></tr>
+    <tr><td>dom/observable</td><td class="n">29</td><td class="n">0.0</td><td class="n">0.0%</td></tr>
+  </table></div>
+  <p class="note">Baseline 2026-11-21 (#504), sorted by score. A full run takes 110 s on 4 cores. Every later PR shows its change against this table.</p>
 </section>
 
 <section>
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#504</td><td>QWPT6</td><td>First real conformance baseline: 3,264 WPT JavaScript test files in 23 areas, recorded per file; identical over 4 runs (no flaky files)</td></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#503</td><td>QSEARCH1</td><td><code>/</code> search in normal mode: typed in the status bar, all matches highlighted, <code>[i/N]</code>; Esc clears the highlights</td></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#502</td><td>QFORM1</td><td>Submitting a form from script or a button click now fires a real <code>SubmitEvent</code> with its <code>submitter</code></td></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#500</td><td>QREC2</td><td><code>--deterministic</code> for the report modes: same random numbers, clock and request order on every run</td></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#501</td><td>QFLK8</td><td>CI runs a headless compositor, so the 54 window-level tests run there too (+12 s)</td></tr>
     <tr><td class="n">2026-11-21</td><td class="n">#499</td><td>QWPT4b</td><td><code>scratchy --wpt-th CHECKOUT</code> runs a list of WPT JavaScript tests in parallel with its own wire, compares against recorded results and writes a per-area score table</td></tr>
     <tr><td class="n">2026-11-21</td><td class="n">#498</td><td>QKEYS4</td><td>In input mode the arrows, PageUp/PageDown, Space and Home/End scroll the page again (unless the page or a focused field takes the key)</td></tr>
     <tr><td class="n">2026-11-21</td><td class="n">#495</td><td>QKEYS2</td><td>Input and normal modes: scratchy starts in INPUT (every key goes to the page); Esc Esc gives the keyboard to scratchy, <code>i</code> gives it back. Checked live on YouTube (<code>l</code> seeks) and social.loupax.com (Esc Esc then <code>:</code> works)</td></tr>
@@ -118,17 +149,17 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 </section>
 
 <section>
-  <h2>Open work (42 items)</h2>
+  <h2>Open work (38 items)</h2>
   <div class="scroll"><table>
     <tr><th>Group</th><th>Items</th><th>Status</th></tr>
     <tr><td>Engine</td><td>QINC1m remove the old pipeline</td><td><span class="pill todo">after ~3 days of your use, with your OK</span></td></tr>
-    <tr><td>Conformance</td><td>QWPT2 done · QWPT3–9 test runner and CI · QEL1–9 event loop · QMAPI1–3 missing-API report · QREC1–3 recorded pages · QBUD1 budgets · QAREA-DOM</td><td><span class="pill wip">QWPT2/3/4a/4b, QMAPI1, QREC1, QERR1 done · QWPT6 (first real baseline), QREC2 running</span></td></tr>
-    <tr><td>Reliability</td><td>QFLK7 (tests that never ran) · QFLK6b · QJ4c · QWIKI1 · QINC1k9</td><td><span class="pill wip">QFLK7 done · QFLK8 (run window tests on CI), QFORM1 running</span></td></tr>
+    <tr><td>Conformance</td><td>QWPT2 done · QWPT3–9 test runner and CI · QEL1–9 event loop · QMAPI1–3 missing-API report · QREC1–3 recorded pages · QBUD1 budgets · QAREA-DOM</td><td><span class="pill wip">QWPT2–4b, QWPT6, QMAPI1, QREC1/2, QERR1 done · QWPT5 (CI gate), QEL1 (rendering steps), QAREA-DOM (DOM failure triage) running</span></td></tr>
+    <tr><td>Reliability</td><td>QFLK7 (tests that never ran) · QFLK6b · QJ4c · QWIKI1 · QINC1k9</td><td><span class="pill wip">QFLK7, QFLK8, QFORM1 done · QHIST1 (fast double back/forward) running</span></td></tr>
     <tr><td>Product choices</td><td>QCFG1 config file · QTB1 tracker blocking</td><td><span class="pill todo">queued</span></td></tr>
     <tr><td>UI: storage</td><td>QSTASH1–5 saved localStorage, cookies, forget-site</td><td><span class="pill done">all five done</span></td></tr>
     <tr><td>UI: keys</td><td>QKEYS1–4 status bar, input/normal mode · QSB1 scrollbar drag · QPASTE1</td><td><span class="pill wip">QKEYS1/2/4, QSB1/2, QPASTE1 done · QKEYS3 (remove <code>:set vim</code>) after search</span></td></tr>
-    <tr><td>UI: search</td><td>QSEARCH1–3 <code>/</code>, n/N, Enter</td><td><span class="pill wip">QSEARCH1 running</span></td></tr>
-    <tr><td>UI: completion</td><td>QCONF1 · QCOMP1–4 completion sources, history file, <code>:go</code></td><td><span class="pill wip">QCONF1, QCOMP3 done · QCOMP1 after QSEARCH1 (same command line)</span></td></tr>
+    <tr><td>UI: search</td><td>QSEARCH1–3 <code>/</code>, n/N, Enter</td><td><span class="pill wip">QSEARCH1 done · QSEARCH2 (n/N, scroll to match) after the help update</span></td></tr>
+    <tr><td>UI: completion</td><td>QCONF1 · QCOMP1–4 completion sources, history file, <code>:go</code></td><td><span class="pill wip">QCONF1, QCOMP3 done · QCOMP1 after the help update · QHELP1 (<code>:help</code> brought up to date, your request) running</span></td></tr>
   </table></div>
   <p class="note">Archived and not scheduled: site-specific fixes, media, and the spec-gap items that the WPT runs will surface again (<span class="mono">scratchy/TODO-ARCHIVE.txt</span>).</p>
 </section>
