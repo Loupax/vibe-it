@@ -247,3 +247,9 @@ Result: wire/TODO.txt W-PERSIST1 (`--cookie-file PATH`, `X-Wire-Cookie-Op: clear
 > QWPT3 [M] wire static mount: `wire --mount http://web-platform.test:8000=DIR` (+ www/www1/www2 and the next port as aliases), `.headers` / `__dir__.headers`, generated `x.any.html` / `x.window.html` wrappers (META script/title/timeout/global), WebIDLParser.js alias, `.sub.` substitution, `--mount-override PATH=FILE`, `.py` -> 501, no socket, path traversal impossible and tested.
 
 Result: `src/mount.rs` (+ unit tests), hook in `execute_with`, `mount_wire_tests` end-to-end test, README "Static mounts". Wrapper templates written from memory of wptserve (tools/ is not in the sparse WPT checkout); checked against R64 2.4. Not done: `.sub.headers`, `.asis`, Range, `__dir__` on wrappers (wptserve does not apply it either, as far as recalled).
+
+## QREC1 — `--record` / `--replay` (agent task)
+
+> QREC1 [M] wire --record DIR / --replay DIR (blobs by sha256 + zstd, index.jsonl, matching exact -> ignore-list -> n-th same path, ranges, 404 + X-Wire-Replay: miss, --replay-delay, WebSocket refused in replay). Tests in wire.
+
+Result: `src/record.rs`, `src/record_tests.rs`, hooks in `execute_with` (new `execute_network` holds the old network half) and `handle_connection`, README section. New crates `zstd` (C libzstd compiled by the build, no sockets), `sha2` (pure Rust), `serde_json`; none opens a socket. Not done: Set-Cookie in replay (the jar path strips it before the recorder sees it), `tools/replay-rules.txt` content (QREC3), scratchy `--deterministic` (QREC2).
