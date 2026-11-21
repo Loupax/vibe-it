@@ -142,14 +142,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       steps"), and Attr nodes as boundary points (nodes without `__id` today: Range-attribute-nodes). WPT in subset:
       ranges/Range-{clone,delete,extract}Contents-{around-shadow,in-ShadowRoot}, Range-attribute-nodes. Target: ranges
       17.1 -> 30. After QWPT6c also the core Range-* suite.
-- [ ] [WIP] QDOM6 [S] (P1; Sonnet; js.rs `ctor('Text'|'Comment'|'DocumentFragment'|'Document')`, js_dom.rs; R65) Node
-      constructors that create nodes: `new Text(data = '')`, `new Comment(data = '')`, `new DocumentFragment()` (owner =
-      the constructor's realm's document, `owners[]`), `new Document()` (an XML document: contentType
-      `application/xml`, no doctype, origin/URL of the realm's document, createElement does NOT lowercase; reuse
-      `makeDoc(false, ...)`). Calling without `new` still throws TypeError. WPT: nodes/Text-constructor,
-      Comment-constructor, DocumentFragment-constructor, Document-constructor, Document-adoptNode, Node-cloneNode,
-      insertion-removing-steps/*, events/Event-dispatch-bubbles-{true,false}. Target: nodes +1.5. Prerequisite for
-      dom/common.js (QDOM8).
 - [ ] QDOM6b [S] (P2, from QDOM6 #526; Sonnet; js_dom.rs) `createElementNS(null, name)` creates an HTML-namespace element
       (old quirk): use `__d_create_xml` (null namespace, name unchanged) as created XML documents already do. Test + --wpt-th.
 - [ ] [WIP] QDOM8 [S] (P1; Sonnet; js_dom.rs; R65; after QDOM6, QDOM7) ProcessingInstruction and CDATASection nodes:
@@ -530,14 +522,6 @@ QREG — copying: vim registers, `yy`, later a page cursor (user design session 
   R5 Long term (QCURSOR-D, design first): a keyboard cursor in the page, moved by hjkl like
      vim; n/N move it; Enter acts on what is under it; visual mode `v` + `y`/`"+y`/`:yank`.
 
-- [ ] [WIP] QREG1 [S] (P2; user 2026-11-21; Sonnet; new registers.rs,
-      app.rs dispatch_command/COMMAND_NAMES, config.rs, forms_text.rs clipboard_set) Registers `%` (the URL as the
-      status bar shows it: history entry, else base URL; read-only) and `+` (the system clipboard), `:let @dst = @src`
-      (spaces optional; messages as in KEYS.md "Registers"), and `yy` = `:let @+ = @%` (ignores key repeat). The
-      pending-`g` machine becomes a `KEY_SEQUENCES` table in config.rs (`gg`, `yy`), KEYS.md T54-T56. `clipboard_set`
-      reports whether the system clipboard took the text, so a failure is not shown as "Copied to clipboard".
-      `:help` rows. Tests: `yy` in NORMAL copies and the page sees no keys, `yy` in INPUT goes to the page, `:let`
-      errors (read-only `%`, unknown register, usage, no URL), `g` `y` / `y` `g` re-arm.
 - [ ] QREG2 [S] (P2, from QREG1; Sonnet; registers.rs, app.rs dispatch_command, js.rs eval_value) `:let @+ = <expr>`: when
       the right side is not `@<register>`, the raw rest of the line after `=` (not re-joined words) is evaluated in
       the page's main realm, `String()` of the result goes into the register. JS off or no engine: `scratchy: :let

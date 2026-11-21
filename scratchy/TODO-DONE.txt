@@ -8973,3 +8973,23 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       tests that assume the INPUT start (set the mode explicitly where a test is about input mode, and add one test
       that a fresh App is NORMAL and one that START_MODE = Input still works). Real check: grim of a fresh window
       showing NORMAL in the status bar, `j` scrolls straight away, `i` enters INPUT.
+
+=== from TODO.txt: --- (no header)
+- [x] QDOM6 DONE b05689c #526 [S] (P1; Sonnet; js.rs `ctor('Text'|'Comment'|'DocumentFragment'|'Document')`, js_dom.rs; R65) Node
+      constructors that create nodes: `new Text(data = '')`, `new Comment(data = '')`, `new DocumentFragment()` (owner =
+      the constructor's realm's document, `owners[]`), `new Document()` (an XML document: contentType
+      `application/xml`, no doctype, origin/URL of the realm's document, createElement does NOT lowercase; reuse
+      `makeDoc(false, ...)`). Calling without `new` still throws TypeError. WPT: nodes/Text-constructor,
+      Comment-constructor, DocumentFragment-constructor, Document-constructor, Document-adoptNode, Node-cloneNode,
+      insertion-removing-steps/*, events/Event-dispatch-bubbles-{true,false}. Target: nodes +1.5. Prerequisite for
+      dom/common.js (QDOM8).
+
+=== from TODO.txt: --- (no header)
+- [x] QREG1 DONE df3d474 #531 [S] (P2; user 2026-11-21; Sonnet; new registers.rs,
+      app.rs dispatch_command/COMMAND_NAMES, config.rs, forms_text.rs clipboard_set) Registers `%` (the URL as the
+      status bar shows it: history entry, else base URL; read-only) and `+` (the system clipboard), `:let @dst = @src`
+      (spaces optional; messages as in KEYS.md "Registers"), and `yy` = `:let @+ = @%` (ignores key repeat). The
+      pending-`g` machine becomes a `KEY_SEQUENCES` table in config.rs (`gg`, `yy`), KEYS.md T54-T56. `clipboard_set`
+      reports whether the system clipboard took the text, so a failure is not shown as "Copied to clipboard".
+      `:help` rows. Tests: `yy` in NORMAL copies and the page sees no keys, `yy` in INPUT goes to the page, `:let`
+      errors (read-only `%`, unknown register, usage, no URL), `g` `y` / `y` `g` re-arm.
