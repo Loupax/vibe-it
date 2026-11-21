@@ -4153,7 +4153,8 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     P.toString = function () { return this.href; };
   };
   hl(ANP); hl(ARP);
-  // classList: a DOMTokenList keyed on the element.
+  // DOMTokenList (DOM Standard section 7.1): an ordered set parsed from the element's attribute on every access
+  // (so it is always live), serialized back by the "update steps". One object per element and attribute ([SameObject]).
   var DOMTokenList = g.DOMTokenList = function DOMTokenList() { throw new TypeError('Illegal constructor'); };
   var DTP = DOMTokenList.prototype;
   var tokcheck = function (fn, t) {
@@ -4162,55 +4163,108 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (/[ \t\n\f\r]/.test(t)) throw herr("Failed to execute '" + fn + "' on 'DOMTokenList': The token provided ('" + t + "') contains HTML space characters, which are not valid in tokens.", 'InvalidCharacterError');
     return t;
   };
-  var toks = function (l) { return classes(l._el); };
-  var putToks = function (l, c) { __d_setattr(l._el.__id, 'class', c.join(' ')); };
-  var clsAttr = function (l) { var v = __d_attr(l._el.__id, 'class'); return v == null ? '' : v; };
+  // Ordered set parser: ASCII whitespace separated, first occurrence wins.
+  var toks = function (l) {
+    var v = __d_attr(l._el.__id, l._attr), out = [];
+    if (v == null) return out;
+    v.split(/[ \t\n\f\r]+/).forEach(function (t) { if (t !== '' && out.indexOf(t) < 0) out.push(t); });
+    return out;
+  };
+  // Update steps: no attribute and an empty set -> nothing is written.
+  var putToks = function (l, c) {
+    if (c.length === 0 && __d_attr(l._el.__id, l._attr) == null) return;
+    __d_setattr(l._el.__id, l._attr, c.join(' '));
+  };
+  var tokAttr = function (l) { var v = __d_attr(l._el.__id, l._attr); return v == null ? '' : v; };
+  var tokArgs = function (fn, a) { return Array.prototype.map.call(a, function (x) { return tokcheck(fn, x); }); };
   DTP.contains = function (c) { return toks(this).indexOf(String(c)) >= 0; };
   DTP.add = function () {
-    var c = toks(this), a = Array.prototype.map.call(arguments, function (x) { return tokcheck('add', x); });
+    var c = toks(this), a = tokArgs('add', arguments);
     a.forEach(function (t) { if (c.indexOf(t) < 0) c.push(t); });
     putToks(this, c);
   };
   DTP.remove = function () {
-    var a = Array.prototype.map.call(arguments, function (x) { return tokcheck('remove', x); });
+    var a = tokArgs('remove', arguments);
     putToks(this, toks(this).filter(function (x) { return a.indexOf(x) < 0; }));
   };
   DTP.toggle = function (c, force) {
     c = tokcheck('toggle', c);
-    var has = this.contains(c), want = force === undefined ? !has : !!force;
-    if (want && !has) this.add(c); else if (!want && has) this.remove(c);
-    return want;
+    var t = toks(this);
+    if (t.indexOf(c) >= 0) {
+      if (force === undefined || !force) {
+        putToks(this, t.filter(function (x) { return x !== c; }));
+        return false;
+      }
+      return true;
+    }
+    if (force === undefined || force) { t.push(c); putToks(this, t); return true; }
+    return false;
   };
   DTP.replace = function (a, b) {
-    a = tokcheck('replace', a); b = tokcheck('replace', b);
-    var c = toks(this), i = c.indexOf(a);
-    if (i < 0) return false;
-    if (c.indexOf(b) >= 0 && c.indexOf(b) !== i) c.splice(i, 1); else c[i] = b;
-    putToks(this, c); return true;
+    a = String(a); b = String(b);
+    if (a === '' || b === '') throw herr("Failed to execute 'replace' on 'DOMTokenList': The token provided must not be empty.", 'SyntaxError');
+    tokcheck('replace', a); tokcheck('replace', b);
+    var c = toks(this);
+    if (c.indexOf(a) < 0) return false;
+    var done = false, out = [];
+    c.forEach(function (x) {
+      if (x === a || x === b) { if (!done) { out.push(b); done = true; } } else out.push(x);
+    });
+    putToks(this, out); return true;
   };
-  DTP.item = function (i) { var c = toks(this); return c[i] === undefined ? null : c[i]; };
-  DTP.supports = function () { return true; };
-  DTP.toString = function () { return clsAttr(this); };
-  DTP.forEach = function (f, t) { toks(this).forEach(function (x, i) { f.call(t, x, i, this); }, this); };
+  DTP.item = function (i) {
+    if (arguments.length < 1) throw new TypeError("Failed to execute 'item' on 'DOMTokenList': 1 argument required, but only 0 present.");
+    i = Number(i) >>> 0; var c = toks(this); return i < c.length ? c[i] : null;
+  };
+  DTP.supports = function (t) {
+    if (arguments.length < 1) throw new TypeError("Failed to execute 'supports' on 'DOMTokenList': 1 argument required, but only 0 present.");
+    var s = this._sup;
+    if (!s) throw new TypeError("Failed to execute 'supports' on 'DOMTokenList': DOMTokenList has no supported tokens.");
+    return s.indexOf(String(t).toLowerCase()) >= 0;
+  };
+  DTP.toString = function () { return tokAttr(this); };
+  DTP.forEach = function (f, t) {
+    if (typeof f !== 'function') throw new TypeError("Failed to execute 'forEach' on 'DOMTokenList': parameter 1 is not of type 'Function'.");
+    toks(this).forEach(function (x, i) { f.call(t, x, i, this); }, this);
+  };
   DTP.keys = function () { return toks(this).keys(); };
   DTP.values = function () { return toks(this).values(); };
   DTP.entries = function () { return toks(this).entries(); };
   DTP[Symbol.iterator] = DTP.values;
   def(DTP, 'length', function () { return toks(this).length; });
-  defs(DTP, 'value', function () { return clsAttr(this); }, function (v) { __d_setattr(this._el.__id, 'class', String(v)); });
+  defs(DTP, 'value', function () { return tokAttr(this); }, function (v) { __d_setattr(this._el.__id, this._attr, String(v)); });
   Object.defineProperty(DTP, Symbol.toStringTag, { value: 'DOMTokenList', configurable: true });
   var tlists = {};
-  var isIdx = function (k) { return typeof k === 'string' && /^(0|[1-9][0-9]*)$/.test(k); };
-  defs(ElementProto, 'classList', function () {
-    if (tlists[this.__id]) return tlists[this.__id];
+  var isIdx = function (k) { return typeof k === 'string' && /^(0|[1-9][0-9]*)$/.test(k) && +k < 4294967295; };
+  var tokenList = function (el, attr, sup) {
+    var key = el.__id + ' ' + attr;
+    if (tlists[key]) return tlists[key];
     var l = Object.create(DTP);
-    Object.defineProperty(l, '_el', { value: this });
+    Object.defineProperty(l, '_el', { value: el });
+    Object.defineProperty(l, '_attr', { value: attr });
+    Object.defineProperty(l, '_sup', { value: sup });
     var p = new Proxy(l, {
       get: function (t, k) { return isIdx(k) ? toks(t)[+k] : Reflect.get(t, k, t); },
       has: function (t, k) { return isIdx(k) ? +k < toks(t).length : k in t; }
     });
-    return (tlists[this.__id] = p);
-  }, function (v) { this.classList.value = v; });
+    return (tlists[key] = p);
+  };
+  // [PutForwards=value]: assigning to the attribute sets the list's value.
+  var tokProp = function (P, prop, attr, sup) {
+    defs(P, prop, function () { return tokenList(this, attr, sup); }, function (v) { tokenList(this, attr, sup).value = v; });
+  };
+  var REL_SUP = ['alternate', 'dns-prefetch', 'icon', 'manifest', 'modulepreload', 'next', 'pingback', 'preconnect', 'prefetch', 'preload', 'prerender', 'stylesheet'];
+  var ANCHOR_SUP = ['noopener', 'noreferrer', 'opener'];
+  var SANDBOX_SUP = ['allow-downloads', 'allow-forms', 'allow-modals', 'allow-orientation-lock', 'allow-pointer-lock', 'allow-popups',
+    'allow-popups-to-escape-sandbox', 'allow-presentation', 'allow-same-origin', 'allow-scripts', 'allow-top-navigation',
+    'allow-top-navigation-by-user-activation', 'allow-top-navigation-to-custom-protocols'];
+  tokProp(ElementProto, 'classList', 'class');
+  tokProp(ANP, 'relList', 'rel', ANCHOR_SUP);
+  tokProp(ARP, 'relList', 'rel', ANCHOR_SUP);
+  tokProp(LKP, 'relList', 'rel', REL_SUP);
+  tokProp(LKP, 'sizes', 'sizes');
+  tokProp(IFP, 'sandbox', 'sandbox', SANDBOX_SUP);
+  tokProp(OUP, 'htmlFor', 'for');
   // dataset: live DOMStringMap over data-* attributes.
   var dsName = function (attr) { return attr.slice(5).replace(/-([a-z])/g, function (m, c) { return c.toUpperCase(); }); };
   var dsAttr = function (p) { return 'data-' + p.replace(/[A-Z]/g, function (m) { return '-' + m.toLowerCase(); }); };
@@ -4450,13 +4504,14 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     ['SVGLinearGradientElement', 'SVGGradientElement', 'linearGradient'],
     ['SVGRadialGradientElement', 'SVGGradientElement', 'radialGradient'], ['SVGStopElement', 'SVGElement', 'stop'],
     ['SVGClipPathElement', 'SVGElement', 'clipPath'], ['SVGMaskElement', 'SVGElement', 'mask'],
-    ['SVGForeignObjectElement', 'SVGGraphicsElement', 'foreignObject']].forEach(function (r) {
+    ['SVGForeignObjectElement', 'SVGGraphicsElement', 'foreignObject'], ['SVGAElement', 'SVGGraphicsElement', 'a']].forEach(function (r) {
     var P = r[1] === 'Element' ? Element : g[r[1]], C = illegal(r[0]);
     C.prototype = Object.create(P.prototype, { constructor: { value: C, writable: true, configurable: true } });
     g[r[0]] = C;
     if (r[2]) svgProto[r[2]] = C.prototype;
   });
   var SVGElement = g.SVGElement;
+  tokProp(svgProto.a, 'relList', 'rel', ANCHOR_SUP);
   // CDATASection / ProcessingInstruction exist as interfaces (the parser never produces them).
   [['CDATASection', Text], ['ProcessingInstruction', CharacterData]].forEach(function (r) {
     var C = illegal(r[0]);

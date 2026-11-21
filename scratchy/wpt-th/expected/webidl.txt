@@ -153,17 +153,14 @@ OK           3/4  webidl/ecmascript-binding/no-regexp-special-casing.any.html
 OK           0/1  webidl/ecmascript-binding/observable-array-no-leak-of-internals.window.html
   FAIL      ObservableArray's internals won't leak
 OK           1/1  webidl/ecmascript-binding/observable-array-ownkeys.window.html
-OK          1/11  webidl/ecmascript-binding/put-forwards.html
+OK          4/11  webidl/ecmascript-binding/put-forwards.html
   FAIL      Overriding getter of [PutForwards] attribute
   FAIL      Overriding setter of [PutForwards] target attribute
   FAIL      Overriding target of [PutForwards] attribute
   FAIL      Exception propagation from getter of [PutForwards] attribute
   FAIL      Exception propagation from setter of [PutForwards] target attribute
   FAIL      TypeError when getter of [PutForwards] attribute returns non-object
-  FAIL      Setting a.relList to noreferrer is reflected in rel
-  FAIL      Setting area.relList to noreferrer is reflected in rel
   FAIL      Setting form.relList to noreferrer is reflected in rel
-  FAIL      Setting link.relList to stylesheet is reflected in rel
 OK           3/8  webidl/ecmascript-binding/replaceable-setter-throws-if-defineownproperty-fails.html
   FAIL      window.self setter throws TypeError if called on non-configurable accessor property
   FAIL      window.parent setter throws TypeError if called on non-configurable accessor property
@@ -178,7 +175,7 @@ OK           1/8  webidl/ecmascript-binding/sequence-conversion.html
   FAIL      An array with an overridden Symbol.iterator on the prototype
   FAIL      An array with an overridden %ArrayIterator%.prototype.next
   FAIL      A holey array with fallback to an accessor on the prototype
-OK          0/17  webidl/ecmascript-binding/setter-argument.html
+OK          2/17  webidl/ecmascript-binding/setter-argument.html
   FAIL      String attribute setter should throw if this value is invalid
   FAIL      String attribute setter should treat no arguments as undefined
   FAIL      String attribute setter called with undefined should behave in the same way as no arguments
@@ -194,8 +191,6 @@ OK          0/17  webidl/ecmascript-binding/setter-argument.html
   FAIL      [LegacyLenientThis] setter called with undefined should behave in the same way as no arguments
   FAIL      [LegacyLenientSetter] setter should treat no arguments as undefined
   FAIL      [LegacyLenientSetter] setter called with undefined should behave in the same way as no arguments
-  FAIL      [PutForward] setter should treat no arguments as undefined
-  FAIL      [PutForward] setter called with undefined should behave in the same way as no arguments
 OK          4/13  webidl/ecmascript-binding/window-named-properties-object.html
   FAIL      [[SetPrototypeOf]] and [[GetPrototypeOf]]
   FAIL      [[PreventExtensions]] and [[IsExtensible]]

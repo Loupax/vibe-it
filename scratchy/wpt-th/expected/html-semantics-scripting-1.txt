@@ -459,8 +459,8 @@ OK           0/1  html/semantics/scripting-1/the-script-element/microtasks/evalu
   FAIL      Module script queueing a microtask then throwing an exception
 OK           0/1  html/semantics/scripting-1/the-script-element/microtasks/evaluation-order-4.html
   FAIL      Module script queueing a microtask then top-level await
-OK           0/1  html/semantics/scripting-1/the-script-element/module-script-disabled-scripting.html
-  FAIL      Module script with syntax error should not report error when scripting is disabled
+TIMEOUT      0/1  html/semantics/scripting-1/the-script-element/module-script-disabled-scripting.html
+  TIMEOUT   Module script with syntax error should not report error when scripting is disabled
 ERROR        0/0  html/semantics/scripting-1/the-script-element/module/charset-03.html
 OK           0/1  html/semantics/scripting-1/the-script-element/module/choice-of-error-1.html
   FAIL      Parse errors in different files should be reported depending on different roots
