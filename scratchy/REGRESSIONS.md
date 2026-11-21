@@ -10341,6 +10341,15 @@ scratchy:  ro:0x0, io:true, timeout0, micro-after-timeout0, raf1, micro-after-ra
 expected:  timeout0, micro-after-timeout0, raf1, micro-after-raf1, raf2, ro:100x50, io:true, raf-next-frame, ..., resized, ro:200x50
 ```
 
+**QEL1 (2026-11-21): E1, E2, E3 fixed.** `src/event_loop.rs` `update_the_rendering` runs the steps in
+the HTML order for the App and every headless mode (NOTES.md "Rendering steps"); rAF has its own list
+and id space, one batch per frame with one timestamp, never split by the timer slice; rAF exceptions
+are reported at the callback's global (the timer/observer part of E7 stays QEL4). Scroll and MQL
+steps are hooks (E10/E11, QEL7); RO/IO hooks sit after style/layout (E4/E5, QEL2/QEL3). The probe
+above now gives `ro:0x0, io:true, timeout0, micro-after-timeout0, raf1, micro-after-raf1, raf2 (same
+ts), raf-next-frame, resized`: the task/microtask/rAF part is the HTML order (test
+`qel1_order_probe_task_microtask_raf_batch`); the leading `ro:0x0`/`io:true` are E4/E5.
+
 Forced layouts: geometry reads update the incremental engine on the main thread (`js_geom`
 `refresh_engine`), cached until the next DOM write; that matches HTML's "update style and layout
 when needed". The deviations above are about WHEN things run, not about forced layouts.

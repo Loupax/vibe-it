@@ -1885,6 +1885,7 @@ pub(crate) fn start_scripts_hooked(
     let store = Rc::new(js_modules::ModuleStore::from_scripts(scripts, &*log));
     let engine = startup_engine(document, store, log, clock)?;
     hook(&engine);
+    engine.eval("frames", "globalThis.__d_sync_win && globalThis.__d_sync_win()");
     perf::mark("engine_ready");
     run_page(engine, document, scripts)
 }
