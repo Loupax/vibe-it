@@ -135,6 +135,9 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       nodes/Element-children, ParentNode-children, ParentNode-properties, Node-childNodes, NodeList-live-mutations,
       live-collections-batched-mutations, getElementsByClassName-03..25, ParentNode-querySelectorAll-scope-change.
       Target: nodes -> +4, other -> +17.
+- [ ] QDOM2b [S] (P2, from QDOM2 #521; Sonnet; js_dom.rs) Remaining collections: MutationRecord addedNodes/removedNodes
+      as static NodeLists; HTMLOptionsCollection for select.options (add, remove, length setter, selectedIndex);
+      select.selectedOptions and map.images as live HTMLCollections. --wpt-th per-area table.
 - [ ] QDOM3 [S] (P1; Sonnet; js_dom.rs; R65; after QDOM1) `ParentNode.moveBefore(node, child)` on Element, Document,
       DocumentFragment: the pre-move checks (same shadow-including root, connected-ness equal, not a doctype/
       ancestor; HierarchyRequestError otherwise), then a move WITHOUT the removing and insertion steps: no script re-run,
