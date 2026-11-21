@@ -8773,3 +8773,37 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QHIST1 DONE f53eef0 #505 [S] (P2, from QFLK7 #496; Sonnet; globals_prelude.js history go()) A second same-document traversal before
       the first popstate task runs hits a stale `idx` in `go()`: it returns false and the App reloads the page (fast double
       h/l loses state). Fix, then un-ignore qy48_two_traversals_in_one_turn_stay_same_document.
+
+=== from TODO.txt: --- (no header)
+- [x] QWPT5 DONE eed9488 #507 [S] (NOTE from #499: pass `--wire wire/target/release/wire`; the runner re-execs under systemd-run unless `--no-scope`, falls back with one line when unusable, untested on CI) (P1; Sonnet; ci.yml; after QWPT2, QWPT4b, QWPT6; user answered Q3, Q4 2026-11-21) CI step: build
+      wire in the scratchy job, run `--wpt-th --jobs 4`, fail on regressions, write the areas table
+      and its diff vs main into $GITHUB_STEP_SUMMARY. Measure and report the added minutes.
+
+=== from TODO.txt: --- (no header)
+- [x] QHELP1 DONE be46ad9 #506 [S] (P1; USER 2026-11-21: "the help page is out of date, create a ticket for updating the help page with
+      our features"; Sonnet; src/help.html, src/tests) Bring `:help` (src/help.html, HELP_PAGE_HTML) up to date with what
+      exists on main, and keep it there. Cover at least: the two modes (INPUT at start, Esc Esc -> NORMAL, `i` back; a
+      click into a text field -> INPUT; the second Esc never reaches the page), the status bar (mode, URL, messages, where
+      `:` and `/` are typed), every row of the BINDINGS table in src/config.rs (incl. `/`, Esc clearing highlights, `i`),
+      input-mode UA scroll keys (arrows, PageUp/PageDown, Space/Shift-Space, Home/End), `/` search (smartcase, highlights,
+      `[i/N]`, wrap message; `n`/`N` and Enter-click only once QSEARCH2/3 merge), paste (Ctrl-V, Ctrl-Shift-V, Shift-Insert
+      in the `:`/`/` line and fields), scrollbar drag/track-click/hold, persistence (--state-dir: localStorage files,
+      cookie file via wire, history file, sessionStorage per window), --forget-site, `src/config.rs` ("edit and rebuild"),
+      and the report/test modes (--js-report, --perf-report, --missing-api-report, --deterministic, --wpt, --wpt-th,
+      --wpt-th-one) in one short table. Rewrite the `:set vim`/`novim` rows to say what they do now (switch NORMAL/INPUT;
+      QKEYS3 removes them later). Remove anything that is no longer true. Plain, short wording; the page stays one page.
+      Keep it true: add tests next to the existing cli_options_are_documented_in_help: every BINDINGS row's key and every
+      `:` command name (dispatch_command / COMMAND_NAMES) appears in help.html. Real check: grim of `:help` in a window.
+      Later UI items (QSEARCH2/3, QKEYS3, QCOMP1/2/4) update help.html in their own PRs (the new tests force it).
+
+=== from TODO.txt: --- (no header)
+- [x] QAREA-DOM DONE 7f42e48 #508 [M] (P1; Opus; docs only; after QWPT6) Triage the dom/* failures of the baseline by root
+      cause (probe hints: tagName case, document.charset, createProcessingInstruction, Range type
+      checks, replaceWith/splitText missing), file S fix items with target scores. Same pattern
+      later: QAREA-IDL, QAREA-EL, QAREA-CSSOM, QAREA-VIEW, QAREA-ENC (single-byte encodings: one gap,
+      ~6,800 subtests), QAREA-STREAMS.
+
+=== from TODO.txt: --- (no header)
+- [x] QFLK9 DONE bc0008c #509 [S] (P3, from QFLK7 #496 and QSB2 #497; Sonnet) qy5_budget_clock_is_thread_cpu_time and
+      qb3_callback_budget_is_much_shorter_than_load_budget fail in a full parallel run under load (pass alone): make them
+      robust (relations with margin, or retry the measurement) without weakening what they prove.
