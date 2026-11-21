@@ -340,12 +340,13 @@ fn mutate_once(r: &mut Rng, doc: &Handle, width: &mut f32) -> String {
     let mut els = Vec::new();
     all_elements(&body, &mut els);
     let target = els[r.below(els.len())].clone();
-    if YDRIFT.with(|y| y.get()) && r.pct(40) {
-        if let Some(ys) = els.iter().find(|e| element_attr(e, "id").is_some_and(|v| &*v == "ys")) {
-            let v = format!("height:{}", r.pick(YDRIFT_SPACERS));
-            set_attr_logged(ys, "style", &v);
-            return format!("spacer #ys {v:?}");
-        }
+    if YDRIFT.with(|y| y.get())
+        && r.pct(40)
+        && let Some(ys) = els.iter().find(|e| element_attr(e, "id").is_some_and(|v| &*v == "ys"))
+    {
+        let v = format!("height:{}", r.pick(YDRIFT_SPACERS));
+        set_attr_logged(ys, "style", &v);
+        return format!("spacer #ys {v:?}");
     }
     match r.below(10) {
         0 | 1 => {
