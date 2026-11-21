@@ -175,8 +175,8 @@ fn qxscr1_wide_page_scrolls_with_shift_wheel_and_arrows() {
     assert_eq!(app.scroll_x, crate::config::WHEEL_LINE_PX);
     app.wheel_x(&[], -dx);
     assert_eq!(app.scroll_x, 0.0);
-    // Input mode (the default): ArrowRight/Left are UA scroll keys after the page saw them.
-    assert_eq!(app.key_mode, KeyMode::Input);
+    // Input mode: ArrowRight/Left are UA scroll keys after the page saw them.
+    app.key_mode = KeyMode::Input; // the start mode is a knob (QKEYS5)
     tap(&mut app, &Key::Named(NamedKey::ArrowRight));
     assert_eq!(app.scroll_x, crate::config::SCROLL_LINE_PX);
     let seen = app.js.as_ref().unwrap().eval_value::<String>("t", "L.join()").unwrap_or_default();
