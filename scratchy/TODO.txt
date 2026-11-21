@@ -203,6 +203,19 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QCISPLIT2 [S] (P3, from QWPT6c #579; Sonnet; .github/workflows/ci.yml, tools) Shard the `scratchy-wpt` job (5:38 after
       #579, WPT step 3:52; the main `scratchy` job is 5:18, so wall time is barely affected) into two parallel jobs by area,
       when it passes ~6 min or before QWPT6d lands. Find why the step grew +1:44 on CI vs ~20 s locally (per-file CI timings).
+- [ ] QWPT12 [S] (P2; Sonnet; tools/wpt-dirs.txt, tools/wpt-subset.py AREAS, wpt-th/; user 2026-11-21: all of
+      html/canvas, not a hand-picked slice) Put the `<canvas>` tests in the testharness gate (`--wpt-th`), so Canvas 2D
+      work is measured from its first item. Add `html/canvas` to tools/wpt-dirs.txt (changes the CI cache key, so CI
+      re-checks-out by itself). Add two AREAS in tools/wpt-subset.py: `html/canvas/element` -> ["html/canvas/element"]
+      and `html/canvas/offscreen` -> ["html/canvas/offscreen"], plus `html/canvas/other` -> ["html/canvas"] for the rest.
+      The script's usual phase-1 exclusions stay as they are (worker variants, timeout=long, testdriver, .https./.sub.,
+      .py handlers); `.tentative.` files are included (recording them costs nothing; only pass->fail blocks). Regenerate
+      wpt-th/subset.txt, record the expected files with `--update` and update wpt-th/areas.txt. Expect ~0% today:
+      `HTMLCanvasElement.getContext` returns null (QY3, js_dom.rs). Report in the PR: file counts per area, the skip
+      counts per reason printed by wpt-subset.py, and the added CI time of the `--wpt-th` step (if it adds more than ~5
+      min, stop and report before merging). The reftest gate (`--wpt`) is unchanged: canvas reftests draw with script and
+      `--wpt` skips every test with `<script>`. No Rust changes. WebGL is NOT covered by this: its suite is the
+      separate Khronos WebGL conformance suite (no item yet).
 
 ========================================================================
 RELIABILITY (flaky tests undermine CI, which the conformance plan relies on; crashes)
