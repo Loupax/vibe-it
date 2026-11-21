@@ -1,3 +1,6 @@
 
 # coordinator local scratch, test data and user recordings (never commit)
 .coordinator/
+
+# agent scratch dirs (never commit)
+.qwork/
