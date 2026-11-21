@@ -121,6 +121,9 @@ their section with the date.
 
 ## Testing
 
+- **2026-11-21 Accepted reftest pass->fail** (user, option 1 on #527): css/printing/transition-in-media-print.tentative.html
+  passed only because `@media not` was broken; correct `not` evaluation stays. Fix the right way with print media type
+  for print reftests (QWPTPRINT).
 - WPT: no pass->fail. The only accepted failures are the two QA11a2 table tests.
   Acid2/Acid3 are information, never a gate.
 - PR #232 (body background on the canvas) kept despite one accidental WPT pass->fail.

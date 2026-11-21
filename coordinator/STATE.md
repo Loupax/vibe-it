@@ -157,3 +157,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-21 USER asked to merge #528 (QREG-D plan: registers, yy; QREG1-3, QCURSOR-D). Its branch had QREG1 WIP+revert commits that conflicted in app.rs on rebase; applied the net docs diff onto main as 05b9be0, closed #528 with a note. QREG1 (UI, P2) takes the next free slot.
 - 2026-11-21 USER: default mode should be NORMAL -> QKEYS5 (P1, UI) filed + DECISIONS. Next free slots: QKEYS5, then QREG1.
 - 2026-11-21 #527 QCSS1 READY but held: reftest css/printing/transition-in-media-print.tentative.html pass->fail (it passed only because @media not was broken); 7 reftests newly pass. Question to user (progress page). Filed QCSS1b. Launched QKEYS5.
+- 2026-11-21 USER: accept the #527 reftest pass->fail (option 1) -> DECISIONS, QWPTPRINT filed; merging #527.
