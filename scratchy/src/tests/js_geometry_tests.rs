@@ -618,11 +618,11 @@ fn qj7_range_client_rects_come_from_layout_per_character_and_line() {
 
 // ---------- QY34: script-inserted <script> elements ----------
 
-fn qy34_status(status: u16, body: &str) -> Result<WireResponse, NetError> {
+pub(super) fn qy34_status(status: u16, body: &str) -> Result<WireResponse, NetError> {
     Ok(WireResponse { status, status_text: String::new(), headers: vec![], body: body.as_bytes().to_vec(), error: None, final_url: None })
 }
 
-fn qy34_run(page: &str, answers: Vec<(&'static str, Result<WireResponse, NetError>)>, code: &str) -> (Vec<String>, Arc<QfFake>) {
+pub(super) fn qy34_run(page: &str, answers: Vec<(&'static str, Result<WireResponse, NetError>)>, code: &str) -> (Vec<String>, Arc<QfFake>) {
     let fake = QfFake::new(answers);
     let (engine, log) = qf7_engine(page, &fake);
     engine.eval("t", code);

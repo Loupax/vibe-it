@@ -3478,6 +3478,8 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   // QB8: `document.currentScript`: the executing classic <script>, else null.
   var curScript = null;
   var wlast = -1;
+  // QSCR404: a parser-inserted <script src> that failed to load (network error, non-2xx status) fires `error`.
+  Object.defineProperty(g, '__scratchy_script_error', { value: function (id) { if (id >= 0) wrap(id).dispatchEvent(new g.Event('error')); } });
   Object.defineProperty(g, '__scratchy_cs', { value: function (id) { curScript = id < 0 ? null : wrap(id); wlast = id; } });
   // QA13: only while a classic script element runs: insert after it (and
   // after what earlier writes of the same script inserted). Otherwise the
@@ -4055,15 +4057,19 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   var sModuleGraph = function (name, code, budget, ok, bad) {
     var deps = __mod_deps(name, code), left = deps.length, failed = false;
     if (!left) { ok(); return; }
-    deps.forEach(function (u) {
+    deps.forEach(function (d) {
       if (failed) return;
-      if (__mod_has(u)) { if (--left === 0) ok(); return; }
-      if (--budget.n < 0) { failed = true; __scratchy_err(u + ': module graph over 200 modules; not fetching more'); bad(); return; }
+      // QSCR404: `?url` = only reached by a literal import(): still fetched, but its failure is tolerated.
+      var lazy = d.charAt(0) === '?', u = lazy ? d.slice(1) : d;
+      var done = function () { if (--left === 0) ok(); };
+      var fail = lazy ? done : function () { if (!failed) { failed = true; bad(); } };
+      if (__mod_has(u)) { done(); return; }
+      if (--budget.n < 0) { if (lazy) { done(); return; } failed = true; __scratchy_err(u + ': module graph over 200 modules; not fetching more'); bad(); return; }
       sFetch(u, true, 'same-origin', function (text) {
         if (failed) return;
         __mod_register(u, text);
-        sModuleGraph(u, text, budget, function () { if (--left === 0) ok(); }, function () { if (!failed) { failed = true; bad(); } });
-      }, function () { if (!failed) { failed = true; bad(); } });
+        sModuleGraph(u, text, budget, done, fail);
+      }, fail);
     });
   };
   var sImport = function (el, name, fireLoad) {
@@ -4124,7 +4130,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     } else if (mod) {
       var name = String(g.location.href).split('#')[0] + '#inline-module-s' + (++sNames);
       __mod_register(name, text);
-      sModuleGraph(name, text, { n: 200 }, function () { sImport(el, name, false); }, function () {});
+      sModuleGraph(name, text, { n: 200 }, function () { sImport(el, name, false); }, function () { sFire(el, 'error'); });
     } else {
       sRun(el, text, 'inline script (inserted)', false);
     }

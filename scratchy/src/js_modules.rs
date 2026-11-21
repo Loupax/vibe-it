@@ -498,7 +498,10 @@ pub(crate) fn prefetch_graph(entries: &[(String, String)], map: &ImportMap, doc_
         });
         let mut next = Vec::new();
         for (u, src) in wanted.into_iter().zip(fetched) {
-            let Some(src) = src else { continue };
+            let Some(src) = src else {
+                out.push(ScriptSource { name: u, kind: ScriptKind::ModuleMissing, ..Default::default() });
+                continue;
+            };
             if bytes + src.len() > MAX_MODULE_BYTES {
                 diag!("scratchy: js: module graph over {} bytes; not fetching more", MAX_MODULE_BYTES);
                 return out;
@@ -510,6 +513,35 @@ pub(crate) fn prefetch_graph(entries: &[(String, String)], map: &ImportMap, doc_
         level = next;
     }
     out
+}
+
+/// QSCR404: the first module of `entry`'s STATIC import graph that could not be fetched (`missing`
+/// = URLs the prefetch failed on), if any. Dynamic `import()` is not followed (it rejects at its
+/// own call). `None` = the graph is complete and the entry may run.
+pub(crate) fn static_graph_missing(entry: &str, store: &ModuleStore, missing: &[&str]) -> Option<String> {
+    if missing.is_empty() {
+        return None;
+    }
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut todo = vec![entry.to_string()];
+    while let Some(url) = todo.pop() {
+        if !seen.insert(url.clone()) {
+            continue;
+        }
+        let Some(src) = store.sources.borrow().get(&url).cloned() else { continue };
+        for (spec, dynamic) in scan_imports(&src) {
+            if dynamic {
+                continue;
+            }
+            if let Ok(u) = resolve_specifier(&spec, &url, &store.map, &store.doc_base) {
+                if missing.contains(&u.as_str()) {
+                    return Some(u);
+                }
+                todo.push(u);
+            }
+        }
+    }
+    None
 }
 
 // ------------------------------------------------------------ the engine
