@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-21 · main 990091f · 10 PRs merged today (#475–#484) · new session: 5 agents running (QCONF1, QSTASH4, QSTASH3, QWPT3, QMAPI1)</div>
+  <div class="meta" id="updated">Updated 2026-11-21 · main c47b461 · 14 PRs merged today (#475–#488) · 5 agents running (QMAPI1, QKEYS1, QCOMP3, QWPT4a, QREC1)</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -85,6 +85,10 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#488</td><td>QSTASH3</td><td><code>scratchy --forget-site SITE</code> deletes the site's saved storage and asks wire to clear its cookies (says so if wire is not running)</td></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#487</td><td>QCONF1</td><td>One file for your settings, <code>src/config.rs</code>: the key binding table, scroll steps, scrollbar size, <code>:set</code> arguments. Edit and rebuild</td></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#486</td><td>QSTASH4</td><td>sessionStorage now survives navigation within the window, per origin; never written to disk</td></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#485</td><td>QWPT3</td><td>wire can serve the WPT test pages itself (<code>--mount</code>), with the test wrappers and substitutions WPT expects; no Python, no new socket</td></tr>
     <tr><td class="n">2026-11-21</td><td class="n">#481</td><td>QSTASH5</td><td>wire saves cookies to a file (<code>--cookie-file</code>), clears one site's cookies, and now requires a private token on cookie control requests (your call)</td></tr>
     <tr><td class="n">2026-11-21</td><td class="n">#484</td><td>QSTASH2</td><td>localStorage survives page loads and restarts (<code>--state-dir</code>); <code>:set novim</code> on social.loupax.com sticks</td></tr>
     <tr><td class="n">2026-11-21</td><td class="n">#483</td><td>QSB1</td><td>Drag the scrollbar thumb, click the track to page; the window now has a painted scrollbar too</td></tr>
@@ -103,17 +107,17 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 </section>
 
 <section>
-  <h2>Open work (49 items)</h2>
+  <h2>Open work (44 items)</h2>
   <div class="scroll"><table>
     <tr><th>Group</th><th>Items</th><th>Status</th></tr>
     <tr><td>Engine</td><td>QINC1m remove the old pipeline</td><td><span class="pill todo">after ~3 days of your use, with your OK</span></td></tr>
-    <tr><td>Conformance</td><td>QWPT2 done · QWPT3–9 test runner and CI · QEL1–9 event loop · QMAPI1–3 missing-API report · QREC1–3 recorded pages · QBUD1 budgets · QAREA-DOM</td><td><span class="pill wip">QWPT3, QMAPI1 running</span></td></tr>
+    <tr><td>Conformance</td><td>QWPT2 done · QWPT3–9 test runner and CI · QEL1–9 event loop · QMAPI1–3 missing-API report · QREC1–3 recorded pages · QBUD1 budgets · QAREA-DOM</td><td><span class="pill wip">QWPT2, QWPT3 done · QWPT4a, QMAPI1, QREC1 running</span></td></tr>
     <tr><td>Reliability</td><td>QFLK7 (tests that never ran) · QFLK6b · QJ4c · QWIKI1 · QINC1k9</td><td><span class="pill todo">queued</span></td></tr>
     <tr><td>Product choices</td><td>QCFG1 config file · QTB1 tracker blocking</td><td><span class="pill todo">queued</span></td></tr>
-    <tr><td>UI: storage</td><td>QSTASH1–5 saved localStorage, cookies, forget-site</td><td><span class="pill wip">QSTASH1/2/5 done · QSTASH4, QSTASH3 running</span></td></tr>
-    <tr><td>UI: keys</td><td>QKEYS1–4 status bar, input/normal mode · QSB1 scrollbar drag · QPASTE1</td><td><span class="pill wip">QPASTE1, QSB1 done · QCONF1 running, then QKEYS1</span></td></tr>
+    <tr><td>UI: storage</td><td>QSTASH1–5 saved localStorage, cookies, forget-site</td><td><span class="pill done">all five done</span></td></tr>
+    <tr><td>UI: keys</td><td>QKEYS1–4 status bar, input/normal mode · QSB1 scrollbar drag · QPASTE1</td><td><span class="pill wip">QPASTE1, QSB1 done · QKEYS1 running, then QKEYS2</span></td></tr>
     <tr><td>UI: search</td><td>QSEARCH1–3 <code>/</code>, n/N, Enter</td><td><span class="pill todo">queued</span></td></tr>
-    <tr><td>UI: completion</td><td>QCONF1 · QCOMP1–4 completion sources, history file, <code>:go</code></td><td><span class="pill todo">queued</span></td></tr>
+    <tr><td>UI: completion</td><td>QCONF1 · QCOMP1–4 completion sources, history file, <code>:go</code></td><td><span class="pill wip">QCONF1 done · QCOMP3 (history file) running</span></td></tr>
   </table></div>
   <p class="note">Archived and not scheduled: site-specific fixes, media, and the spec-gap items that the WPT runs will surface again (<span class="mono">scratchy/TODO-ARCHIVE.txt</span>).</p>
 </section>
