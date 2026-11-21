@@ -340,7 +340,7 @@ PASS css/css-color/rgb-003.html
 FAIL css/css-color/t32-opacity-offscreen-b.xht
 PASS css/css-color/t422-rgba-func-whitespace-b.xht
 PASS css/css-color/t425-hsla-values-b.xht
-FAIL css/css-conditional/at-media-001.html
+PASS css/css-conditional/at-media-001.html
 PASS css/css-conditional/at-media-content-003.html
 PASS css/css-conditional/at-supports-004.html
 PASS css/css-conditional/at-supports-016.html
@@ -500,7 +500,6 @@ PASS css/css-tables/col-definite-min-size-001.html
 PASS css/css-tables/collapsed-border-vertical-lr-rtl-overflow.html
 PASS css/css-tables/height-distribution/percentage-sizing-of-table-cell-children-003.html
 FAIL css/css-tables/min-max-size-table-content-box.html
-# QA11a2: accepted failure (user decision 2026-11-16); only passed by accident while unset border colours painted nothing. Must pass for the right reason when real border-collapse lands.
 FAIL css/css-tables/row-group-margin-border-padding.html
 PASS css/css-tables/table-as-item-cell-percentage-001.html
 FAIL css/css-tables/table-cell-tiny-width-excess-width-distribution.html
@@ -587,21 +586,21 @@ PASS css/filter-effects/animation/css-filters-animation-invert.html
 PASS css/filter-effects/animation/css-filters-animation-opacity.html
 PASS css/filter-effects/animation/css-filters-animation-saturate.html
 PASS css/filter-effects/animation/css-filters-animation-sepia.html
-FAIL css/mediaqueries/aspect-ratio-001.html
-FAIL css/mediaqueries/aspect-ratio-005.html
-FAIL css/mediaqueries/device-aspect-ratio-003.html
+PASS css/mediaqueries/aspect-ratio-001.html
+PASS css/mediaqueries/aspect-ratio-005.html
+PASS css/mediaqueries/device-aspect-ratio-003.html
 PASS css/mediaqueries/mq-calc-001.html
 FAIL css/mediaqueries/mq-calc-resolution.html
 FAIL css/mediaqueries/mq-calc-sign-function-004.html
 PASS css/mediaqueries/mq-deprecated-001.html
-FAIL css/mediaqueries/mq-gamut-004.html
+PASS css/mediaqueries/mq-gamut-004.html
 PASS css/mediaqueries/mq-invalid-media-type-003.html
-FAIL css/mediaqueries/mq-negative-range-001.html
-FAIL css/mediaqueries/negation-002.html
+PASS css/mediaqueries/mq-negative-range-001.html
+PASS css/mediaqueries/negation-002.html
 PASS css/mediaqueries/prefers-color-scheme-svg-image-normal-with-meta-dark.html
 PASS css/printing/animations-print.html
 PASS css/printing/pseudo-animations-print.html
-PASS css/printing/transition-in-media-print.tentative.html
+FAIL css/printing/transition-in-media-print.tentative.html
 PASS css/selectors/child-indexed-no-parent.html
 FAIL css/selectors/featureless-001.html
 FAIL css/selectors/has-style-sharing-001.html
@@ -617,7 +616,6 @@ PASS css/selectors/selectors-4/lang-023.html
 PASS html/rendering/bindings/the-button-element/button-type-menu-historical.html
 PASS html/rendering/non-replaced-elements/lists/li-type-unsupported-upper-alpha.html
 FAIL html/rendering/non-replaced-elements/phrasing-content-0/b-strong-styles.html
-# QA11a2: accepted failure (user decision 2026-11-16); needs rules=rows + vertical writing-mode + real border-collapse.
 FAIL html/rendering/non-replaced-elements/tables/table-rules-rows-vertical.html
 PASS html/rendering/non-replaced-elements/the-fieldset-and-legend-elements/fieldset-content-box-rule-visibility-items.html
 PASS html/rendering/non-replaced-elements/the-frameset-and-frame-elements/different-writing-modes.html
