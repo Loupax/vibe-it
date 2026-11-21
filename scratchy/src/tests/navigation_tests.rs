@@ -443,3 +443,23 @@ fn qy53i2_a_navigation_frees_the_custom_props_arena() {
     assert!(crate::css::CUSTOM_PROPS_FREED.with(|c| c.get()) > freed, "the old document's tables were freed");
     assert_eq!(old.get("--qy53i2-nav"), None);
 }
+
+// ---------- QKEYS1b: the status bar shows the current document URL ----------
+
+#[test]
+fn qkeys1b_status_url_for_start_page_and_pushstate() {
+    let Some((mut app, _doc)) = qy48_app("") else { return };
+    // A start page has an empty history: the bar shows its own address.
+    assert!(app.history.is_empty());
+    assert_eq!(app.status_url(), "https://e.org/start");
+    qy48_eval(&mut app, "history.pushState(null,'','/next')");
+    assert_eq!(app.status_url(), "https://e.org/next");
+    qy48_eval(&mut app, "history.replaceState(null,'','/again#f')");
+    assert_eq!(app.status_url(), "https://e.org/again#f");
+    // No address at all (stdin): a label.
+    app.history.clear();
+    app.base_url = None;
+    assert_eq!(app.status_url(), "(stdin)");
+    app.base_url = Some(Url::parse("file:///tmp/a.html").unwrap());
+    assert_eq!(app.status_url(), "file:///tmp/a.html");
+}
