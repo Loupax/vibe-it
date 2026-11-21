@@ -153,7 +153,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       steps"), and Attr nodes as boundary points (nodes without `__id` today: Range-attribute-nodes). WPT in subset:
       ranges/Range-{clone,delete,extract}Contents-{around-shadow,in-ShadowRoot}, Range-attribute-nodes. Target: ranges
       17.1 -> 30. After QWPT6c also the core Range-* suite.
-- [ ] QDOM6 [S] (P1; Sonnet; js.rs `ctor('Text'|'Comment'|'DocumentFragment'|'Document')`, js_dom.rs; R65) Node
+- [ ] [WIP] QDOM6 [S] (P1; Sonnet; js.rs `ctor('Text'|'Comment'|'DocumentFragment'|'Document')`, js_dom.rs; R65) Node
       constructors that create nodes: `new Text(data = '')`, `new Comment(data = '')`, `new DocumentFragment()` (owner =
       the constructor's realm's document, `owners[]`), `new Document()` (an XML document: contentType
       `application/xml`, no doctype, origin/URL of the realm's document, createElement does NOT lowercase; reuse
