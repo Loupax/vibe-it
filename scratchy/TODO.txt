@@ -102,7 +102,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       parser-blocking scripts during parsing (scripts see the partial DOM), defer/async ordering,
       DOMContentLoaded/load as tasks. Measure html/semantics/scripting-1 and dynamic-markup-insertion
       first; write the design for the user.
-- [ ] QMAPI2 [S] (P2; Sonnet; css.rs counters; after QMAPI1) CSS part of the report: dropped declarations
+- [ ] [WIP] QMAPI2 [S] (P2; Sonnet; css.rs counters; after QMAPI1) CSS part of the report: dropped declarations
       by property, dropped rules by unparsed pseudo-class/element, unknown at-rules, false
       @supports/CSS.supports conditions, unknown media features.
 - [ ] QMAPI1b [S] (P3, from QMAPI1 #489; Sonnet; missing_api_prelude.js) Missing-API report: cover iframe realms,
