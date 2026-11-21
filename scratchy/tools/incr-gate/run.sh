@@ -184,9 +184,11 @@ else
     sleep 1
   fi
   rm -f "$OUT/$TAG.stats" "$OUT/$TAG.inject.log"
+  # QINC1n: a state directory per run (localStorage, history, engine-check.log), never the user's.
+  rm -rf "$OUT/$TAG.state"
   T0=$(date +%s.%N)
   systemd-run --user --scope -q -p MemoryMax="$MEMCAP" -p MemorySwapMax=0 \
-    env WAYLAND_DISPLAY="$SOCK" SCRATCHY_FRAME_STATS="$OUT/$TAG.stats" SCRATCHY_MEDIA_AO=null "${MENV[@]}" \
+    env WAYLAND_DISPLAY="$SOCK" SCRATCHY_FRAME_STATS="$OUT/$TAG.stats" SCRATCHY_MEDIA_AO=null SCRATCHY_STATE_DIR="$OUT/$TAG.state" "${MENV[@]}" \
     "$SCRATCHY" --socket "$WSOCK" "$URL" >"$OUT/$TAG.log" 2>&1 9>&- &
   SPID=$!
   PIDS+=($SPID)
@@ -194,7 +196,9 @@ else
   at "$SECS"
   if kill -0 $SPID 2>/dev/null; then
     grep -E '^(VmRSS|VmHWM)' "/proc/$SPID/status" >"$OUT/$TAG.rss" 2>/dev/null
-    inj key:esc wait:100 key:colon type:q key:ret wait:200
+    # Esc Esc: a page that focused a field leaves the window in INPUT mode (QKEYS2), where one Esc
+    # goes to the page and `:q` would be typed into it (the run then ends with quit=killed).
+    inj key:esc wait:60 key:esc wait:200 key:colon type:q key:ret wait:200
     i=0
     while kill -0 $SPID 2>/dev/null && [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done
     if kill -0 $SPID 2>/dev/null; then
