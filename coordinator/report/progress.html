@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-21 · main a6548b9 · 20 PRs merged today (#475–#494) · 5 agents running (QKEYS2+QKEYS4, QSB2, QWPT4b, QFLK7, QREC2)</div>
+  <div class="meta" id="updated">Updated 2026-11-21 · main 397bc5c · 25 PRs merged today (#475–#499) · 5 agents running (QREC2, QWPT6, QSEARCH1, QFORM1, QFLK8)</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -75,7 +75,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <div class="stats">
     <div class="stat"><span class="v">333 / 626</span><span class="l">WPT visual CSS tests passing (reftests), now checked in CI</span></div>
     <div class="stat"><span class="v">~31%</span><span class="l">WPT JavaScript tests, average score per file: one-off probe of 1,522 serverless tests (44% of 23,389 checks). Not in CI yet</span></div>
-    <div class="stat"><span class="v">1796 / 1796</span><span class="l">Unit and integration tests passing, engine on and off (CI runs both)</span></div>
+    <div class="stat"><span class="v">1815 / 1815</span><span class="l">Unit and integration tests passing, engine on and off (CI runs both)</span></div>
     <div class="stat"><span class="v">0</span><span class="l">Engine mismatches on the 7 test pages (check mode)</span></div>
   </div>
   <p class="note">Once step 4 lands, this section gets a pass-rate table per spec area, with its history across PRs.</p>
@@ -85,6 +85,11 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#499</td><td>QWPT4b</td><td><code>scratchy --wpt-th CHECKOUT</code> runs a list of WPT JavaScript tests in parallel with its own wire, compares against recorded results and writes a per-area score table</td></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#498</td><td>QKEYS4</td><td>In input mode the arrows, PageUp/PageDown, Space and Home/End scroll the page again (unless the page or a focused field takes the key)</td></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#495</td><td>QKEYS2</td><td>Input and normal modes: scratchy starts in INPUT (every key goes to the page); Esc Esc gives the keyboard to scratchy, <code>i</code> gives it back. Checked live on YouTube (<code>l</code> seeks) and social.loupax.com (Esc Esc then <code>:</code> works)</td></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#497</td><td>QSB2</td><td>Holding the mouse on a scrollbar track keeps paging; the thumb darkens on hover and while dragged</td></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#496</td><td>QFLK7</td><td>54 window-level tests that silently skipped now really run (locally); they found 2 real bugs (submit events, fast double back/forward), filed</td></tr>
     <tr><td class="n">2026-11-21</td><td class="n">#494</td><td>QERR1</td><td>An uncaught error in a page script now reaches the page's <code>onerror</code> and error listeners, as in browsers. Two WPT files go from TIMEOUT to a proper ERROR</td></tr>
     <tr><td class="n">2026-11-21</td><td class="n">#493</td><td>QWPT4a</td><td>One WPT JavaScript test runs headless and prints its result (<code>--wpt-th-one</code>); a virtual clock makes timeouts take under a second. wire's test wrappers checked against WPT's real ones and fixed</td></tr>
     <tr><td class="n">2026-11-21</td><td class="n">#492</td><td>QKEYS1</td><td>Status bar at the bottom: mode, URL, messages; the <code>:</code> line is typed there. Pages see the window minus the bar</td></tr>
@@ -113,17 +118,17 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 </section>
 
 <section>
-  <h2>Open work (43 items)</h2>
+  <h2>Open work (42 items)</h2>
   <div class="scroll"><table>
     <tr><th>Group</th><th>Items</th><th>Status</th></tr>
     <tr><td>Engine</td><td>QINC1m remove the old pipeline</td><td><span class="pill todo">after ~3 days of your use, with your OK</span></td></tr>
-    <tr><td>Conformance</td><td>QWPT2 done · QWPT3–9 test runner and CI · QEL1–9 event loop · QMAPI1–3 missing-API report · QREC1–3 recorded pages · QBUD1 budgets · QAREA-DOM</td><td><span class="pill wip">QWPT2/3/4a, QMAPI1, QREC1 done · QERR1 done · QWPT4b (runner), QREC2 (deterministic runs) running</span></td></tr>
-    <tr><td>Reliability</td><td>QFLK7 (tests that never ran) · QFLK6b · QJ4c · QWIKI1 · QINC1k9</td><td><span class="pill wip">QFLK7 running</span></td></tr>
+    <tr><td>Conformance</td><td>QWPT2 done · QWPT3–9 test runner and CI · QEL1–9 event loop · QMAPI1–3 missing-API report · QREC1–3 recorded pages · QBUD1 budgets · QAREA-DOM</td><td><span class="pill wip">QWPT2/3/4a/4b, QMAPI1, QREC1, QERR1 done · QWPT6 (first real baseline), QREC2 running</span></td></tr>
+    <tr><td>Reliability</td><td>QFLK7 (tests that never ran) · QFLK6b · QJ4c · QWIKI1 · QINC1k9</td><td><span class="pill wip">QFLK7 done · QFLK8 (run window tests on CI), QFORM1 running</span></td></tr>
     <tr><td>Product choices</td><td>QCFG1 config file · QTB1 tracker blocking</td><td><span class="pill todo">queued</span></td></tr>
     <tr><td>UI: storage</td><td>QSTASH1–5 saved localStorage, cookies, forget-site</td><td><span class="pill done">all five done</span></td></tr>
-    <tr><td>UI: keys</td><td>QKEYS1–4 status bar, input/normal mode · QSB1 scrollbar drag · QPASTE1</td><td><span class="pill wip">QPASTE1, QSB1, QKEYS1 done · QKEYS2 (modes) ready, held until QKEYS4 (scroll keys in input mode) is ready so both merge together · QSB2 running</span></td></tr>
-    <tr><td>UI: search</td><td>QSEARCH1–3 <code>/</code>, n/N, Enter</td><td><span class="pill todo">queued</span></td></tr>
-    <tr><td>UI: completion</td><td>QCONF1 · QCOMP1–4 completion sources, history file, <code>:go</code></td><td><span class="pill wip">QCONF1, QCOMP3 done · QCOMP1 after QKEYS2</span></td></tr>
+    <tr><td>UI: keys</td><td>QKEYS1–4 status bar, input/normal mode · QSB1 scrollbar drag · QPASTE1</td><td><span class="pill wip">QKEYS1/2/4, QSB1/2, QPASTE1 done · QKEYS3 (remove <code>:set vim</code>) after search</span></td></tr>
+    <tr><td>UI: search</td><td>QSEARCH1–3 <code>/</code>, n/N, Enter</td><td><span class="pill wip">QSEARCH1 running</span></td></tr>
+    <tr><td>UI: completion</td><td>QCONF1 · QCOMP1–4 completion sources, history file, <code>:go</code></td><td><span class="pill wip">QCONF1, QCOMP3 done · QCOMP1 after QSEARCH1 (same command line)</span></td></tr>
   </table></div>
   <p class="note">Archived and not scheduled: site-specific fixes, media, and the spec-gap items that the WPT runs will surface again (<span class="mono">scratchy/TODO-ARCHIVE.txt</span>).</p>
 </section>
@@ -131,6 +136,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 <section>
   <h2>Waiting on you</h2>
   <ul id="waiting">
+    <li><b>Public repo cleanup:</b> two PRs (#496, #498) accidentally committed an agent's scratch folder: a test wire binary, its private token (for a throwaway wire, not yours), logs, and logged-out screenshots of social.loupax.com and YouTube. They are removed from main and now ignored, but are still in git history (commits 8f1965e, c6c07e6). Purging them needs a force-push of main. Want me to?</li>
     <li>QSTASH1 counts the 5 MB localStorage limit as 5 Mi UTF-16 characters of keys plus values (Firefox's rule). Say if you want something else.</li>
     <li>Skim <span class="mono">scratchy/DECISIONS.md</span> once and correct anything I misstated.</li>
     <li>After about 3 days with the engine as default: OK to remove the old pipeline (QINC1m)?</li>
