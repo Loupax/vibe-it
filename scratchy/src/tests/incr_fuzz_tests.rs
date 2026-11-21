@@ -70,6 +70,29 @@ const DECLS: &[&str] = &[
 const TAGS: &[&str] = &["div", "div", "div", "span", "span", "p", "ul", "li", "li", "a", "b", "section"];
 const WORDS: &[&str] = &["lorem", "ipsum", "dolor", "sit", "amet", "consectetur", "adipiscing", "elit", "wide-word-that-is-long", "a", "ff", "Wi"];
 const WIDTHS: &[f32] = &[320.0, 640.0, 1024.0, 1280.0];
+/// QINC1k4: viewport heights, and declarations that read the viewport height (a `%`-bearing `calc()`
+/// captures the whole viewport pair). Drawn from a SECOND generator per seed so the main stream (and
+/// with it every page, mutation and `REGRESSION_SEEDS` case) is the one the earlier windows ran.
+const HEIGHTS: &[f32] = &[312.0, 485.0, 700.0, 900.0];
+const VH_SELECTORS: &[&str] = &[".c0::before", ".c3::after", "p::before", ".c1", "div", "span", "li::marker", ".c2"];
+const VH_DECLS: &[&str] = &[
+    "height:20vh", "min-height:10vmin", "width:calc(100% - 4px)", "height:calc(50% + 10vh)", "padding-top:2vmax",
+    "margin-top:calc(10% - 1vh)", "width:calc(30vh - 20px)", "max-height:calc(100% - 5vh)", "font-size:calc(8px + 1vh)",
+];
+
+/// The QINC1k4 viewport-height rules of a case (empty for half the seeds).
+fn gen_vh_css(h: &mut Rng) -> String {
+    if !h.pct(50) {
+        return String::new();
+    }
+    (0..(1 + h.below(3)))
+        .map(|_| {
+            let sel = h.pick(VH_SELECTORS);
+            let content = if sel.ends_with("::before") || sel.ends_with("::after") { "content:\"v\";display:inline-block;" } else { "" };
+            format!("{sel}{{{content}{}}}\n", h.pick(VH_DECLS))
+        })
+        .collect()
+}
 
 fn gen_css(r: &mut Rng) -> String {
     let mut css = String::new();
@@ -369,8 +392,7 @@ struct Run {
     complete: bool,
 }
 
-fn layout_from_scratch(doc: &Handle, width: f32, fs: &mut FontSystem) -> Run {
-    let vh = 700.0;
+fn layout_from_scratch(doc: &Handle, width: f32, vh: f32, fs: &mut FontSystem) -> Run {
     let tree = build_layout_tree_sized(doc, width, vh);
     let mut cache = ShapeCache::new();
     let mut next_id = 0usize;
@@ -392,9 +414,17 @@ fn compare_runs(doc: &Handle, a: &Run, b: &Run) -> Result<(), String> {
 
 fn fuzz_case(seed: u64, fs: &mut FontSystem) {
     let mut r = Rng::new(seed);
-    let html = gen_page(&mut r);
+    // QINC1k4: viewport heights and `vh` rules from their own stream (see `HEIGHTS`)
+    let mut hr = Rng::new(seed ^ 0x5648_5648_5648_5648);
+    let mut html = gen_page(&mut r);
+    let vh_css = gen_vh_css(&mut hr);
+    if !vh_css.is_empty() {
+        // a second sheet: the stylesheet mutation replaces the first one only
+        html = html.replacen("</style></head>", &format!("</style><style>{vh_css}</style></head>"), 1);
+    }
     let doc = parse_html(&html);
     let mut width = r.pick(WIDTHS);
+    let mut vh = 700.0;
     let mut log: Vec<String> = vec![format!("initial page: {html}")];
     set_interaction(&InteractionState::default());
     let _ = crate::incr_log::drain();
@@ -408,9 +438,13 @@ fn fuzz_case(seed: u64, fs: &mut FontSystem) {
                 let what = mutate_once(&mut r, &doc, &mut width);
                 log.push(format!("step {step}: {what}"));
             }
+            if hr.pct(30) {
+                vh = hr.pick(HEIGHTS);
+                log.push(format!("step {step}: viewport height {vh}"));
+            }
         }
         // A: from scratch; B: the incremental restyle the build's shadow run computed.
-        let a = layout_from_scratch(&doc, width, fs);
+        let a = layout_from_scratch(&doc, width, vh, fs);
         let mut mism = crate::incr_style::take_mismatches();
         // (a style mismatch drops the style engine: report the mismatch, not the missing engine)
         let full = crate::incr_style::with_engine(|e| e.map(|e| e.stats.full)).unwrap_or(true);
@@ -449,7 +483,7 @@ fn fuzz_case(seed: u64, fs: &mut FontSystem) {
             });
         }
         if !mism.is_empty() {
-            let report = format!("incr fuzz mismatch: seed {seed} step {step} (width {width}):\n{}\n{}", mism.join("\n"), log.join("\n"));
+            let report = format!("incr fuzz mismatch: seed {seed} step {step} (width {width}, height {vh}):\n{}\n{}", mism.join("\n"), log.join("\n"));
             if env::var("SCRATCHY_FUZZ_KEEP_GOING").is_ok_and(|v| v == "1") {
                 // a long local run: note the case and go on with the next one
                 diag!("{}", report.lines().take(3).collect::<Vec<_>>().join(" | "));
@@ -558,8 +592,8 @@ fn runs_of(html_a: &str, html_b: &str, width: f32) -> (Handle, Run, Handle, Run)
     let mut fs = new_font_system();
     let da = parse_html(html_a);
     let db = parse_html(html_b);
-    let a = layout_from_scratch(&da, width, &mut fs);
-    let b = layout_from_scratch(&db, width, &mut fs);
+    let a = layout_from_scratch(&da, width, 700.0, &mut fs);
+    let b = layout_from_scratch(&db, width, 700.0, &mut fs);
     (da, a, db, b)
 }
 
@@ -582,8 +616,8 @@ fn qinc1a_cmp_laid_reports_node_path_field_and_values() {
 fn qinc1a_cmp_laid_finds_a_position_difference_with_both_values() {
     let doc = parse_html("<body style='margin:0'><div id=a style='width:100px;height:20px'>x</div></body>");
     let mut fs = new_font_system();
-    let a = layout_from_scratch(&doc, 400.0, &mut fs);
-    let mut b = layout_from_scratch(&doc, 400.0, &mut fs);
+    let a = layout_from_scratch(&doc, 400.0, 700.0, &mut fs);
+    let mut b = layout_from_scratch(&doc, 400.0, 700.0, &mut fs);
     let names = Names::from_dom(&doc);
     assert!(compare_runs(&doc, &a, &b).is_ok());
     // nudge the deepest-first child by more than the tolerance
@@ -607,8 +641,8 @@ fn qinc1a_cmp_laid_finds_a_position_difference_with_both_values() {
 fn qinc1a_cmp_boxes_sees_text_and_style_but_not_tree_order_or_node() {
     let doc = parse_html("<body><p class=x>hello <b>w</b></p></body>");
     let mut fs = new_font_system();
-    let a = layout_from_scratch(&doc, 300.0, &mut fs);
-    let b = layout_from_scratch(&doc, 300.0, &mut fs);
+    let a = layout_from_scratch(&doc, 300.0, 700.0, &mut fs);
+    let b = layout_from_scratch(&doc, 300.0, 700.0, &mut fs);
     let names = Names::from_dom(&doc);
     assert!(cmp_boxes(&names, "root", &a.tree, &b.tree).is_ok());
     // The same DOM, mutated: the text of the <b>, then the display of the <p>.
@@ -617,12 +651,12 @@ fn qinc1a_cmp_boxes_sees_text_and_style_but_not_tree_order_or_node() {
     if let NodeData::Text { contents } = &t.data {
         *contents.borrow_mut() = "W".into();
     }
-    let c = layout_from_scratch(&doc, 300.0, &mut fs);
+    let c = layout_from_scratch(&doc, 300.0, 700.0, &mut fs);
     let m = cmp_boxes(&names, "root", &a.tree, &c.tree).unwrap_err();
     assert!(m.field.contains("text"), "{m}");
     assert!(m.path.contains("p.x"), "{m}");
     crate::js_dom::set_attr(&find_by_tag(&doc, "p").unwrap(), "style", "display:flex");
-    let d = layout_from_scratch(&doc, 300.0, &mut fs);
+    let d = layout_from_scratch(&doc, 300.0, 700.0, &mut fs);
     let m = cmp_boxes(&names, "root", &a.tree, &d.tree).unwrap_err();
     assert!(m.to_string().contains("display"), "{m}");
 }

@@ -1026,7 +1026,7 @@ impl Engine {
                 seed_match(h, rules, cx.vw, 0, m.clone());
                 m
             };
-            let (sb, reads_vh) = self.style_of(cx, h, k, 0, inh);
+            let (sb, mut reads_vh) = self.style_of(cx, h, k, 0, inh);
             let s = *sb;
             let wide = decls_of(rules, &m0).iter().any(|(_, d)| !d.wide.is_empty())
                 || element_attr(h, "style").is_some_and(|v| ["inherit", "unset", "revert", "initial"].iter().any(|w| v.contains(w)));
@@ -1068,7 +1068,10 @@ impl Engine {
                                 Cascaded::Value(ContentDecl::Text(_) | ContentDecl::Parts(_) | ContentDecl::Image(_))
                             ));
                     if has_box {
-                        let ps = self.style_of(cx, h, k, slot, &own).0;
+                        // QINC1k4: a pseudo slot's read of the viewport height (`vh`, or a `%` calc that
+                        // captures the viewport pair) re-cascades its element on a height change too
+                        let (ps, ps_vh) = self.style_of(cx, h, k, slot, &own);
+                        reads_vh |= ps_vh;
                         animated |= crate::anim_eval::is_animated(&ps, cx.vw);
                         pseudo[slot as usize - 1] = Some(ps);
                     }
