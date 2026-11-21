@@ -87,7 +87,7 @@ fn bar_pixels(bar: &crate::paint::StatusBar) -> Vec<u32> {
 #[test]
 fn qkeys1_bar_paints_only_the_bottom_strip_and_its_text_follows_the_mode() {
     let (w, h) = WIN;
-    let bar = |mode, command| crate::paint::StatusBar { mode, url: "https://example.test/", message: "", command, prompt: ':' };
+    let bar = |mode, command| crate::paint::StatusBar { mode, url: "https://example.test/", message: "", command, prompt: ':', ghost: "" };
     let input = bar_pixels(&bar("INPUT", None));
     let normal = bar_pixels(&bar("NORMAL", None));
     let strip = ((h - STATUS_BAR_H) * w) as usize;
@@ -95,7 +95,7 @@ fn qkeys1_bar_paints_only_the_bottom_strip_and_its_text_follows_the_mode() {
     assert_ne!(px_at(&input, w, 799, h - 1), 0x00FF_FFFF, "the strip is filled");
     assert_ne!(input[strip..], normal[strip..], "the mode name is drawn: INPUT and NORMAL differ");
     // The message (D8) shows at the right.
-    let with_msg = bar_pixels(&crate::paint::StatusBar { mode: "NORMAL", url: "https://example.test/", message: "Pattern not found: x", command: None, prompt: ':' });
+    let with_msg = bar_pixels(&crate::paint::StatusBar { mode: "NORMAL", url: "https://example.test/", message: "Pattern not found: x", command: None, prompt: ':', ghost: "" });
     assert_ne!(normal[strip..], with_msg[strip..]);
     // The `:` line takes the strip.
     let mut cmd = TextEditBuffer::default();
