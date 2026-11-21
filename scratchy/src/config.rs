@@ -108,6 +108,20 @@ pub(crate) const TRACK_W: f32 = 8.0;
 /// Shortest scrollbar thumb, px (never longer than the track).
 pub(crate) const MIN_THUMB_H: f32 = 16.0;
 
+// ---------- status bar (QKEYS1) ----------
+
+/// Height of the status bar at the bottom of the window, px. The page's viewport is the window
+/// minus this.
+pub(crate) const STATUS_BAR_H: u32 = 24;
+/// Horizontal padding inside the status bar, px.
+pub(crate) const STATUS_BAR_PAD_X: f32 = 6.0;
+/// Status bar background, RGB.
+pub(crate) const STATUS_BAR_BG: (u8, u8, u8) = (24, 24, 24);
+/// Status bar text colour (URL, message, the `:` line), RGB.
+pub(crate) const STATUS_BAR_FG: (u8, u8, u8) = (225, 225, 225);
+/// Status bar mode-name colour (`INPUT` / `NORMAL`), RGB.
+pub(crate) const STATUS_BAR_MODE_FG: (u8, u8, u8) = (120, 200, 255);
+
 // ---------- command bar ----------
 
 /// Arguments `:set` completes (Tab), alphabetical. `dispatch_command` decides what they do.
