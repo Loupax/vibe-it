@@ -536,3 +536,35 @@ fn qstash2_app_page_loads_and_a_new_app_see_the_value() {
     drop(app);
     set_js_enabled(was);
 }
+
+// ---------- QSTASH4: sessionStorage across navigations ----------
+
+#[test]
+fn qstash4_session_storage_survives_navigation_per_origin_and_never_touches_disk() {
+    let d = TestDir::new("qstash4");
+    let env = LsEnv::new(&d);
+    assert_eq!(ls_load(LS_URL, "sessionStorage.a = '1'; sessionStorage.setItem('b', '2'); sessionStorage.setItem('c', '3'); sessionStorage.removeItem('b'); console.log(sessionStorage.length);"), ["log:2"]);
+    // The next page of the same origin: the pairs, in insertion order.
+    assert_eq!(ls_load("https://social.loupax.com/other", "console.log(sessionStorage.length, sessionStorage.getItem('a'), sessionStorage.key(0), sessionStorage.key(1), sessionStorage.b); sessionStorage.a = 'x'; sessionStorage.d = '4';"), ["log:2 1 a c undefined"]);
+    assert_eq!(ls_load(LS_URL, "console.log(sessionStorage.a, sessionStorage.d, sessionStorage.key(2));"), ["log:x 4 d"]);
+    // Another origin (other host, scheme, port) does not see it.
+    for url in ["https://loupax.com/", "http://social.loupax.com/", "https://social.loupax.com:8443/"] {
+        assert_eq!(ls_load(url, "console.log(sessionStorage.length, sessionStorage.getItem('a'));"), ["log:0 null"], "{url}");
+    }
+    // It is not localStorage, and nothing about it is on disk.
+    assert_eq!(ls_load(LS_URL, "console.log(localStorage.length);"), ["log:0"]);
+    assert_eq!(file_names(&d.0.join("storage")), [".locks"], "no site directory was made");
+    // clear() empties the process copy.
+    assert_eq!(ls_load(LS_URL, "sessionStorage.clear();"), Vec::<String>::new());
+    assert_eq!(ls_load(LS_URL, "console.log(sessionStorage.length);"), ["log:0"]);
+    // Opaque origins keep a per-page area.
+    for url in ["file:///home/u/page.html", "about:blank"] {
+        assert_eq!(ls_load(url, "sessionStorage.k = 'v';"), Vec::<String>::new());
+        assert_eq!(ls_load(url, "console.log(sessionStorage.getItem('k'));"), ["log:null"], "{url}");
+    }
+    // Without a state directory it works the same (it never used one).
+    drop(env);
+    assert_eq!(ls_load(LS_URL, "sessionStorage.z = 'q';"), Vec::<String>::new());
+    assert_eq!(ls_load(LS_URL, "console.log(sessionStorage.z);"), ["log:q"]);
+    set_page_url(None);
+}

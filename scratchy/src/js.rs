@@ -1744,6 +1744,7 @@ fn startup_engine(document: &Handle, store: Rc<js_modules::ModuleStore>, log: Lo
     eng.with(|c| js_ws::install_ws(&c, ws.clone()));
     let storage = crate::js_storage::LocalStorage::default();
     eng.with(|c| storage.install(&c));
+    eng.with(|c| crate::js_storage::install_session(&c));
     let mut engine = JsEngine { eng, log, base, media: None, dirty: dirty.clone(), table: Default::default(), reqs: reqs.clone(), net, ws, storage };
     {
         let (budget, lg) = (engine.eng.budget.clone(), engine.log.clone());

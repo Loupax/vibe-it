@@ -15,6 +15,7 @@
 use crate::js_engine::{native, Ctx, Utf16};
 use crate::stash::{self, CommitOutcome, Op, Stash, Writer};
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -196,4 +197,72 @@ impl Drop for LocalStorage {
             s.send();
         }
     }
+}
+
+// ---------- QSTASH4: sessionStorage ----------
+//
+// Kept in memory per origin for the life of the process (the window), never on disk. A page's prelude
+// calls `__scratchy_ss_load()` at start (same slot as the localStorage load) to copy its origin's pairs in,
+// and every setItem/removeItem/clear calls `__scratchy_ss_op`, which applies to the process copy at once
+// (no writer thread, nothing to batch). Opaque origins get `undefined` and keep an in-memory area.
+
+/// One origin's pairs: key -> (insertion sequence, value). Loaded in sequence order so `key(i)` is stable.
+#[derive(Default)]
+struct SessionArea {
+    next: u64,
+    pairs: HashMap<Vec<u16>, (u64, Vec<u16>)>,
+}
+
+thread_local! {
+    /// Origin (stash::origin_dir_name) -> its sessionStorage, for this process's page thread.
+    static SESSION: RefCell<HashMap<String, SessionArea>> = RefCell::new(HashMap::new());
+}
+
+/// The origin of the current page when it has one (http/https), else `None`.
+fn session_origin() -> Option<String> {
+    stash::origin_dir_name(&crate::js::page_url()?)
+}
+
+/// Installs `__scratchy_ss_load()` and `__scratchy_ss_op(kind, key, value)` (kinds as `__scratchy_ls_op`).
+pub(crate) fn install_session(ctx: &Ctx<'_>) {
+    // The origin is fixed per page: looked up once at load, reused by the ops.
+    let origin: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+    let o = origin.clone();
+    native!(ctx, "__scratchy_ss_load", move || -> Option<Vec<Utf16>> {
+        let key = session_origin()?;
+        let flat = SESSION.with(|m| {
+            let mut m = m.borrow_mut();
+            let area = m.entry(key.clone()).or_default();
+            let mut v: Vec<(u64, &Vec<u16>, &Vec<u16>)> = area.pairs.iter().map(|(k, (n, val))| (*n, k, val)).collect();
+            v.sort_by_key(|t| t.0);
+            v.into_iter().flat_map(|(_, k, val)| [Utf16(k.clone()), Utf16(val.clone())]).collect::<Vec<_>>()
+        });
+        *o.borrow_mut() = Some(key);
+        Some(flat)
+    });
+    native!(ctx, "__scratchy_ss_op", move |kind: i32, key: Option<Utf16>, value: Option<Utf16>| {
+        let origin = origin.borrow();
+        let Some(origin) = origin.as_ref() else { return };
+        SESSION.with(|m| {
+            let mut m = m.borrow_mut();
+            let area = m.entry(origin.clone()).or_default();
+            match (kind, key, value) {
+                (0, Some(k), Some(v)) => {
+                    let n = area.next;
+                    match area.pairs.get_mut(&k.0) {
+                        Some(e) => e.1 = v.0,
+                        None => {
+                            area.pairs.insert(k.0, (n, v.0));
+                            area.next += 1;
+                        }
+                    }
+                }
+                (1, Some(k), _) => {
+                    area.pairs.remove(&k.0);
+                }
+                (2, _, _) => area.pairs.clear(),
+                _ => {}
+            }
+        });
+    });
 }

@@ -173,31 +173,32 @@
   // ---- Storage. localStorage over stash (QSTASH2, STASH.md): an http(s) page's area is filled from
   // the state directory before its first script (`__scratchy_ls_fill`) and its setItem/removeItem/clear
   // ops are recorded (`__scratchy_ls_op`) for Rust to commit at the end of the task. Opaque origins
-  // (file:, data:, about:), runs without a state directory and sessionStorage stay in memory. ----
+  // (file:, data:, about:), runs without a state directory and stay in memory. sessionStorage (QSTASH4) is kept in Rust per origin for the life of the process and copied
+  // in at page start (`__scratchy_ss_load`), its ops written straight back (`__scratchy_ss_op`); never on disk. ----
   var STOK = {};
   var Storage = sub('Storage', Object, function (tok) { if (tok !== STOK) throw new TypeError('Illegal constructor'); });
   // stash::QUOTA_UNITS: 5 Mi UTF-16 code units of keys plus values per origin (Firefox's rule); checked here
   // so the page sees QuotaExceededError synchronously, before the op is recorded.
   var LS_QUOTA = 5 * 1024 * 1024;
-  function makeArea() { return { data: new Map(), units: 0, persist: false }; }
+  function makeArea(op) { return { data: new Map(), units: 0, persist: false, op: op }; }
   function areaSet(a, k, v) {
     var old = a.data.get(k);
     if (old === v) return;
     var after = a.units - (old === undefined ? 0 : k.length + old.length) + k.length + v.length;
     if (after > LS_QUOTA) throw dom("Failed to execute 'setItem' on 'Storage': Setting the value of '" + k + "' exceeded the quota.", 'QuotaExceededError');
     a.data.set(k, v); a.units = after;
-    if (a.persist) __scratchy_ls_op(0, k, v);
+    if (a.persist) a.op(0, k, v);
   }
   function areaRemove(a, k) {
     if (!a.data.has(k)) return;
     a.units -= k.length + a.data.get(k).length;
     a.data.delete(k);
-    if (a.persist) __scratchy_ls_op(1, k);
+    if (a.persist) a.op(1, k);
   }
   function areaClear(a) {
     if (!a.data.size) return;
     a.data.clear(); a.units = 0;
-    if (a.persist) __scratchy_ls_op(2);
+    if (a.persist) a.op(2);
   }
   function makeStorage(a) {
     var data = a.data, t = new Storage(STOK);
@@ -222,17 +223,17 @@
       },
     });
   }
-  var lsArea = makeArea(), ssArea = makeArea();
+  var lsArea = makeArea(function (k, a, b) { __scratchy_ls_op(k, a, b); }), ssArea = makeArea(function (k, a, b) { __scratchy_ss_op(k, a, b); });
   def(g, 'localStorage', makeStorage(lsArea));
   def(g, 'sessionStorage', makeStorage(ssArea));
   // Page start (Rust, after the env): the stored pairs as [k0, v0, k1, v1, ...] sorted by key, or
   // undefined for an in-memory page. `key(i)` follows that order, new keys after.
-  def(g, '__scratchy_ls_fill', function () {
-    var r = __scratchy_ls_load();
+  function fillArea(a, r) {
     if (!r) return;
-    lsArea.persist = true;
-    for (var i = 0; i + 1 < r.length; i += 2) { lsArea.data.set(r[i], r[i + 1]); lsArea.units += r[i].length + r[i + 1].length; }
-  });
+    a.persist = true;
+    for (var i = 0; i + 1 < r.length; i += 2) { a.data.set(r[i], r[i + 1]); a.units += r[i].length + r[i + 1].length; }
+  }
+  def(g, '__scratchy_ls_fill', function () { fillArea(lsArea, __scratchy_ls_load()); fillArea(ssArea, __scratchy_ss_load()); });
   // The site was forgotten while the page was open: its copy is emptied (nothing is recorded).
   def(g, '__scratchy_ls_forgotten', function () { lsArea.data.clear(); lsArea.units = 0; });
   // A same-origin iframe realm (`__scratchy_realm_init`) uses its parent's areas: one storage per origin.
