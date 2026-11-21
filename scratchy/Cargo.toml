@@ -19,7 +19,6 @@ precomputed-hash = "0.1.1"
 resvg = { version = "0.50.0", default-features = false }
 roxmltree = "0.21"
 selectors = "0.41.0"
-signal-hook = "0.3.17"
 softbuffer = "0.4.8"
 # QSTK1: switches the deep recursive walks (box build, measure, paint) onto a further stack segment (src/stack.rs).
 psm = "0.1.32"

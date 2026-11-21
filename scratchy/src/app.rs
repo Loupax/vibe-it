@@ -121,18 +121,6 @@ pub(crate) enum AppEvent {
     /// navigation generation `.0`; follow `.1` unless the user has since
     /// navigated (generation changed).
     MetaRefresh(u64, Url),
-    /// `SIGUSR1`'s own background thread (`run()`) waking the event
-    /// loop — the out-of-band bootstrap the vim-mode plan in TODO.txt
-    /// settled on for turning vim mode back *on* once it's off: with
-    /// `vim_enabled == false`, scratchy intercepts zero keys, so
-    /// nothing in-band (no keystroke, however it's bound) could ever
-    /// type `:set vim` again. A signal sent to the process sidesteps
-    /// that entirely, immune to both a WM claiming a reserved chord and
-    /// unusual keyboard-firmware Unicode-input quirks (the two reasons
-    /// a dedicated keyboard chord was considered and dropped — see
-    /// TODO.txt). Toggles rather than only turning vim mode on, so the
-    /// same external signal also works as an off switch.
-    ToggleVimMode,
 }
 
 /// `Normal` resolves bare keys into an `Action` via `resolve_binding`;
@@ -972,10 +960,8 @@ pub(crate) struct App {
     /// returns from `WindowEvent::KeyboardInput` (`window_event`'s own
     /// match arm) to actually call `ActiveEventLoop::exit()` —
     /// `dispatch_command` has no `&ActiveEventLoop` of its own to call
-    /// that with directly (same reason `AppEvent::ToggleVimMode`'s own
-    /// SIGUSR1 bootstrap docs give for why `resumed`'s `&ActiveEventLoop`
-    /// can't just be stashed on `App` once and reused later — it's
-    /// instead synthesized fresh at the one real call site each time,
+    /// that with directly (`resumed`'s `&ActiveEventLoop` can't just be
+    /// stashed on `App` once and reused later; the live one is
     /// `window_event`'s own parameter, which this flag just has to
     /// survive one event handler call to reach). Checked, never read
     /// back down to `false` anywhere: once set, the event loop really is
@@ -4892,9 +4878,6 @@ impl App {
             ("historyBack", []) => self.navigate_history(-1),
             ("historyFront", []) => self.navigate_history(1),
             ("refresh", []) => self.refresh(),
-            // Until QKEYS3 removes them: `vim` = normal mode, `novim` = input mode.
-            ("set", ["vim"]) => self.set_key_mode(KeyMode::Normal),
-            ("set", ["novim"]) => self.set_key_mode(KeyMode::Input),
             // Takes effect from the next page load (`:refresh`).
             ("set", ["js"]) => set_js_enabled(true),
             ("set", ["nojs"]) => set_js_enabled(false),
@@ -5117,13 +5100,6 @@ impl ApplicationHandler<AppEvent> for App {
                         self.apply_hover();
                     }
                 }
-            }
-            AppEvent::ToggleVimMode => {
-                // Until QKEYS3: SIGUSR1 toggles the mode.
-                self.vim_mode = VimMode::Normal;
-                self.command_line.clear();
-                let next = if self.key_mode == KeyMode::Input { KeyMode::Normal } else { KeyMode::Input };
-                self.set_key_mode(next);
             }
         }
         if let Some(window) = &self.window {

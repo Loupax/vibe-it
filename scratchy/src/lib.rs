@@ -39,8 +39,6 @@ use selectors::parser::{
     SelectorList, SelectorParseErrorKind,
 };
 use selectors::{Element as SelectorsElement, OpaqueElement};
-use signal_hook::consts::SIGUSR1;
-use signal_hook::iterator::Signals;
 use softbuffer::{Context, Surface};
 use url::Url;
 use winit::application::ApplicationHandler;
@@ -233,31 +231,6 @@ pub fn run() {
     // (confirmed by reading winit's vendored source), so this has to be
     // created here and threaded into `App` at construction time.
     let proxy = event_loop.create_proxy();
-
-    // `SIGUSR1` bootstrap (TODO.txt's own vim-mode plan): the only way
-    // to turn vim mode back *on* once `:set novim` has turned it off,
-    // since nothing in-band could reach `:set vim` again at that point
-    // — see `AppEvent::ToggleVimMode`'s own docs. Registered
-    // unconditionally, same as the proxy above, not gated behind vim
-    // mode ever having been used — a signal handler can't safely touch
-    // `App` state directly (signal-safety: a raw handler interrupts the
-    // main thread at an arbitrary point), so this follows the exact
-    // `thread::spawn` + `proxy.send_event` shape `Input::Stdin`'s own
-    // reader thread and `App::start_navigation`'s fetch thread already
-    // use below — not new architecture, one more thread of the same
-    // shape, blocking on `Signals::forever()` instead of a socket/stdin
-    // read.
-    let mut signals = Signals::new([SIGUSR1]).expect("failed to register SIGUSR1 handler");
-    {
-        let proxy = proxy.clone();
-        thread::spawn(move || {
-            for _ in signals.forever() {
-                if proxy.send_event(AppEvent::ToggleVimMode).is_err() {
-                    break;
-                }
-            }
-        });
-    }
 
     let mut app = match input {
         Input::File(path) => {

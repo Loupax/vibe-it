@@ -49,8 +49,8 @@ fn qcomp1_single_match_without_space_after_is_selected_with_no_space() {
     assert_eq!(g.rest("go https://a"), ".test/");
     assert_eq!(g.tab("go https://a").as_deref(), Some(".test/"));
     // A `:set` argument gets a space.
-    let mut s = ghost("set vi").expect("ghost");
-    assert_eq!(s.tab("set vi").as_deref(), Some("m "));
+    let mut s = ghost("set mo").expect("ghost");
+    assert_eq!(s.tab("set mo").as_deref(), Some("tion "));
 }
 
 #[test]
@@ -137,7 +137,7 @@ fn qcomp1_cursor_not_at_the_end_means_no_ghost() {
 fn qcomp1_a_command_without_a_row_gets_no_ghost_after_its_name() {
     assert!(ghost("go ht").is_none(), "`:go` has no source until QCOMP4");
     assert!(ghost("refresh x").is_none());
-    assert!(ghost("set v").is_some());
+    assert!(ghost("set m").is_some());
     assert!(ghost("").is_none());
     assert!(ghost("set ").is_none(), "empty word: no ghost");
     assert!(ghost("o").is_none(), "prefix, not substring");
@@ -155,7 +155,7 @@ fn qcomp1_search_line_has_no_ghost() {
 #[test]
 fn qcomp1_token_start_before_finds_the_last_whitespace_boundary() {
     assert_eq!(token_start_before("go", 2), 0);
-    assert_eq!(token_start_before("set vi", 6), 4);
+    assert_eq!(token_start_before("set mo", 6), 4);
     assert_eq!(token_start_before("set ", 4), 4);
     assert_eq!(token_start_before("", 0), 0);
 }
