@@ -8939,3 +8939,19 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       nodes/Element-children, ParentNode-children, ParentNode-properties, Node-childNodes, NodeList-live-mutations,
       live-collections-batched-mutations, getElementsByClassName-03..25, ParentNode-querySelectorAll-scope-change.
       Target: nodes -> +4, other -> +17.
+
+=== from TODO.txt: --- (no header)
+- [x] QINC1n DONE ac1ed5a #524 [S] (P1; USER 2026-11-21 "yes": the evidence for QINC1m's 3 days; Opus; incr_engine.rs, incr_frame.rs,
+      app.rs, stash state dir) Make engine trouble visible in daily use. (1) A real fallback (the engine returns no tree
+      and the caller lays out from scratch, or an engine error/panic it recovers from) prints ONE log line per page
+      (`scratchy: engine: fallback <reason> on <url>`) and bumps a per-session counter; restarts on first layout, resize
+      or a stylesheet change are NOT fallbacks (counted separately, no log line). (2) Sampled check mode, on by default
+      for now: about 1 frame in ENGINE_CHECK_EVERY (= 200, src/config.rs) is also laid out from scratch and compared
+      (the SCRATCHY_INCR_CHECK compare); a mismatch appends one line (time, URL, first differing boxes) to
+      `<state-dir>/engine-check.log` (0600; no page content beyond the URL and box paths) and uses the from-scratch
+      result for that frame; ENGINE_CHECK_EVERY = 0 turns it off. Measure the cost on the gate pages (--perf-report +
+      a live window, perf lock): must stay small; report it. (3) `:engine` shows this session's counts (updates,
+      restarts, fallbacks, checks, mismatches) in the status bar; document it in src/help.html. Tests: a forced
+      fallback logs once per page and counts; a restart does not; a mismatch (test hook) writes one log line; every=0
+      disables checks; `:engine` text. After QINC1n: ~3 days of daily use with an empty engine-check.log and zero
+      fallbacks = the go signal for QINC1m (the user confirms).
