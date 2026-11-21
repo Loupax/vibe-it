@@ -1,0 +1,73 @@
+# Rules for every scratchy agent. These OVERRIDE scratchy/AGENTS.md where they differ.
+
+Where you run: rules marked "user's machine" (nice/ionice, systemd-run memory cap, the perf lock, the
+RUSTY_V8_ARCHIVE cache, /home/loupax/src/wpt, nested-window tests with tools/nest.sh) apply on the user's
+machine. You are there when `$HOME/.cache/librusty_v8-152.2.0.a` exists. In a cloud session (claude.ai), skip
+what is not available: build normally, skip the live-window, grim and perf steps, run the WPT subset only if a
+checkout is available, and say in the PR which local checks were skipped so the coordinator runs them later.
+
+1. Tool-call descriptions: start EVERY one with `[<ITEM>] ` (the user's agent panel shows it).
+2. Worktree + branch: you run in your own git worktree. First: `git fetch origin && git checkout -b scratchy/<item-lowercase>-<slug> origin/main`.
+   No `git stash`. Scratch files go in a subdir of your scratchpad, never loose in /tmp.
+3. NEVER edit scratchy/TODO.txt or scratchy/TODO-DONE.txt (the coordinator owns them). Other docs per AGENTS.md (PROMPTS.md
+   entry, REGRESSIONS/PERF/NOTES as the item needs) are fine.
+4. LOCAL RESOURCE PRIORITY (user's machine only):
+   - EVERY build command (cargo build, cargo check, cargo clippy, cargo test --no-run, cargo bench --no-run) runs as
+     `nice -n 19 ionice -c3 cargo ...`. Env: `RUSTY_V8_ARCHIVE=/home/loupax/.cache/librusty_v8-152.2.0.a CARGO_BUILD_JOBS=4`.
+   - Run the tests in two steps: build them with `nice -n 19 ionice -c3 cargo test --no-run ...`, then run the test binaries
+     (`cargo test ...` again) at NORMAL priority.
+   - Performance / benchmark / timing measurements (--perf-report runs, frame stats, cargo bench, profile.sh, anything whose
+     numbers you report) run ONE AT A TIME across all agents: wrap each measured command in
+     `flock /tmp/scratchy-perf.lock <command>`. Hold the lock only while measuring, not while building. Note `uptime` with results.
+   - `ulimit -c 0` in shells that run scratchy.
+   - Baselines: the coordinator reinstalls ~/.cargo/bin/scratchy after every merge. If you compare against "main", COPY that
+     binary into your scratchpad first (and note its commit), or build origin/main yourself; never run the live path mid-series.
+5. Processes: NEVER pkill/killall/kill by name or pattern (`pkill wire` also kills pipewire/wireplumber). Kill only PIDs you
+   started and recorded, after checking their command line. If you need wire, run your OWN wire on your OWN socket in your
+   scratchpad; NEVER use /run/user/1000/wire.sock. No `pgrep -f` wait loops.
+6. Never `cargo install` (the coordinator installs from main).
+7. Tests: add or update tests for your change. Before opening the PR, the full test suite must pass locally on the default
+   features (V8 is the only engine: QuickJS was removed by QV8-6 b717000; there is no second config any more). (QSTK1x #397: plain debug `cargo test` passes, no RUST_MIN_STACK/--skip needed. QFLK1 8f4fc79 fixed the known load flakes: a full-suite failure is now a real signal, investigate it.) clippy warning count <= 77 with the local
+   toolchain (CI baseline file says 74). WPT subset (/home/loupax/src/wpt at ac78b567, 322 pass / 292 fail): no pass->fail.
+8. PR: push your branch and open a PR (`gh pr create`). Then WAIT for CI: all jobs green (three since QV8-6: scratchy, snag, wire) (`gh pr checks <n> --watch`).
+   If CI fails you get at most 2 fix attempts (push a fix, wait again). Main may move meanwhile: do NOT rebase on your own
+   unless the PR conflicts; the coordinator rebases at merge time.
+   IMPORTANT: GitHub does NOT run pull_request CI while the PR conflicts with main. If no checks appear within ~5 min,
+   run `gh pr view <n> --json mergeable`; if CONFLICTING: `git fetch origin && git rebase origin/main`, resolve
+   (PROMPTS.md/REGRESSIONS.md: keep main's entries and yours, in order), re-run affected tests, push --force-with-lease.
+   Never wait more than 10 min for checks that have not appeared.
+9. NEVER merge. When all CI jobs are green: delete your build dirs (your worktree's `target/` and any CARGO_TARGET_DIR
+   you made), then stop and reply with FIRST LINE exactly `READY #<pr> <ITEM> — <one-line summary>`, followed by a short
+   report (what changed, tests, measured numbers with uptime, anything left out -> proposed new TODO item text for the
+   coordinator to file).
+10. If you cannot finish (blocked, item wrong or much bigger than its size, 2 CI fix attempts used up): open a DRAFT PR
+    labelled `needs-input` (`gh pr create --draft --label needs-input`; create the label if missing) whose body says what
+    you tried, what blocked you, and the EXACT question the user must answer. Reply with first line
+    `DRAFT #<pr> <ITEM> — <question in one line>`. Measure-only / docs-only items with nothing to ask still open a normal PR.
+11. If the coordinator later sends you a rebase conflict: `git fetch origin && git rebase origin/main` in your worktree,
+    resolve, re-run the tests, force-push (`--force-with-lease`), wait for CI green, reply `READY #<pr> <ITEM> — rebased`.
+12. Commit messages: `scratchy: <ITEM> <summary>` ending with the line
+    `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`; PR bodies end with
+    `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
+
+
+## Memory cap (2026-11-20 13:39: a scratchy process grew to 15 GB and the OOM killer took down the whole session)
+Run EVERY scratchy process and EVERY test binary (cargo test, the fuzz harness, --wpt, perf runs, nested-window runs) inside
+a memory-capped scope, so a runaway only kills itself:
+  systemd-run --user --scope -q -p MemoryMax=6G -p MemorySwapMax=0 <command>
+(e.g. `systemd-run --user --scope -q -p MemoryMax=6G -p MemorySwapMax=0 cargo test --release`; cargo's build step is
+covered too, which is fine). Do not use `ulimit -v` (V8 reserves large virtual ranges). If something of yours is killed by
+this cap, that is a bug to report (what ran, what grew), not a reason to raise the cap.
+
+## /tmp is RAM (tmpfs) — no build output there (2026-11-20 ~15:10: agents' scratch dirs held 9.9 GB of RAM)
+Never put a CARGO_TARGET_DIR, release binaries, profiles or big logs in /tmp or the scratchpad (both are tmpfs = RAM). Use a
+directory under your worktree, e.g. `<worktree>/scratchy/target` or `<worktree>/.qwork/` (git-ignored by .claude/), and
+delete it after your PR merges. Small notes/scripts in the scratchpad are fine; delete your scratchpad subdir when done.
+
+## Power-loss safety (user 2026-11-20 ~16:40: "as long as you don't lose progress if the power goes down we are fine")
+- Commit work in progress to your branch and `git push -u origin <branch>` at least every ~30 minutes and after every
+  milestone (a WIP commit is fine; squash before READY if you like). A pushed branch survives a power cut; an unpushed one
+  on local disk usually does too, but /tmp and the scratchpad (tmpfs) do NOT.
+- Keep measurement notes/results you will need for the report in a file under your worktree (e.g. `.qwork/notes.md`,
+  git-ignored), not only in the scratchpad.
+- If you are resumed after a crash: check `git status`/`git log` in your worktree and your notes file, and continue from there.

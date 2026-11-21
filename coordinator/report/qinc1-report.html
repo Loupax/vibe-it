@@ -1,0 +1,161 @@
+<title>QINC1 Engine Readiness</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@500;600&display=swap">
+<style>
+/* Layout: single reading column, verdict first, then evidence tables, then open items and questions. */
+:root{
+  --bg:#f6f7f8; --surface:#ffffff; --fg:#1b2026; --muted:#5d6670; --line:#dde1e6;
+  --accent:#2f5d8a; --good:#1f7a4d; --warn:#a6670d; --bad:#b23a3a;
+  --good-bg:#e6f3ec; --warn-bg:#fbf1e1; --bad-bg:#f8e7e7;
+  --display:"Space Grotesk",system-ui,sans-serif; --body:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#13171b; --surface:#1b2127; --fg:#e4e8ec; --muted:#9aa4ae; --line:#2c343c;
+  --accent:#7fb0de; --good:#5cc08c; --warn:#e0a54a; --bad:#e57c7c;
+  --good-bg:#183326; --warn-bg:#33281a; --bad-bg:#3a2020; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#13171b; --surface:#1b2127; --fg:#e4e8ec; --muted:#9aa4ae; --line:#2c343c;
+  --accent:#7fb0de; --good:#5cc08c; --warn:#e0a54a; --bad:#e57c7c;
+  --good-bg:#183326; --warn-bg:#33281a; --bad-bg:#3a2020; color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:15px;line-height:1.55;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:32px 64px}
+main{max-width:860px;margin:0 auto;display:flex;flex-direction:column;gap:36px}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0;line-height:1.2}
+h1{font-size:30px;font-weight:600}
+h2{font-size:21px;font-weight:600;padding-bottom:6px;border-bottom:1px solid var(--line)}
+h3{font-size:16px;font-weight:600}
+p{margin:0;max-width:68ch}
+section{display:flex;flex-direction:column;gap:14px}
+.meta{color:var(--muted);font-size:13px;font-family:var(--mono)}
+code,.mono{font-family:var(--mono);font-size:.9em}
+.verdict{background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--good);border-radius:6px;padding:18px 20px;display:flex;flex-direction:column;gap:10px}
+.verdict strong{font-family:var(--display);font-size:18px}
+.pill{display:inline-block;font-family:var(--mono);font-size:12px;font-weight:500;padding:1px 8px;border-radius:999px;white-space:nowrap}
+.pill.good{background:var(--good-bg);color:var(--good)} .pill.warn{background:var(--warn-bg);color:var(--warn)} .pill.bad{background:var(--bad-bg);color:var(--bad)}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:6px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{padding:7px 10px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-weight:600;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+th.n{text-align:right}
+ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;max-width:70ch}
+.note{color:var(--muted);font-size:13px}
+.q{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:14px 18px}
+.q ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:10px}
+</style>
+
+<main>
+<header style="display:flex;flex-direction:column;gap:8px">
+  <div class="meta">scratchy · main 2798bb5 · tested 2026-11-21 05:56–07:06</div>
+  <h1>QINC1 incremental engine: own test pass</h1>
+  <p>All the layout-engine work is merged. I ran the full test pass on the installed build, read the numbers and looked at the screenshots myself. Implementation is now paused for the architecture discussion.</p>
+</header>
+
+<div class="verdict">
+  <strong>Recommendation: ready to make the engine the default (QINC1l), when you say so.</strong>
+  <p>There are no correctness differences anywhere I could measure. Each page now does between 12% and 41% of the layout work it did before, and responsiveness improves on every real site. The only regression is about 20 ms slower hover response on the synthetic hover page; the cause is a frame-rate limit that both modes share. I have <em>not</em> flipped the default.</p>
+</div>
+
+<section>
+  <h2>Correctness</h2>
+  <div class="scroll"><table>
+    <tr><th>Check</th><th>Result</th><th>Notes</th></tr>
+    <tr><td>Unit and integration suite, engine off</td><td><span class="pill good">1742 pass · 0 fail</span></td><td>5 ignored, as before</td></tr>
+    <tr><td>Same suite, every forced layout through the engine</td><td><span class="pill good">1742 pass · 0 fail</span></td><td><code>SCRATCHY_TEST_INCR_FORCED=1</code>; tests also compare against a full re-layout</td></tr>
+    <tr><td>WPT reftests: off, on, check mode</td><td><span class="pill good">333 / 293 each</span></td><td>Identical to the expected baseline; 0 mismatches in check mode</td></tr>
+    <tr><td>Live sites in check mode (window), 7 pages × 3</td><td><span class="pill good">0 mismatches</span></td><td>Every incremental frame compared against a from-scratch layout</td></tr>
+    <tr><td>Same, headless, 7 pages × 3</td><td><span class="pill good">0 mismatches</span></td><td>No panics in any of the 105 runs</td></tr>
+    <tr><td>Screenshots, flag on vs off</td><td><span class="pill good">identical</span></td><td>Wikipedia, github, BBC, hover page: 0.00% pixel difference. Differences on YouTube and social.loupax.com are explained below.</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2>Speed: time spent rebuilding the page</h2>
+  <p>Median of 3 runs per mode, in a nested compositor window, with the same scripted scroll, hover and click input in each mode. "Builds" is the total time spent on restyle, box tree and layout over the whole run. Response p95 is the time from input to the frame on screen.</p>
+  <div class="scroll"><table>
+    <tr><th>Page</th><th class="n">Builds off</th><th class="n">Builds on</th><th class="n">On / off</th><th class="n">Response p95 off</th><th class="n">Response p95 on</th></tr>
+    <tr><td>Wikipedia (Rust article)</td><td class="n">9.44 s</td><td class="n">1.22 s</td><td class="n">13%</td><td class="n">210 ms</td><td class="n">17 ms</td></tr>
+    <tr><td>YouTube watch page</td><td class="n">12.21 s</td><td class="n">1.41 s</td><td class="n">12%</td><td class="n">79 ms</td><td class="n">38 ms</td></tr>
+    <tr><td>YouTube results page</td><td class="n">3.36 s</td><td class="n">0.84 s</td><td class="n">25%</td><td class="n">53 ms</td><td class="n">43 ms</td></tr>
+    <tr><td>github.com</td><td class="n">7.54 s</td><td class="n">2.25 s</td><td class="n">30%</td><td class="n">85 ms</td><td class="n">23 ms</td></tr>
+    <tr><td>BBC News</td><td class="n">0.56 s</td><td class="n">0.15 s</td><td class="n">27%</td><td class="n">670 ms</td><td class="n">269 ms</td></tr>
+    <tr><td>social.loupax.com</td><td class="n">44 ms</td><td class="n">18 ms</td><td class="n">41%</td><td class="n">–</td><td class="n">–</td></tr>
+    <tr><td>Hover test page</td><td class="n">159 ms</td><td class="n">65 ms</td><td class="n">41%</td><td class="n">141 ms</td><td class="n"><span class="pill warn">164 ms</span></td></tr>
+  </table></div>
+  <p class="note">The YouTube video player's size lookups (<code>getPlayerSize</code>) dropped from a median of 52–74 ms to 1.9–4.9 ms each. On the watch page, 3× more video frames were presented in the same time (930 vs 490).</p>
+</section>
+
+<section>
+  <h2>Speed: headless (script-forced layouts only)</h2>
+  <div class="scroll"><table>
+    <tr><th>Page</th><th class="n">Forced layouts off</th><th class="n">Forced layouts on</th><th class="n">On / off</th></tr>
+    <tr><td>github.com</td><td class="n">15.6 s</td><td class="n">6.7 s</td><td class="n">43%</td></tr>
+    <tr><td>YouTube watch page</td><td class="n">2.26 s</td><td class="n">0.76 s</td><td class="n">34%</td></tr>
+    <tr><td>YouTube results page</td><td class="n">1.09 s</td><td class="n">0.37 s</td><td class="n">34%</td></tr>
+    <tr><td>BBC News</td><td class="n">363 ms</td><td class="n">153 ms</td><td class="n">42%</td></tr>
+    <tr><td>social.loupax.com</td><td class="n">68 ms</td><td class="n">48 ms</td><td class="n">71%</td></tr>
+    <tr><td>Wikipedia</td><td class="n">556 ms</td><td class="n">570 ms</td><td class="n">102%</td></tr>
+  </table></div>
+  <p class="note">Wikipedia headless forces only 4–5 layouts, each one a whole page, so the engine has nothing to reuse and the result is flat.</p>
+</section>
+
+<section>
+  <h2>What I looked at by eye</h2>
+  <ul>
+    <li><strong>social.loupax.com:</strong> the only steady pixel difference (0.22%) is the line-number gutter next to the article image. With the flag on, the image takes one gutter line, which matches Chrome. With the flag off, the gutter numbers the image's 21 px placeholder height row by row. This is the known QINC1k5 finding; flag-on is the correct one.</li>
+    <li><strong>YouTube:</strong> pixel differences of 4–58% appear just as often between two flag-off runs. They come from the recommendations, thumbnails and video frame changing between runs.</li>
+    <li><strong>YouTube player error:</strong> one flag-on watch run ended on YouTube's "an error occurred" screen. Its log shows DNS lookups failing for the video host (<span class="mono">*.googlevideo.com</span>). Two flag-off runs had the same DNS failures in the same series, so this is the network, not the engine.</li>
+    <li><strong>Wikipedia, github, BBC, hover page:</strong> layout, text and images are identical in both modes.</li>
+    <li><strong>Memory:</strong> peak memory is within about 10% between modes on most pages. Headless Wikipedia uses 25% more (276 vs 220 MB). github sits near 1.7 GB in both modes. Every run stayed under the 6 GB cap.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Merged in this stretch</h2>
+  <div class="scroll"><table>
+    <tr><th>PR</th><th>Item</th><th>What it did</th></tr>
+    <tr><td class="n">#457</td><td>QINC1h1</td><td>Relayout from the kept layout tree (Wikipedia relayout 0.5 vs 51 ms)</td></tr>
+    <tr><td class="n">#458</td><td>QINC1h2</td><td>Bottom-up splice; YouTube watch layout time −20%</td></tr>
+    <tr><td class="n">#459</td><td>QINC1j</td><td>Window frames go through the engine</td></tr>
+    <tr><td class="n">#460</td><td>QINC1i</td><td>Script-forced layouts go through the engine</td></tr>
+    <tr><td class="n">#461</td><td>QINC1j-ab</td><td>Fixed the invalidation walk; YouTube builds ~1 s vs ~3 s</td></tr>
+    <tr><td class="n">#462–#464</td><td>QINC1i5, i4, i6</td><td>Shape memo kept across layouts; restart reuses styles</td></tr>
+    <tr><td class="n">#465</td><td>QINC1k</td><td>First readiness check: NO-GO; started the k-series fixes</td></tr>
+    <tr><td class="n">#466</td><td>QINC1k2</td><td>Inline SVG raster cache; github builds 2.3 vs 7.5 s</td></tr>
+    <tr><td class="n">#467</td><td>QINC1k5</td><td>Explained the flag-on vs flag-off geometry; flag-on matches Chrome</td></tr>
+    <tr><td class="n">#468</td><td>QINC1k1</td><td>Sub-pixel y-offset mismatch fixed</td></tr>
+    <tr><td class="n">#469</td><td>QINC1k4</td><td>Pseudo-element viewport-height mismatch fixed</td></tr>
+    <tr><td class="n">#470</td><td>QINC1k6</td><td>Decoded image size visible in <code>load</code> handlers</td></tr>
+    <tr><td class="n">#471</td><td>QINC1k10</td><td>504 vs 512 px width mismatch fixed</td></tr>
+    <tr><td class="n">#472</td><td>QINC1k3</td><td>Float-aware layout cache; Wikipedia builds at 13% of flag-off</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2>Open items (none block the flip)</h2>
+  <div class="scroll"><table>
+    <tr><th>Item</th><th>Pri</th><th>What</th></tr>
+    <tr><td>QHOV2</td><td>P3</td><td>Hover redraws at only 6–7 frames/s in both modes. With the flag on, the hover fast path is skipped, which costs about 20 ms at p95.</td></tr>
+    <tr><td>QINC1i7</td><td>P2</td><td>YouTube restyle cost per update (after the discussion)</td></tr>
+    <tr><td>QINC1i4c</td><td>P2</td><td>Keep the text-shaping cache across a restart</td></tr>
+    <tr><td>QRO1</td><td>P2</td><td>ResizeObserver real sizes (after the flip and the discussion)</td></tr>
+    <tr><td>QFLK5 / QFLK6</td><td>P2 / P3</td><td>Two flaky tests (V8 heap growth, window-image key reuse)</td></tr>
+    <tr><td>QINC1h3</td><td>P3</td><td>Remaining whole-page re-layouts: popups added at <code>&lt;body&gt;</code>, flex parents</td></tr>
+    <tr><td>QINC1j-c</td><td>P3</td><td>About 20 window tests skip silently because only one event loop is allowed</td></tr>
+    <tr><td>QINC1k7–k9, k11</td><td>P3</td><td><code>&lt;img alt=""&gt;</code> placeholder size, github card width, a debug-build panic on % margins, Wikipedia restyle overhead</td></tr>
+    <tr><td>QINC1i2, i3, i4b, j-ab1</td><td>P3</td><td>Smaller follow-ups: headless image decode, one slow IntersectionObserver layout, restart leftovers, incremental invalidation map</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2>Waiting on you</h2>
+  <div class="q"><ol>
+    <li><strong>Make the engine the default (QINC1l)?</strong> If yes, it becomes one small PR: flip the flag, keep <code>SCRATCHY_INCR=0</code> as the escape hatch, and keep check mode available. After that, the last item is removing the old path (QINC1m).</li>
+    <li><strong>Architecture discussion:</strong> the engine work is done, so implementation is paused as you asked. Tell me when you have time and I'll bring an agenda.</li>
+    <li><strong>QPROF1B</strong> joint profiling session: still pending whenever you're available.</li>
+  </ol></div>
+  <p class="note">Raw data stays on the machine: <span class="mono">.coordinator/test/</span> (logs, gate tables, 160 screenshots) and <span class="mono">.coordinator/qinc1k-data/</span>.</p>
+</section>
+</main>
