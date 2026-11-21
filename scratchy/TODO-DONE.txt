@@ -8768,3 +8768,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       wpt-th/subset.txt from tools/wpt-dirs.txt + the WPT manifest of the pin (skip legacy-mb encoding
       variants and timeout=long files: nightly), run 3 times, put files whose results differ into
       flaky.txt with a reason, record expectations, commit areas.txt. Report the table in the PR.
+
+=== from TODO.txt: --- (no header)
+- [x] QHIST1 DONE f53eef0 #505 [S] (P2, from QFLK7 #496; Sonnet; globals_prelude.js history go()) A second same-document traversal before
+      the first popstate task runs hits a stale `idx` in `go()`: it returns false and the App reloads the page (fast double
+      h/l loses state). Fix, then un-ignore qy48_two_traversals_in_one_turn_stay_same_document.
