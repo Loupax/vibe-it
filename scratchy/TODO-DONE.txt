@@ -8546,3 +8546,63 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       ignored; two `File` handles contend on the lock (flock is per open file
       description, so this works inside one test process); a commit after forget with
       a stale generation is dropped; forget while a commit waits does not resurrect.
+
+=== from TODO.txt: --- (no header)
+- [x] QWPT2 DONE 9d4ff71 #480 pin + sparse checkout + gating reftests in CI (+~4 s warm) [S] (P1; Sonnet; tools/, ci.yml, AGENTS.md; R64 2.1, 2.7) WPT checkout + pin + reftests in CI.
+      tools/wpt-pin.txt (one line: ac78b567f5404b6f2dc0418ea380af3946a47fca; AGENTS.md points to it),
+      tools/wpt-dirs.txt (R64 2.1 table: phase-1 dirs + css fonts images resources common css/support
+      html/resources), tools/wpt-checkout.sh DIR (blobless depth-1 sparse clone of the pin; refuses a
+      checkout whose HEAD differs). CI: actions/cache keyed on pin + dirs hash, then the existing
+      `scratchy --wpt` reftest run (0.9 s locally). FIRST check that wpt-expected.txt holds with CI's
+      fonts (Liberation + Ahem); if not, report the differing tests and keep reftests local (do not
+      edit expectations to match CI without the coordinator).
+
+=== from TODO.txt: --- (no header)
+- [x] QPASTE1 DONE 76ac76e #482 arboard wayland-data-control; Ctrl-Shift-v, Shift-Insert; cleaned paste [S] (P2, user bug 2026-11-20: "we cannot paste into the command mode bar")
+      Paste into every status-bar mode that takes typing: today `:` COMMAND, and SEARCH
+      when QSEARCH1 adds it (KEYS.md "Paste", T22, T26). A Ctrl-v handler exists
+      (`paste_into_command_line`, app.rs), so first REPRODUCE in the nested dwl window
+      (tools/nest.sh + tools/inject, copy with `wl-copy`). Likely cause, found while
+      planning: `arboard` is built without its `wayland-data-control` feature (Cargo.lock
+      lists `x11rb`, no `wl-clipboard-rs`), so it only reads the X11 clipboard through
+      Xwayland, which is empty or stale while scratchy's Wayland window has focus (or
+      fails with no DISPLAY). Fix: enable the feature (new dependency `wl-clipboard-rs`,
+      no network; uses wlr-data-control, which dwl provides), keep X11 as the fallback;
+      if data-control turns out unavailable, report back before writing a wl_data_device
+      path by hand. Also: Ctrl-Shift-v and Shift-Insert paste (today Ctrl-Shift-v
+      inserts a literal `V`); pasted newlines/tabs/control characters become a space,
+      trailing whitespace dropped. The same clipboard code serves page text fields
+      (`forms_text.rs` `clipboard_get`/`clipboard_set`), so check paste there and copy
+      out of a field too. Tests: the paste-text cleaning as a pure function (newline,
+      CRLF, tab, trailing newline, empty); Ctrl-v / Ctrl-Shift-v / Shift-Insert all
+      reach the paste path, a bare `v`/`V` still inserts. Real check: `wl-copy
+      https://example.com/` then `:go ` + Ctrl-v + Enter loads it; same into a page
+      `<input>`.
+
+=== from TODO.txt: --- (no header)
+- [x] QSB1 DONE fa26a84 #483 drag thumb/track for window + regions; window scrollbar now painted [S] READY (split out of Q32 2026-11-17, user) Scrollbar drag-to-scroll.
+      Today only the wheel/keys scroll; the painted indicator is display-only.
+      Press on the thumb and drag: scroll position follows the pointer (thumb
+      offset kept, so the thumb does not jump to the pointer); press on the track
+      above/below the thumb: page up/down; for the window AND for element scroll
+      regions (QJ6 `ScrollInfo`). The pointer grab survives leaving the window.
+      Use the same scroll paths the wheel uses (element `scroll` events once
+      Q33d2 exists). No relayout per motion event: scrolling is already
+      paint-only, keep it that way and measure frame time on en.wikipedia
+      United_States while dragging (report it). Tests: hit-test of thumb/track,
+      drag maths (pointer delta -> scroll delta with the content/track ratio),
+      clamping at both ends. Real check: nested dwl + tools/inject drag, grim.
+
+=== from TODO.txt: --- (no header)
+- [x] QSTASH2 DONE 99f881d #484 localStorage persists (--state-dir); headless never persists without explicit flag [M] (P2, after QSTASH1) localStorage over stash. `--state-dir`
+      flag (+ `SCRATCHY_STATE_DIR`). At page start (`startup_engine`/`run_page`, before
+      the first script) load the origin's pairs into the prelude's Storage Map; opaque
+      origins (file:, data:, about:) keep today's in-memory Storage. setItem/removeItem/
+      clear record ops; the App hands them to the stash writer thread at the end of each
+      task; QuotaExceededError over 5 MB. Keys and values cross from V8 as UTF-16 code
+      units, encoded to WTF-8 by stash: never `to_rust_string_lossy` or another UTF-8
+      conversion, which turns lone surrogates into U+FFFD. Tests: a value set on one page is there on the
+      next page load and after a new App with the same --state-dir; file: pages do not
+      persist; quota throws; ops from one task land together; a value with a lone
+      surrogate (`"a\uD83D"`) reads back identical after a reload. Real check: social.loupax.com
+      `:set novim` survives a restart (user's vim.js case, TODO "social.loupax.com").
