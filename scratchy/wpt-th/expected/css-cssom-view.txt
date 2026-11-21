@@ -264,10 +264,7 @@ OK           0/4  css/cssom-view/cssom-view-img-attributes-001.html
 OK           6/6  css/cssom-view/cssom-view-window-screen-interface.html
 OK         13/13  css/cssom-view/detached-element-geometry.window.html
 OK           1/1  css/cssom-view/devicePixelRatio-undisplayed-iframe.tentative.html
-OK           1/4  css/cssom-view/dom-element-scroll.html
-  FAIL      Element test for having scrolling box
-  FAIL      Element test for having overflow
-  FAIL      Element test for not having scrolling box
+OK           4/4  css/cssom-view/dom-element-scroll.html
 OK          6/12  css/cssom-view/element-scroll-arguments.html
   FAIL      scrollTo with 1 non-dictionary argument
   FAIL      scrollTo with an invalid ScrollToOptions argument
@@ -358,20 +355,8 @@ OK          0/16  css/cssom-view/elementFromPosition.html
   FAIL       test negative y 
   FAIL      test outside of viewport
   FAIL      test the top of layer
-OK           0/4  css/cssom-view/elementScroll-002.html
-  FAIL      simple scroll with style: 'margin' and 'overflow: scroll'
-  FAIL      simple scroll with style: 'margin' and 'overflow: hidden'
-  FAIL      simple scroll with style: 'padding' and 'overflow: scroll'
-  FAIL      simple scroll with style: 'padding' and 'overflow: hidden'
-OK           0/8  css/cssom-view/elementScroll.html
-  FAIL      Element scrollTop/Left getter/setter test
-  FAIL      Element scroll test (two arguments)
-  FAIL      Element scroll test (one argument)
-  FAIL      Element scrollTo test (two arguments)
-  FAIL      Element scrollTo test (one argument)
-  FAIL      Element scrollBy test (two arguments)
-  FAIL      Element scrollBy test (one argument)
-  FAIL      Element scroll maximum test
+OK           4/4  css/cssom-view/elementScroll-002.html
+OK           8/8  css/cssom-view/elementScroll.html
 TIMEOUT      0/2  css/cssom-view/elementsFromPoint-iframes.html
   NOTRUN    elementsFromPoint on the root document for points in iframe elements
   NOTRUN    elementsFromPoint on inner documents
@@ -442,12 +427,9 @@ OK           3/4  css/cssom-view/getBoundingClientRect-empty-inline-002.html
 ERROR        0/0  css/cssom-view/getBoundingClientRect-empty-inline.html
 OK           0/1  css/cssom-view/getBoundingClientRect-newline.html
   FAIL      Range.getBoundingClientRect() should return the first position of the next line when the collapsed range is a newline character
-OK           1/6  css/cssom-view/getBoundingClientRect-scroll.html
-  FAIL      getBoundingClientRect for element inside scroll container
+OK           4/6  css/cssom-view/getBoundingClientRect-scroll.html
   FAIL      getBoundingClientRect for absolute element inside scroll container
   FAIL      getBoundingClientRect for fixed element inside scroll container
-  FAIL      getBoundingClientRect for a scrolled scroll container
-  FAIL      getBoundingClientRect for a scrolled display content box
 ERROR        0/0  css/cssom-view/getBoundingClientRect-shy.html
 ERROR        0/0  css/cssom-view/getBoundingClientRect-svg.html
 OK           2/5  css/cssom-view/getBoundingClientRect-zoom.html
@@ -586,25 +568,7 @@ OK           0/1  css/cssom-view/scroll-behavior-smooth-after-hiding-iframe.html
 OK           0/1  css/cssom-view/scroll-clamp-after-transform-shrinks-overflow.html
   FAIL      Scroll offset is clamped when a transform animation shrinks scrollable overflow
 OK           1/1  css/cssom-view/scroll-no-layout-box.html
-OK         54/72  css/cssom-view/scroll-offsets-fractional-zoom.html
-  FAIL      scrollLeft after scrollTo(13, 61) with 'zoom: 0.75'
-  FAIL      scrollLeft after scrollTo(75, 100) with 'zoom: 0.75'
-  FAIL      scrollLeft after scrollTo(13, 61) with 'zoom: 0.9'
-  FAIL      scrollLeft after scrollTo(75, 100) with 'zoom: 0.9'
-  FAIL      scrollLeft after scrollTo(13, 61) with 'zoom: 1'
-  FAIL      scrollLeft after scrollTo(75, 100) with 'zoom: 1'
-  FAIL      scrollLeft after scrollTo(13, 61) with 'zoom: 1.13'
-  FAIL      scrollLeft after scrollTo(75, 100) with 'zoom: 1.13'
-  FAIL      scrollLeft after scrollTo(13, 61) with 'zoom: 1.25'
-  FAIL      scrollLeft after scrollTo(75, 100) with 'zoom: 1.25'
-  FAIL      scrollLeft after scrollTo(13, 61) with 'zoom: 1.5'
-  FAIL      scrollLeft after scrollTo(75, 100) with 'zoom: 1.5'
-  FAIL      scrollLeft after scrollTo(13, 61) with 'zoom: 1.9'
-  FAIL      scrollLeft after scrollTo(75, 100) with 'zoom: 1.9'
-  FAIL      scrollLeft after scrollTo(13, 61) with 'zoom: 2'
-  FAIL      scrollLeft after scrollTo(75, 100) with 'zoom: 2'
-  FAIL      scrollLeft after scrollTo(13, 61) with 'zoom: 3.33'
-  FAIL      scrollLeft after scrollTo(75, 100) with 'zoom: 3.33'
+OK         72/72  css/cssom-view/scroll-offsets-fractional-zoom.html
 OK           0/1  css/cssom-view/scroll-overflow-clip-quirks-001.html
   FAIL      CSSOM scrollingElement reflects the propagated scroll to viewport correctly
 OK           0/1  css/cssom-view/scroll-overflow-clip-quirks-002.html
@@ -612,11 +576,9 @@ OK           0/1  css/cssom-view/scroll-overflow-clip-quirks-002.html
 OK           1/1  css/cssom-view/scroll-position-root-child-ib-split-insertion.html
 OK           1/2  css/cssom-view/scroll-width-with-over-constrained-block-in-inline.html
   FAIL      A block level box on a line still adds an end margin that is actually used
-OK           1/3  css/cssom-view/scroll-zoom.html
+OK           2/3  css/cssom-view/scroll-zoom.html
   FAIL      scroll{Width, Height}
-  FAIL      scroll{Top, Left}
-OK           0/1  css/cssom-view/scrollIntoView-align-scrollport-covering-child.html
-  FAIL      scrollIntoView scrolls scrollport-covering child in both axes
+OK           1/1  css/cssom-view/scrollIntoView-align-scrollport-covering-child.html
 TIMEOUT      3/5  css/cssom-view/scrollIntoView-container.html
   FAIL      scrollIntoView({container: 'nearest'}) only scrolls nearest scroll container
   TIMEOUT   scrollIntoView({container: 'nearest'}) doesn't propagate to outer frames
@@ -627,8 +589,7 @@ OK           0/4  css/cssom-view/scrollIntoView-fixed.html
   FAIL      [Box B] scrollIntoView from unscrollable position:fixed in iframe
   FAIL      [Box C] scrollIntoView from scrollable position:fixed
   FAIL      [Box D] scrollIntoView from scrollable position:fixed in iframe
-OK           0/1  css/cssom-view/scrollIntoView-horizontal-partially-visible.html
-  FAIL      scrollIntoView scrolls partially-visible child in both axes
+OK           1/1  css/cssom-view/scrollIntoView-horizontal-partially-visible.html
 OK           0/9  css/cssom-view/scrollIntoView-horizontal-tb-writing-mode-and-rtl-direction.html
   FAIL      scrollIntoView({"block":"start","inline":"start"})
   FAIL      scrollIntoView({"block":"start","inline":"center"})
@@ -729,19 +690,12 @@ OK           0/4  css/cssom-view/scrollIntoView-smooth.html
   FAIL      Smooth scrollIntoView should scroll the element to the 'end' position
 OK           0/1  css/cssom-view/scrollIntoView-stuck.tentative.html
   FAIL      CSSOM View - scrollIntoView doesn't consider scroll-padding when target is stuck
-OK           0/8  css/cssom-view/scrollIntoView-svg-container.html
-  FAIL      , group
+OK           4/8  css/cssom-view/scrollIntoView-svg-container.html
   FAIL      , group, nearest on a fully visible element
-  FAIL      , translated
   FAIL      , translated, nearest on a fully visible element
-  FAIL      , nested
   FAIL      , nested, nearest on a fully visible element
-  FAIL      , use
   FAIL      , use, nearest on a fully visible element
-OK           0/3  css/cssom-view/scrollIntoView-svg-shape.html
-  FAIL      , geometry
-  FAIL      , translated
-  FAIL      , rotated
+OK           3/3  css/cssom-view/scrollIntoView-svg-shape.html
 OK           0/1  css/cssom-view/scrollIntoView-then-scrollBy.html
   FAIL      scrollIntoView() followed by a deferred scrollBy() preserves the scroll correction
 OK           0/9  css/cssom-view/scrollIntoView-vertical-lr-writing-mode-and-rtl-direction.html
@@ -774,12 +728,9 @@ OK           0/9  css/cssom-view/scrollIntoView-vertical-rl-writing-mode.html
   FAIL      scrollIntoView({"block":"end","inline":"start"})
   FAIL      scrollIntoView({"block":"end","inline":"center"})
   FAIL      scrollIntoView({"block":"end","inline":"end"})
-OK           0/1  css/cssom-view/scrollLeft-of-scroller-with-wider-scrollbar.html
-  FAIL      Test the maxmium value of scrollLeft
-OK           0/6  css/cssom-view/scrollLeftTop.html
-  FAIL      writing-mode:horizontal-tb; direction:ltr
+OK           1/1  css/cssom-view/scrollLeft-of-scroller-with-wider-scrollbar.html
+OK           2/6  css/cssom-view/scrollLeftTop.html
   FAIL      writing-mode:horizontal-tb; direction:rtl
-  FAIL      writing-mode:vertical-lr; direction:ltr
   FAIL      writing-mode:vertical-lr; direction:rtl
   FAIL      writing-mode:vertical-rl; direction:ltr
   FAIL      writing-mode:vertical-rl; direction:rtl
@@ -862,47 +813,7 @@ OK           0/1  css/cssom-view/scrollintoview-containingblock-chain.html
   FAIL      scrollIntoView should not scroll ancestor overflow:scroll elements that are not containing block ancestors
 OK           0/1  css/cssom-view/scrollintoview-zero-height-item.html
   FAIL      scrollIntoView on zero height item
-OK          0/40  css/cssom-view/scrollintoview.html
-  FAIL      scrollIntoView() starting at left,top
-  FAIL      scrollIntoView() starting at left,bottom
-  FAIL      scrollIntoView() starting at right,top
-  FAIL      scrollIntoView() starting at right,bottom
-  FAIL      scrollIntoView(true) starting at left,top
-  FAIL      scrollIntoView(true) starting at left,bottom
-  FAIL      scrollIntoView(true) starting at right,top
-  FAIL      scrollIntoView(true) starting at right,bottom
-  FAIL      scrollIntoView(false) starting at left,top
-  FAIL      scrollIntoView(false) starting at left,bottom
-  FAIL      scrollIntoView(false) starting at right,top
-  FAIL      scrollIntoView(false) starting at right,bottom
-  FAIL      scrollIntoView(undefined) starting at left,top
-  FAIL      scrollIntoView(undefined) starting at left,bottom
-  FAIL      scrollIntoView(undefined) starting at right,top
-  FAIL      scrollIntoView(undefined) starting at right,bottom
-  FAIL      scrollIntoView(null) starting at left,top
-  FAIL      scrollIntoView(null) starting at left,bottom
-  FAIL      scrollIntoView(null) starting at right,top
-  FAIL      scrollIntoView(null) starting at right,bottom
-  FAIL      scrollIntoView({}) starting at left,top
-  FAIL      scrollIntoView({}) starting at left,bottom
-  FAIL      scrollIntoView({}) starting at right,top
-  FAIL      scrollIntoView({}) starting at right,bottom
-  FAIL      scrollIntoView({block: "center", inline: "center"}) starting at left,top
-  FAIL      scrollIntoView({block: "center", inline: "center"}) starting at left,bottom
-  FAIL      scrollIntoView({block: "center", inline: "center"}) starting at right,top
-  FAIL      scrollIntoView({block: "center", inline: "center"}) starting at right,bottom
-  FAIL      scrollIntoView({block: "start", inline: "start"}) starting at left,top
-  FAIL      scrollIntoView({block: "start", inline: "start"}) starting at left,bottom
-  FAIL      scrollIntoView({block: "start", inline: "start"}) starting at right,top
-  FAIL      scrollIntoView({block: "start", inline: "start"}) starting at right,bottom
-  FAIL      scrollIntoView({block: "end", inline: "end"}) starting at left,top
-  FAIL      scrollIntoView({block: "end", inline: "end"}) starting at left,bottom
-  FAIL      scrollIntoView({block: "end", inline: "end"}) starting at right,top
-  FAIL      scrollIntoView({block: "end", inline: "end"}) starting at right,bottom
-  FAIL      scrollIntoView({block: "nearest", inline: "nearest"}) starting at left,top
-  FAIL      scrollIntoView({block: "nearest", inline: "nearest"}) starting at left,bottom
-  FAIL      scrollIntoView({block: "nearest", inline: "nearest"}) starting at right,top
-  FAIL      scrollIntoView({block: "nearest", inline: "nearest"}) starting at right,bottom
+OK         40/40  css/cssom-view/scrollintoview.html
 OK           0/1  css/cssom-view/smooth-scroll-in-load-event.html
   FAIL      Smooth scroll in load event handler
 TIMEOUT      1/2  css/cssom-view/smooth-scroll-nonstop.html

@@ -1,6 +1,6 @@
 // Test-only input injector for a NESTED headless compositor.
 // Usage: inject W H cmd...
-//   move:X,Y  click  rclick  down  up  scroll:DY  wait:MS
+//   move:X,Y  click  rclick  down  up  scroll:DY  hscroll:DX  sscroll:DY (Shift held)  wait:MS
 //   key:NAME (j k g G h l esc ret tab space bs colon slash ...) with optional c- / s- prefix
 //   type:TEXT (letters, digits, space, . : / - _ = ?)
 use std::io::Write;
@@ -145,6 +145,23 @@ fn main() {
                 vp.axis_source(wl_pointer::AxisSource::Wheel);
                 vp.axis_discrete(ms(), wl_pointer::Axis::VerticalScroll, dy * 15.0, dy as i32);
                 vp.frame();
+            }
+            // QXSCR1: a horizontal wheel (positive = right), and a vertical wheel with Shift held.
+            "hscroll" => {
+                let dx: f64 = arg.parse().unwrap();
+                vp.axis_source(wl_pointer::AxisSource::Wheel);
+                vp.axis_discrete(ms(), wl_pointer::Axis::HorizontalScroll, dx * 15.0, dx as i32);
+                vp.frame();
+            }
+            "sscroll" => {
+                let dy: f64 = arg.parse().unwrap();
+                vk.modifiers(1, 0, 0, 0);
+                q_rt(&mut st);
+                vp.axis_source(wl_pointer::AxisSource::Wheel);
+                vp.axis_discrete(ms(), wl_pointer::Axis::VerticalScroll, dy * 15.0, dy as i32);
+                vp.frame();
+                q_rt(&mut st);
+                vk.modifiers(0, 0, 0, 0);
             }
             "wait" => {
                 flush_move(&mut last_move);

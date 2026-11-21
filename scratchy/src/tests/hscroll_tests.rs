@@ -220,7 +220,7 @@ fn qxscr1_wheel_x_takes_the_innermost_x_region_then_chains() {
     app.wheel_x(&chain, -40.0);
     assert_eq!(app.scroll_offsets.get(&xk(id)).copied(), Some(40.0));
     assert_eq!(app.scroll_x, 0.0, "the region took it");
-    assert!(app.scroll_offsets.get(&id).is_none(), "the y offset is untouched");
+    assert!(!app.scroll_offsets.contains_key(&id), "the y offset is untouched");
     // At its end the tick chains to the window.
     app.scroll_offsets.insert(xk(id), 800.0);
     app.wheel_x(&chain, -40.0);
@@ -369,7 +369,7 @@ fn qxscr1_app_applies_script_x_scroll_and_mirrors_it_back() {
     assert_eq!(app.scroll_x, 120.0);
     let node = node_id(&by_id(&doc, "box"));
     assert_eq!(app.node_scroll.get(&xk(node)).copied(), Some(70.0));
-    assert!(app.node_scroll.get(&node).is_none(), "y untouched");
+    assert!(!app.node_scroll.contains_key(&node), "y untouched");
     let laid = app.cached.clone().unwrap();
     let info = crate::paint::find_scroll_node(&laid, node).unwrap();
     assert_eq!(app.scroll_offsets.get(&xk(info.id)).copied(), Some(70.0));

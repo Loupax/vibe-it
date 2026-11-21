@@ -1116,7 +1116,7 @@ impl GeomCache {
             (Some(_), Some(l)) => {
                 // Not trusted any more: every stage starts over; this read uses the from-scratch layout.
                 crate::incr_style::drop_engines();
-                self.page = (crate::layout::doc_scroll_width(&l), l.h); // QXSCR1: the scroll width
+                self.page = (crate::layout::doc_scroll_width(l), l.h); // QXSCR1: the scroll width
                 walk(l, false, &mut self.rects, &mut skel, u32::MAX);
                 walk_glyphs(l, &self.shape_cache, &mut self.glyphs);
             }

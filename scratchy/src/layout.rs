@@ -661,8 +661,8 @@ pub(crate) fn doc_scroll_width(root: &Laid) -> f32 {
 /// `position: sticky`'s own layout-time-resolved, scroll-independent
 /// state — see `Position::Sticky`'s own docs for why this is split from
 /// the actual per-frame position math (`sticky_shift`). Only `top`/
-/// `bottom` are resolved — scratchy has no horizontal scrolling at all
-/// (see NOTES.md's own scrolling writeup), so a `left`/`right` sticky
+/// `bottom` are resolved — scratchy had no horizontal scrolling when this
+/// was written (QXSCR1 added it; sticky `left`/`right` is still not resolved), so a `left`/`right` sticky
 /// offset would have no live horizontal scroll position to clamp
 /// against; deliberately not attempted, same "reject the part that
 /// would need fundamentally different machinery" category `Position`'s
