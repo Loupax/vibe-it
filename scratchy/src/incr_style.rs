@@ -1345,6 +1345,9 @@ impl Engine {
             || rkey != self.rules_key
             || rkey.0 == u64::MAX
             || vw.to_bits() != self.vw.to_bits()
+            // QCSS1: a media query on the viewport height (`(height >= 600px)`, orientation, aspect-ratio)
+            // changes WHICH rules match; matches are cached per element, so such a list re-matches in full.
+            || (vh.to_bits() != self.vh.to_bits() && rules.iter().any(|r| r.media.iter().any(|m| m.reads_height())))
             || self.arena != ARENA_EPOCH.with(Cell::get);
         self.rules_key = rkey;
         self.vw = vw;

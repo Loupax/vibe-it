@@ -8881,3 +8881,9 @@ Item QINC1h2 (REGRESSIONS.md R60 section 15). `layout.rs`: `natural_width_impl` 
 > remove this. “plan only, do not start until the user schedules it”. the orcestrator will decide when to pick it up
 
 **What changed:** TODO.txt QREG1 no longer says "PLAN ONLY, do not start until the user schedules it"; the coordinator schedules it like any other item.
+
+## QCSS1: stylesheet `@media` uses the matchMedia evaluator (agent item)
+
+> QCSS1 [S] (P1, from QMAPI2 #523; css.rs @media parser) The stylesheet `@media` parser only knew min-width, max-width, prefers-color-scheme, prefers-reduced-motion; range syntax, hover/pointer, orientation, resolution... dropped the whole rule while `matchMedia` already understood them. One implementation.
+
+**What changed:** css.rs: `MediaQuery` is now one comma-list item's text plus a memo (viewport w/h + reduced-motion -> answer) evaluated by `media_one_query_eval`, the same code `matchMedia` runs (`media_query_string_matches`); `parse_media_query_list` just splits the prelude at top-level commas. `not`, `or`, nested conditions, range syntax, hover/pointer, orientation, aspect-ratio, resolution now work in `@media`. Height-reading queries note a viewport-height read; incr_style.rs forces a full re-match when the height changes and some rule's media reads it (matches are cached per element, a height-only resize otherwise left stale matches: caught by the shadow check). Side effect: `@media not print` now applies on screen, so WPT reftest css/printing/transition-in-media-print.tentative.html (which passed only because `not` was treated as never-matching) now fails, as every browser's screen rendering would. Tests: cascade_tests `qcss1_*` (each syntax form, stylesheet vs matchMedia agreement, height-only resize). `<link media>` / `<style media>` / `@import ... media` are not parsed anywhere yet (separate item).
