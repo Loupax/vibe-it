@@ -7,6 +7,10 @@ their section with the date.
 
 ## Direction and process
 
+- **2026-11-21 UI and persistence first.** The small UI and persistence items (keys, status bar,
+  search, completion, paste, scrollbar, QSTASH) take free slots BEFORE the conformance items:
+  they make daily use easier and do not depend on conformance. Conformance (QWPT2...) runs in
+  slots those items leave free.
 - **2026-11-21 Conformance plan R64 approved; all eight R64 §7 recommendations accepted.**
   Q1 phase-1 test pages served by a static mount in wire (no Python, no new socket).
   Q2 WPT's Python server (wptserve) may run locally and in CI in phase 2, reached by wire on
