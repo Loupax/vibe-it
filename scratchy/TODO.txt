@@ -111,9 +111,6 @@ RELIABILITY (flaky tests undermine CI, which the conformance plan relies on; cra
 - [ ] QFLK6b [S] (P3, from QFLK6 #476; Sonnet) incr_box and incr_layout `doc_key` use `node_id(doc)` (a reusable address);
       `base_ver` hides it today. Key them by document identity like WINDOW_IMAGES, with a test that a reused address does
       not serve a stale kept tree.
-- [ ] [WIP] QHIST1 [S] (P2, from QFLK7 #496; Sonnet; globals_prelude.js history go()) A second same-document traversal before
-      the first popstate task runs hits a stale `idx` in `go()`: it returns false and the App reloads the page (fast double
-      h/l loses state). Fix, then un-ignore qy48_two_traversals_in_one_turn_stay_same_document.
 - [ ] QFLK9 [S] (P3, from QFLK7 #496 and QSB2 #497; Sonnet) qy5_budget_clock_is_thread_cpu_time and
       qb3_callback_budget_is_much_shorter_than_load_budget fail in a full parallel run under load (pass alone): make them
       robust (relations with margin, or retry the measurement) without weakening what they prove.
