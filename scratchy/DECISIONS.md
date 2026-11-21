@@ -7,6 +7,9 @@ their section with the date.
 
 ## Direction and process
 
+- **2026-11-21 Engine evidence before QINC1m** (user "yes"): QINC1n first (fallback log line, sampled check
+  writing mismatches to `<state-dir>/engine-check.log`, `:engine` counts). ~3 days with an empty log and zero
+  fallbacks is the go signal; the user still confirms QINC1m.
 - **2026-11-21 Purge agent scratch from git history** (user): keep a backup of `.git` first, then rewrite history
   to drop the accidentally committed `.qwork/` and `scratchy/.qwork/` files (#496, #498) and force-push main.
 - **2026-11-21 UI and persistence first.** The small UI and persistence items (keys, status bar,
