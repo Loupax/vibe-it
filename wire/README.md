@@ -104,18 +104,23 @@ response says `X-Wire-Target-Class: file`.
   serves its `index.html`.
 - `Content-Type` by file extension (html, xhtml, css, js, json, svg, images,
   fonts, media, wasm; unknown = `application/octet-stream`).
-- `<file>.headers` and `__dir__.headers` (the mount root down to the file's
-  directory; the file's own wins): lines `Name: value`, replacing same-named
-  headers, so they can override `Content-Type`. `.headers` files are never
-  served themselves. Generated wrappers get no extra headers.
+- `__dir__.headers` of the file's own directory (only that one, as wptserve),
+  then `<file>.headers` (it wins): lines `Name: value`, replacing same-named
+  headers, so they can override `Content-Type`. `<x>.sub.headers`, when it
+  exists, is used instead of `<x>.headers` and gets `.sub.` substitution.
+  `.headers` files are never served themselves. A generated wrapper gets the
+  headers of its `.js` file (its directory's `__dir__.headers`, `x.any.js.headers`).
 - `x.any.html` is generated from `x.any.js` (window variant) and `x.window.html`
-  from `x.window.js` when no real file of that name exists, in the shape of
-  wptserve's wrappers: `// META: script=PATH` adds a `<script src>`,
-  `title=TEXT` a `<title>`, `timeout=long` a `<meta name=timeout content=long>`;
-  `global=` without `window` (e.g. `worker`) means no window variant (404).
+  from `x.window.js` when no real file of that name exists, with wptserve's
+  templates (`AnyHtmlHandler`, `WindowHandler` in tools/serve/serve.py, checked
+  at scratchy's WPT pin): `// META: script=PATH` adds a `<script src>`,
+  `title=TEXT` a `<title>`, `timeout=long` a `<meta name=timeout content=long>`.
+  META lines start at column 0 and end at the first other line. The first
+  `global=` decides: empty = default (window + worker); otherwise a window
+  variant only if one comma-separated item is `window` (else 404).
   Worker variants are not generated.
 - `/resources/WebIDLParser.js` is an alias of `/resources/webidl2/lib/webidl2.js`.
-- Files with `.sub.` in the name get `{{host}}` (the request's host),
+- Paths with `.sub.` in them (a wrapper: its `.js` path) get `{{host}}` (the request's host),
   `{{domains[]}}`, `{{domains[www]}}`, `{{domains[www1]}}`, `{{domains[www2]}}`,
   `{{ports[http][0]}}` (= PORT) and `{{ports[http][1]}}` (= PORT+1) replaced;
   other `{{...}}` text is left alone.

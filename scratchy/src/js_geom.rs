@@ -35,6 +35,19 @@ pub(crate) struct GeomRect {
     pub(crate) ink_b: f32,
 }
 
+/// QWPT4a: this thread's forced-layout font system, made now with `fonts` (font file bytes, e.g.
+/// WPT's Ahem) loaded on top of the system fonts. Returns how many faces were added.
+pub(crate) fn install_extra_fonts(fonts: Vec<Vec<u8>>) -> usize {
+    let mut fs = new_font_system();
+    let before = fs.db().len();
+    for f in fonts {
+        fs.db_mut().load_font_data(f);
+    }
+    let added = fs.db().len() - before;
+    FONTS.with(|f| *f.borrow_mut() = Some(fs));
+    added
+}
+
 thread_local! {
     /// Test-only: how many forced layouts (cache misses) ran on this thread.
     #[cfg(test)]

@@ -69,6 +69,7 @@ file, a URL, or HTML read from stdin. The other modes are headless.</p>
 <tr><td><code>--budget-ms &lt;ms&gt;</code></td><td>Debug flag, any mode: the per-callback CPU budget in milliseconds (default 500); a large value lets killed work run to completion</td></tr>
 <tr><td><code>--run-timers &lt;ms&gt;</code></td><td>With <code>--js-report</code>: also run timers due within that many milliseconds</td></tr>
 <tr><td><code>--wpt &lt;checkout&gt; [--subset FILE] [--expected FILE] [--update] [--out DIR] [-v]</code></td><td>Headless: run the web-platform-tests reftest subset and compare with the expected results (<code>--update</code> rewrites them)</td></tr>
+<tr><td><code>--wpt-th-one --socket &lt;path&gt; &lt;url&gt;</code></td><td>Headless: load one web-platform-tests testharness.js page through <code>wire</code> (usually a private <code>wire --mount</code>), run it on a virtual clock (800x600, Ahem) and print ONE JSON line of its results, or nothing if it never reported (the runner's test child, see NOTES.md)</td></tr>
 </table>
 
 <h2>Cookies and networking</h2>

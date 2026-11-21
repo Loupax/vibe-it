@@ -1659,11 +1659,39 @@ pub(crate) fn start_scripts_clocked(
     log: LogFn,
     clock: Option<Rc<std::cell::Cell<f64>>>,
 ) -> Option<JsEngine> {
+    start_scripts_hooked(document, scripts, log, clock, &|_| {})
+}
+
+/// QWPT4a: `start_scripts_clocked` with `hook` run on the started engine (natives and preludes in
+/// place) before the page's first script; the testharness child installs `__scratchy_wpt_done` there.
+pub(crate) fn start_scripts_hooked(
+    document: &Handle,
+    scripts: &[ScriptSource],
+    log: LogFn,
+    clock: Option<Rc<std::cell::Cell<f64>>>,
+    hook: &dyn Fn(&JsEngine),
+) -> Option<JsEngine> {
     perf::mark("engine_start");
     let store = Rc::new(js_modules::ModuleStore::from_scripts(scripts, &*log));
     let engine = startup_engine(document, store, log, clock)?;
+    hook(&engine);
     perf::mark("engine_ready");
     run_page(engine, document, scripts)
+}
+
+impl JsEngine {
+    /// QWPT4a: the testharness child's native `__scratchy_wpt_done(json)` (only in that mode): the
+    /// first call's argument lands in `sink`, later calls are ignored.
+    pub(crate) fn install_wpt_done(&self, sink: Rc<std::cell::RefCell<Option<String>>>) {
+        self.eng.with(|ctx| {
+            native!(&ctx, "__scratchy_wpt_done", move |json: String| {
+                let mut s = sink.borrow_mut();
+                if s.is_none() {
+                    *s = Some(json);
+                }
+            });
+        });
+    }
 }
 
 /// QV8-4: the V8 startup snapshot's source: scratchy's own startup over an empty document (the
@@ -1726,7 +1754,9 @@ fn startup_engine(document: &Handle, store: Rc<js_modules::ModuleStore>, log: Lo
         native!(&ctx, "__url_set", url_set_native);
         // QY10: `matchMedia` evaluates through the CSS media-query code.
         native!(&ctx, "__scratchy_media", |q: String| -> Vec<String> {
-            let (m, media) = css::media_query_string_matches(&q, DEFAULT_VIEWPORT.0 as f32, DEFAULT_VIEWPORT.1 as f32);
+            // QWPT4a: the same viewport as innerWidth/innerHeight (the window, or 800x600 in the WPT child).
+            let (vw, vh) = env_viewport();
+            let (m, media) = css::media_query_string_matches(&q, vw as f32, vh as f32);
             vec![if m { "1".into() } else { String::new() }, media]
         });
         // QSD1b: OS CSPRNG for `crypto.getRandomValues`/`randomUUID` (<= 65536 bytes per call).
