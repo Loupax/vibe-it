@@ -2822,8 +2822,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (submitter !== undefined && submitter !== null && (!submitter || submitter.form !== this)) {
       throw herr('The specified element is not a submit button of this form.', 'NotFoundError');
     }
-    var ev = new Event('submit', { bubbles: true, cancelable: true });
-    ev.submitter = submitter || null;
+    var ev = new SubmitEvent('submit', { bubbles: true, cancelable: true, submitter: submitter || null });
     if (__scratchy_dispatch(this, ev)) __d_submit(this.__id, submitter ? submitter.__id : -1);
   };
   // Q30c: reset restores the checkbox/radio defaults (text values wait for Q30d).
