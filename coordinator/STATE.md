@@ -184,3 +184,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #547 QDOM12 READY (nodes 50.4 -> 51.1); queued (areas.txt). Filed QDOM12b. Sent #541 QSCR404 rebase.
 - 2026-11-22 Merged #545 QEL5 2f619bf.
 - 2026-11-22 #543 QWPT10 READY, merging (unblocks #535/#529/#539/#547). It added parser-sets-attributes-after-built-in-constructor to flaky.txt after 5/5 CI fails -> QWPTFLK3 (P2) to investigate; main push CI lacks WPT gate -> QWPT11.
+- 2026-11-22 #543 conflicted on areas.txt itself -> merging it with its own new script (temp copy). #546 QEL6 READY (queued). Launched QDOM16.

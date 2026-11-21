@@ -214,7 +214,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       throws NotSupportedError otherwise, `dispatchEvent` of an uninitialized or already-dispatching event throws
       InvalidStateError. WPT: dom/events/Event-subclasses-constructors, EventTarget-dispatchEvent, Event-constructors.any,
       Event-constants, EventTarget-constructible.any. Target: events +1.5.
-- [ ] QDOM16 [S] (P2; Sonnet; js_dom.rs; R65) ChildNode/ParentNode on every node kind: `before`, `after`,
+- [ ] [WIP] QDOM16 [S] (P2; Sonnet; js_dom.rs; R65) ChildNode/ParentNode on every node kind: `before`, `after`,
       `replaceWith`, `remove` on CharacterData and DocumentType (today only on `ElementProto`), `replaceChildren`/`append`/`prepend` on Document, `Symbol.unscopables` for them;
       `document.doctype` on the page document (the page's DocumentType node). WPT: nodes/ChildNode-after,
       ChildNode-before, ChildNode-replaceWith, DocumentType-remove, Document-doctype, ParentNode-replaceChildren,
