@@ -1,6 +1,0 @@
-scratchy: network: unix sockets only (wire)
-media: mpv
-scratchy: js net: beacon navigator.sendBeacon POST https://en.wikipedia.org/ins-502b/v2/events?hasty=true content-type=text/plain;charset=UTF-8 body=520 bytes body[..200]="[{\"action_context\":\"bot=0\",\"action_source\":\"33676909408458\",\"instrument_name\":\"bot-detection-2026-03\",\"funnel_event_sequence_position\":1,\"$schema\":\"/analytics/product_metrics/web/base_with_ip/2.0.0\",\"" page=https://en.wikipedia.org/wiki/United_States: suppressed (not sent)
-scratchy: js error: js: timer stopped: exceeded the 500 ms CPU-time callback budget
-scratchy: console.warn: movePinnableElement: destination container not found  vector-toc-unpinned-container
-scratchy: js: 4 forced layouts, 1041 ms (script reads geometry after DOM writes)
