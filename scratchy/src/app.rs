@@ -996,6 +996,8 @@ pub(crate) struct App {
     pub(crate) select_popup: Option<SelectPopup>,
     /// Q30g: the release that ends a press the popup consumed is not a click.
     pub(crate) swallow_release: bool,
+    /// QSB1: a scrollbar thumb drag in progress.
+    pub(crate) sb_drag: Option<SbDrag>,
     /// Q30g: type-ahead buffer of a focused closed select.
     pub(crate) select_ahead: TypeAhead,
     /// The page that was showing right before `:help` opened, if any —
@@ -1160,6 +1162,25 @@ pub(crate) const MOVE_DISPATCH_MAX_GAP: std::time::Duration = std::time::Duratio
 const PTR_BITS: [&str; 8] =
     ["mousemove", "pointermove", "mouseenter", "mouseleave", "pointerover", "pointerout", "pointerenter", "pointerleave"];
 
+/// QSB1: what a thumb drag scrolls.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum SbTarget {
+    Viewport,
+    /// `ScrollInfo::id`, `ScrollInfo::node`.
+    Region(usize, usize),
+}
+
+/// QSB1: a thumb drag: the scroll position at the press and the pointer y it
+/// started at; each move is `start_scroll + dy * ratio`, clamped to `0..=max`.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct SbDrag {
+    pub(crate) target: SbTarget,
+    pub(crate) start_ptr: f32,
+    pub(crate) start_scroll: f32,
+    pub(crate) ratio: f32,
+    pub(crate) max: f32,
+}
+
 impl App {
     /// QM1k1n6a: remember the newest pointer position; the hit test, hover
     /// and `mouseover`/`mouseout` work happens once in `flush_pointer_move`.
@@ -1194,6 +1215,10 @@ impl App {
         // document space (scroll isn't applied until paint time),
         // so the same `+ scroll_offset` adjustment `paint` itself
         // makes (in reverse) is needed here too.
+        if self.sb_drag.is_some() {
+            self.scrollbar_drag_move(position.1);
+            return;
+        }
         self.text_mouse_drag(position);
         if self.video.drag.is_some() {
             self.controls_drag_move(position, false);
@@ -1336,6 +1361,7 @@ impl App {
             should_quit: false,
             select_popup: None,
             swallow_release: false,
+            sb_drag: None,
             select_ahead: TypeAhead::default(),
             pre_help_page: None,
             video: AppVideo::default(),
@@ -1440,6 +1466,7 @@ impl App {
             should_quit: false,
             select_popup: None,
             swallow_release: false,
+            sb_drag: None,
             select_ahead: TypeAhead::default(),
             pre_help_page: None,
             video: AppVideo::default(),
@@ -1565,6 +1592,12 @@ impl App {
                     }
                 }
             }
+        }
+
+        // QSB1: the window's own scrollbar (overlay, same look as a region's).
+        if let Some((rect, content_h, client_h)) = Self::viewport_bar(&self.cached, self.surface_size) {
+            let info = crate::layout::ScrollInfo { id: usize::MAX, content_h, client_h, node: 0, user: true };
+            crate::paint::paint_scrollbar(&info, self.scroll_offset, false, &mut pixels, width, height, rect.0, rect.1, rect.2, rect.3, None);
         }
 
         // Q30g: the open select dropdown is the top layer, above the page.
@@ -4145,6 +4178,88 @@ impl App {
         self.cached.as_ref().is_some_and(|l| l.style.viewport_hidden)
     }
 
+    /// QSB1: the viewport's own bar: `(rect, content_h, client_h)`, `None` when the page fits
+    /// or the viewport cannot be scrolled by the user.
+    fn viewport_bar(cached: &Option<Rc<Laid>>, size: (u32, u32)) -> Option<((f32, f32, f32, f32), f32, f32)> {
+        let laid = cached.as_ref()?;
+        let (w, h) = (size.0 as f32, size.1 as f32);
+        (laid.h > h && !laid.style.viewport_hidden).then_some(((0.0, 0.0, w, h), laid.h, h))
+    }
+
+    /// QSB1: a left press at `pos` on a scrollbar (the window's, else the outermost
+    /// region's whose bar is hit, since a parent's bar paints over its children).
+    /// Thumb: starts a drag. Track: a page up/down. True when the press was
+    /// consumed (the page then sees no mousedown/click).
+    pub(crate) fn scrollbar_press(&mut self, pos: (f32, f32)) -> bool {
+        use crate::scrollbar::{self as sb, BarHit};
+        let (px, py) = pos;
+        let view_h = self.surface_size.1 as f32;
+        if let Some((rect, content_h, client_h)) = Self::viewport_bar(&self.cached, self.surface_size) {
+            let max = content_h - client_h;
+            let cur = self.scroll_offset.clamp(0.0, max);
+            if let Some(h) = sb::hit(rect, content_h, client_h, cur, px, py) {
+                match h {
+                    BarHit::Thumb => {
+                        let ratio = sb::drag_ratio(rect.3, content_h, client_h);
+                        self.sb_drag = Some(SbDrag { target: SbTarget::Viewport, start_ptr: py, start_scroll: cur, ratio, max });
+                    }
+                    _ => self.scroll_offset = sb::page_target(h, cur, page_step(view_h), max),
+                }
+                self.request_redraw_now();
+                return true;
+            }
+        }
+        let Some(laid) = self.cached.as_ref() else { return false };
+        let chain = crate::paint::hit_test_scroll_bars(
+            laid, px, py + self.scroll_offset, &self.scroll_offsets, self.scroll_offset, view_h,
+        );
+        for r in chain.iter().rev().filter(|r| r.info.user) {
+            let info = r.info;
+            let max = info.max_scroll();
+            let cur = self.scroll_offsets.get(&info.id).copied().unwrap_or(0.0).clamp(0.0, max);
+            let Some(h) = sb::hit(r.rect, info.content_h, info.client_h, cur, px, r.py) else { continue };
+            match h {
+                BarHit::Thumb => {
+                    let ratio = sb::drag_ratio(r.rect.3, info.content_h, info.client_h);
+                    self.sb_drag = Some(SbDrag { target: SbTarget::Region(info.id, info.node), start_ptr: py, start_scroll: cur, ratio, max });
+                }
+                _ => {
+                    let next = sb::page_target(h, cur, page_step(info.client_h), max);
+                    self.set_region_scroll(info.id, info.node, next);
+                }
+            }
+            self.request_redraw_now();
+            return true;
+        }
+        false
+    }
+
+    /// QSB1: the pointer moved to window y `py` during a thumb drag (paint-only, like the wheel).
+    fn scrollbar_drag_move(&mut self, py: f32) {
+        let Some(d) = self.sb_drag else { return };
+        let next = crate::scrollbar::drag_scroll(d.start_scroll, d.start_ptr, py, d.ratio, d.max);
+        match d.target {
+            SbTarget::Viewport => self.scroll_offset = next,
+            SbTarget::Region(id, node) => self.set_region_scroll(id, node, next),
+        }
+        self.request_redraw_now();
+    }
+
+    /// The wheel's region scroll write (also tells script, `scroll` events).
+    fn set_region_scroll(&mut self, id: usize, node: usize, next: f32) {
+        self.scroll_offsets.insert(id, next);
+        if node != 0 {
+            self.node_scroll.insert(node, next);
+            self.node_scroll_dirty = true;
+        }
+    }
+
+    fn request_redraw_now(&self) {
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
     pub(crate) fn scroll_by(&mut self, dy: f32) {
         self.scroll_offset = (self.scroll_offset + dy).max(0.0);
     }
@@ -4702,6 +4817,12 @@ impl ApplicationHandler<AppEvent> for App {
                             self.mouse_down_pos = None;
                             return;
                         }
+                        if let Some(pos) = self.last_mouse_pos
+                            && self.scrollbar_press(pos)
+                        {
+                            self.mouse_down_pos = None;
+                            return;
+                        }
                         self.mouse_down_pos = self.last_mouse_pos;
                         if let Some(pos) = self.last_mouse_pos {
                             self.js_mouse_at("mousedown", pos);
@@ -4710,6 +4831,10 @@ impl ApplicationHandler<AppEvent> for App {
                         }
                     }
                     ElementState::Released => {
+                        if self.sb_drag.take().is_some() {
+                            self.mouse_down_pos = None;
+                            return;
+                        }
                         if self.video.drag.is_some() {
                             if let Some(pos) = self.last_mouse_pos {
                                 self.controls_drag_move(pos, true);
