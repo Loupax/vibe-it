@@ -117,19 +117,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QBUD1 [S] (P2; Sonnet; perf-budgets.txt, tools/budget-check.py; after QREC3) First budgets (R64 6
       table); local check in the AGENTS.md checklist for perf-touching PRs; CI only counts + RSS on
       synthetic or (per Q5) replayed pages.
-- [ ] [WIP] QDOM1 [S] (P1; Sonnet; js.rs, js_dom.rs; R65; after QWPT6) Window named access and indexed child windows. A
-      WindowProperties object between `Window.prototype` and `EventTarget.prototype` (a Proxy in the prototype chain set
-      up next to `Object.setPrototypeOf(g, Window.prototype)` in js.rs; own globals and `var`s still win). get/has: an
-      element with that id, or an embed/form/img/object with that name (new native `__d_named(doc, name)` next to
-      `__d_byid`, one walk, cached by the DOM write generation `wgen` because `typeof X` feature probes hit it), an iframe
-      with that name -> its contentWindow. `window[i]` / `frames[i]` / `window.length` = child browsing contexts in tree
-      order (the iframe realm code in js_dom.rs). Not enumerable. Tests in js_dom_tests.rs (id global, var shadows it,
-      removed element disappears, frames[0].document). WPT: abort/abort-signal-timeout, abort/reason-constructor,
-      nodes/Node-removeChild, Node-appendChild, querySelector-empty-id, querySelector-id-nth-child,
-      remove-and-adopt-thcrash, remove-next-sibling-during-replace-with, events/mouse-event-retarget,
-      EventListener-handleEvent-cross-realm, traversal/TreeWalker-acceptNode-filter-cross-realm,
-      ranges/Range-extractContents-dynamic-end. Target: nodes 42.4 -> 45, events 23.0 -> 25, other 55.2 -> 60;
-      re-run all areas (html/*, shadow-dom, uievents use id globals too) and record their new passes.
 - [ ] QDOM1b [S] (P2, from QDOM1 #516; Opus; js_engine_v8.rs, js.rs) With the WindowProperties Proxy in the global's
       prototype chain, a strict-mode assignment to an undeclared name no longer throws ReferenceError (reads still do;
       tests qj1_/qy15_ were switched to `NaN = 1`). Restore the spec behaviour: a V8 named-property interceptor on the
@@ -138,7 +125,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QMSG1 [S] (P2, from QDOM1 #516; Sonnet; js_dom.rs iframe realms, globals_prelude.js postMessage) postMessage to and
       from an iframe's contentWindow (`window[0].postMessage`, `parent.postMessage`, MessageEvent origin/source): today the
       webmessaging 019 / cross-document files time out waiting for the reply. Target: webmessaging score up, list files.
-- [ ] QDOM2 [M] (P1; Sonnet; js_dom.rs, js.rs; R65; after QDOM1) Real NodeList and HTMLCollection objects.
+- [ ] [WIP] QDOM2 [M] (P1; Sonnet; js_dom.rs, js.rs; R65; after QDOM1) Real NodeList and HTMLCollection objects.
       `childNodes`, `children`, `getElementsByTagName(NS)`, `getElementsByClassName`, `document.forms/images/links/
       anchors/scripts/embeds` (`coll`), `querySelectorAll` (static NodeList): instances of `NodeList` / `HTMLCollection`
       (prototype with `item`, `namedItem` (HTMLCollection), `length`, `forEach`/`entries`/`keys`/`values`/iterator
