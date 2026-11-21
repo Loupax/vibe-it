@@ -136,7 +136,7 @@ fn keys_t05_input_mode_page_gets_j_and_l_and_scratchy_does_nothing() {
     assert_eq!(app.scroll_offset, 0.0);
     assert_eq!(app.history_index, 0);
     assert_eq!(app.vim_mode, VimMode::Normal, "`:` did not open the command line");
-    assert!(app.pending_key.is_none());
+    assert!(!app.pending_g);
     assert_eq!(log(&app), "d:j|u:j|d:l|u:l|d:g|u:g|d::|u::");
 }
 
@@ -227,69 +227,4 @@ fn keys_t29_click_into_text_control_or_select_switches_to_input() {
     app.key_mode = KeyMode::Normal;
     app.press_switches_to_input((10.0, 45.0));
     assert_eq!(app.key_mode, KeyMode::Input, "the select");
-}
-
-// QREG1: registers `%` (the URL) and `+` (the clipboard), `:let`, `yy` (KEYS.md "Registers").
-
-#[test]
-fn qreg1_parse_let_accepts_spacing_and_rejects_the_rest() {
-    use crate::registers::parse_let;
-    assert_eq!(parse_let("@+ = @%"), Ok(('+', '%')));
-    assert_eq!(parse_let("@+=@%"), Ok(('+', '%')));
-    assert_eq!(parse_let("  @a   =   @+ "), Ok(('a', '+')));
-    for bad in ["", "@+", "@+ @%", "+ = @%", "@+ = %", "@++ = @%", "@+ = @%%", "@ = @%", "@+ = document.URL"] {
-        assert!(parse_let(bad).is_err(), "{bad:?} should be a usage error");
-    }
-}
-
-#[test]
-fn qreg1_yy_in_normal_mode_copies_the_url_and_says_so() {
-    let Some(mut app) = keys_app("<p>x</p>", LOG_SCRIPT) else { return };
-    crate::forms_text::clipboard_set("old");
-    app.key_mode = KeyMode::Normal;
-    let t0 = Instant::now();
-    tap(&mut app, &chr("y"), t0);
-    assert_eq!(app.pending_key, Some('y'));
-    assert_eq!(crate::forms_text::clipboard_get().as_deref(), Some("old"), "one `y` copies nothing");
-    tap(&mut app, &chr("y"), t0);
-    assert_eq!(app.pending_key, None);
-    assert_eq!(crate::forms_text::clipboard_get().as_deref(), Some("https://e.org/page"));
-    assert_eq!(app.status_message, "Copied to clipboard");
-    assert_eq!(log(&app), "", "the page sees no keys in normal mode");
-}
-
-#[test]
-fn qreg1_yy_in_input_mode_goes_to_the_page() {
-    let Some(mut app) = keys_app("<p>x</p>", LOG_SCRIPT) else { return };
-    crate::forms_text::clipboard_set("old");
-    let t0 = Instant::now();
-    tap(&mut app, &chr("y"), t0);
-    tap(&mut app, &chr("y"), t0);
-    assert_eq!(crate::forms_text::clipboard_get().as_deref(), Some("old"));
-    assert_eq!(log(&app), "d:y|u:y|d:y|u:y");
-}
-
-#[test]
-fn qreg1_let_copies_registers_and_reports_errors() {
-    let Some(mut app) = keys_app("<p>x</p>", "") else { return };
-    // The current history entry wins over the base URL, like the status bar.
-    app.history = vec![Url::parse("https://e.org/a").unwrap(), Url::parse("https://e.org/b?q=1#f").unwrap()];
-    app.history_index = 1;
-    app.run_command_line("let @+ = @%");
-    assert_eq!(crate::forms_text::clipboard_get().as_deref(), Some("https://e.org/b?q=1#f"));
-    assert_eq!(app.status_message, "Copied to clipboard");
-    app.run_command_line("let @% = @+");
-    assert_eq!(app.status_message, "scratchy: register @% is read-only");
-    app.run_command_line("let @+ = @q");
-    assert_eq!(app.status_message, "scratchy: no register @q");
-    app.run_command_line("let @q = @%");
-    assert_eq!(app.status_message, "scratchy: no register @q");
-    app.run_command_line("let @+");
-    assert!(app.status_message.starts_with("scratchy: usage: :let"), "{}", app.status_message);
-    assert_eq!(crate::forms_text::clipboard_get().as_deref(), Some("https://e.org/b?q=1#f"), "errors copy nothing");
-    // A stdin start page has no URL yet.
-    app.history.clear();
-    app.base_url = None;
-    app.run_command_line("let @+ = @%");
-    assert_eq!(app.status_message, "scratchy: no URL to copy");
 }

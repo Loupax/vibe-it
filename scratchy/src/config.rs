@@ -94,16 +94,7 @@ pub(crate) const BINDINGS: &[Binding] = &[
     bind(Named(NamedKey::PageUp), Mods::Any, A::PageUp),
     bind(Named(NamedKey::Home), Mods::Any, A::ScrollTop),
     bind(Named(NamedKey::End), Mods::Any, A::ScrollBottom),
-    // `gg` and `yy` are two-key sequences: `KEY_SEQUENCES` below, not rows here.
-];
-
-/// Two-key sequences in normal mode (vim's `gg`), resolved by `resolve_pending` before `BINDINGS`.
-/// The first key arms; the second fires the action; any other key cancels. A first key here
-/// should not also be a `BINDINGS` row (the sequence would win).
-pub(crate) const KEY_SEQUENCES: &[(&str, A)] = &[
-    ("gg", A::ScrollTop),
-    // QREG1: copy the URL to the system clipboard, same as `:let @+ = @%`.
-    ("yy", A::YankUrl),
+    // `gg` (ScrollTop) is the pending-`g` state machine in `resolve_pending_g`, not a row here.
 ];
 
 // ---------- modes (QKEYS2) ----------

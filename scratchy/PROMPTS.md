@@ -8844,7 +8844,7 @@ Item QINC1h2 (REGRESSIONS.md R60 section 15). `layout.rs`: `natural_width_impl` 
 
 **What changed:** config.rs: `Source::Cmd`, `SOURCE_TIMEOUT_MS` (a source still running is killed), `SOURCE_MAX_OUTPUT`, a commented-out example row (no default Cmd row). completion.rs: `run_source`, `ExtResult`/`ExtSink`, per-line ids in `CompleteCache` (results and "already started" per command and argument position), `compute_ghost_in` (explicit table, for tests). app.rs: `AppEvent::CompleteResult`, `handle_complete_result` (drops a result for another line, shows a missing-program message in the status bar, recomputes the ghost). The UI thread never waits: the first ask starts the thread and gives no ghost; the event brings it. `:help` documents it. Tests in completion_tests.rs use fake `sh` scripts in a temp dir.
 
-## QREG1: copy the URL with vim registers, `:let @+ = @%` and `yy` (user session)
+## QREG-D: plan for copying the URL with vim registers, `:let @+ = @%` and `yy` (user session, plan only)
 
 > I want to be able to copy the currently visited URL to the clipboard. Let's discuss it and plan it. I'm thinking the following ways:
 >
@@ -8862,4 +8862,6 @@ Item QINC1h2 (REGRESSIONS.md R60 section 15). `layout.rs`: `natural_width_impl` 
 
 > what is yu? I'm not familiar
 
-**What changed:** new `src/registers.rs` (`parse_let`). app.rs: `App::url_register` (register `%` = the status bar's URL: history entry, else base URL), `App::let_register` (reads `%`/`+`, writes `+`, the outcome in the status bar), `:let` in `dispatch_command` and `COMMAND_NAMES`, `Action::YankUrl` (ignores key repeat). The pending-`g` state machine became `resolve_pending` over a `KEY_SEQUENCES` table in config.rs (`gg`, `yy`); `App::pending_g` is now `pending_key: Option<char>`. forms_text.rs `clipboard_set` returns whether the system clipboard took the text, so a failure is reported instead of a false "Copied". KEYS.md: Y helper state, T54-T56, "Registers" section, decision log; `:help` rows; TODO.txt QREG-D (the design), QREG2 (`:let @+ = <JS expr>`), QREG3 (`*` primary selection), QCURSOR-D (page cursor, waiting for user).
+> keep the plan only. no implementation
+
+**What changed:** plan only, no code (an implementation was started by mistake and reverted at the user's request). KEYS.md: "Registers" section and T54-T56, marked planned; decision log. TODO.txt: QREG-D (the decisions), QREG1 (registers `%`/`+`, `:let`, `yy`), QREG2 (`:let @+ = <JS expr>`), QREG3 (`*` primary selection), QCURSOR-D (page cursor, waiting for user).

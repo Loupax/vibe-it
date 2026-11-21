@@ -56,7 +56,6 @@ switch it by focusing a field.</li>
 <tr><td><code>Enter</code></td><td>Click the current search match (a link is followed through the page's own click handlers; a match across two links only warns)</td></tr>
 <tr><td><code>n</code> / <code>N</code></td><td>Go to the next / previous search match (wraps around, and scrolls the page to it)</td></tr>
 <tr><td><code>i</code></td><td>Switch to INPUT mode</td></tr>
-<tr><td><code>y</code> <code>y</code></td><td>Copy the page's URL to the system clipboard (same as <code>:let @+ = @%</code>)</td></tr>
 </table>
 <p>The keys are the <code>BINDINGS</code> table in <code>src/config.rs</code>,
 with the timing and scroll sizes next to it. There is no config file: edit
@@ -112,7 +111,6 @@ and <code>Shift</code>+<code>Insert</code> paste. Read-only fields only copy.</p
 <table>
 <tr><th>Command</th><th>Effect</th></tr>
 <tr><td><code>:go &lt;url&gt;</code></td><td>Navigate to a URL</td></tr>
-<tr><td><code>:let @+ = @%</code></td><td>Copy register <code>%</code> (the page's URL, read-only) to register <code>+</code> (the system clipboard), as in vim</td></tr>
 <tr><td><code>:refresh</code></td><td>Re-fetch the page on screen and reload it in place (it does not add a history entry), e.g. after <code>:set nojs</code>/<code>:set js</code> or when testing a changing page</td></tr>
 <tr><td><code>:historyBack</code></td><td>Go back one page in history (same as <code>h</code>)</td></tr>
 <tr><td><code>:historyFront</code></td><td>Go forward one page in history (same as <code>l</code>)</td></tr>

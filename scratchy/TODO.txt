@@ -480,7 +480,14 @@ QREG — copying: vim registers, `yy`, later a page cursor (user design session 
   R5 Long term (QCURSOR-D, design first): a keyboard cursor in the page, moved by hjkl like
      vim; n/N move it; Enter acts on what is under it; visual mode `v` + `y`/`"+y`/`:yank`.
 
-- [ ] QREG1 [S] (user 2026-11-21) WIP, NOT VERIFIED (built on this branch; user asked whether implementing was wanted, awaiting answer): registers `%` (the URL, read-only) and `+` (the system clipboard), `:let @dst = @src`, `yy` = `:let @+ = @%`. Left: full cargo test, clippy count, WPT subset, real nested-window check.
+- [ ] QREG1 [S] (P2; user 2026-11-21: PLAN ONLY, do not start until the user schedules it; Sonnet; new registers.rs,
+      app.rs dispatch_command/COMMAND_NAMES, config.rs, forms_text.rs clipboard_set) Registers `%` (the URL as the
+      status bar shows it: history entry, else base URL; read-only) and `+` (the system clipboard), `:let @dst = @src`
+      (spaces optional; messages as in KEYS.md "Registers"), and `yy` = `:let @+ = @%` (ignores key repeat). The
+      pending-`g` machine becomes a `KEY_SEQUENCES` table in config.rs (`gg`, `yy`), KEYS.md T54-T56. `clipboard_set`
+      reports whether the system clipboard took the text, so a failure is not shown as "Copied to clipboard".
+      `:help` rows. Tests: `yy` in NORMAL copies and the page sees no keys, `yy` in INPUT goes to the page, `:let`
+      errors (read-only `%`, unknown register, usage, no URL), `g` `y` / `y` `g` re-arm.
 - [ ] QREG2 [S] (P2, from QREG1; Sonnet; registers.rs, app.rs dispatch_command, js.rs eval_value) `:let @+ = <expr>`: when
       the right side is not `@<register>`, the raw rest of the line after `=` (not re-joined words) is evaluated in
       the page's main realm, `String()` of the result goes into the register. JS off or no engine: `scratchy: :let

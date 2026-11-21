@@ -76,7 +76,6 @@ mod anim_app;
 mod style;
 mod layout;
 mod images;
-mod registers;
 mod rules_cache;
 mod invalidation;
 mod hover_patch;

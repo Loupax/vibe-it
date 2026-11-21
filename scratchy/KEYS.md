@@ -27,10 +27,9 @@ home-row mods, e.g. a Corne where Ctrl is a held `a`, or a tap-hold Caps Lock).
 | SEARCH | `/` + the query | one line | the status-bar line editor |
 | COMMAND | `:` + the command | one line | the status-bar line editor |
 
-Short-lived helper states hold the timing rules: **ESC1** (in INPUT, one Esc seen,
-waiting for a second), **G** (in NORMAL, one `g` seen, waiting for a second) and **Y**
-(in NORMAL, one `y` seen; QREG1). The status bar shows their parent mode. G and Y are rows
-of `KEY_SEQUENCES` in `src/config.rs`.
+Two short-lived helper states hold the timing rules: **ESC1** (in INPUT, one Esc seen,
+waiting for a second) and **G** (in NORMAL, one `g` seen, waiting for a second). The
+status bar shows their parent mode. *(Planned, QREG1: a third, **Y**, one `y` seen.)*
 
 - scratchy **starts in INPUT** (for now).
 - **Sticky** means a mode lasts until a row below changes it. In particular a
@@ -85,9 +84,9 @@ timer is needed. The pure function is `resolve_esc_esc(state, key, repeat, now)`
 | T10 | NORMAL | `g` | none | G | nothing |
 | T11 | G | `g` | none | NORMAL | scroll to the top |
 | T12 | G | any other key | none | NORMAL | handle that key as in NORMAL (it may itself be `:`, `/`, `i`, ...) |
-| T54 | NORMAL | `y` | none | Y | nothing (QREG1) |
-| T55 | Y | `y` | not a repeat | NORMAL | copy the URL to the system clipboard, same as `:let @+ = @%` (see "Registers") |
-| T56 | G or Y | a key that is not the sequence's second key | none | NORMAL | as T12: handled as in NORMAL, so `g` `y` leaves Y pending and `y` `g` leaves G pending |
+| T54 | NORMAL | `y` | none | Y | nothing *(planned, QREG1)* |
+| T55 | Y | `y` | not a repeat | NORMAL | copy the URL to the system clipboard, same as `:let @+ = @%` (see "Registers") *(planned, QREG1)* |
+| T56 | G or Y | a key that is not the sequence's second key | none | NORMAL | as T12: handled as in NORMAL, so `g` `y` leaves Y pending and `y` `g` leaves G pending *(planned, QREG1)* |
 | T13 | NORMAL | `j` `k` Ctrl-d Ctrl-u `G` Home End | none | NORMAL | scroll (repeats keep scrolling) |
 | T14 | NORMAL | `h` `l` | not a repeat | NORMAL | history back / forward |
 | T15 | NORMAL | `n` / `N` | a query exists, it has matches on this page | NORMAL | next / previous match in document order, wrapping with "search hit BOTTOM, continuing at TOP" (or TOP/BOTTOM); bring the screen to it (S4) |
@@ -234,7 +233,7 @@ nothing. The clipboard is the Wayland one (scratchy is a Wayland window; item QP
 
 ## Registers
 
-Vim-style registers (QREG1, user 2026-11-21: "copy the URL", keeping vim parity for the
+**Planned, not built (QREG1).** Vim-style registers (user 2026-11-21: "copy the URL", keeping vim parity for the
 later page cursor and visual mode). Like vim, copying goes through a register, and the
 system clipboard is the register `+`.
 
@@ -243,15 +242,15 @@ system clipboard is the register `+`.
 | `%` | the current URL, exactly what the status bar shows (never asks the page, so it works with JS off) | no: `scratchy: register @% is read-only` |
 | `+` | the system clipboard (Wayland, as in "Paste") | yes |
 
-- `:let @<dst> = @<src>` copies a register into another (spaces optional), as vim's
+- `:let @<dst> = @<src>` will copy a register into another (spaces optional), as vim's
   `:let @+ = @%` copies the file name. The status bar says `Copied to clipboard`, or
   `scratchy: no URL to copy` (a stdin start page), `scratchy: no register @x`,
   `scratchy: the clipboard is empty`, `scratchy: could not reach the system clipboard`,
   or the usage line for anything else.
-- `yy` in NORMAL is `:let @+ = @%` (T54-T56). Once the page cursor exists, vim parity
+- `yy` in NORMAL will be `:let @+ = @%` (T54-T56). Once the page cursor exists, vim parity
   would make `yy` "yank the cursor's line"; the user chose `yy` = URL anyway (2026-11-21),
   to be revisited with the cursor design (QCURSOR-D).
-- Later, each its own item: `:let @+ = <JS expression>` (QREG2), `*` (primary selection),
+- After QREG1, each its own item: `:let @+ = <JS expression>` (QREG2), `*` (primary selection),
   `"`/`0`/`a`-`z`, `/` (the kept query), `:registers`.
 
 ## Configuration
@@ -274,7 +273,7 @@ Esc Esc, so there is nothing left to switch off, and Esc Esc cannot be locked ou
 
 - 2026-11-21 (user): copying the URL goes through vim registers: `:let @+ = @%` and `yy`
   (QREG1). Clicking the status bar to copy and mouse-selecting in the status bar were
-  dropped/deferred; a keyboard page cursor (hjkl, n/N move it, Enter acts on it, visual
+  dropped/deferred (plan only, nothing built yet); a keyboard page cursor (hjkl, n/N move it, Enter acts on it, visual
   mode + `y`) is the long-term way to copy text (QCURSOR-D, design first).
 - QKEYS-D D1-D8, QSEARCH-D S1-S7: `TODO.txt` (user, 2026-11-20).
 - 2026-11-20 (user): completion is per-command sources, built in or scripts (QCOMP-D),

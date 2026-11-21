@@ -207,8 +207,6 @@ pub(crate) enum Action {
     ScrollTop,
     /// `G` / `End`.
     ScrollBottom,
-    /// QREG1: `yy` copies the URL to the system clipboard (`:let @+ = @%`).
-    YankUrl,
 }
 
 /// Whether `action` must ignore OS key-repeat rather than fire on every
@@ -225,7 +223,7 @@ pub(crate) enum Action {
 /// either way — repeating it just re-clears an already-empty command
 /// line — but listed here too since repeating it serves no purpose.
 pub(crate) fn action_ignores_repeat(action: Action) -> bool {
-    matches!(action, Action::YankUrl | Action::ActivateMatch | Action::HistoryBack | Action::HistoryFront | Action::EnterCommandMode | Action::EnterSearchMode | Action::EnterInputMode)
+    matches!(action, Action::ActivateMatch | Action::HistoryBack | Action::HistoryFront | Action::EnterCommandMode | Action::EnterSearchMode | Action::EnterInputMode)
 }
 
 /// The one chokepoint a real key event gets resolved into an `Action`
@@ -277,33 +275,19 @@ pub(crate) fn page_step(view_h: f32) -> f32 {
     (view_h - crate::config::PAGE_OVERLAP_PX).max(crate::config::PAGE_MIN_PX)
 }
 
-/// The two-key sequence state machine (`config::KEY_SEQUENCES`: vim's `gg`, `yy`): given the
-/// pending first key (if any) and the key just pressed, returns the action to run (if any), the
-/// new pending key, and whether the key was consumed (so the caller must not also run
-/// `resolve_binding` on it). A bare first key of a sequence arms; the matching second key fires
-/// it. Any other key clears the pending key and is then judged on its own: it arms if it starts a
-/// sequence (`g` `y` = pending `y`), else falls through unconsumed (Esc included).
-pub(crate) fn resolve_pending(pending: Option<char>, key: &Key, mods: ModifiersState) -> (Option<Action>, Option<char>, bool) {
-    let c = match key {
-        Key::Character(s) if !mods.control_key() && !mods.alt_key() => {
-            let mut it = s.chars();
-            match (it.next(), it.next()) {
-                (Some(c), None) => c,
-                _ => return (None, None, false),
-            }
-        }
-        _ => return (None, None, false),
-    };
-    let seqs = crate::config::KEY_SEQUENCES;
-    if let Some(p) = pending
-        && let Some((_, action)) = seqs.iter().find(|(s, _)| s.chars().eq([p, c]))
-    {
-        return (Some(*action), None, true);
+/// The pending-`g` state machine for vim's `gg`: given whether a `g` is
+/// already pending and the key just pressed, returns the action to run
+/// (if any), the new pending flag, and whether the key was consumed (so
+/// the caller must not also run `resolve_binding` on it). Bare `g`
+/// arms; a second bare `g` fires `ScrollTop`; every other key (Esc
+/// included) clears the flag and falls through unconsumed.
+pub(crate) fn resolve_pending_g(pending: bool, key: &Key, mods: ModifiersState) -> (Option<Action>, bool, bool) {
+    let is_g = matches!(key, Key::Character(s) if s.as_str() == "g") && !mods.control_key() && !mods.alt_key();
+    match (is_g, pending) {
+        (true, true) => (Some(Action::ScrollTop), false, true),
+        (true, false) => (None, true, true),
+        (false, _) => (None, false, false),
     }
-    if seqs.iter().any(|(s, _)| s.starts_with(c)) {
-        return (None, Some(c), true);
-    }
-    (None, None, false)
 }
 
 /// What a key event should insert into a text-editing buffer, if
@@ -340,7 +324,7 @@ pub(crate) fn key_insertion_text(key: &Key) -> Option<&str> {
 /// QY48: `history_doc` value of an entry whose document is not loaded.
 pub(crate) const NO_DOC: u64 = u64::MAX;
 
-pub(crate) const COMMAND_NAMES: &[&str] = &["go", "help", "historyBack", "historyFront", "let", "q", "quit", "refresh", "set"];
+pub(crate) const COMMAND_NAMES: &[&str] = &["go", "help", "historyBack", "historyFront", "q", "quit", "refresh", "set"];
 
 // `SET_ARGS` and `COMPLETERS` (what the ghost completes) live in `config.rs`; the pure ghost
 // logic is in `completion.rs` (QCOMP1).
@@ -955,9 +939,8 @@ pub(crate) struct App {
     /// own docs. Only `Command` while `key_mode` is `Normal`; an `i` or a click into a text
     /// control/select closes it (`set_key_mode`).
     pub(crate) vim_mode: VimMode,
-    /// The first key of a two-key sequence (`config::KEY_SEQUENCES`: `gg`, `yy`) just pressed in
-    /// Normal mode; `None` = no sequence pending.
-    pub(crate) pending_key: Option<char>,
+    /// A bare `g` was just pressed in Normal mode; the next `g` completes `gg`.
+    pub(crate) pending_g: bool,
     /// QKEYS1: the last message shown in the status bar (D8); empty = none.
     pub(crate) status_message: String,
     /// QSEARCH1: the kept query, the matches and the current one.
@@ -1442,7 +1425,7 @@ impl App {
             undelivered_presses: Vec::new(),
             vim_mode: VimMode::Normal,
             status_message: String::new(),
-            pending_key: None,
+            pending_g: false,
             command_line: TextEditBuffer::default(),
             search: crate::search::SearchState::default(),
             modifiers: ModifiersState::empty(),
@@ -1556,7 +1539,7 @@ impl App {
             undelivered_presses: Vec::new(),
             vim_mode: VimMode::Normal,
             status_message: String::new(),
-            pending_key: None,
+            pending_g: false,
             command_line: TextEditBuffer::default(),
             search: crate::search::SearchState::default(),
             modifiers: ModifiersState::empty(),
@@ -4256,7 +4239,7 @@ impl App {
     /// everything else). `vim_mode == Command` always goes to the command-line editor.
     pub(crate) fn handle_key_event(&mut self, event: &KeyEvent) {
         if self.vim_mode != VimMode::Normal {
-            self.pending_key = None;
+            self.pending_g = false;
             if self.vim_mode == VimMode::Search {
                 self.handle_search_key(event);
             } else {
@@ -4267,15 +4250,12 @@ impl App {
         self.handle_normal_key(&event.logical_key, event.repeat);
     }
 
-    /// QKEYS2: a key press in normal mode (T6-T14): a pending sequence key (`gg`, `yy`), then the
-    /// binding table.
+    /// QKEYS2: a key press in normal mode (T6-T14): pending `g`, then the binding table.
     pub(crate) fn handle_normal_key(&mut self, key: &Key, repeat: bool) {
-        let (seq_action, pending, consumed) = resolve_pending(self.pending_key, key, self.modifiers);
-        self.pending_key = pending;
+        let (g_action, pending, consumed) = resolve_pending_g(self.pending_g, key, self.modifiers);
+        self.pending_g = pending;
         if consumed {
-            if let Some(action) = seq_action
-                && !(repeat && action_ignores_repeat(action))
-            {
+            if let Some(action) = g_action {
                 self.perform_action(action);
             }
             return;
@@ -4292,7 +4272,7 @@ impl App {
     pub(crate) fn set_key_mode(&mut self, mode: KeyMode) {
         self.key_mode = mode;
         self.esc_state = EscState::Idle;
-        self.pending_key = None;
+        self.pending_g = false;
         if mode == KeyMode::Input && self.vim_mode != VimMode::Normal {
             self.vim_mode = VimMode::Normal;
             self.command_line.clear();
@@ -4468,7 +4448,6 @@ impl App {
             Action::SearchNext => self.search_step(true),
             Action::SearchPrev => self.search_step(false),
             Action::ActivateMatch => self.activate_match(),
-            Action::YankUrl => self.let_register('+', '%'),
             Action::EnterInputMode => self.set_key_mode(KeyMode::Input),
             Action::ScrollTop => self.scroll_offset = 0.0,
             // `redraw` clamps to the real max scroll every frame, same as `j`.
@@ -4940,29 +4919,6 @@ impl App {
         }
     }
 
-    /// QREG1: register `%`, the current URL (what the status bar shows); `None` before any page
-    /// has an address (a stdin start page).
-    pub(crate) fn url_register(&self) -> Option<String> {
-        self.history.get(self.history_index).or(self.base_url.as_ref()).map(|u| u.to_string())
-    }
-
-    /// QREG1: `:let @dst = @src` (and `yy`): copies register `src` into `dst`, with the outcome in
-    /// the status bar. Readable: `%` (the URL), `+` (the system clipboard). Writable: `+`.
-    pub(crate) fn let_register(&mut self, dst: char, src: char) {
-        let text = match src {
-            '%' => self.url_register().ok_or_else(|| "scratchy: no URL to copy".to_string()),
-            '+' => crate::forms_text::clipboard_get().ok_or_else(|| "scratchy: the clipboard is empty".to_string()),
-            _ => Err(format!("scratchy: no register @{src}")),
-        };
-        self.status_message = match (dst, text) {
-            (_, Err(e)) => e,
-            ('%', Ok(_)) => "scratchy: register @% is read-only".to_string(),
-            ('+', Ok(t)) if crate::forms_text::clipboard_set(&t) => "Copied to clipboard".to_string(),
-            ('+', Ok(_)) => "scratchy: could not reach the system clipboard".to_string(),
-            (_, Ok(_)) => format!("scratchy: no register @{dst}"),
-        };
-    }
-
     /// Splits a submitted command line into its name and whitespace-
     /// separated args and hands it to `dispatch_command` — kept as its
     /// own step so `dispatch_command` itself only ever deals with
@@ -5011,11 +4967,6 @@ impl App {
             ("set", ["motion"]) => set_reduced_motion(false),
             ("set", ["nomotion"]) => set_reduced_motion(true),
             ("help", []) => self.show_help(),
-            // QREG1: `:let @+ = @%` (registers.rs).
-            ("let", _) => match crate::registers::parse_let(&args.join(" ")) {
-                Ok((dst, src)) => self.let_register(dst, src),
-                Err(e) => self.status_message = e,
-            },
             ("q", []) | ("quit", []) => {
                 if self.pre_help_page.is_some() {
                     self.restore_saved_page();
