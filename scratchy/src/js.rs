@@ -2211,9 +2211,12 @@ const TIMERS_PRELUDE: &str = r#"
     var id = nextId++;
     delay = Number(delay);
     if (!(delay > 0)) delay = 0;
-    if (repeat || level > 5) delay = Math.max(delay, 4);
-    var due = __scratchy_now() + delay;
-    timers.push({ id: id, fn: fn, args: args, due: due, rep: repeat ? delay : -1, lvl: level + 1, recv: recv });
+    // QEL5 (HTML timer initialisation steps): the new timer's nesting level is the running timer's + 1
+    // (0 outside a timer callback); only a level above 5 is clamped to 4 ms. An interval keeps its
+    // requested `rep` and re-evaluates the clamp each time it re-arms, with its level + 1.
+    var lvl = level + 1;
+    var due = __scratchy_now() + (lvl > 5 ? Math.max(delay, 4) : delay);
+    timers.push({ id: id, fn: fn, args: args, due: due, rep: repeat ? delay : -1, lvl: lvl, recv: recv });
     return id;
   };
   // QEL1 (R64 E1/E2): animation frame callbacks are NOT timers. Each realm numbers its own ids from 1;
@@ -2316,9 +2319,9 @@ const TIMERS_PRELUDE: &str = r#"
     }
     if (best < 0) return false;
     var t = timers[best];
-    if (t.rep >= 0) t.due = now + t.rep; else timers.splice(best, 1);
-    var saved = level;
-    level = t.lvl;
+    var saved = level, runLvl = t.lvl;
+    if (t.rep >= 0) { t.lvl = runLvl + 1; t.due = now + (t.lvl > 5 ? Math.max(t.rep, 4) : t.rep); } else timers.splice(best, 1);
+    level = runLvl;
     if (g.__perf_src) g.__perf_src(t.fn);
     try { t.fn.apply(t.recv || g, t.args); }
     catch (e) { __scratchy_err('Uncaught ' + String(e) + (e && e.stack ? '\n' + e.stack : '')); }
