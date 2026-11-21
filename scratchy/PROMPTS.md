@@ -8741,3 +8741,9 @@ Item QINC1h2 (REGRESSIONS.md R60 section 15). `layout.rs`: `natural_width_impl` 
 > QHIST1 [S] (P2, from QFLK7 #496; globals_prelude.js history go()) A second same-document traversal before the first popstate task runs hits a stale idx in go(): fix, then un-ignore qy48_two_traversals_in_one_turn_stay_same_document.
 
 **What changed:** globals_prelude.js `go()` computes its target from a new `pend` (the index the session history will have once queued traversals ran) instead of `idx`, which still only moves inside the queued task; pushState and fragment entries resync `pend`. One popstate per traversal, in order. Tests: un-ignored `qy48_two_traversals_in_one_turn_stay_same_document` (now also checks the popstate log), new `qhist1_back_then_forward_in_one_turn`, `qhist1_history_go_minus_two_across_same_document_entries`. wpt-th/subset.txt has only two history files (document-open history-state/history.window.html), unrelated to traversal.
+
+## QWPT5: WPT testharness gate in CI (agent item)
+
+> QWPT5 [S] CI step: build wire in the scratchy job, run `--wpt-th --jobs 4`, fail on regressions, write the areas table and its diff vs main into $GITHUB_STEP_SUMMARY. Measure and report the added minutes.
+
+**What changed:** `.github/workflows/ci.yml` (scratchy leg): wire is built (`--manifest-path ../wire/Cargo.toml`, rust-cache covers both workspaces), then after the reftest step `scratchy --wpt-th $RUNNER_TEMP/wpt --jobs 4 --no-scope --wire ../wire/target/release/wire` runs against the existing QWPT2 checkout (tools/wpt-dirs.txt already covers all 23 areas). Exit 1 on REGRESSION/UNRECORDED/CHANGED fails the job. The step summary gets the areas table with per-area deltas against origin/main's committed `wpt-th/areas.txt` (new `tools/wpt-areas-diff.py`), a diff of the CI-produced areas.txt against the one committed in the PR, and the gate lines.

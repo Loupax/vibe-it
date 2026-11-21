@@ -75,9 +75,14 @@ jobs:
           echo "RUSTY_V8_ARCHIVE=$f" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          workspaces: ${{ matrix.crate }}
+          workspaces: |
+            ${{ matrix.crate }}
+            wire
       - name: Build
         run: cargo build --release --locked --all-targets
+      - name: Build wire for the WPT testharness runner (QWPT5)
+        if: matrix.crate == 'scratchy'
+        run: cargo build --release --locked --manifest-path ../wire/Cargo.toml
       - name: Headless Wayland compositor for the App-level tests (QFLK8)
         if: matrix.crate == 'scratchy'
         # weston --backend=headless on a private socket; the following test steps see WAYLAND_DISPLAY and
@@ -141,6 +146,41 @@ jobs:
             echo "### WPT reftests (pin $(cat tools/wpt-pin.txt)), exit $rc, $(( $(date +%s) - start )) s"
             echo '```'
             grep -v '^FAIL ' "$RUNNER_TEMP/wpt.log" | head -150 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
+      - name: WPT testharness vs wpt-th/expected (QWPT5; blocks on regressions, Q3)
+        if: matrix.crate == 'scratchy'
+        # Own wire on its own socket (the runner starts it), no display needed (headless children). --no-scope: no
+        # systemd user bus on the runner, the 6G cgroup cap is for the user's machine. The areas table and its diff
+        # against origin/main's committed wpt-th/areas.txt go to the step summary.
+        run: |
+          export FONTCONFIG_FILE="$(tools/ci-fontconfig.sh /usr/share/fonts/truetype/liberation "$RUNNER_TEMP/fc")"
+          git fetch -q --depth 1 origin main
+          git show FETCH_HEAD:scratchy/wpt-th/areas.txt > "$RUNNER_TEMP/areas-main.txt" || : > "$RUNNER_TEMP/areas-main.txt"
+          cp wpt-th/areas.txt "$RUNNER_TEMP/areas-committed.txt"
+          start=$(date +%s)
+          rc=0
+          target/release/scratchy --wpt-th "$RUNNER_TEMP/wpt" --jobs 4 --no-scope --wire ../wire/target/release/wire \
+            > "$RUNNER_TEMP/wpt-th.log" 2>&1 || rc=$?
+          secs=$(( $(date +%s) - start ))
+          tail -30 "$RUNNER_TEMP/wpt-th.log"
+          {
+            echo "### WPT testharness (pin $(cat tools/wpt-pin.txt)), exit $rc, $secs s"
+            echo
+            echo "Areas table, deltas vs origin/main's committed wpt-th/areas.txt:"
+            echo
+            tools/wpt-areas-diff.py wpt-th/areas.txt "$RUNNER_TEMP/areas-main.txt"
+            echo
+            if ! diff -q wpt-th/areas.txt "$RUNNER_TEMP/areas-committed.txt" > /dev/null; then
+              echo "CI result differs from the areas.txt committed in this PR:"
+              echo '```'
+              diff "$RUNNER_TEMP/areas-committed.txt" wpt-th/areas.txt || true
+              echo '```'
+            fi
+            echo "Gate lines (REGRESSION / UNRECORDED / CHANGED / NEWLY-PASSING):"
+            echo '```'
+            grep -E '(REGRESSION|UNRECORDED|CHANGED|NEWLY-PASSING) ' "$RUNNER_TEMP/wpt-th.log" | head -150 || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           exit $rc
