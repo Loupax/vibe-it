@@ -116,10 +116,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       a list the user provides), merged table "API -> sites, hits, example URL" into an R-section.
 - [ ] QREC1b [S] (P3, from QREC1 #490; Sonnet; wire record.rs) Record Set-Cookie lines separately (index field) and
       feed them to the jar on replay; per-response size cap or streamed hashing so a large body is not held in memory.
-- [ ] [WIP] QREC1c [S] (P1, from QREC3 #537; Sonnet; wire record.rs) Replay's last fallback (n-th request to the same
-      host+path) answers a request whose QUERY differs and counts it as a hit: Wikipedia headless replay got the wrong
-      load.php module batches (SyntaxErrors, 0 forced layouts). A differing query (after the ignore rules) must be a miss
-      (404 + X-Wire-Replay: miss), unless a rules entry allows it. Tests in wire.
 - [ ] QREC3b [S] (P2, from QREC3 #537; Sonnet; tools/incr-gate) Record in the mode that replays (`run.sh headless`
       with RECORD=), re-record ytr/ytw/wiki (after QREC1c) to get replay misses to ~0 (today ytr 66-119, ytw 24-89);
       gate.sh/run.sh: one nested dwl per page or no 1 h `timeout` on it, and a timeout on the end `grim`. Recordings
@@ -175,6 +171,9 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       SyntaxError for whitespace / empty tokens, one DOMTokenList object per element (`[SameObject]`), relList etc. on
       the elements in lists/DOMTokenList-coverage-for-attributes. WPT: nodes/Element-classlist, lists/* (4 files).
       Target: other +4.
+- [ ] QBLOBFRAME [S] (P2, from QDOM9 #542; Sonnet; js_dom.rs iframe realms, blob URL store) Load `blob:` URLs in iframes
+      (`iframe.src = URL.createObjectURL(new Blob([html], {type:'text/html'}))`): same-origin document from the blob's
+      bytes. html/semantics/scripting-1/.../module-script-disabled-scripting.html now TIMEOUTs (30 s) waiting for it.
 - [ ] QDOM10 [S] (P2; Sonnet; js.rs ETP.dispatchEvent, attrHandler; R65; after QDOM4) `window.event`: set to the
       current event while a listener of a node in the page's realm runs, restored afterwards (also after a throwing
       listener), `undefined` for listeners inside a shadow tree, unset outside dispatch. WPT: dom/events/event-global*,

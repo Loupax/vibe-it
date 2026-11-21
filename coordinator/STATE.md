@@ -174,3 +174,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-21 #529 also conflicts only in wpt-th/areas.txt. Filed QWPT10 (P1: --areas-only + merge_pr auto-resolve). Queued rebases: #535 QXSCR1, #529 QEL2 (send when slots free).
 - 2026-11-21 Merged #537 QREC3 a73c298.
 - 2026-11-21 #540 QREC1c READY, merging. Launched QWPT10.
+- 2026-11-21 Merged #540 QREC1c de6261b. READY: #538 QWPTPRINT (reftests 340), #542 QDOM9 (total pass 47.5 %). Filed QWPTPRINTb, QBLOBFRAME. Merge queue: #538, #542.
