@@ -8740,3 +8740,31 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       real-time cap per child (kill own PID -> TIMEOUT), reads wpt-th/subset.txt, writes/compares
       wpt-th/expected/<area>.txt (format R64 2.5), honours wpt-th/flaky.txt, writes wpt-th/areas.txt.
       Exit 1 on REGRESSION/UNRECORDED/CHANGED. Worker variants listed as NOT-RUN.
+
+=== from TODO.txt: --- (no header)
+- [x] QFLK8 DONE 08c994f #501 [S] (P2, from QFLK7 #496; Sonnet; ci.yml) Run a headless compositor (weston --backend=headless, or cage) in the
+      scratchy CI job so the 54 App-level tests run on CI, then set SCRATCHY_REQUIRE_DISPLAY=1 there. Measure added minutes.
+
+=== from TODO.txt: --- (no header)
+- [x] QREC2 DONE 05d97f9 #500 [S] (P2; Sonnet; js_engine_v8.rs, js.rs; after QREC1) scratchy --deterministic (report
+      modes): V8 --random-seed, seeded crypto.getRandomValues, Date epoch from the recording, network
+      results delivered in request order.
+
+=== from TODO.txt: --- (no header)
+- [x] QFORM1 DONE c98338b #502 [S] (P2, from QFLK7 #496; Sonnet; js_dom.rs FP.requestSubmit, forms submit path) form.requestSubmit() and a
+      submit-button click dispatch a plain Event; make it a SubmitEvent with `submitter`. Then un-ignore
+      q30e_click_submit_event_preventdefault_requestsubmit_vs_submit_and_history.
+
+=== from TODO.txt: --- (no header)
+- [x] QSEARCH1 DONE 98518e1 #503 [M] (from QPASTE1 #482: the SEARCH key handler must reuse `is_paste_chord` and the command-line paste path, with a test) (P2, after QKEYS2) Find + highlight (S1, S2, S3, S5; KEYS.md T7, T8, T22-T25, T31): SEARCH mode in the
+      status bar, a pure match finder over the layout's text runs (input: laid-out runs +
+      query; output: ordered match rects; unit-testable without a window), smartcase,
+      inline-spanning matches, highlight painting, recompute after relayout, Esc in normal
+      mode clears. Tests: matches across `<b>`, none across blocks, `display:none` text
+      never matches, smartcase both ways, recompute keeps the nearest current match.
+
+=== from TODO.txt: --- (no header)
+- [x] QWPT6 DONE bc93e79 #504 [S] (P1; Sonnet; wpt-th/; after QWPT4b) Phase-1 subset and baseline: generate
+      wpt-th/subset.txt from tools/wpt-dirs.txt + the WPT manifest of the pin (skip legacy-mb encoding
+      variants and timeout=long files: nightly), run 3 times, put files whose results differ into
+      flaky.txt with a reason, record expectations, commit areas.txt. Report the table in the PR.

@@ -38,13 +38,9 @@ CONFORMANCE (R64 plan, merged #474; user accepted all R64 s7 recommendations 202
 Order: QWPT2 -> QWPT3 -> QWPT4a -> QWPT4b -> QWPT5/QWPT6, with QMAPI1 and QREC1 in parallel (other
 crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details: REGRESSIONS.md R64.
 
-- [ ] QWPT5 [S] (NOTE from #499: pass `--wire wire/target/release/wire`; the runner re-execs under systemd-run unless `--no-scope`, falls back with one line when unusable, untested on CI) (P1; Sonnet; ci.yml; after QWPT2, QWPT4b, QWPT6; user answered Q3, Q4 2026-11-21) CI step: build
+- [ ] [WIP] QWPT5 [S] (NOTE from #499: pass `--wire wire/target/release/wire`; the runner re-execs under systemd-run unless `--no-scope`, falls back with one line when unusable, untested on CI) (P1; Sonnet; ci.yml; after QWPT2, QWPT4b, QWPT6; user answered Q3, Q4 2026-11-21) CI step: build
       wire in the scratchy job, run `--wpt-th --jobs 4`, fail on regressions, write the areas table
       and its diff vs main into $GITHUB_STEP_SUMMARY. Measure and report the added minutes.
-- [ ] [WIP] QWPT6 [S] (P1; Sonnet; wpt-th/; after QWPT4b) Phase-1 subset and baseline: generate
-      wpt-th/subset.txt from tools/wpt-dirs.txt + the WPT manifest of the pin (skip legacy-mb encoding
-      variants and timeout=long files: nightly), run 3 times, put files whose results differ into
-      flaky.txt with a reason, record expectations, commit areas.txt. Report the table in the PR.
 - [ ] QWPT7 [M] (P2; Opus; testdriver-vendor.js + natives; after QEL1) testdriver: test_driver.click,
       send_keys, action_sequence (pointer + key) as synthetic input through the App's input path in
       the headless rendering loop (hit testing on the real layout). Unlocks dom/events (77 files),
@@ -54,7 +50,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       '*.web-platform.test=127.0.0.1'`, runner `--server wptserve`; add fetch/ and xhr/ to the subset.
 - [ ] QWPT9 [S] (P3; Sonnet; wire; user Q8 2026-11-21: LATER, with fetch, after QWPT8; never for any other host) https tests: wire trusts WPT's test CA for
       *.web-platform.test only; add .https. tests.
-- [ ] QEL1 [M] (P1; Opus; new src/event_loop.rs, app.rs, js.rs TIMERS_PRELUDE; R64 section 4 E1-E3; after
+- [ ] [WIP] QEL1 [M] (P1; Opus; new src/event_loop.rs, app.rs, js.rs TIMERS_PRELUDE; R64 section 4 E1-E3; after
       QWPT4b so the change is measured) Rendering-steps driver shared by the App and the headless
       runner: one function runs, per frame: resize -> scroll events -> MQL change -> animation events
       -> rAF batch (own id space, one timestamp, never split by the timer slice) -> style/layout through
@@ -95,9 +91,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       drop the preludes' own probes (script `prelude`), and give `has` misses a receiver interface where it can be found.
 - [ ] QMAPI3 [S] (P2; Sonnet; tools/missing-api/; after QMAPI1) corpus.sh over a site list (gate pages +
       a list the user provides), merged table "API -> sites, hits, example URL" into an R-section.
-- [ ] [WIP] QREC2 [S] (P2; Sonnet; js_engine_v8.rs, js.rs; after QREC1) scratchy --deterministic (report
-      modes): V8 --random-seed, seeded crypto.getRandomValues, Date epoch from the recording, network
-      results delivered in request order.
 - [ ] QREC1b [S] (P3, from QREC1 #490; Sonnet; wire record.rs) Record Set-Cookie lines separately (index field) and
       feed them to the jar on replay; per-response size cap or streamed hashing so a large body is not held in memory.
 - [ ] QREC3 [S] (P2; Sonnet; tools/incr-gate; after QREC1, QREC2; user answered Q5 2026-11-21) Record the 7 gate
@@ -106,7 +99,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QBUD1 [S] (P2; Sonnet; perf-budgets.txt, tools/budget-check.py; after QREC3) First budgets (R64 6
       table); local check in the AGENTS.md checklist for perf-touching PRs; CI only counts + RSS on
       synthetic or (per Q5) replayed pages.
-- [ ] QAREA-DOM [M] (P1; Opus; docs only; after QWPT6) Triage the dom/* failures of the baseline by root
+- [ ] [WIP] QAREA-DOM [M] (P1; Opus; docs only; after QWPT6) Triage the dom/* failures of the baseline by root
       cause (probe hints: tagName case, document.charset, createProcessingInstruction, Range type
       checks, replaceWith/splitText missing), file S fix items with target scores. Same pattern
       later: QAREA-IDL, QAREA-EL, QAREA-CSSOM, QAREA-VIEW, QAREA-ENC (single-byte encodings: one gap,
@@ -118,14 +111,9 @@ RELIABILITY (flaky tests undermine CI, which the conformance plan relies on; cra
 - [ ] QFLK6b [S] (P3, from QFLK6 #476; Sonnet) incr_box and incr_layout `doc_key` use `node_id(doc)` (a reusable address);
       `base_ver` hides it today. Key them by document identity like WINDOW_IMAGES, with a test that a reused address does
       not serve a stale kept tree.
-- [ ] [WIP] QFORM1 [S] (P2, from QFLK7 #496; Sonnet; js_dom.rs FP.requestSubmit, forms submit path) form.requestSubmit() and a
-      submit-button click dispatch a plain Event; make it a SubmitEvent with `submitter`. Then un-ignore
-      q30e_click_submit_event_preventdefault_requestsubmit_vs_submit_and_history.
-- [ ] QHIST1 [S] (P2, from QFLK7 #496; Sonnet; globals_prelude.js history go()) A second same-document traversal before
+- [ ] [WIP] QHIST1 [S] (P2, from QFLK7 #496; Sonnet; globals_prelude.js history go()) A second same-document traversal before
       the first popstate task runs hits a stale `idx` in `go()`: it returns false and the App reloads the page (fast double
       h/l loses state). Fix, then un-ignore qy48_two_traversals_in_one_turn_stay_same_document.
-- [ ] [WIP] QFLK8 [S] (P2, from QFLK7 #496; Sonnet; ci.yml) Run a headless compositor (weston --backend=headless, or cage) in the
-      scratchy CI job so the 54 App-level tests run on CI, then set SCRATCHY_REQUIRE_DISPLAY=1 there. Measure added minutes.
 - [ ] QFLK9 [S] (P3, from QFLK7 #496 and QSB2 #497; Sonnet) qy5_budget_clock_is_thread_cpu_time and
       qb3_callback_budget_is_much_shorter_than_load_budget fail in a full parallel run under load (pass alone): make them
       robust (relations with margin, or retry the measurement) without weakening what they prove.
@@ -216,6 +204,25 @@ QSTASH — persistent web storage (user design session 2026-11-19; full design i
 
 
 
+
+========================================================================
+HELP (user request 2026-11-21)
+========================================================================
+- [ ] [WIP] QHELP1 [S] (P1; USER 2026-11-21: "the help page is out of date, create a ticket for updating the help page with
+      our features"; Sonnet; src/help.html, src/tests) Bring `:help` (src/help.html, HELP_PAGE_HTML) up to date with what
+      exists on main, and keep it there. Cover at least: the two modes (INPUT at start, Esc Esc -> NORMAL, `i` back; a
+      click into a text field -> INPUT; the second Esc never reaches the page), the status bar (mode, URL, messages, where
+      `:` and `/` are typed), every row of the BINDINGS table in src/config.rs (incl. `/`, Esc clearing highlights, `i`),
+      input-mode UA scroll keys (arrows, PageUp/PageDown, Space/Shift-Space, Home/End), `/` search (smartcase, highlights,
+      `[i/N]`, wrap message; `n`/`N` and Enter-click only once QSEARCH2/3 merge), paste (Ctrl-V, Ctrl-Shift-V, Shift-Insert
+      in the `:`/`/` line and fields), scrollbar drag/track-click/hold, persistence (--state-dir: localStorage files,
+      cookie file via wire, history file, sessionStorage per window), --forget-site, `src/config.rs` ("edit and rebuild"),
+      and the report/test modes (--js-report, --perf-report, --missing-api-report, --deterministic, --wpt, --wpt-th,
+      --wpt-th-one) in one short table. Rewrite the `:set vim`/`novim` rows to say what they do now (switch NORMAL/INPUT;
+      QKEYS3 removes them later). Remove anything that is no longer true. Plain, short wording; the page stays one page.
+      Keep it true: add tests next to the existing cli_options_are_documented_in_help: every BINDINGS row's key and every
+      `:` command name (dispatch_command / COMMAND_NAMES) appears in help.html. Real check: grim of `:help` in a window.
+      Later UI items (QSEARCH2/3, QKEYS3, QCOMP1/2/4) update help.html in their own PRs (the new tests force it).
 
 ========================================================================
 QKEYS — input mode / normal mode, Esc Esc, `i`, status bar (user design session 2026-11-20)
@@ -350,12 +357,6 @@ QSEARCH — `/` search, n/N, Enter (user design session 2026-11-20; needs QKEYS2
   Not now (each only on request): `?` backward search, `*`/`#`, regex, incremental
   highlighting while typing, search in iframes or text controls.
 
-- [ ] [WIP] QSEARCH1 [M] (from QPASTE1 #482: the SEARCH key handler must reuse `is_paste_chord` and the command-line paste path, with a test) (P2, after QKEYS2) Find + highlight (S1, S2, S3, S5; KEYS.md T7, T8, T22-T25, T31): SEARCH mode in the
-      status bar, a pure match finder over the layout's text runs (input: laid-out runs +
-      query; output: ordered match rects; unit-testable without a window), smartcase,
-      inline-spanning matches, highlight painting, recompute after relayout, Esc in normal
-      mode clears. Tests: matches across `<b>`, none across blocks, `display:none` text
-      never matches, smartcase both ways, recompute keeps the nearest current match.
 
 - [ ] QSEARCH2 [S] (P2, after QSEARCH1) `n`/`N` (S4, S6; KEYS.md T15-T17): next/previous with wrap and the
       status-bar message, bring the screen to the match (S4: centre when not fully visible,
