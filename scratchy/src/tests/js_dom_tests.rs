@@ -1089,7 +1089,7 @@ fn qy11_classlist_iterable_and_consistent() {
     let log = run_in_html(
         "<html><body><div id=a class='x y'></div></body></html>",
         "var e=document.getElementById('a'), l=e.classList, r=[];\
-         r.push([...l].join(','), l.length, l.item(1), l[0], l.value, l.supports('x'), e.classList===l);\
+         r.push([...l].join(','), l.length, l.item(1), l[0], l.value, e.classList===l);\
          var f=[]; l.forEach(function(v,i){f.push(i+v)}); r.push(f.join(','));\
          r.push([...l.keys()].join(','), [...l.values()].join(','), [...l.entries()].join(';'));\
          for (var c of l) r.push('c'+c);\
@@ -1099,7 +1099,7 @@ fn qy11_classlist_iterable_and_consistent() {
     );
     assert_eq!(
         log,
-        ["log:x,y|2|y|x|x y|true|true|0x,1y|0,1|x,y|0,x;1,y|cx|cy|x y z|q|1|m n|false|m"],
+        ["log:x,y|2|y|x|x y|true|0x,1y|0,1|x,y|0,x;1,y|cx|cy|x y z|q|1|m n|false|m"],
         "{log:?}"
     );
 }
@@ -2207,6 +2207,34 @@ fn qdom6_node_constructors() {
             "log:true true",
             "log:true true",
         ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qdom9_domtokenlist_spec_semantics() {
+    let log = run_in_html(
+        "<html><body><div id=a></div><div id=b class=' a\tb  a\nc '></div><a id=k rel='noopener x'></a></body></html>",
+        "var a=document.getElementById('a'), b=document.getElementById('b'), k=document.getElementById('k'), r=[];\
+         a.classList.remove('x'); a.classList.toggle('x', false); r.push(a.hasAttribute('class'));\
+         a.classList.add(); r.push(a.getAttribute('class'));\
+         r.push(b.classList.length, b.classList.value === ' a\\tb  a\\nc ', [...b.classList].join(','));\
+         b.classList.add('d'); r.push(b.getAttribute('class'));\
+         r.push(b.classList.replace('d', 'a'), b.getAttribute('class'));\
+         r.push(b.classList.replace('c', 'a'), b.getAttribute('class'));\
+         b.classList.value = 'p q'; r.push(b.classList.replace('q', 'p'), b.getAttribute('class'));\
+         b.classList.value = 'p q'; b.classList.replace('q', 'p'); b.classList.value = 'q p'; r.push(b.classList.replace('p', 'q'), b.getAttribute('class'));\
+         var er = function (f) { try { f(); return 'ok'; } catch (e) { return e.name; } };\
+         r.push(er(function () { b.classList.add(''); }), er(function () { b.classList.add('a b'); }), er(function () { b.classList.toggle('a\\fb'); }),\
+                er(function () { b.classList.replace('', 'a b'); }), er(function () { b.classList.replace('a', 'x y'); }));\
+         r.push(er(function () { b.classList.supports('a'); }), k.relList.supports('NOOPENER'), k.relList.supports('x'), k.relList.contains('x'), k.relList === k.relList);\
+         r.push(b.classList.toggle('z', true), b.classList.toggle('z', true), b.classList.toggle('z', false), b.classList.toggle('z'));\
+         k.relList = 'a b'; r.push(k.rel, document.createElement('iframe').sandbox.supports('allow-scripts'));\
+         console.log(r.join('|'));",
+    );
+    assert_eq!(
+        log,
+        ["log:false||3|true|a,b,c|a b c d|true|a b c|true|a b|true|p|true|q|SyntaxError|InvalidCharacterError|InvalidCharacterError|SyntaxError|InvalidCharacterError|TypeError|true|false|true|true|true|true|false|true|a b|true"],
         "{log:?}"
     );
 }
