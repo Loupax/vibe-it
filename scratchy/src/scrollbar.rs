@@ -24,7 +24,7 @@ pub(crate) enum BarHit {
 /// A box's border box `(x, y, w, h)`; the track is its right `TRACK_W` px.
 /// `None` when the box is too small to hold a bar.
 pub(crate) fn track_rect(bx: f32, by: f32, bw: f32, bh: f32) -> Option<(f32, f32, f32, f32)> {
-    (bw >= TRACK_W && bh > 0.0).then(|| (bx + bw - TRACK_W, by, TRACK_W, bh))
+    (bw >= TRACK_W && bh > 0.0).then_some((bx + bw - TRACK_W, by, TRACK_W, bh))
 }
 
 /// `(offset, length)` of the thumb inside a track `track_h` tall, for content
@@ -85,3 +85,6 @@ pub(crate) fn page_target(hit: BarHit, scroll: f32, page: f32, max_scroll: f32) 
     };
     t.clamp(0.0, max_scroll.max(0.0))
 }
+
+/// A window bar: its box, the content height and the visible height.
+pub(crate) type ViewportBar = ((f32, f32, f32, f32), f32, f32);

@@ -132,6 +132,14 @@ fn main() {
                 vp.button(ms(), b, wl_pointer::ButtonState::Released);
                 vp.frame();
             }
+            // QSB1: press and release the left button separately, for drags.
+            "down" | "up" => {
+                flush_move(&mut last_move);
+                let state = if op == "down" { wl_pointer::ButtonState::Pressed } else { wl_pointer::ButtonState::Released };
+                vp.button(ms(), 0x110, state);
+                vp.frame();
+                q_rt(&mut st);
+            }
             "scroll" => {
                 let dy: f64 = arg.parse().unwrap();
                 vp.axis_source(wl_pointer::AxisSource::Wheel);

@@ -4180,7 +4180,7 @@ impl App {
 
     /// QSB1: the viewport's own bar: `(rect, content_h, client_h)`, `None` when the page fits
     /// or the viewport cannot be scrolled by the user.
-    fn viewport_bar(cached: &Option<Rc<Laid>>, size: (u32, u32)) -> Option<((f32, f32, f32, f32), f32, f32)> {
+    fn viewport_bar(cached: &Option<Rc<Laid>>, size: (u32, u32)) -> Option<crate::scrollbar::ViewportBar> {
         let laid = cached.as_ref()?;
         let (w, h) = (size.0 as f32, size.1 as f32);
         (laid.h > h && !laid.style.viewport_hidden).then_some(((0.0, 0.0, w, h), laid.h, h))
