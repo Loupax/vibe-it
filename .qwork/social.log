@@ -1,0 +1,2 @@
+scratchy: network: unix sockets only (wire)
+scratchy: js: 20 forced layouts, 87 ms (script reads geometry after DOM writes)

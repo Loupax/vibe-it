@@ -1,0 +1,31 @@
+scratchy: network: unix sockets only (wire)
+scratchy: js: 20 forced layouts, 57 ms (script reads geometry after DOM writes)
+scratchy: console.info: LegacyDataMixin will be applied to all legacy elements.
+Set `_legacyUndefinedCheck: true` on element class to enable.
+scratchy: js error: https://www.youtube.com/s/desktop/95c3254f/jsbin/lottie-light.vflset/lottie-light.js: TypeError: Cannot set properties of null (setting 'fillStyle')
+    at https://www.youtube.com/s/desktop/95c3254f/jsbin/lottie-light.vflset/lottie-light.js:549:121
+    at https://www.youtube.com/s/desktop/95c3254f/jsbin/lottie-light.vflset/lottie-light.js:549:160
+    at https://www.youtube.com/s/desktop/95c3254f/jsbin/lottie-light.vflset/lottie-light.js:561:202
+    at https://www.youtube.com/s/desktop/95c3254f/jsbin/lottie-light.vflset/lottie-light.js:355:120
+    at https://www.youtube.com/s/desktop/95c3254f/jsbin/lottie-light.vflset/lottie-light.js:355:125
+    at https://www.youtube.com/s/desktop/95c3254f/jsbin/lottie-light.vflset/lottie-light.js:1103:364
+    at https://www.youtube.com/s/desktop/95c3254f/jsbin/lottie-light.vflset/lottie-light.js:1103:384
+    at eval:1855:12
+    at sCur (eval:1847:18)
+    at sRun (eval:1853:5)
+    at eval:1913:11
+    at settle (eval:1902:20)
+    at eval:1912:9
+    at eval:1868:7
+scratchy: js error: Uncaught ReferenceError: lottie is not defined
+ReferenceError: lottie is not defined
+    at C.<anonymous> (https://www.youtube.com/s/_/ytmainappweb/_/js/k=ytmainappweb.kevlar_base.en_US.azleysjlNvM.es5.O/am=AAAAAAQAAAACAKQE/d=1/rs=AGKMywEB07776_hCqv8gvZ7-JonAkQYzVA/m=kevlar_base_module,kevlar_main_module,kevlar_base_sync_mod_chunk:4216:243)
+    at invoke (prelude:280:50)
+    at dispatch (prelude:301:66)
+    at ETP.dispatchEvent (prelude:340:12)
+    at eval:1914:14
+    at settle (eval:1902:20)
+    at eval:1912:9
+    at eval:1868:7
+media: mpv
+scratchy: js net: GET https://youtube.com/: CORS: Access-Control-Allow-Origin "https://www.youtube.com" does not match the page origin "null" (blocked by CORS policy)
