@@ -116,3 +116,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-21 11:14 Progress artifact https://claude.ai/artifact/DZKa6yP3SWAXhvivRTi1QH (src .coordinator/report/progress.html): UPDATE AFTER EVERY MERGED PR (user).
 - 2026-11-21 11:21 Coordinator files moved into git: coordinator/ (scripts, AGENT_RULES, STATE, report/); .coordinator/ stays local (git-ignored). Prompt COORDINATOR_PROMPT.md is environment-aware (user machine vs claude.ai cloud).
 - 2026-11-21 11:27 QINC1l merged #473 906885b: engine default; SCRATCHY_INCR=0 escape hatch; CI runs suite engine-off too (1743/0 both). QINC1m waits ~3 days of user use + OK.
+- 2026-11-21 11:45 Reinstalled 11:31 from 933822c (engine default live). QWPT1 merged #474 d83093f: R64 conformance plan; 26 follow-ups in R64 s8 NOT filed yet; waiting for user answers Q1-Q8 (R64 s7).

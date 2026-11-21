@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-21 · main 933822c · engine is now the default (#473)</div>
+  <div class="meta" id="updated">Updated 2026-11-21 · main d83093f · conformance plan merged (#474), waiting for your answers</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -63,7 +63,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <div class="track">
     <div class="phase is-done"><span class="k">Step 1</span><span class="t">Incremental engine finished and tested</span><span class="pill done">done</span></div>
     <div class="phase is-done"><span class="k">Step 2</span><span class="t">Engine becomes the default (QINC1l)</span><span class="pill done">merged #473</span></div>
-    <div class="phase is-wip"><span class="k">Step 3</span><span class="t">Conformance plan design memo (QWPT1)</span><span class="pill wip">being written</span></div>
+    <div class="phase is-wait"><span class="k">Step 3</span><span class="t">Conformance plan (QWPT1, R64)</span><span class="pill wait">written · needs your 8 answers</span></div>
     <div class="phase is-todo"><span class="k">Step 4</span><span class="t">Run WPT JavaScript tests, report per area</span><span class="pill todo">after you approve step 3</span></div>
     <div class="phase is-todo"><span class="k">Step 5</span><span class="t">Spec areas to conformance, in dependency order</span><span class="pill todo">later</span></div>
   </div>
@@ -74,7 +74,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Measurements</h2>
   <div class="stats">
     <div class="stat"><span class="v">333 / 626</span><span class="l">WPT visual CSS tests passing (reftests)</span></div>
-    <div class="stat"><span class="v">not measured</span><span class="l">WPT JavaScript tests (DOM, events, fetch, CSSOM…): the runner skips them today</span></div>
+    <div class="stat"><span class="v">~31%</span><span class="l">WPT JavaScript tests, average score per file: one-off probe of 1,522 serverless tests (44% of 23,389 checks). Not in CI yet</span></div>
     <div class="stat"><span class="v">1743 / 1743</span><span class="l">Unit and integration tests passing, engine on and off (CI runs both)</span></div>
     <div class="stat"><span class="v">0</span><span class="l">Engine mismatches on the 7 test pages (check mode)</span></div>
   </div>
@@ -85,6 +85,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#474</td><td>QWPT1</td><td>Conformance plan (R64): test runner design, area order, 15 event-loop deviations, missing-API report, recorded pages, 26 sized items</td></tr>
     <tr><td class="n">2026-11-21</td><td class="n">#473</td><td>QINC1l</td><td>Incremental engine on by default; <code>SCRATCHY_INCR=0</code> switches it off; CI runs the suite both ways</td></tr>
     <tr><td class="n">2026-11-21</td><td class="n">9620d59</td><td>Coordinator in git</td><td>Scripts, state log and this page's source moved into the repo, so a claude.ai session can coordinate</td></tr>
     <tr><td class="n">2026-11-21</td><td class="n">7290ce0</td><td>TODO cleanup</td><td>249 → 29 open items; the rest is archived word for word; your decisions collected in DECISIONS.md</td></tr>
@@ -92,11 +93,11 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 </section>
 
 <section>
-  <h2>Open work (28 items)</h2>
+  <h2>Open work (27 items + 26 drafted)</h2>
   <div class="scroll"><table>
     <tr><th>Group</th><th>Items</th><th>Status</th></tr>
     <tr><td>Engine</td><td>QINC1m remove the old pipeline</td><td><span class="pill todo">after ~3 days of your use, with your OK</span></td></tr>
-    <tr><td>Conformance</td><td>QWPT1 design memo</td><td><span class="pill wip">being written (Opus)</span></td></tr>
+    <tr><td>Conformance</td><td>QWPT1 plan merged · 26 follow-up items drafted (R64 §8)</td><td><span class="pill wait">filed after your answers</span></td></tr>
     <tr><td>Reliability</td><td>QFLK4/5/6 flaky tests · QJ4b grid crash · QINC1k9 debug-build crash</td><td><span class="pill todo">queued</span></td></tr>
     <tr><td>Product choices</td><td>QCFG1 config file · QTB1 tracker blocking</td><td><span class="pill todo">queued</span></td></tr>
     <tr><td>UI: storage</td><td>QSTASH1–5 saved localStorage, cookies, forget-site</td><td><span class="pill todo">queued</span></td></tr>
@@ -110,7 +111,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 <section>
   <h2>Waiting on you</h2>
   <ul id="waiting">
-    <li>Review the QWPT1 design memo when it's ready. Nothing gets implemented before you approve it.</li>
+    <li>Answer the 8 questions in the conformance plan (REGRESSIONS.md R64 §7). The first items start after that.</li>
     <li>Skim <span class="mono">scratchy/DECISIONS.md</span> once and correct anything I misstated.</li>
     <li>After about 3 days with the engine as default: OK to remove the old pipeline (QINC1m)?</li>
   </ul>

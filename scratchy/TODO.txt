@@ -27,19 +27,6 @@ Site breakage is diagnosed with tooling (missing-API report), not guessed.
 ========================================================================
 NOW
 ========================================================================
-- [ ] [WIP] QWPT1 [M, Opus, design only] (P1, user 2026-11-21 architecture discussion) Conformance plan, as a
-      design memo in REGRESSIONS.md for the user to approve BEFORE any implementation:
-      (a) run WPT testharness.js tests: today the runner (src/wpt.rs skip_reason) skips every testharness
-          test and the local checkout (/home/loupax/src/wpt) has only css/ and html/. Plan the checkout
-          (sparse dirs: dom/, html/webappapis, html/semantics, css/cssom, css/cssom-view, fetch/,
-          resize-observer/, intersection-observer/, uievents/, ...), the harness (testharnessreport hook,
-          timeouts, per-subtest results), expectations file and CI cost.
-      (b) a per-spec-area pass-rate report tracked like wpt-expected.txt, and the dependency order of areas
-          (DOM core -> events -> HTML event loop / rendering steps -> CSSOM -> geometry -> fetch/streams -> media).
-      (c) an audit of the event loop against HTML "update the rendering" (task/microtask/rAF/observer order).
-      (d) a missing-API report for real sites: log calls to unimplemented APIs and failed feature probes.
-      (e) offline recorded pages so the incr-gate perf runs are deterministic and can become CI budgets.
-      Size every follow-up item; the user decides the order.
 - [ ] QINC1m [M] (P2; AFTER >= 3 days of the user's daily use with the engine as default, user to confirm;
       Sonnet) Delete the old pipeline: the SCRATCHY_INCR flag and its branches, the separate non-incremental App
       frame and forced-layout paths, the CI engine-off job. KEEP the from-scratch layout (the engine's
