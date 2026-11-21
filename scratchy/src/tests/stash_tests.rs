@@ -354,8 +354,7 @@ fn ls_load(url: &str, code: &str) -> Vec<String> {
     if let Some(b) = js_storage::backend() {
         b.flush();
     }
-    let v = out.borrow().clone();
-    v
+    out.take()
 }
 
 const LS_URL: &str = "https://social.loupax.com/home";
