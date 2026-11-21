@@ -52,21 +52,32 @@ const PSEUDOS: usize = 5;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Mode {
     Off,
-    /// `SCRATCHY_INCR=1`: the engine runs, nothing compares (and nothing uses) its results yet.
+    /// Default (`SCRATCHY_INCR` not `0`): the engine runs, nothing compares (and nothing uses) its results yet.
     #[cfg_attr(test, allow(dead_code))]
     Run,
     /// Tests and `SCRATCHY_INCR_CHECK=1`: record the build's styles and compare.
     Check,
 }
 
+/// QINC1l: `SCRATCHY_INCR` parsing. The engine is the default: unset or any value but "0" is on.
+pub(crate) fn flag_on(v: Option<&str>) -> bool {
+    v != Some("0")
+}
+
+/// QINC1l: whether `SCRATCHY_INCR` leaves the engine on (read once; `=0` is the escape hatch to the
+/// full relayout path until QINC1m removes it).
+pub(crate) fn engine_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| flag_on(std::env::var("SCRATCHY_INCR").ok().as_deref()))
+}
+
 #[cfg(not(test))]
 fn mode() -> Mode {
     static MODE: std::sync::OnceLock<Mode> = std::sync::OnceLock::new();
     *MODE.get_or_init(|| {
-        let on = |k: &str| std::env::var(k).is_ok_and(|v| v == "1");
-        if on("SCRATCHY_INCR_CHECK") {
+        if std::env::var("SCRATCHY_INCR_CHECK").is_ok_and(|v| v == "1") {
             Mode::Check
-        } else if on("SCRATCHY_INCR") {
+        } else if engine_enabled() {
             Mode::Run
         } else {
             Mode::Off
