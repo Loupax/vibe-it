@@ -372,6 +372,11 @@ pub(crate) fn text_extent(buffer: &Buffer) -> (f32, f32) {
 
 fn clipboard_set(text: &str) {
     INTERNAL_CLIP.with(|c| *c.borrow_mut() = text.to_string());
+    // QFLK4: the real clipboard is shared by every process on the desktop (other test runs, the user's
+    // own copies), so a copy->paste pair can read someone else's text. Unit tests use the internal one only.
+    if cfg!(test) {
+        return;
+    }
     if let Ok(mut cb) = Clipboard::new() {
         let _ = cb.set_text(text.to_string());
         SYS_CLIP.with(|s| *s.borrow_mut() = Some(cb));
@@ -379,7 +384,8 @@ fn clipboard_set(text: &str) {
 }
 
 fn clipboard_get() -> Option<String> {
-    if let Ok(mut cb) = Clipboard::new()
+    if !cfg!(test)
+        && let Ok(mut cb) = Clipboard::new()
         && let Ok(t) = cb.get_text()
         && !t.is_empty()
     {
