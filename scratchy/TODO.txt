@@ -105,6 +105,15 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] [WIP] QMAPI2 [S] (P2; Sonnet; css.rs counters; after QMAPI1) CSS part of the report: dropped declarations
       by property, dropped rules by unparsed pseudo-class/element, unknown at-rules, false
       @supports/CSS.supports conditions, unknown media features.
+- [ ] [WIP] QCSS1 [S] (P1, from QMAPI2 #523; Sonnet; css.rs @media parser) The stylesheet `@media` parser only knows
+      min-width, max-width, prefers-color-scheme, prefers-reduced-motion, so range syntax (`(width >= 600px)`,
+      `(400px < width < 900px)`) and `(hover: hover)`, `(pointer: fine)`, orientation, resolution... drop the whole rule,
+      while `matchMedia` (`media_feature_eval`) already understands them. Make the stylesheet parser use the same
+      evaluator (one implementation). Evidence: github.com 989 dropped range rules. Gates: reftests + --wpt-th
+      (css/cssom, css/cssom-view areas), a grim of github.com before/after.
+- [ ] QCSS2 [S] (P2, from QMAPI2 #523; Sonnet; css.rs parse_supports_condition, js.rs) `CSS.supports(prop, value)` and
+      `CSS.supports(conditionText)` on top of `parse_supports_condition` (today `CSS.supports` does not exist; pages
+      feature-test with it). Tests + --wpt-th (css/cssom has CSS.supports files).
 - [ ] QMAPI1b [S] (P3, from QMAPI1 #489; Sonnet; missing_api_prelude.js) Missing-API report: cover iframe realms,
       drop the preludes' own probes (script `prelude`), and give `has` misses a receiver interface where it can be found.
 - [ ] QMAPI3 [S] (P2; Sonnet; tools/missing-api/; after QMAPI1) corpus.sh over a site list (gate pages +
