@@ -152,3 +152,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-21 Merged #525 QCOMP2 fdca7e5.
 - 2026-11-21 #524 QINC1n READY (check cost 0.6-2.3 % CPU live; 0 fallbacks/mismatches). FOUND: agent window/gate runs used the user's real ~/.local/state/scratchy (localStorage youtube/wikipedia, history lines) since #484: AGENT_RULES rule added, running agents told, #524 fixes run.sh; user asked about cleanup. Launched QXSCR1 (Opus).
 - 2026-11-21 #521 QDOM2 READY (total 30.3 -> 31.5; declared 1 github window run on the user's state dir before the rule). Filed QDOM2b. Merging #521. Launched QDOM6.
+- 2026-11-21 Merged #521 QDOM2 43f8ace (total 31.5). Merging #524 QINC1n (rebased).

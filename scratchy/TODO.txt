@@ -123,18 +123,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QMSG1 [S] (P2, from QDOM1 #516; Sonnet; js_dom.rs iframe realms, globals_prelude.js postMessage) postMessage to and
       from an iframe's contentWindow (`window[0].postMessage`, `parent.postMessage`, MessageEvent origin/source): today the
       webmessaging 019 / cross-document files time out waiting for the reply. Target: webmessaging score up, list files.
-- [ ] [WIP] QDOM2 [M] (P1; Sonnet; js_dom.rs, js.rs; R65; after QDOM1) Real NodeList and HTMLCollection objects.
-      `childNodes`, `children`, `getElementsByTagName(NS)`, `getElementsByClassName`, `document.forms/images/links/
-      anchors/scripts/embeds` (`coll`), `querySelectorAll` (static NodeList): instances of `NodeList` / `HTMLCollection`
-      (prototype with `item`, `namedItem` (HTMLCollection), `length`, `forEach`/`entries`/`keys`/`values`/iterator
-      (NodeList only), supported indices/names as own properties, `[LegacyUnenumerableNamedProperties]`, delete/define
-      rules). Live: a Proxy that re-queries the native list when the DOM write generation `wgen` changed since the last
-      access (one query per generation, not per index). Prelude callers that use Array methods on these (`t.children.forEach`
-      in the table code, `kidsOf`, `wrapAll` results) switch to `Array.from` or an internal array helper. Check the perf
-      gate pages (getElementsByTagName in loops) before/after with --perf-report. WPT: dom/collections/* (10 files),
-      nodes/Element-children, ParentNode-children, ParentNode-properties, Node-childNodes, NodeList-live-mutations,
-      live-collections-batched-mutations, getElementsByClassName-03..25, ParentNode-querySelectorAll-scope-change.
-      Target: nodes -> +4, other -> +17.
 - [ ] QDOM2b [S] (P2, from QDOM2 #521; Sonnet; js_dom.rs) Remaining collections: MutationRecord addedNodes/removedNodes
       as static NodeLists; HTMLOptionsCollection for select.options (add, remove, length setter, selectedIndex);
       select.selectedOptions and map.images as live HTMLCollections. --wpt-th per-area table.
