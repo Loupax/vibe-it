@@ -3,6 +3,7 @@ tools/ - dev-only helpers, not part of the scratchy crate build.
 Profiling: tools/profile.sh <url|file> = perf + V8 JIT map profile into perf/profile-*/, tools/perf-fold.py
 queries it (fold/incl/callers/jscallers); PERF.md "Profiling (perf)".
 
+missing-api: tools/missing-api/gen-idl.py (IDL member JSON from the WPT pin), tools/missing-api/cost.sh (report-mode JS cost vs --perf-report); NOTES.md "Missing-API report mode".
 perf-diff.py: `python3 -I tools/perf-diff.py old.json new.json [--threshold 5]` diffs two --perf-report / perf-suite outputs (PERF.md).
 
 Driving a real scratchy window (click, type, wheel-scroll)

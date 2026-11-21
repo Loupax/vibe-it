@@ -113,6 +113,7 @@ compile_error!("no JS engine selected: enable the `engine-v8` feature (default);
 mod js_engine;
 mod js;
 mod perf;
+mod missing_api;
 mod incr_diff;
 mod incr_cmp;
 mod incr_box;
@@ -178,6 +179,9 @@ pub fn run() {
     }
     if raw_args.first().map(String::as_str) == Some("--perf-report") {
         std::process::exit(perf::perf_report_main(&raw_args[1..]));
+    }
+    if raw_args.first().map(String::as_str) == Some("--missing-api-report") {
+        std::process::exit(missing_api::main(&raw_args[1..]));
     }
     if raw_args.first().map(String::as_str) == Some("--perf-corpus") {
         std::process::exit(perf::perf_corpus_main(&raw_args[1..]));

@@ -1781,6 +1781,7 @@ fn startup_engine(document: &Handle, store: Rc<js_modules::ModuleStore>, log: Lo
     }
     // QSTASH2: the origin's stored pairs, before the first page script (opaque origins stay in memory).
     engine.eval("env", "__scratchy_ls_fill()");
+    crate::missing_api::install(&engine); // QMAPI1: report mode only
     Some(engine)
 }
 

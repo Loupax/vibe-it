@@ -1233,6 +1233,7 @@ fn failed_report(opts: &ReportOpts, outcome: &str, why: &str) -> String {
 /// and returns the JSON report.
 pub(crate) fn perf_report(opts: &ReportOpts) -> String {
     start();
+    crate::missing_api::reset();
     // QY53i2: each page is a navigation, as `App::replace_document` does.
     crate::css::reset_custom_props_arena();
     let target = opts.target.clone();
@@ -1286,6 +1287,7 @@ pub(crate) fn perf_report(opts: &ReportOpts) -> String {
     let console_errors = Rc::new(Cell::new(0u64));
     let (e, c) = (errors.clone(), console_errors.clone());
     let log: LogFn = Rc::new(move |level, text| {
+        crate::missing_api::note_log(level, text); // QMAPI1 (report mode only)
         if level == "error" {
             e.set(e.get() + 1);
             diag!("scratchy: js error: {text}");
@@ -1336,9 +1338,13 @@ pub(crate) fn perf_report(opts: &ReportOpts) -> String {
     #[cfg(feature = "memprof")]
     crate::memprof::dump_perf_report(); // QMEM3g
     let memory = memory_json(engine.as_ref());
+    let mapi = match (&engine, crate::missing_api::enabled()) {
+        (Some(en), true) => format!(",\"missing_api\":{}", crate::missing_api::finish(en)),
+        _ => String::new(),
+    };
     stop();
     format!(
-        "{{{},{},{},\"js_heap_bytes\":{},\"rss_bytes\":{},\"js_errors\":{},\"console_errors\":{}}}",
+        "{{{},{},{},\"js_heap_bytes\":{},\"rss_bytes\":{},\"js_errors\":{},\"console_errors\":{}{mapi}}}",
         envelope(opts, outcome, challenge, html.len(), &page_title(&html)),
         body_json(),
         memory,
