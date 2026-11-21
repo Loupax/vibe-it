@@ -15,41 +15,104 @@
 today. This page is rendered by scratchy's own layout engine, the same
 as any other page — and gets updated here as features are added.</p>
 
-<h2>Normal mode</h2>
+<h2>Modes and the status bar</h2>
+<p>The bar at the bottom of the window shows the mode (<code>INPUT</code>
+or <code>NORMAL</code>), the page's URL, and on the right a short message
+(for example a search result). While you type a command or a search, the
+bar shows that line instead: <code>:</code> or <code>/</code> followed by
+what you typed.</p>
+<ul>
+<li><b>INPUT</b> (the mode at start): keys go to the page. If the page
+leaves them alone, the browser defaults apply: arrows, <code>PageUp</code>,
+<code>PageDown</code>, <code>Space</code> / <code>Shift</code>+<code>Space</code>,
+<code>Home</code> and <code>End</code> scroll, <code>Tab</code> moves focus.
+scratchy's own keys below do nothing here.</li>
+<li>Press <code>Esc</code> twice quickly (within 300 ms) to go to
+<b>NORMAL</b>. The first <code>Esc</code> reaches the page as usual, the
+second one never does.</li>
+<li><b>NORMAL</b>: keys are scratchy's, the page gets no key events. Press
+<code>i</code> to go back to INPUT. Clicking into a text field or a select
+also switches to INPUT. The mouse always goes to the page.</li>
+<li>Going to another page does not change the mode, and a page cannot
+switch it by focusing a field.</li>
+</ul>
+
+<h2>Normal mode keys</h2>
 <table>
 <tr><th>Key</th><th>Effect</th></tr>
-<tr><td><code>j</code></td><td>Scroll down</td></tr>
-<tr><td><code>k</code></td><td>Scroll up</td></tr>
+<tr><td><code>j</code> / <code>Down</code></td><td>Scroll down</td></tr>
+<tr><td><code>k</code> / <code>Up</code></td><td>Scroll up</td></tr>
 <tr><td><code>Ctrl</code>+<code>d</code></td><td>Scroll down half a page</td></tr>
 <tr><td><code>Ctrl</code>+<code>u</code></td><td>Scroll up half a page</td></tr>
+<tr><td><code>Space</code> / <code>PageDown</code></td><td>Scroll down one page</td></tr>
+<tr><td><code>Shift</code>+<code>Space</code> / <code>PageUp</code></td><td>Scroll up one page</td></tr>
 <tr><td><code>g</code> <code>g</code> / <code>Home</code></td><td>Scroll to the top</td></tr>
 <tr><td><code>G</code> / <code>End</code></td><td>Scroll to the bottom</td></tr>
 <tr><td><code>h</code></td><td>Go back one page in history (same as <code>:historyBack</code>)</td></tr>
 <tr><td><code>l</code></td><td>Go forward one page in history (same as <code>:historyFront</code>)</td></tr>
-<tr><td><code>:</code></td><td>Enter the command bar</td></tr>
+<tr><td><code>:</code></td><td>Open the command line</td></tr>
+<tr><td><code>/</code></td><td>Open the search line</td></tr>
+<tr><td><code>Esc</code></td><td>Clear the search highlights (it never changes the mode)</td></tr>
+<tr><td><code>i</code></td><td>Switch to INPUT mode</td></tr>
 </table>
+<p>The keys are the <code>BINDINGS</code> table in <code>src/config.rs</code>,
+with the timing and scroll sizes next to it. There is no config file: edit
+that file and rebuild.</p>
 
-<h2>Command bar</h2>
-<p>Press <code>:</code>, type a command, then <code>Enter</code> to run
-it. <code>Tab</code> completes the current word (a command name, or
-<code>set</code>'s own <code>vim</code>/<code>novim</code> argument) —
-press <code>Tab</code> again right after to cycle through any other
-matches. <code>Ctrl</code>+<code>v</code> pastes from the clipboard —
-useful for a URL copied from somewhere else. <code>Escape</code>
-cancels without running anything.</p>
+<h2>Search</h2>
+<p>Press <code>/</code>, type a word, press <code>Enter</code>. It looks in
+the text on screen (not inside frames or text fields), as plain text, not a
+regular expression. It ignores case unless your query has a capital letter.
+Every match is highlighted and the status bar shows <code>[i/N]</code>, or
+<code>Pattern not found: ...</code>. The first match at or below the top of
+the screen is the current one; if there is none, it wraps and the message
+says <code>search hit BOTTOM, continuing at TOP</code>. The page does not
+scroll to the match yet. <code>Esc</code> in the search line cancels;
+<code>Esc</code> in NORMAL mode clears the highlights. Going to another page
+clears them too.</p>
+
+<h2>Command line</h2>
+<p>In NORMAL mode press <code>:</code>, type a command, then
+<code>Enter</code> to run it. <code>Tab</code> completes the current word (a
+command name, or <code>set</code>'s own argument) — press <code>Tab</code>
+again right after to cycle through any other matches. <code>Escape</code>
+cancels without running anything. Both the <code>:</code> and the
+<code>/</code> line accept paste: <code>Ctrl</code>+<code>v</code>,
+<code>Ctrl</code>+<code>Shift</code>+<code>v</code> or
+<code>Shift</code>+<code>Insert</code>.</p>
 <table>
 <tr><th>Command</th><th>Effect</th></tr>
 <tr><td><code>:go &lt;url&gt;</code></td><td>Navigate to a URL</td></tr>
 <tr><td><code>:refresh</code></td><td>Re-fetch the page on screen and reload it in place (it does not add a history entry), e.g. after <code>:set nojs</code>/<code>:set js</code> or when testing a changing page</td></tr>
 <tr><td><code>:historyBack</code></td><td>Go back one page in history (same as <code>h</code>)</td></tr>
 <tr><td><code>:historyFront</code></td><td>Go forward one page in history (same as <code>l</code>)</td></tr>
-<tr><td><code>:set vim</code></td><td>Turn vim-mode key handling on</td></tr>
-<tr><td><code>:set novim</code></td><td>Turn vim-mode key handling off (every key then passes straight through to the page)</td></tr>
+<tr><td><code>:set vim</code></td><td>Switch to NORMAL mode (an old name, going away)</td></tr>
+<tr><td><code>:set novim</code></td><td>Switch to INPUT mode (an old name, going away)</td></tr>
 <tr><td><code>:set motion</code> / <code>:set nomotion</code></td><td>Answer <code>prefers-reduced-motion: no-preference</code> / <code>reduce</code> (the default) to CSS and <code>matchMedia</code>, from the next page load; <code>--motion</code> starts with real motion on</td></tr>
 <tr><td><code>:set nojs</code> / <code>:set js</code></td><td>Turn scripts off/on (and show/hide &lt;noscript&gt; content) from the next page load; <code>--no-js</code> starts with them off</td></tr>
 <tr><td><code>:help</code></td><td>Show this page</td></tr>
-<tr><td><code>:q</code> or <code>:quit</code></td><td>From this help page, go back to whatever you were looking at; otherwise close scratchy (vim's own "close the buffer, or quit if there's nothing left to close")</td></tr>
+<tr><td><code>:q</code> or <code>:quit</code></td><td>From this help page, go back to whatever you were looking at; otherwise close scratchy</td></tr>
 </table>
+
+<h2>Mouse and scrollbars</h2>
+<p>The page and every scrollable box have a thin scrollbar on the right.
+Drag the thumb to scroll, click the track to scroll one page toward the
+click, or hold the mouse on the track to keep paging.</p>
+
+<h2>What is kept between runs</h2>
+<p>Everything lives under the state directory (<code>--state-dir</code>,
+see below):</p>
+<ul>
+<li><code>localStorage</code>: one file per key under
+<code>&lt;dir&gt;/storage/</code>. <code>sessionStorage</code> is not saved: it
+lasts as long as the window and survives navigations.</li>
+<li>Pages visited: the file <code>&lt;dir&gt;/history</code> (time, URL,
+title), one line per visit. Nothing reads it back yet.</li>
+<li>Cookies: kept by <code>wire</code>, saved only if you start it with
+<code>wire --cookie-file PATH</code>.</li>
+<li><code>scratchy --forget-site &lt;site&gt;</code> deletes a site's
+<code>localStorage</code> and cookies (not its history).</li>
+</ul>
 
 <h2>Command line</h2>
 <p><code>scratchy [--socket &lt;path&gt;] [--no-js] [--state-dir &lt;dir&gt;] [--user-agent &lt;string&gt;] [file|url]</code> opens a

@@ -1134,6 +1134,25 @@ fn help_page_documents_every_command() {
     }
 }
 
+/// QHELP1: every Normal-mode binding's key (`config::BINDINGS`) must be shown on the `:help`
+/// page as `<code>KEY</code>`. Fails when a row is added to the table without a help row.
+#[test]
+fn help_page_documents_every_binding() {
+    use crate::config::{KeySpec, BINDINGS};
+    use winit::keyboard::NamedKey as N;
+    for b in BINDINGS {
+        let label = match b.key {
+            KeySpec::Char(c) => c.to_string(),
+            KeySpec::Named(N::Escape) => "Esc".to_string(),
+            KeySpec::Named(N::ArrowDown) => "Down".to_string(),
+            KeySpec::Named(N::ArrowUp) => "Up".to_string(),
+            KeySpec::Named(n) => format!("{n:?}"),
+        };
+        let needle = format!("<code>{label}</code>");
+        assert!(HELP_PAGE_HTML.contains(&needle), "binding `{label}` is in config::BINDINGS but not documented in src/help.html");
+    }
+}
+
 // ---------- QJ6: element scrolling ----------
 
 const QJ6_DOC: &str = "<html><head><style>body{margin:0} #box{height:100px;overflow:auto;position:relative;border:0}\

@@ -8747,3 +8747,9 @@ Item QINC1h2 (REGRESSIONS.md R60 section 15). `layout.rs`: `natural_width_impl` 
 > QWPT5 [S] CI step: build wire in the scratchy job, run `--wpt-th --jobs 4`, fail on regressions, write the areas table and its diff vs main into $GITHUB_STEP_SUMMARY. Measure and report the added minutes.
 
 **What changed:** `.github/workflows/ci.yml` (scratchy leg): wire is built (`--manifest-path ../wire/Cargo.toml`, rust-cache covers both workspaces), then after the reftest step `scratchy --wpt-th $RUNNER_TEMP/wpt --jobs 4 --no-scope --wire ../wire/target/release/wire` runs against the existing QWPT2 checkout (tools/wpt-dirs.txt already covers all 23 areas). Exit 1 on REGRESSION/UNRECORDED/CHANGED fails the job. The step summary gets the areas table with per-area deltas against origin/main's committed `wpt-th/areas.txt` (new `tools/wpt-areas-diff.py`), a diff of the CI-produced areas.txt against the one committed in the PR, and the gate lines.
+
+## QHELP1: bring the :help page up to date (agent item)
+
+> QHELP1 [S] (user: "the help page is out of date") Bring `:help` (src/help.html) up to date with what is on main; add a test that every BINDINGS key appears in help.html.
+
+**What changed:** `src/help.html` rewritten: modes, status bar, Normal-mode keys, search, command line and paste, scrollbars, what is kept between runs; `:set vim`/`novim` now say they switch NORMAL/INPUT. New test `help_page_documents_every_binding` next to `help_page_documents_every_command`. Claims checked against code: paste works in the `:`/`/` line only, the history file is written but not read back, scrolling to a match is not built yet.
