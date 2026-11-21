@@ -167,9 +167,11 @@ pub(crate) enum Source {
 }
 
 /// The completion table, one row per command (the first word always completes from the command
-/// names). No row = no ghost after that command's name. QCOMP4 adds
-/// `("go", Source::Builtin(complete_history_urls))` here (`:go` has no ghost until then).
-pub(crate) const COMPLETERS: &[(&str, Source)] = &[("set", Source::Builtin(crate::completion::complete_set_args))];
+/// names). No row = no ghost after that command's name. `:go` completes from the history file.
+pub(crate) const COMPLETERS: &[(&str, Source)] = &[
+    ("set", Source::Builtin(crate::completion::complete_set_args)),
+    ("go", Source::Builtin(crate::completion::complete_history_urls)),
+];
 
 /// Commands whose argument, once selected with Tab (a single match), is followed by a space
 /// (T53: `:set js ` yes; a URL no). The command name itself always gets one.

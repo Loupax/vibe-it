@@ -135,7 +135,8 @@ lasts as long as the window and survives navigations. The quota is 5 Mi
 UTF-16 units of keys plus values per origin; change <code>QUOTA_UNITS</code> in
 <code>src/config.rs</code> and rebuild.</li>
 <li>Pages visited: the file <code>&lt;dir&gt;/history</code> (time, URL,
-title), one line per visit. Nothing reads it back yet.</li>
+title), one line per visit. <code>:go</code> completes from it: the
+best match is shown dimmed as you type, Tab cycles, Enter runs it.</li>
 <li>Cookies: kept by <code>wire</code>, saved only if you start it with
 <code>wire --cookie-file PATH</code>.</li>
 <li><code>scratchy --forget-site &lt;site&gt;</code> deletes a site's
