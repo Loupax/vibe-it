@@ -119,3 +119,9 @@ QERR1: uncaught top-level script exceptions fire an ErrorEvent at window (Sonnet
 > Do TODO item QERR1: an uncaught exception in a top-level page script fires an ErrorEvent at window (message, filename, lineno, colno, error) so onerror and testharness see it (R64 E7), then the log line.
 
 **What changed:** js.rs eval_as/eval_module call the prelude __scratchy_report_error (js_engine_v8.rs expose_pending + throw position); window.onerror gets the 5-argument form, true or preventDefault suppresses the log line; reentrancy guarded. Timers/rAF/observers (QEL4) not covered. Verified: --wpt-th-one on css/cssom/computed-style-003/-004 now gives harness ERROR; WPT subset no change (333/293); cargo test 1811 pass; clippy 77.
+
+QKEYS1c: status-bar message full width, URL elided in the middle (Sonnet)
+
+> Do TODO item QKEYS1c: status-bar messages were clipped to a third of the bar; the message gets the width it needs, the URL gets the rest and is elided in the middle.
+
+**What changed:** paint.rs: pure `status_layout` (+ `elide_end`/`elide_middle`) decides the drawn mode/URL/message strings from a measure closure; `paint_status_bar` uses it. Message capped at bar - mode - min URL slice (160 px), URL middle-elided. Unit tests in `status_layout_tests`. Real check in a nested dwl: URL `file:///.../worktr...status/bar/test/page.html` plus the full message `scratchy: unknown command: :zzzz` (yy's "Copied to clipboard" lands with QREG1 #531).

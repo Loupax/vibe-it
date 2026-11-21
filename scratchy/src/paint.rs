@@ -1795,21 +1795,149 @@ pub(crate) fn paint_status_bar(
         return;
     }
 
-    // Mode, then the URL; the message sits at the right (at most a third of the strip).
-    let gap = 12.0;
-    let msg_max = avail / 3.0;
-    let mut msg_w = 0.0;
-    if !bar.message.is_empty() {
-        // Measure first: it is drawn right-aligned below, and the URL gets what is left.
-        msg_w = bar_text(font_system, swash_cache, pixels, win_w, win_h, bar.message, 0.0, bar_y, bar_h, msg_max, fg, false);
-    }
-    let mode_w = bar_text(font_system, swash_cache, pixels, win_w, win_h, bar.mode, STATUS_BAR_PAD_X, bar_y, bar_h, avail, accent, true);
+    // Mode (fixed), then the URL (middle-elided); the message sits at the right with the width it
+    // needs (QKEYS1c). The strings come from the pure `status_layout`.
+    let gap = STATUS_BAR_GAP;
+    let lay = {
+        let mut measure = |t: &str| bar_text(font_system, swash_cache, pixels, win_w, win_h, t, 0.0, bar_y, bar_h, f32::MAX, fg, false);
+        status_layout(avail, gap, STATUS_BAR_MIN_URL_W, bar.mode, bar.url, bar.message, &mut measure)
+    };
+    let mode_w = bar_text(font_system, swash_cache, pixels, win_w, win_h, &lay.mode, STATUS_BAR_PAD_X, bar_y, bar_h, avail, accent, true);
     let url_x = STATUS_BAR_PAD_X + mode_w + gap;
+    let msg_w = if lay.message.is_empty() {
+        0.0
+    } else {
+        bar_text(font_system, swash_cache, pixels, win_w, win_h, &lay.message, 0.0, bar_y, bar_h, f32::MAX, fg, false)
+    };
     let url_max = (win_w as f32 - STATUS_BAR_PAD_X - msg_w - if msg_w > 0.0 { gap } else { 0.0 } - url_x).max(0.0);
-    bar_text(font_system, swash_cache, pixels, win_w, win_h, bar.url, url_x, bar_y, bar_h, url_max, fg, true);
+    bar_text(font_system, swash_cache, pixels, win_w, win_h, &lay.url, url_x, bar_y, bar_h, url_max + 0.5, fg, true);
     if msg_w > 0.0 {
         let x = win_w as f32 - STATUS_BAR_PAD_X - msg_w;
-        bar_text(font_system, swash_cache, pixels, win_w, win_h, bar.message, x, bar_y, bar_h, msg_w, fg, true);
+        bar_text(font_system, swash_cache, pixels, win_w, win_h, &lay.message, x, bar_y, bar_h, msg_w + 0.5, fg, true);
+    }
+}
+
+const STATUS_BAR_GAP: f32 = 12.0;
+/// Least room the URL keeps when a message is shown.
+const STATUS_BAR_MIN_URL_W: f32 = 160.0;
+
+/// The strings `paint_status_bar` draws (QKEYS1c).
+#[derive(Debug, PartialEq)]
+pub(crate) struct StatusLayout {
+    pub mode: String,
+    pub url: String,
+    pub message: String,
+}
+
+/// Keeps the head of `text` and ends it with `…` so that it measures at most `max_w`.
+fn elide_end(text: &str, max_w: f32, measure: &mut dyn FnMut(&str) -> f32) -> String {
+    if measure(text) <= max_w {
+        return text.to_string();
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let build = |keep: usize| chars[..keep].iter().collect::<String>() + "\u{2026}";
+    let (mut lo, mut hi) = (0usize, chars.len());
+    while lo < hi {
+        let mid = (lo + hi).div_ceil(2);
+        if measure(&build(mid)) <= max_w { lo = mid } else { hi = mid - 1 }
+    }
+    if lo == 0 && measure("\u{2026}") > max_w {
+        return String::new();
+    }
+    build(lo)
+}
+
+/// Keeps the start (scheme + host) and the end (path tail) of `text` with `…` between, measuring
+/// at most `max_w`: the head gets the larger half.
+fn elide_middle(text: &str, max_w: f32, measure: &mut dyn FnMut(&str) -> f32) -> String {
+    if measure(text) <= max_w {
+        return text.to_string();
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let n = chars.len();
+    let build = |keep: usize| -> String {
+        let tail = keep / 2;
+        let head = keep - tail;
+        chars[..head].iter().collect::<String>() + "\u{2026}" + &chars[n - tail..].iter().collect::<String>()
+    };
+    let (mut lo, mut hi) = (0usize, n.saturating_sub(1));
+    while lo < hi {
+        let mid = (lo + hi).div_ceil(2);
+        if measure(&build(mid)) <= max_w { lo = mid } else { hi = mid - 1 }
+    }
+    if lo == 0 && measure("\u{2026}") > max_w {
+        return String::new();
+    }
+    build(lo)
+}
+
+/// Pure layout of the status bar's normal (non-`:`) strip: the mode is fixed; a message gets the
+/// width it needs, at most `avail - mode - gap - gap - min_url`; the URL gets the rest, elided in
+/// the middle; with no message it gets all the room. `measure` is the text advance.
+pub(crate) fn status_layout(
+    avail: f32,
+    gap: f32,
+    min_url_w: f32,
+    mode: &str,
+    url: &str,
+    message: &str,
+    measure: &mut dyn FnMut(&str) -> f32,
+) -> StatusLayout {
+    let mode_w = measure(mode);
+    let rest = (avail - mode_w - gap).max(0.0);
+    let mut msg = String::new();
+    let mut msg_w = 0.0;
+    if !message.is_empty() {
+        let cap = (rest - gap - min_url_w).max(0.0);
+        msg = elide_end(message, cap, measure);
+        msg_w = measure(&msg);
+    }
+    let url_max = if msg.is_empty() { rest } else { (rest - msg_w - gap).max(0.0) };
+    StatusLayout { mode: mode.to_string(), url: elide_middle(url, url_max, measure), message: msg }
+}
+
+#[cfg(test)]
+mod status_layout_tests {
+    use super::*;
+
+    fn lay(avail: f32, mode: &str, url: &str, msg: &str) -> StatusLayout {
+        status_layout(avail, 10.0, 80.0, mode, url, msg, &mut |t: &str| t.chars().count() as f32 * 8.0)
+    }
+
+    #[test]
+    fn short_message_fully_shown() {
+        let l = lay(800.0, "NORMAL", "https://example.com/a/very/long/path/to/something/else.html", "Copied to clipboard");
+        assert_eq!(l.message, "Copied to clipboard");
+        assert_eq!(l.mode, "NORMAL");
+    }
+
+    #[test]
+    fn long_url_elided_in_the_middle() {
+        let url = "https://example.com/a/very/long/path/to/something/else/index.html";
+        let l = lay(500.0, "NORMAL", url, "Copied to clipboard");
+        assert!(l.url.starts_with("https://exa") && l.url.ends_with("index.html") && l.url.contains('\u{2026}'), "{}", l.url);
+        assert_eq!(l.message, "Copied to clipboard");
+        let total = (l.mode.len() + l.url.chars().count() + l.message.len()) as f32 * 8.0 + 20.0;
+        assert!(total <= 500.0);
+    }
+
+    #[test]
+    fn very_long_message_truncated_only_when_it_alone_exceeds_the_bar() {
+        let msg = "m".repeat(200);
+        let l = lay(400.0, "NORMAL", "https://example.com/", &msg);
+        assert!(l.message.ends_with('\u{2026}') && l.message.chars().count() < 200);
+        assert!((l.message.chars().count() as f32) * 8.0 <= 400.0);
+        // A message that fits next to the minimum URL slice is not cut.
+        let ok = "n".repeat(25);
+        assert_eq!(lay(400.0, "NORMAL", "https://example.com/", &ok).message, ok);
+    }
+
+    #[test]
+    fn no_message_full_url() {
+        let url = "https://example.com/path/that/is/fairly/long.html";
+        let l = lay(600.0, "NORMAL", url, "");
+        assert_eq!(l.url, url);
+        assert_eq!(l.message, "");
     }
 }
 
