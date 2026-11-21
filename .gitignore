@@ -4,3 +4,4 @@
 
 # agent scratch dirs (never commit)
 .qwork/
+**/.qwork/
