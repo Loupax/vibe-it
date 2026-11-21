@@ -340,7 +340,6 @@ fn qy48_back_forward_between_same_document_entries_fire_popstate_without_reload(
 /// `__hist_to` computes its target from the stale index, returns false, and the App reloads the URL
 /// (page state lost) instead of firing popstate. Product bug; remove the ignore when fixed.
 #[test]
-#[ignore = "QFLK7: a second same-document traversal before the first popstate task runs reloads (product bug, see PR)"]
 fn qy48_two_traversals_in_one_turn_stay_same_document() {
     let Some((mut app, _doc)) = qy48_app(QY48_POP) else { return };
     qy48_eval(&mut app, "history.pushState({n:1},'','/a'); history.pushState({n:2},'','/b')");
@@ -349,6 +348,35 @@ fn qy48_two_traversals_in_one_turn_stay_same_document() {
     assert_eq!(app.nav_generation, 0, "no reload");
     qy48_run_timers(&mut app);
     assert_eq!(app.history_index, 0);
+    assert_eq!(q30e_log(&app), "pop:{\"n\":1}:/a|pop:null:/start", "one popstate per traversal, in order");
+    assert_eq!(app.nav_generation, 0);
+}
+
+#[test]
+fn qhist1_back_then_forward_in_one_turn() {
+    let Some((mut app, _doc)) = qy48_app(QY48_POP) else { return };
+    qy48_eval(&mut app, "history.pushState({n:1},'','/a'); history.pushState({n:2},'','/b')");
+    app.navigate_history(-1);
+    app.navigate_history(1);
+    assert_eq!(app.nav_generation, 0, "no reload");
+    qy48_run_timers(&mut app);
+    assert_eq!(app.history_index, 2);
+    assert_eq!(q30e_log(&app), "pop:{\"n\":1}:/a|pop:{\"n\":2}:/b");
+}
+
+#[test]
+fn qhist1_history_go_minus_two_across_same_document_entries() {
+    let Some((mut app, _doc)) = qy48_app(QY48_POP) else { return };
+    qy48_eval(&mut app, "history.pushState({n:1},'','/a'); history.pushState({n:2},'','/b')");
+    qy48_eval(&mut app, "history.go(-2)");
+    qy48_run_timers(&mut app);
+    assert_eq!(app.history_index, 0);
+    assert_eq!(app.nav_generation, 0);
+    assert_eq!(q30e_log(&app), "pop:null:/start");
+    qy48_eval(&mut app, "history.go(1); history.go(1); history.go(-1)");
+    qy48_run_timers(&mut app);
+    assert_eq!(q30e_log(&app), "pop:null:/start|pop:{\"n\":1}:/a|pop:{\"n\":2}:/b|pop:{\"n\":1}:/a");
+    assert_eq!(app.history_index, 1);
 }
 
 #[test]
