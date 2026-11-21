@@ -9025,3 +9025,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       SyntaxError for whitespace / empty tokens, one DOMTokenList object per element (`[SameObject]`), relList etc. on
       the elements in lists/DOMTokenList-coverage-for-attributes. WPT: nodes/Element-classlist, lists/* (4 files).
       Target: other +4.
+
+=== from TODO.txt: --- (no header)
+- [x] QEL5 DONE 2f619bf #545 [S] (P2; Sonnet; js.rs TIMERS_PRELUDE) Clamp setInterval to 4 ms only at nesting level > 5.
+      Gate: WPT timers/setinterval-settimeout-clamping.

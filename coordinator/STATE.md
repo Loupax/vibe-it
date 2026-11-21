@@ -182,3 +182,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #541 QSCR404 conflicts in areas.txt + expected/html-semantics-scripting-1.txt -> agent rebase queued. Rebase queue (send as slots free): #533 QDOM3 (test file), #541 QSCR404 (expected), #535/#529 (areas only: after QWPT10), #539 merges after QWPT10.
 - 2026-11-22 #545 QEL5 READY, merging. Sent #533 QDOM3 its rebase (slot from QEL5); queue: #541 rebase, #535/#529/#539 after QWPT10. hr-time/timeOrigin.html flaky under load (QEL5 report) -> watch; add to flaky.txt if CI hits it.
 - 2026-11-22 #547 QDOM12 READY (nodes 50.4 -> 51.1); queued (areas.txt). Filed QDOM12b. Sent #541 QSCR404 rebase.
+- 2026-11-22 Merged #545 QEL5 2f619bf.
