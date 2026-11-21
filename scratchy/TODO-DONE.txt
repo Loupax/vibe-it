@@ -8700,7 +8700,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       harness TIMEOUT with no tests where browsers report ERROR. Test: onerror and addEventListener('error') both fire.
 
 === from TODO.txt: --- (no header)
-- [x] QFLK7 DONE c6c07e6 #496 [S] (P2, from QFLK4 #477; Sonnet) The q30d_* App tests call `EventLoop::build()` and `return` on Err; winit
+- [x] QFLK7 DONE 97e5e83 #496 [S] (P2, from QFLK4 #477; Sonnet) The q30d_* App tests call `EventLoop::build()` and `return` on Err; winit
       allows one loop per process, so in a parallel run most of their bodies never execute (QFLK4 found a real bug hiding
       this way). Build the loop once in a shared helper (or make `App::new_static` not need a real loop), then prove every
       such test really executes (a counter or a failing assertion check) and passes alone and in the full suite.
@@ -8710,7 +8710,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       (delay then repeat, like other browsers); thumb hover/active styling; horizontal scrollbars (window and regions).
 
 === from TODO.txt: --- (no header)
-- [x] QKEYS2 DONE d6affdb #495 [M] (P2, after QKEYS1) Input mode / normal mode, Esc Esc and `i` (KEYS.md T1-T21,
+- [x] QKEYS2 DONE 6ebe0e0 #495 [M] (P2, after QKEYS1) Input mode / normal mode, Esc Esc and `i` (KEYS.md T1-T21,
       T29-T34; D1, D2, D4-D7, D9, P2-P4). A pure, unit-testable `resolve_esc_esc(state, key, repeat, now) -> (state,
       enter)` next to `resolve_pending_g` (timestamps passed in, no clock inside). Key
       routing in the `WindowEvent::KeyboardInput` branch: input mode = today's order
@@ -8726,7 +8726,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       then `:` opens scratchy's command line.
 
 === from TODO.txt: --- (no header)
-- [x] QKEYS4 DONE 8f1965e #498 [S] (P3, after QKEYS2) Input-mode default scroll keys (P6): arrows,
+- [x] QKEYS4 DONE 40d9f8c #498 [S] (P3, after QKEYS2) Input-mode default scroll keys (P6): arrows,
       PageUp/PageDown, Space/Shift-Space, after the page's keydown and only when nothing
       focused owns the key. NOTE 2026-11-20: QYSCR1 (#437) already added these keys to
       `resolve_binding`; after QKEYS2 they must keep working in input mode, as UA defaults,
@@ -8734,7 +8734,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       focused text control keeps Space and the arrows.
 
 === from TODO.txt: --- (no header)
-- [x] QWPT4b DONE 23a05fa #499 [M] (P1; Sonnet; src/wpt_th.rs; R64 2.3, 2.5, 3.1; after QWPT4a) Runner parent.
+- [x] QWPT4b DONE fe4b547 #499 [M] (P1; Sonnet; src/wpt_th.rs; R64 2.3, 2.5, 3.1; after QWPT4a) Runner parent.
       `scratchy --wpt-th <checkout> [--jobs N] [--update] [--area A]`: starts a private wire with the
       mount (own socket, never /run/user/1000/wire.sock; kills only its PID), pool of children, 30 s
       real-time cap per child (kill own PID -> TIMEOUT), reads wpt-th/subset.txt, writes/compares
@@ -8742,21 +8742,21 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       Exit 1 on REGRESSION/UNRECORDED/CHANGED. Worker variants listed as NOT-RUN.
 
 === from TODO.txt: --- (no header)
-- [x] QFLK8 DONE 08c994f #501 [S] (P2, from QFLK7 #496; Sonnet; ci.yml) Run a headless compositor (weston --backend=headless, or cage) in the
+- [x] QFLK8 DONE 482c632 #501 [S] (P2, from QFLK7 #496; Sonnet; ci.yml) Run a headless compositor (weston --backend=headless, or cage) in the
       scratchy CI job so the 54 App-level tests run on CI, then set SCRATCHY_REQUIRE_DISPLAY=1 there. Measure added minutes.
 
 === from TODO.txt: --- (no header)
-- [x] QREC2 DONE 05d97f9 #500 [S] (P2; Sonnet; js_engine_v8.rs, js.rs; after QREC1) scratchy --deterministic (report
+- [x] QREC2 DONE 57bdf57 #500 [S] (P2; Sonnet; js_engine_v8.rs, js.rs; after QREC1) scratchy --deterministic (report
       modes): V8 --random-seed, seeded crypto.getRandomValues, Date epoch from the recording, network
       results delivered in request order.
 
 === from TODO.txt: --- (no header)
-- [x] QFORM1 DONE c98338b #502 [S] (P2, from QFLK7 #496; Sonnet; js_dom.rs FP.requestSubmit, forms submit path) form.requestSubmit() and a
+- [x] QFORM1 DONE f1e090c #502 [S] (P2, from QFLK7 #496; Sonnet; js_dom.rs FP.requestSubmit, forms submit path) form.requestSubmit() and a
       submit-button click dispatch a plain Event; make it a SubmitEvent with `submitter`. Then un-ignore
       q30e_click_submit_event_preventdefault_requestsubmit_vs_submit_and_history.
 
 === from TODO.txt: --- (no header)
-- [x] QSEARCH1 DONE 98518e1 #503 [M] (from QPASTE1 #482: the SEARCH key handler must reuse `is_paste_chord` and the command-line paste path, with a test) (P2, after QKEYS2) Find + highlight (S1, S2, S3, S5; KEYS.md T7, T8, T22-T25, T31): SEARCH mode in the
+- [x] QSEARCH1 DONE 50160c9 #503 [M] (from QPASTE1 #482: the SEARCH key handler must reuse `is_paste_chord` and the command-line paste path, with a test) (P2, after QKEYS2) Find + highlight (S1, S2, S3, S5; KEYS.md T7, T8, T22-T25, T31): SEARCH mode in the
       status bar, a pure match finder over the layout's text runs (input: laid-out runs +
       query; output: ordered match rects; unit-testable without a window), smartcase,
       inline-spanning matches, highlight painting, recompute after relayout, Esc in normal
@@ -8764,23 +8764,23 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       never matches, smartcase both ways, recompute keeps the nearest current match.
 
 === from TODO.txt: --- (no header)
-- [x] QWPT6 DONE bc93e79 #504 [S] (P1; Sonnet; wpt-th/; after QWPT4b) Phase-1 subset and baseline: generate
+- [x] QWPT6 DONE c03a09d #504 [S] (P1; Sonnet; wpt-th/; after QWPT4b) Phase-1 subset and baseline: generate
       wpt-th/subset.txt from tools/wpt-dirs.txt + the WPT manifest of the pin (skip legacy-mb encoding
       variants and timeout=long files: nightly), run 3 times, put files whose results differ into
       flaky.txt with a reason, record expectations, commit areas.txt. Report the table in the PR.
 
 === from TODO.txt: --- (no header)
-- [x] QHIST1 DONE f53eef0 #505 [S] (P2, from QFLK7 #496; Sonnet; globals_prelude.js history go()) A second same-document traversal before
+- [x] QHIST1 DONE f186cb3 #505 [S] (P2, from QFLK7 #496; Sonnet; globals_prelude.js history go()) A second same-document traversal before
       the first popstate task runs hits a stale `idx` in `go()`: it returns false and the App reloads the page (fast double
       h/l loses state). Fix, then un-ignore qy48_two_traversals_in_one_turn_stay_same_document.
 
 === from TODO.txt: --- (no header)
-- [x] QWPT5 DONE eed9488 #507 [S] (NOTE from #499: pass `--wire wire/target/release/wire`; the runner re-execs under systemd-run unless `--no-scope`, falls back with one line when unusable, untested on CI) (P1; Sonnet; ci.yml; after QWPT2, QWPT4b, QWPT6; user answered Q3, Q4 2026-11-21) CI step: build
+- [x] QWPT5 DONE 4b41be4 #507 [S] (NOTE from #499: pass `--wire wire/target/release/wire`; the runner re-execs under systemd-run unless `--no-scope`, falls back with one line when unusable, untested on CI) (P1; Sonnet; ci.yml; after QWPT2, QWPT4b, QWPT6; user answered Q3, Q4 2026-11-21) CI step: build
       wire in the scratchy job, run `--wpt-th --jobs 4`, fail on regressions, write the areas table
       and its diff vs main into $GITHUB_STEP_SUMMARY. Measure and report the added minutes.
 
 === from TODO.txt: --- (no header)
-- [x] QHELP1 DONE be46ad9 #506 [S] (P1; USER 2026-11-21: "the help page is out of date, create a ticket for updating the help page with
+- [x] QHELP1 DONE 09e6b48 #506 [S] (P1; USER 2026-11-21: "the help page is out of date, create a ticket for updating the help page with
       our features"; Sonnet; src/help.html, src/tests) Bring `:help` (src/help.html, HELP_PAGE_HTML) up to date with what
       exists on main, and keep it there. Cover at least: the two modes (INPUT at start, Esc Esc -> NORMAL, `i` back; a
       click into a text field -> INPUT; the second Esc never reaches the page), the status bar (mode, URL, messages, where
@@ -8797,19 +8797,19 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       Later UI items (QSEARCH2/3, QKEYS3, QCOMP1/2/4) update help.html in their own PRs (the new tests force it).
 
 === from TODO.txt: --- (no header)
-- [x] QAREA-DOM DONE 7f42e48 #508 [M] (P1; Opus; docs only; after QWPT6) Triage the dom/* failures of the baseline by root
+- [x] QAREA-DOM DONE f9e272f #508 [M] (P1; Opus; docs only; after QWPT6) Triage the dom/* failures of the baseline by root
       cause (probe hints: tagName case, document.charset, createProcessingInstruction, Range type
       checks, replaceWith/splitText missing), file S fix items with target scores. Same pattern
       later: QAREA-IDL, QAREA-EL, QAREA-CSSOM, QAREA-VIEW, QAREA-ENC (single-byte encodings: one gap,
       ~6,800 subtests), QAREA-STREAMS.
 
 === from TODO.txt: --- (no header)
-- [x] QFLK9 DONE bc0008c #509 [S] (P3, from QFLK7 #496 and QSB2 #497; Sonnet) qy5_budget_clock_is_thread_cpu_time and
+- [x] QFLK9 DONE 3cc24dc #509 [S] (P3, from QFLK7 #496 and QSB2 #497; Sonnet) qy5_budget_clock_is_thread_cpu_time and
       qb3_callback_budget_is_much_shorter_than_load_budget fail in a full parallel run under load (pass alone): make them
       robust (relations with margin, or retry the measurement) without weakening what they prove.
 
 === from TODO.txt: --- (no header)
-- [x] QSEARCH2 DONE 670ed68 #512 [S] (P2, after QSEARCH1) `n`/`N` (S4, S6; KEYS.md T15-T17): next/previous with wrap and the
+- [x] QSEARCH2 DONE e054cba #512 [S] (P2, after QSEARCH1) `n`/`N` (S4, S6; KEYS.md T15-T17): next/previous with wrap and the
       status-bar message, bring the screen to the match (S4: centre when not fully visible,
       no scroll when visible, inner scroll containers too), query kept across navigations.
       Tests: wrap both ways, `[i/N]` text, an off-screen match ends up centred, a visible
@@ -8817,7 +8817,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       query on a new page.
 
 === from TODO.txt: --- (no header)
-- [x] QDOM4 DONE 9e3a264 #513 [S] (P1; Sonnet; js.rs Event + ETP.dispatchEvent; R65) Event flags per DOM 2.x: stop propagation, stop
+- [x] QDOM4 DONE 105af65 #513 [S] (P1; Sonnet; js.rs Event + ETP.dispatchEvent; R65) Event flags per DOM 2.x: stop propagation, stop
       immediate, canceled, initialized, dispatch flags. `cancelBubble` setter (true only), `returnValue` (get = !canceled,
       set false = preventDefault), `initEvent` is a no-op while dispatching and clears the stop/canceled flags,
       `composedPath()` empty after dispatch, flags cleared at the end of dispatch, setting cancelBubble before dispatch

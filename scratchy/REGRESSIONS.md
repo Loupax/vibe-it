@@ -4,7 +4,7 @@
 
 ### 1. How this was measured
 
-- Binary: `~/.cargo/bin/scratchy` and `~/.cargo/bin/wire` as installed from main (237a0bf, installed 17:09), copied
+- Binary: `~/.cargo/bin/scratchy` and `~/.cargo/bin/wire` as installed from main (3838650, installed 17:09), copied
   into the worktree. WPT: a private sparse checkout of the pin made with `tools/wpt-checkout.sh` (the shared
   /home/loupax/src/wpt has no `dom/`). I started my own wire on my own socket
   (`--no-cookies --mount http://web-platform.test:8000=CHECKOUT --mount-override /resources/testharnessreport.js=tools/wpt/testharnessreport.js`)

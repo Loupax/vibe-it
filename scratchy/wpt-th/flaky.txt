@@ -1,3 +1,3 @@
 # Files whose results differ between runs: first token = path, rest = the reason. They run and are printed, never compared.
 # QWPT6 baseline: four full runs (3 at --jobs 4, 1 at --jobs 12) gave identical results for all 3264 files, so this list is empty.
-dom/events/EventTarget-dispatchEvent.html harness ERROR 'Timeout while running cleanup' under load, also on main 237a0bf (3 of 24 parallel children; QEL1 2026-11-21); the virtual clock reaches the 10 s harness timeout before the load task's all_done check, cause not found
+dom/events/EventTarget-dispatchEvent.html harness ERROR 'Timeout while running cleanup' under load, also on main 3838650 (3 of 24 parallel children; QEL1 2026-11-21); the virtual clock reaches the 10 s harness timeout before the load task's all_done check, cause not found
