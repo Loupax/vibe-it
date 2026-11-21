@@ -1515,6 +1515,56 @@ images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom
     ~2-8 ms of frame work per second: find the throttle (pointer-move coalescing, frame pacing in the nested dwl, or
     the injector's roundtrips) and decide whether it is intended.
   - Not filed: QINC1n (see (3)).
+  QINC1k2 DONE (Opus, 2026-11-21; `images.rs` `canonical_svg_ids` / `decode_inline_svg` / `INLINE_SVG_CACHE`):
+  **the github.com box-update floor was inline-SVG rasterization, not the box engine.** A frame-pointer
+  `perf record -g` of the window recipe (`profiling` build with `-C force-frame-pointers=yes`; the earlier dwarf
+  profile could not unwind the main thread) put ~23 % of ALL samples under `incr_box::build_hooked` ->
+  `build_box_for_element_body` -> `images::resolve_inline_svg` -> `rasterize_svg` -> resvg pattern fill (tiny-skia
+  `highp::bicubic` 15.5 % self); temporary timers (removed) confirmed it: the builder (`build_children`) was 99.5 %
+  of `box_ms`, harvest / renumber / image-table work < 0.3 %. Cause: github.com's card backgrounds are inline
+  `<svg>` grids (`<pattern id="background-grid-pattern-_r_3d_">` + gradient, React `useId`) that the page REMOUNTS
+  ~50 times per run (7 per set), each mount with a new id and so new markup, and every box build of an inline
+  `<svg>` parsed and rasterized its serialized markup again. With the flag the grids are 956 x 647 / 896 / 1 315
+  (the engine's geometry: 350 rasterizations, 16.5 s per run, 34-73 ms each); flag off the page sized them
+  956 x 80 (289 rasterizations, 3.7 s) — the two modes give the page different geometry for those cards (see
+  QINC1k4 below), which is why only the flag paid 17 s. Fix (engine performance only, no style/box/layout change):
+  inline-SVG rasterizations go through `INLINE_SVG_CACHE` (key = serialized markup incl. the substituted
+  `currentColor`; 1 024 entries / 64 MB of markup + pixels, cleared when over; `inline_svg_cache` in the
+  perf-report memory list: 66 entries / 5.7 MB on github.com), and `canonical_svg_ids` first renames the
+  fragment's own ids to `scratchy-svg-id-N` in definition order (a bijection; the renamed markup is what gets
+  rendered; markup left unchanged when it has `<style>`, an id outside `[A-Za-z0-9_.:-]`, the prefix already, or an
+  id still mentioned after renaming `id="x"` and `#x` references inside tags). Rasterizations per github run:
+  350 -> 7 (flag) / 289 -> 5 (off). Boxes sharing identical markup now share one `Arc<DecodedImage>`.
+  **Window gate (`gate.sh perf 3 github`, release build of this branch, 1-min load 5.0-15.7 at the runs' start):**
+  | run | builds n / ms | forced n / ms | p95 | box ms | RSS MB |
+  |---|---|---|---|---|---|
+  | off 1 / 2 / 3 | 87 / 7 558, 87 / 7 601, 78 / 7 524 | 174 / 18 535, 175 / 18 564, 155 / 18 818 | 92 / 91 / 107 | - | 1 400 / 1 805 / 1 325 |
+  | INCR=1 1 / 2 / 3 | 112 / 2 287, 79 / 2 174, 118 / 2 379 | 295 / 8 265, 180 / 5 300, 282 / 8 552 | 22 / 23 / 23 | 867 / 675 / 886 | 1 471 / 1 217 / 1 515 |
+  vs #465: flag-on App builds 17.5-18.0 s -> **2.2-2.4 s (-69 % vs flag off, was +54 %)**, input p95 344-350 ->
+  **22-23 ms (off 91-107)**, box update 17.0-17.2 s -> 0.68-0.89 s per run (~2.5 ms per update, 339 updates);
+  flag off also improved (App builds 11.4-11.7 s -> 7.5-7.6 s, forced layouts no longer rasterize the grids
+  either). RSS: no growth (flag on 1 217-1 515 MB vs off 1 325-1 805). **Other pages, 1 interleaved round**
+  (builds ms off / INCR=1; p95 off / on): YouTube results 4 849 / 1 212 (p95 13 / 52, gPS 84.1 / 18.2 ms, this run
+  had 37 reads; #465 4.1-5.7), YouTube watch (playing) 11 761 / 1 310 (93 / 18, gPS 6.1 ms), Wikipedia 2 327 / 611
+  (both in the 24-25-build regime, not the 102-104 one of #465), bbc 784 / 202 (347 / 206), hover 203 / 127
+  (134 / 145): all within or better than #465's table (ytr's gPS median is above #465's in this single run under
+  load 5.9; its builds are -75 %). **Exactness:** `gate.sh check 1 github` twice: headless 0 mismatches; window
+  35 / 53 lines, all the known QINC1k1 `style.height` 642.0005 one except, in the FIRST window run only, 20 style
+  mismatches `slot after/before field width: ... Calc(.., (956.0, 312.0)) vs (956.0, 485.0)` on footer links and
+  carousel indicators (pseudo-element calc carrying a viewport-like pair; not reproduced in 2 more window check runs
+  of this binary, base binary 1 run: QINC1k1 only; this change touches no style code) -> QINC1k4. Fuzz harness
+  (`SCRATCHY_FUZZ_SEED` 0..6000 x 1 000, release): 0 mismatches. Full suite, WPT (333 / 293, no change).
+  Proposed:
+  - **QINC1k4 [S]** (P2, area incr-style; AFTER nothing) An intermittent window check-mode style mismatch on
+    github.com: `slot after field width: fresh Some(Calc(Sub(Sub(Pct(1.0), Px(0.0)), Px(0.0)), 14.0, 16.0,
+    (956.0, 312.0))) vs incremental ...(956.0, 485.0)` (footer `a.Primer_Brand__Link-module__Link--default`, 18 lines,
+    `why: ... full true`) and `slot before field width` (CarouselPagination indicator, 2 lines), seen in 1 of 3
+    window check runs (1-min load 14.4). The pair in the calc looks like the viewport (vw, vh) the calc was
+    resolved against: find which vh the pseudo slot captured, reproduce (a resize during a check run?), fix.
+  - **QINC1k5 [S]** (P2, area geom / incr; measure first) github.com's card grids get height 80 px (the page's own
+    measurement) with the flag off and 647-1 315 px with it: which is right? (R60 QINC1k (5) saw a similar flag-on /
+    flag-off geometry difference on social.loupax.com: forced layouts with vs without the window's decoded image
+    sizes.) Screenshots of the viewport are identical in both modes, the grids are lower on the page.
 - **QINC1l [S]** (P2, Sonnet; areas app + geom (one-line defaults) + NOTES.md; AFTER QINC1k + the user's OK) Flip the default:
   `SCRATCHY_INCR` defaults to 1; `SCRATCHY_INCR=0` = the old path; `cfg(test)` keeps comparing with the from-scratch path;
   NOTES.md section "Incremental style + layout engine" (data model, marks, kill switch, check mode).
