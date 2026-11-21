@@ -8783,3 +8783,9 @@ Item QINC1h2 (REGRESSIONS.md R60 section 15). `layout.rs`: `natural_width_impl` 
 > QCOMP1 [M] `COMPLETERS` table in config.rs (built-in sources only) and the GHOST SUGGESTION (C8, KEYS.md T45-T53) for command names and `:set` arguments: dimmed after the cursor in the status bar, Tab/Shift-Tab cycle (2+ matches) or select the only match, Enter runs typed + ghost, Right/End accept, Delete hides. Replaces `CommandCompletion`.
 
 **What changed:** new `src/completion.rs` (pure: `compute_ghost`, `Ghost`, `complete_command_names`, `complete_set_args`); `config.rs` gets `Source::Builtin`, `COMPLETERS`, `SPACE_AFTER_ARG`, `GHOST_FG`; `App.ghost` replaces `completion`; `App::command_line_key` (bare-key twin of `handle_command_line_key`) does the T45-T53 keys, the `/` line is untouched (no ghost). `StatusBar.ghost` is drawn dimmed after the text. `:go` has no row yet: QCOMP4 adds `("go", Source::Builtin(complete_history_urls))` to `COMPLETERS` (no space after a URL, so `go` stays out of `SPACE_AFTER_ARG`). help.html describes the keys. Tests in `src/tests/completion_tests.rs`; the old `command_completions_*` tests are replaced by them.
+
+## QSEARCH3: Enter clicks the current search match (agent item)
+
+> QSEARCH3 [S] Enter in normal mode with a current match does a real CLICK on the element holding the match (S7; KEYS.md T18-T20): a match spanning 2+ links warns and clicks nothing.
+
+**What changed:** `Enter` row in BINDINGS (`Action::ActivateMatch`, `App::activate_match`). `SearchChar`/`SearchMatch` now carry the DOM element of each char (`nodes`). The click goes through `click_activate` then the same link-follow as a mouse release (page handlers first, preventDefault cancels, buttons/labels work). Two or more distinct nearest `a[href]` ancestors: status `Match spans N links`, nothing clicked. New `dom::enclosing_link`. help.html documents Enter. Tests in search_tests.rs (qsearch3_*).

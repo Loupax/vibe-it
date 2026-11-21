@@ -79,6 +79,8 @@ pub(crate) const BINDINGS: &[Binding] = &[
     // QSEARCH2: next / previous match (vim's `n` / `N`).
     bind(Char("n"), Mods::Any, A::SearchNext),
     bind(Char("N"), Mods::Any, A::SearchPrev),
+    // QSEARCH3: Enter clicks the element holding the current match.
+    bind(Named(NamedKey::Enter), Mods::Any, A::ActivateMatch),
     bind(Char("i"), Mods::Any, A::EnterInputMode),
     bind(Char("h"), Mods::Any, A::HistoryBack),
     bind(Char("l"), Mods::Any, A::HistoryFront),

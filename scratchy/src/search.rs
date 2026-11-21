@@ -21,6 +21,8 @@ pub(crate) type Rect = (f32, f32, f32, f32);
 pub(crate) struct SearchChar {
     pub ch: char,
     pub rect: Option<Rect>,
+    /// The DOM element whose text this char is (0 = none: a synthetic space), for QSEARCH3's click.
+    pub node: usize,
 }
 
 /// One block of rendered text (a shaped paragraph line group): matches never cross lines.
@@ -51,7 +53,7 @@ impl SearchLine {
             chars: text
                 .chars()
                 .enumerate()
-                .map(|(i, ch)| SearchChar { ch, rect: Some((x + i as f32 * cw, y, cw, h)) })
+                .map(|(i, ch)| SearchChar { ch, rect: Some((x + i as f32 * cw, y, cw, h)), node: 0 })
                 .collect(),
         }
     }
@@ -69,6 +71,8 @@ pub(crate) struct SearchMatch {
     pub rects: Vec<Rect>,
     /// The scroll regions the match is inside, outermost first.
     pub regions: Vec<SearchRegion>,
+    /// The DOM element of every matched char, in order (0 = none), for QSEARCH3's click.
+    pub nodes: Vec<usize>,
 }
 
 /// The current scroll offset of `r` (clamped like every read site does).
@@ -195,7 +199,7 @@ pub(crate) fn find_matches(lines: &[SearchLine], query: &str) -> Vec<SearchMatch
         while i + q.len() <= n {
             if q.iter().enumerate().all(|(k, &qc)| chars_eq(line.chars[i + k].ch, qc, sensitive)) {
                 let end = i + q.len();
-                out.push(SearchMatch { line: li, start: i, end, rects: match_rects(&line.chars[i..end]), regions: line.regions.clone() });
+                out.push(SearchMatch { line: li, start: i, end, rects: match_rects(&line.chars[i..end]), regions: line.regions.clone(), nodes: line.chars[i..end].iter().map(|c| c.node).collect() });
                 i = end;
             } else {
                 i += 1;
@@ -251,18 +255,23 @@ pub(crate) fn last_above_in(matches: &[SearchMatch], top: f32, offsets: &HashMap
     matches.iter().rposition(|m| m.doc_top(offsets) < top)
 }
 
+/// One glyph of a buffer line: byte start, byte end, rect, hidden, DOM node.
+type GlyphSlot = (usize, usize, Rect, bool, usize);
+
 /// The text of one shaped paragraph as `SearchLine`s (one per buffer line), placed at `(ox, oy)`;
 /// `visibility: hidden` spans are masked.
-fn buffer_lines(entry: &std::sync::Mutex<crate::layout::ShapedParagraph>, ox: f32, oy: f32) -> Vec<SearchLine> {
+fn buffer_lines(entry: &std::sync::Mutex<crate::layout::ShapedParagraph>, ox: f32, oy: f32, fallback_node: usize) -> Vec<SearchLine> {
     let guard = entry.lock().unwrap_or_else(|e| e.into_inner());
-    let (buffer, _, _, _, hidden, _, _, _) = &*guard;
-    // Per buffer line: (glyph byte range, rect, hidden) from every visual line of that line.
-    let mut per_line: Vec<Vec<(usize, usize, Rect, bool)>> = vec![Vec::new(); buffer.lines.len()];
+    let (buffer, _, _, _, hidden, _, _, hrefs) = &*guard;
+    // Per buffer line: (glyph byte start, end, rect, hidden, node) from every visual line of that line.
+    let mut per_line: Vec<Vec<GlyphSlot>> = vec![Vec::new(); buffer.lines.len()];
     for run in buffer.layout_runs() {
         let Some(slot) = per_line.get_mut(run.line_i) else { continue };
         for g in run.glyphs {
             let h = hidden.get(g.metadata).copied().unwrap_or(false);
-            slot.push((g.start, g.end, (ox + g.x, oy + run.line_top, g.w, run.line_height), h));
+            let node = hrefs.get(g.metadata).map_or(0, |t| t.1);
+            let node = if node != 0 { node } else { fallback_node };
+            slot.push((g.start, g.end, (ox + g.x, oy + run.line_top, g.w, run.line_height), h, node));
         }
     }
     let mut out = Vec::new();
@@ -272,9 +281,9 @@ fn buffer_lines(entry: &std::sync::Mutex<crate::layout::ShapedParagraph>, ox: f3
         for (bi, ch) in text.char_indices() {
             let g = glyphs.iter().find(|g| g.0 <= bi && bi < g.1.max(g.0 + 1));
             line.chars.push(match g {
-                Some(&(_, _, _, true)) => SearchChar { ch: HIDDEN_CHAR, rect: None },
-                Some(&(_, _, r, false)) => SearchChar { ch, rect: Some(r) },
-                None => SearchChar { ch, rect: None },
+                Some(&(_, _, _, true, _)) => SearchChar { ch: HIDDEN_CHAR, rect: None, node: 0 },
+                Some(&(_, _, r, false, n)) => SearchChar { ch, rect: Some(r), node: n },
+                None => SearchChar { ch, rect: None, node: fallback_node },
             });
         }
         out.push(line);
@@ -309,7 +318,7 @@ fn collect_in(laid: &Laid, cache: &ShapeCache, regions: &mut Vec<SearchRegion>, 
                 let s = &laid.style;
                 let ox = laid.x + s.border_left() + s.padding.left.px();
                 let oy = laid.y + s.border_top() + s.padding.top.px();
-                out.extend(buffer_lines(entry, ox, oy));
+                out.extend(buffer_lines(entry, ox, oy, laid.style.node));
             }
         }
         LaidContent::MixedInline(items) => {
@@ -321,11 +330,11 @@ fn collect_in(laid: &Laid, cache: &ShapeCache, regions: &mut Vec<SearchRegion>, 
                 match item {
                     MixedPositioned::Word { id, x, y, .. } => {
                         let Some(entry) = cache.get(id) else { continue };
-                        for l in buffer_lines(entry, *x, *y) {
+                        for l in buffer_lines(entry, *x, *y, laid.style.node) {
                             let prev_ws = joined.chars.last().is_none_or(|c| c.ch.is_whitespace());
                             let next_ws = l.chars.first().is_none_or(|c| c.ch.is_whitespace());
                             if !prev_ws && !next_ws {
-                                joined.chars.push(SearchChar { ch: ' ', rect: None });
+                                joined.chars.push(SearchChar { ch: ' ', rect: None, node: 0 });
                             }
                             joined.chars.extend(l.chars);
                         }
