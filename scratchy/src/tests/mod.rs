@@ -56,6 +56,7 @@ mod incr_box_tests;
 mod incr_layout_tests;
 mod incr_frame_tests;
 mod stash_tests;
+mod forget_tests;
 #[cfg(feature = "memprof")]
 mod memprof_tests;
 

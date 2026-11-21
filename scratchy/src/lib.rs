@@ -134,6 +134,7 @@ mod link_css;
 // QSTASH1: the localStorage state directory (STASH.md); QSTASH2: localStorage over it.
 #[cfg_attr(not(test), allow(dead_code))] // clear/forget: `--forget-site` is a later QSTASH item
 mod stash;
+mod forget;
 mod js_storage;
 
 pub use dom::*;
@@ -180,6 +181,9 @@ pub fn run() {
     }
     if raw_args.first().map(String::as_str) == Some("--perf-corpus") {
         std::process::exit(perf::perf_corpus_main(&raw_args[1..]));
+    }
+    if raw_args.iter().any(|a| a == "--forget-site") {
+        std::process::exit(forget::main(&raw_args)); // QSTASH3
     }
     if raw_args.first().map(String::as_str) == Some("--wpt") {
         std::process::exit(wpt::main(&raw_args[1..]));
