@@ -60,6 +60,8 @@ fn keys_app(html: &str, script: &str) -> Option<App> {
     let mut app = App::new_static(doc.clone(), event_loop.create_proxy(), None);
     app.base_url = Some(Url::parse("https://e.org/page").unwrap());
     app.js = run_page_scripts(&doc, &[src(script)], app.base_url.as_ref());
+    // These tests are about input mode (QKEYS5: a fresh App starts in NORMAL).
+    app.key_mode = KeyMode::Input;
     Some(app)
 }
 
@@ -76,10 +78,35 @@ fn tap(app: &mut App, key: &Key, t: Instant) {
 const LOG_SCRIPT: &str = "window.L=[]; for (const k of ['keydown','keyup']) document.addEventListener(k, function(e){ L.push(k[3]+':'+e.key); });";
 
 #[test]
+fn qkeys5_fresh_app_starts_in_normal_and_j_scrolls() {
+    let Some(mut app) = keys_app("<p>x</p>", LOG_SCRIPT) else { return };
+    // keys_app forces INPUT for the older tests; build the real default here.
+    app.key_mode = crate::config::START_MODE;
+    assert_eq!(crate::config::START_MODE, KeyMode::Normal, "QKEYS5: the default start mode");
+    let t0 = Instant::now();
+    tap(&mut app, &chr("j"), t0);
+    assert_eq!(app.scroll_offset, crate::config::SCROLL_LINE_PX);
+    assert_eq!(log(&app), "", "the page sees nothing in NORMAL");
+}
+
+#[test]
+fn qkeys5_input_start_mode_still_works() {
+    // START_MODE = Input is the old behaviour: keys reach the page, Esc Esc enters NORMAL.
+    let Some(mut app) = keys_app("<p>x</p>", LOG_SCRIPT) else { return };
+    app.key_mode = KeyMode::Input;
+    let t0 = Instant::now();
+    tap(&mut app, &chr("j"), t0);
+    assert_eq!(log(&app), "d:j|u:j");
+    tap(&mut app, &esc(), ms(t0, 10));
+    tap(&mut app, &esc(), ms(t0, 60));
+    assert_eq!(app.key_mode, KeyMode::Normal);
+}
+
+#[test]
 fn keys_modes_esc_esc_enters_page_sees_first_esc_only() {
     let Some(mut app) = keys_app("<p>x</p>", LOG_SCRIPT) else { return };
     let t0 = Instant::now();
-    assert_eq!(app.key_mode, KeyMode::Input, "D4: starts in input mode");
+    assert_eq!(app.key_mode, KeyMode::Input, "set by keys_app");
     tap(&mut app, &esc(), t0);
     assert_eq!(app.key_mode, KeyMode::Input);
     tap(&mut app, &esc(), ms(t0, 100));

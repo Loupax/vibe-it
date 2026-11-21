@@ -31,7 +31,8 @@ Two short-lived helper states hold the timing rules: **ESC1** (in INPUT, one Esc
 waiting for a second) and **G** (in NORMAL, one `g` seen, waiting for a second). The
 status bar shows their parent mode. *(Planned, QREG1: a third, **Y**, one `y` seen.)*
 
-- scratchy **starts in INPUT** (for now).
+- scratchy **starts in NORMAL** (user, 2026-11-21, QKEYS5; D4 said "starts in input mode (for now)"). The
+  `START_MODE` knob in `src/config.rs` sets it; a click into a text control still switches to INPUT.
 - **Sticky** means a mode lasts until a row below changes it. In particular a
   navigation never changes the mode (`h h h` in NORMAL walks back through history).
 - The mouse always goes to the page, in every mode.
