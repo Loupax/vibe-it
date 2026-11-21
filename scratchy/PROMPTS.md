@@ -8753,3 +8753,9 @@ Item QINC1h2 (REGRESSIONS.md R60 section 15). `layout.rs`: `natural_width_impl` 
 > QHELP1 [S] (user: "the help page is out of date") Bring `:help` (src/help.html) up to date with what is on main; add a test that every BINDINGS key appears in help.html.
 
 **What changed:** `src/help.html` rewritten: modes, status bar, Normal-mode keys, search, command line and paste, scrollbars, what is kept between runs; `:set vim`/`novim` now say they switch NORMAL/INPUT. New test `help_page_documents_every_binding` next to `help_page_documents_every_command`. Claims checked against code: paste works in the `:`/`/` line only, the history file is written but not read back, scrolling to a match is not built yet.
+
+## QAREA-DOM: dom/* failures by root cause (agent item)
+
+> QAREA-DOM [M] (P1; Opus; docs only; after QWPT6) Triage the dom/* failures of the baseline by root cause (probe hints: tagName case, document.charset, createProcessingInstruction, Range type checks, replaceWith/splitText missing), file S fix items with target scores. Same pattern later: QAREA-IDL, QAREA-EL, QAREA-CSSOM, QAREA-VIEW, QAREA-ENC (single-byte encodings: one gap, ~6,800 subtests), QAREA-STREAMS.
+
+**What changed:** docs only. New REGRESSIONS.md section R65: every dom/* URL of the subset re-run with `--wpt-th-one` against a private wire (reproduces the baseline exactly), failure messages classified into 19 root causes, ranked by projected area-score gain per unit of work, with proposed items QDOM1-QDOM19 (16 S, 3 M) verbatim, the parts that belong elsewhere (testdriver/QWPT7, Observable, OpaqueRange, selectors, Selection, iframes/realms, a 404-script bug), and two tooling items (QWPT6b: the subset filter misses HTML testdriver users; QWPT6c: dom timeout=long files).
