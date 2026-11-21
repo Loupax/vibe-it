@@ -2577,7 +2577,8 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     var C = { mousemove: MouseEvent, mouseenter: MouseEvent, mouseleave: MouseEvent, pointermove: PE, pointerover: PE, pointerout: PE,
       pointerenter: PE, pointerleave: PE, click: MouseEvent, mousedown: MouseEvent, mouseup: MouseEvent, keydown: KeyboardEvent, keypress: KeyboardEvent,
       keyup: KeyboardEvent, mouseover: MouseEvent, mouseout: MouseEvent, focus: FocusEvent, blur: FocusEvent, focusin: FocusEvent, focusout: FocusEvent,
-      animationstart: AnimationEvent, animationend: AnimationEvent, animationiteration: AnimationEvent, animationcancel: AnimationEvent }[type] || Event;
+      animationstart: AnimationEvent, animationend: AnimationEvent, animationiteration: AnimationEvent, animationcancel: AnimationEvent,
+      beforeinput: g.InputEvent, input: g.InputEvent }[type] || Event;
     if (type === '__dialogclose') { t.close(init && init.rv !== undefined ? init.rv : undefined); return true; }
     if (type === 'submit') C = SubmitEvent;
     if (init && init.submitterId !== undefined) init.submitter = wrap(init.submitterId);
