@@ -38,16 +38,10 @@ CONFORMANCE (R64 plan, merged #474; user accepted all R64 s7 recommendations 202
 Order: QWPT2 -> QWPT3 -> QWPT4a -> QWPT4b -> QWPT5/QWPT6, with QMAPI1 and QREC1 in parallel (other
 crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details: REGRESSIONS.md R64.
 
-- [ ] [WIP] QWPT4b [M] (P1; Sonnet; src/wpt_th.rs; R64 2.3, 2.5, 3.1; after QWPT4a) Runner parent.
-      `scratchy --wpt-th <checkout> [--jobs N] [--update] [--area A]`: starts a private wire with the
-      mount (own socket, never /run/user/1000/wire.sock; kills only its PID), pool of children, 30 s
-      real-time cap per child (kill own PID -> TIMEOUT), reads wpt-th/subset.txt, writes/compares
-      wpt-th/expected/<area>.txt (format R64 2.5), honours wpt-th/flaky.txt, writes wpt-th/areas.txt.
-      Exit 1 on REGRESSION/UNRECORDED/CHANGED. Worker variants listed as NOT-RUN.
-- [ ] QWPT5 [S] (P1; Sonnet; ci.yml; after QWPT2, QWPT4b, QWPT6; user answered Q3, Q4 2026-11-21) CI step: build
+- [ ] QWPT5 [S] (NOTE from #499: pass `--wire wire/target/release/wire`; the runner re-execs under systemd-run unless `--no-scope`, falls back with one line when unusable, untested on CI) (P1; Sonnet; ci.yml; after QWPT2, QWPT4b, QWPT6; user answered Q3, Q4 2026-11-21) CI step: build
       wire in the scratchy job, run `--wpt-th --jobs 4`, fail on regressions, write the areas table
       and its diff vs main into $GITHUB_STEP_SUMMARY. Measure and report the added minutes.
-- [ ] QWPT6 [S] (P1; Sonnet; wpt-th/; after QWPT4b) Phase-1 subset and baseline: generate
+- [ ] [WIP] QWPT6 [S] (P1; Sonnet; wpt-th/; after QWPT4b) Phase-1 subset and baseline: generate
       wpt-th/subset.txt from tools/wpt-dirs.txt + the WPT manifest of the pin (skip legacy-mb encoding
       variants and timeout=long files: nightly), run 3 times, put files whose results differ into
       flaky.txt with a reason, record expectations, commit areas.txt. Report the table in the PR.
@@ -121,13 +115,20 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 ========================================================================
 RELIABILITY (flaky tests undermine CI, which the conformance plan relies on; crashes)
 ========================================================================
-- [ ] [WIP] QFLK7 [S] (P2, from QFLK4 #477; Sonnet) The q30d_* App tests call `EventLoop::build()` and `return` on Err; winit
-      allows one loop per process, so in a parallel run most of their bodies never execute (QFLK4 found a real bug hiding
-      this way). Build the loop once in a shared helper (or make `App::new_static` not need a real loop), then prove every
-      such test really executes (a counter or a failing assertion check) and passes alone and in the full suite.
 - [ ] QFLK6b [S] (P3, from QFLK6 #476; Sonnet) incr_box and incr_layout `doc_key` use `node_id(doc)` (a reusable address);
       `base_ver` hides it today. Key them by document identity like WINDOW_IMAGES, with a test that a reused address does
       not serve a stale kept tree.
+- [ ] [WIP] QFORM1 [S] (P2, from QFLK7 #496; Sonnet; js_dom.rs FP.requestSubmit, forms submit path) form.requestSubmit() and a
+      submit-button click dispatch a plain Event; make it a SubmitEvent with `submitter`. Then un-ignore
+      q30e_click_submit_event_preventdefault_requestsubmit_vs_submit_and_history.
+- [ ] QHIST1 [S] (P2, from QFLK7 #496; Sonnet; globals_prelude.js history go()) A second same-document traversal before
+      the first popstate task runs hits a stale `idx` in `go()`: it returns false and the App reloads the page (fast double
+      h/l loses state). Fix, then un-ignore qy48_two_traversals_in_one_turn_stay_same_document.
+- [ ] [WIP] QFLK8 [S] (P2, from QFLK7 #496; Sonnet; ci.yml) Run a headless compositor (weston --backend=headless, or cage) in the
+      scratchy CI job so the 54 App-level tests run on CI, then set SCRATCHY_REQUIRE_DISPLAY=1 there. Measure added minutes.
+- [ ] QFLK9 [S] (P3, from QFLK7 #496 and QSB2 #497; Sonnet) qy5_budget_clock_is_thread_cpu_time and
+      qb3_callback_budget_is_much_shorter_than_load_budget fail in a full parallel run under load (pass alone): make them
+      robust (relations with margin, or retry the measurement) without weakening what they prove.
 - [ ] QWIKI1 [S] (P3, seen by QSB1 #483; Opus, measure only) en.wikipedia United_States cold load blocked the main thread
       7-40 s in own-wire runs (gap_max_ms up to 38808 on the first redraw, JS forced layouts ~1 s). Reproduce on a quiet
       machine with --perf-report; if real, file the cause; do not fix site-specifically.
@@ -213,8 +214,6 @@ QSTASH — persistent web storage (user design session 2026-11-19; full design i
 
 
 
-- [ ] [WIP] QSB2 [S] (P3, from QSB1 #483; Sonnet) Scrollbar polish: holding the mouse on the track repeats page scroll
-      (delay then repeat, like other browsers); thumb hover/active styling; horizontal scrollbars (window and regions).
 
 
 
@@ -301,32 +300,16 @@ QKEYS — input mode / normal mode, Esc Esc, `i`, status bar (user design sessio
 
 - [ ] QKEYS1b [S] (P3, from QKEYS1 #492; Sonnet) The status bar's URL is empty for a file/stdin start page (empty
       history): show `App::url` / `base_url` then. Test: a file: start page shows its URL in the bar.
-- [ ] [WIP] QKEYS2 [M] (P2, after QKEYS1) Input mode / normal mode, Esc Esc and `i` (KEYS.md T1-T21,
-      T29-T34; D1, D2, D4-D7, D9, P2-P4). A pure, unit-testable `resolve_esc_esc(state, key, repeat, now) -> (state,
-      enter)` next to `resolve_pending_g` (timestamps passed in, no clock inside). Key
-      routing in the `WindowEvent::KeyboardInput` branch: input mode = today's order
-      (js_key, select popup, select, text control, media, Tab) with bindings never
-      consulted; normal mode = no js_key, straight to the bindings. Start in input mode;
-      a click into a text control/select switches to input mode, a navigation keeps the mode. Tests:
-      Esc Esc within 300 ms enters, slower / another key between / a repeat does not; the
-      second Esc never reaches the page; a page that cancels the first Esc still lets Esc
-      Esc through; in normal mode a page keydown listener sees nothing and `j` scrolls;
-      in input mode `j`/`l` reach the page and scroll/navigate nothing; `i` leaves (D6);
-      Esc in normal mode does NOT leave; a navigation keeps normal mode. Real checks (tools/nest.sh + tools/inject): YouTube
-      watch `l` seeks without going forward in history; social.loupax.com (vim.js) Esc Esc
-      then `:` opens scratchy's command line.
 
+- [ ] QSB2b [M] (P3, from QSB2 #497; Sonnet) Horizontal scrollbars (window and overflow-x regions): ScrollInfo gains
+      horizontal content/client widths and a per-region x scroll; the window bar sits above the status bar and the page
+      viewport loses TRACK_W of height while it shows; scrollbar.rs axis-generic geometry/hit-test/drag (SbDrag/SbHold get an
+      axis); wheel and shift-wheel stay consistent. Tests + nest/grim check.
 - [ ] QKEYS3 [S] (P3, after QKEYS2) Removals (P5): `:set vim`/`:set novim`, `vim_enabled`,
       SIGUSR1/ToggleVimMode and signal-hook (if nothing else uses it), the `vim` key in
       QCFG1's list; `:help` and NOTES.md describe the two modes and Esc Esc instead. Keep
       every existing test that still applies; rewrite the ones that tested the toggle.
 
-- [ ] [WIP] QKEYS4 [S] (P3, after QKEYS2) Input-mode default scroll keys (P6): arrows,
-      PageUp/PageDown, Space/Shift-Space, after the page's keydown and only when nothing
-      focused owns the key. NOTE 2026-11-20: QYSCR1 (#437) already added these keys to
-      `resolve_binding`; after QKEYS2 they must keep working in input mode, as UA defaults,
-      not as normal-mode bindings. The item may shrink to tests + the move. Tests: each key scrolls; a page that cancels it stops it; a
-      focused text control keeps Space and the arrows.
 
 ========================================================================
 QSEARCH — `/` search, n/N, Enter (user design session 2026-11-20; needs QKEYS2)
@@ -367,7 +350,7 @@ QSEARCH — `/` search, n/N, Enter (user design session 2026-11-20; needs QKEYS2
   Not now (each only on request): `?` backward search, `*`/`#`, regex, incremental
   highlighting while typing, search in iframes or text controls.
 
-- [ ] QSEARCH1 [M] (from QPASTE1 #482: the SEARCH key handler must reuse `is_paste_chord` and the command-line paste path, with a test) (P2, after QKEYS2) Find + highlight (S1, S2, S3, S5; KEYS.md T7, T8, T22-T25, T31): SEARCH mode in the
+- [ ] [WIP] QSEARCH1 [M] (from QPASTE1 #482: the SEARCH key handler must reuse `is_paste_chord` and the command-line paste path, with a test) (P2, after QKEYS2) Find + highlight (S1, S2, S3, S5; KEYS.md T7, T8, T22-T25, T31): SEARCH mode in the
       status bar, a pure match finder over the layout's text runs (input: laid-out runs +
       query; output: ordered match rects; unit-testable without a window), smartcase,
       inline-spanning matches, highlight painting, recompute after relayout, Esc in normal
