@@ -111,6 +111,33 @@ fn qinc1i_forced_layouts_see_the_windows_images() {
 }
 
 #[test]
+fn qflk6_a_new_document_never_sees_a_dropped_documents_images() {
+    // QFLK6: the window's images were keyed by the document node's address, which a new document can
+    // reuse once the old one is dropped (the flake). Hand the images over for a document, drop it, then
+    // create documents (the allocator hands the freed node's slot out again): none may see the images.
+    let was = crate::incr_engine::set_forced_seam(Some(true));
+    let mut images = HashMap::new();
+    images.insert(
+        "pic.png".to_string(),
+        Arc::new(DecodedImage { width: 40, height: 30, pixels: vec![TextColor::rgb(1, 2, 3); 1200], svg: None, mask: None }),
+    );
+    let old = parse_html("<html><body></body></html>");
+    crate::incr_engine::sync_window_images(&old, &images);
+    assert_eq!(crate::incr_engine::window_images(&old).len(), 1);
+    let addr = crate::dom::node_id(&old);
+    drop(old);
+    let mut docs = Vec::new();
+    let mut reused = false;
+    for _ in 0..200 {
+        let d = parse_html("<html><body></body></html>");
+        reused |= crate::dom::node_id(&d) == addr;
+        assert!(crate::incr_engine::window_images(&d).is_empty(), "a new document has no window images (address reused: {reused})");
+        docs.push(d);
+    }
+    crate::incr_engine::set_forced_seam(was);
+}
+
+#[test]
 fn qinc1k5_card_height_from_the_windows_image() {
     // QINC1k5 (R60 "QINC1k5 DONE"): github.com's BackgroundGrid sizes its <svg> from the card's
     // getBoundingClientRect(); the card's height comes from an <img> without width/height attributes

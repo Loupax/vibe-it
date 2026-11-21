@@ -30,8 +30,10 @@ use std::sync::Arc;
 type Images = HashMap<String, Arc<DecodedImage>>;
 
 thread_local! {
-    /// The window's decoded images as of its last build: (document key, images).
-    static WINDOW_IMAGES: RefCell<(usize, Rc<Images>)> = RefCell::new((0, Rc::new(HashMap::new())));
+    /// The window's decoded images as of its last build: (the document, images). QFLK6: the document is
+    /// a weak handle compared by identity. A bare node address is not an identity (a new document can
+    /// reuse a dropped one's address); the weak handle keeps the allocation, so no new node can take it.
+    static WINDOW_IMAGES: RefCell<(Option<WeakHandle>, Rc<Images>)> = RefCell::new((None, Rc::new(HashMap::new())));
     /// Test seam: `Some` forces script forced layouts through the engine (or not).
     #[cfg(test)]
     static SEAM: Cell<Option<bool>> = const { Cell::new(None) };
@@ -62,18 +64,22 @@ pub(crate) fn set_forced_seam(on: Option<bool>) -> Option<bool> {
     SEAM.with(|s| s.replace(on))
 }
 
+/// Whether `w` is `doc` (and still alive).
+fn is_doc(w: &Option<WeakHandle>, doc: &Handle) -> bool {
+    w.as_ref().and_then(|w| w.upgrade()).is_some_and(|d| Rc::ptr_eq(&d, doc))
+}
+
 /// The App's image cache, handed over at each of its builds of `doc` (a no-op unless the engine path
 /// is on; the map is copied only when an entry was added, replaced or removed).
 pub(crate) fn sync_window_images(doc: &Handle, cache: &Images) {
     if !forced_on() {
         return;
     }
-    let key = node_id(doc);
     WINDOW_IMAGES.with(|w| {
         let mut w = w.borrow_mut();
-        let same = w.0 == key && w.1.len() == cache.len() && cache.iter().all(|(k, v)| w.1.get(k).is_some_and(|x| Arc::ptr_eq(x, v)));
+        let same = is_doc(&w.0, doc) && w.1.len() == cache.len() && cache.iter().all(|(k, v)| w.1.get(k).is_some_and(|x| Arc::ptr_eq(x, v)));
         if !same {
-            *w = (key, Rc::new(cache.clone()));
+            *w = (Some(Rc::downgrade(doc)), Rc::new(cache.clone()));
         }
     });
 }
@@ -85,10 +91,9 @@ pub(crate) fn note_window_image(doc: &Handle, cache: &Images, src: &str, image: 
     if !forced_on() {
         return;
     }
-    let key = node_id(doc);
     let known = WINDOW_IMAGES.with(|w| {
         let mut w = w.borrow_mut();
-        if w.0 != key {
+        if !is_doc(&w.0, doc) {
             return false;
         }
         Rc::make_mut(&mut w.1).insert(src.to_string(), image.clone());
@@ -106,7 +111,7 @@ pub(crate) fn note_window_image(doc: &Handle, cache: &Images, src: &str, image: 
 pub(crate) fn window_images(doc: &Handle) -> Rc<Images> {
     WINDOW_IMAGES.with(|w| {
         let w = w.borrow();
-        if w.0 == node_id(doc) { w.1.clone() } else { Rc::new(HashMap::new()) }
+        if is_doc(&w.0, doc) { w.1.clone() } else { Rc::new(HashMap::new()) }
     })
 }
 
