@@ -76,3 +76,8 @@ delete it after your PR merges. Small notes/scripts in the scratchpad are fine; 
 Stage files BY NAME (`git add path/to/file ...`), never `git add -A` / `git add .` / `git commit -a`. Before every commit run
 `git status --short` and `git diff --cached --stat` and check that every staged path is source, tests or docs for your item.
 Screenshots, logs, binaries, sockets, token files and anything under .qwork/, target/ or your scratchpad are never committed.
+
+## Never touch the user's state dir (2026-11-21: gate/live window runs wrote localStorage + history into ~/.local/state/scratchy)
+EVERY scratchy process you start (window, nested dwl, headless, gate scripts) gets its own state dir:
+`--state-dir <worktree>/.qwork/state` (or `SCRATCHY_STATE_DIR=...`). Never run scratchy without it. Never read, copy or
+write ~/.local/state/scratchy (or $XDG_STATE_HOME/scratchy): it holds the user's localStorage, cookies and history.
