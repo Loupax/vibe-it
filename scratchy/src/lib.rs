@@ -172,7 +172,12 @@ pub(crate) use js_net::{NetScheduler, WireExecutor};
 /// NOTES.md/TODO.txt — long agreed worth doing, not done until now).
 pub fn run() {
     // Headless WPT reftest runner: no window, no event loop.
-    let raw_args: Vec<String> = env::args().skip(1).collect();
+    let mut raw_args: Vec<String> = env::args().skip(1).collect();
+    // QREC2: `--deterministic[=EPOCH_MS]` (report modes only), before any engine exists.
+    if let Err(e) = js::take_deterministic_flag(&mut raw_args) {
+        diag!("scratchy: {e}");
+        std::process::exit(2);
+    }
     // QY39b: `--user-agent <string>` / SCRATCHY_USER_AGENT, validated before anything runs.
     init_from_process(&raw_args);
     perf::init_from_process(&raw_args);
