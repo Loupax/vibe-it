@@ -118,7 +118,8 @@ tools/incr-gate/ holds the durable recipes the QINC1 gates use (the R55 input sc
   flock /tmp/scratchy-perf.lock, a `pre` screenshot before any input and an `end` one after it.
   hover.html is a script-free, hover-heavy local page (App frames without forced layouts).
   shotdiff.py OUT perf [pre|end] compares the flag-off / flag-on screenshots (next off run = noise floor).
-  abs-drift.html: QINC1k's minimised check-mode mismatch (run headless with SCRATCHY_INCR=1 SCRATCHY_INCR_CHECK=1).
+  abs-drift.html: QINC1k's minimised check-mode mismatch (run headless with SCRATCHY_INCR=1 SCRATCHY_INCR_CHECK=1);
+  0 mismatches since QINC1k1 (was 2). fuzz-width-504-512.txt: an unrelated fuzz-found mismatch (proposed new item, see R60 QINC1k1).
   img-geom.html (+ img-400x300.png): QINC1k5's script-geometry probes for an <img> without size
   attributes (social.loupax.com's vim.js gutter zone, github.com's card grid + ResizeObserver); no input:
   `run.sh window off|incr imggeom TAG`, then `grep 'img-geom:' $OUT/TAG.log`. The same file in

@@ -486,7 +486,7 @@ further (related videos move with it). Home: logged out with history off YouTube
 - QYSCR1c [S]: DONE (same PR): `paint::hit_test_scroll_chain`; a tick goes to the first region under the cursor that can move, then the page. Keys always target the viewport (no focused scroll region in scratchy). Absolutely positioned regions are still not wheel targets.
 - QYSCR1d [S]: WPT overflow-body-propagation-012 (body clips its own overflow when `html{overflow:hidden}` takes the viewport).
 
-## R60: QINC1 design: one incremental style + layout engine for App frames AND script forced layouts. Persistent per-element styles with a match cache, Blink/Stylo-style invalidation sets and early cut-off; a box tree kept between layouts and rebuilt per container; the last laid tree reused as the fragment cache (a clean box is moved, not re-measured; a dirty box is re-measured at its cached constraints and the change goes up only while the parent-visible result changes). Measured first (throwaway probe): between two consecutive forced layouts the median page restyles 3-33 elements of 261-1 128 styled ones (1-5 %), and touches 1-6 % of the boxes; today every one of them redoes 100 %. Projected: YouTube results `getPlayerSize` 54-80 ms -> ~2-5 ms (preview job 685-1 137 ms -> ~150-220 ms), YouTube watch / Wikipedia App builds 38-90 ms -> ~2-6 ms each, and a frame after a forced layout costs ~0. Size: XL (14 items, 4 of them L), landed in shadow mode first, then behind `SCRATCHY_INCR=1`, then flipped, then the special cases deleted. RECOMMENDED; supersedes R59/QY54b3a-f (Opus, 2026-11-20, design only, docs only) — OPEN: proposed QINC1a-QINC1m (section 15), open questions (section 16); QINC1k gate (2026-11-21): NO-GO for the flip until QINC1k1 + QINC1k2 (section 15, QINC1k entry)
+## R60: QINC1 design: one incremental style + layout engine for App frames AND script forced layouts. Persistent per-element styles with a match cache, Blink/Stylo-style invalidation sets and early cut-off; a box tree kept between layouts and rebuilt per container; the last laid tree reused as the fragment cache (a clean box is moved, not re-measured; a dirty box is re-measured at its cached constraints and the change goes up only while the parent-visible result changes). Measured first (throwaway probe): between two consecutive forced layouts the median page restyles 3-33 elements of 261-1 128 styled ones (1-5 %), and touches 1-6 % of the boxes; today every one of them redoes 100 %. Projected: YouTube results `getPlayerSize` 54-80 ms -> ~2-5 ms (preview job 685-1 137 ms -> ~150-220 ms), YouTube watch / Wikipedia App builds 38-90 ms -> ~2-6 ms each, and a frame after a forced layout costs ~0. Size: XL (14 items, 4 of them L), landed in shadow mode first, then behind `SCRATCHY_INCR=1`, then flipped, then the special cases deleted. RECOMMENDED; supersedes R59/QY54b3a-f (Opus, 2026-11-20, design only, docs only) — OPEN: proposed QINC1a-QINC1m (section 15), open questions (section 16); QINC1k gate (2026-11-21): NO-GO for the flip until QINC1k1 + QINC1k2 (section 15, QINC1k entry); QINC1k1 done 2026-11-21 (y translation invariance)
 
 Inputs: R43 sections 4/8 (phase split, 84 % of styles reusable), R47 (hover restyles), R50 (QYTC1a/b/d), R55 (App builds per run:
 Wikipedia 104 / 9.4 s, YouTube watch 268 / 10.1 s), R57 (main-thread stalls), R58 (results `getPlayerSize`: full layout,
@@ -1501,6 +1501,35 @@ images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom
     (the rect already compares that way; the engine's value is the more exact one), or sum block content heights
     relative to `content_y`. Test: the fixture as a check-mode test (0 mismatches), fuzz seeds with fractional row
     heights at y > 4096. Gate: `gate.sh check 3 github` 0 mismatches.
+    QINC1k1 DONE (Opus, 2026-11-21; `layout.rs` content heights + `Ck::y_sensitive`, `incr_layout.rs` `try_hit`,
+    counter `incr.miss_y`): **translation invariance in y, plus an engine guard where layout itself is not
+    invariant.** (a) The auto content height is now summed RELATIVE to the content box (`ry`, advanced by the same
+    deltas as `cursor_y`, which still places the children unchanged) in the block arm of `measure_inner`,
+    `measure_table`, `measure_grid` and `measure_flex` (row and column return their items' bottom edge relative to
+    `content_y`; only `column-reverse` still measures from the laid boxes); mixed inline content already was
+    relative. From-scratch output changes only in the last bits of those heights. (b) Floats stay in document space
+    (`Floats`), so a BFC root holding floats, and a flow position taken from a float (clearance, float avoidance),
+    are not invariant: such a box records `Ck::y_sensitive` (via the `layout::Y_SENS` counter, which a cache hit on
+    a y-sensitive box bumps too, so its ancestors inherit it) and `try_hit` reuses it only at the same y (else
+    `miss_y`, counted in `miss_key` too), the y twin of QINC1h1's `x_sensitive`. The Q49 float-hoist re-lay keeps its
+    relative start. Not chosen: an `EPS` compare of resolved-length style fields (would hide the drift, not remove
+    it; geometry drift of the same size already passes `EPS`, so (a) is the cheaper exact fix).
+    Results (release build of this branch; main = ~/.cargo/bin/scratchy of 0bbbd0d copied aside): `abs-drift.html`
+    headless check 2 mismatches -> 0 (`layout_shifted` 2 -> 3: the engine no longer restarts after a mismatch);
+    `gate.sh check 3 github` **0 mismatches in 6 runs** (3 window + 3 headless; control run of the main binary in the same series: 13 in its window run, as in QINC1k);
+    `gate.sh check 1` ytr ytw wiki bbc social hover: 0 mismatches in 12 runs; `miss_y` = 0 on all 7 pages (no
+    reuse lost: github headless 9 488 hits / 4 058 shifted per run, ytr 1 914, ytw 2 509, Wikipedia 219).
+    Fuzz: default window x 7 (`SCRATCHY_FUZZ_SEED` 0..6000, 1 000 each) 0 mismatches; new
+    `qinc1k1_fuzz_fractional_heights_far_down` (spacer `#ys` moved by the mutations, a positioned auto-height box of
+    fractional rows with an `inset:0; height:100%` child, float / clear / `%`-height declarations mixed in):
+    main code 378 of 1 000 cases fail, this branch 0 of 7 000. WPT 333 / 293, no change. Flag-off screenshots
+    main vs branch: see below.
+    Found, NOT fixed (also on main): (1) far down a page (> ~20 000 px) the f32 ulp (0.002-0.008) lets a shifted
+    box's geometry differ from a fresh layout by more than `EPS` (`ink.b` 65733.89 vs 65733.91): the
+    absolute-coordinate limit (R60 14.1, QINC1n); the fuzz keeps its pages below ~16 000 px. (2) A fuzz case with an
+    8 px `style.width` difference (50 % of 1008 vs of 1024) after moving an `li.c1.c4` under `div .c1{width:50%}`,
+    not related to y: full page and steps in `tools/incr-gate/fuzz-width-504-512.txt` (not reproduced by a
+    hand-written minimal test). Proposed (new item, the coordinator names it) **[S]** (P2, area incr-new): minimise and fix it.
   - **QINC1k2 [M]** (P1, area incr-new (incr_box); AFTER nothing) github.com box-update floor: with
     `SCRATCHY_INCR=1` the incremental box update takes 17.0-17.2 s per window run (~63 ms per update, ~75 us per
     rebuilt box; restyle 4.3-4.6 s, relayout 1.5 s), so App builds are +54 % and input p95 2x vs flag off. Profile it
