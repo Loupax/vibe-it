@@ -116,6 +116,7 @@ and <code>Shift</code>+<code>Insert</code> paste. Read-only fields only copy.</p
 <tr><td><code>:historyFront</code></td><td>Go forward one page in history (same as <code>l</code>)</td></tr>
 <tr><td><code>:set motion</code> / <code>:set nomotion</code></td><td>Answer <code>prefers-reduced-motion: no-preference</code> / <code>reduce</code> (the default) to CSS and <code>matchMedia</code>, from the next page load; <code>--motion</code> starts with real motion on</td></tr>
 <tr><td><code>:set nojs</code> / <code>:set js</code></td><td>Turn scripts off/on (and show/hide &lt;noscript&gt; content) from the next page load; <code>--no-js</code> starts with them off</td></tr>
+<tr><td><code>:engine</code></td><td>Show this session's layout engine counts in the status bar, e.g. <code>engine: 0 fallbacks, 0/7 checks bad, 1905 upd, 7 rst</code>: fallbacks (the engine gave up and the page was laid out from scratch; each page prints one <code>scratchy: engine: fallback</code> line), mismatches out of the sampled checks (one engine update in 200 is also laid out from scratch and compared; a mismatch adds a line to <code>engine-check.log</code> in the state directory), engine updates (<code>upd</code>) and restarts (<code>rst</code>: first layout, resize, new stylesheet). Both first numbers should stay 0</td></tr>
 <tr><td><code>:help</code></td><td>Show this page</td></tr>
 <tr><td><code>:q</code> or <code>:quit</code></td><td>From this help page, go back to whatever you were looking at; otherwise close scratchy</td></tr>
 </table>
@@ -146,6 +147,9 @@ and <code>SCRATCHY_STATE_DIR</code>. It prints one candidate per line; scratchy
 filters them by what you type. A non-zero exit or no output gives no
 suggestion, a missing program shows a message in the status bar, and one that
 runs longer than <code>SOURCE_TIMEOUT_MS</code> is killed.</li>
+<li>Layout engine checks: the file <code>&lt;dir&gt;/engine-check.log</code>
+(time, URL, the first box that differed), one line per mismatch the sampled
+check found (see <code>:engine</code>). An empty or missing file is good news.</li>
 <li>Cookies: kept by <code>wire</code>, saved only if you start it with
 <code>wire --cookie-file PATH</code>.</li>
 <li><code>scratchy --forget-site &lt;site&gt;</code> deletes a site's

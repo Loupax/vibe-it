@@ -196,6 +196,13 @@ pub(crate) const SPACE_AFTER_ARG: &[&str] = &["set"];
 /// Ghost (suggestion) text colour in the `:` line, RGB (dimmed).
 pub(crate) const GHOST_FG: (u8, u8, u8) = (120, 120, 120);
 
+// ---------- incremental engine (QINC1n) ----------
+
+/// Sampled check: one engine update in this many is also laid out from scratch and compared; a
+/// difference goes to `<state-dir>/engine-check.log` and that frame shows the from-scratch layout.
+/// 0 = off.
+pub(crate) const ENGINE_CHECK_EVERY: u64 = 200;
+
 // ---------- history (QCOMP3, STASH.md "History") ----------
 
 /// Record visits in `DIR/history` (the `:go` completion reads it). false = never write the file.

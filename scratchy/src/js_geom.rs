@@ -1052,9 +1052,11 @@ impl GeomCache {
                 let mut f = f.borrow_mut();
                 let fs = f.get_or_insert_with(new_font_system);
                 let ok = crate::incr_engine::update(page, vw, vh, &css, &images, fs);
+                // QINC1n: one engine update in `ENGINE_CHECK_EVERY` is checked in daily use too.
+                let sampled = ok && crate::incr_evidence::sample();
                 // The oracle: today's from-scratch layout, without the shadow update (it would update
                 // the engine a second time).
-                let fresh = (ok && checking).then(|| {
+                let fresh = (ok && (checking || sampled)).then(|| {
                     crate::incr_style::without_shadow(|| {
                         let tree = build_layout_tree_with_resources(page, vw, Some(vh), &css, &images);
                         let mut next_id = *next_para;
@@ -1067,17 +1069,18 @@ impl GeomCache {
                         l
                     })
                 });
-                (ok, fresh)
+                (ok, fresh, sampled)
             })
         }));
         set_viewport(prev_vp.0, prev_vp.1);
         crate::layout::memo_trim(SHAPE_MEMO_CAP);
-        let (ok, fresh) = match done {
+        let (ok, fresh, sampled) = match done {
             Ok(r) => r,
             Err(_) => {
                 diag!("scratchy: js: incremental layout panicked while reading geometry; laying out from scratch");
                 crate::incr_style::drop_engines();
-                (false, None)
+                crate::incr_evidence::fallback(page, "panic");
+                (false, None, false)
             }
         };
         if !ok {
@@ -1094,20 +1097,22 @@ impl GeomCache {
         self.skel.clear();
         self.skel_of.clear();
         self.skel_multi.clear();
-        let mismatch = fresh.as_ref().and_then(|f| {
-            let names = crate::incr_cmp::Names::default();
-            crate::incr_layout::with_laid(|l, c| crate::incr_cmp::cmp_laid(&names, "root", f, &self.shape_cache, l, c).is_err())
-                .unwrap_or(true)
-                .then(|| {
-                    let names = crate::incr_cmp::Names::from_dom(page);
-                    let m = crate::incr_layout::with_laid(|l, c| crate::incr_cmp::cmp_laid(&names, "root", f, &self.shape_cache, l, c).err().map(|m| m.to_string()))
-                        .flatten()
-                        .unwrap_or_else(|| "no kept laid tree".into());
-                    format!("laid {m} {}", crate::incr_layout::describe_last())
-                })
+        // (box path, field) of the first difference; the check-mode report has the values too.
+        let found = fresh.as_ref().and_then(|f| crate::incr_evidence::compare(page, f, &self.shape_cache));
+        let mismatch = (checking && found.is_some()).then(|| {
+            let m = fresh.as_ref().and_then(|f| {
+                let names = crate::incr_cmp::Names::from_dom(page);
+                crate::incr_layout::with_laid(|l, c| crate::incr_cmp::cmp_laid(&names, "root", f, &self.shape_cache, l, c).err().map(|m| m.to_string())).flatten()
+            });
+            format!("laid {} {}", m.unwrap_or_else(|| "no kept laid tree".into()), crate::incr_layout::describe_last())
         });
+        #[cfg(test)]
+        let found = found.or_else(|| (sampled && crate::incr_evidence::forced_mismatch()).then(|| ("root".to_string(), "test hook".to_string())));
+        if sampled && let Some((path, field)) = &found {
+            crate::incr_evidence::mismatch(page, path, field);
+        }
         let mut skel = Vec::new();
-        match (&mismatch, &fresh) {
+        match (&found, &fresh) {
             (Some(_), Some(l)) => {
                 // Not trusted any more: every stage starts over; this read uses the from-scratch layout.
                 crate::incr_style::drop_engines();

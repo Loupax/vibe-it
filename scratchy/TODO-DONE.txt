@@ -8914,3 +8914,14 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QMAPI2 DONE e3794c7 #523 [S] (P2; Sonnet; css.rs counters; after QMAPI1) CSS part of the report: dropped declarations
       by property, dropped rules by unparsed pseudo-class/element, unknown at-rules, false
       @supports/CSS.supports conditions, unknown media features.
+
+=== from TODO.txt: --- (no header)
+- [x] QCOMP2 DONE fdca7e5 #525 [S] (P3, after QCOMP1) External sources (C1, C8; the menu part was DROPPED
+      2026-11-20): `Source::Cmd(argv)`, run with no shell and the SCRATCHY_* environment,
+      once per command line and argument position on a thread; its stdout lines are kept
+      and prefix-filtered per keystroke to feed the ghost; the result is an `AppEvent`
+      tagged so a stale one is dropped. Tests (fake source scripts in a temp dir): its
+      lines become ghost candidates in order; non-zero exit and empty output give no
+      ghost; a missing program gives a status-bar message; a line containing `$(...)`/`;`
+      is used as plain text; the source runs once per line, not per key; a stale result
+      is ignored.

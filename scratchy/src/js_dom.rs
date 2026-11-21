@@ -1859,6 +1859,149 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (r === undefined || r === null) throw bad(sel);
     return r;
   };
+  // QDOM2: real NodeList / HTMLCollection objects. A collection is a Proxy over an empty object whose
+  // prototype is NodeList.prototype / HTMLCollection.prototype; its state (`cs`) holds a producer `f`
+  // returning node ids (or wrapper objects). Live ones re-run `f` once per DOM write generation
+  // (`__d_wgen`), not per index. Static ones (querySelectorAll) run it once.
+  var CS = new WeakMap(), LC = new WeakMap(), XHTML = 'http://www.w3.org/1999/xhtml';
+  var NLp = g.NodeList.prototype, HCp = g.HTMLCollection.prototype;
+  var illegalCtor = function (n) { return ({ [n]: function () { throw new TypeError('Illegal constructor'); } })[n]; };
+  [['NodeList', NLp], ['HTMLCollection', HCp]].forEach(function (e) {
+    var C = illegalCtor(e[0]); C.prototype = e[1];
+    Object.defineProperty(e[1], 'constructor', { value: C, writable: true, configurable: true });
+    g[e[0]] = C;
+  });
+  var isIdxKey = function (k) { var n; return typeof k === 'string' && (n = +k) >= 0 && n < 4294967295 && n % 1 === 0 && String(n) === k; };
+  var cstate = function (o) {
+    var s = typeof o === 'object' && o !== null ? CS.get(o) : undefined;
+    if (!s) throw new TypeError('Illegal invocation');
+    return s;
+  };
+  var cids = function (s) {
+    if (s.live) { var w = __d_wgen(); if (w !== s.wg) { s.wg = w; s.ids = s.f(); s.names = null; } }
+    return s.ids;
+  };
+  var cat = function (s, i) { var v = s.ids[i]; return typeof v === 'number' ? wrap(v) : v; };
+  var cnames = function (s) {
+    var ids = cids(s);
+    if (!s.names) {
+      var m = s.names = new Map();
+      for (var i = 0; i < ids.length; i++) {
+        var el = cat(s, i);
+        if (el.nodeType !== 1) continue;
+        var v = __d_attr(el.__id, 'id');
+        if (v && !m.has(v)) m.set(v, el);
+        if (__d_ns(el.__id) === XHTML) { v = __d_attr(el.__id, 'name'); if (v && !m.has(v)) m.set(v, el); }
+      }
+    }
+    return s.names;
+  };
+  var cvis = function (t, s, k) { return s.named && typeof k === 'string' && !isIdxKey(k) && !(k in t) && cnames(s).has(k); };
+  var chandler = {
+    get: function (t, k, r) {
+      if (typeof k === 'string') {
+        var s = CS.get(t);
+        if (isIdxKey(k)) { var ids = cids(s); return +k < ids.length ? cat(s, +k) : undefined; }
+        if (cvis(t, s, k)) return cnames(s).get(k);
+      }
+      return Reflect.get(t, k, r);
+    },
+    has: function (t, k) {
+      if (typeof k === 'string') {
+        var s = CS.get(t);
+        if (isIdxKey(k)) return +k < cids(s).length;
+        if (cvis(t, s, k)) return true;
+      }
+      return Reflect.has(t, k);
+    },
+    getOwnPropertyDescriptor: function (t, k) {
+      if (typeof k === 'string') {
+        var s = CS.get(t);
+        if (isIdxKey(k)) { var ids = cids(s); return +k < ids.length ? { value: cat(s, +k), writable: false, enumerable: true, configurable: true } : undefined; }
+        if (cvis(t, s, k)) return { value: cnames(s).get(k), writable: false, enumerable: false, configurable: true };
+      }
+      return Reflect.getOwnPropertyDescriptor(t, k);
+    },
+    ownKeys: function (t) {
+      var s = CS.get(t), n = cids(s).length, out = [];
+      for (var i = 0; i < n; i++) out.push(String(i));
+      if (s.named) cnames(s).forEach(function (v, k) { if (cvis(t, s, k)) out.push(k); });
+      return out.concat(Reflect.ownKeys(t));
+    },
+    set: function (t, k, v, r) {
+      if (typeof k === 'string') {
+        var s = CS.get(t);
+        if (isIdxKey(k) || cvis(t, s, k)) return false;
+      }
+      return Reflect.set(t, k, v, r === undefined || CS.has(r) ? t : r);
+    },
+    defineProperty: function (t, k, d) {
+      if (typeof k === 'string') {
+        var s = CS.get(t);
+        if (isIdxKey(k) || (s.named && !Reflect.getOwnPropertyDescriptor(t, k) && cnames(s).has(k))) return false;
+      }
+      return Reflect.defineProperty(t, k, d);
+    },
+    deleteProperty: function (t, k) {
+      if (typeof k === 'string') {
+        var s = CS.get(t);
+        if (isIdxKey(k)) return +k >= cids(s).length;
+        if (cvis(t, s, k)) return false;
+      }
+      return Reflect.deleteProperty(t, k);
+    },
+    preventExtensions: function () { return false; },
+  };
+  // f() -> ids (or wrapper objects); live: re-run per DOM write generation.
+  var mkList = function (proto, live, f) {
+    var s = { f: f, live: live, wg: -1, ids: live ? null : f(), names: null, named: proto === HCp };
+    var t = Object.create(proto);
+    CS.set(t, s);
+    var p = new Proxy(t, chandler);
+    CS.set(p, s);
+    return p;
+  };
+  // The same object for the same node + key while the page keeps asking (el.children === el.children).
+  var cached = function (node, key, make) {
+    var m = LC.get(node);
+    if (!m) LC.set(node, m = { n: 0, v: Object.create(null) });
+    var c = m.v[key];
+    if (c === undefined) {
+      if (m.n >= 64) { m.v = Object.create(null); m.n = 0; }
+      c = m.v[key] = make(); m.n++;
+    }
+    return c;
+  };
+  var coll = function (owner, key, f) { return cached(owner, key, function () { return mkList(HCp, true, f); }); };
+  var tolen = function (v) { return v >>> 0; };
+  var cdef = function (P, name, v) { Object.defineProperty(P, name, { value: v, writable: true, configurable: true, enumerable: true }); };
+  [NLp, HCp].forEach(function (P) {
+    var nm = P === NLp ? 'NodeList' : 'HTMLCollection';
+    var need = function (m, a) { if (!a.length) throw new TypeError("Failed to execute '" + m + "' on '" + nm + "': 1 argument required, but only 0 present."); };
+    Object.defineProperty(P, 'length', { get: function () { return cids(cstate(this)).length; }, configurable: true, enumerable: true });
+    cdef(P, 'item', function item(i) {
+      need('item', arguments);
+      var s = cstate(this), ids = cids(s); i = tolen(i);
+      return i < ids.length ? cat(s, i) : null;
+    });
+    Object.defineProperty(P, Symbol.toStringTag, { value: nm, configurable: true });
+    Object.defineProperty(P, Symbol.iterator, { value: Array.prototype.values, writable: true, configurable: true });
+  });
+  cdef(HCp, 'namedItem', function namedItem(n) {
+    if (!arguments.length) throw new TypeError("Failed to execute 'namedItem' on 'HTMLCollection': 1 argument required, but only 0 present.");
+    return cnames(cstate(this)).get(String(n)) || null;
+  });
+  ['keys', 'values', 'entries', 'forEach'].forEach(function (k) {
+    Object.defineProperty(NLp, k, { value: Array.prototype[k], writable: true, configurable: true, enumerable: true });
+  });
+  // internal array helpers (prelude code that needs Array methods)
+  var qa = function (n, sel) { return wrapAll(q(n.__id, sel, false)); };
+  var elKids = function (n) { return wrapAll(__d_children(n.__id, true)); };
+  var byName = function (n) {
+    var id = this.__id, sel = '[name="' + String(n).replace(/["\\]/g, '\\$&') + '"]';
+    return cached(this, 'B' + n, function () { return mkList(NLp, true, function () { return q(id, sel, false); }); });
+  };
+  var safeQ = function (id, sel) { try { return q(id, sel, false); } catch (e) { return []; } };
   var def = function (o, name, get) { Object.defineProperty(o, name, { get: get, configurable: true, enumerable: true }); };
   // Q33b1: hang the accessors off the real constructors' prototypes so
   // `x instanceof Element` and `Element.prototype.foo = ...` work.
@@ -1883,7 +2026,10 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   def(NodeProto, 'parentElement', function () {
     var p = this.parentNode; return p && p.nodeType === 1 ? p : null;
   });
-  def(NodeProto, 'childNodes', function () { return wrapAll(__d_children(this.__id, false)); });
+  def(NodeProto, 'childNodes', function () {
+    var id = this.__id;
+    return cached(this, 'cn', function () { return mkList(NLp, true, function () { return __d_children(id, false); }); });
+  });
   def(NodeProto, 'firstChild', function () { return wrap(__d_edge_child(this.__id, false, false)); });
   def(NodeProto, 'lastChild', function () { return wrap(__d_edge_child(this.__id, true, false)); });
   def(NodeProto, 'nextSibling', function () { return wrap(__d_sibling(this.__id, 1, false)); });
@@ -1956,11 +2102,29 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   };
   queries = function (P) {
     P.querySelector = function (s) { return wrap(q(this.__id, s, true)[0]); };
-    P.querySelectorAll = function (s) { return wrapAll(q(this.__id, s, false)); };
-    P.getElementsByTagName = function (t) { return wrapAll(q(this.__id, String(t).toLowerCase(), false)); };
+    P.querySelectorAll = function (s) { var id = this.__id; s = String(s); return mkList(NLp, false, function () { return q(id, s, false); }); };
+    P.getElementsByTagName = function (t) {
+      var id = this.__id; t = String(t).toLowerCase();
+      return cached(this, 'T' + t, function () { return mkList(HCp, true, function () { return safeQ(id, t); }); });
+    };
+    P.getElementsByTagNameNS = function (ns, ln) {
+      var id = this.__id; ns = ns === null || ns === undefined || ns === '' ? '' : String(ns); ln = String(ln);
+      return cached(this, 'N' + ns + '|' + ln, function () {
+        return mkList(HCp, true, function () {
+          return __d_query(id, '*', false).filter(function (e) {
+            if (ns !== '*' && (__d_ns(e) || '') !== ns) return false;
+            if (ln === '*') return true;
+            var t = __d_tag(e), i = t.indexOf(':');
+            if (__d_ns(e) !== XHTML && i > 0) t = t.slice(i + 1);
+            return (__d_ns(e) === XHTML ? t.toLowerCase() : t) === ln;
+          });
+        });
+      });
+    };
     P.getElementsByClassName = function (c) {
-      var sel = String(c).split(/\s+/).filter(Boolean).map(function (x) { return '.' + x; }).join('');
-      return sel ? wrapAll(q(this.__id, sel, false)) : [];
+      var id = this.__id, toks = String(c).split(/[ \t\n\f\r]+/).filter(Boolean);
+      var sel = toks.map(function (x) { return /^-?[_a-zA-Z][\w-]*$/.test(x) ? '.' + x : '[class~="' + x.replace(/["\\]/g, '\\$&') + '"]'; }).join('');
+      return cached(this, 'C' + toks.join(' '), function () { return mkList(HCp, true, function () { return sel ? safeQ(id, sel) : []; }); });
     };
   };
   var ElementProto = Element.prototype;
@@ -1977,7 +2141,10 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   def(ElementProto, 'prefix', function () { return elQ(this)[0] || null; });
   def(ElementProto, 'id', function () { var v = __d_attr(this.__id, 'id'); return v == null ? '' : v; });
   def(ElementProto, 'className', function () { var v = __d_attr(this.__id, 'class'); return v == null ? '' : v; });
-  def(ElementProto, 'children', function () { return wrapAll(__d_children(this.__id, true)); });
+  def(ElementProto, 'children', function () {
+    var id = this.__id;
+    return cached(this, 'ch', function () { return mkList(HCp, true, function () { return __d_children(id, true); }); });
+  });
   def(ElementProto, 'firstElementChild', function () { return wrap(__d_edge_child(this.__id, false, true)); });
   def(ElementProto, 'lastElementChild', function () { return wrap(__d_edge_child(this.__id, true, true)); });
   def(ElementProto, 'nextElementSibling', function () { return wrap(__d_sibling(this.__id, 1, true)); });
@@ -2716,37 +2883,22 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     defs(P, prop, function () { var v = parseInt(__d_attr(this.__id, attr), 10); return v >= (min || 0) ? v : dflt; },
       function (v) { __d_setattr(this.__id, attr, String(Math.floor(Number(v)) || 0)); });
   };
-  var coll = function (arr) {
-    var named = function (n) {
-      n = String(n);
-      for (var i = 0; i < arr.length; i++) if (arr[i].id === n || ga(arr[i], 'name') === n) return arr[i];
-      return null;
-    };
-    Object.defineProperty(arr, 'item', { value: function (i) { return arr[i] || null; }, configurable: true });
-    Object.defineProperty(arr, 'namedItem', { value: named, configurable: true });
-    arr.forEach(function (e) {
-      [e.id, ga(e, 'name')].forEach(function (n) {
-        if (n && !(n in arr) && !/^\d+$/.test(n)) Object.defineProperty(arr, n, { value: e, configurable: true });
-      });
-    });
-    return arr;
-  };
-  var kidsOf = function (el, tags) { return el.children.filter(function (c) { return tags.indexOf(c.localName) >= 0; }); };
+  var kidsOf = function (el, tags) { return elKids(el).filter(function (c) { return tags.indexOf(c.localName) >= 0; }); };
   var newEl = function (t) { return doc.createElement(t); };
   var idxErr = function (m) { return herr(m, 'IndexSizeError'); };
-  def(doc, 'forms', function () { return coll(this.querySelectorAll('form')); });
-  def(doc, 'images', function () { return coll(this.querySelectorAll('img')); });
-  def(doc, 'links', function () { return coll(this.querySelectorAll('a[href], area[href]')); });
-  def(doc, 'anchors', function () { return coll(this.querySelectorAll('a[name]')); });
-  def(doc, 'scripts', function () { return coll(this.querySelectorAll('script')); });
-  def(doc, 'embeds', function () { return coll(this.querySelectorAll('embed')); });
-  def(doc, 'plugins', function () { return coll(this.querySelectorAll('embed')); });
+  def(doc, 'forms', function () { return coll(this, 'forms', () => qa(this, 'form')); });
+  def(doc, 'images', function () { return coll(this, 'images', () => qa(this, 'img')); });
+  def(doc, 'links', function () { return coll(this, 'links', () => qa(this, 'a[href], area[href]')); });
+  def(doc, 'anchors', function () { return coll(this, 'anchors', () => qa(this, 'a[name]')); });
+  def(doc, 'scripts', function () { return coll(this, 'scripts', () => qa(this, 'script')); });
+  def(doc, 'embeds', function () { return coll(this, 'embeds', () => qa(this, 'embed')); });
+  def(doc, 'plugins', function () { return coll(this, 'plugins', () => qa(this, 'embed')); });
 
   // ---- tables
   var secRows = function (sec) { return kidsOf(sec, ['tr']); };
   var tableRows = function (t) {
     var out = [], h = [], f = [];
-    t.children.forEach(function (c) {
+    elKids(t).forEach(function (c) {
       var n = c.localName;
       if (n === 'thead') h = h.concat(secRows(c));
       else if (n === 'tfoot') f = f.concat(secRows(c));
@@ -2770,15 +2922,15 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (idx >= 0) rows[idx].parentNode.removeChild(rows[idx]);
   };
   var TP = mkProto('HTMLTableElement', ['table']);
-  def(TP, 'rows', function () { return coll(tableRows(this)); });
-  def(TP, 'tBodies', function () { return coll(kidsOf(this, ['tbody'])); });
+  def(TP, 'rows', function () { return coll(this, 'rows', () => tableRows(this)); });
+  def(TP, 'tBodies', function () { return coll(this, 'tBodies', () => kidsOf(this, ['tbody'])); });
   def(TP, 'tHead', function () { return kidsOf(this, ['thead'])[0] || null; });
   def(TP, 'tFoot', function () { return kidsOf(this, ['tfoot'])[0] || null; });
   def(TP, 'caption', function () { return kidsOf(this, ['caption'])[0] || null; });
   TP.createTHead = function () {
     var h = this.tHead; if (h) return h;
     h = newEl('thead');
-    var after = this.children.filter(function (c) { return c.localName === 'caption' || c.localName === 'colgroup'; }).pop();
+    var after = elKids(this).filter(function (c) { return c.localName === 'caption' || c.localName === 'colgroup'; }).pop();
     this.insertBefore(h, after ? after.nextSibling : this.firstChild);
     return h;
   };
@@ -2804,14 +2956,14 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   TP.deleteRow = function (idx) { deleteRowIn(tableRows(this), idx); };
   ['summary', 'align', 'bgColor', 'border', 'cellPadding', 'cellSpacing', 'frame', 'rules', 'width'].forEach(function (p) { rStr(TP, p, p.toLowerCase()); });
   var SP = mkProto('HTMLTableSectionElement', ['tbody', 'thead', 'tfoot']);
-  def(SP, 'rows', function () { return coll(secRows(this)); });
+  def(SP, 'rows', function () { return coll(this, 'rows', () => secRows(this)); });
   SP.insertRow = function (idx) {
     return insertRowIn(this, secRows(this), idx, function (s, rows, tr) { s.appendChild(tr); });
   };
   SP.deleteRow = function (idx) { deleteRowIn(secRows(this), idx); };
   var RP = mkProto('HTMLTableRowElement', ['tr']);
   var cellsOf = function (r) { return kidsOf(r, ['td', 'th']); };
-  def(RP, 'cells', function () { return coll(cellsOf(this)); });
+  def(RP, 'cells', function () { return coll(this, 'cells', () => cellsOf(this)); });
   def(RP, 'rowIndex', function () {
     var t = this.parentNode;
     while (t && t.localName !== 'table') t = t.parentNode;
@@ -2855,13 +3007,13 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   };
   var FP = mkProto('HTMLFormElement', ['form']);
   var formControls = function (f) {
-    var inside = f.querySelectorAll(CTL.join(','));
-    var ext = f.id ? doc.querySelectorAll(CTL.join(',')).filter(function (c) { return inside.indexOf(c) < 0; }) : [];
+    var inside = qa(f, CTL.join(','));
+    var ext = f.id ? qa(doc, CTL.join(',')).filter(function (c) { return inside.indexOf(c) < 0; }) : [];
     return inside.concat(ext).filter(function (c) {
       return !(c.localName === 'input' && c.type === 'image') && formOf(c) === f;
     });
   };
-  def(FP, 'elements', function () { return coll(formControls(this)); });
+  def(FP, 'elements', function () { return coll(this, 'elements', () => formControls(this)); });
   def(FP, 'length', function () { return formControls(this).length; });
   // Q33d1: there is no form submission yet (Q30), so the default action of
   // a submit is a no-op once `submit` has not been cancelled. `submit()`
@@ -2934,7 +3086,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   rInt(TAP, 'rows', 'rows', 2, 1); rInt(TAP, 'cols', 'cols', 20, 1); rBool(TAP, 'readOnly', 'readonly');
   var optionsOf = function (s) {
     var out = [];
-    s.children.forEach(function (c) {
+    elKids(s).forEach(function (c) {
       if (c.localName === 'option') out.push(c);
       else if (c.localName === 'optgroup') out = out.concat(kidsOf(c, ['option']));
     });
@@ -2942,7 +3094,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   };
   var SEP = mkProto('HTMLSelectElement', ['select']);
   formProp(SEP);
-  def(SEP, 'options', function () { return coll(optionsOf(this)); });
+  def(SEP, 'options', function () { return coll(this, 'options', () => optionsOf(this)); });
   defs(SEP, 'length', function () { return optionsOf(this).length; }, function (v) {
     v = Math.max(0, Math.floor(Number(v)) || 0);
     var o = optionsOf(this);
@@ -2969,7 +3121,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     host.insertBefore(opt, before || null);
   };
   SEP.item = function (i) { return optionsOf(this)[i] || null; };
-  SEP.namedItem = function (n) { return coll(optionsOf(this)).namedItem(n); };
+  SEP.namedItem = function (n) { return this.options.namedItem(n); };
   var elRemove = ElementProto.remove;
   SEP.remove = function (i) {
     if (arguments.length === 0) { if (elRemove) elRemove.call(this); return; }
@@ -3000,7 +3152,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   });
   var FSP = mkProto('HTMLFieldSetElement', ['fieldset']); formProp(FSP); rStr(FSP, 'name', 'name');
   def(FSP, 'type', function () { return 'fieldset'; });
-  def(FSP, 'elements', function () { return coll(this.querySelectorAll(CTL.join(','))); });
+  def(FSP, 'elements', function () { return coll(this, 'elements', () => qa(this, CTL.join(','))); });
   var OUP = mkProto('HTMLOutputElement', ['output']); formProp(OUP); rStr(OUP, 'name', 'name');
   def(OUP, 'type', function () { return 'output'; });
   ['input', 'select', 'textarea', 'button', 'fieldset', 'option', 'optgroup'].forEach(function (t) {
@@ -3010,10 +3162,10 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   // ---- image maps
   var MP = mkProto('HTMLMapElement', ['map']);
   rStr(MP, 'name', 'name');
-  def(MP, 'areas', function () { return coll(this.querySelectorAll('area')); });
+  def(MP, 'areas', function () { return coll(this, 'areas', () => qa(this, 'area')); });
   def(MP, 'images', function () {
     var n = ga(this, 'name');
-    return n ? coll(doc.querySelectorAll('img,object')).filter(function (i) { return ga(i, 'usemap') === '#' + n; }) : [];
+    return coll(this, 'images', () => n ? qa(doc, 'img,object').filter(function (i) { return ga(i, 'usemap') === '#' + n; }) : []);
   });
   var METP = mkProto('HTMLMetaElement', ['meta']);
   ['name', 'content', 'scheme'].forEach(function (p) { rStr(METP, p, p); });
@@ -3089,7 +3241,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   ['children', 'firstElementChild', 'lastElementChild', 'childElementCount'].forEach(function (k) {
     Object.defineProperty(doc, k, Object.getOwnPropertyDescriptor(ElementProto, k));
   });
-  doc.getElementsByName = function (n) { return wrapAll(q(this.__id, '[name="' + String(n).replace(/["\\]/g, '\\$&') + '"]', false)); };
+  doc.getElementsByName = byName;
   // QSD1: `document.domain`. The getter is the page's hostname ('' for an
   // opaque origin). The setter follows the spec's shape: the same value or a
   // dot-boundary suffix of it that is not a single label (no public suffix
@@ -3198,7 +3350,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       var c = this.childNodes; for (var i = 0; i < c.length; i++) if (c[i].nodeType === 10) return c[i];
       return null;
     });
-    d.getElementsByName = function (n) { return wrapAll(q(this.__id, '[name="' + String(n).replace(/["\\]/g, '\\$&') + '"]', false)); };
+    d.getElementsByName = byName;
     Object.defineProperty(d, 'title', titleDesc);
     return d;
   };
@@ -5129,7 +5281,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
           return;
         }
         if (n.nodeType === 8 || n.nodeType === 7) return;
-        var k = n.childNodes;
+        var k = wrapAll(__d_children(n.__id, false));
         for (var i = 0; i < k.length; i++) {
           var c = k[i];
           // Skip subtrees entirely before the start or after the end.

@@ -17,6 +17,10 @@
 //!   images out at their real size (user decision, R60 open question 2), exactly as the App frame
 //!   does: the App hands its image cache over at every build of its own.
 //!
+//! QINC1n (`incr_evidence`): `update` counts updates, restarts and fallbacks (a fallback prints one
+//! line per page); one update in `config::ENGINE_CHECK_EVERY` is also checked against a from-scratch
+//! layout (`js_geom::refresh_engine`), a difference is written to `<state-dir>/engine-check.log`.
+//!
 //! Check mode (tests with the seam on, `SCRATCHY_INCR_CHECK=1`): `GeomCache` also lays the page out
 //! from scratch (shadow update off) and compares (`cmp_laid`); a difference is reported
 //! (`incr-check: MISMATCH`, `incr.check_mismatch`), every stage starts over and the from-scratch
@@ -119,8 +123,16 @@ pub(crate) fn window_images(doc: &Handle) -> Rc<Images> {
 /// viewport). False when the engine could not produce a tree (the caller lays out from scratch).
 pub(crate) fn update(doc: &Handle, vw: f32, vh: f32, extra_css: &str, images: &Images, fs: &mut FontSystem) -> bool {
     use crate::perf::{incr_add, Incr};
+    use crate::incr_evidence as ev;
+    #[cfg(test)]
+    if ev::forced_fallback() {
+        ev::fallback(doc, "test_hook");
+        return false;
+    }
     let rules = crate::rules_cache::cached_rules(doc, extra_css);
     let mut incremental = false;
+    // QINC1n: a recovered engine error (not a restart by design) is a fallback.
+    let mut failed = false;
     // The App frame's checks and update (QINC1j), shared: nothing changed since the engine's last
     // update (an App frame or another forced layout laid it out) = no work at all.
     if crate::incr_style::live_ready(doc, &rules, vw) && crate::incr_box::live_ready(doc) {
@@ -133,20 +145,32 @@ pub(crate) fn update(doc: &Handle, vw: f32, vh: f32, extra_css: &str, images: &I
         {
             crate::incr_log::take();
             incr_add(Incr::ForcedEngine, 1);
+            ev::update();
             return true;
         }
         // QOBS3 phases: the engine's restyle + box update count as `incr_shadow`, its relayout as
         // `measure_document` (a from-scratch fallback build records its own build phases).
         let t_phase = crate::perf::phase(crate::perf::Phase::IncrShadow);
-        incremental = crate::incr_style::live_update(doc, &rules, vw, Some(vh), images).is_some();
+        match crate::incr_style::live_update(doc, &rules, vw, Some(vh), images) {
+            Ok(_) => incremental = true,
+            Err("global_restyle") => {}
+            Err(why) => {
+                ev::fallback(doc, why);
+                failed = true;
+            }
+        }
         drop(t_phase);
     }
     if !incremental {
+        if !failed {
+            ev::restart();
+        }
         // First layout of the document or a global restyle: a from-scratch build with the shadow
         // update on (re)starts the kept box tree; the engine lays it out below.
         incr_add(Incr::ForcedRestarts, 1);
         drop(build_layout_tree_with_resources(doc, vw, Some(vh), extra_css, images));
         if !crate::incr_box::live_ready(doc) {
+            ev::fallback(doc, "no_box_tree");
             return false;
         }
     }
@@ -154,5 +178,10 @@ pub(crate) fn update(doc: &Handle, vw: f32, vh: f32, extra_css: &str, images: &I
     let ok = crate::incr_layout::update_kept(fs, vw, vh);
     drop(t_phase);
     incr_add(Incr::ForcedEngine, u64::from(ok));
+    if !ok {
+        ev::fallback(doc, "relayout_failed");
+    } else if incremental {
+        ev::update();
+    }
     ok
 }

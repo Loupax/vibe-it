@@ -89,29 +89,45 @@ pub(crate) fn frame(
     image_cache: &HashMap<String, Arc<DecodedImage>>,
     fs: &mut FontSystem,
 ) -> Frame {
+    use crate::incr_evidence as ev;
     use crate::perf::{incr_add, incr_worker_fallback, Incr};
     set_viewport(vw, vh);
     let rules = crate::rules_cache::cached_rules(doc, css);
     let mut reason = "restyle_not_incremental";
-    if !crate::incr_style::live_ready(doc, &rules, vw) {
+    // QINC1n: this frame already counted as a fallback (else the from-scratch build is a restart).
+    let mut failed = false;
+    #[cfg(test)]
+    let hook = ev::forced_fallback();
+    #[cfg(not(test))]
+    let hook = false;
+    if hook {
+        ev::fallback(doc, "test_hook");
+        failed = true;
+    } else if !crate::incr_style::live_ready(doc, &rules, vw) {
         reason = if crate::incr_box::base().is_none() { "first_layout" } else { "restyle_not_incremental" };
     } else if crate::incr_box::live_ready(doc) {
         if crate::incr_style::is_current(vh) && crate::incr_box::is_current(doc, Some(vh), image_cache) && crate::incr_layout::is_current(vw, vh) {
             // Only App-side notes can be left in the log (their state is unchanged).
             crate::incr_log::take();
             incr_add(Incr::FramesCurrent, 1);
+            ev::update();
             return Frame::Current;
         }
         match crate::incr_style::live_update(doc, &rules, vw, Some(vh), image_cache) {
-            Some(st) if st.share <= WORKER_SHARE || st.restyled < WORKER_MIN_RESTYLED => {
+            Ok(st) if st.share <= WORKER_SHARE || st.restyled < WORKER_MIN_RESTYLED => {
                 if crate::incr_layout::live_update(fs, vw, vh) {
                     incr_add(Incr::FramesMain, 1);
+                    ev::update();
                     return check(doc, vw, vh, css, image_cache, fs);
                 }
                 reason = "relayout_not_incremental";
             }
-            Some(_) => reason = "restyled_share",
-            None => reason = "restyle_not_incremental",
+            Ok(_) => reason = "restyled_share",
+            Err("global_restyle") => reason = "restyle_not_incremental",
+            Err(why) => {
+                ev::fallback(doc, why);
+                failed = true;
+            }
         }
         if reason != "restyle_not_incremental"
             && let Some((tree, job)) = crate::incr_box::clone_for_worker()
@@ -119,8 +135,14 @@ pub(crate) fn frame(
             crate::incr_layout::mark_stale();
             incr_add(Incr::FramesWorker, 1);
             incr_worker_fallback(reason);
+            // An incremental restyle laid out on the worker is an update; a relayout that had to
+            // start over (drift guard, stale view, viewport width) is a restart.
+            if reason == "restyled_share" { ev::update() } else { ev::restart() }
             return Frame::Worker(tree, Some(job));
         }
+    }
+    if !failed {
+        ev::restart();
     }
     let tree = build_layout_tree_with_resources(doc, vw, Some(vh), css, image_cache);
     let job = crate::incr_box::job_for_fresh(&tree);
@@ -132,13 +154,21 @@ pub(crate) fn frame(
 
 /// Check mode (tests, `SCRATCHY_INCR_CHECK=1`): a from-scratch build and layout of the same state run
 /// the shadow comparisons against the kept trees the frame just updated.
+///
+/// QINC1n: one Main frame in `config::ENGINE_CHECK_EVERY` is checked the same way in daily use (the
+/// build without the shadow update, which would start the engine over; `cmp_laid` against the kept
+/// laid tree); a difference goes to `engine-check.log`, the engine starts over and the from-scratch
+/// layout is shown.
 fn check(doc: &Handle, vw: f32, vh: f32, css: &str, image_cache: &HashMap<String, Arc<DecodedImage>>, fs: &mut FontSystem) -> Frame {
-    if !crate::incr_style::checking() {
+    let checking = crate::incr_style::checking();
+    let sampled = crate::incr_evidence::sample();
+    if !checking && !sampled {
         return Frame::Main;
     }
     let before = crate::perf::incr_get(crate::perf::Incr::CheckMismatch);
     // Its animation pass sees every animated element at the same clock: start times stay.
-    let tree = build_layout_tree_with_resources(doc, vw, Some(vh), css, image_cache);
+    let build = || build_layout_tree_with_resources(doc, vw, Some(vh), css, image_cache);
+    let tree = if checking { build() } else { crate::incr_style::without_shadow(build) };
     let mut cache = ShapeCache::new();
     let mut next_id = crate::incr_layout::next_id() + (1 << 20);
     let mut inc = false;
@@ -147,6 +177,16 @@ fn check(doc: &Handle, vw: f32, vh: f32, css: &str, image_cache: &HashMap<String
     if crate::perf::incr_get(crate::perf::Incr::CheckMismatch) > before {
         crate::incr_layout::mark_stale();
         return Frame::Fresh(laid, cache);
+    }
+    if sampled {
+        let found = crate::incr_evidence::compare(doc, &laid, &cache);
+        #[cfg(test)]
+        let found = found.or_else(|| crate::incr_evidence::forced_mismatch().then(|| ("root".to_string(), "test hook".to_string())));
+        if let Some((path, field)) = found {
+            crate::incr_evidence::mismatch(doc, &path, &field);
+            crate::incr_style::drop_engines();
+            return Frame::Fresh(laid, cache);
+        }
     }
     Frame::Main
 }

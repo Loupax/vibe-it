@@ -122,6 +122,7 @@ mod incr_box;
 mod incr_layout;
 mod incr_frame;
 mod incr_engine;
+mod incr_evidence;
 mod stack;
 mod frame_stats;
 mod js_modules;
@@ -219,6 +220,7 @@ pub fn run() {
     if !no_js {
         js_storage::set_backend(dir.as_deref().and_then(js_storage::Backend::open));
     }
+    incr_evidence::init(dir.clone()); // QINC1n: engine-check.log
     history::init(dir); // QCOMP3: visits file + startup trim
     if !no_js {
         js_engine::warm_up(); // QV8-4: V8 startup snapshot, built in the background

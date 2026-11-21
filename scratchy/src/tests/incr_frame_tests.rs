@@ -335,3 +335,71 @@ fn qinc1j_media_size_change_is_logged_once() {
     assert!(crate::incr_log::drain().entries.is_empty(), "flag off: nothing logged");
     crate::incr_frame::set_live(prev);
 }
+
+// ---------- QINC1n: engine evidence on App frames ----------
+
+const EV_PAGE: &str = "<html><head><style>body{margin:0}#b{height:20px}#b:hover{height:60px}</style></head>\
+                       <body><div id=b>secret words</div><p id=c>c</p></body></html>";
+
+#[test]
+fn qinc1n_app_restarts_count_and_fallbacks_log_once() {
+    use super::incr_forced_tests::{printed, EvDir};
+    let _d = EvDir::new("app-fallback");
+    let Some((mut app, _l)) = live_app(EV_PAGE) else { return };
+    let c = crate::incr_evidence::counts();
+    assert_eq!((c.restarts, c.fallbacks), (1, 0), "the first layout is a restart: {c:?}");
+    // A resize is a restart too: counted, no line.
+    assert_eq!(frame_at(&mut app, W + 50, H), WORKER);
+    assert_eq!(crate::incr_evidence::counts().restarts, 2);
+    hover(&mut app, "b");
+    assert_eq!(frame_at(&mut app, W + 50, H), MAIN);
+    assert_eq!(crate::incr_evidence::counts().updates, 1);
+    assert!(printed().is_empty(), "restarts print nothing: {:?}", printed());
+    // Forced fallbacks: the frame lays out from scratch; one line for the page, every one counted.
+    crate::incr_evidence::with_seam(|s| s.borrow_mut().fallback = true);
+    for id in ["c", "b"] {
+        hover(&mut app, id);
+        assert_eq!(frame_at(&mut app, W + 50, H), WORKER);
+    }
+    let c = crate::incr_evidence::counts();
+    assert_eq!((c.fallbacks, c.restarts), (2, 2), "{c:?}");
+    let lines = printed();
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].starts_with("scratchy: engine: fallback test_hook on "), "{lines:?}");
+    // `:engine` shows the counts in the status bar.
+    app.dispatch_command("engine", &[]);
+    assert_eq!(app.status_message, "engine: 2 fallbacks, checks off, 1 upd, 2 rst");
+}
+
+#[test]
+fn qinc1n_app_sampled_mismatch_shows_the_from_scratch_layout() {
+    use super::incr_forced_tests::{printed, EvDir};
+    let d = EvDir::new("app-mismatch");
+    let Some((mut app, _l)) = live_app(EV_PAGE) else { return };
+    crate::incr_evidence::with_seam(|s| {
+        let mut s = s.borrow_mut();
+        s.every = Some(1);
+        s.dir = Some(d.0.clone());
+    });
+    // A real check that agrees: counted, nothing written.
+    hover(&mut app, "b");
+    assert_eq!(frame(&mut app), MAIN);
+    assert!(app.live_ver != 0, "the engine's tree is shown");
+    // The test hook reports a mismatch: one log line, the from-scratch layout is shown.
+    crate::incr_evidence::with_seam(|s| s.borrow_mut().mismatch = true);
+    hover(&mut app, "c");
+    assert_eq!(frame(&mut app), MAIN);
+    assert_eq!(app.live_ver, 0, "the from-scratch layout is shown");
+    assert_eq!(shown(&app, "b").h, 20.0, "left #b");
+    let c = crate::incr_evidence::counts();
+    assert_eq!((c.checks, c.mismatches), (2, 1), "{c:?}");
+    let lines = d.lines();
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].ends_with("\troot test hook") && !lines[0].contains("secret"), "{lines:?}");
+    assert_eq!(printed().len(), 1, "{:?}", printed());
+    // The engine starts over; the next frame is a restart.
+    crate::incr_evidence::with_seam(|s| s.borrow_mut().mismatch = false);
+    hover(&mut app, "b");
+    frame(&mut app);
+    assert_eq!(crate::incr_evidence::counts().restarts, 2);
+}

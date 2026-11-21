@@ -233,3 +233,135 @@ fn qinc1i5_engine_forced_layout_keeps_the_shape_memo() {
     let kept = crate::layout::memo_len();
     assert!(kept >= 30, "the paragraphs' shapes stay in the memo after small engine updates: {kept}");
 }
+
+// ---------- QINC1n: engine evidence (fallback line, restarts, sampled check) ----------
+
+/// A state directory for `engine-check.log` under target/ (never /tmp), removed on drop; also resets
+/// this thread's evidence counts and seam.
+pub(super) struct EvDir(pub(super) std::path::PathBuf);
+
+impl EvDir {
+    pub(super) fn new(tag: &str) -> EvDir {
+        crate::incr_evidence::reset();
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join("engine-evidence-tests").join(format!("{}-{tag}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&p);
+        EvDir(p)
+    }
+    pub(super) fn lines(&self) -> Vec<String> {
+        std::fs::read_to_string(self.0.join("engine-check.log")).unwrap_or_default().lines().map(String::from).collect()
+    }
+}
+
+impl Drop for EvDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+        crate::incr_evidence::reset();
+    }
+}
+
+/// Three DOM writes, each followed by a geometry read (three forced layouts).
+const THREE_READS: &str = "var a = document.getElementById('a'); for (var i = 0; i < 3; i++) { a.style.height = (10 + i) + 'px'; a.getBoundingClientRect(); }";
+
+/// The evidence lines printed on this thread.
+pub(super) fn printed() -> Vec<String> {
+    crate::incr_evidence::with_seam(|s| s.borrow().lines.clone())
+}
+
+fn engine_run(html: &str, code: &str) -> Vec<String> {
+    let was = crate::incr_engine::set_forced_seam(Some(true));
+    let log = run_in_html(html, code);
+    crate::incr_engine::set_forced_seam(was);
+    log
+}
+
+#[test]
+fn qinc1n_forced_fallback_logs_once_per_page_and_counts() {
+    let _d = EvDir::new("fallback");
+    crate::incr_evidence::with_seam(|s| s.borrow_mut().fallback = true);
+    let log = engine_run(PAGE, &format!("{THREE_READS} console.log(document.getElementById('b').getBoundingClientRect().y > 0);"));
+    let c = crate::incr_evidence::counts();
+    assert_eq!(log, vec!["log:true".to_string()], "the from-scratch layout answered the reads");
+    assert!(c.fallbacks >= 3, "every forced layout fell back: {c:?}");
+    assert_eq!(c.updates, 0, "{c:?}");
+    let lines = printed();
+    assert_eq!(lines.len(), 1, "one line per page: {lines:?}");
+    assert!(lines[0].starts_with("scratchy: engine: fallback test_hook on "), "{lines:?}");
+    // Another page prints its own line.
+    engine_run(PAGE, THREE_READS);
+    assert_eq!(printed().len(), 2, "{:?}", printed());
+}
+
+#[test]
+fn qinc1n_restart_is_counted_but_not_logged() {
+    let _d = EvDir::new("restart");
+    engine_run(PAGE, THREE_READS);
+    let c = crate::incr_evidence::counts();
+    assert_eq!(c.restarts, 1, "the first forced layout starts the engine: {c:?}");
+    assert_eq!(c.fallbacks, 0, "{c:?}");
+    assert!(c.updates >= 2, "the later reads are engine updates: {c:?}");
+    assert!(printed().is_empty(), "a restart prints nothing: {:?}", printed());
+    assert_eq!((c.checks, c.mismatches), (0, 0), "every = 0: no sampled check");
+}
+
+#[test]
+fn qinc1n_sampled_mismatch_writes_one_log_line() {
+    let d = EvDir::new("mismatch");
+    crate::incr_evidence::with_seam(|s| {
+        let mut s = s.borrow_mut();
+        s.every = Some(1);
+        s.mismatch = true;
+        s.dir = Some(d.0.clone());
+    });
+    let log = engine_run(PAGE, "console.log(document.getElementById('b').getBoundingClientRect().y > 0);");
+    assert_eq!(log, vec!["log:true".to_string()], "the from-scratch result answered the read");
+    let c = crate::incr_evidence::counts();
+    assert_eq!((c.checks, c.mismatches), (1, 1), "{c:?}");
+    let lines = d.lines();
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    let f: Vec<&str> = lines[0].split('\t').collect();
+    assert_eq!(f.len(), 3, "time, URL, box path + field: {lines:?}");
+    assert!(f[0].parse::<u64>().is_ok_and(|ms| ms > 1_600_000_000_000), "{lines:?}");
+    assert_eq!(f[2], "root test hook");
+    assert!(!lines[0].contains("some text here") && !lines[0].contains("after"), "no page text: {lines:?}");
+    use std::os::unix::fs::PermissionsExt;
+    let mode = std::fs::metadata(d.0.join("engine-check.log")).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600);
+    // Without a state directory: the diag line only.
+    crate::incr_evidence::with_seam(|s| s.borrow_mut().dir = None);
+    engine_run(PAGE, "document.body.getBoundingClientRect();");
+    assert_eq!(d.lines().len(), 1);
+    assert_eq!(printed().iter().filter(|l| l.starts_with("scratchy: engine: check mismatch on ")).count(), 2, "{:?}", printed());
+}
+
+#[test]
+fn qinc1n_sampled_check_interval_and_off() {
+    let _d = EvDir::new("interval");
+    let run = |every: u64| {
+        crate::incr_evidence::reset();
+        crate::incr_evidence::with_seam(|s| s.borrow_mut().every = Some(every));
+        engine_run(PAGE, SCRIPT);
+        crate::incr_evidence::counts()
+    };
+    let off = run(0);
+    assert!(off.updates + off.restarts >= 16, "{off:?}");
+    assert_eq!(off.checks, 0, "every = 0 turns the check off");
+    let two = run(2);
+    let served = two.updates + two.restarts;
+    assert!(two.checks + 1 >= served / 2 && two.checks <= served / 2 + 1, "about one in two: {two:?}");
+    assert_eq!(two.mismatches, 0, "the engine agrees with the from-scratch layout: {two:?}");
+    assert_eq!(crate::config::ENGINE_CHECK_EVERY, 200, "the shipped interval (QINC1n)");
+}
+
+#[test]
+fn qinc1n_engine_status_text() {
+    let _d = EvDir::new("status");
+    crate::incr_evidence::update();
+    crate::incr_evidence::update();
+    crate::incr_evidence::restart();
+    assert_eq!(crate::incr_evidence::status_text(), "engine: 0 fallbacks, checks off, 2 upd, 1 rst");
+    crate::incr_evidence::with_seam(|s| s.borrow_mut().every = Some(200));
+    assert_eq!(crate::incr_evidence::status_text(), "engine: 0 fallbacks, 0/0 checks bad, 2 upd, 1 rst");
+    let l = crate::incr_evidence::check_line(5, "https://a.example/\tx", "root/div\n[0]", "h");
+    assert_eq!(l, "5\thttps://a.example/ x\troot/div [0] h\n", "control characters never split a field");
+    assert!(crate::incr_evidence::check_line(5, &"u".repeat(9000), "p", "f").len() <= 4096);
+}

@@ -172,6 +172,10 @@ fn qv8_0_perf_report_json_shape() {
     assert_eq!(j.get("outcome"), &PJ::Str("ok".into()));
     assert_eq!(j.get("budget_ms").num(), 500.0);
     assert_eq!(j.get("title"), &PJ::Str("qv8 fixture".into()));
+    // QINC1n: the engine evidence counts (`engine` stays the JS engine's name).
+    for k in ["updates", "restarts", "fallbacks", "checks", "mismatches", "check_every"] {
+        j.get("engine_counts").get(k).num();
+    }
     let cb = j.get("callbacks");
     for kind in ["classic_script", "module_script", "timer", "promise_job", "event", "observer_delivery", "net_callback"] {
         let k = cb.get(kind);
