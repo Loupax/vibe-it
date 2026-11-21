@@ -715,7 +715,8 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     // is `name`, or that is an embed/form/img/object with that `name` attribute; -1 if none. One walk per
     // DOM write generation builds the whole map (`typeof X` feature probes hit this on every miss).
     let (t, gn) = (table.clone(), wgen.clone());
-    let named: Rc<RefCell<(i32, u64, HashMap<String, Handle>)>> = Rc::new(RefCell::new((-1, u64::MAX, HashMap::new())));
+    type NamedCache = (i32, u64, HashMap<String, Handle>);
+    let named: Rc<RefCell<NamedCache>> = Rc::new(RefCell::new((-1, u64::MAX, HashMap::new())));
     native!(ctx, "__d_named", move |doc: i32, name: String| -> i32 {
         let mut t = t.borrow_mut();
         let mut c = named.borrow_mut();
@@ -725,19 +726,17 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             descendants(&root, &mut all);
             let mut map: HashMap<String, Handle> = HashMap::new();
             for h in &all {
-                if let Some(id) = element_attr(h, "id") {
-                    if !id.is_empty() {
-                        map.entry(id.to_string()).or_insert_with(|| h.clone());
-                    }
+                if let Some(id) = element_attr(h, "id")
+                    && !id.is_empty()
+                {
+                    map.entry(id.to_string()).or_insert_with(|| h.clone());
                 }
-                if let NodeData::Element { name, .. } = &h.data {
-                    if matches!(name.local.as_ref(), "embed" | "form" | "img" | "object" | "iframe") {
-                        if let Some(n) = element_attr(h, "name") {
-                            if !n.is_empty() {
-                                map.entry(n.to_string()).or_insert_with(|| h.clone());
-                            }
-                        }
-                    }
+                if let NodeData::Element { name, .. } = &h.data
+                    && matches!(name.local.as_ref(), "embed" | "form" | "img" | "object" | "iframe")
+                    && let Some(n) = element_attr(h, "name")
+                    && !n.is_empty()
+                {
+                    map.entry(n.to_string()).or_insert_with(|| h.clone());
                 }
             }
             *c = (doc, gn.get(), map);
