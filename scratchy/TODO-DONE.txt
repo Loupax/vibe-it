@@ -8646,3 +8646,49 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       clear-site`; if wire is unreachable the stash part still runs and the log says the
       cookies were not cleared. A key binding is a later item. Test: forget removes the
       directory, bumps the generation, and an open page's later commit is dropped.
+
+=== from TODO.txt: --- (no header)
+- [x] QMAPI1 DONE f4fd79e #489 [M] (P1; Sonnet; new src/missing_api.rs + prelude; R64 section 5; independent) Missing-API
+      report mode `scratchy --missing-api-report [--socket S] [--seconds N] URL...`: one forwarding
+      Proxy at the end of the window and DOM prototype chains (get/has traps record misses, answers
+      unchanged), IDL member list generated from WPT interfaces/*.idl (tool script + committed JSON),
+      V8 error-message grouping, existing `not implemented` stubs; JSON per page. Measure the report
+      mode's JS-time cost on the 7 gate pages (acceptance <= 2x) and prove normal mode installs
+      nothing (test).
+
+=== from TODO.txt: --- (no header)
+- [x] QREC1 DONE 271c29e #490 [M] (P2; Sonnet; wire only; R64 section 6; independent) wire --record DIR / --replay DIR
+      (blobs by sha256 + zstd, index.jsonl, matching exact -> ignore-list -> n-th same path, ranges,
+      404 + X-Wire-Replay: miss, --replay-delay, WebSocket refused in replay). Tests in wire.
+
+=== from TODO.txt: --- (no header)
+- [x] QCOMP3 DONE 2016242 #491 [S] (P2, after QSTASH1) History file writer (C5, STASH.md "History"):
+      append on load for visits only (C7: link, :go, page script; final URL after
+      redirects; fragment stripped), skip reload / back-forward / same-document / iframes
+      / opaque origins / :help / failed loads, title escaping, 4096 byte cap, startup trim
+      under `.history.lock`, `HISTORY` and `HISTORY_MAX_LINES` in config.rs. Tests: one
+      line per visit with the title; a redirect records the final URL; `#a` stripped;
+      `:refresh` and `h`/`l` add nothing; a title with a tab/newline; file: not recorded;
+      a long title is cut and the line stays <= 4096 bytes; trim keeps the newest lines;
+      two writers appending concurrently produce whole lines.
+
+=== from TODO.txt: --- (no header)
+- [x] QKEYS1 DONE ead7700 #492 [M] (P2, after the perf queue) Status bar (D3, D4). Paint a one-line strip at
+      the bottom (chrome, like paint_command_bar, which it absorbs: the `:` line is drawn
+      in the same strip) showing the mode name, the current URL and the last message (D8); for now the mode is "INPUT" while vim
+      bindings are off and "NORMAL" while on, until QKEYS2 lands. The viewport the page
+      sees shrinks by the bar height everywhere it is computed (layout width/height,
+      `innerHeight`/`visualViewport`, `resize` event, max scroll, fixed-position boxes,
+      hit-testing offsets, the JS thread's viewport). Tests: the layout viewport height is
+      window height minus the bar; a `position: fixed; bottom: 0` box sits above the bar;
+      `innerHeight` matches; the bar text follows the mode. Real check: grim of a long page
+      scrolled to the bottom, its last line visible above the bar.
+
+=== from TODO.txt: --- (no header)
+- [x] QWPT4a DONE b4fdbf8 #493 [M] (P1; Opus; new src/wpt_th.rs, js.rs report path; R64 2.2, 2.3; after QWPT3) Test child.
+      `scratchy --wpt-th-one --socket S URL`: headless page load through wire, the vendor
+      testharnessreport.js (setup({output:false}), completion callback -> native __scratchy_wpt_done,
+      installed only in this mode), virtual clock that advances only when no task is runnable AND no
+      load is pending, 800x600 viewport, Ahem font; prints ONE JSON line {harness, message, tests}
+      or nothing (parent says CRASH). Tests: fixture pages in a mini checkout (pass, fail, harness
+      error, timeout -> TIMEOUT in < 1 s real time, a pending fetch does not time out).
