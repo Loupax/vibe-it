@@ -3432,3 +3432,16 @@ fn qcss1_height_dependent_media_follows_a_height_only_resize() {
     assert!(find_box_with_background(&short).is_none());
     assert!(crate::dom::viewport_height_read(), "a height media query must note a viewport-height read");
 }
+
+#[test]
+fn qwptprint_print_media_matches_only_under_the_print_override() {
+    let m = |q: &str| crate::css::media_query_string_matches(q, 480.0, 288.0).0;
+    assert!(!crate::css::print_media());
+    assert!(m("screen") && !m("print") && m("not print") && !m("only print") && m("all"));
+    crate::css::set_print_media(true);
+    assert!(m("print") && !m("screen") && !m("not print") && m("not screen") && m("all"));
+    assert!(m("print and (min-width: 400px)") && !m("print and (min-width: 500px)"));
+    assert!(qcss1_applies("print", 480.0, 288.0), "stylesheet @media print matches under the override");
+    crate::css::set_print_media(false);
+    assert!(!qcss1_applies("print", 480.0, 288.0) && qcss1_applies("not print", 480.0, 288.0));
+}

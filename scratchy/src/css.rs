@@ -2121,7 +2121,7 @@ pub(crate) struct MediaQuery {
     /// orientation): the cascade then notes a viewport-height read.
     reads_h: bool,
     /// (width bits, height bits, reduced motion, answer) of the last call.
-    memo: std::cell::Cell<Option<(u32, u32, bool, bool)>>,
+    memo: std::cell::Cell<Option<MediaMemo>>,
 }
 
 impl PartialEq for MediaQuery {
@@ -2129,6 +2129,9 @@ impl PartialEq for MediaQuery {
         self.text == o.text
     }
 }
+
+/// (width bits, height bits, reduced motion, print, answer).
+type MediaMemo = (u32, u32, bool, bool, bool);
 
 static REDUCED_MOTION: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
@@ -2142,6 +2145,23 @@ pub(crate) fn reduced_motion() -> bool {
 
 pub(crate) fn set_reduced_motion(on: bool) {
     REDUCED_MOTION.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+thread_local! {
+    /// QWPTPRINT: media type override of this thread's style/media evaluation
+    /// (`false` = `screen`, the default; `true` = `print`). Only the headless
+    /// reftest runner sets it; the window always evaluates as `screen`.
+    static PRINT_MEDIA: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Whether the media type being evaluated is `print` (else `screen`).
+pub(crate) fn print_media() -> bool {
+    PRINT_MEDIA.with(|c| c.get())
+}
+
+/// Sets the media type override for this thread (see `PRINT_MEDIA`).
+pub(crate) fn set_print_media(on: bool) {
+    PRINT_MEDIA.with(|c| c.set(on));
 }
 
 impl MediaQuery {
@@ -2165,16 +2185,18 @@ impl MediaQuery {
             note_viewport_height_read();
         }
         let rm = reduced_motion();
+        let pm = print_media();
         let (wb, hb) = (viewport_width.to_bits(), h.to_bits());
-        if let Some((w0, h0, r0, ans)) = self.memo.get()
+        if let Some((w0, h0, r0, p0, ans)) = self.memo.get()
             && w0 == wb
             && h0 == hb
             && r0 == rm
+            && p0 == pm
         {
             return ans;
         }
         let ans = media_one_query_eval(&self.text, viewport_width, h).unwrap_or(false);
-        self.memo.set(Some((wb, hb, rm, ans)));
+        self.memo.set(Some((wb, hb, rm, pm, ans)));
         ans
     }
 }
@@ -6880,7 +6902,7 @@ fn media_one_query_eval(text: &str, w: f32, h: f32) -> Result<bool, ()> {
     if ty.starts_with('(') || matches!(ty.as_str(), "and" | "or" | "not" | "only" | "layer") {
         return Err(());
     }
-    let ty_ok = ty == "all" || ty == "screen";
+    let ty_ok = ty == "all" || ty == if print_media() { "print" } else { "screen" };
     i += 1;
     let mut cond = Some(true);
     if i < parts.len() {

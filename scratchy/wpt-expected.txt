@@ -600,7 +600,7 @@ PASS css/mediaqueries/negation-002.html
 PASS css/mediaqueries/prefers-color-scheme-svg-image-normal-with-meta-dark.html
 PASS css/printing/animations-print.html
 PASS css/printing/pseudo-animations-print.html
-FAIL css/printing/transition-in-media-print.tentative.html
+PASS css/printing/transition-in-media-print.tentative.html
 PASS css/selectors/child-indexed-no-parent.html
 FAIL css/selectors/featureless-001.html
 FAIL css/selectors/has-style-sharing-001.html
