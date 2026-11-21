@@ -1547,8 +1547,10 @@ images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom
   (builds ms off / INCR=1; p95 off / on): YouTube results 4 849 / 1 212 (p95 13 / 52, gPS 84.1 / 18.2 ms, this run
   had 37 reads; #465 4.1-5.7), YouTube watch (playing) 11 761 / 1 310 (93 / 18, gPS 6.1 ms), Wikipedia 2 327 / 611
   (both in the 24-25-build regime, not the 102-104 one of #465), bbc 784 / 202 (347 / 206), hover 203 / 127
-  (134 / 145): all within or better than #465's table (ytr's gPS median is above #465's in this single run under
-  load 5.9; its builds are -75 %). **Exactness:** `gate.sh check 1 github` twice: headless 0 mismatches; window
+  (134 / 145): all within or better than #465's table except ytr's gPS median in that single run (load 5.9);
+  re-run at load 0.3-2.0, INCR=1, this branch vs base b924d48 alternated x2: gPS 5.3 / 5.1 vs 4.3 / 5.0 ms, builds
+  1 053 / 950 vs 906 / 904 ms (more reads and frames in run a: 159 vs 99-107 forced), worst job 185 / 161 vs
+  186 / 165 ms: same as #465 (gPS 4.1-5.7, builds 886-966). **Exactness:** `gate.sh check 1 github` twice: headless 0 mismatches; window
   35 / 53 lines, all the known QINC1k1 `style.height` 642.0005 one except, in the FIRST window run only, 20 style
   mismatches `slot after/before field width: ... Calc(.., (956.0, 312.0)) vs (956.0, 485.0)` on footer links and
   carousel indicators (pseudo-element calc carrying a viewport-like pair; not reproduced in 2 more window check runs
