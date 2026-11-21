@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-21 · main 00dcb1f · 5 PRs merged (#475–#479) · next 5 agents running</div>
+  <div class="meta" id="updated">Updated 2026-11-21 · main 39d0211 · 10 PRs merged today (#475–#484) · session drained, no agents running</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -73,7 +73,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 <section>
   <h2>Measurements</h2>
   <div class="stats">
-    <div class="stat"><span class="v">333 / 626</span><span class="l">WPT visual CSS tests passing (reftests)</span></div>
+    <div class="stat"><span class="v">333 / 626</span><span class="l">WPT visual CSS tests passing (reftests), now checked in CI</span></div>
     <div class="stat"><span class="v">~31%</span><span class="l">WPT JavaScript tests, average score per file: one-off probe of 1,522 serverless tests (44% of 23,389 checks). Not in CI yet</span></div>
     <div class="stat"><span class="v">1743 / 1743</span><span class="l">Unit and integration tests passing, engine on and off (CI runs both)</span></div>
     <div class="stat"><span class="v">0</span><span class="l">Engine mismatches on the 7 test pages (check mode)</span></div>
@@ -85,6 +85,11 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#481</td><td>QSTASH5</td><td>wire saves cookies to a file (<code>--cookie-file</code>), clears one site's cookies, and now requires a private token on cookie control requests (your call)</td></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#484</td><td>QSTASH2</td><td>localStorage survives page loads and restarts (<code>--state-dir</code>); <code>:set novim</code> on social.loupax.com sticks</td></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#483</td><td>QSB1</td><td>Drag the scrollbar thumb, click the track to page; the window now has a painted scrollbar too</td></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#482</td><td>QPASTE1</td><td>Paste works in the <code>:</code> line and page fields on Wayland; Ctrl-Shift-v and Shift-Insert too</td></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#480</td><td>QWPT2</td><td>WPT version pinned; the visual CSS tests now run and gate in CI (~4 s)</td></tr>
     <tr><td class="n">2026-11-21</td><td class="n">#479</td><td>QSTASH1</td><td>On-disk storage module for localStorage (one file per key, locking, writer thread). Not wired to pages yet (QSTASH2)</td></tr>
     <tr><td class="n">2026-11-21</td><td class="n">#478</td><td>QJ4b</td><td>Grid items placed past the defined columns create extra tracks, as the spec says; the Guardian crash is gone</td></tr>
     <tr><td class="n">2026-11-21</td><td class="n">#477</td><td>QFLK4</td><td>The "flaky" forms test hid a real bug: typing events were plain Events without <code>inputType</code>/<code>data</code>. Fixed</td></tr>
@@ -98,15 +103,15 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 </section>
 
 <section>
-  <h2>Open work (51 items)</h2>
+  <h2>Open work (49 items)</h2>
   <div class="scroll"><table>
     <tr><th>Group</th><th>Items</th><th>Status</th></tr>
     <tr><td>Engine</td><td>QINC1m remove the old pipeline</td><td><span class="pill todo">after ~3 days of your use, with your OK</span></td></tr>
-    <tr><td>Conformance</td><td>26 items: QWPT2 running · QWPT3–9 test runner and CI · QEL1–9 event loop · QMAPI1–3 missing-API report · QREC1–3 recorded pages · QBUD1 budgets · QAREA-DOM</td><td><span class="pill wip">QWPT2 in a free slot; rest after UI/storage</span></td></tr>
-    <tr><td>Reliability</td><td>QFLK4/5/6 + QJ4b done · new: QFLK7 (tests that never ran), QFLK6b, QJ4c · QINC1k9</td><td><span class="pill todo">queued</span></td></tr>
+    <tr><td>Conformance</td><td>QWPT2 done · QWPT3–9 test runner and CI · QEL1–9 event loop · QMAPI1–3 missing-API report · QREC1–3 recorded pages · QBUD1 budgets · QAREA-DOM</td><td><span class="pill todo">after the UI and storage items</span></td></tr>
+    <tr><td>Reliability</td><td>QFLK7 (tests that never ran) · QFLK6b · QJ4c · QWIKI1 · QINC1k9</td><td><span class="pill todo">queued</span></td></tr>
     <tr><td>Product choices</td><td>QCFG1 config file · QTB1 tracker blocking</td><td><span class="pill todo">queued</span></td></tr>
-    <tr><td>UI: storage</td><td>QSTASH1–5 saved localStorage, cookies, forget-site</td><td><span class="pill wip">QSTASH1 done · QSTASH2 + QSTASH5 running</span></td></tr>
-    <tr><td>UI: keys</td><td>QKEYS1–4 status bar, input/normal mode · QSB1 scrollbar drag · QPASTE1</td><td><span class="pill wip">QPASTE1 + QSB1 running</span></td></tr>
+    <tr><td>UI: storage</td><td>QSTASH1–5 saved localStorage, cookies, forget-site</td><td><span class="pill todo">QSTASH1/2/5 done · next QSTASH4, QSTASH3</span></td></tr>
+    <tr><td>UI: keys</td><td>QKEYS1–4 status bar, input/normal mode · QSB1 scrollbar drag · QPASTE1</td><td><span class="pill todo">QPASTE1, QSB1 done · next QCONF1, QKEYS1</span></td></tr>
     <tr><td>UI: search</td><td>QSEARCH1–3 <code>/</code>, n/N, Enter</td><td><span class="pill todo">queued</span></td></tr>
     <tr><td>UI: completion</td><td>QCONF1 · QCOMP1–4 completion sources, history file, <code>:go</code></td><td><span class="pill todo">queued</span></td></tr>
   </table></div>
@@ -116,6 +121,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 <section>
   <h2>Waiting on you</h2>
   <ul id="waiting">
+    <li>Restart your wire: the new scratchy needs wire's new token file for <code>document.cookie</code> (both binaries reinstalled).</li>
     <li>QSTASH1 counts the 5 MB localStorage limit as 5 Mi UTF-16 characters of keys plus values (Firefox's rule). Say if you want something else.</li>
     <li>Skim <span class="mono">scratchy/DECISIONS.md</span> once and correct anything I misstated.</li>
     <li>After about 3 days with the engine as default: OK to remove the old pipeline (QINC1m)?</li>
