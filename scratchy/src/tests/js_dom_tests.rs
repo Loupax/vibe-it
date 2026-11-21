@@ -1934,3 +1934,35 @@ fn qpt1f_srcdoc_external_script_goes_through_the_page_queue() {
     assert_eq!(log, ["log:after true https://page.test/dir/e.js", "log:iframe load"], "{log:?}");
 }
 
+// QERR1: an uncaught exception in a top-level script fires an ErrorEvent at window (R64 E7).
+#[test]
+fn qerr1_uncaught_script_exception_fires_error_event() {
+    let log = run_collecting(&[
+        src("window.addEventListener('error', function (e) { console.log('L', e.message, e.filename, e.lineno, e.colno, e.error instanceof Error, e.cancelable); });\
+             window.onerror = function () { console.log('O', arguments.length, typeof arguments[0], arguments[1], arguments[2], arguments[3], arguments[4] instanceof RangeError); };"),
+        src("\n  throw new RangeError('boom');"),
+    ]);
+    assert!(log[0].starts_with("log:L Uncaught RangeError: boom t 2 "), "{log:?}");
+    assert!(log[0].ends_with(" true true"), "{log:?}");
+    assert!(log[1].starts_with("log:O 5 string t 2 "), "{log:?}");
+    assert!(log[1].ends_with(" true"), "{log:?}");
+    assert!(log[2].starts_with("error:t: RangeError: boom"), "{log:?}");
+    assert_eq!(log.len(), 3, "{log:?}");
+}
+
+#[test]
+fn qerr1_onerror_true_suppresses_log_and_throwing_handler_does_not_recurse() {
+    let log = run_collecting(&[
+        src("window.onerror = function () { return true; };"),
+        src("throw 'x';"),
+        src("window.onerror = function () { throw new Error('again'); };"),
+        src("throw new Error('first');"),
+        src("window.onerror = null; window.addEventListener('error', function (e) { e.preventDefault(); });"),
+        src("null.x;"),
+        src("var = ;"),
+    ]);
+    assert!(!log.iter().any(|l| l.contains("Uncaught x") || l.contains("TypeError") || l.contains("SyntaxError")), "{log:?}");
+    assert_eq!(log.iter().filter(|l| l.contains("first")).count(), 1, "{log:?}");
+    assert_eq!(log.iter().filter(|l| l.contains("again")).count(), 1, "{log:?}");
+}
+

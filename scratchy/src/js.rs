@@ -574,7 +574,12 @@ const PRELUDE: &str = r#"
         var h = node['on' + ev.type];
         if (typeof h !== 'function') h = attrHandler(node, ev.type);
         if (typeof h === 'function') {
-          try { if (h.call(node, ev) === false) ev.preventDefault(); } catch (x) { oops(x); }
+          try {
+            if (node === g && ev.type === 'error' && ev instanceof g.ErrorEvent) {
+              // QERR1: window.onerror takes the 5-argument form; `true` cancels.
+              if (h.call(node, ev.message, ev.filename, ev.lineno, ev.colno, ev.error) === true) ev.preventDefault();
+            } else if (h.call(node, ev) === false) ev.preventDefault();
+          } catch (x) { oops(x); }
         }
       }
     };
@@ -586,6 +591,20 @@ const PRELUDE: &str = r#"
     return !ev.defaultPrevented;
   };
   Object.defineProperty(g, '__scratchy_dispatch', { value: dispatch });
+  // QERR1 ("report the exception", R64 E7): an uncaught exception of a top-level script fires an
+  // ErrorEvent at window. Returns true when a handler cancelled it (no log line then).
+  var reporting = false;
+  Object.defineProperty(g, '__scratchy_report_error', { value: function (err, filename, line, col) {
+    if (reporting) return false;
+    reporting = true;
+    try {
+      var m;
+      try { m = (err !== null && typeof err === 'object' && err.name !== undefined) ? err.name + ': ' + err.message : String(err); } catch (x) { m = 'exception'; }
+      var ev = new g.ErrorEvent('error', { cancelable: true, message: 'Uncaught ' + m, filename: String(filename), lineno: line, colno: col, error: err });
+      dispatch(g, ev);
+      return ev.defaultPrevented;
+    } catch (x) { return false; } finally { reporting = false; }
+  } });
   var ETP = EventTarget.prototype;
   // QCUR1: how many listeners exist per pointer-motion event type, so Rust only builds
   // and dispatches those events when a page can see them. Bit i of the mask = PTR_TYPES[i].
@@ -1269,10 +1288,27 @@ impl JsEngine {
                     (self.log)("error", &format!("{name}: {msg}"));
                 }
             };
+            // QERR1: an uncaught exception is "reported": an ErrorEvent at window first; a
+            // handler that cancels it (onerror returning true, preventDefault) hides the log line.
+            let report = |ctx: &js_engine::Ctx<'_>| -> (String, bool) {
+                let (line, col) = js_engine::expose_pending(ctx, "__scratchy_exc");
+                let msg = js_engine::describe_exception(ctx);
+                if self.tripped() {
+                    return (msg, false);
+                }
+                let call = format!("(function(e){{delete globalThis.__scratchy_exc;return __scratchy_report_error(e,{},{line},{col})}})(globalThis.__scratchy_exc)", js_string_literal(name));
+                let handled = js_engine::eval_sloppy::<bool>(ctx, "error-event", &call).unwrap_or_else(|e| {
+                    let _ = js_engine::describe_error(ctx, e);
+                    false
+                });
+                (msg, handled)
+            };
             let Ok(compiled) = compiled else {
-                let msg = js_engine::describe_exception(&ctx);
+                let (msg, handled) = report(&ctx);
                 let now = thread_cpu_nanos();
-                failed(msg, now.saturating_sub(t0), 0);
+                if !handled {
+                    failed(msg, now.saturating_sub(t0), 0);
+                }
                 timing.set((now.saturating_sub(t0), 0, false));
                 return;
             };
@@ -1295,8 +1331,10 @@ impl JsEngine {
             let run = thread_cpu_nanos().saturating_sub(t1);
             timing.set((t1.saturating_sub(t0), run, !failed_run));
             if failed_run {
-                let msg = js_engine::describe_exception(&ctx);
-                failed(msg, t1.saturating_sub(t0), run);
+                let (msg, handled) = report(&ctx);
+                if !handled {
+                    failed(msg, t1.saturating_sub(t0), run);
+                }
             }
         });
         self.eng.drain_jobs(&*self.log);
@@ -1312,7 +1350,7 @@ impl JsEngine {
         // The `.then` handler also marks the promise handled, so the QY14
         // unhandled-rejection report does not log the failure a second time.
         let code = format!(
-            "(function(p){{var r=globalThis.__scratchy_modr={{s:0}};p.then(function(){{r.s=1;}},function(e){{r.s=2;r.m=(e&&e.name?e.name+': '+e.message:'Uncaught '+String(e))+(e&&e.stack?'\\n'+e.stack:'');}});}})(import({}))",
+            "(function(p){{var r=globalThis.__scratchy_modr={{s:0}};p.then(function(){{r.s=1;}},function(e){{r.s=2;r.e=e;r.m=(e&&e.name?e.name+': '+e.message:'Uncaught '+String(e))+(e&&e.stack?'\\n'+e.stack:'');}});}})(import({}))",
             js_string_literal(name)
         );
         perf::set_job_kind(Some(perf::Kind::ModuleScript));
@@ -1326,7 +1364,12 @@ impl JsEngine {
             if self.tripped() {
                 self.log_interrupted(name, "page-load", perf::script_budget(), size);
             } else {
-                (self.log)("error", &format!("{name}: {msg}"));
+                // QERR1: an ErrorEvent at window first (no throw position for a module rejection).
+                let call = format!("(function(e){{return __scratchy_report_error(e,{},0,0)}})(globalThis.__scratchy_modr.e)", js_string_literal(name));
+                let handled = self.eval_value_as::<bool>(None, "error-event", &call).unwrap_or(false);
+                if !handled {
+                    (self.log)("error", &format!("{name}: {msg}"));
+                }
             }
         }
     }
