@@ -3,7 +3,8 @@ OK           0/1  intersection-observer/animating.html
   FAIL      IntersectionObserver generates notifications when a transform animation changes intersection state
 OK           0/1  intersection-observer/bounding-box.html
   FAIL      Test that the target's border bounding box is used to calculate intersection.
-TIMEOUT      0/0  intersection-observer/callback-cross-realm-report-exception.html
+OK           0/1  intersection-observer/callback-cross-realm-report-exception.html
+  FAIL      IntersectionObserver reports the exception from its callback in the callback's global object
 OK           0/1  intersection-observer/client-rect.html
   FAIL      IntersectionObserverEntry.boundingClientRect should match target.boundingClientRect()
 OK           0/1  intersection-observer/clip-path-animation.html
@@ -25,10 +26,12 @@ OK           1/1  intersection-observer/empty-root-margin.html
 OK           1/1  intersection-observer/explicit-root-different-document.html
 OK           0/1  intersection-observer/fixed-position-child-scroll.html
   FAIL      Fixed-position intersection observer on scroll
-ERROR        0/0  intersection-observer/fixed-position-iframe-scroll.html
+OK           0/1  intersection-observer/fixed-position-iframe-scroll.html
+  FAIL      Fixed-position intersection observer on scroll
 OK           0/1  intersection-observer/fixed-position-scroll.html
   FAIL      Fixed-position intersection observer on scroll
-ERROR        0/0  intersection-observer/grow-height-and-scrolled.html
+OK           2/3  intersection-observer/grow-height-and-scrolled.html
+  FAIL      grow-height-and-scrolled 1
 OK           0/1  intersection-observer/idlharness.window.html
   FAIL      idl_test setup
 TIMEOUT      0/0  intersection-observer/iframe-no-root-with-wrapping-scroller.html
@@ -49,14 +52,10 @@ TIMEOUT      0/1  intersection-observer/intersection-ratio-with-fractional-bound
 OK           1/1  intersection-observer/intersection-ratio-with-fractional-bounds.html
 OK           0/1  intersection-observer/isIntersecting-change-events.html
   FAIL      isIntersecting changes should trigger notifications.
-ERROR        0/3  intersection-observer/isIntersecting-threshold.html
-  FAIL      At initial scroll position
+OK           2/3  intersection-observer/isIntersecting-threshold.html
   FAIL      Scrolled to half way through target element
-  FAIL      Scrolled to target element completely off screen
-OK           0/1  intersection-observer/multicol-2.html
-  FAIL      IntersectionObserver with a fragmented intersection root.
-OK           0/1  intersection-observer/multicol.html
-  FAIL      IntersectionObserver with a fragmented intersection root.
+OK           1/1  intersection-observer/multicol-2.html
+OK           1/1  intersection-observer/multicol.html
 OK           0/1  intersection-observer/multiple-targets.html
   FAIL      One observer with multiple targets.
 OK           0/1  intersection-observer/multiple-thresholds.html
@@ -77,9 +76,10 @@ OK           1/1  intersection-observer/padding-clip.html
 OK           1/1  intersection-observer/reinsert-element.html
 OK           0/1  intersection-observer/remove-element.html
   FAIL      Verify that not-intersecting notifications are sent when a target is removed from the DOM tree.
-ERROR        0/0  intersection-observer/root-is-table-with-overflow-scroll.html
-OK           0/1  intersection-observer/root-margin-in-same-origin-iframe.html
-  FAIL      Intersection Observer: root margin is applied when observer is in a same-origin iframe
+OK           0/1  intersection-observer/root-is-table-with-overflow-scroll.html
+  FAIL      IntersectionObserver observing an element inside a root table.
+TIMEOUT      0/1  intersection-observer/root-margin-in-same-origin-iframe.html
+  TIMEOUT   Intersection Observer: root margin is applied when observer is in a same-origin iframe
 OK           0/1  intersection-observer/root-margin-root-element.html
   FAIL      Root margin with explicit root.
 OK           0/1  intersection-observer/root-margin-rounding.html
@@ -111,36 +111,33 @@ OK           0/1  intersection-observer/same-document-with-document-root.html
   FAIL      IntersectionObserver in a single document using document as root.
 OK           0/1  intersection-observer/same-document-zero-size-target.html
   FAIL      Observing a zero-area target.
-ERROR        0/1  intersection-observer/scroll-and-root-margin.html
+OK           0/1  intersection-observer/scroll-and-root-margin.html
   FAIL      Test scroll margin intersection
-ERROR        0/1  intersection-observer/scroll-margin-4-val.html
+OK           0/1  intersection-observer/scroll-margin-4-val.html
   FAIL      Test scroll margin intersection
-ERROR        0/1  intersection-observer/scroll-margin-clip-path.html
+OK           0/1  intersection-observer/scroll-margin-clip-path.html
   FAIL      Test scroll margin intersection
-ERROR        0/1  intersection-observer/scroll-margin-dynamic.html
-  FAIL      Test no initial scroll margin intersection
-ERROR        0/1  intersection-observer/scroll-margin-horizontal.html
+OK           1/2  intersection-observer/scroll-margin-dynamic.html
+  FAIL      Test scroll margin intersection after scrolling
+OK           0/1  intersection-observer/scroll-margin-horizontal.html
   FAIL      Test scroll margin intersection
 TIMEOUT      0/0  intersection-observer/scroll-margin-iframe.html
-ERROR        0/1  intersection-observer/scroll-margin-nested-2.html
+OK           0/1  intersection-observer/scroll-margin-nested-2.html
   FAIL      Test scroll margin intersection
-ERROR        0/1  intersection-observer/scroll-margin-nested-3.html
+OK           0/1  intersection-observer/scroll-margin-nested-3.html
   FAIL      Test scroll margin intersection
-ERROR        0/1  intersection-observer/scroll-margin-nested.html
+OK           0/1  intersection-observer/scroll-margin-nested.html
   FAIL      Test scroll margin intersection
-ERROR        0/1  intersection-observer/scroll-margin-no-intersect.html
+OK           1/1  intersection-observer/scroll-margin-no-intersect.html
+OK           1/1  intersection-observer/scroll-margin-non-scrolling-root.html
+OK           0/1  intersection-observer/scroll-margin-not-contained.html
   FAIL      Test scroll margin intersection
-ERROR        0/1  intersection-observer/scroll-margin-non-scrolling-root.html
+OK           0/1  intersection-observer/scroll-margin-percent.html
   FAIL      Test scroll margin intersection
-ERROR        0/1  intersection-observer/scroll-margin-not-contained.html
+OK           0/1  intersection-observer/scroll-margin-with-border-outline.html
   FAIL      Test scroll margin intersection
-ERROR        0/1  intersection-observer/scroll-margin-percent.html
-  FAIL      Test scroll margin intersection
-ERROR        0/1  intersection-observer/scroll-margin-with-border-outline.html
-  FAIL      Test scroll margin intersection
-ERROR        0/1  intersection-observer/scroll-margin-zero.html
-  FAIL      Test scroll margin intersection
-ERROR        0/1  intersection-observer/scroll-margin.html
+OK           1/1  intersection-observer/scroll-margin-zero.html
+OK           0/1  intersection-observer/scroll-margin.html
   FAIL      Test scroll margin intersection
 OK           0/1  intersection-observer/shadow-content.html
   FAIL      Observing a target inside shadow DOM.
@@ -179,32 +176,32 @@ TIMEOUT      0/1  intersection-observer/timestamp.html
   TIMEOUT   Check that timestamps correspond to the to execution context that created the observer.
 OK           0/1  intersection-observer/transform-animation.html
   FAIL      An element that already intersects with the viewport does not trigger the observer callback when animating its transform.
-OK           0/3  intersection-observer/transformed-iframe-001-cross-origin.html
-  FAIL      Target is initially visible
-  FAIL      Scroll such that target is just out of view, target is not visible
-  FAIL      Scroll to end of page, target is not visible
-OK           0/3  intersection-observer/transformed-iframe-001-same-origin.html
-  FAIL      Target is initially visible
-  FAIL      Scroll such that target is just out of view, target is not visible
-  FAIL      Scroll to end of page, target is not visible
-OK           0/2  intersection-observer/transformed-iframe-002-cross-origin.html
-  FAIL      Target is initially visible
-  FAIL      Scroll such that target is just out of view, target is not visible
-OK           0/2  intersection-observer/transformed-iframe-002-same-origin.html
-  FAIL      Target is initially visible
-  FAIL      Scroll such that target is just out of view, target is not visible
-OK           0/2  intersection-observer/transformed-iframe-003-cross-origin.html
-  FAIL      Target is not visible as it's rotated perpendicularly to viewport
-  FAIL      Scroll down a bit, target is still not visible
-OK           0/2  intersection-observer/transformed-iframe-003-same-origin.html
-  FAIL      Target is not visible as it's rotated perpendicularly to viewport
-  FAIL      Scroll down a bit, target is still not visible
-OK           0/2  intersection-observer/transformed-iframe-004-cross-origin.html
-  FAIL      Target is not visible as it's rotated perpendicularly to viewport
-  FAIL      Scroll down a bit, target is still not visible
-OK           0/2  intersection-observer/transformed-iframe-004-same-origin.html
-  FAIL      Target is not visible as it's rotated perpendicularly to viewport
-  FAIL      Scroll down a bit, target is still not visible
+TIMEOUT      0/3  intersection-observer/transformed-iframe-001-cross-origin.html
+  TIMEOUT   Target is initially visible
+  NOTRUN    Scroll such that target is just out of view, target is not visible
+  NOTRUN    Scroll to end of page, target is not visible
+TIMEOUT      0/3  intersection-observer/transformed-iframe-001-same-origin.html
+  TIMEOUT   Target is initially visible
+  NOTRUN    Scroll such that target is just out of view, target is not visible
+  NOTRUN    Scroll to end of page, target is not visible
+TIMEOUT      0/2  intersection-observer/transformed-iframe-002-cross-origin.html
+  TIMEOUT   Target is initially visible
+  NOTRUN    Scroll such that target is just out of view, target is not visible
+TIMEOUT      0/2  intersection-observer/transformed-iframe-002-same-origin.html
+  TIMEOUT   Target is initially visible
+  NOTRUN    Scroll such that target is just out of view, target is not visible
+TIMEOUT      0/2  intersection-observer/transformed-iframe-003-cross-origin.html
+  TIMEOUT   Target is not visible as it's rotated perpendicularly to viewport
+  NOTRUN    Scroll down a bit, target is still not visible
+TIMEOUT      0/2  intersection-observer/transformed-iframe-003-same-origin.html
+  TIMEOUT   Target is not visible as it's rotated perpendicularly to viewport
+  NOTRUN    Scroll down a bit, target is still not visible
+TIMEOUT      0/2  intersection-observer/transformed-iframe-004-cross-origin.html
+  TIMEOUT   Target is not visible as it's rotated perpendicularly to viewport
+  NOTRUN    Scroll down a bit, target is still not visible
+TIMEOUT      0/2  intersection-observer/transformed-iframe-004-same-origin.html
+  TIMEOUT   Target is not visible as it's rotated perpendicularly to viewport
+  NOTRUN    Scroll down a bit, target is still not visible
 OK           0/1  intersection-observer/unclipped-root.html
   FAIL      Test that border bounding box is used to calculate intersection with a non-scrolling root.
 TIMEOUT      0/1  intersection-observer/v2/3d-transform-flattened-preserve-3d-occlusion.html

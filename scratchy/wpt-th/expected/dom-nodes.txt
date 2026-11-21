@@ -1695,7 +1695,8 @@ TIMEOUT    27/40  dom/nodes/MutationObserver-childList.html
   FAIL      childList Range.insertNode: child insertion mutation
   FAIL      childList Range.insertNode: children insertion mutation
   FAIL      childList Range.surroundContents: children removal and addition mutation
-TIMEOUT      0/0  dom/nodes/MutationObserver-cross-realm-callback-report-exception.html
+OK           0/1  dom/nodes/MutationObserver-cross-realm-callback-report-exception.html
+  FAIL      MutationObserver reports the exception from its callback in the callback's global object
 OK           2/2  dom/nodes/MutationObserver-disconnect.html
 OK           1/4  dom/nodes/MutationObserver-document.html
   FAIL      parser insertion mutations
@@ -1714,10 +1715,9 @@ OK         12/15  dom/nodes/MutationObserver-transient-registered-observers.wind
 ERROR        0/0  dom/nodes/MutationObserver-xml-parser.xhtml
 OK           0/1  dom/nodes/Node-appendChild-cereactions-vs-script.window.html
   FAIL      Custom element reactions follow script execution
-OK          7/11  dom/nodes/Node-appendChild.html
+OK          8/11  dom/nodes/Node-appendChild.html
   FAIL      Appending to a doctype
   FAIL      Appending a document
-  FAIL      Adopting an orphan
   FAIL      Adopting a non-orphan
 OK           4/9  dom/nodes/Node-baseURI.html
   FAIL      For attributes unassigned to element, baseURI should be document URL
@@ -1920,16 +1920,7 @@ TIMEOUT      3/5  dom/nodes/Node-parentNode.html
   FAIL      Doctype
   NOTRUN    Removed iframe
 ERROR        0/0  dom/nodes/Node-properties.html
-OK         19/28  dom/nodes/Node-removeChild.html
-  FAIL      Passing a detached element from a frame document to removeChild should not affect it.
-  FAIL      Passing a non-detached element from a frame document to removeChild should not affect it.
-  FAIL      Calling removeChild on a element from a frame document with no children should throw NOT_FOUND_ERR.
-  FAIL      Passing a detached text from a frame document to removeChild should not affect it.
-  FAIL      Passing a non-detached text from a frame document to removeChild should not affect it.
-  FAIL      Calling removeChild on a text from a frame document with no children should throw NOT_FOUND_ERR.
-  FAIL      Passing a detached comment from a frame document to removeChild should not affect it.
-  FAIL      Passing a non-detached comment from a frame document to removeChild should not affect it.
-  FAIL      Calling removeChild on a comment from a frame document with no children should throw NOT_FOUND_ERR.
+OK         28/28  dom/nodes/Node-removeChild.html
 OK         11/29  dom/nodes/Node-replaceChild.html
   FAIL      Should check the 'parent' type before checking whether 'child' is a child of 'parent'
   FAIL      Should check that 'node' is not an ancestor of 'parent' before checking whether 'child' is a child of 'parent'
@@ -3532,10 +3523,8 @@ OK         4/755  dom/nodes/processing-instruction-attributes.html
   FAIL      U+0000 NULL in processing instruction data invalidates pseudo-attributes from xml-dom
 TIMEOUT      0/1  dom/nodes/query-target-in-load-event.html
   NOTRUN    document.querySelector(":target") must work when called in the window.load event
-OK           0/1  dom/nodes/querySelector-empty-id.html
-  FAIL      querySelector attribute matching empty id
-OK           1/2  dom/nodes/querySelector-id-nth-child.html
-  FAIL      querySelector matching #id + constant nth-child()
+OK           1/1  dom/nodes/querySelector-empty-id.html
+OK           2/2  dom/nodes/querySelector-id-nth-child.html
 OK           0/1  dom/nodes/querySelector-mixed-case.html
   FAIL      Mixed HTML/SVG/MathML tree with various mixed-case attributes
 OK           0/1  dom/nodes/remove-and-adopt-thcrash.html
