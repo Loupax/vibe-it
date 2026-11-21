@@ -73,6 +73,7 @@ pub(crate) const BINDINGS: &[Binding] = &[
     bind(Char("d"), Mods::Ctrl, A::HalfPageDown),
     bind(Char("u"), Mods::Ctrl, A::HalfPageUp),
     bind(Char(":"), Mods::Any, A::EnterCommandMode),
+    bind(Char("i"), Mods::Any, A::EnterInputMode),
     bind(Char("h"), Mods::Any, A::HistoryBack),
     bind(Char("l"), Mods::Any, A::HistoryFront),
     bind(Char("G"), Mods::Any, A::ScrollBottom),
@@ -87,6 +88,12 @@ pub(crate) const BINDINGS: &[Binding] = &[
     bind(Named(NamedKey::End), Mods::Any, A::ScrollBottom),
     // `gg` (ScrollTop) is the pending-`g` state machine in `resolve_pending_g`, not a row here.
 ];
+
+// ---------- modes (QKEYS2) ----------
+
+/// Esc Esc: the second Esc must come within this many ms of the first (input -> normal mode).
+/// A QMK user can swap the trigger for F13 by editing `resolve_esc_esc`'s key test.
+pub(crate) const ESC_ESC_MS: u64 = 300;
 
 // ---------- scrolling ----------
 

@@ -138,14 +138,46 @@ pub(crate) enum AppEvent {
 /// `Normal` resolves bare keys into an `Action` via `resolve_binding`;
 /// `Command` is the `:`-entered command line itself, editing `App::
 /// command_line` directly rather than going through any binding at
-/// all. Meaningless while `App::vim_enabled` is `false` — vim mode off
-/// always means `Normal` with every key ignored by `resolve_binding`
-/// (`mode` is checked there too, not just by the caller), not a third
-/// state of its own (see `App::handle_key_event`'s own docs).
+/// all. Only reachable from `KeyMode::Normal`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum VimMode {
     Normal,
     Command,
+}
+
+/// QKEYS2 (KEYS.md): who gets the keys. `Input` = the page (and the UA defaults), scratchy's
+/// bindings are never consulted; `Normal` = scratchy's bindings, the page sees no key events.
+/// Sticky: only Esc Esc (Input -> Normal), `i` or a click into a text control/select
+/// (Normal -> Input) change it. The `:` line (`VimMode::Command`) is a sub-state of `Normal`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum KeyMode {
+    Input,
+    Normal,
+}
+
+/// QKEYS2: the Esc Esc recogniser's state (KEYS.md ESC1). `Esc1(t)` = one Esc seen at `t`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EscState {
+    Idle,
+    Esc1(std::time::Instant),
+}
+
+/// QKEYS2: KEYS.md T1-T5. Given the state, a key PRESS (`repeat` = OS auto-repeat), the
+/// modifiers and the time now, returns the new state and whether this press completes Esc Esc
+/// (enter normal mode; the caller must not deliver this press to the page). Pure: the caller
+/// passes the clock. Only a plain Esc (no Ctrl/Alt/Super) counts; a repeat or any other key
+/// resets to `Idle`; an Esc later than `ESC_ESC_MS` after the first starts over (T3).
+pub(crate) fn resolve_esc_esc(state: EscState, key: &Key, mods: ModifiersState, repeat: bool, now: std::time::Instant) -> (EscState, bool) {
+    let plain_esc = matches!(key, Key::Named(NamedKey::Escape)) && !mods.control_key() && !mods.alt_key() && !mods.super_key();
+    if !plain_esc || repeat {
+        return (EscState::Idle, false);
+    }
+    match state {
+        EscState::Esc1(t) if now.saturating_duration_since(t) <= std::time::Duration::from_millis(crate::config::ESC_ESC_MS) => {
+            (EscState::Idle, true)
+        }
+        _ => (EscState::Esc1(now), false),
+    }
 }
 
 /// The effect a resolved Normal-mode binding actually has — kept as its
@@ -164,6 +196,8 @@ pub(crate) enum Action {
     /// QYSCR1: `Shift+Space` / `PageUp`.
     PageUp,
     EnterCommandMode,
+    /// QKEYS2 (T6): `i` hands the keyboard back to the page.
+    EnterInputMode,
     HistoryBack,
     HistoryFront,
     /// `gg` / `Home`.
@@ -186,7 +220,7 @@ pub(crate) enum Action {
 /// either way — repeating it just re-clears an already-empty command
 /// line — but listed here too since repeating it serves no purpose.
 pub(crate) fn action_ignores_repeat(action: Action) -> bool {
-    matches!(action, Action::HistoryBack | Action::HistoryFront | Action::EnterCommandMode)
+    matches!(action, Action::HistoryBack | Action::HistoryFront | Action::EnterCommandMode | Action::EnterInputMode)
 }
 
 /// The one chokepoint a real key event gets resolved into an `Action`
@@ -226,9 +260,12 @@ pub(crate) fn page_viewport(win: (u32, u32)) -> (u32, u32) {
     (win.0, win.1.saturating_sub(crate::config::STATUS_BAR_H).max(1))
 }
 
-/// QKEYS1: the status bar's mode name. Until QKEYS2: `NORMAL` while vim bindings are on.
-pub(crate) fn mode_name(vim_enabled: bool) -> &'static str {
-    if vim_enabled { "NORMAL" } else { "INPUT" }
+/// QKEYS1/QKEYS2: the status bar's mode name.
+pub(crate) fn mode_name(mode: KeyMode) -> &'static str {
+    match mode {
+        KeyMode::Input => "INPUT",
+        KeyMode::Normal => "NORMAL",
+    }
 }
 
 pub(crate) fn page_step(view_h: f32) -> f32 {
@@ -927,25 +964,15 @@ pub(crate) struct App {
     pub(crate) late_images_requested: usize,
     /// QY56: late images refused by the cap, to settle as `error` in `js_sync`.
     pub(crate) late_image_errors: Vec<String>,
-    /// Whether vim-mode key interception is on at all — `:set vim`/
-    /// `:set novim`'s own stored state (plus `AppEvent::ToggleVimMode`'s
-    /// own flip). `false` means `resolve_binding` is never even reached
-    /// from `handle_key_event` for an ordinary keystroke: the explicit,
-    /// stated use case (TODO.txt) is turning this fully off to play a
-    /// browser-rendered game that wants raw keys, so "off" has to mean
-    /// zero claimed keys, not "off except for the keys scratchy still
-    /// wants." Starts `true` — real bare-key Normal-mode bindings work
-    /// immediately, no setup step required, same as real vim's own
-    /// default.
-    pub(crate) vim_enabled: bool,
-    /// `Normal` vs. the `:`-entered command line itself — see `VimMode`'s
-    /// own docs. Only ever meaningfully `Command` while `vim_enabled` is
-    /// `true` (there is no key left to reach `Action::EnterCommandMode`
-    /// through otherwise), but not reset to `Normal` on `vim_enabled`
-    /// flipping false — `dispatch_command`'s own `:set novim` handler
-    /// already runs from inside a `Command`-mode keystroke and resets
-    /// this itself right after, same as every other command-line
-    /// submission does.
+    /// QKEYS2: who gets the keys (see `KeyMode`). Starts in `Input` (D4).
+    pub(crate) key_mode: KeyMode,
+    /// QKEYS2: the Esc Esc recogniser (only advanced in `Input`).
+    pub(crate) esc_state: EscState,
+    /// QKEYS2 (T34): keys whose press was NOT delivered to the page (the `i` of T6, the second
+    /// Esc of T2); their release is dropped too, so the page never sees a `keyup` without a `keydown`.
+    pub(crate) undelivered_presses: Vec<Key>,
+    /// own docs. Only `Command` while `key_mode` is `Normal`; an `i` or a click into a text
+    /// control/select closes it (`set_key_mode`).
     pub(crate) vim_mode: VimMode,
     /// A bare `g` was just pressed in Normal mode; the next `g` completes `gg`.
     pub(crate) pending_g: bool,
@@ -1388,7 +1415,9 @@ impl App {
             css_images_requested: HashSet::new(),
             late_images_requested: 0,
             late_image_errors: Vec::new(),
-            vim_enabled: true,
+            key_mode: KeyMode::Input,
+            esc_state: EscState::Idle,
+            undelivered_presses: Vec::new(),
             vim_mode: VimMode::Normal,
             status_message: String::new(),
             pending_g: false,
@@ -1497,7 +1526,9 @@ impl App {
             css_images_requested: HashSet::new(),
             late_images_requested: 0,
             late_image_errors: Vec::new(),
-            vim_enabled: true,
+            key_mode: KeyMode::Input,
+            esc_state: EscState::Idle,
+            undelivered_presses: Vec::new(),
             vim_mode: VimMode::Normal,
             status_message: String::new(),
             pending_g: false,
@@ -1673,7 +1704,7 @@ impl App {
         {
             let url = self.history.get(self.history_index).map(|u| u.to_string()).unwrap_or_default();
             let bar = crate::paint::StatusBar {
-                mode: mode_name(self.vim_enabled),
+                mode: mode_name(self.key_mode),
                 url: &url,
                 message: &self.status_message,
                 command: (self.vim_mode == VimMode::Command).then_some(&self.command_line),
@@ -2814,12 +2845,8 @@ impl App {
         self.js_dispatch(target, kind, &init)
     }
 
-    /// Q33d: `keydown`/`keyup` at the focused element (else `<body>`);
+    /// Q33d: `keydown`/`keyup` at the focused element (else `<body>`) is `js_key_codes`;
     /// true if the page did not cancel it.
-    pub(crate) fn js_key(&mut self, kind: &str, event: &KeyEvent) -> bool {
-        self.js_key_codes(kind, &event.logical_key, Some(event.physical_key), event.repeat)
-    }
-
     pub(crate) fn js_key_for(&mut self, kind: &str, logical_key: &Key, repeat: bool) -> bool {
         self.js_key_codes(kind, logical_key, None, repeat)
     }
@@ -4160,28 +4187,20 @@ impl App {
         });
     }
 
-    /// The one real entry point a pressed key reaches `App` through —
-    /// see its own call site (`WindowEvent::KeyboardInput`, filtered to
-    /// `ElementState::Pressed` there, release events never reach here
-    /// at all). `vim_mode == Command` always goes to the command-line
-    /// editor regardless of `vim_enabled`: once `:` has been pressed
-    /// (only possible while vim mode was already on), backing out with
-    /// `Escape` — or finishing a `:set novim` typed from *inside* the
-    /// bar — must still work even the instant after `vim_enabled` would
-    /// otherwise gate everything else out. Otherwise, vim mode off is
-    /// real pass-through: this function does nothing at all, the "zero
-    /// claimed keys" guarantee the whole toggle exists for (TODO.txt).
+    /// A pressed key in the `:` line, or in normal mode (QKEYS2: `route_key` is the entry point for
+    /// everything else). `vim_mode == Command` always goes to the command-line editor.
     pub(crate) fn handle_key_event(&mut self, event: &KeyEvent) {
         if self.vim_mode == VimMode::Command {
             self.pending_g = false;
             self.handle_command_line_key(event);
             return;
         }
-        if !self.vim_enabled {
-            self.pending_g = false;
-            return;
-        }
-        let (g_action, pending, consumed) = resolve_pending_g(self.pending_g, &event.logical_key, self.modifiers);
+        self.handle_normal_key(&event.logical_key, event.repeat);
+    }
+
+    /// QKEYS2: a key press in normal mode (T6-T14): pending `g`, then the binding table.
+    pub(crate) fn handle_normal_key(&mut self, key: &Key, repeat: bool) {
+        let (g_action, pending, consumed) = resolve_pending_g(self.pending_g, key, self.modifiers);
         self.pending_g = pending;
         if consumed {
             if let Some(action) = g_action {
@@ -4189,11 +4208,129 @@ impl App {
             }
             return;
         }
-        if let Some(action) = resolve_binding(&event.logical_key, self.modifiers, self.vim_mode) {
-            if event.repeat && action_ignores_repeat(action) {
+        if let Some(action) = resolve_binding(key, self.modifiers, self.vim_mode) {
+            if repeat && action_ignores_repeat(action) {
                 return;
             }
             self.perform_action(action);
+        }
+    }
+
+    /// QKEYS2: switch mode. Leaving normal mode drops a pending `g` and an open `:` line.
+    pub(crate) fn set_key_mode(&mut self, mode: KeyMode) {
+        self.key_mode = mode;
+        self.esc_state = EscState::Idle;
+        self.pending_g = false;
+        if mode == KeyMode::Input && self.vim_mode == VimMode::Command {
+            self.vim_mode = VimMode::Normal;
+            self.command_line.clear();
+        }
+        if let Some(w) = &self.window {
+            w.request_redraw();
+        }
+    }
+
+    /// QKEYS2 (P4, T29): a left press at `pos` on a text control or select switches to input mode.
+    pub(crate) fn press_switches_to_input(&mut self, pos: (f32, f32)) {
+        if self.key_mode == KeyMode::Input && self.vim_mode != VimMode::Command {
+            return;
+        }
+        let node = self.element_at(pos);
+        let Some(target) = (node != 0).then(|| find_node_by_id(&self.document, node)).flatten() else { return };
+        let Some(control) = enclosing_control(&target) else { return };
+        if !is_disabled_control(&control) && (text_control_kind(&control).is_some() || element_tag(&control) == "select") {
+            self.set_key_mode(KeyMode::Input);
+        }
+    }
+
+    /// QKEYS2: one keyboard event outside the `:` line (KEYS.md T1-T21, T33, T34), with the clock
+    /// passed in. Input mode: Esc Esc check, then page `keydown`/`keyup` and the UA controls in
+    /// today's order, bindings never consulted. Normal mode: no page events, straight to the bindings.
+    pub(crate) fn route_key(&mut self, key: &Key, physical: Option<PhysicalKey>, pressed: bool, repeat: bool, now: std::time::Instant) {
+        if !pressed {
+            if let Some(i) = self.undelivered_presses.iter().position(|k| k == key) {
+                self.undelivered_presses.remove(i);
+                return;
+            }
+            if self.key_mode == KeyMode::Input {
+                self.js_key_codes("keyup", key, physical, repeat);
+            }
+            return;
+        }
+        if self.key_mode == KeyMode::Normal {
+            self.handle_normal_key(key, repeat);
+            if self.key_mode == KeyMode::Input {
+                self.undeliver(key);
+            }
+            return;
+        }
+        let (st, enter) = resolve_esc_esc(self.esc_state, key, self.modifiers, repeat, now);
+        self.esc_state = st;
+        if enter {
+            self.set_key_mode(KeyMode::Normal);
+            self.undeliver(key);
+            return;
+        }
+        if !self.js_key_codes("keydown", key, physical, repeat) {
+            return;
+        }
+        // Q30g: an open select dropdown owns every key (Tab closes it, then moves focus).
+        if self.select_popup.is_some() && self.select_popup_key(key) {
+            return;
+        }
+        // Q30g: a focused closed select / listbox owns the keys like a text control.
+        if !matches!(key, Key::Named(NamedKey::Tab))
+            && let Some(h) = self.focused_select()
+            && self.select_control_key(&h, key)
+        {
+            return;
+        }
+        // Q30d: a focused text control owns the keys (Tab and the page's own keydown handlers excepted).
+        if !matches!(key, Key::Named(NamedKey::Tab))
+            && let Some(h) = self.focused_text_control()
+            && self.text_control_key(&h, key, repeat)
+        {
+            return;
+        }
+        if self.media_key(key, repeat) {
+            return;
+        }
+        match key {
+            Key::Named(NamedKey::Tab) => {
+                self.tab_focus(self.modifiers.shift_key());
+                if let Some(w) = &self.window {
+                    w.request_redraw();
+                }
+            }
+            // Q30c: Space toggles a focused checkbox/radio.
+            Key::Named(NamedKey::Space)
+                if !repeat
+                    && !self.modifiers.control_key()
+                    && !self.modifiers.alt_key()
+                    && let Some(h) = self.interaction.focus.and_then(|f| find_node_by_id(&self.document, f))
+                    && checkable_kind(&h).is_some()
+                    && !is_disabled_control(&h) =>
+            {
+                self.click_activate(Some(&h), (0.0, 0.0));
+            }
+            // Q30e: Enter/Space presses a focused button.
+            Key::Named(NamedKey::Enter | NamedKey::Space)
+                if !repeat
+                    && let Some(h) = self.interaction.focus.and_then(|f| find_node_by_id(&self.document, f))
+                    && (element_tag(&h) == "button" || (element_tag(&h) == "input" && matches!(input_type(&h).as_str(), "submit" | "image" | "reset" | "button")))
+                    && !is_disabled_control(&h) =>
+            {
+                self.click_activate(Some(&h), (0.0, 0.0));
+            }
+            Key::Named(NamedKey::Enter) if self.interaction.focus.is_some() => self.activate_focus(),
+            _ => {}
+        }
+    }
+
+    fn undeliver(&mut self, key: &Key) {
+        self.undelivered_presses.push(key.clone());
+        if self.undelivered_presses.len() > 8 {
+            self.undelivered_presses.remove(0);
         }
     }
 
@@ -4234,6 +4371,7 @@ impl App {
                 // now-empty one.
                 self.completion = None;
             }
+            Action::EnterInputMode => self.set_key_mode(KeyMode::Input),
             Action::ScrollTop => self.scroll_offset = 0.0,
             // `redraw` clamps to the real max scroll every frame, same as `j`.
             Action::ScrollBottom => self.scroll_offset = f32::MAX,
@@ -4560,8 +4698,9 @@ impl App {
             ("historyBack", []) => self.navigate_history(-1),
             ("historyFront", []) => self.navigate_history(1),
             ("refresh", []) => self.refresh(),
-            ("set", ["vim"]) => self.vim_enabled = true,
-            ("set", ["novim"]) => self.vim_enabled = false,
+            // Until QKEYS3 removes them: `vim` = normal mode, `novim` = input mode.
+            ("set", ["vim"]) => self.set_key_mode(KeyMode::Normal),
+            ("set", ["novim"]) => self.set_key_mode(KeyMode::Input),
             // Takes effect from the next page load (`:refresh`).
             ("set", ["js"]) => set_js_enabled(true),
             ("set", ["nojs"]) => set_js_enabled(false),
@@ -4786,9 +4925,11 @@ impl ApplicationHandler<AppEvent> for App {
                 }
             }
             AppEvent::ToggleVimMode => {
-                self.vim_enabled = !self.vim_enabled;
+                // Until QKEYS3: SIGUSR1 toggles the mode.
                 self.vim_mode = VimMode::Normal;
                 self.command_line.clear();
+                let next = if self.key_mode == KeyMode::Input { KeyMode::Normal } else { KeyMode::Input };
+                self.set_key_mode(next);
             }
         }
         if let Some(window) = &self.window {
@@ -4821,96 +4962,20 @@ impl ApplicationHandler<AppEvent> for App {
                 if let Some(fs) = &mut self.frame_stats {
                     fs.input(crate::frame_stats::InputKind::Key, std::time::Instant::now());
                 }
-                // Release events never reach `handle_key_event` at all —
-                // nothing here is driven by a key actually being *held*
-                // (as opposed to repeatedly *pressed*, which winit's own
-                // OS-level key-repeat already reports as more `Pressed`
-                // events with `repeat: true`, no release in between), so
-                // there's nothing a release would need to do. Scroll
-                // relies on exactly that repeat to feel continuous while
-                // held; `action_ignores_repeat` is where a one-shot
-                // action like `HistoryBack`/`HistoryFront` opts back out
-                // of it instead.
-                // Q33d: page `keydown`/`keyup` handlers see keys first (never
-                // the `:` command line) and can cancel them.
-                if self.vim_mode != VimMode::Command {
-                    let kind = if event.state == ElementState::Pressed { "keydown" } else { "keyup" };
-                    if !self.js_key(kind, &event) {
-                        return;
+                // QKEYS2: the `:` line takes its keys first (never the page, releases dropped);
+                // everything else goes through `route_key` (Input / Normal mode).
+                let pressed = event.state == ElementState::Pressed;
+                if self.vim_mode == VimMode::Command {
+                    if pressed {
+                        self.handle_key_event(&event);
                     }
+                } else {
+                    self.route_key(&event.logical_key, Some(event.physical_key), pressed, event.repeat, std::time::Instant::now());
                 }
-                if event.state == ElementState::Pressed {
-                    // Q30g: an open select dropdown owns every key (Tab closes it, then moves focus).
-                    if self.vim_mode != VimMode::Command && self.select_popup.is_some() && self.select_popup_key(&event.logical_key) {
-                        return;
-                    }
-                    // Q30g: a focused closed select / listbox owns the keys like a text control.
-                    if self.vim_mode != VimMode::Command
-                        && !matches!(event.logical_key, Key::Named(NamedKey::Tab))
-                        && let Some(h) = self.focused_select()
-                        && self.select_control_key(&h, &event.logical_key)
-                    {
-                        return;
-                    }
-                    // Q30d: a focused text control owns the keys (Tab and
-                    // the page's own keydown handlers excepted).
-                    if self.vim_mode != VimMode::Command
-                        && !matches!(event.logical_key, Key::Named(NamedKey::Tab))
-                        && let Some(h) = self.focused_text_control()
-                        && self.text_control_key(&h, &event.logical_key, event.repeat)
-                    {
-                        return;
-                    }
-                    if self.vim_mode != VimMode::Command && self.media_key(&event.logical_key, event.repeat) {
-                        return;
-                    }
-                    if self.vim_mode != VimMode::Command {
-                        match event.logical_key {
-                            Key::Named(NamedKey::Tab) => {
-                                self.tab_focus(self.modifiers.shift_key());
-                                if let Some(w) = &self.window {
-                                    w.request_redraw();
-                                }
-                                return;
-                            }
-                            // Q30c: Space toggles a focused checkbox/radio.
-                            Key::Named(NamedKey::Space)
-                                if !event.repeat
-                                    && !self.modifiers.control_key()
-                                    && !self.modifiers.alt_key()
-                                    && let Some(h) = self.interaction.focus.and_then(|f| find_node_by_id(&self.document, f))
-                                    && checkable_kind(&h).is_some()
-                                    && !is_disabled_control(&h) =>
-                            {
-                                self.click_activate(Some(&h), (0.0, 0.0));
-                                return;
-                            }
-                            // Q30e: Enter/Space presses a focused button.
-                            Key::Named(NamedKey::Enter | NamedKey::Space)
-                                if !event.repeat
-                                    && let Some(h) = self.interaction.focus.and_then(|f| find_node_by_id(&self.document, f))
-                                    && (element_tag(&h) == "button" || (element_tag(&h) == "input" && matches!(input_type(&h).as_str(), "submit" | "image" | "reset" | "button")))
-                                    && !is_disabled_control(&h) =>
-                            {
-                                self.click_activate(Some(&h), (0.0, 0.0));
-                                return;
-                            }
-                            Key::Named(NamedKey::Enter) if self.interaction.focus.is_some() => {
-                                self.activate_focus();
-                                return;
-                            }
-                            _ => {}
-                        }
-                    }
-                    self.handle_key_event(&event);
-                    // `:q`/`:quit` (`dispatch_command`) only set this
-                    // flag — `event_loop.exit()` itself has to happen
-                    // here, the one place this whole call chain actually
-                    // has an `&ActiveEventLoop` to call it on (see `App::
-                    // should_quit`'s own docs).
-                    if self.should_quit {
-                        event_loop.exit();
-                    }
+                // `:q`/`:quit` (`dispatch_command`) only set this flag: `event_loop.exit()` has to
+                // happen here, where there is an `&ActiveEventLoop` (see `App::should_quit`).
+                if pressed && self.should_quit {
+                    event_loop.exit();
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
@@ -4960,6 +5025,7 @@ impl ApplicationHandler<AppEvent> for App {
                         }
                         self.mouse_down_pos = self.last_mouse_pos;
                         if let Some(pos) = self.last_mouse_pos {
+                            self.press_switches_to_input(pos);
                             self.js_mouse_at("mousedown", pos);
                             self.press_state(pos);
                             self.text_mouse_press(pos);
