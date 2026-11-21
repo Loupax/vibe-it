@@ -764,6 +764,12 @@ pub(crate) fn mark_htmldda(ctx: &Ctx<'_>, name: &str) {
 const MAX_REALMS: usize = 64;
 
 pub(crate) fn install_realm_native(ctx: &Ctx<'_>) {
+    // QEL6: a microtask checkpoint from inside a UA-dispatched event (empty JS stack below the dispatch).
+    register(ctx, "__scratchy_microtasks", |ctx: Ctx<'_>| -> JsResult<RawValue> {
+        let sc = ctx.sc();
+        sc.perform_microtask_checkpoint();
+        Ok(RawValue(st(v8::undefined(sc).into())))
+    });
     register(ctx, "__scratchy_realm_new", |ctx: Ctx<'_>| -> JsResult<RawValue> {
         let sc = ctx.sc();
         // QPT1b (R53 D6): at most MAX_REALMS live realms per page; `null` = over the cap (the caller

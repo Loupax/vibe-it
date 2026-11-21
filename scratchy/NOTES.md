@@ -4011,3 +4011,5 @@ layout (QY53e1 rate limit, unchanged); a fresh geometry evaluates at the next fr
 `JsEngine::rendered_geometry` -> `__scratchy_ioRendered`) still evaluates at once on the App's own complete layout, but queues
 the callbacks as a task too. Delivery is now at frame boundaries (first entry ~17 ms after `observe()` headless, not 0 ms).
 
+
+**UA-dispatched events (QEL6).** `__scratchy_dn` (events born in Rust) tags the event with `__scratchy_ua`; `dispatch` runs a microtask checkpoint (`__scratchy_microtasks`) after each listener and handler callback of a tagged event only. Nested/script dispatches never checkpoint (script is on the stack).
