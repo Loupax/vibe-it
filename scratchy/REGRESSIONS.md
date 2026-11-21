@@ -1567,6 +1567,89 @@ images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom
     measurement) with the flag off and 647-1 315 px with it: which is right? (R60 QINC1k (5) saw a similar flag-on /
     flag-off geometry difference on social.loupax.com: forced layouts with vs without the window's decoded image
     sizes.) Screenshots of the viewport are identical in both modes, the grids are lower on the page.
+  QINC1k5 DONE (Opus, 2026-11-21, measure + explain only, no engine / layout change; binary = release build of
+  main ce088f9, copied aside; reference = the local `google-chrome --headless=new --window-size=960,1006
+  --dump-dom`, nothing installed): **both differences are the intended QINC1i behaviour and the flag-on
+  geometry is the CORRECT one (matches Chrome); flag off is the pre-existing QJ4 limit "no decoded image sizes
+  in script geometry".** Neither is a new flag-on bug; one flag-on timing gap and two pre-existing bugs (both
+  modes) were found on the way (proposed items below). **Not a blocker for QINC1l.**
+  Mechanism (both pages): script forced layouts lay `<img>` out from the window's decoded image cache with the
+  flag (QINC1i, `incr_engine::sync_window_images`); flag off they get an empty map (`js_geom.rs` from-scratch
+  path), so an `<img>` without `width` / `height` attributes is never its decoded size for script, not even
+  long after `load`: it is the undecoded placeholder, a line-height-tall box (600 x 21 as a block, 0 x 21 as
+  a flex item, in the fixture; Chrome: 0 x 0 for `alt=""` before load, 400 x 300 after). The painted layout
+  is the same in both modes (App builds always had the images): only what script reads differs.
+  Minimised: `tools/incr-gate/img-geom.html` + `img-400x300.png` (`run.sh window MODE imggeom TAG`; a
+  `data:` URL would not show it: every layout decodes those inline, flag or not). Probes at script run, at
+  the image's `load`, in the rAF after it, at 2 s (window, 2 runs per mode + 1 check-mode run, 1-min load
+  3.8-14.3; check mode 0 mismatches):
+  | probe | Chrome | flag off | `SCRATCHY_INCR=1` |
+  |---|---|---|---|
+  | A img rect at `load` | 400 x 300 | 600 x 21 | 600 x 21 (2 / 2 runs: STALE) |
+  | A img rect in the rAF after `load` | 400 x 300 | 600 x 21 | 600 x 21 / 400 x 300 (racy) |
+  | A img rect at 2 s; text below at y | 400 x 300; 398 | 600 x 21; 119 | 400 x 300; 398 |
+  | B card rect at 2 s (github.com Product markup) | 700 x 350 | 700 x 71 | 700 x 350 |
+  | B grid `<svg>` at mount (from the card's rect) | 700 x 50 (not loaded yet) | 700 x 80 | 700 x 80 |
+  | B ResizeObserver entry; grid `<svg>` after it | 698 x 348; 698 x 349 | 0 x 0; removed | 0 x 0; removed |
+  (1) **github.com card grids** (`BackgroundGrid` in the page's bundle): the `<svg>` `width` / `height`
+  ATTRIBUTES are computed by script, `fI(w, h)` = cells of `w / ceil(w / 10)` px, `ceil(h / cell)` rows, from
+  the parent `.Product__JCupxb`'s `getBoundingClientRect()` at mount and then from its ResizeObserver
+  `contentRect`. The card is a flex column whose `.Content__TWy-bF` (padding 24, `flex: 1 0 auto`) holds an
+  `<img loading=lazy>` without size attributes (`features-*-light-*.webp`) or the hero `<video>`; the grid
+  itself is `position:absolute; inset:0` (no feedback). Flag off: 2 + 48 + the 21 px placeholder = 71 ->
+  rounded up to cells = **80**; flag on: the image's laid height + 50 = **647-1 315**. Chrome (945 px wide
+  layout viewport): grids 945 x 726 / 756 (hero), 765 x 725 / 725 / 536 x 5 (feature cards): hundreds of px,
+  so flag on is right and 80 is the QJ4 limit. The flag-on heights were not re-measured per card here
+  (QINC1k2's 647 / 896 / 1 315 at 956 wide vs Chrome's 765-wide feature cards: a painted-layout width
+  difference present in BOTH modes, not attributable to the flag; proposed QINC1k8). **Pre-existing in both
+  modes:** scratchy's ResizeObserver (QY6g stub) delivers ONE entry with the `width` / `height` ATTRIBUTE size,
+  0 x 0 for a `<div>`, so `fI(0, 0)` -> cell 0 -> React drops the `<svg>` right after every mount: in scratchy
+  the grids exist only between a mount and the next timer tick (that is what QINC1k2's ~50 rasterizations per
+  run were), and the card backgrounds stay empty; Chrome keeps a 698 x 349 grid in the fixture. Proposed
+  QRO1 below.
+  (2) **social.loupax.com/discover gutter** (`internal/web/js/vim.js` `buildGutter`, read-only): an
+  `article img` / `.player` / `h2` is a "zone" = ONE gutter row stretched to its measured height; between
+  zones the rows are 1lh (21 px) and the gutter's top and row heights come from script geometry, painted
+  over the real layout. Flag off the first preview image measures 21 px tall (the placeholder), so it is one
+  21 px row (line 3) and lines 4-19 are 1lh rows laid where script thinks the following text is, i.e. beside
+  the painted (~360 px) image; the text starts at 20. Flag on the zone is the decoded height: line 3 is the
+  image, the text starts at 4. Chrome (same page, dump of the gutter): line 2 = the `h2` (47 px row), line 3 =
+  the image (360 px row), text from 4 = flag on. The page author's comments say the same ("Each is one
+  line, whatever it actually looks like").
+  **Flag-on timing gap (not a regression vs off, which never sees the size):** `App::handle_image_fetched`
+  inserts the image into `image_cache` and fires `load` (`image_settled`) BEFORE the next
+  `rebuild_layout` hands the cache to the engine (`sync_window_images`, Q35b2's debounced relayout), so a
+  forced layout in a `load` handler sees the old size in 2 / 2 runs and one in the next rAF in 1 / 2 (Chrome:
+  the new size in both). vim.js rebuilds its gutter in the rAF after each preview `load`; on the live page
+  the flag-on gutter came out right in 3 / 3 runs of #465 (a later rebuild saw the sizes), but that is
+  timing. Proposed QINC1k6.
+  Pinned: `incr_forced_tests::qinc1k5_card_height_from_the_windows_image` (github.com's card markup:
+  engine 700 x 350 = Chrome, flag off < 100); `qinc1i_forced_layouts_see_the_windows_images` already pins
+  the plain `<img>` case and `js_observers_tests::qy6g_resize_observer_one_initial_entry` the 0 x 0 entry.
+  Proposed (the coordinator files them):
+  - **QINC1k6 [S]** (P2, area app (+ incr_engine); AFTER nothing; not a layout change) Hand a newly decoded
+    image to the engine before its `load` fires: in `App::handle_image_fetched`, call
+    `incr_engine::sync_window_images` (and note the ambient change, already done) right after
+    `image_cache.insert`, before `image_settled`, so a forced layout in a `load` handler or the next rAF
+    sees the decoded size (Chrome does). Test: an App-level test with the flag: image arrives, the `load`
+    handler reads the img rect = decoded size; `tools/incr-gate/img-geom.html` A.load / A.raf rows = 400 x
+    300 in 3 / 3 window runs. Flag off unchanged.
+  - **QRO1 [M]** (P2, area jsdom / geom; AFTER QINC1l (needs real geometry for script)) ResizeObserver with
+    real sizes: the initial entry and later entries from the layout (content / border box per the `box`
+    option), delivered after layout when an observed size changed (spec "gather active observations" at
+    each rendering update), instead of the `width` / `height` attribute size (0 x 0 for most elements).
+    github.com's card grids (and every React `useResizeObserver` layout) drop their content on the 0 x 0
+    entry today. Test: `img-geom.html` B rows (698 x 348 entry, svg kept), the QY6g tests updated to the
+    new semantics (behaviour, not deleted). Gate: github.com card backgrounds visible in a window
+    screenshot; perf: RO delivery cost on YouTube / github in `--perf-report`.
+  - **QINC1k7 [S]** (P3, area layout / images; AFTER the QINC1 freeze) An `<img>` with no decoded image yet
+    and no size attributes is laid out as a line-height-tall box (600 x 21 as a block, 0 x 21 as a flex
+    item); Chrome gives 0 x 0 for `alt=""` (HTML rendering 15.4.3: an image that "represents nothing") and
+    an inline alt-text box otherwise. Affects script geometry before load (both modes) and flag-off script
+    geometry forever. Check Chrome / Firefox for the non-empty-alt case first.
+  - **QINC1k8 [S]** (P3, area layout; measure first) github.com feature-grid cards are 956 px wide in
+    scratchy (QINC1k2's grids) and 765 px in Chrome at a 960 px window (hero 945 in both): find which rule
+    (grid / container / max-width) differs. Both modes; painted layout.
 - **QINC1l [S]** (P2, Sonnet; areas app + geom (one-line defaults) + NOTES.md; AFTER QINC1k + the user's OK) Flip the default:
   `SCRATCHY_INCR` defaults to 1; `SCRATCHY_INCR=0` = the old path; `cfg(test)` keeps comparing with the from-scratch path;
   NOTES.md section "Incremental style + layout engine" (data model, marks, kill switch, check mode).
