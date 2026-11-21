@@ -81,3 +81,8 @@ Screenshots, logs, binaries, sockets, token files and anything under .qwork/, ta
 EVERY scratchy process you start (window, nested dwl, headless, gate scripts) gets its own state dir:
 `--state-dir <worktree>/.qwork/state` (or `SCRATCHY_STATE_DIR=...`). Never run scratchy without it. Never read, copy or
 write ~/.local/state/scratchy (or $XDG_STATE_HOME/scratchy): it holds the user's localStorage, cookies and history.
+
+## One nested compositor, no leftovers (2026-11-21: an agent left 5 nested dwl instances running for 40 min)
+At most ONE nested dwl (tools/nest.sh) per agent at a time: start it once, reuse it for every live run, and kill it by its
+recorded PID as soon as the live checks are done (and before you report READY). Same for your own wire: one, reused, killed
+at the end. Before your final reply, `ps -eo pid,cmd | grep <your worktree path>` must show nothing of yours.
