@@ -86,3 +86,19 @@ pub(crate) fn page_target(hit: BarHit, scroll: f32, page: f32, max_scroll: f32) 
 
 /// A window bar: its box, the content height and the visible height.
 pub(crate) type ViewportBar = ((f32, f32, f32, f32), f32, f32);
+
+/// QSB2: the thumb colour of bar `id` given the hot bar `(id, pressed)` (hovered or dragged).
+pub(crate) fn thumb_rgba(hot: Option<(usize, bool)>, id: usize) -> (u8, u8, u8, u8) {
+    match hot {
+        Some((h, true)) if h == id => crate::config::SB_THUMB_ACTIVE_RGBA,
+        Some((h, false)) if h == id => crate::config::SB_THUMB_HOVER_RGBA,
+        _ => crate::config::SB_THUMB_RGBA,
+    }
+}
+
+/// QSB2: a track hold repeats the page step while the pointer stays on the same side of the
+/// thumb: `dir` is the side first pressed, `now` the side under the pointer. At the thumb (it
+/// caught up with the pointer) or on the other side nothing repeats, like other browsers.
+pub(crate) fn repeat_applies(dir: BarHit, now: Option<BarHit>) -> bool {
+    dir != BarHit::Thumb && now == Some(dir)
+}

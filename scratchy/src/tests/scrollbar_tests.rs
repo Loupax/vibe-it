@@ -1,6 +1,26 @@
 use super::*;
 use crate::scrollbar::{self as sb, BarHit};
 
+// QSB2: hold-repeat rule and thumb colour state.
+#[test]
+fn qsb2_hold_repeats_only_while_the_pointer_stays_on_the_pressed_side() {
+    assert!(sb::repeat_applies(BarHit::TrackAfter, Some(BarHit::TrackAfter)));
+    assert!(sb::repeat_applies(BarHit::TrackBefore, Some(BarHit::TrackBefore)));
+    assert!(!sb::repeat_applies(BarHit::TrackAfter, Some(BarHit::Thumb)), "thumb caught up");
+    assert!(!sb::repeat_applies(BarHit::TrackAfter, Some(BarHit::TrackBefore)));
+    assert!(!sb::repeat_applies(BarHit::TrackAfter, None), "pointer left the bar");
+    assert!(!sb::repeat_applies(BarHit::Thumb, Some(BarHit::Thumb)));
+}
+
+#[test]
+fn qsb2_thumb_colour_follows_hover_and_press_of_its_own_bar_only() {
+    use crate::config::*;
+    assert_eq!(sb::thumb_rgba(None, 3), SB_THUMB_RGBA);
+    assert_eq!(sb::thumb_rgba(Some((3, false)), 3), SB_THUMB_HOVER_RGBA);
+    assert_eq!(sb::thumb_rgba(Some((3, true)), 3), SB_THUMB_ACTIVE_RGBA);
+    assert_eq!(sb::thumb_rgba(Some((4, true)), 3), SB_THUMB_RGBA);
+}
+
 // QSB1: pure scrollbar maths and hit tests.
 const RECT: (f32, f32, f32, f32) = (0.0, 0.0, 400.0, 500.0);
 
