@@ -217,15 +217,12 @@ OK           0/1  domparsing/DOMParser-parseFromString-xml-internal-subset.html
 OK         21/23  domparsing/DOMParser-parseFromString-xml-parsererror.html
   FAIL      , <span :test="testing">3</span>
   FAIL      , <span xmlns:xmlns="">13</span>
-OK          5/13  domparsing/DOMParser-parseFromString-xml-scripting-support-disabled.html
+OK          8/13  domparsing/DOMParser-parseFromString-xml-scripting-support-disabled.html
   FAIL      parseFromString as XML, svg script, appendChild
   FAIL      parseFromString as XML, svg script, append importNode result
   FAIL      parseFromString as XML, svg script, append importNode result, but with namespace prefix
   FAIL      parseFromString as XML, svg script, append adoptNode result
   FAIL      parseFromString as XML, svg script, append cloneNode result
-  FAIL      parseFromString as XHTML, script, append importNode result
-  FAIL      parseFromString as XHTML, script, append adoptNode result
-  FAIL      parseFromString as XHTML, script, append cloneNode result
 OK          4/20  domparsing/DOMParser-parseFromString-xml.html
   FAIL      Should parse correctly in type text/xml
   FAIL      XMLDocument interface for correctly parsed document with type text/xml

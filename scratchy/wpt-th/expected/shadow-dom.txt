@@ -1641,9 +1641,8 @@ TIMEOUT      0/1  shadow-dom/untriaged/html-elements-in-shadow-trees/html-forms/
   TIMEOUT   A_08_02_03_T01
 OK           1/1  shadow-dom/untriaged/html-elements-in-shadow-trees/inert-html-elements/test-001.html
 OK           1/1  shadow-dom/untriaged/html-elements-in-shadow-trees/inert-html-elements/test-002.html
-OK         12/14  shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/dom-tree-accessors-001.html
+OK         13/14  shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/dom-tree-accessors-001.html
   FAIL      Elements in a shadow tree should not be accessible from owner document's "all" attribute.
-  FAIL      Elements in a shadow tree should not be accessible from owner document's getElementsByTagNameNS() method.
 OK           3/3  shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/dom-tree-accessors-002.html
 OK           6/6  shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/ownerdocument-001.html
 OK         18/18  shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/ownerdocument-002.html

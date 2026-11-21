@@ -1663,27 +1663,18 @@ TIMEOUT    11/18  html/dom/documents/dom-tree-accessors/Document.currentScript.h
   NOTRUN    Script document-write
 OK           1/1  html/dom/documents/dom-tree-accessors/Document.getElementsByClassName-null-undef.html
 OK           1/1  html/dom/documents/dom-tree-accessors/Element.getElementsByClassName-null-undef.html
-OK           0/5  html/dom/documents/dom-tree-accessors/document.embeds-document.plugins-01.html
+OK           2/5  html/dom/documents/dom-tree-accessors/document.embeds-document.plugins-01.html
   FAIL      No plugins
   FAIL      One plugin
   FAIL      Two plugins
-  FAIL      Document.embeds should be a live collection
-  FAIL      Document.plugins should be a live collection
-OK           1/6  html/dom/documents/dom-tree-accessors/document.forms.html
-  FAIL      document.forms.item with string arg
-  FAIL      document.forms with empty string
-  FAIL      document.forms iteration
-  FAIL      document.forms getOwnPropertyNames
-  FAIL      Document.forms should be a live collection
+OK           6/6  html/dom/documents/dom-tree-accessors/document.forms.html
 OK           1/1  html/dom/documents/dom-tree-accessors/document.getElementsByClassName-same.html
 OK           1/1  html/dom/documents/dom-tree-accessors/document.getElementsByName/document.getElementsByName-case-xhtml.xhtml
 OK           1/1  html/dom/documents/dom-tree-accessors/document.getElementsByName/document.getElementsByName-case.html
 OK           1/1  html/dom/documents/dom-tree-accessors/document.getElementsByName/document.getElementsByName-id-xhtml.xhtml
 OK           1/1  html/dom/documents/dom-tree-accessors/document.getElementsByName/document.getElementsByName-id.html
-OK           0/1  html/dom/documents/dom-tree-accessors/document.getElementsByName/document.getElementsByName-interface.html
-  FAIL      Document.getElementsByName: interfaces
-OK           0/1  html/dom/documents/dom-tree-accessors/document.getElementsByName/document.getElementsByName-liveness.html
-  FAIL      Document.getElementsByName() should be a live collection
+OK           1/1  html/dom/documents/dom-tree-accessors/document.getElementsByName/document.getElementsByName-interface.html
+OK           1/1  html/dom/documents/dom-tree-accessors/document.getElementsByName/document.getElementsByName-liveness.html
 OK           0/1  html/dom/documents/dom-tree-accessors/document.getElementsByName/document.getElementsByName-namespace-xhtml.xhtml
   FAIL      getElementsByName and foreign namespaces
 OK           0/1  html/dom/documents/dom-tree-accessors/document.getElementsByName/document.getElementsByName-namespace.html
@@ -1698,11 +1689,12 @@ OK           1/1  html/dom/documents/dom-tree-accessors/document.getElementsByNa
 OK           1/1  html/dom/documents/dom-tree-accessors/document.head-01.html
 OK           0/1  html/dom/documents/dom-tree-accessors/document.head-02.html
   FAIL      document.head
-ERROR        0/0  html/dom/documents/dom-tree-accessors/document.images.html
-OK           0/1  html/dom/documents/dom-tree-accessors/document.links.html
-  FAIL      Document.links should be a live collection
-OK           0/1  html/dom/documents/dom-tree-accessors/document.scripts.html
-  FAIL      Document.scripts should be a live collection
+OK          8/11  html/dom/documents/dom-tree-accessors/document.images.html
+  FAIL      document.images should contain all HTML img elements
+  FAIL      Foreign element should not be in the collection
+  FAIL      Document.images should be a live collection
+OK           1/1  html/dom/documents/dom-tree-accessors/document.links.html
+OK           1/1  html/dom/documents/dom-tree-accessors/document.scripts.html
 OK           0/4  html/dom/documents/dom-tree-accessors/document.title-01.html
   FAIL      document.title with head blown away
   FAIL      document.title with head blown away 1
@@ -1835,9 +1827,8 @@ OK          3/21  html/dom/documents/dom-tree-accessors/nameditem-names.html
   FAIL      An img id appears in a document's property names when the img has a name.
   FAIL      A document's property names can include integer strings.
   FAIL      A document's property names appear in tree order.
-OK           3/8  html/dom/documents/dom-tree-accessors/nameditem-no-shadowing.tentative.html
+OK           4/8  html/dom/documents/dom-tree-accessors/nameditem-no-shadowing.tentative.html
   FAIL      document.constructor is not shadowed
-  FAIL      document.forms is not shadowed
   FAIL      document.onreadystatechange is not shadowed
   FAIL      document.__proto__ is not shadowed
   FAIL      document.foobar works (sanity check)
