@@ -1496,6 +1496,17 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         };
         t.borrow_mut().intern(&Node::new(data))
     });
+    // QDOM6: an element of a non-HTML document: null namespace, the name exactly as given.
+    let t = table.clone();
+    native!(ctx, "__d_create_xml", move |name: String| -> i32 {
+        let data = NodeData::Element {
+            name: html5ever::QualName::new(None, html5ever::ns!(), html5ever::LocalName::from(name.as_str())),
+            attrs: RefCell::new(Vec::new()),
+            template_contents: RefCell::new(None),
+            mathml_annotation_xml_integration_point: false,
+        };
+        t.borrow_mut().intern(&Node::new(data))
+    });
     let t = table.clone();
     native!(ctx, "__d_clone", move |id: i32, deep: bool| -> i32 {
         let mut t = t.borrow_mut();
@@ -1836,7 +1847,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       // non-custom HTML names HTMLUnknownElement, custom names plain HTMLElement.
       var ns = raw === raw.toUpperCase() ? '' : __d_ns(id);
       eP = ns === 'http://www.w3.org/2000/svg' ? (svgProto[raw] || SVGElement.prototype)
-        : ns ? Element.prototype : tagProto[tg] || (tg.indexOf('-') < 0 ? HTMLUnknownElement : HTMLElement).prototype;
+        : raw !== raw.toUpperCase() || ns ? Element.prototype : tagProto[tg] || (tg.indexOf('-') < 0 ? HTMLUnknownElement : HTMLElement).prototype;
     }
     var o = Object.create(k === 1 ? eP
       : k === 3 ? Text.prototype : k === 8 ? Comment.prototype : k === 11 ? DocumentFragment.prototype
@@ -2588,6 +2599,25 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   doc.createTextNode = function (s) { return wrap(__d_create(3, String(s))); };
   doc.createComment = function (s) { return wrap(__d_create(8, String(s))); };
   doc.createDocumentFragment = function () { return wrap(__d_create(11, '')); };
+  // QDOM6: `new Text(data)`, `new Comment(data)`, `new DocumentFragment()` make real nodes owned by this realm's
+  // document (also for subclasses: the instance gets new.target.prototype); `new Document()` is made below (makeDoc).
+  var nodeCtor = function (name, make) {
+    var Old = g[name], P = Old.prototype;
+    var F = ({ [name]: function () {
+      if (!new.target) throw new TypeError("Failed to construct '" + name + "': Please use the 'new' operator, this DOM object constructor cannot be called as a function.");
+      var n = make.apply(null, arguments);
+      if (new.target.prototype !== Object.getPrototypeOf(n) && new.target !== F && typeof new.target.prototype === 'object') Object.setPrototypeOf(n, new.target.prototype);
+      owners[n.__id] = doc;
+      return n;
+    } })[name];
+    F.prototype = P;
+    Object.defineProperty(P, 'constructor', { value: F, writable: true, configurable: true });
+    Object.setPrototypeOf(F, Object.getPrototypeOf(P).constructor);
+    g[name] = F;
+  };
+  nodeCtor('Text', function (data) { return doc.createTextNode(data === undefined ? '' : data); });
+  nodeCtor('Comment', function (data) { return doc.createComment(data === undefined ? '' : data); });
+  nodeCtor('DocumentFragment', function () { return doc.createDocumentFragment(); });
   // QA17: DOM Traversal (NodeIterator, TreeWalker) in JS over the wrappers.
   var NF = g.NodeFilter, liveIters = [];
   var firstKid = function (n) { return n.childNodes[0] || null; };
@@ -3318,6 +3348,15 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   ['name', 'publicId', 'systemId'].forEach(function (k, i) {
     def(DocumentType.prototype, k, function () { return __d_doctype(this.__id)[i]; });
   });
+  // QDOM6: `new Document()`: an empty XML document (application/xml, createElement keeps case).
+  var DocumentCtor = function Document() {
+    if (!new.target) throw new TypeError("Failed to construct 'Document': Please use the 'new' operator, this DOM object constructor cannot be called as a function.");
+    return makeDoc(false, 'application/xml');
+  };
+  DocumentCtor.prototype = g.Document.prototype;
+  Object.defineProperty(DocumentCtor.prototype, 'constructor', { value: DocumentCtor, writable: true, configurable: true });
+  Object.setPrototypeOf(DocumentCtor, Object.getPrototypeOf(g.Document));
+  g.Document = DocumentCtor;
   var DOMImpl = g.DOMImplementation = function DOMImplementation() { throw new TypeError('Illegal constructor'); };
   var makeDoc = function (html, ct) {
     var id = __d_newdoc();
@@ -3336,6 +3375,8 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     ['createElement', 'createElementNS', 'createTextNode', 'createComment', 'createDocumentFragment'].forEach(function (k) {
       d[k] = mk(doc[k]);
     });
+    // QDOM6: createElement of an XML document keeps the name's case and makes a null-namespace element.
+    if (!html && ct !== 'application/xhtml+xml') d.createElement = mk(function (t) { t = String(t); checkName('createElement', t); return wrap(__d_create_xml(t)); });
     d.write = d.writeln = function () { console.warn('document.write on a created document ignored'); };
     d.importNode = function (n, deep) {
       if (!n || n.__id === undefined || n.nodeType === 9) throw herr("Failed to execute 'importNode' on 'Document': The node provided is a document.", 'NotSupportedError');
