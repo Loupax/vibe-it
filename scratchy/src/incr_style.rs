@@ -46,19 +46,6 @@ const WHY_PARENT: u8 = 16;
 /// ... or the update restyled everything.
 const WHY_FULL: u8 = 32;
 
-/// QINC1k3: `SCRATCHY_INCR_TRACE=1` prints what each App-frame update restyled and why the
-/// relayout walked up (diag lines `scratchy: incr-trace: ...`; diagnostics only).
-pub(crate) fn trace_on() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var("SCRATCHY_INCR_TRACE").is_ok_and(|v| v == "1"))
-}
-
-thread_local! {
-    /// QINC1k3: the trace's restyled elements of the current update (label, why bits, rematched).
-    static TRACE: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
-    static GEN_US: Cell<u64> = const { Cell::new(0) };
-}
-
 /// Pseudo slots after the element (memo slot numbers 1..=5, `style::pseudo_slot`).
 const PSEUDOS: usize = 5;
 
@@ -1161,14 +1148,6 @@ impl Engine {
             } else {
                 self.stats.recascaded += 1;
             }
-            if trace_on() {
-                TRACE.with(|t| {
-                    let mut t = t.borrow_mut();
-                    if t.len() < 40 {
-                        t.push(format!("{}[{}{why:#x}]", label(h), if need_match { "m" } else { "c" }));
-                    }
-                });
-            }
             // pseudo slots: they inherit from the element's own style
             let mut pseudo: [Option<Box<ComputedStyle>>; PSEUDOS] = Default::default();
             let mut ms: [Option<MatchList>; 1 + PSEUDOS] = Default::default();
@@ -1236,7 +1215,19 @@ impl Engine {
             // slot's style or presence, a match list: `content`, `background-image`) touches its box.
             let gsig = {
                 let e = &self.table[&k];
-                let gsig = if e.m == ms { e.gsig } else { gen_sig(tag, rules, &ms) };
+                let gsig = if e.m == ms && !need_match {
+                    e.gsig
+                } else if s.display == Display::None {
+                    // The walk matches the `::before` / `::after` slots the cascade skipped (it reads
+                    // matched rules only, so it may walk on under an element hidden by inline style).
+                    let mut all = ms.clone();
+                    for slot in 1..=2u8 {
+                        all[slot as usize] = Some(match_slot(h, rules, cx.vw, slot));
+                    }
+                    gen_sig(tag, rules, &all)
+                } else {
+                    gen_sig(tag, rules, &ms)
+                };
                 if gsig != e.gsig {
                     self.gen_dirty = true;
                 }
@@ -1427,9 +1418,7 @@ impl Engine {
         }
         if self.full || self.gen_dirty || self.gen_out.is_none() {
             self.stats.gen_walked = true;
-            let tg = std::time::Instant::now();
             self.generated(doc, rules, vw);
-            GEN_US.with(|g| g.set(tg.elapsed().as_micros() as u64));
         }
         self.gen_dirty = false;
         // Entries whose DOM the log or the reconcile saw change but the traversal did not reach.
@@ -1855,20 +1844,6 @@ pub(crate) fn live_update(
     incr_add(Incr::GlobalUpdates, u64::from(stats.full));
     incr_add(Incr::RestyleResolved, stats.resolved);
     crate::perf::incr_restyle_sample(stats.restyled(), styled, style_ns);
-    if trace_on() {
-        let t = TRACE.with(|t| std::mem::take(&mut *t.borrow_mut()));
-        let anim = ENGINE.with(|e| e.borrow().as_ref().map_or(0, |e| e.table.values().filter(|x| x.animated).count()));
-        diag!(
-            "scratchy: incr-trace: restyle {} us (gen {} us), rematched {}, recascaded {}, resolved {}, animated {anim}, full {}: {}",
-            style_ns / 1000,
-            GEN_US.with(|g| g.replace(0)),
-            stats.rematched,
-            stats.recascaded,
-            stats.resolved,
-            stats.full,
-            t.join(" ")
-        );
-    }
     if !boxes_ok {
         return None;
     }

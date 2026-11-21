@@ -1061,7 +1061,6 @@ impl LayoutEngine {
         let mut inc = false;
         let (ok, ctx) = with_ctx(true, || {
             let mut failed: HashMap<usize, usize> = HashMap::new();
-            let mut trace: Vec<String> = Vec::new();
             if !root {
                 for s in starts {
                     let mut e = s;
@@ -1076,17 +1075,6 @@ impl LayoutEngine {
                             Some(p) => Attempt::Up(*p),
                             None => self.attempt(tree, fs, e, &mut inc),
                         };
-                        if crate::incr_style::trace_on() {
-                            let r = crate::perf::UP_TRACE.with(|t| std::mem::take(&mut *t.borrow_mut()));
-                            let l = crate::incr_style::handle_of_key(e).map_or_else(|| "?".to_string(), |h| crate::incr_style::label(&h));
-                            let what = match &next {
-                                Attempt::Done => "done".to_string(),
-                                Attempt::Up(_) => r.join("+"),
-                                Attempt::NoBox(_) => "nobox".to_string(),
-                                Attempt::Current => "current".to_string(),
-                            };
-                            trace.push(format!("{l}:{what}"));
-                        }
                         if inc {
                             return false;
                         }
@@ -1108,16 +1096,10 @@ impl LayoutEngine {
                             Attempt::Current => break,
                         }
                     }
-                    if crate::incr_style::trace_on() {
-                        trace.push("|".to_string());
-                    }
                     if root {
                         break;
                     }
                 }
-            }
-            if crate::incr_style::trace_on() {
-                diag!("scratchy: incr-trace: relayout starts {starts_n}, root {root} ({why}): {}", trace.join(" "));
             }
             if root {
                 let mut old = std::mem::replace(&mut self.laid, SharedLaid::new(empty_laid())).into_inner();
@@ -1206,6 +1188,9 @@ impl LayoutEngine {
                 }
             } else if nb.style.float != Float::None {
                 "float"
+            } else if nb.style.establishes_bfc() && ck.fl.as_ref().is_some_and(|f| !f.inl.is_empty()) {
+                // QINC1k3: its parent placed it beside the floats by its min-content width (Q34b).
+                "bfc_among_floats"
             } else if matches!(parent_box.style.display, Display::Table | Display::Flex | Display::InlineFlex | Display::Grid) {
                 "flex_grid_table_parent"
             } else if ck.pos.is_some() || ck.psig != PSig::of(&nb.style) {

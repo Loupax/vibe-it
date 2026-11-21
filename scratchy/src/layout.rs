@@ -2280,8 +2280,9 @@ fn measure_inner_engine<'a>(
 ) -> Laid {
     let el = b.style.node != 0 && b.style.pseudo == 0;
     let zskip = Z_SKIP.with(|c| c.get()) > 0;
-    // QINC1k3: a BFC root lays its content out among its own floats only (`measure_inner_body`).
-    let floats_in = !floats.is_empty() && !b.style.establishes_bfc();
+    // QINC1k3: `Ck::fl` (a BFC root lays its content out among its own floats, but its parent places it
+    // by the floats and its min-content width, so it is keyed by them too).
+    let floats_in = !floats.is_empty();
     let floats_at = floats.lens();
     if el {
         let key = crate::incr_layout::Key { x, y, width, ch: containing_height, amo, fbw, zskip, floats_in };
