@@ -361,3 +361,58 @@ fn qinc1h2_a_text_change_that_changes_the_natural_width_goes_up() {
     incremental(&s);
     assert_eq!(s.intr_stops, 0, "{s:?}");
 }
+
+/// QINC1k1 (R60, QINC1k finding): a box whose auto height is the sum of fractional children is reused
+/// (shifted) when content above it moves it far down; its `inset:0; height:100%` child resolves the
+/// percentage against that height. Summed in document space the height depended on the box's y (f32 ulp
+/// ~0.0005 above y 4096), so the shifted box and the from-scratch one differed in `style.height` (the
+/// shadow comparison panics on a difference). `container` is the CSS of the box holding the 20 rows.
+fn y_drift_case(container: &str) {
+    let _g = LogOnly::new();
+    let rows: String = (1..=20).map(|i| format!("<div class=row>{i}</div>")).collect();
+    let doc = page(
+        &format!(
+            "#spacer{{height:100px}} .rel{{position:relative;{container}}} .row{{height:32.1px}} \
+             .bg{{position:absolute;inset:0;height:100%}}"
+        ),
+        &format!("<div id=spacer></div><div class=rel><div class=bg></div>{rows}</div><div>after</div>"),
+    );
+    lay(&doc);
+    let spacer = by_id(&doc, "spacer");
+    for h in ["4100.3", "4100.3", "4300.7", "100", "8191.9", "12345.6", "100"] {
+        set_attr(&spacer, "style", &format!("height:{h}px"));
+        let s = lay(&doc);
+        incremental(&s);
+    }
+}
+
+#[test]
+fn qinc1k1_a_shifted_auto_height_block_keeps_its_percentage_child_exact() {
+    y_drift_case("");
+}
+
+#[test]
+fn qinc1k1_y_drift_flex_column() {
+    y_drift_case("display:flex;flex-direction:column");
+}
+
+#[test]
+fn qinc1k1_y_drift_flex_row() {
+    y_drift_case("display:flex");
+}
+
+#[test]
+fn qinc1k1_y_drift_flex_row_wrapping() {
+    // 3 rows of 100px per 333px line: 7 lines of 32.1px.
+    y_drift_case("display:flex;flex-wrap:wrap;width:333px} .rel > .row{width:100px");
+}
+
+#[test]
+fn qinc1k1_y_drift_grid() {
+    y_drift_case("display:grid");
+}
+
+#[test]
+fn qinc1k1_y_drift_table() {
+    y_drift_case("display:table");
+}

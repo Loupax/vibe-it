@@ -2595,6 +2595,13 @@ fn measure_inner_body<'a>(
         }
         BoxContent::Blocks(children) => {
             let mut cursor_y = content_y;
+            // QINC1k1: the same flow position RELATIVE to `content_y`, advanced by the same deltas as
+            // `cursor_y` (which still places the children, unchanged). The auto content height is `ry`,
+            // not `cursor_y - content_y`: summed in document space it depended on this box's y (f32 ulp
+            // ~0.0005 above y 4096), so a box moved by the incremental engine and the same box laid at
+            // the new y differed (and a `%` height resolved against it, e.g. `inset:0; height:100%`).
+            // Steps that set `cursor_y` from an absolute value (clearance, float avoidance) re-derive it.
+            let mut ry = 0.0f32;
             let mut laid_children = Vec::with_capacity(children.len());
             // Collected here, not measured here: a `position: absolute`/
             // `fixed` child is taken out of normal flow entirely — no
@@ -2657,7 +2664,10 @@ fn measure_inner_body<'a>(
                 if child.style.clear != Clear::None {
                     let cy = local_floats.clear_y(child.style.clear);
                     if child.style.float != Float::None || child.style.display == Display::None {
-                        cursor_y = cursor_y.max(cy);
+                        if cy > cursor_y {
+                            cursor_y = cy;
+                            ry = cursor_y - content_y;
+                        }
                     } else if cy > cursor_y || prev_mb.is_some() {
                         // Q48d (CSS2.1 9.5.2): clearance places the BORDER
                         // edge at the float's bottom when the hypothetical
@@ -2668,6 +2678,7 @@ fn measure_inner_body<'a>(
                         let hypothetical = cursor_y - overlap + mt;
                         if hypothetical < cy {
                             cursor_y = cy - mt;
+                            ry = cursor_y - content_y;
                             cleared = true;
                         }
                     }
@@ -2759,6 +2770,7 @@ fn measure_inner_body<'a>(
                         );
                         own_pending.extend(float_pend);
                         cursor_y = start_y + re.style.margin.top.px() + re.style.margin.bottom.px() + re.h;
+                        ry = cursor_y - content_y;
                         laid_children[idx] = re;
                     } else {
                         prev_anon = None;
@@ -2786,6 +2798,7 @@ fn measure_inner_body<'a>(
                             Some(y) => {
                                 (child_x, child_w) = (content_x, content_w);
                                 cursor_y = y;
+                                ry = cursor_y - content_y;
                             }
                             None => break,
                         }
@@ -2798,11 +2811,14 @@ fn measure_inner_body<'a>(
                 if collapsible
                     && let (Some(pb), BoxLength::Px(mt)) = (prev_mb, child.style.margin.top)
                 {
-                    cursor_y -= margin_overlap(pb, mt);
+                    let ov = margin_overlap(pb, mt);
+                    cursor_y -= ov;
+                    ry -= ov;
                     overlap_done = true;
                 }
-                let (start_y, plen) = (cursor_y, own_pending.len());
-                let cursor_pre_overlap = start_y + prev_mb.map_or(0.0, |pb| if overlap_done { margin_overlap(pb, child.style.margin.top.px()) } else { 0.0 });
+                let (start_y, start_ry, plen) = (cursor_y, ry, own_pending.len());
+                let pre_overlap = prev_mb.map_or(0.0, |pb| if overlap_done { margin_overlap(pb, child.style.margin.top.px()) } else { 0.0 });
+                let cursor_pre_overlap = start_y + pre_overlap;
                 let mut lc = measure(
                     child, font_system, child_x, cursor_y, child_w, child_containing_height, next_id, cache,
                     deadline, incomplete, &mut own_pending, local_floats, None,
@@ -2814,6 +2830,7 @@ fn measure_inner_body<'a>(
                     let ov = margin_overlap(pb, lc.style.margin.top.px());
                     shift_laid_tree(&mut lc, 0.0, -ov);
                     cursor_y -= ov;
+                    ry -= ov;
                 }
                 // Q48b (CSS2.1 8.3.1): an empty block's own top and bottom
                 // margins are adjoining, so they collapse together with the
@@ -2829,6 +2846,7 @@ fn measure_inner_body<'a>(
                     let base = cursor_pre_overlap - (old.0 + old.1);
                     let set = margin_join(margin_join(old, lc.style.margin.top.px()), lc.style.margin.bottom.px());
                     cursor_y = base + set.0 + set.1;
+                    ry = start_ry + pre_overlap - (old.0 + old.1) + set.0 + set.1;
                     prev_mb = Some(set);
                     prev_anon = None;
                     laid_children.push(lc);
@@ -2838,7 +2856,9 @@ fn measure_inner_body<'a>(
                     let mb = lc.style.margin.bottom.px();
                     prev_mb = Some((mb.max(0.0), mb.min(0.0)));
                 }
-                cursor_y += lc.style.margin.top.px() + lc.style.margin.bottom.px() + lc.h;
+                let advance = lc.style.margin.top.px() + lc.style.margin.bottom.px() + lc.h;
+                cursor_y += advance;
+                ry += advance;
                 prev_anon = (child.style.node == 0
                     && child.style.display == Display::Block
                     && matches!(child.content, BoxContent::Inline(_))
@@ -2863,7 +2883,7 @@ fn measure_inner_body<'a>(
             // "needs a clearfix" behavior; see TODO.txt) — so this is
             // still purely `cursor_y`, never adjusted by anything in
             // `local_floats`, exactly as before this feature existed.
-            let mut content_h = cursor_y - content_y;
+            let mut content_h = ry;
             if bfc_root {
                 content_h = content_h.max(local_floats.max_bottom() - content_y);
             }
@@ -4630,6 +4650,8 @@ pub(crate) fn measure_table<'a>(
     let placement = table_grid_placement(children);
     let mut row_ordinal = 0;
     let mut cursor_y = entry.content_y;
+    // QINC1k1: the content height relative to `content_y` (see the `Blocks` arm of `measure_inner`).
+    let mut ry = 0.0f32;
     let mut laid_children = Vec::with_capacity(children.len());
     // A direct `<table>` child (a row, or a plain-`Block` child like a
     // `caption`) being itself `position: absolute`/`fixed` isn't
@@ -4665,17 +4687,21 @@ pub(crate) fn measure_table<'a>(
                 next_id, cache, deadline, incomplete, &mut own_pending, &no_floats, None,
             )
         };
-        cursor_y += lc.style.margin.top.px() + lc.style.margin.bottom.px() + lc.h;
+        let advance = lc.style.margin.top.px() + lc.style.margin.bottom.px() + lc.h;
+        cursor_y += advance;
+        ry += advance;
         laid_children.push(lc);
     }
-    cursor_y += settle_rowspans(&mut laid_children);
+    let rowspan_extra = settle_rowspans(&mut laid_children);
+    cursor_y += rowspan_extra;
+    ry += rowspan_extra;
     // Same patch `measure`'s own `Blocks` arm does, for a direct
     // `<table>` child (e.g. a `caption`) that's itself `position:
     // sticky` — a `<tr>`/`<td>` itself declaring `position` still isn't
     // supported at all (same pre-existing scope cut this function's own
     // docs already note for `absolute`/`fixed`).
     patch_sticky_containing_block(&mut laid_children, entry.content_y, cursor_y);
-    let content_h = cursor_y - entry.content_y;
+    let content_h = ry;
     let border_h = clamp_box_dim(
         s.height,
         s.min_height,
@@ -4917,15 +4943,16 @@ pub(crate) fn measure_flex<'a>(
     let main_gap = if is_row { s.column_gap } else { s.row_gap };
     let cross_gap = if is_row { s.row_gap } else { s.column_gap };
     let reverse = s.flex_direction.is_reverse();
+    let mut flex_extent = None;
     let mut laid_children = if is_row {
         measure_flex_row(
             &items, &s, &entry, font_system, next_id, cache, deadline, incomplete, &mut own_pending, &no_floats,
-            reverse, s.flex_wrap, main_gap, cross_gap,
+            reverse, s.flex_wrap, main_gap, cross_gap, &mut flex_extent,
         )
     } else {
         measure_flex_column(
             &items, &s, &entry, font_system, next_id, cache, deadline, incomplete, &mut own_pending, &no_floats,
-            reverse, main_gap, cross_gap,
+            reverse, main_gap, cross_gap, &mut flex_extent,
         )
     };
     let bottom_extent = laid_children
@@ -4933,7 +4960,14 @@ pub(crate) fn measure_flex<'a>(
         .map(|lc| lc.y + lc.style.margin.bottom.px() + lc.h)
         .fold(entry.content_y, f32::max);
     patch_sticky_containing_block(&mut laid_children, entry.content_y, bottom_extent);
-    let content_h = bottom_extent - entry.content_y;
+    // QINC1k1: relative to `content_y` (see the `Blocks` arm of `measure_inner`): both directions sum
+    // their items relatively; only `column-reverse` (mirrored positions) measures from the laid boxes.
+    let content_h = flex_extent.unwrap_or_else(|| {
+        laid_children
+            .iter()
+            .map(|lc| (lc.y - entry.content_y) + lc.style.margin.bottom.px() + lc.h)
+            .fold(0.0, f32::max)
+    });
     let border_h = clamp_box_dim(
         s.height, s.min_height, s.max_height, entry.extra_h + content_h.max(0.0), s.box_sizing, entry.extra_h,
     );
@@ -5025,6 +5059,7 @@ pub(crate) fn measure_flex_row<'a>(
     wrap: FlexWrap,
     main_gap: f32,
     cross_gap: f32,
+    rel_extent: &mut Option<f32>,
 ) -> Vec<Laid> {
     if items.is_empty() {
         return Vec::new();
@@ -5249,6 +5284,9 @@ pub(crate) fn measure_flex_row<'a>(
     }
 
     let mut line_top = entry.content_y + ac_start;
+    // QINC1k1: the same line top relative to `content_y`, and the items' bottom margin edge relative to it
+    // (`measure_flex`'s content height; see the `Blocks` arm of `measure_inner`).
+    let (mut rel_top, mut ext) = (ac_start, 0.0f32);
     for (j, line) in lines.iter().enumerate() {
         let line_cross = line_crosses[j];
         for &i in line {
@@ -5265,10 +5303,19 @@ pub(crate) fn measure_flex_row<'a>(
                 AlignItems::FlexEnd => line_top + (line_cross - lc.h - margin_bottom),
                 AlignItems::Center => line_top + (line_cross - lc.h - margin_top - margin_bottom) / 2.0 + margin_top,
             };
+            let rel_y = match align {
+                AlignItems::Stretch | AlignItems::FlexStart => rel_top + margin_top,
+                AlignItems::Baseline => rel_top + (line_bases[j] - base_off[i].unwrap_or(margin_top)) + margin_top,
+                AlignItems::FlexEnd => rel_top + (line_cross - lc.h - margin_bottom),
+                AlignItems::Center => rel_top + (line_cross - lc.h - margin_top - margin_bottom) / 2.0 + margin_top,
+            };
+            ext = ext.max(rel_y + margin_bottom + lc.h);
             shift_laid_tree(lc, 0.0, target_y - lc.y);
         }
         line_top += line_cross + cross_gap + ac_between;
+        rel_top += line_cross + cross_gap + ac_between;
     }
+    *rel_extent = Some(ext);
 
     let mut result: Vec<Laid> = laid.into_iter().map(|l| l.expect("every item measured exactly once")).collect();
     if reverse {
@@ -5318,6 +5365,7 @@ pub(crate) fn measure_flex_column<'a>(
     reverse: bool,
     main_gap: f32,
     cross_gap: f32,
+    rel_extent: &mut Option<f32>,
 ) -> Vec<Laid> {
     if items.is_empty() {
         return Vec::new();
@@ -5460,6 +5508,8 @@ pub(crate) fn measure_flex_column<'a>(
         cursor += line_crosses[j] + cross_gap + ac_between;
     }
 
+    // QINC1k1: the items' bottom margin edge relative to `content_y`, for `measure_flex`'s content height.
+    let mut ext = 0.0f32;
     for (j, line) in lines.iter().enumerate() {
         let infos: Vec<FlexBasisInfo> = line
             .iter()
@@ -5474,6 +5524,7 @@ pub(crate) fn measure_flex_column<'a>(
         let leftover = (main_size - used).max(0.0);
         let (start_offset, extra_between) = distribute_justify_content(leftover, line.len(), s.justify_content);
         let mut cursor_y = entry.content_y + start_offset;
+        let mut ry = start_offset;
         for (&i, &final_h) in line.iter().zip(&final_sizes) {
             let item = items[i];
             let p = &mut prepped[i];
@@ -5493,10 +5544,15 @@ pub(crate) fn measure_flex_column<'a>(
             let dx = target_x - p.lc.x;
             let dy = target_y - p.lc.y;
             shift_laid_tree(&mut p.lc, dx, dy);
+            ext = ext.max(ry + p.margin_top + p.lc.style.margin.bottom.px() + final_h);
             cursor_y += p.margin_top + final_h + p.margin_bottom + main_gap + extra_between;
+            ry += p.margin_top + final_h + p.margin_bottom + main_gap + extra_between;
         }
     }
 
+    if !reverse {
+        *rel_extent = Some(ext);
+    }
     let mut result: Vec<Laid> = prepped.into_iter().map(|p| p.lc).collect();
     if reverse {
         for lc in &mut result {
@@ -6028,6 +6084,8 @@ pub(crate) fn measure_grid<'a>(
     // extra space has to come from `row_h` itself, not from any one
     // item's own measured position.
     let mut content_bottom = entry.content_y;
+    // QINC1k1: the same two, relative to `content_y` (see the `Blocks` arm of `measure_inner`).
+    let (mut ry, mut rel_bottom) = (0.0f32, 0.0f32);
     for (r, row_placements) in by_row.iter().enumerate() {
         // An explicit row track's own fixed size always applies;
         // `%`/`fr` only when there's a real basis to resolve against —
@@ -6069,10 +6127,12 @@ pub(crate) fn measure_grid<'a>(
         laid_children.extend(row_laid);
         content_bottom = cursor_y + row_h;
         cursor_y = content_bottom + s.row_gap;
+        rel_bottom = ry + row_h;
+        ry = rel_bottom + s.row_gap;
     }
 
     patch_sticky_containing_block(&mut laid_children, entry.content_y, content_bottom);
-    let content_h = content_bottom - entry.content_y;
+    let content_h = rel_bottom;
     let border_h = clamp_box_dim(
         s.height, s.min_height, s.max_height, entry.extra_h + content_h.max(0.0), s.box_sizing, entry.extra_h,
     );
