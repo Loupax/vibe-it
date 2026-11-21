@@ -114,46 +114,25 @@ OK         10/33  dom/nodes/ChildNode-replaceWith.html
   FAIL      Text.replaceWith() with one sibling of child and child itself as arguments.
   FAIL      Text.replaceWith() with one element and text as arguments.
   FAIL      Text.replaceWith() on a parentless child with two elements as arguments.
-OK          2/16  dom/nodes/Comment-constructor.html
-  FAIL      new Comment(): no arguments
-  FAIL      new Comment(): undefined
-  FAIL      new Comment(): null
-  FAIL      new Comment(): 42
-  FAIL      new Comment(): ""
-  FAIL      new Comment(): "-"
-  FAIL      new Comment(): "--"
-  FAIL      new Comment(): "-->"
-  FAIL      new Comment(): "<!--"
-  FAIL      new Comment(): "\\0"
-  FAIL      new Comment(): "\\0test"
-  FAIL      new Comment(): "&amp;"
-  FAIL      new Comment(): two arguments
-  FAIL      new Comment() should get the correct ownerDocument across globals
+OK         16/16  dom/nodes/Comment-constructor.html
 OK           0/1  dom/nodes/Comment-in-doctype.xhtml
   FAIL      XML: Comment in doctype internal subset
 OK           4/5  dom/nodes/DOMImplementation-createDocument-no-browsing-context.html
   FAIL      createHTMLDocument: proxied event handlers on body are null without a window
-OK        85/434  dom/nodes/DOMImplementation-createDocument.html
+OK       185/434  dom/nodes/DOMImplementation-createDocument.html
   FAIL      createDocument test: null,null,null,null
-  FAIL      createDocument test: metadata for null,null,null
   FAIL      createDocument test: characterSet aliases for null,null,null
   FAIL      createDocument test: null,undefined,null,null
-  FAIL      createDocument test: metadata for null,undefined,null
   FAIL      createDocument test: characterSet aliases for null,undefined,null
   FAIL      createDocument test: null,"foo",null,null
-  FAIL      createDocument test: metadata for null,"foo",null
   FAIL      createDocument test: characterSet aliases for null,"foo",null
   FAIL      createDocument test: null,"f1oo",null,null
-  FAIL      createDocument test: metadata for null,"f1oo",null
   FAIL      createDocument test: characterSet aliases for null,"f1oo",null
   FAIL      createDocument test: null,"foo1",null,null
-  FAIL      createDocument test: metadata for null,"foo1",null
   FAIL      createDocument test: characterSet aliases for null,"foo1",null
   FAIL      createDocument test: null,"ெfoo",null,null
-  FAIL      createDocument test: metadata for null,"ெfoo",null
   FAIL      createDocument test: characterSet aliases for null,"ெfoo",null
   FAIL      createDocument test: null,";foo",null,null
-  FAIL      createDocument test: metadata for null,";foo",null
   FAIL      createDocument test: characterSet aliases for null,";foo",null
   FAIL      createDocument test: null,"f}oo",null,null
   FAIL      createDocument test: metadata for null,"f}oo",null
@@ -162,13 +141,10 @@ OK        85/434  dom/nodes/DOMImplementation-createDocument.html
   FAIL      createDocument test: metadata for null,"foo}",null
   FAIL      createDocument test: characterSet aliases for null,"foo}",null
   FAIL      createDocument test: null,"\\ufffffoo",null,null
-  FAIL      createDocument test: metadata for null,"\\ufffffoo",null
   FAIL      createDocument test: characterSet aliases for null,"\\ufffffoo",null
   FAIL      createDocument test: null,"f\\uffffoo",null,null
-  FAIL      createDocument test: metadata for null,"f\\uffffoo",null
   FAIL      createDocument test: characterSet aliases for null,"f\\uffffoo",null
   FAIL      createDocument test: null,"foo\\uffff",null,null
-  FAIL      createDocument test: metadata for null,"foo\\uffff",null
   FAIL      createDocument test: characterSet aliases for null,"foo\\uffff",null
   FAIL      createDocument test: null,"f<oo",null,null
   FAIL      createDocument test: metadata for null,"f<oo",null
@@ -177,54 +153,40 @@ OK        85/434  dom/nodes/DOMImplementation-createDocument.html
   FAIL      createDocument test: null,"foo:",null,"INVALID_CHARACTER_ERR"
   FAIL      createDocument test: null,":",null,"INVALID_CHARACTER_ERR"
   FAIL      createDocument test: null,"xml",null,null
-  FAIL      createDocument test: metadata for null,"xml",null
   FAIL      createDocument test: characterSet aliases for null,"xml",null
   FAIL      createDocument test: null,"xmlfoo",null,null
-  FAIL      createDocument test: metadata for null,"xmlfoo",null
   FAIL      createDocument test: characterSet aliases for null,"xmlfoo",null
   FAIL      createDocument test: "",null,null,null
-  FAIL      createDocument test: metadata for "",null,null
   FAIL      createDocument test: characterSet aliases for "",null,null
   FAIL      createDocument test: "",":foo",null,"INVALID_CHARACTER_ERR"
   FAIL      createDocument test: "","foo:",null,"INVALID_CHARACTER_ERR"
   FAIL      createDocument test: undefined,null,null,null
-  FAIL      createDocument test: metadata for undefined,null,null
   FAIL      createDocument test: characterSet aliases for undefined,null,null
   FAIL      createDocument test: undefined,undefined,null,null
-  FAIL      createDocument test: metadata for undefined,undefined,null
   FAIL      createDocument test: characterSet aliases for undefined,undefined,null
   FAIL      createDocument test: undefined,"foo",null,null
-  FAIL      createDocument test: metadata for undefined,"foo",null
   FAIL      createDocument test: characterSet aliases for undefined,"foo",null
   FAIL      createDocument test: undefined,"f1oo",null,null
-  FAIL      createDocument test: metadata for undefined,"f1oo",null
   FAIL      createDocument test: characterSet aliases for undefined,"f1oo",null
   FAIL      createDocument test: undefined,"foo1",null,null
-  FAIL      createDocument test: metadata for undefined,"foo1",null
   FAIL      createDocument test: characterSet aliases for undefined,"foo1",null
   FAIL      createDocument test: undefined,":foo",null,"INVALID_CHARACTER_ERR"
   FAIL      createDocument test: undefined,"foo:",null,"INVALID_CHARACTER_ERR"
   FAIL      createDocument test: undefined,"xml",null,null
-  FAIL      createDocument test: metadata for undefined,"xml",null
   FAIL      createDocument test: characterSet aliases for undefined,"xml",null
   FAIL      createDocument test: undefined,"xmlfoo",null,null
-  FAIL      createDocument test: metadata for undefined,"xmlfoo",null
   FAIL      createDocument test: characterSet aliases for undefined,"xmlfoo",null
   FAIL      createDocument test: "http://example.com/","foo",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","foo",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","foo",null
   FAIL      createDocument test: "http://example.com/","fo<o",null,null
   FAIL      createDocument test: metadata for "http://example.com/","fo<o",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","fo<o",null
   FAIL      createDocument test: "http://example.com/","f1oo",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","f1oo",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","f1oo",null
   FAIL      createDocument test: "http://example.com/","foo1",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","foo1",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","foo1",null
   FAIL      createDocument test: "http://example.com/",":foo",null,"INVALID_CHARACTER_ERR"
   FAIL      createDocument test: "http://example.com/","f:oo",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","f:oo",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","f:oo",null
   FAIL      createDocument test: "http://example.com/","f:o:o",null,null
   FAIL      createDocument test: metadata for "http://example.com/","f:o:o",null
@@ -238,246 +200,170 @@ OK        85/434  dom/nodes/DOMImplementation-createDocument.html
   FAIL      createDocument test: metadata for "http://example.com/","0:a",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","0:a",null
   FAIL      createDocument test: "http://example.com/","a:_",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","a:_",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","a:_",null
   FAIL      createDocument test: "http://example.com/","a:ெ",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","a:ெ",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","a:ெ",null
   FAIL      createDocument test: "http://example.com/","a:;",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","a:;",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","a:;",null
   FAIL      createDocument test: "http://example.com/","a:̀",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","a:̀",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","a:̀",null
   FAIL      createDocument test: "http://example.com/","ெ:a",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","ெ:a",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","ெ:a",null
   FAIL      createDocument test: "http://example.com/","̀:a",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","̀:a",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","̀:a",null
   FAIL      createDocument test: "http://example.com/",";:a",null,null
-  FAIL      createDocument test: metadata for "http://example.com/",";:a",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/",";:a",null
   FAIL      createDocument test: "http://example.com/","a:aெ",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","a:aெ",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","a:aெ",null
   FAIL      createDocument test: "http://example.com/","aெ:a",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","aெ:a",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","aெ:a",null
   FAIL      createDocument test: "http://example.com/","test:xmlns",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","test:xmlns",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","test:xmlns",null
   FAIL      createDocument test: "http://example.com/","_:_",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","_:_",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","_:_",null
   FAIL      createDocument test: "http://example.com/","_:h0",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","_:h0",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","_:h0",null
   FAIL      createDocument test: "http://example.com/","_:test",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","_:test",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","_:test",null
   FAIL      createDocument test: "http://example.com/","l_:_",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","l_:_",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","l_:_",null
   FAIL      createDocument test: "http://example.com/","ns:_0",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","ns:_0",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","ns:_0",null
   FAIL      createDocument test: "http://example.com/","ns:a0",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","ns:a0",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","ns:a0",null
   FAIL      createDocument test: "http://example.com/","ns0:test",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","ns0:test",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","ns0:test",null
   FAIL      createDocument test: "http://example.com/","a.b:c",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","a.b:c",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","a.b:c",null
   FAIL      createDocument test: "http://example.com/","a-b:c",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","a-b:c",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","a-b:c",null
   FAIL      createDocument test: "http://example.com/","xml",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","xml",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","xml",null
   FAIL      createDocument test: "http://example.com/","XMLNS",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","XMLNS",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","XMLNS",null
   FAIL      createDocument test: "http://example.com/","xmlfoo",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","xmlfoo",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","xmlfoo",null
   FAIL      createDocument test: "http://example.com/","XML:foo",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","XML:foo",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","XML:foo",null
   FAIL      createDocument test: "http://example.com/","XMLNS:foo",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","XMLNS:foo",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","XMLNS:foo",null
   FAIL      createDocument test: "http://example.com/","xmlfoo:bar",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","xmlfoo:bar",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","xmlfoo:bar",null
   FAIL      createDocument test: "http://example.com/","prefix::local",null,null
   FAIL      createDocument test: metadata for "http://example.com/","prefix::local",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","prefix::local",null
   FAIL      createDocument test: "/","foo",null,null
-  FAIL      createDocument test: metadata for "/","foo",null
   FAIL      createDocument test: characterSet aliases for "/","foo",null
   FAIL      createDocument test: "/","f1oo",null,null
-  FAIL      createDocument test: metadata for "/","f1oo",null
   FAIL      createDocument test: characterSet aliases for "/","f1oo",null
   FAIL      createDocument test: "/","foo1",null,null
-  FAIL      createDocument test: metadata for "/","foo1",null
   FAIL      createDocument test: characterSet aliases for "/","foo1",null
   FAIL      createDocument test: "/",":foo",null,"INVALID_CHARACTER_ERR"
   FAIL      createDocument test: "/","f:oo",null,null
-  FAIL      createDocument test: metadata for "/","f:oo",null
   FAIL      createDocument test: characterSet aliases for "/","f:oo",null
   FAIL      createDocument test: "/","foo:",null,"INVALID_CHARACTER_ERR"
   FAIL      createDocument test: "/","xml",null,null
-  FAIL      createDocument test: metadata for "/","xml",null
   FAIL      createDocument test: characterSet aliases for "/","xml",null
   FAIL      createDocument test: "/","xmlfoo",null,null
-  FAIL      createDocument test: metadata for "/","xmlfoo",null
   FAIL      createDocument test: characterSet aliases for "/","xmlfoo",null
   FAIL      createDocument test: "/","xmlfoo:bar",null,null
-  FAIL      createDocument test: metadata for "/","xmlfoo:bar",null
   FAIL      createDocument test: characterSet aliases for "/","xmlfoo:bar",null
   FAIL      createDocument test: "http://www.w3.org/XML/1998/namespace","foo",null,null
-  FAIL      createDocument test: metadata for "http://www.w3.org/XML/1998/namespace","foo",null
   FAIL      createDocument test: characterSet aliases for "http://www.w3.org/XML/1998/namespace","foo",null
   FAIL      createDocument test: "http://www.w3.org/XML/1998/namespace","f1oo",null,null
-  FAIL      createDocument test: metadata for "http://www.w3.org/XML/1998/namespace","f1oo",null
   FAIL      createDocument test: characterSet aliases for "http://www.w3.org/XML/1998/namespace","f1oo",null
   FAIL      createDocument test: "http://www.w3.org/XML/1998/namespace","foo1",null,null
-  FAIL      createDocument test: metadata for "http://www.w3.org/XML/1998/namespace","foo1",null
   FAIL      createDocument test: characterSet aliases for "http://www.w3.org/XML/1998/namespace","foo1",null
   FAIL      createDocument test: "http://www.w3.org/XML/1998/namespace",":foo",null,"INVALID_CHARACTER_ERR"
   FAIL      createDocument test: "http://www.w3.org/XML/1998/namespace","f:oo",null,null
-  FAIL      createDocument test: metadata for "http://www.w3.org/XML/1998/namespace","f:oo",null
   FAIL      createDocument test: characterSet aliases for "http://www.w3.org/XML/1998/namespace","f:oo",null
   FAIL      createDocument test: "http://www.w3.org/XML/1998/namespace","foo:",null,"INVALID_CHARACTER_ERR"
   FAIL      createDocument test: "http://www.w3.org/XML/1998/namespace","xml",null,null
-  FAIL      createDocument test: metadata for "http://www.w3.org/XML/1998/namespace","xml",null
   FAIL      createDocument test: characterSet aliases for "http://www.w3.org/XML/1998/namespace","xml",null
   FAIL      createDocument test: "http://www.w3.org/XML/1998/namespace","xmlfoo",null,null
-  FAIL      createDocument test: metadata for "http://www.w3.org/XML/1998/namespace","xmlfoo",null
   FAIL      createDocument test: characterSet aliases for "http://www.w3.org/XML/1998/namespace","xmlfoo",null
   FAIL      createDocument test: "http://www.w3.org/XML/1998/namespace","xml:foo",null,null
-  FAIL      createDocument test: metadata for "http://www.w3.org/XML/1998/namespace","xml:foo",null
   FAIL      createDocument test: characterSet aliases for "http://www.w3.org/XML/1998/namespace","xml:foo",null
   FAIL      createDocument test: "http://www.w3.org/XML/1998/namespace","xmlfoo:bar",null,null
-  FAIL      createDocument test: metadata for "http://www.w3.org/XML/1998/namespace","xmlfoo:bar",null
   FAIL      createDocument test: characterSet aliases for "http://www.w3.org/XML/1998/namespace","xmlfoo:bar",null
   FAIL      createDocument test: "http://www.w3.org/2000/xmlns/",":foo",null,"INVALID_CHARACTER_ERR"
   FAIL      createDocument test: "http://www.w3.org/2000/xmlns/","foo:",null,"INVALID_CHARACTER_ERR"
   FAIL      createDocument test: "http://www.w3.org/2000/xmlns/","xmlns",null,null
-  FAIL      createDocument test: metadata for "http://www.w3.org/2000/xmlns/","xmlns",null
   FAIL      createDocument test: characterSet aliases for "http://www.w3.org/2000/xmlns/","xmlns",null
   FAIL      createDocument test: "http://www.w3.org/2000/xmlns/","xmlns:foo",null,null
-  FAIL      createDocument test: metadata for "http://www.w3.org/2000/xmlns/","xmlns:foo",null
   FAIL      createDocument test: characterSet aliases for "http://www.w3.org/2000/xmlns/","xmlns:foo",null
   FAIL      createDocument test: "foo:","foo",null,null
-  FAIL      createDocument test: metadata for "foo:","foo",null
   FAIL      createDocument test: characterSet aliases for "foo:","foo",null
   FAIL      createDocument test: "foo:","f1oo",null,null
-  FAIL      createDocument test: metadata for "foo:","f1oo",null
   FAIL      createDocument test: characterSet aliases for "foo:","f1oo",null
   FAIL      createDocument test: "foo:","foo1",null,null
-  FAIL      createDocument test: metadata for "foo:","foo1",null
   FAIL      createDocument test: characterSet aliases for "foo:","foo1",null
   FAIL      createDocument test: "foo:",":foo",null,"INVALID_CHARACTER_ERR"
   FAIL      createDocument test: "foo:","f:oo",null,null
-  FAIL      createDocument test: metadata for "foo:","f:oo",null
   FAIL      createDocument test: characterSet aliases for "foo:","f:oo",null
   FAIL      createDocument test: "foo:","foo:",null,"INVALID_CHARACTER_ERR"
   FAIL      createDocument test: "foo:","xml",null,null
-  FAIL      createDocument test: metadata for "foo:","xml",null
   FAIL      createDocument test: characterSet aliases for "foo:","xml",null
   FAIL      createDocument test: "foo:","xmlfoo",null,null
-  FAIL      createDocument test: metadata for "foo:","xmlfoo",null
   FAIL      createDocument test: characterSet aliases for "foo:","xmlfoo",null
   FAIL      createDocument test: "foo:","xmlfoo:bar",null,null
-  FAIL      createDocument test: metadata for "foo:","xmlfoo:bar",null
   FAIL      createDocument test: characterSet aliases for "foo:","xmlfoo:bar",null
   FAIL      createDocument test: null,"",null,null
-  FAIL      createDocument test: metadata for null,"",null
   FAIL      createDocument test: characterSet aliases for null,"",null
   FAIL      createDocument test: undefined,null,undefined,null
-  FAIL      createDocument test: metadata for undefined,null,undefined
   FAIL      createDocument test: characterSet aliases for undefined,null,undefined
   FAIL      createDocument test: undefined,undefined,undefined,null
-  FAIL      createDocument test: metadata for undefined,undefined,undefined
   FAIL      createDocument test: characterSet aliases for undefined,undefined,undefined
   FAIL      createDocument test: undefined,"",undefined,null
-  FAIL      createDocument test: metadata for undefined,"",undefined
   FAIL      createDocument test: characterSet aliases for undefined,"",undefined
   FAIL      createDocument test: "http://example.com/",null,null,null
-  FAIL      createDocument test: metadata for "http://example.com/",null,null
   FAIL      createDocument test: characterSet aliases for "http://example.com/",null,null
   FAIL      createDocument test: "http://example.com/","",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","",null
   FAIL      createDocument test: characterSet aliases for "http://example.com/","",null
   FAIL      createDocument test: "/",null,null,null
-  FAIL      createDocument test: metadata for "/",null,null
   FAIL      createDocument test: characterSet aliases for "/",null,null
   FAIL      createDocument test: "/","",null,null
-  FAIL      createDocument test: metadata for "/","",null
   FAIL      createDocument test: characterSet aliases for "/","",null
   FAIL      createDocument test: "http://www.w3.org/XML/1998/namespace",null,null,null
-  FAIL      createDocument test: metadata for "http://www.w3.org/XML/1998/namespace",null,null
   FAIL      createDocument test: characterSet aliases for "http://www.w3.org/XML/1998/namespace",null,null
   FAIL      createDocument test: "http://www.w3.org/XML/1998/namespace","",null,null
-  FAIL      createDocument test: metadata for "http://www.w3.org/XML/1998/namespace","",null
   FAIL      createDocument test: characterSet aliases for "http://www.w3.org/XML/1998/namespace","",null
   FAIL      createDocument test: "http://www.w3.org/2000/xmlns/",null,null,null
-  FAIL      createDocument test: metadata for "http://www.w3.org/2000/xmlns/",null,null
   FAIL      createDocument test: characterSet aliases for "http://www.w3.org/2000/xmlns/",null,null
   FAIL      createDocument test: "http://www.w3.org/2000/xmlns/","",null,null
-  FAIL      createDocument test: metadata for "http://www.w3.org/2000/xmlns/","",null
   FAIL      createDocument test: characterSet aliases for "http://www.w3.org/2000/xmlns/","",null
   FAIL      createDocument test: "foo:",null,null,null
-  FAIL      createDocument test: metadata for "foo:",null,null
   FAIL      createDocument test: characterSet aliases for "foo:",null,null
   FAIL      createDocument test: "foo:","",null,null
-  FAIL      createDocument test: metadata for "foo:","",null
   FAIL      createDocument test: characterSet aliases for "foo:","",null
   FAIL      createDocument test: null,null,DocumentType node <!DOCTYPE foo>,null
-  FAIL      createDocument test: metadata for null,null,DocumentType node <!DOCTYPE foo>
   FAIL      createDocument test: characterSet aliases for null,null,DocumentType node <!DOCTYPE foo>
   FAIL      createDocument test: null,null,undefined,null
-  FAIL      createDocument test: metadata for null,null,undefined
   FAIL      createDocument test: characterSet aliases for null,null,undefined
   FAIL      createDocument test: null,null,DocumentType node <!DOCTYPE bar>,null
-  FAIL      createDocument test: metadata for null,null,DocumentType node <!DOCTYPE bar>
   FAIL      createDocument test: characterSet aliases for null,null,DocumentType node <!DOCTYPE bar>
   FAIL      createDocument test: null,null,DocumentType node <!DOCTYPE baz>,null
-  FAIL      createDocument test: metadata for null,null,DocumentType node <!DOCTYPE baz>
   FAIL      createDocument test: characterSet aliases for null,null,DocumentType node <!DOCTYPE baz>
   FAIL      createDocument test: null,null,DocumentType node <!DOCTYPE quz>,null
-  FAIL      createDocument test: metadata for null,null,DocumentType node <!DOCTYPE quz>
   FAIL      createDocument test: characterSet aliases for null,null,DocumentType node <!DOCTYPE quz>
   FAIL      createDocument test: null,"foo",DocumentType node <!DOCTYPE foo>,null
-  FAIL      createDocument test: metadata for null,"foo",DocumentType node <!DOCTYPE foo>
   FAIL      createDocument test: characterSet aliases for null,"foo",DocumentType node <!DOCTYPE foo>
   FAIL      createDocument test: "foo",null,DocumentType node <!DOCTYPE foo>,null
-  FAIL      createDocument test: metadata for "foo",null,DocumentType node <!DOCTYPE foo>
   FAIL      createDocument test: characterSet aliases for "foo",null,DocumentType node <!DOCTYPE foo>
   FAIL      createDocument test: "foo","bar",DocumentType node <!DOCTYPE foo>,null
-  FAIL      createDocument test: metadata for "foo","bar",DocumentType node <!DOCTYPE foo>
   FAIL      createDocument test: characterSet aliases for "foo","bar",DocumentType node <!DOCTYPE foo>
   FAIL      createDocument test: "http://www.w3.org/1999/xhtml","",null,null
   FAIL      createDocument test: metadata for "http://www.w3.org/1999/xhtml","",null
   FAIL      createDocument test: characterSet aliases for "http://www.w3.org/1999/xhtml","",null
   FAIL      createDocument test: "http://www.w3.org/2000/svg","",null,null
-  FAIL      createDocument test: metadata for "http://www.w3.org/2000/svg","",null
   FAIL      createDocument test: characterSet aliases for "http://www.w3.org/2000/svg","",null
   FAIL      createDocument test: "http://www.w3.org/1998/Math/MathML","",null,null
-  FAIL      createDocument test: metadata for "http://www.w3.org/1998/Math/MathML","",null
   FAIL      createDocument test: characterSet aliases for "http://www.w3.org/1998/Math/MathML","",null
   FAIL      createDocument test: null,"html",null,null
-  FAIL      createDocument test: metadata for null,"html",null
   FAIL      createDocument test: characterSet aliases for null,"html",null
   FAIL      createDocument test: null,"svg",null,null
-  FAIL      createDocument test: metadata for null,"svg",null
   FAIL      createDocument test: characterSet aliases for null,"svg",null
   FAIL      createDocument test: null,"math",null,null
-  FAIL      createDocument test: metadata for null,"math",null
   FAIL      createDocument test: characterSet aliases for null,"math",null
   FAIL      createDocument test: null,"",DocumentType node <!DOCTYPE html -//W3C//DTD XHTML 1.0 Transitional//EN http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd>
   FAIL      createDocument test: null,"",DocumentType node <!DOCTYPE svg -//W3C//DTD SVG 1.1//EN http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd>
@@ -611,12 +497,9 @@ OK           1/4  dom/nodes/Document-cloneNode-srcdoc-base-url.window.html
   FAIL      A data: <base> in an about:srcdoc document and its clone falls back to the inherited base URL
 CRASH        0/0  dom/nodes/Document-constructor-svg.svg
 ERROR        0/0  dom/nodes/Document-constructor-xml.xml
-OK           0/5  dom/nodes/Document-constructor.html
+OK           3/5  dom/nodes/Document-constructor.html
   FAIL      new Document(): interfaces
-  FAIL      new Document(): children
-  FAIL      new Document(): metadata
   FAIL      new Document(): characterSet aliases
-  FAIL      new Document(): URL parsing
 TIMEOUT      0/1  dom/nodes/Document-contentType/contentType/contenttype_bmp.html
   TIMEOUT   BMP document.contentType === 'image/bmp'
 TIMEOUT      0/1  dom/nodes/Document-contentType/contentType/contenttype_css.html
@@ -1317,9 +1200,8 @@ OK          1/49  dom/nodes/Document-createProcessingInstruction.html
   FAIL      Should get a ProcessingInstruction for target "󯿿" and data "x".
 OK           6/6  dom/nodes/Document-createTextNode.html
 OK           5/5  dom/nodes/Document-createTreeWalker.html
-OK           0/2  dom/nodes/Document-doctype.html
+OK           1/2  dom/nodes/Document-doctype.html
   FAIL      Window document with doctype
-  FAIL      new Document()
 OK         17/18  dom/nodes/Document-getElementById.html
   FAIL      Calling document.getElementById with an empty string argument.
 OK           1/1  dom/nodes/Document-getElementsByClassName.html
@@ -1345,9 +1227,7 @@ OK           4/7  dom/nodes/Document-importNode.html
   FAIL      Import an Attr node with namespace/prefix correctly.
   FAIL      Import a DocumentType node.
   FAIL      Import a DocumentType node that has a parent.
-OK           0/2  dom/nodes/DocumentFragment-constructor.html
-  FAIL      Sets the owner document to the current global object associated document
-  FAIL      Create a valid document DocumentFragment
+OK           2/2  dom/nodes/DocumentFragment-constructor.html
 OK           4/5  dom/nodes/DocumentFragment-getElementById.html
   FAIL      Empty string ID values
 OK           1/1  dom/nodes/DocumentFragment-querySelectorAll-after-modification.html
@@ -1649,8 +1529,7 @@ OK           4/9  dom/nodes/Node-baseURI.html
   FAIL      For attributes in elements belonging to document fragments in document, baseURI should be document URL
 OK           1/1  dom/nodes/Node-childNodes-cache-2.html
 OK           1/1  dom/nodes/Node-childNodes-cache.html
-OK           5/6  dom/nodes/Node-childNodes.html
-  FAIL      Node.childNodes on a Document.
+OK           6/6  dom/nodes/Node-childNodes.html
 OK           0/1  dom/nodes/Node-cloneNode-XMLDocument.html
   FAIL      Created with createDocument
 OK           0/1  dom/nodes/Node-cloneNode-document-allow-declarative-shadow-roots.window.html
@@ -2022,21 +1901,7 @@ OK           0/1  dom/nodes/ProcessingInstruction-literal-1.xhtml
   FAIL      <?xml?> is not a ProcessingInstruction
 OK           0/1  dom/nodes/ProcessingInstruction-literal-2.xhtml
   FAIL      ProcessingInstruction literals
-OK          2/16  dom/nodes/Text-constructor.html
-  FAIL      new Text(): no arguments
-  FAIL      new Text(): undefined
-  FAIL      new Text(): null
-  FAIL      new Text(): 42
-  FAIL      new Text(): ""
-  FAIL      new Text(): "-"
-  FAIL      new Text(): "--"
-  FAIL      new Text(): "-->"
-  FAIL      new Text(): "<!--"
-  FAIL      new Text(): "\\0"
-  FAIL      new Text(): "\\0test"
-  FAIL      new Text(): "&amp;"
-  FAIL      new Text(): two arguments
-  FAIL      new Text() should get the correct ownerDocument across globals
+OK         16/16  dom/nodes/Text-constructor.html
 OK           0/6  dom/nodes/Text-splitText.html
   FAIL      Split text after end of data
   FAIL      Split empty text
@@ -2046,11 +1911,9 @@ OK           0/6  dom/nodes/Text-splitText.html
   FAIL      Split child
 OK           0/1  dom/nodes/Text-wholeText.html
   FAIL      wholeText returns text of all Text nodes logically adjacent to the node, in document order.
-OK           0/6  dom/nodes/adoption.window.html
+OK           2/6  dom/nodes/adoption.window.html
   FAIL      appendChild() and DocumentFragment with host
-  FAIL      adoptNode() and DocumentFragment with host
   FAIL      appendChild() and DocumentFragment
-  FAIL      adoptNode() and DocumentFragment
   FAIL      appendChild() and ShadowRoot
   FAIL      adoptNode() and ShadowRoot
 OK           2/5  dom/nodes/append-on-Document.html
@@ -2172,8 +2035,7 @@ OK         26/26  dom/nodes/getElementsByClassName-whitespace-class-names.html
 OK         12/14  dom/nodes/insert-adjacent.html
   FAIL      invalid caller object insertAdjacentElement
   FAIL      invalid caller object insertAdjacentText
-OK           0/1  dom/nodes/insertion-removing-steps/Node-append-form-and-script-from-fragment.html
-  FAIL      When adding a script+form in a fragment and the form matches an associated element, the script that checks whether the button is associated to the form should run after inserting the form
+OK           1/1  dom/nodes/insertion-removing-steps/Node-append-form-and-script-from-fragment.html
 OK           1/1  dom/nodes/insertion-removing-steps/Node-appendChild-script-and-button-from-div.html
 OK           1/1  dom/nodes/insertion-removing-steps/Node-appendChild-script-and-custom-from-fragment.html
 OK           0/1  dom/nodes/insertion-removing-steps/Node-appendChild-script-and-default-style-meta-from-fragment.html
@@ -2184,9 +2046,7 @@ OK           2/4  dom/nodes/insertion-removing-steps/Node-appendChild-script-and
   FAIL      A script inserted atomically before an iframe (using a DocumentFragment) does not observe the iframe's contentWindow, since the 'script running' and 'iframe setup' both happen in order, after DOM insertion completes
 OK           0/1  dom/nodes/insertion-removing-steps/Node-appendChild-script-and-source-from-fragment.html
   FAIL      Empty <source> immediately sets media.networkState during DOM insertion, so that an earlier-running script can observe networkState
-OK           2/5  dom/nodes/insertion-removing-steps/Node-appendChild-script-and-style.html
-  FAIL      An earlier-inserted <script> synchronously observes a later-inserted <style> (via a div) being applied
-  FAIL      An earlier-inserted <script> synchronously observes a later-inserted <style> (via a DocumentFragment) being applied
+OK           4/5  dom/nodes/insertion-removing-steps/Node-appendChild-script-and-style.html
   FAIL      Earlier-inserted <script> (via a append()) synchronously observes a later-inserted <link rel=stylesheet>'s CSSStyleSheet creation
 OK           0/1  dom/nodes/insertion-removing-steps/Node-appendChild-script-in-script.html
   FAIL      An outer script whose preparation/execution gets triggered by the insertion of a 'nested'/'inner' script, executes *before* the inner script executes
@@ -2207,8 +2067,7 @@ OK           0/4  dom/nodes/insertion-removing-steps/frame-post-connection-steps
   FAIL      Neither frames nor iframes create a child window in a document without a browsing context
 OK           3/4  dom/nodes/insertion-removing-steps/insertion-removing-steps-iframe.window.html
   FAIL      Insertion steps: load event fires synchronously *after* iframe DOM insertion, as part of the iframe element's insertion steps
-OK           0/1  dom/nodes/insertion-removing-steps/insertion-removing-steps-script.window.html
-  FAIL      Script execution happens after all batched DOM insertions complete through post-connection steps
+OK           1/1  dom/nodes/insertion-removing-steps/insertion-removing-steps-script.window.html
 OK           1/2  dom/nodes/insertion-removing-steps/later-script-removed-by-earlier-script.html
   FAIL      A later-inserted script removed by an earlier-inserted script in the same append() call should not run
 OK           1/1  dom/nodes/insertion-removing-steps/script-does-not-run-on-child-removal.window.html

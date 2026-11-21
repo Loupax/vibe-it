@@ -448,8 +448,7 @@ TIMEOUT      1/5  html/webappapis/dynamic-markup-insertion/opening-the-input-str
 OK           1/2  html/webappapis/dynamic-markup-insertion/the-innerhtml-property/annotation-xml-fragment-parsing.html
   FAIL      HTML parsing does apply in <annotation-xml encoding="application/xhtml+xml">
 CRASH        0/0  html/webappapis/dynamic-markup-insertion/the-innerhtml-property/innerhtml-and-xml-namespaces.svg
-OK           0/1  html/webappapis/dynamic-markup-insertion/the-outerhtml-property/outerhtml-documentfragment.html
-  FAIL      outerHTML replaces element within DocumentFragment parent.
+OK           1/1  html/webappapis/dynamic-markup-insertion/the-outerhtml-property/outerhtml-documentfragment.html
 OK           1/1  html/webappapis/dynamic-markup-insertion/the-outerhtml-property/outerhtml-no-parent.html
 ERROR        0/1  html/webappapis/events/event-handler-object-environment-instantiation.html
   FAIL      Inline handler correct ObjectEnvironment instantiation

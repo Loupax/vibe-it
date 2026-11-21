@@ -2145,6 +2145,27 @@ fn qdom2_collections_are_real_nodelists_and_htmlcollections() {
          try { new NodeList(); } catch (e) { console.log(e.name); }\
          try { cn.item(); } catch (e) { console.log(e.name); }\
          console.log(Object.getPrototypeOf(cn) === NodeList.prototype, 'item' in cn, 'length' in ch, 5 in ch, 0 in ch);",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:true true true true false",
+            "log:[object NodeList] [object HTMLCollection] true true true",
+            "log:3 2 y x x x y null undefined null",
+            "log:function true undefined 3 2 true",
+            "log:4 3 true 1 2",
+            "log:2 0 undefined 0,1 0,1,y,z",
+            "log:y true false false",
+            "log:FORM 1 im true true",
+            "log:0 true 1",
+            "log:TypeError",
+            "log:TypeError",
+            "log:true true true false true",
+        ],
+        "{log:?}"
+    );
+}
+
 /// QDOM6: `new Text()`, `new Comment()`, `new DocumentFragment()`, `new Document()` make real nodes.
 #[test]
 fn qdom6_node_constructors() {
@@ -2172,18 +2193,6 @@ fn qdom6_node_constructors() {
     assert_eq!(
         log,
         [
-            "log:true true true true false",
-            "log:[object NodeList] [object HTMLCollection] true true true",
-            "log:3 2 y x x x y null undefined null",
-            "log:function true undefined 3 2 true",
-            "log:4 3 true 1 2",
-            "log:2 0 undefined 0,1 0,1,y,z",
-            "log:y true false false",
-            "log:FORM 1 im true true",
-            "log:0 true 1",
-            "log:TypeError",
-            "log:TypeError",
-            "log:true true true false true",
             "log:a true true null 3 8 11",
             "log:true true true true true",
             "log:true true true true",
