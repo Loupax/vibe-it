@@ -8705,3 +8705,9 @@ Item QINC1h2 (REGRESSIONS.md R60 section 15). `layout.rs`: `natural_width_impl` 
 > QWPT4b [M] (P1; src/wpt_th.rs; R64 2.3, 2.5, 3.1; after QWPT4a) Runner parent. `scratchy --wpt-th <checkout> [--jobs N] [--update] [--area A]`: starts a private wire with the mount (own socket, never /run/user/1000/wire.sock; kills only its PID), pool of children, 30 s real-time cap per child (kill own PID -> TIMEOUT), reads wpt-th/subset.txt, writes/compares wpt-th/expected/<area>.txt (format R64 2.5), honours wpt-th/flaky.txt, writes wpt-th/areas.txt. Exit 1 on REGRESSION/UNRECORDED/CHANGED. Worker variants listed as NOT-RUN.
 
 **What changed:** new `src/wpt_th_run.rs` (`--wpt-th`, dispatched from `run()`): private wire, thread pool of `--wpt-th-one` children, 30 s kill, expected-file format/parse/compare, flaky list, areas table (mean per-file score + subtest pass %), memory-capped systemd scope. Documented in NOTES.md "WPT testharness runner" and help.html. A small `wpt-th/` subset + expected files over a few real dirs prove it end to end (the phase-1 subset is QWPT6).
+
+## QFLK8: headless compositor in the CI scratchy job (agent item)
+
+> QFLK8 [S] (from QFLK7 #496; ci.yml) Run a headless compositor (weston --backend=headless, or cage, or sway headless) in the scratchy CI job so the 54 App-level tests run on CI, then set SCRATCHY_REQUIRE_DISPLAY=1 there. Measure added minutes.
+
+**What changed:** `.github/workflows/ci.yml`: the scratchy job installs `weston`, a new step starts `weston --backend=headless` on a private socket under `$RUNNER_TEMP/xdg` (bounded 10 s wait for the socket, PID recorded), exports `XDG_RUNTIME_DIR`, `WAYLAND_DISPLAY` and `SCRATCHY_REQUIRE_DISPLAY=1` through `GITHUB_ENV`, and a last `if: always()` step kills it by PID. Both test runs (engine on, `SCRATCHY_TEST_INCR_FORCED=0`) now use `--nocapture` and print the `QFLK7-RAN` / `QFLK7-SKIP` line counts.
