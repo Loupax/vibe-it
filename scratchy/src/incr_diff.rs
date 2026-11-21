@@ -150,6 +150,8 @@ pub(crate) fn style_walk(old: &ComputedStyle, new: &ComputedStyle, f: &mut Field
         column_gap => L,
         grid_template_columns => L,
         grid_template_rows => L,
+        grid_auto_columns => L,
+        grid_auto_rows => L,
         grid_template_areas => L,
         grid_area => L,
         grid_row_start => L,
