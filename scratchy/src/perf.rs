@@ -1318,7 +1318,8 @@ pub(crate) fn perf_report(opts: &ReportOpts) -> String {
         let end = Instant::now() + Duration::from_secs_f64(opts.seconds.max(0.0));
         js_net::drive_report_net(engine, &mut sched, &*exec);
         while Instant::now() < end {
-            let Some(due) = engine.next_deadline() else { break };
+            // QEL1: the next timer or rendering frame (rAF batch through the shared driver).
+            let Some(due) = [engine.next_deadline(), engine.raf_deadline()].into_iter().flatten().min() else { break };
             let now = Instant::now();
             if due > now {
                 std::thread::sleep((due - now).min(end.saturating_duration_since(now)));
@@ -1326,7 +1327,13 @@ pub(crate) fn perf_report(opts: &ReportOpts) -> String {
                     break;
                 }
             }
-            if engine.run_due_counted() == 0 {
+            let ran = engine.run_due_counted() + crate::event_loop::headless_frame(engine, engine.now_ms());
+            if ran == 0 {
+                // A frame deadline rounded a hair before the page clock reached it: try again; a stale
+                // due time (nothing ran well after it) ends the pump as before.
+                if Instant::now() < due + Duration::from_millis(2) {
+                    continue;
+                }
                 break;
             }
             js_net::drive_report_net(engine, &mut sched, &*exec);
