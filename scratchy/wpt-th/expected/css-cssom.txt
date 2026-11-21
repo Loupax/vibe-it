@@ -168,9 +168,7 @@ OK          7/10  css/cssom/CSSStyleRule.html
   FAIL      Assigning to CSSStyleRule.style assigns to cssText; CSSStyleRule.style returns the same object
   FAIL      Values of CSSStyleRule attributes
   FAIL      CSSStyleRule's style has [PutForwards]
-OK           0/3  css/cssom/CSSStyleSheet-constructable-baseURL.html
-  FAIL      Constructing sheet with custom base URL ueses that URL for CSS rules
-  FAIL      Constructing sheet with relative URL adds to the constructor document's base URL
+OK           2/3  css/cssom/CSSStyleSheet-constructable-baseURL.html
   FAIL      Constructing sheet with invalid base URL throws a NotAllowedError
 OK           1/1  css/cssom/CSSStyleSheet-constructable-cssRules.html
 OK           0/1  css/cssom/CSSStyleSheet-constructable-disabled-regular-sheet-insertion.html
@@ -182,8 +180,7 @@ TIMEOUT      1/4  css/cssom/CSSStyleSheet-constructable-disallow-import.tentativ
 OK           2/4  css/cssom/CSSStyleSheet-constructable-duplicate.html
   FAIL      Duplicate stylesheets have the right cascade position in the ShadowRoot
   FAIL      Appending duplicate stylesheets yields the correct cascade position in the ShadowRoot
-OK           0/3  css/cssom/CSSStyleSheet-constructable-invalidation.html
-  FAIL      mutating constructed CSSStyleSheet applied to root invalidates styles
+OK           1/3  css/cssom/CSSStyleSheet-constructable-invalidation.html
   FAIL      mutating constructed CSSStyleSheet applied to shadowdom invalidates styles
   FAIL      mutating dependent constructed CSSStyleSheet applied to shadowdom invalidates styles
 OK           2/2  css/cssom/CSSStyleSheet-constructable-replace-cssRules.html
@@ -193,7 +190,7 @@ OK           0/3  css/cssom/CSSStyleSheet-constructable-replace-on-regular-sheet
   FAIL      CSSStyleSheet.replace returns a rejected promise for non-constructed sheets that have no associated document
 OK           1/1  css/cssom/CSSStyleSheet-constructable-replace-thenable.html
 OK           5/5  css/cssom/CSSStyleSheet-constructable-replaceSync-detached.html
-ERROR       6/13  css/cssom/CSSStyleSheet-constructable.html
+ERROR      14/32  css/cssom/CSSStyleSheet-constructable.html
   FAIL      Constructed style sheets can be applied on shadow root
   FAIL      Re-attaching shadow host with adopted stylesheets work
   FAIL      Attaching a shadow root that already has adopted stylesheets work
@@ -201,10 +198,19 @@ ERROR       6/13  css/cssom/CSSStyleSheet-constructable.html
   FAIL      Constructed stylesheet can be used and modified in multiple TreeScopes
   FAIL      Stylesheets constructed on the main Document cannot be used in iframes
   FAIL      Stylesheet constructed on iframe cannot be used in the main Document
+  FAIL      Adding non-constructed stylesheet to AdoptedStyleSheets is not allowed when the owner document of the stylesheet is in the same document tree as the AdoptedStyleSheets
+  FAIL      Adding non-constructed stylesheet to AdoptedStyleSheets is not allowed when the owner document of the stylesheet and the AdoptedStyleSheets are in different document trees
+  FAIL      CSSStyleSheet.replaceSync correctly updates the style of its adopters synchronously
+  FAIL      Adopted sheets are ordered after non-adopted sheets in the shadow root
+  TIMEOUT   CSSStyleSheet.replaceSync should not trigger any loads from @import rules
+  NOTRUN    CSSStyleSheet.replace allows, but ignores, import rule inside
+  NOTRUN    CSSStyleSheet.replace ignores @import rule but still loads other rules
+  FAIL      CSSStyleSheet.replaceSync allows, but ignores, import rule inside
+  NOTRUN    CSSStyleSheet.replace does not reject on failed imports
+  FAIL      Adopting a shadow host will empty adoptedStyleSheets if adopting to a different document
+  FAIL      Adopting a shadow host's ancestor will empty adoptedStyleSheets if adopting to a different document
 OK           1/1  css/cssom/CSSStyleSheet-insertRule-computed.html
-OK           0/2  css/cssom/CSSStyleSheet-modify-after-removal.html
-  FAIL      Modify sheet from removed iframe
-  FAIL      Modify constructed sheet from removed iframe
+OK           2/2  css/cssom/CSSStyleSheet-modify-after-removal.html
 OK           0/4  css/cssom/CSSStyleSheet-replace-detach-old-rules.html
   FAIL      replaceSync() nullifies parentStyleSheet on old rules
   FAIL      replaceSync() nullifies parentStyleSheet on old nested rules
@@ -282,21 +288,26 @@ OK           0/1  css/cssom/StyleSheetList-constructable-shadow-with-style-recal
   FAIL      shadowRoot.styleSheets does not include adopted style sheets
 OK           0/1  css/cssom/StyleSheetList-constructable-shadow.html
   FAIL      shadowRoot.styleSheets does not include adopted style sheets
-OK           0/1  css/cssom/StyleSheetList-constructable-with-style-recalc.html
-  FAIL      document.styleSheets does not include adopted style sheets
-OK           0/1  css/cssom/StyleSheetList-constructable.html
-  FAIL      document.styleSheets does not include adopted style sheets
+OK           1/1  css/cssom/StyleSheetList-constructable-with-style-recalc.html
+OK           1/1  css/cssom/StyleSheetList-constructable.html
 OK           1/1  css/cssom/StyleSheetList.html
 OK         10/13  css/cssom/adoptedstylesheets-cascade-order.html
   FAIL      Reordering shadowRoot.adoptedStyleSheets updates cascade order
   FAIL      Reordering a shadowRoot.adoptedStyleSheets suffix after a replacement updates cascade order
   FAIL      Rotating shadowRoot.adoptedStyleSheets updates cascade order
-OK           0/3  css/cssom/adoptedstylesheets-modify-array-and-sheet.html
-  FAIL      Add the two sheets. Text should be red.
-  FAIL      Flip the two sheet. Still red.
-  FAIL      Modify the color declaration. Should now be green.
-ERROR        0/0  css/cssom/adoptedstylesheets-observablearray-removal.html
-ERROR        0/0  css/cssom/adoptedstylesheets-observablearray.html
+OK           3/3  css/cssom/adoptedstylesheets-modify-array-and-sheet.html
+OK          6/12  css/cssom/adoptedstylesheets-observablearray-removal.html
+  FAIL      ShadowRoot: setting length to 0 removes the adopted styles
+  FAIL      ShadowRoot: shrinking length removes the truncated styles
+  FAIL      ShadowRoot: modifying a sheet still applies after popping its duplicate
+  FAIL      ShadowRoot: modifying a sheet still applies after truncating its duplicate
+  FAIL      ShadowRoot: modifying a sheet still applies after overwriting its duplicate
+  FAIL      ShadowRoot: modifying a sheet still applies after reassigning the array with it
+OK           1/5  css/cssom/adoptedstylesheets-observablearray.html
+  FAIL      document.adoptedStyleSheets should allow mutation in-place
+  FAIL      shadowRoot.adoptedStyleSheets should allow mutation in-place
+  FAIL      adoptedStyleSheets should not expose its backing object via prototype
+  FAIL      adoptedStyleSheets defineProperty should reject accessors that become non-callable during descriptor conversion
 OK           0/1  css/cssom/at-namespace.html
   FAIL      CSS Test: @namespace in CSSOM is not severely broken
 OK           0/3  css/cssom/base-uri.html
@@ -348,8 +359,11 @@ OK           2/4  css/cssom/computed-style-001.html
   FAIL      relative_property_values
 OK           0/1  css/cssom/computed-style-002.html
   FAIL      Check that a percent width in an iframe is resolved against iframe width for getComputedStyle.
-ERROR        0/0  css/cssom/computed-style-003.html
-ERROR        0/0  css/cssom/computed-style-004.html
+OK           0/1  css/cssom/computed-style-003.html
+  FAIL      Check that a percent width in an iframe is the resolved width when the iframe is displayed.
+OK           0/2  css/cssom/computed-style-004.html
+  FAIL      Check that the initial width is 100px.
+  FAIL      Check that the resolved width of the inner div is affected by changing the width of outer iframe.
 OK           1/4  css/cssom/computed-style-005.html
   FAIL      absolute_computed_margins
   FAIL      relative_computed_margins
@@ -533,14 +547,14 @@ OK         15/27  css/cssom/font-family-serialization-001.html
   FAIL      Computed: mixed font-family list serialization
 OK           0/1  css/cssom/font-shorthand-serialization.html
   FAIL      The font shorthand should be serialized just like any other shorthand.
-ERROR        0/7  css/cssom/font-variant-shorthand-serialization.html
+OK           0/7  css/cssom/font-variant-shorthand-serialization.html
   FAIL      font-variant: normal serialization
   FAIL      font-variant: none serialization
   FAIL      font-variant-ligatures: none serialization with non-default value for another longhand
-  NOTRUN    font-variant: normal with non-default longhands
-  NOTRUN    CSS-wide keyword in one longhand
-  NOTRUN    CSS-wide keyword in shorthand
-  NOTRUN    font: menu serialization
+  FAIL      font-variant: normal with non-default longhands
+  FAIL      CSS-wide keyword in one longhand
+  FAIL      CSS-wide keyword in shorthand
+  FAIL      font: menu serialization
 OK           1/7  css/cssom/functional-values-comma.html
   FAIL      rgb(): commas should be followed by a single space
   FAIL      rgba(): commas should be followed by a single space
@@ -555,19 +569,18 @@ OK           2/4  css/cssom/getComputedStyle-basic.html
 OK           3/5  css/cssom/getComputedStyle-calc.html
   FAIL      getComputedStyle() returns computed value for calc(100% - 40px)
   FAIL      getComputedStyle() returns computed value for calc(608px - env(safe-area-inset-top))
-ERROR        0/3  css/cssom/getComputedStyle-detached-subtree.html
+OK           0/6  css/cssom/getComputedStyle-detached-subtree.html
   FAIL      getComputedStyle returns no style for detached element
   FAIL      getComputedStyle returns no style for element in non-rendered iframe (display: none)
   FAIL      getComputedStyle returns no style for element in non-rendered iframe (display: none) from iframe's window
-OK           0/2  css/cssom/getComputedStyle-display-none-001.html
-  FAIL      getComputedStyle gets invalidated in display: none subtrees due to inherited changes to an ancestor
+  FAIL      getComputedStyle returns no style for element outside the flat tree
+  FAIL      getComputedStyle returns no style for descendant outside the flat tree
+  FAIL      getComputedStyle returns no style for shadow tree outside of flattened tree
+OK           1/2  css/cssom/getComputedStyle-display-none-001.html
   FAIL      getComputedStyle gets invalidated in display: none subtrees due to inherited changes to an ancestor shadow host
-OK           0/1  css/cssom/getComputedStyle-display-none-002.html
-  FAIL      getComputedStyle gets invalidated in display: none subtrees due to rule matching changes
-OK           0/1  css/cssom/getComputedStyle-display-none-003.html
-  FAIL      getComputedStyle gets invalidated in display: none subtrees due to attribute mutations
-OK           0/2  css/cssom/getComputedStyle-display-none-shadow-invalidation.html
-  FAIL      getComputedStyle gets invalidated for slotted content of a display: none shadow host
+OK           1/1  css/cssom/getComputedStyle-display-none-002.html
+OK           1/1  css/cssom/getComputedStyle-display-none-003.html
+OK           1/2  css/cssom/getComputedStyle-display-none-shadow-invalidation.html
   FAIL      getComputedStyle gets invalidated in nested shadow trees of a display: none shadow host
 OK           0/1  css/cssom/getComputedStyle-dynamic-subdoc.html
   FAIL      getComputedStyle cross-doc properly reflects media query changes
@@ -582,11 +595,7 @@ OK           2/2  css/cssom/getComputedStyle-important.html
 OK           0/2  css/cssom/getComputedStyle-inset-inline-containing-block-vertical.html
   FAIL      Resolved right measures the inline containing block's physical width
   FAIL      Resolved bottom measures the inline containing block's physical height
-OK           0/4  css/cssom/getComputedStyle-insets-absolute-roundtrip.html
-  FAIL      Fixed-length left property value should roundtrip
-  FAIL      Fixed-length right property value should roundtrip
-  FAIL      Fixed-length top property value should roundtrip
-  FAIL      Fixed-length bottom property value should roundtrip
+OK           4/4  css/cssom/getComputedStyle-insets-absolute-roundtrip.html
 OK       108/324  css/cssom/getComputedStyle-insets-absolute.html
   FAIL      horizontal-tb ltr inside horizontal-tb ltr - Percentages are absolutized into pixels
   FAIL      horizontal-tb ltr inside horizontal-tb ltr - calc() is absolutized into pixels
@@ -1447,11 +1456,7 @@ OK           4/4  css/cssom/getComputedStyle-line-height.html
 OK           1/1  css/cssom/getComputedStyle-live.html
 OK           0/1  css/cssom/getComputedStyle-logical-enumeration.html
   FAIL      Logical properties in enumeration of computed style
-OK           0/4  css/cssom/getComputedStyle-margins-roundtrip.html
-  FAIL      Fixed-length margin-left property value should roundtrip
-  FAIL      Fixed-length margin-right property value should roundtrip
-  FAIL      Fixed-length margin-top property value should roundtrip
-  FAIL      Fixed-length margin-bottom property value should roundtrip
+OK           4/4  css/cssom/getComputedStyle-margins-roundtrip.html
 OK          4/12  css/cssom/getComputedStyle-math-function-percentage.html
   FAIL      getComputedStyle() returns computed value for width: calc(100% - 1rem)
   FAIL      getComputedStyle() returns computed value for width: calc(100% - 1em)
@@ -1585,9 +1590,7 @@ OK           2/8  css/cssom/import-namespace-invalid-prelude.html
   FAIL      @namespace with no prefix and trailing identifier after URL is dropped
 OK           4/5  css/cssom/inline-style-001.html
   FAIL      shorthand_properties
-OK           0/2  css/cssom/insertRule-across-context.html
-  FAIL      The constructor of inserted rule object must be from iframe
-  FAIL      The constructor of inserted rule object must be from iframe for new CSSStyleSheet()
+OK           2/2  css/cssom/insertRule-across-context.html
 OK           2/2  css/cssom/insertRule-charset-no-index.html
 OK           0/1  css/cssom/insertRule-font-face.html
   FAIL      insertRule with font-face rule should not throw
@@ -1667,8 +1670,7 @@ OK          0/21  css/cssom/page-descriptors.html
   FAIL      @page margin-bottom and marginBottom are aliases
 OK           0/1  css/cssom/preferred-stylesheet-order.html
   FAIL      Preferred stylesheet where insertion order is reversed tree order
-OK           0/1  css/cssom/preferred-stylesheet-reversed-order.html
-  FAIL      Preferred stylesheet where insertion order is tree order
+OK           1/1  css/cssom/preferred-stylesheet-reversed-order.html
 OK           0/9  css/cssom/property-accessors.html
   FAIL      -apple-color-filter
   FAIL      -apple-pay-button-style
@@ -1693,7 +1695,9 @@ OK         14/23  css/cssom/selectorSerialize.html
   FAIL      single pseudo (simple) selector ":not" which accepts arguments in the sequence of simple selectors that is not a universal selector
   FAIL      escaped character as code point in attribute name
   FAIL      escaped character (\\) in element name with any namespace without default
-ERROR        0/0  css/cssom/selectorText-modification-restyle-002.html
+OK           0/2  css/cssom/selectorText-modification-restyle-002.html
+  FAIL      Check initial color.
+  FAIL      Check that color changes correctly after shadow stylesheet selector and #container class is changed.
 OK           2/4  css/cssom/serialization-CSSDeclaration-with-important.html
   FAIL      Inline style declaration with whitespace between '!' and 'important'.
   FAIL      Style set dynamically via cssText with whitespace between '!' and 'important'.
@@ -1915,8 +1919,7 @@ OK           2/4  css/cssom/serialize-variable-reference.html
   FAIL      Longhand with variable preserves original serialization but trims whitespace: without whitespace
   FAIL      Shorthand with variable preserves original serialization but trims whitespace: without whitespace
 OK           1/1  css/cssom/serialize-whitespace.html
-OK           0/1  css/cssom/set-selector-text-attachment.html
-  FAIL      Modifying property value invalidates style, even after selectorText mutation
+OK           1/1  css/cssom/set-selector-text-attachment.html
 OK           1/5  css/cssom/setproperty-custom-property-override-important.html
   FAIL      Inline style: setProperty() without priority overrides an important custom property
   FAIL      setProperty() without priority overrides an important custom property set via cssText

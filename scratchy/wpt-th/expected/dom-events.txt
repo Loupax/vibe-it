@@ -216,16 +216,6 @@ OK           1/1  dom/events/EventTarget-add-remove-listener.any.html
 OK           1/1  dom/events/EventTarget-addEventListener.any.html
 OK           3/3  dom/events/EventTarget-constructible.any.html
 OK           2/2  dom/events/EventTarget-dispatchEvent-returnvalue.html
-OK         16/25  dom/events/EventTarget-dispatchEvent.html
-  FAIL      If the event's initialized flag is not set, an InvalidStateError must be thrown (BeforeUnloadEvent).
-  FAIL      If the event's initialized flag is not set, an InvalidStateError must be thrown (CompositionEvent).
-  FAIL      If the event's initialized flag is not set, an InvalidStateError must be thrown (DeviceMotionEvent).
-  FAIL      If the event's initialized flag is not set, an InvalidStateError must be thrown (DeviceOrientationEvent).
-  FAIL      If the event's initialized flag is not set, an InvalidStateError must be thrown (DragEvent).
-  FAIL      If the event's initialized flag is not set, an InvalidStateError must be thrown (HashChangeEvent).
-  FAIL      If the event's initialized flag is not set, an InvalidStateError must be thrown (MessageEvent).
-  FAIL      If the event's initialized flag is not set, an InvalidStateError must be thrown (StorageEvent).
-  FAIL      If the event's initialized flag is not set, an InvalidStateError must be thrown (TextEvent).
 OK           1/1  dom/events/EventTarget-removeEventListener.any.html
 OK           0/6  dom/events/EventTarget-this-of-listener.html
   FAIL      the this value inside the event listener callback should be the node
@@ -249,8 +239,8 @@ TIMEOUT      0/6  dom/events/event-global-extra.window.html
   FAIL      window.event and moving an element post-dispatch
   FAIL      window.event should not be affected by nodes moving post-dispatch
   TIMEOUT   Listener from a different global
-OK           0/1  dom/events/event-global-is-still-set-when-coercing-beforeunload-result.html
-  FAIL      window.event is still set when 'beforeunload' result is coerced to string
+TIMEOUT      0/1  dom/events/event-global-is-still-set-when-coercing-beforeunload-result.html
+  TIMEOUT   window.event is still set when 'beforeunload' result is coerced to string
 OK           0/1  dom/events/event-global-is-still-set-when-reporting-exception-onerror.html
   FAIL      window.onerror handler restores window.event after it reports an exception
 OK           2/2  dom/events/event-global-replaceable.html
@@ -383,12 +373,13 @@ TIMEOUT      0/4  dom/events/scrolling/scroll-event-fired-to-iframe.html
   NOTRUN    scrollX and scrollY being set with the same value.
   NOTRUN    scrollX and scrollY being set with invalid scroll Scroll.
   NOTRUN    scrollX and scrollY when scrolling above maximum Scroll.
-OK           0/1  dom/events/scrolling/scroll-event-not-fired-on-ancestor-style-change.html
-  FAIL      Setting and removing 'overflow' on an ancestor fires no scroll event.
+TIMEOUT      0/1  dom/events/scrolling/scroll-event-not-fired-on-ancestor-style-change.html
+  TIMEOUT   Setting and removing 'overflow' on an ancestor fires no scroll event.
 OK           0/2  dom/events/scrolling/scroll-events-fired-once-per-frame-across-display-none.html
   FAIL      Only one scroll event fires when scrolling, toggling display: none, and scrolling again in the same frame
   FAIL      Only one scrollend event fires when scrolling, toggling display: none, and scrolling again in the same frame
-ERROR        0/0  dom/events/scrolling/scrollIntoView-in-onscroll-to-sticky.html
+OK           0/1  dom/events/scrolling/scrollIntoView-in-onscroll-to-sticky.html
+  FAIL      scrollIntoView-in-onscroll-to-sticky
 OK           0/1  dom/events/scrolling/scrollend-event-fired-after-instant-scroll-in-microtask.html
   FAIL      scrolling state is false at the end of the test
 OK           0/1  dom/events/scrolling/scrollend-event-fired-after-layout-clamping.html
@@ -401,30 +392,51 @@ OK           0/2  dom/events/scrolling/scrollend-event-fired-after-snap.html
   FAIL      Tests that scrollend is fired after fling snap animation completion.
 OK           0/1  dom/events/scrolling/scrollend-event-fired-for-mandatory-snap-point-after-load.html
   FAIL      scrollend event fired after load for mandatory snap point
-ERROR        0/0  dom/events/scrolling/scrollend-event-fired-for-programmatic-scroll.html?include=root-scrollBy-auto
-ERROR        0/0  dom/events/scrolling/scrollend-event-fired-for-programmatic-scroll.html?include=root-scrollBy-smooth
-ERROR        0/0  dom/events/scrolling/scrollend-event-fired-for-programmatic-scroll.html?include=root-scrollTo-auto
-ERROR        0/0  dom/events/scrolling/scrollend-event-fired-for-programmatic-scroll.html?include=root-scrollTo-smooth
-ERROR        0/0  dom/events/scrolling/scrollend-event-fired-for-programmatic-scroll.html?include=subframe-scrollBy-auto
-ERROR        0/0  dom/events/scrolling/scrollend-event-fired-for-programmatic-scroll.html?include=subframe-scrollBy-smooth
-ERROR        0/0  dom/events/scrolling/scrollend-event-fired-for-programmatic-scroll.html?include=subframe-scrollTo-auto
-ERROR        0/0  dom/events/scrolling/scrollend-event-fired-for-programmatic-scroll.html?include=subframe-scrollTo-smooth
-ERROR        0/0  dom/events/scrolling/scrollend-event-fired-for-scroll-attr-change.html?include=root-scrollLeft-auto
-ERROR        0/0  dom/events/scrolling/scrollend-event-fired-for-scroll-attr-change.html?include=root-scrollLeft-smooth
-ERROR        0/0  dom/events/scrolling/scrollend-event-fired-for-scroll-attr-change.html?include=root-scrollTop-auto
-ERROR        0/0  dom/events/scrolling/scrollend-event-fired-for-scroll-attr-change.html?include=root-scrollTop-smooth
-ERROR        0/0  dom/events/scrolling/scrollend-event-fired-for-scroll-attr-change.html?include=subframe-scrollLeft-auto
-ERROR        0/0  dom/events/scrolling/scrollend-event-fired-for-scroll-attr-change.html?include=subframe-scrollLeft-smooth
-ERROR        0/0  dom/events/scrolling/scrollend-event-fired-for-scroll-attr-change.html?include=subframe-scrollTop-auto
-ERROR        0/0  dom/events/scrolling/scrollend-event-fired-for-scroll-attr-change.html?include=subframe-scrollTop-smooth
+OK           0/1  dom/events/scrolling/scrollend-event-fired-for-programmatic-scroll.html?include=root-scrollBy-auto
+  FAIL      Tests scrollend event for calling scrollBy with behavior 'auto' on root.
+OK           0/1  dom/events/scrolling/scrollend-event-fired-for-programmatic-scroll.html?include=root-scrollBy-smooth
+  FAIL      Tests scrollend event for calling scrollBy with behavior 'smooth' on root.
+OK           0/1  dom/events/scrolling/scrollend-event-fired-for-programmatic-scroll.html?include=root-scrollTo-auto
+  FAIL      Tests scrollend event for calling scrollTo with behavior 'auto' on root.
+OK           0/1  dom/events/scrolling/scrollend-event-fired-for-programmatic-scroll.html?include=root-scrollTo-smooth
+  FAIL      Tests scrollend event for calling scrollTo with behavior 'smooth' on root.
+OK           0/1  dom/events/scrolling/scrollend-event-fired-for-programmatic-scroll.html?include=subframe-scrollBy-auto
+  FAIL      Tests scrollend event for calling scrollBy with behavior 'auto' on subframe.
+OK           0/1  dom/events/scrolling/scrollend-event-fired-for-programmatic-scroll.html?include=subframe-scrollBy-smooth
+  FAIL      Tests scrollend event for calling scrollBy with behavior 'smooth' on subframe.
+OK           0/1  dom/events/scrolling/scrollend-event-fired-for-programmatic-scroll.html?include=subframe-scrollTo-auto
+  FAIL      Tests scrollend event for calling scrollTo with behavior 'auto' on subframe.
+OK           0/1  dom/events/scrolling/scrollend-event-fired-for-programmatic-scroll.html?include=subframe-scrollTo-smooth
+  FAIL      Tests scrollend event for calling scrollTo with behavior 'smooth' on subframe.
+OK           0/1  dom/events/scrolling/scrollend-event-fired-for-scroll-attr-change.html?include=root-scrollLeft-auto
+  FAIL      Tests scrollend event for [scrollLeft] behavior:'auto' on root.
+OK           0/1  dom/events/scrolling/scrollend-event-fired-for-scroll-attr-change.html?include=root-scrollLeft-smooth
+  FAIL      Tests scrollend event for [scrollLeft] behavior:'smooth' on root.
+OK           0/1  dom/events/scrolling/scrollend-event-fired-for-scroll-attr-change.html?include=root-scrollTop-auto
+  FAIL      Tests scrollend event for [scrollTop] behavior:'auto' on root.
+OK           0/1  dom/events/scrolling/scrollend-event-fired-for-scroll-attr-change.html?include=root-scrollTop-smooth
+  FAIL      Tests scrollend event for [scrollTop] behavior:'smooth' on root.
+OK           0/1  dom/events/scrolling/scrollend-event-fired-for-scroll-attr-change.html?include=subframe-scrollLeft-auto
+  FAIL      Tests scrollend event for [scrollLeft] behavior:'auto' on subframe.
+OK           0/1  dom/events/scrolling/scrollend-event-fired-for-scroll-attr-change.html?include=subframe-scrollLeft-smooth
+  FAIL      Tests scrollend event for [scrollLeft] behavior:'smooth' on subframe.
+OK           0/1  dom/events/scrolling/scrollend-event-fired-for-scroll-attr-change.html?include=subframe-scrollTop-auto
+  FAIL      Tests scrollend event for [scrollTop] behavior:'auto' on subframe.
+OK           0/1  dom/events/scrolling/scrollend-event-fired-for-scroll-attr-change.html?include=subframe-scrollTop-smooth
+  FAIL      Tests scrollend event for [scrollTop] behavior:'smooth' on subframe.
 OK           0/2  dom/events/scrolling/scrollend-event-fired-to-document.html
   FAIL      testing, vertical
   FAIL      testing, horizontal
-ERROR        0/0  dom/events/scrolling/scrollend-event-fired-to-element-with-overscroll-behavior.html
+OK           0/1  dom/events/scrolling/scrollend-event-fired-to-element-with-overscroll-behavior.html
+  FAIL      Tests that the scroll is not propagated beyond div with non-auto overscroll-behavior.
 OK           0/1  dom/events/scrolling/scrollend-event-fired-to-window.html
   FAIL      testing, vertical
 ERROR        0/0  dom/events/scrolling/scrollend-event-fires-on-visual-viewport.html
-ERROR        0/0  dom/events/scrolling/scrollend-event-fires-to-iframe-window.html
+OK           2/6  dom/events/scrolling/scrollend-event-fires-to-iframe-window.html
+  FAIL      Tests that the target_div within iframe gets scrollend event when touch dragging.
+  FAIL      Tests that the target_div within iframe gets scrollend event when mouse wheel scrolling.
+  FAIL      Tests that the target_div within iframe gets scrollend event when sending DOWN key to the target.
+  FAIL      scrollend fires to iframe window on mousewheelscroll
 OK           2/5  dom/events/scrolling/scrollend-event-for-user-scroll.html
   FAIL      Tests that the target_div gets scrollend event when touch dragging.
   FAIL      Tests that the target_div gets scrollend event when mouse wheel scrolling.
@@ -436,28 +448,32 @@ TIMEOUT      0/4  dom/events/scrolling/scrollend-event-handler-content-attribute
   NOTRUN    Tests scrollend event is fired to element event handler property
 TIMEOUT      2/3  dom/events/scrolling/scrollend-event-not-fired-after-removing-scroller.tentative.html
   TIMEOUT   scrollend is received after removing descendant div
-OK           0/4  dom/events/scrolling/scrollend-event-not-fired-on-no-scroll.html
+ERROR        0/4  dom/events/scrolling/scrollend-event-not-fired-on-no-scroll.html
   FAIL      No scroll via wheel on div shouldn't fire scrollend.
-  FAIL      No scroll via keys on div shouldn't fire scrollend.
-  FAIL      No scroll via wheel on document shouldn't fire scrollend.
-  FAIL      No scroll via keys on document shouldn't fire scrollend.
+  NOTRUN    No scroll via keys on div shouldn't fire scrollend.
+  NOTRUN    No scroll via wheel on document shouldn't fire scrollend.
+  NOTRUN    No scroll via keys on document shouldn't fire scrollend.
 TIMEOUT      0/5  dom/events/scrolling/scrollend-fires-to-text-input.html
   TIMEOUT   scrolled input field should receive scrollend when setting scrollLeft.
   NOTRUN    scrolled input field should receive scrollend with scrollBy({ behavior: 'smooth' }).
   NOTRUN    scrolled input field should receive scrollend with scrollBy({ behavior: 'instant' }).
   NOTRUN    scrolled input field should receive scrollend with scrollTo({ behavior: 'smooth' }).
   NOTRUN    scrolled input field should receive scrollend with scrollTo({ behavior: 'instant' }).
-ERROR        0/0  dom/events/scrolling/scrollend-with-snap-on-fractional-offset.html
-ERROR        0/2  dom/events/scrolling/visibility-hidden-scrolls.html
+OK           0/1  dom/events/scrolling/scrollend-with-snap-on-fractional-offset.html
+  FAIL      snap to fractional offset fires scrollend exactly once.
+OK           0/2  dom/events/scrolling/visibility-hidden-scrolls.html
   FAIL      Scrolling should chain to a visibility: hidden element.
   FAIL      Scrolling over a visibility: visible child should scroll a visibility: hidden scroller.
 ERROR        0/1  dom/events/scrolling/wheel-event-composed.html
   TIMEOUT   wheel event must be composed
 OK           0/1  dom/events/scrolling/wheel-event-no-scroll-after-prevent-default.html
   FAIL      When `preventDefault` is called on a WheelEvent, scrolling should be prevented.
-ERROR        0/0  dom/events/scrolling/wheel-event-transactions-basic.html?include=scroll-over-scrollable-child
-ERROR        0/0  dom/events/scrolling/wheel-event-transactions-basic.html?include=target-basic
-ERROR        0/0  dom/events/scrolling/wheel-event-transactions-basic.html?include=transaction-not-bound-to-scroll-frame
+OK           0/1  dom/events/scrolling/wheel-event-transactions-basic.html?include=scroll-over-scrollable-child
+  FAIL      Wheel events should be captured to one target #2
+OK           0/1  dom/events/scrolling/wheel-event-transactions-basic.html?include=target-basic
+  FAIL      Wheel events should be captured to one target #1
+OK           0/1  dom/events/scrolling/wheel-event-transactions-basic.html?include=transaction-not-bound-to-scroll-frame
+  FAIL      The wheel event transactions target may not be a scroll frame
 OK           0/1  dom/events/scrolling/wheel-event-transactions-multiple-action-chains.html
   FAIL      Two separate webdriver action chains should have different wheel event transactions
 OK           0/1  dom/events/scrolling/wheel-event-transactions-target-display-change.html?include=contents
@@ -474,7 +490,9 @@ OK           0/1  dom/events/scrolling/wheel-event-transactions-target-resize.ht
   FAIL      Resize the initial target and use a passive:false listener
 OK           0/1  dom/events/scrolling/wheel-event-transactions-target-resize.html?include=passive-true
   FAIL      Resize the initial target and use a passive:true listener
-ERROR        0/0  dom/events/shadow-relatedTarget.html
+TIMEOUT      0/2  dom/events/shadow-relatedTarget.html
+  TIMEOUT   relatedTarget should not leak at capturing phase, at window object.
+  TIMEOUT   relatedTarget should not leak at target.
 OK          0/13  dom/events/webkit-animation-end-event.html
   FAIL      onanimationend and onwebkitanimationend are not aliases
   FAIL      dispatchEvent of a webkitAnimationEnd event does trigger a prefixed event handler or listener
