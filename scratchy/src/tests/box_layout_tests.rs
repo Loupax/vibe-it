@@ -750,7 +750,7 @@ fn q7b_css_wide_keywords_on_remaining_properties() {
     let s = styles("div{width:120px;position:relative;overflow:hidden} p{width:inherit;position:inherit;overflow:inherit}", h);
     assert!(matches!(s.width, Some(BoxLength::Px(v)) if v == 120.0));
     assert!(s.position == Position::Relative);
-    assert!(s.overflow == Overflow::Hidden);
+    assert!(s.overflow_x == Overflow::Hidden && s.overflow_y == Overflow::Hidden);
     // initial resets a rule's own declared value; unset on a
     // non-inherited property also resets
     let s = styles("p{float:left;float:initial}", h);

@@ -150,7 +150,7 @@ fn build_text_like(handle: &Handle, mut style: ComputedStyle, ctx: &FormCtx) -> 
         let chars = attr_count(handle, "size").unwrap_or(20) as f32;
         style.width = Some(sized(&style, chars * avg_char_w(&style, false), true));
     }
-    style.overflow = Overflow::Hidden;
+    style.set_overflow(Overflow::Hidden);
     if let Some(kind) = text_control_kind(handle) {
         return build_editable(handle, style, kind, ctx);
     }
@@ -414,7 +414,7 @@ fn build_color(handle: &Handle, mut style: ComputedStyle) -> (ComputedStyle, Box
     swatch.border_width = [1.0; 4];
     swatch.border_color = [Some(TextColor::rgb(119, 119, 119)); 4];
     swatch.border_style = [BorderStyle::Solid; 4];
-    style.overflow = Overflow::Hidden;
+    style.set_overflow(Overflow::Hidden);
     if style.width.is_none() {
         style.width = Some(sized(&style, 36.0, true));
     }
@@ -463,7 +463,7 @@ fn build_range(handle: &Handle, mut style: ComputedStyle) -> (ComputedStyle, Box
 /// wrapped (`pre-wrap`) and clipped.
 fn build_textarea(handle: &Handle, mut style: ComputedStyle, ctx: &FormCtx) -> (ComputedStyle, BoxContent) {
     style.white_space = WhiteSpace::PreWrap;
-    style.overflow = Overflow::Hidden;
+    style.set_overflow(Overflow::Hidden);
     let cols = attr_count(handle, "cols").unwrap_or(20) as f32;
     let rows = attr_count(handle, "rows").unwrap_or(2) as f32;
     if style.width.is_none() && style.width_kw.is_none() {
@@ -488,7 +488,7 @@ fn build_select(handle: &Handle, mut style: ComputedStyle) -> (ComputedStyle, Bo
     if snap.listbox {
         let rows = size.unwrap_or(4).max(1) as f32;
         style.select_widget = SEL_LIST;
-        style.overflow = Overflow::Hidden;
+        style.set_overflow(Overflow::Hidden);
         if style.height.is_none() {
             style.height = Some(sized(&style, rows * line_h(&style), false));
         }

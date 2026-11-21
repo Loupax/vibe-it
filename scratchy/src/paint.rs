@@ -8,6 +8,25 @@ thread_local! {
     /// QSB2: the scrollbar whose thumb is hovered / dragged: `(ScrollInfo::id, pressed)`;
     /// `App::redraw` sets it before painting (the window's bar has id `usize::MAX`).
     pub(crate) static SB_HOT: Cell<Option<(usize, bool)>> = const { Cell::new(None) };
+    /// QXSCR1: the ambient horizontal scroll of the box being painted / hit-tested: the window's
+    /// `scroll_x` (set by the App around a frame's paint and its hit tests, `with_scroll_x`)
+    /// plus, while `paint` is inside a scroll region's content, that region's x offset; `0` again
+    /// inside a `position: fixed` subtree. The x counterpart of `paint`'s `scroll_offset`
+    /// parameter, kept out of the signatures (like `PAINT_OPACITY`).
+    pub(crate) static SCROLL_X: Cell<f32> = const { Cell::new(0.0) };
+}
+
+/// QXSCR1: runs `f` with the ambient horizontal scroll set to `sx` (restored afterwards).
+pub(crate) fn with_scroll_x<R>(sx: f32, f: impl FnOnce() -> R) -> R {
+    let prev = SCROLL_X.with(|c| c.replace(sx));
+    let r = f();
+    SCROLL_X.with(|c| c.set(prev));
+    r
+}
+
+/// QXSCR1: the current ambient horizontal scroll (see `SCROLL_X`).
+pub(crate) fn scroll_x() -> f32 {
+    SCROLL_X.with(|c| c.get())
 }
 
 pub(crate) fn blend(existing: u32, color: TextColor) -> u32 {
@@ -1467,7 +1486,7 @@ pub(crate) fn paint_masked(
     scroll_offset: f32,
     clip: Option<(f32, f32, f32, f32)>,
 ) {
-    let (x, y, w, h) = (laid.x, laid.y - scroll_offset, laid.w, laid.h);
+    let (x, y, w, h) = (laid.x - scroll_x(), laid.y - scroll_offset, laid.w, laid.h);
     let (cx, cy, cw, ch) = intersect_clip(x, y, w, h, clip);
     let x0 = cx.max(0.0).floor() as i64;
     let y0 = cy.max(0.0).floor() as i64;
@@ -2016,10 +2035,13 @@ pub(crate) fn paint_z_layer(
         } else {
             // An out-of-flow `positioned` entry — same `fixed` handling
             // `paint`'s own old positioned-list loop always used.
-            paint(
-                item, font_system, swash_cache, cache, scroll_offsets, pixels, win_w, win_h,
-                if item.fixed { 0.0 } else { scroll_offset }, clip,
-            );
+            let sx = if item.fixed { 0.0 } else { scroll_x() };
+            with_scroll_x(sx, || {
+                paint(
+                    item, font_system, swash_cache, cache, scroll_offsets, pixels, win_w, win_h,
+                    if item.fixed { 0.0 } else { scroll_offset }, clip,
+                )
+            });
         }
     }
 }
@@ -2120,6 +2142,9 @@ fn paint_inner_body(
 ) {
     let s = laid.style;
     let draw_y = laid.y - scroll_offset;
+    // QXSCR1: the horizontal counterpart of `draw_y` (the ambient x scroll, see `SCROLL_X`).
+    let sx = scroll_x();
+    let draw_x = laid.x - sx;
     if laid.ink.b - scroll_offset < 0.0 || laid.ink.t - scroll_offset > win_h as f32 {
         // Entirely outside the viewport. `ink` is the union of this
         // box's rect and everything it can paint (visible overflow,
@@ -2137,9 +2162,12 @@ fn paint_inner_body(
     // moving it ahead of the negative-z-index layer, which now needs to
     // paint *before* this box's own background, doesn't change what it
     // computes).
-    let child_clip = if matches!(s.overflow, Overflow::Hidden | Overflow::Scroll | Overflow::Auto) {
-        let (cx, cy, cw, ch) = intersect_clip(laid.x, draw_y, laid.w, laid.h, clip);
-        Some((cx, cy, cw, ch))
+    // QXSCR1: per axis: an axis left `visible` (only possible next to `clip`) does not clip.
+    let child_clip = if s.clips_any() {
+        const OPEN: (f32, f32) = (-1.0e9, 2.0e9);
+        let (x, w) = if s.overflow_x != Overflow::Visible { (draw_x, laid.w) } else { OPEN };
+        let (y, h) = if s.overflow_y != Overflow::Visible { (draw_y, laid.h) } else { OPEN };
+        Some(intersect_clip(x, y, w, h, clip))
     } else {
         clip
     };
@@ -2151,9 +2179,7 @@ fn paint_inner_body(
     // trusting the stored value is already in range). `0.0` for every
     // other box, including a `scroll`/`auto` box with nothing stored
     // for its id yet (the common "never scrolled" starting state).
-    let own_scroll = laid
-        .scroll
-        .map_or(0.0, |info| scroll_offsets.get(&info.id).copied().unwrap_or(0.0).clamp(0.0, info.max_scroll()));
+    let (own_scroll, own_scroll_x) = laid.scroll.map_or((0.0, 0.0), |info| info.offsets(scroll_offsets));
     // Only this box's own *descendants* see the extra shift — this
     // box's own painted position (`draw_y` above) deliberately still
     // uses the un-adjusted `scroll_offset`, since scrolling a box moves
@@ -2168,6 +2194,8 @@ fn paint_inner_body(
     // this box's own out-of-flow/explicitly-stacked descendants): see
     // TODO.txt, a documented, narrower cut.
     let content_scroll_offset = scroll_offset + own_scroll;
+    // QXSCR1: the same for x: this box's content (and its z-layers) see `content_sx`.
+    let content_sx = sx + own_scroll_x;
 
     // Real CSS2.1 Appendix E stacking order, split at the zero boundary.
     // **Layer 2 (negative stack levels) paints *above* this box's own
@@ -2214,9 +2242,9 @@ fn paint_inner_body(
         // content, never its own background/border/outline/shadow,
         // same as real CSS.
         if s.check_widget != 0 {
-            paint_checkable(&s, laid.background_image.as_deref(), pixels, win_w, win_h, laid.x, draw_y, laid.w, laid.h, clip);
+            paint_checkable(&s, laid.background_image.as_deref(), pixels, win_w, win_h, draw_x, draw_y, laid.w, laid.h, clip);
         } else {
-            paint_box_decoration(&s, laid.background_image.as_deref(), pixels, win_w, win_h, laid.x, draw_y, laid.w, laid.h, clip);
+            paint_box_decoration(&s, laid.background_image.as_deref(), pixels, win_w, win_h, draw_x, draw_y, laid.w, laid.h, clip);
         }
     }
 
@@ -2226,17 +2254,19 @@ fn paint_inner_body(
     // end of this function) — unconditional, same reasoning as that
     // final layer (each entry's own recursive `paint` call checks *its
     // own* `style.visibility`).
-    paint_z_layer(
-        neg_positioned, &neg_stacking_children, font_system, swash_cache, cache, scroll_offsets, pixels, win_w,
-        win_h, content_scroll_offset, child_clip,
-    );
+    with_scroll_x(content_sx, || {
+        paint_z_layer(
+            neg_positioned, &neg_stacking_children, font_system, swash_cache, cache, scroll_offsets, pixels, win_w,
+            win_h, content_scroll_offset, child_clip,
+        )
+    });
 
     if s.text_widget != 0 && s.visibility == Visibility::Visible {
-        paint_text_control(&s, font_system, swash_cache, pixels, win_w, win_h, laid.x, draw_y, laid.w, laid.h, child_clip);
+        paint_text_control(&s, font_system, swash_cache, pixels, win_w, win_h, draw_x, draw_y, laid.w, laid.h, child_clip);
     }
 
     if s.select_widget != 0 && s.visibility == Visibility::Visible {
-        paint_select_control(&s, font_system, swash_cache, pixels, win_w, win_h, laid.x, draw_y, laid.w, laid.h, child_clip);
+        paint_select_control(&s, font_system, swash_cache, pixels, win_w, win_h, draw_x, draw_y, laid.w, laid.h, child_clip);
     }
 
     match &laid.content {
@@ -2269,10 +2299,12 @@ fn paint_inner_body(
                     }
                     None => content_scroll_offset,
                 };
-                paint(
-                    child, font_system, swash_cache, cache, scroll_offsets, pixels, win_w, win_h, child_scroll,
-                    child_clip,
-                );
+                with_scroll_x(content_sx, || {
+                    paint(
+                        child, font_system, swash_cache, cache, scroll_offsets, pixels, win_w, win_h, child_scroll,
+                        child_clip,
+                    )
+                });
             }
         }
         LaidContent::Text(id) => {
@@ -2282,7 +2314,7 @@ fn paint_inner_body(
             if let Some(entry) = cache.get(id) {
                 let mut guard = entry.lock().unwrap();
                 let (buffer, _, backgrounds, valigns, hidden, _, decoration_styles, _) = &mut *guard;
-                let content_x = laid.x + s.border_left() + s.padding.left.px();
+                let content_x = draw_x + s.border_left() + s.padding.left.px();
                 let content_y = draw_y + s.border_top() + s.padding.top.px();
                 paint_buffer(
                     buffer, font_system, swash_cache, backgrounds, valigns, hidden, decoration_styles, pixels,
@@ -2291,7 +2323,7 @@ fn paint_inner_body(
             }
         }
         LaidContent::Image(image) => {
-            let content_x = laid.x + s.border_left() + s.padding.left.px();
+            let content_x = draw_x + s.border_left() + s.padding.left.px();
             let content_y = draw_y + s.border_top() + s.padding.top.px();
             let content_w = (laid.w - s.border_h() - s.padding.left.px() - s.padding.right.px()).max(0.0);
             let content_h = (laid.h - s.border_v() - s.padding.top.px() - s.padding.bottom.px()).max(0.0);
@@ -2350,7 +2382,7 @@ fn paint_inner_body(
                             let (buffer, _, backgrounds, valigns, hidden, _, decoration_styles, _) = &mut *guard;
                             paint_buffer(
                                 buffer, font_system, swash_cache, backgrounds, valigns, hidden, decoration_styles,
-                                pixels, win_w, win_h, *x, *y - scroll_offset, child_clip, 0.0,
+                                pixels, win_w, win_h, *x - sx, *y - scroll_offset, child_clip, 0.0,
                             );
                         }
                     }
@@ -2371,7 +2403,7 @@ fn paint_inner_body(
     // skipped too (its visible descendants still paint normally).
     if let Some(info) = laid.scroll.as_ref().filter(|i| i.user && s.visibility == Visibility::Visible) {
         paint_scrollbar(
-            info, own_scroll, s.overflow == Overflow::Scroll, pixels, win_w, win_h, laid.x, draw_y, laid.w, laid.h,
+            info, own_scroll, s.overflow_y == Overflow::Scroll, pixels, win_w, win_h, draw_x, draw_y, laid.w, laid.h,
             clip,
         );
     }
@@ -2391,10 +2423,12 @@ fn paint_inner_body(
     // (real CSS: an `overflow: hidden` ancestor clips an absolutely
     // positioned descendant whenever that ancestor is at or inside its
     // containing block, which is always true here by construction).
-    paint_z_layer(
-        nonneg_positioned, &nonneg_stacking_children, font_system, swash_cache, cache, scroll_offsets, pixels, win_w,
-        win_h, content_scroll_offset, child_clip,
-    );
+    with_scroll_x(content_sx, || {
+        paint_z_layer(
+            nonneg_positioned, &nonneg_stacking_children, font_system, swash_cache, cache, scroll_offsets, pixels,
+            win_w, win_h, content_scroll_offset, child_clip,
+        )
+    });
 }
 
 /// Finds the `CursorStyle` that should show at document-space `(x, y)` —
@@ -2527,10 +2561,10 @@ fn hit_test_inner_body(
     // the normal-content layer happens to cover the same pixel).
     // Q24: this box's own live scroll shifts its stacking/positioned
     // descendants too, same as `paint`'s `content_scroll_offset`.
-    let own_scroll = laid.scroll.map_or(0.0, |info| {
-        scroll_offsets.get(&info.id).copied().unwrap_or(0.0).clamp(0.0, info.max_scroll())
-    });
+    let (own_scroll, own_scroll_x) = laid.scroll.map_or((0.0, 0.0), |info| info.offsets(scroll_offsets));
     let y = y + own_scroll;
+    // QXSCR1: `x` is document space too (the caller added the window's `scroll_x`).
+    let x = x + own_scroll_x;
     let scroll_offset = scroll_offset + own_scroll;
     let stacking_children: Vec<&Laid> = match &laid.content {
         LaidContent::Blocks(children) | LaidContent::TableRow(children) => {
@@ -2557,8 +2591,13 @@ fn hit_test_inner_body(
                 return Some(hit_test_fb(r, laid.style.node));
             }
         } else {
-            let (ix, iy, inner_scroll) = if item.fixed { (x, y - scroll_offset, 0.0) } else { (x, y, scroll_offset) };
-            if let Some(r) = hit_test_inner(item, ix, iy, cache, scroll_offsets, inner_scroll, viewport_h) {
+            // QXSCR1: a fixed box is in viewport space on x too (`scroll_x()` = the window's here).
+            let (ix, iy, inner_scroll) =
+                if item.fixed { (x - scroll_x(), y - scroll_offset, 0.0) } else { (x, y, scroll_offset) };
+            let hit = with_scroll_x(if item.fixed { 0.0 } else { scroll_x() }, || {
+                hit_test_inner(item, ix, iy, cache, scroll_offsets, inner_scroll, viewport_h)
+            });
+            if let Some(r) = hit {
                 return Some(hit_test_fb(r, laid.style.node));
             }
         }
@@ -2733,6 +2772,8 @@ pub(crate) struct RegionHit {
     /// Border box `(x, y, w, h)` in the same space as `py`.
     pub(crate) rect: (f32, f32, f32, f32),
     pub(crate) py: f32,
+    /// QXSCR1: the pointer's x in the same space (ancestors' x scroll applied).
+    pub(crate) px: f32,
 }
 
 /// `hit_test_scroll_chain` with geometry (innermost first).
@@ -2768,10 +2809,9 @@ fn scroll_chain_into(
     if let LaidContent::Blocks(children) | LaidContent::TableRow(children) = &laid.content {
         // Same `own_scroll` shift `hit_test_cursor`'s own `Blocks`/
         // `TableRow` arm applies, for the same reason.
-        let own_scroll = laid
-            .scroll
-            .map_or(0.0, |info| scroll_offsets.get(&info.id).copied().unwrap_or(0.0).clamp(0.0, info.max_scroll()));
+        let (own_scroll, own_scroll_x) = laid.scroll.map_or((0.0, 0.0), |info| info.offsets(scroll_offsets));
         let child_y = y + own_scroll;
+        let x = x + own_scroll_x;
         let child_scroll_offset = scroll_offset + own_scroll;
         for child in children.iter().filter(|c| !is_explicit_stacking_child(c)) {
             if matches!(child.style.position, Position::Absolute | Position::Fixed) {
@@ -2789,7 +2829,7 @@ fn scroll_chain_into(
             }
         }
     }
-    out.extend(self_info.map(|info| RegionHit { info, rect: (laid.x, laid.y, laid.w, laid.h), py: y }));
+    out.extend(self_info.map(|info| RegionHit { info, rect: (laid.x, laid.y, laid.w, laid.h), py: y, px: x }));
 }
 
 /// QJ6: the scroll region of DOM node `node` in a laid-out tree (any depth,
@@ -2809,10 +2849,14 @@ pub(crate) fn find_scroll_node(laid: &Laid, node: usize) -> Option<ScrollInfo> {
 
 /// QJ6: `region id -> offset` for every scroll region whose node has a stored offset.
 pub(crate) fn collect_scroll_regions(laid: &Laid, by_node: &HashMap<usize, f32>, out: &mut HashMap<usize, f32>) {
-    if let Some(i) = laid.scroll
-        && let Some(v) = by_node.get(&i.node)
-    {
-        out.insert(i.id, *v);
+    if let Some(i) = laid.scroll {
+        if let Some(v) = by_node.get(&i.node) {
+            out.insert(i.id, *v);
+        }
+        // QXSCR1: the x offset rides along under the x keys.
+        if let Some(v) = by_node.get(&crate::layout::xk(i.node)) {
+            out.insert(crate::layout::xk(i.id), *v);
+        }
     }
     let kids: &[Laid] = match &laid.content {
         LaidContent::Blocks(c) | LaidContent::TableRow(c) => c,

@@ -1128,6 +1128,8 @@ fn help_page_documents_every_binding() {
             KeySpec::Named(N::Escape) => "Esc".to_string(),
             KeySpec::Named(N::ArrowDown) => "Down".to_string(),
             KeySpec::Named(N::ArrowUp) => "Up".to_string(),
+            KeySpec::Named(N::ArrowLeft) => "Left".to_string(),
+            KeySpec::Named(N::ArrowRight) => "Right".to_string(),
             KeySpec::Named(n) => format!("{n:?}"),
         };
         let needle = format!("<code>{label}</code>");
@@ -1488,7 +1490,7 @@ fn qyscr1_a_region_with_nothing_to_scroll_is_no_wheel_target() {
     assert!(!region_takes_wheel(&fits, &HashMap::new(), -40.0), "nothing to scroll: the page takes the tick");
     assert!(!region_takes_wheel(&fits, &HashMap::new(), 40.0));
     // A region that can scroll takes ticks until its end, then chains.
-    let tall = ScrollInfo { id: 7, content_h: 300.0, client_h: 100.0, node: 0, user: true };
+    let tall = ScrollInfo { id: 7, content_h: 300.0, client_h: 100.0, node: 0, user: true, user_x: true, content_w: 0.0, client_w: 0.0 };
     let mut offs = HashMap::new();
     assert!(region_takes_wheel(&tall, &offs, -40.0), "down from the top");
     assert!(!region_takes_wheel(&tall, &offs, 40.0), "up at the top: chains to the page");
@@ -1678,7 +1680,7 @@ fn every_config_binding_resolves_as_declared() {
     let e = ModifiersState::empty();
     let named = Key::Named;
     let ch = |c: &str| Key::Character(c.into());
-    assert_eq!(BINDINGS.len(), 22, "16 pre-QCONF1 rows + QKEYS2 `i` + QSEARCH1 `/` and Esc + QSEARCH2 `n` and `N` + QSEARCH3 Enter");
+    assert_eq!(BINDINGS.len(), 24, "16 pre-QCONF1 rows + QKEYS2 `i` + QSEARCH1 `/` and Esc + QSEARCH2 `n` and `N` + QSEARCH3 Enter + QXSCR1 Left/Right");
     assert_eq!(resolve_binding(&named(NamedKey::Enter), e, n), Some(Action::ActivateMatch));
     assert_eq!(resolve_binding(&ch("n"), e, n), Some(Action::SearchNext));
     assert_eq!(resolve_binding(&ch("N"), ModifiersState::SHIFT, n), Some(Action::SearchPrev));

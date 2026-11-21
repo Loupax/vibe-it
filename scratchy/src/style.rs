@@ -357,6 +357,8 @@ pub(crate) struct ComputedStyle {
     /// QYSCR1b: on the document root box only: the overflow propagated to the viewport is `hidden`
     /// (user scrolling blocked, script scrolling still works). Not inherited.
     pub(crate) viewport_hidden: bool,
+    /// QXSCR1: the same for the x axis (the propagated `overflow-x` is `hidden`).
+    pub(crate) viewport_hidden_x: bool,
     /// `mask-position`/`-size`/`-repeat` (Q29), same shape as `bg_layout`.
     pub(crate) mask_layout: BgLayout,
     /// `object-fit` and `object-position` (Q28), applied by `blit_image`.
@@ -374,8 +376,11 @@ pub(crate) struct ComputedStyle {
     /// already the exact value needed and it's never used anywhere
     /// `measure` would otherwise have to finalize it early.
     pub(crate) border_radius: BoxLength,
-    /// Not inherited. See `Overflow`'s own docs for the clip's scope.
-    pub(crate) overflow: Overflow,
+    /// Not inherited. See `Overflow`'s own docs for the clip's scope. QXSCR1: one value per axis,
+    /// already fixed up per CSS Overflow 3 (`overflow_axes`): when either axis is a scrolling value
+    /// (`hidden`/`scroll`/`auto`), a `visible` other axis is `auto` and a `clip` one is `hidden`.
+    pub(crate) overflow_x: Overflow,
+    pub(crate) overflow_y: Overflow,
     /// `text-overflow` (Q21). Not inherited; `build_box_for_element` copies
     /// an `Ellipsis` onto the anonymous inline runs of a clipping box.
     pub(crate) text_overflow: TextOverflow,
@@ -497,10 +502,28 @@ impl ComputedStyle {
     /// Whether this box starts its own block formatting context (Q34b):
     /// float, `overflow` other than visible, `display: flow-root`, or a
     /// block-level table/flex/grid container.
+    /// QXSCR1: some axis clips (anything but `visible`).
+    pub(crate) fn clips_any(&self) -> bool {
+        self.overflow_x != Overflow::Visible || self.overflow_y != Overflow::Visible
+    }
+
+    /// QXSCR1: the box is a scroll container (`hidden`/`scroll`/`auto` on an axis; after
+    /// `overflow_axes` the other axis then is one of those too).
+    pub(crate) fn scroll_container(&self) -> bool {
+        matches!(self.overflow_x, Overflow::Hidden | Overflow::Scroll | Overflow::Auto)
+            || matches!(self.overflow_y, Overflow::Hidden | Overflow::Scroll | Overflow::Auto)
+    }
+
+    /// QXSCR1: sets both axes (UA boxes that clip, e.g. form controls).
+    pub(crate) fn set_overflow(&mut self, o: Overflow) {
+        self.overflow_x = o;
+        self.overflow_y = o;
+    }
+
     pub(crate) fn establishes_bfc(&self) -> bool {
         self.float != Float::None
             || matches!(self.position, Position::Absolute | Position::Fixed)
-            || self.overflow != Overflow::Visible
+            || self.clips_any()
             || self.flow_root
             || matches!(self.display, Display::Table | Display::Flex | Display::Grid)
     }
@@ -643,7 +666,7 @@ pub(crate) fn wide_keys(name: &str) -> Option<&'static [&'static str]> {
         "max-width", "min-height", "max-height", "box-sizing", "margin-top",
         "margin-right", "margin-bottom", "margin-left", "padding-top",
         "padding-right", "padding-bottom", "padding-left", "outline-width",
-        "outline-color", "box-shadow", "border-radius", "overflow",
+        "outline-color", "box-shadow", "border-radius",
         "overflow-y", "text-overflow", "flex-direction", "flex-wrap", "justify-content", "align-items",
         "align-self", "order", "flex-grow", "flex-shrink", "flex-basis", "row-gap",
         "column-gap", "grid-template-columns", "grid-template-rows", "grid-auto-columns", "grid-auto-rows",
@@ -663,6 +686,9 @@ pub(crate) fn wide_keys(name: &str) -> Option<&'static [&'static str]> {
         return Some(std::slice::from_ref(&BORDER_WIDE_KEYS[k]));
     }
     Some(match l {
+        // QXSCR1: the canonical key `overflow` is the x axis.
+        "overflow" => &["overflow", "overflow-y"],
+        "overflow-x" => &["overflow"],
         "animation" => &ANIMATION_KEYS,
         "background" => &[
             "background-color", "background-image", "background-position",
@@ -794,7 +820,8 @@ pub(crate) fn copy_prop(dst: &mut ComputedStyle, src: &ComputedStyle, key: &str)
         "outline-color" => dst.outline_color = src.outline_color,
         "box-shadow" => dst.box_shadow = src.box_shadow,
         "border-radius" => dst.border_radius = src.border_radius,
-        "overflow" => dst.overflow = src.overflow,
+        "overflow" => dst.overflow_x = src.overflow_x,
+        "overflow-y" => dst.overflow_y = src.overflow_y,
         "text-overflow" => dst.text_overflow = src.text_overflow,
         "flex-direction" => dst.flex_direction = src.flex_direction,
         "flex-wrap" => dst.flex_wrap = src.flex_wrap,
@@ -3071,11 +3098,7 @@ pub(crate) fn resolve_style_core<'a>(
         .unwrap_or_default();
     let overflow_y = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.overflow_y), |d| d.overflow_y)
         .unwrap_or_default();
-    // The style model has one clip/scroll mode per box, not one per axis,
-    // so fold the two: a `visible` axis yields to the other one (real CSS
-    // computes `visible` to `auto` there; the single-mode model treats
-    // `hidden` as clipping both axes, the common `overflow-x:hidden` use).
-    let overflow = if overflow_x == Overflow::Visible { overflow_y } else { overflow_x };
+    let (overflow_x, overflow_y) = overflow_axes(overflow_x, overflow_y);
     let text_overflow = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.text_overflow), |d| d.text_overflow)
         .unwrap_or_default();
     let cursor = apply_wide(
@@ -3249,11 +3272,13 @@ pub(crate) fn resolve_style_core<'a>(
         bg_layout,
         canvas_src: 0,
         viewport_hidden: false,
+        viewport_hidden_x: false,
         mask_layout,
         object_fit,
         object_pos,
         border_radius,
-        overflow,
+        overflow_x,
+        overflow_y,
         text_overflow,
         animations: cascade_animations(&matches, inl),
         contain_lp: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.contain_lp), |d| d.contain_lp).unwrap_or(false),
@@ -3377,11 +3402,13 @@ pub(crate) fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         bg_layout: BgLayout::default(),
         canvas_src: 0,
         viewport_hidden: false,
+        viewport_hidden_x: false,
         mask_layout: BgLayout::default(),
         object_fit: ObjectFit::Fill,
         object_pos: ((0.5, 0.0), (0.5, 0.0)),
         border_radius: BoxLength::default(),
-        overflow: Overflow::default(),
+        overflow_x: Overflow::default(),
+        overflow_y: Overflow::default(),
         text_overflow: TextOverflow::default(),
         animations: None,
         contain_lp: false,
@@ -3453,4 +3480,17 @@ pub(crate) fn rules_cache_mem() -> ((usize, usize), (usize, usize)) {
         (h.ids.len() + h.classes.len() + h.tags.len(), set(&h.ids) + set(&h.classes) + set(&h.tags))
     });
     (rules, (index.0 + hover.0, index.1 + hover.1))
+}
+
+/// QXSCR1: CSS Overflow 3 computed values: when one axis is a scrolling value (`hidden`, `scroll`,
+/// `auto`), a `visible` other axis computes to `auto` and a `clip` one to `hidden`. `visible` with
+/// `clip` (either way round) stays as given.
+pub(crate) fn overflow_axes(x: Overflow, y: Overflow) -> (Overflow, Overflow) {
+    let scrolls = |o: Overflow| matches!(o, Overflow::Hidden | Overflow::Scroll | Overflow::Auto);
+    let fix = |o: Overflow| match o {
+        Overflow::Visible => Overflow::Auto,
+        Overflow::Clip => Overflow::Hidden,
+        o => o,
+    };
+    if scrolls(x) || scrolls(y) { (fix(x), fix(y)) } else { (x, y) }
 }

@@ -480,8 +480,9 @@ pub(crate) struct JsRequests {
     pub(crate) focus: Option<FocusReq>,
     /// `window.scroll*`: target axes (`None` = keep), `relative` = scrollBy.
     pub(crate) scroll: Option<ScrollReq>,
-    /// QJ6: `el.scrollTop = y` on a scroll container: (element, absolute y).
-    pub(crate) el_scroll: Vec<(Handle, f64)>,
+    /// QJ6: `el.scrollTop = y` on a scroll container: (element, absolute y, false);
+    /// QXSCR1: `el.scrollLeft = x`: (element, absolute x, true).
+    pub(crate) el_scroll: Vec<(Handle, f64, bool)>,
     /// Q33d1: `el.click()` on a link asks the App to follow it.
     pub(crate) nav: Option<String>,
     /// QF11: `nav` came from `location.replace` (no new history entry).
@@ -1773,11 +1774,11 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     let t = table.clone();
     native!(ctx, "__d_nid", move |id: i32| -> f64 { t.borrow().get(id).map_or(0.0, |h| node_id(&h) as f64) });
     let (t, r) = (table.clone(), reqs.clone());
-    native!(ctx, "__d_scrollel", move |id: i32, y: f64| {
+    native!(ctx, "__d_scrollel", move |id: i32, v: f64, x_axis: bool| {
         if let Some(h) = t.borrow().get(id) {
             let mut r = r.borrow_mut();
-            r.el_scroll.retain(|(e, _)| !Rc::ptr_eq(e, &h));
-            r.el_scroll.push((h, y));
+            r.el_scroll.retain(|(e, _, xa)| !(Rc::ptr_eq(e, &h) && *xa == x_axis));
+            r.el_scroll.push((h, v, x_axis));
         }
     });
     // QV8-4: a startup-snapshot engine already ran the DOM prelude; the snapshot BUILD keeps the
@@ -2281,18 +2282,27 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (a !== null && typeof a === 'object') return [a.left === undefined ? NaN : Number(a.left), a.top === undefined ? NaN : Number(a.top)];
     return [Number(a), Number(b)];
   };
+  // QXSCR1: scrollX is clamped to the document's scroll width (a layout read, only for x > 0);
+  // the App clamps both axes again when it paints and mirrors the result back.
   g.scrollX = g.pageXOffset = 0; g.scrollY = g.pageYOffset = 0;
+  var clampX = function (x) {
+    x = Math.max(0, x);
+    if (x > 0 && g.__scratchy_maxScrollX) x = Math.min(x, g.__scratchy_maxScrollX());
+    return x;
+  };
   g.scroll = g.scrollTo = function () {
     var a = scrollArgs(arguments[0], arguments[1]);
+    if (a[0] === a[0]) a[0] = clampX(a[0]);
     __d_scroll(a[0], a[1], false);
-    if (a[0] === a[0]) g.scrollX = g.pageXOffset = Math.max(0, a[0]);
+    if (a[0] === a[0]) g.scrollX = g.pageXOffset = a[0];
     if (a[1] === a[1]) g.scrollY = g.pageYOffset = Math.max(0, a[1]);
     if (g.__scratchy_ioNudge) g.__scratchy_ioNudge();
   };
   g.scrollBy = function () {
     var a = scrollArgs(arguments[0], arguments[1]);
-    __d_scroll(a[0] === a[0] ? a[0] : 0, a[1] === a[1] ? a[1] : 0, true);
-    if (a[0] === a[0]) g.scrollX = g.pageXOffset = Math.max(0, g.scrollX + a[0]);
+    var nx = a[0] === a[0] ? clampX(g.scrollX + a[0]) : g.scrollX;
+    __d_scroll(nx - g.scrollX, a[1] === a[1] ? a[1] : 0, true);
+    g.scrollX = g.pageXOffset = nx;
     if (a[1] === a[1]) g.scrollY = g.pageYOffset = Math.max(0, g.scrollY + a[1]);
     if (g.__scratchy_ioNudge) g.__scratchy_ioNudge();
   };
@@ -5136,7 +5146,8 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     var r = gRend ? __d_rect_r(el.__id) : __d_rect(el.__id, Number(g.innerWidth) || 0, Number(g.innerHeight) || 0);
     return r.length ? r : null;
   };
-  var gElScroll = new Map(), gScrollGen = 0, gScrollable, gNid, gAncestorScroll, gSetScroll, gScrollEvent;
+  // QXSCR1: gElScrollX holds the x offsets (same keys), next to gElScroll's y offsets.
+  var gElScroll = new Map(), gElScrollX = new Map(), gScrollGen = 0, gScrollable, gNid, gAncestorScroll, gSetScroll, gScrollEvent;
   // QY57r/QYSCR1: <body> when its overflow is propagated to the viewport (CSS Overflow 3: <html>'s
   // overflow is `visible`), else null. Same rule as images.rs propagate_viewport_overflow: that
   // <body> is no scroll container and no clip (its computed style still says e.g. `scroll`).
@@ -5162,8 +5173,9 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (!r) return null;
     // QJ6: scrolled ancestors move their content (only walked once some
     // element has actually been scrolled, so pages that never scroll pay nothing).
-    var dy = gElScroll.size ? gAncestorScroll(el, null) : 0;
-    return new DR(r[0] - (r[4] ? 0 : (g.scrollX || 0)), r[1] - dy - (r[4] ? 0 : (g.scrollY || 0)), r[2], r[3]);
+    var dy = gElScroll.size ? gAncestorScroll(el, null, 1) : 0;
+    var dx = gElScrollX.size ? gAncestorScroll(el, null, 0) : 0;
+    return new DR(r[0] - dx - (r[4] ? 0 : (g.scrollX || 0)), r[1] - dy - (r[4] ? 0 : (g.scrollY || 0)), r[2], r[3]);
   };
   ElementProto.getBoundingClientRect = function () { return gViewRect(this) || new DR(0, 0, 0, 0); };
   ElementProto.getClientRects = function () {
@@ -5196,22 +5208,27 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       return Math.max(0, Math.min(t, Math.max(0, page - view)));
     };
     // Ancestors, nearest first: only real scroll containers matter.
-    var inner = 0;
+    var inner = 0, innerX = 0;
     for (var a = this.parentNode; a && a.nodeType === 1; a = a.parentNode) {
-      if (gRoot(a) || !gScrollable(a)) continue;
+      if (gRoot(a) || !gScrollable(a, 1)) continue;
       var ar = gRect(a);
       if (!ar) continue;
       var c = gClient(a), top = ar[1] + gPx(a, 'border-top-width');
       var cur = gElScroll.get(gNid(a)) || 0;
       var ny = pick(r[1] - inner - top, r[3], c[1], cur, block, gScrollSize(a, 1));
-      if (ny !== cur) gSetScroll(a, ny);
+      if (ny !== cur) gSetScroll(a, ny, 1);
       inner += ny;
+      // QXSCR1: the same for x (`inline`).
+      var left = ar[0] + gPx(a, 'border-left-width'), curX = gElScrollX.get(gNid(a)) || 0;
+      var nx = pick(r[0] - innerX - left, r[2], c[0], curX, inline, gScrollSize(a, 0));
+      if (nx !== curX) gSetScroll(a, nx, 0);
+      innerX += nx;
       // `inner` = scroll of the containers already handled (inside the next one).
     }
     if (r[4]) return;
-    var wy = r[1] - gAncestorScroll(this, null);
+    var wy = r[1] - gAncestorScroll(this, null, 1);
     var y = pick(wy, r[3], vh, g.scrollY || 0, block, r[8]);
-    var x = pick(r[0], r[2], vw, g.scrollX || 0, inline, r[7]);
+    var x = pick(r[0] - gAncestorScroll(this, null, 0), r[2], vw, g.scrollX || 0, inline, r[7]);
     if (x !== (g.scrollX || 0) || y !== (g.scrollY || 0)) g.scrollTo(x, y);
   };
   // QJ7: DOM Range, first slice of QA19: boundary points (spec rules: IndexSizeError,
@@ -5477,27 +5494,28 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   // scrollTop/Left: the root element reads/writes the window offset. Other
   // elements scroll for real when they are overflow:auto/scroll boxes (QJ6):
   // the offset is clamped to scrollHeight - clientHeight, handed to the App
-  // (`__d_scrollel`) and a `scroll` event follows. Vertical only: scratchy has
-  // no horizontal scroll regions, so scrollLeft stays 0 (QJ6b).
-  gScrollable = function (el) {
+  // (`__d_scrollel`) and a `scroll` event follows. QXSCR1: both axes (`axis` 0 = x, 1 = y), the x
+  // offsets in gElScrollX; the App keeps them per region too (`layout::xk`).
+  gScrollable = function (el, axis) {
     if (el === gViewportBody()) return false;
-    var o = __d_cs(el.__id, '', 'overflow-y');
+    var o = __d_cs(el.__id, '', axis === 0 ? 'overflow-x' : 'overflow-y');
     return o === 'auto' || o === 'scroll' || o === 'hidden';
   };
   gNid = function (el) { return __d_nid(el.__id); };
-  gAncestorScroll = function (el, stop) {
-    var sum = 0;
-    for (var a = el.parentNode; a && a.nodeType === 1 && a !== stop; a = a.parentNode) sum += gElScroll.get(gNid(a)) || 0;
+  gAncestorScroll = function (el, stop, axis) {
+    var sum = 0, m = axis === 0 ? gElScrollX : gElScroll;
+    for (var a = el.parentNode; a && a.nodeType === 1 && a !== stop; a = a.parentNode) sum += m.get(gNid(a)) || 0;
     return sum;
   };
-  gSetScroll = function (el, v) {
-    if (!gScrollable(el)) return;
-    var max = Math.max(0, gScrollSize(el, 1) - Math.round(gClient(el)[1]));
+  gSetScroll = function (el, v, axis) {
+    if (!gScrollable(el, axis)) return;
+    var max = Math.max(0, gScrollSize(el, axis) - Math.round(gClient(el)[axis]));
     v = Math.max(0, Math.min(Number(v) || 0, max));
-    var nid = gNid(el), cur = gElScroll.get(nid) || 0;
+    var m = axis === 0 ? gElScrollX : gElScroll;
+    var nid = gNid(el), cur = m.get(nid) || 0;
     if (v === cur) return;
-    if (v) gElScroll.set(nid, v); else gElScroll.delete(nid);
-    __d_scrollel(el.__id, v);
+    if (v) m.set(nid, v); else m.delete(nid);
+    __d_scrollel(el.__id, v, axis === 0);
     gScrollGen++;
     gScrollEvent(el);
   };
@@ -5507,19 +5525,19 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   var gScrollProp = function (name, axis) {
     defs(ElementProto, name, function () {
       if (gRoot(this)) return (axis ? g.scrollY : g.scrollX) || 0;
-      return axis ? (gElScroll.get(gNid(this)) || 0) : 0;
+      return (axis ? gElScroll : gElScrollX).get(gNid(this)) || 0;
     }, function (v) {
       if (gRoot(this)) { v = Math.max(0, Number(v) || 0); if (axis) g.scrollTo(g.scrollX, v); else g.scrollTo(v, g.scrollY); return; }
-      if (axis) gSetScroll(this, v);
+      gSetScroll(this, v, axis);
     });
   };
   gScrollProp('scrollLeft', 0); gScrollProp('scrollTop', 1);
   // Element.scroll/scrollTo/scrollBy(x, y | {top, left}); NaN keeps the axis.
   var gElScrollTo = function (el, a, rel) {
     if (gRoot(el)) { rel ? g.scrollBy.apply(g, a) : g.scrollTo.apply(g, a); return; }
-    var t = scrollArgs(a[0], a[1])[1];
-    if (t !== t) return;
-    gSetScroll(el, rel ? (gElScroll.get(gNid(el)) || 0) + t : t);
+    var p = scrollArgs(a[0], a[1]), nid = gNid(el);
+    if (p[0] === p[0]) gSetScroll(el, rel ? (gElScrollX.get(nid) || 0) + p[0] : p[0], 0);
+    if (p[1] === p[1]) gSetScroll(el, rel ? (gElScroll.get(nid) || 0) + p[1] : p[1], 1);
   };
   ElementProto.scroll = ElementProto.scrollTo = function () { gElScrollTo(this, arguments, false); };
   ElementProto.scrollBy = function () { gElScrollTo(this, arguments, true); };
@@ -5532,10 +5550,17 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     g.dispatchEvent(new g.Event('resize'));
     return true;
   };
-  g.__scratchy_elscroll = function (m) {
+  g.__scratchy_elscroll = function (m, mx) {
     gElScroll.clear();
+    gElScrollX.clear();
     gScrollGen++;
     for (var k in m) if (m[k]) gElScroll.set(Number(k), m[k]);
+    for (var j in mx || {}) if (mx[j]) gElScrollX.set(Number(j), mx[j]);
+  };
+  // QXSCR1: the window's horizontal scroll range (`scrollWidth - innerWidth` of the root).
+  g.__scratchy_maxScrollX = function () {
+    var de = document.documentElement;
+    return de ? Math.max(0, gScrollSize(de, 0) - (Number(g.innerWidth) || 0)) : 0;
   };
   var obsErr = function (what, e) {
     __scratchy_err('scratchy: js: uncaught exception in ' + what + ' callback: ' + (e && e.stack ? String(e) + '\n' + e.stack : String(e)));

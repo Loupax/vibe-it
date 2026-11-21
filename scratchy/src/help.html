@@ -23,7 +23,8 @@ bar shows that line instead: <code>:</code> or <code>/</code> followed by
 what you typed.</p>
 <ul>
 <li><b>INPUT</b>: keys go to the page. If the page
-leaves them alone, the browser defaults apply: arrows, <code>PageUp</code>,
+leaves them alone, the browser defaults apply: arrows (<code>Left</code> /
+<code>Right</code> scroll sideways, unless a focused text field uses them), <code>PageUp</code>,
 <code>PageDown</code>, <code>Space</code> / <code>Shift</code>+<code>Space</code>,
 <code>Home</code> and <code>End</code> scroll, <code>Tab</code> moves focus.
 scratchy's own keys below do nothing here.</li>
@@ -42,6 +43,7 @@ switch it by focusing a field.</li>
 <tr><th>Key</th><th>Effect</th></tr>
 <tr><td><code>j</code> / <code>Down</code></td><td>Scroll down</td></tr>
 <tr><td><code>k</code> / <code>Up</code></td><td>Scroll up</td></tr>
+<tr><td><code>Left</code> / <code>Right</code></td><td>Scroll left / right (a wide page; there are no letter keys for this: <code>h</code> / <code>l</code> are history)</td></tr>
 <tr><td><code>Ctrl</code>+<code>d</code></td><td>Scroll down half a page</td></tr>
 <tr><td><code>Ctrl</code>+<code>u</code></td><td>Scroll up half a page</td></tr>
 <tr><td><code>Space</code> / <code>PageDown</code></td><td>Scroll down one page</td></tr>
@@ -127,6 +129,10 @@ and <code>Shift</code>+<code>Insert</code> paste. Read-only fields only copy.</p
 <p>The page and every scrollable box have a thin scrollbar on the right.
 Drag the thumb to scroll, click the track to scroll one page toward the
 click, or hold the mouse on the track to keep paging.</p>
+<p>The wheel scrolls the innermost scrollable box under the pointer that can
+still move, then the page. A horizontal wheel or touchpad swipe, or
+<code>Shift</code>+wheel, scrolls sideways the same way (there is no
+horizontal scrollbar yet).</p>
 
 <h2>What is kept between runs</h2>
 <p>Everything lives under the state directory (<code>--state-dir</code>,

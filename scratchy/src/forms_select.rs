@@ -632,10 +632,10 @@ pub(crate) struct PopupView {
     pub(crate) select: Handle,
 }
 
-/// The border box of node `node` in window space.
-pub(crate) fn node_window_rect(laid: &Laid, cache: &ShapeCache, node: usize, scroll_offset: f32) -> Option<(f32, f32, f32, f32)> {
+/// The border box of node `node` in window space (`scroll` = the window's (x, y) scroll, QXSCR1).
+pub(crate) fn node_window_rect(laid: &Laid, cache: &ShapeCache, node: usize, scroll: (f32, f32)) -> Option<(f32, f32, f32, f32)> {
     let g = node_geometry(laid, cache, node);
-    g.rects.first().map(|r| (r.0, r.1 - scroll_offset, r.2, r.3))
+    g.rects.first().map(|r| (r.0 - scroll.0, r.1 - scroll.1, r.2, r.3))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -644,13 +644,13 @@ pub(crate) fn popup_view(
     document: &Handle,
     laid: &Laid,
     cache: &ShapeCache,
-    scroll_offset: f32,
+    scroll: (f32, f32),
     win: (f32, f32),
 ) -> Option<PopupView> {
     let select = find_node_by_id(document, st.node)?;
     let l = find_laid_node(laid, st.node)?;
     let style = l.style;
-    let anchor = node_window_rect(laid, cache, st.node, scroll_offset)?;
+    let anchor = node_window_rect(laid, cache, st.node, scroll)?;
     let rows = select_rows(&select);
     if rows.is_empty() {
         return None;
@@ -905,7 +905,7 @@ impl App {
     pub(crate) fn select_popup_view(&self) -> Option<PopupView> {
         let p = self.select_popup.as_ref()?;
         let laid = self.cached.as_ref()?;
-        popup_view(&p.st, &self.document, laid, &self.shape_cache, self.scroll_offset, { let (w, h) = self.page_size(); (w as f32, h as f32) })
+        popup_view(&p.st, &self.document, laid, &self.shape_cache, (self.scroll_x, self.scroll_offset), { let (w, h) = self.page_size(); (w as f32, h as f32) })
     }
 
     pub(crate) fn select_popup_close(&mut self, why: PopupEvent) {
@@ -1045,7 +1045,7 @@ impl App {
         }
         let Some(laid) = self.cached.as_ref() else { return };
         let node = node_id(h);
-        let (Some(rect), Some(l)) = (node_window_rect(laid, &self.shape_cache, node, self.scroll_offset), find_laid_node(laid, node)) else {
+        let (Some(rect), Some(l)) = (node_window_rect(laid, &self.shape_cache, node, (self.scroll_x, self.scroll_offset)), find_laid_node(laid, node)) else {
             return;
         };
         let s = l.style;

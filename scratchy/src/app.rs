@@ -182,6 +182,9 @@ pub(crate) fn resolve_esc_esc(state: EscState, key: &Key, mods: ModifiersState, 
 pub(crate) enum Action {
     ScrollDown,
     ScrollUp,
+    /// QXSCR1: ArrowLeft / ArrowRight scroll the window horizontally by one line.
+    ScrollLeft,
+    ScrollRight,
     HalfPageDown,
     HalfPageUp,
     /// QYSCR1: `Space` / `PageDown`: one viewport (less one line of overlap).
@@ -255,6 +258,19 @@ pub(crate) fn resolve_binding(key: &Key, mods: ModifiersState, mode: VimMode) ->
 pub(crate) fn region_takes_wheel(info: &ScrollInfo, offsets: &HashMap<usize, f32>, dy: f32) -> bool {
     let current = offsets.get(&info.id).copied().unwrap_or(0.0);
     (current - dy).clamp(0.0, info.max_scroll()) != current
+}
+
+/// QXSCR1: `region_takes_wheel` for the x axis (`dx` positive = left, winit's sign).
+pub(crate) fn region_takes_wheel_x(info: &ScrollInfo, offsets: &HashMap<usize, f32>, dx: f32) -> bool {
+    let current = offsets.get(&crate::layout::xk(info.id)).copied().unwrap_or(0.0);
+    info.user_x && (current - dx).clamp(0.0, info.max_scroll_x()) != current
+}
+
+/// QXSCR1: a wheel event's `(dx, dy)` in px (winit's signs: positive = content moves right/down).
+/// Shift turns a purely vertical wheel into a horizontal one (the common mouse convention); a
+/// horizontal wheel or touchpad already reports `dx`.
+pub(crate) fn wheel_axes(dx: f32, dy: f32, shift: bool) -> (f32, f32) {
+    if shift && dx == 0.0 { (dy, 0.0) } else { (dx, dy) }
 }
 
 /// QYSCR1: how far `Action::PageDown`/`PageUp` scroll for a viewport `view_h`
@@ -642,6 +658,9 @@ pub(crate) struct App {
     pub(crate) font_system: FontSystem,
     pub(crate) swash_cache: SwashCache,
     pub(crate) scroll_offset: f32,
+    /// QXSCR1: the window's horizontal scroll (document x at the viewport's left edge). Clamped
+    /// to `0..=doc_scroll_width - viewport width` by `redraw`, like `scroll_offset`.
+    pub(crate) scroll_x: f32,
     /// Cached layout from the last `document`/width combination. Scrolling
     /// alone never invalidates this — relaying out and reshaping the whole
     /// page (expensive: real measurements showed full-document shaping can
@@ -1145,6 +1164,7 @@ pub(crate) struct SavedPage {
     pub(crate) adopted_css: String,
     pub(crate) image_cache: HashMap<String, Arc<DecodedImage>>,
     pub(crate) scroll_offset: f32,
+    pub(crate) scroll_x: f32,
     pub(crate) scroll_offsets: HashMap<usize, f32>,
     /// QB6: the page's JS engine, suspended while help is shown (its
     /// timers, listeners and dirty flag must not touch the help page).
@@ -1321,12 +1341,14 @@ impl App {
     pub(crate) fn refresh_cursor(&mut self) {
         let Some(position) = self.last_mouse_pos else { return };
         if let (Some(laid), Some(window)) = (&self.cached, &self.window) {
-            let doc_x = position.0;
+            let doc_x = position.0 + self.scroll_x;
             let doc_y = position.1 + self.scroll_offset;
-            let (style, _href) = hit_test_cursor(
-                laid, doc_x, doc_y, &self.shape_cache, &self.scroll_offsets, self.scroll_offset,
-                self.page_size().1 as f32,
-            );
+            let (style, _href) = crate::paint::with_scroll_x(self.scroll_x, || {
+                hit_test_cursor(
+                    laid, doc_x, doc_y, &self.shape_cache, &self.scroll_offsets, self.scroll_offset,
+                    self.page_size().1 as f32,
+                )
+            });
             let icon = style.to_winit();
             if icon != self.last_cursor {
                 match icon {
@@ -1363,6 +1385,7 @@ impl App {
             font_system: new_font_system(),
             swash_cache: SwashCache::new(),
             scroll_offset: 0.0,
+            scroll_x: 0.0,
             cached: None,
             live_ver: 0,
             cached_width: 0,
@@ -1477,6 +1500,7 @@ impl App {
             font_system: new_font_system(),
             swash_cache: SwashCache::new(),
             scroll_offset: 0.0,
+            scroll_x: 0.0,
             cached: None,
             live_ver: 0,
             cached_width: 0,
@@ -1671,26 +1695,30 @@ impl App {
             }
             let max_scroll = (laid.h - page_h as f32).max(0.0);
             self.scroll_offset = self.scroll_offset.clamp(0.0, max_scroll);
+            let max_scroll_x = (crate::layout::doc_scroll_width(laid) - width as f32).max(0.0);
+            self.scroll_x = self.scroll_x.clamp(0.0, max_scroll_x);
 
-            paint(
-                laid,
-                &mut self.font_system,
-                &mut self.swash_cache,
-                &mut self.shape_cache,
-                &self.scroll_offsets,
-                &mut pixels,
-                width,
-                height,
-                self.scroll_offset,
-                None,
-            );
+            crate::paint::with_scroll_x(self.scroll_x, || {
+                paint(
+                    laid,
+                    &mut self.font_system,
+                    &mut self.swash_cache,
+                    &mut self.shape_cache,
+                    &self.scroll_offsets,
+                    &mut pixels,
+                    width,
+                    height,
+                    self.scroll_offset,
+                    None,
+                )
+            });
             // Q31b: default focus ring for keyboard focus, unless the author
             // already styled an outline on the element.
             if let (Some(f), true) = (self.interaction.focus, self.interaction.focus_visible) {
                 let geom = node_geometry(laid, &self.shape_cache, f);
                 if !geom.outline {
                     for &(x, y, w, h) in &geom.rects {
-                        paint_focus_ring(&mut pixels, width, height, x, y - self.scroll_offset, w, h);
+                        paint_focus_ring(&mut pixels, width, height, x - self.scroll_x, y - self.scroll_offset, w, h);
                     }
                 }
             }
@@ -1698,7 +1726,9 @@ impl App {
 
         // QSB1: the window's own scrollbar (overlay, same look as a region's).
         if let Some((rect, content_h, client_h)) = Self::viewport_bar(&self.cached, (width, page_h)) {
-            let info = crate::layout::ScrollInfo { id: usize::MAX, content_h, client_h, node: 0, user: true };
+            let info = crate::layout::ScrollInfo {
+                id: usize::MAX, content_h, client_h, node: 0, user: true, user_x: false, content_w: 0.0, client_w: 0.0,
+            };
             crate::paint::paint_scrollbar(&info, self.scroll_offset, false, &mut pixels, width, height, rect.0, rect.1, rect.2, rect.3, None);
         }
 
@@ -1709,7 +1739,7 @@ impl App {
                 // QSEARCH2: matches inside scroll regions follow the regions' offsets and are
                 // clipped to the regions' boxes.
                 for (x, y, w, h) in m.visible_rects(&self.scroll_offsets) {
-                    let y = y - self.scroll_offset;
+                    let (x, y) = (x - self.scroll_x, y - self.scroll_offset);
                     if y + h < 0.0 || y > page_h as f32 {
                         continue;
                     }
@@ -1721,7 +1751,7 @@ impl App {
 
         // Q30g: the open select dropdown is the top layer, above the page.
         if let (Some(p), Some(laid)) = (&self.select_popup, self.cached.as_ref())
-            && let Some(view) = popup_view(&p.st, &self.document, laid, &self.shape_cache, self.scroll_offset, (width as f32, page_h as f32))
+            && let Some(view) = popup_view(&p.st, &self.document, laid, &self.shape_cache, (self.scroll_x, self.scroll_offset), (width as f32, page_h as f32))
         {
             paint_select_popup(&view, &p.st, &mut self.font_system, &mut self.swash_cache, &mut pixels, width, height);
         }
@@ -2499,6 +2529,7 @@ impl App {
         self.node_scroll.clear();
         self.node_scroll_dirty = false;
         self.scroll_offset = 0.0;
+        self.scroll_x = 0.0;
         if let Some(window) = &self.window {
             window.request_redraw();
         }
@@ -2630,6 +2661,7 @@ impl App {
     }
 
     /// QJ6: the wheel-scrolled element offsets script has not seen yet.
+    /// QXSCR1: entries for x offsets keep their `xk` key; `JsEngine::set_scroll` splits them.
     fn sync_node_scroll(&mut self) -> Option<Vec<(usize, f32)>> {
         if !std::mem::take(&mut self.node_scroll_dirty) {
             return None;
@@ -2696,22 +2728,28 @@ impl App {
             links_changed = reqs.links_changed;
             let imgs = std::mem::take(&mut reqs.imgs);
             fetch_late_images(&self.proxy, self.socket_path.as_deref(), self.base_url.as_ref(), &mut self.late_images_requested, &mut self.late_image_errors, self.nav_generation, imgs);
-            for (h, y) in reqs.el_scroll {
+            for (h, y, x_axis) in reqs.el_scroll {
                 let node = node_id(&h);
                 let mut v = (y as f32).max(0.0);
+                // QXSCR1: `scrollLeft` writes go to the x keys (`layout::xk`).
+                let key = |k: usize| if x_axis { crate::layout::xk(k) } else { k };
                 if let Some(info) = self.cached.as_ref().and_then(|l| crate::paint::find_scroll_node(l, node)) {
-                    v = v.min(info.max_scroll());
-                    self.scroll_offsets.insert(info.id, v);
+                    v = v.min(if x_axis { info.max_scroll_x() } else { info.max_scroll() });
+                    self.scroll_offsets.insert(key(info.id), v);
                 }
-                self.node_scroll.insert(node, v);
+                self.node_scroll.insert(key(node), v);
                 if let Some(w) = &self.window {
                     w.request_redraw();
                 }
             }
-            if let Some(sr) = reqs.scroll
-                && let Some(y) = sr.y
-            {
-                self.scroll_offset = if sr.relative { self.scroll_offset + y as f32 } else { y as f32 }.max(0.0);
+            if let Some(sr) = reqs.scroll {
+                if let Some(y) = sr.y {
+                    self.scroll_offset = if sr.relative { self.scroll_offset + y as f32 } else { y as f32 }.max(0.0);
+                }
+                // QXSCR1: and the x axis.
+                if let Some(x) = sr.x {
+                    self.scroll_x = if sr.relative { self.scroll_x + x as f32 } else { x as f32 }.max(0.0);
+                }
                 if let Some(w) = &self.window {
                     w.request_redraw();
                 }
@@ -2837,7 +2875,7 @@ impl App {
     pub(crate) fn js_dispatch(&mut self, target: Option<&Handle>, kind: &str, init: &[(&str, EventField)]) -> bool {
         let els = self.sync_node_scroll();
         let Some(js) = &self.js else { return true };
-        js.set_scroll(self.scroll_offset, els);
+        js.set_scroll(self.scroll_x, self.scroll_offset, els);
         let ok = js.dispatch_event(target, kind, init);
         self.js_sync();
         ok
@@ -3167,6 +3205,7 @@ impl App {
                 adopted_css: self.adopted_css.clone(),
                 image_cache: self.image_cache.clone(),
                 scroll_offset: self.scroll_offset,
+                scroll_x: self.scroll_x,
                 scroll_offsets: self.scroll_offsets.clone(),
                 js: self.js.take(),
             });
@@ -3204,6 +3243,7 @@ impl App {
         self.image_cache = saved.image_cache;
         self.scroll_offsets = saved.scroll_offsets;
         self.scroll_offset = saved.scroll_offset;
+        self.scroll_x = saved.scroll_x;
         self.js = saved.js;
         self.js_viewport = None;
         // QM1g: mpv's frame callback fires once until a frame is taken; frames that
@@ -3295,10 +3335,12 @@ impl App {
             return 0;
         }
         match &self.cached {
-            Some(laid) => hit_test_element(
-                laid, pos.0, pos.1 + self.scroll_offset, &self.shape_cache, &self.scroll_offsets, self.scroll_offset,
-                self.page_size().1 as f32,
-            ),
+            Some(laid) => crate::paint::with_scroll_x(self.scroll_x, || {
+                hit_test_element(
+                    laid, pos.0 + self.scroll_x, pos.1 + self.scroll_offset, &self.shape_cache, &self.scroll_offsets,
+                    self.scroll_offset, self.page_size().1 as f32,
+                )
+            }),
             None => 0,
         }
     }
@@ -3381,7 +3423,7 @@ impl App {
             ("clientY", EventField::Num(f64::from(pos.1))),
             ("screenX", EventField::Num(f64::from(pos.0))),
             ("screenY", EventField::Num(f64::from(pos.1))),
-            ("pageX", EventField::Num(f64::from(pos.0))),
+            ("pageX", EventField::Num(f64::from(pos.0 + self.scroll_x))),
             ("pageY", EventField::Num(f64::from(pos.1 + self.scroll_offset))),
             ("buttons", EventField::Num(buttons)),
             ("ctrlKey", EventField::Bool(m.control_key())),
@@ -3761,11 +3803,21 @@ impl App {
         };
         let view = self.page_size().1 as f32;
         const MARGIN: f32 = crate::config::SCROLL_INTO_VIEW_MARGIN;
+        // QXSCR1: the x axis the same way (only when the element is off screen sideways).
+        let (left, right) = geom.rects.iter().fold((f32::INFINITY, f32::NEG_INFINITY), |(l, r), g| (l.min(g.0), r.max(g.0 + g.2)));
+        let view_w = self.page_size().0 as f32;
+        let before = (self.scroll_x, self.scroll_offset);
+        if left < self.scroll_x {
+            self.scroll_x = (left - MARGIN).max(0.0);
+        } else if right > self.scroll_x + view_w {
+            self.scroll_x = (right + MARGIN - view_w).max(0.0).min(left.max(0.0));
+        }
         if top < self.scroll_offset {
             self.scroll_offset = (top - MARGIN).max(0.0);
         } else if bottom > self.scroll_offset + view {
             self.scroll_offset = (bottom + MARGIN - view).max(0.0).min(top.max(0.0));
-        } else {
+        }
+        if before == (self.scroll_x, self.scroll_offset) {
             return;
         }
         if let Some(w) = &self.window {
@@ -4404,7 +4456,8 @@ impl App {
         }
     }
 
-    /// QKEYS4: ArrowUp/Down, PageUp/PageDown, Space/Shift-Space, Home/End scroll the page in input mode
+    /// QKEYS4: ArrowUp/Down, PageUp/PageDown, Space/Shift-Space, Home/End (QXSCR1: and ArrowLeft/Right,
+    /// on the x axis) scroll the page in input mode
     /// (same actions as the normal-mode bindings, but only the named keys: `j`/`k`/`G` are the page's).
     pub(crate) fn ua_scroll_key(&mut self, key: &Key) {
         if !matches!(key, Key::Named(_)) {
@@ -4413,7 +4466,8 @@ impl App {
         if let Some(a) = resolve_binding(key, self.modifiers, VimMode::Normal)
             && matches!(
                 a,
-                Action::ScrollDown | Action::ScrollUp | Action::PageDown | Action::PageUp | Action::ScrollTop | Action::ScrollBottom
+                Action::ScrollDown | Action::ScrollUp | Action::ScrollLeft | Action::ScrollRight | Action::PageDown
+                    | Action::PageUp | Action::ScrollTop | Action::ScrollBottom
             )
         {
             self.perform_action(a);
@@ -4444,7 +4498,13 @@ impl App {
         {
             return;
         }
+        // QXSCR1: the same for the x axis (`overflow-x: hidden` propagated to the viewport).
+        if self.viewport_user_scroll_blocked_x() && matches!(action, Action::ScrollLeft | Action::ScrollRight) {
+            return;
+        }
         match action {
+            Action::ScrollLeft => self.scroll_x_by(-SCROLL_LINE_PX),
+            Action::ScrollRight => self.scroll_x_by(SCROLL_LINE_PX),
             Action::ScrollDown => self.scroll_by(SCROLL_LINE_PX),
             Action::ScrollUp => self.scroll_by(-SCROLL_LINE_PX),
             Action::HalfPageDown => self.scroll_by(self.page_size().1 as f32 / 2.0),
@@ -4497,6 +4557,11 @@ impl App {
         self.cached.as_ref().is_some_and(|l| l.style.viewport_hidden)
     }
 
+    /// QXSCR1: the same for the x axis (the propagated `overflow-x` is `hidden`).
+    pub(crate) fn viewport_user_scroll_blocked_x(&self) -> bool {
+        self.cached.as_ref().is_some_and(|l| l.style.viewport_hidden_x)
+    }
+
     /// QSB1: the viewport's own bar: `(rect, content_h, client_h)`, `None` when the page fits
     /// or the viewport cannot be scrolled by the user.
     pub(crate) fn viewport_bar(cached: &Option<Rc<Laid>>, size: (u32, u32)) -> Option<crate::scrollbar::ViewportBar> {
@@ -4520,14 +4585,16 @@ impl App {
             }
         }
         let laid = self.cached.as_ref()?;
-        let chain = crate::paint::hit_test_scroll_bars(
-            laid, px, py + self.scroll_offset, &self.scroll_offsets, self.scroll_offset, view_h,
-        );
+        let chain = crate::paint::with_scroll_x(self.scroll_x, || {
+            crate::paint::hit_test_scroll_bars(
+                laid, px + self.scroll_x, py + self.scroll_offset, &self.scroll_offsets, self.scroll_offset, view_h,
+            )
+        });
         for r in chain.iter().rev().filter(|r| r.info.user) {
             let info = r.info;
             let max = info.max_scroll();
             let cur = self.scroll_offsets.get(&info.id).copied().unwrap_or(0.0).clamp(0.0, max);
-            let Some(hit) = sb::hit(r.rect, info.content_h, info.client_h, cur, px, r.py) else { continue };
+            let Some(hit) = sb::hit(r.rect, info.content_h, info.client_h, cur, r.px, r.py) else { continue };
             let ratio = sb::drag_ratio(r.rect.3, info.content_h, info.client_h);
             return Some(SbFound { target: SbTarget::Region(info.id, info.node), hit, cur, max, ratio, page: page_step(info.client_h) });
         }
@@ -4640,6 +4707,28 @@ impl App {
 
     pub(crate) fn scroll_by(&mut self, dy: f32) {
         self.scroll_offset = (self.scroll_offset + dy).max(0.0);
+    }
+
+    /// QXSCR1: the window's horizontal counterpart of `scroll_by` (`redraw` clamps the far end).
+    pub(crate) fn scroll_x_by(&mut self, dx: f32) {
+        self.scroll_x = (self.scroll_x + dx).max(0.0);
+    }
+
+    /// QXSCR1: a horizontal wheel/touchpad tick of `dx` px (winit's sign: positive = left) over
+    /// the scroll `chain` (innermost first): the first region that can scroll on x takes it, else
+    /// the window (unless its propagated `overflow-x` is `hidden`).
+    pub(crate) fn wheel_x(&mut self, chain: &[ScrollInfo], dx: f32) {
+        use crate::layout::xk;
+        match chain.iter().find(|info| region_takes_wheel_x(info, &self.scroll_offsets, dx)) {
+            Some(info) => {
+                let current = self.scroll_offsets.get(&xk(info.id)).copied().unwrap_or(0.0);
+                let next = (current - dx).clamp(0.0, info.max_scroll_x());
+                let node = if info.node == 0 { 0 } else { xk(info.node) };
+                self.set_region_scroll(xk(info.id), node, next);
+            }
+            None if self.viewport_user_scroll_blocked_x() => {}
+            None => self.scroll_x_by(-dx),
+        }
     }
 
     /// `vim_mode == Command`'s own key handling — direct text-buffer
@@ -4794,6 +4883,16 @@ impl App {
         if let Some(p) = page {
             self.scroll_offset = p;
         }
+        // QXSCR1: and horizontally (regions first, then the window).
+        let Some(m) = self.search.current.and_then(|i| self.search.matches.get(i)) else { return };
+        let page_w = self.cached.as_ref().map_or(0.0, |l| crate::layout::doc_scroll_width(l));
+        let (changes, page) = m.reveal_x(&self.scroll_offsets, self.scroll_x, self.page_size().0 as f32, page_w);
+        for (id, node, v) in changes {
+            self.set_region_scroll(id, node, v);
+        }
+        if let Some(p) = page {
+            self.scroll_x = p;
+        }
     }
 
     /// QSEARCH2 (T15-T17): `n` (`forward`) / `N`: the next / previous match in document order,
@@ -4852,8 +4951,8 @@ impl App {
     pub(crate) fn activate_match(&mut self) {
         let Some(m) = self.search.current.and_then(|i| self.search.matches.get(i)) else { return };
         let nodes: Vec<usize> = m.nodes.iter().copied().filter(|&n| n != 0).collect();
-        let x = m.origin().0;
-        let pos = (x + 1.0, (m.doc_top(&self.scroll_offsets) - self.scroll_offset + 1.0).max(0.0));
+        let x = m.doc_left(&self.scroll_offsets) - self.scroll_x;
+        let pos = ((x + 1.0).max(0.0), (m.doc_top(&self.scroll_offsets) - self.scroll_offset + 1.0).max(0.0));
         // (node, nearest link ancestor's id) per matched char.
         let mut links: Vec<usize> = Vec::new();
         let mut first_in: Vec<(usize, usize)> = Vec::new();
@@ -5107,7 +5206,7 @@ impl ApplicationHandler<AppEvent> for App {
         self.publish_viewport();
         // Tasks: due timers (sliced), then their DOM writes.
         if let Some(js) = &self.js {
-            js.set_scroll(self.scroll_offset, els);
+            js.set_scroll(self.scroll_x, self.scroll_offset, els);
             js.run_due_slice(Some(timer_slice(self.input_recent(), !self.video.boxes.is_empty())));
         }
         self.js_sync();
@@ -5414,12 +5513,14 @@ impl ApplicationHandler<AppEvent> for App {
                         };
                         let href = match (self.mouse_down_pos.take(), self.last_mouse_pos, &self.cached) {
                             (Some(down), Some(up), Some(laid)) if is_click(down, up, CLICK_DRAG_THRESHOLD_PX) => {
-                                let doc_x = up.0;
+                                let doc_x = up.0 + self.scroll_x;
                                 let doc_y = up.1 + self.scroll_offset;
-                                hit_test_cursor(
-                                    laid, doc_x, doc_y, &self.shape_cache, &self.scroll_offsets,
-                                    self.scroll_offset, self.page_size().1 as f32,
-                                )
+                                crate::paint::with_scroll_x(self.scroll_x, || {
+                                    hit_test_cursor(
+                                        laid, doc_x, doc_y, &self.shape_cache, &self.scroll_offsets,
+                                        self.scroll_offset, self.page_size().1 as f32,
+                                    )
+                                })
                                 .1
                             }
                             _ => None,
@@ -5437,11 +5538,12 @@ impl ApplicationHandler<AppEvent> for App {
                     fs.input(crate::frame_stats::InputKind::Wheel, std::time::Instant::now());
                 }
                 self.last_wheel = Some(std::time::Instant::now());
-                let dy = match delta {
-                    MouseScrollDelta::LineDelta(_, y) => y * crate::config::WHEEL_LINE_PX,
-                    MouseScrollDelta::PixelDelta(pos) => pos.y as f32,
+                let (dx, dy) = match delta {
+                    MouseScrollDelta::LineDelta(x, y) => (x * crate::config::WHEEL_LINE_PX, y * crate::config::WHEEL_LINE_PX),
+                    MouseScrollDelta::PixelDelta(pos) => (pos.x as f32, pos.y as f32),
                 };
-                if self.select_popup_wheel(dy) {
+                let (dx, dy) = wheel_axes(dx, dy, self.modifiers.shift_key());
+                if dy != 0.0 && self.select_popup_wheel(dy) {
                     return;
                 }
                 // Routes to the deepest `overflow: scroll`/`auto` region
@@ -5454,11 +5556,15 @@ impl ApplicationHandler<AppEvent> for App {
                 // it goes to the viewport (unless that is `overflow: hidden`).
                 let chain = self.last_mouse_pos.zip(self.cached.as_ref()).map_or_else(Vec::new, |((mx, my), laid)| {
                     crate::paint::hit_test_scroll_chain(
-                        laid, mx, my + self.scroll_offset, &self.scroll_offsets, self.scroll_offset,
+                        laid, mx + self.scroll_x, my + self.scroll_offset, &self.scroll_offsets, self.scroll_offset,
                         self.page_size().1 as f32,
                     )
                 });
-                match chain.iter().find(|info| info.user && region_takes_wheel(info, &self.scroll_offsets, dy)) {
+                // QXSCR1: the x part chains the same way, on its own axis.
+                if dx != 0.0 {
+                    self.wheel_x(&chain, dx);
+                }
+                match chain.iter().find(|info| dy != 0.0 && info.user && region_takes_wheel(info, &self.scroll_offsets, dy)) {
                     Some(info) => {
                         let current = self.scroll_offsets.get(&info.id).copied().unwrap_or(0.0);
                         let next = (current - dy).clamp(0.0, info.max_scroll());
@@ -5468,7 +5574,7 @@ impl ApplicationHandler<AppEvent> for App {
                             self.node_scroll_dirty = true;
                         }
                     }
-                    None if self.viewport_user_scroll_blocked() => {}
+                    None if dy == 0.0 || self.viewport_user_scroll_blocked() => {}
                     None => {
                         self.scroll_offset -= dy;
                         if self.scroll_offset < 0.0 {

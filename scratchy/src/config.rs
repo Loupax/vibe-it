@@ -88,6 +88,9 @@ pub(crate) const BINDINGS: &[Binding] = &[
     // QYSCR1: the usual browser scroll keys.
     bind(Named(NamedKey::ArrowDown), Mods::Any, A::ScrollDown),
     bind(Named(NamedKey::ArrowUp), Mods::Any, A::ScrollUp),
+    // QXSCR1: horizontal scrolling (user 2026-11-21: arrows and the mouse, no letter keys: h/l stay history).
+    bind(Named(NamedKey::ArrowLeft), Mods::Any, A::ScrollLeft),
+    bind(Named(NamedKey::ArrowRight), Mods::Any, A::ScrollRight),
     bind(Named(NamedKey::Space), Mods::Shift, A::PageUp),
     bind(Named(NamedKey::Space), Mods::Any, A::PageDown),
     bind(Named(NamedKey::PageDown), Mods::Any, A::PageDown),
@@ -125,7 +128,7 @@ pub(crate) const START_MODE: crate::app::KeyMode = crate::app::KeyMode::Normal;
 
 // ---------- scrolling ----------
 
-/// Px one line scroll (`j`/`k`/arrows) moves.
+/// Px one line scroll (`j`/`k`/arrows, also ArrowLeft/ArrowRight on the x axis, QXSCR1) moves.
 pub(crate) const SCROLL_LINE_PX: f32 = 40.0;
 /// Px one mouse-wheel `LineDelta` tick moves (matches `SCROLL_LINE_PX`).
 pub(crate) const WHEEL_LINE_PX: f32 = 40.0;

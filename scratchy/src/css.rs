@@ -1557,6 +1557,9 @@ pub(crate) enum Overflow {
     Hidden,
     Scroll,
     Auto,
+    /// QXSCR1: `clip` clips like `hidden` on its axis, but the box is no scroll container (not even
+    /// for script) and the other axis may stay `visible` (CSS Overflow 3).
+    Clip,
 }
 
 /// `width`/`height`/`min-width`/`min-height` all resolve against the same

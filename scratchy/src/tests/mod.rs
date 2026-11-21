@@ -67,6 +67,7 @@ mod history_tests;
 mod completion_tests;
 mod event_loop_tests;
 mod qel5_tests;
+mod hscroll_tests;
 #[cfg(feature = "memprof")]
 mod memprof_tests;
 

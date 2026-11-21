@@ -332,6 +332,7 @@ fn overflow(o: Overflow) -> &'static str {
         Overflow::Hidden => "hidden",
         Overflow::Scroll => "scroll",
         Overflow::Auto => "auto",
+        Overflow::Clip => "clip",
     }
 }
 
@@ -393,7 +394,10 @@ pub(crate) fn serialize(s: &ComputedStyle, prop: &str) -> String {
             Clear::Both => "both",
         }
         .into(),
-        "overflow" | "overflow-x" | "overflow-y" => overflow(s.overflow).into(),
+        "overflow-x" => overflow(s.overflow_x).into(),
+        "overflow-y" => overflow(s.overflow_y).into(),
+        "overflow" if s.overflow_x == s.overflow_y => overflow(s.overflow_x).into(),
+        "overflow" => format!("{} {}", overflow(s.overflow_x), overflow(s.overflow_y)),
         "width" => opt_len(s.width),
         "height" => opt_len(s.height),
         "min-width" => s.min_width.map(box_len).unwrap_or_else(|| "0px".into()),

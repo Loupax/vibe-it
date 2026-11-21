@@ -661,7 +661,7 @@ impl App {
         let (cx, cy, cw, ch) = crate::paint::control_content_box(&s, l.x, l.y, l.w, l.h);
         let (buffer, line_h) = shape_control(&mut self.font_system, &s, &info.display, TextColor::rgb(0, 0, 0), multi, cw);
         let top = if multi { cy } else { cy + ((ch - line_h) / 2.0).max(0.0) };
-        let (x, y) = (pos.0 - cx + info.scroll_x, pos.1 + self.scroll_offset - top + info.scroll_y);
+        let (x, y) = (pos.0 + self.scroll_x - cx + info.scroll_x, pos.1 + self.scroll_offset - top + info.scroll_y);
         let d = hit_offset(&buffer, &info.display, x, y);
         let text = text_value(h);
         Some(val_offset(&text, d, password))

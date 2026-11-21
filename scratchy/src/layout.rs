@@ -460,7 +460,7 @@ pub(crate) struct PSig {
     bfc: bool,
     z_index: Option<i32>,
     opacity: u32,
-    overflow: Overflow,
+    overflow: (Overflow, Overflow),
     vertical_align: VerticalAlign,
 }
 
@@ -477,7 +477,7 @@ impl PSig {
             bfc: s.establishes_bfc(),
             z_index: s.z_index,
             opacity: s.opacity.to_bits(),
-            overflow: s.overflow,
+            overflow: (s.overflow_x, s.overflow_y),
             vertical_align: s.vertical_align,
         }
     }
@@ -557,60 +557,105 @@ impl Ink {
 /// widened upward by the box's max scroll, since those paint shifted by
 /// the live scroll offset). `fixed` boxes live in viewport space and are
 /// not unioned into their parent.
-pub(crate) fn compute_ink(l: &mut Laid) -> Ink {
+pub(crate) fn compute_ink(l: &mut Laid, cache: &ShapeCache) -> Ink {
     // QSTK1x: recursive per nesting level, so it grows its stack like the other deep walks
     // (unguarded it overflowed the 2 MB test thread at 5000 deep in debug builds).
-    crate::stack::grow(|| compute_ink_body(l))
+    crate::stack::grow(|| compute_ink_body(l, cache))
 }
 
-fn compute_ink_body(l: &mut Laid) -> Ink {
+/// QXSCR1: the right edge (document space) of a `white-space: pre`/`nowrap` paragraph's widest
+/// line when it is wider than its box (such text does not wrap, so it overflows to the right;
+/// wrapping text never does, cosmic-text breaks inside a word that does not fit). `None` otherwise.
+pub(crate) fn text_overflow_right(l: &Laid, cache: &ShapeCache) -> Option<f32> {
+    let LaidContent::Text(id) = &l.content else { return None };
+    if !matches!(l.style.white_space, WhiteSpace::Pre | WhiteSpace::Nowrap) {
+        return None;
+    }
+    let entry = cache.get(id)?;
+    let w = entry.lock().ok()?.0.layout_runs().fold(0.0f32, |m, r| m.max(r.line_w));
+    let right = l.x + l.style.border_left() + l.style.padding.left.px() + w;
+    (right > l.x + l.w).then_some(right)
+}
+
+/// QXSCR1: the union `inner` of a box's content (children, words, overflowing text) folded into
+/// its own `ink`, per axis: an axis that clips (`overflow-x`/`-y` not `visible`) keeps the box's
+/// own edges. Also sets the box's `ScrollInfo` widths from the content's right edge (or `pos_r`,
+/// the right edge of its non-fixed `positioned` boxes, which for a scroll container include the
+/// `relative` children hoisted into it by `finish_z`, when that is further right).
+pub(crate) fn fold_content_ink(l: &mut Laid, ink: &mut Ink, inner: Option<Ink>, pos_r: f32) {
+    let right = inner.map_or(f32::NEG_INFINITY, |i| i.r).max(pos_r);
+    if let Some(info) = l.scroll.as_mut() {
+        info.set_widths(l.x, l.w, &l.style, right);
+    }
+    let Some(inner) = inner else { return };
+    if l.style.overflow_x == Overflow::Visible {
+        ink.l = ink.l.min(inner.l);
+        ink.r = ink.r.max(inner.r);
+    }
+    if l.style.overflow_y == Overflow::Visible {
+        ink.t = ink.t.min(inner.t);
+        ink.b = ink.b.max(inner.b);
+    }
+}
+
+fn union_opt(acc: &mut Option<Ink>, i: Ink) {
+    match acc {
+        Some(a) => a.union(i),
+        None => *acc = Some(i),
+    }
+}
+
+fn compute_ink_body(l: &mut Laid, cache: &ShapeCache) -> Ink {
     let mut ink = Ink { l: l.x, t: l.y, r: l.x + l.w, b: l.y + l.h };
-    let clips = l.style.overflow != Overflow::Visible;
+    let mut inner: Option<Ink> = None;
     match &mut l.content {
         LaidContent::Blocks(children) | LaidContent::TableRow(children) => {
             for c in children.iter_mut() {
-                let ci = compute_ink(c);
-                if clips {
-                    continue;
-                }
-                ink.union(ci);
+                let mut ci = compute_ink(c, cache);
                 if let Some(info) = &c.sticky {
-                    ink.t = ink.t.min(info.cb_top);
-                    ink.b = ink.b.max(info.cb_bottom);
+                    ci.t = ci.t.min(info.cb_top);
+                    ci.b = ci.b.max(info.cb_bottom);
                 }
+                union_opt(&mut inner, ci);
             }
         }
         LaidContent::MixedInline(items) => {
             for item in items.iter_mut() {
                 match item {
-                    MixedPositioned::Embedded(e) => {
-                        let ei = compute_ink(e);
-                        if !clips {
-                            ink.union(ei);
-                        }
-                    }
+                    MixedPositioned::Embedded(e) => union_opt(&mut inner, compute_ink(e, cache)),
                     MixedPositioned::Word { x, y, w, h, .. } => {
-                        if !clips {
-                            ink.union(Ink { l: *x, t: *y, r: *x + *w, b: *y + *h });
-                        }
+                        union_opt(&mut inner, Ink { l: *x, t: *y, r: *x + *w, b: *y + *h });
                     }
                 }
             }
         }
         LaidContent::Text(_) | LaidContent::Image(_) => {}
     }
-    let extra = l.scroll.filter(|i| i.user).map_or(0.0, |i| i.max_scroll());
-    for p in l.positioned.iter_mut() {
-        let pi = compute_ink(p);
-        if p.fixed {
-            continue;
-        }
-        let mut pi = pi;
+    if let Some(r) = text_overflow_right(l, cache) {
+        union_opt(&mut inner, Ink { l: l.x, t: l.y, r, b: l.y + l.h });
+    }
+    let pos: Vec<Option<Ink>> =
+        l.positioned.iter_mut().map(|p| { let pi = compute_ink(p, cache); (!p.fixed).then_some(pi) }).collect();
+    let pos_r = pos.iter().flatten().fold(f32::NEG_INFINITY, |m, i| m.max(i.r));
+    fold_content_ink(l, &mut ink, inner, pos_r);
+    let (extra, extra_x) = l.scroll.map_or((0.0, 0.0), |i| {
+        (if i.user { i.max_scroll() } else { 0.0 }, if i.user_x { i.max_scroll_x() } else { 0.0 })
+    });
+    for mut pi in pos.into_iter().flatten() {
         pi.t -= extra;
+        pi.l -= extra_x;
         ink.union(pi);
     }
     l.ink = ink;
     ink
+}
+
+/// QXSCR1: the document's scroll width: the root box's width or, when wider, the right edge of
+/// its ink (everything in flow or absolutely positioned that is not clipped; `fixed` boxes are not
+/// in it). Script and the App clamp the window's `scroll_x` to this minus the viewport width.
+pub(crate) fn doc_scroll_width(root: &Laid) -> f32 {
+    let r = if root.ink.r.is_finite() { root.ink.r } else { root.x + root.w };
+    (r - root.x).max(root.w)
 }
 
 /// `position: sticky`'s own layout-time-resolved, scroll-independent
@@ -792,19 +837,45 @@ pub(crate) struct ScrollInfo {
     pub(crate) node: usize,
     /// QYSCR1b: false for an `overflow: hidden` box: script can scroll it
     /// (`scrollTop`, `scrollIntoView`) but the wheel and keys never do, and it
-    /// draws no scrollbar.
+    /// draws no scrollbar. QXSCR1: the y axis (`overflow-y`).
     pub(crate) user: bool,
+    /// QXSCR1: the same for the x axis (`overflow-x` is not `hidden`).
+    pub(crate) user_x: bool,
+    /// QXSCR1: the horizontal pair of `content_h`/`client_h`: the right edge of the in-flow
+    /// content (scrollable overflow, from `compute_ink`) measured from the content-box left, and
+    /// the content-box width. Both set by `compute_ink` (0 until then).
+    pub(crate) content_w: f32,
+    pub(crate) client_w: f32,
+}
+
+/// QXSCR1: a box's x scroll offset lives in the same per-region map as its y offset
+/// (`App::scroll_offsets`, `App::node_scroll`), keyed by the region id (or node) with this bit set:
+/// ids are counters far below it, so the two never collide and every map that is cleared, saved
+/// or restored with the y offsets carries the x ones along.
+pub(crate) const X_KEY: usize = 1 << (usize::BITS - 1);
+
+/// QXSCR1: the x-axis key of region id (or node) `id` (see `X_KEY`).
+pub(crate) const fn xk(id: usize) -> usize {
+    id | X_KEY
 }
 
 /// `Some(ScrollInfo)` (with a fresh id) for an `overflow: scroll`/`auto`
 /// box, `None` otherwise. Shared by the ordinary `Blocks` arm of `measure`
 /// and the table/flex/grid container tails (Q24).
-pub(crate) fn make_scroll_info(overflow: Overflow, node: usize, next_id: &mut usize, content_h: f32, border_h: f32, extra_h: f32) -> Option<ScrollInfo> {
-    matches!(overflow, Overflow::Scroll | Overflow::Auto | Overflow::Hidden).then(|| {
+pub(crate) fn make_scroll_info(s: &ComputedStyle, next_id: &mut usize, content_h: f32, border_h: f32, extra_h: f32) -> Option<ScrollInfo> {
+    s.scroll_container().then(|| {
         let id = *next_id;
         *next_id += 1;
-        let user = overflow != Overflow::Hidden;
-        ScrollInfo { id, content_h: content_h.max(0.0), client_h: (border_h - extra_h).max(0.0), node, user }
+        ScrollInfo {
+            id,
+            content_h: content_h.max(0.0),
+            client_h: (border_h - extra_h).max(0.0),
+            node: s.node,
+            user: s.overflow_y != Overflow::Hidden,
+            user_x: s.overflow_x != Overflow::Hidden,
+            content_w: 0.0,
+            client_w: 0.0,
+        }
     })
 }
 
@@ -815,6 +886,26 @@ impl ScrollInfo {
     /// this whole property hinges on).
     pub(crate) fn max_scroll(&self) -> f32 {
         (self.content_h - self.client_h).max(0.0)
+    }
+
+    /// QXSCR1: the x-axis `max_scroll`.
+    pub(crate) fn max_scroll_x(&self) -> f32 {
+        (self.content_w - self.client_w).max(0.0)
+    }
+
+    /// QXSCR1: this region's live (y, x) offsets in `offsets` (keys: `id`, `xk(id)`), clamped.
+    pub(crate) fn offsets(&self, offsets: &std::collections::HashMap<usize, f32>) -> (f32, f32) {
+        let y = offsets.get(&self.id).copied().unwrap_or(0.0).clamp(0.0, self.max_scroll());
+        let x = offsets.get(&xk(self.id)).copied().unwrap_or(0.0).clamp(0.0, self.max_scroll_x());
+        (y, x)
+    }
+
+    /// QXSCR1: sets `content_w`/`client_w` from the box `l` (whose `scroll` this is) and the right
+    /// edge `right` of its unclipped content (document space).
+    fn set_widths(&mut self, l_x: f32, l_w: f32, s: &ComputedStyle, right: f32) {
+        let left = l_x + s.border_left() + s.padding.left.px();
+        self.client_w = (l_w - s.border_h() - s.padding.left.px() - s.padding.right.px()).max(0.0);
+        self.content_w = (right - left).max(self.client_w);
     }
 }
 
@@ -3008,7 +3099,7 @@ fn measure_inner_body<'a>(
             // + padding) already subtracted everywhere else in this
             // function — the content-box height `content_h` is actually
             // visible through, before any scrolling moves it.
-            let scroll = make_scroll_info(s.overflow, s.node, next_id, content_h, border_h, extra_h);
+            let scroll = make_scroll_info(&s, next_id, content_h, border_h, extra_h);
             // Only now — `border_h` just above is the first point this
             // box's own final size is known — can `own_pending` (this
             // box's *own* direct out-of-flow children, plus anything
@@ -4835,7 +4926,7 @@ pub(crate) fn measure_table<'a>(
         zb: None,
         ck: None,
         sticky: None,
-        scroll: make_scroll_info(s.overflow, s.node, next_id, content_h, border_h, entry.extra_h),
+        scroll: make_scroll_info(&s, next_id, content_h, border_h, entry.extra_h),
     };
     apply_relative_offset(&mut laid, &s, width, containing_height);
     capture_sticky_info(&mut laid, &s, containing_height);
@@ -5096,7 +5187,7 @@ pub(crate) fn measure_flex<'a>(
         zb: None,
         ck: None,
         sticky: None,
-        scroll: make_scroll_info(s.overflow, s.node, next_id, content_h, border_h, entry.extra_h),
+        scroll: make_scroll_info(&s, next_id, content_h, border_h, entry.extra_h),
     };
     apply_relative_offset(&mut laid, &s, width, containing_height);
     capture_sticky_info(&mut laid, &s, containing_height);
@@ -5241,7 +5332,7 @@ pub(crate) fn measure_flex_row<'a>(
                     // has floor 0; otherwise min(content size suggestion,
                     // specified size suggestion = its own definite `width`).
                     // `flex-basis` plays no part (R35/QCI0b).
-                    if item_style.overflow != Overflow::Visible {
+                    if item_style.scroll_container() {
                         0.0
                     } else {
                         let content = (min_mb - margin_left - margin_right).max(0.0);
@@ -5519,7 +5610,7 @@ pub(crate) fn measure_flex_column<'a>(
             // floor of 0 (documented approximation).
             let min = match lc.style.min_height {
                 Some(v) => v.px(),
-                None if item.style.height.is_none() && lc.style.overflow == Overflow::Visible => lc.h,
+                None if item.style.height.is_none() && !lc.style.scroll_container() => lc.h,
                 None => 0.0,
             };
             let max = lc.style.max_height.map(|v| v.px()).unwrap_or(f32::INFINITY);
@@ -6304,7 +6395,7 @@ pub(crate) fn measure_grid<'a>(
         zb: None,
         ck: None,
         sticky: None,
-        scroll: make_scroll_info(s.overflow, s.node, next_id, content_h, border_h, entry.extra_h),
+        scroll: make_scroll_info(&s, next_id, content_h, border_h, entry.extra_h),
     };
     apply_relative_offset(&mut laid, &s, width, containing_height);
     capture_sticky_info(&mut laid, &s, containing_height);
@@ -6457,7 +6548,7 @@ fn measure_document_impl(
     if LEGACY_Z.with(|c| c.get()) {
         hoist_negative_z(&mut laid);
     }
-    compute_ink(&mut laid);
+    compute_ink(&mut laid, cache);
     laid
 }
 
@@ -6499,7 +6590,7 @@ pub(crate) fn measure_document_engine(
     }
     finish_z(&mut laid, cache, true);
     let measured_h = laid.h;
-    crate::incr_layout::finish_root(&mut laid, measured_h);
+    crate::incr_layout::finish_root(&mut laid, measured_h, cache);
     (laid, measured_h)
 }
 
@@ -6556,7 +6647,7 @@ fn is_stacking_boundary(l: &Laid) -> bool {
         // `<html>`/`<body>` never get here with a non-visible `overflow`: the
         // layout tree already propagated it to the viewport (QYSCR1,
         // `images::propagate_viewport_overflow`).
-        || l.style.overflow != Overflow::Visible
+        || l.style.clips_any()
 }
 
 thread_local! {
@@ -6871,7 +6962,7 @@ pub(crate) fn in_flow_bottom(l: &Laid) -> f32 {
 
 fn in_flow_bottom_body(l: &Laid) -> f32 {
     let mut bottom = l.y + l.h;
-    if l.style.overflow != Overflow::Visible {
+    if l.style.overflow_y != Overflow::Visible {
         return bottom;
     }
     match &l.content {
