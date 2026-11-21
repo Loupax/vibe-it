@@ -1,0 +1,18 @@
+# QWPT4b: a small demonstration subset that proves the runner end to end. The real phase-1 subset is QWPT6.
+# Paths are page URLs relative to the WPT checkout (a `x.any.js` test is run as `x.any.html`;
+# its `x.any.worker.html` variant is listed so it shows up as NOT-RUN).
+# `# area: NAME` starts an area; expected results go to wpt-th/expected/<NAME with / -> ->.txt.
+# area: dom/nodes
+dom/nodes/Node-cloneNode.html
+dom/nodes/Node-contains.html
+dom/nodes/Node-nodeName.html
+dom/nodes/Node-textContent.html
+dom/nodes/Comment-constructor.html
+# area: dom/events
+dom/events/Event-constants.html
+dom/events/Event-defaultPrevented.html
+dom/events/Event-constructors.any.html
+dom/events/Event-constructors.any.worker.html
+# area: url
+url/a-element.html
+url/historical.any.html
