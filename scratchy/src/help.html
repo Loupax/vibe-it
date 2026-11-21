@@ -80,6 +80,11 @@ cancels without running anything. Both the <code>:</code> and the
 <code>/</code> line accept paste: <code>Ctrl</code>+<code>v</code>,
 <code>Ctrl</code>+<code>Shift</code>+<code>v</code> or
 <code>Shift</code>+<code>Insert</code>.</p>
+<p>In a page's text field or textarea (INPUT mode), <code>Ctrl</code>+<code>a</code>
+selects all, <code>Ctrl</code>+<code>c</code> copies and
+<code>Ctrl</code>+<code>x</code> cuts the selection (not from a password
+field), and <code>Ctrl</code>+<code>v</code>, <code>Ctrl</code>+<code>Shift</code>+<code>v</code>
+and <code>Shift</code>+<code>Insert</code> paste. Read-only fields only copy.</p>
 <table>
 <tr><th>Command</th><th>Effect</th></tr>
 <tr><td><code>:go &lt;url&gt;</code></td><td>Navigate to a URL</td></tr>
@@ -142,9 +147,10 @@ file, a URL, or HTML read from stdin. The other modes are headless.</p>
 <code>sendBeacon</code>, under a request policy: browser CORS rules, no
 mixed content, bad ports blocked, and a warning line (not a block) for
 requests to loopback, private or <code>file:</code> targets. Beacons are
-logged in detail but not sent. Cookies live in <code>wire</code>'s memory
-(partitioned by top-level site, lost when it restarts; <code>wire
---no-cookies</code> turns them off). Forms and media are placeholders only.
+logged in detail but not sent. Cookies are kept by <code>wire</code>
+(partitioned by top-level site), in memory by default and lost when it
+restarts, or in a file with <code>wire --cookie-file &lt;path&gt;</code>;
+<code>wire --no-cookies</code> turns them off. Media are placeholders only.
 See <code>scratchy/NETWORKING.md</code> in the source tree for the details.</p>
 
 <h2>Offline guarantee: unix sockets only</h2>
