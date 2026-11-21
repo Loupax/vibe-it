@@ -243,7 +243,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       (46: the core Range-*, NodeIterator, TreeWalker, Document-characterSet-normalization-1/2, ParentNode-querySelector-
       All, NodeList-static-length-getter-tampered-*). With the virtual clock they are cheap (all 46 ran in 9 s at 4 jobs).
       31 of them ERROR at `xmlDocument.createCDATASection` today, so measure their wall time again after QDOM8.
-- [ ] QSCR404 [S] (P2; Sonnet; js.rs script fetch; R65 5) A classic/module script whose response status is not 2xx is
+- [ ] [WIP] QSCR404 [S] (P2; Sonnet; js.rs script fetch; R65 5) A classic/module script whose response status is not 2xx is
       not run; fire `error` on the element (today a 404 "Not found" body runs and throws SyntaxError).
 
 ========================================================================
