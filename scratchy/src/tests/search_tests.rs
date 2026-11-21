@@ -78,8 +78,12 @@ fn qsearch1_wrapped_text_still_matches_with_real_rects() {
     assert!(one[0].rects.iter().all(|r| r.2 > 0.0 && r.3 > 0.0));
 }
 
+fn first_below(ms: &[SearchMatch], top: f32) -> Option<usize> {
+    first_at_or_below_in(ms, top, &std::collections::HashMap::new())
+}
+
 fn m_at(y: f32) -> SearchMatch {
-    SearchMatch { line: 0, start: 0, end: 1, rects: vec![(0.0, y, 10.0, 20.0)] }
+    SearchMatch { line: 0, start: 0, end: 1, rects: vec![(0.0, y, 10.0, 20.0)], regions: Vec::new() }
 }
 
 #[test]
@@ -88,9 +92,9 @@ fn qsearch1_nearest_and_first_below() {
     assert_eq!(nearest_match(&ms, (0.0, 120.0)), Some(1));
     assert_eq!(nearest_match(&ms, (0.0, 5000.0)), Some(2));
     assert_eq!(nearest_match(&[], (0.0, 0.0)), None);
-    assert_eq!(first_at_or_below(&ms, 100.0), Some(1), "at the top counts");
-    assert_eq!(first_at_or_below(&ms, 101.0), Some(2));
-    assert_eq!(first_at_or_below(&ms, 301.0), None, "none below: the caller wraps");
+    assert_eq!(first_below(&ms, 100.0), Some(1), "at the top counts");
+    assert_eq!(first_below(&ms, 101.0), Some(2));
+    assert_eq!(first_below(&ms, 301.0), None, "none below: the caller wraps");
 }
 
 #[test]
@@ -223,4 +227,137 @@ fn qsearch1_search_line_reuses_the_paste_chord() {
     app.search_line_key(&Key::Character("v".into()));
     assert_eq!(app.command_line.text, "v");
     assert!(is_paste_chord(&Key::Character("v".into()), &ModifiersState::CONTROL));
+}
+
+// ---- QSEARCH2: n / N, bringing the screen to the match ----
+
+fn nav_app(html: &str) -> Option<App> {
+    let event_loop = test_event_loop().ok()?;
+    let doc = parse_html("<html><body><p>x</p></body></html>");
+    let mut app = App::new_static(doc, event_loop.create_proxy(), None);
+    let (laid, cache) = laid_with_cache(html);
+    app.cached = Some(Rc::new(laid));
+    app.shape_cache = cache;
+    app.key_mode = KeyMode::Normal;
+    app.surface_size = (800, 600 + crate::config::STATUS_BAR_H);
+    Some(app)
+}
+
+const TALL: &str = "<html><body style='margin:0'><p style='margin:0'>needle</p><div style='height:1000px'></div>\
+<p style='margin:0'>needle</p><div style='height:2000px'></div><p style='margin:0'>needle</p><div style='height:2000px'></div></body></html>";
+
+#[test]
+fn qsearch2_n_and_big_n_wrap_both_ways_with_messages() {
+    let Some(mut app) = nav_app(TALL) else { return };
+    app.commit_search("needle");
+    assert_eq!(app.status_message, "[1/3]");
+    press(&mut app, Key::Character("n".into()));
+    assert_eq!((app.search.current, app.status_message.as_str()), (Some(1), "[2/3]"));
+    press(&mut app, Key::Character("n".into()));
+    assert_eq!(app.status_message, "[3/3]");
+    press(&mut app, Key::Character("n".into()));
+    assert_eq!(app.search.current, Some(0));
+    assert_eq!(app.status_message, "search hit BOTTOM, continuing at TOP [1/3]");
+    press(&mut app, Key::Character("N".into()));
+    assert_eq!(app.search.current, Some(2));
+    assert_eq!(app.status_message, "search hit TOP, continuing at BOTTOM [3/3]");
+    press(&mut app, Key::Character("N".into()));
+    assert_eq!((app.search.current, app.status_message.as_str()), (Some(1), "[2/3]"));
+}
+
+#[test]
+fn qsearch2_t16_t17_no_query_and_no_match() {
+    let Some(mut app) = nav_app(TALL) else { return };
+    press(&mut app, Key::Character("n".into()));
+    assert_eq!(app.status_message, "No previous search");
+    app.search.query = "zzz".into();
+    press(&mut app, Key::Character("N".into()));
+    assert_eq!(app.status_message, "Pattern not found: zzz");
+}
+
+#[test]
+fn qsearch2_offscreen_match_is_centred_visible_one_does_not_scroll() {
+    let Some(mut app) = nav_app(TALL) else { return };
+    app.commit_search("needle");
+    assert_eq!(app.scroll_offset, 0.0, "the first match is on screen");
+    app.search_step(true);
+    let m = &app.search.matches[1];
+    let (_, y, _, h) = m.bbox();
+    assert!((app.scroll_offset - (y + h / 2.0 - 300.0)).abs() < 1.0, "{} vs {y}", app.scroll_offset);
+    // The next match is far below: centred too. Going back (it is off screen again) centres it.
+    app.search_step(true);
+    let (_, y2, _, h2) = app.search.matches[2].bbox();
+    assert!((app.scroll_offset - (y2 + h2 / 2.0 - 300.0)).abs() < 1.0);
+    // The first match is at the very top of the page: clamped at 0, not negative.
+    app.search_step(true);
+    assert_eq!(app.scroll_offset, 0.0);
+    // Two matches both on screen: n does not scroll.
+    let Some(mut app) = nav_app("<html><body style='margin:0'><p>needle</p><p>needle</p><div style='height:3000px'></div></body></html>") else { return };
+    app.scroll_offset = 0.0;
+    app.commit_search("needle");
+    app.search_step(true);
+    assert_eq!(app.search.current, Some(1));
+    assert_eq!(app.scroll_offset, 0.0);
+}
+
+#[test]
+fn qsearch2_enter_commit_brings_the_screen_to_the_match() {
+    let Some(mut app) = nav_app("<html><body style='margin:0'><div style='height:2000px'></div><p style='margin:0'>needle</p><div style='height:2000px'></div></body></html>") else { return };
+    app.commit_search("needle");
+    assert!(app.scroll_offset > 1000.0, "{}", app.scroll_offset);
+}
+
+#[test]
+fn qsearch2_match_in_a_scroll_box_scrolls_the_box_and_highlight_follows() {
+    let html = "<html><body style='margin:0'><div style='height:100px;overflow:auto;margin:0'>\
+<div style='height:500px'></div><p style='margin:0'>needle</p><div style='height:500px'></div></div></body></html>";
+    let Some(mut app) = nav_app(html) else { return };
+    app.commit_search("needle");
+    let m = app.search.matches[0].clone();
+    assert_eq!(m.regions.len(), 1);
+    let off = app.scroll_offsets.get(&m.regions[0].id).copied().unwrap_or(0.0);
+    assert!(off > 300.0, "the box scrolled: {off}");
+    assert_eq!(app.scroll_offset, 0.0, "the page did not move: the box is on screen");
+    // The highlight is drawn inside the box (0..100), at the scrolled position.
+    let rects = m.visible_rects(&app.scroll_offsets);
+    assert_eq!(rects.len(), 1);
+    assert!(rects[0].1 >= 0.0 && rects[0].1 + rects[0].3 <= 100.5, "{rects:?}");
+    // Scrolled away again: the highlight is clipped out.
+    let mut away = app.scroll_offsets.clone();
+    away.insert(m.regions[0].id, 0.0);
+    assert!(m.visible_rects(&away).is_empty());
+}
+
+#[test]
+fn qsearch2_nested_boxes_scroll_innermost_first_then_the_page() {
+    let html = "<html><body style='margin:0'><div style='height:3000px'></div>\
+<div style='height:200px;overflow:auto'><div style='height:300px'></div>\
+<div style='height:100px;overflow:auto'><div style='height:400px'></div><p style='margin:0'>needle</p><div style='height:400px'></div></div>\
+<div style='height:600px'></div></div></body></html>";
+    let Some(mut app) = nav_app(html) else { return };
+    app.commit_search("needle");
+    let m = app.search.matches[0].clone();
+    assert_eq!(m.regions.len(), 2);
+    let inner = app.scroll_offsets.get(&m.regions[1].id).copied().unwrap_or(0.0);
+    let outer = app.scroll_offsets.get(&m.regions[0].id).copied().unwrap_or(0.0);
+    assert!(inner > 0.0 && outer > 0.0, "inner {inner} outer {outer}");
+    assert!(app.scroll_offset > 2000.0, "the page followed: {}", app.scroll_offset);
+    let top = m.doc_top(&app.scroll_offsets);
+    assert!(top >= app.scroll_offset && top <= app.scroll_offset + 600.0, "{top} in view at {}", app.scroll_offset);
+    assert!(!m.visible_rects(&app.scroll_offsets).is_empty());
+}
+
+#[test]
+fn qsearch2_kept_query_runs_on_a_new_page() {
+    let Some(mut app) = nav_app(TALL) else { return };
+    app.commit_search("needle");
+    app.replace_document(parse_html("<html><body>new</body></html>"), String::new());
+    assert!(!app.search.highlight && app.search.query == "needle");
+    let (laid, cache) = laid_with_cache("<html><body style='margin:0'><p>a needle here</p></body></html>");
+    app.cached = Some(Rc::new(laid));
+    app.shape_cache = cache;
+    press(&mut app, Key::Character("n".into()));
+    assert!(app.search.highlight);
+    assert_eq!(app.search.matches.len(), 1);
+    assert_eq!(app.status_message, "[1/1]");
 }

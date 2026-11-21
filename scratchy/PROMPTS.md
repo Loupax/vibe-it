@@ -8765,3 +8765,9 @@ Item QINC1h2 (REGRESSIONS.md R60 section 15). `layout.rs`: `natural_width_impl` 
 > QFLK9 [S] qy5_budget_clock_is_thread_cpu_time and qb3_callback_budget_is_much_shorter_than_load_budget fail in a full parallel run under load (pass alone): make them robust without weakening what they prove.
 
 **What changed:** tests only. qy5 spins until the thread CPU clock itself has advanced 20 ms (a 100 ms wall-clock spin got under 20 ms of CPU at load ~30); the sleep half (300 ms wall must cost < 100 ms CPU) is unchanged and is what fails if the clock is swapped for wall time. qb3 measures the callback run in thread CPU time (the unit of the budget) instead of wall time, keeping the 400 ms..2.5 s bounds. No production code touched.
+
+## QSEARCH2: n/N and bringing the screen to the match (agent item)
+
+> QSEARCH2 [S] `n`/`N` (S4, S6; KEYS.md T15-T17): next/previous with wrap and the status-bar message, bring the screen to the match (centre when not fully visible, no scroll when visible, inner scroll containers too), query kept across navigations.
+
+**What changed:** `n`/`N` (BINDINGS, `Action::SearchNext/SearchPrev`, `App::search_step`): wrap with the BOTTOM/TOP messages, `[i/N]`, T16/T17 messages; with the highlights gone the kept query runs again on the new page. Every move to a match, and the Enter commit, calls `reveal_current_match`: regions the match sits in scroll innermost first (centred when not fully visible), then the page. Search lines and matches now carry their scroll-region chain, so highlights inside `overflow` boxes follow the box scroll offset and are clipped to the box (QSEARCH1 report). help.html documents n/N and the scrolling.

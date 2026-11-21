@@ -53,6 +53,7 @@ switch it by focusing a field.</li>
 <tr><td><code>:</code></td><td>Open the command line</td></tr>
 <tr><td><code>/</code></td><td>Open the search line</td></tr>
 <tr><td><code>Esc</code></td><td>Clear the search highlights (it never changes the mode)</td></tr>
+<tr><td><code>n</code> / <code>N</code></td><td>Go to the next / previous search match (wraps around, and scrolls the page to it)</td></tr>
 <tr><td><code>i</code></td><td>Switch to INPUT mode</td></tr>
 </table>
 <p>The keys are the <code>BINDINGS</code> table in <code>src/config.rs</code>,
@@ -66,8 +67,15 @@ regular expression. It ignores case unless your query has a capital letter.
 Every match is highlighted and the status bar shows <code>[i/N]</code>, or
 <code>Pattern not found: ...</code>. The first match at or below the top of
 the screen is the current one; if there is none, it wraps and the message
-says <code>search hit BOTTOM, continuing at TOP</code>. The page does not
-scroll to the match yet. <code>Esc</code> in the search line cancels;
+says <code>search hit BOTTOM, continuing at TOP</code>. The page scrolls to
+the current match: if it is not fully on screen it is centred, and if it is
+already fully visible nothing moves. A match inside a scrollable box scrolls
+that box first, then the page. <code>n</code> goes to the next match and
+<code>N</code> to the previous one, wrapping with a message
+(<code>search hit TOP, continuing at BOTTOM</code> going backwards); with no
+search yet the status bar says <code>No previous search</code>. The last query is
+kept when you go to another page, so <code>n</code> there searches it again.
+<code>Esc</code> in the search line cancels;
 <code>Esc</code> in NORMAL mode clears the highlights. Going to another page
 clears them too.</p>
 
