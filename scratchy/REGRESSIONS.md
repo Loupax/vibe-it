@@ -9625,3 +9625,679 @@ updates) 55/50/54 -> 52/64/51 (NOT fewer: the blockers are z entries, pending ou
 ups 480/449/481 -> 517/683/505 (it now also counts the z-entry precheck, which runs before the flex-parent rule: that one went
 190/161/184 -> 13/18/13); intrinsic hits / misses ~1 550 / ~3 950 per run (0.28); intrinsic stops 7-13 per run; engine relayout
 time `layout_ms` 86/81/92 -> 67/73/68. Counts vary by run (the page).
+
+## R64: Conformance plan (QWPT1, Opus investigator, 2026-11-21)
+
+Design only: no product code changed. Everything below is a proposal for the user to approve
+before any implementation. Numbers were measured on main 8cb8361 (16-core machine, load 0-9),
+WPT at the pinned commit ac78b567f5404b6f2dc0418ea380af3946a47fca, unless marked "estimate".
+
+### 0. Summary (plain language)
+
+- **WPT** (web-platform-tests) is the browsers' shared test suite. It has two kinds of tests:
+  *reftests* (render two pages, compare pixels; scratchy runs 632 of them today) and
+  *testharness.js tests* (a page runs JavaScript checks and reports PASS/FAIL per check; scratchy
+  runs none of them today). At our pin WPT has 33,150 testharness files (40,524 with variants) and
+  29,177 reftests.
+- **It already almost works.** A throwaway probe (section 2.6) inlined 1,522 self-contained
+  testharness tests from dom/, html/webappapis/, css/cssom*, the observers, uievents, url,
+  encoding, webidl, hr-time and streams, and ran each one through today's `scratchy --js-report`.
+  98 % of them reported a result. 10,253 of 23,389 checks pass (44 %); mean per-file score 31 %.
+  The whole set took 39 s at 4 parallel jobs. Running WPT for real is mostly plumbing.
+- **Plan:** a small static test server inside wire (scratchy stays socket-free), a `--wpt-th`
+  runner (one process per test, a virtual clock so timeouts cost nothing), per-area expectation
+  files gated in CI like today's reftests, and a committed per-area score table.
+- **Event loop audit:** 15 concrete deviations from the HTML "update the rendering" model; the
+  biggest: `requestAnimationFrame` is a 60 Hz timer, ResizeObserver never re-fires and reports
+  0x0, IntersectionObserver is evaluated at timer boundaries, user scrolling fires no `scroll`
+  events, exceptions in timers/rAF never reach `window.onerror`.
+- **Missing-API report:** a report mode that puts one forwarding Proxy at the end of the DOM and
+  window prototype chains; it sees every lookup of a name scratchy does not have (feature probes
+  and calls) without changing any answer. Zero cost outside report mode.
+- **Offline pages:** wire records a page load once (`--record`) and replays it (`--replay`), so the
+  incr-gate pages stop changing under us and perf numbers can become budgets.
+- **Order:** infrastructure, then DOM core, WebIDL + events, HTML event loop + rendering steps (with
+  the observers), HTML scripting/parsing, CSSOM, geometry, encoding/url/streams, fetch/xhr, media
+  (archived). Changes from the proposal are explained in 3.2.
+- 8 user questions in section 7.
+
+### 1. What exists today
+
+- `src/wpt.rs` (Q40a): reftests only. `skip_reason` skips any file containing `<script`,
+  `reftest-wait` or `testharness.js`. Reads `wpt-subset.txt` (664 lines), compares with
+  `wpt-expected.txt`, exits 1 on any change. Measured: `scratchy --wpt /home/loupax/src/wpt` =
+  **0.9 s wall** (pass 333, fail 293, crash 0, skipped 6; "no change"). It is NOT run in CI today
+  (`.github/workflows/ci.yml` has build, test, clippy only).
+- The local checkout `/home/loupax/src/wpt` is a blobless partial clone (`blob:none`, so file
+  contents are fetched on demand) at the pin, sparse: `css fonts html/rendering images resources`.
+- `--js-report [--run-timers MS]` (`js_report_for_html_timers`, `js_report_for_scripts_timers`)
+  loads a page headless, runs its scripts and timers on a **simulated clock** (time jumps to the
+  next due timer), and prints errors and `console.error` lines. The probe used this.
+- CI (run 44868420059, a typical push): scratchy job 3 m 40 s: build 1 m 49 s (rust-cache warm),
+  test 62 s, clippy 17 s. A clean local release build: 59 s wall, 12 m 17 s CPU.
+- WPT publishes a `MANIFEST-<sha>.json` per commit (release `merge_pr_65461` for our pin, 6 MB
+  gzip): every test's type, URL variants and `timeout=long`/`testdriver` flags. All counts below
+  come from it, so nobody needs a full clone to plan.
+
+### 2. Running testharness.js tests (item a)
+
+#### 2.1 The checkout and the pin
+
+Do not grow the user's `/home/loupax/src/wpt` by hand. A script (`tools/wpt-checkout.sh DIR`, item
+QWPT2) makes a blobless, depth-1, sparse checkout of the pinned commit:
+
+```
+git clone --filter=blob:none --no-checkout --depth 1 --sparse https://github.com/web-platform-tests/wpt DIR
+git -C DIR fetch --depth 1 --filter=blob:none origin <pin>
+git -C DIR sparse-checkout set <dirs from tools/wpt-dirs.txt>
+git -C DIR checkout --detach <pin>
+```
+
+Measured from this machine: 33 s, 227 MB on disk for the phase-1 + phase-2 list below plus all of
+`html/` (62 MB of the 227 is `html/`; without the unused parts of `html/` it is ~90 MB).
+
+**Keeping the pin:** the commit lives in ONE file, `tools/wpt-pin.txt` (AGENTS.md points at it
+instead of repeating the hash). The script refuses a checkout whose `HEAD` differs; the runner
+prints the pin in its summary line; CI caches the checkout with key `wpt-<pin>-<hash of
+wpt-dirs.txt>`. Bumping the pin is its own PR (coordinator): new pin, re-run, regenerated
+expectation files, the score table diff in the PR body. Never mixed with a fix.
+
+Directories to add (testharness files / URLs incl. variants, from the manifest; size on disk):
+
+| directory | testharness files | URLs | need no server or testdriver (URLs) | size | phase | why |
+|---|---|---|---|---|---|---|
+| dom | 745 | 809 | 654 | 4.9 MB | 1 | DOM core, events, ranges, traversal, abort; testharness itself depends on it |
+| html/webappapis | 346 | 369 | 321 | 2.1 MB | 1 | timers, microtasks, rAF, event loops, error reporting, document.write |
+| html/dom | 242 | 259 | 245 | 2.4 MB | 1 | document, elements, dataset, attributes reflection |
+| html/semantics/scripting-1 | 552 | 597 | 523 | 3.9 MB | 1/2 | script processing model (119 files need Python handlers) |
+| css/cssom | 274 | 274 | 272 | 1.7 MB | 1 | style sheets, getComputedStyle serialization |
+| css/cssom-view | 239 | 239 | 232 | 1.5 MB | 1 | geometry: getBoundingClientRect, scroll, elementFromPoint |
+| resize-observer | 37 | 37 | 36 | 0.2 MB | 1 | rendering step |
+| intersection-observer | 159 | 159 | 151 | 0.8 MB | 1 | rendering step |
+| uievents | 69 | 74 | 17 | 0.8 MB | 1 (57 need testdriver) | event constructors; input needs testdriver |
+| webidl | 46 | 63 | 44 | 0.3 MB | 1 | binding rules every area relies on |
+| url | 35 | 79 | 50 | 0.8 MB | 1 | |
+| encoding | 153 | 1,343 | 1,263 | 20 MB | 1 | variants: 1,228 "long" legacy-encoding URLs, run nightly only |
+| hr-time | 14 | 19 | 10 | 0.1 MB | 1 | |
+| streams | 90 | 307 | 88 | 1.1 MB | 1 | 217 URLs are worker variants |
+| webmessaging, requestidlecallback, domparsing | 138, 21, 97 | 167, 21, 97 | 116, 21, 96 | 1.7 MB | 1 | |
+| custom-elements, shadow-dom | 212, 318 | 212, 318 | 207, 186 | 3.7 MB | 1 | |
+| common, css/support, html/resources | - | - | - | ~1 MB | 1 | shared helper scripts the tests include (the probe found tests needing them) |
+| fetch, xhr | 487, 332 | 948, 442 | 255, 345 | 10 MB | 2 | mostly need Python handlers (`.py`) |
+| pointerevents | 188 | 262 | 14 | | 2 | needs testdriver |
+| css/css-transitions, css/css-animations, web-animations | 128, 131, 144 | | 126, 132, 141 | | later | animation model |
+| media, html/semantics/embedded-content/media-elements | | | | | never (archived) | DECISIONS 2026-11-21 |
+
+"Need no server" in the table is the manifest-level filter (no `.https.`, `.sub.`, worker variant
+or testdriver). A content scan of the phase-1 directories (`.py` references, cross-origin helpers,
+`window.open`) puts the share that runs on a plain static server at 95-100 % for dom/*, css/cssom*,
+the observers, uievents, url, encoding, webidl and streams; 82 % for webmessaging; 77 % for
+html/semantics/scripting-1; 43 % for fetch/api; 35 % for xhr.
+
+#### 2.2 How testharness.js reports, and how scratchy collects it
+
+Every test page loads `/resources/testharness.js` and then `/resources/testharnessreport.js`.
+The second file is the **vendor hook**: in the WPT repo it is nearly empty, and each browser's
+runner serves its own version. testharness.js calls back into it:
+
+- `add_result_callback(fn(test))`: after each check ("subtest"): `test.name`, `test.status`
+  (0 PASS, 1 FAIL, 2 TIMEOUT, 3 NOTRUN, 4 PRECONDITION_FAILED), `test.message`.
+- `add_completion_callback(fn(tests, harness_status, asserts))`: once, at the end. `harness_status.status`
+  is 0 OK, 1 ERROR (an uncaught exception outside a subtest), 2 TIMEOUT (the file did not finish in
+  10 s, or 60 s with `<meta name="timeout" content="long">`), 3 PRECONDITION_FAILED.
+- `setup({...})` from the hook can set `explicit_timeout`, `timeout_multiplier`, `output: false`
+  (do not build the HTML results table, which costs layout per test).
+
+scratchy's runner serves its own `testharnessreport.js` (the server maps that one path to a file in
+`tools/wpt/`), which calls `setup({output: false})` and registers a completion callback that hands
+`JSON.stringify({harness, message, tests: [[name, status, message]...]})` to a native,
+`__scratchy_wpt_done`, installed only in runner mode. The child prints it as one line and exits. The
+probe did exactly this with `console.error('WPTRESULT ...')`; it worked for 1,496 of 1,522 files
+(of the 26 without a result, 16 are standalone SVG/XHTML documents, which scratchy parses as HTML;
+the other 10, e.g. the scroll-behavior and characterSet-normalization tests, are for the DOM and
+geometry triage items).
+
+#### 2.3 Timeouts and isolation
+
+- **Virtual time.** The child runs the page on a virtual clock like `--js-report --run-timers`:
+  when nothing can run now, time jumps to the next timer. A test that waits forever for an event
+  therefore reaches testharness's own 10 s / 60 s timeout in milliseconds (measured: 111 files
+  timed out in the probe at ~80 ms each). One rule is new: the clock must NOT jump while a
+  network/file load is in flight (otherwise a slow load becomes a false TIMEOUT); the child
+  advances only when the task queue is empty AND no load is pending.
+- **Wall cap.** A CPU-bound test still burns real time (`Event-timestamp-safe-resolution.html`:
+  5.1 s, a busy loop). The parent kills a child after 30 s of real time and records `TIMEOUT`.
+- **One process per test**, a pool of `--jobs N` (default: number of CPUs, 4 on CI). Measured cost
+  per file: median 81 ms, p90 131 ms, p99 165 ms, of which ~55-60 ms is process start (an empty
+  page: 59 ms). This gives full isolation for free (localStorage, cookies, the many thread-locals,
+  a V8 crash or a 6 GB memory cap only kill one test) and needs no "reset between tests" code.
+  Reusing a process for many tests would be ~3x faster but needs a reliable reset of every global;
+  not worth it at these numbers. Crash = the child died without a result: status `CRASH`.
+- The viewport is 800x600 (WPT's default), fonts as in the reftest runner (Ahem added), and the
+  window/document reports `visibilityState = visible`.
+
+#### 2.4 Serving the files: scratchy opens no sockets
+
+testharness tests need real URLs: root-relative paths (`/resources/testharness.js`), a real origin
+(`http://web-platform.test:8000`, not `file:`: file pages have an opaque origin, which breaks
+`postMessage` origins, storage, `document.domain` and same-origin checks), helper files generated
+by the server (`/resources/WebIDLParser.js` is an alias, `x.any.js` is served as a generated
+`x.any.html` wrapper), per-file headers (`x.html.headers`), `{{host}}`-style substitution in
+`.sub.` files, and for some tests Python request handlers (`.py`).
+
+Options:
+
+1. **`file://`**: no. Wrong origin, no root-relative paths, no `.any.html` wrappers.
+2. **In-process loader inside scratchy** (no wire): quick, but every resource path in scratchy
+   (`fetch_scripts`, link CSS, images, iframes, `js_net` fetch/XHR) would need a second backend, and
+   network semantics that live in wire (cookies, redirects, target classes) would not be tested.
+3. **A static mount in wire (recommended for phase 1)**: `wire --mount http://web-platform.test:8000=DIR`
+   (plus `www.`, `www1.`, `www2.` subdomains and port 8001 as aliases of the same tree so
+   cross-origin tests have a second origin). wire already serves `file:` URLs (`serve_file` in
+   wire/src/main.rs); this is the same reader behind an http origin, plus `.headers`, the
+   `.any.js`/`.window.js` wrappers, the `WebIDLParser.js` alias, `.sub.` substitution of the
+   handful of `{{...}}` keys, and a fixed override for `/resources/testharnessreport.js` and
+   `/resources/testdriver-vendor.js`. `.py` -> `501` plus one log line, recorded as
+   `NEEDS-SERVER` and excluded from the score. The runner starts its own private wire on its
+   own socket (as tools/incr-gate/run.sh does; never /run/user/1000/wire.sock). scratchy keeps
+   talking only to wire; wire opens no socket for a mounted origin.
+4. **wptserve (phase 2)**: WPT's own Python server, started from the checkout (`./wpt serve`,
+   needs `tools/` in the sparse list and Python 3, present on the CI image), listening on
+   127.0.0.1. wire reaches it like any loopback target (policy class `Warn`) through a host map
+   `wire --map-host '*.web-platform.test=127.0.0.1'`. Full fidelity, `.py` handlers included.
+   Needed for fetch/xhr/cookies and 119 scripting-1 files. User decision Q2.
+5. **https** (phase 3): wptserve serves TLS with its own test CA; wire would have to trust that CA
+   for `*.web-platform.test` only. User decision Q8.
+
+**Variants:** `.window.js` and the window variant of `.any.js` are feasible now (served as
+generated HTML). `.worker.js`, `.any.worker.html`, `.sharedworker` and `.serviceworker` are NOT
+feasible: scratchy has no `Worker` at all (archived, lower priority than MSE per DECISIONS). The
+runner lists them as `NOT-RUN (no workers)`; they are not in any score.
+
+**testdriver:** tests that need real input (`test_driver.click`, `send_keys`, `action_sequence`)
+call `/resources/testdriver-vendor.js`, which each browser implements. Phase 2: scratchy's version
+turns these into the same synthetic input the App gets from winit, which needs the headless
+rendering loop (QEL1) for hit testing. Unlocks 77 dom/events files, 57 uievents, most of
+pointerevents.
+
+#### 2.5 Expectations files
+
+Like `wpt-expected.txt`, but one file per top-level area so five agents improving different areas
+do not conflict on one file:
+
+```
+scratchy/wpt-th/subset.txt          # paths, one per line (+ "# area:" comments); generated from wpt-dirs.txt
+scratchy/wpt-th/expected/dom.txt    # generated by --update
+scratchy/wpt-th/flaky.txt           # paths whose results differ between runs: run, never compared
+scratchy/wpt-th/areas.txt           # the score table (2.7), generated, committed
+```
+
+Format of an expected file: one line per test file, then one indented line per subtest that does
+NOT pass (passing subtests are implied, which keeps the file small and stable):
+
+```
+OK      131/134  dom/nodes/Node-cloneNode.html
+  FAIL           Node.cloneNode on an SVG element keeps the namespace
+TIMEOUT   0/1    html/webappapis/animation-frames/callback-exception.html
+  TIMEOUT        requestAnimationFrame callback exceptions are reported to error handler
+NEEDS-SERVER     fetch/api/basic/request-headers.any.js
+```
+
+Subtest names are used verbatim (tabs/newlines escaped); a repeated name gets ` #2`. Gate rules
+(same spirit as the reftest rule "no pass->fail"):
+
+- REGRESSION (blocks): a passing subtest no longer passes; a file status OK -> ERROR/TIMEOUT/CRASH;
+  a file that ran now has no result.
+- NEWLY PASSING: must be recorded (`--update`) in the same commit, as for reftests.
+- CHANGED (subtests appear or disappear, e.g. names that contain random values): fix the name
+  normalisation or move the file to flaky.txt with a one-line reason.
+- New tests in the subset start as UNRECORDED and are recorded by `--update`.
+
+#### 2.6 The probe (what was measured, how)
+
+Not committed (throwaway scripts in the scratchpad). From the manifest, every testharness file under
+dom, html/webappapis, css/cssom, css/cssom-view, resize-observer, intersection-observer, uievents,
+url, encoding (minus the slow legacy-mb set), webidl, hr-time and streams whose source has no
+`.py`, iframe, `window.open`, testdriver, fetch/XHR, worker, stylesheet link or module script: 1,522
+files. Each `<script src>` was inlined from a sparse checkout of the pin, a completion hook added after
+testharnessreport.js, and the page run with `scratchy --js-report --run-timers 30000` under the 6 GB
+scope, 4 at a time. Results (subtests pass %; "score" = mean over files of passed/total, the wpt.fyi
+way, so a file with 11,000 subtests does not outweigh 100 small files):
+
+| area | files | no result | harness timeout | files all-pass | subtests | pass % | score |
+|---|---|---|---|---|---|---|---|
+| dom/nodes | 339 | 16 | 32 | 106 | 4,257 | 62 % | 43 % |
+| dom/events (no testdriver) | 89 | 0 | 7 | 31 | 656 | 47 % | 49 % |
+| dom/ranges | 58 | 0 | 1 | 9 | 264 | 8 % | 16 % |
+| dom/traversal, lists, abort, collections, misc | 46 | 0 | 0 | 18 | 454 | 76 % | 52 % |
+| dom/observable (tentative) | 25 | 0 | 0 | 0 | 242 | 0 % | 0 % |
+| html/webappapis | 196 | 1 | 17 | 41 | 818 | 60 % | 25 % |
+| ... of which timers | 14 | 0 | 3 | 10 | 23 | 70 % | 75 % |
+| ... animation-frames | 11 | 0 | 2 | 9 | 15 | 60 % | 82 % |
+| ... microtask-queuing | 3 | 0 | 1 | 2 | 8 | 88 % | 67 % |
+| ... scripting (event loops, errors) | 74 | 0 | 7 | 13 | 192 | 39 % | 24 % |
+| ... dynamic-markup-insertion (document.write/open) | 81 | 1 | 3 | 2 | 111 | 3 % | 3 % |
+| css/cssom | 214 | 2 | 12 | 40 | 1,821 | 54 % | 30 % |
+| css/cssom-view | 200 | 5 | 14 | 41 | 1,215 | 40 % | 25 % |
+| resize-observer | 34 | 1 | 4 | 9 | 45 | 31 % | 31 % |
+| intersection-observer (v1) | 85 | 0 | 2 | 16 | 118 | 31 % | 21 % |
+| intersection-observer/v2 (occlusion) | 35 | 0 | 13 | 0 | 39 | 0 % | 0 % |
+| uievents (no testdriver) | 16 | 0 | 1 | 6 | 114 | 61 % | 46 % |
+| webidl | 38 | 0 | 3 | 8 | 269 | 55 % | 40 % |
+| url | 25 | 0 | 1 | 15 | 562 | 86 % | 75 % |
+| encoding (no legacy-mb) | 37 | 1 | 0 | 7 | 11,313 | 35 % | 37 % |
+| streams | 79 | 0 | 4 | 3 | 1,191 | 20 % | 11 % |
+| hr-time | 6 | 0 | 0 | 0 | 11 | 27 % | 15 % |
+| **total** | **1,522** | **26** | **111** | **350** | **23,389** | **44 %** | **31 %** |
+
+Time: 39 s wall at 4 jobs (150 s of CPU in total). Most frequent failures (subtests): 6,800 from
+missing single-byte encodings in `TextDecoder` (windows-125x, ISO-8859-x, KOI8, macintosh: one gap),
+317 `WritableStream is not defined`, 126 "byte streams are not implemented", 118 `TransformStream is
+not defined`, 134 `Observable is not defined` (tentative spec), 106 `expected null but got ""`, 102
+`document.charset` undefined, 101 `expected "DIV" but got "div"` (tagName case), 75
+`document.createProcessingInstruction is not a function`. These are the kind of findings the area
+triage items (section 6) turn into fixes. The probe ran headless with `--js-report`, which has no
+rendering steps (rAF is a plain timer there): the real runner should run the App's rendering steps
+headless (QEL1), so numbers for rAF/observers/scroll will move.
+
+#### 2.7 CI cost
+
+| step | time | how known |
+|---|---|---|
+| build | 0 extra | the scratchy job already builds the release binary |
+| wire binary | ~5-20 s | the wire job builds in 5 s with a warm cache; the scratchy job would build it too |
+| WPT checkout | ~5-10 s with actions/cache, ~35 s cold | measured cold locally (33 s, 227 MB) |
+| reftests (`--wpt`) | ~2 s | measured 0.9 s locally |
+| testharness phase 1, ~2,300 files | ~1.5-2.5 min on the 4-vCPU runner | measured 1,522 files = 150 CPU-s locally; estimate for the slower runner |
+| expectations compare + score table | seconds | |
+
+So **+2 to 3.5 minutes** on the 3 m 40 s scratchy job (or a separate parallel job: no wall-clock
+increase but a second build, ~2 min of runner time). The 1,228 "long" legacy-encoding variants and
+anything over 5 s go to a nightly/manual workflow, not to every PR. Risk to check in QWPT2: the
+reftest expectations were recorded with the user's fonts; CI only has Liberation + Ahem.
+
+### 3. The per-area report and the order of areas (item b)
+
+#### 3.1 The report
+
+`scratchy/wpt-th/areas.txt`, generated by every `--wpt-th` run and committed when it changes:
+
+```
+# wpt-th areas at WPT ac78b56; scratchy <commit>; score = mean over files of passed/total subtests
+# area                       files  ran  all-pass  subtests   pass   pass%  score
+dom/nodes                      339  323       106      4257   2659    62.5   43.0
+dom/events                      89   89        31       656    309    47.1   49.0
+...
+TOTAL                         2312 2280       ...
+```
+
+- Headline number per area = **score** (wpt.fyi's per-test scoring); subtest pass % next to it.
+- Areas = the directory groups of `wpt-th/subset.txt` (`# area:` comments), not raw directories,
+  so "HTML event loop" can include resize-observer and intersection-observer.
+- **Across PRs:** CI writes the table for the PR and a diff against main's committed table into the
+  job summary (`$GITHUB_STEP_SUMMARY`), e.g. `dom/ranges 16.0 -> 22.5 (+12 subtests)`. The PR body
+  quotes the changed rows. History is `git log -p scratchy/wpt-th/areas.txt`; a 20-line
+  `tools/wpt-trend.sh AREA` prints the score per commit from it. No separate database.
+- Each area item in TODO.txt states a target ("dom/ranges score >= 60") so "done" is measurable.
+
+#### 3.2 Dependency order (with reasons)
+
+The proposal was DOM core -> events -> HTML event loop / rendering steps -> CSSOM -> geometry ->
+fetch/streams -> media. The evidence changes it slightly:
+
+1. **Infrastructure** (runner, server, CI, expectations). Everything else is measured with it.
+2. **DOM core** (dom/nodes, ranges, traversal, collections, lists, abort, domparsing): every test
+   in every area builds its fixture with DOM calls, and testharness.js itself uses them, so DOM
+   bugs leak into all other areas' numbers. Probe: ranges 16 %, collections 21 %, nodes 43 %.
+3. **WebIDL bindings + events** (webidl, dom/events, uievents constructors; trusted input after
+   testdriver). NEW: WebIDL moves up. The harness's own assertions (`assert_throws_dom`,
+   `instanceof`, "Illegal invocation", property attributes) depend on binding rules, and
+   idlharness tests in every area measure them. Probe: webidl 40 %.
+4. **HTML event loop and rendering steps** (html/webappapis timers, microtask-queuing,
+   animation-frames, scripting/event-loops and error reporting, PLUS resize-observer and
+   intersection-observer). NEW: the observers belong here, not in "geometry": they are steps of
+   "update the rendering", and section 4 shows their timing is the main defect (RO never re-fires,
+   IO evaluated at timer boundaries). Their size/geometry part overlaps step 7.
+5. **HTML scripting and parsing model** (html/semantics/scripting-1, html/webappapis/dynamic-markup-
+   insertion, later html/syntax). NEW as a separate step: scratchy runs every script after the
+   whole document is parsed (`run_page`, deviation E13), document.write tests score 3 %. This is a
+   structural difference that real sites hit; it needs its own design item, after the event loop.
+6. **CSSOM** (css/cssom): independent of the event loop; can run in parallel with 4-5. Probe 30 %.
+7. **Geometry** (css/cssom-view): depends on layout correctness (the reftest work) and on scroll
+   events (step 4). Probe 25 %.
+8. **Encoding, URL, streams, hr-time**: pure JavaScript, no server, big cheap wins (one encoding
+   gap = 6,800 subtests; WritableStream/TransformStream missing). NEW: streams move before fetch,
+   because fetch bodies are streams. Can be done any time by a Sonnet in parallel.
+9. **fetch / XHR / cookies / EventSource / WebSocket**: needs wptserve (phase 2) and https
+   (phase 3); cookies and CORS partly live in wire.
+10. **Media**: archived (DECISIONS 2026-11-21); out of the plan.
+
+Steps 2-3 and 6 and 8 can overlap (different files, different agents); 4 depends on QEL1; 5 depends
+on 4.
+
+### 4. Event loop audit against HTML "update the rendering" (item c, read-only)
+
+Terms: a **task** is one unit of work from a queue (a timer callback, an event from input, a
+network result). After every task, and after every callback when the JavaScript stack becomes
+empty, the browser runs a **microtask checkpoint** (all queued promise reactions,
+`queueMicrotask`, MutationObserver deliveries). Roughly every 16.7 ms, when there is something to
+show, the browser runs **"update the rendering"**, in this order: resize events -> scroll events
+-> media-query `change` events -> CSS/Web animations and their events -> rAF callbacks (all with
+the same timestamp) -> style + layout -> ResizeObserver (gather, deliver, repeat while deeper
+elements changed) -> focus fix-up -> IntersectionObserver evaluation (callbacks are then queued as a
+task) -> paint. A **forced layout** is script reading geometry (`getBoundingClientRect`,
+`offsetWidth`) when style/layout are stale: the browser runs style+layout immediately.
+
+What scratchy does (window mode, one winit loop iteration):
+
+1. Input events from winit are dispatched to JS immediately (`App::window_event` -> `App::js_dispatch`
+   -> `JsEngine::dispatch_event` -> `__scratchy_dn`), each as one task with a checkpoint after it.
+2. `RedrawRequested` -> `App::redraw`: if dirty, `rebuild_layout` / `rebuild_live` (the incremental
+   engine; big updates go to the shaping worker), then paint what is laid out, then present.
+   `install_laid` calls `JsEngine::rendered_geometry` (IntersectionObserver may evaluate on this
+   layout).
+3. `App::about_to_wait`: `flush_pointer_move`; `sync_node_scroll` + `JsEngine::set_scroll` (scrollY
+   only); `JsEngine::set_viewport` (`__scratchy_setvp`: fires `resize`); `JsEngine::run_due_slice`
+   (all due timers, rAF callbacks and observer flushes, in due-time order, max 100 per turn, a 16
+   or 50 ms slice: `timer_slice`); `App::js_sync` (DOM writes become `layout_dirty` and a redraw);
+   `App::anim_tick` (CSS animation events); then sleep until the next deadline.
+
+Headless (`--js-report`, `--perf-report` and the probe): only scripts, timers and network on a
+simulated clock (`js_report_for_scripts_timers`); no rendering step at all.
+
+Correct today: a checkpoint after every script, timer, rAF callback and observer flush
+(`eval_value_as` -> `drain_after_task` -> `Engine::drain_jobs` -> `perform_microtask_checkpoint`);
+MutationObserver delivered as a microtask in creation order (`moNotify`; WPT
+MutationObserver-callback-order passes); a rAF requested inside rAF runs in a later frame (WPT
+nested-raf-not-sync passes); queueMicrotask interleaving (WPT queue-microtask.window.js passes);
+`resize` coalesced to one per frame; forced layouts exist and go through the same incremental
+engine as the App's frames (QINC1i), which is the right model.
+
+Deviations (E = event-loop finding; WPT evidence from the probe where it exists):
+
+| # | Deviation | Where (functions) | HTML says | Evidence |
+|---|---|---|---|---|
+| E1 | rAF is a timer: due at the next 60 Hz boundary of the script clock, run by `__scratchy_timers_run_one` mixed with ordinary timers; not tied to a frame (runs while a layout is in flight, when nothing changed, when the window is hidden); a batch can be split by `timer_slice` / `MAX_TIMERS_PER_TURN`, with a paint in between | `TIMERS_PRELUDE` `add(.., raf)`, `JsEngine::run_due_slice`, `App::about_to_wait` | rAF callbacks are a per-document list run inside "update the rendering", all at once, before style/layout | design |
+| E2 | rAF ids share the timer id counter; each rAF callback gets `now` at its own start, not the frame time | `TIMERS_PRELUDE` (`nextId`, `t.fn.apply(.., [now])`) | own id space; one timestamp per frame | WPT no-interference-timers FAIL ("expected 1 but got 3") |
+| E3 | Rendering-step order: CSS animation events after rAF; no scroll events; no MQL change; RO/IO not after layout | `App::about_to_wait` (`run_due_slice` before `anim_tick`) | animations+events -> rAF -> layout -> RO -> IO | probe page below |
+| E4 | ResizeObserver reports the `width`/`height` attributes (0x0 for a div) once, at `observe()`, via a setTimeout(0) task; never again on a size change; no depth loop, no "loop completed with undelivered notifications" error | `RO.prototype.observe` (`attrPx`), `obsSchedule`, `obsFlush` in js_dom.rs | gather sizes after layout every rendering update, deliver, repeat for deeper targets | probe: 100x50 div -> `ro:0x0`; width 100->200 px -> no callback; WPT RO score 31 % (archived QRO1) |
+| E5 | IntersectionObserver evaluated at timer boundaries: `__scratchy_ioTick` runs before AND after every timer callback, a deferred `ioDueT` timer 100-2000 ms after a geometry-only change, or `__scratchy_ioRendered` after an App layout | `__scratchy_timers_run_one`, `ioNudge`, `ioRecheck`, `JsEngine::rendered_geometry` | evaluate once per rendering update (after RO, before paint) with the frame time; then queue a task for the callbacks | probe order below; WPT IO v1 score 21 % |
+| E6 | Trusted events dispatched from Rust run every listener inside ONE eval: promise jobs queued by listener 1 run after the last listener | `JsEngine::dispatch_event` -> `__scratchy_dn` -> `dispatch` | a microtask checkpoint after each listener (stack empty) for UA-dispatched events | design; WPT's trusted variants need testdriver |
+| E7 | Exceptions thrown by timer and rAF callbacks are logged, not "reported": no `error` event at window, `onerror` never called; same for observer callbacks | `__scratchy_timers_run_one` catch -> `__scratchy_err`; `obsErr` | "report the exception": ErrorEvent at the global, then console | WPT animation-frames/callback-exception and timers/errors TIMEOUT |
+| E8 | Every setInterval is clamped to >= 4 ms | `TIMERS_PRELUDE` `add` (`if (repeat \|\| level > 5)`) | clamp only when the nesting level is > 5 | WPT timers/setinterval-settimeout-clamping FAIL |
+| E9 | postMessage / MessageChannel messages are setTimeout(0) timers; requestIdleCallback is setTimeout(1) with a guessed 50 ms deadline | globals_prelude.js `tm`, `requestIdleCallback` | message tasks have their own task source; idle callbacks run in idle periods | design (no 4 ms clamping seen in 12 hops) |
+| E10 | User scrolling (wheel, keys, scrollbar) only updates `scrollY`: no `scroll` event at window or elements, no `scrollend`, no `wheel` events; element `scroll` events only for script scrolls, as a timer task | `JsEngine::set_scroll`, `gScrollEvent` | scroll events fired in the rendering steps, coalesced per frame | WPT scrollend tests fail |
+| E11 | `MediaQueryList` `change` never fires | js.rs `matchMedia` | evaluated in the rendering steps | code comment |
+| E12 | `getComputedStyle` runs its own cascade with no layout: `width`/`height` return the specified value (`auto`), not the used px | js_style.rs (`StyleCache`) | resolved value of width/height = used value for rendered elements | part of the css/cssom failures |
+| E13 | All classic scripts run after the whole document is parsed (scripts see the full DOM), then modules, DOMContentLoaded, iframes and load, synchronously | `run_page` | parser-blocking scripts run during parsing; DOMContentLoaded and load are separate tasks | WPT dynamic-markup-insertion 3 % |
+| E14 | `visibilityState` is always `visible`; rAF and rendering never throttled | js.rs (`visibilityState` getter) | hidden documents skip rendering updates | design |
+| E15 | Paint may show a partly shaped layout (progressive shaping on the worker), so painted geometry can differ from script geometry for a few frames | `App::redraw`, `install_laid` (incomplete ticks) | layout completes before paint | deliberate (perf); keep, document |
+
+Probe (headless, simulated clock) for E3/E4/E5, one page that registers RO + IO on a 100x50 div,
+then `setTimeout(0)`, then two rAFs, then resizes the div at 100 ms:
+
+```
+scratchy:  ro:0x0, io:true, timeout0, micro-after-timeout0, raf1, micro-after-raf1, raf2 (same ts), raf-next-frame, resized   (no second ro)
+expected:  timeout0, micro-after-timeout0, raf1, micro-after-raf1, raf2, ro:100x50, io:true, raf-next-frame, ..., resized, ro:200x50
+```
+
+Forced layouts: geometry reads update the incremental engine on the main thread (`js_geom`
+`refresh_engine`), cached until the next DOM write; that matches HTML's "update style and layout
+when needed". The deviations above are about WHEN things run, not about forced layouts.
+
+### 5. Missing-API report for real sites (item d)
+
+Goal: for a real page, list the web APIs it touched that scratchy does not have, ranked by how
+many sites need them, so area work follows real demand.
+
+What to catch, and how cheaply (V8):
+
+1. **Calls and reads of members that do not exist** (`el.animate(...)`, `navigator.userActivation`)
+   and **feature probes** (`'IntersectionObserver' in window`, `typeof ResizeObserver`,
+   `if (window.CSS && CSS.highlights)`). Mechanism: in report mode only, insert ONE forwarding
+   `Proxy` at the very end of the prototype chains of window and of the DOM objects (between
+   `EventTarget.prototype` and `Object.prototype`). A lookup reaches it only when the name was not
+   found anywhere on the object or its DOM prototypes, i.e. exactly a miss. Its `get` and `has`
+   traps record `(name, receiver interface, kind get|has, first calling script URL)` and forward to
+   `Object.prototype`, so every answer the page gets is unchanged (`'x' in el` stays false, a read
+   stays `undefined`). Global misses go the same way: an undeclared `Foo` or `typeof Foo` makes V8
+   ask the global object's chain. No V8 API change and no snapshot change is needed (an
+   alternative, a V8 non-masking named interceptor on the global template, would need the template
+   baked into the startup snapshot and its callbacks in `external_refs`; the report mode can use the
+   existing slow-start path instead, but the Proxy covers DOM prototypes too).
+   Noise filter: pages read their own expando names (`el.__reactFiber...`); names are classified
+   against a list of standard members generated from WPT's `interfaces/*.idl` (363 files at the
+   pin; `resources/webidl2` parses them) into a committed JSON (interface -> members). Standard
+   name = "missing API"; other names = ignored (counted only).
+2. **Uncaught errors that name a missing API**: V8 messages `X is not a function`, `Cannot read
+   properties of undefined (reading 'y')`, `Foo is not defined` are already logged; the report
+   groups them by the named member.
+3. **Existing stubs**: 22 `not implemented` log lines in the preludes (SubtleCrypto, javascript:
+   URLs, iframe navigation, ...) count as "present but stubbed".
+4. **CSS feature probes and drops** (always-on counters, they only run on a parse failure):
+   declarations dropped for an unknown property or invalid value (by property name), rules dropped
+   because a selector did not parse (by pseudo-class, e.g. `:has()`), unknown at-rules, `@supports`
+   / `CSS.supports()` that returned false (by condition), unknown media features in `matchMedia`.
+
+Cost: zero outside report mode by construction (nothing is installed). In report mode, every miss
+on a DOM object goes through a Proxy trap, and V8 stops caching lookups through that chain, so JS
+runs slower; the first item must measure it on the 7 gate pages (`--perf-report` JS time with and
+without, acceptance: report mode at most 2x JS time, normal mode byte-identical behaviour). The
+CSS counters are a few increments per dropped declaration (Wikipedia/YouTube drop at most
+thousands per load): unmeasurable.
+
+Output: `scratchy --missing-api-report [--socket S] [--seconds N] URL...` prints one JSON object per
+page (globals, members, errors, stubs, css). `tools/missing-api/corpus.sh` runs a site list (the
+gate pages plus a user list, through replay recordings when they exist) and merges into a table
+"API -> number of sites, total hits, example URL", which goes into the area triage items.
+
+### 6. Offline recorded pages for deterministic perf runs (item e)
+
+Today `tools/incr-gate/run.sh` loads live YouTube, Wikipedia, github, bbc and social.loupax.com.
+The pages change daily (new scripts, A/B tests, ads), so a slower run can be the site's fault, and
+nothing can become a CI budget.
+
+**Recording and replay in wire** (scratchy needs no change to use it, it already sends everything to
+wire):
+
+- `wire --record DIR`: for every request, store the response body once by content hash
+  (`DIR/blobs/<sha256>`, zstd) and append one index line `{seq, t_ms, method, url, range,
+  req_body_sha256, status, headers, body_sha256}` to `DIR/index.jsonl`. WebSocket: not recorded
+  in v1 (replay refuses the upgrade; pages fall back or log).
+- `wire --replay DIR`: answer from the index only, never the network. Matching, in order: exact
+  `(method, url, request body hash, range)`; then the same with query parameters from a per-host
+  ignore list removed (`tools/replay-rules.txt`, e.g. YouTube `rn`, `cpn`, `t`; cache-busters `_`,
+  `cb`); then the n-th request to the same path. A range request inside a recorded range is
+  served from that body. A miss answers 404 with `X-Wire-Replay: miss` and one log line; a gate
+  run with more than a handful of misses is invalid. Latency: none, or a fixed per-request delay
+  (`--replay-delay 5ms`), never the recorded one (recorded latency is the noise we remove).
+  Cookies: the jar works as usual on replayed Set-Cookie headers; recordings are made logged out
+  with a fresh jar so they hold no personal session.
+- scratchy side (`--deterministic`, report modes only): V8 `--random-seed`, a seeded
+  `crypto.getRandomValues`, `Date.now()` starting at the recording's time (pages check expiry
+  timestamps), network results delivered in request order at turn boundaries (today fetch threads
+  race).
+
+**Size (estimate, to be measured by QREC3):** main HTML documents measured today: Wikipedia 160 KB,
+bbc 64 KB, YouTube results 136 KB, watch 133 KB, social.loupax.com 9 KB. Subresources dominate:
+YouTube's app script alone is ~10 MB of source (R23, R24), github's hero section
+inserts two video files (R63). Estimate per page: Wikipedia 2-4 MB, bbc 4-8 MB, social < 1 MB,
+github 10-25 MB (videos), YouTube results 15-25 MB, YouTube watch 20-30 MB plus 10-40 MB of video
+for a 56 s run. Total ~60-130 MB raw, ~40-90 MB after zstd (video does not compress). The
+repository is PUBLIC: copies of third-party pages and their scripts must not be committed (user
+decision Q5).
+
+**Budgets to set first** (file `perf-budgets.txt`: metric, page, mode, limit, where; checked by a
+small `tools/budget-check.py` over the existing `--perf-report` JSON and `summarize.py` rows):
+
+| budget | first limit | where | why |
+|---|---|---|---|
+| peak RSS, headless 20 s, github home | <= 1.5 GB | CI + local | R63/QOOM1 grew to 15 GB |
+| peak RSS, headless 30 s, YouTube watch | baseline + 20 % | CI + local | memory regressions are cheap to catch |
+| script forced layouts, headless: count per page | baseline + 10 % | CI + local | deterministic with replay + `--deterministic` |
+| largest callback after load (ms, budget clock) | <= 300 ms YouTube pages | local (perf lock) | R56 measured 130-264 ms |
+| App build ms per run, window, Wikipedia hover plan | baseline + 15 % | local (nested dwl) | QINC1k3 gate |
+| hover input p95 (window, hover.html + wiki) | <= 50 ms | local | QY53n5 gate |
+| YouTube results: masthead finished / 20 results in | <= 6 s / <= 6 s | local | R56: 4.3 s / 3.3-4.4 s |
+
+CI (no compositor with input; the shared runners are noisy) checks only counts and memory, on
+replayed pages if the user allows CI access to recordings (Q5), else on synthetic pages committed
+to the repo (hover.html, img-geom.html, a generated "article with floats" page). Wall-clock
+budgets stay local, under the perf lock, with 3 interleaved runs and the median.
+
+### 7. User decisions (questions, with my recommendation)
+
+- **Q1. Test server for phase 1.** (a) a static mount inside wire, (b) WPT's Python server from day
+  one, (c) an in-process loader in scratchy. *Recommendation: (a)*: no Python, no new socket,
+  covers 95-100 % of phase 1; (b) later for fetch/xhr.
+- **Q2. May WPT's Python server (wptserve) run locally and in CI, with wire fetching it on
+  127.0.0.1 through a `*.web-platform.test` host map?** It is needed for fetch/xhr/cookies (the
+  `.py` handlers). *Recommendation: yes, in phase 2, only for `*.web-platform.test`.*
+- **Q3. Should testharness regressions block merges like reftests** (no passing subtest may start
+  failing; newly passing ones recorded in the same PR; a flaky list for unstable files)?
+  *Recommendation: yes, from the first CI run, with `wpt-th/flaky.txt`.*
+- **Q4. CI time.** OK to add ~2-3.5 min to the scratchy job (one job), or prefer a separate parallel
+  job (no longer wait, ~2 min more runner time)? *Recommendation: one job first; split only if it
+  grows past 5 min.*
+- **Q5. Where do page recordings live?** The repo is public; recordings are copies of third-party
+  pages. (a) local only (`~/.cache/scratchy/recordings`), CI budgets on synthetic in-repo pages;
+  (b) a private repository or private release asset that CI downloads with a token; (c) no
+  recordings, keep live pages. *Recommendation: (a) now; (b) only if CI budgets on real pages prove
+  necessary.*
+- **Q6. Approve the area order in 3.2** (WebIDL moved up with events; observers inside the event
+  loop step; a separate scripting/parsing step; encoding/url/streams before fetch)?
+  *Recommendation: yes.*
+- **Q7. Headline metric** = per-file score (mean of passed/total per file, like wpt.fyi), with
+  subtest pass % beside it? *Recommendation: yes; raw subtest counts let one encoding file with
+  11,000 checks dominate.*
+- **Q8. HTTPS tests** need wire to trust WPT's test CA, for `*.web-platform.test` only. Now, later,
+  or never? *Recommendation: later (with fetch), never for any other host.*
+
+### 8. Follow-up items (item f), ready to paste into TODO.txt
+
+Sizes as in TODO.txt (S < ~200 lines, M = several functions / new plumbing; nothing here is L, the
+larger pieces are already split). "Opus" = needs design judgement, "Sonnet" = clear spec.
+Recommended order: QWPT2 -> QWPT3 -> QWPT4a -> QWPT4b -> QWPT5 -> QWPT6, with QMAPI1 and QREC1 in
+parallel (other crates/files); then QEL1 and the area triage items in the 3.2 order.
+
+```
+- [ ] QWPT2 [S] (P1; Sonnet; tools/, ci.yml, AGENTS.md; R64 2.1, 2.7) WPT checkout + pin + reftests in CI.
+      tools/wpt-pin.txt (one line: ac78b567f5404b6f2dc0418ea380af3946a47fca; AGENTS.md points to it),
+      tools/wpt-dirs.txt (R64 2.1 table: phase-1 dirs + css fonts images resources common css/support
+      html/resources), tools/wpt-checkout.sh DIR (blobless depth-1 sparse clone of the pin; refuses a
+      checkout whose HEAD differs). CI: actions/cache keyed on pin + dirs hash, then the existing
+      `scratchy --wpt` reftest run (0.9 s locally). FIRST check that wpt-expected.txt holds with CI's
+      fonts (Liberation + Ahem); if not, report the differing tests and keep reftests local (do not
+      edit expectations to match CI without the coordinator).
+- [ ] QWPT3 [M] (P1; Sonnet; wire only; R64 2.4 option 3; WAITS FOR USER Q1) wire static mount.
+      `wire --mount http://web-platform.test:8000=DIR` (+ www/www1/www2 subdomains and :8001 as
+      aliases): files with Content-Type by extension, `<file>.headers` and `__dir__.headers`,
+      generated wrappers for `x.any.js` (served at x.any.html) and `x.window.js` (x.window.html, META
+      script/title/timeout lines honoured), alias /resources/WebIDLParser.js ->
+      /resources/webidl2/lib/webidl2.js, `.sub.` substitution of {{host}}, {{domains[www]}},
+      {{ports[http][0]}}, {{ports[http][1]}}; `--mount-override PATH=FILE` (testharnessreport.js,
+      testdriver-vendor.js); `.py` -> 501 + one log line. No socket for a mounted origin. Tests in wire.
+- [ ] QWPT4a [M] (P1; Opus; new src/wpt_th.rs, js.rs report path; R64 2.2, 2.3; after QWPT3) Test child.
+      `scratchy --wpt-th-one --socket S URL`: headless page load through wire, the vendor
+      testharnessreport.js (setup({output:false}), completion callback -> native __scratchy_wpt_done,
+      installed only in this mode), virtual clock that advances only when no task is runnable AND no
+      load is pending, 800x600 viewport, Ahem font; prints ONE JSON line {harness, message, tests}
+      or nothing (parent says CRASH). Tests: fixture pages in a mini checkout (pass, fail, harness
+      error, timeout -> TIMEOUT in < 1 s real time, a pending fetch does not time out).
+- [ ] QWPT4b [M] (P1; Sonnet; src/wpt_th.rs; R64 2.3, 2.5, 3.1; after QWPT4a) Runner parent.
+      `scratchy --wpt-th <checkout> [--jobs N] [--update] [--area A]`: starts a private wire with the
+      mount (own socket, never /run/user/1000/wire.sock; kills only its PID), pool of children, 30 s
+      real-time cap per child (kill own PID -> TIMEOUT), reads wpt-th/subset.txt, writes/compares
+      wpt-th/expected/<area>.txt (format R64 2.5), honours wpt-th/flaky.txt, writes wpt-th/areas.txt.
+      Exit 1 on REGRESSION/UNRECORDED/CHANGED. Worker variants listed as NOT-RUN.
+- [ ] QWPT5 [S] (P1; Sonnet; ci.yml; after QWPT2, QWPT4b, QWPT6; WAITS FOR USER Q3, Q4) CI step: build
+      wire in the scratchy job, run `--wpt-th --jobs 4`, fail on regressions, write the areas table
+      and its diff vs main into $GITHUB_STEP_SUMMARY. Measure and report the added minutes.
+- [ ] QWPT6 [S] (P1; Sonnet; wpt-th/; after QWPT4b) Phase-1 subset and baseline: generate
+      wpt-th/subset.txt from tools/wpt-dirs.txt + the WPT manifest of the pin (skip legacy-mb encoding
+      variants and timeout=long files: nightly), run 3 times, put files whose results differ into
+      flaky.txt with a reason, record expectations, commit areas.txt. Report the table in the PR.
+- [ ] QWPT7 [M] (P2; Opus; testdriver-vendor.js + natives; after QEL1) testdriver: test_driver.click,
+      send_keys, action_sequence (pointer + key) as synthetic input through the App's input path in
+      the headless rendering loop (hit testing on the real layout). Unlocks dom/events (77 files),
+      uievents (57), pointerevents.
+- [ ] QWPT8 [M] (P2; Sonnet; tools/, wire --map-host; WAITS FOR USER Q2) Phase 2 server: tools/wptserve.sh
+      (python3 ./wpt serve from a checkout that includes tools/), wire `--map-host
+      '*.web-platform.test=127.0.0.1'`, runner `--server wptserve`; add fetch/ and xhr/ to the subset.
+- [ ] QWPT9 [S] (P3; Sonnet; wire; WAITS FOR USER Q8) https tests: wire trusts WPT's test CA for
+      *.web-platform.test only; add .https. tests.
+- [ ] QEL1 [M] (P1; Opus; new src/event_loop.rs, app.rs, js.rs TIMERS_PRELUDE; R64 section 4 E1-E3; after
+      QWPT4b so the change is measured) Rendering-steps driver shared by the App and the headless
+      runner: one function runs, per frame: resize -> scroll events -> MQL change -> animation events
+      -> rAF batch (own id space, one timestamp, never split by the timer slice) -> style/layout through
+      the engine -> [RO, IO hooks] -> paint (App only). The App calls it at frame time (when something
+      is dirty or a rAF is pending); headless runs it on virtual 16.7 ms frames. Keep today's cost
+      tricks. Tests: WPT html/webappapis/animation-frames all pass; order probe (R64 4) gives the
+      HTML order.
+- [ ] QEL2 [M] (P1; Sonnet; js_dom.rs RO, geometry; after QEL1; supersedes archived QRO1) ResizeObserver
+      with real sizes (content/border/device-pixel boxes from the engine's layout), gathered and
+      delivered in the rendering step, depth loop and the "ResizeObserver loop completed with
+      undelivered notifications" error event. Gate: resize-observer score up, github.com card grids
+      no longer dropped (QINC1k5 finding).
+- [ ] QEL3 [S] (P2; Sonnet; js_dom.rs IO; after QEL1) IntersectionObserver evaluated once per rendering
+      update (after RO, before paint) with the frame time, callbacks queued as a task; remove the
+      per-timer __scratchy_ioTick calls; keep the App-layout reuse. Gate: intersection-observer score
+      not lower, YouTube thumbnails still load (QY57r).
+- [ ] QEL4 [S] (P2; Sonnet; js.rs TIMERS_PRELUDE, js_dom.rs obsErr) "Report the exception" for timer,
+      rAF and observer callbacks (ErrorEvent at window, onerror, then the log line). Gate: WPT
+      animation-frames/callback-exception and timers/errors pass.
+- [ ] QEL5 [S] (P2; Sonnet; js.rs TIMERS_PRELUDE) Clamp setInterval to 4 ms only at nesting level > 5.
+      Gate: WPT timers/setinterval-settimeout-clamping.
+- [ ] QEL6 [S] (P2; Sonnet; js.rs dispatch, __scratchy_dn) Microtask checkpoint between listeners of
+      UA-dispatched (trusted) events. Test: two click listeners, a promise in the first resolves
+      before the second runs; synthetic el.click() keeps today's order.
+- [ ] QEL7 [S] (P2; Sonnet; app.rs, js.rs; after QEL1) scroll events for user scrolling (window and
+      elements, coalesced per frame in the rendering step), scrollend, wheel events; MQL change events.
+- [ ] QEL8 [S] (P3; Sonnet; globals_prelude.js) postMessage/MessageChannel on their own task queue (not
+      the timer table); requestIdleCallback only when the loop is idle, deadline from the next timer
+      or frame. Measure bbc.com (R62 MessagePort finding) before/after.
+- [ ] QEL9 [M] (P2; Opus; DESIGN ONLY first; after QEL1 and QWPT6) Script processing model: running
+      parser-blocking scripts during parsing (scripts see the partial DOM), defer/async ordering,
+      DOMContentLoaded/load as tasks. Measure html/semantics/scripting-1 and dynamic-markup-insertion
+      first; write the design for the user.
+- [ ] QMAPI1 [M] (P1; Sonnet; new src/missing_api.rs + prelude; R64 section 5; independent) Missing-API
+      report mode `scratchy --missing-api-report [--socket S] [--seconds N] URL...`: one forwarding
+      Proxy at the end of the window and DOM prototype chains (get/has traps record misses, answers
+      unchanged), IDL member list generated from WPT interfaces/*.idl (tool script + committed JSON),
+      V8 error-message grouping, existing `not implemented` stubs; JSON per page. Measure the report
+      mode's JS-time cost on the 7 gate pages (acceptance <= 2x) and prove normal mode installs
+      nothing (test).
+- [ ] QMAPI2 [S] (P2; Sonnet; css.rs counters; after QMAPI1) CSS part of the report: dropped declarations
+      by property, dropped rules by unparsed pseudo-class/element, unknown at-rules, false
+      @supports/CSS.supports conditions, unknown media features.
+- [ ] QMAPI3 [S] (P2; Sonnet; tools/missing-api/; after QMAPI1) corpus.sh over a site list (gate pages +
+      a list the user provides), merged table "API -> sites, hits, example URL" into an R-section.
+- [ ] QREC1 [M] (P2; Sonnet; wire only; R64 section 6; independent) wire --record DIR / --replay DIR
+      (blobs by sha256 + zstd, index.jsonl, matching exact -> ignore-list -> n-th same path, ranges,
+      404 + X-Wire-Replay: miss, --replay-delay, WebSocket refused in replay). Tests in wire.
+- [ ] QREC2 [S] (P2; Sonnet; js_engine_v8.rs, js.rs; after QREC1) scratchy --deterministic (report
+      modes): V8 --random-seed, seeded crypto.getRandomValues, Date epoch from the recording, network
+      results delivered in request order.
+- [ ] QREC3 [S] (P2; Sonnet; tools/incr-gate; after QREC1, QREC2; WAITS FOR USER Q5) Record the 7 gate
+      pages; run.sh/gate.sh REPLAY=DIR; measure recording sizes and 3-run variance of the summarize.py
+      columns live vs replay; write the numbers into R64.
+- [ ] QBUD1 [S] (P2; Sonnet; perf-budgets.txt, tools/budget-check.py; after QREC3) First budgets (R64 6
+      table); local check in the AGENTS.md checklist for perf-touching PRs; CI only counts + RSS on
+      synthetic or (per Q5) replayed pages.
+- [ ] QAREA-DOM [M] (P1; Opus; docs only; after QWPT6) Triage the dom/* failures of the baseline by root
+      cause (probe hints: tagName case, document.charset, createProcessingInstruction, Range type
+      checks, replaceWith/splitText missing), file S fix items with target scores. Same pattern
+      later: QAREA-IDL, QAREA-EL, QAREA-CSSOM, QAREA-VIEW, QAREA-ENC (single-byte encodings: one gap,
+      ~6,800 subtests), QAREA-STREAMS.
+```
+
+Recommended first three: **QWPT2** (pin, checkout, reftests in CI: small, useful at once, needs no
+decision), **QWPT3** (wire mount; after Q1), **QWPT4a** (the test child). With those, QWPT4b/6 give
+the first committed baseline, and QMAPI1/QREC1 can start any time in parallel.
+
+How this was measured (for re-runs): the WPT manifest for the pin was downloaded from the release
+`merge_pr_65461`; counts come from it plus `git ls-tree` of the pinned tree. The probe pages were
+built by inlining scripts from a sparse checkout under the worktree and run with the worktree's
+release build: `systemd-run --user --scope -q -p MemoryMax=6G -p MemorySwapMax=0 nice -n 19 ionice
+-c3 ... scratchy --js-report --run-timers 30000 <page>`, 4 at a time. The order probe and the
+empty-page startup time used the same binary. No live site was loaded by scratchy.
