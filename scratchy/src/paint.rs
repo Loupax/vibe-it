@@ -63,6 +63,9 @@ pub(crate) fn intersect_clip(x: f32, y: f32, w: f32, h: f32, clip: Option<(f32, 
     (x0, y0, (x1 - x0).max(0.0), (y1 - y0).max(0.0))
 }
 
+/// See `fill_rect`: rounding noise of the f32 layout coordinates, far below anything visible.
+const PX_SNAP: f32 = 1e-3;
+
 /// `clip` is the nearest ancestor's `overflow: hidden` content-box bounds
 /// (screen space, post-scroll), same as `paint_buffer`'s own — applied
 /// once here via `intersect_clip`, so every caller (directly, or through
@@ -85,10 +88,14 @@ pub(crate) fn fill_rect(
         return;
     }
     let (x, y, w, h) = intersect_clip(x, y, w, h, clip);
-    let x0 = x.max(0.0) as i64;
-    let y0 = y.max(0.0) as i64;
-    let x1 = ((x + w).min(win_w as f32)) as i64;
-    let y1 = ((y + h).min(win_h as f32)) as i64;
+    // QINC1k1: an edge within `PX_SNAP` below a pixel boundary counts as on it. Layout positions are f32
+    // sums in document space, so an edge meant to be at 485 can come out as 484.99957 (a `bottom: 0`
+    // banner whose height and position were rounded differently); plain truncation then drops the last
+    // row. Translation-invariant content heights (layout.rs `ry`) moved some edges by such ulps.
+    let x0 = (x + PX_SNAP).max(0.0) as i64;
+    let y0 = (y + PX_SNAP).max(0.0) as i64;
+    let x1 = ((x + w + PX_SNAP).min(win_w as f32)) as i64;
+    let y1 = ((y + h + PX_SNAP).min(win_h as f32)) as i64;
     if x1 <= x0 || y1 <= y0 {
         return;
     }

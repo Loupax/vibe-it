@@ -1271,11 +1271,6 @@ pub(crate) fn resolve_positioned<'a>(
     };
     let (dx, dy) = (final_x - laid.x, final_y - laid.y);
     shift_laid_tree(&mut laid, dx, dy);
-    // QINC1k1: the box itself lands exactly on its computed edge (`laid.y + dy` rounds again at the
-    // provisional position's magnitude; with `bottom: 0` that left the bottom edge a few ulps above the
-    // containing block's, which paint's truncation turns into a 1 px gap). Its subtree keeps the shift.
-    laid.x = final_x;
-    laid.y = final_y;
     // The bubbled-out entries' static positions were captured at the
     // provisional position; they move with this box (their `top`/`left`,
     // when set, are viewport-relative and unaffected).

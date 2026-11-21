@@ -81,6 +81,21 @@ fn sibling_block_does_not_leak_decoration() {
     assert_eq!(decos[1], TextDecoration::new(), "second (sibling) div should NOT inherit the first's decoration: {:?}", decos);
 }
 
+/// QINC1k1: an edge a few f32 ulps below a pixel boundary (a `bottom: 0` box ending at 484.99957
+/// instead of 485) still covers that pixel; an edge well inside a pixel still does not.
+#[test]
+fn qinc1k1_fill_rect_edges_within_rounding_noise_snap_to_the_pixel_boundary() {
+    let color = TextColor::rgb(255, 0, 0);
+    let painted_rows = |y: f32, h: f32| {
+        let mut pixels = vec![0u32; 4 * 20];
+        fill_rect(&mut pixels, 4, 20, 0.0, y, 4.0, h, color, None);
+        (0..20u32).filter(|r| pixels[(r * 4) as usize] != 0).collect::<Vec<_>>()
+    };
+    assert_eq!(painted_rows(5.0, 9.99957), (5..15).collect::<Vec<_>>(), "bottom edge 14.99957 counts as 15");
+    assert_eq!(painted_rows(4.99957, 10.0), (5..15).collect::<Vec<_>>(), "top edge 4.99957 counts as 5");
+    assert_eq!(painted_rows(5.0, 9.9), (5..14).collect::<Vec<_>>(), "14.9 is still inside row 14");
+}
+
 // ---------- v40: `overflow: hidden` clips box decoration ----------
 
 #[test]
