@@ -83,7 +83,7 @@ fn first_below(ms: &[SearchMatch], top: f32) -> Option<usize> {
 }
 
 fn m_at(y: f32) -> SearchMatch {
-    SearchMatch { line: 0, start: 0, end: 1, rects: vec![(0.0, y, 10.0, 20.0)], regions: Vec::new() }
+    SearchMatch { line: 0, start: 0, end: 1, rects: vec![(0.0, y, 10.0, 20.0)], regions: Vec::new(), nodes: Vec::new() }
 }
 
 #[test]
@@ -360,4 +360,105 @@ fn qsearch2_kept_query_runs_on_a_new_page() {
     assert!(app.search.highlight);
     assert_eq!(app.search.matches.len(), 1);
     assert_eq!(app.status_message, "[1/1]");
+}
+
+// ---- QSEARCH3: Enter clicks the current match (S7, T18-T20) ----
+
+/// An app whose DOM, layout and JS all come from `body` (so the matches' node ids are the DOM's).
+fn click_app(body: &str, script: &str) -> Option<App> {
+    let event_loop = test_event_loop().ok()?;
+    let doc = parse_html(&format!("<html><body style='margin:0'>{body}</body></html>"));
+    let mut app = App::new_static(doc.clone(), event_loop.create_proxy(), None);
+    app.base_url = Some(Url::parse("https://e.org/page").unwrap());
+    app.js = run_page_scripts(&doc, &[src(script)], app.base_url.as_ref());
+    let tree = build_layout_tree(&doc, 1920.0);
+    let mut cache = ShapeCache::new();
+    let mut next_id = 0usize;
+    let mut incomplete = false;
+    let deadline = Instant::now() + std::time::Duration::from_secs(5);
+    let laid = measure_document(&tree, &mut app.font_system, 800.0, 600.0, &mut next_id, &mut cache, deadline, &mut incomplete);
+    app.cached = Some(Rc::new(laid));
+    app.shape_cache = cache;
+    app.key_mode = KeyMode::Normal;
+    app.surface_size = (800, 600 + crate::config::STATUS_BAR_H);
+    Some(app)
+}
+
+fn click_log(app: &App) -> String {
+    app.js.as_ref().unwrap().eval_value::<String>("t", "window.L.join('|')").unwrap_or_default()
+}
+
+#[test]
+fn qsearch3_enter_in_a_plain_link_navigates() {
+    let Some(mut app) = click_app("<p><a href='/next'>go needle here</a></p>", "window.L=[];") else { return };
+    app.commit_search("needle");
+    press(&mut app, Key::Named(NamedKey::Enter));
+    assert_eq!(app.history.last().map(Url::as_str), Some("https://e.org/next"));
+    assert_eq!(app.nav_generation, 1);
+}
+
+#[test]
+fn qsearch3_prevent_default_handler_runs_and_nothing_navigates() {
+    let script = "window.L=[]; document.getElementById('a').addEventListener('click',function(e){L.push('click:'+e.target.id); e.preventDefault();});";
+    let Some(mut app) = click_app("<p><a id=a href='/next'>go <span id=s>needle</span> here</a></p>", script) else { return };
+    app.commit_search("needle");
+    press(&mut app, Key::Named(NamedKey::Enter));
+    assert_eq!(click_log(&app), "click:s", "the click hit the inner element and bubbled to the link");
+    assert_eq!(app.nav_generation, 0);
+    assert!(app.history.is_empty());
+}
+
+#[test]
+fn qsearch3_match_in_a_button_fires_its_click() {
+    let script = "window.L=[]; document.getElementById('b').addEventListener('click',function(){L.push('b')});";
+    let Some(mut app) = click_app("<p><button id=b>Press needle</button></p>", script) else { return };
+    app.commit_search("needle");
+    press(&mut app, Key::Named(NamedKey::Enter));
+    assert_eq!(click_log(&app), "b");
+}
+
+#[test]
+fn qsearch3_match_in_plain_text_clicks_that_element() {
+    let script = "window.L=[]; document.getElementById('p').addEventListener('click',function(e){L.push('p:'+e.target.id)});";
+    let Some(mut app) = click_app("<p id=p>a needle b</p>", script) else { return };
+    app.commit_search("needle");
+    press(&mut app, Key::Named(NamedKey::Enter));
+    assert_eq!(click_log(&app), "p:p");
+    assert_eq!(app.nav_generation, 0);
+}
+
+#[test]
+fn qsearch3_match_spanning_two_links_warns_and_clicks_nothing() {
+    let script = "window.L=[]; document.addEventListener('click',function(){L.push('click')});";
+    let Some(mut app) = click_app("<p><a href='/one'>foo</a><a href='/two'>bar</a></p>", script) else { return };
+    app.commit_search("foobar");
+    assert_eq!(app.search.current, Some(0));
+    press(&mut app, Key::Named(NamedKey::Enter));
+    assert_eq!(app.status_message, "Match spans 2 links");
+    assert_eq!(click_log(&app), "");
+    assert_eq!(app.nav_generation, 0);
+}
+
+#[test]
+fn qsearch3_match_across_one_link_and_plain_text_clicks_inside_the_link() {
+    let script = "window.L=[]; document.getElementById('a').addEventListener('click',function(e){L.push('a:'+e.target.id); e.preventDefault()});";
+    let Some(mut app) = click_app("<p>foo<a id=a href='/one'><b id=b>bar</b></a></p>", script) else { return };
+    app.commit_search("foobar");
+    press(&mut app, Key::Named(NamedKey::Enter));
+    assert_eq!(click_log(&app), "a:b");
+}
+
+#[test]
+fn qsearch3_enter_without_a_current_match_does_nothing() {
+    let script = "window.L=[]; document.addEventListener('click',function(){L.push('click')});";
+    let Some(mut app) = click_app("<p><a href='/next'>needle</a></p>", script) else { return };
+    press(&mut app, Key::Named(NamedKey::Enter));
+    assert_eq!((click_log(&app).as_str(), app.nav_generation), ("", 0));
+    app.commit_search("zzz");
+    press(&mut app, Key::Named(NamedKey::Enter));
+    assert_eq!((click_log(&app).as_str(), app.nav_generation), ("", 0));
+    app.commit_search("needle");
+    app.search.clear_highlights();
+    press(&mut app, Key::Named(NamedKey::Enter));
+    assert_eq!((click_log(&app).as_str(), app.nav_generation), ("", 0));
 }

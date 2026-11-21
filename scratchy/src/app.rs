@@ -206,6 +206,8 @@ pub(crate) enum Action {
     SearchNext,
     /// QSEARCH2 (T15-T17): `N`, the previous match.
     SearchPrev,
+    /// QSEARCH3 (T18-T20): Enter clicks the element holding the current match.
+    ActivateMatch,
     /// QKEYS2 (T6): `i` hands the keyboard back to the page.
     EnterInputMode,
     HistoryBack,
@@ -230,7 +232,7 @@ pub(crate) enum Action {
 /// either way — repeating it just re-clears an already-empty command
 /// line — but listed here too since repeating it serves no purpose.
 pub(crate) fn action_ignores_repeat(action: Action) -> bool {
-    matches!(action, Action::HistoryBack | Action::HistoryFront | Action::EnterCommandMode | Action::EnterSearchMode | Action::EnterInputMode)
+    matches!(action, Action::ActivateMatch | Action::HistoryBack | Action::HistoryFront | Action::EnterCommandMode | Action::EnterSearchMode | Action::EnterInputMode)
 }
 
 /// The one chokepoint a real key event gets resolved into an `Action`
@@ -4392,6 +4394,7 @@ impl App {
             Action::ClearSearch => self.search.clear_highlights(),
             Action::SearchNext => self.search_step(true),
             Action::SearchPrev => self.search_step(false),
+            Action::ActivateMatch => self.activate_match(),
             Action::EnterInputMode => self.set_key_mode(KeyMode::Input),
             Action::ScrollTop => self.scroll_offset = 0.0,
             // `redraw` clamps to the real max scroll every frame, same as `j`.
@@ -4746,6 +4749,53 @@ impl App {
             (true, false) => format!("search hit TOP, continuing at BOTTOM [{}/{n}]", next + 1),
         };
         self.reveal_current_match();
+    }
+
+    /// QSEARCH3 (S7, T18-T20): Enter in normal mode: a real click on the element holding the
+    /// current match, through the same path as a mouse click (the page's handlers first, then the
+    /// default action: following a link, pressing a button), never a direct jump to an `href`.
+    /// Matched text inside 2+ different links: a warning and nothing else; one link: the first
+    /// matched char inside it; none: the first matched char. No current match: nothing.
+    pub(crate) fn activate_match(&mut self) {
+        let Some(m) = self.search.current.and_then(|i| self.search.matches.get(i)) else { return };
+        let nodes: Vec<usize> = m.nodes.iter().copied().filter(|&n| n != 0).collect();
+        let x = m.origin().0;
+        let pos = (x + 1.0, (m.doc_top(&self.scroll_offsets) - self.scroll_offset + 1.0).max(0.0));
+        // (node, nearest link ancestor's id) per matched char.
+        let mut links: Vec<usize> = Vec::new();
+        let mut first_in: Vec<(usize, usize)> = Vec::new();
+        for &n in &nodes {
+            let Some(h) = find_node_by_id(&self.document, n) else { continue };
+            if let Some(l) = enclosing_link(&h) {
+                let id = node_id(&l);
+                if !links.contains(&id) {
+                    links.push(id);
+                    first_in.push((id, n));
+                }
+            }
+        }
+        let node = match links.len() {
+            0 => nodes.first().copied(),
+            1 => first_in.first().map(|f| f.1),
+            n => {
+                self.status_message = format!("Match spans {n} links");
+                return;
+            }
+        };
+        let target = node.and_then(|n| find_node_by_id(&self.document, n));
+        let control = target.as_ref().and_then(enclosing_control);
+        if control.as_ref().is_some_and(is_disabled_control) {
+            return;
+        }
+        let node_href = target.as_ref().and_then(enclosing_link_href);
+        let mut in_control = control.is_some();
+        let ok = self.click_activate(target.as_ref(), pos);
+        if ok && control.is_none() && let Some(label) = target.as_ref().and_then(enclosing_label) {
+            in_control = self.forward_label_click(&label, pos);
+        }
+        if let (Some(href), true, false) = (node_href, ok, in_control) {
+            self.start_navigation(&href);
+        }
     }
 
     /// The editing keys shared by the `:` and `/` lines.

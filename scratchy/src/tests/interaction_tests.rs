@@ -1671,7 +1671,8 @@ fn every_config_binding_resolves_as_declared() {
     let e = ModifiersState::empty();
     let named = Key::Named;
     let ch = |c: &str| Key::Character(c.into());
-    assert_eq!(BINDINGS.len(), 21, "16 pre-QCONF1 rows + QKEYS2 `i` + QSEARCH1 `/` and Esc + QSEARCH2 `n` and `N`");
+    assert_eq!(BINDINGS.len(), 22, "16 pre-QCONF1 rows + QKEYS2 `i` + QSEARCH1 `/` and Esc + QSEARCH2 `n` and `N` + QSEARCH3 Enter");
+    assert_eq!(resolve_binding(&named(NamedKey::Enter), e, n), Some(Action::ActivateMatch));
     assert_eq!(resolve_binding(&ch("n"), e, n), Some(Action::SearchNext));
     assert_eq!(resolve_binding(&ch("N"), ModifiersState::SHIFT, n), Some(Action::SearchPrev));
     assert_eq!(resolve_binding(&ch("/"), e, n), Some(Action::EnterSearchMode));
