@@ -141,3 +141,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-21 Merged #511 QCOMP1, #514 QSEARCH3, #515 QDOM7 (dom/nodes 42.4 -> 43.0, total 29.1). #510 QEL1 accepted (+6-10 % live YouTube CPU) but conflicts -> agent rebasing. Launched QKEYS3, QCOMP4, QCONF2.
 - 2026-11-21 USER: yes to QINC1n (engine fallback log, sampled check log, :engine). Filed P1, next free slot (Opus). QINC1m now after QINC1n + 3 days.
 - 2026-11-21 Merged #516 QDOM1 f4753f7 (total 29.1 -> 30.3; strict undeclared assignment no longer throws -> QDOM1b). Filed QDOM1b, QMSG1. Launched QINC1n (Opus), QDOM2 (Sonnet). Merging #517 QCONF2, #518 QKEYS3.
+- 2026-11-21 Merged #517 QCONF2 d05821b (quota in config.rs; JS prelude copy now generated), #518 QKEYS3 44d038a. Merging #510 QEL1 then #519 QCOMP4. Launched QKEYS1b.

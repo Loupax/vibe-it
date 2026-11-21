@@ -8873,3 +8873,15 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       EventListener-handleEvent-cross-realm, traversal/TreeWalker-acceptNode-filter-cross-realm,
       ranges/Range-extractContents-dynamic-end. Target: nodes 42.4 -> 45, events 23.0 -> 25, other 55.2 -> 60;
       re-run all areas (html/*, shadow-dom, uievents use id globals too) and record their new passes.
+
+=== from TODO.txt: --- (no header)
+- [x] QCONF2 DONE d05821b #517 [S] (P2; USER 2026-11-21: "keep the setting together with the rest of the config items"; Sonnet;
+      src/stash.rs, src/config.rs) Move the localStorage quota (5 Mi UTF-16 units of keys+values per origin, QSTASH1)
+      and any other user-tunable stash/history limit into src/config.rs with a comment each, as QCONF1 did. No behaviour
+      change; existing stash tests pass unchanged.
+
+=== from TODO.txt: --- (no header)
+- [x] QKEYS3 DONE 44d038a #518 [S] (P3, after QKEYS2) Removals (P5): `:set vim`/`:set novim`, `vim_enabled`,
+      SIGUSR1/ToggleVimMode and signal-hook (if nothing else uses it), the `vim` key in
+      QCFG1's list; `:help` and NOTES.md describe the two modes and Esc Esc instead. Keep
+      every existing test that still applies; rewrite the ones that tested the toggle.

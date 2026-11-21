@@ -438,17 +438,13 @@ QKEYS — input mode / normal mode, Esc Esc, `i`, status bar (user design sessio
      the key. Today only Home/End exist because j/k covered the rest.
 
 
-- [ ] QKEYS1b [S] (P3, from QKEYS1 #492; Sonnet) The status bar's URL is empty for a file/stdin start page (empty
+- [ ] [WIP] QKEYS1b [S] (P3, from QKEYS1 #492; Sonnet) The status bar's URL is empty for a file/stdin start page (empty
       history): show `App::url` / `base_url` then. Test: a file: start page shows its URL in the bar.
 
 - [ ] QSB2b [M] (P3, from QSB2 #497; Sonnet) Horizontal scrollbars (window and overflow-x regions): ScrollInfo gains
       horizontal content/client widths and a per-region x scroll; the window bar sits above the status bar and the page
       viewport loses TRACK_W of height while it shows; scrollbar.rs axis-generic geometry/hit-test/drag (SbDrag/SbHold get an
       axis); wheel and shift-wheel stay consistent. Tests + nest/grim check.
-- [ ] [WIP] QKEYS3 [S] (P3, after QKEYS2) Removals (P5): `:set vim`/`:set novim`, `vim_enabled`,
-      SIGUSR1/ToggleVimMode and signal-hook (if nothing else uses it), the `vim` key in
-      QCFG1's list; `:help` and NOTES.md describe the two modes and Esc Esc instead. Keep
-      every existing test that still applies; rewrite the ones that tested the toggle.
 
 
 ========================================================================
@@ -540,10 +536,6 @@ QCOMP — scriptable command completion, history file, config in code (user desi
 Order (feature work: after the perf queue): QCONF1 -> QCOMP1 -> QCOMP2; QCOMP3 after QSTASH1
 (state directory); QCOMP4 after QCOMP1 and QCOMP3.
 
-- [ ] [WIP] QCONF2 [S] (P2; USER 2026-11-21: "keep the setting together with the rest of the config items"; Sonnet;
-      src/stash.rs, src/config.rs) Move the localStorage quota (5 Mi UTF-16 units of keys+values per origin, QSTASH1)
-      and any other user-tunable stash/history limit into src/config.rs with a comment each, as QCONF1 did. No behaviour
-      change; existing stash tests pass unchanged.
 - [ ] QCOMP2 [S] (P3, after QCOMP1) External sources (C1, C8; the menu part was DROPPED
       2026-11-20): `Source::Cmd(argv)`, run with no shell and the SCRATCHY_* environment,
       once per command line and argument position on a thread; its stdout lines are kept
