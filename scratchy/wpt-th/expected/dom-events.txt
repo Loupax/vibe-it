@@ -255,28 +255,6 @@ OK           2/3  dom/events/EventTarget-constructible.any.html
 OK           0/2  dom/events/EventTarget-dispatchEvent-returnvalue.html
   FAIL      Return value of EventTarget.dispatchEvent() affected by preventDefault().
   FAIL      Return value of EventTarget.dispatchEvent() affected by returnValue.
-OK          4/25  dom/events/EventTarget-dispatchEvent.html
-  FAIL      If the event's initialized flag is not set, an InvalidStateError must be thrown (BeforeUnloadEvent).
-  FAIL      If the event's initialized flag is not set, an InvalidStateError must be thrown (CompositionEvent).
-  FAIL      If the event's initialized flag is not set, an InvalidStateError must be thrown (CustomEvent).
-  FAIL      If the event's initialized flag is not set, an InvalidStateError must be thrown (DeviceMotionEvent).
-  FAIL      If the event's initialized flag is not set, an InvalidStateError must be thrown (DeviceOrientationEvent).
-  FAIL      If the event's initialized flag is not set, an InvalidStateError must be thrown (DragEvent).
-  FAIL      If the event's initialized flag is not set, an InvalidStateError must be thrown (Event).
-  FAIL      If the event's initialized flag is not set, an InvalidStateError must be thrown (Events).
-  FAIL      If the event's initialized flag is not set, an InvalidStateError must be thrown (FocusEvent).
-  FAIL      If the event's initialized flag is not set, an InvalidStateError must be thrown (HashChangeEvent).
-  FAIL      If the event's initialized flag is not set, an InvalidStateError must be thrown (HTMLEvents).
-  FAIL      If the event's initialized flag is not set, an InvalidStateError must be thrown (KeyboardEvent).
-  FAIL      If the event's initialized flag is not set, an InvalidStateError must be thrown (MessageEvent).
-  FAIL      If the event's initialized flag is not set, an InvalidStateError must be thrown (MouseEvent).
-  FAIL      If the event's initialized flag is not set, an InvalidStateError must be thrown (MouseEvents).
-  FAIL      If the event's initialized flag is not set, an InvalidStateError must be thrown (StorageEvent).
-  FAIL      If the event's initialized flag is not set, an InvalidStateError must be thrown (SVGEvents).
-  FAIL      If the event's initialized flag is not set, an InvalidStateError must be thrown (TextEvent).
-  FAIL      If the event's initialized flag is not set, an InvalidStateError must be thrown (UIEvent).
-  FAIL      If the event's initialized flag is not set, an InvalidStateError must be thrown (UIEvents).
-  FAIL      If the event's dispatch flag is set, an InvalidStateError must be thrown.
 OK           1/1  dom/events/EventTarget-removeEventListener.any.html
 OK           0/6  dom/events/EventTarget-this-of-listener.html
   FAIL      the this value inside the event listener callback should be the node

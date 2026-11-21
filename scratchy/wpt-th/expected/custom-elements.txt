@@ -415,7 +415,12 @@ OK         13/40  custom-elements/connected-callbacks.html
   FAIL      Inserting a custom element into a shadow tree in an HTML document fetched by XHR must enqueue and invoke connectedCallback
   FAIL      Inserting the shadow host of a custom element into an HTML document fetched by XHR must enqueue and invoke connectedCallback
 OK           2/2  custom-elements/createElement-reentrant-construction.window.html
-TIMEOUT      0/0  custom-elements/cross-realm-callback-report-exception.html
+OK           0/5  custom-elements/cross-realm-callback-report-exception.html
+  FAIL      constructor
+  FAIL      connectedCallback
+  FAIL      disconnectedCallback
+  FAIL      attributeChangedCallback
+  FAIL      adoptedCallback
 OK           0/6  custom-elements/custom-element-reaction-queue.html
   FAIL      Upgrading a custom element must invoke attributeChangedCallback and connectedCallback before start upgrading another element
   FAIL      Upgrading a custom element must not invoke attributeChangedCallback for the attribute that is changed during upgrading

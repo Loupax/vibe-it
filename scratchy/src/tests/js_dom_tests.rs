@@ -1965,3 +1965,10 @@ fn qerr1_onerror_true_suppresses_log_and_throwing_handler_does_not_recurse() {
     assert_eq!(log.iter().filter(|l| l.contains("again")).count(), 1, "{log:?}");
 }
 
+/// QEL1: iframes from the parser have their `window[i]` before the first script reads it (no
+/// `length` read needed first; WPT animation-frames/callback-cross-realm-report-exception).
+#[test]
+fn qel1_parser_iframes_have_window_index_at_first_script() {
+    let log = run_in_html("<iframe></iframe><iframe name=two></iframe>", "console.log(typeof frames[0], typeof window[1], typeof two, frames.length);");
+    assert_eq!(log, ["log:object object object 2"], "{log:?}");
+}

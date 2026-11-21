@@ -3221,8 +3221,8 @@ over a timer table (`TIMERS_PRELUDE`); Rust only calls `__scratchy_timers_next`
 and `__scratchy_timers_run_one`. `App::about_to_wait` runs due timers (max 100
 per turn, each with a fresh 5s interrupt budget, promise jobs drained after
 each) and sets `ControlFlow::WaitUntil(next)` or `Wait` (no wake-ups without
-timers). Intervals and >5-nested timeouts clamp to 4ms; rAF aligns to 60Hz and
-is not gated on window visibility yet.
+timers). Intervals and >5-nested timeouts clamp to 4ms. rAF is not a timer since QEL1
+(see "Rendering steps"); it is not gated on window visibility yet (E14).
 
 Events (Q33d): one `EventTarget` implementation in `PRELUDE` (WeakMap listener store keyed by the target object, shared by window/document/wrappers/bare targets) with capture/target/bubble `dispatch`; `on<type>` properties run after listeners. Rust fires trusted events with `JsEngine::dispatch_event` (-> `__scratchy_dn`, `None` target = body); `App::js_dispatch` also runs `js_sync`. Hooked: click (release and Enter on a focused link; `preventDefault` cancels navigation), keydown/keyup (before vim bindings, not in command mode), focus/blur/focusin/focusout in `set_focus_element`. DOMContentLoaded/load use the same dispatcher. input/change/submit natives wait for Q30 (Q33d1). QA12: inline `on<type>="..."` attributes are compiled lazily in `dispatch` (`attrHandler`: `new Function('event', src)`, cached per element+type in a WeakMap, recompiled when the attribute text changes) whenever the `on<type>` property is not a function; `<body>`/`<frameset>` window-forwarded types (`load`, `resize`, ...) are read from `<body>` when the event reaches the window. No `with` scope chain (only `this`, `event` and globals); `onerror`'s window signature is not special-cased.
 
@@ -3809,8 +3809,9 @@ never becomes a false TIMEOUT, and timers due "now" still run while a fetch is p
 as in `--js-report`. Viewport 800x600 (`innerWidth`/`innerHeight` and `matchMedia`, which now follows
 the same viewport as `innerWidth` in every mode). Ahem: `<origin>/fonts/Ahem.ttf` is fetched through
 wire and added to the forced-layout font system (`js_geom::install_extra_fonts`); missing = one
-stderr line. `visibilityState` is `visible` (always, E14). Not here yet: the rendering steps (rAF is
-still a timer, RO/IO as in `--js-report`; QEL1), stylesheets inserted after load, testdriver.
+stderr line. `visibilityState` is `visible` (always, E14). The pump runs the rendering update on
+virtual 16.7 ms frames through the shared driver (QEL1, "Rendering steps"). Not here yet: real RO/IO
+in the rendering step (QEL2/QEL3), stylesheets inserted after load, testdriver.
 
 ## WPT testharness runner (QWPT4b, src/wpt_th_run.rs; R64 2.3, 2.5, 3.1)
 
@@ -3853,3 +3854,41 @@ Wall time of the full run: 110 s at `--jobs 4` (quiet machine, load 5), 67 s at 
 ### CI gate (QWPT5)
 
 The scratchy CI job builds wire, then runs `--wpt-th "$RUNNER_TEMP/wpt" --jobs 4 --no-scope --wire ../wire/target/release/wire` after the reftest step (no display needed; `--no-scope` because the runner has no systemd user bus). Regressions/unrecorded/changed files fail the job (DECISIONS Q3). Step summary: areas table with deltas vs origin/main's `wpt-th/areas.txt` (`tools/wpt-areas-diff.py NEW BASE`). A CI result that differs from the committed baseline is never re-recorded silently: timing-sensitive files go to `wpt-th/flaky.txt` with a reason, anything else is a question to the user.
+
+## Rendering steps (QEL1, src/event_loop.rs; R64 section 4 E1-E3)
+
+`event_loop::update_the_rendering(host, ts)` is HTML "update the rendering", ONE function for the App
+and every headless mode. Order: (1) resize events (2) scroll events (hook, QEL7) (3) MediaQueryList
+`change` (hook, QEL7) (4) CSS animation events (5) the animation frame callbacks (6) style + layout
+(7) ResizeObserver / IntersectionObserver hooks (8) paint. The host supplies the steps it has through
+the `RenderingHost` trait; the defaults are headless (no resize, no animations, observers = today's
+`__scratchy_ioTick` check once per frame, no paint).
+
+**rAF list (TIMERS_PRELUDE).** `requestAnimationFrame` no longer uses the timer table: each realm
+numbers its own ids from 1 (`clearTimeout(rafId)` and `cancelAnimationFrame(timerId)` do not cross),
+the callbacks wait in one list (iframe realms forward to their parent's, keyed by realm, as timers
+do; a dropped realm's callbacks are removed). `__scratchy_raf_due()` = the 60 Hz boundary of the page
+clock strictly after the moment the list became non-empty (-1 when empty). `JsEngine::run_animation_frames(ts)`
+takes the list as it is (`__scratchy_raf_begin`), then runs `__scratchy_raf_run_one` until it says
+false: every callback gets the same `ts`, its own CPU budget and a microtask checkpoint after it; the
+batch is never split by `timer_slice` or the 100-per-turn timer cap; a callback cancelled earlier in
+the batch is skipped; callbacks requested during the batch wait for the next frame. An exception is
+"reported" (ErrorEvent at the callback's own global, `onerror`; the log line only when nobody
+cancelled it). Timer callbacks still only log (QEL4).
+
+**App.** `about_to_wait`: pointer flush, scroll mirror, due timers (sliced, as before), `js_sync`, then
+`App::rendering_update_if_due`: the update runs when a rAF's frame time has come, a `resize` is owed
+(`viewport_changed`), or an animation event/change is due (`anim_wake`, set from `anim_tick`'s answer;
+`-inf` after every build). The frame timestamp is the page clock at that moment. Step 5 runs only in an
+update whose rAF frame is due: an update for a `resize` or a CSS animation event in between frames
+skips it (running it there doubled a rAF loop's rate to ~120 Hz while a CSS animation ran). Step 6 is `js_sync`
+(the frame's DOM writes become `layout_dirty` / an incremental restyle) and step 8 requests the redraw;
+the layout itself and the paint stay in `redraw` on the RedrawRequested that follows (incremental
+engine, shaping worker, progressive shaping, no forced layout per frame: the cost tricks are
+unchanged; painting a partly shaped layout is E15, deliberate). The wake-up is the earliest of the next
+timer, the next rAF frame and the next animation change.
+
+**Headless.** `event_loop::headless_next_due` (earliest timer or rAF frame) and `headless_turn` (due
+timers first; when none ran, the rendering update if its frame is due) drive `wpt_th::pump`, the
+`--js-report --run-timers` pump and the test helper `run_with_timers`; `--perf-report` uses
+`headless_frame` on its real-time loop. A page without rAF has no frames at all (no extra cost).

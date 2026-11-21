@@ -64,6 +64,7 @@ mod search_tests;
 mod qkeys4_tests;
 mod forget_tests;
 mod history_tests;
+mod event_loop_tests;
 #[cfg(feature = "memprof")]
 mod memprof_tests;
 
@@ -606,9 +607,9 @@ fn run_html_with_timers(html: &str, code: &str) -> Vec<String> {
     .unwrap();
     // Bounded: an interval would otherwise never run dry.
     for _ in 0..10_000 {
-        let Some(due) = engine.next_due_ms() else { break };
+        let Some(due) = crate::event_loop::headless_next_due(&engine) else { break };
         clock.set(clock.get().max(due));
-        engine.run_due();
+        crate::event_loop::headless_turn(&engine, clock.get());
     }
     let v = out.borrow().clone();
     v

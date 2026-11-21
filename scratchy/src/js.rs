@@ -1716,6 +1716,44 @@ impl JsEngine {
         }
         true
     }
+
+    /// QEL1: the current time on the page's `__scratchy_now` clock (ms; the manual clock when one is set).
+    pub(crate) fn now_ms(&self) -> f64 {
+        self.eval_value::<f64>("now", "__scratchy_now()").unwrap_or(0.0)
+    }
+
+    /// QEL1: the frame time (ms, `__scratchy_now` clock) the pending animation frame callbacks wait for;
+    /// `None` when none is pending.
+    pub(crate) fn raf_due_ms(&self) -> Option<f64> {
+        self.eval_value::<f64>("raf", "__scratchy_raf_due()").filter(|m| *m >= 0.0)
+    }
+
+    /// QEL1: `raf_due_ms` as an Instant for the App's wake-up.
+    pub(crate) fn raf_deadline(&self) -> Option<Instant> {
+        self.raf_due_ms().map(|ms| self.base + Duration::from_secs_f64(ms / 1000.0))
+    }
+
+    /// QEL1 (R64 E1/E2): "run the animation frame callbacks" for one rendering update: every callback
+    /// pending now, with the same timestamp `ts`, never split by a timer slice; callbacks requested
+    /// meanwhile wait for the next frame. Each callback is its own eval (own CPU budget, microtask
+    /// checkpoint after it). Returns how many ran.
+    pub(crate) fn run_animation_frames(&self, ts: f64) -> usize {
+        let pending = self.eval_value::<f64>("raf", &format!("__scratchy_raf_begin({ts})")).unwrap_or(0.0);
+        if pending < 1.0 {
+            return 0;
+        }
+        let mut n = 0;
+        while self.eval_value_as::<bool>(Some((perf::Kind::Timer, |r| *r == Some(false))), "raf", "__scratchy_raf_run_one()") == Some(true) {
+            n += 1;
+        }
+        n
+    }
+
+    /// QEL1: the IntersectionObserver hook of the rendering steps (step 7; today's timer-boundary check,
+    /// run once per frame after the rAF batch; QEL3 replaces it with the real evaluation).
+    pub(crate) fn observer_hook(&self) {
+        self.eval("io-tick", "globalThis.__scratchy_ioTick && globalThis.__scratchy_ioTick()");
+    }
 }
 
 /// Runs `scripts` in order, then `DOMContentLoaded` and `load`. `log`
@@ -1792,6 +1830,7 @@ pub(crate) fn start_scripts_hooked(
     let store = Rc::new(js_modules::ModuleStore::from_scripts(scripts, &*log));
     let engine = startup_engine(document, store, log, clock)?;
     hook(&engine);
+    engine.eval("frames", "globalThis.__d_sync_win && globalThis.__d_sync_win()");
     perf::mark("engine_ready");
     run_page(engine, document, scripts)
 }
@@ -2101,28 +2140,40 @@ const TIMERS_PRELUDE: &str = r#"
   // QPT1a (R53 D5): an iframe realm queues its timers on its parent's table (`fwd`), so the one pump
   // Rust drives runs them; a callback still runs in its own realm, with that realm's window as `this`.
   var fwd = null, fwdClear = null, fwdCancel = null;
-  var add = function (fn, delay, args, repeat, raf, recv) {
+  var add = function (fn, delay, args, repeat, recv) {
     if (typeof fn !== 'function') {
       var code = String(fn);
       fn = function () { (0, eval)(code); };
       args = [];
     }
     // QPT1d3: a closed window's timers never fire (Chrome); the call still returns an id.
-    if (fwd) return g.closed ? nextId++ : fwd(fn, delay, args, repeat, raf, recv || g);
+    if (fwd) return g.closed ? nextId++ : fwd(fn, delay, args, repeat, recv || g);
     var id = nextId++;
     delay = Number(delay);
     if (!(delay > 0)) delay = 0;
     if (repeat || level > 5) delay = Math.max(delay, 4);
-    var t = __scratchy_now();
-    var due = t + delay;
-    if (raf) {
-      // QY30: the next frame boundary STRICTLY after t (a modulo-based
-      // delay can round back to t, e.g. at t = 100 ms).
-      due = (Math.floor(t / FRAME) + 1) * FRAME;
-      while (due <= t) due += FRAME;
-    }
-    timers.push({ id: id, fn: fn, args: args, due: due, rep: repeat ? delay : -1, lvl: level + 1, raf: raf, recv: recv });
+    var due = __scratchy_now() + delay;
+    timers.push({ id: id, fn: fn, args: args, due: due, rep: repeat ? delay : -1, lvl: level + 1, recv: recv });
     return id;
+  };
+  // QEL1 (R64 E1/E2): animation frame callbacks are NOT timers. Each realm numbers its own ids from 1;
+  // the callbacks wait in one list (an iframe realm forwards to its parent's, as timers do) that the
+  // Rust rendering-steps driver (event_loop.rs) runs as ONE batch per frame, all with the same
+  // timestamp, never split by the timer slice. `rafSince` = when the list became non-empty: the frame
+  // is due at the next 60 Hz boundary of the script clock STRICTLY after it (QY30).
+  var rafs = [], rafRun = [], nextRaf = 1, rafSince = 0, rafTs = 0;
+  var fwdRaf = null, fwdRafCancel = null;
+  var rafAdd = function (fn, id, recv) {
+    if (fwdRaf) return fwdRaf(fn, id, recv);
+    if (!rafs.length) rafSince = __scratchy_now();
+    rafs.push({ fn: fn, id: id, recv: recv, dead: false });
+  };
+  var rafCancel = function (id, recv) {
+    if (fwdRafCancel) return fwdRafCancel(id, recv);
+    var i;
+    for (i = 0; i < rafs.length; i++) if (rafs[i].id === id && rafs[i].recv === recv) { rafs.splice(i, 1); return; }
+    // cancelled from inside the running batch: it must not run either
+    for (i = 0; i < rafRun.length; i++) if (rafRun[i].id === id && rafRun[i].recv === recv) { rafRun[i].dead = true; return; }
   };
   var clear = function (id) {
     if (fwdClear) return fwdClear(id);
@@ -2132,12 +2183,17 @@ const TIMERS_PRELUDE: &str = r#"
   var cancelFor = function (recv) {
     if (fwdCancel) return fwdCancel(recv);
     for (var i = timers.length - 1; i >= 0; i--) if (timers[i].recv === recv) timers.splice(i, 1);
+    for (i = rafs.length - 1; i >= 0; i--) if (rafs[i].recv === recv) rafs.splice(i, 1);
+    for (i = 0; i < rafRun.length; i++) if (rafRun[i].recv === recv) rafRun[i].dead = true;
   };
   Object.defineProperty(g, '__scratchy_timers_cancel', { value: cancelFor });
   Object.defineProperty(g, '__scratchy_timers_add', { value: add });
   Object.defineProperty(g, '__scratchy_timers_clear', { value: clear });
+  Object.defineProperty(g, '__scratchy_raf_add', { value: rafAdd });
+  Object.defineProperty(g, '__scratchy_raf_cancel', { value: rafCancel });
   Object.defineProperty(g, '__scratchy_timers_fwd', { value: function (p) {
     fwd = p.__scratchy_timers_add; fwdClear = p.__scratchy_timers_clear; fwdCancel = p.__scratchy_timers_cancel;
+    fwdRaf = p.__scratchy_raf_add; fwdRafCancel = p.__scratchy_raf_cancel;
     delete g.__scratchy_timers_fwd;
   }, configurable: true });
   var def = function (name, fn) {
@@ -2149,9 +2205,44 @@ const TIMERS_PRELUDE: &str = r#"
   def('clearInterval', clear);
   def('requestAnimationFrame', function (fn) {
     if (typeof fn !== 'function') throw new TypeError('requestAnimationFrame: callback is not a function');
-    return add(fn, 0, [], false, true);
+    var id = nextRaf++;
+    if (!g.closed) rafAdd(fn, id, g);
+    return id;
   });
-  def('cancelAnimationFrame', clear);
+  def('cancelAnimationFrame', function (id) { rafCancel(Number(id), g); });
+  // QEL1: the time of the frame the pending callbacks wait for, -1 when there are none.
+  Object.defineProperty(g, '__scratchy_raf_due', { value: function () {
+    if (!rafs.length) return -1;
+    var due = (Math.floor(rafSince / FRAME) + 1) * FRAME;
+    while (due <= rafSince) due += FRAME;
+    return due;
+  } });
+  // QEL1: "run the animation frame callbacks": takes the list as it is now (callbacks requested
+  // during the batch wait for the next frame) and returns its length; Rust then calls
+  // `__scratchy_raf_run_one` until it returns false, each call its own eval so the microtask
+  // checkpoint runs after every callback.
+  Object.defineProperty(g, '__scratchy_raf_begin', { value: function (ts) {
+    rafRun = rafs; rafs = []; rafTs = ts;
+    return rafRun.length;
+  } });
+  Object.defineProperty(g, '__scratchy_raf_run_one', { value: function () {
+    while (rafRun.length && rafRun[0].dead) rafRun.shift();
+    if (!rafRun.length) return false;
+    var c = rafRun.shift(), saved = level;
+    level = 0;
+    if (g.__perf_src) g.__perf_src(c.fn);
+    try { c.fn.call(c.recv, rafTs); }
+    catch (e) {
+      // "report the exception" in the callback's own global (WPT callback-cross-realm-report-exception).
+      var G = c.recv;
+      try { var F = c.fn.constructor; if (typeof F === 'function' && F.name === 'Function') G = F('return globalThis')(); } catch (x) {}
+      var handled = false;
+      try { handled = (G.__scratchy_report_error || g.__scratchy_report_error)(e, '', 0, 0); } catch (x) {}
+      if (!handled) __scratchy_err('Uncaught ' + String(e) + (e && e.stack ? '\n' + e.stack : ''));
+    }
+    level = saved;
+    return true;
+  } });
   Object.defineProperty(g, '__scratchy_timers_next', { value: function () {
     var m = -1;
     for (var i = 0; i < timers.length; i++) if (m < 0 || timers[i].due < m) m = timers[i].due;
@@ -2169,7 +2260,7 @@ const TIMERS_PRELUDE: &str = r#"
     var saved = level;
     level = t.lvl;
     if (g.__perf_src) g.__perf_src(t.fn);
-    try { t.fn.apply(t.recv || g, t.raf ? [now] : t.args); }
+    try { t.fn.apply(t.recv || g, t.args); }
     catch (e) { __scratchy_err('Uncaught ' + String(e) + (e && e.stack ? '\n' + e.stack : '')); }
     level = saved;
     if (g.__scratchy_ioTick) g.__scratchy_ioTick();
@@ -2260,14 +2351,15 @@ pub(crate) fn js_report_for_scripts_timers(document: &Handle, scripts: &[ScriptS
                 engine.eval("media-wait", "globalThis.__media_wait = 20");
                 js_net::drive_report_net(engine, &mut sched, &*exec);
                 while callbacks < REPORT_MAX_TIMER_CALLBACKS {
-                    let Some(due) = engine.next_due_ms() else { break };
+                    // QEL1: the next timer or virtual rendering frame (rAF batch), whichever is first.
+                    let Some(due) = crate::event_loop::headless_next_due(engine) else { break };
                     if due > limit as f64 {
                         break;
                     }
                     if due > clock.get() {
                         clock.set(due);
                     }
-                    let n = engine.run_due_counted();
+                    let n = crate::event_loop::headless_turn(engine, clock.get());
                     if n == 0 {
                         // The queue said something was due but nothing ran
                         // (stale due time): stop rather than spin.

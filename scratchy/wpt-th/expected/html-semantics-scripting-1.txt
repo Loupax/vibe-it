@@ -144,8 +144,10 @@ OK           0/1  html/semantics/scripting-1/the-script-element/execution-timing
 OK           0/1  html/semantics/scripting-1/the-script-element/execution-timing/079.html
   FAIL       setting location to javascript URL from event handler 
 OK           1/1  html/semantics/scripting-1/the-script-element/execution-timing/081.html
-ERROR        0/0  html/semantics/scripting-1/the-script-element/execution-timing/083.html
-ERROR        0/0  html/semantics/scripting-1/the-script-element/execution-timing/084.html
+OK           0/1  html/semantics/scripting-1/the-script-element/execution-timing/083.html
+  FAIL       scheduler: event listener defined by script in a document in history
+OK           0/1  html/semantics/scripting-1/the-script-element/execution-timing/084.html
+  FAIL       scheduler: event listener defined by script in a removed IFRAME
 OK           0/1  html/semantics/scripting-1/the-script-element/execution-timing/085.html
   FAIL       scheduler: async script and slow-loading defer script
 OK           0/1  html/semantics/scripting-1/the-script-element/execution-timing/086.html

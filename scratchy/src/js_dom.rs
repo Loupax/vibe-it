@@ -3440,6 +3440,9 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     })(nm);
   };
   Object.defineProperty(g, 'length', { get: function () { var n = frameList().length; if (n !== ixN) syncWin(); return n; }, set: function () {}, configurable: true, enumerable: true });
+  // QEL1: the parser's iframes get their `window[i]` / `window[name]` before the first page script
+  // (WPT animation-frames/callback-cross-realm-report-exception reads `frames[0]` at once).
+  Object.defineProperty(g, '__d_sync_win', { value: function () { if (doc && doc.getElementsByTagName) syncWin(); } });
   var sfRem = __d_remove, sfHtml = __d_sethtml, sfTxt = __d_settext, sfSet = __d_setattr, sfRm = __d_rmattr, sfSq = __d_setq, sfRq = __d_rmq;
   var isSrc = function (n) { n = String(n).toLowerCase(); return n === 'src' || n === 'srcdoc'; };
   // QPT1c: while iframe realms exist, a removed node remembers the document it left (its wrapper

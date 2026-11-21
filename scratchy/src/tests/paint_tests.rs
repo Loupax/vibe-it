@@ -1045,10 +1045,10 @@ fn qy30_raf_due_time_strictly_after_now() {
     for t in [0.0, 100.0, frame * 6.0, 1e6, 16.666666666666668, 33.333333333333336] {
         clock.set(t);
         engine.eval_value::<bool>("t", "requestAnimationFrame(function(){}); true");
-        let due = engine.next_due_ms().unwrap();
+        let due = engine.raf_due_ms().unwrap();
         assert!(due > t, "rAF at {t} due {due}");
         clock.set(due);
-        engine.run_due();
+        crate::event_loop::headless_frame(&engine, due);
     }
     // A self-rescheduling loop, pumped like the report does.
     clock.set(100.0);
@@ -1057,9 +1057,9 @@ fn qy30_raf_due_time_strictly_after_now() {
         "globalThis.__ts=[]; (function f(ts){ __ts.push(ts); if (__ts.length<10) requestAnimationFrame(f); })(0); true",
     );
     for _ in 0..50 {
-        let Some(due) = engine.next_due_ms() else { break };
+        let Some(due) = crate::event_loop::headless_next_due(&engine) else { break };
         clock.set(clock.get().max(due));
-        engine.run_due();
+        crate::event_loop::headless_turn(&engine, clock.get());
     }
     let ts: String = engine.eval_value("t", "__ts.join(',')").unwrap();
     let v: Vec<f64> = ts.split(',').map(|x| x.parse().unwrap()).collect();
