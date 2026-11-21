@@ -113,7 +113,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] [WIP] QREC3 [S] (P2; Sonnet; tools/incr-gate; after QREC1, QREC2; user answered Q5 2026-11-21) Record the 7 gate
       pages; run.sh/gate.sh REPLAY=DIR; measure recording sizes and 3-run variance of the summarize.py
       columns live vs replay; write the numbers into R64.
-- [ ] QREC1c [S] (P1, from QREC3 #537; Sonnet; wire record.rs) Replay's last fallback (n-th request to the same
+- [ ] [WIP] QREC1c [S] (P1, from QREC3 #537; Sonnet; wire record.rs) Replay's last fallback (n-th request to the same
       host+path) answers a request whose QUERY differs and counts it as a hit: Wikipedia headless replay got the wrong
       load.php module batches (SyntaxErrors, 0 forced layouts). A differing query (after the ignore rules) must be a miss
       (404 + X-Wire-Replay: miss), unless a rules entry allows it. Tests in wire.
