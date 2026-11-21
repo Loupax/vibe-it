@@ -2893,7 +2893,10 @@ impl App {
             return;
         };
         let size = (image.width, image.height);
-        self.image_cache.insert(src.clone(), Arc::new(image));
+        let image = Arc::new(image);
+        self.image_cache.insert(src.clone(), image.clone());
+        // QINC1k6: the engine's forced-layout images see it before `load` fires.
+        crate::incr_engine::note_window_image(&self.document, &self.image_cache, &src, &image);
         crate::incr_frame::note_ambient(crate::incr_log::Ambient::Image);
         self.image_settled(&src, Some(size));
         // A newly-arrived image can change this element's own

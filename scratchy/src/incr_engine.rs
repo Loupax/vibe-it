@@ -77,6 +77,29 @@ pub(crate) fn sync_window_images(doc: &Handle, cache: &Images) {
     });
 }
 
+/// QINC1k6: one image arrived (`handle_image_fetched`), before its `load` event fires: add it to the
+/// window's images incrementally (full sync when the window has not built this document yet), so a
+/// forced layout in a `load` handler lays the image out at its decoded size.
+pub(crate) fn note_window_image(doc: &Handle, cache: &Images, src: &str, image: &Arc<DecodedImage>) {
+    if !forced_on() {
+        return;
+    }
+    let key = node_id(doc);
+    let known = WINDOW_IMAGES.with(|w| {
+        let mut w = w.borrow_mut();
+        if w.0 != key {
+            return false;
+        }
+        Rc::make_mut(&mut w.1).insert(src.to_string(), image.clone());
+        true
+    });
+    if !known {
+        sync_window_images(doc, cache);
+    }
+    // The cached rects (keyed on the write generation) were laid out without this image.
+    crate::js_dom::geom_bump_image();
+}
+
 /// The images a forced layout of `doc` lays out with: the window's, when it last built this document
 /// (headless and other documents: none).
 pub(crate) fn window_images(doc: &Handle) -> Rc<Images> {
