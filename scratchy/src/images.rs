@@ -485,8 +485,11 @@ thread_local! {
     /// rasterize it again (github.com: ~60 ms per incremental box update, most of the update).
     /// Bounded by `INLINE_SVG_CACHE_MAX` entries and `INLINE_SVG_CACHE_BYTES` of pixels (cleared when
     /// either is exceeded, as `SVG_SIZED_CACHE` is).
-    static INLINE_SVG_CACHE: RefCell<(HashMap<String, Option<Arc<DecodedImage>>>, usize)> = RefCell::new((HashMap::new(), 0));
+    static INLINE_SVG_CACHE: RefCell<InlineSvgCache> = RefCell::new((HashMap::new(), 0));
 }
+
+/// Markup -> rasterization (`None`: did not parse), and the bytes held (markup + pixels).
+type InlineSvgCache = (HashMap<String, Option<Arc<DecodedImage>>>, usize);
 
 const INLINE_SVG_CACHE_MAX: usize = 1024;
 const INLINE_SVG_CACHE_BYTES: usize = 64 << 20;
