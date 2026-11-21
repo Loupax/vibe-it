@@ -136,3 +136,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-21 Merged #505 QHIST1 f53eef0. #506 QHELP1 back to agent (it missed field paste in forms_text.rs; stale cookie sentence).
 - 2026-11-21 Merged #507 QWPT5 eed9488 (testharness CI gate, +2.5 min), #506 QHELP1 be46ad9 (help page; PR body corrected: field paste exists), #508 QAREA-DOM 7f42e48 (R65: 19 root causes), #509 QFLK9 bc0008c. Filed QDOM1-19, QWPT6b, QWPT6c, QSCR404 from R65. Launched QSEARCH2, QCOMP1, QDOM1, QDOM4 (all Sonnet). Running: QEL1.
 - 2026-11-21 Merged #512 QSEARCH2 670ed68 (live check done). #511 QCOMP1, #512 sent back for live checks (done for 512). #510 QEL1 held: live YouTube CPU check requested (headless ytr observer work up). Filed QEL1a, QWPTFLK1. Launched QSEARCH3.
+- 2026-11-21 Merged #513 QDOM4 9e3a264 (dom/events 23.0 -> 32.5, total 28.4 -> 29.0). Launched QDOM7.
