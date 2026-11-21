@@ -106,6 +106,7 @@ mod js_media;
 #[cfg(feature = "media")]
 mod media_mpv;
 mod config;
+mod search;
 mod app;
 mod wl_drain;
 #[cfg(not(feature = "engine-v8"))]
