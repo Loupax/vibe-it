@@ -77,6 +77,8 @@ their section with the date.
 
 ## Keys and UI
 
+- **2026-11-21 `:help` stays current** (user: "the help page is out of date"). QHELP1 updates it to every
+  feature on main and adds tests that every binding and `:` command appears there; each later UI item updates it.
 - **2026-11-20 QKEYS / QSEARCH / QCOMP design** (KEYS.md): input and normal mode,
   Esc Esc, `i`, status bar, `/` search with n/N and Enter, scriptable completion,
   history file, config in code. `o` in normal mode dropped ("`:go` should be enough").
