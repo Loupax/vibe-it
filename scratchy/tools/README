@@ -117,5 +117,7 @@ tools/incr-gate/ holds the durable recipes the QINC1 gates use (the R55 input sc
   series, summarize.py's docstring the columns. Every run: own wire (fresh cookies), 6G systemd-run scope,
   flock /tmp/scratchy-perf.lock, a `pre` screenshot before any input and an `end` one after it.
   hover.html is a script-free, hover-heavy local page (App frames without forced layouts).
+  shotdiff.py OUT perf [pre|end] compares the flag-off / flag-on screenshots (next off run = noise floor).
+  abs-drift.html: QINC1k's minimised check-mode mismatch (run headless with SCRATCHY_INCR=1 SCRATCHY_INCR_CHECK=1).
   Runs are bimodal on YouTube watch (`vid` column: playback started or not) and Wikipedia (builds ~100
   vs 13-23): compare pairs within a regime.

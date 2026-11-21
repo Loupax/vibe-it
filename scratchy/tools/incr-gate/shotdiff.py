@@ -25,7 +25,7 @@ def diff(a, b, outp):
         return ('size', ia.size, ib.size)
     d = ImageChops.difference(ia, ib).convert('L').point(lambda v: 255 if v > 24 else 0)
     box = d.getbbox()
-    n = sum(1 for v in d.getdata() if v)
+    n = d.histogram()[255]
     if box:
         red = Image.new('RGB', ia.size, (255, 0, 0))
         Image.composite(red, ia.point(lambda v: v // 3 + 170), d).save(outp)
