@@ -457,7 +457,7 @@ CRASH        0/0  html/webappapis/dynamic-markup-insertion/the-innerhtml-propert
 OK           0/1  html/webappapis/dynamic-markup-insertion/the-outerhtml-property/outerhtml-documentfragment.html
   FAIL      outerHTML replaces element within DocumentFragment parent.
 OK           1/1  html/webappapis/dynamic-markup-insertion/the-outerhtml-property/outerhtml-no-parent.html
-OK           0/1  html/webappapis/events/event-handler-object-environment-instantiation.html
+ERROR        0/1  html/webappapis/events/event-handler-object-environment-instantiation.html
   FAIL      Inline handler correct ObjectEnvironment instantiation
 OK           1/1  html/webappapis/events/event-handler-processing-algorithm-non-booleans.html
 TIMEOUT      0/0  html/webappapis/microtask-queuing/queue-microtask-cross-realm-callback-report-exception.html
@@ -511,12 +511,9 @@ OK           0/2  html/webappapis/scripting/events/event-handler-idl-attribute-r
   FAIL      Event handler IDL attributes must return a function from the element's document's realm
   FAIL      Event handler IDL attribute compilation errors must be fired on the element's document's global
 OK           1/1  html/webappapis/scripting/events/event-handler-javascript.html
-OK          6/12  html/webappapis/scripting/events/event-handler-no-browsing-context.html
-  FAIL      Event handler content attribute does not run on an element in a createHTMLDocument document
+OK          9/12  html/webappapis/scripting/events/event-handler-no-browsing-context.html
   FAIL      Event handler content attribute is not compiled on an element in a createHTMLDocument document
-  FAIL      Event handler content attribute does not run on an element in a DOMParser document
   FAIL      Event handler content attribute is not compiled on an element in a DOMParser document
-  FAIL      Event handler content attribute does not run on an element in a template contents document
   FAIL      Event handler content attribute is not compiled on an element in a template contents document
 OK           0/6  html/webappapis/scripting/events/event-handler-non-content-document-idl-attributes.html
   FAIL      div.onreadystatechange is not an event handler content attribute
@@ -655,7 +652,7 @@ ERROR        0/6  html/webappapis/scripting/processing-model-2/integration-with-
   TIMEOUT   Fulfillment handler on pending-then-fulfilled promise
   TIMEOUT   Rejection handler on pending-then-rejected promise
   TIMEOUT   Thenable resolution
-TIMEOUT      0/0  html/webappapis/scripting/processing-model-2/integration-with-the-javascript-job-queue/promise-job-incumbent.html
+ERROR        0/0  html/webappapis/scripting/processing-model-2/integration-with-the-javascript-job-queue/promise-job-incumbent.html
 OK           0/1  html/webappapis/scripting/processing-model-2/runtime-error-cross-origin-setInterval.html
   FAIL      window.onerror - runtime error in cross-origin setInterval
 OK           0/1  html/webappapis/scripting/processing-model-2/runtime-error-cross-origin-setTimeout.html
@@ -665,9 +662,8 @@ OK           0/2  html/webappapis/scripting/processing-model-2/runtime-error-cro
   FAIL       (column)
 OK           1/2  html/webappapis/scripting/processing-model-2/runtime-error-data-url.html
   FAIL      window.onerror - runtime error in <script src=data:...>
-OK           0/2  html/webappapis/scripting/processing-model-2/runtime-error-in-attribute.html
+OK           1/2  html/webappapis/scripting/processing-model-2/runtime-error-in-attribute.html
   FAIL      window.onerror - runtime error in attribute
-  FAIL       (column)
 OK           1/1  html/webappapis/scripting/processing-model-2/runtime-error-in-body-onerror.html
 OK           0/2  html/webappapis/scripting/processing-model-2/runtime-error-in-setInterval.html
   FAIL      window.onerror - runtime error in setInterval
@@ -709,8 +705,7 @@ TIMEOUT    31/43  html/webappapis/scripting/processing-model-2/unhandled-promise
   TIMEOUT   rejectionhandled is dispatched from a queued task, and not immediately
 OK           0/1  html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-resolution-order.html
   FAIL      Promise rejection ordering
-OK           0/1  html/webappapis/scripting/processing-model-2/window-onerror-event-throw-null.html
-  FAIL      Throwing null in event listener
+OK           1/1  html/webappapis/scripting/processing-model-2/window-onerror-event-throw-null.html
 OK           1/3  html/webappapis/scripting/processing-model-2/window-onerror-parse-error.html
   FAIL      correct url passed to window.onerror
   FAIL      correct line number passed to window.onerror

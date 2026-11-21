@@ -170,13 +170,12 @@ OK          1/11  webidl/ecmascript-binding/put-forwards.html
   FAIL      Setting area.relList to noreferrer is reflected in rel
   FAIL      Setting form.relList to noreferrer is reflected in rel
   FAIL      Setting link.relList to stylesheet is reflected in rel
-OK           2/8  webidl/ecmascript-binding/replaceable-setter-throws-if-defineownproperty-fails.html
+OK           3/8  webidl/ecmascript-binding/replaceable-setter-throws-if-defineownproperty-fails.html
   FAIL      window.self setter throws TypeError if called on non-configurable accessor property
   FAIL      window.parent setter throws TypeError if called on non-configurable accessor property
   FAIL      window.origin setter throws TypeError if called on non-configurable accessor property
   FAIL      window.innerWidth setter throws TypeError if called on non-configurable accessor property
   FAIL      window.length setter throws TypeError if called on non-configurable non-writable data property
-  FAIL      window.event setter throws TypeError if called on non-configurable non-writable data property
 OK           1/8  webidl/ecmascript-binding/sequence-conversion.html
   FAIL      An array
   FAIL      A generator

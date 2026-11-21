@@ -70,8 +70,7 @@ OK           3/6  shadow-dom/Element-interface-attachShadow-custom-element.html
   FAIL      Element.attachShadow must throw a NotSupportedError for customized built-in elements
 OK           6/6  shadow-dom/Element-interface-attachShadow.html
 OK           3/3  shadow-dom/Element-interface-shadowRoot-attribute.html
-OK          8/16  shadow-dom/Extensions-to-Event-Interface.html
-  FAIL      composedPath() must return an empty array when the event is no longer dispatched
+OK          9/16  shadow-dom/Extensions-to-Event-Interface.html
   FAIL      The event must propagate out of closed mode shadow boundaries when the composed flag is set
   FAIL      The event must not propagate out of open mode shadow tree of the target but must propagate out of inner shadow trees when the scoped flag is set
   FAIL      The event must not propagate out of closed mode shadow tree of the target but must propagate out of inner shadow trees when the scoped flag is set
@@ -1221,7 +1220,7 @@ OK           1/5  shadow-dom/focus/focus-autofocus.html
 OK           0/1  shadow-dom/focus/focus-click-on-shadow-host.html
   FAIL      :focus should be applied to the host and the child node when the focus is moved by mouse click
 ERROR        0/0  shadow-dom/focus/focus-delegatesFocus-display-contents.html
-OK           1/1  shadow-dom/focus/focus-method-delegatesFocus-nested-browsing-context.html
+ERROR        1/1  shadow-dom/focus/focus-method-delegatesFocus-nested-browsing-context.html
 OK          2/15  shadow-dom/focus/focus-method-delegatesFocus.html
   FAIL      focus() on host with delegatesFocus, all tabindex=0
   FAIL      focus() on host with delegatesFocus & tabindex =-1, all other tabindex=0
