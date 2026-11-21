@@ -86,3 +86,10 @@ write ~/.local/state/scratchy (or $XDG_STATE_HOME/scratchy): it holds the user's
 At most ONE nested dwl (tools/nest.sh) per agent at a time: start it once, reuse it for every live run, and kill it by its
 recorded PID as soon as the live checks are done (and before you report READY). Same for your own wire: one, reused, killed
 at the end. Before your final reply, `ps -eo pid,cmd | grep <your worktree path>` must show nothing of yours.
+
+## Waiting: in the foreground, bounded (2026-11-21: agents left dozens of background shells, some unbounded `until` loops)
+- Wait for CI with ONE foreground `timeout 900 gh pr checks <n> --watch` call; never start a second watcher for the same PR,
+  never in the background.
+- Never write an unbounded wait loop (`until ...; do sleep; done`) and never poll a task output file in a background shell.
+  If you must poll, wrap it in `timeout`, run it in the foreground, and stop as soon as it returns.
+- Background shells only for long builds/test runs/measurements, and they must end by themselves (no daemons left behind).
