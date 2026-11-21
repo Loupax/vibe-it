@@ -2900,7 +2900,8 @@ OK           0/1  html/dom/partial-updates/tentative/fragment/sanitize-regular.h
   FAIL      The sanitize attribute only applies when src is present
 OK           0/1  html/dom/partial-updates/tentative/fragment/streaming-target-marker-removed.html
   FAIL      Streaming target end marker can be removed mid-stream safely, falling back to appending
-ERROR        0/0  html/dom/partial-updates/tentative/template-for-case-sensitive-dom-inserted.html
+OK           0/1  html/dom/partial-updates/tentative/template-for-case-sensitive-dom-inserted.html
+  FAIL      marker/end/start PI targets are parsed as lower case, but attributes are case-sensitive
 OK           0/1  html/dom/partial-updates/tentative/template-for-case-sensitive.html
   FAIL      marker/end/start PI targets, attributes and their values are case-sensitive
 OK           1/1  html/dom/reflection-overridden-methods.html

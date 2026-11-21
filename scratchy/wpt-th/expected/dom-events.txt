@@ -214,13 +214,7 @@ OK           1/1  dom/events/EventTarget-addEventListener.any.html
 OK           3/3  dom/events/EventTarget-constructible.any.html
 OK           2/2  dom/events/EventTarget-dispatchEvent-returnvalue.html
 OK           1/1  dom/events/EventTarget-removeEventListener.any.html
-OK           0/6  dom/events/EventTarget-this-of-listener.html
-  FAIL      the this value inside the event listener callback should be the node
-  FAIL      the this value inside the event listener object handleEvent should be the object
-  FAIL      dispatchEvent should invoke the current handleEvent method of the object
-  FAIL      addEventListener should not require handleEvent to be defined on object listeners
-  FAIL      handleEvent properties added to a function before addEventListener are not reached
-  FAIL      handleEvent properties added to a function after addEventListener are not reached
+OK           6/6  dom/events/EventTarget-this-of-listener.html
 OK           1/1  dom/events/EventTarget-window-constructor.html
 OK           3/3  dom/events/KeyEvent-initKeyEvent.html
 OK           0/1  dom/events/click-on-absolute-pseudo.html

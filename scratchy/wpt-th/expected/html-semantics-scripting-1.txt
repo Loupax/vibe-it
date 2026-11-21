@@ -771,7 +771,8 @@ OK           0/5  html/semantics/scripting-1/the-script-element/script-supports.
   FAIL      HTMLScriptElement.supports returns false for JavaScript MIME types
   FAIL      HTMLScriptElement.supports returns false for unsupported types
 CRASH        0/0  html/semantics/scripting-1/the-script-element/script-text-xhtml.xhtml
-ERROR        0/0  html/semantics/scripting-1/the-script-element/script-text.html
+OK           5/6  html/semantics/scripting-1/the-script-element/script-text.html
+  FAIL      Getter
 OK           4/4  html/semantics/scripting-1/the-script-element/script-type-and-language-empty.html
 CRASH        0/0  html/semantics/scripting-1/the-script-element/script-type-and-language-js-svg.svg
 OK       298/456  html/semantics/scripting-1/the-script-element/script-type-and-language-js-xhtml.xhtml
@@ -1211,7 +1212,8 @@ OK           0/1  html/semantics/scripting-1/the-template-element/template-for/t
   FAIL      <template for> with text
 OK           0/1  html/semantics/scripting-1/the-template-element/template-for/template-for-append-to-head.html
   FAIL      HTML partial updates - append to head
-ERROR        0/0  html/semantics/scripting-1/the-template-element/template-for/template-for-case-sensitive-dom-inserted.html
+OK           0/1  html/semantics/scripting-1/the-template-element/template-for/template-for-case-sensitive-dom-inserted.html
+  FAIL      marker/end/start PI targets are parsed as lower case, but attributes are case-sensitive
 OK           0/1  html/semantics/scripting-1/the-template-element/template-for/template-for-case-sensitive.html
   FAIL      marker/end/start PI targets, attributes and their values are case-sensitive
 OK           0/1  html/semantics/scripting-1/the-template-element/template-for/template-for-empty-hash.html

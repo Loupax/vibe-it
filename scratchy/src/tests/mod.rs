@@ -74,6 +74,7 @@ mod qel2_tests;
 mod hscroll_tests;
 mod qwptflk3_tests;
 mod qsmooth1_tests;
+mod qdom8_tests;
 #[cfg(feature = "memprof")]
 mod memprof_tests;
 
