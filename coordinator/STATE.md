@@ -159,3 +159,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-21 #527 QCSS1 READY but held: reftest css/printing/transition-in-media-print.tentative.html pass->fail (it passed only because @media not was broken); 7 reftests newly pass. Question to user (progress page). Filed QCSS1b. Launched QKEYS5.
 - 2026-11-21 USER: accept the #527 reftest pass->fail (option 1) -> DECISIONS, QWPTPRINT filed; merging #527.
 - 2026-11-21 Merged #527 QCSS1 3276697 (stylesheet @media = matchMedia evaluator; reftests +7, 1 accepted pass->fail).
+- 2026-11-21 Coordinator error: launched QREG1 as a 6th agent (counted QCSS1's slot twice). Stopped it after ~1 min; worktree agent-ad6ad0ed1b7e4e7fa kept with uncommitted edits (app.rs, config.rs, forms_text.rs); RESUME that agent (SendMessage) at the next free slot. Count running agents with ListAgents before every launch.
