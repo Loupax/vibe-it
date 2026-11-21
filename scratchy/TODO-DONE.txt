@@ -8468,3 +8468,10 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QINC1k6 DONE 746586f load handler forced layout sees decoded image with INCR=1 [S] (P2, from QINC1k5 #467; Sonnet; area app) With INCR=1 an image's `load` fires before the engine
       sees the decoded image: in App::handle_image_fetched call incr_engine::sync_window_images right after
       image_cache.insert, before image_settled. Test: App-level test + tools/incr-gate/img-geom.html A.load / A.raf rows.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QINC1k1 DONE 5b420e6 relative content heights + float y-guard + paint edge snap + clearance calc fix; github check 0 mismatches [S] (P1, from QINC1k #465; BLOCKS QINC1l; area layout/incr_cmp) Translation invariance in y for
+      percentage heights: github.com window CHECK mismatch `positioned[64] div.Wrapper__H1gdC8.Background__x8lac6
+      style.height 642.0005 vs 642.0` (abs inset:0 height:100% under an auto-height positioned parent; content_h =
+      cursor_y - content_y in document coords, f32 step ~0.0005 above y 4096; engine shifts the clean subtree, keeps old
+      value). Repro tools/incr-gate/abs-drift.html. Gate: `tools/incr-gate/gate.sh check 3 github` 0 mismatches.
