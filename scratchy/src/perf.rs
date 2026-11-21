@@ -1124,7 +1124,7 @@ pub(crate) fn body_json() -> String {
             "\"callbacks\":{{{}}},\"longest\":[{}],\"budget_kills\":{},\"forced_layout\":{{\"count\":{},\"total_ms\":{},\"max_ms\":{},{}}},\
              \"net_delivery\":{},\"compile_cpu_ms\":{},\"engine_startup_cpu_ms\":{},\
              \"load\":{{\"fetch_wall_ms\":{},\"fetch_cpu_ms\":{},\"dom_content_loaded_wall_ms\":{},\"dom_content_loaded_cpu_ms\":{},\"load_wall_ms\":{},\"load_cpu_ms\":{}}},\
-             \"incr\":{}",
+             \"incr\":{},\"engine_counts\":{}",
             kinds.join(","),
             longest.join(","),
             kills,
@@ -1141,7 +1141,8 @@ pub(crate) fn body_json() -> String {
             ms(dc),
             wall(lw),
             ms(lc),
-            incr_json()
+            incr_json(),
+            crate::incr_evidence::counts_json()
         )
     })
 }

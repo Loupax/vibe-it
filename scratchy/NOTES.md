@@ -3898,3 +3898,29 @@ timer, the next rAF frame and the next animation change.
 timers first; when none ran, the rendering update if its frame is due) drive `wpt_th::pump`, the
 `--js-report --run-timers` pump and the test helper `run_with_timers`; `--perf-report` uses
 `headless_frame` on its real-time loop. A page without rAF has no frames at all (no extra cost).
+
+## Engine evidence (QINC1n, src/incr_evidence.rs)
+
+Daily-use evidence for deleting the old pipeline (QINC1m). Both engine paths, App frames
+(`incr_frame::frame`, `check`) and script forced layouts (`incr_engine::update`,
+`js_geom::refresh_engine`), report to one thread-local counter set:
+- update: the engine served the frame from its kept trees (App Current / Main / worker with an
+  incremental restyle; a forced layout that updated or had nothing to do);
+- restart (no log line): a from-scratch build that starts the kept trees over by design: first
+  layout, viewport width, a new rule list, a global change (`incr_style::live_update` returns
+  `Err("global_restyle")`), the relayout's own restart (drift guard, stale view);
+- fallback (ONE `scratchy: engine: fallback <reason> on <url>` diag line per document, keyed by a
+  weak handle): `box_update_failed` / `no_style_engine` from `live_update`, `no_box_tree` (a forced
+  layout's build did not start the box engine), `relayout_failed` (`update_kept` false), `panic` (the
+  forced layout's `catch_unwind`).
+- sampled check: one engine update in `config::ENGINE_CHECK_EVERY` (200; 0 = off) is also laid
+  out from scratch WITHOUT the shadow update (it would restart the engine) and compared with
+  `incr_cmp::cmp_laid` against `incr_layout::with_laid` (`incr_evidence::compare`). A difference:
+  one diag line, one `<state-dir>/engine-check.log` line (0600, `<unix ms>\t<url>\t<box path>
+  <field>`, no values, so no page text), the engine starts over (`drop_engines`) and that frame
+  uses the from-scratch layout (`Frame::Fresh`; the forced read walks the fresh tree). The URL is
+  the App's status-bar URL (`set_page`, called per App frame) or `js::page_url()`.
+- `:engine` puts `status_text()` in the status bar; `--perf-report` JSON has an `engine_counts` object;
+  a window run with `SCRATCHY_FRAME_STATS` prints the counts at exit.
+Test seams (`incr_evidence::with_seam`): interval, forced fallback / mismatch, state dir, printed
+lines; tests default to checks off (they run in check mode anyway).

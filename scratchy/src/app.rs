@@ -324,7 +324,7 @@ pub(crate) fn key_insertion_text(key: &Key) -> Option<&str> {
 /// QY48: `history_doc` value of an entry whose document is not loaded.
 pub(crate) const NO_DOC: u64 = u64::MAX;
 
-pub(crate) const COMMAND_NAMES: &[&str] = &["go", "help", "historyBack", "historyFront", "q", "quit", "refresh", "set"];
+pub(crate) const COMMAND_NAMES: &[&str] = &["engine", "go", "help", "historyBack", "historyFront", "q", "quit", "refresh", "set"];
 
 // `SET_ARGS` and `COMPLETERS` (what the ghost completes) live in `config.rs`; the pure ghost
 // logic is in `completion.rs` (QCOMP1).
@@ -1842,6 +1842,8 @@ impl App {
         // The engine updates its tree in place when the App's view of it is the only other handle.
         let shown = self.cached.take_if(|c| crate::incr_layout::owns(c)).is_some();
         let css = crate::images::with_adopted_css(&self.extra_css, &self.adopted_css).into_owned();
+        // QINC1n: the URL engine log lines name (the status bar's).
+        crate::incr_evidence::set_page(&self.document, || self.status_url());
         let frame = crate::incr_frame::frame(&self.document, width as f32, height as f32, &css, &self.image_cache, &mut self.font_system);
         if !matches!(frame, Frame::Current) {
             self.last_build_time = Some(build_started.elapsed());
@@ -4967,6 +4969,8 @@ impl App {
             ("set", ["motion"]) => set_reduced_motion(false),
             ("set", ["nomotion"]) => set_reduced_motion(true),
             ("help", []) => self.show_help(),
+            // QINC1n: this session's engine counts (updates, restarts, fallbacks, checks, mismatches).
+            ("engine", []) => self.status_message = crate::incr_evidence::status_text(),
             ("q", []) | ("quit", []) => {
                 if self.pre_help_page.is_some() {
                     self.restore_saved_page();
@@ -5058,6 +5062,7 @@ impl ApplicationHandler<AppEvent> for App {
         // QINC1j: with frame stats on, the window's engine counters (the gate reads them).
         if self.frame_stats.is_some() && (crate::incr_frame::live() || crate::incr_style::checking()) {
             diag!("scratchy: incr: {}", crate::perf::incr_json());
+            diag!("scratchy: {}", crate::incr_evidence::status_text());
         }
     }
 

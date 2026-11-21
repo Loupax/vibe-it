@@ -1818,8 +1818,9 @@ pub(crate) struct LiveStyle {
     pub(crate) restyled: u64,
 }
 
-/// QINC1j: an App frame's restyle + box update, results USED (R60 section 9). `None`: the engine
-/// restyled everything or the box tree cannot be updated (the caller builds from scratch).
+/// QINC1j: an App frame's restyle + box update, results USED (R60 section 9). `Err`: the engine
+/// restyled everything (`global_restyle`, by design) or the box tree cannot be updated (QINC1n: a
+/// fallback reason); the caller builds from scratch.
 /// Animation start times are created and reported as a build's pass does, and aged by membership.
 pub(crate) fn live_update(
     doc: &Handle,
@@ -1827,7 +1828,7 @@ pub(crate) fn live_update(
     vw: f32,
     viewport_height: Option<f32>,
     image_cache: &HashMap<String, std::sync::Arc<DecodedImage>>,
-) -> Option<LiveStyle> {
+) -> Result<LiveStyle, &'static str> {
     let vh = viewport_height.unwrap_or(1080.0);
     let t0 = std::time::Instant::now();
     let env = Env::enter_as(rules, true, None);
@@ -1847,7 +1848,7 @@ pub(crate) fn live_update(
         crate::incr_box::drop_engine();
     }
     env.exit(rules);
-    let (stats, styled) = stats?;
+    let Some((stats, styled)) = stats else { return Err("no_style_engine") };
     use crate::perf::{incr_add, Incr};
     incr_add(Incr::Updates, 1);
     incr_add(Incr::RestyledMatched, stats.rematched);
@@ -1856,9 +1857,9 @@ pub(crate) fn live_update(
     incr_add(Incr::RestyleResolved, stats.resolved);
     crate::perf::incr_restyle_sample(stats.restyled(), styled, style_ns);
     if !boxes_ok {
-        return None;
+        return Err(if full { "global_restyle" } else { "box_update_failed" });
     }
-    Some(LiveStyle { share: if styled == 0 { 1.0 } else { stats.restyled() as f32 / styled as f32 }, restyled: stats.restyled() })
+    Ok(LiveStyle { share: if styled == 0 { 1.0 } else { stats.restyled() as f32 / styled as f32 }, restyled: stats.restyled() })
 }
 
 /// Check mode: counts `incr.check_mismatch`; tests panic (or collect, `Seam::panic` off), release
