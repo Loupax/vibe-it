@@ -8735,3 +8735,9 @@ Item QINC1h2 (REGRESSIONS.md R60 section 15). `layout.rs`: `natural_width_impl` 
 > QWPT6 [S] (P1; wpt-th/; after QWPT4b) Phase-1 subset and baseline: generate wpt-th/subset.txt from tools/wpt-dirs.txt + the WPT manifest of the pin, run 3 times, flaky.txt, record expectations, commit areas.txt.
 
 **What changed:** new `tools/wpt-subset.py` (manifest-driven generator), `wpt-th/subset.txt` (3,264 URLs, 23 areas), `wpt-th/expected/*.txt`, `wpt-th/areas.txt`, `wpt-th/flaky.txt` (empty: 4 identical runs), NOTES section. Full run 110 s at --jobs 4.
+
+## QHIST1: history traversals queue against a pending index (agent item)
+
+> QHIST1 [S] (P2, from QFLK7 #496; globals_prelude.js history go()) A second same-document traversal before the first popstate task runs hits a stale idx in go(): fix, then un-ignore qy48_two_traversals_in_one_turn_stay_same_document.
+
+**What changed:** globals_prelude.js `go()` computes its target from a new `pend` (the index the session history will have once queued traversals ran) instead of `idx`, which still only moves inside the queued task; pushState and fragment entries resync `pend`. One popstate per traversal, in order. Tests: un-ignored `qy48_two_traversals_in_one_turn_stay_same_document` (now also checks the popstate log), new `qhist1_back_then_forward_in_one_turn`, `qhist1_history_go_minus_two_across_same_document_entries`. wpt-th/subset.txt has only two history files (document-open history-state/history.window.html), unrelated to traversal.
