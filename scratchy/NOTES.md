@@ -3840,6 +3840,13 @@ start an area, e.g. `# area: dom/nodes`), `wpt-th/flaky.txt` (first token of a l
 - **areas.txt:** columns files, ran (got a result), all-pass, subtests, pass, pass%, score (mean per-file passed/total over ran
   files, Q7 headline). With `--area` only that area's row is replaced. The R64 "scratchy <commit>" header field is left out
   (it would change the committed file on every commit).
+- **`--areas-only` (QWPT10):** `scratchy --wpt-th --areas-only [--dir wpt-th]` recomputes `areas.txt` from `subset.txt` +
+  `expected/*.txt` + `flaky.txt` with no test run (no checkout, no wire, no memory scope) and prints it. Same rows as a full run:
+  `files` counts every subset entry (flaky included), the rest counts non-flaky entries that have an expected record. Use it
+  after resolving a merge: `areas.txt` is derived, never hand-merged. `coordinator/merge_pr.sh` does this when a rebase conflicts
+  ONLY in `scratchy/wpt-th/areas.txt` (plus the keep-both files): it takes either side, runs `--areas-only` with
+  `target/release/scratchy` of the temp worktree (built there with `nice -n 19 ionice -c3 cargo build --release` when missing,
+  RUSTY_V8_ARCHIVE when present; else `~/.cargo/bin/scratchy` only if it supports `--areas-only`), `git add`s it and continues.
 
 ### Phase-1 subset and baseline (QWPT6; tools/wpt-subset.py, wpt-th/)
 

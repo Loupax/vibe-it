@@ -333,4 +333,34 @@ mod qwpt4b {
         assert!(t0.elapsed() < Duration::from_secs(5));
         let _ = fs::remove_dir_all(&d);
     }
+
+    #[test]
+    fn areas_only_on_a_fixture_matches_a_full_run_rows() {
+        let d = tmp("areas");
+        fs::create_dir_all(d.join("expected")).unwrap();
+        fs::write(d.join("subset.txt"), "# area: a/b\na1.html\na2.html\na3.html\na4.html\n# area: c\nc1.html\n").unwrap();
+        fs::write(d.join("flaky.txt"), "a3.html unstable\n").unwrap();
+        let mut ab = BTreeMap::new();
+        ab.insert("a1.html".to_string(), fr("OK", 2, 2, &[]));
+        ab.insert("a2.html".to_string(), fr("OK", 1, 4, &[("FAIL", "x")]));
+        fs::write(d.join("expected").join("a-b.txt"), format_expected("a/b", &ab)).unwrap();
+        let mut c = BTreeMap::new();
+        c.insert("c1.html".to_string(), fr("TIMEOUT", 0, 0, &[]));
+        fs::write(d.join("expected").join("c.txt"), format_expected("c", &c)).unwrap();
+        let got = areas_from_dir(&d).unwrap();
+        let r1 = ab.values().collect::<Vec<_>>();
+        let want = format_areas(&[area_row("a/b", 4, &r1), area_row("c", 1, &c.values().collect::<Vec<_>>())]);
+        assert_eq!(got, want);
+        let rows = parse_areas(&got);
+        assert_eq!((rows[0].files, rows[0].ran, rows[0].all_pass, rows[0].subtests, rows[0].pass), (4, 2, 1, 6, 3));
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    /// The committed wpt-th/ reproduces its committed areas.txt byte for byte.
+    #[test]
+    fn areas_only_reproduces_the_committed_areas_txt() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("wpt-th");
+        let committed = fs::read_to_string(dir.join("areas.txt")).unwrap();
+        assert_eq!(areas_from_dir(&dir).unwrap(), committed);
+    }
 }

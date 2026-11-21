@@ -8922,3 +8922,9 @@ Item QINC1h2 (REGRESSIONS.md R60 section 15). `layout.rs`: `natural_width_impl` 
 > QEL5 [S] (P2; js.rs TIMERS_PRELUDE) Clamp setTimeout/setInterval to 4 ms only at timer nesting level > 5 (HTML timer initialisation steps), not always. Gate: WPT html/webappapis/timers in --wpt-th.
 
 **What changed:** TIMERS_PRELUDE `add` clamps only when the new timer nesting level (running timer level + 1) is above 5; an interval keeps its requested interval and re-evaluates the clamp at each re-arm with its level + 1 (`__scratchy_timers_run_one`). rAF untouched. Tests: src/tests/qel5_tests.rs (4). Full --wpt-th: no regressions; setinterval-settimeout-clamping.any.html 1/2 -> 2/2 (html/webappapis 66 -> 67 all-pass, 561 -> 562 subtests). Perf (live pages, load 13-24, one run each, headless --perf-report): ytr timer callbacks 2112 / 2600 ms -> 2273 / 2383 ms; github 207 / 7078 ms -> 207 / 7533 ms (load noise dominated).
+
+## QWPT10: `--wpt-th --areas-only`, merge_pr.sh regenerates areas.txt (agent item)
+
+> QWPT10 [S] `scratchy --wpt-th --areas-only [--dir wpt-th]`: recompute areas.txt from expected/*.txt + subset.txt + flaky.txt without running any test; merge_pr.sh: a rebase conflict only in wpt-th/areas.txt is resolved by regenerating it.
+
+**What changed:** `wpt_th_run::areas_from_dir` (reuses parse_subset/parse_flaky/parse_expected/area_row/format_areas) and the `--areas-only` flag (no checkout, wire or scope needed); help.html, NOTES.md. Tests: fixture test and a byte-for-byte test of the committed wpt-th/. The committed areas.txt was stale (custom-elements counted the file flaky-listed by #534), regenerated. merge_pr.sh: `scratchy/wpt-th/areas.txt` conflicts take either side and are rebuilt with the temp worktree's target/release/scratchy (built there when missing), else ~/.cargo/bin/scratchy if it has --areas-only; other conflicts still exit 2.
