@@ -1,0 +1,25 @@
+# Directories of the WPT sparse checkout (R64 2.1), one per line. Hashed into the CI cache key.
+css
+fonts
+images
+resources
+common
+html/resources
+html/rendering
+dom
+html/webappapis
+html/dom
+html/semantics/scripting-1
+resize-observer
+intersection-observer
+uievents
+webidl
+url
+encoding
+hr-time
+streams
+webmessaging
+requestidlecallback
+domparsing
+custom-elements
+shadow-dom

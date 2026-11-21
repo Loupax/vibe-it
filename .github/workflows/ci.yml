@@ -91,6 +91,31 @@ jobs:
         run: |
           export FONTCONFIG_FILE="$(tools/ci-fontconfig.sh /usr/share/fonts/truetype/liberation "$RUNNER_TEMP/fc")"
           SCRATCHY_TEST_INCR_FORCED=0 cargo test --release --locked
+      - name: WPT checkout cache (QWPT2)
+        if: matrix.crate == 'scratchy'
+        id: wptcache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/wpt
+          key: wpt-${{ hashFiles('scratchy/tools/wpt-pin.txt', 'scratchy/tools/wpt-dirs.txt') }}
+      - name: WPT checkout (sparse, pinned; verifies the pin always)
+        if: matrix.crate == 'scratchy'
+        run: tools/wpt-checkout.sh "$RUNNER_TEMP/wpt"
+      - name: WPT reftests vs wpt-expected.txt (CI fonts verified to match, QWPT2)
+        if: matrix.crate == 'scratchy'
+        run: |
+          export FONTCONFIG_FILE="$(tools/ci-fontconfig.sh /usr/share/fonts/truetype/liberation "$RUNNER_TEMP/fc")"
+          start=$(date +%s)
+          rc=0
+          target/release/scratchy --wpt "$RUNNER_TEMP/wpt" > "$RUNNER_TEMP/wpt.log" 2>&1 || rc=$?
+          tail -3 "$RUNNER_TEMP/wpt.log"
+          {
+            echo "### WPT reftests (pin $(cat tools/wpt-pin.txt)), exit $rc, $(( $(date +%s) - start )) s"
+            echo '```'
+            grep -v '^FAIL ' "$RUNNER_TEMP/wpt.log" | head -150 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
       - name: Test
         if: matrix.crate != 'scratchy'
         run: cargo test --release --locked

@@ -35,8 +35,8 @@
    green on the PR before merge. Check all three in `statusCheckRollup`.
    A plain `cargo build --release` / `cargo install --path .` gives V8 + media (libmpv is loaded
    by dlopen; without it installed the inert placeholder stays). The `engine-v8` feature must stay on (compile_error! otherwise). The first clean V8 build takes ~15 min.
-4. WPT subset (checkout: /home/loupax/src/wpt, sparse: css html/rendering fonts resources images,
-   at WPT ac78b567f5404b6f2dc0418ea380af3946a47fca; main matched wpt-expected.txt there on 2026-11-19, 322 pass / 292 fail): `scratchy --wpt /home/loupax/src/wpt` (run from `scratchy/`; reads
+4. WPT subset (checkout: /home/loupax/src/wpt, or a fresh one with `tools/wpt-checkout.sh DIR`; the dirs are in
+   `tools/wpt-dirs.txt`, the pinned commit is the one line in `tools/wpt-pin.txt` (do not repeat the hash); main matched wpt-expected.txt there on 2026-11-19, 322 pass / 292 fail): `scratchy --wpt /home/loupax/src/wpt` (run from `scratchy/`; reads
    `wpt-subset.txt`, compares with `wpt-expected.txt`, exits 1 on any change;
    `--update` rewrites expectations; `--out DIR` saves failing PNGs). A new failure is a
    regression and blocks the commit. A newly passing test: update the
