@@ -306,6 +306,59 @@ UI: scrollbar
 ========================================================================
 
 ========================================================================
+UI: smooth scrolling (user design discussion 2026-11-21; user accepted every proposal below)
+========================================================================
+
+- [ ] QSMOOTH1 [S] (P3; Sonnet; app.rs, config.rs; cosmetic) Ease the top-level viewport scroll
+      toward its target instead of jumping there in one frame.
+      Today: every input writes `App::scroll_offset` directly and requests a redraw (the
+      `WindowEvent::MouseWheel` viewport branch `scroll_offset -= dy`; `scroll_by` for j/k/arrows/
+      PageUp/PageDown; `Action::ScrollTop`/`ScrollBottom` for gg/G/Home/End); `redraw` clamps it to
+      `0..=max_scroll` every frame.
+      Design (decided):
+      D1 `scroll_offset` KEEPS its meaning, "what is painted now". Hit testing, `pageY`,
+         `js.set_scroll` (scrollY), the scrollbar, popups and every test that sets it directly stay
+         unchanged. Add `scroll_target: Option<f32>` (None = not animating).
+      D2 Smoothed inputs write the TARGET: base = `scroll_target.unwrap_or(scroll_offset)`, then
+         `scroll_target = Some((base + dy).max(0.0))`, so fast repeated wheel notches/keys accumulate
+         instead of restarting. Smoothed: wheel `MouseScrollDelta::LineDelta` (real notches), j/k and
+         arrows, PageUp/PageDown, gg/G/Home/End (G: target f32::MAX, clamped below).
+      D3 NOT smoothed (stay instant): `MouseScrollDelta::PixelDelta` (touchpads are already a smooth
+         stream; easing only adds lag); `overflow: scroll/auto` regions (`scroll_offsets`; follow-up
+         QSMOOTH2); every programmatic scroll (JS scrollTo/scrollBy/scrollIntoView, the
+         `sr.relative` scroll request path, find-in-page / `search_step`, `scroll_focus_into_view`,
+         fragment navigation, history restore, the navigation reset to 0). This matches CSS
+         `scroll-behavior: auto`.
+      D4 Any direct (instant) write to `scroll_offset` CANCELS the animation (`scroll_target = None`),
+         so a programmatic scroll or navigation is never overridden by a stale target. Add a small
+         helper (e.g. `set_scroll_now`) and use it at those sites rather than repeating the reset.
+      D5 Step in `redraw`, time-based so it does not depend on frame rate: keep `scroll_anim_last:
+         Instant`; `dt` = elapsed since the last step (cap at ~50 ms so a stalled frame does not
+         teleport); `scroll_offset += (target - scroll_offset) * (1 - exp(-dt / tau))`. Clamp the
+         TARGET to `0..=max_scroll` together with the existing offset clamp. When
+         `|target - offset| < 0.5` px: snap `scroll_offset = target`, clear the target.
+      D6 Keep the loop awake only while animating: in `about_to_wait`, when `scroll_target` is
+         Some, add `now + ~16 ms` to the `WaitUntil` candidates and request a redraw (the same way
+         `anim_at`/`sb_at` work); when None nothing changes, so idle stays idle.
+      D7 Config in `src/config.rs` (QCOMP-D C4): `SMOOTH_SCROLL_TAU_MS: f32 = 40.0` (~90% of the
+         distance in ~100 ms); `0.0` disables it (inputs write `scroll_offset` directly, as today).
+         Headless/automated runs (WPT runner, --perf-report, --js-report, --deterministic, tests that
+         drive inputs) force it off so captures and timings never land mid-animation.
+      D8 Accepted side effect: while easing, scrollY changes and `scroll` events fire once per frame
+         rather than once per input — same as browsers with smooth scrolling.
+      Tests (unit, no window): one wheel LineDelta sets a target and leaves `scroll_offset` unchanged
+      until a step; stepping with a fixed dt converges and snaps/clears within 0.5 px; two notches
+      accumulate into one target; PixelDelta stays instant; G then the clamp ends at max_scroll;
+      a programmatic scroll mid-animation cancels it; tau 0 behaves exactly like today (existing
+      keys_tests/interaction_tests pass unchanged). Manual check: wheel and j/k on a long page look
+      smooth, the window idles (no wakeups) once the scroll settles, and frame_stats shows no
+      regression.
+- [ ] QSMOOTH2 [S] (P3; Sonnet; after QSMOOTH1; only if the user asks) The same easing for
+      `overflow: scroll/auto` regions: per-region targets keyed by scroll id in a map next to
+      `scroll_offsets`, stepped in `redraw`, written through `set_region_scroll` so `node_scroll`
+      and script `scroll` events stay correct; wheel LineDelta only.
+
+========================================================================
 QSTASH — persistent web storage (user design session 2026-11-19; full design in STASH.md)
 ========================================================================
 
