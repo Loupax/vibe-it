@@ -1518,11 +1518,15 @@ images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom
     shift at document-space magnitude) and truncation dropped its last row, a 1-row difference in every flag-off
     screenshot pair; main got 485.0 only because both values carried the same rounding. Not chosen: an `EPS`
     compare of resolved-length style fields (would hide the drift, not remove it).
+    (d) Found by the new fuzz after main's QINC1k4 added `calc()` margins: Q48d's clearance test read the cleared
+    box's not yet finalized `margin-top` with `px()` (a debug assertion; 0 in release, so `margin-top:10%` got
+    clearance it should not); it now `resolve`s it against the content width
+    (`qinc1k1_clearance_resolves_a_percentage_margin_top`).
     Results (release builds; "main" = origin/main 34241f2 built from the same tree, "main+snap" = that with (c)
     only, so main+snap vs branch isolates (a)/(b)): `abs-drift.html` headless check 2 mismatches -> 0
     (`layout_shifted` 2 -> 3: the engine no longer restarts after a mismatch); `gate.sh check 3 github` **0
     mismatches in 6 runs** (3 window + 3 headless; a control run of the 0bbbd0d main binary in the same session: 13
-    in its window run, as in QINC1k); `gate.sh check 1` ytr ytw wiki bbc social hover: 0 mismatches in 12 runs;
+    in its window run, as in QINC1k; re-run on the final rebased binary 40d114b: 0 again, `miss_y` 0); `gate.sh check 1` ytr ytw wiki bbc social hover: 0 mismatches in 12 runs;
     `miss_y` = 0 on all 7 pages (no reuse lost: github headless 9 488-9 624 hits / 4 058-4 133 shifted per run, window
     ~16 000 / ~5 500; ytr 2 019, ytw 2 517, Wikipedia 219 headless). Fuzz: default window x 7 (`SCRATCHY_FUZZ_SEED` 0..6000, 1 000 each) 0 mismatches; new
     `qinc1k1_fuzz_fractional_heights_far_down` (spacer `#ys` moved by the mutations, a positioned auto-height box of
