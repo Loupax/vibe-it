@@ -70,9 +70,9 @@ fn qkeys1_window_scrollbar_ends_above_the_bar() {
 }
 
 #[test]
-fn qkeys1_mode_name_follows_vim_bindings() {
-    assert_eq!(mode_name(true), "NORMAL");
-    assert_eq!(mode_name(false), "INPUT");
+fn qkeys2_mode_name_is_the_key_mode() {
+    assert_eq!(mode_name(KeyMode::Normal), "NORMAL");
+    assert_eq!(mode_name(KeyMode::Input), "INPUT");
 }
 
 fn bar_pixels(bar: &crate::paint::StatusBar) -> Vec<u32> {
