@@ -93,3 +93,8 @@ at the end. Before your final reply, `ps -eo pid,cmd | grep <your worktree path>
 - Never write an unbounded wait loop (`until ...; do sleep; done`) and never poll a task output file in a background shell.
   If you must poll, wrap it in `timeout`, run it in the foreground, and stop as soon as it returns.
 - Background shells only for long builds/test runs/measurements, and they must end by themselves (no daemons left behind).
+
+## New tests go in their own file (2026-11-22: DOM PRs kept colliding at the end of js_dom_tests.rs)
+Put your item's new tests in a NEW file `scratchy/src/tests/<item-lowercase>_tests.rs` plus one `mod <item>_tests;` line in
+`src/tests/mod.rs` (the merge script keeps both sides of mod lines). Only edit an existing test file to change a test that
+already lives there. This overrides AGENTS.md "matching area file" for new tests.
