@@ -1502,34 +1502,44 @@ images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom
     relative to `content_y`. Test: the fixture as a check-mode test (0 mismatches), fuzz seeds with fractional row
     heights at y > 4096. Gate: `gate.sh check 3 github` 0 mismatches.
     QINC1k1 DONE (Opus, 2026-11-21; `layout.rs` content heights + `Ck::y_sensitive`, `incr_layout.rs` `try_hit`,
-    counter `incr.miss_y`): **translation invariance in y, plus an engine guard where layout itself is not
-    invariant.** (a) The auto content height is now summed RELATIVE to the content box (`ry`, advanced by the same
-    deltas as `cursor_y`, which still places the children unchanged) in the block arm of `measure_inner`,
-    `measure_table`, `measure_grid` and `measure_flex` (row and column return their items' bottom edge relative to
-    `content_y`; only `column-reverse` still measures from the laid boxes); mixed inline content already was
-    relative. From-scratch output changes only in the last bits of those heights. (b) Floats stay in document space
-    (`Floats`), so a BFC root holding floats, and a flow position taken from a float (clearance, float avoidance),
-    are not invariant: such a box records `Ck::y_sensitive` (via the `layout::Y_SENS` counter, which a cache hit on
-    a y-sensitive box bumps too, so its ancestors inherit it) and `try_hit` reuses it only at the same y (else
-    `miss_y`, counted in `miss_key` too), the y twin of QINC1h1's `x_sensitive`. The Q49 float-hoist re-lay keeps its
-    relative start. Not chosen: an `EPS` compare of resolved-length style fields (would hide the drift, not remove
-    it; geometry drift of the same size already passes `EPS`, so (a) is the cheaper exact fix).
-    Results (release build of this branch; main = ~/.cargo/bin/scratchy of 0bbbd0d copied aside): `abs-drift.html`
-    headless check 2 mismatches -> 0 (`layout_shifted` 2 -> 3: the engine no longer restarts after a mismatch);
-    `gate.sh check 3 github` **0 mismatches in 6 runs** (3 window + 3 headless; control run of the main binary in the same series: 13 in its window run, as in QINC1k);
-    `gate.sh check 1` ytr ytw wiki bbc social hover: 0 mismatches in 12 runs; `miss_y` = 0 on all 7 pages (no
-    reuse lost: github headless 9 488 hits / 4 058 shifted per run, ytr 1 914, ytw 2 509, Wikipedia 219).
-    Fuzz: default window x 7 (`SCRATCHY_FUZZ_SEED` 0..6000, 1 000 each) 0 mismatches; new
+    `paint.rs` `fill_rect`, counter `incr.miss_y`): **translation invariance in y, an engine guard where layout
+    itself is not invariant, and paint edges that ignore the rounding noise.** (a) The auto content height is now
+    summed RELATIVE to the content box (`ry`, advanced by the same deltas as `cursor_y`, which still places the
+    children unchanged) in the block arm of `measure_inner`, `measure_table`, `measure_grid` and `measure_flex` (row
+    and column return their items' bottom edge relative to `content_y`; only `column-reverse` still measures from
+    the laid boxes); mixed inline content already was relative. From-scratch output changes only in the last bits
+    of those heights. (b) Floats stay in document space (`Floats`), so a BFC root holding floats, and a flow
+    position taken from a float (clearance, float avoidance), are not invariant: such a box records
+    `Ck::y_sensitive` (via the `layout::Y_SENS` counter, which a cache hit on a y-sensitive box bumps too, so its
+    ancestors inherit it) and `try_hit` reuses it only at the same y (else `miss_y`, counted in `miss_key` too), the
+    y twin of QINC1h1's `x_sensitive`. The Q49 float-hoist re-lay keeps its relative start. (c) `fill_rect` counts an
+    edge within 1e-3 px below a pixel boundary as on it (`PX_SNAP`): with (a) alone, bbc.com's `bottom: 0` cookie
+    banner ended at 484.99957 instead of 485.0 (its height is now the exact relative sum, its position still a
+    shift at document-space magnitude) and truncation dropped its last row, a 1-row difference in every flag-off
+    screenshot pair; main got 485.0 only because both values carried the same rounding. Not chosen: an `EPS`
+    compare of resolved-length style fields (would hide the drift, not remove it).
+    Results (release builds; "main" = origin/main 34241f2 built from the same tree, "main+snap" = that with (c)
+    only, so main+snap vs branch isolates (a)/(b)): `abs-drift.html` headless check 2 mismatches -> 0
+    (`layout_shifted` 2 -> 3: the engine no longer restarts after a mismatch); `gate.sh check 3 github` **0
+    mismatches in 6 runs** (3 window + 3 headless; a control run of the 0bbbd0d main binary in the same session: 13
+    in its window run, as in QINC1k); `gate.sh check 1` ytr ytw wiki bbc social hover: 0 mismatches in 12 runs;
+    `miss_y` = 0 on all 7 pages (no reuse lost: github headless 9 488-9 624 hits / 4 058-4 133 shifted per run, window
+    ~16 000 / ~5 500; ytr 2 019, ytw 2 517, Wikipedia 219 headless). Fuzz: default window x 7 (`SCRATCHY_FUZZ_SEED` 0..6000, 1 000 each) 0 mismatches; new
     `qinc1k1_fuzz_fractional_heights_far_down` (spacer `#ys` moved by the mutations, a positioned auto-height box of
-    fractional rows with an `inset:0; height:100%` child, float / clear / `%`-height declarations mixed in):
-    main code 378 of 1 000 cases fail, this branch 0 of 7 000. WPT 333 / 293, no change. Flag-off screenshots
-    main vs branch: see below.
+    fractional rows with an `inset:0; height:100%` child, float / clear / `%`-height declarations mixed in): main
+    code 378 of 1 000 cases fail, this branch 0 of 7 000. WPT 333 / 293, no change. Flag-off screenshots
+    (`shotdiff.py`, `pre` and `end` shots): main+snap vs branch x 3 rounds on bbc.com/news, github.com, Wikipedia
+    and hover.html: byte-identical in every same-size pair (one Wikipedia pair differed in window size); main vs
+    branch x 2 rounds on bbc, github, Wikipedia: byte-identical. (The nested dwl got only 960x144-178 px of the
+    desktop in these series, so they cover the top of each page plus bbc's bottom-fixed banner; an earlier 960x1006
+    series of the (a)-only build showed github / Wikipedia / hover identical and bbc's 1-row banner gap.)
     Found, NOT fixed (also on main): (1) far down a page (> ~20 000 px) the f32 ulp (0.002-0.008) lets a shifted
     box's geometry differ from a fresh layout by more than `EPS` (`ink.b` 65733.89 vs 65733.91): the
     absolute-coordinate limit (R60 14.1, QINC1n); the fuzz keeps its pages below ~16 000 px. (2) A fuzz case with an
     8 px `style.width` difference (50 % of 1008 vs of 1024) after moving an `li.c1.c4` under `div .c1{width:50%}`,
     not related to y: full page and steps in `tools/incr-gate/fuzz-width-504-512.txt` (not reproduced by a
-    hand-written minimal test). Proposed (new item, the coordinator names it) **[S]** (P2, area incr-new): minimise and fix it.
+    hand-written minimal test). Proposed (new item, the coordinator names it) **[S]** (P2, area incr-new): minimise
+    and fix it.
   - **QINC1k2 [M]** (P1, area incr-new (incr_box); AFTER nothing) github.com box-update floor: with
     `SCRATCHY_INCR=1` the incremental box update takes 17.0-17.2 s per window run (~63 ms per update, ~75 us per
     rebuilt box; restyle 4.3-4.6 s, relayout 1.5 s), so App builds are +54 % and input p95 2x vs flag off. Profile it
