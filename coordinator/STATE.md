@@ -168,3 +168,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-21 #536 QKEYS1c READY (queued after #535). Launched QWPTPRINT.
 - 2026-11-21 QEL2 #529 accepted (resize-observer 31.1 -> 59.3; live ytr -21 %, ytw +13-15 % within noise); filed QEL2b; queued after #536.
 - 2026-11-21 Merged #534 flaky 0db9d5f, #526 QDOM6 b05689c, #532 user QSMOOTH TODO 05fda83, #531 QREG1 df3d474. #533 QDOM3 conflict (js_dom_tests.rs) -> agent. Queue: #535, #536, #529.
+- 2026-11-21 NOTE: resuming QDOM3 for its rebase made 6 agents active briefly. Rule from now: a rebase request is a resume = an agent slot; send it only when fewer than 5 are running (else queue it).
