@@ -1084,13 +1084,19 @@ QPROF1 PART A FOLLOW-UPS (R62 section 7, #451; non-layout hotspots; START AFTER 
       style.height 642.0005 vs 642.0` (abs inset:0 height:100% under an auto-height positioned parent; content_h =
       cursor_y - content_y in document coords, f32 step ~0.0005 above y 4096; engine shifts the clean subtree, keeps old
       value). Repro tools/incr-gate/abs-drift.html. Gate: `tools/incr-gate/gate.sh check 3 github` 0 mismatches.
-- [ ] [WIP] QINC1k2 [M] (P1, from #465; BLOCKS QINC1l; Opus; area incr_box) github.com box-update floor: ~17 s per window run,
-      ~63 ms per update -> App builds +54 % and input p95 170 -> 345 ms with INCR=1. Profile and cut. Gate:
-      `gate.sh perf 3 github` App builds and input p95 no worse than flag off.
 - [ ] QINC1k3 [M] (P2, from #465; Opus; area incr_layout; AFTER QINC1k1 (same area)) Wikipedia Main frames always walk to
       the root (133/210 per run, ~9.3 ms restyle + ~6.8 ms relayout each); target the -80 % App builds gate (now -62 %).
 - [ ] QHOV2 [S] (P3, from #465; not incr; after the architecture discussion) hover cadence 6-7 frames/s for 62 moves/s
       (p95 ~140 ms) on tools/incr-gate/hover.html with flag on or off. Find the throttle; decide if intended.
+- [ ] [WIP] QINC1k4 [S] (P2, from QINC1k2 #466; BLOCKS QINC1l (a CHECK mismatch); Opus; area incr_style) Intermittent
+      window CHECK mismatch on github.com: `slot after/before field width ... Calc(..,(956.0,312.0)) vs (956.0,485.0)` on
+      footer links + a carousel indicator (looks like the viewport pair a pseudo's calc was resolved against). 1 of 3
+      window check runs at load 14.4. Find which vh the slot captured, reproduce, fix.
+- [ ] [WIP] QINC1k5 [S] (P2, from #466 + QINC1k's social.loupax.com gutter diff; BLOCKS QINC1l until explained; Opus;
+      measure first, area geom) Flag on vs off give pages different geometry: github.com card grids measure 80 px tall
+      with the flag off and 647-1315 px with it; social.loupax.com's line-number gutter beside the first article image
+      differs (off 4-19 `1/245`, on 3/4 `1/244`). Determine which is right (compare with Chrome/Firefox reference if
+      possible) and whether it is the intended QINC1i change (script geometry sees decoded image sizes) or a bug.
 QINC1 IMPLEMENTATION (design R60, #434; full item text in REGRESSIONS.md R60 section 15; USER ANSWERED 2026-11-20 ~11:45: "go with the
 recommendations" = R60 section 16 Q1-Q9 all as recommended: one engine on the main thread; real image sizes for script
 geometry; superseded items dropped (archived); FREEZE on other style/box/layout semantic changes while QINC1f-h1 are in
@@ -1099,7 +1105,7 @@ accepted; flip after 0 mismatches on 6 pages x 3 runs + gates, delete after >= 3
 as stated). Items QINC1a DONE 81e23d7 #447 (engine test infra + style_diff + fuzz), QINC1b (stable paragraph ids) DONE 23d604f #446, QINC1c (bottom-up hoisting) DONE 9890847 #450,
 QINC1d (InvalidationMap) DONE 18d0527 #445, QINC1e (write log) DONE 4700801 #448, QINC1f [L] (incremental restyle, shadow) DONE b20ed27 #452, QINC1g [L] DONE 8ec1c1a #455 (persistent box tree,
 shadow), QINC1h1 [L] DONE 109445c #457 (relayout from last tree, shadow), QINC1h2 DONE ce886a5 #458 (intrinsic-size cache), QINC1i DONE 9c55521 #460 (forced layouts via engine,
-SCRATCHY_INCR=1), QINC1j [L] DONE e219bee #459 (App frames via engine), QINC1j-ab DONE 30a23cb #461, QINC1i5 DONE dc6ba98 #462, QINC1i4 DONE 2618ee3 #463, QINC1i6 DONE 42b99fd #464, QINC1k DONE b924d48 #465 (exactness sweep + gates: NO-GO until k1+k2), [WIP] QINC1k1, [WIP] QINC1k2, QINC1k3, QINC1l (flip default, user OK),
+SCRATCHY_INCR=1), QINC1j [L] DONE e219bee #459 (App frames via engine), QINC1j-ab DONE 30a23cb #461, QINC1i5 DONE dc6ba98 #462, QINC1i4 DONE 2618ee3 #463, QINC1i6 DONE 42b99fd #464, QINC1k DONE b924d48 #465 (exactness sweep + gates: NO-GO until k1+k2), [WIP] QINC1k1, QINC1k2 DONE ce088f9 #466, QINC1k3, [WIP] QINC1k4, [WIP] QINC1k5, QINC1l (flip default, user OK),
 QINC1m (delete superseded special cases). Waves: 1 = a, b, d, e; 2 = c, f; 3 = g; 4 = h1; 5 = i, j, h2; then k, l, m.
 Superseded and archived (Q3): QY54b3a-f, QY54b4, QY53o2, QY53f2, QY53f3, QY53n4, QY53n1d, QY53n2d, QYTC1a2, QYTC1e,
 QYTC1f, QY53l3, QY53e2b.
