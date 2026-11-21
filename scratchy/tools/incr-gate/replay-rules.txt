@@ -1,0 +1,8 @@
+# QREC3: query parameters ignored when a replayed request is matched (wire --replay-rules, R64 section 6).
+# Format: `host name,name`; `*` = every host. Rules only: no recorded data lives in the repo (DECISIONS Q5).
+# Cache busters, any host
+* _,cb
+# YouTube: per-request random / counter / timing parameters
+www.youtube.com rn,cpn,t
+youtube.com rn,cpn,t
+m.youtube.com rn,cpn,t

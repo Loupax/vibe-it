@@ -6,6 +6,10 @@
 #                     (exactness: 0 `incr-check: MISMATCH` lines is the gate)
 #           perf      window: flag off vs SCRATCHY_INCR=1 of the SAME binary, interleaved, order flipped per round
 #           headless  the same pairs headless (--perf-report: forced layouts, rss_bytes, incr counters)
+#           replay    QREC3: window, SCRATCHY_INCR=1, LIVE vs REPLAY of the same pages, interleaved, order
+#                     flipped per round (tags replay-<page>-live-<r> / replay-<page>-rep-<r>); needs REPLAY=DIR
+#                     (recordings, see run.sh). Also prints the variance.py 3-run min/median/max table.
+#           replay-headless  the same pair headless (tags replayhl-...)
 #   RUNS    rounds (default 3)
 #   PAGES   default: ytr ytw wiki github bbc social hover (see run.sh)
 # Env: as run.sh (SCRATCHY, WIRE, INJECT, OUT, PERF_LOCK, MEMCAP). Every run holds the perf lock for itself only.
@@ -30,7 +34,8 @@ OUT=${OUT:-${TMPDIR:-/tmp}/incr-gate}
 export OUT
 mkdir -p "$OUT"
 DWL=
-if [ "$SERIES" != headless ]; then
+case $SERIES in replay|replay-headless) [ -n "${REPLAY:-}" ] || { echo "gate.sh: $SERIES needs REPLAY=DIR" >&2; exit 2; } ;; esac
+if [ "$SERIES" != headless ] && [ "$SERIES" != replay-headless ]; then
   SOCK=$("$HERE/../nest.sh" "$OUT/nest") || exit 1
   DWL=$(cat "$OUT/nest/dwl.pid")
   export SOCK
@@ -50,9 +55,19 @@ for r in $(seq 1 "$RUNS"); do
         kind=window; [ "$SERIES" = headless ] && kind=headless
         if [ $((r % 2)) = 1 ]; then order="off incr"; else order="incr off"; fi
         for m in $order; do "$HERE/run.sh" "$kind" "$m" "$p" "$SERIES-$p-$m-$r"; done ;;
+      replay|replay-headless)
+        kind=window; pre=replay
+        if [ "$SERIES" = replay-headless ]; then kind=headless; pre=replayhl; fi
+        if [ $((r % 2)) = 1 ]; then order="live rep"; else order="rep live"; fi
+        for m in $order; do
+          if [ $m = rep ]; then "$HERE/run.sh" "$kind" incr "$p" "$pre-$p-rep-$r"
+          else REPLAY= "$HERE/run.sh" "$kind" incr "$p" "$pre-$p-live-$r"; fi
+        done ;;
       *) echo "gate.sh: unknown series $SERIES" >&2; exit 2 ;;
     esac
     echo "# round $r page $p done $(date -Is)"
   done
 done
-python3 -I "$HERE/summarize.py" "$OUT" "$SERIES-"
+case $SERIES in replay) PFX=replay- ;; replay-headless) PFX=replayhl- ;; *) PFX=$SERIES- ;; esac
+python3 -I "$HERE/summarize.py" "$OUT" "$PFX"
+case $SERIES in replay*) python3 -I "$HERE/variance.py" "$OUT" "$PFX" ;; esac

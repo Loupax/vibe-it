@@ -25,6 +25,16 @@
 #                leave it running for later runs; gate.sh starts one per series)
 #      PERF_LOCK lock file (default /tmp/scratchy-perf.lock); each run holds it. PERF_LOCK= skips.
 #      MEMCAP    systemd-run scope cap (default 6G); every scratchy runs inside such a scope.
+#      REPLAY    QREC3: base dir of page recordings (<REPLAY>/<page>/, made with RECORD=). The run's wire
+#                is started `--replay <REPLAY>/<page> --replay-rules $RULES --replay-delay 5ms` (never the
+#                network); headless runs also get `--deterministic=<epoch>` (epoch = mtime of the
+#                recording's index.jsonl, ms; override with EPOCH=). hover/imggeom have no network: they
+#                ignore REPLAY. Misses are counted into <TAG>.meta (replay_misses=N): more than a handful
+#                makes the run invalid. Recordings stay LOCAL (R64, DECISIONS Q5): never commit one.
+#      RECORD    QREC3: base dir; the run's wire is started `--no-cookies --record <RECORD>/<page>` (a
+#                fresh jar, so no personal cookie is recorded; dirs mode 0700). Use a window run with the
+#                page's input plan so hover/play requests are recorded too.
+#      RULES     replay-rules file (default tools/incr-gate/replay-rules.txt).
 # Input coordinates are written for a 960x1006 window and passed to inject as 960 1006, so on any
 # other window size they land at the same FRACTION of the window (the pages are responsive).
 # QINC1k3: INJECT_W / INJECT_H override that reference size: when the nested dwl gets a smaller tile
@@ -43,6 +53,9 @@ INJECT=${INJECT:-$HERE/../inject/target/release/inject}
 OUT=${OUT:-${TMPDIR:-/tmp}/incr-gate}
 LOCK=${PERF_LOCK-/tmp/scratchy-perf.lock}
 MEMCAP=${MEMCAP:-6G}
+RULES=${RULES:-$HERE/replay-rules.txt}
+REPLAY=${REPLAY:-}
+RECORD=${RECORD:-}
 RW=${INJECT_W:-960}
 RH=${INJECT_H:-1006}
 ulimit -c 0
@@ -66,6 +79,22 @@ case $MODE in
   *) echo "run.sh: unknown mode $MODE" >&2; exit 2 ;;
 esac
 
+# QREC3: record / replay arguments for this run's wire; local-file pages never touch the network
+WARGS=()
+DET=()
+case $PAGE in hover|imggeom) ;; *)
+  if [ -n "$REPLAY" ] && [ -n "$RECORD" ]; then echo "run.sh: REPLAY and RECORD contradict each other" >&2; exit 2; fi
+  if [ -n "$REPLAY" ]; then
+    [ -s "$REPLAY/$PAGE/index.jsonl" ] || { echo "run.sh: no recording in $REPLAY/$PAGE" >&2; exit 2; }
+    WARGS=(--replay "$REPLAY/$PAGE" --replay-rules "$RULES" --replay-delay "${REPLAY_DELAY:-5ms}")
+    EPOCH=${EPOCH:-$(( $(stat -c %Y "$REPLAY/$PAGE/index.jsonl") * 1000 ))}
+    DET=(--deterministic="$EPOCH")
+  elif [ -n "$RECORD" ]; then
+    mkdir -p -m 0700 "$RECORD" "$RECORD/$PAGE"
+    WARGS=(--no-cookies --record "$RECORD/$PAGE")
+  fi ;;
+esac
+
 PIDS=()
 cleanup() {
   local p
@@ -78,7 +107,7 @@ trap cleanup EXIT
 # own wire, own socket, per run
 WSOCK="$OUT/wire-$$.sock"
 rm -f "$WSOCK"
-"$WIRE" --socket "$WSOCK" >"$OUT/$TAG.wire.log" 2>&1 9>&- &
+"$WIRE" --socket "$WSOCK" "${WARGS[@]}" >"$OUT/$TAG.wire.log" 2>&1 9>&- &
 WPID=$!
 PIDS+=($WPID)
 i=0
@@ -175,7 +204,7 @@ echo "locked=$(date -Is) uptime_locked=$(uptime | sed 's/.*load average: //')" >
 
 if [ "$KIND" = headless ]; then
   systemd-run --user --scope -q -p MemoryMax="$MEMCAP" -p MemorySwapMax=0 \
-    env "${MENV[@]}" "$SCRATCHY" --perf-report --socket "$WSOCK" --seconds "$HSECS" --budget-ms 20000 "$URL" \
+    env "${MENV[@]}" "$SCRATCHY" "${DET[@]}" --perf-report --socket "$WSOCK" --seconds "$HSECS" --budget-ms 20000 "$URL" \
     >"$OUT/$TAG.json" 2>"$OUT/$TAG.log" 9>&-
   echo "exit=$?" >>"$OUT/$TAG.meta"
 else
@@ -218,3 +247,6 @@ if [ -n "$LOCK" ]; then flock -u 9; exec 9>&-; fi
 kill $WPID 2>/dev/null
 wait $WPID 2>/dev/null
 rm -f "$WSOCK"
+if [ -n "$REPLAY" ]; then
+  echo "replay_misses=$(grep -c 'X-Wire-Replay: miss\|replay miss' "$OUT/$TAG.wire.log") replay=$REPLAY/$PAGE" >>"$OUT/$TAG.meta"
+fi

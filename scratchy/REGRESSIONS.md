@@ -10454,6 +10454,87 @@ replayed pages if the user allows CI access to recordings (Q5), else on syntheti
 to the repo (hover.html, img-geom.html, a generated "article with floats" page). Wall-clock
 budgets stay local, under the perf lock, with 3 interleaved runs and the median.
 
+**QREC3 measured (2026-11-21, tools/incr-gate: `RECORD=` / `REPLAY=` in run.sh, `gate.sh replay|replay-headless`, `variance.py`).**
+Recordings are in `~/.cache/scratchy/recordings/<page>/` (dirs mode 0700, local only, Q5), made with a FRESH wire
+(`--no-cookies --record`) from one window run per page with that page's input plan (hover/play requests included).
+Rules file: `tools/incr-gate/replay-rules.txt` (`* _,cb`; YouTube hosts `rn,cpn,t`). hover.html and img-geom.html are
+local files with no network traffic: nothing to record (replay ignores them). Binary: wire built from main e3794c7
+(the installed wire had no `--record`), scratchy = the installed binary 4e75abba6cd7, load average 5-20 from other agents.
+
+| page | files (blobs + index) | responses | size (zstd blobs + index) | note |
+|---|---|---|---|---|
+| ytr | 115 | 115 | 5.0 MB | estimate was 15-25 MB |
+| ytw | 140 | 152 | 27.2 MB | includes the video segments of the play click |
+| wiki | 53 | 65 | 2.1 MB | |
+| github | 87 | 172 | 4.5 MB | no hero videos in this run |
+| bbc | 95 | 94 | 1.7 MB | |
+| social | 25 | 24 | 0.6 MB | |
+| total | 515 | 622 | 41.1 MB | R64's estimate was 40-90 MB after zstd |
+
+Replay misses (`X-Wire-Replay: miss`, counted per run in `<tag>.meta` `replay_misses=`): wiki, github, social, hover 0;
+bbc 5-6; ytr 0-119 (window) / 66 (headless); ytw 24-89. A miss is a request the recording does not hold: the pages fire
+different requests per run (timers, ads, A/B ids, the input plan). More than a handful makes a run invalid, so ytr/ytw
+need either more rules (`rn,cpn,t` are not all of it) or a second recording pass merged into one directory (record
+appends? not tested).
+
+**Replay bug found (wire, not fixed here): the last matching step (n-th request to the same host+path) answers a
+request whose QUERY differs, and counts as a hit.** wiki headless replay: `load.php?modules=...` requests batch
+differently in the headless run than in the recording (window run), so they fall to the path fallback, receive another
+batch's JS and fail (`SyntaxError`), and the page runs ~nothing (rep: 0 forced layouts, rss 138 MB vs live 4 forced,
+275 MB). 0 misses reported. Proposed: path fallback only when the query is equal after rules, else a miss; make
+ResourceLoader `load.php` (`modules` order) a rules entry or record the headless run itself.
+
+Headless (`gate.sh replay-headless 3`, 20 s `--perf-report`, replay with `--deterministic=<index.jsonl mtime ms>`), 3
+runs each, `min / median / max (spread = (max-min)/median)`:
+
+| page | variant | forced n | forced ms | worst cb ms | rss MB |
+|---|---|---|---|---|---|
+| bbc | live | 15 / 15 / 15 (0%) | 219 / 468 / 484 (57%) | 511 / 1042 / 1096 (56%) | 142 / 143 / 147 (3%) |
+| bbc | rep | 15 / 15 / 15 (0%) | 195 / 212 / 511 (149%) | 459 / 514 / 1234 (151%) | 142 / 143 / 144 (1%) |
+| github | live | 78 / 130 / 221 (110%) | 6622 / 8711 / 9105 (29%) | 832 / 2134 / 2787 (92%) | 1282 / 1380 / 1399 (8%) |
+| github | rep | 63 / 75 / 186 (164%) | 6786 / 7337 / 7574 (11%) | 1047 / 2509 / 3028 (79%) | 1177 / 1440 / 1647 (33%) |
+| social | live | 10 / 10 / 10 (0%) | 68 / 137 / 181 (82%) | 74 / 147 / 192 (80%) | 59 / 61 / 61 (3%) |
+| social | rep | 10 / 10 / 10 (0%) | 63 / 103 / 175 (109%) | 69 / 116 / 185 (100%) | 60 / 61 / 64 (7%) |
+| wiki | live | 4 / 4 / 4 (0%) | 612 / 1006 / 1526 (91%) | 415 / 626 / 1050 (101%) | 270 / 275 / 279 (3%) |
+| wiki | rep | 0 / 0 / 0 (broken replay, see above) | 0 | 113 / 182 / 297 | 138 / 138 / 138 |
+| ytr | live | 44 / 49 / 70 (53%) | 417 / 987 / 1418 (101%) | 341 / 914 / 975 (69%) | 328 / 349 / 356 (8%) |
+| ytr | rep | 26 / 27 / 28 (7%) | 405 / 437 / 859 (104%) | 956 / 976 / 2250 (133%) | 410 / 413 / 421 (3%) |
+| ytw | live | 122 / 126 / 130 (6%) | 1093 / 1585 / 2465 (87%) | 509 / 790 / 1161 (83%) | 466 / 480 / 494 (6%) |
+| ytw | rep | 100 / 101 / 102 (2%) | 739 / 1535 / 1855 (73%) | 939 / 1262 / 2082 (91%) | 467 / 471 / 490 (5%) |
+
+(hover: all zero, identical live and replay.) Reading: replay makes the COUNTS steadier where the replayed page is
+complete (ytr forced n spread 53% -> 7%, ytw 6% -> 2%; bbc and social were already exact), so counts are the metric a
+CI budget can use. It does NOT make the millisecond columns steadier: forced ms and worst callback still vary 50-150%
+between runs because the machine was shared (load 5-20 from other agents, perf lock only serialises measured runs);
+the "replay variance much lower" hope is only met for counts. github's count spread got worse (63-186): a
+deterministic-mode run of github still races (worker/timer ordering, `performance.now()` and timers use the real
+clock, QREC2 note) and its timing-dependent script path changes the number of forced layouts. Wall-clock budgets need
+a quiet machine.
+
+Window (`gate.sh replay 3`, nested dwl, `SCRATCHY_INCR=1`): ytr, ytw, wiki have 3 valid runs per variant (table
+below). bbc, github, hover, social have 2 (round 3 died early: gate.sh's nested dwl runs under `timeout 3600` and
+the series took longer than an hour; run it per page or in two series); bbc live 2 / bbc rep 2 / social rep 2 are
+inflated (a `grim` end screenshot hung for minutes and the run kept going; a watchdog killed later ones).
+Window runs are not deterministic (`--deterministic` is report-mode only), and replay misses were higher there.
+
+| page | variant | builds n | builds ms | forced n | forced ms | p95 | hov p95 | worst ms | rss MB |
+|---|---|---|---|---|---|---|---|---|---|
+| wiki | live | 45 / 46 / 46 (2%) | 841 / 1124 / 1407 (50%) | 5 / 5 / 5 (0%) | 336 / 418 / 499 (39%) | 4 / 10 / 16 | 4 / 10 / 17 | 2 / 21 / 40 | 274 / 291 / 308 (12%) |
+| wiki | rep | 41 / 42 / 42 (2%) | 562 / 609 / 656 (15%) | 4 / 4 / 4 (0%) | 269 / 284 / 299 (11%) | 5 / 5 / 5 | 5 / 5 / 5 | 1 / 1 / 1 | 291 / 294 / 296 (2%) |
+| ytr | live | 27 / 53 / 65 (72%) | 536 / 884 / 1267 (83%) | 27 / 40 / 62 (88%) | 267 / 445 / 528 (59%) | 5 / 55 / 142 | 5 / 59 / 2973 | 28 / 164 / 506 | 331 / 378 / 433 (27%) |
+| ytr | rep | 23 / 26 / 82 (227%) | 752 / 890 / 1191 (49%) | 34 / 35 / 125 (260%) | 496 / 553 / 949 (82%) | 21 / 39 / 121 | 36 / 54 / 110 | 140 / 185 / 437 | 329 / 344 / 452 (36%) |
+| ytw | live | 54 / 59 / 295 (408%) | 613 / 1020 / 1544 (91%) | 245 / 272 / 1084 (308%) | 916 / 1319 / 2819 (144%) | 8 / 17 / 32 | 7 / 17 / 30 | 45 / 50 / 170 | 455 / 460 / 465 (2%) |
+| ytw | rep | 53 / 59 / 174 (205%) | 500 / 613 / 929 (70%) | 108 / 266 / 1221 (418%) | 621 / 1061 / 2700 (196%) | 8 / 22 / 611 | 8 / 22 / 612 | 40 / 47 / 54 | 412 / 477 / 521 (23%) |
+
+Window replay is not steadier than live on ytr/ytw (the video playback regime and the `vid` column differ: replayed
+video answers instantly), and wiki replay is steadier on ms columns (builds ms 50% -> 15%, forced ms 39% -> 11%) from
+only 2-3 runs. Conclusion for the budgets above: use headless replay for COUNT budgets (forced layouts) after the
+path-fallback fix and a second recording pass for ytr/ytw; keep wall-clock budgets local, quiet machine, 3 runs, median.
+
+Follow-ups proposed: (1) wire: path fallback must not answer a different query (count it as a miss); (2) record the
+headless run itself (`run.sh headless` with `RECORD=`) so the recording holds the requests of the mode that replays it;
+(3) gate.sh: restart the nested dwl per page or lift the 1 h `timeout`, and a `grim` timeout in run.sh.
+
 ### 7. User decisions (questions, with my recommendation)
 
 - **Q1. Test server for phase 1.** (a) a static mount inside wire, (b) WPT's Python server from day
