@@ -8692,3 +8692,9 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       load is pending, 800x600 viewport, Ahem font; prints ONE JSON line {harness, message, tests}
       or nothing (parent says CRASH). Tests: fixture pages in a mini checkout (pass, fail, harness
       error, timeout -> TIMEOUT in < 1 s real time, a pending fetch does not time out).
+
+=== from TODO.txt: --- (no header)
+- [x] QERR1 DONE 00651ab #494 [S] (P1, from QWPT4a #493; Sonnet; js.rs script runner) An uncaught exception in a top-level page script
+      fires an ErrorEvent at window (message, filename, lineno, colno, error), so `onerror` and testharness's error
+      listener see it (R64 E7 family), then the log line. Evidence: css/cssom/computed-style-003.html and -004.html report
+      harness TIMEOUT with no tests where browsers report ERROR. Test: onerror and addEventListener('error') both fire.

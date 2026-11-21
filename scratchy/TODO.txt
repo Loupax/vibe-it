@@ -80,10 +80,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QEL4 [S] (P2; Sonnet; js.rs TIMERS_PRELUDE, js_dom.rs obsErr) "Report the exception" for timer,
       rAF and observer callbacks (ErrorEvent at window, onerror, then the log line). Gate: WPT
       animation-frames/callback-exception and timers/errors pass.
-- [ ] [WIP] QERR1 [S] (P1, from QWPT4a #493; Sonnet; js.rs script runner) An uncaught exception in a top-level page script
-      fires an ErrorEvent at window (message, filename, lineno, colno, error), so `onerror` and testharness's error
-      listener see it (R64 E7 family), then the log line. Evidence: css/cssom/computed-style-003.html and -004.html report
-      harness TIMEOUT with no tests where browsers report ERROR. Test: onerror and addEventListener('error') both fire.
 - [ ] QEL5 [S] (P2; Sonnet; js.rs TIMERS_PRELUDE) Clamp setInterval to 4 ms only at nesting level > 5.
       Gate: WPT timers/setinterval-settimeout-clamping.
 - [ ] QEL6 [S] (P2; Sonnet; js.rs dispatch, __scratchy_dn) Microtask checkpoint between listeners of
@@ -105,7 +101,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       drop the preludes' own probes (script `prelude`), and give `has` misses a receiver interface where it can be found.
 - [ ] QMAPI3 [S] (P2; Sonnet; tools/missing-api/; after QMAPI1) corpus.sh over a site list (gate pages +
       a list the user provides), merged table "API -> sites, hits, example URL" into an R-section.
-- [ ] QREC2 [S] (P2; Sonnet; js_engine_v8.rs, js.rs; after QREC1) scratchy --deterministic (report
+- [ ] [WIP] QREC2 [S] (P2; Sonnet; js_engine_v8.rs, js.rs; after QREC1) scratchy --deterministic (report
       modes): V8 --random-seed, seeded crypto.getRandomValues, Date epoch from the recording, network
       results delivered in request order.
 - [ ] QREC1b [S] (P3, from QREC1 #490; Sonnet; wire record.rs) Record Set-Cookie lines separately (index field) and
