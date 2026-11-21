@@ -57,7 +57,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QDOM3b [S] (P3, from QDOM3 #533; Sonnet) moveBefore follow-ups: CSS transitions/animations continue across a move
       (css-transition-*, continue-css-*; removes the 30 s TIMEOUT of css-transition-trigger), focus events
       (focusin/out, :focus-within) with moveBefore, ElementInternals/form-associated reset.
-- [ ] QKEYS1c [S] (P3, from QREG1 #531; Sonnet; paint_status_bar) Status-bar messages are clipped to a third of the bar
+- [ ] [WIP] QKEYS1c [S] (P3, from QREG1 #531; Sonnet; paint_status_bar) Status-bar messages are clipped to a third of the bar
       ("Copied to clipboa..."): give the message the room the URL does not need, or shorten/elide the URL first.
 - [ ] QWPTFLK1 [S] (P3, from QEL1 #510; Sonnet; wpt_th.rs virtual clock) dom/events/EventTarget-dispatchEvent.html ends
       with harness ERROR "Timeout while running cleanup" under load in the test child (main too: 3 of 24 parallel runs).
@@ -147,7 +147,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       dom/common.js (QDOM8).
 - [ ] QDOM6b [S] (P2, from QDOM6 #526; Sonnet; js_dom.rs) `createElementNS(null, name)` creates an HTML-namespace element
       (old quirk): use `__d_create_xml` (null namespace, name unchanged) as created XML documents already do. Test + --wpt-th.
-- [ ] QDOM8 [S] (P1; Sonnet; js_dom.rs; R65; after QDOM6, QDOM7) ProcessingInstruction and CDATASection nodes:
+- [ ] [WIP] QDOM8 [S] (P1; Sonnet; js_dom.rs; R65; after QDOM6, QDOM7) ProcessingInstruction and CDATASection nodes:
       `document.createProcessingInstruction(target, data)` (target must match Name, data must not contain `?>`:
       InvalidCharacterError), `createCDATASection(data)` (NotSupportedError on HTML documents, `]]>` ->
       InvalidCharacterError); rcdom `NodeData::ProcessingInstruction` (nodeType 7, nodeName = target, `target`),
