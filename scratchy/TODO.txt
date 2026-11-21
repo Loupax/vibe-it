@@ -441,7 +441,7 @@ QKEYS — input mode / normal mode, Esc Esc, `i`, status bar (user design sessio
 - [ ] [WIP] QKEYS1b [S] (P3, from QKEYS1 #492; Sonnet) The status bar's URL is empty for a file/stdin start page (empty
       history): show `App::url` / `base_url` then. Test: a file: start page shows its URL in the bar.
 
-- [ ] [WIP] QSB2b [M] (P3, from QSB2 #497; Sonnet) Horizontal scrollbars (window and overflow-x regions): ScrollInfo gains
+- [ ] QSB2b [M] (WAITING FOR USER (#522 draft: needs real horizontal scrolling first, split?); P3, from QSB2 #497; Sonnet) Horizontal scrollbars (window and overflow-x regions): ScrollInfo gains
       horizontal content/client widths and a per-region x scroll; the window bar sits above the status bar and the page
       viewport loses TRACK_W of height while it shows; scrollbar.rs axis-generic geometry/hit-test/drag (SbDrag/SbHold get an
       axis); wheel and shift-wheel stay consistent. Tests + nest/grim check.
@@ -536,7 +536,7 @@ QCOMP — scriptable command completion, history file, config in code (user desi
 Order (feature work: after the perf queue): QCONF1 -> QCOMP1 -> QCOMP2; QCOMP3 after QSTASH1
 (state directory); QCOMP4 after QCOMP1 and QCOMP3.
 
-- [ ] QCOMP2 [S] (P3, after QCOMP1) External sources (C1, C8; the menu part was DROPPED
+- [ ] [WIP] QCOMP2 [S] (P3, after QCOMP1) External sources (C1, C8; the menu part was DROPPED
       2026-11-20): `Source::Cmd(argv)`, run with no shell and the SCRATCHY_* environment,
       once per command line and argument position on a thread; its stdout lines are kept
       and prefix-filtered per keystroke to feed the ghost; the result is an `AppEvent`
