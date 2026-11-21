@@ -8484,3 +8484,6 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
 - [x] QINC1k3 DONE 2798bb5 float-aware layout cache + counter-walk gsig; Wiki INCR=1 builds 13-14% of off; root walks 133->60 [M] (P2, from #465; Opus; area incr_layout; AFTER QINC1k1 (same area)) Wikipedia Main frames always walk to
       the root (133/210 per run, ~9.3 ms restyle + ~6.8 ms relayout each); target the -80 % App builds gate (now -62 %).
+
+=== from TODO.txt: --- (no header)
+- [x] QINC1l DONE 906885b #473 [S] (P1, user OK 2026-11-21: "make it the default"; Sonnet; incr_frame.rs/incr_engine.rs/incr_style.rs/ci.yml) Make the incremental engine the default: SCRATCHY_INCR unset = on, SCRATCHY_INCR=0 = old path (escape hatch until QINC1m); script-forced layouts default on too; SCRATCHY_INCR_CHECK unchanged; CI job runs the suite with the engine OFF so the old path keeps coverage until QINC1m; one stderr line when SCRATCHY_INCR=0 is set; docs/help text updated. QINC1m (delete old pipeline) after >= 3 days of user use.

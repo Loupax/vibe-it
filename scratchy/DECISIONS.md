@@ -14,7 +14,7 @@ their section with the date.
 - **2026-11-21 TODO cleanup.** Keep the UI work (modes, search, completion,
   persistence, history), the conformance plan, and a few reliability items. Archive
   the rest, media included (TODO-ARCHIVE.txt).
-- **2026-11-21 Incremental engine is the default** (QINC1l). `SCRATCHY_INCR=0` is
+- **2026-11-21 Incremental engine is the default** (QINC1l, merged 906885b #473). `SCRATCHY_INCR=0` is
   the escape hatch until QINC1m deletes the old pipeline after ≥ 3 days of use.
   The from-scratch layout stays as the engine's fallback and the test oracle.
 - **2026-11-20 Pause for architecture** once the layout engine is done (held 2026-11-21).
