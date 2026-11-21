@@ -1084,6 +1084,15 @@ fn new_frame_stats() -> Option<crate::frame_stats::FrameStats> {
     Some(fs)
 }
 
+/// QKEYS1b: the status bar URL from the pieces of `App` (see `App::status_url`).
+fn status_url(history: &[Url], index: usize, base: Option<&Url>) -> String {
+    match (history.get(index), base) {
+        (Some(u), _) => u.to_string(),
+        (None, Some(b)) => b.to_string(),
+        (None, None) => "(stdin)".to_string(),
+    }
+}
+
 /// Installs the thread-safe "video frame ready" poster for this event loop.
 fn install_video_wake(proxy: &EventLoopProxy<AppEvent>) {
     let p = Mutex::new(proxy.clone());
@@ -1681,7 +1690,7 @@ impl App {
         }
         // QKEYS1: the status bar is the top layer (over a video that reaches into its strip).
         {
-            let url = self.history.get(self.history_index).map(|u| u.to_string()).unwrap_or_default();
+            let url = status_url(&self.history, self.history_index, self.base_url.as_ref());
             let ghost_text = match (&self.ghost, self.vim_mode) {
                 (Some(g), VimMode::Command) => g.rest(&self.command_line.text),
                 _ => String::new(),
@@ -3906,6 +3915,13 @@ impl App {
         self.history.push(url);
         self.history_doc.push(NO_DOC);
         self.history_index = self.history.len() - 1;
+    }
+
+    /// QKEYS1b: the status bar's URL: the current history entry, else (a file or
+    /// stdin start page has no history yet) the page's own address, else `(stdin)`.
+    #[cfg(test)]
+    pub(crate) fn status_url(&self) -> String {
+        status_url(&self.history, self.history_index, self.base_url.as_ref())
     }
 
     /// QY48: the history entry at `i` belongs to the document on screen.

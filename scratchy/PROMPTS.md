@@ -8819,3 +8819,9 @@ Item QINC1h2 (REGRESSIONS.md R60 section 15). `layout.rs`: `natural_width_impl` 
 > QCOMP4 [S] (P2; Sonnet; completion.rs, config.rs COMPLETERS) Built-in `:go` source `complete_history_urls`: site roots by site visits, then pages by own visits, ties by recency, prefix match after stripping the scheme and `www.`; bad lines skipped; history read once per line.
 
 **What changed:** completion.rs: `rank_history` (STASH.md "Ranking": roots per origin by site visits, then other URLs by own visits, ties newest first, unparseable lines skipped), `CompleteCache` (the ranked history, read once per `:` line, new each time the line opens; held in `App::complete_cache`), `complete_history_urls` (a URL starting with the word is kept as visited, else both sides are compared without scheme/`www.` and the candidate is the typed word plus the URL's rest, so typed `https://google` against `https://www.google.com/` ghosts `.com/` and Enter runs `https://google.com/`). `compute_ghost` takes the cache. config.rs: `("go", ...)` row, not in SPACE_AFTER_ARG. history.rs: `dir()`. help.html updated. Checked in a nested dwl with a hand-written history file: `:go you` shows the dim `tube.com/`.
+
+## QKEYS1b: status bar URL for a file/stdin start page (agent item)
+
+> QKEYS1b [S] The status bar's URL is empty for a file/stdin start page (empty history): show `App::url` / `base_url` then (stdin: a short label such as `(stdin)`). Also check the URL after a same-document navigation and after a redirect.
+
+**What changed:** `status_url()` (app.rs) picks the current history entry, else `base_url`, else `(stdin)`; `paint` uses it. pushState/replaceState/fragment and redirects already update the history entry (QY48, Q30e), so the bar follows. Test: `qkeys1b_status_url_for_start_page_and_pushstate`. Real check: nested dwl + grim of a file: start page shows its file:/// URL.
