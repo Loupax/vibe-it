@@ -1614,3 +1614,46 @@ fn qyscr1c_inner_at_its_end_chains_to_the_outer_region() {
     assert_eq!(pick(&offs, -40.0), Some(outer.id), "inner at its end: the outer takes the tick");
     assert_eq!(pick(&offs, 40.0), Some(inner.id), "scrolling back up: inner again");
 }
+
+// QPASTE1
+#[test]
+fn clean_paste_text_makes_one_line() {
+    assert_eq!(clean_paste_text("a\nb"), "a b");
+    assert_eq!(clean_paste_text("a\r\nb"), "a b");
+    assert_eq!(clean_paste_text("a\tb"), "a b");
+    assert_eq!(clean_paste_text("https://example.com/\n"), "https://example.com/");
+    assert_eq!(clean_paste_text("x \t\r\n\n"), "x");
+    assert_eq!(clean_paste_text(""), "");
+    assert_eq!(clean_paste_text("\n\n"), "");
+}
+
+#[test]
+fn paste_chords_are_ctrl_v_ctrl_shift_v_shift_insert() {
+    let ctrl = ModifiersState::CONTROL;
+    let both = ModifiersState::CONTROL | ModifiersState::SHIFT;
+    let v = Key::Character("v".into());
+    let big_v = Key::Character("V".into());
+    let ins = Key::Named(NamedKey::Insert);
+    assert!(is_paste_chord(&v, &ctrl));
+    assert!(is_paste_chord(&big_v, &both));
+    assert!(is_paste_chord(&v, &both));
+    assert!(is_paste_chord(&ins, &ModifiersState::SHIFT));
+    assert!(!is_paste_chord(&v, &ModifiersState::empty()), "bare v inserts");
+    assert!(!is_paste_chord(&big_v, &ModifiersState::SHIFT), "bare V inserts");
+    assert!(!is_paste_chord(&ins, &ModifiersState::empty()));
+    assert!(!is_paste_chord(&Key::Character("c".into()), &ctrl));
+}
+
+#[test]
+fn paste_into_command_line_inserts_cleaned_clipboard_text() {
+    use winit::platform::wayland::EventLoopBuilderExtWayland;
+    let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+        Ok(l) => l,
+        Err(_) => return,
+    };
+    let mut app = App::new_static(parse_html("<html></html>"), event_loop.create_proxy(), None);
+    crate::forms_text::clipboard_set("https://example.com/\n");
+    app.command_line.insert_str("go ");
+    app.paste_into_command_line();
+    assert_eq!(app.command_line.text, "go https://example.com/");
+}

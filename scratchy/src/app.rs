@@ -4187,7 +4187,7 @@ impl App {
             // so a bare `v` has to be told apart from `Ctrl`+`v` here, not
             // left to `key_insertion_text`'s catch-all below (which would
             // otherwise insert a literal "v" on every paste attempt).
-            Key::Character(s) if s.as_str() == "v" && self.modifiers.control_key() => {
+            key if is_paste_chord(key, &self.modifiers) => {
                 self.paste_into_command_line();
             }
             key => {
@@ -4257,10 +4257,12 @@ impl App {
     /// browser's own paste behavior when there's simply nothing to
     /// paste.
     pub(crate) fn paste_into_command_line(&mut self) {
-        if let Ok(mut clipboard) = Clipboard::new()
-            && let Ok(text) = clipboard.get_text()
-        {
-            self.command_line.insert_str(&text);
+        // QPASTE1: the shared clipboard (Wayland data-control first, X11 fallback), cleaned to one line.
+        if let Some(text) = crate::forms_text::clipboard_get() {
+            let text = clean_paste_text(&text);
+            if !text.is_empty() {
+                self.command_line.insert_str(&text);
+            }
         }
     }
 
@@ -5062,4 +5064,30 @@ pub(crate) fn key_codes(logical: &Key, physical: Option<PhysicalKey>, keypress: 
 /// kept page's size must match the surface; `layout_dirty` is deliberately not an input.
 pub(crate) fn video_damage_ok(kept: (u32, u32), kept_len: usize, surface: (u32, u32)) -> bool {
     kept == surface && kept_len == surface.0 as usize * surface.1 as usize
+}
+
+/// QPASTE1: a status-bar paste: newlines, tabs and other control characters become a space and
+/// trailing whitespace is dropped (a copied URL often ends in a newline; the bar is one line).
+pub(crate) fn clean_paste_text(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\r' && chars.peek() == Some(&'\n') {
+            continue;
+        }
+        out.push(if c.is_control() { ' ' } else { c });
+    }
+    out.truncate(out.trim_end().len());
+    out
+}
+
+/// QPASTE1: Ctrl-v, Ctrl-Shift-v and Shift-Insert (KEYS.md "Paste").
+pub(crate) fn is_paste_chord(key: &Key, mods: &ModifiersState) -> bool {
+    match key {
+        Key::Character(s) => {
+            s.eq_ignore_ascii_case("v") && mods.control_key() && !mods.alt_key() && !mods.super_key()
+        }
+        Key::Named(NamedKey::Insert) => mods.shift_key() && !mods.control_key() && !mods.alt_key(),
+        _ => false,
+    }
 }
