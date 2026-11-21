@@ -8450,3 +8450,10 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QINC1k2 DONE ce088f9 inline-SVG rasterization cache + id canonicalization; github INCR=1 builds 2.2-2.4s vs 7.5 off, p95 23 vs ~95ms [M] (P1, from #465; BLOCKS QINC1l; Opus; area incr_box) github.com box-update floor: ~17 s per window run,
       ~63 ms per update -> App builds +54 % and input p95 170 -> 345 ms with INCR=1. Profile and cut. Gate:
       `gate.sh perf 3 github` App builds and input p95 no worse than flag off.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QINC1k5 DONE b0b517b flag on is correct (Chrome-like) on github grids + social gutter; flag off = pre-existing QJ4; no new bug [S] (P2, from #466 + QINC1k's social.loupax.com gutter diff; BLOCKS QINC1l until explained; Opus;
+      measure first, area geom) Flag on vs off give pages different geometry: github.com card grids measure 80 px tall
+      with the flag off and 647-1315 px with it; social.loupax.com's line-number gutter beside the first article image
+      differs (off 4-19 `1/245`, on 3/4 `1/244`). Determine which is right (compare with Chrome/Firefox reference if
+      possible) and whether it is the intended QINC1i change (script geometry sees decoded image sizes) or a bug.
