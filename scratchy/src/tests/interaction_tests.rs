@@ -1657,3 +1657,35 @@ fn paste_into_command_line_inserts_cleaned_clipboard_text() {
     app.paste_into_command_line();
     assert_eq!(app.command_line.text, "go https://example.com/");
 }
+
+/// QCONF1: every row of `config::BINDINGS` resolves to its own action through
+/// `resolve_binding` (a shadowed row would fail here), only in Normal mode.
+#[test]
+fn every_config_binding_resolves_as_declared() {
+    use crate::config::{KeySpec, Mods, BINDINGS};
+    for b in BINDINGS {
+        let key = match b.key {
+            KeySpec::Char(c) => Key::Character(c.into()),
+            KeySpec::Named(n) => Key::Named(n),
+        };
+        let mods = match b.mods {
+            Mods::Any => ModifiersState::empty(),
+            Mods::Ctrl => ModifiersState::CONTROL,
+            Mods::Shift => ModifiersState::SHIFT,
+        };
+        assert_eq!(resolve_binding(&key, mods, VimMode::Normal), Some(b.action), "{b:?}");
+        assert_eq!(resolve_binding(&key, mods, VimMode::Command), None, "{b:?}");
+    }
+    // The pre-QCONF1 table, spelled out: nothing was lost or added.
+    let n = VimMode::Normal;
+    let e = ModifiersState::empty();
+    let named = Key::Named;
+    let ch = |c: &str| Key::Character(c.into());
+    assert_eq!(BINDINGS.len(), 16);
+    assert_eq!(resolve_binding(&named(NamedKey::Space), e, n), Some(Action::PageDown));
+    assert_eq!(resolve_binding(&named(NamedKey::Space), ModifiersState::SHIFT, n), Some(Action::PageUp));
+    assert_eq!(resolve_binding(&ch("u"), ModifiersState::CONTROL, n), Some(Action::HalfPageUp));
+    assert_eq!(resolve_binding(&ch("u"), e, n), None);
+    assert_eq!(resolve_binding(&named(NamedKey::ArrowDown), e, n), Some(Action::ScrollDown));
+    assert_eq!(resolve_binding(&named(NamedKey::PageUp), e, n), Some(Action::PageUp));
+}

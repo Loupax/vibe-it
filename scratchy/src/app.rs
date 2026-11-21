@@ -190,8 +190,7 @@ pub(crate) fn action_ignores_repeat(action: Action) -> bool {
 }
 
 /// The one chokepoint a real key event gets resolved into an `Action`
-/// through — hardcoded `match` arms today (dwm `config.h` style,
-/// explicitly fine per the user's own call in TODO.txt), but the exact
+/// through — reads the `config::BINDINGS` table (QCONF1), but the exact
 /// spot a future JS-scriptable `bind()` config layer would call into or
 /// override instead of a redesign. `mode` gates this to `VimMode::
 /// Normal` even though every caller today only ever calls this from
@@ -207,26 +206,7 @@ pub(crate) fn resolve_binding(key: &Key, mods: ModifiersState, mode: VimMode) ->
     if mode != VimMode::Normal {
         return None;
     }
-    match key {
-        Key::Character(s) if s.as_str() == "j" => Some(Action::ScrollDown),
-        Key::Character(s) if s.as_str() == "k" => Some(Action::ScrollUp),
-        Key::Character(s) if s.as_str() == "d" && mods.control_key() => Some(Action::HalfPageDown),
-        Key::Character(s) if s.as_str() == "u" && mods.control_key() => Some(Action::HalfPageUp),
-        Key::Character(s) if s.as_str() == ":" => Some(Action::EnterCommandMode),
-        Key::Character(s) if s.as_str() == "h" => Some(Action::HistoryBack),
-        Key::Character(s) if s.as_str() == "l" => Some(Action::HistoryFront),
-        Key::Character(s) if s.as_str() == "G" => Some(Action::ScrollBottom),
-        // QYSCR1: the usual browser scroll keys (page keydown handlers and
-        // focused controls see them first, see `WindowEvent::KeyboardInput`).
-        Key::Named(NamedKey::ArrowDown) => Some(Action::ScrollDown),
-        Key::Named(NamedKey::ArrowUp) => Some(Action::ScrollUp),
-        Key::Named(NamedKey::Space) if mods.shift_key() => Some(Action::PageUp),
-        Key::Named(NamedKey::Space | NamedKey::PageDown) => Some(Action::PageDown),
-        Key::Named(NamedKey::PageUp) => Some(Action::PageUp),
-        Key::Named(NamedKey::Home) => Some(Action::ScrollTop),
-        Key::Named(NamedKey::End) => Some(Action::ScrollBottom),
-        _ => None,
-    }
+    crate::config::BINDINGS.iter().find(|b| b.matches(key, mods)).map(|b| b.action)
 }
 
 /// QYSCR1: whether a wheel tick of `dy` px (positive = up, winit's sign)
@@ -241,7 +221,7 @@ pub(crate) fn region_takes_wheel(info: &ScrollInfo, offsets: &HashMap<usize, f32
 /// QYSCR1: how far `Action::PageDown`/`PageUp` scroll for a viewport `view_h`
 /// px tall: a viewport less one 40 px line, so the last line stays in view.
 pub(crate) fn page_step(view_h: f32) -> f32 {
-    (view_h - 40.0).max(40.0)
+    (view_h - crate::config::PAGE_OVERLAP_PX).max(crate::config::PAGE_MIN_PX)
 }
 
 /// The pending-`g` state machine for vim's `gg`: given whether a `g` is
@@ -295,9 +275,7 @@ pub(crate) const NO_DOC: u64 = u64::MAX;
 
 pub(crate) const COMMAND_NAMES: &[&str] = &["go", "help", "historyBack", "historyFront", "q", "quit", "refresh", "set"];
 
-/// `:set`'s own one valid argument, completed the same way `COMMAND_
-/// NAMES` completes a command name itself — see `command_completions`.
-pub(crate) const SET_ARGS: &[&str] = &["js", "motion", "nojs", "nomotion", "novim", "vim"];
+// `SET_ARGS` (what `:set` completes) lives in `config.rs`.
 
 /// Candidate completions for the token the command line's cursor is
 /// currently positioned at the end of (`token_start..cursor`, from
@@ -3600,7 +3578,7 @@ impl App {
             return;
         };
         let view = self.surface_size.1 as f32;
-        const MARGIN: f32 = 24.0;
+        const MARGIN: f32 = crate::config::SCROLL_INTO_VIEW_MARGIN;
         if top < self.scroll_offset {
             self.scroll_offset = (top - MARGIN).max(0.0);
         } else if bottom > self.scroll_offset + view {
@@ -4123,7 +4101,7 @@ impl App {
     /// unit-testable `key -> Option<Action>` mapping with no `&mut App`
     /// at all.
     pub(crate) fn perform_action(&mut self, action: Action) {
-        const SCROLL_LINE_PX: f32 = 40.0; // matches `MouseWheel`'s own `LineDelta` step
+        use crate::config::SCROLL_LINE_PX;
         // QYSCR1b: a viewport with `overflow: hidden` ignores the scroll keys
         // (scratchy has no focused scroll region, so keys always target the viewport).
         if self.viewport_user_scroll_blocked()
@@ -4922,7 +4900,7 @@ impl ApplicationHandler<AppEvent> for App {
                 }
                 self.last_wheel = Some(std::time::Instant::now());
                 let dy = match delta {
-                    MouseScrollDelta::LineDelta(_, y) => y * 40.0,
+                    MouseScrollDelta::LineDelta(_, y) => y * crate::config::WHEEL_LINE_PX,
                     MouseScrollDelta::PixelDelta(pos) => pos.y as f32,
                 };
                 if self.select_popup_wheel(dy) {
