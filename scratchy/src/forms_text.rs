@@ -370,17 +370,21 @@ pub(crate) fn text_extent(buffer: &Buffer) -> (f32, f32) {
     (w, h)
 }
 
-pub(crate) fn clipboard_set(text: &str) {
+/// Puts `text` on the clipboard; true when the system clipboard took it (always true in unit
+/// tests, which use the internal one only).
+pub(crate) fn clipboard_set(text: &str) -> bool {
     INTERNAL_CLIP.with(|c| *c.borrow_mut() = text.to_string());
     // QFLK4: the real clipboard is shared by every process on the desktop (other test runs, the user's
     // own copies), so a copy->paste pair can read someone else's text. Unit tests use the internal one only.
     if cfg!(test) {
-        return;
+        return true;
     }
     if let Ok(mut cb) = Clipboard::new() {
-        let _ = cb.set_text(text.to_string());
+        let ok = cb.set_text(text.to_string()).is_ok();
         SYS_CLIP.with(|s| *s.borrow_mut() = Some(cb));
+        return ok;
     }
+    false
 }
 
 pub(crate) fn clipboard_get() -> Option<String> {
@@ -607,7 +611,7 @@ impl App {
                     let password = text_control_kind(h).is_some_and(|k| k & TEXT_PASSWORD != 0);
                     let sel = with_state(h, |st| st.buf.selected_text().map(str::to_string));
                     if let (Some(t), false) = (sel, password) {
-                        clipboard_set(&t);
+                        let _ = clipboard_set(&t);
                         if s.to_lowercase() == "x" && editable {
                             self.edit_text(h, "deleteByCut", None, |b| {
                                 b.delete_selection();
