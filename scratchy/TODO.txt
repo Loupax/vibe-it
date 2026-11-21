@@ -1096,6 +1096,7 @@ QPROF1 PART A FOLLOW-UPS (R62 section 7, #451; non-layout hotspots; START AFTER 
 - [ ] QINC1k11 [S] (P3, from QINC1k3 #472; incr_style; after the architecture discussion) ~2.8 ms restyle per update on
       Wikipedia with 3-14 elements restyled: profile per-update fixed costs that scale with the table (animated-entries
       scan, age_animations, 64-update sweep, invalidation-map lookups).
+- [ ] [WIP] QINC1l [S] (P1, user OK 2026-11-21: "make it the default"; Sonnet; incr_frame.rs/incr_engine.rs/incr_style.rs/ci.yml) Make the incremental engine the default: SCRATCHY_INCR unset = on, SCRATCHY_INCR=0 = old path (escape hatch until QINC1m); script-forced layouts default on too; SCRATCHY_INCR_CHECK unchanged; CI job runs the suite with the engine OFF so the old path keeps coverage until QINC1m; one stderr line when SCRATCHY_INCR=0 is set; docs/help text updated. QINC1m (delete old pipeline) after >= 3 days of user use.
 QINC1 IMPLEMENTATION (design R60, #434; full item text in REGRESSIONS.md R60 section 15; USER ANSWERED 2026-11-20 ~11:45: "go with the
 recommendations" = R60 section 16 Q1-Q9 all as recommended: one engine on the main thread; real image sizes for script
 geometry; superseded items dropped (archived); FREEZE on other style/box/layout semantic changes while QINC1f-h1 are in
@@ -1104,7 +1105,7 @@ accepted; flip after 0 mismatches on 6 pages x 3 runs + gates, delete after >= 3
 as stated). Items QINC1a DONE 81e23d7 #447 (engine test infra + style_diff + fuzz), QINC1b (stable paragraph ids) DONE 23d604f #446, QINC1c (bottom-up hoisting) DONE 9890847 #450,
 QINC1d (InvalidationMap) DONE 18d0527 #445, QINC1e (write log) DONE 4700801 #448, QINC1f [L] (incremental restyle, shadow) DONE b20ed27 #452, QINC1g [L] DONE 8ec1c1a #455 (persistent box tree,
 shadow), QINC1h1 [L] DONE 109445c #457 (relayout from last tree, shadow), QINC1h2 DONE ce886a5 #458 (intrinsic-size cache), QINC1i DONE 9c55521 #460 (forced layouts via engine,
-SCRATCHY_INCR=1), QINC1j [L] DONE e219bee #459 (App frames via engine), QINC1j-ab DONE 30a23cb #461, QINC1i5 DONE dc6ba98 #462, QINC1i4 DONE 2618ee3 #463, QINC1i6 DONE 42b99fd #464, QINC1k DONE b924d48 #465 (exactness sweep + gates: NO-GO until k1+k2), QINC1k1 DONE 5b420e6 #468, QINC1k2 DONE ce088f9 #466, QINC1k3 DONE 2798bb5 #472, QINC1k10 DONE a80f4c6 #471, QINC1k4 DONE e560b44 #469, QINC1k5 DONE b0b517b #467 (flag on correct), QINC1k6 DONE 746586f #470, QINC1l (flip default, user OK),
+SCRATCHY_INCR=1), QINC1j [L] DONE e219bee #459 (App frames via engine), QINC1j-ab DONE 30a23cb #461, QINC1i5 DONE dc6ba98 #462, QINC1i4 DONE 2618ee3 #463, QINC1i6 DONE 42b99fd #464, QINC1k DONE b924d48 #465 (exactness sweep + gates: NO-GO until k1+k2), QINC1k1 DONE 5b420e6 #468, QINC1k2 DONE ce088f9 #466, QINC1k3 DONE 2798bb5 #472, QINC1k10 DONE a80f4c6 #471, QINC1k4 DONE e560b44 #469, QINC1k5 DONE b0b517b #467 (flag on correct), QINC1k6 DONE 746586f #470, QINC1l [WIP] (flip default, user OK given 2026-11-21),
 QINC1m (delete superseded special cases). Waves: 1 = a, b, d, e; 2 = c, f; 3 = g; 4 = h1; 5 = i, j, h2; then k, l, m.
 Superseded and archived (Q3): QY54b3a-f, QY54b4, QY53o2, QY53f2, QY53f3, QY53n4, QY53n1d, QY53n2d, QYTC1a2, QYTC1e,
 QYTC1f, QY53l3, QY53e2b.
