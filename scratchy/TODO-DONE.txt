@@ -8610,3 +8610,39 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- (no header)
 - [x] QSTASH5 DONE d9520da #481 wire --cookie-file, clear-site, control token <sock>.token (user 2026-11-21) [S] (P2, wire; any time after the perf queue) `wire --cookie-file PATH`
       and `X-Wire-Cookie-Op: clear-site`. See wire/TODO.txt W-PERSIST1.
+
+=== from TODO.txt: --- (no header)
+- [x] QWPT3 DONE af4f8a4 #485 [M] (P1; Sonnet; wire only; R64 2.4 option 3; user answered Q1 2026-11-21) wire static mount.
+      `wire --mount http://web-platform.test:8000=DIR` (+ www/www1/www2 subdomains and :8001 as
+      aliases): files with Content-Type by extension, `<file>.headers` and `__dir__.headers`,
+      generated wrappers for `x.any.js` (served at x.any.html) and `x.window.js` (x.window.html, META
+      script/title/timeout lines honoured), alias /resources/WebIDLParser.js ->
+      /resources/webidl2/lib/webidl2.js, `.sub.` substitution of {{host}}, {{domains[www]}},
+      {{ports[http][0]}}, {{ports[http][1]}}; `--mount-override PATH=FILE` (testharnessreport.js,
+      testdriver-vendor.js); `.py` -> 501 + one log line. No socket for a mounted origin. Tests in wire.
+
+=== from TODO.txt: --- (no header)
+- [x] QSTASH4 DONE 05b515f #486 [S] (P3, any time after the perf queue) sessionStorage lives per window
+      across navigations: kept in Rust per origin for the life of the scratchy process,
+      copied into each new page realm at start and written back from the page's ops.
+      Never on disk. Today each page gets a new realm (`startup_engine`), so it is lost
+      on every navigation. Test: set on page A, navigate to page B of the same origin,
+      the value is there; a different origin does not see it.
+
+=== from TODO.txt: --- (no header)
+- [x] QCONF1 DONE ccb7a03 #487 [S] (P2, after the perf queue) REFACTOR ONLY, no behaviour change: new
+      `src/config.rs` holding every user-tunable constant that exists today, with a short
+      comment each: the key bindings (turn `resolve_binding`'s `match` into a table in
+      config.rs that `resolve_binding` reads), scroll step sizes (`SCROLL_LINE_PX` etc.),
+      the `:set` argument list, and any other knob found by grepping `const` in app.rs /
+      main.rs that a user would change (list what was moved and what was left out, and
+      why, in the PR). Header comment: "edit and rebuild; every new user-tunable knob
+      goes here". Tests: all existing tests pass unchanged; one test that every binding in
+      the table resolves as before.
+
+=== from TODO.txt: --- (no header)
+- [x] QSTASH3 DONE bd89389 #488 [S] (NOTE from #481: the clear-site request needs the control token: build it with `control_token(socket, false)` + `cookie_control_headers(op, page, token)` and re-read on a 403) (P3, after QSTASH1 and QSTASH5) `scratchy --forget-site <site or
+      URL>`: stash forget (lock, `rm -r`, generation bump) plus wire `X-Wire-Cookie-Op:
+      clear-site`; if wire is unreachable the stash part still runs and the log says the
+      cookies were not cleared. A key binding is a later item. Test: forget removes the
+      directory, bumps the generation, and an open page's later commit is dropped.
