@@ -1096,6 +1096,18 @@ fn q48d_clear_without_clearance_still_collapses_and_clear_on_first_child() {
     assert_eq!(y, 50.0);
 }
 
+/// QINC1k1 (found by the y-drift fuzz): the clearance test read a `%` margin-top of the not yet finalized
+/// cleared box with `px()` (0 in release, a debug assertion in debug). 10 % of 900 = 90: the collapsed
+/// hypothetical border edge (10 + max(20, 90) = 100) is below the 50 px float, so no clearance.
+#[test]
+fn qinc1k1_clearance_resolves_a_percentage_margin_top() {
+    let y = q48_y_of(
+        r#"<html><body style="margin:0"><div style="float:left;width:5px;height:50px"></div><div style="height:10px;margin-bottom:20px"></div><div style="clear:left;height:77px;margin-top:10%"></div></body></html>"#,
+        77.0,
+    );
+    assert_eq!(y, 100.0);
+}
+
 #[test]
 fn q52a_iframe_is_a_replaced_box_default_300x150_honouring_attrs_and_css() {
     fn collect(l: &Laid, out: &mut Vec<(f32, f32)>) {

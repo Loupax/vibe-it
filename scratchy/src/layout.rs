@@ -2695,7 +2695,9 @@ fn measure_inner_body<'a>(
                         // edge at the float's bottom when the hypothetical
                         // (margin-collapsed) border edge would be above it;
                         // the cleared box's margin-top is then absorbed.
-                        let mt = child.style.margin.top.px();
+                        // (QINC1k1: `resolve`, not `px`: the child's style is not finalized yet, and a
+                        // `%` / `calc()` margin is a percentage of this box's content width.)
+                        let mt = child.style.margin.top.resolve(content_w);
                         let overlap = prev_mb.map_or(0.0, |pb| margin_overlap(pb, mt));
                         let hypothetical = cursor_y - overlap + mt;
                         if hypothetical < cy {
