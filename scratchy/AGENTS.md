@@ -1,19 +1,16 @@
 # scratchy — agent instructions
 
 ## Before starting
-- **FREEZE LIFTED (coordinator, 2026-11-18, after QV8-m at 92dd513/0c25634).** V8 is the only
-  engine (QuickJS was removed in QV8-6, user 2026-11-19; `git revert` of that commit restores it). Work
-  the TODO.txt queue again in order (READY items). QV8-5b (clippy in media_mpv.rs) is done;
-  the MSE build (QM1k4 onward, plan in TODO.txt QM1k-PLAN) is allowed now.
-- **PERFORMANCE FIRST (user, 2026-11-19):** the "PERFORMANCE QUEUE" at the top of TODO.txt's QUEUE
-  outranks every other item. Take the first unassigned item from it; start nothing else while one of
-  its items is READY and unassigned (except crash/regression/red-CI fixes on main).
-- Read `TODO.txt` (QUEUE section first), `NOTES.md`, `REGRESSIONS.md`. Finished items live in
+- **DIRECTION (user, 2026-11-21, architecture discussion):** TODO.txt was cleaned up. It now holds
+  only the conformance plan (QWPT1), engine follow-ups (QINC1l/m), reliability items, product choices
+  and the UI work. Everything else, media included, is in `TODO-ARCHIVE.txt` and is NOT scheduled:
+  do not take items from there. Past user decisions: `DECISIONS.md`. Only take the item you were
+  assigned.
+- Read `TODO.txt`, `DECISIONS.md`, `NOTES.md`, `REGRESSIONS.md`. Finished items live in
   `TODO-DONE.txt` and fixed regression sections in `REGRESSIONS-FIXED.md` (archived 2026-11-19 to
   keep the working files small); open them only to follow a reference (a `[archived: TODO-DONE.txt]`
   stub or an "(Archived ...)" R-section), by grepping the item name or R number.
-- Take the first unchecked QUEUE item (during the freeze: QT1, then the first unchecked QV8 item).
-  Don't reorder or merge items.
+- Don't reorder or merge items.
 - If an item is wrong or much bigger than its size, stop and report. Don't guess.
 - Find code by function/type name (`grep -rn 'fn <name>' src/`). Never trust line numbers.
 
@@ -53,7 +50,7 @@
    plus `tools/inject` (virtual pointer/keyboard); see `tools/README`.
    Recipe background is in `REGRESSIONS.md` "How this was tested".
 7. Add a `PROMPTS.md` entry. Update `NOTES.md` if architecture changed.
-8. Tick the item in `TODO.txt` (QUEUE and its Detail entry). Add a new
+8. Tick the item in `TODO.txt`. Add a new
    narrower `[ ]` item for anything deliberately left out. Then ARCHIVE it in the same commit:
    append the ticked item's full text, unchanged, to the end of `TODO-DONE.txt` under a line
    `=== from TODO.txt: <its block header>`, and replace it in `TODO.txt` by its first line
@@ -120,10 +117,12 @@ After your PR is MERGED, free the disk you used (a full disk once stopped all ag
 - Say in your final report what you deleted.
 
 ## Off limits until the user says so (design first)
+**Media is ARCHIVED (user, 2026-11-21):** no media work at all until the user brings it back. The
+agreed media design below stays as the record (also in DECISIONS.md).
 Do NOT implement the real behaviour of these until the user has explicitly
 asked and the design has been agreed. The user wants to understand how they
 will work first (same stance as forms, Q30):
-- **MEDIA DESIGN AGREED 2026-11-17 (QM1-D D1-D8 in TODO.txt)**: in-page `<video>`/
+- **MEDIA DESIGN AGREED 2026-11-17 (QM1-D D1-D8, now in TODO-ARCHIVE.txt)**: in-page `<video>`/
   `<audio>` through libmpv IN-PROCESS as an OPTIONAL dependency (without it the
   inert placeholder stays), ALL bytes through wire (never the player's own network),
   scratchy-painted controls, no autoplay except muted or after a user gesture, at most
