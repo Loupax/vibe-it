@@ -1695,6 +1695,11 @@ images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom
   damage-rect repaint from the touched-roots list (with QAN1d); **QINC1p [S]** `getComputedStyle` from the element table for
   rendered elements (`StyleCache` only for the rest); **QINC1q [M]** stylesheet invalidation by the added/removed rules'
   features instead of a full re-match on a new generation.
+  QINC1k6 DONE (2026-11-21): `handle_image_fetched` now calls `incr_engine::note_window_image` (one-entry
+  incremental insert into the window's images + a JS geometry-generation bump; the rect cache was keyed on
+  the write generation and served the pre-image layout) before `load` fires. imggeom fixture, window,
+  SCRATCHY_INCR=1 x2: A.load and A.raf-after-load = 400x300, textTop 398 (flag off still 600x21, QJ4); check
+  mode 1 run: 0 mismatches. Test `qinc1k6_load_handler_forced_layout_sees_the_decoded_image`.
 
 **Schedule (up to 5 agents, one per area):** wave 1: a (incr-new + perf), b (layout), d (incr-new: own file
 `src/invalidation.rs`; a and d share only `src/tests/mod.rs` lines), e (jsdom). Wave 2: c (layout, after b) ∥ f (style +
