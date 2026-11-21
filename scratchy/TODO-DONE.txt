@@ -8475,3 +8475,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       style.height 642.0005 vs 642.0` (abs inset:0 height:100% under an auto-height positioned parent; content_h =
       cursor_y - content_y in document coords, f32 step ~0.0005 above y 4096; engine shifts the clean subtree, keeps old
       value). Repro tools/incr-gate/abs-drift.html. Gate: `tools/incr-gate/gate.sh check 3 github` 0 mismatches.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QINC1k10 DONE a80f4c6 harvest key with 2 Laids stays unserved (stale abs ::before) [S] (P2, from QINC1k1 #468; BLOCKS QINC1l (a mismatch); Opus; area incr-new) Fuzz-found 8 px
+      style.width mismatch (504 vs 512 = a % resolved against 1008 vs 1024) after moving li.c1.c4 under `div .c1{width:50%}`;
+      also on main; page + steps in tools/incr-gate/fuzz-width-504-512.txt; a hand-written minimal test did not reproduce.
