@@ -2123,3 +2123,45 @@ fn qel1_parser_iframes_have_window_index_at_first_script() {
     let log = run_in_html("<iframe></iframe><iframe name=two></iframe>", "console.log(typeof frames[0], typeof window[1], typeof two, frames.length);");
     assert_eq!(log, ["log:object object object 2"], "{log:?}");
 }
+
+// QDOM2: real NodeList / HTMLCollection objects (live, cached per DOM write generation).
+#[test]
+fn qdom2_collections_are_real_nodelists_and_htmlcollections() {
+    let (log, _) = mutate(
+        "<html><body><div id=p><a id=x name=nm class='k l'></a><b id=y></b>text</div><form name=f1></form><img name=im></body></html>",
+        "var p = document.getElementById('p');\
+         var cn = p.childNodes, ch = p.children, tg = p.getElementsByTagName('a'), qs = p.querySelectorAll('a,b');\
+         console.log(cn instanceof NodeList, ch instanceof HTMLCollection, tg instanceof HTMLCollection, qs instanceof NodeList, Array.isArray(ch));\
+         console.log(Object.prototype.toString.call(cn), Object.prototype.toString.call(ch), cn === p.childNodes, ch === p.children, tg === p.getElementsByTagName('a'));\
+         console.log(cn.length, ch.length, ch.item(1).id, ch[0].id, ch.namedItem('nm').id, ch.nm.id, ch.y.id, cn.item(5), ch[9], ch.item(-1));\
+         console.log(typeof cn.forEach, cn.forEach === Array.prototype.forEach, typeof ch.forEach, Array.from(cn).length, [...ch].length, cn[Symbol.iterator] === Array.prototype.values);\
+         var d = document.createElement('i'); d.id = 'z'; p.appendChild(d);\
+         console.log(cn.length, ch.length, ch.z === d, tg.length, qs.length);\
+         p.removeChild(document.getElementById('x'));\
+         console.log(ch.length, tg.length, ch.nm, Object.keys(ch).join(), Object.getOwnPropertyNames(ch).join());\
+         ch[0] = 1; delete ch[0]; console.log(ch[0].id, delete ch[7], Object.getOwnPropertyDescriptor(ch, '0').writable, Object.getOwnPropertyDescriptor(ch, 'y').enumerable);\
+         console.log(document.forms.f1.tagName, document.forms.length, document.images[0].name, document.forms === document.forms, document.forms instanceof HTMLCollection);\
+         console.log(document.getElementsByClassName('k').length, document.getElementsByName('im') instanceof NodeList, document.getElementsByTagNameNS('*', 'b').length);\
+         try { new NodeList(); } catch (e) { console.log(e.name); }\
+         try { cn.item(); } catch (e) { console.log(e.name); }\
+         console.log(Object.getPrototypeOf(cn) === NodeList.prototype, 'item' in cn, 'length' in ch, 5 in ch, 0 in ch);",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:true true true true false",
+            "log:[object NodeList] [object HTMLCollection] true true true",
+            "log:3 2 y x x x y null undefined null",
+            "log:function true undefined 3 2 true",
+            "log:4 3 true 1 2",
+            "log:2 0 undefined 0,1 0,1,y,z",
+            "log:y true false false",
+            "log:FORM 1 im true true",
+            "log:0 true 1",
+            "log:TypeError",
+            "log:TypeError",
+            "log:true true true false true",
+        ],
+        "{log:?}"
+    );
+}

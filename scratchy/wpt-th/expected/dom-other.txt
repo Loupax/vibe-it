@@ -13,65 +13,17 @@ OK           1/4  dom/attributes-are-nodes.html
   FAIL      appendChild with an attribute as the child should fail
   FAIL      replaceChild with an attribute as the child should fail
   FAIL      insertBefore with an attribute as the child should fail
-OK           0/2  dom/collections/HTMLCollection-as-prototype.html
-  FAIL      HTMLCollection as a prototype should not allow getting .length on the base object
+OK           1/2  dom/collections/HTMLCollection-as-prototype.html
   FAIL      HTMLCollection as a prototype and setting own properties
-OK           0/4  dom/collections/HTMLCollection-delete.html
-  FAIL      Loose id
-  FAIL      Strict id
-  FAIL      Loose name
-  FAIL      Strict name
-OK           0/5  dom/collections/HTMLCollection-detached-root-gc.html
-  FAIL      getElementsByTagName()
-  FAIL      getElementsByTagNameNS()
-  FAIL      getElementsByClassName()
-  FAIL      getElementsByTagName() rooted at a descendant
-  FAIL      children
-OK           0/7  dom/collections/HTMLCollection-empty-name.html
-  FAIL      Empty string as a name for Document.getElementsByTagName
-  FAIL      Empty string as a name for Element.getElementsByTagName
-  FAIL      Empty string as a name for Document.getElementsByTagNameNS
-  FAIL      Empty string as a name for Element.getElementsByTagNameNS
-  FAIL      Empty string as a name for Document.getElementsByClassName
-  FAIL      Empty string as a name for Element.getElementsByClassName
-  FAIL      Empty string as a name for Element.children
-OK           3/6  dom/collections/HTMLCollection-iterator.html
-  FAIL      HTMLCollection does not have iterable's values method.
-  FAIL      HTMLCollection does not have iterable's entries method.
-  FAIL      HTMLCollection does not have iterable's forEach method.
-OK           0/2  dom/collections/HTMLCollection-live-item-removal.html
-  FAIL      getElementsByClassName collection should update live when removing item(0)
-  FAIL      document.body.getElementsByClassName collection should update live when removing item(0)
-OK           0/5  dom/collections/HTMLCollection-live-mutations.window.html
-  FAIL      HTMLCollection live mutations: HTMLCollection.length
-  FAIL      HTMLCollection live mutations: HTMLCollection.item(index)
-  FAIL      HTMLCollection live mutations: HTMLCollection[index]
-  FAIL      HTMLCollection live mutations: HTMLCollection.namedItem(index)
-  FAIL      HTMLCollection live mutations: HTMLCollection ownPropertyNames
-OK           0/8  dom/collections/HTMLCollection-own-props.html
-  FAIL      Setting non-array index while named property exists (loose)
-  FAIL      Setting non-array index while named property exists (strict)
-  FAIL      Setting non-array index while named property doesn't exist (loose)
-  FAIL      Setting non-array index while named property doesn't exist (strict)
-  FAIL      Setting array index while indexed property exists (loose)
-  FAIL      Setting array index while indexed property exists (strict)
-  FAIL      Setting array index while indexed property doesn't exist (loose)
-  FAIL      Setting array index while indexed property doesn't exist (strict)
-OK           0/7  dom/collections/HTMLCollection-supported-property-indices.html
-  FAIL      Handling of property names that look like negative integers
-  FAIL      Handling of property names that look like small nonnegative integers
-  FAIL      Handling of property names that look like integers around 2^31
-  FAIL      Handling of property names that look like integers around 2^32
-  FAIL      Trying to set an expando that would shadow an already-existing indexed property
-  FAIL      Trying to set an expando with an indexed property name past the end of the list
-  FAIL      Trying to delete an indexed property name should never work
-OK           0/6  dom/collections/HTMLCollection-supported-property-names.html
-  FAIL      Object.getOwnPropertyNames on HTMLCollection
-  FAIL      Object.getOwnPropertyNames on HTMLCollection with non-HTML namespace
-  FAIL      Object.getOwnPropertyNames on HTMLCollection with expando object
-  FAIL      Trying to set an expando that would shadow an already-existing named property
-  FAIL      Trying to set an expando that shadows a named property that gets added later
-  FAIL      Trying to set a non-configurable expando that shadows a named property that gets added later
+OK           4/4  dom/collections/HTMLCollection-delete.html
+OK           5/5  dom/collections/HTMLCollection-detached-root-gc.html
+OK           7/7  dom/collections/HTMLCollection-empty-name.html
+OK           6/6  dom/collections/HTMLCollection-iterator.html
+OK           2/2  dom/collections/HTMLCollection-live-item-removal.html
+OK           5/5  dom/collections/HTMLCollection-live-mutations.window.html
+OK           8/8  dom/collections/HTMLCollection-own-props.html
+OK           7/7  dom/collections/HTMLCollection-supported-property-indices.html
+OK           6/6  dom/collections/HTMLCollection-supported-property-names.html
 OK           5/5  dom/collections/domstringmap-supported-property-names.html
 OK           3/3  dom/collections/namednodemap-supported-property-names.html
 OK           1/1  dom/eventPathRemoved.html
