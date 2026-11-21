@@ -835,3 +835,150 @@ fn qinc1a_style_diff_classifies_real_cascade_changes() {
     assert_eq!(style_diff(&base, &mk("#t{display:flex}")), StyleDiff::Box);
     assert_eq!(style_diff(&base, &mk("#t{opacity:.5}")), StyleDiff::Layout);
 }
+
+// ---------- QINC1k10 replay ----------
+
+/// One from-scratch layout plus the engine's checks of it (the body of one [`fuzz_case`] step): the first
+/// mismatch, if any.
+fn replay_step(doc: &Handle, width: f32, vh: f32, fs: &mut FontSystem) -> Option<String> {
+    let a = layout_from_scratch(doc, width, vh, fs);
+    let mut mism = crate::incr_style::take_mismatches();
+    if mism.is_empty() {
+        crate::incr_box::with_engine(|e| {
+            if let Some(e) = e {
+                let names = Names::from_dom(doc);
+                if let Err(m) = cmp_boxes(&names, &root_path(&names, 0), &a.tree, e.tree()) {
+                    mism.push(format!("kept box tree {m}"));
+                }
+            }
+        });
+    }
+    if mism.is_empty() {
+        crate::incr_layout::with_engine(|e| {
+            let Some(e) = e.filter(|e| e.doc_key() == node_id(doc)) else { return };
+            let names = Names::from_dom(doc);
+            if let Err(m) = cmp_laid(&names, &root_path(&names, 0), &a.laid, &a.cache, e.laid(), e.cache()) {
+                mism.push(format!("kept laid tree {m}"));
+            }
+        });
+    }
+    (!mism.is_empty()).then(|| mism.join("\n"))
+}
+
+/// Lays `html` out, runs `mutate` on its body's elements, lays it out again: the engine's (shadowed)
+/// restyle, box tree and relayout of the second build equal the from-scratch one. `None` = no mismatch.
+fn replay(html: &str, width: f32, mutate: impl FnOnce(&[Handle]), fs: &mut FontSystem) -> Option<String> {
+    let doc = parse_html(html);
+    set_interaction(&InteractionState::default());
+    let _ = crate::incr_log::drain();
+    let saved = crate::incr_style::set_seam(crate::incr_style::Seam { shadow: true, reconcile: false, panic: false });
+    let _ = crate::incr_style::take_mismatches();
+    let first = replay_step(&doc, width, 700.0, fs);
+    let mut els = Vec::new();
+    all_elements(&find_by_tag(&doc, "body").unwrap(), &mut els);
+    mutate(&els);
+    let r = replay_step(&doc, width, 700.0, fs);
+    set_interaction(&InteractionState::default());
+    crate::incr_style::set_seam(saved);
+    assert!(first.is_none(), "the first (full) layout: {first:?}");
+    r
+}
+
+/// QINC1k10: the fuzz-found 504 vs 512 `style.width` of an absolute `::before` (`width:50%`) after its
+/// element moved from under the initial containing block into a `position:relative` div 16 px narrower
+/// (the body margins). A failed bottom-up attempt put two fresh copies of the entry into the harvest,
+/// which cancelled out (a key with two `Laid`s is reused by neither); the old tree's copy, laid against
+/// the viewport, came third and was served alone to the root's hit. Replays the recorded page
+/// (tools/incr-gate/fuzz-width-504-512.txt) with the moved `li.c1.c4` under every div that has children
+/// (the report's "into div at 1" does not say which), with and without the hover step.
+#[test]
+fn qinc1k10_replay_fuzz_width_504_512() {
+    let txt = include_str!("../../tools/incr-gate/fuzz-width-504-512.txt");
+    let page = txt.split("initial page: ").nth(1).unwrap().split("\nstep 1:").next().unwrap().to_string();
+    let mut fs = new_font_system();
+    let n = {
+        let doc = parse_html(&page);
+        let mut els = Vec::new();
+        all_elements(&find_by_tag(&doc, "body").unwrap(), &mut els);
+        els.len()
+    };
+    let mut cases = 0;
+    let mut failed = Vec::new();
+    for di in 0..n {
+        for hover in [false, true] {
+            let mut into = None;
+            let r = replay(
+                &page,
+                1024.0,
+                |els| {
+                    let li = els.iter().find(|e| label(e) == "li.c1.c4").expect("the moved li").clone();
+                    let dest = els[di].clone();
+                    let is_div = matches!(&dest.data, NodeData::Element { name, .. } if name.local.as_ref() == "div");
+                    if !is_div || is_inside(&li, dest.clone()) || dest.children.borrow().is_empty() {
+                        return;
+                    }
+                    into = Some(label(&dest));
+                    insert_node(&dest, &li, 1);
+                    if hover {
+                        let sec = els.iter().find(|e| label(e) == "section.c3#i3").expect("a section");
+                        set_interaction(&InteractionState { hover: ancestor_ids(sec).into_iter().collect(), ..Default::default() });
+                    }
+                },
+                &mut fs,
+            );
+            if let Some(d) = into {
+                cases += 1;
+                if let Some(m) = r {
+                    failed.push(format!("into {d} (element {di}), hover {hover}: {m}"));
+                }
+            }
+        }
+    }
+    assert!(cases >= 20, "{cases} cases");
+    assert!(failed.is_empty(), "{}", failed.join("\n"));
+}
+
+/// QINC1k10, hand-made: an absolute `::before` against the initial containing block moves (with its
+/// element) into a `position:relative` div; its percentage width resolves against the new block. The
+/// wrappers vary how many failed bottom-up attempts put fresh copies of the entry into the harvest
+/// before the old tree's copy arrives (an even number cancelled out and left the stale one).
+#[test]
+fn qinc1k10_moved_abs_pseudo_resolves_against_its_new_containing_block() {
+    let mut fs = new_font_system();
+    let mut failed = Vec::new();
+    for wraps in 0..4 {
+        let (open, close) = ("<div>".repeat(wraps), "</div>".repeat(wraps));
+        let page = format!(
+            "<html><head><style>.m::before{{content:\"x\";position:absolute;inset:0;width:50%}}\
+             #d .m{{display:grid}}</style></head><body>{open}<div id=d style=\"position:relative\"><div>r</div><div>s</div></div>{close}\
+             <span><li class=m><span class=m>t</span></li></span></body></html>"
+        );
+        for at in 0..3 {
+            let r = replay(
+                &page,
+                1024.0,
+                |els| {
+                    let li = els.iter().find(|e| label(e) == "li.m").unwrap().clone();
+                    let d = els.iter().find(|e| label(e) == "div#d").unwrap().clone();
+                    insert_node(&d, &li, at);
+                },
+                &mut fs,
+            );
+            if let Some(m) = r {
+                failed.push(format!("{wraps} wrappers, at {at}: {m}"));
+            }
+        }
+    }
+    assert!(failed.is_empty(), "{}", failed.join("\n"));
+}
+
+/// QINC1k10: a harvest key that ever held two `Laid`s in an update serves none, however many more
+/// arrive (a third, stale copy was served alone before).
+#[test]
+fn qinc1k10_harvest_key_with_two_laids_stays_unserved() {
+    use crate::incr_layout::harvest_after_puts as puts;
+    assert_eq!(puts(&[(8, 1)]), vec![(8, 1)]);
+    assert_eq!(puts(&[(8, 1), (8, 1)]), vec![]);
+    assert_eq!(puts(&[(8, 1), (8, 1), (8, 1)]), vec![], "the third copy is not served");
+    assert_eq!(puts(&[(8, 1), (8, 1), (8, 2), (8, 1), (9, 1)]), vec![(8, 2), (9, 1)]);
+}
