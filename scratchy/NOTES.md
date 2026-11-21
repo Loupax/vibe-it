@@ -50,6 +50,15 @@ explained in its own section near the end of this file.
 - `src/globals_prelude.js`: history, AbortController, MessageChannel,
   Storage, structuredClone, TextEncoder/TextDecoder, rejection tracking
   (QY13, QY14, QY15b).
+- `src/js_storage.rs` (QSTASH2): localStorage over `src/stash.rs` (STASH.md). `--state-dir DIR` /
+  `SCRATCHY_STATE_DIR` / `$XDG_STATE_HOME/scratchy` opens a thread-local backend (stash + writer thread)
+  in window mode; `--js-report` only with an explicit `--state-dir`; `--wpt`, `--perf-report` and tests
+  never (in memory). At page start the prelude's `__scratchy_ls_fill` pulls the http(s) origin's pairs
+  (`__scratchy_ls_load`, UTF-16 via `js_engine::Utf16`, never a UTF-8 conversion); setItem/removeItem/
+  clear record ops (`__scratchy_ls_op`, after the JS-side 5 Mi code-unit quota check) and
+  `JsEngine::storage_end_task` (end of `eval_as` / `drain_after_task`) hands one task's ops to the
+  writer as one commit. A load first flushes the writer, so the next page reads the last one's writes.
+  Same-origin iframe realms share the parent's areas; opaque origins stay in memory.
 - `src/intl_prelude.js`: minimal en-US `Intl` (QY16).
 - `src/cssom_prelude.js`: constructable stylesheets,
   `document.adoptedStyleSheets` (QSD4).

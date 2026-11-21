@@ -262,6 +262,26 @@ impl<'js, T: IntoJs<'js>> IntoJs<'js> for JsResult<T> {
     }
 }
 
+/// QSTASH2: a JS string as its UTF-16 code units, both ways, with no UTF-8 step: lone surrogates
+/// survive (`String`'s `to_rust_string_lossy` turns them into U+FFFD). localStorage keys and values.
+pub(crate) struct Utf16(pub(crate) Vec<u16>);
+
+impl<'js> FromJs<'js> for Utf16 {
+    fn from_js(ctx: &Ctx<'js>, v: L<v8::Value>) -> JsResult<Self> {
+        let s = v8::Local::<v8::String>::try_from(v).map_err(|_| conv_err(js_type_name(v), "Utf16"))?;
+        let mut buf = vec![0u16; s.length()];
+        s.write_v2(ctx.sc(), 0, &mut buf, v8::WriteFlags::empty());
+        Ok(Utf16(buf))
+    }
+}
+impl<'js> IntoJs<'js> for Utf16 {
+    fn into_js(self, ctx: &Ctx<'js>) -> JsResult<L<v8::Value>> {
+        v8::String::new_from_two_byte(ctx.sc(), &self.0, v8::NewStringType::Normal)
+            .map(|s| st(s.into()))
+            .ok_or_else(|| JsError::Msg("string too long".into()))
+    }
+}
+
 /// A `Uint8Array` argument, copied out.
 pub(crate) struct Bytes(pub(crate) Vec<u8>);
 

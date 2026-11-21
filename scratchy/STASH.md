@@ -1,6 +1,6 @@
 # stash: persistent web storage
 
-Status: `src/stash.rs` built (QSTASH1; no JS wiring yet). Decision QSTASH-D, items QSTASH1-QSTASH5 in
+Status: `src/stash.rs` built (QSTASH1); localStorage uses it (QSTASH2, `src/js_storage.rs`). Decision QSTASH-D, items QSTASH1-QSTASH5 in
 `TODO.txt`; wire's part is W-PERSIST1 in `../wire/TODO.txt`.
 
 stash is the `localStorage` store: a directory layout plus `src/stash.rs`.
@@ -10,6 +10,9 @@ There is no daemon; scratchy reads and writes the files itself.
 
 - `--state-dir DIR` / `SCRATCHY_STATE_DIR`; default `$XDG_STATE_HOME/scratchy`
   (`~/.local/state/scratchy` when unset). Created with mode 0700.
+- Headless modes never use the default: `--js-report` persists only with an explicit
+  `--state-dir` (the env variable is not read there), `--wpt` and `--perf-report` never
+  (QSTASH2; reports and reftests stay reproducible and never touch the user's storage).
 - A tmpfs directory (e.g. `$XDG_RUNTIME_DIR/scratchy`) gives storage that
   survives scratchy restarts but not a logout.
 - If the directory cannot be used, scratchy logs once

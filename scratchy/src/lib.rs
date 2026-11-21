@@ -130,9 +130,10 @@ mod js_ws;
 mod js_style;
 mod js_geom;
 mod link_css;
-// QSTASH1: the localStorage state directory (STASH.md); JS wiring is QSTASH2.
-#[cfg_attr(not(test), allow(dead_code))] // no callers until QSTASH2
+// QSTASH1: the localStorage state directory (STASH.md); QSTASH2: localStorage over it.
+#[cfg_attr(not(test), allow(dead_code))] // clear/forget: `--forget-site` is a later QSTASH item
 mod stash;
+mod js_storage;
 
 pub use dom::*;
 pub use css::*;
@@ -184,8 +185,13 @@ pub fn run() {
     if raw_args.first().map(String::as_str) == Some("--js-report") {
         std::process::exit(js::js_report_main(&raw_args[1..]));
     }
-    let Args { input, socket, no_js } = parse_args();
+    let Args { input, socket, no_js, state_dir } = parse_args();
     set_js_enabled(!no_js);
+    // QSTASH2: localStorage persists in the state directory (STASH.md); unusable -> in memory, one log line.
+    if !no_js {
+        let dir = js_storage::resolve_state_dir(state_dir, |k| env::var(k).ok());
+        js_storage::set_backend(dir.as_deref().and_then(js_storage::Backend::open));
+    }
     if !no_js {
         js_engine::warm_up(); // QV8-4: V8 startup snapshot, built in the background
     }
@@ -303,6 +309,9 @@ pub fn run() {
     };
 
     let result = event_loop.run_app(&mut app);
+    // QSTASH2: the page's last localStorage ops, then every queued commit, are on disk before exit.
+    drop(app);
+    js_storage::shutdown();
     if let Some(msg) = event_loop_exit_message(&result) {
         diag!("{msg}");
         std::process::exit(1);

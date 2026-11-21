@@ -858,6 +858,8 @@ const PRELUDE: &str = r#"
       hostname: u.hostname, port: u.port, pathname: u.pathname, search: u.search, hash: u.hash, origin: o.opaque ? 'null' : p.location.origin });
     Object.defineProperty(g, 'isSecureContext', { value: !!p.isSecureContext, writable: true, configurable: true, enumerable: true });
     g.__d_bind_doc(o.docId, o.base, o.dom);
+    // QSTASH2: a same-origin frame shares its parent's localStorage/sessionStorage; an opaque one keeps its own.
+    if (!o.opaque) g.__scratchy_ls_share(p);
     doc.readyState = 'complete';
     // QPT1-D1: an opaque-origin (data:) frame sees cross-origin views of its parent and top, has no
     // frameElement, and tells the cross-origin proxy what its real parent/top are.
@@ -1151,6 +1153,8 @@ pub(crate) struct JsEngine {
     pub(crate) net: Rc<std::cell::RefCell<js_net::NetState>>,
     /// QF19w2: the page's WebSockets (closed with code 1001 when the engine drops).
     pub(crate) ws: Rc<std::cell::RefCell<js_ws::WsState>>,
+    /// QSTASH2: the page's persistent localStorage (ops handed to stash's writer at the end of each task).
+    pub(crate) storage: crate::js_storage::LocalStorage,
 }
 
 /// One init field of a natively dispatched event (Q33d).
@@ -1209,6 +1213,17 @@ impl JsEngine {
     pub(crate) fn drain_after_task(&self) {
         self.arm_budget(perf::callback_budget());
         self.eng.drain_jobs(&*self.log);
+        self.storage_end_task();
+    }
+
+    /// QSTASH2: the end of a task: its localStorage ops go to the stash writer as one commit. A site
+    /// forgotten meanwhile empties the page's copy.
+    pub(crate) fn storage_end_task(&self) {
+        if self.storage.end_task() {
+            self.eng.with(|ctx| {
+                let _ = js_engine::eval_sloppy::<()>(&ctx, "storage", "__scratchy_ls_forgotten()");
+            });
+        }
     }
 
     pub(crate) fn eval(&self, name: &str, code: &str) {
@@ -1285,6 +1300,7 @@ impl JsEngine {
             }
         });
         self.eng.drain_jobs(&*self.log);
+        self.storage_end_task();
         timing.get()
     }
 
@@ -1726,7 +1742,9 @@ fn startup_engine(document: &Handle, store: Rc<js_modules::ModuleStore>, log: Lo
     eng.with(|c| js_net::install_net(&c, net.clone(), reqs.clone()));
     let ws = Rc::new(std::cell::RefCell::new(js_ws::WsState::new(net.clone(), log.clone())));
     eng.with(|c| js_ws::install_ws(&c, ws.clone()));
-    let mut engine = JsEngine { eng, log, base, media: None, dirty: dirty.clone(), table: Default::default(), reqs: reqs.clone(), net, ws };
+    let storage = crate::js_storage::LocalStorage::default();
+    eng.with(|c| storage.install(&c));
+    let mut engine = JsEngine { eng, log, base, media: None, dirty: dirty.clone(), table: Default::default(), reqs: reqs.clone(), net, ws, storage };
     {
         let (budget, lg) = (engine.eng.budget.clone(), engine.log.clone());
         engine.eng.with(|c| install_script_natives(&c, budget, lg, store));
@@ -1760,6 +1778,8 @@ fn startup_engine(document: &Handle, store: Rc<js_modules::ModuleStore>, log: Lo
         // QV8-4: the page's state, over the baked preludes (see PRELUDE's `__scratchy_apply_env`).
         engine.eval("env", "__scratchy_apply_env(__scratchy_env); delete globalThis.__scratchy_env; __media_sweep();");
     }
+    // QSTASH2: the origin's stored pairs, before the first page script (opaque origins stay in memory).
+    engine.eval("env", "__scratchy_ls_fill()");
     Some(engine)
 }
 
@@ -2172,6 +2192,7 @@ pub(crate) fn js_report_main(args: &[String]) -> i32 {
     let mut socket = None;
     let mut file = None;
     let mut run_timers = None;
+    let mut state_dir = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         if a == "--socket" {
@@ -2180,13 +2201,16 @@ pub(crate) fn js_report_main(args: &[String]) -> i32 {
             it.next(); // installed by `run` (QY39b, QV8-0)
         } else if a == "--run-timers" {
             run_timers = it.next().and_then(|v| v.parse::<u64>().ok());
+        } else if a == "--state-dir" {
+            // QSTASH2: only an explicit flag persists here (no env, no default): reports stay reproducible.
+            state_dir = it.next().map(std::path::PathBuf::from);
         } else {
             file = Some(a.clone());
         }
     }
     js_engine::ensure_snapshot(); // QV8-4: one-shot mode: build the startup snapshot first (V8)
     let Some(file) = file else {
-        diag!("usage: scratchy --js-report [--socket <path>] [--user-agent <string>] [--run-timers <ms>] [--budget-ms <ms>] <file>");
+        diag!("usage: scratchy --js-report [--socket <path>] [--state-dir <dir>] [--user-agent <string>] [--run-timers <ms>] [--budget-ms <ms>] <file>");
         return 2;
     };
     let bytes = match fs::read(&file) {
@@ -2197,7 +2221,11 @@ pub(crate) fn js_report_main(args: &[String]) -> i32 {
         }
     };
     set_js_enabled(true);
+    if let Some(dir) = &state_dir {
+        crate::js_storage::set_backend(crate::js_storage::Backend::open(dir));
+    }
     write_raw_stdout(format_args!("{}", js_report_for_html_timers(&decode_html_bytes(&bytes, None), socket.as_deref(), &file, run_timers)));
+    crate::js_storage::shutdown();
     0
 }
 

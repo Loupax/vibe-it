@@ -66,6 +66,8 @@ pub(crate) struct Args {
     pub(crate) socket: Option<PathBuf>,
     /// `--no-js`: scripts never run and `<noscript>` content shows.
     pub(crate) no_js: bool,
+    /// QSTASH2: `--state-dir DIR` (localStorage; `js_storage::resolve_state_dir` adds the env and defaults).
+    pub(crate) state_dir: Option<PathBuf>,
 }
 
 /// Every command-line option any of scratchy's parsers accepts (`parse_args`
@@ -74,12 +76,13 @@ pub(crate) struct Args {
 /// when a parser grows an option missing from this list.
 #[cfg(test)]
 pub(crate) const CLI_OPTIONS: &[&str] =
-    &["--socket", "--no-js", "--motion", "--user-agent", "--js-report", "--run-timers", "--perf-report", "--seconds", "--perf-corpus", "--budget-ms", "--wpt", "--subset", "--expected", "--update", "--out", "-v"];
+    &["--socket", "--no-js", "--state-dir", "--motion", "--user-agent", "--js-report", "--run-timers", "--perf-report", "--seconds", "--perf-corpus", "--budget-ms", "--wpt", "--subset", "--expected", "--update", "--out", "-v"];
 
 pub(crate) fn parse_args() -> Args {
     let raw: Vec<String> = env::args().skip(1).collect();
     let mut socket = None;
     let mut no_js = false;
+    let mut state_dir = None;
     let mut rest = Vec::new();
     let mut i = 0;
     while i < raw.len() {
@@ -93,6 +96,13 @@ pub(crate) fn parse_args() -> Args {
         } else if raw[i] == "--no-js" {
             no_js = true;
             i += 1;
+        } else if raw[i] == "--state-dir" {
+            let Some(path) = raw.get(i + 1) else {
+                diag!("scratchy: --state-dir needs a directory argument");
+                std::process::exit(1);
+            };
+            state_dir = Some(PathBuf::from(path));
+            i += 2;
         } else if raw[i] == "--motion" {
             set_reduced_motion(false);
             i += 1;
@@ -114,11 +124,11 @@ pub(crate) fn parse_args() -> Args {
             classify_input(&rest[0])
         }
         _ => {
-            diag!("usage: scratchy [--socket <path>] [--no-js] [--motion] [--user-agent <string>] [--budget-ms <ms>] [file|url]");
+            diag!("usage: scratchy [--socket <path>] [--no-js] [--state-dir <dir>] [--motion] [--user-agent <string>] [--budget-ms <ms>] [file|url]");
             std::process::exit(1);
         }
     };
-    Args { input, socket, no_js }
+    Args { input, socket, no_js, state_dir }
 }
 
 /// Charset of a `Content-Type` header value's `charset=` parameter, if
