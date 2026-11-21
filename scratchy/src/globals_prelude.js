@@ -170,25 +170,51 @@
     if (idle.has(id)) { g.clearTimeout(idle.get(id)); idle.delete(id); }
   });
 
-  // ---- Storage: in-memory, per engine, NOT persisted (product decision) ----
+  // ---- Storage. localStorage over stash (QSTASH2, STASH.md): an http(s) page's area is filled from
+  // the state directory before its first script (`__scratchy_ls_fill`) and its setItem/removeItem/clear
+  // ops are recorded (`__scratchy_ls_op`) for Rust to commit at the end of the task. Opaque origins
+  // (file:, data:, about:), runs without a state directory and sessionStorage stay in memory. ----
   var STOK = {};
   var Storage = sub('Storage', Object, function (tok) { if (tok !== STOK) throw new TypeError('Illegal constructor'); });
-  function makeStorage() {
-    var data = new Map(), t = new Storage(STOK);
+  // stash::QUOTA_UNITS: 5 Mi UTF-16 code units of keys plus values per origin (Firefox's rule); checked here
+  // so the page sees QuotaExceededError synchronously, before the op is recorded.
+  var LS_QUOTA = 5 * 1024 * 1024;
+  function makeArea() { return { data: new Map(), units: 0, persist: false }; }
+  function areaSet(a, k, v) {
+    var old = a.data.get(k);
+    if (old === v) return;
+    var after = a.units - (old === undefined ? 0 : k.length + old.length) + k.length + v.length;
+    if (after > LS_QUOTA) throw dom("Failed to execute 'setItem' on 'Storage': Setting the value of '" + k + "' exceeded the quota.", 'QuotaExceededError');
+    a.data.set(k, v); a.units = after;
+    if (a.persist) __scratchy_ls_op(0, k, v);
+  }
+  function areaRemove(a, k) {
+    if (!a.data.has(k)) return;
+    a.units -= k.length + a.data.get(k).length;
+    a.data.delete(k);
+    if (a.persist) __scratchy_ls_op(1, k);
+  }
+  function areaClear(a) {
+    if (!a.data.size) return;
+    a.data.clear(); a.units = 0;
+    if (a.persist) __scratchy_ls_op(2);
+  }
+  function makeStorage(a) {
+    var data = a.data, t = new Storage(STOK);
     def(t, 'getItem', function (k) { if (!arguments.length) throw new TypeError("Failed to execute 'getItem' on 'Storage': 1 argument required, but only 0 present."); k = String(k); return data.has(k) ? data.get(k) : null; });
-    def(t, 'setItem', function (k, v) { if (arguments.length < 2) throw new TypeError("Failed to execute 'setItem' on 'Storage': 2 arguments required, but only " + arguments.length + " present."); data.set(String(k), String(v)); });
-    def(t, 'removeItem', function (k) { data.delete(String(k)); });
-    def(t, 'clear', function () { data.clear(); });
-    def(t, 'key', function (i) { var a = Array.from(data.keys()); i = Number(i); return i >= 0 && i < a.length ? a[i] : null; });
+    def(t, 'setItem', function (k, v) { if (arguments.length < 2) throw new TypeError("Failed to execute 'setItem' on 'Storage': 2 arguments required, but only " + arguments.length + " present."); areaSet(a, String(k), String(v)); });
+    def(t, 'removeItem', function (k) { areaRemove(a, String(k)); });
+    def(t, 'clear', function () { areaClear(a); });
+    def(t, 'key', function (i) { var ks = Array.from(data.keys()); i = Number(i); return i >= 0 && i < ks.length ? ks[i] : null; });
     Object.defineProperty(t, 'length', { get: function () { return data.size; }, configurable: true });
     return new Proxy(t, {
       get: function (o, p) {
         if (typeof p === 'string' && !(p in o) && data.has(p)) return data.get(p);
         return Reflect.get(o, p, o);
       },
-      set: function (o, p, v) { if (typeof p === 'string') data.set(p, String(v)); return true; },
+      set: function (o, p, v) { if (typeof p === 'string') areaSet(a, p, String(v)); return true; },
       has: function (o, p) { return (typeof p === 'string' && data.has(p)) || p in o; },
-      deleteProperty: function (o, p) { if (typeof p === 'string') data.delete(p); return true; },
+      deleteProperty: function (o, p) { if (typeof p === 'string') areaRemove(a, p); return true; },
       ownKeys: function () { return Array.from(data.keys()); },
       getOwnPropertyDescriptor: function (o, p) {
         if (typeof p === 'string' && data.has(p)) return { value: data.get(p), writable: true, enumerable: true, configurable: true };
@@ -196,8 +222,28 @@
       },
     });
   }
-  def(g, 'localStorage', makeStorage());
-  def(g, 'sessionStorage', makeStorage());
+  var lsArea = makeArea(), ssArea = makeArea();
+  def(g, 'localStorage', makeStorage(lsArea));
+  def(g, 'sessionStorage', makeStorage(ssArea));
+  // Page start (Rust, after the env): the stored pairs as [k0, v0, k1, v1, ...] sorted by key, or
+  // undefined for an in-memory page. `key(i)` follows that order, new keys after.
+  def(g, '__scratchy_ls_fill', function () {
+    var r = __scratchy_ls_load();
+    if (!r) return;
+    lsArea.persist = true;
+    for (var i = 0; i + 1 < r.length; i += 2) { lsArea.data.set(r[i], r[i + 1]); lsArea.units += r[i].length + r[i + 1].length; }
+  });
+  // The site was forgotten while the page was open: its copy is emptied (nothing is recorded).
+  def(g, '__scratchy_ls_forgotten', function () { lsArea.data.clear(); lsArea.units = 0; });
+  // A same-origin iframe realm (`__scratchy_realm_init`) uses its parent's areas: one storage per origin.
+  def(g, '__scratchy_ls_areas', [lsArea, ssArea]);
+  def(g, '__scratchy_ls_share', function (p) {
+    var as = p.__scratchy_ls_areas;
+    lsArea = as[0]; ssArea = as[1];
+    def(g, '__scratchy_ls_areas', as);
+    def(g, 'localStorage', makeStorage(lsArea));
+    def(g, 'sessionStorage', makeStorage(ssArea));
+  });
 
   // ---- history: in-engine entry list; URL changes go to location and
   // document.URL; back/forward/go are asynchronous, fire `popstate` and

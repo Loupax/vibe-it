@@ -316,3 +316,223 @@ fn qstash1_state_dir_mode_and_unusable_fallback() {
     assert!(line.ends_with(", localStorage is in-memory for this session"), "{line}");
     assert!(Stash::open_or_log(&bad).is_none());
 }
+
+// ---------- QSTASH2: localStorage over stash ----------
+
+use crate::js_storage::{self, Backend};
+
+/// Installs a backend on `d` for this test thread (pages started here use it) and removes it on drop.
+struct LsEnv;
+
+impl LsEnv {
+    fn new(d: &TestDir) -> LsEnv {
+        js_storage::set_backend(Some(Backend::open(&d.0).expect("state dir usable")));
+        LsEnv
+    }
+}
+
+impl Drop for LsEnv {
+    fn drop(&mut self) {
+        js_storage::set_backend(None);
+        set_page_url(None);
+    }
+}
+
+/// One page load at `url` running `code`; returns the engine (alive) and its log.
+fn ls_page(url: &str, html: &str, code: &str) -> (Option<JsEngine>, Rc<RefCell<Vec<String>>>) {
+    set_page_url(Url::parse(url).ok().as_ref());
+    let out = Rc::new(RefCell::new(Vec::new()));
+    let o = out.clone();
+    let e = crate::js::start_scripts(&parse_html(html), &[src(code)], Rc::new(move |level, text| o.borrow_mut().push(format!("{level}:{text}"))));
+    (e, out)
+}
+
+/// `ls_page`, the engine dropped (its last ops handed over) and the writer flushed.
+fn ls_load(url: &str, code: &str) -> Vec<String> {
+    let (e, out) = ls_page(url, "", code);
+    drop(e);
+    if let Some(b) = js_storage::backend() {
+        b.flush();
+    }
+    out.take()
+}
+
+const LS_URL: &str = "https://social.loupax.com/home";
+
+#[test]
+fn qstash2_a_value_survives_the_next_page_load_and_a_restart() {
+    let d = TestDir::new("qstash2-persist");
+    let env = LsEnv::new(&d);
+    assert_eq!(ls_load(LS_URL, "console.log(localStorage.length); localStorage.vimOff = '1'; localStorage.setItem('b', 2);"), ["log:0"]);
+    assert_eq!(std::fs::read(origin_dir(&d).join("vimOff")).unwrap(), b"1\n", "one file per key, on disk");
+    // The next page load of the same origin (another path) sees it.
+    assert_eq!(ls_load("https://social.loupax.com/other", "console.log(localStorage.getItem('vimOff'), localStorage.b, localStorage.length, localStorage.key(0));"), ["log:1 2 2 b"]);
+    // Restart: a new backend (a new process) on the same --state-dir.
+    drop(env);
+    let _env = LsEnv::new(&d);
+    assert_eq!(ls_load(LS_URL, "console.log(localStorage.vimOff); localStorage.removeItem('vimOff'); delete localStorage.b;"), ["log:1"]);
+    assert_eq!(ls_load(LS_URL, "console.log(localStorage.length, localStorage.getItem('vimOff'));"), ["log:0 null"]);
+    // Same site, other origin: its own storage.
+    assert_eq!(ls_load(LS_URL, "localStorage.x = 'mine';"), Vec::<String>::new());
+    assert_eq!(ls_load("https://loupax.com/", "console.log(localStorage.getItem('x'));"), ["log:null"]);
+    // clear() empties the origin's files.
+    assert_eq!(ls_load(LS_URL, "localStorage.clear(); console.log(localStorage.length);"), ["log:0"]);
+    assert_eq!(file_names(&origin_dir(&d)), Vec::<String>::new());
+}
+
+#[test]
+fn qstash2_opaque_and_unconfigured_pages_do_not_persist() {
+    let d = TestDir::new("qstash2-opaque");
+    {
+        let _env = LsEnv::new(&d);
+        for url in ["file:///home/u/page.html", "about:blank", "data:text/html,x"] {
+            assert_eq!(ls_load(url, "localStorage.k = 'v'; console.log(localStorage.k);"), ["log:v"], "{url}");
+            assert_eq!(ls_load(url, "console.log(localStorage.getItem('k'));"), ["log:null"], "{url}: in memory only");
+        }
+        assert_eq!(file_names(&d.0.join("storage")), [".locks"], "no site directory was made");
+    }
+    // No backend (tests, --wpt, --js-report without --state-dir): in memory, nothing written.
+    assert_eq!(ls_load(LS_URL, "localStorage.k = 'v';"), Vec::<String>::new());
+    assert_eq!(ls_load(LS_URL, "console.log(localStorage.getItem('k'));"), ["log:null"]);
+    set_page_url(None);
+}
+
+#[test]
+fn qstash2_quota_throws_synchronously_and_nothing_is_recorded() {
+    let d = TestDir::new("qstash2-quota");
+    let env = LsEnv::new(&d);
+    // Exactly stash::QUOTA_UNITS code units (key + value) fit; one more unit throws.
+    let code = format!(
+        "var big = 'x'.repeat({} - 1); localStorage.setItem('k', big); console.log(localStorage.k.length);\
+         try {{ localStorage.setItem('j', ''); }} catch (e) {{ console.log(e.name, e instanceof DOMException, e.code); }}\
+         try {{ localStorage.j = '1'; }} catch (e) {{ console.log('prop', e.name); }}\
+         console.log(localStorage.length, localStorage.getItem('j'));\
+         localStorage.setItem('k', big.slice(2)); localStorage.setItem('j', 'y'); console.log(localStorage.length);",
+        stash::QUOTA_UNITS
+    );
+    let log = ls_load(LS_URL, &code);
+    let want = [format!("log:{}", stash::QUOTA_UNITS - 1), "log:QuotaExceededError true 22".into(), "log:prop QuotaExceededError".into(), "log:1 null".into(), "log:2".into()];
+    assert_eq!(log, want);
+    assert_eq!(file_names(&origin_dir(&d)), ["j", "k"], "the writer accepted what the page accepted");
+    // In memory (no state dir) the same limit holds.
+    drop(env);
+    let log = ls_load(LS_URL, &format!("try {{ localStorage.setItem('k', 'x'.repeat({})); }} catch (e) {{ console.log(e.name); }}", stash::QUOTA_UNITS));
+    assert_eq!(log, ["log:QuotaExceededError"]);
+    set_page_url(None);
+}
+
+#[test]
+fn qstash2_one_tasks_ops_are_one_commit() {
+    let d = TestDir::new("qstash2-task");
+    let _env = LsEnv::new(&d);
+    let (e, _out) = ls_page(LS_URL, "", "localStorage.a = '1';");
+    let e = e.unwrap();
+    let (persist, sent0, queued) = e.storage.stats();
+    assert!(persist);
+    assert_eq!(queued, 0, "the page script's task ended: its op was handed over");
+    assert!(sent0 >= 1);
+    // One task (a callback): three ops, one commit, all on disk together.
+    e.eval_value::<bool>("task", "localStorage.b = '2'; localStorage.c = '3'; localStorage.removeItem('a'); true");
+    let (_, sent1, queued) = e.storage.stats();
+    assert_eq!((sent1 - sent0, queued), (1, 0));
+    js_storage::backend().unwrap().flush();
+    assert_eq!(file_names(&origin_dir(&d)), ["b", "c"]);
+    // A task with no change (reads, the same value again) sends nothing.
+    e.eval_value::<bool>("task", "localStorage.getItem('b'); localStorage.b = '2'; true");
+    assert_eq!(e.storage.stats().1, sent1);
+}
+
+#[test]
+fn qstash2_lone_surrogates_round_trip_exactly() {
+    let d = TestDir::new("qstash2-wtf8");
+    let _env = LsEnv::new(&d);
+    assert_eq!(ls_load(LS_URL, "localStorage.setItem('v', 'a\\uD83D'); localStorage.setItem('k\\uDC00', 'b\\uD83D\\uDE00c');"), Vec::<String>::new());
+    // WTF-8 on disk: the lone high surrogate D83D is ED A0 BD (never EF BF BD, U+FFFD).
+    assert_eq!(std::fs::read(origin_dir(&d).join("v")).unwrap(), b"a\xED\xA0\xBD\n");
+    let log = ls_load(
+        LS_URL,
+        "var v = localStorage.getItem('v'), w = localStorage.getItem('k\\uDC00');\
+         console.log(v === 'a\\uD83D', v.length, v.charCodeAt(1).toString(16), w === 'b\\uD83D\\uDE00c', localStorage.key(0) === 'k\\uDC00');",
+    );
+    assert_eq!(log, ["log:true 2 d83d true true"]);
+}
+
+#[test]
+fn qstash2_a_same_origin_iframe_shares_the_pages_storage() {
+    let d = TestDir::new("qstash2-frame");
+    let _env = LsEnv::new(&d);
+    let html = r#"<iframe srcdoc="<script>localStorage.fromFrame = 'f'; parent.seen = localStorage.getItem('fromPage');</script>"></iframe>"#;
+    let (e, out) = ls_page(LS_URL, html, "localStorage.fromPage = 'p'; addEventListener('load', function () { console.log(window.seen, localStorage.fromFrame); });");
+    drop(e);
+    js_storage::backend().unwrap().flush();
+    assert_eq!(*out.borrow(), ["log:p f"]);
+    assert_eq!(file_names(&origin_dir(&d)), ["fromFrame", "fromPage"]);
+}
+
+#[test]
+fn qstash2_state_dir_resolution() {
+    fn env(pairs: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<String> {
+        move |k| pairs.iter().find(|p| p.0 == k).map(|p| p.1.to_string())
+    }
+    let all: &'static [(&str, &str)] = &[("SCRATCHY_STATE_DIR", "/s"), ("XDG_STATE_HOME", "/x"), ("HOME", "/h")];
+    assert_eq!(js_storage::resolve_state_dir(Some("/f".into()), env(all)), Some(PathBuf::from("/f")));
+    assert_eq!(js_storage::resolve_state_dir(None, env(all)), Some(PathBuf::from("/s")));
+    assert_eq!(js_storage::resolve_state_dir(None, env(&[("SCRATCHY_STATE_DIR", ""), ("XDG_STATE_HOME", "/x"), ("HOME", "/h")])), Some(PathBuf::from("/x/scratchy")));
+    assert_eq!(js_storage::resolve_state_dir(None, env(&[("HOME", "/h")])), Some(PathBuf::from("/h/.local/state/scratchy")));
+    assert_eq!(js_storage::resolve_state_dir(None, env(&[])), None);
+}
+
+#[test]
+fn qstash2_an_unusable_state_dir_keeps_localstorage_in_memory() {
+    let d = TestDir::new("qstash2-bad");
+    std::fs::create_dir_all(d.0.parent().unwrap()).unwrap();
+    std::fs::write(&d.0, b"a file, not a directory").unwrap();
+    assert!(Backend::open(&d.0).is_none());
+    js_storage::set_backend(None);
+    assert_eq!(ls_load(LS_URL, "localStorage.k = 'v'; console.log(localStorage.k);"), ["log:v"]);
+    set_page_url(None);
+    let _ = std::fs::remove_file(&d.0);
+}
+
+/// The App path: `handle_nav_result` loads a page (the old page's engine is dropped after the new one
+/// starts, so the load must read the writer's queue back), then a new App on the same state dir.
+#[test]
+fn qstash2_app_page_loads_and_a_new_app_see_the_value() {
+    use winit::platform::wayland::EventLoopBuilderExtWayland;
+    let Ok(event_loop) = EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() else {
+        return; // no display available (headless CI)
+    };
+    let _g = JS_FLAG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let was = js_enabled();
+    set_js_enabled(true);
+    let d = TestDir::new("qstash2-app");
+    let env = LsEnv::new(&d);
+    let page = |n: u32, code: &str| FetchedPage {
+        html: b"<html><body>x</body></html>".to_vec(),
+        extra_css: String::new(),
+        sheets: Vec::new(),
+        scripts: vec![src(code)],
+        url: Url::parse(&format!("https://social.loupax.com/p{n}")).unwrap(),
+    };
+    let nav = |app: &mut App, n: u32, code: &str| {
+        let url = Url::parse(&format!("https://social.loupax.com/p{n}")).unwrap();
+        app.history = vec![url.clone()];
+        app.history_index = 0;
+        app.fetch_url(url);
+        let g = app.nav_generation;
+        app.handle_nav_result(g, Ok(page(n, code)));
+    };
+    let read = |app: &App| app.js.as_ref().and_then(|e| e.eval_value::<String>("t", "String(localStorage.getItem('vimOff'))"));
+    let mut app = App::new_static(parse_html("<html></html>"), event_loop.create_proxy(), None);
+    nav(&mut app, 1, "localStorage.vimOff = '1';");
+    nav(&mut app, 2, "");
+    assert_eq!(read(&app).as_deref(), Some("1"), "the next page load");
+    drop(app);
+    drop(env);
+    let _env = LsEnv::new(&d);
+    let mut app = App::new_static(parse_html("<html></html>"), event_loop.create_proxy(), None);
+    nav(&mut app, 3, "");
+    assert_eq!(read(&app).as_deref(), Some("1"), "a new App with the same state dir");
+    drop(app);
+    set_js_enabled(was);
+}
