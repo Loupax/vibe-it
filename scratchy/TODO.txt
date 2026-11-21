@@ -438,8 +438,6 @@ QKEYS — input mode / normal mode, Esc Esc, `i`, status bar (user design sessio
      the key. Today only Home/End exist because j/k covered the rest.
 
 
-- [ ] [WIP] QKEYS1b [S] (P3, from QKEYS1 #492; Sonnet) The status bar's URL is empty for a file/stdin start page (empty
-      history): show `App::url` / `base_url` then. Test: a file: start page shows its URL in the bar.
 
 - [ ] QSB2b [M] (WAITING FOR USER (#522 draft: needs real horizontal scrolling first, split?); P3, from QSB2 #497; Sonnet) Horizontal scrollbars (window and overflow-x regions): ScrollInfo gains
       horizontal content/client widths and a per-region x scroll; the window bar sits above the status bar and the page
