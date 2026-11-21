@@ -8457,3 +8457,9 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       with the flag off and 647-1315 px with it; social.loupax.com's line-number gutter beside the first article image
       differs (off 4-19 `1/245`, on 3/4 `1/244`). Determine which is right (compare with Chrome/Firefox reference if
       possible) and whether it is the intended QINC1i change (script geometry sees decoded image sizes) or a bug.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QINC1k4 DONE e560b44 reads_vh ORs pseudo slots' flags; fuzz gains vh steps [S] (P2, from QINC1k2 #466; BLOCKS QINC1l (a CHECK mismatch); Opus; area incr_style) Intermittent
+      window CHECK mismatch on github.com: `slot after/before field width ... Calc(..,(956.0,312.0)) vs (956.0,485.0)` on
+      footer links + a carousel indicator (looks like the viewport pair a pseudo's calc was resolved against). 1 of 3
+      window check runs at load 14.4. Find which vh the slot captured, reproduce, fix.
