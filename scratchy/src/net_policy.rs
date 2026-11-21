@@ -696,6 +696,34 @@ pub(crate) const WIRE_HEADER_INITIATOR: &str = "X-Wire-Initiator-Site";
 pub(crate) const WIRE_HEADER_COOKIES: &str = "X-Wire-Cookies";
 pub(crate) const WIRE_HEADER_COOKIE_OP: &str = "X-Wire-Cookie-Op";
 pub(crate) const WIRE_HEADER_COOKIE_URL: &str = "X-Wire-Cookie-Url";
+pub(crate) const WIRE_HEADER_CONTROL_TOKEN: &str = "X-Wire-Control-Token";
+
+/// Where wire writes its cookie control token: the socket path + `.token`.
+pub(crate) fn control_token_path(socket: &std::path::Path) -> std::path::PathBuf {
+    let mut p = socket.as_os_str().to_os_string();
+    p.push(".token");
+    p.into()
+}
+
+/// The control token of the wire on `socket`, read from its token file and
+/// cached per socket path. `refresh` re-reads the file (wire restarted: it
+/// writes a new token at every start). `Err` = the line to log.
+pub(crate) fn control_token(socket: &std::path::Path, refresh: bool) -> Result<String, String> {
+    static CACHE: std::sync::Mutex<Vec<(std::path::PathBuf, String)>> = std::sync::Mutex::new(Vec::new());
+    let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if !refresh && let Some((_, t)) = cache.iter().find(|(p, _)| p == socket) {
+        return Ok(t.clone());
+    }
+    let path = control_token_path(socket);
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("cannot read wire's cookie token {}: {e}", path.display()))?;
+    let token = text.trim().to_string();
+    if token.is_empty() {
+        return Err(format!("wire's cookie token file {} is empty", path.display()));
+    }
+    cache.retain(|(p, _)| p != socket);
+    cache.push((socket.to_path_buf(), token.clone()));
+    Ok(token)
+}
 
 /// Common multi-label public suffixes. COPY of wire's `MULTI_SUFFIXES`
 /// (wire/src/cookies.rs): keep the two identical (same as `is_public_ip`).
@@ -870,12 +898,17 @@ pub(crate) fn wire_cookie_headers(ctx: &CookieContext) -> Vec<(String, String)> 
 }
 
 /// Headers of a `document.cookie` control request (`op` = `get` | `set`).
-pub(crate) fn cookie_control_headers(op: &str, page: &Url) -> Option<Vec<(String, String)>> {
+/// `token`: wire's control token (None only for a fake wire in tests).
+pub(crate) fn cookie_control_headers(op: &str, page: &Url, token: Option<&str>) -> Option<Vec<(String, String)>> {
     let top = site_of(page)?;
-    Some(vec![
+    let mut h = vec![
         (WIRE_HEADER_JAR.to_string(), COOKIE_JAR_NAME.to_string()),
         (WIRE_HEADER_TOP_SITE.to_string(), top),
         (WIRE_HEADER_COOKIE_OP.to_string(), op.to_string()),
         (WIRE_HEADER_COOKIE_URL.to_string(), page.to_string()),
-    ])
+    ];
+    if let Some(t) = token {
+        h.push((WIRE_HEADER_CONTROL_TOKEN.to_string(), t.to_string()));
+    }
+    Some(h)
 }

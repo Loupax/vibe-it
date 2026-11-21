@@ -52,7 +52,9 @@ the commit it came up during.
       one real client exists, and it has no concept of per-request
       timeout preferences either.
 
-- [ ] **Cookie control channel has no access token** (user decision 2026-11-17:
+- [x] (DONE 2026-11-21, scratchy QSTASH5 #481: the user decided to add it; wire writes a random
+      token to `<socket>.token` at every start, `X-Wire-Control-Token` is required on every
+      `X-Wire-Cookie-Op` request, feature `token`) **Cookie control channel has no access token** (user decision 2026-11-17:
       no token for now). The cookie-jar control requests (`X-Wire-Cookie-Op`,
       clear/read of the jar) are open to any process that can reach `wire.sock`,
       which sits under `/run/user/<uid>/` so in practice only the same user.
@@ -70,8 +72,8 @@ the commit it came up during.
       forget-site, advertised in `X-Wire-Features` (e.g. `jarfile`). Without the
       flag: today's in-memory jar. Tests: round trip through a temp file,
       session cookies dropped, expired cookies dropped on load, clear-site
-      removes only that partition. With cookies on disk the missing control
-      token (item above) matters more: ask the user before shipping.
+      removes only that partition. The control token (item above) shipped
+      with it (user, 2026-11-21).
 
 - [x] (DONE 2026-11-17, QY39a, hash 27ce684: X-Wire-User-Agent / own User-Agent, X-Wire-Features: ua) **User-Agent override from scratchy** (user decision 2026-11-17; scratchy/TODO.txt
       QY39a/QY39b). wire sends a fixed honest UA

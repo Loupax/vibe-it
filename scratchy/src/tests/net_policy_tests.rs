@@ -1345,3 +1345,90 @@ fn qy39b_navigator_agrees_with_the_flag() {
     let l = qf8_run("https://page.test/", &fake, "console.log(navigator.userAgent, '|', navigator.appVersion);");
     assert_eq!(l, vec![format!("log:{} | {}", navigator_user_agent(), navigator_app_version())], "{l:?}");
 }
+
+// ---------- QSTASH5: the cookie control token ----------
+
+/// A wire on a socket path whose token file the test controls: answers 403 to a
+/// control request without the current token, else a fixed cookie string.
+struct TokenFake {
+    socket: std::path::PathBuf,
+    required: Mutex<String>,
+    raw: Mutex<Vec<String>>,
+}
+
+impl NetExecutor for TokenFake {
+    fn socket(&self) -> Option<std::path::PathBuf> {
+        Some(self.socket.clone())
+    }
+    fn execute(&self, job: &crate::js_net::NetJob) -> Result<WireResponse, NetError> {
+        let text = String::from_utf8_lossy(&job.request).to_string();
+        self.raw.lock().unwrap().push(text.clone());
+        let ok = qf14b_has(&text, &format!("X-Wire-Control-Token: {}", self.required.lock().unwrap()));
+        let headers = vec![("x-wire-version".to_string(), "3".to_string()), ("x-wire-cookies".to_string(), "on".to_string())];
+        Ok(WireResponse { status: if ok { 200 } else { 403 }, headers, body: if ok { b"seen=1".to_vec() } else { b"no".to_vec() }, ..Default::default() })
+    }
+}
+
+fn qstash5_fake(name: &str, token_file: Option<&str>) -> Arc<TokenFake> {
+    let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target").join(format!("qstash5-{}-{name}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("wire.sock");
+    if let Some(t) = token_file {
+        std::fs::write(crate::net_policy::control_token_path(&socket), t).unwrap();
+    }
+    Arc::new(TokenFake { socket, required: Mutex::new("tok1".into()), raw: Mutex::new(Vec::new()) })
+}
+
+fn qstash5_engine(fake: &Arc<TokenFake>) -> (JsEngine, Rc<RefCell<Vec<String>>>) {
+    set_page_url(Some(&Url::parse("https://page.test/").unwrap()));
+    crate::js_net::set_net_executor(fake.clone());
+    let out = Rc::new(RefCell::new(Vec::new()));
+    let o = out.clone();
+    let engine = crate::js::start_scripts(&parse_html(""), &[src("")], Rc::new(move |l, t| o.borrow_mut().push(format!("{l}:{t}")))).unwrap();
+    (engine, out)
+}
+
+#[test]
+fn qstash5_control_requests_carry_the_token_from_the_file_next_to_the_socket() {
+    let fake = qstash5_fake("attach", Some("tok1\n"));
+    assert_eq!(crate::net_policy::control_token_path(&fake.socket).file_name().unwrap(), "wire.sock.token");
+    let (engine, log) = qstash5_engine(&fake);
+    engine.eval("t", "console.log(document.cookie); document.cookie = 'a=1';");
+    let raw = fake.raw.lock().unwrap().clone();
+    assert_eq!(raw.len(), 2, "{raw:?}");
+    assert!(raw.iter().all(|r| qf14b_has(r, "X-Wire-Control-Token: tok1")), "{raw:?}");
+    assert!(log.borrow().contains(&"log:seen=1".to_string()), "{:?}", log.borrow());
+}
+
+#[test]
+fn qstash5_missing_token_file_logs_once_and_document_cookie_reads_empty() {
+    let fake = qstash5_fake("missing", None);
+    let (engine, log) = qstash5_engine(&fake);
+    engine.eval("t", "console.log(JSON.stringify(document.cookie)); document.cookie = 'a=1'; console.log(JSON.stringify(document.cookie));");
+    let l = log.borrow().clone();
+    assert_eq!(l.iter().filter(|x| x.starts_with("net:document.cookie:")).count(), 1, "{l:?}");
+    assert!(l.iter().any(|x| x.contains("cannot read wire's cookie token")), "{l:?}");
+    assert_eq!(l.iter().filter(|x| *x == "log:\"\"").count(), 2, "{l:?}");
+    assert!(fake.raw.lock().unwrap().is_empty(), "no request without a token");
+}
+
+#[test]
+fn qstash5_a_403_after_a_wire_restart_rereads_the_token_and_retries_once() {
+    let fake = qstash5_fake("restart", Some("tok1\n"));
+    let (engine, log) = qstash5_engine(&fake);
+    engine.eval("t", "console.log(document.cookie);");
+    // wire restarts: new token in the file, old one rejected
+    *fake.required.lock().unwrap() = "tok2".into();
+    std::fs::write(crate::net_policy::control_token_path(&fake.socket), "tok2\n").unwrap();
+    engine.eval("t", "console.log('again ' + document.cookie);");
+    assert!(log.borrow().contains(&"log:again seen=1".to_string()), "{:?}", log.borrow());
+    let raw = fake.raw.lock().unwrap().clone();
+    assert_eq!(raw.len(), 3, "first get, stale-token get (403), retried get: {raw:?}");
+    assert!(qf14b_has(&raw[1], "X-Wire-Control-Token: tok1") && qf14b_has(&raw[2], "X-Wire-Control-Token: tok2"));
+    // A wire that keeps refusing is not retried forever: logged once, reads empty.
+    *fake.required.lock().unwrap() = "tok3".into();
+    engine.eval("t", "console.log('x' + JSON.stringify(document.cookie));");
+    assert!(log.borrow().iter().any(|x| x.starts_with("net:document.cookie: wire answered 403")), "{:?}", log.borrow());
+    assert_eq!(fake.raw.lock().unwrap().len(), 4, "the file still holds the same token: one request, no retry");
+}

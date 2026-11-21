@@ -128,6 +128,9 @@ fn main() {
         shared = shared.with_cookie_file(file);
     }
     let shared = Arc::new(shared);
+    if let Err(e) = shared.write_token_file(&path) {
+        eprintln!("wire: cannot write the control token {}: {e}; cookie control will not work", token_file_path(&path).display());
+    }
     if shared.cookie_file.is_some() {
         start_jar_saver(&shared);
     }
@@ -166,7 +169,9 @@ const WIRE_VERSION: &str = "3";
 /// WebSocket pipe (`X-Wire-Upgrade: websocket`, QF19w1, see `ws.rs`).
 /// `jarfile`: `--cookie-file` persistence exists and the control op
 /// `X-Wire-Cookie-Op: clear-site` (+ `X-Wire-Top-Site`) is understood (W-PERSIST1).
-const WIRE_FEATURES: &str = "ua,ws,jarfile";
+/// `token`: every cookie control request must carry `X-Wire-Control-Token`
+/// (read from `<socket>.token`).
+const WIRE_FEATURES: &str = "ua,ws,jarfile,token";
 
 /// The one jar name scratchy may select with `X-Wire-Jar` (QF-D2a: ONE shared
 /// jar; a later `--profile NAME` changes this single value).
@@ -177,6 +182,9 @@ struct Shared {
     /// `false` under `--no-cookies`.
     enabled: bool,
     jar: Mutex<cookies::Jar>,
+    /// Random per start; every cookie control request must send it as
+    /// `X-Wire-Control-Token`. Written to `<socket>.token` (mode 0600).
+    control_token: String,
     /// `--cookie-file PATH` (W-PERSIST1): where the jar's persistent cookies live.
     cookie_file: Option<PathBuf>,
     /// Agent with redirects switched off: the jar path follows redirects
@@ -197,11 +205,17 @@ impl Shared {
         Shared {
             enabled,
             jar: Mutex::new(cookies::Jar::default()),
+            control_token: random_token(),
             cookie_file: None,
             manual_agent: agent_builder().redirects(0).build(),
             public_agent: agent_builder().build(),
             public_manual_agent: agent_builder().redirects(0).build(),
         }
+    }
+
+    /// Writes the control token next to the socket, replacing any old one.
+    fn write_token_file(&self, socket: &std::path::Path) -> std::io::Result<()> {
+        cookies::write_file_atomic(&token_file_path(socket), &format!("{}\n", self.control_token))
     }
 
     /// Loads the jar from `path` and keeps writing it there. A missing file
@@ -244,6 +258,27 @@ impl Shared {
     fn jar(&self) -> std::sync::MutexGuard<'_, cookies::Jar> {
         self.jar.lock().unwrap_or_else(|e| e.into_inner())
     }
+}
+
+/// 32 random bytes from the kernel, as 64 hex digits.
+fn random_token() -> String {
+    let mut buf = [0u8; 32];
+    std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut buf)).expect("wire: cannot read /dev/urandom for the control token");
+    buf.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// `<socket path>.token`
+fn token_file_path(socket: &std::path::Path) -> PathBuf {
+    let mut p = socket.as_os_str().to_os_string();
+    p.push(".token");
+    p.into()
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 static JAR_SAVE_FAILED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -809,13 +844,12 @@ fn execute_and_stream(agent: &ureq::Agent, request: &ParsedRequest, w: &mut impl
     execute_with(agent, &Shared::new(true), request, w)
 }
 
-/// Placeholder for the access-token check on the cookie control channel
-/// (`X-Wire-Cookie-Op`): anything that can write to wire's socket could read
-/// non-HttpOnly cookies through it. The user was asked whether to require a
-/// token and has not answered, so NOTHING is enforced: when they decide, check
-/// e.g. an `X-Wire-Token` header here (the single call site is `cookie_control`).
-fn control_authorized(_headers: &[(String, String)]) -> bool {
-    true
+/// The access-token check on the cookie control channel (`X-Wire-Cookie-Op`):
+/// anything that can write to wire's socket could otherwise read non-HttpOnly
+/// cookies or clear the jar. The token is random per wire start and lives in
+/// `<socket>.token` (mode 0600), so only the user's own processes can read it.
+fn control_authorized(shared: &Shared, headers: &[(String, String)]) -> bool {
+    header(headers, "x-wire-control-token").is_some_and(|t| constant_time_eq(t.trim().as_bytes(), shared.control_token.as_bytes()))
 }
 
 /// The `document.cookie` control channel: `X-Wire-Cookie-Op: get|set|clear-site` +
@@ -826,6 +860,12 @@ fn control_authorized(_headers: &[(String, String)]) -> bool {
 fn cookie_control(shared: &Shared, request: &ParsedRequest, w: &mut impl Write) -> std::io::Result<()> {
     let text_plain = || vec![("Content-Type".to_string(), "text/plain".to_string())];
     let h = &request.headers;
+    if !control_authorized(shared, h) {
+        eprintln!("wire: cookie control request refused: missing or wrong X-Wire-Control-Token");
+        write_status_and_headers(w, 403, "Forbidden", &[("Content-Type".to_string(), "text/plain".to_string()), ("X-Wire-Error".to_string(), "cookie-control".to_string())])?;
+        w.write_all(b"wire: cookie control needs X-Wire-Control-Token")?;
+        return w.flush();
+    }
     if !shared.enabled {
         write_status_and_headers(w, 404, "Not Found", &text_plain())?;
         w.write_all(b"wire: cookies are disabled (--no-cookies)")?;
@@ -839,9 +879,6 @@ fn cookie_control(shared: &Shared, request: &ParsedRequest, w: &mut impl Write) 
         w.write_all(format!("wire: {msg}").as_bytes())?;
         w.flush()
     };
-    if !control_authorized(h) {
-        return bad("cookie control not authorized");
-    }
     if header(h, "x-wire-jar") != Some(JAR_NAME) {
         return bad("missing or unknown X-Wire-Jar");
     }
@@ -1836,7 +1873,7 @@ mod tests {
     }
 
     fn control(shared: &Shared, op: &str, page: &str, top: Option<&str>, body: &str) -> TestResponse {
-        let mut h = vec![("X-Wire-Cookie-Op", op), ("X-Wire-Cookie-Url", page), JAR];
+        let mut h = vec![("X-Wire-Cookie-Op", op), ("X-Wire-Cookie-Url", page), JAR, ("X-Wire-Control-Token", shared.control_token.as_str())];
         if let Some(t) = top {
             h.push(("X-Wire-Top-Site", t));
         }
@@ -1846,6 +1883,75 @@ mod tests {
         );
         req.method = if op == "get" { "GET".into() } else { "POST".into() };
         run(shared, req)
+    }
+
+    // ---------- control token ----------
+
+    fn control_with(shared: &Shared, op: &str, token: Option<&str>) -> TestResponse {
+        let mut h = vec![("X-Wire-Cookie-Op", op), ("X-Wire-Cookie-Url", "https://a.example/"), JAR, ("X-Wire-Top-Site", "https://a.example")];
+        if let Some(t) = token {
+            h.push(("X-Wire-Control-Token", t));
+        }
+        let method = if op == "get" { "GET" } else { "POST" };
+        run(shared, with_headers(ParsedRequest { method: method.into(), url: Url::parse("http://wire.invalid/c").unwrap(), headers: vec![], body: b"k=v; Max-Age=60".to_vec() }, &h))
+    }
+
+    #[test]
+    fn every_cookie_control_op_needs_the_token() {
+        let (addr, rx) = cookie_server();
+        let shared = Shared::new(true);
+        assert_eq!(shared.control_token.len(), 64);
+        assert!(shared.control_token.bytes().all(|b| b.is_ascii_hexdigit()));
+        let good = shared.control_token.clone();
+        let mut wrong = good.clone();
+        wrong.replace_range(0..1, if good.starts_with('0') { "1" } else { "0" });
+        for op in ["get", "set", "clear-site", "frob"] {
+            for token in [None, Some(""), Some(wrong.as_str()), Some(&good[..63])] {
+                let r = control_with(&shared, op, token);
+                assert_eq!(r.status, 403, "{op} with {token:?}");
+                assert_eq!(hdr(&r, "X-Wire-Error"), Some("cookie-control"));
+            }
+        }
+        assert_eq!(shared.jar().len(), 0, "a refused set stored nothing");
+        assert_eq!(control_with(&shared, "set", Some(&good)).status, 204);
+        assert_eq!(control_with(&shared, "get", Some(&good)).body, b"k=v");
+        assert_eq!(control_with(&shared, "clear-site", Some(&good)).status, 204);
+        assert_eq!(shared.jar().len(), 0);
+        // A control request aimed at a real upstream is refused, not forwarded.
+        let req = with_headers(get_request(addr, "/echo"), &[JAR, ("X-Wire-Cookie-Op", "get"), ("X-Wire-Cookie-Url", "https://a.example/")]);
+        assert_eq!(run(&shared, req).status, 403);
+        assert!(rx.try_recv().is_err(), "nothing was forwarded upstream");
+        // The feature is advertised.
+        assert!(hdr(&control_with(&shared, "get", Some(&good)), "X-Wire-Features").unwrap().split(',').any(|f| f == "token"));
+    }
+
+    #[test]
+    fn page_requests_through_the_jar_do_not_need_the_token() {
+        let (addr, _rx) = cookie_server();
+        let shared = Shared::new(true);
+        assert_eq!(run(&shared, with_headers(get_request(addr, "/set"), &[JAR])).status, 200);
+        let r = run(&shared, with_headers(get_request(addr, "/echo"), &[JAR]));
+        assert_eq!(r.body, b"sid=abc123; pub=visible");
+    }
+
+    #[test]
+    fn token_file_is_mode_0600_next_to_the_socket_and_replaced_on_every_start() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = jar_dir("token");
+        let sock = dir.join("w.sock");
+        let file = token_file_path(&sock);
+        assert_eq!(file, dir.join("w.sock.token"));
+        let first = Shared::new(true);
+        first.write_token_file(&sock).unwrap();
+        assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(std::fs::read_to_string(&file).unwrap().trim(), first.control_token);
+        let second = Shared::new(true);
+        assert_ne!(first.control_token, second.control_token);
+        second.write_token_file(&sock).unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap().trim(), second.control_token);
+        assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(control_with(&first, "get", Some(&second.control_token)).status, 403, "the old wire's token does not work on the new one");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // ---------- W-PERSIST1: --cookie-file and clear-site ----------
@@ -1958,7 +2064,7 @@ mod tests {
         assert_eq!(control(&shared, "set", "https://a.example/", Some(a), "k=v; Max-Age=3600").status, 204);
         // No X-Wire-Jar: refused, nothing cleared.
         let mut req = ParsedRequest { method: "POST".into(), url: Url::parse("http://wire.invalid/").unwrap(), headers: vec![], body: vec![] };
-        req = with_headers(req, &[("X-Wire-Cookie-Op", "clear-site"), ("X-Wire-Top-Site", a)]);
+        req = with_headers(req, &[("X-Wire-Cookie-Op", "clear-site"), ("X-Wire-Top-Site", a), ("X-Wire-Control-Token", shared.control_token.as_str())]);
         assert_eq!(run(&shared, req).status, 400);
         // No usable top site: refused.
         assert_eq!(control(&shared, "clear-site", "", None, "").status, 400);
@@ -1966,7 +2072,7 @@ mod tests {
         assert_eq!(get_cookies(&shared, "https://a.example/", a), "k=v");
         // The op is answered by wire and never reaches the upstream, even when
         // the request URL points at a real server.
-        let req = with_headers(get_request(addr, "/echo"), &[JAR, ("X-Wire-Cookie-Op", "clear-site"), ("X-Wire-Top-Site", "https://other.example")]);
+        let req = with_headers(get_request(addr, "/echo"), &[JAR, ("X-Wire-Cookie-Op", "clear-site"), ("X-Wire-Top-Site", "https://other.example"), ("X-Wire-Control-Token", shared.control_token.as_str())]);
         assert_eq!(run(&shared, req).status, 204);
         assert!(rx.try_recv().is_err(), "nothing was forwarded upstream");
         assert_eq!(get_cookies(&shared, "https://a.example/", a), "k=v", "only the named partition is cleared");
@@ -2089,6 +2195,7 @@ mod tests {
         assert_eq!(control(&shared, "frob", &page, None, "").status, 400);
         let mut req = get_request(addr, "/");
         req.headers.push(("X-Wire-Cookie-Op".into(), "get".into()));
+        req.headers.push(("X-Wire-Control-Token".into(), shared.control_token.clone()));
         let r = run(&shared, req);
         assert_eq!(r.status, 400, "the control channel needs the jar header");
         assert_eq!(control(&shared, "get", "not a url", None, "").status, 400);
@@ -2449,10 +2556,10 @@ mod tests {
     #[test]
     fn every_response_advertises_the_ua_feature() {
         let (addr, _rx) = ua_server();
-        assert_eq!(hdr(&execute_for_test(&build_agent(), &get_request(addr, "/")), "X-Wire-Features"), Some("ua,ws,jarfile"));
+        assert_eq!(hdr(&execute_for_test(&build_agent(), &get_request(addr, "/")), "X-Wire-Features"), Some("ua,ws,jarfile,token"));
         let down = get_request("127.0.0.1:1".parse().unwrap(), "/");
-        assert_eq!(hdr(&execute_for_test(&build_agent(), &down), "X-Wire-Features"), Some("ua,ws,jarfile"));
+        assert_eq!(hdr(&execute_for_test(&build_agent(), &down), "X-Wire-Features"), Some("ua,ws,jarfile,token"));
         let bad = with_headers(get_request(addr, "/"), &[("X-Wire-User-Agent", "a\r\nb")]);
-        assert_eq!(hdr(&execute_for_test(&build_agent(), &bad), "X-Wire-Features"), Some("ua,ws,jarfile"));
+        assert_eq!(hdr(&execute_for_test(&build_agent(), &bad), "X-Wire-Features"), Some("ua,ws,jarfile,token"));
     }
 }

@@ -430,24 +430,50 @@ impl NetState {
             return String::new();
         }
         let Some(page) = page_url() else { return String::new() };
-        let Some(mut headers) = cookie_control_headers(op, &page) else { return String::new() };
-        let set = op == "set";
-        if set {
-            headers.push(("Content-Type".into(), "text/plain".into()));
-        }
-        let Ok(request) = build_wire_request(if set { "POST" } else { "GET" }, &page, &headers, value.as_bytes()) else {
-            return String::new();
+        let socket = self.executor.socket();
+        let mut token = match &socket {
+            None => None,
+            Some(sock) => match control_token(sock, false) {
+                Ok(t) => Some(t),
+                Err(why) => {
+                    self.cookie_broken = true;
+                    self.note(&format!("document.cookie: {why}; it reads '' for the rest of this page"));
+                    return String::new();
+                }
+            },
         };
+        let set = op == "set";
+        let build = |token: Option<&str>| {
+            let mut headers = cookie_control_headers(op, &page, token)?;
+            if set {
+                headers.push(("Content-Type".into(), "text/plain".into()));
+            }
+            build_wire_request(if set { "POST" } else { "GET" }, &page, &headers, value.as_bytes()).ok()
+        };
+        let Some(request) = build(token.as_deref()) else { return String::new() };
         let mut limits = self.policy.wire_limits();
         let t = Duration::from_millis(self.policy.cookie_control_timeout_ms);
         limits.read_timeout = t;
         limits.connect_timeout = limits.connect_timeout.min(t);
-        let job = NetJob { id: 0, request, limits, reserve: 0 };
+        let mut job = NetJob { id: 0, request, limits, reserve: 0 };
         let fail = |this: &mut NetState, why: String| {
             this.cookie_broken = true;
             this.note(&format!("document.cookie: {why}; it reads '' for the rest of this page"));
         };
-        match self.executor.execute(&job) {
+        let mut result = self.executor.execute(&job);
+        // 403 = wire restarted and wrote a new token: re-read it once, retry once.
+        if let (Ok(resp), Some(sock)) = (&result, &socket)
+            && resp.status == 403
+            && let Ok(fresh) = control_token(sock, true)
+            && token.as_deref() != Some(fresh.as_str())
+        {
+            token = Some(fresh);
+            if let Some(request) = build(token.as_deref()) {
+                job.request = request;
+                result = self.executor.execute(&job);
+            }
+        }
+        match result {
             Err(e) => {
                 fail(self, e.to_string());
                 String::new()
