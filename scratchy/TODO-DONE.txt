@@ -8480,3 +8480,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QINC1k10 DONE a80f4c6 harvest key with 2 Laids stays unserved (stale abs ::before) [S] (P2, from QINC1k1 #468; BLOCKS QINC1l (a mismatch); Opus; area incr-new) Fuzz-found 8 px
       style.width mismatch (504 vs 512 = a % resolved against 1008 vs 1024) after moving li.c1.c4 under `div .c1{width:50%}`;
       also on main; page + steps in tools/incr-gate/fuzz-width-504-512.txt; a hand-written minimal test did not reproduce.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QINC1k3 DONE 2798bb5 float-aware layout cache + counter-walk gsig; Wiki INCR=1 builds 13-14% of off; root walks 133->60 [M] (P2, from #465; Opus; area incr_layout; AFTER QINC1k1 (same area)) Wikipedia Main frames always walk to
+      the root (133/210 per run, ~9.3 ms restyle + ~6.8 ms relayout each); target the -80 % App builds gate (now -62 %).
