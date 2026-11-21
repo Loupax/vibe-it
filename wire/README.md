@@ -132,3 +132,23 @@ response says `X-Wire-Target-Class: file`.
 wire --socket "$S" --mount http://web-platform.test:8000=$HOME/src/wpt \
      --mount-override /resources/testharnessreport.js=./my-report.js
 ```
+
+## Record and replay (`--record`, `--replay`)
+
+`wire --record DIR` stores every network response it serves (a mounted origin
+is never recorded): the body once per content hash in `DIR/blobs/<sha256>`
+(zstd) and one line per response in `DIR/index.jsonl` (`seq, t_ms, method, url,
+range, req_body_sha256, status, reason, headers, body_sha256, body_len`).
+Synthetic wire errors (`X-Wire-Error`) and WebSocket traffic are not recorded.
+`wire --replay DIR` answers only from the recording and never opens a network
+socket. Matching, in order: exact (method, url, request body hash, range); the
+same with ignored query parameters removed (`--replay-rules FILE`, lines
+`host name,name`, `*` for every host); a range request inside a recorded full
+body or recorded `206` range (answered `206`); the n-th request to the same
+host+path (the last recorded one once they run out). A miss is `404` with
+`X-Wire-Replay: miss` and one log line; hits carry `X-Wire-Replay: hit`.
+`--replay-delay 5ms` sleeps per request (the recorded latency is never used).
+A WebSocket upgrade is refused (`403`, `X-Wire-Replay: websocket-refused`).
+Recordings may contain cookies and personal data: keep them local
+(`~/.cache/scratchy/recordings`), never commit one. Known limit: the cookie
+jar path strips `Set-Cookie` from answers, so replay does not feed the jar.

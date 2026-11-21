@@ -1,5 +1,6 @@
 mod cookies;
 mod mount;
+mod record;
 mod ws;
 
 use std::cell::{Cell, RefCell};
@@ -55,6 +56,12 @@ fn print_usage() {
     eprintln!("                       --mount http://web-platform.test:8000=/path/to/wpt");
     eprintln!("  wire --mount-override PATH=FILE  answer requests for exactly PATH (on any mount) with");
     eprintln!("                       FILE, e.g. /resources/testharnessreport.js=./my-report.js");
+    eprintln!("  wire --record DIR    also store every network response in DIR (blobs/<sha256> zstd +");
+    eprintln!("                       index.jsonl). Recordings can hold personal data: keep them local.");
+    eprintln!("  wire --replay DIR [--replay-rules FILE] [--replay-delay 5ms]");
+    eprintln!("                       answer only from a recording, never the network; a miss is 404 with");
+    eprintln!("                       X-Wire-Replay: miss; WebSocket is refused. FILE: `host param,param`");
+    eprintln!("                       lines (`*` = any host) of query parameters ignored when matching.");
     eprintln!("  wire                 listen on $XDG_RUNTIME_DIR/wire.sock (falling back to");
     eprintln!("                       /tmp/wire-$UID.sock), serving real HTTP requests read");
     eprintln!("                       off that socket in the absolute-form proxy shape");
@@ -80,6 +87,8 @@ fn main() {
     let mut cookies_enabled = true;
     let mut cookie_file: Option<PathBuf> = None;
     let mut mounts = mount::Mounts::default();
+    let (mut record_dir, mut replay_dir, mut replay_rules) = (None::<PathBuf>, None::<PathBuf>, None::<PathBuf>);
+    let mut replay_delay = Duration::ZERO;
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
@@ -112,6 +121,25 @@ fn main() {
                 if let Err(e) = r {
                     eprintln!("wire: {e}");
                     std::process::exit(1);
+                }
+                i += 2;
+            }
+            "--record" | "--replay" | "--replay-rules" | "--replay-delay" => {
+                let Some(v) = args.get(i + 1) else {
+                    eprintln!("wire: {} needs an argument", args[i]);
+                    std::process::exit(1);
+                };
+                match args[i].as_str() {
+                    "--record" => record_dir = Some(PathBuf::from(v)),
+                    "--replay" => replay_dir = Some(PathBuf::from(v)),
+                    "--replay-rules" => replay_rules = Some(PathBuf::from(v)),
+                    _ => match record::parse_delay(v) {
+                        Ok(d) => replay_delay = d,
+                        Err(e) => {
+                            eprintln!("wire: {e}");
+                            std::process::exit(1);
+                        }
+                    },
                 }
                 i += 2;
             }
@@ -151,6 +179,24 @@ fn main() {
     let agent = build_agent();
     let mut shared = Shared::new(cookies_enabled);
     shared.mounts = mounts;
+    if record_dir.is_some() && replay_dir.is_some() {
+        eprintln!("wire: --record and --replay contradict each other");
+        std::process::exit(1);
+    }
+    let fail = |e: String| -> ! {
+        eprintln!("wire: {e}");
+        std::process::exit(1)
+    };
+    if let Some(d) = record_dir {
+        shared.recorder = Some(record::Recorder::open(&d).unwrap_or_else(|e| fail(e)));
+    }
+    if let Some(d) = replay_dir {
+        let rules = match replay_rules {
+            Some(f) => record::Rules::parse(&std::fs::read_to_string(&f).unwrap_or_else(|e| fail(format!("--replay-rules: cannot read {}: {e}", f.display())))),
+            None => record::Rules::default(),
+        };
+        shared.replayer = Some(record::Replayer::open(&d, rules, replay_delay).unwrap_or_else(|e| fail(e)));
+    }
     if let Some(file) = cookie_file {
         shared = shared.with_cookie_file(file);
     }
@@ -227,6 +273,9 @@ struct Shared {
     public_manual_agent: ureq::Agent,
     /// `--mount` / `--mount-override` (QWPT3): origins served from directories.
     mounts: mount::Mounts,
+    /// `--record DIR` / `--replay DIR` (QREC1): independent of `mounts`.
+    recorder: Option<record::Recorder>,
+    replayer: Option<record::Replayer>,
 }
 
 impl Shared {
@@ -240,6 +289,8 @@ impl Shared {
             public_agent: agent_builder().build(),
             public_manual_agent: agent_builder().redirects(0).build(),
             mounts: mount::Mounts::default(),
+            recorder: None,
+            replayer: None,
         }
     }
 
@@ -685,6 +736,13 @@ fn handle_connection(stream: UnixStream, agent: &ureq::Agent, shared: &Shared) {
     // ordinary request, exactly as before.
     if header(&request.headers, "x-wire-upgrade").is_some() && header(&request.headers, "x-wire-cookie-op").is_none() {
         COOKIES_HDR.with(|c| c.set(if shared.enabled { "" } else { "off" }));
+        if shared.replayer.is_some() {
+            // QREC1: WebSocket is not recorded, so replay refuses the upgrade.
+            let hs = vec![("Content-Type".to_string(), "text/plain".to_string()), ("X-Wire-Replay".to_string(), "websocket-refused".to_string())];
+            let _ = write_status_and_headers(&mut writer, 403, "Forbidden", &hs).and_then(|_| writer.write_all(b"wire: WebSocket is not available in --replay"));
+            eprintln!("wire: replay refused WebSocket {}", request.url);
+            return;
+        }
         if let Err(e) = ws::handle(shared, &request, reader, &mut writer)
             && e.kind() != std::io::ErrorKind::BrokenPipe
         {
@@ -972,6 +1030,22 @@ fn execute_with(agent: &ureq::Agent, shared: &Shared, request: &ParsedRequest, w
         log_timing(&request.method, &request.url, r.status, Duration::ZERO, Duration::ZERO);
         return Ok(());
     }
+    // QREC1: replay answers from the recording only; record tees the network answer.
+    if let Some(rp) = &shared.replayer {
+        return rp.serve(&request.method, &request.url, header(&request.headers, "range"), &request.body, w);
+    }
+    if let Some(rec) = &shared.recorder {
+        let mut tee = record::Tee::new(w);
+        let r = execute_network(agent, shared, request, &caps, &mut tee);
+        rec.record(&request.method, &request.url, header(&request.headers, "range"), &request.body, &tee.buf);
+        return r;
+    }
+    execute_network(agent, shared, request, &caps, w)
+}
+
+/// The network half of `execute_with` (everything after cookie control, `file:`,
+/// mounts and replay).
+fn execute_network(agent: &ureq::Agent, shared: &Shared, request: &ParsedRequest, caps: &Caps, w: &mut impl Write) -> std::io::Result<()> {
     let Ok(ua) = resolve_user_agent(&request.headers) else {
         write_bad_ua_response(w)?;
         return Ok(());
@@ -981,7 +1055,7 @@ fn execute_with(agent: &ureq::Agent, shared: &Shared, request: &ParsedRequest, w
         && !header(&request.headers, "x-wire-cookies").is_some_and(|v| v.eq_ignore_ascii_case("off"));
     if use_jar {
         COOKIES_HDR.with(|c| c.set("on"));
-        return execute_with_jar(shared, request, &caps, ua.as_deref(), w);
+        return execute_with_jar(shared, request, caps, ua.as_deref(), w);
     }
     TRACKER.with(|t| *t.borrow_mut() = Tracker { public_only: caps.public_only, ..Tracker::default() });
     // Redirect limits are agent-level in ureq: only a request asking for a
@@ -1024,7 +1098,7 @@ fn execute_with(agent: &ureq::Agent, shared: &Shared, request: &ParsedRequest, w
             if let Ok(final_url) = Url::parse(resp.get_url()) {
                 reconcile_hops(&request.url, &final_url);
             }
-            stream_response(resp, &caps, w, None, false)?;
+            stream_response(resp, caps, w, None, false)?;
             status
         }
         Err(ureq::Error::Transport(e)) => {
@@ -2638,3 +2712,6 @@ mod mount_wire_tests {
         assert!(String::from_utf8(raw).unwrap().starts_with("HTTP/1.1 404"), "traversal collapsed by URL parsing stays inside the mount");
     }
 }
+
+#[cfg(test)]
+mod record_tests;
