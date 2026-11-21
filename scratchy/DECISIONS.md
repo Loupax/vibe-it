@@ -7,6 +7,16 @@ their section with the date.
 
 ## Direction and process
 
+- **2026-11-21 Conformance plan R64 approved; all eight R64 §7 recommendations accepted.**
+  Q1 phase-1 test pages served by a static mount in wire (no Python, no new socket).
+  Q2 WPT's Python server (wptserve) may run locally and in CI in phase 2, reached by wire on
+  127.0.0.1 only for `*.web-platform.test`. Q3 testharness results block merges like reftests (no
+  passing subtest may start failing; new passes recorded in the same PR; `wpt-th/flaky.txt`), from
+  the first CI run. Q4 the run goes in the existing scratchy CI job (+2-3.5 min); split only past
+  5 min. Q5 page recordings stay local only (`~/.cache/scratchy/recordings`); CI budgets use
+  synthetic in-repo pages. Q6 area order of R64 3.2. Q7 headline metric = mean per-file score
+  (wpt.fyi style), subtest pass % beside it. Q8 HTTPS (WPT test CA trusted for
+  `*.web-platform.test` only) later, with fetch; never for any other host.
 - **2026-11-21 Conformance over sites.** Stop fixing individual sites. Make conformance
   measurable (WPT testharness.js per spec area), work spec areas in dependency order,
   keep perf budgets permanent, diagnose site breakage with tooling. First step:
