@@ -1,6 +1,26 @@
 # wpt-th areas at WPT ac78b567f5404b6f2dc0418ea380af3946a47fca; score = mean over files of passed/total subtests (files that ran; flaky.txt files and NOT-RUN/CRASH excluded)
 # area                        files    ran  all-pass  subtests    pass  pass%  score
-dom/nodes                         5      5         0       238     166   69.7   46.2
-dom/events                        4      3         0        26      17   65.4   58.9
-url                               2      2         0       914     578   63.2   69.1
-TOTAL                            11     10         0      1178     761   64.6   54.6
+dom/nodes                       393    380       111      6193    3030   48.9   42.4
+dom/events                      194    194        31       750     314   41.9   23.0
+dom/ranges                       41     41         7       302      18    6.0   17.1
+dom/observable                   29     29         0       251       0    0.0    0.0
+dom/other                        46     46        19       462     350   75.8   55.2
+domparsing                       93     93        12      2323     126    5.4   21.9
+webidl                           44     44         8       333     160   48.0   38.1
+uievents                         70     62         6       189      72   38.1   12.8
+html/webappapis                 308    307        61      1117     547   49.0   24.4
+resize-observer                  36     35         9        47      15   31.9   31.1
+intersection-observer           150    150        16       189      37   19.6   12.0
+html/semantics/scripting-1      419    398       112      2392    1053   44.0   31.4
+html/dom                        180    180        43      3858    1037   26.9   36.2
+css/cssom                       271    269        51      3855    2086   54.1   31.2
+css/cssom-view                  220    218        43      1253     508   40.5   24.6
+encoding                         41     41         7       648     282   43.5   33.2
+url                              44     42        17      7253    5626   77.6   81.1
+streams                          85     85         3      1212     245   20.2   11.1
+hr-time                           9      9         0        16       5   31.2   24.8
+webmessaging                    115    115        37       190      81   42.6   35.5
+requestidlecallback               9      9         5        17      13   76.5   64.8
+custom-elements                 204    204        14      2164     655   30.3   16.8
+shadow-dom                      263    263        44      2031     645   31.8   21.6
+TOTAL                          3264   3214       656     37045   16905   45.6   28.4

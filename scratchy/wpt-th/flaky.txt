@@ -1,0 +1,2 @@
+# Files whose results differ between runs: first token = path, rest = the reason. They run and are printed, never compared.
+# QWPT6 baseline: four full runs (3 at --jobs 4, 1 at --jobs 12) gave identical results for all 3264 files, so this list is empty.
