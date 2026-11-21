@@ -30,8 +30,7 @@ fn qm1k1n6_sw_render_does_not_block_for_target_time() {
 
 /// Needs an event loop for the proxy; `None` without a display (headless CI).
 fn qm1k1n6a_app(html: &str) -> Option<App> {
-    use winit::platform::wayland::EventLoopBuilderExtWayland;
-    let event_loop = EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build().ok()?;
+    let event_loop = test_event_loop().ok()?;
     let mut app = App::new_static(parse_html(html), event_loop.create_proxy(), None);
     app.cached = Some(Rc::new(measure_fixture(html, 400.0)));
     app.layout_dirty = false;

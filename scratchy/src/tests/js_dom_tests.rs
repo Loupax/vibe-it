@@ -304,8 +304,7 @@ fn qb2_app(proxy: &winit::event_loop::EventLoopProxy<AppEvent>) -> App {
 /// One process can build only one event loop, so both scenarios share it.
 #[test]
 fn qb2_js_dom_writes_use_restyle_path() {
-    use winit::platform::wayland::EventLoopBuilderExtWayland;
-    let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+    let event_loop = match test_event_loop() {
         Ok(l) => l,
         Err(_) => return, // no display available (headless CI)
     };

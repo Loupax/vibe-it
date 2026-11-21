@@ -145,8 +145,7 @@ mod app_visits {
 
     #[test]
     fn qcomp3_app_records_visits_not_reloads_or_traversal() {
-        use winit::platform::wayland::EventLoopBuilderExtWayland;
-        let Ok(event_loop) = EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() else {
+        let Ok(event_loop) = test_event_loop() else {
             return; // no display available (headless CI)
         };
         let _g = DIR_LOCK.lock().unwrap_or_else(|e| e.into_inner());

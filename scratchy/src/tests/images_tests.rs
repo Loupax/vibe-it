@@ -774,9 +774,8 @@ fn q35b2_image_relayout_wait_is_pure_debounce() {
 
 #[test]
 fn q35b2_image_burst_collapses_and_flushes() {
-    use winit::platform::wayland::EventLoopBuilderExtWayland;
     // Without a display, only the pure decision above can be checked.
-    let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+    let event_loop = match test_event_loop() {
         Ok(l) => l,
         Err(_) => {
             assert_eq!(image_relayout_wait(None, false), Some(IMAGE_RELAYOUT_DEBOUNCE));
@@ -1010,8 +1009,7 @@ fn qy56_image_fetch_claims_dedupe_per_generation() {
 
 #[test]
 fn qy56_late_image_cap_is_honoured_and_extra_images_error() {
-    use winit::platform::wayland::EventLoopBuilderExtWayland;
-    let Ok(event_loop) = EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() else { return };
+    let Ok(event_loop) = test_event_loop() else { return };
     let mut app = App::new_static(parse_html("<html><body></body></html>"), event_loop.create_proxy(), Some(PathBuf::from("/nonexistent/qy56.sock")));
     app.nav_generation = 9_200_001;
     let srcs: Vec<String> = (0..MAX_LATE_IMAGE_FETCHES + 10).map(|i| format!("cap{i}.png")).collect();
