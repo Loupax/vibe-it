@@ -48,8 +48,7 @@ pub(crate) fn live() -> bool {
     }
     #[cfg(not(test))]
     {
-        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        *ON.get_or_init(|| crate::incr_style::engine_enabled())
+        crate::incr_style::engine_enabled()
     }
 }
 
