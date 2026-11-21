@@ -8,7 +8,7 @@ dom/other                        46     46        30       462     400   86.6   
 domparsing                       93     93        12      2323     129    5.6   22.2
 webidl                           44     44         9       333     168   50.5   40.5
 uievents                         70     62         6       204      72   35.3   12.8
-html/webappapis                 308    307        62      1140     553   48.5   25.1
+html/webappapis                 308    307        65      1140     560   49.1   26.1
 resize-observer                  36     35         9        48      15   31.2   31.1
 intersection-observer           150    150        21       196      47   24.0   16.5
 html/semantics/scripting-1      419    398       112      2394    1053   44.0   31.4
@@ -23,4 +23,4 @@ webmessaging                    115    115        40       190      84   44.2   
 requestidlecallback               9      9         5        17      13   76.5   64.8
 custom-elements                 204    204        15      2169     659   30.4   17.2
 shadow-dom                      263    263        43      2082     662   31.8   22.3
-TOTAL                          3264   3213       743     37295   17387   46.6   31.4
+TOTAL                          3264   3213       746     37295   17394   46.6   31.5
