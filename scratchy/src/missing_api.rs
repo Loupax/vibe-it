@@ -20,7 +20,16 @@ thread_local! {
     static OUT: RefCell<String> = const { RefCell::new(String::new()) };
     static ERRORS: RefCell<BTreeMap<(String, String), u64>> = const { RefCell::new(BTreeMap::new()) };
     static STUBS: RefCell<BTreeMap<String, u64>> = const { RefCell::new(BTreeMap::new()) };
+    /// QMAPI2: `(kind, name)` -> (hits, first example).
+    static CSS: RefCell<CssCounts> = const { RefCell::new(BTreeMap::new()) };
+    /// QMAPI2: true while a stylesheet rule's selector is parsed (queries from script are not counted).
+    static IN_RULE_SELECTOR: Cell<bool> = const { Cell::new(false) };
+    /// QMAPI2: pseudo keys recorded for the rule being parsed that still lack an example.
+    static PENDING: RefCell<Vec<(&'static str, String)>> = const { RefCell::new(Vec::new()) };
 }
+
+/// `(kind, name)` -> (hits, first example).
+type CssCounts = BTreeMap<(&'static str, String), (u64, String)>;
 
 const IDL_JSON: &str = include_str!("missing_api_idl.json");
 const PRELUDE: &str = include_str!("missing_api_prelude.js");
@@ -37,6 +46,76 @@ pub(crate) fn set_enabled(on: bool) {
 pub(crate) fn reset() {
     ERRORS.with(|e| e.borrow_mut().clear());
     STUBS.with(|e| e.borrow_mut().clear());
+    CSS.with(|e| e.borrow_mut().clear());
+    PENDING.with(|e| e.borrow_mut().clear());
+}
+
+/// QMAPI2: counts one CSS feature scratchy does not understand. `kind` is `declaration`, `pseudo_class`,
+/// `pseudo_element`, `at_rule`, `supports_false` or `media_feature`; the first `example` is kept. A plain
+/// flag check when report mode is off.
+pub(crate) fn css_note(kind: &'static str, name: &str, example: &str) {
+    if !enabled() {
+        return;
+    }
+    let clip = |t: &str| -> String { t.chars().take(120).collect() };
+    CSS.with(|c| {
+        let mut c = c.borrow_mut();
+        let e = c.entry((kind, clip(name))).or_insert((0, String::new()));
+        e.0 += 1;
+        if e.1.is_empty() {
+            e.1 = clip(example);
+        }
+    });
+}
+
+/// QMAPI2: the stylesheet parser starts / ends parsing one rule's selector (start clears the example queue).
+pub(crate) fn css_selector_ctx(on: bool) {
+    if !enabled() {
+        return;
+    }
+    IN_RULE_SELECTOR.with(|c| c.set(on));
+    if on {
+        PENDING.with(|p| p.borrow_mut().clear());
+    }
+}
+
+/// QMAPI2: `selectors` rejected a pseudo-class / pseudo-element of a stylesheet rule.
+pub(crate) fn css_pseudo(kind: &'static str, name: &str) {
+    if !enabled() || !IN_RULE_SELECTOR.with(Cell::get) {
+        return;
+    }
+    let shown = if kind == "pseudo_element" { format!("::{name}") } else { format!(":{name}") };
+    css_note(kind, &shown, "");
+    PENDING.with(|p| p.borrow_mut().push((kind, shown.chars().take(120).collect())));
+}
+
+/// QMAPI2: a rule was dropped for its selector; the pseudos recorded while parsing it get its text.
+pub(crate) fn css_dropped_selector(selector: &str) {
+    if !enabled() {
+        return;
+    }
+    let pending = PENDING.with(|p| std::mem::take(&mut *p.borrow_mut()));
+    CSS.with(|c| {
+        let mut c = c.borrow_mut();
+        for key in pending {
+            if let Some(e) = c.get_mut(&key)
+                && e.1.is_empty()
+            {
+                e.1 = selector.chars().take(120).collect();
+            }
+        }
+    });
+}
+
+/// QMAPI2: the `"css"` member: `[{"kind","name","count","example"}]`, most hits first.
+pub(crate) fn css_json() -> String {
+    let mut v: Vec<_> = CSS.with(|c| c.borrow().iter().map(|((k, n), (h, e))| (*h, *k, n.clone(), e.clone())).collect());
+    v.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(b.1)).then(a.2.cmp(&b.2)));
+    let items: Vec<String> = v
+        .iter()
+        .map(|(h, k, n, e)| format!("{{\"kind\":{},\"name\":{},\"count\":{h},\"example\":{}}}", json_str(k), json_str(n), json_str(e)))
+        .collect();
+    format!("[{}]", items.join(","))
 }
 
 /// Called by `startup_engine` after the preludes, before any page script; a no-op unless report mode.

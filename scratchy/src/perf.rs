@@ -1346,7 +1346,7 @@ pub(crate) fn perf_report(opts: &ReportOpts) -> String {
     crate::memprof::dump_perf_report(); // QMEM3g
     let memory = memory_json(engine.as_ref());
     let mapi = match (&engine, crate::missing_api::enabled()) {
-        (Some(en), true) => format!(",\"missing_api\":{}", crate::missing_api::finish(en)),
+        (Some(en), true) => format!(",\"missing_api\":{},\"css\":{}", crate::missing_api::finish(en), crate::missing_api::css_json()),
         _ => String::new(),
     };
     stop();
