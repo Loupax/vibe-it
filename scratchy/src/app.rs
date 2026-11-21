@@ -202,6 +202,10 @@ pub(crate) enum Action {
     EnterSearchMode,
     /// QSEARCH1 (T7): Esc in normal mode clears the search highlights.
     ClearSearch,
+    /// QSEARCH2 (T15-T17): `n`, the next match.
+    SearchNext,
+    /// QSEARCH2 (T15-T17): `N`, the previous match.
+    SearchPrev,
     /// QKEYS2 (T6): `i` hands the keyboard back to the page.
     EnterInputMode,
     HistoryBack,
@@ -1691,7 +1695,9 @@ impl App {
         if self.search.highlight {
             for (i, m) in self.search.matches.iter().enumerate() {
                 let (r, g, b, a) = if self.search.current == Some(i) { crate::config::SEARCH_CURRENT_RGBA } else { crate::config::SEARCH_MATCH_RGBA };
-                for &(x, y, w, h) in &m.rects {
+                // QSEARCH2: matches inside scroll regions follow the regions' offsets and are
+                // clipped to the regions' boxes.
+                for (x, y, w, h) in m.visible_rects(&self.scroll_offsets) {
                     let y = y - self.scroll_offset;
                     if y + h < 0.0 || y > page_h as f32 {
                         continue;
@@ -4430,6 +4436,8 @@ impl App {
                 self.completion = None;
             }
             Action::ClearSearch => self.search.clear_highlights(),
+            Action::SearchNext => self.search_step(true),
+            Action::SearchPrev => self.search_step(false),
             Action::EnterInputMode => self.set_key_mode(KeyMode::Input),
             Action::ScrollTop => self.scroll_offset = 0.0,
             // `redraw` clamps to the real max scroll every frame, same as `j`.
@@ -4664,7 +4672,7 @@ impl App {
 
     /// QSEARCH1 (T23, T24): commit `query`: find the matches, make the first one at or below the
     /// top of the screen current (wrapping to the first). An empty query is a cancel (T24).
-    /// Scrolling to the match is QSEARCH2.
+    /// The screen is brought to the match (QSEARCH2, T23, S4).
     pub(crate) fn commit_search(&mut self, query: &str) {
         if query.is_empty() {
             return;
@@ -4681,12 +4689,75 @@ impl App {
             return;
         }
         let n = self.search.matches.len();
-        let first = crate::search::first_at_or_below(&self.search.matches, self.scroll_offset);
+        let first = crate::search::first_at_or_below_in(&self.search.matches, self.scroll_offset, &self.scroll_offsets);
         self.search.current = Some(first.unwrap_or(0));
         self.status_message = match first {
             Some(i) => format!("[{}/{n}]", i + 1),
             None => format!("search hit BOTTOM, continuing at TOP [1/{n}]"),
         };
+        self.reveal_current_match();
+    }
+
+    /// QSEARCH2 (S4): bring the screen to the current match: every scroll region it sits in
+    /// (innermost first), then the page. Nothing scrolls where the match is already fully visible.
+    pub(crate) fn reveal_current_match(&mut self) {
+        let Some(m) = self.search.current.and_then(|i| self.search.matches.get(i)) else { return };
+        let page_h = self.cached.as_ref().map_or(0.0, |l| l.h);
+        let (changes, page) = m.reveal(&self.scroll_offsets, self.scroll_offset, self.page_size().1 as f32, page_h);
+        for (id, node, v) in changes {
+            self.set_region_scroll(id, node, v);
+        }
+        if let Some(p) = page {
+            self.scroll_offset = p;
+        }
+    }
+
+    /// QSEARCH2 (T15-T17): `n` (`forward`) / `N`: the next / previous match in document order,
+    /// wrapping with a message, then the screen follows. With the highlights gone (Esc, a new page)
+    /// the kept query runs again first (S6).
+    pub(crate) fn search_step(&mut self, forward: bool) {
+        use crate::search::{find_in_laid, first_at_or_below_in, last_above_in};
+        if self.search.query.is_empty() {
+            self.status_message = "No previous search".to_string();
+            return;
+        }
+        let query = self.search.query.clone();
+        let mut from_top = false;
+        if !self.search.highlight || self.search.matches.is_empty() {
+            self.search.matches = match &self.cached {
+                Some(laid) => find_in_laid(laid, &self.shape_cache, &query),
+                None => Vec::new(),
+            };
+            self.search.highlight = true;
+            self.search.current = None;
+            from_top = true;
+        }
+        let n = self.search.matches.len();
+        if n == 0 {
+            self.search.current = None;
+            self.status_message = format!("Pattern not found: {query}");
+            return;
+        }
+        let top = self.scroll_offset;
+        let (next, wrapped) = match (self.search.current, from_top) {
+            (Some(c), false) if forward => if c + 1 < n { (c + 1, false) } else { (0, true) },
+            (Some(c), false) => if c > 0 { (c - 1, false) } else { (n - 1, true) },
+            _ if forward => match first_at_or_below_in(&self.search.matches, top, &self.scroll_offsets) {
+                Some(i) => (i, false),
+                None => (0, true),
+            },
+            _ => match last_above_in(&self.search.matches, top, &self.scroll_offsets) {
+                Some(i) => (i, false),
+                None => (n - 1, true),
+            },
+        };
+        self.search.current = Some(next);
+        self.status_message = match (wrapped, forward) {
+            (false, _) => format!("[{}/{n}]", next + 1),
+            (true, true) => format!("search hit BOTTOM, continuing at TOP [{}/{n}]", next + 1),
+            (true, false) => format!("search hit TOP, continuing at BOTTOM [{}/{n}]", next + 1),
+        };
+        self.reveal_current_match();
     }
 
     /// The editing keys shared by the `:` and `/` lines.
