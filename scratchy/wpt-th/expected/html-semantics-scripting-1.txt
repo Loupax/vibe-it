@@ -91,8 +91,8 @@ OK           0/1  html/semantics/scripting-1/the-script-element/execution-timing
 OK           1/1  html/semantics/scripting-1/the-script-element/execution-timing/036.html
 OK           1/1  html/semantics/scripting-1/the-script-element/execution-timing/037.html
 OK           1/1  html/semantics/scripting-1/the-script-element/execution-timing/038.html
-TIMEOUT      0/1  html/semantics/scripting-1/the-script-element/execution-timing/039.html
-  TIMEOUT   iframes should load asynchronously after inline script run
+OK           0/1  html/semantics/scripting-1/the-script-element/execution-timing/039.html
+  FAIL      iframes should load asynchronously after inline script run
 OK           0/1  html/semantics/scripting-1/the-script-element/execution-timing/040.html
   FAIL       scheduler: IFRAMEs added with DOM (innerHTML), javascript: URL
 OK           0/1  html/semantics/scripting-1/the-script-element/execution-timing/041.html
@@ -620,10 +620,10 @@ OK           0/1  html/semantics/scripting-1/the-script-element/module/error-typ
   FAIL      parse error has higher priority than instantiation error
 OK           0/1  html/semantics/scripting-1/the-script-element/module/error-type-3.html
   FAIL      instantiation error has higher priority than evaluation error
-TIMEOUT      0/5  html/semantics/scripting-1/the-script-element/module/errorhandling.html
-  NOTRUN    IFrame test: 'iframe_parseError_Root'
-  NOTRUN    IFrame test: 'iframe_parseError_Dependent'
-  NOTRUN    IFrame test: 'iframe_parseError_DependentMultiple'
+OK           0/5  html/semantics/scripting-1/the-script-element/module/errorhandling.html
+  FAIL      IFrame test: 'iframe_parseError_Root'
+  FAIL      IFrame test: 'iframe_parseError_Dependent'
+  FAIL      IFrame test: 'iframe_parseError_DependentMultiple'
   FAIL      External root module with non-script mimetype
   FAIL      Module with imported non-script mimetype
 OK           0/1  html/semantics/scripting-1/the-script-element/module/evaluation-error-1.html
@@ -754,8 +754,7 @@ OK           0/1  html/semantics/scripting-1/the-script-element/script-noembed-n
   FAIL      Script inside noembed, noframes and iframe
 TIMEOUT      0/1  html/semantics/scripting-1/the-script-element/script-onerror-insertion-point-1.html
   NOTRUN    Test that the insertion point is defined in the error event of a parser-inserted script that actually started a fetch (but just had it fail).
-TIMEOUT      0/1  html/semantics/scripting-1/the-script-element/script-onerror-insertion-point-2.html
-  NOTRUN    Test that the insertion point is not defined in the error event of a\n  parser-inserted script that has an unparseable URL
+OK           1/1  html/semantics/scripting-1/the-script-element/script-onerror-insertion-point-2.html
 TIMEOUT      0/1  html/semantics/scripting-1/the-script-element/script-onload-insertion-point.html
   NOTRUN    Test that the insertion point is defined in the load event of a parser-inserted script.
 OK           1/1  html/semantics/scripting-1/the-script-element/script-onload-string.html

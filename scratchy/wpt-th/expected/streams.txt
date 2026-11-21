@@ -626,7 +626,7 @@ OK          0/16  streams/transferable/readable-stream.html
   FAIL      race between cancel() and error() should leave sides in different states
   FAIL      race between cancel() and close() should be benign
   FAIL      race between cancel() and enqueue() should be benign
-OK          0/26  streams/transferable/reason.html
+OK          2/26  streams/transferable/reason.html
   FAIL      reason with a simple value of 'hi' should be preserved
   FAIL      reason with a simple value of '\t\r\n' should be preserved
   FAIL      reason with a simple value of '7' should be preserved
@@ -637,8 +637,6 @@ OK          0/26  streams/transferable/reason.html
   FAIL      reason with a simple value of 'false' should be preserved
   FAIL      reason with a simple value of 'NaN' should be preserved
   FAIL      reason with a simple value of 'Infinity' should be preserved
-  FAIL      reason with a type of 'symbol' should be rejected and error the stream
-  FAIL      reason with a type of 'function' should be rejected and error the stream
   FAIL      objects that can be completely expressed in JSON should be preserved
   FAIL      objects that cannot be expressed in JSON should also be preserved
   FAIL      the type and message of a TypeError should be preserved

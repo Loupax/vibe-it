@@ -218,13 +218,13 @@ OK           3/3  dom/events/element-click.html
 OK           1/1  dom/events/event-disabled-dynamic.html
 OK           4/5  dom/events/event-global-event-targets.html
   FAIL      window.event is set when dispatching on Performance
-TIMEOUT      0/6  dom/events/event-global-extra.window.html
+OK           0/6  dom/events/event-global-extra.window.html
   FAIL      window.event for constructors from another global: EventTarget
   FAIL      window.event for constructors from another global: XMLHttpRequest
   FAIL      window.event and element from another document
   FAIL      window.event and moving an element post-dispatch
   FAIL      window.event should not be affected by nodes moving post-dispatch
-  TIMEOUT   Listener from a different global
+  FAIL      Listener from a different global
 TIMEOUT      0/1  dom/events/event-global-is-still-set-when-coercing-beforeunload-result.html
   TIMEOUT   window.event is still set when 'beforeunload' result is coerced to string
 OK           0/1  dom/events/event-global-is-still-set-when-reporting-exception-onerror.html
@@ -385,10 +385,10 @@ OK           0/1  dom/events/scrolling/iframe-chains.html
 ERROR        0/2  dom/events/scrolling/input-text-scroll-event-when-using-arrow-keys.html
   TIMEOUT   Scroll event fired for <input> element.
   NOTRUN    Scroll event fired for <textarea> element.
-TIMEOUT      0/2  dom/events/scrolling/save-iframe-scroll-offset-when-display-none.html
+ERROR        0/2  dom/events/scrolling/save-iframe-scroll-offset-when-display-none.html
   TIMEOUT   Ensure that the scroll position is not lost when the local iframe is set to display:none and shown again.
   NOTRUN    Ensure that the scroll position is not lost when the remote iframe is set to display:none and shown again.
-TIMEOUT      0/1  dom/events/scrolling/scroll-cross-origin-iframes.html
+ERROR        0/1  dom/events/scrolling/scroll-cross-origin-iframes.html
   TIMEOUT   Verify sibling cross-origin iframes can wheel-scroll.
 OK           4/4  dom/events/scrolling/scroll-event-fired-to-element.html
 TIMEOUT      0/4  dom/events/scrolling/scroll-event-fired-to-iframe.html
