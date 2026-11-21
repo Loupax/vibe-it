@@ -8899,3 +8899,13 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- (no header)
 - [x] QKEYS1b DONE f6a9b3d #520 [S] (P3, from QKEYS1 #492; Sonnet) The status bar's URL is empty for a file/stdin start page (empty
       history): show `App::url` / `base_url` then. Test: a file: start page shows its URL in the bar.
+
+=== from TODO.txt: --- (no header)
+- [x] QEL1 DONE 2329db7 #510 [M] (P1; Opus; new src/event_loop.rs, app.rs, js.rs TIMERS_PRELUDE; R64 section 4 E1-E3; after
+      QWPT4b so the change is measured) Rendering-steps driver shared by the App and the headless
+      runner: one function runs, per frame: resize -> scroll events -> MQL change -> animation events
+      -> rAF batch (own id space, one timestamp, never split by the timer slice) -> style/layout through
+      the engine -> [RO, IO hooks] -> paint (App only). The App calls it at frame time (when something
+      is dirty or a rAF is pending); headless runs it on virtual 16.7 ms frames. Keep today's cost
+      tricks. Tests: WPT html/webappapis/animation-frames all pass; order probe (R64 4) gives the
+      HTML order.

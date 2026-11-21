@@ -61,14 +61,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       '*.web-platform.test=127.0.0.1'`, runner `--server wptserve`; add fetch/ and xhr/ to the subset.
 - [ ] QWPT9 [S] (P3; Sonnet; wire; user Q8 2026-11-21: LATER, with fetch, after QWPT8; never for any other host) https tests: wire trusts WPT's test CA for
       *.web-platform.test only; add .https. tests.
-- [ ] [WIP] QEL1 [M] (P1; Opus; new src/event_loop.rs, app.rs, js.rs TIMERS_PRELUDE; R64 section 4 E1-E3; after
-      QWPT4b so the change is measured) Rendering-steps driver shared by the App and the headless
-      runner: one function runs, per frame: resize -> scroll events -> MQL change -> animation events
-      -> rAF batch (own id space, one timestamp, never split by the timer slice) -> style/layout through
-      the engine -> [RO, IO hooks] -> paint (App only). The App calls it at frame time (when something
-      is dirty or a rAF is pending); headless runs it on virtual 16.7 ms frames. Keep today's cost
-      tricks. Tests: WPT html/webappapis/animation-frames all pass; order probe (R64 4) gives the
-      HTML order.
 - [ ] QEL1a [S] (P2, from QEL1 #510; Sonnet; perf.rs --perf-report) Explain the YouTube results-page headless cost
       increase after QEL1 (observer deliveries 41-59 -> 109-112 per 30 s, forced layouts 31-34 -> 41-49): add a per-observer
       type breakdown (MO/IO/RO) and a rAF callback count to --perf-report, measure main vs QEL1, say whether the page simply
@@ -76,7 +68,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QWPTFLK1 [S] (P3, from QEL1 #510; Sonnet; wpt_th.rs virtual clock) dom/events/EventTarget-dispatchEvent.html ends
       with harness ERROR "Timeout while running cleanup" under load in the test child (main too: 3 of 24 parallel runs).
       Find which real-time behaviour leaks into the virtual clock's order, fix it, then remove the file from flaky.txt.
-- [ ] QEL2 [M] (P1; Sonnet; js_dom.rs RO, geometry; after QEL1; supersedes archived QRO1) ResizeObserver
+- [ ] [WIP] QEL2 [M] (P1; Sonnet; js_dom.rs RO, geometry; after QEL1; supersedes archived QRO1) ResizeObserver
       with real sizes (content/border/device-pixel boxes from the engine's layout), gathered and
       delivered in the rendering step, depth loop and the "ResizeObserver loop completed with
       undelivered notifications" error event. Gate: resize-observer score up, github.com card grids
