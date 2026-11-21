@@ -771,3 +771,19 @@ fn qinc1k3_counter_walk_sees_under_an_inline_display_none() {
     let s = build(&doc);
     assert!(s.gen_walked, "{s:?}");
 }
+
+/// QINC1k3 (fuzz seed 1752): an element hidden by an inline `display:none` keeps no `::before` match (the
+/// cascade skips its pseudo slots), but the walk matches them: a class that gives it a `::before` counter
+/// changes the walk's output, so its `gsig` reads those slots too.
+#[test]
+fn qinc1k3_counter_walk_sees_a_hidden_elements_new_before() {
+    let _g = LogOnly::new();
+    let doc = page(
+        "li{counter-increment:n} .c4::before{content:counter(n) \".\"}",
+        "<section id=s class=c2 style=\"display:none\"><i>a</i></section><ol><li id=b class=c4>b</li></ol>",
+    );
+    build(&doc);
+    set_attr(&by_id(&doc, "s"), "class", Some("c4"));
+    let s = build(&doc);
+    assert!(s.gen_walked, "{s:?}");
+}

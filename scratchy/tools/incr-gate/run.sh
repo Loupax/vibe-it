@@ -27,6 +27,9 @@
 #      MEMCAP    systemd-run scope cap (default 6G); every scratchy runs inside such a scope.
 # Input coordinates are written for a 960x1006 window and passed to inject as 960 1006, so on any
 # other window size they land at the same FRACTION of the window (the pages are responsive).
+# QINC1k3: INJECT_W / INJECT_H override that reference size: when the nested dwl gets a smaller tile
+# (e.g. 960x316) and the page keeps its top layout, INJECT_H=<window height> makes the points absolute
+# (the wiki plan's links are all above y 300; a point outside the extent is the compositor's to clamp).
 # Only PIDs this script starts are ever killed.
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -40,8 +43,8 @@ INJECT=${INJECT:-$HERE/../inject/target/release/inject}
 OUT=${OUT:-${TMPDIR:-/tmp}/incr-gate}
 LOCK=${PERF_LOCK-/tmp/scratchy-perf.lock}
 MEMCAP=${MEMCAP:-6G}
-RW=960
-RH=1006
+RW=${INJECT_W:-960}
+RH=${INJECT_H:-1006}
 ulimit -c 0
 mkdir -p "$OUT"
 

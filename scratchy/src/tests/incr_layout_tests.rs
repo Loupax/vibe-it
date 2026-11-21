@@ -483,3 +483,20 @@ fn qinc1k1_a_bfc_root_with_floats_is_reused_only_at_the_same_y() {
     incremental(&s);
     assert_eq!(s.miss_y, 0, "{s:?}");
 }
+
+/// QINC1k3 (fuzz seed 5832): a BFC root beside a float is placed by its parent from its min-content width
+/// (Q34b: it drops below the float when it does not fit beside it), so a change inside it never stops
+/// at it while floats come in, even when its own size would be unchanged.
+#[test]
+fn qinc1k3_bfc_root_beside_a_float_is_placed_by_its_parent() {
+    let _g = LogOnly::new();
+    let doc = page(
+        "#f{float:left;width:300px;height:100px} #b{overflow:hidden;height:40px}",
+        "<div id=f></div><div id=b><span id=t>short</span></div><p>after</p>",
+    );
+    lay(&doc);
+    set_text(&by_id(&doc, "t"), &"x".repeat(120));
+    let s = lay(&doc);
+    incremental(&s);
+    assert!(!s.levels.contains(&0) || s.root, "{s:?}");
+}
