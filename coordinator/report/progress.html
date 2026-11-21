@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-21 · main 69c143b · 50 PRs merged today (#475–#525) · 5 agents running (QINC1n, QDOM2, QCOMP2, QCSS1, QEL2)</div>
+  <div class="meta" id="updated">Updated 2026-11-21 · main 69c143b · 51 PRs merged today (#475–#527) · 5 agents running (QINC1n, QDOM2, QCOMP2, QCSS1, QEL2)</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -73,7 +73,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 <section>
   <h2>Measurements</h2>
   <div class="stats">
-    <div class="stat"><span class="v">333 / 626</span><span class="l">WPT visual CSS tests passing (reftests), now checked in CI</span></div>
+    <div class="stat"><span class="v">339 / 626</span><span class="l">WPT visual CSS tests passing (reftests), now checked in CI</span></div>
     <div class="stat"><span class="v">31.5</span><span class="l">WPT JavaScript tests, mean score per file (0–100) over the phase-1 subset: 3,264 files, 23 areas; 46.5% of 37,045 subtests pass. Baseline 28.4 (#504); every PR is gated on it in CI since #507</span></div>
     <div class="stat"><span class="v">1852 / 1852</span><span class="l">Unit and integration tests passing, engine on and off (CI runs both)</span></div>
     <div class="stat"><span class="v">0</span><span class="l">Engine mismatches on the 7 test pages (check mode)</span></div>
@@ -111,6 +111,8 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#527</td><td>QCSS1</td><td>Stylesheet <code>@media</code> uses the same evaluator as <code>matchMedia</code>: range syntax <code>(width &gt;= 600px)</code>, hover/pointer, orientation, <code>not</code>/<code>or</code>. 7 reftests newly pass; one print test accepted as failing (your call; QWPTPRINT renders print tests as print)</td></tr>
+    <tr><td class="n">2026-11-21</td><td class="n">#528</td><td>QREG-D</td><td>Your plan: copy the URL via vim registers (<code>:let @+ = @%</code>, <code>yy</code>), page cursor later (QCURSOR-D). Docs only</td></tr>
     <tr><td class="n">2026-11-21</td><td class="n">#524</td><td>QINC1n</td><td>Engine evidence (your yes): a log line on a real fallback, 1 frame in 200 checked against a full layout with mismatches written to <span class="mono">&lt;state-dir&gt;/engine-check.log</span>, and <code>:engine</code> with the counts. Costs 0.6–2.3% CPU; 0 fallbacks, 0 mismatches so far</td></tr>
     <tr><td class="n">2026-11-21</td><td class="n">#521</td><td>QDOM2</td><td><code>childNodes</code>, <code>children</code>, <code>getElementsBy*</code>, <code>document.forms</code>... are real live NodeList/HTMLCollection objects. dom/other 59.6 → 79.1, dom/nodes 43.5 → 48.5, total 30.4 → 31.5</td></tr>
     <tr><td class="n">2026-11-21</td><td class="n">#525</td><td>QCOMP2</td><td>Your own programs can feed <code>:</code>-line suggestions (rows in <code>src/config.rs</code>; no shell, 2 s timeout, never blocks the window)</td></tr>
