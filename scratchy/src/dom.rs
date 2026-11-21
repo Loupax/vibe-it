@@ -882,6 +882,7 @@ impl<'i> SelectorsParser<'i> for OurSelectorParser {
             "enabled" => return Ok(OurPseudoClass::Enabled),
             _ => {}
         }
+        crate::missing_api::css_pseudo("pseudo_class", &name);
         Err(ParseError::custom(SelectorParseErrorKind::UnsupportedPseudoClassOrElement))
     }
 
@@ -904,6 +905,7 @@ impl<'i> SelectorsParser<'i> for OurSelectorParser {
         if name.starts_with("-webkit-") || name.starts_with("-moz-") || name.starts_with("-ms-") {
             return Ok(OurPseudoElement::Vendor(name.to_ascii_lowercase()));
         }
+        crate::missing_api::css_pseudo("pseudo_element", &name);
         Err(ParseError::custom(SelectorParseErrorKind::UnsupportedPseudoClassOrElement))
     }
 
@@ -928,6 +930,7 @@ impl<'i> SelectorsParser<'i> for OurSelectorParser {
             },
             _ => {}
         }
+        crate::missing_api::css_pseudo("pseudo_class", &format!("{name}()"));
         Err(ParseError::custom(SelectorParseErrorKind::UnsupportedPseudoClassOrElement))
     }
 }

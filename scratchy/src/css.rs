@@ -2273,7 +2273,10 @@ pub(crate) fn media_list_matches(queries: &[MediaQuery], viewport_width: f32) ->
 /// same `Err(())` fallback.
 pub(crate) fn parse_media_feature(input: &mut CssParser, q: &mut MediaQuery) -> Result<(), ()> {
     let name = input.expect_ident().map_err(|_| ())?.clone();
-    input.expect_colon().map_err(|_| ())?;
+    if input.expect_colon().is_err() {
+        crate::missing_api::css_note("media_feature", &format!("{} (no colon: boolean or range form)", name.to_ascii_lowercase()), &format!("({name} ..)"));
+        return Err(());
+    }
     if name.eq_ignore_ascii_case("min-width") {
         q.min_width = Some(media_feature_length_px(input)?);
     } else if name.eq_ignore_ascii_case("max-width") {
@@ -2297,6 +2300,7 @@ pub(crate) fn parse_media_feature(input: &mut CssParser, q: &mut MediaQuery) -> 
             return Err(());
         });
     } else {
+        crate::missing_api::css_note("media_feature", &name.to_ascii_lowercase(), &format!("({name}: ..)"));
         return Err(());
     }
     Ok(())
@@ -4733,7 +4737,8 @@ pub(crate) fn css_debug_report(line: String) {
 /// Reports a rule the stylesheet parser rejected: a dropped at-rule
 /// (`@name`) or a qualified rule whose selector failed to parse.
 pub(crate) fn css_debug_report_dropped_rule(slice: &str) {
-    if !css_debug_enabled() {
+    let debug = css_debug_enabled();
+    if !debug && !crate::missing_api::enabled() {
         return;
     }
     let slice = slice.trim();
@@ -4742,10 +4747,16 @@ pub(crate) fn css_debug_report_dropped_rule(slice: &str) {
             .chars()
             .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
             .collect();
-        css_debug_report(format!("scratchy: css: dropped @{name}"));
+        if debug {
+            css_debug_report(format!("scratchy: css: dropped @{name}"));
+        }
+        crate::missing_api::css_note("at_rule", &format!("@{name}"), slice.split('{').next().unwrap_or(slice).trim());
     } else {
         let sel = slice.split('{').next().unwrap_or(slice).trim();
-        css_debug_report(format!("scratchy: css: dropped selector `{sel}`"));
+        if debug {
+            css_debug_report(format!("scratchy: css: dropped selector `{sel}`"));
+        }
+        crate::missing_api::css_dropped_selector(sel);
     }
 }
 
@@ -5766,7 +5777,7 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
         // behavior change. Skipped entirely when the flag is off, so
         // the already-acknowledged "reparse the whole stylesheet every
         // redraw" cost (see `NOTES.md`) never grows for the common case.
-        let debug = css_debug_enabled();
+        let debug = css_debug_enabled() || crate::missing_api::enabled(); // QMAPI2: report mode parses eagerly too
         let (raw_value, before, value_start) = if debug {
             let value_start = input.state();
             while input.next().is_ok() {}
@@ -5821,7 +5832,10 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                 let mut scratch = Declarations::default();
                 DeclParser { decls: &mut scratch, important: &mut Declarations::default() }.apply(&name, input);
                 if scratch == Declarations::default() {
-                    css_debug_report(format!("scratchy: css: ignored `{name}: {raw_value}`"));
+                    if css_debug_enabled() {
+                        css_debug_report(format!("scratchy: css: ignored `{name}: {raw_value}`"));
+                    }
+                    crate::missing_api::css_note("declaration", &name.to_ascii_lowercase(), &format!("{name}: {raw_value}"));
                 }
             }
         }
@@ -6059,8 +6073,13 @@ impl<'i> AtRuleParser<'i> for TopLevelParser {
             Ok(AtPrelude::Media(parse_media_query_list(input)))
         } else if name.eq_ignore_ascii_case("supports") {
             // Unparseable conditions are false (rules dropped), never an error.
+            let cond_start = input.position();
             let holds = parse_supports_condition(input).unwrap_or(false);
             while input.next().is_ok() {}
+            if !holds && crate::missing_api::enabled() {
+                let cond = input.slice_from(cond_start).trim();
+                crate::missing_api::css_note("supports_false", cond, &format!("@supports {cond}"));
+            }
             Ok(AtPrelude::Supports(holds))
         } else if name.eq_ignore_ascii_case("layer") {
             Ok(AtPrelude::Layer(parse_layer_names(input)?))
@@ -6182,7 +6201,10 @@ impl<'i> QualifiedRuleParser<'i> for TopLevelParser {
         &mut self,
         input: &mut CssParser<'i>,
     ) -> Result<Self::Prelude, ParseError<Self::Error>> {
-        SelectorList::parse(&OurSelectorParser, input, ParseRelative::No)
+        crate::missing_api::css_selector_ctx(true);
+        let r = SelectorList::parse(&OurSelectorParser, input, ParseRelative::No);
+        crate::missing_api::css_selector_ctx(false);
+        r
     }
 
     fn parse_block(
@@ -6191,7 +6213,7 @@ impl<'i> QualifiedRuleParser<'i> for TopLevelParser {
         _start: &ParserState,
         input: &mut CssParser<'i>,
     ) -> Result<Self::QualifiedRule, ParseError<Self::Error>> {
-        if css_debug_enabled() {
+        if css_debug_enabled() || crate::missing_api::enabled() {
             // `--css-debug` reports ignored declarations while parsing: parse now.
             let mut decls = Declarations::default();
             let mut important = Declarations::default();
@@ -6955,7 +6977,10 @@ fn media_feature_eval(body: &str, w: f32, h: f32) -> Result<Option<bool>, ()> {
         "update" => ("fast", "none"),
         "overflow-block" | "overflow-inline" => ("scroll", "none"),
         "color-gamut" => ("srgb", ""),
-        _ => return Ok(None),
+        _ => {
+            crate::missing_api::css_note("media_feature", &name, b);
+            return Ok(None);
+        }
     };
     Ok(Some(match v {
         None => cur != none, // boolean context: true unless the `none` value
