@@ -759,18 +759,27 @@ fn resolve_binding_maps_capital_g_and_home_end_to_scroll_extremes() {
 fn pending_g_double_g_scrolls_top_and_other_keys_clear() {
     let m = ModifiersState::empty();
     let g = Key::Character("g".into());
-    assert_eq!(resolve_pending_g(false, &g, m), (None, true, true));
-    assert_eq!(resolve_pending_g(true, &g, m), (Some(Action::ScrollTop), false, true));
+    assert_eq!(resolve_sequence(None, &g, m), (None, Some("g"), true));
+    assert_eq!(resolve_sequence(Some("g"), &g, m), (Some(Action::ScrollTop), None, true));
     for other in [Key::Character("j".into()), Key::Named(NamedKey::Escape), Key::Character(":".into())] {
-        assert_eq!(resolve_pending_g(true, &other, m), (None, false, false));
-        assert_eq!(resolve_pending_g(false, &other, m), (None, false, false));
+        assert_eq!(resolve_sequence(Some("g"), &other, m), (None, None, false));
+        assert_eq!(resolve_sequence(None, &other, m), (None, None, false));
     }
-    // `g`, `j`, `g` must not fire: the `j` cleared the flag.
-    let (_, p, _) = resolve_pending_g(false, &g, m);
-    let (_, p, _) = resolve_pending_g(p, &Key::Character("j".into()), m);
-    assert_eq!(resolve_pending_g(p, &g, m), (None, true, true));
+    // `g`, `j`, `g` must not fire: the `j` cleared the pending key.
+    let (_, p, _) = resolve_sequence(None, &g, m);
+    let (_, p, _) = resolve_sequence(p, &Key::Character("j".into()), m);
+    assert_eq!(resolve_sequence(p, &g, m), (None, Some("g"), true));
     // Ctrl-g is not `g`.
-    assert_eq!(resolve_pending_g(false, &g, ModifiersState::CONTROL), (None, false, false));
+    assert_eq!(resolve_sequence(None, &g, ModifiersState::CONTROL), (None, None, false));
+}
+
+/// QREG1: every `KEY_SEQUENCES` row is shown on the help page as `<code>first</code> <code>second</code>`.
+#[test]
+fn help_page_documents_every_key_sequence() {
+    for r in crate::config::KEY_SEQUENCES {
+        let needle = format!("<code>{}</code> <code>{}</code>", r.first, r.second);
+        assert!(HELP_PAGE_HTML.contains(&needle), "sequence `{} {}` is not documented in src/help.html", r.first, r.second);
+    }
 }
 
 #[test]

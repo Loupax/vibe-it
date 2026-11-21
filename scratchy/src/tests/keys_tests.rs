@@ -163,7 +163,7 @@ fn keys_t05_input_mode_page_gets_j_and_l_and_scratchy_does_nothing() {
     assert_eq!(app.scroll_offset, 0.0);
     assert_eq!(app.history_index, 0);
     assert_eq!(app.vim_mode, VimMode::Normal, "`:` did not open the command line");
-    assert!(!app.pending_g);
+    assert_eq!(app.pending_seq, None);
     assert_eq!(log(&app), "d:j|u:j|d:l|u:l|d:g|u:g|d::|u::");
 }
 
@@ -254,4 +254,96 @@ fn keys_t29_click_into_text_control_or_select_switches_to_input() {
     app.key_mode = KeyMode::Normal;
     app.press_switches_to_input((10.0, 45.0));
     assert_eq!(app.key_mode, KeyMode::Input, "the select");
+}
+
+// ---------- QREG1: registers, `:let`, `yy`, KEY_SEQUENCES (T54-T56) ----------
+
+fn normal_app(script: &str) -> Option<App> {
+    let mut app = keys_app("<p>x</p>", script)?;
+    app.key_mode = KeyMode::Normal; // explicit: independent of the start mode (QKEYS5)
+    crate::forms_text::clipboard_set("");
+    Some(app)
+}
+
+#[test]
+fn qreg1_yy_in_normal_copies_the_url_and_the_page_sees_no_keys() {
+    let Some(mut app) = normal_app(LOG_SCRIPT) else { return };
+    let t0 = Instant::now();
+    tap(&mut app, &chr("y"), t0);
+    assert!(app.pending_seq.is_some());
+    tap(&mut app, &chr("y"), t0);
+    assert_eq!(crate::forms_text::clipboard_get().as_deref(), Some("https://e.org/page"));
+    assert_eq!(app.status_message, "Copied to clipboard");
+    assert_eq!(app.pending_seq, None);
+    assert_eq!(log(&app), "", "no keys reach the page in NORMAL");
+}
+
+#[test]
+fn qreg1_yy_in_input_mode_goes_to_the_page() {
+    let Some(mut app) = normal_app(LOG_SCRIPT) else { return };
+    app.key_mode = KeyMode::Input;
+    let t0 = Instant::now();
+    tap(&mut app, &chr("y"), t0);
+    tap(&mut app, &chr("y"), t0);
+    assert_eq!(log(&app), "d:y|u:y|d:y|u:y");
+    assert_eq!(crate::forms_text::clipboard_get(), None);
+}
+
+#[test]
+fn qreg1_yy_ignores_key_repeat_and_the_table_has_both_rows() {
+    let Some(mut app) = normal_app(LOG_SCRIPT) else { return };
+    let k = chr("y");
+    app.handle_normal_key(&k, false);
+    app.handle_normal_key(&k, true);
+    assert_eq!(crate::forms_text::clipboard_get(), None, "the second y was a repeat");
+    assert_eq!(app.pending_seq, None);
+    let rows: Vec<_> = crate::config::KEY_SEQUENCES.iter().map(|r| (r.first, r.second)).collect();
+    assert_eq!(rows, vec![("g", "g"), ("y", "y")]);
+}
+
+#[test]
+fn qreg1_g_y_and_y_g_rearm() {
+    let m = ModifiersState::empty();
+    let (_, p, c) = resolve_sequence(None, &chr("g"), m);
+    assert!(c);
+    let (a, p, c) = resolve_sequence(p, &chr("y"), m);
+    assert_eq!((a, p, c), (None, Some("y"), true), "g y leaves y pending");
+    let (a, p, c) = resolve_sequence(p, &chr("g"), m);
+    assert_eq!((a, p, c), (None, Some("g"), true), "y g leaves g pending");
+    let (a, p, _) = resolve_sequence(p, &chr("g"), m);
+    assert_eq!((a, p), (Some(Action::ScrollTop), None));
+    let (a, p, c) = resolve_sequence(Some("y"), &chr("j"), m);
+    assert_eq!((a, p, c), (None, None, false));
+    assert_eq!(resolve_sequence(None, &chr("y"), ModifiersState::CONTROL), (None, None, false));
+}
+
+#[test]
+fn qreg1_let_copies_registers_and_reports_errors() {
+    let Some(mut app) = normal_app("") else { return };
+    app.dispatch_command("let", &["@+", "=", "@%"]);
+    assert_eq!(app.status_message, "Copied to clipboard");
+    assert_eq!(crate::forms_text::clipboard_get().as_deref(), Some("https://e.org/page"));
+    // spaces are optional
+    crate::forms_text::clipboard_set("other");
+    app.dispatch_command("let", &["@+=@%"]);
+    assert_eq!(crate::forms_text::clipboard_get().as_deref(), Some("https://e.org/page"));
+    app.dispatch_command("let", &["@%", "=", "@+"]);
+    assert_eq!(app.status_message, "scratchy: register @% is read-only");
+    app.dispatch_command("let", &["@x", "=", "@%"]);
+    assert_eq!(app.status_message, "scratchy: no register @x");
+    app.dispatch_command("let", &["@+", "=", "@q"]);
+    assert_eq!(app.status_message, "scratchy: no register @q");
+    for bad in [&[][..], &["@+"], &["@+", "=", "x"], &["@+", "=", "@%", "extra"]] {
+        app.dispatch_command("let", bad);
+        assert_eq!(app.status_message, "scratchy: usage: :let @<dst> = @<src>", "{bad:?}");
+    }
+    // `+` as the source, and an empty clipboard
+    crate::forms_text::clipboard_set("");
+    app.dispatch_command("let", &["@+", "=", "@+"]);
+    assert_eq!(app.status_message, "scratchy: the clipboard is empty");
+    // no URL (a stdin page)
+    app.base_url = None;
+    app.history.clear();
+    app.dispatch_command("let", &["@+", "=", "@%"]);
+    assert_eq!(app.status_message, "scratchy: no URL to copy");
 }

@@ -94,7 +94,23 @@ pub(crate) const BINDINGS: &[Binding] = &[
     bind(Named(NamedKey::PageUp), Mods::Any, A::PageUp),
     bind(Named(NamedKey::Home), Mods::Any, A::ScrollTop),
     bind(Named(NamedKey::End), Mods::Any, A::ScrollBottom),
-    // `gg` (ScrollTop) is the pending-`g` state machine in `resolve_pending_g`, not a row here.
+];
+
+/// QREG1: a two-key NORMAL sequence: `first` arms, `second` fires `action` (KEYS.md T10-T12,
+/// T54-T56). Any other key clears the pending state and is handled as in NORMAL.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct KeySeq {
+    pub first: &'static str,
+    pub second: &'static str,
+    pub action: Action,
+}
+
+/// The two-key sequences (character keys, no Ctrl/Alt).
+pub(crate) const KEY_SEQUENCES: &[KeySeq] = &[
+    // `gg`: scroll to the top.
+    KeySeq { first: "g", second: "g", action: Action::ScrollTop },
+    // `yy`: copy the URL to the system clipboard (`:let @+ = @%`; ignores key repeat).
+    KeySeq { first: "y", second: "y", action: Action::YankUrl },
 ];
 
 // ---------- modes (QKEYS2) ----------

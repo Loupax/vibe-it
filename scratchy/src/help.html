@@ -49,6 +49,7 @@ switch it by focusing a field.</li>
 <tr><td><code>g</code> <code>g</code> / <code>Home</code></td><td>Scroll to the top</td></tr>
 <tr><td><code>G</code> / <code>End</code></td><td>Scroll to the bottom</td></tr>
 <tr><td><code>h</code></td><td>Go back one page in history (same as <code>:historyBack</code>)</td></tr>
+<tr><td><code>y</code> <code>y</code></td><td>Copy the page URL to the system clipboard (same as <code>:let @+ = @%</code>)</td></tr>
 <tr><td><code>l</code></td><td>Go forward one page in history (same as <code>:historyFront</code>)</td></tr>
 <tr><td><code>:</code></td><td>Open the command line</td></tr>
 <tr><td><code>/</code></td><td>Open the search line</td></tr>
@@ -117,6 +118,7 @@ and <code>Shift</code>+<code>Insert</code> paste. Read-only fields only copy.</p
 <tr><td><code>:set motion</code> / <code>:set nomotion</code></td><td>Answer <code>prefers-reduced-motion: no-preference</code> / <code>reduce</code> (the default) to CSS and <code>matchMedia</code>, from the next page load; <code>--motion</code> starts with real motion on</td></tr>
 <tr><td><code>:set nojs</code> / <code>:set js</code></td><td>Turn scripts off/on (and show/hide &lt;noscript&gt; content) from the next page load; <code>--no-js</code> starts with them off</td></tr>
 <tr><td><code>:engine</code></td><td>Show this session's layout engine counts in the status bar, e.g. <code>engine: 0 fallbacks, 0/7 checks bad, 1905 upd, 7 rst</code>: fallbacks (the engine gave up and the page was laid out from scratch; each page prints one <code>scratchy: engine: fallback</code> line), mismatches out of the sampled checks (one engine update in 200 is also laid out from scratch and compared; a mismatch adds a line to <code>engine-check.log</code> in the state directory), engine updates (<code>upd</code>) and restarts (<code>rst</code>: first layout, resize, new stylesheet). Both first numbers should stay 0</td></tr>
+<tr><td><code>:let @&lt;dst&gt; = @&lt;src&gt;</code></td><td>Copy a register into another (spaces optional). <code>%</code> is the page URL as the status bar shows it (read-only), <code>+</code> is the system clipboard; e.g. <code>:let @+ = @%</code> copies the URL. The status bar says <code>Copied to clipboard</code>, or why not</td></tr>
 <tr><td><code>:help</code></td><td>Show this page</td></tr>
 <tr><td><code>:q</code> or <code>:quit</code></td><td>From this help page, go back to whatever you were looking at; otherwise close scratchy</td></tr>
 </table>

@@ -203,6 +203,8 @@ pub(crate) enum Action {
     EnterInputMode,
     HistoryBack,
     HistoryFront,
+    /// QREG1 (T55): `yy`, copy the URL (`:let @+ = @%`).
+    YankUrl,
     /// `gg` / `Home`.
     ScrollTop,
     /// `G` / `End`.
@@ -223,7 +225,7 @@ pub(crate) enum Action {
 /// either way — repeating it just re-clears an already-empty command
 /// line — but listed here too since repeating it serves no purpose.
 pub(crate) fn action_ignores_repeat(action: Action) -> bool {
-    matches!(action, Action::ActivateMatch | Action::HistoryBack | Action::HistoryFront | Action::EnterCommandMode | Action::EnterSearchMode | Action::EnterInputMode)
+    matches!(action, Action::ActivateMatch | Action::HistoryBack | Action::HistoryFront | Action::YankUrl | Action::EnterCommandMode | Action::EnterSearchMode | Action::EnterInputMode)
 }
 
 /// The one chokepoint a real key event gets resolved into an `Action`
@@ -275,18 +277,30 @@ pub(crate) fn page_step(view_h: f32) -> f32 {
     (view_h - crate::config::PAGE_OVERLAP_PX).max(crate::config::PAGE_MIN_PX)
 }
 
-/// The pending-`g` state machine for vim's `gg`: given whether a `g` is
-/// already pending and the key just pressed, returns the action to run
-/// (if any), the new pending flag, and whether the key was consumed (so
-/// the caller must not also run `resolve_binding` on it). Bare `g`
-/// arms; a second bare `g` fires `ScrollTop`; every other key (Esc
-/// included) clears the flag and falls through unconsumed.
-pub(crate) fn resolve_pending_g(pending: bool, key: &Key, mods: ModifiersState) -> (Option<Action>, bool, bool) {
-    let is_g = matches!(key, Key::Character(s) if s.as_str() == "g") && !mods.control_key() && !mods.alt_key();
-    match (is_g, pending) {
-        (true, true) => (Some(Action::ScrollTop), false, true),
-        (true, false) => (None, true, true),
-        (false, _) => (None, false, false),
+/// The pending-key state machine for the two-key sequences of `config::KEY_SEQUENCES` (`gg`,
+/// `yy`; KEYS.md T10-T12, T54-T56): given the pending first key (if any) and the key just
+/// pressed, returns the action to run (if any), the new pending first key, and whether the key
+/// was consumed (so the caller must not also run `resolve_binding` on it). A first key arms; its
+/// second key fires the row; every other key (Esc included) clears the pending state and is
+/// handled as in NORMAL, so it may itself arm (`g` `y` leaves `y` pending, `y` `g` leaves `g`).
+pub(crate) fn resolve_sequence(
+    pending: Option<&'static str>,
+    key: &Key,
+    mods: ModifiersState,
+) -> (Option<Action>, Option<&'static str>, bool) {
+    use crate::config::KEY_SEQUENCES;
+    let Key::Character(s) = key else { return (None, None, false) };
+    if mods.control_key() || mods.alt_key() {
+        return (None, None, false);
+    }
+    if let Some(first) = pending
+        && let Some(row) = KEY_SEQUENCES.iter().find(|r| r.first == first && r.second == s.as_str())
+    {
+        return (Some(row.action), None, true);
+    }
+    match KEY_SEQUENCES.iter().find(|r| r.first == s.as_str()) {
+        Some(row) => (None, Some(row.first), true),
+        None => (None, None, false),
     }
 }
 
@@ -324,7 +338,7 @@ pub(crate) fn key_insertion_text(key: &Key) -> Option<&str> {
 /// QY48: `history_doc` value of an entry whose document is not loaded.
 pub(crate) const NO_DOC: u64 = u64::MAX;
 
-pub(crate) const COMMAND_NAMES: &[&str] = &["engine", "go", "help", "historyBack", "historyFront", "q", "quit", "refresh", "set"];
+pub(crate) const COMMAND_NAMES: &[&str] = &["engine", "go", "help", "historyBack", "historyFront", "let", "q", "quit", "refresh", "set"];
 
 // `SET_ARGS` and `COMPLETERS` (what the ghost completes) live in `config.rs`; the pure ghost
 // logic is in `completion.rs` (QCOMP1).
@@ -940,7 +954,7 @@ pub(crate) struct App {
     /// control/select closes it (`set_key_mode`).
     pub(crate) vim_mode: VimMode,
     /// A bare `g` was just pressed in Normal mode; the next `g` completes `gg`.
-    pub(crate) pending_g: bool,
+    pub(crate) pending_seq: Option<&'static str>,
     /// QKEYS1: the last message shown in the status bar (D8); empty = none.
     pub(crate) status_message: String,
     /// QSEARCH1: the kept query, the matches and the current one.
@@ -1092,11 +1106,12 @@ fn new_frame_stats() -> Option<crate::frame_stats::FrameStats> {
 
 /// QKEYS1b: the status bar URL from the pieces of `App` (see `App::status_url`).
 fn status_url(history: &[Url], index: usize, base: Option<&Url>) -> String {
-    match (history.get(index), base) {
-        (Some(u), _) => u.to_string(),
-        (None, Some(b)) => b.to_string(),
-        (None, None) => "(stdin)".to_string(),
-    }
+    current_url(history, index, base).unwrap_or_else(|| "(stdin)".to_string())
+}
+
+/// The URL the status bar shows, or None for a stdin start page (QREG1: register `%`).
+fn current_url(history: &[Url], index: usize, base: Option<&Url>) -> Option<String> {
+    history.get(index).or(base).map(|u| u.to_string())
 }
 
 /// Installs the thread-safe "video frame ready" poster for this event loop.
@@ -1425,7 +1440,7 @@ impl App {
             undelivered_presses: Vec::new(),
             vim_mode: VimMode::Normal,
             status_message: String::new(),
-            pending_g: false,
+            pending_seq: None,
             command_line: TextEditBuffer::default(),
             search: crate::search::SearchState::default(),
             modifiers: ModifiersState::empty(),
@@ -1539,7 +1554,7 @@ impl App {
             undelivered_presses: Vec::new(),
             vim_mode: VimMode::Normal,
             status_message: String::new(),
-            pending_g: false,
+            pending_seq: None,
             command_line: TextEditBuffer::default(),
             search: crate::search::SearchState::default(),
             modifiers: ModifiersState::empty(),
@@ -3967,6 +3982,11 @@ impl App {
         status_url(&self.history, self.history_index, self.base_url.as_ref())
     }
 
+    /// QREG1: register `%`: the status bar's URL, None for a stdin page.
+    pub(crate) fn url_register(&self) -> Option<String> {
+        current_url(&self.history, self.history_index, self.base_url.as_ref())
+    }
+
     /// QY48: the history entry at `i` belongs to the document on screen.
     fn same_doc_entry(&self, i: usize) -> bool {
         self.history_doc.get(i).copied().unwrap_or(NO_DOC) == self.doc_gen
@@ -4241,7 +4261,7 @@ impl App {
     /// everything else). `vim_mode == Command` always goes to the command-line editor.
     pub(crate) fn handle_key_event(&mut self, event: &KeyEvent) {
         if self.vim_mode != VimMode::Normal {
-            self.pending_g = false;
+            self.pending_seq = None;
             if self.vim_mode == VimMode::Search {
                 self.handle_search_key(event);
             } else {
@@ -4254,10 +4274,12 @@ impl App {
 
     /// QKEYS2: a key press in normal mode (T6-T14): pending `g`, then the binding table.
     pub(crate) fn handle_normal_key(&mut self, key: &Key, repeat: bool) {
-        let (g_action, pending, consumed) = resolve_pending_g(self.pending_g, key, self.modifiers);
-        self.pending_g = pending;
+        let (seq_action, pending, consumed) = resolve_sequence(self.pending_seq, key, self.modifiers);
+        self.pending_seq = pending;
         if consumed {
-            if let Some(action) = g_action {
+            if let Some(action) = seq_action
+                && !(repeat && action_ignores_repeat(action))
+            {
                 self.perform_action(action);
             }
             return;
@@ -4274,7 +4296,7 @@ impl App {
     pub(crate) fn set_key_mode(&mut self, mode: KeyMode) {
         self.key_mode = mode;
         self.esc_state = EscState::Idle;
-        self.pending_g = false;
+        self.pending_seq = None;
         if mode == KeyMode::Input && self.vim_mode != VimMode::Normal {
             self.vim_mode = VimMode::Normal;
             self.command_line.clear();
@@ -4456,6 +4478,7 @@ impl App {
             Action::ScrollBottom => self.scroll_offset = f32::MAX,
             Action::HistoryBack => self.navigate_history(-1),
             Action::HistoryFront => self.navigate_history(1),
+            Action::YankUrl => self.dispatch_command("let", &["@+", "=", "@%"]),
         }
         if let Some(window) = &self.window {
             window.request_redraw();
@@ -4969,6 +4992,8 @@ impl App {
             ("set", ["motion"]) => set_reduced_motion(false),
             ("set", ["nomotion"]) => set_reduced_motion(true),
             ("help", []) => self.show_help(),
+            // QREG1: `:let @<dst> = @<src>` copies a register (registers.rs).
+            ("let", _) => self.let_register(&args.join(" ")),
             // QINC1n: this session's engine counts (updates, restarts, fallbacks, checks, mismatches).
             ("engine", []) => self.status_message = crate::incr_evidence::status_text(),
             ("q", []) | ("quit", []) => {

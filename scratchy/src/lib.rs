@@ -105,6 +105,7 @@ mod js_media;
 #[cfg(feature = "media")]
 mod media_mpv;
 mod config;
+mod registers;
 mod search;
 mod app;
 mod wl_drain;
