@@ -4,12 +4,10 @@ ERROR      11/14  dom/abort/abort-signal-any.any.html
   FAIL      Abort events for AbortSignal.any() signals fire in the right order (using AbortController)
   FAIL      Dependent signals for AbortSignal.any() are marked aborted before abort events fire (using AbortController)
   FAIL      Dependent signals for AbortSignal.any() are aborted correctly for reentrant aborts (using AbortController)
-OK           0/1  dom/abort/abort-signal-timeout.html
-  FAIL      Signal returned by AbortSignal.timeout() is not aborted after frame detach
+OK           1/1  dom/abort/abort-signal-timeout.html
 OK         15/16  dom/abort/event.any.html
   FAIL      the abort event should have the right properties
-OK           0/1  dom/abort/reason-constructor.html
-  FAIL      AbortSignal.reason.constructor should be from iframe
+OK           1/1  dom/abort/reason-constructor.html
 OK           3/3  dom/abort/timeout.any.html
 OK           1/4  dom/attributes-are-nodes.html
   FAIL      appendChild with an attribute as the child should fail

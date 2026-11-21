@@ -3850,6 +3850,10 @@ Baseline: 3,214 ran, 656 all-pass, 37,045 subtests, 45.6 % pass, mean per-file s
 Wall time of the full run: 110 s at `--jobs 4` (quiet machine, load 5), 67 s at `--jobs 12`; first run 3:41 on a loaded machine
 (load 30). Peak RSS of the runner tree ~290 MB. Four runs were identical, so `wpt-th/flaky.txt` is empty (comment only).
 
+### Window named access (QDOM1)
+
+`WindowProperties` (js.rs, next to `Object.setPrototypeOf(g, Window.prototype)`) is a Proxy (get/has traps only) that is the prototype of `Window.prototype`; its target inherits `EventTarget.prototype`. A name that EventTarget.prototype/Object.prototype defines is never shadowed; own globals and `var`s win because they sit on the global itself; nothing is enumerable. The DOM prelude gives it a resolver (`__scratchy_set_named`): an index -> `winAt(i)` (child window), else native `__d_named(doc, name)` (first element in tree order whose id is `name`, or an embed/form/img/object/iframe with that `name`; one map per DOM write generation `wgen`, so `typeof X` probes are a hash lookup), an iframe resolves to its window (by its current window name), others to the element wrapper. Known V8 deviation: a strict-mode assignment to an undeclared name no longer throws ReferenceError (a Proxy in the global's chain counts as "found"); reads of undeclared names still throw.
+
 ### CI gate (QWPT5)
 
 The scratchy CI job builds wire, then runs `--wpt-th "$RUNNER_TEMP/wpt" --jobs 4 --no-scope --wire ../wire/target/release/wire` after the reftest step (no display needed; `--no-scope` because the runner has no systemd user bus). Regressions/unrecorded/changed files fail the job (DECISIONS Q3). Step summary: areas table with deltas vs origin/main's `wpt-th/areas.txt` (`tools/wpt-areas-diff.py NEW BASE`). A CI result that differs from the committed baseline is never re-recorded silently: timing-sensitive files go to `wpt-th/flaky.txt` with a reason, anything else is a question to the user.
