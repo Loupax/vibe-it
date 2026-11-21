@@ -111,6 +111,45 @@ fn qinc1i_forced_layouts_see_the_windows_images() {
 }
 
 #[test]
+fn qinc1k5_card_height_from_the_windows_image() {
+    // QINC1k5 (R60 "QINC1k5 DONE"): github.com's BackgroundGrid sizes its <svg> from the card's
+    // getBoundingClientRect(); the card's height comes from an <img> without width/height attributes
+    // (github.com's Product / Content CSS, trimmed). With the engine the card is the image + padding +
+    // border (350, what Chrome reports once the image is loaded: tools/incr-gate/img-geom.html); flag off
+    // script geometry never sees the decoded image, so the card is padding + border + the undecoded
+    // image's placeholder line (github.com: 80 px grids). Pins both until QINC1l flips the default.
+    let html = "<html><head><style>body{margin:0;font:16px/21px sans-serif}\
+         #card{box-sizing:border-box;border:1px solid #ccc;display:flex;flex-direction:column;position:relative;width:700px;min-height:min-content}\
+         #bg{position:absolute;inset:0;overflow:hidden}\
+         #content{box-sizing:border-box;padding:24px;flex:1 0 auto;display:flex;justify-content:center;align-items:center;position:relative;overflow:hidden}\
+         #content img{display:block;max-width:100%}</style></head><body>\
+         <div id=card><div id=bg></div><div id=content><img loading=lazy alt='' src='pic.png'></div></div></body></html>";
+    let code = "var c = document.getElementById('card').getBoundingClientRect(); console.log(c.width + ',' + c.height);";
+    let run = |on: bool| {
+        let was = crate::incr_engine::set_forced_seam(Some(on));
+        let doc = parse_html(html);
+        let mut images = HashMap::new();
+        images.insert(
+            "pic.png".to_string(),
+            Arc::new(DecodedImage { width: 400, height: 300, pixels: vec![TextColor::rgb(1, 2, 3); 120_000], svg: None, mask: None }),
+        );
+        crate::incr_engine::sync_window_images(&doc, &images);
+        let out = Rc::new(RefCell::new(Vec::new()));
+        let o = out.clone();
+        run_scripts_in(&doc, &[src(code)], Rc::new(move |level, text| o.borrow_mut().push(format!("{level}:{text}"))));
+        crate::incr_engine::set_forced_seam(was);
+        let s = out.take();
+        assert_eq!(s.len(), 1, "{s:?}");
+        let v: Vec<f32> = s[0].trim_start_matches("log:").split(',').map(|x| x.parse().unwrap()).collect();
+        (v[0], v[1])
+    };
+    assert_eq!(run(true), (700.0, 350.0), "engine: decoded image + 2 x 24 padding + 2 x 1 border");
+    let (w, h) = run(false);
+    assert_eq!(w, 700.0);
+    assert!(h < 100.0, "flag off: no decoded size in script geometry (github.com's 80 px grids): {h}");
+}
+
+#[test]
 fn qinc1i_intersection_observer_reads_the_engine() {
     // The kept App layout is not used with the engine (the observer's reads update the engine instead).
     let was = crate::incr_engine::set_forced_seam(Some(true));

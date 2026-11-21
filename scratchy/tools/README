@@ -119,5 +119,9 @@ tools/incr-gate/ holds the durable recipes the QINC1 gates use (the R55 input sc
   hover.html is a script-free, hover-heavy local page (App frames without forced layouts).
   shotdiff.py OUT perf [pre|end] compares the flag-off / flag-on screenshots (next off run = noise floor).
   abs-drift.html: QINC1k's minimised check-mode mismatch (run headless with SCRATCHY_INCR=1 SCRATCHY_INCR_CHECK=1).
+  img-geom.html (+ img-400x300.png): QINC1k5's script-geometry probes for an <img> without size
+  attributes (social.loupax.com's vim.js gutter zone, github.com's card grid + ResizeObserver); no input:
+  `run.sh window off|incr imggeom TAG`, then `grep 'img-geom:' $OUT/TAG.log`. The same file in
+  `google-chrome --headless=new --window-size=960,1006 --dump-dom file://...` prints the reference into #out.
   Runs are bimodal on YouTube watch (`vid` column: playback started or not) and Wikipedia (builds ~100
   vs 13-23): compare pairs within a regime.

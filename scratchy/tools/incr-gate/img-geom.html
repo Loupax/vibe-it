@@ -1,0 +1,74 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>img-geom</title>
+<!-- QINC1k5: script geometry of boxes whose size comes from an <img> without width/height attributes.
+     Two minimised cases (tools/README "Incremental-engine gate recipes"):
+     A = social.loupax.com/discover vim.js gutter: an img.preview zone counts as ONE gutter line when its
+         measured height is > 0, else the 1lh rows run on through it.
+     B = github.com BackgroundGrid: the card's <svg> width/height attributes are computed by script from
+         the parent card's getBoundingClientRect() at mount, then from its ResizeObserver entries.
+     The images are a 400x300 PNG FILE next to this page (a `data:` URL is decoded inline by every
+     layout, flag or not, so it would not show the difference). Every probe prints `img-geom: <label> <json>` with console.error (window log and --perf-report `console_errors`) and appends it to #out (Chrome
+     --dump-dom reference). Run: scratchy window off vs SCRATCHY_INCR=1 (run.sh window MODE imggeom TAG),
+     headless (--perf-report), and google-chrome --headless=new --dump-dom for the reference. -->
+<style>
+body { margin: 0; font: 16px/21px sans-serif; }
+#a { width: 600px; margin: 0 0 20px 40px; }
+#a .meta { height: 21px; }
+#a img.preview { display: block; max-width: 100%; }
+/* github.com's Product / BackgroundGrid / Content CSS (Product__JCupxb, Wrapper__H1gdC8 Background__x8lac6,
+   Content__TWy-bF, Svg__yJ0wP1), trimmed to the layout properties */
+.product { box-sizing: border-box; border: 1px solid #ccc; flex-direction: column; width: 100%; min-width: 0;
+  height: 100%; min-height: min-content; display: flex; position: relative; }
+.bg { box-sizing: border-box; justify-content: center; align-items: center; width: 100%; height: 100%; display: flex;
+  overflow: hidden; z-index: 0; position: absolute; inset: 0; }
+.bg svg { flex: none; display: block; }
+.content { z-index: 1; box-sizing: border-box; min-width: 0; padding: 24px; flex: 1 0 auto; justify-content: center;
+  align-items: center; display: flex; position: relative; overflow: hidden; }
+.content img { display: block; max-width: 100%; }
+#b { width: 700px; margin-left: 40px; }
+pre#out { font: 11px/13px monospace; }
+</style></head><body>
+<article id="a"><div class="meta">meta line</div><h2>Heading</h2>
+<img class="preview" loading="lazy" alt="" src="img-400x300.png">
+<p>Text after the image, line one.</p></article>
+<div id="b"><div class="product" id="card"><div class="bg" id="grid"></div>
+<div class="content"><img loading="lazy" alt="" src="img-400x300.png"></div></div></div>
+<pre id="out"></pre>
+<script>
+const out = document.getElementById('out');
+const t0 = Date.now();
+function log(label, o) {
+  const s = 'img-geom: ' + label + ' ' + JSON.stringify(Object.assign({ t: Date.now() - t0 }, o));
+  console.error(s); // console.error: also listed by --perf-report (console_errors)
+  out.textContent += s + '\n';
+}
+const r = el => { const b = el.getBoundingClientRect(); return [Math.round(b.width * 100) / 100, Math.round(b.height * 100) / 100]; };
+const imgA = document.querySelector('#a img'), imgB = document.querySelector('#b img');
+const card = document.getElementById('card'), grid = document.getElementById('grid');
+// A: vim.js rule, one zone row if the measured image height is > 0
+function probeA(label) {
+  const [w, h] = r(imgA);
+  log('A.' + label, { img: [w, h], complete: imgA.complete, natural: [imgA.naturalWidth, imgA.naturalHeight],
+    imageRows: h > 0 ? 1 : 0, textTop: Math.round(document.querySelector('#a p').getBoundingClientRect().top) });
+}
+// B: github.com's fI(width, height) and the svg it renders (none when a side is 0)
+function setGrid(label, w, h) {
+  const c = Math.ceil(w / 10), s = w > 0 ? w / c : 0;
+  const cw = s ? Math.ceil(w / 10) : 0, ch = s ? Math.ceil(Math.max(0, h) / s) : 0;
+  grid.textContent = '';
+  if (cw > 0 && ch > 0) {
+    grid.innerHTML = '<svg width="' + cw * s + '" height="' + ch * s + '" viewBox="0 0 ' + cw + ' ' + ch +
+      '" preserveAspectRatio="none"><rect width="' + cw + '" height="' + ch + '" fill="#eef"/></svg>';
+  }
+  const svg = grid.querySelector('svg');
+  log('B.' + label, { from: [w, h], svg: svg ? [+svg.getAttribute('width'), +svg.getAttribute('height')] : null });
+}
+probeA('script');
+setGrid('mount', ...r(card));            // useEffect: i(parent.getBoundingClientRect())
+new ResizeObserver(es => { for (const e of es) setGrid('ro', e.contentRect.width, e.contentRect.height); }).observe(card);
+imgA.addEventListener('load', () => { probeA('load'); requestAnimationFrame(() => probeA('raf-after-load')); });
+window.addEventListener('load', () => { log('B.window-load', { card: r(card), img: r(imgB) }); });
+setTimeout(() => { probeA('2s'); log('B.2s', { card: r(card), img: r(imgB),
+  svg: grid.querySelector('svg') ? [+grid.querySelector('svg').getAttribute('width'), +grid.querySelector('svg').getAttribute('height')] : null });
+}, 2000);
+</script></body></html>

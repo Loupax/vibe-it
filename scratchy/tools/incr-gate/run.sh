@@ -11,6 +11,8 @@
 #   PAGE  ytr (YouTube results, R58 recipe), ytw (YouTube watch G1AeBgalFZk, R55 recipe),
 #         wiki (Wikipedia Rust, R55 recipe), github, bbc (bbc.com/news), social (social.loupax.com/discover),
 #         hover (tools/incr-gate/hover.html: script-free, hover-heavy, no forced layouts)
+#         imggeom (tools/incr-gate/img-geom.html: QINC1k5's image-size script-geometry probes, no input;
+#                  the probes print `img-geom: ...` lines into the log)
 #   TAG   run name; files go to $OUT/<TAG>.{log,stats,json,rss,pre.png,end.png,meta}
 #
 # Env: SCRATCHY  scratchy binary under test (COPY the installed one aside first: the coordinator
@@ -51,6 +53,7 @@ case $PAGE in
   bbc) URL='https://www.bbc.com/news'; SECS=40; HSECS=20 ;;
   social) URL='https://social.loupax.com/discover'; SECS=40; HSECS=20 ;;
   hover) URL="$HERE/hover.html"; SECS=32; HSECS=10 ;;
+  imggeom) URL="$HERE/img-geom.html"; SECS=10; HSECS=5 ;;
   *) echo "run.sh: unknown page $PAGE" >&2; exit 2 ;;
 esac
 case $MODE in
@@ -151,6 +154,9 @@ plan() {
       inj $(sweep 10 950 10 900 40 30 16)
       # shellcheck disable=SC2046
       inj $(sweep 25 950 25 900 40 30 16)
+      at $((SECS - 3)); shot end ;;
+    imggeom)
+      at 3; shot pre
       at $((SECS - 3)); shot end ;;
   esac
 }
