@@ -3849,3 +3849,7 @@ worker variants and files whose source mentions a `.py` handler; skip counts go 
 Baseline: 3,214 ran, 656 all-pass, 37,045 subtests, 45.6 % pass, mean per-file score 28.4 (table in `wpt-th/areas.txt`).
 Wall time of the full run: 110 s at `--jobs 4` (quiet machine, load 5), 67 s at `--jobs 12`; first run 3:41 on a loaded machine
 (load 30). Peak RSS of the runner tree ~290 MB. Four runs were identical, so `wpt-th/flaky.txt` is empty (comment only).
+
+### CI gate (QWPT5)
+
+The scratchy CI job builds wire, then runs `--wpt-th "$RUNNER_TEMP/wpt" --jobs 4 --no-scope --wire ../wire/target/release/wire` after the reftest step (no display needed; `--no-scope` because the runner has no systemd user bus). Regressions/unrecorded/changed files fail the job (DECISIONS Q3). Step summary: areas table with deltas vs origin/main's `wpt-th/areas.txt` (`tools/wpt-areas-diff.py NEW BASE`). A CI result that differs from the committed baseline is never re-recorded silently: timing-sensitive files go to `wpt-th/flaky.txt` with a reason, anything else is a question to the user.
