@@ -20,6 +20,8 @@ fn app_with(html: &str, script: &str) -> Option<App> {
     let mut app = App::new_static(doc.clone(), event_loop.create_proxy(), None);
     app.base_url = Some(Url::parse("https://e.org/page").unwrap());
     app.js = run_page_scripts(&doc, &[src(script)], app.base_url.as_ref());
+    // These tests are about input mode (QKEYS5: a fresh App starts in NORMAL).
+    app.key_mode = KeyMode::Input;
     Some(app)
 }
 

@@ -103,6 +103,10 @@ pub(crate) const BINDINGS: &[Binding] = &[
 /// A QMK user can swap the trigger for F13 by editing `resolve_esc_esc`'s key test.
 pub(crate) const ESC_ESC_MS: u64 = 300;
 
+/// QKEYS5: the key mode a fresh window starts in (user 2026-11-21: NORMAL; was INPUT under KEYS D4).
+/// Navigations keep the current mode; a click into a text control still switches to INPUT.
+pub(crate) const START_MODE: crate::app::KeyMode = crate::app::KeyMode::Normal;
+
 // ---------- scrolling ----------
 
 /// Px one line scroll (`j`/`k`/arrows) moves.

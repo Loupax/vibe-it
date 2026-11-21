@@ -929,7 +929,7 @@ pub(crate) struct App {
     pub(crate) late_images_requested: usize,
     /// QY56: late images refused by the cap, to settle as `error` in `js_sync`.
     pub(crate) late_image_errors: Vec<String>,
-    /// QKEYS2: who gets the keys (see `KeyMode`). Starts in `Input` (D4).
+    /// QKEYS2: who gets the keys (see `KeyMode`). Starts in `config::START_MODE` (Normal; QKEYS5).
     pub(crate) key_mode: KeyMode,
     /// QKEYS2: the Esc Esc recogniser (only advanced in `Input`).
     pub(crate) esc_state: EscState,
@@ -1420,7 +1420,7 @@ impl App {
             css_images_requested: HashSet::new(),
             late_images_requested: 0,
             late_image_errors: Vec::new(),
-            key_mode: KeyMode::Input,
+            key_mode: crate::config::START_MODE,
             esc_state: EscState::Idle,
             undelivered_presses: Vec::new(),
             vim_mode: VimMode::Normal,
@@ -1534,7 +1534,7 @@ impl App {
             css_images_requested: HashSet::new(),
             late_images_requested: 0,
             late_image_errors: Vec::new(),
-            key_mode: KeyMode::Input,
+            key_mode: crate::config::START_MODE,
             esc_state: EscState::Idle,
             undelivered_presses: Vec::new(),
             vim_mode: VimMode::Normal,
