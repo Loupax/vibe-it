@@ -405,9 +405,128 @@ pub(crate) fn resolve_inline_svg(handle: &Handle, mut style: ComputedStyle) -> (
     if style.height.is_none() {
         style.height = img_size_length(handle, "height");
     }
-    let xml = serialize_inline_svg(handle, style.color);
-    let decoded = decode_svg_bytes(xml.as_bytes()).map(Arc::new).map(|d| svg_at_css_size(d, &style));
+    let xml = canonical_svg_ids(serialize_inline_svg(handle, style.color));
+    let decoded = decode_inline_svg(xml).map(|d| svg_at_css_size(d, &style));
     (style, decoded)
+}
+
+/// QINC1k2: inline-SVG markup with its fragment-local ids renamed to `scratchy-svg-id-N` (in order of
+/// definition), so two mounts of the same component that differ only in generated ids (React `useId`:
+/// github.com's card background grids, `background-grid-pattern-_r_3d_` vs `-_r_4s_`) rasterize once
+/// through `INLINE_SVG_CACHE`. The renaming is a bijection on the ids and the renamed markup is what
+/// gets rendered, so nothing but the id strings changes. Conservative: the markup is returned
+/// unchanged when it has a `<style>` element, an id with characters outside `[A-Za-z0-9_.:-]`, already
+/// contains the prefix, or an id still occurs anywhere after renaming its definitions (`id="x"`) and
+/// its references (`#x` followed by `)`, a quote or whitespace: `url(#x)`, `href="#x"`), i.e. some
+/// other construct mentions it.
+pub(crate) fn canonical_svg_ids(xml: String) -> String {
+    const PREFIX: &str = "scratchy-svg-id-";
+    const DEF: &str = " id=\"";
+    if !xml.contains(DEF) || xml.contains(PREFIX) || xml.contains("<style") {
+        return xml;
+    }
+    let mut ids: Vec<&str> = Vec::new();
+    let mut at = 0;
+    while let Some(i) = xml[at..].find(DEF) {
+        let start = at + i + DEF.len();
+        let Some(len) = xml[start..].find('"') else { return xml };
+        let id = &xml[start..start + len];
+        if id.is_empty() || !id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-')) {
+            return xml;
+        }
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+        at = start + len;
+    }
+    let mut out = String::with_capacity(xml.len());
+    let mut rest = xml.as_str();
+    // One pass: at every `id="` or `#`, the longest defined id that follows with a valid terminator.
+    while let Some(i) = rest.find(['#', '"']) {
+        let (before, tail) = rest.split_at(i + 1);
+        out.push_str(before);
+        rest = tail;
+        let is_def = before.ends_with(DEF);
+        // A reference only inside a tag (an attribute value): text content keeps its `#x`. The
+        // serializer escapes `<` / `>` everywhere else, so the last raw one tells.
+        let is_ref = before.ends_with('#') && out.rfind('<') > out.rfind('>');
+        if !is_def && !is_ref {
+            continue;
+        }
+        let hit = ids
+            .iter()
+            .enumerate()
+            .filter(|(_, id)| {
+                rest.strip_prefix(**id).is_some_and(|after| {
+                    if is_def {
+                        after.starts_with('"')
+                    } else {
+                        after.starts_with(|c: char| matches!(c, ')' | '"' | '\'') || c.is_ascii_whitespace())
+                    }
+                })
+            })
+            .max_by_key(|(_, id)| id.len());
+        if let Some((n, id)) = hit {
+            out.push_str(PREFIX);
+            out.push_str(&n.to_string());
+            rest = &rest[id.len()..];
+        }
+    }
+    out.push_str(rest);
+    if ids.iter().any(|id| out.contains(id)) {
+        return xml;
+    }
+    out
+}
+
+thread_local! {
+    /// QINC1k2: intrinsic-size rasterizations of inline `<svg>` markup, keyed by the serialized
+    /// document (which includes `currentColor`). Every box build of an inline `<svg>` used to parse and
+    /// rasterize it again (github.com: ~60 ms per incremental box update, most of the update).
+    /// Bounded by `INLINE_SVG_CACHE_MAX` entries and `INLINE_SVG_CACHE_BYTES` of pixels (cleared when
+    /// either is exceeded, as `SVG_SIZED_CACHE` is).
+    static INLINE_SVG_CACHE: RefCell<(HashMap<String, Option<Arc<DecodedImage>>>, usize)> = RefCell::new((HashMap::new(), 0));
+}
+
+const INLINE_SVG_CACHE_MAX: usize = 1024;
+const INLINE_SVG_CACHE_BYTES: usize = 64 << 20;
+
+fn image_bytes(i: &DecodedImage) -> usize {
+    std::mem::size_of::<DecodedImage>() + i.pixels.capacity() * std::mem::size_of::<TextColor>()
+}
+
+/// `decode_svg_bytes` of serialized inline-SVG markup, through `INLINE_SVG_CACHE`.
+pub(crate) fn decode_inline_svg(xml: String) -> Option<Arc<DecodedImage>> {
+    if let Some(hit) = INLINE_SVG_CACHE.with(|c| c.borrow().0.get(&xml).cloned()) {
+        return hit;
+    }
+    let decoded = decode_svg_bytes(xml.as_bytes()).map(Arc::new);
+    INLINE_SVG_CACHE.with(|c| {
+        let mut c = c.borrow_mut();
+        let add = xml.len() + decoded.as_deref().map_or(0, image_bytes);
+        if c.0.len() >= INLINE_SVG_CACHE_MAX || c.1 + add > INLINE_SVG_CACHE_BYTES {
+            c.0.clear();
+            c.1 = 0;
+        }
+        if add <= INLINE_SVG_CACHE_BYTES {
+            c.1 += add;
+            c.0.insert(xml, decoded.clone());
+        }
+    });
+    decoded
+}
+
+/// `(entries, bytes)` of `INLINE_SVG_CACHE` (markup + pixels).
+pub(crate) fn inline_svg_cache_mem() -> (usize, usize) {
+    INLINE_SVG_CACHE.with(|c| {
+        let c = c.borrow();
+        (c.0.len(), c.1)
+    })
+}
+
+#[cfg(test)]
+pub(crate) fn inline_svg_cache_clear() {
+    INLINE_SVG_CACHE.with(|c| *c.borrow_mut() = (HashMap::new(), 0));
 }
 
 /// Builds `<img>`'s own box directly, bypassing the normal children walk
