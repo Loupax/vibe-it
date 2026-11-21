@@ -114,7 +114,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QDOM2b [S] (P2, from QDOM2 #521; Sonnet; js_dom.rs) Remaining collections: MutationRecord addedNodes/removedNodes
       as static NodeLists; HTMLOptionsCollection for select.options (add, remove, length setter, selectedIndex);
       select.selectedOptions and map.images as live HTMLCollections. --wpt-th per-area table.
-- [ ] QDOM3 [S] (P1; Sonnet; js_dom.rs; R65; after QDOM1) `ParentNode.moveBefore(node, child)` on Element, Document,
+- [ ] [WIP] QDOM3 [S] (P1; Sonnet; js_dom.rs; R65; after QDOM1) `ParentNode.moveBefore(node, child)` on Element, Document,
       DocumentFragment: the pre-move checks (same shadow-including root, connected-ness equal, not a doctype/
       ancestor; HierarchyRequestError otherwise), then a move WITHOUT the removing and insertion steps: no script re-run,
       no iframe reload, focus/selection kept, custom elements get `connectedMoveCallback` (else disconnected+connected),
@@ -137,6 +137,8 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       Comment-constructor, DocumentFragment-constructor, Document-constructor, Document-adoptNode, Node-cloneNode,
       insertion-removing-steps/*, events/Event-dispatch-bubbles-{true,false}. Target: nodes +1.5. Prerequisite for
       dom/common.js (QDOM8).
+- [ ] QDOM6b [S] (P2, from QDOM6 #526; Sonnet; js_dom.rs) `createElementNS(null, name)` creates an HTML-namespace element
+      (old quirk): use `__d_create_xml` (null namespace, name unchanged) as created XML documents already do. Test + --wpt-th.
 - [ ] QDOM8 [S] (P1; Sonnet; js_dom.rs; R65; after QDOM6, QDOM7) ProcessingInstruction and CDATASection nodes:
       `document.createProcessingInstruction(target, data)` (target must match Name, data must not contain `?>`:
       InvalidCharacterError), `createCDATASection(data)` (NotSupportedError on HTML documents, `]]>` ->

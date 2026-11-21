@@ -161,3 +161,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-21 Merged #527 QCSS1 3276697 (stylesheet @media = matchMedia evaluator; reftests +7, 1 accepted pass->fail).
 - 2026-11-21 Coordinator error: launched QREG1 as a 6th agent (counted QCSS1's slot twice). Stopped it after ~1 min; worktree agent-ad6ad0ed1b7e4e7fa kept with uncommitted edits (app.rs, config.rs, forms_text.rs); RESUME that agent (SendMessage) at the next free slot. Count running agents with ListAgents before every launch.
 - 2026-11-21 #530 QKEYS5 merging. Resumed QREG1 agent (5 running: QEL2 measuring, QREC3, QXSCR1, QDOM6, QREG1). Added AGENT_RULES: wait in foreground, bounded.
+- 2026-11-21 #526 QDOM6 READY (total 31.5 -> 31.8; merge after #530). Filed QDOM6b. Launched QDOM3.
