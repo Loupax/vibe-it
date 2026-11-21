@@ -35,13 +35,13 @@ NOW
 ========================================================================
 RELIABILITY (flaky tests undermine CI, which the conformance plan relies on; crashes)
 ========================================================================
-- [ ] QFLK4 [S] (P3, from QNAV9 #435; Sonnet) forms test q30d_typing_through_the_app_events_maxlength_readonly_escape failed
+- [ ] [WIP] QFLK4 [S] (P3, from QNAV9 #435; Sonnet) forms test q30d_typing_through_the_app_events_maxlength_readonly_escape failed
       once in a full suite run while the machine was loaded (passed in 2 later runs). Find the timing dependence; prove 20x.
-- [ ] QFLK5 [S] (P2, from #460 CI; Sonnet) V8 heap-growth tests qpt1b_fifty_create_remove_cycles_return_to_baseline (main
+- [ ] [WIP] QFLK5 [S] (P2, from #460 CI; Sonnet) V8 heap-growth tests qpt1b_fifty_create_remove_cycles_return_to_baseline (main
       CI e219bee) and qpt1e_nosnap_create_remove_cycles (#460) flake on CI. Make them robust (GC before measuring, margins).
-- [ ] QFLK6 [S] (P3, from #463; Sonnet) qinc1i_forced_layouts_see_the_windows_images flakes: window images keyed by a
+- [ ] [WIP] QFLK6 [S] (P3, from #463; Sonnet) qinc1i_forced_layouts_see_the_windows_images flakes: window images keyed by a
       document's node address, which a new document can reuse. Key by a document id.
-- [ ] QJ4b [S] (P3, found by QJ4) Layout PANIC in `measure_grid`
+- [ ] [WIP] QJ4b [S] (P3, found by QJ4) Layout PANIC in `measure_grid`
       (src/layout.rs, `col_widths[p.col_start..p.col_end]`: "range end index 2
       out of range for slice of length 1") on theguardian.com/international
       when laid out after its scripts ran (headless forced layout, 1024x768).
@@ -146,7 +146,7 @@ QSTASH — persistent web storage (user design session 2026-11-19; full design i
   [2026-11-20: the reader exists: `:go` completion (QCOMP-D). History file design in
   STASH.md "History", item QCOMP3.]
 
-- [ ] QSTASH1 [M] (P2, after the perf queue) `src/stash.rs`: the state directory and
+- [ ] [WIP] QSTASH1 [M] (P2, after the perf queue) `src/stash.rs`: the state directory and
       its rules, no JS wiring. Layout, key<->filename encoding (percent-encode `/`, `%`,
       NUL, a leading `.`, a trailing `~`; empty key `%`; >200 bytes -> `%h<sha256>` with
       the key on the first line), WTF-8 values with the one-`\n` rule, `load(site,
