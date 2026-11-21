@@ -50,7 +50,9 @@ their section with the date.
   `--profile NAME` is later). Third parties are partitioned by top-level site (Firefox
   Total Cookie Protection). SameSite as declared; missing = None. RFC 6265bis rules.
   `document.cookie` goes through a control channel; HttpOnly never exposed.
-- **Cookie control-channel token:** none for now; leave a documented hook.
+- **Cookie control-channel token (2026-11-21, replaces "none for now"):** add it before the cookie
+  file (QSTASH5 #481) ships: wire writes a random token to a 0600 file next to its socket and
+  requires it on cookie control requests; scratchy reads it at startup.
 - **CORS:** browser rules (QF-D1).
 - **Beacons** (`sendBeacon`, `keepalive`, `<a ping>`): log in detail, do not send
   (`beacons_send: false` policy flag).
