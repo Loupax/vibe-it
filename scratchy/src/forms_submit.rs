@@ -525,6 +525,7 @@ impl App {
         self.push_history(url.clone());
         self.nav_initiator = self.base_url.clone();
         self.pending_post = Some(post);
+        self.visit_pending = true; // QCOMP3
         self.fetch_url_inner(url);
     }
 }

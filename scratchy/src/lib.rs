@@ -135,6 +135,7 @@ mod link_css;
 // QSTASH1: the localStorage state directory (STASH.md); QSTASH2: localStorage over it.
 #[cfg_attr(not(test), allow(dead_code))] // clear/forget: `--forget-site` is a later QSTASH item
 mod stash;
+mod history;
 mod forget;
 mod js_storage;
 
@@ -198,10 +199,11 @@ pub fn run() {
     let Args { input, socket, no_js, state_dir } = parse_args();
     set_js_enabled(!no_js);
     // QSTASH2: localStorage persists in the state directory (STASH.md); unusable -> in memory, one log line.
+    let dir = js_storage::resolve_state_dir(state_dir, |k| env::var(k).ok());
     if !no_js {
-        let dir = js_storage::resolve_state_dir(state_dir, |k| env::var(k).ok());
         js_storage::set_backend(dir.as_deref().and_then(js_storage::Backend::open));
     }
+    history::init(dir); // QCOMP3: visits file + startup trim
     if !no_js {
         js_engine::warm_up(); // QV8-4: V8 startup snapshot, built in the background
     }
