@@ -1760,7 +1760,10 @@ images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom
   `qinc1k10_moved_abs_pseudo_resolves_against_its_new_containing_block` (hand-made, 0-3 wrappers; like the earlier
   hand-made attempt it passes on main too: the harvest's exact order matters). Fuzz (release): default window x 7
   (`SCRATCHY_FUZZ_SEED` 0..6000, 1 000 each) + `REGRESSION_SEEDS` 0 mismatches; `qinc1k1_fuzz_fractional_heights_far_down`
-  x 7 (seeds 0..3000, 500 each) 0 mismatches. Suite 1 736 passed (debug and release), clippy 77.
+  x 7 (seeds 0..3000, 500 each) 0 mismatches. Suite 1 736 passed (debug and release), clippy 77, WPT 333 / 293
+  (no change). Gate (release build of this branch, 1-min load 3.9-7.1): `gate.sh check 1` ytr ytw wiki github bbc
+  social hover: 0 mismatches in all 14 runs (headless and window); social's window run ends `quit=killed` as before
+  (pre-existing, see QINC1k4 above).
 
 **Schedule (up to 5 agents, one per area):** wave 1: a (incr-new + perf), b (layout), d (incr-new: own file
 `src/invalidation.rs`; a and d share only `src/tests/mod.rs` lines), e (jsdom). Wave 2: c (layout, after b) ∥ f (style +
