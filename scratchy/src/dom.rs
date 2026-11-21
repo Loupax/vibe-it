@@ -595,12 +595,15 @@ pub(crate) fn enclosing_control(h: &Handle) -> Option<Handle> {
 /// it was hit, not only its text glyphs. An `<a>` without `href` is not a link, the
 /// walk goes on past it.
 pub(crate) fn enclosing_link_href(h: &Handle) -> Option<String> {
+    enclosing_link(h).and_then(|n| element_attr(&n, "href").map(|v| v.to_string()))
+}
+
+/// The nearest ancestor-or-self `<a href>` / `<area href>` of `h`.
+pub(crate) fn enclosing_link(h: &Handle) -> Option<Handle> {
     let mut cur = Some(h.clone());
     while let Some(n) = cur {
-        if matches!(element_tag(&n), "a" | "area")
-            && let Some(href) = element_attr(&n, "href")
-        {
-            return Some(href.to_string());
+        if matches!(element_tag(&n), "a" | "area") && element_attr(&n, "href").is_some() {
+            return Some(n);
         }
         cur = parent_handle(&n);
     }

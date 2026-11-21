@@ -53,6 +53,7 @@ switch it by focusing a field.</li>
 <tr><td><code>:</code></td><td>Open the command line</td></tr>
 <tr><td><code>/</code></td><td>Open the search line</td></tr>
 <tr><td><code>Esc</code></td><td>Clear the search highlights (it never changes the mode)</td></tr>
+<tr><td><code>Enter</code></td><td>Click the current search match (a link is followed through the page's own click handlers; a match across two links only warns)</td></tr>
 <tr><td><code>n</code> / <code>N</code></td><td>Go to the next / previous search match (wraps around, and scrolls the page to it)</td></tr>
 <tr><td><code>i</code></td><td>Switch to INPUT mode</td></tr>
 </table>
@@ -75,6 +76,11 @@ that box first, then the page. <code>n</code> goes to the next match and
 (<code>search hit TOP, continuing at BOTTOM</code> going backwards); with no
 search yet the status bar says <code>No previous search</code>. The last query is
 kept when you go to another page, so <code>n</code> there searches it again.
+<code>Enter</code> in NORMAL mode clicks the current match, like a mouse
+click: a link is followed through the page's own click handlers, a button is
+pressed. If the match runs over two or more different links the status bar says
+<code>Match spans N links</code> and nothing is clicked; with no match nothing
+happens.
 <code>Esc</code> in the search line cancels;
 <code>Esc</code> in NORMAL mode clears the highlights. Going to another page
 clears them too.</p>
