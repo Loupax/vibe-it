@@ -15,6 +15,8 @@
 //!    `wpt-th/areas.txt` (R64 3.1: mean per-file score, subtest pass % beside it),
 //! 5. exits 1 on any REGRESSION / UNRECORDED / CHANGED; `--update` rewrites the expected files.
 //!
+//! `scratchy --wpt-th --areas-only [--dir DIR]` (QWPT10) only recomputes `areas.txt` from subset.txt + expected/ + flaky.txt.
+//!
 //! Memory cap: the whole runner re-executes itself once inside
 //! `systemd-run --user --scope -p MemoryMax=6G -p MemorySwapMax=0` (env `SCRATCHY_WPT_TH_MEM`
 //! overrides the 6G; `--no-scope` or no usable systemd-run: runs as is, one stderr line). One scope
@@ -757,6 +759,32 @@ fn rescope(args: &[String]) {
     diag!("scratchy --wpt-th: cannot enter a systemd scope ({err}): running without a memory cap");
 }
 
+/// QWPT10: the areas table computed from subset.txt + expected/*.txt + flaky.txt, no test run. Same rows as a
+/// full run: `files` counts every subset entry of the area (flaky included), the other columns only the
+/// non-flaky entries that have an expected record (a full run would have a result for those).
+pub(crate) fn areas_from_dir(dir: &std::path::Path) -> Result<String, String> {
+    let subset = fs::read_to_string(dir.join("subset.txt")).map_err(|e| format!("cannot read {}: {e}", dir.join("subset.txt").display()))?;
+    let flaky = fs::read_to_string(dir.join("flaky.txt")).map(|t| parse_flaky(&t)).unwrap_or_default();
+    let mut order: Vec<String> = Vec::new();
+    let mut by_area: BTreeMap<String, Vec<Entry>> = BTreeMap::new();
+    for e in parse_subset(&subset) {
+        if !order.contains(&e.area) {
+            order.push(e.area.clone());
+        }
+        by_area.entry(e.area.clone()).or_default().push(e);
+    }
+    let mut rows = Vec::new();
+    for area in &order {
+        let entries = &by_area[area];
+        let expected = fs::read_to_string(dir.join("expected").join(area_file(area))).map(|t| parse_expected(&t)).unwrap_or_default();
+        let counted: Vec<&FileResult> = entries.iter().filter(|e| !flaky.contains(&e.path)).filter_map(|e| expected.get(&e.path)).collect();
+        rows.push(area_row(area, entries.len(), &counted));
+    }
+    Ok(format_areas(&rows))
+}
+
+const USAGE: &str = "usage: scratchy --wpt-th <wpt-checkout> [--jobs N] [--update] [--area A] [--wire PATH] [--dir wpt-th] [--timeout SECS] [--no-scope] [-v]\n       scratchy --wpt-th --areas-only [--dir wpt-th]   (rewrite areas.txt from subset/expected/flaky, no test run, no checkout)";
+
 pub(crate) fn main(args: &[String]) -> i32 {
     let (mut checkout, mut wire, mut dir) = (None, None, PathBuf::from("wpt-th"));
     let mut cfg = Config {
@@ -768,6 +796,7 @@ pub(crate) fn main(args: &[String]) -> i32 {
         verbose: false,
     };
     let mut no_scope = false;
+    let mut areas_only = false;
     let mut i = 0;
     while i < args.len() {
         let a = args[i].as_str();
@@ -791,6 +820,7 @@ pub(crate) fn main(args: &[String]) -> i32 {
             }
             "--update" => cfg.update = true,
             "--no-scope" => no_scope = true,
+            "--areas-only" => areas_only = true,
             "-v" => cfg.verbose = true,
             a if !a.starts_with("--") && checkout.is_none() => checkout = Some(PathBuf::from(a)),
             a => {
@@ -800,8 +830,26 @@ pub(crate) fn main(args: &[String]) -> i32 {
         }
         i += 1;
     }
+    if areas_only {
+        return match areas_from_dir(&dir) {
+            Ok(t) => match fs::write(dir.join("areas.txt"), &t) {
+                Ok(()) => {
+                    write_raw_stdout(format_args!("{t}"));
+                    0
+                }
+                Err(e) => {
+                    diag!("scratchy --wpt-th: cannot write areas.txt: {e}");
+                    2
+                }
+            },
+            Err(e) => {
+                diag!("scratchy --wpt-th: {e}");
+                2
+            }
+        };
+    }
     let Some(checkout) = checkout else {
-        diag!("usage: scratchy --wpt-th <wpt-checkout> [--jobs N] [--update] [--area A] [--wire PATH] [--dir wpt-th] [--timeout SECS] [--no-scope] [-v]");
+        diag!("{USAGE}");
         return 2;
     };
     cfg.dir = dir;

@@ -2,7 +2,8 @@
 # Coordinator merge queue: merge ONE PR safely.
 # usage: merge_pr.sh <pr-number>
 # 1. Always rebase onto origin/main in a temp worktree; PROMPTS.md/REGRESSIONS.md conflicts keep both
-#    (main first); any other conflict or duplicate R-heading -> exit 2; if the head changed, force-push, wait CI.
+#    (main first); a conflict in scratchy/wpt-th/areas.txt is rebuilt with `scratchy --wpt-th --areas-only` (QWPT10);
+#    any other conflict or duplicate R-heading -> exit 2; if the head changed, force-push, wait CI.
 # 2. Require all four checks green on the PR head, then squash-merge.
 # Exit 0 = merged; 1 = CI red (resume the agent); 2 = conflict it could not resolve; 3 = other.
 set -u
@@ -63,13 +64,39 @@ while i<len(L):
 open(p,'w').write('\n'.join(out))
 PYEOF
 }
+# QWPT10: scratchy/wpt-th/areas.txt is derived from wpt-th/{subset.txt,expected/,flaky.txt}: on a conflict take either
+# side, then recompute it with `scratchy --wpt-th --areas-only`. Binary: $W/scratchy/target/release/scratchy if it exists,
+# else build it there (nice -n 19 ionice -c3 cargo build --release, RUSTY_V8_ARCHIVE when present), else
+# ~/.cargo/bin/scratchy only if it supports --areas-only. Echoes the binary used; returns 1 if none is usable.
+AREAS=scratchy/wpt-th/areas.txt
+SBIN=
+areasbin() {
+  if [ -z "$SBIN" ]; then
+    local c=$W/scratchy/target/release/scratchy v8=$HOME/.cache/librusty_v8-152.2.0.a
+    if [ ! -x "$c" ]; then
+      echo "PR #$N: building scratchy for --areas-only (release build in $W/scratchy)" >&2
+      ( cd "$W/scratchy" && if [ -f "$v8" ]; then export RUSTY_V8_ARCHIVE=$v8 CARGO_BUILD_JOBS=4; fi; nice -n 19 ionice -c3 cargo build --release >/dev/null 2>&1 )
+    fi
+    if [ -x "$c" ] && grep -qa -- '--areas-only' "$c"; then SBIN=$c
+    elif [ -x "$HOME/.cargo/bin/scratchy" ] && grep -qa -- '--areas-only' "$HOME/.cargo/bin/scratchy"; then SBIN=$HOME/.cargo/bin/scratchy
+    else return 1; fi
+    echo "PR #$N: areas.txt rebuilt with $SBIN" >&2
+  fi
+  echo "$SBIN"
+}
+regen_areas() {
+  local b; b=$(areasbin) || return 1
+  git checkout -q --theirs -- "$AREAS" 2>/dev/null   # either side; the content is replaced below
+  ( cd "$W/scratchy" && "$b" --wpt-th --areas-only --dir wpt-th >/dev/null 2>&1 ) || return 1
+  git add "$AREAS"
+}
 if ! ( cd "$W" && git rebase -q origin/main >/dev/null 2>&1 ); then
   cd "$W"
   TRIES=0
   while git status | grep -q 'rebase in progress'; do
     TRIES=$((TRIES+1)); if [ $TRIES -gt 30 ]; then echo "PR #$N: rebase stuck"; git rebase --abort; cd "$REPO"; git worktree remove --force "$W"; git branch -D "mq-$N" >/dev/null; exit 3; fi
     U=$(git diff --name-only --diff-filter=U)
-    BAD=$(echo "$U" | grep -Ev '^(scratchy/PROMPTS\.md|scratchy/REGRESSIONS\.md|scratchy/src/tests/mod\.rs)?$' | tr '\n' ' ')
+    BAD=$(echo "$U" | grep -Ev '^(scratchy/PROMPTS\.md|scratchy/REGRESSIONS\.md|scratchy/src/tests/mod\.rs|scratchy/wpt-th/areas\.txt)?$' | tr '\n' ' ')
     if [ -n "$BAD" ]; then
       echo "PR #$N: rebase CONFLICT in: $BAD"
       git rebase --abort; cd "$REPO"; git worktree remove --force "$W"; git branch -D "mq-$N" >/dev/null; exit 2
@@ -81,6 +108,11 @@ if ! ( cd "$W" && git rebase -q origin/main >/dev/null 2>&1 ); then
           git rebase --abort; cd "$REPO"; git worktree remove --force "$W"; git branch -D "mq-$N" >/dev/null; exit 2
         fi
         git add "$f"
+      elif [ "$f" = "$AREAS" ]; then
+        if ! regen_areas; then
+          echo "PR #$N: rebase CONFLICT in: $f (could not rebuild it with --areas-only: no usable scratchy binary)"
+          git rebase --abort; cd "$REPO"; git worktree remove --force "$W"; git branch -D "mq-$N" >/dev/null; exit 2
+        fi
       else
         keepboth "$f" && git add "$f"
       fi
