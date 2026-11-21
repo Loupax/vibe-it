@@ -73,6 +73,9 @@ pub(crate) const BINDINGS: &[Binding] = &[
     bind(Char("d"), Mods::Ctrl, A::HalfPageDown),
     bind(Char("u"), Mods::Ctrl, A::HalfPageUp),
     bind(Char(":"), Mods::Any, A::EnterCommandMode),
+    // QSEARCH1: `/` opens the search line, Esc clears the highlights (never changes the mode).
+    bind(Char("/"), Mods::Any, A::EnterSearchMode),
+    bind(Named(NamedKey::Escape), Mods::Any, A::ClearSearch),
     bind(Char("i"), Mods::Any, A::EnterInputMode),
     bind(Char("h"), Mods::Any, A::HistoryBack),
     bind(Char("l"), Mods::Any, A::HistoryFront),
@@ -136,6 +139,13 @@ pub(crate) const STATUS_BAR_BG: (u8, u8, u8) = (24, 24, 24);
 pub(crate) const STATUS_BAR_FG: (u8, u8, u8) = (225, 225, 225);
 /// Status bar mode-name colour (`INPUT` / `NORMAL`), RGB.
 pub(crate) const STATUS_BAR_MODE_FG: (u8, u8, u8) = (120, 200, 255);
+
+// ---------- search highlights (QSEARCH1) ----------
+
+/// Every match's highlight colour, RGBA (painted over the page).
+pub(crate) const SEARCH_MATCH_RGBA: (u8, u8, u8, u8) = (255, 214, 0, 110);
+/// The current match's stronger highlight colour, RGBA.
+pub(crate) const SEARCH_CURRENT_RGBA: (u8, u8, u8, u8) = (255, 140, 0, 180);
 
 // ---------- command bar ----------
 
