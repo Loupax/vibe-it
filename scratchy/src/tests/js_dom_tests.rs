@@ -1965,3 +1965,95 @@ fn qerr1_onerror_true_suppresses_log_and_throwing_handler_does_not_recurse() {
     assert_eq!(log.iter().filter(|l| l.contains("again")).count(), 1, "{log:?}");
 }
 
+
+// QDOM4: DOM event flags, listener exceptions, handleEvent lookup, isTrusted, passive defaults (R65).
+fn qdom4_run(code: &str) -> Vec<String> {
+    run_collecting(&[src(code)])
+}
+
+#[test]
+fn qdom4_stop_flags_cancel_bubble_and_return_value() {
+    let log = qdom4_run(
+        "var d=document.createElement('div'), p=document.createElement('p'); d.appendChild(p); document.body.appendChild(d);\
+         var e=new Event('x',{bubbles:true,cancelable:true});\
+         p.addEventListener('x',function(){console.log('p1', e.cancelBubble); e.cancelBubble=false; console.log('p1b', e.cancelBubble); e.stopPropagation(); console.log('p1c', e.cancelBubble)});\
+         p.addEventListener('x',function(){console.log('p2')});\
+         d.addEventListener('x',function(){console.log('d')});\
+         p.dispatchEvent(e); console.log('after', e.cancelBubble, e.composedPath().length);\
+         var f=new Event('y',{bubbles:true}); f.cancelBubble=true; d.addEventListener('y',function(){console.log('bad')}); p.dispatchEvent(f); console.log('pre-stopped', f.cancelBubble);\
+         var g=new Event('z',{cancelable:true}); console.log(g.returnValue, g.defaultPrevented); g.returnValue=true; console.log(g.returnValue); g.returnValue=false; console.log(g.returnValue, g.defaultPrevented);\
+         var h=new Event('z',{cancelable:true}); d.addEventListener('z',function(ev){ev.stopImmediatePropagation()}); d.addEventListener('z',function(){console.log('imm-bad')}); d.dispatchEvent(h); console.log('imm', h.cancelBubble);",
+    );
+    assert_eq!(
+        log,
+        ["log:p1 false", "log:p1b false", "log:p1c true", "log:p2", "log:after false 0", "log:pre-stopped false", "log:true false", "log:true",
+         "log:false true", "log:imm false"],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qdom4_init_event_during_dispatch_and_src_element() {
+    let log = qdom4_run(
+        "var d=document.createElement('div'); var e=new Event('a',{cancelable:true});\
+         console.log(e.srcElement, e.target);\
+         d.addEventListener('a',function(){ e.initEvent('b', true, false); console.log(e.type, e.bubbles, e.srcElement===d); });\
+         d.dispatchEvent(e); e.initEvent('c', true, false); console.log(e.type, e.bubbles, e.target);\
+         var ev=document.createEvent('Event'); try { d.dispatchEvent(ev); } catch (x) { console.log(x.name); } ev.initEvent('q'); console.log(d.dispatchEvent(ev));\
+         d.addEventListener('r', function (x) { try { d.dispatchEvent(x); } catch (y) { console.log(y.name); } }); d.dispatchEvent(new Event('r'));",
+    );
+    assert_eq!(
+        log,
+        ["log:null null", "log:a false true", "log:c true null", "log:InvalidStateError", "log:true", "log:InvalidStateError"],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qdom4_listener_exceptions_are_reported_and_dispatch_continues() {
+    let log = qdom4_run(
+        "var seen=[]; window.addEventListener('error', function (e) { seen.push(e.message); e.preventDefault(); });\
+         var d=document.createElement('div');\
+         d.addEventListener('t',function(){ throw new Error('one') }); d.addEventListener('t',function(){ console.log('second') });\
+         d.addEventListener('t',{ get handleEvent() { throw new RangeError('getter') } }); d.addEventListener('t',{ handleEvent: 5 });\
+         console.log(d.dispatchEvent(new Event('t')), seen.join('|'));",
+    );
+    assert_eq!(
+        log,
+        ["log:second", "log:true Uncaught Error: one|Uncaught RangeError: getter|Uncaught TypeError: handleEvent is not a function"],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qdom4_handle_event_looked_up_every_invoke() {
+    let log = qdom4_run(
+        "var o={handleEvent:function(){console.log('A', this===o)}}; var d=document.createElement('div'); d.addEventListener('t',o);\
+         d.dispatchEvent(new Event('t')); o.handleEvent=function(){console.log('B')}; d.dispatchEvent(new Event('t'));",
+    );
+    assert_eq!(log, ["log:A true", "log:B"], "{log:?}");
+}
+
+#[test]
+fn qdom4_is_trusted_is_an_own_unforgeable_getter() {
+    let log = qdom4_run(
+        "var e=new Event('x'); var dsc=Object.getOwnPropertyDescriptor(e,'isTrusted');\
+         console.log(typeof dsc.get, dsc.set, dsc.configurable, dsc.enumerable, e.isTrusted);\
+         try { Object.defineProperty(e,'isTrusted',{value:true}); } catch (x) { console.log(x.name); }\
+         e.isTrusted=true; console.log(e.isTrusted, document.createEvent('Event').isTrusted);",
+    );
+    assert_eq!(log, ["log:function undefined false true false", "log:TypeError", "log:false false"], "{log:?}");
+}
+
+#[test]
+fn qdom4_passive_by_default_on_window_document_html_body() {
+    let log = qdom4_run(
+        "var els=[window, document, document.documentElement, document.body, document.createElement('div')];\
+         ['touchstart','wheel','click'].forEach(function (t) { var r=[]; els.forEach(function (el) {\
+           var f=function (e) { e.preventDefault(); r.push(e.defaultPrevented ? 'c' : 'p'); };\
+           el.addEventListener(t, f); var ev=new Event(t,{cancelable:true}); el.dispatchEvent(ev); });\
+           console.log(t, r.join('')); });\
+         var ev2=new Event('wheel',{cancelable:true}); var f2=function (e) { e.preventDefault(); }; document.addEventListener('wheel', f2, {passive:false}); document.dispatchEvent(ev2); console.log(ev2.defaultPrevented);",
+    );
+    assert_eq!(log, ["log:touchstart ppppc", "log:wheel ppppc", "log:click ccccc", "log:true"], "{log:?}");
+}

@@ -388,16 +388,28 @@ const PRELUDE: &str = r#"
     this.target = null;
     this.currentTarget = null;
     this.eventPhase = 0;
-    this.isTrusted = false;
     this.timeStamp = __scratchy_now();
+    // QDOM4: the DOM event flags (stop propagation, stop immediate, dispatch, initialized) are
+    // hidden slots; `isTrusted` is one own, unforgeable (non-configurable) accessor.
+    var self = this;
+    ['_stop', '_stopNow', '_disp', '_passive'].forEach(function (k) { Object.defineProperty(self, k, { value: false, writable: true }); });
+    Object.defineProperty(this, '_path', { value: [], writable: true });
+    Object.defineProperty(this, '_init', { value: true, writable: true });
+    Object.defineProperty(this, 'isTrusted', { get: isTrustedGet, enumerable: true, configurable: false });
   });
+  var trusted = new WeakSet();
+  var isTrustedGet = function () { return trusted.has(this); };
+  Object.defineProperty(g, '__scratchy_trust', { value: function (ev) { trusted.add(ev); } });
   Event.NONE = 0; Event.CAPTURING_PHASE = 1; Event.AT_TARGET = 2; Event.BUBBLING_PHASE = 3;
   Event.prototype.preventDefault = function () { if (this.cancelable && !this._passive) this.defaultPrevented = true; };
   Event.prototype.stopPropagation = function () { this._stop = true; };
   Event.prototype.stopImmediatePropagation = function () { this._stop = true; this._stopNow = true; };
-  Event.prototype.composedPath = function () { return this._path ? this._path.slice() : []; };
+  Event.prototype.composedPath = function () { return this._disp && this._path ? this._path.slice() : []; };
   Object.defineProperty(Event.prototype, 'cancelBubble', { get: function () { return !!this._stop; },
     set: function (v) { if (v) this._stop = true; }, configurable: true });
+  Object.defineProperty(Event.prototype, 'returnValue', { get: function () { return !this.defaultPrevented; },
+    set: function (v) { if (!v) this.preventDefault(); }, configurable: true });
+  Object.defineProperty(Event.prototype, 'srcElement', { get: function () { return this.target; }, configurable: true });
   var CustomEvent = ctor('CustomEvent', Event, function (type, init) {
     Event.call(this, type, init);
     this.detail = init && init.detail !== undefined ? init.detail : null;
@@ -428,6 +440,8 @@ const PRELUDE: &str = r#"
   });
   // QY4/QA15: legacy init*Event methods and ErrorEvent.
   Event.prototype.initEvent = function (type, bubbles, cancelable) {
+    if (this._disp) return;
+    this._init = true; this._stop = false; this._stopNow = false; this.defaultPrevented = false; this.target = null;
     this.type = String(type); this.bubbles = !!bubbles; this.cancelable = !!cancelable;
   };
   CustomEvent.prototype.initCustomEvent = function (type, bubbles, cancelable, detail) {
@@ -498,7 +512,7 @@ const PRELUDE: &str = r#"
   var normOpts = function (o) {
     if (typeof o === 'boolean') return { capture: o };
     o = o || {};
-    return { capture: !!o.capture, once: !!o.once, passive: !!o.passive };
+    return { capture: !!o.capture, once: !!o.once, passive: o.passive === undefined ? undefined : !!o.passive };
   };
   var oops = function (e) { __scratchy_err('Uncaught ' + String(e) + (e && e.stack ? '\n' + e.stack : '')); };
   // QA12: inline `on<type>="..."` content attributes. Compiled lazily on
@@ -519,6 +533,8 @@ const PRELUDE: &str = r#"
       return null;
     }
     if (!el || el.__id === undefined) return null;
+    // QDOM4: scripting is disabled in a document without a browsing context (DOMParser, createHTMLDocument).
+    if (el.ownerDocument !== g.document) return null;
     var src = __d_attr(el.__id, 'on' + type);
     if (src == null) return null;
     var m = compiled.get(el);
@@ -530,9 +546,20 @@ const PRELUDE: &str = r#"
     }
     return c.fn;
   };
+  // QDOM4: a listener exception is reported (window `error` event / onerror, the QERR1 path) and
+  // dispatch continues; an unhandled one is logged as before.
+  var reportListenerError = function (x) {
+    var r = false;
+    try { r = g.__scratchy_report_error(x, '', 0, 0); } catch (y) {}
+    if (!r) oops(x);
+  };
+  // QDOM4 (minimal; QDOM10 refines it): `window.event` is the event whose listener is running.
+  var curEvent;
+  Object.defineProperty(g, 'event', { get: function () { return curEvent; },
+    set: function (v) { Object.defineProperty(g, 'event', { value: v, writable: true, configurable: true, enumerable: true }); },
+    configurable: true, enumerable: true });
   var dispatch = function (target, ev) {
     ev.target = target;
-    ev._stop = false; ev._stopNow = false;
     var path = [target];
     if (target && target.__id !== undefined) {
       // QSD3: a composed event continues from a shadow root to its host (no retargeting yet, QSD8).
@@ -544,10 +571,11 @@ const PRELUDE: &str = r#"
       }
       if (path[path.length - 1] === g.document) path.push(g);
     }
-    ev._path = path;
+    ev._path = path; ev._disp = true;
     var pl = g.__perf_lis; // QOBS4b: only present while --perf-report is recording
     // capFilter: true = capture listeners only, false = non-capture only.
     var invoke = function (node, phase, capFilter) {
+      if (ev._stop) return;
       ev.currentTarget = node; ev.eventPhase = phase;
       var l = lists(node, ev.type, false);
       if (l) {
@@ -558,14 +586,15 @@ const PRELUDE: &str = r#"
           if (e.once) node.removeEventListener(ev.type, e.fn, e.capture);
           ev._passive = e.passive;
           var t0 = pl ? g.__perf_cpu() : 0;
+          var lf = e.fn, prevEv = curEvent;
+          curEvent = ev;
           try {
-            if (typeof e.fn === 'function') e.fn.call(node, ev);
-            else if (e.fn && typeof e.fn.handleEvent === 'function') e.fn.handleEvent(ev);
-          } catch (x) { oops(x); }
-          if (pl) {
-            var lf = typeof e.fn === 'function' ? e.fn : e.fn && e.fn.handleEvent;
-            if (typeof lf === 'function') pl(ev.type, lf, g.__perf_cpu() - t0);
-          }
+            // QDOM4: handleEvent is looked up at every invoke; a non-callable one is a reported TypeError.
+            if (typeof lf === 'function') lf.call(node, ev);
+            else { lf = lf.handleEvent; if (typeof lf !== 'function') throw new TypeError('handleEvent is not a function'); lf.call(e.fn, ev); }
+          } catch (x) { reportListenerError(x); }
+          curEvent = prevEv;
+          if (pl && typeof lf === 'function') pl(ev.type, lf, g.__perf_cpu() - t0);
           ev._passive = false;
           if (ev._stopNow) return;
         }
@@ -579,15 +608,19 @@ const PRELUDE: &str = r#"
               // QERR1: window.onerror takes the 5-argument form; `true` cancels.
               if (h.call(node, ev.message, ev.filename, ev.lineno, ev.colno, ev.error) === true) ev.preventDefault();
             } else if (h.call(node, ev) === false) ev.preventDefault();
-          } catch (x) { oops(x); }
+          } catch (x) { reportListenerError(x); }
         }
       }
     };
     var i;
-    for (i = path.length - 1; i > 0 && !ev._stop; i--) invoke(path[i], 1, true);
-    if (!ev._stop) { invoke(path[0], 2, true); if (!ev._stopNow) invoke(path[0], 2, false); }
-    if (ev.bubbles) for (i = 1; i < path.length && !ev._stop; i++) invoke(path[i], 3, false);
-    ev.currentTarget = null; ev.eventPhase = 0;
+    try {
+      for (i = path.length - 1; i > 0; i--) invoke(path[i], 1, true);
+      invoke(path[0], 2, true); invoke(path[0], 2, false);
+      if (ev.bubbles) for (i = 1; i < path.length; i++) invoke(path[i], 3, false);
+    } finally {
+      // spec "dispatch" end: the flags are cleared, the path is gone.
+      ev.currentTarget = null; ev.eventPhase = 0; ev._disp = false; ev._stop = false; ev._stopNow = false; ev._path = [];
+    }
     return !ev.defaultPrevented;
   };
   Object.defineProperty(g, '__scratchy_dispatch', { value: dispatch });
@@ -619,6 +652,12 @@ const PRELUDE: &str = r#"
     if (fn == null || (typeof fn !== 'function' && typeof fn !== 'object')) return;
     var o = normOpts(opt), l = lists(this, String(type), true);
     for (var i = 0; i < l.length; i++) if (l[i].fn === fn && l[i].capture === o.capture) return;
+    if (o.passive === undefined) {
+      // QDOM4: touchstart/touchmove/wheel/mousewheel listeners on window, document, <html>, <body> default to passive.
+      var d = g.document;
+      o.passive = (type === 'touchstart' || type === 'touchmove' || type === 'wheel' || type === 'mousewheel') &&
+        (this === g || (d && (this === d || this === d.documentElement || this === d.body)));
+    }
     l.push({ fn: fn, capture: o.capture, once: o.once, passive: o.passive, removed: false });
     type = String(type);
     if (PTR_TYPES.indexOf(type) >= 0) ptrCount[type] = (ptrCount[type] | 0) + 1;
@@ -637,7 +676,7 @@ const PRELUDE: &str = r#"
   };
   ETP.dispatchEvent = function (ev) {
     if (!(ev instanceof Event)) throw new TypeError("Failed to execute 'dispatchEvent': parameter 1 is not of type 'Event'.");
-    ev.isTrusted = false;
+    if (ev._disp || ev._init === false) throw new DOMException(ev._disp ? 'The event is already being dispatched.' : 'The event provided is uninitialized.', 'InvalidStateError');
     return dispatch(this, ev);
   };
   ['addEventListener', 'removeEventListener', 'dispatchEvent'].forEach(function (m) {

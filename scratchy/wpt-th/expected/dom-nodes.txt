@@ -1592,8 +1592,8 @@ OK           1/1  dom/nodes/Element-firstElementChild.html
 OK           1/3  dom/nodes/Element-getElementsByClassName.html
   FAIL      Interface should be correct.
   FAIL      getElementsByClassName() should be a live collection
-TIMEOUT      0/1  dom/nodes/Element-getElementsByTagName-change-document-HTMLNess.html
-  NOTRUN    Element-getElementsByTagName-change-document-HTMLNess
+OK           0/1  dom/nodes/Element-getElementsByTagName-change-document-HTMLNess.html
+  FAIL      Element-getElementsByTagName-change-document-HTMLNess
 OK          5/19  dom/nodes/Element-getElementsByTagName.html
   FAIL      Interfaces
   FAIL      Shouldn't be able to set unsigned properties on a HTMLCollection (non-strict mode)

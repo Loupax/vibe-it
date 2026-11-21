@@ -2564,6 +2564,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       keyboardevent: KeyboardEvent, focusevent: FocusEvent, errorevent: ErrorEvent }[String(iface).toLowerCase()];
     if (!C) throw herr('The provided event type (\'' + iface + '\') is invalid.', 'NotSupportedError');
     var e = new C('');
+    e._init = false;
     return e;
   };
   doc.appendChild = NodeProto.appendChild;
@@ -2585,7 +2586,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (init && init.relatedTargetId !== undefined) init.relatedTarget = wrap(init.relatedTargetId);
     if (g.__media_activate && (type === 'click' || type === 'keydown' || type === 'mousedown' || type === 'mouseup' || type === 'keyup')) g.__media_activate();
     var ev = new C(type, init);
-    ev.isTrusted = true;
+    __scratchy_trust(ev);
     var ok = __scratchy_dispatch(t, ev);
     // QM1n2: default action of a trusted click on `<video controls>`: toggle playback
     // (not a page-visible listener; `el.click()` goes through HTMLElement.prototype.click).
