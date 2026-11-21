@@ -23,6 +23,18 @@ use std::path::Path;
 
 pub const WIN_W: u32 = 800;
 pub const WIN_H: u32 = 600;
+/// WPT's print-reftest page: 5in x 3in (CSS px at 96 per inch). Only page 1 is rendered.
+pub const PRINT_W: u32 = 480;
+pub const PRINT_H: u32 = 288;
+
+/// WPT print reftests: under `css/printing/`, `-print` in the file name, or
+/// `<meta name=reftest-pages>`. They render with media type `print`.
+pub fn is_print_test(path: &Path, source: &str) -> bool {
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    path.components().any(|c| c.as_os_str() == "printing")
+        || name.contains("-print")
+        || source.to_ascii_lowercase().contains("reftest-pages")
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Status {
@@ -143,11 +155,13 @@ pub struct Renderer {
     cache: HashMap<PathBuf, Rc<Vec<u32>>>,
     /// Checkout root, for root-relative reference hrefs like `/css/reference/x.html`.
     pub root: Option<PathBuf>,
+    /// Render as paged `print` media (set per test by `check`).
+    print: bool,
 }
 
 impl Renderer {
     pub fn new(extra_fonts: &[PathBuf]) -> Self {
-        Renderer { font_system: new_font_system_with(extra_fonts), swash_cache: SwashCache::new(), cache: HashMap::new(), root: None }
+        Renderer { font_system: new_font_system_with(extra_fonts), swash_cache: SwashCache::new(), cache: HashMap::new(), root: None, print: false }
     }
 
     /// Resolve a stylesheet/image href. Root-relative ones (`/fonts/ahem.css`,
@@ -163,6 +177,18 @@ impl Renderer {
 
     /// Render a local HTML file to an 800x600 white-backed buffer.
     pub fn render(&mut self, path: &Path) -> Result<Rc<Vec<u32>>, String> {
+        let (win_w, win_h) = self.dims();
+        set_print_media(self.print);
+        let r = self.render_inner(path, win_w, win_h);
+        set_print_media(false);
+        r
+    }
+
+    fn dims(&self) -> (u32, u32) {
+        if self.print { (PRINT_W, PRINT_H) } else { (WIN_W, WIN_H) }
+    }
+
+    fn render_inner(&mut self, path: &Path, win_w: u32, win_h: u32) -> Result<Rc<Vec<u32>>, String> {
         let path = fs::canonicalize(path).map_err(|e| format!("{}: {e}", path.display()))?;
         if let Some(p) = self.cache.get(&path) {
             return Ok(p.clone());
@@ -202,17 +228,17 @@ impl Renderer {
             }
         }
         set_document_clock(0.0);
-        let tree = build_layout_tree_with_resources(&dom.document, WIN_W as f32, Some(WIN_H as f32), &extra_css, &images);
+        let tree = build_layout_tree_with_resources(&dom.document, win_w as f32, Some(win_h as f32), &extra_css, &images);
         let mut shape_cache = ShapeCache::new();
         let mut next_id = 0usize;
         let mut incomplete = false;
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
         let laid = measure_document(
-            &tree, &mut self.font_system, WIN_W as f32, WIN_H as f32, &mut next_id, &mut shape_cache, deadline, &mut incomplete,
+            &tree, &mut self.font_system, win_w as f32, win_h as f32, &mut next_id, &mut shape_cache, deadline, &mut incomplete,
         );
-        let mut pixels = vec![0x00FF_FFFFu32; (WIN_W * WIN_H) as usize];
+        let mut pixels = vec![0x00FF_FFFFu32; (win_w * win_h) as usize];
         paint(
-            &laid, &mut self.font_system, &mut self.swash_cache, &mut shape_cache, &HashMap::new(), &mut pixels, WIN_W, WIN_H,
+            &laid, &mut self.font_system, &mut self.swash_cache, &mut shape_cache, &HashMap::new(), &mut pixels, win_w, win_h,
             0.0, None,
         );
         let rc = Rc::new(pixels);
@@ -244,6 +270,13 @@ impl Renderer {
         if let Some(r) = skip_reason(&source) {
             return Err(Skip::Reason(r));
         }
+        if depth == 0 {
+            let print = is_print_test(&canon, &source);
+            if print != self.print {
+                self.cache.clear();
+            }
+            self.print = print;
+        }
         let dom = new_parser().read_from(&mut source.as_bytes()).map_err(|_| Skip::Crash)?;
         let refs = find_refs(&dom.document);
         if refs.is_empty() {
@@ -258,12 +291,12 @@ impl Renderer {
                 _ => canon.parent().unwrap_or(Path::new("/")).join(href),
             };
             // `about:blank` references are an empty white page.
-            let ref_px = if href == "about:blank" { Rc::new(vec![0x00FF_FFFFu32; (WIN_W * WIN_H) as usize]) } else { self.render_guarded(&ref_path)? };
+            let ref_px = if href == "about:blank" { { let (w, h) = self.dims(); Rc::new(vec![0x00FF_FFFFu32; (w * h) as usize]) } } else { self.render_guarded(&ref_path)? };
             let same = images_match(&test_px, &ref_px);
             if same != is_match {
                 ok = false;
                 if let Some(dir) = out {
-                    save_failure(dir, &canon, &test_px, &ref_px);
+                    save_failure(dir, &canon, &test_px, &ref_px, self.dims());
                 }
             }
             if is_match && same && href != "about:blank" && !self.check(&ref_path, seen, depth + 1, out)? {
@@ -287,7 +320,7 @@ enum Skip {
     Crash,
 }
 
-fn save_failure(dir: &Path, test: &Path, a: &[u32], b: &[u32]) {
+fn save_failure(dir: &Path, test: &Path, a: &[u32], b: &[u32], (w, h): (u32, u32)) {
     let _ = fs::create_dir_all(dir);
     let stem = test.file_stem().and_then(|s| s.to_str()).unwrap_or("test");
     for (suffix, px) in [("test", a), ("ref", b)] {
@@ -295,7 +328,7 @@ fn save_failure(dir: &Path, test: &Path, a: &[u32], b: &[u32]) {
         for p in px {
             rgb.extend_from_slice(&[(p >> 16) as u8, (p >> 8) as u8, *p as u8]);
         }
-        let _ = image::save_buffer(dir.join(format!("{stem}-{suffix}.png")), &rgb, WIN_W, WIN_H, image::ExtendedColorType::Rgb8);
+        let _ = image::save_buffer(dir.join(format!("{stem}-{suffix}.png")), &rgb, w, h, image::ExtendedColorType::Rgb8);
     }
 }
 
