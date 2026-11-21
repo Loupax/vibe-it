@@ -84,6 +84,9 @@ their section with the date.
 
 ## Keys and UI
 
+- **2026-11-21 Horizontal scrolling** (user): real horizontal scrolling first (QXSCR1), driven by the mouse
+  (horizontal wheel/touchpad, Shift+wheel) and ArrowLeft/ArrowRight; no hjkl-like letter bindings for it yet
+  (h/l stay history). Horizontal scrollbars (QSB2b) after it.
 - **2026-11-21 `:help` stays current** (user: "the help page is out of date"). QHELP1 updates it to every
   feature on main and adds tests that every binding and `:` command appears there; each later UI item updates it.
 - **2026-11-20 QKEYS / QSEARCH / QCOMP design** (KEYS.md): input and normal mode,
