@@ -333,54 +333,13 @@ pub(crate) const NO_DOC: u64 = u64::MAX;
 
 pub(crate) const COMMAND_NAMES: &[&str] = &["go", "help", "historyBack", "historyFront", "q", "quit", "refresh", "set"];
 
-// `SET_ARGS` (what `:set` completes) lives in `config.rs`.
+// `SET_ARGS` and `COMPLETERS` (what the ghost completes) live in `config.rs`; the pure ghost
+// logic is in `completion.rs` (QCOMP1).
 
-/// Candidate completions for the token the command line's cursor is
-/// currently positioned at the end of (`token_start..cursor`, from
-/// `token_start_before`) — the command name itself if `token_start` is
-/// the very first token, `SET_ARGS` if it's the second token of a
-/// `set` command, or nothing at all anywhere else (an arbitrary `:go`
-/// URL has no finite set of "correct" values to complete against, so
-/// there's deliberately no candidate pool for it). Plain-prefix
-/// (`starts_with`) matching only, sorted alphabetically (`COMMAND_
-/// NAMES`/`SET_ARGS` are both already stored in that order) — no fuzzy
-/// or substring matching, the smallest thing that actually satisfies
-/// "complete the command name," not a speculative ranking algorithm
-/// nobody asked for.
-pub(crate) fn command_completions(text: &str, token_start: usize, cursor: usize) -> Vec<&'static str> {
-    let prefix = &text[token_start..cursor];
-    let before = text[..token_start].trim_end();
-    let pool: &[&str] = if before.is_empty() {
-        COMMAND_NAMES
-    } else if before == "set" {
-        SET_ARGS
-    } else {
-        return Vec::new();
-    };
-    pool.iter().copied().filter(|candidate| candidate.starts_with(prefix)).collect()
-}
-
-/// The byte offset the token ending at `cursor` starts at — the last
-/// whitespace position before `cursor`, plus one, or `0` if there isn't
-/// one. `rfind` (not a manual byte scan) so this can't land `token_
-/// start` mid-codepoint: `str::rfind` only ever returns a char-boundary
-/// index, same guarantee `TextEditBuffer`'s own methods rely on `char`-
-/// at-a-time movement for.
+/// The byte offset the token ending at `cursor` starts at: the last whitespace position before
+/// `cursor`, plus one, or `0` if there is none. `rfind` only returns char-boundary indices.
 pub(crate) fn token_start_before(text: &str, cursor: usize) -> usize {
     text[..cursor].rfind(char::is_whitespace).map(|i| i + 1).unwrap_or(0)
-}
-
-/// `Tab`'s own live cycling state inside the command bar — `App::
-/// completion` is `None` whenever no completion is in progress. Reset
-/// on every command-line keystroke except a repeated `Tab` itself (see
-/// `App::handle_command_line_key`), so cycling only continues across
-/// *consecutive* `Tab` presses: any other edit starts over from a
-/// fresh match list next time, rather than cycling through candidates
-/// that no longer correspond to what's actually typed.
-pub(crate) struct CommandCompletion {
-    pub(crate) token_start: usize,
-    pub(crate) candidates: Vec<&'static str>,
-    pub(crate) index: usize,
 }
 
 /// A single-line text-editing buffer — insert, backspace, cursor move,
@@ -1001,12 +960,9 @@ pub(crate) struct App {
     /// logical_key`'s own docs), so this is the only way `resolve_
     /// binding` can tell a bare `d`/`u` apart from `Ctrl`+`d`/`u`.
     pub(crate) modifiers: ModifiersState,
-    /// Live `Tab`-cycling state for the command bar — see `Command
-    /// Completion`'s own docs. `None` outside of an in-progress
-    /// completion, which is most of the time (every non-`Tab` command-
-    /// line keystroke resets it, including `Enter`/`Escape` leaving
-    /// command mode entirely).
-    pub(crate) completion: Option<CommandCompletion>,
+    /// QCOMP1: the `:` line's ghost suggestion (`completion.rs`); `None` = no ghost (also after
+    /// Delete, until the next edit). Always `None` outside the `:` line.
+    pub(crate) ghost: Option<Ghost>,
     /// Set by `dispatch_command`'s own `:q`/`:quit` handler — only when
     /// `pre_help_page` is `None`, i.e. there's no page to fall back to
     /// (see that field's own docs for the vim-"closing the last buffer
@@ -1436,7 +1392,7 @@ impl App {
             command_line: TextEditBuffer::default(),
             search: crate::search::SearchState::default(),
             modifiers: ModifiersState::empty(),
-            completion: None,
+            ghost: None,
             should_quit: false,
             select_popup: None,
             swallow_release: false,
@@ -1548,7 +1504,7 @@ impl App {
             command_line: TextEditBuffer::default(),
             search: crate::search::SearchState::default(),
             modifiers: ModifiersState::empty(),
-            completion: None,
+            ghost: None,
             should_quit: false,
             select_popup: None,
             swallow_release: false,
@@ -1734,12 +1690,17 @@ impl App {
         // QKEYS1: the status bar is the top layer (over a video that reaches into its strip).
         {
             let url = self.history.get(self.history_index).map(|u| u.to_string()).unwrap_or_default();
+            let ghost_text = match (&self.ghost, self.vim_mode) {
+                (Some(g), VimMode::Command) => g.rest(&self.command_line.text),
+                _ => String::new(),
+            };
             let bar = crate::paint::StatusBar {
                 mode: mode_name(self.key_mode),
                 url: &url,
                 message: &self.status_message,
                 command: (self.vim_mode != VimMode::Normal).then_some(&self.command_line),
                 prompt: if self.vim_mode == VimMode::Search { '/' } else { ':' },
+                ghost: &ghost_text,
             };
             crate::paint::paint_status_bar(&bar, &mut self.font_system, &mut self.swash_cache, &mut pixels, width, height);
         }
@@ -4420,20 +4381,13 @@ impl App {
             Action::EnterCommandMode => {
                 self.vim_mode = VimMode::Command;
                 self.command_line.clear();
-                // Doesn't go through `handle_command_line_key`'s own
-                // "any non-`Tab` key resets `completion`" rule at all
-                // (that function isn't even reachable yet — `vim_mode`
-                // is still `Normal` here) — reset directly, or a stale
-                // completion left over from a previous command-line
-                // session (Tab-cycled, then `Escape`d without typing
-                // anything else) would wrongly survive into this new,
-                // now-empty one.
-                self.completion = None;
+                self.ghost = None;
             }
             Action::EnterSearchMode => {
                 self.vim_mode = VimMode::Search;
                 self.command_line.clear();
-                self.completion = None;
+                // The ghost is for the `:` line only (QCOMP1).
+                self.ghost = None;
             }
             Action::ClearSearch => self.search.clear_highlights(),
             Action::SearchNext => self.search_step(true),
@@ -4616,31 +4570,65 @@ impl App {
     /// exactly what the ordinary page a browser would otherwise send
     /// key events to gets too.
     pub(crate) fn handle_command_line_key(&mut self, event: &KeyEvent) {
-        // Any key other than `Tab` itself ends a `Tab`-cycling run in
-        // progress — see `CommandCompletion`'s own docs. Checked before
-        // the `match` below (not folded into each of its non-`Tab` arms
-        // individually) so a future arm can't accidentally skip it the
-        // way a one-off `_ =>` branch addition easily could.
-        if !matches!(event.logical_key, Key::Named(NamedKey::Tab)) {
-            self.completion = None;
-        }
-        match &event.logical_key {
+        self.command_line_key(&event.logical_key);
+    }
+
+    /// `handle_command_line_key` on a bare key (tests call this: a `KeyEvent` cannot be built).
+    /// QCOMP1 (KEYS.md T45-T53): the ghost suggestion. Tab / Shift-Tab cycle it (2+ matches) or
+    /// select the only match, Enter runs the typed text plus the ghost, Right / End accept it,
+    /// Delete hides it, and every other key edits the line and recomputes it.
+    pub(crate) fn command_line_key(&mut self, key: &Key) {
+        match key {
             Key::Named(NamedKey::Escape) => {
                 self.vim_mode = VimMode::Normal;
                 self.command_line.clear();
+                self.ghost = None;
             }
             Key::Named(NamedKey::Enter) => {
-                let input = std::mem::take(&mut self.command_line.text);
+                let mut input = std::mem::take(&mut self.command_line.text);
+                if let Some(g) = self.ghost.take() {
+                    input = g.accepted(&input);
+                }
                 self.command_line.cursor = 0;
                 self.vim_mode = VimMode::Normal;
                 self.run_command_line(&input);
             }
-            Key::Named(NamedKey::Tab) => self.cycle_command_completion(),
-            key => self.line_edit_key(key),
+            Key::Named(NamedKey::Tab) => {
+                let text = &self.command_line.text;
+                if let Some(g) = &mut self.ghost {
+                    if self.modifiers.shift_key() {
+                        g.prev();
+                    } else if let Some(add) = g.tab(text) {
+                        self.command_line.insert_str(&add);
+                        self.recompute_ghost();
+                    }
+                }
+            }
+            Key::Named(NamedKey::Delete) => self.ghost = None,
+            Key::Named(NamedKey::ArrowRight | NamedKey::End) => {
+                if let Some(g) = self.ghost.take() {
+                    let add = g.rest(&self.command_line.text);
+                    self.command_line.insert_str(&add);
+                } else if matches!(key, Key::Named(NamedKey::End)) {
+                    self.command_line.cursor = self.command_line.text.len();
+                } else {
+                    self.command_line.move_right();
+                }
+                self.recompute_ghost();
+            }
+            key => {
+                self.line_edit_key(key);
+                self.recompute_ghost();
+            }
         }
         if let Some(window) = &self.window {
             window.request_redraw();
         }
+    }
+
+    /// T45/T46: the ghost for the line as it is now.
+    fn recompute_ghost(&mut self) {
+        self.ghost = crate::compute_ghost(&self.command_line.text, self.command_line.cursor);
     }
 
     /// QSEARCH1 (T22-T25): a key in the `/` line. Enter commits, Esc cancels, the rest edits
@@ -4786,44 +4774,6 @@ impl App {
         if let Some(window) = &self.window {
             window.request_redraw();
         }
-    }
-
-    /// `Tab`'s own handler inside the command bar. The first `Tab` in a
-    /// fresh run computes the candidate list for whatever token the
-    /// cursor is at (`command_completions`) and completes to its first
-    /// match, alphabetically; every *immediately following* `Tab` (no
-    /// other key in between — enforced by `handle_command_line_key`'s
-    /// own reset, not here) instead advances `self.completion`'s own
-    /// index, wrapping back to the first candidate after the last. A
-    /// token with no candidates at all (anything beyond `:go`'s own
-    /// URL argument, today) leaves `self.completion` untouched — `Tab`
-    /// is simply a no-op there, same as a real shell's completion when
-    /// there's nothing to offer.
-    pub(crate) fn cycle_command_completion(&mut self) {
-        match &mut self.completion {
-            Some(state) => state.index = (state.index + 1) % state.candidates.len(),
-            None => {
-                let cursor = self.command_line.cursor;
-                let token_start = token_start_before(&self.command_line.text, cursor);
-                let candidates = command_completions(&self.command_line.text, token_start, cursor);
-                if candidates.is_empty() {
-                    return;
-                }
-                self.completion = Some(CommandCompletion { token_start, candidates, index: 0 });
-            }
-        }
-        let state = self.completion.as_ref().expect("just set or matched Some above");
-        let candidate = state.candidates[state.index];
-        let token_start = state.token_start;
-        // `token_start..cursor` is exactly the text to replace, both on
-        // a fresh completion (cursor is the end of whatever prefix was
-        // actually typed) and on every cycle after (the previous call
-        // left `cursor` at `token_start + candidate.len()`, i.e. right
-        // after the *previous* candidate it inserted) — no separate
-        // bookkeeping needed for "how much to remove" beyond `cursor`
-        // itself.
-        self.command_line.text.replace_range(token_start..self.command_line.cursor, candidate);
-        self.command_line.cursor = token_start + candidate.len();
     }
 
     /// `Ctrl`+`v` inside the command bar: reads the system clipboard

@@ -1665,6 +1665,8 @@ pub(crate) struct StatusBar<'a> {
     pub command: Option<&'a TextEditBuffer>,
     /// The line's leading character: `:` (command) or `/` (search).
     pub prompt: char,
+    /// QCOMP1: the dimmed ghost suggestion drawn after the `:` line's text (empty = none).
+    pub ghost: &'a str,
 }
 
 /// Draws `text` on one line at `(x, y)` (top of a line `bar_h` tall), cut with an ellipsis to fit
@@ -1773,6 +1775,7 @@ pub(crate) fn paint_status_bar(
                     .unwrap_or_else(|| run.glyphs.last().map(|g| g.x + g.w).unwrap_or(0.0))
             })
             .unwrap_or(0.0);
+        let text_w = buffer.layout_runs().next().map(|run| run.line_w).unwrap_or(0.0);
         let backgrounds = [None];
         let valigns = [VerticalAlign::default()];
         let hidden = [false];
@@ -1782,6 +1785,13 @@ pub(crate) fn paint_status_bar(
             win_h, STATUS_BAR_PAD_X, bar_y + (bar_h - 20.0) / 2.0, None, 0.0,
         );
         fill_rect(pixels, win_w, win_h, STATUS_BAR_PAD_X + caret_x, bar_y + 3.0, 1.5, bar_h - 6.0, fg, None);
+        if !bar.ghost.is_empty() {
+            let gc = crate::config::GHOST_FG;
+            bar_text(
+                font_system, swash_cache, pixels, win_w, win_h, bar.ghost, STATUS_BAR_PAD_X + text_w, bar_y, bar_h,
+                (avail - text_w).max(0.0), TextColor::rgb(gc.0, gc.1, gc.2), true,
+            );
+        }
         return;
     }
 

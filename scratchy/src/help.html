@@ -81,10 +81,19 @@ clears them too.</p>
 
 <h2>Command line</h2>
 <p>In NORMAL mode press <code>:</code>, type a command, then
-<code>Enter</code> to run it. <code>Tab</code> completes the current word (a
-command name, or <code>set</code>'s own argument) — press <code>Tab</code>
-again right after to cycle through any other matches. <code>Escape</code>
-cancels without running anything. Both the <code>:</code> and the
+<code>Enter</code> to run it. <code>Escape</code>
+cancels without running anything.</p>
+<p>While you type a command name or a <code>set</code> argument, the rest of
+the best match shows dimmed after the cursor (a ghost suggestion; only when
+the cursor is at the end of the line, and not in the <code>/</code> line).
+<code>Enter</code> runs what you typed plus the ghost.
+<code>Tab</code> and <code>Shift</code>+<code>Tab</code> show the next and
+previous match; with a single match <code>Tab</code> selects it (and adds a
+space), so <code>:se</code> <code>Tab</code> gives <code>:set </code>.
+<code>Right</code> or <code>End</code> accept the ghost into the line.
+<code>Delete</code> hides it until your next edit, so <code>Enter</code> runs
+only what you typed. <code>:go</code> has no suggestion yet.</p>
+<p>Both the <code>:</code> and the
 <code>/</code> line accept paste: <code>Ctrl</code>+<code>v</code>,
 <code>Ctrl</code>+<code>Shift</code>+<code>v</code> or
 <code>Shift</code>+<code>Insert</code>.</p>
