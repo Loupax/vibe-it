@@ -1,0 +1,40 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>incr-gate abs-drift fixture</title>
+<!-- QINC1k: minimised github.com `incr-check: MISMATCH laid ... style.height 642.0005 vs 642.0`.
+     A position:relative box with an auto height summed from 20 children of 32.1px holds an
+     `position:absolute; inset:0; height:100%` child. Its content height is cursor_y - content_y in
+     DOCUMENT space (f32), so it depends on the box's y: ~642.0 at y 100, ~642.002 at y > 4096.
+     A timer grows the spacer ABOVE it, the box moves; the engine shifts the clean subtree (keeps
+     the height it measured at the old y) while the from-scratch layout re-sums at the new y.
+     Run: SCRATCHY_INCR=1 SCRATCHY_INCR_CHECK=1 scratchy --perf-report --seconds 4 abs-drift.html -->
+<style>
+  body { margin: 0; font: 14px sans-serif; }
+  #spacer { height: 100px; background: #eee; }
+  .rel { position: relative; }
+  .rel > div.row { height: 32.1px; }
+  .bg { position: absolute; inset: 0; height: 100%; background: rgba(0, 0, 255, 0.1); }
+</style></head>
+<body>
+<div id="spacer"></div>
+<div class="rel">
+  <div class="bg"></div>
+  <div class="row">1</div><div class="row">2</div><div class="row">3</div><div class="row">4</div>
+  <div class="row">5</div><div class="row">6</div><div class="row">7</div><div class="row">8</div>
+  <div class="row">9</div><div class="row">10</div><div class="row">11</div><div class="row">12</div>
+  <div class="row">13</div><div class="row">14</div><div class="row">15</div><div class="row">16</div>
+  <div class="row">17</div><div class="row">18</div><div class="row">19</div><div class="row">20</div>
+</div>
+<script>
+  var sp = document.getElementById('spacer');
+  var steps = [100, 4100.3, 4100.3, 4300.7, 100];
+  var i = 0;
+  function step() {
+    sp.style.height = steps[i] + 'px';
+    document.body.offsetHeight;          // forced layout through the engine
+    document.querySelector('.bg').getBoundingClientRect();
+    i++;
+    if (i < steps.length) setTimeout(step, 50);
+  }
+  setTimeout(step, 50);
+</script>
+</body></html>

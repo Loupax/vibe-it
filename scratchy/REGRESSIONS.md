@@ -486,7 +486,7 @@ further (related videos move with it). Home: logged out with history off YouTube
 - QYSCR1c [S]: DONE (same PR): `paint::hit_test_scroll_chain`; a tick goes to the first region under the cursor that can move, then the page. Keys always target the viewport (no focused scroll region in scratchy). Absolutely positioned regions are still not wheel targets.
 - QYSCR1d [S]: WPT overflow-body-propagation-012 (body clips its own overflow when `html{overflow:hidden}` takes the viewport).
 
-## R60: QINC1 design: one incremental style + layout engine for App frames AND script forced layouts. Persistent per-element styles with a match cache, Blink/Stylo-style invalidation sets and early cut-off; a box tree kept between layouts and rebuilt per container; the last laid tree reused as the fragment cache (a clean box is moved, not re-measured; a dirty box is re-measured at its cached constraints and the change goes up only while the parent-visible result changes). Measured first (throwaway probe): between two consecutive forced layouts the median page restyles 3-33 elements of 261-1 128 styled ones (1-5 %), and touches 1-6 % of the boxes; today every one of them redoes 100 %. Projected: YouTube results `getPlayerSize` 54-80 ms -> ~2-5 ms (preview job 685-1 137 ms -> ~150-220 ms), YouTube watch / Wikipedia App builds 38-90 ms -> ~2-6 ms each, and a frame after a forced layout costs ~0. Size: XL (14 items, 4 of them L), landed in shadow mode first, then behind `SCRATCHY_INCR=1`, then flipped, then the special cases deleted. RECOMMENDED; supersedes R59/QY54b3a-f (Opus, 2026-11-20, design only, docs only) — OPEN: proposed QINC1a-QINC1m (section 15), open questions (section 16)
+## R60: QINC1 design: one incremental style + layout engine for App frames AND script forced layouts. Persistent per-element styles with a match cache, Blink/Stylo-style invalidation sets and early cut-off; a box tree kept between layouts and rebuilt per container; the last laid tree reused as the fragment cache (a clean box is moved, not re-measured; a dirty box is re-measured at its cached constraints and the change goes up only while the parent-visible result changes). Measured first (throwaway probe): between two consecutive forced layouts the median page restyles 3-33 elements of 261-1 128 styled ones (1-5 %), and touches 1-6 % of the boxes; today every one of them redoes 100 %. Projected: YouTube results `getPlayerSize` 54-80 ms -> ~2-5 ms (preview job 685-1 137 ms -> ~150-220 ms), YouTube watch / Wikipedia App builds 38-90 ms -> ~2-6 ms each, and a frame after a forced layout costs ~0. Size: XL (14 items, 4 of them L), landed in shadow mode first, then behind `SCRATCHY_INCR=1`, then flipped, then the special cases deleted. RECOMMENDED; supersedes R59/QY54b3a-f (Opus, 2026-11-20, design only, docs only) — OPEN: proposed QINC1a-QINC1m (section 15), open questions (section 16); QINC1k gate (2026-11-21): NO-GO for the flip until QINC1k1 + QINC1k2 (section 15, QINC1k entry)
 
 Inputs: R43 sections 4/8 (phase split, 84 % of styles reusable), R47 (hover restyles), R50 (QYTC1a/b/d), R55 (App builds per run:
 Wikipedia 104 / 9.4 s, YouTube watch 268 / 10.1 s), R57 (main-thread stalls), R58 (results `getPlayerSize`: full layout,
@@ -1399,6 +1399,122 @@ images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom
   vs main, 3 interleaved runs each under flock: forced layout ms, App builds ms, `getPlayerSize` median, worst preview job,
   hover latency; floors and refusal mix from the counters; go/no-go for the flip written into R60; files QINC1n if the floors
   matter.
+  QINC1k DONE (Opus, 2026-11-21, measure only + docs + recipes; binary = release build of main 42b99fd, copied aside):
+  **verdict: NO-GO for flipping the default now; GO once QINC1k1 and QINC1k2 (below) land and
+  `tools/incr-gate/gate.sh check` / `gate.sh perf` show 0 mismatches and github.com not slower than flag off.**
+  The YouTube gates are met by a wide margin, Wikipedia improves a lot but misses the -80 % builds gate (-62 %),
+  github.com is a REGRESSION in the window (App builds +54 %, input p95 2x), and one sub-pixel mismatch remains.
+  Recipes (durable, committed): `tools/incr-gate/` (`run.sh` one run, `gate.sh check|perf|headless` the series,
+  `summarize.py` / `shotdiff.py` the tables and the screenshot compare, `hover.html` a script-free hover page,
+  `abs-drift.html` the minimised mismatch); tools/README "Incremental-engine gate recipes". Every run: own wire
+  (fresh cookies), own nested dwl 960x1006 (inject coordinates are fractions of 960x1006), `SCRATCHY_MEDIA_AO=null`,
+  `SCRATCHY_FRAME_STATS`, the 6G scope, `flock /tmp/scratchy-perf.lock`; flag off vs `SCRATCHY_INCR=1` of the SAME
+  binary, interleaved, order flipped per round, 3 rounds; 1-min load 0.03-2.18 at each run's start. Inputs: ytr =
+  R58 (thumbnail 1 at 15 s, thumbnail 2 at 21 s, top bar at 27 s); ytw = R55 (play click at 13 s, 6 rounds x 8
+  positions x 600 ms, parked); wiki = R55 (6 rounds x 8 links x 600 ms: general-purpose, performance, type safety,
+  concurrency, memory safety, Talk, Edit, View history); github / bbc / social = raster sweep (40 ms per move),
+  5 wheel notches, sweep, back; hover = 2 raster sweeps at 16 ms per move.
+  **Regimes:** every window run of these recipes landed in ONE regime: YouTube watch played in all 6 runs (video
+  frames painted 420-440 off, 963-973 with the flag), Wikipedia had 102-104 builds off / 211-213 on in all runs
+  (no 13-23-build run). Starting the input after the load settles (12-15 s) and dwelling 600 ms per point instead of
+  streaming moves is what keeps them there; `summarize.py` prints `vid` (playback) and the build count per run so a
+  run in the other regime is visible.
+  (1) **Exactness** (`gate.sh check`: `SCRATCHY_INCR=1 SCRATCHY_INCR_CHECK=1`, headless AND window per page per
+  round, 7 pages x 3 rounds = 42 runs): **0 mismatches on YouTube results, YouTube watch, Wikipedia, bbc.com/news,
+  social.loupax.com/discover and the hover page; github.com: 0 headless, 14 / 13 / 13 in the window runs**, all the
+  same element and field: `incr-check: MISMATCH laid at root/positioned[64]=div.Wrapper__H1gdC8.Background__x8lac6:
+  style.height: Some(Px(642.0005)) vs Some(Px(642.0))` (from scratch vs engine). The element is `position:absolute;
+  inset:0; height:100%` (GitHub's `.Background__x8lac6` + `.Wrapper__H1gdC8`) inside a positioned box whose auto
+  height is `cursor_y - content_y` in DOCUMENT coordinates (layout.rs block path, `content_h`): summed at y > 4096
+  the f32 ulp is ~0.0005, so the same box laid at another y gets 642.0005 instead of 642.0, and `finalize_box_lengths`
+  writes that into the percentage height. The engine shifts the clean subtree (keeps the height it measured at the
+  old y); the from-scratch layout re-sums at the new y. Geometry compares with `EPS`, `style` fields compare exactly,
+  so only the style field reports. It is the y twin of QINC1h1's finding (1) (x in `measure_mixed_inline`).
+  Minimised: `tools/incr-gate/abs-drift.html` (20 rows of 32.1 px under a relative box with an `inset:0;
+  height:100%` child; a timer moves it from y 100 to 4100.3 and back): headless check mode reports 2 mismatches
+  (`642.00195` vs `641.9999`, both directions). Visible effect: none (< 0.003 px). Proposed QINC1k1 below.
+  No panic and no crash in any of the 126 runs (42 check + 42 window perf + 42 headless). The social.loupax.com
+  window runs end with a kill: the page handles `:` itself (its own vim-like UI), so the harness's `:q` never reaches
+  scratchy and the window's `incr` counters line is not printed (diag lines still are; headless runs have them).
+  (2) **Flag off vs `SCRATCHY_INCR=1`, window** (per run, 3 interleaved pairs; `builds` = App frame work on the
+  main thread, `forced` = script forced layouts, p95 = median over the seconds with input of the per-second
+  input-to-present p95, `gPS` = median over the seconds of the mean ms per `getPlayerSize` read, worst = longest
+  callback after 15 s (the preview-start promise job on ytr), RSS = VmRSS at the end):
+  | page | off: builds ms | INCR=1: builds ms | off: forced n / ms | INCR=1: forced n / ms | p95 off / on | other | RSS MB off / on |
+  |---|---|---|---|---|---|---|---|
+  | YouTube results (R58) | 5 054 / 4 720 / 4 620 | 886 / 900 / 966 (-81 %) | 91-99 / 4 313-4 805 | 103-156 / 570-749 | 29-51 / 39-49 | gPS 65.1 / 63.4 / 64.1 -> **5.7 / 4.1 / 4.7 ms**; worst job 844 / 847 / 830 -> **181 / 159 / 177 ms** | 457-512 / 481-514 |
+  | YouTube watch (R55, playing) | 12 351 / 12 646 / 12 274 | 1 735 / 1 694 / 1 845 (-86 %) | 259-283 / 14 491-15 811 | 687-703 / 5 297-5 431 | 84-89 / 35-39 | gPS 80.6-85.0 -> 7.2-7.5 ms; video frames painted 420-440 -> 963-973 | 578-599 / 514-596 |
+  | Wikipedia Rust (R55) | 9 335 / 9 454 / 9 481 | 3 454 / 3 569 / 3 589 (-62 %) | 21-23 / 2 507-2 838 | 105-106 / 802-972 | 206-214 / 36 | builds 102-104 -> 211-213 (no coalescing behind the worker) | 314-339 / 320-338 |
+  | github.com | 11 380 / 11 700 / 11 523 | **17 991 / 17 457 / 17 570 (+54 %)** | 146-147 / 17 420-17 673 | 202-206 / 5 645-5 982 | **170-175 / 344-350** | builds + forced 28.8-29.4 s -> 23.2-24.0 s | 1 245-1 637 / 1 747-1 831 |
+  | bbc.com/news | 590 / 610 / 595 | 185 / 185 / 184 (-69 %) | 4-5 / 142-171 | 6 / 58-84 | 670-671 / 210-228 | | 223-238 / 226-228 |
+  | social.loupax.com/discover | 41 / 41 / 41 | 17 / 17 / 18 | 12 / 89-93 | 12-14 / 55-63 | - (hovers change nothing: no presents) | | 156-159 / 154-156 |
+  | hover.html (no forced layouts) | 160 / 158 / 161 (+ worker 138-139) | 67 / 70 / 70 (+ worker 16) | 0 | 0 | **137-142 / 155-164** | 6-7 redraws/s for 62 moves/s in BOTH modes | 108-109 / 108-109 |
+  **Headless** (`--perf-report --budget-ms 20000`, 30 s YouTube, 20 s the others, 10 s hover; forced n / ms, RSS MB):
+  ytr off 30-36 / 602-893 vs 29-42 / 290-384 (RSS 375-402 vs 368-414); ytw 115-123 / 2 593-3 077 vs 115-117 / 794-815
+  (452-460 vs 477-491); Wikipedia 4 / 557-571 vs 5 / 565-606 (3 restarts per run are all of it: QINC1i4; RSS 222-229
+  vs 279-281, the kept trees); github 119 / 14 386-14 570 vs 188-199 / 10 080-10 739 (more layouts run in the same
+  20 s; `incr_shadow` 8.4-8.9 s of it; RSS ~1 580 vs 1 355-1 764); bbc 14-15 / 384-407 vs 15 / 154-155; social 10 /
+  73-75 vs 10 / 48; hover 0 / 0.
+  **Gates (R60 section 12):** `getPlayerSize` median < 10 ms: MET (4.1-5.7 ms, was 63-65); worst preview job < 300 ms:
+  MET (159-181 ms, was 830-847); App builds -80 % on the R55 recipes: MET on YouTube watch (-86 %), NOT on Wikipedia
+  (-62 %; input p95 206-214 -> 36 ms, forced -65 %); 0 `incr-check` mismatches on 6 pages x 3 runs: NOT MET
+  (github.com window, sub-pixel, QINC1k1).
+  (3) **Refusal mix and floors** (window `incr` counters per run with the flag): App frames Current / Main / Worker:
+  ytr 29-30 / 71-106 / 3-5, ytw 216-227 / 177-205 / 3-4, Wikipedia 0 / 207-210 / 3-4, github 0 / 64-65 / 2, bbc 0-1 /
+  52-55 / 5, hover 0 / 132-133 / 1. Worker reasons: `first_layout` 1, `restyle_not_incremental` 1-4 (new rule-list
+  generations), `adopt_refused` 0-2, `restyled_share` 0-1. Forced restarts: ytr 3, ytw 3, Wikipedia 2-3, github 0.
+  Relayouts walked to the root: ytr 94-138, ytw 65-68, Wikipedia 133 (every Main frame of the page), github 218 (all),
+  hover 36-37. Engine time per run (restyle / relayout / box update, ms): Wikipedia 1 934-2 006 / 1 421-1 455
+  (+147-159 full) / 88-89; ytw 4 531-4 733 / 811-830 / 404-416; ytr 764-943 / 143-193 / 54-78; **github 4 325-4 621
+  / 1 469-1 525 / 16 994-17 194**. The floors that matter: (a) github's BOX update, ~63 ms per update (17.1 s over
+  ~270 updates; headless ~25 ms per forced layout, 317 boxes rebuilt per update on a ~3 000-element page: ~75 us per
+  box), which turns its App frames into a regression: QINC1k2; (b) Wikipedia's Main frames all walk to the root
+  (~6.8 ms relayout + ~9.3 ms restyle per frame): QINC1k3. The shift cost of absolute coordinates (R60 14.1) is not
+  among them (`layout_shifted` is small everywhere), so **QINC1n is NOT recommended on these numbers**; its exactness
+  side (translation invariance) is covered more cheaply by QINC1k1.
+  (4) **Hover latency:** the script-free page shows the same ~140 ms input-to-present p95 with and without the flag
+  (+15-25 ms with it), with only 6-7 redraws per second for 62 pointer moves per second in both modes; App frame
+  work is 2-4 ms per second with the flag (off: ~8 ms per second on the main thread + ~140 ms per run on the worker),
+  so the cadence is set outside the engine (proposed QHOV2, not an incr item). The flag bypasses the QY53n hover
+  patch / skip paths (`hover.patched` / `skipped` 0 with it).
+  (5) **Visual differences** (`shotdiff.py`, a `pre` screenshot before any input and an `end` one after it, each
+  off/on pair compared with the next off run as the noise floor): Wikipedia, github, hover: byte-identical pixels in
+  all 3 pairs. bbc: only news items that changed between loads (also off vs off). YouTube watch: thumbnails / player
+  state (off vs off differs as much); 2 of 3 flag-on runs showed YouTube's player error screen at 54 s (an off probe
+  run also hit it once). YouTube results: in 2 of 3 flag-on runs (and 1 of 3 check runs) the Shorts shelf came right
+  after the first result with five narrower items; off runs (0 of 3) and the third on run put it after the second
+  result; the content is live, so not attributed. **social.loupax.com/discover: a real, repeatable difference (3 of 3
+  pairs, off vs off identical):** the page's own line-number gutter numbers the lines beside the first article image
+  4-19 with the flag off (the text after it starts at 20, `1/245`), and 3 / 4 with the flag on (`1/244`). The page
+  computes the gutter from geometry reads; with the flag, forced layouts see the window's decoded image sizes (QINC1i),
+  without it they do not, so the flag-on gutter (image = one line, the text that follows = line 4) looks like the
+  intended one. The user should confirm (their site).
+  (6) **Memory:** see the RSS columns: no growth with the flag on YouTube (results 481-514 vs 457-512 MB, watch
+  514-596 vs 578-599), bbc, social and the hover page (within run spread); Wikipedia none in the window (320-338 vs 314-339), +55 MB
+  headless (the kept style / box / laid trees); github +110-500 MB in the window (1 747-1 831 vs 1 245-1 637 MB; its
+  off runs alone spread by 390 MB).
+  Proposed (the coordinator files them):
+  - **QINC1k1 [S]** (P1, area incr-new / layout comparator; AFTER nothing) Translation invariance in y for
+    percentage heights: `tools/incr-gate/abs-drift.html` + github.com report `style.height` 642.0005 vs 642.0 (auto
+    height summed in document coordinates, f32 ulp ~0.0005 at y > 4096, written into the child's resolved `height`
+    by `finalize_box_lengths`). Options: compare resolved-length style fields in `cmp_laid` with the geometry `EPS`
+    (the rect already compares that way; the engine's value is the more exact one), or sum block content heights
+    relative to `content_y`. Test: the fixture as a check-mode test (0 mismatches), fuzz seeds with fractional row
+    heights at y > 4096. Gate: `gate.sh check 3 github` 0 mismatches.
+  - **QINC1k2 [M]** (P1, area incr-new (incr_box); AFTER nothing) github.com box-update floor: with
+    `SCRATCHY_INCR=1` the incremental box update takes 17.0-17.2 s per window run (~63 ms per update, ~75 us per
+    rebuilt box; restyle 4.3-4.6 s, relayout 1.5 s), so App builds are +54 % and input p95 2x vs flag off. Profile it
+    (a perf run without call graphs showed SipHash `RandomState` hashing ~3.5 % of the main thread; no attribution yet),
+    then cut. Gate: `gate.sh perf 3 github`: App builds and p95 not above flag off.
+  - **QINC1k3 [M]** (P2, area layout; AFTER QINC1k2) Wikipedia Main frames walk to the root every time (133 of
+    210 per run) at ~16 ms engine time each (restyle ~9.3 + relayout ~6.8): find why the bottom-up walk does not stop
+    (counters `layout_up_reasons` per frame) and whether the restyle can stay inside the hovered subtree; goal the
+    -80 % builds gate (3.5 s -> <= 1.9 s per run).
+  - **QHOV2 [S]** (P3, area app; not incr) hover cadence: on `tools/incr-gate/hover.html` scratchy presents 6-7
+    frames per second for 62 pointer moves per second (input-to-present p95 ~140 ms) with the flag on or off and
+    ~2-8 ms of frame work per second: find the throttle (pointer-move coalescing, frame pacing in the nested dwl, or
+    the injector's roundtrips) and decide whether it is intended.
+  - Not filed: QINC1n (see (3)).
 - **QINC1l [S]** (P2, Sonnet; areas app + geom (one-line defaults) + NOTES.md; AFTER QINC1k + the user's OK) Flip the default:
   `SCRATCHY_INCR` defaults to 1; `SCRATCHY_INCR=0` = the old path; `cfg(test)` keeps comparing with the from-scratch path;
   NOTES.md section "Incremental style + layout engine" (data model, marks, kill switch, check mode).
