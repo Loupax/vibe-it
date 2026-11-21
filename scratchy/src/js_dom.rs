@@ -711,6 +711,42 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             None => -1,
         }
     });
+    // QDOM1: window named access. `__d_named(doc, name)` = id of the first element in tree order whose `id`
+    // is `name`, or that is an embed/form/img/object with that `name` attribute; -1 if none. One walk per
+    // DOM write generation builds the whole map (`typeof X` feature probes hit this on every miss).
+    let (t, gn) = (table.clone(), wgen.clone());
+    let named: Rc<RefCell<(i32, u64, HashMap<String, Handle>)>> = Rc::new(RefCell::new((-1, u64::MAX, HashMap::new())));
+    native!(ctx, "__d_named", move |doc: i32, name: String| -> i32 {
+        let mut t = t.borrow_mut();
+        let mut c = named.borrow_mut();
+        if c.0 != doc || c.1 != gn.get() {
+            let Some(root) = t.get(doc) else { return -1 };
+            let mut all = Vec::new();
+            descendants(&root, &mut all);
+            let mut map: HashMap<String, Handle> = HashMap::new();
+            for h in &all {
+                if let Some(id) = element_attr(h, "id") {
+                    if !id.is_empty() {
+                        map.entry(id.to_string()).or_insert_with(|| h.clone());
+                    }
+                }
+                if let NodeData::Element { name, .. } = &h.data {
+                    if matches!(name.local.as_ref(), "embed" | "form" | "img" | "object" | "iframe") {
+                        if let Some(n) = element_attr(h, "name") {
+                            if !n.is_empty() {
+                                map.entry(n.to_string()).or_insert_with(|| h.clone());
+                            }
+                        }
+                    }
+                }
+            }
+            *c = (doc, gn.get(), map);
+        }
+        match c.2.get(&name) {
+            Some(h) => t.intern(h),
+            None => -1,
+        }
+    });
     // `None` (-> JS SyntaxError) for an invalid selector.
     let t = table.clone();
     native!(ctx, "__d_query", move |root: i32, sel: String, first: bool| -> Option<Vec<i32>> {
@@ -3438,6 +3474,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     for (var i = 0; i < l.length; i++) if (frameName(l[i]) === nm) { var f = frameOf(l[i]); return f ? f.view : undefined; }
     return undefined;
   };
+  var winAt2 = function (id) { var f = frameOf(wrap(id)); return f ? f.view : undefined; };
   var syncWin = function () {
     var l = frameList(), n = l.length, i, nm;
     for (i = ixN; i < n; i++) (function (k) {
@@ -3454,6 +3491,18 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     })(nm);
   };
   Object.defineProperty(g, 'length', { get: function () { var n = frameList().length; if (n !== ixN) syncWin(); return n; }, set: function () {}, configurable: true, enumerable: true });
+  // QDOM1: the WindowProperties fallback (js.rs): `window.<id>` / embed|form|img|object `name`.
+  if (g.__scratchy_set_named) g.__scratchy_set_named(function (nm) {
+    if (/^(0|[1-9]\d*)$/.test(nm)) return winAt(+nm);
+    var id = __d_named(doc.__id, nm);
+    if (id < 0) return undefined;
+    // an iframe whose `name` is nm gives its window (it is also what `window[name]` getters do once synced)
+    if (__d_tag(id) === 'IFRAME') {
+      if (frameName(wrap(id)) === nm) return winAt2(id);
+      if (__d_attr(id, 'id') !== nm) return undefined;
+    }
+    return wrap(id);
+  });
   var sfRem = __d_remove, sfHtml = __d_sethtml, sfTxt = __d_settext, sfSet = __d_setattr, sfRm = __d_rmattr, sfSq = __d_setq, sfRq = __d_rmq;
   var isSrc = function (n) { n = String(n).toLowerCase(); return n === 'src' || n === 'srcdoc'; };
   // QPT1c: while iframe realms exist, a removed node remembers the document it left (its wrapper

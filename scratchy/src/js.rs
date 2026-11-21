@@ -687,6 +687,22 @@ const PRELUDE: &str = r#"
   // and breaks ShadyDOM); the global object inherits from it.
   var Window = ctor('Window', EventTarget, function () { throw new TypeError('Illegal constructor'); });
   try { Object.setPrototypeOf(g, Window.prototype); } catch (e) {}
+  // QDOM1: WindowProperties, between Window.prototype and EventTarget.prototype: named access by id /
+  // embed|form|img|object name (`__scratchy_set_named` is set by the DOM prelude). Only names that nothing
+  // else in the chain (EventTarget.prototype, Object.prototype) defines are visible; own globals and `var`s
+  // win because they are found first. Not enumerable: a Proxy without `ownKeys` of its own.
+  var wpNamed = null, wpTarget = Object.create(EventTarget.prototype);
+  var WindowProperties = new Proxy(wpTarget, {
+    get: function (t, k, r) {
+      if (wpNamed !== null && typeof k === 'string' && !(k in t)) { var v = wpNamed(k); if (v !== undefined) return v; }
+      return Reflect.get(t, k, r);
+    },
+    has: function (t, k) {
+      return Reflect.has(t, k) || (wpNamed !== null && typeof k === 'string' && wpNamed(k) !== undefined);
+    },
+  });
+  try { Object.setPrototypeOf(Window.prototype, WindowProperties); } catch (e) {}
+  Object.defineProperty(g, '__scratchy_set_named', { value: function (f) { wpNamed = f; }, configurable: true });
   g.top = g.parent = g.frames = g; g.opener = null;
   // QPT1d (R53 D8): `name` (settable), `closed` (a getter; a dropped iframe realm sets it, `__scratchy_closed`).
   var closedFlag = false;
