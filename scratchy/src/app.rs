@@ -953,6 +953,8 @@ pub(crate) struct App {
     /// QCOMP1: the `:` line's ghost suggestion (`completion.rs`); `None` = no ghost (also after
     /// Delete, until the next edit). Always `None` outside the `:` line.
     pub(crate) ghost: Option<Ghost>,
+    /// QCOMP4: what the ghost sources read once per `:` line (the ranked history); new each time the line opens.
+    pub(crate) complete_cache: CompleteCache,
     /// Set by `dispatch_command`'s own `:q`/`:quit` handler — only when
     /// `pre_help_page` is `None`, i.e. there's no page to fall back to
     /// (see that field's own docs for the vim-"closing the last buffer
@@ -1381,6 +1383,7 @@ impl App {
             search: crate::search::SearchState::default(),
             modifiers: ModifiersState::empty(),
             ghost: None,
+            complete_cache: CompleteCache::new(None),
             should_quit: false,
             select_popup: None,
             swallow_release: false,
@@ -1493,6 +1496,7 @@ impl App {
             search: crate::search::SearchState::default(),
             modifiers: ModifiersState::empty(),
             ghost: None,
+            complete_cache: CompleteCache::new(None),
             should_quit: false,
             select_popup: None,
             swallow_release: false,
@@ -4370,6 +4374,7 @@ impl App {
                 self.vim_mode = VimMode::Command;
                 self.command_line.clear();
                 self.ghost = None;
+                self.complete_cache = CompleteCache::new(crate::history::dir());
             }
             Action::EnterSearchMode => {
                 self.vim_mode = VimMode::Search;
@@ -4617,7 +4622,7 @@ impl App {
 
     /// T45/T46: the ghost for the line as it is now.
     fn recompute_ghost(&mut self) {
-        self.ghost = crate::compute_ghost(&self.command_line.text, self.command_line.cursor);
+        self.ghost = crate::compute_ghost(&self.command_line.text, self.command_line.cursor, &self.complete_cache);
     }
 
     /// QSEARCH1 (T22-T25): a key in the `/` line. Enter commits, Esc cancels, the rest edits

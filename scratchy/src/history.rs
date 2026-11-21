@@ -35,6 +35,11 @@ pub(crate) fn init(dir: Option<PathBuf>) {
     *DIR.lock().unwrap_or_else(|e| e.into_inner()) = dir;
 }
 
+/// The state directory the history lives in (`None`: no history, or `HISTORY` is off).
+pub(crate) fn dir() -> Option<PathBuf> {
+    DIR.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
 /// The URL to record for a finished top-level load: the final URL without its fragment, only for
 /// web origins (`file:`, `data:`, `about:` and other opaque origins are not visits).
 pub(crate) fn visit_url(url: &Url) -> Option<String> {

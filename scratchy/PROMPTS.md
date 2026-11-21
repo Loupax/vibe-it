@@ -8813,3 +8813,9 @@ Item QINC1h2 (REGRESSIONS.md R60 section 15). `layout.rs`: `natural_width_impl` 
 > QKEYS3 [S] Removals (P5): `:set vim`/`:set novim`, `vim_enabled`, SIGUSR1/ToggleVimMode and signal-hook; `:help` and NOTES.md describe the two modes and Esc Esc.
 
 **What changed:** `:set vim`/`novim` are now unknown commands (dispatch_command arms and SET_ARGS entries gone); `AppEvent::ToggleVimMode`, the SIGUSR1 thread in `run()` and the signal-hook dependency (Cargo.toml/lock) removed; `:help` rows deleted (it already describes INPUT/NORMAL and Esc Esc; NOTES.md had no vim text); KEYS.md section now "went away". Completion tests use `set mo` instead of `set vi`. Real check: nested dwl + inject `Esc Esc :set vim` shows "unknown command: :set vim" and stays NORMAL.
+
+## QCOMP4: `:go` completes from the history (agent item)
+
+> QCOMP4 [S] (P2; Sonnet; completion.rs, config.rs COMPLETERS) Built-in `:go` source `complete_history_urls`: site roots by site visits, then pages by own visits, ties by recency, prefix match after stripping the scheme and `www.`; bad lines skipped; history read once per line.
+
+**What changed:** completion.rs: `rank_history` (STASH.md "Ranking": roots per origin by site visits, then other URLs by own visits, ties newest first, unparseable lines skipped), `CompleteCache` (the ranked history, read once per `:` line, new each time the line opens; held in `App::complete_cache`), `complete_history_urls` (a URL starting with the word is kept as visited, else both sides are compared without scheme/`www.` and the candidate is the typed word plus the URL's rest, so typed `https://google` against `https://www.google.com/` ghosts `.com/` and Enter runs `https://google.com/`). `compute_ghost` takes the cache. config.rs: `("go", ...)` row, not in SPACE_AFTER_ARG. history.rs: `dir()`. help.html updated. Checked in a nested dwl with a hand-written history file: `:go you` shows the dim `tube.com/`.
