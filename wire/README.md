@@ -150,7 +150,10 @@ socket. Matching, in order: exact (method, url, request body hash, range); the
 same with ignored query parameters removed (`--replay-rules FILE`, lines
 `host name,name`, `*` for every host); a range request inside a recorded full
 body or recorded `206` range (answered `206`); the n-th request to the same
-host+path (the last recorded one once they run out). A miss is `404` with
+host+path with the same query after the ignore list (the last recorded one once
+they run out). A differing query is a miss unless the rules file has a line
+`path-fallback HOST /PATH` (`*` for any host or path), which allows the n-th
+request to that host+path whatever its query. A miss is `404` with
 `X-Wire-Replay: miss` and one log line; hits carry `X-Wire-Replay: hit`.
 `--replay-delay 5ms` sleeps per request (the recorded latency is never used).
 A WebSocket upgrade is refused (`403`, `X-Wire-Replay: websocket-refused`).

@@ -60,7 +60,7 @@ fn print_usage() {
     eprintln!("                       index.jsonl). Recordings can hold personal data: keep them local.");
     eprintln!("  wire --replay DIR [--replay-rules FILE] [--replay-delay 5ms]");
     eprintln!("                       answer only from a recording, never the network; a miss is 404 with");
-    eprintln!("                       X-Wire-Replay: miss; WebSocket is refused. FILE: `host param,param`");
+    eprintln!("                       X-Wire-Replay: miss; WebSocket is refused. FILE: `host param,param`, `path-fallback host /path`");
     eprintln!("                       lines (`*` = any host) of query parameters ignored when matching.");
     eprintln!("  wire                 listen on $XDG_RUNTIME_DIR/wire.sock (falling back to");
     eprintln!("                       /tmp/wire-$UID.sock), serving real HTTP requests read");

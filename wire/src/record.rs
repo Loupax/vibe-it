@@ -146,18 +146,32 @@ struct Entry {
 #[derive(Default)]
 pub struct Rules {
     ignore: Vec<(String, Vec<String>)>,
+    /// `path-fallback host /path` lines: (host, path; `*` = any path).
+    fallback: Vec<(String, String)>,
 }
 
 impl Rules {
     pub fn parse(text: &str) -> Rules {
         let mut ignore = Vec::new();
+        let mut fallback = Vec::new();
         for line in text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
+            let w: Vec<&str> = line.split_whitespace().collect();
+            if w.len() == 3 && w[0] == "path-fallback" {
+                fallback.push((w[1].to_ascii_lowercase(), w[2].to_string()));
+                continue;
+            }
             if let Some((host, params)) = line.split_once(char::is_whitespace) {
                 let params = params.split([',', ' ']).map(str::trim).filter(|p| !p.is_empty()).map(String::from).collect();
                 ignore.push((host.to_ascii_lowercase(), params));
             }
         }
-        Rules { ignore }
+        Rules { ignore, fallback }
+    }
+
+    /// True when a rule lets a request with a differing query be answered by
+    /// the n-th recorded request to the same host+path.
+    fn path_fallback(&self, host: &str, path: &str) -> bool {
+        self.fallback.iter().any(|(h, p)| (h == "*" || h == host) && (p == "*" || p == path))
     }
 
     fn ignored(&self, host: &str, name: &str) -> bool {
@@ -322,10 +336,12 @@ impl Replayer {
                 .collect();
             chosen = self.pick(format!("3|{method}|{norm}|{body_sha}|{range:?}"), &c).map(|i| (c[i], Some((a, b.unwrap_or(usize::MAX)))));
         }
-        // 4. the n-th request to the same path
+        // 4. the n-th request to the same path. A differing query (after the
+        // ignore list) is a miss unless a `path-fallback` rule allows it.
         if chosen.is_none() {
             let pk = path_key(url);
-            let c: Vec<&Entry> = self.entries.iter().filter(|e| e.method == method && e.path_key == pk && e.range.is_none()).collect();
+            let any_query = self.rules.path_fallback(&url.host_str().unwrap_or("").to_ascii_lowercase(), url.path());
+            let c: Vec<&Entry> = self.entries.iter().filter(|e| e.method == method && e.path_key == pk && e.range.is_none() && (any_query || e.norm == norm)).collect();
             chosen = self.pick(format!("4|{method}|{pk}"), &c).map(|i| (c[i], None));
         }
 

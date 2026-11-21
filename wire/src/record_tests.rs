@@ -93,8 +93,6 @@ fn record_then_replay_without_network() {
     let b2 = get(&rep, &format!("{base}/n"), &[], b"").1;
     let b3 = get(&rep, &format!("{base}/n"), &[], b"").1;
     assert_eq!((b1, b2, b3), (b"call 2".to_vec(), b"call 3".to_vec(), b"call 3".to_vec()), "n-th same-path, then the last");
-    let (_, b) = get(&rep, &format!("{base}/same?other=1"), &[], b"");
-    assert_eq!(b, b"path /same", "falls back to the same path");
     assert_eq!(rep.replayer.as_ref().unwrap().misses(), 0);
 
     // Range inside a recorded full body.
@@ -178,4 +176,39 @@ fn websocket_is_refused_in_replay_and_mounts_are_not_recorded() {
     for d in [dir, site, rdir] {
         let _ = std::fs::remove_dir_all(&d);
     }
+}
+
+#[test]
+fn replay_differing_query_is_a_miss_unless_a_rule_allows_it() {
+    let dir = tmp("query");
+    let rec = Recorder::open(&dir).unwrap();
+    let ok = |body: &str| format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n{body}").into_bytes();
+    let u = |s: &str| Url::parse(s).unwrap();
+    rec.record("GET", &u("http://h.test/load.php?modules=a&cb=1"), None, b"", &ok("batch a"));
+    rec.record("GET", &u("http://h.test/n?x=1"), None, b"", &ok("n0"));
+    rec.record("GET", &u("http://h.test/n?x=1"), None, b"", &ok("n1"));
+    rec.record("GET", &u("http://f.test/api?q=1"), None, b"", &ok("api"));
+    drop(rec);
+    let rules = "h.test cb\npath-fallback f.test /api\n";
+    let mut rep = Shared::new(false);
+    rep.replayer = Some(Replayer::open(&dir, Rules::parse(rules), Duration::ZERO).unwrap());
+    let r = || rep.replayer.as_ref().unwrap().misses();
+
+    let (h, b) = get(&rep, "http://h.test/load.php?modules=a&cb=77", &[], b"");
+    assert!(h.contains("X-Wire-Replay: hit") && b == b"batch a", "ignored param: {h}");
+    assert_eq!(r(), 0);
+    let (h, _) = get(&rep, "http://h.test/load.php?modules=b&cb=77", &[], b"");
+    assert!(h.starts_with("HTTP/1.1 404") && h.contains("X-Wire-Replay: miss"), "differing query: {h}");
+    assert_eq!(r(), 1);
+    // n-th identical requests are still served in order, then the last.
+    let bs: Vec<Vec<u8>> = (0..3).map(|_| get(&rep, "http://h.test/n?x=1", &[], b"").1).collect();
+    assert_eq!(bs, vec![b"n0".to_vec(), b"n1".to_vec(), b"n1".to_vec()]);
+    assert_eq!(r(), 1);
+    // An explicit rule allows the path-only fallback, for that host+path only.
+    let (h, b) = get(&rep, "http://f.test/api?q=2", &[], b"");
+    assert!(h.contains("X-Wire-Replay: hit") && b == b"api", "rule: {h}");
+    let (h, _) = get(&rep, "http://f.test/other?q=2", &[], b"");
+    assert!(h.starts_with("HTTP/1.1 404"), "{h}");
+    assert_eq!(r(), 2);
+    let _ = std::fs::remove_dir_all(&dir);
 }
