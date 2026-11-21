@@ -157,21 +157,37 @@ pub(crate) const SEARCH_CURRENT_RGBA: (u8, u8, u8, u8) = (255, 140, 0, 180);
 /// Arguments `:set` completes, alphabetical. `dispatch_command` decides what they do.
 pub(crate) const SET_ARGS: &[&str] = &["js", "motion", "nojs", "nomotion"];
 
-/// Where a command's arguments complete from (QCOMP1, QCOMP-D C1). Only built-in sources for now;
-/// QCOMP2 adds `Cmd(argv)` (an external program).
+/// Where a command's arguments complete from (QCOMP1, QCOMP2, QCOMP-D C1).
 #[derive(Clone, Copy)]
 pub(crate) enum Source {
     /// A Rust function: given the line, the word and its argument index, the candidates (full
     /// words that start with the word), best first.
     Builtin(fn(&crate::completion::CompleteCtx) -> Vec<String>),
+    /// An external program (argv, run with NO shell, so `$(...)` and `;` are plain text). It gets the
+    /// context in its environment: SCRATCHY_LINE (the whole line), SCRATCHY_WORD (the word being
+    /// completed), SCRATCHY_ARG (its index, 1 = first argument), SCRATCHY_URL (the current page),
+    /// SCRATCHY_STATE_DIR. It prints one candidate per line on stdout; a non-zero exit or no output
+    /// means no ghost. It runs on a thread once per command line and argument position (not per key;
+    /// scratchy filters its lines by prefix while you type) and is killed after `SOURCE_TIMEOUT_MS`.
+    #[allow(dead_code)] // only used by a user's COMPLETERS row (and the tests)
+    Cmd(&'static [&'static str]),
 }
 
 /// The completion table, one row per command (the first word always completes from the command
 /// names). No row = no ghost after that command's name. `:go` completes from the history file.
+/// To use your own program for a command, replace its row, e.g.
+/// `("go", Source::Cmd(&["my-url-source", "--flag"]))`.
 pub(crate) const COMPLETERS: &[(&str, Source)] = &[
     ("set", Source::Builtin(crate::completion::complete_set_args)),
     ("go", Source::Builtin(crate::completion::complete_history_urls)),
+    // ("go", Source::Cmd(&["my-url-source"])),
 ];
+
+/// An external completion source (`Source::Cmd`) still running after this many milliseconds is killed
+/// and gives no candidates.
+pub(crate) const SOURCE_TIMEOUT_MS: u64 = 2000;
+/// At most this many bytes of an external source's stdout are read; the rest is dropped.
+pub(crate) const SOURCE_MAX_OUTPUT: usize = 1 << 20;
 
 /// Commands whose argument, once selected with Tab (a single match), is followed by a space
 /// (T53: `:set js ` yes; a URL no). The command name itself always gets one.
