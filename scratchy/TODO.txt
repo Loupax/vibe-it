@@ -94,9 +94,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       parser-blocking scripts during parsing (scripts see the partial DOM), defer/async ordering,
       DOMContentLoaded/load as tasks. Measure html/semantics/scripting-1 and dynamic-markup-insertion
       first; write the design for the user.
-- [ ] [WIP] QMAPI2 [S] (P2; Sonnet; css.rs counters; after QMAPI1) CSS part of the report: dropped declarations
-      by property, dropped rules by unparsed pseudo-class/element, unknown at-rules, false
-      @supports/CSS.supports conditions, unknown media features.
 - [ ] [WIP] QCSS1 [S] (P1, from QMAPI2 #523; Sonnet; css.rs @media parser) The stylesheet `@media` parser only knows
       min-width, max-width, prefers-color-scheme, prefers-reduced-motion, so range syntax (`(width >= 600px)`,
       `(400px < width < 900px)`) and `(hover: hover)`, `(pointer: fine)`, orientation, resolution... drop the whole rule,

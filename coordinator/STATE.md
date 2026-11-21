@@ -147,3 +147,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-21 Merged #520 QKEYS1b f6a9b3d. Merging #510 QEL1 (rebased on QDOM1, total 30.3 -> 30.4, all 13 animation-frames pass).
 - 2026-11-21 QMAPI2 #523 READY (merge after #510). Filed QCSS1 (P1: @media range syntax dropped, github 989 rules), QCSS2 (CSS.supports). Launched QCSS1.
 - 2026-11-21 Merged #510 QEL1 2329db7 (rendering-steps driver; 13/13 animation-frames; total 30.4). Merging #523 QMAPI2. Launched QEL2.
+- 2026-11-21 Merged #523 QMAPI2 e3794c7.

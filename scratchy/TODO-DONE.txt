@@ -8909,3 +8909,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       is dirty or a rAF is pending); headless runs it on virtual 16.7 ms frames. Keep today's cost
       tricks. Tests: WPT html/webappapis/animation-frames all pass; order probe (R64 4) gives the
       HTML order.
+
+=== from TODO.txt: --- (no header)
+- [x] QMAPI2 DONE e3794c7 #523 [S] (P2; Sonnet; css.rs counters; after QMAPI1) CSS part of the report: dropped declarations
+      by property, dropped rules by unparsed pseudo-class/element, unknown at-rules, false
+      @supports/CSS.supports conditions, unknown media features.
