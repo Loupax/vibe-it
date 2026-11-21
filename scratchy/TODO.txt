@@ -151,12 +151,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       Comment-constructor, DocumentFragment-constructor, Document-constructor, Document-adoptNode, Node-cloneNode,
       insertion-removing-steps/*, events/Event-dispatch-bubbles-{true,false}. Target: nodes +1.5. Prerequisite for
       dom/common.js (QDOM8).
-- [ ] [WIP] QDOM7 [S] (P1; Sonnet; js_dom.rs `text_write_changes`, `cdReplace`, DomTable; R65) Mutable data for Comment
-      (and, for QDOM8, ProcessingInstruction): rcdom's `Comment { contents }` is not a cell, so a data write replaces the
-      node with a new one in its parent's child list and re-points the JS id in DomTable to it (id -> Handle and the
-      reverse map), or keeps an override table read by `__d_text`, `serialize_node`, `clone_node_body`. MutationObserver
-      characterData records as for Text. WPT: nodes/CharacterData-{data,appendData,insertData,deleteData,replaceData,
-      substringData,surrogates,appendChild} (the Comment.* halves). Target: nodes +0.7.
 - [ ] QDOM8 [S] (P1; Sonnet; js_dom.rs; R65; after QDOM6, QDOM7) ProcessingInstruction and CDATASection nodes:
       `document.createProcessingInstruction(target, data)` (target must match Name, data must not contain `?>`:
       InvalidCharacterError), `createCDATASection(data)` (NotSupportedError on HTML documents, `]]>` ->
@@ -442,7 +436,7 @@ QKEYS — input mode / normal mode, Esc Esc, `i`, status bar (user design sessio
       horizontal content/client widths and a per-region x scroll; the window bar sits above the status bar and the page
       viewport loses TRACK_W of height while it shows; scrollbar.rs axis-generic geometry/hit-test/drag (SbDrag/SbHold get an
       axis); wheel and shift-wheel stay consistent. Tests + nest/grim check.
-- [ ] QKEYS3 [S] (P3, after QKEYS2) Removals (P5): `:set vim`/`:set novim`, `vim_enabled`,
+- [ ] [WIP] QKEYS3 [S] (P3, after QKEYS2) Removals (P5): `:set vim`/`:set novim`, `vim_enabled`,
       SIGUSR1/ToggleVimMode and signal-hook (if nothing else uses it), the `vim` key in
       QCFG1's list; `:help` and NOTES.md describe the two modes and Esc Esc instead. Keep
       every existing test that still applies; rewrite the ones that tested the toggle.
@@ -489,12 +483,6 @@ QSEARCH — `/` search, n/N, Enter (user design session 2026-11-20; needs QKEYS2
 
 
 
-- [ ] [WIP] QSEARCH3 [S] (P2, after QSEARCH2) Enter clicks the current match (S7; KEYS.md T18-T20). Tests: a match
-      spanning two links warns and clicks nothing; a match
-      in a plain link navigates; a match in a link whose click handler calls
-      preventDefault does not navigate and the handler ran; a match in a `<button>` fires
-      its click; Enter with no match does nothing. Real check: YouTube results, `/` a title,
-      Enter opens the watch page through the page's router (no full reload in the log).
 
 ========================================================================
 QCOMP — scriptable command completion, history file, config in code (user design session 2026-11-20)
@@ -543,19 +531,7 @@ QCOMP — scriptable command completion, history file, config in code (user desi
 Order (feature work: after the perf queue): QCONF1 -> QCOMP1 -> QCOMP2; QCOMP3 after QSTASH1
 (state directory); QCOMP4 after QCOMP1 and QCOMP3.
 
-- [ ] [WIP] QCOMP1 [M] (P2, after QCONF1) `COMPLETERS` table in config.rs (C1, built-in sources
-      only) and the GHOST SUGGESTION (C8, KEYS.md T45-T52) for every completable word
-      (command names, `:set` arguments): computed after each edit with the cursor at the
-      end, drawn dimmed after the cursor in the status bar, Tab/Shift-Tab cycle (2+
-      matches) or select the only match (1 match, T53: `:se` Tab -> `:set `), Enter
-      runs typed + ghost, Right/End accept, Delete hides. Replaces today's inline
-      replace-and-cycle (`CommandCompletion`). Candidates become `String`; `:set` moves
-      to `Source::Builtin(complete_set_args)`. Tests (pure functions over line + cursor):
-      `:se` ghosts `t` and Tab gives `:set `; a single URL match is selected with no
-      space; Tab cycles and wraps with 2+, Shift-Tab back; Enter runs the full text;
-      Delete then Enter runs the typed text; cursor not at the end -> no ghost; a command
-      without a row gets no ghost after its name.
-- [ ] QCONF2 [S] (P2; USER 2026-11-21: "keep the setting together with the rest of the config items"; Sonnet;
+- [ ] [WIP] QCONF2 [S] (P2; USER 2026-11-21: "keep the setting together with the rest of the config items"; Sonnet;
       src/stash.rs, src/config.rs) Move the localStorage quota (5 Mi UTF-16 units of keys+values per origin, QSTASH1)
       and any other user-tunable stash/history limit into src/config.rs with a comment each, as QCONF1 did. No behaviour
       change; existing stash tests pass unchanged.
@@ -568,7 +544,7 @@ Order (feature work: after the perf queue): QCONF1 -> QCOMP1 -> QCOMP2; QCOMP3 a
       ghost; a missing program gives a status-bar message; a line containing `$(...)`/`;`
       is used as plain text; the source runs once per line, not per key; a stale result
       is ignored.
-- [ ] QCOMP4 [S] (P2, after QCOMP1 and QCOMP3; feeds C8's ghost) Built-in `:go` source
+- [ ] [WIP] QCOMP4 [S] (P2, after QCOMP1 and QCOMP3; feeds C8's ghost) Built-in `:go` source
       `complete_history_urls` (C7; STASH.md "Ranking"): site roots by site visits, then
       pages by own visits, ties by recency, prefix match after stripping the scheme and
       `www.`; bad lines skipped; this order is the ghost order. Tests: a site with many

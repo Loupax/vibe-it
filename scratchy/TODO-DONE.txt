@@ -8828,3 +8828,33 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       Event-dispatch-bubble-canceled, Event-dispatch-propagation-stopped, Event-stopPropagation-cancel-bubbling,
       Event-dispatch-throwing, EventListener-handleEvent, Event-isTrusted.any, event-src-element-nullable,
       window-composed-path, passive-by-default, AddEventListenerOptions-passive.any. Target: events 23.0 -> 30.
+
+=== from TODO.txt: --- (no header)
+- [x] QCOMP1 DONE 920d657 #511 [M] (P2, after QCONF1) `COMPLETERS` table in config.rs (C1, built-in sources
+      only) and the GHOST SUGGESTION (C8, KEYS.md T45-T52) for every completable word
+      (command names, `:set` arguments): computed after each edit with the cursor at the
+      end, drawn dimmed after the cursor in the status bar, Tab/Shift-Tab cycle (2+
+      matches) or select the only match (1 match, T53: `:se` Tab -> `:set `), Enter
+      runs typed + ghost, Right/End accept, Delete hides. Replaces today's inline
+      replace-and-cycle (`CommandCompletion`). Candidates become `String`; `:set` moves
+      to `Source::Builtin(complete_set_args)`. Tests (pure functions over line + cursor):
+      `:se` ghosts `t` and Tab gives `:set `; a single URL match is selected with no
+      space; Tab cycles and wraps with 2+, Shift-Tab back; Enter runs the full text;
+      Delete then Enter runs the typed text; cursor not at the end -> no ghost; a command
+      without a row gets no ghost after its name.
+
+=== from TODO.txt: --- (no header)
+- [x] QSEARCH3 DONE 26bd952 #514 [S] (P2, after QSEARCH2) Enter clicks the current match (S7; KEYS.md T18-T20). Tests: a match
+      spanning two links warns and clicks nothing; a match
+      in a plain link navigates; a match in a link whose click handler calls
+      preventDefault does not navigate and the handler ran; a match in a `<button>` fires
+      its click; Enter with no match does nothing. Real check: YouTube results, `/` a title,
+      Enter opens the watch page through the page's router (no full reload in the log).
+
+=== from TODO.txt: --- (no header)
+- [x] QDOM7 DONE 34e2786 #515 [S] (P1; Sonnet; js_dom.rs `text_write_changes`, `cdReplace`, DomTable; R65) Mutable data for Comment
+      (and, for QDOM8, ProcessingInstruction): rcdom's `Comment { contents }` is not a cell, so a data write replaces the
+      node with a new one in its parent's child list and re-points the JS id in DomTable to it (id -> Handle and the
+      reverse map), or keeps an override table read by `__d_text`, `serialize_node`, `clone_node_body`. MutationObserver
+      characterData records as for Text. WPT: nodes/CharacterData-{data,appendData,insertData,deleteData,replaceData,
+      substringData,surrogates,appendChild} (the Comment.* halves). Target: nodes +0.7.
