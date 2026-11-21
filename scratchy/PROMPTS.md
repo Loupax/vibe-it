@@ -8699,3 +8699,9 @@ Item QINC1h2 (REGRESSIONS.md R60 section 15). `layout.rs`: `natural_width_impl` 
 > QKEYS4 [S] Input-mode default scroll keys (P6): arrows, PageUp/PageDown, Space/Shift-Space (and Home/End), after the page's keydown and only when nothing focused owns the key. They stay bindings in normal mode too.
 
 **What changed:** the end of `App::route_key`'s input-mode chain calls `ua_scroll_key`: a named key that `resolve_binding` maps to a scroll action (ArrowUp/Down, PageUp/PageDown, Space/Shift-Space, Home/End) performs it; `j`/`k`/`G` stay the page's. It runs after js keydown (preventDefault stops it), the select popup, select, text control and media, and after the Space/Enter arms for a focused checkbox/button. Tests: `src/tests/qkeys4_tests.rs`. Real check: nested dwl + grim of a 70-line page, PageDown/Space/arrows/End in input mode.
+
+## QWPT4b: the testharness runner parent (agent item)
+
+> QWPT4b [M] (P1; src/wpt_th.rs; R64 2.3, 2.5, 3.1; after QWPT4a) Runner parent. `scratchy --wpt-th <checkout> [--jobs N] [--update] [--area A]`: starts a private wire with the mount (own socket, never /run/user/1000/wire.sock; kills only its PID), pool of children, 30 s real-time cap per child (kill own PID -> TIMEOUT), reads wpt-th/subset.txt, writes/compares wpt-th/expected/<area>.txt (format R64 2.5), honours wpt-th/flaky.txt, writes wpt-th/areas.txt. Exit 1 on REGRESSION/UNRECORDED/CHANGED. Worker variants listed as NOT-RUN.
+
+**What changed:** new `src/wpt_th_run.rs` (`--wpt-th`, dispatched from `run()`): private wire, thread pool of `--wpt-th-one` children, 30 s kill, expected-file format/parse/compare, flaky list, areas table (mean per-file score + subtest pass %), memory-capped systemd scope. Documented in NOTES.md "WPT testharness runner" and help.html. A small `wpt-th/` subset + expected files over a few real dirs prove it end to end (the phase-1 subset is QWPT6).
