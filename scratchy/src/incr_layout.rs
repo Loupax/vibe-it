@@ -181,6 +181,10 @@ thread_local! {
     /// Element boxes whose old `Laid` this update opened because they changed (a later lookup is a
     /// "dirty" miss, not "no old").
     static OPENED: RefCell<HashSet<usize>> = RefCell::new(HashSet::new());
+    /// QINC1k10: harvest keys that held two `Laid`s in this update. Neither is reused, and nor is any
+    /// later one: a third `put` (e.g. the old tree's stale entry, laid against its old containing block,
+    /// arriving after a failed attempt's two fresh copies cancelled out) would otherwise be served alone.
+    static AMBIGUOUS: RefCell<HashSet<(usize, u8)>> = RefCell::new(HashSet::new());
     /// QINC1j: set on the shaping worker while it lays out a kept-tree copy.
     static WORKER_VER: RefCell<Option<WorkerVer>> = const { RefCell::new(None) };
     static VER: Cell<u64> = const { Cell::new(0) };
@@ -507,7 +511,12 @@ fn put_body(mut l: Laid, h: &mut HashMap<(usize, u8), Laid>) {
                 put(*e, h);
             }
         }
+        if AMBIGUOUS.with(|a| a.borrow().contains(&(node, pseudo))) {
+            open(&mut l, h);
+            return;
+        }
         if let Some(mut prev) = h.insert((node, pseudo), l) {
+            AMBIGUOUS.with(|a| a.borrow_mut().insert((node, pseudo)));
             // Two `Laid`s for one key: reuse neither as a whole.
             let mut cur = h.remove(&(node, pseudo)).expect("just inserted");
             open(&mut prev, h);
@@ -1377,6 +1386,23 @@ fn note(f: impl FnOnce(&mut LayoutStats)) {
     });
 }
 
+/// QINC1k10 test hook: puts one pseudo-element `Laid` per key into a fresh harvest (as an update would)
+/// and returns the keys it still serves.
+#[cfg(test)]
+pub(crate) fn harvest_after_puts(keys: &[(usize, u8)]) -> Vec<(usize, u8)> {
+    AMBIGUOUS.with(|a| a.borrow_mut().clear());
+    let mut h = HashMap::new();
+    for k in keys {
+        let mut l = empty_laid();
+        (l.style.node, l.style.pseudo) = *k;
+        put(l, &mut h);
+    }
+    AMBIGUOUS.with(|a| a.borrow_mut().clear());
+    let mut out: Vec<_> = h.into_keys().collect();
+    out.sort();
+    out
+}
+
 fn empty_laid() -> Laid {
     Laid {
         style: anonymous_style(ROOT_STYLE),
@@ -1413,6 +1439,7 @@ fn with_ctx<R>(reuse: bool, f: impl FnOnce() -> R) -> (R, Ctx) {
     });
     crate::layout::ENG_ON.with(|c| c.set(true));
     OPENED.with(|o| o.borrow_mut().clear());
+    AMBIGUOUS.with(|a| a.borrow_mut().clear());
     let guard = OnGuard;
     let r = f();
     let ctx = CTX.with(|c| c.borrow_mut().take()).expect("set above");
