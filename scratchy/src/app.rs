@@ -991,6 +991,9 @@ pub(crate) struct App {
     pub(crate) swallow_release: bool,
     /// QSB1: a scrollbar thumb drag in progress.
     pub(crate) sb_drag: Option<SbDrag>,
+    /// QSB2: a track press being held (page repeat) and the hovered thumb's bar id.
+    pub(crate) sb_hold: Option<SbHold>,
+    pub(crate) sb_hover: Option<usize>,
     /// Q30g: type-ahead buffer of a focused closed select.
     pub(crate) select_ahead: TypeAhead,
     /// The page that was showing right before `:help` opened, if any —
@@ -1163,6 +1166,23 @@ pub(crate) enum SbTarget {
     Region(usize, usize),
 }
 
+/// QSB2: what `scrollbar_find` found under the pointer.
+struct SbFound {
+    target: SbTarget,
+    hit: crate::scrollbar::BarHit,
+    cur: f32,
+    max: f32,
+    ratio: f32,
+    page: f32,
+}
+
+/// QSB2: a track press being held: the side pressed and when the next page step is due.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct SbHold {
+    pub(crate) dir: crate::scrollbar::BarHit,
+    pub(crate) next: std::time::Instant,
+}
+
 /// QSB1: a thumb drag: the scroll position at the press and the pointer y it
 /// started at; each move is `start_scroll + dy * ratio`, clamped to `0..=max`.
 #[derive(Clone, Copy, Debug)]
@@ -1212,6 +1232,7 @@ impl App {
             self.scrollbar_drag_move(position.1);
             return;
         }
+        self.scrollbar_hover_update(position);
         self.text_mouse_drag(position);
         if self.video.drag.is_some() {
             self.controls_drag_move(position, false);
@@ -1378,6 +1399,8 @@ impl App {
             select_popup: None,
             swallow_release: false,
             sb_drag: None,
+            sb_hold: None,
+            sb_hover: None,
             select_ahead: TypeAhead::default(),
             pre_help_page: None,
             video: AppVideo::default(),
@@ -1485,6 +1508,8 @@ impl App {
             select_popup: None,
             swallow_release: false,
             sb_drag: None,
+            sb_hold: None,
+            sb_hover: None,
             select_ahead: TypeAhead::default(),
             pre_help_page: None,
             video: AppVideo::default(),
@@ -1494,6 +1519,7 @@ impl App {
     }
 
     pub(crate) fn redraw(&mut self) {
+        crate::paint::SB_HOT.with(|h| h.set(self.scrollbar_hot()));
         let (Some(window), Some(surface)) = (&self.window, &mut self.surface) else {
             return;
         };
@@ -4239,30 +4265,21 @@ impl App {
         (laid.h > h && !laid.style.viewport_hidden).then_some(((0.0, 0.0, w, h), laid.h, h))
     }
 
-    /// QSB1: a left press at `pos` on a scrollbar (the window's, else the outermost
-    /// region's whose bar is hit, since a parent's bar paints over its children).
-    /// Thumb: starts a drag. Track: a page up/down. True when the press was
-    /// consumed (the page then sees no mousedown/click).
-    pub(crate) fn scrollbar_press(&mut self, pos: (f32, f32)) -> bool {
-        use crate::scrollbar::{self as sb, BarHit};
+    /// QSB2: the scrollbar under `pos` (the window's, else the outermost region's, since a
+    /// parent's bar paints over its children): what it scrolls and where it was hit.
+    fn scrollbar_find(&self, pos: (f32, f32)) -> Option<SbFound> {
+        use crate::scrollbar as sb;
         let (px, py) = pos;
         let view_h = self.page_size().1 as f32;
         if let Some((rect, content_h, client_h)) = Self::viewport_bar(&self.cached, self.page_size()) {
             let max = content_h - client_h;
             let cur = self.scroll_offset.clamp(0.0, max);
-            if let Some(h) = sb::hit(rect, content_h, client_h, cur, px, py) {
-                match h {
-                    BarHit::Thumb => {
-                        let ratio = sb::drag_ratio(rect.3, content_h, client_h);
-                        self.sb_drag = Some(SbDrag { target: SbTarget::Viewport, start_ptr: py, start_scroll: cur, ratio, max });
-                    }
-                    _ => self.scroll_offset = sb::page_target(h, cur, page_step(view_h), max),
-                }
-                self.request_redraw_now();
-                return true;
+            if let Some(hit) = sb::hit(rect, content_h, client_h, cur, px, py) {
+                let ratio = sb::drag_ratio(rect.3, content_h, client_h);
+                return Some(SbFound { target: SbTarget::Viewport, hit, cur, max, ratio, page: page_step(view_h) });
             }
         }
-        let Some(laid) = self.cached.as_ref() else { return false };
+        let laid = self.cached.as_ref()?;
         let chain = crate::paint::hit_test_scroll_bars(
             laid, px, py + self.scroll_offset, &self.scroll_offsets, self.scroll_offset, view_h,
         );
@@ -4270,21 +4287,89 @@ impl App {
             let info = r.info;
             let max = info.max_scroll();
             let cur = self.scroll_offsets.get(&info.id).copied().unwrap_or(0.0).clamp(0.0, max);
-            let Some(h) = sb::hit(r.rect, info.content_h, info.client_h, cur, px, r.py) else { continue };
-            match h {
-                BarHit::Thumb => {
-                    let ratio = sb::drag_ratio(r.rect.3, info.content_h, info.client_h);
-                    self.sb_drag = Some(SbDrag { target: SbTarget::Region(info.id, info.node), start_ptr: py, start_scroll: cur, ratio, max });
-                }
-                _ => {
-                    let next = sb::page_target(h, cur, page_step(info.client_h), max);
-                    self.set_region_scroll(info.id, info.node, next);
-                }
-            }
-            self.request_redraw_now();
-            return true;
+            let Some(hit) = sb::hit(r.rect, info.content_h, info.client_h, cur, px, r.py) else { continue };
+            let ratio = sb::drag_ratio(r.rect.3, info.content_h, info.client_h);
+            return Some(SbFound { target: SbTarget::Region(info.id, info.node), hit, cur, max, ratio, page: page_step(info.client_h) });
         }
-        false
+        None
+    }
+
+    fn scrollbar_set(&mut self, target: SbTarget, next: f32) {
+        match target {
+            SbTarget::Viewport => self.scroll_offset = next,
+            SbTarget::Region(id, node) => self.set_region_scroll(id, node, next),
+        }
+    }
+
+    /// QSB1: a left press at `pos` on a scrollbar. Thumb: starts a drag. Track: a page
+    /// up/down, and (QSB2) a hold that repeats it. True when the press was consumed (the
+    /// page then sees no mousedown/click).
+    pub(crate) fn scrollbar_press(&mut self, pos: (f32, f32)) -> bool {
+        use crate::scrollbar::{self as sb, BarHit};
+        let Some(f) = self.scrollbar_find(pos) else { return false };
+        match f.hit {
+            BarHit::Thumb => {
+                self.sb_drag = Some(SbDrag { target: f.target, start_ptr: pos.1, start_scroll: f.cur, ratio: f.ratio, max: f.max });
+            }
+            _ => {
+                self.scrollbar_set(f.target, sb::page_target(f.hit, f.cur, f.page, f.max));
+                let delay = std::time::Duration::from_millis(crate::config::SB_REPEAT_DELAY_MS);
+                self.sb_hold = Some(SbHold { dir: f.hit, next: std::time::Instant::now() + delay });
+            }
+        }
+        self.request_redraw_now();
+        true
+    }
+
+    /// QSB2: a held track press: once due, page again while the pointer is still on the same
+    /// side of the thumb. Returns the next wake-up while the hold lasts.
+    pub(crate) fn scrollbar_hold_tick(&mut self) -> Option<std::time::Instant> {
+        use crate::scrollbar as sb;
+        let hold = self.sb_hold?;
+        let now = std::time::Instant::now();
+        if now < hold.next {
+            return Some(hold.next);
+        }
+        let interval = std::time::Duration::from_millis(crate::config::SB_REPEAT_INTERVAL_MS);
+        let next = now + interval;
+        self.sb_hold = Some(SbHold { next, ..hold });
+        let f = self.last_mouse_pos.and_then(|p| self.scrollbar_find(p));
+        if let Some(f) = f
+            && sb::repeat_applies(hold.dir, Some(f.hit))
+        {
+            self.scrollbar_set(f.target, sb::page_target(f.hit, f.cur, f.page, f.max));
+            self.request_redraw_now();
+        }
+        Some(next)
+    }
+
+    /// QSB2: thumb hover follows the pointer (a redraw only when it changes).
+    fn scrollbar_hover_update(&mut self, pos: (f32, f32)) {
+        let hover = self
+            .scrollbar_find(pos)
+            .filter(|f| f.hit == crate::scrollbar::BarHit::Thumb)
+            .map(|f| match f.target {
+                SbTarget::Viewport => usize::MAX,
+                SbTarget::Region(id, _) => id,
+            });
+        if hover != self.sb_hover {
+            self.sb_hover = hover;
+            self.request_redraw_now();
+        }
+    }
+
+    /// QSB2: the `(id, pressed)` the painter highlights.
+    fn scrollbar_hot(&self) -> Option<(usize, bool)> {
+        if let Some(d) = self.sb_drag {
+            return Some((
+                match d.target {
+                    SbTarget::Viewport => usize::MAX,
+                    SbTarget::Region(id, _) => id,
+                },
+                true,
+            ));
+        }
+        self.sb_hover.map(|id| (id, false))
     }
 
     /// QSB1: the pointer moved to window y `py` during a thumb drag (paint-only, like the wheel).
@@ -4574,6 +4659,7 @@ impl ApplicationHandler<AppEvent> for App {
         let anim_at = self.anim_tick(now_ms).map(|ms| std::time::Instant::now() + std::time::Duration::from_secs_f64(((ms - now_ms).max(0.0) + 1.0) / 1000.0));
         let js_at = self.js.as_ref().and_then(|js| js.next_deadline());
         let ctl_at = self.controls_refresh();
+        let sb_at = self.scrollbar_hold_tick();
         let stats_at = match &mut self.frame_stats {
             Some(fs) => {
                 let now = std::time::Instant::now();
@@ -4594,7 +4680,7 @@ impl ApplicationHandler<AppEvent> for App {
             crate::mem_trim::request();
         }
         let idle_at = self.idle_trim.wake_in(input_age, video_age).map(|d| std::time::Instant::now() + d);
-        let flow = match [js_at, anim_at, ctl_at, stats_at, trail_at, idle_at].into_iter().flatten().min() {
+        let flow = match [js_at, anim_at, ctl_at, stats_at, trail_at, idle_at, sb_at].into_iter().flatten().min() {
             Some(t) => ControlFlow::WaitUntil(t),
             None => ControlFlow::Wait,
         };
@@ -4880,8 +4966,9 @@ impl ApplicationHandler<AppEvent> for App {
                         }
                     }
                     ElementState::Released => {
-                        if self.sb_drag.take().is_some() {
+                        if self.sb_drag.take().is_some() || self.sb_hold.take().is_some() {
                             self.mouse_down_pos = None;
+                            self.request_redraw_now();
                             return;
                         }
                         if self.video.drag.is_some() {

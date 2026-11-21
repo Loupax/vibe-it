@@ -5,6 +5,9 @@ thread_local! {
     /// Accumulated `opacity` of the box `paint` is currently painting
     /// (Q17); `blend` scales every source alpha by it.
     pub(crate) static PAINT_OPACITY: Cell<f32> = const { Cell::new(1.0) };
+    /// QSB2: the scrollbar whose thumb is hovered / dragged: `(ScrollInfo::id, pressed)`;
+    /// `App::redraw` sets it before painting (the window's bar has id `usize::MAX`).
+    pub(crate) static SB_HOT: Cell<Option<(usize, bool)>> = const { Cell::new(None) };
 }
 
 pub(crate) fn blend(existing: u32, color: TextColor) -> u32 {
@@ -1644,8 +1647,10 @@ pub(crate) fn paint_scrollbar(
     let (off, thumb_h) = crate::scrollbar::thumb(track_h, info.content_h, info.client_h, own_scroll);
     let thumb_y = track_y + off;
     let track_w = crate::scrollbar::TRACK_W;
-    fill_rect(pixels, win_w, win_h, track_x, track_y, track_w, track_h, TextColor::rgba(0, 0, 0, 28), clip);
-    fill_rect(pixels, win_w, win_h, track_x, thumb_y, track_w, thumb_h, TextColor::rgba(0, 0, 0, 120), clip);
+    let thumb_rgba = crate::scrollbar::thumb_rgba(SB_HOT.with(|h| h.get()), info.id);
+    let t = crate::config::SB_TRACK_RGBA;
+    fill_rect(pixels, win_w, win_h, track_x, track_y, track_w, track_h, TextColor::rgba(t.0, t.1, t.2, t.3), clip);
+    fill_rect(pixels, win_w, win_h, track_x, thumb_y, track_w, thumb_h, TextColor::rgba(thumb_rgba.0, thumb_rgba.1, thumb_rgba.2, thumb_rgba.3), clip);
 }
 
 /// What the status bar (QKEYS1, KEYS.md "Status bar") shows.

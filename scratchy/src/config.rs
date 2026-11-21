@@ -107,6 +107,14 @@ pub(crate) const SCROLL_INTO_VIEW_MARGIN: f32 = 24.0;
 pub(crate) const TRACK_W: f32 = 8.0;
 /// Shortest scrollbar thumb, px (never longer than the track).
 pub(crate) const MIN_THUMB_H: f32 = 16.0;
+/// QSB2: holding the mouse on a track: wait this long, then page again every interval (ms).
+pub(crate) const SB_REPEAT_DELAY_MS: u64 = 400;
+pub(crate) const SB_REPEAT_INTERVAL_MS: u64 = 60;
+/// QSB2: track and thumb colours as (r, g, b, a): rest, thumb hovered, thumb pressed (dragging).
+pub(crate) const SB_TRACK_RGBA: (u8, u8, u8, u8) = (0, 0, 0, 28);
+pub(crate) const SB_THUMB_RGBA: (u8, u8, u8, u8) = (0, 0, 0, 120);
+pub(crate) const SB_THUMB_HOVER_RGBA: (u8, u8, u8, u8) = (0, 0, 0, 170);
+pub(crate) const SB_THUMB_ACTIVE_RGBA: (u8, u8, u8, u8) = (0, 0, 0, 210);
 
 // ---------- status bar (QKEYS1) ----------
 
