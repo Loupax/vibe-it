@@ -308,6 +308,8 @@ pub struct Jar {
     cookies: Vec<Cookie>,
     limits: Limits,
     seq: u64,
+    /// A persistable change happened since the last `take_dirty` (W-PERSIST1).
+    dirty: bool,
 }
 
 impl Default for Jar {
@@ -318,7 +320,7 @@ impl Default for Jar {
 
 impl Jar {
     pub fn new(limits: Limits) -> Jar {
-        Jar { cookies: Vec::new(), limits, seq: 0 }
+        Jar { cookies: Vec::new(), limits, seq: 0, dirty: false }
     }
 
     #[cfg(test)]
@@ -378,6 +380,124 @@ impl Jar {
         self.cookie_header(ctx, now).unwrap_or_default()
     }
 
+    /// Removes every cookie in one partition (the top-level site `site`,
+    /// already normalized): that site's own first-party cookies and every
+    /// third-party cookie embedded under it. Returns how many were removed.
+    pub fn clear_site(&mut self, site: &str) -> usize {
+        let before = self.cookies.len();
+        self.cookies.retain(|c| c.partition != site);
+        let n = before - self.cookies.len();
+        if n > 0 {
+            self.dirty = true;
+        }
+        n
+    }
+
+    /// Whether the jar changed since the last call (clears the flag).
+    pub fn take_dirty(&mut self) -> bool {
+        std::mem::take(&mut self.dirty)
+    }
+
+    /// Marks the jar changed again (a save failed and must be retried).
+    pub fn mark_dirty(&mut self) {
+        self.dirty = true;
+    }
+
+    /// The `--cookie-file` text: a header line, then one persistent cookie
+    /// per line (session cookies and expired ones are left out), fields
+    /// separated by tabs, text fields percent-escaped for `%` and control bytes:
+    /// partition, domain, host_only, path, name, value, secure, http_only,
+    /// same_site (0 none, 1 lax, 2 strict), expiry (unix s), created.
+    pub fn to_file_text(&self, now: i64) -> String {
+        let mut out = String::from(FILE_HEADER);
+        out.push('\n');
+        let mut keep: Vec<&Cookie> = self.cookies.iter().filter(|c| c.expiry.is_some_and(|e| e > now)).collect();
+        keep.sort_by_key(|c| c.created);
+        for c in keep {
+            let ss = match c.same_site {
+                SameSite::None => 0,
+                SameSite::Lax => 1,
+                SameSite::Strict => 2,
+            };
+            let fields = [
+                esc(&c.partition),
+                esc(&c.domain),
+                u8::from(c.host_only).to_string(),
+                esc(&c.path),
+                esc(&c.name),
+                esc(&c.value),
+                u8::from(c.secure).to_string(),
+                u8::from(c.http_only).to_string(),
+                ss.to_string(),
+                c.expiry.unwrap_or(0).to_string(),
+                c.created.to_string(),
+            ];
+            out.push_str(&fields.join("\t"));
+            out.push('\n');
+        }
+        out
+    }
+
+    /// Parses `to_file_text` output. Cookies already expired at `now` are
+    /// dropped. `Err` (any bad line or header) means the file is corrupt and
+    /// the caller starts with an empty jar.
+    pub fn from_file_text(text: &str, now: i64) -> Result<Jar, String> {
+        let mut lines = text.lines();
+        if lines.next() != Some(FILE_HEADER) {
+            return Err("missing or unknown header line".to_string());
+        }
+        let mut jar = Jar::default();
+        let mut rows: Vec<Cookie> = Vec::new();
+        for (n, line) in lines.enumerate() {
+            let f: Vec<&str> = line.split('\t').collect();
+            let bad = || format!("line {} is not a cookie", n + 2);
+            if f.len() != 11 {
+                return Err(bad());
+            }
+            let flag = |s: &str| match s {
+                "0" => Ok(false),
+                "1" => Ok(true),
+                _ => Err(bad()),
+            };
+            let same_site = match f[8] {
+                "0" => SameSite::None,
+                "1" => SameSite::Lax,
+                "2" => SameSite::Strict,
+                _ => return Err(bad()),
+            };
+            let expiry: i64 = f[9].parse().map_err(|_| bad())?;
+            let created: u64 = f[10].parse().map_err(|_| bad())?;
+            let (partition, domain, path, name, value) =
+                (unesc(f[0]).ok_or_else(bad)?, unesc(f[1]).ok_or_else(bad)?, unesc(f[3]).ok_or_else(bad)?, unesc(f[4]).ok_or_else(bad)?, unesc(f[5]).ok_or_else(bad)?);
+            if partition.is_empty() || domain.is_empty() || name.is_empty() || !path.starts_with('/') {
+                return Err(bad());
+            }
+            rows.push(Cookie {
+                partition,
+                domain,
+                host_only: flag(f[2])?,
+                path,
+                name,
+                value,
+                secure: flag(f[6])?,
+                http_only: flag(f[7])?,
+                same_site,
+                expiry: Some(expiry),
+                created,
+                last_access: 0,
+            });
+        }
+        rows.retain(|c| c.expiry.is_some_and(|e| e > now));
+        rows.sort_by_key(|c| c.created);
+        for mut c in rows {
+            jar.seq += 1;
+            c.created = jar.seq;
+            c.last_access = jar.seq;
+            jar.cookies.push(c);
+        }
+        Ok(jar)
+    }
+
     /// Stores one `Set-Cookie` line (or a `document.cookie = ...` string with
     /// `ctx.script`). Returns whether the jar accepted it.
     pub fn store(&mut self, ctx: &RequestCtx, line: &str, now: i64) -> bool {
@@ -429,12 +549,14 @@ impl Jar {
                 return false;
             }
             created = Some(old.created);
+            self.dirty = true;
             self.cookies.remove(i);
         }
         if expiry.is_some_and(|e| e <= now) {
             return true; // a delete
         }
         self.seq += 1;
+        self.dirty = true;
         self.cookies.push(Cookie {
             partition: ctx.partition.clone(),
             domain: domain.clone(),
@@ -475,6 +597,69 @@ impl Jar {
             self.cookies.remove(i);
         }
     }
+}
+
+const FILE_HEADER: &str = "# wire cookies v1";
+
+/// Percent-escapes `%`, tab, CR, LF and other control bytes so a field never
+/// contains the file's separators.
+fn esc(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        if ch == '%' || ch.is_control() {
+            let mut buf = [0u8; 4];
+            for b in ch.encode_utf8(&mut buf).bytes() {
+                out.push_str(&format!("%{b:02X}"));
+            }
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+fn unesc(s: &str) -> Option<String> {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' {
+            let hex = s.get(i + 1..i + 3)?;
+            out.push(u8::from_str_radix(hex, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(b[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+/// Writes `text` to `path` atomically: a temp file next to it (mode 0600),
+/// fsync, rename over `path`, fsync of the directory.
+pub fn write_file_atomic(path: &std::path::Path, text: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut tmp_name = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+    tmp_name.push(format!(".tmp.{}", std::process::id()));
+    let tmp = path.with_file_name(tmp_name);
+    let result = (|| {
+        let mut f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&tmp)?;
+        f.write_all(text.as_bytes())?;
+        f.sync_all()?;
+        std::fs::rename(&tmp, path)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+        return result;
+    }
+    if let Some(dir) = path.parent() {
+        let dir = if dir.as_os_str().is_empty() { std::path::Path::new(".") } else { dir };
+        if let Ok(d) = std::fs::File::open(dir) {
+            let _ = d.sync_all();
+        }
+    }
+    Ok(())
 }
 
 /// The only thing wire may log about cookies: a host and counts.

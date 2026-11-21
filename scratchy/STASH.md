@@ -99,6 +99,13 @@ wire owns the cookie jar (W-PERSIST1):
   rename, mode 0600) at most once a second while it has changes, and on
   SIGTERM. Cookies without an expiry date are not saved.
 - `X-Wire-Cookie-Op: clear-site` with `X-Wire-Top-Site` clears one partition.
+- Control token (user, 2026-11-21): at every start wire writes 32 random bytes (hex) to
+  `<socket path>.token` (mode 0600, replaced atomically). Every `X-Wire-Cookie-Op` request
+  (get, set, clear-site) must carry `X-Wire-Control-Token: <token>`, else 403 and one log
+  line. Page requests through the jar do not need it. scratchy reads the file lazily at the
+  first control request, logs once and treats cookies as unavailable when it cannot, and
+  re-reads it once (retrying once) on a 403 because wire may have restarted. `X-Wire-Features`
+  lists `token`. `--forget-site` sends the same header.
 
 ## Forget site
 
