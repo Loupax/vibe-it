@@ -77,8 +77,7 @@ fn qb3_hover_idle_gate() {
 /// pointer defers the restyle, a still pointer or a fast page does not.
 #[test]
 fn qb3_app_defers_hover_while_pointer_moves_on_slow_pages() {
-    use winit::platform::wayland::EventLoopBuilderExtWayland;
-    let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+    let event_loop = match test_event_loop() {
         Ok(l) => l,
         Err(_) => return, // no display available (headless CI)
     };
@@ -103,8 +102,7 @@ fn qb3_app_defers_hover_while_pointer_moves_on_slow_pages() {
 /// pointer motion, not from this path; this pins the app side.)
 #[test]
 fn qb3b_final_hover_target_applied_after_burst() {
-    use winit::platform::wayland::EventLoopBuilderExtWayland;
-    let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+    let event_loop = match test_event_loop() {
         Ok(l) => l,
         Err(_) => return, // no display available (headless CI)
     };

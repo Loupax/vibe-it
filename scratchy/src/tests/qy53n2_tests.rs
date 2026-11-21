@@ -192,8 +192,7 @@ fn qy53n2_effect_classes() {
 /// back-and-forth over two patchable links builds nothing.
 #[test]
 fn qy53n5_patchable_hover_skips_the_coalescing_delay() {
-    use winit::platform::wayland::EventLoopBuilderExtWayland;
-    let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+    let event_loop = match test_event_loop() {
         Ok(l) => l,
         Err(_) => return, // no display available (headless CI)
     };

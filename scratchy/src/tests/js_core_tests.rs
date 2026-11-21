@@ -265,8 +265,7 @@ fn q33t_runaway_timer_callback_is_interrupted_with_its_own_budget() {
 /// while a stale-generation image must still be dropped.
 #[test]
 fn r7_image_fetched_before_nav_result_survives_document_swap() {
-    use winit::platform::wayland::EventLoopBuilderExtWayland;
-    let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+    let event_loop = match test_event_loop() {
         Ok(l) => l,
         Err(_) => return, // no display available (headless CI)
     };
@@ -299,7 +298,6 @@ fn qobs5b_idle_pump_net_does_not_wake_the_loop() {
     use winit::event::WindowEvent;
     use winit::event_loop::ControlFlow;
     use winit::platform::pump_events::EventLoopExtPumpEvents;
-    use winit::platform::wayland::EventLoopBuilderExtWayland;
     use winit::window::WindowId;
     struct Probe {
         app: App,
@@ -314,9 +312,34 @@ fn qobs5b_idle_pump_net_does_not_wake_the_loop() {
             el.set_control_flow(ControlFlow::WaitUntil(std::time::Instant::now() + std::time::Duration::from_secs(30)));
         }
     }
-    let mut event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
-        Ok(l) => l,
-        Err(_) => return, // no display available (headless CI)
+    // QFLK7: this test owns its loop and counts wakeups, so it runs in its own process: other tests'
+    // threads (shaping workers, proxy drops) would ping a shared loop and skew the count. The parent
+    // re-runs this very test with SCRATCHY_QFLK7_OWN_LOOP=1; the child builds a private loop.
+    if std::env::var_os("SCRATCHY_QFLK7_OWN_LOOP").is_none() {
+        let name = format!("{}::qobs5b_idle_pump_net_does_not_wake_the_loop", module_path!().split_once("::").unwrap().1);
+        let out = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([name.as_str(), "--exact", "--nocapture", "--test-threads=1"])
+            .env("SCRATCHY_QFLK7_OWN_LOOP", "1")
+            .output()
+            .unwrap();
+        let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+        if text.contains("QFLK7-NO-DISPLAY") {
+            no_display_policy("qobs5b");
+            return;
+        }
+        assert!(out.status.success() && text.contains("1 passed"), "child run failed:\n{text}");
+        eprintln!("QFLK7-RAN qobs5b (child process)");
+        return;
+    }
+    let mut event_loop = {
+        use winit::platform::wayland::EventLoopBuilderExtWayland;
+        match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+            Ok(l) => l,
+            Err(_) => {
+                eprintln!("QFLK7-NO-DISPLAY");
+                return;
+            }
+        }
     };
     let app = App::new_static(parse_html("<html></html>"), event_loop.create_proxy(), None);
     let mut probe = Probe { app, waits: 0 };

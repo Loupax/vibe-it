@@ -1288,8 +1288,7 @@ mod qm1f {
 
     #[test]
     fn qm1g2d_space_acts_only_on_a_focused_controls_video() {
-        use winit::platform::wayland::EventLoopBuilderExtWayland;
-        let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+        let event_loop = match test_event_loop() {
             Ok(l) => l,
             Err(_) => return,
         };
