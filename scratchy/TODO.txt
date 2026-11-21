@@ -232,6 +232,31 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       gradients/patterns, drawImage, text, compositing, shadows, toDataURL/toBlob), each with the subtest counts it
       should fix. Note what needs other missing platform features (Workers for offscreen, ImageBitmap, wide gamut)
       instead of filing it as canvas work.
+- [ ] QGL1 [M] (P3; Opus, investigation, docs only, no code; can run any time, it does not wait for QCNV1) WebGL:
+      find out what it takes and file the action items (each with size, model, files, dependencies and a test plan)
+      in TODO.txt, in dependency order. Today `getContext('webgl'|'webgl2')` returns null (QY3, js_dom.rs). Starting
+      point from the 2026-11-21 discussion, to confirm or overturn with evidence:
+      (a) Context: an offscreen GLES2/3 context per canvas (EGL surfaceless or GBM; `khronos-egl` with dlopen, or
+          Servo's `surfman`), GL calls through `glow`, drawing into an FBO, `glReadPixels` back into a CPU buffer that
+          paint.rs shows like a video frame. The page compositor stays on the CPU. Measure the readback cost per frame
+          (llvmpipe and a real GPU, if the machine has one) at typical sizes.
+      (b) Threading: WebGL calls are synchronous (getError, readPixels, checkFramebufferStatus), so say whether the
+          context lives on the JS thread or behind a command queue, with the cost of each.
+      (c) Shader validation: untrusted GLSL ES to the driver vs `mozangle` (ANGLE translator, builds C++) vs naga
+          (fits poorly: desktop GLSL 4.5). Recommend one and state the security trade-off plainly.
+      (d) V8 bindings: about 150 WebGL1 methods plus constants and extensions; typed-array/ArrayBuffer access without
+          copies (js_engine_v8.rs). WebGL1 first; say what WebGL2 adds.
+      (e) Texture sources: img, canvas, ImageData, video (archived: say so, do not plan it), premultiply/flipY,
+          cross-origin tainting.
+      (f) Testing: the Khronos WebGL conformance suite (separate from WPT, own HTML runner) — how to run a subset
+          headless in CI (Mesa llvmpipe on the runner), how results are recorded and gated like wpt-th, and what of
+          WPT's thin `webgl/` dir is worth adding to wpt-th.
+      (g) Dependencies: list every new crate and system library. None may open a network socket (AGENTS.md); each
+          new dependency is still for the user to OK, so put them as questions in QUESTIONS.md, not as decisions.
+      (h) Which real sites need it (maps: MapLibre/Mapbox GL/Google Maps vector; three.js pages), what they do
+          without it today, and what else they need that scratchy lacks (Workers/OffscreenCanvas, WebAssembly).
+      Output: a REGRESSIONS.md-style report section (or a NOTES.md section) with the findings and measurements, the
+      action items in TODO.txt, and the questions for the user in QUESTIONS.md.
 
 ========================================================================
 RELIABILITY (flaky tests undermine CI, which the conformance plan relies on; crashes)
