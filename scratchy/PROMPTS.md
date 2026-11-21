@@ -8843,3 +8843,23 @@ Item QINC1h2 (REGRESSIONS.md R60 section 15). `layout.rs`: `natural_width_impl` 
 > QCOMP2 [S] (P3) `Source::Cmd(argv)`: run with no shell and the SCRATCHY_LINE/_WORD/_ARG/_URL/_STATE_DIR environment, once per command line and argument position, on a thread; stdout lines kept and prefix-filtered per keystroke to feed the ghost; the result is a tagged `AppEvent` so a stale one is dropped.
 
 **What changed:** config.rs: `Source::Cmd`, `SOURCE_TIMEOUT_MS` (a source still running is killed), `SOURCE_MAX_OUTPUT`, a commented-out example row (no default Cmd row). completion.rs: `run_source`, `ExtResult`/`ExtSink`, per-line ids in `CompleteCache` (results and "already started" per command and argument position), `compute_ghost_in` (explicit table, for tests). app.rs: `AppEvent::CompleteResult`, `handle_complete_result` (drops a result for another line, shows a missing-program message in the status bar, recomputes the ghost). The UI thread never waits: the first ask starts the thread and gives no ghost; the event brings it. `:help` documents it. Tests in completion_tests.rs use fake `sh` scripts in a temp dir.
+
+## QREG1: copy the URL with vim registers, `:let @+ = @%` and `yy` (user session)
+
+> I want to be able to copy the currently visited URL to the clipboard. Let's discuss it and plan it. I'm thinking the following ways:
+>
+> A. a command like :yank document.URL. I'd like it to parse and run JS but we can leave that part for later
+> B. Clicking the status bar copies the current URL to the clipbard
+> C. Click/Drag on the status bar so we can select anything from there on any mode and copy it using the standard ctrl-C shortcuts
+>
+> I like a and C more, but let's discuss them critically. We don't have to implement them all, that's just brainstorming for now
+
+> let's think big picture for a bit. I think being able to copy text from the screen without touching your mouse is a useful feature. To do that we need to introduce the concept of a cursor in the page which we can move with hjkl similarly to vim and search N/n can move that cursor too. This simplifies the logic of clicking on enter because we only care about the location of the cursor and nothing else. This is unrelated to the current feature, but I wonder if we can copy how vim works on that more so we have better parity later. how does vim copy something to the clipboard using command mode?
+
+> how would I copy the URL to the system clipboard then?
+
+> ok, let's do it. yy should copy the URL to the system clipboard too.
+
+> what is yu? I'm not familiar
+
+**What changed:** new `src/registers.rs` (`parse_let`). app.rs: `App::url_register` (register `%` = the status bar's URL: history entry, else base URL), `App::let_register` (reads `%`/`+`, writes `+`, the outcome in the status bar), `:let` in `dispatch_command` and `COMMAND_NAMES`, `Action::YankUrl` (ignores key repeat). The pending-`g` state machine became `resolve_pending` over a `KEY_SEQUENCES` table in config.rs (`gg`, `yy`); `App::pending_g` is now `pending_key: Option<char>`. forms_text.rs `clipboard_set` returns whether the system clipboard took the text, so a failure is reported instead of a false "Copied". KEYS.md: Y helper state, T54-T56, "Registers" section, decision log; `:help` rows; TODO.txt QREG-D (the design), QREG2 (`:let @+ = <JS expr>`), QREG3 (`*` primary selection), QCURSOR-D (page cursor, waiting for user).

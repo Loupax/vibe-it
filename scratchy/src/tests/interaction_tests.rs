@@ -751,7 +751,7 @@ fn resolve_binding_maps_capital_g_and_home_end_to_scroll_extremes() {
     assert_eq!(resolve_binding(&Key::Named(NamedKey::End), m, n), Some(Action::ScrollBottom));
     assert_eq!(resolve_binding(&Key::Named(NamedKey::Home), m, n), Some(Action::ScrollTop));
     assert_eq!(resolve_binding(&Key::Character("G".into()), m, VimMode::Command), None);
-    // bare `g` alone is not a binding; it goes through `resolve_pending_g`.
+    // bare `g` alone is not a binding; it goes through `resolve_pending`.
     assert_eq!(resolve_binding(&Key::Character("g".into()), m, n), None);
 }
 
@@ -759,18 +759,31 @@ fn resolve_binding_maps_capital_g_and_home_end_to_scroll_extremes() {
 fn pending_g_double_g_scrolls_top_and_other_keys_clear() {
     let m = ModifiersState::empty();
     let g = Key::Character("g".into());
-    assert_eq!(resolve_pending_g(false, &g, m), (None, true, true));
-    assert_eq!(resolve_pending_g(true, &g, m), (Some(Action::ScrollTop), false, true));
+    assert_eq!(resolve_pending(None, &g, m), (None, Some('g'), true));
+    assert_eq!(resolve_pending(Some('g'), &g, m), (Some(Action::ScrollTop), None, true));
     for other in [Key::Character("j".into()), Key::Named(NamedKey::Escape), Key::Character(":".into())] {
-        assert_eq!(resolve_pending_g(true, &other, m), (None, false, false));
-        assert_eq!(resolve_pending_g(false, &other, m), (None, false, false));
+        assert_eq!(resolve_pending(Some('g'), &other, m), (None, None, false));
+        assert_eq!(resolve_pending(None, &other, m), (None, None, false));
     }
     // `g`, `j`, `g` must not fire: the `j` cleared the flag.
-    let (_, p, _) = resolve_pending_g(false, &g, m);
-    let (_, p, _) = resolve_pending_g(p, &Key::Character("j".into()), m);
-    assert_eq!(resolve_pending_g(p, &g, m), (None, true, true));
+    let (_, p, _) = resolve_pending(None, &g, m);
+    let (_, p, _) = resolve_pending(p, &Key::Character("j".into()), m);
+    assert_eq!(resolve_pending(p, &g, m), (None, Some('g'), true));
     // Ctrl-g is not `g`.
-    assert_eq!(resolve_pending_g(false, &g, ModifiersState::CONTROL), (None, false, false));
+    assert_eq!(resolve_pending(None, &g, ModifiersState::CONTROL), (None, None, false));
+}
+
+#[test]
+fn qreg1_pending_yy_yanks_and_mixed_sequences_rearm() {
+    let m = ModifiersState::empty();
+    let (g, y) = (Key::Character("g".into()), Key::Character("y".into()));
+    assert_eq!(resolve_pending(None, &y, m), (None, Some('y'), true));
+    assert_eq!(resolve_pending(Some('y'), &y, m), (Some(Action::YankUrl), None, true));
+    // `g` `y` is no sequence: the `y` starts a new one, and `y` `g` likewise.
+    assert_eq!(resolve_pending(Some('g'), &y, m), (None, Some('y'), true));
+    assert_eq!(resolve_pending(Some('y'), &g, m), (None, Some('g'), true));
+    assert_eq!(resolve_pending(Some('y'), &Key::Character("j".into()), m), (None, None, false));
+    assert!(action_ignores_repeat(Action::YankUrl), "holding `y` copies once");
 }
 
 #[test]
