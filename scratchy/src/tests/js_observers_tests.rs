@@ -1370,6 +1370,7 @@ fn cli_options_are_documented_in_help() {
         ("dom.rs", include_str!("../dom.rs")),
         ("js.rs", include_str!("../js.rs")),
         ("wpt.rs", include_str!("../wpt.rs")),
+        ("wpt_th.rs", include_str!("../wpt_th.rs")),
         ("lib.rs", include_str!("../lib.rs")),
         ("perf.rs", include_str!("../perf.rs")),
     ] {

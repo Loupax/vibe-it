@@ -3758,3 +3758,56 @@ Same scheme as QY53i2: `AnimRef` handle into `ANIM_ARENA`, one `Rc<AnimLonghands
 ## Missing-API report mode (QMAPI1, src/missing_api.rs)
 
 `scratchy --missing-api-report` is `--perf-report` plus a `missing_api` member. In report mode only, `startup_engine` ends by evaluating `missing_api_prelude.js`: ONE `Proxy` (target `Object.prototype`) becomes the prototype of every DOM interface prototype whose parent was `Object.prototype` (EventTarget among them) and of the namespace objects, so a lookup that found nothing reaches its `get`/`has` trap, which records and forwards (answers unchanged). `has` has no receiver, so its interface is `?`. Names are matched against `missing_api_idl.json` (regenerate: `tools/missing-api/gen-idl.py > src/missing_api_idl.json`); non-standard names only count in `ignored`. Not covered: iframe realms, the CSS counters of R64 5.4. Cost measured with tools/missing-api/cost.sh: at most 1.14x JS time on the gate pages.
+
+## WPT testharness child (QWPT4a, src/wpt_th.rs; R64 2.2, 2.3)
+
+`scratchy --wpt-th-one --socket S URL` runs ONE testharness.js page and is the child process of the
+`--wpt-th` runner (QWPT4b). The parent starts its own private wire:
+
+```
+wire --socket S --mount http://web-platform.test:8000=CHECKOUT \
+     --mount-override /resources/testharnessreport.js=scratchy/tools/wpt/testharnessreport.js
+```
+
+and runs one child per test URL (e.g. `http://web-platform.test:8000/dom/nodes/Node-cloneNode.html`,
+or `.../x.any.html` / `x.window.html` for the generated wrappers).
+
+**Output contract.** stdout is either exactly ONE line of JSON, or empty:
+
+```
+{"harness":"OK","message":null,"tests":[["name","PASS",null],["other","FAIL","assert_equals: expected 2 but got 1"]]}
+```
+
+- `harness`: `OK` | `ERROR` | `TIMEOUT` | `PRECONDITION_FAILED` (testharness.js `harness_status.status`).
+- `message`: the harness message (string) or `null`.
+- `tests`: `[name, status, message]` in testharness order; status `PASS` | `FAIL` | `TIMEOUT` |
+  `NOTRUN` | `PRECONDITION_FAILED`; message `null` for a pass. Names are verbatim (the parent escapes
+  them for the expected files). An unknown number would appear as `UNKNOWN(n)`.
+- Exit status 0 with a line, 1 without (page not loadable, hook never called, stuck, caps hit),
+  2 for usage errors. stderr has diagnostics (`scratchy --wpt-th-one: ...`, page `js error` and
+  `console.error` lines) and is not part of the contract.
+- Empty stdout = the parent records `CRASH` (also when the process died). The 30 s real-time cap
+  (R64 2.3) is the parent's job; the child only stops by itself after 200,000 timer callbacks,
+  3,600 s of virtual time, or 120 s without an awaited network result.
+
+**How it reports.** `tools/wpt/testharnessreport.js` (scratchy's own file, served by the override)
+calls `setup({output: false})` and an `add_completion_callback` that maps the numeric statuses to the
+words above and calls the native `__scratchy_wpt_done(json)`. That native is installed only in this
+mode (`JsEngine::install_wpt_done` through the `start_scripts_hooked` hook, after the preludes and
+before the page's first script); elsewhere the hook file does nothing. The first call wins.
+
+**Virtual clock.** The page runs on a manual `__scratchy_now` clock from 0. `wpt_th::pump` loops:
+(1) network: new page requests go into a `NetScheduler`, started jobs run on threads (through the
+`NetExecutor`, i.e. wire), finished ones are delivered; (2) timers and deferred promise jobs due at
+the current virtual time run; (3) if a request (or a WebSocket) is in flight, wait for it in REAL
+time, the clock does not move; (4) only when nothing is runnable and nothing is loading does the
+clock jump to the next timer. So testharness's 10 s / 60 s timeout costs milliseconds, a slow fetch
+never becomes a false TIMEOUT, and timers due "now" still run while a fetch is pending.
+
+**Page setup.** The page is fetched through wire (2xx only) and decoded with the header charset; its
+`<link rel=stylesheet>` sheets (for getComputedStyle), iframes and external scripts are fetched first,
+as in `--js-report`. Viewport 800x600 (`innerWidth`/`innerHeight` and `matchMedia`, which now follows
+the same viewport as `innerWidth` in every mode). Ahem: `<origin>/fonts/Ahem.ttf` is fetched through
+wire and added to the forced-layout font system (`js_geom::install_extra_fonts`); missing = one
+stderr line. `visibilityState` is `visible` (always, E14). Not here yet: the rendering steps (rAF is
+still a timer, RO/IO as in `--js-report`; QEL1), stylesheets inserted after load, testdriver.

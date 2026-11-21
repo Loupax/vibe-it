@@ -127,7 +127,7 @@ impl Mounts {
                 let js_name = format!("{stem}{}", html_suffix.replace(".html", ".js"));
                 let js_fs = fs.with_file_name(&js_name);
                 if js_fs.is_file() && inside(&mount.root, &js_fs) {
-                    return wrapper(&js_fs, url.path(), html_suffix, is_any);
+                    return wrapper(mount, &js_fs, url, html_suffix, is_any);
                 }
             }
         }
@@ -226,23 +226,42 @@ fn serve_real_file(mount: &Mount, fs: &Path, url: &Url) -> MountResponse {
         Err(e) => return MountResponse::text(404, "Not Found", &format!("cannot read file: {e}")),
     };
     let mut headers: Vec<(String, String)> = vec![("Content-Type".into(), mime_for(name).into())];
-    // __dir__.headers from the mount root down to the file's directory, then <file>.headers.
-    let mut dirs: Vec<&Path> = fs.parent().into_iter().flat_map(|p| p.ancestors()).take_while(|p| p.starts_with(&mount.root)).collect();
-    dirs.reverse();
-    for d in dirs {
-        apply_headers_file(&mut headers, &d.join("__dir__.headers"));
-    }
-    apply_headers_file(&mut headers, &fs.with_file_name(format!("{name}.headers")));
-    if name.contains(".sub.") {
-        let host = url.host_str().unwrap_or("").to_string();
-        body = substitute(&body, &host, mount);
+    load_headers(&mut headers, fs, url, mount);
+    // wptserve's `wrap_pipeline`: `.sub.` anywhere in the request path.
+    if url.path().contains(".sub.") {
+        body = substitute(&body, url.host_str().unwrap_or(""), mount);
     }
     MountResponse { status: 200, reason: "OK", headers, body }
 }
 
-/// `Name: value` lines; a later header replaces an earlier one of the same name.
-fn apply_headers_file(headers: &mut Vec<(String, String)>, path: &Path) {
-    let Ok(text) = std::fs::read_to_string(path) else { return };
+/// wptserve's `load_headers(request, path)` for the file `fs`: the NEIGHBOURING `__dir__.headers`
+/// only (not the ancestors' ones), then `<file>.headers`; each is `<x>.sub.headers` instead (with
+/// `{{...}}` substitution) when that exists. QWPT4a: checked against tools/wptserve at the pin.
+fn load_headers(headers: &mut Vec<(String, String)>, fs: &Path, url: &Url, mount: &Mount) {
+    let name = fs.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    for stem in [fs.with_file_name("__dir__"), fs.with_file_name(name)] {
+        let mut sub = stem.clone().into_os_string();
+        sub.push(".sub.headers");
+        let mut plain = stem.into_os_string();
+        plain.push(".headers");
+        let (sub, plain) = (PathBuf::from(sub), PathBuf::from(plain));
+        if sub.is_file() {
+            apply_headers_file(headers, &sub, Some((url.host_str().unwrap_or(""), mount)));
+        } else {
+            apply_headers_file(headers, &plain, None);
+        }
+    }
+}
+
+/// `Name: value` lines; a later header replaces an earlier one of the same name. `sub`: apply
+/// `.sub.` substitution (request host, mount) first.
+fn apply_headers_file(headers: &mut Vec<(String, String)>, path: &Path, sub: Option<(&str, &Mount)>) {
+    let Ok(bytes) = std::fs::read(path) else { return };
+    let bytes = match sub {
+        Some((host, mount)) => substitute(&bytes, host, mount),
+        None => bytes,
+    };
+    let text = String::from_utf8_lossy(&bytes);
     for line in text.lines() {
         let Some((n, v)) = line.split_once(':') else { continue };
         let (n, v) = (n.trim(), v.trim());
@@ -287,18 +306,36 @@ fn substitute(body: &[u8], request_host: &str, mount: &Mount) -> Vec<u8> {
     out.into_bytes()
 }
 
-/// `// META: key=value` lines at the top of a .js file (wptserve stops at the first other line).
+/// `// META: key=value` lines at the top of a .js file, as wptserve's `js_meta_re`
+/// (`//\s*META:\s*(\w*)=(.*)$`, matched at the line start) reads them: no indentation before
+/// `//`, the value kept as written (trailing spaces too); the first other line ends the block.
 fn read_meta(js: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for line in js.lines() {
-        let Some(rest) = line.trim_start().strip_prefix("//") else { break };
+        let Some(rest) = line.strip_prefix("//") else { break };
         let Some(rest) = rest.trim_start().strip_prefix("META:") else { break };
         let Some((k, v)) = rest.trim_start().split_once('=') else { break };
         if !k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
             break;
         }
-        out.push((k.to_string(), v.trim_end().to_string()));
+        out.push((k.to_string(), v.to_string()));
     }
+    out
+}
+
+/// Python's `template % {"meta": .., "script": .., "path": ..}`: ONE pass, so a value that
+/// contains `%(path)s` is not expanded again.
+fn fill(tmpl: &str, meta: &str, script: &str, path: &str) -> String {
+    let mut out = String::with_capacity(tmpl.len() + meta.len() + script.len() + path.len());
+    let mut rest = tmpl;
+    while let Some(i) = rest.find("%(") {
+        out.push_str(&rest[..i]);
+        rest = &rest[i..];
+        let (key, val) = [("%(meta)s", meta), ("%(script)s", script), ("%(path)s", path)].into_iter().find(|(k, _)| rest.starts_with(k)).expect("known template key");
+        out.push_str(val);
+        rest = &rest[key.len()..];
+    }
+    out.push_str(rest);
     out
 }
 
@@ -306,14 +343,20 @@ const WINDOW_WRAPPER: &str = "<!doctype html>\n<meta charset=utf-8>\n%(meta)s\n<
 
 const ANY_WRAPPER: &str = "<!doctype html>\n<meta charset=utf-8>\n%(meta)s\n<script>\nself.GLOBAL = {\n  isWindow: function() { return true; },\n  isWorker: function() { return false; },\n  isShadowRealm: function() { return false; },\n};\n</script>\n<script src=\"/resources/testharness.js\"></script>\n<script src=\"/resources/testharnessreport.js\"></script>\n%(script)s\n<div id=log></div>\n<script src=\"%(path)s\"></script>\n";
 
-fn wrapper(js_fs: &Path, req_path: &str, html_suffix: &str, is_any: bool) -> MountResponse {
+/// The generated `x.any.html` / `x.window.html` (wptserve's `AnyHtmlHandler` / `WindowHandler` in
+/// tools/serve/serve.py; QWPT4a checked them at the pin): the template, `Content-Type: text/html`
+/// plus the `.js` file's own `load_headers`, and `.sub.` substitution when the `.js` path has it.
+fn wrapper(mount: &Mount, js_fs: &Path, url: &Url, html_suffix: &str, is_any: bool) -> MountResponse {
     let Ok(js) = std::fs::read_to_string(js_fs) else {
         return MountResponse::text(404, "Not Found", "cannot read script");
     };
+    let req_path = url.path();
     let metadata = read_meta(&js);
+    // `check_exposure`: the FIRST `global` line; "" = the default set (window + dedicatedworker);
+    // otherwise only the item `window` itself gives a window variant.
     if is_any
         && let Some((_, g)) = metadata.iter().find(|(k, _)| k == "global")
-        && !g.trim().is_empty()
+        && !g.is_empty()
         && !g.split(',').any(|v| v.trim() == "window")
     {
         // `global=worker` and the like: there is no window variant.
@@ -330,8 +373,13 @@ fn wrapper(js_fs: &Path, req_path: &str, html_suffix: &str, is_any: bool) -> Mou
     }
     let js_path = format!("{}{}", &req_path[..req_path.len() - html_suffix.len()], html_suffix.replace(".html", ".js"));
     let tmpl = if is_any { ANY_WRAPPER } else { WINDOW_WRAPPER };
-    let body = tmpl.replace("%(meta)s", &meta.join("\n")).replace("%(script)s", &script.join("\n")).replace("%(path)s", &js_path);
-    MountResponse { status: 200, reason: "OK", headers: vec![("Content-Type".into(), "text/html".into())], body: body.into_bytes() }
+    let mut body = fill(tmpl, &meta.join("\n"), &script.join("\n"), &js_path).into_bytes();
+    if js_path.contains(".sub.") {
+        body = substitute(&body, url.host_str().unwrap_or(""), mount);
+    }
+    let mut headers = vec![("Content-Type".to_string(), "text/html".to_string())];
+    load_headers(&mut headers, js_fs, url, mount);
+    MountResponse { status: 200, reason: "OK", headers, body }
 }
 
 #[cfg(test)]
@@ -396,7 +444,10 @@ mod tests {
         assert_eq!(hdr(&r, "content-type"), Some("text/x-custom"));
         assert_eq!(hdr(&r, "x-file"), Some("1"));
         assert_eq!(hdr(&r, "x-dir"), Some("yes"));
-        assert_eq!(hdr(&r, "x-root"), Some("r"));
+        // QWPT4a: wptserve reads only the NEIGHBOURING __dir__.headers, not the ancestors'.
+        assert_eq!(hdr(&r, "x-root"), None);
+        fs::write(s.join("top.txt"), "t").unwrap();
+        assert_eq!(hdr(&get(&m, "http://web-platform.test:8000/top.txt"), "x-root"), Some("r"));
         let r = get(&m, "http://web-platform.test:8000/dom/b.js");
         assert_eq!(hdr(&r, "content-type"), Some("text/javascript"));
         assert_eq!(hdr(&r, "x-dir"), Some("yes"));
@@ -482,6 +533,44 @@ mod tests {
         let head = m.serve(mount, "HEAD", &u);
         assert!(head.status == 200 && head.body.is_empty());
         assert_eq!(m.serve(mount, "POST", &u).status, 405);
+    }
+
+    /// QWPT4a: the points where QWPT3's from-memory wrappers differed from wptserve at the pin
+    /// (tools/serve/serve.py, tools/wptserve/wptserve/handlers.py, tools/manifest/sourcefile.py).
+    #[test]
+    fn wptserve_parity_headers_sub_headers_and_meta() {
+        let d = tree("parity");
+        let s = d.join("site/dom");
+        // The wrapper gets the .js file's __dir__.headers and x.any.js.headers.
+        fs::write(s.join("__dir__.headers"), "X-Dir: d\n").unwrap();
+        fs::write(s.join("h.any.js"), "test(()=>{});").unwrap();
+        fs::write(s.join("h.any.js.headers"), "X-Js: j\n").unwrap();
+        let m = mounts(&d);
+        let r = get(&m, "http://web-platform.test:8000/dom/h.any.html");
+        assert_eq!((hdr(&r, "content-type"), hdr(&r, "x-dir"), hdr(&r, "x-js")), (Some("text/html"), Some("d"), Some("j")));
+        // <file>.sub.headers wins over <file>.headers and is substituted.
+        fs::write(s.join("p.html"), "p").unwrap();
+        fs::write(s.join("p.html.headers"), "X-Plain: 1\n").unwrap();
+        fs::write(s.join("p.html.sub.headers"), "X-Host: {{host}}:{{ports[http][0]}}\n").unwrap();
+        let r = get(&m, "http://www1.web-platform.test:8000/dom/p.html");
+        assert_eq!((hdr(&r, "x-host"), hdr(&r, "x-plain")), (Some("www1.web-platform.test:8000"), None));
+        // A .sub. wrapper resource is substituted too.
+        fs::write(s.join("q.sub.window.js"), "// META: title={{host}}\n").unwrap();
+        let w = String::from_utf8(get(&m, "http://web-platform.test:8000/dom/q.sub.window.html").body).unwrap();
+        assert!(w.contains("<title>web-platform.test</title>") && w.contains("src=\"/dom/q.sub.window.js\""), "{w}");
+        // META: indented lines are not metadata; values keep trailing spaces; one-pass template.
+        fs::write(s.join("i.window.js"), "  // META: title=indented\ntest(()=>{});").unwrap();
+        assert!(!String::from_utf8(get(&m, "http://web-platform.test:8000/dom/i.window.html").body).unwrap().contains("<title>"));
+        assert_eq!(read_meta("// META: title=a b  \n"), [("title".to_string(), "a b  ".to_string())]);
+        fs::write(s.join("t.window.js"), "// META: title=%(path)s\n").unwrap();
+        assert!(String::from_utf8(get(&m, "http://web-platform.test:8000/dom/t.window.html").body).unwrap().contains("<title>%(path)s</title>"));
+        // `global= ` (not empty, no `window` item) has no window variant; "" is the default set.
+        fs::write(s.join("sp.any.js"), "// META: global= \n").unwrap();
+        fs::write(s.join("em.any.js"), "// META: global=\n").unwrap();
+        fs::write(s.join("sw.any.js"), "// META: global=sharedworker, window\n").unwrap();
+        assert_eq!(get(&m, "http://web-platform.test:8000/dom/sp.any.html").status, 404);
+        assert_eq!(get(&m, "http://web-platform.test:8000/dom/em.any.html").status, 200);
+        assert_eq!(get(&m, "http://web-platform.test:8000/dom/sw.any.html").status, 200);
     }
 
     #[test]

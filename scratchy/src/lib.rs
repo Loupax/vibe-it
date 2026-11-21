@@ -67,6 +67,7 @@ pub mod mem_trim;
 #[cfg(feature = "memprof")]
 pub mod memprof;
 mod wpt;
+mod wpt_th; // QWPT4a: the testharness.js test child (`--wpt-th-one`)
 mod dom;
 mod css;
 mod animation;
@@ -192,6 +193,9 @@ pub fn run() {
     }
     if raw_args.first().map(String::as_str) == Some("--wpt") {
         std::process::exit(wpt::main(&raw_args[1..]));
+    }
+    if raw_args.first().map(String::as_str) == Some("--wpt-th-one") {
+        std::process::exit(wpt_th::main(&raw_args[1..]));
     }
     if raw_args.first().map(String::as_str) == Some("--js-report") {
         std::process::exit(js::js_report_main(&raw_args[1..]));
