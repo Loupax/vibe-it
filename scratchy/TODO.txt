@@ -38,7 +38,7 @@ CONFORMANCE (R64 plan, merged #474; user accepted all R64 s7 recommendations 202
 Order: QWPT2 -> QWPT3 -> QWPT4a -> QWPT4b -> QWPT5/QWPT6, with QMAPI1 and QREC1 in parallel (other
 crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details: REGRESSIONS.md R64.
 
-- [ ] QWPT2 [S] (P1; Sonnet; tools/, ci.yml, AGENTS.md; R64 2.1, 2.7) WPT checkout + pin + reftests in CI.
+- [ ] [WIP] QWPT2 [S] (P1; Sonnet; tools/, ci.yml, AGENTS.md; R64 2.1, 2.7) WPT checkout + pin + reftests in CI.
       tools/wpt-pin.txt (one line: ac78b567f5404b6f2dc0418ea380af3946a47fca; AGENTS.md points to it),
       tools/wpt-dirs.txt (R64 2.1 table: phase-1 dirs + css fonts images resources common css/support
       html/resources), tools/wpt-checkout.sh DIR (blobless depth-1 sparse clone of the pin; refuses a
@@ -150,27 +150,15 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 ========================================================================
 RELIABILITY (flaky tests undermine CI, which the conformance plan relies on; crashes)
 ========================================================================
-- [ ] [WIP] QFLK4 [S] (P3, from QNAV9 #435; Sonnet) forms test q30d_typing_through_the_app_events_maxlength_readonly_escape failed
-      once in a full suite run while the machine was loaded (passed in 2 later runs). Find the timing dependence; prove 20x.
-- [ ] [WIP] QFLK5 [S] (P2, from #460 CI; Sonnet) V8 heap-growth tests qpt1b_fifty_create_remove_cycles_return_to_baseline (main
-      CI e219bee) and qpt1e_nosnap_create_remove_cycles (#460) flake on CI. Make them robust (GC before measuring, margins).
-- [ ] [WIP] QFLK6 [S] (P3, from #463; Sonnet) qinc1i_forced_layouts_see_the_windows_images flakes: window images keyed by a
-      document's node address, which a new document can reuse. Key by a document id.
-- [ ] [WIP] QJ4b [S] (P3, found by QJ4) Layout PANIC in `measure_grid`
-      (src/layout.rs, `col_widths[p.col_start..p.col_end]`: "range end index 2
-      out of range for slice of length 1") on theguardian.com/international
-      when laid out after its scripts ran (headless forced layout, 1024x768).
-      QJ4 catches it (rects read 0, one log line) but the same DOM would
-      panic the App's shaping worker too (abandons the page). Reproduce:
-      save the page with <base href>, `--js-report --run-timers 5000`
-      (stderr shows the panic); minimise the grid that has an item spanning
-      more columns than the resolved tracks. Also: that forced layout costs
-      ~3.4 s on a 1.4 MB page (github 1.8 s; R32: re-measure after QP1, which made
-      cold measure 9-24x faster). QP1 re-measure 2026-11-17 (loaded machine, bench
-      `measure, cold`): 200 paragraphs + inline icon 964 ms [948-981] -> 39.3 ms
-      [39.1-39.6]; 200 paragraphs + list + table 3.40 s [3.06-3.77] -> 42.2 ms
-      [41.6-42.9]. The 1.4 MB page itself was not re-measured here: a perf item if pages read
-      geometry at load.
+- [ ] QFLK7 [S] (P2, from QFLK4 #477; Sonnet) The q30d_* App tests call `EventLoop::build()` and `return` on Err; winit
+      allows one loop per process, so in a parallel run most of their bodies never execute (QFLK4 found a real bug hiding
+      this way). Build the loop once in a shared helper (or make `App::new_static` not need a real loop), then prove every
+      such test really executes (a counter or a failing assertion check) and passes alone and in the full suite.
+- [ ] QFLK6b [S] (P3, from QFLK6 #476; Sonnet) incr_box and incr_layout `doc_key` use `node_id(doc)` (a reusable address);
+      `base_ver` hides it today. Key them by document identity like WINDOW_IMAGES, with a test that a reused address does
+      not serve a stale kept tree.
+- [ ] QJ4c [S] (P3, from QJ4b #478; Sonnet) Re-run theguardian.com/international (saved with <base href>, own wire) with
+      `--js-report --run-timers 5000`: confirm the grid panic is gone; re-measure the forced layout (~3.4 s before QP1).
 - [ ] QINC1k9 [S] (P3, from QINC1k4 #469; images/box builder; correctness, after the freeze) images.rs collect_real_nodes
       (QW4 inline start/end spacers) calls BoxLength::px() on an inline element's horizontal margin/padding even when it is
       Percent/Calc (margin-left:10%, calc(10% - 1vh)): debug panics "unresolved percent", release uses 0 px. Resolve
@@ -228,7 +216,7 @@ PRODUCT CHOICES (config file, tracker blocking)
 ========================================================================
 UI: scrollbar
 ========================================================================
-- [ ] QSB1 [S] READY (split out of Q32 2026-11-17, user) Scrollbar drag-to-scroll.
+- [ ] [WIP] QSB1 [S] READY (split out of Q32 2026-11-17, user) Scrollbar drag-to-scroll.
       Today only the wheel/keys scroll; the painted indicator is display-only.
       Press on the thumb and drag: scroll position follows the pointer (thumb
       offset kept, so the thumb does not jump to the pointer); press on the track
@@ -261,21 +249,8 @@ QSTASH — persistent web storage (user design session 2026-11-19; full design i
   [2026-11-20: the reader exists: `:go` completion (QCOMP-D). History file design in
   STASH.md "History", item QCOMP3.]
 
-- [ ] [WIP] QSTASH1 [M] (P2, after the perf queue) `src/stash.rs`: the state directory and
-      its rules, no JS wiring. Layout, key<->filename encoding (percent-encode `/`, `%`,
-      NUL, a leading `.`, a trailing `~`; empty key `%`; >200 bytes -> `%h<sha256>` with
-      the key on the first line), WTF-8 values with the one-`\n` rule, `load(site,
-      origin) -> sorted pairs`, `commit(site, origin, generation, ops)` on a writer
-      thread, `clear`, `forget(site)`, the per-site flock and generation number exactly
-      as STASH.md "Locking", the 5 MB per-origin check under the lock, and the
-      unusable-directory fallback (one log line). Tests (new `src/tests/stash_tests.rs`,
-      temp directories): encoding round-trips incl. lone surrogates and every escaped
-      case; a file written by hand without/with a final newline; dotfiles and `*~`
-      ignored; two `File` handles contend on the lock (flock is per open file
-      description, so this works inside one test process); a commit after forget with
-      a stale generation is dropped; forget while a commit waits does not resurrect.
 
-- [ ] QSTASH2 [M] (P2, after QSTASH1) localStorage over stash. `--state-dir`
+- [ ] [WIP] QSTASH2 [M] (P2, after QSTASH1) localStorage over stash. `--state-dir`
       flag (+ `SCRATCHY_STATE_DIR`). At page start (`startup_engine`/`run_page`, before
       the first script) load the origin's pairs into the prelude's Storage Map; opaque
       origins (file:, data:, about:) keep today's in-memory Storage. setItem/removeItem/
@@ -301,7 +276,7 @@ QSTASH — persistent web storage (user design session 2026-11-19; full design i
       on every navigation. Test: set on page A, navigate to page B of the same origin,
       the value is there; a different origin does not see it.
 
-- [ ] QSTASH5 [S] (P2, wire; any time after the perf queue) `wire --cookie-file PATH`
+- [ ] [WIP] QSTASH5 [S] (P2, wire; any time after the perf queue) `wire --cookie-file PATH`
       and `X-Wire-Cookie-Op: clear-site`. See wire/TODO.txt W-PERSIST1.
 
 ========================================================================
@@ -579,7 +554,7 @@ Order (feature work: after the perf queue): QCONF1 -> QCOMP1 -> QCOMP2; QCOMP3 a
 - [x] QCOMP5 DROPPED 2026-11-20 (user: "`:go` should be enough"). Was: `o` in normal mode, the
       history menu navigating straight away (KEYS.md T39-T41, also dropped). Nothing to build.
 
-- [ ] QPASTE1 [S] (P2, user bug 2026-11-20: "we cannot paste into the command mode bar")
+- [ ] [WIP] QPASTE1 [S] (P2, user bug 2026-11-20: "we cannot paste into the command mode bar")
       Paste into every status-bar mode that takes typing: today `:` COMMAND, and SEARCH
       when QSEARCH1 adds it (KEYS.md "Paste", T22, T26). A Ctrl-v handler exists
       (`paste_into_command_line`, app.rs), so first REPRODUCE in the nested dwl window
