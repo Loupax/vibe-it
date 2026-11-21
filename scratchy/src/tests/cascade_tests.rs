@@ -3319,3 +3319,116 @@ fn qan1h3_class_matching_follows_every_kind_of_class_write() {
     assert_ne!(color(&doc), blue);
     assert!(crate::dom::CLASS_CACHE.with(|c| c.borrow().is_none()), "cache is dropped after the build");
 }
+
+// ---------- QCSS1: one media-query evaluator for stylesheets and matchMedia ----------
+
+/// Whether `@media <query> { .box { background } }` applies at a `w` x `h` viewport.
+fn qcss1_applies(query: &str, w: f32, h: f32) -> bool {
+    let html = format!(
+        "<html><body><style>@media {query} {{ .box {{ background-color: #123456; }} }}</style><div class=\"box\">x</div></body></html>"
+    );
+    let doc = parse_html(&html);
+    find_box_with_background(&crate::images::build_layout_tree_sized(&doc, w, h)).is_some()
+}
+
+#[test]
+fn qcss1_stylesheet_media_syntax_forms() {
+    let _m = MOTION_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    // (query, w, h, expected)
+    let cases: &[(&str, f32, f32, bool)] = &[
+        // range syntax
+        ("(width >= 600px)", 600.0, 500.0, true),
+        ("(width >= 600px)", 599.0, 500.0, false),
+        ("(width > 600px)", 600.0, 500.0, false),
+        ("(width < 600px)", 599.0, 500.0, true),
+        ("(600px <= width)", 700.0, 500.0, true),
+        ("(400px < width < 900px)", 500.0, 500.0, true),
+        ("(400px < width < 900px)", 900.0, 500.0, false),
+        ("(400px <= width <= 900px)", 900.0, 500.0, true),
+        ("(height >= 500px)", 800.0, 500.0, true),
+        ("(height >= 500px)", 800.0, 499.0, false),
+        ("(width = 640px)", 640.0, 500.0, true),
+        // legacy prefixes, em units
+        ("(min-width: 40em)", 640.0, 500.0, true),
+        ("(max-width: 40em)", 641.0, 500.0, false),
+        ("(min-height: 300px) and (max-height: 600px)", 800.0, 400.0, true),
+        // hover / pointer
+        ("(hover: hover)", 800.0, 500.0, true),
+        ("(hover: none)", 800.0, 500.0, false),
+        ("(any-hover: hover)", 800.0, 500.0, true),
+        ("(pointer: fine)", 800.0, 500.0, true),
+        ("(pointer: coarse)", 800.0, 500.0, false),
+        ("(any-pointer: fine)", 800.0, 500.0, true),
+        ("(hover)", 800.0, 500.0, true),
+        // orientation, aspect-ratio, resolution
+        ("(orientation: landscape)", 800.0, 500.0, true),
+        ("(orientation: portrait)", 800.0, 500.0, false),
+        ("(orientation: portrait)", 400.0, 800.0, true),
+        ("(min-aspect-ratio: 16/9)", 1600.0, 800.0, true),
+        ("(min-aspect-ratio: 16/9)", 800.0, 800.0, false),
+        ("(aspect-ratio: 2/1)", 800.0, 400.0, true),
+        ("(min-resolution: 1dppx)", 800.0, 500.0, true),
+        ("(min-resolution: 2dppx)", 800.0, 500.0, false),
+        ("(resolution >= 96dpi)", 800.0, 500.0, true),
+        // combinators, lists, negation, types
+        ("screen and (width >= 600px)", 800.0, 500.0, true),
+        ("print and (width >= 600px)", 800.0, 500.0, false),
+        ("not print", 800.0, 500.0, true),
+        ("not (width >= 600px)", 500.0, 500.0, true),
+        ("(width < 300px) or (width >= 600px)", 800.0, 500.0, true),
+        ("(width < 300px), (hover: hover)", 800.0, 500.0, true),
+        ("(width < 300px), (hover: none)", 800.0, 500.0, false),
+        ("(prefers-color-scheme: dark)", 800.0, 500.0, false),
+        ("(prefers-color-scheme: light)", 800.0, 500.0, true),
+        // unknown / invalid: never matches
+        ("(nonsense-feature: 1)", 800.0, 500.0, false),
+        ("(((garbage", 800.0, 500.0, false),
+    ];
+    for (q, w, h, want) in cases {
+        assert_eq!(qcss1_applies(q, *w, *h), *want, "@media {q} at {w}x{h}");
+    }
+}
+
+#[test]
+fn qcss1_stylesheet_and_match_media_agree() {
+    let _m = MOTION_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let queries = [
+        "(width >= 600px)",
+        "(400px < width < 900px)",
+        "(height < 500px)",
+        "(hover: hover) and (pointer: fine)",
+        "(hover: none)",
+        "(orientation: portrait)",
+        "(min-aspect-ratio: 3/2)",
+        "(min-resolution: 2dppx)",
+        "not (width >= 700px)",
+        "(width < 300px), (height >= 500px)",
+        "print",
+        "(min-width: 30em) and (max-height: 700px)",
+    ];
+    for (w, h) in [(320.0, 700.0), (640.0, 480.0), (1000.0, 500.0), (1920.0, 1080.0)] {
+        for q in queries {
+            assert_eq!(
+                qcss1_applies(q, w, h),
+                crate::css::media_query_string_matches(q, w, h).0,
+                "stylesheet and matchMedia disagree on `{q}` at {w}x{h}"
+            );
+        }
+    }
+}
+
+#[test]
+fn qcss1_height_dependent_media_follows_a_height_only_resize() {
+    let _m = MOTION_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let doc = parse_html(
+        "<html><body><style>@media (height >= 600px) { .box { background-color: #123456; } }</style><div class=\"box\">x</div></body></html>",
+    );
+    let tall = crate::images::build_layout_tree_sized(&doc, 800.0, 700.0);
+    assert!(find_box_with_background(&tall).is_some());
+    // Same width, shorter window: the result must flip, and the build must report a viewport-height
+    // read (that is what makes the app rebuild on a height-only change).
+    crate::dom::VIEWPORT_H_READ.with(|m| m.set(false));
+    let short = crate::images::build_layout_tree_sized(&doc, 800.0, 500.0);
+    assert!(find_box_with_background(&short).is_none());
+    assert!(crate::dom::viewport_height_read(), "a height media query must note a viewport-height read");
+}

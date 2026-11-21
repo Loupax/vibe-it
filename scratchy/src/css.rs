@@ -2106,89 +2106,27 @@ fn is_generated_prop(name: &str) -> bool {
     ["content", "counter-reset", "counter-increment", "counter-set", "quotes"].iter().any(|p| name.eq_ignore_ascii_case(p))
 }
 
-/// A real media type keyword this engine can evaluate. `screen` and
-/// `all` both match (scratchy only ever renders to a screen); `print`
-/// never matches — scratchy has no print/paged-media concept at all,
-/// so `@media print { ... }` rules are intentionally always inert, the
-/// correct behavior for a screen-only renderer, not a gap to close.
-/// Any other/unrecognized media type keyword (`speech`, a future CSS
-/// keyword, a typo) is represented by simply marking the owning
-/// `MediaQuery::never` instead of adding a third "unknown" variant
-/// here — real Media Queries syntax already treats an unrecognized
-/// media type as making that one query "not all" (never matches), the
-/// same place this engine's own general "unsupported feature → never
-/// matches" fallback (see `MediaQuery::never`) already lives.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum MediaType {
-    All,
-    Screen,
-    Print,
-}
-
-/// scratchy has no OS dark/light theme detection at all — there's no
-/// real answer to "what does `prefers-color-scheme` resolve to" the
-/// way there would be in a real browser reading an actual OS setting.
-/// Fixed, documented default: always `light` (`dark` never matches).
-/// An arbitrary but harmless choice — light is the conventional default
-/// `prefers-color-scheme` itself defines when no preference is known.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum PrefersColorScheme {
-    Light,
-    Dark,
-}
-
-/// Same story as `PrefersColorScheme`: scratchy has no OS reduced-
-/// motion setting to read, and (per this item's own scope) no
-/// animations to reduce in the first place, making this largely moot
-/// either way. Fixed, documented default: always `no-preference`
-/// (`reduce` never matches).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum PrefersReducedMotion {
-    NoPreference,
-    Reduce,
-}
-
-/// One item of a comma-separated `@media` query list — a media type
-/// plus zero or more `and`-joined features, matching real CSS Media
-/// Queries Level 4 grammar for exactly the subset this engine
-/// evaluates (`min-width`/`max-width`, `prefers-color-scheme`,
-/// `prefers-reduced-motion`). `never`, once set, makes this item
-/// permanently non-matching regardless of anything else in it — set
-/// whenever parsing hits something this engine can't evaluate at all
-/// (an unrecognized media type/feature, a `not` negation — not
-/// implemented, see `parse_media_query_list`'s own docs — or a feature
-/// value this engine can't compute, most notably `calc()`, which this
-/// project has no arithmetic-expression evaluator for anywhere). This
-/// mirrors real Media Queries syntax directly, not just an engineering
-/// convenience: an individual query in a comma-separated list that
-/// fails to parse is defined by the spec itself to evaluate as
-/// "not all" (never matches) rather than invalidating the whole list
-/// or the whole `@media` rule — so "safely never matches" here is
-/// spec-accurate behavior, not a lossy fallback.
-#[derive(Clone, Debug, PartialEq)]
+/// One item of a comma-separated media query list (`@media` prelude, one
+/// entry). QCSS1: the stylesheet and `matchMedia` share ONE evaluator,
+/// `media_one_query_eval` (range syntax, hover/pointer, orientation,
+/// resolution, aspect-ratio, `not`/`or`, nested conditions...); the item
+/// keeps its text and the answer is memoised per viewport (+ the reduced
+/// motion switch), so the cascade's per-rule check stays a few compares.
+/// An item the evaluator rejects (invalid syntax) is `not all` (never
+/// matches), as the spec says for an invalid item in a list.
+#[derive(Clone, Debug)]
 pub(crate) struct MediaQuery {
-    pub(crate) media_type: MediaType,
-    pub(crate) min_width: Option<f32>,
-    pub(crate) max_width: Option<f32>,
-    pub(crate) prefers_color_scheme: Option<PrefersColorScheme>,
-    pub(crate) prefers_reduced_motion: Option<PrefersReducedMotion>,
-    pub(crate) never: bool,
+    text: String,
+    /// Whether the text can read the viewport height (height, aspect-ratio,
+    /// orientation): the cascade then notes a viewport-height read.
+    reads_h: bool,
+    /// (width bits, height bits, reduced motion, answer) of the last call.
+    memo: std::cell::Cell<Option<(u32, u32, bool, bool)>>,
 }
 
-impl Default for MediaQuery {
-    /// An unqualified condition with no explicit media type at all
-    /// (e.g. `@media (min-width:640px)`) implicitly means `all`, per
-    /// real CSS Media Queries grammar — `all` is this type's own
-    /// default, not a separate special case elsewhere.
-    fn default() -> Self {
-        MediaQuery {
-            media_type: MediaType::All,
-            min_width: None,
-            max_width: None,
-            prefers_color_scheme: None,
-            prefers_reduced_motion: None,
-            never: false,
-        }
+impl PartialEq for MediaQuery {
+    fn eq(&self, o: &Self) -> bool {
+        self.text == o.text
     }
 }
 
@@ -2207,44 +2145,37 @@ pub(crate) fn set_reduced_motion(on: bool) {
 }
 
 impl MediaQuery {
-    /// Whether this one query currently holds, given the live viewport
-    /// width (in CSS px) — re-evaluated fresh every time this is
-    /// called, never cached, since the whole point is that the answer
-    /// can change across a resize (see `build_layout_tree`'s own docs).
+    pub(crate) fn new(text: &str) -> MediaQuery {
+        let lc = text.to_ascii_lowercase();
+        let reads_h = lc.contains("height") || lc.contains("aspect") || lc.contains("orientation");
+        MediaQuery { text: text.trim().to_string(), reads_h, memo: std::cell::Cell::new(None) }
+    }
+
+    /// Whether the answer can depend on the viewport height.
+    pub(crate) fn reads_height(&self) -> bool {
+        self.reads_h
+    }
+
+    /// Whether this one query currently holds for the live viewport: width
+    /// `viewport_width` (CSS px) and the page viewport height. Re-evaluated
+    /// whenever the viewport changes (the memo is keyed on it).
     pub(crate) fn matches(&self, viewport_width: f32) -> bool {
-        if self.never {
-            return false;
+        let h = current_viewport().1;
+        if self.reads_h {
+            note_viewport_height_read();
         }
-        match self.media_type {
-            MediaType::All | MediaType::Screen => {}
-            MediaType::Print => return false,
-        }
-        if let Some(min) = self.min_width
-            && viewport_width < min
+        let rm = reduced_motion();
+        let (wb, hb) = (viewport_width.to_bits(), h.to_bits());
+        if let Some((w0, h0, r0, ans)) = self.memo.get()
+            && w0 == wb
+            && h0 == hb
+            && r0 == rm
         {
-            return false;
+            return ans;
         }
-        if let Some(max) = self.max_width
-            && viewport_width > max
-        {
-            return false;
-        }
-        if let Some(pcs) = self.prefers_color_scheme
-            && pcs != PrefersColorScheme::Light
-        {
-            return false;
-        }
-        if let Some(prm) = self.prefers_reduced_motion
-            && prm
-                != (if reduced_motion() {
-                    PrefersReducedMotion::Reduce
-                } else {
-                    PrefersReducedMotion::NoPreference
-                })
-        {
-            return false;
-        }
-        true
+        let ans = media_one_query_eval(&self.text, viewport_width, h).unwrap_or(false);
+        self.memo.set(Some((wb, hb, rm, ans)));
+        ans
     }
 }
 
@@ -2256,79 +2187,13 @@ pub(crate) fn media_list_matches(queries: &[MediaQuery], viewport_width: f32) ->
     queries.is_empty() || queries.iter().any(|q| q.matches(viewport_width))
 }
 
-/// Parses one `(feature: value)` media feature, already positioned
-/// right after the opening `(` has been consumed (i.e. called from
-/// inside `input.parse_nested_block`, so `input` is scoped to exactly
-/// this one parenthesized feature). Only `min-width`/`max-width`/
-/// `prefers-color-scheme`/`prefers-reduced-motion` are recognized —
-/// anything else (including a feature name this engine doesn't know,
-/// or a value it can't parse, most notably `calc()` — `parse_length`
-/// has no arithmetic-expression support at all, confirmed by grep
-/// before writing this, so a `calc(...)` value simply fails here, the
-/// same way any other unsupported value fails elsewhere in this file)
-/// returns `Err(())`, which the caller turns into `MediaQuery::never`
-/// — this one query item safely never matches rather than crashing or
-/// guessing. Real CSS also allows a boolean (valueless) or range
-/// (`<`/`>`/`<=`/`>=`) feature syntax — neither is attempted here,
-/// same `Err(())` fallback.
-pub(crate) fn parse_media_feature(input: &mut CssParser, q: &mut MediaQuery) -> Result<(), ()> {
-    let name = input.expect_ident().map_err(|_| ())?.clone();
-    if input.expect_colon().is_err() {
-        crate::missing_api::css_note("media_feature", &format!("{} (no colon: boolean or range form)", name.to_ascii_lowercase()), &format!("({name} ..)"));
-        return Err(());
-    }
-    if name.eq_ignore_ascii_case("min-width") {
-        q.min_width = Some(media_feature_length_px(input)?);
-    } else if name.eq_ignore_ascii_case("max-width") {
-        q.max_width = Some(media_feature_length_px(input)?);
-    } else if name.eq_ignore_ascii_case("prefers-color-scheme") {
-        let v = input.expect_ident().map_err(|_| ())?;
-        q.prefers_color_scheme = Some(if v.eq_ignore_ascii_case("dark") {
-            PrefersColorScheme::Dark
-        } else if v.eq_ignore_ascii_case("light") {
-            PrefersColorScheme::Light
-        } else {
-            return Err(());
-        });
-    } else if name.eq_ignore_ascii_case("prefers-reduced-motion") {
-        let v = input.expect_ident().map_err(|_| ())?;
-        q.prefers_reduced_motion = Some(if v.eq_ignore_ascii_case("reduce") {
-            PrefersReducedMotion::Reduce
-        } else if v.eq_ignore_ascii_case("no-preference") {
-            PrefersReducedMotion::NoPreference
-        } else {
-            return Err(());
-        });
-    } else {
-        crate::missing_api::css_note("media_feature", &name.to_ascii_lowercase(), &format!("({name}: ..)"));
-        return Err(());
-    }
-    Ok(())
-}
-
 /// A media feature's own length value, resolved all the way to a plain
-/// px number at *parse* time (unlike `BoxLength`'s deferred-resolution
-/// pattern elsewhere in this file) — a media feature has no element/
-/// cascade context at all to resolve an `em`/`rem` against later, so
-/// there's nothing to defer to. Reuses `parse_length` exactly as-is
-/// (checked first: it already accepts `px`/`em`/`rem`, the task's own
-/// "check what unit forms your length parser already accepts" guidance)
-/// rather than writing a second length grammar — `calc()` fails here
-/// for the same reason it fails in `parse_length` itself (no
-/// `Function` arm matches any of its token patterns). `em`/`rem`
-/// resolve against the same `16.0` UA-default root font-size
-/// `ROOT_STYLE` uses, since a media feature is evaluated with no
-/// cascaded font-size of any element in scope at all — the real spec
-/// basis for either unit used in a media query is the initial
-/// (UA-default) font-size, not some element's computed one.
+/// px number (a media feature has no element context to resolve an
+/// `em`/`rem` against: both use the 16px UA-default font-size).
 pub(crate) fn media_feature_length_px(input: &mut CssParser) -> Result<f32, ()> {
     match parse_length(input)? {
         Length::Px(v) => Ok(v),
         Length::Em(v) | Length::Rem(v) => Ok(v * 16.0),
-        // `parse_length` itself never actually produces any of these
-        // (confirmed by its own match arms) — only reachable if that
-        // changes later, in which case failing safely here is right
-        // regardless of which new variant showed up.
         Length::Calc(c) => Ok(c.eval(16.0, 16.0, 0.0, current_viewport())),
         Length::Vp(..) => Err(()),
         Length::Percent(_) | Length::Larger | Length::Smaller | Length::Intrinsic(_) | Length::Auto => Err(()),
@@ -2336,73 +2201,27 @@ pub(crate) fn media_feature_length_px(input: &mut CssParser) -> Result<f32, ()> 
 }
 
 /// Parses a full `@media <media-query-list>` prelude (the part between
-/// `@media` and the `{`) into one `MediaQuery` per comma-separated
-/// item. Deliberately permissive/never hard-fails: an unrecognized
-/// token at the top level (not `and`/`not`/`only`/a known media type/a
-/// `(feature)` block) is just skipped rather than aborting the whole
-/// list, and a `(feature)` block that fails to parse marks only its
-/// own query item `never` (see `parse_media_feature`'s own docs) — so
-/// a real, mostly-valid media query list is never thrown away wholesale
-/// just because one clause in it uses something this engine doesn't
-/// understand. `not` is recognized (so it doesn't fall through to the
-/// "unrecognized media type" branch) but not actually evaluated as a
-/// real negation — real CSS `not screen` / `not (min-width: ...)`
-/// would need this engine to invert everything that follows it, which
-/// isn't implemented; treated instead as "this query uses something
-/// unsupported" and marked `never`, the same safe-fallback shape as any
-/// other unsupported feature here, not a silent wrong-match. `only` is
-/// recognized and skipped with no effect (legacy compatibility syntax
-/// with no real bearing on evaluation either way).
+/// `@media` and the `{`) into one `MediaQuery` per comma-separated item
+/// (split at top level; the text is evaluated by `media_one_query_eval`).
 pub(crate) fn parse_media_query_list(input: &mut CssParser) -> Vec<MediaQuery> {
-    let mut queries = Vec::new();
-    loop {
-        let mut q = MediaQuery::default();
-        loop {
-            match input.next() {
-                Ok(Token::Comma) => break,
-                Ok(Token::Ident(id)) => {
-                    if id.eq_ignore_ascii_case("and") || id.eq_ignore_ascii_case("only") {
-                        // Combinator / legacy no-op keyword — nothing to
-                        // record, keep scanning this same query item.
-                    } else if id.eq_ignore_ascii_case("not") {
-                        q.never = true;
-                    } else if id.eq_ignore_ascii_case("screen") {
-                        q.media_type = MediaType::Screen;
-                    } else if id.eq_ignore_ascii_case("all") {
-                        q.media_type = MediaType::All;
-                    } else if id.eq_ignore_ascii_case("print") {
-                        q.media_type = MediaType::Print;
-                    } else {
-                        // Unrecognized media type keyword — real spec:
-                        // an unknown media type makes the whole query
-                        // "not all", i.e. never matches.
-                        q.never = true;
-                    }
-                }
-                Ok(Token::ParenthesisBlock) => {
-                    let result = input.parse_nested_block(|input| {
-                        parse_media_feature(input, &mut q)
-                            .map_err(|_| input.new_error_for_next_token::<()>())
-                    });
-                    if result.is_err() {
-                        q.never = true;
-                    }
-                }
-                Ok(_) => {
-                    // Anything else this grammar doesn't expect — skip
-                    // just this one token and keep scanning rather than
-                    // abandoning the rest of the list.
-                }
-                Err(_) => {
-                    // Ran out of input — end of the (already delimited)
-                    // prelude.
-                    queries.push(q);
-                    return queries;
-                }
+    let start = input.position();
+    while input.next().is_ok() {}
+    let text = input.slice_from(start);
+    let mut out = Vec::new();
+    let (mut depth, mut from) = (0i32, 0usize);
+    for (i, c) in text.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            ',' if depth == 0 => {
+                out.push(MediaQuery::new(&text[from..i]));
+                from = i + 1;
             }
+            _ => {}
         }
-        queries.push(q);
     }
+    out.push(MediaQuery::new(&text[from..]));
+    out
 }
 
 /// `<length>` only — no `<percentage>` — the real CSS grammar for
