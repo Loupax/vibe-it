@@ -71,13 +71,39 @@ const DECLS: &[&str] = &[
 /// containing blocks (translation invariance in y), mixed in only by [`qinc1k1_fuzz_fractional_heights_far_down`]
 /// so the default window's cases (and [`REGRESSION_SEEDS`]) stay what they were.
 const YDRIFT_DECLS: &[&str] = &[
-    "height:32.1px", "height:17.3px", "min-height:4100.3px", "height:4097.7px", "position:relative",
+    "height:32.1px", "height:17.3px", "height:4097.7px", "position:relative",
     "position:absolute;inset:0;height:100%", "position:absolute;top:0;bottom:0;height:50%", "margin-top:3.3px",
     "padding:2.7px 0", "min-height:33.3%",
 ];
 
 thread_local! {
     static YDRIFT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Kept below ~16 000 px of page: far beyond that the f32 ulp (0.002-0.008) makes a shifted box's
+/// geometry differ from a fresh sum by more than the comparator's `EPS` (0.01) after a few roundings,
+/// which is the absolute-coordinate limit (R60 14.1, QINC1n), not a translation-invariance bug.
+const YDRIFT_SPACERS: &[&str] = &["100px", "4100.3px", "4300.7px", "8191.9px", "3.3px", "6143.9px"];
+
+/// QINC1k1: a spacer `#ys` first (its height is what [`mutate_once`] moves), then a positioned auto-height box
+/// holding an `inset:0; height:100%` child and rows of fractional heights mixed with random content, and the
+/// random body around it.
+fn ydrift_body(r: &mut Rng, body: String) -> String {
+    let disp = r.pick(&["", "display:flex;flex-direction:column", "display:flex;flex-wrap:wrap", "display:grid", "display:flow-root"]);
+    let mut rows = String::new();
+    for _ in 0..(3 + r.below(20)) {
+        if r.pct(25) {
+            let n = 1 + r.below(3);
+            rows.push_str(&gen_fragment(r, n));
+        } else {
+            rows.push_str(&format!("<div style=\"height:{}.{}px\">r</div>", 5 + r.below(40), r.below(10)));
+        }
+    }
+    format!(
+        "<div id=\"ys\" style=\"height:{}\"></div><div class=\"c{}\" style=\"position:relative;{disp}\"><div style=\"position:absolute;inset:0;height:100%\"></div>{rows}</div>{body}",
+        r.pick(YDRIFT_SPACERS),
+        r.below(5)
+    )
 }
 
 /// A declaration; with [`YDRIFT`] on, 30 % of them from [`YDRIFT_DECLS`] (off: the RNG is used as before).
@@ -187,7 +213,10 @@ fn gen_fragment(r: &mut Rng, budget: usize) -> String {
 
 fn gen_page(r: &mut Rng) -> String {
     let n = 8 + r.below(20);
-    let body = gen_fragment(r, n);
+    let mut body = gen_fragment(r, n);
+    if YDRIFT.with(|y| y.get()) {
+        body = ydrift_body(r, body);
+    }
     format!("<html><head><style>{}</style></head><body>{body}</body></html>", gen_css(r))
 }
 
@@ -311,6 +340,13 @@ fn mutate_once(r: &mut Rng, doc: &Handle, width: &mut f32) -> String {
     let mut els = Vec::new();
     all_elements(&body, &mut els);
     let target = els[r.below(els.len())].clone();
+    if YDRIFT.with(|y| y.get()) && r.pct(40) {
+        if let Some(ys) = els.iter().find(|e| element_attr(e, "id").is_some_and(|v| &*v == "ys")) {
+            let v = format!("height:{}", r.pick(YDRIFT_SPACERS));
+            set_attr_logged(ys, "style", &v);
+            return format!("spacer #ys {v:?}");
+        }
+    }
     match r.below(10) {
         0 | 1 => {
             let n = 1 + r.below(6);

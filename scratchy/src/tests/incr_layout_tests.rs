@@ -416,3 +416,32 @@ fn qinc1k1_y_drift_grid() {
 fn qinc1k1_y_drift_table() {
     y_drift_case("display:table");
 }
+
+/// QINC1k1: a BFC root holding floats places them in document space (`Floats`), so its height is not
+/// translation-invariant in y: the engine re-measures it when it moves (`miss_y`) instead of shifting it,
+/// and the `height:100%` child of the positioned BFC root stays exact. At the same y it is still reused.
+#[test]
+fn qinc1k1_a_bfc_root_with_floats_is_reused_only_at_the_same_y() {
+    let _g = LogOnly::new();
+    let floats: String = (1..=7).map(|i| format!("<div class=fl>{i}</div>")).collect();
+    let doc = page(
+        "#spacer{height:100px} .rel{position:relative;display:flow-root} .fl{float:left;width:30px;height:32.1px} \
+         .fl:nth-child(4n){clear:left} .bg{position:absolute;inset:0;height:100%}",
+        &format!("<div id=spacer></div><div class=rel><div class=bg></div>{floats}</div><div id=after>after</div>"),
+    );
+    lay(&doc);
+    let spacer = by_id(&doc, "spacer");
+    let mut miss_y = 0;
+    for h in ["4100.3", "4300.7", "100", "8191.9"] {
+        set_attr(&spacer, "style", &format!("height:{h}px"));
+        let s = lay(&doc);
+        incremental(&s);
+        miss_y += s.miss_y;
+    }
+    assert!(miss_y >= 4, "re-measured on every move: {miss_y}");
+    // A change below it does not move it: reused.
+    set_attr(&by_id(&doc, "after"), "style", "height:50px");
+    let s = lay(&doc);
+    incremental(&s);
+    assert_eq!(s.miss_y, 0, "{s:?}");
+}

@@ -361,6 +361,10 @@ pub(crate) struct Ck {
     /// (`measure_mixed_inline`'s float bounds): not exactly translation-invariant in x, so the box is
     /// reused only at the same x.
     pub(crate) x_sensitive: bool,
+    /// QINC1k1: the subtree holds floats (a BFC root with floats, clearance, float avoidance), which are
+    /// placed in document space (`Floats`): not exactly translation-invariant in y, so the box is reused
+    /// only at the same y. (In-flow content heights are summed relative to the content box and are.)
+    pub(crate) y_sensitive: bool,
     /// Only the ancestors part of `intr` (an out-of-flow box's own shrink-to-fit is recomputed when
     /// it is re-resolved; some intrinsic walks, e.g. table columns, still count it).
     pub(crate) intr_anc: bool,
@@ -2149,6 +2153,16 @@ thread_local! {
     /// QINC1h1: depth of boxes whose layout reads the intrinsic sizes of their content (flex / grid /
     /// table containers, shrink-to-fit and keyword widths, flex items), during an engine measure.
     static INTR: Cell<u32> = const { Cell::new(0) };
+    /// QINC1k1: bumped by every BFC root that holds floats and every flow position taken from a float
+    /// (clearance, float avoidance): `Floats` are in document space, so those results are not
+    /// translation-invariant in y; and by every cache hit on a box with `Ck::y_sensitive`. A box whose
+    /// measure saw it change is `y_sensitive` (see `Ck::y_sensitive`).
+    pub(crate) static Y_SENS: Cell<u64> = const { Cell::new(0) };
+}
+
+/// QINC1k1: the box being measured placed something from float positions (document space): see `Y_SENS`.
+fn note_y_sensitive() {
+    Y_SENS.with(|c| c.set(c.get() + 1));
 }
 
 /// QINC1h2: a bottom-up re-measure of a box below an intrinsic-size reader runs as if inside it, so
@@ -2206,9 +2220,13 @@ fn measure_inner_engine<'a>(
     if el {
         let key = crate::incr_layout::Key { x, y, width, ch: containing_height, amo, fbw, zskip, floats_in };
         if let Some(l) = crate::incr_layout::try_hit(b, &key, pending) {
+            if l.ck.as_ref().is_some_and(|ck| ck.y_sensitive) {
+                Y_SENS.with(|c| c.set(c.get() + 1));
+            }
             return l;
         }
     }
+    let y_sens_before = Y_SENS.with(|c| c.get());
     let intr_anc = INTR.with(|c| c.get()) > 0;
     let reads_intrinsic = matches!(b.style.display, Display::Table | Display::Flex | Display::InlineFlex | Display::Grid)
         || b.style.width_kw.is_some()
@@ -2232,6 +2250,9 @@ fn measure_inner_engine<'a>(
         let key = crate::incr_layout::Key { x, y, width, ch: containing_height, amo, fbw, zskip, floats_in };
         let floats_out = !floats_in && !floats.is_empty();
         crate::incr_layout::record(&mut laid, b, &key, intr_anc, amo.is_some() || fbw.is_some(), floats_out, &pending[plen..]);
+        if let Some(ck) = laid.ck.as_mut() {
+            ck.y_sensitive = Y_SENS.with(|c| c.get()) != y_sens_before;
+        }
     }
     laid
 }
@@ -2637,9 +2658,9 @@ fn measure_inner_body<'a>(
             let mut float_children: Vec<Laid> = Vec::new();
             // Q49: the immediately preceding anonymous inline run, if any:
             // (index in `laid_children`, its start y, `own_pending` length
-            // before it was measured, its box). A float that follows it is
-            // placed at the top of that run's last line.
-            let mut prev_anon: Option<(usize, f32, usize, &LayoutBox)> = None;
+            // before it was measured, its box, its start `ry`). A float that
+            // follows it is placed at the top of that run's last line.
+            let mut prev_anon: Option<(usize, f32, usize, &LayoutBox, f32)> = None;
             // Q48a (CSS2.1 8.3.1): the previous in-flow block sibling's
             // bottom margin, still pending collapse with the next one's top.
             let mut prev_mb: Option<(f32, f32)> = None;
@@ -2667,6 +2688,7 @@ fn measure_inner_body<'a>(
                         if cy > cursor_y {
                             cursor_y = cy;
                             ry = cursor_y - content_y;
+                            note_y_sensitive();
                         }
                     } else if cy > cursor_y || prev_mb.is_some() {
                         // Q48d (CSS2.1 9.5.2): clearance places the BORDER
@@ -2679,6 +2701,7 @@ fn measure_inner_body<'a>(
                         if hypothetical < cy {
                             cursor_y = cy - mt;
                             ry = cursor_y - content_y;
+                            note_y_sensitive();
                             cleared = true;
                         }
                     }
@@ -2759,7 +2782,7 @@ fn measure_inner_body<'a>(
                         }
                         Float::None => unreachable!(),
                     }
-                    if let (true, Some(((idx, start_y, plen, pbox), _, _))) = (trying_hoist, hoist) {
+                    if let (true, Some(((idx, start_y, plen, pbox, start_ry), _, _))) = (trying_hoist, hoist) {
                         // Re-lay the run beside the float; keep the float's
                         // own out-of-flow children, regenerate the run's.
                         let float_pend = own_pending.split_off(float_pending_start);
@@ -2770,7 +2793,7 @@ fn measure_inner_body<'a>(
                         );
                         own_pending.extend(float_pend);
                         cursor_y = start_y + re.style.margin.top.px() + re.style.margin.bottom.px() + re.h;
-                        ry = cursor_y - content_y;
+                        ry = start_ry + re.style.margin.top.px() + re.style.margin.bottom.px() + re.h;
                         laid_children[idx] = re;
                     } else {
                         prev_anon = None;
@@ -2799,6 +2822,7 @@ fn measure_inner_body<'a>(
                                 (child_x, child_w) = (content_x, content_w);
                                 cursor_y = y;
                                 ry = cursor_y - content_y;
+                                note_y_sensitive();
                             }
                             None => break,
                         }
@@ -2863,7 +2887,7 @@ fn measure_inner_body<'a>(
                     && child.style.display == Display::Block
                     && matches!(child.content, BoxContent::Inline(_))
                     && matches!(lc.content, LaidContent::Text(_) | LaidContent::MixedInline(_)))
-                .then_some((laid_children.len(), start_y, plen, child));
+                .then_some((laid_children.len(), start_y, plen, child, start_ry));
                 laid_children.push(lc);
             }
             // Appended last, after every normal sibling — see
@@ -2885,6 +2909,11 @@ fn measure_inner_body<'a>(
             // `local_floats`, exactly as before this feature existed.
             let mut content_h = ry;
             if bfc_root {
+                // Floats are placed in document space and text beside them is wrapped against
+                // their absolute top / bottom: a BFC root holding floats is y-sensitive.
+                if !local_floats.is_empty() {
+                    note_y_sensitive();
+                }
                 content_h = content_h.max(local_floats.max_bottom() - content_y);
             }
             // See the `Inline` branch's own comment just above — same

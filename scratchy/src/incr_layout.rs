@@ -71,6 +71,8 @@ pub(crate) struct LayoutStats {
     pub(crate) hits: u64,
     pub(crate) miss_dirty: u64,
     pub(crate) miss_key: u64,
+    /// QINC1k1: of `miss_key`, the boxes refused only because they are `y_sensitive` and moved in y.
+    pub(crate) miss_y: u64,
     pub(crate) miss_floats: u64,
     pub(crate) miss_not_cacheable: u64,
     pub(crate) miss_no_old: u64,
@@ -331,6 +333,8 @@ pub(crate) fn record(laid: &mut Laid, b: &LayoutBox, k: &Key, intr_anc: bool, in
         bver: bver(b.style.node),
         cacheable,
         x_sensitive: x_sensitive(laid),
+        // set by `measure_inner_engine` right after (it saw `layout::Y_SENS` move)
+        y_sensitive: false,
         intr: intr_anc || intr_own,
         intr_anc,
         pending,
@@ -405,6 +409,9 @@ pub(crate) fn try_hit<'a>(b: &'a LayoutBox, k: &Key, pending: &mut Vec<PendingPo
                 || !ck.bubble.iter().all(|key| c.harvest.contains_key(key))
             {
                 Some(&mut c.stats.miss_key)
+            } else if ck.y_sensitive && ck.y.to_bits() != k.y.to_bits() {
+                c.stats.miss_key += 1;
+                Some(&mut c.stats.miss_y)
             } else {
                 None
             }
@@ -1489,6 +1496,7 @@ fn finish_update(eng: &mut LayoutEngine, ns: u64) {
     incr_add(Incr::CacheHits, s.hits);
     incr_add(Incr::MissDirty, s.miss_dirty);
     incr_add(Incr::MissKey, s.miss_key);
+    incr_add(Incr::MissY, s.miss_y);
     incr_add(Incr::MissFloats, s.miss_floats);
     incr_add(Incr::MissNotCacheable, s.miss_not_cacheable);
     incr_add(Incr::MissNoOld, s.miss_no_old);

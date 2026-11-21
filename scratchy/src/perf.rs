@@ -807,9 +807,14 @@ pub(crate) enum Incr {
     /// engine cascaded itself (restarts and incremental updates).
     RestyleAdopted,
     RestyleResolved,
+    /// QINC1k1: of `miss_key`, boxes refused only because their height came from floats (document
+    /// space) and they moved in y (`Ck::y_sensitive`).
+    MissY,
 }
 
-const INCR_NAMES: [&str; 32] = [
+const INCR_N: usize = 33;
+
+const INCR_NAMES: [&str; INCR_N] = [
     "updates",
     "restyled_matched",
     "restyled_cascaded",
@@ -842,14 +847,25 @@ const INCR_NAMES: [&str; 32] = [
     "forced_restarts",
     "restyle_adopted",
     "restyle_resolved",
+    "miss_y",
 ];
 
 /// Bottom-up relayout stops are counted per tree level (the last bucket takes every deeper level).
 pub(crate) const INCR_LEVELS: usize = 8;
 
+/// The flat counters (`[u64; N]` derives `Default` only up to 32).
+#[derive(Clone, Copy)]
+struct IncrFlat([u64; INCR_N]);
+
+impl Default for IncrFlat {
+    fn default() -> IncrFlat {
+        IncrFlat([0; INCR_N])
+    }
+}
+
 #[derive(Default)]
 struct IncrCounters {
-    flat: [u64; 32],
+    flat: IncrFlat,
     /// QINC1h1: time of the incremental relayouts (and of the engine's from-scratch ones), ns.
     layout_ns: u64,
     layout_full_ns: u64,
@@ -875,13 +891,13 @@ thread_local! {
 /// Adds `n` to a QINC1 counter.
 #[allow(dead_code)]
 pub(crate) fn incr_add(c: Incr, n: u64) {
-    INCR.with(|i| i.borrow_mut().flat[c as usize] += n);
+    INCR.with(|i| i.borrow_mut().flat.0[c as usize] += n);
 }
 
 /// Current value of a QINC1 counter (tests, gates).
 #[allow(dead_code)]
 pub(crate) fn incr_get(c: Incr) -> u64 {
-    INCR.with(|i| i.borrow().flat[c as usize])
+    INCR.with(|i| i.borrow().flat.0[c as usize])
 }
 
 /// QINC1f: one incremental restyle: elements restyled, elements the from-scratch build styled, CPU ns.
@@ -957,7 +973,7 @@ fn incr_reset() {
 pub(crate) fn incr_json() -> String {
     INCR.with(|i| {
         let i = i.borrow();
-        let mut parts: Vec<String> = INCR_NAMES.iter().zip(i.flat).map(|(n, v)| format!("\"{n}\":{v}")).collect();
+        let mut parts: Vec<String> = INCR_NAMES.iter().zip(i.flat.0).map(|(n, v)| format!("\"{n}\":{v}")).collect();
         let levels: Vec<String> = i.stops_by_level.iter().map(u64::to_string).collect();
         parts.push(format!("\"bottom_up_stops_by_level\":[{}]", levels.join(",")));
         let wf: Vec<String> = i.worker_fallbacks.iter().map(|(r, n)| format!("{}:{n}", json_str(r))).collect();
