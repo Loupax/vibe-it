@@ -1379,6 +1379,10 @@ fn init_v8() {
                 v8::V8::set_flags_from_string(&f);
             }
         }
+        // QREC2: `--deterministic`: Math.random's seed, set before the first isolate exists.
+        if let Some(seed) = crate::js::det_v8_seed() {
+            v8::V8::set_flags_from_string(&format!("--random-seed={seed}"));
+        }
         let platform = v8::new_default_platform(0, false).make_shared();
         v8::V8::initialize_platform(platform);
         v8::V8::initialize();
