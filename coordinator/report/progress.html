@@ -176,7 +176,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
     <tr><td>UI: storage</td><td>QSTASH1–5 saved localStorage, cookies, forget-site</td><td><span class="pill done">all five done</span></td></tr>
     <tr><td>UI: keys</td><td>QKEYS1–4 status bar, input/normal mode · QSB1 scrollbar drag · QPASTE1</td><td><span class="pill wip">QKEYS1/2/4, QSB1/2, QPASTE1 done · QKEYS3 (remove <code>:set vim</code>) after search</span></td></tr>
     <tr><td>UI: search</td><td>QSEARCH1–3 <code>/</code>, n/N, Enter</td><td><span class="pill wip">all three done</span></td></tr>
-    <tr><td>UI: completion</td><td>QCONF1 · QCOMP1–4 completion sources, history file, <code>:go</code></td><td><span class="pill wip">QCONF1/2, QCOMP1/3/4, QKEYS1b/3, QHELP1 done · QCOMP2 (completion from your own programs) running</span></td></tr>
+    <tr><td>UI: completion</td><td>QCONF1 · QCOMP1–4 completion sources, history file, <code>:go</code></td><td><span class="pill wip">QCONF1/2, QCOMP1/3/4, QKEYS1b/3, QHELP1 done · QCOMP2 merging · next: QXSCR1 horizontal scrolling (mouse + arrows, your call), then QSB2b bars</span></td></tr>
   </table></div>
   <p class="note">Archived and not scheduled: site-specific fixes, media, and the spec-gap items that the WPT runs will surface again (<span class="mono">scratchy/TODO-ARCHIVE.txt</span>).</p>
 </section>
@@ -184,7 +184,6 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 <section>
   <h2>Waiting on you</h2>
   <ul id="waiting">
-    <li><b>Horizontal scrollbars (QSB2b, draft #522):</b> scratchy cannot scroll sideways yet (no window scrollX, overflow-x and -y are merged into one). Options: (a) first QXSCR1 = real horizontal scrolling, then the bars (bigger, my recommendation if you want them at all); (b) bars only for <code>overflow-x</code> boxes, no window bar; (c) park it. Which?</li>
     <li><b>Public repo cleanup:</b> two PRs (#496, #498) accidentally committed an agent's scratch folder: a test wire binary, its private token (for a throwaway wire, not yours), logs, and logged-out screenshots of social.loupax.com and YouTube. They are removed from main and now ignored, but are still in git history (commits 40d9f8c, 97e5e83). <b>Done</b> (your OK): <code>.git</code> backed up to <span class="mono">~/src/vibe-it-git-backup-2026-11-21</span>, history rewritten without them, main force-pushed. GitHub still serves the old commits through its saved pull-request refs; only GitHub Support can drop those ("remove cached views / sensitive data").</li>
     <li>Skim <span class="mono">scratchy/DECISIONS.md</span> once and correct anything I misstated.</li>
     <li>Old pipeline removal (QINC1m): today nothing tells you when the engine falls back. QINC1n (your yes) is being built: a log line on a real fallback, a sampled check (1 frame in ~200) logging mismatches to <span class="mono">&lt;state-dir&gt;/engine-check.log</span>, and <code>:engine</code> with the counts. After it lands: ~3 days, then you confirm QINC1m.</li>
