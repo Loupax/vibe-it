@@ -165,7 +165,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       CharacterData-appendChild, CharacterData-remove, rootNode, Node-isSameNode, Node-compareDocumentPosition,
       Node-contains, Node-properties, ranges/StaticRange-constructor, traversal/NodeIterator, NodeIterator-removal,
       TreeWalker, events/EventTarget-this-of-listener. Target: nodes +3, ranges +1.5, other +4.
-- [ ] QDOM9 [S] (P2; Sonnet; js_dom.rs DOMTokenList block (`var DTP = DOMTokenList.prototype`, `toks`/`putToks`); R65) DOMTokenList per
+- [ ] [WIP] QDOM9 [S] (P2; Sonnet; js_dom.rs DOMTokenList block (`var DTP = DOMTokenList.prototype`, `toks`/`putToks`); R65) DOMTokenList per
       spec: an ordered set parsed from the attribute (dedupe, ASCII whitespace), add/remove/toggle/replace run the update
       steps (serialize the set; no attribute write when the element had none and the set is empty), `value`, `length`,
       `item`, iteration over the set, `supports()` throws TypeError without supported tokens, InvalidCharacterError /
