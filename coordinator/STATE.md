@@ -170,3 +170,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-21 Merged #534 flaky 0db9d5f, #526 QDOM6 b05689c, #532 user QSMOOTH TODO 05fda83, #531 QREG1 df3d474. #533 QDOM3 conflict (js_dom_tests.rs) -> agent. Queue: #535, #536, #529.
 - 2026-11-21 NOTE: resuming QDOM3 for its rebase made 6 agents active briefly. Rule from now: a rebase request is a resume = an agent slot; send it only when fewer than 5 are running (else queue it).
 - 2026-11-21 #537 QREC3 READY (6 pages recorded locally, 41 MB; replay steadies counts not ms; found wire replay query-fallback bug). Filed QREC1c (P1), QREC3b. Queued after #529. QREC3's first recordings ran before the state-dir rule (user's state dir; declared).
+- 2026-11-21 Merged #536 QKEYS1c 596a1d7. #535 QXSCR1 conflicts in wpt-th/areas.txt -> rebase request QUEUED until a slot frees (5 running). Queue: #529, #537 running in bg.

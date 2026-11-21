@@ -8993,3 +8993,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       reports whether the system clipboard took the text, so a failure is not shown as "Copied to clipboard".
       `:help` rows. Tests: `yy` in NORMAL copies and the page sees no keys, `yy` in INPUT goes to the page, `:let`
       errors (read-only `%`, unknown register, usage, no URL), `g` `y` / `y` `g` re-arm.
+
+=== from TODO.txt: --- (no header)
+- [x] QKEYS1c DONE 596a1d7 #536 [S] (P3, from QREG1 #531; Sonnet; paint_status_bar) Status-bar messages are clipped to a third of the bar
+      ("Copied to clipboa..."): give the message the room the URL does not need, or shorten/elide the URL first.
