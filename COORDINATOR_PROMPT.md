@@ -10,6 +10,9 @@ Start by reading:
 Follow DECISIONS.md. Never schedule anything from scratchy/TODO-ARCHIVE.txt. An item
 that says it needs my approval or decision waits until I give it. Ask me rather than
 guess.
+Never block waiting for my answer: write the question in the PR description (leave that PR
+unmerged), list it under "Waiting on you" on the progress page, and keep working on other
+items. Ask me in chat only when I ask for a status report.
 
 Where you run:
 - You are on my machine when `$HOME/.cache/librusty_v8-152.2.0.a` exists. There you do
