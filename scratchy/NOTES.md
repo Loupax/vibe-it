@@ -3879,7 +3879,9 @@ cancelled it). Timer callbacks still only log (QEL4).
 **App.** `about_to_wait`: pointer flush, scroll mirror, due timers (sliced, as before), `js_sync`, then
 `App::rendering_update_if_due`: the update runs when a rAF's frame time has come, a `resize` is owed
 (`viewport_changed`), or an animation event/change is due (`anim_wake`, set from `anim_tick`'s answer;
-`-inf` after every build). The frame timestamp is the page clock at that moment. Step 6 is `js_sync`
+`-inf` after every build). The frame timestamp is the page clock at that moment. Step 5 runs only in an
+update whose rAF frame is due: an update for a `resize` or a CSS animation event in between frames
+skips it (running it there doubled a rAF loop's rate to ~120 Hz while a CSS animation ran). Step 6 is `js_sync`
 (the frame's DOM writes become `layout_dirty` / an incremental restyle) and step 8 requests the redraw;
 the layout itself and the paint stay in `redraw` on the RedrawRequested that follows (incremental
 engine, shaping worker, progressive shaping, no forced layout per frame: the cost tricks are

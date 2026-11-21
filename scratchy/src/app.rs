@@ -1320,8 +1320,7 @@ impl App {
         if !(anim_due || raf_ts.is_some() || self.viewport_changed()) {
             return false;
         }
-        let ts = raf_ts.or_else(|| self.js.as_ref().map(|js| js.now_ms())).unwrap_or(0.0);
-        crate::event_loop::update_the_rendering(self, ts);
+        crate::event_loop::update_the_rendering(self, raf_ts);
         true
     }
 

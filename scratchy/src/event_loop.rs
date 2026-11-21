@@ -46,14 +46,19 @@ pub(crate) trait RenderingHost {
     fn paint(&mut self) {}
 }
 
-/// Runs one rendering update with frame timestamp `ts` (ms on the page clock). Returns how many
-/// animation frame callbacks ran.
-pub(crate) fn update_the_rendering(host: &mut impl RenderingHost, ts: f64) -> usize {
+/// Runs one rendering update. `raf_ts` = the frame timestamp (ms on the page clock) when this update
+/// is a 60 Hz animation frame: the rAF batch runs only then, so an update that is only for a
+/// `resize` or a CSS animation event in between frames does not run rAF callbacks early (that
+/// doubled a rAF loop's rate in the window). Returns how many animation frame callbacks ran.
+pub(crate) fn update_the_rendering(host: &mut impl RenderingHost, raf_ts: Option<f64>) -> usize {
     host.run_resize_steps();
     host.run_scroll_steps();
     host.evaluate_media_queries();
     host.update_animations();
-    let rafs = host.engine().map_or(0, |js| js.run_animation_frames(ts));
+    let rafs = match (host.engine(), raf_ts) {
+        (Some(js), Some(ts)) => js.run_animation_frames(ts),
+        _ => 0,
+    };
     host.update_style_layout();
     host.run_observers();
     host.paint();
@@ -79,7 +84,7 @@ pub(crate) fn headless_frame_due(js: &JsEngine) -> Option<f64> {
 /// at least 1 when a frame ran (progress for the pumps), 0 when none was due.
 pub(crate) fn headless_frame(js: &JsEngine, now: f64) -> usize {
     match headless_frame_due(js) {
-        Some(due) if due <= now => update_the_rendering(&mut Headless(js), now).max(1),
+        Some(due) if due <= now => update_the_rendering(&mut Headless(js), Some(now)).max(1),
         _ => 0,
     }
 }
