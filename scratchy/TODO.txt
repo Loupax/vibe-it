@@ -80,12 +80,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       parser-blocking scripts during parsing (scripts see the partial DOM), defer/async ordering,
       DOMContentLoaded/load as tasks. Measure html/semantics/scripting-1 and dynamic-markup-insertion
       first; write the design for the user.
-- [ ] [WIP] QCSS1 [S] (user accepted the one reftest pass->fail 2026-11-21; P1, from QMAPI2 #523; Sonnet; css.rs @media parser) The stylesheet `@media` parser only knows
-      min-width, max-width, prefers-color-scheme, prefers-reduced-motion, so range syntax (`(width >= 600px)`,
-      `(400px < width < 900px)`) and `(hover: hover)`, `(pointer: fine)`, orientation, resolution... drop the whole rule,
-      while `matchMedia` (`media_feature_eval`) already understands them. Make the stylesheet parser use the same
-      evaluator (one implementation). Evidence: github.com 989 dropped range rules. Gates: reftests + --wpt-th
-      (css/cssom, css/cssom-view areas), a grim of github.com before/after.
 - [ ] QWPTPRINT [S] (P2; USER 2026-11-21 option 1 on #527; Sonnet; src/wpt.rs reftest runner, css.rs media type) The
       reftest runner renders print tests (`css/printing/*`, and WPT's print reftests: `-print` in the file name / meta
       name=reftest-pages) with media type `print` (paged size per WPT: 5in x 3in page, no headers), so `@media print`

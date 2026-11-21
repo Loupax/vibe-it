@@ -8955,3 +8955,11 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       fallback logs once per page and counts; a restart does not; a mismatch (test hook) writes one log line; every=0
       disables checks; `:engine` text. After QINC1n: ~3 days of daily use with an empty engine-check.log and zero
       fallbacks = the go signal for QINC1m (the user confirms).
+
+=== from TODO.txt: --- (no header)
+- [x] QCSS1 DONE 3276697 #527 [S] (user accepted the one reftest pass->fail 2026-11-21; P1, from QMAPI2 #523; Sonnet; css.rs @media parser) The stylesheet `@media` parser only knows
+      min-width, max-width, prefers-color-scheme, prefers-reduced-motion, so range syntax (`(width >= 600px)`,
+      `(400px < width < 900px)`) and `(hover: hover)`, `(pointer: fine)`, orientation, resolution... drop the whole rule,
+      while `matchMedia` (`media_feature_eval`) already understands them. Make the stylesheet parser use the same
+      evaluator (one implementation). Evidence: github.com 989 dropped range rules. Gates: reftests + --wpt-th
+      (css/cssom, css/cssom-view areas), a grim of github.com before/after.

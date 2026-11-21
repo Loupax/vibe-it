@@ -158,3 +158,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-21 USER: default mode should be NORMAL -> QKEYS5 (P1, UI) filed + DECISIONS. Next free slots: QKEYS5, then QREG1.
 - 2026-11-21 #527 QCSS1 READY but held: reftest css/printing/transition-in-media-print.tentative.html pass->fail (it passed only because @media not was broken); 7 reftests newly pass. Question to user (progress page). Filed QCSS1b. Launched QKEYS5.
 - 2026-11-21 USER: accept the #527 reftest pass->fail (option 1) -> DECISIONS, QWPTPRINT filed; merging #527.
+- 2026-11-21 Merged #527 QCSS1 3276697 (stylesheet @media = matchMedia evaluator; reftests +7, 1 accepted pass->fail).
