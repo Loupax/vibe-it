@@ -9008,3 +9008,20 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       host+path) answers a request whose QUERY differs and counts it as a hit: Wikipedia headless replay got the wrong
       load.php module batches (SyntaxErrors, 0 forced layouts). A differing query (after the ignore rules) must be a miss
       (404 + X-Wire-Replay: miss), unless a rules entry allows it. Tests in wire.
+
+=== from TODO.txt: --- (no header)
+- [x] QWPTPRINT DONE 4cb49d8 #538 [S] (P2; USER 2026-11-21 option 1 on #527; Sonnet; src/wpt.rs reftest runner, css.rs media type) The
+      reftest runner renders print tests (`css/printing/*`, and WPT's print reftests: `-print` in the file name / meta
+      name=reftest-pages) with media type `print` (paged size per WPT: 5in x 3in page, no headers), so `@media print`
+      matches and `not print` does not. Then css/printing/transition-in-media-print.tentative.html passes again for the
+      right reason (it was accepted as failing in #527). Record changes with --update; list every print test that
+      changes.
+
+=== from TODO.txt: --- (no header)
+- [x] QDOM9 DONE 2c3eb15 #542 [S] (P2; Sonnet; js_dom.rs DOMTokenList block (`var DTP = DOMTokenList.prototype`, `toks`/`putToks`); R65) DOMTokenList per
+      spec: an ordered set parsed from the attribute (dedupe, ASCII whitespace), add/remove/toggle/replace run the update
+      steps (serialize the set; no attribute write when the element had none and the set is empty), `value`, `length`,
+      `item`, iteration over the set, `supports()` throws TypeError without supported tokens, InvalidCharacterError /
+      SyntaxError for whitespace / empty tokens, one DOMTokenList object per element (`[SameObject]`), relList etc. on
+      the elements in lists/DOMTokenList-coverage-for-attributes. WPT: nodes/Element-classlist, lists/* (4 files).
+      Target: other +4.
