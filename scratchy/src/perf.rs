@@ -963,6 +963,14 @@ pub(crate) fn incr_root_reason(reason: &'static str) {
 /// QINC1h1: a bottom-up step went one level up, for `reason`.
 pub(crate) fn incr_up_reason(reason: &'static str) {
     INCR.with(|i| bump(&mut i.borrow_mut().layout_up_reasons, reason));
+    if crate::incr_style::trace_on() {
+        UP_TRACE.with(|t| t.borrow_mut().push(reason));
+    }
+}
+
+thread_local! {
+    /// QINC1k3: the up reasons of the current relayout (`SCRATCHY_INCR_TRACE=1`).
+    pub(crate) static UP_TRACE: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
 }
 
 fn incr_reset() {

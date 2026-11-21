@@ -381,6 +381,70 @@ pub(crate) struct Ck {
     pub(crate) ink_x: f32,
     pub(crate) ink_y: f32,
     pub(crate) ifb: f32,
+    /// QINC1k3: the floats the box was measured among (same BFC, document space) and the floats its
+    /// measure placed into that set; `None` when it read no float (an empty set, or a BFC root) and
+    /// placed none. Such a box is reused only at the same origin among bit-identical floats, and a
+    /// reuse places its floats again.
+    pub(crate) fl: Option<Box<CkFloats>>,
+}
+
+/// QINC1k3: see `Ck::fl`.
+#[derive(Clone)]
+pub(crate) struct CkFloats {
+    pub(crate) inl: std::sync::Arc<FloatSnap>,
+    pub(crate) out: FloatSnap,
+}
+
+/// QINC1k3: the entries of a `Floats` (or a run of them), compared bit for bit.
+#[derive(Clone, Default)]
+pub(crate) struct FloatSnap {
+    pub(crate) left: Vec<FloatEntry>,
+    pub(crate) right: Vec<FloatEntry>,
+}
+
+pub(crate) fn same_entries(a: &[FloatEntry], b: &[FloatEntry]) -> bool {
+    a.len() == b.len()
+        && a.iter().zip(b).all(|(x, y)| {
+            x.top.to_bits() == y.top.to_bits() && x.bottom.to_bits() == y.bottom.to_bits() && x.edge.to_bits() == y.edge.to_bits()
+        })
+}
+
+impl FloatSnap {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.left.is_empty() && self.right.is_empty()
+    }
+
+    /// The entries of `f` from `from` (left, right lengths) on.
+    pub(crate) fn of(f: &Floats, from: (usize, usize)) -> FloatSnap {
+        FloatSnap { left: f.left.borrow()[from.0..].to_vec(), right: f.right.borrow()[from.1..].to_vec() }
+    }
+
+    /// Whether `f` holds exactly these entries.
+    pub(crate) fn same_as(&self, f: &Floats) -> bool {
+        same_entries(&self.left, &f.left.borrow()) && same_entries(&self.right, &f.right.borrow())
+    }
+
+    pub(crate) fn same(&self, o: &FloatSnap) -> bool {
+        same_entries(&self.left, &o.left) && same_entries(&self.right, &o.right)
+    }
+
+    /// Appends these entries to `f` (a reused box places its floats again).
+    pub(crate) fn place_into(&self, f: &Floats) {
+        f.left.borrow_mut().extend_from_slice(&self.left);
+        f.right.borrow_mut().extend_from_slice(&self.right);
+    }
+
+    /// A `Floats` holding these entries.
+    pub(crate) fn to_floats(&self) -> Floats {
+        Floats { left: std::cell::RefCell::new(self.left.clone()), right: std::cell::RefCell::new(self.right.clone()) }
+    }
+}
+
+impl Floats {
+    /// QINC1k3: (left, right) entry counts.
+    pub(crate) fn lens(&self) -> (usize, usize) {
+        (self.left.borrow().len(), self.right.borrow().len())
+    }
 }
 
 /// QINC1h1: what a `Blocks` parent, `finish_z` and the z-index sort read from a child's BOX style.
@@ -2216,10 +2280,12 @@ fn measure_inner_engine<'a>(
 ) -> Laid {
     let el = b.style.node != 0 && b.style.pseudo == 0;
     let zskip = Z_SKIP.with(|c| c.get()) > 0;
-    let floats_in = !floats.is_empty();
+    // QINC1k3: a BFC root lays its content out among its own floats only (`measure_inner_body`).
+    let floats_in = !floats.is_empty() && !b.style.establishes_bfc();
+    let floats_at = floats.lens();
     if el {
         let key = crate::incr_layout::Key { x, y, width, ch: containing_height, amo, fbw, zskip, floats_in };
-        if let Some(l) = crate::incr_layout::try_hit(b, &key, pending) {
+        if let Some(l) = crate::incr_layout::try_hit(b, &key, pending, floats) {
             if l.ck.as_ref().is_some_and(|ck| ck.y_sensitive) {
                 Y_SENS.with(|c| c.set(c.get() + 1));
             }
@@ -2248,8 +2314,7 @@ fn measure_inner_engine<'a>(
     crate::incr_layout::note_remeasured();
     if el {
         let key = crate::incr_layout::Key { x, y, width, ch: containing_height, amo, fbw, zskip, floats_in };
-        let floats_out = !floats_in && !floats.is_empty();
-        crate::incr_layout::record(&mut laid, b, &key, intr_anc, amo.is_some() || fbw.is_some(), floats_out, &pending[plen..]);
+        crate::incr_layout::record(&mut laid, b, &key, intr_anc, amo.is_some() || fbw.is_some(), floats, floats_at, &pending[plen..]);
         if let Some(ck) = laid.ck.as_mut() {
             ck.y_sensitive = Y_SENS.with(|c| c.get()) != y_sens_before;
         }
