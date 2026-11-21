@@ -128,7 +128,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       tests qj1_/qy15_ were switched to `NaN = 1`). Restore the spec behaviour: a V8 named-property interceptor on the
       global template (or equivalent) instead of a Proxy, keeping named access, its wgen cache and the scores; then
       restore an `undeclared = 1` strict ReferenceError test next to the NaN one.
-- [ ] QMSG1 [S] (P2, from QDOM1 #516; Sonnet; js_dom.rs iframe realms, globals_prelude.js postMessage) postMessage to and
+- [ ] [WIP] QMSG1 [S] (P2, from QDOM1 #516; Sonnet; js_dom.rs iframe realms, globals_prelude.js postMessage) postMessage to and
       from an iframe's contentWindow (`window[0].postMessage`, `parent.postMessage`, MessageEvent origin/source): today the
       webmessaging 019 / cross-document files time out waiting for the reply. Target: webmessaging score up, list files.
 - [ ] QDOM2b [S] (P2, from QDOM2 #521; Sonnet; js_dom.rs) Remaining collections: MutationRecord addedNodes/removedNodes
