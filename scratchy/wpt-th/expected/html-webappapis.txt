@@ -866,8 +866,7 @@ OK           1/1  html/webappapis/timers/negative-setinterval.any.html
 OK           1/1  html/webappapis/timers/negative-settimeout.any.html
 OK           0/1  html/webappapis/timers/setinterval-cross-realm-callback-report-exception.html
   FAIL      window.setInterval() reports the exception from its callback in the callback's global object
-OK           1/2  html/webappapis/timers/setinterval-settimeout-clamping.any.html
-  FAIL      setInterval(0) before setTimeout(0)
+OK           2/2  html/webappapis/timers/setinterval-settimeout-clamping.any.html
 OK           0/1  html/webappapis/timers/settimeout-cross-realm-callback-report-exception.html
   FAIL      window.setTimeout() reports the exception from its callback in the callback's global object
 OK           1/1  html/webappapis/timers/settimeout-detached-iframe.html
