@@ -1232,6 +1232,9 @@ pub(crate) struct Declarations {
     /// `DeclParser` branch and `GridTrackSpec`'s own docs.
     pub(crate) grid_template_columns: Option<&'static [GridTrackSpec]>,
     pub(crate) grid_template_rows: Option<&'static [GridTrackSpec]>,
+    /// `grid-auto-columns`/`grid-auto-rows` (QJ4b): sizes of implicit tracks, cycled.
+    pub(crate) grid_auto_columns: Option<&'static [GridTrackSpec]>,
+    pub(crate) grid_auto_rows: Option<&'static [GridTrackSpec]>,
     /// One leaked `&'static str` per template row — see `parse_grid_
     /// template_areas`'s own docs for why the raw strings, not an
     /// already-split cell grid, are what gets stored and leaked.
@@ -4835,6 +4838,7 @@ impl Declarations {
             "row-gap" => row_gap, "column-gap" => column_gap,
             "grid-template-columns" => grid_template_columns,
             "grid-template-rows" => grid_template_rows,
+            "grid-auto-columns" => grid_auto_columns, "grid-auto-rows" => grid_auto_rows,
             "grid-template-areas" => grid_template_areas, "grid-area" => grid_area,
             "font-style" => font_style, "list-style-type" => list_style_type,
             "word-spacing" => word_spacing,
@@ -5472,6 +5476,14 @@ impl DeclParser<'_> {
             // `#[derive(Copy)]`.
             if let Ok(tracks) = parse_grid_template(input) {
                 self.decls.grid_template_columns = Some(Box::leak(tracks.into_boxed_slice()));
+            }
+        } else if name.eq_ignore_ascii_case("grid-auto-columns") {
+            if let Ok(tracks) = parse_grid_template(input).and_then(reject_auto_repeat) {
+                self.decls.grid_auto_columns = Some(Box::leak(tracks.into_boxed_slice()));
+            }
+        } else if name.eq_ignore_ascii_case("grid-auto-rows") {
+            if let Ok(tracks) = parse_grid_template(input).and_then(reject_auto_repeat) {
+                self.decls.grid_auto_rows = Some(Box::leak(tracks.into_boxed_slice()));
             }
         } else if name.eq_ignore_ascii_case("grid-template-rows") {
             if let Ok(tracks) = parse_grid_template(input).and_then(reject_auto_repeat) {

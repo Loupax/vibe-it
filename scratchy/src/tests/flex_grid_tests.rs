@@ -656,3 +656,63 @@ fn grid_template_areas_item_with_no_matching_grid_area_auto_places_into_the_free
     assert!(items.iter().any(|i| i.x == 0.0), "the named item should still claim the left area");
     assert!(items.iter().any(|i| i.x == 100.0), "the plain item, with no grid-area of its own, should auto-place into the one remaining free cell, not overlap the named one");
 }
+
+// QJ4b: items needing more columns than the explicit tracks used to panic in `measure_grid`
+// (`col_widths[col_start..col_end]` out of range). They now create implicit tracks.
+fn qj4b_items(style: &str, kids: &str) -> Vec<(f32, f32, f32)> {
+    let html = format!(
+        r#"<html><body style="margin: 0"><div style="display: grid; width: 400px; {style}">{kids}</div></body></html>"#
+    );
+    let laid = measure_fixture(&html, 700.0);
+    grid_items(&laid, 400.0).iter().map(|l| (l.x, l.y, l.w)).collect()
+}
+
+#[test]
+fn qj4b_span_wider_than_explicit_tracks_makes_implicit_column() {
+    let it = qj4b_items(
+        "grid-template-columns: 100px; grid-auto-columns: 60px;",
+        r#"<div style="grid-column: span 2">a</div><div>b</div>"#,
+    );
+    assert_eq!(it.len(), 2);
+    assert_eq!((it[0].0, it[0].2), (0.0, 160.0), "span 2 covers 100px + implicit 60px");
+}
+
+#[test]
+fn qj4b_numeric_line_beyond_explicit_tracks() {
+    let it = qj4b_items(
+        "grid-template-columns: 100px; grid-auto-columns: 50px;",
+        r#"<div style="grid-column: 1 / 3">a</div><div style="grid-column: 4">b</div>"#,
+    );
+    assert_eq!((it[0].0, it[0].2), (0.0, 150.0));
+    assert_eq!((it[1].0, it[1].2), (200.0, 50.0), "column 4 is the third implicit track");
+}
+
+#[test]
+fn qj4b_named_area_wider_than_tracks() {
+    let it = qj4b_items(
+        "grid-template-columns: 100px; grid-template-areas: 'a b';",
+        r#"<div style="grid-area: a">x</div><div style="grid-area: b">y</div>"#,
+    );
+    assert_eq!(it.len(), 2);
+    assert_eq!(it[0].0, 0.0);
+    assert!(it[1].0 >= 100.0, "second area sits in an implicit column");
+}
+
+#[test]
+fn qj4b_auto_fill_with_wide_span_and_no_track_list() {
+    let it = qj4b_items("grid-template-columns: repeat(auto-fill, 100px);", r#"<div style="grid-column: span 6">a</div>"#);
+    assert_eq!(it.len(), 1);
+    let it = qj4b_items("", r#"<div style="grid-column: 1 / 4">a</div><div style="grid-row: 3; grid-column: 2">b</div>"#);
+    assert_eq!(it.len(), 2);
+}
+
+#[test]
+fn qj4b_rows_and_huge_lines_do_not_panic() {
+    let it = qj4b_items(
+        "grid-template-columns: 100px 100px; grid-template-rows: 20px; grid-auto-rows: 30px;",
+        r#"<div style="grid-row: 3 / 5">a</div><div style="grid-row: span 3">b</div><div style="grid-column: 1 / 99999999">c</div><div style="grid-row: -9 / -1">d</div>"#,
+    );
+    assert_eq!(it.len(), 4);
+    let it = qj4b_items("grid-template-columns: 100px; grid-auto-rows: 30px;", r#"<div>a</div><div>b</div>"#);
+    assert_eq!(it[1].1 - it[0].1, 30.0, "implicit rows take grid-auto-rows");
+}

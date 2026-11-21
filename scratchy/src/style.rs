@@ -460,6 +460,8 @@ pub(crate) struct ComputedStyle {
     /// "every row/column is auto" are already the right default.
     pub(crate) grid_template_columns: Option<&'static [GridTrackSpec]>,
     pub(crate) grid_template_rows: Option<&'static [GridTrackSpec]>,
+    pub(crate) grid_auto_columns: Option<&'static [GridTrackSpec]>,
+    pub(crate) grid_auto_rows: Option<&'static [GridTrackSpec]>,
     /// `None` means no `grid-template-areas` declared — `measure_grid`
     /// falls back to plain auto-placement, same as today, when this is
     /// unset. See `parse_grid_template_areas`'s own docs.
@@ -644,7 +646,7 @@ pub(crate) fn wide_keys(name: &str) -> Option<&'static [&'static str]> {
         "outline-color", "box-shadow", "border-radius", "overflow",
         "overflow-y", "text-overflow", "flex-direction", "flex-wrap", "justify-content", "align-items",
         "align-self", "order", "flex-grow", "flex-shrink", "flex-basis", "row-gap",
-        "column-gap", "grid-template-columns", "grid-template-rows",
+        "column-gap", "grid-template-columns", "grid-template-rows", "grid-auto-columns", "grid-auto-rows",
         "grid-template-areas", "grid-area", "font-style", "list-style-type",
         "word-spacing", "animation-name", "animation-duration", "animation-timing-function",
         "animation-delay", "animation-iteration-count", "animation-direction",
@@ -808,6 +810,8 @@ pub(crate) fn copy_prop(dst: &mut ComputedStyle, src: &ComputedStyle, key: &str)
         "column-gap" => dst.column_gap = src.column_gap,
         "grid-template-columns" => dst.grid_template_columns = src.grid_template_columns,
         "grid-template-rows" => dst.grid_template_rows = src.grid_template_rows,
+        "grid-auto-columns" => dst.grid_auto_columns = src.grid_auto_columns,
+        "grid-auto-rows" => dst.grid_auto_rows = src.grid_auto_rows,
         "grid-template-areas" => dst.grid_template_areas = src.grid_template_areas,
         "grid-area" => dst.grid_area = src.grid_area,
         "font-style" => dst.font_style = src.font_style,
@@ -3152,6 +3156,16 @@ pub(crate) fn resolve_style_core<'a>(
         inline_decls.as_ref().and_then(|d| d.grid_template_rows),
         |d| d.grid_template_rows,
     );
+    let grid_auto_columns = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.grid_auto_columns),
+        |d| d.grid_auto_columns,
+    );
+    let grid_auto_rows = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.grid_auto_rows),
+        |d| d.grid_auto_rows,
+    );
     let grid_template_areas = cascade_property(
         &matches,
         inline_decls.as_ref().and_then(|d| d.grid_template_areas),
@@ -3265,6 +3279,8 @@ pub(crate) fn resolve_style_core<'a>(
         column_gap,
         grid_template_columns,
         grid_template_rows,
+        grid_auto_columns,
+        grid_auto_rows,
         grid_template_areas,
         grid_area,
         grid_row_start,
@@ -3390,6 +3406,8 @@ pub(crate) fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         column_gap: 0.0,
         grid_template_columns: None,
         grid_template_rows: None,
+        grid_auto_columns: None,
+        grid_auto_rows: None,
         grid_template_areas: None,
         grid_area: None,
         grid_row_start: None,

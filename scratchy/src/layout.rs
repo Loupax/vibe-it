@@ -6020,7 +6020,40 @@ pub(crate) fn measure_grid<'a>(
         Some(cols) => expand_auto_repeat(cols, entry.content_w, s.column_gap, s.font_size, s.root_font_size),
         None => (vec![GridTrackSpec::Fr(1.0); areas_num_cols.max(1)], None),
     };
-    let num_cols = col_tracks.len().max(1);
+    // QJ4b: `explicit_cols` is the explicit grid's width; an item may need more columns
+    // (`span 2` in a 1-column grid, `grid-column: 1 / 4`, a named area wider than the track
+    // list). Those become implicit tracks sized by `grid-auto-columns` (default `auto`), so
+    // no placement can index past the track list. Line numbers are capped at 1000 like the
+    // spec's implicit-grid limit.
+    const MAX_GRID_LINES: usize = 1000;
+    let orig_cols = col_tracks.len();
+    let explicit_cols = orig_cols.max(1);
+    let area_cols = |it: &LayoutBox| -> Option<(usize, usize, usize, usize)> {
+        it.style.grid_area.zip(area_template).and_then(|(name, areas)| grid_area_rect(areas, name))
+    };
+    let (mut wrap_cols, mut num_cols) = (explicit_cols, explicit_cols);
+    for &item in &items {
+        if let Some((_, _, _, ce)) = area_cols(item) {
+            num_cols = num_cols.max(ce.min(MAX_GRID_LINES));
+            continue;
+        }
+        let st = &item.style;
+        match resolve_grid_axis(st.grid_column_start, st.grid_column_end, explicit_cols) {
+            AxisPlace::Fixed(_, c1) => num_cols = num_cols.max(c1.min(MAX_GRID_LINES)),
+            AxisPlace::Auto(cs) => wrap_cols = wrap_cols.max(cs.min(MAX_GRID_LINES)),
+        }
+    }
+    let num_cols = num_cols.max(wrap_cols);
+    {
+        let auto_cols = s.grid_auto_columns.filter(|t| !t.is_empty());
+        for i in orig_cols..num_cols {
+            let t = match auto_cols {
+                Some(a) => a[(i - orig_cols) % a.len()],
+                None => GridTrackSpec::Auto,
+            };
+            col_tracks.push(t);
+        }
+    }
 
     // Placement: an item whose own `grid-area` names one of `grid-
     // template-areas`'s own areas goes exactly there (`occupied` marks
@@ -6053,29 +6086,35 @@ pub(crate) fn measure_grid<'a>(
         placements.push(GridPlacement { item, row_start: r0, col_start: c0, col_end: c1 });
     };
     let free = |occupied: &Vec<Vec<bool>>, r0: usize, r1: usize, c0: usize, c1: usize| {
-        (r0..r1).all(|r| occupied.get(r).is_none_or(|row| row[c0..c1].iter().all(|o| !o)))
+        (r0..r1).all(|r| occupied.get(r).is_none_or(|row| row.get(c0..c1).is_none_or(|cells| cells.iter().all(|o| !o))))
     };
     // Pass 1: named areas and fully-fixed numeric placements. Pass 2: one
     // fixed axis. Pass 3: auto-placement with the cursor.
     let mut one_axis: Vec<(&'a LayoutBox, AxisPlace, AxisPlace)> = Vec::new();
     let mut unplaced: Vec<(&'a LayoutBox, usize, usize)> = Vec::new();
     for &item in &items {
-        let rect = item.style.grid_area.zip(area_template).and_then(|(name, areas)| grid_area_rect(areas, name));
-        if let Some((row_start, row_end, col_start, col_end)) = rect {
+        if let Some((row_start, row_end, col_start, col_end)) = area_cols(item) {
+            let col_start = col_start.min(num_cols - 1);
             let col_end = col_end.min(num_cols).max(col_start + 1);
             place(&mut occupied, &mut placements, item, row_start, row_end, col_start, col_end);
             continue;
         }
         let st = &item.style;
-        let cols = resolve_grid_axis(st.grid_column_start, st.grid_column_end, num_cols);
-        let rows = resolve_grid_axis(st.grid_row_start, st.grid_row_end, explicit_rows);
+        let cols = resolve_grid_axis(st.grid_column_start, st.grid_column_end, explicit_cols);
+        let rows = match resolve_grid_axis(st.grid_row_start, st.grid_row_end, explicit_rows) {
+            AxisPlace::Fixed(r0, r1) => {
+                let r0 = r0.min(MAX_GRID_LINES - 1);
+                AxisPlace::Fixed(r0, r1.min(MAX_GRID_LINES).max(r0 + 1))
+            }
+            AxisPlace::Auto(n) => AxisPlace::Auto(n.min(MAX_GRID_LINES)),
+        };
         match (rows, cols) {
             (AxisPlace::Fixed(r0, r1), AxisPlace::Fixed(c0, c1)) => {
                 let c0 = c0.min(num_cols - 1);
                 let c1 = c1.min(num_cols).max(c0 + 1);
                 place(&mut occupied, &mut placements, item, r0, r1, c0, c1);
             }
-            (AxisPlace::Auto(rs), AxisPlace::Auto(cs)) => unplaced.push((item, rs, cs.min(num_cols))),
+            (AxisPlace::Auto(rs), AxisPlace::Auto(cs)) => unplaced.push((item, rs, cs.min(wrap_cols))),
             _ => one_axis.push((item, rows, cols)),
         }
     }
@@ -6102,12 +6141,12 @@ pub(crate) fn measure_grid<'a>(
     for (item, rs, cs) in unplaced {
         loop {
             let (r, c) = cursor;
-            if c + cs <= num_cols && free(&occupied, r, r + rs, c, c + cs) {
+            if c + cs <= wrap_cols && free(&occupied, r, r + rs, c, c + cs) {
                 place(&mut occupied, &mut placements, item, r, r + rs, c, c + cs);
-                cursor = if c + cs < num_cols { (r, c + cs) } else { (r + 1, 0) };
+                cursor = if c + cs < wrap_cols { (r, c + cs) } else { (r + 1, 0) };
                 break;
             }
-            cursor = if c + 1 < num_cols { (r, c + 1) } else { (r + 1, 0) };
+            cursor = if c + 1 < wrap_cols { (r, c + 1) } else { (r + 1, 0) };
         }
     }
     let num_rows = occupied.len();
@@ -6192,7 +6231,11 @@ pub(crate) fn measure_grid<'a>(
         // (`minmax`'s floor is never used for a row — see `resolve_
         // grid_tracks`'s own docs for why the *column* axis is where
         // that matters) resolves exactly like a plain fixed/`%` track.
-        let explicit_h = s.grid_template_rows.and_then(|tracks| tracks.get(r)).and_then(|t| match *t {
+        let row_track = match s.grid_template_rows.and_then(|tracks| tracks.get(r)) {
+            Some(t) => Some(t),
+            None => s.grid_auto_rows.filter(|a| !a.is_empty()).map(|a| &a[r.saturating_sub(explicit_rows) % a.len()]),
+        };
+        let explicit_h = row_track.and_then(|t| match *t {
             GridTrackSpec::Len(Length::Percent(p)) => containing_height.map(|h| h * p),
             GridTrackSpec::Len(l) => Some(l.resolve(s.font_size, s.root_font_size)),
             GridTrackSpec::Fr(_)
