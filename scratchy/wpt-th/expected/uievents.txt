@@ -117,7 +117,7 @@ OK           0/8  uievents/mouse/mouse_boundary_events_on_image_map.html
   FAIL      mouse boundary events when usemap is modified and <img> is resized
   FAIL      mouse boundary events when new <area> is available
   FAIL      mouse boundary events when new <area> is available and the <img> is resized
-TIMEOUT      0/1  uievents/mouse/mouse_buttons_back_forward.html
+ERROR        0/1  uievents/mouse/mouse_buttons_back_forward.html
   NOTRUN    Tests that the mouseup is preventable.
 ERROR        0/3  uievents/mouse/mouseenter-mouseleave-on-drag.html
   TIMEOUT   Test dragging across inner div

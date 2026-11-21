@@ -167,10 +167,10 @@ OK           0/1  webmessaging/with-ports/018.html
   FAIL      origin of the script that invoked the method, javascript:
 OK           0/1  webmessaging/with-ports/019.html
   FAIL      origin of the script that invoked the method, scheme/host/port
-TIMEOUT      0/1  webmessaging/with-ports/020.html
-  NOTRUN    cross-origin test
-TIMEOUT      0/1  webmessaging/with-ports/021.html
-  NOTRUN    cross-origin test
+OK           0/1  webmessaging/with-ports/020.html
+  FAIL      cross-origin test
+OK           0/1  webmessaging/with-ports/021.html
+  FAIL      cross-origin test
 OK           0/1  webmessaging/with-ports/023.html
   FAIL      null ports
 OK           1/1  webmessaging/with-ports/024.html
@@ -209,10 +209,10 @@ OK           0/1  webmessaging/without-ports/018.html
   FAIL      origin of the script that invoked the method, javascript:
 OK           0/1  webmessaging/without-ports/019.html
   FAIL      origin of the script that invoked the method, scheme/host/port
-TIMEOUT      0/1  webmessaging/without-ports/020.html
-  NOTRUN    cross-origin test
-TIMEOUT      0/1  webmessaging/without-ports/021.html
-  NOTRUN    cross-origin test
+OK           0/1  webmessaging/without-ports/020.html
+  FAIL      cross-origin test
+OK           0/1  webmessaging/without-ports/021.html
+  FAIL      cross-origin test
 OK           1/1  webmessaging/without-ports/023.html
 OK           1/1  webmessaging/without-ports/024.html
 ERROR        1/1  webmessaging/without-ports/025.html

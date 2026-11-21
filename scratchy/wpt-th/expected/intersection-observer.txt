@@ -49,7 +49,7 @@ TIMEOUT      0/1  intersection-observer/intersection-ratio-with-fractional-bound
 OK           1/1  intersection-observer/intersection-ratio-with-fractional-bounds.html
 OK           0/1  intersection-observer/isIntersecting-change-events.html
   FAIL      isIntersecting changes should trigger notifications.
-OK           0/3  intersection-observer/isIntersecting-threshold.html
+ERROR        0/3  intersection-observer/isIntersecting-threshold.html
   FAIL      At initial scroll position
   FAIL      Scrolled to half way through target element
   FAIL      Scrolled to target element completely off screen
@@ -111,36 +111,36 @@ OK           0/1  intersection-observer/same-document-with-document-root.html
   FAIL      IntersectionObserver in a single document using document as root.
 OK           0/1  intersection-observer/same-document-zero-size-target.html
   FAIL      Observing a zero-area target.
-OK           0/1  intersection-observer/scroll-and-root-margin.html
+ERROR        0/1  intersection-observer/scroll-and-root-margin.html
   FAIL      Test scroll margin intersection
-OK           0/1  intersection-observer/scroll-margin-4-val.html
+ERROR        0/1  intersection-observer/scroll-margin-4-val.html
   FAIL      Test scroll margin intersection
-OK           0/1  intersection-observer/scroll-margin-clip-path.html
+ERROR        0/1  intersection-observer/scroll-margin-clip-path.html
   FAIL      Test scroll margin intersection
-OK           0/1  intersection-observer/scroll-margin-dynamic.html
+ERROR        0/1  intersection-observer/scroll-margin-dynamic.html
   FAIL      Test no initial scroll margin intersection
-OK           0/1  intersection-observer/scroll-margin-horizontal.html
+ERROR        0/1  intersection-observer/scroll-margin-horizontal.html
   FAIL      Test scroll margin intersection
 TIMEOUT      0/0  intersection-observer/scroll-margin-iframe.html
-OK           0/1  intersection-observer/scroll-margin-nested-2.html
+ERROR        0/1  intersection-observer/scroll-margin-nested-2.html
   FAIL      Test scroll margin intersection
-OK           0/1  intersection-observer/scroll-margin-nested-3.html
+ERROR        0/1  intersection-observer/scroll-margin-nested-3.html
   FAIL      Test scroll margin intersection
-OK           0/1  intersection-observer/scroll-margin-nested.html
+ERROR        0/1  intersection-observer/scroll-margin-nested.html
   FAIL      Test scroll margin intersection
-OK           0/1  intersection-observer/scroll-margin-no-intersect.html
+ERROR        0/1  intersection-observer/scroll-margin-no-intersect.html
   FAIL      Test scroll margin intersection
-OK           0/1  intersection-observer/scroll-margin-non-scrolling-root.html
+ERROR        0/1  intersection-observer/scroll-margin-non-scrolling-root.html
   FAIL      Test scroll margin intersection
-OK           0/1  intersection-observer/scroll-margin-not-contained.html
+ERROR        0/1  intersection-observer/scroll-margin-not-contained.html
   FAIL      Test scroll margin intersection
-OK           0/1  intersection-observer/scroll-margin-percent.html
+ERROR        0/1  intersection-observer/scroll-margin-percent.html
   FAIL      Test scroll margin intersection
-OK           0/1  intersection-observer/scroll-margin-with-border-outline.html
+ERROR        0/1  intersection-observer/scroll-margin-with-border-outline.html
   FAIL      Test scroll margin intersection
-OK           0/1  intersection-observer/scroll-margin-zero.html
+ERROR        0/1  intersection-observer/scroll-margin-zero.html
   FAIL      Test scroll margin intersection
-OK           0/1  intersection-observer/scroll-margin.html
+ERROR        0/1  intersection-observer/scroll-margin.html
   FAIL      Test scroll margin intersection
 OK           0/1  intersection-observer/shadow-content.html
   FAIL      Observing a target inside shadow DOM.
