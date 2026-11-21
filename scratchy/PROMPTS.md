@@ -8855,3 +8855,29 @@ Item QINC1h2 (REGRESSIONS.md R60 section 15). `layout.rs`: `natural_width_impl` 
 > QINC1n [S] Make engine trouble visible in daily use. (1) A real fallback prints ONE log line per page (`scratchy: engine: fallback <reason> on <url>`) and bumps a per-session counter; restarts on first layout, resize or a stylesheet change are NOT fallbacks (counted separately, no log line). (2) Sampled check mode, on by default for now: about 1 frame in ENGINE_CHECK_EVERY (= 200, src/config.rs) is also laid out from scratch and compared; a mismatch appends one line to `<state-dir>/engine-check.log` (0600) and uses the from-scratch result; 0 turns it off. Measure the cost. (3) `:engine` shows this session's counts in the status bar; document it in src/help.html.
 
 **What changed:** new `src/incr_evidence.rs` (counts, once-per-page fallback line, `sample`, `compare` via `cmp_laid`, `engine-check.log` writer, `status_text`, `counts_json`). Hooks: `incr_engine::update` (updates / restarts / fallbacks `no_box_tree`, `relayout_failed`, `box_update_failed`), `js_geom::refresh_engine` (sampled oracle next to check mode; `panic` fallback), `incr_frame::frame` / `check` (App frames; a sampled Main frame is built without the shadow update and compared), `incr_style::live_update` returns `Result` with the reason. `config::ENGINE_CHECK_EVERY = 200`; `lib.rs` hands the state dir over; `:engine` in `COMMAND_NAMES` / `dispatch_command`; help.html rows for `:engine` and `engine-check.log`; `--perf-report` gets an `engine_counts` object. Tests: `qinc1n_*` in incr_forced_tests.rs and incr_frame_tests.rs.
+
+## QREG-D: plan for copying the URL with vim registers, `:let @+ = @%` and `yy` (user session, plan only)
+
+> I want to be able to copy the currently visited URL to the clipboard. Let's discuss it and plan it. I'm thinking the following ways:
+>
+> A. a command like :yank document.URL. I'd like it to parse and run JS but we can leave that part for later
+> B. Clicking the status bar copies the current URL to the clipbard
+> C. Click/Drag on the status bar so we can select anything from there on any mode and copy it using the standard ctrl-C shortcuts
+>
+> I like a and C more, but let's discuss them critically. We don't have to implement them all, that's just brainstorming for now
+
+> let's think big picture for a bit. I think being able to copy text from the screen without touching your mouse is a useful feature. To do that we need to introduce the concept of a cursor in the page which we can move with hjkl similarly to vim and search N/n can move that cursor too. This simplifies the logic of clicking on enter because we only care about the location of the cursor and nothing else. This is unrelated to the current feature, but I wonder if we can copy how vim works on that more so we have better parity later. how does vim copy something to the clipboard using command mode?
+
+> how would I copy the URL to the system clipboard then?
+
+> ok, let's do it. yy should copy the URL to the system clipboard too.
+
+> what is yu? I'm not familiar
+
+> keep the plan only. no implementation
+
+**What changed:** plan only, no code (an implementation was started by mistake and reverted at the user's request). KEYS.md: "Registers" section and T54-T56, marked planned; decision log. TODO.txt: QREG-D (the decisions), QREG1 (registers `%`/`+`, `:let`, `yy`), QREG2 (`:let @+ = <JS expr>`), QREG3 (`*` primary selection), QCURSOR-D (page cursor, waiting for user).
+
+> remove this. “plan only, do not start until the user schedules it”. the orcestrator will decide when to pick it up
+
+**What changed:** TODO.txt QREG1 no longer says "PLAN ONLY, do not start until the user schedules it"; the coordinator schedules it like any other item.

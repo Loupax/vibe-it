@@ -460,6 +460,52 @@ QKEYS — input mode / normal mode, Esc Esc, `i`, status bar (user design sessio
 
 
 ========================================================================
+QREG — copying: vim registers, `yy`, later a page cursor (user design session 2026-11-21)
+========================================================================
+
+- QREG-D DESIGN (user, 2026-11-21; rows and the register table in KEYS.md, which wins on any
+  conflict). Goal: copy the current URL to the system clipboard, and later any text on the
+  screen, without the mouse, keeping vim parity.
+  R1 Copying goes through vim REGISTERS. `+` = the system clipboard, `%` = the current URL
+     (read-only, scratchy's own URL = what the status bar shows, never the page's
+     `document.URL`, so JS off works and a page cannot fake it).
+  R2 `:let @<dst> = @<src>` copies a register (vim's `:let @+ = @%`). `yy` in normal mode
+     runs `:let @+ = @%` (user: "yy should copy the URL to the system clipboard"). Claude's
+     `yu` alternative was dropped.
+  R3 `:let @+ = <JS expression>` (the original `:yank document.URL` idea) is a LATER item
+     (QREG2): evaluated in the page, the raw rest of the line, an error with JS off.
+  R4 DROPPED: a click on the status bar copies the URL (silently overwrites the clipboard,
+     undiscoverable, clashes with selecting). DEFERRED: mouse-selecting text in the status bar
+     (the URL is clipped, Ctrl-C in INPUT belongs to the page); revisit only with a real use.
+  R5 Long term (QCURSOR-D, design first): a keyboard cursor in the page, moved by hjkl like
+     vim; n/N move it; Enter acts on what is under it; visual mode `v` + `y`/`"+y`/`:yank`.
+
+- [ ] QREG1 [S] (P2; user 2026-11-21; Sonnet; new registers.rs,
+      app.rs dispatch_command/COMMAND_NAMES, config.rs, forms_text.rs clipboard_set) Registers `%` (the URL as the
+      status bar shows it: history entry, else base URL; read-only) and `+` (the system clipboard), `:let @dst = @src`
+      (spaces optional; messages as in KEYS.md "Registers"), and `yy` = `:let @+ = @%` (ignores key repeat). The
+      pending-`g` machine becomes a `KEY_SEQUENCES` table in config.rs (`gg`, `yy`), KEYS.md T54-T56. `clipboard_set`
+      reports whether the system clipboard took the text, so a failure is not shown as "Copied to clipboard".
+      `:help` rows. Tests: `yy` in NORMAL copies and the page sees no keys, `yy` in INPUT goes to the page, `:let`
+      errors (read-only `%`, unknown register, usage, no URL), `g` `y` / `y` `g` re-arm.
+- [ ] QREG2 [S] (P2, from QREG1; Sonnet; registers.rs, app.rs dispatch_command, js.rs eval_value) `:let @+ = <expr>`: when
+      the right side is not `@<register>`, the raw rest of the line after `=` (not re-joined words) is evaluated in
+      the page's main realm, `String()` of the result goes into the register. JS off or no engine: `scratchy: :let
+      needs JS (:set js)`. A thrown error: its message in the status bar, nothing copied. Long results: copied
+      whole, only the message is short. Tests: `:let @+ = document.title`, a throwing expression, JS off.
+- [ ] QREG3 [S] (P3, from QREG1; Sonnet; forms_text.rs clipboard, registers.rs) Register `*` = the primary selection
+      (arboard `LinuxClipboardKind::Primary`, Wayland data-control), readable and writable like `+`. Only on request.
+- [ ] QCURSOR-D [L] WAITING FOR USER (design first; user idea 2026-11-21) A keyboard cursor in the page (caret browsing,
+      vim-style). To decide before any code, written up like KEYS.md: (1) new keys for history back/forward, since
+      h/l would move the cursor (qutebrowser uses H/L); (2) the cursor is stored as a DOM position (node + text
+      offset), not pixels, so it survives reflow; (3) j/k move by drawn line (vim gj/gk) across columns, tables
+      and floats, with a rule for "the line below"; (4) scrolling and the cursor: vim keeps the cursor on screen
+      (scrolling drags it, moving it scrolls; scrolloff); (5) n/N move the cursor to the match and Enter acts on
+      the element under the cursor (replaces "Enter clicks the current match"); (6) elements with no text (image
+      links, icon buttons): link hints, or the cursor may rest on them; (7) visual mode `v`/`V`, `y` into `"`
+      (or `+`, vim's clipboard=unnamedplus), `"+y`, `:yank [reg]`; what `yy` means then (today: the URL, R2).
+
+========================================================================
 QSEARCH — `/` search, n/N, Enter (user design session 2026-11-20; needs QKEYS2)
 ========================================================================
 
