@@ -64,7 +64,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
     <div class="phase is-done"><span class="k">Step 1</span><span class="t">Incremental engine finished and tested</span><span class="pill done">done</span></div>
     <div class="phase is-done"><span class="k">Step 2</span><span class="t">Engine becomes the default (QINC1l)</span><span class="pill done">merged #473</span></div>
     <div class="phase is-done"><span class="k">Step 3</span><span class="t">Conformance plan (QWPT1, R64)</span><span class="pill done">approved, all 8 answers</span></div>
-    <div class="phase is-wip"><span class="k">Step 4</span><span class="t">Run WPT JavaScript tests, report per area</span><span class="pill wip">next: QWPT2, 3, 4a</span></div>
+    <div class="phase is-wip"><span class="k">Step 4</span><span class="t">Run WPT JavaScript tests, report per area</span><span class="pill todo">after the UI and storage items</span></div>
     <div class="phase is-todo"><span class="k">Step 5</span><span class="t">Spec areas to conformance, in dependency order</span><span class="pill todo">later</span></div>
   </div>
   <p class="note">The order of the step 5 areas comes from the design memo. The current proposal is DOM core, events, the event loop and rendering steps, CSSOM, geometry, fetch and streams, then media.</p>
@@ -97,7 +97,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <div class="scroll"><table>
     <tr><th>Group</th><th>Items</th><th>Status</th></tr>
     <tr><td>Engine</td><td>QINC1m remove the old pipeline</td><td><span class="pill todo">after ~3 days of your use, with your OK</span></td></tr>
-    <tr><td>Conformance</td><td>26 items filed: QWPT2–9 test runner and CI · QEL1–9 event loop · QMAPI1–3 missing-API report · QREC1–3 recorded pages · QBUD1 budgets · QAREA-DOM</td><td><span class="pill wip">QWPT2/3 take the next free slots</span></td></tr>
+    <tr><td>Conformance</td><td>26 items filed: QWPT2–9 test runner and CI · QEL1–9 event loop · QMAPI1–3 missing-API report · QREC1–3 recorded pages · QBUD1 budgets · QAREA-DOM</td><td><span class="pill todo">after the UI and storage items (your call)</span></td></tr>
     <tr><td>Reliability</td><td>QFLK4/5/6 flaky tests · QJ4b grid crash · QINC1k9 debug-build crash</td><td><span class="pill wip">QFLK4/5/6 + QJ4b running</span></td></tr>
     <tr><td>Product choices</td><td>QCFG1 config file · QTB1 tracker blocking</td><td><span class="pill todo">queued</span></td></tr>
     <tr><td>UI: storage</td><td>QSTASH1–5 saved localStorage, cookies, forget-site</td><td><span class="pill wip">QSTASH1 running</span></td></tr>
