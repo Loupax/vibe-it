@@ -1677,7 +1677,7 @@ fn every_config_binding_resolves_as_declared() {
     let e = ModifiersState::empty();
     let named = Key::Named;
     let ch = |c: &str| Key::Character(c.into());
-    assert_eq!(BINDINGS.len(), 16);
+    assert_eq!(BINDINGS.len(), 17, "16 pre-QCONF1 rows + QKEYS2 `i`");
     assert_eq!(resolve_binding(&named(NamedKey::Space), e, n), Some(Action::PageDown));
     assert_eq!(resolve_binding(&named(NamedKey::Space), ModifiersState::SHIFT, n), Some(Action::PageUp));
     assert_eq!(resolve_binding(&ch("u"), ModifiersState::CONTROL, n), Some(Action::HalfPageUp));
