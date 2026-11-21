@@ -129,6 +129,8 @@ mod js_ws;
 mod js_style;
 mod js_geom;
 mod link_css;
+// QSTASH1: the localStorage state directory (STASH.md); JS wiring is QSTASH2.
+mod stash;
 
 pub use dom::*;
 pub use css::*;

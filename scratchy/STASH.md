@@ -1,6 +1,6 @@
 # stash: persistent web storage
 
-Status: design, not built. Decision QSTASH-D, items QSTASH1-QSTASH5 in
+Status: `src/stash.rs` built (QSTASH1; no JS wiring yet). Decision QSTASH-D, items QSTASH1-QSTASH5 in
 `TODO.txt`; wire's part is W-PERSIST1 in `../wire/TODO.txt`.
 
 stash is the `localStorage` store: a directory layout plus `src/stash.rs`.
@@ -65,7 +65,7 @@ DIR/
 - `setItem` / `removeItem` / `clear()` are queued and handed to a writer
   thread at the end of each task; one task's ops are committed under one lock.
 - `localStorage.key(i)` uses the key list sorted at load.
-- **Limit:** 5 MB of keys plus values per origin. `setItem` beyond it throws
+- **Limit:** 5 MB of keys plus values per origin (counted as 5 Mi UTF-16 code units, `stash::QUOTA_UNITS`). `setItem` beyond it throws
   `QuotaExceededError` (checked against the page's copy). The writer thread
   checks again under the lock and skips, with a log line, a write that would
   exceed it.
