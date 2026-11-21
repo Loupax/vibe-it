@@ -2121,7 +2121,7 @@ pub(crate) struct MediaQuery {
     /// orientation): the cascade then notes a viewport-height read.
     reads_h: bool,
     /// (width bits, height bits, reduced motion, answer) of the last call.
-    memo: std::cell::Cell<Option<(u32, u32, bool, bool, bool)>>,
+    memo: std::cell::Cell<Option<MediaMemo>>,
 }
 
 impl PartialEq for MediaQuery {
@@ -2129,6 +2129,9 @@ impl PartialEq for MediaQuery {
         self.text == o.text
     }
 }
+
+/// (width bits, height bits, reduced motion, print, answer).
+type MediaMemo = (u32, u32, bool, bool, bool);
 
 static REDUCED_MOTION: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
