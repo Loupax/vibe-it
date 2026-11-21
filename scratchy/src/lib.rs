@@ -83,6 +83,7 @@ mod forms_text;
 mod forms_select;
 mod forms_submit;
 mod paint;
+mod scrollbar;
 mod net;
 #[allow(dead_code)] // nothing calls the policy until QF7/QF8
 mod net_policy;

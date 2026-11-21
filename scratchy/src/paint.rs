@@ -1619,9 +1619,7 @@ pub(crate) fn tile_image(image: &DecodedImage, pixels: &mut [u32], win_w: u32, w
 /// (see `Overflow`'s own docs). Clipped by the *ambient* `clip`, not
 /// `child_clip` — this is this box's own chrome, not descendant
 /// content, same treatment `paint_box_decoration` already gets.
-/// **Interactive drag-to-scroll on the thumb itself is explicitly out
-/// of scope** (see TODO.txt) — wheel-scroll is this feature's own
-/// interactive core; dragging the indicator is a documented cut.
+/// QSB1: the bar is interactive (`crate::scrollbar`, `App::scrollbar_press`).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn paint_scrollbar(
     info: &ScrollInfo,
@@ -1640,19 +1638,14 @@ pub(crate) fn paint_scrollbar(
     if max_scroll <= 0.0 && !show_when_not_overflowing {
         return;
     }
-    const TRACK_W: f32 = 8.0;
-    const MIN_THUMB_H: f32 = 16.0;
-    if box_w < TRACK_W || box_h <= 0.0 {
+    let Some((track_x, track_y, _, track_h)) = crate::scrollbar::track_rect(box_x, draw_y, box_w, box_h) else {
         return;
-    }
-    let track_x = box_x + box_w - TRACK_W;
-    let track_y = draw_y;
-    let track_h = box_h;
-    let ratio = if info.content_h > 0.0 { (info.client_h / info.content_h).clamp(0.0, 1.0) } else { 1.0 };
-    let thumb_h = (track_h * ratio).clamp(MIN_THUMB_H.min(track_h), track_h);
-    let thumb_y = if max_scroll > 0.0 { track_y + (own_scroll / max_scroll) * (track_h - thumb_h) } else { track_y };
-    fill_rect(pixels, win_w, win_h, track_x, track_y, TRACK_W, track_h, TextColor::rgba(0, 0, 0, 28), clip);
-    fill_rect(pixels, win_w, win_h, track_x, thumb_y, TRACK_W, thumb_h, TextColor::rgba(0, 0, 0, 120), clip);
+    };
+    let (off, thumb_h) = crate::scrollbar::thumb(track_h, info.content_h, info.client_h, own_scroll);
+    let thumb_y = track_y + off;
+    let track_w = crate::scrollbar::TRACK_W;
+    fill_rect(pixels, win_w, win_h, track_x, track_y, track_w, track_h, TextColor::rgba(0, 0, 0, 28), clip);
+    fill_rect(pixels, win_w, win_h, track_x, thumb_y, track_w, thumb_h, TextColor::rgba(0, 0, 0, 120), clip);
 }
 
 /// Paints vim mode's `:`-command bar — chrome drawn on top of the
@@ -2497,6 +2490,29 @@ pub(crate) fn hit_test_scroll_chain(
     scroll_offset: f32,
     viewport_h: f32,
 ) -> Vec<ScrollInfo> {
+    hit_test_scroll_bars(laid, x, y, scroll_offsets, scroll_offset, viewport_h).into_iter().map(|r| r.info).collect()
+}
+
+/// QSB1: a scroll region under the pointer with its border box and the pointer's
+/// y in the box's own coordinate space (ancestors' scroll and sticky shifts
+/// applied), for scrollbar hit tests.
+#[derive(Clone, Copy)]
+pub(crate) struct RegionHit {
+    pub(crate) info: ScrollInfo,
+    /// Border box `(x, y, w, h)` in the same space as `py`.
+    pub(crate) rect: (f32, f32, f32, f32),
+    pub(crate) py: f32,
+}
+
+/// `hit_test_scroll_chain` with geometry (innermost first).
+pub(crate) fn hit_test_scroll_bars(
+    laid: &Laid,
+    x: f32,
+    y: f32,
+    scroll_offsets: &HashMap<usize, f32>,
+    scroll_offset: f32,
+    viewport_h: f32,
+) -> Vec<RegionHit> {
     let mut out = Vec::new();
     scroll_chain_into(laid, x, y, scroll_offsets, scroll_offset, viewport_h, &mut out);
     out
@@ -2509,7 +2525,7 @@ fn scroll_chain_into(
     scroll_offsets: &HashMap<usize, f32>,
     scroll_offset: f32,
     viewport_h: f32,
-    out: &mut Vec<ScrollInfo>,
+    out: &mut Vec<RegionHit>,
 ) {
     if !laid.ink.contains(x, y) {
         return;
@@ -2542,7 +2558,7 @@ fn scroll_chain_into(
             }
         }
     }
-    out.extend(self_info);
+    out.extend(self_info.map(|info| RegionHit { info, rect: (laid.x, laid.y, laid.w, laid.h), py: y }));
 }
 
 /// QJ6: the scroll region of DOM node `node` in a laid-out tree (any depth,

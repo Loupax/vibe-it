@@ -33,6 +33,7 @@ mod zhoist_tests;
 mod positioning_tests;
 mod qf19w2_tests;
 mod qnet1_tests;
+mod scrollbar_tests;
 mod qwu1_tests;
 mod tables_tests;
 mod wpt_tests;
