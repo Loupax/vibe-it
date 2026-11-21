@@ -776,6 +776,9 @@ pub(crate) struct App {
     pub(crate) last_build_time: Option<std::time::Duration>,
     /// QAN1c: running CSS animations and their pending events.
     pub(crate) anim: AnimTracker,
+    /// QEL1: app-clock ms of the next animation event/change (`anim_tick`'s answer); `-inf` right
+    /// after a build (new animations may have started), `None` when nothing is scheduled.
+    pub(crate) anim_wake: Option<f64>,
     pub(crate) hover_flush_scheduled: bool,
     /// Q35b2: when the first not-yet-applied image arrival of the current
     /// burst landed. An image changes layout, but a burst of them is
@@ -1249,6 +1252,37 @@ impl App {
 
     /// QKEYS1: publishes the page viewport (window minus the status bar) to new engines and to the
     /// running one (`innerHeight`, `visualViewport`, `resize`).
+    /// QEL1: publishes the window size for engines created from now on (every loop turn; the
+    /// `resize` event itself is the rendering update's step, `sync_js_viewport`).
+    pub(crate) fn publish_viewport(&mut self) {
+        if self.surface_size.0 != 0 {
+            let vp = self.page_size();
+            crate::js::set_window_viewport(vp.0, vp.1);
+        }
+    }
+
+    /// QEL1: the page's viewport differs from the window's (a `resize` is owed).
+    pub(crate) fn viewport_changed(&self) -> bool {
+        self.js.is_some() && self.surface_size.0 != 0 && self.js_viewport != Some(self.page_size())
+    }
+
+    /// QEL1: runs the rendering update (`event_loop::update_the_rendering`) when its frame is due:
+    /// an animation frame callback waits and its 60 Hz frame time has come, a `resize` is owed, or an
+    /// animation event/change is due. Returns true when it ran.
+    pub(crate) fn rendering_update_if_due(&mut self) -> bool {
+        let anim_due = !self.anim.is_idle() && self.anim_wake.is_some_and(|t| t <= app_clock_ms());
+        let raf_ts = self.js.as_ref().and_then(|js| {
+            let due = js.raf_due_ms()?;
+            let now = js.now_ms();
+            (due <= now).then_some(now)
+        });
+        if !(anim_due || raf_ts.is_some() || self.viewport_changed()) {
+            return false;
+        }
+        crate::event_loop::update_the_rendering(self, raf_ts);
+        true
+    }
+
     pub(crate) fn sync_js_viewport(&mut self) {
         if self.surface_size.0 == 0 {
             return;
@@ -1355,6 +1389,7 @@ impl App {
             last_pointer_move: None,
             last_build_time: None,
             anim: AnimTracker::default(),
+            anim_wake: None,
             hover_flush_scheduled: false,
             image_relayout_since: None,
             image_flush_scheduled: false,
@@ -1468,6 +1503,7 @@ impl App {
             last_pointer_move: None,
             last_build_time: None,
             anim: AnimTracker::default(),
+            anim_wake: None,
             hover_flush_scheduled: false,
             image_relayout_since: None,
             image_flush_scheduled: false,
@@ -1760,6 +1796,7 @@ impl App {
             fs.build(build_started.elapsed());
         }
         self.anim.after_build(self.nav_generation, take_animation_report(), document_clock_ms());
+        self.anim_wake = Some(f64::NEG_INFINITY);
         fetch_wanted_css_images(&self.proxy, self.socket_path.as_deref(), self.base_url.as_ref(), &mut self.css_images_requested, self.nav_generation);
         let late = crate::images::take_wanted_img_srcs();
         fetch_late_images(&self.proxy, self.socket_path.as_deref(), self.base_url.as_ref(), &mut self.late_images_requested, &mut self.late_image_errors, self.nav_generation, late);
@@ -1809,6 +1846,7 @@ impl App {
                 fs.build(build_started.elapsed());
             }
             self.anim.after_build(self.nav_generation, take_animation_report(), document_clock_ms());
+            self.anim_wake = Some(f64::NEG_INFINITY);
             fetch_wanted_css_images(&self.proxy, self.socket_path.as_deref(), self.base_url.as_ref(), &mut self.css_images_requested, self.nav_generation);
             let late = crate::images::take_wanted_img_srcs();
             fetch_late_images(&self.proxy, self.socket_path.as_deref(), self.base_url.as_ref(), &mut self.late_images_requested, &mut self.late_image_errors, self.nav_generation, late);
@@ -4921,6 +4959,34 @@ impl App {
     }
 }
 
+/// QEL1: the App as the rendering-steps host (event_loop.rs). Layout and paint themselves stay in
+/// `redraw` (incremental engine, shaping worker, progressive shaping: R64 E15): the style/layout
+/// step hands the frame's DOM writes over (`js_sync` -> `layout_dirty` / restyle) and the paint
+/// step makes sure the redraw that builds and paints them is requested.
+impl crate::event_loop::RenderingHost for App {
+    fn engine(&self) -> Option<&crate::js::JsEngine> {
+        self.js.as_ref()
+    }
+    fn run_resize_steps(&mut self) {
+        self.sync_js_viewport();
+    }
+    fn update_animations(&mut self) {
+        if !self.anim.is_idle() {
+            self.anim_wake = self.anim_tick(app_clock_ms());
+        }
+    }
+    fn update_style_layout(&mut self) {
+        self.js_sync();
+    }
+    fn paint(&mut self) {
+        if self.layout_dirty
+            && let Some(w) = &self.window
+        {
+            w.request_redraw();
+        }
+    }
+}
+
 /// QM1k1n6b: how long `run_due` may run timers in one event-loop turn: 16 ms
 /// while a video is on screen or input is fresh, 50 ms otherwise.
 pub(crate) fn timer_slice(input_recent: bool, video: bool) -> std::time::Duration {
@@ -4985,16 +5051,19 @@ impl ApplicationHandler<AppEvent> for App {
         self.flush_pointer_move();
         let trail_at = self.flush_move_trailing();
         let els = self.sync_node_scroll();
-        // Q33b2: the page sees the real window size; one `resize` per changed frame.
-        self.sync_js_viewport();
+        self.publish_viewport();
+        // Tasks: due timers (sliced), then their DOM writes.
         if let Some(js) = &self.js {
             js.set_scroll(self.scroll_offset, els);
             js.run_due_slice(Some(timer_slice(self.input_recent(), !self.video.boxes.is_empty())));
         }
         self.js_sync();
+        // QEL1: the rendering update (resize -> ... -> animation events -> rAF batch -> style/layout ->
+        // observer hooks -> paint), when its frame is due.
+        self.rendering_update_if_due();
         let now_ms = app_clock_ms();
-        let anim_at = self.anim_tick(now_ms).map(|ms| std::time::Instant::now() + std::time::Duration::from_secs_f64(((ms - now_ms).max(0.0) + 1.0) / 1000.0));
-        let js_at = self.js.as_ref().and_then(|js| js.next_deadline());
+        let anim_at = self.anim_wake.filter(|_| !self.anim.is_idle()).map(|ms| std::time::Instant::now() + std::time::Duration::from_secs_f64(((ms - now_ms).max(0.0) + 1.0) / 1000.0));
+        let js_at = self.js.as_ref().and_then(|js| [js.next_deadline(), js.raf_deadline()].into_iter().flatten().min());
         let ctl_at = self.controls_refresh();
         let sb_at = self.scrollbar_hold_tick();
         let stats_at = match &mut self.frame_stats {

@@ -171,19 +171,21 @@ fn pump(engine: &JsEngine, clock: &Rc<Cell<f64>>, done: &Rc<RefCell<Option<Strin
         if progressed {
             continue;
         }
-        // 2. Timers (and deferred promise jobs) due at the current virtual time.
-        let due = engine.next_due_ms();
-        if due.is_some_and(|d| d <= clock.get()) {
-            let n = engine.run_due_counted();
-            callbacks += n;
-            if callbacks > MAX_CALLBACKS {
-                diag!("scratchy --wpt-th-one: stopped after {MAX_CALLBACKS} timer callbacks");
-                break;
-            }
-            if n > 0 {
-                continue;
-            }
+        // 2. Timers (and deferred promise jobs) due at the current virtual time, then (QEL1) the
+        //    rendering update when its virtual 16.7 ms frame is due (rAF batch, observer hooks).
+        let n = if engine.next_due_ms().is_some_and(|d| d <= clock.get()) { engine.run_due_counted() } else { 0 };
+        let n = if n == 0 { crate::event_loop::headless_frame(engine, clock.get()) } else { n };
+        callbacks += n;
+        if callbacks > MAX_CALLBACKS {
+            diag!("scratchy --wpt-th-one: stopped after {MAX_CALLBACKS} timer callbacks");
+            break;
         }
+        if n > 0 {
+            continue;
+        }
+        // Asked AFTER every eval of this turn: each eval ends with a microtask checkpoint that may
+        // queue a timer (or leave deferred jobs, then "due now"), so an earlier answer can be stale.
+        let due = crate::event_loop::headless_next_due(engine);
         // 3. A load is pending: wait for it in real time; the clock stays where it is.
         if !in_flight.is_empty() || engine.ws_busy() {
             let wait = if in_flight.is_empty() { Duration::from_millis(10) } else { MAX_NET_WAIT };
@@ -203,7 +205,7 @@ fn pump(engine: &JsEngine, clock: &Rc<Cell<f64>>, done: &Rc<RefCell<Option<Strin
             }
             continue;
         }
-        // 4. Idle: jump to the next timer, or stop when there is none.
+        // 4. Idle: jump to the next timer or frame, or stop when there is none.
         match due {
             Some(d) if d > clock.get() && d <= MAX_VIRTUAL_MS => clock.set(d),
             Some(d) if d > MAX_VIRTUAL_MS => {
