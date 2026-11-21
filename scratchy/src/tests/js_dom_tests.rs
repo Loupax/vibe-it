@@ -2165,3 +2165,48 @@ fn qdom2_collections_are_real_nodelists_and_htmlcollections() {
         "{log:?}"
     );
 }
+
+/// QDOM6: `new Text()`, `new Comment()`, `new DocumentFragment()`, `new Document()` make real nodes.
+#[test]
+fn qdom6_node_constructors() {
+    let log = run_in_html(
+        "<html><body></body></html>",
+        "var t = new Text('a'), c = new Comment(), e = new Text(), n = new Text(null), f = new DocumentFragment();\
+         console.log(t.data, c.data === '', e.data === '', n.data, t.nodeType, c.nodeType, f.nodeType);\
+         console.log(t instanceof Text, t instanceof CharacterData, c instanceof Comment, f instanceof DocumentFragment, Object.getPrototypeOf(t) === Text.prototype);\
+         console.log(t.ownerDocument === document, f.ownerDocument === document, Text.prototype.constructor === Text, Object.getPrototypeOf(Text) === CharacterData);\
+         c.data = 'z'; f.appendChild(t); f.appendChild(c); document.body.appendChild(f);\
+         console.log(c.data, document.body.textContent, document.body.childNodes.length);\
+         try { Text('x'); } catch (x) { console.log(x.name); }\
+         try { Comment(); } catch (x) { console.log(x.name); }\
+         try { DocumentFragment(); } catch (x) { console.log(x.name); }\
+         try { Document(); } catch (x) { console.log(x.name); }\
+         class MyText extends Text {} var m = new MyText('q');\
+         console.log(m instanceof MyText, m.data, m.nodeType, Object.getPrototypeOf(m) === MyText.prototype);\
+         var d = new Document();\
+         console.log(d.nodeType, d.contentType, d.doctype, d.documentElement, d.childNodes.length, d.location, d.URL, d instanceof Document);\
+         var D = d.createElement('DIV'), a = d.createElement('a');\
+         console.log(D.localName, D.tagName, a.constructor === Element, d.createElementNS('http://www.w3.org/1999/xhtml', 'a').constructor === HTMLAnchorElement);\
+         var tx = d.createTextNode('w'); console.log(tx.ownerDocument === d, new Text('x').ownerDocument === document);\
+         d.appendChild(D); console.log(d.documentElement === D, D.ownerDocument === d);",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:a true true null 3 8 11",
+            "log:true true true true true",
+            "log:true true true true",
+            "log:z a 2",
+            "log:TypeError",
+            "log:TypeError",
+            "log:TypeError",
+            "log:TypeError",
+            "log:true q 3 true",
+            "log:9 application/xml null null 0 null about:blank true",
+            "log:DIV DIV true true",
+            "log:true true",
+            "log:true true",
+        ],
+        "{log:?}"
+    );
+}

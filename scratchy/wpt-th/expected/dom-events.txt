@@ -32,15 +32,12 @@ OK          9/14  dom/events/Event-constructors.any.html
 OK           2/2  dom/events/Event-defaultPrevented-after-dispatch.html
 OK           8/8  dom/events/Event-defaultPrevented.html
 OK           1/1  dom/events/Event-dispatch-bubble-canceled.html
-OK           3/5  dom/events/Event-dispatch-bubbles-false.html
+OK           4/5  dom/events/Event-dispatch-bubbles-false.html
   FAIL      In window.document.cloneNode(true)
-  FAIL      In new Document()
-OK           3/5  dom/events/Event-dispatch-bubbles-true.html
+OK           4/5  dom/events/Event-dispatch-bubbles-true.html
   FAIL      In window.document.cloneNode(true)
-  FAIL      In new Document()
-TIMEOUT    18/33  dom/events/Event-dispatch-click.html
+TIMEOUT    19/33  dom/events/Event-dispatch-click.html
   FAIL      basic with dispatchEvent()
-  FAIL      look at parents only when event bubbles
   FAIL      look at parents when event bubbles
   FAIL      pick the first with activation behavior <input type=checkbox>
   TIMEOUT   pick the first with activation behavior <a href>
