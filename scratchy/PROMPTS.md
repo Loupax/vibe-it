@@ -8789,3 +8789,9 @@ Item QINC1h2 (REGRESSIONS.md R60 section 15). `layout.rs`: `natural_width_impl` 
 > QSEARCH3 [S] Enter in normal mode with a current match does a real CLICK on the element holding the match (S7; KEYS.md T18-T20): a match spanning 2+ links warns and clicks nothing.
 
 **What changed:** `Enter` row in BINDINGS (`Action::ActivateMatch`, `App::activate_match`). `SearchChar`/`SearchMatch` now carry the DOM element of each char (`nodes`). The click goes through `click_activate` then the same link-follow as a mouse release (page handlers first, preventDefault cancels, buttons/labels work). Two or more distinct nearest `a[href]` ancestors: status `Match spans N links`, nothing clicked. New `dom::enclosing_link`. help.html documents Enter. Tests in search_tests.rs (qsearch3_*).
+
+## QDOM1: window named access (agent item)
+
+> QDOM1 [S] (P1; Sonnet; js.rs, js_dom.rs; R65) Window named access and indexed child windows: a WindowProperties object between Window.prototype and EventTarget.prototype; get/has by element id or embed/form/img/object name (native `__d_named`, cached by `wgen`), iframe name -> contentWindow, `window[i]`.
+
+**What changed:** js.rs: `WindowProperties` is a Proxy (get/has only; its target inherits EventTarget.prototype) set as the prototype of `Window.prototype`; names found anywhere else in the chain are not shadowed, own globals and `var`s win, nothing is enumerable. js_dom.rs: native `__d_named(doc, name)` builds one name -> element map per DOM write generation; the DOM prelude hands the proxy a resolver (index -> `winAt`, iframe -> its window, else the element wrapper). Known deviation: with a Proxy in the global's chain V8 does not throw ReferenceError for a strict-mode assignment to an undeclared name (reads still do); the qj1/qy15 tests probe strictness with `NaN = 1` instead. Tests: qdom1_window_named_access.
