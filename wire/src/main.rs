@@ -41,12 +41,15 @@ use url::Url;
 // serially.
 
 fn print_usage() {
-    eprintln!("usage: wire [--socket <path>] [--print-socket] [--no-cookies]");
+    eprintln!("usage: wire [--socket <path>] [--print-socket] [--no-cookies] [--cookie-file <path>]");
     eprintln!("  wire                 listen on $XDG_RUNTIME_DIR/wire.sock (falling back to");
     eprintln!("                       /tmp/wire-$UID.sock), serving real HTTP requests read");
     eprintln!("                       off that socket in the absolute-form proxy shape");
     eprintln!("                       (`GET https://example.com/path HTTP/1.1`), one request");
     eprintln!("                       per connection, concurrently. Must be started manually.");
+    eprintln!("  wire --cookie-file <path> keep the cookie jar in <path> (mode 0600): loaded at start,");
+    eprintln!("                       saved at most once a second while it changes and on SIGTERM.");
+    eprintln!("                       Session cookies (no expiry date) are not saved.");
     eprintln!("  wire --socket <path> listen on <path> instead of the default location.");
     eprintln!("  wire --no-cookies    kill switch: disable the in-memory cookie jar entirely (the");
     eprintln!("                       X-Wire-Jar header is ignored, responses carry X-Wire-Cookies: off).");
@@ -62,6 +65,7 @@ fn main() {
     let mut socket_path = None;
     let mut print_socket = false;
     let mut cookies_enabled = true;
+    let mut cookie_file: Option<PathBuf> = None;
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
@@ -75,6 +79,14 @@ fn main() {
                     std::process::exit(1);
                 };
                 socket_path = Some(PathBuf::from(path));
+                i += 2;
+            }
+            "--cookie-file" => {
+                let Some(path) = args.get(i + 1) else {
+                    eprintln!("wire: --cookie-file needs a path argument");
+                    std::process::exit(1);
+                };
+                cookie_file = Some(PathBuf::from(path));
                 i += 2;
             }
             "--no-cookies" => {
@@ -93,6 +105,10 @@ fn main() {
         }
     }
 
+    if cookie_file.is_some() && !cookies_enabled {
+        eprintln!("wire: --cookie-file and --no-cookies contradict each other");
+        std::process::exit(1);
+    }
     let path = socket_path.unwrap_or_else(default_socket_path);
 
     // Deliberately reuses the exact same `path` value the real serving
@@ -107,7 +123,15 @@ fn main() {
     }
 
     let agent = build_agent();
-    run_server(&path, agent, Arc::new(Shared::new(cookies_enabled)));
+    let mut shared = Shared::new(cookies_enabled);
+    if let Some(file) = cookie_file {
+        shared = shared.with_cookie_file(file);
+    }
+    let shared = Arc::new(shared);
+    if shared.cookie_file.is_some() {
+        start_jar_saver(&shared);
+    }
+    run_server(&path, agent, shared);
 }
 
 fn build_agent() -> ureq::Agent {
@@ -140,7 +164,9 @@ const WIRE_VERSION: &str = "3";
 /// response (additive; absent on an older wire). `ua`: per-request User-Agent
 /// override (`X-Wire-User-Agent` / the request's own `User-Agent`). `ws`: the
 /// WebSocket pipe (`X-Wire-Upgrade: websocket`, QF19w1, see `ws.rs`).
-const WIRE_FEATURES: &str = "ua,ws";
+/// `jarfile`: `--cookie-file` persistence exists and the control op
+/// `X-Wire-Cookie-Op: clear-site` (+ `X-Wire-Top-Site`) is understood (W-PERSIST1).
+const WIRE_FEATURES: &str = "ua,ws,jarfile";
 
 /// The one jar name scratchy may select with `X-Wire-Jar` (QF-D2a: ONE shared
 /// jar; a later `--profile NAME` changes this single value).
@@ -151,6 +177,8 @@ struct Shared {
     /// `false` under `--no-cookies`.
     enabled: bool,
     jar: Mutex<cookies::Jar>,
+    /// `--cookie-file PATH` (W-PERSIST1): where the jar's persistent cookies live.
+    cookie_file: Option<PathBuf>,
     /// Agent with redirects switched off: the jar path follows redirects
     /// itself so it can store and re-send cookies on every hop.
     manual_agent: ureq::Agent,
@@ -169,15 +197,89 @@ impl Shared {
         Shared {
             enabled,
             jar: Mutex::new(cookies::Jar::default()),
+            cookie_file: None,
             manual_agent: agent_builder().redirects(0).build(),
             public_agent: agent_builder().build(),
             public_manual_agent: agent_builder().redirects(0).build(),
         }
     }
 
+    /// Loads the jar from `path` and keeps writing it there. A missing file
+    /// is a fresh jar; an unreadable or corrupt one is ONE log line and an
+    /// empty jar (the next save replaces it).
+    fn with_cookie_file(mut self, path: PathBuf) -> Shared {
+        match std::fs::read(&path) {
+            Ok(bytes) => match String::from_utf8(bytes).map_err(|_| "not UTF-8".to_string()).and_then(|t| cookies::Jar::from_file_text(&t, now_unix())) {
+                Ok(jar) => *self.jar.get_mut().unwrap_or_else(|e| e.into_inner()) = jar,
+                Err(why) => eprintln!("wire: cookie file {} is corrupt ({why}); starting with an empty jar", path.display()),
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => eprintln!("wire: cannot read cookie file {} ({e}); starting with an empty jar", path.display()),
+        }
+        self.cookie_file = Some(path);
+        self
+    }
+
+    /// Writes the jar to the cookie file when it changed (`force`: even when
+    /// it did not). A failed write is logged once and retried at the next call.
+    fn save_jar(&self, force: bool) {
+        let Some(path) = &self.cookie_file else { return };
+        let text = {
+            let mut jar = self.jar();
+            if !jar.take_dirty() && !force {
+                return;
+            }
+            jar.to_file_text(now_unix())
+        };
+        if let Err(e) = cookies::write_file_atomic(path, &text) {
+            self.jar().mark_dirty();
+            if !JAR_SAVE_FAILED.swap(true, Ordering::Relaxed) {
+                eprintln!("wire: cannot save cookie file {}: {e}", path.display());
+            }
+        } else {
+            JAR_SAVE_FAILED.store(false, Ordering::Relaxed);
+        }
+    }
+
     fn jar(&self) -> std::sync::MutexGuard<'_, cookies::Jar> {
         self.jar.lock().unwrap_or_else(|e| e.into_inner())
     }
+}
+
+static JAR_SAVE_FAILED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static SIGTERM_SEEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+unsafe extern "C" {
+    fn signal(signum: i32, handler: usize) -> usize;
+}
+
+extern "C" fn on_sigterm(_: i32) {
+    SIGTERM_SEEN.store(true, Ordering::Relaxed); // async-signal-safe: one atomic store
+}
+
+/// W-PERSIST1: a thread that saves the jar at most once a second while it has
+/// changes, and on SIGTERM saves once more and exits. (The handler only sets a
+/// flag; this thread does the work, polling every 100 ms.)
+fn start_jar_saver(shared: &Arc<Shared>) {
+    // SAFETY: installs an async-signal-safe handler (a single atomic store).
+    unsafe {
+        signal(15, on_sigterm as *const () as usize);
+    }
+    let shared = Arc::clone(shared);
+    std::thread::spawn(move || {
+        let mut last = Instant::now();
+        loop {
+            std::thread::sleep(Duration::from_millis(100));
+            if SIGTERM_SEEN.load(Ordering::Relaxed) {
+                shared.save_jar(false);
+                std::process::exit(0);
+            }
+            if last.elapsed() >= Duration::from_secs(1) {
+                shared.save_jar(false);
+                last = Instant::now();
+            }
+        }
+    });
 }
 
 thread_local! {
@@ -716,7 +818,7 @@ fn control_authorized(_headers: &[(String, String)]) -> bool {
     true
 }
 
-/// The `document.cookie` control channel: `X-Wire-Cookie-Op: get|set` +
+/// The `document.cookie` control channel: `X-Wire-Cookie-Op: get|set|clear-site` +
 /// `X-Wire-Cookie-Url` (the page URL) + `X-Wire-Top-Site` + `X-Wire-Jar`.
 /// Never makes an upstream request. `get` answers the non-HttpOnly cookie
 /// string as text/plain; `set` takes the `document.cookie = ...` string as the
@@ -743,6 +845,19 @@ fn cookie_control(shared: &Shared, request: &ParsedRequest, w: &mut impl Write) 
     if header(h, "x-wire-jar") != Some(JAR_NAME) {
         return bad("missing or unknown X-Wire-Jar");
     }
+    if header(h, "x-wire-cookie-op") == Some("clear-site") {
+        // Forget-site (STASH.md): drop one whole partition, persist at once.
+        let Some(site) = header(h, "x-wire-top-site").and_then(cookies::normalize_site) else {
+            return bad("clear-site needs a valid X-Wire-Top-Site");
+        };
+        let n = shared.jar().clear_site(&site);
+        shared.save_jar(false);
+        if timing_enabled() {
+            eprintln!("wire: cookies clear-site removed={n}");
+        }
+        write_status_and_headers(w, 204, "No Content", &[])?;
+        return w.flush();
+    }
     let Some(page) = header(h, "x-wire-cookie-url").and_then(|u| Url::parse(u).ok()).filter(|u| u.host_str().is_some()) else {
         return bad("missing or invalid X-Wire-Cookie-Url");
     };
@@ -764,7 +879,7 @@ fn cookie_control(shared: &Shared, request: &ParsedRequest, w: &mut impl Write) 
             write_status_and_headers(w, 204, "No Content", &[])?;
             w.flush()
         }
-        _ => bad("X-Wire-Cookie-Op must be get or set"),
+        _ => bad("X-Wire-Cookie-Op must be get, set or clear-site"),
     }
 }
 
@@ -1733,6 +1848,136 @@ mod tests {
         run(shared, req)
     }
 
+    // ---------- W-PERSIST1: --cookie-file and clear-site ----------
+
+    fn jar_dir(name: &str) -> PathBuf {
+        let d = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target").join(format!("wire-jarfile-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    fn get_cookies(shared: &Shared, page: &str, top: &str) -> String {
+        String::from_utf8(control(shared, "get", page, Some(top), "").body).unwrap()
+    }
+
+    #[test]
+    fn cookie_file_round_trips_persistent_cookies_only_with_mode_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = jar_dir("roundtrip");
+        let file = dir.join("cookies");
+        let shared = Shared::new(true).with_cookie_file(file.clone());
+        assert!(!file.exists(), "a fresh jar writes nothing until it changes");
+        let page = "https://www.example.com/a/";
+        assert_eq!(control(&shared, "set", page, None, "keep=1%20two\ttab; Max-Age=3600; Path=/").status, 204);
+        assert_eq!(control(&shared, "set", page, None, "sess=1; Path=/").status, 204);
+        assert_eq!(get_cookies(&shared, page, "https://example.com"), "keep=1%20two\ttab; sess=1");
+        shared.save_jar(false);
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.starts_with("# wire cookies v1\n"), "{text}");
+        assert_eq!(text.lines().count(), 2, "header + the one persistent cookie: {text}");
+        assert!(!text.contains("sess"), "session cookies are never saved");
+        assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
+        assert!(std::fs::read_dir(&dir).unwrap().all(|e| e.unwrap().file_name() == "cookies"), "no temp file left behind");
+        // A second wire reads it back; the session cookie is gone.
+        let again = Shared::new(true).with_cookie_file(file.clone());
+        assert_eq!(get_cookies(&again, page, "https://example.com"), "keep=1%20two\ttab");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cookie_file_text_escapes_separators_and_drops_expired_on_load() {
+        let now = now_unix();
+        let mut jar = cookies::Jar::default();
+        let ctx = cookies::RequestCtx::new(&Url::parse("https://example.com/").unwrap(), "GET", None, false, None, false);
+        assert!(jar.store(&ctx, "weird=a%b; Max-Age=100; Path=/", now));
+        let text = jar.to_file_text(now);
+        assert_eq!(cookies::Jar::from_file_text(&text, now).unwrap().to_file_text(now), text);
+        // Loaded after its expiry: dropped.
+        let late = cookies::Jar::from_file_text(&text, now + 101).unwrap();
+        assert_eq!(late.to_file_text(now + 101).lines().count(), 1);
+        let hand = format!(
+            "# wire cookies v1\nhttps://example.com\texample.com\t1\t/\told\tx\t0\t0\t0\t{}\t1\nhttps://example.com\texample.com\t1\t/\tnew\ty\t0\t0\t0\t{}\t2\n",
+            now - 5,
+            now + 500
+        );
+        let j = cookies::Jar::from_file_text(&hand, now).unwrap();
+        let out = j.to_file_text(now);
+        assert!(out.contains("\tnew\t") && !out.contains("\told\t"), "{out}");
+    }
+
+    #[test]
+    fn corrupt_cookie_file_gives_an_empty_jar_and_is_replaced_on_the_next_save() {
+        let dir = jar_dir("corrupt");
+        let file = dir.join("cookies");
+        for bad in ["not a cookie file\n", "# wire cookies v1\nonly\ttwo\n", "# wire cookies v1\na\tb\t9\t/\tn\tv\t0\t0\t0\t5\t1\n", ""] {
+            assert!(cookies::Jar::from_file_text(bad, 0).is_err(), "{bad:?}");
+            std::fs::write(&file, bad).unwrap();
+            let shared = Shared::new(true).with_cookie_file(file.clone());
+            assert_eq!(shared.jar().to_file_text(now_unix()).lines().count(), 1, "empty jar after {bad:?}");
+        }
+        std::fs::write(&file, [0xff, 0xfe, b'\n']).unwrap();
+        let shared = Shared::new(true).with_cookie_file(file.clone());
+        assert_eq!(control(&shared, "set", "https://example.com/", None, "a=1; Max-Age=60").status, 204);
+        shared.save_jar(false);
+        assert!(std::fs::read_to_string(&file).unwrap().starts_with("# wire cookies v1\n"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn clear_site_removes_first_party_and_partitioned_cookies_and_persists() {
+        let dir = jar_dir("clear");
+        let file = dir.join("cookies");
+        let shared = Shared::new(true).with_cookie_file(file.clone());
+        let (a, b) = ("https://a.example", "https://b.example");
+        // a.example first party, a third party embedded under a.example, and the
+        // same third party under b.example plus b.example itself.
+        for (page, top) in [("https://www.a.example/", a), ("https://tracker.test/", a), ("https://tracker.test/", b), ("https://b.example/", b)] {
+            assert_eq!(control(&shared, "set", page, Some(top), "k=v; Max-Age=3600; Path=/").status, 204);
+        }
+        shared.save_jar(false);
+        assert_eq!(std::fs::read_to_string(&file).unwrap().lines().count(), 5);
+        let r = control(&shared, "clear-site", "", Some("https://www.a.example/page"), "");
+        assert_eq!(r.status, 204);
+        assert_eq!(get_cookies(&shared, "https://www.a.example/", a), "");
+        assert_eq!(get_cookies(&shared, "https://tracker.test/", a), "");
+        assert_eq!(get_cookies(&shared, "https://tracker.test/", b), "k=v");
+        assert_eq!(get_cookies(&shared, "https://b.example/", b), "k=v");
+        // persisted immediately, without waiting for the saver thread
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(text.lines().count(), 3, "{text}");
+        assert!(!text.contains("a.example"), "{text}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn clear_site_is_honoured_only_on_the_jar_control_path() {
+        let (addr, rx) = cookie_server();
+        let shared = Shared::new(true);
+        let a = "https://a.example";
+        assert_eq!(control(&shared, "set", "https://a.example/", Some(a), "k=v; Max-Age=3600").status, 204);
+        // No X-Wire-Jar: refused, nothing cleared.
+        let mut req = ParsedRequest { method: "POST".into(), url: Url::parse("http://wire.invalid/").unwrap(), headers: vec![], body: vec![] };
+        req = with_headers(req, &[("X-Wire-Cookie-Op", "clear-site"), ("X-Wire-Top-Site", a)]);
+        assert_eq!(run(&shared, req).status, 400);
+        // No usable top site: refused.
+        assert_eq!(control(&shared, "clear-site", "", None, "").status, 400);
+        assert_eq!(control(&shared, "clear-site", "", Some("not a url"), "").status, 400);
+        assert_eq!(get_cookies(&shared, "https://a.example/", a), "k=v");
+        // The op is answered by wire and never reaches the upstream, even when
+        // the request URL points at a real server.
+        let req = with_headers(get_request(addr, "/echo"), &[JAR, ("X-Wire-Cookie-Op", "clear-site"), ("X-Wire-Top-Site", "https://other.example")]);
+        assert_eq!(run(&shared, req).status, 204);
+        assert!(rx.try_recv().is_err(), "nothing was forwarded upstream");
+        assert_eq!(get_cookies(&shared, "https://a.example/", a), "k=v", "only the named partition is cleared");
+        // Cookies disabled: 404, the op does nothing.
+        assert_eq!(control(&Shared::new(false), "clear-site", "", Some(a), "").status, 404);
+        // The advertised feature.
+        let r = control(&shared, "clear-site", "", Some(a), "");
+        assert!(hdr(&r, "X-Wire-Features").unwrap().split(',').any(|f| f == "jarfile"));
+        assert_eq!(get_cookies(&shared, "https://a.example/", a), "");
+    }
+
     #[test]
     fn jar_stores_on_one_request_and_sends_on_the_next() {
         let (addr, rx) = cookie_server();
@@ -2204,10 +2449,10 @@ mod tests {
     #[test]
     fn every_response_advertises_the_ua_feature() {
         let (addr, _rx) = ua_server();
-        assert_eq!(hdr(&execute_for_test(&build_agent(), &get_request(addr, "/")), "X-Wire-Features"), Some("ua,ws"));
+        assert_eq!(hdr(&execute_for_test(&build_agent(), &get_request(addr, "/")), "X-Wire-Features"), Some("ua,ws,jarfile"));
         let down = get_request("127.0.0.1:1".parse().unwrap(), "/");
-        assert_eq!(hdr(&execute_for_test(&build_agent(), &down), "X-Wire-Features"), Some("ua,ws"));
+        assert_eq!(hdr(&execute_for_test(&build_agent(), &down), "X-Wire-Features"), Some("ua,ws,jarfile"));
         let bad = with_headers(get_request(addr, "/"), &[("X-Wire-User-Agent", "a\r\nb")]);
-        assert_eq!(hdr(&execute_for_test(&build_agent(), &bad), "X-Wire-Features"), Some("ua,ws"));
+        assert_eq!(hdr(&execute_for_test(&build_agent(), &bad), "X-Wire-Features"), Some("ua,ws,jarfile"));
     }
 }

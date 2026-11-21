@@ -61,7 +61,7 @@ the commit it came up during.
       startup dependency between the two). Firefox has no equivalent: its jar
       sits behind a private IPC channel. Do this only if the user asks.
 
-- [ ] **W-PERSIST1: `--cookie-file PATH`** (scratchy QSTASH5; design in
+- [x] (DONE 2026-11-21, scratchy QSTASH5) **W-PERSIST1: `--cookie-file PATH`** (scratchy QSTASH5; design in
       ../scratchy/STASH.md "Cookies (wire)", user 2026-11-19). Load the jar at
       start; save it (temp file + rename, mode 0600) at most once a second while
       it has changes, and on SIGTERM. Cookies with no expiry date are not saved.

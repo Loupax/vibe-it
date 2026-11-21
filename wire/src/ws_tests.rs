@@ -203,7 +203,7 @@ fn upgrade_returns_101_and_echoes_both_ways() {
     let (mut c, head) = handshake(&sock, &format!("ws://{}/echo", srv.addr), &[("X-Wire-Policy", "none")]);
     assert!(head.starts_with("HTTP/1.1 101 "), "{head}");
     assert!(lc_has(&head, "sec-websocket-accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo="), "{head}");
-    assert!(lc_has(&head, "x-wire-version: 3") && lc_has(&head, "x-wire-features: ua,ws"), "{head}");
+    assert!(lc_has(&head, "x-wire-version: 3") && lc_has(&head, "x-wire-features: ua,ws,jarfile"), "{head}");
     assert!(lc_has(&head, "x-wire-target-class: loopback"), "{head}");
     assert!(!lc_has(&head, "x-wire-spoof"), "upstream x-wire-* must not reach the client: {head}");
     for msg in [&b"hello"[..], &[0u8, 255, 1, 2, 3][..], b"third"] {
