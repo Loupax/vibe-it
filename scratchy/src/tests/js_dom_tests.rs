@@ -1140,7 +1140,7 @@ fn qy24_class_list_reads_the_class_attribute_not_class_name() {
 fn qy12_window_interface_has_its_own_prototype() {
     let out = run_collecting(&[src(
         "console.log(window instanceof Window, window instanceof EventTarget, Window.prototype !== Object.prototype,\
-         Object.getPrototypeOf(Window.prototype) === EventTarget.prototype, ({}) instanceof Window,\
+         Object.getPrototypeOf(Object.getPrototypeOf(Window.prototype)) === EventTarget.prototype, ({}) instanceof Window,\
          window.top === window, window.parent === window, window.frames === window, window.opener === null);\
          try { new Window(); } catch (e) { console.log(e.name); }",
     )]);
@@ -2074,6 +2074,44 @@ fn qdom7_comment_data_is_mutable() {
     assert_eq!(
         log,
         ["log:Q-yz! Q-yz! Q-yz! 5 -y Q-yz!", "log:characterData:abc,characterData:xyz,characterData:xyz!,characterData:x--yz!,characterData:--yz!", "log:tc <!--tc--> "],
+        "{log:?}"
+    );
+}
+
+// ---------- QDOM1: window named access (WindowProperties) ----------
+
+#[test]
+fn qdom1_window_named_access() {
+    crate::js::set_page_url(Url::parse("https://qdom1.test/p.html").ok().as_ref());
+    let log = run_in_html(
+        "<html><body><div id=box></div><form name=fm></form><img name=pic><object name=ob></object><embed name=em>\
+         <span name=nope></span><p id=shadowed></p><iframe name=ifr></iframe></body></html>",
+        "var box2 = typeof box;\
+         console.log(box2, box === document.getElementById('box'), typeof fm, fm.tagName, pic.tagName, ob.tagName, em.tagName, typeof nope);\
+         console.log(window.box === box, 'box' in window, Object.keys(window).indexOf('box'), Object.getOwnPropertyNames(window).indexOf('box'));\
+         var shadowed = 5; console.log(shadowed, window.shadowed);\
+         document.getElementById('box').remove(); console.log(typeof box, 'box' in window);\
+         var d = document.createElement('div'); d.id = 'late'; document.body.appendChild(d); console.log(late === d);\
+         d.id = 'later'; console.log(typeof late, later === d);\
+         console.log(typeof frames[0].document, window.length);\
+         try { notDefinedAnywhere; console.log('no throw'); } catch (e) { console.log(e.name); }\
+         undeclared1 = 7; console.log(undeclared1, Object.getOwnPropertyNames(window).indexOf('undeclared1') >= 0);\
+         console.log(typeof addEventListener, Object.getPrototypeOf(Window.prototype) !== EventTarget.prototype, window instanceof EventTarget);",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:object true object FORM IMG OBJECT EMBED undefined",
+            "log:true true -1 -1",
+            "log:5 5",
+            "log:undefined false",
+            "log:true",
+            "log:undefined true",
+            "log:object 1",
+            "log:ReferenceError",
+            "log:7 true",
+            "log:function true true",
+        ],
         "{log:?}"
     );
 }

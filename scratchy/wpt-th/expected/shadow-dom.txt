@@ -905,30 +905,30 @@ TIMEOUT  108/120  shadow-dom/declarative/declarative-shadow-dom-opt-in.html
   FAIL      iframe, no sandbox
   TIMEOUT   sandboxed iframe allows declarative Shadow DOM
   TIMEOUT   iframe with no sandbox allows declarative Shadow DOM
-ERROR        0/1  shadow-dom/declarative/declarative-shadow-dom-repeats-2.html
+OK           0/1  shadow-dom/declarative/declarative-shadow-dom-repeats-2.html
   FAIL      Repeated declarative shadow roots keep only the first
 OK           0/2  shadow-dom/declarative/declarative-shadow-dom-repeats-slot-assignment.html
   FAIL      attachShadow() on declarative shadow root with manual slotAssignment
   FAIL      attachShadow() on declarative shadow root does not change slotAssignment
-ERROR        0/3  shadow-dom/declarative/declarative-shadow-dom-repeats.html
+OK           0/3  shadow-dom/declarative/declarative-shadow-dom-repeats.html
   FAIL      Repeated declarative shadow roots keep only the first
-  NOTRUN    Calling attachShadow() on declarative shadow root must match mode
-  NOTRUN    Calling attachShadow() on declarative shadow root must match all parameters
+  FAIL      Calling attachShadow() on declarative shadow root must match mode
+  FAIL      Calling attachShadow() on declarative shadow root must match all parameters
 OK           0/2  shadow-dom/declarative/declarative-shadow-dom-serialization.html
   FAIL      shadow root children are serialized inside template
   FAIL      nested elements inside shadow root are serialized
-ERROR        0/3  shadow-dom/declarative/declarative-shadow-dom-slot-assignment-serialization.html
+OK           0/3  shadow-dom/declarative/declarative-shadow-dom-slot-assignment-serialization.html
   FAIL      shadowrootslotassignment=manual is serialized and appears before shadowrootclonable and shadowrootserializable
-  NOTRUN    shadowrootslotassignment=named is not serialized as it's the default
-  NOTRUN    shadowrootslotassignment=manual serializes between shadowrootdelegatesfocus and shadowrootclonable
-ERROR        0/8  shadow-dom/declarative/declarative-shadow-dom-slot-assignment.html
+  FAIL      shadowrootslotassignment=named is not serialized as it's the default
+  FAIL      shadowrootslotassignment=manual serializes between shadowrootdelegatesfocus and shadowrootclonable
+OK           0/8  shadow-dom/declarative/declarative-shadow-dom-slot-assignment.html
   FAIL      shadowrootslotassignment reflection
   FAIL      shadowrootslotassignment reflection, setter
   FAIL      Declarative Shadow DOM: shadowrootslotassignment=manual
   FAIL      Declarative Shadow DOM: shadowrootslotassignment=named
   FAIL      Declarative Shadow DOM: shadowrootslotassignment is case insensitive
   FAIL      Declarative Shadow DOM: shadowrootslotassignment invalid value defaults to named
-  NOTRUN    Declarative Shadow DOM: shadowrootslotassignment on closed shadows can be set to manual
+  FAIL      Declarative Shadow DOM: shadowrootslotassignment on closed shadows can be set to manual
   FAIL      Declarative Shadow DOM: missing shadowrootslotassignment defaults to named
 OK           0/1  shadow-dom/declarative/declarative-shadow-dom-write-to-iframe.html
   FAIL      `document.write` on inner iframe handles declarative shadow DOM
@@ -936,7 +936,8 @@ OK           1/1  shadow-dom/declarative/declarative-with-disabled-shadow.html
 ERROR        0/0  shadow-dom/declarative/gethtml-ordering.html
 OK           0/1  shadow-dom/declarative/innerhtml-before-closing-tag.html
   FAIL      Declarative Shadow DOM: innerHTML should work while parsing streaming declarative shadow root <template>
-ERROR        0/0  shadow-dom/declarative/innerhtml-on-ordinary-template.html
+OK           0/1  shadow-dom/declarative/innerhtml-on-ordinary-template.html
+  FAIL      Declarative Shadow DOM: innerHTML should work on <template shadowroot> that is left over
 OK           0/3  shadow-dom/declarative/move-template-before-closing-tag.html
   FAIL      Moving the template node during parsing should attach to initial parent (content before observer)
   FAIL      Moving the template node during parsing should attach to initial parent (content after observer)
@@ -1035,9 +1036,7 @@ ERROR        0/1  shadow-dom/dragenter-related-target.html
 ERROR        0/1  shadow-dom/dragleave-related-target.html
   TIMEOUT   dragleave relatedTarget should be retargeted to shadow host when entering shadow DOM
 OK           2/2  shadow-dom/event-composed-path-after-dom-mutation.html
-OK          0/13  shadow-dom/event-composed-path-with-related-target.html
-  FAIL      Event path for an event with a relatedTarget. relatedTarget != target.
-  FAIL      Event path for an event with a relatedTarget. Event should be dispatched even when target and relatedTarget are same.
+OK          2/13  shadow-dom/event-composed-path-with-related-target.html
   FAIL      Event path for an event with a relatedTarget. Event should stop at the shadow root
   FAIL      Event path for an event with a relatedTarget which is identical to target. Event should be dispatched and should stop at the shadow root.
   FAIL      Event path for an event with a relatedTarget. target and relaterTarget do not share any shadow-including ancestor. target is in a shadow tree.
@@ -1049,8 +1048,7 @@ OK          0/13  shadow-dom/event-composed-path-with-related-target.html
   FAIL      Event path for an event with a relatedTarget. relatedTarget is assigned to a slot.
   FAIL      Event path for an event with a relatedTarget. Event should be dispatched at every slots.
   FAIL      Event path for an event with a relatedTarget. Event should be dispatched at every slots. relatedTarget should be correctly retargeted.
-OK          0/11  shadow-dom/event-composed-path.html
-  FAIL      Event Path without ShadowRoots.
+OK          1/11  shadow-dom/event-composed-path.html
   FAIL      Event Path with an open ShadowRoot.
   FAIL      Event Path with a closed ShadowRoot.
   FAIL      Event Path with nested ShadowRoots: open > open.
@@ -1061,12 +1059,9 @@ OK          0/11  shadow-dom/event-composed-path.html
   FAIL      Event Path with a slot in a closed Shadow Root.
   FAIL      Event Path with slots in nested ShadowRoots: open > open.
   FAIL      Event Path with slots in nested ShadowRoots: closed > closed.
-OK           2/9  shadow-dom/event-composed.html
-  FAIL      An event should be scoped by default
+OK           5/9  shadow-dom/event-composed.html
   FAIL      An event should not be scoped if composed is specified
-  FAIL      A synthetic MouseEvent should be scoped by default
   FAIL      A synthetic MouseEvent with composed=true should not be scoped
-  FAIL      A synthetic FocusEvent should be scoped by default
   FAIL      A synthetic FocusEvent with composed=true should not be scoped
   FAIL      A UA click event should not be scoped
 OK           0/1  shadow-dom/event-dispatch-order.tentative.html
@@ -1115,7 +1110,20 @@ OK           0/5  shadow-dom/event-post-dispatch-no-listeners.html
   FAIL      Event properties post dispatch with a closed ShadowRoot and no listeners (composed: true)
   FAIL      Event properties post dispatch with nested open ShadowRoots and no listeners (composed: true)
   FAIL      Event properties post dispatch with a disabled element in shadow tree and no listeners (composed: true)
-ERROR        0/0  shadow-dom/event-post-dispatch.html
+OK          3/16  shadow-dom/event-post-dispatch.html
+  FAIL      Event properties post dispatch with an open ShadowRoot (composed: true).
+  FAIL      Event properties post dispatch with an open ShadowRoot (composed: false).
+  FAIL      Event properties post dispatch with a closed ShadowRoot (composed: true).
+  FAIL      Event properties post dispatch with a closed ShadowRoot (composed: false).
+  FAIL      Event properties post dispatch with nested ShadowRoots (composed: true).
+  FAIL      Event properties post dispatch with nested ShadowRoots (composed: false).
+  FAIL      Event properties post dispatch with relatedTarget in the same shadow tree. (composed: true)
+  FAIL      Event properties post dispatch with relatedTarget in the same shadow tree. (composed: false)
+  FAIL      Event properties post dispatch with relatedTarget in the document tree and the shadow tree. (composed: true)
+  FAIL      Event properties post dispatch with relatedTarget in the document tree and the shadow tree. (composed: false)
+  FAIL      Event properties post dispatch with relatedTarget in the different shadow trees. (composed: true)
+  FAIL      Event properties post dispatch with relatedTarget in the different shadow trees. (composed: false)
+  FAIL      Event properties post dispatch when target get moved out of the shadow tree by event listener
 OK          0/18  shadow-dom/event-with-related-target.html
   FAIL      Firing an event at B1a with relatedNode at B1 with open mode shadow trees
   FAIL      Firing an event at B1a with relatedNode at B1 with closed mode shadow trees
@@ -1187,7 +1195,8 @@ OK           0/2  shadow-dom/focus-navigation/reading-flow/grid-order-on-shadow-
   FAIL      Grid items in shadow host without delegatesFocus
 OK           0/1  shadow-dom/focus-navigation/reading-flow/grid-order-with-iframe.html
   FAIL      Grid items are iframes.
-ERROR        0/0  shadow-dom/focus-navigation/reading-flow/simplified-layout.html
+OK           0/1  shadow-dom/focus-navigation/reading-flow/simplified-layout.html
+  FAIL      simplified-layout
 OK           1/1  shadow-dom/focus-navigation/tentative/focus-navigation-scroller-delegatesFocus.html
 OK           0/1  shadow-dom/focus-navigation/tentative/focus-navigation-scroller-interactive-child.html
   FAIL      While focusing a keyboard-focusable scroller, adding interactive content should not cancel focusability
@@ -1206,10 +1215,19 @@ OK           0/6  shadow-dom/focus/DocumentOrShadowRoot-activeElement.html
 OK           3/3  shadow-dom/focus/ShadowRoot-delegatesFocus.html
 OK           1/2  shadow-dom/focus/blur-on-shadow-host-delegatesFocus.html
   FAIL      Calling blur() on shadow host with delegatesFocus should remove the focus.
-ERROR        0/0  shadow-dom/focus/click-focus-delegatesFocus-click.html
-ERROR        0/0  shadow-dom/focus/click-focus-delegatesFocus-tabindex-varies.html
-ERROR        0/0  shadow-dom/focus/click-focus-delegatesFocus-tabindex-zero.html
-ERROR        0/0  shadow-dom/focus/click-focus-slot-ancestor.html
+OK           2/6  shadow-dom/focus/click-focus-delegatesFocus-click.html
+  FAIL      click on the host with delegatesFocus with another host with delegatesFocus and a focusable child
+  FAIL      click on the host with delegatesFocus with another host with no delegatesFocus and a focusable child
+  FAIL      click on the host with no delegatesFocus with another host with delegatesFocus and a focusable child
+  FAIL      click on the host with no delegatesFocus with another host with no delegatesFocus and a focusable child
+OK           0/1  shadow-dom/focus/click-focus-delegatesFocus-tabindex-varies.html
+  FAIL      click on host with delegatesFocus, #aboveSlot tabindex = 2, #slot and #slotted tabindex = 1
+OK           0/1  shadow-dom/focus/click-focus-delegatesFocus-tabindex-zero.html
+  FAIL      click on host with delegatesFocus, all tabindex=0 except spacer
+OK           0/3  shadow-dom/focus/click-focus-slot-ancestor.html
+  FAIL      Clicking on non-focusable slot inside focusable div will make the flat-tree focusable ancestor get focused
+  FAIL      Select on non-focusable slot inside focusable div will select text
+  FAIL      Select on non-focusable non-editable slot in a contenteditable shadow DOM and inside focusable div will select text
 OK           0/1  shadow-dom/focus/delegatesFocus-tabindex-change.html
   FAIL      Setting tabindex on the shadow host of a focused element with delegatesFocus should not change focus.
 OK           1/5  shadow-dom/focus/focus-autofocus.html
@@ -1237,8 +1255,28 @@ OK          2/15  shadow-dom/focus/focus-method-delegatesFocus.html
   FAIL      focus() on host with delegatesFocus and slotted focusable children
 ERROR        0/0  shadow-dom/focus/focus-method-with-delegatesFocus.html
 OK           1/1  shadow-dom/focus/focus-preserved-on-slot-reorder.html
-ERROR        0/0  shadow-dom/focus/focus-pseudo-matches-on-shadow-host.html
-ERROR        0/1  shadow-dom/focus/focus-scroll-under-delegatesFocus.html
+TIMEOUT     0/20  shadow-dom/focus/focus-pseudo-matches-on-shadow-host.html
+  TIMEOUT   :focus must not match a shadow host with {mode:open, delegatesFocus:false} shadow root that does not contain the focused element
+  NOTRUN    :focus must match a shadow host with {mode:open, delegatesFocus:false} shadow root that contains the focused element
+  NOTRUN    :focus must not match a shadow host with {mode:open, delegatesFocus:false} shadow root contains the focused element assigned to a slot
+  NOTRUN    :focus must match all shadow hosts which are ancestors of a foccused element; {mode:open, delegatesFocus:false}
+  NOTRUN    :focus behavior on tree structure changes; {mode:open, delegatesFocus:false}
+  NOTRUN    :focus must not match a shadow host with {mode:open, delegatesFocus:true} shadow root that does not contain the focused element
+  NOTRUN    :focus must match a shadow host with {mode:open, delegatesFocus:true} shadow root that contains the focused element
+  NOTRUN    :focus must not match a shadow host with {mode:open, delegatesFocus:true} shadow root contains the focused element assigned to a slot
+  NOTRUN    :focus must match all shadow hosts which are ancestors of a foccused element; {mode:open, delegatesFocus:true}
+  NOTRUN    :focus behavior on tree structure changes; {mode:open, delegatesFocus:true}
+  NOTRUN    :focus must not match a shadow host with {mode:closed, delegatesFocus:false} shadow root that does not contain the focused element
+  NOTRUN    :focus must match a shadow host with {mode:closed, delegatesFocus:false} shadow root that contains the focused element
+  NOTRUN    :focus must not match a shadow host with {mode:closed, delegatesFocus:false} shadow root contains the focused element assigned to a slot
+  NOTRUN    :focus must match all shadow hosts which are ancestors of a foccused element; {mode:closed, delegatesFocus:false}
+  NOTRUN    :focus behavior on tree structure changes; {mode:closed, delegatesFocus:false}
+  NOTRUN    :focus must not match a shadow host with {mode:closed, delegatesFocus:true} shadow root that does not contain the focused element
+  NOTRUN    :focus must match a shadow host with {mode:closed, delegatesFocus:true} shadow root that contains the focused element
+  NOTRUN    :focus must not match a shadow host with {mode:closed, delegatesFocus:true} shadow root contains the focused element assigned to a slot
+  NOTRUN    :focus must match all shadow hosts which are ancestors of a foccused element; {mode:closed, delegatesFocus:true}
+  NOTRUN    :focus behavior on tree structure changes; {mode:closed, delegatesFocus:true}
+OK           0/1  shadow-dom/focus/focus-scroll-under-delegatesFocus.html
   FAIL      delegatesFocus shouldn't cause extra focus steps
 OK          0/12  shadow-dom/focus/focus-selector-delegatesFocus.html
   FAIL      :focus applies to host with delegatesFocus=true when the shadow root's descendant has focus
@@ -1306,7 +1344,7 @@ OK           0/2  shadow-dom/imperative-slot-api-cross-shadow-root.html
   FAIL      HTMLSlotElement.assign cross shadow root layout should not crash
 OK           0/1  shadow-dom/imperative-slot-api-disconnected.html
   FAIL      Assigning to disconnected slot after connected slot should not crash and should trigger slotchange on previous slot
-OK          0/13  shadow-dom/imperative-slot-api-slotchange.html
+OK          2/13  shadow-dom/imperative-slot-api-slotchange.html
   FAIL      slotchange event must not fire synchronously.
   FAIL      slotchange event should not fire when assignments do not change assignedNodes.
   FAIL      slotchange event should not fire when same node is assigned.
@@ -1316,12 +1354,9 @@ OK          0/13  shadow-dom/imperative-slot-api-slotchange.html
   FAIL      Fire slotchange event when order of assigned nodes changes.
   FAIL      Fire slotchange event when assigned node is removed.
   FAIL      Fire slotchange event when removing a slot from Shadows Root that changes its assigned nodes.
-  FAIL      No slotchange event when adding or removing an empty slot.
-  FAIL      No slotchange event when adding another slotable.
   FAIL      Fire slotchange event when assign node to nested slot, ensure event bubbles ups.
   FAIL      Signal a slot change should be done in tree order.
-OK          1/16  shadow-dom/imperative-slot-api.html
-  FAIL      attachShadow can take slotAssignment parameter.
+OK          2/16  shadow-dom/imperative-slot-api.html
   FAIL      slot.attach() should take variadic not sequence.
   FAIL      Imperative slot API can assign nodes in manual slot assignment.
   FAIL      Order of slottables is preserved in manual slot assignment.
@@ -1386,9 +1421,8 @@ OK          0/22  shadow-dom/offsetParent-across-shadow-boundaries.html
   FAIL      offsetParent must return null on a child element of a shadow host for the shadow tree in closed mode which is not assigned to any slot
   FAIL      offsetParent must return null on a child element of a shadow host for the shadow tree in open mode which is not in the flat tree
   FAIL      offsetParent must return null on a child element of a shadow host for the shadow tree in closed mode which is not in the flat tree
-OK           0/3  shadow-dom/offsetTop-offsetLeft-across-shadow-boundaries.html
+OK           1/3  shadow-dom/offsetTop-offsetLeft-across-shadow-boundaries.html
   FAIL      Verifies that HTMLElement.offsetTop accounts for shadow boundaries.
-  FAIL      Verifies that HTMLElement.offsetLeft accounts for shadow boundaries.
   FAIL      Verifies that HTMLElement.offsetTop accounts for shadow boundaries when nested in multiple shadow roots.
 ERROR        0/0  shadow-dom/reference-target/tentative/aria-labelledby.html
 ERROR        0/0  shadow-dom/reference-target/tentative/commandfor.html
@@ -1494,25 +1528,27 @@ OK          0/32  shadow-dom/slotchange-event.html
   FAIL      slotchange event must fire at the end of current microtask after mutation observers are invoked inside a closed shadow root  in a document when slots's contents change
   FAIL      slotchange event must fire at the end of current microtask after mutation observers are invoked inside an open shadow root  not in a document when slots's contents change
   FAIL      slotchange event must fire at the end of current microtask after mutation observers are invoked inside a closed shadow root  not in a document when slots's contents change
-OK          0/17  shadow-dom/slotchange.html
-  FAIL      slotchange event: Append a child to a host (onslotchange).
-  FAIL      slotchange event: Append a child to a host.
-  FAIL      slotchange event: Remove a child from a host.
-  FAIL      slotchange event: Remove a child before adding an event listener.
-  FAIL      slotchange event: Change slot= attribute to make it un-assigned.
-  FAIL      slotchange event: Change slot's name= attribute so that none is assigned.
-  FAIL      slotchange event: Change slot= attribute to make it assigned.
-  FAIL      slotchange event: Change slot's name= attribute so that a node is assigned to the slot.
-  FAIL      slotchange event: Change fallback content - assignedNodes still empty.
-  FAIL      slotchange event: Remove a fallback content - assignedNodes still empty.
-  FAIL      slotchange event: Add a fallback content to nested slots - assignedNodes still empty.
-  FAIL      slotchange event: Remove a fallback content from nested slots - assignedNodes still empty.
-  FAIL      slotchange event: Insert a slot before an existing slot.
-  FAIL      slotchange event: Remove a preceding slot.
-  FAIL      slotchange event: A slot is assigned to another slot.
-  FAIL      slotchange event: Slotchange should be fired if assigned nodes are changed.
-  FAIL      slotchange event: Child content is added to nested slots.
-ERROR        0/0  shadow-dom/slots-fallback-in-document.html
+TIMEOUT     0/17  shadow-dom/slotchange.html
+  TIMEOUT   slotchange event: Append a child to a host (onslotchange).
+  TIMEOUT   slotchange event: Append a child to a host.
+  TIMEOUT   slotchange event: Remove a child from a host.
+  TIMEOUT   slotchange event: Remove a child before adding an event listener.
+  TIMEOUT   slotchange event: Change slot= attribute to make it un-assigned.
+  TIMEOUT   slotchange event: Change slot's name= attribute so that none is assigned.
+  TIMEOUT   slotchange event: Change slot= attribute to make it assigned.
+  TIMEOUT   slotchange event: Change slot's name= attribute so that a node is assigned to the slot.
+  TIMEOUT   slotchange event: Change fallback content - assignedNodes still empty.
+  TIMEOUT   slotchange event: Remove a fallback content - assignedNodes still empty.
+  TIMEOUT   slotchange event: Add a fallback content to nested slots - assignedNodes still empty.
+  TIMEOUT   slotchange event: Remove a fallback content from nested slots - assignedNodes still empty.
+  TIMEOUT   slotchange event: Insert a slot before an existing slot.
+  TIMEOUT   slotchange event: Remove a preceding slot.
+  TIMEOUT   slotchange event: A slot is assigned to another slot.
+  TIMEOUT   slotchange event: Slotchange should be fired if assigned nodes are changed.
+  TIMEOUT   slotchange event: Child content is added to nested slots.
+OK           0/2  shadow-dom/slots-fallback-in-document.html
+  FAIL      Children of a slot in a document tree should not be counted in flattened assigned nodes.
+  FAIL      Slot fallback content in shadow tree should be counted in flattened assigned nodes.
 OK          0/13  shadow-dom/slots-fallback.html
   FAIL      Slots fallback: Basic.
   FAIL      Slots fallback: Basic, elements only.
