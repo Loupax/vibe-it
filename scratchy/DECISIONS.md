@@ -7,6 +7,8 @@ their section with the date.
 
 ## Direction and process
 
+- **2026-11-21 Purge agent scratch from git history** (user): keep a backup of `.git` first, then rewrite history
+  to drop the accidentally committed `.qwork/` and `scratchy/.qwork/` files (#496, #498) and force-push main.
 - **2026-11-21 UI and persistence first.** The small UI and persistence items (keys, status bar,
   search, completion, paste, scrollbar, QSTASH) take free slots BEFORE the conformance items:
   they make daily use easier and do not depend on conformance. Conformance (QWPT2...) runs in
@@ -70,6 +72,8 @@ their section with the date.
 
 ## Persistence
 
+- **2026-11-21 localStorage quota** (user): 5 Mi UTF-16 code units of keys plus values per origin (Firefox's
+  rule) is OK; the limit lives in `src/config.rs` with the other knobs (QCONF2).
 - **QSTASH (2026-11-19, STASH.md):** persistent localStorage, cookie file and
   history in a state directory; sessionStorage per window; `--forget-site`.
   Supersedes the earlier "nothing persisted" rule (QF-D7), which still applies to
