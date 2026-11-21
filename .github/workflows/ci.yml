@@ -101,9 +101,8 @@ jobs:
       - name: WPT checkout (sparse, pinned; verifies the pin always)
         if: matrix.crate == 'scratchy'
         run: tools/wpt-checkout.sh "$RUNNER_TEMP/wpt"
-      - name: WPT reftests vs wpt-expected.txt (informational until CI fonts are confirmed to match)
+      - name: WPT reftests vs wpt-expected.txt (CI fonts verified to match, QWPT2)
         if: matrix.crate == 'scratchy'
-        continue-on-error: true
         run: |
           export FONTCONFIG_FILE="$(tools/ci-fontconfig.sh /usr/share/fonts/truetype/liberation "$RUNNER_TEMP/fc")"
           start=$(date +%s)
