@@ -592,11 +592,12 @@ fn qinc1j_ab_counter_walk_only_after_a_change_it_can_see() {
     set_interaction(&InteractionState { hover: ancestor_ids(&o).into_iter().collect(), ..Default::default() });
     let s = build(&doc);
     assert!(s.rematched == 0 && !s.gen_walked, "{s:?}");
-    // a hover that changes a match list re-walks (the walk reads the stored matches)
+    // QINC1k3: a hover that changes a match list but nothing the walk reads (`gsig`: `color` only) does
+    // not walk either
     let p = by_id(&doc, "p");
     set_interaction(&InteractionState { hover: ancestor_ids(&p).into_iter().collect(), ..Default::default() });
     let s = build(&doc);
-    assert!(s.rematched >= 1 && s.gen_walked, "{s:?}");
+    assert!(s.rematched >= 1 && !s.gen_walked, "{s:?}");
     // hovering the li changes the counters: walked, and the next li's text follows
     let y = by_id(&doc, "y");
     set_interaction(&InteractionState { hover: ancestor_ids(&y).into_iter().collect(), ..Default::default() });
@@ -686,4 +687,103 @@ fn qinc1k4_pseudo_calc_viewport_height_change_recascades() {
     let s = build_vh(&doc, 640.0);
     assert_eq!(s.recascaded, 2, "vh flags of adopted pseudo slots: {s:?}");
     incr_style::set_adopt_verify(v);
+}
+
+// ---------- QINC1k3: the counter / quote walk runs only when what it reads changed ----------
+
+fn gen_text(doc: &Handle, id: &str) -> Option<String> {
+    crate::images::GENERATED_TEXT.with(|g| g.borrow().get(&(node_id(&by_id(doc, id)), false)).cloned())
+}
+
+/// Writes that touch nothing the walk reads (`gsig` 0: a `div` without counters / content / quotes)
+/// skip it; an inserted, moved or removed `li`, a `content: attr()` attribute and a match change of a
+/// counter property walk. Every build compares the engine's generated content with the from-scratch walk.
+#[test]
+fn qinc1k3_counter_walk_skips_writes_it_cannot_see() {
+    let _g = LogOnly::new();
+    let doc = page(
+        "ol{counter-reset:n} li{counter-increment:n} li::before{content:counter(n) \". \"} \
+         #t::after{content:attr(data-x)} .big{counter-increment:n 10}",
+        "<div id=w><p id=t data-x=a>t</p></div><ol id=o><li id=x>a</li><li id=y>b</li></ol><div id=d></div>",
+    );
+    assert!(build(&doc).gen_walked);
+    // a plain div inserted, an attribute of a plain element, a removal of a plain div: no walk
+    let w = by_id(&doc, "w");
+    append(&w, &element("<div class=plain><span>s</span></div>"));
+    let s = build(&doc);
+    assert!(!s.full && !s.gen_walked, "{s:?}");
+    set_attr(&by_id(&doc, "d"), "title", Some("x"));
+    let s = build(&doc);
+    assert!(!s.gen_walked, "{s:?}");
+    remove(&by_id(&doc, "d"));
+    let s = build(&doc);
+    assert!(!s.gen_walked, "{s:?}");
+    // an attribute `content: attr()` reads: walked
+    set_attr(&by_id(&doc, "t"), "data-x", Some("b"));
+    let s = build(&doc);
+    assert!(s.gen_walked, "{s:?}");
+    // a new li: walked, renumbered
+    let o = by_id(&doc, "o");
+    insert_at(&o, &element("<li id=z>z</li>"), 0);
+    let s = build(&doc);
+    assert!(s.gen_walked, "{s:?}");
+    assert_eq!(gen_text(&doc, "y").as_deref(), Some("3. "));
+    // a moved li (an existing entry inserted elsewhere): walked
+    let z = by_id(&doc, "z");
+    remove(&z);
+    append(&o, &z);
+    let s = build(&doc);
+    assert!(s.gen_walked, "{s:?}");
+    assert_eq!(gen_text(&doc, "z").as_deref(), Some("3. "));
+    // a class that adds a counter-increment: walked
+    set_attr(&by_id(&doc, "x"), "class", Some("big"));
+    let s = build(&doc);
+    assert!(s.gen_walked, "{s:?}");
+    assert_eq!(gen_text(&doc, "y").as_deref(), Some("11. "));
+    // a removed li: walked
+    remove(&by_id(&doc, "x"));
+    let s = build(&doc);
+    assert!(s.gen_walked, "{s:?}");
+    assert_eq!(gen_text(&doc, "y").as_deref(), Some("1. "));
+}
+
+/// Writes below a `display: none` element (no entries there), or to a node without an entry, walk: the
+/// walk reads matched rules only and may see under it (found by fuzz seed 380: an inline `display:none`
+/// on `body`, then a removal below it). Every build compares with the from-scratch walk.
+#[test]
+fn qinc1k3_counter_walk_sees_under_an_inline_display_none() {
+    let _g = LogOnly::new();
+    let doc = page(
+        "li{counter-increment:n} li::before{content:counter(n) \".\"}",
+        "<div id=h style=\"display:none\"><section id=s><li id=a>a</li></section></div><ol><li id=b>b</li></ol>",
+    );
+    build(&doc);
+    // a write below the hidden div (no entry): walked
+    set_attr(&by_id(&doc, "s"), "class", Some("x"));
+    let s = build(&doc);
+    assert!(s.gen_walked, "{s:?}");
+    // a removal below it: walked
+    remove(&by_id(&doc, "s"));
+    let s = build(&doc);
+    assert!(s.gen_walked, "{s:?}");
+    // an insertion directly under the hidden div (its entry is `display: none`): walked
+    append(&by_id(&doc, "h"), &element("<li id=c>c</li>"));
+    let s = build(&doc);
+    assert!(s.gen_walked, "{s:?}");
+}
+
+/// QINC1k3 (fuzz seed 1752): an element hidden by an inline `display:none` keeps no `::before` match (the
+/// cascade skips its pseudo slots), but the walk matches them: a class that gives it a `::before` counter
+/// changes the walk's output, so its `gsig` reads those slots too.
+#[test]
+fn qinc1k3_counter_walk_sees_a_hidden_elements_new_before() {
+    let _g = LogOnly::new();
+    let doc = page(
+        "li{counter-increment:n} .c4::before{content:counter(n) \".\"}",
+        "<section id=s class=c2 style=\"display:none\"><i>a</i></section><ol><li id=b class=c4>b</li></ol>",
+    );
+    build(&doc);
+    set_attr(&by_id(&doc, "s"), "class", Some("c4"));
+    let s = build(&doc);
+    assert!(s.gen_walked, "{s:?}");
 }

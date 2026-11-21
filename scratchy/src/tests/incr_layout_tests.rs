@@ -160,6 +160,9 @@ fn qinc1h1_a_growing_paragraph_moves_the_following_siblings() {
     assert!(s.hits >= 2 && s.shifted >= 2, "{s:?}");
 }
 
+/// QINC1h1, revised by QINC1k3: a box with floats coming in was never spliced alone (it walked up to the
+/// BFC root). Since QINC1k3 its key holds the floats it was measured among (`Ck::fl`): re-measured
+/// among the same floats with an unchanged parent view and the same floats placed, it is spliced.
 #[test]
 fn qinc1h1_floats_in_force_a_walk_up() {
     let _g = LogOnly::new();
@@ -171,8 +174,43 @@ fn qinc1h1_floats_in_force_a_walk_up() {
     set_text(&by_id(&doc, "p"), "beside it too");
     let s = lay(&doc);
     incremental(&s);
-    assert!(s.root || !s.levels.contains(&0), "a box with floats coming in is never spliced alone: {s:?}");
-    assert!(s.miss_not_cacheable >= 1, "{s:?}");
+    assert!(!s.root && s.levels == vec![0], "spliced at the box among the floats: {s:?}");
+    assert_eq!(s.miss_not_cacheable, 0, "{s:?}");
+}
+
+/// QINC1k3: a box whose measure placed different floats (a taller float inside a non-BFC parent, whose
+/// own height does not include it) cannot stop there: the floats reach its later siblings.
+#[test]
+fn qinc1k3_changed_floats_out_walk_up() {
+    let _g = LogOnly::new();
+    let doc = page(
+        "#f{float:left;width:50px;height:50px}",
+        "<div id=w><div id=f></div>above</div><div id=n>beside the float, maybe</div><section><div>x</div></section>",
+    );
+    lay(&doc);
+    set_attr(&by_id(&doc, "f"), "style", "height:300px");
+    let s = lay(&doc);
+    incremental(&s);
+    assert!(s.root || s.levels.iter().all(|l| *l >= 2), "walked past #f and #w: {s:?}");
+}
+
+/// QINC1k3: clean boxes among floats are reused when their parent is re-measured (same origin, same
+/// floats coming in; the floats they placed are placed again for their later siblings).
+#[test]
+fn qinc1k3_clean_boxes_among_floats_are_reused() {
+    let _g = LogOnly::new();
+    let doc = page(
+        "#f{float:right;width:80px;height:200px}",
+        "<div id=w><div id=f></div><p>one beside it</p></div><p>two beside it</p><div><p>three beside it</p></div><div id=z>z</div>",
+    );
+    lay(&doc);
+    let body = find_by_tag(&doc, "body").unwrap();
+    let n = body.children.borrow().len();
+    insert_at(&body, &element("<div>new last</div>"), n);
+    let s = lay(&doc);
+    incremental(&s);
+    assert!(s.hits >= 3, "{s:?}");
+    assert_eq!(s.miss_floats, 0, "{s:?}");
 }
 
 #[test]
@@ -444,4 +482,21 @@ fn qinc1k1_a_bfc_root_with_floats_is_reused_only_at_the_same_y() {
     let s = lay(&doc);
     incremental(&s);
     assert_eq!(s.miss_y, 0, "{s:?}");
+}
+
+/// QINC1k3 (fuzz seed 5832): a BFC root beside a float is placed by its parent from its min-content width
+/// (Q34b: it drops below the float when it does not fit beside it), so a change inside it never stops
+/// at it while floats come in, even when its own size would be unchanged.
+#[test]
+fn qinc1k3_bfc_root_beside_a_float_is_placed_by_its_parent() {
+    let _g = LogOnly::new();
+    let doc = page(
+        "#f{float:left;width:300px;height:100px} #b{overflow:hidden;height:40px}",
+        "<div id=f></div><div id=b><span id=t>short</span></div><p>after</p>",
+    );
+    lay(&doc);
+    set_text(&by_id(&doc, "t"), &"x".repeat(120));
+    let s = lay(&doc);
+    incremental(&s);
+    assert!(!s.levels.contains(&0) || s.root, "{s:?}");
 }

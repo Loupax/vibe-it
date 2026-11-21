@@ -34,7 +34,7 @@
 //! `SCRATCHY_INCR=1` alone relayouts without comparing; with neither nothing here runs.
 use super::*;
 use crate::incr_cmp::{cmp_laid, Names};
-use crate::layout::{Ck, CkPending, PSig};
+use crate::layout::{Ck, CkFloats, CkPending, FloatSnap, PSig};
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 
@@ -299,8 +299,28 @@ pub(crate) fn note_remeasured() {
 }
 
 /// Records how the element box `b` was measured on its fresh `laid`.
-pub(crate) fn record(laid: &mut Laid, b: &LayoutBox, k: &Key, intr_anc: bool, intr_own: bool, floats_out: bool, emitted: &[PendingPositioned<'_>]) {
-    let mut cacheable = !k.floats_in && !floats_out;
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn record(
+    laid: &mut Laid,
+    b: &LayoutBox,
+    k: &Key,
+    intr_anc: bool,
+    intr_own: bool,
+    floats: &Floats,
+    floats_at: (usize, usize),
+    emitted: &[PendingPositioned<'_>],
+) {
+    let mut cacheable = true;
+    // QINC1k3: the floats it was measured among and the ones it placed (`Ck::fl`).
+    let out = FloatSnap::of(floats, floats_at);
+    let fl = (k.floats_in || !out.is_empty()).then(|| {
+        let inl = if k.floats_in {
+            snap_in(floats, floats_at)
+        } else {
+            std::sync::Arc::new(FloatSnap::default())
+        };
+        Box::new(CkFloats { inl, out })
+    });
     let mut bubble = Vec::new();
     if let Some(z) = &laid.zb {
         for e in &z.bubble {
@@ -349,7 +369,30 @@ pub(crate) fn record(laid: &mut Laid, b: &LayoutBox, k: &Key, intr_anc: bool, in
         ink_x: 0.0,
         ink_y: 0.0,
         ifb: 0.0,
+        fl,
     }));
+}
+
+thread_local! {
+    /// QINC1k3: the last incoming-float snapshot (consecutive boxes of a BFC share one).
+    static LAST_SNAP: RefCell<Option<std::sync::Arc<FloatSnap>>> = const { RefCell::new(None) };
+}
+
+/// QINC1k3: the first `at` entries of `floats` as a shared snapshot.
+fn snap_in(floats: &Floats, at: (usize, usize)) -> std::sync::Arc<FloatSnap> {
+    LAST_SNAP.with(|l| {
+        let mut l = l.borrow_mut();
+        let (fl, fr) = (floats.left.borrow(), floats.right.borrow());
+        if let Some(s) = l.as_ref()
+            && crate::layout::same_entries(&s.left, &fl[..at.0])
+            && crate::layout::same_entries(&s.right, &fr[..at.1])
+        {
+            return s.clone();
+        }
+        let s = std::sync::Arc::new(FloatSnap { left: fl[..at.0].to_vec(), right: fr[..at.1].to_vec() });
+        *l = Some(s.clone());
+        s
+    })
 }
 
 /// See `Ck::x_sensitive` (element children answer from their own key; anonymous ones are looked into).
@@ -380,7 +423,7 @@ fn box_inside(b: &LayoutBox, ptr: usize) -> bool {
 
 /// R60 8.2: a clean element box measured at the same key minus the origin: its old `Laid` moved to
 /// the new origin, with its `pending` and z-index bubble re-emitted. `None` = measure it.
-pub(crate) fn try_hit<'a>(b: &'a LayoutBox, k: &Key, pending: &mut Vec<PendingPositioned<'a>>) -> Option<Laid> {
+pub(crate) fn try_hit<'a>(b: &'a LayoutBox, k: &Key, pending: &mut Vec<PendingPositioned<'a>>, floats: &Floats) -> Option<Laid> {
     CTX.with(|c| {
         let mut c = c.try_borrow_mut().ok()?;
         let c = c.as_mut()?;
@@ -402,7 +445,15 @@ pub(crate) fn try_hit<'a>(b: &'a LayoutBox, k: &Key, pending: &mut Vec<PendingPo
                 Some(&mut c.stats.miss_dirty)
             } else if !ck.cacheable {
                 Some(&mut c.stats.miss_not_cacheable)
-            } else if k.floats_in {
+            } else if match &ck.fl {
+                // QINC1k3: among floats only at the same origin with the same floats.
+                Some(fl) => {
+                    ck.x.to_bits() != k.x.to_bits()
+                        || ck.y.to_bits() != k.y.to_bits()
+                        || if k.floats_in { !fl.inl.same_as(floats) } else { !fl.inl.is_empty() }
+                }
+                None => k.floats_in,
+            } {
                 Some(&mut c.stats.miss_floats)
             } else if ck.width.to_bits() != k.width.to_bits()
                 || !same(ck.ch, k.ch)
@@ -478,6 +529,9 @@ pub(crate) fn try_hit<'a>(b: &'a LayoutBox, k: &Key, pending: &mut Vec<PendingPo
             let pb: &'a LayoutBox = unsafe { &*(p.ptr as *const LayoutBox) };
             debug_assert!(pb.style.node == p.node && pb.style.pseudo == p.pseudo);
             pending.push(PendingPositioned { b: pb, fixed: p.fixed, static_x: p.sx, static_y: p.sy });
+        }
+        if let Some(fl) = &old.ck.as_ref().expect("checked").fl {
+            fl.out.place_into(floats);
         }
         c.stats.hits += 1;
         if dx != 0.0 || dy != 0.0 {
@@ -1134,6 +1188,9 @@ impl LayoutEngine {
                 }
             } else if nb.style.float != Float::None {
                 "float"
+            } else if nb.style.establishes_bfc() && ck.fl.as_ref().is_some_and(|f| !f.inl.is_empty()) {
+                // QINC1k3: its parent placed it beside the floats by its min-content width (Q34b).
+                "bfc_among_floats"
             } else if matches!(parent_box.style.display, Display::Table | Display::Flex | Display::InlineFlex | Display::Grid) {
                 "flex_grid_table_parent"
             } else if ck.pos.is_some() || ck.psig != PSig::of(&nb.style) {
@@ -1164,6 +1221,8 @@ impl LayoutEngine {
         // (a hole with the same key stays, never reused); a splice puts the new ones in the holes.
         let keys = at(&mut self.laid, &lpath).ck.as_ref().expect("checked").bubble.clone();
         let old_pending = at(&mut self.laid, &lpath).ck.as_ref().expect("checked").pending.clone();
+        // QINC1k3: the floats it was measured among (re-measured among the same ones) and placed.
+        let old_fl = at(&mut self.laid, &lpath).ck.as_ref().expect("checked").fl.clone();
         let mut slots: Vec<Slot> = Vec::new();
         for key in &keys {
             let mut found = None;
@@ -1218,6 +1277,7 @@ impl LayoutEngine {
             }
         });
         let mut out = Vec::new();
+        let mut floats_ok = true;
         let mut new = {
             let _z = crate::layout::z_active_guard();
             let _i = crate::layout::intr_anc_guard(under_intr);
@@ -1227,11 +1287,18 @@ impl LayoutEngine {
                 let item = PendingPositioned { b: nb, fixed: p.fixed, static_x: p.sx, static_y: p.sy };
                 resolve_positioned(item, p.cb.0, p.cb.1, p.cb.2, p.cb.3, fs, &mut self.next_id, &mut self.cache, LayoutEngine::far(), inc, &mut out)
             } else {
-                let fl = Floats::default();
-                crate::layout::measure_at(
+                let fl = old_fl.as_ref().map_or_else(Floats::default, |f| f.inl.to_floats());
+                let r = crate::layout::measure_at(
                     nb, fs, ck_key.x, ck_key.y, ck_key.width, ck_key.ch, &mut self.next_id, &mut self.cache, LayoutEngine::far(), inc,
                     &mut out, &fl, ck_key.amo, ck_key.fbw,
-                )
+                );
+                let at_in = old_fl.as_ref().map_or((0, 0), |f| (f.inl.left.len(), f.inl.right.len()));
+                let placed = FloatSnap::of(&fl, at_in);
+                floats_ok = match &old_fl {
+                    Some(f) => placed.same(&f.out),
+                    None => placed.is_empty(),
+                };
+                r
             }
         };
         CTX.with(|c| {
@@ -1260,6 +1327,7 @@ impl LayoutEngine {
             ok
         };
         let fits = pending_ok
+            && floats_ok
             && intr_ok
             && same_entries
             && new.ck.as_ref().is_some_and(|ck| ck.cacheable)
@@ -1267,6 +1335,8 @@ impl LayoutEngine {
         if !fits {
             crate::perf::incr_up_reason(if !pending_ok {
                 "pending_out_changed"
+            } else if !floats_ok {
+                "floats_out_changed"
             } else if !intr_ok {
                 "intrinsic_size_changed"
             } else if !same_entries {

@@ -289,6 +289,8 @@ pub(crate) struct Entry {
     children: Box<[usize]>,
     fp: Option<Box<Fp>>,
     seen: u32,
+    /// QINC1k3: what the counter / quote walk reads of this element (`gen_sig`; 0 = nothing).
+    gsig: u64,
 }
 
 impl Entry {
@@ -309,6 +311,8 @@ impl Entry {
             children: Box::new([]),
             fp: None,
             seen: 0,
+            // `<script>` / `<style>` keep no matches: the walk may read anything of them.
+            gsig: if styled { 0 } else { GEN_OPAQUE },
         }
     }
 
@@ -405,6 +409,68 @@ pub(crate) struct Engine {
     gen_dirty: bool,
     /// QINC1i4 check mode: adopted styles that differ from the engine's own cascade.
     adopt_mism: Vec<String>,
+}
+
+/// QINC1k3: `gsig` of an element the walk reads in full (unknown matches).
+const GEN_OPAQUE: u64 = 1;
+/// QINC1k3: `gsig` bit: a `content` of the element reads its attributes (`attr()`).
+const GEN_ATTR: u64 = 1 << 63;
+
+/// QINC1k3: what `images::generated_walk` reads of an element, from the same matches it is given
+/// (slots 0-2): `display: none`, `quotes`, the element's own `content`, the counter properties, the
+/// `::before` / `::after` `content` parts, and the `ol` / `ul` / `li` implicit `list-item` counter. 0 when
+/// none of them is present (the walk passes its state through such an element unchanged), else a hash
+/// (with `GEN_ATTR` when a `content` reads `attr()`). An update whose elements all keep their `gsig`,
+/// with no element of non-zero `gsig` inserted, moved or removed and no attribute of a `GEN_ATTR`
+/// element changed, leaves the walk's output as it was: the document-wide walk is skipped.
+fn gen_sig(tag: &str, rules: &[StyleRule], ms: &[Option<MatchList>; 1 + PSEUDOS]) -> u64 {
+    use crate::css::{ContentDecl, ContentPart};
+    use crate::style::{cascade_css, Cascaded};
+    let mut parts: Vec<String> = Vec::new();
+    let mut attr = false;
+    let mut reads_attr = |p: &[ContentPart]| attr |= p.iter().any(|x| matches!(x, ContentPart::Attr(_)));
+    if let Some(m) = &ms[0] {
+        let own = decls_of(rules, m);
+        if matches!(cascade_css(&own, None, "display", |d| d.display), Cascaded::Value(Display::None)) {
+            parts.push("none".into());
+        }
+        if let Cascaded::Value(q) = cascade_css(&own, None, "quotes", |d| d.quotes.clone()) {
+            parts.push(format!("q{q:?}"));
+        }
+        match cascade_css(&own, None, "content", |d| d.content.clone()) {
+            Cascaded::Value(ContentDecl::Text(t)) => parts.push(format!("t{t:?}")),
+            Cascaded::Value(ContentDecl::Parts(p)) => {
+                reads_attr(&p);
+                parts.push(format!("p{p:?}"));
+            }
+            _ => {}
+        }
+        for (n, v) in [
+            ("r", cascade_css(&own, None, "counter-reset", |d| d.counter_reset.clone())),
+            ("s", cascade_css(&own, None, "counter-set", |d| d.counter_set.clone())),
+            ("i", cascade_css(&own, None, "counter-increment", |d| d.counter_increment.clone())),
+        ] {
+            if let Cascaded::Value(ops) = v {
+                parts.push(format!("{n}{ops:?}"));
+            }
+        }
+    }
+    for slot in [1usize, 2] {
+        if let Some(m) = &ms[slot]
+            && let Cascaded::Value(ContentDecl::Parts(p)) = cascade_css(&decls_of(rules, m), None, "content", |d| d.content.clone())
+        {
+            reads_attr(&p);
+            parts.push(format!("{slot}{p:?}"));
+        }
+    }
+    if matches!(tag, "ol" | "ul" | "li") {
+        parts.push(tag.into());
+    }
+    if parts.is_empty() {
+        return 0;
+    }
+    let h = hash_str(&parts.join("\u{1}")) & !GEN_ATTR;
+    h.max(2) | if attr { GEN_ATTR } else { 0 }
 }
 
 /// Matches per slot of the element (`seed_match` input or `match_slot` output).
@@ -651,8 +717,8 @@ impl Engine {
 
     /// Drops the entries of `h`'s subtree (removed from the document, or no longer rendered).
     fn drop_subtree(&mut self, h: &Handle, include_self: bool) {
-        if include_self {
-            self.table.remove(&node_id(h));
+        if include_self && let Some(e) = self.table.remove(&node_id(h)) {
+            self.gen_dirty |= e.gsig != 0;
         }
         for c in h.children.borrow().iter() {
             if is_el(c) {
@@ -669,6 +735,7 @@ impl Engine {
         let mut stack = vec![k];
         while let Some(k) = stack.pop() {
             if let Some(e) = self.table.remove(&k) {
+                self.gen_dirty |= e.gsig != 0;
                 stack.extend(e.children.iter().copied());
             }
         }
@@ -694,6 +761,8 @@ impl Engine {
 
     fn removal(&mut self, map: &InvalidationMap, parent: &Handle, child: usize, prev: Option<usize>, next: Option<usize>) {
         let pk = node_id(parent);
+        // QINC1k3: the walk may see under a `display: none` element (it reads matched rules only).
+        self.gen_dirty |= self.table.get(&pk).is_some_and(Entry::none);
         self.kids_dirty.insert(pk);
         self.box_mark(pk);
         if !self.table.contains_key(&child) {
@@ -717,13 +786,28 @@ impl Engine {
 
     fn insertion(&mut self, map: &InvalidationMap, parent: &Handle, child: &Handle) {
         let pk = node_id(parent);
+        // QINC1k3: the walk may see under a `display: none` element (it reads matched rules only).
+        self.gen_dirty |= self.table.get(&pk).is_some_and(Entry::none);
         self.kids_dirty.insert(pk);
         self.box_mark(pk);
         let m = if is_el(child) { map.for_children(parent, &ChildChange::Inserted(child.clone())) } else { map.for_text(parent) };
         self.apply(m);
+        // QINC1k3: an element the walk reads that moved here (new elements are seen when visited).
+        if !self.gen_dirty && is_el(child) {
+            let mut stack = vec![child.clone()];
+            while let Some(n) = stack.pop() {
+                if self.table.get(&node_id(&n)).is_some_and(|e| e.gsig != 0) {
+                    self.gen_dirty = true;
+                    break;
+                }
+                stack.extend(n.children.borrow().iter().filter(|c| is_el(c)).cloned());
+            }
+        }
     }
 
     fn attr_change(&mut self, map: &InvalidationMap, h: &Handle, name: &str, old: Option<&str>, new: Option<&str>) {
+        // QINC1k3: `content: attr(..)` reads it.
+        self.gen_dirty |= self.table.get(&node_id(h)).is_some_and(|e| e.gsig & GEN_ATTR != 0);
         let m = map.for_attr(h, name, old, new);
         self.apply(m);
         self.box_mark(node_id(h));
@@ -762,12 +846,20 @@ impl Engine {
         for e in entries {
             match &e.change {
                 Change::Attr { name, old, new } => {
-                    let Some(h) = self.handle_of(e.node) else { continue };
+                    let Some(h) = self.handle_of(e.node) else {
+                        // QINC1k3: a node without an entry (under a `display: none` element) may still be walked.
+                        self.gen_dirty = true;
+                        continue;
+                    };
                     self.covered_attr.insert((e.node, name.clone()));
                     self.attr_change(map, &h, name, val_str(old), val_str(new));
                 }
                 Change::ChildInsert { child, .. } => {
-                    let Some(p) = self.handle_of(e.node) else { continue };
+                    let Some(p) = self.handle_of(e.node) else {
+                        // QINC1k3: see above.
+                        self.gen_dirty = true;
+                        continue;
+                    };
                     self.covered_kids.insert(e.node);
                     let c = p.children.borrow().iter().find(|c| node_id(c) == *child).cloned();
                     if let Some(c) = c {
@@ -775,7 +867,11 @@ impl Engine {
                     }
                 }
                 Change::ChildRemove { child, prev, next } => {
-                    let Some(p) = self.handle_of(e.node) else { continue };
+                    let Some(p) = self.handle_of(e.node) else {
+                        // QINC1k3: see above.
+                        self.gen_dirty = true;
+                        continue;
+                    };
                     self.covered_kids.insert(e.node);
                     self.removal(map, &p, *child, *prev, *next);
                 }
@@ -789,9 +885,14 @@ impl Engine {
                     self.apply(m);
                 }
                 Change::TextContent | Change::InnerHtml => {
-                    let Some(p) = self.handle_of(e.node) else { continue };
+                    let Some(p) = self.handle_of(e.node) else {
+                        // QINC1k3: see above.
+                        self.gen_dirty = true;
+                        continue;
+                    };
                     self.covered_kids.insert(e.node);
                     self.kids_dirty.insert(e.node);
+                    self.gen_dirty |= self.table.get(&e.node).is_some_and(Entry::none);
                     self.box_mark(e.node);
                     let now: Vec<Handle> = p.children.borrow().clone();
                     let now_keys: HashSet<usize> = now.iter().map(node_id).collect();
@@ -810,7 +911,11 @@ impl Engine {
                     }
                 }
                 Change::Form(kind) => {
-                    let Some(h) = self.handle_of(e.node) else { continue };
+                    let Some(h) = self.handle_of(e.node) else {
+                        // QINC1k3: `:checked` matches of an element without an entry (see above).
+                        self.gen_dirty = true;
+                        continue;
+                    };
                     self.box_mark(e.node);
                     self.fp_dirty.insert(e.node);
                     let targets: Vec<Handle> = if *kind == FormKind::Reset {
@@ -959,7 +1064,13 @@ impl Engine {
         }
         // Entries not reached are no longer in the rendered document.
         let ep = self.epoch;
-        self.table.retain(|_, e| e.seen == ep);
+        let mut lost = false;
+        self.table.retain(|_, e| {
+            let keep = e.seen == ep;
+            lost |= !keep && e.gsig != 0;
+            keep
+        });
+        self.gen_dirty |= lost;
     }
 
     // ---------- the traversal ----------
@@ -974,6 +1085,8 @@ impl Engine {
                 let fresh = !self.table.contains_key(&k);
                 let full = self.full;
                 let rec = reconcile_on();
+                // QINC1k3: a new `<script>` / `<style>` (`GEN_OPAQUE`) may change what the walk reads.
+                self.gen_dirty |= fresh;
                 let e = self.table.entry(k).or_insert_with(|| Entry::new(&c, false));
                 if fresh || full || e.flags & RESTYLE != 0 {
                     e.m = Default::default();
@@ -1100,9 +1213,22 @@ impl Engine {
             }
             // QINC1g: any change of what the builder reads for this element (its style, a pseudo
             // slot's style or presence, a match list: `content`, `background-image`) touches its box.
-            {
+            let gsig = {
                 let e = &self.table[&k];
-                if e.m != ms {
+                let gsig = if e.m == ms && !need_match {
+                    e.gsig
+                } else if s.display == Display::None {
+                    // The walk matches the `::before` / `::after` slots the cascade skipped (it reads
+                    // matched rules only, so it may walk on under an element hidden by inline style).
+                    let mut all = ms.clone();
+                    for slot in 1..=2u8 {
+                        all[slot as usize] = Some(match_slot(h, rules, cx.vw, slot));
+                    }
+                    gen_sig(tag, rules, &all)
+                } else {
+                    gen_sig(tag, rules, &ms)
+                };
+                if gsig != e.gsig {
                     self.gen_dirty = true;
                 }
                 let changed = old_style.is_none_or(|o| !same_style(&o, &s))
@@ -1115,9 +1241,11 @@ impl Engine {
                 if changed {
                     self.touched.push(k);
                 }
-            }
+                gsig
+            };
             let e = self.table.get_mut(&k).expect("inserted above");
             e.why = why;
+            e.gsig = gsig;
             e.m = ms;
             e.style = Some(sb);
             e.pseudo = pseudo;
@@ -1217,9 +1345,9 @@ impl Engine {
         if !self.full
             && let Some(map) = map.as_ref()
         {
-            if log.entries.iter().any(|e| !matches!(e.change, Change::Ambient(_))) {
-                self.gen_dirty = true;
-            }
+            // QINC1k3: a DOM write dirties the counter / quote walk only through what it reads
+            // (`gen_sig`: an entry's `gen` changed, a non-zero `gsig` inserted / moved / removed, an
+            // attribute of a `GEN_ATTR` element).
             self.process_log(map, &log.entries);
             self.interaction(map);
             if reconcile_on() && !self.full {
@@ -1373,16 +1501,20 @@ impl Engine {
     /// Drops entries whose node is gone or no longer in the document (run mode has no reconcile).
     fn sweep(&mut self) {
         let doc = self.doc_key;
+        let mut lost = false;
         self.table.retain(|_, e| {
-            let Some(mut n) = e.handle() else { return false };
-            loop {
+            let keep = e.handle().is_some_and(|mut n| loop {
                 match parent_handle(&n) {
-                    Some(p) if node_id(&p) == doc => return true,
+                    Some(p) if node_id(&p) == doc => break true,
                     Some(p) => n = p,
-                    None => return false,
+                    None => break false,
                 }
-            }
+            });
+            lost |= !keep && e.gsig != 0;
+            keep
         });
+        // QINC1k3: the next update walks again (an entry the walk read left without a log entry).
+        self.gen_dirty |= lost;
     }
 
     /// Membership-based ageing of animation start times (R60 6.5): keeps the start time of every

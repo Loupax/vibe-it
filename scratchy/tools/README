@@ -116,6 +116,10 @@ tools/incr-gate/ holds the durable recipes the QINC1 gates use (the R55 input sc
   github bbc social hover); its header documents the input plan of each page, gate.sh's header the
   series, summarize.py's docstring the columns. Every run: own wire (fresh cookies), 6G systemd-run scope,
   flock /tmp/scratchy-perf.lock, a `pre` screenshot before any input and an `end` one after it.
+  Check the `pre` screenshot's size: the nested dwl gets whatever tile the desktop gives it. On a
+  short tile (e.g. 960x316) the plan's points land at the same FRACTION of the window, i.e. off the
+  links; `INJECT_H=<tile height>` (and `INJECT_W`) makes them absolute pixels instead, which keeps the
+  wiki plan (all its links above y 300) in its 102-build regime (QINC1k3).
   hover.html is a script-free, hover-heavy local page (App frames without forced layouts).
   shotdiff.py OUT perf [pre|end] compares the flag-off / flag-on screenshots (next off run = noise floor).
   abs-drift.html: QINC1k's minimised check-mode mismatch (run headless with SCRATCHY_INCR=1 SCRATCHY_INCR_CHECK=1);
