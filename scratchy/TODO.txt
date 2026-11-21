@@ -27,7 +27,7 @@ Site breakage is diagnosed with tooling (missing-API report), not guessed.
 ========================================================================
 NOW
 ========================================================================
-- [ ] QINC1n [S] (P1; USER 2026-11-21 "yes": the evidence for QINC1m's 3 days; Opus; incr_engine.rs, incr_frame.rs,
+- [ ] [WIP] QINC1n [S] (P1; USER 2026-11-21 "yes": the evidence for QINC1m's 3 days; Opus; incr_engine.rs, incr_frame.rs,
       app.rs, stash state dir) Make engine trouble visible in daily use. (1) A real fallback (the engine returns no tree
       and the caller lays out from scratch, or an engine error/panic it recovers from) prints ONE log line per page
       (`scratchy: engine: fallback <reason> on <url>`) and bumps a per-session counter; restarts on first layout, resize
@@ -130,6 +130,14 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       EventListener-handleEvent-cross-realm, traversal/TreeWalker-acceptNode-filter-cross-realm,
       ranges/Range-extractContents-dynamic-end. Target: nodes 42.4 -> 45, events 23.0 -> 25, other 55.2 -> 60;
       re-run all areas (html/*, shadow-dom, uievents use id globals too) and record their new passes.
+- [ ] QDOM1b [S] (P2, from QDOM1 #516; Opus; js_engine_v8.rs, js.rs) With the WindowProperties Proxy in the global's
+      prototype chain, a strict-mode assignment to an undeclared name no longer throws ReferenceError (reads still do;
+      tests qj1_/qy15_ were switched to `NaN = 1`). Restore the spec behaviour: a V8 named-property interceptor on the
+      global template (or equivalent) instead of a Proxy, keeping named access, its wgen cache and the scores; then
+      restore an `undeclared = 1` strict ReferenceError test next to the NaN one.
+- [ ] QMSG1 [S] (P2, from QDOM1 #516; Sonnet; js_dom.rs iframe realms, globals_prelude.js postMessage) postMessage to and
+      from an iframe's contentWindow (`window[0].postMessage`, `parent.postMessage`, MessageEvent origin/source): today the
+      webmessaging 019 / cross-document files time out waiting for the reply. Target: webmessaging score up, list files.
 - [ ] QDOM2 [M] (P1; Sonnet; js_dom.rs, js.rs; R65; after QDOM1) Real NodeList and HTMLCollection objects.
       `childNodes`, `children`, `getElementsByTagName(NS)`, `getElementsByClassName`, `document.forms/images/links/
       anchors/scripts/embeds` (`coll`), `querySelectorAll` (static NodeList): instances of `NodeList` / `HTMLCollection`
