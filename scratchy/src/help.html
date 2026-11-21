@@ -137,6 +137,15 @@ UTF-16 units of keys plus values per origin; change <code>QUOTA_UNITS</code> in
 <li>Pages visited: the file <code>&lt;dir&gt;/history</code> (time, URL,
 title), one line per visit. <code>:go</code> completes from it: the
 best match is shown dimmed as you type, Tab cycles, Enter runs it.</li>
+<li>Your own completion source: in <code>src/config.rs</code> a row of
+<code>COMPLETERS</code> can be <code>Source::Cmd(&amp;["my-source"])</code>
+(see the commented example). The program runs with no shell, once per command
+line and argument position, with the environment <code>SCRATCHY_LINE</code>,
+<code>SCRATCHY_WORD</code>, <code>SCRATCHY_ARG</code>, <code>SCRATCHY_URL</code>
+and <code>SCRATCHY_STATE_DIR</code>. It prints one candidate per line; scratchy
+filters them by what you type. A non-zero exit or no output gives no
+suggestion, a missing program shows a message in the status bar, and one that
+runs longer than <code>SOURCE_TIMEOUT_MS</code> is killed.</li>
 <li>Cookies: kept by <code>wire</code>, saved only if you start it with
 <code>wire --cookie-file PATH</code>.</li>
 <li><code>scratchy --forget-site &lt;site&gt;</code> deletes a site's

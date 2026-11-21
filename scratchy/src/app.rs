@@ -31,6 +31,9 @@ pub(crate) struct FetchedPage {
 }
 
 pub(crate) enum AppEvent {
+    /// QCOMP2: an external completion source finished (or could not start); dropped unless it is for
+    /// the `:` line that is open now.
+    CompleteResult(crate::completion::ExtResult),
     /// QM1g: mpv has a new video frame (posted from its render-update thread).
     VideoFrame,
     Chunk(Vec<u8>),
@@ -4428,7 +4431,12 @@ impl App {
                 self.vim_mode = VimMode::Command;
                 self.command_line.clear();
                 self.ghost = None;
-                self.complete_cache = CompleteCache::new(crate::history::dir());
+                let proxy = Mutex::new(self.proxy.clone());
+                let sink: crate::completion::ExtSink = std::sync::Arc::new(move |r| {
+                    let _ = proxy.lock().unwrap_or_else(|e| e.into_inner()).send_event(AppEvent::CompleteResult(r));
+                });
+                let url = self.base_url.as_ref().map(|u| u.to_string()).unwrap_or_default();
+                self.complete_cache = CompleteCache::new(crate::history::dir()).with_external(sink, url);
             }
             Action::EnterSearchMode => {
                 self.vim_mode = VimMode::Search;
@@ -4669,6 +4677,21 @@ impl App {
                 self.recompute_ghost();
             }
         }
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
+    /// QCOMP2: an external source's output arrived. Stale (another `:` line) results are dropped; an
+    /// error goes to the status bar; the ghost is recomputed for what is typed now.
+    pub(crate) fn handle_complete_result(&mut self, r: crate::completion::ExtResult) {
+        if self.vim_mode != VimMode::Command || !self.complete_cache.accept(&r) {
+            return;
+        }
+        if let Err(msg) = &r.outcome {
+            self.show_message(msg);
+        }
+        self.recompute_ghost();
         if let Some(window) = &self.window {
             window.request_redraw();
         }
@@ -5155,6 +5178,7 @@ impl ApplicationHandler<AppEvent> for App {
                 self.js_sync();
             }
             AppEvent::NavResult(generation, result) => self.handle_nav_result(generation, result),
+            AppEvent::CompleteResult(r) => self.handle_complete_result(r),
             AppEvent::LinkCss(generation, href, css) => {
                 if generation == self.nav_generation {
                     self.link_sheets.settle(&href, css);

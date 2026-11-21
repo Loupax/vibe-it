@@ -6,19 +6,82 @@
 //! index Tab / Shift-Tab move. `App` only stores the `Ghost`, recomputes it after each edit and
 //! draws `Ghost::rest`.
 
-use std::cell::{Cell, OnceCell};
-use std::collections::HashMap;
+use std::cell::{Cell, OnceCell, RefCell};
+use std::collections::{HashMap, HashSet};
+use std::io::Read;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
-use crate::config::{Source, COMPLETERS, SPACE_AFTER_ARG};
+use crate::config::{Source, COMPLETERS, SOURCE_MAX_OUTPUT, SOURCE_TIMEOUT_MS, SPACE_AFTER_ARG};
+
+/// QCOMP2: what an external source's thread reports back (as `AppEvent::CompleteResult`).
+/// `line_id` names the `:` line it was started for; a result for another line is dropped.
+/// `outcome` is the stdout lines (empty after a non-zero exit or no output) or a status-bar message.
+pub(crate) struct ExtResult {
+    pub line_id: u64,
+    pub cmd: String,
+    pub arg: usize,
+    pub outcome: Result<Vec<String>, String>,
+}
+
+/// Where an external source's thread delivers its [`ExtResult`] (the app posts an event).
+pub(crate) type ExtSink = Arc<dyn Fn(ExtResult) + Send + Sync>;
+
+static NEXT_LINE_ID: AtomicU64 = AtomicU64::new(1);
+
+/// Runs `argv` with no shell and the SCRATCHY_* environment; at most `timeout` (then it is
+/// killed) and `SOURCE_MAX_OUTPUT` bytes. Non-zero exit gives no lines; a program that cannot be
+/// started gives the status-bar message.
+pub(crate) fn run_source(argv: &[&str], env: &[(&str, String)], timeout: Duration) -> Result<Vec<String>, String> {
+    let Some((prog, args)) = argv.split_first() else { return Ok(Vec::new()) };
+    let mut cmd = std::process::Command::new(prog);
+    cmd.args(args).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null());
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    let mut child = cmd.spawn().map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            format!("completion: {prog}: program not found")
+        } else {
+            format!("completion: {prog}: {e}")
+        }
+    })?;
+    let mut out = child.stdout.take().expect("piped stdout");
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = (&mut out).take(SOURCE_MAX_OUTPUT as u64).read_to_end(&mut buf);
+        // Keep draining so the program is not blocked on a full pipe (it is killed at the timeout anyway).
+        let _ = std::io::copy(&mut out, &mut std::io::sink());
+        let _ = tx.send(buf);
+    });
+    let start = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(st)) => break st,
+            Ok(None) if start.elapsed() >= timeout => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Ok(Vec::new());
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(5)),
+            Err(_) => return Ok(Vec::new()),
+        }
+    };
+    if !status.success() {
+        return Ok(Vec::new());
+    }
+    let buf = rx.recv_timeout(Duration::from_millis(500)).unwrap_or_default();
+    Ok(String::from_utf8_lossy(&buf).lines().map(str::trim_end).filter(|l| !l.is_empty()).map(str::to_string).collect())
+}
 
 /// What a source is asked: the whole line, the word being completed and its argument index
 /// (0 = the command name, 1 = the first argument).
 pub(crate) struct CompleteCtx<'a> {
-    #[allow(dead_code)] // for sources that look at the whole line (QCOMP2 passes it as SCRATCHY_LINE)
     pub line: &'a str,
     pub word: &'a str,
-    #[allow(dead_code)] // for sources with a different list per argument position
     pub arg: usize,
     /// What sources read once per command line (the ranked history).
     pub cache: &'a CompleteCache,
@@ -40,11 +103,71 @@ pub(crate) struct CompleteCache {
     history: OnceCell<Vec<HistoryEntry>>,
     /// How many times the file was read (tests check "once per line").
     pub loads: Cell<usize>,
+    /// QCOMP2: names this command line, so a late result for an earlier line is dropped.
+    pub id: u64,
+    /// Where external sources deliver (None: they are never started).
+    sink: Option<ExtSink>,
+    /// SCRATCHY_URL for external sources.
+    url: String,
+    /// External sources' output per (command, argument position), once it arrived.
+    ext: RefCell<HashMap<(String, usize), Vec<String>>>,
+    /// (command, argument position) pairs already started: one run per line and position.
+    ext_started: RefCell<HashSet<(String, usize)>>,
 }
 
 impl CompleteCache {
     pub(crate) fn new(dir: Option<PathBuf>) -> Self {
-        CompleteCache { dir, history: OnceCell::new(), loads: Cell::new(0) }
+        CompleteCache {
+            dir,
+            history: OnceCell::new(),
+            loads: Cell::new(0),
+            id: NEXT_LINE_ID.fetch_add(1, Ordering::Relaxed),
+            sink: None,
+            url: String::new(),
+            ext: RefCell::new(HashMap::new()),
+            ext_started: RefCell::new(HashSet::new()),
+        }
+    }
+
+    /// Lets `Source::Cmd` rows run: results go to `sink`, `url` is the current page (SCRATCHY_URL).
+    pub(crate) fn with_external(mut self, sink: ExtSink, url: String) -> Self {
+        self.sink = Some(sink);
+        self.url = url;
+        self
+    }
+
+    /// Takes an external result in; false (dropped) when it belongs to another command line.
+    pub(crate) fn accept(&self, r: &ExtResult) -> bool {
+        if r.line_id != self.id {
+            return false;
+        }
+        self.ext.borrow_mut().insert((r.cmd.clone(), r.arg), r.outcome.clone().unwrap_or_default());
+        true
+    }
+
+    /// The lines of an external source: what it printed if that arrived; otherwise (first ask for
+    /// this command and position) start it on a thread and answer nothing yet.
+    fn external(&self, cmd: &str, argv: &'static [&'static str], ctx: &CompleteCtx) -> Vec<String> {
+        let key = (cmd.to_string(), ctx.arg);
+        if let Some(v) = self.ext.borrow().get(&key) {
+            return v.clone();
+        }
+        let Some(sink) = &self.sink else { return Vec::new() };
+        if self.ext_started.borrow_mut().insert(key) {
+            let env = vec![
+                ("SCRATCHY_LINE", ctx.line.to_string()),
+                ("SCRATCHY_WORD", ctx.word.to_string()),
+                ("SCRATCHY_ARG", ctx.arg.to_string()),
+                ("SCRATCHY_URL", self.url.clone()),
+                ("SCRATCHY_STATE_DIR", self.dir.as_ref().map(|d| d.display().to_string()).unwrap_or_default()),
+            ];
+            let (sink, line_id, cmd, arg) = (sink.clone(), self.id, cmd.to_string(), ctx.arg);
+            std::thread::spawn(move || {
+                let outcome = run_source(argv, &env, Duration::from_millis(SOURCE_TIMEOUT_MS));
+                sink(ExtResult { line_id, cmd, arg, outcome });
+            });
+        }
+        Vec::new()
     }
 
     /// The history in ghost order (see [`rank_history`]); empty without a state directory or file.
@@ -193,6 +316,11 @@ pub(crate) fn complete_set_args(ctx: &CompleteCtx) -> Vec<String> {
 /// T45/T46: the ghost for `text` with the cursor at byte offset `cursor`, or `None` (cursor not
 /// at the end, empty word, a command without a `COMPLETERS` row, no match).
 pub(crate) fn compute_ghost(text: &str, cursor: usize, cache: &CompleteCache) -> Option<Ghost> {
+    compute_ghost_in(COMPLETERS, text, cursor, cache)
+}
+
+/// `compute_ghost` over an explicit completion table (the tests use their own rows).
+pub(crate) fn compute_ghost_in(table: &[(&str, Source)], text: &str, cursor: usize, cache: &CompleteCache) -> Option<Ghost> {
     if cursor != text.len() {
         return None;
     }
@@ -208,8 +336,12 @@ pub(crate) fn compute_ghost(text: &str, cursor: usize, cache: &CompleteCache) ->
     let (candidates, space_after) = match command {
         None => (complete_command_names(&ctx), true),
         Some(cmd) => {
-            let (_, Source::Builtin(f)) = COMPLETERS.iter().find(|(name, _)| *name == cmd)?;
-            (f(&ctx), SPACE_AFTER_ARG.contains(&cmd))
+            let (_, source) = table.iter().find(|(name, _)| *name == cmd)?;
+            let found = match source {
+                Source::Builtin(f) => f(&ctx),
+                Source::Cmd(argv) => cache.external(cmd, argv, &ctx),
+            };
+            (found, SPACE_AFTER_ARG.contains(&cmd))
         }
     };
     let candidates: Vec<String> = candidates.into_iter().filter(|c| c.starts_with(word)).collect();

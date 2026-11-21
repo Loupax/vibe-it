@@ -264,3 +264,168 @@ fn qcomp4_history_is_read_once_per_line_not_per_key() {
     assert_eq!(app.complete_cache.history().len(), 2);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ---- QCOMP2: external sources (Source::Cmd) ----
+
+use crate::config::Source;
+use std::sync::{mpsc, Mutex};
+use std::time::Duration;
+
+fn ext_dir(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("scratchy-qcomp2-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// A cache whose external results arrive on the returned receiver.
+fn ext_cache() -> (CompleteCache, mpsc::Receiver<ExtResult>) {
+    let (tx, rx) = mpsc::channel();
+    let tx = Mutex::new(tx);
+    let sink: ExtSink = std::sync::Arc::new(move |r| {
+        let _ = tx.lock().unwrap().send(r);
+    });
+    (CompleteCache::new(None).with_external(sink, "https://page.test/".into()), rx)
+}
+
+/// A table with one `x` row running `sh <script>` (leaked: rows are 'static).
+fn ext_table(script: &std::path::Path) -> &'static [(&'static str, Source)] {
+    let path: &'static str = Box::leak(script.display().to_string().into_boxed_str());
+    let argv: &'static [&'static str] = Box::leak(Box::new(["sh", path]));
+    Box::leak(Box::new([("x", Source::Cmd(argv))]))
+}
+
+fn script(dir: &std::path::Path, name: &str, body: &str) -> std::path::PathBuf {
+    let p = dir.join(name);
+    std::fs::write(&p, body).unwrap();
+    p
+}
+
+fn ext_ghost(t: &[(&str, Source)], text: &str, cache: &CompleteCache) -> Option<Ghost> {
+    compute_ghost_in(t, text, text.len(), cache)
+}
+
+#[test]
+fn qcomp2_lines_become_candidates_in_order_with_the_context_in_the_environment() {
+    let dir = ext_dir("order");
+    let s = script(&dir, "s.sh", "echo alpha\necho alpine\necho beta\n");
+    let t = ext_table(&s);
+    let (cache, rx) = ext_cache();
+    assert!(ext_ghost(t, "x al", &cache).is_none(), "nothing until the source answered");
+    let r = rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert!(cache.accept(&r));
+    assert_eq!(ext_ghost(t, "x al", &cache).expect("ghost").candidates, vec!["alpha", "alpine"]);
+    // Filtered per keystroke from the same output.
+    assert_eq!(ext_ghost(t, "x alp", &cache).unwrap().candidates, vec!["alpha", "alpine"]);
+    assert_eq!(ext_ghost(t, "x alpi", &cache).unwrap().candidates, vec!["alpine"]);
+    // The context.
+    let (cache2, rx2) = ext_cache();
+    let s2 = script(&dir, "e.sh", "echo \"$SCRATCHY_ARG|$SCRATCHY_WORD|$SCRATCHY_URL|$SCRATCHY_LINE\"\n");
+    let t2 = ext_table(&s2);
+    let _ = ext_ghost(t2, "x 1", &cache2);
+    let r = rx2.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert_eq!(r.outcome.unwrap(), vec!["1|1|https://page.test/|x 1"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn qcomp2_non_zero_exit_and_empty_output_give_no_ghost() {
+    let dir = ext_dir("fail");
+    for (name, body) in [("bad.sh", "echo alpha\nexit 3\n"), ("empty.sh", "true\n")] {
+        let s = script(&dir, name, body);
+        let t = ext_table(&s);
+        let (cache, rx) = ext_cache();
+        let _ = ext_ghost(t, "x a", &cache);
+        let r = rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert_eq!(r.outcome, Ok(Vec::new()), "{name}");
+        assert!(cache.accept(&r));
+        assert!(ext_ghost(t, "x a", &cache).is_none(), "{name}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn qcomp2_a_missing_program_gives_a_status_bar_message() {
+    let argv: &'static [&'static str] = &["/nonexistent/scratchy-qcomp2-source"];
+    let t: &'static [(&'static str, Source)] = Box::leak(Box::new([("x", Source::Cmd(argv))]));
+    let (cache, rx) = ext_cache();
+    let _ = ext_ghost(t, "x a", &cache);
+    let r = rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    let msg = r.outcome.clone().unwrap_err();
+    assert!(msg.contains("not found"), "{msg}");
+    // The app shows it and keeps no ghost.
+    let Some(mut app) = app_in_command_line() else { return };
+    let r = ExtResult { line_id: app.complete_cache.id, cmd: "x".into(), arg: 1, outcome: Err(msg.clone()) };
+    app.handle_complete_result(r);
+    assert_eq!(app.status_message, msg);
+    assert!(app.ghost.is_none());
+}
+
+#[test]
+fn qcomp2_shell_syntax_in_the_line_is_plain_text() {
+    let dir = ext_dir("plain");
+    let pwned = dir.join("PWNED");
+    let s = script(&dir, "s.sh", "printf '%sz\\n' \"$SCRATCHY_WORD\"\n");
+    let t = ext_table(&s);
+    let (cache, rx) = ext_cache();
+    let word = format!("a;$(touch${{IFS}}{})`id`", pwned.display());
+    let _ = ext_ghost(t, &format!("x {word}"), &cache);
+    let r = rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert!(cache.accept(&r));
+    let g = ext_ghost(t, &format!("x {word}"), &cache).expect("ghost");
+    assert_eq!(g.candidates, vec![format!("{word}z")]);
+    assert!(!pwned.exists(), "nothing was run through a shell");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn qcomp2_the_source_runs_once_per_line_and_position_not_per_key() {
+    let dir = ext_dir("once");
+    let log = dir.join("runs");
+    let s = script(&dir, "s.sh", &format!("echo run >> {}\necho abc\necho abd\n", log.display()));
+    let t = ext_table(&s);
+    let (cache, rx) = ext_cache();
+    for text in ["x a", "x a", "x a"] {
+        let _ = ext_ghost(t, text, &cache);
+    }
+    let r = rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert!(cache.accept(&r));
+    for text in ["x a", "x ab", "x abc", "x abd"] {
+        assert!(ext_ghost(t, text, &cache).is_some(), "{text}");
+    }
+    assert!(rx.recv_timeout(Duration::from_millis(300)).is_err(), "no second run");
+    assert_eq!(std::fs::read_to_string(&log).unwrap().lines().count(), 1);
+    // Another argument position is its own run.
+    let _ = ext_ghost(t, "x abc a", &cache);
+    let r = rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert_eq!(r.arg, 2);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn qcomp2_a_stale_result_is_ignored() {
+    let dir = ext_dir("stale");
+    let s = script(&dir, "s.sh", "echo abc\n");
+    let t = ext_table(&s);
+    let (old, rx) = ext_cache();
+    let _ = ext_ghost(t, "x a", &old);
+    let r = rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    // The line was closed and a new one opened before it arrived.
+    let (new, _rx2) = ext_cache();
+    assert!(!new.accept(&r));
+    assert!(ext_ghost(t, "x a", &new).is_none(), "the dropped result gave nothing");
+    // In the app, a result for an earlier line changes nothing.
+    let Some(mut app) = app_in_command_line() else { return };
+    let id = app.complete_cache.id;
+    app.handle_complete_result(ExtResult { line_id: id.wrapping_sub(1), cmd: "go".into(), arg: 1, outcome: Err("late".into()) });
+    assert!(app.status_message.is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn qcomp2_a_source_that_runs_too_long_is_killed() {
+    let t0 = std::time::Instant::now();
+    let r = run_source(&["sleep", "30"], &[], Duration::from_millis(150));
+    assert_eq!(r, Ok(Vec::new()));
+    assert!(t0.elapsed() < Duration::from_secs(5));
+}
