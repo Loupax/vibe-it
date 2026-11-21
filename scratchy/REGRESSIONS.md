@@ -486,7 +486,7 @@ further (related videos move with it). Home: logged out with history off YouTube
 - QYSCR1c [S]: DONE (same PR): `paint::hit_test_scroll_chain`; a tick goes to the first region under the cursor that can move, then the page. Keys always target the viewport (no focused scroll region in scratchy). Absolutely positioned regions are still not wheel targets.
 - QYSCR1d [S]: WPT overflow-body-propagation-012 (body clips its own overflow when `html{overflow:hidden}` takes the viewport).
 
-## R60: QINC1 design: one incremental style + layout engine for App frames AND script forced layouts. Persistent per-element styles with a match cache, Blink/Stylo-style invalidation sets and early cut-off; a box tree kept between layouts and rebuilt per container; the last laid tree reused as the fragment cache (a clean box is moved, not re-measured; a dirty box is re-measured at its cached constraints and the change goes up only while the parent-visible result changes). Measured first (throwaway probe): between two consecutive forced layouts the median page restyles 3-33 elements of 261-1 128 styled ones (1-5 %), and touches 1-6 % of the boxes; today every one of them redoes 100 %. Projected: YouTube results `getPlayerSize` 54-80 ms -> ~2-5 ms (preview job 685-1 137 ms -> ~150-220 ms), YouTube watch / Wikipedia App builds 38-90 ms -> ~2-6 ms each, and a frame after a forced layout costs ~0. Size: XL (14 items, 4 of them L), landed in shadow mode first, then behind `SCRATCHY_INCR=1`, then flipped, then the special cases deleted. RECOMMENDED; supersedes R59/QY54b3a-f (Opus, 2026-11-20, design only, docs only) — OPEN: proposed QINC1a-QINC1m (section 15), open questions (section 16); QINC1k gate (2026-11-21): NO-GO for the flip until QINC1k1 + QINC1k2 (section 15, QINC1k entry); QINC1k1 done 2026-11-21 (y translation invariance)
+## R60: QINC1 design: one incremental style + layout engine for App frames AND script forced layouts. Persistent per-element styles with a match cache, Blink/Stylo-style invalidation sets and early cut-off; a box tree kept between layouts and rebuilt per container; the last laid tree reused as the fragment cache (a clean box is moved, not re-measured; a dirty box is re-measured at its cached constraints and the change goes up only while the parent-visible result changes). Measured first (throwaway probe): between two consecutive forced layouts the median page restyles 3-33 elements of 261-1 128 styled ones (1-5 %), and touches 1-6 % of the boxes; today every one of them redoes 100 %. Projected: YouTube results `getPlayerSize` 54-80 ms -> ~2-5 ms (preview job 685-1 137 ms -> ~150-220 ms), YouTube watch / Wikipedia App builds 38-90 ms -> ~2-6 ms each, and a frame after a forced layout costs ~0. Size: XL (14 items, 4 of them L), landed in shadow mode first, then behind `SCRATCHY_INCR=1`, then flipped, then the special cases deleted. RECOMMENDED; supersedes R59/QY54b3a-f (Opus, 2026-11-20, design only, docs only) — OPEN: proposed QINC1a-QINC1m (section 15), open questions (section 16); QINC1k gate (2026-11-21): NO-GO for the flip until QINC1k1 + QINC1k2 (section 15, QINC1k entry); QINC1k1 done 2026-11-21 (y translation invariance); QINC1k3 done 2026-11-21 (Wikipedia App builds 13-14 % of flag off)
 
 Inputs: R43 sections 4/8 (phase split, 84 % of styles reusable), R47 (hover restyles), R50 (QYTC1a/b/d), R55 (App builds per run:
 Wikipedia 104 / 9.4 s, YouTube watch 268 / 10.1 s), R57 (main-thread stalls), R58 (results `getPlayerSize`: full layout,
@@ -1764,6 +1764,65 @@ images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom
   (no change). Gate (release build of this branch, 1-min load 3.9-7.1): `gate.sh check 1` ytr ytw wiki github bbc
   social hover: 0 mismatches in all 14 runs (headless and window); social's window run ends `quit=killed` as before
   (pre-existing, see QINC1k4 above).
+  QINC1k3 DONE (Opus, 2026-11-21; `incr_style.rs` counter-walk dirtiness, `layout.rs` / `incr_layout.rs` `Ck::fl`;
+  engine performance only, no style / box / layout semantics): **Wikipedia App builds with `SCRATCHY_INCR=1` are now
+  13-14 % of flag off (gate <= 20 %), root walks 133-134 -> 60 per run, relayout 1.44 s -> 0.23 s, restyle 1.96-2.00 s ->
+  0.89 s per run.** A temporary per-frame trace (removed) showed two causes. (a) Restyle: on a frame with any DOM write
+  ~95 % of the ~10.7 ms was the document-wide counter / quote walk (`Engine::generated`, ~10 ms over Wikipedia's ~9 300
+  elements: the page has `ol` / `ul` / `li` and reference counters), re-run on EVERY non-ambient log entry; the restyle
+  itself touched 3-14 elements (popup fade classes, the aria-live region, the hovered link). Each table entry now keeps
+  `gsig`, a hash of what `images::generated_walk` reads of it from the same matches (matched `display: none`, `quotes`, the
+  element's own `content`, `counter-reset/set/increment`, `::before` / `::after` content parts, the implicit `list-item`
+  counter of ol/ul/li; `GEN_ATTR` when a content reads `attr()`; 0 = the walk passes its state through unchanged). The walk
+  runs when an entry's `gsig` changes, a non-zero one is inserted (also a moved existing subtree), removed or swept, an
+  attribute of a `GEN_ATTR` element changes, a `<script>` / `<style>` appears, or a write lands where the engine keeps no
+  entries (a node without an entry, or a child list under a computed `display: none` element: the walk follows matched
+  rules only, so it may walk on under an inline `display:none`; for such an element `gsig` also matches the skipped
+  `::before` / `::after` slots — fuzz seed 1752). (b) Relayout: every walk went up through `not_cacheable`: Wikipedia's
+  thumbnails / infobox float inside the root BFC, so every box after the first float (`floats_in`) and every ancestor of
+  one (`floats_out`) was uncacheable: the hovered paragraph's walk (`p#mwWg` ... `html`, 67 per run) and every popup
+  append to `<body>` (60 per run) re-measured nearly the whole page. `Ck::fl` (`CkFloats`) now records the floats a box
+  was measured among (an `Arc<FloatSnap>` shared by consecutive boxes of a BFC; the set is append-only) and the floats its
+  measure placed. `try_hit` reuses such a box only at the same origin among bit-identical floats (`miss_floats`
+  otherwise) and places its floats again; the bottom-up `attempt` re-measures it among the same floats and splices only
+  when it placed the same ones (`floats_out_changed`). A BFC root among floats still goes up (`bfc_among_floats`): its
+  parent places it beside the floats by its min-content width (Q34b) — fuzz seed 5832 found that when the first version
+  exempted BFC roots. The 60 root walks left are `pending_out_changed` at `<body>` (a popup appended / removed changes its
+  out-of-flow list) and are cheap now (the rest of the page is served from the cache).
+  **Window gate** (`gate.sh perf 3 wiki`, nested tile 960x1006, release builds; main = installed e5f64e4 copied aside,
+  same session; 1-min load 0.1-0.6):
+  | binary | off: builds n / ms | INCR=1: builds n / ms | INCR / off | root | restyle ms | relayout ms (+full) | p95 off / on |
+  |---|---|---|---|---|---|---|---|
+  | main e5f64e4 | 102-103 / 9 283-9 343 | 212 / 3 528-3 607 | 38 % | 133-134 | 1 957-1 995 | 1 437-1 467 (+145-161) | 206-208 / 36-37 |
+  | this branch | 103-104 / 9 440-9 562 | 212 / 1 217-1 350 | **13-14 %** | **60** | **885-887** | **231-237** (+146-160) | 158-211 / **17** |
+  Up reasons per run (branch): `not_cacheable` 913-919 -> 0, `pending_out_changed` 6-8 -> 126-131 (the popup walks now
+  go up for this reason instead), `intrinsic_ancestor` 139-144 (the Talk / Edit / View history
+  tabs: stop below the root, QINC1h3), `float` 30 (the popup's floated settings button). The restyle left (~2.8 ms per
+  update, 317-319 updates) is per-update fixed cost, not the walk (proposed item below). An earlier series on a
+  960x489 tile (`INJECT_H=316`, absolute coordinates; 60-61 / 103-105 builds): off 5 305-5 350 ms, INCR=1 653-824 ms
+  (12-15 %), 24 root walks. **Other pages** (`gate.sh perf 1 ytr ytw github bbc hover`, 960x1006, branch vs main
+  e5f64e4, App builds ms INCR=1 (off); restyle ms): YouTube results 929 (5 079) vs 1 132 (4 470), restyle 749 vs 1 048,
+  gPS 3.2 vs 4.0 ms; YouTube watch (playing both) 1 276 (12 724) vs 1 836 (12 516), restyle 1 572 vs 4 609, forced
+  2 903 vs 5 256 ms; github 2 269 (7 426) vs 2 482 (7 423), restyle 6 813 vs 7 484; bbc 146 (585) vs 179 (540); hover
+  71 (156) vs 71 (160): none worse, all within or better than QINC1k / QINC1k2. **Exactness:** `gate.sh check 1` on
+  all 7 pages (headless + window, nested tile 960x316 at the time): 0 mismatches, 0 panics (social's window run
+  `quit=killed` as before). Fuzz (release): `SCRATCHY_FUZZ_SEED` 0..9000 x 1 000 (`incr_fuzz`, incl.
+  `qinc1k1_fuzz_fractional_heights_far_down` and QINC1k10's replay): 0 mismatches (the first version had 2 in 7 000:
+  seeds 1752 and 5832, both fixed above and pinned as tests). Suite 1 742 passed (debug), clippy 77, WPT 333 / 293 (no
+  change). Tests: `qinc1k3_counter_walk_skips_writes_it_cannot_see`, `qinc1k3_counter_walk_sees_under_an_inline_display_none`,
+  `qinc1k3_counter_walk_sees_a_hidden_elements_new_before`, `qinc1k3_changed_floats_out_walk_up`,
+  `qinc1k3_clean_boxes_among_floats_are_reused`, `qinc1k3_bfc_root_beside_a_float_is_placed_by_its_parent`; updated
+  `qinc1h1_floats_in_force_a_walk_up` (now: spliced among the same floats) and `qinc1j_ab_counter_walk_only_after_a_change_it_can_see`
+  (a `color`-only hover match change no longer walks). Recipe note: the nested dwl's tile size follows the desktop
+  (960x230 / 316 / 489 / 1006 seen in this session); check the `pre` screenshot, `run.sh` now takes `INJECT_W` /
+  `INJECT_H` (tools/README).
+  Proposed (the coordinator names them):
+  - **[S]** (P3, area incr_style) the ~2.8 ms per-update restyle floor on Wikipedia (9 300 entries, 3-14
+    restyled): profile the fixed per-update costs (the animated-entries scan and `age_animations` over the table, the
+    64-update `sweep`, invalidation-map lookups) and cut what scales with the table instead of the dirty set.
+  - **[S]** (P3, area layout; with QINC1h3) `pending_out_changed` at `<body>` when a popup is appended /
+    removed (126-131 per Wikipedia run): let the walk splice the containing block's positioned list when only an
+    out-of-flow child changed (the in-flow view is unchanged), so these stop below the root.
 
 **Schedule (up to 5 agents, one per area):** wave 1: a (incr-new + perf), b (layout), d (incr-new: own file
 `src/invalidation.rs`; a and d share only `src/tests/mod.rs` lines), e (jsdom). Wave 2: c (layout, after b) ∥ f (style +
