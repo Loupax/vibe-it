@@ -8606,3 +8606,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       persist; quota throws; ops from one task land together; a value with a lone
       surrogate (`"a\uD83D"`) reads back identical after a reload. Real check: social.loupax.com
       `:set novim` survives a restart (user's vim.js case, TODO "social.loupax.com").
+
+=== from TODO.txt: --- (no header)
+- [x] QSTASH5 DONE d9520da #481 wire --cookie-file, clear-site, control token <sock>.token (user 2026-11-21) [S] (P2, wire; any time after the perf queue) `wire --cookie-file PATH`
+      and `X-Wire-Cookie-Op: clear-site`. See wire/TODO.txt W-PERSIST1.

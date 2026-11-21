@@ -236,7 +236,7 @@ QSTASH — persistent web storage (user design session 2026-11-19; full design i
 
 - [ ] QSB2 [S] (P3, from QSB1 #483; Sonnet) Scrollbar polish: holding the mouse on the track repeats page scroll
       (delay then repeat, like other browsers); thumb hover/active styling; horizontal scrollbars (window and regions).
-- [ ] QSTASH3 [S] (P3, after QSTASH1 and QSTASH5) `scratchy --forget-site <site or
+- [ ] QSTASH3 [S] (NOTE from #481: the clear-site request needs the control token: build it with `control_token(socket, false)` + `cookie_control_headers(op, page, token)` and re-read on a 403) (P3, after QSTASH1 and QSTASH5) `scratchy --forget-site <site or
       URL>`: stash forget (lock, `rm -r`, generation bump) plus wire `X-Wire-Cookie-Op:
       clear-site`; if wire is unreachable the stash part still runs and the log says the
       cookies were not cleared. A key binding is a later item. Test: forget removes the
@@ -249,8 +249,6 @@ QSTASH — persistent web storage (user design session 2026-11-19; full design i
       on every navigation. Test: set on page A, navigate to page B of the same origin,
       the value is there; a different origin does not see it.
 
-- [ ] [WIP] QSTASH5 [S] (P2, wire; any time after the perf queue) `wire --cookie-file PATH`
-      and `X-Wire-Cookie-Op: clear-site`. See wire/TODO.txt W-PERSIST1.
 
 ========================================================================
 QKEYS — input mode / normal mode, Esc Esc, `i`, status bar (user design session 2026-11-20)
