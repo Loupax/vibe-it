@@ -28,7 +28,7 @@ Site breakage is diagnosed with tooling (missing-API report), not guessed.
 NOW
 ========================================================================
 - [ ] [WIP] QINC1l [S] (P1, user OK 2026-11-21: "make it the default"; Sonnet; incr_frame.rs/incr_engine.rs/incr_style.rs/ci.yml) Make the incremental engine the default: SCRATCHY_INCR unset = on, SCRATCHY_INCR=0 = old path (escape hatch until QINC1m); script-forced layouts default on too; SCRATCHY_INCR_CHECK unchanged; CI job runs the suite with the engine OFF so the old path keeps coverage until QINC1m; one stderr line when SCRATCHY_INCR=0 is set; docs/help text updated. QINC1m (delete old pipeline) after >= 3 days of user use.
-- [ ] QWPT1 [M, Opus, design only] (P1, user 2026-11-21 architecture discussion) Conformance plan, as a
+- [ ] [WIP] QWPT1 [M, Opus, design only] (P1, user 2026-11-21 architecture discussion) Conformance plan, as a
       design memo in REGRESSIONS.md for the user to approve BEFORE any implementation:
       (a) run WPT testharness.js tests: today the runner (src/wpt.rs skip_reason) skips every testharness
           test and the local checkout (/home/loupax/src/wpt) has only css/ and html/. Plan the checkout
