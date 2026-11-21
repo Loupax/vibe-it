@@ -186,3 +186,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #543 QWPT10 READY, merging (unblocks #535/#529/#539/#547). It added parser-sets-attributes-after-built-in-constructor to flaky.txt after 5/5 CI fails -> QWPTFLK3 (P2) to investigate; main push CI lacks WPT gate -> QWPT11.
 - 2026-11-22 #543 conflicted on areas.txt itself -> merging it with its own new script (temp copy). #546 QEL6 READY (queued). Launched QDOM16.
 - 2026-11-22 Merged #543 QWPT10 a970657 (merge_pr auto-rebuilds areas.txt). Reinstalling so ~/.cargo/bin/scratchy has --areas-only, then queue #535 #529 #539 #547 #546.
+- 2026-11-22 #548 QMSG1 READY (webmessaging 38.1 -> 63.4, total 32.9) but pre-fetched same-origin iframes now run scripts: sent back for gate-page + live CPU measurement before merge. Filed QMSG1b.

@@ -125,6 +125,9 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] [WIP] QMSG1 [S] (P2, from QDOM1 #516; Sonnet; js_dom.rs iframe realms, globals_prelude.js postMessage) postMessage to and
       from an iframe's contentWindow (`window[0].postMessage`, `parent.postMessage`, MessageEvent origin/source): today the
       webmessaging 019 / cross-document files time out waiting for the reply. Target: webmessaging score up, list files.
+- [ ] QMSG1b [S] (P3, from QMSG1 #548; Sonnet; globals_prelude.js) MessageChannel/port semantics: transfer neuters the
+      sender's port, structured-clone port cloning, `messageerror`, BroadcastChannel, detached-iframe and not-fully-active
+      postMessage rules (webmessaging files still failing after #548).
 - [ ] QDOM2b [S] (P2, from QDOM2 #521; Sonnet; js_dom.rs) Remaining collections: MutationRecord addedNodes/removedNodes
       as static NodeLists; HTMLOptionsCollection for select.options (add, remove, length setter, selectedIndex);
       select.selectedOptions and map.images as live HTMLCollections. --wpt-th per-area table.
