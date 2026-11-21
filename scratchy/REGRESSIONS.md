@@ -1650,6 +1650,36 @@ images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom
   - **QINC1k8 [S]** (P3, area layout; measure first) github.com feature-grid cards are 956 px wide in
     scratchy (QINC1k2's grids) and 765 px in Chrome at a 960 px window (hero 945 in both): find which rule
     (grid / container / max-width) differs. Both modes; painted layout.
+  QINC1k4 DONE (Opus, 2026-11-21; `incr_style.rs` element visit): **the engine dropped the pseudo slots'
+  viewport-height read flag.** `Entry::reads_vh` (which elements a height-only change re-cascades) was the
+  ELEMENT slot's flag only; `style_of` returned each `::before` / `::after` / `::marker` / first-line /
+  first-letter slot's flag too, and the visit discarded it (`.0`). A `%`-bearing `calc()` captures the whole viewport
+  pair at cascade time (`BoxLength::from_length` -> `Calc(.., current_viewport())`, noting a height read), so a
+  footer link's `::after { width: calc(100% - 0px - 0px) }` read the height while the link itself did not: when the
+  nested window's height moved 312 -> 485 between two updates (most likely the nested window settling, that run was at load 14.4), the from-scratch
+  build cascaded the pseudo at 485 and the engine kept the 312 one. Not adoption-specific (the QINC1i4 record keeps
+  each slot's flag correctly; an incremental cascade lost it the same way). Fix: the element's flag is the OR of
+  its own and its eligible pseudo slots' reads. Repro: `qinc1k4_pseudo_calc_viewport_height_change_recascades`
+  (a `%` calc on `::before`, `%` + `vh` on `::after`; height changes right after a verified restart, after an
+  incremental re-match, and after a restart adopted without verification) failed with exactly the github
+  message shape (`slot before field width: fresh Calc(.., (800.0, 312.0)) vs incremental (800.0, 600.0)`).
+  Fuzz: viewport-height steps (312 / 485 / 700 / 900, 30 % of steps) and a second sheet of `vh` / `%`-calc rules
+  on elements and pseudo slots (half the seeds), both from a second per-seed generator so every existing page,
+  mutation and `REGRESSION_SEEDS` case is unchanged; without the fix the debug window fails on 8+ seeds; with it
+  `SCRATCHY_FUZZ_SEED` 0..6000 x 1 000 (release) + the default window + `SCRATCHY_FUZZ_ADOPT_VERIFY=0`: 0
+  mismatches. (A vh-rule candidate `margin-left: calc(10% - 1vh)` was left out of the fuzz: on an inline element
+  it trips a pre-existing debug assertion in the from-scratch builder, `images.rs` QW4 inline spacers call
+  `BoxLength::px()` on a `%` / `calc` horizontal margin or padding; release resolves it as 0 -> QINC1k9 proposed.)
+  **Gate** (release build of this branch, 1-min load 3.4-12.8): `gate.sh check 3 github`: headless 0 / 0 / 0, window
+  1 / 34 / 28 lines, every one the known QINC1k1 `style.height 642.0005` line, 0 slot mismatches; `gate.sh check 1`
+  ytr ytw wiki bbc social hover: 0 mismatches headless and window. social's window run ends `quit=killed` (`:q`
+  not honoured within 10 s, twice) with this branch AND the installed main binary (ce088f9): pre-existing.
+  Full suite, clippy 77, WPT 333 / 293 (no change).
+  - **QINC1k9 [S]** (P3, area images / box builder; correctness, needs the QINC1 freeze's OK) `images.rs`
+    `collect_real_nodes` (QW4 inline start / end spacers) calls `BoxLength::px()` on an inline element's horizontal
+    margin / padding, which is a `Percent` / `Calc` for `margin-left: 10%` or `calc(10% - 1vh)`: debug builds panic
+    (`unresolved percent`), release treats it as 0 px. Resolve against the containing block width (CSS: inline
+    margins / padding percentages refer to the containing block's inline size).
 - **QINC1l [S]** (P2, Sonnet; areas app + geom (one-line defaults) + NOTES.md; AFTER QINC1k + the user's OK) Flip the default:
   `SCRATCHY_INCR` defaults to 1; `SCRATCHY_INCR=0` = the old path; `cfg(test)` keeps comparing with the from-scratch path;
   NOTES.md section "Incremental style + layout engine" (data model, marks, kill switch, check mode).
