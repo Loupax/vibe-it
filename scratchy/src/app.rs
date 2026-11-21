@@ -1843,7 +1843,7 @@ impl App {
         let shown = self.cached.take_if(|c| crate::incr_layout::owns(c)).is_some();
         let css = crate::images::with_adopted_css(&self.extra_css, &self.adopted_css).into_owned();
         // QINC1n: the URL engine log lines name (the status bar's).
-        crate::incr_evidence::set_page(&self.document, || self.status_url());
+        crate::incr_evidence::set_page(&self.document, || status_url(&self.history, self.history_index, self.base_url.as_ref()));
         let frame = crate::incr_frame::frame(&self.document, width as f32, height as f32, &css, &self.image_cache, &mut self.font_system);
         if !matches!(frame, Frame::Current) {
             self.last_build_time = Some(build_started.elapsed());
