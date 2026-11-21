@@ -495,7 +495,9 @@ QKEYS — input mode / normal mode, Esc Esc, `i`, status bar (user design sessio
       with Shift+wheel and ArrowRight, scrollLeft round-trips, hit-testing after an x scroll, a fixed box ignores x
       scroll. Gates: --wpt-th (css/cssom-view up), reftests, --perf-report; real check: wide page + overflow-x box in a
       nested window (grim). If it grows past M, split (style/layout half first) and report.
-- [ ] QSB2b [M] (AFTER QXSCR1; user 2026-11-21 chose: real horizontal scrolling first, then these bars; P3, from QSB2 #497; Sonnet) Horizontal scrollbars (window and overflow-x regions): ScrollInfo gains
+- [ ] QXSCR1a [S] (P3, from QXSCR1 #535; Sonnet; layout StickyInfo, paint) `position: sticky` with `left`/`right`:
+      resolve against App::scroll_x and region x offsets as top/bottom are against y. Tests + nested-window grim.
+- [ ] QSB2b [M] (QXSCR1 done #535; user 2026-11-21 chose: real horizontal scrolling first, then these bars; P3, from QSB2 #497; Sonnet) Horizontal scrollbars (window and overflow-x regions): ScrollInfo gains
       horizontal content/client widths and a per-region x scroll; the window bar sits above the status bar and the page
       viewport loses TRACK_W of height while it shows; scrollbar.rs axis-generic geometry/hit-test/drag (SbDrag/SbHold get an
       axis); wheel and shift-wheel stay consistent. Tests + nest/grim check.
