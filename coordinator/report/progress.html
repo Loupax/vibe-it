@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-22 · main 8e09b15 · 125 PRs merged since 2026-11-21 morning (#475–#599) · installed 10:49 · 5 agents running (QEL2b, QANIMHLc, QCSS-A hover check, QAPI6c, QDOM5b)</div>
+  <div class="meta" id="updated">Updated 2026-11-22 · main 8e09b15 · 126 PRs merged since 2026-11-21 morning (#475–#599) · installed 10:49 · 5 agents running (QEL2b, QANIMHLc, QCSS-A hover check, QAPI6c, QDOM5b)</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -112,6 +112,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#597</td><td>QINC1m</td><td>Old pipeline removed (your go): SCRATCHY_INCR and the non-engine paths gone, −2 656 lines of production code; the from-scratch layout stays as fallback and test oracle; check mode 0 mismatches, 10-min YouTube session 0 fallbacks</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#599</td><td>QCSS-C</td><td>Box alignment keywords (start/end/space-evenly…), <code>place-*</code>, justify-items/self in grid, <code>grid-auto-flow</code>, <code>grid-gap</code> aliases; getComputedStyle reports them</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#598</td><td>QFF1b</td><td>woff2 web fonts (BBC renders its own faces). New dependency: <code>brotli-decompressor</code> 5.0.3 (BSD-3/MIT) + 2 small alloc crates; malformed fonts fail cleanly (fuzzed)</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#595</td><td>QFF1a</td><td>Web fonts (your call): @font-face ttf/otf/woff load through wire and render, per page; the Guardian shows its own faces; +1 reftest. woff2 (BBC, GitHub) next: QFF1b</td></tr>
@@ -244,7 +245,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Open work (54 items)</h2>
   <div class="scroll"><table>
     <tr><th>Group</th><th>Items</th><th>Status</th></tr>
-    <tr><td>Engine</td><td>QINC1m remove the old pipeline</td><td><span class="pill wip">your go 2026-11-22; starts after QAPI6c</span></td></tr>
+    <tr><td>Engine</td><td>QINC1m remove the old pipeline</td><td><span class="pill done">done #597</span></td></tr>
     <tr><td>Conformance</td><td>QWPT2 done · QWPT3–9 test runner and CI · QEL1–9 event loop · QMAPI1–3 missing-API report · QREC1–3 recorded pages · QBUD1 budgets · QAREA-DOM</td><td><span class="pill wip">QWPT2–6, QMAPI1, QREC1/2, QERR1, QAREA-DOM done · QDOM1/2/4/7, QEL1, QMAPI2, QINC1n done · QEL2 (ResizeObserver with real sizes), QCSS1 (media query range syntax), QDOM6 (node constructors), QREC3 (recorded gate pages) running</span></td></tr>
     <tr><td>Reliability</td><td>QFLK7 (tests that never ran) · QFLK6b · QJ4c · QWIKI1 · QINC1k9</td><td><span class="pill wip">QFLK7, QFLK8, QFLK9, QFORM1, QHIST1 done</span></td></tr>
     <tr><td>Product choices</td><td>QCFG1 config file · QTB1 tracker blocking</td><td><span class="pill todo">queued</span></td></tr>
@@ -259,6 +260,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 <section>
   <h2>Waiting on you</h2>
   <ul id="waiting">
+    <li><b>"github" in agent commands:</b> the sandbox reads the replay page name <code>github</code> in <span class="mono">tools/incr-gate</span> commands as a git command and denies it; two agents worked around that before today's rule forbade it. Allow-list the incr-gate commands in the permission settings, or rename the recording (e.g. <code>gh-home</code>)? Until then agents skip the github replay.</li>
                     <li>Skim <span class="mono">scratchy/DECISIONS.md</span> once and correct anything I misstated.</li>
           </ul>
 </section>

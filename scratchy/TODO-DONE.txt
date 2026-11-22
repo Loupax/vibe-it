@@ -9457,3 +9457,9 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- (no header)
 - [x] QCSS-C DONE c75743f #599 [S] (P2, from QAPI8 #578; Sonnet; css.rs, flex/grid) Box-alignment keywords (`end`, `first baseline`, ...),
       `place-*` shorthands, `grid-auto-flow`, `grid-gap`.
+
+=== from TODO.txt: --- (no header)
+- [x] QINC1m DONE 2387279 #597 [M] (P2; USER GO 2026-11-22 (DECISIONS.md), unblocked before the planned 2026-11-24 check; Opus; after
+      QAPI6c (same engine area)) Delete the old pipeline: the SCRATCHY_INCR flag and its branches, the separate non-incremental App
+      frame and forced-layout paths, the CI engine-off job. KEEP the from-scratch layout (the engine's
+      first-layout/fallback path and the test oracle) and SCRATCHY_INCR_CHECK as a debug option.
