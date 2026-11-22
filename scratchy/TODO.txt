@@ -38,7 +38,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       the new element); `change` on a text control fires before the script-fired blur (today at the App's later catch-up).
 - [ ] QWPT7b [S] (P3, from QWPT7 #611; Sonnet; app.rs) The App fires what the headless driver fires: pointerdown/pointerup,
       `detail` click counts, dblclick, auxclick, contextmenu, keypress outside text controls.
-- [ ] QWPT7c [S] (P3, from QWPT7 #611; Sonnet; js_geom hit test) Hit-testing gaps: `pointer-events: none`, SVG content
+- [ ] [WIP] QWPT7c [S] (P3, from QWPT7 #611; Sonnet; js_geom hit test) Hit-testing gaps: `pointer-events: none`, SVG content
       (mouseEvent-offsetXY-svg), element scroll offsets, accesskey.
 - [ ] [WIP] QWPT8 [M] (P2; Sonnet; tools/, wire --map-host; user answered Q2 2026-11-21) Phase 2 server: tools/wptserve.sh
       (python3 ./wpt serve from a checkout that includes tools/), wire `--map-host
