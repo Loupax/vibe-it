@@ -9039,3 +9039,10 @@ Eased viewport scroll (user design #532, D1-D8): `App::scroll_target`, `scroll_a
 > QMAPI3 [S] (P2; Sonnet; tools/missing-api/; after QMAPI1) corpus.sh over a site list (gate pages + a list the user provides), merged table "API -> sites, hits, example URL" into an R-section.
 
 **What changed:** tools/missing-api/corpus.sh (one page at a time through one own `--no-cookies` wire, per-page `timeout`, perf lock and memory cap, `SCRATCHY_STATE_DIR` required), merge.py (JS members, CSS and errors merged into Markdown tables sorted by sites then hits), sites.txt (7 gate pages + 5 big public logged-out sites; `SITES=` takes your own list). First run over the default list is REGRESSIONS.md R66 with the top 10 gaps as proposed TODO items (QAPI1-QAPI8, QMAPI3b). No product code changed.
+
+## QSB2b: horizontal scrollbars (agent item)
+
+> QSB2b [M] Horizontal scrollbars (window and overflow-x regions): the window bar sits above the status bar and the page viewport loses TRACK_W of height while it shows; scrollbar.rs axis-generic geometry/hit-test/drag (SbDrag/SbHold get an axis); track click pages sideways, hold repeats, thumb hover/active as QSB2; a corner square where both bars meet; horizontal bar moves stay instant.
+
+**What changed:** scrollbar.rs (`Axis`, `track_rect_axis`, `corner_rect`, `hit_axis`, viewport bar ids), paint.rs (`paint_scrollbars`, `paint_viewport_hbar`, corner), app.rs (`hbar`, `page_viewport_hb`, `want_hbar`, `viewport_bar_x`, axis-aware find/press/hold/hover/drag, redraw strip). Tests: src/tests/qsb2b_tests.rs (11). Real check in a nested dwl with grim + inject: wide page and overflow-x/overflow:auto boxes, thumb drag, track click and hold, bars with a corner. See NOTES.md "QSB2b".
+

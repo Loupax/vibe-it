@@ -292,6 +292,13 @@ pub(crate) fn page_viewport(win: (u32, u32)) -> (u32, u32) {
     (win.0, win.1.saturating_sub(crate::config::STATUS_BAR_H).max(1))
 }
 
+/// QSB2b: `page_viewport` while the window's horizontal bar shows (`hbar`): it takes `TRACK_W`
+/// px of the page's height, above the status bar.
+pub(crate) fn page_viewport_hb(win: (u32, u32), hbar: bool) -> (u32, u32) {
+    let (w, h) = page_viewport(win);
+    (w, if hbar { h.saturating_sub(crate::config::TRACK_W as u32).max(1) } else { h })
+}
+
 /// QKEYS1/QKEYS2: the status bar's mode name.
 pub(crate) fn mode_name(mode: KeyMode) -> &'static str {
     match mode {
@@ -1033,6 +1040,8 @@ pub(crate) struct App {
     pub(crate) swallow_release: bool,
     /// QSB1: a scrollbar thumb drag in progress.
     pub(crate) sb_drag: Option<SbDrag>,
+    /// QSB2b: the window's horizontal bar shows (the page viewport is `TRACK_W` shorter).
+    pub(crate) hbar: bool,
     /// QSB2: a track press being held (page repeat) and the hovered thumb's bar id.
     pub(crate) sb_hold: Option<SbHold>,
     pub(crate) sb_hover: Option<usize>,
@@ -1222,6 +1231,7 @@ pub(crate) enum SbTarget {
 /// QSB2: what `scrollbar_find` found under the pointer.
 struct SbFound {
     target: SbTarget,
+    axis: crate::scrollbar::Axis,
     hit: crate::scrollbar::BarHit,
     cur: f32,
     max: f32,
@@ -1232,6 +1242,7 @@ struct SbFound {
 /// QSB2: a track press being held: the side pressed and when the next page step is due.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct SbHold {
+    pub(crate) axis: crate::scrollbar::Axis,
     pub(crate) dir: crate::scrollbar::BarHit,
     pub(crate) next: std::time::Instant,
 }
@@ -1241,6 +1252,8 @@ pub(crate) struct SbHold {
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct SbDrag {
     pub(crate) target: SbTarget,
+    /// QSB2b: the axis the bar scrolls; `start_ptr` is the pointer along it.
+    pub(crate) axis: crate::scrollbar::Axis,
     pub(crate) start_ptr: f32,
     pub(crate) start_scroll: f32,
     pub(crate) ratio: f32,
@@ -1282,7 +1295,7 @@ impl App {
         // so the same `+ scroll_offset` adjustment `paint` itself
         // makes (in reverse) is needed here too.
         if self.sb_drag.is_some() {
-            self.scrollbar_drag_move(position.1);
+            self.scrollbar_drag_move(position);
             return;
         }
         self.scrollbar_hover_update(position);
@@ -1303,7 +1316,7 @@ impl App {
 
     /// QKEYS1: the viewport the page sees (window minus the status bar).
     pub(crate) fn page_size(&self) -> (u32, u32) {
-        page_viewport(self.surface_size)
+        page_viewport_hb(self.surface_size, self.hbar)
     }
 
     /// QKEYS1: publishes the page viewport (window minus the status bar) to new engines and to the
@@ -1494,6 +1507,7 @@ impl App {
             select_popup: None,
             swallow_release: false,
             sb_drag: None,
+            hbar: false,
             sb_hold: None,
             sb_hover: None,
             select_ahead: TypeAhead::default(),
@@ -1612,6 +1626,7 @@ impl App {
             select_popup: None,
             swallow_release: false,
             sb_drag: None,
+            hbar: false,
             sb_hold: None,
             sb_hover: None,
             select_ahead: TypeAhead::default(),
@@ -1661,7 +1676,7 @@ impl App {
             crate::media_video::set_intrinsic(sizes);
         }
         // QKEYS1: the page's viewport is the window minus the status bar.
-        let (_, page_h) = page_viewport((width, height));
+        let (_, page_h) = page_viewport_hb((width, height), self.hbar);
         let width_matches_pending = self.pending_width == Some(width);
         self.pending_width = Some(width);
         // R4: a height-only change only needs a rebuild if the layout
@@ -1678,6 +1693,13 @@ impl App {
         let rebuild_now = need_rebuild && width_matches_pending;
         if rebuild_now {
             self.rebuild_layout(width, page_h, height_rebuild);
+        }
+        // QSB2b: the window's horizontal bar shows or goes: the page viewport changes by `TRACK_W`
+        // px of height (layout, `innerHeight`), so redo this frame.
+        if self.cached.is_some() && Self::want_hbar(&self.cached, width) != self.hbar {
+            self.hbar = !self.hbar;
+            self.request_redraw_now();
+            return;
         }
         let (Some(window), Some(surface)) = (&self.window, &mut self.surface) else {
             return;
@@ -1758,11 +1780,27 @@ impl App {
         }
 
         // QSB1: the window's own scrollbar (overlay, same look as a region's).
-        if let Some((rect, content_h, client_h)) = Self::viewport_bar(&self.cached, (width, page_h)) {
+        let vbar = Self::viewport_bar(&self.cached, (width, page_h));
+        if let Some((rect, content_h, client_h)) = vbar {
             let info = crate::layout::ScrollInfo {
-                id: usize::MAX, content_h, client_h, node: 0, user: true, user_x: false, content_w: 0.0, client_w: 0.0,
+                id: crate::scrollbar::VIEWPORT_ID, content_h, client_h, node: 0, user: true, user_x: false, content_w: 0.0, client_w: 0.0,
             };
             crate::paint::paint_scrollbar(&info, self.scroll_offset, false, &mut pixels, width, height, rect.0, rect.1, rect.2, rect.3, None);
+        }
+        // QSB2b: the horizontal bar in the strip above the status bar (canvas colour under it),
+        // with the corner square when the vertical one shows too.
+        if let Some((rect, content_w, client_w)) = Self::viewport_bar_x(&self.cached, (width, page_h)) {
+            let canvas = self.cached.as_ref().and_then(|l| l.style.background_color);
+            for row in page_h..(page_h + crate::config::TRACK_W as u32).min(height) {
+                for x in 0..width {
+                    let i = (row * width + x) as usize;
+                    pixels[i] = 0x00FFFFFF;
+                    if let Some(c) = canvas {
+                        pixels[i] = crate::paint::blend(pixels[i], c);
+                    }
+                }
+            }
+            crate::paint::paint_viewport_hbar(content_w, client_w, self.scroll_x, vbar.is_some(), &mut pixels, width, height, rect);
         }
 
         // QSEARCH1 (S3): search highlights, chrome over the page (below the status bar).
@@ -4603,18 +4641,43 @@ impl App {
         (laid.h > h && !laid.style.viewport_hidden).then_some(((0.0, 0.0, w, h), laid.h, h))
     }
 
+    /// QSB2b: the window's horizontal bar shows: the page is wider than the window and the
+    /// viewport's `overflow-x` is not `hidden`.
+    pub(crate) fn want_hbar(cached: &Option<Rc<Laid>>, width: u32) -> bool {
+        cached.as_ref().is_some_and(|l| !l.style.viewport_hidden_x && crate::layout::doc_scroll_width(l) > width as f32)
+    }
+
+    /// QSB2b: the window's horizontal bar: `(strip, content_w, client_w)`; the strip is the
+    /// `TRACK_W` px just below the page viewport `size` (already shortened by it).
+    pub(crate) fn viewport_bar_x(cached: &Option<Rc<Laid>>, size: (u32, u32)) -> Option<crate::scrollbar::ViewportBar> {
+        let laid = cached.as_ref()?;
+        let w = size.0 as f32;
+        Self::want_hbar(cached, size.0).then_some(((0.0, size.1 as f32, w, crate::config::TRACK_W), crate::layout::doc_scroll_width(laid), w))
+    }
+
     /// QSB2: the scrollbar under `pos` (the window's, else the outermost region's, since a
     /// parent's bar paints over its children): what it scrolls and where it was hit.
     fn scrollbar_find(&self, pos: (f32, f32)) -> Option<SbFound> {
-        use crate::scrollbar as sb;
+        use crate::scrollbar::{self as sb, Axis};
         let (px, py) = pos;
         let view_h = self.page_size().1 as f32;
-        if let Some((rect, content_h, client_h)) = Self::viewport_bar(&self.cached, self.page_size()) {
+        let vbar = Self::viewport_bar(&self.cached, self.page_size());
+        if let Some((rect, content_h, client_h)) = vbar {
             let max = content_h - client_h;
             let cur = self.scroll_offset.clamp(0.0, max);
             if let Some(hit) = sb::hit(rect, content_h, client_h, cur, px, py) {
                 let ratio = sb::drag_ratio(rect.3, content_h, client_h);
-                return Some(SbFound { target: SbTarget::Viewport, hit, cur, max, ratio, page: page_step(view_h) });
+                return Some(SbFound { target: SbTarget::Viewport, axis: Axis::Y, hit, cur, max, ratio, page: page_step(view_h) });
+            }
+        }
+        if let Some((rect, content_w, client_w)) = Self::viewport_bar_x(&self.cached, self.page_size()) {
+            let max = content_w - client_w;
+            let cur = self.scroll_x.clamp(0.0, max);
+            let corner = vbar.is_some();
+            if let Some(hit) = sb::hit_axis(Axis::X, corner, rect, content_w, client_w, cur, px, py) {
+                let track_w = if corner { rect.2 - crate::config::TRACK_W } else { rect.2 };
+                let ratio = sb::drag_ratio(track_w, content_w, client_w);
+                return Some(SbFound { target: SbTarget::Viewport, axis: Axis::X, hit, cur, max, ratio, page: client_w });
             }
         }
         let laid = self.cached.as_ref()?;
@@ -4623,38 +4686,69 @@ impl App {
                 laid, px + self.scroll_x, py + self.scroll_offset, &self.scroll_offsets, self.scroll_offset, view_h,
             )
         });
-        for r in chain.iter().rev().filter(|r| r.info.user) {
+        for r in chain.iter().rev().filter(|r| r.info.user || r.info.user_x) {
             let info = r.info;
-            let max = info.max_scroll();
-            let cur = self.scroll_offsets.get(&info.id).copied().unwrap_or(0.0).clamp(0.0, max);
-            let Some(hit) = sb::hit(r.rect, info.content_h, info.client_h, cur, r.px, r.py) else { continue };
-            let ratio = sb::drag_ratio(r.rect.3, info.content_h, info.client_h);
-            return Some(SbFound { target: SbTarget::Region(info.id, info.node), hit, cur, max, ratio, page: page_step(info.client_h) });
+            let (max_y, max_x) = (info.max_scroll(), info.max_scroll_x());
+            let corner = info.user && info.user_x && max_y > 0.0 && max_x > 0.0;
+            if info.user {
+                let cur = self.scroll_offsets.get(&info.id).copied().unwrap_or(0.0).clamp(0.0, max_y);
+                if let Some(hit) = sb::hit_axis(Axis::Y, corner, r.rect, info.content_h, info.client_h, cur, r.px, r.py) {
+                    let track = if corner { r.rect.3 - crate::config::TRACK_W } else { r.rect.3 };
+                    let ratio = sb::drag_ratio(track, info.content_h, info.client_h);
+                    return Some(SbFound { target: SbTarget::Region(info.id, info.node), axis: Axis::Y, hit, cur, max: max_y, ratio, page: page_step(info.client_h) });
+                }
+            }
+            if info.user_x {
+                let cur = self.scroll_offsets.get(&crate::layout::xk(info.id)).copied().unwrap_or(0.0).clamp(0.0, max_x);
+                if let Some(hit) = sb::hit_axis(Axis::X, corner, r.rect, info.content_w, info.client_w, cur, r.px, r.py) {
+                    let track = if corner { r.rect.2 - crate::config::TRACK_W } else { r.rect.2 };
+                    let ratio = sb::drag_ratio(track, info.content_w, info.client_w);
+                    return Some(SbFound { target: SbTarget::Region(info.id, info.node), axis: Axis::X, hit, cur, max: max_x, ratio, page: info.client_w });
+                }
+            }
         }
         None
     }
 
-    fn scrollbar_set(&mut self, target: SbTarget, next: f32) {
-        match target {
-            SbTarget::Viewport => self.set_scroll_now(next),
-            SbTarget::Region(id, node) => self.set_region_scroll(id, node, next),
+    /// QSB2b: the hover/active id of the bar `target`'s `axis` (see `scrollbar::VIEWPORT_ID`).
+    fn bar_id(target: SbTarget, axis: crate::scrollbar::Axis) -> usize {
+        use crate::scrollbar as sb;
+        match (target, axis) {
+            (SbTarget::Viewport, sb::Axis::Y) => sb::VIEWPORT_ID,
+            (SbTarget::Viewport, sb::Axis::X) => sb::VIEWPORT_X_ID,
+            (SbTarget::Region(id, _), sb::Axis::Y) => id,
+            (SbTarget::Region(id, _), sb::Axis::X) => crate::layout::xk(id),
+        }
+    }
+
+    /// Sets the scroll position of `target` on `axis` (horizontal moves are instant, QSMOOTH1).
+    fn scrollbar_set(&mut self, target: SbTarget, axis: crate::scrollbar::Axis, next: f32) {
+        use crate::scrollbar::Axis;
+        match (target, axis) {
+            (SbTarget::Viewport, Axis::Y) => self.set_scroll_now(next),
+            (SbTarget::Viewport, Axis::X) => self.scroll_x = next,
+            (SbTarget::Region(id, node), Axis::Y) => self.set_region_scroll(id, node, next),
+            (SbTarget::Region(id, node), Axis::X) => {
+                let node = if node == 0 { 0 } else { crate::layout::xk(node) };
+                self.set_region_scroll(crate::layout::xk(id), node, next);
+            }
         }
     }
 
     /// QSB1: a left press at `pos` on a scrollbar. Thumb: starts a drag. Track: a page
-    /// up/down, and (QSB2) a hold that repeats it. True when the press was consumed (the
-    /// page then sees no mousedown/click).
+    /// up/down (QSB2b: left/right on a horizontal bar), and (QSB2) a hold that repeats it.
+    /// True when the press was consumed (the page then sees no mousedown/click).
     pub(crate) fn scrollbar_press(&mut self, pos: (f32, f32)) -> bool {
         use crate::scrollbar::{self as sb, BarHit};
         let Some(f) = self.scrollbar_find(pos) else { return false };
         match f.hit {
             BarHit::Thumb => {
-                self.sb_drag = Some(SbDrag { target: f.target, start_ptr: pos.1, start_scroll: f.cur, ratio: f.ratio, max: f.max });
+                self.sb_drag = Some(SbDrag { target: f.target, axis: f.axis, start_ptr: sb::along(f.axis, pos), start_scroll: f.cur, ratio: f.ratio, max: f.max });
             }
             _ => {
-                self.scrollbar_set(f.target, sb::page_target(f.hit, f.cur, f.page, f.max));
+                self.scrollbar_set(f.target, f.axis, sb::page_target(f.hit, f.cur, f.page, f.max));
                 let delay = std::time::Duration::from_millis(crate::config::SB_REPEAT_DELAY_MS);
-                self.sb_hold = Some(SbHold { dir: f.hit, next: std::time::Instant::now() + delay });
+                self.sb_hold = Some(SbHold { axis: f.axis, dir: f.hit, next: std::time::Instant::now() + delay });
             }
         }
         self.request_redraw_now();
@@ -4673,11 +4767,11 @@ impl App {
         let interval = std::time::Duration::from_millis(crate::config::SB_REPEAT_INTERVAL_MS);
         let next = now + interval;
         self.sb_hold = Some(SbHold { next, ..hold });
-        let f = self.last_mouse_pos.and_then(|p| self.scrollbar_find(p));
+        let f = self.last_mouse_pos.and_then(|p| self.scrollbar_find(p)).filter(|f| f.axis == hold.axis);
         if let Some(f) = f
             && sb::repeat_applies(hold.dir, Some(f.hit))
         {
-            self.scrollbar_set(f.target, sb::page_target(f.hit, f.cur, f.page, f.max));
+            self.scrollbar_set(f.target, f.axis, sb::page_target(f.hit, f.cur, f.page, f.max));
             self.request_redraw_now();
         }
         Some(next)
@@ -4688,10 +4782,7 @@ impl App {
         let hover = self
             .scrollbar_find(pos)
             .filter(|f| f.hit == crate::scrollbar::BarHit::Thumb)
-            .map(|f| match f.target {
-                SbTarget::Viewport => usize::MAX,
-                SbTarget::Region(id, _) => id,
-            });
+            .map(|f| Self::bar_id(f.target, f.axis));
         if hover != self.sb_hover {
             self.sb_hover = hover;
             self.request_redraw_now();
@@ -4701,25 +4792,16 @@ impl App {
     /// QSB2: the `(id, pressed)` the painter highlights.
     fn scrollbar_hot(&self) -> Option<(usize, bool)> {
         if let Some(d) = self.sb_drag {
-            return Some((
-                match d.target {
-                    SbTarget::Viewport => usize::MAX,
-                    SbTarget::Region(id, _) => id,
-                },
-                true,
-            ));
+            return Some((Self::bar_id(d.target, d.axis), true));
         }
         self.sb_hover.map(|id| (id, false))
     }
 
-    /// QSB1: the pointer moved to window y `py` during a thumb drag (paint-only, like the wheel).
-    fn scrollbar_drag_move(&mut self, py: f32) {
+    /// QSB1: the pointer moved to window `pos` during a thumb drag (paint-only, like the wheel).
+    pub(crate) fn scrollbar_drag_move(&mut self, pos: (f32, f32)) {
         let Some(d) = self.sb_drag else { return };
-        let next = crate::scrollbar::drag_scroll(d.start_scroll, d.start_ptr, py, d.ratio, d.max);
-        match d.target {
-            SbTarget::Viewport => self.set_scroll_now(next),
-            SbTarget::Region(id, node) => self.set_region_scroll(id, node, next),
-        }
+        let next = crate::scrollbar::drag_scroll(d.start_scroll, d.start_ptr, crate::scrollbar::along(d.axis, pos), d.ratio, d.max);
+        self.scrollbar_set(d.target, d.axis, next);
         self.request_redraw_now();
     }
 
@@ -5229,7 +5311,7 @@ impl ApplicationHandler<AppEvent> for App {
         // window's size now (new engines read it; `surface_size` stays 0 so the first redraw still
         // resizes the surface).
         let size = window.inner_size();
-        let (vw, vh) = page_viewport((size.width, size.height));
+        let (vw, vh) = page_viewport_hb((size.width, size.height), self.hbar);
         crate::js::set_window_viewport(vw, vh);
         self.window = Some(window);
         self.surface = Some(surface);
@@ -5434,7 +5516,7 @@ impl ApplicationHandler<AppEvent> for App {
             WindowEvent::RedrawRequested => self.redraw(),
             WindowEvent::Resized(size) => {
                 if size.width > 0 && size.height > 0 {
-                    let (w, h) = page_viewport((size.width, size.height));
+                    let (w, h) = page_viewport_hb((size.width, size.height), self.hbar);
                     crate::js::set_window_viewport(w, h);
                 }
                 if let Some(window) = &self.window {
