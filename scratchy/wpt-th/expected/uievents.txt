@@ -42,10 +42,7 @@ OK           0/7  uievents/getModifierState.html
 OK           2/2  uievents/historical.html
 OK           0/1  uievents/interface/click-event.htm
   FAIL      synthetic click event is a PointerEvent
-TIMEOUT      0/3  uievents/interface/keyboard-accesskey-click-event.html
-  TIMEOUT   Test that the Keyboard generated click does not fire pointer or mouse events for button
-  NOTRUN    Test that the Keyboard generated click does not fire pointer or mouse events for inputbutton
-  NOTRUN    Test that the Keyboard generated click does not fire pointer or mouse events for label
+OK           3/3  uievents/interface/keyboard-accesskey-click-event.html
 OK           4/4  uievents/interface/keyboard-click-event.html
 OK           3/3  uievents/keyboard/keyboardevent-composed.html
 OK           1/1  uievents/keyboard/keyboardevent-legacy.html
@@ -123,9 +120,7 @@ OK           0/4  uievents/mouse/mousemove_after_mouseover_target_removed.html
 OK           0/2  uievents/mouse/mousemove_prevent_default_action.html
   FAIL      selectionchange event firing when mousemove event is prevented
   FAIL      dragstart event firing when mousemove event is prevented
-OK           5/7  uievents/mouse/offset_and_page_after_dispatch.tentative.html
-  FAIL      mousedown: offset point should not equal its page point
-  FAIL      mouseup: offset point should not equal its page point
+OK           7/7  uievents/mouse/offset_and_page_after_dispatch.tentative.html
 OK           2/4  uievents/mouse/synthetic-mouse-enter-leave-over-out-button-state-after-target-removed.tentative.html?buttonType=LEFT&button=0&buttons=1
   FAIL      Removing an element at mousedown
   FAIL      Removing an element at mouseup

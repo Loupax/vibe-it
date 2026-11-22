@@ -1051,3 +1051,4 @@ mod qreg2_tests;
 mod qwpt8_tests;
 mod qwptflk4_tests;
 mod qcnv3_tests;
+mod qwpt7c_tests;

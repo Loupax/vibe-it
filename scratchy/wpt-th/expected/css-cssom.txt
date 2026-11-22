@@ -1441,10 +1441,7 @@ OK          4/12  css/cssom/getComputedStyle-math-function-percentage.html
   FAIL      getComputedStyle() preserves the case of line names around a math function
 OK           9/9  css/cssom/getComputedStyle-mutations.html
 OK           1/1  css/cssom/getComputedStyle-page-rule.xhtml
-OK           0/3  css/cssom/getComputedStyle-pointerEvents.html
-  FAIL      Body element has the initial value for pointerEvents
-  FAIL      Parent element returns the directly specified value for pointerEvents
-  FAIL      Child element inherits the pointerEvents value from its parent
+OK           3/3  css/cssom/getComputedStyle-pointerEvents.html
 OK           0/1  css/cssom/getComputedStyle-property-order.html
   FAIL      Computed style properties should be sorted lexicographically
 OK           1/3  css/cssom/getComputedStyle-pseudo-checkmark.html

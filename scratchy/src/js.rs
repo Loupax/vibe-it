@@ -500,8 +500,20 @@ const PRELUDE: &str = r#"
     this.buttons = init.buttons === undefined ? 0 : toUShort(init.buttons);
     this.pageX = init.pageX === undefined ? this.clientX : toDbl(init.pageX);
     this.pageY = init.pageY === undefined ? this.clientY : toDbl(init.pageY);
-    this.offsetX = this.clientX; this.offsetY = this.clientY;
     this.relatedTarget = relT(init.relatedTarget);
+  });
+  // QWPT7c: offsetX/Y are relative to the padding edge of the event target (of the outermost <svg>
+  // for an SVG element); client coordinates without an element target. Computed on read.
+  ['X', 'Y'].forEach(function (ax, i) {
+    Object.defineProperty(MouseEvent.prototype, 'offset' + ax, { enumerable: true, configurable: true, get: function () {
+      var c = i ? this.clientY : this.clientX, t = this.target;
+      if (!this.__pos || !t || t.nodeType !== 1 || !t.getBoundingClientRect) return c;
+      var e = t;
+      for (var p = t.parentNode; p && p.nodeType === 1; p = p.parentNode) if (p.namespaceURI === 'http://www.w3.org/2000/svg' && p.localName === 'svg') e = p;
+      if (e.namespaceURI === 'http://www.w3.org/2000/svg' && e.localName !== 'svg') return c;
+      var r = e.getBoundingClientRect();
+      return c - (i ? r.top + (e.clientTop || 0) : r.left + (e.clientLeft || 0));
+    } });
   });
   var KeyboardEvent = ctor('KeyboardEvent', UIEvent, function (type, init) {
     UIEvent.call(this, type, init);
@@ -531,7 +543,7 @@ const PRELUDE: &str = r#"
   MouseEvent.prototype.initMouseEvent = function (type, bubbles, cancelable, view, detail, sx, sy, cx, cy, ctrl, alt, shift, meta, button, related) {
     this.initUIEvent(type, bubbles, cancelable, view, detail);
     this.screenX = Number(sx) || 0; this.screenY = Number(sy) || 0; this.clientX = Number(cx) || 0; this.clientY = Number(cy) || 0;
-    this.pageX = this.clientX; this.pageY = this.clientY; this.offsetX = this.clientX; this.offsetY = this.clientY;
+    this.pageX = this.clientX; this.pageY = this.clientY; 
     this.ctrlKey = !!ctrl; this.altKey = !!alt; this.shiftKey = !!shift; this.metaKey = !!meta;
     this.button = Number(button) || 0; this.relatedTarget = related || null;
   };

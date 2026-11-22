@@ -130,6 +130,8 @@ pub(crate) struct InheritedStyle {
     pub(crate) letter_spacing: f32,
     /// QCSS-E: `direction` (inherited): the inline base direction.
     pub(crate) direction: Direction,
+    /// QWPT7c: `pointer-events: none` (inherited): hit testing skips the box.
+    pub(crate) pointer_events_none: bool,
     /// QCSS-E: `border-spacing` (inherited): horizontal, vertical px between table cells.
     pub(crate) border_spacing: (f32, f32),
     /// `border-collapse: collapse` (inherited). Only used to decide that a
@@ -174,6 +176,7 @@ pub(crate) const ROOT_STYLE: InheritedStyle = InheritedStyle {
     word_spacing: 0.0,
     letter_spacing: 0.0,
     direction: Direction::Ltr,
+    pointer_events_none: false,
     border_spacing: (0.0, 0.0),
     border_collapse: false,
     text_indent: 0.0,
@@ -446,6 +449,8 @@ pub(crate) struct ComputedStyle {
     /// QCSS-E: inherited, see `InheritedStyle`.
     pub(crate) letter_spacing: f32,
     pub(crate) direction: Direction,
+    /// QWPT7c: `pointer-events: none` (inherited): hit testing skips the box.
+    pub(crate) pointer_events_none: bool,
     pub(crate) border_spacing: (f32, f32),
     /// QCSS-E: `outline-offset` px (not inherited; negative moves the outline inside the border
     /// box). The outline's paint reach is `outline_width + max(outline_offset, 0)`.
@@ -718,6 +723,7 @@ impl ComputedStyle {
             word_spacing: self.word_spacing,
             letter_spacing: self.letter_spacing,
             direction: self.direction,
+            pointer_events_none: self.pointer_events_none,
             border_spacing: self.border_spacing,
             border_collapse: self.border_collapse,
             text_indent: self.text_indent,
@@ -833,7 +839,7 @@ pub(crate) fn wide_keys(name: &str) -> Option<&'static [&'static str]> {
         "padding-right", "padding-bottom", "padding-left", "outline-width",
         "outline-color", "box-shadow", "filter", "backdrop-filter", "text-shadow", "mix-blend-mode", "clip-path",
         "outline-offset", "transform-origin", "border-spacing",
-        "letter-spacing", "direction",
+        "letter-spacing", "direction", "pointer-events",
         "overflow-y", "text-overflow", "flex-direction", "flex-wrap", "justify-content", "align-items",
         "align-content", "justify-items", "justify-self", "grid-auto-flow", "align-self", "order", "flex-grow", "flex-shrink", "flex-basis", "row-gap",
         "column-gap", "grid-template-columns", "grid-template-rows", "grid-auto-columns", "grid-auto-rows",
@@ -950,7 +956,7 @@ pub(crate) fn is_inherited_key(key: &str) -> bool {
         key,
         "color" | "font-size" | "line-height" | "font-family" | "font-weight" | "text-align"
             | "white-space" | "cursor" | "visibility" | "font-style" | "list-style-type"
-            | "word-spacing" | "text-shadow" | "letter-spacing" | "direction" | "border-spacing"
+            | "word-spacing" | "text-shadow" | "letter-spacing" | "direction" | "pointer-events" | "border-spacing"
     )
 }
 
@@ -1010,6 +1016,7 @@ pub(crate) fn copy_prop(dst: &mut ComputedStyle, src: &ComputedStyle, key: &str)
         "border-spacing" => dst.border_spacing = src.border_spacing,
         "letter-spacing" => dst.letter_spacing = src.letter_spacing,
         "direction" => dst.direction = src.direction,
+        "pointer-events" => dst.pointer_events_none = src.pointer_events_none,
         "overflow" => dst.overflow_x = src.overflow_x,
         "overflow-y" => dst.overflow_y = src.overflow_y,
         "text-overflow" => dst.text_overflow = src.text_overflow,
@@ -2647,6 +2654,8 @@ pub(crate) fn resolve_style_core<'a>(
     .unwrap_or(inherited.letter_spacing);
     let direction = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.direction), |d| d.direction)
         .unwrap_or(inherited.direction);
+    let pointer_events_none = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.pointer_events_none), |d| d.pointer_events_none)
+        .unwrap_or(inherited.pointer_events_none);
     let border_spacing = cascade_property(
         &matches,
         inline_decls.as_ref().and_then(|d| d.border_spacing),
@@ -3043,6 +3052,7 @@ pub(crate) fn resolve_style_core<'a>(
         word_spacing,
         letter_spacing,
         direction,
+        pointer_events_none,
         border_spacing,
         outline_offset,
         transform_origin,
@@ -3189,6 +3199,7 @@ pub(crate) fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         word_spacing: inherited.word_spacing,
         letter_spacing: inherited.letter_spacing,
         direction: inherited.direction,
+        pointer_events_none: inherited.pointer_events_none,
         border_spacing: inherited.border_spacing,
         outline_offset: 0.0,
         transform_origin: INITIAL_TRANSFORM_ORIGIN,

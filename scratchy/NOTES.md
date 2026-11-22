@@ -3861,8 +3861,11 @@ focus/focusin themselves, synchronously, through `__scratchy_dn` (relatedTarget 
 change, the element is unfocusable or not connected). The native `__d_focus` updates the page-visible active element and
 mirrors `:focus` into the style thread-local at once (`mirror_focus`), returns the previous element, and queues the request
 the App/driver catches its own state up with.
-Not headless: navigation (link clicks, form submission fire their events only), the select dropdown, element scroll
-offsets in hit testing (script-side only), drag and drop, touch/pen pointers (reported as mouse), window rects.
+QWPT7c: hit testing honours `pointer-events: none` (`ComputedStyle::pointer_events_none`, inherited; in `paint::hit_test_element`, so
+the App and the driver share it), element scroll offsets (the script-side `scrollTop` map goes to `__d_hit`; `js_geom::regions_by_node`
+maps node ids to region ids) and inline-svg children (`svg_geom.rs`, `js_geom::refine_svg_hit`, also the rect of an svg child).
+`offsetX/Y` are computed on read for pointing-device events. Accesskey is Alt+Shift+key (`input_host::accesskey_activate`).
+Not headless: navigation (link clicks, form submission fire their events only), the select dropdown, drag and drop, touch/pen pointers (reported as mouse), window rects.
 
 **Hit testing (`document.elementFromPoint`, `elementsFromPoint`, ShadowRoot versions).** Native `__d_hit(x, y, vw, vh,
 sx, sy)` -> `GeomCache::hit`: refreshes the forced layout, then `paint::hit_test_element` (the App pointer's walk:

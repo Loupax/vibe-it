@@ -144,6 +144,16 @@ Numbers are not reused.
 | T33 | NORMAL, G, SEARCH, COMMAND | key release | none | same | not delivered to the page *(proposed, P2)* |
 | T34 | INPUT | release of a key whose press was NOT delivered to the page (the `i` of T6, the second Esc of T2) | none | INPUT | not delivered either, so the page never sees a `keyup` without its `keydown` |
 
+## Accesskey (QWPT7c)
+
+Alt+Shift+<key> (Ctrl and Super not held) activates the element whose `accesskey` lists that character, in
+both modes (`input_host::accesskey_chord`, before the mode's own handling; no match = the key goes on to the
+mode as before). Chosen: the Firefox convention on Linux/Windows, and what WPT's `pressAccessKey` sends (Shift+Alt;
+Chrome uses plain Alt). Plain Alt+key is left to the window manager and menu mnemonics, and Alt+Shift
+is never part of a vim binding, so every NORMAL-mode key keeps working. A button/link/checkbox/radio/label gets
+focus and a click with no pointer or mouse events (client coordinates 0); a text field, textarea or select only
+takes focus.
+
 ## Search (S1-S7)
 
 - **What is searched:** the rendered text of the laid-out top-level document (the
