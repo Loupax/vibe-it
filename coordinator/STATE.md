@@ -356,3 +356,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #613 QCNV1 READY (Canvas 2D foundation; canvas/element 2.8 -> 23.5; TOTAL 29.6), merging. AGENT_RULES: 'too complex' refusals vs denials. Launched QCNV2 (Opus, docs).
 - 2026-11-22 Merged #613 QCNV1 43907bd.
 - 2026-11-22 #614 QCNV2 READY (canvas triage, docs), merging. Filed QCNV3..QCNV20, QGEOM1, QIMGBMP1 (21 items). Launched QCNV3.
+- 2026-11-22 Merged #614 QCNV2 e55ffbd.

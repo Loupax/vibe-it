@@ -184,14 +184,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QWPTBUD [S] (P3, from QDOM5b #592; Sonnet; wpt-th runner) A larger callback budget for the `--wpt-th` runner (flag or
       a longer budget for load callbacks), so Range-insertNode / Range-surroundContents run all 1840 cases deterministically
       and can leave flaky.txt. Related: tests waiting for unload/pagehide/beforeunload on iframe navigation only time out.
-- [ ] [WIP] QCNV2 [S] (P2; Opus, docs only; after QCNV1) Triage the html/canvas WPT failures after QCNV1 and file the
-      Canvas 2D items in dependency order (one item per feature group, e.g. paths, transforms, line styles,
-      gradients/patterns, drawImage, text, compositing, shadows, toDataURL/toBlob), each with the subtest counts it
-      should fix. Note what needs other missing platform features (Workers for offscreen, ImageBitmap, wide gamut)
-      instead of filing it as canvas work.
-      Also (from QCNV1 #613): the canvas registry is keyed by node address (a canvas that never calls getContext
-      could show a stale bitmap after address reuse); `currentcolor` treated as black; lab()/color() fill styles ignored;
-      the toDataURL->image-load and zerosource files need image work, not canvas work.
 - [ ] [WIP] QCNV3 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Sonnet) QCNV1 leftovers: width/height reflection, toStringTag/descriptors, brand checks, ImageData
       edges, style toString, currentcolor, colour serialisation (start with color.window.html 0/15),
