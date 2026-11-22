@@ -228,3 +228,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #563 QCISPLIT READY (scratchy-wpt job; wall 6m -> 4m41), queued after #560. Launched QMAPI3.
 - 2026-11-22 #564 QMAPI3 READY (R66: 12-page corpus, top gaps). Filed QAPI1-8, QMAPI3b from R66. Queued after #563. Launched QAPI6 (:has(), Opus).
 - 2026-11-22 Merged #546 QEL6 5de7741, #559 QDOM15 b35f6ed, #562 QANIMHL 2b7be51. #552 NOTES.md conflict again -> rebase queued.
+- 2026-11-22 #566 QDOMATOM READY (nodes 61.7 -> 62.4), queued after #564. Plan: after #566, rebase #549 on it; if its subtest passes there is no pass->fail and the user question is moot. Sent #552 rebase.
