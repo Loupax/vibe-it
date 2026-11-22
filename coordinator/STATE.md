@@ -256,3 +256,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Launched QAPI8 (css declaration audit).
 - 2026-11-22 #573 QAPI6 READY (:has; css/selectors has 1366->2762) but YouTube results forced layouts +65 %: HELD for the user (question in PR body + progress page; recommend hold until QAPI6b). Filed QAPI6b (WIP, stacked on #573) and QAPI6c.
 - 2026-11-22 #575 QCE1 READY (parser CE attrs after ctor; 9/9, 3/3), queued after #574. Launched QWPT6c.
+- 2026-11-22 Merged #574 QAPI3 6e45e11 (serviceWorker/caches stubs).

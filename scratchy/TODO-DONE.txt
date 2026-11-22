@@ -9315,3 +9315,9 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       no-op); `charset` and `inputEncoding` aliases of `characterSet` on every document. WPT: nodes/DOMImplementation-
       createDocument (306 subtests), DOMImplementation-createDocumentType, Element-tagName, Element-tagName-adopt,
       Node-nodeValue, Node-textContent, DOMImplementation-createHTMLDocument. Target: nodes +1.2.
+
+=== from TODO.txt: --- (no header)
+- [x] QAPI3 DONE 6e45e11 #574 [S] (P2, from QMAPI3 R66; Sonnet; js.rs) `navigator.serviceWorker` (ServiceWorkerContainer stub: `ready` never
+      resolves, `register` rejects with SecurityError, `getRegistrations` resolves [], `controller` null) and `window.caches`
+      (CacheStorage stub: `open` resolves an empty Cache, `match` resolves undefined, `has` false, `keys` []); no real
+      storage. Names stay probe-able (`'caches' in window`).
