@@ -170,8 +170,46 @@ pub(crate) fn siblings(h: &Handle) -> (Option<usize>, Option<usize>) {
     }
 }
 
+thread_local! {
+    /// QAPI6: whether the current rule list has a `:has()` rule (set when its invalidation map is built).
+    static KEEP_NODES: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// QAPI6: while `KEEP_NODES`, the node of every logged entry (an element the engine has no entry for, under
+    /// `display: none`, can still change a rendered `:has()` anchor: the engine needs its handle).
+    static NODES: RefCell<std::collections::HashMap<usize, markup5ever_rcdom::WeakHandle>> = RefCell::new(Default::default());
+    /// QAPI6: `NODES` of the last drained log.
+    static TAKEN: RefCell<std::collections::HashMap<usize, markup5ever_rcdom::WeakHandle>> = RefCell::new(Default::default());
+}
+
+/// QAPI6: keep the logged nodes' handles from now on (`invalidation::current` when a map has `:has()`).
+pub(crate) fn set_keep_nodes(on: bool) {
+    KEEP_NODES.with(|k| k.set(on));
+}
+
+/// `note(key(h), change)`, and with a `:has()` rule list, the handle (QAPI6).
+pub(crate) fn note_node(h: &Handle, change: Change) {
+    note(key(h), change);
+    if KEEP_NODES.with(|k| k.get()) {
+        NODES.with(|n| {
+            let mut n = n.borrow_mut();
+            if n.len() < CAP {
+                n.entry(key(h)).or_insert_with(|| Rc::downgrade(h));
+            }
+        });
+    }
+}
+
+/// QAPI6: the node of a key of the last drained log: `None` when it was not kept, `Some(None)` when it has
+/// been freed since (then it is out of the document, and its removal was logged on a live parent).
+pub(crate) fn taken_node(k: usize) -> Option<Option<Handle>> {
+    TAKEN.with(|t| t.borrow().get(&k).map(|w| w.upgrade().filter(|h| key(h) == k)))
+}
+
 /// Takes the log (and resets it).
 pub(crate) fn drain() -> Drained {
+    if KEEP_NODES.with(|k| k.get()) || NODES.with(|n| !n.borrow().is_empty()) {
+        let nodes = NODES.with(|n| std::mem::take(&mut *n.borrow_mut()));
+        TAKEN.with(|t| *t.borrow_mut() = nodes);
+    }
     LOG.with(|l| {
         let mut l = l.borrow_mut();
         let entries = std::mem::take(&mut l.entries);

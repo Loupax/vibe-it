@@ -13,10 +13,18 @@
 //!
 //! Conservative where exactness is not worth it: `:is/:not/:where` contents are collected with their own hops prefixed
 //! (exact reach, features treated as unconditional), `:nth-child(of S)` is structural with `S` carried by every
-//! sibling, `:has()`, `:host`, `::slotted`, `::part` and unknown combinators make the map *global* (every call returns
+//! sibling, `:host`, `::slotted`, `::part` and unknown combinators make the map *global* (every call returns
 //! `Mark::Global`). The filter only uses the subject's own tag/id/class, which a non-`class`/`id` write never changes.
 //!
-//! Unused until QINC1f wires it in.
+//! QAPI6 `:has(R)`: every element a relative selector `R` looks at is a descendant of the anchor (`:has(.a)`,
+//! `:has(> .a .b)`) or a later sibling of it or a descendant of one (`:has(+ .a)`, `:has(~ .a .b)`). So a feature
+//! anywhere in `R` reaches the anchors through ONE hop, whatever `R`'s own combinators are: [`Hop::Anc`] (the
+//! carrier's ancestors) or, for a sibling-anchored `R`, [`Hop::AncSib`] (the earlier siblings of the carrier and of
+//! each of its ancestors); the anchors are filtered by the tag/id/class of the compound holding the `:has`
+//! (`Entry::anchor`), then the outer hops lead to the subject as usual. Inserting or removing ANY element can
+//! change what `R` finds: [`Key::HasTree`] holds those paths, walked from the inserted node / the removal point.
+//! A selector with its own combinators nested inside `R` (`:has(:is(.a .b))`) can break out above the anchor:
+//! global.
 #![allow(dead_code)]
 use super::*;
 use selectors::parser::{Combinator, NthType, Selector};
@@ -60,6 +68,11 @@ pub(crate) enum Hop {
     Later,
     /// Every other element child of the same parent (`:nth-child(of S)`).
     AnySib,
+    /// QAPI6: every ancestor element (the anchors of a descendant-direction `:has()`).
+    Anc,
+    /// QAPI6: every earlier element sibling of the element and of each of its ancestors (the anchors of a
+    /// sibling-direction `:has(+ ..)` / `:has(~ ..)`).
+    AncSib,
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
@@ -78,6 +91,9 @@ pub(crate) struct Entry {
     /// not have them cannot change whether that compound matches (`:hover` on `ytd-app` does not reach
     /// `.menu:hover .icon`). Not checked for a `class` / `id` write, which changes those very features.
     carrier: Option<Rc<Filter>>,
+    /// QAPI6: the tag / id / classes of the compound holding the `:has()`, checked on the anchors the `Anc` /
+    /// `AncSib` hop reaches (`None` outside `:has`, or when that compound has none).
+    anchor: Option<Rc<Filter>>,
 }
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
@@ -98,6 +114,9 @@ enum Key {
     SibNext,
     /// A `~` combinator: carrier is the element after the change point and every later sibling.
     SibLater,
+    /// QAPI6: a `:has()`: carrier is an inserted element (or the removal point), whose anchors may now find a
+    /// different set of elements.
+    HasTree,
 }
 
 /// A child-list change, as the write log records it (R60 section 5). A move is a `Removed` then an `Inserted`.
@@ -112,8 +131,10 @@ pub(crate) enum ChildChange {
 pub(crate) struct InvalidationMap {
     pub(crate) generation: u64,
     keys: HashMap<Key, Vec<Entry>>,
-    /// Some selector uses `:has()` and friends: no verdict.
+    /// Some selector uses `:host` and friends: no verdict.
     global: bool,
+    /// QAPI6: some selector uses `:has()` (the `HasTree` key / `Anc` hops exist).
+    has: bool,
     /// Some `content: attr()` cannot be pinned to a name: every attribute write restyles its element.
     attr_all: bool,
     /// Quick gates.
@@ -286,6 +307,67 @@ fn step(cur: &[Handle], hop: Hop, filters: &[&Rc<Filter>]) -> Vec<Handle> {
                 }
             }
         }
+        Hop::Anc => {
+            // An ancestor already reached had its own ancestors walked too.
+            for e in cur {
+                let mut p = parent_handle(e);
+                while let Some(a) = p.filter(is_el) {
+                    if !seen.insert(node_id(&a)) {
+                        break;
+                    }
+                    push(&a, &mut out);
+                    p = parent_handle(&a);
+                }
+            }
+        }
+        Hop::AncSib => {
+            let mut walked = NodeSet::default();
+            for e in cur {
+                let mut x = Some(e.clone());
+                while let Some(h) = x.filter(is_el) {
+                    if !walked.insert(node_id(&h)) {
+                        break;
+                    }
+                    earlier_siblings(&h, |s| {
+                        if seen.insert(node_id(s)) {
+                            push(s, &mut out);
+                        }
+                    });
+                    x = parent_handle(&h);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// QAPI6: `f` on every earlier element sibling of `h`.
+fn earlier_siblings(h: &Handle, mut f: impl FnMut(&Handle)) {
+    let Some(p) = parent_handle(h) else { return };
+    for c in p.children.borrow().iter() {
+        if Rc::ptr_eq(c, h) {
+            break;
+        }
+        if is_el(c) {
+            f(c);
+        }
+    }
+}
+
+/// QAPI6: the anchors a `:has()` can have after a child of `parent` at child-node index `index` was removed:
+/// `parent` and its ancestors (`Anc`), or the earlier siblings of the removal point and of `parent` and of each of
+/// its ancestors (`AncSib`).
+fn removal_anchors(parent: &Handle, index: usize, hop: Hop) -> Vec<Handle> {
+    let mut out = Vec::new();
+    if hop == Hop::Anc {
+        let mut p = Some(parent.clone());
+        while let Some(a) = p.filter(is_el) {
+            out.push(a.clone());
+            p = parent_handle(&a);
+        }
+    } else {
+        out.extend(parent.children.borrow().iter().take(index).filter(|c| is_el(c)).cloned());
+        out.extend(step(std::slice::from_ref(parent), Hop::AncSib, &[]));
     }
     out
 }
@@ -308,6 +390,24 @@ fn subject_filter(comps: &[&Component<OurSelectorImpl>]) -> Option<Rc<Filter>> {
     (f.tag.is_some() || f.id.is_some() || !f.classes.is_empty()).then(|| Rc::new(f))
 }
 
+/// Walks `hops` from `cur` and marks what is reached `Restyle`: `filters` (any of; empty = all) on the last hop,
+/// `anchor` on the elements an `Anc` / `AncSib` hop reaches (QAPI6).
+fn walk(mut cur: Vec<Handle>, hops: &[Hop], filters: &[&Rc<Filter>], anchor: &Option<Rc<Filter>>, out: &mut Marks) {
+    for (i, hop) in hops.iter().enumerate() {
+        let last = i + 1 == hops.len();
+        cur = step(&cur, *hop, if last { filters } else { &[] });
+        if anchor.is_some() && matches!(hop, Hop::Anc | Hop::AncSib) {
+            cur.retain(|h| passes(h, anchor));
+        }
+        if cur.is_empty() {
+            break;
+        }
+    }
+    for h in &cur {
+        out.add(h, Mark::Restyle);
+    }
+}
+
 struct Builder {
     /// The carrier filter of the compound being collected (`Entry::carrier`).
     carrier: Option<Rc<Filter>>,
@@ -315,12 +415,27 @@ struct Builder {
     /// `(Key, Entry)` pairs (QINC1j-ab: the map is rebuilt for every rule-list generation).
     keys: HashMap<Key, Vec<Entry>>,
     global: bool,
+    /// QAPI6: 0 outside `:has()`; 1 in its relative selector; 2+ in a selector nested inside it.
+    has_depth: u8,
+    /// QAPI6: `Entry::anchor` of the `:has()` being collected.
+    anchor: Option<Rc<Filter>>,
+    has: bool,
 }
 
 impl Builder {
     fn add(&mut self, key: Key, hops: &[Hop], filter: &Option<Rc<Filter>>) {
-        let e = Entry { hops: hops.into(), filter: filter.clone(), carrier: self.carrier.clone() };
+        let e = Entry { hops: hops.into(), filter: filter.clone(), carrier: self.carrier.clone(), anchor: self.anchor.clone() };
         self.keys.entry(key).or_default().push(e);
+    }
+
+    /// `selector`, one level deeper when inside a `:has()`.
+    fn nested(&mut self, sel: &Sel, hops: &[Hop], filter: &Option<Rc<Filter>>) {
+        let d = self.has_depth;
+        if d > 0 {
+            self.has_depth = d.saturating_add(1);
+        }
+        self.selector(sel, hops, filter);
+        self.has_depth = d;
     }
 
     /// Collect the features of `sel`. `outer` = hops from `sel`'s subject to the top-level subject (empty at the top).
@@ -341,8 +456,17 @@ impl Builder {
         while s + 1 < seqs.len() && seqs[s].1 == Some(Combinator::PseudoElement) {
             s += 1;
         }
+        // QAPI6: inside `:has()` every compound reaches the anchors through the one hop at the front of `outer`; a
+        // selector nested in the relative selector with combinators of its own can match outside the anchor.
+        if self.has_depth >= 2 && seqs.len() > s + 1 {
+            self.global = true;
+        }
+        let flat = self.has_depth > 0;
         // Hops from compound `k` (k >= s) to the subject.
         let hops_from = |this: &mut Builder, k: usize| -> Vec<Hop> {
+            if flat {
+                return outer.to_vec();
+            }
             let mut h = Vec::new();
             for j in (s..k).rev() {
                 match seqs[j].1 {
@@ -408,8 +532,8 @@ impl Builder {
                 let mut sib = vec![Hop::AnySib];
                 sib.extend_from_slice(hops);
                 for s in d.selectors() {
-                    self.selector(s, hops, filter);
-                    self.selector(s, &sib, filter);
+                    self.nested(s, hops, filter);
+                    self.nested(s, &sib, filter);
                 }
             }
             Component::NonTSPseudoClass(pc) => {
@@ -434,10 +558,33 @@ impl Builder {
             }
             Component::Negation(l) | Component::Is(l) | Component::Where(l) => {
                 for s in l.slice() {
-                    self.selector(s, hops, filter);
+                    self.nested(s, hops, filter);
                 }
             }
-            Component::Has(_) | Component::Host(_) | Component::Slotted(_) | Component::Part(_) => self.global = true,
+            Component::Has(list) => {
+                if self.has_depth > 0 {
+                    // not valid CSS (the parser rejects it); stay sound anyway
+                    self.global = true;
+                    return;
+                }
+                self.has = true;
+                // `selector` set the carrier to the compound holding this `:has`: its anchors must match it.
+                let car = self.carrier.take();
+                let saved = std::mem::replace(&mut self.anchor, car.clone());
+                for rs in list.iter() {
+                    let first = if rs.match_hint.is_descendant_direction() { Hop::Anc } else { Hop::AncSib };
+                    let mut h = vec![first];
+                    h.extend_from_slice(hops);
+                    self.carrier = None;
+                    self.add(Key::HasTree, &h, filter);
+                    self.has_depth = 1;
+                    self.selector(&rs.selector, &h, filter);
+                    self.has_depth = 0;
+                }
+                self.anchor = saved;
+                self.carrier = car;
+            }
+            Component::Host(_) | Component::Slotted(_) | Component::Part(_) => self.global = true,
             _ => {}
         }
     }
@@ -464,7 +611,7 @@ impl Builder {
 
 impl InvalidationMap {
     pub(crate) fn build(rules: &[StyleRule], generation: u64) -> InvalidationMap {
-        let mut b = Builder { carrier: None, keys: HashMap::new(), global: false };
+        let mut b = Builder { carrier: None, keys: HashMap::new(), global: false, has_depth: 0, anchor: None, has: false };
         let mut attr_all = false;
         for rule in rules {
             for sel in rule.selectors.slice() {
@@ -491,12 +638,18 @@ impl InvalidationMap {
         }
         let has_state_checked = b.keys.contains_key(&Key::State(StateKind::Checked));
         let has_state_disabled = b.keys.contains_key(&Key::State(StateKind::Disabled)) || b.keys.contains_key(&Key::State(StateKind::Enabled));
-        InvalidationMap { generation, keys: b.keys, global: b.global, attr_all, has_state_checked, has_state_disabled }
+        InvalidationMap { generation, keys: b.keys, global: b.global, has: b.has, attr_all, has_state_checked, has_state_disabled }
     }
 
-    /// Some selector is not bounded (`:has`, ...): every call returns a single `Mark::Global`.
+    /// Some selector is not bounded (`:host`, ...): every call returns a single `Mark::Global`.
     pub(crate) fn is_global(&self) -> bool {
         self.global
+    }
+
+    /// QAPI6: some selector uses `:has()`: a change of an element nobody styles (under `display: none`) can
+    /// still change a rendered anchor's match.
+    pub(crate) fn has_has(&self) -> bool {
+        self.has
     }
 
     pub(crate) fn entry_count(&self) -> usize {
@@ -511,6 +664,7 @@ impl InvalidationMap {
         // filters (`None` in the group = no filter): a `:hover` on an ancestor walks its subtree once,
         // not once per rule.
         let mut groups: Vec<HopGroup> = Vec::new();
+        let mut anchors: Vec<&Option<Rc<Filter>>> = Vec::new();
         for e in entries {
             if filter_self && !passes(from, &e.carrier) {
                 continue;
@@ -521,10 +675,11 @@ impl InvalidationMap {
                 }
                 continue;
             }
-            let g = match groups.iter().position(|g| *g.0 == *e.hops) {
+            let g = match groups.iter().zip(&anchors).position(|(g, a)| *g.0 == *e.hops && **a == e.anchor) {
                 Some(i) => &mut groups[i],
                 None => {
                     groups.push((&e.hops, Some(Vec::new())));
+                    anchors.push(&e.anchor);
                     groups.last_mut().expect("just pushed")
                 }
             };
@@ -534,15 +689,28 @@ impl InvalidationMap {
                 (Some(_), None) => {}
             }
         }
-        for (hops, filters) in groups {
+        for ((hops, filters), anchor) in groups.into_iter().zip(anchors) {
             let filters = filters.unwrap_or_default();
-            let mut cur = vec![from.clone()];
-            for (i, hop) in hops.iter().enumerate() {
-                let last = i + 1 == hops.len();
-                cur = step(&cur, *hop, if last { &filters } else { &[] });
-                if cur.is_empty() {
-                    break;
-                }
+            walk(vec![from.clone()], hops, &filters, anchor, out);
+        }
+    }
+
+    /// QAPI6: a child of `parent` at child-node index `index` was removed: the `HasTree` paths from the
+    /// anchors the removed subtree may have been found by.
+    fn has_removed(&self, parent: &Handle, index: usize, out: &mut Marks) {
+        let Some(entries) = self.keys.get(&Key::HasTree) else { return };
+        let mut starts: [Option<Vec<Handle>>; 2] = [None, None];
+        for e in entries {
+            let Some((&first, rest)) = e.hops.split_first() else { continue };
+            let slot = usize::from(first != Hop::Anc);
+            let start = starts[slot].get_or_insert_with(|| removal_anchors(parent, index, first));
+            let mut cur: Vec<Handle> = start.iter().filter(|h| passes(h, &e.anchor)).cloned().collect();
+            if rest.is_empty() {
+                cur.retain(|h| passes(h, &e.filter));
+            } else {
+                let fs: Vec<&Rc<Filter>> = e.filter.iter().collect();
+                walk(cur, rest, &fs, &None, out);
+                continue;
             }
             for h in &cur {
                 out.add(h, Mark::Restyle);
@@ -680,6 +848,16 @@ impl InvalidationMap {
         self.for_attr(el, "class", old, new)
     }
 
+    /// QAPI6: a child of `parent` that may have been an element (the caller cannot tell) left child-node index
+    /// `index`: the `:has()` anchors that may have found it.
+    pub(crate) fn for_has_removal(&self, parent: &Handle, index: usize) -> Vec<(Handle, Mark)> {
+        let mut out = Marks::default();
+        if self.has && is_el(parent) {
+            self.has_removed(parent, index, &mut out);
+        }
+        out.out
+    }
+
     /// A text node of `parent` was inserted, removed or edited (`:empty` is the only selector that sees it).
     pub(crate) fn for_text(&self, parent: &Handle) -> Vec<(Handle, Mark)> {
         if self.global {
@@ -715,6 +893,13 @@ impl InvalidationMap {
             for d in step(std::slice::from_ref(n), Hop::Desc, &[]) {
                 out.add(&d, Mark::Restyle);
             }
+            // QAPI6: the anchors that may now find the new subtree
+            self.apply(&Key::HasTree, n, false, &mut out);
+        }
+        if let ChildChange::Removed { node, index } = change
+            && is_el(node)
+        {
+            self.has_removed(parent, *index, &mut out);
         }
         // `:empty` sees text too; nothing else does.
         self.apply(&Key::Empty, parent, true, &mut out);
@@ -831,6 +1016,7 @@ pub(crate) fn current() -> Option<Rc<InvalidationMap>> {
             return Some(m.clone());
         }
         let m = Rc::new(InvalidationMap::build(&rules, generation));
+        crate::incr_log::set_keep_nodes(m.has_has());
         *c = Some(m.clone());
         Some(m)
     })

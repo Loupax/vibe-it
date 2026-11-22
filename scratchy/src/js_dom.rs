@@ -657,8 +657,8 @@ fn page_connected(t: &DomTable, h: &Handle) -> bool {
 /// QINC1e: logs a changed attribute of a connected node.
 fn log_attr(t: &DomTable, h: &Handle, changed: bool, name: &str, old: Option<&str>, new: Option<&str>) {
     if changed && page_connected(t, h) {
-        crate::incr_log::note(
-            crate::incr_log::key(h),
+        crate::incr_log::note_node(
+            h,
             crate::incr_log::Change::Attr { name: name.into(), old: crate::incr_log::Val::of(old), new: crate::incr_log::Val::of(new) },
         );
     }
@@ -667,7 +667,7 @@ fn log_attr(t: &DomTable, h: &Handle, changed: bool, name: &str, old: Option<&st
 /// QINC1e: logs a form-state change of a connected control.
 fn log_form(t: &DomTable, h: &Handle, kind: crate::incr_log::FormKind) {
     if page_connected(t, h) {
-        crate::incr_log::note(crate::incr_log::key(h), crate::incr_log::Change::Form(kind));
+        crate::incr_log::note_node(h, crate::incr_log::Change::Form(kind));
     }
 }
 
@@ -678,8 +678,8 @@ fn log_inserted(p: &Handle, moved: &[Handle]) {
     let Some(at) = kids.iter().position(|k| Rc::ptr_eq(k, first)) else { return };
     for (i, m) in moved.iter().enumerate() {
         let i = at + i;
-        crate::incr_log::note(
-            crate::incr_log::key(p),
+        crate::incr_log::note_node(
+            p,
             crate::incr_log::Change::ChildInsert {
                 child: crate::incr_log::key(m),
                 prev: i.checked_sub(1).and_then(|j| kids.get(j)).map(crate::incr_log::key),
@@ -756,12 +756,12 @@ fn insert_native(t: &DomTable, d: &Cell<bool>, gn: &Cell<u64>, lk: Option<&Rc<Re
     {
         lk.borrow_mut().links_changed = true;
     }
-    let removed_from = old_conn.as_ref().map(|o| (crate::incr_log::key(o), crate::incr_log::siblings(&c)));
+    let removed_from = old_conn.as_ref().map(|o| (o.clone(), crate::incr_log::siblings(&c)));
     let ok = insert_child(&p, &c, t.get(before).as_ref(), frag);
     if ok {
         // QINC1e: the node left its old (connected) parent, and entered the new one.
         if let Some((o, (prev, next))) = removed_from {
-            crate::incr_log::note(o, crate::incr_log::Change::ChildRemove { child: crate::incr_log::key(&c), prev, next });
+            crate::incr_log::note_node(&o, crate::incr_log::Change::ChildRemove { child: crate::incr_log::key(&c), prev, next });
         }
         if new_conn {
             log_inserted(&p, &moved);
@@ -1425,7 +1425,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             }
             if conn {
                 let c = if matches!(h.data, NodeData::Text { .. }) { crate::incr_log::Change::Text } else { crate::incr_log::Change::TextContent };
-                crate::incr_log::note(crate::incr_log::key(&h), c);
+                crate::incr_log::note_node(&h, c);
             }
             d.set(d.get() | changed);
             gn.set(gn.get() + 1);
@@ -1452,7 +1452,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             };
             set_inner_html(&h, &html);
             if conn {
-                crate::incr_log::note(crate::incr_log::key(&h), crate::incr_log::Change::InnerHtml);
+                crate::incr_log::note_node(&h, crate::incr_log::Change::InnerHtml);
             }
             d.set(true);
             gn.set(gn.get() + 1);
@@ -1679,7 +1679,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             let pre = old_parent.as_ref().and_then(|o| crate::js_geom::children_write_pre(o, std::slice::from_ref(&h)));
             if let Some(o) = &old_parent {
                 let (prev, next) = crate::incr_log::siblings(&h);
-                crate::incr_log::note(crate::incr_log::key(o), crate::incr_log::Change::ChildRemove { child: crate::incr_log::key(&h), prev, next });
+                crate::incr_log::note_node(o, crate::incr_log::Change::ChildRemove { child: crate::incr_log::key(&h), prev, next });
             }
             detach(&h);
             d.set(true);
