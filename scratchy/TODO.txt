@@ -86,7 +86,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       size and compare every listed page (today only page 1 is rendered).
 - [ ] QCSS1b [S] (P2, from QCSS1 #527; Sonnet; css.rs, dom.rs stylesheet collection) Honour `media` on `<link rel=stylesheet>`,
       `<style media>` and `@import url(...) media` with `media_query_string_matches` (today ignored: always applied).
-- [ ] QCSS-A [S] (P2, from QAPI8 #578 R66 §4; Sonnet; css.rs, svg paint) SVG `fill`/`stroke`/`stroke-width`/`stroke-linecap`
+- [ ] [WIP] QCSS-A [S] (P2, from QAPI8 #578 R66 §4; Sonnet; css.rs, svg paint) SVG `fill`/`stroke`/`stroke-width`/`stroke-linecap`
       from stylesheets onto inline SVG (8 sites, 1 427 hits: icons render black today).
 - [ ] QCSS-B [S] (P2, from QAPI8 #578; Sonnet; css.rs, layout) `aspect-ratio` (8 sites).
 - [ ] QCSS-C [S] (P2, from QAPI8 #578; Sonnet; css.rs, flex/grid) Box-alignment keywords (`end`, `first baseline`, ...),
