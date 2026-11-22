@@ -7,11 +7,13 @@ OK           0/1  hr-time/clamped-time-origin.html
   FAIL      timeOrigins are clamped.
 OK           1/2  hr-time/monotonic-clock.any.html
   FAIL      self.performance.now() returns a positive number
-TIMEOUT      0/1  hr-time/navigation-start-post-before-unload.html
-  TIMEOUT   timeOrigin should be set after beforeunload
+OK           0/1  hr-time/navigation-start-post-before-unload.html
+  FAIL      timeOrigin should be set after beforeunload
 OK           0/1  hr-time/performance-tojson.html
   FAIL      Test performance.toJSON()
-TIMEOUT      1/1  hr-time/test_cross_frame_start.html
+OK           3/5  hr-time/test_cross_frame_start.html
+  FAIL      Child created at least 1 second after parent
+  FAIL      Child and parent time bases are correct
 OK           1/3  hr-time/timeOrigin.html
   FAIL      Window and worker timeOrigins are close when created one after another.
   FAIL      Window and worker timeOrigins differ when worker is created after a delay.
