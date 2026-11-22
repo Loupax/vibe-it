@@ -248,3 +248,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Merged... #572 QAPI5 READY (ARIA + slots; HTMLSlotElement 1->18/18), queued after reinstall. Filed QAPI5b. Launched QAPI3.
 - 2026-11-22 #571 QAPI4 READY (document.fonts; github .ready errors gone), queued after #572. Filed QAPI4b. Launched QCE1.
 - 2026-11-22 Reinstalled ~/.cargo/bin/scratchy 06:53 from main ebb022e (CI green; includes transitions #568, hscrollbars #552, QDOM16 #549, QAPI1/2).
+- 2026-11-22 #560 QDOM17 rebased again (nodes 67.4), queued after #571. Launched QAPI7.
