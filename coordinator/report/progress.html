@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-22 · main 2a591a3 · 92 PRs merged since 2026-11-21 morning (#475–#567) · 5 agents running (QAPI2, QAPI4, QAPI5, QAPI6, QDOM16 rebasing) · merging: #568 CSS transitions, #560, #569</div>
+  <div class="meta" id="updated">Updated 2026-11-22 · main 2059232 · 93 PRs merged since 2026-11-21 morning (#475–#568) · 5 agents running (QAPI2, QAPI4, QAPI5, QAPI6, QDOM16 rebasing) · merging: #560, #569</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -111,6 +111,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#568</td><td>QANIMHLb</td><td>CSS transitions: <code>transition</code> parsed and animated, transition events fire; hover fades draw in-between frames, idle CPU stays idle</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#567</td><td>QREC3b</td><td>Gate pages re-recorded headless: replay misses ~0 (YouTube results 66 → 0–2); replay and live forced-layout counts differ, so replay budgets come from replay runs</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#565</td><td>QDOM6b</td><td><code>createElementNS</code> namespace and case rules; dom/nodes case.html 261 → 284/285</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#552</td><td>QSB2b</td><td>Horizontal scrollbars for the window and sideways-scrolling boxes (your call: mouse + arrows, no hjkl)</td></tr>
