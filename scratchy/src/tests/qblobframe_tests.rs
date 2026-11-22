@@ -2,6 +2,7 @@
 // from the blob's bytes (async, through the QDOM5c iframe load path); revoked or non-HTML blobs fail cleanly (`load` fires).
 use super::*;
 
+#[allow(clippy::let_and_return)]
 fn run(js: &str) -> Vec<String> {
     let fake = QfFake::new(vec![]);
     let (engine, log) = qf7_engine("https://page.test/", &fake);
@@ -11,8 +12,8 @@ fn run(js: &str) -> Vec<String> {
         std::thread::sleep(std::time::Duration::from_millis(5));
         engine.run_due();
     }
-    let l = log.borrow().clone();
-    l
+    let out = log.borrow().clone();
+    out
 }
 
 #[test]
