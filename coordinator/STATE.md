@@ -299,3 +299,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Merged #589 QANIMHLc c9e30cb. Launched QFF1a (web fonts, Opus).
 - 2026-11-22 MY ERROR: launched QFF1a as a 6th agent (QANIMHLc's slot had already gone to the #584 rebase). Stopped it after 3 s; it restarts in the next free slot (stays [WIP] in TODO, queued). Rule again: ListAgents before every launch.
 - 2026-11-22 #590 QAPI6c READY (vh flag mismatch: cause + repro + fix; 0 mismatches in 5 check-mode window runs), merging. QFF1a resumed in the freed slot. QINC1m next (after #590 lands).
+- 2026-11-22 QFF1a: the stopped agent's worktree was removed on stop; on resume it sat in the main checkout and (correctly) refused my 'reset --hard' instruction. Main checkout verified untouched. Respawned QFF1a fresh with its own worktree. Lesson: never resume a stopped worktree agent; respawn it.
