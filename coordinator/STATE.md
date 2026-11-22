@@ -261,3 +261,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #577 QAPI7 READY (BroadcastChannel, contentEditable; touch handlers deliberately absent), queued after #576. Filed QWPT6d (needs user OK: new area). Launched QDOM18.
 - 2026-11-22 Merged #575 QCE1 65a5dae (parser custom elements).
 - 2026-11-22 USER: hold #573 until QAPI6b (agreed); QWPT6d approved (html/editing in subset). Asked what happened with NOTES.md: explained.
+- 2026-11-22 USER OK: merge_pr.sh keeps both sides of NOTES.md when both sides only add lines (addonly check, tested add-only + edit cases).

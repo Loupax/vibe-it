@@ -26,6 +26,17 @@ W=$PAD/mq-$N; rm -rf "$W"; git worktree prune
 git worktree add -q -B "mq-$N" "$W" "$HEAD" || exit 3
 # user 2026-11-19 ~22:25: conflicts ONLY in the append-only scratchy/PROMPTS.md / scratchy/REGRESSIONS.md are resolved
 # keep-both (main's side first); any other conflicted file, or a duplicate `## R<n>:` heading, -> exit 2 (back to the agent).
+# addonly <file>: true when, in the current conflict, neither side deletes or changes a line of the merge base.
+addonly() {
+  local f=$1 d; d=$(mktemp -d "$PAD/ao.XXXX")
+  git show ":1:$f" > "$d/base" 2>/dev/null || { rm -r "$d"; return 0; }   # no base: both added the file
+  git show ":2:$f" > "$d/ours" 2>/dev/null && git show ":3:$f" > "$d/theirs" 2>/dev/null || { rm -r "$d"; return 1; }
+  local r=0
+  diff "$d/base" "$d/ours" | grep -q '^<' && r=1
+  diff "$d/base" "$d/theirs" | grep -q '^<' && r=1
+  rm "$d/base" "$d/ours" "$d/theirs"; rmdir "$d"
+  return $r
+}
 keepboth() {
   python3 -I - "$1" <<'PYEOF'
 import sys
@@ -96,7 +107,11 @@ if ! ( cd "$W" && git rebase -q origin/main >/dev/null 2>&1 ); then
   while git status | grep -q 'rebase in progress'; do
     TRIES=$((TRIES+1)); if [ $TRIES -gt 30 ]; then echo "PR #$N: rebase stuck"; git rebase --abort; cd "$REPO"; git worktree remove --force "$W"; git branch -D "mq-$N" >/dev/null; exit 3; fi
     U=$(git diff --name-only --diff-filter=U)
-    BAD=$(echo "$U" | grep -Ev '^(scratchy/PROMPTS\.md|scratchy/REGRESSIONS\.md|scratchy/src/tests/mod\.rs|scratchy/wpt-th/areas\.txt)?$' | tr '\n' ' ')
+    BAD=$(echo "$U" | grep -Ev '^(scratchy/PROMPTS\.md|scratchy/REGRESSIONS\.md|scratchy/NOTES\.md|scratchy/src/tests/mod\.rs|scratchy/wpt-th/areas\.txt)?$' | tr '\n' ' ')
+    # NOTES.md (user OK 2026-11-22): keep both only when BOTH sides purely add lines to the common base.
+    if echo "$U" | grep -qx 'scratchy/NOTES.md' && ! addonly scratchy/NOTES.md; then
+      BAD="$BAD scratchy/NOTES.md (a side changes or deletes existing lines)"
+    fi
     if [ -n "$BAD" ]; then
       echo "PR #$N: rebase CONFLICT in: $BAD"
       git rebase --abort; cd "$REPO"; git worktree remove --force "$W"; git branch -D "mq-$N" >/dev/null; exit 2

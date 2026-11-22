@@ -7,6 +7,9 @@ their section with the date.
 
 ## Direction and process
 
+- **2026-11-22 merge_pr.sh keeps both sides of NOTES.md conflicts when both sides only add
+  lines** (neither deletes or changes a line of the common base). Any other NOTES.md conflict goes
+  back to the agent.
 - **2026-11-22 `:has()` (#573) is held until QAPI6b wins back its cost.** YouTube results forced
   layouts were +65 % with #573; #573 merges together with (or after) QAPI6b once the YouTube
   numbers are within noise of main.
