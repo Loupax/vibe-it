@@ -1052,6 +1052,8 @@ pub(crate) struct App {
     /// QSB2: a track press being held (page repeat) and the hovered thumb's bar id.
     pub(crate) sb_hold: Option<SbHold>,
     pub(crate) sb_hover: Option<usize>,
+    /// QHOV1: the kept page of the last paint, for damage-rect repaints.
+    pub(crate) dp: DamagePaint,
     /// Q30g: type-ahead buffer of a focused closed select.
     pub(crate) select_ahead: TypeAhead,
     /// The page that was showing right before `:help` opened, if any —
@@ -1565,6 +1567,7 @@ impl App {
             hbar: false,
             sb_hold: None,
             sb_hover: None,
+            dp: DamagePaint::default(),
             select_ahead: TypeAhead::default(),
             pre_help_page: None,
             video: AppVideo::default(),
@@ -1686,6 +1689,7 @@ impl App {
             hbar: false,
             sb_hold: None,
             sb_hover: None,
+            dp: DamagePaint::default(),
             select_ahead: TypeAhead::default(),
             pre_help_page: None,
             video: AppVideo::default(),
@@ -1773,13 +1777,13 @@ impl App {
             }
         };
         let paint_started = self.frame_stats.is_some().then(std::time::Instant::now);
-        for pixel in pixels.iter_mut() {
-            *pixel = 0x00FFFFFF;
-        }
-
-        if video_on {
-            crate::media_video::begin_paint(&pixels);
-        }
+        // QHOV1: the page's own changes since its last paint, as damaged screen rects (`Some`), when
+        // the kept page can be patched instead of painting everything again.
+        let mut fast: Option<DamageRects> = None;
+        // QHOV1: the key a full paint's page is kept under for the next damage repaint.
+        let mut keep_key: Option<PaintKey> = None;
+        // (A page without a `<video>` paints no video box, so the media backend alone is no overlay.)
+        let overlays = (video_on && (!self.video.boxes.is_empty() || has_video(&self.document))) || self.search.highlight || self.select_popup.is_some();
         // `None` on the very first tick or two, while we're still
         // waiting to see whether the width is about to change again
         // (see `pending_width`); also `None` until the background
@@ -1788,14 +1792,13 @@ impl App {
         // TICK_BUDGET` or so, same order of magnitude as the old inline
         // call's own first partial result used to take. Either way,
         // paint a blank frame rather than stall on it.
-        if let Some(laid) = self.cached.as_ref() {
-            // QW6: the canvas colour covers the whole window, also past a
-            // short document's end.
-            if let Some(c) = laid.style.background_color {
-                for pixel in pixels.iter_mut() {
-                    *pixel = crate::paint::blend(*pixel, c);
-                }
+        if self.cached.is_none() {
+            pixels.fill(0x00FFFFFF);
+            if video_on {
+                crate::media_video::begin_paint(&pixels);
             }
+        }
+        if let Some(laid) = self.cached.as_ref() {
             let max_scroll = (laid.h - page_h as f32).max(0.0);
             if let Some(target) = self.scroll_target {
                 let now = std::time::Instant::now();
@@ -1810,6 +1813,67 @@ impl App {
             let max_scroll_x = (crate::layout::doc_scroll_width(laid) - width as f32).max(0.0);
             self.scroll_x = self.scroll_x.clamp(0.0, max_scroll_x);
 
+            // QHOV1: this paint takes the engine's damage (every paint of its own tree does, so the
+            // next one starts from this one).
+            let damage = crate::incr_layout::owns(laid).then(crate::incr_layout::take_damage);
+            // SCRATCHY_NO_DAMAGE=1: every hover frame paints the whole page (A/B measurements).
+            static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            let off = *OFF.get_or_init(|| std::env::var_os("SCRATCHY_NO_DAMAGE").is_some());
+            if !off && !overlays && self.state_rules != 0 && damage.is_some() {
+                let mut offsets: Vec<(usize, u32)> = self.scroll_offsets.iter().map(|(k, v)| (*k, v.to_bits())).collect();
+                offsets.sort_unstable();
+                let vb = Self::viewport_bar(&self.cached, (width, page_h));
+                let key = PaintKey {
+                    size: (width, height, page_h),
+                    scroll: (self.scroll_offset.to_bits(), self.scroll_x.to_bits()),
+                    offsets,
+                    focus: (self.interaction.focus, self.interaction.focus_visible),
+                    hot: crate::paint::SB_HOT.with(|h| h.get()),
+                    hbar: self.hbar,
+                    vbar: vb.map(|(r, c, h)| [r.2.to_bits(), r.3.to_bits(), c.to_bits(), h.to_bits(), r.0.to_bits(), r.1.to_bits()]),
+                    canvas: laid.style.background_color.map(|c| c.as_rgba_tuple()),
+                };
+                if let Some(Some(d)) = damage
+                    && self.dp.key.as_ref() == Some(&key)
+                    && self.dp.kept.len() == pixels.len()
+                    && self.dp.scratch.len() == pixels.len()
+                {
+                    fast = damage_screen_rects(&d, laid, (self.scroll_x, self.scroll_offset), (width, page_h));
+                }
+                keep_key = Some(key);
+            }
+            if let Some((rects, margin)) = &fast {
+                // Patch the kept page: each rect is painted into the scratch page (its own white and
+                // canvas colour first, everything that reaches it, culled to it) and copied over.
+                if pixels.age() != 1 {
+                    pixels.copy_from_slice(&self.dp.kept);
+                }
+                let vb = Self::viewport_bar(&self.cached, (width, page_h));
+                for &(l, t, r, b) in rects {
+                    let w = width as usize;
+                    let focus = self.interaction.focus.filter(|_| self.interaction.focus_visible);
+                    repaint_rect(
+                        laid, &mut self.font_system, &mut self.swash_cache, &mut self.shape_cache, &self.scroll_offsets,
+                        &mut self.dp.scratch, (width, height), (self.scroll_x, self.scroll_offset), vb, focus, (l, t, r, b), *margin,
+                    );
+                    for y in t..b {
+                        let (a, z) = (y as usize * w + l as usize, y as usize * w + r as usize);
+                        self.dp.kept[a..z].copy_from_slice(&self.dp.scratch[a..z]);
+                        pixels[a..z].copy_from_slice(&self.dp.scratch[a..z]);
+                    }
+                }
+            } else {
+            pixels.fill(0x00FFFFFF);
+            // QW6: the canvas colour covers the whole window, also past a
+            // short document's end.
+            if let Some(c) = laid.style.background_color {
+                for pixel in pixels.iter_mut() {
+                    *pixel = crate::paint::blend(*pixel, c);
+                }
+            }
+            if video_on {
+                crate::media_video::begin_paint(&pixels);
+            }
             crate::paint::with_scroll_x(self.scroll_x, || {
                 paint(
                     laid,
@@ -1834,11 +1898,12 @@ impl App {
                     }
                 }
             }
+            }
         }
 
         // QSB1: the window's own scrollbar (overlay, same look as a region's).
         let vbar = Self::viewport_bar(&self.cached, (width, page_h));
-        if let Some((rect, content_h, client_h)) = vbar {
+        if let (Some((rect, content_h, client_h)), None) = (vbar, &fast) {
             let info = crate::layout::ScrollInfo {
                 id: crate::scrollbar::VIEWPORT_ID, content_h, client_h, node: 0, user: true, user_x: false, content_w: 0.0, client_w: 0.0,
             };
@@ -1846,7 +1911,7 @@ impl App {
         }
         // QSB2b: the horizontal bar in the strip above the status bar (canvas colour under it),
         // with the corner square when the vertical one shows too.
-        if let Some((rect, content_w, client_w)) = Self::viewport_bar_x(&self.cached, (width, page_h)) {
+        if let (Some((rect, content_w, client_w)), None) = (Self::viewport_bar_x(&self.cached, (width, page_h)), &fast) {
             let canvas = self.cached.as_ref().and_then(|l| l.style.background_color);
             for row in page_h..(page_h + crate::config::TRACK_W as u32).min(height) {
                 for x in 0..width {
@@ -1900,6 +1965,18 @@ impl App {
                 }
             }
         }
+        // QHOV1: the page as painted so far is what a later damage repaint patches.
+        if fast.is_none() {
+            match keep_key {
+                Some(key) => {
+                    self.dp.kept.clear();
+                    self.dp.kept.extend_from_slice(&pixels);
+                    self.dp.scratch.resize(pixels.len(), 0);
+                    self.dp.key = Some(key);
+                }
+                None => self.dp.key = None,
+            }
+        }
         // QKEYS1: the status bar is the top layer (over a video that reaches into its strip).
         {
             let url = status_url(&self.history, self.history_index, self.base_url.as_ref());
@@ -1930,12 +2007,29 @@ impl App {
             fs.paint(present_started.saturating_duration_since(t));
         }
         window.pre_present_notify();
-        if let Err(e) = pixels.present() {
+        let presented = match &fast {
+            Some((rects, _)) => {
+                let mut damage: Vec<softbuffer::Rect> = rects
+                    .iter()
+                    .filter_map(|r| Some(softbuffer::Rect { x: r.0, y: r.1, width: NonZeroU32::new(r.2 - r.0)?, height: NonZeroU32::new(r.3 - r.1)? }))
+                    .collect();
+                // The status bar is painted over the kept page again on every frame.
+                if let (Some(w), Some(h)) = (NonZeroU32::new(width), NonZeroU32::new(height.saturating_sub(page_h))) {
+                    damage.push(softbuffer::Rect { x: 0, y: page_h, width: w, height: h });
+                }
+                pixels.present_with_damage(&damage)
+            }
+            None => pixels.present(),
+        };
+        if let Err(e) = presented {
             log_redraw_error_once("present the frame", &e);
         }
         if let Some(fs) = &mut self.frame_stats {
             let now = std::time::Instant::now();
             fs.present(now.saturating_duration_since(present_started));
+            if fast.is_some() {
+                fs.damage_present();
+            }
             fs.presented(now);
             for &n in &laid {
                 fs.video_painted(n);
@@ -5375,6 +5469,144 @@ impl crate::event_loop::RenderingHost for App {
         {
             w.request_redraw();
         }
+    }
+}
+
+/// QHOV1: what a paint of the page depends on besides the laid tree. A damage-rect repaint needs the
+/// kept page to have been painted under the same key (the tree's own changes are the engine's damage).
+#[derive(Clone, PartialEq, Debug)]
+pub(crate) struct PaintKey {
+    size: (u32, u32, u32),
+    scroll: (u32, u32),
+    offsets: Vec<(usize, u32)>,
+    focus: (Option<usize>, bool),
+    hot: Option<(usize, bool)>,
+    hbar: bool,
+    vbar: Option<[u32; 6]>,
+    canvas: Option<(u8, u8, u8, u8)>,
+}
+
+/// QHOV1: the page as the last full or damage paint left it (before the status bar and the overlays),
+/// the key it was painted under, and a scratch page the damaged rects are painted into.
+#[derive(Default)]
+pub(crate) struct DamagePaint {
+    pub(crate) kept: Vec<u32>,
+    pub(crate) scratch: Vec<u32>,
+    pub(crate) key: Option<PaintKey>,
+}
+
+/// QHOV1: a damage repaint covers at most this share of the viewport (else one full paint is cheaper).
+const DAMAGE_MAX_SHARE: f32 = 0.5;
+/// QHOV1: ... and at most this many rects.
+const DAMAGE_MAX_RECTS: usize = 8;
+
+/// QHOV1: screen rects to repaint and the paint cull's margin.
+pub(crate) type DamageRects = (Vec<(u32, u32, u32, u32)>, f32);
+
+/// QHOV1: the engine's document-space damage as screen rects of the page viewport `(width, page_h)`
+/// plus the cull margin to paint them with, or `None` when a full paint is needed or cheaper: too many
+/// rects, more than `DAMAGE_MAX_SHARE` of the page, or a layer box (`filter`, `backdrop-filter`, a
+/// non-normal `mix-blend-mode`: its output depends on what is around or behind it, so it is only right
+/// painted whole) that a rect touches.
+pub(crate) fn damage_screen_rects(d: &crate::incr_layout::Damage, laid: &Laid, (sx, so): (f32, f32), (width, page_h): (u32, u32)) -> Option<DamageRects> {
+    let mut out = Vec::new();
+    for r in &d.rects {
+        let l = (r.l - sx).floor().clamp(0.0, width as f32) as u32;
+        let t = (r.t - so).floor().clamp(0.0, page_h as f32) as u32;
+        let rr = (r.r - sx).ceil().clamp(0.0, width as f32) as u32;
+        let b = (r.b - so).ceil().clamp(0.0, page_h as f32) as u32;
+        if rr > l && b > t {
+            out.push((l, t, rr, b));
+        }
+    }
+    let area: f32 = out.iter().map(|r| ((r.2 - r.0) * (r.3 - r.1)) as f32).sum();
+    if out.len() > DAMAGE_MAX_RECTS || area > DAMAGE_MAX_SHARE * (width * page_h) as f32 {
+        return None;
+    }
+    let margin = crate::paint::CULL_MARGIN.max(d.reach + 8.0);
+    if d.layer_fx && layer_hit(laid, &out, (sx, so), margin) {
+        return None;
+    }
+    Some((out, margin))
+}
+
+/// QHOV1: whether a layer box under `l` (screen space, `scroll` = the ambient offsets) reaches one of `rects`.
+fn layer_hit(l: &Laid, rects: &[(u32, u32, u32, u32)], (sx, so): (f32, f32), margin: f32) -> bool {
+    crate::stack::grow(|| {
+        let so = if l.fixed { 0.0 } else { so };
+        let near = |pad: f32| {
+            let (il, it, ir, ib) = (l.ink.l - sx - pad, l.ink.t - so - pad, l.ink.r - sx + pad, l.ink.b - so + pad);
+            rects.iter().any(|&(a, b, c, d)| il < c as f32 && ir > a as f32 && it < d as f32 && ib > b as f32)
+        };
+        if !near(margin) {
+            return false;
+        }
+        let (reach, layer) = crate::incr_layout::box_reach(&l.style);
+        if layer && near(reach + 8.0) {
+            return true;
+        }
+        let kids = match &l.content {
+            LaidContent::Blocks(v) | LaidContent::TableRow(v) => v.iter().any(|c| layer_hit(c, rects, (sx, so), margin)),
+            LaidContent::MixedInline(items) => items.iter().any(|i| matches!(i, MixedPositioned::Embedded(e) if layer_hit(e, rects, (sx, so), margin))),
+            _ => false,
+        };
+        kids || l.positioned.iter().any(|p| layer_hit(p, rects, (sx, so), margin))
+    })
+}
+
+/// QHOV1: whether the document has a `<video>` element (its box paints through the media backend).
+fn has_video(h: &Handle) -> bool {
+    (matches!(h.data, NodeData::Element { .. }) && element_tag(h) == "video") || h.children.borrow().iter().any(has_video)
+}
+
+/// QHOV1: paints the screen rect `(l, t, r, b)` of the page afresh into `scratch` (a full-size page;
+/// only the rect is meaningful): the page's white and canvas colour, then everything that reaches the
+/// rect (boxes whose ink misses it are skipped), the keyboard focus ring and the window's scrollbar.
+/// Pixel for pixel what a full paint puts there.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn repaint_rect(
+    laid: &Laid,
+    font_system: &mut FontSystem,
+    swash_cache: &mut SwashCache,
+    shape_cache: &mut ShapeCache,
+    scroll_offsets: &HashMap<usize, f32>,
+    scratch: &mut [u32],
+    (width, height): (u32, u32),
+    (scroll_x, scroll_offset): (f32, f32),
+    vbar: Option<crate::scrollbar::ViewportBar>,
+    focus_visible: Option<usize>,
+    (l, t, r, b): (u32, u32, u32, u32),
+    cull_margin: f32,
+) {
+    let w = width as usize;
+    for y in t..b {
+        let row = &mut scratch[y as usize * w + l as usize..y as usize * w + r as usize];
+        row.fill(0x00FFFFFF);
+        if let Some(c) = laid.style.background_color {
+            for p in row.iter_mut() {
+                *p = crate::paint::blend(*p, c);
+            }
+        }
+    }
+    let clip = (l as f32, t as f32, r as f32, b as f32);
+    crate::paint::with_scroll_x(scroll_x, || {
+        crate::paint::with_paint_cull(clip, cull_margin, || {
+            paint(laid, font_system, swash_cache, shape_cache, scroll_offsets, scratch, width, height, scroll_offset, Some(clip))
+        })
+    });
+    if let Some(f) = focus_visible {
+        let geom = node_geometry(laid, shape_cache, f);
+        if !geom.outline {
+            for &(x, y, w, h) in &geom.rects {
+                paint_focus_ring(scratch, width, height, x - scroll_x, y - scroll_offset, w, h);
+            }
+        }
+    }
+    if let Some((rect, content_h, client_h)) = vbar {
+        let info = crate::layout::ScrollInfo {
+            id: crate::scrollbar::VIEWPORT_ID, content_h, client_h, node: 0, user: true, user_x: false, content_w: 0.0, client_w: 0.0,
+        };
+        crate::paint::paint_scrollbar(&info, scroll_offset, false, scratch, width, height, rect.0, rect.1, rect.2, rect.3, Some(clip));
     }
 }
 

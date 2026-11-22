@@ -3096,6 +3096,28 @@ other is an ordinary incremental engine frame (`incr_frame::frame`). The old pip
 shortcuts (QY53n1 match-memo diff, QY53n2/n3 `hover_patch` paint/offset patch, R47) were removed
 with it (QINC1m); see git history before QINC1m for their design.
 
+Hover paint (QHOV1): the engine's hover frame is ~1 ms (restyle of the few changed elements, one bottom-up
+splice); the cost left was repainting the whole window. Each splice in `incr_layout::attempt` records the
+document rect it changed (old ink and the new subtree's rect union, each padded by `paint_reach`: shadow,
+outline, 4 px) plus the rects of its z-index entries; a top-down relayout, a failed update, a fixed/sticky/
+scroll-region/masked box in the path or subtree, a mask, or more than 32 rects leaves the damage unknown
+(`None`). `take_damage` is called once per paint of the engine's own tree (`owns`), so the next paint
+starts from this one. `App::redraw` (page has `:hover/:active/:focus` rules, no video element/search/select
+popup) keeps the page it painted (`DamagePaint::kept`, before the status bar) with a `PaintKey` (size,
+scroll, region offsets, focus, hot scrollbar, bars, canvas colour); a frame with damage and the same key
+repaints only those rects into `scratch` (`repaint_rect`: white + canvas colour, `paint` with
+`PAINT_CULL` skipping boxes whose ink + a margin (max of 64 px and the tree's largest `box_reach` + 8, for a
+neighbour's shadow / text-shadow / drop-shadow) misses the rect),
+copies them into the kept page and the surface, repaints the status bar and `present_with_damage`s. More
+than 8 rects or half the viewport: full paint. QCSS-D effects (`incr_layout::box_reach`): outline, box-shadow,
+filter blur / drop-shadow (`fx::filter_reach`) and text-shadow widen the damage rects and the cull margin;
+a LAYER box (`filter`, `backdrop-filter`, non-normal `mix-blend-mode`: its output depends on what is around
+or behind it, and a clipped repaint would blur / blend against unpainted scratch) that a damage rect reaches
+(ink + its reach) makes the whole frame a full paint (`app::layer_hit`; the engine reports `layer_fx` /
+`reach` with the damage). A new way to paint past the border box must widen `box_reach`, or add its case to
+qhov1_tests. `SCRATCHY_NO_DAMAGE=1` disables it. Measured (hover-big.html, 960x1006
+nested window, 5000 elements): paint+present 3.0 -> 1.7 ms per redraw, 108 of 147 redraws damage-presented.
+
 JS DOM writes (QB2): `App::js_sync` is a restyle request like a hover
 change (`layout_dirty` + `restyle_requested` + `keep_scroll_on_rebuild`).
 `layout_in_flight` is true from the moment `redraw` queues a shaping pass

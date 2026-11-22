@@ -110,6 +110,14 @@ struct Ctx {
     skip: usize,
     stats: LayoutStats,
     touched: Vec<(usize, Touch)>,
+    /// QHOV1: the document-space rects the splices of this update changed (see `paint_reach`).
+    damage: Vec<Ink>,
+    /// QHOV1: a splice whose change is not a rect of its own subtree (bubbled z entries, a fixed or
+    /// sticky box, a scroll region, a mask): the update repaints everything.
+    damage_bad: bool,
+    /// QHOV1: `box_reach` of what the splices put in (see `LayoutEngine::fx_reach`).
+    fx_reach: f32,
+    fx_layer: bool,
 }
 
 /// QINC1j: the kept laid tree, shared with the App's view of it (`view`). Copy on write: a mutable
@@ -172,6 +180,14 @@ pub(crate) struct LayoutEngine {
     stale: bool,
     /// QINC1j: bumped on every change of `laid` (the App installs a new view when it moved).
     ver: u64,
+    /// QHOV1: the document-space rects (padded by what a box paints past its ink) the incremental
+    /// updates since the App last painted this tree changed; `None` = unknown, repaint everything
+    /// (a from-scratch tree, a top-down relayout, a splice `paint_reach` refused).
+    damage: Option<Vec<Ink>>,
+    /// QHOV1: the largest `box_reach` of the tree (it only grows between full layouts) and whether a
+    /// box is a layer; reported with the damage.
+    fx_reach: f32,
+    fx_layer: bool,
 }
 
 thread_local! {
@@ -757,6 +773,146 @@ pub(crate) fn finish_root(root: &mut Laid, measured_h: f32, cache: &ShapeCache) 
     }
 }
 
+/// QHOV1: at most this many damage rects are kept for the App (more = repaint everything).
+const MAX_DAMAGE: usize = 32;
+
+/// QHOV1: how far this box's own paint goes past its border box (outline, box-shadow, `filter` blur and
+/// drop-shadow, `text-shadow`), and whether its output is a layer of what is around it or behind it
+/// (`filter`, `backdrop-filter`, a non-normal `mix-blend-mode`): such a box is only right when painted
+/// whole, so a damage rect touching one is a full repaint (`App::redraw`).
+pub(crate) fn box_reach(s: &ComputedStyle) -> (f32, bool) {
+    let mut r = s.outline_width;
+    for sh in s.box_shadow.iter().flatten() {
+        r = r.max(sh.offset_x.abs().max(sh.offset_y.abs()) + sh.blur * 2.0 + sh.spread.max(0.0));
+    }
+    if let Some(f) = s.filter {
+        r = r.max(crate::fx::filter_reach(f) as f32);
+    }
+    if let Some(ts) = s.text_shadow {
+        for t in ts {
+            r = r.max(t.dx.abs().max(t.dy.abs()) + t.blur * 2.0);
+        }
+    }
+    let layer = s.filter.is_some() || s.backdrop_filter.is_some() || s.mix_blend_mode != crate::fx::BlendMode::Normal;
+    (r, layer)
+}
+
+/// QHOV1: the largest `box_reach` under `l` and whether any box there is a layer (see `box_reach`).
+fn scan_fx(l: &Laid, reach: &mut f32, layer: &mut bool) {
+    crate::stack::grow(|| {
+        let (r, ly) = box_reach(&l.style);
+        *reach = reach.max(r);
+        *layer |= ly;
+        match &l.content {
+            LaidContent::Blocks(v) | LaidContent::TableRow(v) => v.iter().for_each(|c| scan_fx(c, reach, layer)),
+            LaidContent::MixedInline(items) => {
+                for i in items {
+                    if let MixedPositioned::Embedded(e) = i {
+                        scan_fx(e, reach, layer);
+                    }
+                }
+            }
+            _ => {}
+        }
+        l.positioned.iter().for_each(|p| scan_fx(p, reach, layer));
+    })
+}
+
+/// QHOV1: the damage since the App's last paint of the engine's tree.
+pub(crate) struct Damage {
+    /// Document-space rects, already padded by the reach of what changed.
+    pub(crate) rects: Vec<Ink>,
+    /// The largest reach of any box in the tree (the paint cull's margin).
+    pub(crate) reach: f32,
+    /// Some box in the tree is a layer (`filter`, `backdrop-filter`, `mix-blend-mode`).
+    pub(crate) layer_fx: bool,
+}
+
+/// QHOV1: whether `l` is itself a plain rect of the page for painting: not fixed, sticky or a scroll
+/// region (their content is painted at a position that follows the scroll offsets, not the document
+/// rect) and not masked (`paint_masked` paints off-screen and composes).
+fn reach_ok_self(l: &Laid) -> bool {
+    !l.fixed && l.sticky.is_none() && l.scroll.is_none() && l.background_image.as_ref().is_none_or(|b| b.mask.is_none())
+}
+
+/// QHOV1: how far (px) the paint of `l`'s subtree goes past its `ink` (box-shadow, outline, a few px
+/// of anti-aliasing and underline), or `None` when some box in it is not a plain page rect
+/// (`reach_ok_self`) or the subtree is too big to walk. A new way to paint outside the border box
+/// (`outline-offset`, `text-shadow`, a filter's blur) must widen this, or `qhov1_tests` fails.
+fn paint_reach(l: &Laid) -> Option<f32> {
+    fn walk(l: &Laid, pad: &mut f32, budget: &mut usize) -> bool {
+        if *budget == 0 || !reach_ok_self(l) {
+            return false;
+        }
+        *budget -= 1;
+        *pad = pad.max(box_reach(&l.style).0);
+        let content_ok = match &l.content {
+            LaidContent::Blocks(v) | LaidContent::TableRow(v) => v.iter().all(|c| walk(c, pad, budget)),
+            LaidContent::MixedInline(items) => items.iter().all(|i| match i {
+                MixedPositioned::Embedded(e) => walk(e, pad, budget),
+                MixedPositioned::Word { .. } => true,
+            }),
+            _ => true,
+        };
+        content_ok && l.positioned.iter().all(|p| walk(p, pad, budget))
+    }
+    let (mut pad, mut budget) = (0.0f32, 4000usize);
+    crate::stack::grow(|| walk(l, &mut pad, &mut budget)).then_some(pad + 4.0)
+}
+
+/// QHOV1: the union of the rects of `l` and everything under it (a superset of its `ink`: a clipping box
+/// does not cut its content's rects here). Read-only: the new boxes' own `ink` is the engine's to fill in
+/// (`finish_root`).
+fn rect_union(l: &Laid, cache: &ShapeCache) -> Ink {
+    crate::stack::grow(|| {
+        let mut ink = Ink { l: l.x, t: l.y, r: l.x + l.w, b: l.y + l.h };
+        match &l.content {
+            LaidContent::Blocks(v) | LaidContent::TableRow(v) => v.iter().for_each(|c| ink.union(rect_union(c, cache))),
+            LaidContent::MixedInline(items) => {
+                for i in items {
+                    match i {
+                        MixedPositioned::Embedded(e) => ink.union(rect_union(e, cache)),
+                        MixedPositioned::Word { x, y, w, h, .. } => ink.union(Ink { l: *x, t: *y, r: *x + *w, b: *y + *h }),
+                    }
+                }
+            }
+            _ => {}
+        }
+        if let Some(r) = crate::layout::text_overflow_right(l, cache) {
+            ink.union(Ink { l: l.x, t: l.y, r, b: l.y + l.h });
+        }
+        for p in &l.positioned {
+            ink.union(rect_union(p, cache));
+        }
+        ink
+    })
+}
+
+/// `ink` grown by `pad` on every side.
+fn pad_ink(ink: Ink, pad: f32) -> Ink {
+    Ink { l: ink.l - pad, t: ink.t - pad, r: ink.r + pad, b: ink.b + pad }
+}
+
+/// The `Laid` at the end of `path` below `root`.
+fn step_path_ref<'a>(root: &'a Laid, path: &[Step]) -> &'a Laid {
+    path.iter().fold(root, |l, s| step_ref(l, *s))
+}
+
+/// QHOV1: the document-space rects the App must repaint to show the engine's tree after the updates
+/// since its last paint of it; resets them. `None` = unknown (repaint everything); `Some(vec![])` =
+/// nothing changed. Only for the App's paint of the engine's own current tree (`owns`).
+pub(crate) fn take_damage() -> Option<Damage> {
+    ENGINE.with(|e| {
+        let mut e = e.try_borrow_mut().ok()?;
+        let e = e.as_mut()?;
+        let d = e.damage.replace(Vec::new());
+        if e.stale {
+            return None;
+        }
+        d.map(|rects| Damage { rects, reach: e.fx_reach, layer_fx: e.fx_layer })
+    })
+}
+
 // ---------- locating a box ----------
 
 #[derive(Clone, Copy, Debug)]
@@ -1006,6 +1162,11 @@ impl LayoutEngine {
             return None;
         }
         let live = cache.len();
+        let fx0 = {
+            let (mut r, mut ly) = (0.0, false);
+            scan_fx(&laid, &mut r, &mut ly);
+            (r, ly)
+        };
         Some(LayoutEngine {
             doc_key: req.doc_key,
             base_ver: req.base_ver,
@@ -1024,6 +1185,9 @@ impl LayoutEngine {
             views: HashMap::new(),
             stale: false,
             ver: next_ver(),
+            damage: None,
+            fx_reach: fx0.0,
+            fx_layer: fx0.1,
         })
     }
 
@@ -1135,6 +1299,15 @@ impl LayoutEngine {
             }
             !inc
         });
+        self.damage = match (self.damage.take(), root || ctx.damage_bad || !ok) {
+            (Some(mut d), false) => {
+                d.extend(ctx.damage);
+                (d.len() <= MAX_DAMAGE).then_some(d)
+            }
+            _ => None,
+        };
+        self.fx_reach = self.fx_reach.max(ctx.fx_reach);
+        self.fx_layer |= ctx.fx_layer;
         self.stats = ctx.stats;
         self.stats.root = root;
         self.stats.root_why = why;
@@ -1231,6 +1404,16 @@ impl LayoutEngine {
             }
         }
         let old_view = *self.views.get(&e).expect("just taken");
+        // QHOV1: what the paint of this box and of everything above it depends on (see `paint_reach`).
+        let (old_reach, anc_ok) = {
+            let mut l: &Laid = &self.laid;
+            let mut ok = reach_ok_self(l);
+            for s in &lpath[..lpath.len() - 1] {
+                l = step_ref(l, *s);
+                ok &= reach_ok_self(l);
+            }
+            (paint_reach(step_path_ref(&self.laid, &lpath)), ok)
+        };
         // Its old content goes to the harvest (clean children are served from it).
         // Its z-index entries sit in an owner's list above it: found by key and moved to the harvest
         // (a hole with the same key stays, never reused); a splice puts the new ones in the holes.
@@ -1260,8 +1443,11 @@ impl LayoutEngine {
             };
             slots.push((d, i, *key, z));
         }
+        // QHOV1: the old rects (with their paint reach) of the z entries this box sent to owners above.
+        let mut entry_old: Vec<Option<Ink>> = Vec::new();
         for (d, i, _, _) in &slots {
             let slot = &mut at(&mut self.laid, &lpath[..*d]).positioned[*i];
+            entry_old.push(paint_reach(slot).filter(|_| slot.ink.l.is_finite()).map(|p| pad_ink(slot.ink, p)));
             let mut hole = empty_laid();
             hole.style = slot.style;
             hole.w = f32::NAN;
@@ -1371,15 +1557,61 @@ impl LayoutEngine {
         // Splice: the parent's flow is unchanged, so the old box's later shift applies as is; the
         // parent's sticky bounds are kept.
         let old = at(&mut self.laid, &lpath);
+        // QHOV1: the rect this splice changes: the old and the new ink, each padded by what its
+        // subtree paints past it. A box whose paint is not a plain rect of the page (see
+        // `paint_reach`), a bubbled z entry or one above that scrolls/sticks makes the update's
+        // damage unknown.
+        let new_ink = rect_union(&new, &self.cache);
+        let (mut fr, mut fl) = (0.0f32, false);
+        scan_fx(&new, &mut fr, &mut fl);
+        let dmg = match (old_reach, paint_reach(&new), anc_ok) {
+            (Some(o), Some(n), true) if old.ink.l.is_finite() && new_ink.l.is_finite() => {
+                let mut r = Ink { l: old.ink.l - o, t: old.ink.t - o, r: old.ink.r + o, b: old.ink.b + o };
+                r.union(Ink { l: new_ink.l - n, t: new_ink.t - n, r: new_ink.r + n, b: new_ink.b + n });
+                Some(r)
+            }
+            _ => None,
+        };
+        CTX.with(|c| {
+            if let Some(c) = c.borrow_mut().as_mut() {
+                c.fx_reach = c.fx_reach.max(fr);
+                c.fx_layer |= fl;
+                match dmg {
+                    Some(r) => c.damage.push(r),
+                    None => c.damage_bad = true,
+                }
+            }
+        });
         if let (Some(o), Some(n)) = (&old.sticky, &mut new.sticky) {
             n.cb_top = o.cb_top;
             n.cb_bottom = o.cb_bottom;
         }
         let mut entries = take_entries(&mut new);
         *old = new;
-        for (d, i, key, _) in &slots {
+        for (n, (d, i, key, _)) in slots.iter().enumerate() {
             let at_i = entries.iter().position(|b| (b.style.node, b.style.pseudo) == *key).expect("same entries");
-            at(&mut self.laid, &lpath[..*d]).positioned[*i] = *entries.swap_remove(at_i);
+            let ent = entries.swap_remove(at_i);
+            let ink = rect_union(&ent, &self.cache);
+            let (mut fr, mut fl) = (0.0f32, false);
+            scan_fx(&ent, &mut fr, &mut fl);
+            let rect = match (entry_old[n], paint_reach(&ent)) {
+                (Some(mut o), Some(p)) if ink.l.is_finite() => {
+                    o.union(pad_ink(ink, p));
+                    Some(o)
+                }
+                _ => None,
+            };
+            CTX.with(|c| {
+                if let Some(c) = c.borrow_mut().as_mut() {
+                    c.fx_reach = c.fx_reach.max(fr);
+                    c.fx_layer |= fl;
+                    match rect {
+                        Some(r) => c.damage.push(r),
+                        None => c.damage_bad = true,
+                    }
+                }
+            });
+            at(&mut self.laid, &lpath[..*d]).positioned[*i] = *ent;
         }
         // Paint order: the lists that took new entries (and the one holding the box itself) are
         // sorted again with current document-order keys (a move changes an entry's place).
@@ -1520,7 +1752,7 @@ impl Drop for OnGuard {
 /// Runs `f` as an engine measure; returns its result and the context it left.
 fn with_ctx<R>(reuse: bool, f: impl FnOnce() -> R) -> (R, Ctx) {
     CTX.with(|c| {
-        *c.borrow_mut() = Some(Ctx { harvest: HashMap::new(), reuse, skip: 0, stats: LayoutStats::default(), touched: Vec::new() })
+        *c.borrow_mut() = Some(Ctx { harvest: HashMap::new(), reuse, skip: 0, stats: LayoutStats::default(), touched: Vec::new(), damage: Vec::new(), damage_bad: false, fx_reach: 0.0, fx_layer: false })
     });
     crate::layout::ENG_ON.with(|c| c.set(true));
     OPENED.with(|o| o.borrow_mut().clear());
@@ -1744,6 +1976,11 @@ pub(crate) fn adopt(
     // QINC1h2: the natural-width cache belonged to the tree the engine had (the worker filled its own).
     nat_clear();
     let live = cache.len();
+    let fx0 = {
+        let (mut r, mut ly) = (0.0, false);
+        scan_fx(&laid, &mut r, &mut ly);
+        (r, ly)
+    };
     let e = LayoutEngine {
         doc_key: job.doc_key,
         base_ver: job.ver.base,
@@ -1762,6 +1999,9 @@ pub(crate) fn adopt(
         views: HashMap::new(),
         stale: false,
         ver: next_ver(),
+        damage: None,
+        fx_reach: fx0.0,
+        fx_layer: fx0.1,
     };
     let ver = e.ver;
     ENGINE.with(|x| *x.borrow_mut() = Some(e));
