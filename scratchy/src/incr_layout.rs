@@ -791,19 +791,46 @@ fn paint_reach(l: &Laid) -> Option<f32> {
         for sh in s.box_shadow.iter().flatten() {
             *pad = pad.max(sh.offset_x.abs().max(sh.offset_y.abs()) + sh.blur * 2.0 + sh.spread.max(0.0));
         }
-        match &l.content {
+        let content_ok = match &l.content {
             LaidContent::Blocks(v) | LaidContent::TableRow(v) => v.iter().all(|c| walk(c, pad, budget)),
             LaidContent::MixedInline(items) => items.iter().all(|i| match i {
                 MixedPositioned::Embedded(e) => walk(e, pad, budget),
                 MixedPositioned::Word { .. } => true,
             }),
             _ => true,
-        }
-        .then(|| l.positioned.iter().all(|p| walk(p, pad, budget)))
-        .unwrap_or(false)
+        };
+        content_ok && l.positioned.iter().all(|p| walk(p, pad, budget))
     }
     let (mut pad, mut budget) = (0.0f32, 4000usize);
     crate::stack::grow(|| walk(l, &mut pad, &mut budget)).then_some(pad + 4.0)
+}
+
+/// QHOV1: the union of the rects of `l` and everything under it (a superset of its `ink`: a clipping box
+/// does not cut its content's rects here). Read-only: the new boxes' own `ink` is the engine's to fill in
+/// (`finish_root`).
+fn rect_union(l: &Laid, cache: &ShapeCache) -> Ink {
+    crate::stack::grow(|| {
+        let mut ink = Ink { l: l.x, t: l.y, r: l.x + l.w, b: l.y + l.h };
+        match &l.content {
+            LaidContent::Blocks(v) | LaidContent::TableRow(v) => v.iter().for_each(|c| ink.union(rect_union(c, cache))),
+            LaidContent::MixedInline(items) => {
+                for i in items {
+                    match i {
+                        MixedPositioned::Embedded(e) => ink.union(rect_union(e, cache)),
+                        MixedPositioned::Word { x, y, w, h, .. } => ink.union(Ink { l: *x, t: *y, r: *x + *w, b: *y + *h }),
+                    }
+                }
+            }
+            _ => {}
+        }
+        if let Some(r) = crate::layout::text_overflow_right(l, cache) {
+            ink.union(Ink { l: l.x, t: l.y, r, b: l.y + l.h });
+        }
+        for p in &l.positioned {
+            ink.union(rect_union(p, cache));
+        }
+        ink
+    })
 }
 
 /// `ink` grown by `pad` on every side.
@@ -1467,7 +1494,7 @@ impl LayoutEngine {
         // subtree paints past it. A box whose paint is not a plain rect of the page (see
         // `paint_reach`), a bubbled z entry or one above that scrolls/sticks makes the update's
         // damage unknown.
-        let new_ink = crate::layout::compute_ink(&mut new, &self.cache);
+        let new_ink = rect_union(&new, &self.cache);
         let dmg = match (old_reach, paint_reach(&new), anc_ok) {
             (Some(o), Some(n), true) if old.ink.l.is_finite() && new_ink.l.is_finite() => {
                 let mut r = Ink { l: old.ink.l - o, t: old.ink.t - o, r: old.ink.r + o, b: old.ink.b + o };
@@ -1492,8 +1519,8 @@ impl LayoutEngine {
         *old = new;
         for (n, (d, i, key, _)) in slots.iter().enumerate() {
             let at_i = entries.iter().position(|b| (b.style.node, b.style.pseudo) == *key).expect("same entries");
-            let mut ent = entries.swap_remove(at_i);
-            let ink = crate::layout::compute_ink(&mut ent, &self.cache);
+            let ent = entries.swap_remove(at_i);
+            let ink = rect_union(&ent, &self.cache);
             let rect = match (entry_old[n], paint_reach(&ent)) {
                 (Some(mut o), Some(p)) if ink.l.is_finite() => {
                     o.union(pad_ink(ink, p));
