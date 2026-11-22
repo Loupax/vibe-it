@@ -97,6 +97,7 @@ mod qdom17_tests;
 #[cfg(feature = "memprof")]
 mod memprof_tests;
 mod qapi2_tests;
+mod qapi3_tests;
 
 // ---------- QFLK7: the one shared winit event loop for App-level tests ----------
 //
