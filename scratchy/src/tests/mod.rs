@@ -83,6 +83,7 @@ mod event_loop_tests;
 mod qel4_tests;
 mod qel5_tests;
 mod qel2_tests;
+mod qel2b_tests;
 mod hscroll_tests;
 mod qel3_tests;
 mod qanimhl_tests;

@@ -889,6 +889,17 @@ impl GeomCache {
         self.refresh(page, wgen, vw, vh);
     }
 
+    /// QEL2b: the ResizeObserver step needs the boxes of targets the last layout did not record (a
+    /// new `observe()`, or the recorded boxes are of an older state): lay out when the page changed, and
+    /// once more when even a current layout did not cover them (engine: a no-op update + walk).
+    pub(crate) fn ro_pass(&mut self, page: &Handle, wgen: u64, vw: f32, vh: f32) {
+        self.refresh(page, wgen, vw, vh);
+        if !crate::ro_geom::current(page, vw as u32, vh as u32) {
+            self.key = None;
+            self.refresh(page, wgen, vw, vh);
+        }
+    }
+
     /// Lays the page out again unless nothing changed since the last read.
     fn refresh(&mut self, page: &Handle, wgen: u64, vw: f32, vh: f32) {
         // QY53h: keyed on the CSS version counters; the CSS string is only built on a miss.
@@ -993,6 +1004,8 @@ impl GeomCache {
             Ok((Some(l), glyphs, deps)) => {
                 self.page = (crate::layout::doc_scroll_width(&l), l.h); // QXSCR1: the scroll width
                 walk(&l, false, &mut self.rects, &mut self.skel, u32::MAX);
+                // QEL2b: the ResizeObserver targets' boxes of this layout.
+                crate::ro_geom::forced_layout(page, &l, (wgen, key.3), vp.0, vp.1);
                 for (i, e) in self.skel.iter().enumerate() {
                     if e.node != 0 && self.skel_of.insert(e.node, i as u32).is_some() {
                         self.skel_multi.insert(e.node);
@@ -1144,11 +1157,13 @@ impl GeomCache {
                 self.page = (crate::layout::doc_scroll_width(l), l.h); // QXSCR1: the scroll width
                 walk(l, false, &mut self.rects, &mut skel, u32::MAX);
                 walk_glyphs(l, &self.shape_cache, &mut self.glyphs);
+                crate::ro_geom::forced_layout(page, l, (key.0, key.3), vp.0, vp.1);
             }
             _ => {
                 let rects = &mut self.rects;
                 self.page = crate::incr_layout::with_laid(|l, _| {
                     walk(l, false, rects, &mut skel, u32::MAX);
+                    crate::ro_geom::forced_layout(page, l, (key.0, key.3), vp.0, vp.1);
                     (crate::layout::doc_scroll_width(l), l.h)
                 })
                 .unwrap_or((0.0, 0.0));

@@ -9,8 +9,10 @@
 //!   5. animation frame callbacks: the whole batch pending when the step starts, one timestamp, never
 //!      split by the timer slice (`JsEngine::run_animation_frames`; rAF ids are their own space)
 //!   6. style + layout           `update_style_layout` (the App hands DOM writes to the incremental
-//!      engine; headless has nothing to do: geometry reads force the engine lazily, as before)
-//!   7. ResizeObserver / IntersectionObserver hooks `run_observers` (RO gather/broadcast, then the IO evaluation)
+//!      engine and lays out in `redraw`; headless lays out here when CSS animations or a
+//!      ResizeObserver observation need it, QANIMHL / QEL2b; other geometry reads force lazily)
+//!   7. ResizeObserver / IntersectionObserver hooks `run_observers` (RO gather/broadcast on the step-6
+//!      layout: the App's frame, `ro_geom.rs`; then the IO evaluation)
 //!   8. paint                    `paint` (App only)
 //!
 //! When it runs: the App at frame time (a rAF is pending and its 60 Hz frame is due, the viewport
@@ -233,6 +235,9 @@ impl RenderingHost for Headless<'_> {
         if crate::transition::owes_events() {
             a.next = Some(a.next.map_or(self.now, |n| n.min(self.now)));
         }
+        drop(a);
+        // QEL2b: the frame's layout for the ResizeObserver step (one layout shared by style, layout and RO).
+        self.js.observer_layout();
     }
 }
 

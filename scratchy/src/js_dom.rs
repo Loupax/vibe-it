@@ -1138,6 +1138,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     // QJ4: layout rect of element `id` (document space), see js_geom.rs.
     let t = table.clone();
     crate::js_geom::clear_rendered();
+    crate::ro_geom::reset();
     let geom = Rc::new(RefCell::new(crate::js_geom::GeomCache::default()));
     let geom2 = geom.clone();
     for glyphs in [false, true] {
@@ -1169,6 +1170,61 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         crate::perf::set_io(true);
         geom8.borrow_mut().style_pass(&page, geom_gen(), vw as f32, vh as f32);
         crate::perf::set_io(was_io);
+    });
+    // QEL2b: ResizeObserver targets and their boxes from the rendering update's layout (ro_geom.rs).
+    let t9 = table.clone();
+    native!(ctx, "__d_ro_track", move |id: i32, delta: i32| {
+        if let Some(h) = t9.borrow().get(id) {
+            crate::ro_geom::track(&h, delta);
+        }
+    });
+    native!(ctx, "__d_ro_ran", |callbacks: f64| crate::ro_geom::note_run(callbacks as u32));
+    native!(ctx, "__d_ro_epoch", || -> f64 { crate::ro_geom::epoch() as f64 });
+    native!(ctx, "__d_ro_wait", || -> bool { crate::ro_geom::waiting() });
+    // Headless step 6 (event_loop.rs): the frame's style + layout when an observation may have changed.
+    let (t11, geom11) = (table.clone(), geom.clone());
+    native!(ctx, "__d_ro_pass", move |vw: f64, vh: f64| {
+        let Some(page) = t11.borrow().get(0) else { return };
+        if crate::ro_geom::current(&page, vw as u32, vh as u32) {
+            return;
+        }
+        if crate::perf::enabled() && !geom11.borrow().is_fresh(geom_gen(), vw as f32, vh as f32) {
+            crate::perf::set_caller(Some("(rendering update: style and layout)".to_string()));
+        }
+        let was_io = crate::perf::in_io();
+        crate::perf::set_io(true);
+        geom11.borrow_mut().ro_pass(&page, geom_gen(), vw as f32, vh as f32);
+        crate::perf::set_io(was_io);
+        crate::perf::set_caller(None);
+    });
+    // `[bw, bh, cw, ch, cx, cy]`, `[]` = no box; null = not answered here (the old JS path).
+    let (t10, geom10) = (table.clone(), geom.clone());
+    native!(ctx, "__d_ro_box", move |id: i32, vw: f64, vh: f64| -> Option<Vec<f64>> {
+        let (page, h) = {
+            let t = t10.borrow();
+            (t.get(0)?, t.get(id)?)
+        };
+        let (w, hh) = (vw as u32, vh as u32);
+        let mut answer = crate::ro_geom::lookup(&page, &h, w, hh);
+        if matches!(answer, crate::ro_geom::Answer::Stale) {
+            // The recorded boxes are of another state: the rendering update's layout, run here (a
+            // callback of this update wrote the DOM, or no layout of this state exists yet).
+            crate::ro_geom::note_ro_layout();
+            if crate::perf::enabled() && !geom10.borrow().is_fresh(geom_gen(), vw as f32, vh as f32) {
+                crate::perf::set_caller(Some("(rendering update: ResizeObserver)".to_string()));
+            }
+            let was_io = crate::perf::in_io();
+            crate::perf::set_io(true);
+            geom10.borrow_mut().ro_pass(&page, geom_gen(), vw as f32, vh as f32);
+            crate::perf::set_io(was_io);
+            crate::perf::set_caller(None);
+            answer = crate::ro_geom::lookup(&page, &h, w, hh);
+        }
+        match answer {
+            crate::ro_geom::Answer::Box(b) => Some(b.iter().map(|v| f64::from(*v)).collect()),
+            crate::ro_geom::Answer::NoBox => Some(Vec::new()),
+            crate::ro_geom::Answer::Stale => None,
+        }
     });
     let geom7 = geom.clone();
     native!(ctx, "__d_rect", move |c: Ctx<'_>, id: i32, vw: f64, vh: f64| -> Vec<f64> {
@@ -6798,7 +6854,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   var RE = g.ResizeObserverEntry = function ResizeObserverEntry() { throw new TypeError('Illegal constructor'); };
   defGetters(RE.prototype, RE_S, ['target', 'contentRect', 'borderBoxSize', 'contentBoxSize', 'devicePixelContentBoxSize']);
   Object.defineProperty(RE.prototype, Symbol.toStringTag, { value: 'ResizeObserverEntry', configurable: true });
-  var roActive = new Set(), roDirty = false, roSig = '', roSince = -1;
+  var roActive = new Set(), roDirty = false, roSig = '', roSince = -1, roCalls = 0;
   var RO = g.ResizeObserver = function ResizeObserver(callback) {
     var P = "Failed to construct 'ResizeObserver': ";
     if (!new.target) throw new TypeError(P + "Please use the 'new' operator, this DOM object constructor cannot be called as a function.");
@@ -6812,14 +6868,23 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     return st;
   };
   var roForget = function (st, target) {
-    st.obsv = st.obsv.filter(function (o) { return o.target !== target; });
+    st.obsv = st.obsv.filter(function (o) { if (o.target !== target) return true; __d_ro_track(target.__id, -1); return false; });
     if (!st.obsv.length) roActive.delete(st);
   };
   // The target's boxes from the layout: border box, content box and its origin inside the border box.
   // display:none, detached and non-replaced inline elements have no box: all zero.
   var ZERO = { bw: 0, bh: 0, cw: 0, ch: 0, cx: 0, cy: 0, vert: false };
   var roReplaced = /^(img|video|canvas|iframe|object|embed|input|select|textarea|button|svg|meter|progress)$/;
+  // QEL2b: the boxes come from the rendering update's layout (ro_geom.rs, `__d_ro_box`); `vert` is
+  // filled in by `roCurrent` only when the physical sizes moved. SVG children keep the old path.
   var roBoxes = function (el) {
+    if (el.namespaceURI !== 'http://www.w3.org/2000/svg' || el.localName === 'svg') {
+      var nb = __d_ro_box(el.__id, Number(g.innerWidth) || 0, Number(g.innerHeight) || 0);
+      if (nb) return nb.length ? { bw: nb[0], bh: nb[1], cw: nb[2], ch: nb[3], cx: nb[4], cy: nb[5], vert: null } : ZERO;
+    }
+    return roBoxesJs(el);
+  };
+  var roBoxesJs = function (el) {
     var r = gRect(el);
     if (!r) return ZERO;
     var id = el.__id, disp = __d_cs(id, '', 'display');
@@ -6842,7 +6907,17 @@ pub(crate) const DOM_PRELUDE: &str = r#"
              device: vert ? [dh, dw] : [dw, dh] };
   };
   var roPick = function (o) { var s = o.curS; return o.box === 'border-box' ? s.border : o.box === 'device-pixel-content-box' ? s.device : s.content; };
-  var roCurrent = function (o) { o.cur = roBoxes(o.target); o.curS = roSizes(o.cur); return roPick(o); };
+  // Physical sizes unchanged (and the same device pixel ratio): the last sizes stand, no style read.
+  var roCurrent = function (o) {
+    var b = roBoxes(o.target), dpr = Number(g.devicePixelRatio) || 1, p = o.phys;
+    if (o.curS && p && p[0] === b.bw && p[1] === b.bh && p[2] === b.cw && p[3] === b.ch && p[4] === dpr) return roPick(o);
+    if (b.vert === null) {
+      var wm = b.bw || b.bh ? __d_cs(o.target.__id, '', 'writing-mode') : '';
+      b.vert = wm.indexOf('vertical') === 0 || wm.indexOf('sideways') === 0;
+    }
+    o.phys = [b.bw, b.bh, b.cw, b.ch, dpr];
+    o.cur = b; o.curS = roSizes(b); return roPick(o);
+  };
   // Depth in the flat tree: a shadow root continues at its host.
   var roDepth = function (el) {
     var d = 0, n = el;
@@ -6871,7 +6946,8 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     var old = st.obsv.filter(function (o) { return o.target === target; })[0];
     if (old && old.box === box) return;
     roForget(st, target);
-    st.obsv.push({ target: target, box: box, last: [-1, -1], cur: ZERO, curS: null });
+    st.obsv.push({ target: target, box: box, last: [-1, -1], cur: ZERO, curS: null, phys: null });
+    __d_ro_track(target.__id, 1);
     roActive.add(st);
     roDirty = true;
   };
@@ -6881,14 +6957,20 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (!target || target.__id === undefined || target.nodeType !== 1) throw new TypeError("Failed to execute 'unobserve' on 'ResizeObserver': parameter 1 is not of type 'Element'.");
     roForget(st, target);
   };
-  RO.prototype.disconnect = function () { var st = roSt(this, 'disconnect'); st.obsv = []; st.active = []; st.skipped = []; roActive.delete(st); };
+  RO.prototype.disconnect = function () { var st = roSt(this, 'disconnect'); st.obsv.forEach(function (o) { __d_ro_track(o.target.__id, -1); }); st.obsv = []; st.active = []; st.skipped = []; roActive.delete(st); };
   Object.defineProperty(RO.prototype, Symbol.toStringTag, { value: 'ResizeObserver', configurable: true });
-  var roHardSig = function () { return g.innerWidth + 'x' + g.innerHeight + ':' + g.devicePixelRatio + ':' + __d_ggen(); };
+  // QEL2b: `__d_ro_epoch` moves when an App layout changed a target's box with no DOM write.
+  var roHardSig = function () { return g.innerWidth + 'x' + g.innerHeight + ':' + g.devicePixelRatio + ':' + __d_ggen() + ':' + __d_ro_epoch(); };
   // Does an observation possibly differ from what was reported? The page-clock time since when it
   // does, -1 when not: a new observation, or a geometry / viewport change since the last evaluation.
   g.__scratchy_ro_want = function () {
     if (!roActive.size) return -1;
-    if (roDirty || roSig !== roHardSig()) { if (roSince < 0) roSince = __scratchy_now(); return roSince; }
+    if (roDirty || roSig !== roHardSig()) {
+      // QEL2b: the App's frame layout is still to come; its boxes are what the observers read.
+      if (__d_ro_wait()) return -1;
+      if (roSince < 0) roSince = __scratchy_now();
+      return roSince;
+    }
     return -1;
   };
   var roGather = function (depth) {
@@ -6913,17 +6995,26 @@ pub(crate) const DOM_PRELUDE: &str = r#"
         var d = roDepth(o.target); if (d < shallow) shallow = d;
         return roMakeEntry(o);
       });
+      roCalls++;
       try { st.cb.call(st.obs, entries, st.obs); } catch (e) { obsErr(st.name, e); }
+      // QEL2b: HTML "invoke the callback" cleans up after running script: a microtask checkpoint.
+      g.__scratchy_microtasks();
     });
     return shallow;
+  };
+  // QEL2b: headless rendering step 6: lay out once for this frame when an observation may have changed.
+  g.__scratchy_ro_layout = function () {
+    if (!roActive.size || g.__scratchy_ro_want() < 0) return;
+    __d_ro_pass(Number(g.innerWidth) || 0, Number(g.innerHeight) || 0);
   };
   // HTML "update the rendering" step: gather, broadcast and repeat at greater depths; targets left
   // over at a shallower depth raise the loop error.
   g.__scratchy_roRun = function () {
     if (!roActive.size || g.__scratchy_ro_want() < 0) return;
-    roDirty = false; roSince = -1;
+    roDirty = false; roSince = -1; roCalls = 0;
     var depth = 0, skipped = false, guard = 0;
     while (roGather(depth) && guard++ < 1000) depth = roBroadcast();
+    __d_ro_ran(roCalls);
     roActive.forEach(function (st) { if (st.skipped.length) skipped = true; st.skipped = []; st.active = []; });
     roSig = roHardSig();
     if (skipped) {

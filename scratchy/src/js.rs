@@ -2196,8 +2196,18 @@ impl JsEngine {
         }
     }
 
+    /// QEL2b: headless rendering step 6: the frame's layout, when a ResizeObserver observation may
+    /// have changed (step 7 then reads it; no forced layout of its own). Free when nothing is observed.
+    pub(crate) fn observer_layout(&self) {
+        if crate::ro_geom::active() {
+            self.eval("ro-layout", "globalThis.__scratchy_ro_layout && globalThis.__scratchy_ro_layout()");
+        }
+    }
+
     pub(crate) fn observer_hook(&self) {
-        self.eval("ro-run", "globalThis.__scratchy_roRun && globalThis.__scratchy_roRun()");
+        if crate::ro_geom::active() {
+            self.eval("ro-run", "globalThis.__scratchy_roRun && globalThis.__scratchy_roRun()");
+        }
         self.eval("io-run", "globalThis.__scratchy_ioRun && globalThis.__scratchy_ioRun()");
     }
 }
