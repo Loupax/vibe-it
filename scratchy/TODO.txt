@@ -65,6 +65,9 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       (`ro-run` forced layouts on YouTube results); microtask checkpoint after each RO callback; notice size changes
       without a DOM write (image decode, CSS animation, :hover). Re-measure ytr/ytw --perf-report and live CPU on a
       quiet machine (QEL2 measured ytw live +13-15 %, inside noise).
+- [ ] QEL2c [S] (P3, from QEL2b #588; Sonnet; app.rs, ro_geom.rs) Run ResizeObserver callbacks before the App paints the
+      frame (today one painted frame can show the pre-callback state); report a writing-mode change whose physical
+      size stays equal; SVG child elements onto the Rust RO path.
 - [ ] QANIMHLd [S] (P3, from QANIMHLb #568; Sonnet) Transitions beyond the first cut: `transition-behavior: allow-discrete`
       (display, content-visibility), `inherit` on the longhands, transform functions beyond translate, CSSTransition objects
       and getAnimations(), the window clock for a transition a script's getComputedStyle starts between builds, moveBefore
