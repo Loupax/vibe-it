@@ -291,8 +291,14 @@ fn xml_to_dom(x: roxmltree::Node) -> Option<Handle> {
                     value: a.value().into(),
                 });
             }
+            // QDOM14: keep the qualified name (`p:local`) and the prefix, like createElementNS.
+            let pre = tn.namespace().and_then(|u| x.lookup_prefix(u)).filter(|p| !p.is_empty());
+            let qual = match pre {
+                Some(p) => format!("{p}:{}", tn.name()),
+                None => tn.name().to_string(),
+            };
             let n = Node::new(NodeData::Element {
-                name: QualName::new(None, ns, LocalName::from(tn.name())),
+                name: QualName::new(pre.map(html5ever::Prefix::from), ns, LocalName::from(qual.as_str())),
                 attrs: RefCell::new(attrs),
                 template_contents: RefCell::new(None),
                 mathml_annotation_xml_integration_point: false,
@@ -887,6 +893,15 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     native!(ctx, "__d_ns", move |id: i32| -> String {
         match t.borrow().get(id).as_deref().map(|h| &h.data) {
             Some(NodeData::Element { name, .. }) => name.ns.as_ref().to_string(),
+            _ => String::new(),
+        }
+    });
+    // QDOM14: the explicit namespace prefix of an element (createElementNS / an XML parse); the stored local
+    // name keeps the qualified `prefix:local` form.
+    let t = table.clone();
+    native!(ctx, "__d_epfx", move |id: i32| -> String {
+        match t.borrow().get(id).as_deref().map(|h| &h.data) {
+            Some(NodeData::Element { name, .. }) => name.prefix.as_ref().map(|p| p.as_ref().to_string()).unwrap_or_default(),
             _ => String::new(),
         }
     });
@@ -1575,8 +1590,9 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     native!(ctx, "__d_create_ns", move |ns: String, name: String| -> i32 {
         let local = if ns.is_empty() || ns == "http://www.w3.org/1999/xhtml" { name.to_ascii_lowercase() } else { name };
         let ns = if ns.is_empty() { html5ever::ns!(html) } else { html5ever::Namespace::from(ns.as_str()) };
+        let prefix = local.split_once(':').map(|(p, _)| html5ever::Prefix::from(p));
         let data = NodeData::Element {
-            name: html5ever::QualName::new(None, ns, html5ever::LocalName::from(local.as_str())),
+            name: html5ever::QualName::new(prefix, ns, html5ever::LocalName::from(local.as_str())),
             attrs: RefCell::new(Vec::new()),
             template_contents: RefCell::new(None),
             mathml_annotation_xml_integration_point: false,
@@ -2139,6 +2155,47 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   // DocumentFragment for a detached one (a `<template>` content fragment is its own
   // root). `composed` is accepted and ignored until shadow roots exist (QSD3 adds
   // "a ShadowRoot's host" as the next step of the composed walk).
+  // QDOM14: DOM "locate a namespace" / "locate a namespace prefix" (isDefaultNamespace, lookupPrefix,
+  // lookupNamespaceURI) over an element's namespace/prefix and its xmlns attributes.
+  var XMLNS_URI = 'http://www.w3.org/2000/xmlns/';
+  var scopeEl = function (n) {
+    // the element a lookup starts from, or null (Document: its root element; Attr: its owner; DocumentType/
+    // DocumentFragment: none; everything else: the parent ELEMENT)
+    switch (n.nodeType) {
+      case 1: return n;
+      case 9: return n.documentElement;
+      case 2: return n.ownerElement;
+      case 10: case 11: return null;
+      default: var p = n.parentNode; return p && p.nodeType === 1 ? p : null;
+    }
+  };
+  var upEl = function (e) { var p = e.parentNode; return p && p.nodeType === 1 ? p : null; };
+  var locateNS = function (n, prefix) {
+    for (var e = scopeEl(n); e; e = upEl(e)) {
+      var eid = e.__id, ens = __d_ns(eid);
+      if (ens && elSplit(eid)[0] === (prefix || '')) return ens;
+      var l = __d_attr_list(eid);
+      for (var i = 0; i < l.length; i += 4) {
+        if (l[i] !== XMLNS_URI) continue;
+        if (prefix ? (l[i + 1] === 'xmlns' && l[i + 2] === prefix) : (!l[i + 1] && l[i + 2] === 'xmlns')) return l[i + 3] || null;
+      }
+    }
+    return null;
+  };
+  var locatePrefix = function (n, ns) {
+    for (var e = scopeEl(n); e; e = upEl(e)) {
+      var eid = e.__id, p = elSplit(eid)[0];
+      if (__d_ns(eid) === ns && p) return p;
+      var l = __d_attr_list(eid);
+      for (var i = 0; i < l.length; i += 4) if (l[i + 1] === 'xmlns' && l[i + 3] === ns) return l[i + 2];
+    }
+    return null;
+  };
+  var nsOrNull = function (v) { return v === null || v === undefined || v === '' ? null : String(v); };
+  var needArg = function (m, a) { if (a.length < 1) throw new TypeError("Failed to execute '" + m + "' on 'Node': 1 argument required, but only 0 present."); };
+  NodeProto.lookupNamespaceURI = function (prefix) { needArg('lookupNamespaceURI', arguments); return locateNS(this, nsOrNull(prefix)); };
+  NodeProto.lookupPrefix = function (ns) { needArg('lookupPrefix', arguments); ns = nsOrNull(ns); return ns === null ? null : locatePrefix(this, ns); };
+  NodeProto.isDefaultNamespace = function (ns) { needArg('isDefaultNamespace', arguments); return locateNS(this, null) === nsOrNull(ns); };
   var rootId = function (id) { var p; while ((p = __d_parent(id)) >= 0) id = p; return id; };
   // QSD3: the shadow-including root: a ShadowRoot continues at its host.
   var composedRootId = function (id) { var r = rootId(id), h; while ((h = __d_shadow_host(r)) >= 0) r = rootId(h); return r; };
@@ -2168,12 +2225,32 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     var kids = __d_children(ca[i - 1], false);
     return kids.indexOf(cb[i]) < kids.indexOf(ca[i]) ? 2 : 4;
   };
+  // QDOM14: qualified name / local name of an element id. The stored local name is `prefix:local` when the
+  // element was made by createElementNS or an XML parse (explicit prefix, any namespace); otherwise
+  // (QA14) a non-XHTML name with a ':' is split at it.
+  var qnameOf = function (id) { var t = __d_tag(id); return __d_ns(id) === XHTML ? t.toLowerCase() : t; };
+  var elSplit = function (id) {
+    var t = qnameOf(id), p = __d_epfx(id), i = t.indexOf(':');
+    if (p && t.length > p.length && t.charAt(p.length) === ':') return [p, t.slice(p.length + 1)];
+    return __d_ns(id) === XHTML || i <= 0 ? ['', t] : [t.slice(0, i), t.slice(i + 1)];
+  };
+  var elLocal = function (id) { return elSplit(id)[1]; };
   queries = function (P) {
     P.querySelector = function (s) { return wrap(q(this.__id, s, true)[0]); };
     P.querySelectorAll = function (s) { var id = this.__id; s = String(s); return mkList(NLp, false, function () { return q(id, s, false); }); };
     P.getElementsByTagName = function (t) {
-      var id = this.__id; t = String(t).toLowerCase();
-      return cached(this, 'T' + t, function () { return mkList(HCp, true, function () { return safeQ(id, t); }); });
+      var id = this.__id; t = String(t);
+      var od = this.nodeType === 9 ? this : this.ownerDocument, html = !od || od.contentType === 'text/html';
+      var lc = t.toLowerCase();
+      return cached(this, 'T' + t, function () {
+        return mkList(HCp, true, function () {
+          return __d_query(id, '*', false).filter(function (e) {
+            if (t === '*') return true;
+            var q = qnameOf(e);
+            return html && __d_ns(e) === XHTML ? q.toLowerCase() === lc : q === t;
+          });
+        });
+      });
     };
     P.getElementsByTagNameNS = function (ns, ln) {
       var id = this.__id; ns = ns === null || ns === undefined || ns === '' ? '' : String(ns); ln = String(ln);
@@ -2181,10 +2258,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
         return mkList(HCp, true, function () {
           return __d_query(id, '*', false).filter(function (e) {
             if (ns !== '*' && (__d_ns(e) || '') !== ns) return false;
-            if (ln === '*') return true;
-            var t = __d_tag(e), i = t.indexOf(':');
-            if (__d_ns(e) !== XHTML && i > 0) t = t.slice(i + 1);
-            return (__d_ns(e) === XHTML ? t.toLowerCase() : t) === ln;
+            return ln === '*' || elLocal(e) === ln;
           });
         });
       });
@@ -2204,9 +2278,8 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   def(ElementProto, 'namespaceURI', function () { return __d_ns(this.__id) || null; });
   // QY45: createElementNS keeps `prefix:local` in the stored local name (QA14), so
   // outside XHTML the prefix is the part before ':'. Case is kept outside XHTML.
-  var elQ = function (el) { var t = __d_tag(el.__id), i = t.indexOf(':'); return __d_ns(el.__id) === 'http://www.w3.org/1999/xhtml' || i <= 0 ? ['', t] : [t.slice(0, i), t.slice(i + 1)]; };
-  def(ElementProto, 'localName', function () { var q = elQ(this)[1]; return __d_ns(this.__id) === 'http://www.w3.org/1999/xhtml' ? q.toLowerCase() : q; });
-  def(ElementProto, 'prefix', function () { return elQ(this)[0] || null; });
+  def(ElementProto, 'localName', function () { return elLocal(this.__id); });
+  def(ElementProto, 'prefix', function () { return elSplit(this.__id)[0] || null; });
   def(ElementProto, 'id', function () { var v = __d_attr(this.__id, 'id'); return v == null ? '' : v; });
   def(ElementProto, 'className', function () { var v = __d_attr(this.__id, 'class'); return v == null ? '' : v; });
   def(ElementProto, 'children', function () {
