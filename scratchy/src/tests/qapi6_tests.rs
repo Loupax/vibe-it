@@ -165,7 +165,7 @@ impl LogOnly {
         incr_style::reset();
         let _ = incr_log::drain();
         set_interaction(&InteractionState::default());
-        LogOnly(incr_style::set_seam(Seam { shadow: true, reconcile: false, panic: true }))
+        LogOnly(incr_style::set_seam(Seam { reconcile: false, panic: true }))
     }
 }
 
@@ -373,7 +373,7 @@ fn qapi6_engine_unfiltered_anchor_with_outer_hops_marks_only_attribute_subjects(
     assert!(s.rematched <= 60, "the [dialog] subject and the written elements, not the 600-element page: {s:?}");
 }
 
-// ---------- script forced layouts: engine on and off agree ----------
+// ---------- script forced layouts through the engine (check mode compares with from scratch) ----------
 
 #[test]
 fn qapi6_forced_layouts_with_has_engine_on_and_off() {
@@ -391,15 +391,8 @@ fn qapi6_forced_layouts_with_has_engine_on_and_off() {
         document.getElementById('n').className = 'x'; out.push(r());\
         document.getElementById('h').after(document.createElement('hr')); out.push(r());\
         console.log(out.join(' '));";
-    let run = |on: bool| {
-        let was = crate::incr_engine::set_forced_seam(Some(on));
-        let log = run_in_html(html, code);
-        crate::incr_engine::set_forced_seam(was);
-        log
-    };
-    let off = run(false);
-    let on = run(true);
-    assert_eq!(on, off, "the engine agrees with from scratch");
+    // QINC1m: one run; every engine update is checked against the from-scratch layout (a difference panics).
+    let off = run_in_html(html, code);
     let ys: Vec<f32> = off[0].trim_start_matches("log:").split(' ').map(|v| v.parse().unwrap()).collect();
     assert_eq!(ys.len(), 9);
     assert!(ys[1] > ys[0] + 30.0, "the card grew: {ys:?}");

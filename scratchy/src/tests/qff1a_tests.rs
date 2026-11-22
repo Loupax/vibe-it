@@ -478,7 +478,6 @@ fn qff1a_document_fonts_follows_the_renderer_load() {
 #[test]
 fn qff1a_app_relayout_when_a_face_arrives() {
     let Ok(event_loop) = test_event_loop() else { return };
-    let live = crate::incr_frame::set_live(true);
     let css = "@font-face { font-family: 'App Box'; src: url(app.ttf) }";
     let mut app = App::new_static(parse_html(&float_page(css, "App Box")), event_loop.create_proxy(), None);
     app.rebuild_layout(800, 600, false);
@@ -495,7 +494,6 @@ fn qff1a_app_relayout_when_a_face_arrives() {
     assert!(app.font_system.db().faces().any(|f| f.families[0].0 == name));
     app.replace_document(parse_html("<p>next</p>"), String::new());
     assert!(!app.font_system.db().faces().any(|f| f.families[0].0 == name), "gone after navigation");
-    crate::incr_frame::set_live(live);
 }
 
 /// WPT's real Ahem through the same path, when a checkout is on this machine.

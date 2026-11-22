@@ -15,7 +15,7 @@ impl LogOnly {
         incr_style::reset();
         let _ = incr_log::drain();
         set_interaction(&InteractionState::default());
-        LogOnly(incr_style::set_seam(Seam { shadow: true, reconcile: false, panic: true }))
+        LogOnly(incr_style::set_seam(Seam { reconcile: false, panic: true }))
     }
 }
 
@@ -786,13 +786,4 @@ fn qinc1k3_counter_walk_sees_a_hidden_elements_new_before() {
     set_attr(&by_id(&doc, "s"), "class", Some("c4"));
     let s = build(&doc);
     assert!(s.gen_walked, "{s:?}");
-}
-
-#[test]
-fn qinc1l_flag_parsing_default_on() {
-    use crate::incr_style::flag_on;
-    assert!(flag_on(None));
-    assert!(flag_on(Some("1")));
-    assert!(flag_on(Some("")));
-    assert!(!flag_on(Some("0")));
 }

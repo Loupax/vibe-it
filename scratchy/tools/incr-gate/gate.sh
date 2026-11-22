@@ -2,11 +2,13 @@
 # QINC1k (R60 section 12): the incremental-engine gate series, built on tools/incr-gate/run.sh.
 #
 # Usage: tools/incr-gate/gate.sh SERIES [RUNS] [PAGES...]
-#   SERIES  check     SCRATCHY_INCR_CHECK=1 (+ SCRATCHY_INCR=1): headless AND window run per page per round
+#   SERIES  check     SCRATCHY_INCR_CHECK=1: headless AND window run per page per round
 #                     (exactness: 0 `incr-check: MISMATCH` lines is the gate)
-#           perf      window: flag off vs SCRATCHY_INCR=1 of the SAME binary, interleaved, order flipped per round
+#           perf      window: BASE (a baseline binary, env BASE) vs SCRATCHY, interleaved, order flipped per
+#                     round (tags perf-<page>-base-<r> / perf-<page>-incr-<r>). QINC1m: until then this was
+#                     flag off vs on of the same binary; the flag is gone.
 #           headless  the same pairs headless (--perf-report: forced layouts, rss_bytes, incr counters)
-#           replay    QREC3: window, SCRATCHY_INCR=1, LIVE vs REPLAY of the same pages, interleaved, order
+#           replay    QREC3: window, LIVE vs REPLAY of the same pages, interleaved, order
 #                     flipped per round (tags replay-<page>-live-<r> / replay-<page>-rep-<r>); needs REPLAY=DIR
 #                     (recordings, see run.sh). Also prints the variance.py 3-run min/median/max table.
 #           replay-headless  the same pair headless (tags replayhl-...)
@@ -53,8 +55,12 @@ for r in $(seq 1 "$RUNS"); do
         "$HERE/run.sh" window check "$p" "check-$p-win-$r" ;;
       perf|headless)
         kind=window; [ "$SERIES" = headless ] && kind=headless
-        if [ $((r % 2)) = 1 ]; then order="off incr"; else order="incr off"; fi
-        for m in $order; do "$HERE/run.sh" "$kind" "$m" "$p" "$SERIES-$p-$m-$r"; done ;;
+        : "${BASE:?gate.sh $SERIES: set BASE to the baseline scratchy binary}"
+        if [ $((r % 2)) = 1 ]; then order="base incr"; else order="incr base"; fi
+        for m in $order; do
+          if [ $m = base ]; then SCRATCHY=$BASE "$HERE/run.sh" "$kind" incr "$p" "$SERIES-$p-base-$r"
+          else "$HERE/run.sh" "$kind" incr "$p" "$SERIES-$p-incr-$r"; fi
+        done ;;
       replay|replay-headless)
         kind=window; pre=replay
         if [ "$SERIES" = replay-headless ]; then kind=headless; pre=replayhl; fi

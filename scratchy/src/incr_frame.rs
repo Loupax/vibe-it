@@ -1,4 +1,5 @@
-//! QINC1j (R60 sections 3, 9): App frames through the incremental engine, (default since QINC1l; `SCRATCHY_INCR=0` turns it off).
+//! QINC1j (R60 sections 3, 9): App frames through the incremental engine (the only App frame path
+//! since QINC1m; the from-scratch build is its first-layout / fallback path and the check's oracle).
 //!
 //! One frame (`frame`) decides, in this order:
 //! 1. **Current**: the engine's laid tree already shows the page as it is (a script forced layout
@@ -29,34 +30,9 @@ pub(crate) const WORKER_SHARE: f32 = 0.25;
 /// ... when it restyled at least this many elements (a small page's relayout is cheap anyway).
 pub(crate) const WORKER_MIN_RESTYLED: u64 = 200;
 
-#[cfg(test)]
-thread_local! {
-    static LIVE_SEAM: Cell<bool> = const { Cell::new(false) };
-}
-
-/// Test seam: App frames use the engine (`SCRATCHY_INCR=1`). Returns the previous value.
-#[cfg(test)]
-pub(crate) fn set_live(on: bool) -> bool {
-    LIVE_SEAM.with(|l| l.replace(on))
-}
-
-/// Whether App frames go through the engine (default; `SCRATCHY_INCR=0` off; tests: `set_live`).
-pub(crate) fn live() -> bool {
-    #[cfg(test)]
-    {
-        LIVE_SEAM.with(Cell::get)
-    }
-    #[cfg(not(test))]
-    {
-        crate::incr_style::engine_enabled()
-    }
-}
-
-/// QINC1j: notes an App-side input change in the write log (only when frames use the engine).
+/// QINC1j: notes an App-side input change in the write log.
 pub(crate) fn note_ambient(a: crate::incr_log::Ambient) {
-    if live() {
-        crate::incr_log::note(0, crate::incr_log::Change::Ambient(a));
-    }
+    crate::incr_log::note(0, crate::incr_log::Change::Ambient(a));
 }
 
 /// What one App frame does.

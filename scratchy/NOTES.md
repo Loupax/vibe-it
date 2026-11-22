@@ -3091,28 +3091,10 @@ Measured (release, synthetic 5000-item list): a restyle rebuild is ~113 ms
 hovered handle from its id and building its ancestor chain is ~0.15 ms.
 Not done: focus restoration across navigation.
 
-Hover without a build (QY53n1/QY53n2, R47): the App's builds keep their
-`MATCH_MEMO` (`LAST_MATCH`). `apply_hover` (nothing pending) re-matches only
-the elements the change can affect (`hover_match_diff`, `HoverKeys` follow);
-no matched set changed -> no build. Otherwise, when every rule that starts or
-stops matching is PAINT-class (`rule_effect`/`decls_effect`: colour,
-background-colour, border/outline colour, text-decoration; per rule list in
-`RuleDerived::effects`) and no layout is in flight, `hover_patch::paint_patch`
-patches the installed `Laid` tree and shape cache instead: it resolves the
-affected elements (changed ones + element descendants, plus their
-`::before`/`::after`) down their ancestor chains with the kept memo, under the
-old and the new state, requires the old values to equal what the tree and
-spans hold (so the derivation provably agrees with the build for exactly these
-elements), writes the new paint fields into boxes (`ComputedStyle::node` +
-`ComputedStyle::pseudo`, the pseudo slot) and into copies of the affected
-`ShapedParagraph`s (span attrs colour/decoration by `SpanStyle::node`/`tnode`;
-the copy is re-laid at the same width on the main thread; the worker's
-`SHAPE_MEMO` entry is never mutated), and updates the kept memo so the next
-diff compares with the screen. Anything it cannot do exactly (layout/offset
-rules, `::marker`/first-line, list items and form controls whose text has no
-`node`, an animated affected element, `<html>`/`<body>`, a mismatch) returns
-`Err` before changing anything and the build runs as before. The next real
-build recomputes everything from the DOM, so a patch never outlives it.
+Hover (QINC1m): a hover change whose chain no `:hover` rule can read (R2.4) needs no frame; any
+other is an ordinary incremental engine frame (`incr_frame::frame`). The old pipeline's hover
+shortcuts (QY53n1 match-memo diff, QY53n2/n3 `hover_patch` paint/offset patch, R47) were removed
+with it (QINC1m); see git history before QINC1m for their design.
 
 JS DOM writes (QB2): `App::js_sync` is a restyle request like a hover
 change (`layout_dirty` + `restyle_requested` + `keep_scroll_on_rebuild`).
@@ -3268,9 +3250,10 @@ getComputedStyle (QA16), `src/js_style.rs`: the engine cannot see `App`, so `__d
 
 Geometry reads (QJ4), `src/js_geom.rs`: `__d_rect(id, vw, vh)` returns an element's laid-out border box in document space. A read with a stale key (DOM write generation, viewport, external CSS length) runs a FORCED layout on the JS thread (`build_layout_tree_with_resources` + `measure_document`, thread-local `FontSystem`, own `ShapeCache`; `catch_unwind` so a layout panic gives zero rects instead of killing the browser), records every `Laid` box by `style.node`, and caches until the next DOM write. The layout's CPU time is excluded from the script budget (`js::pause_budget_since`, `script_clock_nanos`). The JS side (end of DOM_PRELUDE) builds `getBoundingClientRect` (document box minus `window.scrollY`; fixed subtrees are not scrolled), `getClientRects`, `offset*`, `client*`, `scroll*`; display:none/detached read as zeros. `JsEngine::set_scroll` mirrors the App's real scroll offset into `window.scrollY` before events and timers. Counts forced layouts and logs once at 20 or 1 s total. Limits: no decoded image sizes, inline elements use their descendants' union or nearest box ancestor, element `scrollTop/Left` only remembered (QJ6).
 
-QYTC1a (contained inline-style writes): `GeomCache` also keeps the laid tree flattened in pre-order (`Skel`: node, box, `walk` extent, subtree end, parent, style flags). A `style` attribute write (`__d_setattr`) first tries `GeomCache::style_write_in_place`: when the parsed declarations change only paint fields, a translate, or px `left`/`top` of an `absolute`/`fixed` box (definite width, `right`/`bottom` auto), the cache is current, no selector/`attr()` reads `style` and no matching `!important` rule sets those properties, the box subtree (plus descendants layout hoisted out of it, never `fixed` ones) shifts in place and the ancestors' extents are redone; no geometry-generation bump. `__d_ggen` = geometry generation + shift count, so script caches keyed on it still see the move. Glyph rects are not shifted (`glyphs_stale`: the next `text_rects` lays out). Full conditions: REGRESSIONS.md R50 "QYTC1a result".
-
-QYTC1d (inert `class` writes): while the forced layout is current, a `class` write (`__d_setattr`/`__d_rmattr`) is probed instead of bumping: `js_geom::class_write_pre` takes the rules whose selectors name a class that changes, plus every rule reading `class` as an attribute (`ClassDeps`, built per `rules_cache` generation, holding selector clones, never the list's `Rc`), records whether each of their selectors matches each element the change can reach (the element; its subtree and later siblings' subtrees when the class sits left of a descendant/sibling combinator), and `class_write_post` compares after the write. Unchanged everywhere = no element's matched rule set changed = no style changed, so the cache stays current and later in-place shifts and unread-attribute skips keep working. A class inside `:has()`/`:nth-child(of)` (not parsed today), `content: attr(class)`, a probe over 20 000 matches, or a stale cache: no verdict, bump as before. At most 32 probes per geometry read (`PROBE_BUDGET`, refilled by `GeomCache::refresh`): a class churn without reads pays one bump instead of a probe per write; `class_probe_possible` (budget + current cache) is checked before anything else. A rule that starts/stops matching counts even when it only sets paint (exactness first).
+QINC1m: the old forced-layout path's skips (QYTC1a in-place `style` shifts, QYTC1d inert `class` probes,
+QY53l2 `HiddenSnap`, QY53o1 unread-attribute writes) and the App-layout IntersectionObserver source (QY53e2,
+`rendered_geometry`) are gone: the engine bypassed them (its invalidation sets decide what a write restyles), and
+`GeomCache::refresh` from scratch is now only the engine's fallback (no tree / panic).
 
 Multiple documents (QA18a): the page is DomTable id 0; `document.implementation.createHTMLDocument/createDocument` allocate another `NodeData::Document` root through `__d_newdoc` and register its id in `DomTable.docs` (any other Document-data node is a fragment). All nodes of all documents live in the one table and share wrappers/prototypes. The JS Document wrapper for a second document is `Object.create(document)`: every method/getter reads `this.__id`, so `getElementById`, `documentElement`, `head`, `body`, queries and child access just work per document. Ownership of detached nodes is a JS map (`owners`, set by the document's creators, `importNode` and `adoptNode`); an attached node's owner is its root document. The cascade (`__d_cs`) is still the page's only.
 
@@ -4015,7 +3998,7 @@ they declare `transition` (a compact `Snap` of the transitionable fields, not a 
 Parsing and matching are the `selectors` crate's (`OurSelectorParser::parse_has`); every matching call builds its own
 `SelectorCaches`, so a cached relative-selector result never outlives a DOM write. `:has(:has())` and `:has()` are parse
 errors (SyntaxError in `querySelector`). The fast paths written for "no `:has` rule" keep their guards and simply turn off on
-a `:has` page: `HiddenSnap` (`has_sel`), `ClassDeps` (`CF_UNBOUNDED`), `StyleCache` (`has_rules`), `HoverKeys::unbounded`
+a `:has` page: `StyleCache` (`has_rules`), `HoverKeys::unbounded`
 (only for a `:hover` inside `:has`), the incremental-layout rule 5 (R59).
 
 Invalidation map: a feature anywhere inside a relative selector `R` reaches the anchors in ONE hop, `Hop::Anc` (the carrier's
@@ -4057,7 +4040,7 @@ rule re-matched the whole page, ~1 900 elements, on each removal), from `.acc` e
 
 ## Engine evidence (QINC1n, src/incr_evidence.rs)
 
-Daily-use evidence for deleting the old pipeline (QINC1m). Both engine paths, App frames
+Daily-use evidence for the engine (it decided QINC1m, the old pipeline's removal). Both engine paths, App frames
 (`incr_frame::frame`, `check`) and script forced layouts (`incr_engine::update`,
 `js_geom::refresh_engine`), report to one thread-local counter set:
 - update: the engine served the frame from its kept trees (App Current / Main / worker with an
@@ -4165,9 +4148,8 @@ is evaluated once against one `performance.now()` (the update's time, shared by 
 by ONE timer-queue task (`obsFlush`, ordered by observer creation). No IO timer remains: `__scratchy_ioTick`, `ioNudge` and
 `ioDueT` are gone; `__scratchy_io_want` (like `ro_want`) feeds `__scratchy_raf_due`, so a page without rAF still gets its
 frame. A geometry-only change with stale geometry waits `max(100, 4 x last layout cost)` ms (cap 2 s) before the update forces a
-layout (QY53e1 rate limit, unchanged); a fresh geometry evaluates at the next frame. The App-layout reuse (QY53e2,
-`JsEngine::rendered_geometry` -> `__scratchy_ioRendered`) still evaluates at once on the App's own complete layout, but queues
-the callbacks as a task too. Delivery is now at frame boundaries (first entry ~17 ms after `observe()` headless, not 0 ms).
+layout (QY53e1 rate limit, unchanged); a fresh geometry evaluates at the next frame. (The App-layout reuse, QY53e2, was
+removed by QINC1m: the engine's forced layouts read the same kept tree.) Delivery is now at frame boundaries (first entry ~17 ms after `observe()` headless, not 0 ms).
 
 
 **UA-dispatched events (QEL6).** `__scratchy_dn` (events born in Rust) tags the event with `__scratchy_ua`; `dispatch` runs a microtask checkpoint (`__scratchy_microtasks`) after each listener and handler callback of a tagged event only. Nested/script dispatches never checkpoint (script is on the stack).
@@ -4241,3 +4223,26 @@ not `hidden`). While it shows, `page_size()` / `page_viewport_hb` are `TRACK_W` 
 ### Inline SVG paint properties (QCSS-A)
 
 An inline `<svg>` is serialized to XML and rasterised by resvg at box-build time. The seven paint properties (`style::SVG_KEYS`) are real inherited cascade properties (`ComputedStyle::svg`, interned `SvgProps`), so an HTML ancestor's `fill`/`color` reaches the svg. `images::serialize_inline_svg_styled` resolves the style of every svg descendant (not defs/gradients/clip containers) and writes the declared values into `style` attributes; the root also gets inherited values it has no presentation attribute for. The engine sees the descendants as ordinary elements: a change of their computed `svg` marks the owning svg box (`svg => B` in `incr_diff`), and an ancestor change re-cascades them through `inherited_changed`.
+
+## The engine is the only pipeline (QINC1m, 2026-11-22)
+
+The user said remove the old pipeline (DECISIONS.md 2026-11-22). Since QINC1m:
+- App frames always go through `incr_frame::frame` (`App::rebuild_layout` -> `rebuild_live`), script forced
+  layouts always through `incr_engine::update` (`GeomCache::refresh_engine`). There is no `SCRATCHY_INCR`
+  any more (setting it changes nothing), no `incr_frame::live` / `incr_engine::forced_on` and no test seam that
+  turns the engine off.
+- The from-scratch layout (`build_layout_tree_with_resources` + `measure_document`) stays: the engine's
+  first layout / restart (its shadow stage starts the kept trees), its fallback (`incr_evidence` fallback
+  reasons, `GeomCache::refresh` when the engine has no tree, `Frame::Fresh`) and the oracle of check mode and of
+  the sampled check (`engine-check.log`).
+- `SCRATCHY_INCR_CHECK=1` (debug option): every engine update is compared with a from-scratch build and
+  layout; a difference prints `scratchy: incr-check: MISMATCH ...`, counts `incr.check_mismatch` and the
+  from-scratch result is used. Tests always run in check mode (a difference panics unless a test's
+  `incr_style::Seam { panic: false }` collects it).
+- `:engine`, `--perf-report`'s `engine_counts` and the exit counters with `SCRATCHY_FRAME_STATS` are unchanged
+  (the exit counters now print for every window run with frame stats).
+- Tests: the `*_incr_forced_tests` re-runs and `SCRATCHY_TEST_INCR_FORCED` / `SCRATCHY_SHADOW` are gone (the
+  suite runs once, engine on); CI's `scratchy` job runs the suite once (the engine-off step is gone; the four
+  required check names, scratchy / snag / wire / scratchy-wpt, are unchanged).
+- `tools/incr-gate`: modes `incr` and `check` only (`off` and the `perf` series that compared against it
+  were removed); compare against an older build with `SCRATCHY=` instead.

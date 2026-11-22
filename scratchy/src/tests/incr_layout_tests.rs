@@ -16,7 +16,7 @@ impl LogOnly {
         incr_layout::reset();
         let _ = incr_log::drain();
         set_interaction(&InteractionState::default());
-        LogOnly(incr_style::set_seam(Seam { shadow: true, reconcile: false, panic: true }))
+        LogOnly(incr_style::set_seam(Seam { reconcile: false, panic: true }))
     }
 }
 

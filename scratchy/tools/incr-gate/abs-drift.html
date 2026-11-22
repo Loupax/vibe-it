@@ -6,7 +6,7 @@
      DOCUMENT space (f32), so it depends on the box's y: ~642.0 at y 100, ~642.002 at y > 4096.
      A timer grows the spacer ABOVE it, the box moves; the engine shifts the clean subtree (keeps
      the height it measured at the old y) while the from-scratch layout re-sums at the new y.
-     Run: SCRATCHY_INCR=1 SCRATCHY_INCR_CHECK=1 scratchy --perf-report --seconds 4 abs-drift.html -->
+     Run: SCRATCHY_INCR_CHECK=1 scratchy --perf-report --seconds 4 abs-drift.html -->
 <style>
   body { margin: 0; font: 14px sans-serif; }
   #spacer { height: 100px; background: #eee; }

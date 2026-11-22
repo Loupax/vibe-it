@@ -115,17 +115,10 @@ jobs:
           export FONTCONFIG_FILE="$(tools/ci-fontconfig.sh /usr/share/fonts/truetype/liberation "$RUNNER_TEMP/fc")"
           fc-match sans-serif
           fc-match monospace
-          cargo test --release --locked -- --nocapture 2>&1 | tee "$RUNNER_TEMP/test-on.log"
+          # QINC1m: the incremental engine is the only path (the engine-off step is gone).
+          cargo test --release --locked -- --nocapture 2>&1 | tee "$RUNNER_TEMP/test.log"
           test "${PIPESTATUS[0]}" -eq 0
-          echo "QFLK7-RAN lines (engine on): $(grep -c '^QFLK7-RAN' "$RUNNER_TEMP/test-on.log"), SKIP: $(grep -c '^QFLK7-SKIP' "$RUNNER_TEMP/test-on.log" || true)"
-      - name: Test (scratchy, incremental engine OFF; old full-relayout path until QINC1m)
-        if: matrix.crate == 'scratchy'
-        # QINC1l: the suite above runs with the engine on (the default); this reuses the same build.
-        run: |
-          export FONTCONFIG_FILE="$(tools/ci-fontconfig.sh /usr/share/fonts/truetype/liberation "$RUNNER_TEMP/fc")"
-          SCRATCHY_TEST_INCR_FORCED=0 cargo test --release --locked -- --nocapture 2>&1 | tee "$RUNNER_TEMP/test-off.log"
-          test "${PIPESTATUS[0]}" -eq 0
-          echo "QFLK7-RAN lines (engine off): $(grep -c '^QFLK7-RAN' "$RUNNER_TEMP/test-off.log"), SKIP: $(grep -c '^QFLK7-SKIP' "$RUNNER_TEMP/test-off.log" || true)"
+          echo "QFLK7-RAN lines: $(grep -c '^QFLK7-RAN' "$RUNNER_TEMP/test.log"), SKIP: $(grep -c '^QFLK7-SKIP' "$RUNNER_TEMP/test.log" || true)"
       - name: Test
         if: matrix.crate != 'scratchy'
         run: cargo test --release --locked

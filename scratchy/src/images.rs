@@ -2384,8 +2384,7 @@ pub(crate) fn build_layout_tree_with_resources(
     let memo = MATCH_MEMO.with(|m| m.borrow_mut().take());
     // QINC1j-ab: the shadow update runs on this very DOM and state, so every match the build made is
     // the engine's answer too (a full restyle after a restart re-matches nothing).
-    let shadow_memo = if shadow { memo.clone() } else { None };
-    crate::style::stash_last_match(memo, &rules, viewport_width);
+    let shadow_memo = if shadow { memo } else { None };
     VAR_EXPAND_MEMO.with(|m| *m.borrow_mut() = None);
     ANCESTOR_BLOOM.with(|b| *b.borrow_mut() = None);
     crate::dom::CLASS_CACHE.with(|c| *c.borrow_mut() = None);

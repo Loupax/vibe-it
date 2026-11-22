@@ -16,7 +16,7 @@ impl Checked {
         incr_style::reset();
         let _ = incr_log::drain();
         set_interaction(&InteractionState::default());
-        let seam = incr_style::set_seam(Seam { shadow: true, reconcile: true, panic: false });
+        let seam = incr_style::set_seam(Seam { reconcile: true, panic: false });
         Checked(seam, incr_style::set_adopt_verify(true))
     }
 }

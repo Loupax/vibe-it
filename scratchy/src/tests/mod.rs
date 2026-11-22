@@ -21,9 +21,6 @@ mod qapi5_tests;
 mod qdom10_tests;
 mod qdom14_tests;
 mod qdom3_tests;
-mod js_geometry_incr_forced_tests;
-mod js_observers_incr_forced_tests;
-mod qdom12_incr_forced_tests;
 mod qdom12_tests;
 mod qdomatom_tests;
 mod qdom13_tests;
@@ -53,11 +50,8 @@ mod js_snapshot_tests;
 mod deep_nesting_tests;
 mod xhr_tests;
 mod qmem3a_tests;
-mod qy53n1_tests;
 mod qmem3d_tests;
 mod shape_memo_tests;
-mod qy53n2_tests;
-mod qy53n3_tests;
 mod qapi4_tests;
 mod qff1a_tests;
 mod wl_drain_tests;
@@ -602,13 +596,6 @@ fn run_collecting(scripts: &[ScriptSource]) -> Vec<String> {
     v
 }
 
-/// QINC1i: the forced-layout special cases (QYTC1a, QYTC1d, HiddenSnap, ATTR_SNAP, the App-layout
-/// IntersectionObserver path) are bypassed when forced layouts go through the engine (the
-/// `*_incr_forced_tests` runs of the suites); the tests of those special cases return early there.
-fn special_cases_bypassed() -> bool {
-    crate::incr_engine::forced_on()
-}
-
 fn src(code: &str) -> ScriptSource {
     ScriptSource { name: "t".into(), code: code.into(), index: None, ..Default::default() }
 }
@@ -1045,3 +1032,4 @@ mod qapi6c_tests;
 mod qcss_a_tests;
 mod qff1b_tests;
 mod qcss_c_tests;
+mod qinc1m_tests;

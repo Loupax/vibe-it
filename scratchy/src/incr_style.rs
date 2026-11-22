@@ -51,69 +51,43 @@ const PSEUDOS: usize = 5;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Mode {
-    Off,
-    /// Default (`SCRATCHY_INCR` not `0`): the engine runs, nothing compares (and nothing uses) its results yet.
+    /// Default: the engine runs, nothing compares its results with a from-scratch build.
     #[cfg_attr(test, allow(dead_code))]
     Run,
     /// Tests and `SCRATCHY_INCR_CHECK=1`: record the build's styles and compare.
     Check,
 }
 
-/// QINC1l: `SCRATCHY_INCR` parsing. The engine is the default: unset or any value but "0" is on.
-pub(crate) fn flag_on(v: Option<&str>) -> bool {
-    v != Some("0")
-}
-
-/// QINC1l: whether `SCRATCHY_INCR` leaves the engine on (read once; `=0` is the escape hatch to the
-/// full relayout path until QINC1m removes it).
-pub(crate) fn engine_enabled() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| flag_on(std::env::var("SCRATCHY_INCR").ok().as_deref()))
-}
-
 #[cfg(not(test))]
 fn mode() -> Mode {
     static MODE: std::sync::OnceLock<Mode> = std::sync::OnceLock::new();
-    *MODE.get_or_init(|| {
-        if std::env::var("SCRATCHY_INCR_CHECK").is_ok_and(|v| v == "1") {
-            Mode::Check
-        } else if engine_enabled() {
-            Mode::Run
-        } else {
-            Mode::Off
-        }
-    })
+    *MODE.get_or_init(|| if std::env::var("SCRATCHY_INCR_CHECK").is_ok_and(|v| v == "1") { Mode::Check } else { Mode::Run })
 }
 
+/// Tests always check (QINC1m: the engine cannot be turned off any more).
 #[cfg(test)]
 fn mode() -> Mode {
-    static ENV_OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    if *ENV_OFF.get_or_init(|| std::env::var("SCRATCHY_SHADOW").is_ok_and(|v| v == "0")) || !SEAM.with(|s| s.get().shadow) {
-        Mode::Off
-    } else {
-        Mode::Check
-    }
+    Mode::Check
 }
 
-/// Test seams (R60 section 10): shadow on/off, reconcile on/off, panic on a mismatch or keep it.
+/// Test seams (R60 section 10): reconcile on/off, panic on a mismatch or keep it.
 #[cfg(test)]
 #[derive(Clone, Copy)]
 pub(crate) struct Seam {
-    pub(crate) shadow: bool,
     pub(crate) reconcile: bool,
     pub(crate) panic: bool,
 }
 
 #[cfg(test)]
 thread_local! {
-    static SEAM: Cell<Seam> = const { Cell::new(Seam { shadow: true, reconcile: true, panic: true }) };
+    static SEAM: Cell<Seam> = const { Cell::new(Seam { reconcile: true, panic: true }) };
     static MISMATCHES: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
-    /// QINC1i4: check mode cascades every adopted style again and compares (off: adopt as
-    /// `SCRATCHY_INCR=1` does; the comparisons with the build then see the adopted styles themselves).
+    /// QINC1i4: check mode cascades every adopted style again and compares (off: adopt as a
+    /// default run does; the comparisons with the build then see the adopted styles themselves).
     static ADOPT_VERIFY: Cell<bool> = const { Cell::new(true) };
 }
 
-/// Test seam: verify adopted styles (default) or take them as `SCRATCHY_INCR=1` does.
+/// Test seam: verify adopted styles (default) or take them as a default (non-check) run does.
 #[cfg(test)]
 pub(crate) fn set_adopt_verify(on: bool) -> bool {
     ADOPT_VERIFY.with(|c| c.replace(on))
@@ -142,7 +116,7 @@ pub(crate) fn take_mismatches() -> Vec<String> {
     MISMATCHES.with(|m| std::mem::take(&mut *m.borrow_mut()))
 }
 
-/// Check mode reconciles the table with the DOM; `SCRATCHY_INCR=1` alone trusts the log (no fingerprints).
+/// Check mode reconciles the table with the DOM; a default run trusts the log (no fingerprints).
 fn reconcile_on() -> bool {
     #[cfg(test)]
     {
@@ -198,12 +172,6 @@ pub(crate) fn without_shadow<R>(f: impl FnOnce() -> R) -> R {
     f()
 }
 
-/// QINC1i: whether the engine runs at all (release: `SCRATCHY_INCR=1` or `SCRATCHY_INCR_CHECK=1`;
-/// tests: unless the shadow seam is off).
-pub(crate) fn running() -> bool {
-    mode() != Mode::Off
-}
-
 /// QINC1i: forgets every stage's kept state (a checked engine update differed from the from-scratch
 /// result): the next update starts over from a from-scratch build.
 pub(crate) fn drop_engines() {
@@ -219,7 +187,7 @@ pub(crate) fn arena_reset() {
 /// Called at the start of `build_layout_tree_with_resources`: whether the shadow update runs after it;
 /// if so, starts recording the build's styles (check mode compares them, a restart adopts them).
 pub(crate) fn begin_build() -> bool {
-    if SUPPRESS.with(Cell::get) || mode() == Mode::Off {
+    if SUPPRESS.with(Cell::get) {
         return false;
     }
     RECORD.with(|r| *r.borrow_mut() = Some(HashMap::with_capacity(RECORD_LEN.with(Cell::get))));

@@ -869,6 +869,7 @@ pub(crate) struct App {
     /// fresh `ShapingRequest` here (`queue_shaping_request`) instead of
     /// spawning a new thread (and paying for a new `FontSystem`) every
     /// time a page needs reshaping.
+    #[cfg_attr(test, allow(dead_code))] // tests shape inline (`shape_inline`)
     pub(crate) shaping_requests: mpsc::Sender<ShapingRequest>,
     /// The current page's own `<base href>` (recomputed from the real
     /// document every time it's replaced — initial load included, not
@@ -1950,60 +1951,10 @@ impl App {
     pub(crate) fn rebuild_layout(&mut self, width: u32, height: u32, height_rebuild: bool) {
         // QINC1i: script forced layouts through the engine use the images this frame lays out with.
         crate::incr_engine::sync_window_images(&self.document, &self.image_cache);
-        if crate::incr_frame::live() {
-            self.rebuild_live(width, height, height_rebuild);
-            return;
-        }
-        // The DOM walk + cascade match itself stays synchronous,
-        // right here, on the main thread — `Handle` (`self.document`)
-        // is `Rc`-based, so it can never cross a thread boundary (see
-        // `spawn_shaping_worker`'s own docs). Only the `LayoutBox`
-        // tree this produces — plain owned data, no `Handle` left
-        // inside it — gets handed off below.
-        set_app_clock(self.nav_generation);
-        let build_started = std::time::Instant::now();
-        crate::style::KEEP_MATCH.with(|k| k.set(true));
-        self.build_stamp = crate::js_geom::render_stamp();
-        let tree = build_layout_tree_with_resources(&self.document, width as f32, Some(height as f32), &crate::images::with_adopted_css(&self.extra_css, &self.adopted_css), &self.image_cache);
-        crate::style::KEEP_MATCH.with(|k| k.set(false));
-        self.last_build_time = Some(build_started.elapsed());
-        if let Some(fs) = &mut self.frame_stats {
-            fs.build(build_started.elapsed());
-        }
-        self.anim.after_build(self.nav_generation, take_animation_report(), document_clock_ms());
-        self.anim_wake = Some(f64::NEG_INFINITY);
-        fetch_wanted_css_images(&self.proxy, self.socket_path.as_deref(), self.base_url.as_ref(), &mut self.css_images_requested, self.nav_generation);
-        let late = crate::images::take_wanted_img_srcs();
-        fetch_late_images(&self.proxy, self.socket_path.as_deref(), self.base_url.as_ref(), &mut self.late_images_requested, &mut self.late_image_errors, self.nav_generation, late);
-        // Ids the worker is about to assign restart at `0` for this
-        // new tree (see `spawn_shaping_worker`'s own docs) — stale
-        // entries keyed by an old tree's ids would just be harmless
-        // dead weight otherwise, but clearing keeps this from
-        // growing unboundedly across many stdin chunks in
-        // streaming mode.
-        if !self.keep_scroll_on_rebuild {
-            self.scroll_offsets.clear();
-        }
-        self.keep_scroll_on_rebuild = false;
-        self.video.ctl_attr.clear();
-        self.state_rules = state_rules_mask();
-        self.reads_viewport_h = viewport_height_read();
-        self.hover_keys = HOVER_KEYS.with(|k| k.borrow().clone());
-        // R2.1: same document, new style/height -> keep painting the
-        // previous complete frame until the new one is fully shaped.
-        let restyle = (self.restyle_requested || height_rebuild || self.hold_old_frame) && self.cached.is_some();
-        self.restyle_requested = false;
-        self.hold_old_frame = restyle;
-        let reuse = restyle && self.cached_width == width;
-        self.cached_width = width;
-        self.cached_height = height;
-        self.layout_dirty = false;
-        self.layout_in_flight = true;
-        self.layout_generation += 1;
-        Self::queue_shaping_request(&self.shaping_requests, tree, width as f32, height as f32, self.layout_generation, reuse, self.next_para_id, None);
+        self.rebuild_live(width, height, height_rebuild);
     }
 
-    /// QINC1j (R60 sections 3, 9): a frame through the incremental engine (`SCRATCHY_INCR=1`).
+    /// QINC1j (R60 sections 3, 9): a frame through the incremental engine.
     /// Incremental updates are shown at once; big ones go to the worker as before (the engine adopts
     /// the result); nothing to lay out (a forced layout already did it) shows the engine's tree.
     fn rebuild_live(&mut self, width: u32, height: u32, height_rebuild: bool) {
@@ -2374,6 +2325,7 @@ impl App {
     /// apart from the rest of `self` (see its own destructuring `let`),
     /// which an `&self` method call can't see past.
     #[allow(clippy::too_many_arguments)]
+    #[cfg_attr(test, allow(dead_code))] // tests shape inline (`shape_inline`)
     pub(crate) fn queue_shaping_request(
         requests: &mpsc::Sender<ShapingRequest>, tree: LayoutBox, width: f32, height: f32, generation: u64,
         reuse_shaping: bool, id_base: usize, engine: Option<crate::incr_box::WorkerJob>,
@@ -2753,10 +2705,6 @@ impl App {
             }
             // Q35b2: images that arrived during the pass rebuild now.
             self.flush_image_relayout();
-            // QY53e2: IntersectionObserver evaluates on this layout instead of forcing its own.
-            if let Some(js) = &self.js {
-                js.rendered_geometry(&laid, self.build_stamp, self.cached_width, self.cached_height);
-            }
             // QEL2b: the ResizeObserver targets' boxes of this frame's layout (a change with no DOM
             // write, e.g. an image decode or an animated size, asks for a rendering update).
             if self.js.is_some() && crate::ro_geom::active() {
@@ -3817,9 +3765,8 @@ impl App {
         }
     }
 
-    /// QY53n5: the hover change that needs no build: same chain, a chain no
-    /// `:hover` rule can read (R2.4), a re-match that changed nothing
-    /// (QY53n1) or a paint-only patch (QY53n2). Returns false, with the
+    /// QY53n5: the hover change that needs no build: same chain, or a chain no
+    /// `:hover` rule can read (R2.4). Returns false, with the
     /// state untouched, when a build is needed. These cost 4-10 ms, so
     /// `update_hover` applies them without the R2.3/QB3 coalescing delay.
     fn apply_hover_cheap(&mut self) -> bool {
@@ -3839,65 +3786,7 @@ impl App {
             set_interaction(&self.interaction);
             return true;
         }
-        // QINC1j: with the engine, a hover is an ordinary (incremental) frame: the match-memo and
-        // paint-patch shortcuts below are bypassed.
-        if crate::incr_frame::live() {
-            return false;
-        }
-        // QY53n1: nothing pending and the last build's matches kept: re-match
-        // only the elements the change can affect; none changed -> no build.
-        if self.layout_dirty || self.restyle_requested || self.state_rules & STATE_HOVER == 0 {
-            return false;
-        }
-        let changed: Option<Vec<Handle>> =
-            st.hover.symmetric_difference(&self.interaction.hover).map(|&id| find_node_by_id(&self.document, id)).collect();
-        set_interaction(&st);
-        let started = std::time::Instant::now();
-        let diff = changed.and_then(|c| crate::style::hover_match_diff(&self.hover_keys, &c));
-        if diff.as_ref().is_some_and(|d| d.is_empty()) {
-            self.interaction.hover = st.hover;
-            if let Some(fs) = &mut self.frame_stats {
-                fs.hover_restyle();
-                fs.hover_skipped();
-            }
-            return true;
-        }
-        // QY53n2: only paint-only rules changed and the installed tree is
-        // current: patch it and repaint, no build.
-        if let Some(diff) = diff
-            && !self.layout_in_flight
-            && !self.hold_old_frame
-            && let Some(laid) = self.cached.as_mut().and_then(Rc::get_mut)
-        {
-            let r = crate::hover_patch::paint_patch(
-                &self.document,
-                laid,
-                &mut self.shape_cache,
-                &mut self.font_system,
-                &diff,
-                &self.interaction,
-                &st,
-            );
-            if let Ok(moved) = r {
-                self.interaction.hover = st.hover;
-                if let Some(fs) = &mut self.frame_stats {
-                    fs.hover_restyle();
-                    fs.hover_patched(started.elapsed());
-                }
-                // QY53n3: boxes moved (an offset patch): what reads positions follows.
-                if moved {
-                    if let (Some(js), Some(laid)) = (&self.js, &self.cached) {
-                        js.rendered_geometry(laid, self.build_stamp, self.cached_width, self.cached_height);
-                    }
-                    self.refresh_cursor();
-                }
-                if let Some(w) = &self.window {
-                    w.request_redraw();
-                }
-                return true;
-            }
-        }
-        set_interaction(&self.interaction);
+        // QINC1j: otherwise a hover is an ordinary (incremental) engine frame.
         false
     }
 
@@ -5535,7 +5424,7 @@ impl ApplicationHandler<AppEvent> for App {
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
         self.wl_drain.take();
         // QINC1j: with frame stats on, the window's engine counters (the gate reads them).
-        if self.frame_stats.is_some() && (crate::incr_frame::live() || crate::incr_style::checking()) {
+        if self.frame_stats.is_some() {
             diag!("scratchy: incr: {}", crate::perf::incr_json());
             diag!("scratchy: {}", crate::incr_evidence::status_text());
             diag!("scratchy: resize-observer: {}", crate::ro_geom::stats_json());
