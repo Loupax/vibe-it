@@ -4036,3 +4036,22 @@ the callbacks as a task too. Delivery is now at frame boundaries (first entry ~1
 
 
 **UA-dispatched events (QEL6).** `__scratchy_dn` (events born in Rust) tags the event with `__scratchy_ua`; `dispatch` runs a microtask checkpoint (`__scratchy_microtasks`) after each listener and handler callback of a tagged event only. Nested/script dispatches never checkpoint (script is on the stack).
+
+`inline` for scroll containers too. Horizontal scrollbars: QSB2b below.
+
+## QSB2b: horizontal scrollbars
+
+`scrollbar::Axis` (Y/X); `track_rect_axis(axis, rect, corner)` (right / bottom `TRACK_W` strip, `corner` = the
+other bar shows so the track stops short), `corner_rect`, `hit_axis`. The thumb/drag/page maths was already 1-D.
+Hot ids: `VIEWPORT_ID`, `VIEWPORT_X_ID`, a region's `id` and `layout::xk(id)`. `SbFound/SbDrag/SbHold` carry the
+axis; `scrollbar_set(target, axis, v)` writes `scroll_offset`/`scroll_x`/the region's `xk(id)` offset (horizontal
+moves are instant; QSMOOTH1 eases y only).
+
+Region bars (`paint::paint_scrollbars`): overlay, vertical as before, horizontal along the bottom when
+`user_x` and `content_w > client_w` (or `overflow-x: scroll`); with both, the tracks stop 8 px short and a corner
+square is painted. Hit tests use the same rule (both overflowing => corner).
+
+Window bar: `App::hbar` (set in `redraw` from `want_hbar`: `doc_scroll_width > width` and the viewport `overflow-x`
+not `hidden`). While it shows, `page_size()` / `page_viewport_hb` are `TRACK_W` shorter (layout height,
+`innerHeight`, JS viewport, vertical bar); the strip above the status bar is filled with the canvas colour and
+`paint_viewport_hbar` draws the bar, plus the corner when the vertical bar shows. A change of `hbar` redoes the frame.

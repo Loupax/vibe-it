@@ -1656,20 +1656,81 @@ pub(crate) fn paint_scrollbar(
     box_h: f32,
     clip: Option<(f32, f32, f32, f32)>,
 ) {
-    let max_scroll = info.max_scroll();
-    if max_scroll <= 0.0 && !show_when_not_overflowing {
-        return;
-    }
-    let Some((track_x, track_y, _, track_h)) = crate::scrollbar::track_rect(box_x, draw_y, box_w, box_h) else {
-        return;
-    };
-    let (off, thumb_h) = crate::scrollbar::thumb(track_h, info.content_h, info.client_h, own_scroll);
-    let thumb_y = track_y + off;
-    let track_w = crate::scrollbar::TRACK_W;
-    let thumb_rgba = crate::scrollbar::thumb_rgba(SB_HOT.with(|h| h.get()), info.id);
+    paint_scrollbars(info, (own_scroll, 0.0), (show_when_not_overflowing, false), pixels, win_w, win_h, (box_x, draw_y, box_w, box_h), clip);
+}
+
+/// QSB2b: both bars of a region: the vertical one (as `paint_scrollbar`) and the horizontal one
+/// along the bottom edge (`info.user_x`, shown when the content is wider, or always for
+/// `overflow-x: scroll`), and the corner square where both show (the tracks stop short of it).
+/// `own` is the region's (y, x) offset, `always` the (y, x) `overflow: scroll` flags.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn paint_scrollbars(
+    info: &ScrollInfo,
+    own: (f32, f32),
+    always: (bool, bool),
+    pixels: &mut [u32],
+    win_w: u32,
+    win_h: u32,
+    rect: (f32, f32, f32, f32),
+    clip: Option<(f32, f32, f32, f32)>,
+) {
+    use crate::scrollbar::{self as sb, Axis};
+    let show_y = info.user && (info.max_scroll() > 0.0 || always.0);
+    let show_x = info.user_x && (info.max_scroll_x() > 0.0 || always.1);
+    let hot = SB_HOT.with(|h| h.get());
     let t = crate::config::SB_TRACK_RGBA;
-    fill_rect(pixels, win_w, win_h, track_x, track_y, track_w, track_h, TextColor::rgba(t.0, t.1, t.2, t.3), clip);
-    fill_rect(pixels, win_w, win_h, track_x, thumb_y, track_w, thumb_h, TextColor::rgba(thumb_rgba.0, thumb_rgba.1, thumb_rgba.2, thumb_rgba.3), clip);
+    let track_c = TextColor::rgba(t.0, t.1, t.2, t.3);
+    let bar = |pixels: &mut [u32], axis: Axis, id: usize, content: f32, client: f32, scroll: f32| {
+        let Some((tx, ty, tw, th)) = sb::track_rect_axis(axis, rect, show_x && show_y) else { return };
+        let len = if axis == Axis::Y { th } else { tw };
+        let (off, tl) = sb::thumb(len, content, client, scroll);
+        let c = sb::thumb_rgba(hot, id);
+        fill_rect(pixels, win_w, win_h, tx, ty, tw, th, track_c, clip);
+        let (hx, hy, hw, hh) = if axis == Axis::Y { (tx, ty + off, tw, tl) } else { (tx + off, ty, tl, th) };
+        fill_rect(pixels, win_w, win_h, hx, hy, hw, hh, TextColor::rgba(c.0, c.1, c.2, c.3), clip);
+    };
+    if show_y {
+        bar(pixels, Axis::Y, info.id, info.content_h, info.client_h, own.0);
+    }
+    if show_x {
+        bar(pixels, Axis::X, crate::layout::xk(info.id), info.content_w, info.client_w, own.1);
+    }
+    if show_x && show_y {
+        paint_scrollbar_corner(pixels, win_w, win_h, rect, clip);
+    }
+}
+
+/// QSB2b: the square where a box's two bars meet.
+pub(crate) fn paint_scrollbar_corner(pixels: &mut [u32], win_w: u32, win_h: u32, rect: (f32, f32, f32, f32), clip: Option<(f32, f32, f32, f32)>) {
+    if let Some((cx, cy, cw, ch)) = crate::scrollbar::corner_rect(rect) {
+        let t = crate::config::SB_TRACK_RGBA;
+        fill_rect(pixels, win_w, win_h, cx, cy, cw, ch, TextColor::rgba(t.0, t.1, t.2, t.3), clip);
+    }
+}
+
+/// QSB2b: the window's horizontal bar in the strip `rect` (the `TRACK_W` px above the status bar);
+/// `corner`: the vertical bar shows too.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn paint_viewport_hbar(
+    content_w: f32,
+    client_w: f32,
+    scroll_x: f32,
+    corner: bool,
+    pixels: &mut [u32],
+    win_w: u32,
+    win_h: u32,
+    rect: (f32, f32, f32, f32),
+) {
+    use crate::scrollbar as sb;
+    let Some((tx, ty, tw, th)) = sb::track_rect_axis(sb::Axis::X, rect, corner) else { return };
+    let (off, len) = sb::thumb(tw, content_w, client_w, scroll_x);
+    let c = sb::thumb_rgba(SB_HOT.with(|h| h.get()), sb::VIEWPORT_X_ID);
+    let t = crate::config::SB_TRACK_RGBA;
+    fill_rect(pixels, win_w, win_h, tx, ty, tw, th, TextColor::rgba(t.0, t.1, t.2, t.3), None);
+    fill_rect(pixels, win_w, win_h, tx + off, ty, len, th, TextColor::rgba(c.0, c.1, c.2, c.3), None);
+    if corner {
+        paint_scrollbar_corner(pixels, win_w, win_h, rect, None);
+    }
 }
 
 /// What the status bar (QKEYS1, KEYS.md "Status bar") shows.
@@ -2401,10 +2462,10 @@ fn paint_inner_body(
     // docs for the real difference between the two keywords). QY20: a
     // `visibility: hidden` box paints no chrome, so its scrollbar is
     // skipped too (its visible descendants still paint normally).
-    if let Some(info) = laid.scroll.as_ref().filter(|i| i.user && s.visibility == Visibility::Visible) {
-        paint_scrollbar(
-            info, own_scroll, s.overflow_y == Overflow::Scroll, pixels, win_w, win_h, draw_x, draw_y, laid.w, laid.h,
-            clip,
+    if let Some(info) = laid.scroll.as_ref().filter(|i| (i.user || i.user_x) && s.visibility == Visibility::Visible) {
+        paint_scrollbars(
+            info, (own_scroll, own_scroll_x), (s.overflow_y == Overflow::Scroll, s.overflow_x == Overflow::Scroll),
+            pixels, win_w, win_h, (draw_x, draw_y, laid.w, laid.h), clip,
         );
     }
 
