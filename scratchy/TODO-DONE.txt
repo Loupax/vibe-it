@@ -9155,3 +9155,9 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QWPTFLK2 DONE 425ef1b #555 [S] (NOTE: QWPTFLK3 #550 found a constructor re-upgrade stack overflow whose failing frame depends on the build; this file also builds elements during construction: re-check it on main after #550 first; P3, from #532/#526/#531; Sonnet; wpt_th.rs virtual clock, custom-elements) custom-elements/form-
       associated/fieldset-elements-during-construction.html goes OK -> TIMEOUT at random on CI (marked flaky in #534).
       Reproduce under load (--jobs 8 + a CPU hog, 30 runs), find the real-time dependency, fix, remove from flaky.txt.
+
+=== from TODO.txt: --- (no header)
+- [x] QEL3 DONE 9255344 #554 [S] (P2; Sonnet; js_dom.rs IO; after QEL1) IntersectionObserver evaluated once per rendering
+      update (after RO, before paint) with the frame time, callbacks queued as a task; remove the
+      per-timer __scratchy_ioTick calls; keep the App-layout reuse. Gate: intersection-observer score
+      not lower, YouTube thumbnails still load (QY57r).

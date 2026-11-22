@@ -208,3 +208,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Merged #541 QSCR404 38c1afb. #546 conflicts NOTES.md again, #548 conflicts in expected dom-nodes/webmessaging -> rebases queued (5 running). #552 merging.
 - 2026-11-22 Merged #555 QWPTFLK2 425ef1b (off flaky.txt; cause = #550 recursion).
 - 2026-11-22 #556 QDOM5 READY (ranges 17.1 -> 43.2, total 34.4; includes QDOM12b), queued after #553. Filed QDOM5b. Launched QDOM15.
+- 2026-11-22 Merged #554 QEL3 9255344 (IO in rendering step).
