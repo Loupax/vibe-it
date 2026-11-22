@@ -187,7 +187,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QWPTBUD [S] (P3, from QDOM5b #592; Sonnet; wpt-th runner) A larger callback budget for the `--wpt-th` runner (flag or
       a longer budget for load callbacks), so Range-insertNode / Range-surroundContents run all 1840 cases deterministically
       and can leave flaky.txt. Related: tests waiting for unload/pagehide/beforeunload on iframe navigation only time out.
-- [ ] QCISPLIT2 [S] (P3, from QWPT6c #579; Sonnet; .github/workflows/ci.yml, tools) Shard the `scratchy-wpt` job (5:38 after
+- [ ] [WIP] QCISPLIT2 [S] (P3, from QWPT6c #579; Sonnet; .github/workflows/ci.yml, tools) Shard the `scratchy-wpt` job (5:38 after
       #579, WPT step 3:52; the main `scratchy` job is 5:18, so wall time is barely affected) into two parallel jobs by area,
       when it passes ~6 min or before QWPT6d lands. Find why the step grew +1:44 on CI vs ~20 s locally (per-file CI timings).
 - [ ] [WIP] QWPT12 [S] (P2; Sonnet; tools/wpt-dirs.txt, tools/wpt-subset.py AREAS, wpt-th/; user 2026-11-21: all of
