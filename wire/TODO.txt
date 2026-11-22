@@ -281,6 +281,13 @@ the commit it came up during.
       (announces 1000 bytes, sends 10) is not stored; temp files never visible as
       entries; eviction keeps the directory under `--cache-size`; `Range` served from
       a stored full body; peak RSS unchanged while storing a 1 GiB body.
+      Also (coordinator review 2026-11-22): a response to a request carrying `Authorization`
+      is stored only if it says `public`, `must-revalidate` or `s-maxage` (RFC 9111 3.5);
+      `immutable` responses are not revalidated on a normal reload (browsers do the
+      same); several wire processes may share one cache dir (temp file + rename keeps
+      writes atomic; eviction and lookups treat a file vanishing mid-scan as a miss,
+      never an error); a write error or full disk means "don't store" plus one warning
+      line, and the response is still served from the network. Tests for each.
       Acceptance: loading the same page twice through a rebuilt wire (no flags)
       shows `X-Wire-Cache: hit` on its stylesheets and images on the
       second load, and wire's RSS does not grow with the cache size.
