@@ -1,0 +1,17 @@
+# QMAPI3: default site list for corpus.sh. One page per line: `NAME URL` (NAME is a short label used for the
+# per-page JSON file name). A URL that is not http(s) is a path relative to the scratchy/ directory.
+# `#` starts a comment. Only public, logged-out pages: no personal or logged-in pages here. To use your own
+# list: SITES=my-sites.txt tools/missing-api/corpus.sh (same format).
+ytr    https://www.youtube.com/results?search_query=rust
+ytw    https://www.youtube.com/watch?v=G1AeBgalFZk
+wiki   https://en.wikipedia.org/wiki/Rust_(programming_language)
+github https://github.com/
+bbc    https://www.bbc.com/news
+social https://social.loupax.com/discover
+hover  tools/incr-gate/hover.html
+# a few big public sites
+reddit https://www.reddit.com/
+nyt    https://www.nytimes.com/
+amazon https://www.amazon.com/
+mdn    https://developer.mozilla.org/en-US/docs/Web/API/Document
+so     https://stackoverflow.com/questions
