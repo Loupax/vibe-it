@@ -9353,3 +9353,11 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       current event while a listener of a node in the page's realm runs, restored afterwards (also after a throwing
       listener), `undefined` for listeners inside a shadow tree, unset outside dispatch. WPT: dom/events/event-global*,
       window-event-restored-after-throwing-onerror. Target: events +3.
+
+=== from TODO.txt: --- (no header)
+- [x] QDOM19 DONE 5782333 #583 [S] (P3; Sonnet; js_dom.rs `checkName`; R65) Current DOM name validation (whatwg/dom 2025): "valid element
+      local name", "valid attribute local name", "valid doctype name", `validate and extract` for the NS variants
+      (NamespaceError rules for xml/xmlns prefixes). Used by createElement(NS), createAttribute(NS), setAttribute(NS),
+      toggleAttribute, createDocumentType, createDocument. WPT: nodes/DOMImplementation-createDocumentType,
+      DOMImplementation-createDocument, Document-createElementNS, Document-createAttribute, Document-createElement,
+      attributes, name-validation (timeout=long). Target: nodes +0.3 (many subtests in few files).

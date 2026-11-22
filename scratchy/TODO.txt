@@ -172,12 +172,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       text directly under a Document; NotFoundError for a wrong child; checks before any mutation (fragments keep their
       children on failure). WPT: nodes/Node-insertBefore, Node-replaceChild, ParentNode-append, ParentNode-prepend,
       ParentNode-replaceChildren, append-on-Document, prepend-on-Document. Target: nodes +0.8.
-- [ ] [WIP] QDOM19 [S] (P3; Sonnet; js_dom.rs `checkName`; R65) Current DOM name validation (whatwg/dom 2025): "valid element
-      local name", "valid attribute local name", "valid doctype name", `validate and extract` for the NS variants
-      (NamespaceError rules for xml/xmlns prefixes). Used by createElement(NS), createAttribute(NS), setAttribute(NS),
-      toggleAttribute, createDocumentType, createDocument. WPT: nodes/DOMImplementation-createDocumentType,
-      DOMImplementation-createDocument, Document-createElementNS, Document-createAttribute, Document-createElement,
-      attributes, name-validation (timeout=long). Target: nodes +0.3 (many subtests in few files).
 - [ ] QWPT6b [S] (P2; Sonnet; tools/wpt-subset.py, wpt-th/; R65 2.1) The subset filter misses testdriver users
       that load it from HTML (`<script src="/resources/testdriver.js">`); it only reads `// META: script=`. 102 dom
       entries (94 dom/events) are in the phase-1 baseline although they need trusted input. Either drop them (as the
