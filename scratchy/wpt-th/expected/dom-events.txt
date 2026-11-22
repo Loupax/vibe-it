@@ -14,16 +14,10 @@ OK         48/48  dom/events/Body-FrameSet-Event-Handlers.html
 OK           2/3  dom/events/CustomEvent.html
   FAIL      First parameter to initCustomEvent should be mandatory.
 OK           8/8  dom/events/Event-cancelBubble.html
-OK           1/4  dom/events/Event-constants.html
-  FAIL      Constants for eventPhase on Event prototype object.
-  FAIL      Constants for eventPhase on Event object.
-  FAIL      Constants for eventPhase on CustomEvent object.
-OK          9/14  dom/events/Event-constructors.any.html
-  FAIL      Event constructors
-  FAIL      Event constructors 1
+OK           4/4  dom/events/Event-constants.html
+OK         12/14  dom/events/Event-constructors.any.html
   FAIL      Event constructors 3
   FAIL      Event constructors 4
-  FAIL      Event constructors 5
 OK           2/2  dom/events/Event-defaultPrevented-after-dispatch.html
 OK           8/8  dom/events/Event-defaultPrevented.html
 OK           1/1  dom/events/Event-dispatch-bubble-canceled.html
@@ -55,8 +49,7 @@ OK          6/12  dom/events/Event-dispatch-detached-input-and-change.html
   FAIL      attached radio should emit input and change events on dispatchEvent(new MouseEvent('click')).
   FAIL      attached to shadow dom checkbox should emit input and change events on dispatchEvent(new MouseEvent('click')).
   FAIL      attached to shadow dom radio should emit input and change events on dispatchEvent(new MouseEvent('click')).
-OK           0/1  dom/events/Event-dispatch-handlers-changed.html
-  FAIL       Dispatch additional events inside an event listener 
+OK           1/1  dom/events/Event-dispatch-handlers-changed.html
 OK           1/1  dom/events/Event-dispatch-listener-order.window.html
 OK           1/1  dom/events/Event-dispatch-multiple-cancelBubble.html
 OK           1/1  dom/events/Event-dispatch-multiple-stopPropagation.html
@@ -141,44 +134,7 @@ OK           7/7  dom/events/Event-propagation.html
 OK           7/7  dom/events/Event-returnValue.html
 OK           1/1  dom/events/Event-stopImmediatePropagation.html
 OK           1/1  dom/events/Event-stopPropagation-cancel-bubbling.html
-OK         12/49  dom/events/Event-subclasses-constructors.html
-  FAIL      UIEvent constructor (no argument)
-  FAIL      UIEvent constructor (undefined argument)
-  FAIL      UIEvent constructor (null argument)
-  FAIL      UIEvent constructor (empty argument)
-  FAIL      UIEvent constructor (argument with default values)
-  FAIL      UIEvent constructor (argument with non-default values)
-  FAIL      FocusEvent constructor (no argument)
-  FAIL      FocusEvent constructor (undefined argument)
-  FAIL      FocusEvent constructor (null argument)
-  FAIL      FocusEvent constructor (empty argument)
-  FAIL      FocusEvent constructor (argument with default values)
-  FAIL      FocusEvent constructor (argument with non-default values)
-  FAIL      MouseEvent constructor (no argument)
-  FAIL      MouseEvent constructor (undefined argument)
-  FAIL      MouseEvent constructor (null argument)
-  FAIL      MouseEvent constructor (empty argument)
-  FAIL      MouseEvent constructor (argument with default values)
-  FAIL      MouseEvent constructor (argument with non-default values)
-  FAIL      WheelEvent constructor (no argument)
-  FAIL      WheelEvent constructor (undefined argument)
-  FAIL      WheelEvent constructor (null argument)
-  FAIL      WheelEvent constructor (empty argument)
-  FAIL      WheelEvent constructor (argument with default values)
-  FAIL      WheelEvent constructor (argument with non-default values)
-  FAIL      KeyboardEvent constructor (no argument)
-  FAIL      KeyboardEvent constructor (undefined argument)
-  FAIL      KeyboardEvent constructor (null argument)
-  FAIL      KeyboardEvent constructor (empty argument)
-  FAIL      KeyboardEvent constructor (argument with default values)
-  FAIL      KeyboardEvent constructor (argument with non-default values)
-  FAIL      CompositionEvent constructor (no argument)
-  FAIL      CompositionEvent constructor (undefined argument)
-  FAIL      CompositionEvent constructor (null argument)
-  FAIL      CompositionEvent constructor (empty argument)
-  FAIL      CompositionEvent constructor (argument with default values)
-  FAIL      CompositionEvent constructor (argument with non-default values)
-  FAIL      UIEvent constructor (view argument with wrong type)
+OK         49/49  dom/events/Event-subclasses-constructors.html
 OK           0/1  dom/events/Event-timestamp-cross-realm-getter.html
   FAIL      event.timeStamp is initialized using event's relevant global object
 OK           4/4  dom/events/Event-timestamp-high-resolution.html

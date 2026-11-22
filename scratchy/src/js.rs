@@ -321,7 +321,9 @@ const PRELUDE: &str = r#"
   // Q33b1: constructor globals pages feature-test or extend. Real DOM
   // wrappers (Q33b) hang off these prototypes.
   var ctor = function (name, parent, init) {
-    var f = new Function('init', 'return function ' + name + '() { if (init) init.apply(this, arguments); };')(init);
+    // QDOM15: an event interface is not callable without `new` (a plain call has a `this` that is not an instance).
+    var chk = init && /Event$/.test(name) ? "if (!(this instanceof " + name + ")) throw new TypeError(\"Failed to construct '" + name + "': Please use the 'new' operator, this DOM object constructor cannot be called as a function.\"); " : '';
+    var f = new Function('init', 'return function ' + name + '() { ' + chk + 'if (init) init.apply(this, arguments); };')(init);
     if (parent) f.prototype = Object.create(parent.prototype, { constructor: { value: f, writable: true, configurable: true } });
     g[name] = f;
     return f;
@@ -389,9 +391,24 @@ const PRELUDE: &str = r#"
     if (!m) { if (!create) return null; m = {}; store.set(t, m); }
     return m[type] || (create ? (m[type] = []) : null);
   };
+  // QDOM15: WebIDL conversions for the event init dictionaries.
+  var toStr = function (v) { if (typeof v === 'symbol') throw new TypeError('Cannot convert a Symbol value to a string'); return String(v); };
+  var dictOf = function (d) {
+    if (d === undefined || d === null) return {};
+    if (typeof d !== 'object' && typeof d !== 'function') throw new TypeError('The provided value is not of type of an event init dictionary.');
+    return d;
+  };
+  var toDbl = function (v) { v = Number(v); if (!isFinite(v)) throw new TypeError('The provided double value is non-finite.'); return v; };
+  var toLong = function (v) { return Number(v) | 0; };
+  var toUShort = function (v) { return (Number(v) >>> 0) & 0xFFFF; };
+  var toULong = function (v) { return Number(v) >>> 0; };
+  var isWin = function (v) { return v === g || (v !== null && typeof v === 'object' && v.window === v && v.document !== undefined); };
+  var isET = function (v) { return v !== null && (typeof v === 'object' || typeof v === 'function') && (v instanceof EventTarget || (v.addEventListener !== undefined && v.dispatchEvent !== undefined)); };
   var Event = ctor('Event', null, function (type, init) {
-    init = init || {};
-    this.type = String(type);
+    if (arguments.length < 1) throw new TypeError("Failed to construct 'Event': 1 argument required, but only 0 present.");
+    type = toStr(type);
+    init = dictOf(init);
+    this.type = type;
     this.bubbles = !!init.bubbles;
     this.cancelable = !!init.cancelable;
     this.composed = !!init.composed;
@@ -411,7 +428,10 @@ const PRELUDE: &str = r#"
   var trusted = new WeakSet();
   var isTrustedGet = function () { return trusted.has(this); };
   Object.defineProperty(g, '__scratchy_trust', { value: function (ev) { trusted.add(ev); } });
-  Event.NONE = 0; Event.CAPTURING_PHASE = 1; Event.AT_TARGET = 2; Event.BUBBLING_PHASE = 3;
+  [['NONE', 0], ['CAPTURING_PHASE', 1], ['AT_TARGET', 2], ['BUBBLING_PHASE', 3]].forEach(function (kv) {
+    var dsc = { value: kv[1], enumerable: true };
+    Object.defineProperty(Event, kv[0], dsc); Object.defineProperty(Event.prototype, kv[0], dsc);
+  });
   Event.prototype.preventDefault = function () { if (this.cancelable && !this._passive) this.defaultPrevented = true; };
   Event.prototype.stopPropagation = function () { this._stop = true; };
   Event.prototype.stopImmediatePropagation = function () { this._stop = true; this._stopNow = true; };
@@ -425,29 +445,49 @@ const PRELUDE: &str = r#"
     Event.call(this, type, init);
     this.detail = init && init.detail !== undefined ? init.detail : null;
   });
-  var UIEvent = ctor('UIEvent', Event, function (type, init) { Event.call(this, type, init); this.detail = (init && init.detail) || 0; });
+  var UIEvent = ctor('UIEvent', Event, function (type, init) {
+    Event.call(this, type, init);
+    init = dictOf(init);
+    var view = init.view === undefined ? null : init.view;
+    if (view !== null && !isWin(view)) throw new TypeError("Failed to construct 'UIEvent': member view is not of type Window.");
+    var detail = init.detail === undefined ? 0 : toLong(init.detail);
+    var which = init.which === undefined ? undefined : toULong(init.which);
+    this.view = view; this.detail = detail;
+    if (which !== undefined) this.which = which;
+  });
+  var relT = function (v) {
+    if (v === undefined || v === null) return null;
+    if (!isET(v)) throw new TypeError('member relatedTarget is not of type EventTarget.');
+    return v;
+  };
+  var modKeys = function (self, init) {
+    ['ctrlKey', 'shiftKey', 'altKey', 'metaKey'].forEach(function (k) { self[k] = !!init[k]; });
+  };
   var MouseEvent = ctor('MouseEvent', UIEvent, function (type, init) {
     UIEvent.call(this, type, init);
-    init = init || {};
+    init = dictOf(init);
     var self = this;
-    ['clientX', 'clientY', 'screenX', 'screenY', 'button', 'buttons', 'movementX', 'movementY'].forEach(function (k) { self[k] = Number(init[k]) || 0; });
-    ['ctrlKey', 'shiftKey', 'altKey', 'metaKey'].forEach(function (k) { self[k] = !!init[k]; });
-    this.pageX = init.pageX === undefined ? this.clientX : Number(init.pageX) || 0;
-    this.pageY = init.pageY === undefined ? this.clientY : Number(init.pageY) || 0;
+    modKeys(this, init);
+    ['clientX', 'clientY', 'screenX', 'screenY', 'movementX', 'movementY'].forEach(function (k) { self[k] = init[k] === undefined ? 0 : toDbl(init[k]); });
+    this.button = init.button === undefined ? 0 : (Number(init.button) << 16 >> 16);
+    this.buttons = init.buttons === undefined ? 0 : toUShort(init.buttons);
+    this.pageX = init.pageX === undefined ? this.clientX : toDbl(init.pageX);
+    this.pageY = init.pageY === undefined ? this.clientY : toDbl(init.pageY);
     this.offsetX = this.clientX; this.offsetY = this.clientY;
-    this.relatedTarget = init.relatedTarget || null;
+    this.relatedTarget = relT(init.relatedTarget);
   });
   var KeyboardEvent = ctor('KeyboardEvent', UIEvent, function (type, init) {
     UIEvent.call(this, type, init);
-    init = init || {};
-    this.key = init.key === undefined ? '' : String(init.key);
-    this.code = init.code === undefined ? '' : String(init.code);
+    init = dictOf(init);
+    modKeys(this, init);
+    this.key = init.key === undefined ? '' : toStr(init.key);
+    this.code = init.code === undefined ? '' : toStr(init.code);
+    this.location = init.location === undefined ? 0 : toULong(init.location);
     this.repeat = !!init.repeat;
-    this.keyCode = Number(init.keyCode) || 0; this.charCode = Number(init.charCode) || 0;
-    this.which = init.which === undefined ? (this.keyCode || this.charCode) : (Number(init.which) || 0);
-    this.location = Number(init.location) || 0; this.isComposing = !!init.isComposing;
-    var self = this;
-    ['ctrlKey', 'shiftKey', 'altKey', 'metaKey'].forEach(function (k) { self[k] = !!init[k]; });
+    this.isComposing = !!init.isComposing;
+    this.charCode = init.charCode === undefined ? 0 : toULong(init.charCode);
+    this.keyCode = init.keyCode === undefined ? 0 : toULong(init.keyCode);
+    this.which = init.which === undefined ? (this.keyCode || this.charCode) : toULong(init.which);
   });
   // QY4/QA15: legacy init*Event methods and ErrorEvent.
   Event.prototype.initEvent = function (type, bubbles, cancelable) {
@@ -483,31 +523,36 @@ const PRELUDE: &str = r#"
   });
   var FocusEvent = ctor('FocusEvent', UIEvent, function (type, init) {
     UIEvent.call(this, type, init);
-    this.relatedTarget = (init && init.relatedTarget) || null;
+    this.relatedTarget = relT(dictOf(init).relatedTarget);
   });
   ctor('InputEvent', UIEvent, function (type, init) {
     UIEvent.call(this, type, init);
-    init = init || {};
-    this.data = init.data === undefined ? null : init.data;
-    this.inputType = init.inputType || '';
-    this.isComposing = false;
+    init = dictOf(init);
+    this.data = init.data === undefined || init.data === null ? null : toStr(init.data);
+    this.inputType = init.inputType === undefined ? '' : toStr(init.inputType);
+    this.isComposing = !!init.isComposing;
   });
   // QY12: the remaining Event subclasses: name, parent, init-dict defaults.
-  var evt = function (name, parent, dflt) {
+  var evt = function (name, parent, dflt, conv) {
     var C = ctor(name, parent, function (type, init) {
       parent.call(this, type, init);
-      init = init || {};
-      for (var k in dflt) this[k] = init[k] === undefined ? (Array.isArray(dflt[k]) ? [] : dflt[k]) : init[k];
+      init = dictOf(init);
+      for (var k in dflt) this[k] = init[k] === undefined ? (Array.isArray(dflt[k]) ? [] : dflt[k]) : (conv && conv[k] ? conv[k](init[k]) : init[k]);
     });
     return C;
   };
   var PE = evt('PointerEvent', MouseEvent, { pointerId: 0, width: 1, height: 1, pressure: 0, tangentialPressure: 0,
     tiltX: 0, tiltY: 0, twist: 0, pointerType: '', isPrimary: false });
   PE.prototype.getCoalescedEvents = PE.prototype.getPredictedEvents = function () { return []; };
-  evt('WheelEvent', MouseEvent, { deltaX: 0, deltaY: 0, deltaZ: 0, deltaMode: 0 });
+  evt('WheelEvent', MouseEvent, { deltaX: 0, deltaY: 0, deltaZ: 0, deltaMode: 0 }, { deltaX: toDbl, deltaY: toDbl, deltaZ: toDbl, deltaMode: toULong });
   evt('DragEvent', MouseEvent, { dataTransfer: null });
   evt('TouchEvent', UIEvent, { touches: [], targetTouches: [], changedTouches: [], ctrlKey: false, shiftKey: false, altKey: false, metaKey: false });
-  evt('CompositionEvent', UIEvent, { data: '' });
+  evt('CompositionEvent', UIEvent, { data: '' }, { data: toStr });
+  // QDOM15: legacy `createEvent` interfaces.
+  evt('TextEvent', UIEvent, { data: '' }, { data: toStr });
+  evt('BeforeUnloadEvent', Event, {});
+  evt('DeviceMotionEvent', Event, { acceleration: null, accelerationIncludingGravity: null, rotationRate: null, interval: 0 });
+  evt('DeviceOrientationEvent', Event, { alpha: null, beta: null, gamma: null, absolute: false });
   evt('TransitionEvent', Event, { propertyName: '', elapsedTime: 0, pseudoElement: '' });
   evt('AnimationEvent', Event, { animationName: '', elapsedTime: 0, pseudoElement: '' });
   evt('PromiseRejectionEvent', Event, { promise: undefined, reason: undefined });
