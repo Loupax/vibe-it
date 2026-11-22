@@ -5,3 +5,4 @@ dom/ranges/Range-mutations-dataChange.html TIMEOUT: ~650+ subtests under the 10 
 dom/ranges/Range-mutations-replaceData.html TIMEOUT: same as Range-mutations-dataChange.html, subtest count 689/805/890/1102/1114 in 5 runs (QWPT6c)
 dom/ranges/Range-insertNode.html TIMEOUT: the page runs all 1840 cases in one iframe-load callback, which the 500 ms CPU-time callback budget cuts at a point that varies per run (1198-1503 subtests passing in 5 runs; was ERROR 0/1840 before QDOM5b dynamic iframes)
 dom/ranges/Range-surroundContents.html TIMEOUT: same 500 ms callback budget cut as Range-insertNode.html, passing count 1110-1353 per run (QDOM5b)
+html/webappapis/dynamic-markup-insertion/opening-the-input-stream/url-fragment.window.html 0 or 2 subtests, or CRASH under --jobs 4 load (5 of 10 runs differed; alone it is stable); timing-dependent since the async iframe load (QDOM5b, QDOM5c)

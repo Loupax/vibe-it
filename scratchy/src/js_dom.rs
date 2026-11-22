@@ -4637,6 +4637,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   // order with the realm entered (an external one through the page's request queue, blocking the
   // ones after it), then DOMContentLoaded, nested srcdoc frames, the window `load`, and the parent's
   // `load` on the <iframe>. Stops as soon as the frame is dropped (`closed`).
+  var inFrameOnLoad = false;
   var frameLoad = function (html, top) {
     if (!frameDoc || g.closed) return;
     wBuf = null;
@@ -4656,11 +4657,14 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       if (g.closed) return;
       doc.readyState = 'complete';
       g.__scratchy_dispatch(g, new g.Event('load'));
-      if (frameOnLoad && !g.closed) frameOnLoad();
+      if (frameOnLoad && !g.closed) {
+        // QDOM5c: an iframe `load` handler that calls document.open()/close() again (per-global.window.html) must not
+        // recurse on the stack: the nested close() reports the iframe's `load` in a task.
+        if (inFrameOnLoad) g.setTimeout(function () { if (!g.closed) frameOnLoad(); }, 0);
+        else { inFrameOnLoad = true; try { frameOnLoad(); } finally { inFrameOnLoad = false; } }
+      }
     };
-    // QDOM5c: document.close() (top false) ends the load in a task, not inside the caller: an iframe `load` handler that
-    // calls document.open()/close() again (per-global.window.html) must not recurse on the stack.
-    var finish = function () { if (top) finish0(); else g.setTimeout(finish0, 0); };
+    var finish = finish0;
     var step = function (top) {
       while (k < ids.length) {
         if (g.closed) return;
