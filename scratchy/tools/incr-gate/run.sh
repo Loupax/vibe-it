@@ -8,7 +8,7 @@
 #         check    (SCRATCHY_INCR_CHECK=1: every engine update is re-done from scratch and compared;
 #                   differences print `scratchy: incr-check: MISMATCH ...`)
 #   PAGE  ytr (YouTube results, R58 recipe), ytw (YouTube watch G1AeBgalFZk, R55 recipe),
-#         wiki (Wikipedia Rust, R55 recipe), github, bbc (bbc.com/news), social (social.loupax.com/discover),
+#         wiki (Wikipedia Rust, R55 recipe), gh-home (github.com home page), bbc (bbc.com/news), social (social.loupax.com/discover),
 #         hover (tools/incr-gate/hover.html: script-free, hover-heavy, no forced layouts)
 #         imggeom (tools/incr-gate/img-geom.html: QINC1k5's image-size script-geometry probes, no input;
 #                  the probes print `img-geom: ...` lines into the log)
@@ -64,7 +64,7 @@ case $PAGE in
   ytr) URL='https://www.youtube.com/results?search_query=rust'; SECS=36; HSECS=30 ;;
   ytw) URL='https://www.youtube.com/watch?v=G1AeBgalFZk'; SECS=56; HSECS=30 ;;
   wiki) URL='https://en.wikipedia.org/wiki/Rust_(programming_language)'; SECS=52; HSECS=20 ;;
-  github) URL='https://github.com/'; SECS=40; HSECS=20 ;;
+  gh-home) URL='https://github.com/'; SECS=40; HSECS=20 ;;
   bbc) URL='https://www.bbc.com/news'; SECS=40; HSECS=20 ;;
   social) URL='https://social.loupax.com/discover'; SECS=40; HSECS=20 ;;
   hover) URL="$HERE/hover.html"; SECS=32; HSECS=10 ;;
@@ -167,7 +167,7 @@ plan() {
       inj $(dwell 600 6 240,261 60,287 180,287 270,287 410,287 96,169 602,169 670,169)
       inj move:600,700 wait:200
       at 50; shot end ;;
-    github|bbc|social)
+    gh-home|bbc|social)
       at 12; shot pre
       at 13
       # shellcheck disable=SC2046

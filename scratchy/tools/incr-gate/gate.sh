@@ -13,7 +13,7 @@
 #                     (recordings, see run.sh). Also prints the variance.py 3-run min/median/max table.
 #           replay-headless  the same pair headless (tags replayhl-...)
 #   RUNS    rounds (default 3)
-#   PAGES   default: ytr ytw wiki github bbc social hover (see run.sh)
+#   PAGES   default: ytr ytw wiki gh-home bbc social hover (see run.sh)
 # Env: as run.sh (SCRATCHY, WIRE, INJECT, OUT, PERF_LOCK, MEMCAP). Every run holds the perf lock for itself only.
 # Starts ONE nested dwl for the series (window runs) and kills only that PID at the end.
 # At the end prints the summarize.py tables for the series' runs (tags <series>-<page>-<mode>-<round>).
@@ -31,7 +31,7 @@ RUNS=${2:-3}
 shift
 [ $# -gt 0 ] && shift
 PAGES=("$@")
-[ ${#PAGES[@]} -eq 0 ] && PAGES=(ytr ytw wiki github bbc social hover)
+[ ${#PAGES[@]} -eq 0 ] && PAGES=(ytr ytw wiki gh-home bbc social hover)
 OUT=${OUT:-${TMPDIR:-/tmp}/incr-gate}
 export OUT
 mkdir -p "$OUT"
