@@ -9266,3 +9266,12 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       with RECORD=), re-record ytr/ytw/wiki (after QREC1c) to get replay misses to ~0 (today ytr 66-119, ytw 24-89);
       gate.sh/run.sh: one nested dwl per page or no 1 h `timeout` on it, and a timeout on the end `grim`. Recordings
       stay local (Q5); a fresh wire with --no-cookies and an own --state-dir.
+
+=== from TODO.txt: --- (no header)
+- [x] QANIMHLb DONE 533ed33 #568 [M] (P2, from QANIMHL #562; Opus; css.rs, anim_eval, layout/paint, event_loop.rs, js) CSS transitions: the
+      engine has none (no `transition`/`transition-*` parsing, no interpolation on style change, no transitionrun/start/
+      end/cancel). Implement per CSS Transitions 1 for the properties the animation engine can already interpolate
+      (start on computed-value change, delay/duration/timing-function, cancel on removal/display:none, events in the
+      rendering step before rAF, both App and headless). Gates: dom/events/webkit-transition-end-event.html,
+      EventListener-invoke-legacy transitionend subtests, css areas in --wpt-th, reftests (transition reftests!),
+      --perf-report on gate pages (transitions on hover must not cost idle CPU), live window check (a hover transition).

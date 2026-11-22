@@ -238,3 +238,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Merged #552 QSB2b 91a22b3 (horizontal scrollbars), #565 QDOM6b 92101d3, #567 QREC3b 46e0e50.
 - 2026-11-22 #569 QAPI1 READY (trustedTypes; domparsing 5.4 -> 10.9 % as files now run), queued after #560. Launched QAPI5. hr-time/timeOrigin flakes under local load (4 agents), not on CI yet: watch.
 - 2026-11-22 Progress page v35 (through #567; TOTAL 36.5).
+- 2026-11-22 Merged #568 QANIMHLb 533ed33 (CSS transitions).

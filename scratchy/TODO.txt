@@ -66,13 +66,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       (`ro-run` forced layouts on YouTube results); microtask checkpoint after each RO callback; notice size changes
       without a DOM write (image decode, CSS animation, :hover). Re-measure ytr/ytw --perf-report and live CPU on a
       quiet machine (QEL2 measured ytw live +13-15 %, inside noise).
-- [ ] [WIP] QANIMHLb [M] (P2, from QANIMHL #562; Opus; css.rs, anim_eval, layout/paint, event_loop.rs, js) CSS transitions: the
-      engine has none (no `transition`/`transition-*` parsing, no interpolation on style change, no transitionrun/start/
-      end/cancel). Implement per CSS Transitions 1 for the properties the animation engine can already interpolate
-      (start on computed-value change, delay/duration/timing-function, cancel on removal/display:none, events in the
-      rendering step before rAF, both App and headless). Gates: dom/events/webkit-transition-end-event.html,
-      EventListener-invoke-legacy transitionend subtests, css areas in --wpt-th, reftests (transition reftests!),
-      --perf-report on gate pages (transitions on hover must not cost idle CPU), live window check (a hover transition).
 - [ ] QANIMHLd [S] (P3, from QANIMHLb #568; Sonnet) Transitions beyond the first cut: `transition-behavior: allow-discrete`
       (display, content-visibility), `inherit` on the longhands, transform functions beyond translate, CSSTransition objects
       and getAnimations(), the window clock for a transition a script's getComputedStyle starts between builds, moveBefore
