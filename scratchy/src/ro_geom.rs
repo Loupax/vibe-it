@@ -130,6 +130,20 @@ fn walk(l: &Laid, tracked: &HashMap<usize, Tracked>, map: &mut HashMap<usize, Op
     crate::stack::grow(|| walk_body(l, tracked, map)) // QSTK1x: recursive per nesting level
 }
 
+/// The RO box of `l`, the outermost box of a tracked element.
+fn box_of(l: &Laid, t: &Tracked) -> Option<[f32; 6]> {
+    let s = &l.style;
+    if matches!(s.display, crate::css::Display::Inline) && !t.replaced && !matches!(l.content, LaidContent::Image(_)) {
+        return None;
+    }
+    let (pl, pt) = (s.padding.left.px(), s.padding.top.px());
+    let (pr, pb) = (s.padding.right.px(), s.padding.bottom.px());
+    let bw = &s.border_width;
+    let cw = (l.w - pl - pr - bw[3] - bw[1]).max(0.0);
+    let ch = (l.h - pt - pb - bw[0] - bw[2]).max(0.0);
+    Some([l.w, l.h, cw, ch, pl, pt])
+}
+
 fn walk_body(l: &Laid, tracked: &HashMap<usize, Tracked>, map: &mut HashMap<usize, Option<[f32; 6]>>) {
     if map.len() == tracked.len() {
         return;
@@ -139,18 +153,7 @@ fn walk_body(l: &Laid, tracked: &HashMap<usize, Tracked>, map: &mut HashMap<usiz
     if n != 0 && l.style.pseudo == 0 && !map.contains_key(&n)
         && let Some(t) = tracked.get(&n)
     {
-        let s = &l.style;
-        let b = if matches!(s.display, crate::css::Display::Inline) && !t.replaced && !matches!(l.content, LaidContent::Image(_)) {
-            None
-        } else {
-            let (pl, pt) = (s.padding.left.px(), s.padding.top.px());
-            let (pr, pb) = (s.padding.right.px(), s.padding.bottom.px());
-            let bw = &s.border_width;
-            let cw = (l.w - pl - pr - bw[3] - bw[1]).max(0.0);
-            let ch = (l.h - pt - pb - bw[0] - bw[2]).max(0.0);
-            Some([l.w, l.h, cw, ch, pl, pt])
-        };
-        map.insert(n, b);
+        map.insert(n, box_of(l, t));
     }
     match &l.content {
         LaidContent::Blocks(c) | LaidContent::TableRow(c) => c.iter().for_each(|c| walk(c, tracked, map)),
@@ -166,9 +169,27 @@ fn walk_body(l: &Laid, tracked: &HashMap<usize, Tracked>, map: &mut HashMap<usiz
     l.positioned.iter().for_each(|p| walk(p, tracked, map));
 }
 
-/// The App finished a complete layout `l` of `page` for a `vw` x `vh` viewport, built at `stamp`: record
-/// the target boxes; a box that differs from the last recorded one bumps the epoch (a rendering update
-/// is owed). Ends a `set_wait`.
+/// `App::install_laid`: the App finished a complete layout `l` of `page` for a `vw` x `vh` viewport,
+/// built at `stamp`. Recorded (see `app_layout`) when the observers wait for it, when nothing is recorded,
+/// for a new viewport, or when the DOM is as recorded (the layout changed without a DOM write: CSS
+/// animation / transition, `:hover`). A frame for DOM writes is not walked here: the observation signature
+/// moved with the write, and step 7 records the shown layout when it gathers.
+pub(crate) fn app_install(page: &Handle, l: &Laid, stamp: crate::js_geom::RenderStamp, vw: u32, vh: u32) {
+    let want = STATE.with(|s| {
+        let s = s.borrow();
+        !s.tracked.is_empty()
+            && (s.wait || s.boxes.as_ref().is_none_or(|b| b.stamp == stamp || b.vp != (vw, vh) || b.page != node_id(page)))
+    });
+    if want {
+        app_layout(page, l, stamp, vw, vh);
+    } else {
+        set_wait(false);
+    }
+}
+
+/// The App's complete layout `l` of `page` for a `vw` x `vh` viewport, built at `stamp`: record the target
+/// boxes; a box that differs from the last recorded one bumps the epoch (a rendering update is owed).
+/// Ends a `set_wait`.
 pub(crate) fn app_layout(page: &Handle, l: &Laid, stamp: crate::js_geom::RenderStamp, vw: u32, vh: u32) {
     STATE.with(|s| {
         let mut s = s.borrow_mut();
@@ -188,14 +209,55 @@ pub(crate) fn app_layout(page: &Handle, l: &Laid, stamp: crate::js_geom::RenderS
     });
 }
 
-/// A forced layout `l` of `page` (geometry cache key `gen_css`) was just made: record the target boxes.
-pub(crate) fn forced_layout(page: &Handle, l: &Laid, gen_css: (u64, (u64, u64)), vw: u32, vh: u32) {
+thread_local! {
+    /// A forced layout's rect walk (`js_geom::walk`) is recording the target boxes (`note`): no walk of
+    /// its own.
+    static COLLECTING: Cell<bool> = const { Cell::new(false) };
+    static PENDING: RefCell<HashMap<usize, Option<[f32; 6]>>> = RefCell::new(HashMap::new());
+}
+
+/// A forced layout's rect walk is about to run: record the targets' boxes during it (true when anything
+/// is observed; `end_forced` then stores them).
+pub(crate) fn begin_forced() -> bool {
+    let on = active();
+    COLLECTING.with(|c| c.set(on));
+    if on {
+        PENDING.with(|p| p.borrow_mut().clear());
+    }
+    on
+}
+
+#[inline]
+pub(crate) fn collecting() -> bool {
+    COLLECTING.with(Cell::get)
+}
+
+/// `js_geom::walk` met the outermost box of an element (only while `collecting`).
+pub(crate) fn note(l: &Laid) {
+    let n = l.style.node;
+    if l.style.pseudo != 0 {
+        return;
+    }
+    STATE.with(|s| {
+        if let Some(t) = s.borrow().tracked.get(&n) {
+            PENDING.with(|p| p.borrow_mut().insert(n, box_of(l, t)));
+        }
+    });
+}
+
+/// The forced layout of `page` (geometry cache key `gen_css`) whose walk `begin_forced` started is done:
+/// store the boxes it recorded.
+pub(crate) fn end_forced(page: &Handle, gen_css: (u64, (u64, u64)), vw: u32, vh: u32) {
+    COLLECTING.with(|c| c.set(false));
+    let mut map = PENDING.with(|p| std::mem::take(&mut *p.borrow_mut()));
     STATE.with(|s| {
         let mut s = s.borrow_mut();
         if s.tracked.is_empty() {
             return;
         }
-        let map = collect(l, &s.tracked);
+        for id in s.tracked.keys() {
+            map.entry(*id).or_insert(None);
+        }
         s.stats.forced_collects += 1;
         s.boxes = Some(Boxes { page: node_id(page), stamp: crate::js_geom::render_stamp(), gen_css: Some(gen_css), vp: (vw, vh), map });
     });

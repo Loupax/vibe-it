@@ -180,3 +180,37 @@ fn qel2b_tracking_follows_observe_unobserve_disconnect() {
     p.js.eval("t", "r1.unobserve($('a'));");
     assert!(!crate::ro_geom::active(), "nothing observed");
 }
+
+#[test]
+fn qel2b_app_install_walks_only_when_the_observers_need_it() {
+    // A frame for DOM writes is not walked at install (the observation signature moved with the write;
+    // step 7 records the shown layout); a frame of the recorded DOM state (an animated or :hover size) is.
+    let p = Page::new(
+        "<html><body style='margin:0'><div id=a style='width:100px;height:50px'></div></body></html>",
+        &format!("{SZ} new ResizeObserver(es => es.forEach(e => console.log(sz(e)))).observe($('a'));"),
+    );
+    p.settle();
+    assert_eq!(p.take(), ["log:a 100x50"]);
+    let laid = |doc: &Handle| {
+        let tree = build_layout_tree_with_resources(doc, 1024.0, Some(768.0), "", &HashMap::new());
+        let (mut fs, mut cache, mut next, mut inc) = (new_font_system(), ShapeCache::new(), 0usize, false);
+        let far = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        measure_document(&tree, &mut fs, 1024.0, 768.0, &mut next, &mut cache, far, &mut inc)
+    };
+    let l = laid(&p.doc);
+    let c0 = crate::ro_geom::stats().app_collects;
+    crate::ro_geom::app_install(&p.doc, &l, crate::js_geom::render_stamp(), 1024, 768);
+    assert_eq!(crate::ro_geom::stats().app_collects, c0 + 1, "same DOM state as recorded: walked");
+    p.js.eval("t", "$('a').style.width = '60px';");
+    let l = laid(&p.doc);
+    crate::ro_geom::set_wait(false);
+    let now = crate::js_geom::render_stamp();
+    crate::ro_geom::app_install(&p.doc, &l, (now.0 + 1, now.1), 1024, 768);
+    assert_eq!(crate::ro_geom::stats().app_collects, c0 + 1, "a DOM-write frame nobody waits for: not walked");
+    crate::ro_geom::set_wait(true);
+    crate::ro_geom::app_install(&p.doc, &l, crate::js_geom::render_stamp(), 1024, 768);
+    assert_eq!(crate::ro_geom::stats().app_collects, c0 + 2, "the observers wait for it: walked");
+    assert!(!crate::ro_geom::waiting());
+    p.settle();
+    assert_eq!(p.take(), ["log:a 60x50"]);
+}

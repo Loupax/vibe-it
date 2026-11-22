@@ -665,6 +665,9 @@ fn walk(l: &Laid, fixed: bool, out: &mut HashMap<usize, GeomRect>, skel: &mut Ve
     let own = l.style.node != 0 && !out.contains_key(&l.style.node);
     if own {
         out.insert(l.style.node, GeomRect { x: l.x, y: l.y, w: l.w, h: l.h, fixed, ink_r: ext.0, ink_b: ext.1 });
+        if crate::ro_geom::collecting() {
+            crate::ro_geom::note(l); // QEL2b
+        }
     }
     let mut sub = |c: &Laid, ext: &mut (f32, f32)| {
         let e = crate::stack::grow(|| walk(c, fixed, out, skel, me)); // QSTK1x: deep recursion
@@ -1003,9 +1006,12 @@ impl GeomCache {
         match done {
             Ok((Some(l), glyphs, deps)) => {
                 self.page = (crate::layout::doc_scroll_width(&l), l.h); // QXSCR1: the scroll width
+                // QEL2b: the walk also records the ResizeObserver targets' boxes.
+                let ro = crate::ro_geom::begin_forced();
                 walk(&l, false, &mut self.rects, &mut self.skel, u32::MAX);
-                // QEL2b: the ResizeObserver targets' boxes of this layout.
-                crate::ro_geom::forced_layout(page, &l, (wgen, key.3), vp.0, vp.1);
+                if ro {
+                    crate::ro_geom::end_forced(page, (wgen, key.3), vp.0, vp.1);
+                }
                 for (i, e) in self.skel.iter().enumerate() {
                     if e.node != 0 && self.skel_of.insert(e.node, i as u32).is_some() {
                         self.skel_multi.insert(e.node);
@@ -1155,15 +1161,21 @@ impl GeomCache {
                 // Not trusted any more: every stage starts over; this read uses the from-scratch layout.
                 crate::incr_style::drop_engines();
                 self.page = (crate::layout::doc_scroll_width(l), l.h); // QXSCR1: the scroll width
+                let ro = crate::ro_geom::begin_forced();
                 walk(l, false, &mut self.rects, &mut skel, u32::MAX);
+                if ro {
+                    crate::ro_geom::end_forced(page, (key.0, key.3), vp.0, vp.1);
+                }
                 walk_glyphs(l, &self.shape_cache, &mut self.glyphs);
-                crate::ro_geom::forced_layout(page, l, (key.0, key.3), vp.0, vp.1);
             }
             _ => {
                 let rects = &mut self.rects;
                 self.page = crate::incr_layout::with_laid(|l, _| {
+                    let ro = crate::ro_geom::begin_forced();
                     walk(l, false, rects, &mut skel, u32::MAX);
-                    crate::ro_geom::forced_layout(page, l, (key.0, key.3), vp.0, vp.1);
+                    if ro {
+                        crate::ro_geom::end_forced(page, (key.0, key.3), vp.0, vp.1);
+                    }
                     (crate::layout::doc_scroll_width(l), l.h)
                 })
                 .unwrap_or((0.0, 0.0));

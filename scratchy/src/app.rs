@@ -2743,7 +2743,7 @@ impl App {
             // QEL2b: the ResizeObserver targets' boxes of this frame's layout (a change with no DOM
             // write, e.g. an image decode or an animated size, asks for a rendering update).
             if self.js.is_some() && crate::ro_geom::active() {
-                crate::ro_geom::app_layout(&self.document, &laid, self.build_stamp, self.cached_width, self.cached_height);
+                crate::ro_geom::app_install(&self.document, &laid, self.build_stamp, self.cached_width, self.cached_height);
             }
         }
         // Replaced wholesale on every tick this generation's
