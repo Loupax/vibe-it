@@ -6601,11 +6601,7 @@ pub(crate) fn parse_supports_in_parens<'i>(input: &mut CssParser<'i>) -> Result<
             // `(prop: value)` first; otherwise a nested condition.
             if let Ok(name) = i.expect_ident().cloned() {
                 if i.expect_colon().is_ok() {
-                    let mut scratch = Declarations::default();
-                    DeclParser { decls: &mut scratch, important: &mut Declarations::default() }
-                        .apply(&name, i);
-                    while i.next().is_ok() {}
-                    return Ok(scratch != Declarations::default());
+                    return Ok(supports_declaration(&name, i));
                 }
             }
             i.reset(&state);
@@ -6618,7 +6614,19 @@ pub(crate) fn parse_supports_in_parens<'i>(input: &mut CssParser<'i>) -> Result<
             while i.next().is_ok() {}
             Ok(ok)
         }),
+        Token::Function(ref f) if f.eq_ignore_ascii_case("font-format") => input.parse_nested_block(|i| {
+            // The formats the font loader decodes (webfonts.rs: TrueType/OpenType/WOFF/WOFF2 and collections).
+            let ok = match i.next().cloned() {
+                Ok(Token::Ident(n) | Token::QuotedString(n)) if i.is_exhausted() => {
+                    ["woff", "woff2", "truetype", "opentype", "collection"].iter().any(|k| n.eq_ignore_ascii_case(k))
+                }
+                _ => false,
+            };
+            while i.next().is_ok() {}
+            Ok(ok)
+        }),
         Token::Function(_) => {
+            // Unknown functions (and `font-tech()`: no tech is claimed) are false.
             input.parse_nested_block(|i| {
                 while i.next().is_ok() {}
                 Ok::<(), ParseError<CssError>>(())
@@ -6627,6 +6635,47 @@ pub(crate) fn parse_supports_in_parens<'i>(input: &mut CssParser<'i>) -> Result<
         }
         _ => Err(input.new_error_for_next_token()),
     }
+}
+
+/// Whether the declaration `name: <rest of input>` is supported (a custom
+/// property always is). Shared by `@supports (prop: value)` and `CSS.supports`.
+fn supports_declaration(name: &str, i: &mut CssParser) -> bool {
+    let mut scratch = Declarations::default();
+    DeclParser { decls: &mut scratch, important: &mut Declarations::default() }.apply(name, i);
+    while i.next().is_ok() {}
+    scratch != Declarations::default()
+}
+
+/// QCSS2: `CSS.supports(conditionText)`: the same `<supports-condition>` as
+/// `@supports`; text that is not one is retried wrapped in parentheses (so a
+/// bare `display: flex` works), and anything else is false.
+pub(crate) fn supports_condition_text(text: &str) -> bool {
+    let attempt = |t: &str| {
+        let mut p = CssParser::new(t);
+        p.skip_whitespace();
+        parse_supports_condition(&mut p).ok()
+    };
+    attempt(text).or_else(|| attempt(&format!("({text})"))).unwrap_or(false)
+}
+
+/// QCSS2: `CSS.supports(property, value)`.
+pub(crate) fn supports_property_value(name: &str, value: &str) -> bool {
+    let name = name.trim();
+    let valid_ident = !name.is_empty() && {
+        let mut p = CssParser::new(name);
+        p.expect_ident().is_ok() && p.is_exhausted()
+    };
+    if !valid_ident {
+        return false;
+    }
+    if name.starts_with("--") && value.trim().is_empty() {
+        return true;
+    }
+    if strip_important(value).is_some() {
+        return false;
+    }
+    let mut p = CssParser::new(value);
+    supports_declaration(&name.to_ascii_lowercase(), &mut p)
 }
 
 #[derive(Default)]

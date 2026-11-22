@@ -234,7 +234,8 @@ OK           0/1  intersection-observer/v2/border-shape-occlusion.html
   FAIL      border-shape-occlusion
 OK           0/1  intersection-observer/v2/border-shape-overflow-occlusion.html
   FAIL      border-shape-overflow-occlusion
-ERROR        0/0  intersection-observer/v2/box-reflect.html
+OK           0/1  intersection-observer/v2/box-reflect.html
+  FAIL      IntersectionObserverV2 detects occlusion from -webkit-box-reflect (if supported).
 OK           0/1  intersection-observer/v2/box-shadow.html
   FAIL      IntersectionObserverV2 observing an iframe element.
 OK           0/1  intersection-observer/v2/delay-test.html
