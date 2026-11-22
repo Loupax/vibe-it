@@ -138,9 +138,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       (`slot.assign()`, `slotAssignment: 'manual'`), element-valued ARIA properties (`ariaActiveDescendantElement`,
       `ariaLabelledByElements`, ...). WPT: html/dom aria-element-reflection*, element-internals-aria-element-reflection*,
       shadow-dom slotchange*.
-- [ ] [WIP] QAPI6c [S] (P3, from QAPI6 #573; Opus; incr_style.rs) Check-mode mismatch seen once on YouTube results while the
-      window settled ("adopted element style reads vh: build true vs engine false"); build a repro with a height change
-      during load.
 - [ ] QMAPI3b [S] (P3, from QMAPI3 R66; Sonnet; tools/missing-api/merge.py) Merge "?" `has` rows with the named row of the
       same name where one exists, drop `has` rows whose name only exists as a plain-object key (`data`, `text`, `items`),
       and print the example script as a short host/path; replay-recordings mode when QREC1 recordings exist.

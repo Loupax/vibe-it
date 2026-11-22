@@ -9400,3 +9400,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QANIMHLc DONE c9e30cb #589 [S] (P3, from QANIMHL #562; Sonnet; js_geom GeomCache) Geometry reads during a CSS animation: the forced-layout cache
       is keyed only on the DOM write generation, so getBoundingClientRect of an animated box keeps its first-frame
       geometry between DOM writes; key on the animation clock too when animations are live.
+
+=== from TODO.txt: --- (no header)
+- [x] QAPI6c DONE 1368c44 #590 [S] (P3, from QAPI6 #573; Opus; incr_style.rs) Check-mode mismatch seen once on YouTube results while the
+      window settled ("adopted element style reads vh: build true vs engine false"); build a repro with a height change
+      during load.
