@@ -178,7 +178,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       `'ontouchstart' in window` as "touch device"). Add `HTMLFrameSetElement`. WPT: dom/events/webkit-*-event (4),
       Body-FrameSet-Event-Handlers. Target: events +2 (and the 40 non-cancelable-when-passive files, which assign
       `document.body.onload`, then run once QWPT7 exists).
-- [ ] QDOM14 [S] (P2; Sonnet; js_dom.rs; R65) Namespaces: `lookupNamespaceURI`, `lookupPrefix`, `isDefaultNamespace`
+- [ ] [WIP] QDOM14 [S] (P2; Sonnet; js_dom.rs; R65) Namespaces: `lookupNamespaceURI`, `lookupPrefix`, `isDefaultNamespace`
       (DOM "locate a namespace" over element ns/prefix and xmlns attributes), `Element.prefix` from the qualified name,
       `getElementsByTagNameNS(ns, local)` on Document/Element, and `getElementsByTagName(qualifiedName)` matched natively
       by qualified name (HTML elements in HTML documents compare lowercased; others exact; `*`), not through
