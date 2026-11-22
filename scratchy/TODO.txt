@@ -160,12 +160,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       from another global (EventTarget, XMLHttpRequest), an element from another document, a listener from a different
       global, window.event after moving an element post-dispatch (event-global-extra.window.html 1/6), onerror restoring
       window.event, beforeunload coercion.
-- [ ] [WIP] QDOM18 [S] (P3; Sonnet; js_dom.rs insert path (`insertBefore`/`appendChild`/`replaceChild`/`append`/`prepend`/
-      `replaceChildren`); R65) DOM "ensure pre-insert validity" and "replace" checks: HierarchyRequestError for a
-      Document parent with a second element, a fragment with two elements or with text, a doctype after the element,
-      text directly under a Document; NotFoundError for a wrong child; checks before any mutation (fragments keep their
-      children on failure). WPT: nodes/Node-insertBefore, Node-replaceChild, ParentNode-append, ParentNode-prepend,
-      ParentNode-replaceChildren, append-on-Document, prepend-on-Document. Target: nodes +0.8.
 - [ ] QWPT6b [S] (P2; Sonnet; tools/wpt-subset.py, wpt-th/; R65 2.1) The subset filter misses testdriver users
       that load it from HTML (`<script src="/resources/testdriver.js">`); it only reads `// META: script=`. 102 dom
       entries (94 dom/events) are in the phase-1 baseline although they need trusted input. Either drop them (as the

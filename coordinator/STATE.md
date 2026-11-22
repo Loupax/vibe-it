@@ -289,3 +289,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #587 false 'CI NOT green' again: right after the push waitci read the PR head via gh and got the OLD sha (finished run). waitci now takes the pushed sha (NEWH). Retrying #587.
 - 2026-11-22 #582 QDOM18 perf re-measured: ytr medians 569 main vs 586 branch (6 pairs); micro-benchmark offset equals the untouched removeChild control (build offset, not insert path); fast path now one native call. Accepted, queued after #587. Launched QDOM5b.
 - 2026-11-22 Merged #587 b09e4c8 = QAPI6 (#573, closed with note) + QAPI6b. #582 merging next.
+- 2026-11-22 Merged #582 QDOM18 a6bd563. Queue empty; reinstalling.
