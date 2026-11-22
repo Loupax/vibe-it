@@ -73,6 +73,10 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       rendering step before rAF, both App and headless). Gates: dom/events/webkit-transition-end-event.html,
       EventListener-invoke-legacy transitionend subtests, css areas in --wpt-th, reftests (transition reftests!),
       --perf-report on gate pages (transitions on hover must not cost idle CPU), live window check (a hover transition).
+- [ ] QANIMHLd [S] (P3, from QANIMHLb #568; Sonnet) Transitions beyond the first cut: `transition-behavior: allow-discrete`
+      (display, content-visibility), `inherit` on the longhands, transform functions beyond translate, CSSTransition objects
+      and getAnimations(), the window clock for a transition a script's getComputedStyle starts between builds, moveBefore
+      keeping a running transition.
 - [ ] QANIMHLc [S] (P3, from QANIMHL #562; Sonnet; js_geom GeomCache) Geometry reads during a CSS animation: the forced-layout cache
       is keyed only on the DOM write generation, so getBoundingClientRect of an animated box keeps its first-frame
       geometry between DOM writes; key on the animation clock too when animations are live.
