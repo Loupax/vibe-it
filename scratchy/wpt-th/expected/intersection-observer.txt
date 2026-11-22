@@ -178,8 +178,8 @@ OK           1/1  intersection-observer/target-is-root.html
 OK           0/1  intersection-observer/text-target.html
   FAIL      IntersectionObserver observing a br element.
 OK           1/1  intersection-observer/thresholds-frozen-array.html
-TIMEOUT      0/1  intersection-observer/timestamp.html
-  TIMEOUT   Check that timestamps correspond to the to execution context that created the observer.
+OK           1/2  intersection-observer/timestamp.html
+  FAIL      First rAF after iframe is loaded.
 OK           0/1  intersection-observer/transform-animation.html
   FAIL      An element that already intersects with the viewport does not trigger the observer callback when animating its transform.
 OK           0/3  intersection-observer/transformed-iframe-001-cross-origin.html

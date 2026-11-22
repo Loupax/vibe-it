@@ -91,8 +91,7 @@ OK           0/1  html/semantics/scripting-1/the-script-element/execution-timing
 OK           1/1  html/semantics/scripting-1/the-script-element/execution-timing/036.html
 OK           1/1  html/semantics/scripting-1/the-script-element/execution-timing/037.html
 OK           1/1  html/semantics/scripting-1/the-script-element/execution-timing/038.html
-OK           0/1  html/semantics/scripting-1/the-script-element/execution-timing/039.html
-  FAIL      iframes should load asynchronously after inline script run
+OK           1/1  html/semantics/scripting-1/the-script-element/execution-timing/039.html
 OK           0/1  html/semantics/scripting-1/the-script-element/execution-timing/040.html
   FAIL       scheduler: IFRAMEs added with DOM (innerHTML), javascript: URL
 OK           0/1  html/semantics/scripting-1/the-script-element/execution-timing/041.html
@@ -309,10 +308,10 @@ OK           0/1  html/semantics/scripting-1/the-script-element/import-attribute
   FAIL      Test that invalid module attribute leads to SyntaxError on window.
 OK           2/3  html/semantics/scripting-1/the-script-element/json-module/charset-bom.any.html
   FAIL      UTF-8 BOM should be stripped when decoding JSON module script
-TIMEOUT      0/3  html/semantics/scripting-1/the-script-element/json-module/cors-crossorigin-requests.html
-  NOTRUN    Imported JSON module, cross-origin with CORS
-  NOTRUN    Imported JSON module, cross-origin, missing CORS ACAO header
-  NOTRUN    Imported JSON module with parse error, cross-origin, with CORS
+OK           0/3  html/semantics/scripting-1/the-script-element/json-module/cors-crossorigin-requests.html
+  FAIL      Imported JSON module, cross-origin with CORS
+  FAIL      Imported JSON module, cross-origin, missing CORS ACAO header
+  FAIL      Imported JSON module with parse error, cross-origin, with CORS
 ERROR        0/0  html/semantics/scripting-1/the-script-element/json-module/integrity.html
 OK         0/106  html/semantics/scripting-1/the-script-element/json-module/invalid-content-type.any.html
   FAIL      Try importing JSON module with MIME type application/json+protobuf
@@ -512,10 +511,10 @@ OK           0/6  html/semantics/scripting-1/the-script-element/module/dynamic-i
   FAIL      beta - eval
   FAIL      gamma - Function
   FAIL      gamma - eval
-TIMEOUT      0/3  html/semantics/scripting-1/the-script-element/module/dynamic-import/code-cache-nonce.html
-  TIMEOUT   First dynamic import should use nonce=abc
-  NOTRUN    Second dynamic import should use nonce=def
-  NOTRUN    Third dynamic import should use nonce=ghi
+OK           0/3  html/semantics/scripting-1/the-script-element/module/dynamic-import/code-cache-nonce.html
+  FAIL      First dynamic import should use nonce=abc
+  FAIL      Second dynamic import should use nonce=def
+  FAIL      Third dynamic import should use nonce=ghi
 ERROR        0/0  html/semantics/scripting-1/the-script-element/module/dynamic-import/cyclic-tla-defer-eval.tentative.html
 OK           0/1  html/semantics/scripting-1/the-script-element/module/dynamic-import/delay-load-event.html
   FAIL      Dynamic imports don't delay the load event.
@@ -603,7 +602,7 @@ OK           0/5  html/semantics/scripting-1/the-script-element/module/dynamic-i
   FAIL      reflected inline event handlers should successfully import
   FAIL      inline event handlers triggered by JS should successfully import
 ERROR        0/0  html/semantics/scripting-1/the-script-element/module/dynamic-import/tla-deferred-evaluation.tentative.html
-TIMEOUT     0/10  html/semantics/scripting-1/the-script-element/module/dynamic-import/v8-code-cache.html
+ERROR       0/10  html/semantics/scripting-1/the-script-element/module/dynamic-import/v8-code-cache.html
   TIMEOUT   text/javascript: Run #1
   NOTRUN    text/javascript: Run #2
   NOTRUN    text/javascript: Run #3
@@ -703,12 +702,10 @@ OK           3/6  html/semantics/scripting-1/the-script-element/module/type.html
   FAIL      type=" module"
   FAIL      type=" module "
 OK           1/1  html/semantics/scripting-1/the-script-element/moving-between-documents-during-evaluation.html
-ERROR        0/2  html/semantics/scripting-1/the-script-element/moving-between-documents/ordering/delay-load-event-1.html
+ERROR        1/2  html/semantics/scripting-1/the-script-element/moving-between-documents/ordering/delay-load-event-1.html
   FAIL      Script elements (parser-blocking) still delay the load event in the original Document after move
-  NOTRUN    Script elements (parser-blocking) does not delay the load event in the new Document after move
-TIMEOUT      0/2  html/semantics/scripting-1/the-script-element/moving-between-documents/ordering/delay-load-event-2.html
+OK           1/2  html/semantics/scripting-1/the-script-element/moving-between-documents/ordering/delay-load-event-2.html
   FAIL      Script elements (async) still delay the load event in the original Document after move
-  NOTRUN    Script elements (async) does not delay the load event in the new Document after move
 TIMEOUT      0/1  html/semantics/scripting-1/the-script-element/moving-between-documents/ordering/in-order.html
   TIMEOUT   Script elements (in-order) still block subsequent in-order scripts in the original Document after moved to another Document
 ERROR        0/1  html/semantics/scripting-1/the-script-element/moving-between-documents/ordering/parser-blocking.html
@@ -1103,9 +1100,9 @@ OK           0/3  html/semantics/scripting-1/the-script-element/text-module/char
   FAIL      UTF-8 BOM should be stripped when decoding text module script
   FAIL      UTF-16BE with BOM should be parsed as UTF-8
   FAIL      UTF-16LE with BOM should be parsed as UTF-8
-TIMEOUT      0/2  html/semantics/scripting-1/the-script-element/text-module/cors-crossorigin-requests.html
-  NOTRUN    Imported text module, cross-origin with CORS
-  NOTRUN    Imported text module, cross-origin, missing CORS ACAO header
+OK           0/2  html/semantics/scripting-1/the-script-element/text-module/cors-crossorigin-requests.html
+  FAIL      Imported text module, cross-origin with CORS
+  FAIL      Imported text module, cross-origin, missing CORS ACAO header
 OK           0/4  html/semantics/scripting-1/the-script-element/text-module/ignore-extension.any.html
   FAIL      Extension: file
   FAIL      Extension: file.js
@@ -1135,16 +1132,14 @@ OK           0/3  html/semantics/scripting-1/the-template-element/additions-to-s
   FAIL      Template contents should be serialized instead of template element if serializing template element. Test nested template
   FAIL      Template contents should be serialized instead of template element if serializing template element. Test serializing whole document
 OK           3/3  html/semantics/scripting-1/the-template-element/additions-to-the-steps-to-clone-a-node/template-clone-children.html
-OK           4/5  html/semantics/scripting-1/the-template-element/additions-to-the-steps-to-clone-a-node/templates-copy-document-owner.html
-  FAIL      ownerDocument of cloned template content is set to template content owner. Test loading HTML document from file
+OK           5/5  html/semantics/scripting-1/the-template-element/additions-to-the-steps-to-clone-a-node/templates-copy-document-owner.html
 OK           0/4  html/semantics/scripting-1/the-template-element/definitions/template-contents-owner-document-type.html
   FAIL      The template contents owner document type is HTML document (case when document has browsing context and the template is created by HTML parser)
   FAIL      The template contents owner document type is HTML document (case when document has browsing context and the template is created by createElement())
   FAIL      The template contents owner document type is HTML document (case when document has no browsing context and the template is created by createElement())
   FAIL      The template contents owner document type is HTML document (case when document has no browsing context and the template is created via innerHTML)
 OK           2/2  html/semantics/scripting-1/the-template-element/definitions/template-contents-owner-test-001.html
-OK           2/3  html/semantics/scripting-1/the-template-element/definitions/template-contents-owner-test-002.html
-  FAIL      The template contents owner document must be different from template owner document, which has browsing context. Template element is created by HTML parser
+OK           3/3  html/semantics/scripting-1/the-template-element/definitions/template-contents-owner-test-002.html
 OK           1/9  html/semantics/scripting-1/the-template-element/definitions/template-contents.html
   FAIL      The template contents must be a DocumentFragment (empty template)
   FAIL      The template contents must be a DocumentFragment (non empty template)
@@ -1154,32 +1149,22 @@ OK           1/9  html/semantics/scripting-1/the-template-element/definitions/te
   FAIL      The template contents must be a DocumentFragment (non empty template tag inside HTML file loaded in iframe)
   FAIL      The template contents must be a DocumentFragment (the template tag with some text inside HTML file loaded in iframe)
   FAIL      The template contents must be a DocumentFragment (the template tag with nested template tag inside HTML file loaded in iframe)
-OK           3/4  html/semantics/scripting-1/the-template-element/innerhtml-on-templates/innerhtml.html
-  FAIL      innerHTML of template element replaces all referenced by the content attribute. Test loading of HTML document from a file
+OK           4/4  html/semantics/scripting-1/the-template-element/innerhtml-on-templates/innerhtml.html
 OK           3/3  html/semantics/scripting-1/the-template-element/serializing-html-templates/outerhtml.html
-OK           5/7  html/semantics/scripting-1/the-template-element/template-element/content-attribute.html
-  FAIL      Content attribute of template element is read-only. Text value of content attribute of template tag should be ignored, when loading document from a file
-  FAIL      Content attribute of template element is read-only. Test content attribute of a document loaded from a file
-OK           3/6  html/semantics/scripting-1/the-template-element/template-element/node-document-changes.html
+OK           7/7  html/semantics/scripting-1/the-template-element/template-element/content-attribute.html
+OK           4/6  html/semantics/scripting-1/the-template-element/template-element/node-document-changes.html
   FAIL      Changing of template element's node document. Test document loaded from a file
-  FAIL      Changing of template element's node document. Adobt template element into a document that has a browsing context
   FAIL      Changing of template element's node document. Test the case when both old and new owner documents of template element have browsing context
 OK         12/12  html/semantics/scripting-1/the-template-element/template-element/template-as-a-descendant.html
 OK           0/3  html/semantics/scripting-1/the-template-element/template-element/template-content-hierarcy.html
   FAIL      Template content should throw when its ancestor is being appended.
   FAIL      Template content should throw exception when its ancestor in a different document but connected via host is being append.
   FAIL      Template content should throw when an ancestor across two template boundaries is being appended.
-OK           2/3  html/semantics/scripting-1/the-template-element/template-element/template-content-node-document.html
-  FAIL      Node document of the template content attribute must be template contents owner. Load HTML file with multiple template elements
+OK           3/3  html/semantics/scripting-1/the-template-element/template-element/template-content-node-document.html
 OK       216/216  html/semantics/scripting-1/the-template-element/template-element/template-content.html
-OK           0/1  html/semantics/scripting-1/the-template-element/template-element/template-descendant-body.html
-  FAIL      Template element as a descendant of the body element. Test loading from a file
-OK           0/3  html/semantics/scripting-1/the-template-element/template-element/template-descendant-frameset.html
-  FAIL      Template element as a descendant of the frameset element. Test loading from a file
-  FAIL      Template element as a descendant of the frameset element. Test template element is assigned to frameset's innerHTML)
-  FAIL      Template element as a descendant of the frameset element. Test template element appended to frameset by appendChild()
-OK           0/1  html/semantics/scripting-1/the-template-element/template-element/template-descendant-head.html
-  FAIL      Template element as a descendant of the head element. Test loading from a file
+OK           1/1  html/semantics/scripting-1/the-template-element/template-element/template-descendant-body.html
+OK           3/3  html/semantics/scripting-1/the-template-element/template-element/template-descendant-frameset.html
+OK           1/1  html/semantics/scripting-1/the-template-element/template-element/template-descendant-head.html
 OK           0/1  html/semantics/scripting-1/the-template-element/template-for/chained-streaming-templates-with-custom-element.html
   FAIL      Chained streaming templates and OwnerDocument
 OK           0/1  html/semantics/scripting-1/the-template-element/template-for/stream-append-has-invalidation.html
@@ -1692,8 +1677,8 @@ OK           0/3  html/semantics/scripting-1/the-template-element/template-for/t
   FAIL      Nested <template for> patches via the shared target (iframe)
   FAIL      Nested <template for> patches via the shared target (innerHTML)
   FAIL      Nested <template for> patches via the shared target (stream)
-TIMEOUT      0/1  html/semantics/scripting-1/the-template-element/template-for/template-for-only-html-001.html
-  TIMEOUT   HTML partial updates: template with contentmethod does not work in XHTML
+OK           0/1  html/semantics/scripting-1/the-template-element/template-for/template-for-only-html-001.html
+  FAIL      HTML partial updates: template with contentmethod does not work in XHTML
 OK           0/8  html/semantics/scripting-1/the-template-element/template-for/template-for-pagehide-dynamic-markup-insertion.html
   FAIL      document.open() in pagehide throws InvalidStateError during prepare content patching (via streamAppendHTMLUnsafe)
   FAIL      document.open() in pagehide throws InvalidStateError during prepare content patching (via document.write)

@@ -264,6 +264,7 @@ jobs:
             > "$RUNNER_TEMP/wpt-th.log" 2>&1 || rc=$?
           secs=$(( $(date +%s) - start ))
           tail -30 "$RUNNER_TEMP/wpt-th.log"
+          grep -E "^(REGRESSION|UNRECORDED|CHANGED) " "$RUNNER_TEMP/wpt-th.log" | head -60 || true
           {
             echo "### WPT testharness (pin $(cat tools/wpt-pin.txt)), exit $rc, $secs s"
             echo
