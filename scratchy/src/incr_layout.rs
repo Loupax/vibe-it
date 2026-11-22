@@ -820,6 +820,7 @@ fn scan_fx(l: &Laid, reach: &mut f32, layer: &mut bool) {
 }
 
 /// QHOV1: the damage since the App's last paint of the engine's tree.
+#[derive(Clone)]
 pub(crate) struct Damage {
     /// Document-space rects, already padded by the reach of what changed.
     pub(crate) rects: Vec<Ink>,

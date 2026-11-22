@@ -395,11 +395,6 @@ pub(crate) fn parse_dim(v: Option<&str>, dflt: u32) -> u32 {
     }
 }
 
-/// Some canvas owns a bitmap (pages without one never look further).
-pub(crate) fn any() -> bool {
-    ANY.load(Ordering::Relaxed)
-}
-
 /// A draw happened since the App last drained the dirty set.
 pub(crate) fn pending() -> bool {
     PENDING.load(Ordering::Relaxed)
