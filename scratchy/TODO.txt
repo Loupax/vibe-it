@@ -135,14 +135,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QDOM2b [S] (P2, from QDOM2 #521; Sonnet; js_dom.rs) Remaining collections: MutationRecord addedNodes/removedNodes
       as static NodeLists; HTMLOptionsCollection for select.options (add, remove, length setter, selectedIndex);
       select.selectedOptions and map.images as live HTMLCollections. --wpt-th per-area table.
-- [ ] [WIP] QDOM3 [S] (P1; Sonnet; js_dom.rs; R65; after QDOM1) `ParentNode.moveBefore(node, child)` on Element, Document,
-      DocumentFragment: the pre-move checks (same shadow-including root, connected-ness equal, not a doctype/
-      ancestor; HierarchyRequestError otherwise), then a move WITHOUT the removing and insertion steps: no script re-run,
-      no iframe reload, focus/selection kept, custom elements get `connectedMoveCallback` (else disconnected+connected),
-      one MutationObserver childList record pair, live Ranges and NodeIterators updated as for remove+insert. Native
-      side: a variant of `insert_child` that skips the `log_inserted`/load hooks for the moved subtree. WPT:
-      dom/nodes/moveBefore/* (62 entries; 28 are blocked only by the missing method and id globals). Target: nodes +5
-      (bound +9.5; the rest needs CSS transitions, focus events, ElementInternals).
 - [ ] QDOM5 [M] (P2; Sonnet; js_dom.rs Range block (QJ7) + native helpers; R65; finishes archived QA19) Range content
       operations: `cloneContents`, `extractContents`, `deleteContents`, `insertNode`, `surroundContents` (partially
       selected CharacterData split/clone, DocumentFragment result, HierarchyRequestError/InvalidStateError rules), live

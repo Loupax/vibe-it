@@ -9061,3 +9061,13 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       updates once QDOM5 has them), `Text.wholeText`, `Node.normalize()` (merge adjacent Text, drop empty, on Document and
       Element). WPT: nodes/Text-splitText, Text-wholeText, Node-normalize, Node-normalize-2, ranges/Range-mutations-
       normalize. Target: nodes +1, ranges +2.
+
+=== from TODO.txt: --- (no header)
+- [x] QDOM3 DONE f754480 #533 [S] (P1; Sonnet; js_dom.rs; R65; after QDOM1) `ParentNode.moveBefore(node, child)` on Element, Document,
+      DocumentFragment: the pre-move checks (same shadow-including root, connected-ness equal, not a doctype/
+      ancestor; HierarchyRequestError otherwise), then a move WITHOUT the removing and insertion steps: no script re-run,
+      no iframe reload, focus/selection kept, custom elements get `connectedMoveCallback` (else disconnected+connected),
+      one MutationObserver childList record pair, live Ranges and NodeIterators updated as for remove+insert. Native
+      side: a variant of `insert_child` that skips the `log_inserted`/load hooks for the moved subtree. WPT:
+      dom/nodes/moveBefore/* (62 entries; 28 are blocked only by the missing method and id globals). Target: nodes +5
+      (bound +9.5; the rest needs CSS transitions, focus events, ElementInternals).

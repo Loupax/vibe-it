@@ -191,3 +191,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Merged #547 QDOM12 0adc3f3. #546 QEL6 conflicts in NOTES.md (like #529) -> rebases queued (5 running). Asked user: may merge_pr keep-both NOTES.md?
 - 2026-11-22 #550 QWPTFLK3 READY: real bug (custom element re-upgrade recursion -> stack overflow, build-dependent; stale cids/safeQ caches), fixed, removed from flaky.txt. Queued after #541. Filed QCE1; noted QWPTFLK2 may share the cause. Sent #529 QEL2 rebase.
 - 2026-11-22 #549 QDOM16 READY (nodes 50.4 -> 52.1) but 1 subtest pass->fail (Node-appendChild-script-and-iframe 'append() with multiple arguments', passed by accident of non-atomic append) -> held, user asked (Q3). Filed QDOMATOM. Sent #546 QEL6 rebase.
+- 2026-11-22 Merged #533 QDOM3 f754480 (moveBefore; nodes -> 57).
