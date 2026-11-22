@@ -357,3 +357,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Merged #613 QCNV1 43907bd.
 - 2026-11-22 #614 QCNV2 READY (canvas triage, docs), merging. Filed QCNV3..QCNV20, QGEOM1, QIMGBMP1 (21 items). Launched QCNV3.
 - 2026-11-22 Merged #614 QCNV2 e55ffbd.
+- 2026-11-22 #611 QWPT7 live+perf checked (App input same as main, Wikipedia preview placement fixed; perf noise; full subset 369 -> 256 s), merging. QWPT7a next after it lands.
