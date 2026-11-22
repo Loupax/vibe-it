@@ -5279,6 +5279,12 @@ impl App {
         let mut parts = input.split_whitespace();
         let Some(name) = parts.next() else { return };
         let args: Vec<&str> = parts.collect();
+        // QREG2: `:let` gets the raw rest of the line (a JS expression keeps its own spacing).
+        if name == "let" {
+            let raw = input.trim_start().strip_prefix(name).unwrap_or("");
+            self.let_register(raw);
+            return;
+        }
         self.dispatch_command(name, &args);
     }
 
