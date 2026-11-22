@@ -1,0 +1,96 @@
+- [x] **W-CACHE1 DONE 8d19a83 #605 [M] Local HTTP cache, on disk only** (user decision 2026-11-22: a
+      private RFC 9111 cache in wire; wire keeps no cache data in memory and relies on
+      the kernel page cache for hot entries; standard request headers instead of new
+      `X-Wire-*` request headers). On by default (user 2026-11-22), like the cookie
+      jar: stored in `$XDG_CACHE_HOME/wire` (falling back to `~/.cache/wire`),
+      mode 0700. `--cache-dir PATH` moves it (one warning line if PATH is on tmpfs,
+      whose pages the kernel cannot give back), `--cache-size SIZE` sets the limit
+      (default 1G), `--no-cache` turns it off (today's behaviour); `--no-cache` with
+      `--cache-dir` is an error, as `--no-cookies` with `--cookie-file`. This makes
+      wire write to disk by default (the jar file is opt-in): say so in README.md.
+      Storage: one file per entry at `<sha256(top site)>/<sha256(cache key)>` (one
+      directory per partition, so W-CACHE2 clears a site by removing it), headers + metadata
+      (stored time, request time, response time, target class, hop classes, final
+      URL, the request headers named by `Vary`) and the body uncompressed (wire has
+      already undone gzip). No in-memory index, no hot-body tier: a lookup is an
+      `open`. Bodies are streamed to a temp file while being copied to scratchy and
+      renamed into place only once complete (never buffer a whole body; never store
+      a truncated one, see W-MEDIA2: if upstream sent `Content-Length`, the stored
+      length must match, otherwise don't store). Eviction: touch mtime on every hit;
+      at start-up and periodically while over `--cache-size`, scan the directory and
+      delete oldest-mtime files first.
+      Cache key: (`X-Wire-Top-Site` partition, jar on/off, method, URL); then the
+      response's `Vary` header names are compared against the stored request headers.
+      `Vary: User-Agent` compares the UA wire actually sent (after
+      `X-Wire-User-Agent`); `Accept-Encoding` is wire's own choice and is ignored.
+      Partitioned like the jar, as Firefox does (Chrome also keys on the frame site;
+      wire doesn't get that). Requests without `X-Wire-Top-Site` use a separate
+      unpartitioned bucket.
+      Semantics (private cache, so `private` is storable and `s-maxage` is ignored):
+      - only GET is stored; HEAD is answered from a stored GET; a 2xx/3xx answer to
+        POST/PUT/DELETE/PATCH drops the entries for its URL and its `Location`/
+        `Content-Location` in that partition (RFC 9111 4.4);
+      - freshness from `max-age`, then `Expires`; with neither, the browser
+        heuristic: 10% of (Date - Last-Modified), capped at 7 days, only for
+        heuristically cacheable statuses;
+      - revalidation: wire sends `If-None-Match`/`If-Modified-Since` itself; a `304`
+        updates the stored headers and wire answers `200` from the store. If scratchy
+        sent the conditional itself, it gets the `304` (or wire answers it from the
+        store when its validators match);
+      - `no-store` (either direction) is never stored; `no-cache` response directive
+        means always revalidate; `must-revalidate` means never serve stale;
+      - responses with `Set-Cookie`: store them without the `Set-Cookie` header (the
+        jar has already seen it) and never replay it; `Vary: Cookie` is honoured;
+      - `Age` is computed and sent on every response from the store.
+      Request-side control is the standard headers the Fetch spec already sends per
+      `cache` mode (scratchy maps its fetch() `cache` option and the reload buttons):
+      `default` = nothing; `no-store` = `Cache-Control: no-store` (skip the cache
+      entirely); `reload` = `Cache-Control: no-cache` + `Pragma: no-cache` (fetch
+      unconditionally, store the result); `no-cache` = `Cache-Control: max-age=0`
+      (always revalidate); `force-cache` = `Cache-Control: max-stale` with no value
+      (any stored copy, else network); `only-if-cached` = `Cache-Control:
+      only-if-cached` (stored copy, or `504`). These headers keep being forwarded
+      upstream, as browsers do. Normal reload: `max-age=0` on the main document only;
+      hard reload: `no-cache` + `Pragma: no-cache` on everything (Chrome/Firefox).
+      Never stored or answered from the store: `X-Wire-Policy`-refused requests,
+      wire-made errors (`X-Wire-Error`), `--mount` origins, `file:`, the WebSocket
+      pipe, cookie control requests, `206` answers, responses cut by
+      `X-Wire-Max-Bytes`, responses that went through a redirect (v1: cache only
+      redirect-free answers; per-hop caching needs W-POOL2's own redirect following).
+      Security: the `X-Wire-Policy: public-only` check runs BEFORE the lookup, against
+      the stored target class and hop classes (a stored answer from a private host is
+      never served to a `public-only` request: same bug class as W-POOL1), and a hit
+      replays `X-Wire-Target-Class`/`X-Wire-Hop-Classes`/`X-Wire-Final-Url` from the
+      entry. `Range` requests are answered `206` from a stored complete `200` body
+      (share code with W-MEDIA1 / replay's range matching). `--record` bypasses the
+      cache (recordings must be complete); `--replay` never touches it.
+      Response side (private, like Chromium's network service reports `was_cached`
+      over IPC, not a header): `X-Wire-Cache: hit|miss|revalidated|stale|bypass` on
+      every response when the cache is on, stripped by scratchy like other `X-Wire-*`
+      headers; wire does not add an entry to `Cache-Status` (page JS can read that
+      header in browsers, and browser caches never add one). Upstream `Cache-Status`
+      passes through untouched. `X-Wire-Features` gains `cache`; protocol version 4.
+      Tests (loopback fixture that counts upstream hits): max-age hit with zero
+      upstream requests; stale -> conditional request -> `304` -> `200` from store
+      with merged headers; heuristic freshness from Last-Modified; `no-store` never
+      written to disk; `Vary: User-Agent` with two `X-Wire-User-Agent` values ->
+      two upstream fetches; two top sites -> two upstream fetches (partitioning);
+      `public-only` after a plain request to a loopback host -> `403 policy`, not a
+      hit; POST invalidates; each of the six `cache` modes; truncated upstream body
+      (announces 1000 bytes, sends 10) is not stored; temp files never visible as
+      entries; eviction keeps the directory under `--cache-size`; `Range` served from
+      a stored full body; peak RSS unchanged while storing a 1 GiB body.
+      Also (coordinator review 2026-11-22): a response to a request carrying `Authorization`
+      is stored only if it says `public`, `must-revalidate` or `s-maxage` (RFC 9111 3.5);
+      `immutable` responses are not revalidated on a normal reload (browsers do the
+      same); several wire processes may share one cache dir (temp file + rename keeps
+      writes atomic; eviction and lookups treat a file vanishing mid-scan as a miss,
+      never an error); a write error or full disk means "don't store" plus one warning
+      line, and the response is still served from the network. Tests for each.
+      Eviction check (user 2026-11-22): agents run wire with `--cache-size 256M` in /tmp, so
+      eviction happens in normal runs; the PR shows a real-page session at that cap staying
+      under the limit, oldest-mtime first, with no error when a file vanishes mid-scan.
+      Acceptance: loading the same page twice through a rebuilt wire (no flags)
+      shows `X-Wire-Cache: hit` on its stylesheets and images on the
+      second load, and wire's RSS does not grow with the cache size.
+

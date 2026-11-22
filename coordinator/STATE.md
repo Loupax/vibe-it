@@ -338,3 +338,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Merged #604 QHOV1 5e72cef. Reinstalling.
 - 2026-11-22 #605 W-CACHE1 READY (wire on-disk cache; 42 hits on wiki 2nd load; flat RSS; eviction at 256M ok), queued after reinstall. Filed W-CACHE3. AGENT_RULES: WIRE_ARGS for tool-started wires. Launched W-CACHE2.
 - 2026-11-22 Reinstalled ~/.cargo/bin/scratchy 16:07 from main fdaf271 (filters #601, hover damage #604, iframe re-land #600).
+- 2026-11-22 Merged #605 W-CACHE1 8d19a83 (archived to wire/TODO-DONE.txt).
