@@ -603,7 +603,7 @@ PASS css/printing/pseudo-animations-print.html
 PASS css/printing/transition-in-media-print.tentative.html
 PASS css/selectors/child-indexed-no-parent.html
 FAIL css/selectors/featureless-001.html
-FAIL css/selectors/has-style-sharing-001.html
+PASS css/selectors/has-style-sharing-001.html
 FAIL css/selectors/has-style-sharing-pseudo-004.html
 PASS css/selectors/is-default-ns-003.html
 FAIL css/selectors/nth-child-of-classname.html
