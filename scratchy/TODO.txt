@@ -114,7 +114,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] [WIP] QAPI6b [S] (P2, from QAPI6 #573; Opus; style.rs, dom.rs; stacked on scratchy/qapi6-has) Win back the `:has` cost:
       YouTube results forced layouts +65 % with its 35 `:has` rules (659/556 -> 1085/918 ms). Profile `:has` rules in the
       universal bucket (`.x :has(> .y)`), share one SelectorCaches per build (cleared on DOM writes). Target: within noise.
-- [ ] QAPI6c [S] (P3, from QAPI6 #573; Opus; incr_style.rs) Check-mode mismatch seen once on YouTube results while the
+- [ ] [WIP] QAPI6c [S] (P3, from QAPI6 #573; Opus; incr_style.rs) Check-mode mismatch seen once on YouTube results while the
       window settled ("adopted element style reads vh: build true vs engine false"); build a repro with a height change
       during load.
 - [ ] QMAPI3b [S] (P3, from QMAPI3 R66; Sonnet; tools/missing-api/merge.py) Merge "?" `has` rows with the named row of the
