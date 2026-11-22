@@ -3095,6 +3095,21 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   [['fillRect', 0], ['clearRect', 1], ['strokeRect', 2]].forEach(function (p) {
     meth(p[0], function () { var c = cv(this); g.__cv_draw(c, p[1], cvArgs(p[0], 4, arguments)); });
   });
+  // QCNV6: paths. Arguments are converted first (ToNumber), then the call is ignored when one is non-finite.
+  var pathArgs = function (name, n, a) { var o = cvArgs(name, n, a); for (var i = 0; i < n; i++) if (!isFinite(o[i])) return null; return o; };
+  meth('beginPath', function () { g.__cv_path(cv(this), 0, []); });
+  meth('closePath', function () { g.__cv_path(cv(this), 3, []); });
+  [['moveTo', 1, 2], ['lineTo', 2, 2], ['rect', 4, 4]].forEach(function (p) {
+    meth(p[0], function () { var c = cv(this), a = pathArgs(p[0], p[2], arguments); if (a) g.__cv_path(c, p[1], a); });
+  });
+  var fillRuleArg = function (name, a) {
+    var r = a.length > 0 && a[0] !== undefined ? String(a[0]) : 'nonzero';
+    if (r !== 'nonzero' && r !== 'evenodd') throw new TypeError("Failed to execute '" + name + "' on 'CanvasRenderingContext2D': The provided value '" + r + "' is not a valid enum value of type CanvasFillRule.");
+    return r === 'evenodd';
+  };
+  meth('fill', function () { var c = cv(this), e = fillRuleArg('fill', arguments); g.__cv_paint(c, 0, e); });
+  meth('stroke', function () { g.__cv_paint(cv(this), 1, false); });
+  meth('clip', function () { var c = cv(this), e = fillRuleArg('clip', arguments); g.__cv_paint(c, 2, e); });
   meth('save', function () { g.__cv_save(cv(this)); });
   meth('restore', function () { g.__cv_restore(cv(this)); });
   // QCNV5: transforms. The CTM lives in canvas.rs; every method converts all arguments first (ToNumber), then ignores

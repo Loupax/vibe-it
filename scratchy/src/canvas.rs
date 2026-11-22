@@ -19,7 +19,7 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use tiny_skia::{BlendMode, Color, Paint, PathBuilder, Pixmap, Rect, Stroke, Transform};
+use tiny_skia::{BlendMode, Color, FillRule, Mask, Paint, PathBuilder, Pixmap, Rect, Stroke, Transform};
 
 use crate::js_dom::DomTable;
 use crate::js_engine::{native, Bytes, Ctx};
@@ -63,11 +63,87 @@ struct DrawState {
     line_width: f32,
     /// QCNV5: the current transformation matrix as (a, b, c, d, e, f): x' = a x + c y + e, y' = b x + d y + f.
     ctm: [f64; 6],
+    /// QCNV6: the clipping region (coverage 0..255 per pixel); `None` = no clip. Shared between saved copies.
+    clip: Option<Arc<Mask>>,
+}
+
+/// QCNV6: one segment of the current default path, in DEVICE space (points are mapped by the CTM when added).
+/// QCNV7 adds `Quad`/`Cubic` here (arcs and ellipses become cubics) and `build` below turns them into tiny-skia calls.
+#[derive(Clone, Copy, Debug)]
+enum Seg {
+    Move(f64, f64),
+    Line(f64, f64),
+    Close,
+}
+
+/// The current default path: segments plus whether it has a subpath yet.
+#[derive(Default)]
+struct PathData {
+    segs: Vec<Seg>,
+}
+
+impl PathData {
+    /// The point `(x, y)` after the CTM.
+    fn map(m: &[f64; 6], x: f64, y: f64) -> (f64, f64) {
+        (m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5])
+    }
+    fn move_to(&mut self, m: &[f64; 6], x: f64, y: f64) {
+        let (x, y) = Self::map(m, x, y);
+        self.segs.push(Seg::Move(x, y));
+    }
+    /// lineTo: with no subpath yet it only starts one at the point.
+    fn line_to(&mut self, m: &[f64; 6], x: f64, y: f64) {
+        let (x, y) = Self::map(m, x, y);
+        self.segs.push(if self.segs.is_empty() { Seg::Move(x, y) } else { Seg::Line(x, y) });
+    }
+    /// The start point of the last subpath.
+    fn start(&self) -> Option<(f64, f64)> {
+        self.segs.iter().rev().find_map(|s| if let Seg::Move(x, y) = s { Some((*x, *y)) } else { None })
+    }
+    /// closePath: closes the last subpath; the next segment starts again at its first point.
+    fn close(&mut self) {
+        let Some(start) = self.start() else { return };
+        if matches!(self.segs.last(), Some(Seg::Close)) {
+            return;
+        }
+        self.segs.push(Seg::Close);
+        self.segs.push(Seg::Move(start.0, start.1));
+    }
+    /// rect: a closed subpath of four corners (even with zero size), then a new subpath at (x, y).
+    fn rect(&mut self, m: &[f64; 6], x: f64, y: f64, w: f64, h: f64) {
+        self.move_to(m, x, y);
+        self.line_to(m, x + w, y);
+        self.line_to(m, x + w, y + h);
+        self.line_to(m, x, y + h);
+        self.close();
+    }
+    /// The tiny-skia path in device space (None when it has no drawable segment).
+    fn build(&self) -> Option<tiny_skia::Path> {
+        let mut pb = PathBuilder::new();
+        for s in &self.segs {
+            match *s {
+                Seg::Move(x, y) => pb.move_to(x as f32, y as f32),
+                Seg::Line(x, y) => pb.line_to(x as f32, y as f32),
+                Seg::Close => pb.close(),
+            }
+        }
+        pb.finish()
+    }
+}
+
+/// The inverse of an affine matrix (None when singular or not finite).
+fn invert(m: &[f64; 6]) -> Option<[f64; 6]> {
+    let det = m[0] * m[3] - m[1] * m[2];
+    if det == 0.0 || !det.is_finite() {
+        return None;
+    }
+    let (a, b, c, d) = (m[3] / det, -m[1] / det, -m[2] / det, m[0] / det);
+    Some([a, b, c, d, -(a * m[4] + c * m[5]), -(b * m[4] + d * m[5])])
 }
 
 impl Default for DrawState {
     fn default() -> DrawState {
-        DrawState { fill: Style::new([0, 0, 0, 255]), stroke: Style::new([0, 0, 0, 255]), shadow: Style::new([0, 0, 0, 0]), alpha: 1.0, line_width: 1.0, ctm: IDENTITY }
+        DrawState { fill: Style::new([0, 0, 0, 255]), stroke: Style::new([0, 0, 0, 255]), shadow: Style::new([0, 0, 0, 0]), alpha: 1.0, line_width: 1.0, ctm: IDENTITY, clip: None }
     }
 }
 
@@ -79,6 +155,8 @@ struct Canvas {
     pixmap: Option<Pixmap>,
     state: DrawState,
     stack: Vec<DrawState>,
+    /// QCNV6: the current default path (not part of the saved state).
+    path: PathData,
     /// The bitmap as paint wants it, rebuilt after a draw.
     image: Option<Arc<DecodedImage>>,
 }
@@ -86,7 +164,7 @@ struct Canvas {
 impl Canvas {
     fn new(node: usize, w: u32, h: u32) -> Canvas {
         let pixmap = if u64::from(w) * u64::from(h) <= MAX_PIXELS { Pixmap::new(w, h) } else { None };
-        Canvas { node, w, h, pixmap, state: DrawState::default(), stack: Vec::new(), image: None }
+        Canvas { node, w, h, pixmap, state: DrawState::default(), stack: Vec::new(), path: PathData::default(), image: None }
     }
 }
 
@@ -275,16 +353,18 @@ fn set_ctm(c: &mut Canvas, op: i32, m: &[f64]) {
 fn draw(c: &mut Canvas, op: i32, a: &[f64]) {
     let (Some(px), [x, y, w, h]) = (c.pixmap.as_mut(), a) else { return };
     let ts = transform_of(&c.state.ctm);
+    let mask = c.state.clip.as_deref();
     match op {
         0 => {
             if let Some(r) = rect_of(*x, *y, *w, *h) {
-                px.fill_rect(r, &paint_of(c.state.fill.rgba, c.state.alpha), ts, None);
+                px.fill_rect(r, &paint_of(c.state.fill.rgba, c.state.alpha), ts, mask);
             }
         }
         1 => {
             if let Some(r) = rect_of(*x, *y, *w, *h) {
-                let p = Paint { blend_mode: BlendMode::Clear, anti_alias: true, ..Paint::default() };
-                px.fill_rect(r, &p, ts, None);
+                // DestinationOut with an opaque source clears and, unlike Clear, honours the clip mask (QCNV6).
+                let p = Paint { blend_mode: BlendMode::DestinationOut, anti_alias: true, ..Paint::default() };
+                px.fill_rect(r, &p, ts, mask);
             }
         }
         _ => {
@@ -300,9 +380,57 @@ fn draw(c: &mut Canvas, op: i32, a: &[f64]) {
             pb.close();
             if let Some(path) = pb.finish() {
                 let stroke = Stroke { width: c.state.line_width, ..Stroke::default() };
-                px.stroke_path(&path, &paint_of(c.state.stroke.rgba, c.state.alpha), &stroke, ts, None);
+                px.stroke_path(&path, &paint_of(c.state.stroke.rgba, c.state.alpha), &stroke, ts, mask);
             }
         }
+    }
+}
+
+/// QCNV6: `op` 0 beginPath, 1 moveTo, 2 lineTo, 3 closePath, 4 rect (`a` = the arguments, all finite).
+fn path_op(c: &mut Canvas, op: i32, a: &[f64]) {
+    let m = c.state.ctm;
+    match (op, a) {
+        (0, _) => c.path.segs.clear(),
+        (1, [x, y]) => c.path.move_to(&m, *x, *y),
+        (2, [x, y]) => c.path.line_to(&m, *x, *y),
+        (3, _) => c.path.close(),
+        (4, [x, y, w, h]) => c.path.rect(&m, *x, *y, *w, *h),
+        _ => {}
+    }
+}
+
+/// QCNV6: `op` 0 fill, 1 stroke, 2 clip; `evenodd` picks the fill rule (fill and clip).
+fn paint_path(c: &mut Canvas, op: i32, evenodd: bool) {
+    let rule = if evenodd { FillRule::EvenOdd } else { FillRule::Winding };
+    let path = c.path.build();
+    let (w, h) = (c.w, c.h);
+    if op == 2 {
+        // The region is replaced by its intersection with the path (an empty path clips everything away).
+        let mut m = match c.state.clip.as_deref() {
+            Some(m) => m.clone(),
+            None => {
+                let Some(mut m) = Mask::new(w, h) else { return };
+                m.data_mut().fill(255);
+                m
+            }
+        };
+        match path {
+            Some(p) => m.intersect_path(&p, rule, true, Transform::identity()),
+            None => m.clear(),
+        }
+        c.state.clip = Some(Arc::new(m));
+        return;
+    }
+    let (Some(px), Some(path)) = (c.pixmap.as_mut(), path) else { return };
+    let mask = c.state.clip.as_deref();
+    if op == 0 {
+        px.fill_path(&path, &paint_of(c.state.fill.rgba, c.state.alpha), rule, Transform::identity(), mask);
+    } else {
+        // The path is in device space; the pen is in user space, so stroke the user-space path through the CTM.
+        let Some(inv) = invert(&c.state.ctm) else { return };
+        let Some(user) = path.transform(transform_of(&inv)) else { return };
+        let stroke = Stroke { width: c.state.line_width, ..Stroke::default() };
+        px.stroke_path(&user, &paint_of(c.state.stroke.rgba, c.state.alpha), &stroke, transform_of(&c.state.ctm), mask);
     }
 }
 
@@ -399,6 +527,21 @@ pub(crate) fn register(ctx: &Ctx<'_>, table: Rc<RefCell<DomTable>>) {
             draw(c, op, &a);
             c.image = None;
             mark(c.node);
+        }
+    });
+    // QCNV6: path building (see `path_op`; the JS side drops non-finite arguments) and fill/stroke/clip (`paint_path`).
+    native!(ctx, "__cv_path", move |cid: i32, op: i32, a: Vec<f64>| {
+        if let Some(c) = map().get_mut(cid as u32) {
+            path_op(c, op, &a);
+        }
+    });
+    native!(ctx, "__cv_paint", move |cid: i32, op: i32, evenodd: bool| {
+        if let Some(c) = map().get_mut(cid as u32) {
+            paint_path(c, op, evenodd);
+            c.image = None;
+            if op != 2 {
+                mark(c.node);
+            }
         }
     });
     // which: 0 fillStyle, 1 strokeStyle, 2 shadowColor. `cur` is the element's computed colour (only read when the
