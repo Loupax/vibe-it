@@ -76,6 +76,12 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       `<style media>` and `@import url(...) media` with `media_query_string_matches` (today ignored: always applied).
 - [ ] [WIP] QHOV2 [S] (P3, from QHOV1 #604; Sonnet; app.rs damage paint) Damage-rect repaint for pages without :hover/:active
       rules (JS class-toggle hovers); avoid the 4 MB kept-page copy by tracking buffer age.
+- [ ] [WIP] QINC2 [S] (P2, from QHOV2 #631; Sonnet; incr engine) Engine check-mode mismatch "laid at root: h" (~48 px) at
+      update 2 on tools/incr-gate/hover-big-js.html (page `hoverjs`), 1 in 2-3 runs, also on main: build a deterministic
+      repro, find which update path leaves the root height stale, fix it; 0 mismatches in 10 check-mode runs.
+- [ ] QHOV3 [S] (P3, from QHOV2 #631; Sonnet; app.rs) Scroll frames paint whole (scroll offset is in PaintKey): blit-scroll
+      the buffer and damage-repaint only the exposed strip; also paint damage rects straight into the buffer (drop the
+      scratch page) once paint's clip is proven to never write outside it.
 - [ ] QYTS1 [S] (P3, from QINC1m #597 live session; Sonnet) YouTube Shorts opened from the results page shows blank and
       scrolled sideways in a nested window (main showed a stuck black player in a similar run). Reproduce with a recording,
       find the cause.
