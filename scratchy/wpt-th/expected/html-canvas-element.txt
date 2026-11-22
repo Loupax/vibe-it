@@ -1035,10 +1035,7 @@ ERROR        0/6  html/canvas/element/manual/draw-element-image/captureElementIm
   NOTRUN    getElementImageDefaultSize updates when canvas pixel grid size changes
 OK           0/1  html/canvas/element/manual/draw-element-image/containment.tentative.html
   FAIL      canvas child containment
-OK           0/3  html/canvas/element/manual/draw-element-image/content-drawable-no-hit-test.tentative.html
-  FAIL      canvas elementFromPoint
-  FAIL      canvas mouseenter
-  FAIL      canvas click
+OK           3/3  html/canvas/element/manual/draw-element-image/content-drawable-no-hit-test.tentative.html
 OK           0/1  html/canvas/element/manual/draw-element-image/css-backdrop-filter-with-mix-blend-mode-and-sibling.tentative.html
   FAIL      drawElementImage preserves sibling content after CSS backdrop-filter with mix-blend-mode
 OK           0/2  html/canvas/element/manual/draw-element-image/display-contents.tentative.html
@@ -1075,8 +1072,7 @@ ERROR        0/2  html/canvas/element/manual/draw-element-image/element-image-fr
   FAIL      getElementImageDefaultSize width and height should support fractional values in canvas pixel grid coordinate space
 OK           0/1  html/canvas/element/manual/draw-element-image/error-conditions.tentative.html
   FAIL      Tests that error conditions cause exceptions
-OK           0/1  html/canvas/element/manual/draw-element-image/hit-test/elementsFromPoint-no-content-drawable.tentative.html
-  FAIL      Child elements should be excluded from elementsFromPoint
+OK           1/1  html/canvas/element/manual/draw-element-image/hit-test/elementsFromPoint-no-content-drawable.tentative.html
 OK           0/1  html/canvas/element/manual/draw-element-image/hit-test/elementsFromPoint-object-fit-contain-tall.tentative.html
   FAIL      Canvas descendants' transforms are correct when object-fit: contain is active.
 OK           0/1  html/canvas/element/manual/draw-element-image/hit-test/elementsFromPoint-object-fit-contain-wide.tentative.html
@@ -1104,8 +1100,7 @@ OK          0/10  html/canvas/element/manual/draw-element-image/hit-test/element
   FAIL      preserveHitTestOrder works when updating via ElementImage on OffscreenCanvas.
   FAIL      updateElementGeometry clip restricts hit testing on OffscreenCanvas.
   FAIL      OffscreenCanvas.updateElementGeometry and clearElementGeometry throw InvalidStateError for ineligible elements and ElementImages.
-OK          0/21  html/canvas/element/manual/draw-element-image/hit-test/elementsFromPoint-update-element-geometry.tentative.html
-  FAIL      Canvas descendants are not hit-testable before updateElementGeometry.
+OK          1/21  html/canvas/element/manual/draw-element-image/hit-test/elementsFromPoint-update-element-geometry.tentative.html
   FAIL      Canvas descendants are hittable after updateElementGeometry.
   FAIL      Canvas descendants are hit in reverse update order.
   FAIL      Re-updating an element moves it to the top of the hit testing list.
@@ -1126,8 +1121,7 @@ OK          0/21  html/canvas/element/manual/draw-element-image/hit-test/element
   FAIL      updateElementGeometry supports clip with ElementImage.
   FAIL      Hit test clip rect does not clip element rendering in drawElementImage.
   FAIL      Setting or clearing hit test clip rect does not trigger canvas paint events.
-OK           0/7  html/canvas/element/manual/draw-element-image/hit-test/elementsFromPoint.tentative.html
-  FAIL      Canvas descendants are not hit-testable before they are drawn.
+OK           1/7  html/canvas/element/manual/draw-element-image/hit-test/elementsFromPoint.tentative.html
   FAIL      Canvas descendants are hittable after being drawn.
   FAIL      Canvas descendants are hit in reverse drawing order.
   FAIL      Re-drawing an element moves it to the top of the hit testing list.
