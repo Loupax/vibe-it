@@ -9493,3 +9493,18 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- (no header)
 - [x] QCSS-E DONE 0bf4cbf #608 [S] (P2, from QAPI8 #578; Sonnet; css.rs, layout/paint) Per-corner radii, `outline-offset`, `transform-origin`,
       `border-spacing`, `letter-spacing`, `direction`.
+
+=== from TODO.txt: --- (no header)
+- [x] QWPT12 DONE 608aa34 #606 [S] (P2; Sonnet; tools/wpt-dirs.txt, tools/wpt-subset.py AREAS, wpt-th/; user 2026-11-21: all of
+      html/canvas, not a hand-picked slice) Put the `<canvas>` tests in the testharness gate (`--wpt-th`), so Canvas 2D
+      work is measured from its first item. Add `html/canvas` to tools/wpt-dirs.txt (changes the CI cache key, so CI
+      re-checks-out by itself). Add two AREAS in tools/wpt-subset.py: `html/canvas/element` -> ["html/canvas/element"]
+      and `html/canvas/offscreen` -> ["html/canvas/offscreen"], plus `html/canvas/other` -> ["html/canvas"] for the rest.
+      The script's usual phase-1 exclusions stay as they are (worker variants, timeout=long, testdriver, .https./.sub.,
+      .py handlers); `.tentative.` files are included (recording them costs nothing; only pass->fail blocks). Regenerate
+      wpt-th/subset.txt, record the expected files with `--update` and update wpt-th/areas.txt. Expect ~0% today:
+      `HTMLCanvasElement.getContext` returns null (QY3, js_dom.rs). Report in the PR: file counts per area, the skip
+      counts per reason printed by wpt-subset.py, and the added CI time of the `--wpt-th` step (if it adds more than ~5
+      min, stop and report before merging). The reftest gate (`--wpt`) is unchanged: canvas reftests draw with script and
+      `--wpt` skips every test with `<script>`. No Rust changes. WebGL is NOT covered by this: its suite is the
+      separate Khronos WebGL conformance suite (no item yet).
