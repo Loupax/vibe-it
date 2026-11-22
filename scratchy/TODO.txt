@@ -181,8 +181,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       (313 subset files mention it; they end in `action_sequence() is not implemented`): either apply the source filter
       to every area and re-record, or give the runner a minimal testdriver vendor (action_sequence/click/send_keys through
       the existing trusted-input paths). Say which, with the file counts per area.
-- [ ] [WIP] QEDIT-A [S] (P3, from QWPT6d #581; Sonnet; js_dom.rs) Reflection: contentEditable enumerated values + throws,
-      isContentEditable, designMode, spellcheck, autocapitalize, autocorrect, writingSuggestions (~11 html/editing files).
 - [ ] QEDIT-F [S] (P3, from QEDIT-A #585; Sonnet; js_dom.rs) `document.queryCommandSupported/Enabled/State/Value`
       stubs (designMode-aware, no editing) for the html/editing designMode files; SVG/XML designMode variants ERROR
       because those pages are not parsed as XML/SVG documents (say whether that is a separate item).

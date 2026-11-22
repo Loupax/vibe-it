@@ -9367,3 +9367,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       (46: the core Range-*, NodeIterator, TreeWalker, Document-characterSet-normalization-1/2, ParentNode-querySelector-
       All, NodeList-static-length-getter-tampered-*). With the virtual clock they are cheap (all 46 ran in 9 s at 4 jobs).
       31 of them ERROR at `xmlDocument.createCDATASection` today, so measure their wall time again after QDOM8.
+
+=== from TODO.txt: --- (no header)
+- [x] QEDIT-A DONE 9ecc18a #585 [S] (P3, from QWPT6d #581; Sonnet; js_dom.rs) Reflection: contentEditable enumerated values + throws,
+      isContentEditable, designMode, spellcheck, autocapitalize, autocorrect, writingSuggestions (~11 html/editing files).
