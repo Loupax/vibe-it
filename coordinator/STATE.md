@@ -218,3 +218,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #546 QEL6 NOTES.md conflict again (4th) -> rebase queued. NOTES.md keep-both question pending with the user.
 - 2026-11-22 Merged #557 QDOM13 273abd2 (dom/events 407 -> 472).
 - 2026-11-22 Merged #558 QWPT11 d363e08 (main CI runs no longer cancelled). QCISPLIT now unblocked.
+- 2026-11-22 #559 QDOM15 READY (dom/events 34.8 -> 36.2), queued after #561. Filed QDOM15b. Launched QCISPLIT.
