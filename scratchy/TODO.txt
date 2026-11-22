@@ -187,7 +187,9 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       html/webappapis/.../the-navigator-object/per-global.window.html (OK 3/8 -> ERROR) after its final rebase: async
       loading of script-created iframes replaces the initial about:blank window, so contentWindow identity changes. Re-land
       #592 (git revert of the revert) and keep the initial window object (browsers navigate it in place / reuse it), so
-      per-global and every other main-passing file stays; then the full gate on the FINAL rebased head.
+      per-global and every other main-passing file stays; then the full gate on the FINAL rebased head. Note: the
+      SAME tree passed CI on the PR and failed on main, so the breakage is timing-dependent: run per-global and the
+      iframe-heavy files 10x each and show they are stable.
 - [ ] QDOM10b [S] (P3, from QDOM10 #580; Sonnet; js.rs dispatch, iframe realms) window.event across realms: constructors
       from another global (EventTarget, XMLHttpRequest), an element from another document, a listener from a different
       global, window.event after moving an element post-dispatch (event-global-extra.window.html 1/6), onerror restoring
