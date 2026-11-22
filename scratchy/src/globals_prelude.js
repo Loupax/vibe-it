@@ -134,6 +134,58 @@
     a.__peer = b; b.__peer = a;
     this.port1 = a; this.port2 = b;
   });
+  // QAPI7: BroadcastChannel, same-process only. The registry (`__scratchy_bcreg`, hidden) lives on the TOP window, so
+  // the page and its same-origin iframe realms see each other's channels; an opaque (data:) realm keeps its own.
+  // postMessage clones once (DataCloneError), then each receiver realm clones again with its own intrinsics and
+  // queues one task in its own posted-message queue. No persistence, no other processes.
+  function bcReg() {
+    var t = g;
+    try { if (!g.__scratchy_opaque) t = g.top || g; } catch (e) { t = g; }
+    if (!Object.prototype.hasOwnProperty.call(t, '__scratchy_bcreg')) Object.defineProperty(t, '__scratchy_bcreg', { value: [] });
+    return t.__scratchy_bcreg;
+  }
+  var BroadcastChannel = function BroadcastChannel(name) {
+    if (!(this instanceof BroadcastChannel)) throw new TypeError("Failed to construct 'BroadcastChannel': Please use the 'new' operator, this DOM object constructor cannot be called as a function.");
+    if (arguments.length < 1) throw new TypeError("Failed to construct 'BroadcastChannel': 1 argument required, but only 0 present.");
+    ET.call(this);
+    Object.defineProperty(this, '__name', { value: String(name) });
+    Object.defineProperty(this, '__closed', { value: false, writable: true });
+    Object.defineProperty(this, '__h', { value: null, writable: true });
+    var self = this, origin = g.location.origin;
+    var entry = { name: this.__name, origin: origin, recv: function (d) {
+      if (self.__closed || g.closed) return;
+      var c = clone(d);
+      postMessageTask(function () {
+        if (self.__closed || g.closed) return;
+        var fire = function () { self.dispatchEvent(new MessageEvent('message', { data: c, origin: '', ports: [] })); };
+        if (g.top !== g && typeof g.__scratchy_enter === 'function') g.__scratchy_enter(g, fire); else fire();
+      });
+    } };
+    Object.defineProperty(this, '__entry', { value: entry });
+    bcReg().push(entry);
+  };
+  BroadcastChannel.prototype = Object.create(ET.prototype, { constructor: { value: BroadcastChannel, writable: true, configurable: true } });
+  def(g, 'BroadcastChannel', BroadcastChannel);
+  Object.defineProperty(BroadcastChannel.prototype, 'name', { get: function () { return this.__name; }, configurable: true, enumerable: true });
+  Object.defineProperty(BroadcastChannel.prototype, 'onmessage', {
+    get: function () { return this.__h; }, set: function (f) { this.__h = f; }, configurable: true, enumerable: true });
+  BroadcastChannel.prototype.onmessageerror = null;
+  def(BroadcastChannel.prototype, 'postMessage', function (m) {
+    if (arguments.length < 1) throw new TypeError("Failed to execute 'postMessage' on 'BroadcastChannel': 1 argument required, but only 0 present.");
+    if (this.__closed) throw dom("Failed to execute 'postMessage' on 'BroadcastChannel': Channel is closed", 'InvalidStateError');
+    var d = clone(m), e = this.__entry, snap = bcReg().slice(), i;
+    for (i = 0; i < snap.length; i++) {
+      var o = snap[i];
+      if (o === e || o.name !== e.name || o.origin !== e.origin || o.origin === 'null') continue;
+      try { o.recv(d); } catch (err) { /* a dead realm: skip it */ }
+    }
+  });
+  def(BroadcastChannel.prototype, 'close', function () {
+    this.__closed = true;
+    var reg = bcReg(), i = reg.indexOf(this.__entry);
+    if (i >= 0) reg.splice(i, 1);
+  });
+
   // QMSG1: the window's posted-message task queue (HTML "posted message task source"). Kept explicit so QEL8 can
   // move it to its own task queue: each entry is one task, run in order, one per timer turn for now.
   var msgq = [];

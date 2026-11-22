@@ -2502,6 +2502,26 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   reflect('lang', 'lang'); reflect('dir', 'dir');
   defs(ElementProto, 'hidden', function () { return __d_attr(this.__id, 'hidden') != null; },
     function (v) { if (v) __d_setattr(this.__id, 'hidden', ''); else __d_rmattr(this.__id, 'hidden'); });
+  // QAPI7: contentEditable / isContentEditable reflect the attribute only; no editing behaviour.
+  var qapi7EditState = function (el) {
+    var v = __d_attr(el.__id, 'contenteditable');
+    if (v == null) return 'inherit';
+    v = String(v).toLowerCase();
+    return v === '' || v === 'true' ? 'true' : v === 'false' ? 'false' : v === 'plaintext-only' ? 'plaintext-only' : 'inherit';
+  };
+  defs(HTMLElement.prototype, 'contentEditable', function () { return qapi7EditState(this); }, function (v) {
+    var s = String(v).toLowerCase();
+    if (s === 'inherit') __d_rmattr(this.__id, 'contenteditable');
+    else if (s === 'true' || s === 'false' || s === 'plaintext-only') __d_setattr(this.__id, 'contenteditable', s);
+    else throw herr("Failed to set the 'contentEditable' property on 'HTMLElement': The value provided ('" + String(v) + "') is not one of 'true', 'false', 'plaintext-only', or 'inherit'.", 'SyntaxError');
+  });
+  defs(HTMLElement.prototype, 'isContentEditable', function () {
+    for (var n = this; n && n.nodeType === 1; n = n.parentNode) {
+      var st = qapi7EditState(n);
+      if (st !== 'inherit') return st !== 'false';
+    }
+    return false;
+  });
   var reflectBool = function (prop, attr) {
     defs(ElementProto, prop, function () { return __d_attr(this.__id, attr) != null; },
       function (v) { if (v) __d_setattr(this.__id, attr, ''); else __d_rmattr(this.__id, attr); });

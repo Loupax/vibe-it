@@ -2091,8 +2091,7 @@ OK           0/1  shadow-dom/untriaged/user-interaction/active-element/test-001.
   FAIL      A_07_03_01_T01
 OK           0/1  shadow-dom/untriaged/user-interaction/active-element/test-002.html
   FAIL      A_07_03_02_T01
-OK           2/3  shadow-dom/untriaged/user-interaction/editing/inheritance-of-content-editable-001.html
-  FAIL      contentEditable of shadow trees must be undefined when contentEditable attribute of shadow host is "inherit"
+OK           3/3  shadow-dom/untriaged/user-interaction/editing/inheritance-of-content-editable-001.html
 OK           0/2  shadow-dom/untriaged/user-interaction/ranges-and-selections/test-001.html
   FAIL      A_07_07_01_T01
   FAIL      A_07_07_01_T02
