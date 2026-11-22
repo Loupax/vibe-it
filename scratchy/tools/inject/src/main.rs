@@ -169,10 +169,12 @@ fn main() {
                 std::thread::sleep(Duration::from_millis(arg.parse().unwrap()));
             }
             "key" => {
-                let (mut ctrl, mut name) = (false, arg);
+                let (mut ctrl, mut sh, mut name) = (false, false, arg);
                 if let Some(r) = name.strip_prefix("c-") { ctrl = true; name = r; }
+                // QWPT7: s- holds Shift (Shift+Tab, Shift+arrows); may follow c-.
+                if let Some(r) = name.strip_prefix("s-") { sh = true; name = r; }
                 let (c, shift) = code(name).unwrap_or_else(|| panic!("unknown key {name}"));
-                key(c, shift, ctrl);
+                key(c, shift || sh, ctrl);
             }
             "type" => {
                 for ch in arg.chars() {
