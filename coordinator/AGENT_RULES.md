@@ -103,3 +103,8 @@ already lives there. This overrides AGENTS.md "matching area file" for new tests
 After any rebase, before you commit or push: `git diff origin/main --stat` and
 `git grep -nE '^(<<<<<<< |=======$|>>>>>>> )' -- scratchy coordinator` must print nothing. Two PRs (#560, #571)
 landed `<<<<<<<`/`>>>>>>>` blocks in PROMPTS.md. merge_pr.sh now refuses a PR whose diff adds marker lines.
+
+## wire's HTTP cache (once W-CACHE1 lands)
+W-CACHE1 makes wire cache on disk by default in `~/.cache/wire`. Every wire an agent starts must use
+`--no-cache` or `--cache-dir <worktree>/.qwork/wire-cache` (never the user's cache), and perf
+comparisons must use the same cache setting on both sides (say which).
