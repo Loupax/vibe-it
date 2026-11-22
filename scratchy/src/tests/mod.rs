@@ -1048,3 +1048,4 @@ mod qcnv1_tests;
 mod qcss2_tests;
 mod qwpt7a_tests;
 mod qreg2_tests;
+mod qwpt8_tests;

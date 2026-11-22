@@ -357,3 +357,14 @@ unlinks entries whose stored URL has the origin (skips `.tmp-` files). `apply_cl
 for the final non-jar response, before the body streams; `storable` refuses an answer with `Clear-Site-Data`. `Jar::clear_host`
 removes the host's cookies, its parent-domain cookies and its subdomains' in that partition. Under `--no-cookies`, clear-site
 still clears the cache partition. wire did not handle `Clear-Site-Data` before this item.
+
+## `--map-host` (QWPT8)
+
+`hostmap.rs` holds a process-wide list of `HostMap {suffix, ip}` filled at startup (`HostMap::parse` validates: `*.` + >= 2
+labels + reserved TLD + loopback IP literal). `TrackingResolver::resolve` checks it FIRST: a match returns
+`[ip:port-of-the-netloc]` (no DNS, class `loopback` recorded in the tracker and the class map) and returns before the
+`public-only` filter, so only mapped names bypass it; the redirect hop to anything else goes through the normal path. A pooled
+connection to a mapped host lives in whichever pool the request used, keyed by host:port, so no other host can reuse it.
+`execute_with` answers a `--mount-override` PATH for a mapped host (`Mounts::serve_override_only`) before the network. wire
+is started by `tools/wptserve.sh` (in scratchy), never by scratchy itself: scratchy's QNET1 seccomp filter is inherited by
+its children, so nothing it spawns can open a TCP socket.

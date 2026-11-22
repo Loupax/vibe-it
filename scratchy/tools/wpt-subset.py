@@ -12,7 +12,8 @@ What goes in (phase 1, "testharness files a static server can serve"): every tes
 below, except
   - timeout=long files outside dom/* (nightly; QWPT6c keeps the dom/* ones: with the virtual clock they are cheap), and the legacy multi-byte encoding variants (encoding/legacy-mb-*, nightly),
   - files that call a testdriver function scratchy's vendor does not implement (see DRIVER_DONE), html/editing testdriver users,
-  - `.https.` / `.sub.` / worker-variant URLs, and files whose source mentions a `.py` handler (wptserve).
+  - `.https.` / `.sub.` / worker-variant URLs, and files whose source mentions a `.py` handler (wptserve). The
+    WPTSERVE_AREAS (fetch/*, xhr; QWPT8) keep the `.py` pages: they run with `--server wptserve`; `.h2.` pages stay out.
 The skipped counts per reason are printed on stderr, so the numbers in the PR can be reproduced.
 """
 import argparse
@@ -50,7 +51,14 @@ AREAS = OrderedDict([
     ("requestidlecallback", ["requestidlecallback"]),
     ("custom-elements", ["custom-elements"]),
     ("shadow-dom", ["shadow-dom"]),
+    # QWPT8: areas that need WPT's Python server (wptserve): `.py` handlers stay in. Run them with `--server wptserve`.
+    ("fetch/api", ["fetch/api"]),
+    ("fetch/other", ["fetch"]),
+    ("xhr", ["xhr"]),
 ])
+
+# Areas served by wptserve (QWPT8), not by wire's static mount: the `.py` filter does not apply to them.
+WPTSERVE_AREAS = {"fetch/api", "fetch/other", "xhr"}
 
 # testdriver users (QWPT6d, QWPT6e, QWPT7). Since QWPT7 the runner serves scratchy's own testdriver-vendor.js
 # (tools/wpt/testdriver-vendor.js: trusted input through src/wpt_input.rs), which implements the calls in DRIVER_DONE.
@@ -108,6 +116,9 @@ def main():
             if any(k == "script" and "testdriver" in v for k, v in (item.script_metadata or [])):
                 skipped["testdriver (phase 2)"] += 1
                 continue
+            if area in WPTSERVE_AREAS and re.search(r"\.h2\.", base):
+                skipped[".h2. (HTTP/2 server, QWPT9)"] += 1
+                continue
             if ".https." in base or ".sub." in base:
                 skipped[".https./.sub. (server features)"] += 1
                 continue
@@ -127,7 +138,7 @@ def main():
             if missing:
                 skipped["test_driver.%s (not in the vendor)" % "/".join(missing)] += 1
                 continue
-            if PY_REF.search(src):
+            if area not in WPTSERVE_AREAS and PY_REF.search(src):
                 skipped[".py handler (wptserve)"] += 1
                 continue
             per_area[area].add(url)

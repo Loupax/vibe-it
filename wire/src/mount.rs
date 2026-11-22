@@ -85,6 +85,24 @@ impl Mounts {
         })
     }
 
+    /// QWPT8: a `--mount-override` PATH requested from a `--map-host` host (a real server behind the
+    /// mapping, no mount): the override file for exactly that path, else None (go to the network).
+    pub fn serve_override_only(&self, method: &str, url: &Url) -> Option<MountResponse> {
+        if (method != "GET" && method != "HEAD") || url.scheme() != "http" || self.overrides.is_empty() {
+            return None;
+        }
+        let norm = format!("/{}", decode_path(url.path())?.join("/"));
+        let (_, file) = self.overrides.iter().find(|(p, _)| *p == norm)?;
+        let mut resp = match std::fs::read(file) {
+            Ok(body) => MountResponse { status: 200, reason: "OK", headers: vec![("Content-Type".into(), mime_for(&norm).into())], body },
+            Err(e) => MountResponse::text(500, "Internal Server Error", &format!("cannot read override {}: {e}", file.display())),
+        };
+        if method == "HEAD" {
+            resp.body.clear();
+        }
+        Some(resp)
+    }
+
     pub fn serve(&self, mount: &Mount, method: &str, url: &Url) -> MountResponse {
         if method != "GET" && method != "HEAD" {
             return MountResponse::text(405, "Method Not Allowed", "mounted origins only support GET and HEAD");

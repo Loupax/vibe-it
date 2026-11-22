@@ -1,5 +1,6 @@
 mod cache;
 mod cookies;
+mod hostmap;
 mod mount;
 mod record;
 mod ws;
@@ -58,6 +59,10 @@ fn print_usage() {
     eprintln!("                       --mount http://web-platform.test:8000=/path/to/wpt");
     eprintln!("  wire --mount-override PATH=FILE  answer requests for exactly PATH (on any mount) with");
     eprintln!("                       FILE, e.g. /resources/testharnessreport.js=./my-report.js");
+    eprintln!("  wire --map-host '*.SUFFIX=LOOPBACK-IP'  connect SUFFIX and its subdomains to a loopback address");
+    eprintln!("                       (QWPT8), e.g. '*.web-platform.test=127.0.0.1'; exempt from public-only for");
+    eprintln!("                       those hosts only. Refused at start: any suffix not ending in .test,");
+    eprintln!("                       .localhost, .invalid or .example, and any non-loopback target.");
     eprintln!("  wire --record DIR    also store every network response in DIR (blobs/<sha256> zstd +");
     eprintln!("                       index.jsonl). Recordings can hold personal data: keep them local.");
     eprintln!("  wire --replay DIR [--replay-rules FILE] [--replay-delay 5ms]");
@@ -149,6 +154,20 @@ fn main() {
                             std::process::exit(1);
                         }
                     },
+                }
+                i += 2;
+            }
+            "--map-host" => {
+                let Some(spec) = args.get(i + 1) else {
+                    eprintln!("wire: --map-host needs an argument");
+                    std::process::exit(1);
+                };
+                match hostmap::HostMap::parse(spec) {
+                    Ok(m) => hostmap::add(m),
+                    Err(e) => {
+                        eprintln!("wire: {e}");
+                        std::process::exit(1);
+                    }
                 }
                 i += 2;
             }
@@ -677,6 +696,16 @@ fn reconcile_hops(first: &Url, final_url: &Url) {
 
 impl ureq::Resolver for TrackingResolver {
     fn resolve(&self, netloc: &str) -> std::io::Result<Vec<SocketAddr>> {
+        // QWPT8 `--map-host`: a mapped reserved test domain goes to its loopback address on the URL's
+        // own port, with no DNS lookup; the operator opted in, so public-only does not apply to it.
+        // Every other host takes the normal path below, unchanged.
+        if let Some(ip) = hostmap::lookup(netloc) {
+            let port = netloc.rsplit_once(':').and_then(|(_, p)| p.parse::<u16>().ok()).unwrap_or(80);
+            let key = netloc.to_ascii_lowercase();
+            class_map_put(&key, ip_class(ip));
+            TRACKER.with(|t| t.borrow_mut().hops.push((key, ip_class(ip))));
+            return Ok(vec![SocketAddr::new(ip, port)]);
+        }
         let addrs: Vec<SocketAddr> = netloc.to_socket_addrs()?.collect();
         TRACKER.with(|t| {
             let mut t = t.borrow_mut();
@@ -1137,6 +1166,21 @@ fn execute_with(agent: &ureq::Agent, shared: &Shared, request: &ParsedRequest, w
     // network (the operator opted in with --mount, so `public-only` does not apply).
     if let Some(m) = shared.mounts.find(&request.url) {
         let r = shared.mounts.serve(m, &request.method, &request.url);
+        let mut headers = r.headers;
+        headers.push(("X-Wire-Target-Class".into(), "file".into()));
+        headers.push(("X-Wire-Final-Url".into(), request.url.to_string()));
+        write_status_and_headers(w, r.status, r.reason, &headers)?;
+        w.write_all(&r.body)?;
+        w.flush()?;
+        log_timing(&request.method, &request.url, r.status, Duration::ZERO, Duration::ZERO);
+        return Ok(());
+    }
+    // QWPT8: `--mount-override` also applies to a `--map-host` host (the real WPT server's own
+    // testharnessreport.js is replaced by the runner's hook); everything else on it goes to the server.
+    if let Some(host) = request.url.host_str()
+        && hostmap::lookup(&format!("{host}:{}", request.url.port_or_known_default().unwrap_or(80))).is_some()
+        && let Some(r) = shared.mounts.serve_override_only(&request.method, &request.url)
+    {
         let mut headers = r.headers;
         headers.push(("X-Wire-Target-Class".into(), "file".into()));
         headers.push(("X-Wire-Final-Url".into(), request.url.to_string()));
@@ -2837,6 +2881,9 @@ mod tests {
         assert_eq!(hdr(&execute_for_test(&build_agent(), &bad), "X-Wire-Features"), Some("ua,ws,jarfile,token,cache"));
     }
 }
+
+#[cfg(test)]
+mod hostmap_tests;
 
 #[cfg(test)]
 mod mount_wire_tests {
