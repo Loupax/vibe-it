@@ -36,6 +36,7 @@ mod net_policy_tests;
 mod paint_tests;
 mod perf_tests;
 mod qmsg1_tests;
+mod qapi7_tests;
 mod missing_api_tests;
 mod incr_fuzz_tests;
 mod zhoist_tests;

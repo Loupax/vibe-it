@@ -24,6 +24,7 @@
   var table = new Map();      // kind \0 iface \0 name -> {iface, kind, name, hits, script}
   var ignored = 0, dropped = 0;
   var MAX = 20000;
+  var TOUCH = /^ontouch(start|end|move|cancel)$/;
   var inTrap = false;
 
   function chainNames(o) {
@@ -63,6 +64,9 @@
       if (!std && names.indexOf('Window') >= 0 && globalNames[name] === 1) std = true;
       if (!std && names.length === 0 && receiver === g) { iface = 'Window'; std = globalNames[name] === 1; }
     }
+    // QAPI7: `'ontouchstart' in window` is the page's touch-device probe; scratchy is a desktop browser and
+    // leaves the touch handler attributes out on purpose, so the probe is the expected answer, not a miss.
+    if (std && TOUCH.test(name)) std = false;
     if (!std) { ignored++; return; }
     var key = kind + '\0' + iface + '\0' + name;
     var e = table.get(key);
