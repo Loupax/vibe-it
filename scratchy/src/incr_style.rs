@@ -776,16 +776,18 @@ impl Engine {
         self.gen_dirty |= self.table.get(&pk).is_some_and(Entry::none);
         self.kids_dirty.insert(pk);
         self.box_mark(pk);
-        if !self.table.contains_key(&child) {
-            // a text node (or an element of an unrendered subtree): only `:empty` sees it
-            let m = map.for_text(parent);
-            self.apply(m);
-            return;
-        }
         let kids = parent.children.borrow();
         let pos = |k: usize| kids.iter().position(|c| node_id(c) == k);
         let index = next.and_then(pos).or_else(|| prev.and_then(pos).map(|i| i + 1)).unwrap_or(kids.len());
         drop(kids);
+        if !self.table.contains_key(&child) {
+            // a text node (or an element of an unrendered subtree): only `:empty` sees it, and `:has()` (QAPI6)
+            let m = map.for_text(parent);
+            self.apply(m);
+            let m = map.for_has_removal(parent, index);
+            self.apply(m);
+            return;
+        }
         let node = self.handle_of(child);
         let m = map.for_children(parent, &ChildChange::Removed { node: node.clone().unwrap_or_else(|| parent.clone()), index });
         self.apply(m);
@@ -843,6 +845,63 @@ impl Engine {
         }
     }
 
+    /// QAPI6: a logged change of a node without an entry (under `display: none`, or a text node whose parent has
+    /// none). Nothing it styles is rendered, but with a `:has()` rule a rendered anchor above it may now match
+    /// differently: the marks of the change, from the node's handle the log kept.
+    fn unentried(&mut self, map: &InvalidationMap, e: &crate::incr_log::Entry) {
+        if !map.has_has() {
+            return;
+        }
+        let h = match crate::incr_log::taken_node(e.node) {
+            Some(Some(h)) => h,
+            // freed: out of the document, its removal was logged on a live parent
+            Some(None) => return,
+            // not kept (the log ran before this map existed)
+            None => {
+                self.full = true;
+                return;
+            }
+        };
+        let m = match &e.change {
+            Change::Attr { name, old, new } => map.for_attr(&h, name, val_str(old), val_str(new)),
+            Change::ChildInsert { child, .. } => {
+                let c = h.children.borrow().iter().find(|c| node_id(c) == *child).cloned();
+                match c {
+                    Some(c) if is_el(&c) => map.for_children(&h, &ChildChange::Inserted(c)),
+                    _ => map.for_text(&h),
+                }
+            }
+            Change::ChildRemove { prev, next, .. } => {
+                let kids = h.children.borrow();
+                let pos = |k: usize| kids.iter().position(|c| node_id(c) == k);
+                let index = next.and_then(pos).or_else(|| prev.and_then(pos).map(|i| i + 1)).unwrap_or(kids.len());
+                drop(kids);
+                let mut m = map.for_text(&h);
+                m.extend(map.for_has_removal(&h, index));
+                m
+            }
+            Change::Text => match parent_handle(&h) {
+                Some(p) => map.for_text(&p),
+                None => Vec::new(),
+            },
+            Change::TextContent | Change::InnerHtml => {
+                let mut m = map.for_text(&h);
+                m.extend(map.for_has_removal(&h, 0));
+                for c in h.children.borrow().iter().filter(|c| is_el(c)) {
+                    m.extend(map.for_children(&h, &ChildChange::Inserted(c.clone())));
+                }
+                m
+            }
+            Change::Form(_) => {
+                let mut m = map.for_state(&h, StateKind::Checked);
+                m.extend(map.for_state(&h, StateKind::Indeterminate));
+                m
+            }
+            _ => Vec::new(),
+        };
+        self.apply(m);
+    }
+
     fn process_log(&mut self, map: &InvalidationMap, entries: &[crate::incr_log::Entry]) {
         let mut text_index = None;
         let mut old_lists: HashMap<usize, Vec<usize>> = HashMap::new();
@@ -860,6 +919,7 @@ impl Engine {
                     let Some(h) = self.handle_of(e.node) else {
                         // QINC1k3: a node without an entry (under a `display: none` element) may still be walked.
                         self.gen_dirty = true;
+                        self.unentried(map, e);
                         continue;
                     };
                     self.covered_attr.insert((e.node, name.clone()));
@@ -869,6 +929,7 @@ impl Engine {
                     let Some(p) = self.handle_of(e.node) else {
                         // QINC1k3: see above.
                         self.gen_dirty = true;
+                        self.unentried(map, e);
                         continue;
                     };
                     self.covered_kids.insert(e.node);
@@ -881,14 +942,18 @@ impl Engine {
                     let Some(p) = self.handle_of(e.node) else {
                         // QINC1k3: see above.
                         self.gen_dirty = true;
+                        self.unentried(map, e);
                         continue;
                     };
                     self.covered_kids.insert(e.node);
                     self.removal(map, &p, *child, *prev, *next);
                 }
                 Change::Text => {
-                    let Some(pk) = self.text_parent(e.node, &mut text_index) else { continue };
-                    let Some(p) = self.handle_of(pk) else { continue };
+                    let Some(p) = self.text_parent(e.node, &mut text_index).and_then(|pk| self.handle_of(pk)) else {
+                        self.unentried(map, e);
+                        continue;
+                    };
+                    let pk = node_id(&p);
                     self.covered_kids.insert(pk);
                     self.kids_dirty.insert(pk);
                     self.box_mark(pk);
@@ -899,6 +964,7 @@ impl Engine {
                     let Some(p) = self.handle_of(e.node) else {
                         // QINC1k3: see above.
                         self.gen_dirty = true;
+                        self.unentried(map, e);
                         continue;
                     };
                     self.covered_kids.insert(e.node);
@@ -925,6 +991,7 @@ impl Engine {
                     let Some(h) = self.handle_of(e.node) else {
                         // QINC1k3: `:checked` matches of an element without an entry (see above).
                         self.gen_dirty = true;
+                        self.unentried(map, e);
                         continue;
                     };
                     self.box_mark(e.node);

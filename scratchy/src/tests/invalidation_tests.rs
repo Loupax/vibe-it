@@ -229,16 +229,12 @@ fn shape_not_and_is() {
 
 #[test]
 fn shape_has_is_global() {
+    // QAPI6: `:has()` is parsed and bounded (its anchors, `qapi6_tests.rs`); `:host` is still global.
     let m = map(".a:has(.b){color:red}");
     let d = parse_html(PAGE);
-    if m.is_global() {
-        let r = m.for_class(&by_id(&d, "p"), Some("a"), None);
-        assert_eq!(r.len(), 1);
-        assert!(r[0].1 == Mark::Global);
-    } else {
-        // The parser rejects `:has()`: the rule does not exist, so nothing can depend on it.
-        assert_eq!(m.entry_count(), 0);
-    }
+    assert!(!m.is_global() && m.has_has());
+    let r = ids(&d, &m.for_class(&by_id(&d, "g"), Some("b"), None));
+    assert_eq!(r, vec!["p".to_string()]);
 }
 
 #[test]
@@ -326,10 +322,10 @@ const SHAPES: [&str; 48] = [
     ".K:not(:hover) .K", "p.K:focus-within .K",
 ];
 
-fn rand_css(r: &mut Rng) -> String {
+fn rand_css(r: &mut Rng, shapes: &[&str]) -> String {
     let mut css = String::new();
     for _ in 0..(6 + r.below(10)) {
-        let mut sel = r.pick(&SHAPES).to_string();
+        let mut sel = r.pick(shapes).to_string();
         while let Some(i) = sel.find('K') {
             sel.replace_range(i..i + 1, r.pick(&CLASSES));
         }
@@ -371,20 +367,25 @@ fn chain(h: &Handle) -> Vec<Handle> {
 }
 
 #[derive(Default)]
-struct Tally {
-    steps: usize,
-    changed: usize,
-    predicted: usize,
-    predicted_on_changed_steps: usize,
-    global_steps: usize,
+pub(super) struct Tally {
+    pub(super) steps: usize,
+    pub(super) changed: usize,
+    pub(super) predicted: usize,
+    pub(super) predicted_on_changed_steps: usize,
+    pub(super) global_steps: usize,
 }
 
 /// One fuzz case; returns the tally and panics on an unsound prediction.
 fn fuzz_case(seed: u64, steps: usize, t: &mut Tally) {
+    fuzz_case_with(seed, steps, t, &SHAPES);
+}
+
+/// `fuzz_case` over the selector shapes `shapes` (`K` = a random class); QAPI6 runs it with `:has()` shapes.
+pub(super) fn fuzz_case_with(seed: u64, steps: usize, t: &mut Tally, shapes: &[&str]) {
     let mut r = Rng(seed.wrapping_mul(0x9E3779B97F4A7C15) | 1);
     let mut n = 0;
     let html = format!("<body>{}{}</body>", rand_html(&mut r, 0, &mut n), rand_html(&mut r, 0, &mut n));
-    let css = rand_css(&mut r);
+    let css = rand_css(&mut r, shapes);
     let doc = parse_html(&html);
     let rules = parse_stylesheet(&css);
     let m = InvalidationMap::build(&rules, 1);
