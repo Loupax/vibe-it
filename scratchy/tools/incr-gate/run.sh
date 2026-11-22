@@ -4,10 +4,9 @@
 # Usage: tools/incr-gate/run.sh KIND MODE PAGE TAG
 #   KIND  window   (nested dwl + tools/inject + SCRATCHY_FRAME_STATS + grim screenshots)
 #         headless (--perf-report --budget-ms 20000 --seconds S)
-#   MODE  off      (SCRATCHY_INCR=0: the old full-relayout path; the engine is the default since QINC1l)
-#         incr     (SCRATCHY_INCR=1, same as the default)
-#         check    (SCRATCHY_INCR=1 SCRATCHY_INCR_CHECK=1: every engine update is re-done from scratch
-#                   and compared; differences print `scratchy: incr-check: MISMATCH ...`)
+#   MODE  incr     (the engine, the only pipeline since QINC1m)
+#         check    (SCRATCHY_INCR_CHECK=1: every engine update is re-done from scratch and compared;
+#                   differences print `scratchy: incr-check: MISMATCH ...`)
 #   PAGE  ytr (YouTube results, R58 recipe), ytw (YouTube watch G1AeBgalFZk, R55 recipe),
 #         wiki (Wikipedia Rust, R55 recipe), github, bbc (bbc.com/news), social (social.loupax.com/discover),
 #         hover (tools/incr-gate/hover.html: script-free, hover-heavy, no forced layouts)
@@ -73,9 +72,8 @@ case $PAGE in
   *) echo "run.sh: unknown page $PAGE" >&2; exit 2 ;;
 esac
 case $MODE in
-  off) MENV=(SCRATCHY_INCR=0) ;;
-  incr) MENV=(SCRATCHY_INCR=1) ;;
-  check) MENV=(SCRATCHY_INCR=1 SCRATCHY_INCR_CHECK=1) ;;
+  incr) MENV=() ;;
+  check) MENV=(SCRATCHY_INCR_CHECK=1) ;;
   *) echo "run.sh: unknown mode $MODE" >&2; exit 2 ;;
 esac
 
@@ -204,7 +202,7 @@ echo "locked=$(date -Is) uptime_locked=$(uptime | sed 's/.*load average: //')" >
 
 if [ "$KIND" = headless ]; then
   systemd-run --user --scope -q -p MemoryMax="$MEMCAP" -p MemorySwapMax=0 \
-    env "${MENV[@]}" "$SCRATCHY" "${DET[@]}" --perf-report --socket "$WSOCK" --seconds "$HSECS" --budget-ms 20000 "$URL" \
+    env SCRATCHY_STATE_DIR="$OUT/$TAG.state" "${MENV[@]}" "$SCRATCHY" "${DET[@]}" --perf-report --socket "$WSOCK" --seconds "$HSECS" --budget-ms 20000 "$URL" \
     >"$OUT/$TAG.json" 2>"$OUT/$TAG.log" 9>&-
   echo "exit=$?" >>"$OUT/$TAG.meta"
 else

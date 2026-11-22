@@ -113,10 +113,10 @@ tools/incr-gate/ holds the durable recipes the QINC1 gates use (the R55 input sc
      (cd tools/inject && cargo build --release)
      cp target/release/scratchy $Q/scratchy-under-test        # never the live ~/.cargo/bin path mid-series
      SCRATCHY=$Q/scratchy-under-test WIRE=$Q/wire OUT=$Q/gate tools/incr-gate/gate.sh check     # exactness
-     SCRATCHY=... OUT=... tools/incr-gate/gate.sh perf        # window, flag off vs SCRATCHY_INCR=1, interleaved
+     BASE=$Q/scratchy-main SCRATCHY=... OUT=... tools/incr-gate/gate.sh perf   # window, BASE vs SCRATCHY, interleaved
      SCRATCHY=... OUT=... tools/incr-gate/gate.sh headless    # the same pairs with --perf-report
      python3 -I tools/incr-gate/summarize.py $Q/gate [tag-prefix]   # tables again
-  run.sh KIND MODE PAGE TAG is one run (KIND window|headless, MODE off|incr|check, PAGE ytr ytw wiki
+  run.sh KIND MODE PAGE TAG is one run (KIND window|headless, MODE incr|check, PAGE ytr ytw wiki
   github bbc social hover); its header documents the input plan of each page, gate.sh's header the
   series, summarize.py's docstring the columns. Every run: own wire (fresh cookies), 6G systemd-run scope,
   flock /tmp/scratchy-perf.lock, a `pre` screenshot before any input and an `end` one after it.
@@ -126,7 +126,7 @@ tools/incr-gate/ holds the durable recipes the QINC1 gates use (the R55 input sc
   wiki plan (all its links above y 300) in its 102-build regime (QINC1k3).
   hover.html is a script-free, hover-heavy local page (App frames without forced layouts).
   shotdiff.py OUT perf [pre|end] compares the flag-off / flag-on screenshots (next off run = noise floor).
-  abs-drift.html: QINC1k's minimised check-mode mismatch (run headless with SCRATCHY_INCR=1 SCRATCHY_INCR_CHECK=1);
+  abs-drift.html: QINC1k's minimised check-mode mismatch (run headless with SCRATCHY_INCR_CHECK=1);
   0 mismatches since QINC1k1 (was 2). fuzz-width-504-512.txt: an unrelated fuzz-found mismatch (proposed new item, see R60 QINC1k1).
   img-geom.html (+ img-400x300.png): QINC1k5's script-geometry probes for an <img> without size
   attributes (social.loupax.com's vim.js gutter zone, github.com's card grid + ResizeObserver); no input:

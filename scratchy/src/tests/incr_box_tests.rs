@@ -15,7 +15,7 @@ impl LogOnly {
         incr_box::reset();
         let _ = incr_log::drain();
         set_interaction(&InteractionState::default());
-        LogOnly(incr_style::set_seam(Seam { shadow: true, reconcile: false, panic: true }))
+        LogOnly(incr_style::set_seam(Seam { reconcile: false, panic: true }))
     }
 }
 
@@ -294,7 +294,7 @@ fn qinc1g_a_broken_reuse_is_caught() {
     // The comparison has teeth: a stale kept tree (a text change the log never describes, reconcile
     // off) is reported as a box mismatch, not silently kept.
     let _g = LogOnly::new();
-    incr_style::set_seam(Seam { shadow: true, reconcile: false, panic: false });
+    incr_style::set_seam(Seam { reconcile: false, panic: false });
     let doc = page("", "<p id=p>x</p><p>y</p>");
     build(&doc);
     let t = by_id(&doc, "p").children.borrow()[0].clone();

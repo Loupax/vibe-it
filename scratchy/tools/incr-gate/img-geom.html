@@ -8,7 +8,7 @@
          the parent card's getBoundingClientRect() at mount, then from its ResizeObserver entries.
      The images are a 400x300 PNG FILE next to this page (a `data:` URL is decoded inline by every
      layout, flag or not, so it would not show the difference). Every probe prints `img-geom: <label> <json>` with console.error (window log and --perf-report `console_errors`) and appends it to #out (Chrome
-     --dump-dom reference). Run: scratchy window off vs SCRATCHY_INCR=1 (run.sh window MODE imggeom TAG),
+     --dump-dom reference). Run: scratchy window (run.sh window incr imggeom TAG),
      headless (--perf-report), and google-chrome --headless=new --dump-dom for the reference. -->
 <style>
 body { margin: 0; font: 16px/21px sans-serif; }

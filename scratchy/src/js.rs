@@ -1953,21 +1953,6 @@ impl JsEngine {
         self.eval_value::<bool>("media-ui", &format!("__scratchy_media_ui({id},'{name}',{arg})")).unwrap_or(false)
     }
 
-    /// QY53e2: the App finished a COMPLETE layout `laid` of the page for a `vw` x `vh` window, built when
-    /// the DOM/CSS were at `stamp` (`js_geom::render_stamp()` taken at the build). If a deferred
-    /// IntersectionObserver recheck is waiting and the page is still as built, the observers evaluate on
-    /// it instead of forcing a layout of their own; otherwise this does nothing (the forced path stays).
-    pub(crate) fn rendered_geometry(&self, laid: &crate::layout::Laid, stamp: crate::js_geom::RenderStamp, vw: u32, vh: u32) {
-        if stamp != crate::js_geom::render_stamp() {
-            return;
-        }
-        if !self.eval_value::<bool>("io-want", "!!globalThis.__scratchy_ioWant && globalThis.__scratchy_ioWant()").unwrap_or(false) {
-            return;
-        }
-        crate::js_geom::set_rendered(laid, stamp, vw, vh);
-        self.eval("io-rendered", "globalThis.__scratchy_ioRendered()");
-    }
-
     /// QM1g: true once when a video's size became known/changed (relayout).
     pub(crate) fn media_size_changed(&self) -> bool {
         self.media.as_ref().is_some_and(|m| m.borrow_mut().take_size_changed())

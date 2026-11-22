@@ -1,10 +1,16 @@
-//! QINC1j (R60 sections 3, 9): App frames through the incremental engine (`SCRATCHY_INCR=1`; here
-//! the `incr_frame::set_live` seam). Every Main frame is checked against a from-scratch build and
-//! layout (check mode is always on in tests: a difference panics), so these tests pin WHICH path a
-//! frame takes and what the App then shows.
+//! QINC1j (R60 sections 3, 9): App frames through the incremental engine (the only App frame path
+//! since QINC1m). Every Main frame is checked against a from-scratch build and layout (check mode is
+//! always on in tests: a difference panics), so these tests pin WHICH path a frame takes and what
+//! the App then shows.
 use super::*;
-use super::qy53n2_tests::find_id;
 use crate::perf::{incr_get, Incr};
+
+pub(super) fn find_id(h: &Handle, id: &str) -> Option<Handle> {
+    if element_attr(h, "id").is_some_and(|v| &*v == id) {
+        return Some(h.clone());
+    }
+    h.children.borrow().iter().find_map(|c| find_id(c, id))
+}
 
 const W: u32 = 600;
 const H: u32 = 400;
@@ -14,20 +20,19 @@ fn proxy() -> Option<EventLoopProxy<AppEvent>> {
     test_event_loop().ok().map(|l| l.create_proxy())
 }
 
-struct Live(bool);
+struct Live;
 
 impl Drop for Live {
     fn drop(&mut self) {
-        crate::incr_frame::set_live(self.0);
         crate::anim_eval::set_app_clock_override(None);
         set_interaction(&InteractionState::default());
     }
 }
 
-/// An App on `html` whose frames use the engine, after its first frame. `None` without a display.
+/// An App on `html` after its first frame. `None` without a display.
 fn live_app(html: &str) -> Option<(App, Live)> {
     let proxy = proxy()?;
-    let live = Live(crate::incr_frame::set_live(true));
+    let live = Live;
     crate::anim_eval::set_app_clock_override(Some(0.0));
     set_interaction(&InteractionState::default());
     let mut app = App::new_static(parse_html(html), proxy, None);
@@ -196,13 +201,6 @@ fn qinc1j_image_arrival_frame() {
 #[test]
 fn qinc1k6_load_handler_forced_layout_sees_the_decoded_image() {
     let html = "<html><head><style>body{margin:0}</style></head><body><p>text</p><img id=i src=\"http://example.test/a.png\"></body></html>";
-    struct Seam(Option<bool>);
-    impl Drop for Seam {
-        fn drop(&mut self) {
-            crate::incr_engine::set_forced_seam(self.0);
-        }
-    }
-    let _seam = Seam(crate::incr_engine::set_forced_seam(Some(true)));
     let Some((mut app, _l)) = live_app(html) else { return };
     let doc = app.document.clone();
     app.js = run_page_scripts(
@@ -277,20 +275,6 @@ fn qinc1j_js_write_forced_read_then_frame_does_no_layout() {
     assert_eq!(shown(&app, "a").h, 12.0);
 }
 
-/// With the flag off nothing of this runs: frames go to the worker queue as before.
-#[test]
-fn qinc1j_flag_off_keeps_the_old_path() {
-    let Some(proxy) = proxy() else { return };
-    let prev = crate::incr_frame::set_live(false);
-    let mut app = App::new_static(parse_html("<p>x</p>"), proxy, None);
-    let b = counts();
-    app.rebuild_layout(W, H, false);
-    assert_eq!(counts(), b, "no engine frame");
-    assert!(app.layout_in_flight, "queued for the shaping worker");
-    assert_eq!(app.live_ver, 0);
-    crate::incr_frame::set_live(prev);
-}
-
 /// A restyle of more than a quarter of the page (and at least `WORKER_MIN_RESTYLED` elements) goes
 /// to the worker with a COPY of the kept box tree; the engine adopts the worker's layout of it and
 /// the next frames are incremental again.
@@ -319,21 +303,18 @@ fn qinc1j_big_restyle_goes_to_the_worker_with_the_kept_tree() {
     assert!(shown(&app, "t").h != 9.0, "back to auto height");
 }
 
-/// App-side inputs reach the write log only when they change (and only with the flag).
+/// App-side inputs reach the write log only when they change.
 #[test]
 fn qinc1j_media_size_change_is_logged_once() {
     use crate::incr_log::{Ambient, Change};
-    let prev = crate::incr_frame::set_live(true);
     let _ = crate::incr_log::drain();
     let sizes: HashMap<usize, (u32, u32)> = [(1usize, (320u32, 240u32))].into_iter().collect();
     crate::media_video::set_intrinsic(sizes.clone());
     crate::media_video::set_intrinsic(sizes);
     let n = crate::incr_log::drain().entries.iter().filter(|e| e.change == Change::Ambient(Ambient::MediaSize)).count();
     assert_eq!(n, 1);
-    crate::incr_frame::set_live(false);
     crate::media_video::set_intrinsic(HashMap::new());
-    assert!(crate::incr_log::drain().entries.is_empty(), "flag off: nothing logged");
-    crate::incr_frame::set_live(prev);
+    let _ = crate::incr_log::drain();
 }
 
 // ---------- QINC1n: engine evidence on App frames ----------

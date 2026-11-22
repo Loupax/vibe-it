@@ -484,7 +484,7 @@ fn fuzz_case(seed: u64, fs: &mut FontSystem) {
     set_interaction(&InteractionState::default());
     let _ = crate::incr_log::drain();
     // The log alone feeds the engine (no reconcile); a mismatch is collected, not panicked on.
-    let saved = crate::incr_style::set_seam(crate::incr_style::Seam { shadow: true, reconcile: false, panic: false });
+    let saved = crate::incr_style::set_seam(crate::incr_style::Seam { reconcile: false, panic: false });
     let _ = crate::incr_style::take_mismatches();
     let mut incremental = 0;
     for step in 0..(3 + r.below(4)) {
@@ -871,7 +871,7 @@ fn replay(html: &str, width: f32, mutate: impl FnOnce(&[Handle]), fs: &mut FontS
     let doc = parse_html(html);
     set_interaction(&InteractionState::default());
     let _ = crate::incr_log::drain();
-    let saved = crate::incr_style::set_seam(crate::incr_style::Seam { shadow: true, reconcile: false, panic: false });
+    let saved = crate::incr_style::set_seam(crate::incr_style::Seam { reconcile: false, panic: false });
     let _ = crate::incr_style::take_mismatches();
     let first = replay_step(&doc, width, 700.0, fs);
     let mut els = Vec::new();

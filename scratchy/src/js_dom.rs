@@ -631,12 +631,6 @@ fn geom_bump() {
     GEOM_GEN.with(|g| g.set(g.get() + 1));
 }
 
-/// Test-only: a geometry bump of unknown cause.
-#[cfg(test)]
-pub(crate) fn geom_bump_for_tests() {
-    geom_bump();
-}
-
 /// Is `h` part of the page document `t.get(0)`?
 /// QY54b1: flags a `href`/`rel`/`disabled` change on a connected `<link>` for the App.
 fn note_link_attr(reqs: &Rc<RefCell<JsRequests>>, t: &DomTable, h: &Handle, name: &str, changed: bool) {
@@ -696,23 +690,6 @@ fn geom_bump_if(t: &DomTable, h: &Handle, changed: bool) {
     }
 }
 
-/// QY53l2: an attribute write bumps the geometry generation unless it changed
-/// nothing, missed the page, or landed strictly inside a `display: none`
-/// subtree of the last forced layout (js_geom::attr_write_hidden).
-fn geom_bump_attr(t: &DomTable, h: &Handle, changed: bool, name: &str) {
-    if changed && page_connected(t, h) && !crate::js_geom::attr_write_hidden(h) && !crate::js_geom::attr_write_unread(h, name) {
-        geom_bump();
-    }
-}
-
-/// QY53l2: the child list of `p` (connected) changed; bumps unless the
-/// pre-check found it inside a hidden subtree and the root kept its `:empty`-ness.
-fn geom_bump_children(p: &Handle, pre: Option<crate::js_geom::HiddenChildren>) {
-    if !crate::js_geom::children_write_post(p, pre) {
-        geom_bump();
-    }
-}
-
 /// Does a text-content write of `text` change `h`'s children?
 fn text_write_changes(h: &Handle, text: &str) -> bool {
     match &h.data {
@@ -741,7 +718,6 @@ fn insert_native(t: &DomTable, d: &Cell<bool>, gn: &Cell<u64>, lk: Option<&Rc<Re
     }
     let frag = t.is_frag(child, &c);
     let old_parent = if frag { None } else { parent_handle(&c) };
-    // QY53l2: a move between (or within) hidden subtrees changes no box; both ends are checked.
     let new_conn = page_connected(t, &p);
     let old_conn = old_parent.filter(|o| page_connected(t, o));
     let moved: Vec<Handle> = if new_conn || old_conn.is_some() {
@@ -749,8 +725,6 @@ fn insert_native(t: &DomTable, d: &Cell<bool>, gn: &Cell<u64>, lk: Option<&Rc<Re
     } else {
         Vec::new()
     };
-    let pre_new = if new_conn { crate::js_geom::children_write_pre(&p, &moved) } else { None };
-    let pre_old = old_conn.as_ref().map(|o| crate::js_geom::children_write_pre(o, &moved));
     if let Some(lk) = lk
         && moved.iter().any(crate::link_css::has_link)
     {
@@ -770,14 +744,7 @@ fn insert_native(t: &DomTable, d: &Cell<bool>, gn: &Cell<u64>, lk: Option<&Rc<Re
     d.set(true);
     gn.set(gn.get() + 1);
     if ok && (new_conn || old_conn.is_some()) {
-        let skip_new = !new_conn || crate::js_geom::children_write_post(&p, pre_new);
-        let skip_old = match (&old_conn, pre_old) {
-            (Some(o), Some(pre)) => crate::js_geom::children_write_post(o, pre),
-            _ => true,
-        };
-        if !(skip_new && skip_old) {
-            geom_bump();
-        }
+        geom_bump();
     }
     ok
 }
@@ -1137,7 +1104,6 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     });
     // QJ4: layout rect of element `id` (document space), see js_geom.rs.
     let t = table.clone();
-    crate::js_geom::clear_rendered();
     crate::ro_geom::reset();
     let geom = Rc::new(RefCell::new(crate::js_geom::GeomCache::default()));
     let geom2 = geom.clone();
@@ -1226,7 +1192,6 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             crate::ro_geom::Answer::Stale => None,
         }
     });
-    let geom7 = geom.clone();
     native!(ctx, "__d_rect", move |c: Ctx<'_>, id: i32, vw: f64, vh: f64| -> Vec<f64> {
         let (page, h) = {
             let t = t.borrow();
@@ -1254,14 +1219,6 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         }
         geom2.borrow_mut().text_rects(&page, geom_gen(), &h, vw as f32, vh as f32)
     });
-    // QY53e2: the App's own layout (js_geom::set_rendered) as a read-only rect source for IntersectionObserver.
-    let t = table.clone();
-    native!(ctx, "__d_rect_r", move |id: i32| -> Vec<f64> {
-        let Some(h) = t.borrow().get(id) else { return Vec::new() };
-        crate::js_geom::rendered_rect(&h)
-    });
-    native!(ctx, "__d_rend_ok", |vw: f64, vh: f64| -> bool { crate::js_geom::rendered_ok(vw as u32, vh as u32) });
-    native!(ctx, "__d_rend_clear", crate::js_geom::clear_rendered);
     // QY53e1: is the geometry cache current for this viewport (no layout), and what the last layout cost.
     native!(ctx, "__d_geom_fresh", move |vw: f64, vh: f64| -> bool { geom3.borrow().is_fresh(geom_gen(), vw as f32, vh as f32) });
     native!(ctx, "__d_geom_cost", move || -> f64 { geom4.borrow().last_cost_ms() });
@@ -1269,9 +1226,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     native!(ctx, "__d_io", |on: bool| crate::perf::set_io(on));
     let gn = wgen.clone();
     native!(ctx, "__d_wgen", move || -> f64 { gn.get() as f64 });
-    // QYTC1a: plus the in-place shifts, so script caches keyed on it (IntersectionObserver,
-    // Range glyph rects) still see a box that moved without a geometry-generation bump.
-    native!(ctx, "__d_ggen", move || -> f64 { (geom_gen() + crate::js_geom::geom_shifts()) as f64 });
+    native!(ctx, "__d_ggen", move || -> f64 { geom_gen() as f64 });
     native!(ctx, "__d_csprops", move || -> Vec<String> { js_style::PROPS.iter().map(|s| s.to_string()).collect() });
     // ---- Q33c mutation. Every write marks the page dirty; the event
     // loop rebuilds layout once per turn, not once per call.
@@ -1282,10 +1237,6 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             let old = element_attr(&h, &name).map(|s| s.to_string());
             let changed = old.as_deref() != Some(val.as_str());
             note_link_attr(&lk, &t.borrow(), &h, &name, changed);
-            // QYTC1d: a `class` write that changes no element's matched rules keeps the layout.
-            let probe = (changed && name == "class" && crate::js_geom::class_probe_possible() && page_connected(&t.borrow(), &h))
-                .then(|| crate::js_geom::class_write_pre(&h, old.as_deref(), Some(&val)))
-                .flatten();
             set_attr(&h, &name, &val);
             // QANIMHLb: an inline `transition` makes the headless rendering step style the page.
             if name == "style" && val.contains("transition") {
@@ -1295,15 +1246,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             // QY53m: a write that changed no value does not wake the App's restyle.
             d.set(d.get() | changed);
             gn.set(gn.get() + 1);
-            // QYTC1a: a contained `style` write moves the cached boxes in place instead.
-            let in_place = changed
-                && name == "style"
-                && page_connected(&t.borrow(), &h)
-                && geom7.try_borrow_mut().is_ok_and(|mut g| g.style_write_in_place(&h, old.as_deref(), Some(&val), geom_gen()));
-            let neutral = probe.is_some_and(crate::js_geom::class_write_post);
-            if !in_place && !neutral {
-                geom_bump_attr(&t.borrow(), &h, changed, &name);
-            }
+            geom_bump_if(&t.borrow(), &h, changed);
         }
     });
     let (t, d, gn, lk) = (table.clone(), dirty.clone(), wgen.clone(), reqs.clone());
@@ -1313,17 +1256,12 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             let old = element_attr(&h, &name).map(|s| s.to_string());
             let changed = old.is_some();
             note_link_attr(&lk, &t.borrow(), &h, &name, changed);
-            let probe = (changed && name == "class" && crate::js_geom::class_probe_possible() && page_connected(&t.borrow(), &h))
-                .then(|| crate::js_geom::class_write_pre(&h, element_attr(&h, "class").as_deref(), None))
-                .flatten();
             remove_attr(&h, &name);
             log_attr(&t.borrow(), &h, changed, &name, old.as_deref(), None);
             // QY53m: a write that changed no value does not wake the App's restyle.
             d.set(d.get() | changed);
             gn.set(gn.get() + 1);
-            if !probe.is_some_and(crate::js_geom::class_write_post) {
-                geom_bump_attr(&t.borrow(), &h, changed, &name);
-            }
+            geom_bump_if(&t.borrow(), &h, changed);
         }
     });
     // QY45: qualified-name / namespaced attribute access over the stored
@@ -1381,7 +1319,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             // QY53m: a write that changed no value does not wake the App's restyle.
             d.set(d.get() | changed);
             gn.set(gn.get() + 1);
-            geom_bump_attr(&t.borrow(), &h, changed, &n);
+            geom_bump_if(&t.borrow(), &h, changed);
         }
     });
     let (t, d, gn, lk) = (table.clone(), dirty.clone(), wgen.clone(), reqs.clone());
@@ -1402,7 +1340,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             // QY53m: a write that changed no value does not wake the App's restyle.
             d.set(d.get() | changed);
             gn.set(gn.get() + 1);
-            geom_bump_attr(&t.borrow(), &h, changed, &n);
+            geom_bump_if(&t.borrow(), &h, changed);
         }
     });
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
@@ -1430,7 +1368,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             // QY53m: a write that changed no value does not wake the App's restyle.
             d.set(d.get() | changed);
             gn.set(gn.get() + 1);
-            geom_bump_attr(&t.borrow(), &h, changed, "");
+            geom_bump_if(&t.borrow(), &h, changed);
         }
     });
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
@@ -1449,7 +1387,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             // QY53m: a write that changed no value does not wake the App's restyle.
             d.set(d.get() | changed);
             gn.set(gn.get() + 1);
-            geom_bump_attr(&t.borrow(), &h, changed, "");
+            geom_bump_if(&t.borrow(), &h, changed);
         }
     });
     let (t, d, gn, lk) = (table.clone(), dirty.clone(), wgen.clone(), reqs.clone());
@@ -1459,19 +1397,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             if changed && matches!(h.data, NodeData::Element { .. }) && h.children.borrow().iter().any(crate::link_css::has_link) && page_connected(&t.borrow(), &h) {
                 lk.borrow_mut().links_changed = true;
             }
-            // QY53l2: the element whose child list (or child text) changes.
-            let owner = match &h.data {
-                NodeData::Text { .. } | NodeData::Comment { .. } | NodeData::ProcessingInstruction { .. } => parent_handle(&h),
-                _ => Some(h.clone()),
-            };
             let conn = changed && page_connected(&t.borrow(), &h);
-            let pre = match &owner {
-                Some(o) if conn => {
-                    let moved: Vec<Handle> = if Rc::ptr_eq(o, &h) { h.children.borrow().clone() } else { Vec::new() };
-                    crate::js_geom::children_write_pre(o, &moved)
-                }
-                _ => None,
-            };
             match &h.data {
                 NodeData::Text { contents } => *contents.borrow_mut() = text.as_str().into(),
                 NodeData::Comment { .. } | NodeData::ProcessingInstruction { .. } => COMMENT_DATA.with(|m| {
@@ -1486,10 +1412,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             d.set(d.get() | changed);
             gn.set(gn.get() + 1);
             if conn {
-                match &owner {
-                    Some(o) => geom_bump_children(o, pre),
-                    None => geom_bump(),
-                }
+                geom_bump();
             }
         }
     });
@@ -1500,12 +1423,6 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             if conn && (html_has_link(&html) || h.children.borrow().iter().any(crate::link_css::has_link)) {
                 lk.borrow_mut().links_changed = true;
             }
-            let pre = if conn && !crate::js_geom::html_sensitive(&html) {
-                let old: Vec<Handle> = h.children.borrow().clone();
-                crate::js_geom::children_write_pre(&h, &old)
-            } else {
-                None
-            };
             set_inner_html(&h, &html);
             if conn {
                 crate::incr_log::note_node(&h, crate::incr_log::Change::InnerHtml);
@@ -1513,7 +1430,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             d.set(true);
             gn.set(gn.get() + 1);
             if conn {
-                geom_bump_children(&h, pre);
+                geom_bump();
             }
         }
     });
@@ -1748,7 +1665,6 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             if old_parent.is_some() && crate::link_css::has_link(&h) {
                 lk.borrow_mut().links_changed = true;
             }
-            let pre = old_parent.as_ref().and_then(|o| crate::js_geom::children_write_pre(o, std::slice::from_ref(&h)));
             if let Some(o) = &old_parent {
                 let (prev, next) = crate::incr_log::siblings(&h);
                 crate::incr_log::note_node(o, crate::incr_log::Change::ChildRemove { child: crate::incr_log::key(&h), prev, next });
@@ -1756,8 +1672,8 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             detach(&h);
             d.set(true);
             gn.set(gn.get() + 1);
-            if let Some(o) = &old_parent {
-                geom_bump_children(o, pre);
+            if old_parent.is_some() {
+                geom_bump();
             }
         }
     });
@@ -5909,11 +5825,9 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   // (cached until the next DOM write) and returns the element's document-
   // space box [x, y, w, h, fixed, inkR, inkB, pageW, pageH], or [] when the
   // element has no box. Detached / display:none elements read as zeros.
-  // QY53e2: while `gRend` is on (IO evaluating on the App's own layout) rects come from it, no layout.
-  var gRend = false;
   var gRect = function (el) {
     if (!ioShown(el)) return null;
-    var r = gRend ? __d_rect_r(el.__id) : __d_rect(el.__id, Number(g.innerWidth) || 0, Number(g.innerHeight) || 0);
+    var r = __d_rect(el.__id, Number(g.innerWidth) || 0, Number(g.innerHeight) || 0);
     return r.length ? r : null;
   };
   // QXSCR1: gElScrollX holds the x offsets (same keys), next to gElScroll's y offsets.
@@ -6699,7 +6613,6 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   // a timer turn. `__scratchy_io_want` tells the loop an update is owed (like `__scratchy_ro_want`).
   // QY53e1: a recheck caused ONLY by a geometry-generation change waits when the geometry is not
   // fresh (no script read laid it out), at most `ioSince`; free otherwise.
-  // QY53e2: the App's own complete layout (`__scratchy_ioRendered`) evaluates at once, without a layout of ours.
   var ioActive = new Set(), ioSig = '', ioGen = -1, ioSince = -1;
   var ioHardSig = function () { return g.innerWidth + 'x' + g.innerHeight + ':' + g.scrollX + ',' + g.scrollY + ':' + gScrollGen; };
   var ioAnyNeed = function () {
@@ -6729,28 +6642,16 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       if (!ioFresh() && !(ioSince >= 0 && __scratchy_now() >= ioSince)) return;
     }
     ioRecheck();
-    ioCompute(false);
+    ioCompute();
   };
   // Every observer that needs it evaluates against the same time; entries queue, delivery is a task.
-  var ioCompute = function (rend) {
+  var ioCompute = function () {
     var now = g.performance && g.performance.now ? g.performance.now() : 0;
     var list = Array.from(ioActive).sort(function (a, b) { return a.id - b.id; });
     for (var i = 0; i < list.length; i++) {
-      if (list[i].need) ioEval(list[i], rend, now);
+      if (list[i].need) ioEval(list[i], now);
       obsQueue(list[i]);
     }
-    if (rend) __d_rend_clear();
-  };
-  // QY53e2: the App finished a complete layout of this very DOM (`__d_rend_ok`): is a geometry-only
-  // recheck waiting? (cheap; the App builds its rect map only when this says yes)
-  g.__scratchy_ioWant = function () {
-    return ioActive.size > 0 && ioHardSig() === ioSig && __d_ggen() !== ioGen && !ioAnyNeed();
-  };
-  // ... then evaluate every observer on it, with no layout of our own.
-  g.__scratchy_ioRendered = function () {
-    if (!g.__scratchy_ioWant() || !__d_rend_ok(Number(g.innerWidth) || 0, Number(g.innerHeight) || 0)) return;
-    ioRecheck();
-    ioCompute(true);
   };
   var ioPx = function (v, size) { var n = parseFloat(v) || 0; return v.slice(-1) === '%' ? size * n / 100 : n; };
   // [l, t, r, b] viewport-space padding box of an overflow ancestor / root.
@@ -6812,11 +6713,9 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     }
   };
   // QOBS3: geometry reads made while this runs are the `io` reason of a forced layout (--perf-report).
-  // QY53e2: on the App's layout when it is still the page as it is (else the forced path, as before).
-  var ioEval = function (st, rend, now) {
+  var ioEval = function (st, now) {
     __d_io(true);
-    gRend = !!rend && __d_rend_ok(Number(g.innerWidth) || 0, Number(g.innerHeight) || 0);
-    try { ioEval0(st, now); } finally { gRend = false; __d_io(false); }
+    try { ioEval0(st, now); } finally { __d_io(false); }
   };
   IO.prototype.observe =function (target) {
     var st = ioSt(this, 'observe');
@@ -6840,7 +6739,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     }
   };
   IO.prototype.disconnect = function () { var st = ioSt(this, 'disconnect'); st.targets = []; st.q = []; st.prev.clear(); st.need = false; ioActive.delete(st); };
-  IO.prototype.takeRecords = function () { var st = ioSt(this, 'takeRecords'); if (st.need) ioEval(st, false, g.performance && g.performance.now ? g.performance.now() : 0); var q = st.q; st.q = []; return q; };
+  IO.prototype.takeRecords = function () { var st = ioSt(this, 'takeRecords'); if (st.need) ioEval(st, g.performance && g.performance.now ? g.performance.now() : 0); var q = st.q; st.q = []; return q; };
   defGetters(IO.prototype, IO_S, ['root', 'rootMargin', 'thresholds']);
   Object.defineProperty(IO.prototype, Symbol.toStringTag, { value: 'IntersectionObserver', configurable: true });
   // -- ResizeObserver (QEL2): real sizes from the layout, evaluated once per rendering update

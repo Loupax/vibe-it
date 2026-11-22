@@ -1,14 +1,12 @@
 //! QINC1i (R60 sections 3, 9): script forced layouts through the incremental engine.
 //!
-//! With `SCRATCHY_INCR=1` (or `SCRATCHY_INCR_CHECK=1`) a `GeomCache` refresh no longer builds and
-//! measures the page from scratch: it runs ONE engine update (QINC1f restyle from the write log,
+//! A `GeomCache` refresh does not build and measure the page from scratch: it runs ONE engine update (QINC1f restyle from the write log,
 //! QINC1g box tree update, QINC1h1 relayout of the kept laid tree) and reads its rects and glyphs
 //! from the engine's kept laid tree. The first update of a document (and one after a global
 //! restyle: a new rule list, a viewport width, a `Global` log entry) builds from scratch with the
 //! shadow update on, which starts the kept box tree again, then lays it out through the engine.
 //!
 //! API (next to QINC1j's `incr_frame`):
-//! - [`forced_on`]: whether script forced layouts go through the engine.
 //! - [`update`]: bring the engine's laid tree up to date with the DOM (no from-scratch layout), through
 //!   the same checks and update as an App frame (`incr_frame`, QINC1j: `live_ready`, `is_current`,
 //!   `live_update`) and a complete relayout on the main thread (`incr_layout::update_kept`).
@@ -21,13 +19,11 @@
 //! line per page); one update in `config::ENGINE_CHECK_EVERY` is also checked against a from-scratch
 //! layout (`js_geom::refresh_engine`), a difference is written to `<state-dir>/engine-check.log`.
 //!
-//! Check mode (tests with the seam on, `SCRATCHY_INCR_CHECK=1`): `GeomCache` also lays the page out
+//! Check mode (tests, `SCRATCHY_INCR_CHECK=1`): `GeomCache` also lays the page out
 //! from scratch (shadow update off) and compares (`cmp_laid`); a difference is reported
 //! (`incr-check: MISMATCH`, `incr.check_mismatch`), every stage starts over and the from-scratch
 //! result is used.
 use super::*;
-#[cfg(test)]
-use std::cell::Cell;
 use std::cell::RefCell;
 use std::sync::Arc;
 
@@ -38,34 +34,6 @@ thread_local! {
     /// a weak handle compared by identity. A bare node address is not an identity (a new document can
     /// reuse a dropped one's address); the weak handle keeps the allocation, so no new node can take it.
     static WINDOW_IMAGES: RefCell<(Option<WeakHandle>, Rc<Images>)> = RefCell::new((None, Rc::new(HashMap::new())));
-    /// Test seam: `Some` forces script forced layouts through the engine (or not).
-    #[cfg(test)]
-    static SEAM: Cell<Option<bool>> = const { Cell::new(None) };
-}
-
-/// Whether script forced layouts go through the engine (default; `SCRATCHY_INCR=0` turns it off; `SCRATCHY_INCR_CHECK=1` checks).
-/// Tests: off unless the seam says so; a test whose thread name contains `incr_forced` (the
-/// `*_incr_forced_tests` modules, which run whole suites a second time) has it on regardless. QINC1l:
-/// on by default like shipping; `SCRATCHY_TEST_INCR_FORCED=0` runs the suite with the engine off
-/// (the old full-relayout path; CI runs it that way too).
-pub(crate) fn forced_on() -> bool {
-    #[cfg(not(test))]
-    {
-        crate::incr_style::running()
-    }
-    #[cfg(test)]
-    {
-        static ENV_ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        let env_off = || *ENV_ON.get_or_init(|| std::env::var("SCRATCHY_TEST_INCR_FORCED").is_ok_and(|v| v == "0"));
-        let on = SEAM.with(Cell::get).unwrap_or_else(|| !env_off() || std::thread::current().name().is_some_and(|n| n.contains("incr_forced")));
-        on && crate::incr_style::running()
-    }
-}
-
-/// Test seam: force the engine path on or off for this thread (`None`: by the thread's name).
-#[cfg(test)]
-pub(crate) fn set_forced_seam(on: Option<bool>) -> Option<bool> {
-    SEAM.with(|s| s.replace(on))
 }
 
 /// Whether `w` is `doc` (and still alive).
@@ -73,12 +41,9 @@ fn is_doc(w: &Option<WeakHandle>, doc: &Handle) -> bool {
     w.as_ref().and_then(|w| w.upgrade()).is_some_and(|d| Rc::ptr_eq(&d, doc))
 }
 
-/// The App's image cache, handed over at each of its builds of `doc` (a no-op unless the engine path
-/// is on; the map is copied only when an entry was added, replaced or removed).
+/// The App's image cache, handed over at each of its builds of `doc` (the map is copied only when an
+/// entry was added, replaced or removed).
 pub(crate) fn sync_window_images(doc: &Handle, cache: &Images) {
-    if !forced_on() {
-        return;
-    }
     WINDOW_IMAGES.with(|w| {
         let mut w = w.borrow_mut();
         let same = is_doc(&w.0, doc) && w.1.len() == cache.len() && cache.iter().all(|(k, v)| w.1.get(k).is_some_and(|x| Arc::ptr_eq(x, v)));
@@ -92,9 +57,6 @@ pub(crate) fn sync_window_images(doc: &Handle, cache: &Images) {
 /// window's images incrementally (full sync when the window has not built this document yet), so a
 /// forced layout in a `load` handler lays the image out at its decoded size.
 pub(crate) fn note_window_image(doc: &Handle, cache: &Images, src: &str, image: &Arc<DecodedImage>) {
-    if !forced_on() {
-        return;
-    }
     let known = WINDOW_IMAGES.with(|w| {
         let mut w = w.borrow_mut();
         if !is_doc(&w.0, doc) {

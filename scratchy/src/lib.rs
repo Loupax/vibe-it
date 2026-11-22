@@ -13,7 +13,7 @@ use std::thread;
 use arboard::Clipboard;
 use cosmic_text::{
     Align as CosmicAlign, Attrs, Buffer, Color as TextColor, Family as CosmicFamily, FontSystem,
-    AttrsList, LegacyRenderer, Metrics, Renderer, Shaping, Style as FontStyle, SwashCache,
+    LegacyRenderer, Metrics, Renderer, Shaping, Style as FontStyle, SwashCache,
     TextDecoration, UnderlineStyle, Weight as FontWeight, Wrap,
 };
 use cssparser::{
@@ -79,7 +79,6 @@ mod layout;
 mod images;
 mod rules_cache;
 mod invalidation;
-mod hover_patch;
 mod forms;
 mod forms_text;
 mod forms_select;
@@ -191,10 +190,6 @@ pub fn run() {
     // QY39b: `--user-agent <string>` / SCRATCHY_USER_AGENT, validated before anything runs.
     init_from_process(&raw_args);
     perf::init_from_process(&raw_args);
-    // QINC1l: the incremental engine is the default; `SCRATCHY_INCR=0` is the escape hatch.
-    if !incr_style::engine_enabled() {
-        eprintln!("scratchy: incremental engine disabled (SCRATCHY_INCR=0)");
-    }
     if raw_args.first().map(String::as_str) == Some("--perf-report") {
         std::process::exit(perf::perf_report_main(&raw_args[1..]));
     }
