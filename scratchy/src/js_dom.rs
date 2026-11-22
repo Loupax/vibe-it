@@ -788,6 +788,13 @@ fn geom_bump() {
     GEOM_GEN.with(|g| g.set(g.get() + 1));
 }
 
+/// QWPT7: the headless input driver changed `:hover`/`:active`/`:focus` state (`dom::set_interaction`):
+/// the next forced layout restyles (the App notes the same change for its own frames).
+pub(crate) fn interaction_changed() {
+    crate::incr_frame::note_ambient(crate::incr_log::Ambient::Interaction);
+    geom_bump();
+}
+
 /// Is `h` part of the page document `t.get(0)`?
 /// QY54b1: flags a `href`/`rel`/`disabled` change on a connected `<link>` for the App.
 fn note_link_attr(reqs: &Rc<RefCell<JsRequests>>, t: &DomTable, h: &Handle, name: &str, changed: bool) {
@@ -1348,6 +1355,17 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             crate::ro_geom::Answer::Box(b) => Some(b.iter().map(|v| f64::from(*v)).collect()),
             crate::ro_geom::Answer::NoBox => Some(Vec::new()),
             crate::ro_geom::Answer::Stale => None,
+        }
+    });
+    // QWPT7: hit testing on the real layout (elementFromPoint, the testdriver's pointer): the table id
+    // of the element under viewport point (x, y) at scroll (sx, sy), -1 when there is none.
+    let (t_hit, geom_hit) = (table.clone(), geom.clone());
+    native!(ctx, "__d_hit", move |x: f64, y: f64, vw: f64, vh: f64, sx: f64, sy: f64| -> i32 {
+        let Some(page) = t_hit.borrow().get(0) else { return -1 };
+        let n = geom_hit.borrow_mut().hit(&page, geom_gen(), x as f32, y as f32, vw as f32, vh as f32, sx as f32, sy as f32);
+        match (n != 0).then(|| find_node_by_id(&page, n)).flatten() {
+            Some(h) => t_hit.borrow_mut().intern(&h),
+            None => -1,
         }
     });
     native!(ctx, "__d_rect", move |c: Ctx<'_>, id: i32, vw: f64, vh: f64| -> Vec<f64> {
@@ -4234,6 +4252,54 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     return a >= 0 ? wrap(a) : wrap(__d_special(2, this.__id));
   });
   doc.hasFocus = function () { return true; };
+  // QWPT7: hit testing on the real layout (js_geom GeomCache::hit). `__scratchy_hit(x, y)` is the
+  // element under viewport point (x, y) (no retargeting; the headless testdriver's pointer uses it),
+  // or null. elementFromPoint/elementsFromPoint retarget it out of shadow trees the scope cannot see
+  // and answer null / [] outside the viewport. elementsFromPoint is the hit element and the
+  // ancestors whose border box contains the point (no siblings painted underneath).
+  var hitAt = function (x, y) {
+    x = Number(x); y = Number(y);
+    var vw = Number(g.innerWidth) || 0, vh = Number(g.innerHeight) || 0;
+    if (!(x >= 0 && y >= 0 && x <= vw && y <= vh)) return undefined;
+    var id = __d_hit(x, y, vw, vh, Number(g.scrollX) || 0, Number(g.scrollY) || 0);
+    return id >= 0 ? wrap(id) : null;
+  };
+  Object.defineProperty(g, '__scratchy_hit', { value: function (x, y) { var h = hitAt(x, y); return h ? h.__id : -1; } });
+  Object.defineProperty(g, '__scratchy_node', { value: function (id) { return wrap(id); } });
+  var hitRetarget = function (n, scope) {
+    while (n) {
+      var r = n.getRootNode();
+      if (r === scope || !(r instanceof g.ShadowRoot)) return n;
+      n = r.host;
+    }
+    return n;
+  };
+  var hitScope = function (scope, x, y, all, argc) {
+    var M = "Failed to execute '" + (all ? 'elementsFromPoint' : 'elementFromPoint') + "' on '" + (scope.nodeType === 9 ? 'Document' : 'ShadowRoot') + "': ";
+    if (argc < 2) throw new TypeError(M + '2 arguments required, but only ' + argc + ' present.');
+    // WebIDL `double`: a non-finite value throws.
+    x = Number(x); y = Number(y);
+    if (!isFinite(x) || !isFinite(y)) throw new TypeError(M + "The provided double value is non-finite.");
+    var h = hitAt(x, y);
+    if (h === undefined) return all ? [] : null;
+    var top = h ? hitRetarget(h, scope) : null;
+    var de = scope.nodeType === 9 ? scope.documentElement : null;
+    if (!all) return top || de;
+    var out = [];
+    for (var n = top; n; n = n.parentNode) {
+      if (n.nodeType !== 1) { if (n instanceof g.ShadowRoot) { n = n.host; if (!n) break; } else continue; }
+      if (n !== top && n !== de) {
+        var b = n.getBoundingClientRect();
+        if (!(x >= b.left && x < b.right && y >= b.top && y < b.bottom)) continue;
+      }
+      if (out.indexOf(n) < 0) out.push(n);
+    }
+    if (de && out.indexOf(de) < 0) out.push(de);
+    return out;
+  };
+  doc.elementFromPoint = function (x, y) { return hitScope(this, x, y, false, arguments.length); };
+  doc.elementsFromPoint = function (x, y) { return hitScope(this, x, y, true, arguments.length); };
+  Object.defineProperty(g, '__scratchy_hit_scope', { value: hitScope });
   // QA18a: second documents. `Object.create(doc)` shares every method and
   // getter (they are keyed by `this.__id`); what differs is overridden.
   var DocumentType = g.DocumentType = function DocumentType() { throw new TypeError('Illegal constructor'); };
@@ -7417,8 +7483,9 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   if (!DocumentFragment.prototype.getElementById) DocumentFragment.prototype.getElementById = SRP.getElementById;
   Object.defineProperty(g, '__scratchy_shadow_host', { value: function (n) { return n && n.__id !== undefined ? wrap(__d_shadow_host(n.__id)) : null; } });
   SRP.getSelection = function () { return null; };
-  SRP.elementFromPoint = function () { return null; };
-  SRP.elementsFromPoint = function () { return []; };
+  // QWPT7: the document's hit test, retargeted against this shadow root.
+  SRP.elementFromPoint = function (x, y) { return __scratchy_hit_scope(this, x, y, false, arguments.length); };
+  SRP.elementsFromPoint = function (x, y) { return __scratchy_hit_scope(this, x, y, true, arguments.length); };
   defs(SRP, 'adoptedStyleSheets', function () { return srAdopted[this.__id] || (srAdopted[this.__id] = []); },
     function (v) {
       var m = "Failed to set the 'adoptedStyleSheets' property on 'ShadowRoot': ";

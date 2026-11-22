@@ -54,10 +54,16 @@ OK           1/1  dom/events/Event-dispatch-listener-order.window.html
 OK           1/1  dom/events/Event-dispatch-multiple-cancelBubble.html
 OK           1/1  dom/events/Event-dispatch-multiple-stopPropagation.html
 OK           1/1  dom/events/Event-dispatch-omitted-capture.html
+TIMEOUT      7/9  dom/events/Event-dispatch-on-disabled-elements.html
+  TIMEOUT   CSS Animation's animationcancel event fires on disabled form elements
+  NOTRUN    Real clicks on disabled elements must not dispatch events.
 OK           1/1  dom/events/Event-dispatch-order-at-target.html
 OK           1/1  dom/events/Event-dispatch-order.html
 OK           1/1  dom/events/Event-dispatch-other-document.html
 OK           1/1  dom/events/Event-dispatch-propagation-stopped.html
+OK           2/4  dom/events/Event-dispatch-redispatch.html
+  FAIL      Redispatching DOMContentLoaded event after being dispatched
+  FAIL      Redispatching mouseup event whose default action dispatches a click event
 OK           1/1  dom/events/Event-dispatch-reenter.html
 OK        80/132  dom/events/Event-dispatch-single-activation-behavior.html
   FAIL      When clicking child <FORM><INPUT type=submit></INPUT></FORM> of parent <FORM><INPUT type=image></INPUT></FORM>, only child should be activated.
@@ -158,6 +164,8 @@ OK           1/1  dom/events/EventTarget-removeEventListener.any.html
 OK           6/6  dom/events/EventTarget-this-of-listener.html
 OK           1/1  dom/events/EventTarget-window-constructor.html
 OK           3/3  dom/events/KeyEvent-initKeyEvent.html
+OK           0/1  dom/events/click-on-absolute-pseudo.html
+  FAIL      Click on pseudo-element that disappears on mousedown
 OK           3/3  dom/events/element-click.html
 OK           1/1  dom/events/event-disabled-dynamic.html
 OK           4/5  dom/events/event-global-event-targets.html
@@ -206,10 +214,17 @@ OK          1/16  dom/events/event-listener-not-fully-active-target.html
   FAIL      Abort listeners on an AbortSignal from a removed iframe do not run
   FAIL      It is the target's global that matters, not the event's
 OK           1/1  dom/events/event-src-element-nullable.html
+OK           1/1  dom/events/focus-event-document-move.html
+OK           2/2  dom/events/handler-count.html?document
+OK           2/2  dom/events/handler-count.html?element
+OK           2/2  dom/events/handler-count.html?window
 OK           1/1  dom/events/label-default-action.html
 OK           1/1  dom/events/legacy-pre-activation-behavior.window.html
 OK           0/1  dom/events/mouse-event-retarget.html
   FAIL      offsetX is correctly adjusted
+OK           0/2  dom/events/no-focus-events-at-clicking-editable-content-in-link.html
+  FAIL      Click editable element in link
+  FAIL      Click editable link
 OK           1/1  dom/events/non-cancelable-when-passive/generic-events-stay-cancelable.html
 OK           0/1  dom/events/non-cancelable-when-passive/non-passive-mousewheel-event-listener-on-body.html
   FAIL      non-passive mousewheel event listener on body
@@ -241,16 +256,11 @@ OK           0/1  dom/events/non-cancelable-when-passive/non-passive-touchstart-
   FAIL      non-passive touchstart event listener on root
 OK           0/1  dom/events/non-cancelable-when-passive/non-passive-touchstart-event-listener-on-window.html
   FAIL      non-passive touchstart event listener on window
-OK           0/1  dom/events/non-cancelable-when-passive/non-passive-wheel-event-listener-on-body.html
-  FAIL      non-passive wheel event listener on body
-OK           0/1  dom/events/non-cancelable-when-passive/non-passive-wheel-event-listener-on-div.html
-  FAIL      non-passive wheel event listener on div
-OK           0/1  dom/events/non-cancelable-when-passive/non-passive-wheel-event-listener-on-document.html
-  FAIL      non-passive wheel event listener on document
-OK           0/1  dom/events/non-cancelable-when-passive/non-passive-wheel-event-listener-on-root.html
-  FAIL      non-passive wheel event listener on root
-OK           0/1  dom/events/non-cancelable-when-passive/non-passive-wheel-event-listener-on-window.html
-  FAIL      non-passive wheel event listener on window
+OK           1/1  dom/events/non-cancelable-when-passive/non-passive-wheel-event-listener-on-body.html
+OK           1/1  dom/events/non-cancelable-when-passive/non-passive-wheel-event-listener-on-div.html
+OK           1/1  dom/events/non-cancelable-when-passive/non-passive-wheel-event-listener-on-document.html
+OK           1/1  dom/events/non-cancelable-when-passive/non-passive-wheel-event-listener-on-root.html
+OK           1/1  dom/events/non-cancelable-when-passive/non-passive-wheel-event-listener-on-window.html
 OK           0/1  dom/events/non-cancelable-when-passive/passive-mousewheel-event-listener-on-body.html
   FAIL      passive mousewheel event listener on body
 OK           0/1  dom/events/non-cancelable-when-passive/passive-mousewheel-event-listener-on-div.html
@@ -295,6 +305,7 @@ OK         12/12  dom/events/non-cancelable-when-passive/synthetic-events-cancel
 OK           1/2  dom/events/passive-by-default-non-node.html
   FAIL      wheel listeners on Performance are not passive by default
 OK       100/100  dom/events/passive-by-default.html
+OK           1/1  dom/events/pointer-event-document-move.html
 OK           1/1  dom/events/preventDefault-during-activation-behavior.html
 OK           0/6  dom/events/relatedTarget.window.html
   FAIL      Reset if target pointed to a shadow tree
@@ -304,15 +315,20 @@ OK           0/6  dom/events/relatedTarget.window.html
   FAIL      Reset targets on early return
   FAIL      Reset targets before activation behavior
 OK           2/2  dom/events/remove-all-listeners.html
+OK           1/1  dom/events/scrolling/iframe-chains.html
+TIMEOUT      0/0  dom/events/scrolling/input-text-scroll-event-when-using-arrow-keys.html
 ERROR        0/2  dom/events/scrolling/save-iframe-scroll-offset-when-display-none.html
   FAIL      Ensure that the scroll position is not lost when the local iframe is set to display:none and shown again.
   TIMEOUT   Ensure that the scroll position is not lost when the remote iframe is set to display:none and shown again.
+ERROR        0/1  dom/events/scrolling/scroll-cross-origin-iframes.html
+  TIMEOUT   Verify sibling cross-origin iframes can wheel-scroll.
 OK           4/4  dom/events/scrolling/scroll-event-fired-to-element.html
 OK           2/4  dom/events/scrolling/scroll-event-fired-to-iframe.html
   FAIL      scrollX and scrollY should fire scroll event.
   FAIL      scrollX and scrollY when scrolling above maximum Scroll.
 OK           1/1  dom/events/scrolling/scroll-event-not-fired-on-ancestor-style-change.html
 OK           2/2  dom/events/scrolling/scroll-events-fired-once-per-frame-across-display-none.html
+OK           1/1  dom/events/scrolling/scrollIntoView-in-onscroll-to-sticky.html
 OK           0/1  dom/events/scrolling/scrollend-event-fired-after-instant-scroll-in-microtask.html
   FAIL      scrolling state is false at the end of the test
 OK           0/1  dom/events/scrolling/scrollend-event-fired-after-layout-clamping.html
@@ -320,9 +336,9 @@ OK           0/1  dom/events/scrolling/scrollend-event-fired-after-layout-clampi
 OK           0/2  dom/events/scrolling/scrollend-event-fired-after-sequence-of-scrolls.tentative.html
   FAIL      Move down, up and down again, receive scrollend event only once
   FAIL      Move right, left and right again, receive scrollend event only once
-OK           0/2  dom/events/scrolling/scrollend-event-fired-after-snap.html
-  FAIL      Tests that scrollend is fired after scroll snap animation completion.
-  FAIL      Tests that scrollend is fired after fling snap animation completion.
+TIMEOUT      0/2  dom/events/scrolling/scrollend-event-fired-after-snap.html
+  TIMEOUT   Tests that scrollend is fired after scroll snap animation completion.
+  NOTRUN    Tests that scrollend is fired after fling snap animation completion.
 OK           0/1  dom/events/scrolling/scrollend-event-fired-for-mandatory-snap-point-after-load.html
   FAIL      scrollend event fired after load for mandatory snap point
 OK           0/1  dom/events/scrolling/scrollend-event-fired-for-programmatic-scroll.html?include=root-scrollBy-auto
@@ -361,7 +377,14 @@ OK           0/1  dom/events/scrolling/scrollend-event-fired-to-element-with-ove
   FAIL      Tests that the scroll is not propagated beyond div with non-auto overscroll-behavior.
 OK           0/1  dom/events/scrolling/scrollend-event-fired-to-window.html
   FAIL      testing, vertical
+OK           0/1  dom/events/scrolling/scrollend-event-fires-for-repeat-key-ending-after-scroll-container-end-is-reached.html
+  FAIL      scrollend event is fired after repeated Page Down key presses reach the end of the scroll region.
 ERROR        0/0  dom/events/scrolling/scrollend-event-fires-on-visual-viewport.html
+OK           2/6  dom/events/scrolling/scrollend-event-fires-to-iframe-window.html
+  FAIL      Tests that the target_div within iframe gets scrollend event when touch dragging.
+  FAIL      Tests that the target_div within iframe gets scrollend event when mouse wheel scrolling.
+  FAIL      Tests that the target_div within iframe gets scrollend event when sending DOWN key to the target.
+  FAIL      scrollend fires to iframe window on mousewheelscroll
 OK           2/5  dom/events/scrolling/scrollend-event-for-user-scroll.html
   FAIL      Tests that the target_div gets scrollend event when touch dragging.
   FAIL      Tests that the target_div gets scrollend event when mouse wheel scrolling.
@@ -370,6 +393,10 @@ OK           2/4  dom/events/scrolling/scrollend-event-handler-content-attribute
   FAIL      Tests scrollend event is not fired to document body event handler content attribute.
   FAIL      Tests scrollend event is fired to document event handler property
 OK           3/3  dom/events/scrolling/scrollend-event-not-fired-after-removing-scroller.tentative.html
+ERROR        1/4  dom/events/scrolling/scrollend-event-not-fired-on-no-scroll.html
+  NOTRUN    No scroll via keys on div shouldn't fire scrollend.
+  NOTRUN    No scroll via wheel on document shouldn't fire scrollend.
+  NOTRUN    No scroll via keys on document shouldn't fire scrollend.
 TIMEOUT      0/5  dom/events/scrolling/scrollend-fires-to-text-input.html
   TIMEOUT   scrolled input field should receive scrollend when setting scrollLeft.
   NOTRUN    scrolled input field should receive scrollend with scrollBy({ behavior: 'smooth' }).
@@ -378,9 +405,36 @@ TIMEOUT      0/5  dom/events/scrolling/scrollend-fires-to-text-input.html
   NOTRUN    scrolled input field should receive scrollend with scrollTo({ behavior: 'instant' }).
 OK           0/1  dom/events/scrolling/scrollend-with-snap-on-fractional-offset.html
   FAIL      snap to fractional offset fires scrollend exactly once.
-TIMEOUT      0/2  dom/events/shadow-relatedTarget.html
-  TIMEOUT   relatedTarget should not leak at capturing phase, at window object.
-  TIMEOUT   relatedTarget should not leak at target.
+TIMEOUT      0/2  dom/events/scrolling/visibility-hidden-scrolls.html
+  TIMEOUT   Scrolling should chain to a visibility: hidden element.
+  NOTRUN    Scrolling over a visibility: visible child should scroll a visibility: hidden scroller.
+OK           1/1  dom/events/scrolling/wheel-event-composed.html
+OK           1/1  dom/events/scrolling/wheel-event-no-scroll-after-prevent-default.html
+OK           0/1  dom/events/scrolling/wheel-event-transactions-basic.html?include=scroll-over-scrollable-child
+  FAIL      Wheel events should be captured to one target #2
+OK           0/1  dom/events/scrolling/wheel-event-transactions-basic.html?include=target-basic
+  FAIL      Wheel events should be captured to one target #1
+OK           0/1  dom/events/scrolling/wheel-event-transactions-basic.html?include=transaction-not-bound-to-scroll-frame
+  FAIL      The wheel event transactions target may not be a scroll frame
+OK           0/1  dom/events/scrolling/wheel-event-transactions-multiple-action-chains.html
+  FAIL      Two separate webdriver action chains should have different wheel event transactions
+OK           0/1  dom/events/scrolling/wheel-event-transactions-target-display-change.html?include=contents
+  FAIL      Modify the initial wheel event target to display:contents
+OK           0/1  dom/events/scrolling/wheel-event-transactions-target-display-change.html?include=none
+  FAIL      Modify the initial wheel event target to display:none
+OK           0/1  dom/events/scrolling/wheel-event-transactions-target-elements.html
+  FAIL      Wheel event transactions target elements
+OK           0/1  dom/events/scrolling/wheel-event-transactions-target-move.html
+  FAIL      Move the initial wheel event target.
+OK           0/1  dom/events/scrolling/wheel-event-transactions-target-removal.html
+  FAIL      Remove the initial wheel event target.
+OK           0/1  dom/events/scrolling/wheel-event-transactions-target-resize.html?include=passive-false
+  FAIL      Resize the initial target and use a passive:false listener
+OK           0/1  dom/events/scrolling/wheel-event-transactions-target-resize.html?include=passive-true
+  FAIL      Resize the initial target and use a passive:true listener
+OK           0/2  dom/events/shadow-relatedTarget.html
+  FAIL      relatedTarget should not leak at capturing phase, at window object.
+  FAIL      relatedTarget should not leak at target.
 OK         13/13  dom/events/webkit-animation-end-event.html
 OK         13/13  dom/events/webkit-animation-iteration-event.html
 OK         13/13  dom/events/webkit-animation-start-event.html

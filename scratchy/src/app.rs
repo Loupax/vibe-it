@@ -3159,18 +3159,7 @@ impl App {
     }
 
     fn js_mouse(&mut self, kind: &str, target: Option<&Handle>, pos: (f32, f32)) -> bool {
-        let m = &self.modifiers;
-        let init = [
-            ("bubbles", EventField::Bool(true)),
-            ("cancelable", EventField::Bool(true)),
-            ("clientX", EventField::Num(pos.0 as f64)),
-            ("clientY", EventField::Num(pos.1 as f64)),
-            ("button", EventField::Num(0.0)),
-            ("ctrlKey", EventField::Bool(m.control_key())),
-            ("shiftKey", EventField::Bool(m.shift_key())),
-            ("altKey", EventField::Bool(m.alt_key())),
-            ("metaKey", EventField::Bool(m.super_key())),
-        ];
+        let init = crate::input_host::mouse_init(pos, self.modifiers);
         self.js_dispatch(target, kind, &init)
     }
 
@@ -3186,28 +3175,7 @@ impl App {
         if self.js.is_none() {
             return true;
         }
-        let key = match logical_key {
-            Key::Character(s) => s.to_string(),
-            Key::Named(NamedKey::Space) => " ".to_string(),
-            Key::Named(n) => format!("{n:?}"),
-            _ => "Unidentified".to_string(),
-        };
-        let kc = key_codes(logical_key, physical, kind == "keypress");
-        let m = &self.modifiers;
-        let init = [
-            ("bubbles", EventField::Bool(true)),
-            ("cancelable", EventField::Bool(true)),
-            ("key", EventField::Str(key)),
-            ("code", EventField::Str(kc.code)),
-            ("keyCode", EventField::Num(f64::from(kc.key_code))),
-            ("charCode", EventField::Num(f64::from(kc.char_code))),
-            ("location", EventField::Num(f64::from(kc.location))),
-            ("repeat", EventField::Bool(repeat)),
-            ("ctrlKey", EventField::Bool(m.control_key())),
-            ("shiftKey", EventField::Bool(m.shift_key())),
-            ("altKey", EventField::Bool(m.alt_key())),
-            ("metaKey", EventField::Bool(m.super_key())),
-        ];
+        let init = crate::input_host::key_init(kind, logical_key, physical, repeat, self.modifiers);
         let target = self.interaction.focus.and_then(|f| find_node_by_id(&self.document, f));
         self.js_dispatch(target.as_ref(), kind, &init)
     }
@@ -3712,33 +3680,8 @@ impl App {
     /// Init dict shared by the pointer-motion events (QCUR1): client/page/screen
     /// coordinates, modifiers, `buttons`, and for `pointer*` types the PointerEvent fields.
     fn pointer_init(&self, pos: (f32, f32), related: &Option<Handle>, bubbles: bool, pointer: bool) -> Vec<(&'static str, EventField)> {
-        let m = &self.modifiers;
         let buttons = if self.mouse_down_pos.is_some() { 1.0 } else { 0.0 };
-        let mut v = vec![
-            ("bubbles", EventField::Bool(bubbles)),
-            ("cancelable", EventField::Bool(bubbles)),
-            ("clientX", EventField::Num(f64::from(pos.0))),
-            ("clientY", EventField::Num(f64::from(pos.1))),
-            ("screenX", EventField::Num(f64::from(pos.0))),
-            ("screenY", EventField::Num(f64::from(pos.1))),
-            ("pageX", EventField::Num(f64::from(pos.0 + self.scroll_x))),
-            ("pageY", EventField::Num(f64::from(pos.1 + self.scroll_offset))),
-            ("buttons", EventField::Num(buttons)),
-            ("ctrlKey", EventField::Bool(m.control_key())),
-            ("shiftKey", EventField::Bool(m.shift_key())),
-            ("altKey", EventField::Bool(m.alt_key())),
-            ("metaKey", EventField::Bool(m.super_key())),
-        ];
-        if pointer {
-            v.push(("pointerId", EventField::Num(1.0)));
-            v.push(("pointerType", EventField::Str("mouse".into())));
-            v.push(("isPrimary", EventField::Bool(true)));
-            v.push(("pressure", EventField::Num(buttons * 0.5)));
-        }
-        if let Some(r) = related {
-            v.push(("relatedTargetId", EventField::Node(r.clone())));
-        }
-        v
+        crate::input_host::pointer_init(pos, (self.scroll_x, self.scroll_offset), buttons, self.modifiers, related, bubbles, pointer)
     }
 
     /// QCUR1 (Q33d2): `pointermove` then `mousemove` on the element under the pointer,
@@ -3951,17 +3894,10 @@ impl App {
             }
         }
         if old_focus != new_focus && self.js.is_some() {
-            // Q33d: blur/focusout on the old element, focus/focusin on the
-            // new one (focus and blur do not bubble; the *in/out* pair do).
-            let init = |bubbles: bool| [("bubbles", EventField::Bool(bubbles))];
-            if let Some(h) = old_focus.and_then(|f| find_node_by_id(&self.document, f)) {
-                self.js_dispatch(Some(&h), "blur", &init(false));
-                self.js_dispatch(Some(&h), "focusout", &init(true));
-            }
-            if let Some(h) = new_focus.and_then(|f| find_node_by_id(&self.document, f)) {
-                self.js_dispatch(Some(&h), "focus", &init(false));
-                self.js_dispatch(Some(&h), "focusin", &init(true));
-            }
+            // Q33d: blur/focusout on the old element, focus/focusin on the new one (QWPT7: shared).
+            let old_h = old_focus.and_then(|f| find_node_by_id(&self.document, f));
+            let new_h = new_focus.and_then(|f| find_node_by_id(&self.document, f));
+            crate::input_host::focus_events(self, old_h.as_ref(), new_h.as_ref());
         }
     }
 
@@ -3994,13 +3930,8 @@ impl App {
     /// takes focus and gets its own click event (checkbox/radio toggling is
     /// Q30c). Returns whether a control was found.
     pub(crate) fn forward_label_click(&mut self, label: &Handle, pos: (f32, f32)) -> bool {
-        let Some(control) = label_control(&self.document, label) else { return false };
-        if is_disabled_control(&control) {
-            return true;
-        }
-        self.set_focus_element(Some(&control), click_focus_is_visible(&control));
-        self.click_activate(Some(&control), pos);
-        true
+        let document = self.document.clone();
+        crate::input_host::forward_label_click(self, &document, label, pos)
     }
 
     pub(crate) fn release_state(&mut self) {
@@ -4122,55 +4053,7 @@ impl App {
     /// changed. A reset button resets its form's live state. Returns whether
     /// the click was not cancelled.
     pub(crate) fn click_activate(&mut self, target: Option<&Handle>, pos: (f32, f32)) -> bool {
-        let Some(control) = target.and_then(enclosing_control) else { return self.js_click(target, pos) };
-        let Some(radio) = checkable_kind(&control) else {
-            let ok = self.js_click(target, pos);
-            let is_reset = matches!(element_tag(&control), "button" | "input")
-                && element_attr(&control, "type").is_some_and(|t| t.trim().eq_ignore_ascii_case("reset"));
-            if ok && is_reset {
-                self.reset_owner_form(&control);
-            }
-            // Q30g: a click on a select opens its dropdown / picks a listbox row.
-            if ok && element_tag(&control) == "select" {
-                self.select_click(&control, pos);
-            }
-            // Q30e: a submit button submits its form owner.
-            if ok && is_submit_button(&control) && !is_disabled_control(&control) && let Some(form) = form_owner(&control) {
-                self.request_submit(&form, Some(&control));
-            }
-            return ok;
-        };
-        let (was, was_ind) = (live_checked(&control), live_indeterminate(&control));
-        if radio && was {
-            return self.js_click(target, pos);
-        }
-        let peer = if radio { checked_radio_peer(&control) } else { None };
-        set_indeterminate(&control, false);
-        set_checked(&control, if radio { true } else { !was });
-        self.check_state_changed();
-        if !self.js_click(target, pos) {
-            set_checked(&control, was);
-            set_indeterminate(&control, was_ind);
-            if let Some(p) = peer {
-                set_checked(&p, true);
-            }
-            self.check_state_changed();
-            return false;
-        }
-        let ev = [("bubbles", EventField::Bool(true))];
-        self.js_dispatch(Some(&control), "input", &ev);
-        self.js_dispatch(Some(&control), "change", &ev);
-        true
-    }
-
-    /// Q30c: the `reset` event (cancelable) at the form owning `control`, then
-    /// its checkbox/radio state goes back to the defaults.
-    pub(crate) fn reset_owner_form(&mut self, control: &Handle) {
-        let Some(form) = form_owner(control) else { return };
-        let ev = [("bubbles", EventField::Bool(true)), ("cancelable", EventField::Bool(true))];
-        if self.js_dispatch(Some(&form), "reset", &ev) && reset_form_state(&form) {
-            self.check_state_changed();
-        }
+        crate::input_host::click_activate(self, target, pos)
     }
 
     /// Enter on a focused link follows it.
@@ -6360,5 +6243,38 @@ pub(crate) fn is_paste_chord(key: &Key, mods: &ModifiersState) -> bool {
         }
         Key::Named(NamedKey::Insert) => mods.shift_key() && !mods.control_key() && !mods.alt_key(),
         _ => false,
+    }
+}
+
+/// QWPT7: the App as a source of trusted input for the shared default actions (`input_host.rs`).
+impl crate::input_host::InputHost for App {
+    fn ih_dispatch(&mut self, target: Option<&Handle>, kind: &str, init: &[(&str, EventField)]) -> bool {
+        self.js_dispatch(target, kind, init)
+    }
+    fn ih_mods(&self) -> ModifiersState {
+        self.modifiers
+    }
+    fn ih_set_focus(&mut self, h: Option<&Handle>, visible: bool) {
+        self.set_focus_element(h, visible)
+    }
+    fn ih_check_state_changed(&mut self) {
+        self.check_state_changed()
+    }
+    fn ih_text_redraw(&mut self) {
+        if let Some(w) = &self.window {
+            w.request_redraw();
+        }
+    }
+    fn ih_select_click(&mut self, control: &Handle, pos: (f32, f32)) {
+        self.select_click(control, pos)
+    }
+    fn ih_request_submit(&mut self, form: &Handle, submitter: Option<&Handle>) {
+        self.request_submit(form, submitter)
+    }
+    fn ih_click(&mut self, target: Option<&Handle>, pos: (f32, f32)) -> bool {
+        self.js_click(target, pos)
+    }
+    fn ih_key(&mut self, kind: &str, key: &Key, repeat: bool) -> bool {
+        self.js_key_for(kind, key, repeat)
     }
 }

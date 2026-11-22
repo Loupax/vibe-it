@@ -427,14 +427,13 @@ OK         73/80  html/editing/editing-0/writing-suggestions/writingsuggestions.
   FAIL      Test overriding a non-parent ancestor element's `writingsuggestions` attribute on a disabled textarea element from "false" to an invalid value. The User Agent is responsible that writing suggestions are not applied to the element.
 OK           2/3  html/editing/focus/focus-management/active-element.html
   FAIL      re-adding the formerly active element to the document does not make it active again
-TIMEOUT      0/1  html/editing/focus/focus-management/focus-blur.html
-  TIMEOUT   The focus() and blur() methods change the focus as expected
+OK           0/1  html/editing/focus/focus-management/focus-blur.html
+  FAIL      The focus() and blur() methods change the focus as expected
 OK           1/1  html/editing/focus/focus-management/focus-on-all-elements.html
-TIMEOUT      0/1  html/editing/focus/focus-management/focused-area-removal.html
-  TIMEOUT   removing the activeElement keeps focus on its document
+OK           1/1  html/editing/focus/focus-management/focused-area-removal.html
 OK           1/1  html/editing/focus/focus-management/focusing-disconnected-noop.html
-TIMEOUT      0/1  html/editing/focus/focus-management/focusing-focused-noop.html
-  TIMEOUT   focusing a focused element does not dispatch focus events
+OK           0/1  html/editing/focus/focus-management/focusing-focused-noop.html
+  FAIL      focusing a focused element does not dispatch focus events
 ERROR        0/1  html/editing/the-hidden-attribute/beforematch-attribute-removal-001.html
   NOTRUN    hidden=until-found and details revealing algorithm should abort if attribute states are mutated on beforematch events.
 ERROR        0/1  html/editing/the-hidden-attribute/beforematch-attribute-removal-002.html

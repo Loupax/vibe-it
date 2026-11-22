@@ -544,7 +544,9 @@ impl GeomCache {
             return Vec::new();
         }
         self.refresh(page, wgen, vw, vh);
-        let r = find_in(&self.rects, h);
+        // QWPT7: an inline element without a box of its own and without boxed descendants (a
+        // `<span>` of text) gets the union of its glyphs, not its line's block.
+        let r = lookup_in(&self.rects, h).or_else(|| union_below_in(&self.rects, h)).or_else(|| self.glyph_union(h)).or_else(|| find_in(&self.rects, h));
         let Some(r) = r else { return Vec::new() };
         vec![
             r.x as f64,
@@ -557,6 +559,158 @@ impl GeomCache {
             self.page.0 as f64,
             self.page.1 as f64,
         ]
+    }
+}
+
+impl GeomCache {
+    /// QWPT7: the `node_id` of the element under viewport point (`x`, `y`) of the page laid out at
+    /// `vw` x `vh` and scrolled to (`sx`, `sy`); 0 when nothing is there. The same glyph-precise
+    /// walk as the App's pointer (`paint::hit_test_element`) on the engine's kept laid tree (the
+    /// tree this read just refreshed). Without one (the from-scratch fallback) the deepest
+    /// recorded element box containing the point answers. Element scroll offsets are not applied
+    /// (headless scrolling is script-only).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn hit(&mut self, page: &Handle, wgen: u64, x: f32, y: f32, vw: f32, vh: f32, sx: f32, sy: f32) -> usize {
+        self.refresh(page, wgen, vw, vh);
+        let (dx, dy) = (x + sx, y + sy);
+        let engine = crate::incr_layout::with_laid(|l, cache| {
+            crate::paint::with_scroll_x(sx, || crate::paint::hit_test_element(l, dx, dy, cache, &HashMap::new(), sy, vh))
+        });
+        if let Some(n) = engine {
+            return self.refine_inline(page, n, dx, dy);
+        }
+        let mut best: Option<(usize, usize)> = None; // (depth, node)
+        for (&node, r) in &self.rects {
+            let (px, py) = if r.fixed { (x, y) } else { (dx, dy) };
+            if px < r.x || py < r.y || px >= r.x + r.w || py >= r.y + r.h {
+                continue;
+            }
+            let Some(h) = find_node_by_id(page, node) else { continue };
+            let depth = ancestor_ids(&h).len();
+            if best.is_none_or(|(d, _)| depth > d) {
+                best = Some((depth, node));
+            }
+        }
+        match best {
+            Some((_, n)) => self.refine_inline(page, n, dx, dy),
+            None => 0,
+        }
+    }
+
+    /// QWPT7: the union of the glyph boxes of the text below `h` (document space), with the
+    /// `fixed` flag of the nearest boxed ancestor; `None` when it has no laid-out glyph.
+    fn glyph_union(&mut self, h: &Handle) -> Option<GeomRect> {
+        if self.glyphs_lazy {
+            self.glyphs_lazy = false;
+            let glyphs = &mut self.glyphs;
+            crate::incr_layout::with_laid(|l, c| walk_glyphs(l, c, glyphs));
+        }
+        let mut acc: Option<(f32, f32, f32, f32)> = None;
+        let mut stack: Vec<Handle> = h.children.borrow().iter().cloned().collect();
+        while let Some(n) = stack.pop() {
+            match &n.data {
+                NodeData::Text { .. } => {
+                    for g in self.glyphs.get(&node_id(&n)).map(Vec::as_slice).unwrap_or(&[]) {
+                        if g.0.is_whitespace() && g.3 <= 0.0 {
+                            continue;
+                        }
+                        let (l, t, r, b) = (g.1, g.2, g.1 + g.3, g.2 + g.4);
+                        acc = Some(acc.map_or((l, t, r, b), |a| (a.0.min(l), a.1.min(t), a.2.max(r), a.3.max(b))));
+                    }
+                }
+                NodeData::Element { .. } => stack.extend(n.children.borrow().iter().cloned()),
+                _ => {}
+            }
+        }
+        let fixed = find_in(&self.rects, h).is_some_and(|a| a.fixed);
+        // Only collapsible white space (or nothing): the element sits at its insertion point, the
+        // start of the next visible glyph in its block (else the end of the previous one).
+        let (l, t, r, b) = match (acc, self.ink_only_ws(h)) {
+            (Some(a), false) => a,
+            _ => self.insertion_point(h)?,
+        };
+        Some(GeomRect { x: l, y: t, w: r - l, h: b - t, fixed, ink_r: r, ink_b: b })
+    }
+
+    fn ink_only_ws(&self, h: &Handle) -> bool {
+        let mut stack: Vec<Handle> = h.children.borrow().iter().cloned().collect();
+        while let Some(n) = stack.pop() {
+            match &n.data {
+                NodeData::Text { .. } => {
+                    if self.glyphs.get(&node_id(&n)).is_some_and(|g| g.iter().any(|g| !g.0.is_whitespace())) {
+                        return false;
+                    }
+                }
+                NodeData::Element { .. } => stack.extend(n.children.borrow().iter().cloned()),
+                _ => {}
+            }
+        }
+        true
+    }
+
+    /// (left, top, right, bottom) of a zero-width box at the pen position of `h` (an inline element
+    /// with no visible glyph): the first visible glyph after it inside its nearest boxed ancestor,
+    /// else the end of the last one before it.
+    fn insertion_point(&self, h: &Handle) -> Option<(f32, f32, f32, f32)> {
+        let mut block = parent_handle(h)?;
+        while lookup_in(&self.rects, &block).is_none() {
+            block = parent_handle(&block)?;
+        }
+        // Text nodes of `block` in tree order, split at `h`.
+        let (mut before, mut after, mut seen) = (Vec::new(), Vec::new(), false);
+        let mut stack: Vec<Handle> = block.children.borrow().iter().rev().cloned().collect();
+        while let Some(n) = stack.pop() {
+            if Rc::ptr_eq(&n, h) {
+                seen = true;
+                continue;
+            }
+            match &n.data {
+                NodeData::Text { .. } => {
+                    if let Some(g) = self.glyphs.get(&node_id(&n)) {
+                        if seen { after.push(g) } else { before.push(g) }
+                    }
+                }
+                NodeData::Element { .. } => stack.extend(n.children.borrow().iter().rev().cloned()),
+                _ => {}
+            }
+        }
+        let vis = |g: &&Glyph| !g.0.is_whitespace();
+        if let Some(g) = after.iter().find_map(|gs| gs.iter().find(vis)) {
+            return Some((g.1, g.2, g.1, g.2 + g.4));
+        }
+        before.iter().rev().find_map(|gs| gs.iter().rev().find(vis)).map(|g| (g.1 + g.3, g.2, g.1 + g.3, g.2 + g.4))
+    }
+
+    /// The laid tree's hit is a box (a block, an inline formatting context); an inline element
+    /// inside it (a link, a `<span>`) has no box of its own there. When document point (`x`, `y`)
+    /// is on a glyph of a text node below `n`, the text's parent element is the hit.
+    fn refine_inline(&mut self, page: &Handle, n: usize, x: f32, y: f32) -> usize {
+        let Some(h) = (n != 0).then(|| find_node_by_id(page, n)).flatten() else { return n };
+        if self.glyphs_lazy {
+            self.glyphs_lazy = false;
+            let glyphs = &mut self.glyphs;
+            crate::incr_layout::with_laid(|l, c| walk_glyphs(l, c, glyphs));
+        }
+        let mut stack: Vec<Handle> = h.children.borrow().iter().rev().cloned().collect();
+        let mut budget = 20_000usize;
+        let mut found = None;
+        while let Some(c) = stack.pop() {
+            budget = budget.saturating_sub(1);
+            if budget == 0 {
+                break;
+            }
+            match &c.data {
+                NodeData::Text { .. } => {
+                    let on = self.glyphs.get(&node_id(&c)).is_some_and(|g| g.iter().any(|g| x >= g.1 && x < g.1 + g.3 && y >= g.2 && y < g.2 + g.4));
+                    if on {
+                        found = parent_handle(&c);
+                    }
+                }
+                NodeData::Element { .. } => stack.extend(c.children.borrow().iter().rev().cloned()),
+                _ => {}
+            }
+        }
+        found.filter(|p| matches!(p.data, NodeData::Element { .. })).map_or(n, |p| node_id(&p))
     }
 }
 

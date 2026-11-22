@@ -428,218 +428,19 @@ impl App {
 
     /// Focus moved to `h`: remember the value for the `change` event.
     pub(crate) fn text_focus_gained(&mut self, h: &Handle) {
-        if text_control_kind(h).is_some() {
-            with_state(h, |st| st.focus_value = Some(st.buf.text.clone()));
-        }
+        text_focus_gained(h)
     }
 
     /// Focus left `h`: `change` if the value changed since focus, selection dropped.
     pub(crate) fn text_focus_lost(&mut self, h: &Handle) {
-        if text_control_kind(h).is_some() {
-            self.fire_change(h);
-            with_state(h, |st| {
-                st.focus_value = None;
-                st.buf.anchor = None;
-            });
-        }
-    }
-
-    /// `change` when the value differs from the one at focus (or last change).
-    fn fire_change(&mut self, h: &Handle) {
-        let changed = with_state(h, |st| match st.focus_value.clone() {
-            Some(fv) if fv != st.buf.text => {
-                st.focus_value = Some(st.buf.text.clone());
-                true
-            }
-            _ => false,
-        });
-        if changed {
-            self.js_dispatch(Some(h), "change", &[("bubbles", EventField::Bool(true))]);
-        }
-    }
-
-    /// One edit: `beforeinput` (cancelable), the change itself, then `input`.
-    fn edit_text(&mut self, h: &Handle, input_type: &str, data: Option<&str>, f: impl FnOnce(&mut TextEditBuffer)) {
-        let mut init = vec![
-            ("bubbles", EventField::Bool(true)),
-            ("cancelable", EventField::Bool(true)),
-            ("inputType", EventField::Str(input_type.to_string())),
-        ];
-        if let Some(d) = data {
-            init.push(("data", EventField::Str(d.to_string())));
-        }
-        if !self.js_dispatch(Some(h), "beforeinput", &init) {
-            return;
-        }
-        let changed = with_state(h, |st| {
-            let old = st.buf.text.clone();
-            f(&mut st.buf);
-            let changed = st.buf.text != old;
-            st.dirty |= changed;
-            changed
-        });
-        if changed {
-            init.retain(|(k, _)| *k != "cancelable");
-            init.push(("cancelable", EventField::Bool(false)));
-            self.js_dispatch(Some(h), "input", &init);
-        }
-        self.text_redraw();
-    }
-
-    fn insert_text(&mut self, h: &Handle, text: &str, input_type: &str) {
-        let multi = element_tag(h) == "textarea";
-        let max = maxlength(h);
-        let t = text.to_string();
-        self.edit_text(h, input_type, Some(text), move |b| {
-            let t: String = match max {
-                Some(m) => {
-                    let used = b.text.chars().count() - b.selected_text().map_or(0, |s| s.chars().count());
-                    t.chars().take(m.saturating_sub(used)).collect()
-                }
-                None => t,
-            };
-            if multi {
-                b.insert_multiline(&t);
-            } else {
-                b.insert_str(&t);
-            }
-        });
-    }
-
-    fn nav_text(&mut self, h: &Handle, f: impl FnOnce(&mut TextEditBuffer)) {
-        with_state(h, |st| f(&mut st.buf));
-        self.text_redraw();
+        text_focus_lost(self, h)
     }
 
     /// A key pressed (and not cancelled by the page's `keydown`) while text
     /// control `h` has focus. Returns whether it was consumed; when false the
     /// key falls through to scratchy's own bindings.
     pub(crate) fn text_control_key(&mut self, h: &Handle, key: &Key, repeat: bool) -> bool {
-        let multi = element_tag(h) == "textarea";
-        let m = self.modifiers;
-        let (ctrl, shift, alt) = (m.control_key(), m.shift_key(), m.alt_key());
-        let editable = !is_readonly(h);
-        match key {
-            Key::Named(NamedKey::Escape) => {
-                self.set_focus_element(None, false);
-                true
-            }
-            Key::Named(NamedKey::Enter) => {
-                if self.js_key_for("keypress", key, repeat) {
-                    if multi && editable {
-                        self.insert_text(h, "\n", "insertLineBreak");
-                    } else if !multi {
-                        // Enter commits the value, then implicit submission (Q30e).
-                        self.fire_change(h);
-                        self.implicit_submit(h);
-                    }
-                }
-                true
-            }
-            Key::Named(NamedKey::Backspace) => {
-                if editable {
-                    let it = if ctrl { "deleteWordBackward" } else { "deleteContentBackward" };
-                    self.edit_text(h, it, None, move |b| {
-                        if ctrl && b.selection().is_none() {
-                            let p = b.word_left_pos();
-                            b.move_to(p, true);
-                        }
-                        b.backspace();
-                    });
-                }
-                true
-            }
-            Key::Named(NamedKey::Delete) => {
-                if editable {
-                    let it = if ctrl { "deleteWordForward" } else { "deleteContentForward" };
-                    self.edit_text(h, it, None, move |b| {
-                        if ctrl && b.selection().is_none() {
-                            let p = b.word_right_pos();
-                            b.move_to(p, true);
-                        }
-                        b.delete_forward();
-                    });
-                }
-                true
-            }
-            Key::Named(n @ (NamedKey::ArrowLeft | NamedKey::ArrowRight)) => {
-                let right = *n == NamedKey::ArrowRight;
-                self.nav_text(h, move |b| {
-                    if ctrl {
-                        let p = if right { b.word_right_pos() } else { b.word_left_pos() };
-                        b.move_to(p, shift);
-                    } else {
-                        b.nav_horizontal(right, shift);
-                    }
-                });
-                true
-            }
-            Key::Named(n @ (NamedKey::ArrowUp | NamedKey::ArrowDown)) => {
-                let down = *n == NamedKey::ArrowDown;
-                self.nav_text(h, move |b| {
-                    let p = if multi { b.vertical_pos(down) } else { None };
-                    let p = p.unwrap_or(if down { b.text.len() } else { 0 });
-                    b.move_to(p, shift);
-                });
-                true
-            }
-            Key::Named(n @ (NamedKey::Home | NamedKey::End)) => {
-                let end = *n == NamedKey::End;
-                self.nav_text(h, move |b| {
-                    let p = match (end, multi && !ctrl) {
-                        (false, false) => 0,
-                        (true, false) => b.text.len(),
-                        (false, true) => b.line_start_pos(),
-                        (true, true) => b.line_end_pos(),
-                    };
-                    b.move_to(p, shift);
-                });
-                true
-            }
-            Key::Named(NamedKey::Insert) if shift && !ctrl && !alt => {
-                if editable && let Some(t) = clipboard_get() {
-                    self.insert_text(h, &t, "insertFromPaste");
-                }
-                true
-            }
-            Key::Character(s) if ctrl && !alt => match s.to_lowercase().as_str() {
-                "a" => {
-                    self.nav_text(h, |b| b.select_all());
-                    true
-                }
-                "c" | "x" => {
-                    let password = text_control_kind(h).is_some_and(|k| k & TEXT_PASSWORD != 0);
-                    let sel = with_state(h, |st| st.buf.selected_text().map(str::to_string));
-                    if let (Some(t), false) = (sel, password) {
-                        let _ = clipboard_set(&t);
-                        if s.to_lowercase() == "x" && editable {
-                            self.edit_text(h, "deleteByCut", None, |b| {
-                                b.delete_selection();
-                            });
-                        }
-                    }
-                    true
-                }
-                "v" => {
-                    if editable && let Some(t) = clipboard_get() {
-                        self.insert_text(h, &t, "insertFromPaste");
-                    }
-                    true
-                }
-                _ => false,
-            },
-            k if !ctrl && !alt && !m.super_key() => {
-                let Some(text) = key_insertion_text(k) else { return false };
-                if text.chars().all(char::is_control) {
-                    return false;
-                }
-                if self.js_key_for("keypress", key, repeat) && editable {
-                    self.insert_text(h, text, "insertText");
-                }
-                true
-            }
-            _ => false,
-        }
+        text_control_key(self, h, key, repeat)
     }
 
     /// The value byte offset under window position `pos` in text control `h`.
@@ -712,5 +513,235 @@ impl App {
 
     pub(crate) fn text_mouse_release(&mut self) {
         DRAG_NODE.with(|d| d.set(0));
+    }
+}
+
+// QWPT7: the text-control key path, generic over the input source (App or headless testdriver).
+use crate::input_host::InputHost;
+
+/// Focus moved to `h`: remember the value for the `change` event.
+pub(crate) fn text_focus_gained(h: &Handle) {
+    if text_control_kind(h).is_some() {
+        with_state(h, |st| st.focus_value = Some(st.buf.text.clone()));
+    }
+}
+
+/// Focus left `h`: `change` if the value changed since focus, selection dropped.
+pub(crate) fn text_focus_lost<H: InputHost + ?Sized>(host: &mut H, h: &Handle) {
+    if text_control_kind(h).is_some() {
+        fire_change(host, h);
+        with_state(h, |st| {
+            st.focus_value = None;
+            st.buf.anchor = None;
+        });
+    }
+}
+
+/// QWPT7: WebDriver Element Send Keys puts the caret at the end of a text control's value.
+pub(crate) fn text_caret_to_end(h: &Handle) {
+    if text_control_kind(h).is_some() {
+        with_state(h, |st| {
+            st.buf.cursor = st.buf.text.len();
+            st.buf.anchor = None;
+        });
+    }
+}
+
+/// `change` when the value differs from the one at focus (or last change).
+pub(crate) fn fire_change<H: InputHost + ?Sized>(host: &mut H, h: &Handle) {
+    let changed = with_state(h, |st| match st.focus_value.clone() {
+        Some(fv) if fv != st.buf.text => {
+            st.focus_value = Some(st.buf.text.clone());
+            true
+        }
+        _ => false,
+    });
+    if changed {
+        host.ih_dispatch(Some(h), "change", &[("bubbles", EventField::Bool(true))]);
+    }
+}
+
+/// One edit: `beforeinput` (cancelable), the change itself, then `input`.
+fn edit_text<H: InputHost + ?Sized>(host: &mut H, h: &Handle, input_type: &str, data: Option<&str>, f: impl FnOnce(&mut TextEditBuffer)) {
+    let mut init = vec![
+        ("bubbles", EventField::Bool(true)),
+        ("composed", EventField::Bool(true)),
+        ("cancelable", EventField::Bool(true)),
+        ("inputType", EventField::Str(input_type.to_string())),
+    ];
+    if let Some(d) = data {
+        init.push(("data", EventField::Str(d.to_string())));
+    }
+    if !host.ih_dispatch(Some(h), "beforeinput", &init) {
+        return;
+    }
+    let changed = with_state(h, |st| {
+        let old = st.buf.text.clone();
+        f(&mut st.buf);
+        let changed = st.buf.text != old;
+        st.dirty |= changed;
+        changed
+    });
+    if changed {
+        init.retain(|(k, _)| *k != "cancelable");
+        init.push(("cancelable", EventField::Bool(false)));
+        host.ih_dispatch(Some(h), "input", &init);
+    }
+    host.ih_text_redraw();
+}
+
+fn insert_text<H: InputHost + ?Sized>(host: &mut H, h: &Handle, text: &str, input_type: &str) {
+    let multi = element_tag(h) == "textarea";
+    let max = maxlength(h);
+    let t = text.to_string();
+    edit_text(host, h, input_type, Some(text), move |b| {
+        let t: String = match max {
+            Some(m) => {
+                let used = b.text.chars().count() - b.selected_text().map_or(0, |s| s.chars().count());
+                t.chars().take(m.saturating_sub(used)).collect()
+            }
+            None => t,
+        };
+        if multi {
+            b.insert_multiline(&t);
+        } else {
+            b.insert_str(&t);
+        }
+    });
+}
+
+fn nav_text<H: InputHost + ?Sized>(host: &mut H, h: &Handle, f: impl FnOnce(&mut TextEditBuffer)) {
+    with_state(h, |st| f(&mut st.buf));
+    host.ih_text_redraw();
+}
+
+/// A key pressed (and not cancelled by the page's `keydown`) while text
+/// control `h` has focus. Returns whether it was consumed; when false the
+/// key falls through to scratchy's own bindings.
+pub(crate) fn text_control_key<H: InputHost + ?Sized>(host: &mut H, h: &Handle, key: &Key, repeat: bool) -> bool {
+    let multi = element_tag(h) == "textarea";
+    let m = host.ih_mods();
+    let (ctrl, shift, alt) = (m.control_key(), m.shift_key(), m.alt_key());
+    let editable = !is_readonly(h);
+    match key {
+        Key::Named(NamedKey::Escape) => {
+            host.ih_set_focus(None, false);
+            true
+        }
+        Key::Named(NamedKey::Enter) => {
+            if host.ih_key("keypress", key, repeat) {
+                if multi && editable {
+                    insert_text(host, h, "\n", "insertLineBreak");
+                } else if !multi {
+                    // Enter commits the value, then implicit submission (Q30e).
+                    fire_change(host, h);
+                    crate::input_host::implicit_submit(host, h);
+                }
+            }
+            true
+        }
+        Key::Named(NamedKey::Backspace) => {
+            if editable {
+                let it = if ctrl { "deleteWordBackward" } else { "deleteContentBackward" };
+                edit_text(host, h, it, None, move |b| {
+                    if ctrl && b.selection().is_none() {
+                        let p = b.word_left_pos();
+                        b.move_to(p, true);
+                    }
+                    b.backspace();
+                });
+            }
+            true
+        }
+        Key::Named(NamedKey::Delete) => {
+            if editable {
+                let it = if ctrl { "deleteWordForward" } else { "deleteContentForward" };
+                edit_text(host, h, it, None, move |b| {
+                    if ctrl && b.selection().is_none() {
+                        let p = b.word_right_pos();
+                        b.move_to(p, true);
+                    }
+                    b.delete_forward();
+                });
+            }
+            true
+        }
+        Key::Named(n @ (NamedKey::ArrowLeft | NamedKey::ArrowRight)) => {
+            let right = *n == NamedKey::ArrowRight;
+            nav_text(host, h, move |b| {
+                if ctrl {
+                    let p = if right { b.word_right_pos() } else { b.word_left_pos() };
+                    b.move_to(p, shift);
+                } else {
+                    b.nav_horizontal(right, shift);
+                }
+            });
+            true
+        }
+        Key::Named(n @ (NamedKey::ArrowUp | NamedKey::ArrowDown)) => {
+            let down = *n == NamedKey::ArrowDown;
+            nav_text(host, h, move |b| {
+                let p = if multi { b.vertical_pos(down) } else { None };
+                let p = p.unwrap_or(if down { b.text.len() } else { 0 });
+                b.move_to(p, shift);
+            });
+            true
+        }
+        Key::Named(n @ (NamedKey::Home | NamedKey::End)) => {
+            let end = *n == NamedKey::End;
+            nav_text(host, h, move |b| {
+                let p = match (end, multi && !ctrl) {
+                    (false, false) => 0,
+                    (true, false) => b.text.len(),
+                    (false, true) => b.line_start_pos(),
+                    (true, true) => b.line_end_pos(),
+                };
+                b.move_to(p, shift);
+            });
+            true
+        }
+        Key::Named(NamedKey::Insert) if shift && !ctrl && !alt => {
+            if editable && let Some(t) = clipboard_get() {
+                insert_text(host, h, &t, "insertFromPaste");
+            }
+            true
+        }
+        Key::Character(s) if ctrl && !alt => match s.to_lowercase().as_str() {
+            "a" => {
+                nav_text(host, h, |b| b.select_all());
+                true
+            }
+            "c" | "x" => {
+                let password = text_control_kind(h).is_some_and(|k| k & TEXT_PASSWORD != 0);
+                let sel = with_state(h, |st| st.buf.selected_text().map(str::to_string));
+                if let (Some(t), false) = (sel, password) {
+                    let _ = clipboard_set(&t);
+                    if s.to_lowercase() == "x" && editable {
+                        edit_text(host, h, "deleteByCut", None, |b| {
+                            b.delete_selection();
+                        });
+                    }
+                }
+                true
+            }
+            "v" => {
+                if editable && let Some(t) = clipboard_get() {
+                    insert_text(host, h, &t, "insertFromPaste");
+                }
+                true
+            }
+            _ => false,
+        },
+        k if !ctrl && !alt && !m.super_key() => {
+            let Some(text) = key_insertion_text(k) else { return false };
+            if text.chars().all(char::is_control) {
+                return false;
+            }
+            if host.ih_key("keypress", key, repeat) && editable {
+                insert_text(host, h, text, "insertText");
+            }
+            true
+        }
+        _ => false,
     }
 }

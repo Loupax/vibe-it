@@ -2333,6 +2333,43 @@ impl JsEngine {
             });
         });
     }
+
+    /// QWPT7: `--wpt-th-one` only: the testdriver vendor (`tools/wpt/testdriver-vendor.js`) calls
+    /// `__scratchy_td_wake()` when it queued an action; the runner then asks `td_next` for ticks.
+    pub(crate) fn install_testdriver(&self, wake: Rc<Cell<bool>>) {
+        self.eng.with(|ctx| {
+            native!(&ctx, "__scratchy_td_wake", move || wake.set(true));
+        });
+    }
+
+    /// QWPT7: the vendor's next tick (`__scratchy_td_next`, ops one per line; see wpt_input.rs),
+    /// `None` when its queue is empty (or no vendor is loaded).
+    pub(crate) fn td_next(&self) -> Option<String> {
+        self.eval_value::<String>("testdriver", "typeof __scratchy_td_next === 'function' ? __scratchy_td_next() : ''").filter(|s| !s.is_empty())
+    }
+
+    /// QWPT7: the element under viewport point (`x`, `y`) of the page's real layout (the
+    /// forced-layout cache, `GeomCache::hit`), `None` outside the viewport or over nothing.
+    pub(crate) fn element_at(&self, x: f32, y: f32) -> Option<Handle> {
+        let id: i32 = self.eval_value("hit", &format!("__scratchy_hit({x},{y})"))?;
+        if id < 0 {
+            return None;
+        }
+        self.table.borrow().get(id)
+    }
+
+    /// QWPT7: the JS wrapper id of `h` (`__scratchy_node(id)` in script).
+    pub(crate) fn intern_node(&self, h: &Handle) -> i32 {
+        self.table.borrow_mut().intern(h)
+    }
+
+    /// QWPT7: the node behind a JS wrapper id (`el.__id`), if it is still known.
+    pub(crate) fn node_by_js_id(&self, id: i32) -> Option<Handle> {
+        if id < 0 {
+            return None;
+        }
+        self.table.borrow().get(id)
+    }
 }
 
 /// QV8-4: the V8 startup snapshot's source: scratchy's own startup over an empty document (the

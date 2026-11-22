@@ -35,6 +35,8 @@ use std::time::{Duration, Instant};
 
 /// The vendor hook (R64 2.2), embedded so an installed binary needs no source tree.
 const REPORT_JS: &str = include_str!("../tools/wpt/testharnessreport.js");
+/// QWPT7: the testdriver vendor (trusted input through `wpt_input.rs`), embedded the same way.
+const VENDOR_JS: &str = include_str!("../tools/wpt/testdriver-vendor.js");
 /// The pinned WPT commit, for the areas.txt header.
 const WPT_PIN: &str = include_str!("../tools/wpt-pin.txt");
 const ORIGIN: &str = "http://web-platform.test:8000";
@@ -766,6 +768,8 @@ fn start_wire(wire: &std::path::Path, checkout: &std::path::Path, verbose: bool)
     fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let hook = dir.join("testharnessreport.js");
     fs::write(&hook, REPORT_JS).map_err(|e| format!("{}: {e}", hook.display()))?;
+    let vendor = dir.join("testdriver-vendor.js");
+    fs::write(&vendor, VENDOR_JS).map_err(|e| format!("{}: {e}", vendor.display()))?;
     let sock = dir.join("wire.sock");
     let checkout = fs::canonicalize(checkout).map_err(|e| format!("{}: {e}", checkout.display()))?;
     let mut c = Command::new(wire);
@@ -777,6 +781,7 @@ fn start_wire(wire: &std::path::Path, checkout: &std::path::Path, verbose: bool)
     }
     c.arg("--mount").arg(format!("{ORIGIN}={}", checkout.display()));
     c.arg("--mount-override").arg(format!("/resources/testharnessreport.js={}", hook.display()));
+    c.arg("--mount-override").arg(format!("/resources/testdriver-vendor.js={}", vendor.display()));
     c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(if verbose { Stdio::inherit() } else { Stdio::null() });
     let child = c.spawn().map_err(|e| format!("cannot start {}: {e}", wire.display()))?;
     let mut w = PrivateWire { child, dir };
