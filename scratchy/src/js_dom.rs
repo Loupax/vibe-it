@@ -5111,9 +5111,21 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   // again, and its state is "failed" (-1) while its constructor runs. Before, a constructor that inserted its own
   // element (`container.append(this)`) re-upgraded it from the insert hook, recursing until V8's stack overflowed;
   // which frame threw depended on the build's stack frame sizes, so WPT results differed between binaries.
-  var ceUpgrade = function (id, d, conn) {
+  // QCE1: `parse` = the element is one the parser has not reached yet (it follows the running parser script).
+  // The page is parsed up front, so this emulates HTML "create an element for a token" with the synchronous
+  // custom elements flag: the attributes come off, the constructor runs on the bare element, the attributes are
+  // appended one by one (mutation records and attributeChangedCallback in attribute order), and only then the
+  // element is put back where the parser inserts it (the constructor may have moved it).
+  var ceParseDetach = function (id) {
+    var par = __d_parent(id), names = __d_attr_names(id), vals = [];
+    var info = { par: par, nx: par >= 0 ? __d_sibling(id, 1, false) : -1, names: names, vals: vals };
+    for (var k = 0; k < names.length; k++) { vals.push(__d_attr(id, names[k])); g.__d_rmattr(id, names[k]); }
+    return info;
+  };
+  var ceUpgrade = function (id, d, conn, parse) {
     if (ceState[id]) return;
-    var el = wrap(id), ok = false;
+    var el = wrap(id), ok = false, par = -1, nx = -1, names = null, vals = null;
+    if (parse) { par = parse.par; nx = parse.nx; names = parse.names; vals = parse.vals; }
     ceState[id] = -1;
     d.stack.push({ el: el, done: false });
     try {
@@ -5125,16 +5137,23 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       ok = true;
     } catch (e) { ceReport(e, d.name + ' constructor'); }
     d.stack.pop();
-    if (!ok) { ceState[id] = -1; return; }
+    if (!ok) {
+      ceState[id] = -1;
+      if (parse) for (var k2 = 0; k2 < names.length; k2++) if (__d_attr(id, names[k2]) == null) g.__d_setattr(id, names[k2], vals[k2]);
+      return;
+    }
     ceState[id] = d; xr.cs[id] = ceApi;
-    if (d.observed.length) {
+    if (parse) {
+      for (var k3 = 0; k3 < names.length; k3++) __d_setattr(id, names[k3], vals[k3]);
+      if (par >= 0 && (__d_parent(id) !== par || __d_sibling(id, 1, false) !== nx)) wrap(par).insertBefore(el, nx >= 0 ? wrap(nx) : null);
+    } else if (d.observed.length) {
       var names = __d_attr_names(id);
       for (var i = 0; i < names.length; i++) {
         var n = names[i].toLowerCase();
         if (d.observed.indexOf(n) >= 0) ceCall(el, d.changed, [n, null, __d_attr(id, n)]);
       }
     }
-    if (conn) ceSetConn(id);
+    if (conn && !ceConnFlag[id]) ceSetConn(id);
   };
   var ceProcess = function (id, conn, up) {
     var st = ceState[id];
@@ -5391,7 +5410,17 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     // QY21: only the NEW name is looked up (the old all-names selector made define() quadratic).
     ceStats.defineQueries++;
     var l = __d_query(doc.__id, name.indexOf('.') >= 0 ? '*' : ext ? ext + '[is]' : name, false);
-    for (var i = 0; i < l.length; i++) { if (!ceState[l[i]] && ceDefFor(l[i]) === d) ceUpgrade(l[i], d, true); }
+    var ps = curScript && wlast >= 0 ? curScript : null; // a parser script is running: later elements are "not parsed yet"
+    // Not-yet-parsed elements lose their attributes first (none of them exists for the parser yet: a live
+    // collection read by an earlier constructor must not see a later element's attributes).
+    var pend = [], infos = {};
+    for (var i = 0; i < l.length; i++) {
+      if (!ceState[l[i]] && ceDefFor(l[i]) === d && ps && (ps.compareDocumentPosition(wrap(l[i])) & 4)) { pend.push(l[i]); }
+    }
+    for (var j = 0; j < pend.length; j++) infos[pend[j]] = ceParseDetach(pend[j]);
+    for (i = 0; i < l.length; i++) {
+      if (!ceState[l[i]] && (infos[l[i]] || ceDefFor(l[i]) === d)) ceUpgrade(l[i], d, true, infos[l[i]] || null);
+    }
     if (ceWhen[name]) { var w = ceWhen[name]; delete ceWhen[name]; w.resolve(ctor); }
   };
   CER.prototype.get = function (name) { var d = ceByName[String(name)]; return d ? d.ctor : undefined; };

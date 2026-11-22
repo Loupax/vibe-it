@@ -633,17 +633,8 @@ OK           0/4  custom-elements/parser/parser-fallsback-to-unknown-element.htm
   FAIL      HTML parser must create a fallback HTMLUnknownElement when a custom element constructor returns non-Element object
   FAIL      HTML parser must create a fallback HTMLUnknownElement when a custom element constructor does not call super()
   FAIL      HTML parser must create a fallback HTMLUnknownElement when a custom element constructor throws an exception
-OK           1/3  custom-elements/parser/parser-sets-attributes-after-autonomous-constructor.html
-  FAIL      Non-empty, empty, and duplicate attributes: parser attribute mutation records on an autonomous custom element without observedAttributes
-  FAIL      An empty class attribute: parser attribute mutation records on an autonomous custom element without observedAttributes
-OK           2/9  custom-elements/parser/parser-sets-attributes-after-built-in-constructor.html
-  FAIL      Non-empty, empty, and duplicate attributes: parser attribute mutation records on a customized built-in element
-  FAIL      An empty class attribute: parser attribute mutation records on a customized built-in element
-  FAIL      A non-empty name attribute: parser attribute mutation records on a customized built-in element
-  FAIL      An empty name attribute: parser attribute mutation records on a customized built-in element
-  FAIL      Attributes appended by the parser queue mutation records when the constructor inserted the element into an observed subtree
-  FAIL      Live document.anchors reflects a non-empty name attribute appended by the parser after the constructor inserted the element
-  FAIL      Live document.anchors reflects a empty name attribute appended by the parser after the constructor inserted the element
+OK           3/3  custom-elements/parser/parser-sets-attributes-after-autonomous-constructor.html
+OK           9/9  custom-elements/parser/parser-sets-attributes-after-built-in-constructor.html
 OK           2/5  custom-elements/parser/parser-sets-attributes-and-children.html
   FAIL      HTML parser must set the attributes or append children before calling constructor
   FAIL      HTML parser should call connectedCallback before appending child nodes.
