@@ -9577,3 +9577,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       the page's main realm, `String()` of the result goes into the register. JS off or no engine: `scratchy: :let
       needs JS (:set js)`. A thrown error: its message in the status bar, nothing copied. Long results: copied
       whole, only the message is short. Tests: `:let @+ = document.title`, a throwing expression, JS off.
+
+=== from TODO.txt: --- (no header)
+- [x] QWPT8 DONE 230b1cb #615 [M] (P2; Sonnet; tools/, wire --map-host; user answered Q2 2026-11-21) Phase 2 server: tools/wptserve.sh
+      (python3 ./wpt serve from a checkout that includes tools/), wire `--map-host
+      '*.web-platform.test=127.0.0.1'`, runner `--server wptserve`; add fetch/ and xhr/ to the subset.
