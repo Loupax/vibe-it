@@ -27,6 +27,8 @@ const MAX_VIRTUAL_MS: f64 = 3_600_000.0;
 /// A network result not arriving within this much real time ends the run (the request itself
 /// times out sooner, by the policy's read timeout).
 const MAX_NET_WAIT: Duration = Duration::from_secs(120);
+/// QWPT7: the shortest testdriver tick on the virtual clock (one 60 Hz frame).
+const MIN_TICK_MS: f64 = 16.0;
 
 pub(crate) fn main(args: &[String]) -> i32 {
     let mut socket = None;
@@ -211,7 +213,9 @@ fn pump(engine: &JsEngine, clock: &Rc<Cell<f64>>, done: &Rc<RefCell<Option<Strin
             wake.set(false);
             if let Some(tick) = engine.td_next() {
                 let mut d = crate::wpt_input::Driver { js: engine, doc: doc.clone(), st: &mut input, now: clock.get() };
-                tick_at = clock.get() + d.run_tick(&tick);
+                // A tick takes at least a frame, as with a browser's WebDriver: a page that sends
+                // keys in a loop until something happens still reaches its harness timeout.
+                tick_at = clock.get() + d.run_tick(&tick).max(MIN_TICK_MS);
                 wake.set(true);
             }
             continue;

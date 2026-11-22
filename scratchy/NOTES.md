@@ -3823,7 +3823,54 @@ the same viewport as `innerWidth` in every mode). Ahem: `<origin>/fonts/Ahem.ttf
 wire and added to the forced-layout font system (`js_geom::install_extra_fonts`); missing = one
 stderr line. `visibilityState` is `visible` (always, E14). The pump runs the rendering update on
 virtual 16.7 ms frames through the shared driver (QEL1, "Rendering steps"). Not here yet: IO
-in the rendering step (QEL3), stylesheets inserted after load, testdriver.
+in the rendering step (QEL3), stylesheets inserted after load. Trusted input: "testdriver (QWPT7)" below.
+
+### testdriver (QWPT7; tools/wpt/testdriver-vendor.js, src/wpt_input.rs, src/input_host.rs)
+
+The runner's wire also overrides `/resources/testdriver-vendor.js` with scratchy's vendor (embedded like the report hook).
+It sets `test_driver_internal.in_automation` and implements `click`, `send_keys`, `action_sequence` (pointer
+move/down/up, key down/up, wheel `scroll`, pause; element and `pointer` origins resolved at tick time), plus a small
+`get_computed_role` / `get_computed_label` (tag/role table, aria-label(ledby), labels, alt, text). `bless` works through
+`click`. Each call queues a job of TICKS and calls the native `__scratchy_td_wake` (installed only in `--wpt-th-one`,
+`JsEngine::install_testdriver`). `wpt_th::pump` runs ONE tick per idle turn (after network, due timers and the rendering
+frame) by evaluating `__scratchy_td_next()`: ops one per line (`m X Y`, `d B`, `u B`, `kd CPS`, `ku CPS`, `w X Y DX DY`,
+`f ID`, `e ID`, `t MS`). The virtual clock then moves by the tick's duration, at least 16 ms (`MIN_TICK_MS`: a page
+that sends keys in a loop until something happens still reaches its harness timeout). A job's promise resolves in the
+`__scratchy_td_next` call after its last tick; a tick that throws (origin out of view) rejects it.
+
+`wpt_input::Driver` runs the ops: the element under the pointer is `GeomCache::hit` (below), events are trusted
+(`JsEngine::dispatch_event`), and the default actions are the App's own, shared through the `input_host::InputHost`
+trait (the App implements it too): `click_activate` (checkbox/radio legacy pre-activation, reset/submit buttons,
+select), `forward_label_click`, `implicit_submit`, `focus_events` (blur/focusout/focus/focusin with `relatedTarget`),
+`forms_text::text_control_key` (keypress, beforeinput, edit, input; Enter, Backspace, arrows, ...), and the init field
+builders `mouse_init`/`pointer_init`/`key_init` (`composed` set). Order of a press: `pointerdown` (first button;
+cancelled = no compatibility mouse events until all buttons are up), `mousedown` (`detail` = click count), `:active`,
+focus of the nearest click-focusable ancestor (App `press_state`; a press on nothing focusable blurs), `contextmenu`
+(right button). Release: `pointerup`, `mouseup`, then `click` (main button, with activation and label forwarding) or
+`auxclick` at the nearest common ancestor of the press and release targets; `dblclick` for a second click within
+500 virtual ms. Moves fire out/leave then over/enter (pointer, then mouse) when the hit element changes, then
+`pointermove`/`mousemove`; `:hover` follows (`js_dom::interaction_changed`: the next forced layout restyles). Keys:
+WebDriver code points (U+E000 block: `webdriver_key`, left/right modifiers and numpad through the physical code),
+modifiers held across ticks, `keydown` at the focused element (else body), then text editing, Tab focus order, Space on
+a checkbox/radio, Enter/Space on a button, Enter on a link, else `keypress` for printable keys. `send_keys` focuses
+the element first and puts a text control's caret at the end. `wheel`: a cancelable `WheelEvent` at the hit element,
+then `__scratchy_td_wheel` scrolls the nearest scroll container (else the window). Page `focus()`/`blur()` requests
+(QB5 `FocusReq`) are now applied by the pump as `js_sync` applies them in the App, so their focus events fire (one
+turn later, as in the App: html/editing focus-blur and focusing-focused-noop want them synchronously, QWPT7a).
+Not headless: navigation (link clicks, form submission fire their events only), the select dropdown, element scroll
+offsets in hit testing (script-side only), drag and drop, touch/pen pointers (reported as mouse), window rects.
+
+**Hit testing (`document.elementFromPoint`, `elementsFromPoint`, ShadowRoot versions).** Native `__d_hit(x, y, vw, vh,
+sx, sy)` -> `GeomCache::hit`: refreshes the forced layout, then `paint::hit_test_element` (the App pointer's walk:
+z-order, positioned and fixed boxes, sticky) on the incremental engine's kept laid tree in document space (viewport
+point + window scroll); without an engine tree, the deepest recorded box containing the point. The laid tree's hit is
+a box; `refine_inline` then picks the inline element whose glyph is under the point (a link or span in a line).
+JS: non-finite coordinates throw (WebIDL double), outside the viewport -> null / [], no hit -> the root element;
+shadow hits are retargeted against the scope; `elementsFromPoint` = the hit and its ancestors whose border box
+contains the point, then the root (no siblings painted underneath). No `pointer-events: none`, no SVG content
+hits. Since QWPT7 an inline element with no box of its own and no boxed descendants has the union of its glyph
+boxes as its rect (getBoundingClientRect/getClientRects/offset*), and one with only collapsible white space or nothing
+sits at its pen position (zero width, the next visible glyph in its block, else the end of the previous).
 
 ## WPT testharness runner (QWPT4b, src/wpt_th_run.rs; R64 2.3, 2.5, 3.1)
 
@@ -3872,6 +3919,8 @@ Wall time of the full run: 110 s at `--jobs 4` (quiet machine, load 5), 67 s at 
 html/canvas (QWPT12): 2,354 URLs in three areas (`html/canvas/element` 1,276, `html/canvas/offscreen` 1,074, `html/canvas/other` 4; `.tentative.` included; `html/canvas` is in tools/wpt-dirs.txt). Skipped there: worker variants 1,040, `.https.`/`.sub.` 77, test_driver calls 5, testdriver 1, timeout=long 2. Baseline when added: 40 of 3,021 element subtests pass (1.3 %), offscreen 0 of 1,370 (`getContext` returns null, QY3); five runs of the three areas were identical, no flaky entries. Local time of the canvas files: ~50-85 s per big area at `--jobs 4`. The reftest gate is unchanged (canvas reftests draw with script).
 html/editing (QWPT6d): 48 files; the filter also drops pages whose source mentions `testdriver` (`SRC_TESTDRIVER_AREAS` in wpt-subset.py; only this area).
 QWPT6e (testdriver): `--wpt-th-one` has no trusted-input path (no App; `document.elementFromPoint` is a stub; testdriver-vendor.js throws `action_sequence() is not implemented`), so a vendor for click/send_keys/Actions would need hit testing, focus and default actions: not an S item. Instead `DRIVER_CALL` (`\btest_driver\b` in the source) drops every page that calls the driver, in all areas: 111 URLs (by area in PROMPTS.md QWPT6e). 138 pages only load testdriver.js and never call it; they stay (they run fine). Baseline now 3,209 ran, 969 all-pass, 85,795 subtests, 67.1 % pass, score 39.1. 25 s at `--jobs 4` locally.
+QWPT7 (testdriver vendor): `DRIVER_CALL` now only drops a page that calls a `test_driver.<name>` outside `DRIVER_DONE` (click, send_keys,
+action_sequence, Actions, bless, get_computed_label/role, set_test_context, message_test): 1 URL at the pin (get/set_window_rect). 111 URLs came back.
 QWPT6c: the 53 dom/* timeout=long URLs take ~20 s at `--jobs 4` on their own (load ~25). Five runs: two files have run-dependent subtest counts (they hit the 10 s virtual harness clock partway) and are in `flaky.txt`: dom/ranges/Range-mutations-dataChange.html and Range-mutations-replaceData.html.
 
 ### Range fix-ups across realms, dynamic iframes (QDOM5b)

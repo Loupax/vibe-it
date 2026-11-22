@@ -70,7 +70,7 @@ fn element_from_point_hits_the_real_layout() {
 #[test]
 fn shadow_hits_are_retargeted_to_the_host() {
     let (eng, _doc, _) = engine(
-        "<html><body style='margin:0'><div id=h></div></body></html>",
+        "<html><body style='margin:0'><div id=h style='height:40px'></div></body></html>",
         "var r = document.getElementById('h').attachShadow({mode: 'open'}); r.innerHTML = \"<div id=in style='height:40px'></div>\";",
     );
     let got = eng
@@ -188,7 +188,7 @@ fn checkbox_and_label_clicks_use_the_apps_activation_behaviour() {
     click(&mut d, lc);
     assert!(!live_checked(&cb));
     let s = take(&eng);
-    assert!(s.contains("click@l click@cb input@cb change@cb"), "{s}");
+    assert!(s.contains("click@l focus@cb focusin@cb click@cb input@cb change@cb"), "{s}");
     // A cancelled click restores the state.
     eng.eval("t", "document.getElementById('cb').addEventListener('click', e => e.preventDefault());");
     d.now = 10000.0;
@@ -295,12 +295,12 @@ fn the_vendor_turns_actions_into_ticks_the_driver_runs() {
         at += d.run_tick(&tick);
         wake.set(true);
     }
-    assert_eq!(ticks[0], "m 35 55\nt 0", "element origin = its in-view centre");
+    assert_eq!(ticks[0], "m 40 60\nt 0", "element origin = its in-view centre");
     assert_eq!(ticks[1], "d 0\nkd 57352\nt 0");
     assert_eq!(ticks[2], "t 40", "a tick lasts as long as its longest pause");
     assert_eq!(ticks[3], "u 0\nku 57352\nt 0");
     assert_eq!(at, 40.0);
     let l = logs(&out);
-    assert!(l.iter().any(|s| s.starts_with("done pointerover@c") && s.contains("pointerdown@c mousedown@c keydown@body") && s.ends_with("click@c")), "{l:?}");
+    assert!(l.iter().any(|s| s.starts_with("done pointerover@c") && s.contains("pointerdown@c mousedown@c keydown@body") && s.ends_with("click@c keyup@body")), "{l:?}");
     assert!(l.iter().any(|s| s == "keys abx"), "{l:?}");
 }

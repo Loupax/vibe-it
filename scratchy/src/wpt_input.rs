@@ -152,7 +152,7 @@ impl Driver<'_> {
         let old = self.st.hover.clone();
         if old.as_ref().map(node_id) != target.as_ref().map(node_id) {
             self.st.hover = target.clone();
-            let chain = |h: &Option<Handle>| h.as_ref().map(|h| ancestors_incl(h)).unwrap_or_default();
+            let chain = |h: &Option<Handle>| h.as_ref().map(ancestors_incl).unwrap_or_default();
             let (old_chain, new_chain) = (chain(&old), chain(&target));
             let has = |c: &[Handle], h: &Handle| c.iter().any(|x| Rc::ptr_eq(x, h));
             let left: Vec<Handle> = old_chain.iter().filter(|h| !has(&new_chain, h)).cloned().collect();
