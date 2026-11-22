@@ -3858,13 +3858,14 @@ start an area, e.g. `# area: dom/nodes`), `wpt-th/flaky.txt` (first token of a l
 `wpt-th/subset.txt` is GENERATED: `python3 tools/wpt-subset.py CHECKOUT` (run from `scratchy/`). It needs WPT's own manifest code,
 which the sparse checkout lacks: `git -C CHECKOUT sparse-checkout add tools` once (~12 MB). The script imports `tools/manifest` from the
 checkout and builds `CHECKOUT/MANIFEST.json` in-process (no `./wpt` launcher, no venv, no pip, no sockets; ~1 min). It keeps every
-testharness URL of the areas in the script, minus timeout=long and `encoding/legacy-mb-*` (nightly), testdriver users, `.https.`/`.sub.`,
-worker variants and files whose source mentions a `.py` handler; skip counts go to stderr. Result at the pin: 3,264 URLs in 23 areas
+testharness URL of the areas in the script, minus timeout=long outside dom/* (QWPT6c keeps the dom/* ones) and `encoding/legacy-mb-*` (nightly), testdriver users, `.https.`/`.sub.`,
+worker variants and files whose source mentions a `.py` handler; skip counts go to stderr. Result at the pin: 3,365 URLs in 24 areas incl. html/editing (3,312 before QWPT6c, which added 53 dom/* timeout=long URLs: dom/nodes 13, dom/events 7, dom/ranges 28, dom/other 5)
 (`# area:` blocks in the script's AREAS order). Query variants (`?1-10`) are separate entries.
 Baseline: 3,214 ran, 656 all-pass, 37,045 subtests, 45.6 % pass, mean per-file score 28.4 (table in `wpt-th/areas.txt`).
 Wall time of the full run: 110 s at `--jobs 4` (quiet machine, load 5), 67 s at `--jobs 12`; first run 3:41 on a loaded machine
 (load 30). Peak RSS of the runner tree ~290 MB. Four runs were identical, so `wpt-th/flaky.txt` is empty (comment only).
 html/editing (QWPT6d): 48 files; the filter also drops pages whose source mentions `testdriver` (`SRC_TESTDRIVER_AREAS` in wpt-subset.py; only this area, the others keep the META-only filter). 25 s at `--jobs 4` locally.
+QWPT6c: the 53 dom/* timeout=long URLs take ~20 s at `--jobs 4` on their own (load ~25). Five runs: two files have run-dependent subtest counts (they hit the 10 s virtual harness clock partway) and are in `flaky.txt`: dom/ranges/Range-mutations-dataChange.html and Range-mutations-replaceData.html.
 
 ### Window named access (QDOM1)
 
