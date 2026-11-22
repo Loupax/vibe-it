@@ -1,0 +1,5 @@
+# Per-file callback CPU budget for the --wpt-th runner: `path ms reason`. A listed file's child runs with `--budget-ms ms`
+# (and a real-time kill limit of at least ms + 45 s). Unlisted files keep the 500 ms default, like the App (QWPTBUD).
+dom/ranges/Range-insertNode.html 60000 runs all 1840 cases in one iframe-load callback (about 10 s of CPU alone, 25 s under load)
+dom/ranges/Range-surroundContents.html 60000 same as Range-insertNode.html
+dom/ranges/Range-mutations-replaceData.html 60000 all 1146 subtests in one callback (about 5 s of CPU)

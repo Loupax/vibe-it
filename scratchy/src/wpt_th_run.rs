@@ -1,7 +1,7 @@
 //! QWPT4b (R64 2.3, 2.5, 3.1): the parent of the testharness.js runner.
 //!
 //! `scratchy --wpt-th <checkout> [--jobs N] [--update] [--area A,B,dir/*] [--except A,B] [--wire PATH] [--dir DIR]
-//! [--timeout SECS] [--no-scope] [--server mount|wptserve] [-v]` (run from `scratchy/`, like `--wpt`):
+//! [--timeout SECS] [--budget-ms MS] [--no-scope] [--server mount|wptserve] [-v]` (run from `scratchy/`, like `--wpt`):
 //!
 //! 1. reads `wpt-th/subset.txt` (paths, one per line; `# area: NAME` comments group them),
 //! 2. starts its OWN private `wire --mount ... --mount-override ...` on its own socket in a temp
@@ -11,7 +11,7 @@
 //!    that prints nothing is `CRASH`; worker variants (`.worker.`, `.serviceworker.`,
 //!    `.sharedworker.`) are not run and listed `NOT-RUN`,
 //! 4. compares with `wpt-th/expected/<area>.txt` (format R64 2.5, parsed/written below), honours
-//!    `wpt-th/flaky.txt` (run, never compared, not counted in the table) and writes
+//!    `wpt-th/budgets.txt` (QWPTBUD: per-file callback budget), `wpt-th/flaky.txt` (run, never compared, not counted in the table) and writes
 //!    `wpt-th/areas.txt` (R64 3.1: mean per-file score, subtest pass % beside it),
 //! 5. exits 1 on any REGRESSION / UNRECORDED / CHANGED; `--update` rewrites the expected files.
 //!
@@ -395,6 +395,35 @@ pub(crate) fn parse_flaky(text: &str) -> BTreeSet<String> {
     text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')).filter_map(|l| l.split_whitespace().next()).map(str::to_string).collect()
 }
 
+/// QWPTBUD: `budgets.txt`: `path MS reason` per line. A listed file runs with that per-callback CPU budget
+/// (`--budget-ms` to its child) instead of the 500 ms default, for pages that run all their cases in ONE callback
+/// (dom/ranges/Range-insertNode.html: 1840 cases) and were otherwise cut at a load-dependent point. The App keeps
+/// 500 ms; every file not listed keeps it too, so a runaway loop elsewhere still dies fast.
+pub(crate) fn parse_budgets(text: &str) -> BTreeMap<String, u64> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .filter_map(|l| {
+            let mut w = l.split_whitespace();
+            let path = w.next()?;
+            let ms: u64 = w.next()?.parse().ok()?;
+            Some((path.to_string(), ms))
+        })
+        .collect()
+}
+
+/// The budgets of this run (set once by `execute`).
+static BUDGETS: std::sync::OnceLock<BTreeMap<String, u64>> = std::sync::OnceLock::new();
+
+/// Extra child arguments and the real-time kill limit for `path`: a budgeted file gets its budget and at least
+/// budget + 45 s of wall time (the budget counts CPU time, which a loaded machine stretches).
+pub(crate) fn budget_for(path: &str, timeout: Duration) -> (Vec<String>, Duration) {
+    match BUDGETS.get().and_then(|m| m.get(path)) {
+        Some(&ms) => (vec!["--budget-ms".into(), ms.to_string()], timeout.max(Duration::from_millis(ms) + Duration::from_secs(45))),
+        None => (Vec::new(), timeout),
+    }
+}
+
 /// Worker variants (`x.any.worker.html`, `x.worker.html`, service/shared worker) need a worker
 /// global scope scratchy does not have: listed `NOT-RUN`.
 pub(crate) fn is_worker_variant(path: &str) -> bool {
@@ -497,9 +526,9 @@ enum ChildEnd {
 }
 
 /// Runs one child; on `timeout` kills THAT child's PID only.
-fn run_child(cmd: &ChildCmd, url: &str, timeout: Duration) -> ChildEnd {
+fn run_child(cmd: &ChildCmd, url: &str, extra: &[String], timeout: Duration) -> ChildEnd {
     let mut c = Command::new(&cmd.program);
-    c.args(&cmd.args).arg(url).stdin(Stdio::null()).stdout(Stdio::piped());
+    c.args(&cmd.args).args(extra).arg(url).stdin(Stdio::null()).stdout(Stdio::piped());
     c.stderr(if cmd.verbose { Stdio::inherit() } else { Stdio::null() });
     let Ok(mut child) = c.spawn() else { return ChildEnd::NoResult };
     let pid = child.id();
@@ -533,7 +562,8 @@ fn result_of(cmd: &ChildCmd, entry: &Entry, timeout: Duration) -> FileResult {
     if is_worker_variant(&entry.path) {
         return FileResult::bare("NOT-RUN");
     }
-    match run_child(cmd, &format!("{}/{}", cmd.origin, entry.path), timeout) {
+    let (extra, timeout) = budget_for(&entry.path, timeout);
+    match run_child(cmd, &format!("{}/{}", cmd.origin, entry.path), &extra, timeout) {
         ChildEnd::Line(l) => parse_child_json(&l).unwrap_or_else(|| FileResult::bare("CRASH")),
         ChildEnd::NoResult => FileResult::bare("CRASH"),
         ChildEnd::TimedOut => FileResult::bare("TIMEOUT"),
@@ -604,6 +634,7 @@ pub(crate) fn execute(cfg: &Config, cmd: &ChildCmd) -> i32 {
         return 2;
     };
     let flaky = fs::read_to_string(cfg.dir.join("flaky.txt")).map(|t| parse_flaky(&t)).unwrap_or_default();
+    let _ = BUDGETS.set(fs::read_to_string(cfg.dir.join("budgets.txt")).map(|t| parse_budgets(&t)).unwrap_or_default());
     let all = parse_subset(&subset);
     let mut area_order: Vec<String> = Vec::new();
     for e in &all {
@@ -880,7 +911,7 @@ pub(crate) fn areas_from_dir(dir: &std::path::Path) -> Result<String, String> {
     Ok(format_areas(&rows))
 }
 
-const USAGE: &str = "usage: scratchy --wpt-th <wpt-checkout> [--jobs N] [--update] [--area A,B,dir/*] [--except A,B] [--wire PATH] [--dir wpt-th] [--timeout SECS] [--no-scope] [--server mount|wptserve] [-v]\n       scratchy --wpt-th --areas-only [--dir wpt-th]   (rewrite areas.txt from subset/expected/flaky, no test run, no checkout)";
+const USAGE: &str = "usage: scratchy --wpt-th <wpt-checkout> [--jobs N] [--update] [--area A,B,dir/*] [--except A,B] [--wire PATH] [--dir wpt-th] [--timeout SECS] [--budget-ms MS] [--no-scope] [--server mount|wptserve] [-v]\n       scratchy --wpt-th --areas-only [--dir wpt-th]   (rewrite areas.txt from subset/expected/flaky, no test run, no checkout)";
 
 pub(crate) fn main(args: &[String]) -> i32 {
     let (mut checkout, mut wire, mut dir) = (None, None, PathBuf::from("wpt-th"));
@@ -896,6 +927,7 @@ pub(crate) fn main(args: &[String]) -> i32 {
     };
     let mut no_scope = false;
     let mut areas_only = false;
+    let mut budget_ms: Option<String> = None; // QWPTBUD: forwarded to every child
     let mut i = 0;
     while i < args.len() {
         let a = args[i].as_str();
@@ -904,12 +936,13 @@ pub(crate) fn main(args: &[String]) -> i32 {
             args.get(i).cloned()
         };
         match a {
-            "--jobs" | "--area" | "--except" | "--wire" | "--dir" | "--timeout" | "--server" => {
+            "--jobs" | "--area" | "--except" | "--wire" | "--dir" | "--timeout" | "--server" | "--budget-ms" => {
                 let Some(v) = val() else {
                     diag!("scratchy --wpt-th: {a} needs an argument");
                     return 2;
                 };
                 match a {
+                    "--budget-ms" => budget_ms = Some(v),
                     "--jobs" => cfg.jobs = v.parse().unwrap_or(0).max(1),
                     "--area" => cfg.area = Some(v),
                     "--except" => cfg.except = Some(v),
@@ -1004,6 +1037,10 @@ pub(crate) fn main(args: &[String]) -> i32 {
         diag!("scratchy --wpt-th: cannot find own executable");
         return 2;
     };
-    let cmd = ChildCmd { program: exe, args: vec!["--wpt-th-one".into(), "--socket".into(), sock.display().to_string()], verbose: cfg.verbose, origin };
+    let mut child_args: Vec<String> = vec!["--wpt-th-one".into(), "--socket".into(), sock.display().to_string()];
+    if let Some(b) = budget_ms {
+        child_args.extend(["--budget-ms".into(), b]);
+    }
+    let cmd = ChildCmd { program: exe, args: child_args, verbose: cfg.verbose, origin };
     execute(&cfg, &cmd)
 }

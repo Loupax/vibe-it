@@ -597,6 +597,7 @@ OK           4/4  dom/ranges/Range-extractContents-in-ShadowRoot.html
 OK       187/187  dom/ranges/Range-extractContents.html
 OK           2/2  dom/ranges/Range-in-shadow-after-the-shadow-removed.html?mode=closed
 OK           2/2  dom/ranges/Range-in-shadow-after-the-shadow-removed.html?mode=open
+OK       1840/1840  dom/ranges/Range-insertNode.html
 OK           1/1  dom/ranges/Range-intersectsNode-2.html
 OK           1/1  dom/ranges/Range-intersectsNode-binding.html
 OK           1/1  dom/ranges/Range-intersectsNode-shadow.html
@@ -1780,6 +1781,580 @@ OK         30/60  dom/ranges/Range-mutations-replaceChild.html
   FAIL      paras[0].replaceChild(document, paras[0].firstChild), with selected range on paras[0] from 0 to 1
   FAIL      paras[0].replaceChild(foreignDoc, paras[0].firstChild), with selected range on paras[0] from 0 to 1
   FAIL      paras[0].replaceChild(document.doctype, paras[0].firstChild), with selected range on paras[0] from 0 to 1
+OK       573/1146  dom/ranges/Range-mutations-replaceData.html
+  FAIL      paras[0].firstChild.replaceData(376, 0, "foo"), with selected range on paras[0].firstChild from 0 to 1
+  FAIL      paras[0].firstChild.replaceData(0, 0, "foo"), with selected range collapsed at (paras[0].firstChild, 0)
+  FAIL      paras[0].firstChild.replaceData(1, 0, "foo"), with selected range collapsed at (paras[0].firstChild, 1)
+  FAIL      paras[0].firstChild.replaceData(paras[0].firstChild.length, 0, "foo"), with selected range collapsed at (paras[0].firstChild, paras[0].firstChild.length)
+  FAIL      paras[0].firstChild.replaceData(1, 0, "foo"), with selected range on paras[0].firstChild from 1 to 3
+  FAIL      paras[0].firstChild.replaceData(2, 0, "foo"), with selected range on paras[0].firstChild from 1 to 3
+  FAIL      paras[0].firstChild.replaceData(3, 0, "foo"), with selected range on paras[0].firstChild from 1 to 3
+  FAIL      paras[0].firstChild.replaceData(376, 0, ""), with selected range on paras[0].firstChild from 0 to 1
+  FAIL      paras[0].firstChild.replaceData(0, 0, ""), with selected range collapsed at (paras[0].firstChild, 0)
+  FAIL      paras[0].firstChild.replaceData(1, 0, ""), with selected range collapsed at (paras[0].firstChild, 1)
+  FAIL      paras[0].firstChild.replaceData(paras[0].firstChild.length, 0, ""), with selected range collapsed at (paras[0].firstChild, paras[0].firstChild.length)
+  FAIL      paras[0].firstChild.replaceData(1, 0, ""), with selected range on paras[0].firstChild from 1 to 3
+  FAIL      paras[0].firstChild.replaceData(2, 0, ""), with selected range on paras[0].firstChild from 1 to 3
+  FAIL      paras[0].firstChild.replaceData(3, 0, ""), with selected range on paras[0].firstChild from 1 to 3
+  FAIL      paras[0].firstChild.replaceData(376, 1, "foo"), with selected range on paras[0].firstChild from 0 to 1
+  FAIL      paras[0].firstChild.replaceData(0, 1, "foo"), with selected range collapsed at (paras[0].firstChild, 0)
+  FAIL      paras[0].firstChild.replaceData(1, 1, "foo"), with selected range collapsed at (paras[0].firstChild, 1)
+  FAIL      paras[0].firstChild.replaceData(paras[0].firstChild.length, 1, "foo"), with selected range collapsed at (paras[0].firstChild, paras[0].firstChild.length)
+  FAIL      paras[0].firstChild.replaceData(1, 1, "foo"), with selected range on paras[0].firstChild from 1 to 3
+  FAIL      paras[0].firstChild.replaceData(2, 1, "foo"), with selected range on paras[0].firstChild from 1 to 3
+  FAIL      paras[0].firstChild.replaceData(3, 1, "foo"), with selected range on paras[0].firstChild from 1 to 3
+  FAIL      paras[0].firstChild.replaceData(376, 1, ""), with selected range on paras[0].firstChild from 0 to 1
+  FAIL      paras[0].firstChild.replaceData(0, 1, ""), with selected range collapsed at (paras[0].firstChild, 0)
+  FAIL      paras[0].firstChild.replaceData(1, 1, ""), with selected range collapsed at (paras[0].firstChild, 1)
+  FAIL      paras[0].firstChild.replaceData(paras[0].firstChild.length, 1, ""), with selected range collapsed at (paras[0].firstChild, paras[0].firstChild.length)
+  FAIL      paras[0].firstChild.replaceData(1, 1, ""), with selected range on paras[0].firstChild from 1 to 3
+  FAIL      paras[0].firstChild.replaceData(2, 1, ""), with selected range on paras[0].firstChild from 1 to 3
+  FAIL      paras[0].firstChild.replaceData(3, 1, ""), with selected range on paras[0].firstChild from 1 to 3
+  FAIL      paras[0].firstChild.replaceData(376, 47, "foo"), with selected range on paras[0].firstChild from 0 to 1
+  FAIL      paras[0].firstChild.replaceData(0, 47, "foo"), with selected range collapsed at (paras[0].firstChild, 0)
+  FAIL      paras[0].firstChild.replaceData(1, 47, "foo"), with selected range collapsed at (paras[0].firstChild, 1)
+  FAIL      paras[0].firstChild.replaceData(paras[0].firstChild.length, 47, "foo"), with selected range collapsed at (paras[0].firstChild, paras[0].firstChild.length)
+  FAIL      paras[0].firstChild.replaceData(1, 47, "foo"), with selected range on paras[0].firstChild from 1 to 3
+  FAIL      paras[0].firstChild.replaceData(2, 47, "foo"), with selected range on paras[0].firstChild from 1 to 3
+  FAIL      paras[0].firstChild.replaceData(3, 47, "foo"), with selected range on paras[0].firstChild from 1 to 3
+  FAIL      paras[0].firstChild.replaceData(376, 47, ""), with selected range on paras[0].firstChild from 0 to 1
+  FAIL      paras[0].firstChild.replaceData(0, 47, ""), with selected range collapsed at (paras[0].firstChild, 0)
+  FAIL      paras[0].firstChild.replaceData(1, 47, ""), with selected range collapsed at (paras[0].firstChild, 1)
+  FAIL      paras[0].firstChild.replaceData(paras[0].firstChild.length, 47, ""), with selected range collapsed at (paras[0].firstChild, paras[0].firstChild.length)
+  FAIL      paras[0].firstChild.replaceData(1, 47, ""), with selected range on paras[0].firstChild from 1 to 3
+  FAIL      paras[0].firstChild.replaceData(2, 47, ""), with selected range on paras[0].firstChild from 1 to 3
+  FAIL      paras[0].firstChild.replaceData(3, 47, ""), with selected range on paras[0].firstChild from 1 to 3
+  FAIL      paras[1].firstChild.replaceData(376, 0, "foo"), with selected range on paras[1].firstChild from 0 to 1
+  FAIL      paras[1].firstChild.replaceData(0, 0, "foo"), with selected range collapsed at (paras[1].firstChild, 0)
+  FAIL      paras[1].firstChild.replaceData(1, 0, "foo"), with selected range collapsed at (paras[1].firstChild, 1)
+  FAIL      paras[1].firstChild.replaceData(paras[1].firstChild.length, 0, "foo"), with selected range collapsed at (paras[1].firstChild, paras[1].firstChild.length)
+  FAIL      paras[1].firstChild.replaceData(1, 0, "foo"), with selected range on paras[1].firstChild from 1 to 3
+  FAIL      paras[1].firstChild.replaceData(2, 0, "foo"), with selected range on paras[1].firstChild from 1 to 3
+  FAIL      paras[1].firstChild.replaceData(3, 0, "foo"), with selected range on paras[1].firstChild from 1 to 3
+  FAIL      paras[1].firstChild.replaceData(376, 0, ""), with selected range on paras[1].firstChild from 0 to 1
+  FAIL      paras[1].firstChild.replaceData(0, 0, ""), with selected range collapsed at (paras[1].firstChild, 0)
+  FAIL      paras[1].firstChild.replaceData(1, 0, ""), with selected range collapsed at (paras[1].firstChild, 1)
+  FAIL      paras[1].firstChild.replaceData(paras[1].firstChild.length, 0, ""), with selected range collapsed at (paras[1].firstChild, paras[1].firstChild.length)
+  FAIL      paras[1].firstChild.replaceData(1, 0, ""), with selected range on paras[1].firstChild from 1 to 3
+  FAIL      paras[1].firstChild.replaceData(2, 0, ""), with selected range on paras[1].firstChild from 1 to 3
+  FAIL      paras[1].firstChild.replaceData(3, 0, ""), with selected range on paras[1].firstChild from 1 to 3
+  FAIL      paras[1].firstChild.replaceData(376, 1, "foo"), with selected range on paras[1].firstChild from 0 to 1
+  FAIL      paras[1].firstChild.replaceData(0, 1, "foo"), with selected range collapsed at (paras[1].firstChild, 0)
+  FAIL      paras[1].firstChild.replaceData(1, 1, "foo"), with selected range collapsed at (paras[1].firstChild, 1)
+  FAIL      paras[1].firstChild.replaceData(paras[1].firstChild.length, 1, "foo"), with selected range collapsed at (paras[1].firstChild, paras[1].firstChild.length)
+  FAIL      paras[1].firstChild.replaceData(1, 1, "foo"), with selected range on paras[1].firstChild from 1 to 3
+  FAIL      paras[1].firstChild.replaceData(2, 1, "foo"), with selected range on paras[1].firstChild from 1 to 3
+  FAIL      paras[1].firstChild.replaceData(3, 1, "foo"), with selected range on paras[1].firstChild from 1 to 3
+  FAIL      paras[1].firstChild.replaceData(376, 1, ""), with selected range on paras[1].firstChild from 0 to 1
+  FAIL      paras[1].firstChild.replaceData(0, 1, ""), with selected range collapsed at (paras[1].firstChild, 0)
+  FAIL      paras[1].firstChild.replaceData(1, 1, ""), with selected range collapsed at (paras[1].firstChild, 1)
+  FAIL      paras[1].firstChild.replaceData(paras[1].firstChild.length, 1, ""), with selected range collapsed at (paras[1].firstChild, paras[1].firstChild.length)
+  FAIL      paras[1].firstChild.replaceData(1, 1, ""), with selected range on paras[1].firstChild from 1 to 3
+  FAIL      paras[1].firstChild.replaceData(2, 1, ""), with selected range on paras[1].firstChild from 1 to 3
+  FAIL      paras[1].firstChild.replaceData(3, 1, ""), with selected range on paras[1].firstChild from 1 to 3
+  FAIL      paras[1].firstChild.replaceData(376, 47, "foo"), with selected range on paras[1].firstChild from 0 to 1
+  FAIL      paras[1].firstChild.replaceData(0, 47, "foo"), with selected range collapsed at (paras[1].firstChild, 0)
+  FAIL      paras[1].firstChild.replaceData(1, 47, "foo"), with selected range collapsed at (paras[1].firstChild, 1)
+  FAIL      paras[1].firstChild.replaceData(paras[1].firstChild.length, 47, "foo"), with selected range collapsed at (paras[1].firstChild, paras[1].firstChild.length)
+  FAIL      paras[1].firstChild.replaceData(1, 47, "foo"), with selected range on paras[1].firstChild from 1 to 3
+  FAIL      paras[1].firstChild.replaceData(2, 47, "foo"), with selected range on paras[1].firstChild from 1 to 3
+  FAIL      paras[1].firstChild.replaceData(3, 47, "foo"), with selected range on paras[1].firstChild from 1 to 3
+  FAIL      paras[1].firstChild.replaceData(376, 47, ""), with selected range on paras[1].firstChild from 0 to 1
+  FAIL      paras[1].firstChild.replaceData(0, 47, ""), with selected range collapsed at (paras[1].firstChild, 0)
+  FAIL      paras[1].firstChild.replaceData(1, 47, ""), with selected range collapsed at (paras[1].firstChild, 1)
+  FAIL      paras[1].firstChild.replaceData(paras[1].firstChild.length, 47, ""), with selected range collapsed at (paras[1].firstChild, paras[1].firstChild.length)
+  FAIL      paras[1].firstChild.replaceData(1, 47, ""), with selected range on paras[1].firstChild from 1 to 3
+  FAIL      paras[1].firstChild.replaceData(2, 47, ""), with selected range on paras[1].firstChild from 1 to 3
+  FAIL      paras[1].firstChild.replaceData(3, 47, ""), with selected range on paras[1].firstChild from 1 to 3
+  FAIL      foreignTextNode.replaceData(376, 0, "foo"), with selected range on foreignTextNode from 0 to 1
+  FAIL      foreignTextNode.replaceData(0, 0, "foo"), with selected range collapsed at (foreignTextNode, 0)
+  FAIL      foreignTextNode.replaceData(1, 0, "foo"), with selected range collapsed at (foreignTextNode, 1)
+  FAIL      foreignTextNode.replaceData(foreignTextNode.length, 0, "foo"), with selected range collapsed at (foreignTextNode, foreignTextNode.length)
+  FAIL      foreignTextNode.replaceData(1, 0, "foo"), with selected range on foreignTextNode from 1 to 3
+  FAIL      foreignTextNode.replaceData(2, 0, "foo"), with selected range on foreignTextNode from 1 to 3
+  FAIL      foreignTextNode.replaceData(3, 0, "foo"), with selected range on foreignTextNode from 1 to 3
+  FAIL      foreignTextNode.replaceData(376, 0, ""), with selected range on foreignTextNode from 0 to 1
+  FAIL      foreignTextNode.replaceData(0, 0, ""), with selected range collapsed at (foreignTextNode, 0)
+  FAIL      foreignTextNode.replaceData(1, 0, ""), with selected range collapsed at (foreignTextNode, 1)
+  FAIL      foreignTextNode.replaceData(foreignTextNode.length, 0, ""), with selected range collapsed at (foreignTextNode, foreignTextNode.length)
+  FAIL      foreignTextNode.replaceData(1, 0, ""), with selected range on foreignTextNode from 1 to 3
+  FAIL      foreignTextNode.replaceData(2, 0, ""), with selected range on foreignTextNode from 1 to 3
+  FAIL      foreignTextNode.replaceData(3, 0, ""), with selected range on foreignTextNode from 1 to 3
+  FAIL      foreignTextNode.replaceData(376, 1, "foo"), with selected range on foreignTextNode from 0 to 1
+  FAIL      foreignTextNode.replaceData(0, 1, "foo"), with selected range collapsed at (foreignTextNode, 0)
+  FAIL      foreignTextNode.replaceData(1, 1, "foo"), with selected range collapsed at (foreignTextNode, 1)
+  FAIL      foreignTextNode.replaceData(foreignTextNode.length, 1, "foo"), with selected range collapsed at (foreignTextNode, foreignTextNode.length)
+  FAIL      foreignTextNode.replaceData(1, 1, "foo"), with selected range on foreignTextNode from 1 to 3
+  FAIL      foreignTextNode.replaceData(2, 1, "foo"), with selected range on foreignTextNode from 1 to 3
+  FAIL      foreignTextNode.replaceData(3, 1, "foo"), with selected range on foreignTextNode from 1 to 3
+  FAIL      foreignTextNode.replaceData(376, 1, ""), with selected range on foreignTextNode from 0 to 1
+  FAIL      foreignTextNode.replaceData(0, 1, ""), with selected range collapsed at (foreignTextNode, 0)
+  FAIL      foreignTextNode.replaceData(1, 1, ""), with selected range collapsed at (foreignTextNode, 1)
+  FAIL      foreignTextNode.replaceData(foreignTextNode.length, 1, ""), with selected range collapsed at (foreignTextNode, foreignTextNode.length)
+  FAIL      foreignTextNode.replaceData(1, 1, ""), with selected range on foreignTextNode from 1 to 3
+  FAIL      foreignTextNode.replaceData(2, 1, ""), with selected range on foreignTextNode from 1 to 3
+  FAIL      foreignTextNode.replaceData(3, 1, ""), with selected range on foreignTextNode from 1 to 3
+  FAIL      foreignTextNode.replaceData(376, 47, "foo"), with selected range on foreignTextNode from 0 to 1
+  FAIL      foreignTextNode.replaceData(0, 47, "foo"), with selected range collapsed at (foreignTextNode, 0)
+  FAIL      foreignTextNode.replaceData(1, 47, "foo"), with selected range collapsed at (foreignTextNode, 1)
+  FAIL      foreignTextNode.replaceData(foreignTextNode.length, 47, "foo"), with selected range collapsed at (foreignTextNode, foreignTextNode.length)
+  FAIL      foreignTextNode.replaceData(1, 47, "foo"), with selected range on foreignTextNode from 1 to 3
+  FAIL      foreignTextNode.replaceData(2, 47, "foo"), with selected range on foreignTextNode from 1 to 3
+  FAIL      foreignTextNode.replaceData(3, 47, "foo"), with selected range on foreignTextNode from 1 to 3
+  FAIL      foreignTextNode.replaceData(376, 47, ""), with selected range on foreignTextNode from 0 to 1
+  FAIL      foreignTextNode.replaceData(0, 47, ""), with selected range collapsed at (foreignTextNode, 0)
+  FAIL      foreignTextNode.replaceData(1, 47, ""), with selected range collapsed at (foreignTextNode, 1)
+  FAIL      foreignTextNode.replaceData(foreignTextNode.length, 47, ""), with selected range collapsed at (foreignTextNode, foreignTextNode.length)
+  FAIL      foreignTextNode.replaceData(1, 47, ""), with selected range on foreignTextNode from 1 to 3
+  FAIL      foreignTextNode.replaceData(2, 47, ""), with selected range on foreignTextNode from 1 to 3
+  FAIL      foreignTextNode.replaceData(3, 47, ""), with selected range on foreignTextNode from 1 to 3
+  FAIL      xmlTextNode.replaceData(376, 0, "foo"), with selected range on xmlTextNode from 0 to 1
+  FAIL      xmlTextNode.replaceData(0, 0, "foo"), with selected range collapsed at (xmlTextNode, 0)
+  FAIL      xmlTextNode.replaceData(1, 0, "foo"), with selected range collapsed at (xmlTextNode, 1)
+  FAIL      xmlTextNode.replaceData(xmlTextNode.length, 0, "foo"), with selected range collapsed at (xmlTextNode, xmlTextNode.length)
+  FAIL      xmlTextNode.replaceData(1, 0, "foo"), with selected range on xmlTextNode from 1 to 3
+  FAIL      xmlTextNode.replaceData(2, 0, "foo"), with selected range on xmlTextNode from 1 to 3
+  FAIL      xmlTextNode.replaceData(3, 0, "foo"), with selected range on xmlTextNode from 1 to 3
+  FAIL      xmlTextNode.replaceData(376, 0, ""), with selected range on xmlTextNode from 0 to 1
+  FAIL      xmlTextNode.replaceData(0, 0, ""), with selected range collapsed at (xmlTextNode, 0)
+  FAIL      xmlTextNode.replaceData(1, 0, ""), with selected range collapsed at (xmlTextNode, 1)
+  FAIL      xmlTextNode.replaceData(xmlTextNode.length, 0, ""), with selected range collapsed at (xmlTextNode, xmlTextNode.length)
+  FAIL      xmlTextNode.replaceData(1, 0, ""), with selected range on xmlTextNode from 1 to 3
+  FAIL      xmlTextNode.replaceData(2, 0, ""), with selected range on xmlTextNode from 1 to 3
+  FAIL      xmlTextNode.replaceData(3, 0, ""), with selected range on xmlTextNode from 1 to 3
+  FAIL      xmlTextNode.replaceData(376, 1, "foo"), with selected range on xmlTextNode from 0 to 1
+  FAIL      xmlTextNode.replaceData(0, 1, "foo"), with selected range collapsed at (xmlTextNode, 0)
+  FAIL      xmlTextNode.replaceData(1, 1, "foo"), with selected range collapsed at (xmlTextNode, 1)
+  FAIL      xmlTextNode.replaceData(xmlTextNode.length, 1, "foo"), with selected range collapsed at (xmlTextNode, xmlTextNode.length)
+  FAIL      xmlTextNode.replaceData(1, 1, "foo"), with selected range on xmlTextNode from 1 to 3
+  FAIL      xmlTextNode.replaceData(2, 1, "foo"), with selected range on xmlTextNode from 1 to 3
+  FAIL      xmlTextNode.replaceData(3, 1, "foo"), with selected range on xmlTextNode from 1 to 3
+  FAIL      xmlTextNode.replaceData(376, 1, ""), with selected range on xmlTextNode from 0 to 1
+  FAIL      xmlTextNode.replaceData(0, 1, ""), with selected range collapsed at (xmlTextNode, 0)
+  FAIL      xmlTextNode.replaceData(1, 1, ""), with selected range collapsed at (xmlTextNode, 1)
+  FAIL      xmlTextNode.replaceData(xmlTextNode.length, 1, ""), with selected range collapsed at (xmlTextNode, xmlTextNode.length)
+  FAIL      xmlTextNode.replaceData(1, 1, ""), with selected range on xmlTextNode from 1 to 3
+  FAIL      xmlTextNode.replaceData(2, 1, ""), with selected range on xmlTextNode from 1 to 3
+  FAIL      xmlTextNode.replaceData(3, 1, ""), with selected range on xmlTextNode from 1 to 3
+  FAIL      xmlTextNode.replaceData(376, 47, "foo"), with selected range on xmlTextNode from 0 to 1
+  FAIL      xmlTextNode.replaceData(0, 47, "foo"), with selected range collapsed at (xmlTextNode, 0)
+  FAIL      xmlTextNode.replaceData(1, 47, "foo"), with selected range collapsed at (xmlTextNode, 1)
+  FAIL      xmlTextNode.replaceData(xmlTextNode.length, 47, "foo"), with selected range collapsed at (xmlTextNode, xmlTextNode.length)
+  FAIL      xmlTextNode.replaceData(1, 47, "foo"), with selected range on xmlTextNode from 1 to 3
+  FAIL      xmlTextNode.replaceData(2, 47, "foo"), with selected range on xmlTextNode from 1 to 3
+  FAIL      xmlTextNode.replaceData(3, 47, "foo"), with selected range on xmlTextNode from 1 to 3
+  FAIL      xmlTextNode.replaceData(376, 47, ""), with selected range on xmlTextNode from 0 to 1
+  FAIL      xmlTextNode.replaceData(0, 47, ""), with selected range collapsed at (xmlTextNode, 0)
+  FAIL      xmlTextNode.replaceData(1, 47, ""), with selected range collapsed at (xmlTextNode, 1)
+  FAIL      xmlTextNode.replaceData(xmlTextNode.length, 47, ""), with selected range collapsed at (xmlTextNode, xmlTextNode.length)
+  FAIL      xmlTextNode.replaceData(1, 47, ""), with selected range on xmlTextNode from 1 to 3
+  FAIL      xmlTextNode.replaceData(2, 47, ""), with selected range on xmlTextNode from 1 to 3
+  FAIL      xmlTextNode.replaceData(3, 47, ""), with selected range on xmlTextNode from 1 to 3
+  FAIL      detachedTextNode.replaceData(376, 0, "foo"), with selected range on detachedTextNode from 0 to 1
+  FAIL      detachedTextNode.replaceData(0, 0, "foo"), with selected range collapsed at (detachedTextNode, 0)
+  FAIL      detachedTextNode.replaceData(1, 0, "foo"), with selected range collapsed at (detachedTextNode, 1)
+  FAIL      detachedTextNode.replaceData(detachedTextNode.length, 0, "foo"), with selected range collapsed at (detachedTextNode, detachedTextNode.length)
+  FAIL      detachedTextNode.replaceData(1, 0, "foo"), with selected range on detachedTextNode from 1 to 3
+  FAIL      detachedTextNode.replaceData(2, 0, "foo"), with selected range on detachedTextNode from 1 to 3
+  FAIL      detachedTextNode.replaceData(3, 0, "foo"), with selected range on detachedTextNode from 1 to 3
+  FAIL      detachedTextNode.replaceData(376, 0, ""), with selected range on detachedTextNode from 0 to 1
+  FAIL      detachedTextNode.replaceData(0, 0, ""), with selected range collapsed at (detachedTextNode, 0)
+  FAIL      detachedTextNode.replaceData(1, 0, ""), with selected range collapsed at (detachedTextNode, 1)
+  FAIL      detachedTextNode.replaceData(detachedTextNode.length, 0, ""), with selected range collapsed at (detachedTextNode, detachedTextNode.length)
+  FAIL      detachedTextNode.replaceData(1, 0, ""), with selected range on detachedTextNode from 1 to 3
+  FAIL      detachedTextNode.replaceData(2, 0, ""), with selected range on detachedTextNode from 1 to 3
+  FAIL      detachedTextNode.replaceData(3, 0, ""), with selected range on detachedTextNode from 1 to 3
+  FAIL      detachedTextNode.replaceData(376, 1, "foo"), with selected range on detachedTextNode from 0 to 1
+  FAIL      detachedTextNode.replaceData(0, 1, "foo"), with selected range collapsed at (detachedTextNode, 0)
+  FAIL      detachedTextNode.replaceData(1, 1, "foo"), with selected range collapsed at (detachedTextNode, 1)
+  FAIL      detachedTextNode.replaceData(detachedTextNode.length, 1, "foo"), with selected range collapsed at (detachedTextNode, detachedTextNode.length)
+  FAIL      detachedTextNode.replaceData(1, 1, "foo"), with selected range on detachedTextNode from 1 to 3
+  FAIL      detachedTextNode.replaceData(2, 1, "foo"), with selected range on detachedTextNode from 1 to 3
+  FAIL      detachedTextNode.replaceData(3, 1, "foo"), with selected range on detachedTextNode from 1 to 3
+  FAIL      detachedTextNode.replaceData(376, 1, ""), with selected range on detachedTextNode from 0 to 1
+  FAIL      detachedTextNode.replaceData(0, 1, ""), with selected range collapsed at (detachedTextNode, 0)
+  FAIL      detachedTextNode.replaceData(1, 1, ""), with selected range collapsed at (detachedTextNode, 1)
+  FAIL      detachedTextNode.replaceData(detachedTextNode.length, 1, ""), with selected range collapsed at (detachedTextNode, detachedTextNode.length)
+  FAIL      detachedTextNode.replaceData(1, 1, ""), with selected range on detachedTextNode from 1 to 3
+  FAIL      detachedTextNode.replaceData(2, 1, ""), with selected range on detachedTextNode from 1 to 3
+  FAIL      detachedTextNode.replaceData(3, 1, ""), with selected range on detachedTextNode from 1 to 3
+  FAIL      detachedTextNode.replaceData(376, 47, "foo"), with selected range on detachedTextNode from 0 to 1
+  FAIL      detachedTextNode.replaceData(0, 47, "foo"), with selected range collapsed at (detachedTextNode, 0)
+  FAIL      detachedTextNode.replaceData(1, 47, "foo"), with selected range collapsed at (detachedTextNode, 1)
+  FAIL      detachedTextNode.replaceData(detachedTextNode.length, 47, "foo"), with selected range collapsed at (detachedTextNode, detachedTextNode.length)
+  FAIL      detachedTextNode.replaceData(1, 47, "foo"), with selected range on detachedTextNode from 1 to 3
+  FAIL      detachedTextNode.replaceData(2, 47, "foo"), with selected range on detachedTextNode from 1 to 3
+  FAIL      detachedTextNode.replaceData(3, 47, "foo"), with selected range on detachedTextNode from 1 to 3
+  FAIL      detachedTextNode.replaceData(376, 47, ""), with selected range on detachedTextNode from 0 to 1
+  FAIL      detachedTextNode.replaceData(0, 47, ""), with selected range collapsed at (detachedTextNode, 0)
+  FAIL      detachedTextNode.replaceData(1, 47, ""), with selected range collapsed at (detachedTextNode, 1)
+  FAIL      detachedTextNode.replaceData(detachedTextNode.length, 47, ""), with selected range collapsed at (detachedTextNode, detachedTextNode.length)
+  FAIL      detachedTextNode.replaceData(1, 47, ""), with selected range on detachedTextNode from 1 to 3
+  FAIL      detachedTextNode.replaceData(2, 47, ""), with selected range on detachedTextNode from 1 to 3
+  FAIL      detachedTextNode.replaceData(3, 47, ""), with selected range on detachedTextNode from 1 to 3
+  FAIL      detachedForeignTextNode.replaceData(376, 0, "foo"), with selected range on detachedForeignTextNode from 0 to 1
+  FAIL      detachedForeignTextNode.replaceData(0, 0, "foo"), with selected range collapsed at (detachedForeignTextNode, 0)
+  FAIL      detachedForeignTextNode.replaceData(1, 0, "foo"), with selected range collapsed at (detachedForeignTextNode, 1)
+  FAIL      detachedForeignTextNode.replaceData(detachedForeignTextNode.length, 0, "foo"), with selected range collapsed at (detachedForeignTextNode, detachedForeignTextNode.length)
+  FAIL      detachedForeignTextNode.replaceData(1, 0, "foo"), with selected range on detachedForeignTextNode from 1 to 3
+  FAIL      detachedForeignTextNode.replaceData(2, 0, "foo"), with selected range on detachedForeignTextNode from 1 to 3
+  FAIL      detachedForeignTextNode.replaceData(3, 0, "foo"), with selected range on detachedForeignTextNode from 1 to 3
+  FAIL      detachedForeignTextNode.replaceData(376, 0, ""), with selected range on detachedForeignTextNode from 0 to 1
+  FAIL      detachedForeignTextNode.replaceData(0, 0, ""), with selected range collapsed at (detachedForeignTextNode, 0)
+  FAIL      detachedForeignTextNode.replaceData(1, 0, ""), with selected range collapsed at (detachedForeignTextNode, 1)
+  FAIL      detachedForeignTextNode.replaceData(detachedForeignTextNode.length, 0, ""), with selected range collapsed at (detachedForeignTextNode, detachedForeignTextNode.length)
+  FAIL      detachedForeignTextNode.replaceData(1, 0, ""), with selected range on detachedForeignTextNode from 1 to 3
+  FAIL      detachedForeignTextNode.replaceData(2, 0, ""), with selected range on detachedForeignTextNode from 1 to 3
+  FAIL      detachedForeignTextNode.replaceData(3, 0, ""), with selected range on detachedForeignTextNode from 1 to 3
+  FAIL      detachedForeignTextNode.replaceData(376, 1, "foo"), with selected range on detachedForeignTextNode from 0 to 1
+  FAIL      detachedForeignTextNode.replaceData(0, 1, "foo"), with selected range collapsed at (detachedForeignTextNode, 0)
+  FAIL      detachedForeignTextNode.replaceData(1, 1, "foo"), with selected range collapsed at (detachedForeignTextNode, 1)
+  FAIL      detachedForeignTextNode.replaceData(detachedForeignTextNode.length, 1, "foo"), with selected range collapsed at (detachedForeignTextNode, detachedForeignTextNode.length)
+  FAIL      detachedForeignTextNode.replaceData(1, 1, "foo"), with selected range on detachedForeignTextNode from 1 to 3
+  FAIL      detachedForeignTextNode.replaceData(2, 1, "foo"), with selected range on detachedForeignTextNode from 1 to 3
+  FAIL      detachedForeignTextNode.replaceData(3, 1, "foo"), with selected range on detachedForeignTextNode from 1 to 3
+  FAIL      detachedForeignTextNode.replaceData(376, 1, ""), with selected range on detachedForeignTextNode from 0 to 1
+  FAIL      detachedForeignTextNode.replaceData(0, 1, ""), with selected range collapsed at (detachedForeignTextNode, 0)
+  FAIL      detachedForeignTextNode.replaceData(1, 1, ""), with selected range collapsed at (detachedForeignTextNode, 1)
+  FAIL      detachedForeignTextNode.replaceData(detachedForeignTextNode.length, 1, ""), with selected range collapsed at (detachedForeignTextNode, detachedForeignTextNode.length)
+  FAIL      detachedForeignTextNode.replaceData(1, 1, ""), with selected range on detachedForeignTextNode from 1 to 3
+  FAIL      detachedForeignTextNode.replaceData(2, 1, ""), with selected range on detachedForeignTextNode from 1 to 3
+  FAIL      detachedForeignTextNode.replaceData(3, 1, ""), with selected range on detachedForeignTextNode from 1 to 3
+  FAIL      detachedForeignTextNode.replaceData(376, 47, "foo"), with selected range on detachedForeignTextNode from 0 to 1
+  FAIL      detachedForeignTextNode.replaceData(0, 47, "foo"), with selected range collapsed at (detachedForeignTextNode, 0)
+  FAIL      detachedForeignTextNode.replaceData(1, 47, "foo"), with selected range collapsed at (detachedForeignTextNode, 1)
+  FAIL      detachedForeignTextNode.replaceData(detachedForeignTextNode.length, 47, "foo"), with selected range collapsed at (detachedForeignTextNode, detachedForeignTextNode.length)
+  FAIL      detachedForeignTextNode.replaceData(1, 47, "foo"), with selected range on detachedForeignTextNode from 1 to 3
+  FAIL      detachedForeignTextNode.replaceData(2, 47, "foo"), with selected range on detachedForeignTextNode from 1 to 3
+  FAIL      detachedForeignTextNode.replaceData(3, 47, "foo"), with selected range on detachedForeignTextNode from 1 to 3
+  FAIL      detachedForeignTextNode.replaceData(376, 47, ""), with selected range on detachedForeignTextNode from 0 to 1
+  FAIL      detachedForeignTextNode.replaceData(0, 47, ""), with selected range collapsed at (detachedForeignTextNode, 0)
+  FAIL      detachedForeignTextNode.replaceData(1, 47, ""), with selected range collapsed at (detachedForeignTextNode, 1)
+  FAIL      detachedForeignTextNode.replaceData(detachedForeignTextNode.length, 47, ""), with selected range collapsed at (detachedForeignTextNode, detachedForeignTextNode.length)
+  FAIL      detachedForeignTextNode.replaceData(1, 47, ""), with selected range on detachedForeignTextNode from 1 to 3
+  FAIL      detachedForeignTextNode.replaceData(2, 47, ""), with selected range on detachedForeignTextNode from 1 to 3
+  FAIL      detachedForeignTextNode.replaceData(3, 47, ""), with selected range on detachedForeignTextNode from 1 to 3
+  FAIL      detachedXmlTextNode.replaceData(376, 0, "foo"), with selected range on detachedXmlTextNode from 0 to 1
+  FAIL      detachedXmlTextNode.replaceData(0, 0, "foo"), with selected range collapsed at (detachedXmlTextNode, 0)
+  FAIL      detachedXmlTextNode.replaceData(1, 0, "foo"), with selected range collapsed at (detachedXmlTextNode, 1)
+  FAIL      detachedXmlTextNode.replaceData(detachedXmlTextNode.length, 0, "foo"), with selected range collapsed at (detachedXmlTextNode, detachedXmlTextNode.length)
+  FAIL      detachedXmlTextNode.replaceData(1, 0, "foo"), with selected range on detachedXmlTextNode from 1 to 3
+  FAIL      detachedXmlTextNode.replaceData(2, 0, "foo"), with selected range on detachedXmlTextNode from 1 to 3
+  FAIL      detachedXmlTextNode.replaceData(3, 0, "foo"), with selected range on detachedXmlTextNode from 1 to 3
+  FAIL      detachedXmlTextNode.replaceData(376, 0, ""), with selected range on detachedXmlTextNode from 0 to 1
+  FAIL      detachedXmlTextNode.replaceData(0, 0, ""), with selected range collapsed at (detachedXmlTextNode, 0)
+  FAIL      detachedXmlTextNode.replaceData(1, 0, ""), with selected range collapsed at (detachedXmlTextNode, 1)
+  FAIL      detachedXmlTextNode.replaceData(detachedXmlTextNode.length, 0, ""), with selected range collapsed at (detachedXmlTextNode, detachedXmlTextNode.length)
+  FAIL      detachedXmlTextNode.replaceData(1, 0, ""), with selected range on detachedXmlTextNode from 1 to 3
+  FAIL      detachedXmlTextNode.replaceData(2, 0, ""), with selected range on detachedXmlTextNode from 1 to 3
+  FAIL      detachedXmlTextNode.replaceData(3, 0, ""), with selected range on detachedXmlTextNode from 1 to 3
+  FAIL      detachedXmlTextNode.replaceData(376, 1, "foo"), with selected range on detachedXmlTextNode from 0 to 1
+  FAIL      detachedXmlTextNode.replaceData(0, 1, "foo"), with selected range collapsed at (detachedXmlTextNode, 0)
+  FAIL      detachedXmlTextNode.replaceData(1, 1, "foo"), with selected range collapsed at (detachedXmlTextNode, 1)
+  FAIL      detachedXmlTextNode.replaceData(detachedXmlTextNode.length, 1, "foo"), with selected range collapsed at (detachedXmlTextNode, detachedXmlTextNode.length)
+  FAIL      detachedXmlTextNode.replaceData(1, 1, "foo"), with selected range on detachedXmlTextNode from 1 to 3
+  FAIL      detachedXmlTextNode.replaceData(2, 1, "foo"), with selected range on detachedXmlTextNode from 1 to 3
+  FAIL      detachedXmlTextNode.replaceData(3, 1, "foo"), with selected range on detachedXmlTextNode from 1 to 3
+  FAIL      detachedXmlTextNode.replaceData(376, 1, ""), with selected range on detachedXmlTextNode from 0 to 1
+  FAIL      detachedXmlTextNode.replaceData(0, 1, ""), with selected range collapsed at (detachedXmlTextNode, 0)
+  FAIL      detachedXmlTextNode.replaceData(1, 1, ""), with selected range collapsed at (detachedXmlTextNode, 1)
+  FAIL      detachedXmlTextNode.replaceData(detachedXmlTextNode.length, 1, ""), with selected range collapsed at (detachedXmlTextNode, detachedXmlTextNode.length)
+  FAIL      detachedXmlTextNode.replaceData(1, 1, ""), with selected range on detachedXmlTextNode from 1 to 3
+  FAIL      detachedXmlTextNode.replaceData(2, 1, ""), with selected range on detachedXmlTextNode from 1 to 3
+  FAIL      detachedXmlTextNode.replaceData(3, 1, ""), with selected range on detachedXmlTextNode from 1 to 3
+  FAIL      detachedXmlTextNode.replaceData(376, 47, "foo"), with selected range on detachedXmlTextNode from 0 to 1
+  FAIL      detachedXmlTextNode.replaceData(0, 47, "foo"), with selected range collapsed at (detachedXmlTextNode, 0)
+  FAIL      detachedXmlTextNode.replaceData(1, 47, "foo"), with selected range collapsed at (detachedXmlTextNode, 1)
+  FAIL      detachedXmlTextNode.replaceData(detachedXmlTextNode.length, 47, "foo"), with selected range collapsed at (detachedXmlTextNode, detachedXmlTextNode.length)
+  FAIL      detachedXmlTextNode.replaceData(1, 47, "foo"), with selected range on detachedXmlTextNode from 1 to 3
+  FAIL      detachedXmlTextNode.replaceData(2, 47, "foo"), with selected range on detachedXmlTextNode from 1 to 3
+  FAIL      detachedXmlTextNode.replaceData(3, 47, "foo"), with selected range on detachedXmlTextNode from 1 to 3
+  FAIL      detachedXmlTextNode.replaceData(376, 47, ""), with selected range on detachedXmlTextNode from 0 to 1
+  FAIL      detachedXmlTextNode.replaceData(0, 47, ""), with selected range collapsed at (detachedXmlTextNode, 0)
+  FAIL      detachedXmlTextNode.replaceData(1, 47, ""), with selected range collapsed at (detachedXmlTextNode, 1)
+  FAIL      detachedXmlTextNode.replaceData(detachedXmlTextNode.length, 47, ""), with selected range collapsed at (detachedXmlTextNode, detachedXmlTextNode.length)
+  FAIL      detachedXmlTextNode.replaceData(1, 47, ""), with selected range on detachedXmlTextNode from 1 to 3
+  FAIL      detachedXmlTextNode.replaceData(2, 47, ""), with selected range on detachedXmlTextNode from 1 to 3
+  FAIL      detachedXmlTextNode.replaceData(3, 47, ""), with selected range on detachedXmlTextNode from 1 to 3
+  FAIL      comment.replaceData(376, 0, "foo"), with selected range on comment from 0 to 1
+  FAIL      comment.replaceData(0, 0, "foo"), with selected range collapsed at (comment, 0)
+  FAIL      comment.replaceData(1, 0, "foo"), with selected range collapsed at (comment, 1)
+  FAIL      comment.replaceData(comment.length, 0, "foo"), with selected range collapsed at (comment, comment.length)
+  FAIL      comment.replaceData(1, 0, "foo"), with selected range on comment from 1 to 3
+  FAIL      comment.replaceData(2, 0, "foo"), with selected range on comment from 1 to 3
+  FAIL      comment.replaceData(3, 0, "foo"), with selected range on comment from 1 to 3
+  FAIL      comment.replaceData(376, 0, ""), with selected range on comment from 0 to 1
+  FAIL      comment.replaceData(0, 0, ""), with selected range collapsed at (comment, 0)
+  FAIL      comment.replaceData(1, 0, ""), with selected range collapsed at (comment, 1)
+  FAIL      comment.replaceData(comment.length, 0, ""), with selected range collapsed at (comment, comment.length)
+  FAIL      comment.replaceData(1, 0, ""), with selected range on comment from 1 to 3
+  FAIL      comment.replaceData(2, 0, ""), with selected range on comment from 1 to 3
+  FAIL      comment.replaceData(3, 0, ""), with selected range on comment from 1 to 3
+  FAIL      comment.replaceData(376, 1, "foo"), with selected range on comment from 0 to 1
+  FAIL      comment.replaceData(0, 1, "foo"), with selected range collapsed at (comment, 0)
+  FAIL      comment.replaceData(1, 1, "foo"), with selected range collapsed at (comment, 1)
+  FAIL      comment.replaceData(comment.length, 1, "foo"), with selected range collapsed at (comment, comment.length)
+  FAIL      comment.replaceData(1, 1, "foo"), with selected range on comment from 1 to 3
+  FAIL      comment.replaceData(2, 1, "foo"), with selected range on comment from 1 to 3
+  FAIL      comment.replaceData(3, 1, "foo"), with selected range on comment from 1 to 3
+  FAIL      comment.replaceData(376, 1, ""), with selected range on comment from 0 to 1
+  FAIL      comment.replaceData(0, 1, ""), with selected range collapsed at (comment, 0)
+  FAIL      comment.replaceData(1, 1, ""), with selected range collapsed at (comment, 1)
+  FAIL      comment.replaceData(comment.length, 1, ""), with selected range collapsed at (comment, comment.length)
+  FAIL      comment.replaceData(1, 1, ""), with selected range on comment from 1 to 3
+  FAIL      comment.replaceData(2, 1, ""), with selected range on comment from 1 to 3
+  FAIL      comment.replaceData(3, 1, ""), with selected range on comment from 1 to 3
+  FAIL      comment.replaceData(376, 47, "foo"), with selected range on comment from 0 to 1
+  FAIL      comment.replaceData(0, 47, "foo"), with selected range collapsed at (comment, 0)
+  FAIL      comment.replaceData(1, 47, "foo"), with selected range collapsed at (comment, 1)
+  FAIL      comment.replaceData(comment.length, 47, "foo"), with selected range collapsed at (comment, comment.length)
+  FAIL      comment.replaceData(1, 47, "foo"), with selected range on comment from 1 to 3
+  FAIL      comment.replaceData(2, 47, "foo"), with selected range on comment from 1 to 3
+  FAIL      comment.replaceData(3, 47, "foo"), with selected range on comment from 1 to 3
+  FAIL      comment.replaceData(376, 47, ""), with selected range on comment from 0 to 1
+  FAIL      comment.replaceData(0, 47, ""), with selected range collapsed at (comment, 0)
+  FAIL      comment.replaceData(1, 47, ""), with selected range collapsed at (comment, 1)
+  FAIL      comment.replaceData(comment.length, 47, ""), with selected range collapsed at (comment, comment.length)
+  FAIL      comment.replaceData(1, 47, ""), with selected range on comment from 1 to 3
+  FAIL      comment.replaceData(2, 47, ""), with selected range on comment from 1 to 3
+  FAIL      comment.replaceData(3, 47, ""), with selected range on comment from 1 to 3
+  FAIL      foreignComment.replaceData(376, 0, "foo"), with selected range on foreignComment from 0 to 1
+  FAIL      foreignComment.replaceData(0, 0, "foo"), with selected range collapsed at (foreignComment, 0)
+  FAIL      foreignComment.replaceData(1, 0, "foo"), with selected range collapsed at (foreignComment, 1)
+  FAIL      foreignComment.replaceData(foreignComment.length, 0, "foo"), with selected range collapsed at (foreignComment, foreignComment.length)
+  FAIL      foreignComment.replaceData(1, 0, "foo"), with selected range on foreignComment from 1 to 3
+  FAIL      foreignComment.replaceData(2, 0, "foo"), with selected range on foreignComment from 1 to 3
+  FAIL      foreignComment.replaceData(3, 0, "foo"), with selected range on foreignComment from 1 to 3
+  FAIL      foreignComment.replaceData(376, 0, ""), with selected range on foreignComment from 0 to 1
+  FAIL      foreignComment.replaceData(0, 0, ""), with selected range collapsed at (foreignComment, 0)
+  FAIL      foreignComment.replaceData(1, 0, ""), with selected range collapsed at (foreignComment, 1)
+  FAIL      foreignComment.replaceData(foreignComment.length, 0, ""), with selected range collapsed at (foreignComment, foreignComment.length)
+  FAIL      foreignComment.replaceData(1, 0, ""), with selected range on foreignComment from 1 to 3
+  FAIL      foreignComment.replaceData(2, 0, ""), with selected range on foreignComment from 1 to 3
+  FAIL      foreignComment.replaceData(3, 0, ""), with selected range on foreignComment from 1 to 3
+  FAIL      foreignComment.replaceData(376, 1, "foo"), with selected range on foreignComment from 0 to 1
+  FAIL      foreignComment.replaceData(0, 1, "foo"), with selected range collapsed at (foreignComment, 0)
+  FAIL      foreignComment.replaceData(1, 1, "foo"), with selected range collapsed at (foreignComment, 1)
+  FAIL      foreignComment.replaceData(foreignComment.length, 1, "foo"), with selected range collapsed at (foreignComment, foreignComment.length)
+  FAIL      foreignComment.replaceData(1, 1, "foo"), with selected range on foreignComment from 1 to 3
+  FAIL      foreignComment.replaceData(2, 1, "foo"), with selected range on foreignComment from 1 to 3
+  FAIL      foreignComment.replaceData(3, 1, "foo"), with selected range on foreignComment from 1 to 3
+  FAIL      foreignComment.replaceData(376, 1, ""), with selected range on foreignComment from 0 to 1
+  FAIL      foreignComment.replaceData(0, 1, ""), with selected range collapsed at (foreignComment, 0)
+  FAIL      foreignComment.replaceData(1, 1, ""), with selected range collapsed at (foreignComment, 1)
+  FAIL      foreignComment.replaceData(foreignComment.length, 1, ""), with selected range collapsed at (foreignComment, foreignComment.length)
+  FAIL      foreignComment.replaceData(1, 1, ""), with selected range on foreignComment from 1 to 3
+  FAIL      foreignComment.replaceData(2, 1, ""), with selected range on foreignComment from 1 to 3
+  FAIL      foreignComment.replaceData(3, 1, ""), with selected range on foreignComment from 1 to 3
+  FAIL      foreignComment.replaceData(376, 47, "foo"), with selected range on foreignComment from 0 to 1
+  FAIL      foreignComment.replaceData(0, 47, "foo"), with selected range collapsed at (foreignComment, 0)
+  FAIL      foreignComment.replaceData(1, 47, "foo"), with selected range collapsed at (foreignComment, 1)
+  FAIL      foreignComment.replaceData(foreignComment.length, 47, "foo"), with selected range collapsed at (foreignComment, foreignComment.length)
+  FAIL      foreignComment.replaceData(1, 47, "foo"), with selected range on foreignComment from 1 to 3
+  FAIL      foreignComment.replaceData(2, 47, "foo"), with selected range on foreignComment from 1 to 3
+  FAIL      foreignComment.replaceData(3, 47, "foo"), with selected range on foreignComment from 1 to 3
+  FAIL      foreignComment.replaceData(376, 47, ""), with selected range on foreignComment from 0 to 1
+  FAIL      foreignComment.replaceData(0, 47, ""), with selected range collapsed at (foreignComment, 0)
+  FAIL      foreignComment.replaceData(1, 47, ""), with selected range collapsed at (foreignComment, 1)
+  FAIL      foreignComment.replaceData(foreignComment.length, 47, ""), with selected range collapsed at (foreignComment, foreignComment.length)
+  FAIL      foreignComment.replaceData(1, 47, ""), with selected range on foreignComment from 1 to 3
+  FAIL      foreignComment.replaceData(2, 47, ""), with selected range on foreignComment from 1 to 3
+  FAIL      foreignComment.replaceData(3, 47, ""), with selected range on foreignComment from 1 to 3
+  FAIL      xmlComment.replaceData(376, 0, "foo"), with selected range on xmlComment from 0 to 1
+  FAIL      xmlComment.replaceData(0, 0, "foo"), with selected range collapsed at (xmlComment, 0)
+  FAIL      xmlComment.replaceData(1, 0, "foo"), with selected range collapsed at (xmlComment, 1)
+  FAIL      xmlComment.replaceData(xmlComment.length, 0, "foo"), with selected range collapsed at (xmlComment, xmlComment.length)
+  FAIL      xmlComment.replaceData(1, 0, "foo"), with selected range on xmlComment from 1 to 3
+  FAIL      xmlComment.replaceData(2, 0, "foo"), with selected range on xmlComment from 1 to 3
+  FAIL      xmlComment.replaceData(3, 0, "foo"), with selected range on xmlComment from 1 to 3
+  FAIL      xmlComment.replaceData(376, 0, ""), with selected range on xmlComment from 0 to 1
+  FAIL      xmlComment.replaceData(0, 0, ""), with selected range collapsed at (xmlComment, 0)
+  FAIL      xmlComment.replaceData(1, 0, ""), with selected range collapsed at (xmlComment, 1)
+  FAIL      xmlComment.replaceData(xmlComment.length, 0, ""), with selected range collapsed at (xmlComment, xmlComment.length)
+  FAIL      xmlComment.replaceData(1, 0, ""), with selected range on xmlComment from 1 to 3
+  FAIL      xmlComment.replaceData(2, 0, ""), with selected range on xmlComment from 1 to 3
+  FAIL      xmlComment.replaceData(3, 0, ""), with selected range on xmlComment from 1 to 3
+  FAIL      xmlComment.replaceData(376, 1, "foo"), with selected range on xmlComment from 0 to 1
+  FAIL      xmlComment.replaceData(0, 1, "foo"), with selected range collapsed at (xmlComment, 0)
+  FAIL      xmlComment.replaceData(1, 1, "foo"), with selected range collapsed at (xmlComment, 1)
+  FAIL      xmlComment.replaceData(xmlComment.length, 1, "foo"), with selected range collapsed at (xmlComment, xmlComment.length)
+  FAIL      xmlComment.replaceData(1, 1, "foo"), with selected range on xmlComment from 1 to 3
+  FAIL      xmlComment.replaceData(2, 1, "foo"), with selected range on xmlComment from 1 to 3
+  FAIL      xmlComment.replaceData(3, 1, "foo"), with selected range on xmlComment from 1 to 3
+  FAIL      xmlComment.replaceData(376, 1, ""), with selected range on xmlComment from 0 to 1
+  FAIL      xmlComment.replaceData(0, 1, ""), with selected range collapsed at (xmlComment, 0)
+  FAIL      xmlComment.replaceData(1, 1, ""), with selected range collapsed at (xmlComment, 1)
+  FAIL      xmlComment.replaceData(xmlComment.length, 1, ""), with selected range collapsed at (xmlComment, xmlComment.length)
+  FAIL      xmlComment.replaceData(1, 1, ""), with selected range on xmlComment from 1 to 3
+  FAIL      xmlComment.replaceData(2, 1, ""), with selected range on xmlComment from 1 to 3
+  FAIL      xmlComment.replaceData(3, 1, ""), with selected range on xmlComment from 1 to 3
+  FAIL      xmlComment.replaceData(376, 47, "foo"), with selected range on xmlComment from 0 to 1
+  FAIL      xmlComment.replaceData(0, 47, "foo"), with selected range collapsed at (xmlComment, 0)
+  FAIL      xmlComment.replaceData(1, 47, "foo"), with selected range collapsed at (xmlComment, 1)
+  FAIL      xmlComment.replaceData(xmlComment.length, 47, "foo"), with selected range collapsed at (xmlComment, xmlComment.length)
+  FAIL      xmlComment.replaceData(1, 47, "foo"), with selected range on xmlComment from 1 to 3
+  FAIL      xmlComment.replaceData(2, 47, "foo"), with selected range on xmlComment from 1 to 3
+  FAIL      xmlComment.replaceData(3, 47, "foo"), with selected range on xmlComment from 1 to 3
+  FAIL      xmlComment.replaceData(376, 47, ""), with selected range on xmlComment from 0 to 1
+  FAIL      xmlComment.replaceData(0, 47, ""), with selected range collapsed at (xmlComment, 0)
+  FAIL      xmlComment.replaceData(1, 47, ""), with selected range collapsed at (xmlComment, 1)
+  FAIL      xmlComment.replaceData(xmlComment.length, 47, ""), with selected range collapsed at (xmlComment, xmlComment.length)
+  FAIL      xmlComment.replaceData(1, 47, ""), with selected range on xmlComment from 1 to 3
+  FAIL      xmlComment.replaceData(2, 47, ""), with selected range on xmlComment from 1 to 3
+  FAIL      xmlComment.replaceData(3, 47, ""), with selected range on xmlComment from 1 to 3
+  FAIL      detachedComment.replaceData(376, 0, "foo"), with selected range on detachedComment from 0 to 1
+  FAIL      detachedComment.replaceData(0, 0, "foo"), with selected range collapsed at (detachedComment, 0)
+  FAIL      detachedComment.replaceData(1, 0, "foo"), with selected range collapsed at (detachedComment, 1)
+  FAIL      detachedComment.replaceData(detachedComment.length, 0, "foo"), with selected range collapsed at (detachedComment, detachedComment.length)
+  FAIL      detachedComment.replaceData(1, 0, "foo"), with selected range on detachedComment from 1 to 3
+  FAIL      detachedComment.replaceData(2, 0, "foo"), with selected range on detachedComment from 1 to 3
+  FAIL      detachedComment.replaceData(3, 0, "foo"), with selected range on detachedComment from 1 to 3
+  FAIL      detachedComment.replaceData(376, 0, ""), with selected range on detachedComment from 0 to 1
+  FAIL      detachedComment.replaceData(0, 0, ""), with selected range collapsed at (detachedComment, 0)
+  FAIL      detachedComment.replaceData(1, 0, ""), with selected range collapsed at (detachedComment, 1)
+  FAIL      detachedComment.replaceData(detachedComment.length, 0, ""), with selected range collapsed at (detachedComment, detachedComment.length)
+  FAIL      detachedComment.replaceData(1, 0, ""), with selected range on detachedComment from 1 to 3
+  FAIL      detachedComment.replaceData(2, 0, ""), with selected range on detachedComment from 1 to 3
+  FAIL      detachedComment.replaceData(3, 0, ""), with selected range on detachedComment from 1 to 3
+  FAIL      detachedComment.replaceData(376, 1, "foo"), with selected range on detachedComment from 0 to 1
+  FAIL      detachedComment.replaceData(0, 1, "foo"), with selected range collapsed at (detachedComment, 0)
+  FAIL      detachedComment.replaceData(1, 1, "foo"), with selected range collapsed at (detachedComment, 1)
+  FAIL      detachedComment.replaceData(detachedComment.length, 1, "foo"), with selected range collapsed at (detachedComment, detachedComment.length)
+  FAIL      detachedComment.replaceData(1, 1, "foo"), with selected range on detachedComment from 1 to 3
+  FAIL      detachedComment.replaceData(2, 1, "foo"), with selected range on detachedComment from 1 to 3
+  FAIL      detachedComment.replaceData(3, 1, "foo"), with selected range on detachedComment from 1 to 3
+  FAIL      detachedComment.replaceData(376, 1, ""), with selected range on detachedComment from 0 to 1
+  FAIL      detachedComment.replaceData(0, 1, ""), with selected range collapsed at (detachedComment, 0)
+  FAIL      detachedComment.replaceData(1, 1, ""), with selected range collapsed at (detachedComment, 1)
+  FAIL      detachedComment.replaceData(detachedComment.length, 1, ""), with selected range collapsed at (detachedComment, detachedComment.length)
+  FAIL      detachedComment.replaceData(1, 1, ""), with selected range on detachedComment from 1 to 3
+  FAIL      detachedComment.replaceData(2, 1, ""), with selected range on detachedComment from 1 to 3
+  FAIL      detachedComment.replaceData(3, 1, ""), with selected range on detachedComment from 1 to 3
+  FAIL      detachedComment.replaceData(376, 47, "foo"), with selected range on detachedComment from 0 to 1
+  FAIL      detachedComment.replaceData(0, 47, "foo"), with selected range collapsed at (detachedComment, 0)
+  FAIL      detachedComment.replaceData(1, 47, "foo"), with selected range collapsed at (detachedComment, 1)
+  FAIL      detachedComment.replaceData(detachedComment.length, 47, "foo"), with selected range collapsed at (detachedComment, detachedComment.length)
+  FAIL      detachedComment.replaceData(1, 47, "foo"), with selected range on detachedComment from 1 to 3
+  FAIL      detachedComment.replaceData(2, 47, "foo"), with selected range on detachedComment from 1 to 3
+  FAIL      detachedComment.replaceData(3, 47, "foo"), with selected range on detachedComment from 1 to 3
+  FAIL      detachedComment.replaceData(376, 47, ""), with selected range on detachedComment from 0 to 1
+  FAIL      detachedComment.replaceData(0, 47, ""), with selected range collapsed at (detachedComment, 0)
+  FAIL      detachedComment.replaceData(1, 47, ""), with selected range collapsed at (detachedComment, 1)
+  FAIL      detachedComment.replaceData(detachedComment.length, 47, ""), with selected range collapsed at (detachedComment, detachedComment.length)
+  FAIL      detachedComment.replaceData(1, 47, ""), with selected range on detachedComment from 1 to 3
+  FAIL      detachedComment.replaceData(2, 47, ""), with selected range on detachedComment from 1 to 3
+  FAIL      detachedComment.replaceData(3, 47, ""), with selected range on detachedComment from 1 to 3
+  FAIL      detachedForeignComment.replaceData(376, 0, "foo"), with selected range on detachedForeignComment from 0 to 1
+  FAIL      detachedForeignComment.replaceData(0, 0, "foo"), with selected range collapsed at (detachedForeignComment, 0)
+  FAIL      detachedForeignComment.replaceData(1, 0, "foo"), with selected range collapsed at (detachedForeignComment, 1)
+  FAIL      detachedForeignComment.replaceData(detachedForeignComment.length, 0, "foo"), with selected range collapsed at (detachedForeignComment, detachedForeignComment.length)
+  FAIL      detachedForeignComment.replaceData(1, 0, "foo"), with selected range on detachedForeignComment from 1 to 3
+  FAIL      detachedForeignComment.replaceData(2, 0, "foo"), with selected range on detachedForeignComment from 1 to 3
+  FAIL      detachedForeignComment.replaceData(3, 0, "foo"), with selected range on detachedForeignComment from 1 to 3
+  FAIL      detachedForeignComment.replaceData(376, 0, ""), with selected range on detachedForeignComment from 0 to 1
+  FAIL      detachedForeignComment.replaceData(0, 0, ""), with selected range collapsed at (detachedForeignComment, 0)
+  FAIL      detachedForeignComment.replaceData(1, 0, ""), with selected range collapsed at (detachedForeignComment, 1)
+  FAIL      detachedForeignComment.replaceData(detachedForeignComment.length, 0, ""), with selected range collapsed at (detachedForeignComment, detachedForeignComment.length)
+  FAIL      detachedForeignComment.replaceData(1, 0, ""), with selected range on detachedForeignComment from 1 to 3
+  FAIL      detachedForeignComment.replaceData(2, 0, ""), with selected range on detachedForeignComment from 1 to 3
+  FAIL      detachedForeignComment.replaceData(3, 0, ""), with selected range on detachedForeignComment from 1 to 3
+  FAIL      detachedForeignComment.replaceData(376, 1, "foo"), with selected range on detachedForeignComment from 0 to 1
+  FAIL      detachedForeignComment.replaceData(0, 1, "foo"), with selected range collapsed at (detachedForeignComment, 0)
+  FAIL      detachedForeignComment.replaceData(1, 1, "foo"), with selected range collapsed at (detachedForeignComment, 1)
+  FAIL      detachedForeignComment.replaceData(detachedForeignComment.length, 1, "foo"), with selected range collapsed at (detachedForeignComment, detachedForeignComment.length)
+  FAIL      detachedForeignComment.replaceData(1, 1, "foo"), with selected range on detachedForeignComment from 1 to 3
+  FAIL      detachedForeignComment.replaceData(2, 1, "foo"), with selected range on detachedForeignComment from 1 to 3
+  FAIL      detachedForeignComment.replaceData(3, 1, "foo"), with selected range on detachedForeignComment from 1 to 3
+  FAIL      detachedForeignComment.replaceData(376, 1, ""), with selected range on detachedForeignComment from 0 to 1
+  FAIL      detachedForeignComment.replaceData(0, 1, ""), with selected range collapsed at (detachedForeignComment, 0)
+  FAIL      detachedForeignComment.replaceData(1, 1, ""), with selected range collapsed at (detachedForeignComment, 1)
+  FAIL      detachedForeignComment.replaceData(detachedForeignComment.length, 1, ""), with selected range collapsed at (detachedForeignComment, detachedForeignComment.length)
+  FAIL      detachedForeignComment.replaceData(1, 1, ""), with selected range on detachedForeignComment from 1 to 3
+  FAIL      detachedForeignComment.replaceData(2, 1, ""), with selected range on detachedForeignComment from 1 to 3
+  FAIL      detachedForeignComment.replaceData(3, 1, ""), with selected range on detachedForeignComment from 1 to 3
+  FAIL      detachedForeignComment.replaceData(376, 47, "foo"), with selected range on detachedForeignComment from 0 to 1
+  FAIL      detachedForeignComment.replaceData(0, 47, "foo"), with selected range collapsed at (detachedForeignComment, 0)
+  FAIL      detachedForeignComment.replaceData(1, 47, "foo"), with selected range collapsed at (detachedForeignComment, 1)
+  FAIL      detachedForeignComment.replaceData(detachedForeignComment.length, 47, "foo"), with selected range collapsed at (detachedForeignComment, detachedForeignComment.length)
+  FAIL      detachedForeignComment.replaceData(1, 47, "foo"), with selected range on detachedForeignComment from 1 to 3
+  FAIL      detachedForeignComment.replaceData(2, 47, "foo"), with selected range on detachedForeignComment from 1 to 3
+  FAIL      detachedForeignComment.replaceData(3, 47, "foo"), with selected range on detachedForeignComment from 1 to 3
+  FAIL      detachedForeignComment.replaceData(376, 47, ""), with selected range on detachedForeignComment from 0 to 1
+  FAIL      detachedForeignComment.replaceData(0, 47, ""), with selected range collapsed at (detachedForeignComment, 0)
+  FAIL      detachedForeignComment.replaceData(1, 47, ""), with selected range collapsed at (detachedForeignComment, 1)
+  FAIL      detachedForeignComment.replaceData(detachedForeignComment.length, 47, ""), with selected range collapsed at (detachedForeignComment, detachedForeignComment.length)
+  FAIL      detachedForeignComment.replaceData(1, 47, ""), with selected range on detachedForeignComment from 1 to 3
+  FAIL      detachedForeignComment.replaceData(2, 47, ""), with selected range on detachedForeignComment from 1 to 3
+  FAIL      detachedForeignComment.replaceData(3, 47, ""), with selected range on detachedForeignComment from 1 to 3
+  FAIL      detachedXmlComment.replaceData(376, 0, "foo"), with selected range on detachedXmlComment from 0 to 1
+  FAIL      detachedXmlComment.replaceData(0, 0, "foo"), with selected range collapsed at (detachedXmlComment, 0)
+  FAIL      detachedXmlComment.replaceData(1, 0, "foo"), with selected range collapsed at (detachedXmlComment, 1)
+  FAIL      detachedXmlComment.replaceData(detachedXmlComment.length, 0, "foo"), with selected range collapsed at (detachedXmlComment, detachedXmlComment.length)
+  FAIL      detachedXmlComment.replaceData(1, 0, "foo"), with selected range on detachedXmlComment from 1 to 3
+  FAIL      detachedXmlComment.replaceData(2, 0, "foo"), with selected range on detachedXmlComment from 1 to 3
+  FAIL      detachedXmlComment.replaceData(3, 0, "foo"), with selected range on detachedXmlComment from 1 to 3
+  FAIL      detachedXmlComment.replaceData(376, 0, ""), with selected range on detachedXmlComment from 0 to 1
+  FAIL      detachedXmlComment.replaceData(0, 0, ""), with selected range collapsed at (detachedXmlComment, 0)
+  FAIL      detachedXmlComment.replaceData(1, 0, ""), with selected range collapsed at (detachedXmlComment, 1)
+  FAIL      detachedXmlComment.replaceData(detachedXmlComment.length, 0, ""), with selected range collapsed at (detachedXmlComment, detachedXmlComment.length)
+  FAIL      detachedXmlComment.replaceData(1, 0, ""), with selected range on detachedXmlComment from 1 to 3
+  FAIL      detachedXmlComment.replaceData(2, 0, ""), with selected range on detachedXmlComment from 1 to 3
+  FAIL      detachedXmlComment.replaceData(3, 0, ""), with selected range on detachedXmlComment from 1 to 3
+  FAIL      detachedXmlComment.replaceData(376, 1, "foo"), with selected range on detachedXmlComment from 0 to 1
+  FAIL      detachedXmlComment.replaceData(0, 1, "foo"), with selected range collapsed at (detachedXmlComment, 0)
+  FAIL      detachedXmlComment.replaceData(1, 1, "foo"), with selected range collapsed at (detachedXmlComment, 1)
+  FAIL      detachedXmlComment.replaceData(detachedXmlComment.length, 1, "foo"), with selected range collapsed at (detachedXmlComment, detachedXmlComment.length)
+  FAIL      detachedXmlComment.replaceData(1, 1, "foo"), with selected range on detachedXmlComment from 1 to 3
+  FAIL      detachedXmlComment.replaceData(2, 1, "foo"), with selected range on detachedXmlComment from 1 to 3
+  FAIL      detachedXmlComment.replaceData(3, 1, "foo"), with selected range on detachedXmlComment from 1 to 3
+  FAIL      detachedXmlComment.replaceData(376, 1, ""), with selected range on detachedXmlComment from 0 to 1
+  FAIL      detachedXmlComment.replaceData(0, 1, ""), with selected range collapsed at (detachedXmlComment, 0)
+  FAIL      detachedXmlComment.replaceData(1, 1, ""), with selected range collapsed at (detachedXmlComment, 1)
+  FAIL      detachedXmlComment.replaceData(detachedXmlComment.length, 1, ""), with selected range collapsed at (detachedXmlComment, detachedXmlComment.length)
+  FAIL      detachedXmlComment.replaceData(1, 1, ""), with selected range on detachedXmlComment from 1 to 3
+  FAIL      detachedXmlComment.replaceData(2, 1, ""), with selected range on detachedXmlComment from 1 to 3
+  FAIL      detachedXmlComment.replaceData(3, 1, ""), with selected range on detachedXmlComment from 1 to 3
+  FAIL      detachedXmlComment.replaceData(376, 47, "foo"), with selected range on detachedXmlComment from 0 to 1
+  FAIL      detachedXmlComment.replaceData(0, 47, "foo"), with selected range collapsed at (detachedXmlComment, 0)
+  FAIL      detachedXmlComment.replaceData(1, 47, "foo"), with selected range collapsed at (detachedXmlComment, 1)
+  FAIL      detachedXmlComment.replaceData(detachedXmlComment.length, 47, "foo"), with selected range collapsed at (detachedXmlComment, detachedXmlComment.length)
+  FAIL      detachedXmlComment.replaceData(1, 47, "foo"), with selected range on detachedXmlComment from 1 to 3
+  FAIL      detachedXmlComment.replaceData(2, 47, "foo"), with selected range on detachedXmlComment from 1 to 3
+  FAIL      detachedXmlComment.replaceData(3, 47, "foo"), with selected range on detachedXmlComment from 1 to 3
+  FAIL      detachedXmlComment.replaceData(376, 47, ""), with selected range on detachedXmlComment from 0 to 1
+  FAIL      detachedXmlComment.replaceData(0, 47, ""), with selected range collapsed at (detachedXmlComment, 0)
+  FAIL      detachedXmlComment.replaceData(1, 47, ""), with selected range collapsed at (detachedXmlComment, 1)
+  FAIL      detachedXmlComment.replaceData(detachedXmlComment.length, 47, ""), with selected range collapsed at (detachedXmlComment, detachedXmlComment.length)
+  FAIL      detachedXmlComment.replaceData(1, 47, ""), with selected range on detachedXmlComment from 1 to 3
+  FAIL      detachedXmlComment.replaceData(2, 47, ""), with selected range on detachedXmlComment from 1 to 3
+  FAIL      detachedXmlComment.replaceData(3, 47, ""), with selected range on detachedXmlComment from 1 to 3
+  FAIL      paras[0].firstChild.replaceData(1, 0, "foo"), with selected range collapsed at (paras[0], 0)
+  FAIL      paras[0].firstChild.replaceData(1, 0, "foo"), with selected range on paras[0] from 0 to 1
+  FAIL      paras[0].firstChild.replaceData(1, 0, "foo"), with selected range collapsed at (paras[0], 1)
+  FAIL      paras[0].firstChild.replaceData(1, 0, "foo"), with selected range from (paras[0].firstChild, 1) to (paras[0], 1)
+  FAIL      paras[0].firstChild.replaceData(2, 0, "foo"), with selected range from (paras[0].firstChild, 1) to (paras[0], 1)
+  FAIL      paras[0].firstChild.replaceData(3, 0, "foo"), with selected range from (paras[0].firstChild, 1) to (paras[0], 1)
+  FAIL      paras[0].firstChild.replaceData(1, 0, "foo"), with selected range from (paras[0], 0) to (paras[0].firstChild, 3)
+  FAIL      paras[0].firstChild.replaceData(2, 0, "foo"), with selected range from (paras[0], 0) to (paras[0].firstChild, 3)
+  FAIL      paras[0].firstChild.replaceData(3, 0, "foo"), with selected range from (paras[0], 0) to (paras[0].firstChild, 3)
+  FAIL      paras[0].firstChild.replaceData(1, 1, "foo"), with selected range collapsed at (paras[0], 0)
+  FAIL      paras[0].firstChild.replaceData(1, 1, "foo"), with selected range on paras[0] from 0 to 1
+  FAIL      paras[0].firstChild.replaceData(1, 1, "foo"), with selected range collapsed at (paras[0], 1)
+  FAIL      paras[0].firstChild.replaceData(1, 1, "foo"), with selected range from (paras[0].firstChild, 1) to (paras[0], 1)
+  FAIL      paras[0].firstChild.replaceData(2, 1, "foo"), with selected range from (paras[0].firstChild, 1) to (paras[0], 1)
+  FAIL      paras[0].firstChild.replaceData(3, 1, "foo"), with selected range from (paras[0].firstChild, 1) to (paras[0], 1)
+  FAIL      paras[0].firstChild.replaceData(1, 1, "foo"), with selected range from (paras[0], 0) to (paras[0].firstChild, 3)
+  FAIL      paras[0].firstChild.replaceData(2, 1, "foo"), with selected range from (paras[0], 0) to (paras[0].firstChild, 3)
+  FAIL      paras[0].firstChild.replaceData(3, 1, "foo"), with selected range from (paras[0], 0) to (paras[0].firstChild, 3)
+  FAIL      paras[0].firstChild.replaceData(1, 47, "foo"), with selected range collapsed at (paras[0], 0)
+  FAIL      paras[0].firstChild.replaceData(1, 47, "foo"), with selected range on paras[0] from 0 to 1
+  FAIL      paras[0].firstChild.replaceData(1, 47, "foo"), with selected range collapsed at (paras[0], 1)
+  FAIL      paras[0].firstChild.replaceData(1, 47, "foo"), with selected range from (paras[0].firstChild, 1) to (paras[0], 1)
+  FAIL      paras[0].firstChild.replaceData(2, 47, "foo"), with selected range from (paras[0].firstChild, 1) to (paras[0], 1)
+  FAIL      paras[0].firstChild.replaceData(3, 47, "foo"), with selected range from (paras[0].firstChild, 1) to (paras[0], 1)
+  FAIL      paras[0].firstChild.replaceData(1, 47, "foo"), with selected range from (paras[0], 0) to (paras[0].firstChild, 3)
+  FAIL      paras[0].firstChild.replaceData(2, 47, "foo"), with selected range from (paras[0], 0) to (paras[0].firstChild, 3)
+  FAIL      paras[0].firstChild.replaceData(3, 47, "foo"), with selected range from (paras[0], 0) to (paras[0].firstChild, 3)
 OK        58/116  dom/ranges/Range-mutations-splitText.html
   FAIL      paras[0].firstChild.splitText(376), with selected range on paras[0].firstChild from 0 to 1
   FAIL      paras[0].firstChild.splitText(0), with selected range collapsed at (paras[0].firstChild, 0)
@@ -1854,6 +2429,7 @@ OK       280/292  dom/ranges/Range-selectNode.html
   FAIL      xmlDoc[0]: qorflesnorf node, detached range, type 10
 OK       10920/10920  dom/ranges/Range-set.html
 OK           5/5  dom/ranges/Range-stringifier.html
+OK       1840/1840  dom/ranges/Range-surroundContents.html
 OK          0/17  dom/ranges/StaticRange-constructor.html
   FAIL      Construct static range with Element container
   FAIL      Construct static range with Text container
