@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-22 · main 5782333 · 107 PRs merged since 2026-11-21 morning (#475–#583) · installed 06:53 (ebb022e) · 5 agents running (QAPI6b, QCSS-A, QEDIT-A, QDOM18 perf re-measure, QEL2b) · merging: #579 dom long files · held: #573 (your call: until QAPI6b)</div>
+  <div class="meta" id="updated">Updated 2026-11-22 · main 0884de98 · 108 PRs merged since 2026-11-21 morning (#475–#583) · installed 06:53 (ebb022e) · 5 agents running (QAPI6b, QCSS-A, QEDIT-A, QDOM18 perf re-measure, QEL2b) · held: #573 (your call: until QAPI6b)</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -74,31 +74,32 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Measurements</h2>
   <div class="stats">
     <div class="stat"><span class="v">340 / 626</span><span class="l">WPT visual CSS tests passing (reftests), now checked in CI</span></div>
-    <div class="stat"><span class="v">37.4</span><span class="l">WPT JavaScript tests, mean score per file (0–100) over the phase-1 subset: 3,264 files, 23 areas; 54.4% of 42,864 subtests pass (more files run now). Baseline 28.4 (#504); every PR is gated on it in CI since #507</span></div>
+    <div class="stat"><span class="v">37.9</span><span class="l">WPT JavaScript tests, mean score per file (0–100) over the phase-1 subset: 3,365 files, 24 areas; 66.8% of 86,079 subtests pass (dom long files and html/editing added today) (more files run now). Baseline 28.4 (#504); every PR is gated on it in CI since #507</span></div>
     <div class="stat"><span class="v">1852 / 1852</span><span class="l">Unit and integration tests passing, engine on and off (CI runs both)</span></div>
     <div class="stat"><span class="v">0</span><span class="l">Engine mismatches on the 7 test pages (check mode)</span></div>
   </div>
   <div class="scroll"><table>
     <tr><th>Area</th><th>Files</th><th>Score</th><th>Subtests pass</th></tr>
-    <tr><td>dom/other</td><td class="n">46</td><td class="n">82.9 <span class="note">(was 55.2)</span></td><td class="n">90.5%</td></tr>
     <tr><td>url</td><td class="n">44</td><td class="n">81.1</td><td class="n">77.6%</td></tr>
+    <tr><td>dom/other</td><td class="n">51</td><td class="n">80.1 <span class="note">(was 55.2)</span></td><td class="n">97.2%</td></tr>
     <tr><td>requestidlecallback</td><td class="n">9</td><td class="n">75.9 <span class="note">(was 64.8)</span></td><td class="n">82.4%</td></tr>
-    <tr><td>webmessaging</td><td class="n">115</td><td class="n">64.2 <span class="note">(was 35.5)</span></td><td class="n">57.8%</td></tr>
-    <tr><td>dom/nodes</td><td class="n">393</td><td class="n">63.3 <span class="note">(was 42.4)</span></td><td class="n">74.7%</td></tr>
-    <tr><td>resize-observer</td><td class="n">36</td><td class="n">59.6 <span class="note">(was 31.1)</span></td><td class="n">58.8%</td></tr>
-    <tr><td>dom/ranges</td><td class="n">41</td><td class="n">43.2 <span class="note">(was 17.1)</span></td><td class="n">40.6%</td></tr>
-    <tr><td>webidl</td><td class="n">44</td><td class="n">41.8 <span class="note">(was 38.1)</span></td><td class="n">53.5%</td></tr>
-    <tr><td>html/dom</td><td class="n">180</td><td class="n">40.1 <span class="note">(was 36.2)</span></td><td class="n">27.5%</td></tr>
-    <tr><td>dom/events</td><td class="n">194</td><td class="n">37.6 <span class="note">(was 23.0)</span></td><td class="n">65.3%</td></tr>
-    <tr><td>css/cssom</td><td class="n">271</td><td class="n">36.3 <span class="note">(was 31.2)</span></td><td class="n">54.6%</td></tr>
+    <tr><td>webmessaging</td><td class="n">115</td><td class="n">66.6 <span class="note">(was 35.5)</span></td><td class="n">66.8%</td></tr>
+    <tr><td>dom/nodes</td><td class="n">406</td><td class="n">65.6 <span class="note">(was 42.4)</span></td><td class="n">76.1%</td></tr>
+    <tr><td>resize-observer</td><td class="n">36</td><td class="n">58.7 <span class="note">(was 31.1)</span></td><td class="n">55.6%</td></tr>
+    <tr><td>dom/ranges</td><td class="n">69</td><td class="n">50.8 <span class="note">(was 17.1)</span></td><td class="n">79.8%</td></tr>
+    <tr><td>webidl</td><td class="n">44</td><td class="n">44.2 <span class="note">(was 38.1)</span></td><td class="n">54.1%</td></tr>
+    <tr><td>dom/events</td><td class="n">201</td><td class="n">42.8 <span class="note">(was 23.0)</span></td><td class="n">68.6%</td></tr>
+    <tr><td>html/dom</td><td class="n">180</td><td class="n">40.7 <span class="note">(was 36.2)</span></td><td class="n">33.1%</td></tr>
+    <tr><td>css/cssom</td><td class="n">271</td><td class="n">36.3 <span class="note">(was 31.2)</span></td><td class="n">54.5%</td></tr>
+    <tr><td>css/cssom-view</td><td class="n">220</td><td class="n">35.3 <span class="note">(was 24.6)</span></td><td class="n">51.4%</td></tr>
     <tr><td>encoding</td><td class="n">41</td><td class="n">33.2</td><td class="n">43.5%</td></tr>
-    <tr><td>css/cssom-view</td><td class="n">220</td><td class="n">33.0 <span class="note">(was 24.6)</span></td><td class="n">50.4%</td></tr>
+    <tr><td>html/webappapis</td><td class="n">308</td><td class="n">33.0 <span class="note">(was 24.4)</span></td><td class="n">53.4%</td></tr>
     <tr><td>html/semantics/scripting-1</td><td class="n">419</td><td class="n">32.8 <span class="note">(was 31.4)</span></td><td class="n">44.3%</td></tr>
-    <tr><td>html/webappapis</td><td class="n">308</td><td class="n">32.3 <span class="note">(was 24.4)</span></td><td class="n">52.8%</td></tr>
+    <tr><td>shadow-dom</td><td class="n">263</td><td class="n">25.6 <span class="note">(was 21.6)</span></td><td class="n">30.5%</td></tr>
     <tr><td>hr-time</td><td class="n">9</td><td class="n">24.8</td><td class="n">31.2%</td></tr>
-    <tr><td>shadow-dom</td><td class="n">263</td><td class="n">23.0 <span class="note">(was 21.6)</span></td><td class="n">28.1%</td></tr>
-    <tr><td>domparsing</td><td class="n">93</td><td class="n">22.2 <span class="note">(was 21.9)</span></td><td class="n">5.4%</td></tr>
-    <tr><td>custom-elements</td><td class="n">204</td><td class="n">18.4 <span class="note">(was 16.8)</span></td><td class="n">31.2%</td></tr>
+    <tr><td>domparsing</td><td class="n">93</td><td class="n">24.4 <span class="note">(was 21.9)</span></td><td class="n">11.1%</td></tr>
+    <tr><td>html/editing</td><td class="n">48</td><td class="n">21.1 <span class="note">(new)</span></td><td class="n">13.5%</td></tr>
+    <tr><td>custom-elements</td><td class="n">204</td><td class="n">19.6 <span class="note">(was 16.8)</span></td><td class="n">31.7%</td></tr>
     <tr><td>intersection-observer</td><td class="n">150</td><td class="n">16.5 <span class="note">(was 12.0)</span></td><td class="n">23.3%</td></tr>
     <tr><td>uievents</td><td class="n">70</td><td class="n">13.5 <span class="note">(was 12.8)</span></td><td class="n">36.8%</td></tr>
     <tr><td>streams</td><td class="n">85</td><td class="n">11.2 <span class="note">(was 11.1)</span></td><td class="n">20.4%</td></tr>
@@ -111,6 +112,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#579</td><td>QWPT6c</td><td>53 long dom test files join the WPT subset (Range, NodeIterator, TreeWalker…); they start as baselines, so dom/nodes reads 65.6 now</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#583</td><td>QDOM19</td><td>Element, attribute and doctype names validated per the current DOM spec (createDocument 388 → 430/434, createAttribute 20 → 33/36)</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#580</td><td>QDOM10</td><td><code>window.event</code> follows the spec for shadow-tree listeners; event-global 6 → 8/8</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#581</td><td>QWPT6d</td><td>html/editing joins the WPT subset (your OK): 48 files, baseline score 21.1; gaps filed as QEDIT-A…E, testdriver pages as QWPT6e</td></tr>
