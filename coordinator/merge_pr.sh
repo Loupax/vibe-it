@@ -127,6 +127,12 @@ if ! ( cd "$W" && git rebase -q origin/main >/dev/null 2>&1 ); then
     git worktree remove --force "$W"; git branch -D "mq-$N" >/dev/null; exit 2
   fi
 fi
+# Never merge committed conflict markers (an agent's rebase left them in PROMPTS.md twice: #560, #571).
+MK=$(cd "$W" && git diff origin/main HEAD | grep -cE '^\+(<<<<<<< |=======$|>>>>>>> )' || true)
+if [ "$MK" != 0 ]; then
+  echo "PR #$N: CONFLICT MARKERS in the PR diff ($MK lines): $(cd "$W" && git diff origin/main HEAD --name-only | xargs -r grep -lE '^(<<<<<<< |>>>>>>> )' 2>/dev/null | tr '\n' ' ')(back to the agent)"
+  git worktree remove --force "$W"; git branch -D "mq-$N" >/dev/null; exit 2
+fi
 NEWH=$(cd "$W" && git rev-parse HEAD)
 if [ "$NEWH" != "$(git rev-parse "$HEAD")" ]; then
   echo "PR #$N: rebased onto origin/main (main code moved: ${CODE:-no}), pushing"

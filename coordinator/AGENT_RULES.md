@@ -98,3 +98,8 @@ at the end. Before your final reply, `ps -eo pid,cmd | grep <your worktree path>
 Put your item's new tests in a NEW file `scratchy/src/tests/<item-lowercase>_tests.rs` plus one `mod <item>_tests;` line in
 `src/tests/mod.rs` (the merge script keeps both sides of mod lines). Only edit an existing test file to change a test that
 already lives there. This overrides AGENTS.md "matching area file" for new tests.
+
+## No conflict markers, ever
+After any rebase, before you commit or push: `git diff origin/main --stat` and
+`git grep -nE '^(<<<<<<< |=======$|>>>>>>> )' -- scratchy coordinator` must print nothing. Two PRs (#560, #571)
+landed `<<<<<<<`/`>>>>>>>` blocks in PROMPTS.md. merge_pr.sh now refuses a PR whose diff adds marker lines.
