@@ -3855,8 +3855,12 @@ modifiers held across ticks, `keydown` at the focused element (else body), then 
 a checkbox/radio, Enter/Space on a button, Enter on a link, else `keypress` for printable keys. `send_keys` focuses
 the element first and puts a text control's caret at the end. `wheel`: a cancelable `WheelEvent` at the hit element,
 then `__scratchy_td_wheel` scrolls the nearest scroll container (else the window). Page `focus()`/`blur()` requests
-(QB5 `FocusReq`) are now applied by the pump as `js_sync` applies them in the App, so their focus events fire (one
-turn later, as in the App: html/editing focus-blur and focusing-focused-noop want them synchronously, QWPT7a).
+(QB5 `FocusReq`) are applied by the pump as `js_sync` applies them in the App, silently (QWPT7a: `set_focus_ev` /
+`App::set_focus_element_ev` with `events` false): `HTMLElement.prototype.focus/blur` (js_dom.rs) fire blur/focusout then
+focus/focusin themselves, synchronously, through `__scratchy_dn` (relatedTarget set; nothing fires when focus does not
+change, the element is unfocusable or not connected). The native `__d_focus` updates the page-visible active element and
+mirrors `:focus` into the style thread-local at once (`mirror_focus`), returns the previous element, and queues the request
+the App/driver catches its own state up with.
 Not headless: navigation (link clicks, form submission fire their events only), the select dropdown, element scroll
 offsets in hit testing (script-side only), drag and drop, touch/pen pointers (reported as mouse), window rects.
 

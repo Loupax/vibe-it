@@ -1046,3 +1046,4 @@ mod qblobframe_tests;
 mod qdom11_tests;
 mod qcnv1_tests;
 mod qcss2_tests;
+mod qwpt7a_tests;

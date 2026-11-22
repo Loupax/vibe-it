@@ -30,9 +30,7 @@ OK          0/16  uievents/constructors/event-getmodifierstate.html
   FAIL      MouseEvent.getModifierState('CapsLock') reflects modifierCapsLock in isolation
   FAIL      MouseEvent.getModifierState() reports every modifier when all are set
 OK           5/5  uievents/constructors/inputevent-constructor.html
-TIMEOUT      0/2  uievents/focusevents/blur-relatedTarget.html
-  FAIL      relatedTarget on self blur
-  TIMEOUT   relatedTarget for blur when focusing on another element
+OK           2/2  uievents/focusevents/blur-relatedTarget.html
 OK           0/7  uievents/getModifierState.html
   FAIL      getModifierState true
   FAIL      getModifierState false
