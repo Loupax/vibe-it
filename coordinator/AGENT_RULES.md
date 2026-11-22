@@ -105,6 +105,8 @@ After any rebase, before you commit or push: `git diff origin/main --stat` and
 landed `<<<<<<<`/`>>>>>>>` blocks in PROMPTS.md. merge_pr.sh now refuses a PR whose diff adds marker lines.
 
 ## wire's HTTP cache (once W-CACHE1 lands)
-W-CACHE1 makes wire cache on disk by default in `~/.cache/wire`. Every wire an agent starts must use
-`--no-cache` or `--cache-dir <worktree>/.qwork/wire-cache` (never the user's cache), and perf
-comparisons must use the same cache setting on both sides (say which).
+W-CACHE1 makes wire cache on disk by default in `~/.cache/wire`. Every wire an agent starts uses
+`--cache-dir /tmp/wire-cache-<your worktree name> --cache-size 256M` (user 2026-11-22: agents' caches in
+/tmp; /tmp is RAM, hence the size cap; wire prints one tmpfs warning line, expected), or `--no-cache`.
+Never the user's `~/.cache/wire`. Delete your cache dir by its explicit name when you finish. Perf
+comparisons use the same cache setting on both sides (say which).
