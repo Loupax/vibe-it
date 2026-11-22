@@ -11,6 +11,7 @@ OK           1/1  html/webappapis/animation-frames/nested-raf-not-sync.html
 OK           5/5  html/webappapis/animation-frames/no-interference-timers.html
 OK           1/1  html/webappapis/animation-frames/same-dispatch-time.html
 OK           1/1  html/webappapis/animation-frames/spurious-frame-callbacks-optimization.html
+OK       380/380  html/webappapis/atob/base64.any.html
 OK           0/1  html/webappapis/dynamic-markup-insertion/closing-the-input-stream/document.close-01.xhtml
   FAIL      document.close in XHTML
 OK           0/1  html/webappapis/dynamic-markup-insertion/closing-the-input-stream/load-event-after-location-set-during-write.window.html
