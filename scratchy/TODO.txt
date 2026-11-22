@@ -153,10 +153,12 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] [WIP] QIFRNAV [S] (P3, from QWPTBUD #623; Sonnet; js_dom.rs iframes) Fire unload/pagehide/beforeunload (and visibilitychange)
       on iframe navigation and window replacement, so tests that wait for them stop timing out (e.g. the two
       ignore-opens-during-unload files, promise-job-incumbent). Done together with QDOM5d.
-- [ ] [WIP] QDOM5d [S] (P3, from QDOM5c #600; Sonnet; js_dom.rs iframes) In-place iframe navigation should create a NEW Document
-      (browsers do; today the Document object is reused), which then lets a `src` set after insertion reuse the initial
-      window too (url.window.html, remove-initial-about-blankness.window.html must stay passing). Also url-fragment.window.html
-      is load-dependent (CRASH / 0 / 2 subtests in 5 of 10 loaded runs): find why.
+- [ ] QDOM5e [M] (P3, from QDOM5d/QIFRNAV #626; Sonnet; js_dom.rs DOM prelude) In-place iframe navigation creates a NEW
+      Document in the kept Window (browsers do; today the Document object is reused): the prelude binds `doc` once
+      (`__d_bind_doc`), so a swap must rebind the node cache, xr.byDoc, xr.prep, myDocs, the custom-element registry,
+      frames[..].doc and g.document. Then a `src` set after insertion can reuse the initial window too (url.window.html,
+      remove-initial-about-blankness.window.html must stay passing). Also: unload events on iframe REMOVAL (deferred
+      realm release; no sync script during removal), and promise-job-incumbent needs window.open from a realm.
 - [ ] QDOM11b [S] (P3, from QDOM11 #612; Sonnet) XML leftovers: show top-level XML/XHTML/SVG pages in the App
       (`dispatch_wire_response` rejects them today); document.write/open/close on XML documents; keep the internal DTD
       subset on the doctype (isEqualNode); XML in `data:` iframes.
@@ -186,7 +188,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       files.
 - [ ] QCNV8 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Sonnet; in order after the items above) Line caps/joins/miter limit, dashes. 91 files.
-- [ ] QGEOM1 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+- [ ] [WIP] QGEOM1 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Sonnet; in order after the items above) DOMMatrix/DOMPoint/DOMRect (platform, not canvas). 50 files.
 - [ ] QCNV9 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Sonnet; in order after the items above) Path2D, isPointInPath/isPointInStroke. 64 files.
