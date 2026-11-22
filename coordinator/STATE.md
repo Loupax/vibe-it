@@ -282,3 +282,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #585 QEDIT-A READY (html/editing 6 -> 12 all-pass), merging. Filed QEDIT-F. Launched QWPT6e.
 - 2026-11-22 #585: push rejected once (agent pushing at the same moment), then 'CI NOT green' because the run sat queued > 10 min behind main runs (check runs exist only once jobs start). waitci now waits on the workflow run for the head sha (up to 40 min), then the 4 check runs. Retrying #585.
 - 2026-11-22 Merged #585 QEDIT-A 9ecc18a (editing reflection; new waitci worked).
+- 2026-11-22 #586 QWPT6e READY (drops 111 test_driver-calling pages; TOTAL 37.9 -> 39.1 is subset composition, not engine progress), merging. Filed QWPT7. Launched QANIMHLc.
