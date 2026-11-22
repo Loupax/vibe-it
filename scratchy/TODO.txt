@@ -180,7 +180,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       entries (94 dom/events) are in the phase-1 baseline although they need trusted input. Either drop them (as the
       phase-1 rule says) or move them to their own area `<area>/testdriver` so the DOM scores show DOM work; regenerate
       subset + expected + areas.txt.
-- [ ] QWPT6c [S] (P2; Sonnet; tools/wpt-subset.py; R65 2.1; after QDOM6, QDOM8) Include the dom/* timeout=long files
+- [ ] [WIP] QWPT6c [S] (P2; Sonnet; tools/wpt-subset.py; R65 2.1; after QDOM6, QDOM8) Include the dom/* timeout=long files
       (46: the core Range-*, NodeIterator, TreeWalker, Document-characterSet-normalization-1/2, ParentNode-querySelector-
       All, NodeList-static-length-getter-tampered-*). With the virtual clock they are cheap (all 46 ran in 9 s at 4 jobs).
       31 of them ERROR at `xmlDocument.createCDATASection` today, so measure their wall time again after QDOM8.
