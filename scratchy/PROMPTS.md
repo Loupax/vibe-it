@@ -9046,3 +9046,8 @@ Eased viewport scroll (user design #532, D1-D8): `App::scroll_target`, `scroll_a
 
 **What changed:** scrollbar.rs (`Axis`, `track_rect_axis`, `corner_rect`, `hit_axis`, viewport bar ids), paint.rs (`paint_scrollbars`, `paint_viewport_hbar`, corner), app.rs (`hbar`, `page_viewport_hb`, `want_hbar`, `viewport_bar_x`, axis-aware find/press/hold/hover/drag, redraw strip). Tests: src/tests/qsb2b_tests.rs (11). Real check in a nested dwl with grim + inject: wide page and overflow-x/overflow:auto boxes, thumb drag, track click and hold, bars with a corner. See NOTES.md "QSB2b".
 
+## QDOM6b: createElementNS null namespace and name case (agent item)
+
+> QDOM6b [S] (P2, from QDOM6 #526; js_dom.rs) createElementNS(null, name) created an HTML-namespace element: make it a null-namespace element with the name unchanged; also createElementNS(XHTML_NS, "Span") keeps the local name case (DOM "create an element NS", no lowercasing).
+
+**What changed:** js_dom.rs: `__d_create_ns` keeps the qualified name as given and maps the empty namespace to the null namespace (not HTML); new `__d_rawname` native and `qnameOf` read the stored name, so `localName` of an XHTML element made by createElementNS keeps its case (`tagName` is still uppercased). The existing validate-and-extract (NamespaceError rules for prefix/xml/xmlns) of createElementNS/createAttributeNS was already complete. Tests: src/tests/qdom6b_tests.rs.

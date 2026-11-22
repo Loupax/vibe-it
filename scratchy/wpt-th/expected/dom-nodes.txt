@@ -553,7 +553,7 @@ OK           0/7  dom/nodes/Document-createCDATASection-xhtml.xhtml
   FAIL      Creating a CDATA section containing the string "]]>" must throw
 OK           1/1  dom/nodes/Document-createCDATASection.html
 OK           6/6  dom/nodes/Document-createComment.html
-OK        44/147  dom/nodes/Document-createElement.html
+OK        46/147  dom/nodes/Document-createElement.html
   FAIL      createElement(undefined) in XML document
   FAIL      createElement(undefined) in XHTML document
   FAIL      createElement(null) in XML document
@@ -610,10 +610,8 @@ OK        44/147  dom/nodes/Document-createElement.html
   FAIL      createElement("math") in XHTML document
   FAIL      createElement("FOO") in XML document
   FAIL      createElement("FOO") in XHTML document
-  FAIL      createElement("marK") in HTML document
   FAIL      createElement("marK") in XML document
   FAIL      createElement("marK") in XHTML document
-  FAIL      createElement("İnput") in HTML document
   FAIL      createElement("İnput") in XML document
   FAIL      createElement("İnput") in XHTML document
   FAIL      createElement("ınput") in XML document
@@ -657,28 +655,21 @@ OK        44/147  dom/nodes/Document-createElement.html
   FAIL      createElement("-foo") in XHTML document
   FAIL      createElement(".foo") in XML document
   FAIL      createElement(".foo") in XHTML document
-OK       153/596  dom/nodes/Document-createElementNS.html
-  FAIL      createElementNS test in HTML document: null,null,null
+OK       177/596  dom/nodes/Document-createElementNS.html
   FAIL      createElementNS test in XML document: null,null,null
   FAIL      createElementNS test in XHTML document: null,null,null
-  FAIL      createElementNS test in HTML document: null,undefined,null
   FAIL      createElementNS test in XML document: null,undefined,null
   FAIL      createElementNS test in XHTML document: null,undefined,null
-  FAIL      createElementNS test in HTML document: null,"foo",null
   FAIL      createElementNS test in XML document: null,"foo",null
   FAIL      createElementNS test in XHTML document: null,"foo",null
   FAIL      createElementNS test in XML document: null,"1foo","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XHTML document: null,"1foo","INVALID_CHARACTER_ERR"
-  FAIL      createElementNS test in HTML document: null,"f1oo",null
   FAIL      createElementNS test in XML document: null,"f1oo",null
   FAIL      createElementNS test in XHTML document: null,"f1oo",null
-  FAIL      createElementNS test in HTML document: null,"foo1",null
   FAIL      createElementNS test in XML document: null,"foo1",null
   FAIL      createElementNS test in XHTML document: null,"foo1",null
-  FAIL      createElementNS test in HTML document: null,"ெfoo",null
   FAIL      createElementNS test in XML document: null,"ெfoo",null
   FAIL      createElementNS test in XHTML document: null,"ெfoo",null
-  FAIL      createElementNS test in HTML document: null,";foo",null
   FAIL      createElementNS test in XML document: null,";foo",null
   FAIL      createElementNS test in XHTML document: null,";foo",null
   FAIL      createElementNS test in XML document: null,"}foo","INVALID_CHARACTER_ERR"
@@ -689,13 +680,10 @@ OK       153/596  dom/nodes/Document-createElementNS.html
   FAIL      createElementNS test in HTML document: null,"foo}",null
   FAIL      createElementNS test in XML document: null,"foo}",null
   FAIL      createElementNS test in XHTML document: null,"foo}",null
-  FAIL      createElementNS test in HTML document: null,"\\ufffffoo",null
   FAIL      createElementNS test in XML document: null,"\\ufffffoo",null
   FAIL      createElementNS test in XHTML document: null,"\\ufffffoo",null
-  FAIL      createElementNS test in HTML document: null,"f\\uffffoo",null
   FAIL      createElementNS test in XML document: null,"f\\uffffoo",null
   FAIL      createElementNS test in XHTML document: null,"f\\uffffoo",null
-  FAIL      createElementNS test in HTML document: null,"foo\\uffff",null
   FAIL      createElementNS test in XML document: null,"foo\\uffff",null
   FAIL      createElementNS test in XHTML document: null,"foo\\uffff",null
   FAIL      createElementNS test in XML document: null,"<foo","INVALID_CHARACTER_ERR"
@@ -728,12 +716,10 @@ OK       153/596  dom/nodes/Document-createElementNS.html
   FAIL      createElementNS test in HTML document: null,":","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: null,":","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XHTML document: null,":","INVALID_CHARACTER_ERR"
-  FAIL      createElementNS test in HTML document: null,"xml",null
   FAIL      createElementNS test in XML document: null,"xml",null
   FAIL      createElementNS test in XHTML document: null,"xml",null
   FAIL      createElementNS test in XML document: null,"xmlns","NAMESPACE_ERR"
   FAIL      createElementNS test in XHTML document: null,"xmlns","NAMESPACE_ERR"
-  FAIL      createElementNS test in HTML document: null,"xmlfoo",null
   FAIL      createElementNS test in XML document: null,"xmlfoo",null
   FAIL      createElementNS test in XHTML document: null,"xmlfoo",null
   FAIL      createElementNS test in XML document: null,"xml:foo","NAMESPACE_ERR"
@@ -744,7 +730,6 @@ OK       153/596  dom/nodes/Document-createElementNS.html
   FAIL      createElementNS test in XHTML document: null,"xmlfoo:bar","NAMESPACE_ERR"
   FAIL      createElementNS test in XML document: null,"null:xml","NAMESPACE_ERR"
   FAIL      createElementNS test in XHTML document: null,"null:xml","NAMESPACE_ERR"
-  FAIL      createElementNS test in HTML document: "",null,null
   FAIL      createElementNS test in XML document: "",null,null
   FAIL      createElementNS test in XHTML document: "",null,null
   FAIL      createElementNS test in HTML document: "",":foo","INVALID_CHARACTER_ERR"
@@ -755,21 +740,16 @@ OK       153/596  dom/nodes/Document-createElementNS.html
   FAIL      createElementNS test in HTML document: "","foo:","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: "","foo:","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XHTML document: "","foo:","INVALID_CHARACTER_ERR"
-  FAIL      createElementNS test in HTML document: undefined,null,null
   FAIL      createElementNS test in XML document: undefined,null,null
   FAIL      createElementNS test in XHTML document: undefined,null,null
-  FAIL      createElementNS test in HTML document: undefined,undefined,null
   FAIL      createElementNS test in XML document: undefined,undefined,null
   FAIL      createElementNS test in XHTML document: undefined,undefined,null
-  FAIL      createElementNS test in HTML document: undefined,"foo",null
   FAIL      createElementNS test in XML document: undefined,"foo",null
   FAIL      createElementNS test in XHTML document: undefined,"foo",null
   FAIL      createElementNS test in XML document: undefined,"1foo","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XHTML document: undefined,"1foo","INVALID_CHARACTER_ERR"
-  FAIL      createElementNS test in HTML document: undefined,"f1oo",null
   FAIL      createElementNS test in XML document: undefined,"f1oo",null
   FAIL      createElementNS test in XHTML document: undefined,"f1oo",null
-  FAIL      createElementNS test in HTML document: undefined,"foo1",null
   FAIL      createElementNS test in XML document: undefined,"foo1",null
   FAIL      createElementNS test in XHTML document: undefined,"foo1",null
   FAIL      createElementNS test in HTML document: undefined,":foo","INVALID_CHARACTER_ERR"
@@ -782,12 +762,10 @@ OK       153/596  dom/nodes/Document-createElementNS.html
   FAIL      createElementNS test in XHTML document: undefined,"foo:","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: undefined,"f::oo","NAMESPACE_ERR"
   FAIL      createElementNS test in XHTML document: undefined,"f::oo","NAMESPACE_ERR"
-  FAIL      createElementNS test in HTML document: undefined,"xml",null
   FAIL      createElementNS test in XML document: undefined,"xml",null
   FAIL      createElementNS test in XHTML document: undefined,"xml",null
   FAIL      createElementNS test in XML document: undefined,"xmlns","NAMESPACE_ERR"
   FAIL      createElementNS test in XHTML document: undefined,"xmlns","NAMESPACE_ERR"
-  FAIL      createElementNS test in HTML document: undefined,"xmlfoo",null
   FAIL      createElementNS test in XML document: undefined,"xmlfoo",null
   FAIL      createElementNS test in XHTML document: undefined,"xmlfoo",null
   FAIL      createElementNS test in XML document: undefined,"xml:foo","NAMESPACE_ERR"
@@ -1096,11 +1074,7 @@ OK       153/596  dom/nodes/Document-createElementNS.html
   FAIL      createElementNS test in XHTML document: "foo:","","INVALID_CHARACTER_ERR"
   FAIL      Lower-case HTML element with a prefix
   FAIL      Upper-case HTML element without a prefix
-  FAIL      Upper-case HTML element with a prefix
   FAIL      Upper-case non-HTML element without a prefix
-  FAIL      null namespace
-  FAIL      undefined namespace
-  FAIL      empty string namespace
 OK           3/3  dom/nodes/Document-createEvent-touchevent.window.html
 OK         37/49  dom/nodes/Document-createProcessingInstruction-xhtml.xhtml
   FAIL      Should throw an INVALID_CHARACTER_ERR for target "Aº" and data "x".
@@ -1136,15 +1110,10 @@ OK         17/18  dom/nodes/Document-getElementById.html
   FAIL      Calling document.getElementById with an empty string argument.
 OK           1/1  dom/nodes/Document-getElementsByClassName.html
 ERROR        0/0  dom/nodes/Document-getElementsByTagName-xhtml.xhtml
-OK         14/18  dom/nodes/Document-getElementsByTagName.html
-  FAIL      hasOwnProperty, getOwnPropertyDescriptor, getOwnPropertyNames
-  FAIL      HTML element with uppercase tagName never matches in HTML Documents
+OK         16/18  dom/nodes/Document-getElementsByTagName.html
   FAIL      Element in HTML namespace, no prefix, non-ascii characters in name
   FAIL      Element in HTML namespace, prefix, non-ascii characters in name
-OK         11/14  dom/nodes/Document-getElementsByTagNameNS.html
-  FAIL      Empty string namespace
-  FAIL      ABC element in html namespace
-  FAIL      AÇ, case sensitivity
+OK         14/14  dom/nodes/Document-getElementsByTagNameNS.html
 OK           1/2  dom/nodes/Document-implementation.html
   FAIL      Getting implementation off different documents
 OK           4/7  dom/nodes/Document-importNode.html
@@ -1177,8 +1146,7 @@ OK           1/1  dom/nodes/Element-childElementCount-nochild.html
 CRASH        0/0  dom/nodes/Element-childElementCount-svg.svg
 ERROR        0/0  dom/nodes/Element-childElementCount-xhtml.xhtml
 OK           1/1  dom/nodes/Element-childElementCount.html
-OK           1/2  dom/nodes/Element-children.html
-  FAIL      HTMLCollection edge cases 1
+OK           2/2  dom/nodes/Element-children.html
 OK       1420/1420  dom/nodes/Element-classlist.html
 OK           2/2  dom/nodes/Element-closest-null-selectors.html
 OK         25/29  dom/nodes/Element-closest.html
@@ -1197,15 +1165,10 @@ OK           1/1  dom/nodes/Element-firstElementChild.html
 OK           3/3  dom/nodes/Element-getElementsByClassName.html
 OK           0/1  dom/nodes/Element-getElementsByTagName-change-document-HTMLNess.html
   FAIL      Element-getElementsByTagName-change-document-HTMLNess
-OK         15/19  dom/nodes/Element-getElementsByTagName.html
-  FAIL      hasOwnProperty, getOwnPropertyDescriptor, getOwnPropertyNames
-  FAIL      HTML element with uppercase tagName never matches in HTML Documents
+OK         17/19  dom/nodes/Element-getElementsByTagName.html
   FAIL      Element in HTML namespace, no prefix, non-ascii characters in name
   FAIL      Element in HTML namespace, prefix, non-ascii characters in name
-OK         13/16  dom/nodes/Element-getElementsByTagNameNS.html
-  FAIL      Empty string namespace
-  FAIL      ABC element in html namespace
-  FAIL      AÇ, case sensitivity
+OK         16/16  dom/nodes/Element-getElementsByTagNameNS.html
 OK           2/2  dom/nodes/Element-hasAttribute.html
 OK           2/2  dom/nodes/Element-hasAttributes.html
 OK           5/6  dom/nodes/Element-insertAdjacentElement.html
@@ -1726,7 +1689,7 @@ OK           0/2  dom/nodes/attributes-namednodemap-cross-document.window.html
 OK           6/8  dom/nodes/attributes-namednodemap.html
   FAIL      setNamedItem and removeNamedItem on `attributes` should add and remove fields from `attributes`
   FAIL      setNamedItem and removeNamedItem on `attributes` should not interfere with existing method names
-OK         44/67  dom/nodes/attributes.html
+OK         45/67  dom/nodes/attributes.html
   FAIL      When qualifiedName does not match the Name production, an INVALID_CHARACTER_ERR exception is to be thrown. (toggleAttribute)
   FAIL      Basic functionality should be intact. (toggleAttribute)
   FAIL      toggleAttribute should set the first attribute with the given name
@@ -1748,33 +1711,9 @@ OK         44/67  dom/nodes/attributes.html
   FAIL      Own property correctness with namespaced attribute before same-name non-namespaced one
   FAIL      Own property correctness with two namespaced attributes with the same name-with-prefix
   FAIL      Own property names should only include all-lowercase qualified names for an HTML element in an HTML document
-  FAIL      Own property names should include all qualified names for a non-HTML element in an HTML document
   FAIL      Own property names should include all qualified names for an HTML element in a non-HTML document
-OK       261/285  dom/nodes/case.html
-  FAIL      createElement Ä
+OK       284/285  dom/nodes/case.html
   FAIL      getElementsByTagName Ä
-  FAIL      createElementNS http://www.w3.org/1999/xhtml,abc,Abc
-  FAIL      createElementNS http://www.w3.org/1999/xhtml,abc,ABC
-  FAIL      createElementNS http://www.w3.org/1999/xhtml,abc,Ä
-  FAIL      createElementNS http://www.w3.org/1999/xhtml,Abc,abc
-  FAIL      createElementNS http://www.w3.org/1999/xhtml,Abc,Abc
-  FAIL      createElementNS http://www.w3.org/1999/xhtml,Abc,ABC
-  FAIL      createElementNS http://www.w3.org/1999/xhtml,Abc,ä
-  FAIL      createElementNS http://www.w3.org/1999/xhtml,Abc,Ä
-  FAIL      createElementNS http://www.w3.org/1999/xhtml,ABC,abc
-  FAIL      createElementNS http://www.w3.org/1999/xhtml,ABC,Abc
-  FAIL      createElementNS http://www.w3.org/1999/xhtml,ABC,ABC
-  FAIL      createElementNS http://www.w3.org/1999/xhtml,ABC,ä
-  FAIL      createElementNS http://www.w3.org/1999/xhtml,ABC,Ä
-  FAIL      createElementNS http://www.w3.org/1999/xhtml,ä,Abc
-  FAIL      createElementNS http://www.w3.org/1999/xhtml,ä,ABC
-  FAIL      createElementNS http://www.w3.org/1999/xhtml,ä,Ä
-  FAIL      createElementNS http://www.w3.org/1999/xhtml,Ä,Abc
-  FAIL      createElementNS http://www.w3.org/1999/xhtml,Ä,ABC
-  FAIL      createElementNS http://www.w3.org/1999/xhtml,Ä,Ä
-  FAIL      createElementNS Abc
-  FAIL      createElementNS ABC
-  FAIL      createElementNS Ä
 OK           5/5  dom/nodes/create-element-realm-after-adoption.html
 OK           0/4  dom/nodes/getElementById-namespaced-id.html
   FAIL      append a namespaced ID preserves ID lookup and form association
