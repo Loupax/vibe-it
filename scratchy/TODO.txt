@@ -169,7 +169,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       `document.doctype` on the page document (the page's DocumentType node). WPT: nodes/ChildNode-after,
       ChildNode-before, ChildNode-replaceWith, DocumentType-remove, Document-doctype, ParentNode-replaceChildren,
       remove-unscopable. Target: nodes +1.2.
-- [ ] QDOMATOM [S] (P2, from QDOM16 #549; Sonnet; js_dom.rs insert path, script prepare, iframe load) Atomic insertion: when
+- [ ] [WIP] QDOMATOM [S] (P2, from QDOM16 #549; Sonnet; js_dom.rs insert path, script prepare, iframe load) Atomic insertion: when
       one insertion adds several nodes (DocumentFragment, append/prepend/before/after with several arguments), the
       post-connection steps (script prepare/run, iframe load) run in tree order AFTER the whole insertion, per DOM
       "insert" + HTML "post-connection steps". WPT dom/nodes/insertion-removing-steps/*, Node-appendChild-script-and-

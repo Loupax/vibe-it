@@ -221,3 +221,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #559 QDOM15 READY (dom/events 34.8 -> 36.2), queued after #561. Filed QDOM15b. Launched QCISPLIT.
 - 2026-11-22 Merged #548 QMSG1 80df64b (webmessaging 39 -> 64).
 - 2026-11-22 #562 QANIMHL READY (headless animations; empty @keyframes fixed for App too), queued after #559. Filed QANIMHLb (CSS transitions missing entirely; launched, Opus) and QANIMHLc.
+- 2026-11-22 #546 QEL6 rebased; merge order now 561 -> 546 -> 559 -> 562. Launched QDOMATOM (fixes #549's subtest properly).
