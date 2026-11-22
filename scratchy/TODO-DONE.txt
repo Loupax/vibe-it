@@ -9332,3 +9332,13 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QAPI7 DONE 019a74a #577 [S] (P3, from QMAPI3 R66; Sonnet; js.rs) `BroadcastChannel` (same-process, same-origin delivery through the
       MessageChannel machinery) and `HTMLElement.contentEditable`/`isContentEditable` reflection, the `ontouch*` handler
       attributes on GlobalEventHandlers (null) so `'ontouchstart' in window` is the page's touch test, not a miss.
+
+=== from TODO.txt: --- (no header)
+- [x] QEL7 DONE 1c1468c #576 [S] (P2; Sonnet; app.rs, js.rs; after QEL1) scroll events for user scrolling (window and
+      elements, coalesced per frame in the rendering step), scrollend, wheel events; MQL change events.
+
+=== from TODO.txt: --- (no header)
+- [x] QAPI8 DONE 0f1c2b5 #578 [S] (P2, from QMAPI3 R66; Sonnet; css.rs, tools/missing-api) Audit the css `declaration` rows of R66: first make the
+      report skip declarations handled outside `Declarations` or equal to the initial value, then list which of
+      `place-items`, `letter-spacing`, `clip-path`, `backdrop-filter`, `touch-action`, `user-select`, `text-shadow`,
+      `filter`, `color-scheme`, `border-spacing` are really unparsed, and file one S item per property family.

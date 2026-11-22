@@ -266,3 +266,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #579 QWPT6c READY (+53 dom long files; scratchy-wpt job 3:29 -> 5:38, over R64 Q4's 5 min, but it already runs in parallel with the 5:18 scratchy job, so CI wall time +20 s: merging; filed QCISPLIT2 to shard). Launched QWPT6d (user approved).
 - 2026-11-22 Merged #577 QAPI7 019a74a (BroadcastChannel, contentEditable).
 - 2026-11-22 #580 QDOM10 READY (window.event shadow rule; events +3 subtests), queued after #579. Filed QDOM10b. Launched QDOM19.
+- 2026-11-22 Merged #576 QEL7 1c1468c (scroll/wheel/MQL events), #578 QAPI8 0f1c2b5 (css audit).

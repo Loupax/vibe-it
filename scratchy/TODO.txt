@@ -69,8 +69,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QANIMHLc [S] (P3, from QANIMHL #562; Sonnet; js_geom GeomCache) Geometry reads during a CSS animation: the forced-layout cache
       is keyed only on the DOM write generation, so getBoundingClientRect of an animated box keeps its first-frame
       geometry between DOM writes; key on the animation clock too when animations are live.
-- [ ] [WIP] QEL7 [S] (P2; Sonnet; app.rs, js.rs; after QEL1) scroll events for user scrolling (window and
-      elements, coalesced per frame in the rendering step), scrollend, wheel events; MQL change events.
 - [ ] QEL7b [S] (P3, from QEL7 #576; Sonnet; app.rs, js.rs) Scroll leftovers: window scroll + MQL change inside iframe
       realms (element scroll there still uses the old zero-delay timer), clamp a scrollTo past the end before reporting
       (headless never clamps y), smooth `behavior` for programmatic scrollTo/scrollBy/scrollIntoView, visualViewport
@@ -119,10 +117,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QAPI6c [S] (P3, from QAPI6 #573; Opus; incr_style.rs) Check-mode mismatch seen once on YouTube results while the
       window settled ("adopted element style reads vh: build true vs engine false"); build a repro with a height change
       during load.
-- [ ] [WIP] QAPI8 [S] (P2, from QMAPI3 R66; Sonnet; css.rs, tools/missing-api) Audit the css `declaration` rows of R66: first make the
-      report skip declarations handled outside `Declarations` or equal to the initial value, then list which of
-      `place-items`, `letter-spacing`, `clip-path`, `backdrop-filter`, `touch-action`, `user-select`, `text-shadow`,
-      `filter`, `color-scheme`, `border-spacing` are really unparsed, and file one S item per property family.
 - [ ] QMAPI3b [S] (P3, from QMAPI3 R66; Sonnet; tools/missing-api/merge.py) Merge "?" `has` rows with the named row of the
       same name where one exists, drop `has` rows whose name only exists as a plain-object key (`data`, `text`, `items`),
       and print the example script as a short host/path; replay-recordings mode when QREC1 recordings exist.
