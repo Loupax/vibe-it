@@ -9184,3 +9184,15 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QDOM12b DONE 0ed067c #556 (in QDOM5) [S] (P3, after QDOM3 #533; Sonnet; js_dom.rs rangeHook) Wire `rangeHook.split` / `rangeHook.merge` (QDOM12
       #547) to QDOM3's live Range list so splitText/normalize update live Ranges per spec; re-run dom/ranges
       (Range-mutations-normalize).
+
+=== from TODO.txt: --- (no header)
+- [x] QDOM13 DONE 273abd2 #557 [S] (P2; Sonnet; js.rs attrHandler/`fwd`, js_dom.rs; R65) Event handler IDL attributes as accessors:
+      GlobalEventHandlers/WindowEventHandlers/DocumentAndElementEventHandlers on HTMLElement, Document and Window
+      (default null; setting a non-function stores null; the content attribute still compiles lazily). `<body>`/
+      `<frameset>` `onload`/`onerror`/`onresize`/... get/set the Window's handler (WindowEventHandlers). Include
+      `onanimationstart/iteration/end/cancel`, `ontransitionrun/start/end/cancel`, and the legacy
+      `webkitAnimation*`/`webkitTransitionEnd` mapping (an unprefixed event with only a prefixed listener fires the
+      prefixed type). Only the names Chrome desktop exposes: NO `ontouch*` on window/document (sites treat
+      `'ontouchstart' in window` as "touch device"). Add `HTMLFrameSetElement`. WPT: dom/events/webkit-*-event (4),
+      Body-FrameSet-Event-Handlers. Target: events +2 (and the 40 non-cancelable-when-passive files, which assign
+      `document.body.onload`, then run once QWPT7 exists).

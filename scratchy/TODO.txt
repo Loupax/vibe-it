@@ -149,16 +149,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       `.xhtml/.xml` files and 13 CRASH `.svg` files in dom/nodes (Element-childElementCount-*, Element-firstElementChild-*,
       ...), Document-createElement(NS) (XML iframes: 488 subtests), Document-createProcessingInstruction-xhtml,
       Node-lookupPrefix.xhtml. Target: nodes +5 (13 SVG files also start counting).
-- [ ] [WIP] QDOM13 [S] (P2; Sonnet; js.rs attrHandler/`fwd`, js_dom.rs; R65) Event handler IDL attributes as accessors:
-      GlobalEventHandlers/WindowEventHandlers/DocumentAndElementEventHandlers on HTMLElement, Document and Window
-      (default null; setting a non-function stores null; the content attribute still compiles lazily). `<body>`/
-      `<frameset>` `onload`/`onerror`/`onresize`/... get/set the Window's handler (WindowEventHandlers). Include
-      `onanimationstart/iteration/end/cancel`, `ontransitionrun/start/end/cancel`, and the legacy
-      `webkitAnimation*`/`webkitTransitionEnd` mapping (an unprefixed event with only a prefixed listener fires the
-      prefixed type). Only the names Chrome desktop exposes: NO `ontouch*` on window/document (sites treat
-      `'ontouchstart' in window` as "touch device"). Add `HTMLFrameSetElement`. WPT: dom/events/webkit-*-event (4),
-      Body-FrameSet-Event-Handlers. Target: events +2 (and the 40 non-cancelable-when-passive files, which assign
-      `document.body.onload`, then run once QWPT7 exists).
 - [ ] [WIP] QDOM15 [S] (P2; Sonnet; js.rs Event ctors, js_dom.rs `doc.createEvent`; R65; after QDOM4) Event interfaces:
       UIEvent/MouseEvent/KeyboardEvent/FocusEvent/WheelEvent/InputEvent/CompositionEvent constructors read their init
       dictionaries (`view` must be a Window or null: TypeError otherwise, `detail`, modifier keys...), `Event.NONE/
