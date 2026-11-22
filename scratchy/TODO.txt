@@ -85,6 +85,9 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       honouring an explicit ratio needs a transparent letterbox in media_video.rs; media is archived.)
 - [ ] QCSS2b [S] (P3, from QCSS2 #616; Sonnet) `font-tech()` in @supports/CSS.supports from the font loader's real support;
       CSS namespace members `registerProperty`, Typed OM factories, `highlights`.
+- [ ] QWPTFLK5 [S] (P3, from QCNV5 #624; Sonnet; wptserve shard) fetch/api/basic/request-upload.any.html failed once on CI
+      ("subtest was passing") and passed on a job re-run with no change. Find the cause (upload timing through wire?
+      wptserve?) and fix it, or flaky-list it with the reason.
 - [ ] QCSS-C2 [S] (P3, from QCSS-C #599; Sonnet; layout.rs grid) Grid alignment leftovers: vertical stretch of grid items
       (align-items normal/stretch), baseline alignment in grid, align-content/justify-content distribution of grid tracks
       (space-between, center, end), `unsafe` overflow, `justify-items: legacy` inheritance, safe/unsafe in serialisation.
@@ -179,7 +182,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] [WIP] QCNV5 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Sonnet; in order after the items above) Transforms
       (translate/rotate/scale/setTransform/getTransform). 50 files.
-- [ ] QCNV6 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+- [ ] [WIP] QCNV6 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Sonnet; in order after the items above) Paths, nonzero/evenodd fill rules, clip. 144 files.
 - [ ] QCNV7 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Sonnet; in order after the items above) arc, arcTo, ellipse, bezier/quadratic curves, roundRect. 174
