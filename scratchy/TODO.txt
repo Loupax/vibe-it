@@ -190,7 +190,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] [WIP] QCISPLIT2 [S] (P3, from QWPT6c #579; Sonnet; .github/workflows/ci.yml, tools) Shard the `scratchy-wpt` job (5:38 after
       #579, WPT step 3:52; the main `scratchy` job is 5:18, so wall time is barely affected) into two parallel jobs by area,
       when it passes ~6 min or before QWPT6d lands. Find why the step grew +1:44 on CI vs ~20 s locally (per-file CI timings).
-- [ ] QCNV1 [M] (P2; Sonnet; js_dom.rs HTMLCanvasElement (QY3), new src/canvas.rs, paint.rs replaced-element paint;
+- [ ] [WIP] QCNV1 [M] (P2; Sonnet; js_dom.rs HTMLCanvasElement (QY3), new src/canvas.rs, paint.rs replaced-element paint;
       after QWPT12; user 2026-11-21: no design step, the html/canvas WPT results are the guide) Canvas 2D foundation.
       `getContext('2d')` returns one CanvasRenderingContext2D per canvas (same object on every call; null for any
       other type, 'webgl'/'webgl2' included). Backing store: a tiny-skia Pixmap of width x height (tiny-skia becomes a

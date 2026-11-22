@@ -345,3 +345,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Merged #608 QCSS-E 0bf4cbf.
 - 2026-11-22 #606 QWPT12 READY (html/canvas in the gate: 2354 files, ~0% baseline; scratchy-wpt job 4:40 -> ~7:00, now the slowest CI job), merging. Launched QCISPLIT2 (shard scratchy-wpt).
 - 2026-11-22 Merged #606 QWPT12 608aa34 (canvas baseline). QCNV1 now unblocked.
+- 2026-11-22 #609 QBLOBFRAME READY (blob: iframes; its 10x stability run took 0.2 s each = likely did not run; relying on CI gate + merge re-CI), merging. Launched QCNV1.
