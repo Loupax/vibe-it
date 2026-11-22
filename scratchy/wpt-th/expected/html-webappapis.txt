@@ -379,11 +379,19 @@ OK           0/4  html/webappapis/dynamic-markup-insertion/opening-the-input-str
 OK           1/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/readiness.window.html
 ERROR        0/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/reload.window.html
   FAIL      Reloading a document.open()'d page should reload the URL of the entry realm's responsible document
-OK           1/2  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/remove-initial-about-blankness.window.html
-  FAIL      Double-check: without document.open(), Window reuse indeed happens
+OK           2/2  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/remove-initial-about-blankness.window.html
 OK          8/10  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/tasks.window.html
   FAIL      tasks without document.open() (window message)
   FAIL      document.open() and tasks (window message)
+OK           0/8  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/type-argument-plaintext.window.html
+  FAIL      document.open() on plaintext document with type set to: replace (type argument is supposed to be ignored)
+  FAIL      document.open() on plaintext document with type set to: NOBODY (type argument is supposed to be ignored)
+  FAIL      document.open() on plaintext document with type set to: @ FD ; (type argument is supposed to be ignored)
+  FAIL      document.open() on plaintext document with type set to: it does not matter, you see  (type argument is supposed to be ignored)
+  FAIL      document.open() on plaintext document with type set to: text/plain (type argument is supposed to be ignored)
+  FAIL      document.open() on plaintext document with type set to: text/xml (type argument is supposed to be ignored)
+  FAIL      document.open() on plaintext document with type set to: application/octet-stream (type argument is supposed to be ignored)
+  FAIL      document.open() on plaintext document with type set to:   (type argument is supposed to be ignored)
 OK           8/8  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/type-argument.window.html
 OK           1/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/unload.window.html
 OK           0/3  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/url-entry-document-sync-call.window.html
@@ -726,8 +734,7 @@ OK        85/152  html/webappapis/structured-clone/structured-clone.any.html
   FAIL      Length-tracking DataView is transferable
   FAIL      Transferring OOB TypedArray throws
   FAIL      Transferring OOB DataView throws
-OK           1/2  html/webappapis/system-state-and-capabilities/the-navigator-object/clientinformation.window.html
-  FAIL      window.clientInformation exists and equals window.navigator
+OK           2/2  html/webappapis/system-state-and-capabilities/the-navigator-object/clientinformation.window.html
 OK           4/4  html/webappapis/system-state-and-capabilities/the-navigator-object/navigator-indexed.html
 OK           0/7  html/webappapis/system-state-and-capabilities/the-navigator-object/navigator-window-controls-overlay.tentative.html
   FAIL      the windowControlsOverlay object should exist on the navigator object
@@ -741,12 +748,7 @@ OK           1/1  html/webappapis/system-state-and-capabilities/the-navigator-ob
 OK           0/1  html/webappapis/system-state-and-capabilities/the-navigator-object/navigatorcookies-cookieenabled-true.html
   FAIL      navigator.cookieEnabled is true when cookies are enabled
 OK           1/1  html/webappapis/system-state-and-capabilities/the-navigator-object/navigatorlanguage.html
-OK           3/8  html/webappapis/system-state-and-capabilities/the-navigator-object/per-global.window.html
-  FAIL      document.open() must not replace window.navigator
-  FAIL      Navigating from the transient about:blank must not replace window.clientInformation
-  FAIL      Navigating from the initial about:blank must not replace window.clientInformation
-  FAIL      Discarding the browsing context must not change window.clientInformation
-  FAIL      document.open() must not replace window.clientInformation
+OK           8/8  html/webappapis/system-state-and-capabilities/the-navigator-object/per-global.window.html
 OK           3/3  html/webappapis/system-state-and-capabilities/the-navigator-object/plugins-and-mimetypes.html
 OK           2/2  html/webappapis/system-state-and-capabilities/the-navigator-object/secure_context.html
 OK           0/6  html/webappapis/the-windoworworkerglobalscope-mixin/Worker_Self_Origin.html

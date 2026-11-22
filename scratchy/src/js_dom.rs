@@ -4389,9 +4389,9 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     var s = n === 'src' || n === 'srcdoc', nm = n === 'name';
     if (!s && !nm) return;
     if (__d_tag(id).toLowerCase() !== 'iframe') return;
-    // QDOM5c: an initial about:blank window that has not loaded anything is navigated in place (the Window is reused, as in
-    // browsers); `loadFrame` moves it to the page's URL when the fetch ends.
-    if (s && nFrames) { var f0 = frames[id]; if (!(n === 'src' && f0 && f0.realm && !f0.loaded && frameSrcdoc(wrap(id)) == null && ifrKey(wrap(id)) !== null)) dropFrame(id); }
+    // QDOM5c: a src set AFTER insertion drops the old window as before (its document stays about:blank for scripts that
+    // kept it, url.window.html); only a src present at insertion reuses the initial window (see `ifrFetch`).
+    if (s && nFrames) dropFrame(id);
     if (s && inPage(wrap(id)) && frameHtml(wrap(id)) != null) loadFrameLater(wrap(id));
     else if (n === 'src' && inPage(wrap(id)) && ifrFetch(wrap(id))) { /* QDOM5b: its load comes when the fetch ends */ }
     else if (n === 'src' && inPage(wrap(id)) && frameSrc(wrap(id)) !== '' && !frameSrcOk(wrap(id))) {

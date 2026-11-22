@@ -1,5 +1,5 @@
-// QDOM5c: a script-made same-origin iframe keeps its initial about:blank Window when its page arrives (it is navigated
-// in place, as in browsers): contentWindow and window.navigator keep their identity across the load.
+// QDOM5c: a script-made same-origin iframe with its src set before insertion keeps its initial about:blank Window when its
+// page arrives (navigated in place, as in browsers); one whose src is set later gets a window for the page.
 use super::*;
 
 #[test]
@@ -14,8 +14,8 @@ fn qdom5c_initial_window_is_reused_by_the_async_load() {
          var w2 = f2.contentWindow, nav2 = w2.navigator; f2.src = '/blank.html';\
          var n = 0, done = function () {\
            if (++n < 2) return;\
-           console.log('same', f.contentWindow === w, w.navigator === nav, f2.contentWindow === w2, w2.navigator === nav2);\
-           console.log('loaded', w.location.href, w.document.getElementById('x') !== null, w2.document.URL, w.closed);\
+           console.log('same', f.contentWindow === w, w.navigator === nav, w2.navigator === nav2);\
+           console.log('loaded', w.location.href, w.document.getElementById('x') !== null, f2.contentWindow.document.URL, w.closed);\
          };\
          f.onload = done; f2.onload = done; console.log('before', d0);",
     );
@@ -27,6 +27,6 @@ fn qdom5c_initial_window_is_reused_by_the_async_load() {
     }
     let l = log.borrow().clone();
     assert!(l.contains(&"log:before about:blank".to_string()), "{l:?}");
-    assert!(l.contains(&"log:same true true true true".to_string()), "{l:?}");
+    assert!(l.contains(&"log:same true true true".to_string()), "{l:?}");
     assert!(l.contains(&"log:loaded https://page.test/blank.html true https://page.test/blank.html false".to_string()), "{l:?}");
 }

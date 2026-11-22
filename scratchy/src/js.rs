@@ -1238,7 +1238,7 @@ const PRELUDE: &str = r#"
   // startup snapshot bakes this prelude over an about:blank env; a page engine then calls
   // `__scratchy_apply_env(its env)` (the same values the code above computed from `env`).
   var navObj = g.navigator, envHooks = [];
-  Object.defineProperty(g, 'clientInformation', { get: function () { return g.navigator; }, configurable: true, enumerable: true });
+  Object.defineProperty(g, 'clientInformation', { get: function () { return g.navigator; }, set: function (v) { Object.defineProperty(g, 'clientInformation', { value: v, writable: true, configurable: true, enumerable: true }); }, configurable: true, enumerable: true });
   Object.defineProperty(g, '__scratchy_env_hooks', { value: envHooks, configurable: true });
   Object.defineProperty(g, '__scratchy_apply_env', { value: function (e) {
     var sec = e.protocol === 'https:' || e.protocol === 'wss:' ||
