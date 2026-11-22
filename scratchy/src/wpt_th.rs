@@ -27,6 +27,8 @@ const MAX_VIRTUAL_MS: f64 = 3_600_000.0;
 /// A network result not arriving within this much real time ends the run (the request itself
 /// times out sooner, by the policy's read timeout).
 const MAX_NET_WAIT: Duration = Duration::from_secs(120);
+/// QWPT7: the shortest testdriver tick on the virtual clock (one 60 Hz frame).
+const MIN_TICK_MS: f64 = 16.0;
 
 pub(crate) fn main(args: &[String]) -> i32 {
     let mut socket = None;
@@ -109,8 +111,14 @@ pub(crate) fn run_one(url: &Url, socket: &std::path::Path, exec: Arc<dyn NetExec
         }
     });
     let sink = done.clone();
-    let engine = start_scripts_hooked(&document, &scripts, log, Some(clock.clone()), &move |e| e.install_wpt_done(sink.clone()))?;
-    pump(&engine, &clock, &done, exec);
+    // QWPT7: the testdriver vendor's wake-up (an action was queued).
+    let wake = Rc::new(Cell::new(false));
+    let w = wake.clone();
+    let engine = start_scripts_hooked(&document, &scripts, log, Some(clock.clone()), &move |e| {
+        e.install_wpt_done(sink.clone());
+        e.install_testdriver(w.clone());
+    })?;
+    pump(&engine, &clock, &done, exec, &wake, &document);
     let out = done.borrow_mut().take();
     drop(engine);
     out
@@ -132,15 +140,24 @@ fn get(socket: &std::path::Path, url: &Url) -> Result<(Option<String>, Vec<u8>),
 /// The event loop of the child (R64 2.3): network first, then due timers; the clock advances only
 /// when neither has work and no request is in flight. Returns when the page reported, or when it
 /// can make no more progress.
-fn pump(engine: &JsEngine, clock: &Rc<Cell<f64>>, done: &Rc<RefCell<Option<String>>>, exec: Arc<dyn NetExecutor>) {
+fn pump(engine: &JsEngine, clock: &Rc<Cell<f64>>, done: &Rc<RefCell<Option<String>>>, exec: Arc<dyn NetExecutor>, wake: &Cell<bool>, doc: &Handle) {
     let mut sched = NetScheduler::new(&RequestPolicy::default());
     let (tx, rx) = mpsc::channel::<(u64, Result<WireResponse, NetError>)>();
     let mut in_flight: HashSet<u64> = HashSet::new();
     let mut callbacks = 0usize;
+    // QWPT7: trusted input (wpt_input.rs): its state, and when the next testdriver tick may run.
+    let mut input = crate::wpt_input::InputState::default();
+    let mut tick_at = 0.0f64;
     while done.borrow().is_none() {
         // 1. Network: queue new requests, drop aborted ones, deliver what is ready, start more.
         let mut progressed = false;
-        let reqs = engine.take_requests();
+        let mut reqs = engine.take_requests();
+        // QWPT7: focus()/blur() requests are applied as the App applies them (focus events fire).
+        if let Some(f) = reqs.focus.take() {
+            let mut d = crate::wpt_input::Driver { js: engine, doc: doc.clone(), st: &mut input, now: clock.get() };
+            d.apply_focus_request(f);
+            progressed = true;
+        }
         for id in reqs.net_abort {
             sched.abort(id);
             in_flight.remove(&id); // its late result is ignored by `deliver_net`
@@ -190,9 +207,23 @@ fn pump(engine: &JsEngine, clock: &Rc<Cell<f64>>, done: &Rc<RefCell<Option<Strin
         if n > 0 {
             continue;
         }
+        // QWPT7: 3. the next testdriver tick when its time has come (one tick per idle turn: what its
+        //    events queued runs before the next one, and the clock moves by the tick's duration).
+        if wake.get() && tick_at <= clock.get() {
+            wake.set(false);
+            if let Some(tick) = engine.td_next() {
+                let mut d = crate::wpt_input::Driver { js: engine, doc: doc.clone(), st: &mut input, now: clock.get() };
+                // A tick takes at least a frame, as with a browser's WebDriver: a page that sends
+                // keys in a loop until something happens still reaches its harness timeout.
+                tick_at = clock.get() + d.run_tick(&tick).max(MIN_TICK_MS);
+                wake.set(true);
+            }
+            continue;
+        }
         // Asked AFTER every eval of this turn: each eval ends with a microtask checkpoint that may
         // queue a timer (or leave deferred jobs, then "due now"), so an earlier answer can be stale.
         let due = crate::event_loop::headless_next_due(engine);
+        let due = if wake.get() { Some(due.map_or(tick_at, |d| d.min(tick_at))) } else { due };
         // 3. A load is pending: wait for it in real time; the clock stays where it is.
         if !in_flight.is_empty() || engine.ws_busy() {
             let wait = if in_flight.is_empty() { Duration::from_millis(10) } else { MAX_NET_WAIT };

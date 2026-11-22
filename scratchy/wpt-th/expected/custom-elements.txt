@@ -454,6 +454,16 @@ OK           0/7  custom-elements/element-internals-aria-element-reflection-shad
   FAIL      ariaActiveDescendantElement on ElementInternals returns an element in the same disconnected tree
   FAIL      ariaActiveDescendantElement on ElementInternals of a disconnected element
   FAIL      ariaLabelledByElements on ElementInternals skips elements with a different shadow-including root
+OK           0/9  custom-elements/element-internals-aria-element-reflection.html
+  FAIL      Getting previously-unset ARIA element reflection properties on ElementInternals should return null.
+  FAIL      Getting ARIA element reflection properties on ElementInternals should return the value that was set.
+  FAIL      Setting ARIA element reflection properties to an empty array should work as expected.
+  FAIL      Reading an ARIA element reflection array property that was set to an empty array, on an ElementInternals with no previously cached value, should return an empty array.
+  FAIL      Setting ARIA element reflection properties on ElementInternals to null should delete any previous value, and not crash
+  FAIL      Setting ariaLabelledByElements on ElementInternals should change the accessible name of the custom element
+  FAIL      Setting aria-labelledby or ariaLabelledByElements on the custom element should supersede the value of ariaLabelledByElements on ElementInternals
+  FAIL      Caching invariant different attributes.
+  FAIL      Caching invariant different elements.
 OK          6/15  custom-elements/element-internals-behaviors.tentative.html
   FAIL      attachInternals({ behaviors: [] }) accepts empty behaviors array
   FAIL      behaviors returns empty array when no behaviors configured
@@ -480,6 +490,17 @@ OK           3/8  custom-elements/enqueue-custom-element-callback-reactions-insi
   FAIL      Setting an observed attribute on an element with attributeChangedCallback while it has a connectedCallback in its custom element reaction queue must result in connectedCallback getting invoked before the attribute change completes
 OK           0/1  custom-elements/form-associated/ElementInternals-NotSupportedError.html
   FAIL      Form-related operations and attributes should throw NotSupportedErrors for non-form-associated custom elements.
+ERROR       0/10  custom-elements/form-associated/ElementInternals-behavior-accessibility.tentative.html
+  NOTRUN    Custom element with HTMLSubmitButtonBehavior has implicit button role
+  NOTRUN    ElementInternals.role overrides behavior default role
+  NOTRUN    role attribute overrides behavior default role
+  NOTRUN    role attribute takes priority over ElementInternals.role
+  FAIL      Custom element with HTMLSubmitButtonBehavior is implicitly focusable
+  NOTRUN    behavior.disabled prevents focusability
+  NOTRUN    Element disabled attribute prevents focusability
+  NOTRUN    Ancestor fieldset disabled prevents focusability
+  NOTRUN    Focusability updates dynamically when disabled state changes
+  NOTRUN    Non-form-associated element with behavior gets role and focusability
 OK           0/2  custom-elements/form-associated/ElementInternals-form.html
   FAIL      ElementInternals.form should return the target element's form owner
   FAIL      ElementInternals.form should throws NotSupportedError if the target element is not a form-associated custom element
@@ -571,6 +592,9 @@ OK           0/6  custom-elements/form-associated/form-upgrade-reactions.html
   FAIL      Connected upgrade, enabled
   FAIL      Connected upgrade, disabled by attribute
   FAIL      Connected upgrade, disabled by fieldset
+OK           0/2  custom-elements/form-associated/label-delegatesFocus.html
+  FAIL      Clicking on a label for a form associated custom element with delegatesFocus should focus the custom element's focus delegate.
+  FAIL      Clicking on a span in a label for a form associated custom element with delegatesFocus should focus the custom element's focus delegate.
 OK           3/3  custom-elements/historical.html
 OK          0/10  custom-elements/htmlconstructor/newtarget-customized-builtins.html
   FAIL      If prototype is not object (null), derives the fallback from NewTarget's realm (customized built-in elements)

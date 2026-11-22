@@ -497,25 +497,6 @@ impl App {
         }
     }
 
-    /// Enter in a single-line text field: click the default button, else
-    /// submit when the form has a single text field (spec "implicit
-    /// submission"). A disabled default button blocks it.
-    pub(crate) fn implicit_submit(&mut self, field: &Handle) {
-        let Some(form) = form_owner(field) else { return };
-        match default_button(&form) {
-            Some(b) => {
-                if !is_disabled_control(&b) {
-                    self.click_activate(Some(&b), (0.0, 0.0));
-                }
-            }
-            None => {
-                if implicit_submission_ok(&form) {
-                    self.request_submit(&form, None);
-                }
-            }
-        }
-    }
-
     /// A POST navigation: like `start_navigation` but with a request body.
     /// History gets the action URL; going back/forward/refresh to that entry
     /// re-GETs it (never re-POSTs).

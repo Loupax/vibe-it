@@ -107,6 +107,7 @@ mod qdom18_tests;
 mod memprof_tests;
 mod qapi2_tests;
 mod qapi3_tests;
+mod qwpt7_tests;
 
 // ---------- QFLK7: the one shared winit event loop for App-level tests ----------
 //

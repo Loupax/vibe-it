@@ -68,6 +68,8 @@ mod wpt;
 mod wpt_th_run; // QWPT4b: the `--wpt-th` runner parent
 mod event_loop; // QEL1: the rendering-steps driver (HTML "update the rendering")
 mod wpt_th; // QWPT4a: the testharness.js test child (`--wpt-th-one`)
+mod wpt_input; // QWPT7: the headless testdriver back end (trusted input)
+mod input_host; // QWPT7: trusted-input default actions shared by the App and wpt_input
 mod dom;
 mod css;
 mod animation;

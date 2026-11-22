@@ -1989,6 +1989,34 @@ OK          0/11  dom/ranges/tentative/OpaqueRange-highlightsFromPoint.html
   FAIL      highlightsFromPoint with mixed OpaqueRange and DOM Range in one Highlight
   FAIL      highlightsFromPoint for textarea inside an author shadow root
   FAIL      OpaqueRange and DOM Range in same shadow root behave consistently
+OK          0/16  dom/ranges/tentative/OpaqueRange-interactive-basic.html
+  FAIL      Insertion: at start boundary keeps start; end extends (multi-char) (input).
+  FAIL      Insertion: inside range extends end by length (input).
+  FAIL      Insertion: at end boundary leaves offsets unchanged (multi-char) (input).
+  FAIL      Equal-length replacement: single char inside range (input).
+  FAIL      Deletion: backspace before range shifts both left (input).
+  FAIL      Deletion: forward delete inside range contracts end by 1 (input).
+  FAIL      Deletion: forward delete at end boundary no effect on range (input).
+  FAIL      Deletion: backspace at control start is no-op (input).
+  FAIL      Insertion: at start boundary keeps start; end extends (multi-char) (textarea).
+  FAIL      Insertion: inside range extends end by length (textarea).
+  FAIL      Insertion: at end boundary leaves offsets unchanged (multi-char) (textarea).
+  FAIL      Equal-length replacement: single char inside range (textarea).
+  FAIL      Deletion: backspace before range shifts both left (textarea).
+  FAIL      Deletion: forward delete inside range contracts end by 1 (textarea).
+  FAIL      Deletion: forward delete at end boundary no effect on range (textarea).
+  FAIL      Deletion: backspace at control start is no-op (textarea).
+OK          0/10  dom/ranges/tentative/OpaqueRange-interactive-overlap-and-selection.html
+  FAIL      Overlap: partial overlap at start (delete selection) (input).
+  FAIL      Overlap: partial overlap at end (delete selection) (input).
+  FAIL      Selection deletion: delete selection exactly equal to range (collapse) (input).
+  FAIL      Selection deletion: delete subset inside range (contract end) (input).
+  FAIL      Boundary forward delete shifts range left (input).
+  FAIL      Overlap: partial overlap at start (delete selection) (textarea).
+  FAIL      Overlap: partial overlap at end (delete selection) (textarea).
+  FAIL      Selection deletion: delete selection exactly equal to range (collapse) (textarea).
+  FAIL      Selection deletion: delete subset inside range (contract end) (textarea).
+  FAIL      Boundary forward delete shifts range left (textarea).
 OK          0/11  dom/ranges/tentative/OpaqueRange-offset.html
   FAIL      createValueRange with single character in textarea.
   FAIL      createValueRange with empty control in textarea.
@@ -2044,6 +2072,11 @@ OK           0/6  dom/ranges/tentative/OpaqueRange-supported-elements.html
   FAIL      createValueRange should work on input[type=tel].
 OK           0/1  dom/ranges/tentative/OpaqueRange-unsupported-elements.html
   FAIL      createValueRange throws NotSupportedError for unsupported input types.
+OK           0/4  dom/ranges/tentative/OpaqueRange-update-event-order.html
+  FAIL      Event order: OpaqueRange updates between beforeinput and input (input).
+  FAIL      Canceled beforeinput leaves OpaqueRange unchanged (input).
+  FAIL      Event order: OpaqueRange updates between beforeinput and input (textarea).
+  FAIL      Canceled beforeinput leaves OpaqueRange unchanged (textarea).
 OK           0/2  dom/ranges/tentative/OpaqueRange-validation.html
   FAIL      createValueRange throws IndexSizeError for out-of-bounds offsets.
   FAIL      createValueRange handles all range types correctly: forward, backwards, and out-of-bounds.
