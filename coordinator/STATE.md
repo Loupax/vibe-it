@@ -305,3 +305,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 USER asked to merge #591 (TODO QCOMP6) and #544 (TODO QWPT10/QCNV1/QCNV2/QGL1). #544: rebased by me (TODO.txt conflict: kept main + the 4 new items), renumbered QWPT10 -> QWPT12 (id taken by #543). Queue: #591 -> #544 -> #584 (QCSS-A rebased).
 - 2026-11-22 Merged #591 fa36ab5 (TODO QCOMP6).
 - 2026-11-22 #588 QEL2b READY (RO reads the frame's layout; RO-forced layouts ytr 20 -> 0-1, ytw 15-45 -> 0), queued after #584. Filed QEL2c. Its ytw check-mode vh mismatch also on main ec946bd (pre-#590): re-check after #590. 3 agents running (QDOM5b, QCSS-B, QFF1a): no launch.
+- 2026-11-22 #592 QDOM5b READY (script-made iframes load: Range clone/extract/delete 100 %, attr-nodes 26/26) but ifrPage uses a BLOCKING sync XHR per script-created same-origin iframe: sent back to measure on ytr/ytw/github and prefer async. Filed QWPTBUD. Agents: QCSS-B, QFF1a, QDOM5b (3).
