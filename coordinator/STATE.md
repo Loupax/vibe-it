@@ -202,3 +202,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #541 QSCR404 rebased, queued after #539. Launched QDOM14.
 - 2026-11-22 #546 QEL6 rebased, queued after #541. Launched QDOM13.
 - 2026-11-22 #548 QMSG1 accepted (0 iframes run scripts on gate pages; live ytw +5-8 %, bbc +5 %, no new errors); queued after #546. Launched QWPTFLK2 recheck.
+- 2026-11-22 #552 QSB2b READY (horizontal scrollbars), queued after #548. Launched QDOM5.

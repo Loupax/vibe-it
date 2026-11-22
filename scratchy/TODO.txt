@@ -125,7 +125,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QDOM2b [S] (P2, from QDOM2 #521; Sonnet; js_dom.rs) Remaining collections: MutationRecord addedNodes/removedNodes
       as static NodeLists; HTMLOptionsCollection for select.options (add, remove, length setter, selectedIndex);
       select.selectedOptions and map.images as live HTMLCollections. --wpt-th per-area table.
-- [ ] QDOM5 [M] (P2; Sonnet; js_dom.rs Range block (QJ7) + native helpers; R65; finishes archived QA19) Range content
+- [ ] [WIP] QDOM5 [M] (P2; Sonnet; js_dom.rs Range block (QJ7) + native helpers; R65; finishes archived QA19) Range content
       operations: `cloneContents`, `extractContents`, `deleteContents`, `insertNode`, `surroundContents` (partially
       selected CharacterData split/clone, DocumentFragment result, HierarchyRequestError/InvalidStateError rules), live
       boundary-point updates on insert/remove/CharacterData changes/splitText/normalize (spec "live range pre-remove
