@@ -352,3 +352,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Merged #610 QCISPLIT2 d2ddf9c. merge_pr.sh now requires 8 checks (green >=8, waitci -ge 8).
 - 2026-11-22 #611 QWPT7 READY (testdriver + headless input + real elementFromPoint; 115 pages back, 14 -> 95 subtests) but it refactors App input (input_host.rs) and inline geometry: sent back for a live App check + ytr/ytw perf. Filed QWPT7a/b/c.
 - 2026-11-22 #612 QDOM11 READY (XML docs; dom/nodes 69.1 -> 75.9), merging. Filed QDOM11b. Launched QWPT8 (first ready P2).
+- 2026-11-22 Merged #612 QDOM11.

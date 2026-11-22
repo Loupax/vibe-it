@@ -9518,3 +9518,14 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QCISPLIT2 DONE d2ddf9c #610 [S] (P3, from QWPT6c #579; Sonnet; .github/workflows/ci.yml, tools) Shard the `scratchy-wpt` job (5:38 after
       #579, WPT step 3:52; the main `scratchy` job is 5:18, so wall time is barely affected) into two parallel jobs by area,
       when it passes ~6 min or before QWPT6d lands. Find why the step grew +1:44 on CI vs ~20 s locally (per-file CI timings).
+
+=== from TODO.txt: --- (no header)
+- [x] QDOM11 DONE 64cbf22 #612 [M] (P2; Sonnet; wpt_th.rs, js.rs `run_page`, js_dom.rs `__d_load_xml`/`xml_to_dom`; R65) XML documents.
+      A response whose MIME type is XML (`application/xhtml+xml`, `image/svg+xml`, `text/xml`, `application/xml`,
+      `+xml`) is parsed with the existing roxmltree path, not html5ever, for the top-level document and for iframes. The
+      document is not an HTML document (QDOM17 flag); `<script>` elements in the XHTML/SVG namespaces run in tree order
+      (CDATA content, `href`/`xlink:href` for SVG). A well-formedness error shows the parsererror document. App rendering
+      of such documents can stay as it is (box tree from the same DOM); only the parse path changes. WPT: the 18 ERROR
+      `.xhtml/.xml` files and 13 CRASH `.svg` files in dom/nodes (Element-childElementCount-*, Element-firstElementChild-*,
+      ...), Document-createElement(NS) (XML iframes: 488 subtests), Document-createProcessingInstruction-xhtml,
+      Node-lookupPrefix.xhtml. Target: nodes +5 (13 SVG files also start counting).

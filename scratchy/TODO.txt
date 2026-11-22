@@ -152,15 +152,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       select.selectedOptions and map.images as live HTMLCollections. --wpt-th per-area table.
 - [ ] QDOM8b [S] (P3, from QDOM8 #539; Sonnet; js_dom.rs serialize) XML serialization: CDATASection as `<![CDATA[..]]>`,
       ProcessingInstruction as `<?target data?>` in XMLSerializer / outerHTML of XML documents.
-- [ ] [WIP] QDOM11 [M] (P2; Sonnet; wpt_th.rs, js.rs `run_page`, js_dom.rs `__d_load_xml`/`xml_to_dom`; R65) XML documents.
-      A response whose MIME type is XML (`application/xhtml+xml`, `image/svg+xml`, `text/xml`, `application/xml`,
-      `+xml`) is parsed with the existing roxmltree path, not html5ever, for the top-level document and for iframes. The
-      document is not an HTML document (QDOM17 flag); `<script>` elements in the XHTML/SVG namespaces run in tree order
-      (CDATA content, `href`/`xlink:href` for SVG). A well-formedness error shows the parsererror document. App rendering
-      of such documents can stay as it is (box tree from the same DOM); only the parse path changes. WPT: the 18 ERROR
-      `.xhtml/.xml` files and 13 CRASH `.svg` files in dom/nodes (Element-childElementCount-*, Element-firstElementChild-*,
-      ...), Document-createElement(NS) (XML iframes: 488 subtests), Document-createProcessingInstruction-xhtml,
-      Node-lookupPrefix.xhtml. Target: nodes +5 (13 SVG files also start counting).
 - [ ] QDOM15b [S] (P3, from QDOM15 #559; Sonnet) Event `timeStamp` > 0 on the manual/virtual clock (time origin offset;
       Event-constructors.any 2 subtests); event attributes as prototype getters instead of own data properties
       (idlharness checks); getModifierState and legacy init* methods for the newer event interfaces.

@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-22 · main 8e09b15 · 137 PRs merged since 2026-11-21 morning (#475–#610) · installed 17:28 (1570bf3)· 5 agents running (QEL2b, QANIMHLc, QCSS-A hover check, QAPI6c, QDOM5b)</div>
+  <div class="meta" id="updated">Updated 2026-11-22 · main 8e09b15 · 138 PRs merged since 2026-11-21 morning (#475–#612) · installed 17:28 (1570bf3)· 5 agents running (QEL2b, QANIMHLc, QCSS-A hover check, QAPI6c, QDOM5b)</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -112,6 +112,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#612</td><td>QDOM11</td><td>XML/XHTML/SVG documents parsed as XML (top level in tests, iframes); dom/nodes 69.1 → 75.9 (createElementNS 203 → 593/596)</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#610</td><td>QCISPLIT2</td><td>The WPT gate runs as 5 parallel CI shards (8 checks per PR); CI wall time back toward the 4½-min scratchy job</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#609</td><td>QBLOBFRAME</td><td>Same-origin <code>blob:</code> URLs load in iframes (no network); module-script-disabled-scripting no longer times out</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#606</td><td>QWPT12</td><td>Your canvas item: html/canvas (2 354 files) joins the WPT gate as a baseline (~0 % today: <code>getContext</code> returns null). The total score drops by composition, not regression. CI WPT job ~7 min: QCISPLIT2 shards it</td></tr>
