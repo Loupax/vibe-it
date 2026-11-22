@@ -704,6 +704,11 @@ fn find_wire(explicit: Option<PathBuf>) -> Option<PathBuf> {
     cands.into_iter().find(|p| p.is_file())
 }
 
+/// Whether `wire --help` lists `flag`.
+fn wire_has_flag(wire: &std::path::Path, flag: &str) -> bool {
+    Command::new(wire).arg("--help").stdin(Stdio::null()).output().is_ok_and(|o| String::from_utf8_lossy(&o.stderr).contains(flag) || String::from_utf8_lossy(&o.stdout).contains(flag))
+}
+
 fn start_wire(wire: &std::path::Path, checkout: &std::path::Path, verbose: bool) -> Result<(PrivateWire, PathBuf), String> {
     let dir = std::env::temp_dir().join(format!("scratchy-wpt-th-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
@@ -714,6 +719,11 @@ fn start_wire(wire: &std::path::Path, checkout: &std::path::Path, verbose: bool)
     let checkout = fs::canonicalize(checkout).map_err(|e| format!("{}: {e}", checkout.display()))?;
     let mut c = Command::new(wire);
     c.arg("--socket").arg(&sock).arg("--no-cookies");
+    // W-CACHE1: mounts are never cached; keep the run from touching ~/.cache/wire.
+    // An older wire has no such flag (its `--help` does not mention it).
+    if wire_has_flag(wire, "--no-cache") {
+        c.arg("--no-cache");
+    }
     c.arg("--mount").arg(format!("{ORIGIN}={}", checkout.display()));
     c.arg("--mount-override").arg(format!("/resources/testharnessreport.js={}", hook.display()));
     c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(if verbose { Stdio::inherit() } else { Stdio::null() });

@@ -19,6 +19,8 @@
 #                reinstalls ~/.cargo/bin/scratchy after every merge). Default: scratchy on PATH.
 #      WIRE      wire binary (default: wire on PATH). Every run starts its OWN wire on its own socket
 #                (fresh cookie jar), never the user's /run/user/1000/wire.sock.
+#      WIRE_ARGS extra wire arguments, word-split (W-CACHE1: agents pass
+#                "--cache-dir /tmp/wire-cache-<worktree> --cache-size 256M", or --no-cache).
 #      INJECT    tools/inject binary (default tools/inject/target/release/inject)
 #      OUT       output dir (default ${TMPDIR:-/tmp}/incr-gate; NOT tmpfs for long series is fine: files are small)
 #      SOCK      nested dwl socket (window runs; default: start one with tools/nest.sh into $OUT/nest and
@@ -108,7 +110,8 @@ trap cleanup EXIT
 # own wire, own socket, per run
 WSOCK="$OUT/wire-$$.sock"
 rm -f "$WSOCK"
-"$WIRE" --socket "$WSOCK" "${WARGS[@]}" >"$OUT/$TAG.wire.log" 2>&1 9>&- &
+# shellcheck disable=SC2086
+"$WIRE" --socket "$WSOCK" "${WARGS[@]}" ${WIRE_ARGS:-} >"$OUT/$TAG.wire.log" 2>&1 9>&- &
 WPID=$!
 PIDS+=($WPID)
 i=0

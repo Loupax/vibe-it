@@ -190,6 +190,8 @@ fn start_wire(tag: &str) -> Option<RealWire> {
     let child = std::process::Command::new(bin)
         .arg("--socket")
         .arg(&path)
+        // W-CACHE1: a test wire never writes into ~/.cache/wire.
+        .arg("--no-cache")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())

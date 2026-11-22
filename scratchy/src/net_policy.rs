@@ -96,6 +96,35 @@ impl RequestPolicy {
     }
 }
 
+/// W-CACHE1: the request headers for a Fetch `cache` mode, which wire's HTTP
+/// cache reads (standard headers, forwarded upstream as browsers do). Only
+/// added when the request has no `Cache-Control` (resp. `Pragma`) of its own,
+/// as the Fetch spec's HTTP-network-or-cache fetch does; added after the CORS
+/// checks, so they never make a request need a preflight.
+/// `default` = nothing; `no-store` = `Cache-Control: no-store` (wire skips its
+/// cache); `reload` = `no-cache` + `Pragma: no-cache`; `no-cache` =
+/// `max-age=0`; `force-cache` = `max-stale`; `only-if-cached` =
+/// `only-if-cached` (wire answers 504 + `X-Wire-Error` when nothing is stored).
+pub(crate) fn cache_mode_headers(mode: &str, headers: &[(String, String)]) -> Vec<(String, String)> {
+    let has = |name: &str| headers.iter().any(|(n, _)| n.eq_ignore_ascii_case(name));
+    let cc = match mode {
+        "no-store" => "no-store",
+        "reload" => "no-cache",
+        "no-cache" => "max-age=0",
+        "force-cache" => "max-stale",
+        "only-if-cached" => "only-if-cached",
+        _ => return Vec::new(),
+    };
+    let mut out = Vec::new();
+    if !has("cache-control") {
+        out.push(("Cache-Control".to_string(), cc.to_string()));
+    }
+    if mode == "reload" && !has("pragma") {
+        out.push(("Pragma".to_string(), "no-cache".to_string()));
+    }
+    out
+}
+
 /// `X-Wire-*` is the scratchy<->wire control channel (QF6): page JS must
 /// never be able to set one (e.g. drop `X-Wire-Policy: public-only`).
 pub(crate) fn is_wire_reserved_header(name: &str) -> bool {
