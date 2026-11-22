@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-22 · main 6e45e11 · 100 PRs merged since 2026-11-21 morning (#475–#574) · installed 06:53 (ebb022e) · 5 agents running (QEL7, QAPI7, QAPI8, QAPI6b, QWPT6c) · merging: #575 · held: #573</div>
+  <div class="meta" id="updated">Updated 2026-11-22 · main 65a5dae · 101 PRs merged since 2026-11-21 morning (#475–#575) · installed 06:53 (ebb022e) · 5 agents running (QAPI8, QAPI6b, QWPT6c, QDOM10, QDOM18) · merging: #576 scroll events, #577 BroadcastChannel · held: #573</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -111,6 +111,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#575</td><td>QCE1</td><td>Custom elements created by the parser get their attributes after the constructor, in spec order (parser files 2/9 → 9/9, 1/3 → 3/3)</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#574</td><td>QAPI3</td><td><code>navigator.serviceWorker</code> and <code>caches</code> as inert stubs (nothing stored or fetched); their missing-API rows gone, page errors unchanged</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#560</td><td>QDOM17</td><td>Document members per spec (doctype, characterSet, compatMode, contentType, URL…); dom/nodes 66.6 → 67.4</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#571</td><td>QAPI4</td><td><code>document.fonts</code> and <code>FontFace</code> (web fonts are still not rendered; <code>load()</code> fetches through wire and drops the bytes); github's 61 <code>.ready</code> errors gone</td></tr>
