@@ -9233,3 +9233,9 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       animationstart/end; the 4 dom/events/webkit-*-event files now TIMEOUT waiting for them. Find whether it is the
       runner's rendering step (QEL1 headless frames), the engine's style/animation timeline, or event delivery; fix; list
       every --wpt-th file that changes.
+
+=== from TODO.txt: --- (no header)
+- [x] QCISPLIT DONE c2e088d #563 [S] (P2, from QWPT11 #558; per DECISIONS Q4 "split only past 5 min": the scratchy job is ~7 min; Sonnet;
+      ci.yml; after #558) Split the WPT gates (testharness, and reftests if it helps) into their own job that reuses the
+      built binaries (artifact or rust-cache) instead of rebuilding; keep every gate blocking; measure job and total wall
+      time before/after.
