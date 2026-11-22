@@ -307,3 +307,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #588 QEL2b READY (RO reads the frame's layout; RO-forced layouts ytr 20 -> 0-1, ytw 15-45 -> 0), queued after #584. Filed QEL2c. Its ytw check-mode vh mismatch also on main ec946bd (pre-#590): re-check after #590. 3 agents running (QDOM5b, QCSS-B, QFF1a): no launch.
 - 2026-11-22 #592 QDOM5b READY (script-made iframes load: Range clone/extract/delete 100 %, attr-nodes 26/26) but ifrPage uses a BLOCKING sync XHR per script-created same-origin iframe: sent back to measure on ytr/ytw/github and prefer async. Filed QWPTBUD. Agents: QCSS-B, QFF1a, QDOM5b (3).
 - 2026-11-22 Merged #544 3ba96ec (TODO canvas/WebGL), #584 QCSS-A 4419d65. #588 merging.
+- 2026-11-22 Merged #588 QEL2b 7e39d96. Queue empty.

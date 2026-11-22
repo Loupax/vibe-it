@@ -9409,3 +9409,10 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- (no header)
 - [x] QCSS-A DONE 4419d65 #584 [S] (P2, from QAPI8 #578 R66 §4; Sonnet; css.rs, svg paint) SVG `fill`/`stroke`/`stroke-width`/`stroke-linecap`
       from stylesheets onto inline SVG (8 sites, 1 427 hits: icons render black today).
+
+=== from TODO.txt: --- (no header)
+- [x] QEL2b DONE 7e39d96 #588 [M] (P2, from QEL2 #529; Sonnet; js_dom.rs RO, app.rs, event_loop.rs) Run ResizeObserver on the App/engine
+      layout in rendering step 7 (one layout per frame shared by style, layout and RO) instead of a JS-side forced layout
+      (`ro-run` forced layouts on YouTube results); microtask checkpoint after each RO callback; notice size changes
+      without a DOM write (image decode, CSS animation, :hover). Re-measure ytr/ytw --perf-report and live CPU on a
+      quiet machine (QEL2 measured ytw live +13-15 %, inside noise).
