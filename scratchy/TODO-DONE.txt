@@ -9201,3 +9201,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QWPT11 DONE d363e08 #558 [S] (P2, from QWPT10 #543; Sonnet; ci.yml) Main's push CI does not run the --wpt-th gate (only PR CI does), so a
       gate regression that lands through a merge is never seen on main. Run the gate on main pushes too (report-only or
       blocking: blocking for the scratchy job), within the CI time budget (Q4: split only past 5 min).
+
+=== from TODO.txt: --- (no header)
+- [x] QMSG1 DONE 80df64b #548 [S] (P2, from QDOM1 #516; Sonnet; js_dom.rs iframe realms, globals_prelude.js postMessage) postMessage to and
+      from an iframe's contentWindow (`window[0].postMessage`, `parent.postMessage`, MessageEvent origin/source): today the
+      webmessaging 019 / cross-document files time out waiting for the reply. Target: webmessaging score up, list files.
