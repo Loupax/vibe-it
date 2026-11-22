@@ -1683,7 +1683,7 @@ OK           1/1  dom/nodes/ParentNode-querySelectorAll-svg-class.html
 OK           1/1  dom/nodes/ParentNode-querySelectors-exclusive.html
 OK           1/1  dom/nodes/ParentNode-querySelectors-namespaces.html
 OK           2/2  dom/nodes/ParentNode-querySelectors-space-and-dash-attribute-value.html
-TIMEOUT    17/31  dom/nodes/ParentNode-replaceChildren.html
+ERROR      17/31  dom/nodes/ParentNode-replaceChildren.html
   FAIL      If node is not a DocumentFragment, DocumentType, Element, Text, ProcessingInstruction, or Comment node, then throw a HierarchyRequestError DOMException.
   FAIL      If node is a Text node and parent is a document, then throw a HierarchyRequestError DOMException.
   FAIL      If node is a doctype and parent is not a document, then throw a HierarchyRequestError DOMException.

@@ -5209,6 +5209,10 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   var moPending = [], moQueued = false;
   var MO_S = Symbol('MutationObserver'), MR_S = Symbol('MutationRecord');
   var moErr = function (e) {
+    // QEL4: report the exception first; the log line only when unhandled.
+    var handled = false;
+    try { handled = g.__scratchy_report_error(e, '', 0, 0); } catch (x) {}
+    if (handled) return;
     __scratchy_err('scratchy: js: uncaught exception in MutationObserver callback: ' + (e && e.stack ? String(e) + '\n' + e.stack : String(e)));
   };
   // Observers interested in a mutation of `type` on node `id` -> [{st, old}] or null.
@@ -6118,6 +6122,10 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     return de ? Math.max(0, gScrollSize(de, 0) - (Number(g.innerWidth) || 0)) : 0;
   };
   var obsErr = function (what, e) {
+    // QEL4: report the exception (ErrorEvent / onerror) first; the log line only when unhandled.
+    var handled = false;
+    try { handled = g.__scratchy_report_error(e, '', 0, 0); } catch (x) {}
+    if (handled) return;
     __scratchy_err('scratchy: js: uncaught exception in ' + what + ' callback: ' + (e && e.stack ? String(e) + '\n' + e.stack : String(e)));
   };
   var obsSeq = 0, obsPending = [], obsQueued = false;

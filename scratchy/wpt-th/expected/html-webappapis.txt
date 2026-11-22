@@ -520,9 +520,7 @@ OK           0/1  html/webappapis/scripting/events/event-handler-processing-algo
 OK           3/3  html/webappapis/scripting/events/event-handler-processing-algorithm-error/script-element.html
 OK           3/4  html/webappapis/scripting/events/event-handler-processing-algorithm-error/synthetic-errorevent-click.html
   FAIL      click event is normal (return true does not cancel; one arg) on Worker, with a synthetic ErrorEvent
-TIMEOUT      0/2  html/webappapis/scripting/events/event-handler-processing-algorithm-error/window-runtime-error.html
-  TIMEOUT   error event is weird (return true cancels; many args) on Window, with a runtime error
-  NOTRUN    error event has the right 5 args on Window, with a runtime error
+OK           2/2  html/webappapis/scripting/events/event-handler-processing-algorithm-error/window-runtime-error.html
 OK           2/2  html/webappapis/scripting/events/event-handler-processing-algorithm-error/window-synthetic-errorevent.html
 OK           1/1  html/webappapis/scripting/events/event-handler-processing-algorithm-error/window-synthetic-event.html
 OK           0/3  html/webappapis/scripting/events/event-handler-processing-algorithm-error/worker.html
@@ -578,10 +576,8 @@ OK           0/2  html/webappapis/scripting/processing-model-2/body-onerror-comp
 OK           0/2  html/webappapis/scripting/processing-model-2/body-onerror-runtime-error.html
   FAIL      <body onerror> - runtime error in <script>
   FAIL       (column)
-OK           0/1  html/webappapis/scripting/processing-model-2/compile-error-cross-origin-setInterval.html
-  FAIL      window.onerror - compile error in cross-origin setInterval
-OK           0/1  html/webappapis/scripting/processing-model-2/compile-error-cross-origin-setTimeout.html
-  FAIL      window.onerror - compile error in cross-origin setTimeout
+OK           1/1  html/webappapis/scripting/processing-model-2/compile-error-cross-origin-setInterval.html
+OK           1/1  html/webappapis/scripting/processing-model-2/compile-error-cross-origin-setTimeout.html
 OK           0/2  html/webappapis/scripting/processing-model-2/compile-error-cross-origin.html
   FAIL      window.onerror - compile error in <script src=//www1...>
   FAIL       (column)
@@ -592,12 +588,10 @@ OK           0/2  html/webappapis/scripting/processing-model-2/compile-error-in-
   FAIL       (column)
 OK           0/1  html/webappapis/scripting/processing-model-2/compile-error-in-body-onerror.html
   FAIL      window.onerror - compile error in <body onerror>
-OK           0/2  html/webappapis/scripting/processing-model-2/compile-error-in-setInterval.html
+OK           1/2  html/webappapis/scripting/processing-model-2/compile-error-in-setInterval.html
   FAIL      window.onerror - compile error in setInterval
-  FAIL       (column)
-OK           0/2  html/webappapis/scripting/processing-model-2/compile-error-in-setTimeout.html
+OK           1/2  html/webappapis/scripting/processing-model-2/compile-error-in-setTimeout.html
   FAIL      window.onerror - compile error in setTimeout
-  FAIL       (column)
 OK           2/2  html/webappapis/scripting/processing-model-2/compile-error-same-origin-with-hash.html
 OK           2/2  html/webappapis/scripting/processing-model-2/compile-error-same-origin.html
 OK           1/2  html/webappapis/scripting/processing-model-2/compile-error.html
@@ -642,10 +636,8 @@ OK          0/11  html/webappapis/scripting/processing-model-2/integration-with-
   FAIL      Rejection handler on pending-then-rejected promise, using backup incumbent settings object stack
   FAIL      Thenable resolution
   FAIL      Thenable resolution, using backup incumbent settings object stack
-OK           0/1  html/webappapis/scripting/processing-model-2/runtime-error-cross-origin-setInterval.html
-  FAIL      window.onerror - runtime error in cross-origin setInterval
-OK           0/1  html/webappapis/scripting/processing-model-2/runtime-error-cross-origin-setTimeout.html
-  FAIL      window.onerror - runtime error in cross-origin setTimeout
+OK           1/1  html/webappapis/scripting/processing-model-2/runtime-error-cross-origin-setInterval.html
+OK           1/1  html/webappapis/scripting/processing-model-2/runtime-error-cross-origin-setTimeout.html
 OK           0/2  html/webappapis/scripting/processing-model-2/runtime-error-cross-origin.html
   FAIL      window.onerror - runtime error in <script src=//www1...>
   FAIL       (column)
@@ -654,12 +646,10 @@ OK           1/2  html/webappapis/scripting/processing-model-2/runtime-error-dat
 OK           1/2  html/webappapis/scripting/processing-model-2/runtime-error-in-attribute.html
   FAIL      window.onerror - runtime error in attribute
 OK           1/1  html/webappapis/scripting/processing-model-2/runtime-error-in-body-onerror.html
-OK           0/2  html/webappapis/scripting/processing-model-2/runtime-error-in-setInterval.html
+OK           1/2  html/webappapis/scripting/processing-model-2/runtime-error-in-setInterval.html
   FAIL      window.onerror - runtime error in setInterval
-  FAIL       (column)
-OK           0/2  html/webappapis/scripting/processing-model-2/runtime-error-in-setTimeout.html
+OK           1/2  html/webappapis/scripting/processing-model-2/runtime-error-in-setTimeout.html
   FAIL      window.onerror - runtime error in setTimeout
-  FAIL       (column)
 OK           1/1  html/webappapis/scripting/processing-model-2/runtime-error-in-window-onerror.html
 OK           2/2  html/webappapis/scripting/processing-model-2/runtime-error-same-origin-with-hash.html
 OK           2/2  html/webappapis/scripting/processing-model-2/runtime-error-same-origin.html
@@ -831,27 +821,21 @@ OK           0/6  html/webappapis/the-windoworworkerglobalscope-mixin/Worker_Sel
 OK           2/2  html/webappapis/timers/arguments.html
 OK           1/1  html/webappapis/timers/clearinterval-from-callback.any.html
 OK           2/2  html/webappapis/timers/cleartimeout-clearinterval.any.html
-TIMEOUT      0/4  html/webappapis/timers/errors.html
-  TIMEOUT   setTimeout, string argument
-  NOTRUN    setTimeout, function argument
-  NOTRUN    setInterval, string argument
-  NOTRUN    setInterval, function argument
+OK           4/4  html/webappapis/timers/errors.html
 OK           1/1  html/webappapis/timers/evil-spec-example.any.html
 OK           2/2  html/webappapis/timers/missing-timeout-setinterval.any.html
 OK           1/1  html/webappapis/timers/negative-setinterval.any.html
 OK           1/1  html/webappapis/timers/negative-settimeout.any.html
-OK           0/1  html/webappapis/timers/setinterval-cross-realm-callback-report-exception.html
-  FAIL      window.setInterval() reports the exception from its callback in the callback's global object
+OK           1/1  html/webappapis/timers/setinterval-cross-realm-callback-report-exception.html
 OK           2/2  html/webappapis/timers/setinterval-settimeout-clamping.any.html
-OK           0/1  html/webappapis/timers/settimeout-cross-realm-callback-report-exception.html
-  FAIL      window.setTimeout() reports the exception from its callback in the callback's global object
+OK           1/1  html/webappapis/timers/settimeout-cross-realm-callback-report-exception.html
 OK           1/1  html/webappapis/timers/settimeout-detached-iframe.html
 OK           2/2  html/webappapis/timers/settimeout-setinterval-handles.html
 OK           2/2  html/webappapis/timers/timer-nesting-not-inherited-in-microtask.html
-TIMEOUT      0/1  html/webappapis/timers/type-long-setinterval.any.html
-  NOTRUN    type-long-setinterval
-TIMEOUT      0/1  html/webappapis/timers/type-long-settimeout.any.html
-  NOTRUN    type-long-settimeout
+OK           0/1  html/webappapis/timers/type-long-setinterval.any.html
+  FAIL      type-long-setinterval
+OK           0/1  html/webappapis/timers/type-long-settimeout.any.html
+  FAIL      type-long-settimeout
 OK           1/1  html/webappapis/timers/zero-settimeout.any.html
 OK           0/1  html/webappapis/update-rendering/child-document-raf-order.html
   FAIL      Ordering of steps in "Update the Rendering" - child document requestAnimationFrame order

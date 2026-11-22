@@ -210,30 +210,30 @@ OK           0/2  intersection-observer/transformed-iframe-004-same-origin.html
   FAIL      Scroll down a bit, target is still not visible
 OK           0/1  intersection-observer/unclipped-root.html
   FAIL      Test that border bounding box is used to calculate intersection with a non-scrolling root.
-TIMEOUT      0/1  intersection-observer/v2/3d-transform-flattened-preserve-3d-occlusion.html
-  NOTRUN    3d-transform-flattened-preserve-3d-occlusion
-TIMEOUT      0/1  intersection-observer/v2/3d-transform-occlusion-2.html
-  NOTRUN    3d-transform-occlusion-2
-TIMEOUT      0/1  intersection-observer/v2/3d-transform-occlusion.html
+OK           0/1  intersection-observer/v2/3d-transform-flattened-preserve-3d-occlusion.html
+  FAIL      3d-transform-flattened-preserve-3d-occlusion
+OK           0/1  intersection-observer/v2/3d-transform-occlusion-2.html
+  FAIL      3d-transform-occlusion-2
+ERROR        0/1  intersection-observer/v2/3d-transform-occlusion.html
   TIMEOUT   Intersection observer V2 test with occlusion by an element with a 3D transform.
-TIMEOUT      0/1  intersection-observer/v2/3d-transform-overflow-control-occlusion.html
-  NOTRUN    3d-transform-overflow-control-occlusion
-TIMEOUT      0/1  intersection-observer/v2/3d-transform-z-order-occlusion.html
-  NOTRUN    3d-transform-z-order-occlusion
+OK           0/1  intersection-observer/v2/3d-transform-overflow-control-occlusion.html
+  FAIL      3d-transform-overflow-control-occlusion
+OK           0/1  intersection-observer/v2/3d-transform-z-order-occlusion.html
+  FAIL      3d-transform-z-order-occlusion
 OK           0/1  intersection-observer/v2/animated-occlusion.html
   FAIL      IntersectionObserverV2 in a single document using the implicit root, with an animated occluding element.
 ERROR        0/1  intersection-observer/v2/animated-opacity.html
   TIMEOUT   IntersectionObserver generates notifications when an opacity animation changes occlusion state.
 OK           0/1  intersection-observer/v2/blur-filter.html
   FAIL      IntersectionObserverV2 in a single document using the implicit root, with an occluding element.
-TIMEOUT      0/1  intersection-observer/v2/border-radius-shadow-occlusion-replaced.html
-  NOTRUN    border-radius-shadow-occlusion-replaced
-TIMEOUT      0/1  intersection-observer/v2/border-radius-shadow-occlusion.html
-  NOTRUN    border-radius-shadow-occlusion
-TIMEOUT      0/1  intersection-observer/v2/border-shape-occlusion.html
-  NOTRUN    border-shape-occlusion
-TIMEOUT      0/1  intersection-observer/v2/border-shape-overflow-occlusion.html
-  NOTRUN    border-shape-overflow-occlusion
+OK           0/1  intersection-observer/v2/border-radius-shadow-occlusion-replaced.html
+  FAIL      border-radius-shadow-occlusion-replaced
+OK           0/1  intersection-observer/v2/border-radius-shadow-occlusion.html
+  FAIL      border-radius-shadow-occlusion
+OK           0/1  intersection-observer/v2/border-shape-occlusion.html
+  FAIL      border-shape-occlusion
+OK           0/1  intersection-observer/v2/border-shape-overflow-occlusion.html
+  FAIL      border-shape-overflow-occlusion
 ERROR        0/0  intersection-observer/v2/box-reflect.html
 OK           0/1  intersection-observer/v2/box-shadow.html
   FAIL      IntersectionObserverV2 observing an iframe element.
@@ -252,8 +252,8 @@ OK           0/4  intersection-observer/v2/gap-decorations-dynamic-occlusion.htm
   FAIL      Visibility updates after changing and resetting row-rule-inset-cap-start
 OK           0/1  intersection-observer/v2/gap-decorations-negative-margin-occlusion.html
   FAIL      IntersectionObserver V2: gap decoration above flex container occludes target
-TIMEOUT      0/1  intersection-observer/v2/gap-decorations-overflow-occlusion.html
-  NOTRUN    IntersectionObserver V2: gap decoration painted outside container box occludes target
+OK           0/1  intersection-observer/v2/gap-decorations-overflow-occlusion.html
+  FAIL      IntersectionObserver V2: gap decoration painted outside container box occludes target
 OK           0/1  intersection-observer/v2/gap-decorations-overlap-inset-occlusion.html
   FAIL      Overlapping gaps with a negative percentage junction inset occlude a target
 OK           0/1  intersection-observer/v2/iframe-target.html
@@ -272,8 +272,8 @@ OK           0/1  intersection-observer/v2/simple-occlusion-svg-foreign-object.h
   FAIL      IntersectionObserverV2 in a single document using the implicit root, with an occluding element.
 OK           0/1  intersection-observer/v2/simple-occlusion.html
   FAIL      IntersectionObserverV2 in a single document using the implicit root, with an occluding element.
-TIMEOUT      0/1  intersection-observer/v2/svg-drop-shadow-occlusion.html
-  NOTRUN    svg-drop-shadow-occlusion
+OK           0/1  intersection-observer/v2/svg-drop-shadow-occlusion.html
+  FAIL      svg-drop-shadow-occlusion
 OK           0/1  intersection-observer/v2/svg-foreign-object-filter-occlusion.html
   FAIL      IntersectionObserver observes visibility changes from SVG foreignObject filter changes
 OK           0/1  intersection-observer/v2/svg-group-filter-occlusion.html
