@@ -357,9 +357,9 @@ OK          0/16  css/cssom-view/elementFromPosition.html
   FAIL      test the top of layer
 OK           4/4  css/cssom-view/elementScroll-002.html
 OK           8/8  css/cssom-view/elementScroll.html
-TIMEOUT      0/2  css/cssom-view/elementsFromPoint-iframes.html
-  NOTRUN    elementsFromPoint on the root document for points in iframe elements
-  NOTRUN    elementsFromPoint on inner documents
+OK           0/2  css/cssom-view/elementsFromPoint-iframes.html
+  FAIL      elementsFromPoint on the root document for points in iframe elements
+  FAIL      elementsFromPoint on inner documents
 OK           0/1  css/cssom-view/elementsFromPoint-inline-htb-ltr.html
   FAIL      elementsFromPoint should return all elements under a point
 OK           0/1  css/cssom-view/elementsFromPoint-inline-htb-rtl.html
@@ -579,9 +579,9 @@ OK           1/2  css/cssom-view/scroll-width-with-over-constrained-block-in-inl
 OK           2/3  css/cssom-view/scroll-zoom.html
   FAIL      scroll{Width, Height}
 OK           1/1  css/cssom-view/scrollIntoView-align-scrollport-covering-child.html
-TIMEOUT      3/5  css/cssom-view/scrollIntoView-container.html
+OK           3/5  css/cssom-view/scrollIntoView-container.html
   FAIL      scrollIntoView({container: 'nearest'}) only scrolls nearest scroll container
-  TIMEOUT   scrollIntoView({container: 'nearest'}) doesn't propagate to outer frames
+  FAIL      scrollIntoView({container: 'nearest'}) doesn't propagate to outer frames
 TIMEOUT      0/1  css/cssom-view/scrollIntoView-fixed-outside-of-viewport.html
   TIMEOUT   Element.scrollIntoView doesn't scroll a position:fixed element outside of the layout viewport
 OK           0/4  css/cssom-view/scrollIntoView-fixed.html
@@ -611,9 +611,9 @@ OK           0/9  css/cssom-view/scrollIntoView-horizontal-tb-writing-mode.html
   FAIL      scrollIntoView({"block":"end","inline":"center"})
   FAIL      scrollIntoView({"block":"end","inline":"end"})
 TIMEOUT      0/4  css/cssom-view/scrollIntoView-iframes.html
-  NOTRUN    scrollIntoView in same-origin iframe can scroll in inner window
-  NOTRUN    scrollIntoView in same-origin iframe can scroll in parent window
-  NOTRUN    scrollIntoView in cross-origin iframe can scroll in inner window
+  FAIL      scrollIntoView in same-origin iframe can scroll in inner window
+  FAIL      scrollIntoView in same-origin iframe can scroll in parent window
+  TIMEOUT   scrollIntoView in cross-origin iframe can scroll in inner window
   NOTRUN    scrollIntoView in cross-origin iframe can't scroll in parent window
 OK           1/1  css/cssom-view/scrollIntoView-inline-image.html
 TIMEOUT      1/4  css/cssom-view/scrollIntoView-multiple-nested.html
@@ -797,7 +797,7 @@ OK         16/36  css/cssom-view/scrollWidthHeight-subpixel-position.tentative.h
 CRASH        0/0  css/cssom-view/scrollWidthHeight.xht
 CRASH        0/0  css/cssom-view/scrollWidthHeightWhenNotScrollable.xht
 OK           1/1  css/cssom-view/scrolling-no-browsing-context.html
-TIMEOUT      0/2  css/cssom-view/scrolling-quirks-vs-nonquirks.html
+ERROR        0/2  css/cssom-view/scrolling-quirks-vs-nonquirks.html
   NOTRUN    Execution of tests in quirks mode
   NOTRUN    Execution of tests in non-quirks mode
 TIMEOUT      0/8  css/cssom-view/scrollingElement.html
