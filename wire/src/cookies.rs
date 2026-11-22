@@ -136,7 +136,7 @@ pub fn registrable_domain(host: &str) -> String {
     host.to_string()
 }
 
-fn host_of(url: &Url) -> String {
+pub fn host_of(url: &Url) -> String {
     url.host_str().unwrap_or("").trim_matches(['[', ']']).to_ascii_lowercase()
 }
 
@@ -386,6 +386,19 @@ impl Jar {
     pub fn clear_site(&mut self, site: &str) -> usize {
         let before = self.cookies.len();
         self.cookies.retain(|c| c.partition != site);
+        let n = before - self.cookies.len();
+        if n > 0 {
+            self.dirty = true;
+        }
+        n
+    }
+
+    /// `Clear-Site-Data: "cookies"` (W-CACHE2): removes, in one partition, the
+    /// cookies of the responding host: those it could have set (its own and
+    /// its parent domains') and those of its subdomains.
+    pub fn clear_host(&mut self, partition: &str, host: &str) -> usize {
+        let before = self.cookies.len();
+        self.cookies.retain(|c| !(c.partition == partition && (domain_match(host, &c.domain) || domain_match(&c.domain, host))));
         let n = before - self.cookies.len();
         if n > 0 {
             self.dirty = true;

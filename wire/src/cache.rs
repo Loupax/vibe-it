@@ -395,6 +395,30 @@ impl Cache {
         self.part_dir(partition).join(sha256_hex(key.as_bytes()))
     }
 
+    /// W-CACHE2: forget-site. Removes one partition's directory (one
+    /// removal, no scan). Open readers keep their file; an in-flight store
+    /// in that partition fails its rename and is dropped. Returns whether
+    /// there was a directory.
+    pub fn clear_partition(&self, partition: &str) -> bool {
+        std::fs::remove_dir_all(self.part_dir(partition)).is_ok()
+    }
+
+    /// W-CACHE2 `Clear-Site-Data: "cache"`: removes the entries of one origin
+    /// in one partition (a scan of that partition only). Returns how many.
+    pub fn clear_origin(&self, partition: &str, origin: &url::Origin) -> usize {
+        let Ok(rd) = std::fs::read_dir(self.part_dir(partition)) else { return 0 };
+        let mut n = 0;
+        for f in rd.flatten() {
+            if f.file_name().to_str().and_then(hex32).is_none() {
+                continue; // temp files of in-flight stores
+            }
+            if Entry::open(&f.path()).is_some_and(|e| Url::parse(&e.meta.url).is_ok_and(|u| u.origin() == *origin)) && std::fs::remove_file(f.path()).is_ok() {
+                n += 1;
+            }
+        }
+        n
+    }
+
     fn new_tmp(&self, part: &Path) -> std::io::Result<(PathBuf, File)> {
         let mut last = None;
         for _ in 0..2 {
@@ -1002,6 +1026,8 @@ impl<'a> CacheWriter<'a> {
             && (explicit || heuristic_status(h.status) || cc.public)
             && useful
             && !cc.no_store
+            // W-CACHE2: an answer that clears site data is never stored itself.
+            && header(&h.headers, "clear-site-data").is_none()
             && !h.error
             && auth_ok
             && same_url

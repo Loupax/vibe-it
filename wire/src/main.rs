@@ -1010,6 +1010,40 @@ fn control_authorized(shared: &Shared, headers: &[(String, String)]) -> bool {
     header(headers, "x-wire-control-token").is_some_and(|t| constant_time_eq(t.trim().as_bytes(), shared.control_token.as_bytes()))
 }
 
+/// The directives of `Clear-Site-Data` response header values: quoted
+/// strings, comma separated, lowercased. Unknown ones are ignored.
+fn clear_site_data_directives<'a>(values: impl IntoIterator<Item = &'a str>) -> Vec<String> {
+    values.into_iter().flat_map(|v| v.split(',')).map(|t| t.trim().trim_matches('"').to_ascii_lowercase()).filter(|t| !t.is_empty()).collect()
+}
+
+/// W-CACHE2: honours `Clear-Site-Data` from the response of `url` (the hop
+/// that answered) for the partition of the request. `"cache"` / `"*"` removes
+/// the origin's cache entries, `"cookies"` / `"*"` the host's cookies; both
+/// only in the current partition. `jar_partition`: `Some` when the jar was in
+/// use for this request (its partition).
+fn apply_clear_site_data<'a>(shared: &Shared, req_headers: &[(String, String)], url: &Url, values: impl IntoIterator<Item = &'a str>, jar_partition: Option<&str>) {
+    let d = clear_site_data_directives(values);
+    let all = d.iter().any(|t| t == "*");
+    let want = |n: &str| all || d.iter().any(|t| t == n);
+    if want("cache")
+        && let Some(c) = &shared.cache
+    {
+        let n = c.clear_origin(&cache::partition_of(req_headers), &url.origin());
+        if timing_enabled() {
+            eprintln!("wire: Clear-Site-Data cache {} removed={n}", url.origin().ascii_serialization());
+        }
+    }
+    if want("cookies")
+        && let (Some(p), Some(host)) = (jar_partition, url.host_str())
+    {
+        let n = shared.jar().clear_host(p, &cookies::host_of(url));
+        shared.save_jar(false);
+        if timing_enabled() {
+            eprintln!("wire: Clear-Site-Data cookies {host} removed={n}");
+        }
+    }
+}
+
 /// The `document.cookie` control channel: `X-Wire-Cookie-Op: get|set|clear-site` +
 /// `X-Wire-Cookie-Url` (the page URL) + `X-Wire-Top-Site` + `X-Wire-Jar`.
 /// Never makes an upstream request. `get` answers the non-HttpOnly cookie
@@ -1025,6 +1059,15 @@ fn cookie_control(shared: &Shared, request: &ParsedRequest, w: &mut impl Write) 
         return w.flush();
     }
     if !shared.enabled {
+        // forget-site still clears the site's cache directory (W-CACHE2).
+        if header(h, "x-wire-cookie-op") == Some("clear-site")
+            && let Some(c) = &shared.cache
+            && let Some(site) = header(h, "x-wire-top-site").and_then(cookies::normalize_site)
+        {
+            c.clear_partition(&site);
+            write_status_and_headers(w, 204, "No Content", &[])?;
+            return w.flush();
+        }
         write_status_and_headers(w, 404, "Not Found", &text_plain())?;
         w.write_all(b"wire: cookies are disabled (--no-cookies)")?;
         return w.flush();
@@ -1047,8 +1090,10 @@ fn cookie_control(shared: &Shared, request: &ParsedRequest, w: &mut impl Write) 
         };
         let n = shared.jar().clear_site(&site);
         shared.save_jar(false);
+        // W-CACHE2: the same partition's cache entries (one directory removal).
+        let cache_cleared = shared.cache.as_ref().is_some_and(|c| c.clear_partition(&site));
         if timing_enabled() {
-            eprintln!("wire: cookies clear-site removed={n}");
+            eprintln!("wire: cookies clear-site removed={n} cache_cleared={cache_cleared}");
         }
         write_status_and_headers(w, 204, "No Content", &[])?;
         return w.flush();
@@ -1189,6 +1234,7 @@ fn send_upstream(agent: &ureq::Agent, shared: &Shared, request: &ParsedRequest, 
             let status = resp.status();
             if let Ok(final_url) = Url::parse(resp.get_url()) {
                 reconcile_hops(&request.url, &final_url);
+                apply_clear_site_data(shared, &request.headers, &final_url, resp.all("clear-site-data"), None);
             }
             stream_response(resp, caps, w, None, false)?;
             status
@@ -1286,6 +1332,7 @@ fn execute_with_jar(shared: &Shared, request: &ParsedRequest, caps: &Caps, ua: O
                 }
             }
         }
+        apply_clear_site_data(shared, h, &url, resp.all("clear-site-data"), Some(&ctx.partition));
         let status = resp.status();
         let next = if matches!(status, 301 | 302 | 303 | 307 | 308) {
             resp.header("location").and_then(|l| url.join(l).ok()).filter(|u| matches!(u.scheme(), "http" | "https"))

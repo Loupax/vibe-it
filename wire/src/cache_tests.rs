@@ -145,6 +145,124 @@ fn temps(dir: &Path) -> usize {
     std::fs::read_dir(dir).into_iter().flatten().flatten().flat_map(|d| std::fs::read_dir(d.path()).into_iter().flatten().flatten()).filter(|f| f.file_name().to_string_lossy().starts_with(".tmp-")).count()
 }
 
+// ---------- W-CACHE2: clearing the cache ----------
+
+const WIRE_JAR: (&str, &str) = ("X-Wire-Jar", "scratchy");
+
+/// A control request (`X-Wire-Cookie-Op`), with the shared token unless `token` says otherwise.
+fn control_op(sh: &Shared, op: &str, page: &str, top: &str, token: Option<&str>) -> Resp {
+    let mut h = vec![("X-Wire-Cookie-Op", op), ("X-Wire-Cookie-Url", page), WIRE_JAR, ("X-Wire-Top-Site", top)];
+    if let Some(t) = token {
+        h.push(("X-Wire-Control-Token", t));
+    }
+    send(sh, if op == "get" { "GET" } else { "POST" }, "http://wire.invalid/cookies", &h)
+}
+
+fn cookies_of(sh: &Shared, page: &str, top: &str) -> String {
+    String::from_utf8(control_op(sh, "get", page, top, Some(&sh.control_token)).body).unwrap()
+}
+
+#[test]
+fn clear_site_removes_only_that_partitions_entries_and_cookies() {
+    let dir = tmp_dir("clearsite");
+    let o = fresh_origin("p{}");
+    let sh = with_cache(&dir, 1 << 20);
+    let url = format!("{}/a.css", o.base);
+    let (a, b) = ("http://a.example", "http://b.example");
+    for top in [a, b] {
+        assert_eq!(get(&sh, &url, &[("X-Wire-Top-Site", top)]).cache(), "miss");
+        assert_eq!(get(&sh, &url, &[("X-Wire-Top-Site", top)]).cache(), "hit");
+        assert_eq!(control_op(&sh, "set", &o.base, top, Some(&sh.control_token)).status, 204);
+    }
+    assert_eq!(o.hits(), 2);
+    assert_eq!(entries(&dir).len(), 2);
+    let r = control_op(&sh, "clear-site", "", "http://www.a.example/page", Some(&sh.control_token));
+    assert_eq!(r.status, 204, "{}", r.head);
+    assert_eq!(entries(&dir).len(), 1, "only b.example's entry is left");
+    assert_eq!(get(&sh, &url, &[("X-Wire-Top-Site", a)]).cache(), "miss", "a.example starts cold");
+    assert_eq!(get(&sh, &url, &[("X-Wire-Top-Site", b)]).cache(), "hit", "b.example is untouched");
+    assert_eq!(cookies_of(&sh, &o.base, a), "");
+    assert_eq!(cookies_of(&sh, &o.base, b), "x=1");
+    // clearing a partition with nothing stored is still a 204
+    assert_eq!(control_op(&sh, "clear-site", "", "http://never.example", Some(&sh.control_token)).status, 204);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn clear_site_without_the_token_is_403_and_clears_nothing() {
+    let dir = tmp_dir("cleartoken");
+    let o = fresh_origin("p{}");
+    let sh = with_cache(&dir, 1 << 20);
+    let url = format!("{}/a.css", o.base);
+    let a = "http://a.example";
+    get(&sh, &url, &[("X-Wire-Top-Site", a)]);
+    assert_eq!(control_op(&sh, "clear-site", "", a, None).status, 403);
+    assert_eq!(control_op(&sh, "clear-site", "", a, Some("wrong")).status, 403);
+    assert_eq!(entries(&dir).len(), 1);
+    assert_eq!(get(&sh, &url, &[("X-Wire-Top-Site", a)]).cache(), "hit");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn clear_site_data_cache_makes_the_next_request_a_miss_and_is_not_stored() {
+    let dir = tmp_dir("csdcache");
+    let o = Origin::new(|head, _, s| match path_of(head) {
+        "/wipe" => answer(s, "200 OK", &[("Cache-Control", "max-age=600"), ("Clear-Site-Data", "\"cache\"")], b"w"),
+        _ => answer(s, "200 OK", &[("Cache-Control", "max-age=600")], b"p{}"),
+    });
+    let sh = with_cache(&dir, 1 << 20);
+    let (a, b) = ("http://a.example", "http://b.example");
+    let url = format!("{}/a.css", o.base);
+    for top in [a, b] {
+        get(&sh, &url, &[("X-Wire-Top-Site", top)]);
+        assert_eq!(get(&sh, &url, &[("X-Wire-Top-Site", top)]).cache(), "hit");
+    }
+    let w = get(&sh, &format!("{}/wipe", o.base), &[("X-Wire-Top-Site", a)]);
+    assert_eq!(w.status, 200);
+    assert_eq!(get(&sh, &url, &[("X-Wire-Top-Site", a)]).cache(), "miss", "a.example's entry for the origin is gone");
+    assert_eq!(get(&sh, &url, &[("X-Wire-Top-Site", b)]).cache(), "hit", "other partitions keep theirs");
+    // the answer that carried the header was not stored, although it was cacheable
+    let hits = o.hits();
+    assert_eq!(get(&sh, &format!("{}/wipe", o.base), &[("X-Wire-Top-Site", a)]).cache(), "miss");
+    assert_eq!(o.hits(), hits + 1);
+    // `*` clears too
+    let o2 = Origin::new(|head, _, s| match path_of(head) {
+        "/all" => answer(s, "200 OK", &[("Clear-Site-Data", "\"*\"")], b"w"),
+        _ => answer(s, "200 OK", &[("Cache-Control", "max-age=600")], b"p{}"),
+    });
+    let u2 = format!("{}/a.css", o2.base);
+    get(&sh, &u2, &[("X-Wire-Top-Site", a)]);
+    assert_eq!(get(&sh, &u2, &[("X-Wire-Top-Site", a)]).cache(), "hit");
+    get(&sh, &format!("{}/all", o2.base), &[("X-Wire-Top-Site", a)]);
+    assert_eq!(get(&sh, &u2, &[("X-Wire-Top-Site", a)]).cache(), "miss");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn clear_site_data_cookies_clears_the_jar_of_that_partition_only() {
+    let dir = tmp_dir("csdcookies");
+    let o = Origin::new(|head, _, s| match path_of(head) {
+        "/wipe" => answer(s, "200 OK", &[("Clear-Site-Data", "\"cookies\"")], b"w"),
+        _ => answer(s, "200 OK", &[("Set-Cookie", "sid=1; Path=/; Max-Age=600")], b"x"),
+    });
+    let sh = with_cache(&dir, 1 << 20);
+    let (a, b) = ("http://a.example", "http://b.example");
+    for top in [a, b] {
+        get(&sh, &format!("{}/login", o.base), &[WIRE_JAR, ("X-Wire-Top-Site", top)]);
+        assert_eq!(cookies_of(&sh, &o.base, top), "sid=1");
+    }
+    get(&sh, &format!("{}/wipe", o.base), &[WIRE_JAR, ("X-Wire-Top-Site", a)]);
+    assert_eq!(cookies_of(&sh, &o.base, a), "");
+    assert_eq!(cookies_of(&sh, &o.base, b), "sid=1");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn clear_site_data_directive_parsing() {
+    assert_eq!(crate::clear_site_data_directives(["\"Cache\", \"cookies\"", "\"*\""]), ["cache", "cookies", "*"]);
+    assert!(crate::clear_site_data_directives([""]).is_empty());
+}
+
 fn fresh_origin(body: &'static str) -> Origin {
     Origin::new(move |_, _, s| answer(s, "200 OK", &[("Content-Type", "text/css"), ("Cache-Control", "max-age=600")], body.as_bytes()))
 }
