@@ -307,8 +307,16 @@ fn opt_color(c: Option<TextColor>) -> String {
 fn box_len(l: BoxLength) -> String {
     match l {
         BoxLength::Px(v) => px(v),
-        BoxLength::Percent(v) => format!("{}%", num(v * 100.0)),
+        BoxLength::Percent(v) => format!("{}%", num(v)),
         BoxLength::Calc(..) => "auto".to_string(),
+    }
+}
+
+/// A corner radius: like `box_len`, but a `%` prints as the percentage (not the raw fraction).
+fn rad_len(l: BoxLength) -> String {
+    match l {
+        BoxLength::Percent(v) => format!("{}%", num(v * 100.0)),
+        other => box_len(other),
     }
 }
 
@@ -492,7 +500,7 @@ pub(crate) fn serialize(s: &ComputedStyle, prop: &str) -> String {
         "border-spacing" => format!("{} {}", px(s.border_spacing.0), px(s.border_spacing.1)),
         "transform-origin" => format!("{} {}", origin_axis(s.transform_origin.0), origin_axis(s.transform_origin.1)),
         "border-radius" => {
-            let (h, v): (Vec<String>, Vec<String>) = s.border_radius.0.iter().map(|c| (box_len(c.0), box_len(c.1))).unzip();
+            let (h, v): (Vec<String>, Vec<String>) = s.border_radius.0.iter().map(|c| (rad_len(c.0), rad_len(c.1))).unzip();
             let (sh, sv) = (box4(&h), box4(&v));
             if sh == sv { sh } else { format!("{sh} / {sv}") }
         }
@@ -504,7 +512,7 @@ pub(crate) fn serialize(s: &ComputedStyle, prop: &str) -> String {
                 "bottom-left" => 3,
                 _ => return String::new(),
             };
-            let (h, v) = (box_len(s.border_radius.0[i].0), box_len(s.border_radius.0[i].1));
+            let (h, v) = (rad_len(s.border_radius.0[i].0), rad_len(s.border_radius.0[i].1));
             if h == v { h } else { format!("{h} {v}") }
         }
         "text-transform" => match s.text_transform {

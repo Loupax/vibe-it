@@ -683,6 +683,7 @@ impl ComputedStyle {
     /// `outline-width`, 0 without a visible outline or when a negative offset pulls it inside.
     /// Anything that bounds what a box paints (the damage-rect repaint's `paint_reach`) must
     /// include this.
+    #[cfg_attr(not(test), allow(dead_code))] // read by QHOV1's `paint_reach` once #604 lands
     pub(crate) fn outline_reach(&self) -> f32 {
         if self.outline_width > 0.0 && self.outline_color.is_some() {
             (self.outline_width + self.outline_offset).max(0.0)
@@ -693,6 +694,7 @@ impl ComputedStyle {
 
     /// QCSS-E: `transform-origin` in px for a `w` x `h` border box (what a scale or rotate would
     /// pivot on; the translate-only transform this engine paints does not read it).
+    #[cfg_attr(not(test), allow(dead_code))] // for a future scale/rotate
     pub(crate) fn transform_origin_px(&self, w: f32, h: f32) -> (f32, f32) {
         let (x, y) = self.transform_origin;
         (x.px + x.frac * w, y.px + y.frac * h)

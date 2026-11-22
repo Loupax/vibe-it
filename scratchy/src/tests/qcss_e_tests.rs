@@ -234,7 +234,9 @@ fn transform_origin_resolves_against_the_box_and_keeps_translate_working() {
 
 // ---------- border-spacing ----------
 
-fn table_cells_x(html: &str, width: f32) -> (Vec<Vec<(f32, f32)>>, Vec<f32>, f32) {
+type Cells = Vec<Vec<(f32, f32)>>;
+
+fn table_cells_x(html: &str, width: f32) -> (Cells, Vec<f32>, f32) {
     let laid = measure_fixture(html, width);
     let mut rows = Vec::new();
     fn walk<'a>(l: &'a Laid, out: &mut Vec<&'a Laid>) {
