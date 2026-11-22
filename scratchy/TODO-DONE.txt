@@ -9327,3 +9327,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       the parser: set attributes before the constructor runs (today after), queue attributeChanged/mutation records in the
       HTML order, and `document.anchors` for customized built-ins (parser-sets-attributes-after-built-in-constructor.html
       7 remaining failures).
+
+=== from TODO.txt: --- (no header)
+- [x] QAPI7 DONE 019a74a #577 [S] (P3, from QMAPI3 R66; Sonnet; js.rs) `BroadcastChannel` (same-process, same-origin delivery through the
+      MessageChannel machinery) and `HTMLElement.contentEditable`/`isContentEditable` reflection, the `ontouch*` handler
+      attributes on GlobalEventHandlers (null) so `'ontouchstart' in window` is the page's touch test, not a miss.

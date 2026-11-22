@@ -119,9 +119,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QAPI6c [S] (P3, from QAPI6 #573; Opus; incr_style.rs) Check-mode mismatch seen once on YouTube results while the
       window settled ("adopted element style reads vh: build true vs engine false"); build a repro with a height change
       during load.
-- [ ] [WIP] QAPI7 [S] (P3, from QMAPI3 R66; Sonnet; js.rs) `BroadcastChannel` (same-process, same-origin delivery through the
-      MessageChannel machinery) and `HTMLElement.contentEditable`/`isContentEditable` reflection, the `ontouch*` handler
-      attributes on GlobalEventHandlers (null) so `'ontouchstart' in window` is the page's touch test, not a miss.
 - [ ] [WIP] QAPI8 [S] (P2, from QMAPI3 R66; Sonnet; css.rs, tools/missing-api) Audit the css `declaration` rows of R66: first make the
       report skip declarations handled outside `Declarations` or equal to the initial value, then list which of
       `place-items`, `letter-spacing`, `clip-path`, `backdrop-filter`, `touch-action`, `user-select`, `text-shadow`,
