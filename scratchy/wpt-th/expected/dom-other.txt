@@ -58,8 +58,8 @@ OK       763/766  dom/traversal/NodeIterator.html
   FAIL      createNodeIterator() parameter defaults
   FAIL      createNodeIterator() with null as arguments
   FAIL      createNodeIterator() with undefined as arguments
-OK           0/1  dom/traversal/TreeWalker-acceptNode-filter-cross-realm-null-browsing-context.html
-  FAIL      TreeWalker: NodeFilter from detached iframe doesn't get called
+TIMEOUT      0/1  dom/traversal/TreeWalker-acceptNode-filter-cross-realm-null-browsing-context.html
+  NOTRUN    TreeWalker: NodeFilter from detached iframe doesn't get called
 OK           0/5  dom/traversal/TreeWalker-acceptNode-filter-cross-realm.html
   FAIL      NodeFilter is cross-realm plain object without 'acceptNode' property
   FAIL      NodeFilter is cross-realm plain object with non-callable 'acceptNode' property

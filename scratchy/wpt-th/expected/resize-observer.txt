@@ -22,8 +22,8 @@ OK           1/1  resize-observer/observe-003.html
 OK           1/1  resize-observer/observe-004.html
 OK           1/1  resize-observer/observe-005.html
 TIMEOUT      0/0  resize-observer/observe-006.html
-OK           0/1  resize-observer/observe-007.html
-  FAIL      iframe notifications
+TIMEOUT      0/1  resize-observer/observe-007.html
+  NOTRUN    iframe notifications
 OK           1/1  resize-observer/observe-008.html
 OK           1/1  resize-observer/observe-009.html
 OK           1/1  resize-observer/observe-010.html

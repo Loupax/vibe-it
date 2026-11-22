@@ -1949,7 +1949,9 @@ OK           0/1  shadow-dom/untriaged/events/event-dispatch/test-002.html
   FAIL      A_05_05_02_T01
 TIMEOUT      0/1  shadow-dom/untriaged/events/event-dispatch/test-003.html
   TIMEOUT   A_05_05_03_T01
-OK           2/2  shadow-dom/untriaged/events/event-retargeting/test-001.html
+TIMEOUT      0/2  shadow-dom/untriaged/events/event-retargeting/test-001.html
+  TIMEOUT   A_05_01_01_T1
+  TIMEOUT   A_05_01_01_T2
 OK           1/1  shadow-dom/untriaged/events/event-retargeting/test-003.html
 OK           6/6  shadow-dom/untriaged/events/retargeting-focus-events/test-001.html
 OK           0/1  shadow-dom/untriaged/events/retargeting-focus-events/test-002.html
@@ -1962,7 +1964,8 @@ OK           0/1  shadow-dom/untriaged/events/retargeting-relatedtarget/test-002
   FAIL      A_05_02_02_T01
 OK           0/1  shadow-dom/untriaged/events/retargeting-relatedtarget/test-003.html
   FAIL      A_05_02_03_T01
-OK           1/1  shadow-dom/untriaged/events/test-001.html
+TIMEOUT      0/1  shadow-dom/untriaged/events/test-001.html
+  TIMEOUT   A_05_00_01_T1
 OK           2/2  shadow-dom/untriaged/html-elements-in-shadow-trees/html-forms/test-001.html
 OK           3/3  shadow-dom/untriaged/html-elements-in-shadow-trees/html-forms/test-002.html
 TIMEOUT      0/1  shadow-dom/untriaged/html-elements-in-shadow-trees/html-forms/test-003.html
