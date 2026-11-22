@@ -9,8 +9,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  # QWPT11: only PR runs are superseded. Pushes to main get their own group per commit and are never cancelled, so
+  # every merge's WPT gate result is seen (back-to-back merges used to cancel each other's main run).
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -154,10 +156,17 @@ jobs:
         # Own wire on its own socket (the runner starts it), no display needed (headless children). --no-scope: no
         # systemd user bus on the runner, the 6G cgroup cap is for the user's machine. The areas table and its diff
         # against origin/main's committed wpt-th/areas.txt go to the step summary.
+        env:
+          PUSH_BEFORE: ${{ github.event.before }}
         run: |
           export FONTCONFIG_FILE="$(tools/ci-fontconfig.sh /usr/share/fonts/truetype/liberation "$RUNNER_TEMP/fc")"
-          git fetch -q --depth 1 origin main
-          git show FETCH_HEAD:scratchy/wpt-th/areas.txt > "$RUNNER_TEMP/areas-main.txt" || : > "$RUNNER_TEMP/areas-main.txt"
+          # PR: the delta is against main's tip. Push to main: main's tip IS this commit, so the delta is against the
+          # previous main commit (github.event.before; an unfetchable base, e.g. a first push, gives an empty base table).
+          base_ref=main
+          if [ "$GITHUB_EVENT_NAME" = push ]; then base_ref="$PUSH_BEFORE"; fi
+          rm -f .git/FETCH_HEAD
+          git fetch -q --depth 1 origin "$base_ref" || true
+          git show FETCH_HEAD:scratchy/wpt-th/areas.txt 2>/dev/null > "$RUNNER_TEMP/areas-main.txt" || : > "$RUNNER_TEMP/areas-main.txt"
           cp wpt-th/areas.txt "$RUNNER_TEMP/areas-committed.txt"
           start=$(date +%s)
           rc=0
@@ -168,7 +177,7 @@ jobs:
           {
             echo "### WPT testharness (pin $(cat tools/wpt-pin.txt)), exit $rc, $secs s"
             echo
-            echo "Areas table, deltas vs origin/main's committed wpt-th/areas.txt:"
+            echo "Areas table, deltas vs $base_ref's committed wpt-th/areas.txt (origin/main on PRs, the previous main commit on pushes):"
             echo
             tools/wpt-areas-diff.py wpt-th/areas.txt "$RUNNER_TEMP/areas-main.txt"
             echo
