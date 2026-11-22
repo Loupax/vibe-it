@@ -496,8 +496,6 @@ OK           0/6  html/webappapis/scripting/events/event-handler-non-content-doc
   FAIL      frameset.onreadystatechange is not an event handler content attribute
   FAIL      frameset.onvisibilitychange is not an event handler content attribute
 OK           1/1  html/webappapis/scripting/events/event-handler-onmove-01.tentative.html
-OK           0/1  html/webappapis/scripting/events/event-handler-onmove-02.tentative.html
-  FAIL      Window move event
 OK           3/3  html/webappapis/scripting/events/event-handler-onresize.html
 OK           0/2  html/webappapis/scripting/events/event-handler-processing-algorithm-error/body-element-synthetic-errorevent.html
   FAIL      error event is weird (return true cancels; many args) on Window, with a synthetic ErrorEvent
