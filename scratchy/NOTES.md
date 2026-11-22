@@ -3859,12 +3859,13 @@ start an area, e.g. `# area: dom/nodes`), `wpt-th/flaky.txt` (first token of a l
 which the sparse checkout lacks: `git -C CHECKOUT sparse-checkout add tools` once (~12 MB). The script imports `tools/manifest` from the
 checkout and builds `CHECKOUT/MANIFEST.json` in-process (no `./wpt` launcher, no venv, no pip, no sockets; ~1 min). It keeps every
 testharness URL of the areas in the script, minus timeout=long outside dom/* (QWPT6c keeps the dom/* ones) and `encoding/legacy-mb-*` (nightly), testdriver users, `.https.`/`.sub.`,
-worker variants and files whose source mentions a `.py` handler; skip counts go to stderr. Result at the pin: 3,365 URLs in 24 areas incl. html/editing (3,312 before QWPT6c, which added 53 dom/* timeout=long URLs: dom/nodes 13, dom/events 7, dom/ranges 28, dom/other 5)
+worker variants, pages whose source CALLS the driver (`test_driver`, QWPT6e) and files whose source mentions a `.py` handler; skip counts go to stderr. Result at the pin: 3,254 URLs (3,365 before QWPT6e) in 24 areas incl. html/editing (3,312 before QWPT6c, which added 53 dom/* timeout=long URLs: dom/nodes 13, dom/events 7, dom/ranges 28, dom/other 5)
 (`# area:` blocks in the script's AREAS order). Query variants (`?1-10`) are separate entries.
 Baseline: 3,214 ran, 656 all-pass, 37,045 subtests, 45.6 % pass, mean per-file score 28.4 (table in `wpt-th/areas.txt`).
 Wall time of the full run: 110 s at `--jobs 4` (quiet machine, load 5), 67 s at `--jobs 12`; first run 3:41 on a loaded machine
 (load 30). Peak RSS of the runner tree ~290 MB. Four runs were identical, so `wpt-th/flaky.txt` is empty (comment only).
-html/editing (QWPT6d): 48 files; the filter also drops pages whose source mentions `testdriver` (`SRC_TESTDRIVER_AREAS` in wpt-subset.py; only this area, the others keep the META-only filter). 25 s at `--jobs 4` locally.
+html/editing (QWPT6d): 48 files; the filter also drops pages whose source mentions `testdriver` (`SRC_TESTDRIVER_AREAS` in wpt-subset.py; only this area).
+QWPT6e (testdriver): `--wpt-th-one` has no trusted-input path (no App; `document.elementFromPoint` is a stub; testdriver-vendor.js throws `action_sequence() is not implemented`), so a vendor for click/send_keys/Actions would need hit testing, focus and default actions: not an S item. Instead `DRIVER_CALL` (`\btest_driver\b` in the source) drops every page that calls the driver, in all areas: 111 URLs (by area in PROMPTS.md QWPT6e). 138 pages only load testdriver.js and never call it; they stay (they run fine). Baseline now 3,209 ran, 969 all-pass, 85,795 subtests, 67.1 % pass, score 39.1. 25 s at `--jobs 4` locally.
 QWPT6c: the 53 dom/* timeout=long URLs take ~20 s at `--jobs 4` on their own (load ~25). Five runs: two files have run-dependent subtest counts (they hit the 10 s virtual harness clock partway) and are in `flaky.txt`: dom/ranges/Range-mutations-dataChange.html and Range-mutations-replaceData.html.
 
 ### Window named access (QDOM1)

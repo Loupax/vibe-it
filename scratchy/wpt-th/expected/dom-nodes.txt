@@ -1911,9 +1911,6 @@ OK           0/4  dom/nodes/moveBefore/form-associated-custom-element-reset.html
   FAIL      Moving a custom control without an ID across a shadow boundary resets its form owner
 OK           0/1  dom/nodes/moveBefore/fullscreen-preserve.html
   FAIL      Document#fullscreenElement
-OK           0/2  dom/nodes/moveBefore/hover-style-update.html
-  FAIL      Element loses hover when moved to different position
-  FAIL      Hover works immediately after moved
 TIMEOUT      1/7  dom/nodes/moveBefore/iframe-document-preserve.window.html
   TIMEOUT   moveBefore(): simple same-origin document is preserved
   NOTRUN    moveBefore(): cross-origin iframe is preserved: remove new parent
@@ -1971,8 +1968,6 @@ OK           2/2  dom/nodes/moveBefore/mutation-observer.html
 OK           0/1  dom/nodes/moveBefore/nonce.html
   FAIL      Element nonce content attribute is not cleared after move
 OK           1/1  dom/nodes/moveBefore/object-crash-regression.html
-OK           0/1  dom/nodes/moveBefore/pointer-events.html
-  FAIL      Pointer capture should not be released when moving
 OK           0/1  dom/nodes/moveBefore/popover-preserve.html
   FAIL      when reparenting an open popover, it shouldn't be closed automatically
 OK           1/1  dom/nodes/moveBefore/preserve-render-blocking-script.html
@@ -1981,18 +1976,9 @@ OK           0/1  dom/nodes/moveBefore/preserve-render-blocking-style.html
 TIMEOUT      0/2  dom/nodes/moveBefore/relevant-mutations.html
   TIMEOUT   Moving <source> out of <picture> triggers a relevant mutation on sibling <img>
   NOTRUN    Moving <img> into a <picture> triggers a relevant mutation on the <img>, loading <source>
-OK           0/1  dom/nodes/moveBefore/role-updates-after-move.html
-  FAIL      header elements role should become sectionheader when moved into a section
 OK           2/2  dom/nodes/moveBefore/script-move-before.html
 OK           1/2  dom/nodes/moveBefore/select-option-optgroup.html
   FAIL      Option selectedness is updated on option and optgroup DOM moves
-OK           0/6  dom/nodes/moveBefore/selection-preserve.html
-  FAIL      moveBefore should not reset selection with preceding text
-  FAIL      moveBefore resets selection that enters a subtree, when the whole selection is moved
-  FAIL      moveBefore anchor node moved up to expand selection and absorb nodes
-  FAIL      moveBefore move intersecting nodes out of a selection
-  FAIL      moveBefore focus node moved up to shrink selection and exclude nodes; focus node gets reset
-  FAIL      moveBefore selection is not preserved, especially when underlying range gets inverted
 OK           0/4  dom/nodes/moveBefore/slotchange-events.html
   FAIL      Moving default content into a slot fires 'slotchange' event
   FAIL      Moving default content out of a slot fires 'slotchange' event
@@ -2004,12 +1990,7 @@ TIMEOUT      0/1  dom/nodes/moveBefore/stylesheet-cascade-order.html
 TIMEOUT      0/1  dom/nodes/moveBefore/stylesheet-no-refetch.html
   TIMEOUT   Moving a loaded link stylesheet preserves its resource
 OK           1/1  dom/nodes/moveBefore/throws-exception.html
-OK           0/5  dom/nodes/name-validation.html
-  FAIL      Valid and invalid characters in createElement.
-  FAIL      Valid and invalid characters in createElementNS and createDocument.
-  FAIL      Valid and invalid characters in setAttribute, toggleAttribute, and createAttribute.
-  FAIL      Valid and invalid characters in setAttributeNS and createAttributeNS.
-  FAIL      Valid and invalid characters in createDocumentType.
+OK           5/5  dom/nodes/name-validation.html
 OK         16/24  dom/nodes/namespaced-attribute-mutations.html
   FAIL      change a namespaced style attribute preserves HTML inline style
   FAIL      replace a namespaced style attribute preserves HTML inline style

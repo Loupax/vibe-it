@@ -11,7 +11,7 @@ virtualenv, no pip, no sockets) and is written to CHECKOUT/MANIFEST.json (a cach
 What goes in (phase 1, "testharness files a static server can serve"): every testharness URL of the AREAS
 below, except
   - timeout=long files outside dom/* (nightly; QWPT6c keeps the dom/* ones: with the virtual clock they are cheap), and the legacy multi-byte encoding variants (encoding/legacy-mb-*, nightly),
-  - files that load testdriver (they need a trusted-input driver: phase 2),
+  - files that load or call testdriver (they need a trusted-input driver: phase 2; see SRC_TESTDRIVER_AREAS / DRIVER_CALL),
   - `.https.` / `.sub.` / worker-variant URLs, and files whose source mentions a `.py` handler (wptserve).
 The skipped counts per reason are printed on stderr, so the numbers in the PR can be reproduced.
 """
@@ -49,10 +49,14 @@ AREAS = OrderedDict([
     ("shadow-dom", ["shadow-dom"]),
 ])
 
-# QWPT6d: areas where a `<script src=".../testdriver*.js">` in the page source also counts as "loads testdriver" (the manifest's
-# script_metadata only lists `// META: script=` lines). html/editing/dnd: 54 files / 162 URLs ending in `action_sequence() is not
-# implemented`. The other areas keep the old filter so their recorded files do not change; a global switch is a separate item.
+# testdriver users (QWPT6d, QWPT6e). The headless runner has no trusted-input driver: testdriver-vendor.js throws
+# `action_sequence() is not implemented`, and click/send_keys/Actions need hit testing, focus and default actions that exist only
+# in the App (not in `--wpt-th-one`, whose `document.elementFromPoint` is a stub), so a vendor is not an S item (QWPT6e).
+# Every area therefore drops a page whose source CALLS the driver (`test_driver`: click, send_keys, Actions, bless, ...).
+# Pages that only load `<script src=/resources/testdriver.js>` and never call it (138 of the 253 at the pin) stay: they run fine.
+# html/editing (QWPT6d, 54 dnd files) keeps its older, broader rule: any `testdriver` mention drops the page.
 SRC_TESTDRIVER_AREAS = {"html/editing"}
+DRIVER_CALL = re.compile(rb"\btest_driver\b")
 
 PY_REF = re.compile(rb"""\.py(?:["'?#\s)]|$)""")
 
@@ -114,6 +118,9 @@ def main():
                     src = b""
             if area in SRC_TESTDRIVER_AREAS and b"testdriver" in src:
                 skipped["testdriver script tag (phase 2, %s)" % area] += 1
+                continue
+            if DRIVER_CALL.search(src):
+                skipped["test_driver call in source (phase 2)"] += 1
                 continue
             if PY_REF.search(src):
                 skipped[".py handler (wptserve)"] += 1

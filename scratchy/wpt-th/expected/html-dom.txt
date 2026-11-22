@@ -1393,11 +1393,6 @@ OK           0/3  html/dom/aria-attribute-reflection.tentative.html
 OK           0/2  html/dom/aria-element-reflection-disconnected.html
   FAIL      Element references should stay valid when content is disconnected (single element)
   FAIL      Element references should stay valid when content is disconnected (element array)
-OK           0/4  html/dom/aria-element-reflection-labelledby.html
-  FAIL      Setting ariaLabelledByElements should determine the computed label for the labelled element
-  FAIL      Setting ariaLabelledByElements before inserting the elements referred to in the document should cause the label to be updated once elements are inserted
-  FAIL      Setting ariaLabelledByElements on an element before inserting it in the document should cause the label to be updated once the element is inserted
-  FAIL      Moving the label from shadow DOM to light DOM causes the reference to become valid
 OK          5/27  html/dom/aria-element-reflection.html
   FAIL      aria-activedescendant element reflection
   FAIL      If the content attribute is set directly, the IDL attribute getter always returns the first element whose ID matches the content attribute.
@@ -1748,8 +1743,6 @@ OK         11/22  html/dom/elements/global-attributes/dir-auto-form-associated.w
   FAIL      <textarea dir=auto> directionality
 OK           0/1  html/dom/elements/global-attributes/dir-bdi-script.html
   FAIL      BDI test: Directionality
-OK           0/1  html/dom/elements/global-attributes/dir-not-changed-text-input-typing.html
-  FAIL      entering LTR text doesn't change directionality of a text input without dir=auto
 OK          5/17  html/dom/elements/global-attributes/dir-slots-directionality.html
   FAIL      Slots: Directionality: dir=rtl on slot
   FAIL      Slots: Directionality: dir=rtl on host
