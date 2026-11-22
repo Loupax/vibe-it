@@ -1056,3 +1056,4 @@ mod qwpt7c_tests;
 mod qcnv4_tests;
 mod qwptbud_tests;
 mod qcnv5_tests;
+mod qcnv6_tests;
