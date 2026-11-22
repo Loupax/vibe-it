@@ -664,9 +664,8 @@ impl Running {
     /// Writes this transition's value at `now` into `out`.
     fn write(&self, def: &PropDef, out: &mut ComputedStyle, now: f64) {
         let t = self.progress(now);
-        if self.discrete {
-            (def.copy)(out, if t < 0.5 { &self.from } else { &self.to });
-        } else if !(def.lerp)(out, &self.from, &self.to, t) {
+        // A discrete transition (or a pair that does not interpolate) flips at the midpoint.
+        if self.discrete || !(def.lerp)(out, &self.from, &self.to, t) {
             (def.copy)(out, if t < 0.5 { &self.from } else { &self.to });
         }
     }
