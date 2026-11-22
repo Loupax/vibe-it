@@ -9395,3 +9395,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       text directly under a Document; NotFoundError for a wrong child; checks before any mutation (fragments keep their
       children on failure). WPT: nodes/Node-insertBefore, Node-replaceChild, ParentNode-append, ParentNode-prepend,
       ParentNode-replaceChildren, append-on-Document, prepend-on-Document. Target: nodes +0.8.
+
+=== from TODO.txt: --- (no header)
+- [x] QANIMHLc DONE c9e30cb #589 [S] (P3, from QANIMHL #562; Sonnet; js_geom GeomCache) Geometry reads during a CSS animation: the forced-layout cache
+      is keyed only on the DOM write generation, so getBoundingClientRect of an animated box keeps its first-frame
+      geometry between DOM writes; key on the animation clock too when animations are live.

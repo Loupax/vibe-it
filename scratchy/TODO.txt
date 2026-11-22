@@ -69,9 +69,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       (display, content-visibility), `inherit` on the longhands, transform functions beyond translate, CSSTransition objects
       and getAnimations(), the window clock for a transition a script's getComputedStyle starts between builds, moveBefore
       keeping a running transition.
-- [ ] [WIP] QANIMHLc [S] (P3, from QANIMHL #562; Sonnet; js_geom GeomCache) Geometry reads during a CSS animation: the forced-layout cache
-      is keyed only on the DOM write generation, so getBoundingClientRect of an animated box keeps its first-frame
-      geometry between DOM writes; key on the animation clock too when animations are live.
 - [ ] QEL7b [S] (P3, from QEL7 #576; Sonnet; app.rs, js.rs) Scroll leftovers: window scroll + MQL change inside iframe
       realms (element scroll there still uses the old zero-delay timer), clamp a scrollTo past the end before reporting
       (headless never clamps y), smooth `behavior` for programmatic scrollTo/scrollBy/scrollIntoView, visualViewport
@@ -108,7 +105,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QCSS2 [S] (P2, from QMAPI2 #523; Sonnet; css.rs parse_supports_condition, js.rs) `CSS.supports(prop, value)` and
       `CSS.supports(conditionText)` on top of `parse_supports_condition` (today `CSS.supports` does not exist; pages
       feature-test with it). Tests + --wpt-th (css/cssom has CSS.supports files).
-- [ ] QFF1a [M] (P2, un-archived 2026-11-22; Opus) `@font-face` web fonts, ttf/otf/woff first. Parse `@font-face`
+- [ ] [WIP] QFF1a [M] (P2, un-archived 2026-11-22; Opus) `@font-face` web fonts, ttf/otf/woff first. Parse `@font-face`
       (font-family, `src` list with `url()` + `format()` and `local()`, font-weight /
       font-style (single values and ranges), `unicode-range`; ignore `font-display`
       (always swap), `size-adjust`/`ascent-override` etc. for now) including inside

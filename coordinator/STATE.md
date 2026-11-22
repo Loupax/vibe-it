@@ -296,3 +296,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 USER: web fonts are rendered (option 1). QFF1a (ttf/otf/woff) and QFF1b (woff2) un-archived into TODO.txt (Opus), QAPI4b reworded to follow QFF1a. QFF1a next free slot after the #584 rebase.
 - 2026-11-22 #589 QANIMHLc READY (geometry follows animation clock; no extra layouts without animations), merging. Sent #584 rebase.
 - 2026-11-22 USER: state dir leftovers stay; QINC1m GO now (unblocked; Opus, starts after QAPI6c since both are engine). Merged duplicate QWPT7 into the existing QWPT7.
+- 2026-11-22 Merged #589 QANIMHLc c9e30cb. Launched QFF1a (web fonts, Opus).
