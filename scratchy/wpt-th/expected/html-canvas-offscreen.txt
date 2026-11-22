@@ -19,8 +19,7 @@ OK           1/1  html/canvas/offscreen/canvas-context/2d.canvas.context.prototy
 OK           1/1  html/canvas/offscreen/canvas-context/2d.canvas.context.shared.html
 OK           1/1  html/canvas/offscreen/canvas-context/2d.canvas.context.type.exists.html
 OK           1/1  html/canvas/offscreen/canvas-context/2d.canvas.context.type.extend.html
-OK           0/1  html/canvas/offscreen/canvas-context/2d.canvas.context.type.prototype.html
-  FAIL      window.CanvasRenderingContext2D.prototype are not [[Writable]] and not [[Configurable]], and its methods are [[Configurable]].
+OK           1/1  html/canvas/offscreen/canvas-context/2d.canvas.context.type.prototype.html
 OK           1/1  html/canvas/offscreen/canvas-context/2d.canvas.context.type.replace.html
 OK           1/1  html/canvas/offscreen/canvas-context/2d.canvas.context.unique.html
 OK           0/1  html/canvas/offscreen/canvas-context/2d.getContext.options.any.html
@@ -34,13 +33,11 @@ OK          5/12  html/canvas/offscreen/canvas-host/2d.canvas.host.initial.reset
   FAIL      Resetting the canvas state resets shadowOffsetY
   FAIL      Resetting the canvas state resets shadowBlur
   FAIL      Resetting the canvas state resets globalCompositeOperation
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.initial.reset.clip.html
-  FAIL      Resetting the canvas state resets the current clip region
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.initial.reset.clip.html
 OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.initial.reset.different.html
 OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.initial.reset.gradient.html
   FAIL      Resetting the canvas state does not invalidate any existing gradients
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.initial.reset.path.html
-  FAIL      Resetting the canvas state resets the current path
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.initial.reset.path.html
 OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.initial.reset.pattern.html
   FAIL      Resetting the canvas state does not invalidate any existing patterns
 OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.initial.reset.same.html
@@ -101,30 +98,18 @@ OK           0/1  html/canvas/offscreen/compositing/2d.composite.canvas.source-o
   FAIL      OffscreenCanvas test: 2d.composite.canvas.source-over
 OK           0/1  html/canvas/offscreen/compositing/2d.composite.canvas.xor.html
   FAIL      OffscreenCanvas test: 2d.composite.canvas.xor
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.clip.clear.html
-  FAIL      fill() does not affect pixels outside the clip region.
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.clip.copy.html
-  FAIL      fill() does not affect pixels outside the clip region.
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.clip.destination-atop.html
-  FAIL      fill() does not affect pixels outside the clip region.
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.clip.destination-in.html
-  FAIL      fill() does not affect pixels outside the clip region.
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.clip.destination-out.html
-  FAIL      fill() does not affect pixels outside the clip region.
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.clip.destination-over.html
-  FAIL      fill() does not affect pixels outside the clip region.
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.clip.lighter.html
-  FAIL      fill() does not affect pixels outside the clip region.
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.clip.source-atop.html
-  FAIL      fill() does not affect pixels outside the clip region.
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.clip.source-in.html
-  FAIL      fill() does not affect pixels outside the clip region.
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.clip.source-out.html
-  FAIL      fill() does not affect pixels outside the clip region.
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.clip.source-over.html
-  FAIL      fill() does not affect pixels outside the clip region.
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.clip.xor.html
-  FAIL      fill() does not affect pixels outside the clip region.
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.clip.clear.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.clip.copy.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.clip.destination-atop.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.clip.destination-in.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.clip.destination-out.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.clip.destination-over.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.clip.lighter.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.clip.source-atop.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.clip.source-in.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.clip.source-out.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.clip.source-over.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.clip.xor.html
 OK           0/1  html/canvas/offscreen/compositing/2d.composite.globalAlpha.canvas.html
   FAIL      OffscreenCanvas test: 2d.composite.globalAlpha.canvas
 OK           0/1  html/canvas/offscreen/compositing/2d.composite.globalAlpha.canvascopy.html
@@ -319,38 +304,32 @@ OK           0/1  html/canvas/offscreen/drawing-images-to-the-canvas/2d.drawImag
 TIMEOUT      0/1  html/canvas/offscreen/drawing-images-to-the-canvas/2d.drawImage.zerosource.image.html
   TIMEOUT   drawImage with zero-sized source rectangle from image draws nothing without exception
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.clearRect.basic.html
-OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.clearRect.clip.html
-  FAIL      clearRect is affected by clipping regions
+OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.clearRect.clip.html
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.clearRect.globalalpha.html
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.clearRect.globalcomposite.html
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.clearRect.negative.html
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.clearRect.nonfinite.html
-OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.clearRect.path.html
-  FAIL      clearRect does not affect the current path
+OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.clearRect.path.html
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.clearRect.shadow.html
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.clearRect.transform.html
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.clearRect.zero.html
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.fillRect.basic.html
-OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.fillRect.clip.html
-  FAIL      fillRect is affected by clipping regions
+OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.fillRect.clip.html
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.fillRect.negative.html
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.fillRect.nonfinite.html
-OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.fillRect.path.html
-  FAIL      fillRect does not affect the current path
+OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.fillRect.path.html
 OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.fillRect.shadow.html
   FAIL      fillRect draws shadows
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.fillRect.transform.html
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.fillRect.zero.html
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.basic.html
-OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.clip.html
-  FAIL      strokeRect is affected by clipping regions
+OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.clip.html
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.globalalpha.html
 OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.globalcomposite.html
   FAIL      strokeRect is not affected by globalCompositeOperation
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.negative.html
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.nonfinite.html
-OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.path.html
-  FAIL      strokeRect does not affect the current path
+OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.path.html
 OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.shadow.html
   FAIL      strokeRect draws shadows
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.transform.html
@@ -763,8 +742,7 @@ OK           1/1  html/canvas/offscreen/layers/2d.layer.valid-calls.save.html
 OK           0/1  html/canvas/offscreen/layers/2d.layer.valid-calls.save_reset_restore.html
   FAIL      No exception raised on save() + reset() + restore().
 OK           1/1  html/canvas/offscreen/layers/2d.layer.valid-calls.save_restore.html
-OK           0/1  html/canvas/offscreen/line-styles/2d.line.cap.butt.html
-  FAIL      lineCap 'butt' is rendered correctly
+OK           1/1  html/canvas/offscreen/line-styles/2d.line.cap.butt.html
 OK           0/1  html/canvas/offscreen/line-styles/2d.line.cap.closed.html
   FAIL      Line caps are not drawn at the corners of an unclosed rectangle
 OK           0/1  html/canvas/offscreen/line-styles/2d.line.cap.invalid.html
@@ -776,24 +754,18 @@ OK           0/1  html/canvas/offscreen/line-styles/2d.line.cap.round.html
 OK           0/1  html/canvas/offscreen/line-styles/2d.line.cap.square.html
   FAIL      lineCap 'square' is rendered correctly
 OK           1/1  html/canvas/offscreen/line-styles/2d.line.cap.valid.html
-OK           0/1  html/canvas/offscreen/line-styles/2d.line.cross.html
-  FAIL      OffscreenCanvas test: 2d.line.cross
+OK           1/1  html/canvas/offscreen/line-styles/2d.line.cross.html
 OK           0/1  html/canvas/offscreen/line-styles/2d.line.defaults.html
   FAIL      OffscreenCanvas test: 2d.line.defaults
-OK           0/1  html/canvas/offscreen/line-styles/2d.line.fill.noop.html
-  FAIL      Filling a line draws nothing
-OK           0/1  html/canvas/offscreen/line-styles/2d.line.invalid.strokestyle.html
-  FAIL      Verify correct behavior of canvas on an invalid strokeStyle()
+OK           1/1  html/canvas/offscreen/line-styles/2d.line.fill.noop.html
+OK           1/1  html/canvas/offscreen/line-styles/2d.line.invalid.strokestyle.html
 OK           0/1  html/canvas/offscreen/line-styles/2d.line.join.bevel.html
   FAIL      lineJoin 'bevel' is rendered correctly
-OK           0/1  html/canvas/offscreen/line-styles/2d.line.join.closed.html
-  FAIL      Line joins are drawn at the corner of a closed rectangle
+OK           1/1  html/canvas/offscreen/line-styles/2d.line.join.closed.html
 OK           0/1  html/canvas/offscreen/line-styles/2d.line.join.invalid.html
   FAIL      Setting lineJoin to invalid values is ignored
-OK           0/1  html/canvas/offscreen/line-styles/2d.line.join.miter.html
-  FAIL      lineJoin 'miter' is rendered correctly
-OK           0/1  html/canvas/offscreen/line-styles/2d.line.join.open.html
-  FAIL      Line joins are not drawn at the corner of an unclosed rectangle
+OK           1/1  html/canvas/offscreen/line-styles/2d.line.join.miter.html
+OK           1/1  html/canvas/offscreen/line-styles/2d.line.join.open.html
 OK           0/1  html/canvas/offscreen/line-styles/2d.line.join.parallel.html
   FAIL      Line joins are drawn at 180-degree joins
 OK           0/1  html/canvas/offscreen/line-styles/2d.line.join.round.html
@@ -805,25 +777,19 @@ OK           0/1  html/canvas/offscreen/line-styles/2d.line.miter.exceeded.html
   FAIL      Miter joins are not drawn when the miter limit is exceeded
 OK           0/1  html/canvas/offscreen/line-styles/2d.line.miter.invalid.html
   FAIL      Setting miterLimit to invalid values is ignored
-OK           0/1  html/canvas/offscreen/line-styles/2d.line.miter.lineedge.html
-  FAIL      Miter joins are not drawn when the miter limit is exceeded at the corners of a zero-height rectangle
+OK           1/1  html/canvas/offscreen/line-styles/2d.line.miter.lineedge.html
 OK           0/1  html/canvas/offscreen/line-styles/2d.line.miter.obtuse.html
   FAIL      Miter joins are drawn correctly with obtuse angles
 OK           0/1  html/canvas/offscreen/line-styles/2d.line.miter.rightangle.html
   FAIL      Miter joins are not drawn when the miter limit is exceeded, on exact right angles
 OK           0/1  html/canvas/offscreen/line-styles/2d.line.miter.valid.html
   FAIL      Setting miterLimit to valid values works
-OK           0/1  html/canvas/offscreen/line-styles/2d.line.miter.within.html
-  FAIL      Miter joins are drawn when the miter limit is not quite exceeded
-OK           0/1  html/canvas/offscreen/line-styles/2d.line.union.html
-  FAIL      OffscreenCanvas test: 2d.line.union
-OK           0/1  html/canvas/offscreen/line-styles/2d.line.width.basic.html
-  FAIL      lineWidth determines the width of line strokes
+OK           1/1  html/canvas/offscreen/line-styles/2d.line.miter.within.html
+OK           1/1  html/canvas/offscreen/line-styles/2d.line.union.html
+OK           1/1  html/canvas/offscreen/line-styles/2d.line.width.basic.html
 OK           1/1  html/canvas/offscreen/line-styles/2d.line.width.invalid.html
-OK           0/1  html/canvas/offscreen/line-styles/2d.line.width.scaledefault.html
-  FAIL      Default lineWidth strokes are affected by scale transformations
-OK           0/1  html/canvas/offscreen/line-styles/2d.line.width.transformed.html
-  FAIL      Line stroke widths are affected by scale transformations
+OK           1/1  html/canvas/offscreen/line-styles/2d.line.width.scaledefault.html
+OK           1/1  html/canvas/offscreen/line-styles/2d.line.width.transformed.html
 OK           1/1  html/canvas/offscreen/line-styles/2d.line.width.valid.html
 OK          0/16  html/canvas/offscreen/manual/context-attributes/getContextAttributes.html
   FAIL      Test default offscreen context creation attributes
@@ -1064,8 +1030,7 @@ OK           0/1  html/canvas/offscreen/path-objects/2d.path.arcTo.zero.1.html
   FAIL      arcTo() with zero radius draws a straight line from P0 to P1
 OK           0/1  html/canvas/offscreen/path-objects/2d.path.arcTo.zero.2.html
   FAIL      arcTo() with zero radius draws a straight line from P0 to P1, even when all points are collinear
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.beginPath.html
-  FAIL      OffscreenCanvas test: 2d.path.beginPath
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.beginPath.html
 OK           0/1  html/canvas/offscreen/path-objects/2d.path.bezierCurveTo.basic.html
   FAIL      OffscreenCanvas test: 2d.path.bezierCurveTo.basic
 OK           0/1  html/canvas/offscreen/path-objects/2d.path.bezierCurveTo.ensuresubpath.1.html
@@ -1078,54 +1043,34 @@ OK           0/1  html/canvas/offscreen/path-objects/2d.path.bezierCurveTo.scale
   FAIL      OffscreenCanvas test: 2d.path.bezierCurveTo.scaled
 OK           0/1  html/canvas/offscreen/path-objects/2d.path.bezierCurveTo.shape.html
   FAIL      OffscreenCanvas test: 2d.path.bezierCurveTo.shape
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.clip.basic.1.html
-  FAIL      OffscreenCanvas test: 2d.path.clip.basic.1
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.clip.basic.2.html
-  FAIL      OffscreenCanvas test: 2d.path.clip.basic.2
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.clip.empty.html
-  FAIL      OffscreenCanvas test: 2d.path.clip.empty
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.clip.intersect.html
-  FAIL      OffscreenCanvas test: 2d.path.clip.intersect
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.clip.unaffected.html
-  FAIL      OffscreenCanvas test: 2d.path.clip.unaffected
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.clip.winding.1.html
-  FAIL      OffscreenCanvas test: 2d.path.clip.winding.1
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.clip.winding.2.html
-  FAIL      OffscreenCanvas test: 2d.path.clip.winding.2
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.clip.winding.evenodd.1.html
-  FAIL      evenodd winding number rule works in clip
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.clip.basic.1.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.clip.basic.2.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.clip.empty.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.clip.intersect.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.clip.unaffected.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.clip.winding.1.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.clip.winding.2.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.clip.winding.evenodd.1.html
 OK           0/1  html/canvas/offscreen/path-objects/2d.path.clip.winding.evenodd.2.html
   FAIL      evenodd winding number rule works in clip
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.closePath.empty.html
-  FAIL      OffscreenCanvas test: 2d.path.closePath.empty
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.closePath.newline.html
-  FAIL      OffscreenCanvas test: 2d.path.closePath.newline
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.closePath.nextpoint.html
-  FAIL      OffscreenCanvas test: 2d.path.closePath.nextpoint
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.closePath.empty.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.closePath.newline.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.closePath.nextpoint.html
 OK           0/1  html/canvas/offscreen/path-objects/2d.path.closed.arc.html
   FAIL      line caps should not be drawn on closed arcs
 OK           0/1  html/canvas/offscreen/path-objects/2d.path.ellipse.basics.html
   FAIL      Verify canvas throws error when drawing ellipse with negative radii.
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.fill.closed.basic.html
-  FAIL      OffscreenCanvas test: 2d.path.fill.closed.basic
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.fill.closed.unaffected.html
-  FAIL      OffscreenCanvas test: 2d.path.fill.closed.unaffected
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.fill.overlap.html
-  FAIL      OffscreenCanvas test: 2d.path.fill.overlap
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.fill.winding.add.html
-  FAIL      OffscreenCanvas test: 2d.path.fill.winding.add
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.fill.winding.evenodd.1.html
-  FAIL      evenodd winding number rule works in fill
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.fill.closed.basic.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.fill.closed.unaffected.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.fill.overlap.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.fill.winding.add.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.fill.winding.evenodd.1.html
 OK           0/1  html/canvas/offscreen/path-objects/2d.path.fill.winding.evenodd.2.html
   FAIL      evenodd winding number rule works in fill
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.fill.winding.subtract.1.html
-  FAIL      OffscreenCanvas test: 2d.path.fill.winding.subtract.1
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.fill.winding.subtract.2.html
-  FAIL      OffscreenCanvas test: 2d.path.fill.winding.subtract.2
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.fill.winding.subtract.3.html
-  FAIL      OffscreenCanvas test: 2d.path.fill.winding.subtract.3
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.initial.html
-  FAIL      OffscreenCanvas test: 2d.path.initial
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.fill.winding.subtract.1.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.fill.winding.subtract.2.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.fill.winding.subtract.3.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.initial.html
 OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.arc.html
   FAIL      isPointInPath() works on arcs
 OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.basic.1.html
@@ -1182,26 +1127,16 @@ OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInpath.inval
   FAIL      Verify isPointInPath throws exceptions with invalid inputs.
 OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInpath.multi.path.html
   FAIL      Verify the winding rule in isPointInPath works for path object.
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.lineTo.basic.html
-  FAIL      OffscreenCanvas test: 2d.path.lineTo.basic
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.lineTo.ensuresubpath.1.html
-  FAIL      If there is no subpath, the point is added and nothing is drawn
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.lineTo.ensuresubpath.2.html
-  FAIL      If there is no subpath, the point is added and used for subsequent drawing
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.lineTo.nextpoint.html
-  FAIL      OffscreenCanvas test: 2d.path.lineTo.nextpoint
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.lineTo.nonfinite.details.html
-  FAIL      lineTo() with Infinity/NaN for first arg still converts the second arg
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.lineTo.nonfinite.html
-  FAIL      lineTo() with Infinity/NaN is ignored
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.moveTo.basic.html
-  FAIL      OffscreenCanvas test: 2d.path.moveTo.basic
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.moveTo.multiple.html
-  FAIL      OffscreenCanvas test: 2d.path.moveTo.multiple
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.moveTo.newsubpath.html
-  FAIL      OffscreenCanvas test: 2d.path.moveTo.newsubpath
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.moveTo.nonfinite.html
-  FAIL      moveTo() with Infinity/NaN is ignored
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.lineTo.basic.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.lineTo.ensuresubpath.1.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.lineTo.ensuresubpath.2.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.lineTo.nextpoint.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.lineTo.nonfinite.details.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.lineTo.nonfinite.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.moveTo.basic.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.moveTo.multiple.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.moveTo.newsubpath.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.moveTo.nonfinite.html
 OK           0/1  html/canvas/offscreen/path-objects/2d.path.open.arc.html
   FAIL      line caps should be drawn on open arcs
 OK           0/1  html/canvas/offscreen/path-objects/2d.path.quadraticCurveTo.basic.html
@@ -1216,36 +1151,21 @@ OK           0/1  html/canvas/offscreen/path-objects/2d.path.quadraticCurveTo.sc
   FAIL      OffscreenCanvas test: 2d.path.quadraticCurveTo.scaled
 OK           0/1  html/canvas/offscreen/path-objects/2d.path.quadraticCurveTo.shape.html
   FAIL      OffscreenCanvas test: 2d.path.quadraticCurveTo.shape
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.rect.basic.html
-  FAIL      OffscreenCanvas test: 2d.path.rect.basic
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.rect.closed.html
-  FAIL      OffscreenCanvas test: 2d.path.rect.closed
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.rect.end.1.html
-  FAIL      OffscreenCanvas test: 2d.path.rect.end.1
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.rect.end.2.html
-  FAIL      OffscreenCanvas test: 2d.path.rect.end.2
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.rect.negative.html
-  FAIL      OffscreenCanvas test: 2d.path.rect.negative
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.rect.newsubpath.html
-  FAIL      OffscreenCanvas test: 2d.path.rect.newsubpath
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.rect.nonfinite.html
-  FAIL      rect() with Infinity/NaN is ignored
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.rect.selfintersect.html
-  FAIL      OffscreenCanvas test: 2d.path.rect.selfintersect
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.rect.winding.html
-  FAIL      OffscreenCanvas test: 2d.path.rect.winding
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.rect.zero.1.html
-  FAIL      OffscreenCanvas test: 2d.path.rect.zero.1
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.rect.zero.2.html
-  FAIL      OffscreenCanvas test: 2d.path.rect.zero.2
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.rect.zero.3.html
-  FAIL      OffscreenCanvas test: 2d.path.rect.zero.3
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.rect.zero.4.html
-  FAIL      OffscreenCanvas test: 2d.path.rect.zero.4
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.rect.zero.5.html
-  FAIL      OffscreenCanvas test: 2d.path.rect.zero.5
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.rect.zero.6.html
-  FAIL      OffscreenCanvas test: 2d.path.rect.zero.6
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.rect.basic.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.rect.closed.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.rect.end.1.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.rect.end.2.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.rect.negative.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.rect.newsubpath.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.rect.nonfinite.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.rect.selfintersect.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.rect.winding.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.rect.zero.1.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.rect.zero.2.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.rect.zero.3.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.rect.zero.4.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.rect.zero.5.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.rect.zero.6.html
 OK           0/1  html/canvas/offscreen/path-objects/2d.path.roundrect.1.radius.dompoint.html
   FAIL      Verify that when one radius is given to roundRect(), specified as a DOMPoint, it applies to all corners.
 OK           0/1  html/canvas/offscreen/path-objects/2d.path.roundrect.1.radius.dompoint.single.argument.html
@@ -1358,38 +1278,25 @@ OK           0/1  html/canvas/offscreen/path-objects/2d.path.roundrect.zero.5.ht
   FAIL      OffscreenCanvas test: 2d.path.roundrect.zero.5
 OK           0/1  html/canvas/offscreen/path-objects/2d.path.roundrect.zero.6.html
   FAIL      OffscreenCanvas test: 2d.path.roundrect.zero.6
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.stroke.empty.html
-  FAIL      Empty subpaths are not stroked
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.stroke.overlap.html
-  FAIL      Stroked subpaths are combined before being drawn
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.stroke.empty.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.stroke.overlap.html
 OK           0/1  html/canvas/offscreen/path-objects/2d.path.stroke.prune.arc.html
   FAIL      Zero-length line segments from arcTo and arc are removed before stroking
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.stroke.prune.closed.html
-  FAIL      Zero-length line segments from closed paths are removed before stroking
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.stroke.prune.closed.html
 OK           0/1  html/canvas/offscreen/path-objects/2d.path.stroke.prune.corner.html
   FAIL      Zero-length line segments are removed before stroking with miters
 OK           0/1  html/canvas/offscreen/path-objects/2d.path.stroke.prune.curve.html
   FAIL      Zero-length line segments from quadraticCurveTo and bezierCurveTo are removed before stroking
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.stroke.prune.line.html
-  FAIL      Zero-length line segments from lineTo are removed before stroking
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.stroke.prune.rect.html
-  FAIL      Zero-length line segments from rect and strokeRect are removed before stroking
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.stroke.scale1.html
-  FAIL      Stroke line widths are scaled by the current transformation matrix
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.stroke.scale2.html
-  FAIL      Stroke line widths are scaled by the current transformation matrix
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.stroke.skew.html
-  FAIL      Strokes lines are skewed by the current transformation matrix
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.stroke.unaffected.html
-  FAIL      Stroking does not start a new path or subpath
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.stroke.union.html
-  FAIL      Strokes in opposite directions are unioned, not subtracted
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.transformation.basic.html
-  FAIL      OffscreenCanvas test: 2d.path.transformation.basic
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.transformation.changing.html
-  FAIL      Transformations are applied while building paths, not when drawing
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.transformation.multiple.html
-  FAIL      Transformations are applied while building paths, not when drawing
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.stroke.prune.line.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.stroke.prune.rect.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.stroke.scale1.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.stroke.scale2.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.stroke.skew.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.stroke.unaffected.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.stroke.union.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.transformation.basic.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.transformation.changing.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.transformation.multiple.html
 OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.create1.basic.html
 OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.create1.initial.html
 OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.create1.zero.html
@@ -1424,8 +1331,7 @@ OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.roun
 OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.source.negative.html
 OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.source.outside.html
 OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.source.size.html
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.unaffected.html
-  FAIL      getImageData() is not affected by context state
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.unaffected.html
 OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.zero.html
 OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.object.clamp.html
 OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.object.nan.html
@@ -1439,8 +1345,7 @@ OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.alph
 OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.basic.html
 OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.basic.rgba.float16.html
   FAIL      putImageData() puts 16-bit floating point image data from getImageData() onto the canvas
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.clip.html
-  FAIL      putImageData() is not affected by clipping regions
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.clip.html
 OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.created.html
 OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.cross.html
 OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.dirty.negative.html
@@ -1451,8 +1356,7 @@ OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.dirt
 OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.modified.html
 OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.nonfinite.html
 OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.null.html
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.path.html
-  FAIL      putImageData() does not affect the current path
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.path.html
 OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.unaffected.html
 OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.unchanged.html
 OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.wrongtype.html
@@ -1546,8 +1450,7 @@ OK           0/1  html/canvas/offscreen/shadows/2d.shadow.canvas.transparent.2.h
   FAIL      Shadows are not drawn for transparent parts of canvases
 OK           0/1  html/canvas/offscreen/shadows/2d.shadow.clip.1.html
   FAIL      Shadows of clipped shapes are still drawn within the clipping region
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.clip.2.html
-  FAIL      Shadows are not drawn outside the clipping region
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.clip.2.html
 OK           0/1  html/canvas/offscreen/shadows/2d.shadow.clip.3.html
   FAIL      Shadows of clipped shapes are still drawn within the clipping region
 OK           1/1  html/canvas/offscreen/shadows/2d.shadow.composite.1.html
@@ -1601,16 +1504,13 @@ OK           0/1  html/canvas/offscreen/shadows/2d.shadow.pattern.transparent.2.
   FAIL      Shadows are not drawn for transparent parts of fill patterns
 OK           0/1  html/canvas/offscreen/shadows/2d.shadow.stroke.basic.html
   FAIL      Shadows are drawn for strokes
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.stroke.cap.1.html
-  FAIL      Shadows are not drawn for areas outside stroke caps
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.stroke.cap.1.html
 OK           0/1  html/canvas/offscreen/shadows/2d.shadow.stroke.cap.2.html
   FAIL      Shadows are drawn for stroke caps
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.stroke.join.1.html
-  FAIL      Shadows are not drawn for areas outside stroke joins
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.stroke.join.1.html
 OK           0/1  html/canvas/offscreen/shadows/2d.shadow.stroke.join.2.html
   FAIL      Shadows are drawn for stroke joins
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.stroke.join.3.html
-  FAIL      Shadows are drawn for stroke joins respecting miter limit
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.stroke.join.3.html
 OK           0/1  html/canvas/offscreen/shadows/2d.shadow.transform.1.html
   FAIL      Shadows take account of transformations
 OK           0/1  html/canvas/offscreen/shadows/2d.shadow.transform.2.html
@@ -2005,10 +1905,8 @@ OK          0/24  html/canvas/offscreen/text/2d.text.shape.selection-rects.tenta
 OK           0/1  html/canvas/offscreen/text/2d.text.shape.strokeGlyphRun-range.tentative.html
   FAIL      Test that glyphClusters(start, end) and strokeGlyphRuns() correctly render different ranges of the input text.
 OK           1/1  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.bitmap.html
-OK           0/1  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.clip.2.html
-  FAIL      save()/restore() affects the clipping path
-OK           0/1  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.clip.html
-  FAIL      save()/restore() affects the clipping path
+OK           1/1  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.clip.2.html
+OK           1/1  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.clip.html
 OK           4/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.fillStyle.html
 OK           4/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.globalAlpha.html
 OK           2/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.globalCompositeOperation.html
@@ -2024,8 +1922,7 @@ OK           4/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.li
 OK           2/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.miterLimit.html
   FAIL      save()/restore() restores miterLimit, for a canvas of size (300, 150).
   FAIL      save()/restore() restores miterLimit, for a canvas of size (0, 0).
-OK           0/1  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.path.html
-  FAIL      save()/restore() does not affect the current path
+OK           1/1  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.path.html
 OK           2/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.shadowBlur.html
   FAIL      save()/restore() restores shadowBlur, for a canvas of size (300, 150).
   FAIL      save()/restore() restores shadowBlur, for a canvas of size (0, 0).
@@ -2056,13 +1953,11 @@ OK           1/1  html/canvas/offscreen/transformations/2d.transformation.scale.
 OK           1/1  html/canvas/offscreen/transformations/2d.transformation.scale.zero.html
 OK           1/1  html/canvas/offscreen/transformations/2d.transformation.setTransform.multiple.html
 OK           1/1  html/canvas/offscreen/transformations/2d.transformation.setTransform.nonfinite.html
-OK           0/1  html/canvas/offscreen/transformations/2d.transformation.setTransform.skewed.html
-  FAIL      OffscreenCanvas test: 2d.transformation.setTransform.skewed
+OK           1/1  html/canvas/offscreen/transformations/2d.transformation.setTransform.skewed.html
 OK           1/1  html/canvas/offscreen/transformations/2d.transformation.transform.identity.html
 OK           1/1  html/canvas/offscreen/transformations/2d.transformation.transform.multiply.html
 OK           1/1  html/canvas/offscreen/transformations/2d.transformation.transform.nonfinite.html
-OK           0/1  html/canvas/offscreen/transformations/2d.transformation.transform.skewed.html
-  FAIL      transform() with skewy matrix transforms correctly
+OK           1/1  html/canvas/offscreen/transformations/2d.transformation.transform.skewed.html
 OK           1/1  html/canvas/offscreen/transformations/2d.transformation.translate.basic.html
 OK           1/1  html/canvas/offscreen/transformations/2d.transformation.translate.nonfinite.html
 OK           0/4  html/canvas/offscreen/wide-gamut-canvas/2d.color.space.getImageData.convert.html
