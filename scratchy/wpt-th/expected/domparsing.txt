@@ -530,9 +530,591 @@ OK          0/91  domparsing/positional-html-into-script-safe.html
   FAIL      NonDocumentTypeChildNode.afterHTMLUnsafe() on child of HTML script element is not a no-op
   FAIL      NonDocumentTypeChildNode.replaceWithHTMLUnsafe() on child of HTML script element is not a no-op
   FAIL      Element.setHTML() on script element in non-HTML, non-SVG namespace is not a no-op
-ERROR        0/0  domparsing/positional-methods-with-parser-options.html
-ERROR        0/0  domparsing/positional-methods-with-trusted-types-no-createParserOptions.html
-ERROR        0/0  domparsing/positional-methods-with-trusted-types.html
+OK       105/284  domparsing/positional-methods-with-parser-options.html
+  FAIL      Policies determine runScripts: Element.beforeHTML (runScripts=true => true)
+  FAIL      Policies determine runScripts: Element.beforeHTML (runScripts=true => false)
+  FAIL      Policies determine runScripts: Element.beforeHTML (runScripts=false => true)
+  FAIL      Policies determine runScripts: Element.beforeHTML (runScripts=false => false)
+  FAIL      Policies determine runScripts: Element.beforeHTMLUnsafe (runScripts=true => true)
+  FAIL      Policies determine runScripts: Element.beforeHTMLUnsafe (runScripts=true => false)
+  FAIL      Policies determine runScripts: Element.beforeHTMLUnsafe (runScripts=false => true)
+  FAIL      Policies determine runScripts: Element.beforeHTMLUnsafe (runScripts=false => false)
+  FAIL      Policy can inject sanitizer: Element.beforeHTMLUnsafe
+  FAIL      createParserOptions runs and injects sanitizer even when TrustedHTML is passed: Element.beforeHTMLUnsafe
+  FAIL      TrustedHTMLParserOptions overrides default policy: Element.beforeHTMLUnsafe
+  FAIL      Policies determine runScripts: Element.afterHTML (runScripts=true => true)
+  FAIL      Policies determine runScripts: Element.afterHTML (runScripts=true => false)
+  FAIL      Policies determine runScripts: Element.afterHTML (runScripts=false => true)
+  FAIL      Policies determine runScripts: Element.afterHTML (runScripts=false => false)
+  FAIL      Policies determine runScripts: Element.afterHTMLUnsafe (runScripts=true => true)
+  FAIL      Policies determine runScripts: Element.afterHTMLUnsafe (runScripts=true => false)
+  FAIL      Policies determine runScripts: Element.afterHTMLUnsafe (runScripts=false => true)
+  FAIL      Policies determine runScripts: Element.afterHTMLUnsafe (runScripts=false => false)
+  FAIL      Policy can inject sanitizer: Element.afterHTMLUnsafe
+  FAIL      createParserOptions runs and injects sanitizer even when TrustedHTML is passed: Element.afterHTMLUnsafe
+  FAIL      TrustedHTMLParserOptions overrides default policy: Element.afterHTMLUnsafe
+  FAIL      Policies determine runScripts: Element.replaceWithHTML (runScripts=true => true)
+  FAIL      Policies determine runScripts: Element.replaceWithHTML (runScripts=true => false)
+  FAIL      Policies determine runScripts: Element.replaceWithHTML (runScripts=false => true)
+  FAIL      Policies determine runScripts: Element.replaceWithHTML (runScripts=false => false)
+  FAIL      Policies determine runScripts: Element.replaceWithHTMLUnsafe (runScripts=true => true)
+  FAIL      Policies determine runScripts: Element.replaceWithHTMLUnsafe (runScripts=true => false)
+  FAIL      Policies determine runScripts: Element.replaceWithHTMLUnsafe (runScripts=false => true)
+  FAIL      Policies determine runScripts: Element.replaceWithHTMLUnsafe (runScripts=false => false)
+  FAIL      Policy can inject sanitizer: Element.replaceWithHTMLUnsafe
+  FAIL      createParserOptions runs and injects sanitizer even when TrustedHTML is passed: Element.replaceWithHTMLUnsafe
+  FAIL      TrustedHTMLParserOptions overrides default policy: Element.replaceWithHTMLUnsafe
+  FAIL      Policies determine runScripts: Element.appendHTML (runScripts=true => true)
+  FAIL      Policies determine runScripts: Element.appendHTML (runScripts=true => false)
+  FAIL      Policies determine runScripts: Element.appendHTML (runScripts=false => true)
+  FAIL      Policies determine runScripts: Element.appendHTML (runScripts=false => false)
+  FAIL      Policies determine runScripts: Element.appendHTMLUnsafe (runScripts=true => true)
+  FAIL      Policies determine runScripts: Element.appendHTMLUnsafe (runScripts=true => false)
+  FAIL      Policies determine runScripts: Element.appendHTMLUnsafe (runScripts=false => true)
+  FAIL      Policies determine runScripts: Element.appendHTMLUnsafe (runScripts=false => false)
+  FAIL      Policy can inject sanitizer: Element.appendHTMLUnsafe
+  FAIL      createParserOptions runs and injects sanitizer even when TrustedHTML is passed: Element.appendHTMLUnsafe
+  FAIL      TrustedHTMLParserOptions overrides default policy: Element.appendHTMLUnsafe
+  FAIL      Policies determine runScripts: Element.prependHTML (runScripts=true => true)
+  FAIL      Policies determine runScripts: Element.prependHTML (runScripts=true => false)
+  FAIL      Policies determine runScripts: Element.prependHTML (runScripts=false => true)
+  FAIL      Policies determine runScripts: Element.prependHTML (runScripts=false => false)
+  FAIL      Policies determine runScripts: Element.prependHTMLUnsafe (runScripts=true => true)
+  FAIL      Policies determine runScripts: Element.prependHTMLUnsafe (runScripts=true => false)
+  FAIL      Policies determine runScripts: Element.prependHTMLUnsafe (runScripts=false => true)
+  FAIL      Policies determine runScripts: Element.prependHTMLUnsafe (runScripts=false => false)
+  FAIL      Policy can inject sanitizer: Element.prependHTMLUnsafe
+  FAIL      createParserOptions runs and injects sanitizer even when TrustedHTML is passed: Element.prependHTMLUnsafe
+  FAIL      TrustedHTMLParserOptions overrides default policy: Element.prependHTMLUnsafe
+  FAIL      Policies determine runScripts: ShadowRoot.beforeHTML (runScripts=true => true)
+  FAIL      Policies determine runScripts: ShadowRoot.beforeHTML (runScripts=true => false)
+  FAIL      Policies determine runScripts: ShadowRoot.beforeHTML (runScripts=false => true)
+  FAIL      Policies determine runScripts: ShadowRoot.beforeHTML (runScripts=false => false)
+  FAIL      Policies determine runScripts: ShadowRoot.beforeHTMLUnsafe (runScripts=true => true)
+  FAIL      Policies determine runScripts: ShadowRoot.beforeHTMLUnsafe (runScripts=true => false)
+  FAIL      Policies determine runScripts: ShadowRoot.beforeHTMLUnsafe (runScripts=false => true)
+  FAIL      Policies determine runScripts: ShadowRoot.beforeHTMLUnsafe (runScripts=false => false)
+  FAIL      Policy can inject sanitizer: ShadowRoot.beforeHTMLUnsafe
+  FAIL      createParserOptions runs and injects sanitizer even when TrustedHTML is passed: ShadowRoot.beforeHTMLUnsafe
+  FAIL      TrustedHTMLParserOptions overrides default policy: ShadowRoot.beforeHTMLUnsafe
+  FAIL      Policies determine runScripts: ShadowRoot.afterHTML (runScripts=true => true)
+  FAIL      Policies determine runScripts: ShadowRoot.afterHTML (runScripts=true => false)
+  FAIL      Policies determine runScripts: ShadowRoot.afterHTML (runScripts=false => true)
+  FAIL      Policies determine runScripts: ShadowRoot.afterHTML (runScripts=false => false)
+  FAIL      Policies determine runScripts: ShadowRoot.afterHTMLUnsafe (runScripts=true => true)
+  FAIL      Policies determine runScripts: ShadowRoot.afterHTMLUnsafe (runScripts=true => false)
+  FAIL      Policies determine runScripts: ShadowRoot.afterHTMLUnsafe (runScripts=false => true)
+  FAIL      Policies determine runScripts: ShadowRoot.afterHTMLUnsafe (runScripts=false => false)
+  FAIL      Policy can inject sanitizer: ShadowRoot.afterHTMLUnsafe
+  FAIL      createParserOptions runs and injects sanitizer even when TrustedHTML is passed: ShadowRoot.afterHTMLUnsafe
+  FAIL      TrustedHTMLParserOptions overrides default policy: ShadowRoot.afterHTMLUnsafe
+  FAIL      Policies determine runScripts: ShadowRoot.replaceWithHTML (runScripts=true => true)
+  FAIL      Policies determine runScripts: ShadowRoot.replaceWithHTML (runScripts=true => false)
+  FAIL      Policies determine runScripts: ShadowRoot.replaceWithHTML (runScripts=false => true)
+  FAIL      Policies determine runScripts: ShadowRoot.replaceWithHTML (runScripts=false => false)
+  FAIL      Policies determine runScripts: ShadowRoot.replaceWithHTMLUnsafe (runScripts=true => true)
+  FAIL      Policies determine runScripts: ShadowRoot.replaceWithHTMLUnsafe (runScripts=true => false)
+  FAIL      Policies determine runScripts: ShadowRoot.replaceWithHTMLUnsafe (runScripts=false => true)
+  FAIL      Policies determine runScripts: ShadowRoot.replaceWithHTMLUnsafe (runScripts=false => false)
+  FAIL      Policy can inject sanitizer: ShadowRoot.replaceWithHTMLUnsafe
+  FAIL      createParserOptions runs and injects sanitizer even when TrustedHTML is passed: ShadowRoot.replaceWithHTMLUnsafe
+  FAIL      TrustedHTMLParserOptions overrides default policy: ShadowRoot.replaceWithHTMLUnsafe
+  FAIL      Policies determine runScripts: ShadowRoot.appendHTML (runScripts=true => true)
+  FAIL      Policies determine runScripts: ShadowRoot.appendHTML (runScripts=true => false)
+  FAIL      Policies determine runScripts: ShadowRoot.appendHTML (runScripts=false => true)
+  FAIL      Policies determine runScripts: ShadowRoot.appendHTML (runScripts=false => false)
+  FAIL      Policies determine runScripts: ShadowRoot.appendHTMLUnsafe (runScripts=true => true)
+  FAIL      Policies determine runScripts: ShadowRoot.appendHTMLUnsafe (runScripts=true => false)
+  FAIL      Policies determine runScripts: ShadowRoot.appendHTMLUnsafe (runScripts=false => true)
+  FAIL      Policies determine runScripts: ShadowRoot.appendHTMLUnsafe (runScripts=false => false)
+  FAIL      Policy can inject sanitizer: ShadowRoot.appendHTMLUnsafe
+  FAIL      createParserOptions runs and injects sanitizer even when TrustedHTML is passed: ShadowRoot.appendHTMLUnsafe
+  FAIL      TrustedHTMLParserOptions overrides default policy: ShadowRoot.appendHTMLUnsafe
+  FAIL      Policies determine runScripts: ShadowRoot.prependHTML (runScripts=true => true)
+  FAIL      Policies determine runScripts: ShadowRoot.prependHTML (runScripts=true => false)
+  FAIL      Policies determine runScripts: ShadowRoot.prependHTML (runScripts=false => true)
+  FAIL      Policies determine runScripts: ShadowRoot.prependHTML (runScripts=false => false)
+  FAIL      Policies determine runScripts: ShadowRoot.prependHTMLUnsafe (runScripts=true => true)
+  FAIL      Policies determine runScripts: ShadowRoot.prependHTMLUnsafe (runScripts=true => false)
+  FAIL      Policies determine runScripts: ShadowRoot.prependHTMLUnsafe (runScripts=false => true)
+  FAIL      Policies determine runScripts: ShadowRoot.prependHTMLUnsafe (runScripts=false => false)
+  FAIL      Policy can inject sanitizer: ShadowRoot.prependHTMLUnsafe
+  FAIL      createParserOptions runs and injects sanitizer even when TrustedHTML is passed: ShadowRoot.prependHTMLUnsafe
+  FAIL      TrustedHTMLParserOptions overrides default policy: ShadowRoot.prependHTMLUnsafe
+  FAIL      Policies determine runScripts: template.content.beforeHTML (runScripts=true => true)
+  FAIL      Policies determine runScripts: template.content.beforeHTML (runScripts=true => false)
+  FAIL      Policies determine runScripts: template.content.beforeHTML (runScripts=false => true)
+  FAIL      Policies determine runScripts: template.content.beforeHTML (runScripts=false => false)
+  FAIL      Policies determine runScripts: template.content.beforeHTMLUnsafe (runScripts=true => true)
+  FAIL      Policies determine runScripts: template.content.beforeHTMLUnsafe (runScripts=true => false)
+  FAIL      Policies determine runScripts: template.content.beforeHTMLUnsafe (runScripts=false => true)
+  FAIL      Policies determine runScripts: template.content.beforeHTMLUnsafe (runScripts=false => false)
+  FAIL      Policy can inject sanitizer: template.content.beforeHTMLUnsafe
+  FAIL      createParserOptions runs and injects sanitizer even when TrustedHTML is passed: template.content.beforeHTMLUnsafe
+  FAIL      TrustedHTMLParserOptions overrides default policy: template.content.beforeHTMLUnsafe
+  FAIL      Policies determine runScripts: template.content.afterHTML (runScripts=true => true)
+  FAIL      Policies determine runScripts: template.content.afterHTML (runScripts=true => false)
+  FAIL      Policies determine runScripts: template.content.afterHTML (runScripts=false => true)
+  FAIL      Policies determine runScripts: template.content.afterHTML (runScripts=false => false)
+  FAIL      Policies determine runScripts: template.content.afterHTMLUnsafe (runScripts=true => true)
+  FAIL      Policies determine runScripts: template.content.afterHTMLUnsafe (runScripts=true => false)
+  FAIL      Policies determine runScripts: template.content.afterHTMLUnsafe (runScripts=false => true)
+  FAIL      Policies determine runScripts: template.content.afterHTMLUnsafe (runScripts=false => false)
+  FAIL      Policy can inject sanitizer: template.content.afterHTMLUnsafe
+  FAIL      createParserOptions runs and injects sanitizer even when TrustedHTML is passed: template.content.afterHTMLUnsafe
+  FAIL      TrustedHTMLParserOptions overrides default policy: template.content.afterHTMLUnsafe
+  FAIL      Policies determine runScripts: template.content.replaceWithHTML (runScripts=true => true)
+  FAIL      Policies determine runScripts: template.content.replaceWithHTML (runScripts=true => false)
+  FAIL      Policies determine runScripts: template.content.replaceWithHTML (runScripts=false => true)
+  FAIL      Policies determine runScripts: template.content.replaceWithHTML (runScripts=false => false)
+  FAIL      Policies determine runScripts: template.content.replaceWithHTMLUnsafe (runScripts=true => true)
+  FAIL      Policies determine runScripts: template.content.replaceWithHTMLUnsafe (runScripts=true => false)
+  FAIL      Policies determine runScripts: template.content.replaceWithHTMLUnsafe (runScripts=false => true)
+  FAIL      Policies determine runScripts: template.content.replaceWithHTMLUnsafe (runScripts=false => false)
+  FAIL      Policy can inject sanitizer: template.content.replaceWithHTMLUnsafe
+  FAIL      createParserOptions runs and injects sanitizer even when TrustedHTML is passed: template.content.replaceWithHTMLUnsafe
+  FAIL      TrustedHTMLParserOptions overrides default policy: template.content.replaceWithHTMLUnsafe
+  FAIL      Policies determine runScripts: template.content.appendHTML (runScripts=true => true)
+  FAIL      Policies determine runScripts: template.content.appendHTML (runScripts=true => false)
+  FAIL      Policies determine runScripts: template.content.appendHTML (runScripts=false => true)
+  FAIL      Policies determine runScripts: template.content.appendHTML (runScripts=false => false)
+  FAIL      Policies determine runScripts: template.content.appendHTMLUnsafe (runScripts=true => true)
+  FAIL      Policies determine runScripts: template.content.appendHTMLUnsafe (runScripts=true => false)
+  FAIL      Policies determine runScripts: template.content.appendHTMLUnsafe (runScripts=false => true)
+  FAIL      Policies determine runScripts: template.content.appendHTMLUnsafe (runScripts=false => false)
+  FAIL      Policy can inject sanitizer: template.content.appendHTMLUnsafe
+  FAIL      createParserOptions runs and injects sanitizer even when TrustedHTML is passed: template.content.appendHTMLUnsafe
+  FAIL      TrustedHTMLParserOptions overrides default policy: template.content.appendHTMLUnsafe
+  FAIL      Policies determine runScripts: template.content.prependHTML (runScripts=true => true)
+  FAIL      Policies determine runScripts: template.content.prependHTML (runScripts=true => false)
+  FAIL      Policies determine runScripts: template.content.prependHTML (runScripts=false => true)
+  FAIL      Policies determine runScripts: template.content.prependHTML (runScripts=false => false)
+  FAIL      Policies determine runScripts: template.content.prependHTMLUnsafe (runScripts=true => true)
+  FAIL      Policies determine runScripts: template.content.prependHTMLUnsafe (runScripts=true => false)
+  FAIL      Policies determine runScripts: template.content.prependHTMLUnsafe (runScripts=false => true)
+  FAIL      Policies determine runScripts: template.content.prependHTMLUnsafe (runScripts=false => false)
+  FAIL      Policy can inject sanitizer: template.content.prependHTMLUnsafe
+  FAIL      createParserOptions runs and injects sanitizer even when TrustedHTML is passed: template.content.prependHTMLUnsafe
+  FAIL      TrustedHTMLParserOptions overrides default policy: template.content.prependHTMLUnsafe
+  FAIL      Comment.beforeHTMLUnsafe passes a "Node" sink name to createParserOptions
+  FAIL      Comment.afterHTMLUnsafe passes a "Node" sink name to createParserOptions
+  FAIL      Comment.replaceWithHTMLUnsafe passes a "Node" sink name to createParserOptions
+  FAIL      Text.beforeHTMLUnsafe passes a "Node" sink name to createParserOptions
+  FAIL      Text.afterHTMLUnsafe passes a "Node" sink name to createParserOptions
+  FAIL      Text.replaceWithHTMLUnsafe passes a "Node" sink name to createParserOptions
+  FAIL      ProcessingInstruction.beforeHTMLUnsafe passes a "Node" sink name to createParserOptions
+  FAIL      ProcessingInstruction.afterHTMLUnsafe passes a "Node" sink name to createParserOptions
+  FAIL      ProcessingInstruction.replaceWithHTMLUnsafe passes a "Node" sink name to createParserOptions
+  FAIL      beforeHTMLUnsafe checks createParserOptions before hierarchy checks
+  FAIL      afterHTMLUnsafe checks createParserOptions before hierarchy checks
+  FAIL      replaceWithHTMLUnsafe checks createParserOptions before hierarchy checks
+  FAIL      appendHTMLUnsafe checks createParserOptions before hierarchy checks
+  FAIL      prependHTMLUnsafe checks createParserOptions before hierarchy checks
+OK        90/180  domparsing/positional-methods-with-trusted-types-no-createParserOptions.html
+  FAIL      Element.beforeHTML does not throw with vetting-free options and no createParserOptions in the default policy
+  FAIL      Element.beforeHTMLUnsafe does not throw with vetting-free options and no createParserOptions in the default policy
+  FAIL      Element.beforeHTMLUnsafe does not throw with TrustedHTML and vetting-free options when default policy lacks createParserOptions
+  FAIL      Element.beforeHTMLUnsafe throws TypeError with string and unvetted options { sanitizer: new Sanitizer() } when default policy lacks createParserOptions
+  FAIL      Element.beforeHTMLUnsafe throws TypeError with TrustedHTML and unvetted options { sanitizer: new Sanitizer() } when default policy lacks createParserOptions
+  FAIL      Element.beforeHTMLUnsafe does not throw or call createHTML when passed TrustedHTMLParserOptions
+  FAIL      Element.afterHTML does not throw with vetting-free options and no createParserOptions in the default policy
+  FAIL      Element.afterHTMLUnsafe does not throw with vetting-free options and no createParserOptions in the default policy
+  FAIL      Element.afterHTMLUnsafe does not throw with TrustedHTML and vetting-free options when default policy lacks createParserOptions
+  FAIL      Element.afterHTMLUnsafe throws TypeError with string and unvetted options { sanitizer: new Sanitizer() } when default policy lacks createParserOptions
+  FAIL      Element.afterHTMLUnsafe throws TypeError with TrustedHTML and unvetted options { sanitizer: new Sanitizer() } when default policy lacks createParserOptions
+  FAIL      Element.afterHTMLUnsafe does not throw or call createHTML when passed TrustedHTMLParserOptions
+  FAIL      Element.replaceWithHTML does not throw with vetting-free options and no createParserOptions in the default policy
+  FAIL      Element.replaceWithHTMLUnsafe does not throw with vetting-free options and no createParserOptions in the default policy
+  FAIL      Element.replaceWithHTMLUnsafe does not throw with TrustedHTML and vetting-free options when default policy lacks createParserOptions
+  FAIL      Element.replaceWithHTMLUnsafe throws TypeError with string and unvetted options { sanitizer: new Sanitizer() } when default policy lacks createParserOptions
+  FAIL      Element.replaceWithHTMLUnsafe throws TypeError with TrustedHTML and unvetted options { sanitizer: new Sanitizer() } when default policy lacks createParserOptions
+  FAIL      Element.replaceWithHTMLUnsafe does not throw or call createHTML when passed TrustedHTMLParserOptions
+  FAIL      Element.appendHTML does not throw with vetting-free options and no createParserOptions in the default policy
+  FAIL      Element.appendHTMLUnsafe does not throw with vetting-free options and no createParserOptions in the default policy
+  FAIL      Element.appendHTMLUnsafe does not throw with TrustedHTML and vetting-free options when default policy lacks createParserOptions
+  FAIL      Element.appendHTMLUnsafe throws TypeError with string and unvetted options { sanitizer: new Sanitizer() } when default policy lacks createParserOptions
+  FAIL      Element.appendHTMLUnsafe throws TypeError with TrustedHTML and unvetted options { sanitizer: new Sanitizer() } when default policy lacks createParserOptions
+  FAIL      Element.appendHTMLUnsafe does not throw or call createHTML when passed TrustedHTMLParserOptions
+  FAIL      Element.prependHTML does not throw with vetting-free options and no createParserOptions in the default policy
+  FAIL      Element.prependHTMLUnsafe does not throw with vetting-free options and no createParserOptions in the default policy
+  FAIL      Element.prependHTMLUnsafe does not throw with TrustedHTML and vetting-free options when default policy lacks createParserOptions
+  FAIL      Element.prependHTMLUnsafe throws TypeError with string and unvetted options { sanitizer: new Sanitizer() } when default policy lacks createParserOptions
+  FAIL      Element.prependHTMLUnsafe throws TypeError with TrustedHTML and unvetted options { sanitizer: new Sanitizer() } when default policy lacks createParserOptions
+  FAIL      Element.prependHTMLUnsafe does not throw or call createHTML when passed TrustedHTMLParserOptions
+  FAIL      ShadowRoot.beforeHTML does not throw with vetting-free options and no createParserOptions in the default policy
+  FAIL      ShadowRoot.beforeHTMLUnsafe does not throw with vetting-free options and no createParserOptions in the default policy
+  FAIL      ShadowRoot.beforeHTMLUnsafe does not throw with TrustedHTML and vetting-free options when default policy lacks createParserOptions
+  FAIL      ShadowRoot.beforeHTMLUnsafe throws TypeError with string and unvetted options { sanitizer: new Sanitizer() } when default policy lacks createParserOptions
+  FAIL      ShadowRoot.beforeHTMLUnsafe throws TypeError with TrustedHTML and unvetted options { sanitizer: new Sanitizer() } when default policy lacks createParserOptions
+  FAIL      ShadowRoot.beforeHTMLUnsafe does not throw or call createHTML when passed TrustedHTMLParserOptions
+  FAIL      ShadowRoot.afterHTML does not throw with vetting-free options and no createParserOptions in the default policy
+  FAIL      ShadowRoot.afterHTMLUnsafe does not throw with vetting-free options and no createParserOptions in the default policy
+  FAIL      ShadowRoot.afterHTMLUnsafe does not throw with TrustedHTML and vetting-free options when default policy lacks createParserOptions
+  FAIL      ShadowRoot.afterHTMLUnsafe throws TypeError with string and unvetted options { sanitizer: new Sanitizer() } when default policy lacks createParserOptions
+  FAIL      ShadowRoot.afterHTMLUnsafe throws TypeError with TrustedHTML and unvetted options { sanitizer: new Sanitizer() } when default policy lacks createParserOptions
+  FAIL      ShadowRoot.afterHTMLUnsafe does not throw or call createHTML when passed TrustedHTMLParserOptions
+  FAIL      ShadowRoot.replaceWithHTML does not throw with vetting-free options and no createParserOptions in the default policy
+  FAIL      ShadowRoot.replaceWithHTMLUnsafe does not throw with vetting-free options and no createParserOptions in the default policy
+  FAIL      ShadowRoot.replaceWithHTMLUnsafe does not throw with TrustedHTML and vetting-free options when default policy lacks createParserOptions
+  FAIL      ShadowRoot.replaceWithHTMLUnsafe throws TypeError with string and unvetted options { sanitizer: new Sanitizer() } when default policy lacks createParserOptions
+  FAIL      ShadowRoot.replaceWithHTMLUnsafe throws TypeError with TrustedHTML and unvetted options { sanitizer: new Sanitizer() } when default policy lacks createParserOptions
+  FAIL      ShadowRoot.replaceWithHTMLUnsafe does not throw or call createHTML when passed TrustedHTMLParserOptions
+  FAIL      ShadowRoot.appendHTML does not throw with vetting-free options and no createParserOptions in the default policy
+  FAIL      ShadowRoot.appendHTMLUnsafe does not throw with vetting-free options and no createParserOptions in the default policy
+  FAIL      ShadowRoot.appendHTMLUnsafe does not throw with TrustedHTML and vetting-free options when default policy lacks createParserOptions
+  FAIL      ShadowRoot.appendHTMLUnsafe throws TypeError with string and unvetted options { sanitizer: new Sanitizer() } when default policy lacks createParserOptions
+  FAIL      ShadowRoot.appendHTMLUnsafe throws TypeError with TrustedHTML and unvetted options { sanitizer: new Sanitizer() } when default policy lacks createParserOptions
+  FAIL      ShadowRoot.appendHTMLUnsafe does not throw or call createHTML when passed TrustedHTMLParserOptions
+  FAIL      ShadowRoot.prependHTML does not throw with vetting-free options and no createParserOptions in the default policy
+  FAIL      ShadowRoot.prependHTMLUnsafe does not throw with vetting-free options and no createParserOptions in the default policy
+  FAIL      ShadowRoot.prependHTMLUnsafe does not throw with TrustedHTML and vetting-free options when default policy lacks createParserOptions
+  FAIL      ShadowRoot.prependHTMLUnsafe throws TypeError with string and unvetted options { sanitizer: new Sanitizer() } when default policy lacks createParserOptions
+  FAIL      ShadowRoot.prependHTMLUnsafe throws TypeError with TrustedHTML and unvetted options { sanitizer: new Sanitizer() } when default policy lacks createParserOptions
+  FAIL      ShadowRoot.prependHTMLUnsafe does not throw or call createHTML when passed TrustedHTMLParserOptions
+  FAIL      template.content.beforeHTML does not throw with vetting-free options and no createParserOptions in the default policy
+  FAIL      template.content.beforeHTMLUnsafe does not throw with vetting-free options and no createParserOptions in the default policy
+  FAIL      template.content.beforeHTMLUnsafe does not throw with TrustedHTML and vetting-free options when default policy lacks createParserOptions
+  FAIL      template.content.beforeHTMLUnsafe throws TypeError with string and unvetted options { sanitizer: new Sanitizer() } when default policy lacks createParserOptions
+  FAIL      template.content.beforeHTMLUnsafe throws TypeError with TrustedHTML and unvetted options { sanitizer: new Sanitizer() } when default policy lacks createParserOptions
+  FAIL      template.content.beforeHTMLUnsafe does not throw or call createHTML when passed TrustedHTMLParserOptions
+  FAIL      template.content.afterHTML does not throw with vetting-free options and no createParserOptions in the default policy
+  FAIL      template.content.afterHTMLUnsafe does not throw with vetting-free options and no createParserOptions in the default policy
+  FAIL      template.content.afterHTMLUnsafe does not throw with TrustedHTML and vetting-free options when default policy lacks createParserOptions
+  FAIL      template.content.afterHTMLUnsafe throws TypeError with string and unvetted options { sanitizer: new Sanitizer() } when default policy lacks createParserOptions
+  FAIL      template.content.afterHTMLUnsafe throws TypeError with TrustedHTML and unvetted options { sanitizer: new Sanitizer() } when default policy lacks createParserOptions
+  FAIL      template.content.afterHTMLUnsafe does not throw or call createHTML when passed TrustedHTMLParserOptions
+  FAIL      template.content.replaceWithHTML does not throw with vetting-free options and no createParserOptions in the default policy
+  FAIL      template.content.replaceWithHTMLUnsafe does not throw with vetting-free options and no createParserOptions in the default policy
+  FAIL      template.content.replaceWithHTMLUnsafe does not throw with TrustedHTML and vetting-free options when default policy lacks createParserOptions
+  FAIL      template.content.replaceWithHTMLUnsafe throws TypeError with string and unvetted options { sanitizer: new Sanitizer() } when default policy lacks createParserOptions
+  FAIL      template.content.replaceWithHTMLUnsafe throws TypeError with TrustedHTML and unvetted options { sanitizer: new Sanitizer() } when default policy lacks createParserOptions
+  FAIL      template.content.replaceWithHTMLUnsafe does not throw or call createHTML when passed TrustedHTMLParserOptions
+  FAIL      template.content.appendHTML does not throw with vetting-free options and no createParserOptions in the default policy
+  FAIL      template.content.appendHTMLUnsafe does not throw with vetting-free options and no createParserOptions in the default policy
+  FAIL      template.content.appendHTMLUnsafe does not throw with TrustedHTML and vetting-free options when default policy lacks createParserOptions
+  FAIL      template.content.appendHTMLUnsafe throws TypeError with string and unvetted options { sanitizer: new Sanitizer() } when default policy lacks createParserOptions
+  FAIL      template.content.appendHTMLUnsafe throws TypeError with TrustedHTML and unvetted options { sanitizer: new Sanitizer() } when default policy lacks createParserOptions
+  FAIL      template.content.appendHTMLUnsafe does not throw or call createHTML when passed TrustedHTMLParserOptions
+  FAIL      template.content.prependHTML does not throw with vetting-free options and no createParserOptions in the default policy
+  FAIL      template.content.prependHTMLUnsafe does not throw with vetting-free options and no createParserOptions in the default policy
+  FAIL      template.content.prependHTMLUnsafe does not throw with TrustedHTML and vetting-free options when default policy lacks createParserOptions
+  FAIL      template.content.prependHTMLUnsafe throws TypeError with string and unvetted options { sanitizer: new Sanitizer() } when default policy lacks createParserOptions
+  FAIL      template.content.prependHTMLUnsafe throws TypeError with TrustedHTML and unvetted options { sanitizer: new Sanitizer() } when default policy lacks createParserOptions
+  FAIL      template.content.prependHTMLUnsafe does not throw or call createHTML when passed TrustedHTMLParserOptions
+OK        42/355  domparsing/positional-methods-with-trusted-types.html
+  FAIL      Comment.beforeHTMLUnsafe passes a "Node" sink name to the default policy
+  FAIL      Comment.afterHTMLUnsafe passes a "Node" sink name to the default policy
+  FAIL      Comment.replaceWithHTMLUnsafe passes a "Node" sink name to the default policy
+  FAIL      Text.beforeHTMLUnsafe passes a "Node" sink name to the default policy
+  FAIL      Text.afterHTMLUnsafe passes a "Node" sink name to the default policy
+  FAIL      Text.replaceWithHTMLUnsafe passes a "Node" sink name to the default policy
+  FAIL      ProcessingInstruction.beforeHTMLUnsafe passes a "Node" sink name to the default policy
+  FAIL      ProcessingInstruction.afterHTMLUnsafe passes a "Node" sink name to the default policy
+  FAIL      ProcessingInstruction.replaceWithHTMLUnsafe passes a "Node" sink name to the default policy
+  FAIL      NonDocumentTypeChildNode unsafe methods evaluate Trusted Types before checking if parent is null
+  FAIL      NonDocumentTypeChildNode unsafe methods evaluate Trusted Types before parent for HTML insertion checks
+  FAIL      beforeHTMLUnsafe evaluates Trusted Types before determining the parent
+  FAIL      afterHTMLUnsafe evaluates Trusted Types before determining the parent
+  FAIL      replaceWithHTMLUnsafe evaluates Trusted Types before determining the parent
+  FAIL      NonDocumentTypeChildNode unsafe methods throw HierarchyRequestError when parent is a Document
+  FAIL      Unsafe positional methods evaluate Trusted Types before html element HierarchyRequestError checks
+  FAIL      Unsafe positional methods throw HierarchyRequestError when parent or target is an html element
+  FAIL      prependHTMLUnsafe evaluates Trusted Types before determining the reference child
+  FAIL      afterHTMLUnsafe evaluates Trusted Types before determining the next sibling
+  FAIL      Element.appendHTML (Element) does not go via createHTML with expected sink name
+  FAIL      Element.appendHTML (Element) does not invoke the default policy
+  FAIL      Element.appendHTMLUnsafe (Element) goes via createHTML with expected sink name
+  FAIL      Element.appendHTMLUnsafe (Element) passes the correct sink name to the default policy's createHTML
+  FAIL      Element.appendHTMLUnsafe (Element) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Element.appendHTMLUnsafe (Element) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Element.appendHTMLUnsafe (Element) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Element.prependHTML (Element) does not go via createHTML with expected sink name
+  FAIL      Element.prependHTML (Element) does not invoke the default policy
+  FAIL      Element.prependHTMLUnsafe (Element) goes via createHTML with expected sink name
+  FAIL      Element.prependHTMLUnsafe (Element) passes the correct sink name to the default policy's createHTML
+  FAIL      Element.prependHTMLUnsafe (Element) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Element.prependHTMLUnsafe (Element) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Element.prependHTMLUnsafe (Element) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Element.beforeHTML (Element) does not go via createHTML with expected sink name
+  FAIL      Element.beforeHTML (Element) does not invoke the default policy
+  FAIL      Element.beforeHTMLUnsafe (Element) goes via createHTML with expected sink name
+  FAIL      Element.beforeHTMLUnsafe (Element) passes the correct sink name to the default policy's createHTML
+  FAIL      Element.beforeHTMLUnsafe (Element) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Element.beforeHTMLUnsafe (Element) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Element.beforeHTMLUnsafe (Element) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Element.afterHTML (Element) does not go via createHTML with expected sink name
+  FAIL      Element.afterHTML (Element) does not invoke the default policy
+  FAIL      Element.afterHTMLUnsafe (Element) goes via createHTML with expected sink name
+  FAIL      Element.afterHTMLUnsafe (Element) passes the correct sink name to the default policy's createHTML
+  FAIL      Element.afterHTMLUnsafe (Element) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Element.afterHTMLUnsafe (Element) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Element.afterHTMLUnsafe (Element) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Element.replaceWithHTML (Element) does not go via createHTML with expected sink name
+  FAIL      Element.replaceWithHTML (Element) does not invoke the default policy
+  FAIL      Element.replaceWithHTMLUnsafe (Element) goes via createHTML with expected sink name
+  FAIL      Element.replaceWithHTMLUnsafe (Element) passes the correct sink name to the default policy's createHTML
+  FAIL      Element.replaceWithHTMLUnsafe (Element) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Element.replaceWithHTMLUnsafe (Element) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Element.replaceWithHTMLUnsafe (Element) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Comment.beforeHTML (Element) does not go via createHTML with expected sink name
+  FAIL      Comment.beforeHTML (Element) does not invoke the default policy
+  FAIL      Comment.beforeHTMLUnsafe (Element) goes via createHTML with expected sink name
+  FAIL      Comment.beforeHTMLUnsafe (Element) passes the correct sink name to the default policy's createHTML
+  FAIL      Comment.beforeHTMLUnsafe (Element) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Comment.beforeHTMLUnsafe (Element) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Comment.beforeHTMLUnsafe (Element) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Comment.afterHTML (Element) does not go via createHTML with expected sink name
+  FAIL      Comment.afterHTML (Element) does not invoke the default policy
+  FAIL      Comment.afterHTMLUnsafe (Element) goes via createHTML with expected sink name
+  FAIL      Comment.afterHTMLUnsafe (Element) passes the correct sink name to the default policy's createHTML
+  FAIL      Comment.afterHTMLUnsafe (Element) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Comment.afterHTMLUnsafe (Element) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Comment.afterHTMLUnsafe (Element) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Comment.replaceWithHTML (Element) does not go via createHTML with expected sink name
+  FAIL      Comment.replaceWithHTML (Element) does not invoke the default policy
+  FAIL      Comment.replaceWithHTMLUnsafe (Element) goes via createHTML with expected sink name
+  FAIL      Comment.replaceWithHTMLUnsafe (Element) passes the correct sink name to the default policy's createHTML
+  FAIL      Comment.replaceWithHTMLUnsafe (Element) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Comment.replaceWithHTMLUnsafe (Element) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Comment.replaceWithHTMLUnsafe (Element) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Text.beforeHTML (Element) does not go via createHTML with expected sink name
+  FAIL      Text.beforeHTML (Element) does not invoke the default policy
+  FAIL      Text.beforeHTMLUnsafe (Element) goes via createHTML with expected sink name
+  FAIL      Text.beforeHTMLUnsafe (Element) passes the correct sink name to the default policy's createHTML
+  FAIL      Text.beforeHTMLUnsafe (Element) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Text.beforeHTMLUnsafe (Element) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Text.beforeHTMLUnsafe (Element) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Text.afterHTML (Element) does not go via createHTML with expected sink name
+  FAIL      Text.afterHTML (Element) does not invoke the default policy
+  FAIL      Text.afterHTMLUnsafe (Element) goes via createHTML with expected sink name
+  FAIL      Text.afterHTMLUnsafe (Element) passes the correct sink name to the default policy's createHTML
+  FAIL      Text.afterHTMLUnsafe (Element) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Text.afterHTMLUnsafe (Element) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Text.afterHTMLUnsafe (Element) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Text.replaceWithHTML (Element) does not go via createHTML with expected sink name
+  FAIL      Text.replaceWithHTML (Element) does not invoke the default policy
+  FAIL      Text.replaceWithHTMLUnsafe (Element) goes via createHTML with expected sink name
+  FAIL      Text.replaceWithHTMLUnsafe (Element) passes the correct sink name to the default policy's createHTML
+  FAIL      Text.replaceWithHTMLUnsafe (Element) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Text.replaceWithHTMLUnsafe (Element) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Text.replaceWithHTMLUnsafe (Element) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      ProcessingInstruction.beforeHTML (Element) does not go via createHTML with expected sink name
+  FAIL      ProcessingInstruction.beforeHTML (Element) does not invoke the default policy
+  FAIL      ProcessingInstruction.beforeHTMLUnsafe (Element) goes via createHTML with expected sink name
+  FAIL      ProcessingInstruction.beforeHTMLUnsafe (Element) passes the correct sink name to the default policy's createHTML
+  FAIL      ProcessingInstruction.beforeHTMLUnsafe (Element) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      ProcessingInstruction.beforeHTMLUnsafe (Element) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      ProcessingInstruction.beforeHTMLUnsafe (Element) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      ProcessingInstruction.afterHTML (Element) does not go via createHTML with expected sink name
+  FAIL      ProcessingInstruction.afterHTML (Element) does not invoke the default policy
+  FAIL      ProcessingInstruction.afterHTMLUnsafe (Element) goes via createHTML with expected sink name
+  FAIL      ProcessingInstruction.afterHTMLUnsafe (Element) passes the correct sink name to the default policy's createHTML
+  FAIL      ProcessingInstruction.afterHTMLUnsafe (Element) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      ProcessingInstruction.afterHTMLUnsafe (Element) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      ProcessingInstruction.afterHTMLUnsafe (Element) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      ProcessingInstruction.replaceWithHTML (Element) does not go via createHTML with expected sink name
+  FAIL      ProcessingInstruction.replaceWithHTML (Element) does not invoke the default policy
+  FAIL      ProcessingInstruction.replaceWithHTMLUnsafe (Element) goes via createHTML with expected sink name
+  FAIL      ProcessingInstruction.replaceWithHTMLUnsafe (Element) passes the correct sink name to the default policy's createHTML
+  FAIL      ProcessingInstruction.replaceWithHTMLUnsafe (Element) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      ProcessingInstruction.replaceWithHTMLUnsafe (Element) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      ProcessingInstruction.replaceWithHTMLUnsafe (Element) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Element.appendHTML (ShadowRoot) does not go via createHTML with expected sink name
+  FAIL      Element.appendHTML (ShadowRoot) does not invoke the default policy
+  FAIL      Element.appendHTMLUnsafe (ShadowRoot) goes via createHTML with expected sink name
+  FAIL      Element.appendHTMLUnsafe (ShadowRoot) passes the correct sink name to the default policy's createHTML
+  FAIL      Element.appendHTMLUnsafe (ShadowRoot) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Element.appendHTMLUnsafe (ShadowRoot) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Element.appendHTMLUnsafe (ShadowRoot) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Element.prependHTML (ShadowRoot) does not go via createHTML with expected sink name
+  FAIL      Element.prependHTML (ShadowRoot) does not invoke the default policy
+  FAIL      Element.prependHTMLUnsafe (ShadowRoot) goes via createHTML with expected sink name
+  FAIL      Element.prependHTMLUnsafe (ShadowRoot) passes the correct sink name to the default policy's createHTML
+  FAIL      Element.prependHTMLUnsafe (ShadowRoot) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Element.prependHTMLUnsafe (ShadowRoot) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Element.prependHTMLUnsafe (ShadowRoot) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Element.beforeHTML (ShadowRoot) does not go via createHTML with expected sink name
+  FAIL      Element.beforeHTML (ShadowRoot) does not invoke the default policy
+  FAIL      Element.beforeHTMLUnsafe (ShadowRoot) goes via createHTML with expected sink name
+  FAIL      Element.beforeHTMLUnsafe (ShadowRoot) passes the correct sink name to the default policy's createHTML
+  FAIL      Element.beforeHTMLUnsafe (ShadowRoot) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Element.beforeHTMLUnsafe (ShadowRoot) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Element.beforeHTMLUnsafe (ShadowRoot) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Element.afterHTML (ShadowRoot) does not go via createHTML with expected sink name
+  FAIL      Element.afterHTML (ShadowRoot) does not invoke the default policy
+  FAIL      Element.afterHTMLUnsafe (ShadowRoot) goes via createHTML with expected sink name
+  FAIL      Element.afterHTMLUnsafe (ShadowRoot) passes the correct sink name to the default policy's createHTML
+  FAIL      Element.afterHTMLUnsafe (ShadowRoot) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Element.afterHTMLUnsafe (ShadowRoot) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Element.afterHTMLUnsafe (ShadowRoot) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Element.replaceWithHTML (ShadowRoot) does not go via createHTML with expected sink name
+  FAIL      Element.replaceWithHTML (ShadowRoot) does not invoke the default policy
+  FAIL      Element.replaceWithHTMLUnsafe (ShadowRoot) goes via createHTML with expected sink name
+  FAIL      Element.replaceWithHTMLUnsafe (ShadowRoot) passes the correct sink name to the default policy's createHTML
+  FAIL      Element.replaceWithHTMLUnsafe (ShadowRoot) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Element.replaceWithHTMLUnsafe (ShadowRoot) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Element.replaceWithHTMLUnsafe (ShadowRoot) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Comment.beforeHTML (ShadowRoot) does not go via createHTML with expected sink name
+  FAIL      Comment.beforeHTML (ShadowRoot) does not invoke the default policy
+  FAIL      Comment.beforeHTMLUnsafe (ShadowRoot) goes via createHTML with expected sink name
+  FAIL      Comment.beforeHTMLUnsafe (ShadowRoot) passes the correct sink name to the default policy's createHTML
+  FAIL      Comment.beforeHTMLUnsafe (ShadowRoot) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Comment.beforeHTMLUnsafe (ShadowRoot) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Comment.beforeHTMLUnsafe (ShadowRoot) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Comment.afterHTML (ShadowRoot) does not go via createHTML with expected sink name
+  FAIL      Comment.afterHTML (ShadowRoot) does not invoke the default policy
+  FAIL      Comment.afterHTMLUnsafe (ShadowRoot) goes via createHTML with expected sink name
+  FAIL      Comment.afterHTMLUnsafe (ShadowRoot) passes the correct sink name to the default policy's createHTML
+  FAIL      Comment.afterHTMLUnsafe (ShadowRoot) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Comment.afterHTMLUnsafe (ShadowRoot) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Comment.afterHTMLUnsafe (ShadowRoot) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Comment.replaceWithHTML (ShadowRoot) does not go via createHTML with expected sink name
+  FAIL      Comment.replaceWithHTML (ShadowRoot) does not invoke the default policy
+  FAIL      Comment.replaceWithHTMLUnsafe (ShadowRoot) goes via createHTML with expected sink name
+  FAIL      Comment.replaceWithHTMLUnsafe (ShadowRoot) passes the correct sink name to the default policy's createHTML
+  FAIL      Comment.replaceWithHTMLUnsafe (ShadowRoot) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Comment.replaceWithHTMLUnsafe (ShadowRoot) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Comment.replaceWithHTMLUnsafe (ShadowRoot) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Text.beforeHTML (ShadowRoot) does not go via createHTML with expected sink name
+  FAIL      Text.beforeHTML (ShadowRoot) does not invoke the default policy
+  FAIL      Text.beforeHTMLUnsafe (ShadowRoot) goes via createHTML with expected sink name
+  FAIL      Text.beforeHTMLUnsafe (ShadowRoot) passes the correct sink name to the default policy's createHTML
+  FAIL      Text.beforeHTMLUnsafe (ShadowRoot) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Text.beforeHTMLUnsafe (ShadowRoot) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Text.beforeHTMLUnsafe (ShadowRoot) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Text.afterHTML (ShadowRoot) does not go via createHTML with expected sink name
+  FAIL      Text.afterHTML (ShadowRoot) does not invoke the default policy
+  FAIL      Text.afterHTMLUnsafe (ShadowRoot) goes via createHTML with expected sink name
+  FAIL      Text.afterHTMLUnsafe (ShadowRoot) passes the correct sink name to the default policy's createHTML
+  FAIL      Text.afterHTMLUnsafe (ShadowRoot) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Text.afterHTMLUnsafe (ShadowRoot) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Text.afterHTMLUnsafe (ShadowRoot) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Text.replaceWithHTML (ShadowRoot) does not go via createHTML with expected sink name
+  FAIL      Text.replaceWithHTML (ShadowRoot) does not invoke the default policy
+  FAIL      Text.replaceWithHTMLUnsafe (ShadowRoot) goes via createHTML with expected sink name
+  FAIL      Text.replaceWithHTMLUnsafe (ShadowRoot) passes the correct sink name to the default policy's createHTML
+  FAIL      Text.replaceWithHTMLUnsafe (ShadowRoot) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Text.replaceWithHTMLUnsafe (ShadowRoot) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Text.replaceWithHTMLUnsafe (ShadowRoot) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      ProcessingInstruction.beforeHTML (ShadowRoot) does not go via createHTML with expected sink name
+  FAIL      ProcessingInstruction.beforeHTML (ShadowRoot) does not invoke the default policy
+  FAIL      ProcessingInstruction.beforeHTMLUnsafe (ShadowRoot) goes via createHTML with expected sink name
+  FAIL      ProcessingInstruction.beforeHTMLUnsafe (ShadowRoot) passes the correct sink name to the default policy's createHTML
+  FAIL      ProcessingInstruction.beforeHTMLUnsafe (ShadowRoot) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      ProcessingInstruction.beforeHTMLUnsafe (ShadowRoot) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      ProcessingInstruction.beforeHTMLUnsafe (ShadowRoot) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      ProcessingInstruction.afterHTML (ShadowRoot) does not go via createHTML with expected sink name
+  FAIL      ProcessingInstruction.afterHTML (ShadowRoot) does not invoke the default policy
+  FAIL      ProcessingInstruction.afterHTMLUnsafe (ShadowRoot) goes via createHTML with expected sink name
+  FAIL      ProcessingInstruction.afterHTMLUnsafe (ShadowRoot) passes the correct sink name to the default policy's createHTML
+  FAIL      ProcessingInstruction.afterHTMLUnsafe (ShadowRoot) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      ProcessingInstruction.afterHTMLUnsafe (ShadowRoot) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      ProcessingInstruction.afterHTMLUnsafe (ShadowRoot) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      ProcessingInstruction.replaceWithHTML (ShadowRoot) does not go via createHTML with expected sink name
+  FAIL      ProcessingInstruction.replaceWithHTML (ShadowRoot) does not invoke the default policy
+  FAIL      ProcessingInstruction.replaceWithHTMLUnsafe (ShadowRoot) goes via createHTML with expected sink name
+  FAIL      ProcessingInstruction.replaceWithHTMLUnsafe (ShadowRoot) passes the correct sink name to the default policy's createHTML
+  FAIL      ProcessingInstruction.replaceWithHTMLUnsafe (ShadowRoot) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      ProcessingInstruction.replaceWithHTMLUnsafe (ShadowRoot) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      ProcessingInstruction.replaceWithHTMLUnsafe (ShadowRoot) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Element.appendHTML (template.content) does not go via createHTML with expected sink name
+  FAIL      Element.appendHTML (template.content) does not invoke the default policy
+  FAIL      Element.appendHTMLUnsafe (template.content) goes via createHTML with expected sink name
+  FAIL      Element.appendHTMLUnsafe (template.content) passes the correct sink name to the default policy's createHTML
+  FAIL      Element.appendHTMLUnsafe (template.content) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Element.appendHTMLUnsafe (template.content) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Element.appendHTMLUnsafe (template.content) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Element.prependHTML (template.content) does not go via createHTML with expected sink name
+  FAIL      Element.prependHTML (template.content) does not invoke the default policy
+  FAIL      Element.prependHTMLUnsafe (template.content) goes via createHTML with expected sink name
+  FAIL      Element.prependHTMLUnsafe (template.content) passes the correct sink name to the default policy's createHTML
+  FAIL      Element.prependHTMLUnsafe (template.content) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Element.prependHTMLUnsafe (template.content) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Element.prependHTMLUnsafe (template.content) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Element.beforeHTML (template.content) does not go via createHTML with expected sink name
+  FAIL      Element.beforeHTML (template.content) does not invoke the default policy
+  FAIL      Element.beforeHTMLUnsafe (template.content) goes via createHTML with expected sink name
+  FAIL      Element.beforeHTMLUnsafe (template.content) passes the correct sink name to the default policy's createHTML
+  FAIL      Element.beforeHTMLUnsafe (template.content) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Element.beforeHTMLUnsafe (template.content) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Element.beforeHTMLUnsafe (template.content) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Element.afterHTML (template.content) does not go via createHTML with expected sink name
+  FAIL      Element.afterHTML (template.content) does not invoke the default policy
+  FAIL      Element.afterHTMLUnsafe (template.content) goes via createHTML with expected sink name
+  FAIL      Element.afterHTMLUnsafe (template.content) passes the correct sink name to the default policy's createHTML
+  FAIL      Element.afterHTMLUnsafe (template.content) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Element.afterHTMLUnsafe (template.content) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Element.afterHTMLUnsafe (template.content) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Element.replaceWithHTML (template.content) does not go via createHTML with expected sink name
+  FAIL      Element.replaceWithHTML (template.content) does not invoke the default policy
+  FAIL      Element.replaceWithHTMLUnsafe (template.content) goes via createHTML with expected sink name
+  FAIL      Element.replaceWithHTMLUnsafe (template.content) passes the correct sink name to the default policy's createHTML
+  FAIL      Element.replaceWithHTMLUnsafe (template.content) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Element.replaceWithHTMLUnsafe (template.content) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Element.replaceWithHTMLUnsafe (template.content) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Comment.beforeHTML (template.content) does not go via createHTML with expected sink name
+  FAIL      Comment.beforeHTML (template.content) does not invoke the default policy
+  FAIL      Comment.beforeHTMLUnsafe (template.content) goes via createHTML with expected sink name
+  FAIL      Comment.beforeHTMLUnsafe (template.content) passes the correct sink name to the default policy's createHTML
+  FAIL      Comment.beforeHTMLUnsafe (template.content) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Comment.beforeHTMLUnsafe (template.content) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Comment.beforeHTMLUnsafe (template.content) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Comment.afterHTML (template.content) does not go via createHTML with expected sink name
+  FAIL      Comment.afterHTML (template.content) does not invoke the default policy
+  FAIL      Comment.afterHTMLUnsafe (template.content) goes via createHTML with expected sink name
+  FAIL      Comment.afterHTMLUnsafe (template.content) passes the correct sink name to the default policy's createHTML
+  FAIL      Comment.afterHTMLUnsafe (template.content) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Comment.afterHTMLUnsafe (template.content) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Comment.afterHTMLUnsafe (template.content) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Comment.replaceWithHTML (template.content) does not go via createHTML with expected sink name
+  FAIL      Comment.replaceWithHTML (template.content) does not invoke the default policy
+  FAIL      Comment.replaceWithHTMLUnsafe (template.content) goes via createHTML with expected sink name
+  FAIL      Comment.replaceWithHTMLUnsafe (template.content) passes the correct sink name to the default policy's createHTML
+  FAIL      Comment.replaceWithHTMLUnsafe (template.content) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Comment.replaceWithHTMLUnsafe (template.content) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Comment.replaceWithHTMLUnsafe (template.content) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Text.beforeHTML (template.content) does not go via createHTML with expected sink name
+  FAIL      Text.beforeHTML (template.content) does not invoke the default policy
+  FAIL      Text.beforeHTMLUnsafe (template.content) goes via createHTML with expected sink name
+  FAIL      Text.beforeHTMLUnsafe (template.content) passes the correct sink name to the default policy's createHTML
+  FAIL      Text.beforeHTMLUnsafe (template.content) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Text.beforeHTMLUnsafe (template.content) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Text.beforeHTMLUnsafe (template.content) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Text.afterHTML (template.content) does not go via createHTML with expected sink name
+  FAIL      Text.afterHTML (template.content) does not invoke the default policy
+  FAIL      Text.afterHTMLUnsafe (template.content) goes via createHTML with expected sink name
+  FAIL      Text.afterHTMLUnsafe (template.content) passes the correct sink name to the default policy's createHTML
+  FAIL      Text.afterHTMLUnsafe (template.content) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Text.afterHTMLUnsafe (template.content) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Text.afterHTMLUnsafe (template.content) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      Text.replaceWithHTML (template.content) does not go via createHTML with expected sink name
+  FAIL      Text.replaceWithHTML (template.content) does not invoke the default policy
+  FAIL      Text.replaceWithHTMLUnsafe (template.content) goes via createHTML with expected sink name
+  FAIL      Text.replaceWithHTMLUnsafe (template.content) passes the correct sink name to the default policy's createHTML
+  FAIL      Text.replaceWithHTMLUnsafe (template.content) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      Text.replaceWithHTMLUnsafe (template.content) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      Text.replaceWithHTMLUnsafe (template.content) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      ProcessingInstruction.beforeHTML (template.content) does not go via createHTML with expected sink name
+  FAIL      ProcessingInstruction.beforeHTML (template.content) does not invoke the default policy
+  FAIL      ProcessingInstruction.beforeHTMLUnsafe (template.content) goes via createHTML with expected sink name
+  FAIL      ProcessingInstruction.beforeHTMLUnsafe (template.content) passes the correct sink name to the default policy's createHTML
+  FAIL      ProcessingInstruction.beforeHTMLUnsafe (template.content) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      ProcessingInstruction.beforeHTMLUnsafe (template.content) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      ProcessingInstruction.beforeHTMLUnsafe (template.content) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      ProcessingInstruction.afterHTML (template.content) does not go via createHTML with expected sink name
+  FAIL      ProcessingInstruction.afterHTML (template.content) does not invoke the default policy
+  FAIL      ProcessingInstruction.afterHTMLUnsafe (template.content) goes via createHTML with expected sink name
+  FAIL      ProcessingInstruction.afterHTMLUnsafe (template.content) passes the correct sink name to the default policy's createHTML
+  FAIL      ProcessingInstruction.afterHTMLUnsafe (template.content) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      ProcessingInstruction.afterHTMLUnsafe (template.content) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      ProcessingInstruction.afterHTMLUnsafe (template.content) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
+  FAIL      ProcessingInstruction.replaceWithHTML (template.content) does not go via createHTML with expected sink name
+  FAIL      ProcessingInstruction.replaceWithHTML (template.content) does not invoke the default policy
+  FAIL      ProcessingInstruction.replaceWithHTMLUnsafe (template.content) goes via createHTML with expected sink name
+  FAIL      ProcessingInstruction.replaceWithHTMLUnsafe (template.content) passes the correct sink name to the default policy's createHTML
+  FAIL      ProcessingInstruction.replaceWithHTMLUnsafe (template.content) with vetting-free options passes the correct sink name to the default policy's createHTML
+  FAIL      ProcessingInstruction.replaceWithHTMLUnsafe (template.content) accepts TrustedHTML without invoking the default policy's createHTML
+  FAIL      ProcessingInstruction.replaceWithHTMLUnsafe (template.content) accepts TrustedHTMLParserOptions without invoking the default policy's createHTML
 OK         6/480  domparsing/positional-methods.html
   FAIL      Position check: Element.appendHTML (Element)
   FAIL      Only unsafe variants should run scripts: Element.appendHTML (Element) (runScripts=true)
@@ -1797,9 +2379,65 @@ OK          0/49  domparsing/stream-html-with-declarative-shadow-root.html
   FAIL      streamAfterHTMLUnsafe: a top-level <template shadowrootmode> is inserted as a plain template
   FAIL      streamReplaceWithHTML: a top-level <template shadowrootmode> is inserted as a plain template
   FAIL      streamReplaceWithHTMLUnsafe: a top-level <template shadowrootmode> is inserted as a plain template
-ERROR        0/0  domparsing/stream-html-with-trusted-types-adopt.tentative.html
-ERROR        0/0  domparsing/stream-html-with-trusted-types-createParserOptions-order.html
-ERROR        0/0  domparsing/stream-html-with-trusted-types-error-in-policy.html
+TIMEOUT     0/24  domparsing/stream-html-with-trusted-types-adopt.tentative.html
+  TIMEOUT   streamHTML on an element adopted from a non-TT document into a TT document returns a WritableStream.
+  NOTRUN    streamHTMLUnsafe on an element adopted from a non-TT document into a TT document throws TypeError.
+  NOTRUN    streamAppendHTML on an element adopted from a non-TT document into a TT document returns a WritableStream.
+  NOTRUN    streamAppendHTMLUnsafe on an element adopted from a non-TT document into a TT document throws TypeError.
+  NOTRUN    streamPrependHTML on an element adopted from a non-TT document into a TT document returns a WritableStream.
+  NOTRUN    streamPrependHTMLUnsafe on an element adopted from a non-TT document into a TT document throws TypeError.
+  NOTRUN    streamBeforeHTML on an element adopted from a non-TT document into a TT document returns a WritableStream.
+  NOTRUN    streamBeforeHTMLUnsafe on an element adopted from a non-TT document into a TT document throws TypeError.
+  NOTRUN    streamAfterHTML on an element adopted from a non-TT document into a TT document returns a WritableStream.
+  NOTRUN    streamAfterHTMLUnsafe on an element adopted from a non-TT document into a TT document throws TypeError.
+  NOTRUN    streamReplaceWithHTML on an element adopted from a non-TT document into a TT document returns a WritableStream.
+  NOTRUN    streamReplaceWithHTMLUnsafe on an element adopted from a non-TT document into a TT document throws TypeError.
+  NOTRUN    streamHTML on an element adopted from a TT document into a non-TT document returns a WritableStream.
+  NOTRUN    streamHTMLUnsafe on an element adopted from a TT document into a non-TT document returns a WritableStream.
+  NOTRUN    streamAppendHTML on an element adopted from a TT document into a non-TT document returns a WritableStream.
+  NOTRUN    streamAppendHTMLUnsafe on an element adopted from a TT document into a non-TT document returns a WritableStream.
+  NOTRUN    streamPrependHTML on an element adopted from a TT document into a non-TT document returns a WritableStream.
+  NOTRUN    streamPrependHTMLUnsafe on an element adopted from a TT document into a non-TT document returns a WritableStream.
+  NOTRUN    streamBeforeHTML on an element adopted from a TT document into a non-TT document returns a WritableStream.
+  NOTRUN    streamBeforeHTMLUnsafe on an element adopted from a TT document into a non-TT document returns a WritableStream.
+  NOTRUN    streamAfterHTML on an element adopted from a TT document into a non-TT document returns a WritableStream.
+  NOTRUN    streamAfterHTMLUnsafe on an element adopted from a TT document into a non-TT document returns a WritableStream.
+  NOTRUN    streamReplaceWithHTML on an element adopted from a TT document into a non-TT document returns a WritableStream.
+  NOTRUN    streamReplaceWithHTMLUnsafe on an element adopted from a TT document into a non-TT document returns a WritableStream.
+OK          0/19  domparsing/stream-html-with-trusted-types-createParserOptions-order.html
+  FAIL      streamHTMLUnsafe checks createParserOptions before clearing children
+  FAIL      streamBeforeHTMLUnsafe checks createParserOptions before hierarchy checks
+  FAIL      streamAfterHTMLUnsafe checks createParserOptions before hierarchy checks
+  FAIL      streamReplaceWithHTMLUnsafe checks createParserOptions before hierarchy checks
+  FAIL      streamAppendHTMLUnsafe checks createParserOptions before hierarchy checks
+  FAIL      streamPrependHTMLUnsafe checks createParserOptions before hierarchy checks
+  FAIL      CharacterData.streamBeforeHTMLUnsafe checks createParserOptions before hierarchy checks
+  FAIL      CharacterData.streamAfterHTMLUnsafe checks createParserOptions before hierarchy checks
+  FAIL      CharacterData.streamReplaceWithHTMLUnsafe checks createParserOptions before hierarchy checks
+  FAIL      ShadowRoot.streamHTMLUnsafe passes ShadowRoot sink name to createParserOptions
+  FAIL      ShadowRoot.streamAppendHTMLUnsafe passes ShadowRoot sink name to createParserOptions
+  FAIL      ShadowRoot.streamPrependHTMLUnsafe passes ShadowRoot sink name to createParserOptions
+  FAIL      streamBeforeHTMLUnsafe evaluates parent after createParserOptions detaches target
+  FAIL      streamAfterHTMLUnsafe evaluates parent after createParserOptions detaches target
+  FAIL      streamReplaceWithHTMLUnsafe evaluates parent after createParserOptions detaches target
+  FAIL      streamAfterHTMLUnsafe captures nextSibling after createParserOptions runs
+  FAIL      streamReplaceWithHTMLUnsafe captures nextSibling after createParserOptions runs
+  FAIL      Element.streamPrependHTMLUnsafe captures firstChild after createParserOptions runs
+  FAIL      ShadowRoot.streamPrependHTMLUnsafe captures firstChild after createParserOptions runs
+OK          0/13  domparsing/stream-html-with-trusted-types-error-in-policy.html
+  FAIL      error in createParserOptions is rethrown from default policy for streamHTMLUnsafe
+  FAIL      error in createParserOptions is rethrown from default policy for streamAppendHTMLUnsafe
+  FAIL      error in createParserOptions is rethrown from default policy for streamPrependHTMLUnsafe
+  FAIL      error in createParserOptions is rethrown from default policy for streamBeforeHTMLUnsafe
+  FAIL      error in createParserOptions is rethrown from default policy for streamAfterHTMLUnsafe
+  FAIL      error in createParserOptions is rethrown from default policy for streamReplaceWithHTMLUnsafe
+  FAIL      error in createParserOptions is rethrown from default policy for ShadowRoot.streamHTMLUnsafe
+  FAIL      error in createParserOptions is rethrown from default policy for ShadowRoot.streamAppendHTMLUnsafe
+  FAIL      error in createParserOptions is rethrown from default policy for ShadowRoot.streamPrependHTMLUnsafe
+  FAIL      error in createParserOptions is rethrown from default policy for CharacterData.streamBeforeHTMLUnsafe
+  FAIL      error in createParserOptions is rethrown from default policy for CharacterData.streamAfterHTMLUnsafe
+  FAIL      error in createParserOptions is rethrown from default policy for CharacterData.streamReplaceWithHTMLUnsafe
+  FAIL      error in createParserOptions is rethrown from named policy
 OK          0/12  domparsing/stream-html-with-trusted-types-from-non-tt.tentative.html
   FAIL      streamHTML called from non-TT document on an element adopted into a TT document returns a WritableStream.
   FAIL      streamHTMLUnsafe called from non-TT document on an element adopted into a TT document throws TypeError.
@@ -1813,8 +2451,38 @@ OK          0/12  domparsing/stream-html-with-trusted-types-from-non-tt.tentativ
   FAIL      streamAfterHTMLUnsafe called from non-TT document on an element adopted into a TT document throws TypeError.
   FAIL      streamReplaceWithHTML called from non-TT document on an element adopted into a TT document returns a WritableStream.
   FAIL      streamReplaceWithHTMLUnsafe called from non-TT document on an element adopted into a TT document throws TypeError.
-ERROR        0/0  domparsing/stream-html-with-trusted-types-no-createParserOptions.html
-ERROR        0/0  domparsing/stream-html-with-trusted-types-pass-trusted.html
+OK          0/12  domparsing/stream-html-with-trusted-types-no-createParserOptions.html
+  FAIL      Streaming with trusted types and a default policy without createParserOptions does not throw for streamHTML.
+  FAIL      Streaming with trusted types and a default policy without createParserOptions throws for streamHTMLUnsafe.
+  FAIL      Streaming with trusted types and a default policy without createParserOptions does not throw for streamAppendHTML.
+  FAIL      Streaming with trusted types and a default policy without createParserOptions throws for streamAppendHTMLUnsafe.
+  FAIL      Streaming with trusted types and a default policy without createParserOptions does not throw for streamPrependHTML.
+  FAIL      Streaming with trusted types and a default policy without createParserOptions throws for streamPrependHTMLUnsafe.
+  FAIL      Streaming with trusted types and a default policy without createParserOptions does not throw for streamBeforeHTML.
+  FAIL      Streaming with trusted types and a default policy without createParserOptions throws for streamBeforeHTMLUnsafe.
+  FAIL      Streaming with trusted types and a default policy without createParserOptions does not throw for streamAfterHTML.
+  FAIL      Streaming with trusted types and a default policy without createParserOptions throws for streamAfterHTMLUnsafe.
+  FAIL      Streaming with trusted types and a default policy without createParserOptions does not throw for streamReplaceWithHTML.
+  FAIL      Streaming with trusted types and a default policy without createParserOptions throws for streamReplaceWithHTMLUnsafe.
+OK          0/18  domparsing/stream-html-with-trusted-types-pass-trusted.html
+  FAIL      A given TrustedHTMLParserOptions can override default policy's runScript/safety for streamHTMLUnsafe
+  FAIL      A given TrustedHTMLParserOptions can override default policy's runScript/safety for streamAppendHTMLUnsafe
+  FAIL      A given TrustedHTMLParserOptions can override default policy's runScript/safety for streamPrependHTMLUnsafe
+  FAIL      A given TrustedHTMLParserOptions can override default policy's runScript/safety for streamBeforeHTMLUnsafe
+  FAIL      A given TrustedHTMLParserOptions can override default policy's runScript/safety for streamAfterHTMLUnsafe
+  FAIL      A given TrustedHTMLParserOptions can override default policy's runScript/safety for streamReplaceWithHTMLUnsafe
+  FAIL      A given TrustedHTMLParserOptions can override default policy's sanitizer for streamHTMLUnsafe
+  FAIL      A given TrustedHTMLParserOptions can override default policy's sanitizer for streamAppendHTMLUnsafe
+  FAIL      A given TrustedHTMLParserOptions can override default policy's sanitizer for streamPrependHTMLUnsafe
+  FAIL      A given TrustedHTMLParserOptions can override default policy's sanitizer for streamBeforeHTMLUnsafe
+  FAIL      A given TrustedHTMLParserOptions can override default policy's sanitizer for streamAfterHTMLUnsafe
+  FAIL      A given TrustedHTMLParserOptions can override default policy's sanitizer for streamReplaceWithHTMLUnsafe
+  FAIL      A given TrustedHTMLParserOptions can override default policy's runScripts for ShadowRoot.streamHTMLUnsafe
+  FAIL      A given TrustedHTMLParserOptions can override default policy's runScripts for ShadowRoot.streamAppendHTMLUnsafe
+  FAIL      A given TrustedHTMLParserOptions can override default policy's runScripts for ShadowRoot.streamPrependHTMLUnsafe
+  FAIL      A given TrustedHTMLParserOptions can override default policy's runScripts for CharacterData.streamBeforeHTMLUnsafe
+  FAIL      A given TrustedHTMLParserOptions can override default policy's runScripts for CharacterData.streamAfterHTMLUnsafe
+  FAIL      A given TrustedHTMLParserOptions can override default policy's runScripts for CharacterData.streamReplaceWithHTMLUnsafe
 OK          0/24  domparsing/stream-html-with-trusted-types-report-only.html
   FAIL      Element.streamHTMLUnsafe in report-only mode returns a WritableStream and reports sink "Element streamHTMLUnsafe"
   FAIL      Element.streamHTML in report-only mode does not report a Trusted Types violation
@@ -1865,9 +2533,51 @@ OK          0/24  domparsing/stream-html-with-trusted-types-reporting.html
   FAIL      Element.streamReplaceWithHTML does not report a Trusted Types violation
   FAIL      Text.streamReplaceWithHTMLUnsafe reports a Trusted Types violation with sink "Node streamReplaceWithHTMLUnsafe"
   FAIL      Text.streamReplaceWithHTML does not report a Trusted Types violation
-ERROR        0/0  domparsing/stream-html-with-trusted-types-runScripts-can-be-turned-on.html
-ERROR        0/0  domparsing/stream-html-with-trusted-types-runScripts-off.html
-ERROR        0/0  domparsing/stream-html-with-trusted-types-sanitizer.html
+OK           0/6  domparsing/stream-html-with-trusted-types-runScripts-can-be-turned-on.html
+  FAIL      The default TT policy can turn runScripts on if they are off in the options for streamHTMLUnsafe
+  FAIL      The default TT policy can turn runScripts on if they are off in the options for streamAppendHTMLUnsafe
+  FAIL      The default TT policy can turn runScripts on if they are off in the options for streamPrependHTMLUnsafe
+  FAIL      The default TT policy can turn runScripts on if they are off in the options for streamBeforeHTMLUnsafe
+  FAIL      The default TT policy can turn runScripts on if they are off in the options for streamAfterHTMLUnsafe
+  FAIL      The default TT policy can turn runScripts on if they are off in the options for streamReplaceWithHTMLUnsafe
+OK          0/12  domparsing/stream-html-with-trusted-types-runScripts-off.html
+  FAIL      The default TT policy can turn runScripts off for streamHTMLUnsafe
+  FAIL      The default TT policy can turn runScripts off for streamAppendHTMLUnsafe
+  FAIL      The default TT policy can turn runScripts off for streamPrependHTMLUnsafe
+  FAIL      The default TT policy can turn runScripts off for streamBeforeHTMLUnsafe
+  FAIL      The default TT policy can turn runScripts off for streamAfterHTMLUnsafe
+  FAIL      The default TT policy can turn runScripts off for streamReplaceWithHTMLUnsafe
+  FAIL      The default TT policy can turn runScripts off for ShadowRoot.streamHTMLUnsafe
+  FAIL      The default TT policy can turn runScripts off for ShadowRoot.streamAppendHTMLUnsafe
+  FAIL      The default TT policy can turn runScripts off for ShadowRoot.streamPrependHTMLUnsafe
+  FAIL      The default TT policy can turn runScripts off for CharacterData.streamBeforeHTMLUnsafe
+  FAIL      The default TT policy can turn runScripts off for CharacterData.streamAfterHTMLUnsafe
+  FAIL      The default TT policy can turn runScripts off for CharacterData.streamReplaceWithHTMLUnsafe
+OK          0/24  domparsing/stream-html-with-trusted-types-sanitizer.html
+  FAIL      createParserOptions can inject a sanitizer config for streamHTMLUnsafe
+  FAIL      createParserOptions can inject a sanitizer config for streamAppendHTMLUnsafe
+  FAIL      createParserOptions can inject a sanitizer config for streamPrependHTMLUnsafe
+  FAIL      createParserOptions can inject a sanitizer config for streamBeforeHTMLUnsafe
+  FAIL      createParserOptions can inject a sanitizer config for streamAfterHTMLUnsafe
+  FAIL      createParserOptions can inject a sanitizer config for streamReplaceWithHTMLUnsafe
+  FAIL      createParserOptions can inject a sanitizer for streamHTMLUnsafe
+  FAIL      createParserOptions can inject a sanitizer for streamAppendHTMLUnsafe
+  FAIL      createParserOptions can inject a sanitizer for streamPrependHTMLUnsafe
+  FAIL      createParserOptions can inject a sanitizer for streamBeforeHTMLUnsafe
+  FAIL      createParserOptions can inject a sanitizer for streamAfterHTMLUnsafe
+  FAIL      createParserOptions can inject a sanitizer for streamReplaceWithHTMLUnsafe
+  FAIL      createParserOptions can override a sanitizer config for streamHTMLUnsafe
+  FAIL      createParserOptions can override a sanitizer config for streamAppendHTMLUnsafe
+  FAIL      createParserOptions can override a sanitizer config for streamPrependHTMLUnsafe
+  FAIL      createParserOptions can override a sanitizer config for streamBeforeHTMLUnsafe
+  FAIL      createParserOptions can override a sanitizer config for streamAfterHTMLUnsafe
+  FAIL      createParserOptions can override a sanitizer config for streamReplaceWithHTMLUnsafe
+  FAIL      createParserOptions can remove a sanitizer for streamHTMLUnsafe
+  FAIL      createParserOptions can remove a sanitizer for streamAppendHTMLUnsafe
+  FAIL      createParserOptions can remove a sanitizer for streamPrependHTMLUnsafe
+  FAIL      createParserOptions can remove a sanitizer for streamBeforeHTMLUnsafe
+  FAIL      createParserOptions can remove a sanitizer for streamAfterHTMLUnsafe
+  FAIL      createParserOptions can remove a sanitizer for streamReplaceWithHTMLUnsafe
 OK          0/18  domparsing/stream-html.html
   FAIL      piping a response into streamHTML()
   FAIL      writing a string to streamHTML()
@@ -2366,7 +3076,19 @@ OK           1/4  domparsing/unclosed-script-already-started.html
   FAIL      Unclosed <script> from createContextualFragment() never runs
   FAIL      Unclosed <script> from setHTMLUnsafe({runScripts: true}) never runs
   FAIL      Control: closed <script> from setHTMLUnsafe({runScripts: true}) runs
-ERROR        0/0  domparsing/unsafe-and-trusted-types-external-scripts-async.html
+OK          0/12  domparsing/unsafe-and-trusted-types-external-scripts-async.html
+  FAIL      setHTMLUnsafe with Trusted Types default policy setting runScripts: true: external scripts execute as async
+  FAIL      appendHTMLUnsafe with Trusted Types default policy setting runScripts: true: external scripts execute as async
+  FAIL      prependHTMLUnsafe with Trusted Types default policy setting runScripts: true: external scripts execute as async
+  FAIL      beforeHTMLUnsafe with Trusted Types default policy setting runScripts: true: external scripts execute as async
+  FAIL      afterHTMLUnsafe with Trusted Types default policy setting runScripts: true: external scripts execute as async
+  FAIL      replaceWithHTMLUnsafe with Trusted Types default policy setting runScripts: true: external scripts execute as async
+  FAIL      innerHTML with Trusted Types default policy setting runScripts: true: external scripts execute as async
+  FAIL      outerHTML with Trusted Types default policy setting runScripts: true: external scripts execute as async
+  FAIL      beforebegin with Trusted Types default policy setting runScripts: true: external scripts execute as async
+  FAIL      afterbegin with Trusted Types default policy setting runScripts: true: external scripts execute as async
+  FAIL      beforeend with Trusted Types default policy setting runScripts: true: external scripts execute as async
+  FAIL      afterend with Trusted Types default policy setting runScripts: true: external scripts execute as async
 OK           0/2  domparsing/xml-parse-serialize-roundtrip.html
   FAIL      DOMParser and XMLSerializer should round trip with CDATA sections: large CDATA
   FAIL      DOMParser and XMLSerializer should round trip with CDATA sections: multiple CDATAs
