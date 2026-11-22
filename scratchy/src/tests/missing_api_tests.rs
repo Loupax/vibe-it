@@ -96,7 +96,7 @@ fn qmapi1_stubs_and_errors_reach_the_report() {
 }
 
 const QMAPI2_CSS: &str = "a { frobnicate: 1; color: red } b { frobnicate: 2 } li::zzz-thing { color: blue } p:nth-foo(2n) { color: red }\
-    @font-face { font-family: x } @property --y { syntax: '*'; } @supports (frobnicate: 1) { a { color: red } }\
+    @counter-style x { system: cyclic } @property --y { syntax: '*'; } @supports (frobnicate: 1) { a { color: red } }\
     @supports (display: grid) { a { color: red } } @media (hover: hover) and (min-width: 10px) and (frobnicate-feat: 3) { a { color: red } }\
     @media (min-width: 10px) { a:zork { color: red } }";
 
@@ -123,7 +123,7 @@ fn qmapi2_counts_css_gaps_and_keeps_the_rules() {
     assert!(json.contains("\"kind\":\"pseudo_element\",\"name\":\"::zzz-thing\""), "{json}");
     assert!(json.contains("\"name\":\":zork\",\"count\":1,\"example\":\"a:zork\""), "{json}");
     assert!(json.contains("\"kind\":\"pseudo_class\",\"name\":\":nth-foo()\""), "{json}");
-    assert!(json.contains("\"kind\":\"at_rule\",\"name\":\"@font-face\""), "{json}");
+    assert!(json.contains("\"kind\":\"at_rule\",\"name\":\"@counter-style\""), "{json}");
     assert!(json.contains("\"kind\":\"at_rule\",\"name\":\"@property\""), "{json}");
     assert!(json.contains("\"kind\":\"supports_false\",\"name\":\"(frobnicate: 1)\""), "{json}");
     assert!(!json.contains("display: grid"), "{json}");
