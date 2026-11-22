@@ -123,8 +123,7 @@ OK         10/33  dom/nodes/ChildNode-replaceWith.html
   FAIL      Text.replaceWith() on a parentless child with two elements as arguments.
 OK         16/16  dom/nodes/Comment-constructor.html
 OK           1/1  dom/nodes/Comment-in-doctype.xhtml
-OK           4/5  dom/nodes/DOMImplementation-createDocument-no-browsing-context.html
-  FAIL      createHTMLDocument: proxied event handlers on body are null without a window
+OK           5/5  dom/nodes/DOMImplementation-createDocument-no-browsing-context.html
 OK       185/434  dom/nodes/DOMImplementation-createDocument.html
   FAIL      createDocument test: null,null,null,null
   FAIL      createDocument test: characterSet aliases for null,null,null
@@ -1313,7 +1312,6 @@ OK       125/135  dom/nodes/Node-cloneNode.html
   FAIL      createElement(dir)
   FAIL      createElement(font)
   FAIL      createElement(frame)
-  FAIL      createElement(frameset)
   FAIL      createElementNS HTML
   FAIL      createAttribute
   FAIL      createAttributeNS

@@ -762,8 +762,8 @@ fn qa18b_iframe_content_document_and_window() {
             "log:9 null true",
             "log:null",
             "log:sync-end",
+            "log:onload true", // QDOM13: the handler was set first, so it is first in the listener list
             "log:listener",
-            "log:onload true",
         ],
         "{log:?}"
     );

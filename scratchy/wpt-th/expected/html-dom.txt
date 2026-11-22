@@ -1826,9 +1826,8 @@ OK          3/21  html/dom/documents/dom-tree-accessors/nameditem-names.html
   FAIL      An img id appears in a document's property names when the img has a name.
   FAIL      A document's property names can include integer strings.
   FAIL      A document's property names appear in tree order.
-OK           4/8  html/dom/documents/dom-tree-accessors/nameditem-no-shadowing.tentative.html
+OK           5/8  html/dom/documents/dom-tree-accessors/nameditem-no-shadowing.tentative.html
   FAIL      document.constructor is not shadowed
-  FAIL      document.onreadystatechange is not shadowed
   FAIL      document.__proto__ is not shadowed
   FAIL      document.foobar works (sanity check)
 OK           0/2  html/dom/documents/dom-tree-accessors/nameditem-sandboxed-iframe.html

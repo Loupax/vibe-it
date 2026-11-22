@@ -172,7 +172,7 @@ OK           1/8  webidl/ecmascript-binding/sequence-conversion.html
   FAIL      An array with an overridden Symbol.iterator on the prototype
   FAIL      An array with an overridden %ArrayIterator%.prototype.next
   FAIL      A holey array with fallback to an accessor on the prototype
-OK          2/17  webidl/ecmascript-binding/setter-argument.html
+OK          4/17  webidl/ecmascript-binding/setter-argument.html
   FAIL      String attribute setter should throw if this value is invalid
   FAIL      String attribute setter should treat no arguments as undefined
   FAIL      String attribute setter called with undefined should behave in the same way as no arguments
@@ -184,8 +184,6 @@ OK          2/17  webidl/ecmascript-binding/setter-argument.html
   FAIL      [Replaceable] setter called with undefined should behave in the same way as no arguments
   FAIL      [Replaceable] setter called with other value should just work
   FAIL      [LegacyLenientThis] setter should not throw even if this value is invalid, regardless of the arguments count
-  FAIL      [LegacyLenientThis] setter should treat no arguments as undefined
-  FAIL      [LegacyLenientThis] setter called with undefined should behave in the same way as no arguments
   FAIL      [LegacyLenientSetter] setter should treat no arguments as undefined
   FAIL      [LegacyLenientSetter] setter called with undefined should behave in the same way as no arguments
 OK          4/13  webidl/ecmascript-binding/window-named-properties-object.html
