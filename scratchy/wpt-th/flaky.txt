@@ -14,5 +14,4 @@ fetch/content-length/content-length.html CRASH 0/0 in the recording run, 1 subte
 fetch/security/dangling-markup/media.html OK 2/4 in 4 of 6 runs, TIMEOUT in 2: the audio/video elements are inert placeholders and /media is not in the sparse checkout, so only timing decides which events fire before the harness cutoff (QWPT8)
 fetch/range/general.window.html 0 subtests locally, 2 on CI (timing of the range responses; first CI run of QWPT8)
 fetch/redirects/subresource-fragments.html a subtest is NOTRUN locally and FAIL on CI (timing; first CI run of QWPT8)
-html/webappapis/atob/base64.any.html 286 subtests locally and on main CI, 380 in one CI run of PR 615 (not a wptserve area; the count depends on how far the harness gets; flagged by QWPT8)
 xhr/send-redirect.htm subtest '(307, GET, content.py)' passes locally and failed once on CI (PR 615 run on the rebased branch); redirect handling against wptserve is timing-dependent (QWPT8)
