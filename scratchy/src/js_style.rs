@@ -264,7 +264,7 @@ pub(crate) const PROPS: &[&str] = &[
     "box-sizing", "font-size", "font-weight", "font-style", "font-family", "line-height", "text-align",
     "text-transform", "white-space", "cursor", "vertical-align",
     // QCSS-E.
-    "direction", "pointer-events", "letter-spacing", "outline-offset", "border-spacing", "transform-origin", "border-radius",
+    "direction", "pointer-events", "scroll-behavior", "letter-spacing", "outline-offset", "border-spacing", "transform-origin", "border-radius",
     "border-top-left-radius", "border-top-right-radius", "border-bottom-right-radius", "border-bottom-left-radius",
 ];
 
@@ -497,6 +497,7 @@ pub(crate) fn serialize(s: &ComputedStyle, prop: &str) -> String {
         "pointer-events" => (if s.pointer_events_none { "none" } else { "auto" }).into(),
         "letter-spacing" if s.letter_spacing == 0.0 => "normal".into(),
         "letter-spacing" => px(s.letter_spacing),
+        "scroll-behavior" => (if s.scroll_smooth { "smooth" } else { "auto" }).into(),
         "outline-offset" => px(s.outline_offset),
         "border-spacing" => format!("{} {}", px(s.border_spacing.0), px(s.border_spacing.1)),
         "transform-origin" => format!("{} {}", origin_axis(s.transform_origin.0), origin_axis(s.transform_origin.1)),

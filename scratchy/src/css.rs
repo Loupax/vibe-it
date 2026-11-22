@@ -1411,6 +1411,8 @@ pub(crate) struct Declarations {
     /// QCSS-E: the four `border-*-radius` longhands as `(horizontal, vertical)`, in the order
     /// top-left, top-right, bottom-right, bottom-left. The `border-radius` shorthand writes all four.
     pub(crate) border_radius: [Option<(Length, Length)>; 4],
+    /// QEL7b: `scroll-behavior` (not inherited): `true` = `smooth`.
+    pub(crate) scroll_smooth: Option<bool>,
     /// QCSS-E: `outline-offset` (any length, negative too).
     pub(crate) outline_offset: Option<Length>,
     /// QCSS-E: `transform-origin` x and y (keywords already turned into percentages; z is dropped).
@@ -5336,7 +5338,7 @@ impl Declarations {
             "filter" => filter, "backdrop-filter" => backdrop_filter, "text-shadow" => text_shadow,
             "mix-blend-mode" => mix_blend_mode, "clip-path" => clip_path,
             "overflow" => overflow,
-            "outline-offset" => outline_offset, "transform-origin" => transform_origin,
+            "outline-offset" => outline_offset, "scroll-behavior" => scroll_smooth, "transform-origin" => transform_origin,
             "border-spacing" => border_spacing, "letter-spacing" => letter_spacing,
             "direction" => direction, "pointer-events" => pointer_events_none,
             "overflow-y" => overflow_y, "text-overflow" => text_overflow,
@@ -5838,6 +5840,10 @@ impl DeclParser<'_> {
         {
             if let Some(v) = parse_corner_radius(input) {
                 self.decls.border_radius[i] = Some(v);
+            }
+        } else if name.eq_ignore_ascii_case("scroll-behavior") {
+            if let Ok(ident) = input.expect_ident() {
+                self.decls.scroll_smooth = Some(ident.eq_ignore_ascii_case("smooth"));
             }
         } else if name.eq_ignore_ascii_case("outline-offset") {
             if let Ok(v) = parse_length(input) {

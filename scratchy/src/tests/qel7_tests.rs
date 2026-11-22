@@ -6,7 +6,7 @@ use super::*;
 const HTML: &str = "<html><body style='margin:0'>\
     <div id=s style='overflow:auto;width:100px;height:50px'><div style='height:500px'></div></div>\
     <div id=t style='overflow:auto;width:100px;height:50px'><div style='height:500px'></div></div>\
-    </body></html>";
+    <div style='height:3000px'></div></body></html>";
 
 fn run(code: &str) -> Vec<String> {
     run_html_with_timers(HTML, code)

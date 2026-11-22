@@ -2950,7 +2950,13 @@ impl App {
             }
             if let Some(sr) = reqs.scroll {
                 if let Some(y) = sr.y {
-                    self.set_scroll_now(if sr.relative { self.scroll_offset + y as f32 } else { y as f32 }.max(0.0));
+                    if sr.smooth && self.smooth_scroll_tau_ms > 0.0 {
+                        // QEL7b: `behavior: "smooth"` reuses the QSMOOTH1 easing (a relative step adds to the target).
+                        let base = self.scroll_target.unwrap_or(self.scroll_offset);
+                        self.smooth_scroll_to(if sr.relative { base + y as f32 } else { y as f32 });
+                    } else {
+                        self.set_scroll_now(if sr.relative { self.scroll_offset + y as f32 } else { y as f32 }.max(0.0));
+                    }
                 }
                 // QXSCR1: and the x axis.
                 if let Some(x) = sr.x {
@@ -3081,6 +3087,7 @@ impl App {
     pub(crate) fn js_dispatch(&mut self, target: Option<&Handle>, kind: &str, init: &[(&str, EventField)]) -> bool {
         let els = self.sync_node_scroll();
         let Some(js) = &self.js else { return true };
+        crate::js_dom::SMOOTH_OK.with(|b| b.set(self.smooth_scroll_tau_ms > 0.0));
         js.set_scroll(self.scroll_x, self.scroll_offset, els);
         let ok = js.dispatch_event(target, kind, init);
         self.js_sync();
@@ -5628,7 +5635,8 @@ impl ApplicationHandler<AppEvent> for App {
         self.publish_viewport();
         // Tasks: due timers (sliced), then their DOM writes.
         if let Some(js) = &self.js {
-            js.set_scroll(self.scroll_x, self.scroll_offset, els);
+            crate::js_dom::SMOOTH_OK.with(|b| b.set(self.smooth_scroll_tau_ms > 0.0));
+        js.set_scroll(self.scroll_x, self.scroll_offset, els);
             js.run_due_slice(Some(timer_slice(self.input_recent(), !self.video.boxes.is_empty())));
         }
         self.js_sync();

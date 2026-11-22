@@ -658,6 +658,8 @@ pub(crate) enum UrlEv {
 thread_local! {
     /// QEL7: see the `__d_qel7` native. Reset when an engine starts.
     pub(crate) static QEL7_BITS: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
+    /// QEL7b: the App eases programmatic `behavior: "smooth"` scrolls (set by the App).
+    pub(crate) static SMOOTH_OK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// Installs the `__d_*` natives for `document` and the JS wrappers on top.
@@ -716,6 +718,8 @@ pub(crate) struct ScrollReq {
     pub(crate) x: Option<f64>,
     pub(crate) y: Option<f64>,
     pub(crate) relative: bool,
+    /// QEL7b: `behavior: "smooth"` (the App eases the y axis when its smooth scrolling is on).
+    pub(crate) smooth: bool,
 }
 
 /// QB5: what `focus()` accepts. Form controls count even though Tab
@@ -2091,10 +2095,12 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         }
     });
     let r = reqs.clone();
-    native!(ctx, "__d_scroll", move |x: f64, y: f64, relative: bool| {
+    native!(ctx, "__d_scroll", move |x: f64, y: f64, relative: bool, smooth: bool| {
         let f = |v: f64| if v.is_finite() { Some(v) } else { None };
-        r.borrow_mut().scroll = Some(ScrollReq { x: f(x), y: f(y), relative });
+        r.borrow_mut().scroll = Some(ScrollReq { x: f(x), y: f(y), relative, smooth });
     });
+    // QEL7b: can a programmatic scroll ease? (the App's smooth scrolling is on; headless: never)
+    native!(ctx, "__d_smooth_ok", move || -> bool { SMOOTH_OK.with(|b| b.get()) });
     // QEL7: the scroll/scrollend/MQL work the rendering update owes (bit 0 = `scroll` events queued, bit 1 =
     // `scrollend` waiting for a quiet frame, bit 2 = a MediaQueryList exists); the App and the headless
     // frame clock read it without an eval (`qel7_bits`). `__d_by_nid` = the wrapper id of the element
@@ -2929,34 +2935,77 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   // (`__scratchy_scroll_steps`, once per target per frame); `scrollend` follows the first update in which
   // the target did not scroll (and the App is not easing / dragging). The window's target is the Document.
   // `__d_qel7(bits)` tells Rust what is owed: 1 = scroll events queued, 2 = scrollend waiting, 4 = MQLs exist.
-  var gScrollQ = [], gScrollQS = new Set(), gEndQ = new Set(), gQ7 = 0;
-  var qel7Bits = function (b, on) { var n = on ? gQ7 | b : gQ7 & ~b; if (n !== gQ7) { gQ7 = n; __d_qel7(n); } };
+  // QEL7b: an iframe realm has no rendering update of its own: its bits are reported to the parent realm
+  // (`__scratchy_q7_kid`), which ORs them into its own and runs the kid's steps right after its own
+  // (`__scratchy_scroll_steps` / `__scratchy_q7_each('__scratchy_mql_run')`). Only the top realm calls `__d_qel7`.
+  var gScrollQ = [], gScrollQS = new Set(), gEndQ = new Set(), gQ7 = 0, gQ7Up = null, gQ7Kids = new Map(), gQ7Last = 0;
+  var q7Report = function () {
+    var n = gQ7;
+    gQ7Kids.forEach(function (b) { n |= b; });
+    if (n === gQ7Last) return;
+    gQ7Last = n;
+    if (gQ7Up) gQ7Up(g, n); else __d_qel7(n);
+  };
+  var qel7Bits = function (b, on) { var n = on ? gQ7 | b : gQ7 & ~b; if (n !== gQ7) { gQ7 = n; q7Report(); } };
+  g.__scratchy_q7_kid = function (w, bits) { if (bits) gQ7Kids.set(w, bits); else gQ7Kids.delete(w); q7Report(); };
+  g.__scratchy_q7_attach = function (p) { gQ7Up = p.__scratchy_q7_kid; q7Report(); };
+  g.__scratchy_q7_detach = function () { var u = gQ7Up; gQ7Up = null; if (u) u(g, 0); };
+  g.__scratchy_q7_each = function (name, mask) {
+    gQ7Kids.forEach(function (b, w) { if (b & mask) { try { w[name](); } catch (e) {} } });
+  };
   var gScrollNote = function (t) {
-    if (g.parent !== g) {
-      // An iframe realm has no rendering update of its own here: keep the old timer-fired event.
-      if (t !== doc) sTimeout.call(g, function () { t.dispatchEvent(new g.Event('scroll')); }, 0);
-      return;
-    }
     if (!gScrollQS.has(t)) { gScrollQS.add(t); gScrollQ.push(t); }
     gEndQ.add(t);
     qel7Bits(3, true);
   };
   g.__scratchy_qel7 = qel7Bits;
   g.__scratchy_scroll_doc = function () { gScrollNote(doc); };
+  // QEL7b: y is clamped to the document's scroll height too, before anything is reported (the App clamps
+  // again when it paints; headless used to keep a y past the end). A layout read, only for y > 0.
+  var clampY = function (y) {
+    y = Math.max(0, y);
+    // An iframe realm has no layout of its own to read the height from: not clamped there.
+    if (y > 0 && g.parent === g && g.__scratchy_maxScrollY) y = Math.min(y, g.__scratchy_maxScrollY());
+    return y;
+  };
+  g.__scratchy_maxScrollY = function () {
+    var de = document.documentElement;
+    return de ? Math.max(0, gScrollSize(de, 1) - (Number(g.innerHeight) || 0)) : 0;
+  };
+  // QEL7b: ScrollOptions `behavior` ("auto" | "instant" | "smooth", else TypeError). Smooth only where the App
+  // can ease the scroll (the top window with smooth scrolling on: headless and iframe realms are instant);
+  // "auto" reads the `scroll-behavior` of the scrolling box's element.
+  var gSmooth = function (opts, el) {
+    var b = opts !== null && typeof opts === 'object' ? opts.behavior : undefined;
+    if (b !== undefined && b !== 'auto' && b !== 'instant' && b !== 'smooth') {
+      b = String(b);
+      if (b !== 'auto' && b !== 'instant' && b !== 'smooth') throw new TypeError("Failed to execute 'scroll' on 'Window': The provided value '" + b + "' is not a valid enum value of type ScrollBehavior.");
+    }
+    if (g.parent !== g || !__d_smooth_ok()) return false;
+    if (b === undefined || b === 'auto') {
+      try { return g.getComputedStyle(el || document.documentElement).getPropertyValue('scroll-behavior') === 'smooth'; } catch (e) { return false; }
+    }
+    return String(b) === 'smooth';
+  };
+  g.__scratchy_smooth = gSmooth;
   g.scroll = g.scrollTo = function () {
     var a = scrollArgs(arguments[0], arguments[1]), ox = g.scrollX, oy = g.scrollY;
+    var sm = gSmooth(arguments[0]);
     if (a[0] === a[0]) a[0] = clampX(a[0]);
-    __d_scroll(a[0], a[1], false);
+    __d_scroll(a[0], a[1], false, sm);
     if (a[0] === a[0]) g.scrollX = g.pageXOffset = a[0];
-    if (a[1] === a[1]) g.scrollY = g.pageYOffset = Math.max(0, a[1]);
+    if (sm) { if (g.scrollX !== ox) gScrollNote(doc); return; }
+    if (a[1] === a[1]) g.scrollY = g.pageYOffset = clampY(a[1]);
     if (g.scrollX !== ox || g.scrollY !== oy) gScrollNote(doc);
   };
   g.scrollBy = function () {
     var a = scrollArgs(arguments[0], arguments[1]), ox = g.scrollX, oy = g.scrollY;
+    var sm = gSmooth(arguments[0]);
     var nx = a[0] === a[0] ? clampX(g.scrollX + a[0]) : g.scrollX;
-    __d_scroll(nx - g.scrollX, a[1] === a[1] ? a[1] : 0, true);
+    __d_scroll(nx - g.scrollX, a[1] === a[1] ? a[1] : 0, true, sm);
+    if (sm) { if (nx !== g.scrollX) { g.scrollX = g.pageXOffset = nx; gScrollNote(doc); } return; }
     g.scrollX = g.pageXOffset = nx;
-    if (a[1] === a[1]) g.scrollY = g.pageYOffset = Math.max(0, g.scrollY + a[1]);
+    if (a[1] === a[1]) g.scrollY = g.pageYOffset = clampY(g.scrollY + a[1]);
     if (g.scrollX !== ox || g.scrollY !== oy) gScrollNote(doc);
   };
   // QDOM13: an `on*` attribute change on <body>/<frameset> forwards to the Window's handler (js.rs `__scratchy_attr_changed`).
@@ -6665,6 +6714,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       if (arg.block) block = String(arg.block);
       if (arg.inline) inline = String(arg.inline);
     }
+    var sm = gSmooth(arg);
     var vw = Number(g.innerWidth) || 0, vh = Number(g.innerHeight) || 0;
     var pick = function (pos, size, view, cur, mode, page) {
       var t;
@@ -6700,7 +6750,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     var wy = r[1] - gAncestorScroll(this, null, 1);
     var y = pick(wy, r[3], vh, g.scrollY || 0, block, r[8]);
     var x = pick(r[0] - gAncestorScroll(this, null, 0), r[2], vw, g.scrollX || 0, inline, r[7]);
-    if (x !== (g.scrollX || 0) || y !== (g.scrollY || 0)) g.scrollTo(x, y);
+    if (x !== (g.scrollX || 0) || y !== (g.scrollY || 0)) g.scrollTo({ left: x, top: y, behavior: sm ? 'smooth' : 'instant' });
   };
   // QJ7: DOM Range, first slice of QA19: boundary points (spec rules: IndexSizeError,
   // InvalidNodeTypeError, root change collapses, start/end ordering), comparisons,
@@ -7264,6 +7314,10 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     try { __scratchy_dispatch(t, ev); } catch (e) {}
   };
   g.__scratchy_scroll_steps = function (busy) {
+    ownScrollSteps(busy);
+    gQ7Kids.forEach(function (b, w) { if (b & 3) { try { w.__scratchy_scroll_steps(busy); } catch (e) {} } });
+  };
+  var ownScrollSteps = function (busy) {
     var q = gScrollQ, now = gScrollQS;
     gScrollQ = []; gScrollQS = new Set();
     for (var i = 0; i < q.length; i++) scrollFire(q[i], 'scroll');
@@ -7288,6 +7342,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   // Element.scroll/scrollTo/scrollBy(x, y | {top, left}); NaN keeps the axis.
   var gElScrollTo = function (el, a, rel) {
     if (gRoot(el)) { rel ? g.scrollBy.apply(g, a) : g.scrollTo.apply(g, a); return; }
+    gSmooth(a[0], el); // validates `behavior`; an element's own scroll is instant (the App eases the window only)
     var p = scrollArgs(a[0], a[1]), nid = gNid(el);
     if (p[0] === p[0]) gSetScroll(el, rel ? (gElScrollX.get(nid) || 0) + p[0] : p[0], 0);
     if (p[1] === p[1]) gSetScroll(el, rel ? (gElScroll.get(nid) || 0) + p[1] : p[1], 1);
