@@ -481,22 +481,6 @@ QKEYS — input mode / normal mode, Esc Esc, `i`, status bar (user design sessio
 
 
 
-- [ ] [WIP] QXSCR1 [M] (P2; USER 2026-11-21: "allow horizontal scrolling with mouse controls and arrows, but no hjkl-like
-      bindings for that yet"; Opus; layout.rs ScrollInfo/Laid, style.rs overflow, app.rs, paint, js_dom.rs scroll APIs;
-      findings in draft #522) Real horizontal scrolling. Today overflow-x and overflow-y collapse into one `overflow`
-      (style.rs), ScrollInfo has only heights, `App::scroll_offsets` is y-only, the window has no x scroll and no
-      document width, JS `scrollX` is optimistic and `scrollLeft` is a stub (QJ6b). Build: separate overflow-x/-y per
-      CSS Overflow 3 (visible/clip with the other axis computing to auto), a document scroll width in Laid, a window
-      `scroll_x` and per-region x offsets applied everywhere y offsets are (paint, hit-testing, hover, selection, caret,
-      fixed/sticky, getBoundingClientRect, IntersectionObserver, search highlights + reveal_current_match), real
-      scrollX/scrollLeft/scrollTo/scrollBy/scrollWidth and `scroll` events for x. Input: horizontal wheel/touchpad
-      deltas and Shift+wheel scroll x (innermost scrollable box on that axis first, then the window); ArrowLeft/
-      ArrowRight scroll x by SCROLL_LINE_PX as UA defaults in input mode (after the page's keydown, only when nothing
-      focused owns the key, like QKEYS4) and in normal mode. NO new letter bindings (h/l stay history back/forward).
-      Knobs in src/config.rs. Tests: each axis separately (overflow-x:auto + overflow-y:visible), a wide page scrolls
-      with Shift+wheel and ArrowRight, scrollLeft round-trips, hit-testing after an x scroll, a fixed box ignores x
-      scroll. Gates: --wpt-th (css/cssom-view up), reftests, --perf-report; real check: wide page + overflow-x box in a
-      nested window (grim). If it grows past M, split (style/layout half first) and report.
 - [ ] QXSCR1a [S] (P3, from QXSCR1 #535; Sonnet; layout StickyInfo, paint) `position: sticky` with `left`/`right`:
       resolve against App::scroll_x and region x offsets as top/bottom are against y. Tests + nested-window grim.
 - [ ] QSB2b [M] (QXSCR1 done #535; user 2026-11-21 chose: real horizontal scrolling first, then these bars; P3, from QSB2 #497; Sonnet) Horizontal scrollbars (window and overflow-x regions): ScrollInfo gains
