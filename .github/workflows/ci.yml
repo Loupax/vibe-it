@@ -126,18 +126,116 @@ jobs:
           SCRATCHY_TEST_INCR_FORCED=0 cargo test --release --locked -- --nocapture 2>&1 | tee "$RUNNER_TEMP/test-off.log"
           test "${PIPESTATUS[0]}" -eq 0
           echo "QFLK7-RAN lines (engine off): $(grep -c '^QFLK7-RAN' "$RUNNER_TEMP/test-off.log"), SKIP: $(grep -c '^QFLK7-SKIP' "$RUNNER_TEMP/test-off.log" || true)"
-      - name: WPT checkout cache (QWPT2)
+      - name: Test
+        if: matrix.crate != 'scratchy'
+        run: cargo test --release --locked
+      - name: Clippy warning count vs baseline (default config, V8 + media)
         if: matrix.crate == 'scratchy'
+        run: |
+          out="$(tools/clippy-count.sh)"
+          echo "$out"
+          total="$(echo "$out" | awk '/^TOTAL/ {print $2}')"
+          base="$(tr -d '[:space:]' < tools/clippy-baseline.txt)"
+          echo "clippy total=$total baseline=$base"
+          test -n "$total" && [ "$total" -le "$base" ]
+      - name: Stop the headless compositor (QFLK8)
+        if: always() && matrix.crate == 'scratchy'
+        run: |
+          pid="$(cat "$RUNNER_TEMP/weston.pid" 2>/dev/null || true)"
+          if [ -n "$pid" ] && ps -o comm= -p "$pid" | grep -q weston; then kill "$pid" || true; fi
+
+  # QCISPLIT: the WPT gates (reftests + testharness, both blocking) run in their own job, in parallel with the
+  # scratchy test/clippy job instead of after it. It builds only the release binaries it needs (scratchy and wire,
+  # no test profiles); its own rust-cache makes that incremental. Required check names are now: scratchy, snag,
+  # wire, scratchy-wpt.
+  wpt:
+    name: scratchy-wpt
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      V8_VERSION: "152.2.0"
+      V8_ARCHIVE_NAME: librusty_v8_release_x86_64-unknown-linux-gnu.a.gz
+      RUSTY_V8_ARCHIVE_SHA256: b6683e9afcb77fbd8cb2c3acf45d34d52029ab216b332522c95179c12f0fed3c
+    defaults:
+      run:
+        working-directory: scratchy
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: System packages
+        # Headless runner. Dev packages for winit/softbuffer/arboard (X11 and
+        # Wayland client libs, xkbcommon), fontconfig/freetype, clang and
+        # pkg-config for C builds. The ONE pinned font set is
+        # fonts-liberation (see scratchy/tools/README).
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config clang libfontconfig1-dev libfreetype-dev \
+            libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev \
+            fonts-liberation weston
+      - name: Rust toolchain (pinned, the clippy count depends on the version)
+        run: |
+          rustup toolchain install 1.96.1 --profile minimal --component clippy
+          rustup default 1.96.1
+          rustc --version
+          cargo clippy --version
+      - name: V8 archive cache
+        id: v8cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/v8-archive
+          key: v8-archive-${{ env.V8_VERSION }}-${{ env.RUSTY_V8_ARCHIVE_SHA256 }}
+      - name: V8 archive (download on cache miss, verify the pin always)
+        run: |
+          d="$RUNNER_TEMP/v8-archive"
+          mkdir -p "$d"
+          f="$d/$V8_ARCHIVE_NAME"
+          if [ ! -f "$f" ]; then
+            curl -fsSL --retry 5 -o "$f" \
+              "https://github.com/denoland/rusty_v8/releases/download/v${V8_VERSION}/${V8_ARCHIVE_NAME}"
+          fi
+          echo "$RUSTY_V8_ARCHIVE_SHA256  $f" | sha256sum -c -
+          echo "RUSTY_V8_ARCHIVE=$f" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: |
+            scratchy
+            wire
+      - name: Build scratchy and wire (release binaries only)
+        run: |
+          cargo build --release --locked
+          cargo build --release --locked --manifest-path ../wire/Cargo.toml
+      - name: Headless Wayland compositor for the App-level tests (QFLK8)
+        # weston --backend=headless on a private socket; the following test steps see WAYLAND_DISPLAY and
+        # XDG_RUNTIME_DIR through GITHUB_ENV, and SCRATCHY_REQUIRE_DISPLAY=1 makes a missing display fail
+        # the tests instead of skipping them (QFLK7). The compositor is killed by PID in the last step.
+        run: |
+          xdg="$RUNNER_TEMP/xdg"
+          rm -rf "$xdg"; mkdir -p "$xdg"; chmod 700 "$xdg"
+          XDG_RUNTIME_DIR="$xdg" weston --backend=headless --socket=wl-scratchy-ci --width=1280 --height=800 \
+            --idle-time=0 > "$RUNNER_TEMP/weston.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/weston.pid"
+          for _ in $(seq 1 100); do
+            [ -S "$xdg/wl-scratchy-ci" ] && break
+            kill -0 "$(cat "$RUNNER_TEMP/weston.pid")" 2>/dev/null || break
+            sleep 0.1
+          done
+          if [ ! -S "$xdg/wl-scratchy-ci" ]; then
+            echo "weston did not create its socket within 10 s"; cat "$RUNNER_TEMP/weston.log"; exit 1
+          fi
+          {
+            echo "XDG_RUNTIME_DIR=$xdg"
+            echo "WAYLAND_DISPLAY=wl-scratchy-ci"
+            echo "SCRATCHY_REQUIRE_DISPLAY=1"
+          } >> "$GITHUB_ENV"
+      - name: WPT checkout cache (QWPT2)
         id: wptcache
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/wpt
           key: wpt-${{ hashFiles('scratchy/tools/wpt-pin.txt', 'scratchy/tools/wpt-dirs.txt') }}
       - name: WPT checkout (sparse, pinned; verifies the pin always)
-        if: matrix.crate == 'scratchy'
         run: tools/wpt-checkout.sh "$RUNNER_TEMP/wpt"
       - name: WPT reftests vs wpt-expected.txt (CI fonts verified to match, QWPT2)
-        if: matrix.crate == 'scratchy'
         run: |
           export FONTCONFIG_FILE="$(tools/ci-fontconfig.sh /usr/share/fonts/truetype/liberation "$RUNNER_TEMP/fc")"
           start=$(date +%s)
@@ -152,7 +250,6 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit $rc
       - name: WPT testharness vs wpt-th/expected (QWPT5; blocks on regressions, Q3)
-        if: matrix.crate == 'scratchy'
         # Own wire on its own socket (the runner starts it), no display needed (headless children). --no-scope: no
         # systemd user bus on the runner, the 6G cgroup cap is for the user's machine. The areas table and its diff
         # against origin/main's committed wpt-th/areas.txt go to the step summary.
@@ -193,20 +290,8 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           exit $rc
-      - name: Test
-        if: matrix.crate != 'scratchy'
-        run: cargo test --release --locked
-      - name: Clippy warning count vs baseline (default config, V8 + media)
-        if: matrix.crate == 'scratchy'
-        run: |
-          out="$(tools/clippy-count.sh)"
-          echo "$out"
-          total="$(echo "$out" | awk '/^TOTAL/ {print $2}')"
-          base="$(tr -d '[:space:]' < tools/clippy-baseline.txt)"
-          echo "clippy total=$total baseline=$base"
-          test -n "$total" && [ "$total" -le "$base" ]
       - name: Stop the headless compositor (QFLK8)
-        if: always() && matrix.crate == 'scratchy'
+        if: always()
         run: |
           pid="$(cat "$RUNNER_TEMP/weston.pid" 2>/dev/null || true)"
           if [ -n "$pid" ] && ps -o comm= -p "$pid" | grep -q weston; then kill "$pid" || true; fi

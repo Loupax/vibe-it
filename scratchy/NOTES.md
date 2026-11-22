@@ -3875,7 +3875,7 @@ A `<script src>` whose fetch fails (network error or a non-2xx status; `fetch_sc
 
 ### CI gate (QWPT5)
 
-The scratchy CI job builds wire, then runs `--wpt-th "$RUNNER_TEMP/wpt" --jobs 4 --no-scope --wire ../wire/target/release/wire` after the reftest step (no display needed; `--no-scope` because the runner has no systemd user bus). Regressions/unrecorded/changed files fail the job (DECISIONS Q3). Step summary: areas table with deltas vs origin/main's `wpt-th/areas.txt` (`tools/wpt-areas-diff.py NEW BASE`). A CI result that differs from the committed baseline is never re-recorded silently: timing-sensitive files go to `wpt-th/flaky.txt` with a reason, anything else is a question to the user.
+QCISPLIT: the WPT gates run in their own CI job `scratchy-wpt` (parallel to `scratchy`, own release build of scratchy + wire); required checks are scratchy, snag, wire, scratchy-wpt. It runs `--wpt-th "$RUNNER_TEMP/wpt" --jobs 4 --no-scope --wire ../wire/target/release/wire` after the reftest step (no display needed; `--no-scope` because the runner has no systemd user bus). Regressions/unrecorded/changed files fail the job (DECISIONS Q3). Step summary: areas table with deltas vs origin/main's `wpt-th/areas.txt` (`tools/wpt-areas-diff.py NEW BASE`). A CI result that differs from the committed baseline is never re-recorded silently: timing-sensitive files go to `wpt-th/flaky.txt` with a reason, anything else is a question to the user.
 
 ### Event handler IDL attributes (QDOM13)
 
