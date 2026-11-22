@@ -109,7 +109,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       resolves, `register` rejects with SecurityError, `getRegistrations` resolves [], `controller` null) and `window.caches`
       (CacheStorage stub: `open` resolves an empty Cache, `match` resolves undefined, `has` false, `keys` []); no real
       storage. Names stay probe-able (`'caches' in window`).
-- [ ] QAPI4 [S] (P2, from QMAPI3 R66; Sonnet; js_dom.rs, css.rs) `document.fonts` FontFaceSet over the fonts the page
+- [ ] [WIP] QAPI4 [S] (P2, from QMAPI3 R66; Sonnet; js_dom.rs, css.rs) `document.fonts` FontFaceSet over the fonts the page
       loaded: `ready` (resolved Promise), `status`, `check`, `load` (resolves the matching FontFace list), `forEach`/`size`,
       `add`, `loadingdone` events, `FontFace` constructor; github reads `document.fonts.ready` 41 times and throws.
 - [ ] QAPI5 [S] (P2, from QMAPI3 R66; Sonnet; js_dom.rs) ARIA attribute reflection on Element (`ariaLabel`, `ariaHidden`,
