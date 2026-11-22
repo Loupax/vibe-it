@@ -1261,23 +1261,12 @@ OK         39/42  dom/nodes/MutationObserver-attributes.html
 OK           1/1  dom/nodes/MutationObserver-callback-arguments.html
 OK           3/3  dom/nodes/MutationObserver-callback-order.window.html
 OK           2/2  dom/nodes/MutationObserver-callback-tricky.html
-OK         19/23  dom/nodes/MutationObserver-characterData.html
-  FAIL      characterData Range.deleteContents: child and data removal mutation
-  FAIL      characterData Range.deleteContents: child and data removal mutation (2)
-  FAIL      characterData Range.extractContents: child and data removal mutation
-  FAIL      characterData Range.extractContents: child and data removal mutation (2)
-TIMEOUT    29/40  dom/nodes/MutationObserver-childList.html
+OK         23/23  dom/nodes/MutationObserver-characterData.html
+TIMEOUT    36/40  dom/nodes/MutationObserver-childList.html
   TIMEOUT   childList Node.insertBefore: fragment removal mutations
   TIMEOUT   childList Node.appendChild: fragment removal mutations
   FAIL      childList Node.replaceChild: internal replacement mutation
   FAIL      childList Node.replaceChild: self internal replacement mutation
-  FAIL      childList Range.deleteContents: child removal mutation
-  FAIL      childList Range.deleteContents: child and data removal mutation
-  FAIL      childList Range.extractContents: child removal mutation
-  FAIL      childList Range.extractContents: child and data removal mutation
-  FAIL      childList Range.insertNode: child insertion mutation
-  FAIL      childList Range.insertNode: children insertion mutation
-  FAIL      childList Range.surroundContents: children removal and addition mutation
 OK           0/1  dom/nodes/MutationObserver-cross-realm-callback-report-exception.html
   FAIL      MutationObserver reports the exception from its callback in the callback's global object
 OK           2/2  dom/nodes/MutationObserver-disconnect.html
@@ -1525,9 +1514,7 @@ OK           1/7  dom/nodes/Node-nodeValue.html
   FAIL      Document.nodeValue
   FAIL      DocumentFragment.nodeValue
   FAIL      DocumentType.nodeValue
-OK           0/2  dom/nodes/Node-normalize-2.html
-  FAIL      normalize should move range's end boundary point into t1
-  FAIL      normalize should move range's start boundary point into t1
+OK           2/2  dom/nodes/Node-normalize-2.html
 OK           4/4  dom/nodes/Node-normalize.html
 OK         11/12  dom/nodes/Node-parentElement.html
   FAIL      When the parent is a document, parentElement should be null (doctype)
@@ -2041,7 +2028,7 @@ OK         16/24  dom/nodes/namespaced-attribute-mutations.html
   FAIL      A namespaced open attribute does not fire a toggle event
   FAIL      A namespaced src attribute does not navigate an iframe
   FAIL      A namespaced type attribute does not change an input's state
-OK          1/13  dom/nodes/node-creation-realm.html
+OK          2/13  dom/nodes/node-creation-realm.html
   FAIL      Document.createTextNode() creates a node in the target document's realm
   FAIL      Document.createComment() creates a node in the target document's realm
   FAIL      Document.createProcessingInstruction() creates a node in the target document's realm
@@ -2053,7 +2040,6 @@ OK          1/13  dom/nodes/node-creation-realm.html
   FAIL      DOMImplementation.createHTMLDocument() creates the document and its contents in the target realm
   FAIL      cloneNode() clones into the node's node document realm
   FAIL      importNode() imports into the target document's realm
-  FAIL      Range.cloneContents() builds the fragment in the range's node document realm
 OK           2/3  dom/nodes/node-realm-adoption-after-frame-removal.html
   FAIL      Node reached through the adopting document still reports its creation realm (frame removed before adoption)
 OK           1/4  dom/nodes/node-realm-mixed-across-adoption.html

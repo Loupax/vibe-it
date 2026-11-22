@@ -707,9 +707,7 @@ OK          0/24  custom-elements/pseudo-class-defined.html
   FAIL      Without browsing context: createElement("font-face") should be :defined
   FAIL      Without browsing context: createElementNS("http://www.w3.org/1999/xhtml", "font-face") should be :defined
   FAIL      Without browsing context: createElementNS("http://www.w3.org/2000/svg", "font-face") should be :defined
-OK           0/2  custom-elements/range-and-constructors.html
-  FAIL      Range.cloneContents should invoke constructor in tree order
-  FAIL      Range.extractContents should invoke constructor in tree order
+OK           2/2  custom-elements/range-and-constructors.html
 OK           3/3  custom-elements/reaction-timing.html
 OK           0/3  custom-elements/reactions/Animation.html
   FAIL      Animation.animate must enqueue an attributeChanged reaction when it adds the observed style attribute
@@ -973,15 +971,10 @@ OK          7/14  custom-elements/reactions/Node.html
 OK           2/4  custom-elements/reactions/ParentNode.html
   FAIL      prepend on ParentNode must enqueue a disconnected reaction, an adopted reaction, and a connected reaction when the custom element was in another document
   FAIL      append on ParentNode must enqueue a disconnected reaction, an adopted reaction, and a connected reaction when the custom element was in another document
-OK          0/10  custom-elements/reactions/Range.html
-  FAIL      deleteContents on Range must enqueue a disconnected reaction
-  FAIL      extractContents on Range must enqueue a disconnected reaction
+OK          5/10  custom-elements/reactions/Range.html
   FAIL      cloneContents on Range must enqueue an attributeChanged reaction when cloning an element with an observed attribute
-  FAIL      cloneContents on Range must not enqueue an attributeChanged reaction when cloning an element with an unobserved attribute
   FAIL      cloneContents on Range must enqueue an attributeChanged reaction when cloning an element only for observed attributes
-  FAIL      insertNode on Range must enqueue a connected reaction
   FAIL      insertNode on Range must enqueue a disconnected reaction, an adopted reaction, and a connected reaction when the custom element was in another document
-  FAIL      surroundContents on Range must enqueue a connected reaction
   FAIL      surroundContents on Range must enqueue a disconnected reaction, an adopted reaction, and a connected reaction when the custom element was in another document
   FAIL      createContextualFragment on Range must construct a custom element
 OK           0/1  custom-elements/reactions/Selection.html

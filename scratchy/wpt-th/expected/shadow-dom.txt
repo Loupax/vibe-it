@@ -108,8 +108,7 @@ OK           0/3  shadow-dom/MouseEvent-prototype-offsetX-offsetY.html
 OK           2/4  shadow-dom/Node-prototype-cloneNode.html
   FAIL      cloneNode on a shadow root in open mode must throw a NotSupportedError
   FAIL      cloneNode on a shadow root in closed mode must throw a NotSupportedError
-OK           0/1  shadow-dom/Range-prototype-insertNode.html
-  FAIL      Test if Range.prototype.insertNode() should accept ShadowRoot input.
+OK           1/1  shadow-dom/Range-prototype-insertNode.html
 OK          8/12  shadow-dom/ShadowRoot-interface.html
   FAIL      ShadowRoot.activeElement must return the focused element of the context object when shadow root is open.
   FAIL      ShadowRoot.activeElement must return the focused element of the context object when shadow root is closed.
