@@ -4133,8 +4133,10 @@ or a new observation since the last run) makes `__scratchy_raf_due` ask for a re
 **ResizeObserver on the frame's layout (QEL2b, src/ro_geom.rs).** `observe`/`unobserve`/`disconnect` register the
 target with Rust (`__d_ro_track`, refcounted). Every complete layout records the targets' boxes `[bw, bh, cw, ch, cx, cy]`
 from the `Laid` tree (outermost box; content = minus padding and border from `Laid.style`; non-replaced inline / no box =
-none): the App's frame (`App::install_laid`, and step 7 when the shown layout is of the DOM as it is now) and every forced
-layout (`GeomCache::refresh` / `refresh_engine`). `roBoxes` reads `__d_ro_box(id, vw, vh)`: the recorded box when it is of
+none): every forced layout, inside its own rect walk (`js_geom::walk` -> `ro_geom::note` between `begin_forced`/`end_forced`,
+no walk of its own), and the App's frame (`ro_geom::app_install` from `App::install_laid`, a walk of its own, only when the
+observers wait for it, nothing is recorded, the viewport changed, or the DOM is as recorded, i.e. the layout changed with no
+DOM write; a frame for DOM writes is recorded lazily by step 7 when the shown layout is of the DOM as it is now). `roBoxes` reads `__d_ro_box(id, vw, vh)`: the recorded box when it is of
 this DOM state (render stamp, or the cache key's gen/CSS for in-place shifts) and viewport; otherwise (a callback wrote the
 DOM inside the depth loop, or no layout of this state exists) it runs the layout itself, `io` reason, caller
 `(rendering update: ResizeObserver)`. No `getComputedStyle` read per gather: `writing-mode` is read only when a target's
