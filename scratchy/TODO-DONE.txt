@@ -9300,3 +9300,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QAPI5 DONE 1e51c80 #572 [S] (P2, from QMAPI3 R66; Sonnet; js_dom.rs) ARIA attribute reflection on Element (`ariaLabel`, `ariaHidden`,
       `ariaExpanded`, ... the whole ARIA mixin list, null when absent, `aria-*` attribute set/removed on assign) and
       `HTMLSlotElement.name`/`assignedNodes`/`assignedElements`/`slotchange` reflection. WPT: dom/nodes + wai-aria files.
+
+=== from TODO.txt: --- (no header)
+- [x] QAPI4 DONE c32b311 #571 [S] (P2, from QMAPI3 R66; Sonnet; js_dom.rs, css.rs) `document.fonts` FontFaceSet over the fonts the page
+      loaded: `ready` (resolved Promise), `status`, `check`, `load` (resolves the matching FontFace list), `forEach`/`size`,
+      `add`, `loadingdone` events, `FontFace` constructor; github reads `document.fonts.ready` 41 times and throws.
