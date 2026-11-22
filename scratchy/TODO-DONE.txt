@@ -9611,3 +9611,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QCNV5 DONE a6b43f0 #624 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Sonnet; in order after the items above) Transforms
       (translate/rotate/scale/setTransform/getTransform). 50 files.
+
+=== from TODO.txt: --- (no header)
+- [x] QIFRNAV DONE 2f6c296 #626 [S] (P3, from QWPTBUD #623; Sonnet; js_dom.rs iframes) Fire unload/pagehide/beforeunload (and visibilitychange)
+      on iframe navigation and window replacement, so tests that wait for them stop timing out (e.g. the two
+      ignore-opens-during-unload files, promise-job-incumbent). Done together with QDOM5d.

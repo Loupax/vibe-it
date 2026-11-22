@@ -150,9 +150,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       (idlharness checks); getModifierState and legacy init* methods for the newer event interfaces.
 - [ ] QDOM19b [S] (P3, from QDOM19 #583; Sonnet) Triage the remaining Document-createElement (49/147) and
       Document-createElementNS (203/596) failures (XML/XHTML contentType documents? namespace cases?) and file S items.
-- [ ] [WIP] QIFRNAV [S] (P3, from QWPTBUD #623; Sonnet; js_dom.rs iframes) Fire unload/pagehide/beforeunload (and visibilitychange)
-      on iframe navigation and window replacement, so tests that wait for them stop timing out (e.g. the two
-      ignore-opens-during-unload files, promise-job-incumbent). Done together with QDOM5d.
 - [ ] QDOM5e [M] (P3, from QDOM5d/QIFRNAV #626; Sonnet; js_dom.rs DOM prelude) In-place iframe navigation creates a NEW
       Document in the kept Window (browsers do; today the Document object is reused): the prelude binds `doc` once
       (`__d_bind_doc`), so a swap must rebind the node cache, xr.byDoc, xr.prep, myDocs, the custom-element registry,
