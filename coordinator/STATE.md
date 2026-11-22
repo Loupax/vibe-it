@@ -395,3 +395,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 #629 QCNV7 READY (curves; element 46.2, offscreen 51.8, TOTAL 45.5), merging. Launched QCNV8.
 - 2026-11-23 Merged #629 QCNV7 5f31523.
 - 2026-11-23 #631 QHOV2 READY (damage repaint on all pages; buffer age; verify mode 0 diffs), merging. Filed QINC2 (engine check mismatch on hoverjs, also on main) and QHOV3. Launched QINC2. Note: /home/loupax/src/wpt is a stale sparse checkout (agents use their own).
+- 2026-11-23 Merged #631 QHOV2 35114c3.
