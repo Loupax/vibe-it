@@ -3326,7 +3326,7 @@ pub(crate) fn parse_text_decoration(input: &mut CssParser) -> Result<(TextDecora
             }
         }
         input.reset(&state);
-        if let Ok(c) = CssColor::parse(input) {
+        if let Ok(c) = parse_color(input) {
             color = to_text_color(&c);
             continue;
         }
@@ -3534,7 +3534,7 @@ pub(crate) fn parse_border_property(decls: &mut Declarations, name: &str, input:
         "-color" => {
             let mut colors: Vec<CssColor> = Vec::new();
             while colors.len() < 4 {
-                match CssColor::parse(input) {
+                match parse_color(input) {
                     Ok(c) => colors.push(c),
                     Err(_) => break,
                 }
@@ -3576,7 +3576,7 @@ pub(crate) fn parse_border_property(decls: &mut Declarations, name: &str, input:
                     }
                 }
                 Some("color") => {
-                    if let Ok(c) = CssColor::parse(input) {
+                    if let Ok(c) = parse_color(input) {
                         decls.border_color[i] = Some(c);
                     }
                 }
@@ -3678,7 +3678,7 @@ pub(crate) fn parse_border_like_shorthand<'k>(
             }
         }
         input.reset(&state);
-        if let Ok(c) = CssColor::parse(input) {
+        if let Ok(c) = parse_color(input) {
             color = Some(c);
             found = true;
             continue;
@@ -4238,7 +4238,7 @@ pub(crate) fn parse_background_shorthand(input: &mut CssParser, strict: bool) ->
             continue;
         }
         input.reset(&state);
-        if let Ok(c) = CssColor::parse(input) {
+        if let Ok(c) = parse_color(input) {
             if strict && out.color.is_some() {
                 return Err(());
             }
@@ -4407,7 +4407,7 @@ pub(crate) fn parse_box_shadow_layer(input: &mut CssParser) -> Result<(BoxShadow
         }
         input.reset(&state);
         if color.is_none() {
-            if let Ok(c) = CssColor::parse(input) {
+            if let Ok(c) = parse_color(input) {
                 color = Some(c);
                 continue;
             }
@@ -5432,11 +5432,11 @@ impl DeclParser<'_> {
                 self.decls.custom_props.push((name.to_string(), raw));
             }
         } else if name.eq_ignore_ascii_case("color") {
-            if let Some(c) = CssColor::parse(input).ok().filter(|_| only_important_left(input)) {
+            if let Some(c) = parse_color(input).ok().filter(|_| only_important_left(input)) {
                 self.decls.color = Some(c);
             }
         } else if name.eq_ignore_ascii_case("background-color") {
-            if let Some(c) = CssColor::parse(input).ok().filter(|_| only_important_left(input)) {
+            if let Some(c) = parse_color(input).ok().filter(|_| only_important_left(input)) {
                 self.decls.background_color = Some(c);
             }
         } else if name.eq_ignore_ascii_case("background-image") {
@@ -5784,7 +5784,7 @@ impl DeclParser<'_> {
                 self.decls.outline_width = Some(v);
             }
         } else if name.eq_ignore_ascii_case("outline-color") {
-            if let Ok(c) = CssColor::parse(input) {
+            if let Ok(c) = parse_color(input) {
                 self.decls.outline_color = Some(c);
             }
         } else if name.eq_ignore_ascii_case("outline") {
@@ -6206,7 +6206,7 @@ impl DeclParser<'_> {
                 self.decls.text_decoration_style = Some(s);
             }
         } else if name.eq_ignore_ascii_case("text-decoration-color") {
-            if let Ok(c) = CssColor::parse(input) {
+            if let Ok(c) = parse_color(input) {
                 self.decls.text_decoration_color = Some(c);
             }
         } else if name.eq_ignore_ascii_case("white-space") {
@@ -7227,7 +7227,7 @@ fn svg_rgba(t: TextColor) -> String {
 
 /// QCSS-A: one SVG paint: `none` | `<color>` | `currentColor` | `context-*`.
 fn parse_svg_paint<'i>(input: &mut CssParser<'i>) -> Option<String> {
-    if let Ok(c) = input.try_parse(|i| CssColor::parse(i).map_err(|_| ())) {
+    if let Ok(c) = input.try_parse(|i| parse_color(i).map_err(|_| ())) {
         if matches!(c, CssColor::CurrentColor) {
             return Some("currentColor".to_string());
         }
@@ -7505,8 +7505,18 @@ pub(crate) fn to_text_color(color: &CssColor) -> Option<TextColor> {
             );
             Some(float_text_color(r, g, b, h.alpha.unwrap_or(1.0)))
         }
+        // QCNV3: lab()/lch()/oklab()/oklch()/color() (and color-mix()/relative colours, which parse to these).
+        CssColor::Lab(_) | CssColor::Lch(_) | CssColor::Oklab(_) | CssColor::Oklch(_) | CssColor::ColorFunction(_) => {
+            crate::csscolor::to_srgb8(color).map(|c| TextColor::rgba(c[0], c[1], c[2], c[3]))
+        }
         _ => None,
     }
+}
+
+/// QCNV3: `CssColor::parse` plus `color-mix()` and relative colours (`rgb(from red g r b)`) with concrete colours;
+/// `currentcolor` inside them is not resolved here (the declaration is dropped).
+pub(crate) fn parse_color<'i>(input: &mut CssParser<'i>) -> Result<CssColor, cssparser::ParseError<()>> {
+    crate::csscolor::parse(input, None)
 }
 
 // ---------- QY10: `window.matchMedia(query)` ----------
