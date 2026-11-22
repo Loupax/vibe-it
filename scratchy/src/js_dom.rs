@@ -6308,12 +6308,17 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     rangeReplace = function (parent, old, n, run) {
       if (!liveL().length || rngOff) return run();
       var frag = n.nodeType === 11, kids = frag ? __d_children(n.__id, false) : [n.__id], pid = parent.__id;
+      var snap = liveRanges().map(function (x) { return [x, x.sc, x.so, x.ec, x.eo]; });
       var sib = __d_children(pid, false), oi = sib.indexOf(old.__id);
       if (!frag && n.parentNode === parent && sib.indexOf(n.__id) < oi) oi--;
       kids.forEach(function (k) { fixRemove(k, frag ? 0 : -1); });
       fixRemove(old.__id, oi);
       rngOff = true;
-      try { run(); } finally { rngOff = false; }
+      try { run(); } catch (e) {
+        // A failed replace (HierarchyRequestError ...) changed nothing: put the boundary points back.
+        snap.forEach(function (x) { x[0].sc = x[1]; x[0].so = x[2]; x[0].ec = x[3]; x[0].eo = x[4]; });
+        throw e;
+      } finally { rngOff = false; }
       fixInsert(parent, oi, kids.length);
     };
     var oIns = __d_insert, oRem = __d_remove, oTxt = __d_settext, oHtml = __d_sethtml;

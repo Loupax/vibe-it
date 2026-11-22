@@ -797,6 +797,9 @@ fn qa18b1_iframe_src_document_is_loaded_and_styled() {
         [
             "log:true T hi http://qa18b1.test/dir/empty.html http://qa18b1.test/dir/empty.html true true",
             "log:pre rgb(16, 32, 48) normal",
+            // QDOM5b: a same-origin src that was not pre-fetched is tried once at run time (no wire in this test: null).
+            "net:sync GET http://qa18b1.test/dir/missing.html: blocking the page for up to 5000 ms",
+            "net:GET http://qa18b1.test/dir/missing.html: cannot connect to wire: no --socket was given",
             "log:null null",
             "log:null 0",
             "log:pre-wrap",

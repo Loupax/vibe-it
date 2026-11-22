@@ -823,8 +823,7 @@ TIMEOUT      0/1  dom/nodes/Document-contentType/contentType/contenttype_css.htm
 OK           1/1  dom/nodes/Document-contentType/contentType/contenttype_datauri_02.html
 TIMEOUT      0/1  dom/nodes/Document-contentType/contentType/contenttype_gif.html
   TIMEOUT   GIF document.contentType === 'image/gif'
-TIMEOUT      0/1  dom/nodes/Document-contentType/contentType/contenttype_html.html
-  TIMEOUT   HTM document.contentType === 'text/html'
+OK           1/1  dom/nodes/Document-contentType/contentType/contenttype_html.html
 TIMEOUT      0/1  dom/nodes/Document-contentType/contentType/contenttype_javascripturi.html
   TIMEOUT   Javascript URI document.contentType === 'text/html'
 TIMEOUT      0/1  dom/nodes/Document-contentType/contentType/contenttype_jpg.html
@@ -1449,8 +1448,11 @@ OK           3/6  dom/nodes/Element-matches-namespaced-elements.html
   FAIL      empty string namespace, webkitMatchesSelector
   FAIL      has a namespace, webkitMatchesSelector
   FAIL      has a namespace, *|, webkitMatchesSelector
-TIMEOUT      0/1  dom/nodes/Element-matches.html
-  TIMEOUT   Selectors-API Level 2 Test Suite: HTML with Selectors Level 3
+OK       665/669  dom/nodes/Element-matches.html
+  FAIL      DIV Element.matches no parameter
+  FAIL      NULL Element.matches no parameter
+  FAIL      UNDEFINED Element.matches no parameter
+  FAIL      In-document Element.matches: :target pseudo-class selector, matching the element referenced by the URL fragment identifier (with no refNodes): :target
 CRASH        0/0  dom/nodes/Element-nextElementSibling-svg.svg
 ERROR        0/0  dom/nodes/Element-nextElementSibling-xhtml.xhtml
 OK           1/1  dom/nodes/Element-nextElementSibling.html
@@ -1474,8 +1476,669 @@ ERROR        0/0  dom/nodes/Element-siblingElement-null-xhtml.xhtml
 OK           1/1  dom/nodes/Element-siblingElement-null.html
 OK           1/1  dom/nodes/Element-tagName-adopt.html
 OK           6/6  dom/nodes/Element-tagName.html
-TIMEOUT      0/1  dom/nodes/Element-webkitMatchesSelector.html
-  TIMEOUT   Selectors-API Level 2 Test Suite: HTML with Selectors Level 3
+OK         7/669  dom/nodes/Element-webkitMatchesSelector.html
+  FAIL      Detached Element supports webkitMatchesSelector
+  FAIL      In-document Element supports webkitMatchesSelector
+  FAIL      DIV Element.webkitMatchesSelector(null)
+  FAIL      DIV Element.webkitMatchesSelector(undefined)
+  FAIL      DIV Element.webkitMatchesSelector no parameter
+  FAIL      NULL Element.webkitMatchesSelector(null)
+  FAIL      NULL Element.webkitMatchesSelector(undefined)
+  FAIL      UNDEFINED Element.webkitMatchesSelector(null)
+  FAIL      UNDEFINED Element.webkitMatchesSelector(undefined)
+  FAIL      Detached Element.webkitMatchesSelector: Empty String: 
+  FAIL      Detached Element.webkitMatchesSelector: Invalid character: [
+  FAIL      Detached Element.webkitMatchesSelector: Invalid character: ]
+  FAIL      Detached Element.webkitMatchesSelector: Invalid character: (
+  FAIL      Detached Element.webkitMatchesSelector: Invalid character: )
+  FAIL      Detached Element.webkitMatchesSelector: Invalid character: {
+  FAIL      Detached Element.webkitMatchesSelector: Invalid character: }
+  FAIL      Detached Element.webkitMatchesSelector: Invalid character: <
+  FAIL      Detached Element.webkitMatchesSelector: Invalid character: >
+  FAIL      Detached Element.webkitMatchesSelector: Invalid ID: #
+  FAIL      Detached Element.webkitMatchesSelector: Invalid group of selectors: div,
+  FAIL      Detached Element.webkitMatchesSelector: Invalid class: .
+  FAIL      Detached Element.webkitMatchesSelector: Invalid class: .5cm
+  FAIL      Detached Element.webkitMatchesSelector: Invalid class: ..test
+  FAIL      Detached Element.webkitMatchesSelector: Invalid class: .foo..quux
+  FAIL      Detached Element.webkitMatchesSelector: Invalid class: .bar.
+  FAIL      Detached Element.webkitMatchesSelector: Invalid combinator: div % address, p
+  FAIL      Detached Element.webkitMatchesSelector: Invalid combinator: div ++ address, p
+  FAIL      Detached Element.webkitMatchesSelector: Invalid combinator: div ~~ address, p
+  FAIL      Detached Element.webkitMatchesSelector: Invalid [att=value] selector: [*=test]
+  FAIL      Detached Element.webkitMatchesSelector: Invalid [att=value] selector: [*|*=test]
+  FAIL      Detached Element.webkitMatchesSelector: Invalid [att=value] selector: [class= space unquoted ]
+  FAIL      Detached Element.webkitMatchesSelector: Unknown pseudo-class: div:example
+  FAIL      Detached Element.webkitMatchesSelector: Unknown pseudo-class: :example
+  FAIL      Detached Element.webkitMatchesSelector: Unknown pseudo-class: div:linkexample
+  FAIL      Detached Element.webkitMatchesSelector: Unknown pseudo-element: div::example
+  FAIL      Detached Element.webkitMatchesSelector: Unknown pseudo-element: ::example
+  FAIL      Detached Element.webkitMatchesSelector: Invalid pseudo-element: :::before
+  FAIL      Detached Element.webkitMatchesSelector: Invalid pseudo-element: :: before
+  FAIL      Detached Element.webkitMatchesSelector: Undeclared namespace: ns|div
+  FAIL      Detached Element.webkitMatchesSelector: Undeclared namespace: :not(ns|div)
+  FAIL      Detached Element.webkitMatchesSelector: Invalid namespace: ^|div
+  FAIL      Detached Element.webkitMatchesSelector: Invalid namespace: $|div
+  FAIL      Detached Element.webkitMatchesSelector: Relative selector: >*
+  FAIL      In-document Element.webkitMatchesSelector: Empty String: 
+  FAIL      In-document Element.webkitMatchesSelector: Invalid character: [
+  FAIL      In-document Element.webkitMatchesSelector: Invalid character: ]
+  FAIL      In-document Element.webkitMatchesSelector: Invalid character: (
+  FAIL      In-document Element.webkitMatchesSelector: Invalid character: )
+  FAIL      In-document Element.webkitMatchesSelector: Invalid character: {
+  FAIL      In-document Element.webkitMatchesSelector: Invalid character: }
+  FAIL      In-document Element.webkitMatchesSelector: Invalid character: <
+  FAIL      In-document Element.webkitMatchesSelector: Invalid character: >
+  FAIL      In-document Element.webkitMatchesSelector: Invalid ID: #
+  FAIL      In-document Element.webkitMatchesSelector: Invalid group of selectors: div,
+  FAIL      In-document Element.webkitMatchesSelector: Invalid class: .
+  FAIL      In-document Element.webkitMatchesSelector: Invalid class: .5cm
+  FAIL      In-document Element.webkitMatchesSelector: Invalid class: ..test
+  FAIL      In-document Element.webkitMatchesSelector: Invalid class: .foo..quux
+  FAIL      In-document Element.webkitMatchesSelector: Invalid class: .bar.
+  FAIL      In-document Element.webkitMatchesSelector: Invalid combinator: div % address, p
+  FAIL      In-document Element.webkitMatchesSelector: Invalid combinator: div ++ address, p
+  FAIL      In-document Element.webkitMatchesSelector: Invalid combinator: div ~~ address, p
+  FAIL      In-document Element.webkitMatchesSelector: Invalid [att=value] selector: [*=test]
+  FAIL      In-document Element.webkitMatchesSelector: Invalid [att=value] selector: [*|*=test]
+  FAIL      In-document Element.webkitMatchesSelector: Invalid [att=value] selector: [class= space unquoted ]
+  FAIL      In-document Element.webkitMatchesSelector: Unknown pseudo-class: div:example
+  FAIL      In-document Element.webkitMatchesSelector: Unknown pseudo-class: :example
+  FAIL      In-document Element.webkitMatchesSelector: Unknown pseudo-class: div:linkexample
+  FAIL      In-document Element.webkitMatchesSelector: Unknown pseudo-element: div::example
+  FAIL      In-document Element.webkitMatchesSelector: Unknown pseudo-element: ::example
+  FAIL      In-document Element.webkitMatchesSelector: Invalid pseudo-element: :::before
+  FAIL      In-document Element.webkitMatchesSelector: Invalid pseudo-element: :: before
+  FAIL      In-document Element.webkitMatchesSelector: Undeclared namespace: ns|div
+  FAIL      In-document Element.webkitMatchesSelector: Undeclared namespace: :not(ns|div)
+  FAIL      In-document Element.webkitMatchesSelector: Invalid namespace: ^|div
+  FAIL      In-document Element.webkitMatchesSelector: Invalid namespace: $|div
+  FAIL      In-document Element.webkitMatchesSelector: Relative selector: >*
+  FAIL      In-document Element.webkitMatchesSelector: Type selector, matching html element (with no refNodes): html
+  FAIL      In-document Element.webkitMatchesSelector: Type selector, matching body element (with no refNodes): body
+  FAIL      In-document Element.webkitMatchesSelector: Universal selector, matching all elements (with no refNodes): *
+  FAIL      In-document Element.webkitMatchesSelector: Universal selector, matching all children of element with specified ID (with no refNodes): #universal>*
+  FAIL      In-document Element.webkitMatchesSelector: Universal selector, matching all grandchildren of element with specified ID (with no refNodes): #universal>*>*
+  FAIL      In-document Element.webkitMatchesSelector: Universal selector, matching all descendants of element with specified ID (with no refNodes): #universal *
+  FAIL      In-document Element.webkitMatchesSelector: Attribute presence selector, matching align attribute with value (with no refNodes): .attr-presence-div1[align]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute presence selector, matching align attribute with empty value (with no refNodes): .attr-presence-div2[align]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute presence selector, matching title attribute, case insensitivity (with no refNodes): #attr-presence [*|TiTlE]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute presence selector, matching custom data-* attribute (with no refNodes): [data-attr-presence]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute presence selector, matching attribute with non-ASCII characters (with no refNodes): ul[data-中文]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute presence selector, matching option with selected attribute (with no refNodes): #attr-presence-select2 option[selected]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute presence selector, matching multiple options with selected attributes (with no refNodes): #attr-presence-select3 option[selected]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute value selector, matching align attribute with value (with no refNodes): #attr-value [align="center"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute value selector, matching align attribute with value, unclosed bracket (with no refNodes): #attr-value [align="center"
+  FAIL      In-document Element.webkitMatchesSelector: Attribute value selector, matching align attribute with empty value (with no refNodes): #attr-value [align=""]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute value selector, matching custom data-* attribute with unicode escaped value (with no refNodes): [data-attr-value="\\e9"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute value selector, matching custom data-* attribute with escaped character (with no refNodes): [data-attr-value_foo="\\e9"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute value selector with single-quoted value, matching multiple inputs with type attributes (with no refNodes): #attr-value input[type='hidden'],#attr-value input[type='radio']
+  FAIL      In-document Element.webkitMatchesSelector: Attribute value selector with double-quoted value, matching multiple inputs with type attributes (with no refNodes): #attr-value input[type="hidden"],#attr-value input[type='radio']
+  FAIL      In-document Element.webkitMatchesSelector: Attribute value selector with unquoted value, matching multiple inputs with type attributes (with no refNodes): #attr-value input[type=hidden],#attr-value input[type=radio]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute value selector, matching attribute with value using non-ASCII characters (with no refNodes): [data-attr-value=中文]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute whitespace-separated list selector, matching class attribute with value (with no refNodes): #attr-whitespace [class~="div1"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute whitespace-separated list selector, matching custom data-* attribute with unicode escaped value (with no refNodes): [data-attr-whitespace~="\\0000e9"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute whitespace-separated list selector, matching custom data-* attribute with escaped character (with no refNodes): [data-attr-whitespace_foo~="\\e9"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute whitespace-separated list selector with single-quoted value, matching multiple links with rel attributes (with no refNodes): #attr-whitespace a[rel~='bookmark'],  #attr-whitespace a[rel~='nofollow']
+  FAIL      In-document Element.webkitMatchesSelector: Attribute whitespace-separated list selector with double-quoted value, matching multiple links with rel attributes (with no refNodes): #attr-whitespace a[rel~="bookmark"],#attr-whitespace a[rel~='nofollow']
+  FAIL      In-document Element.webkitMatchesSelector: Attribute whitespace-separated list selector with unquoted value, matching multiple links with rel attributes (with no refNodes): #attr-whitespace a[rel~=bookmark],    #attr-whitespace a[rel~=nofollow]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute whitespace-separated list selector, matching title attribute with value using non-ASCII characters (with no refNodes): #attr-whitespace [title~=中文]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute hyphen-separated list selector, matching lang attribute with exact value (with no refNodes): #attr-hyphen-div2[lang|="fr"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute hyphen-separated list selector, matching lang attribute with partial value (with no refNodes): #attr-hyphen-div3[lang|="en"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute begins with selector, matching href attributes beginning with specified substring (with no refNodes): #attr-begins a[href^="http://www"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute begins with selector, matching lang attributes beginning with specified substring,  (with no refNodes): #attr-begins [lang^="en-"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute begins with selector with single-quoted value, matching class attribute beginning with specified substring (with no refNodes): #attr-begins [class^=' apple']
+  FAIL      In-document Element.webkitMatchesSelector: Attribute begins with selector with double-quoted value, matching class attribute beginning with specified substring (with no refNodes): #attr-begins [class^=" apple"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute ends with selector, matching href attributes ending with specified substring (with no refNodes): #attr-ends a[href$=".org"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute ends with selector, matching lang attributes ending with specified substring,  (with no refNodes): #attr-ends [lang$="-CH"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute ends with selector with single-quoted value, matching class attribute ending with specified substring (with no refNodes): #attr-ends [class$='apple ']
+  FAIL      In-document Element.webkitMatchesSelector: Attribute ends with selector with double-quoted value, matching class attribute ending with specified substring (with no refNodes): #attr-ends [class$="apple "]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute contains selector, matching href attributes beginning with specified substring (with no refNodes): #attr-contains a[href*="http://www"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute contains selector, matching href attributes ending with specified substring (with no refNodes): #attr-contains a[href*=".org"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute contains selector, matching href attributes containing specified substring (with no refNodes): #attr-contains a[href*=".example."]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute contains selector, matching lang attributes beginning with specified substring,  (with no refNodes): #attr-contains [lang*="en-"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute contains selector, matching lang attributes ending with specified substring,  (with no refNodes): #attr-contains [lang*="-CH"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute contains selector with single-quoted value, matching class attribute beginning with specified substring (with no refNodes): #attr-contains [class*=' apple']
+  FAIL      In-document Element.webkitMatchesSelector: Attribute contains selector with single-quoted value, matching class attribute ending with specified substring (with no refNodes): #attr-contains [class*='orange ']
+  FAIL      In-document Element.webkitMatchesSelector: Attribute contains selector with single-quoted value, matching class attribute containing specified substring (with no refNodes): #attr-contains [class*='ple banana ora']
+  FAIL      In-document Element.webkitMatchesSelector: Attribute contains selector with double-quoted value, matching class attribute beginning with specified substring (with no refNodes): #attr-contains [class*=" apple"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute contains selector with double-quoted value, matching class attribute ending with specified substring (with no refNodes): #attr-contains [class*="orange "]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute contains selector with double-quoted value, matching class attribute containing specified substring (with no refNodes): #attr-contains [class*="ple banana ora"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute contains selector with unquoted value, matching class attribute beginning with specified substring (with no refNodes): #attr-contains [class*= apple]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute contains selector with unquoted value, matching class attribute ending with specified substring (with no refNodes): #attr-contains [class*=orange ]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute contains selector with unquoted value, matching class attribute containing specified substring (with no refNodes): #attr-contains [class*= banana ]
+  FAIL      In-document Element.webkitMatchesSelector: :root pseudo-class selector, matching document root element (with no refNodes): :root
+  FAIL      In-document Element.webkitMatchesSelector: :nth-child selector, matching the third child element (with no refNodes): #pseudo-nth-table1 :nth-child(3)
+  FAIL      In-document Element.webkitMatchesSelector: :nth-child selector, matching every third child element (with no refNodes): #pseudo-nth li:nth-child(3n)
+  FAIL      In-document Element.webkitMatchesSelector: :nth-child selector, matching every second child element, starting from the fourth (with no refNodes): #pseudo-nth li:nth-child(2n+4)
+  FAIL      In-document Element.webkitMatchesSelector: :nth-child selector, matching every fourth child element, starting from the third (with no refNodes): #pseudo-nth-p1 :nth-child(4n-1)
+  FAIL      In-document Element.webkitMatchesSelector: :nth-last-child selector, matching the third last child element (with no refNodes): #pseudo-nth-table1 :nth-last-child(3)
+  FAIL      In-document Element.webkitMatchesSelector: :nth-last-child selector, matching every third child element from the end (with no refNodes): #pseudo-nth li:nth-last-child(3n)
+  FAIL      In-document Element.webkitMatchesSelector: :nth-last-child selector, matching every second child element from the end, starting from the fourth last (with no refNodes): #pseudo-nth li:nth-last-child(2n+4)
+  FAIL      In-document Element.webkitMatchesSelector: :nth-last-child selector, matching every fourth element from the end, starting from the third last (with no refNodes): #pseudo-nth-p1 :nth-last-child(4n-1)
+  FAIL      In-document Element.webkitMatchesSelector: :nth-of-type selector, matching the third em element (with no refNodes): #pseudo-nth-p1 em:nth-of-type(3)
+  FAIL      In-document Element.webkitMatchesSelector: :nth-of-type selector, matching every second element of their type (with no refNodes): #pseudo-nth-p1 :nth-of-type(2n)
+  FAIL      In-document Element.webkitMatchesSelector: :nth-of-type selector, matching every second elemetn of their type, starting from the first (with no refNodes): #pseudo-nth-p1 span:nth-of-type(2n-1)
+  FAIL      In-document Element.webkitMatchesSelector: :nth-last-of-type selector, matching the third last em element (with no refNodes): #pseudo-nth-p1 em:nth-last-of-type(3)
+  FAIL      In-document Element.webkitMatchesSelector: :nth-last-of-type selector, matching every second last element of their type (with no refNodes): #pseudo-nth-p1 :nth-last-of-type(2n)
+  FAIL      In-document Element.webkitMatchesSelector: :nth-last-of-type selector, matching every second last element of their type, starting from the last (with no refNodes): #pseudo-nth-p1 span:nth-last-of-type(2n-1)
+  FAIL      In-document Element.webkitMatchesSelector: :first-of-type selector, matching the first em element (with no refNodes): #pseudo-nth-p1 em:first-of-type
+  FAIL      In-document Element.webkitMatchesSelector: :first-of-type selector, matching the first of every type of element (with no refNodes): #pseudo-nth-p1 :first-of-type
+  FAIL      In-document Element.webkitMatchesSelector: :first-of-type selector, matching the first td element in each table row (with no refNodes): #pseudo-nth-table1 tr :first-of-type
+  FAIL      In-document Element.webkitMatchesSelector: :last-of-type selector, matching the last em elemnet (with no refNodes): #pseudo-nth-p1 em:last-of-type
+  FAIL      In-document Element.webkitMatchesSelector: :last-of-type selector, matching the last of every type of element (with no refNodes): #pseudo-nth-p1 :last-of-type
+  FAIL      In-document Element.webkitMatchesSelector: :last-of-type selector, matching the last td element in each table row (with no refNodes): #pseudo-nth-table1 tr :last-of-type
+  FAIL      In-document Element.webkitMatchesSelector: :first-child pseudo-class selector, matching first child div element (with no refNodes): #pseudo-first-child div:first-child
+  FAIL      In-document Element.webkitMatchesSelector: :first-child pseudo-class selector, matching first-child of multiple elements (with no refNodes): #pseudo-first-child span:first-child
+  FAIL      In-document Element.webkitMatchesSelector: :last-child pseudo-class selector, matching last child div element (with no refNodes): #pseudo-last-child div:last-child
+  FAIL      In-document Element.webkitMatchesSelector: :last-child pseudo-class selector, matching first-child of multiple elements (with no refNodes): #pseudo-last-child span:last-child
+  FAIL      In-document Element.webkitMatchesSelector: :pseudo-only-child pseudo-class selector, matching all only-child elements (with no refNodes): #pseudo-only :only-child
+  FAIL      In-document Element.webkitMatchesSelector: :pseudo-only-of-type pseudo-class selector, matching all elements with no siblings of the same type (with no refNodes): #pseudo-only :only-of-type
+  FAIL      In-document Element.webkitMatchesSelector: :pseudo-only-of-type pseudo-class selector, matching em elements with no siblings of the same type (with no refNodes): #pseudo-only em:only-of-type
+  FAIL      In-document Element.webkitMatchesSelector: :empty pseudo-class selector, matching empty p elements (with no refNodes): #pseudo-empty p:empty
+  FAIL      In-document Element.webkitMatchesSelector: :empty pseudo-class selector, matching all empty elements (with no refNodes): #pseudo-empty :empty
+  FAIL      In-document Element.webkitMatchesSelector: :link and :visited pseudo-class selectors, matching a and area elements with href attributes (with no refNodes): #pseudo-link :link, #pseudo-link :visited
+  FAIL      In-document Element.webkitMatchesSelector: :target pseudo-class selector, matching the element referenced by the URL fragment identifier (with no refNodes): :target
+  FAIL      In-document Element.webkitMatchesSelector: :lang pseudo-class selector, matching inherited language (with no refNodes): #pseudo-lang-div1:lang(en)
+  FAIL      In-document Element.webkitMatchesSelector: :lang pseudo-class selector, matching specified language with exact value (with no refNodes): #pseudo-lang-div2:lang(fr)
+  FAIL      In-document Element.webkitMatchesSelector: :lang pseudo-class selector, matching specified language with partial value (with no refNodes): #pseudo-lang-div3:lang(en)
+  FAIL      In-document Element.webkitMatchesSelector: :enabled pseudo-class selector, matching all enabled form controls (with no refNodes): #pseudo-ui :enabled
+  FAIL      In-document Element.webkitMatchesSelector: :enabled pseudo-class selector, not matching link elements (with no refNodes): #pseudo-link :enabled
+  FAIL      In-document Element.webkitMatchesSelector: :disabled pseudo-class selector, matching all disabled form controls (with no refNodes): #pseudo-ui :disabled
+  FAIL      In-document Element.webkitMatchesSelector: :disabled pseudo-class selector, not matching link elements (with no refNodes): #pseudo-link :disabled
+  FAIL      In-document Element.webkitMatchesSelector: :checked pseudo-class selector, matching checked radio buttons and checkboxes (with no refNodes): #pseudo-ui :checked
+  FAIL      In-document Element.webkitMatchesSelector: :not pseudo-class selector, matching  (with no refNodes): #not>:not(div)
+  FAIL      In-document Element.webkitMatchesSelector: :not pseudo-class selector, matching  (with no refNodes): #not * :not(:first-child)
+  FAIL      In-document Element.webkitMatchesSelector: :not pseudo-class selector argument surrounded by spaces, matching  (with no refNodes): #not>:not( div )
+  FAIL      In-document Element.webkitMatchesSelector: Class selector, matching element with specified class (with no refNodes): .class-p
+  FAIL      In-document Element.webkitMatchesSelector: Class selector, chained, matching only elements with all specified classes (with no refNodes): #class .apple.orange.banana
+  FAIL      In-document Element.webkitMatchesSelector: Class Selector, chained, with type selector (with no refNodes): div.apple.banana.orange
+  FAIL      In-document Element.webkitMatchesSelector: Class selector, matching element with class value using non-ASCII characters (1) (with no refNodes): .台北Táiběi
+  FAIL      In-document Element.webkitMatchesSelector: Class selector, matching multiple elements with class value using non-ASCII characters (with no refNodes): .台北
+  FAIL      In-document Element.webkitMatchesSelector: Class selector, chained, matching element with multiple class values using non-ASCII characters (1) (with no refNodes): .台北Táiběi.台北
+  FAIL      In-document Element.webkitMatchesSelector: Class selector, matching element with class with escaped character (with no refNodes): .foo\\:bar
+  FAIL      In-document Element.webkitMatchesSelector: Class selector, matching element with class with escaped character (with no refNodes): .test\\.foo\\[5\\]bar
+  FAIL      In-document Element.webkitMatchesSelector: ID selector, matching element with specified id (with no refNodes): #id #id-div1
+  FAIL      In-document Element.webkitMatchesSelector: ID selector, chained, matching element with specified id (with no refNodes): #id-div1, #id-div1
+  FAIL      In-document Element.webkitMatchesSelector: ID selector, chained, matching element with specified id (with no refNodes): #id-div1, #id-div2
+  FAIL      In-document Element.webkitMatchesSelector: ID Selector, chained, with type selector (with no refNodes): div#id-div1, div#id-div2
+  FAIL      In-document Element.webkitMatchesSelector: ID selector, matching multiple elements with duplicate id (with no refNodes): #id-li-duplicate
+  FAIL      In-document Element.webkitMatchesSelector: ID selector, matching id value using non-ASCII characters (1) (with no refNodes): #台北Táiběi
+  FAIL      In-document Element.webkitMatchesSelector: ID selector, matching id value using non-ASCII characters (2) (with no refNodes): #台北
+  FAIL      In-document Element.webkitMatchesSelector: ID selector, matching id values using non-ASCII characters (1) (with no refNodes): #台北Táiběi, #台北
+  FAIL      In-document Element.webkitMatchesSelector: Descendant combinator, matching element that is a descendant of an element with id (with no refNodes): #descendant div
+  FAIL      In-document Element.webkitMatchesSelector: Descendant combinator, matching element with id that is a descendant of an element (with no refNodes): body #descendant-div1
+  FAIL      In-document Element.webkitMatchesSelector: Descendant combinator, matching element with id that is a descendant of an element (with no refNodes): div #descendant-div1
+  FAIL      In-document Element.webkitMatchesSelector: Descendant combinator, matching element with id that is a descendant of an element with id (with no refNodes): #descendant #descendant-div2
+  FAIL      In-document Element.webkitMatchesSelector: Descendant combinator, matching element with class that is a descendant of an element with id (with no refNodes): #descendant .descendant-div2
+  FAIL      In-document Element.webkitMatchesSelector: Descendant combinator, matching element with class that is a descendant of an element with class (with no refNodes): .descendant-div1 .descendant-div3
+  FAIL      In-document Element.webkitMatchesSelector: Descendant combinator, whitespace characters (with no refNodes): #descendant\t\r\n#descendant-div2
+  FAIL      In-document Element.webkitMatchesSelector: Child combinator, matching element that is a child of an element with id (with no refNodes): #child>div
+  FAIL      In-document Element.webkitMatchesSelector: Child combinator, matching element with id that is a child of an element (with no refNodes): div>#child-div1
+  FAIL      In-document Element.webkitMatchesSelector: Child combinator, matching element with id that is a child of an element with id (with no refNodes): #child>#child-div1
+  FAIL      In-document Element.webkitMatchesSelector: Child combinator, matching element with id that is a child of an element with class (with no refNodes): #child-div1>.child-div2
+  FAIL      In-document Element.webkitMatchesSelector: Child combinator, matching element with class that is a child of an element with class (with no refNodes): .child-div1>.child-div2
+  FAIL      In-document Element.webkitMatchesSelector: Child combinator, surrounded by whitespace (with no refNodes): #child-div1\t\r\n>\t\r\n#child-div2
+  FAIL      In-document Element.webkitMatchesSelector: Child combinator, whitespace after (with no refNodes): #child-div1>\t\r\n#child-div2
+  FAIL      In-document Element.webkitMatchesSelector: Child combinator, whitespace before (with no refNodes): #child-div1\t\r\n>#child-div2
+  FAIL      In-document Element.webkitMatchesSelector: Child combinator, no whitespace (with no refNodes): #child-div1>#child-div2
+  FAIL      In-document Element.webkitMatchesSelector: Adjacent sibling combinator, matching element that is an adjacent sibling of an element with id (with no refNodes): #adjacent-div2+div
+  FAIL      In-document Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element (with no refNodes): div+#adjacent-div4
+  FAIL      In-document Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element with id (with no refNodes): #adjacent-div2+#adjacent-div4
+  FAIL      In-document Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with id (with no refNodes): #adjacent-div2+.adjacent-div4
+  FAIL      In-document Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with class (with no refNodes): .adjacent-div2+.adjacent-div4
+  FAIL      In-document Element.webkitMatchesSelector: Adjacent sibling combinator, matching p element that is an adjacent sibling of a div element (with no refNodes): #adjacent div+p
+  FAIL      In-document Element.webkitMatchesSelector: Adjacent sibling combinator, surrounded by whitespace (with no refNodes): #adjacent-p2\t\r\n+\t\r\n#adjacent-p3
+  FAIL      In-document Element.webkitMatchesSelector: Adjacent sibling combinator, whitespace after (with no refNodes): #adjacent-p2+\t\r\n#adjacent-p3
+  FAIL      In-document Element.webkitMatchesSelector: Adjacent sibling combinator, whitespace before (with no refNodes): #adjacent-p2\t\r\n+#adjacent-p3
+  FAIL      In-document Element.webkitMatchesSelector: Adjacent sibling combinator, no whitespace (with no refNodes): #adjacent-p2+#adjacent-p3
+  FAIL      In-document Element.webkitMatchesSelector: General sibling combinator, matching element that is a sibling of an element with id (with no refNodes): #sibling-div2~div
+  FAIL      In-document Element.webkitMatchesSelector: General sibling combinator, matching element with id that is a sibling of an element (with no refNodes): div~#sibling-div4
+  FAIL      In-document Element.webkitMatchesSelector: General sibling combinator, matching element with id that is a sibling of an element with id (with no refNodes): #sibling-div2~#sibling-div4
+  FAIL      In-document Element.webkitMatchesSelector: General sibling combinator, matching element with class that is a sibling of an element with id (with no refNodes): #sibling-div2~.sibling-div
+  FAIL      In-document Element.webkitMatchesSelector: General sibling combinator, matching p element that is a sibling of a div element (with no refNodes): #sibling div~p
+  FAIL      In-document Element.webkitMatchesSelector: General sibling combinator, surrounded by whitespace (with no refNodes): #sibling-p2\t\r\n~\t\r\n#sibling-p3
+  FAIL      In-document Element.webkitMatchesSelector: General sibling combinator, whitespace after (with no refNodes): #sibling-p2~\t\r\n#sibling-p3
+  FAIL      In-document Element.webkitMatchesSelector: General sibling combinator, whitespace before (with no refNodes): #sibling-p2\t\r\n~#sibling-p3
+  FAIL      In-document Element.webkitMatchesSelector: General sibling combinator, no whitespace (with no refNodes): #sibling-p2~#sibling-p3
+  FAIL      In-document Element.webkitMatchesSelector: Syntax, group of selectors separator, surrounded by whitespace (with no refNodes): #group em\t\r \n,\t\r \n#group strong
+  FAIL      In-document Element.webkitMatchesSelector: Syntax, group of selectors separator, whitespace after (with no refNodes): #group em,\t\r\n#group strong
+  FAIL      In-document Element.webkitMatchesSelector: Syntax, group of selectors separator, whitespace before (with no refNodes): #group em\t\r\n,#group strong
+  FAIL      In-document Element.webkitMatchesSelector: Syntax, group of selectors separator, no whitespace (with no refNodes): #group em,#group strong
+  FAIL      Detached Element.webkitMatchesSelector: Universal selector, matching all elements (with no refNodes): *
+  FAIL      Detached Element.webkitMatchesSelector: Universal selector, matching all children of element with specified ID (with no refNodes): #universal>*
+  FAIL      Detached Element.webkitMatchesSelector: Universal selector, matching all grandchildren of element with specified ID (with no refNodes): #universal>*>*
+  FAIL      Detached Element.webkitMatchesSelector: Universal selector, matching all descendants of element with specified ID (with no refNodes): #universal *
+  FAIL      Detached Element.webkitMatchesSelector: Attribute presence selector, matching align attribute with value (with no refNodes): .attr-presence-div1[align]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute presence selector, matching align attribute with empty value (with no refNodes): .attr-presence-div2[align]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute presence selector, matching title attribute, case insensitivity (with no refNodes): #attr-presence [*|TiTlE]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute presence selector, matching custom data-* attribute (with no refNodes): [data-attr-presence]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute presence selector, matching attribute with non-ASCII characters (with no refNodes): ul[data-中文]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute presence selector, matching option with selected attribute (with no refNodes): #attr-presence-select2 option[selected]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute presence selector, matching multiple options with selected attributes (with no refNodes): #attr-presence-select3 option[selected]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute value selector, matching align attribute with value (with no refNodes): #attr-value [align="center"]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute value selector, matching align attribute with value, unclosed bracket (with no refNodes): #attr-value [align="center"
+  FAIL      Detached Element.webkitMatchesSelector: Attribute value selector, matching align attribute with empty value (with no refNodes): #attr-value [align=""]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute value selector, matching custom data-* attribute with unicode escaped value (with no refNodes): [data-attr-value="\\e9"]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute value selector, matching custom data-* attribute with escaped character (with no refNodes): [data-attr-value_foo="\\e9"]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute value selector with single-quoted value, matching multiple inputs with type attributes (with no refNodes): #attr-value input[type='hidden'],#attr-value input[type='radio']
+  FAIL      Detached Element.webkitMatchesSelector: Attribute value selector with double-quoted value, matching multiple inputs with type attributes (with no refNodes): #attr-value input[type="hidden"],#attr-value input[type='radio']
+  FAIL      Detached Element.webkitMatchesSelector: Attribute value selector with unquoted value, matching multiple inputs with type attributes (with no refNodes): #attr-value input[type=hidden],#attr-value input[type=radio]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute value selector, matching attribute with value using non-ASCII characters (with no refNodes): [data-attr-value=中文]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute whitespace-separated list selector, matching class attribute with value (with no refNodes): #attr-whitespace [class~="div1"]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute whitespace-separated list selector, matching custom data-* attribute with unicode escaped value (with no refNodes): [data-attr-whitespace~="\\0000e9"]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute whitespace-separated list selector, matching custom data-* attribute with escaped character (with no refNodes): [data-attr-whitespace_foo~="\\e9"]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute whitespace-separated list selector with single-quoted value, matching multiple links with rel attributes (with no refNodes): #attr-whitespace a[rel~='bookmark'],  #attr-whitespace a[rel~='nofollow']
+  FAIL      Detached Element.webkitMatchesSelector: Attribute whitespace-separated list selector with double-quoted value, matching multiple links with rel attributes (with no refNodes): #attr-whitespace a[rel~="bookmark"],#attr-whitespace a[rel~='nofollow']
+  FAIL      Detached Element.webkitMatchesSelector: Attribute whitespace-separated list selector with unquoted value, matching multiple links with rel attributes (with no refNodes): #attr-whitespace a[rel~=bookmark],    #attr-whitespace a[rel~=nofollow]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute whitespace-separated list selector, matching title attribute with value using non-ASCII characters (with no refNodes): #attr-whitespace [title~=中文]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute hyphen-separated list selector, matching lang attribute with exact value (with no refNodes): #attr-hyphen-div2[lang|="fr"]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute hyphen-separated list selector, matching lang attribute with partial value (with no refNodes): #attr-hyphen-div3[lang|="en"]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute begins with selector, matching href attributes beginning with specified substring (with no refNodes): #attr-begins a[href^="http://www"]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute begins with selector, matching lang attributes beginning with specified substring,  (with no refNodes): #attr-begins [lang^="en-"]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute begins with selector with single-quoted value, matching class attribute beginning with specified substring (with no refNodes): #attr-begins [class^=' apple']
+  FAIL      Detached Element.webkitMatchesSelector: Attribute begins with selector with double-quoted value, matching class attribute beginning with specified substring (with no refNodes): #attr-begins [class^=" apple"]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute ends with selector, matching href attributes ending with specified substring (with no refNodes): #attr-ends a[href$=".org"]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute ends with selector, matching lang attributes ending with specified substring,  (with no refNodes): #attr-ends [lang$="-CH"]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute ends with selector with single-quoted value, matching class attribute ending with specified substring (with no refNodes): #attr-ends [class$='apple ']
+  FAIL      Detached Element.webkitMatchesSelector: Attribute ends with selector with double-quoted value, matching class attribute ending with specified substring (with no refNodes): #attr-ends [class$="apple "]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute contains selector, matching href attributes beginning with specified substring (with no refNodes): #attr-contains a[href*="http://www"]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute contains selector, matching href attributes ending with specified substring (with no refNodes): #attr-contains a[href*=".org"]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute contains selector, matching href attributes containing specified substring (with no refNodes): #attr-contains a[href*=".example."]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute contains selector, matching lang attributes beginning with specified substring,  (with no refNodes): #attr-contains [lang*="en-"]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute contains selector, matching lang attributes ending with specified substring,  (with no refNodes): #attr-contains [lang*="-CH"]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute contains selector with single-quoted value, matching class attribute beginning with specified substring (with no refNodes): #attr-contains [class*=' apple']
+  FAIL      Detached Element.webkitMatchesSelector: Attribute contains selector with single-quoted value, matching class attribute ending with specified substring (with no refNodes): #attr-contains [class*='orange ']
+  FAIL      Detached Element.webkitMatchesSelector: Attribute contains selector with single-quoted value, matching class attribute containing specified substring (with no refNodes): #attr-contains [class*='ple banana ora']
+  FAIL      Detached Element.webkitMatchesSelector: Attribute contains selector with double-quoted value, matching class attribute beginning with specified substring (with no refNodes): #attr-contains [class*=" apple"]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute contains selector with double-quoted value, matching class attribute ending with specified substring (with no refNodes): #attr-contains [class*="orange "]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute contains selector with double-quoted value, matching class attribute containing specified substring (with no refNodes): #attr-contains [class*="ple banana ora"]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute contains selector with unquoted value, matching class attribute beginning with specified substring (with no refNodes): #attr-contains [class*= apple]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute contains selector with unquoted value, matching class attribute ending with specified substring (with no refNodes): #attr-contains [class*=orange ]
+  FAIL      Detached Element.webkitMatchesSelector: Attribute contains selector with unquoted value, matching class attribute containing specified substring (with no refNodes): #attr-contains [class*= banana ]
+  FAIL      Detached Element.webkitMatchesSelector: :nth-child selector, matching the third child element (with no refNodes): #pseudo-nth-table1 :nth-child(3)
+  FAIL      Detached Element.webkitMatchesSelector: :nth-child selector, matching every third child element (with no refNodes): #pseudo-nth li:nth-child(3n)
+  FAIL      Detached Element.webkitMatchesSelector: :nth-child selector, matching every second child element, starting from the fourth (with no refNodes): #pseudo-nth li:nth-child(2n+4)
+  FAIL      Detached Element.webkitMatchesSelector: :nth-child selector, matching every fourth child element, starting from the third (with no refNodes): #pseudo-nth-p1 :nth-child(4n-1)
+  FAIL      Detached Element.webkitMatchesSelector: :nth-last-child selector, matching the third last child element (with no refNodes): #pseudo-nth-table1 :nth-last-child(3)
+  FAIL      Detached Element.webkitMatchesSelector: :nth-last-child selector, matching every third child element from the end (with no refNodes): #pseudo-nth li:nth-last-child(3n)
+  FAIL      Detached Element.webkitMatchesSelector: :nth-last-child selector, matching every second child element from the end, starting from the fourth last (with no refNodes): #pseudo-nth li:nth-last-child(2n+4)
+  FAIL      Detached Element.webkitMatchesSelector: :nth-last-child selector, matching every fourth element from the end, starting from the third last (with no refNodes): #pseudo-nth-p1 :nth-last-child(4n-1)
+  FAIL      Detached Element.webkitMatchesSelector: :nth-of-type selector, matching the third em element (with no refNodes): #pseudo-nth-p1 em:nth-of-type(3)
+  FAIL      Detached Element.webkitMatchesSelector: :nth-of-type selector, matching every second element of their type (with no refNodes): #pseudo-nth-p1 :nth-of-type(2n)
+  FAIL      Detached Element.webkitMatchesSelector: :nth-of-type selector, matching every second elemetn of their type, starting from the first (with no refNodes): #pseudo-nth-p1 span:nth-of-type(2n-1)
+  FAIL      Detached Element.webkitMatchesSelector: :nth-last-of-type selector, matching the third last em element (with no refNodes): #pseudo-nth-p1 em:nth-last-of-type(3)
+  FAIL      Detached Element.webkitMatchesSelector: :nth-last-of-type selector, matching every second last element of their type (with no refNodes): #pseudo-nth-p1 :nth-last-of-type(2n)
+  FAIL      Detached Element.webkitMatchesSelector: :nth-last-of-type selector, matching every second last element of their type, starting from the last (with no refNodes): #pseudo-nth-p1 span:nth-last-of-type(2n-1)
+  FAIL      Detached Element.webkitMatchesSelector: :first-of-type selector, matching the first em element (with no refNodes): #pseudo-nth-p1 em:first-of-type
+  FAIL      Detached Element.webkitMatchesSelector: :first-of-type selector, matching the first of every type of element (with no refNodes): #pseudo-nth-p1 :first-of-type
+  FAIL      Detached Element.webkitMatchesSelector: :first-of-type selector, matching the first td element in each table row (with no refNodes): #pseudo-nth-table1 tr :first-of-type
+  FAIL      Detached Element.webkitMatchesSelector: :last-of-type selector, matching the last em elemnet (with no refNodes): #pseudo-nth-p1 em:last-of-type
+  FAIL      Detached Element.webkitMatchesSelector: :last-of-type selector, matching the last of every type of element (with no refNodes): #pseudo-nth-p1 :last-of-type
+  FAIL      Detached Element.webkitMatchesSelector: :last-of-type selector, matching the last td element in each table row (with no refNodes): #pseudo-nth-table1 tr :last-of-type
+  FAIL      Detached Element.webkitMatchesSelector: :first-child pseudo-class selector, matching first child div element (with no refNodes): #pseudo-first-child div:first-child
+  FAIL      Detached Element.webkitMatchesSelector: :first-child pseudo-class selector, matching first-child of multiple elements (with no refNodes): #pseudo-first-child span:first-child
+  FAIL      Detached Element.webkitMatchesSelector: :last-child pseudo-class selector, matching last child div element (with no refNodes): #pseudo-last-child div:last-child
+  FAIL      Detached Element.webkitMatchesSelector: :last-child pseudo-class selector, matching first-child of multiple elements (with no refNodes): #pseudo-last-child span:last-child
+  FAIL      Detached Element.webkitMatchesSelector: :pseudo-only-child pseudo-class selector, matching all only-child elements (with no refNodes): #pseudo-only :only-child
+  FAIL      Detached Element.webkitMatchesSelector: :pseudo-only-of-type pseudo-class selector, matching all elements with no siblings of the same type (with no refNodes): #pseudo-only :only-of-type
+  FAIL      Detached Element.webkitMatchesSelector: :pseudo-only-of-type pseudo-class selector, matching em elements with no siblings of the same type (with no refNodes): #pseudo-only em:only-of-type
+  FAIL      Detached Element.webkitMatchesSelector: :empty pseudo-class selector, matching empty p elements (with no refNodes): #pseudo-empty p:empty
+  FAIL      Detached Element.webkitMatchesSelector: :empty pseudo-class selector, matching all empty elements (with no refNodes): #pseudo-empty :empty
+  FAIL      Detached Element.webkitMatchesSelector: :link and :visited pseudo-class selectors, matching a and area elements with href attributes (with no refNodes): #pseudo-link :link, #pseudo-link :visited
+  FAIL      Detached Element.webkitMatchesSelector: :lang pseudo-class selector, matching specified language with exact value (with no refNodes): #pseudo-lang-div2:lang(fr)
+  FAIL      Detached Element.webkitMatchesSelector: :lang pseudo-class selector, matching specified language with partial value (with no refNodes): #pseudo-lang-div3:lang(en)
+  FAIL      Detached Element.webkitMatchesSelector: :enabled pseudo-class selector, matching all enabled form controls (with no refNodes): #pseudo-ui :enabled
+  FAIL      Detached Element.webkitMatchesSelector: :enabled pseudo-class selector, not matching link elements (with no refNodes): #pseudo-link :enabled
+  FAIL      Detached Element.webkitMatchesSelector: :disabled pseudo-class selector, matching all disabled form controls (with no refNodes): #pseudo-ui :disabled
+  FAIL      Detached Element.webkitMatchesSelector: :disabled pseudo-class selector, not matching link elements (with no refNodes): #pseudo-link :disabled
+  FAIL      Detached Element.webkitMatchesSelector: :checked pseudo-class selector, matching checked radio buttons and checkboxes (with no refNodes): #pseudo-ui :checked
+  FAIL      Detached Element.webkitMatchesSelector: :not pseudo-class selector, matching  (with no refNodes): #not>:not(div)
+  FAIL      Detached Element.webkitMatchesSelector: :not pseudo-class selector, matching  (with no refNodes): #not * :not(:first-child)
+  FAIL      Detached Element.webkitMatchesSelector: :not pseudo-class selector argument surrounded by spaces, matching  (with no refNodes): #not>:not( div )
+  FAIL      Detached Element.webkitMatchesSelector: Class selector, matching element with specified class (with no refNodes): .class-p
+  FAIL      Detached Element.webkitMatchesSelector: Class selector, chained, matching only elements with all specified classes (with no refNodes): #class .apple.orange.banana
+  FAIL      Detached Element.webkitMatchesSelector: Class Selector, chained, with type selector (with no refNodes): div.apple.banana.orange
+  FAIL      Detached Element.webkitMatchesSelector: Class selector, matching element with class value using non-ASCII characters (1) (with no refNodes): .台北Táiběi
+  FAIL      Detached Element.webkitMatchesSelector: Class selector, matching multiple elements with class value using non-ASCII characters (with no refNodes): .台北
+  FAIL      Detached Element.webkitMatchesSelector: Class selector, chained, matching element with multiple class values using non-ASCII characters (1) (with no refNodes): .台北Táiběi.台北
+  FAIL      Detached Element.webkitMatchesSelector: Class selector, matching element with class with escaped character (with no refNodes): .foo\\:bar
+  FAIL      Detached Element.webkitMatchesSelector: Class selector, matching element with class with escaped character (with no refNodes): .test\\.foo\\[5\\]bar
+  FAIL      Detached Element.webkitMatchesSelector: ID selector, matching element with specified id (with no refNodes): #id #id-div1
+  FAIL      Detached Element.webkitMatchesSelector: ID selector, chained, matching element with specified id (with no refNodes): #id-div1, #id-div1
+  FAIL      Detached Element.webkitMatchesSelector: ID selector, chained, matching element with specified id (with no refNodes): #id-div1, #id-div2
+  FAIL      Detached Element.webkitMatchesSelector: ID Selector, chained, with type selector (with no refNodes): div#id-div1, div#id-div2
+  FAIL      Detached Element.webkitMatchesSelector: ID selector, matching multiple elements with duplicate id (with no refNodes): #id-li-duplicate
+  FAIL      Detached Element.webkitMatchesSelector: ID selector, matching id value using non-ASCII characters (1) (with no refNodes): #台北Táiběi
+  FAIL      Detached Element.webkitMatchesSelector: ID selector, matching id value using non-ASCII characters (2) (with no refNodes): #台北
+  FAIL      Detached Element.webkitMatchesSelector: ID selector, matching id values using non-ASCII characters (1) (with no refNodes): #台北Táiběi, #台北
+  FAIL      Detached Element.webkitMatchesSelector: Descendant combinator, matching element that is a descendant of an element with id (with no refNodes): #descendant div
+  FAIL      Detached Element.webkitMatchesSelector: Descendant combinator, matching element with id that is a descendant of an element (with no refNodes): div #descendant-div1
+  FAIL      Detached Element.webkitMatchesSelector: Descendant combinator, matching element with id that is a descendant of an element with id (with no refNodes): #descendant #descendant-div2
+  FAIL      Detached Element.webkitMatchesSelector: Descendant combinator, matching element with class that is a descendant of an element with id (with no refNodes): #descendant .descendant-div2
+  FAIL      Detached Element.webkitMatchesSelector: Descendant combinator, matching element with class that is a descendant of an element with class (with no refNodes): .descendant-div1 .descendant-div3
+  FAIL      Detached Element.webkitMatchesSelector: Descendant combinator, whitespace characters (with no refNodes): #descendant\t\r\n#descendant-div2
+  FAIL      Detached Element.webkitMatchesSelector: Child combinator, matching element that is a child of an element with id (with no refNodes): #child>div
+  FAIL      Detached Element.webkitMatchesSelector: Child combinator, matching element with id that is a child of an element (with no refNodes): div>#child-div1
+  FAIL      Detached Element.webkitMatchesSelector: Child combinator, matching element with id that is a child of an element with id (with no refNodes): #child>#child-div1
+  FAIL      Detached Element.webkitMatchesSelector: Child combinator, matching element with id that is a child of an element with class (with no refNodes): #child-div1>.child-div2
+  FAIL      Detached Element.webkitMatchesSelector: Child combinator, matching element with class that is a child of an element with class (with no refNodes): .child-div1>.child-div2
+  FAIL      Detached Element.webkitMatchesSelector: Child combinator, surrounded by whitespace (with no refNodes): #child-div1\t\r\n>\t\r\n#child-div2
+  FAIL      Detached Element.webkitMatchesSelector: Child combinator, whitespace after (with no refNodes): #child-div1>\t\r\n#child-div2
+  FAIL      Detached Element.webkitMatchesSelector: Child combinator, whitespace before (with no refNodes): #child-div1\t\r\n>#child-div2
+  FAIL      Detached Element.webkitMatchesSelector: Child combinator, no whitespace (with no refNodes): #child-div1>#child-div2
+  FAIL      Detached Element.webkitMatchesSelector: Adjacent sibling combinator, matching element that is an adjacent sibling of an element with id (with no refNodes): #adjacent-div2+div
+  FAIL      Detached Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element (with no refNodes): div+#adjacent-div4
+  FAIL      Detached Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element with id (with no refNodes): #adjacent-div2+#adjacent-div4
+  FAIL      Detached Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with id (with no refNodes): #adjacent-div2+.adjacent-div4
+  FAIL      Detached Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with class (with no refNodes): .adjacent-div2+.adjacent-div4
+  FAIL      Detached Element.webkitMatchesSelector: Adjacent sibling combinator, matching p element that is an adjacent sibling of a div element (with no refNodes): #adjacent div+p
+  FAIL      Detached Element.webkitMatchesSelector: Adjacent sibling combinator, surrounded by whitespace (with no refNodes): #adjacent-p2\t\r\n+\t\r\n#adjacent-p3
+  FAIL      Detached Element.webkitMatchesSelector: Adjacent sibling combinator, whitespace after (with no refNodes): #adjacent-p2+\t\r\n#adjacent-p3
+  FAIL      Detached Element.webkitMatchesSelector: Adjacent sibling combinator, whitespace before (with no refNodes): #adjacent-p2\t\r\n+#adjacent-p3
+  FAIL      Detached Element.webkitMatchesSelector: Adjacent sibling combinator, no whitespace (with no refNodes): #adjacent-p2+#adjacent-p3
+  FAIL      Detached Element.webkitMatchesSelector: General sibling combinator, matching element that is a sibling of an element with id (with no refNodes): #sibling-div2~div
+  FAIL      Detached Element.webkitMatchesSelector: General sibling combinator, matching element with id that is a sibling of an element (with no refNodes): div~#sibling-div4
+  FAIL      Detached Element.webkitMatchesSelector: General sibling combinator, matching element with id that is a sibling of an element with id (with no refNodes): #sibling-div2~#sibling-div4
+  FAIL      Detached Element.webkitMatchesSelector: General sibling combinator, matching element with class that is a sibling of an element with id (with no refNodes): #sibling-div2~.sibling-div
+  FAIL      Detached Element.webkitMatchesSelector: General sibling combinator, matching p element that is a sibling of a div element (with no refNodes): #sibling div~p
+  FAIL      Detached Element.webkitMatchesSelector: General sibling combinator, surrounded by whitespace (with no refNodes): #sibling-p2\t\r\n~\t\r\n#sibling-p3
+  FAIL      Detached Element.webkitMatchesSelector: General sibling combinator, whitespace after (with no refNodes): #sibling-p2~\t\r\n#sibling-p3
+  FAIL      Detached Element.webkitMatchesSelector: General sibling combinator, whitespace before (with no refNodes): #sibling-p2\t\r\n~#sibling-p3
+  FAIL      Detached Element.webkitMatchesSelector: General sibling combinator, no whitespace (with no refNodes): #sibling-p2~#sibling-p3
+  FAIL      Detached Element.webkitMatchesSelector: Syntax, group of selectors separator, surrounded by whitespace (with no refNodes): #group em\t\r \n,\t\r \n#group strong
+  FAIL      Detached Element.webkitMatchesSelector: Syntax, group of selectors separator, whitespace after (with no refNodes): #group em,\t\r\n#group strong
+  FAIL      Detached Element.webkitMatchesSelector: Syntax, group of selectors separator, whitespace before (with no refNodes): #group em\t\r\n,#group strong
+  FAIL      Detached Element.webkitMatchesSelector: Syntax, group of selectors separator, no whitespace (with no refNodes): #group em,#group strong
+  FAIL      Fragment Element.webkitMatchesSelector: Universal selector, matching all elements (with no refNodes): *
+  FAIL      Fragment Element.webkitMatchesSelector: Universal selector, matching all children of element with specified ID (with no refNodes): #universal>*
+  FAIL      Fragment Element.webkitMatchesSelector: Universal selector, matching all grandchildren of element with specified ID (with no refNodes): #universal>*>*
+  FAIL      Fragment Element.webkitMatchesSelector: Universal selector, matching all descendants of element with specified ID (with no refNodes): #universal *
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute presence selector, matching align attribute with value (with no refNodes): .attr-presence-div1[align]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute presence selector, matching align attribute with empty value (with no refNodes): .attr-presence-div2[align]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute presence selector, matching title attribute, case insensitivity (with no refNodes): #attr-presence [*|TiTlE]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute presence selector, matching custom data-* attribute (with no refNodes): [data-attr-presence]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute presence selector, matching attribute with non-ASCII characters (with no refNodes): ul[data-中文]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute presence selector, matching option with selected attribute (with no refNodes): #attr-presence-select2 option[selected]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute presence selector, matching multiple options with selected attributes (with no refNodes): #attr-presence-select3 option[selected]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute value selector, matching align attribute with value (with no refNodes): #attr-value [align="center"]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute value selector, matching align attribute with value, unclosed bracket (with no refNodes): #attr-value [align="center"
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute value selector, matching align attribute with empty value (with no refNodes): #attr-value [align=""]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute value selector, matching custom data-* attribute with unicode escaped value (with no refNodes): [data-attr-value="\\e9"]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute value selector, matching custom data-* attribute with escaped character (with no refNodes): [data-attr-value_foo="\\e9"]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute value selector with single-quoted value, matching multiple inputs with type attributes (with no refNodes): #attr-value input[type='hidden'],#attr-value input[type='radio']
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute value selector with double-quoted value, matching multiple inputs with type attributes (with no refNodes): #attr-value input[type="hidden"],#attr-value input[type='radio']
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute value selector with unquoted value, matching multiple inputs with type attributes (with no refNodes): #attr-value input[type=hidden],#attr-value input[type=radio]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute value selector, matching attribute with value using non-ASCII characters (with no refNodes): [data-attr-value=中文]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute whitespace-separated list selector, matching class attribute with value (with no refNodes): #attr-whitespace [class~="div1"]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute whitespace-separated list selector, matching custom data-* attribute with unicode escaped value (with no refNodes): [data-attr-whitespace~="\\0000e9"]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute whitespace-separated list selector, matching custom data-* attribute with escaped character (with no refNodes): [data-attr-whitespace_foo~="\\e9"]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute whitespace-separated list selector with single-quoted value, matching multiple links with rel attributes (with no refNodes): #attr-whitespace a[rel~='bookmark'],  #attr-whitespace a[rel~='nofollow']
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute whitespace-separated list selector with double-quoted value, matching multiple links with rel attributes (with no refNodes): #attr-whitespace a[rel~="bookmark"],#attr-whitespace a[rel~='nofollow']
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute whitespace-separated list selector with unquoted value, matching multiple links with rel attributes (with no refNodes): #attr-whitespace a[rel~=bookmark],    #attr-whitespace a[rel~=nofollow]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute whitespace-separated list selector, matching title attribute with value using non-ASCII characters (with no refNodes): #attr-whitespace [title~=中文]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute hyphen-separated list selector, matching lang attribute with exact value (with no refNodes): #attr-hyphen-div2[lang|="fr"]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute hyphen-separated list selector, matching lang attribute with partial value (with no refNodes): #attr-hyphen-div3[lang|="en"]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute begins with selector, matching href attributes beginning with specified substring (with no refNodes): #attr-begins a[href^="http://www"]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute begins with selector, matching lang attributes beginning with specified substring,  (with no refNodes): #attr-begins [lang^="en-"]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute begins with selector with single-quoted value, matching class attribute beginning with specified substring (with no refNodes): #attr-begins [class^=' apple']
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute begins with selector with double-quoted value, matching class attribute beginning with specified substring (with no refNodes): #attr-begins [class^=" apple"]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute ends with selector, matching href attributes ending with specified substring (with no refNodes): #attr-ends a[href$=".org"]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute ends with selector, matching lang attributes ending with specified substring,  (with no refNodes): #attr-ends [lang$="-CH"]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute ends with selector with single-quoted value, matching class attribute ending with specified substring (with no refNodes): #attr-ends [class$='apple ']
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute ends with selector with double-quoted value, matching class attribute ending with specified substring (with no refNodes): #attr-ends [class$="apple "]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute contains selector, matching href attributes beginning with specified substring (with no refNodes): #attr-contains a[href*="http://www"]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute contains selector, matching href attributes ending with specified substring (with no refNodes): #attr-contains a[href*=".org"]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute contains selector, matching href attributes containing specified substring (with no refNodes): #attr-contains a[href*=".example."]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute contains selector, matching lang attributes beginning with specified substring,  (with no refNodes): #attr-contains [lang*="en-"]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute contains selector, matching lang attributes ending with specified substring,  (with no refNodes): #attr-contains [lang*="-CH"]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute contains selector with single-quoted value, matching class attribute beginning with specified substring (with no refNodes): #attr-contains [class*=' apple']
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute contains selector with single-quoted value, matching class attribute ending with specified substring (with no refNodes): #attr-contains [class*='orange ']
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute contains selector with single-quoted value, matching class attribute containing specified substring (with no refNodes): #attr-contains [class*='ple banana ora']
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute contains selector with double-quoted value, matching class attribute beginning with specified substring (with no refNodes): #attr-contains [class*=" apple"]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute contains selector with double-quoted value, matching class attribute ending with specified substring (with no refNodes): #attr-contains [class*="orange "]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute contains selector with double-quoted value, matching class attribute containing specified substring (with no refNodes): #attr-contains [class*="ple banana ora"]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute contains selector with unquoted value, matching class attribute beginning with specified substring (with no refNodes): #attr-contains [class*= apple]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute contains selector with unquoted value, matching class attribute ending with specified substring (with no refNodes): #attr-contains [class*=orange ]
+  FAIL      Fragment Element.webkitMatchesSelector: Attribute contains selector with unquoted value, matching class attribute containing specified substring (with no refNodes): #attr-contains [class*= banana ]
+  FAIL      Fragment Element.webkitMatchesSelector: :nth-child selector, matching the third child element (with no refNodes): #pseudo-nth-table1 :nth-child(3)
+  FAIL      Fragment Element.webkitMatchesSelector: :nth-child selector, matching every third child element (with no refNodes): #pseudo-nth li:nth-child(3n)
+  FAIL      Fragment Element.webkitMatchesSelector: :nth-child selector, matching every second child element, starting from the fourth (with no refNodes): #pseudo-nth li:nth-child(2n+4)
+  FAIL      Fragment Element.webkitMatchesSelector: :nth-child selector, matching every fourth child element, starting from the third (with no refNodes): #pseudo-nth-p1 :nth-child(4n-1)
+  FAIL      Fragment Element.webkitMatchesSelector: :nth-last-child selector, matching the third last child element (with no refNodes): #pseudo-nth-table1 :nth-last-child(3)
+  FAIL      Fragment Element.webkitMatchesSelector: :nth-last-child selector, matching every third child element from the end (with no refNodes): #pseudo-nth li:nth-last-child(3n)
+  FAIL      Fragment Element.webkitMatchesSelector: :nth-last-child selector, matching every second child element from the end, starting from the fourth last (with no refNodes): #pseudo-nth li:nth-last-child(2n+4)
+  FAIL      Fragment Element.webkitMatchesSelector: :nth-last-child selector, matching every fourth element from the end, starting from the third last (with no refNodes): #pseudo-nth-p1 :nth-last-child(4n-1)
+  FAIL      Fragment Element.webkitMatchesSelector: :nth-of-type selector, matching the third em element (with no refNodes): #pseudo-nth-p1 em:nth-of-type(3)
+  FAIL      Fragment Element.webkitMatchesSelector: :nth-of-type selector, matching every second element of their type (with no refNodes): #pseudo-nth-p1 :nth-of-type(2n)
+  FAIL      Fragment Element.webkitMatchesSelector: :nth-of-type selector, matching every second elemetn of their type, starting from the first (with no refNodes): #pseudo-nth-p1 span:nth-of-type(2n-1)
+  FAIL      Fragment Element.webkitMatchesSelector: :nth-last-of-type selector, matching the third last em element (with no refNodes): #pseudo-nth-p1 em:nth-last-of-type(3)
+  FAIL      Fragment Element.webkitMatchesSelector: :nth-last-of-type selector, matching every second last element of their type (with no refNodes): #pseudo-nth-p1 :nth-last-of-type(2n)
+  FAIL      Fragment Element.webkitMatchesSelector: :nth-last-of-type selector, matching every second last element of their type, starting from the last (with no refNodes): #pseudo-nth-p1 span:nth-last-of-type(2n-1)
+  FAIL      Fragment Element.webkitMatchesSelector: :first-of-type selector, matching the first em element (with no refNodes): #pseudo-nth-p1 em:first-of-type
+  FAIL      Fragment Element.webkitMatchesSelector: :first-of-type selector, matching the first of every type of element (with no refNodes): #pseudo-nth-p1 :first-of-type
+  FAIL      Fragment Element.webkitMatchesSelector: :first-of-type selector, matching the first td element in each table row (with no refNodes): #pseudo-nth-table1 tr :first-of-type
+  FAIL      Fragment Element.webkitMatchesSelector: :last-of-type selector, matching the last em elemnet (with no refNodes): #pseudo-nth-p1 em:last-of-type
+  FAIL      Fragment Element.webkitMatchesSelector: :last-of-type selector, matching the last of every type of element (with no refNodes): #pseudo-nth-p1 :last-of-type
+  FAIL      Fragment Element.webkitMatchesSelector: :last-of-type selector, matching the last td element in each table row (with no refNodes): #pseudo-nth-table1 tr :last-of-type
+  FAIL      Fragment Element.webkitMatchesSelector: :first-child pseudo-class selector, matching first child div element (with no refNodes): #pseudo-first-child div:first-child
+  FAIL      Fragment Element.webkitMatchesSelector: :first-child pseudo-class selector, matching first-child of multiple elements (with no refNodes): #pseudo-first-child span:first-child
+  FAIL      Fragment Element.webkitMatchesSelector: :last-child pseudo-class selector, matching last child div element (with no refNodes): #pseudo-last-child div:last-child
+  FAIL      Fragment Element.webkitMatchesSelector: :last-child pseudo-class selector, matching first-child of multiple elements (with no refNodes): #pseudo-last-child span:last-child
+  FAIL      Fragment Element.webkitMatchesSelector: :pseudo-only-child pseudo-class selector, matching all only-child elements (with no refNodes): #pseudo-only :only-child
+  FAIL      Fragment Element.webkitMatchesSelector: :pseudo-only-of-type pseudo-class selector, matching all elements with no siblings of the same type (with no refNodes): #pseudo-only :only-of-type
+  FAIL      Fragment Element.webkitMatchesSelector: :pseudo-only-of-type pseudo-class selector, matching em elements with no siblings of the same type (with no refNodes): #pseudo-only em:only-of-type
+  FAIL      Fragment Element.webkitMatchesSelector: :empty pseudo-class selector, matching empty p elements (with no refNodes): #pseudo-empty p:empty
+  FAIL      Fragment Element.webkitMatchesSelector: :empty pseudo-class selector, matching all empty elements (with no refNodes): #pseudo-empty :empty
+  FAIL      Fragment Element.webkitMatchesSelector: :link and :visited pseudo-class selectors, matching a and area elements with href attributes (with no refNodes): #pseudo-link :link, #pseudo-link :visited
+  FAIL      Fragment Element.webkitMatchesSelector: :lang pseudo-class selector, matching specified language with exact value (with no refNodes): #pseudo-lang-div2:lang(fr)
+  FAIL      Fragment Element.webkitMatchesSelector: :lang pseudo-class selector, matching specified language with partial value (with no refNodes): #pseudo-lang-div3:lang(en)
+  FAIL      Fragment Element.webkitMatchesSelector: :enabled pseudo-class selector, matching all enabled form controls (with no refNodes): #pseudo-ui :enabled
+  FAIL      Fragment Element.webkitMatchesSelector: :enabled pseudo-class selector, not matching link elements (with no refNodes): #pseudo-link :enabled
+  FAIL      Fragment Element.webkitMatchesSelector: :disabled pseudo-class selector, matching all disabled form controls (with no refNodes): #pseudo-ui :disabled
+  FAIL      Fragment Element.webkitMatchesSelector: :disabled pseudo-class selector, not matching link elements (with no refNodes): #pseudo-link :disabled
+  FAIL      Fragment Element.webkitMatchesSelector: :checked pseudo-class selector, matching checked radio buttons and checkboxes (with no refNodes): #pseudo-ui :checked
+  FAIL      Fragment Element.webkitMatchesSelector: :not pseudo-class selector, matching  (with no refNodes): #not>:not(div)
+  FAIL      Fragment Element.webkitMatchesSelector: :not pseudo-class selector, matching  (with no refNodes): #not * :not(:first-child)
+  FAIL      Fragment Element.webkitMatchesSelector: :not pseudo-class selector argument surrounded by spaces, matching  (with no refNodes): #not>:not( div )
+  FAIL      Fragment Element.webkitMatchesSelector: Class selector, matching element with specified class (with no refNodes): .class-p
+  FAIL      Fragment Element.webkitMatchesSelector: Class selector, chained, matching only elements with all specified classes (with no refNodes): #class .apple.orange.banana
+  FAIL      Fragment Element.webkitMatchesSelector: Class Selector, chained, with type selector (with no refNodes): div.apple.banana.orange
+  FAIL      Fragment Element.webkitMatchesSelector: Class selector, matching element with class value using non-ASCII characters (1) (with no refNodes): .台北Táiběi
+  FAIL      Fragment Element.webkitMatchesSelector: Class selector, matching multiple elements with class value using non-ASCII characters (with no refNodes): .台北
+  FAIL      Fragment Element.webkitMatchesSelector: Class selector, chained, matching element with multiple class values using non-ASCII characters (1) (with no refNodes): .台北Táiběi.台北
+  FAIL      Fragment Element.webkitMatchesSelector: Class selector, matching element with class with escaped character (with no refNodes): .foo\\:bar
+  FAIL      Fragment Element.webkitMatchesSelector: Class selector, matching element with class with escaped character (with no refNodes): .test\\.foo\\[5\\]bar
+  FAIL      Fragment Element.webkitMatchesSelector: ID selector, matching element with specified id (with no refNodes): #id #id-div1
+  FAIL      Fragment Element.webkitMatchesSelector: ID selector, chained, matching element with specified id (with no refNodes): #id-div1, #id-div1
+  FAIL      Fragment Element.webkitMatchesSelector: ID selector, chained, matching element with specified id (with no refNodes): #id-div1, #id-div2
+  FAIL      Fragment Element.webkitMatchesSelector: ID Selector, chained, with type selector (with no refNodes): div#id-div1, div#id-div2
+  FAIL      Fragment Element.webkitMatchesSelector: ID selector, matching multiple elements with duplicate id (with no refNodes): #id-li-duplicate
+  FAIL      Fragment Element.webkitMatchesSelector: ID selector, matching id value using non-ASCII characters (1) (with no refNodes): #台北Táiběi
+  FAIL      Fragment Element.webkitMatchesSelector: ID selector, matching id value using non-ASCII characters (2) (with no refNodes): #台北
+  FAIL      Fragment Element.webkitMatchesSelector: ID selector, matching id values using non-ASCII characters (1) (with no refNodes): #台北Táiběi, #台北
+  FAIL      Fragment Element.webkitMatchesSelector: Descendant combinator, matching element that is a descendant of an element with id (with no refNodes): #descendant div
+  FAIL      Fragment Element.webkitMatchesSelector: Descendant combinator, matching element with id that is a descendant of an element (with no refNodes): div #descendant-div1
+  FAIL      Fragment Element.webkitMatchesSelector: Descendant combinator, matching element with id that is a descendant of an element with id (with no refNodes): #descendant #descendant-div2
+  FAIL      Fragment Element.webkitMatchesSelector: Descendant combinator, matching element with class that is a descendant of an element with id (with no refNodes): #descendant .descendant-div2
+  FAIL      Fragment Element.webkitMatchesSelector: Descendant combinator, matching element with class that is a descendant of an element with class (with no refNodes): .descendant-div1 .descendant-div3
+  FAIL      Fragment Element.webkitMatchesSelector: Descendant combinator, whitespace characters (with no refNodes): #descendant\t\r\n#descendant-div2
+  FAIL      Fragment Element.webkitMatchesSelector: Child combinator, matching element that is a child of an element with id (with no refNodes): #child>div
+  FAIL      Fragment Element.webkitMatchesSelector: Child combinator, matching element with id that is a child of an element (with no refNodes): div>#child-div1
+  FAIL      Fragment Element.webkitMatchesSelector: Child combinator, matching element with id that is a child of an element with id (with no refNodes): #child>#child-div1
+  FAIL      Fragment Element.webkitMatchesSelector: Child combinator, matching element with id that is a child of an element with class (with no refNodes): #child-div1>.child-div2
+  FAIL      Fragment Element.webkitMatchesSelector: Child combinator, matching element with class that is a child of an element with class (with no refNodes): .child-div1>.child-div2
+  FAIL      Fragment Element.webkitMatchesSelector: Child combinator, surrounded by whitespace (with no refNodes): #child-div1\t\r\n>\t\r\n#child-div2
+  FAIL      Fragment Element.webkitMatchesSelector: Child combinator, whitespace after (with no refNodes): #child-div1>\t\r\n#child-div2
+  FAIL      Fragment Element.webkitMatchesSelector: Child combinator, whitespace before (with no refNodes): #child-div1\t\r\n>#child-div2
+  FAIL      Fragment Element.webkitMatchesSelector: Child combinator, no whitespace (with no refNodes): #child-div1>#child-div2
+  FAIL      Fragment Element.webkitMatchesSelector: Adjacent sibling combinator, matching element that is an adjacent sibling of an element with id (with no refNodes): #adjacent-div2+div
+  FAIL      Fragment Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element (with no refNodes): div+#adjacent-div4
+  FAIL      Fragment Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element with id (with no refNodes): #adjacent-div2+#adjacent-div4
+  FAIL      Fragment Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with id (with no refNodes): #adjacent-div2+.adjacent-div4
+  FAIL      Fragment Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with class (with no refNodes): .adjacent-div2+.adjacent-div4
+  FAIL      Fragment Element.webkitMatchesSelector: Adjacent sibling combinator, matching p element that is an adjacent sibling of a div element (with no refNodes): #adjacent div+p
+  FAIL      Fragment Element.webkitMatchesSelector: Adjacent sibling combinator, surrounded by whitespace (with no refNodes): #adjacent-p2\t\r\n+\t\r\n#adjacent-p3
+  FAIL      Fragment Element.webkitMatchesSelector: Adjacent sibling combinator, whitespace after (with no refNodes): #adjacent-p2+\t\r\n#adjacent-p3
+  FAIL      Fragment Element.webkitMatchesSelector: Adjacent sibling combinator, whitespace before (with no refNodes): #adjacent-p2\t\r\n+#adjacent-p3
+  FAIL      Fragment Element.webkitMatchesSelector: Adjacent sibling combinator, no whitespace (with no refNodes): #adjacent-p2+#adjacent-p3
+  FAIL      Fragment Element.webkitMatchesSelector: General sibling combinator, matching element that is a sibling of an element with id (with no refNodes): #sibling-div2~div
+  FAIL      Fragment Element.webkitMatchesSelector: General sibling combinator, matching element with id that is a sibling of an element (with no refNodes): div~#sibling-div4
+  FAIL      Fragment Element.webkitMatchesSelector: General sibling combinator, matching element with id that is a sibling of an element with id (with no refNodes): #sibling-div2~#sibling-div4
+  FAIL      Fragment Element.webkitMatchesSelector: General sibling combinator, matching element with class that is a sibling of an element with id (with no refNodes): #sibling-div2~.sibling-div
+  FAIL      Fragment Element.webkitMatchesSelector: General sibling combinator, matching p element that is a sibling of a div element (with no refNodes): #sibling div~p
+  FAIL      Fragment Element.webkitMatchesSelector: General sibling combinator, surrounded by whitespace (with no refNodes): #sibling-p2\t\r\n~\t\r\n#sibling-p3
+  FAIL      Fragment Element.webkitMatchesSelector: General sibling combinator, whitespace after (with no refNodes): #sibling-p2~\t\r\n#sibling-p3
+  FAIL      Fragment Element.webkitMatchesSelector: General sibling combinator, whitespace before (with no refNodes): #sibling-p2\t\r\n~#sibling-p3
+  FAIL      Fragment Element.webkitMatchesSelector: General sibling combinator, no whitespace (with no refNodes): #sibling-p2~#sibling-p3
+  FAIL      Fragment Element.webkitMatchesSelector: Syntax, group of selectors separator, surrounded by whitespace (with no refNodes): #group em\t\r \n,\t\r \n#group strong
+  FAIL      Fragment Element.webkitMatchesSelector: Syntax, group of selectors separator, whitespace after (with no refNodes): #group em,\t\r\n#group strong
+  FAIL      Fragment Element.webkitMatchesSelector: Syntax, group of selectors separator, whitespace before (with no refNodes): #group em\t\r\n,#group strong
+  FAIL      Fragment Element.webkitMatchesSelector: Syntax, group of selectors separator, no whitespace (with no refNodes): #group em,#group strong
+  FAIL      In-document Element.webkitMatchesSelector: Attribute presence selector, matching align attribute with value (with refNode Element): .attr-presence-div1[align]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute presence selector, matching align attribute with empty value (with refNode Element): .attr-presence-div2[align]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute presence selector, matching title attribute, case insensitivity (with refNode Element): [TiTlE]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute presence selector, matching custom data-* attribute (with refNode Element): [data-attr-presence]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute presence selector, matching attribute with non-ASCII characters (with refNode Element): ul[data-中文]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute presence selector, matching option with selected attribute (with refNode Element): #attr-presence-select2 option[selected]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute presence selector, matching multiple options with selected attributes (with refNode Element): #attr-presence-select3 option[selected]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute value selector, matching align attribute with value (with refNode Element): [align="center"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute value selector, matching align attribute with empty value (with refNode Element): [align=""]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute value selector, matching custom data-* attribute with unicode escaped value (with refNode Element): [data-attr-value="\\e9"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute value selector, matching custom data-* attribute with escaped character (with refNode Element): [data-attr-value_foo="\\e9"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute value selector with single-quoted value, matching multiple inputs with type attributes (with refNode Element): input[type='hidden'],#attr-value input[type='radio']
+  FAIL      In-document Element.webkitMatchesSelector: Attribute value selector with double-quoted value, matching multiple inputs with type attributes (with refNode Element): input[type="hidden"],#attr-value input[type='radio']
+  FAIL      In-document Element.webkitMatchesSelector: Attribute value selector with unquoted value, matching multiple inputs with type attributes (with refNode Element): input[type=hidden],#attr-value input[type=radio]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute value selector, matching attribute with value using non-ASCII characters (with refNode Element): [data-attr-value=中文]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute whitespace-separated list selector, matching class attribute with value (with refNode Element): [class~="div1"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute whitespace-separated list selector, matching custom data-* attribute with unicode escaped value (with refNode Element): [data-attr-whitespace~="\\0000e9"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute whitespace-separated list selector, matching custom data-* attribute with escaped character (with refNode Element): [data-attr-whitespace_foo~="\\e9"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute whitespace-separated list selector with single-quoted value, matching multiple links with rel attributes (with refNode Element): a[rel~='bookmark'],  #attr-whitespace a[rel~='nofollow']
+  FAIL      In-document Element.webkitMatchesSelector: Attribute whitespace-separated list selector with double-quoted value, matching multiple links with rel attributes (with refNode Element): a[rel~="bookmark"],#attr-whitespace a[rel~='nofollow']
+  FAIL      In-document Element.webkitMatchesSelector: Attribute whitespace-separated list selector with unquoted value, matching multiple links with rel attributes (with refNode Element): a[rel~=bookmark],    #attr-whitespace a[rel~=nofollow]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute whitespace-separated list selector, matching title attribute with value using non-ASCII characters (with refNode Element): [title~=中文]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute hyphen-separated list selector, matching lang attribute with exact value (with refNode Element): #attr-hyphen-div2[lang|="fr"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute hyphen-separated list selector, matching lang attribute with partial value (with refNode Element): #attr-hyphen-div3[lang|="en"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute begins with selector, matching href attributes beginning with specified substring (with refNode Element): a[href^="http://www"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute begins with selector, matching lang attributes beginning with specified substring,  (with refNode Element): [lang^="en-"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute begins with selector with single-quoted value, matching class attribute beginning with specified substring (with refNode Element): [class^=' apple']
+  FAIL      In-document Element.webkitMatchesSelector: Attribute begins with selector with double-quoted value, matching class attribute beginning with specified substring (with refNode Element): [class^=" apple"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute ends with selector, matching href attributes ending with specified substring (with refNode Element): a[href$=".org"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute ends with selector, matching lang attributes ending with specified substring,  (with refNode Element): [lang$="-CH"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute ends with selector with single-quoted value, matching class attribute ending with specified substring (with refNode Element): [class$='apple ']
+  FAIL      In-document Element.webkitMatchesSelector: Attribute ends with selector with double-quoted value, matching class attribute ending with specified substring (with refNode Element): [class$="apple "]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute contains selector, matching href attributes beginning with specified substring (with refNode Element): a[href*="http://www"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute contains selector, matching href attributes ending with specified substring (with refNode Element): a[href*=".org"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute contains selector, matching href attributes containing specified substring (with refNode Element): a[href*=".example."]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute contains selector, matching lang attributes beginning with specified substring,  (with refNode Element): [lang*="en-"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute contains selector, matching lang attributes ending with specified substring,  (with refNode Element): [lang*="-CH"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute contains selector with single-quoted value, matching class attribute beginning with specified substring (with refNode Element): [class*=' apple']
+  FAIL      In-document Element.webkitMatchesSelector: Attribute contains selector with single-quoted value, matching class attribute ending with specified substring (with refNode Element): [class*='orange ']
+  FAIL      In-document Element.webkitMatchesSelector: Attribute contains selector with single-quoted value, matching class attribute containing specified substring (with refNode Element): [class*='ple banana ora']
+  FAIL      In-document Element.webkitMatchesSelector: Attribute contains selector with double-quoted value, matching class attribute beginning with specified substring (with refNode Element): [class*=" apple"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute contains selector with double-quoted value, matching class attribute ending with specified substring (with refNode Element): [class*="orange "]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute contains selector with double-quoted value, matching class attribute containing specified substring (with refNode Element): [class*="ple banana ora"]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute contains selector with unquoted value, matching class attribute beginning with specified substring (with refNode Element): [class*= apple]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute contains selector with unquoted value, matching class attribute ending with specified substring (with refNode Element): [class*=orange ]
+  FAIL      In-document Element.webkitMatchesSelector: Attribute contains selector with unquoted value, matching class attribute containing specified substring (with refNode Element): [class*= banana ]
+  FAIL      In-document Element.webkitMatchesSelector: :nth-child selector, matching the third child element (with refNode Element): :nth-child(3)
+  FAIL      In-document Element.webkitMatchesSelector: :nth-child selector, matching every third child element (with refNode Element): li:nth-child(3n)
+  FAIL      In-document Element.webkitMatchesSelector: :nth-child selector, matching every second child element, starting from the fourth (with refNode Element): li:nth-child(2n+4)
+  FAIL      In-document Element.webkitMatchesSelector: :nth-child selector, matching every second child element, starting from the fourth, with whitespace (with refNode Element): li:nth-child(2n \t\r\n+ \t\r\n4)
+  FAIL      In-document Element.webkitMatchesSelector: :nth-child selector, matching every fourth child element, starting from the third (with refNode Element): :nth-child(4n-1)
+  FAIL      In-document Element.webkitMatchesSelector: :nth-child selector, matching every fourth child element, starting from the third, with whitespace (with refNode Element): :nth-child(4n \t\r\n- \t\r\n1)
+  FAIL      In-document Element.webkitMatchesSelector: :nth-child selector used twice, matching  (with refNode Element): :nth-child(1) :nth-child(1)
+  FAIL      In-document Element.webkitMatchesSelector: :nth-last-child selector, matching the third last child element (with refNode Element): :nth-last-child(3)
+  FAIL      In-document Element.webkitMatchesSelector: :nth-last-child selector, matching every third child element from the end (with refNode Element): li:nth-last-child(3n)
+  FAIL      In-document Element.webkitMatchesSelector: :nth-last-child selector, matching every second child element from the end, starting from the fourth last (with refNode Element): li:nth-last-child(2n+4)
+  FAIL      In-document Element.webkitMatchesSelector: :nth-last-child selector, matching every fourth element from the end, starting from the third last (with refNode Element): :nth-last-child(4n-1)
+  FAIL      In-document Element.webkitMatchesSelector: :nth-of-type selector, matching the third em element (with refNode Element): em:nth-of-type(3)
+  FAIL      In-document Element.webkitMatchesSelector: :nth-of-type selector, matching every second element of their type (with refNode Element): :nth-of-type(2n)
+  FAIL      In-document Element.webkitMatchesSelector: :nth-of-type selector, matching every second elemetn of their type, starting from the first (with refNode Element): span:nth-of-type(2n-1)
+  FAIL      In-document Element.webkitMatchesSelector: :nth-last-of-type selector, matching the third last em element (with refNode Element): em:nth-last-of-type(3)
+  FAIL      In-document Element.webkitMatchesSelector: :nth-last-of-type selector, matching every second last element of their type (with refNode Element): :nth-last-of-type(2n)
+  FAIL      In-document Element.webkitMatchesSelector: :nth-last-of-type selector, matching every second last element of their type, starting from the last (with refNode Element): span:nth-last-of-type(2n-1)
+  FAIL      In-document Element.webkitMatchesSelector: :first-of-type selector, matching the first em element (with refNode Element): em:first-of-type
+  FAIL      In-document Element.webkitMatchesSelector: :first-of-type selector, matching the first of every type of element (with refNode Element): :first-of-type
+  FAIL      In-document Element.webkitMatchesSelector: :first-of-type selector, matching the first td element in each table row (with refNode Element): tr :first-of-type
+  FAIL      In-document Element.webkitMatchesSelector: :last-of-type selector, matching the last em elemnet (with refNode Element): em:last-of-type
+  FAIL      In-document Element.webkitMatchesSelector: :last-of-type selector, matching the last of every type of element (with refNode Element): :last-of-type
+  FAIL      In-document Element.webkitMatchesSelector: :last-of-type selector, matching the last td element in each table row (with refNode Element): tr :last-of-type
+  FAIL      In-document Element.webkitMatchesSelector: :first-child pseudo-class selector, matching first child div element (with refNode Element): div:first-child
+  FAIL      In-document Element.webkitMatchesSelector: :first-child pseudo-class selector, matching first-child of multiple elements (with refNode Element): span:first-child
+  FAIL      In-document Element.webkitMatchesSelector: :last-child pseudo-class selector, matching last child div element (with refNode Element): div:last-child
+  FAIL      In-document Element.webkitMatchesSelector: :last-child pseudo-class selector, matching first-child of multiple elements (with refNode Element): span:last-child
+  FAIL      In-document Element.webkitMatchesSelector: :pseudo-only-child pseudo-class selector, matching all only-child elements (with refNode Element): :only-child
+  FAIL      In-document Element.webkitMatchesSelector: :pseudo-only-of-type pseudo-class selector, matching all elements with no siblings of the same type (with refNode Element):  :only-of-type
+  FAIL      In-document Element.webkitMatchesSelector: :pseudo-only-of-type pseudo-class selector, matching em elements with no siblings of the same type (with refNode Element):  em:only-of-type
+  FAIL      In-document Element.webkitMatchesSelector: :empty pseudo-class selector, matching empty p elements (with refNode Element): p:empty
+  FAIL      In-document Element.webkitMatchesSelector: :empty pseudo-class selector, matching all empty elements (with refNode Element): :empty
+  FAIL      In-document Element.webkitMatchesSelector: :link and :visited pseudo-class selectors, matching a and area elements with href attributes (with refNode Element):  :link, #pseudo-link :visited
+  FAIL      In-document Element.webkitMatchesSelector: :lang pseudo-class selector, matching inherited language (1) (with no refNodes): #pseudo-lang-div1:lang(en)
+  FAIL      In-document Element.webkitMatchesSelector: :lang pseudo-class selector, matching specified language with exact value (1) (with no refNodes): #pseudo-lang-div2:lang(fr)
+  FAIL      In-document Element.webkitMatchesSelector: :lang pseudo-class selector, matching specified language with partial value (1) (with no refNodes): #pseudo-lang-div3:lang(en)
+  FAIL      In-document Element.webkitMatchesSelector: :enabled pseudo-class selector, matching all enabled form controls (1) (with no refNodes): #pseudo-ui :enabled
+  FAIL      In-document Element.webkitMatchesSelector: :enabled pseudo-class selector, not matching link elements (1) (with no refNodes): #pseudo-link :enabled
+  FAIL      In-document Element.webkitMatchesSelector: :disabled pseudo-class selector, matching all disabled form controls (1) (with no refNodes): #pseudo-ui :disabled
+  FAIL      In-document Element.webkitMatchesSelector: :disabled pseudo-class selector, not matching link elements (1) (with no refNodes): #pseudo-link :disabled
+  FAIL      In-document Element.webkitMatchesSelector: :checked pseudo-class selector, matching checked radio buttons and checkboxes (1) (with no refNodes): #pseudo-ui :checked
+  FAIL      In-document Element.webkitMatchesSelector: :not pseudo-class selector, matching (1) (with no refNodes): #not>:not(div)
+  FAIL      In-document Element.webkitMatchesSelector: :not pseudo-class selector, matching (1) (with no refNodes): #not * :not(:first-child)
+  FAIL      In-document Element.webkitMatchesSelector: Class selector, matching element with specified class (1) (with no refNodes): .class-p
+  FAIL      In-document Element.webkitMatchesSelector: Class selector, chained, matching only elements with all specified classes (1) (with no refNodes): #class .apple.orange.banana
+  FAIL      In-document Element.webkitMatchesSelector: Class Selector, chained, with type selector (1) (with no refNodes): div.apple.banana.orange
+  FAIL      In-document Element.webkitMatchesSelector: Class selector, matching element with class value using non-ASCII characters (2) (with no refNodes): .台北Táiběi
+  FAIL      In-document Element.webkitMatchesSelector: Class selector, matching multiple elements with class value using non-ASCII characters (1) (with no refNodes): .台北
+  FAIL      In-document Element.webkitMatchesSelector: Class selector, chained, matching element with multiple class values using non-ASCII characters (2) (with no refNodes): .台北Táiběi.台北
+  FAIL      In-document Element.webkitMatchesSelector: Class selector, matching element with class with escaped character (1) (with no refNodes): .foo\\:bar
+  FAIL      In-document Element.webkitMatchesSelector: Class selector, matching element with class with escaped character (1) (with no refNodes): .test\\.foo\\[5\\]bar
+  FAIL      In-document Element.webkitMatchesSelector: ID selector, matching element with specified id (1) (with no refNodes): #id #id-div1
+  FAIL      In-document Element.webkitMatchesSelector: ID selector, chained, matching element with specified id (1) (with no refNodes): #id-div1, #id-div1
+  FAIL      In-document Element.webkitMatchesSelector: ID selector, chained, matching element with specified id (1) (with no refNodes): #id-div1, #id-div2
+  FAIL      In-document Element.webkitMatchesSelector: ID Selector, chained, with type selector (1) (with no refNodes): div#id-div1, div#id-div2
+  FAIL      In-document Element.webkitMatchesSelector: ID selector, matching multiple elements with duplicate id (1) (with no refNodes): #id-li-duplicate
+  FAIL      In-document Element.webkitMatchesSelector: ID selector, matching id value using non-ASCII characters (3) (with no refNodes): #台北Táiběi
+  FAIL      In-document Element.webkitMatchesSelector: ID selector, matching id value using non-ASCII characters (4) (with no refNodes): #台北
+  FAIL      In-document Element.webkitMatchesSelector: ID selector, matching id values using non-ASCII characters (2) (with no refNodes): #台北Táiběi, #台北
+  FAIL      In-document Element.webkitMatchesSelector: Descendant combinator, matching element that is a descendant of an element with id (1) (with no refNodes): #descendant div
+  FAIL      In-document Element.webkitMatchesSelector: Descendant combinator, matching element with id that is a descendant of an element (1) (with no refNodes): body #descendant-div1
+  FAIL      In-document Element.webkitMatchesSelector: Descendant combinator, matching element with id that is a descendant of an element (1) (with no refNodes): div #descendant-div1
+  FAIL      In-document Element.webkitMatchesSelector: Descendant combinator, matching element with id that is a descendant of an element with id (1) (with no refNodes): #descendant #descendant-div2
+  FAIL      In-document Element.webkitMatchesSelector: Descendant combinator, matching element with class that is a descendant of an element with id (1) (with no refNodes): #descendant .descendant-div2
+  FAIL      In-document Element.webkitMatchesSelector: Descendant combinator, matching element with class that is a descendant of an element with class (1) (with no refNodes): .descendant-div1 .descendant-div3
+  FAIL      In-document Element.webkitMatchesSelector: Descendant combinator, whitespace characters (1) (with no refNodes): #descendant\t\r\n#descendant-div2
+  FAIL      In-document Element.webkitMatchesSelector: Child combinator, matching element that is a child of an element with id (1) (with no refNodes): #child>div
+  FAIL      In-document Element.webkitMatchesSelector: Child combinator, matching element with id that is a child of an element (1) (with no refNodes): div>#child-div1
+  FAIL      In-document Element.webkitMatchesSelector: Child combinator, matching element with id that is a child of an element with id (1) (with no refNodes): #child>#child-div1
+  FAIL      In-document Element.webkitMatchesSelector: Child combinator, matching element with id that is a child of an element with class (1) (with no refNodes): #child-div1>.child-div2
+  FAIL      In-document Element.webkitMatchesSelector: Child combinator, matching element with class that is a child of an element with class (1) (with no refNodes): .child-div1>.child-div2
+  FAIL      In-document Element.webkitMatchesSelector: Child combinator, surrounded by whitespace (1) (with no refNodes): #child-div1\t\r\n>\t\r\n#child-div2
+  FAIL      In-document Element.webkitMatchesSelector: Child combinator, whitespace after (1) (with no refNodes): #child-div1>\t\r\n#child-div2
+  FAIL      In-document Element.webkitMatchesSelector: Child combinator, whitespace before (1) (with no refNodes): #child-div1\t\r\n>#child-div2
+  FAIL      In-document Element.webkitMatchesSelector: Child combinator, no whitespace (1) (with no refNodes): #child-div1>#child-div2
+  FAIL      In-document Element.webkitMatchesSelector: Adjacent sibling combinator, matching element that is an adjacent sibling of an element with id (1) (with no refNodes): #adjacent-div2+div
+  FAIL      In-document Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element (1) (with no refNodes): div+#adjacent-div4
+  FAIL      In-document Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with id that is an adjacent sibling of an element with id (1) (with no refNodes): #adjacent-div2+#adjacent-div4
+  FAIL      In-document Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with id (1) (with no refNodes): #adjacent-div2+.adjacent-div4
+  FAIL      In-document Element.webkitMatchesSelector: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with class (1) (with no refNodes): .adjacent-div2+.adjacent-div4
+  FAIL      In-document Element.webkitMatchesSelector: Adjacent sibling combinator, matching p element that is an adjacent sibling of a div element (1) (with no refNodes): #adjacent div+p
+  FAIL      In-document Element.webkitMatchesSelector: Adjacent sibling combinator, surrounded by whitespace (1) (with no refNodes): #adjacent-p2\t\r\n+\t\r\n#adjacent-p3
+  FAIL      In-document Element.webkitMatchesSelector: Adjacent sibling combinator, whitespace after (1) (with no refNodes): #adjacent-p2+\t\r\n#adjacent-p3
+  FAIL      In-document Element.webkitMatchesSelector: Adjacent sibling combinator, whitespace before (1) (with no refNodes): #adjacent-p2\t\r\n+#adjacent-p3
+  FAIL      In-document Element.webkitMatchesSelector: Adjacent sibling combinator, no whitespace (1) (with no refNodes): #adjacent-p2+#adjacent-p3
+  FAIL      In-document Element.webkitMatchesSelector: General sibling combinator, matching element that is a sibling of an element with id (1) (with no refNodes): #sibling-div2~div
+  FAIL      In-document Element.webkitMatchesSelector: General sibling combinator, matching element with id that is a sibling of an element (1) (with no refNodes): div~#sibling-div4
+  FAIL      In-document Element.webkitMatchesSelector: General sibling combinator, matching element with id that is a sibling of an element with id (1) (with no refNodes): #sibling-div2~#sibling-div4
+  FAIL      In-document Element.webkitMatchesSelector: General sibling combinator, matching element with class that is a sibling of an element with id (1) (with no refNodes): #sibling-div2~.sibling-div
+  FAIL      In-document Element.webkitMatchesSelector: General sibling combinator, matching p element that is a sibling of a div element (1) (with no refNodes): #sibling div~p
+  FAIL      In-document Element.webkitMatchesSelector: General sibling combinator, surrounded by whitespace (1) (with no refNodes): #sibling-p2\t\r\n~\t\r\n#sibling-p3
+  FAIL      In-document Element.webkitMatchesSelector: General sibling combinator, whitespace after (1) (with no refNodes): #sibling-p2~\t\r\n#sibling-p3
+  FAIL      In-document Element.webkitMatchesSelector: General sibling combinator, whitespace before (1) (with no refNodes): #sibling-p2\t\r\n~#sibling-p3
+  FAIL      In-document Element.webkitMatchesSelector: General sibling combinator, no whitespace (1) (with no refNodes): #sibling-p2~#sibling-p3
+  FAIL      In-document Element.webkitMatchesSelector: Syntax, group of selectors separator, surrounded by whitespace (1) (with no refNodes): #group em\t\r \n,\t\r \n#group strong
+  FAIL      In-document Element.webkitMatchesSelector: Syntax, group of selectors separator, whitespace after (1) (with no refNodes): #group em,\t\r\n#group strong
+  FAIL      In-document Element.webkitMatchesSelector: Syntax, group of selectors separator, whitespace before (1) (with no refNodes): #group em\t\r\n,#group strong
+  FAIL      In-document Element.webkitMatchesSelector: Syntax, group of selectors separator, no whitespace (1) (with no refNodes): #group em,#group strong
 OK         39/42  dom/nodes/MutationObserver-attributes.html
   FAIL      attributes Element.setAttributeNS: creation mutation
   FAIL      attributes Element.setAttributeNS: prefixed attribute creation mutation
@@ -1619,8 +2282,45 @@ OK           3/8  dom/nodes/ParentNode-querySelector-All-scope.html
   FAIL      querySelectorAll comma separated
   FAIL      querySelectorAll with :scope > child should only match direct children
 ERROR        0/0  dom/nodes/ParentNode-querySelector-All-xht.xht
-TIMEOUT      0/1  dom/nodes/ParentNode-querySelector-All.html
-  TIMEOUT   Selectors-API Test Suite: HTML
+OK       1937/1975  dom/nodes/ParentNode-querySelector-All.html
+  FAIL      Document.querySelectorAll no parameter
+  FAIL      Document.querySelector no parameter
+  FAIL      Detached Element.querySelectorAll no parameter
+  FAIL      Detached Element.querySelector no parameter
+  FAIL      Fragment.querySelectorAll no parameter
+  FAIL      Fragment.querySelector no parameter
+  FAIL      In-document Element.querySelectorAll no parameter
+  FAIL      In-document Element.querySelector no parameter
+  FAIL      Document.querySelectorAll: :empty pseudo-class selector, matching empty p elements: #pseudo-empty p:empty
+  FAIL      Document.querySelectorAll: :empty pseudo-class selector, matching all empty elements: #pseudo-empty :empty
+  FAIL      Document.querySelectorAll: :target pseudo-class selector, matching the element referenced by the URL fragment identifier: :target
+  FAIL      Document.querySelector: :target pseudo-class selector, matching the element referenced by the URL fragment identifier: :target
+  FAIL      Document.querySelectorAll: Slotted selector: ::slotted(foo)
+  FAIL      Document.querySelector: Slotted selector: ::slotted(foo)
+  FAIL      Document.querySelectorAll: Slotted selector (no matching closing paren): ::slotted(foo
+  FAIL      Document.querySelector: Slotted selector (no matching closing paren): ::slotted(foo
+  FAIL      Detached Element.querySelectorAll: :empty pseudo-class selector, matching empty p elements: #pseudo-empty p:empty
+  FAIL      Detached Element.querySelectorAll: :empty pseudo-class selector, matching all empty elements: #pseudo-empty :empty
+  FAIL      Detached Element.querySelectorAll: Slotted selector: ::slotted(foo)
+  FAIL      Detached Element.querySelector: Slotted selector: ::slotted(foo)
+  FAIL      Detached Element.querySelectorAll: Slotted selector (no matching closing paren): ::slotted(foo
+  FAIL      Detached Element.querySelector: Slotted selector (no matching closing paren): ::slotted(foo
+  FAIL      Fragment.querySelectorAll: :root pseudo-class selector, not matching document root element: :root
+  FAIL      Fragment.querySelector: :root pseudo-class selector, not matching document root element: :root
+  FAIL      Fragment.querySelectorAll: :empty pseudo-class selector, matching empty p elements: #pseudo-empty p:empty
+  FAIL      Fragment.querySelectorAll: :empty pseudo-class selector, matching all empty elements: #pseudo-empty :empty
+  FAIL      Fragment.querySelectorAll: Slotted selector: ::slotted(foo)
+  FAIL      Fragment.querySelector: Slotted selector: ::slotted(foo)
+  FAIL      Fragment.querySelectorAll: Slotted selector (no matching closing paren): ::slotted(foo
+  FAIL      Fragment.querySelector: Slotted selector (no matching closing paren): ::slotted(foo
+  FAIL      In-document Element.querySelectorAll: :empty pseudo-class selector, matching empty p elements: #pseudo-empty p:empty
+  FAIL      In-document Element.querySelectorAll: :empty pseudo-class selector, matching all empty elements: #pseudo-empty :empty
+  FAIL      In-document Element.querySelectorAll: :target pseudo-class selector, matching the element referenced by the URL fragment identifier: :target
+  FAIL      In-document Element.querySelector: :target pseudo-class selector, matching the element referenced by the URL fragment identifier: :target
+  FAIL      In-document Element.querySelectorAll: Slotted selector: ::slotted(foo)
+  FAIL      In-document Element.querySelector: Slotted selector: ::slotted(foo)
+  FAIL      In-document Element.querySelectorAll: Slotted selector (no matching closing paren): ::slotted(foo
+  FAIL      In-document Element.querySelector: Slotted selector (no matching closing paren): ::slotted(foo
 OK           3/3  dom/nodes/ParentNode-querySelector-argument-stringification.html
 OK           7/7  dom/nodes/ParentNode-querySelector-attribute-change.html
 OK           1/1  dom/nodes/ParentNode-querySelector-basic-has.html
@@ -1776,8 +2476,7 @@ OK           1/1  dom/nodes/getElementsByClassName-27.htm
 OK           1/1  dom/nodes/getElementsByClassName-28.htm
 OK           1/1  dom/nodes/getElementsByClassName-29.htm
 OK           1/1  dom/nodes/getElementsByClassName-30.htm
-TIMEOUT      0/1  dom/nodes/getElementsByClassName-31.htm
-  TIMEOUT   getElementsByClassName across documents
+OK           1/1  dom/nodes/getElementsByClassName-31.htm
 OK           4/4  dom/nodes/getElementsByClassName-32.html
 OK           3/3  dom/nodes/getElementsByClassName-empty-set.html
 OK         26/26  dom/nodes/getElementsByClassName-whitespace-class-names.html
@@ -1858,13 +2557,8 @@ OK           0/4  dom/nodes/moveBefore/form-associated-custom-element-reset.html
   FAIL      Moving a custom control without an ID across a shadow boundary resets its form owner
 OK           0/1  dom/nodes/moveBefore/fullscreen-preserve.html
   FAIL      Document#fullscreenElement
-TIMEOUT      1/7  dom/nodes/moveBefore/iframe-document-preserve.window.html
-  TIMEOUT   moveBefore(): simple same-origin document is preserved
-  NOTRUN    moveBefore(): cross-origin iframe is preserved: remove new parent
-  NOTRUN    moveBefore(): cross-origin iframe is preserved: remove self
-  NOTRUN    moveBefore(): cross-origin iframe is preserved: remove self via replaceChildren()
-  NOTRUN    moveBefore(): cross-origin iframe is preserved: remove self via innerHTML
-  NOTRUN    window.frames ordering does not change due to moveBefore()
+OK           6/7  dom/nodes/moveBefore/iframe-document-preserve.window.html
+  FAIL      window.frames ordering does not change due to moveBefore()
 OK           2/6  dom/nodes/moveBefore/listed-form-element-reset.html
   FAIL      Moving a non-form ID match updates form owners in a shadow tree
   FAIL      Moving an ancestor of an ID match across a shadow boundary updates form owners in both trees
@@ -2843,8 +3537,8 @@ OK        26/755  dom/nodes/processing-instruction-attributes.html
   FAIL      U+0000 NULL in processing instruction data is replaced with U+FFFD in HTML parser
   FAIL      U+0000 NULL in processing instruction data invalidates pseudo-attributes from html-dom
   FAIL      U+0000 NULL in processing instruction data invalidates pseudo-attributes from xml-dom
-TIMEOUT      0/1  dom/nodes/query-target-in-load-event.html
-  NOTRUN    document.querySelector(":target") must work when called in the window.load event
+OK           0/1  dom/nodes/query-target-in-load-event.html
+  FAIL      document.querySelector(":target") must work when called in the window.load event
 OK           1/1  dom/nodes/querySelector-empty-id.html
 OK           2/2  dom/nodes/querySelector-id-nth-child.html
 OK           0/1  dom/nodes/querySelector-mixed-case.html
