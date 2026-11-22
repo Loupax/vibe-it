@@ -51,7 +51,7 @@ fn qdom14_get_elements_by_tag_name() {
     );
     assert_eq!(
         log,
-        ["log:1 1 1 1 4", "log:true 1 1 0", "log:1 1 1 2 1", "log:0"],
-        "{log:?}"
+        ["log:1 1 1 1 4", "log:true 0 0 0", "log:1 1 1 2 1", "log:0"],
+        "{log:?}" // QDOM6b: an XHTML `x:Div` keeps its case, so neither 'x:div' nor 'x:Div' matches (DOM spec)
     );
 }
