@@ -2,7 +2,6 @@
 # QWPT6 baseline: four full runs (3 at --jobs 4, 1 at --jobs 12) gave identical results for all 3264 files, so this list is empty.
 dom/events/EventTarget-dispatchEvent.html harness ERROR 'Timeout while running cleanup' under load, also on main 3838650 (3 of 24 parallel children; QEL1 2026-11-21); the virtual clock reaches the 10 s harness timeout before the load task's all_done check, cause not found
 dom/ranges/Range-mutations-dataChange.html TIMEOUT: ~2800 subtests under the 10 s virtual harness clock and the 500 ms callback budget; the number reached before the cut varies per run (650-959 subtests in 5 runs). Needs 35-60 s of CPU, which is too much to budget in budgets.txt (3 of 12 runs under load were cut even at 60 s; QWPT6c, QWPTBUD)
-html/webappapis/dynamic-markup-insertion/opening-the-input-stream/url-fragment.window.html 0 or 2 subtests, or CRASH under --jobs 4 load (5 of 10 runs differed; alone it is stable); timing-dependent since the async iframe load (QDOM5b, QDOM5c)
 html/canvas/element/manual/imagebitmap/createImageBitmap-drawImage.html ERROR locally, TIMEOUT on CI (all four manual/imagebitmap files wait on a decoded image or task): the result depends on timing; first seen in PR #606 (QWPT12)
 html/canvas/element/manual/imagebitmap/createImageBitmap-flipY.html ERROR locally, TIMEOUT on CI: same as createImageBitmap-drawImage.html (QWPT12)
 html/canvas/element/manual/imagebitmap/createImageBitmap-invalid-args.html ERROR locally, TIMEOUT on CI: same as createImageBitmap-drawImage.html (QWPT12)

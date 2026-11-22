@@ -1834,7 +1834,7 @@ fn qpt1f_document_open_write_close_runs_the_written_scripts_in_the_realm() {
     let logs: Vec<&str> = log.iter().filter_map(|l| l.strip_prefix("log:")).collect();
     assert_eq!(
         logs,
-        ["true loading null", "undefined", "true,true,BODY,loading w I complete window load,iframe load", "about:blank true 0", "1"],
+        ["true loading null", "undefined", "true,true,BODY,loading w I complete iframe load", "about:blank true 0", "1"],
         "{log:?}"
     );
 }

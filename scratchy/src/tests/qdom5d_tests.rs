@@ -3,6 +3,7 @@
 // the Document's listeners (a load handler that calls document.open()/close() no longer recurses forever).
 use super::*;
 
+#[allow(clippy::let_and_return)]
 fn run(js: &str) -> Vec<String> {
     let fake = QfFake::new(vec![]);
     let (engine, log) = qf7_engine("https://page.test/", &fake);
@@ -23,7 +24,7 @@ fn qdom5d_navigation_fires_unload_events_in_order() {
            if (f.__n) return; f.__n = 1; var w = f.contentWindow, d = f.contentDocument;\
            ['beforeunload', 'pagehide', 'unload'].forEach(function (t) { w.addEventListener(t, function (e) { seq.push(t + ':' + e.constructor.name + ':' + (t === 'pagehide' ? e.persisted : '')); }); });\
            d.addEventListener('visibilitychange', function () { seq.push('vis:' + d.visibilityState); });\
-           f.srcdoc = '<p>b</p>'; console.log(seq.join(','));\
+           f.srcdoc = '<p>b</p>'; setTimeout(function () { console.log(seq.join(',')); }, 20);\
          };\
          document.body.appendChild(f);");
     assert!(l.contains(&"log:beforeunload:BeforeUnloadEvent:,pagehide:PageTransitionEvent:false,vis:hidden,unload:Event:".to_string()), "{l:?}");
@@ -40,7 +41,7 @@ fn qdom5d_open_is_ignored_while_unloading_and_nested_windows_unload() {
              cw.addEventListener('unload', function () { var n = d.childNodes.length; d.open(); out.push('parent-open-ignored:' + (d.childNodes.length === n && n > 0)); });\
              w.addEventListener('pagehide', function () { out.push('parent-pagehide'); });\
              cw.addEventListener('pagehide', function () { out.push('child-pagehide'); });\
-             f.srcdoc = '<p>b</p>'; console.log(out.join(','));\
+             f.srcdoc = '<p>b</p>'; setTimeout(function () { console.log(out.join(',')); }, 20);\
            };\
            if (c.contentWindow) go(); else setTimeout(go, 20);\
          };\
