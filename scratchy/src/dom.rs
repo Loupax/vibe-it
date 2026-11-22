@@ -1222,7 +1222,14 @@ impl SelectorsElement for El {
 
     fn has_local_name(&self, local_name: &str) -> bool {
         match &self.0.data {
-            NodeData::Element { name, .. } => name.local.as_ref() == local_name,
+            // QDOM14: a prefixed element stores the qualified name (`p:local`); a type selector matches the local part.
+            NodeData::Element { name, .. } => {
+                let l = name.local.as_ref();
+                match &name.prefix {
+                    Some(p) if l.len() > p.len() && l.starts_with(p.as_ref()) && l.as_bytes()[p.len()] == b':' => &l[p.len() + 1..] == local_name,
+                    _ => l == local_name,
+                }
+            }
             _ => false,
         }
     }

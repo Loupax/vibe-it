@@ -1393,8 +1393,7 @@ OK           0/2  shadow-dom/input-element-list.html
 OK           1/1  shadow-dom/input-type-radio.html
 TIMEOUT      0/1  shadow-dom/inserting-fragment-under-shadow-host.html
   TIMEOUT   This tests inserting a document fragment with a mixture of elements and text nodes, which should dispatch a `slotchange` event.
-OK           4/5  shadow-dom/leaktests/get-elements.html
-  FAIL      getElementsByTagNameNS() should not leak nodes in shadow tree
+OK           5/5  shadow-dom/leaktests/get-elements.html
 OK           8/9  shadow-dom/leaktests/html-collection.html
   FAIL      document.applets should not contain any nodes
 ERROR        0/1  shadow-dom/leaktests/selection.html
