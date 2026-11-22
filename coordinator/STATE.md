@@ -263,3 +263,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 USER: hold #573 until QAPI6b (agreed); QWPT6d approved (html/editing in subset). Asked what happened with NOTES.md: explained.
 - 2026-11-22 USER OK: merge_pr.sh keeps both sides of NOTES.md when both sides only add lines (addonly check, tested add-only + edit cases).
 - 2026-11-22 MY ERROR: edited coordinator/merge_pr.sh while the #576 merge ran; bash read shifted lines and the run died after pushing the rebased branch (main untouched). Re-run queued after #577. Rule for me: never edit merge_pr.sh / ci_then_push.sh while a merge chain is running. #578 QAPI8 READY (css audit), queued; filed QCSS-A..H.
+- 2026-11-22 #579 QWPT6c READY (+53 dom long files; scratchy-wpt job 3:29 -> 5:38, over R64 Q4's 5 min, but it already runs in parallel with the 5:18 scratchy job, so CI wall time +20 s: merging; filed QCISPLIT2 to shard). Launched QWPT6d (user approved).
