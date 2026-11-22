@@ -199,7 +199,7 @@ the commit it came up during.
       scratchy side (QF19w2); idle/keepalive limits (none by design); the wss pipe
       polls at 10 ms instead of using readiness.
 
-- [ ] **W-CACHE1 [M] Local HTTP cache, on disk only** (user decision 2026-11-22: a
+- [ ] [WIP] **W-CACHE1 [M] Local HTTP cache, on disk only** (user decision 2026-11-22: a
       private RFC 9111 cache in wire; wire keeps no cache data in memory and relies on
       the kernel page cache for hot entries; standard request headers instead of new
       `X-Wire-*` request headers). On by default (user 2026-11-22), like the cookie
