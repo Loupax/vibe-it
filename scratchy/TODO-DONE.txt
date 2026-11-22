@@ -9508,3 +9508,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       min, stop and report before merging). The reftest gate (`--wpt`) is unchanged: canvas reftests draw with script and
       `--wpt` skips every test with `<script>`. No Rust changes. WebGL is NOT covered by this: its suite is the
       separate Khronos WebGL conformance suite (no item yet).
+
+=== from TODO.txt: --- (no header)
+- [x] QBLOBFRAME DONE 73911bc #609 [S] (P2, from QDOM9 #542; Sonnet; js_dom.rs iframe realms, blob URL store) Load `blob:` URLs in iframes
+      (`iframe.src = URL.createObjectURL(new Blob([html], {type:'text/html'}))`): same-origin document from the blob's
+      bytes. html/semantics/scripting-1/.../module-script-disabled-scripting.html now TIMEOUTs (30 s) waiting for it.
