@@ -24,3 +24,4 @@ domparsing
 custom-elements
 shadow-dom
 html/editing
+html/canvas
