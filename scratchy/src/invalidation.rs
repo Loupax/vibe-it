@@ -221,6 +221,31 @@ fn passes(h: &Handle, f: &Option<Rc<Filter>>) -> bool {
     true
 }
 
+/// QAPI6: an element's tag / id / class tokens read once, for checking it against many filters (`passes`).
+struct Probe {
+    tag: String,
+    id: Option<String>,
+    classes: Vec<String>,
+}
+
+impl Probe {
+    fn of(h: &Handle) -> Probe {
+        Probe {
+            tag: element_tag(h).to_string(),
+            id: element_attr(h, "id").map(|v| v.to_string()),
+            classes: element_attr(h, "class").map(|c| c.split_ascii_whitespace().map(str::to_string).collect()).unwrap_or_default(),
+        }
+    }
+
+    /// `passes(h, f)` for the element this probe read.
+    fn passes(&self, f: &Option<Rc<Filter>>) -> bool {
+        let Some(f) = f else { return true };
+        f.tag.as_ref().is_none_or(|t| self.tag.eq_ignore_ascii_case(t))
+            && f.id.as_ref().is_none_or(|i| self.id.as_ref() == Some(i))
+            && f.classes.iter().all(|k| self.classes.iter().any(|t| t == k))
+    }
+}
+
 /// Whether `h` passes at least one of `fs` (an empty list passes everything): `passes` for a group of
 /// entries sharing one hop path, reading the element's tag / id / class once.
 fn passes_any(h: &Handle, fs: &[&Rc<Filter>]) -> bool {
@@ -765,12 +790,16 @@ impl InvalidationMap {
         // not once per rule.
         let mut groups: Vec<HopGroup> = Vec::new();
         let mut anchors: Vec<&Option<Rc<Filter>>> = Vec::new();
+        let mut probe: Option<Probe> = None;
         for e in entries.iter().filter(|e| keep(e)) {
-            if filter_self && !passes(from, &e.carrier) {
-                continue;
+            if filter_self && (e.carrier.is_some() || (e.hops.is_empty() && e.filter.is_some())) {
+                let pr = probe.get_or_insert_with(|| Probe::of(from));
+                if !pr.passes(&e.carrier) {
+                    continue;
+                }
             }
             if e.hops.is_empty() {
-                if !filter_self || passes(from, &e.filter) {
+                if !filter_self || probe.as_ref().is_none_or(|pr| pr.passes(&e.filter)) {
                     out.add(from, Mark::Restyle);
                 }
                 continue;
@@ -791,14 +820,23 @@ impl InvalidationMap {
         }
         // QAPI6: the `:has` groups of one change share their first hop (the carrier's ancestors / their earlier
         // siblings): computed once, each group only filters it by its anchor compound.
-        let mut firsts: [Option<Vec<Handle>>; 2] = [None, None];
+        let mut firsts: [Option<Vec<(Handle, Probe)>>; 2] = [None, None];
         for ((hops, filters), anchor) in groups.into_iter().zip(anchors) {
             let filters = filters.unwrap_or_default();
             match hops.split_first() {
                 Some((&first @ (Hop::Anc | Hop::AncSib), rest)) => {
                     let slot = usize::from(first != Hop::Anc);
-                    let start = firsts[slot].get_or_insert_with(|| step(std::slice::from_ref(from), first, &[]));
-                    let mut cur: Vec<Handle> = start.iter().filter(|h| passes_reached(h, anchor)).cloned().collect();
+                    let start = firsts[slot].get_or_insert_with(|| {
+                        step(std::slice::from_ref(from), first, &[]).into_iter().map(|h| {
+                            let p = Probe::of(&h);
+                            (h, p)
+                        }).collect()
+                    });
+                    let mut cur: Vec<Handle> = start
+                        .iter()
+                        .filter(|(h, p)| p.passes(anchor) && anchor.as_ref().is_none_or(|f| has_attrs(h, f)))
+                        .map(|(h, _)| h.clone())
+                        .collect();
                     if rest.is_empty() {
                         cur.retain(|h| passes_any(h, &filters));
                         for h in &cur {

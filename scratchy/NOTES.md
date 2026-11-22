@@ -3989,10 +3989,18 @@ Invalidation map: a feature anywhere inside a relative selector `R` reaches the 
 ancestors) or for `:has(+ ..)`/`:has(~ ..)` `Hop::AncSib` (earlier siblings of the carrier and of each ancestor), because every
 element `R` looks at is a descendant / later sibling (subtree) of the anchor; `R`'s own combinators are ignored (flattened). The
 anchors are filtered by the tag/id/class of the compound holding the `:has` (`Entry::anchor`), then the outer hops lead to the
-subject. `Key::HasTree` = any element inserted (walked from the new node) or removed (`removal_anchors`: the parent and its
-ancestors, or the earlier siblings of the removal point and of the parent's chain). Global only for a selector WITH combinators
-nested in `R` (`:has(:is(.a .b))` can match through an `.a` above the anchor). Soundness fuzz with 14 `:has` shapes in
-`qapi6_tests.rs` (same generator as QINC1d).
+subject. `Key::HasTree` = an element inserted (walked from the new node) or removed (`removal_anchors`: the parent and its
+ancestors, or the earlier siblings of the removal point and of the parent's chain), pruned by a `TreeSummary` of the subtree
+(tags / ids / classes / attribute names): only a subtree that can hold an element matching `R`'s own subject compound can change
+what `R` finds (adjacency changes go through `SibNext` / `SibLater`). Global only for a selector WITH combinators nested in `R`
+(`:has(:is(.a .b))` can match through an `.a` above the anchor). Soundness fuzz with 14 `:has` shapes in `qapi6_tests.rs`
+(same generator as QINC1d).
+
+Cost on YouTube (the measured case): `:has(> [role=dialog]:not([aria-hidden=true]) .x) [dialog]` has no tag/id/class on the
+anchor, so every `aria-hidden` write reached the whole page through `[Anc, Desc]`. Three things keep that bounded: `Filter::attrs`
+(attribute names of a compound, checked only on elements a walk REACHES, never on the written element), the shared first hop per
+change (`apply_if` computes the ancestors once for all `:has` groups), and the batch memo (`begin_batch`/`end_batch` around one
+engine update: a `(element, rest of the walk)` already walked against this DOM state is not walked again).
 
 Engine: a logged change of a node WITHOUT an entry (under `display: none`) used to be skipped (only `gen_dirty`); with a `:has`
 rule it can still flip a rendered anchor (`.card:has(.hidden .on)`). `incr_log::note_node` keeps a `Weak` of every logged node
