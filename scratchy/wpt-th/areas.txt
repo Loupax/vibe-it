@@ -11,14 +11,14 @@ uievents                         23     23         7       118      73   61.9   
 html/webappapis                 307    305        94      1141     661   57.9   36.6
 resize-observer                  36     35        19        54      31   57.4   61.6
 intersection-observer           150    150        21       203      48   23.6   16.9
-html/semantics/scripting-1      419    398       126      2405    1081   44.9   34.4
+html/semantics/scripting-1      419    398       127      2405    1082   45.0   34.7
 html/dom                        178    178        49      3866    1283   33.2   41.2
 html/editing                     48     48        12       620     202   32.6   35.0
 html/canvas/element            1276   1272        35      2817      40    1.4    2.8
 html/canvas/offscreen          1074   1074         0      1370       0    0.0    0.0
 html/canvas/other                 4      4         0        18       0    0.0    0.0
 css/cssom                       271    269        62      3903    2127   54.5   36.3
-css/cssom-view                  218    216        62      1379     711   51.6   35.7
+css/cssom-view                  218    216        62      1407     715   50.8   35.7
 encoding                         41     41         7       648     285   44.0   34.1
 url                              44     42        17      7253    5626   77.6   81.1
 streams                          85     85         3      1212     247   20.4   11.2
@@ -27,4 +27,4 @@ webmessaging                    115    115        72       205     137   66.8   
 requestidlecallback               9      9         6        17      14   82.4   75.9
 custom-elements                 201    201        19      2158     691   32.0   20.1
 shadow-dom                      244    244        53      2571     807   31.4   28.3
-TOTAL                          5608   5556      1045     89681   62948   70.2   24.0
+TOTAL                          5608   5556      1046     89709   62953   70.2   24.0

@@ -4109,7 +4109,13 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   var dynPages = {}, dynBusy = {};
   var ifrKey = function (el) {
     var s = frameSrc(el);
-    if (s === '' || frameSrcdoc(el) != null || !/^https?:/i.test(s) && /^[a-z][a-z0-9+.-]*:/i.test(s)) return null;
+    if (s === '' || frameSrcdoc(el) != null) return null;
+    // QBLOBFRAME: a same-origin blob: URL (revoked ones too: they fail the same way) loads from the blob store.
+    if (/^blob:/i.test(s)) {
+      var bi = s.indexOf('#'), bk = bi < 0 ? s : s.slice(0, bi);
+      return bk.slice(0, 5 + g.location.origin.length + 1) === 'blob:' + g.location.origin + '/' ? bk : null;
+    }
+    if (!/^https?:/i.test(s) && /^[a-z][a-z0-9+.-]*:/i.test(s)) return null;
     if (__d_iframe_page(el.__id).length) return null;
     var u;
     try { u = new URL(s, doc.baseURI); } catch (e) { return null; }
@@ -4140,6 +4146,12 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (dynBusy[k]) { dynBusy[k].push(done); return true; }
     var w = dynBusy[k] = [done];
     var fin = function (page) { dynPages[k] = page; delete dynBusy[k]; w.forEach(function (f) { f(); }); };
+    if (k.slice(0, 5) === 'blob:') {
+      var bb = g.__blob_lookup(k);
+      if (!bb || !/^\s*text\/html\s*(;|$)/i.test(bb.type)) { setTimeout(function () { fin([]); }, 0); return true; }
+      bb.text().then(function (t) { fin(t.length <= 1048576 ? [k, t] : []); }, function () { fin([]); });
+      return true;
+    }
     try {
       var x = new g.XMLHttpRequest();
       x.open('GET', k, true);

@@ -458,8 +458,7 @@ OK           0/1  html/semantics/scripting-1/the-script-element/microtasks/evalu
   FAIL      Module script queueing a microtask then throwing an exception
 OK           0/1  html/semantics/scripting-1/the-script-element/microtasks/evaluation-order-4.html
   FAIL      Module script queueing a microtask then top-level await
-TIMEOUT      0/1  html/semantics/scripting-1/the-script-element/module-script-disabled-scripting.html
-  TIMEOUT   Module script with syntax error should not report error when scripting is disabled
+OK           1/1  html/semantics/scripting-1/the-script-element/module-script-disabled-scripting.html
 OK           0/4  html/semantics/scripting-1/the-script-element/module/charset-03.html
   FAIL      UTF-8 imported module script
   FAIL      UTF-8 imported module script with wrong charset in Content-Type

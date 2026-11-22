@@ -802,18 +802,42 @@ OK         16/36  css/cssom-view/scrollWidthHeight-subpixel-position.tentative.h
 CRASH        0/0  css/cssom-view/scrollWidthHeight.xht
 CRASH        0/0  css/cssom-view/scrollWidthHeightWhenNotScrollable.xht
 OK           1/1  css/cssom-view/scrolling-no-browsing-context.html
-ERROR        0/2  css/cssom-view/scrolling-quirks-vs-nonquirks.html
-  NOTRUN    Execution of tests in quirks mode
-  NOTRUN    Execution of tests in non-quirks mode
-TIMEOUT      0/8  css/cssom-view/scrollingElement.html
-  TIMEOUT   scrollingElement in quirks mode
-  TIMEOUT   scrollingElement in no-quirks mode 
-  TIMEOUT   scrollingElement in quirks mode (body table)
-  TIMEOUT   scrollingElement in no-quirks mode  (body table)
-  TIMEOUT   scrollingElement in quirks mode (root table)
-  TIMEOUT   scrollingElement in no-quirks mode  (root table)
-  TIMEOUT   scrollingElement in quirks mode (root table, body table)
-  TIMEOUT   scrollingElement in no-quirks mode  (root table, body table)
+OK          4/30  css/cssom-view/scrolling-quirks-vs-nonquirks.html
+  FAIL      Execution of tests in quirks mode
+  FAIL      scrollingElement in quirks mode
+  FAIL      scroll() on the root element in quirks mode
+  FAIL      scrollBy() on the root element in quirks mode
+  FAIL      scrollLeft/scrollTop on the root element in quirks mode
+  FAIL      scrollWidth/scrollHeight on the root element in quirks mode
+  FAIL      clientWidth/clientHeight on the root element in quirks mode
+  FAIL      scroll() on the HTML body element in quirks mode
+  FAIL      scrollBy() on the HTML body element in quirks mode
+  FAIL      scrollLeft/scrollTop on the HTML body element in quirks mode
+  FAIL      scrollWidth/scrollHeight on the HTML body element in quirks mode
+  FAIL      clientWidth/clientHeight on the HTML body element in quirks mode
+  FAIL      scrollLeft/scrollRight of the content in quirks mode
+  FAIL      scrollWidth/scrollHeight of the content in quirks mode
+  FAIL      clientWidth/clientHeight of the content in quirks mode
+  FAIL      scrollingElement in non-quirks mode
+  FAIL      scroll() on the root element in non-quirks mode
+  FAIL      scrollBy() on the root element in non-quirks mode
+  FAIL      scrollLeft/scrollTop on the root element in non-quirks mode
+  FAIL      scrollWidth/scrollHeight on the root element in non-quirks mode
+  FAIL      clientWidth/clientHeight on the root element in non-quirks mode
+  FAIL      scrollWidth/scrollHeight on the HTML body element in non-quirks mode
+  FAIL      clientWidth/clientHeight on the HTML body element in non-quirks mode
+  FAIL      scrollLeft/scrollRight of the content in non-quirks mode
+  FAIL      scrollWidth/scrollHeight of the content in non-quirks mode
+  FAIL      clientWidth/clientHeight of the content in non-quirks mode
+OK           0/8  css/cssom-view/scrollingElement.html
+  FAIL      scrollingElement in quirks mode
+  FAIL      scrollingElement in no-quirks mode 
+  FAIL      scrollingElement in quirks mode (body table)
+  FAIL      scrollingElement in no-quirks mode  (body table)
+  FAIL      scrollingElement in quirks mode (root table)
+  FAIL      scrollingElement in no-quirks mode  (root table)
+  FAIL      scrollingElement in quirks mode (root table, body table)
+  FAIL      scrollingElement in no-quirks mode  (root table, body table)
 OK           0/1  css/cssom-view/scrollintoview-containingblock-chain.html
   FAIL      scrollIntoView should not scroll ancestor overflow:scroll elements that are not containing block ancestors
 OK           0/1  css/cssom-view/scrollintoview-zero-height-item.html

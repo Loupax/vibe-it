@@ -9266,3 +9266,5 @@ Eased viewport scroll (user design #532, D1-D8): `App::scroll_target`, `scroll_a
 **What changed:** `html/canvas` in tools/wpt-dirs.txt (CI cache key changes), three AREAS in wpt-subset.py, regenerated wpt-th/subset.txt (3,254 -> 5,608 URLs), expected files html-canvas-{element,offscreen,other}.txt, areas.txt. No Rust changes.
 
 **Measured:** element 1,276 files (3,021 subtests, 40 pass, score 2.8), offscreen 1,074 (1,370 subtests, 0 pass), other 4 (18 subtests, 0 pass). Skips in the canvas dirs: worker variants 1,040, .https./.sub. 77, test_driver calls 5, testdriver 1, timeout=long 2. Five stability runs: identical. Local time ~1.5-3 min for the three areas at --jobs 4.
+## QBLOBFRAME
+Prompt: load blob: URLs in iframes (iframe.src = URL.createObjectURL(new Blob([html], {type:"text/html"}))) through the #600 async iframe load path; revoked/non-HTML fail cleanly. Done: js_dom.rs ifrKey/ifrFetch blob branch, src/tests/qblobframe_tests.rs, wpt-th expectations.

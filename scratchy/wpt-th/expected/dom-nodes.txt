@@ -779,7 +779,7 @@ OK           0/3  dom/nodes/Document-cloneNode-base-url-xml.window.html
   FAIL      Clone of an XML document ignores a non-HTML <base> element
   FAIL      Clone of an XHTML document with a <base>
   FAIL      Clone of an XML document without a <base>
-TIMEOUT     0/11  dom/nodes/Document-cloneNode-base-url.window.html
+OK          0/11  dom/nodes/Document-cloneNode-base-url.window.html
   FAIL      Deep clone of a document with a <base>
   FAIL      Shallow clone of a document with a <base>
   FAIL      Clone of a document without a <base>
@@ -790,7 +790,7 @@ TIMEOUT     0/11  dom/nodes/Document-cloneNode-base-url.window.html
   FAIL      Shallow clone is unaffected by later mutation of the source
   FAIL      Shallow clone's base URL survives later mutation of the clone
   FAIL      Inserting a <base> into a shallow clone overrides the copied base URL
-  TIMEOUT   Clone of a blob: URL document
+  FAIL      Clone of a blob: URL document
 OK           1/4  dom/nodes/Document-cloneNode-srcdoc-base-url.window.html
   FAIL      Clone of an about:srcdoc document with a relative <base>
   FAIL      A relative <base> inserted into a shallow clone of an about:srcdoc document resolves against the inherited base URL
