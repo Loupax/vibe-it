@@ -12,8 +12,7 @@ TIMEOUT      0/1  hr-time/navigation-start-post-before-unload.html
 OK           0/1  hr-time/performance-tojson.html
   FAIL      Test performance.toJSON()
 TIMEOUT      1/1  hr-time/test_cross_frame_start.html
-OK           0/3  hr-time/timeOrigin.html
-  FAIL      Window timeOrigin is close to Date.now() when there is no system clock adjustment.
+OK           1/3  hr-time/timeOrigin.html
   FAIL      Window and worker timeOrigins are close when created one after another.
   FAIL      Window and worker timeOrigins differ when worker is created after a delay.
 OK           0/1  hr-time/timing-attack.html
