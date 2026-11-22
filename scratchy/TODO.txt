@@ -199,9 +199,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QCISPLIT2 [S] (P3, from QWPT6c #579; Sonnet; .github/workflows/ci.yml, tools) Shard the `scratchy-wpt` job (5:38 after
       #579, WPT step 3:52; the main `scratchy` job is 5:18, so wall time is barely affected) into two parallel jobs by area,
       when it passes ~6 min or before QWPT6d lands. Find why the step grew +1:44 on CI vs ~20 s locally (per-file CI timings).
-- [ ] [WIP] QWPT6d [S] (P3, from QAPI7 #577; Sonnet; tools/wpt-dirs.txt, wpt-subset.py) Add html/editing (contentEditable,
-      execCommand) to the WPT checkout dirs and the testharness subset, then triage. User approved
-      2026-11-22 (DECISIONS.md).
 - [ ] [WIP] QWPT6c [S] (P2; Sonnet; tools/wpt-subset.py; R65 2.1; after QDOM6, QDOM8) Include the dom/* timeout=long files
       (46: the core Range-*, NodeIterator, TreeWalker, Document-characterSet-normalization-1/2, ParentNode-querySelector-
       All, NodeList-static-length-getter-tampered-*). With the virtual clock they are cheap (all 46 ran in 9 s at 4 jobs).

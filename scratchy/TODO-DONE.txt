@@ -9342,3 +9342,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       report skip declarations handled outside `Declarations` or equal to the initial value, then list which of
       `place-items`, `letter-spacing`, `clip-path`, `backdrop-filter`, `touch-action`, `user-select`, `text-shadow`,
       `filter`, `color-scheme`, `border-spacing` are really unparsed, and file one S item per property family.
+
+=== from TODO.txt: --- (no header)
+- [x] QWPT6d DONE a509754 #581 [S] (P3, from QAPI7 #577; Sonnet; tools/wpt-dirs.txt, wpt-subset.py) Add html/editing (contentEditable,
+      execCommand) to the WPT checkout dirs and the testharness subset, then triage. User approved
+      2026-11-22 (DECISIONS.md).
