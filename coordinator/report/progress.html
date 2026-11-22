@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-22 · main 019a74a · 102 PRs merged since 2026-11-21 morning (#475–#577) · installed 06:53 (ebb022e) · 5 agents running (QAPI6b, QDOM10, QDOM18, QCSS-A, QWPT6d) · merging: #576 scroll events, #578 css audit, #579 dom long files · held: #573 (your call: until QAPI6b)</div>
+  <div class="meta" id="updated">Updated 2026-11-22 · main 0f1c2b5 · 104 PRs merged since 2026-11-21 morning (#475–#578) · installed 06:53 (ebb022e) · 5 agents running (QAPI6b, QDOM18, QCSS-A, QWPT6d, QDOM19) · merging: #579 dom long files, #580 window.event · held: #573 (your call: until QAPI6b)</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -111,6 +111,8 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#578</td><td>QAPI8</td><td>CSS audit of the 12 sites: the report no longer flags handled declarations; real gaps filed as QCSS-A…H (SVG fill/stroke first: icons render black on 8 sites)</td></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#576</td><td>QEL7</td><td><code>scroll</code>, <code>scrollend</code>, <code>wheel</code> events and media-query <code>change</code>, fired at the spec point of each frame; 17 more WPT files pass; scrolling and idle CPU unchanged</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#577</td><td>QAPI7</td><td><code>BroadcastChannel</code> (same process, same origin), <code>contentEditable</code> reflection; touch handlers deliberately absent (desktop: pages use them to detect touch devices)</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#575</td><td>QCE1</td><td>Custom elements created by the parser get their attributes after the constructor, in spec order (parser files 2/9 → 9/9, 1/3 → 3/3)</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#574</td><td>QAPI3</td><td><code>navigator.serviceWorker</code> and <code>caches</code> as inert stubs (nothing stored or fetched); their missing-API rows gone, page errors unchanged</td></tr>
