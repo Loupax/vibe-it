@@ -177,10 +177,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       entries (94 dom/events) are in the phase-1 baseline although they need trusted input. Either drop them (as the
       phase-1 rule says) or move them to their own area `<area>/testdriver` so the DOM scores show DOM work; regenerate
       subset + expected + areas.txt.
-- [ ] [WIP] QWPT6e [S] (P2, from QWPT6d #581; Sonnet; tools/wpt-subset.py, wpt-th) Pages that load testdriver via `<script src>`
-      (313 subset files mention it; they end in `action_sequence() is not implemented`): either apply the source filter
-      to every area and re-record, or give the runner a minimal testdriver vendor (action_sequence/click/send_keys through
-      the existing trusted-input paths). Say which, with the file counts per area.
 - [ ] QEDIT-F [S] (P3, from QEDIT-A #585; Sonnet; js_dom.rs) `document.queryCommandSupported/Enabled/State/Value`
       stubs (designMode-aware, no editing) for the html/editing designMode files; SVG/XML designMode variants ERROR
       because those pages are not parsed as XML/SVG documents (say whether that is a separate item).

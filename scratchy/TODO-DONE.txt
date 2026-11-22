@@ -9371,3 +9371,9 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- (no header)
 - [x] QEDIT-A DONE 9ecc18a #585 [S] (P3, from QWPT6d #581; Sonnet; js_dom.rs) Reflection: contentEditable enumerated values + throws,
       isContentEditable, designMode, spellcheck, autocapitalize, autocorrect, writingSuggestions (~11 html/editing files).
+
+=== from TODO.txt: --- (no header)
+- [x] QWPT6e DONE e30deab #586 [S] (P2, from QWPT6d #581; Sonnet; tools/wpt-subset.py, wpt-th) Pages that load testdriver via `<script src>`
+      (313 subset files mention it; they end in `action_sequence() is not implemented`): either apply the source filter
+      to every area and re-record, or give the runner a minimal testdriver vendor (action_sequence/click/send_keys through
+      the existing trusted-input paths). Say which, with the file counts per area.
