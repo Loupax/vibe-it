@@ -195,11 +195,14 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       RGBA -> 0RGB at paint time) and a draw marks that box damaged, so it repaints without a relayout. Report the
       html/canvas area scores before/after. Not in scope: paths, text, images, transforms (QCNV2 files them), WebGL,
       `captureStream` (archived media).
-- [ ] QCNV2 [S] (P2; Opus, docs only; after QCNV1) Triage the html/canvas WPT failures after QCNV1 and file the
+- [ ] [WIP] QCNV2 [S] (P2; Opus, docs only; after QCNV1) Triage the html/canvas WPT failures after QCNV1 and file the
       Canvas 2D items in dependency order (one item per feature group, e.g. paths, transforms, line styles,
       gradients/patterns, drawImage, text, compositing, shadows, toDataURL/toBlob), each with the subtest counts it
       should fix. Note what needs other missing platform features (Workers for offscreen, ImageBitmap, wide gamut)
       instead of filing it as canvas work.
+      Also (from QCNV1 #613): the canvas registry is keyed by node address (a canvas that never calls getContext
+      could show a stale bitmap after address reuse); `currentcolor` treated as black; lab()/color() fill styles ignored;
+      the toDataURL->image-load and zerosource files need image work, not canvas work.
 - [ ] QGL1 [M] (P3; Opus, investigation, docs only, no code; can run any time, it does not wait for QCNV1) WebGL:
       find out what it takes and file the action items (each with size, model, files, dependencies and a test plan)
       in TODO.txt, in dependency order. Today `getContext('webgl'|'webgl2')` returns null (QY3, js_dom.rs). Starting
