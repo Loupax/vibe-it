@@ -113,7 +113,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       a list the user provides), merged table "API -> sites, hits, example URL" into an R-section.
 - [ ] QREC1b [S] (P3, from QREC1 #490; Sonnet; wire record.rs) Record Set-Cookie lines separately (index field) and
       feed them to the jar on replay; per-response size cap or streamed hashing so a large body is not held in memory.
-- [ ] QREC3b [S] (P2, from QREC3 #537; Sonnet; tools/incr-gate) Record in the mode that replays (`run.sh headless`
+- [ ] [WIP] QREC3b [S] (P2, from QREC3 #537; Sonnet; tools/incr-gate) Record in the mode that replays (`run.sh headless`
       with RECORD=), re-record ytr/ytw/wiki (after QREC1c) to get replay misses to ~0 (today ytr 66-119, ytw 24-89);
       gate.sh/run.sh: one nested dwl per page or no 1 h `timeout` on it, and a timeout on the end `grim`. Recordings
       stay local (Q5); a fresh wire with --no-cookies and an own --state-dir.
