@@ -201,3 +201,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #539 QDOM8 rebased (nodes 57.7 -> 60.8, total 33.5), merging. Launched QEL3.
 - 2026-11-22 #541 QSCR404 rebased, queued after #539. Launched QDOM14.
 - 2026-11-22 #546 QEL6 rebased, queued after #541. Launched QDOM13.
+- 2026-11-22 #548 QMSG1 accepted (0 iframes run scripts on gate pages; live ytw +5-8 %, bbc +5 %, no new errors); queued after #546. Launched QWPTFLK2 recheck.
