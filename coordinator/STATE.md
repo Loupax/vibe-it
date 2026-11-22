@@ -196,3 +196,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #551 QSMOOTH1 READY (vertical easing; x not eased per design; asked user). Queued after #550. Sent #541 rebase.
 - 2026-11-22 Merged #550 QWPTFLK3 d81791e (custom element re-upgrade recursion fixed).
 - 2026-11-22 #529 QEL2 rebased (resize-observer 59.3), queued after #551. Launched QSB2b.
+- 2026-11-22 Merged #551 QSMOOTH1 9e644cc (vertical smooth scrolling). #529 merging.
