@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-22 · main cd70d6b · 81 PRs merged since 2026-11-21 morning (#475–#558) · 5 agents running (QDOM15, QDOM17, QANIMHL, QEL4, QMSG1 rebasing)</div>
+  <div class="meta" id="updated">Updated 2026-11-22 · main 2a591a3 · 92 PRs merged since 2026-11-21 morning (#475–#567) · 5 agents running (QAPI2, QAPI4, QAPI5, QAPI6, QDOM16 rebasing) · merging: #568 CSS transitions, #560, #569</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -74,34 +74,34 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Measurements</h2>
   <div class="stats">
     <div class="stat"><span class="v">340 / 626</span><span class="l">WPT visual CSS tests passing (reftests), now checked in CI</span></div>
-    <div class="stat"><span class="v">34.7</span><span class="l">WPT JavaScript tests, mean score per file (0–100) over the phase-1 subset: 3,264 files, 23 areas; 52.4% of 41,843 subtests pass (more files run now). Baseline 28.4 (#504); every PR is gated on it in CI since #507</span></div>
+    <div class="stat"><span class="v">36.5</span><span class="l">WPT JavaScript tests, mean score per file (0–100) over the phase-1 subset: 3,264 files, 23 areas; 53.1% of 41,854 subtests pass (more files run now). Baseline 28.4 (#504); every PR is gated on it in CI since #507</span></div>
     <div class="stat"><span class="v">1852 / 1852</span><span class="l">Unit and integration tests passing, engine on and off (CI runs both)</span></div>
     <div class="stat"><span class="v">0</span><span class="l">Engine mismatches on the 7 test pages (check mode)</span></div>
   </div>
   <div class="scroll"><table>
     <tr><th>Area</th><th>Files</th><th>Score</th><th>Subtests pass</th></tr>
-    <tr><td>url</td><td class="n">44</td><td class="n">81.1</td><td class="n">77.6%</td></tr>
-    <tr><td>requestidlecallback</td><td class="n">9</td><td class="n">64.8</td><td class="n">76.5%</td></tr>
     <tr><td>dom/other</td><td class="n">46</td><td class="n">82.9 <span class="note">(was 55.2)</span></td><td class="n">90.5%</td></tr>
-    <tr><td>dom/nodes</td><td class="n">393</td><td class="n">61.7 <span class="note">(was 42.4)</span></td><td class="n">74.0%</td></tr>
-    <tr><td>webidl</td><td class="n">44</td><td class="n">41.3 <span class="note">(was 38.1)</span></td><td class="n">52.0%</td></tr>
-    <tr><td>html/dom</td><td class="n">180</td><td class="n">36.2</td><td class="n">26.9%</td></tr>
-    <tr><td>webmessaging</td><td class="n">115</td><td class="n">39.0 <span class="note">(was 35.5; QMSG1 63 pending)</span></td><td class="n">43.7%</td></tr>
-    <tr><td>encoding</td><td class="n">41</td><td class="n">33.2</td><td class="n">43.5%</td></tr>
-    <tr><td>html/semantics/scripting-1</td><td class="n">419</td><td class="n">31.4</td><td class="n">44.0%</td></tr>
-    <tr><td>css/cssom</td><td class="n">271</td><td class="n">36.3 <span class="note">(was 31.2)</span></td><td class="n">54.1%</td></tr>
+    <tr><td>url</td><td class="n">44</td><td class="n">81.1</td><td class="n">77.6%</td></tr>
+    <tr><td>requestidlecallback</td><td class="n">9</td><td class="n">75.9 <span class="note">(was 64.8)</span></td><td class="n">82.4%</td></tr>
+    <tr><td>webmessaging</td><td class="n">115</td><td class="n">64.2 <span class="note">(was 35.5)</span></td><td class="n">57.8%</td></tr>
+    <tr><td>dom/nodes</td><td class="n">393</td><td class="n">63.3 <span class="note">(was 42.4)</span></td><td class="n">74.7%</td></tr>
     <tr><td>resize-observer</td><td class="n">36</td><td class="n">59.6 <span class="note">(was 31.1)</span></td><td class="n">58.8%</td></tr>
-    <tr><td>hr-time</td><td class="n">9</td><td class="n">24.8</td><td class="n">31.2%</td></tr>
-    <tr><td>css/cssom-view</td><td class="n">220</td><td class="n">33.0 <span class="note">(was 24.6)</span></td><td class="n">50.4%</td></tr>
-    <tr><td>html/webappapis</td><td class="n">308</td><td class="n">27.4 <span class="note">(was 24.4)</span></td><td class="n">50.4%</td></tr>
-    <tr><td>dom/events</td><td class="n">194</td><td class="n">34.8 <span class="note">(was 23.0)</span></td><td class="n">56.3%</td></tr>
-    <tr><td>domparsing</td><td class="n">93</td><td class="n">21.9</td><td class="n">5.4%</td></tr>
-    <tr><td>shadow-dom</td><td class="n">263</td><td class="n">21.6</td><td class="n">31.8%</td></tr>
     <tr><td>dom/ranges</td><td class="n">41</td><td class="n">43.2 <span class="note">(was 17.1)</span></td><td class="n">40.6%</td></tr>
-    <tr><td>custom-elements</td><td class="n">204</td><td class="n">16.8</td><td class="n">30.3%</td></tr>
-    <tr><td>uievents</td><td class="n">70</td><td class="n">12.8</td><td class="n">38.1%</td></tr>
-    <tr><td>intersection-observer</td><td class="n">150</td><td class="n">16.5 <span class="note">(was 12.0)</span></td><td class="n">19.6%</td></tr>
-    <tr><td>streams</td><td class="n">85</td><td class="n">11.1</td><td class="n">20.2%</td></tr>
+    <tr><td>webidl</td><td class="n">44</td><td class="n">41.8 <span class="note">(was 38.1)</span></td><td class="n">53.5%</td></tr>
+    <tr><td>html/dom</td><td class="n">180</td><td class="n">40.1 <span class="note">(was 36.2)</span></td><td class="n">27.5%</td></tr>
+    <tr><td>dom/events</td><td class="n">194</td><td class="n">37.6 <span class="note">(was 23.0)</span></td><td class="n">65.3%</td></tr>
+    <tr><td>css/cssom</td><td class="n">271</td><td class="n">36.3 <span class="note">(was 31.2)</span></td><td class="n">54.6%</td></tr>
+    <tr><td>encoding</td><td class="n">41</td><td class="n">33.2</td><td class="n">43.5%</td></tr>
+    <tr><td>css/cssom-view</td><td class="n">220</td><td class="n">33.0 <span class="note">(was 24.6)</span></td><td class="n">50.4%</td></tr>
+    <tr><td>html/semantics/scripting-1</td><td class="n">419</td><td class="n">32.8 <span class="note">(was 31.4)</span></td><td class="n">44.3%</td></tr>
+    <tr><td>html/webappapis</td><td class="n">308</td><td class="n">32.3 <span class="note">(was 24.4)</span></td><td class="n">52.8%</td></tr>
+    <tr><td>hr-time</td><td class="n">9</td><td class="n">24.8</td><td class="n">31.2%</td></tr>
+    <tr><td>shadow-dom</td><td class="n">263</td><td class="n">23.0 <span class="note">(was 21.6)</span></td><td class="n">28.1%</td></tr>
+    <tr><td>domparsing</td><td class="n">93</td><td class="n">22.2 <span class="note">(was 21.9)</span></td><td class="n">5.4%</td></tr>
+    <tr><td>custom-elements</td><td class="n">204</td><td class="n">18.4 <span class="note">(was 16.8)</span></td><td class="n">31.2%</td></tr>
+    <tr><td>intersection-observer</td><td class="n">150</td><td class="n">16.5 <span class="note">(was 12.0)</span></td><td class="n">23.3%</td></tr>
+    <tr><td>uievents</td><td class="n">70</td><td class="n">13.5 <span class="note">(was 12.8)</span></td><td class="n">36.8%</td></tr>
+    <tr><td>streams</td><td class="n">85</td><td class="n">11.2 <span class="note">(was 11.1)</span></td><td class="n">20.4%</td></tr>
     <tr><td>dom/observable</td><td class="n">29</td><td class="n">0.0</td><td class="n">0.0%</td></tr>
   </table></div>
   <p class="note">Baseline 2026-11-21 (#504), sorted by score. A full run takes 110 s on 4 cores. Every later PR shows its change against this table.</p>
@@ -111,6 +111,17 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#567</td><td>QREC3b</td><td>Gate pages re-recorded headless: replay misses ~0 (YouTube results 66 → 0–2); replay and live forced-layout counts differ, so replay budgets come from replay runs</td></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#565</td><td>QDOM6b</td><td><code>createElementNS</code> namespace and case rules; dom/nodes case.html 261 → 284/285</td></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#552</td><td>QSB2b</td><td>Horizontal scrollbars for the window and sideways-scrolling boxes (your call: mouse + arrows, no hjkl)</td></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#566</td><td>QDOMATOM</td><td>Scripts and iframes inserted together run in tree order after the whole insertion; dom/nodes 61.7 → 62.4</td></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#564</td><td>QMAPI3</td><td>Missing-API report over 12 sites merged into one table (R66); filed QAPI1–8</td></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#563</td><td>QCISPLIT</td><td>WPT gates in their own CI job (<code>scratchy-wpt</code>); CI ~6 → 4.7 min</td></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#562</td><td>QANIMHL</td><td>CSS animation events fire in the headless test runner (the webkit-*-event files no longer time out)</td></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#559</td><td>QDOM15</td><td>UI event constructors (MouseEvent, KeyboardEvent, …) read their init dictionaries per spec</td></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#546</td><td>QEL6</td><td>Microtasks run between listeners of real (user) events, as in browsers</td></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#561</td><td>QEL4</td><td>Exceptions in timer, rAF and observer callbacks are reported (ErrorEvent, onerror)</td></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#548</td><td>QMSG1</td><td>postMessage to and from iframes; webmessaging 39.0 → 64.2</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#558</td><td>QWPT11</td><td>Main's CI runs are no longer cancelled by the next merge, so every main commit is checked</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#557</td><td>QDOM13</td><td>Event handler properties (<code>onclick</code>, <code>document.body.onload</code>) per spec; dom/events 407 → 472 subtests</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#556</td><td>QDOM5</td><td>Range clone/extract/delete/insert/surround and live ranges; dom/ranges 17.1 → 43.2</td></tr>
@@ -214,7 +225,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 <section>
   <h2>Waiting on you</h2>
   <ul id="waiting">
-    <li><b>One subtest pass→fail in QDOM16 (#549, held):</b> spec ChildNode methods lift dom/nodes 50.4 → 52.1. The subtest "append() with multiple arguments" in <span class="mono">Node-appendChild-script-and-iframe.html</span> stops passing: it passed only because the old <code>append</code> inserted nodes one at a time; correct (atomic) <code>append</code> hits a known script/iframe ordering gap that already fails its div and fragment siblings (fix filed: QDOMATOM). Accept it (my recommendation), or hold #549 until QDOMATOM?</li>
+    <li><b>QDOM16 (#549):</b> probably no longer needs you. QDOMATOM (#566) merged; #549 is being rebased onto it to check the "append() with multiple arguments" subtest passes. If it does, it merges normally.</li>
     <li><b>Merge rule:</b> PRs keep colliding in <span class="mono">scratchy/NOTES.md</span> (each adds its own section). May the merge script keep both sides there, like PROMPTS.md and REGRESSIONS.md? It saves an agent rebase each time; a wrong merge would only affect docs and CI still runs.</li>
     <li><b>Public repo cleanup:</b> two PRs (#496, #498) accidentally committed an agent's scratch folder: a test wire binary, its private token (for a throwaway wire, not yours), logs, and logged-out screenshots of social.loupax.com and YouTube. They are removed from main and now ignored, but are still in git history (commits 40d9f8c, 97e5e83). <b>Done</b> (your OK): <code>.git</code> backed up to <span class="mono">~/src/vibe-it-git-backup-2026-11-21</span>, history rewritten without them, main force-pushed. GitHub still serves the old commits through its saved pull-request refs; only GitHub Support can drop those ("remove cached views / sensitive data").</li>
     <li>Skim <span class="mono">scratchy/DECISIONS.md</span> once and correct anything I misstated.</li>
