@@ -108,7 +108,8 @@ landed `<<<<<<<`/`>>>>>>>` blocks in PROMPTS.md. merge_pr.sh now refuses a PR wh
 W-CACHE1 makes wire cache on disk by default in `~/.cache/wire`. Every wire an agent starts uses
 `--cache-dir /tmp/wire-cache-<your worktree name> --cache-size 256M` (user 2026-11-22: agents' caches in
 /tmp; /tmp is RAM, hence the size cap; wire prints one tmpfs warning line, expected), or `--no-cache`.
-Never the user's `~/.cache/wire`. Delete your cache dir by its explicit name when you finish. Perf
+Never the user's `~/.cache/wire`. The tools that start a wire (tools/incr-gate/run.sh, wl-flood, missing-api corpus/cost) take a `WIRE_ARGS`
+env var: set `WIRE_ARGS="--cache-dir /tmp/wire-cache-<worktree> --cache-size 256M"` (or `--no-cache`) for every run. Delete your cache dir by its explicit name when you finish. Perf
 comparisons use the same cache setting on both sides (say which).
 
 ## A denied command stays denied
