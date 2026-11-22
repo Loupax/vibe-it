@@ -178,9 +178,7 @@ fn draw(c: &mut Canvas, op: i32, a: &[f64]) {
         }
         1 => {
             if let Some(r) = rect_of(*x, *y, *w, *h) {
-                let mut p = Paint::default();
-                p.blend_mode = BlendMode::Clear;
-                p.anti_alias = true;
+                let p = Paint { blend_mode: BlendMode::Clear, anti_alias: true, ..Paint::default() };
                 px.fill_rect(r, &p, Transform::identity(), None);
             }
         }
