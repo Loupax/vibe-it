@@ -1925,6 +1925,32 @@ impl JsEngine {
         self.eval_value_as(None, label, code)
     }
 
+    /// QREG2: `String()` of `code`'s value, evaluated (indirect eval) in the main realm; `Err` is the
+    /// thrown error's message. Nothing is logged: the caller shows the message.
+    pub(crate) fn eval_to_string(&self, label: &str, code: &str) -> Result<String, String> {
+        let mut lit = String::from("'");
+        for c in code.chars() {
+            match c {
+                '\\' => lit.push_str("\\\\"),
+                '\'' => lit.push_str("\\'"),
+                '\n' => lit.push_str("\\n"),
+                '\r' => lit.push_str("\\r"),
+                '\u{2028}' => lit.push_str("\\u2028"),
+                '\u{2029}' => lit.push_str("\\u2029"),
+                c => lit.push(c),
+            }
+        }
+        lit.push('\'');
+        let wrapped = format!("String((0, eval)({lit}))");
+        let budget = perf::callback_budget();
+        self.arm_budget(budget);
+        let r = self.eng.with(|ctx| {
+            js_engine::eval_sloppy::<String>(&ctx, label, &wrapped).map_err(|e| js_engine::describe_error(&ctx, e))
+        });
+        self.drain_after_task();
+        r
+    }
+
     /// `eval_value` that records the call as `rec.0`; `rec.1` says the result
     /// means "nothing ran" (an idle timer poll), which is then not counted.
     pub(crate) fn eval_value_as<T: FromJsRet>(&self, rec: Option<Recorded<T>>, label: &str, code: &str) -> Option<T> {

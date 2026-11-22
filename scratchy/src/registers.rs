@@ -27,6 +27,15 @@ pub(crate) fn parse_let(line: &str) -> Option<(char, char)> {
     it.as_str().trim().is_empty().then_some((dst, src))
 }
 
+/// `:let @<dst> = <expr>`: the destination and the raw expression (not `@<register>`).
+pub(crate) fn parse_let_expr(line: &str) -> Option<(char, &str)> {
+    let rest = line.trim().strip_prefix('@')?;
+    let mut it = rest.chars();
+    let dst = it.next()?;
+    let expr = it.as_str().trim_start().strip_prefix('=')?.trim();
+    (!expr.is_empty()).then_some((dst, expr))
+}
+
 pub(crate) fn register(name: char) -> Option<Register> {
     match name {
         '%' => Some(Register::Url),
@@ -42,7 +51,12 @@ impl App {
     }
 
     fn let_message(&mut self, line: &str) -> String {
-        let Some((d, s)) = parse_let(line) else { return LET_USAGE.to_string() };
+        let Some((d, s)) = parse_let(line) else {
+            return match parse_let_expr(line) {
+                Some((d, expr)) => self.let_expr(d, expr),
+                None => LET_USAGE.to_string(),
+            };
+        };
         let Some(dst) = register(d) else { return format!("scratchy: no register @{d}") };
         let Some(src) = register(s) else { return format!("scratchy: no register @{s}") };
         if dst == Register::Url {
@@ -62,6 +76,25 @@ impl App {
             "Copied to clipboard".to_string()
         } else {
             "scratchy: could not reach the system clipboard".to_string()
+        }
+    }
+
+    /// QREG2: evaluates `expr` in the page's main realm and stores `String()` of the result.
+    fn let_expr(&mut self, d: char, expr: &str) -> String {
+        let Some(dst) = register(d) else { return format!("scratchy: no register @{d}") };
+        if dst == Register::Url {
+            return "scratchy: register @% is read-only".to_string();
+        }
+        let Some(js) = self.js.as_ref() else { return "scratchy: :let needs JS (:set js)".to_string() };
+        match js.eval_to_string("let", expr) {
+            Ok(text) => {
+                if crate::forms_text::clipboard_set(&text) {
+                    "Copied to clipboard".to_string()
+                } else {
+                    "scratchy: could not reach the system clipboard".to_string()
+                }
+            }
+            Err(msg) => format!("scratchy: {}", msg.lines().next().unwrap_or("error")),
         }
     }
 }
