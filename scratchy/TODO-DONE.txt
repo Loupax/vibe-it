@@ -9055,3 +9055,9 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       with Shift+wheel and ArrowRight, scrollLeft round-trips, hit-testing after an x scroll, a fixed box ignores x
       scroll. Gates: --wpt-th (css/cssom-view up), reftests, --perf-report; real check: wide page + overflow-x box in a
       nested window (grim). If it grows past M, split (style/layout half first) and report.
+
+=== from TODO.txt: --- (no header)
+- [x] QDOM12 DONE 0adc3f3 #547 [S] (P2; Sonnet; js_dom.rs; R65) `Text.splitText(offset)` (IndexSizeError, new node after it, live range
+      updates once QDOM5 has them), `Text.wholeText`, `Node.normalize()` (merge adjacent Text, drop empty, on Document and
+      Element). WPT: nodes/Text-splitText, Text-wholeText, Node-normalize, Node-normalize-2, ranges/Range-mutations-
+      normalize. Target: nodes +1, ranges +2.

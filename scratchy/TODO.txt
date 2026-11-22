@@ -179,10 +179,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       `.xhtml/.xml` files and 13 CRASH `.svg` files in dom/nodes (Element-childElementCount-*, Element-firstElementChild-*,
       ...), Document-createElement(NS) (XML iframes: 488 subtests), Document-createProcessingInstruction-xhtml,
       Node-lookupPrefix.xhtml. Target: nodes +5 (13 SVG files also start counting).
-- [ ] [WIP] QDOM12 [S] (P2; Sonnet; js_dom.rs; R65) `Text.splitText(offset)` (IndexSizeError, new node after it, live range
-      updates once QDOM5 has them), `Text.wholeText`, `Node.normalize()` (merge adjacent Text, drop empty, on Document and
-      Element). WPT: nodes/Text-splitText, Text-wholeText, Node-normalize, Node-normalize-2, ranges/Range-mutations-
-      normalize. Target: nodes +1, ranges +2.
 - [ ] QDOM12b [S] (P3, after QDOM3 #533; Sonnet; js_dom.rs rangeHook) Wire `rangeHook.split` / `rangeHook.merge` (QDOM12
       #547) to QDOM3's live Range list so splitText/normalize update live Ranges per spec; re-run dom/ranges
       (Range-mutations-normalize).
