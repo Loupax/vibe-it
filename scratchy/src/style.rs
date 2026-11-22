@@ -462,6 +462,8 @@ pub(crate) struct ComputedStyle {
     /// `bg_layout`. Not inherited.
     pub(crate) object_fit: ObjectFit,
     pub(crate) object_pos: ((f32, f32), (f32, f32)),
+    /// QCSS-B: `aspect-ratio` (not inherited).
+    pub(crate) aspect_ratio: AspectRatio,
     /// Rounds both the background fill and (for `BorderStyle::Solid`
     /// only — see `fill_rounded_ring`'s own docs) the border itself, via
     /// `paint_box_decoration`. Not inherited. `BoxLength`, not a plain
@@ -773,7 +775,7 @@ pub(crate) fn wide_keys(name: &str) -> Option<&'static [&'static str]> {
         "fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "fill-opacity", "stroke-opacity",
         "word-spacing", "animation-name", "animation-duration", "animation-timing-function",
         "animation-delay", "animation-iteration-count", "animation-direction",
-        "animation-fill-mode", "animation-play-state",
+        "animation-fill-mode", "animation-play-state", "aspect-ratio",
     ];
     let l = name.to_ascii_lowercase();
     let l = l.as_str();
@@ -3210,6 +3212,13 @@ pub(crate) fn resolve_style_core<'a>(
         ObjectFit::Fill,
         Some,
     );
+    let aspect_ratio = apply_wide(
+        cascade_css(&matches, inl, "aspect-ratio", |d| d.aspect_ratio),
+        false,
+        AspectRatio::AUTO,
+        AspectRatio::AUTO,
+        Some,
+    );
     let object_pos = {
         let half = BgAxisDecl { pct: 0.5, off: Length::Px(0.0) };
         let def = BgPosDecl { x: half, y: half };
@@ -3408,6 +3417,7 @@ pub(crate) fn resolve_style_core<'a>(
         viewport_hidden_x: false,
         mask_layout,
         object_fit,
+        aspect_ratio,
         object_pos,
         border_radius,
         overflow_x,
@@ -3540,6 +3550,7 @@ pub(crate) fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         viewport_hidden_x: false,
         mask_layout: BgLayout::default(),
         object_fit: ObjectFit::Fill,
+        aspect_ratio: AspectRatio::AUTO,
         object_pos: ((0.5, 0.0), (0.5, 0.0)),
         border_radius: BoxLength::default(),
         overflow_x: Overflow::default(),

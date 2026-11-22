@@ -2,7 +2,7 @@
 # area                        files    ran  all-pass  subtests    pass  pass%  score
 dom/nodes                       402    389       219     10542    8087   76.7   67.8
 dom/events                      171    170        74       793     572   72.1   49.6
-dom/ranges                       66     64        23     40726   32541   79.9   53.2
+dom/ranges                       66     64        23     40726   32550   79.9   53.4
 dom/observable                   29     29         0       251       0    0.0    0.0
 dom/other                        51     51        33      2016    1960   97.2   80.1
 domparsing                       93     93        14      3368     375   11.1   24.4
@@ -24,4 +24,4 @@ webmessaging                    115    115        72       205     137   66.8   
 requestidlecallback               9      9         6        17      14   82.4   75.9
 custom-elements                 201    201        19      2158     690   32.0   19.9
 shadow-dom                      244    244        51      2571     804   31.3   27.4
-TOTAL                          3254   3209       982     85795   57668   67.2   39.4
+TOTAL                          3254   3209       982     85795   57677   67.2   39.4

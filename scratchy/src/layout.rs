@@ -2221,6 +2221,53 @@ pub(crate) fn box_model_entry(
     BoxModelEntry { border_x, border_y, border_w, content_x, content_y, content_w, extra_h, child_containing_height }
 }
 
+/// QCSS-B (css-sizing-4): a non-replaced box with an explicit `aspect-ratio` and an `auto` height gets
+/// its height from its used width. The ratio applies to the box `box-sizing` names. A scroll container
+/// takes the derived height as its `height`; any other box (min-height: auto = content size) takes it
+/// as a `min-height` floor so content taller than the ratio box still grows it.
+/// `entry.child_containing_height` becomes the derived content height either way, so percentage-height
+/// children resolve against it. `s` must already be finalized (`box_model_entry` did that).
+pub(crate) fn apply_aspect_ratio(s: &mut ComputedStyle, entry: &mut BoxModelEntry) {
+    let Some(r) = s.aspect_ratio.explicit() else { return };
+    if s.height.is_some() {
+        return;
+    }
+    // The height value in `box-sizing` terms.
+    let mut hv = match s.box_sizing {
+        BoxSizing::ContentBox => entry.content_w / r,
+        BoxSizing::BorderBox => entry.border_w / r,
+    };
+    if let Some(mx) = s.max_height {
+        hv = hv.min(mx.px());
+    }
+    hv = hv.max(0.0);
+    if s.scroll_container() {
+        if let Some(mn) = s.min_height {
+            hv = hv.max(mn.px());
+        }
+        s.height = Some(BoxLength::Px(hv));
+    } else {
+        hv = s.min_height.map_or(hv, |m| m.px().max(hv));
+        s.min_height = Some(BoxLength::Px(hv));
+    }
+    entry.child_containing_height = Some(match s.box_sizing {
+        BoxSizing::ContentBox => hv,
+        BoxSizing::BorderBox => (hv - entry.extra_h).max(0.0),
+    });
+}
+
+/// QCSS-B: the border-box width a flex item with an `auto` width and a definite `height` gets from an
+/// explicit `aspect-ratio`. `s` is finalized.
+pub(crate) fn width_from_aspect_ratio(s: &ComputedStyle) -> Option<f32> {
+    let r = s.aspect_ratio.explicit()?;
+    let h = s.height?.px().max(0.0);
+    let extra_w = s.border_h() + s.padding.left.px() + s.padding.right.px();
+    Some(match s.box_sizing {
+        BoxSizing::ContentBox => h * r + extra_w,
+        BoxSizing::BorderBox => h * r,
+    })
+}
+
 /// Lays out `b`, shaping text as it goes — but only until `deadline` passes.
 /// Each paragraph gets a stable id (assigned in document order, so it's the
 /// same id across repeated calls on the same tree) and its shaped result is
@@ -2576,7 +2623,15 @@ fn measure_inner_body<'a>(
     let bfc_root = b.style.establishes_bfc();
     let fresh_floats = Floats::default();
     let floats = if bfc_root { &fresh_floats } else { floats };
-    let entry = box_model_entry(&mut s, x, y, width, containing_height, auto_margin_box_override);
+    // QCSS-B: an `<img>` sizes itself from its natural size in `image_box_size`; hide the ratio from
+    // the generic derivation and restore it for that call.
+    let ar_saved = s.aspect_ratio;
+    if matches!(b.content, BoxContent::Image(_)) {
+        s.aspect_ratio = AspectRatio::AUTO;
+    }
+    let mut entry = box_model_entry(&mut s, x, y, width, containing_height, auto_margin_box_override);
+    apply_aspect_ratio(&mut s, &mut entry);
+    s.aspect_ratio = ar_saved;
     let border_x = entry.border_x;
     let border_y = entry.border_y;
     let border_w = entry.border_w;
@@ -3275,7 +3330,16 @@ fn margin_join(set: (f32, f32), m: f32) -> (f32, f32) {
 pub(crate) fn image_box_size(image: &DecodedImage, s: &ComputedStyle) -> (f32, f32) {
     let intrinsic_w = (image.width.max(1)) as f32;
     let intrinsic_h = (image.height.max(1)) as f32;
-    let aspect = intrinsic_h / intrinsic_w;
+    // QCSS-B: an explicit `<ratio>` overrides the natural ratio (`auto <ratio>` keeps the natural one:
+    // an `<img>` always has it once decoded). Only the ratio changes; the natural width stays.
+    // A `<video>` poster placeholder (`pixels` empty, poster in `mask`) is excluded: the poster is
+    // composed into a black buffer of the box size, so a box wider than the poster would show black
+    // bars (WPT replaced-element-026 expects them transparent). Follow-up in the PR.
+    let video_poster = image.pixels.is_empty() && image.mask.is_some();
+    let (intrinsic_h, aspect) = match s.aspect_ratio.explicit() {
+        Some(r) if !s.aspect_ratio.auto && !video_poster => (intrinsic_w / r, 1.0 / r),
+        _ => (intrinsic_h, intrinsic_h / intrinsic_w),
+    };
     let extra_w = s.border_h() + s.padding.left.px() + s.padding.right.px();
     let extra_h = s.border_v() + s.padding.top.px() + s.padding.bottom.px();
     if s.width.is_none() && s.height.is_some() {
@@ -5109,7 +5173,8 @@ pub(crate) fn measure_flex<'a>(
     pending: &mut Vec<PendingPositioned<'a>>,
 ) -> Laid {
     let mut s = b.style;
-    let entry = box_model_entry(&mut s, x, y, width, containing_height, None);
+    let mut entry = box_model_entry(&mut s, x, y, width, containing_height, None);
+    apply_aspect_ratio(&mut s, &mut entry);
     let no_floats = Floats::default();
     let mut own_pending: Vec<PendingPositioned<'a>> = Vec::new();
     let mut items: Vec<&'a LayoutBox> = Vec::with_capacity(children.len());
@@ -5298,7 +5363,12 @@ pub(crate) fn measure_flex_row<'a>(
             let natural_mb = (basis_from_decl.is_none() && item_style.width.is_none()) || item_style.min_width.is_none();
             let natural_mb =
                 natural_mb.then(|| cell_natural_width(item, font_system, next_id, cache, deadline, incomplete));
-            let basis = basis_from_decl.unwrap_or_else(|| {
+            let ratio_w = if basis_from_decl.is_none() && item_style.width.is_none() {
+                width_from_aspect_ratio(&item_style)
+            } else {
+                None
+            };
+            let basis = basis_from_decl.or(ratio_w).unwrap_or_else(|| {
                 if item_style.width.is_some() {
                     // Not clamped by `min`/`max` here — real CSS doesn't
                     // clamp the *basis* itself, only the final resolved
@@ -5482,7 +5552,7 @@ pub(crate) fn measure_flex_row<'a>(
             let align = items[i].style.align_self.unwrap_or(s.align_items);
             let margin_top = lc.style.margin.top.px();
             let margin_bottom = lc.style.margin.bottom.px();
-            if align == AlignItems::Stretch && items[i].style.height.is_none() {
+            if align == AlignItems::Stretch && items[i].style.height.is_none() && items[i].style.aspect_ratio.explicit().is_none() {
                 lc.h = (line_cross - margin_top - margin_bottom).max(0.0);
             }
             let target_y = match align {
@@ -6082,7 +6152,8 @@ pub(crate) fn measure_grid<'a>(
     pending: &mut Vec<PendingPositioned<'a>>,
 ) -> Laid {
     let mut s = b.style;
-    let entry = box_model_entry(&mut s, x, y, width, containing_height, None);
+    let mut entry = box_model_entry(&mut s, x, y, width, containing_height, None);
+    apply_aspect_ratio(&mut s, &mut entry);
     let no_floats = Floats::default();
     let mut own_pending: Vec<PendingPositioned<'a>> = Vec::new();
     let mut items: Vec<&'a LayoutBox> = Vec::with_capacity(children.len());
