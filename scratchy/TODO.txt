@@ -165,13 +165,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       `'ontouchstart' in window` as "touch device"). Add `HTMLFrameSetElement`. WPT: dom/events/webkit-*-event (4),
       Body-FrameSet-Event-Handlers. Target: events +2 (and the 40 non-cancelable-when-passive files, which assign
       `document.body.onload`, then run once QWPT7 exists).
-- [ ] [WIP] QDOM14 [S] (P2; Sonnet; js_dom.rs; R65) Namespaces: `lookupNamespaceURI`, `lookupPrefix`, `isDefaultNamespace`
-      (DOM "locate a namespace" over element ns/prefix and xmlns attributes), `Element.prefix` from the qualified name,
-      `getElementsByTagNameNS(ns, local)` on Document/Element, and `getElementsByTagName(qualifiedName)` matched natively
-      by qualified name (HTML elements in HTML documents compare lowercased; others exact; `*`), not through
-      `__d_query` (the selector parser rejects `te:st`). Returns QDOM2 collections when that has landed. WPT:
-      nodes/Node-lookupNamespaceURI, Node-lookupPrefix.xhtml (after QDOM11), case, Document-getElementsByTagName(NS),
-      Element-getElementsByTagName(NS), collections/HTMLCollection-empty-name. Target: nodes +1.2.
 - [ ] [WIP] QDOM15 [S] (P2; Sonnet; js.rs Event ctors, js_dom.rs `doc.createEvent`; R65; after QDOM4) Event interfaces:
       UIEvent/MouseEvent/KeyboardEvent/FocusEvent/WheelEvent/InputEvent/CompositionEvent constructors read their init
       dictionaries (`view` must be a Window or null: TypeError otherwise, `detail`, modifier keys...), `Event.NONE/

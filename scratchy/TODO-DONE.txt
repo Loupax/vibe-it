@@ -9161,3 +9161,12 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       update (after RO, before paint) with the frame time, callbacks queued as a task; remove the
       per-timer __scratchy_ioTick calls; keep the App-layout reuse. Gate: intersection-observer score
       not lower, YouTube thumbnails still load (QY57r).
+
+=== from TODO.txt: --- (no header)
+- [x] QDOM14 DONE 6012d35 #553 [S] (P2; Sonnet; js_dom.rs; R65) Namespaces: `lookupNamespaceURI`, `lookupPrefix`, `isDefaultNamespace`
+      (DOM "locate a namespace" over element ns/prefix and xmlns attributes), `Element.prefix` from the qualified name,
+      `getElementsByTagNameNS(ns, local)` on Document/Element, and `getElementsByTagName(qualifiedName)` matched natively
+      by qualified name (HTML elements in HTML documents compare lowercased; others exact; `*`), not through
+      `__d_query` (the selector parser rejects `te:st`). Returns QDOM2 collections when that has landed. WPT:
+      nodes/Node-lookupNamespaceURI, Node-lookupPrefix.xhtml (after QDOM11), case, Document-getElementsByTagName(NS),
+      Element-getElementsByTagName(NS), collections/HTMLCollection-empty-name. Target: nodes +1.2.
