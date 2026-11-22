@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-22 · main 8e09b15 · 126 PRs merged since 2026-11-21 morning (#475–#599) · installed 14:06 (59681b9, engine-only)· 5 agents running (QEL2b, QANIMHLc, QCSS-A hover check, QAPI6c, QDOM5b)</div>
+  <div class="meta" id="updated">Updated 2026-11-22 · main 8e09b15 · 127 PRs merged since 2026-11-21 morning (#475–#600) · installed 14:06 (59681b9, engine-only)· 5 agents running (QEL2b, QANIMHLc, QCSS-A hover check, QAPI6c, QDOM5b)</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -112,6 +112,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#600</td><td>QDOM5c</td><td>Re-land of #592 (iframe loading + live Ranges) with the real cause of the red main fixed: a re-entrant iframe <code>load</code> on <code>document.close()</code>; per-global 3/8 → 8/8, stable 10/10</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#597</td><td>QINC1m</td><td>Old pipeline removed (your go): SCRATCHY_INCR and the non-engine paths gone, −2 656 lines of production code; the from-scratch layout stays as fallback and test oracle; check mode 0 mismatches, 10-min YouTube session 0 fallbacks</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#599</td><td>QCSS-C</td><td>Box alignment keywords (start/end/space-evenly…), <code>place-*</code>, justify-items/self in grid, <code>grid-auto-flow</code>, <code>grid-gap</code> aliases; getComputedStyle reports them</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#598</td><td>QFF1b</td><td>woff2 web fonts (BBC renders its own faces). New dependency: <code>brotli-decompressor</code> 5.0.3 (BSD-3/MIT) + 2 small alloc crates; malformed fonts fail cleanly (fuzzed)</td></tr>

@@ -158,13 +158,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       (idlharness checks); getModifierState and legacy init* methods for the newer event interfaces.
 - [ ] QDOM19b [S] (P3, from QDOM19 #583; Sonnet) Triage the remaining Document-createElement (49/147) and
       Document-createElementNS (203/596) failures (XML/XHTML contentType documents? namespace cases?) and file S items.
-- [ ] [WIP] QDOM5c [S] (P2, re-land of QDOM5b #592, reverted in #596; Sonnet; js_dom.rs iframes + Range) #592 broke
-      html/webappapis/.../the-navigator-object/per-global.window.html (OK 3/8 -> ERROR) after its final rebase: async
-      loading of script-created iframes replaces the initial about:blank window, so contentWindow identity changes. Re-land
-      #592 (git revert of the revert) and keep the initial window object (browsers navigate it in place / reuse it), so
-      per-global and every other main-passing file stays; then the full gate on the FINAL rebased head. Note: the
-      SAME tree passed CI on the PR and failed on main, so the breakage is timing-dependent: run per-global and the
-      iframe-heavy files 10x each and show they are stable.
 - [ ] QDOM5d [S] (P3, from QDOM5c #600; Sonnet; js_dom.rs iframes) In-place iframe navigation should create a NEW Document
       (browsers do; today the Document object is reused), which then lets a `src` set after insertion reuse the initial
       window too (url.window.html, remove-initial-about-blankness.window.html must stay passing). Also url-fragment.window.html

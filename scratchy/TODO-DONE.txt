@@ -9463,3 +9463,12 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       QAPI6c (same engine area)) Delete the old pipeline: the SCRATCHY_INCR flag and its branches, the separate non-incremental App
       frame and forced-layout paths, the CI engine-off job. KEEP the from-scratch layout (the engine's
       first-layout/fallback path and the test oracle) and SCRATCHY_INCR_CHECK as a debug option.
+
+=== from TODO.txt: --- (no header)
+- [x] QDOM5c DONE 470cd4e #600 [S] (P2, re-land of QDOM5b #592, reverted in #596; Sonnet; js_dom.rs iframes + Range) #592 broke
+      html/webappapis/.../the-navigator-object/per-global.window.html (OK 3/8 -> ERROR) after its final rebase: async
+      loading of script-created iframes replaces the initial about:blank window, so contentWindow identity changes. Re-land
+      #592 (git revert of the revert) and keep the initial window object (browsers navigate it in place / reuse it), so
+      per-global and every other main-passing file stays; then the full gate on the FINAL rebased head. Note: the
+      SAME tree passed CI on the PR and failed on main, so the breakage is timing-dependent: run per-global and the
+      iframe-heavy files 10x each and show they are stable.

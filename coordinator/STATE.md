@@ -328,3 +328,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Merged #597 QINC1m 2387279 (old pipeline gone). Reinstalling.
 - 2026-11-22 #600 QDOM5c READY (re-lands #592; per-global flake = re-entrant iframe load on document.close(), fixed; 8/8 10x), queued after reinstall. Filed QDOM5d. Launched QHOV1.
 - 2026-11-22 Reinstalled ~/.cargo/bin/scratchy 14:06 from main 59681b9 (engine-only after QINC1m #597; web fonts incl. woff2; QCSS-C).
+- 2026-11-22 Merged #600 QDOM5c 470cd4e (re-land of #592).
