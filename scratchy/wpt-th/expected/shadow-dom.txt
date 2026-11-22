@@ -78,24 +78,7 @@ OK          9/16  shadow-dom/Extensions-to-Event-Interface.html
   FAIL      The event must propagate out of closed mode shadow tree in which the relative target and the relative related target are the same
   FAIL      composedPath() must contain and only contain the unclosed nodes of target in open mode shadow trees
   FAIL      composedPath() must contain and only contain the unclosed nodes of target in closed mode shadow trees
-OK          1/18  shadow-dom/HTMLSlotElement-interface.html
-  FAIL      "name" attribute on HTMLSlotElement must reflect "name" attribute
-  FAIL      assignedNodes() on a HTMLSlotElement must return an empty array when the slot element is not in a tree or in a document tree
-  FAIL      assignedNodes({"flattened":false}) on a HTMLSlotElement must return an empty array when the slot element is not in a tree or in a document tree
-  FAIL      assignedNodes({"flattened":true}) on a HTMLSlotElement must return an empty array when the slot element is not in a tree or in a document tree
-  FAIL      assignedNodes() must return the list of assigned nodes when none of the assigned nodes themselves are slots
-  FAIL      assignedNodes({"flattened":false}) must return the list of assigned nodes when none of the assigned nodes themselves are slots
-  FAIL      assignedNodes({"flattened":true}) must return the list of assigned nodes when none of the assigned nodes themselves are slots
-  FAIL      assignedNodes() must update when slot and name attributes are modified
-  FAIL      assignedNodes({"flattened":false}) must update when slot and name attributes are modified
-  FAIL      assignedNodes({"flattened":true}) must update when slot and name attributes are modified
-  FAIL      assignedNodes() must update when a default slot is introduced dynamically by a slot rename
-  FAIL      assignedNodes({"flattened":false}) must update when a default slot is introduced dynamically by a slot rename
-  FAIL      assignedNodes({"flattened":true}) must update when a default slot is introduced dynamically by a slot rename
-  FAIL      assignedNodes() must update when slot elements are inserted or removed
-  FAIL      assignedNodes({"flattened":false}) must update when slot elements are inserted or removed
-  FAIL      assignedNodes({"flattened":true}) must update when slot elements are inserted or removed
-  FAIL      assignedNodes({flatten: true}) must return the distributed nodes, and assignedNodes() and assignedNodes({flatten: false}) must returned the assigned nodes
+OK         18/18  shadow-dom/HTMLSlotElement-interface.html
 OK           0/4  shadow-dom/HighlightRegistry-highlightsFromPoint.html
   FAIL      CSS.highlights.highlightsFromPoint() should throw when called with nodes that are not ShadowRoot objects in options.
   FAIL      CSS.highlights.highlightsFromPoint() returns Highlights present at a given point inside a shadow tree in the right order.
@@ -114,16 +97,11 @@ OK          8/12  shadow-dom/ShadowRoot-interface.html
   FAIL      ShadowRoot.activeElement must return the focused element of the context object when shadow root is closed.
   FAIL      ShadowRoot.styleSheets must return a StyleSheetList sequence containing the shadow root style sheets when shadow root is open.
   FAIL      ShadowRoot.styleSheets must return a StyleSheetList sequence containing the shadow root style sheets when shadow root is closed.
-OK           0/4  shadow-dom/Slottable-mixin.html
-  FAIL      assignedSlot attribute must be defined on Element and Text interfaces
-  FAIL      assignedSlot must return null when the node does not have an assigned node
-  FAIL      assignedSlot must return the assigned slot
-  FAIL      assignedSlot must return null when the assigned slot element is inside a closed shadow tree
+OK           4/4  shadow-dom/Slottable-mixin.html
 OK           0/2  shadow-dom/accesskey.tentative.html
   FAIL      button element with accesskey in the shadow tree of open mode
   FAIL      button element with accesskey in the shadow tree of closed mode
-OK           0/1  shadow-dom/assign-slottables-after-removing-shadow-tree-from-document.html
-  FAIL      Slottables should be assigned to slots even after the shadow host has been removed from the document
+OK           1/1  shadow-dom/assign-slottables-after-removing-shadow-tree-from-document.html
 OK       304/304  shadow-dom/attach-shadow-non-html-namespace.html
 OK           0/2  shadow-dom/attachShadow-with-ShadowRoot.html
   FAIL      can use ShadowRoot as options for attachShadow
@@ -1971,8 +1949,7 @@ OK           2/6  shadow-dom/shadow-root-clonable.html
   FAIL      declarative shadow roots do *not* get clonable: true automatically
   FAIL      declarative shadow roots can opt in to clonable with shadowrootclonable
   FAIL      declarative shadow roots inside templates do *not* get cloned automatically
-OK           0/1  shadow-dom/slot-reconciliation-at-node-removal.html
-  FAIL      Slot reconciliation: assignedNodes should be empty when slot is removed from shadow tree
+OK           1/1  shadow-dom/slot-reconciliation-at-node-removal.html
 OK           0/1  shadow-dom/slotchange-customelements.html
   FAIL      slotchange must fire on initialization of custom elements with slotted children
 OK          0/32  shadow-dom/slotchange-event.html
@@ -2026,52 +2003,14 @@ TIMEOUT     0/17  shadow-dom/slotchange.html
   TIMEOUT   slotchange event: A slot is assigned to another slot.
   TIMEOUT   slotchange event: Slotchange should be fired if assigned nodes are changed.
   TIMEOUT   slotchange event: Child content is added to nested slots.
-OK           0/2  shadow-dom/slots-fallback-in-document.html
+OK           1/2  shadow-dom/slots-fallback-in-document.html
   FAIL      Children of a slot in a document tree should not be counted in flattened assigned nodes.
-  FAIL      Slot fallback content in shadow tree should be counted in flattened assigned nodes.
-OK          0/13  shadow-dom/slots-fallback.html
-  FAIL      Slots fallback: Basic.
-  FAIL      Slots fallback: Basic, elements only.
-  FAIL      Slots fallback: Slots in Slots.
-  FAIL      Slots fallback: Slots in Slots, elements only.
-  FAIL      Slots fallback: Fallback contents should not be used if a node is assigned.
-  FAIL      Slots fallback: Slots in Slots: Assigned nodes should be used as fallback contents of another slot
-  FAIL      Slots fallback: Complex case.
-  FAIL      Slots fallback: Complex case, elements only.
-  FAIL      Slots fallback: Mutation. Append fallback contents.
-  FAIL      Slots fallback: Mutation. Remove fallback contents.
-  FAIL      Slots fallback: Mutation. Assign a node to a slot so that fallback contens are no longer used.
-  FAIL      Slots fallback: Mutation. Remove an assigned node from a slot so that fallback contens will be used.
+OK         12/13  shadow-dom/slots-fallback.html
   FAIL      Slots fallback: Mutation.  Remove a slot which is a fallback content of another slot.
 OK           0/1  shadow-dom/slots-outside-shadow-dom.html
   FAIL      Light DOM slot element should be in flattened assignedNodes
-OK          0/26  shadow-dom/slots.html
-  FAIL      Slots: Basic.
-  FAIL      Slots: Basic, elements only.
-  FAIL      Slots: Slots in closed.
-  FAIL      Slots: Slots in closed, elements only.
-  FAIL      Slots: Slots not in a shadow tree.
-  FAIL      Slots: Slots not in a shadow tree, elements only.
+OK         25/26  shadow-dom/slots.html
   FAIL      Slots: Distributed nodes for Slots not in a shadow tree.
-  FAIL      Slots: Name matching
-  FAIL      Slots: No direct host child.
-  FAIL      Slots: Default Slot.
-  FAIL      Slots: Slot in Slot does not matter in assignment.
-  FAIL      Slots: Slot is assigned to another slot
-  FAIL      Slots: Open > Closed.
-  FAIL      Slots: Closed > Closed.
-  FAIL      Slots: Closed > Open.
-  FAIL      Slots: Complex case: Basi line.
-  FAIL      Slots: Mutation: appendChild.
-  FAIL      Slots: Mutation: Change slot= attribute 1.
-  FAIL      Slots: Mutation: Change slot= attribute 2.
-  FAIL      Slots: Mutation: Change slot= attribute 3.
-  FAIL      Slots: Mutation: Remove a child.
-  FAIL      Slots: Mutation: Add a slot: after.
-  FAIL      Slots: Mutation: Add a slot: before.
-  FAIL      Slots: Mutation: Remove a slot.
-  FAIL      Slots: Mutation: Change slot name= attribute.
-  FAIL      Slots: Mutation: Change slot slot= attribute.
 OK           0/2  shadow-dom/touch-event-retargeting-leak.html
   FAIL      TouchEvent retargeting does not leak closed shadow-dom nodes to host during capturing
   FAIL      TouchEvent retargeting does not leak closed shadow-dom nodes to host during bubbling

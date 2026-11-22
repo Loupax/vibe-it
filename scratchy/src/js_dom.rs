@@ -2469,6 +2469,19 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       function (v) { __d_setattr(this.__id, attr, String(v)); });
   };
   reflect('id', 'id'); reflect('className', 'class'); reflect('title', 'title');
+  // QAPI5: ARIAMixin (ARIA 1.2 / HTML): `role` and every `aria*` property is a nullable string reflecting the attribute
+  // (absent -> null; set null removes the attribute, anything else is stringified). Element-valued ones are not here.
+  ['role', 'ariaAtomic', 'ariaAutoComplete', 'ariaBrailleLabel', 'ariaBrailleRoleDescription', 'ariaBusy', 'ariaChecked',
+    'ariaColCount', 'ariaColIndex', 'ariaColIndexText', 'ariaColSpan', 'ariaCurrent', 'ariaDescription', 'ariaDisabled',
+    'ariaExpanded', 'ariaHasPopup', 'ariaHidden', 'ariaInvalid', 'ariaKeyShortcuts', 'ariaLabel', 'ariaLevel', 'ariaLive',
+    'ariaModal', 'ariaMultiLine', 'ariaMultiSelectable', 'ariaOrientation', 'ariaPlaceholder', 'ariaPosInSet', 'ariaPressed',
+    'ariaReadOnly', 'ariaRelevant', 'ariaRequired', 'ariaRoleDescription', 'ariaRowCount', 'ariaRowIndex', 'ariaRowIndexText',
+    'ariaRowSpan', 'ariaSelected', 'ariaSetSize', 'ariaSort', 'ariaValueMax', 'ariaValueMin', 'ariaValueNow', 'ariaValueText'
+  ].forEach(function (prop) {
+    var attr = prop === 'role' ? 'role' : 'aria-' + prop.slice(4).toLowerCase();
+    defs(ElementProto, prop, function () { var v = __d_attr(this.__id, attr); return v == null ? null : v; },
+      function (v) { if (v === null) __d_rmattr(this.__id, attr); else __d_setattr(this.__id, attr, String(v)); });
+  });
   reflect('lang', 'lang'); reflect('dir', 'dir');
   defs(ElementProto, 'hidden', function () { return __d_attr(this.__id, 'hidden') != null; },
     function (v) { if (v) __d_setattr(this.__id, 'hidden', ''); else __d_rmattr(this.__id, 'hidden'); });
@@ -6742,6 +6755,41 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (!srWarned) { srWarned = true; __scratchy_err("scratchy: js: not implemented: shadow root rendering (QSD6); shadow content is not rendered, only the host's light children"); }
     return root;
   };
+  // QAPI5: `Element.slot`, `HTMLSlotElement.name` reflection, named slot assignment (computed on demand from the
+  // host's children; no `slotchange` events, no manual assignment).
+  reflect('slot', 'slot');
+  rStr(g.HTMLSlotElement.prototype, 'name', 'name');
+  var slotKey = function (n) { return n.nodeType === 1 ? (n.getAttribute('slot') || '') : ''; };
+  var slotsIn = function (root) { return Array.prototype.slice.call(root.querySelectorAll('slot')); };
+  var assignedOf = function (slot) {
+    var r = slot.getRootNode();
+    if (!(r instanceof SR) || srOpts[r.__id].slotAssignment !== 'named') return [];
+    var nm = slot.getAttribute('name') || '';
+    if (slotsIn(r).filter(function (s) { return (s.getAttribute('name') || '') === nm; })[0] !== slot) return [];
+    return Array.prototype.filter.call(r.host.childNodes, function (c) { return (c.nodeType === 1 || c.nodeType === 3) && slotKey(c) === nm; });
+  };
+  var flatAssigned = function (slot, depth) {
+    var a = assignedOf(slot);
+    if (!a.length) a = Array.prototype.slice.call(slot.childNodes).filter(function (c) { return c.nodeType === 1 || c.nodeType === 3; });
+    var out = [];
+    a.forEach(function (n) {
+      if (n.nodeType === 1 && n.localName === 'slot' && depth < 50) out = out.concat(flatAssigned(n, depth + 1)); else out.push(n);
+    });
+    return out;
+  };
+  var SLP = g.HTMLSlotElement.prototype;
+  SLP.assignedNodes = function (opts) { return opts && opts.flatten ? flatAssigned(this, 0) : assignedOf(this); };
+  SLP.assignedElements = function (opts) {
+    return (opts && opts.flatten ? flatAssigned(this, 0) : assignedOf(this)).filter(function (n) { return n.nodeType === 1; });
+  };
+  var assignedSlotOf = function () {
+    var h = this.parentNode, r = h && h.nodeType === 1 ? __d_shadow_of(h.__id) : -1;
+    if (r < 0 || srMode[r] !== 'open' || srOpts[r].slotAssignment !== 'named') return null;
+    var nm = slotKey(this);
+    return slotsIn(wrap(r)).filter(function (s) { return (s.getAttribute('name') || '') === nm; })[0] || null;
+  };
+  def(ElementProto, 'assignedSlot', assignedSlotOf);
+  def(g.Text.prototype, 'assignedSlot', assignedSlotOf);
   def(ElementProto, 'shadowRoot', function () {
     var r = __d_shadow_of(this.__id);
     return r >= 0 && srMode[r] === 'open' ? wrap(r) : null;
