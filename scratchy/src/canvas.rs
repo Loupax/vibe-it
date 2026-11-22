@@ -52,6 +52,8 @@ impl Style {
     }
 }
 
+const IDENTITY: [f64; 6] = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+
 #[derive(Clone)]
 struct DrawState {
     fill: Style,
@@ -59,11 +61,13 @@ struct DrawState {
     shadow: Style,
     alpha: f32,
     line_width: f32,
+    /// QCNV5: the current transformation matrix as (a, b, c, d, e, f): x' = a x + c y + e, y' = b x + d y + f.
+    ctm: [f64; 6],
 }
 
 impl Default for DrawState {
     fn default() -> DrawState {
-        DrawState { fill: Style::new([0, 0, 0, 255]), stroke: Style::new([0, 0, 0, 255]), shadow: Style::new([0, 0, 0, 0]), alpha: 1.0, line_width: 1.0 }
+        DrawState { fill: Style::new([0, 0, 0, 255]), stroke: Style::new([0, 0, 0, 255]), shadow: Style::new([0, 0, 0, 0]), alpha: 1.0, line_width: 1.0, ctm: IDENTITY }
     }
 }
 
@@ -246,19 +250,41 @@ fn paint_of(c: [u8; 4], alpha: f32) -> Paint<'static> {
     p
 }
 
+fn transform_of(m: &[f64; 6]) -> Transform {
+    Transform::from_row(m[0] as f32, m[1] as f32, m[2] as f32, m[3] as f32, m[4] as f32, m[5] as f32)
+}
+
+/// `op`: 0 multiply the CTM by `m` on the right (transform/translate/rotate/scale), 1 replace it (setTransform), 2 reset.
+fn set_ctm(c: &mut Canvas, op: i32, m: &[f64]) {
+    let [a, b, cc, d, e, f] = c.state.ctm;
+    c.state.ctm = match (op, m) {
+        (0, [ma, mb, mc, md, me, mf]) => [
+            a * ma + cc * mb,
+            b * ma + d * mb,
+            a * mc + cc * md,
+            b * mc + d * md,
+            a * me + cc * mf + e,
+            b * me + d * mf + f,
+        ],
+        (1, [ma, mb, mc, md, me, mf]) => [*ma, *mb, *mc, *md, *me, *mf],
+        _ => IDENTITY,
+    };
+}
+
 /// `op`: 0 fillRect, 1 clearRect, 2 strokeRect (`a` = x, y, w, h).
 fn draw(c: &mut Canvas, op: i32, a: &[f64]) {
     let (Some(px), [x, y, w, h]) = (c.pixmap.as_mut(), a) else { return };
+    let ts = transform_of(&c.state.ctm);
     match op {
         0 => {
             if let Some(r) = rect_of(*x, *y, *w, *h) {
-                px.fill_rect(r, &paint_of(c.state.fill.rgba, c.state.alpha), Transform::identity(), None);
+                px.fill_rect(r, &paint_of(c.state.fill.rgba, c.state.alpha), ts, None);
             }
         }
         1 => {
             if let Some(r) = rect_of(*x, *y, *w, *h) {
                 let p = Paint { blend_mode: BlendMode::Clear, anti_alias: true, ..Paint::default() };
-                px.fill_rect(r, &p, Transform::identity(), None);
+                px.fill_rect(r, &p, ts, None);
             }
         }
         _ => {
@@ -274,7 +300,7 @@ fn draw(c: &mut Canvas, op: i32, a: &[f64]) {
             pb.close();
             if let Some(path) = pb.finish() {
                 let stroke = Stroke { width: c.state.line_width, ..Stroke::default() };
-                px.stroke_path(&path, &paint_of(c.state.stroke.rgba, c.state.alpha), &stroke, Transform::identity(), None);
+                px.stroke_path(&path, &paint_of(c.state.stroke.rgba, c.state.alpha), &stroke, ts, None);
             }
         }
     }
@@ -410,7 +436,17 @@ pub(crate) fn register(ctx: &Ctx<'_>, table: Rc<RefCell<DomTable>>) {
         }
     });
     native!(ctx, "__cv_get_num", move |cid: i32, which: i32| -> f64 {
-        map().get(cid as u32).map_or(0.0, |c| f64::from(if which == 0 { c.state.alpha } else { c.state.line_width }))
+        map().get(cid as u32).map_or(0.0, |c| match which {
+            0 => f64::from(c.state.alpha),
+            1 => f64::from(c.state.line_width),
+            n => c.state.ctm.get((n - 2) as usize).copied().unwrap_or(0.0),
+        })
+    });
+    // QCNV5: transform/setTransform/resetTransform (see `set_ctm`); the JS side has already dropped non-finite input.
+    native!(ctx, "__cv_xf", move |cid: i32, op: i32, m: Vec<f64>| {
+        if let Some(c) = map().get_mut(cid as u32) {
+            set_ctm(c, op, &m);
+        }
     });
     native!(ctx, "__cv_save", move |cid: i32| {
         if let Some(c) = map().get_mut(cid as u32) {

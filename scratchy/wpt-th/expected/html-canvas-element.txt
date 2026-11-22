@@ -52,8 +52,7 @@ OK           0/1  html/canvas/element/canvas-host/2d.canvas.host.initial.reset.p
 OK           0/1  html/canvas/element/canvas-host/2d.canvas.host.initial.reset.pattern.html
   FAIL      Resetting the canvas state does not invalidate any existing patterns
 OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.initial.reset.same.html
-OK           0/1  html/canvas/element/canvas-host/2d.canvas.host.initial.reset.transform.html
-  FAIL      Resetting the canvas state resets the current transformation matrix
+OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.initial.reset.transform.html
 OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.readonly.html
 OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.reference.html
 OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.default.html
@@ -376,8 +375,7 @@ OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.clearR
 OK           0/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.clearRect.path.html
   FAIL      clearRect does not affect the current path
 OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.clearRect.shadow.html
-OK           0/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.clearRect.transform.html
-  FAIL      clearRect is affected by transforms
+OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.clearRect.transform.html
 OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.clearRect.zero.html
 OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.fillRect.basic.html
 OK           0/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.fillRect.clip.html
@@ -388,8 +386,7 @@ OK           0/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.fillRe
   FAIL      fillRect does not affect the current path
 OK           0/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.fillRect.shadow.html
   FAIL      fillRect draws shadows
-OK           0/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.fillRect.transform.html
-  FAIL      fillRect is affected by transforms
+OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.fillRect.transform.html
 OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.fillRect.zero.html
 OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.strokeRect.basic.html
 OK           0/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.strokeRect.clip.html
@@ -403,8 +400,7 @@ OK           0/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.stroke
   FAIL      strokeRect does not affect the current path
 OK           0/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.strokeRect.shadow.html
   FAIL      strokeRect draws shadows
-OK           0/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.strokeRect.transform.html
-  FAIL      fillRect is affected by transforms
+OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.strokeRect.transform.html
 OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.strokeRect.zero.1.html
 OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.strokeRect.zero.2.html
 OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.strokeRect.zero.3.html
@@ -3003,8 +2999,7 @@ OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.put.nonfin
 OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.put.null.html
 OK           0/1  html/canvas/element/pixel-manipulation/2d.imageData.put.path.html
   FAIL      putImageData() does not affect the current path
-OK           0/1  html/canvas/element/pixel-manipulation/2d.imageData.put.unaffected.html
-  FAIL      putImageData() is not affected by context state
+OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.put.unaffected.html
 OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.put.unchanged.html
 OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.put.wrongtype.html
 OK           0/1  html/canvas/element/reset/2d.reset.basic.html
@@ -3616,53 +3611,32 @@ OK           2/4  html/canvas/element/the-canvas-state/2d.state.saverestore.text
 OK           2/4  html/canvas/element/the-canvas-state/2d.state.saverestore.textBaseline.html
   FAIL      save()/restore() restores textBaseline, for a canvas of size (300, 150).
   FAIL      save()/restore() restores textBaseline, for a canvas of size (0, 0).
-OK           0/1  html/canvas/element/the-canvas-state/2d.state.saverestore.transformation.html
-  FAIL      save()/restore() affects the current transformation matrix
+OK           1/1  html/canvas/element/the-canvas-state/2d.state.saverestore.transformation.html
 OK           1/1  html/canvas/element/the-canvas-state/2d.state.saverestore.underflow.html
-OK           0/1  html/canvas/element/transformations/2d.transformation.order.html
-  FAIL      Transformations are applied in the right order
-OK           0/1  html/canvas/element/transformations/2d.transformation.rotate.direction.html
-  FAIL      rotate() is clockwise
-OK           0/1  html/canvas/element/transformations/2d.transformation.rotate.nonfinite.html
-  FAIL      rotate() with Infinity/NaN is ignored
-OK           0/1  html/canvas/element/transformations/2d.transformation.rotate.radians.html
-  FAIL      rotate() uses radians
-OK           0/1  html/canvas/element/transformations/2d.transformation.rotate.wrap.html
-  FAIL      rotate() wraps large positive values correctly
-OK           0/1  html/canvas/element/transformations/2d.transformation.rotate.wrapnegative.html
-  FAIL      rotate() wraps large negative values correctly
-OK           0/1  html/canvas/element/transformations/2d.transformation.rotate.zero.html
-  FAIL      rotate() by 0 does nothing
-OK           0/1  html/canvas/element/transformations/2d.transformation.scale.basic.html
-  FAIL      scale() works
-OK           0/1  html/canvas/element/transformations/2d.transformation.scale.large.html
-  FAIL      scale() with large scale factors works
-OK           0/1  html/canvas/element/transformations/2d.transformation.scale.multiple.html
-  FAIL      Multiple scale()s combine
-OK           0/1  html/canvas/element/transformations/2d.transformation.scale.negative.html
-  FAIL      scale() with negative scale factors works
-OK           0/1  html/canvas/element/transformations/2d.transformation.scale.nonfinite.html
-  FAIL      scale() with Infinity/NaN is ignored
-OK           0/1  html/canvas/element/transformations/2d.transformation.scale.zero.html
-  FAIL      scale() with a scale factor of zero works
-OK           0/1  html/canvas/element/transformations/2d.transformation.setTransform.multiple.html
-  FAIL      Canvas test: 2d.transformation.setTransform.multiple
-OK           0/1  html/canvas/element/transformations/2d.transformation.setTransform.nonfinite.html
-  FAIL      setTransform() with Infinity/NaN is ignored
+OK           1/1  html/canvas/element/transformations/2d.transformation.order.html
+OK           1/1  html/canvas/element/transformations/2d.transformation.rotate.direction.html
+OK           1/1  html/canvas/element/transformations/2d.transformation.rotate.nonfinite.html
+OK           1/1  html/canvas/element/transformations/2d.transformation.rotate.radians.html
+OK           1/1  html/canvas/element/transformations/2d.transformation.rotate.wrap.html
+OK           1/1  html/canvas/element/transformations/2d.transformation.rotate.wrapnegative.html
+OK           1/1  html/canvas/element/transformations/2d.transformation.rotate.zero.html
+OK           1/1  html/canvas/element/transformations/2d.transformation.scale.basic.html
+OK           1/1  html/canvas/element/transformations/2d.transformation.scale.large.html
+OK           1/1  html/canvas/element/transformations/2d.transformation.scale.multiple.html
+OK           1/1  html/canvas/element/transformations/2d.transformation.scale.negative.html
+OK           1/1  html/canvas/element/transformations/2d.transformation.scale.nonfinite.html
+OK           1/1  html/canvas/element/transformations/2d.transformation.scale.zero.html
+OK           1/1  html/canvas/element/transformations/2d.transformation.setTransform.multiple.html
+OK           1/1  html/canvas/element/transformations/2d.transformation.setTransform.nonfinite.html
 OK           0/1  html/canvas/element/transformations/2d.transformation.setTransform.skewed.html
   FAIL      Canvas test: 2d.transformation.setTransform.skewed
-OK           0/1  html/canvas/element/transformations/2d.transformation.transform.identity.html
-  FAIL      transform() with the identity matrix does nothing
-OK           0/1  html/canvas/element/transformations/2d.transformation.transform.multiply.html
-  FAIL      transform() multiplies the CTM
-OK           0/1  html/canvas/element/transformations/2d.transformation.transform.nonfinite.html
-  FAIL      transform() with Infinity/NaN is ignored
+OK           1/1  html/canvas/element/transformations/2d.transformation.transform.identity.html
+OK           1/1  html/canvas/element/transformations/2d.transformation.transform.multiply.html
+OK           1/1  html/canvas/element/transformations/2d.transformation.transform.nonfinite.html
 OK           0/1  html/canvas/element/transformations/2d.transformation.transform.skewed.html
   FAIL      transform() with skewy matrix transforms correctly
-OK           0/1  html/canvas/element/transformations/2d.transformation.translate.basic.html
-  FAIL      translate() works
-OK           0/1  html/canvas/element/transformations/2d.transformation.translate.nonfinite.html
-  FAIL      translate() with Infinity/NaN is ignored
+OK           1/1  html/canvas/element/transformations/2d.transformation.translate.basic.html
+OK           1/1  html/canvas/element/transformations/2d.transformation.translate.nonfinite.html
 OK           0/1  html/canvas/element/video/2d.video.invalid.html
   FAIL      Verify test doesn't crash with invalid video.
 OK           0/4  html/canvas/element/wide-gamut-canvas/2d.color.space.getImageData.convert.html
