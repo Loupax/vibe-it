@@ -1151,7 +1151,11 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         if crate::perf::enabled() && !geom8.borrow().is_fresh(geom_gen(), vw as f32, vh as f32) {
             crate::perf::set_caller(Some("(rendering update: CSS animations)".to_string()));
         }
+        // --perf-report: rendering-update work, counted with the IntersectionObserver's (`io`), not as script.
+        let was_io = crate::perf::in_io();
+        crate::perf::set_io(true);
         geom8.borrow_mut().style_pass(&page, geom_gen(), vw as f32, vh as f32);
+        crate::perf::set_io(was_io);
     });
     let geom7 = geom.clone();
     native!(ctx, "__d_rect", move |c: Ctx<'_>, id: i32, vw: f64, vh: f64| -> Vec<f64> {

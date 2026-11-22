@@ -3935,7 +3935,9 @@ events (trusted, bubbling) before the rAF batch, so a rAF requested by an `anima
 in that same update. `headless_frame_due` adds the animation due time (frame boundary after the
 DOM change or after the tracker's next change). A page without `@keyframes`, or one whose DOM does
 not change and has no animation event coming, owes no frame. `getComputedStyle`'s cache keys animated
-entries on the clock as well as the write generation. Not here: CSS transitions (no engine support at
+entries on the clock as well as the write generation. Under `--perf-report` the step's layout counts
+as `io` (rendering-update work, like the IntersectionObserver's), caller `(rendering update: CSS
+animations)`; on GitHub that is one first layout (~480 ms) a script never asked for. Not here: CSS transitions (no engine support at
 all, so `transitionend` and dom/events/webkit-transition-end-event still time out), WAAPI
 (`el.animate`), animated geometry for forced layouts between DOM writes (the geometry cache is keyed on
 the write generation only).
