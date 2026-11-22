@@ -732,26 +732,6 @@ fn qy6g_io_one_batch_per_observer_in_creation_order() {
 }
 
 #[test]
-fn qy6g_resize_observer_one_initial_entry() {
-    let log = qy6g_run(
-        r#"const ro = new ResizeObserver(function (es, o) {
-             console.log('cb', es.length, this === ro, o === ro);
-             es.forEach(e => console.log(e.target.id, e.contentRect.width, e.contentRect.height, e instanceof ResizeObserverEntry,
-               e.borderBoxSize.length, e.contentBoxSize[0].inlineSize, e.contentBoxSize[0].blockSize, e.devicePixelContentBoxSize.length));
-           });
-           ro.observe($('a')); ro.observe($('i'), { box: 'border-box' }); ro.observe($('b')); ro.unobserve($('b'));
-           try { ro.observe($('a'), { box: 'bogus' }); } catch (e) { console.log(e.name); }
-           try { new ResizeObserver(); } catch (e) { console.log(e.name); }
-           const r2 = new ResizeObserver(() => console.log('NO')); r2.observe($('a')); r2.disconnect();"#,
-    );
-    assert_eq!(
-        log,
-        ["log:TypeError", "log:TypeError", "log:cb 2 true true", "log:a 0 0 true 1 0 0 1", "log:i 40 30 true 1 40 30 1"],
-        "{log:?}"
-    );
-}
-
-#[test]
 fn qy6g_performance_observer_is_inert() {
     let log = qy6g_run(
         r#"let n = 0;

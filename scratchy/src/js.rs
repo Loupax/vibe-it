@@ -627,13 +627,14 @@ const PRELUDE: &str = r#"
   // QERR1 ("report the exception", R64 E7): an uncaught exception of a top-level script fires an
   // ErrorEvent at window. Returns true when a handler cancelled it (no log line then).
   var reporting = false;
-  Object.defineProperty(g, '__scratchy_report_error', { value: function (err, filename, line, col) {
+  Object.defineProperty(g, '__scratchy_report_error', { value: function (err, filename, line, col, msg) {
     if (reporting) return false;
     reporting = true;
     try {
       var m;
-      try { m = (err !== null && typeof err === 'object' && err.name !== undefined) ? err.name + ': ' + err.message : String(err); } catch (x) { m = 'exception'; }
-      var ev = new g.ErrorEvent('error', { cancelable: true, message: 'Uncaught ' + m, filename: String(filename), lineno: line, colno: col, error: err });
+      if (msg !== undefined) m = null;
+      else try { m = (err !== null && typeof err === 'object' && err.name !== undefined) ? err.name + ': ' + err.message : String(err); } catch (x) { m = 'exception'; }
+      var ev = new g.ErrorEvent('error', { cancelable: true, message: msg !== undefined ? msg : 'Uncaught ' + m, filename: String(filename), lineno: line, colno: col, error: err });
       dispatch(g, ev);
       return ev.defaultPrevented;
     } catch (x) { return false; } finally { reporting = false; }
@@ -1814,9 +1815,10 @@ impl JsEngine {
         n
     }
 
-    /// QEL1: the IntersectionObserver hook of the rendering steps (step 7; today's timer-boundary check,
-    /// run once per frame after the rAF batch; QEL3 replaces it with the real evaluation).
+    /// QEL1/QEL2: the observer hook of the rendering steps (step 7): the ResizeObserver gather/broadcast
+    /// loop, then the IntersectionObserver timer-boundary check (QEL3 replaces it with the real evaluation).
     pub(crate) fn observer_hook(&self) {
+        self.eval("ro-run", "globalThis.__scratchy_roRun && globalThis.__scratchy_roRun()");
         self.eval("io-tick", "globalThis.__scratchy_ioTick && globalThis.__scratchy_ioTick()");
     }
 }
@@ -2285,9 +2287,12 @@ const TIMERS_PRELUDE: &str = r#"
   def('cancelAnimationFrame', function (id) { rafCancel(Number(id), g); });
   // QEL1: the time of the frame the pending callbacks wait for, -1 when there are none.
   Object.defineProperty(g, '__scratchy_raf_due', { value: function () {
-    if (!rafs.length) return -1;
-    var due = (Math.floor(rafSince / FRAME) + 1) * FRAME;
-    while (due <= rafSince) due += FRAME;
+    // QEL2: a ResizeObserver that may have a new size also wants a rendering update.
+    var ro = g.__scratchy_ro_want ? g.__scratchy_ro_want() : -1;
+    if (!rafs.length && ro < 0) return -1;
+    var since = !rafs.length ? ro : ro >= 0 ? Math.min(ro, rafSince) : rafSince;
+    var due = (Math.floor(since / FRAME) + 1) * FRAME;
+    while (due <= since) due += FRAME;
     return due;
   } });
   // QEL1: "run the animation frame callbacks": takes the list as it is now (callbacks requested

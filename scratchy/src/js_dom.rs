@@ -5230,8 +5230,8 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   // are computed at delivery time (one flush per timer turn, one cached
   // layout shared by every observer) and queued only when the crossing state
   // changes; re-checks follow scrolling, DOM writes and viewport resizes.
-  // RO still reports the size from the `width`/`height` attributes, else 0x0
-  // (a lie of omission). No hooks or state exist until the first `observe()`.
+  // RO (QEL2) reports the real boxes from that layout, in the rendering step. No hooks or state
+  // exist until the first `observe()`.
   var ROD = Symbol('DOMRectReadOnly');
   var rectProps = ['x', 'y', 'width', 'height'];
   var DRO = g.DOMRectReadOnly = function DOMRectReadOnly(x, y, w, h) {
@@ -5723,6 +5723,8 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   var obsFlush = function () {
     obsQueued = false;
     var list = obsPending; obsPending = [];
+    // QEL2 (until QEL3 moves IO into the rendering step): RO notifications come before IO ones.
+    if (g.__scratchy_roRun) g.__scratchy_roRun();
     list.sort(function (a, b) { return a.id - b.id; });
     if (g.__perf_b) g.__perf_b();
     for (var i = 0; i < list.length; i++) {
@@ -5919,7 +5921,9 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   IO.prototype.takeRecords = function () { var st = ioSt(this, 'takeRecords'); if (st.need) ioEval(st); var q = st.q; st.q = []; return q; };
   defGetters(IO.prototype, IO_S, ['root', 'rootMargin', 'thresholds']);
   Object.defineProperty(IO.prototype, Symbol.toStringTag, { value: 'IntersectionObserver', configurable: true });
-  // -- ResizeObserver
+  // -- ResizeObserver (QEL2): real sizes from the layout, evaluated once per rendering update
+  // (`__scratchy_roRun`, step 7 of event_loop.rs; the headless frame / App update runs when
+  // `__scratchy_ro_want` says an observation may have changed), never from a timer.
   var RO_S = Symbol('ResizeObserver'), RE_S = Symbol('ResizeObserverEntry'), RZ_S = Symbol('ResizeObserverSize');
   var RZ = g.ResizeObserverSize = function ResizeObserverSize() { throw new TypeError('Illegal constructor'); };
   defGetters(RZ.prototype, RZ_S, ['inlineSize', 'blockSize']);
@@ -5928,12 +5932,13 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   var RE = g.ResizeObserverEntry = function ResizeObserverEntry() { throw new TypeError('Illegal constructor'); };
   defGetters(RE.prototype, RE_S, ['target', 'contentRect', 'borderBoxSize', 'contentBoxSize', 'devicePixelContentBoxSize']);
   Object.defineProperty(RE.prototype, Symbol.toStringTag, { value: 'ResizeObserverEntry', configurable: true });
+  var roActive = new Set(), roDirty = false, roSig = '', roSince = -1;
   var RO = g.ResizeObserver = function ResizeObserver(callback) {
     var P = "Failed to construct 'ResizeObserver': ";
     if (!new.target) throw new TypeError(P + "Please use the 'new' operator, this DOM object constructor cannot be called as a function.");
     if (arguments.length < 1) throw new TypeError(P + '1 argument required, but only 0 present.');
     if (typeof callback !== 'function') throw new TypeError(P + 'The callback provided as parameter 1 is not a function.');
-    this[RO_S] = { cb: callback, obs: this, id: ++obsSeq, q: [], targets: [], pending: false, name: 'ResizeObserver' };
+    this[RO_S] = { cb: callback, obs: this, id: ++obsSeq, obsv: [], active: [], skipped: [], name: 'ResizeObserver' };
   };
   var roSt = function (o, fn) {
     var st = o && o[RO_S];
@@ -5941,8 +5946,53 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     return st;
   };
   var roForget = function (st, target) {
-    var k = st.targets.indexOf(target);
-    if (k >= 0) { st.targets.splice(k, 1); st.q = st.q.filter(function (e) { return e[RE_S].target !== target; }); }
+    st.obsv = st.obsv.filter(function (o) { return o.target !== target; });
+    if (!st.obsv.length) roActive.delete(st);
+  };
+  // The target's boxes from the layout: border box, content box and its origin inside the border box.
+  // display:none, detached and non-replaced inline elements have no box: all zero.
+  var ZERO = { bw: 0, bh: 0, cw: 0, ch: 0, cx: 0, cy: 0, vert: false };
+  var roReplaced = /^(img|video|canvas|iframe|object|embed|input|select|textarea|button|svg|meter|progress)$/;
+  var roBoxes = function (el) {
+    var r = gRect(el);
+    if (!r) return ZERO;
+    var id = el.__id, disp = __d_cs(id, '', 'display');
+    if (disp === 'none' || disp === 'contents') return ZERO;
+    if (disp === 'inline' && !roReplaced.test(el.localName)) return ZERO;
+    var bw = r[2], bh = r[3];
+    var svg = el.namespaceURI === 'http://www.w3.org/2000/svg';
+    var pl = svg ? 0 : gPx(el, 'padding-left'), pt = svg ? 0 : gPx(el, 'padding-top');
+    var pr = svg ? 0 : gPx(el, 'padding-right'), pb = svg ? 0 : gPx(el, 'padding-bottom');
+    var bl = svg ? 0 : gPx(el, 'border-left-width'), bt = svg ? 0 : gPx(el, 'border-top-width');
+    var br = svg ? 0 : gPx(el, 'border-right-width'), bb = svg ? 0 : gPx(el, 'border-bottom-width');
+    var wm = __d_cs(id, '', 'writing-mode');
+    return { bw: bw, bh: bh, cw: Math.max(0, bw - pl - pr - bl - br), ch: Math.max(0, bh - pt - pb - bt - bb),
+             cx: pl, cy: pt, vert: wm.indexOf('vertical') === 0 || wm.indexOf('sideways') === 0 };
+  };
+  var roSizes = function (b) {
+    var dpr = Number(g.devicePixelRatio) || 1, vert = b.vert;
+    var dw = Math.round(b.cw * dpr), dh = Math.round(b.ch * dpr);
+    return { content: vert ? [b.ch, b.cw] : [b.cw, b.ch], border: vert ? [b.bh, b.bw] : [b.bw, b.bh],
+             device: vert ? [dh, dw] : [dw, dh] };
+  };
+  var roPick = function (o) { var s = o.curS; return o.box === 'border-box' ? s.border : o.box === 'device-pixel-content-box' ? s.device : s.content; };
+  var roCurrent = function (o) { o.cur = roBoxes(o.target); o.curS = roSizes(o.cur); return roPick(o); };
+  // Depth in the flat tree: a shadow root continues at its host.
+  var roDepth = function (el) {
+    var d = 0, n = el;
+    for (;;) {
+      var p = n.parentNode;
+      if (!p && n.nodeType === 11) p = wrap(__d_shadow_host(n.__id));
+      if (!p) return d;
+      d++; n = p;
+    }
+  };
+  var roMakeEntry = function (o) {
+    var b = o.cur, s = o.curS, e = Object.create(RE.prototype);
+    e[RE_S] = { target: o.target, contentRect: roRect(b.cx, b.cy, b.cw, b.ch),
+      borderBoxSize: [rzSize(s.border[0], s.border[1])], contentBoxSize: [rzSize(s.content[0], s.content[1])],
+      devicePixelContentBoxSize: [rzSize(s.device[0], s.device[1])] };
+    return e;
   };
   RO.prototype.observe = function (target, options) {
     var st = roSt(this, 'observe'), P = "Failed to execute 'observe' on 'ResizeObserver': ";
@@ -5952,13 +6002,12 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     var box = options && options.box !== undefined ? String(options.box) : 'content-box';
     if (box !== 'content-box' && box !== 'border-box' && box !== 'device-pixel-content-box')
       throw new TypeError(P + "Failed to read the 'box' property from 'ResizeObserverOptions': The provided value '" + box + "' is not a valid enum value of type ResizeObserverBoxOptions.");
+    var old = st.obsv.filter(function (o) { return o.target === target; })[0];
+    if (old && old.box === box) return;
     roForget(st, target);
-    st.targets.push(target);
-    var w = attrPx(target, 'width'), h = attrPx(target, 'height');
-    var e = Object.create(RE.prototype);
-    e[RE_S] = { target: target, contentRect: roRect(0, 0, w, h), borderBoxSize: [rzSize(w, h)], contentBoxSize: [rzSize(w, h)], devicePixelContentBoxSize: [rzSize(w, h)] };
-    st.q.push(e);
-    obsSchedule(st);
+    st.obsv.push({ target: target, box: box, last: [-1, -1], cur: ZERO, curS: null });
+    roActive.add(st);
+    roDirty = true;
   };
   RO.prototype.unobserve = function (target) {
     var st = roSt(this, 'unobserve');
@@ -5966,8 +6015,58 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (!target || target.__id === undefined || target.nodeType !== 1) throw new TypeError("Failed to execute 'unobserve' on 'ResizeObserver': parameter 1 is not of type 'Element'.");
     roForget(st, target);
   };
-  RO.prototype.disconnect = function () { var st = roSt(this, 'disconnect'); st.targets = []; st.q = []; };
+  RO.prototype.disconnect = function () { var st = roSt(this, 'disconnect'); st.obsv = []; st.active = []; st.skipped = []; roActive.delete(st); };
   Object.defineProperty(RO.prototype, Symbol.toStringTag, { value: 'ResizeObserver', configurable: true });
+  var roHardSig = function () { return g.innerWidth + 'x' + g.innerHeight + ':' + g.devicePixelRatio + ':' + __d_ggen(); };
+  // Does an observation possibly differ from what was reported? The page-clock time since when it
+  // does, -1 when not: a new observation, or a geometry / viewport change since the last evaluation.
+  g.__scratchy_ro_want = function () {
+    if (!roActive.size) return -1;
+    if (roDirty || roSig !== roHardSig()) { if (roSince < 0) roSince = __scratchy_now(); return roSince; }
+    return -1;
+  };
+  var roGather = function (depth) {
+    var any = false;
+    roActive.forEach(function (st) {
+      st.active = []; st.skipped = [];
+      st.obsv.forEach(function (o) {
+        var cur = roCurrent(o);
+        if (cur[0] === o.last[0] && cur[1] === o.last[1]) return;
+        if (roDepth(o.target) > depth) { st.active.push(o); any = true; } else st.skipped.push(o);
+      });
+    });
+    return any;
+  };
+  var roBroadcast = function () {
+    var shallow = Infinity, list = Array.from(roActive).sort(function (a, b) { return a.id - b.id; });
+    list.forEach(function (st) {
+      if (!st.active.length) return;
+      var act = st.active; st.active = [];
+      var entries = act.map(function (o) {
+        o.last = roPick(o);
+        var d = roDepth(o.target); if (d < shallow) shallow = d;
+        return roMakeEntry(o);
+      });
+      try { st.cb.call(st.obs, entries, st.obs); } catch (e) { obsErr(st.name, e); }
+    });
+    return shallow;
+  };
+  // HTML "update the rendering" step: gather, broadcast and repeat at greater depths; targets left
+  // over at a shallower depth raise the loop error.
+  g.__scratchy_roRun = function () {
+    if (!roActive.size || g.__scratchy_ro_want() < 0) return;
+    roDirty = false; roSince = -1;
+    var depth = 0, skipped = false, guard = 0;
+    while (roGather(depth) && guard++ < 1000) depth = roBroadcast();
+    roActive.forEach(function (st) { if (st.skipped.length) skipped = true; st.skipped = []; st.active = []; });
+    roSig = roHardSig();
+    if (skipped) {
+      var msg = 'ResizeObserver loop completed with undelivered notifications.';
+      var handled = false;
+      try { handled = g.__scratchy_report_error(null, '', 0, 0, msg); } catch (x) {}
+      if (!handled) __scratchy_err('scratchy: js: ' + msg);
+    }
+  };
   // -- PerformanceObserver: inert (no performance entries are ever produced).
   var PO_S = Symbol('PerformanceObserver');
   var PO = g.PerformanceObserver = function PerformanceObserver(callback) {
