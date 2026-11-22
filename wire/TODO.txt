@@ -202,6 +202,8 @@ the commit it came up during.
 - [ ] **W-CACHE3 [S] wire cache v1 gaps** (from W-CACHE1 #605): store redirect/3xx answers (after W-POOL2),
       keep several `Vary` variants per URL, serve stale on upstream errors (`stale-if-error`), update an entry
       from a HEAD or from a 304 answering the client's own conditional, honour `If-Range`.
+      Also (from W-CACHE2 #607): `Clear-Site-Data` on a redirect hop of the non-jar path (ureq follows those
+      internally).
 
 - [ ] [WIP] **W-CACHE2 [S] Clearing the cache** (needs W-CACHE1).
       - The existing control op `X-Wire-Cookie-Op: clear-site` (token required,

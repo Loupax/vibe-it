@@ -140,7 +140,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       select.selectedOptions and map.images as live HTMLCollections. --wpt-th per-area table.
 - [ ] QDOM8b [S] (P3, from QDOM8 #539; Sonnet; js_dom.rs serialize) XML serialization: CDATASection as `<![CDATA[..]]>`,
       ProcessingInstruction as `<?target data?>` in XMLSerializer / outerHTML of XML documents.
-- [ ] QBLOBFRAME [S] (P2, from QDOM9 #542; Sonnet; js_dom.rs iframe realms, blob URL store) Load `blob:` URLs in iframes
+- [ ] [WIP] QBLOBFRAME [S] (P2, from QDOM9 #542; Sonnet; js_dom.rs iframe realms, blob URL store) Load `blob:` URLs in iframes
       (`iframe.src = URL.createObjectURL(new Blob([html], {type:'text/html'}))`): same-origin document from the blob's
       bytes. html/semantics/scripting-1/.../module-script-disabled-scripting.html now TIMEOUTs (30 s) waiting for it.
 - [ ] QDOM11 [M] (P2; Sonnet; wpt_th.rs, js.rs `run_page`, js_dom.rs `__d_load_xml`/`xml_to_dom`; R65) XML documents.
