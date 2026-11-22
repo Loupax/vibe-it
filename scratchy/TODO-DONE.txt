@@ -9196,3 +9196,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       `'ontouchstart' in window` as "touch device"). Add `HTMLFrameSetElement`. WPT: dom/events/webkit-*-event (4),
       Body-FrameSet-Event-Handlers. Target: events +2 (and the 40 non-cancelable-when-passive files, which assign
       `document.body.onload`, then run once QWPT7 exists).
+
+=== from TODO.txt: --- (no header)
+- [x] QWPT11 DONE d363e08 #558 [S] (P2, from QWPT10 #543; Sonnet; ci.yml) Main's push CI does not run the --wpt-th gate (only PR CI does), so a
+      gate regression that lands through a merge is never seen on main. Run the gate on main pushes too (report-only or
+      blocking: blocking for the scratchy job), within the CI time budget (Q4: split only past 5 min).
