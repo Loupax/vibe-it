@@ -51,11 +51,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       increase after QEL1 (observer deliveries 41-59 -> 109-112 per 30 s, forced layouts 31-34 -> 41-49): add a per-observer
       type breakdown (MO/IO/RO) and a rAF callback count to --perf-report, measure main vs QEL1, say whether the page simply
       gets further (correct) or the driver does redundant work (fix item).
-- [ ] [WIP] QWPTFLK3 [S] (P2, from QWPT10 #543; Sonnet) custom-elements/parser/parser-sets-attributes-after-built-in-constructor.html:
-      subtest "Live getElementsByClassName reflects a empty class attribute appended by the parser after the constructor
-      inserted the element" regressed 5/5 on release-build CI for #543 (passes on a local debug build; other PRs green
-      at the time); #543 put it in flaky.txt. Reproduce with a release build and --jobs 4; if it is a real release-only
-      or ordering bug (QDOM2 live collections?), fix it; then remove it from flaky.txt.
 - [ ] QWPT11 [S] (P2, from QWPT10 #543; Sonnet; ci.yml) Main's push CI does not run the --wpt-th gate (only PR CI does), so a
       gate regression that lands through a merge is never seen on main. Run the gate on main pushes too (report-only or
       blocking: blocking for the scratchy job), within the CI time budget (Q4: split only past 5 min).

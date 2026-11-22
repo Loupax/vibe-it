@@ -9071,3 +9071,10 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       side: a variant of `insert_child` that skips the `log_inserted`/load hooks for the moved subtree. WPT:
       dom/nodes/moveBefore/* (62 entries; 28 are blocked only by the missing method and id globals). Target: nodes +5
       (bound +9.5; the rest needs CSS transitions, focus events, ElementInternals).
+
+=== from TODO.txt: --- (no header)
+- [x] QWPTFLK3 DONE d81791e #550 [S] (P2, from QWPT10 #543; Sonnet) custom-elements/parser/parser-sets-attributes-after-built-in-constructor.html:
+      subtest "Live getElementsByClassName reflects a empty class attribute appended by the parser after the constructor
+      inserted the element" regressed 5/5 on release-build CI for #543 (passes on a local debug build; other PRs green
+      at the time); #543 put it in flaky.txt. Reproduce with a release build and --jobs 4; if it is a real release-only
+      or ordering bug (QDOM2 live collections?), fix it; then remove it from flaky.txt.

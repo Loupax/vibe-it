@@ -194,3 +194,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Merged #533 QDOM3 f754480 (moveBefore; nodes -> 57).
 - 2026-11-22 #541 QSCR404 conflicts in js_geometry_tests.rs -> rebase queued (move remaining test to qscr404_tests.rs). #550 merging.
 - 2026-11-22 #551 QSMOOTH1 READY (vertical easing; x not eased per design; asked user). Queued after #550. Sent #541 rebase.
+- 2026-11-22 Merged #550 QWPTFLK3 d81791e (custom element re-upgrade recursion fixed).
