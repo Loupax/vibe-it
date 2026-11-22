@@ -34,7 +34,7 @@ CONFORMANCE (R64 plan, merged #474; user accepted all R64 s7 recommendations 202
 Order: QWPT2 -> QWPT3 -> QWPT4a -> QWPT4b -> QWPT5/QWPT6, with QMAPI1 and QREC1 in parallel (other
 crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details: REGRESSIONS.md R64.
 
-- [ ] QWPT7 [M] (P2; Opus; testdriver-vendor.js + natives; after QEL1) testdriver: test_driver.click,
+- [ ] [WIP] QWPT7 [M] (P2; Opus; testdriver-vendor.js + natives; after QEL1) testdriver: test_driver.click,
       send_keys, action_sequence (pointer + key) as synthetic input through the App's input path in
       the headless rendering loop (hit testing on the real layout). Unlocks dom/events (77 files),
       uievents (57), pointerevents.
@@ -95,6 +95,14 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       after its filter; bound the interned filter-list table; a filtered-layer cache if a real page proves slow.
 - [ ] [WIP] QCSS-E [S] (P2, from QAPI8 #578; Sonnet; css.rs, layout/paint) Per-corner radii, `outline-offset`, `transform-origin`,
       `border-spacing`, `letter-spacing`, `direction`.
+- [ ] QCSS-E2 [S] (P3, from QCSS-E #608; Sonnet) rtl completeness: bidi paragraph level from `direction` (cosmic-text or an
+      offset-safe approach); mirror block/flex-row/table column order and inline-start/end margins.
+- [ ] QCSS-E3 [S] (P3, from QCSS-E #608; Sonnet) `scale()`/`rotate()` transforms so `transform-origin` takes effect; animate
+      transform-origin and border-spacing.
+- [ ] QCSS-E4 [S] (P3, from QCSS-E #608; Sonnet) UA `table { border-spacing: 2px }` and the `cellspacing` attribute (shifts
+      every table: review reftests/WPT).
+- [ ] QCSS-E5 [S] (P3, from QCSS-E #608; Sonnet) getComputedStyle of a percent width/height prints the raw fraction ("0.1%");
+      it should be the used px (flips getComputedStyle-ruby-width-height: check it).
 - [ ] QCSS-F [S] (P3, from QAPI8 #578; Sonnet) `pointer-events` in hit testing (6 sites, 1 543 hits); parse `user-select`,
       `touch-action`.
 - [ ] QCSS-G [S] (P3, from QAPI8 #578; Sonnet) `color-scheme`, `scrollbar-width`, `overscroll-behavior`, `scroll-margin-*`.

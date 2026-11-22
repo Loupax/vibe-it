@@ -340,3 +340,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Reinstalled ~/.cargo/bin/scratchy 16:07 from main fdaf271 (filters #601, hover damage #604, iframe re-land #600).
 - 2026-11-22 Merged #605 W-CACHE1 8d19a83 (archived to wire/TODO-DONE.txt).
 - 2026-11-22 #607 W-CACHE2 READY (clear-site + Clear-Site-Data), merging. W-CACHE3 note. Launched QBLOBFRAME.
+- 2026-11-22 #608 QCSS-E READY (radii, outline-offset, letter-spacing, direction; reftests 348), queued after #607. Filed QCSS-E2..E5. Launched QWPT7 (Opus).
