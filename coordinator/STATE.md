@@ -347,3 +347,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Merged #606 QWPT12 608aa34 (canvas baseline). QCNV1 now unblocked.
 - 2026-11-22 #609 QBLOBFRAME READY (blob: iframes; its 10x stability run took 0.2 s each = likely did not run; relying on CI gate + merge re-CI), merging. Launched QCNV1.
 - 2026-11-22 Merged #609 QBLOBFRAME 73911bc. Watch main CI (stability check was not real).
+- 2026-11-22 #610 QCISPLIT2 READY (5 WPT shards, 8 checks), queued after reinstall; then merge_pr.sh to 8 checks (when nothing merges). Launched QDOM11.

@@ -146,7 +146,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       select.selectedOptions and map.images as live HTMLCollections. --wpt-th per-area table.
 - [ ] QDOM8b [S] (P3, from QDOM8 #539; Sonnet; js_dom.rs serialize) XML serialization: CDATASection as `<![CDATA[..]]>`,
       ProcessingInstruction as `<?target data?>` in XMLSerializer / outerHTML of XML documents.
-- [ ] QDOM11 [M] (P2; Sonnet; wpt_th.rs, js.rs `run_page`, js_dom.rs `__d_load_xml`/`xml_to_dom`; R65) XML documents.
+- [ ] [WIP] QDOM11 [M] (P2; Sonnet; wpt_th.rs, js.rs `run_page`, js_dom.rs `__d_load_xml`/`xml_to_dom`; R65) XML documents.
       A response whose MIME type is XML (`application/xhtml+xml`, `image/svg+xml`, `text/xml`, `application/xml`,
       `+xml`) is parsed with the existing roxmltree path, not html5ever, for the top-level document and for iframes. The
       document is not an HTML document (QDOM17 flag); `<script>` elements in the XHTML/SVG namespaces run in tree order
