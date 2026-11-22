@@ -9211,3 +9211,25 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QEL4 DONE 8f2f7d5 #561 [S] (P2; Sonnet; js.rs TIMERS_PRELUDE, js_dom.rs obsErr) "Report the exception" for timer,
       rAF and observer callbacks (ErrorEvent at window, onerror, then the log line). Gate: WPT
       animation-frames/callback-exception and timers/errors pass.
+
+=== from TODO.txt: --- (no header)
+- [x] QEL6 DONE 5de7741 #546 [S] (P2; Sonnet; js.rs dispatch, __scratchy_dn) Microtask checkpoint between listeners of
+      UA-dispatched (trusted) events. Test: two click listeners, a promise in the first resolves
+      before the second runs; synthetic el.click() keeps today's order.
+
+=== from TODO.txt: --- (no header)
+- [x] QDOM15 DONE b35f6ed #559 [S] (P2; Sonnet; js.rs Event ctors, js_dom.rs `doc.createEvent`; R65; after QDOM4) Event interfaces:
+      UIEvent/MouseEvent/KeyboardEvent/FocusEvent/WheelEvent/InputEvent/CompositionEvent constructors read their init
+      dictionaries (`view` must be a Window or null: TypeError otherwise, `detail`, modifier keys...), `Event.NONE/
+      CAPTURING_PHASE/AT_TARGET/BUBBLING_PHASE` on the constructor and prototype, `createEvent` accepts the spec's
+      interface list (BeforeUnloadEvent, CompositionEvent, DeviceMotionEvent, DeviceOrientationEvent, DragEvent, ...) and
+      throws NotSupportedError otherwise, `dispatchEvent` of an uninitialized or already-dispatching event throws
+      InvalidStateError. WPT: dom/events/Event-subclasses-constructors, EventTarget-dispatchEvent, Event-constructors.any,
+      Event-constants, EventTarget-constructible.any. Target: events +1.5.
+
+=== from TODO.txt: --- (no header)
+- [x] QANIMHL DONE 2b7be51 #562 [S] (P2, from QDOM13 #557; Opus; investigate + fix) CSS animation/transition events never fire in the
+      headless test child (`--wpt-th-one`): a @keyframes rule (insertRule or <style> text) plus `animation: 1ms` fires no
+      animationstart/end; the 4 dom/events/webkit-*-event files now TIMEOUT waiting for them. Find whether it is the
+      runner's rendering step (QEL1 headless frames), the engine's style/animation timeline, or event delivery; fix; list
+      every --wpt-th file that changes.

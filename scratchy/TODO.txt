@@ -70,14 +70,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       (`ro-run` forced layouts on YouTube results); microtask checkpoint after each RO callback; notice size changes
       without a DOM write (image decode, CSS animation, :hover). Re-measure ytr/ytw --perf-report and live CPU on a
       quiet machine (QEL2 measured ytw live +13-15 %, inside noise).
-- [ ] [WIP] QANIMHL [S] (P2, from QDOM13 #557; Opus; investigate + fix) CSS animation/transition events never fire in the
-      headless test child (`--wpt-th-one`): a @keyframes rule (insertRule or <style> text) plus `animation: 1ms` fires no
-      animationstart/end; the 4 dom/events/webkit-*-event files now TIMEOUT waiting for them. Find whether it is the
-      runner's rendering step (QEL1 headless frames), the engine's style/animation timeline, or event delivery; fix; list
-      every --wpt-th file that changes.
-- [ ] [WIP] QEL6 [S] (P2; Sonnet; js.rs dispatch, __scratchy_dn) Microtask checkpoint between listeners of
-      UA-dispatched (trusted) events. Test: two click listeners, a promise in the first resolves
-      before the second runs; synthetic el.click() keeps today's order.
 - [ ] [WIP] QANIMHLb [M] (P2, from QANIMHL #562; Opus; css.rs, anim_eval, layout/paint, event_loop.rs, js) CSS transitions: the
       engine has none (no `transition`/`transition-*` parsing, no interpolation on style change, no transitionrun/start/
       end/cancel). Implement per CSS Transitions 1 for the properties the animation engine can already interpolate
@@ -182,14 +174,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       `.xhtml/.xml` files and 13 CRASH `.svg` files in dom/nodes (Element-childElementCount-*, Element-firstElementChild-*,
       ...), Document-createElement(NS) (XML iframes: 488 subtests), Document-createProcessingInstruction-xhtml,
       Node-lookupPrefix.xhtml. Target: nodes +5 (13 SVG files also start counting).
-- [ ] [WIP] QDOM15 [S] (P2; Sonnet; js.rs Event ctors, js_dom.rs `doc.createEvent`; R65; after QDOM4) Event interfaces:
-      UIEvent/MouseEvent/KeyboardEvent/FocusEvent/WheelEvent/InputEvent/CompositionEvent constructors read their init
-      dictionaries (`view` must be a Window or null: TypeError otherwise, `detail`, modifier keys...), `Event.NONE/
-      CAPTURING_PHASE/AT_TARGET/BUBBLING_PHASE` on the constructor and prototype, `createEvent` accepts the spec's
-      interface list (BeforeUnloadEvent, CompositionEvent, DeviceMotionEvent, DeviceOrientationEvent, DragEvent, ...) and
-      throws NotSupportedError otherwise, `dispatchEvent` of an uninitialized or already-dispatching event throws
-      InvalidStateError. WPT: dom/events/Event-subclasses-constructors, EventTarget-dispatchEvent, Event-constructors.any,
-      Event-constants, EventTarget-constructible.any. Target: events +1.5.
 - [ ] QDOM15b [S] (P3, from QDOM15 #559; Sonnet) Event `timeStamp` > 0 on the manual/virtual clock (time origin offset;
       Event-constructors.any 2 subtests); event attributes as prototype getters instead of own data properties
       (idlharness checks); getModifierState and legacy init* methods for the newer event interfaces.
