@@ -203,6 +203,60 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QCISPLIT2 [S] (P3, from QWPT6c #579; Sonnet; .github/workflows/ci.yml, tools) Shard the `scratchy-wpt` job (5:38 after
       #579, WPT step 3:52; the main `scratchy` job is 5:18, so wall time is barely affected) into two parallel jobs by area,
       when it passes ~6 min or before QWPT6d lands. Find why the step grew +1:44 on CI vs ~20 s locally (per-file CI timings).
+- [ ] QWPT12 [S] (P2; Sonnet; tools/wpt-dirs.txt, tools/wpt-subset.py AREAS, wpt-th/; user 2026-11-21: all of
+      html/canvas, not a hand-picked slice) Put the `<canvas>` tests in the testharness gate (`--wpt-th`), so Canvas 2D
+      work is measured from its first item. Add `html/canvas` to tools/wpt-dirs.txt (changes the CI cache key, so CI
+      re-checks-out by itself). Add two AREAS in tools/wpt-subset.py: `html/canvas/element` -> ["html/canvas/element"]
+      and `html/canvas/offscreen` -> ["html/canvas/offscreen"], plus `html/canvas/other` -> ["html/canvas"] for the rest.
+      The script's usual phase-1 exclusions stay as they are (worker variants, timeout=long, testdriver, .https./.sub.,
+      .py handlers); `.tentative.` files are included (recording them costs nothing; only pass->fail blocks). Regenerate
+      wpt-th/subset.txt, record the expected files with `--update` and update wpt-th/areas.txt. Expect ~0% today:
+      `HTMLCanvasElement.getContext` returns null (QY3, js_dom.rs). Report in the PR: file counts per area, the skip
+      counts per reason printed by wpt-subset.py, and the added CI time of the `--wpt-th` step (if it adds more than ~5
+      min, stop and report before merging). The reftest gate (`--wpt`) is unchanged: canvas reftests draw with script and
+      `--wpt` skips every test with `<script>`. No Rust changes. WebGL is NOT covered by this: its suite is the
+      separate Khronos WebGL conformance suite (no item yet).
+- [ ] QCNV1 [M] (P2; Sonnet; js_dom.rs HTMLCanvasElement (QY3), new src/canvas.rs, paint.rs replaced-element paint;
+      after QWPT12; user 2026-11-21: no design step, the html/canvas WPT results are the guide) Canvas 2D foundation.
+      `getContext('2d')` returns one CanvasRenderingContext2D per canvas (same object on every call; null for any
+      other type, 'webgl'/'webgl2' included). Backing store: a tiny-skia Pixmap of width x height (tiny-skia becomes a
+      direct dependency at the version resvg already pulls in, see Cargo.lock; no network). Setting width/height resets
+      the bitmap and the state. First API slice, chosen because the canvas tests read pixels back to check results:
+      fillStyle/strokeStyle as CSS colours, fillRect, clearRect, strokeRect, getImageData, putImageData,
+      createImageData, ImageData, save/restore, globalAlpha. Paint: the canvas box shows the bitmap (premultiplied
+      RGBA -> 0RGB at paint time) and a draw marks that box damaged, so it repaints without a relayout. Report the
+      html/canvas area scores before/after. Not in scope: paths, text, images, transforms (QCNV2 files them), WebGL,
+      `captureStream` (archived media).
+- [ ] QCNV2 [S] (P2; Opus, docs only; after QCNV1) Triage the html/canvas WPT failures after QCNV1 and file the
+      Canvas 2D items in dependency order (one item per feature group, e.g. paths, transforms, line styles,
+      gradients/patterns, drawImage, text, compositing, shadows, toDataURL/toBlob), each with the subtest counts it
+      should fix. Note what needs other missing platform features (Workers for offscreen, ImageBitmap, wide gamut)
+      instead of filing it as canvas work.
+- [ ] QGL1 [M] (P3; Opus, investigation, docs only, no code; can run any time, it does not wait for QCNV1) WebGL:
+      find out what it takes and file the action items (each with size, model, files, dependencies and a test plan)
+      in TODO.txt, in dependency order. Today `getContext('webgl'|'webgl2')` returns null (QY3, js_dom.rs). Starting
+      point from the 2026-11-21 discussion, to confirm or overturn with evidence:
+      (a) Context: an offscreen GLES2/3 context per canvas (EGL surfaceless or GBM; `khronos-egl` with dlopen, or
+          Servo's `surfman`), GL calls through `glow`, drawing into an FBO, `glReadPixels` back into a CPU buffer that
+          paint.rs shows like a video frame. The page compositor stays on the CPU. Measure the readback cost per frame
+          (llvmpipe and a real GPU, if the machine has one) at typical sizes.
+      (b) Threading: WebGL calls are synchronous (getError, readPixels, checkFramebufferStatus), so say whether the
+          context lives on the JS thread or behind a command queue, with the cost of each.
+      (c) Shader validation: untrusted GLSL ES to the driver vs `mozangle` (ANGLE translator, builds C++) vs naga
+          (fits poorly: desktop GLSL 4.5). Recommend one and state the security trade-off plainly.
+      (d) V8 bindings: about 150 WebGL1 methods plus constants and extensions; typed-array/ArrayBuffer access without
+          copies (js_engine_v8.rs). WebGL1 first; say what WebGL2 adds.
+      (e) Texture sources: img, canvas, ImageData, video (archived: say so, do not plan it), premultiply/flipY,
+          cross-origin tainting.
+      (f) Testing: the Khronos WebGL conformance suite (separate from WPT, own HTML runner) — how to run a subset
+          headless in CI (Mesa llvmpipe on the runner), how results are recorded and gated like wpt-th, and what of
+          WPT's thin `webgl/` dir is worth adding to wpt-th.
+      (g) Dependencies: list every new crate and system library. None may open a network socket (AGENTS.md); each
+          new dependency is still for the user to OK, so put them as questions in QUESTIONS.md, not as decisions.
+      (h) Which real sites need it (maps: MapLibre/Mapbox GL/Google Maps vector; three.js pages), what they do
+          without it today, and what else they need that scratchy lacks (Workers/OffscreenCanvas, WebAssembly).
+      Output: a REGRESSIONS.md-style report section (or a NOTES.md section) with the findings and measurements, the
+      action items in TODO.txt, and the questions for the user in QUESTIONS.md.
 
 ========================================================================
 RELIABILITY (flaky tests undermine CI, which the conformance plan relies on; crashes)
