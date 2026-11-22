@@ -217,7 +217,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       `--wpt` skips every test with `<script>`. No Rust changes. WebGL is NOT covered by this: its suite is the
       separate Khronos WebGL conformance suite (no item yet).
 - [ ] QCNV1 [M] (P2; Sonnet; js_dom.rs HTMLCanvasElement (QY3), new src/canvas.rs, paint.rs replaced-element paint;
-      after QWPT10; user 2026-11-21: no design step, the html/canvas WPT results are the guide) Canvas 2D foundation.
+      after QWPT12; user 2026-11-21: no design step, the html/canvas WPT results are the guide) Canvas 2D foundation.
       `getContext('2d')` returns one CanvasRenderingContext2D per canvas (same object on every call; null for any
       other type, 'webgl'/'webgl2' included). Backing store: a tiny-skia Pixmap of width x height (tiny-skia becomes a
       direct dependency at the version resvg already pulls in, see Cargo.lock; no network). Setting width/height resets
