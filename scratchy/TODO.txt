@@ -104,6 +104,38 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QCSS2 [S] (P2, from QMAPI2 #523; Sonnet; css.rs parse_supports_condition, js.rs) `CSS.supports(prop, value)` and
       `CSS.supports(conditionText)` on top of `parse_supports_condition` (today `CSS.supports` does not exist; pages
       feature-test with it). Tests + --wpt-th (css/cssom has CSS.supports files).
+- [ ] QAPI1 [S] (P2, from QMAPI3 R66; Sonnet; js.rs / globals prelude) `window.trustedTypes` (5 of 12 pages, 1 240 hits):
+      `createPolicy(name, {createHTML, createScript, createScriptURL})` returning a policy whose `create*` call the
+      callback and return its result (or the input when absent), `isHTML/isScript/isScriptURL` (true for what a policy
+      made), `emptyHTML/emptyScript`, `getAttributeType` -> null, `defaultPolicy` null; no enforcement. Tests in a new
+      src/tests/qapi1_tests.rs; re-run corpus.sh: the row disappears.
+- [ ] QAPI2 [S] (P2, from QMAPI3 R66; Sonnet; js.rs navigator) Navigator members pages probe (5 of 12 pages): `webdriver`
+      false, `deviceMemory` 8, `connection` (NetworkInformation stub: effectiveType '4g', downlink, rtt, saveData,
+      addEventListener), `plugins`/`mimeTypes` empty arrays, `userAgentData` (brands from the UA string, mobile false,
+      platform 'Linux', `getHighEntropyValues` resolving the low-entropy fields).
+- [ ] QAPI3 [S] (P2, from QMAPI3 R66; Sonnet; js.rs) `navigator.serviceWorker` (ServiceWorkerContainer stub: `ready` never
+      resolves, `register` rejects with SecurityError, `getRegistrations` resolves [], `controller` null) and `window.caches`
+      (CacheStorage stub: `open` resolves an empty Cache, `match` resolves undefined, `has` false, `keys` []); no real
+      storage. Names stay probe-able (`'caches' in window`).
+- [ ] QAPI4 [S] (P2, from QMAPI3 R66; Sonnet; js_dom.rs, css.rs) `document.fonts` FontFaceSet over the fonts the page
+      loaded: `ready` (resolved Promise), `status`, `check`, `load` (resolves the matching FontFace list), `forEach`/`size`,
+      `add`, `loadingdone` events, `FontFace` constructor; github reads `document.fonts.ready` 41 times and throws.
+- [ ] QAPI5 [S] (P2, from QMAPI3 R66; Sonnet; js_dom.rs) ARIA attribute reflection on Element (`ariaLabel`, `ariaHidden`,
+      `ariaExpanded`, ... the whole ARIA mixin list, null when absent, `aria-*` attribute set/removed on assign) and
+      `HTMLSlotElement.name`/`assignedNodes`/`assignedElements`/`slotchange` reflection. WPT: dom/nodes + wai-aria files.
+- [ ] [WIP] QAPI6 [M] (P2, from QMAPI3 R66; Opus; css.rs selector parser) `:has()` (relative selector lists, descendant and
+      `>`/`+`/`~` anchors), with invalidation: a DOM change inside the subject re-matches the anchors (needs the QINC1
+      invalidation sets). Gate: WPT css/selectors :has files; the 6 pages' `:has` rows disappear from the css table.
+- [ ] QAPI7 [S] (P3, from QMAPI3 R66; Sonnet; js.rs) `BroadcastChannel` (same-process, same-origin delivery through the
+      MessageChannel machinery) and `HTMLElement.contentEditable`/`isContentEditable` reflection, the `ontouch*` handler
+      attributes on GlobalEventHandlers (null) so `'ontouchstart' in window` is the page's touch test, not a miss.
+- [ ] QAPI8 [S] (P2, from QMAPI3 R66; Sonnet; css.rs, tools/missing-api) Audit the css `declaration` rows of R66: first make the
+      report skip declarations handled outside `Declarations` or equal to the initial value, then list which of
+      `place-items`, `letter-spacing`, `clip-path`, `backdrop-filter`, `touch-action`, `user-select`, `text-shadow`,
+      `filter`, `color-scheme`, `border-spacing` are really unparsed, and file one S item per property family.
+- [ ] QMAPI3b [S] (P3, from QMAPI3 R66; Sonnet; tools/missing-api/merge.py) Merge "?" `has` rows with the named row of the
+      same name where one exists, drop `has` rows whose name only exists as a plain-object key (`data`, `text`, `items`),
+      and print the example script as a short host/path; replay-recordings mode when QREC1 recordings exist.
 - [ ] QMAPI1b [S] (P3, from QMAPI1 #489; Sonnet; missing_api_prelude.js) Missing-API report: cover iframe realms,
       drop the preludes' own probes (script `prelude`), and give `has` misses a receiver interface where it can be found.
 - [ ] [WIP] QMAPI3 [S] (P2; Sonnet; tools/missing-api/; after QMAPI1) corpus.sh over a site list (gate pages +

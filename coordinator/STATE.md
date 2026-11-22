@@ -226,3 +226,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #560 QDOM17 READY (nodes 60.8 -> 63.0), queued after #562. Launched QDOM6b (+ createElementNS(xhtml,'Span') case from QDOM17).
 - 2026-11-22 Merged #561 QEL4 8f2f7d5.
 - 2026-11-22 #563 QCISPLIT READY (scratchy-wpt job; wall 6m -> 4m41), queued after #560. Launched QMAPI3.
+- 2026-11-22 #564 QMAPI3 READY (R66: 12-page corpus, top gaps). Filed QAPI1-8, QMAPI3b from R66. Queued after #563. Launched QAPI6 (:has(), Opus).
