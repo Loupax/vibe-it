@@ -5051,7 +5051,20 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (__d_tag(id).toLowerCase() !== 'iframe') return;
     // QDOM5c: a src set AFTER insertion drops the old window as before (its document stays about:blank for scripts that
     // kept it, url.window.html); only a src present at insertion reuses the initial window (see `ifrFetch`).
-    if (s && nFrames) { unloadFrame(id, true); dropFrame(id); }
+    // QIFRNAV: a window that finished loading something is unloaded by the navigation, as a task (HTML navigate is async;
+    // an unload handler may also run longer than the callback budget, so the unload task and the navigation task are
+    // separate: a handler killed by the budget does not stop the navigation). The old window stays the iframe's until then.
+    var of = s && nFrames ? frames[id] : null;
+    if (of && of.realm && of.loaded && !of.unloaded && !of.stand) {
+      var tok = of.navTok = (of.navTok || 0) + 1, cur = function () { return frames[id] === of && of.navTok === tok && inPage(of.el); };
+      g.setTimeout(function () { if (cur()) unloadFrame(id, true); }, 0);
+      g.setTimeout(function () { if (cur()) { dropFrame(id); ifrAttr2(id, n, s, nm); } }, 0);
+      return;
+    }
+    if (s && nFrames) dropFrame(id);
+    ifrAttr2(id, n, s, nm);
+  };
+  var ifrAttr2 = function (id, n, s, nm) {
     if (s && inPage(wrap(id)) && frameHtml(wrap(id)) != null) loadFrameLater(wrap(id));
     else if (n === 'src' && inPage(wrap(id)) && ifrFetch(wrap(id))) { /* QDOM5b: its load comes when the fetch ends */ }
     else if (n === 'src' && inPage(wrap(id)) && frameSrc(wrap(id)) !== '' && !frameSrcOk(wrap(id))) {
