@@ -471,11 +471,6 @@ QREG — copying: vim registers, `yy`, later a page cursor (user design session 
   R5 Long term (QCURSOR-D, design first): a keyboard cursor in the page, moved by hjkl like
      vim; n/N move it; Enter acts on what is under it; visual mode `v` + `y`/`"+y`/`:yank`.
 
-- [ ] [WIP] QREG2 [S] (P2, from QREG1; Sonnet; registers.rs, app.rs dispatch_command, js.rs eval_value) `:let @+ = <expr>`: when
-      the right side is not `@<register>`, the raw rest of the line after `=` (not re-joined words) is evaluated in
-      the page's main realm, `String()` of the result goes into the register. JS off or no engine: `scratchy: :let
-      needs JS (:set js)`. A thrown error: its message in the status bar, nothing copied. Long results: copied
-      whole, only the message is short. Tests: `:let @+ = document.title`, a throwing expression, JS off.
 - [ ] QREG3 [S] (P3, from QREG1; Sonnet; forms_text.rs clipboard, registers.rs) Register `*` = the primary selection
       (arboard `LinuxClipboardKind::Primary`, Wayland data-control), readable and writable like `+`. Only on request.
 - [ ] QCURSOR-D [L] WAITING FOR USER (design first; user idea 2026-11-21) A keyboard cursor in the page (caret browsing,

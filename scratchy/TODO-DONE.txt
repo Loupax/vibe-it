@@ -9570,3 +9570,10 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- (no header)
 - [x] QWPT7a DONE ff86ae0 #617 [S] (P2, from QWPT7 #611; Sonnet) `el.focus()`/`blur()` fire focus events synchronously (HTML focusing steps),
       in the App and headless (focus-blur, focusing-focused-noop, blur-relatedTarget).
+
+=== from TODO.txt: --- (no header)
+- [x] QREG2 DONE c6c0e11 #618 [S] (P2, from QREG1; Sonnet; registers.rs, app.rs dispatch_command, js.rs eval_value) `:let @+ = <expr>`: when
+      the right side is not `@<register>`, the raw rest of the line after `=` (not re-joined words) is evaluated in
+      the page's main realm, `String()` of the result goes into the register. JS off or no engine: `scratchy: :let
+      needs JS (:set js)`. A thrown error: its message in the status bar, nothing copied. Long results: copied
+      whole, only the message is short. Tests: `:let @+ = document.title`, a throwing expression, JS off.
