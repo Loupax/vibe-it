@@ -89,11 +89,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QCSS2 [S] (P2, from QMAPI2 #523; Sonnet; css.rs parse_supports_condition, js.rs) `CSS.supports(prop, value)` and
       `CSS.supports(conditionText)` on top of `parse_supports_condition` (today `CSS.supports` does not exist; pages
       feature-test with it). Tests + --wpt-th (css/cssom has CSS.supports files).
-- [ ] [WIP] QAPI1 [S] (P2, from QMAPI3 R66; Sonnet; js.rs / globals prelude) `window.trustedTypes` (5 of 12 pages, 1 240 hits):
-      `createPolicy(name, {createHTML, createScript, createScriptURL})` returning a policy whose `create*` call the
-      callback and return its result (or the input when absent), `isHTML/isScript/isScriptURL` (true for what a policy
-      made), `emptyHTML/emptyScript`, `getAttributeType` -> null, `defaultPolicy` null; no enforcement. Tests in a new
-      src/tests/qapi1_tests.rs; re-run corpus.sh: the row disappears.
 - [ ] [WIP] QAPI2 [S] (P2, from QMAPI3 R66; Sonnet; js.rs navigator) Navigator members pages probe (5 of 12 pages): `webdriver`
       false, `deviceMemory` 8, `connection` (NetworkInformation stub: effectiveType '4g', downlink, rtt, saveData,
       addEventListener), `plugins`/`mimeTypes` empty arrays, `userAgentData` (brands from the UA string, mobile false,

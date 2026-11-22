@@ -9275,3 +9275,10 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       rendering step before rAF, both App and headless). Gates: dom/events/webkit-transition-end-event.html,
       EventListener-invoke-legacy transitionend subtests, css areas in --wpt-th, reftests (transition reftests!),
       --perf-report on gate pages (transitions on hover must not cost idle CPU), live window check (a hover transition).
+
+=== from TODO.txt: --- (no header)
+- [x] QAPI1 DONE 27679e8 #569 [S] (P2, from QMAPI3 R66; Sonnet; js.rs / globals prelude) `window.trustedTypes` (5 of 12 pages, 1 240 hits):
+      `createPolicy(name, {createHTML, createScript, createScriptURL})` returning a policy whose `create*` call the
+      callback and return its result (or the input when absent), `isHTML/isScript/isScriptURL` (true for what a policy
+      made), `emptyHTML/emptyScript`, `getAttributeType` -> null, `defaultPolicy` null; no enforcement. Tests in a new
+      src/tests/qapi1_tests.rs; re-run corpus.sh: the row disappears.
