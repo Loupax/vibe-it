@@ -7,6 +7,11 @@ their section with the date.
 
 ## Direction and process
 
+- **2026-11-22 `:has()` (#573) is held until QAPI6b wins back its cost.** YouTube results forced
+  layouts were +65 % with #573; #573 merges together with (or after) QAPI6b once the YouTube
+  numbers are within noise of main.
+- **2026-11-22 html/editing joins the WPT testharness subset (QWPT6d).** Adds an area to the
+  R64 phase-1 subset (contentEditable, execCommand), then triage.
 - **2026-11-21 Engine evidence before QINC1m** (user "yes"): QINC1n first (fallback log line, sampled check
   writing mismatches to `<state-dir>/engine-check.log`, `:engine` counts). ~3 days with an empty log and zero
   fallbacks is the go signal; the user still confirms QINC1m.
