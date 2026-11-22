@@ -123,3 +123,8 @@ sandbox DENIAL of what the command does stays denied.
 ## Nested compositor helper (QNEST1 #603)
 tools/nest.sh reuses the worktree's live dwl (registry `.qwork/nest`). Call `tools/nest.sh --stop` before your final
 reply instead of hunting PIDs; `--new` forces a fresh one. Never start dwl any other way.
+
+## A failed CI check is information
+If a CI check fails for a reason that looks unrelated to your change (a flaky test), do not re-run the job until
+it is green. Say in the PR and your reply which test failed and why you think it is unrelated; the coordinator files
+it. (2026-11-22, QCNV5 #624.)
