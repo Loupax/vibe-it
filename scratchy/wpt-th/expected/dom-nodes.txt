@@ -1437,10 +1437,8 @@ OK         17/19  dom/nodes/Element-getElementsByTagName.html
 OK         16/16  dom/nodes/Element-getElementsByTagNameNS.html
 OK           2/2  dom/nodes/Element-hasAttribute.html
 OK           2/2  dom/nodes/Element-hasAttributes.html
-OK           5/6  dom/nodes/Element-insertAdjacentElement.html
-  FAIL      Adding more than one child to document should cause a HierarchyRequestError exception
-OK           5/6  dom/nodes/Element-insertAdjacentText.html
-  FAIL      Adding more than one child to document should cause a HierarchyRequestError exception
+OK           6/6  dom/nodes/Element-insertAdjacentElement.html
+OK           6/6  dom/nodes/Element-insertAdjacentText.html
 CRASH        0/0  dom/nodes/Element-lastElementChild-svg.svg
 ERROR        0/0  dom/nodes/Element-lastElementChild-xhtml.xhtml
 OK           1/1  dom/nodes/Element-lastElementChild.html
@@ -1510,9 +1508,7 @@ OK         12/15  dom/nodes/MutationObserver-transient-registered-observers.wind
 ERROR        0/0  dom/nodes/MutationObserver-xml-parser.xhtml
 OK           0/1  dom/nodes/Node-appendChild-cereactions-vs-script.window.html
   FAIL      Custom element reactions follow script execution
-OK          9/11  dom/nodes/Node-appendChild.html
-  FAIL      Appending a document
-  FAIL      Adopting a non-orphan
+OK         11/11  dom/nodes/Node-appendChild.html
 OK           4/9  dom/nodes/Node-baseURI.html
   FAIL      For attributes unassigned to element, baseURI should be document URL
   FAIL      For attributes in elements belonging to document, baseURI should be document URL
@@ -1546,36 +1542,9 @@ OK       1444/1444  dom/nodes/Node-compareDocumentPosition.html
 OK           8/8  dom/nodes/Node-constants.html
 ERROR        0/0  dom/nodes/Node-contains-xml.xml
 OK       1482/1482  dom/nodes/Node-contains.html
-OK         11/40  dom/nodes/Node-insertBefore.html
-  FAIL      Should check the 'parent' type before checking whether 'child' is a child of 'parent'
-  FAIL      Should check that 'node' is not an ancestor of 'parent' before checking whether 'child' is a child of 'parent'
-  FAIL      If node is not a DocumentFragment, DocumentType, Element, Text, ProcessingInstruction, or Comment node, then throw a HierarchyRequestError DOMException.
-  FAIL      If node is a Text node and parent is a document, then throw a HierarchyRequestError DOMException.
-  FAIL      If node is a doctype and parent is not a document, then throw a HierarchyRequestError DOMException.
-  FAIL      If node is a DocumentFragment with multiple elements and parent is a document, then throw a HierarchyRequestError DOMException.
-  FAIL      If node is a DocumentFragment with an element and parent is a document with another element, then throw a HierarchyRequestError DOMException.
-  FAIL      If node is an Element and parent is a document with another element, then throw a HierarchyRequestError DOMException.
+OK         38/40  dom/nodes/Node-insertBefore.html
   FAIL      If node is a doctype and parent is a document with another doctype, then throw a HierarchyRequestError DOMException.
   FAIL      If node is a doctype and parent is a document with an element, then throw a HierarchyRequestError DOMException.
-  FAIL      Calling insertBefore with second argument missing, or other than Node, null, or undefined, must throw TypeError.
-  FAIL      Calling insertBefore an a leaf node DocumentType must throw HIERARCHY_REQUEST_ERR.
-  FAIL      Calling insertBefore an a leaf node Text must throw HIERARCHY_REQUEST_ERR.
-  FAIL      Calling insertBefore an a leaf node Comment must throw HIERARCHY_REQUEST_ERR.
-  FAIL      Calling insertBefore an a leaf node ProcessingInstruction must throw HIERARCHY_REQUEST_ERR.
-  FAIL      If the context node is a document, inserting a document or text node should throw a HierarchyRequestError.
-  FAIL      If the context node is a document, inserting a DocumentFragment that contains a text node or too many elements should throw a HierarchyRequestError.
-  FAIL      If the context node is a document, inserting a DocumentFragment with an element if there already is an element child should throw a HierarchyRequestError.
-  FAIL      If the context node is a document and a doctype is following the reference child, inserting a DocumentFragment with an element should throw a HierarchyRequestError.
-  FAIL      If the context node is a document, inserting a DocumentFragment with an element before the doctype should throw a HierarchyRequestError.
-  FAIL      If the context node is a document, inserting an element if there already is an element child should throw a HierarchyRequestError.
-  FAIL      If the context node is a document, inserting an element before the doctype should throw a HierarchyRequestError.
-  FAIL      If the context node is a document and a doctype is following the reference child, inserting an element should throw a HierarchyRequestError.
-  FAIL      If the context node is a document, inserting a doctype if there already is a doctype child should throw a HierarchyRequestError.
-  FAIL      If the context node is a document, inserting a doctype after the document element should throw a HierarchyRequestError.
-  FAIL      If the context node is a document with and element child, appending a doctype should throw a HierarchyRequestError.
-  FAIL      If the context node is a DocumentFragment, inserting a document or a doctype should throw a HierarchyRequestError.
-  FAIL      If the context node is an element, inserting a document or a doctype should throw a HierarchyRequestError.
-  FAIL      Inserting a node before itself should not move the node
 OK           2/2  dom/nodes/Node-isConnected-shadow-dom.html
 OK           1/2  dom/nodes/Node-isConnected.html
   FAIL      Test with iframes
@@ -1612,24 +1581,7 @@ OK           4/5  dom/nodes/Node-parentNode.html
   FAIL      Removed iframe
 OK       726/726  dom/nodes/Node-properties.html
 OK         28/28  dom/nodes/Node-removeChild.html
-OK         11/29  dom/nodes/Node-replaceChild.html
-  FAIL      Should check the 'parent' type before checking whether 'child' is a child of 'parent'
-  FAIL      Should check that 'node' is not an ancestor of 'parent' before checking whether 'child' is a child of 'parent'
-  FAIL      Passing null to replaceChild should throw a TypeError.
-  FAIL      If the context node is not a node that can contain children, a HierarchyRequestError exception should be thrown
-  FAIL      If node is an inclusive ancestor of the context node, a HierarchyRequestError should be thrown.
-  FAIL      If the context node is a document, inserting a document or text node should throw a HierarchyRequestError.
-  FAIL      If the context node is a document, inserting a DocumentFragment that contains a text node or too many elements should throw a HierarchyRequestError.
-  FAIL      If the context node is a document (without element children), inserting a DocumentFragment that contains multiple elements should throw a HierarchyRequestError.
-  FAIL      If the context node is a document, inserting a DocumentFragment with an element if there already is an element child should throw a HierarchyRequestError.
-  FAIL      If the context node is a document, inserting a DocumentFragment with an element before the doctype should throw a HierarchyRequestError.
-  FAIL      If the context node is a document, inserting an element if there already is an element child should throw a HierarchyRequestError.
-  FAIL      If the context node is a document, inserting an element before the doctype should throw a HierarchyRequestError.
-  FAIL      If the context node is a document, inserting a doctype if there already is a doctype child should throw a HierarchyRequestError.
-  FAIL      If the context node is a document, inserting a doctype after the document element should throw a HierarchyRequestError.
-  FAIL      If the context node is a DocumentFragment, inserting a document or a doctype should throw a HierarchyRequestError.
-  FAIL      If the context node is an element, inserting a document or a doctype should throw a HierarchyRequestError.
-  FAIL      Replacing a node with itself should not move the node
+OK         28/29  dom/nodes/Node-replaceChild.html
   FAIL      If the context node is a document, inserting a new doctype should work.
 OK         81/81  dom/nodes/Node-textContent.html
 OK           8/8  dom/nodes/NodeList-Iterable.html
@@ -1829,9 +1781,7 @@ TIMEOUT      0/1  dom/nodes/getElementsByClassName-31.htm
 OK           4/4  dom/nodes/getElementsByClassName-32.html
 OK           3/3  dom/nodes/getElementsByClassName-empty-set.html
 OK         26/26  dom/nodes/getElementsByClassName-whitespace-class-names.html
-OK         12/14  dom/nodes/insert-adjacent.html
-  FAIL      invalid caller object insertAdjacentElement
-  FAIL      invalid caller object insertAdjacentText
+OK         14/14  dom/nodes/insert-adjacent.html
 OK           1/1  dom/nodes/insertion-removing-steps/Node-append-form-and-script-from-fragment.html
 OK           1/1  dom/nodes/insertion-removing-steps/Node-appendChild-script-and-button-from-div.html
 OK           1/1  dom/nodes/insertion-removing-steps/Node-appendChild-script-and-custom-from-fragment.html
