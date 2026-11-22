@@ -109,9 +109,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QCSS-G [S] (P3, from QAPI8 #578; Sonnet) `color-scheme`, `scrollbar-width`, `overscroll-behavior`, `scroll-margin-*`.
 - [ ] QCSS-H [S] (P3, from QAPI8 #578; Sonnet) `-webkit-line-clamp` + `-webkit-box-orient`, `text-wrap`, `-webkit-fit-content`
       heights, system colour keywords.
-- [ ] [WIP] QCSS2 [S] (P2, from QMAPI2 #523; Sonnet; css.rs parse_supports_condition, js.rs) `CSS.supports(prop, value)` and
-      `CSS.supports(conditionText)` on top of `parse_supports_condition` (today `CSS.supports` does not exist; pages
-      feature-test with it). Tests + --wpt-th (css/cssom has CSS.supports files).
 - [ ] QFF1c [S] (P3, from QFF1a #595; Sonnet; webfonts.rs) Use every loaded unicode-range subset of a family: fall back
       within the family (e.g. a latin-ext subset) before system fonts; today one face per weight/style is used.
 - [ ] QFF1d [S] (P3, from QFF1a #595; Sonnet) Stylesheet @font-face loads in `--wpt-th-one` (no App there: only script

@@ -362,3 +362,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Merged #611 QWPT7 05258dd. Launched QWPT7a.
 - 2026-11-22 #615 QWPT8 merge: rebase CONFLICT in tools/wpt-subset.py + wpt-th/subset.txt (with #611 QWPT7). Rebase to the QWPT8 agent at the next free slot (3 running: QCNV3, QCSS2, QWPT7a). merge_pr.sh still at 8 checks: bump to 9 by hand right before #615 merges.
 - 2026-11-22 #616 QCSS2 READY (CSS.supports/escape), merging. Sent #615 rebase. Filed QCSS2b, QWPTFLK4.
+- 2026-11-22 Merged #616 QCSS2 dc2484c.

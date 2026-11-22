@@ -9561,3 +9561,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       Update 2026-11-22 (QWPT6e #586): the 111 subset pages that call test_driver were dropped from the subset
       (DRIVER_CALL in tools/wpt-subset.py: dom/events 30, uievents 47, shadow-dom 19, ...); `--wpt-th-one` has no
       App and elementFromPoint is a stub there, so real hit testing comes first. When done, drop the filter.
+
+=== from TODO.txt: --- (no header)
+- [x] QCSS2 DONE dc2484c #616 [S] (P2, from QMAPI2 #523; Sonnet; css.rs parse_supports_condition, js.rs) `CSS.supports(prop, value)` and
+      `CSS.supports(conditionText)` on top of `parse_supports_condition` (today `CSS.supports` does not exist; pages
+      feature-test with it). Tests + --wpt-th (css/cssom has CSS.supports files).
