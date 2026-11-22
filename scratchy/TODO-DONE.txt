@@ -9321,3 +9321,9 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       resolves, `register` rejects with SecurityError, `getRegistrations` resolves [], `controller` null) and `window.caches`
       (CacheStorage stub: `open` resolves an empty Cache, `match` resolves undefined, `has` false, `keys` []); no real
       storage. Names stay probe-able (`'caches' in window`).
+
+=== from TODO.txt: --- (no header)
+- [x] QCE1 DONE 65a5dae #575 [S] (P3, from QWPTFLK3 #550; Sonnet; html parser + js_dom.rs custom elements) Customized built-ins created by
+      the parser: set attributes before the constructor runs (today after), queue attributeChanged/mutation records in the
+      HTML order, and `document.anchors` for customized built-ins (parser-sets-attributes-after-built-in-constructor.html
+      7 remaining failures).
