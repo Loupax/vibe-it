@@ -1477,10 +1477,6 @@ OK           0/4  custom-elements/registries/initial-about-blank.window.html
   FAIL      The initial about:blank document keeps its registry when its window is reused
   FAIL      define() on the initial about:blank document's registry after its window is reused upgrades nothing
   FAIL      A removed iframe's window keeps its document's registry after garbage collection
-TIMEOUT      1/4  custom-elements/registries/per-document.html
-  FAIL      Navigating from the transient about:blank must replace window.customElements
-  FAIL      Navigating from the initial about:blank must replace window.customElements
-  TIMEOUT   document.open() must not replace window.customElements
 OK           0/3  custom-elements/registries/pseudo-class-defined.window.html
   FAIL      "uncustomized" :defined doesn't care about your registry'
   FAIL      "custom" :defined doesn't care about your registry

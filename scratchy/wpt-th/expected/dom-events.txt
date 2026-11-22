@@ -176,20 +176,19 @@ OK           2/2  dom/events/event-global-replaceable.html
 OK           1/1  dom/events/event-global-set-before-handleEvent-lookup.window.html
 OK           8/8  dom/events/event-global.html
 OK           2/2  dom/events/event-handler-attribute-replace-preserves-passive.html
-TIMEOUT      0/5  dom/events/event-listener-not-fully-active-adopted-node.html
-  TIMEOUT   Node created in an iframe's realm and adopted into this document, iframe removed
-  NOTRUN    Node created in this realm and adopted into an iframe's document, iframe removed
-  NOTRUN    Adopting the target into a fully active iframe's document during dispatch
-  NOTRUN    Adopting the target into a removed iframe's document during dispatch
-  NOTRUN    Event from a node created in a removed iframe's realm still reaches listeners in this document
+OK           1/5  dom/events/event-listener-not-fully-active-adopted-node.html
+  FAIL      Node created in an iframe's realm and adopted into this document, iframe removed
+  FAIL      Node created in this realm and adopted into an iframe's document, iframe removed
+  FAIL      Adopting the target into a removed iframe's document during dispatch
+  FAIL      Event from a node created in a removed iframe's realm still reaches listeners in this document
 OK           1/4  dom/events/event-listener-not-fully-active-callback.html
   FAIL      Function callback from a removed iframe, with a fully active target
   FAIL      handleEvent() callback from a removed iframe, with a fully active target
   FAIL      Event handler attribute set to a function from a removed iframe
-TIMEOUT      0/3  dom/events/event-listener-not-fully-active-navigated.html
-  TIMEOUT   Targets in a document that its iframe has navigated away from
-  NOTRUN    Targets in a nested iframe whose parent document is no longer fully active
-  NOTRUN    Targets in a nested iframe whose parent iframe was removed
+OK           0/3  dom/events/event-listener-not-fully-active-navigated.html
+  FAIL      Targets in a document that its iframe has navigated away from
+  FAIL      Targets in a nested iframe whose parent document is no longer fully active
+  FAIL      Targets in a nested iframe whose parent iframe was removed
 OK          1/16  dom/events/event-listener-not-fully-active-target.html
   FAIL      EventTarget created in a removed iframe
   FAIL      EventTarget created in a removed iframe, with an event from that iframe
@@ -306,14 +305,12 @@ OK           0/6  dom/events/relatedTarget.window.html
   FAIL      Reset targets before activation behavior
 OK           2/2  dom/events/remove-all-listeners.html
 ERROR        0/2  dom/events/scrolling/save-iframe-scroll-offset-when-display-none.html
-  TIMEOUT   Ensure that the scroll position is not lost when the local iframe is set to display:none and shown again.
-  NOTRUN    Ensure that the scroll position is not lost when the remote iframe is set to display:none and shown again.
+  FAIL      Ensure that the scroll position is not lost when the local iframe is set to display:none and shown again.
+  TIMEOUT   Ensure that the scroll position is not lost when the remote iframe is set to display:none and shown again.
 OK           4/4  dom/events/scrolling/scroll-event-fired-to-element.html
-TIMEOUT      0/4  dom/events/scrolling/scroll-event-fired-to-iframe.html
-  TIMEOUT   scrollX and scrollY should fire scroll event.
-  NOTRUN    scrollX and scrollY being set with the same value.
-  NOTRUN    scrollX and scrollY being set with invalid scroll Scroll.
-  NOTRUN    scrollX and scrollY when scrolling above maximum Scroll.
+OK           2/4  dom/events/scrolling/scroll-event-fired-to-iframe.html
+  FAIL      scrollX and scrollY should fire scroll event.
+  FAIL      scrollX and scrollY when scrolling above maximum Scroll.
 OK           1/1  dom/events/scrolling/scroll-event-not-fired-on-ancestor-style-change.html
 OK           2/2  dom/events/scrolling/scroll-events-fired-once-per-frame-across-display-none.html
 OK           0/1  dom/events/scrolling/scrollend-event-fired-after-instant-scroll-in-microtask.html
