@@ -4202,7 +4202,7 @@ not `hidden`). While it shows, `page_size()` / `page_viewport_hb` are `TRACK_W` 
 - **Loading:** `App::webfonts_tick` (start of `js_sync`, i.e. after every event batch and script task) drains the wanted
   faces: `local()` is looked up in the App's system fonts (bytes copied), `url()` sources are fetched in order on a thread
   per face through wire (`load_sources` / `fetch_font_bytes`: credentials same-origin, partition headers, `Origin` +
-  ACAO check cross-origin, 2xx only; woff2/svg/eot skipped by `format()` or extension; `data:` decoded in place), woff 1.0
+  ACAO check cross-origin, 2xx only; svg/eot skipped by `format()` or extension; `data:` decoded in place), woff 1.0
   is inflated to sfnt (flate2), the first face is parsed with a throwaway fontdb. `AppEvent::FontFetched` (nav
   generation + registry page guard) registers it: its `FaceInfo` gets the mangled family and the descriptor's weight
   (clamped into the range) and style.
@@ -4225,7 +4225,8 @@ not `hidden`). While it shows, `page_size()` / `page_viewport_hb` are `TRACK_W` 
   `__scratchy_font_remove`. So `--wpt-th-one` gets script faces too, but not CSS-driven loads (no App).
 - **Reftests (`--wpt`):** `Renderer::render_inner` starts a page per test, lays out, loads the wanted faces synchronously
   from the checkout (`load_wanted_now`), and lays out again (at most 3 rounds).
-- Not done: woff2 (QFF1b); `unicode-range` beyond picking one face per (weight, style) (a second subset is never used for
+- **woff2 (QFF1b):** `src/woff2.rs`: table directory, brotli by the `brotli-decompressor` crate (safe, no sockets; read through `take(total + 1)` so output is capped at 32 MiB and must equal the declared sizes), glyf/loca transform rebuilt into plain TrueType glyphs (uncompressed 16-bit coordinates; a short loca that would overflow switches to long and `head.indexToLocFormat` is patched), hmtx transform (omitted lsb from glyph xMin). Collections and anything malformed return `None`: the face fails like any bad font and the next `src` / system fonts are used. No header size claim is used for allocation.
+- Not done: `unicode-range` beyond picking one face per (weight, style) (a second subset is never used for
   the characters the first lacks); `size-adjust`/`ascent-override`; variable-font axes beyond cosmic-text's own weight
   handling; CSS-driven loads in `--wpt-th-one`.
 
