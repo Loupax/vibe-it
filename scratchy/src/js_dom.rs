@@ -3151,6 +3151,65 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   [['moveTo', 1, 2], ['lineTo', 2, 2], ['rect', 4, 4]].forEach(function (p) {
     meth(p[0], function () { var c = cv(this), a = pathArgs(p[0], p[2], arguments); if (a) g.__cv_path(c, p[1], a); });
   });
+  // QCNV7: curves. Arguments are converted first (ToNumber), non-finite ones make the call a no-op, then a negative
+  // radius is an IndexSizeError. The geometry (arcs as cubics, arcTo tangents, roundRect corners) is in canvas.rs.
+  meth('quadraticCurveTo', function () { var c = cv(this), a = pathArgs('quadraticCurveTo', 4, arguments); if (a) g.__cv_path(c, 5, a); });
+  meth('bezierCurveTo', function () { var c = cv(this), a = pathArgs('bezierCurveTo', 6, arguments); if (a) g.__cv_path(c, 6, a); });
+  var negRadius = function (name, r) { return domErr("Failed to execute '" + name + "' on 'CanvasRenderingContext2D': The radius provided (" + r + ') is negative.', 'IndexSizeError'); };
+  meth('arc', function () {
+    var c = cv(this), a = pathArgs('arc', 5, arguments);
+    var ccw = !!arguments[5];
+    if (!a) return;
+    if (a[2] < 0) throw negRadius('arc', a[2]);
+    g.__cv_path(c, 7, [a[0], a[1], a[2], a[2], 0, a[3], a[4], ccw ? 1 : 0]);
+  });
+  meth('ellipse', function () {
+    var c = cv(this), a = pathArgs('ellipse', 7, arguments);
+    var ccw = !!arguments[7];
+    if (!a) return;
+    if (a[2] < 0) throw negRadius('ellipse', a[2]);
+    if (a[3] < 0) throw negRadius('ellipse', a[3]);
+    g.__cv_path(c, 7, [a[0], a[1], a[2], a[3], a[4], a[5], a[6], ccw ? 1 : 0]);
+  });
+  meth('arcTo', function () {
+    var c = cv(this), a = pathArgs('arcTo', 5, arguments);
+    if (!a) return;
+    if (a[4] < 0) throw negRadius('arcTo', a[4]);
+    g.__cv_path(c, 8, a);
+  });
+  meth('roundRect', function () {
+    var c = cv(this), a = cvArgs('roundRect', 4, arguments);
+    var radii = arguments.length > 4 ? arguments[4] : 0;
+    var list;
+    // (unrestricted double or DOMPointInit or sequence<(unrestricted double or DOMPointInit)>)
+    var isObj = function (v) { return v !== null && (typeof v === 'object' || typeof v === 'function'); };
+    if (isObj(radii) && typeof radii[Symbol.iterator] === 'function') list = Array.from(radii);
+    else list = [radii];
+    var pt = function (v) {
+      if (isObj(v) || v === undefined || v === null) {
+        var x = v == null ? undefined : v.x, y = v == null ? undefined : v.y;
+        x = x === undefined ? 0 : +x;
+        y = y === undefined ? 0 : +y;
+        return [x, y];
+      }
+      var n = +v;
+      return [n, n];
+    };
+    var rs = list.map(pt);
+    var fin = a.every(isFinite);
+    if (!fin) return;
+    if (rs.length < 1 || rs.length > 4) throw new RangeError("Failed to execute 'roundRect' on 'CanvasRenderingContext2D': " + rs.length + ' radii provided. Between one and four radii are necessary.');
+    for (var i = 0; i < rs.length; i++) {
+      if (!isFinite(rs[i][0]) || !isFinite(rs[i][1])) return;
+      if (rs[i][0] < 0 || rs[i][1] < 0) throw new RangeError("Failed to execute 'roundRect' on 'CanvasRenderingContext2D': Radius value " + (rs[i][0] < 0 ? rs[i][0] : rs[i][1]) + ' is negative.');
+    }
+    var ul, ur, lr, ll;
+    if (rs.length === 1) { ul = ur = lr = ll = rs[0]; }
+    else if (rs.length === 2) { ul = lr = rs[0]; ur = ll = rs[1]; }
+    else if (rs.length === 3) { ul = rs[0]; ur = ll = rs[1]; lr = rs[2]; }
+    else { ul = rs[0]; ur = rs[1]; lr = rs[2]; ll = rs[3]; }
+    g.__cv_path(c, 9, [a[0], a[1], a[2], a[3], ul[0], ul[1], ur[0], ur[1], lr[0], lr[1], ll[0], ll[1]]);
+  });
   var fillRuleArg = function (name, a) {
     var r = a.length > 0 && a[0] !== undefined ? String(a[0]) : 'nonzero';
     if (r !== 'nonzero' && r !== 'evenodd') throw new TypeError("Failed to execute '" + name + "' on 'CanvasRenderingContext2D': The provided value '" + r + "' is not a valid enum value of type CanvasFillRule.");

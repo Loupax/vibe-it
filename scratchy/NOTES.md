@@ -4385,6 +4385,8 @@ QCNV5: transforms. The CTM (`DrawState.ctm`, six f64 a..f) is part of the saved 
 
 QCNV6: paths. `canvas::PathData` holds the current default path as `Seg::{Move,Line,Close}` in DEVICE space (the CTM at the time a point is added maps it; QCNV7 curves add variants and a `build` arm). It is not part of the saved state; `beginPath` clears it and a width/height reset drops it. `fill` uses tiny-skia `fill_path` with FillRule Winding/EvenOdd; `stroke` maps the path back through the inverse CTM and strokes in user space with the CTM as the transform. `DrawState.clip` is an `Option<Arc<Mask>>` (saved/restored), `clip()` intersects it with the path (an empty path clips everything); fillRect/strokeRect/fill/stroke use it, putImageData does not. clearRect paints DestinationOut (tiny-skia's Clear ignores the mask). wpt-th: element 29.8 -> 38.0, offscreen 32.3 -> 42.1 (+105 all-pass files each).
 
+QCNV7: curves. `Seg::Quad`/`Seg::Cubic`; arcs/ellipses (and roundRect corners) are cubics built in user space then mapped by the CTM (`PathData::ellipse`); arcTo works in user space from the current point mapped back through the inverse CTM. Natives: `__cv_path` ops 5 quad, 6 cubic, 7 arc/ellipse, 8 arcTo, 9 roundRect. wpt-th: element 38.0 -> 46.2, offscreen 42.1 -> 51.8.
+
 ## Canvas 2D triage after QCNV1 (QCNV2)
 
 Baseline: origin/main 7a3b00c0 (QCNV1 #613 merged), wpt-th expected files `html-canvas-{element,offscreen,other}.txt`, WPT ac78b567. element 1,276 files / 2,818 subtests / 338 pass / score 23.5; offscreen 1,074 / 1,371 / 0 / 0.0; other 4 / 18 / 2 / 50.0. Failing (not all-pass) files: element 980 (2,485 failing subtests), offscreen 1,074 (1,375), other 2 (16).
