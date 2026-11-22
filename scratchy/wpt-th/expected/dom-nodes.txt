@@ -2,12 +2,7 @@
 OK           1/2  dom/nodes/Attr-prefix-xhtml.xhtml
   FAIL      Attr.prefix present
 OK           6/6  dom/nodes/Attr-prefix.html
-OK           4/9  dom/nodes/CharacterData-appendChild.html
-  FAIL      Text.appendChild(ProcessingInstruction)
-  FAIL      Comment.appendChild(ProcessingInstruction)
-  FAIL      ProcessingInstruction.appendChild(Text)
-  FAIL      ProcessingInstruction.appendChild(Comment)
-  FAIL      ProcessingInstruction.appendChild(ProcessingInstruction)
+OK           9/9  dom/nodes/CharacterData-appendChild.html
 OK         12/14  dom/nodes/CharacterData-appendData.html
   FAIL      Text.appendData()
   FAIL      Comment.appendData()
@@ -16,7 +11,19 @@ OK         14/16  dom/nodes/CharacterData-data.html
   FAIL      Comment.data = null
 OK         18/18  dom/nodes/CharacterData-deleteData.html
 OK         18/18  dom/nodes/CharacterData-insertData.html
-ERROR        0/0  dom/nodes/CharacterData-remove.html
+OK          0/12  dom/nodes/CharacterData-remove.html
+  FAIL      text should support remove()
+  FAIL      remove() should work if text doesn't have a parent
+  FAIL      remove() should work if text does have a parent
+  FAIL      remove() should work if text does have a parent and siblings
+  FAIL      comment should support remove()
+  FAIL      remove() should work if comment doesn't have a parent
+  FAIL      remove() should work if comment does have a parent
+  FAIL      remove() should work if comment does have a parent and siblings
+  FAIL      PI should support remove()
+  FAIL      remove() should work if PI doesn't have a parent
+  FAIL      remove() should work if PI does have a parent
+  FAIL      remove() should work if PI does have a parent and siblings
 OK         34/34  dom/nodes/CharacterData-replaceData.html
 OK         26/28  dom/nodes/CharacterData-substringData.html
   FAIL      Text.substringData() with too few arguments
@@ -115,8 +122,7 @@ OK         10/33  dom/nodes/ChildNode-replaceWith.html
   FAIL      Text.replaceWith() with one element and text as arguments.
   FAIL      Text.replaceWith() on a parentless child with two elements as arguments.
 OK         16/16  dom/nodes/Comment-constructor.html
-OK           0/1  dom/nodes/Comment-in-doctype.xhtml
-  FAIL      XML: Comment in doctype internal subset
+OK           1/1  dom/nodes/Comment-in-doctype.xhtml
 OK           4/5  dom/nodes/DOMImplementation-createDocument-no-browsing-context.html
   FAIL      createHTMLDocument: proxied event handlers on body are null without a window
 OK       185/434  dom/nodes/DOMImplementation-createDocument.html
@@ -497,8 +503,7 @@ OK           1/4  dom/nodes/Document-cloneNode-srcdoc-base-url.window.html
   FAIL      A data: <base> in an about:srcdoc document and its clone falls back to the inherited base URL
 CRASH        0/0  dom/nodes/Document-constructor-svg.svg
 ERROR        0/0  dom/nodes/Document-constructor-xml.xml
-OK           3/5  dom/nodes/Document-constructor.html
-  FAIL      new Document(): interfaces
+OK           4/5  dom/nodes/Document-constructor.html
   FAIL      new Document(): characterSet aliases
 TIMEOUT      0/1  dom/nodes/Document-contentType/contentType/contenttype_bmp.html
   TIMEOUT   BMP document.contentType === 'image/bmp'
@@ -548,8 +553,7 @@ OK           0/7  dom/nodes/Document-createCDATASection-xhtml.xhtml
   FAIL      createCDATASection(null)
   FAIL      createCDATASection(undefined)
   FAIL      Creating a CDATA section containing the string "]]>" must throw
-OK           0/1  dom/nodes/Document-createCDATASection.html
-  FAIL      document.createCDATASection must throw in HTML documents
+OK           1/1  dom/nodes/Document-createCDATASection.html
 OK           6/6  dom/nodes/Document-createComment.html
 OK        44/147  dom/nodes/Document-createElement.html
   FAIL      createElement(undefined) in XML document
@@ -1100,21 +1104,8 @@ OK       153/596  dom/nodes/Document-createElementNS.html
   FAIL      undefined namespace
   FAIL      empty string namespace
 OK           3/3  dom/nodes/Document-createEvent-touchevent.window.html
-OK          1/49  dom/nodes/Document-createProcessingInstruction-xhtml.xhtml
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target "A" and data "?>".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target "" and data "x".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target "-A" and data "x".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target ".A" and data "x".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target "0A" and data "x".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target " A" and data "x".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target "\\tA" and data "x".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target "A B" and data "x".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target "A\\tB" and data "x".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target "ª" and data "x".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target "Aª" and data "x".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target "º" and data "x".
+OK         37/49  dom/nodes/Document-createProcessingInstruction-xhtml.xhtml
   FAIL      Should throw an INVALID_CHARACTER_ERR for target "Aº" and data "x".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target "·A" and data "x".
   FAIL      Should throw an INVALID_CHARACTER_ERR for target "×A" and data "x".
   FAIL      Should throw an INVALID_CHARACTER_ERR for target "A×" and data "x".
   FAIL      Should throw an INVALID_CHARACTER_ERR for target "÷A" and data "x".
@@ -1126,44 +1117,8 @@ OK          1/49  dom/nodes/Document-createProcessingInstruction-xhtml.xhtml
   FAIL      Should throw an INVALID_CHARACTER_ERR for target "\\uffff" and data "x".
   FAIL      Should throw an INVALID_CHARACTER_ERR for target "󰀀" and data "x".
   FAIL      Should throw an INVALID_CHARACTER_ERR for target "􏿿" and data "x".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target "\\\\A" and data "x".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target "\\f" and data "x".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target 0 and data "x".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target "0" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "xml:fail" and data "x".
-  FAIL      Should get a ProcessingInstruction for target ":" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "_0" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "A-B" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "A.B" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "A·A" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "À" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "A‿" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "a0" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "ʳA" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "֑A.B" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "िA" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "⃣A" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "AⅦ" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "豈" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "\\ufffd" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "𐀀" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "😀" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "󯿿" and data "x".
-OK          1/49  dom/nodes/Document-createProcessingInstruction.html
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target "A" and data "?>".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target "" and data "x".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target "-A" and data "x".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target ".A" and data "x".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target "0A" and data "x".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target " A" and data "x".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target "\\tA" and data "x".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target "A B" and data "x".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target "A\\tB" and data "x".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target "ª" and data "x".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target "Aª" and data "x".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target "º" and data "x".
+OK         37/49  dom/nodes/Document-createProcessingInstruction.html
   FAIL      Should throw an INVALID_CHARACTER_ERR for target "Aº" and data "x".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target "·A" and data "x".
   FAIL      Should throw an INVALID_CHARACTER_ERR for target "×A" and data "x".
   FAIL      Should throw an INVALID_CHARACTER_ERR for target "A×" and data "x".
   FAIL      Should throw an INVALID_CHARACTER_ERR for target "÷A" and data "x".
@@ -1175,29 +1130,6 @@ OK          1/49  dom/nodes/Document-createProcessingInstruction.html
   FAIL      Should throw an INVALID_CHARACTER_ERR for target "\\uffff" and data "x".
   FAIL      Should throw an INVALID_CHARACTER_ERR for target "󰀀" and data "x".
   FAIL      Should throw an INVALID_CHARACTER_ERR for target "􏿿" and data "x".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target "\\\\A" and data "x".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target "\\f" and data "x".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target 0 and data "x".
-  FAIL      Should throw an INVALID_CHARACTER_ERR for target "0" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "xml:fail" and data "x".
-  FAIL      Should get a ProcessingInstruction for target ":" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "_0" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "A-B" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "A.B" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "A·A" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "À" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "A‿" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "a0" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "ʳA" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "֑A.B" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "िA" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "⃣A" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "AⅦ" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "豈" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "\\ufffd" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "𐀀" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "😀" and data "x".
-  FAIL      Should get a ProcessingInstruction for target "󯿿" and data "x".
 OK           6/6  dom/nodes/Document-createTextNode.html
 OK           5/5  dom/nodes/Document-createTreeWalker.html
 OK           1/2  dom/nodes/Document-doctype.html
@@ -1342,7 +1274,11 @@ OK         39/42  dom/nodes/MutationObserver-attributes.html
 OK           1/1  dom/nodes/MutationObserver-callback-arguments.html
 OK           3/3  dom/nodes/MutationObserver-callback-order.window.html
 OK           2/2  dom/nodes/MutationObserver-callback-tricky.html
-ERROR      12/12  dom/nodes/MutationObserver-characterData.html
+OK         19/23  dom/nodes/MutationObserver-characterData.html
+  FAIL      characterData Range.deleteContents: child and data removal mutation
+  FAIL      characterData Range.deleteContents: child and data removal mutation (2)
+  FAIL      characterData Range.extractContents: child and data removal mutation
+  FAIL      characterData Range.extractContents: child and data removal mutation (2)
 TIMEOUT    29/40  dom/nodes/MutationObserver-childList.html
   TIMEOUT   childList Node.insertBefore: fragment removal mutations
   TIMEOUT   childList Node.appendChild: fragment removal mutations
@@ -1366,8 +1302,7 @@ OK           3/3  dom/nodes/MutationObserver-inner-outer.html
 OK           3/3  dom/nodes/MutationObserver-overlapping-registrations.html
 OK         16/16  dom/nodes/MutationObserver-sanity.html
 OK           3/3  dom/nodes/MutationObserver-takeRecords.html
-ERROR        3/4  dom/nodes/MutationObserver-textContent.html
-  NOTRUN    Setting Element.textContent to the same value when the old node is a CDATASection
+OK           4/4  dom/nodes/MutationObserver-textContent.html
 OK         12/15  dom/nodes/MutationObserver-transient-registered-observers.window.html
   FAIL      A removed subtree is no longer observed after mutation observers are notified, even if no record was queued
   FAIL      A subtree removed from a removed subtree is no longer observed after mutation observers are notified
@@ -1398,27 +1333,136 @@ OK           0/3  dom/nodes/Node-cloneNode-document-with-doctype.html
   FAIL      Created with DOMParser
 OK           2/2  dom/nodes/Node-cloneNode-parser-created-names.html
 OK           4/4  dom/nodes/Node-cloneNode-svg.html
-OK       124/135  dom/nodes/Node-cloneNode.html
+OK       125/135  dom/nodes/Node-cloneNode.html
   FAIL      createElement(dir)
   FAIL      createElement(font)
   FAIL      createElement(frame)
   FAIL      createElement(frameset)
   FAIL      createElementNS HTML
-  FAIL      createProcessingInstruction
   FAIL      createAttribute
   FAIL      createAttributeNS
   FAIL      implementation.createDocumentType
   FAIL      implementation.createDocument
   FAIL      implementation.createHTMLDocument
-ERROR        0/0  dom/nodes/Node-compareDocumentPosition.html
-OK           4/8  dom/nodes/Node-constants.html
-  FAIL      Constants for nodeType on Node interface object.
-  FAIL      Constants for nodeType on Node prototype object.
-  FAIL      Constants for nodeType on Element object.
-  FAIL      Constants for nodeType on Text object.
+OK       1369/1444  dom/nodes/Node-compareDocumentPosition.html
+  FAIL      paras[0].compareDocumentPosition(doctype)
+  FAIL      paras[0].firstChild.compareDocumentPosition(doctype)
+  FAIL      paras[1].firstChild.compareDocumentPosition(doctype)
+  FAIL      paras[5].firstChild.compareDocumentPosition(doctype)
+  FAIL      foreignPara1.compareDocumentPosition(doctype)
+  FAIL      foreignPara1.firstChild.compareDocumentPosition(doctype)
+  FAIL      detachedPara1.compareDocumentPosition(doctype)
+  FAIL      detachedPara1.firstChild.compareDocumentPosition(doctype)
+  FAIL      document.compareDocumentPosition(doctype)
+  FAIL      detachedDiv.compareDocumentPosition(doctype)
+  FAIL      foreignDoc.compareDocumentPosition(doctype)
+  FAIL      foreignPara2.compareDocumentPosition(doctype)
+  FAIL      xmlDoc.compareDocumentPosition(doctype)
+  FAIL      xmlElement.compareDocumentPosition(doctype)
+  FAIL      detachedTextNode.compareDocumentPosition(doctype)
+  FAIL      foreignTextNode.compareDocumentPosition(doctype)
+  FAIL      processingInstruction.compareDocumentPosition(doctype)
+  FAIL      detachedProcessingInstruction.compareDocumentPosition(doctype)
+  FAIL      comment.compareDocumentPosition(doctype)
+  FAIL      detachedComment.compareDocumentPosition(doctype)
+  FAIL      docfrag.compareDocumentPosition(doctype)
+  FAIL      doctype.compareDocumentPosition(paras[0])
+  FAIL      doctype.compareDocumentPosition(paras[0].firstChild)
+  FAIL      doctype.compareDocumentPosition(paras[1].firstChild)
+  FAIL      doctype.compareDocumentPosition(paras[5].firstChild)
+  FAIL      doctype.compareDocumentPosition(foreignPara1)
+  FAIL      doctype.compareDocumentPosition(foreignPara1.firstChild)
+  FAIL      doctype.compareDocumentPosition(detachedPara1)
+  FAIL      doctype.compareDocumentPosition(detachedPara1.firstChild)
+  FAIL      doctype.compareDocumentPosition(document)
+  FAIL      doctype.compareDocumentPosition(detachedDiv)
+  FAIL      doctype.compareDocumentPosition(foreignDoc)
+  FAIL      doctype.compareDocumentPosition(foreignPara2)
+  FAIL      doctype.compareDocumentPosition(xmlDoc)
+  FAIL      doctype.compareDocumentPosition(xmlElement)
+  FAIL      doctype.compareDocumentPosition(detachedTextNode)
+  FAIL      doctype.compareDocumentPosition(foreignTextNode)
+  FAIL      doctype.compareDocumentPosition(processingInstruction)
+  FAIL      doctype.compareDocumentPosition(detachedProcessingInstruction)
+  FAIL      doctype.compareDocumentPosition(comment)
+  FAIL      doctype.compareDocumentPosition(detachedComment)
+  FAIL      doctype.compareDocumentPosition(docfrag)
+  FAIL      doctype.compareDocumentPosition(doctype)
+  FAIL      doctype.compareDocumentPosition(foreignDoctype)
+  FAIL      doctype.compareDocumentPosition(paras[1])
+  FAIL      doctype.compareDocumentPosition(detachedPara2)
+  FAIL      doctype.compareDocumentPosition(detachedPara2.firstChild)
+  FAIL      doctype.compareDocumentPosition(testDiv)
+  FAIL      doctype.compareDocumentPosition(detachedXmlElement)
+  FAIL      doctype.compareDocumentPosition(detachedForeignTextNode)
+  FAIL      doctype.compareDocumentPosition(xmlTextNode)
+  FAIL      doctype.compareDocumentPosition(detachedXmlTextNode)
+  FAIL      doctype.compareDocumentPosition(xmlComment)
+  FAIL      doctype.compareDocumentPosition(foreignComment)
+  FAIL      doctype.compareDocumentPosition(detachedForeignComment)
+  FAIL      doctype.compareDocumentPosition(detachedXmlComment)
+  FAIL      doctype.compareDocumentPosition(foreignDocfrag)
+  FAIL      doctype.compareDocumentPosition(xmlDocfrag)
+  FAIL      doctype.compareDocumentPosition(xmlDoctype)
+  FAIL      foreignDoctype.compareDocumentPosition(doctype)
+  FAIL      paras[1].compareDocumentPosition(doctype)
+  FAIL      detachedPara2.compareDocumentPosition(doctype)
+  FAIL      detachedPara2.firstChild.compareDocumentPosition(doctype)
+  FAIL      testDiv.compareDocumentPosition(doctype)
+  FAIL      detachedXmlElement.compareDocumentPosition(doctype)
+  FAIL      detachedForeignTextNode.compareDocumentPosition(doctype)
+  FAIL      xmlTextNode.compareDocumentPosition(doctype)
+  FAIL      detachedXmlTextNode.compareDocumentPosition(doctype)
+  FAIL      xmlComment.compareDocumentPosition(doctype)
+  FAIL      foreignComment.compareDocumentPosition(doctype)
+  FAIL      detachedForeignComment.compareDocumentPosition(doctype)
+  FAIL      detachedXmlComment.compareDocumentPosition(doctype)
+  FAIL      foreignDocfrag.compareDocumentPosition(doctype)
+  FAIL      xmlDocfrag.compareDocumentPosition(doctype)
+  FAIL      xmlDoctype.compareDocumentPosition(doctype)
+OK           8/8  dom/nodes/Node-constants.html
 ERROR        0/0  dom/nodes/Node-contains-xml.xml
-ERROR        0/0  dom/nodes/Node-contains.html
-OK         10/40  dom/nodes/Node-insertBefore.html
+OK       1443/1482  dom/nodes/Node-contains.html
+  FAIL      doctype.contains(null)
+  FAIL      doctype.contains(paras[0])
+  FAIL      doctype.contains(paras[0].firstChild)
+  FAIL      doctype.contains(paras[1].firstChild)
+  FAIL      doctype.contains(paras[5].firstChild)
+  FAIL      doctype.contains(foreignPara1)
+  FAIL      doctype.contains(foreignPara1.firstChild)
+  FAIL      doctype.contains(detachedPara1)
+  FAIL      doctype.contains(detachedPara1.firstChild)
+  FAIL      doctype.contains(document)
+  FAIL      doctype.contains(detachedDiv)
+  FAIL      doctype.contains(foreignDoc)
+  FAIL      doctype.contains(foreignPara2)
+  FAIL      doctype.contains(xmlDoc)
+  FAIL      doctype.contains(xmlElement)
+  FAIL      doctype.contains(detachedTextNode)
+  FAIL      doctype.contains(foreignTextNode)
+  FAIL      doctype.contains(processingInstruction)
+  FAIL      doctype.contains(detachedProcessingInstruction)
+  FAIL      doctype.contains(comment)
+  FAIL      doctype.contains(detachedComment)
+  FAIL      doctype.contains(docfrag)
+  FAIL      doctype.contains(doctype)
+  FAIL      doctype.contains(foreignDoctype)
+  FAIL      doctype.contains(paras[1])
+  FAIL      doctype.contains(detachedPara2)
+  FAIL      doctype.contains(detachedPara2.firstChild)
+  FAIL      doctype.contains(testDiv)
+  FAIL      doctype.contains(detachedXmlElement)
+  FAIL      doctype.contains(detachedForeignTextNode)
+  FAIL      doctype.contains(xmlTextNode)
+  FAIL      doctype.contains(detachedXmlTextNode)
+  FAIL      doctype.contains(xmlComment)
+  FAIL      doctype.contains(foreignComment)
+  FAIL      doctype.contains(detachedForeignComment)
+  FAIL      doctype.contains(detachedXmlComment)
+  FAIL      doctype.contains(foreignDocfrag)
+  FAIL      doctype.contains(xmlDocfrag)
+  FAIL      doctype.contains(xmlDoctype)
+OK         11/40  dom/nodes/Node-insertBefore.html
   FAIL      Should check the 'parent' type before checking whether 'child' is a child of 'parent'
   FAIL      Should check that 'node' is not an ancestor of 'parent' before checking whether 'child' is a child of 'parent'
   FAIL      If node is not a DocumentFragment, DocumentType, Element, Text, ProcessingInstruction, or Comment node, then throw a HierarchyRequestError DOMException.
@@ -1433,7 +1477,6 @@ OK         10/40  dom/nodes/Node-insertBefore.html
   FAIL      Calling insertBefore an a leaf node DocumentType must throw HIERARCHY_REQUEST_ERR.
   FAIL      Calling insertBefore an a leaf node Text must throw HIERARCHY_REQUEST_ERR.
   FAIL      Calling insertBefore an a leaf node Comment must throw HIERARCHY_REQUEST_ERR.
-  FAIL      Calling insertBefore with a non-Node first argument on a leaf node ProcessingInstruction must throw TypeError.
   FAIL      Calling insertBefore an a leaf node ProcessingInstruction must throw HIERARCHY_REQUEST_ERR.
   FAIL      If the context node is a document, inserting a document or text node should throw a HierarchyRequestError.
   FAIL      If the context node is a document, inserting a DocumentFragment that contains a text node or too many elements should throw a HierarchyRequestError.
@@ -1452,12 +1495,11 @@ OK         10/40  dom/nodes/Node-insertBefore.html
 OK           2/2  dom/nodes/Node-isConnected-shadow-dom.html
 OK           1/2  dom/nodes/Node-isConnected.html
   FAIL      Test with iframes
-ERROR        0/0  dom/nodes/Node-isEqualNode-xhtml.xhtml
-OK           7/9  dom/nodes/Node-isEqualNode.html
+TIMEOUT    13/14  dom/nodes/Node-isEqualNode-xhtml.xhtml
+  NOTRUN    isEqualNode should return true when only the internal subsets of DocumentTypes differ.
+OK           8/9  dom/nodes/Node-isEqualNode.html
   FAIL      elements should be compared on attribute namespace, local name, and value
-  FAIL      processing instructions should be compared on target and data
-OK           8/9  dom/nodes/Node-isSameNode.html
-  FAIL      processing instructions should be compared on reference
+OK           9/9  dom/nodes/Node-isSameNode.html
 OK          0/75  dom/nodes/Node-lookupNamespaceURI.html
   FAIL      DocumentFragment should have null namespace, prefix null
   FAIL      DocumentFragment should have null namespace, prefix ""
@@ -1548,9 +1590,8 @@ OK          0/11  dom/nodes/Node-lookupPrefix.xhtml
   FAIL      Node.lookupPrefix 10
 OK           1/2  dom/nodes/Node-mutation-adoptNode.html
   FAIL      Adopting an element into a different document update's the element's owner doc as well as the owner docs of it's attributes
-OK           4/7  dom/nodes/Node-nodeName-xhtml.xhtml
+OK           5/7  dom/nodes/Node-nodeName-xhtml.xhtml
   FAIL      For Element nodes, nodeName should return the same as tagName.
-  FAIL      For ProcessingInstruction nodes, nodeName should return the target.
   FAIL      For DocumentType nodes, nodeName should return the name.
 OK           5/6  dom/nodes/Node-nodeName.html
   FAIL      For DocumentType nodes, nodeName should return the name.
@@ -1564,14 +1605,49 @@ OK           1/7  dom/nodes/Node-nodeValue.html
 OK           0/2  dom/nodes/Node-normalize-2.html
   FAIL      normalize should move range's end boundary point into t1
   FAIL      normalize should move range's start boundary point into t1
-OK           3/4  dom/nodes/Node-normalize.html
-  FAIL      Non-text nodes with empty textContent values.
+OK           4/4  dom/nodes/Node-normalize.html
 OK         11/12  dom/nodes/Node-parentElement.html
   FAIL      When the parent is a document, parentElement should be null (doctype)
 TIMEOUT      3/5  dom/nodes/Node-parentNode.html
   FAIL      Doctype
   NOTRUN    Removed iframe
-ERROR        0/0  dom/nodes/Node-properties.html
+OK       690/726  dom/nodes/Node-properties.html
+  FAIL      document.childNodes[0]
+  FAIL      document.textContent
+  FAIL      document.nodeValue
+  FAIL      document.inputEncoding
+  FAIL      document.charset
+  FAIL      foreignDoc.textContent
+  FAIL      foreignDoc.nodeValue
+  FAIL      foreignDoc.inputEncoding
+  FAIL      foreignDoc.charset
+  FAIL      xmlDoc.textContent
+  FAIL      xmlDoc.nodeValue
+  FAIL      xmlDoc.inputEncoding
+  FAIL      xmlDoc.charset
+  FAIL      docfrag.nodeValue
+  FAIL      foreignDocfrag.nodeValue
+  FAIL      xmlDocfrag.nodeValue
+  FAIL      doctype.nodeType
+  FAIL      doctype.ownerDocument
+  FAIL      doctype.parentNode
+  FAIL      doctype.previousSibling
+  FAIL      doctype.nextSibling
+  FAIL      doctype.name
+  FAIL      doctype.publicId
+  FAIL      doctype.systemId
+  FAIL      doctype.nodeName
+  FAIL      doctype.childNodes.length
+  FAIL      doctype.textContent
+  FAIL      doctype.nodeValue
+  FAIL      doctype.parentElement
+  FAIL      doctype.lastChild
+  FAIL      doctype.firstChild
+  FAIL      doctype.hasChildNodes()
+  FAIL      foreignDoctype.textContent
+  FAIL      foreignDoctype.nodeValue
+  FAIL      xmlDoctype.textContent
+  FAIL      xmlDoctype.nodeValue
 OK         28/28  dom/nodes/Node-removeChild.html
 OK         11/29  dom/nodes/Node-replaceChild.html
   FAIL      Should check the 'parent' type before checking whether 'child' is a child of 'parent'
@@ -1592,47 +1668,12 @@ OK         11/29  dom/nodes/Node-replaceChild.html
   FAIL      If the context node is an element, inserting a document or a doctype should throw a HierarchyRequestError.
   FAIL      Replacing a node with itself should not move the node
   FAIL      If the context node is a document, inserting a new doctype should work.
-OK         36/81  dom/nodes/Node-textContent.html
-  FAIL      Element with children
-  FAIL      Element with descendants
-  FAIL      DocumentFragment with children
-  FAIL      DocumentFragment with descendants
-  FAIL      For an empty ProcessingInstruction, textContent should be the empty string
-  FAIL      For a ProcessingInstruction with data, textContent should be that data
+OK         71/81  dom/nodes/Node-textContent.html
   FAIL      For Documents created by parser, textContent should be null
   FAIL      For Documents created by createDocument, textContent should be null
   FAIL      For Documents created by createHTMLDocument, textContent should be null
   FAIL      For DocumentType created by parser, textContent should be null
   FAIL      For DocumentType created by script, textContent should be null
-  FAIL      Element with children set to null
-  FAIL      Element with descendants set to null
-  FAIL      DocumentFragment with children set to null
-  FAIL      DocumentFragment with descendants set to null
-  FAIL      Element with children set to undefined
-  FAIL      Element with descendants set to undefined
-  FAIL      DocumentFragment with children set to undefined
-  FAIL      DocumentFragment with descendants set to undefined
-  FAIL      Element with children set to ""
-  FAIL      Element with descendants set to ""
-  FAIL      DocumentFragment with children set to ""
-  FAIL      DocumentFragment with descendants set to ""
-  FAIL      Element with children set to 42
-  FAIL      Element with descendants set to 42
-  FAIL      DocumentFragment with children set to 42
-  FAIL      DocumentFragment with descendants set to 42
-  FAIL      Element with children set to "abc"
-  FAIL      Element with descendants set to "abc"
-  FAIL      DocumentFragment with children set to "abc"
-  FAIL      DocumentFragment with descendants set to "abc"
-  FAIL      Element with children set to "<b>xyz</b>"
-  FAIL      Element with descendants set to "<b>xyz</b>"
-  FAIL      DocumentFragment with children set to "<b>xyz</b>"
-  FAIL      DocumentFragment with descendants set to "<b>xyz</b>"
-  FAIL      Element with children set to "d\\0e"
-  FAIL      Element with descendants set to "d\\0e"
-  FAIL      DocumentFragment with children set to "d\\0e"
-  FAIL      DocumentFragment with descendants set to "d\\0e"
-  FAIL      For a ProcessingInstruction, textContent should set the data
   FAIL      For Documents created by parser, setting textContent should do nothing
   FAIL      For Documents created by createDocument, setting textContent should do nothing
   FAIL      For Documents created by createHTMLDocument, setting textContent should do nothing
@@ -1750,8 +1791,7 @@ TIMEOUT    17/31  dom/nodes/ParentNode-replaceChildren.html
   TIMEOUT   There should be a MutationRecord for the node removed from another parent node.
   TIMEOUT   There should be MutationRecords for the nodes removed from another parent node.
 ERROR        0/0  dom/nodes/ProcessingInstruction-escapes-1.xhtml
-OK           0/1  dom/nodes/ProcessingInstruction-in-doctype.xhtml
-  FAIL      XML: Processing instruction in doctype internal subset
+OK           1/1  dom/nodes/ProcessingInstruction-in-doctype.xhtml
 OK           0/1  dom/nodes/ProcessingInstruction-literal-1.xhtml
   FAIL      <?xml?> is not a ProcessingInstruction
 OK           0/1  dom/nodes/ProcessingInstruction-literal-2.xhtml
@@ -3023,9 +3063,5 @@ OK           0/6  dom/nodes/remove-unscopable.html
   FAIL      remove() should be unscopable
   FAIL      prepend() should be unscopable
   FAIL      append() should be unscopable
-OK           1/5  dom/nodes/rootNode.html
-  FAIL      getRootNode() must return the context object when it does not have any parent
-  FAIL      getRootNode() must return the parent node of the context object when the context object has a single ancestor not in a document
-  FAIL      getRootNode() must return the document when a node is in document
-  FAIL      getRootNode() must return a document fragment when a node is in the fragment
+OK           5/5  dom/nodes/rootNode.html
 OK           3/3  dom/nodes/svg-template-querySelector.html
