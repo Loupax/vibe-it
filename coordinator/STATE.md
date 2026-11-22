@@ -387,3 +387,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Merged #624 QCNV5 a6b43f0. AGENT_RULES: no silent CI re-runs.
 - 2026-11-22 #626 QDOM5d+QIFRNAV READY (unload events on iframe nav; document.open erases listeners = url-fragment fix), merging; QDOM5d remainder filed as QDOM5e. Launched QGEOM1.
 - 2026-11-22 Merged #626 QIFRNAV 2f6c296.
+- 2026-11-22 #627 QCNV6 READY (paths/fill rules/clip; element 38.0, offscreen 42.1, TOTAL 42.1), merging. Launched QCNV7 (after #627).

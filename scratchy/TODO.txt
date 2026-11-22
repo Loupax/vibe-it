@@ -180,7 +180,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       for lineCap/shadowBlur and similar state; colour objects (CSSRGB/CSSHSL) wait for Typed OM.
 - [ ] [WIP] QCNV6 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Sonnet; in order after the items above) Paths, nonzero/evenodd fill rules, clip. 144 files.
-- [ ] QCNV7 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+- [ ] [WIP] QCNV7 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Sonnet; in order after the items above) arc, arcTo, ellipse, bezier/quadratic curves, roundRect. 174
       files.
 - [ ] QCNV8 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
