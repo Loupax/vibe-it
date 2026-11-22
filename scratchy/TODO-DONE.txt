@@ -9586,3 +9586,9 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- (no header)
 - [x] QWPTFLK4 DONE 28e4a2a #620 [S] (P3, from QWPT8 #615; Sonnet) html/webappapis/atob/base64.any.html: 380 subtests in one CI run vs 286
       locally/main; flaky-listed by #615. Find the cause (time budget? generated cases?) and take it off flaky.txt.
+
+=== from TODO.txt: --- (no header)
+- [x] QCNV3 DONE 6d1938a #619 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+      (QCNV2)"); Sonnet) QCNV1 leftovers: width/height reflection, toStringTag/descriptors, brand checks, ImageData
+      edges, style toString, currentcolor, colour serialisation (start with color.window.html 0/15),
+      lab/color()/color-mix; canvas registry keyed by id, not node address. ~49 files.
