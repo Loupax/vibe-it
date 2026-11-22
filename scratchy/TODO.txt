@@ -82,6 +82,8 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       keeps one compositor per worktree: a pid file under the nest dir; if a live dwl from this worktree exists, print its
       socket and PID and reuse it (or refuse with the PID, flag `--new` kills the old one first). `nest.sh --stop` kills it
       by the recorded PID. Test with two calls in a row: one dwl.
+- [ ] QHOV2 [S] (P3, from QHOV1 #604; Sonnet; app.rs damage paint) Damage-rect repaint for pages without :hover/:active
+      rules (JS class-toggle hovers); avoid the 4 MB kept-page copy by tracking buffer age.
 - [ ] QYTS1 [S] (P3, from QINC1m #597 live session; Sonnet) YouTube Shorts opened from the results page shows blank and
       scrolled sideways in a nested window (main showed a stuck black player in a similar run). Reproduce with a recording,
       find the cause.
@@ -98,6 +100,10 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       (space-between, center, end), `unsafe` overflow, `justify-items: legacy` inheritance, safe/unsafe in serialisation.
 - [ ] [WIP] QCSS-D [S] (P2, from QAPI8 #578; Sonnet; css.rs, paint) `filter`, `backdrop-filter`, `text-shadow`, `mix-blend-mode`,
       `clip-path` basic shapes.
+- [ ] QCSS-D2 [S] (P3, from QCSS-D #601; Sonnet; transition.rs, fx.rs) Effects leftovers: transitions of filter,
+      backdrop-filter, text-shadow and clip-path interpolation; `inset() round` per-corner radii and 3-4 value `at` offsets
+      for circle/ellipse; text directly inside a filtered inline element, per-span text-shadow; apply an effect box's opacity
+      after its filter; bound the interned filter-list table; a filtered-layer cache if a real page proves slow.
 - [ ] QCSS-E [S] (P2, from QAPI8 #578; Sonnet; css.rs, layout/paint) Per-corner radii, `outline-offset`, `transform-origin`,
       `border-spacing`, `letter-spacing`, `direction`.
 - [ ] QCSS-F [S] (P3, from QAPI8 #578; Sonnet) `pointer-events` in hit testing (6 sites, 1 543 hits); parse `user-select`,

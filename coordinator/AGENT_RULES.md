@@ -115,3 +115,7 @@ comparisons use the same cache setting on both sides (say which).
 If the tool permission layer or the sandbox denies a command, do not rephrase, obfuscate or split it to
 get it past the check (e.g. `$(echo gi)thub`), and do not ask the coordinator to run it for you. Skip
 that step, and say in your report what was denied and what you skipped. (2026-11-22, QFF1b #598.)
+
+## Nested compositor helper (QNEST1 #603)
+tools/nest.sh reuses the worktree's live dwl (registry `.qwork/nest`). Call `tools/nest.sh --stop` before your final
+reply instead of hunting PIDs; `--new` forces a fresh one. Never start dwl any other way.
