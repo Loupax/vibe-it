@@ -19,7 +19,17 @@ BASE=$(git merge-base "$HEAD" origin/main)
 CODE=$(git diff --name-only "$BASE" origin/main | grep -Ev '^(PROMPTS\.md|README\.md)$|^scratchy/(TODO\.txt|TODO-DONE\.txt|PROMPTS\.md|REGRESSIONS\.md|PERF\.md|NOTES\.md|AGENTS\.md|QUESTIONS\.md|HANDOFF\.md)$' | head -1)
 # all checks SUCCESS (4 jobs today; 3 after QV8-6 drops scratchy-quickjs)
 green() { [ "$(gh pr view "$N" --json statusCheckRollup -q '([.statusCheckRollup[]|select(.conclusion=="SUCCESS")]|length) as $ok | (.statusCheckRollup|length) as $all | if $all>=3 and $ok==$all then "y" else "n" end')" = y ]; }
-waitci() { sleep 40; timeout 2700 gh pr checks "$N" --watch >/dev/null 2>&1; green; }
+# Wait until CI has registered checks for the PR's CURRENT head commit (under load this took > 40 s and
+# `gh pr checks --watch` then returned at once with no checks: false "CI NOT green", #580 2026-11-22), then watch.
+waitci() {
+  local sha i n; sha=$(gh pr view "$N" --json headRefOid -q .headRefOid)
+  for i in $(seq 1 60); do
+    n=$(gh api "repos/{owner}/{repo}/commits/$sha/check-runs" -q '.total_count' 2>/dev/null || echo 0)
+    [ "${n:-0}" -ge 4 ] && break
+    sleep 10
+  done
+  timeout 2700 gh pr checks "$N" --watch >/dev/null 2>&1; green
+}
 # user rule (session 2): ALWAYS rebase onto the latest main; ANY conflict -> exit 2 (back to the agent);
 # a clean rebase that changed the head -> force-push and wait for CI again.
 W=$PAD/mq-$N; rm -rf "$W"; git worktree prune

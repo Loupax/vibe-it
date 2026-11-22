@@ -277,3 +277,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #579 QWPT6c rebased (scratchy-wpt 4:30), queued after #583. Launched QEL2b (Opus).
 - 2026-11-22 Merged #583 QDOM19 5782333 (name validation).
 - 2026-11-22 #584 QCSS-A READY (svg fill/stroke from CSS; youtube icons paint) but hover fill rules became Effect::Layout: asked for a live hover cost measurement before merge.
+- 2026-11-22 Merged #579 QWPT6c 1ed4608 (dom long files). Queue empty: applied merge_pr.sh waitci fix (waits until >= 4 check runs exist for the PR head sha, up to 10 min, then watches).

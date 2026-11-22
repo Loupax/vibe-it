@@ -9361,3 +9361,9 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       toggleAttribute, createDocumentType, createDocument. WPT: nodes/DOMImplementation-createDocumentType,
       DOMImplementation-createDocument, Document-createElementNS, Document-createAttribute, Document-createElement,
       attributes, name-validation (timeout=long). Target: nodes +0.3 (many subtests in few files).
+
+=== from TODO.txt: --- (no header)
+- [x] QWPT6c DONE 1ed4608 #579 [S] (P2; Sonnet; tools/wpt-subset.py; R65 2.1; after QDOM6, QDOM8) Include the dom/* timeout=long files
+      (46: the core Range-*, NodeIterator, TreeWalker, Document-characterSet-normalization-1/2, ParentNode-querySelector-
+      All, NodeList-static-length-getter-tampered-*). With the virtual clock they are cheap (all 46 ran in 9 s at 4 jobs).
+      31 of them ERROR at `xmlDocument.createCDATASection` today, so measure their wall time again after QDOM8.
