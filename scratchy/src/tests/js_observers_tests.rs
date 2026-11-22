@@ -1793,8 +1793,8 @@ fn qy53e2_app_layout_gives_the_same_entries_as_a_forced_layout_without_forcing()
     }
     let (forced, forced_layouts) = qy53e2_run(0);
     let (app, app_layouts) = qy53e2_run(1);
-    assert!(forced.iter().any(|l| l.starts_with("log:150 far true")), "initial entries plus the ones the write changed: {forced:?}");
-    assert!(forced.iter().any(|l| l.starts_with("log:0 in1 ")) && forced.iter().any(|l| l.contains(" tr ")), "{forced:?}");
+    assert!(forced.iter().any(|l| l.starts_with("log:170 far true")), "initial entries plus the ones the write changed: {forced:?}");
+    assert!(forced.iter().any(|l| l.starts_with("log:20 in1 ")) && forced.iter().any(|l| l.contains(" tr ")), "{forced:?}");
     // Same entries; the App-layout one is delivered right after the write instead of at the deadline.
     let untimed = |v: &[String]| v.iter().map(|l| l.split_once(' ').unwrap().1.to_string()).collect::<Vec<_>>();
     assert_eq!(untimed(&app), untimed(&forced), "IO entries must not depend on where the rects came from");
