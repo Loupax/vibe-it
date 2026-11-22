@@ -1782,7 +1782,8 @@ impl App {
         let mut fast: Option<Vec<(u32, u32, u32, u32)>> = None;
         // QHOV1: the key a full paint's page is kept under for the next damage repaint.
         let mut keep_key: Option<PaintKey> = None;
-        let overlays = video_on || self.search.highlight || self.select_popup.is_some();
+        // (A page without a `<video>` paints no video box, so the media backend alone is no overlay.)
+        let overlays = (video_on && (!self.video.boxes.is_empty() || has_video(&self.document))) || self.search.highlight || self.select_popup.is_some();
         // `None` on the very first tick or two, while we're still
         // waiting to see whether the width is about to change again
         // (see `pending_width`); also `None` until the background
@@ -1815,7 +1816,10 @@ impl App {
             // QHOV1: this paint takes the engine's damage (every paint of its own tree does, so the
             // next one starts from this one).
             let damage = crate::incr_layout::owns(laid).then(crate::incr_layout::take_damage);
-            if !overlays && self.state_rules != 0 && damage.is_some() {
+            // SCRATCHY_NO_DAMAGE=1: every hover frame paints the whole page (A/B measurements).
+            static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            let off = *OFF.get_or_init(|| std::env::var_os("SCRATCHY_NO_DAMAGE").is_some());
+            if !off && !overlays && self.state_rules != 0 && damage.is_some() {
                 let mut offsets: Vec<(usize, u32)> = self.scroll_offsets.iter().map(|(k, v)| (*k, v.to_bits())).collect();
                 offsets.sort_unstable();
                 let vb = Self::viewport_bar(&self.cached, (width, page_h));
@@ -5511,6 +5515,11 @@ pub(crate) fn damage_screen_rects(rects: &[crate::layout::Ink], (sx, so): (f32, 
     }
     let area: f32 = out.iter().map(|r| ((r.2 - r.0) * (r.3 - r.1)) as f32).sum();
     (out.len() <= DAMAGE_MAX_RECTS && area <= DAMAGE_MAX_SHARE * (width * page_h) as f32).then_some(out)
+}
+
+/// QHOV1: whether the document has a `<video>` element (its box paints through the media backend).
+fn has_video(h: &Handle) -> bool {
+    (matches!(h.data, NodeData::Element { .. }) && element_tag(h) == "video") || h.children.borrow().iter().any(has_video)
 }
 
 /// QHOV1: paints the screen rect `(l, t, r, b)` of the page afresh into `scratch` (a full-size page;
