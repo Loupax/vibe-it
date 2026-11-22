@@ -129,6 +129,8 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       steps"), and Attr nodes as boundary points (nodes without `__id` today: Range-attribute-nodes). WPT in subset:
       ranges/Range-{clone,delete,extract}Contents-{around-shadow,in-ShadowRoot}, Range-attribute-nodes. Target: ranges
       17.1 -> 30. After QWPT6c also the core Range-* suite.
+- [ ] QDOM5b [S] (P3, from QDOM5 #556; Sonnet; js_dom.rs Range block) Live Range fix-ups for outerHTML /
+      insertAdjacentHTML (`__d_write`) and cross-document adopt; look at the remaining Range-attribute-nodes failures (19/26).
 - [ ] QDOM6b [S] (P2, from QDOM6 #526; Sonnet; js_dom.rs) `createElementNS(null, name)` creates an HTML-namespace element
       (old quirk): use `__d_create_xml` (null namespace, name unchanged) as created XML documents already do. Test + --wpt-th.
 - [ ] QDOM8b [S] (P3, from QDOM8 #539; Sonnet; js_dom.rs serialize) XML serialization: CDATASection as `<![CDATA[..]]>`,
@@ -169,7 +171,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       `__d_query` (the selector parser rejects `te:st`). Returns QDOM2 collections when that has landed. WPT:
       nodes/Node-lookupNamespaceURI, Node-lookupPrefix.xhtml (after QDOM11), case, Document-getElementsByTagName(NS),
       Element-getElementsByTagName(NS), collections/HTMLCollection-empty-name. Target: nodes +1.2.
-- [ ] QDOM15 [S] (P2; Sonnet; js.rs Event ctors, js_dom.rs `doc.createEvent`; R65; after QDOM4) Event interfaces:
+- [ ] [WIP] QDOM15 [S] (P2; Sonnet; js.rs Event ctors, js_dom.rs `doc.createEvent`; R65; after QDOM4) Event interfaces:
       UIEvent/MouseEvent/KeyboardEvent/FocusEvent/WheelEvent/InputEvent/CompositionEvent constructors read their init
       dictionaries (`view` must be a Window or null: TypeError otherwise, `detail`, modifier keys...), `Event.NONE/
       CAPTURING_PHASE/AT_TARGET/BUBBLING_PHASE` on the constructor and prototype, `createEvent` accepts the spec's
