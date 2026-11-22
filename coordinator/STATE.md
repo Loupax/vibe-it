@@ -241,3 +241,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Merged #568 QANIMHLb 533ed33 (CSS transitions).
 - 2026-11-22 #560 QDOM17 merge: rebase CONFLICT in js_dom.rs (after #565/#566/#568). Rebase queued for next free slot (5 running). #569 merging.
 - 2026-11-22 Merged #569 QAPI1 27679e8 (trustedTypes).
+- 2026-11-22 #549 QDOM16 READY rebased on QDOMATOM: append subtest passes, no pass->fail; user question moot. Merging; then #560 rebase.
