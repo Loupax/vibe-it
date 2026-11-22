@@ -2958,7 +2958,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     } else {
       w = toUL(a); h = toUL(b);
       if (!(w > 0) || !(h > 0)) throw domErr("Failed to construct 'ImageData': The source " + (w > 0 ? 'height' : 'width') + " is zero or not a number.", 'IndexSizeError');
-      if (w * h * 4 > 1073741824) throw domErr("Failed to construct 'ImageData': The requested image size exceeds the supported range.", 'IndexSizeError');
+      if (w * h * 4 > 1073741824) throw new RangeError("Failed to construct 'ImageData': The requested image size exceeds the supported range.");
       data = new Uint8ClampedArray(w * h * 4);
       opt = c;
     }
@@ -3031,6 +3031,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (w === 0 || h === 0) throw domErr("Failed to execute 'getImageData' on 'CanvasRenderingContext2D': The source width or height is zero.", 'IndexSizeError');
     if (w < 0) { x += w; w = -w; }
     if (h < 0) { y += h; h = -h; }
+    if (w * h * 4 > 1073741824) throw new TypeError("Failed to execute 'getImageData' on 'CanvasRenderingContext2D': Out of memory at ImageData creation");
     var out = new ImageData(w, h);
     var bytes = g.__cv_get_image(this.__el.__id, x, y, w, h);
     if (bytes) out.data.set(bytes);

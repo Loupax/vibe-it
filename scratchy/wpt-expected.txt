@@ -492,7 +492,7 @@ PASS css/css-sizing/box-sizing-border-box-001.xht
 PASS css/css-sizing/div-fit-content-auto-margin.tentative.html
 PASS css/css-sizing/fit-content-max-inline-size.tentative.html
 FAIL css/css-sizing/intrinsic-percent-replaced-018.html
-FAIL css/css-sizing/replaced-percent-min-width-max-content.html
+PASS css/css-sizing/replaced-percent-min-width-max-content.html
 FAIL css/css-sizing/stretch-function-block-size-vertical-001.html
 PASS css/css-tables/absolute-tables-007.html
 PASS css/css-tables/background-clip-001.html
