@@ -579,6 +579,7 @@ fn inherited_changed(a: &ComputedStyle, b: &ComputedStyle) -> bool {
         || a.text_align != b.text_align
         || a.line_height != b.line_height
         || a.visibility != b.visibility
+        || a.svg != b.svg
         || a.cursor != b.cursor
         || a.word_spacing != b.word_spacing
         || a.border_collapse != b.border_collapse

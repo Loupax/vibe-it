@@ -318,7 +318,50 @@ pub(crate) fn take_wanted_img_srcs() -> Vec<String> {
 /// standalone document needs, and substituting every `currentColor` with
 /// the element's computed `color` (resvg has no inherited CSS `color` to
 /// resolve it against).
+#[cfg(test)]
 pub(crate) fn serialize_inline_svg(handle: &Handle, color: TextColor) -> String {
+    serialize_inline_svg_styled(handle, color, None)
+}
+
+/// QCSS-A: the initial value of `SVG_KEYS[i]`, for `inherit`/`initial` over a presentation attribute.
+fn svg_initial(i: usize) -> &'static str {
+    ["rgba(0,0,0,1)", "none", "1", "butt", "miter", "1", "1"][i]
+}
+
+/// QCSS-A: the `style` declarations that carry the cascaded SVG paint properties of `style` into the
+/// serialized markup: every property declared by CSS on this element (CSS beats presentation
+/// attributes), and on the root also the ones inherited from the HTML ancestors (unless the root has
+/// the presentation attribute). `currentColor` is this element's computed `color`.
+fn svg_decl_text(style: &ComputedStyle, root: bool, attrs: &[html5ever::Attribute]) -> String {
+    let Some(p) = style.svg else { return String::new() };
+    let mut out = String::new();
+    for (i, key) in crate::style::SVG_KEYS.iter().enumerate() {
+        let declared = p.decl & (1 << i) != 0;
+        if !declared {
+            let has_attr = attrs.iter().any(|a| a.name.prefix.is_none() && a.name.local.as_ref() == *key);
+            if !(root && p.vals[i].is_some() && !has_attr) {
+                continue;
+            }
+        }
+        let v = p.vals[i].unwrap_or_else(|| svg_initial(i));
+        let c = style.color;
+        let v = if v.contains("currentColor") {
+            v.replace("currentColor", &format!("rgba({},{},{},{})", c.r(), c.g(), c.b(), c.a() as f32 / 255.0))
+        } else {
+            v.to_string()
+        };
+        out.push_str(&format!("{key}:{v};"));
+    }
+    out
+}
+
+/// QCSS-A: `serialize_inline_svg` with the cascaded SVG paint properties of the root (`style`) and of
+/// every descendant (styled through `rules`) written into `style` attributes.
+pub(crate) fn serialize_inline_svg_styled(
+    handle: &Handle,
+    color: TextColor,
+    styled: Option<(&ComputedStyle, &[StyleRule], f32)>,
+) -> String {
     fn esc(out: &mut String, s: &str, attr: bool) {
         for c in s.chars() {
             match c {
@@ -330,7 +373,13 @@ pub(crate) fn serialize_inline_svg(handle: &Handle, color: TextColor) -> String 
             }
         }
     }
-    fn walk(node: &Handle, out: &mut String, root: bool) {
+    fn walk(
+        node: &Handle,
+        out: &mut String,
+        root: bool,
+        styled: Option<(&ComputedStyle, &[StyleRule], f32)>,
+        inh: InheritedStyle,
+    ) {
         match &node.data {
             NodeData::Text { contents } => esc(out, &contents.borrow(), false),
             NodeData::Element { name, attrs, .. } => {
@@ -339,6 +388,20 @@ pub(crate) fn serialize_inline_svg(handle: &Handle, color: TextColor) -> String 
                 out.push_str(tag);
                 let attrs = attrs.borrow();
                 let (mut has_ns, mut has_xlink) = (false, false);
+                // QCSS-A: this element's style (the root's is the caller's), when it can carry paint.
+                let own: Option<ComputedStyle> = styled.and_then(|(rs, rules, vw)| {
+                    if root {
+                        Some(*rs)
+                    } else if matches!(tag.to_ascii_lowercase().as_str(), "style" | "title" | "desc" | "metadata" | "script" | "defs" | "lineargradient"
+                        | "radialgradient" | "stop" | "clippath" | "mask" | "filter" | "pattern" | "symbol" | "marker")
+                    {
+                        None
+                    } else {
+                        Some(resolve_style(node, rules, inh, vw))
+                    }
+                });
+                let decl = own.as_ref().map(|s| svg_decl_text(s, root, &attrs)).unwrap_or_default();
+                let mut wrote_style = false;
                 for a in attrs.iter() {
                     let local = a.name.local.as_ref();
                     match a.name.prefix.as_ref().map(|p| p.as_ref()) {
@@ -352,6 +415,18 @@ pub(crate) fn serialize_inline_svg(handle: &Handle, color: TextColor) -> String 
                         }
                     }
                     esc(out, a.value.as_ref(), true);
+                    if a.name.prefix.is_none() && local == "style" && !decl.is_empty() {
+                        wrote_style = true;
+                        if !a.value.trim_end().ends_with(';') && !a.value.trim().is_empty() {
+                            out.push(';');
+                        }
+                        esc(out, &decl, true);
+                    }
+                    out.push('"');
+                }
+                if !decl.is_empty() && !wrote_style {
+                    out.push_str(" style=\"");
+                    esc(out, &decl, true);
                     out.push('"');
                 }
                 if root {
@@ -363,8 +438,9 @@ pub(crate) fn serialize_inline_svg(handle: &Handle, color: TextColor) -> String 
                     }
                 }
                 out.push('>');
+                let child_inh = own.as_ref().map_or(inh, |s| s.inherited());
                 for child in node.children.borrow().iter() {
-                    walk(child, out, false);
+                    walk(child, out, false, styled, child_inh);
                 }
                 out.push_str("</");
                 out.push_str(tag);
@@ -374,7 +450,7 @@ pub(crate) fn serialize_inline_svg(handle: &Handle, color: TextColor) -> String 
         }
     }
     let mut xml = String::new();
-    walk(handle, &mut xml, true);
+    walk(handle, &mut xml, true, styled, styled.map_or(ROOT_STYLE, |(s, _, _)| s.inherited()));
     let replacement = if color.a() == 255 {
         format!("rgb({},{},{})", color.r(), color.g(), color.b())
     } else {
@@ -398,14 +474,19 @@ pub(crate) fn serialize_inline_svg(handle: &Handle, color: TextColor) -> String 
 /// `resolve_img` (CSS `width`/`height`, else the unitless HTML
 /// attributes), then the serialized subtree is rasterized at the
 /// resulting size. `None` when the markup doesn't parse as SVG.
-pub(crate) fn resolve_inline_svg(handle: &Handle, mut style: ComputedStyle) -> (ComputedStyle, Option<Arc<DecodedImage>>) {
+pub(crate) fn resolve_inline_svg(
+    handle: &Handle,
+    mut style: ComputedStyle,
+    rules: &[StyleRule],
+    viewport_width: f32,
+) -> (ComputedStyle, Option<Arc<DecodedImage>>) {
     if style.width.is_none() {
         style.width = img_size_length(handle, "width");
     }
     if style.height.is_none() {
         style.height = img_size_length(handle, "height");
     }
-    let xml = canonical_svg_ids(serialize_inline_svg(handle, style.color));
+    let xml = canonical_svg_ids(serialize_inline_svg_styled(handle, style.color, Some((&style, rules, viewport_width))));
     let decoded = decode_inline_svg(xml).map(|d| svg_at_css_size(d, &style));
     (style, decoded)
 }
@@ -676,7 +757,7 @@ fn build_box_for_element_body(
         return LayoutBox { style, background_image, content: BoxContent::Inline(Vec::new()) };
     }
     if element_tag(handle) == "svg" {
-        let (style, decoded) = resolve_inline_svg(handle, style);
+        let (style, decoded) = resolve_inline_svg(handle, style, rules, viewport_width);
         let content = match decoded {
             Some(image) => BoxContent::Image(image),
             None => BoxContent::Inline(Vec::new()),
@@ -2014,7 +2095,7 @@ pub(crate) fn collect_real_nodes(
                 } else if tag == "svg" && !matches!(style.display, Display::Block | Display::Table | Display::Flex | Display::Grid) {
                     // Inline `<svg>`: a replaced inline item like `<img>`.
                     let background_image = resolve_background_image(child, rules, viewport_width, style.custom_props, image_cache);
-                    let (svg_style, decoded) = resolve_inline_svg(child, style);
+                    let (svg_style, decoded) = resolve_inline_svg(child, style, rules, viewport_width);
                     if let Some(image) = decoded {
                         pending.push(InlineItem::Image { image, style: svg_style, background_image });
                     }

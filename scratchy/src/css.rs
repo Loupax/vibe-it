@@ -1191,6 +1191,9 @@ pub(crate) struct Declarations {
     /// `text-indent` (QW2): a `<length>` only (`%` unsupported).
     pub(crate) text_indent: Option<Length>,
     pub(crate) visibility: Option<Visibility>,
+    /// QCSS-A: the SVG paint properties, in `SVG_KEYS` order, as canonical text (a colour is
+    /// `rgba(r,g,b,a)`, `currentColor` stays a keyword). All inherited; see `style::SvgProps`.
+    pub(crate) svg: [Option<String>; 7],
     pub(crate) outline_width: Option<Length>,
     pub(crate) outline_color: Option<CssColor>,
     /// `Some(ShadowDecl::None)` for an explicit `box-shadow: none` — a
@@ -4658,6 +4661,9 @@ impl Declarations {
                         if key.starts_with("animation-") {
                             self.clear_animation(key);
                         }
+                        if let Some(i) = crate::style::SVG_KEYS.iter().position(|k| *k == key) {
+                            self.svg[i] = None;
+                        }
                         if let Some((i, kind)) = border_key(key) {
                             match kind {
                                 'w' => self.border_width[i] = None,
@@ -5198,6 +5204,10 @@ impl DeclParser<'_> {
                 lp |= ["layout", "paint", "strict", "content"].iter().any(|k| ident.eq_ignore_ascii_case(k));
             }
             self.decls.contain_lp = Some(lp);
+        } else if let Some(i) = crate::style::SVG_KEYS.iter().position(|k| name.eq_ignore_ascii_case(k)) {
+            if let Some(v) = parse_svg_prop(i, input) {
+                self.decls.svg[i] = Some(v);
+            }
         } else if name.eq_ignore_ascii_case("cursor") {
             if let Ok(ident) = input.expect_ident() {
                 self.decls.cursor = cursor_style_from_keyword(ident);
@@ -6411,6 +6421,80 @@ fn compute_custom_props_uncached(own: &HashMap<&str, (u64, &str)>, parent: Optio
 
 /// Q57d: after a single-token value, only an optional `!important` may remain
 /// (`color: orange red` is invalid).
+/// QCSS-A: a colour as the `rgba(...)` text resvg parses.
+fn svg_rgba(t: TextColor) -> String {
+    format!("rgba({},{},{},{})", t.r(), t.g(), t.b(), t.a() as f32 / 255.0)
+}
+
+/// QCSS-A: one SVG paint: `none` | `<color>` | `currentColor` | `context-*`.
+fn parse_svg_paint<'i>(input: &mut CssParser<'i>) -> Option<String> {
+    if let Ok(c) = input.try_parse(|i| CssColor::parse(i).map_err(|_| ())) {
+        if matches!(c, CssColor::CurrentColor) {
+            return Some("currentColor".to_string());
+        }
+        return Some(svg_rgba(to_text_color(&c)?));
+    }
+    let l = input.expect_ident().ok()?.to_ascii_lowercase();
+    matches!(l.as_str(), "none" | "context-fill" | "context-stroke").then_some(l)
+}
+
+/// QCSS-A: parses the value of `SVG_KEYS[i]` into its canonical text (`None`: invalid, the
+/// declaration is dropped). CSS-wide keywords never get here (`wide_keys`).
+pub(crate) fn parse_svg_prop<'i>(i: usize, input: &mut CssParser<'i>) -> Option<String> {
+    let out = match i {
+        // fill, stroke: none | <color> | currentColor | url(...) [none | <color>]
+        0 | 1 => {
+            if let Ok(url) = input.try_parse(|i| i.expect_url().map(|u| u.to_string())) {
+                if url.contains(['"', '\'', ')', ';', '<', '>']) {
+                    return None;
+                }
+                let id = url.trim_start_matches('#');
+                match input.try_parse(|i| parse_svg_paint(i).ok_or(())).ok() {
+                    Some(f) => format!("url(#{id}) {f}"),
+                    None => format!("url(#{id})"),
+                }
+            } else {
+                parse_svg_paint(input)?
+            }
+        }
+        // stroke-width: <length> | <percentage> | <number>
+        2 => match input.next().ok()?.clone() {
+            Token::Number { value, .. } if value >= 0.0 => format!("{value}"),
+            Token::Percentage { unit_value, .. } if unit_value >= 0.0 => format!("{}%", unit_value * 100.0),
+            Token::Dimension { value, unit, .. } if value >= 0.0 => {
+                let u = unit.to_ascii_lowercase();
+                match u.as_str() {
+                    "px" | "em" | "ex" | "in" | "cm" | "mm" | "pt" | "pc" => format!("{value}{u}"),
+                    "rem" => format!("{}", value * 16.0),
+                    _ => return None,
+                }
+            }
+            _ => return None,
+        },
+        3 => {
+            let id = input.expect_ident().ok()?.to_ascii_lowercase();
+            if !matches!(id.as_str(), "butt" | "round" | "square") {
+                return None;
+            }
+            id
+        }
+        4 => {
+            let id = input.expect_ident().ok()?.to_ascii_lowercase();
+            if !matches!(id.as_str(), "miter" | "round" | "bevel" | "miter-clip" | "arcs") {
+                return None;
+            }
+            id
+        }
+        // fill-opacity, stroke-opacity: <number> | <percentage>
+        _ => match input.next().ok()?.clone() {
+            Token::Number { value, .. } => format!("{}", value.clamp(0.0, 1.0)),
+            Token::Percentage { unit_value, .. } => format!("{}", unit_value.clamp(0.0, 1.0)),
+            _ => return None,
+        },
+    };
+    only_important_left(input).then_some(out)
+}
+
 pub(crate) fn only_important_left<'i>(input: &mut CssParser<'i>) -> bool {
     input.is_exhausted()
         || (input.expect_delim('!').is_ok()

@@ -111,6 +111,8 @@ pub(crate) fn style_walk(old: &ComputedStyle, new: &ComputedStyle, f: &mut Field
         vertical_align => L,
         line_height => L,
         visibility => P,
+        // QCSS-A: an inline svg is rasterised when its box is built.
+        svg => B,
         word_spacing => L,
         border_collapse => B,
         text_indent => L,
