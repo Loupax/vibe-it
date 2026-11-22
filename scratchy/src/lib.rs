@@ -84,6 +84,7 @@ mod forms_text;
 mod forms_select;
 mod forms_submit;
 mod paint;
+mod canvas; // QCNV1: Canvas 2D bitmap + first API slice
 mod fx; // QCSS-D: filter, backdrop-filter, text-shadow, mix-blend-mode, clip-path
 mod scrollbar;
 mod net;

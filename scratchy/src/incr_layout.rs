@@ -914,6 +914,35 @@ pub(crate) fn take_damage() -> Option<Damage> {
     })
 }
 
+/// QCNV1: the document rects of the canvas boxes `nodes` (a draw changes their pixels only), or `None` when one
+/// cannot be placed as a plain page rect (not found, or under a fixed / sticky / scroll-region / masked box:
+/// the caller paints everything).
+pub(crate) fn canvas_damage(root: &Laid, nodes: &[usize]) -> Option<Vec<Ink>> {
+    /// The rect of `node` below (or at) `l`, and whether every box down to it is a plain page rect.
+    fn find(l: &Laid, node: usize) -> Option<(Ink, bool)> {
+        crate::stack::grow(|| {
+            let plain = reach_ok_self(l);
+            if l.style.node == node && l.style.pseudo == 0 {
+                return Some((Ink { l: l.x, t: l.y, r: l.x + l.w, b: l.y + l.h }, plain));
+            }
+            let kids: Vec<&Laid> = match &l.content {
+                LaidContent::Blocks(v) | LaidContent::TableRow(v) => v.iter().collect(),
+                LaidContent::MixedInline(items) => items.iter().filter_map(|i| if let MixedPositioned::Embedded(e) = i { Some(&**e) } else { None }).collect(),
+                _ => Vec::new(),
+            };
+            kids.into_iter().chain(l.positioned.iter()).find_map(|c| find(c, node)).map(|(r, ok)| (r, ok && plain))
+        })
+    }
+    let mut out = Vec::new();
+    for &n in nodes {
+        match find(root, n) {
+            Some((r, true)) => out.push(r),
+            _ => return None,
+        }
+    }
+    Some(out)
+}
+
 // ---------- locating a box ----------
 
 #[derive(Clone, Copy, Debug)]

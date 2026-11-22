@@ -2616,6 +2616,7 @@ dependencies = [
  "selectors",
  "softbuffer",
  "sys-locale",
+ "tiny-skia 0.12.0",
  "url",
  "v8",
  "wayland-backend",
