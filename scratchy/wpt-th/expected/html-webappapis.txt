@@ -447,8 +447,7 @@ TIMEOUT      0/1  html/webappapis/microtask-queuing/queue-microtask-exceptions.a
   TIMEOUT   It rethrows exceptions
 OK           5/5  html/webappapis/microtask-queuing/queue-microtask.any.html
 OK           2/2  html/webappapis/microtask-queuing/queue-microtask.window.html
-OK           5/7  html/webappapis/scripting/event-loops/document-without-browsing-context.window.html
-  FAIL      Mutation observer watching a new Document()
+OK           6/7  html/webappapis/scripting/event-loops/document-without-browsing-context.window.html
   FAIL      Mutation observer watching a Document.parseHTMLUnsafe() document
 OK           1/1  html/webappapis/scripting/event-loops/microtask_after_raf.html
 OK           1/1  html/webappapis/scripting/event-loops/microtask_after_script.html
@@ -477,10 +476,7 @@ TIMEOUT      0/3  html/webappapis/scripting/events/compile-event-handler-setting
   TIMEOUT   The Function instance must be created in the Realm of the node document
   TIMEOUT   The entry settings object while executing the compiled callback via Web IDL's invoke must be that of the node document
   TIMEOUT   The incumbent settings object while executing the compiled callback via Web IDL's invoke must be that of the node document
-OK           0/3  html/webappapis/scripting/events/compile-event-handler-symbol-unscopables.html
-  FAIL      unscopable `document.testVariable` doesn't shadow `window.testVariable`
-  FAIL      unscopable `element.testVariable` doesn't shadow `window.testVariable`
-  FAIL      unscopable `formOwner.testVariable` doesn't shadow `window.testVariable`
+OK           3/3  html/webappapis/scripting/events/compile-event-handler-symbol-unscopables.html
 ERROR        0/0  html/webappapis/scripting/events/event-handler-all-global-events.html
 OK           0/3  html/webappapis/scripting/events/event-handler-attributes-no-bc.html
   FAIL      template contents

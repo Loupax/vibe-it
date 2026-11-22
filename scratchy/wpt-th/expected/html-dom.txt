@@ -1986,8 +1986,7 @@ OK           0/3  html/dom/elements/global-attributes/document-dir.html
 OK         17/17  html/dom/elements/global-attributes/id-attribute.html
 OK           5/5  html/dom/elements/global-attributes/id-name-specialcase.html
 OK           1/1  html/dom/elements/global-attributes/id-name.html
-OK           0/1  html/dom/elements/global-attributes/lang-attribute-document-element-replacement.html
-  FAIL      Disconnected descendants of a replaced document element should resolve lang from their actual ancestor
+OK           1/1  html/dom/elements/global-attributes/lang-attribute-document-element-replacement.html
 OK           4/6  html/dom/elements/global-attributes/lang-attribute-shadow.window.html
   FAIL      lang only on host
   FAIL      lang on host and slotted element
