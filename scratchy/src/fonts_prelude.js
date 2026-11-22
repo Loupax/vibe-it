@@ -85,9 +85,8 @@
   Object.defineProperty(FontFace.prototype, 'status', { get: function () { return this.__status; }, configurable: true, enumerable: true });
   Object.defineProperty(FontFace.prototype, 'loaded', { get: function () { return this.__loaded; }, configurable: true, enumerable: true });
   def(FontFace.prototype, 'load', function () {
-    var self = this;
     if (this.__status === 'unloaded') startLoad(this);
-    return this.__loaded.then(function () { return self; });
+    return this.__loaded; // the face's own [[FontStatusPromise]] (spec), already marked handled
   });
 
   // Face state changes are reported to every set holding the face.

@@ -1264,7 +1264,11 @@ OK           0/4  css/cssom/getComputedStyle-insets-relpos-inline-002.html
   FAIL      bottom
   FAIL      left
   FAIL      right
-ERROR        0/0  css/cssom/getComputedStyle-insets-relpos-inline.html
+OK           0/4  css/cssom/getComputedStyle-insets-relpos-inline.html
+  FAIL      OOF with left fixed right auto in relpos inline container
+  FAIL      OOF with left auto right fixed in relpos inline container
+  FAIL      OOF with left fixed right auto in relpos inline container with mixed directions
+  FAIL      OOF with left auto right fixed in relpos inline container with mixed directions
 OK       180/216  css/cssom/getComputedStyle-insets-static.html
   FAIL      horizontal-tb ltr inside horizontal-tb ltr - Percentages resolve as-is
   FAIL      horizontal-tb ltr inside horizontal-tb rtl - Percentages resolve as-is

@@ -6,15 +6,15 @@ dom/ranges                       41     41        16       394     160   40.6   
 dom/observable                   29     29         0       251       0    0.0    0.0
 dom/other                        46     46        32       462     418   90.5   82.9
 domparsing                       93     93        12      3368     366   10.9   23.3
-webidl                           44     44        10       333     179   53.8   44.1
+webidl                           44     44        10       333     180   54.1   44.2
 uievents                         70     62         7       204      75   36.8   13.5
 html/webappapis                 308    307        85      1140     609   53.4   33.0
-resize-observer                  36     35        18        51      30   58.8   59.6
+resize-observer                  36     35        18        54      30   55.6   58.7
 intersection-observer           150    150        21       202      47   23.3   16.5
 html/semantics/scripting-1      419    398       117      2405    1066   44.3   32.8
 html/dom                        180    180        49      3871    1282   33.1   40.7
-css/cssom                       271    269        62      3899    2127   54.6   36.3
-css/cssom-view                  220    218        58      1338     674   50.4   33.0
+css/cssom                       271    269        62      3903    2127   54.5   36.3
+css/cssom-view                  220    218        58      1382     699   50.6   33.5
 encoding                         41     41         7       648     282   43.5   33.2
 url                              44     42        17      7253    5626   77.6   81.1
 streams                          85     85         3      1212     247   20.4   11.2
@@ -23,4 +23,4 @@ webmessaging                    115    115        70       204     118   57.8   
 requestidlecallback               9      9         6        17      14   82.4   75.9
 custom-elements                 204    204        17      2179     681   31.3   18.9
 shadow-dom                      263    263        50      2644     805   30.4   25.5
-TOTAL                          3264   3213       922     42813   23041   53.8   37.3
+TOTAL                          3264   3213       922     42864   23067   53.8   37.3

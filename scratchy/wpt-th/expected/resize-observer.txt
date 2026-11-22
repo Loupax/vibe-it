@@ -48,8 +48,11 @@ OK           0/1  resize-observer/scrollbars.html
 OK           3/4  resize-observer/svg-with-css-box-001.html
   FAIL      test0: observe `foreignObject` SVG in HTML document
 CRASH        0/0  resize-observer/svg-with-css-box-002.svg
-TIMEOUT      1/2  resize-observer/svg.html
+TIMEOUT      1/5  resize-observer/svg.html
   NOTRUN    guard
+  FAIL      test0: observe svg:circle
+  FAIL      test1: observe svg:ellipse
+  FAIL      test2: observe svg:foreignObject
 OK           0/3  resize-observer/zoom-fractional.html
   FAIL      contentRect, contentBoxSize and borderBoxSize are not rounded
   FAIL      devicePixelContentBoxSize is the content box in device pixels

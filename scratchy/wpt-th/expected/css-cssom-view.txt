@@ -424,14 +424,25 @@ OK           0/9  css/cssom-view/elementsFromPoint.html
 OK           4/4  css/cssom-view/getBoundingClientRect-content-visibility-hidden.html
 OK           3/4  css/cssom-view/getBoundingClientRect-empty-inline-002.html
   FAIL      width
-ERROR        0/0  css/cssom-view/getBoundingClientRect-empty-inline.html
+OK           0/1  css/cssom-view/getBoundingClientRect-empty-inline.html
+  FAIL      getBoundingClientRect-empty-inline
 OK           0/1  css/cssom-view/getBoundingClientRect-newline.html
   FAIL      Range.getBoundingClientRect() should return the first position of the next line when the collapsed range is a newline character
 OK           4/6  css/cssom-view/getBoundingClientRect-scroll.html
   FAIL      getBoundingClientRect for absolute element inside scroll container
   FAIL      getBoundingClientRect for fixed element inside scroll container
-ERROR        0/0  css/cssom-view/getBoundingClientRect-shy.html
-ERROR        0/0  css/cssom-view/getBoundingClientRect-svg.html
+OK          5/12  css/cssom-view/getBoundingClientRect-shy.html
+  FAIL      Range 0-6 should not include the hyphen.
+  FAIL      Range 0-7 should include the hyphen.
+  FAIL      Range 1-7 should include the hyphen.
+  FAIL      Range 0-8 should include the hyphen.
+  FAIL      Range 0-8 should include only the first hyphen.
+  FAIL      Rendered soft-hyphen should have a width.
+  FAIL      Rendered soft-hyphen in a span should have a width.
+OK           0/3  css/cssom-view/getBoundingClientRect-svg.html
+  FAIL      Element.getBoundingClientRect() and Range.getBoundingClientRect() should match for an SVG <text>
+  FAIL      Element.getBoundingClientRect() and Range.getBoundingClientRect() should match for an SVG <text> with a transform
+  FAIL      Element.getBoundingClientRect() and Range.getBoundingClientRect() should match for an SVG <text> with a rotate
 OK           2/5  css/cssom-view/getBoundingClientRect-zoom.html
   FAIL      getBoundingClientRect for elements with css zoom 2
   FAIL      getBoundingClientRect for elements with css zoom 3
@@ -497,7 +508,15 @@ OK           0/1  css/cssom-view/offsetTop-offsetLeft-nested-offsetParents.html
   FAIL      Verifies that offsetTop and offsetLeft only go up one offsetParent when there are multiple nested offsetParents.
 OK           1/2  css/cssom-view/offsetTop-offsetLeft-with-zoom.html
   FAIL      Verifies that offsetTop and offsetLeft find the right OffsetParent and return values excluding the target zoom
-ERROR        0/0  css/cssom-view/offsetTopLeft-border-box.html
+OK         20/28  css/cssom-view/offsetTopLeft-border-box.html
+  FAIL      container: 0
+  FAIL      container: 1
+  FAIL      container: 4
+  FAIL      container: 5
+  FAIL      container: 12
+  FAIL      container: 13
+  FAIL      container: 24
+  FAIL      container: 25
 OK           6/6  css/cssom-view/offsetTopLeft-empty-inline-offset.html
 OK           3/3  css/cssom-view/offsetTopLeft-empty-inline.html
 OK         13/37  css/cssom-view/offsetTopLeft-inline-offsetParent.html
