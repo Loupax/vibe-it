@@ -10,7 +10,7 @@ virtualenv, no pip, no sockets) and is written to CHECKOUT/MANIFEST.json (a cach
 
 What goes in (phase 1, "testharness files a static server can serve"): every testharness URL of the AREAS
 below, except
-  - timeout=long files (nightly), and the legacy multi-byte encoding variants (encoding/legacy-mb-*, nightly),
+  - timeout=long files outside dom/* (nightly; QWPT6c keeps the dom/* ones: with the virtual clock they are cheap), and the legacy multi-byte encoding variants (encoding/legacy-mb-*, nightly),
   - files that load testdriver (they need a trusted-input driver: phase 2),
   - `.https.` / `.sub.` / worker-variant URLs, and files whose source mentions a `.py` handler (wptserve).
 The skipped counts per reason are printed on stderr, so the numbers in the PR can be reproduced.
@@ -94,7 +94,7 @@ def main():
         src = None
         for item in items:
             url = item.url.lstrip("/")
-            if item.timeout == "long":
+            if item.timeout == "long" and not area.startswith("dom/"):
                 skipped["timeout=long (nightly)"] += 1
                 continue
             if any(k == "script" and "testdriver" in v for k, v in (item.script_metadata or [])):

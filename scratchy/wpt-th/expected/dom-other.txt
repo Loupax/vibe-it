@@ -29,6 +29,10 @@ OK           3/3  dom/collections/namednodemap-supported-property-names.html
 OK           1/1  dom/eventPathRemoved.html
 OK         10/10  dom/historical-mutation-events.html
 OK         80/80  dom/historical.html
+OK           0/1  dom/idlharness.window.html?exclude=Node
+  FAIL      idl_test setup
+OK           0/1  dom/idlharness.window.html?include=Node
+  FAIL      idl_test setup
 ERROR        1/2  dom/interface-objects.html
   FAIL      Interface objects properties should not be Enumerable
 OK           6/6  dom/lists/DOMTokenList-Iterable.html
@@ -42,6 +46,18 @@ OK           2/2  dom/traversal/NodeFilter-constants.html
 OK           2/4  dom/traversal/NodeIterator-removal-during-filtering.html
   FAIL      Removing the accepted node during its own filtering retargets the reference and returns the filtered node
   FAIL      Removing an ancestor of the in-flight position during filtering, pointer before it, with no following node within root
+OK         18/25  dom/traversal/NodeIterator-removal.html
+  FAIL      Test removing node paras[0]
+  FAIL      Test removing node foreignPara1
+  FAIL      Test removing node detachedPara1
+  FAIL      Test removing node xmlElement
+  FAIL      Test removing node paras[1]
+  FAIL      Test removing node detachedPara2
+  FAIL      Test removing node testDiv
+OK       763/766  dom/traversal/NodeIterator.html
+  FAIL      createNodeIterator() parameter defaults
+  FAIL      createNodeIterator() with null as arguments
+  FAIL      createNodeIterator() with undefined as arguments
 TIMEOUT      0/1  dom/traversal/TreeWalker-acceptNode-filter-cross-realm-null-browsing-context.html
   NOTRUN    TreeWalker: NodeFilter from detached iframe doesn't get called
 OK           0/5  dom/traversal/TreeWalker-acceptNode-filter-cross-realm.html
@@ -64,6 +80,7 @@ OK           6/6  dom/traversal/TreeWalker-traversal-reject.html
 OK           2/2  dom/traversal/TreeWalker-traversal-skip-most.html
 OK           6/6  dom/traversal/TreeWalker-traversal-skip.html
 OK           1/1  dom/traversal/TreeWalker-walking-outside-a-tree.html
+OK       761/761  dom/traversal/TreeWalker.html
 OK           1/3  dom/window-extends-event-target.html
   FAIL      EventTarget methods on Window instances are inherited from the EventTarget prototype
   FAIL      window.addEventListener respects custom `this`

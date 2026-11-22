@@ -54,6 +54,9 @@ OK           1/1  dom/events/Event-dispatch-listener-order.window.html
 OK           1/1  dom/events/Event-dispatch-multiple-cancelBubble.html
 OK           1/1  dom/events/Event-dispatch-multiple-stopPropagation.html
 OK           1/1  dom/events/Event-dispatch-omitted-capture.html
+TIMEOUT      7/9  dom/events/Event-dispatch-on-disabled-elements.html
+  TIMEOUT   CSS Animation's animationcancel event fires on disabled form elements
+  NOTRUN    Real clicks on disabled elements must not dispatch events.
 OK           1/1  dom/events/Event-dispatch-order-at-target.html
 OK           1/1  dom/events/Event-dispatch-order.html
 OK           1/1  dom/events/Event-dispatch-other-document.html
@@ -383,6 +386,11 @@ OK           1/1  dom/events/scrolling/scrollend-event-fired-for-scroll-attr-cha
 OK           1/1  dom/events/scrolling/scrollend-event-fired-for-scroll-attr-change.html?include=subframe-scrollLeft-smooth
 OK           1/1  dom/events/scrolling/scrollend-event-fired-for-scroll-attr-change.html?include=subframe-scrollTop-auto
 OK           1/1  dom/events/scrolling/scrollend-event-fired-for-scroll-attr-change.html?include=subframe-scrollTop-smooth
+ERROR        0/0  dom/events/scrolling/scrollend-event-fired-for-scrollIntoView.html?include=nested-scrollIntoView
+ERROR        0/0  dom/events/scrolling/scrollend-event-fired-for-scrollIntoView.html?include=root-inline-end-block-end-behavior-auto
+ERROR        0/0  dom/events/scrolling/scrollend-event-fired-for-scrollIntoView.html?include=root-inline-start-block-start-behavior-smooth
+ERROR        0/0  dom/events/scrolling/scrollend-event-fired-for-scrollIntoView.html?include=subframe-inline-end-block-end-behavior-auto
+ERROR        0/0  dom/events/scrolling/scrollend-event-fired-for-scrollIntoView.html?include=subframe-inline-start-block-start-behavior-smooth
 OK           0/2  dom/events/scrolling/scrollend-event-fired-to-document.html
   FAIL      testing, vertical
   FAIL      testing, horizontal
@@ -390,6 +398,8 @@ OK           0/1  dom/events/scrolling/scrollend-event-fired-to-element-with-ove
   FAIL      Tests that the scroll is not propagated beyond div with non-auto overscroll-behavior.
 OK           0/1  dom/events/scrolling/scrollend-event-fired-to-window.html
   FAIL      testing, vertical
+OK           0/1  dom/events/scrolling/scrollend-event-fires-for-repeat-key-ending-after-scroll-container-end-is-reached.html
+  FAIL      scrollend event is fired after repeated Page Down key presses reach the end of the scroll region.
 ERROR        0/0  dom/events/scrolling/scrollend-event-fires-on-visual-viewport.html
 OK           2/6  dom/events/scrolling/scrollend-event-fires-to-iframe-window.html
   FAIL      Tests that the target_div within iframe gets scrollend event when touch dragging.

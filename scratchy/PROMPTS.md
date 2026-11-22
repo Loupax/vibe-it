@@ -9141,3 +9141,9 @@ Eased viewport scroll (user design #532, D1-D8): `App::scroll_target`, `scroll_a
 > QDOM10 [S] (P2; Sonnet; js.rs dispatch; R65; after QDOM4) window.event: current event while a listener runs, restored after (also after a throw), left alone for listeners whose invocation target is in a shadow tree, undefined outside dispatch.
 
 **What changed:** js.rs dispatch: lazy inShadow(node) (path nodes up to the last shadow root); the three places that set curEvent (IDL handler, added listener, attribute handler) skip it for an in-shadow target, per DOM "inner invoke". Each window already has its own curEvent. Tests: src/tests/qdom10_tests.rs.
+
+## QWPT6c: dom/* timeout=long files in the phase-1 subset (agent item)
+
+> QWPT6c [S] (P2; Sonnet; tools/wpt-subset.py; R65 2.1) Include the dom/* `timeout=long` files in the phase-1 subset; record expectations, check stability, report CI time impact.
+
+**What changed:** tools/wpt-subset.py keeps timeout=long URLs whose area starts with `dom/` (the other areas still skip them); subset.txt 3,312 -> 3,365 URLs (after QWPT6d) (53 new: dom/nodes 13, dom/events 7, dom/ranges 28, dom/other 5; 53 URLs are 48 files (the TODO said 46): 5 are extra `?include=` / `?exclude=` query variants). The new files ran 5 times (23, 23, 19, 17, 17 s at `--jobs 4`, load ~25-30): all stable except dom/ranges/Range-mutations-dataChange.html and Range-mutations-replaceData.html (subtest count depends on how far the 10 s virtual harness clock gets), which are in wpt-th/flaky.txt. Everything else recorded in wpt-th/expected/dom-{nodes,events,ranges,other}.txt; areas.txt regenerated with `--areas-only`. The gate was re-run for the four areas against the recorded files: clean. No pass -> fail, no existing record touched.

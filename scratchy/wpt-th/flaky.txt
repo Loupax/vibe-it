@@ -1,3 +1,5 @@
 # Files whose results differ between runs: first token = path, rest = the reason. They run and are printed, never compared.
 # QWPT6 baseline: four full runs (3 at --jobs 4, 1 at --jobs 12) gave identical results for all 3264 files, so this list is empty.
 dom/events/EventTarget-dispatchEvent.html harness ERROR 'Timeout while running cleanup' under load, also on main 3838650 (3 of 24 parallel children; QEL1 2026-11-21); the virtual clock reaches the 10 s harness timeout before the load task's all_done check, cause not found
+dom/ranges/Range-mutations-dataChange.html TIMEOUT: ~650+ subtests under the 10 s virtual harness clock; the number reached before the cutoff varies per run (650/654/770/959/947 subtests in 5 runs), so the counts are never stable (QWPT6c)
+dom/ranges/Range-mutations-replaceData.html TIMEOUT: same as Range-mutations-dataChange.html, subtest count 689/805/890/1102/1114 in 5 runs (QWPT6c)
