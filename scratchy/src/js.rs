@@ -946,6 +946,68 @@ const PRELUDE: &str = r#"
     platform: 'Linux x86_64', vendor: '', language: 'en-US', languages: ['en-US', 'en'],
     onLine: true, cookieEnabled: false, hardwareConcurrency: 1, maxTouchPoints: 0,
   });
+  // QAPI2: the Navigator members pages probe. Privacy (DECISIONS "Network and privacy"): every value is a fixed
+  // constant, never read from the machine, so nothing fingerprints the user: webdriver false, deviceMemory 8 (the
+  // top Chrome bucket), connection a static 4g/10 Mbit/50 ms, empty plugins/mimeTypes (no PDF viewer), and
+  // userAgentData built from navigator.userAgent only (brand + major version, mobile false, platform 'Linux').
+  (function () {
+    var nav = g.navigator, NP = Navigator.prototype;
+    var acc = function (name, fn) { Object.defineProperty(NP, name, { get: fn, set: undefined, configurable: true, enumerable: true }); };
+    var NetworkInformation = ctor('NetworkInformation', EventTarget), NavigatorUAData = ctor('NavigatorUAData');
+    var PluginArray = ctor('PluginArray'), MimeTypeArray = ctor('MimeTypeArray');
+    [NetworkInformation, NavigatorUAData, PluginArray, MimeTypeArray].forEach(function (C) {
+      Object.defineProperty(C.prototype, Symbol.toStringTag, { value: C.name, configurable: true });
+    });
+    var arrayLike = function (C) {
+      var a = Object.create(C.prototype);
+      Object.defineProperty(a, 'length', { value: 0 });
+      return a;
+    };
+    [PluginArray, MimeTypeArray].forEach(function (C) {
+      var P = C.prototype;
+      Object.defineProperty(P, Symbol.iterator, { value: Array.prototype[Symbol.iterator], writable: true, configurable: true });
+      Object.defineProperty(P, 'item', { value: function item(i) { if (arguments.length < 1) throw new TypeError("Failed to execute 'item' on '" + C.name + "': 1 argument required, but only 0 present."); return null; }, writable: true, configurable: true, enumerable: true });
+      Object.defineProperty(P, 'namedItem', { value: function namedItem(n) { if (arguments.length < 1) throw new TypeError("Failed to execute 'namedItem' on '" + C.name + "': 1 argument required, but only 0 present."); return null; }, writable: true, configurable: true, enumerable: true });
+    });
+    Object.defineProperty(PluginArray.prototype, 'refresh', { value: function refresh() {}, writable: true, configurable: true, enumerable: true });
+    var plugins = arrayLike(PluginArray), mimes = arrayLike(MimeTypeArray);
+    acc('plugins', function () { return plugins; });
+    acc('mimeTypes', function () { return mimes; });
+    acc('pdfViewerEnabled', function () { return false; });
+    acc('webdriver', function () { return false; });
+    acc('deviceMemory', function () { return 8; });
+    var conn = Object.create(NetworkInformation.prototype);
+    Object.defineProperty(NetworkInformation.prototype, 'onchange', { value: null, writable: true, configurable: true, enumerable: true });
+    [['effectiveType', '4g'], ['type', 'unknown'], ['downlink', 10], ['rtt', 50], ['saveData', false]].forEach(function (kv) {
+      Object.defineProperty(NetworkInformation.prototype, kv[0], { get: function () { return kv[1]; }, configurable: true, enumerable: true });
+    });
+    acc('connection', function () { return conn; });
+    // userAgentData: the brand is the last `Name/major` product token of the UA that is not a compatibility
+    // token (scratchy/0.1 by default, Chrome/120 under a Chrome --user-agent), plus a GREASE brand.
+    var uad = null;
+    var uaBrands = function (ua) {
+      var skip = /^(Mozilla|AppleWebKit|Safari|Gecko|KHTML|Version|Mobile)$/, re = /([A-Za-z][A-Za-z0-9_.-]*)\/(\d+)/g, m, last = null;
+      while ((m = re.exec(ua))) if (!skip.test(m[1])) last = m;
+      var out = [{ brand: 'Not;A=Brand', version: '99' }];
+      if (last) out.push({ brand: last[1], version: last[2] });
+      return out;
+    };
+    var mkBrands = function (ua) { return uaBrands(ua).map(function (b) { return { brand: b.brand, version: b.version }; }); };
+    var UD = NavigatorUAData.prototype;
+    Object.defineProperty(UD, 'brands', { get: function () { return mkBrands(nav.userAgent); }, configurable: true, enumerable: true });
+    Object.defineProperty(UD, 'mobile', { get: function () { return false; }, configurable: true, enumerable: true });
+    Object.defineProperty(UD, 'platform', { get: function () { return 'Linux'; }, configurable: true, enumerable: true });
+    Object.defineProperty(UD, 'getHighEntropyValues', { value: function getHighEntropyValues(hints) {
+      if (arguments.length < 1) return Promise.reject(new TypeError("Failed to execute 'getHighEntropyValues' on 'NavigatorUAData': 1 argument required, but only 0 present."));
+      // Only the low-entropy fields, whatever is asked: a hint list never unlocks more (no architecture, model, ...).
+      return Promise.resolve({ brands: this.brands, mobile: false, platform: 'Linux' });
+    }, writable: true, configurable: true, enumerable: true });
+    Object.defineProperty(UD, 'toJSON', { value: function toJSON() { return { brands: this.brands, mobile: false, platform: 'Linux' }; }, writable: true, configurable: true, enumerable: true });
+    acc('userAgentData', function () {
+      if (!uad) uad = Object.create(UD);
+      return uad;
+    });
+  })();
   g.innerWidth = Number(env.innerWidth); g.innerHeight = Number(env.innerHeight);
   // QY10: MediaQueryList. `matches` is re-evaluated on every read;
   // `change` never fires (the viewport is fixed for the page's life
