@@ -3817,8 +3817,8 @@ as in `--js-report`. Viewport 800x600 (`innerWidth`/`innerHeight` and `matchMedi
 the same viewport as `innerWidth` in every mode). Ahem: `<origin>/fonts/Ahem.ttf` is fetched through
 wire and added to the forced-layout font system (`js_geom::install_extra_fonts`); missing = one
 stderr line. `visibilityState` is `visible` (always, E14). The pump runs the rendering update on
-virtual 16.7 ms frames through the shared driver (QEL1, "Rendering steps"). Not here yet: real RO/IO
-in the rendering step (QEL2/QEL3), stylesheets inserted after load, testdriver.
+virtual 16.7 ms frames through the shared driver (QEL1, "Rendering steps"). Not here yet: IO
+in the rendering step (QEL3), stylesheets inserted after load, testdriver.
 
 ## WPT testharness runner (QWPT4b, src/wpt_th_run.rs; R64 2.3, 2.5, 3.1)
 
@@ -3979,3 +3979,16 @@ No letter keys (DECISIONS 2026-11-21).
 `scrollLeft` reads/writes `gElScrollX`, `__d_scrollel(id, v, xAxis)`, a `scroll` event like
 `scrollTop`; `getBoundingClientRect` subtracts ancestors' x offsets; `scrollIntoView` handles
 `inline` for scroll containers too. Horizontal scrollbars are QSB2b.
+
+**ResizeObserver (QEL2, js_dom.rs).** Step 7 calls `__scratchy_roRun`: gather active observations (current size
+differs from the last reported one; the first report is always due, last-reported starts at -1x-1), deliver those
+deeper than the last delivered depth, repeat; observations left at a shallower depth raise an ErrorEvent
+"ResizeObserver loop completed with undelivered notifications." (`__scratchy_report_error(..., message)`; log line only
+if not cancelled). Sizes: border box from the layout rect (`gRect`, forced JS-side layout, lazy, cached until the next
+DOM write), content box = minus padding and border (computed styles), 0 for display:none / detached / non-replaced
+inline, inline/block swapped for vertical writing modes, device-pixel box = content x `devicePixelRatio` rounded.
+Depth is the flat-tree depth (a shadow root continues at its host). `__scratchy_ro_want()` (geometry gen, viewport, DPR
+or a new observation since the last run) makes `__scratchy_raf_due` ask for a rendering update even with no rAF.
+Known limits: the layout is the JS-side forced one, not the App/engine layout (an extra layout per frame with DOM
+changes: `ro-run` shows as caller in `--perf-report` forced layouts); no microtask checkpoint between RO callbacks;
+layout changes with no DOM write (image decode, CSS animation, :hover) are not noticed until the next geometry gen change.
