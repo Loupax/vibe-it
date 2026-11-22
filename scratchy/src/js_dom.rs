@@ -1663,6 +1663,22 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     native!(ctx, "__d_insert", move |parent: i32, child: i32, before: i32| -> bool {
         insert_native(&t.borrow(), &d, &gn, Some(&lk), parent, child, before)
     });
+    // QDOM18: ONE native call for the pre-insert fast path: the parent is an Element (not a fragment/shadow
+    // root), the node is an Element/Text/CDATA/PI/Comment/DocumentFragment and `before` (< 0 = none) is a child of
+    // the parent. Anything else (Document parents, doctypes, a wrong child) goes through the JS `cnCheck`. It does
+    // NOT insert: the JS-wrapped `__d_insert` (shadow DOM, forced-layout and incremental hooks) still does.
+    let t = table.clone();
+    native!(ctx, "__d_fastins", move |parent: i32, child: i32, before: i32| -> bool {
+        let t = t.borrow();
+        let (Some(p), Some(c)) = (t.get(parent), t.get(child)) else { return false };
+        if !is_element(&p) || t.is_frag(parent, &p) {
+            return false;
+        }
+        if !t.is_frag(child, &c) && !matches!(node_type(&c), 1 | 3 | 4 | 7 | 8) {
+            return false;
+        }
+        before < 0 || t.get(before).is_some_and(|b| parent_handle(&b).is_some_and(|pp| Rc::ptr_eq(&pp, &p)))
+    });
     // QDOM3: `moveBefore`: the same tree edit and incremental-engine log (a remove + an insert of the
     // subtree), but not the insertion steps: no `<link>` rescan (stylesheets are not refetched).
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
@@ -2896,10 +2912,9 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   };
   // Node types the common Element-parent case needs no "ensure pre-insert validity" walk for: the native insert
   // already refuses an inclusive ancestor, and every other rule only constrains Document parents / odd node types.
-  var fastNT = { 1: 1, 3: 1, 4: 1, 7: 1, 8: 1, 11: 1 };
   NodeProto.appendChild = function (c) {
     if (!c || c.__id === undefined) throw new TypeError("Failed to execute 'appendChild' on 'Node': parameter 1 is not of type 'Node'.");
-    if (this.nodeType !== 1 || fastNT[c.nodeType] !== 1) cnCheck(this, c, null, false, false);
+    if (!__d_fastins(this.__id, c.__id, -1)) cnCheck(this, c, null, false, false);
     return rawIns(this, c, null);
   };
   NodeProto.insertBefore = function (c, ref) {
@@ -2907,8 +2922,10 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (arguments.length < 2) throw new TypeError("Failed to execute 'insertBefore' on 'Node': 2 arguments required, but only 1 present.");
     if (ref == null) ref = null;
     else if (ref.__id === undefined) throw new TypeError("Failed to execute 'insertBefore' on 'Node': parameter 2 is not of type 'Node'.");
-    if (this.nodeType !== 1 || fastNT[c.nodeType] !== 1 || (ref && ref.parentNode !== this)) cnCheck(this, c, ref, false, false);
-    if (ref === c) ref = c.nextSibling;
+    if (ref === c || !__d_fastins(this.__id, c.__id, ref ? ref.__id : -1)) {
+      cnCheck(this, c, ref, false, false);
+      if (ref === c) ref = c.nextSibling;
+    }
     return rawIns(this, c, ref);
   };
   NodeProto.removeChild = function (c) {
