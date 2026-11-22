@@ -584,4 +584,75 @@
   Object.defineProperty(TextDecoder.prototype, Symbol.toStringTag, { value: 'TextDecoder', configurable: true });
   def(g, 'TextDecoder', TextDecoder);
 
+  // ---- QAPI1: Trusted Types (no enforcement) ----
+  // `trustedTypes.createPolicy` runs the page's callbacks and wraps the result in a TrustedHTML /
+  // TrustedScript / TrustedScriptURL. The wrappers stringify to the value, so every DOM sink (which
+  // stringifies its argument) accepts them. No CSP `require-trusted-types-for`, no default policy.
+  (function () {
+    var vals = new WeakMap(), names = new WeakMap(), callbacks = new WeakMap();
+    function illegal() { throw new TypeError('Illegal constructor'); }
+    function tag(C, name) {
+      Object.defineProperty(C, 'name', { value: name, configurable: true });
+      Object.defineProperty(C.prototype, Symbol.toStringTag, { value: name, configurable: true });
+      def(g, name, C);
+    }
+    function mkType(name) {
+      var C = function () { illegal(); };
+      def(C.prototype, 'toString', function toString() {
+        var v = vals.get(this);
+        if (v === undefined) throw new TypeError('Illegal invocation');
+        return v;
+      });
+      def(C.prototype, 'toJSON', function toJSON() {
+        var v = vals.get(this);
+        if (v === undefined) throw new TypeError('Illegal invocation');
+        return v;
+      });
+      tag(C, name);
+      return C;
+    }
+    var TH = mkType('TrustedHTML'), TS = mkType('TrustedScript'), TU = mkType('TrustedScriptURL');
+    function wrap(C, v) { var o = Object.create(C.prototype); vals.set(o, v); return Object.freeze(o); }
+    function isOf(C) {
+      return function (v) { return typeof v === 'object' && v !== null && vals.has(v) && Object.getPrototypeOf(v) === C.prototype; };
+    }
+    var Policy = function () { illegal(); };
+    tag(Policy, 'TrustedTypePolicy');
+    Object.defineProperty(Policy.prototype, 'name', { get: function () { return names.get(this); }, configurable: true, enumerable: true });
+    [['createHTML', TH], ['createScript', TS], ['createScriptURL', TU]].forEach(function (p) {
+      var k = p[0], C = p[1];
+      def(Policy.prototype, k, function () {
+        var cb = callbacks.get(this);
+        if (!cb) throw new TypeError('Illegal invocation');
+        if (arguments.length === 0) throw new TypeError("Failed to execute '" + k + "' on 'TrustedTypePolicy': 1 argument required, but only 0 present.");
+        var r = cb[k] ? cb[k].apply(void 0, arguments) : arguments[0];
+        return wrap(C, r == null ? '' : String(r));
+      });
+    });
+    var Factory = function () { illegal(); };
+    tag(Factory, 'TrustedTypePolicyFactory');
+    var F = Factory.prototype, emptyH = wrap(TH, ''), emptyS = wrap(TS, '');
+    def(F, 'createPolicy', function createPolicy(name, options) {
+      if (arguments.length === 0) throw new TypeError("Failed to execute 'createPolicy' on 'TrustedTypePolicyFactory': 1 argument required, but only 0 present.");
+      var o = options == null ? {} : Object(options), pol = Object.create(Policy.prototype), cb = {};
+      ['createHTML', 'createScript', 'createScriptURL'].forEach(function (k) {
+        var f = o[k];
+        if (f != null && typeof f !== 'function') throw new TypeError("Failed to execute 'createPolicy' on 'TrustedTypePolicyFactory': The provided callback is not a function.");
+        if (f != null) cb[k] = f;
+      });
+      names.set(pol, String(name));
+      callbacks.set(pol, cb);
+      return Object.freeze(pol);
+    });
+    def(F, 'isHTML', isOf(TH));
+    def(F, 'isScript', isOf(TS));
+    def(F, 'isScriptURL', isOf(TU));
+    def(F, 'getAttributeType', function getAttributeType() { return null; });
+    def(F, 'getPropertyType', function getPropertyType() { return null; });
+    Object.defineProperty(F, 'emptyHTML', { get: function () { return emptyH; }, configurable: true, enumerable: true });
+    Object.defineProperty(F, 'emptyScript', { get: function () { return emptyS; }, configurable: true, enumerable: true });
+    Object.defineProperty(F, 'defaultPolicy', { get: function () { return null; }, configurable: true, enumerable: true });
+    def(g, 'trustedTypes', Object.create(F));
+  })();
+
 })(globalThis);
