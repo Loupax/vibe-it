@@ -189,3 +189,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #548 QMSG1 READY (webmessaging 38.1 -> 63.4, total 32.9) but pre-fetched same-origin iframes now run scripts: sent back for gate-page + live CPU measurement before merge. Filed QMSG1b.
 - 2026-11-22 Merged #535 QXSCR1 f0ef0c1 (horizontal scrolling). #529 conflict NOTES.md, #539 conflict js_dom_tests.rs -> rebases. #541 QSCR404 rebased, queued after #533. Launched QSMOOTH1 (user item) + sent #539 rebase; #529 rebase next slot.
 - 2026-11-22 Merged #547 QDOM12 0adc3f3. #546 QEL6 conflicts in NOTES.md (like #529) -> rebases queued (5 running). Asked user: may merge_pr keep-both NOTES.md?
+- 2026-11-22 #550 QWPTFLK3 READY: real bug (custom element re-upgrade recursion -> stack overflow, build-dependent; stale cids/safeQ caches), fixed, removed from flaky.txt. Queued after #541. Filed QCE1; noted QWPTFLK2 may share the cause. Sent #529 QEL2 rebase.
