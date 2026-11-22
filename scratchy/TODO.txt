@@ -528,3 +528,25 @@ Order (feature work: after the perf queue): QCONF1 -> QCOMP1 -> QCOMP2; QCOMP3 a
 - [x] QCOMP5 DROPPED 2026-11-20 (user: "`:go` should be enough"). Was: `o` in normal mode, the
       history menu navigating straight away (KEYS.md T39-T41, also dropped). Nothing to build.
 
+- [ ] QCOMP6 [S] (user request 2026-11-22; app.rs `dispatch_command` "go" arm, net.rs; KEYS.md
+      "Completion") `:go` without a scheme means `https://`, like a browser's address bar.
+      Today the completion already ignores `https://`/`http://`/`www.` (`:go goo` ghosts
+      `gle.com/`), but Enter runs `:go google.com/`, which `resolve_href` joins against the
+      current page (`https://current.site/google.com/`), or fails with no base. So the user
+      has to type `https://` by hand.
+      Decided with the user:
+      - A word with no scheme gets `https://` in front: `google.com/` -> `https://google.com/`,
+        `localhost:8080` -> `https://localhost:8080` (careful: `Url::parse` reads `localhost:`
+        as a scheme, so do not test "has a scheme" with `Url::parse`).
+      - Kept as typed: anything with `://`, and `about:`/`data:`/`javascript:`/`mailto:`.
+      - Only explicit relative forms (`/x`, `./x`, `../x`, `#frag`, `?q`) still resolve against
+        the current page. A bare `foo.html` is NOT a relative link any more (user: "we can
+        probably live without it"): it becomes `https://foo.html`.
+      - The completion is unchanged: the ghost never adds the scheme and still continues
+        exactly what was typed; the scheme is added when `:go` runs.
+      - Links (`start_navigation`) are untouched: only `:go`.
+      - Update KEYS.md (the `:go https://google|.com` example and T50) and the `:go` doc
+        comment on `dispatch_command`.
+      Out of scope: fuzzy (non-prefix) history matching (`wiki` -> `en.wikipedia.org`). The
+      ghost can only continue the typed text, so that needs Tab to replace the word: a
+      separate design question for the user.
