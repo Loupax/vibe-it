@@ -377,3 +377,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Merged #620 QWPTFLK4 28e4a2a.
 - 2026-11-22 #619 QCNV3 perf ok (parse/style within noise), merging. Launched QCNV4 (starts after #619 lands).
 - 2026-11-22 Merged #619 QCNV3 6d1938a.
+- 2026-11-22 #621 QWPT7c READY (pointer-events, svg hit, scroll offsets, accesskey Alt+Shift+key), merging. Filed QWPT7e. Launched QEL7b.
