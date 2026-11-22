@@ -390,3 +390,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #627 QCNV6 READY (paths/fill rules/clip; element 38.0, offscreen 42.1, TOTAL 42.1), merging. Launched QCNV7 (after #627).
 - 2026-11-22 Merged #627 QCNV6 75f24d4.
 - 2026-11-22 #625 QEL7b READY (iframe scroll/MQL, y clamp, smooth behavior), merging. Filed QEL7c. Launched QHOV2.
+- 2026-11-22 Merged #625 QEL7b 0e792e6. Reinstalling.
