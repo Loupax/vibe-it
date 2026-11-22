@@ -9243,3 +9243,10 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- (no header)
 - [x] QMAPI3 DONE 0577527 #564 [S] (P2; Sonnet; tools/missing-api/; after QMAPI1) corpus.sh over a site list (gate pages +
       a list the user provides), merged table "API -> sites, hits, example URL" into an R-section.
+
+=== from TODO.txt: --- (no header)
+- [x] QDOMATOM DONE e307cf0 #566 [S] (P2, from QDOM16 #549; Sonnet; js_dom.rs insert path, script prepare, iframe load) Atomic insertion: when
+      one insertion adds several nodes (DocumentFragment, append/prepend/before/after with several arguments), the
+      post-connection steps (script prepare/run, iframe load) run in tree order AFTER the whole insertion, per DOM
+      "insert" + HTML "post-connection steps". WPT dom/nodes/insertion-removing-steps/*, Node-appendChild-script-and-
+      iframe (its "append() with multiple arguments" subtest stops passing in #549 because #549 makes append atomic).

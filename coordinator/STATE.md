@@ -233,3 +233,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #567 QREC3b READY (replay misses ~0), queued after #565. Filed QREC3c. Launched QAPI1. #549 rebase next free slot after #566.
 - 2026-11-22 Merged #564 QMAPI3 0577527 (R66 corpus).
 - 2026-11-22 #568 QANIMHLb READY (CSS transitions; live check ok, idle CPU ok). Queued after #567. Filed QANIMHLd.
+- 2026-11-22 Merged #566 QDOMATOM e307cf0. Sent #549 QDOM16 rebase onto it (recheck the append subtest).

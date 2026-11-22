@@ -183,11 +183,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       `document.doctype` on the page document (the page's DocumentType node). WPT: nodes/ChildNode-after,
       ChildNode-before, ChildNode-replaceWith, DocumentType-remove, Document-doctype, ParentNode-replaceChildren,
       remove-unscopable. Target: nodes +1.2.
-- [ ] [WIP] QDOMATOM [S] (P2, from QDOM16 #549; Sonnet; js_dom.rs insert path, script prepare, iframe load) Atomic insertion: when
-      one insertion adds several nodes (DocumentFragment, append/prepend/before/after with several arguments), the
-      post-connection steps (script prepare/run, iframe load) run in tree order AFTER the whole insertion, per DOM
-      "insert" + HTML "post-connection steps". WPT dom/nodes/insertion-removing-steps/*, Node-appendChild-script-and-
-      iframe (its "append() with multiple arguments" subtest stops passing in #549 because #549 makes append atomic).
 - [ ] [WIP] QDOM17 [S] (P2; Sonnet; js_dom.rs `makeDoc`, `__d_tag`, `doc.createElement`; R65; after QDOM8) Document
       flavours: a per-document "HTML document" flag (true for the page and createHTMLDocument, false for createDocument,
       new Document(), XML parses). `createElement` lowercases only in HTML documents (XHTML namespace for
