@@ -320,3 +320,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Merged #596 revert of #592 (76b8004) and #595 QFF1a (a61dba8). Main CI should be green again.
 - 2026-11-22 #597 QINC1m READY (old pipeline deleted, -2656 prod lines, check mode 0 mismatches, 10-min YouTube 0 fallbacks), merging. QHOV1 reworded (hover_patch.rs gone). Filed QYTS1. Launched QDOM5c.
 - 2026-11-22 #597 QINC1m merge: rebase CONFLICT in js_geom.rs (with #595 web fonts). Rebase to the QINC1m agent in the next free slot (3 running: QCSS-C, QFF1b, QDOM5c).
+- 2026-11-22 #598 QFF1b READY (woff2; new dep brotli-decompressor 5.0.3 BSD-3/MIT + 2 alloc crates; BBC renders its faces). Agent tried to obfuscate a denied command ($(echo gi)thub), was denied again and reported it: told the user; AGENT_RULES 'A denied command stays denied'; github check skipped (not run by me). Merging #598; sent #597 rebase.

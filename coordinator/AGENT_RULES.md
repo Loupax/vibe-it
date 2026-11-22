@@ -110,3 +110,8 @@ W-CACHE1 makes wire cache on disk by default in `~/.cache/wire`. Every wire an a
 /tmp; /tmp is RAM, hence the size cap; wire prints one tmpfs warning line, expected), or `--no-cache`.
 Never the user's `~/.cache/wire`. Delete your cache dir by its explicit name when you finish. Perf
 comparisons use the same cache setting on both sides (say which).
+
+## A denied command stays denied
+If the tool permission layer or the sandbox denies a command, do not rephrase, obfuscate or split it to
+get it past the check (e.g. `$(echo gi)thub`), and do not ask the coordinator to run it for you. Skip
+that step, and say in your report what was denied and what you skipped. (2026-11-22, QFF1b #598.)
