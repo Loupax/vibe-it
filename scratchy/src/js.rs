@@ -1246,7 +1246,7 @@ const FIRE_LOAD: &str = "document.readyState='complete';__scratchy_dispatch(wind
 pub(crate) type LogFn = Rc<dyn Fn(&str, &str)>;
 
 /// QOBS3: the names scratchy's own preludes are compiled under (`by_caller` skips their frames).
-pub(crate) const PRELUDE_SCRIPTS: &[&str] = &["prelude", "timers", "url", "globals", "intl", "fetch", "websocket", "cssom", "media", "mse", "env", "frames-boot", "img-sweep", "prereq", "media-wait", "eval"];
+pub(crate) const PRELUDE_SCRIPTS: &[&str] = &["prelude", "timers", "url", "globals", "intl", "fetch", "websocket", "cssom", "fonts", "media", "mse", "env", "frames-boot", "img-sweep", "prereq", "media-wait", "eval"];
 
 pub(crate) const SCRIPT_BUDGET: Duration = Duration::from_secs(5);
 // QB3: budget for one timer or event callback. The page-load run keeps
@@ -2280,6 +2280,7 @@ fn startup_engine(document: &Handle, store: Rc<js_modules::ModuleStore>, log: Lo
     engine.table = engine.eng.with(|ctx| js_dom::install_dom(&ctx, document, dirty.clone(), reqs.clone()));
     if !prebuilt {
         engine.eval("cssom", CSSOM_PRELUDE);
+        engine.eval("fonts", FONTS_PRELUDE);
     }
     {
         // QM1f: the media element layer (state machine in media_el.rs).
@@ -2308,8 +2309,8 @@ fn startup_engine(document: &Handle, store: Rc<js_modules::ModuleStore>, log: Lo
 /// QPT1e: the prelude sources in the order the page engine runs them at startup without a snapshot
 /// (`startup_engine`), for an iframe realm made without the snapshot to replay. Page-only parts
 /// (`__scratchy_apply_env`, `__media_sweep`) are left out: `__scratchy_realm_init` applies the env.
-pub(crate) fn realm_preludes() -> [&'static str; 11] {
-    [PRELUDE, TIMERS_PRELUDE, URL_PRELUDE, globals_prelude(), INTL_PRELUDE, FETCH_PRELUDE, WS_PRELUDE, js_dom::DOM_PRELUDE, CSSOM_PRELUDE, js_media::MEDIA_PRELUDE, js_media::MSE_PRELUDE]
+pub(crate) fn realm_preludes() -> [&'static str; 12] {
+    [PRELUDE, TIMERS_PRELUDE, URL_PRELUDE, globals_prelude(), INTL_PRELUDE, FETCH_PRELUDE, WS_PRELUDE, js_dom::DOM_PRELUDE, CSSOM_PRELUDE, FONTS_PRELUDE, js_media::MEDIA_PRELUDE, js_media::MSE_PRELUDE]
 }
 
 /// The page's own scripts and lifecycle events, over a started engine.
@@ -2477,6 +2478,9 @@ const INTL_PRELUDE: &str = include_str!("intl_prelude.js");
 
 /// QSD4: constructable stylesheets and `document.adoptedStyleSheets`.
 const CSSOM_PRELUDE: &str = include_str!("cssom_prelude.js");
+
+/// QAPI4: `document.fonts` (FontFaceSet), `FontFace`, `FontFaceSetLoadEvent` (plain JS over the @font-face rules).
+const FONTS_PRELUDE: &str = include_str!("fonts_prelude.js");
 
 /// QF2: Blob, File, FileReader, blob: URL store (`__blob_lookup`); the
 /// home of the fetch/XHR data classes (QF memo in TODO.txt).
