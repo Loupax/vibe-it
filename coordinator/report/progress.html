@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-22 · main 2059232 · 93 PRs merged since 2026-11-21 morning (#475–#568) · 5 agents running (QAPI2, QAPI4, QAPI5, QAPI6, QDOM16 rebasing) · merging: #560, #569</div>
+  <div class="meta" id="updated">Updated 2026-11-22 · main 73024b3 · 94 PRs merged since 2026-11-21 morning (#475–#569) · 5 agents running (QAPI2, QAPI4, QAPI5, QAPI6, QDOM16 rebasing) · merging: #549, then #560 (rebase)</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -111,6 +111,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#569</td><td>QAPI1</td><td><code>window.trustedTypes</code> (no enforcement); its rows leave the missing-API report on all 5 pages; 12 domparsing files now run (5.4% → 10.9%)</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#568</td><td>QANIMHLb</td><td>CSS transitions: <code>transition</code> parsed and animated, transition events fire; hover fades draw in-between frames, idle CPU stays idle</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#567</td><td>QREC3b</td><td>Gate pages re-recorded headless: replay misses ~0 (YouTube results 66 → 0–2); replay and live forced-layout counts differ, so replay budgets come from replay runs</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#565</td><td>QDOM6b</td><td><code>createElementNS</code> namespace and case rules; dom/nodes case.html 261 → 284/285</td></tr>
@@ -226,7 +227,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 <section>
   <h2>Waiting on you</h2>
   <ul id="waiting">
-    <li><b>QDOM16 (#549):</b> probably no longer needs you. QDOMATOM (#566) merged; #549 is being rebased onto it to check the "append() with multiple arguments" subtest passes. If it does, it merges normally.</li>
+    <li><b>QDOM16 (#549): settled, nothing to do.</b> Rebased onto QDOMATOM (#566), the "append() with multiple arguments" subtest passes, so no subtest goes pass→fail; it is merging normally.</li>
     <li><b>Merge rule:</b> PRs keep colliding in <span class="mono">scratchy/NOTES.md</span> (each adds its own section). May the merge script keep both sides there, like PROMPTS.md and REGRESSIONS.md? It saves an agent rebase each time; a wrong merge would only affect docs and CI still runs.</li>
     <li><b>Public repo cleanup:</b> two PRs (#496, #498) accidentally committed an agent's scratch folder: a test wire binary, its private token (for a throwaway wire, not yours), logs, and logged-out screenshots of social.loupax.com and YouTube. They are removed from main and now ignored, but are still in git history (commits 40d9f8c, 97e5e83). <b>Done</b> (your OK): <code>.git</code> backed up to <span class="mono">~/src/vibe-it-git-backup-2026-11-21</span>, history rewritten without them, main force-pushed. GitHub still serves the old commits through its saved pull-request refs; only GitHub Support can drop those ("remove cached views / sensitive data").</li>
     <li>Skim <span class="mono">scratchy/DECISIONS.md</span> once and correct anything I misstated.</li>
