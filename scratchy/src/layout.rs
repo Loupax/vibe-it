@@ -34,6 +34,8 @@ pub(crate) struct SpanStyle {
     /// inline`, which applies it directly to a word's own measured
     /// advance (see its own docs) — never by `shape_spans`/cosmic-text.
     pub(crate) word_spacing: f32,
+    /// QCSS-E: `letter-spacing` in px, fed to cosmic-text as `px / font_size` em (`shape_spans`).
+    pub(crate) letter_spacing: f32,
     /// `word-break: break-all` (Q20d) switches the run to glyph wrapping.
     pub(crate) word_break: WordBreak,
     /// The `white-space` of the element this text sits in (QY43): an inline
@@ -85,6 +87,7 @@ impl SpanStyle {
             visibility,
             cursor,
             word_spacing,
+            letter_spacing,
             word_break,
             white_space,
             href,
@@ -104,6 +107,7 @@ impl SpanStyle {
         visibility.hash(h);
         cursor.hash(h);
         word_spacing.to_bits().hash(h);
+        letter_spacing.to_bits().hash(h);
         word_break.hash(h);
         white_space.hash(h);
         href.hash(h);
@@ -128,6 +132,7 @@ impl From<InheritedStyle> for SpanStyle {
             visibility: s.visibility,
             cursor: s.cursor,
             word_spacing: s.word_spacing,
+            letter_spacing: s.letter_spacing,
             word_break: s.word_break,
             white_space: s.white_space,
             href: None,
@@ -1999,6 +2004,10 @@ fn shape_spans_with(
             attrs.family = span.font_family.resolve(font_system.db(), attrs.weight, attrs.style);
             attrs.text_decoration = span.text_decoration;
             attrs.metadata = i;
+            // QCSS-E: cosmic-text's `letter_spacing` is in EM (Q26: passing px made 2px mean 2em).
+            if span.letter_spacing != 0.0 && span.font_size > 0.0 {
+                attrs = attrs.letter_spacing(span.letter_spacing / span.font_size);
+            }
             // cosmic-text's `shape_until_scroll` hangs forever (confirmed: a genuine
             // infinite loop, not slowness) when a span's line height is exactly 0.0 —
             // which real CSS legitimately produces via `line-height: 0` (e.g.
@@ -2739,17 +2748,17 @@ fn measure_inner_body<'a>(
             } else if let Some(hit) = {
                 let pre = matches!(s.white_space, WhiteSpace::Pre | WhiteSpace::Nowrap);
                 let plain = s.first_line.is_none() && !(pre && s.text_overflow == TextOverflow::Ellipsis);
-                if plain { memo_get(memo_key(0, items, content_w, pre, s.text_align.to_cosmic())) } else { None }
+                if plain { memo_get(memo_key(0, items, content_w, pre, s.text_align.to_cosmic(s.direction))) } else { None }
             } {
                 let h = hit.lock().unwrap().1;
                 cache.insert(id, hit);
                 h
             } else if std::time::Instant::now() < deadline {
                 let pre = matches!(s.white_space, WhiteSpace::Pre | WhiteSpace::Nowrap);
-                let mut shaped = shape_spans(font_system, items, content_w, pre, s.text_align.to_cosmic());
+                let mut shaped = shape_spans(font_system, items, content_w, pre, s.text_align.to_cosmic(s.direction));
                 let ellipsized;
                 let items: &[InlineItem] = if pre && s.text_overflow == TextOverflow::Ellipsis {
-                    match ellipsize_items(font_system, items, content_w, s.text_align.to_cosmic(), &mut shaped) {
+                    match ellipsize_items(font_system, items, content_w, s.text_align.to_cosmic(s.direction), &mut shaped) {
                         Some(v) => {
                             ellipsized = v;
                             &ellipsized
@@ -2771,7 +2780,7 @@ fn measure_inner_body<'a>(
                     for _ in 0..4 {
                         let Some(e) = end else { break };
                         let restyled = apply_first_line_split(items, e, &fl);
-                        shaped = shape_spans(font_system, &restyled, content_w, pre, s.text_align.to_cosmic());
+                        shaped = shape_spans(font_system, &restyled, content_w, pre, s.text_align.to_cosmic(s.direction));
                         let new_end = first_end(&shaped.0);
                         if new_end == Some(e) {
                             break;
@@ -2782,7 +2791,7 @@ fn measure_inner_body<'a>(
                 let (buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs) = shaped;
                 let entry = Arc::new(Mutex::new((buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs)));
                 if s.first_line.is_none() && !(pre && s.text_overflow == TextOverflow::Ellipsis) {
-                    memo_put(memo_key(0, items, content_w, pre, s.text_align.to_cosmic()), &entry);
+                    memo_put(memo_key(0, items, content_w, pre, s.text_align.to_cosmic(s.direction)), &entry);
                 }
                 cache.insert(id, entry);
                 h
@@ -3208,8 +3217,8 @@ fn measure_inner_body<'a>(
             let col_widths = vec![content_w / n; cells.len()];
             let placement: Vec<(usize, usize)> = (0..cells.len()).map(|i| (i, 1)).collect();
             let (row_h, laid_cells) = lay_out_row_cells(
-                cells, &col_widths, &placement, font_system, content_x, content_y, child_containing_height, next_id, cache,
-                deadline, incomplete, pending,
+                cells, &col_widths, &placement, 0.0, font_system, content_x, content_y, child_containing_height, next_id,
+                cache, deadline, incomplete, pending,
             );
             // Same explicit-`height`-overrides-only-the-reported-size
             // behavior as the `Inline`/`Blocks` branches above.
@@ -4018,10 +4027,10 @@ pub(crate) fn measure_mixed_inline<'a>(
                 }
             })
             .unwrap_or(0.0);
-        let align_offset = match s.text_align {
+        let align_offset = match s.text_align.physical(s.direction) {
             TextAlign::Right => (avail_w - line_w).max(0.0),
             TextAlign::Center => (avail_w - line_w).max(0.0) / 2.0,
-            TextAlign::Left | TextAlign::Justify => 0.0,
+            _ => 0.0,
         } + if line_no == 0 { s.text_indent.min(0.0) } else { 0.0 }; // QW2: negative `text-indent` on the first line
         let mut idx = 0;
         while idx < line.len() {
@@ -4376,6 +4385,12 @@ fn natural_width_body(
             // the widest row); captions add only their min-content width.
             let (cmin, cmax) = table_column_extents(children, font_system, next_id, cache, deadline, incomplete);
             let (mut mn, mut mx) = (cmin.iter().sum::<f32>(), cmax.iter().sum::<f32>());
+            // QCSS-E: `border-spacing` before, between and after the columns.
+            if !cell.style.border_collapse && !cmin.is_empty() {
+                let gaps = cell.style.border_spacing.0 * (cmin.len() + 1) as f32;
+                mn += gaps;
+                mx += gaps;
+            }
             for child in children.iter().filter(|c| !matches!(c.content, BoxContent::TableRow(_))) {
                 let (cmn, cmx) = cell_natural_width(child, font_system, next_id, cache, deadline, incomplete);
                 let cmx = if child.style.table_caption { cmn } else { cmx };
@@ -4690,6 +4705,8 @@ pub(crate) fn lay_out_row_cells<'a>(
     cells: &'a [LayoutBox],
     col_widths: &[f32],
     placement: &[(usize, usize)],
+    // QCSS-E: `border-spacing` between columns (horizontal), px; the row starts one spacing in.
+    spacing_h: f32,
     font_system: &mut FontSystem,
     content_x: f32,
     content_y: f32,
@@ -4711,8 +4728,8 @@ pub(crate) fn lay_out_row_cells<'a>(
         // Q36: a cell sits at its grid column and spans `colspan` columns.
         let (start, span) = placement.get(i).copied().unwrap_or((i, 1));
         let width_of = |c: usize| col_widths.get(c).copied().unwrap_or(fallback_w);
-        let cell_w: f32 = (start..start + span).map(width_of).sum();
-        let cursor_x = content_x + (0..start).map(width_of).sum::<f32>();
+        let cell_w: f32 = (start..start + span).map(width_of).sum::<f32>() + spacing_h * (span.max(1) - 1) as f32;
+        let cursor_x = content_x + (0..start).map(width_of).sum::<f32>() + spacing_h * start as f32;
         let lc = measure(
             cell, font_system, cursor_x, content_y, cell_w, child_containing_height, next_id, cache, deadline,
             incomplete, pending, &no_floats, None,
@@ -4755,6 +4772,7 @@ pub(crate) fn measure_row_with_widths<'a>(
     row: &'a LayoutBox,
     col_widths: &[f32],
     placement: &[(usize, usize)],
+    spacing_h: f32,
     font_system: &mut FontSystem,
     x: f32,
     y: f32,
@@ -4772,8 +4790,8 @@ pub(crate) fn measure_row_with_widths<'a>(
     let mut s = row.style;
     let entry = box_model_entry(&mut s, x, y, width, containing_height, None);
     let (row_h, laid_cells) = lay_out_row_cells(
-        cells, col_widths, placement, font_system, entry.content_x, entry.content_y, entry.child_containing_height, next_id,
-        cache, deadline, incomplete, pending,
+        cells, col_widths, placement, spacing_h, font_system, entry.content_x, entry.content_y,
+        entry.child_containing_height, next_id, cache, deadline, incomplete, pending,
     );
     let border_h =
         clamp_box_dim(s.height, s.min_height, s.max_height, entry.extra_h + row_h.max(0.0), s.box_sizing, entry.extra_h);
@@ -4800,7 +4818,7 @@ pub(crate) fn measure_row_with_widths<'a>(
 /// when a rowspan cell is taller than its rows together, the last
 /// spanned row grows, and every later child of the table shifts down.
 /// Returns the total height added.
-pub(crate) fn settle_rowspans(laid_children: &mut [Laid]) -> f32 {
+pub(crate) fn settle_rowspans(laid_children: &mut [Laid], row_gap: f32) -> f32 {
     let row_idx: Vec<usize> =
         (0..laid_children.len()).filter(|&i| matches!(laid_children[i].content, LaidContent::TableRow(_))).collect();
     let mut row_h: Vec<f32> = row_idx.iter().map(|&i| laid_children[i].h).collect();
@@ -4813,7 +4831,7 @@ pub(crate) fn settle_rowspans(laid_children: &mut [Laid]) -> f32 {
             let end = (r + c.style.row_span - 1).min(row_idx.len() - 1);
             spans.push((r, ci, end));
             let need = c.style.margin.top.px() + c.style.margin.bottom.px() + c.h;
-            let have: f32 = row_h[r..=end].iter().sum();
+            let have: f32 = row_h[r..=end].iter().sum::<f32>() + row_gap * (end - r) as f32;
             if need > have {
                 row_h[end] += need - have;
                 extra[end] += need - have;
@@ -4831,7 +4849,7 @@ pub(crate) fn settle_rowspans(laid_children: &mut [Laid]) -> f32 {
         }
     }
     for (r, ci, end) in spans {
-        let total: f32 = row_h[r..=end].iter().sum();
+        let total: f32 = row_h[r..=end].iter().sum::<f32>() + row_gap * (end - r) as f32;
         if let LaidContent::TableRow(cells) = &mut laid_children[row_idx[r]].content {
             let c = &mut cells[ci];
             c.h = (total - c.style.margin.top.px() - c.style.margin.bottom.px()).max(c.h);
@@ -4892,15 +4910,21 @@ pub(crate) fn measure_table<'a>(
     s.box_sizing = authored_box_sizing;
     // ...but the table can't be narrower than its columns' min-content.
     let (col_min, _) = table_column_extents(children, font_system, next_id, cache, deadline, incomplete);
-    let total_min: f32 = col_min.iter().sum();
+    // QCSS-E: `border-spacing` (the separated borders model; ignored under `border-collapse`):
+    // `sh` before, between and after the columns, `sv` the same for the rows.
+    let (sh, sv) = if s.border_collapse { (0.0, 0.0) } else { s.border_spacing };
+    let spacing_w = if col_min.is_empty() { 0.0 } else { sh * (col_min.len() + 1) as f32 };
+    let total_min: f32 = col_min.iter().sum::<f32>() + spacing_w;
     if total_min > entry.content_w {
         entry.border_w += total_min - entry.content_w;
         entry.content_w = total_min;
     }
-    let col_widths = table_column_widths(children, entry.content_w, font_system, next_id, cache, deadline, incomplete);
+    let col_widths =
+        table_column_widths(children, entry.content_w - spacing_w, font_system, next_id, cache, deadline, incomplete);
 
     let placement = table_grid_placement(children);
     let mut row_ordinal = 0;
+    let total_rows = placement.len();
     let mut cursor_y = entry.content_y;
     // QINC1k1: the content height relative to `content_y` (see the `Blocks` arm of `measure_inner`).
     let mut ry = 0.0f32;
@@ -4929,9 +4953,14 @@ pub(crate) fn measure_table<'a>(
     for child in ordered {
         let lc = if matches!(child.content, BoxContent::TableRow(_)) {
             row_ordinal += 1;
+            // A row's own box spans the cells, so it starts one horizontal spacing in; the rows are
+            // separated by one vertical spacing, which also precedes the first row.
+            cursor_y += sv;
+            ry += sv;
             measure_row_with_widths(
-                child, &col_widths, &placement[row_ordinal - 1], font_system, entry.content_x, cursor_y, entry.content_w,
-                entry.child_containing_height, next_id, cache, deadline, incomplete, &mut own_pending,
+                child, &col_widths, &placement[row_ordinal - 1], sh, font_system, entry.content_x + sh, cursor_y,
+                (entry.content_w - 2.0 * sh).max(0.0), entry.child_containing_height, next_id, cache, deadline, incomplete,
+                &mut own_pending,
             )
         } else {
             measure(
@@ -4942,9 +4971,13 @@ pub(crate) fn measure_table<'a>(
         let advance = lc.style.margin.top.px() + lc.style.margin.bottom.px() + lc.h;
         cursor_y += advance;
         ry += advance;
+        if row_ordinal == total_rows && matches!(child.content, BoxContent::TableRow(_)) {
+            cursor_y += sv;
+            ry += sv;
+        }
         laid_children.push(lc);
     }
-    let rowspan_extra = settle_rowspans(&mut laid_children);
+    let rowspan_extra = settle_rowspans(&mut laid_children, sv);
     cursor_y += rowspan_extra;
     ry += rowspan_extra;
     // Same patch `measure`'s own `Blocks` arm does, for a direct

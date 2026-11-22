@@ -430,6 +430,16 @@ impl Interp for BoxLength {
     }
 }
 
+/// QCSS-E: one corner radius `(horizontal, vertical)`.
+impl Interp for (BoxLength, BoxLength) {
+    fn interp(a: &(BoxLength, BoxLength), b: &(BoxLength, BoxLength), t: f32) -> Option<(BoxLength, BoxLength)> {
+        Some((BoxLength::interp(&a.0, &b.0, t)?, BoxLength::interp(&a.1, &b.1, t)?))
+    }
+    fn same(a: &(BoxLength, BoxLength), b: &(BoxLength, BoxLength)) -> bool {
+        BoxLength::same(&a.0, &b.0) && BoxLength::same(&a.1, &b.1)
+    }
+}
+
 impl Interp for i32 {
     fn interp(a: &i32, b: &i32, t: f32) -> Option<i32> {
         Some(lerp(*a as f32, *b as f32, t).round() as i32)
@@ -481,7 +491,7 @@ fn translate_key(t: Option<(TranslateAxis, TranslateAxis)>) -> Option<(f32, f32,
 pub(crate) fn lerp_styles(a: &ComputedStyle, b: &ComputedStyle, t: f32) -> ComputedStyle {
     let mut r = if t < 0.5 { *a } else { *b };
     macro_rules! plain { ($($f:ident),*) => { $(if let Some(v) = f32::interp(&a.$f, &b.$f, t) { r.$f = v; })* }; }
-    plain!(opacity, font_size, word_spacing, text_indent, outline_width, flex_grow, flex_shrink);
+    plain!(opacity, font_size, word_spacing, letter_spacing, text_indent, outline_width, outline_offset, flex_grow, flex_shrink);
     r.color = TextColor::interp(&a.color, &b.color, t).unwrap_or(r.color);
     r.background_color = color_opt(&a.background_color, &b.background_color, t);
     r.outline_color = color_opt(&a.outline_color, &b.outline_color, t);
@@ -496,7 +506,12 @@ pub(crate) fn lerp_styles(a: &ComputedStyle, b: &ComputedStyle, t: f32) -> Compu
     if !(a.margin_auto.0 || b.margin_auto.0 || a.margin_auto.1 || b.margin_auto.1) {
         blen!(margin.top, margin.right, margin.bottom, margin.left);
     }
-    blen!(padding.top, padding.right, padding.bottom, padding.left, border_radius);
+    blen!(padding.top, padding.right, padding.bottom, padding.left);
+    for i in 0..4 {
+        if let Some(v) = <(BoxLength, BoxLength)>::interp(&a.border_radius.0[i], &b.border_radius.0[i], t) {
+            r.border_radius.0[i] = v;
+        }
+    }
     macro_rules! oblen { ($($($f:ident).+),*) => { $(if let Some(v) = opt_interp(&a.$($f).+, &b.$($f).+, t) { r.$($f).+ = v; })* }; }
     oblen!(width, height, min_width, max_width, min_height, max_height);
     oblen!(inset.top, inset.right, inset.bottom, inset.left, z_index);
@@ -529,7 +544,7 @@ pub(crate) fn lerp_styles(a: &ComputedStyle, b: &ComputedStyle, t: f32) -> Compu
 fn merge_styles(r: &mut ComputedStyle, s: &ComputedStyle, base: &ComputedStyle) {
     macro_rules! m { ($same:expr, $($f:ident).+) => { if !$same(&s.$($f).+, &base.$($f).+) { r.$($f).+ = s.$($f).+; } }; }
     macro_rules! plain { ($($f:ident),*) => { $(m!(f32::same, $f);)* }; }
-    plain!(opacity, font_size, word_spacing, text_indent, outline_width, flex_grow, flex_shrink);
+    plain!(opacity, font_size, word_spacing, letter_spacing, text_indent, outline_width, outline_offset, flex_grow, flex_shrink);
     m!(TextColor::same, color);
     m!(opt_same, background_color);
     m!(opt_same, outline_color);
@@ -550,7 +565,11 @@ fn merge_styles(r: &mut ComputedStyle, s: &ComputedStyle, base: &ComputedStyle) 
     m!(BoxLength::same, padding.right);
     m!(BoxLength::same, padding.bottom);
     m!(BoxLength::same, padding.left);
-    m!(BoxLength::same, border_radius);
+    for i in 0..4 {
+        if !<(BoxLength, BoxLength)>::same(&s.border_radius.0[i], &base.border_radius.0[i]) {
+            r.border_radius.0[i] = s.border_radius.0[i];
+        }
+    }
     m!(opt_same, width);
     m!(opt_same, height);
     m!(opt_same, min_width);

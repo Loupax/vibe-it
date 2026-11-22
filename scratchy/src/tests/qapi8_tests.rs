@@ -44,12 +44,12 @@ fn qapi8_properties_handled_elsewhere_are_not_reported() {
 fn qapi8_really_unparsed_declarations_are_still_reported() {
     let _g = Guard;
     let r = reported(
-        "scroll-margin-top:4px;letter-spacing:.01rem;touch-action:pan-y;user-select:none;\
-         color-scheme:only dark;border-spacing:8px;pointer-events:none;frobnicate:1",
+        "scroll-margin-top:4px;touch-action:pan-y;user-select:none;\
+         color-scheme:only dark;pointer-events:none;frobnicate:1",
     );
     for n in [
-        "scroll-margin-top", "letter-spacing", "touch-action", "user-select",
-        "color-scheme", "border-spacing", "pointer-events", "frobnicate",
+        "scroll-margin-top", "touch-action", "user-select",
+        "color-scheme", "pointer-events", "frobnicate",
     ] {
         assert!(r.iter().any(|x| x == n), "{n} missing from {r:?}");
     }

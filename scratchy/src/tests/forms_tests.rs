@@ -563,7 +563,7 @@ fn q30c_paint_uses_live_state() {
     assert_eq!(render(&st), off);
     // A radio paints a dot in its middle, no fill.
     st.check_widget = CHECK_RADIO;
-    st.border_radius = BoxLength::Percent(0.5);
+    st.border_radius = CornerRadii::uniform(BoxLength::Percent(0.5));
     set_checked(&a, true);
     let radio = render(&st);
     assert_eq!(radio[6 * 13 + 6], accent, "dot in the middle");

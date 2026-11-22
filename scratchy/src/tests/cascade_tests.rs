@@ -1104,7 +1104,7 @@ fn border_radius_percent_resolves_against_own_border_box_width() {
         500.0,
     );
     let div = find_by_width(&laid, 200.0).expect("div not found");
-    assert_eq!(div.style.border_radius.resolve(div.w), 50.0, "border-radius: 25% of a 200px-wide box should resolve to 50px");
+    assert_eq!(div.style.border_radius.resolve(div.w, div.h)[0].0, 50.0, "border-radius: 25% of a 200px-wide box should resolve to 50px");
 }
 
 // ---------- v51: named `font-family` fallback lists ----------

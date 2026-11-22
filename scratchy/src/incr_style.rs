@@ -550,6 +550,9 @@ fn inherited_changed(a: &ComputedStyle, b: &ComputedStyle) -> bool {
         || a.svg != b.svg
         || a.cursor != b.cursor
         || a.word_spacing != b.word_spacing
+        || a.letter_spacing != b.letter_spacing
+        || a.direction != b.direction
+        || a.border_spacing != b.border_spacing
         || a.border_collapse != b.border_collapse
         || a.text_indent != b.text_indent
         || a.background_color != b.background_color

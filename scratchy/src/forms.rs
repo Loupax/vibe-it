@@ -448,13 +448,13 @@ fn build_range(handle: &Handle, mut style: ComputedStyle) -> (ComputedStyle, Box
     track.height = Some(BoxLength::Px(4.0));
     track.margin.top = BoxLength::Px(6.0);
     track.background_color = Some(TextColor::rgb(187, 187, 187));
-    track.border_radius = BoxLength::Px(2.0);
+    track.border_radius = CornerRadii::uniform(BoxLength::Px(2.0));
     let mut fill = anonymous_style(style.inherited());
     fill.display = Display::Block;
     fill.width = Some(BoxLength::Percent(frac));
     fill.height = Some(BoxLength::Px(4.0));
     fill.background_color = Some(rgb(ACCENT));
-    fill.border_radius = BoxLength::Px(2.0);
+    fill.border_radius = CornerRadii::uniform(BoxLength::Px(2.0));
     let track = LayoutBox { style: track, background_image: None, content: BoxContent::Blocks(vec![empty_block(fill)]) };
     (style, BoxContent::Blocks(vec![track]))
 }
@@ -526,7 +526,7 @@ fn build_bar(handle: &Handle, style: ComputedStyle, meter: bool) -> (ComputedSty
     fill.width = Some(BoxLength::Percent(frac));
     fill.height = Some(BoxLength::Percent(1.0));
     fill.background_color = Some(if meter { meter_color(handle, value, min, max) } else { rgb(ACCENT) });
-    fill.border_radius = BoxLength::Px(7.0);
+    fill.border_radius = CornerRadii::uniform(BoxLength::Px(7.0));
     (style, BoxContent::Blocks(vec![empty_block(fill)]))
 }
 

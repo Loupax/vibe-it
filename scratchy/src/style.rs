@@ -125,6 +125,13 @@ pub(crate) struct InheritedStyle {
     /// `word-spacing`'s own grammar has no per-descendant-reinterpreted
     /// form the way `line-height: <number>` does.
     pub(crate) word_spacing: f32,
+    /// QCSS-E: `letter-spacing` (inherited), px. Applied as `Attrs::letter_spacing` (cosmic-text
+    /// takes it in em, so the span's own font size divides it out; see `shape_spans`).
+    pub(crate) letter_spacing: f32,
+    /// QCSS-E: `direction` (inherited): the inline base direction.
+    pub(crate) direction: Direction,
+    /// QCSS-E: `border-spacing` (inherited): horizontal, vertical px between table cells.
+    pub(crate) border_spacing: (f32, f32),
     /// `border-collapse: collapse` (inherited). Only used to decide that a
     /// `tr`'s own border is ignored in the separated model (Q52c1); there is
     /// no real collapsed-border layout.
@@ -160,11 +167,14 @@ pub(crate) const ROOT_STYLE: InheritedStyle = InheritedStyle {
     word_break: WordBreak::Normal,
     text_transform: TextTransform::None,
     list_style_type: ListStyleType::Disc,
-    text_align: TextAlign::Left,
+    text_align: TextAlign::Start,
     line_height: LineHeight::Normal,
     visibility: Visibility::Visible,
     cursor: CursorStyle::Auto,
     word_spacing: 0.0,
+    letter_spacing: 0.0,
+    direction: Direction::Ltr,
+    border_spacing: (0.0, 0.0),
     border_collapse: false,
     text_indent: 0.0,
     background_color: None,
@@ -221,6 +231,10 @@ impl FirstLineStyle {
         if let Some(v) = self.word_spacing { span.word_spacing = v; }
     }
 }
+
+/// QCSS-E: the initial `transform-origin`, `50% 50%`.
+pub(crate) const INITIAL_TRANSFORM_ORIGIN: (TranslateAxis, TranslateAxis) =
+    (TranslateAxis { px: 0.0, frac: 0.5 }, TranslateAxis { px: 0.0, frac: 0.5 });
 
 /// One axis of a QY18 translate: `px` plus a fraction of the box's own size.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -429,6 +443,17 @@ pub(crate) struct ComputedStyle {
     /// never something cosmic-text's own internal wrap computation has
     /// to account for.
     pub(crate) word_spacing: f32,
+    /// QCSS-E: inherited, see `InheritedStyle`.
+    pub(crate) letter_spacing: f32,
+    pub(crate) direction: Direction,
+    pub(crate) border_spacing: (f32, f32),
+    /// QCSS-E: `outline-offset` px (not inherited; negative moves the outline inside the border
+    /// box). The outline's paint reach is `outline_width + max(outline_offset, 0)`.
+    pub(crate) outline_offset: f32,
+    /// QCSS-E: `transform-origin` x, y as px plus a fraction of the border box. Initial `50% 50%`.
+    /// The only transform this engine applies is a translate, which does not depend on the
+    /// origin; `transform_origin_px` is what a scale or rotate would read.
+    pub(crate) transform_origin: (TranslateAxis, TranslateAxis),
     /// Inherited `border-collapse: collapse` (see `InheritedStyle`).
     pub(crate) border_collapse: bool,
     /// Inherited `text-indent` in px (see `InheritedStyle::text_indent`).
@@ -480,7 +505,7 @@ pub(crate) struct ComputedStyle {
     /// resolves it directly against its own `w` parameter, since that's
     /// already the exact value needed and it's never used anywhere
     /// `measure` would otherwise have to finalize it early.
-    pub(crate) border_radius: BoxLength,
+    pub(crate) border_radius: CornerRadii,
     /// Not inherited. See `Overflow`'s own docs for the clip's scope. QXSCR1: one value per axis,
     /// already fixed up per CSS Overflow 3 (`overflow_axes`): when either axis is a scrolling value
     /// (`hidden`/`scroll`/`auto`), a `visible` other axis is `auto` and a `clip` one is `hidden`.
@@ -654,6 +679,25 @@ impl ComputedStyle {
         self.border_width[0] + self.border_width[2]
     }
 
+    /// QCSS-E: how far (px) the outline paints past the border box: `outline-offset` plus
+    /// `outline-width`, 0 without a visible outline or when a negative offset pulls it inside.
+    /// Anything that bounds what a box paints (the damage-rect repaint's `paint_reach`) must
+    /// include this.
+    pub(crate) fn outline_reach(&self) -> f32 {
+        if self.outline_width > 0.0 && self.outline_color.is_some() {
+            (self.outline_width + self.outline_offset).max(0.0)
+        } else {
+            0.0
+        }
+    }
+
+    /// QCSS-E: `transform-origin` in px for a `w` x `h` border box (what a scale or rotate would
+    /// pivot on; the translate-only transform this engine paints does not read it).
+    pub(crate) fn transform_origin_px(&self, w: f32, h: f32) -> (f32, f32) {
+        let (x, y) = self.transform_origin;
+        (x.px + x.frac * w, y.px + y.frac * h)
+    }
+
     pub(crate) fn inherited(&self) -> InheritedStyle {
         InheritedStyle {
             color: self.color,
@@ -671,6 +715,9 @@ impl ComputedStyle {
             visibility: self.visibility,
             cursor: self.cursor,
             word_spacing: self.word_spacing,
+            letter_spacing: self.letter_spacing,
+            direction: self.direction,
+            border_spacing: self.border_spacing,
             border_collapse: self.border_collapse,
             text_indent: self.text_indent,
             background_color: self.background_color,
@@ -746,6 +793,11 @@ pub(crate) static BORDER_WIDE_KEYS: [&str; 12] = [
     "border-top-color", "border-right-color", "border-bottom-color", "border-left-color",
 ];
 
+/// QCSS-E: the canonical keys of the four corner radii (top-left, top-right, bottom-right,
+/// bottom-left), the order of `Declarations::border_radius`.
+pub(crate) static CORNER_KEYS: [&str; 4] =
+    ["border-top-left-radius", "border-top-right-radius", "border-bottom-right-radius", "border-bottom-left-radius"];
+
 /// `border-<side>-<width|style|color>` canonical key to (side index,
 /// 'w'/'s'/'c').
 pub(crate) fn border_key(key: &str) -> Option<(usize, char)> {
@@ -778,7 +830,9 @@ pub(crate) fn wide_keys(name: &str) -> Option<&'static [&'static str]> {
         "max-width", "min-height", "max-height", "box-sizing", "margin-top",
         "margin-right", "margin-bottom", "margin-left", "padding-top",
         "padding-right", "padding-bottom", "padding-left", "outline-width",
-        "outline-color", "box-shadow", "border-radius", "filter", "backdrop-filter", "text-shadow", "mix-blend-mode", "clip-path",
+        "outline-color", "box-shadow", "filter", "backdrop-filter", "text-shadow", "mix-blend-mode", "clip-path",
+        "outline-offset", "transform-origin", "border-spacing",
+        "letter-spacing", "direction",
         "overflow-y", "text-overflow", "flex-direction", "flex-wrap", "justify-content", "align-items",
         "align-content", "justify-items", "justify-self", "grid-auto-flow", "align-self", "order", "flex-grow", "flex-shrink", "flex-basis", "row-gap",
         "column-gap", "grid-template-columns", "grid-template-rows", "grid-auto-columns", "grid-auto-rows",
@@ -797,6 +851,9 @@ pub(crate) fn wide_keys(name: &str) -> Option<&'static [&'static str]> {
     }
     if let Some(k) = BORDER_WIDE_KEYS.iter().position(|k| *k == l) {
         return Some(std::slice::from_ref(&BORDER_WIDE_KEYS[k]));
+    }
+    if let Some(k) = CORNER_KEYS.iter().position(|k| *k == l) {
+        return Some(std::slice::from_ref(&CORNER_KEYS[k]));
     }
     Some(match l {
         // QXSCR1: the canonical key `overflow` is the x axis.
@@ -822,6 +879,7 @@ pub(crate) fn wide_keys(name: &str) -> Option<&'static [&'static str]> {
         "padding-inline-end" => &["padding-right"],
         "padding-block" => &["padding-top", "padding-bottom"],
         "padding-inline" => &["padding-left", "padding-right"],
+        "border-radius" => &CORNER_KEYS,
         "border" => &BORDER_WIDE_KEYS,
         "border-width" => &BORDER_WIDE_KEYS[0..4],
         "border-style" => &BORDER_WIDE_KEYS[4..8],
@@ -891,7 +949,7 @@ pub(crate) fn is_inherited_key(key: &str) -> bool {
         key,
         "color" | "font-size" | "line-height" | "font-family" | "font-weight" | "text-align"
             | "white-space" | "cursor" | "visibility" | "font-style" | "list-style-type"
-            | "word-spacing" | "text-shadow"
+            | "word-spacing" | "text-shadow" | "letter-spacing" | "direction" | "border-spacing"
     )
 }
 
@@ -907,6 +965,10 @@ pub(crate) fn copy_prop(dst: &mut ComputedStyle, src: &ComputedStyle, key: &str)
             // resolve against this element's own colour (border-color-011).
             _ => dst.border_color[i] = src.border_color[i].or(Some(dst.color)),
         }
+        return;
+    }
+    if let Some(i) = CORNER_KEYS.iter().position(|k| *k == key) {
+        dst.border_radius.0[i] = src.border_radius.0[i];
         return;
     }
     match key {
@@ -942,7 +1004,11 @@ pub(crate) fn copy_prop(dst: &mut ComputedStyle, src: &ComputedStyle, key: &str)
         "text-shadow" => dst.text_shadow = src.text_shadow,
         "clip-path" => dst.clip_path = src.clip_path,
         "mix-blend-mode" => dst.mix_blend_mode = src.mix_blend_mode,
-        "border-radius" => dst.border_radius = src.border_radius,
+        "outline-offset" => dst.outline_offset = src.outline_offset,
+        "transform-origin" => dst.transform_origin = src.transform_origin,
+        "border-spacing" => dst.border_spacing = src.border_spacing,
+        "letter-spacing" => dst.letter_spacing = src.letter_spacing,
+        "direction" => dst.direction = src.direction,
         "overflow" => dst.overflow_x = src.overflow_x,
         "overflow-y" => dst.overflow_y = src.overflow_y,
         "text-overflow" => dst.text_overflow = src.text_overflow,
@@ -2571,6 +2637,42 @@ pub(crate) fn resolve_style_core<'a>(
     )
     .map(|l| l.resolve(font_size, inherited.root_font_size))
     .unwrap_or(inherited.word_spacing);
+    let letter_spacing = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.letter_spacing),
+        |d| d.letter_spacing,
+    )
+    .map(|l| l.resolve(font_size, inherited.root_font_size))
+    .unwrap_or(inherited.letter_spacing);
+    let direction = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.direction), |d| d.direction)
+        .unwrap_or(inherited.direction);
+    let border_spacing = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.border_spacing),
+        |d| d.border_spacing,
+    )
+    .map(|(h, v)| (h.resolve(font_size, inherited.root_font_size).max(0.0), v.resolve(font_size, inherited.root_font_size).max(0.0)))
+    .unwrap_or(inherited.border_spacing);
+    let outline_offset = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.outline_offset),
+        |d| d.outline_offset,
+    )
+    .map(|l| l.resolve(font_size, inherited.root_font_size))
+    .unwrap_or(0.0);
+    let transform_origin = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.transform_origin),
+        |d| d.transform_origin,
+    )
+    .map(|(x, y)| {
+        let axis = |l: Length| match l {
+            Length::Percent(v) => TranslateAxis { px: 0.0, frac: v },
+            other => TranslateAxis { px: other.resolve(font_size, inherited.root_font_size), frac: 0.0 },
+        };
+        (axis(x), axis(y))
+    })
+    .unwrap_or(INITIAL_TRANSFORM_ORIGIN);
     let text_indent = cascade_property(
         &matches,
         inline_decls.as_ref().and_then(|d| d.text_indent),
@@ -2738,13 +2840,15 @@ pub(crate) fn resolve_style_core<'a>(
             (p.y.pct, p.y.off.resolve(font_size, inherited.root_font_size)),
         )
     };
-    let border_radius = cascade_property(
-        &matches,
-        inline_decls.as_ref().and_then(|d| d.border_radius),
-        |d| d.border_radius,
-    )
-    .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size))
-    .unwrap_or_default();
+    let mut border_radius = CornerRadii::default();
+    for (i, c) in border_radius.0.iter_mut().enumerate() {
+        if let Some((h, v)) = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.border_radius[i]), |d| d.border_radius[i]) {
+            *c = (
+                BoxLength::from_length(h, font_size, inherited.root_font_size),
+                BoxLength::from_length(v, font_size, inherited.root_font_size),
+            );
+        }
+    }
     let overflow_x = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.overflow), |d| d.overflow)
         .unwrap_or_default();
     let overflow_y = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.overflow_y), |d| d.overflow_y)
@@ -2936,6 +3040,11 @@ pub(crate) fn resolve_style_core<'a>(
         visibility,
         svg: cascade_svg(&matches, inl, inherited.svg),
         word_spacing,
+        letter_spacing,
+        direction,
+        border_spacing,
+        outline_offset,
+        transform_origin,
         border_collapse,
         text_indent,
         outline_width,
@@ -3077,6 +3186,11 @@ pub(crate) fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         visibility: inherited.visibility,
         svg: inherited.svg,
         word_spacing: inherited.word_spacing,
+        letter_spacing: inherited.letter_spacing,
+        direction: inherited.direction,
+        border_spacing: inherited.border_spacing,
+        outline_offset: 0.0,
+        transform_origin: INITIAL_TRANSFORM_ORIGIN,
         border_collapse: inherited.border_collapse,
         text_indent: inherited.text_indent,
         outline_width: 0.0,
@@ -3095,7 +3209,7 @@ pub(crate) fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         object_fit: ObjectFit::Fill,
         aspect_ratio: AspectRatio::AUTO,
         object_pos: ((0.5, 0.0), (0.5, 0.0)),
-        border_radius: BoxLength::default(),
+        border_radius: CornerRadii::default(),
         overflow_x: Overflow::default(),
         overflow_y: Overflow::default(),
         text_overflow: TextOverflow::default(),

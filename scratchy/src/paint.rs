@@ -167,6 +167,46 @@ pub(crate) fn corner_inset(dy: f32, r: f32) -> f32 {
     }
 }
 
+/// QCSS-E: `corner_inset` for an elliptical corner, `rx` across and `ry` down (a circle takes the
+/// circular formula, so uniform radii paint exactly as before).
+pub(crate) fn ellipse_inset(dy: f32, rx: f32, ry: f32) -> f32 {
+    if rx == ry {
+        return corner_inset(dy, rx);
+    }
+    if dy < ry && rx > 0.0 && ry > 0.0 {
+        let t = (ry - dy.max(0.0)) / ry;
+        rx - rx * (1.0 - t * t).max(0.0).sqrt()
+    } else {
+        0.0
+    }
+}
+
+/// QCSS-E: how far the left and right edges of a rect `y .. y + h` with corner radii `radii`
+/// (top-left, top-right, bottom-right, bottom-left) are inset at pixel row `row`.
+pub(crate) fn rrect_insets(radii: &Radii, y: f32, h: f32, row: f32) -> (f32, f32) {
+    let dt = row - y;
+    let db = (y + h) - row - 1.0;
+    let (mut l, mut r) = (0.0f32, 0.0f32);
+    if dt < radii[0].1 {
+        l = l.max(ellipse_inset(dt, radii[0].0, radii[0].1));
+    }
+    if dt < radii[1].1 {
+        r = r.max(ellipse_inset(dt, radii[1].0, radii[1].1));
+    }
+    if db < radii[3].1 {
+        l = l.max(ellipse_inset(db, radii[3].0, radii[3].1));
+    }
+    if db < radii[2].1 {
+        r = r.max(ellipse_inset(db, radii[2].0, radii[2].1));
+    }
+    (l, r)
+}
+
+/// QCSS-E: whether no corner of `radii` is rounded.
+pub(crate) fn square_corners(radii: &Radii) -> bool {
+    radii.iter().all(|c| c.0 <= 0.0 || c.1 <= 0.0)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn fill_rounded_rect(
     pixels: &mut [u32],
@@ -181,16 +221,33 @@ pub(crate) fn fill_rounded_rect(
     clip: Option<(f32, f32, f32, f32)>,
 ) {
     let r = radius.min(w / 2.0).min(h / 2.0).max(0.0);
-    if r <= 0.0 {
+    fill_rounded_rect_r(pixels, win_w, win_h, x, y, w, h, [(r, r); 4], color, clip);
+}
+
+/// `fill_rounded_rect` with one `(horizontal, vertical)` radius per corner (QCSS-E), already fitted
+/// to the box (`fit_radii`).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn fill_rounded_rect_r(
+    pixels: &mut [u32],
+    win_w: u32,
+    win_h: u32,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    radii: Radii,
+    color: TextColor,
+    clip: Option<(f32, f32, f32, f32)>,
+) {
+    if square_corners(&radii) {
         fill_rect(pixels, win_w, win_h, x, y, w, h, color, clip);
         return;
     }
     let y0 = y.round() as i32;
     let y1 = (y + h).round() as i32;
     for row in y0..y1 {
-        let dy = (row as f32 - y).min((y + h) - row as f32 - 1.0);
-        let inset = corner_inset(dy, r);
-        fill_rect(pixels, win_w, win_h, x + inset, row as f32, (w - 2.0 * inset).max(0.0), 1.0, color, clip);
+        let (il, ir) = rrect_insets(&radii, y, h, row as f32);
+        fill_rect(pixels, win_w, win_h, x + il, row as f32, (w - il - ir).max(0.0), 1.0, color, clip);
     }
 }
 
@@ -207,6 +264,7 @@ pub(crate) fn fill_rounded_rect(
 /// two horizontal spans (left and right edge strips) once it's within
 /// the inner rect's own vertical extent, or one full-width span (a
 /// plain top/bottom edge strip) outside it.
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn fill_rounded_ring(
     pixels: &mut [u32],
@@ -221,22 +279,48 @@ pub(crate) fn fill_rounded_ring(
     color: TextColor,
     clip: Option<(f32, f32, f32, f32)>,
 ) {
+    fill_rounded_ring_r(pixels, win_w, win_h, x, y, w, h, [(radius, radius); 4], border_width, color, clip);
+}
+
+/// `fill_rounded_ring` with one `(horizontal, vertical)` radius per corner (QCSS-E).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn fill_rounded_ring_r(
+    pixels: &mut [u32],
+    win_w: u32,
+    win_h: u32,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    radii: Radii,
+    border_width: f32,
+    color: TextColor,
+    clip: Option<(f32, f32, f32, f32)>,
+) {
     // Snap the vertical extent to whole rows first: with a fractional `y`/`h`
     // the last row (`row >= inner_y + inner_h`) was classed as an inner row,
     // so a 1px bottom border of a rounded box could vanish (form controls).
     let (y, h) = (y.round(), (y + h).round() - y.round());
-    let r_outer = radius.min(w / 2.0).min(h / 2.0).max(0.0);
+    // Circular and equal: the old `min(r, w/2, h/2)` clamp against the snapped height; else each
+    // axis against its own half extent.
+    let r_outer: Radii = if radii.iter().all(|c| *c == radii[0] && c.0 == c.1) {
+        let r = radii[0].0.min(w / 2.0).min(h / 2.0).max(0.0);
+        [(r, r); 4]
+    } else {
+        radii.map(|(rx, ry)| (rx.min(w / 2.0).max(0.0), ry.min(h / 2.0).max(0.0)))
+    };
     let (inner_x, inner_y) = (x + border_width, y + border_width);
     let (inner_w, inner_h) = (w - 2.0 * border_width, h - 2.0 * border_width);
-    let r_inner = (radius - border_width).max(0.0).min(inner_w / 2.0).min(inner_h / 2.0).max(0.0);
+    let r_inner: Radii = r_outer.map(|(rx, ry)| {
+        ((rx - border_width).max(0.0).min(inner_w / 2.0).max(0.0), (ry - border_width).max(0.0).min(inner_h / 2.0).max(0.0))
+    });
     let has_hole = inner_w > 0.0 && inner_h > 0.0;
 
     let y0 = y.round() as i32;
     let y1 = (y + h).round() as i32;
     for row in y0..y1 {
-        let dy_outer = (row as f32 - y).min((y + h) - row as f32 - 1.0);
-        let outer_inset = corner_inset(dy_outer, r_outer);
-        let (outer_left, outer_right) = (x + outer_inset, x + w - outer_inset);
+        let (inset_l, inset_r) = rrect_insets(&r_outer, y, h, row as f32);
+        let (outer_left, outer_right) = (x + inset_l, x + w - inset_r);
 
         let row_f = row as f32;
         let within_inner_rows = has_hole && row_f >= inner_y && row_f < inner_y + inner_h;
@@ -244,9 +328,8 @@ pub(crate) fn fill_rounded_ring(
             fill_rect(pixels, win_w, win_h, outer_left, row_f, (outer_right - outer_left).max(0.0), 1.0, color, clip);
             continue;
         }
-        let dy_inner = (row_f - inner_y).min((inner_y + inner_h) - row_f - 1.0);
-        let inner_inset = corner_inset(dy_inner, r_inner);
-        let (inner_left, inner_right) = (inner_x + inner_inset, inner_x + inner_w - inner_inset);
+        let (in_l, in_r) = rrect_insets(&r_inner, inner_y, inner_h, row_f);
+        let (inner_left, inner_right) = (inner_x + in_l, inner_x + inner_w - in_r);
         fill_rect(pixels, win_w, win_h, outer_left, row_f, (inner_left - outer_left).max(0.0), 1.0, color, clip);
         fill_rect(pixels, win_w, win_h, inner_right, row_f, (outer_right - inner_right).max(0.0), 1.0, color, clip);
     }
@@ -399,7 +482,7 @@ pub(crate) fn paint_per_side_border(
     y: f32,
     w: f32,
     h: f32,
-    radius: f32,
+    radii: Radii,
     clip: Option<(f32, f32, f32, f32)>,
 ) {
     let s = &*with_current_border_color(s);
@@ -409,17 +492,22 @@ pub(crate) fn paint_per_side_border(
     if !(0..4).any(visible) {
         return;
     }
-    let r = radius.min(w / 2.0).min(h / 2.0).max(0.0);
-    let outer = [(r, r); 4];
+    let outer = radii;
     let (iw, ih) = (w - bl - br, h - bt - bb);
     let has_hole = iw > 0.0 && ih > 0.0;
     let clampr = |rx: f32, ry: f32| ((rx.max(0.0)).min(iw / 2.0).max(0.0), (ry.max(0.0)).min(ih / 2.0).max(0.0));
-    let inner = [clampr(r - bl, r - bt), clampr(r - br, r - bt), clampr(r - br, r - bb), clampr(r - bl, r - bb)];
+    let inner = [
+        clampr(radii[0].0 - bl, radii[0].1 - bt),
+        clampr(radii[1].0 - br, radii[1].1 - bt),
+        clampr(radii[2].0 - br, radii[2].1 - bb),
+        clampr(radii[3].0 - bl, radii[3].1 - bb),
+    ];
+    let (top_r, bottom_r) = (radii[0].1.max(radii[1].1), radii[2].1.max(radii[3].1));
     let y0 = y.floor() as i32;
     let y1 = (y + h).ceil() as i32;
     for row in y0..y1 {
         let py = row as f32 + 0.5;
-        let in_corner_rows = py < y + r || py >= y + h - r;
+        let in_corner_rows = py < y + top_r || py >= y + h - bottom_r;
         let in_mid_rows = has_hole && py >= y + bt && py < y + h - bb && !in_corner_rows;
         // Middle rows only touch the left/right strips.
         let spans: [(i32, i32); 2] = if in_mid_rows {
@@ -599,9 +687,9 @@ pub(crate) fn paint_box_decoration(
     // Outer shadows: behind this box's own background/border, first
     // listed on top (so paint last-to-first), and never drawn inside the
     // border box itself.
-    let border_radius = s.border_radius.resolve(w);
+    let radii = s.border_radius.resolve(w, h);
     for shadow in s.box_shadow.iter().rev().flatten().filter(|sh| !sh.inset) {
-        paint_box_shadow(pixels, win_w, win_h, shadow, x, y, w, h, border_radius, clip);
+        paint_box_shadow(pixels, win_w, win_h, shadow, x, y, w, h, radii, clip);
     }
     // Rounds both background and border together, matching a real
     // rounded box's background-under-border stacking — see
@@ -629,13 +717,13 @@ pub(crate) fn paint_box_decoration(
         && s.border_style.iter().all(|t| *t == s.border_style[0])
         && s.border_color.iter().all(|c| *c == s.border_color[0]);
     let no_border = s.border_width.iter().all(|w| *w <= 0.0);
-    let round = border_radius > 0.0;
+    let round = !square_corners(&radii);
     // Uniform solid borders keep the dedicated ring path; every other
     // style with a radius goes through the per-pixel per-side painter.
-    let ring_path = uniform && (no_border || s.border_style[0] == BorderStyle::Solid || border_radius <= 0.0);
+    let ring_path = uniform && (no_border || s.border_style[0] == BorderStyle::Solid || !round);
     if let Some(bg) = s.background_color {
         if round {
-            fill_rounded_rect(pixels, win_w, win_h, x, y, w, h, border_radius, bg, clip);
+            fill_rounded_rect_r(pixels, win_w, win_h, x, y, w, h, radii, bg, clip);
         } else {
             fill_rect(pixels, win_w, win_h, x, y, w, h, bg, clip);
         }
@@ -645,40 +733,47 @@ pub(crate) fn paint_box_decoration(
     // rounded corners when `border-radius` is set. Origin/size use the
     // border box (real CSS uses the padding box by default).
     if let Some(image) = background_image {
-        paint_background_image(image, &s.bg_layout, pixels, win_w, win_h, x, y, w, h, border_radius, clip);
+        paint_background_image_r(image, &s.bg_layout, pixels, win_w, win_h, x, y, w, h, radii, clip);
     }
     if ring_path {
         if s.border_width[0] > 0.0 && s.border_style[0] != BorderStyle::None {
             if let Some(bc) = s.border_color[0] {
                 let bw = s.border_width[0];
                 if round {
-                    fill_rounded_ring(pixels, win_w, win_h, x, y, w, h, border_radius, bw, bc, clip);
+                    fill_rounded_ring_r(pixels, win_w, win_h, x, y, w, h, radii, bw, bc, clip);
                 } else {
                     paint_border(pixels, win_w, win_h, x, y, w, h, bw, s.border_style[0], bc, clip);
                 }
             }
         }
     } else {
-        paint_per_side_border(s, pixels, win_w, win_h, x, y, w, h, border_radius, clip);
+        paint_per_side_border(s, pixels, win_w, win_h, x, y, w, h, radii, clip);
     }
     // Outside the border box (not part of the box model — doesn't affect
     // `w`/`h` the way `border_width` does), same 4-rect ring shape as
     // border, just offset outward by its own width instead of inward.
+    // QCSS-E: `outline-offset` pushes the ring out (or, negative, into the box) by that much.
     if s.outline_width > 0.0 {
         if let Some(oc) = s.outline_color {
             let ow = s.outline_width;
-            let (ox, oy, ow_total, oh_total) = (x - ow, y - ow, w + 2.0 * ow, h + 2.0 * ow);
-            fill_rect(pixels, win_w, win_h, ox, oy, ow_total, ow, oc, clip);
-            fill_rect(pixels, win_w, win_h, ox, oy + oh_total - ow, ow_total, ow, oc, clip);
-            fill_rect(pixels, win_w, win_h, ox, oy, ow, oh_total, oc, clip);
-            fill_rect(pixels, win_w, win_h, ox + ow_total - ow, oy, ow, oh_total, oc, clip);
+            let off = s.outline_offset;
+            let (ox, oy, ow_total, oh_total) = (x - off - ow, y - off - ow, w + 2.0 * (off + ow), h + 2.0 * (off + ow));
+            if ow_total > 0.0 && oh_total > 0.0 {
+                // A ring thicker than half the box (a big negative offset) is a solid fill.
+                let (tw, th) = (ow.min(ow_total / 2.0), ow.min(oh_total / 2.0));
+                fill_rect(pixels, win_w, win_h, ox, oy, ow_total, th, oc, clip);
+                fill_rect(pixels, win_w, win_h, ox, oy + oh_total - th, ow_total, th, oc, clip);
+                fill_rect(pixels, win_w, win_h, ox, oy + th, tw, (oh_total - 2.0 * th).max(0.0), oc, clip);
+                fill_rect(pixels, win_w, win_h, ox + ow_total - tw, oy + th, tw, (oh_total - 2.0 * th).max(0.0), oc, clip);
+            }
         }
     }
     // Inset shadows: inside the padding box, over the background.
     if s.box_shadow.iter().flatten().any(|sh| sh.inset) {
         let (bt, br, bb, bl) = (s.border_width[0], s.border_width[1], s.border_width[2], s.border_width[3]);
         let (px, py, pw, ph) = (x + bl, y + bt, w - bl - br, h - bt - bb);
-        let pr = (border_radius - bt.max(br).max(bb).max(bl)).max(0.0);
+        let bmax = bt.max(br).max(bb).max(bl);
+        let pr: Radii = radii.map(|(rx, ry)| ((rx - bmax).max(0.0), (ry - bmax).max(0.0)));
         for shadow in s.box_shadow.iter().rev().flatten().filter(|sh| sh.inset) {
             paint_box_shadow(pixels, win_w, win_h, shadow, px, py, pw, ph, pr, clip);
         }
@@ -884,6 +979,15 @@ pub(crate) fn blur_mask(mask: &mut [f32], mw: usize, mh: usize, sigma: f32) {
     }
 }
 
+/// QCSS-E: `in_uniform_rrect` for per-corner elliptical radii (circular and equal ones take the
+/// scanline path, so existing shadows are unchanged).
+pub(crate) fn in_rrect(px: f32, py: f32, x: f32, y: f32, w: f32, h: f32, radii: Radii) -> bool {
+    if radii.iter().all(|c| *c == radii[0] && c.0 == c.1) {
+        return in_uniform_rrect(px, py, x, y, w, h, radii[0].0);
+    }
+    in_rounded_rect(px, py, x, y, w, h, fit_radii(radii, w, h))
+}
+
 /// Whether the pixel centre `(px, py)` lies inside the rounded rect.
 pub(crate) fn in_uniform_rrect(px: f32, py: f32, x: f32, y: f32, w: f32, h: f32, radius: f32) -> bool {
     if px < x || px >= x + w || py < y || py >= y + h {
@@ -911,7 +1015,7 @@ pub(crate) fn paint_box_shadow(
     y: f32,
     w: f32,
     h: f32,
-    radius: f32,
+    radius: Radii,
     clip: Option<(f32, f32, f32, f32)>,
 ) {
     const MAX_SHADOW_MASK: f32 = 4_000_000.0;
@@ -923,7 +1027,9 @@ pub(crate) fn paint_box_shadow(
     let g = if sh.inset { -sh.spread } else { sh.spread };
     let (sx, sy) = (x + sh.offset_x - g, y + sh.offset_y - g);
     let (sw, shh) = (w + 2.0 * g, h + 2.0 * g);
-    let sr = if sh.inset { (radius - sh.spread).max(0.0) } else { (radius + sh.spread).max(0.0) };
+    let sr: Radii = radius.map(|(rx, ry)| {
+        if sh.inset { ((rx - sh.spread).max(0.0), (ry - sh.spread).max(0.0)) } else { ((rx + sh.spread).max(0.0), (ry + sh.spread).max(0.0)) }
+    });
     let mut blur = sh.blur;
     let mut m = (blur * 1.5).ceil() as i32;
     // The mask covers the region the shadow can touch: outer = the shape
@@ -955,7 +1061,7 @@ pub(crate) fn paint_box_shadow(
     for j in 0..mh {
         for i in 0..mw {
             let (cx, cy) = ((rx + i as i32) as f32 + 0.5, (ry + j as i32) as f32 + 0.5);
-            if in_uniform_rrect(cx, cy, sx, sy, sw, shh, sr) {
+            if in_rrect(cx, cy, sx, sy, sw, shh, sr) {
                 mask[j * mw + i] = 1.0;
             }
         }
@@ -977,7 +1083,7 @@ pub(crate) fn paint_box_shadow(
                 continue;
             }
             let (cx, cy) = (px as f32 + 0.5, py as f32 + 0.5);
-            let inside_box = in_uniform_rrect(cx, cy, x, y, w, h, radius);
+            let inside_box = in_rrect(cx, cy, x, y, w, h, radius);
             let cov = mask[j as usize * mw + i as usize];
             let alpha = if sh.inset {
                 if !inside_box {
@@ -1616,6 +1722,25 @@ pub(crate) fn paint_background_image(
     radius: f32,
     clip: Option<(f32, f32, f32, f32)>,
 ) {
+    let r = radius.min(w / 2.0).min(h / 2.0).max(0.0);
+    paint_background_image_r(image, layout, pixels, win_w, win_h, x, y, w, h, [(r, r); 4], clip);
+}
+
+/// `paint_background_image` with one `(horizontal, vertical)` radius per corner (QCSS-E).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn paint_background_image_r(
+    image: &DecodedImage,
+    layout: &BgLayout,
+    pixels: &mut [u32],
+    win_w: u32,
+    win_h: u32,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    radii: Radii,
+    clip: Option<(f32, f32, f32, f32)>,
+) {
     if image.width == 0 || image.height == 0 || image.pixels.is_empty() || w <= 0.0 || h <= 0.0 {
         return;
     }
@@ -1637,7 +1762,7 @@ pub(crate) fn paint_background_image(
     if x1 <= x0 || y1 <= y0 {
         return;
     }
-    let r = radius.min(w / 2.0).min(h / 2.0).max(0.0);
+    let rounded = !square_corners(&radii);
     for py in y0..y1 {
         let mut dy = py as f32 - oy;
         if layout.repeat.y {
@@ -1646,10 +1771,9 @@ pub(crate) fn paint_background_image(
             continue;
         }
         let sy = ((dy / th * ih) as u32).min(image.height - 1);
-        let (lo, hi) = if r > 0.0 {
-            let ry = ((py as f32 - y).min((y + h) - py as f32 - 1.0)).max(0.0);
-            let inset = corner_inset(ry, r);
-            ((x + inset).ceil() as i64, (x + w - inset).floor() as i64)
+        let (lo, hi) = if rounded {
+            let (il, ir) = rrect_insets(&radii, y, h, py as f32);
+            ((x + il).ceil() as i64, (x + w - ir).floor() as i64)
         } else {
             (x0, x1)
         };
