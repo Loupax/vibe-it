@@ -87,6 +87,7 @@ mod qdom8_tests;
 mod qdom5_tests;
 mod qel6_tests;
 mod qdom15_tests;
+mod qdom6b_tests;
 #[cfg(feature = "memprof")]
 mod memprof_tests;
 

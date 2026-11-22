@@ -32,7 +32,7 @@ OK         80/80  dom/historical.html
 ERROR        1/2  dom/interface-objects.html
   FAIL      Interface objects properties should not be Enumerable
 OK           6/6  dom/lists/DOMTokenList-Iterable.html
-ERROR    174/175  dom/lists/DOMTokenList-coverage-for-attributes.html
+OK       174/175  dom/lists/DOMTokenList-coverage-for-attributes.html
   FAIL      a.relList in http://www.w3.org/1998/Math/MathML namespace should be DOMTokenList.
 OK           5/6  dom/lists/DOMTokenList-iteration.html
   FAIL      classList inheritance from Array.prototype

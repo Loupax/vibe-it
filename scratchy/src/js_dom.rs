@@ -905,6 +905,14 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             _ => String::new(),
         }
     });
+    // QDOM6b: the stored (un-uppercased) local name of an element.
+    let t = table.clone();
+    native!(ctx, "__d_rawname", move |id: i32| -> String {
+        match t.borrow().get(id).as_deref().map(|h| &h.data) {
+            Some(NodeData::Element { name, .. }) => name.local.as_ref().to_string(),
+            _ => String::new(),
+        }
+    });
     let t = table.clone();
     native!(ctx, "__d_tag", move |id: i32| -> String {
         let Some(h) = t.borrow().get(id) else { return String::new() };
@@ -1602,8 +1610,10 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     // QA14: createElementNS keeps the qualified name's case outside XHTML.
     let t = table.clone();
     native!(ctx, "__d_create_ns", move |ns: String, name: String| -> i32 {
-        let local = if ns.is_empty() || ns == "http://www.w3.org/1999/xhtml" { name.to_ascii_lowercase() } else { name };
-        let ns = if ns.is_empty() { html5ever::ns!(html) } else { html5ever::Namespace::from(ns.as_str()) };
+        // QDOM6b: DOM "create an element NS": the qualified name is kept as given (no lowercasing, also in the
+        // XHTML namespace); the empty string is the null namespace, not HTML.
+        let local = name;
+        let ns = if ns.is_empty() { html5ever::ns!() } else { html5ever::Namespace::from(ns.as_str()) };
         let prefix = local.split_once(':').map(|(p, _)| html5ever::Prefix::from(p));
         let data = NodeData::Element {
             name: html5ever::QualName::new(prefix, ns, html5ever::LocalName::from(local.as_str())),
@@ -2242,7 +2252,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   // QDOM14: qualified name / local name of an element id. The stored local name is `prefix:local` when the
   // element was made by createElementNS or an XML parse (explicit prefix, any namespace); otherwise
   // (QA14) a non-XHTML name with a ':' is split at it.
-  var qnameOf = function (id) { var t = __d_tag(id); return __d_ns(id) === XHTML ? t.toLowerCase() : t; };
+  var qnameOf = function (id) { var t = __d_tag(id); return t.charAt(0) === '#' ? t : __d_rawname(id); };
   var elSplit = function (id) {
     var t = qnameOf(id), p = __d_epfx(id), i = t.indexOf(':');
     if (p && t.length > p.length && t.charAt(p.length) === ':') return [p, t.slice(p.length + 1)];
@@ -2261,7 +2271,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
           return __d_query(id, '*', false).filter(function (e) {
             if (t === '*') return true;
             var q = qnameOf(e);
-            return html && __d_ns(e) === XHTML ? q.toLowerCase() === lc : q === t;
+            return html && __d_ns(e) === XHTML ? q === lc : q === t;
           });
         });
       });
