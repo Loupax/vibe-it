@@ -111,6 +111,10 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#547</td><td>QDOM12</td><td><code>splitText</code>, <code>wholeText</code>, <code>normalize()</code></td></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#535</td><td>QXSCR1</td><td>Horizontal scrolling (your call): Shift+wheel / horizontal wheel, ArrowLeft/Right; real scrollLeft/scrollX; scrollIntoView 40/40</td></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#543</td><td>QWPT10</td><td>The merge script rebuilds the WPT summary file itself, so PRs stop bouncing on it</td></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#545</td><td>QEL5</td><td>Timers clamp to 4 ms only after 5 nesting levels (HTML rule)</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#542</td><td>QDOM9</td><td><code>classList</code> and other DOMTokenLists follow the spec (relList, sandbox, htmlFor added); nodes +140 subtests</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#538</td><td>QWPTPRINT</td><td>Print reftests render as print; the <code>@media not print</code> test passes again for the right reason (your option 1)</td></tr>
     <tr><td class="n">2026-11-21</td><td class="n">#540</td><td>QREC1c</td><td>wire replay no longer serves a different query's response (Wikipedia replays were getting the wrong scripts)</td></tr>
@@ -198,6 +202,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 <section>
   <h2>Waiting on you</h2>
   <ul id="waiting">
+    <li><b>Merge rule:</b> PRs keep colliding in <span class="mono">scratchy/NOTES.md</span> (each adds its own section). May the merge script keep both sides there, like PROMPTS.md and REGRESSIONS.md? It saves an agent rebase each time; a wrong merge would only affect docs and CI still runs.</li>
     <li><b>Public repo cleanup:</b> two PRs (#496, #498) accidentally committed an agent's scratch folder: a test wire binary, its private token (for a throwaway wire, not yours), logs, and logged-out screenshots of social.loupax.com and YouTube. They are removed from main and now ignored, but are still in git history (commits 40d9f8c, 97e5e83). <b>Done</b> (your OK): <code>.git</code> backed up to <span class="mono">~/src/vibe-it-git-backup-2026-11-21</span>, history rewritten without them, main force-pushed. GitHub still serves the old commits through its saved pull-request refs; only GitHub Support can drop those ("remove cached views / sensitive data").</li>
     <li>Skim <span class="mono">scratchy/DECISIONS.md</span> once and correct anything I misstated.</li>
     <li>Old pipeline removal (QINC1m): today nothing tells you when the engine falls back. QINC1n is installed tonight. From now on: use scratchy normally; <code>:engine</code> shows the counts and <span class="mono">~/.local/state/scratchy/engine-check.log</span> collects any mismatch. Earliest go for QINC1m: 2026-11-24, if the log is empty and fallbacks are 0. Then you confirm.</li>
