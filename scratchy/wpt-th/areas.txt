@@ -13,7 +13,7 @@ resize-observer                  36     35        18        54      30   55.6   
 intersection-observer           150    150        21       202      47   23.3   16.5
 html/semantics/scripting-1      419    398       117      2405    1066   44.3   32.8
 html/dom                        180    180        49      3871    1282   33.1   40.7
-html/editing                     48     48         6       620      84   13.5   21.1
+html/editing                     48     48        12       620     202   32.6   35.0
 css/cssom                       271    269        62      3903    2127   54.5   36.3
 css/cssom-view                  220    218        62      1382     711   51.4   35.3
 encoding                         41     41         7       648     282   43.5   33.2
@@ -24,4 +24,4 @@ webmessaging                    115    115        72       205     137   66.8   
 requestidlecallback               9      9         6        17      14   82.4   75.9
 custom-elements                 204    204        19      2179     690   31.7   19.6
 shadow-dom                      263    263        51      2644     806   30.5   25.6
-TOTAL                          3365   3312       966     86079   57504   66.8   37.9
+TOTAL                          3365   3312       972     86079   57622   66.9   38.1
