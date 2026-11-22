@@ -304,9 +304,9 @@ OK           0/7  html/webappapis/dynamic-markup-insertion/opening-the-input-str
   FAIL      document.open() removes the document's children (non-active document without an associated Window object; XMLHttpRequest)
 TIMEOUT      0/4  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/bailout-exception-vs-return-xml.window.html
   TIMEOUT   document.open should throw an InvalidStateError with XML document even when there is an active parser executing script
-  FAIL      document.open should throw an InvalidStateError with XML document even when the ignore-opens-during-unload counter is greater than 0 (during beforeunload event)
-  FAIL      document.open should throw an InvalidStateError with XML document even when the ignore-opens-during-unload counter is greater than 0 (during pagehide event)
-  FAIL      document.open should throw an InvalidStateError with XML document even when the ignore-opens-during-unload counter is greater than 0 (during unload event)
+  TIMEOUT   document.open should throw an InvalidStateError with XML document even when the ignore-opens-during-unload counter is greater than 0 (during beforeunload event)
+  TIMEOUT   document.open should throw an InvalidStateError with XML document even when the ignore-opens-during-unload counter is greater than 0 (during pagehide event)
+  TIMEOUT   document.open should throw an InvalidStateError with XML document even when the ignore-opens-during-unload counter is greater than 0 (during unload event)
 TIMEOUT      0/3  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/bailout-side-effects-ignore-opens-during-unload.window.html
   TIMEOUT   document.open bailout should not have any side effects (ignore-opens-during-unload is greater than 0 during unload event)
   TIMEOUT   document.open bailout should not have any side effects (ignore-opens-during-unload is greater than 0 during beforeunload event)
@@ -379,19 +379,11 @@ OK           0/4  html/webappapis/dynamic-markup-insertion/opening-the-input-str
 OK           1/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/readiness.window.html
 ERROR        0/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/reload.window.html
   FAIL      Reloading a document.open()'d page should reload the URL of the entry realm's responsible document
-OK           2/2  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/remove-initial-about-blankness.window.html
+OK           1/2  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/remove-initial-about-blankness.window.html
+  FAIL      Double-check: without document.open(), Window reuse indeed happens
 OK          8/10  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/tasks.window.html
   FAIL      tasks without document.open() (window message)
   FAIL      document.open() and tasks (window message)
-TIMEOUT      0/8  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/type-argument-plaintext.window.html
-  TIMEOUT   document.open() on plaintext document with type set to: replace (type argument is supposed to be ignored)
-  TIMEOUT   document.open() on plaintext document with type set to: NOBODY (type argument is supposed to be ignored)
-  TIMEOUT   document.open() on plaintext document with type set to: @ FD ; (type argument is supposed to be ignored)
-  TIMEOUT   document.open() on plaintext document with type set to: it does not matter, you see  (type argument is supposed to be ignored)
-  TIMEOUT   document.open() on plaintext document with type set to: text/plain (type argument is supposed to be ignored)
-  TIMEOUT   document.open() on plaintext document with type set to: text/xml (type argument is supposed to be ignored)
-  TIMEOUT   document.open() on plaintext document with type set to: application/octet-stream (type argument is supposed to be ignored)
-  TIMEOUT   document.open() on plaintext document with type set to:   (type argument is supposed to be ignored)
 OK           8/8  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/type-argument.window.html
 OK           1/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/unload.window.html
 OK           0/3  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/url-entry-document-sync-call.window.html
@@ -400,10 +392,9 @@ OK           0/3  html/webappapis/dynamic-markup-insertion/opening-the-input-str
   FAIL      document.writeln() changes document's URL to the entry global object's associate document's (sync call)
 OK           0/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/url-entry-document.window.html
   FAIL      document.open() changes document's URL to the entry settings object's responsible document's (through timeouts)
-OK           1/2  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/url-fragment.window.html
-  FAIL      document.open() and document's URL containing a fragment (entry is not relevant)
-OK           3/5  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/url.window.html
+OK           2/5  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/url.window.html
   FAIL      document.open() changes document's URL (fully active document)
+  FAIL      document.open() does not change document's URL (active but not fully active document)
   FAIL      document.open() does not change document's URL (non-active document without an associated Window object)
 OK           1/2  html/webappapis/dynamic-markup-insertion/the-innerhtml-property/annotation-xml-fragment-parsing.html
   FAIL      HTML parsing does apply in <annotation-xml encoding="application/xhtml+xml">
@@ -575,18 +566,18 @@ ERROR        0/6  html/webappapis/scripting/processing-model-2/integration-with-
   TIMEOUT   Fulfillment handler on pending-then-fulfilled promise
   TIMEOUT   Rejection handler on pending-then-rejected promise
   TIMEOUT   Thenable resolution
-TIMEOUT     0/11  html/webappapis/scripting/processing-model-2/integration-with-the-javascript-job-queue/promise-job-incumbent.html
-  TIMEOUT   Sanity check: this all works as expected with no promises involved
-  TIMEOUT   Fulfillment handler on fulfilled promise
-  TIMEOUT   Fulfillment handler on fulfilled promise, using backup incumbent settings object stack
-  TIMEOUT   Rejection handler on rejected promise
-  TIMEOUT   Rejection handler on rejected promise, using backup incumbent settings object stack
-  TIMEOUT   Fulfillment handler on pending-then-fulfilled promise
-  TIMEOUT   Fulfillment handler on pending-then-fulfilled promise, using backup incumbent settings object stack
-  TIMEOUT   Rejection handler on pending-then-rejected promise
-  TIMEOUT   Rejection handler on pending-then-rejected promise, using backup incumbent settings object stack
-  TIMEOUT   Thenable resolution
-  TIMEOUT   Thenable resolution, using backup incumbent settings object stack
+OK          0/11  html/webappapis/scripting/processing-model-2/integration-with-the-javascript-job-queue/promise-job-incumbent.html
+  FAIL      Sanity check: this all works as expected with no promises involved
+  FAIL      Fulfillment handler on fulfilled promise
+  FAIL      Fulfillment handler on fulfilled promise, using backup incumbent settings object stack
+  FAIL      Rejection handler on rejected promise
+  FAIL      Rejection handler on rejected promise, using backup incumbent settings object stack
+  FAIL      Fulfillment handler on pending-then-fulfilled promise
+  FAIL      Fulfillment handler on pending-then-fulfilled promise, using backup incumbent settings object stack
+  FAIL      Rejection handler on pending-then-rejected promise
+  FAIL      Rejection handler on pending-then-rejected promise, using backup incumbent settings object stack
+  FAIL      Thenable resolution
+  FAIL      Thenable resolution, using backup incumbent settings object stack
 OK           1/1  html/webappapis/scripting/processing-model-2/runtime-error-cross-origin-setInterval.html
 OK           1/1  html/webappapis/scripting/processing-model-2/runtime-error-cross-origin-setTimeout.html
 OK           0/2  html/webappapis/scripting/processing-model-2/runtime-error-cross-origin.html

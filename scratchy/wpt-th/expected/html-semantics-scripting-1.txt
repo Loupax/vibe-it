@@ -84,8 +84,10 @@ OK           0/1  html/semantics/scripting-1/the-script-element/execution-timing
 ERROR        0/0  html/semantics/scripting-1/the-script-element/execution-timing/031.html
 OK           1/1  html/semantics/scripting-1/the-script-element/execution-timing/032.html
 OK           1/1  html/semantics/scripting-1/the-script-element/execution-timing/033.html
-OK           1/1  html/semantics/scripting-1/the-script-element/execution-timing/034.html
-OK           1/1  html/semantics/scripting-1/the-script-element/execution-timing/035.html
+OK           0/1  html/semantics/scripting-1/the-script-element/execution-timing/034.html
+  FAIL       scheduler: innerHTML adding frames with JS in
+OK           0/1  html/semantics/scripting-1/the-script-element/execution-timing/035.html
+  FAIL       scheduler: innerHTML adding frames with JS in and moving scripts
 OK           1/1  html/semantics/scripting-1/the-script-element/execution-timing/036.html
 OK           1/1  html/semantics/scripting-1/the-script-element/execution-timing/037.html
 OK           1/1  html/semantics/scripting-1/the-script-element/execution-timing/038.html
@@ -1675,8 +1677,8 @@ OK           0/3  html/semantics/scripting-1/the-template-element/template-for/t
   FAIL      Nested <template for> patches via the shared target (iframe)
   FAIL      Nested <template for> patches via the shared target (innerHTML)
   FAIL      Nested <template for> patches via the shared target (stream)
-TIMEOUT      0/1  html/semantics/scripting-1/the-template-element/template-for/template-for-only-html-001.html
-  TIMEOUT   HTML partial updates: template with contentmethod does not work in XHTML
+OK           0/1  html/semantics/scripting-1/the-template-element/template-for/template-for-only-html-001.html
+  FAIL      HTML partial updates: template with contentmethod does not work in XHTML
 OK           0/8  html/semantics/scripting-1/the-template-element/template-for/template-for-pagehide-dynamic-markup-insertion.html
   FAIL      document.open() in pagehide throws InvalidStateError during prepare content patching (via streamAppendHTMLUnsafe)
   FAIL      document.open() in pagehide throws InvalidStateError during prepare content patching (via document.write)
