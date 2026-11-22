@@ -1108,7 +1108,7 @@ thread_local! {
     pub(crate) static MATCH_MEMO: RefCell<Option<MatchMemo>> = const { RefCell::new(None) };
     /// QAPI6b: `Some` only while a build (or the engine's update) runs, with `CLASS_CACHE`: the DOM does not
     /// change meanwhile, so the selector caches of one match are valid for the next.
-    pub(crate) static SEL_CACHES: RefCell<Option<SelectorCaches>> = RefCell::new(None);
+    pub(crate) static SEL_CACHES: RefCell<Option<SelectorCaches>> = const { RefCell::new(None) };
     /// QY53g: `Some` only while `build_layout_tree_with_resources` runs.
     pub(crate) static ANCESTOR_BLOOM: RefCell<Option<AncestorBloom>> = const { RefCell::new(None) };
     /// Test-only: how many real selector-matching passes ran.
@@ -1126,7 +1126,7 @@ fn matching_indices_for(
     // QAPI6b: inside a build (the DOM does not change) every match shares one `SelectorCaches`: `:has()`
     // results per (anchor, relative selector) and `:nth-*` indices are computed once per build, not per element.
     let shared = SEL_CACHES.with(|c| c.try_borrow_mut().ok().and_then(|mut c| c.take()));
-    let r = match shared {
+    match shared {
         Some(mut caches) => {
             let r = matching_indices_with(handle, rules, viewport_width, pseudo, &mut caches);
             SEL_CACHES.with(|c| {
@@ -1137,8 +1137,7 @@ fn matching_indices_for(
             r
         }
         None => matching_indices_with(handle, rules, viewport_width, pseudo, &mut SelectorCaches::default()),
-    };
-    r
+    }
 }
 
 fn matching_indices_with(
