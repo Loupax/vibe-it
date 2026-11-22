@@ -83,6 +83,12 @@ names are compared with the request headers wire sent (`User-Agent` after
   the cache is on (scratchy strips it like every `X-Wire-*` header). wire adds
   no `Cache-Status` entry; an upstream `Cache-Status` passes through.
 
+- Clearing (W-CACHE2): `X-Wire-Cookie-Op: clear-site` (token required) removes the
+  top site's partition directory, answer 204. A response with `Clear-Site-Data`
+  (`"cache"`, `"cookies"`, `"*"`) clears the responding origin's entries (cache) and the
+  host's cookies (jar) in the request's partition only, and is itself not stored.
+  There is no whole-cache op: stop wire and delete the directory.
+
 Code: `src/cache.rs`, tests `src/cache_tests.rs`. Details: NOTES.md "The HTTP cache".
 
 ## Cookie control token
@@ -111,7 +117,7 @@ never forwarded upstream. Without them wire behaves as a plain proxy.
 | `User-Agent` | request | forwarded upstream when no `X-Wire-User-Agent` is given; with neither, wire sends its honest default `wire/0.1 (+https://github.com/Loupax/vibe-it) ...` |
 | `X-Wire-Upgrade: websocket` | request | with `Connection: Upgrade` + `Upgrade: websocket`: the WebSocket pipe (below); without it an Upgrade request is an ordinary request |
 | `X-Wire-Cache: hit/miss/revalidated/stale/bypass` | response | how the HTTP cache answered (only while it is on) |
-| `X-Wire-Features: ua,ws,jarfile,token,cache` | response | comma-separated optional features, on every response (absent on an older wire); `ua` = the User-Agent override above, `ws` = the WebSocket pipe, `token` = cookie control requests need the control token (below), `jarfile` = `--cookie-file` and the `X-Wire-Cookie-Op: clear-site` control op (with `X-Wire-Top-Site` and `X-Wire-Jar: scratchy`; removes every cookie of that top-level site's partition, first-party and embedded third-party, answers 204, saves at once), `cache` = the HTTP cache (protocol version 4) |
+| `X-Wire-Features: ua,ws,jarfile,token,cache` | response | comma-separated optional features, on every response (absent on an older wire); `ua` = the User-Agent override above, `ws` = the WebSocket pipe, `token` = cookie control requests need the control token (below), `jarfile` = `--cookie-file` and the `X-Wire-Cookie-Op: clear-site` control op (with `X-Wire-Top-Site` and `X-Wire-Jar: scratchy`; removes every cookie of that top-level site's partition, first-party and embedded third-party, answers 204, saves at once; with the cache on it also removes that partition's cache directory, W-CACHE2), `cache` = the HTTP cache (protocol version 4) |
 | `X-Wire-Version` | response | protocol version (currently 4), on every response |
 | `X-Wire-Final-Url`, `X-Wire-Target-Class`, `X-Wire-Hop-Classes` | response | URL after redirects, address classes |
 | `X-Wire-Error` | response | on wire-made errors (`1`, `too-large`, `policy`, `cookie-control`, `bad-user-agent`, `only-if-cached`) |

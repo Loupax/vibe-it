@@ -350,3 +350,10 @@ scratchy (QF19w2); wire only does DNS/TCP/TLS/policy/cookies and copies bytes.
 - **Caps:** `X-Wire-Timeout-Ms` (default 20 s) bounds connect + handshake only;
   no idle limit. Test coverage in `src/ws_tests.rs`, incl. a wss echo over a
   throwaway openssl-made certificate (skipped when `openssl` is missing).
+
+## W-CACHE2: clearing
+`Cache::clear_partition` is one `remove_dir_all` of `<sha256(top site)>/`; `clear_origin` scans one partition and
+unlinks entries whose stored URL has the origin (skips `.tmp-` files). `apply_clear_site_data` (main.rs) runs per jar hop and
+for the final non-jar response, before the body streams; `storable` refuses an answer with `Clear-Site-Data`. `Jar::clear_host`
+removes the host's cookies, its parent-domain cookies and its subdomains' in that partition. Under `--no-cookies`, clear-site
+still clears the cache partition. wire did not handle `Clear-Site-Data` before this item.

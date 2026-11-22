@@ -259,3 +259,9 @@ Result: `src/record.rs`, `src/record_tests.rs`, hooks in `execute_with` (new `ex
 > Item: implement W-CACHE1 exactly as written in wire/TODO.txt (on-disk only RFC 9111 private cache, partitioned, streamed temp-file-then-rename storage, no in-memory index, eviction by mtime under --cache-size, Vary, revalidation, the six fetch `cache` modes via standard request headers, `public-only` policy check BEFORE lookup, never-stored cases, `X-Wire-Cache` response header stripped by scratchy, `X-Wire-Features: cache`, protocol version 4, the coordinator review notes (Authorization, immutable, shared dir, write errors) and the eviction check at a 256M cap). Also the scratchy side the item names: map fetch()'s `cache` option and reload/hard reload to the request headers, and strip `X-Wire-Cache`.
 
 Result: `src/cache.rs` (+ `src/cache_tests.rs`), `--cache-dir` / `--cache-size` / `--no-cache`, `X-Wire-Version: 4`, README "HTTP cache", NOTES "The HTTP cache". scratchy: `cache_mode_headers` (net_policy.rs) for fetch's `cache`, `:refresh` = `max-age=0` on the document, `:refresh hard` = `no-cache` + `Pragma` on every request of the page (net.rs `set_hard_reload`); the WPT runner and the test wire pass `--no-cache`; the wire-starting tools scripts take `WIRE_ARGS`.
+
+## W-CACHE2 — clearing the cache (agent task)
+
+> Item: implement W-CACHE2 exactly as written in wire/TODO.txt (clear-site also removes the partition cache directory, Clear-Site-Data honoured, scratchy --forget-site confirmed by a test).
+
+Result: `Cache::clear_partition`/`clear_origin`, `Jar::clear_host`, `apply_clear_site_data`, tests in `wire/src/cache_tests.rs` and `scratchy/src/tests/w_cache2_tests.rs`.
