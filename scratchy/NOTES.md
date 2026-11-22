@@ -3965,8 +3965,10 @@ entries on the clock as well as the write generation. Under `--perf-report` the 
 as `io` (rendering-update work, like the IntersectionObserver's), caller `(rendering update: CSS
 animations)`; on GitHub that is one first layout (~480 ms) a script never asked for. Not here: CSS transitions (since QANIMHLb,
 below), WAAPI
-(`el.animate`), animated geometry for forced layouts between DOM writes (the geometry cache is keyed on
-the write generation only).
+(`el.animate`). Geometry reads (QANIMHLc): `GeomCache::anim_clock` is the document clock of a layout whose
+style pass styled a live animation (not yet ended) or transition (`anim_eval::layout_animated`); such a
+layout is fresh only at `anim_eval::read_clock_ms` (the headless task clock, else the document clock), and a
+relayout then runs at the read clock. A page with nothing running keeps the plain generation key.
 
 **CSS transitions (QANIMHLb, src/transition.rs).** `transition` + the five longhands (`-webkit-`
 aliased) parse into `Declarations::trans` and cascade into an interned `TransRef` (`ComputedStyle::
