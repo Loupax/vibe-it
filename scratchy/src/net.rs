@@ -1065,9 +1065,24 @@ pub(crate) fn iframe_page(url: &str) -> Option<String> {
 }
 
 pub(crate) fn set_iframe_pages(pages: HashMap<String, String>) {
+    set_iframe_pages_typed(pages, HashMap::new());
+}
+
+/// QDOM11: the pre-fetched pages plus the XML MIME type of those that are XML documents (url -> mime essence).
+pub(crate) fn set_iframe_pages_typed(pages: HashMap<String, String>, mimes: HashMap<String, String>) {
     if let Ok(mut g) = IFRAME_PAGES.lock() {
         *g = Some(pages);
     }
+    if let Ok(mut g) = IFRAME_MIMES.lock() {
+        *g = Some(mimes);
+    }
+}
+
+static IFRAME_MIMES: std::sync::Mutex<Option<HashMap<String, String>>> = std::sync::Mutex::new(None);
+
+/// QDOM11: the XML MIME type of a pre-fetched iframe page (None: HTML).
+pub(crate) fn iframe_page_mime(url: &str) -> Option<String> {
+    IFRAME_MIMES.lock().ok()?.as_ref()?.get(url).cloned()
 }
 
 /// Same origin as `base` (all `file:` URLs count as one origin).
@@ -1109,23 +1124,36 @@ pub(crate) fn prefetch_iframes(path: &std::path::Path, base: &Url, top: &Url, do
     if urls.is_empty() {
         return;
     }
-    let pages: HashMap<String, String> = thread::scope(|scope| {
+    let fetched: Vec<(String, String, Option<String>)> = thread::scope(|scope| {
         let hs: Vec<_> = urls
             .into_iter()
             .map(|u| {
                 scope.spawn(move || {
                     let WireFetchRaw::Responded { content_type, body, .. } = fetch_raw_sub(path, &build_get_request_ctx(&u, &CookieContext::subresource(top))) else { return None };
                     let ct = content_type.unwrap_or_default().to_ascii_lowercase();
-                    if body.len() > IFRAME_MAX_BYTES || !(ct.trim_start().starts_with("text/html") || ct.trim().is_empty() && u.scheme() == "file") {
+                    let xml = crate::js_dom::is_xml_mime(&ct);
+                    if body.len() > IFRAME_MAX_BYTES || !(xml || ct.trim_start().starts_with("text/html") || ct.trim().is_empty() && u.scheme() == "file") {
                         return None;
                     }
-                    Some((u.to_string(), decode_html_bytes(&body, None)))
+                    // QDOM11: an XML type is parsed as XML by the iframe's realm (UTF-8 unless the header says otherwise).
+                    if xml {
+                        return Some((u.to_string(), crate::js_dom::decode_xml_bytes(&body, Some(&ct)), Some(crate::js_dom::mime_essence(&ct))));
+                    }
+                    Some((u.to_string(), decode_html_bytes(&body, None), None))
                 })
             })
             .collect();
         hs.into_iter().filter_map(|h| h.join().ok().flatten()).collect()
     });
-    set_iframe_pages(pages);
+    let mut pages = HashMap::new();
+    let mut mimes = HashMap::new();
+    for (u, html, mime) in fetched {
+        if let Some(m) = mime {
+            mimes.insert(u.clone(), m);
+        }
+        pages.insert(u, html);
+    }
+    set_iframe_pages_typed(pages, mimes);
 }
 
 /// What `process_external_resources` hands back: the concatenated
@@ -1383,17 +1411,17 @@ pub(crate) struct ExternalResources {
 /// real `rel` attribute's token list always is (a `<link>` can legally
 /// carry more than one keyword, e.g. `rel="stylesheet alternate"`).
 pub(crate) fn find_external_resources(handle: &Handle, out: &mut ExternalResources) {
-    if let NodeData::Element { name, .. } = &handle.data {
+    if script_namespace(handle).is_some() {
+        // QDOM11: XHTML and SVG scripts only (also with a prefix); the same test as `collect_script_elements`.
+        if let Some(r) = script_ref(handle) {
+            out.scripts.push(r);
+        }
+    } else if let NodeData::Element { name, .. } = &handle.data {
         match name.local.as_ref() {
             "link" => {
                 // QY54b1: the same test the live link sync uses (`disabled` links do not apply).
                 if let Some(href) = crate::link_css::stylesheet_link_href(handle) {
                     out.stylesheets.push(href);
-                }
-            }
-            "script" => {
-                if let Some(r) = script_ref(handle) {
-                    out.scripts.push(r);
                 }
             }
             "img" => {

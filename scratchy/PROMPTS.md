@@ -9274,3 +9274,9 @@ Prompt: load blob: URLs in iframes (iframe.src = URL.createObjectURL(new Blob([h
 > QCISPLIT2 [S] (P3, from QWPT6c #579; Sonnet; .github/workflows/ci.yml, tools) Shard the `scratchy-wpt` job into parallel jobs by area; find why the step is slower on CI than locally.
 
 **What changed:** `--wpt-th` takes `--area A,B,dir/*` (comma list, `prefix/*` globs) and `--except ...`; it prints the slowest files and per-area summed time. CI job `scratchy-wpt` became a 5-shard matrix (`scratchy-wpt-dom`, `-html`, `-canvas-element`, `-canvas-other`, `-rest`; reftests run in `rest`). NOTES.md "CI gate (QWPT5)".
+
+## QDOM11: XML documents (agent item)
+
+> QDOM11 [M] (P2; Sonnet; wpt_th.rs, js.rs `run_page`, js_dom.rs `__d_load_xml`/`xml_to_dom`; R65) XML documents: a response with an XML MIME type is parsed with the roxmltree path, not html5ever, for the top-level document and iframes; not an HTML document (QDOM17 flag); XHTML/SVG scripts run in tree order (CDATA, href/xlink:href); a well-formedness error shows the parsererror document; app rendering unchanged.
+
+**What changed:** js_dom.rs `is_xml_mime`, `decode_xml_bytes`, `load_xml_into` / `parse_xml_document` (roxmltree, doctype node from a prolog scan, parsererror element), native `__d_load_xml_page`, JS `__scratchy_xml_doc(ct)` (turns a realm's document into an XMLDocument), iframe pages carry their XML MIME (`__d_iframe_page`, `ifrFetch` XHR/blob, `frameLoad`); js.rs `script_namespace` (only XHTML/SVG `script` run, SVG `href`), `set_page_xml_mime` consumed by `run_page`; net.rs `prefetch_iframes` keeps XML pages + `iframe_page_mime`; wpt_th.rs `run_one` branches on the content type. Tests: src/tests/qdom11_tests.rs. NOT done: the App (`dispatch_wire_response` still refuses XML top-level types, so rendering is unchanged).

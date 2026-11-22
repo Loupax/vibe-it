@@ -233,8 +233,7 @@ OK           1/1  html/semantics/scripting-1/the-script-element/execution-timing
 OK           0/1  html/semantics/scripting-1/the-script-element/execution-timing/130.html
   FAIL      scheduler: appending external script element to script 
 OK           1/1  html/semantics/scripting-1/the-script-element/execution-timing/131.html
-OK           0/1  html/semantics/scripting-1/the-script-element/execution-timing/132.html
-  FAIL      scheduler: external svg script 
+OK           1/1  html/semantics/scripting-1/the-script-element/execution-timing/132.html
 OK           1/1  html/semantics/scripting-1/the-script-element/execution-timing/133.html
 OK           0/1  html/semantics/scripting-1/the-script-element/execution-timing/134.html
   FAIL      scheduler: external HTML script added by SVG script 
@@ -242,8 +241,7 @@ OK           0/1  html/semantics/scripting-1/the-script-element/execution-timing
   FAIL      scheduler: external SVG script added by SVG script 
 OK           0/1  html/semantics/scripting-1/the-script-element/execution-timing/136.html
   FAIL      scheduler: DOM added external SVG script, force-async? 
-OK           0/1  html/semantics/scripting-1/the-script-element/execution-timing/137.html
-  FAIL      scheduler: SVG script empty xlink:href
+OK           1/1  html/semantics/scripting-1/the-script-element/execution-timing/137.html
 OK           0/1  html/semantics/scripting-1/the-script-element/execution-timing/138.html
   FAIL      scheduler: SVG script nested inlines
 OK           0/1  html/semantics/scripting-1/the-script-element/execution-timing/139.html
@@ -746,8 +744,7 @@ OK          5/18  html/semantics/scripting-1/the-script-element/script-for-event
   FAIL      Script 10
   FAIL      Script 11
   FAIL      Script 14
-OK           0/1  html/semantics/scripting-1/the-script-element/script-noembed-noframes-iframe.xhtml
-  FAIL      Script inside noembed, noframes and iframe
+OK           1/1  html/semantics/scripting-1/the-script-element/script-noembed-noframes-iframe.xhtml
 TIMEOUT      0/1  html/semantics/scripting-1/the-script-element/script-onerror-insertion-point-1.html
   NOTRUN    Test that the insertion point is defined in the error event of a parser-inserted script that actually started a fetch (but just had it fail).
 OK           1/1  html/semantics/scripting-1/the-script-element/script-onerror-insertion-point-2.html
@@ -762,11 +759,221 @@ OK           0/5  html/semantics/scripting-1/the-script-element/script-supports.
   FAIL      HTMLScriptElement.supports resurns true for 'module'
   FAIL      HTMLScriptElement.supports returns false for JavaScript MIME types
   FAIL      HTMLScriptElement.supports returns false for unsupported types
-CRASH        0/0  html/semantics/scripting-1/the-script-element/script-text-xhtml.xhtml
+OK           0/1  html/semantics/scripting-1/the-script-element/script-text-xhtml.xhtml
+  FAIL      Getter with CDATA section
 OK           5/6  html/semantics/scripting-1/the-script-element/script-text.html
   FAIL      Getter
 OK           4/4  html/semantics/scripting-1/the-script-element/script-type-and-language-empty.html
-CRASH        0/0  html/semantics/scripting-1/the-script-element/script-type-and-language-js-svg.svg
+OK       247/456  html/semantics/scripting-1/the-script-element/script-type-and-language-js-svg.svg
+  FAIL      Script shouldn't run with type=" "
+  FAIL      Script should run with type="application/x-ecmascript"
+  FAIL      Script should run with type="APPLICATION/X-ECMASCRIPT"
+  FAIL      Script should run with type="application/x-ecmascript "
+  FAIL      Script should run with type=" application/x-ecmascript"
+  FAIL      Script should run with type="application/x-ecmascript\\t"
+  FAIL      Script should run with type="\\tapplication/x-ecmascript"
+  FAIL      Script should run with type="application/x-ecmascript\\n"
+  FAIL      Script should run with type="\\napplication/x-ecmascript"
+  FAIL      Script should run with type="application/x-ecmascript\\r"
+  FAIL      Script should run with type="\\rapplication/x-ecmascript"
+  FAIL      Script should run with type="application/x-ecmascript\\f"
+  FAIL      Script should run with type="\\fapplication/x-ecmascript"
+  FAIL      Script should run with type="text/javascript1.0"
+  FAIL      Script should run with type="text/javascript1.1"
+  FAIL      Script should run with type="text/javascript1.2"
+  FAIL      Script should run with type="text/javascript1.3"
+  FAIL      Script should run with type="text/javascript1.4"
+  FAIL      Script should run with type="text/javascript1.5"
+  FAIL      Script should run with type="TEXT/JAVASCRIPT1.0"
+  FAIL      Script should run with type="TEXT/JAVASCRIPT1.1"
+  FAIL      Script should run with type="TEXT/JAVASCRIPT1.2"
+  FAIL      Script should run with type="TEXT/JAVASCRIPT1.3"
+  FAIL      Script should run with type="TEXT/JAVASCRIPT1.4"
+  FAIL      Script should run with type="TEXT/JAVASCRIPT1.5"
+  FAIL      Script should run with type="text/javascript1.0 "
+  FAIL      Script should run with type="text/javascript1.1 "
+  FAIL      Script should run with type="text/javascript1.2 "
+  FAIL      Script should run with type="text/javascript1.3 "
+  FAIL      Script should run with type="text/javascript1.4 "
+  FAIL      Script should run with type="text/javascript1.5 "
+  FAIL      Script should run with type=" text/javascript1.0"
+  FAIL      Script should run with type=" text/javascript1.1"
+  FAIL      Script should run with type=" text/javascript1.2"
+  FAIL      Script should run with type=" text/javascript1.3"
+  FAIL      Script should run with type=" text/javascript1.4"
+  FAIL      Script should run with type=" text/javascript1.5"
+  FAIL      Script should run with type="text/javascript1.0\\t"
+  FAIL      Script should run with type="text/javascript1.1\\t"
+  FAIL      Script should run with type="text/javascript1.2\\t"
+  FAIL      Script should run with type="text/javascript1.3\\t"
+  FAIL      Script should run with type="text/javascript1.4\\t"
+  FAIL      Script should run with type="text/javascript1.5\\t"
+  FAIL      Script should run with type="\\ttext/javascript1.0"
+  FAIL      Script should run with type="\\ttext/javascript1.1"
+  FAIL      Script should run with type="\\ttext/javascript1.2"
+  FAIL      Script should run with type="\\ttext/javascript1.3"
+  FAIL      Script should run with type="\\ttext/javascript1.4"
+  FAIL      Script should run with type="\\ttext/javascript1.5"
+  FAIL      Script should run with type="text/javascript1.0\\n"
+  FAIL      Script should run with type="text/javascript1.1\\n"
+  FAIL      Script should run with type="text/javascript1.2\\n"
+  FAIL      Script should run with type="text/javascript1.3\\n"
+  FAIL      Script should run with type="text/javascript1.4\\n"
+  FAIL      Script should run with type="text/javascript1.5\\n"
+  FAIL      Script should run with type="\\ntext/javascript1.0"
+  FAIL      Script should run with type="\\ntext/javascript1.1"
+  FAIL      Script should run with type="\\ntext/javascript1.2"
+  FAIL      Script should run with type="\\ntext/javascript1.3"
+  FAIL      Script should run with type="\\ntext/javascript1.4"
+  FAIL      Script should run with type="\\ntext/javascript1.5"
+  FAIL      Script should run with type="text/javascript1.0\\r"
+  FAIL      Script should run with type="text/javascript1.1\\r"
+  FAIL      Script should run with type="text/javascript1.2\\r"
+  FAIL      Script should run with type="text/javascript1.3\\r"
+  FAIL      Script should run with type="text/javascript1.4\\r"
+  FAIL      Script should run with type="text/javascript1.5\\r"
+  FAIL      Script should run with type="\\rtext/javascript1.0"
+  FAIL      Script should run with type="\\rtext/javascript1.1"
+  FAIL      Script should run with type="\\rtext/javascript1.2"
+  FAIL      Script should run with type="\\rtext/javascript1.3"
+  FAIL      Script should run with type="\\rtext/javascript1.4"
+  FAIL      Script should run with type="\\rtext/javascript1.5"
+  FAIL      Script should run with type="text/javascript1.0\\f"
+  FAIL      Script should run with type="text/javascript1.1\\f"
+  FAIL      Script should run with type="text/javascript1.2\\f"
+  FAIL      Script should run with type="text/javascript1.3\\f"
+  FAIL      Script should run with type="text/javascript1.4\\f"
+  FAIL      Script should run with type="text/javascript1.5\\f"
+  FAIL      Script should run with type="\\ftext/javascript1.0"
+  FAIL      Script should run with type="\\ftext/javascript1.1"
+  FAIL      Script should run with type="\\ftext/javascript1.2"
+  FAIL      Script should run with type="\\ftext/javascript1.3"
+  FAIL      Script should run with type="\\ftext/javascript1.4"
+  FAIL      Script should run with type="\\ftext/javascript1.5"
+  FAIL      Script should run with language="javascript1.0"
+  FAIL      Script should run with language="javascript1.1"
+  FAIL      Script should run with language="javascript1.2"
+  FAIL      Script should run with language="javascript1.3"
+  FAIL      Script should run with language="javascript1.4"
+  FAIL      Script should run with language="javascript1.5"
+  FAIL      Script should run with language="JAVASCRIPT1.0"
+  FAIL      Script should run with language="JAVASCRIPT1.1"
+  FAIL      Script should run with language="JAVASCRIPT1.2"
+  FAIL      Script should run with language="JAVASCRIPT1.3"
+  FAIL      Script should run with language="JAVASCRIPT1.4"
+  FAIL      Script should run with language="JAVASCRIPT1.5"
+  FAIL      Script should run with language="javascript1.6"
+  FAIL      Script should run with language="javascript1.7"
+  FAIL      Script should run with language="javascript1.8"
+  FAIL      Script should run with language="javascript1.9"
+  FAIL      Script should run with language="javascript1.0 "
+  FAIL      Script should run with language="javascript1.1 "
+  FAIL      Script should run with language="javascript1.2 "
+  FAIL      Script should run with language="javascript1.3 "
+  FAIL      Script should run with language="javascript1.4 "
+  FAIL      Script should run with language="javascript1.5 "
+  FAIL      Script should run with language=" javascript1.0"
+  FAIL      Script should run with language=" javascript1.1"
+  FAIL      Script should run with language=" javascript1.2"
+  FAIL      Script should run with language=" javascript1.3"
+  FAIL      Script should run with language=" javascript1.4"
+  FAIL      Script should run with language=" javascript1.5"
+  FAIL      Script should run with language="javascript1.0\\t"
+  FAIL      Script should run with language="javascript1.1\\t"
+  FAIL      Script should run with language="javascript1.2\\t"
+  FAIL      Script should run with language="javascript1.3\\t"
+  FAIL      Script should run with language="javascript1.4\\t"
+  FAIL      Script should run with language="javascript1.5\\t"
+  FAIL      Script should run with language="\\tjavascript1.0"
+  FAIL      Script should run with language="\\tjavascript1.1"
+  FAIL      Script should run with language="\\tjavascript1.2"
+  FAIL      Script should run with language="\\tjavascript1.3"
+  FAIL      Script should run with language="\\tjavascript1.4"
+  FAIL      Script should run with language="\\tjavascript1.5"
+  FAIL      Script should run with language="javascript1.0\\n"
+  FAIL      Script should run with language="javascript1.1\\n"
+  FAIL      Script should run with language="javascript1.2\\n"
+  FAIL      Script should run with language="javascript1.3\\n"
+  FAIL      Script should run with language="javascript1.4\\n"
+  FAIL      Script should run with language="javascript1.5\\n"
+  FAIL      Script should run with language="\\njavascript1.0"
+  FAIL      Script should run with language="\\njavascript1.1"
+  FAIL      Script should run with language="\\njavascript1.2"
+  FAIL      Script should run with language="\\njavascript1.3"
+  FAIL      Script should run with language="\\njavascript1.4"
+  FAIL      Script should run with language="\\njavascript1.5"
+  FAIL      Script should run with language="javascript1.0\\r"
+  FAIL      Script should run with language="javascript1.1\\r"
+  FAIL      Script should run with language="javascript1.2\\r"
+  FAIL      Script should run with language="javascript1.3\\r"
+  FAIL      Script should run with language="javascript1.4\\r"
+  FAIL      Script should run with language="javascript1.5\\r"
+  FAIL      Script should run with language="\\rjavascript1.0"
+  FAIL      Script should run with language="\\rjavascript1.1"
+  FAIL      Script should run with language="\\rjavascript1.2"
+  FAIL      Script should run with language="\\rjavascript1.3"
+  FAIL      Script should run with language="\\rjavascript1.4"
+  FAIL      Script should run with language="\\rjavascript1.5"
+  FAIL      Script should run with language="javascript1.0\\f"
+  FAIL      Script should run with language="javascript1.1\\f"
+  FAIL      Script should run with language="javascript1.2\\f"
+  FAIL      Script should run with language="javascript1.3\\f"
+  FAIL      Script should run with language="javascript1.4\\f"
+  FAIL      Script should run with language="javascript1.5\\f"
+  FAIL      Script should run with language="\\fjavascript1.0"
+  FAIL      Script should run with language="\\fjavascript1.1"
+  FAIL      Script should run with language="\\fjavascript1.2"
+  FAIL      Script should run with language="\\fjavascript1.3"
+  FAIL      Script should run with language="\\fjavascript1.4"
+  FAIL      Script should run with language="\\fjavascript1.5"
+  FAIL      Script should run with language="ecmascriptxyz"
+  FAIL      Script should run with language="javascriptxyz"
+  FAIL      Script should run with language="javascript1.0xyz"
+  FAIL      Script should run with language="javascript1.1xyz"
+  FAIL      Script should run with language="javascript1.2xyz"
+  FAIL      Script should run with language="javascript1.3xyz"
+  FAIL      Script should run with language="javascript1.4xyz"
+  FAIL      Script should run with language="javascript1.5xyz"
+  FAIL      Script should run with language="jscriptxyz"
+  FAIL      Script should run with language="livescriptxyz"
+  FAIL      Script should run with language="x-ecmascriptxyz"
+  FAIL      Script should run with language="x-javascriptxyz"
+  FAIL      Script should run with language="xyzecmascript"
+  FAIL      Script should run with language="xyzjavascript"
+  FAIL      Script should run with language="xyzjavascript1.0"
+  FAIL      Script should run with language="xyzjavascript1.1"
+  FAIL      Script should run with language="xyzjavascript1.2"
+  FAIL      Script should run with language="xyzjavascript1.3"
+  FAIL      Script should run with language="xyzjavascript1.4"
+  FAIL      Script should run with language="xyzjavascript1.5"
+  FAIL      Script should run with language="xyzjscript"
+  FAIL      Script should run with language="xyzlivescript"
+  FAIL      Script should run with language="xyzx-ecmascript"
+  FAIL      Script should run with language="xyzx-javascript"
+  FAIL      Script should run with language="ecmascript\\0"
+  FAIL      Script should run with language="javascript\\0"
+  FAIL      Script should run with language="javascript1.0\\0"
+  FAIL      Script should run with language="javascript1.1\\0"
+  FAIL      Script should run with language="javascript1.2\\0"
+  FAIL      Script should run with language="javascript1.3\\0"
+  FAIL      Script should run with language="javascript1.4\\0"
+  FAIL      Script should run with language="javascript1.5\\0"
+  FAIL      Script should run with language="jscript\\0"
+  FAIL      Script should run with language="livescript\\0"
+  FAIL      Script should run with language="x-ecmascript\\0"
+  FAIL      Script should run with language="x-javascript\\0"
+  FAIL      Script should run with language="ecmascript\\0foo"
+  FAIL      Script should run with language="javascript\\0foo"
+  FAIL      Script should run with language="javascript1.0\\0foo"
+  FAIL      Script should run with language="javascript1.1\\0foo"
+  FAIL      Script should run with language="javascript1.2\\0foo"
+  FAIL      Script should run with language="javascript1.3\\0foo"
+  FAIL      Script should run with language="javascript1.4\\0foo"
+  FAIL      Script should run with language="javascript1.5\\0foo"
+  FAIL      Script should run with language="jscript\\0foo"
+  FAIL      Script should run with language="livescript\\0foo"
+  FAIL      Script should run with language="x-ecmascript\\0foo"
+  FAIL      Script should run with language="x-javascript\\0foo"
 OK       298/456  html/semantics/scripting-1/the-script-element/script-type-and-language-js-xhtml.xhtml
   FAIL      Script shouldn't run with type=" "
   FAIL      Script should run with type="application/x-ecmascript"
@@ -1093,8 +1300,7 @@ OK           1/5  html/semantics/scripting-1/the-script-element/script-type-whit
   FAIL      Script shouldn't run with type="text/javascript&#x3000;" (parser-inserted)
 OK           1/1  html/semantics/scripting-1/the-script-element/scripting-enabled.html
 OK           4/4  html/semantics/scripting-1/the-script-element/src-empty-or-invalid-error-event-queued.html
-OK           3/4  html/semantics/scripting-1/the-script-element/svg-script-fragment-parsed-not-executed-on-clone.html
-  FAIL      Sanity check: a normally-created SVG <script> runs when inserted
+OK           4/4  html/semantics/scripting-1/the-script-element/svg-script-fragment-parsed-not-executed-on-clone.html
 OK           0/3  html/semantics/scripting-1/the-script-element/text-module/charset-bom.any.html
   FAIL      UTF-8 BOM should be stripped when decoding text module script
   FAIL      UTF-16BE with BOM should be parsed as UTF-8
@@ -1120,7 +1326,8 @@ OK           0/5  html/semantics/scripting-1/the-template-element/additions-to-p
   FAIL      Parsing XHTML: Node's node document must be set to that of the element to which it will be appended. Test nested templates
   FAIL      Parsing XHTML: Node's node document must be set to that of the element to which it will be appended. Test loading XHTML document from a file
   FAIL      Parsing XHTML: Node's node document must be set to that of the element to which it will be appended. Test loading of XHTML document with nested templates from a file
-ERROR        0/0  html/semantics/scripting-1/the-template-element/additions-to-parsing-xhtml-documents/tag-name.xhtml
+OK           0/1  html/semantics/scripting-1/the-template-element/additions-to-parsing-xhtml-documents/tag-name.xhtml
+  FAIL      tagName case
 OK           0/4  html/semantics/scripting-1/the-template-element/additions-to-parsing-xhtml-documents/template-child-nodes.html
   FAIL      Child nodes of template element in XHTML documents must be appended to template content
   FAIL      Child nodes of nested template element in XHTML documents must be appended to template content

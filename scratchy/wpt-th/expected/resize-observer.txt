@@ -46,7 +46,8 @@ OK           0/1  resize-observer/scrollbars.html
   FAIL      ResizeObserver content-box size and scrollbars
 OK           3/4  resize-observer/svg-with-css-box-001.html
   FAIL      test0: observe `foreignObject` SVG in HTML document
-CRASH        0/0  resize-observer/svg-with-css-box-002.svg
+OK           3/4  resize-observer/svg-with-css-box-002.svg
+  FAIL      test1: `foreignObject` SVG resize observed
 TIMEOUT      1/5  resize-observer/svg.html
   NOTRUN    guard
   FAIL      test0: observe svg:circle

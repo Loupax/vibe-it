@@ -403,8 +403,14 @@ OK         24/24  html/editing/editing-0/contenteditable/contenteditable-enumera
 OK           0/1  html/editing/editing-0/contenteditable/selection-in-contentEditable-at-turning-designMode-on-off.tentative.html
   FAIL      Selection in contenteditable shouldn't be reinitialized when changing designMode
 OK           9/9  html/editing/editing-0/contenteditable/user-interaction-editing-contenteditable.html
-ERROR        0/0  html/editing/editing-0/making-entire-documents-editable-the-designmode-idl-attribute/user-interaction-editing-designMode-svg.svg
-ERROR        0/0  html/editing/editing-0/making-entire-documents-editable-the-designmode-idl-attribute/user-interaction-editing-designMode-xml.xml
+OK           0/3  html/editing/editing-0/making-entire-documents-editable-the-designmode-idl-attribute/user-interaction-editing-designMode-svg.svg
+  FAIL      initial designMode attribute
+  FAIL      set designMode = "on"
+  FAIL      set designMode = "off"
+OK           0/3  html/editing/editing-0/making-entire-documents-editable-the-designmode-idl-attribute/user-interaction-editing-designMode-xml.xml
+  FAIL      initial designMode attribute
+  FAIL      set designMode = "on"
+  FAIL      set designMode = "off"
 OK           0/3  html/editing/editing-0/making-entire-documents-editable-the-designmode-idl-attribute/user-interaction-editing-designMode.html
   FAIL      initial designMode attribute
   FAIL      set designMode = "on"

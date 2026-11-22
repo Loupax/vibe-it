@@ -258,7 +258,7 @@ pub(crate) fn remove_attr(h: &Handle, name: &str) {
 }
 
 /// QF9a: converts one roxmltree node (and its subtree) into DOM nodes.
-fn xml_to_dom(x: roxmltree::Node) -> Option<Handle> {
+pub(crate) fn xml_to_dom(x: roxmltree::Node) -> Option<Handle> {
     use html5ever::{LocalName, Namespace, QualName};
     match x.node_type() {
         roxmltree::NodeType::Element => {
@@ -318,6 +318,163 @@ fn xml_to_dom(x: roxmltree::Node) -> Option<Handle> {
         }),
         _ => None,
     }
+}
+
+/// QDOM11: true for an XML MIME type (`application/xhtml+xml`, `image/svg+xml`, `text/xml`, `application/xml`, any
+/// `+xml`). `ct` may carry parameters.
+pub(crate) fn is_xml_mime(ct: &str) -> bool {
+    let m = ct.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    matches!(m.as_str(), "application/xhtml+xml" | "image/svg+xml" | "text/xml" | "application/xml")
+        || (m.ends_with("+xml") && m.split_once('/').is_some_and(|(a, b)| !a.is_empty() && b.len() > 4 && !b.contains('/')))
+}
+
+/// QDOM11: the MIME essence (lowercase, no parameters) of a content type, restricted to `[a-z0-9.+/-]`.
+pub(crate) fn mime_essence(ct: &str) -> String {
+    ct.split(';').next().unwrap_or("").trim().to_ascii_lowercase().chars().filter(|c| c.is_ascii_alphanumeric() || ".+/-".contains(*c)).collect()
+}
+
+/// QDOM11: decodes an XML response body: the `charset` of the header, else UTF-8 (a BOM wins).
+pub(crate) fn decode_xml_bytes(body: &[u8], ct: Option<&str>) -> String {
+    let enc = ct.and_then(crate::dom::content_type_charset).unwrap_or(encoding_rs::UTF_8);
+    enc.decode_with_bom_removal(body).0.into_owned()
+}
+
+fn xml_el(ns: &str, local: &str, kids: Vec<Handle>) -> Handle {
+    use html5ever::{LocalName, Namespace, QualName};
+    let n = Node::new(NodeData::Element {
+        name: QualName::new(None, Namespace::from(ns), LocalName::from(local)),
+        attrs: RefCell::new(Vec::new()),
+        template_contents: RefCell::new(None),
+        mathml_annotation_xml_integration_point: false,
+    });
+    for k in kids {
+        k.parent.set(Some(Rc::downgrade(&n)));
+        n.children.borrow_mut().push(k);
+    }
+    n
+}
+
+/// QDOM11: the Firefox-style `parsererror` document element for a well-formedness error at `row`:`col`.
+pub(crate) fn xml_parse_error_element(msg: &str, row: u32, col: u32, text: &str, url: &str) -> Handle {
+    const NS: &str = "http://www.mozilla.org/newlayout/xml/parsererror.xml";
+    let t = |s: String| Node::new(NodeData::Text { contents: RefCell::new(s.as_str().into()) });
+    let line = text.split('\n').nth((row as usize).max(1) - 1).unwrap_or("").to_string();
+    xml_el(
+        NS,
+        "parsererror",
+        vec![t(format!("XML Parsing Error: {msg}\nLocation: {url}\nLine Number {row}, Column {col}:")), xml_el(NS, "sourcetext", vec![t(line)])],
+    )
+}
+
+/// QDOM11: roxmltree has no doctype node, so the prolog is scanned by hand: `(misc nodes before it, name, publicId,
+/// systemId)`; the internal subset is skipped (quotes, comments and nested brackets respected).
+#[allow(clippy::question_mark)]
+fn xml_doctype(text: &str) -> Option<(usize, usize, String, String, String)> {
+    let mut s = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let mut misc = 0usize;
+    // The XML declaration is not a node.
+    if s.starts_with("<?xml") && s[5..].starts_with([' ', '\t', '\n', '\r', '?']) {
+        s = &s[s.find("?>")? + 2..];
+    }
+    fn ws(s: &str) -> &str {
+        s.trim_start_matches([' ', '\t', '\n', '\r'])
+    }
+    let literal = |s: &str| -> Option<(String, usize)> {
+        let q = s.chars().next().filter(|c| *c == '"' || *c == '\'')?;
+        let end = s[1..].find(q)?;
+        Some((s[1..1 + end].to_string(), end + 2))
+    };
+    loop {
+        s = ws(s);
+        if s.starts_with("<?") {
+            let end = s.find("?>")?;
+            misc += 1;
+            s = &s[end + 2..];
+        } else if s.starts_with("<!--") {
+            let end = s[4..].find("-->")?;
+            misc += 1;
+            s = &s[4 + end + 3..];
+        } else if let Some(rest) = s.strip_prefix("<!DOCTYPE") {
+            let rest = ws(rest);
+            let nend = rest.find(|c: char| c.is_whitespace() || c == '[' || c == '>')?;
+            let name = rest[..nend].to_string();
+            let rest = ws(&rest[nend..]);
+            let (mut pubid, mut sysid) = (String::new(), String::new());
+            if let Some(r) = rest.strip_prefix("PUBLIC") {
+                let r = ws(r);
+                let (p, n) = literal(r)?;
+                pubid = p;
+                if let Some((sy, _)) = literal(ws(&r[n..])) {
+                    sysid = sy;
+                }
+            } else if let Some(r) = rest.strip_prefix("SYSTEM") {
+                sysid = literal(ws(r))?.0;
+            }
+            // Comments and PIs inside the internal subset (roxmltree lists them as document children).
+            let mut inner = 0usize;
+            let open = rest.find('[').filter(|i| !rest[..*i].contains('>'));
+            if let Some(i) = open {
+                let mut t = &rest[i + 1..];
+                while let Some(i) = t.find(['<', '"', '\'', ']']) {
+                    t = &t[i..];
+                    if t.starts_with("<!--") {
+                        inner += 1;
+                        t = t[4..].find("-->").map_or("", |e| &t[4 + e + 3..]);
+                    } else if t.starts_with("<?") {
+                        inner += 1;
+                        t = t[2..].find("?>").map_or("", |e| &t[2 + e + 2..]);
+                    } else if t.starts_with('"') || t.starts_with('\'') {
+                        let q = &t[..1];
+                        t = t[1..].find(q).map_or("", |e| &t[1 + e + 1..]);
+                    } else if t.starts_with(']') {
+                        break;
+                    } else {
+                        t = &t[1..];
+                    }
+                }
+            }
+            return Some((misc, inner, name, pubid, sysid));
+        } else {
+            return None;
+        }
+    }
+}
+
+/// QDOM11: parses `text` as XML (roxmltree) into the children of the document node `doc`. A well-formedness error
+/// leaves the `parsererror` document instead and returns false.
+pub(crate) fn load_xml_into(doc: &Handle, text: &str, url: &str) -> bool {
+    let opts = roxmltree::ParsingOptions { allow_dtd: true, ..Default::default() };
+    clear_children(doc);
+    let mut well_formed = true;
+    let kids: Vec<Handle> = match roxmltree::Document::parse_with_options(text, opts) {
+        Ok(x) => x.root().children().filter_map(xml_to_dom).collect(),
+        Err(e) => {
+            well_formed = false;
+            let p = e.pos();
+            vec![xml_parse_error_element(e.to_string().split(" at ").next().unwrap_or(""), p.row, p.col, text, url)]
+        }
+    };
+    let mut kids = kids;
+    if well_formed && let Some((at, inner, name, pubid, sysid)) = xml_doctype(text) {
+        let end = (at + inner).min(kids.len());
+        if kids[at.min(end)..end].iter().all(|k| matches!(k.data, NodeData::Comment { .. } | NodeData::ProcessingInstruction { .. })) {
+            kids.drain(at.min(end)..end);
+        }
+        let dt = Node::new(NodeData::Doctype { name: name.as_str().into(), public_id: pubid.as_str().into(), system_id: sysid.as_str().into() });
+        kids.insert(at.min(kids.len()), dt);
+    }
+    for k in kids {
+        k.parent.set(Some(Rc::downgrade(doc)));
+        doc.children.borrow_mut().push(k);
+    }
+    well_formed
+}
+
+/// QDOM11: a whole XML document (`NodeData::Document` root) for a top-level load.
+pub(crate) fn parse_xml_document(text: &str, url: &str) -> Handle {
+    let doc = Node::new(NodeData::Document);
+    load_xml_into(&doc, text, url);
+    doc
 }
 
 fn clear_children(h: &Handle) {
@@ -1530,7 +1687,12 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         let base = find_base_url(&root).or_else(crate::js::page_url);
         let Ok(url) = resolve_href(base.as_ref(), src.trim()) else { return Vec::new() };
         match crate::net::iframe_page(url.as_str()) {
-            Some(html) => vec![url.to_string(), html],
+            Some(html) => {
+                let mut v = vec![url.to_string(), html];
+                // QDOM11: the XML MIME type of the page (absent for HTML).
+                v.extend(crate::net::iframe_page_mime(url.as_str()));
+                v
+            }
             None => Vec::new(),
         }
     });
@@ -1583,6 +1745,12 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
                 format!("{}\n{}\n{}", e.to_string().split(" at ").next().unwrap_or(""), p.row, p.col)
             }
         }
+    });
+    // QDOM11: an XML page (iframe document) into a document's root; false = parsererror document.
+    let t = table.clone();
+    native!(ctx, "__d_load_xml_page", move |id: i32, text: String, url: String| -> bool {
+        let Some(doc) = t.borrow().get(id) else { return false };
+        load_xml_into(&doc, &text, &url)
     });
     let t = table.clone();
     native!(ctx, "__d_create_doctype", move |name: String, public_id: String, system_id: String| -> i32 {
@@ -4054,6 +4222,27 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     pe.appendChild(st); d.appendChild(pe);
     return false;
   };
+  // QDOM11: an XML MIME type of a response (the essence), else ''.
+  var xmlMime = function (ct) {
+    var m = String(ct).split(';')[0].trim().toLowerCase();
+    return /^(application\/xhtml\+xml|image\/svg\+xml|text\/xml|application\/xml)$/.test(m) || /^[^\/]+\/[^\/]+\+xml$/.test(m) ? m : '';
+  };
+  // QDOM11: turns THIS realm's document into an XML document of MIME type `ct` (XMLDocument, not an HTML document:
+  // QDOM17 flag, createElement keeps the case). The top-level page and an iframe realm call it before their scripts run.
+  Object.defineProperty(g, '__scratchy_xml_doc', { value: function (ct) {
+    ct = String(ct);
+    if (doc.contentType === ct) return;
+    if (doc.contentType === 'text/html') nonHtmlDocs++;
+    Object.setPrototypeOf(doc, XMLDocument.prototype);
+    Object.defineProperty(doc, 'contentType', { value: ct, writable: true, configurable: true, enumerable: true });
+    Object.defineProperty(doc, 'compatMode', { value: 'CSS1Compat', writable: true, configurable: true, enumerable: true });
+    doc.createElement = function createElement(t) {
+      t = String(t); checkName('createElement', t, 'Document');
+      var e = wrap(ct === 'application/xhtml+xml' ? __d_create(15, t) : __d_create_xml(t));
+      if (ct === 'application/xhtml+xml' && t === 'script') sMark(e);
+      return e;
+    };
+  }, configurable: true });
   g.__parseDocument = function (text, type) {
     text = String(text);
     if (type === 'text/html') {
@@ -4148,8 +4337,9 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     var fin = function (page) { dynPages[k] = page; delete dynBusy[k]; w.forEach(function (f) { f(); }); };
     if (k.slice(0, 5) === 'blob:') {
       var bb = g.__blob_lookup(k);
-      if (!bb || !/^\s*text\/html\s*(;|$)/i.test(bb.type)) { setTimeout(function () { fin([]); }, 0); return true; }
-      bb.text().then(function (t) { fin(t.length <= 1048576 ? [k, t] : []); }, function () { fin([]); });
+      var bx = bb ? xmlMime(bb.type) : '';
+      if (!bb || !(bx || /^\s*text\/html\s*(;|$)/i.test(bb.type))) { setTimeout(function () { fin([]); }, 0); return true; }
+      bb.text().then(function (t) { fin(t.length <= 1048576 ? (bx ? [k, t, bx] : [k, t]) : []); }, function () { fin([]); });
       return true;
     }
     try {
@@ -4157,7 +4347,8 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       x.open('GET', k, true);
       x.onload = function () {
         var ct = String(x.getResponseHeader('content-type') || '').toLowerCase();
-        fin(x.status >= 200 && x.status < 300 && /^\s*text\/html/.test(ct) && x.responseText.length <= 1048576 ? [k, x.responseText] : []);
+        var xm = xmlMime(ct);
+        fin(x.status >= 200 && x.status < 300 && (xm || /^\s*text\/html/.test(ct)) && x.responseText.length <= 1048576 ? (xm ? [k, x.responseText, xm] : [k, x.responseText]) : []);
       };
       x.onerror = x.onabort = x.ontimeout = function () { fin([]); };
       x.send();
@@ -4243,13 +4434,14 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       var w = g.__scratchy_realm_new();
       if (w) {
         var did = __d_newdoc();
-        if (pg.length) { __d_load_html(did, pg[1]); href = pg[0]; }
+        if (pg.length) { if (pg[2]) __d_load_xml_page(did, pg[1], pg[0]); else __d_load_html(did, pg[1]); href = pg[0]; }
         var dim = function (a, dflt) { var v = parseInt(__d_attr(el.__id, a) || '', 10); return v >= 0 ? v : dflt; };
         // QPT1f: the realm reports its window `load` (end of a srcdoc load or of document.close()),
         // and the parent then fires `load` on the <iframe> (while it still shows that window).
         var fr = null, onLoad = function () { if (fr && frames[el.__id] === fr && inPage(el)) el.dispatchEvent(new g.Event('load')); };
         w.__scratchy_realm_init({ docId: did, dom: { cache: cache, owners: owners, xr: xr, onLoad: onLoad }, href: href, base: (pg.length || op) ? null : doc.baseURI, parent: g, top: g.top,
           opaque: op, xo: xoOf, frameElement: el, name: __d_attr(el.__id, 'name') || '', onName: function () { syncWin(); }, width: dim('width', 300), height: dim('height', 150) });
+        if (pg.length && pg[2]) w.__scratchy_xml_doc(pg[2]);
         nFrames++;
         return (frames[el.__id] = fr = { doc: w.document, win: w, view: op ? xoOf(w) : w, opaque: op, el: el, realm: true, loaded: false });
       }
@@ -4265,7 +4457,8 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     var d = makeDoc(true, 'text/html');
     if (pg.length) {
       // QA18b1: pre-fetched same-origin document; scripts in it never run.
-      __d_load_html(d.__id, pg[1]); href = pg[0];
+      if (pg[2]) __d_load_xml_page(d.__id, pg[1], pg[0]); else __d_load_html(d.__id, pg[1]);
+      href = pg[0];
       ['URL', 'documentURI', 'baseURI'].forEach(function (k) { Object.defineProperty(d, k, { value: href, writable: true, configurable: true, enumerable: true }); });
     } else {
       var html = d.createElement('html'); d.appendChild(html);
@@ -4438,9 +4631,10 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       var pgn = ifrPage(el);
       if (pgn.length && f.win.location.href !== pgn[0]) f.win.__scratchy_realm_nav(pgn[0]);
     }
-    if (f.realm) { f.win.__scratchy_frame_load(html, top); return; }
+    if (f.realm) { var lp = (frameSrcdoc(el) == null && !frameIsData(el)) ? ifrPage(el) : []; f.win.__scratchy_frame_load(html, top, lp[2] || ''); return; }
     // The stand-in (no snapshot, QPT1e): the document only, no scripts.
-    __d_load_html(f.doc.__id, html);
+    var lq = (frameSrcdoc(el) == null && !frameIsData(el)) ? ifrPage(el) : [];
+    if (lq[2]) __d_load_xml_page(f.doc.__id, html, lq[0]); else __d_load_html(f.doc.__id, html);
     el.dispatchEvent(new g.Event('load'));
   };
   var loadFrameLater = function (el) { g.setTimeout(function () { loadFrame(el, true); }, 0); };
@@ -4510,7 +4704,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   };
   doc.createElementNS = function (ns, t) {
     var e = sOCreateNS.apply(this, arguments);
-    if (ns === 'http://www.w3.org/1999/xhtml' && String(t).toLowerCase() === 'script') sMark(e);
+    if ((ns === 'http://www.w3.org/1999/xhtml' || ns === 'http://www.w3.org/2000/svg') && String(t).toLowerCase() === 'script') sMark(e);
     return e;
   };
   var sCopy = function (a, b) {
@@ -4650,16 +4844,21 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   // ones after it), then DOMContentLoaded, nested srcdoc frames, the window `load`, and the parent's
   // `load` on the <iframe>. Stops as soon as the frame is dropped (`closed`).
   var inFrameOnLoad = false;
-  var frameLoad = function (html, top) {
+  var SVGNS = 'http://www.w3.org/2000/svg';
+  // QDOM11: an SVG script's file is `href` (or `xlink:href`), an XHTML/HTML one's `src`.
+  var scriptSrc = function (id) { return __d_ns(id) === SVGNS ? __d_attr(id, 'href') : __d_attr(id, 'src'); };
+  var frameLoad = function (html, top, mime) {
     if (!frameDoc || g.closed) return;
     wBuf = null;
     var kids = __d_children(doc.__id, false);
     for (var i = 0; i < kids.length; i++) __d_remove(kids[i]);
     doc.readyState = 'loading';
-    __d_load_html(doc.__id, String(html));
+    if (mime) { __d_load_xml_page(doc.__id, String(html), doc.URL); g.__scratchy_xml_doc(mime); } else __d_load_html(doc.__id, String(html));
     if (ceOn) ceScan(doc.__id, false);
     if (/<iframe/i.test(html)) syncWin();
     var ids = __d_query(doc.__id, 'script', false) || [], k = 0, n = 0;
+    // QDOM11: only XHTML and SVG `script` elements run (an XML document may have others).
+    if (mime) ids = ids.filter(function (i) { var sn = __d_ns(i); return sn === XHTMLNS || sn === SVGNS; });
     var finish0 = function () {
       if (g.closed) return;
       doc.readyState = 'interactive';
@@ -4684,7 +4883,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
         if (composedRootId(id) !== doc.__id) continue; // removed by an earlier script
         var t = sType(id);
         if (!t) continue;
-        var el = wrap(id), src = __d_attr(id, 'src');
+        var el = wrap(id), src = scriptSrc(id);
         if (t === 'module') {
           if (src != null) { if (src.trim() !== '') sExternal(el, id, src, true); continue; }
           var mn = String(g.location.href).split('#')[0] + '#inline-module-f' + (++sNames), mt = el.textContent;
@@ -4716,7 +4915,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     step(top);
   };
   Object.defineProperty(g, '__scratchy_frame_base_clear', { value: function () { baseFallback = null; } });
-  Object.defineProperty(g, '__scratchy_frame_load', { value: function (html, top) { frameLoad(html, !!top); } });
+  Object.defineProperty(g, '__scratchy_frame_load', { value: function (html, top, mime) { frameLoad(html, !!top, mime || ''); } });
   var sOTxt = __d_settext, sOSet = __d_setattr;
   // QDOMATOM (DOM "insert" step 7+, HTML post-connection steps): after the WHOLE insertion (a fragment's nodes, a
   // div moved in), the inserted iframes get their browsing context and the inserted scripts are prepared, together

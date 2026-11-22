@@ -799,8 +799,12 @@ OK         16/36  css/cssom-view/scrollWidthHeight-subpixel-position.tentative.h
   FAIL      scroll{Width,Height} should match client{Width,Height} if there is no overflow and their position is offset on top by 0.8px and left by 0.5px
   FAIL      scroll{Width,Height} should match client{Width,Height} if there is no overflow and their position is offset on top by 0.8px and left by 0.6px
   FAIL      scroll{Width,Height} should match client{Width,Height} if there is no overflow and their position is offset on top by 0.8px and left by 0.8px
-CRASH        0/0  css/cssom-view/scrollWidthHeight.xht
-CRASH        0/0  css/cssom-view/scrollWidthHeightWhenNotScrollable.xht
+OK         10/12  css/cssom-view/scrollWidthHeight.xht
+  FAIL      elemOverflow.scrollHeight is the height of its scrolled contents (including padding)
+  FAIL      elemOverflow.scrollHeight is the width of its scrolled contents (including padding)
+OK         10/12  css/cssom-view/scrollWidthHeightWhenNotScrollable.xht
+  FAIL      elemOverflow.scrollHeight is the height of its scrolled contents (plus padding, since we overflowed)
+  FAIL      elemOverflow.scrollHeight is the width of its scrolled contents (plus padding)
 OK           1/1  css/cssom-view/scrolling-no-browsing-context.html
 OK          4/30  css/cssom-view/scrolling-quirks-vs-nonquirks.html
   FAIL      Execution of tests in quirks mode

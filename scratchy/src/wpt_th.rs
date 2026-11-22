@@ -82,10 +82,17 @@ pub(crate) fn run_one(url: &Url, socket: &std::path::Path, exec: Arc<dyn NetExec
             return None;
         }
     };
-    let html = decode_html_bytes(&body, ct.as_deref().and_then(content_type_charset));
-    let dom = new_parser().read_from(&mut html.as_bytes()).ok()?;
-    let document = dom.document;
     set_page_url(Some(url));
+    // QDOM11: an XML MIME type goes through the roxmltree path (not an HTML document; a parsererror document on a
+    // well-formedness error); `run_page` makes the JS document an XMLDocument.
+    let xml = ct.as_deref().is_some_and(crate::js_dom::is_xml_mime);
+    let document = if xml {
+        crate::js::set_page_xml_mime(ct.as_deref());
+        crate::js_dom::parse_xml_document(&crate::js_dom::decode_xml_bytes(&body, ct.as_deref()), url.as_str())
+    } else {
+        let html = decode_html_bytes(&body, ct.as_deref().and_then(content_type_charset));
+        new_parser().read_from(&mut html.as_bytes()).ok()?.document
+    };
     let base = find_base_url(&document).unwrap_or_else(|| url.clone());
     let mut res = ExternalResources::default();
     find_external_resources(&document, &mut res);

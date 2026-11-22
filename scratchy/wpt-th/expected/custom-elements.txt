@@ -26,7 +26,7 @@ OK           0/4  custom-elements/Document-createElement-customized-builtins.htm
   FAIL      document.createElement()'s second argument is to be ignored when it's a string
   FAIL      document.createElement must report an exception thrown by a custom built-in element constructor
   FAIL      document.createElement with unknown "is" value should create "undefined" state element
-ERROR        0/0  custom-elements/Document-createElement-svg.svg
+OK           2/2  custom-elements/Document-createElement-svg.svg
 OK         11/36  custom-elements/Document-createElement.html
   FAIL      document.createElement must report a TypeError when the result of Construct is not a DOM node
   FAIL      document.createElement must report a TypeError when the result of Construct is a TextNode
@@ -618,17 +618,18 @@ OK           2/5  custom-elements/parser/parser-sets-attributes-and-children.htm
 OK           0/2  custom-elements/parser/parser-uses-constructed-element.html
   FAIL      HTML parser must use the returned value of the custom element constructor instead of the one created before super() call
   FAIL      HTML parser must use the returned value of the custom element constructor instead using the one created in super() call
-ERROR        0/0  custom-elements/parser/parser-uses-create-an-element-for-a-token-svg.svg
+OK           2/2  custom-elements/parser/parser-uses-create-an-element-for-a-token-svg.svg
 OK          8/10  custom-elements/parser/parser-uses-registry-of-owner-document.html
   FAIL      document.write() must not instantiate a custom element without a defined insertion point
   FAIL      document.writeln() must not instantiate a custom element without a defined insertion point
 OK           1/3  custom-elements/parser/serializing-html-fragments-customized-builtins.html
   FAIL      "is" value should be serialized even for an undefined element
   FAIL      "is" content attribute should be serialized even if the element is a customized built-in element
-ERROR        0/0  custom-elements/parser/xml-fragment-parser-does-not-construct-synchronously.xhtml
-ERROR        0/0  custom-elements/parser/xml-parser-custom-element-reparents-during-construction.xhtml
-ERROR        0/0  custom-elements/parser/xml-parser-customized-builtin-input.xhtml
-ERROR        0/0  custom-elements/perform-microtask-checkpoint-before-construction-xml-parser.xhtml
+OK           3/3  custom-elements/parser/xml-fragment-parser-does-not-construct-synchronously.xhtml
+OK           2/2  custom-elements/parser/xml-parser-custom-element-reparents-during-construction.xhtml
+OK           2/2  custom-elements/parser/xml-parser-customized-builtin-input.xhtml
+OK           0/1  custom-elements/perform-microtask-checkpoint-before-construction-xml-parser.xhtml
+  FAIL      XML parser must perform a microtask checkpoint before constructing a custom element
 OK           0/2  custom-elements/perform-microtask-checkpoint-before-construction.html
   FAIL      HTML parser must perform a microtask checkpoint before constructing a custom element
   FAIL      HTML parser must perform a microtask checkpoint before constructing a custom element during the adoption agency algorithm
@@ -1484,7 +1485,11 @@ OK           0/3  custom-elements/registries/pseudo-class-defined.window.html
   FAIL      "uncustomized" :defined doesn't care about your registry'
   FAIL      "custom" :defined doesn't care about your registry
   FAIL      "custom" :defined should apply after initialize
-ERROR        0/0  custom-elements/registries/scoped-custom-element-registry-customelementregistry-attribute-in-xhtml.xhtml
+OK           0/4  custom-elements/registries/scoped-custom-element-registry-customelementregistry-attribute-in-xhtml.xhtml
+  FAIL      XHTML parser should create a custom element candidate with null registry if customelementregistry is set
+  FAIL      XHTML parser should create a defined custom element with null registry if customelementregistry is set
+  FAIL      XHTML fragment parser should create a custom element candidate with null registry if customelementregistry is set
+  FAIL      XHTML fragment parser should create a defined custom element with null registry if customelementregistry is set
 OK          0/23  custom-elements/registries/scoped-custom-element-registry-customelementregistry-attribute.html
   FAIL      HTML parser should create a builtin element with null registry if customelementregistry is set
   FAIL      Setting customelementregistry content attribute after a builtin element had finishsed parsing should not set null registry
@@ -1605,7 +1610,18 @@ OK           2/8  custom-elements/state/state-pseudo-class.html
   FAIL      :state(foo) and other pseudo classes
   FAIL      :state(foo) and ::part()
   FAIL      :state(foo) and :host()
-ERROR        0/0  custom-elements/throw-on-dynamic-markup-insertion-counter-construct-xml-parser.xhtml
+TIMEOUT     0/11  custom-elements/throw-on-dynamic-markup-insertion-counter-construct-xml-parser.xhtml
+  FAIL      document.open() must throw an InvalidStateError when synchronously constructing a custom element
+  FAIL      document.open("text/html") must throw an InvalidStateError when synchronously constructing a custom element
+  TIMEOUT   document.open(URL) must NOT throw an InvalidStateError when synchronously constructing a custom element
+  NOTRUN    document.close() must throw an InvalidStateError when synchronously constructing a custom element
+  NOTRUN    document.write must throw an InvalidStateError when synchronously constructing a custom element
+  NOTRUN    document.writeln must throw an InvalidStateError when synchronously constructing a custom element
+  NOTRUN    document.open() of another document must not throw an InvalidStateError when synchronously constructing a custom element
+  NOTRUN    document.open("text/html") of another document must not throw an InvalidStateError when synchronously constructing a custom element
+  NOTRUN    document.close() of another document must not throw an InvalidStateError when synchronously constructing a custom element
+  NOTRUN    document.write of another document must not throw an InvalidStateError when synchronously constructing a custom element
+  NOTRUN    document.writeln of another document must not throw an InvalidStateError when synchronously constructing a custom element
 TIMEOUT     0/11  custom-elements/throw-on-dynamic-markup-insertion-counter-construct.html
   FAIL      document.open() must throw an InvalidStateError when synchronously constructing a custom element
   FAIL      document.open("text/html") must throw an InvalidStateError when synchronously constructing a custom element
@@ -1618,7 +1634,18 @@ TIMEOUT     0/11  custom-elements/throw-on-dynamic-markup-insertion-counter-cons
   NOTRUN    document.close() of another document must not throw an InvalidStateError when synchronously constructing a custom element
   NOTRUN    document.write of another document must not throw an InvalidStateError when synchronously constructing a custom element
   NOTRUN    document.writeln of another document must not throw an InvalidStateError when synchronously constructing a custom element
-ERROR        0/0  custom-elements/throw-on-dynamic-markup-insertion-counter-reactions-xml-parser.xhtml
+TIMEOUT     0/11  custom-elements/throw-on-dynamic-markup-insertion-counter-reactions-xml-parser.xhtml
+  FAIL      document.open() must throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
+  FAIL      document.open("text/html") must throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
+  TIMEOUT   document.open(URL) must NOT throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
+  NOTRUN    document.close() must throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
+  NOTRUN    document.write must throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
+  NOTRUN    document.writeln must throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
+  NOTRUN    document.open() of another document must not throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
+  NOTRUN    document.open("text/html") of another document must not throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
+  NOTRUN    document.close() of another document must not throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
+  NOTRUN    document.write of another document must not throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
+  NOTRUN    document.writeln of another document must not throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
 OK          0/11  custom-elements/throw-on-dynamic-markup-insertion-counter-reactions.html
   FAIL      document.open() must throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
   FAIL      document.open("text/html") must throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
