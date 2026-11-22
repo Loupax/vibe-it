@@ -110,8 +110,7 @@ OK           1/2  webidl/ecmascript-binding/interface-object-set-receiver.html
 OK           4/4  webidl/ecmascript-binding/interface-object.html
 OK           1/2  webidl/ecmascript-binding/interface-prototype-constructor-set-receiver.html
   FAIL      Direct [[Set]] preserves [[Enumerable]]: false property attribute
-OK           0/1  webidl/ecmascript-binding/interface-prototype-object.html
-  FAIL      [Unscopable] extended attribute makes @@unscopables object on the prototype object, whose prototype is null.
+OK           1/1  webidl/ecmascript-binding/interface-prototype-object.html
 TIMEOUT      0/3  webidl/ecmascript-binding/invalid-this-value-cross-realm.html
   TIMEOUT   Cross-realm getter throws when called on incompatible object
   NOTRUN    Cross-realm setter throws when called on incompatible object

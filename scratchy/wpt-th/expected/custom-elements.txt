@@ -1211,8 +1211,7 @@ OK           0/2  custom-elements/reactions/customized-builtins/HTMLTableColElem
 OK           0/2  custom-elements/reactions/customized-builtins/HTMLTimeElement.html
   FAIL      dateTime on HTMLTimeElement must enqueue an attributeChanged reaction when adding datetime content attribute
   FAIL      dateTime on HTMLTimeElement must enqueue an attributeChanged reaction when replacing an existing attribute
-OK           0/1  custom-elements/reactions/with-exceptions.html
-  FAIL      Reaction must run even after the exception is thrown
+OK           1/1  custom-elements/reactions/with-exceptions.html
 OK           0/3  custom-elements/registries/Construct.html
   FAIL      A constructor with only a scoped custom element registry definition should fail upon construction
   FAIL      A constructor uses the global registry to create an element
