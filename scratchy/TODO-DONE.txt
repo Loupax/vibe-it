@@ -9552,3 +9552,12 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       Also (from QCNV1 #613): the canvas registry is keyed by node address (a canvas that never calls getContext
       could show a stale bitmap after address reuse); `currentcolor` treated as black; lab()/color() fill styles ignored;
       the toDataURL->image-load and zerosource files need image work, not canvas work.
+
+=== from TODO.txt: --- (no header)
+- [x] QWPT7 DONE 05258dd #611 [M] (P2; Opus; testdriver-vendor.js + natives; after QEL1) testdriver: test_driver.click,
+      send_keys, action_sequence (pointer + key) as synthetic input through the App's input path in
+      the headless rendering loop (hit testing on the real layout). Unlocks dom/events (77 files),
+      uievents (57), pointerevents.
+      Update 2026-11-22 (QWPT6e #586): the 111 subset pages that call test_driver were dropped from the subset
+      (DRIVER_CALL in tools/wpt-subset.py: dom/events 30, uievents 47, shadow-dom 19, ...); `--wpt-th-one` has no
+      App and elementFromPoint is a stub there, so real hit testing comes first. When done, drop the filter.
