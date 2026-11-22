@@ -1920,26 +1920,11 @@ OK           1/2  dom/nodes/insertion-removing-steps/later-script-removed-by-ear
   FAIL      A later-inserted script removed by an earlier-inserted script in the same append() call should not run
 OK           1/1  dom/nodes/insertion-removing-steps/script-does-not-run-on-child-removal.window.html
 OK           2/2  dom/nodes/live-collections-batched-mutations.window.html
-ERROR       2/32  dom/nodes/moveBefore/Node-moveBefore.html
-  FAIL      If node is a host-including inclusive ancestor of parent, then throw a HierarchyRequestError DOMException.
-  FAIL      If node is not a DocumentFragment, DocumentType, Element, Text, ProcessingInstruction, or Comment node, then throw a HierarchyRequestError DOMException.
-  FAIL      If node is a Text node and parent is a document, then throw a HierarchyRequestError DOMException.
-  FAIL      If node is a doctype and parent is not a document, then throw a HierarchyRequestError DOMException.
-  FAIL      If node is a DocumentFragment with multiple elements and parent is a document, then throw a HierarchyRequestError DOMException.
-  FAIL      If node is a DocumentFragment with an element and parent is a document with another element, then throw a HierarchyRequestError DOMException.
-  FAIL      If node is an Element and parent is a document with another element, then throw a HierarchyRequestError DOMException.
-  FAIL      If node is a doctype and parent is a document with another doctype, then throw a HierarchyRequestError DOMException.
+ERROR      17/32  dom/nodes/moveBefore/Node-moveBefore.html
   FAIL      If node is a doctype and parent is a document with an element, then throw a HierarchyRequestError DOMException.
   FAIL      moveBefore() method does not exist on non-ParentNode Nodes
-  FAIL      moveBefore() on disconnected parent throws a HierarchyRequestError
-  FAIL      moveBefore() with disconnected target node throws a HierarchyRequestError
-  FAIL      moveBefore() on a cross-document target node throws a HierarchyRequestError
-  FAIL      moveBefore() into a Document throws a HierarchyRequestError
-  FAIL      moveBefore() CharacterData into a Document
-  FAIL      moveBefore() with node being an inclusive ancestor of parent throws a HierarchyRequestError
   FAIL      moveBefore() with a non-{Element, CharacterData} throws a HierarchyRequestError
   NOTRUN    moveBefore with an Element or CharacterData succeeds
-  FAIL      moveBefore on a paragraph's Text node child
   NOTRUN    moveBefore with reference child whose parent is NOT the destination parent (context node) throws a NotFoundError.
   NOTRUN    moveBefore() returns undefined
   NOTRUN    Moving a node before itself should not move the node
@@ -1951,8 +1936,7 @@ ERROR       2/32  dom/nodes/moveBefore/Node-moveBefore.html
   NOTRUN    No custom element callbacks are run during disconnected moveBefore()
   NOTRUN    Invalid node hierarchy with null old parent does not crash
   NOTRUN    Move disconnected iframe does not crash
-OK           0/1  dom/nodes/moveBefore/child-style-preserve.html
-  FAIL      child-style-preserve
+OK           1/1  dom/nodes/moveBefore/child-style-preserve.html
 TIMEOUT      0/1  dom/nodes/moveBefore/continue-css-animation-left.html
   TIMEOUT   Node.moveBefore should preserve CSS animation state (left)
 TIMEOUT      0/1  dom/nodes/moveBefore/continue-css-animation-transform.html
@@ -1973,28 +1957,19 @@ TIMEOUT      0/1  dom/nodes/moveBefore/css-transition-cross-shadow.html
   TIMEOUT   Moving an element with a transition across shadow boundaries preserves the transition
 TIMEOUT      0/1  dom/nodes/moveBefore/css-transition-to-disconnected-document.html
   TIMEOUT   Moving an element with a transition to a disconnected document should reset the transitionm state
-OK           0/1  dom/nodes/moveBefore/css-transition-trigger.html
-  FAIL      Node.moveBefore should trigger CSS transition state (left) if needed
-OK           0/7  dom/nodes/moveBefore/custom-element-move-reactions.html
-  FAIL      the disconnected/connected callbacks should be called when no other callback is defined
-  FAIL      the element should stay connected during the callbacks
-  FAIL      When connectedMoveCallback is defined, it is called instead of disconnectedCallback/connectedCallback
-  FAIL      Reactions to atomic move are called in order of element, not in order of operation
-  FAIL      When connectedCallback is not defined, no crash
-  FAIL      When disconnectedCallback is not defined, no crash
+TIMEOUT      0/1  dom/nodes/moveBefore/css-transition-trigger.html
+  TIMEOUT   Node.moveBefore should trigger CSS transition state (left) if needed
+OK           6/7  dom/nodes/moveBefore/custom-element-move-reactions.html
   FAIL      connectedMove runs when custom element is nested within a shadow root
-OK           0/1  dom/nodes/moveBefore/fieldset-child-blur-event.html
-  FAIL      The 'blur' event is not fired on children of HTMLFieldSetElement during moveBefore()
-OK           0/1  dom/nodes/moveBefore/fieldset-child-date-input-blur-event.html
-  FAIL      Neither 'blur' nor 'focusout' is fired on a focused <input type=date> child of HTMLFieldSetElement during moveBefore()
+OK           1/1  dom/nodes/moveBefore/fieldset-child-blur-event.html
+OK           1/1  dom/nodes/moveBefore/fieldset-child-date-input-blur-event.html
 OK           0/5  dom/nodes/moveBefore/fire-focusin-focusout.html
   FAIL      Don't fire focusin/out when reparenting focused element directly
   FAIL      Don't fire focusin/out when reparenting an element that has focus within
   FAIL      Don't fire focusin/out when moving to the same parent
   FAIL      Don't fire focusin and then correct when moving to an inert subtree
   FAIL      Don't fire focusin and then correct when moving to a tree that is made inert using style
-OK           0/5  dom/nodes/moveBefore/focus-preserve.html
-  FAIL      moveBefore() preserves focus when the focused element remains focusable
+OK           1/5  dom/nodes/moveBefore/focus-preserve.html
   FAIL      moveBefore() preserves focus and a backward selection in a text input
   FAIL      Focus is fixed up after moveBefore() moves the focused element into an inert subtree
   FAIL      Focus is fixed up after moveBefore() moves the focused element into a hidden parent
@@ -2022,29 +1997,16 @@ TIMEOUT      0/7  dom/nodes/moveBefore/iframe-document-preserve.window.html
   NOTRUN    moveBefore(): cross-origin iframe is preserved: remove self via replaceChildren()
   NOTRUN    moveBefore(): cross-origin iframe is preserved: remove self via innerHTML
   NOTRUN    window.frames ordering does not change due to moveBefore()
-OK           0/6  dom/nodes/moveBefore/listed-form-element-reset.html
-  FAIL      Listed form element form owner is reset when a new form is moved closer before the listed element
-  FAIL      Moving a non-form ID match updates form owners in a document
+OK           2/6  dom/nodes/moveBefore/listed-form-element-reset.html
   FAIL      Moving a non-form ID match updates form owners in a shadow tree
   FAIL      Moving an ancestor of an ID match across a shadow boundary updates form owners in both trees
   FAIL      Moving an input without an ID across a shadow boundary resets its form owner
   FAIL      Moving an ancestor without an ID across a shadow boundary resets a descendant input's form owner
-OK           0/3  dom/nodes/moveBefore/live-range-updates.html
-  FAIL      moveBefore still results in range startContainer snapping up to parent when startContainer is moved
-  FAIL      moveBefore still causes range startContainer to snap up to parent, when startContainer ancestor is moved
-  FAIL      moveBefore still causes range endContainer to snap up to parent, when endContainer ancestor is moved
+OK           3/3  dom/nodes/moveBefore/live-range-updates.html
 OK           0/1  dom/nodes/moveBefore/modal-dialog.html
   FAIL      when reparenting a modal dialog, the dialog should stay modal
-OK           0/9  dom/nodes/moveBefore/moveBefore-child-list-selector-invalidation.html
+OK           8/9  dom/nodes/moveBefore/moveBefore-child-list-selector-invalidation.html
   FAIL      :has(> .marked) on the old and new parents
-  FAIL      :empty on the old and new parents when moving an element
-  FAIL      :empty on the old and new parents when moving a Text node
-  FAIL      :first-child on siblings in the old and new parents
-  FAIL      :last-child on siblings in the old and new parents
-  FAIL      :nth-child(2) on later siblings in the old and new parents
-  FAIL      :nth-last-child(2) on earlier siblings in the old and new parents
-  FAIL      .a + .b on the next siblings in the old and new parents
-  FAIL      :first-child when reordering children of the same parent
 OK           0/4  dom/nodes/moveBefore/moveBefore-custom-element-registry.html
   FAIL      An element with the global registry keeps it when moved into a shadow root with a scoped registry
   FAIL      An element with a scoped registry keeps it when moved out of its shadow root
@@ -2052,74 +2014,39 @@ OK           0/4  dom/nodes/moveBefore/moveBefore-custom-element-registry.html
   FAIL      An element with the global registry isn't upgraded by a scoped registry when moved into its shadow root
 OK           0/1  dom/nodes/moveBefore/moveBefore-dir.html
   FAIL      moveBefore() correctly updates the computed dir for moved nodes
-OK           0/4  dom/nodes/moveBefore/moveBefore-disconnected-id-map.html
-  FAIL      moveBefore() of an element with an id in a disconnected tree leaves the document's id map alone
-  FAIL      moveBefore() of an element with a name in a disconnected tree leaves the document's name maps alone
-  FAIL      moveBefore() into a shadow tree inside a disconnected tree adds the element to the shadow root's id map
-  FAIL      moveBefore() out of a shadow tree inside a disconnected tree removes the element from the shadow root's id map
+OK           4/4  dom/nodes/moveBefore/moveBefore-disconnected-id-map.html
 OK           0/1  dom/nodes/moveBefore/moveBefore-from-light-to-shadow.html
   FAIL      moveBefore-from-light-to-shadow
-OK           0/4  dom/nodes/moveBefore/moveBefore-id-map.html
-  FAIL      moveBefore() correctly updates id map when moving into shadow root
-  FAIL      moveBefore() correctly updates window map when moving id-mapped element into shadow root
-  FAIL      moveBefore() correctly updates id map when moving between shadow roots
-  FAIL      moveBefore() correctly updates id map when swapping elements with duplicate ids
+OK           4/4  dom/nodes/moveBefore/moveBefore-id-map.html
 OK           0/3  dom/nodes/moveBefore/moveBefore-image-map.html
   FAIL      An image stops using a map that is moved into a shadow root
   FAIL      An image moved into a shadow root uses a map in the shadow root
   FAIL      An area whose image was moved into a shadow root is no longer focusable
-OK           0/1  dom/nodes/moveBefore/moveBefore-into-display-none.html
-  FAIL      moveBefore() into a display: none parent stops rendering the moved node
-OK           0/1  dom/nodes/moveBefore/moveBefore-lang.html
-  FAIL      moveBefore() correctly updates the computed lang for moved nodes
-OK           0/3  dom/nodes/moveBefore/moveBefore-name-map.html
-  FAIL      moveBefore() correctly updates name map when moving into shadow root
-  FAIL      moveBefore() correctly updates window map
-  FAIL      moveBefore() correctly updates name map ordering in document
-OK           0/1  dom/nodes/moveBefore/moveBefore-nodeiterator.html
-  FAIL      moveBefore() runs NodeIterator pre-remove steps
-OK           0/3  dom/nodes/moveBefore/moveBefore-optgroup.html
-  FAIL      Moving an optgroup between selects moves its options with it
-  FAIL      An optgroup moved out of a select can be inserted into another select
-  FAIL      An optgroup moved out of a select renders like one inserted outside a select
-OK           0/1  dom/nodes/moveBefore/moveBefore-option-recalc-style.html
-  FAIL      moveBefore() of an option element between two selects
-OK           0/8  dom/nodes/moveBefore/moveBefore-radio-groups.html
-  FAIL      A radio moved into a shadow root leaves the document's radio button group
-  FAIL      A radio moved into a shadow root joins the shadow root's radio button group
-  FAIL      A radio moved out of a shadow root joins the document's radio button group
+OK           1/1  dom/nodes/moveBefore/moveBefore-into-display-none.html
+OK           1/1  dom/nodes/moveBefore/moveBefore-lang.html
+OK           3/3  dom/nodes/moveBefore/moveBefore-name-map.html
+OK           1/1  dom/nodes/moveBefore/moveBefore-nodeiterator.html
+OK           3/3  dom/nodes/moveBefore/moveBefore-optgroup.html
+OK           1/1  dom/nodes/moveBefore/moveBefore-option-recalc-style.html
+OK           5/8  dom/nodes/moveBefore/moveBefore-radio-groups.html
   FAIL      Required radio group validity is updated when the checked radio moves to another tree
   FAIL      A required radio moved into a group with a checked radio matches :valid
   FAIL      A required radio moved into a group without a checked radio matches :invalid
-  FAIL      Radios with a form owner stay in the form's group when moved into a shadow root
-  FAIL      A radio moved within the same tree stays in its radio button group
-OK           0/1  dom/nodes/moveBefore/moveBefore-selector-matching.html
-  FAIL      moveBefore() should invalidate target when descendant selector changes
-OK           0/2  dom/nodes/moveBefore/moveBefore-shadow-boundary-id-change.html
-  FAIL      Changing the id of an element moved into a shadow root only updates the shadow root's id map
-  FAIL      Changing the id of an element moved out of a shadow root updates the document's id and name maps
-OK           0/4  dom/nodes/moveBefore/moveBefore-shadow-host-id-map.html
-  FAIL      moveBefore() of a shadow host leaves the id map of its shadow tree alone
-  FAIL      moveBefore() of an ancestor of a shadow host leaves the id map of its shadow tree alone
-  FAIL      moveBefore() of a <select> element leaves the document's id and name maps alone
-  FAIL      moveBefore() of a <details> element leaves the document's id and name maps alone
+OK           1/1  dom/nodes/moveBefore/moveBefore-selector-matching.html
+OK           2/2  dom/nodes/moveBefore/moveBefore-shadow-boundary-id-change.html
+OK           4/4  dom/nodes/moveBefore/moveBefore-shadow-host-id-map.html
 OK           0/1  dom/nodes/moveBefore/moveBefore-shadow-inside.html
   FAIL      moveBefore-shadow-inside
-OK           0/3  dom/nodes/moveBefore/moveBefore-shadow-root.html
-  FAIL      moveBefore() is allowed in ShadowRoots (i.e., connected DocumentFragments)
+OK           1/3  dom/nodes/moveBefore/moveBefore-shadow-root.html
   FAIL      moveBefore() into ShadowRoot, shadow host, and <slot> invalidates style and detaches unslotted elements
   FAIL      moveBefore() preserves active fallback state and invalidates style across same-task slot roundtrips
 OK           0/1  dom/nodes/moveBefore/moveBefore-size-query.html
   FAIL      moveBefore() between different size containers invalidates target
-OK           0/1  dom/nodes/moveBefore/mutation-observer-moved-subtree.window.html
-  FAIL      A subtree moved out of an observed subtree by moveBefore() is observed until mutation observers are notified
-OK           0/2  dom/nodes/moveBefore/mutation-observer.html
-  FAIL      [Connected move] MutationObserver removal + insertion is tracked by moveBefore()
-  FAIL      [Disconnected move] MutationObserver removal + insertion is tracked by moveBefore()
+OK           1/1  dom/nodes/moveBefore/mutation-observer-moved-subtree.window.html
+OK           2/2  dom/nodes/moveBefore/mutation-observer.html
 OK           0/1  dom/nodes/moveBefore/nonce.html
   FAIL      Element nonce content attribute is not cleared after move
-OK           0/1  dom/nodes/moveBefore/object-crash-regression.html
-  FAIL      Moving an object element does not crash
+OK           1/1  dom/nodes/moveBefore/object-crash-regression.html
 OK           0/1  dom/nodes/moveBefore/pointer-events.html
   FAIL      Pointer capture should not be released when moving
 OK           0/1  dom/nodes/moveBefore/popover-preserve.html
@@ -2129,12 +2056,9 @@ TIMEOUT      0/2  dom/nodes/moveBefore/relevant-mutations.html
   NOTRUN    Moving <img> into a <picture> triggers a relevant mutation on the <img>, loading <source>
 OK           0/1  dom/nodes/moveBefore/role-updates-after-move.html
   FAIL      header elements role should become sectionheader when moved into a section
-OK           0/2  dom/nodes/moveBefore/script-move-before.html
-  FAIL      Synchronous script execution in HTMLScriptElement during moveBefore should be blocked
-  FAIL      Synchronous script execution in SVGScriptElement during moveBefore should be blocked
-OK           0/2  dom/nodes/moveBefore/select-option-optgroup.html
+OK           2/2  dom/nodes/moveBefore/script-move-before.html
+OK           1/2  dom/nodes/moveBefore/select-option-optgroup.html
   FAIL      Option selectedness is updated on option and optgroup DOM moves
-  FAIL      Selected index is updated when an option moves within the same select
 OK           0/6  dom/nodes/moveBefore/selection-preserve.html
   FAIL      moveBefore should not reset selection with preceding text
   FAIL      moveBefore resets selection that enters a subtree, when the whole selection is moved
@@ -2147,14 +2071,12 @@ OK           0/4  dom/nodes/moveBefore/slotchange-events.html
   FAIL      Moving default content out of a slot fires 'slotchange' event
   FAIL      Moving a slottable into and out out of a custom element fires 'slotchange' event
   FAIL      Moving a slot runs the assign slottables algorithm
-OK           0/1  dom/nodes/moveBefore/style-applies.html
-  FAIL      Moving a style inside the document should not affect whether it's applied
+OK           1/1  dom/nodes/moveBefore/style-applies.html
 TIMEOUT      0/1  dom/nodes/moveBefore/stylesheet-cascade-order.html
   TIMEOUT   Moving loaded link stylesheets updates their cascade order
 TIMEOUT      0/1  dom/nodes/moveBefore/stylesheet-no-refetch.html
   TIMEOUT   Moving a loaded link stylesheet preserves its resource
-OK           0/1  dom/nodes/moveBefore/throws-exception.html
-  FAIL      moveBefore() on a cross-document target node
+OK           1/1  dom/nodes/moveBefore/throws-exception.html
 OK         16/24  dom/nodes/namespaced-attribute-mutations.html
   FAIL      change a namespaced style attribute preserves HTML inline style
   FAIL      replace a namespaced style attribute preserves HTML inline style
