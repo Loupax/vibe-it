@@ -452,9 +452,9 @@ fn mix_cols(a: &Col, b: &Col, p1: f64, p2: f64, space: Space, method: &str, mult
     let alpha = al1 * p1 + al2 * p2;
     let hue = space.polar();
     let mut out = [None; 3];
-    for i in 0..3 {
+    for (i, slot) in out.iter_mut().enumerate() {
         let (x, y) = pick(a.c[i], b.c[i]);
-        out[i] = match (x, y) {
+        *slot = match (x, y) {
             (Some(mut x), Some(mut y)) => Some(if hue == Some(i) {
                 let d = y - x;
                 match method {
@@ -533,9 +533,9 @@ fn relative<'i>(input: &mut Parser<'i>, func: &str, current: Option<&Color>) -> 
     let vals: Vec<f64> = (0..3).map(|i| z(o.c[i]) / lay.scale[i]).collect();
     let alpha_v = o.a.unwrap_or(0.0);
     let mut out: [Option<f64>; 3] = [None; 3];
-    for i in 0..3 {
+    for (i, slot) in out.iter_mut().enumerate() {
         let tok = input.next()?.clone();
-        out[i] = channel(&tok, Some((&lay, &vals)), lay.refs[i], &lay.names)?.map(|v| v * lay.scale[i]);
+        *slot = channel(&tok, Some((&lay, &vals)), lay.refs[i], &lay.names)?.map(|v| v * lay.scale[i]);
     }
     let mut alpha = Some(alpha_v);
     // `/ alpha`
