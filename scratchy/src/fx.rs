@@ -1034,23 +1034,19 @@ pub(crate) fn apply_filters(layer: &mut Layer, fns: &[FilterCompFn]) {
                 for (i, av) in a.iter().enumerate() {
                     let sa = av * ca;
                     let inv = 1.0 - layer.p[3][i];
-                    for c in 0..3 {
-                        layer.p[c][i] += col[c] * sa * inv;
+                    for (pl, cc) in layer.p.iter_mut().zip(col.iter().chain(std::iter::once(&1.0))) {
+                        pl[i] += cc * sa * inv;
                     }
-                    layer.p[3][i] += sa * inv;
                 }
             }
             other => {
-                for i in 0..w * h {
-                    let a = layer.p[3][i];
-                    if a <= 0.0 {
+                let [pr, pg, pb, pa] = &mut layer.p;
+                for (((r, g), b), a) in pr.iter_mut().zip(pg.iter_mut()).zip(pb.iter_mut()).zip(pa.iter()) {
+                    if *a <= 0.0 {
                         continue;
                     }
-                    let u = [layer.p[0][i] / a, layer.p[1][i] / a, layer.p[2][i] / a];
-                    let o = color_fn(other, u);
-                    for c in 0..3 {
-                        layer.p[c][i] = o[c].clamp(0.0, 1.0) * a;
-                    }
+                    let o = color_fn(other, [*r / a, *g / a, *b / a]);
+                    (*r, *g, *b) = (o[0].clamp(0.0, 1.0) * a, o[1].clamp(0.0, 1.0) * a, o[2].clamp(0.0, 1.0) * a);
                 }
             }
         }
@@ -1269,9 +1265,8 @@ pub(crate) fn paint_with_effects(
                 [pm[0] * m + dst[0] * (1.0 - aa), pm[1] * m + dst[1] * (1.0 - aa), pm[2] * m + dst[2] * (1.0 - aa)]
             } else {
                 let mut r = [0.0; 3];
-                for c in 0..3 {
-                    let cs = (pm[c] / a).min(1.0);
-                    r[c] = (1.0 - aa) * dst[c] + aa * blend_ch(mode, dst[c], cs);
+                for ((o, d), p) in r.iter_mut().zip(dst.iter()).zip(pm.iter()) {
+                    *o = (1.0 - aa) * d + aa * blend_ch(mode, *d, (p / a).min(1.0));
                 }
                 r
             };
@@ -1333,12 +1328,10 @@ fn apply_filters_opaque(layer: &mut Layer, fns: &[FilterCompFn]) {
             }
             FilterFn::DropShadow(_) | FilterFn::Opacity(_) => {}
             other => {
-                for i in 0..w * h {
-                    let u = [layer.p[0][i], layer.p[1][i], layer.p[2][i]];
-                    let o = color_fn(other, u);
-                    for c in 0..3 {
-                        layer.p[c][i] = o[c].clamp(0.0, 1.0);
-                    }
+                let [pr, pg, pb, _] = &mut layer.p;
+                for ((r, g), b) in pr.iter_mut().zip(pg.iter_mut()).zip(pb.iter_mut()) {
+                    let o = color_fn(other, [*r, *g, *b]);
+                    (*r, *g, *b) = (o[0].clamp(0.0, 1.0), o[1].clamp(0.0, 1.0), o[2].clamp(0.0, 1.0));
                 }
             }
         }
