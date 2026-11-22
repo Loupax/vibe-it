@@ -1490,6 +1490,9 @@ pub(crate) struct JsEngine {
     pub(crate) ws: Rc<std::cell::RefCell<js_ws::WsState>>,
     /// QSTASH2: the page's persistent localStorage (ops handed to stash's writer at the end of each task).
     pub(crate) storage: crate::js_storage::LocalStorage,
+    /// QANIMHL: the CSS animations of the headless rendering steps (event_loop.rs; the App keeps its own
+    /// `AnimTracker`).
+    pub(crate) anim: std::cell::RefCell<crate::event_loop::HeadlessAnim>,
 }
 
 /// One init field of a natively dispatched event (Q33d).
@@ -2001,6 +2004,20 @@ impl JsEngine {
         n
     }
 
+    /// QANIMHL: the headless style + layout step: brings the page's forced layout up to date (a no-op
+    /// when nothing changed since the last geometry read).
+    pub(crate) fn animation_style_pass(&self) {
+        self.eval("anim-style", "__d_anim_pass(Number(innerWidth) || 0, Number(innerHeight) || 0)");
+    }
+
+    /// QANIMHL: does the page's CSS (its `<style>` elements plus the external and adopted sheets) define
+    /// any `@keyframes`? Re-reads the rules only where they changed (`rules_cache`).
+    pub(crate) fn page_has_keyframes(&self) -> bool {
+        let Some(page) = self.table.borrow().get(0) else { return false };
+        drop(crate::rules_cache::cached_rules_for(&page, crate::rules_cache::Extra::Ver(crate::js_style::css_ver())));
+        crate::animation::any_keyframes()
+    }
+
     /// QEL1-QEL3: the observer hook of the rendering steps (step 7): the ResizeObserver gather/broadcast
     /// loop, then the IntersectionObserver evaluation (its callbacks are queued as a task).
     pub(crate) fn observer_hook(&self) {
@@ -2183,7 +2200,7 @@ fn startup_engine(document: &Handle, store: Rc<js_modules::ModuleStore>, log: Lo
     let storage = crate::js_storage::LocalStorage::default();
     eng.with(|c| storage.install(&c));
     eng.with(|c| crate::js_storage::install_session(&c));
-    let mut engine = JsEngine { eng, log, base, media: None, dirty: dirty.clone(), table: Default::default(), reqs: reqs.clone(), net, ws, storage };
+    let mut engine = JsEngine { eng, log, base, media: None, dirty: dirty.clone(), table: Default::default(), reqs: reqs.clone(), net, ws, storage, anim: Default::default() };
     {
         let (budget, lg) = (engine.eng.budget.clone(), engine.log.clone());
         engine.eng.with(|c| install_script_natives(&c, budget, lg, store));

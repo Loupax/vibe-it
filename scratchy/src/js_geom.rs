@@ -870,6 +870,12 @@ impl GeomCache {
         self.last_cpu_ms
     }
 
+    /// QANIMHL: the headless rendering update's style + layout step: lays the page out when it changed
+    /// since the last read (the same work and cache as a geometry read).
+    pub(crate) fn style_pass(&mut self, page: &Handle, wgen: u64, vw: f32, vh: f32) {
+        self.refresh(page, wgen, vw, vh);
+    }
+
     /// Lays the page out again unless nothing changed since the last read.
     fn refresh(&mut self, page: &Handle, wgen: u64, vw: f32, vh: f32) {
         // QY53h: keyed on the CSS version counters; the CSS string is only built on a miss.

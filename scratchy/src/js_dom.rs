@@ -69,7 +69,7 @@ impl DomTable {
     fn is_frag(&self, id: i32, h: &Handle) -> bool {
         is_fragment(id, h) && !self.docs.contains(&id)
     }
-    fn get(&self, id: i32) -> Option<Handle> {
+    pub(crate) fn get(&self, id: i32) -> Option<Handle> {
         usize::try_from(id).ok().and_then(|i| self.nodes.get(i)).cloned()
     }
 }
@@ -1143,6 +1143,20 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     }
     let (geom3, geom4) = (geom.clone(), geom.clone());
     let geom5 = geom.clone();
+    // QANIMHL: the headless rendering update's style pass (event_loop.rs): the forced layout a geometry
+    // read would do, so the CSS animations the page styles are reported (`anim_eval::animation_passes`).
+    let (t8, geom8) = (table.clone(), geom.clone());
+    native!(ctx, "__d_anim_pass", move |vw: f64, vh: f64| {
+        let Some(page) = t8.borrow().get(0) else { return };
+        if crate::perf::enabled() && !geom8.borrow().is_fresh(geom_gen(), vw as f32, vh as f32) {
+            crate::perf::set_caller(Some("(rendering update: CSS animations)".to_string()));
+        }
+        // --perf-report: rendering-update work, counted with the IntersectionObserver's (`io`), not as script.
+        let was_io = crate::perf::in_io();
+        crate::perf::set_io(true);
+        geom8.borrow_mut().style_pass(&page, geom_gen(), vw as f32, vh as f32);
+        crate::perf::set_io(was_io);
+    });
     let geom7 = geom.clone();
     native!(ctx, "__d_rect", move |c: Ctx<'_>, id: i32, vw: f64, vh: f64| -> Vec<f64> {
         let (page, h) = {

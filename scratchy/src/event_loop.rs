@@ -15,7 +15,8 @@
 //!
 //! When it runs: the App at frame time (a rAF is pending and its 60 Hz frame is due, the viewport
 //! changed, or an animation event is due); headless on virtual 16.7 ms frames, only while a rAF is
-//! pending (`headless_frame_due`), so a page without rAF costs nothing extra.
+//! pending, an observer wants one, or (QANIMHL) a page with `@keyframes` changed its DOM or has a CSS
+//! animation event coming (`headless_frame_due`), so a page with none of these costs nothing extra.
 
 use crate::js::JsEngine;
 
@@ -65,26 +66,150 @@ pub(crate) fn update_the_rendering(host: &mut impl RenderingHost, raf_ts: Option
     rafs
 }
 
-/// The headless host: no window, no paint, a fixed viewport, no CSS animation clock.
-pub(crate) struct Headless<'a>(pub(crate) &'a JsEngine);
+/// The headless host: no window, no paint, a fixed viewport; the page clock (`now`) is the CSS
+/// animation clock (QANIMHL).
+pub(crate) struct Headless<'a> {
+    pub(crate) js: &'a JsEngine,
+    pub(crate) now: f64,
+}
+
+/// QANIMHL: the headless CSS animation state of one page (kept in its `JsEngine`). The App has its own
+/// `AnimTracker`, fed by its builds; here the style pass is the page's forced layout, run by the
+/// rendering update's style step when the page defines `@keyframes` and its DOM changed.
+#[derive(Default)]
+pub(crate) struct HeadlessAnim {
+    tracker: crate::AnimTracker,
+    /// The geometry generation whose rules were checked for `@keyframes`, and the answer.
+    checked: Option<(u64, bool)>,
+    /// The geometry generation the last style step saw.
+    styled: Option<u64>,
+    /// When the DOM change that wants a style step was first noticed (page clock).
+    dirty_since: Option<f64>,
+    /// `anim_eval::animation_passes` at the last report taken.
+    passes: u64,
+    /// The page clock time at which the tracker next has something to say (an event, a phase change).
+    next: Option<f64>,
+}
+
+/// The first 60 Hz frame boundary strictly after `t` (TIMERS_PRELUDE `__scratchy_raf_due`'s rounding).
+fn frame_after(t: f64) -> f64 {
+    let frame = 1000.0 / 60.0;
+    let mut due = ((t / frame).floor() + 1.0) * frame;
+    while due <= t {
+        due += frame;
+    }
+    due
+}
+
+impl HeadlessAnim {
+    /// The DOM changed since the last style step and the page has `@keyframes` (an animation may have
+    /// started, changed or stopped), or animations are live (one may have been removed).
+    fn style_wanted(&mut self, js: &JsEngine, generation: u64) -> bool {
+        if self.styled == Some(generation) {
+            return false;
+        }
+        let has = match self.checked {
+            Some((g, has)) if g == generation => has,
+            _ => {
+                let has = js.page_has_keyframes();
+                self.checked = Some((generation, has));
+                has
+            }
+        };
+        has || !self.tracker.is_idle()
+    }
+}
+
+/// QANIMHL: the time of the rendering update the page's CSS animations want (a frame boundary), `None`
+/// when they want none. The page clock is read only when a DOM change is first noticed.
+fn headless_anim_due(js: &JsEngine) -> Option<f64> {
+    let generation = crate::js_dom::geom_gen();
+    let mut a = js.anim.borrow_mut();
+    let dirty = if a.style_wanted(js, generation) {
+        Some(*a.dirty_since.get_or_insert_with(|| js.now_ms()))
+    } else {
+        None
+    };
+    let since = match (dirty, a.next) {
+        (Some(x), Some(y)) => Some(x.min(y)),
+        (x, y) => x.or(y),
+    };
+    since.map(frame_after)
+}
 
 impl RenderingHost for Headless<'_> {
     fn engine(&self) -> Option<&JsEngine> {
-        Some(self.0)
+        Some(self.js)
+    }
+    /// Step 4: the events of the animations the last style step reported, at the page clock.
+    fn update_animations(&mut self) {
+        let t = {
+            let mut a = self.js.anim.borrow_mut();
+            if a.tracker.is_idle() {
+                a.next = None;
+                return;
+            }
+            // The animation timeline moves with the rendering updates (getComputedStyle between them
+            // reads this frame's values). No frames are added just to move it.
+            crate::anim_eval::set_document_clock(self.now);
+            let t = a.tracker.tick(self.now);
+            a.next = t.next;
+            t
+        };
+        for ev in t.events {
+            // An element nobody holds any more has nobody to tell.
+            let Some(node) = ev.node else { continue };
+            let init = [
+                ("bubbles", crate::js::EventField::Bool(true)),
+                ("animationName", crate::js::EventField::Str(ev.name)),
+                ("elapsedTime", crate::js::EventField::Num(ev.elapsed_s)),
+                ("pseudoElement", crate::js::EventField::Str(ev.pseudo)),
+            ];
+            self.js.dispatch_event(Some(&node), ev.kind, &init);
+        }
+    }
+    /// Step 6: when the page has `@keyframes` and its DOM changed, the style pass (the forced layout a
+    /// geometry read does) at the page clock; the animations it (or a script's geometry read since the
+    /// last update) styled go to the tracker, whose events the next update's step 4 sends.
+    fn update_style_layout(&mut self) {
+        let generation = crate::js_dom::geom_gen();
+        let wanted = self.js.anim.borrow_mut().style_wanted(self.js, generation);
+        if wanted {
+            crate::anim_eval::set_document_clock(self.now);
+            self.js.animation_style_pass();
+        }
+        let mut a = self.js.anim.borrow_mut();
+        if wanted {
+            a.styled = Some(crate::js_dom::geom_gen());
+            a.dirty_since = None;
+        }
+        let passes = crate::anim_eval::animation_passes();
+        if passes != a.passes {
+            a.passes = passes;
+            let report = crate::anim_eval::take_animation_report();
+            if !report.is_empty() || !a.tracker.is_idle() {
+                a.tracker.after_build(0, report, self.now);
+                a.next = Some(self.now);
+            }
+        }
     }
 }
 
 /// Headless: the time of the next rendering update (a virtual 16.7 ms frame boundary), `None` when
-/// nothing waits for one.
+/// nothing waits for one: animation frame callbacks, observers (`__scratchy_raf_due`) or CSS
+/// animations (QANIMHL).
 pub(crate) fn headless_frame_due(js: &JsEngine) -> Option<f64> {
-    js.raf_due_ms()
+    match (js.raf_due_ms(), headless_anim_due(js)) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (a, b) => a.or(b),
+    }
 }
 
 /// Headless: runs the rendering update when its frame is due at `now`. Returns the callbacks run,
 /// at least 1 when a frame ran (progress for the pumps), 0 when none was due.
 pub(crate) fn headless_frame(js: &JsEngine, now: f64) -> usize {
     match headless_frame_due(js) {
-        Some(due) if due <= now => update_the_rendering(&mut Headless(js), Some(now)).max(1),
+        Some(due) if due <= now => update_the_rendering(&mut Headless { js, now }, Some(now)).max(1),
         _ => 0,
     }
 }

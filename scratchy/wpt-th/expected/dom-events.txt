@@ -149,13 +149,9 @@ OK           0/5  dom/events/EventListener-handleEvent-cross-realm.html
   FAIL      EventListener is cross-realm non-callable revoked Proxy
   FAIL      EventListener is cross-realm callable revoked Proxy
 OK           6/6  dom/events/EventListener-handleEvent.html
-TIMEOUT      0/6  dom/events/EventListener-invoke-legacy.html
+TIMEOUT      4/6  dom/events/EventListener-invoke-legacy.html
   TIMEOUT   Listener of transitionend
   TIMEOUT   Legacy listener of transitionend
-  TIMEOUT   Listener of animationend
-  TIMEOUT   Legacy listener of animationend
-  TIMEOUT   Listener of animationstart
-  TIMEOUT   Legacy listener of animationstart
 OK           2/4  dom/events/EventListenerOptions-capture.html
   FAIL      Capture boolean should be honored correctly
   FAIL      Supports capture option
@@ -472,36 +468,9 @@ OK           0/1  dom/events/scrolling/wheel-event-transactions-target-resize.ht
 TIMEOUT      0/2  dom/events/shadow-relatedTarget.html
   TIMEOUT   relatedTarget should not leak at capturing phase, at window object.
   TIMEOUT   relatedTarget should not leak at target.
-TIMEOUT     4/13  dom/events/webkit-animation-end-event.html
-  TIMEOUT   onwebkitanimationend event handler should trigger for an animation
-  NOTRUN    onwebkitanimationend event handler should not trigger if an unprefixed event handler also exists
-  NOTRUN    onwebkitanimationend event handler should not trigger if an unprefixed listener also exists
-  NOTRUN    event types for prefixed and unprefixed animationend event handlers should be named appropriately
-  NOTRUN    webkitAnimationEnd event listener should trigger for an animation
-  NOTRUN    webkitAnimationEnd event listener should not trigger if an unprefixed listener also exists
-  NOTRUN    webkitAnimationEnd event listener should not trigger if an unprefixed event handler also exists
-  NOTRUN    event types for prefixed and unprefixed animationend event listeners should be named appropriately
-  NOTRUN    webkitAnimationEnd event listener is case sensitive
-TIMEOUT     4/13  dom/events/webkit-animation-iteration-event.html
-  TIMEOUT   onwebkitanimationiteration event handler should trigger for an animation
-  NOTRUN    onwebkitanimationiteration event handler should not trigger if an unprefixed event handler also exists
-  NOTRUN    onwebkitanimationiteration event handler should not trigger if an unprefixed listener also exists
-  NOTRUN    event types for prefixed and unprefixed animationiteration event handlers should be named appropriately
-  NOTRUN    webkitAnimationIteration event listener should trigger for an animation
-  NOTRUN    webkitAnimationIteration event listener should not trigger if an unprefixed listener also exists
-  NOTRUN    webkitAnimationIteration event listener should not trigger if an unprefixed event handler also exists
-  NOTRUN    event types for prefixed and unprefixed animationiteration event listeners should be named appropriately
-  NOTRUN    webkitAnimationIteration event listener is case sensitive
-TIMEOUT     4/13  dom/events/webkit-animation-start-event.html
-  TIMEOUT   onwebkitanimationstart event handler should trigger for an animation
-  NOTRUN    onwebkitanimationstart event handler should not trigger if an unprefixed event handler also exists
-  NOTRUN    onwebkitanimationstart event handler should not trigger if an unprefixed listener also exists
-  NOTRUN    event types for prefixed and unprefixed animationstart event handlers should be named appropriately
-  NOTRUN    webkitAnimationStart event listener should trigger for an animation
-  NOTRUN    webkitAnimationStart event listener should not trigger if an unprefixed listener also exists
-  NOTRUN    webkitAnimationStart event listener should not trigger if an unprefixed event handler also exists
-  NOTRUN    event types for prefixed and unprefixed animationstart event listeners should be named appropriately
-  NOTRUN    webkitAnimationStart event listener is case sensitive
+OK         13/13  dom/events/webkit-animation-end-event.html
+OK         13/13  dom/events/webkit-animation-iteration-event.html
+OK         13/13  dom/events/webkit-animation-start-event.html
 TIMEOUT     4/13  dom/events/webkit-transition-end-event.html
   TIMEOUT   onwebkittransitionend event handler should trigger for an animation
   NOTRUN    onwebkittransitionend event handler should not trigger if an unprefixed event handler also exists

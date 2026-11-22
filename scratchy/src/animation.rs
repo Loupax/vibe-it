@@ -605,6 +605,11 @@ pub(crate) fn set_keyframes(r: Rc<KeyframesRegistry>) {
     KEYFRAMES.with(|k| *k.borrow_mut() = r);
 }
 
+/// QANIMHL: the registry in use defines at least one `@keyframes`.
+pub(crate) fn any_keyframes() -> bool {
+    KEYFRAMES.with(|k| !k.borrow().is_empty())
+}
+
 pub(crate) fn lookup_keyframes(name: &str, viewport_width: f32) -> Option<Rc<Vec<Keyframe>>> {
     KEYFRAMES.with(|k| registry_get(&k.borrow(), name, viewport_width))
 }
