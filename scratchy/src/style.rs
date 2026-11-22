@@ -443,6 +443,13 @@ pub(crate) struct ComputedStyle {
     /// `None` means no `box-shadow` declared (or an unsupported form —
     /// see `BoxShadow`'s own docs). Not inherited.
     pub(crate) box_shadow: [Option<ResolvedBoxShadow>; MAX_SHADOWS],
+    /// QCSS-D: `filter` / `backdrop-filter` (`None` = none), `clip-path`, `mix-blend-mode`: paint
+    /// only, not inherited. `text-shadow` is inherited. Lists are interned (`fx.rs`).
+    pub(crate) filter: Option<&'static [FilterCompFn]>,
+    pub(crate) backdrop_filter: Option<&'static [FilterCompFn]>,
+    pub(crate) text_shadow: Option<&'static [ShadowCompFn]>,
+    pub(crate) clip_path: Option<&'static Shape<LP>>,
+    pub(crate) mix_blend_mode: BlendMode,
     /// `background-position`/`-size`/`-repeat` (Q16), applied by
     /// `paint_background_image`. Not inherited.
     pub(crate) bg_layout: BgLayout,
@@ -771,7 +778,7 @@ pub(crate) fn wide_keys(name: &str) -> Option<&'static [&'static str]> {
         "max-width", "min-height", "max-height", "box-sizing", "margin-top",
         "margin-right", "margin-bottom", "margin-left", "padding-top",
         "padding-right", "padding-bottom", "padding-left", "outline-width",
-        "outline-color", "box-shadow", "border-radius",
+        "outline-color", "box-shadow", "border-radius", "filter", "backdrop-filter", "text-shadow", "mix-blend-mode", "clip-path",
         "overflow-y", "text-overflow", "flex-direction", "flex-wrap", "justify-content", "align-items",
         "align-content", "justify-items", "justify-self", "grid-auto-flow", "align-self", "order", "flex-grow", "flex-shrink", "flex-basis", "row-gap",
         "column-gap", "grid-template-columns", "grid-template-rows", "grid-auto-columns", "grid-auto-rows",
@@ -884,7 +891,7 @@ pub(crate) fn is_inherited_key(key: &str) -> bool {
         key,
         "color" | "font-size" | "line-height" | "font-family" | "font-weight" | "text-align"
             | "white-space" | "cursor" | "visibility" | "font-style" | "list-style-type"
-            | "word-spacing"
+            | "word-spacing" | "text-shadow"
     )
 }
 
@@ -930,6 +937,11 @@ pub(crate) fn copy_prop(dst: &mut ComputedStyle, src: &ComputedStyle, key: &str)
         "outline-width" => dst.outline_width = src.outline_width,
         "outline-color" => dst.outline_color = src.outline_color,
         "box-shadow" => dst.box_shadow = src.box_shadow,
+        "filter" => dst.filter = src.filter,
+        "backdrop-filter" => dst.backdrop_filter = src.backdrop_filter,
+        "text-shadow" => dst.text_shadow = src.text_shadow,
+        "clip-path" => dst.clip_path = src.clip_path,
+        "mix-blend-mode" => dst.mix_blend_mode = src.mix_blend_mode,
         "border-radius" => dst.border_radius = src.border_radius,
         "overflow" => dst.overflow_x = src.overflow_x,
         "overflow-y" => dst.overflow_y = src.overflow_y,
@@ -2611,6 +2623,47 @@ pub(crate) fn resolve_style_core<'a>(
         }
     })
     .unwrap_or([None; MAX_SHADOWS]);
+    // QCSS-D: filter, backdrop-filter, text-shadow (inherited), clip-path, mix-blend-mode.
+    let (filter, backdrop_filter, text_shadow, clip_path, mix_blend_mode) = {
+        let rfs = inherited.root_font_size;
+        let par = inherited.parent;
+        let filter = apply_wide(
+            cascade_css(&matches, inl, "filter", |d| d.filter),
+            false,
+            par.and_then(|p| p.filter),
+            None,
+            |v| Some(crate::fx::resolve_filter(v, font_size, rfs, color)),
+        );
+        let backdrop_filter = apply_wide(
+            cascade_css(&matches, inl, "backdrop-filter", |d| d.backdrop_filter),
+            false,
+            par.and_then(|p| p.backdrop_filter),
+            None,
+            |v| Some(crate::fx::resolve_filter(v, font_size, rfs, color)),
+        );
+        let text_shadow = apply_wide(
+            cascade_css(&matches, inl, "text-shadow", |d| d.text_shadow),
+            true,
+            par.and_then(|p| p.text_shadow),
+            None,
+            |v| Some(crate::fx::resolve_text_shadow(v, font_size, rfs, color)),
+        );
+        let clip_path = apply_wide(
+            cascade_css(&matches, inl, "clip-path", |d| d.clip_path),
+            false,
+            par.and_then(|p| p.clip_path),
+            None,
+            |v| Some(crate::fx::resolve_clip_path(v, font_size, rfs)),
+        );
+        let mix_blend_mode = apply_wide(
+            cascade_css(&matches, inl, "mix-blend-mode", |d| d.mix_blend_mode),
+            false,
+            par.map_or(BlendMode::Normal, |p| p.mix_blend_mode),
+            BlendMode::Normal,
+            Some,
+        );
+        (filter, backdrop_filter, text_shadow, clip_path, mix_blend_mode)
+    };
     let layout_for = |mask: bool| {
         let rl = |l: Length| l.resolve(font_size, inherited.root_font_size);
         let pos = apply_wide(
@@ -2888,6 +2941,11 @@ pub(crate) fn resolve_style_core<'a>(
         outline_width,
         outline_color,
         box_shadow,
+        filter,
+        backdrop_filter,
+        text_shadow,
+        clip_path,
+        mix_blend_mode,
         bg_layout,
         canvas_src: 0,
         viewport_hidden: false,
@@ -3024,6 +3082,11 @@ pub(crate) fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         outline_width: 0.0,
         outline_color: None,
         box_shadow: [None; MAX_SHADOWS],
+        filter: None,
+        backdrop_filter: None,
+        text_shadow: inherited.parent.and_then(|p| p.text_shadow),
+        clip_path: None,
+        mix_blend_mode: BlendMode::Normal,
         bg_layout: BgLayout::default(),
         canvas_src: 0,
         viewport_hidden: false,

@@ -1084,6 +1084,41 @@ pub(crate) fn paint_buffer(
     // `glyph.metadata`, the same per-span index `paint_span_backgrounds`
     // already reads it by).
     buffer.shape_until_scroll(font_system, false);
+    // QCSS-D: `text-shadow` under the glyphs, from the same glyph walk with the colour replaced.
+    if let Some(shadows) = crate::fx::TEXT_SHADOW.with(|t| t.get()) {
+        let (mut bw, mut top, mut bot) = (0.0f32, f32::MAX, 0.0f32);
+        for run in buffer.layout_runs() {
+            bw = bw.max(run.line_w);
+            top = top.min(run.line_top);
+            bot = bot.max(run.line_top + run.line_height);
+        }
+        if bw > 0.0 && bot > top {
+            let bounds = (ox as f32 + first_line_dx.min(0.0), oy as f32 + top, bw + first_line_dx.abs() + 2.0, bot - top);
+            let buffer = &*buffer;
+            crate::fx::paint_text_shadows(shadows, bounds, pixels, win_w, win_h, clip, |emit| {
+                let mut renderer = LegacyRenderer {
+                    font_system: &mut *font_system,
+                    cache: &mut *swash_cache,
+                    callback: |x: i32, y: i32, w: u32, h: u32, color: TextColor| {
+                        if color.a() != 0 {
+                            emit(x + ox, y + oy, w, h, color.a());
+                        }
+                    },
+                };
+                for (run_idx, run) in buffer.layout_runs().enumerate() {
+                    let line_dx = frac_x + if run_idx == 0 { first_line_dx } else { 0.0 };
+                    for glyph in run.glyphs {
+                        if hidden.get(glyph.metadata).copied().unwrap_or(false) {
+                            continue;
+                        }
+                        let y_shift = valigns.get(glyph.metadata).copied().unwrap_or_default().y_shift(glyph.font_size);
+                        let pg = glyph.physical((line_dx, run.line_y + y_shift), 1.0);
+                        renderer.glyph(pg, TextColor::rgba(0, 0, 0, 255));
+                    }
+                }
+            });
+        }
+    }
     // cosmic-text's `LegacyRenderer` hands the callback the glyph mask's
     // coverage as the colour's alpha, dropping the span colour's own alpha
     // (so `color: transparent` / `rgba(..., .5)` text painted opaque, Q33c3).
@@ -2120,6 +2155,28 @@ pub(crate) fn paint(
     scroll_offset: f32,
     clip: Option<(f32, f32, f32, f32)>,
 ) {
+    // QCSS-D: filter / backdrop-filter / clip-path / mix-blend-mode wrap the plain paint.
+    if crate::fx::has_effects(&laid.style) {
+        crate::fx::paint_with_effects(laid, font_system, swash_cache, cache, scroll_offsets, pixels, win_w, win_h, scroll_offset, clip, paint_plain);
+        return;
+    }
+    paint_plain(laid, font_system, swash_cache, cache, scroll_offsets, pixels, win_w, win_h, scroll_offset, clip);
+}
+
+/// `paint` without the QCSS-D effects of this box (its descendants still go through `paint`).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn paint_plain(
+    laid: &Laid,
+    font_system: &mut FontSystem,
+    swash_cache: &mut SwashCache,
+    cache: &mut ShapeCache,
+    scroll_offsets: &HashMap<usize, f32>,
+    pixels: &mut [u32],
+    win_w: u32,
+    win_h: u32,
+    scroll_offset: f32,
+    clip: Option<(f32, f32, f32, f32)>,
+) {
     if let Some(mask) = laid.background_image.as_ref().and_then(|b| b.mask.clone()) {
         paint_masked(laid, &mask, font_system, swash_cache, cache, scroll_offsets, pixels, win_w, win_h, scroll_offset, clip);
         return;
@@ -2141,7 +2198,9 @@ pub(crate) fn paint_inner_with_opacity(
     clip: Option<(f32, f32, f32, f32)>,
 ) {
     let prev = PAINT_OPACITY.with(|o| o.replace(laid.style.opacity));
+    let prev_ts = crate::fx::TEXT_SHADOW.with(|t| t.replace(laid.style.text_shadow));
     paint_inner(laid, font_system, swash_cache, cache, scroll_offsets, pixels, win_w, win_h, scroll_offset, clip);
+    crate::fx::TEXT_SHADOW.with(|t| t.set(prev_ts));
     PAINT_OPACITY.with(|o| o.set(prev));
 }
 

@@ -119,6 +119,12 @@ pub(crate) fn style_walk(old: &ComputedStyle, new: &ComputedStyle, f: &mut Field
         outline_width => P,
         outline_color => P,
         box_shadow => P,
+        // QCSS-D: pure paint properties (no layout input), so a change repaints without relayout.
+        filter => P,
+        backdrop_filter => P,
+        text_shadow => P,
+        clip_path => P,
+        mix_blend_mode => P,
         // Background images are fetched/attached by the box builder, so a layout change is a Box change.
         bg_layout => B,
         canvas_src => B,

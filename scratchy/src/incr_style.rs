@@ -557,6 +557,7 @@ fn inherited_changed(a: &ComputedStyle, b: &ComputedStyle) -> bool {
         || a.vertical_align != b.vertical_align
         || a.custom_props != b.custom_props
         || a.opacity != b.opacity
+        || a.text_shadow != b.text_shadow
 }
 
 /// The style the builder hands to its children (`build_box_for_element` sets `canvas_src` first).
