@@ -9416,3 +9416,6 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       (`ro-run` forced layouts on YouTube results); microtask checkpoint after each RO callback; notice size changes
       without a DOM write (image decode, CSS animation, :hover). Re-measure ytr/ytw --perf-report and live CPU on a
       quiet machine (QEL2 measured ytw live +13-15 %, inside noise).
+
+=== from TODO.txt: --- (no header)
+- [x] QCSS-B DONE 39131c6 #593 [S] (P2, from QAPI8 #578; Sonnet; css.rs, layout) `aspect-ratio` (8 sites).

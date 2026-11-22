@@ -309,3 +309,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Merged #544 3ba96ec (TODO canvas/WebGL), #584 QCSS-A 4419d65. #588 merging.
 - 2026-11-22 Merged #588 QEL2b 7e39d96. Queue empty.
 - 2026-11-22 #593 QCSS-B READY (aspect-ratio; +2 reftests), merging. Filed QCSS-B2. Launched QINC1m (Opus).
+- 2026-11-22 Merged #593 QCSS-B 39131c6. Agents: QFF1a, QDOM5b, QINC1m (3).
