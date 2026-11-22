@@ -279,3 +279,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #584 QCSS-A READY (svg fill/stroke from CSS; youtube icons paint) but hover fill rules became Effect::Layout: asked for a live hover cost measurement before merge.
 - 2026-11-22 Merged #579 QWPT6c 1ed4608 (dom long files). Queue empty: applied merge_pr.sh waitci fix (waits until >= 4 check runs exist for the PR head sha, up to 10 min, then watches).
 - 2026-11-22 Reinstalled ~/.cargo/bin/scratchy 09:35 from main after green CI (includes #576 scroll events, #574/#577/#578 APIs and audit, #575 parser custom elements, #580 window.event, #583 name validation, #579/#581 subset). Not in it: #573/#582/#584 (held or re-measuring).
+- 2026-11-22 #585 QEDIT-A READY (html/editing 6 -> 12 all-pass), merging. Filed QEDIT-F. Launched QWPT6e.
