@@ -89,7 +89,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QCSS-B2 [S] (P3, from QCSS-B #593; Sonnet; layout.rs) aspect-ratio leftovers: table boxes, absolute-position width
       from height, grid `align-self: normal` acting as start for items with a ratio. (Not filed: `<video>` poster
       honouring an explicit ratio needs a transparent letterbox in media_video.rs; media is archived.)
-- [ ] QCSS-C [S] (P2, from QAPI8 #578; Sonnet; css.rs, flex/grid) Box-alignment keywords (`end`, `first baseline`, ...),
+- [ ] [WIP] QCSS-C [S] (P2, from QAPI8 #578; Sonnet; css.rs, flex/grid) Box-alignment keywords (`end`, `first baseline`, ...),
       `place-*` shorthands, `grid-auto-flow`, `grid-gap`.
 - [ ] QCSS-D [S] (P2, from QAPI8 #578; Sonnet; css.rs, paint) `filter`, `backdrop-filter`, `text-shadow`, `mix-blend-mode`,
       `clip-path` basic shapes.
