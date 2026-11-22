@@ -106,7 +106,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       feature-test with it). Tests + --wpt-th (css/cssom has CSS.supports files).
 - [ ] QMAPI1b [S] (P3, from QMAPI1 #489; Sonnet; missing_api_prelude.js) Missing-API report: cover iframe realms,
       drop the preludes' own probes (script `prelude`), and give `has` misses a receiver interface where it can be found.
-- [ ] QMAPI3 [S] (P2; Sonnet; tools/missing-api/; after QMAPI1) corpus.sh over a site list (gate pages +
+- [ ] [WIP] QMAPI3 [S] (P2; Sonnet; tools/missing-api/; after QMAPI1) corpus.sh over a site list (gate pages +
       a list the user provides), merged table "API -> sites, hits, example URL" into an R-section.
 - [ ] QREC1b [S] (P3, from QREC1 #490; Sonnet; wire record.rs) Record Set-Cookie lines separately (index field) and
       feed them to the jar on replay; per-response size cap or streamed hashing so a large body is not held in memory.
