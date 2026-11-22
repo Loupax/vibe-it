@@ -62,16 +62,17 @@ type Rects = Vec<(u32, u32, u32, u32)>;
 fn step(app: &mut App, kept: &mut Vec<u32>, id: &str) -> Option<Rects> {
     hover(app, id);
     app.rebuild_layout(W, H, false);
-    let rects = crate::incr_layout::take_damage().and_then(|d| crate::app::damage_screen_rects(&d, (0.0, 0.0), (W, H)));
+    let laid0 = app.cached.clone().expect("laid");
+    let rects = crate::incr_layout::take_damage().and_then(|d| crate::app::damage_screen_rects(&d, &laid0, (0.0, 0.0), (W, H)));
     let want = full_paint(app);
     match &rects {
-        Some(rects) => {
+        Some((rects, margin)) => {
             let laid = app.cached.clone().expect("laid");
             let mut scratch = vec![0u32; kept.len()];
             for &(l, t, r, b) in rects {
                 crate::app::repaint_rect(
                     &laid, &mut app.font_system, &mut app.swash_cache, &mut app.shape_cache, &app.scroll_offsets,
-                    &mut scratch, (W, H), (0.0, 0.0), None, None, (l, t, r, b),
+                    &mut scratch, (W, H), (0.0, 0.0), None, None, (l, t, r, b), *margin,
                 );
                 for y in t..b {
                     let (a, z) = ((y * W + l) as usize, (y * W + r) as usize);
@@ -83,7 +84,7 @@ fn step(app: &mut App, kept: &mut Vec<u32>, id: &str) -> Option<Rects> {
     }
     let bad = kept.iter().zip(&want).filter(|(a, b)| a != b).count();
     assert_eq!(bad, 0, "hover #{id}: the patched page differs from a full paint in {bad} pixels (damage {rects:?})");
-    rects
+    rects.map(|r| r.0)
 }
 
 const PAGE: &str = "<html><head><style>
@@ -112,12 +113,12 @@ fn qhov1_colour_hover_has_a_small_damage() {
     let Some((mut app, _l)) = live_app(PAGE) else { return };
     hover(&mut app, "l");
     app.rebuild_layout(W, H, false);
-    let d = crate::incr_layout::take_damage().expect("a paint-only hover has damage");
+    let d = crate::incr_layout::take_damage().expect("a paint-only hover has damage").rects;
     assert!(!d.is_empty() && d.len() <= 2, "{} rects", d.len());
     let area: f32 = d.iter().map(|r| (r.r - r.l) * (r.b - r.t)).sum();
     assert!(area < 0.2 * (W * H) as f32, "damage {d:?} is a small part of the page");
     // Taking it reset it: nothing changed since.
-    assert_eq!(crate::incr_layout::take_damage().map(|d| d.len()), Some(0));
+    assert_eq!(crate::incr_layout::take_damage().map(|d| d.rects.len()), Some(0));
 }
 
 /// Hovers over paint-only and layout targets: every patched page equals the full paint.
@@ -182,4 +183,55 @@ fn qhov1_layout_hover_is_still_correct() {
     step(&mut app, &mut kept, "tall");
     step(&mut app, &mut kept, "far");
     step(&mut app, &mut kept, "tall");
+}
+
+const FX_PAGE: &str = "<html><head><style>
+body{margin:0;font:14px sans-serif;background:#fff}
+.b{position:absolute;left:20px;width:200px;height:40px}
+#under{top:20px;background:#9c9}
+#under:hover{background:#c33}
+#blur{top:70px;background:#36c;filter:blur(6px)}
+#near{top:112px;background:#ddd}
+#near:hover{background:#f80}
+#bd{top:200px;background:#cc6}
+#bd:hover{background:#6cc}
+#glass{top:210px;left:120px;width:200px;height:40px;position:absolute;backdrop-filter:blur(4px);background:rgba(255,255,255,.3)}
+#mul{top:300px;left:20px;width:200px;height:40px;position:absolute;background:#fc9;mix-blend-mode:multiply}
+#low{top:290px;background:#69c}
+#low:hover{background:#c69}
+#far{top:500px;background:#ccc}
+#far:hover{background:#999}
+#sh{top:560px;background:#eee;text-shadow:0 0 6px #000;color:#222}
+</style></head><body>
+<div class=b id=under>under</div><div class=b id=blur>blur</div><div class=b id=near>near</div>
+<div class=b id=bd>bd</div><div id=glass></div><div class=b id=low>low</div><div id=mul></div>
+<div class=b id=far>far</div><div class=b id=sh>shadowed text</div></body></html>";
+
+/// Effects: every hover (next to a blurred box, under a backdrop-filter box, under a multiply box, far
+/// from all of them) leaves the patched page equal to a full paint.
+#[test]
+fn qhov1_effects_patched_page_equals_a_full_paint() {
+    let Some((mut app, _l)) = live_app(FX_PAGE) else { return };
+    let mut kept = full_paint(&mut app);
+    let mut res = Vec::new();
+    for id in ["far", "under", "near", "bd", "low", "sh", "near", "bd", "far", "under"] {
+        res.push((id, step(&mut app, &mut kept, id).is_some()));
+    }
+    let got = |id: &str, n: usize| res.iter().filter(|(i, _)| *i == id).nth(n).map(|(_, r)| *r).unwrap();
+    assert!(!got("near", 0), "a rect reached by the blur of #blur is a full repaint");
+    assert!(!got("bd", 0), "a rect under the backdrop-filter box is a full repaint");
+    assert!(!got("low", 0), "a rect under the mix-blend-mode box is a full repaint");
+    assert!(got("far", 0), "a hover away from every layer box is still a damage repaint");
+}
+
+/// A changed box with a blur of its own: its rect is repainted whole (it is a layer).
+#[test]
+fn qhov1_hover_on_a_filtered_box_is_correct() {
+    let html = "<html><head><style>body{margin:0}#f{position:absolute;left:30px;top:30px;width:100px;height:40px;background:#36c;filter:blur(3px)}\
+                #f:hover{background:#c33}#g{position:absolute;left:300px;top:300px;width:60px;height:30px;background:#eee}#g:hover{background:#999}</style></head>\
+                <body><div id=f>f</div><div id=g>g</div></body></html>";
+    let Some((mut app, _l)) = live_app(html) else { return };
+    let mut kept = full_paint(&mut app);
+    assert!(step(&mut app, &mut kept, "g").is_some(), "a plain box elsewhere");
+    assert!(step(&mut app, &mut kept, "f").is_none(), "the filtered box itself (and #g leaving)");
 }

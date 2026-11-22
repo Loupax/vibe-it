@@ -1779,7 +1779,7 @@ impl App {
         let paint_started = self.frame_stats.is_some().then(std::time::Instant::now);
         // QHOV1: the page's own changes since its last paint, as damaged screen rects (`Some`), when
         // the kept page can be patched instead of painting everything again.
-        let mut fast: Option<Vec<(u32, u32, u32, u32)>> = None;
+        let mut fast: Option<DamageRects> = None;
         // QHOV1: the key a full paint's page is kept under for the next damage repaint.
         let mut keep_key: Option<PaintKey> = None;
         // (A page without a `<video>` paints no video box, so the media backend alone is no overlay.)
@@ -1833,16 +1833,16 @@ impl App {
                     vbar: vb.map(|(r, c, h)| [r.2.to_bits(), r.3.to_bits(), c.to_bits(), h.to_bits(), r.0.to_bits(), r.1.to_bits()]),
                     canvas: laid.style.background_color.map(|c| c.as_rgba_tuple()),
                 };
-                if let Some(Some(rects)) = damage
+                if let Some(Some(d)) = damage
                     && self.dp.key.as_ref() == Some(&key)
                     && self.dp.kept.len() == pixels.len()
                     && self.dp.scratch.len() == pixels.len()
                 {
-                    fast = damage_screen_rects(&rects, (self.scroll_x, self.scroll_offset), (width, page_h));
+                    fast = damage_screen_rects(&d, laid, (self.scroll_x, self.scroll_offset), (width, page_h));
                 }
                 keep_key = Some(key);
             }
-            if let Some(rects) = &fast {
+            if let Some((rects, margin)) = &fast {
                 // Patch the kept page: each rect is painted into the scratch page (its own white and
                 // canvas colour first, everything that reaches it, culled to it) and copied over.
                 if pixels.age() != 1 {
@@ -1854,7 +1854,7 @@ impl App {
                     let focus = self.interaction.focus.filter(|_| self.interaction.focus_visible);
                     repaint_rect(
                         laid, &mut self.font_system, &mut self.swash_cache, &mut self.shape_cache, &self.scroll_offsets,
-                        &mut self.dp.scratch, (width, height), (self.scroll_x, self.scroll_offset), vb, focus, (l, t, r, b),
+                        &mut self.dp.scratch, (width, height), (self.scroll_x, self.scroll_offset), vb, focus, (l, t, r, b), *margin,
                     );
                     for y in t..b {
                         let (a, z) = (y as usize * w + l as usize, y as usize * w + r as usize);
@@ -2008,7 +2008,7 @@ impl App {
         }
         window.pre_present_notify();
         let presented = match &fast {
-            Some(rects) => {
+            Some((rects, _)) => {
                 let mut damage: Vec<softbuffer::Rect> = rects
                     .iter()
                     .filter_map(|r| Some(softbuffer::Rect { x: r.0, y: r.1, width: NonZeroU32::new(r.2 - r.0)?, height: NonZeroU32::new(r.3 - r.1)? }))
@@ -5500,11 +5500,17 @@ const DAMAGE_MAX_SHARE: f32 = 0.5;
 /// QHOV1: ... and at most this many rects.
 const DAMAGE_MAX_RECTS: usize = 8;
 
-/// QHOV1: the engine's document-space damage as screen rects of the page viewport `(width, page_h)`, or
-/// `None` when a full paint is cheaper (too many rects, or more than `DAMAGE_MAX_SHARE` of the page).
-pub(crate) fn damage_screen_rects(rects: &[crate::layout::Ink], (sx, so): (f32, f32), (width, page_h): (u32, u32)) -> Option<Vec<(u32, u32, u32, u32)>> {
+/// QHOV1: screen rects to repaint and the paint cull's margin.
+pub(crate) type DamageRects = (Vec<(u32, u32, u32, u32)>, f32);
+
+/// QHOV1: the engine's document-space damage as screen rects of the page viewport `(width, page_h)`
+/// plus the cull margin to paint them with, or `None` when a full paint is needed or cheaper: too many
+/// rects, more than `DAMAGE_MAX_SHARE` of the page, or a layer box (`filter`, `backdrop-filter`, a
+/// non-normal `mix-blend-mode`: its output depends on what is around or behind it, so it is only right
+/// painted whole) that a rect touches.
+pub(crate) fn damage_screen_rects(d: &crate::incr_layout::Damage, laid: &Laid, (sx, so): (f32, f32), (width, page_h): (u32, u32)) -> Option<DamageRects> {
     let mut out = Vec::new();
-    for r in rects {
+    for r in &d.rects {
         let l = (r.l - sx).floor().clamp(0.0, width as f32) as u32;
         let t = (r.t - so).floor().clamp(0.0, page_h as f32) as u32;
         let rr = (r.r - sx).ceil().clamp(0.0, width as f32) as u32;
@@ -5514,7 +5520,38 @@ pub(crate) fn damage_screen_rects(rects: &[crate::layout::Ink], (sx, so): (f32, 
         }
     }
     let area: f32 = out.iter().map(|r| ((r.2 - r.0) * (r.3 - r.1)) as f32).sum();
-    (out.len() <= DAMAGE_MAX_RECTS && area <= DAMAGE_MAX_SHARE * (width * page_h) as f32).then_some(out)
+    if out.len() > DAMAGE_MAX_RECTS || area > DAMAGE_MAX_SHARE * (width * page_h) as f32 {
+        return None;
+    }
+    let margin = crate::paint::CULL_MARGIN.max(d.reach + 8.0);
+    if d.layer_fx && layer_hit(laid, &out, (sx, so), margin) {
+        return None;
+    }
+    Some((out, margin))
+}
+
+/// QHOV1: whether a layer box under `l` (screen space, `scroll` = the ambient offsets) reaches one of `rects`.
+fn layer_hit(l: &Laid, rects: &[(u32, u32, u32, u32)], (sx, so): (f32, f32), margin: f32) -> bool {
+    crate::stack::grow(|| {
+        let so = if l.fixed { 0.0 } else { so };
+        let near = |pad: f32| {
+            let (il, it, ir, ib) = (l.ink.l - sx - pad, l.ink.t - so - pad, l.ink.r - sx + pad, l.ink.b - so + pad);
+            rects.iter().any(|&(a, b, c, d)| il < c as f32 && ir > a as f32 && it < d as f32 && ib > b as f32)
+        };
+        if !near(margin) {
+            return false;
+        }
+        let (reach, layer) = crate::incr_layout::box_reach(&l.style);
+        if layer && near(reach + 8.0) {
+            return true;
+        }
+        let kids = match &l.content {
+            LaidContent::Blocks(v) | LaidContent::TableRow(v) => v.iter().any(|c| layer_hit(c, rects, (sx, so), margin)),
+            LaidContent::MixedInline(items) => items.iter().any(|i| matches!(i, MixedPositioned::Embedded(e) if layer_hit(e, rects, (sx, so), margin))),
+            _ => false,
+        };
+        kids || l.positioned.iter().any(|p| layer_hit(p, rects, (sx, so), margin))
+    })
 }
 
 /// QHOV1: whether the document has a `<video>` element (its box paints through the media backend).
@@ -5539,6 +5576,7 @@ pub(crate) fn repaint_rect(
     vbar: Option<crate::scrollbar::ViewportBar>,
     focus_visible: Option<usize>,
     (l, t, r, b): (u32, u32, u32, u32),
+    cull_margin: f32,
 ) {
     let w = width as usize;
     for y in t..b {
@@ -5552,7 +5590,7 @@ pub(crate) fn repaint_rect(
     }
     let clip = (l as f32, t as f32, r as f32, b as f32);
     crate::paint::with_scroll_x(scroll_x, || {
-        crate::paint::with_paint_cull(clip, || {
+        crate::paint::with_paint_cull(clip, cull_margin, || {
             paint(laid, font_system, swash_cache, shape_cache, scroll_offsets, scratch, width, height, scroll_offset, Some(clip))
         })
     });

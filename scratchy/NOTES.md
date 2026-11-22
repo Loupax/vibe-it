@@ -3106,11 +3106,16 @@ starts from this one. `App::redraw` (page has `:hover/:active/:focus` rules, no 
 popup) keeps the page it painted (`DamagePaint::kept`, before the status bar) with a `PaintKey` (size,
 scroll, region offsets, focus, hot scrollbar, bars, canvas colour); a frame with damage and the same key
 repaints only those rects into `scratch` (`repaint_rect`: white + canvas colour, `paint` with
-`PAINT_CULL` skipping boxes whose ink + `CULL_MARGIN` (64 px, a neighbour's shadow) misses the rect),
+`PAINT_CULL` skipping boxes whose ink + a margin (max of 64 px and the tree's largest `box_reach` + 8, for a
+neighbour's shadow / text-shadow / drop-shadow) misses the rect),
 copies them into the kept page and the surface, repaints the status bar and `present_with_damage`s. More
-than 8 rects or half the viewport: full paint. A new way to paint past the border box (outline-offset,
-text-shadow, filter blur, backdrop-filter) must widen `paint_reach` (and `CULL_MARGIN` if it can exceed
-64 px), or add its case to qhov1_tests. `SCRATCHY_NO_DAMAGE=1` disables it. Measured (hover-big.html, 960x1006
+than 8 rects or half the viewport: full paint. QCSS-D effects (`incr_layout::box_reach`): outline, box-shadow,
+filter blur / drop-shadow (`fx::filter_reach`) and text-shadow widen the damage rects and the cull margin;
+a LAYER box (`filter`, `backdrop-filter`, non-normal `mix-blend-mode`: its output depends on what is around
+or behind it, and a clipped repaint would blur / blend against unpainted scratch) that a damage rect reaches
+(ink + its reach) makes the whole frame a full paint (`app::layer_hit`; the engine reports `layer_fx` /
+`reach` with the damage). A new way to paint past the border box must widen `box_reach`, or add its case to
+qhov1_tests. `SCRATCHY_NO_DAMAGE=1` disables it. Measured (hover-big.html, 960x1006
 nested window, 5000 elements): paint+present 3.0 -> 1.7 ms per redraw, 108 of 147 redraws damage-presented.
 
 JS DOM writes (QB2): `App::js_sync` is a restyle request like a hover
