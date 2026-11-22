@@ -34,8 +34,6 @@ CONFORMANCE (R64 plan, merged #474; user accepted all R64 s7 recommendations 202
 Order: QWPT2 -> QWPT3 -> QWPT4a -> QWPT4b -> QWPT5/QWPT6, with QMAPI1 and QREC1 in parallel (other
 crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details: REGRESSIONS.md R64.
 
-- [ ] [WIP] QWPT7a [S] (P2, from QWPT7 #611; Sonnet) `el.focus()`/`blur()` fire focus events synchronously (HTML focusing steps),
-      in the App and headless (focus-blur, focusing-focused-noop, blur-relatedTarget).
 - [ ] QWPT7d [S] (P3, from QWPT7a #617; Sonnet) `document.activeElement` is `body` during a blur handler (today already
       the new element); `change` on a text control fires before the script-fired blur (today at the App's later catch-up).
 - [ ] QWPT7b [S] (P3, from QWPT7 #611; Sonnet; app.rs) The App fires what the headless driver fires: pointerdown/pointerup,

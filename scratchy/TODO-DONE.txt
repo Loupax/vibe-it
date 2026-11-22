@@ -9566,3 +9566,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QCSS2 DONE dc2484c #616 [S] (P2, from QMAPI2 #523; Sonnet; css.rs parse_supports_condition, js.rs) `CSS.supports(prop, value)` and
       `CSS.supports(conditionText)` on top of `parse_supports_condition` (today `CSS.supports` does not exist; pages
       feature-test with it). Tests + --wpt-th (css/cssom has CSS.supports files).
+
+=== from TODO.txt: --- (no header)
+- [x] QWPT7a DONE ff86ae0 #617 [S] (P2, from QWPT7 #611; Sonnet) `el.focus()`/`blur()` fire focus events synchronously (HTML focusing steps),
+      in the App and headless (focus-blur, focusing-focused-noop, blur-relatedTarget).

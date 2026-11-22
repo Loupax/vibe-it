@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-22 · main 8e09b15 · 142 PRs merged since 2026-11-21 morning (#475–#616) · installed 17:28 (1570bf3)· 5 agents running (QEL2b, QANIMHLc, QCSS-A hover check, QAPI6c, QDOM5b)</div>
+  <div class="meta" id="updated">Updated 2026-11-22 · main 8e09b15 · 143 PRs merged since 2026-11-21 morning (#475–#617) · installed 17:28 (1570bf3)· 5 agents running (QEL2b, QANIMHLc, QCSS-A hover check, QAPI6c, QDOM5b)</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -112,6 +112,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#617</td><td>QWPT7a</td><td><code>focus()</code>/<code>blur()</code> fire their events synchronously (App and tests); +8 WPT files; live-checked typing, Tab, forms</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#616</td><td>QCSS2</td><td><code>CSS.supports</code> (1- and 2-arg) and <code>CSS.escape</code>, sharing the <code>@supports</code> evaluator; css/cssom CSS-supports 10/11, escape 10/10</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#611</td><td>QWPT7</td><td>Testdriver for the headless WPT runner (simulated clicks/keys) + real elementFromPoint; 115 pages back in the gate (14 → 95 subtests); App input checked live, same as main; Wikipedia link previews now sit at the link</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#614</td><td>QCNV2</td><td>Canvas triage (docs): 21 items QCNV3…QCNV20, QGEOM1, QIMGBMP1 in dependency order; OffscreenCanvas needs no Workers (278 files)</td></tr>

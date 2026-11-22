@@ -364,3 +364,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #616 QCSS2 READY (CSS.supports/escape), merging. Sent #615 rebase. Filed QCSS2b, QWPTFLK4.
 - 2026-11-22 Merged #616 QCSS2 dc2484c.
 - 2026-11-22 #617 QWPT7a READY (sync focus events; +8 files), merging. Filed QWPT7d. Launched QREG2.
+- 2026-11-22 Merged #617 QWPT7a ff86ae0.
