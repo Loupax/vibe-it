@@ -197,6 +197,34 @@ fn qapi6b_removed_subtree_changed_after_removal_still_restyles_the_anchor() {
 }
 
 #[test]
+fn qapi6b_has_inside_not_is_where_soundness_fuzz() {
+    // the anchor of a `:has` inside `:not()` / `:is()` / `:where()` is the enclosing compound's element
+    const SHAPES: [&str; 10] = [
+        ".K:not(:has(.K)) .K", "div:where(:has(+ .K)) span", ".K:is(:has(> .K)) > .K", "li.K:not(:has(~ .K))", ":is(.K:has(.K), p) .K",
+        ".K:not(:has(.K)) .K .K", "span:not(.K:has(.K))", ".K:not(:hover) .K", "p:is(:has(.K:first-child)) ~ .K", ".K:where(:not(:has(:empty)))",
+    ];
+    let n: u64 = std::env::var("SCRATCHY_FUZZ_N").ok().and_then(|v| v.parse().ok()).unwrap_or(300);
+    let mut t = super::invalidation_tests::Tally { steps: 0, changed: 0, predicted: 0, predicted_on_changed_steps: 0, global_steps: 0 };
+    for seed in 1..=n {
+        super::invalidation_tests::fuzz_case_with(seed, 12, &mut t, &SHAPES);
+    }
+    diag!("qapi6b :not/:is(:has) fuzz: {} steps, {} global, changed {}, predicted {}", t.steps, t.global_steps, t.changed, t.predicted);
+    assert!(t.changed > 0);
+    assert_eq!(t.global_steps, 0);
+}
+
+#[test]
+fn qapi6b_has_inside_not_is_anchored_by_the_enclosing_compound() {
+    let m = InvalidationMap::build(&parse_stylesheet(".acc:not(:has(.open)) .vis{color:red}"), 1);
+    let doc = parse_html("<html><body><div id=outer><div id=a class=acc><i id=i></i><p class=vis id=v1></p></div></div><p class=vis id=v2></p></body></html>");
+    let i = by_id(&doc, "i");
+    let mut got: Vec<String> = m.for_has_any(&i).iter().filter_map(|(h, _)| element_attr(h, "id").map(|s| s.to_string())).collect();
+    got.sort();
+    // only the `.acc` anchor's `.vis` descendants, not every ancestor's (body would reach #v2)
+    assert_eq!(got, vec!["v1"]);
+}
+
+#[test]
 fn qapi6b_shared_selector_caches_never_outlive_a_build() {
     // nth-child and :has results are cached per build; a DOM write between two builds must be seen
     let _g = LogOnly::new();

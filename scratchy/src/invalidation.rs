@@ -441,6 +441,19 @@ fn subject_filter(comps: &[&Component<OurSelectorImpl>]) -> Option<Rc<Filter>> {
     (f.tag.is_some() || f.id.is_some() || !f.classes.is_empty() || !f.attrs.is_empty()).then(|| Rc::new(f))
 }
 
+/// QAPI6b: one filter requiring everything both require (`None` = no requirement).
+fn merge_filters(a: Option<Rc<Filter>>, b: Option<Rc<Filter>>) -> Option<Rc<Filter>> {
+    match (a, b) {
+        (None, x) | (x, None) => x,
+        (Some(a), Some(b)) => {
+            let mut f = Filter { tag: a.tag.clone().or_else(|| b.tag.clone()), id: a.id.clone().or_else(|| b.id.clone()), classes: a.classes.clone(), attrs: a.attrs.clone() };
+            f.classes.extend(b.classes.iter().filter(|c| !a.classes.contains(c)).cloned());
+            f.attrs.extend(b.attrs.iter().filter(|c| !a.attrs.contains(c)).cloned());
+            Some(Rc::new(f))
+        }
+    }
+}
+
 /// QAPI6: the tags / ids / classes present in a subtree (an inserted or removed one).
 #[derive(Default)]
 struct TreeSummary {
@@ -530,6 +543,9 @@ struct Builder {
     has_depth: u8,
     /// QAPI6: `Entry::anchor` of the `:has()` being collected.
     anchor: Option<Rc<Filter>>,
+    /// QAPI6b: the filter of the compound holding the `:not` / `:is` / `:where` whose argument `selector` collects
+    /// next (taken by `selector`, see there).
+    enclosing: Option<Rc<Filter>>,
     has: bool,
 }
 
@@ -593,10 +609,20 @@ impl Builder {
             h
         };
         let saved = self.carrier.take();
+        // QAPI6b: the compound holding the `:not()` / `:is()` / `:where()` this selector is an argument of: its
+        // subject is that very element, so it must match that compound too (`.x:not(:has(.y)) .z`: the anchor
+        // is an `.x`, not every ancestor).
+        let enclosing = self.enclosing.take();
         for k in 0..seqs.len() {
             let hops = if k < s { outer.to_vec() } else { hops_from(self, k) };
             // A pseudo-element compound's state pseudo-classes sit on the subject: no carrier filter.
-            let car = if k < s { None } else { subject_filter(&seqs[k].0) };
+            let car = if k < s {
+                None
+            } else if k == s {
+                merge_filters(subject_filter(&seqs[k].0), enclosing.clone())
+            } else {
+                subject_filter(&seqs[k].0)
+            };
             self.carrier = car.clone();
             // A sibling combinator left of compound `k` makes the sibling list matter for the element it matches.
             if k >= s && k + 1 < seqs.len() {
@@ -669,7 +695,9 @@ impl Builder {
             }
             Component::Negation(l) | Component::Is(l) | Component::Where(l) => {
                 for s in l.slice() {
+                    self.enclosing = self.carrier.clone();
                     self.nested(s, hops, filter);
+                    self.enclosing = None;
                 }
             }
             Component::Has(list) => {
@@ -726,7 +754,7 @@ impl Builder {
 
 impl InvalidationMap {
     pub(crate) fn build(rules: &[StyleRule], generation: u64) -> InvalidationMap {
-        let mut b = Builder { carrier: None, keys: HashMap::new(), global: false, has_depth: 0, anchor: None, has: false };
+        let mut b = Builder { carrier: None, keys: HashMap::new(), global: false, has_depth: 0, anchor: None, enclosing: None, has: false };
         let mut attr_all = false;
         for rule in rules {
             for sel in rule.selectors.slice() {

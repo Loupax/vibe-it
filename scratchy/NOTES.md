@@ -4031,8 +4031,22 @@ engine update: a `(element, rest of the walk)` already walked against this DOM s
 Engine: a logged change of a node WITHOUT an entry (under `display: none`) used to be skipped (only `gen_dirty`); with a `:has`
 rule it can still flip a rendered anchor (`.card:has(.hidden .on)`). `incr_log::note_node` keeps a `Weak` of every logged node
 while the current map has `:has` (`set_keep_nodes`, set when the map is built; no `:has` = no map lookup, nothing kept), and
-`Engine::unentried` replays the change through the map from that handle (a freed node is skipped: its removal was logged on a live
-parent; a node that was not kept forces a full restyle).
+`Engine::unentried` answers it from that handle (a freed node is skipped: its removal was logged on a live parent; a node that
+was not kept forces a full restyle).
+
+QAPI6b (cost, measured on YouTube results): `unentried` no longer replays each change. Nothing below the topmost entry-less
+ancestor `top` is styled, so only `:has` anchors above it can change: `InvalidationMap::for_has_any(top)` walks every `:has`
+path (`Key::HasAny`: each entry's path from its `Anc`/`AncSib` hop, carrier filters dropped, i.e. feature-agnostic) once per
+`top` and update, and a `top` inserted under its styled parent in the same log is skipped (that insertion's `HasTree` marks,
+taken from the final subtree, cover everything inside; the subtree did not exist before the batch). One update had 1 329
+logged inserts into hidden lists: 236 ms of replays before, one answer per list now. Removals are no longer pruned by the
+removed subtree's summary: the batch is answered against the final DOM and a detached subtree can change without a log entry.
+`style::SEL_CACHES`: one `SelectorCaches` shared by every match of a build or engine update (installed and dropped with
+`CLASS_CACHE`; the DOM does not change meanwhile), so `:has` results per (anchor, relative selector) and `:nth-*` indices are
+computed once per build instead of being rebuilt and dropped for every element. A `:has` inside `:not()` / `:is()` /
+`:where()` is anchored by the ENCLOSING compound (`Builder::enclosing`, merged into the nested selector's subject compound
+filter: it is the same element): `.acc:not(:has(.open)) .vis` walked from every ancestor before (github.com's RiverAccordion
+rule re-matched the whole page, ~1 900 elements, on each removal), from `.acc` elements now.
 
 ## Engine evidence (QINC1n, src/incr_evidence.rs)
 
