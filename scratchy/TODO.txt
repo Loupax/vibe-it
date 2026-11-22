@@ -148,10 +148,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QBLOBFRAME [S] (P2, from QDOM9 #542; Sonnet; js_dom.rs iframe realms, blob URL store) Load `blob:` URLs in iframes
       (`iframe.src = URL.createObjectURL(new Blob([html], {type:'text/html'}))`): same-origin document from the blob's
       bytes. html/semantics/scripting-1/.../module-script-disabled-scripting.html now TIMEOUTs (30 s) waiting for it.
-- [ ] [WIP] QDOM10 [S] (P2; Sonnet; js.rs ETP.dispatchEvent, attrHandler; R65; after QDOM4) `window.event`: set to the
-      current event while a listener of a node in the page's realm runs, restored afterwards (also after a throwing
-      listener), `undefined` for listeners inside a shadow tree, unset outside dispatch. WPT: dom/events/event-global*,
-      window-event-restored-after-throwing-onerror. Target: events +3.
 - [ ] QDOM11 [M] (P2; Sonnet; wpt_th.rs, js.rs `run_page`, js_dom.rs `__d_load_xml`/`xml_to_dom`; R65) XML documents.
       A response whose MIME type is XML (`application/xhtml+xml`, `image/svg+xml`, `text/xml`, `application/xml`,
       `+xml`) is parsed with the existing roxmltree path, not html5ever, for the top-level document and for iframes. The
