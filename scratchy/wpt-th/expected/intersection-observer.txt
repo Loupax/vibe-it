@@ -32,8 +32,7 @@ OK           0/1  intersection-observer/fixed-position-iframe-scroll.html
   FAIL      Fixed-position intersection observer on scroll
 OK           0/1  intersection-observer/fixed-position-scroll.html
   FAIL      Fixed-position intersection observer on scroll
-OK           2/3  intersection-observer/grow-height-and-scrolled.html
-  FAIL      grow-height-and-scrolled 1
+OK           3/3  intersection-observer/grow-height-and-scrolled.html
 OK           0/1  intersection-observer/idlharness.window.html
   FAIL      idl_test setup
 OK           0/1  intersection-observer/iframe-no-root-with-wrapping-scroller.html

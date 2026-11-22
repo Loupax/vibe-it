@@ -41,7 +41,7 @@ fn qb5_autofocus_and_boolean_attributes_reflect() {
 
 #[test]
 fn qb5_window_scroll_family_records_a_request() {
-    let engine = qb5_engine("<html><body></body></html>", "window.scrollTo(0, 100);");
+    let engine = qb5_engine("<html><body><div style='height:3000px'></div></body></html>", "window.scrollTo(0, 100);");
     let s = engine.take_requests().scroll.expect("scroll request");
     assert_eq!((s.x, s.y, s.relative), (Some(0.0), Some(100.0), false));
     engine.eval("t", "window.scroll({top: 40}); window.scrollBy(0, 5);");
@@ -462,7 +462,7 @@ fn qj4_geometry_reads_layout_backed_rects() {
         "<html><head><style>body{margin:0} article{display:block;height:100px;margin:0;border:2px solid red;padding:5px;width:300px}\
          #p{padding:0;border:0;height:0;position:relative;top:0}</style></head>\
          <body><article id=a1><p class=meta id=m1>one</p></article><article id=a2>two</article><article id=a3>three</article>\
-         <div id=n style='display:none'><b id=nb>x</b></div><div id=p><i id=ch style='display:block;height:10px;margin-top:20px'></i></div></body></html>",
+         <div id=n style='display:none'><b id=nb>x</b></div><div id=p><i id=ch style='display:block;height:10px;margin-top:20px'></i></div><div style='height:3000px'></div></body></html>",
         r#"var a = ['a1','a2','a3'].map(function (i) { return document.getElementById(i).getBoundingClientRect(); });
          console.log('tops', a[0].top < a[1].top && a[1].top < a[2].top, a[0].height, a[0].width, a[0].top, a[0].left);
          console.log('sh', document.documentElement.scrollHeight >= a[0].height + a[1].height + a[2].height, document.documentElement.clientHeight === innerHeight, document.documentElement.clientWidth === innerWidth);
