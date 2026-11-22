@@ -9233,3 +9233,9 @@ Eased viewport scroll (user design #532, D1-D8): `App::scroll_target`, `scroll_a
 > QDOM5c [S] (P2, re-land of QDOM5b #592, reverted in #596; Sonnet; js_dom.rs iframes + Range) #592 broke html/webappapis/.../the-navigator-object/per-global.window.html (OK 3/8 -> ERROR) after its final rebase. Re-land #592 (git revert of the revert) and keep the initial window object, so per-global and every other main-passing file stays; run per-global and the iframe-heavy files 10x each.
 
 **What changed:** the revert of #596 (QDOM5b back), plus: (1) the async load of a script-made same-origin iframe navigates the initial about:blank realm in place (`__scratchy_realm_nav`, js.rs; `loadFrame`/`ifrAttr`/`done` in js_dom.rs) instead of dropping it; (2) the iframe `load` that `document.close()` reports from inside an iframe `load` handler goes to a task (the flaky ERROR was not window identity: the test's iframe `load` handler calls `frame.document.open()/close()`, close fired `load` synchronously, the handler re-entered itself until "Maximum call stack size exceeded", and testharness then reported "Timeout while running cleanup" depending on timing); (3) `window.clientInformation` (alias of navigator), so per-global.window.html is 8/8. Test: src/tests/qdom5c_tests.rs. flaky.txt: per-document and type-argument-plaintext dropped (stable 10/10 now); url-fragment stays (0 or 2 subtests, or CRASH, under --jobs 4 load in 5 of 10 runs).
+
+## QNEST1: nest.sh keeps one nested compositor per worktree (agent item)
+
+> QNEST1 [S] (P2, coordinator: one agent leaked 9 nested dwl, one per run) nest.sh keeps one compositor per worktree: pid file, reuse a live dwl, `--new`, `--stop`, test with two calls.
+
+**What changed:** tools/nest.sh records dwl in `<worktree>/.qwork/nest` and reuses a live one; `--new`/`--stop`; stale pid files cleaned; `NEST_BACKEND` for tests. New tools/nest-one-test.sh (9 checks pass, headless). Documented in NOTES.md and tools/README.
