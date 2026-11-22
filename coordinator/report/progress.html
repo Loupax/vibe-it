@@ -74,7 +74,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Measurements</h2>
   <div class="stats">
     <div class="stat"><span class="v">348 / 626</span><span class="l">WPT visual CSS tests passing (reftests), now checked in CI</span></div>
-    <div class="stat"><span class="v">39.3</span><span class="l">WPT JavaScript tests, mean score per file (0–100) over the phase-1 subset: 3,254 files, 24 areas; 67.2% of 85,795 subtests pass. Today the subset gained the long dom files and html/editing and lost the 111 pages that need simulated input (QWPT6e), so part of the rise from 37.9 is subset composition, not engine progress (more files run now). Baseline 28.4 (#504); every PR is gated on it in CI since #507</span></div>
+    <div class="stat"><span class="v">40.4 / 24.0</span><span class="l">WPT JavaScript tests, mean score per file (0–100). 40.4 over the 3,254 non-canvas files (25 areas); 24.0 with html/canvas (2,354 files, ~0 % until Canvas 2D lands, QCNV1) in the total since #606. 70.2% of 89,681 subtests pass. Score changes from subset composition (dom long files, html/editing, test_driver pages out, canvas in) are not engine progress</span></div>
     <div class="stat"><span class="v">1852 / 1852</span><span class="l">Unit and integration tests passing, engine on and off (CI runs both)</span></div>
     <div class="stat"><span class="v">0</span><span class="l">Engine mismatches on the 7 test pages (check mode)</span></div>
   </div>
