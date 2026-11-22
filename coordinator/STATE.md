@@ -375,3 +375,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #619 QCNV3 READY (canvas element 23.6 -> 27.5; CSS Color 4 parsing for all stylesheets; +2 reftests); asked for a CSS-parse perf check before merge. Filed QCNV3b.
 - 2026-11-22 #620 QWPTFLK4 rebased, merging. Launched QWPTBUD.
 - 2026-11-22 Merged #620 QWPTFLK4 28e4a2a.
+- 2026-11-22 #619 QCNV3 perf ok (parse/style within noise), merging. Launched QCNV4 (starts after #619 lands).
