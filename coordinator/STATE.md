@@ -285,3 +285,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #586 QWPT6e READY (drops 111 test_driver-calling pages; TOTAL 37.9 -> 39.1 is subset composition, not engine progress), merging. Filed QWPT7. Launched QANIMHLc.
 - 2026-11-22 Merged #586 QWPT6e e30deab (test_driver pages out of the subset).
 - 2026-11-22 #587 QAPI6b READY: :has cost back within noise (YouTube headless forced median 486 main / 631 #573 / 488 QAPI6b; github per forced layout 56/92/62 ms); also fixes a #573 soundness bug. Per the user's 2026-11-22 decision (#573 merges with QAPI6b once YouTube is within noise): retargeted #587 to main (contains #573 + QAPI6b), merging it; #573 closed as merged via #587.
+- 2026-11-22 #587 merge: conflict in the ROOT PROMPTS.md (agents log there too); the keep-both rule covers PROMPTS.md, so merge_pr.sh now keeps both for the root file as well. Retrying #587.

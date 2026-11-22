@@ -124,7 +124,7 @@ if ! ( cd "$W" && git rebase -q origin/main >/dev/null 2>&1 ); then
   while git status | grep -q 'rebase in progress'; do
     TRIES=$((TRIES+1)); if [ $TRIES -gt 30 ]; then echo "PR #$N: rebase stuck"; git rebase --abort; cd "$REPO"; git worktree remove --force "$W"; git branch -D "mq-$N" >/dev/null; exit 3; fi
     U=$(git diff --name-only --diff-filter=U)
-    BAD=$(echo "$U" | grep -Ev '^(scratchy/PROMPTS\.md|scratchy/REGRESSIONS\.md|scratchy/NOTES\.md|scratchy/src/tests/mod\.rs|scratchy/wpt-th/areas\.txt)?$' | tr '\n' ' ')
+    BAD=$(echo "$U" | grep -Ev '^(PROMPTS\.md|scratchy/PROMPTS\.md|scratchy/REGRESSIONS\.md|scratchy/NOTES\.md|scratchy/src/tests/mod\.rs|scratchy/wpt-th/areas\.txt)?$' | tr '\n' ' ')
     # NOTES.md (user OK 2026-11-22): keep both only when BOTH sides purely add lines to the common base.
     if echo "$U" | grep -qx 'scratchy/NOTES.md' && ! addonly scratchy/NOTES.md; then
       BAD="$BAD scratchy/NOTES.md (a side changes or deletes existing lines)"
