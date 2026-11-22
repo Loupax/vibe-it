@@ -170,13 +170,17 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QDOM15b [S] (P3, from QDOM15 #559; Sonnet) Event `timeStamp` > 0 on the manual/virtual clock (time origin offset;
       Event-constructors.any 2 subtests); event attributes as prototype getters instead of own data properties
       (idlharness checks); getModifierState and legacy init* methods for the newer event interfaces.
+- [ ] QDOM10b [S] (P3, from QDOM10 #580; Sonnet; js.rs dispatch, iframe realms) window.event across realms: constructors
+      from another global (EventTarget, XMLHttpRequest), an element from another document, a listener from a different
+      global, window.event after moving an element post-dispatch (event-global-extra.window.html 1/6), onerror restoring
+      window.event, beforeunload coercion.
 - [ ] [WIP] QDOM18 [S] (P3; Sonnet; js_dom.rs insert path (`insertBefore`/`appendChild`/`replaceChild`/`append`/`prepend`/
       `replaceChildren`); R65) DOM "ensure pre-insert validity" and "replace" checks: HierarchyRequestError for a
       Document parent with a second element, a fragment with two elements or with text, a doctype after the element,
       text directly under a Document; NotFoundError for a wrong child; checks before any mutation (fragments keep their
       children on failure). WPT: nodes/Node-insertBefore, Node-replaceChild, ParentNode-append, ParentNode-prepend,
       ParentNode-replaceChildren, append-on-Document, prepend-on-Document. Target: nodes +0.8.
-- [ ] QDOM19 [S] (P3; Sonnet; js_dom.rs `checkName`; R65) Current DOM name validation (whatwg/dom 2025): "valid element
+- [ ] [WIP] QDOM19 [S] (P3; Sonnet; js_dom.rs `checkName`; R65) Current DOM name validation (whatwg/dom 2025): "valid element
       local name", "valid attribute local name", "valid doctype name", `validate and extract` for the NS variants
       (NamespaceError rules for xml/xmlns prefixes). Used by createElement(NS), createAttribute(NS), setAttribute(NS),
       toggleAttribute, createDocumentType, createDocument. WPT: nodes/DOMImplementation-createDocumentType,
