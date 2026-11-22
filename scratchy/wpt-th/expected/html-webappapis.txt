@@ -117,18 +117,18 @@ OK           0/1  html/webappapis/dynamic-markup-insertion/document-write/050.ht
   FAIL      document.write plaintext
 OK           0/1  html/webappapis/dynamic-markup-insertion/document-write/051.html
   FAIL      document.write \\r\\n
-TIMEOUT      0/4  html/webappapis/dynamic-markup-insertion/document-write/contentType.window.html
-  TIMEOUT   document.write(): video document
-  TIMEOUT   document.write(): image document
-  TIMEOUT   document.write(): text document
-  TIMEOUT   document.write(): HTML document
+OK           0/4  html/webappapis/dynamic-markup-insertion/document-write/contentType.window.html
+  FAIL      document.write(): video document
+  FAIL      document.write(): image document
+  FAIL      document.write(): text document
+  FAIL      document.write(): HTML document
 OK           0/1  html/webappapis/dynamic-markup-insertion/document-write/document.write-01.xhtml
   FAIL      document.write in XHTML
 OK           1/3  html/webappapis/dynamic-markup-insertion/document-write/document.write-02.html
   FAIL      document.write(null)
   FAIL      document.write(undefined)
-TIMEOUT      0/1  html/webappapis/dynamic-markup-insertion/document-write/during-readystatechange.window.html
-  TIMEOUT   document.write() during readystatechange to interactive
+OK           0/1  html/webappapis/dynamic-markup-insertion/document-write/during-readystatechange.window.html
+  FAIL      document.write() during readystatechange to interactive
 OK           1/1  html/webappapis/dynamic-markup-insertion/document-write/iframe_001.html
 OK           1/1  html/webappapis/dynamic-markup-insertion/document-write/iframe_002.html
 OK           0/1  html/webappapis/dynamic-markup-insertion/document-write/iframe_003.html
@@ -202,36 +202,36 @@ OK           1/3  html/webappapis/dynamic-markup-insertion/document-writeln/docu
 OK           1/1  html/webappapis/dynamic-markup-insertion/document-writeln/document.writeln-03.html
 ERROR        0/0  html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Document-parseHTMLUnsafe-encoding.html
 ERROR        0/0  html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Document-parseHTMLUnsafe-style-attribute.html
-TIMEOUT      0/6  html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Document-parseHTMLUnsafe-url-base-pushstate.html
+OK           0/6  html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Document-parseHTMLUnsafe-url-base-pushstate.html
   FAIL      valid: created normally
-  TIMEOUT   valid: created using another iframe's parseHTMLUnsafe from this frame
-  NOTRUN    valid: created using another iframe's parseHTMLUnsafe from that frame
+  FAIL      valid: created using another iframe's parseHTMLUnsafe from this frame
+  FAIL      valid: created using another iframe's parseHTMLUnsafe from that frame
   FAIL      invalid XML: created normally
-  NOTRUN    invalid XML: created using another iframe's parseHTMLUnsafe from this frame
-  NOTRUN    invalid XML: created using another iframe's parseHTMLUnsafe from that frame
-TIMEOUT      0/6  html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Document-parseHTMLUnsafe-url-base.html
+  FAIL      invalid XML: created using another iframe's parseHTMLUnsafe from this frame
+  FAIL      invalid XML: created using another iframe's parseHTMLUnsafe from that frame
+OK           0/6  html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Document-parseHTMLUnsafe-url-base.html
   FAIL      valid: created normally
-  TIMEOUT   valid: created using another iframe's parseHTMLUnsafe from this frame
-  NOTRUN    valid: created using another iframe's parseHTMLUnsafe from that frame
+  FAIL      valid: created using another iframe's parseHTMLUnsafe from this frame
+  FAIL      valid: created using another iframe's parseHTMLUnsafe from that frame
   FAIL      invalid XML: created normally
-  NOTRUN    invalid XML: created using another iframe's parseHTMLUnsafe from this frame
-  NOTRUN    invalid XML: created using another iframe's parseHTMLUnsafe from that frame
+  FAIL      invalid XML: created using another iframe's parseHTMLUnsafe from this frame
+  FAIL      invalid XML: created using another iframe's parseHTMLUnsafe from that frame
 TIMEOUT      0/1  html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Document-parseHTMLUnsafe-url-moretests.html
   TIMEOUT   Document.parseHTMLUnsafe: Document's url
-TIMEOUT      0/6  html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Document-parseHTMLUnsafe-url-pushstate.html
+OK           0/6  html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Document-parseHTMLUnsafe-url-pushstate.html
   FAIL      valid: created normally
-  TIMEOUT   valid: created using another iframe's parseHTMLUnsafe from this frame
-  NOTRUN    valid: created using another iframe's parseHTMLUnsafe from that frame
+  FAIL      valid: created using another iframe's parseHTMLUnsafe from this frame
+  FAIL      valid: created using another iframe's parseHTMLUnsafe from that frame
   FAIL      invalid XML: created normally
-  NOTRUN    invalid XML: created using another iframe's parseHTMLUnsafe from this frame
-  NOTRUN    invalid XML: created using another iframe's parseHTMLUnsafe from that frame
-TIMEOUT      0/6  html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Document-parseHTMLUnsafe-url.html
+  FAIL      invalid XML: created using another iframe's parseHTMLUnsafe from this frame
+  FAIL      invalid XML: created using another iframe's parseHTMLUnsafe from that frame
+OK           0/6  html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Document-parseHTMLUnsafe-url.html
   FAIL      valid: created normally
-  TIMEOUT   valid: created using another iframe's parseHTMLUnsafe from this frame
-  NOTRUN    valid: created using another iframe's parseHTMLUnsafe from that frame
+  FAIL      valid: created using another iframe's parseHTMLUnsafe from this frame
+  FAIL      valid: created using another iframe's parseHTMLUnsafe from that frame
   FAIL      invalid XML: created normally
-  NOTRUN    invalid XML: created using another iframe's parseHTMLUnsafe from this frame
-  NOTRUN    invalid XML: created using another iframe's parseHTMLUnsafe from that frame
+  FAIL      invalid XML: created using another iframe's parseHTMLUnsafe from this frame
+  FAIL      invalid XML: created using another iframe's parseHTMLUnsafe from that frame
 ERROR        0/0  html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Document-parseHTMLUnsafe.html
 OK           0/1  html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Element-setHTMLUnsafe-04.html
   FAIL      setHTMLUnsafe should leave the removed children alone.
@@ -279,49 +279,42 @@ OK           0/5  html/webappapis/dynamic-markup-insertion/html-unsafe-methods/s
 OK           1/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/002.html
 OK           1/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/004.html
 OK           1/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/006.html
-TIMEOUT      0/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/011.html
-  NOTRUN    Timeout after document.open
+OK           1/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/011.html
 TIMEOUT      0/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/012.html
-  NOTRUN    Timeout after document.open in load event
+  FAIL      Timeout after document.open in load event
 TIMEOUT      0/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/013.html
-  NOTRUN    Timeout after document.open in DOMContentLoaded event
-TIMEOUT      0/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/014.html
-  NOTRUN    Timeout after document.open after document is completely loaded
-TIMEOUT      0/3  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/015.html
-  NOTRUN    global scope unchanged
-  NOTRUN    window object unchanged
-  NOTRUN    this is the window object
-TIMEOUT      0/4  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/016.html
-  NOTRUN    Timeout on original window, scope
-  NOTRUN    Timeout on original window, this object
-  NOTRUN    Timeout on new window, scope
-  NOTRUN    Timeout on new window, this object
+  FAIL      Timeout after document.open in DOMContentLoaded event
+OK           1/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/014.html
+OK           1/3  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/015.html
+  FAIL      global scope unchanged
+  FAIL      window object unchanged
+OK           4/4  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/016.html
 TIMEOUT      0/2  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/aborted-parser.window.html
   TIMEOUT   document.open() after parser is aborted
   TIMEOUT   async document.open() after parser is aborted
-TIMEOUT      0/7  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/active.window.html
+OK           0/7  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/active.window.html
   FAIL      document.open() removes the document's children (fully active document)
-  TIMEOUT   document.open() removes the document's children (active but not fully active document)
+  FAIL      document.open() removes the document's children (active but not fully active document)
   FAIL      document.open() removes the document's children (non-active document with an associated Window object; frame is removed)
-  TIMEOUT   document.open() removes the document's children (non-active document with an associated Window object; navigated away)
+  FAIL      document.open() removes the document's children (non-active document with an associated Window object; navigated away)
   FAIL      document.open() removes the document's children (non-active document without an associated Window object; createHTMLDocument)
   FAIL      document.open() removes the document's children (non-active document without an associated Window object; DOMParser)
   FAIL      document.open() removes the document's children (non-active document without an associated Window object; XMLHttpRequest)
 TIMEOUT      0/4  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/bailout-exception-vs-return-xml.window.html
   TIMEOUT   document.open should throw an InvalidStateError with XML document even when there is an active parser executing script
-  TIMEOUT   document.open should throw an InvalidStateError with XML document even when the ignore-opens-during-unload counter is greater than 0 (during beforeunload event)
-  TIMEOUT   document.open should throw an InvalidStateError with XML document even when the ignore-opens-during-unload counter is greater than 0 (during pagehide event)
-  TIMEOUT   document.open should throw an InvalidStateError with XML document even when the ignore-opens-during-unload counter is greater than 0 (during unload event)
-TIMEOUT      0/3  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/bailout-side-effects-ignore-opens-during-unload.window.html
-  TIMEOUT   document.open bailout should not have any side effects (ignore-opens-during-unload is greater than 0 during unload event)
-  TIMEOUT   document.open bailout should not have any side effects (ignore-opens-during-unload is greater than 0 during beforeunload event)
-  TIMEOUT   document.open bailout should not have any side effects (ignore-opens-during-unload is greater than 0 during pagehide event)
+  FAIL      document.open should throw an InvalidStateError with XML document even when the ignore-opens-during-unload counter is greater than 0 (during beforeunload event)
+  FAIL      document.open should throw an InvalidStateError with XML document even when the ignore-opens-during-unload counter is greater than 0 (during pagehide event)
+  FAIL      document.open should throw an InvalidStateError with XML document even when the ignore-opens-during-unload counter is greater than 0 (during unload event)
+OK           0/3  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/bailout-side-effects-ignore-opens-during-unload.window.html
+  FAIL      document.open bailout should not have any side effects (ignore-opens-during-unload is greater than 0 during unload event)
+  FAIL      document.open bailout should not have any side effects (ignore-opens-during-unload is greater than 0 during beforeunload event)
+  FAIL      document.open bailout should not have any side effects (ignore-opens-during-unload is greater than 0 during pagehide event)
 TIMEOUT      0/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/bailout-side-effects-synchronous-script.window.html
   TIMEOUT   document.open bailout should not have any side effects (active parser whose script nesting level is greater than 0)
-TIMEOUT      0/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/bailout-side-effects-xml.window.html
-  TIMEOUT   document.open bailout should not have any side effects (XML document)
-TIMEOUT      0/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/beforeunload.window.html
-  TIMEOUT   document.open() should not fire a beforeunload event
+OK           0/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/bailout-side-effects-xml.window.html
+  FAIL      document.open bailout should not have any side effects (XML document)
+OK           0/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/beforeunload.window.html
+  FAIL      document.open() should not fire a beforeunload event
 TIMEOUT      0/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/crbug-583445-regression.window.html
   TIMEOUT   Regression test for crbug.com/583445
 OK           1/2  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/custom-element.window.html
@@ -333,63 +326,62 @@ OK           0/1  html/webappapis/dynamic-markup-insertion/opening-the-input-str
 OK           0/2  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/document.open-02.html
   FAIL      document.open should redirect to window.open when called with three arguments
   FAIL      document.open should throw when it has no window and is called with three arguments
-TIMEOUT      0/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/document.open-03.html
-  NOTRUN    document.open and no singleton replacement
-TIMEOUT      0/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/encoding.window.html
-  TIMEOUT   doucment.open() and the document's encoding
-TIMEOUT     6/18  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/event-listeners.window.html
+OK           1/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/document.open-03.html
+OK           0/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/encoding.window.html
+  FAIL      doucment.open() and the document's encoding
+OK          6/18  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/event-listeners.window.html
   FAIL      Standard event listeners are to be removed
   FAIL      Custom event listeners are to be removed
   FAIL      Standard event listeners are to be removed from Window
-  TIMEOUT   Standard event listeners are to be removed from Window for an active but not fully active document
+  FAIL      Standard event listeners are to be removed from Window for an active but not fully active document
   FAIL      Standard event listeners are to be removed from Window for a non-active document that is the associated Document of a Window (frame is removed)
   FAIL      Custom event listeners are to be removed from Window
-  TIMEOUT   Custom event listeners are to be removed from Window for an active but not fully active document
+  FAIL      Custom event listeners are to be removed from Window for an active but not fully active document
   FAIL      Custom event listeners are to be removed from Window for a non-active document that is the associated Document of a Window (frame is removed)
   FAIL      IDL attribute event handlers are to be deactivated
   FAIL      Content attribute event handlers are to be deactivated
   FAIL      Event listeners are to be removed with immediate effect
   FAIL      Event listeners are to be removed from shadow trees as well
 OK           2/2  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/form-control-state.html
-TIMEOUT      0/2  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/history-state.window.html
-  TIMEOUT   history.state is kept by document.open()
-  TIMEOUT   history.state is kept by document.open() (with historical replace parameter set)
+OK           0/2  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/history-state.window.html
+  FAIL      history.state is kept by document.open()
+  FAIL      history.state is kept by document.open() (with historical replace parameter set)
 TIMEOUT      0/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/history.window.html
   NOTRUN    document.open should not add an entry to the session history
-TIMEOUT     0/12  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/ignore-opens-during-unload.window.html
-  TIMEOUT   document.open should bail out when ignore-opens-during-unload is greater than 0 during beforeunload event (in top-level browsing context)
-  TIMEOUT   document.open should bail out when ignore-opens-during-unload is greater than 0 during beforeunload event (open(parent) while unloading parent and child)
-  TIMEOUT   document.open should bail out when ignore-opens-during-unload is greater than 0 during beforeunload event (open(parent) while unloading child only)
-  TIMEOUT   document.open should bail out when ignore-opens-during-unload is greater than 0 during pagehide event (in top-level browsing context)
-  TIMEOUT   document.open should bail out when ignore-opens-during-unload is greater than 0 during pagehide event (open(parent) while unloading parent and child)
-  TIMEOUT   document.open should bail out when ignore-opens-during-unload is greater than 0 during pagehide event (open(parent) while unloading child only)
-  TIMEOUT   document.open should bail out when ignore-opens-during-unload is greater than 0 during unload event (in top-level browsing context)
-  TIMEOUT   document.open should bail out when ignore-opens-during-unload is greater than 0 during unload event (open(parent) while unloading parent and child)
-  TIMEOUT   document.open should bail out when ignore-opens-during-unload is greater than 0 during unload event (open(parent) while unloading child only)
-  TIMEOUT   document.open should bail out when ignore-opens-during-unload is greater than 0 during visibilitychange event (in top-level browsing context)
-  TIMEOUT   document.open should bail out when ignore-opens-during-unload is greater than 0 during visibilitychange event (open(parent) while unloading parent and child)
-  TIMEOUT   document.open should bail out when ignore-opens-during-unload is greater than 0 during visibilitychange event (open(parent) while unloading child only)
+OK          0/12  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/ignore-opens-during-unload.window.html
+  FAIL      document.open should bail out when ignore-opens-during-unload is greater than 0 during beforeunload event (in top-level browsing context)
+  FAIL      document.open should bail out when ignore-opens-during-unload is greater than 0 during beforeunload event (open(parent) while unloading parent and child)
+  FAIL      document.open should bail out when ignore-opens-during-unload is greater than 0 during beforeunload event (open(parent) while unloading child only)
+  FAIL      document.open should bail out when ignore-opens-during-unload is greater than 0 during pagehide event (in top-level browsing context)
+  FAIL      document.open should bail out when ignore-opens-during-unload is greater than 0 during pagehide event (open(parent) while unloading parent and child)
+  FAIL      document.open should bail out when ignore-opens-during-unload is greater than 0 during pagehide event (open(parent) while unloading child only)
+  FAIL      document.open should bail out when ignore-opens-during-unload is greater than 0 during unload event (in top-level browsing context)
+  FAIL      document.open should bail out when ignore-opens-during-unload is greater than 0 during unload event (open(parent) while unloading parent and child)
+  FAIL      document.open should bail out when ignore-opens-during-unload is greater than 0 during unload event (open(parent) while unloading child only)
+  FAIL      document.open should bail out when ignore-opens-during-unload is greater than 0 during visibilitychange event (in top-level browsing context)
+  FAIL      document.open should bail out when ignore-opens-during-unload is greater than 0 during visibilitychange event (open(parent) while unloading parent and child)
+  FAIL      document.open should bail out when ignore-opens-during-unload is greater than 0 during visibilitychange event (open(parent) while unloading child only)
 OK           0/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/location-set-and-document-open.html
   FAIL      Location sets should cancel current navigation and prevent later document.open() from doing anything
 OK           1/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/mutation-observer.window.html
-TIMEOUT     0/17  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/no-new-global.window.html
-  TIMEOUT   Obtaining a variable from a global whose document had open() invoked
-  TIMEOUT   Document maintains object identity through open()
-  TIMEOUT   Document maintains its prototype and properties through open()
-  TIMEOUT   WindowProxy maintains object identity through open()
-  TIMEOUT   WindowProxy maintains its prototype and properties through open()
-  TIMEOUT   BarProp maintains object identity through open()
-  TIMEOUT   BarProp maintains its prototype and properties through open()
-  TIMEOUT   History maintains object identity through open()
-  TIMEOUT   History maintains its prototype and properties through open()
-  TIMEOUT   localStorage maintains object identity through open()
-  TIMEOUT   localStorage maintains its prototype and properties through open()
-  TIMEOUT   Location maintains object identity through open()
-  TIMEOUT   Location maintains its prototype and properties through open()
-  TIMEOUT   sessionStorage maintains object identity through open()
-  TIMEOUT   sessionStorage maintains its prototype and properties through open()
-  TIMEOUT   Navigator maintains object identity through open()
-  TIMEOUT   Navigator maintains its prototype and properties through open()
+OK          0/17  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/no-new-global.window.html
+  FAIL      Obtaining a variable from a global whose document had open() invoked
+  FAIL      Document maintains object identity through open()
+  FAIL      Document maintains its prototype and properties through open()
+  FAIL      WindowProxy maintains object identity through open()
+  FAIL      WindowProxy maintains its prototype and properties through open()
+  FAIL      BarProp maintains object identity through open()
+  FAIL      BarProp maintains its prototype and properties through open()
+  FAIL      History maintains object identity through open()
+  FAIL      History maintains its prototype and properties through open()
+  FAIL      localStorage maintains object identity through open()
+  FAIL      localStorage maintains its prototype and properties through open()
+  FAIL      Location maintains object identity through open()
+  FAIL      Location maintains its prototype and properties through open()
+  FAIL      sessionStorage maintains object identity through open()
+  FAIL      sessionStorage maintains its prototype and properties through open()
+  FAIL      Navigator maintains object identity through open()
+  FAIL      Navigator maintains its prototype and properties through open()
 OK           0/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/open-with-defer-script-during-initial-about-blank-load.html
   FAIL      document.open() with a deferred script during the initial about:blank load event must not crash or refire load
 OK           2/2  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/origin-check-in-document-open-basic.html
@@ -398,24 +390,24 @@ OK           0/4  html/webappapis/dynamic-markup-insertion/opening-the-input-str
   FAIL      document.open() sets document to no-quirks mode (write old doctype)
   FAIL      document.open() sets document to no-quirks mode (write new doctype)
   FAIL      document.open() sets document to no-quirks mode, not limited-quirks mode
-TIMEOUT      0/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/readiness.window.html
-  TIMEOUT   document.open() and readiness
+OK           0/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/readiness.window.html
+  FAIL      document.open() and readiness
 ERROR        0/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/reload.window.html
   FAIL      Reloading a document.open()'d page should reload the URL of the entry realm's responsible document
 OK           0/2  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/remove-initial-about-blankness.window.html
   FAIL      document.open() removes the initial about:blank-ness of the document
   FAIL      Double-check: without document.open(), Window reuse indeed happens
-TIMEOUT     0/10  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/tasks.window.html
-  TIMEOUT   tasks without document.open() (timeout)
-  TIMEOUT   document.open() and tasks (timeout)
-  TIMEOUT   tasks without document.open() (window message)
-  TIMEOUT   document.open() and tasks (window message)
-  TIMEOUT   tasks without document.open() (canvas.toBlob())
-  TIMEOUT   document.open() and tasks (canvas.toBlob())
-  TIMEOUT   tasks without document.open() (MessagePort)
-  TIMEOUT   document.open() and tasks (MessagePort)
-  TIMEOUT   tasks without document.open() (Promise rejection)
-  TIMEOUT   document.open() and tasks (Promise rejection)
+OK          0/10  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/tasks.window.html
+  FAIL      tasks without document.open() (timeout)
+  FAIL      document.open() and tasks (timeout)
+  FAIL      tasks without document.open() (window message)
+  FAIL      document.open() and tasks (window message)
+  FAIL      tasks without document.open() (canvas.toBlob())
+  FAIL      document.open() and tasks (canvas.toBlob())
+  FAIL      tasks without document.open() (MessagePort)
+  FAIL      document.open() and tasks (MessagePort)
+  FAIL      tasks without document.open() (Promise rejection)
+  FAIL      document.open() and tasks (Promise rejection)
 TIMEOUT      0/8  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/type-argument-plaintext.window.html
   TIMEOUT   document.open() on plaintext document with type set to: replace (type argument is supposed to be ignored)
   TIMEOUT   document.open() on plaintext document with type set to: NOBODY (type argument is supposed to be ignored)
@@ -426,21 +418,20 @@ TIMEOUT      0/8  html/webappapis/dynamic-markup-insertion/opening-the-input-str
   TIMEOUT   document.open() on plaintext document with type set to: application/octet-stream (type argument is supposed to be ignored)
   TIMEOUT   document.open() on plaintext document with type set to:   (type argument is supposed to be ignored)
 OK           8/8  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/type-argument.window.html
-TIMEOUT      0/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/unload.window.html
-  TIMEOUT   document.open(): Do not fire pagehide, visibilitychange, or unload events
-TIMEOUT      0/3  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/url-entry-document-sync-call.window.html
-  TIMEOUT   document.open() changes document's URL to the entry global object's associate document's (sync call)
-  TIMEOUT   document.write() changes document's URL to the entry global object's associate document's (sync call)
-  TIMEOUT   document.writeln() changes document's URL to the entry global object's associate document's (sync call)
+OK           0/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/unload.window.html
+  FAIL      document.open(): Do not fire pagehide, visibilitychange, or unload events
+OK           0/3  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/url-entry-document-sync-call.window.html
+  FAIL      document.open() changes document's URL to the entry global object's associate document's (sync call)
+  FAIL      document.write() changes document's URL to the entry global object's associate document's (sync call)
+  FAIL      document.writeln() changes document's URL to the entry global object's associate document's (sync call)
 TIMEOUT      0/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/url-entry-document.window.html
   TIMEOUT   document.open() changes document's URL to the entry settings object's responsible document's (through timeouts)
 TIMEOUT      0/2  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/url-fragment.window.html
   FAIL      document.open() and document's URL containing a fragment (entry is not relevant)
   TIMEOUT   document.open() and document's URL containing a fragment (entry is relevant)
-TIMEOUT      1/5  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/url.window.html
+OK           2/5  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/url.window.html
   FAIL      document.open() changes document's URL (fully active document)
-  TIMEOUT   document.open() does not change document's URL (active but not fully active document)
-  TIMEOUT   document.open() does not change document's URL (non-active document with an associated Window object; navigated away)
+  FAIL      document.open() does not change document's URL (active but not fully active document)
   FAIL      document.open() does not change document's URL (non-active document without an associated Window object)
 OK           1/2  html/webappapis/dynamic-markup-insertion/the-innerhtml-property/annotation-xml-fragment-parsing.html
   FAIL      HTML parsing does apply in <annotation-xml encoding="application/xhtml+xml">
@@ -572,10 +563,9 @@ OK           0/1  html/webappapis/scripting/events/invalid-uncompiled-raw-handle
   FAIL      Invalid uncompiled raw handlers should only be compiled once
 OK           0/1  html/webappapis/scripting/events/invalid-uncompiled-raw-handler-keeps-position.window.html
   FAIL      Compiling invalid uncompiled raw handlers should keep the position in event listener list
-TIMEOUT      0/3  html/webappapis/scripting/events/onerroreventhandler.html
-  NOTRUN    onerror + ErrorEvent + Window
-  NOTRUN    onerror + !ErrorEvent + Window
-  NOTRUN    onerror + Document
+OK           1/3  html/webappapis/scripting/events/onerroreventhandler.html
+  FAIL      onerror + ErrorEvent + Window
+  FAIL      onerror + !ErrorEvent + Window
 OK           1/1  html/webappapis/scripting/events/uncompiled_event_handler_with_scripting_disabled.html
 OK           0/1  html/webappapis/scripting/processing-model-2/addEventListener.html
   FAIL      window.onerror - addEventListener
@@ -819,9 +809,8 @@ OK           1/1  html/webappapis/system-state-and-capabilities/the-navigator-ob
 OK           0/1  html/webappapis/system-state-and-capabilities/the-navigator-object/navigatorcookies-cookieenabled-true.html
   FAIL      navigator.cookieEnabled is true when cookies are enabled
 OK           1/1  html/webappapis/system-state-and-capabilities/the-navigator-object/navigatorlanguage.html
-TIMEOUT      1/8  html/webappapis/system-state-and-capabilities/the-navigator-object/per-global.window.html
+TIMEOUT      2/8  html/webappapis/system-state-and-capabilities/the-navigator-object/per-global.window.html
   FAIL      Navigating from the transient about:blank must not replace window.navigator
-  TIMEOUT   Navigating from the initial about:blank must not replace window.navigator
   TIMEOUT   document.open() must not replace window.navigator
   FAIL      Navigating from the transient about:blank must not replace window.clientInformation
   FAIL      Navigating from the initial about:blank must not replace window.clientInformation

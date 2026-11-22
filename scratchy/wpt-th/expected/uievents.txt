@@ -88,9 +88,9 @@ OK           0/4  uievents/legacy/Event-subclasses-init.html
   FAIL      Call initCompositionEvent without parameters
 OK           0/1  uievents/mouse/attributes.html
   FAIL      MouseEvent attributes
-TIMEOUT      0/2  uievents/mouse/cancel-mousedown-in-subframe.html
-  NOTRUN    Child frame receives mousedown/mouseup when mousedown is not-canceled
-  NOTRUN    Child frame receives mousedown/mouseup when mousedown is canceled
+OK           0/2  uievents/mouse/cancel-mousedown-in-subframe.html
+  FAIL      Child frame receives mousedown/mouseup when mousedown is not-canceled
+  FAIL      Child frame receives mousedown/mouseup when mousedown is canceled
 ERROR        0/2  uievents/mouse/layer-coords-transform.html
   TIMEOUT   layer-coords-transform
   NOTRUN    layer-coords-transform 1

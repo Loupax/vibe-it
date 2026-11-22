@@ -134,20 +134,57 @@
     a.__peer = b; b.__peer = a;
     this.port1 = a; this.port2 = b;
   });
-  def(g, 'postMessage', function (msg, target) {
+  // QMSG1: the window's posted-message task queue (HTML "posted message task source"). Kept explicit so QEL8 can
+  // move it to its own task queue: each entry is one task, run in order, one per timer turn for now.
+  var msgq = [];
+  function postMessageTask(fn) { msgq.push(fn); tm(function () { var t = msgq.shift(); if (t) t(); }); }
+  Object.defineProperty(g, '__scratchy_post_task', { value: postMessageTask, configurable: true });
+  function isPort(p) { return p !== null && typeof p === 'object' && '__peer' in p && '__started' in p && '__q' in p; }
+  def(g, 'postMessage', function (msg, target, transfer) {
     if (arguments.length < 1) throw new TypeError("Failed to execute 'postMessage' on 'Window': 1 argument required, but only 0 present.");
-    var origin = g.location.origin;
-    if (target && typeof target === 'object') target = target.targetOrigin;
-    if (target !== undefined && target !== '*' && target !== '/' && String(target) !== origin) return;
-    if (g.closed) return;
+    // postMessage(message, targetOrigin, transfer) or postMessage(message, {targetOrigin, transfer}); the default origin is "/".
+    var tgt = '/';
+    if (arguments.length >= 2 && (target === undefined || target === null || typeof target === 'object' || typeof target === 'function')) {
+      var o = target === undefined || target === null ? {} : target;
+      var to = o.targetOrigin;
+      tgt = to === undefined ? '/' : String(to);
+      transfer = o.transfer;
+    } else if (arguments.length >= 2) {
+      tgt = String(target);
+    }
+    var list = [];
+    if (transfer !== undefined && transfer !== null) {
+      if (typeof transfer !== 'object' || typeof transfer[Symbol.iterator] !== 'function') throw new TypeError("Failed to execute 'postMessage' on 'Window': The provided value cannot be converted to a sequence.");
+      list = Array.prototype.slice.call(transfer);
+    }
+    // The incumbent (sender) window: the realm Rust or `__scratchy_enter` entered.
+    var src = g, sorigin = g.location.origin;
+    try { src = g.__scratchy_incumbent(); sorigin = src.location.origin; } catch (e) { src = g; sorigin = g.location.origin; }
+    var want = null;  // null: any origin
+    if (tgt === '/') want = sorigin;
+    else if (tgt !== '*') {
+      var tu;
+      try { tu = new g.URL(tgt); } catch (e) { throw dom("Failed to execute 'postMessage' on 'Window': Invalid target origin '" + tgt + "' in a call to 'postMessage'.", 'SyntaxError'); }
+      want = tu.origin;
+    }
+    var i, j;
+    for (i = 0; i < list.length; i++) {
+      if (!isPort(list[i])) throw dom("Failed to execute 'postMessage' on 'Window': Value at index " + i + " does not have a transferable type.", 'DataCloneError');
+      for (j = 0; j < i; j++) if (list[j] === list[i]) throw dom("Failed to execute 'postMessage' on 'Window': Transferable at index " + i + " is a duplicate.", 'DataCloneError');
+    }
     // QPT1d (R53 D8): runs in the TARGET realm (`g`): cloned with the target's intrinsics, a target-realm
-    // MessageEvent. The sender is the incumbent window (`__scratchy_incumbent`: the realm Rust or
-    // `__scratchy_enter` entered), so `parent.postMessage` from a realm has that realm as `source`/`origin`.
-    var d = clone(msg), src = g, sorigin = origin;
-    try { src = g.__scratchy_incumbent(); sorigin = src.location.origin; } catch (e) { src = g; sorigin = origin; }
+    // MessageEvent; `parent.postMessage` from a realm has that realm as `source`/`origin`.
+    var d = clone(msg);
+    if (g.closed) return;
+    if (want !== null && want !== g.location.origin) return;  // mismatch: dropped silently
     // QPT1-D1: across an opaque (data:) boundary the receiver only gets a cross-origin view of the sender.
     if (src !== g && g.__scratchy_xo && (src.__scratchy_opaque || g.__scratchy_opaque)) src = g.__scratchy_xo(src);
-    tm(function () { if (!g.closed) g.dispatchEvent(new MessageEvent('message', { data: d, origin: sorigin, source: src, ports: [] })); });
+    // The listeners run with the receiving realm entered, so what they post has that window as source.
+    postMessageTask(function () {
+      if (g.closed) return;
+      var fire = function () { g.dispatchEvent(new MessageEvent('message', { data: d, origin: sorigin, source: src, ports: list })); };
+      if (g.top !== g && typeof g.__scratchy_enter === 'function') g.__scratchy_enter(g, fire); else fire();  // the page window is its own incumbent already
+    });
   });
 
   // ---- requestIdleCallback ----

@@ -1516,9 +1516,9 @@ OK           2/2  dom/nodes/Node-normalize-2.html
 OK           4/4  dom/nodes/Node-normalize.html
 OK         11/12  dom/nodes/Node-parentElement.html
   FAIL      When the parent is a document, parentElement should be null (doctype)
-TIMEOUT      3/5  dom/nodes/Node-parentNode.html
+OK           3/5  dom/nodes/Node-parentNode.html
   FAIL      Doctype
-  NOTRUN    Removed iframe
+  FAIL      Removed iframe
 OK       690/726  dom/nodes/Node-properties.html
   FAIL      document.childNodes[0]
   FAIL      document.textContent

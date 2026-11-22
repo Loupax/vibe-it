@@ -3776,7 +3776,12 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   var frameHtml = function (el) {
     var sd = frameSrcdoc(el);
     if (sd != null) return sd;
-    return frameIsData(el) ? dataHtml(frameSrc(el)) : null;
+    if (frameIsData(el)) return dataHtml(frameSrc(el));
+    // QMSG1: a pre-fetched same-origin document (QA18b1) loads like a srcdoc: its scripts run in its realm.
+    var s = frameSrc(el);
+    if (s === '' || /^(about|data):/i.test(s)) return null;
+    var pg = __d_iframe_page(el.__id);
+    return pg.length ? pg[1] : null;
   };
   var XO_NAMES = { postMessage: 1, close: 1, closed: 1, focus: 1, blur: 1, frames: 1, length: 1, location: 1, opener: 1, parent: 1, self: 1, top: 1, window: 1 };
   var xoViews = new WeakMap();
@@ -4004,6 +4009,11 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (__d_tag(id).toLowerCase() !== 'iframe') return;
     if (s && nFrames) dropFrame(id);
     if (s && inPage(wrap(id)) && frameHtml(wrap(id)) != null) loadFrameLater(wrap(id));
+    else if (n === 'src' && inPage(wrap(id)) && frameSrc(wrap(id)) !== '' && !frameSrcOk(wrap(id))) {
+      // QMSG1: a navigation to a document scratchy does not load completes at once, so scripts waiting for `load` go on.
+      var ne = wrap(id);
+      g.setTimeout(function () { if (inPage(ne)) ne.dispatchEvent(new g.Event('load')); }, 0);
+    }
     else if (nm && frames[id] && frames[id].realm && inPage(frames[id].el)) frames[id].win.name = __d_attr(id, 'name') || '';
     if (inPage(wrap(id))) syncWin();
   };

@@ -902,8 +902,8 @@ TIMEOUT  108/120  shadow-dom/declarative/declarative-shadow-dom-opt-in.html
   FAIL      document.write disallowed on fresh document
   FAIL      iframe
   FAIL      iframe, no sandbox
-  TIMEOUT   sandboxed iframe allows declarative Shadow DOM
-  TIMEOUT   iframe with no sandbox allows declarative Shadow DOM
+  FAIL      sandboxed iframe allows declarative Shadow DOM
+  FAIL      iframe with no sandbox allows declarative Shadow DOM
 OK           0/1  shadow-dom/declarative/declarative-shadow-dom-repeats-2.html
   FAIL      Repeated declarative shadow roots keep only the first
 OK           0/2  shadow-dom/declarative/declarative-shadow-dom-repeats-slot-assignment.html
