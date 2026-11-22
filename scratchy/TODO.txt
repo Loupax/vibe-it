@@ -133,7 +133,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       select.selectedOptions and map.images as live HTMLCollections. --wpt-th per-area table.
 - [ ] QDOM5b [S] (P3, from QDOM5 #556; Sonnet; js_dom.rs Range block) Live Range fix-ups for outerHTML /
       insertAdjacentHTML (`__d_write`) and cross-document adopt; look at the remaining Range-attribute-nodes failures (19/26).
-- [ ] QDOM6b [S] (P2, from QDOM6 #526; Sonnet; js_dom.rs) `createElementNS(null, name)` creates an HTML-namespace element
+- [ ] [WIP] QDOM6b [S] (P2, from QDOM6 #526; Sonnet; js_dom.rs) `createElementNS(null, name)` creates an HTML-namespace element
       (old quirk): use `__d_create_xml` (null namespace, name unchanged) as created XML documents already do. Test + --wpt-th.
 - [ ] QDOM8b [S] (P3, from QDOM8 #539; Sonnet; js_dom.rs serialize) XML serialization: CDATASection as `<![CDATA[..]]>`,
       ProcessingInstruction as `<?target data?>` in XMLSerializer / outerHTML of XML documents.
