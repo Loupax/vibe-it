@@ -594,7 +594,7 @@ fn skel_flags(s: &ComputedStyle) -> u8 {
     if s.inset.bottom.is_none() {
         f |= SK_BOTTOM_AUTO;
     }
-    if s.animations.is_some() {
+    if s.animations.is_some() || s.transitions.is_some() {
         f |= SK_ANIM;
     }
     f

@@ -386,6 +386,8 @@ pub(crate) struct ComputedStyle {
     pub(crate) text_overflow: TextOverflow,
     /// QAN1a: the interned animation lists (parse only, not evaluated yet).
     pub(crate) animations: Option<AnimRef>,
+    /// QANIMHLb: the interned transition lists.
+    pub(crate) transitions: Option<TransRef>,
     /// `appearance: none` (Q30a): form controls keep their text but get no
     /// widget decorations (check mark, select arrow, bar fill). Not inherited.
     pub(crate) appearance_none: bool,
@@ -2578,6 +2580,8 @@ pub(crate) fn resolve_style_for(
             None => base, // QY53i3: a handle of a freed arena
         },
     };
+    // QANIMHLb: transitions (one flag test when the element declares none and none run anywhere).
+    let out = crate::transition::apply(handle, pseudo, &base, out);
     // QINC1f: the shadow check records what the from-scratch build resolved (off: one flag test).
     crate::incr_style::record(handle, pseudo, &out, rec);
     out
@@ -3281,6 +3285,7 @@ pub(crate) fn resolve_style_core<'a>(
         overflow_y,
         text_overflow,
         animations: cascade_animations(&matches, inl),
+        transitions: cascade_transitions(&matches, inl),
         contain_lp: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.contain_lp), |d| d.contain_lp).unwrap_or(false),
         appearance_none: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.appearance_none), |d| d.appearance_none)
             .unwrap_or(false),
@@ -3411,6 +3416,7 @@ pub(crate) fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         overflow_y: Overflow::default(),
         text_overflow: TextOverflow::default(),
         animations: None,
+        transitions: None,
         contain_lp: false,
         appearance_none: false,
         check_widget: 0,

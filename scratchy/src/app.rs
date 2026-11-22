@@ -1339,7 +1339,7 @@ impl App {
     /// an animation frame callback waits and its 60 Hz frame time has come, a `resize` is owed, or an
     /// animation event/change is due. Returns true when it ran.
     pub(crate) fn rendering_update_if_due(&mut self) -> bool {
-        let anim_due = !self.anim.is_idle() && self.anim_wake.is_some_and(|t| t <= app_clock_ms());
+        let anim_due = !self.anims_idle() && self.anim_wake.is_some_and(|t| t <= app_clock_ms());
         let raf_ts = self.js.as_ref().and_then(|js| {
             let due = js.raf_due_ms()?;
             let now = js.now_ms();
@@ -2952,14 +2952,41 @@ impl App {
         ok
     }
 
+    /// QANIMHLb: no CSS animation and no CSS transition needs the clock.
+    pub(crate) fn anims_idle(&self) -> bool {
+        self.anim.is_idle() && !crate::transition::live()
+    }
+
     /// QAN1c: dispatches the animation events due at app clock `now` (ms),
     /// queues one restyle if an animation started or ended since the last
     /// build, and returns the app-clock time of the next change.
     pub(crate) fn anim_tick(&mut self, now: f64) -> Option<f64> {
-        if self.anim.is_idle() {
+        if self.anims_idle() {
             return None;
         }
-        let t = self.anim.tick(now);
+        let mut t = if self.anim.is_idle() { AnimTick::default() } else { self.anim.tick(now) };
+        // QANIMHLb: CSS transitions. In-between restyles no more often than every max(33 ms, twice
+        // the last build) (QAN1-D D3's 30 fps cap); none at all (end values only) after a build slower
+        // than `HOVER_SLOW_BUILD`'s 50 ms, as QAN1d planned for layout-affecting animations.
+        let build_ms = self.last_build_time.map_or(0.0, |d| d.as_secs_f64() * 1000.0);
+        let interval = if build_ms > 50.0 { f64::INFINITY } else { (1000.0 / 30.0f64).max(2.0 * build_ms) };
+        let tt = crate::transition::tick(now, interval);
+        t.restyle |= tt.restyle;
+        t.next = match (t.next, tt.next) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
+        for ev in tt.events {
+            let init = [
+                ("bubbles", EventField::Bool(true)),
+                ("propertyName", EventField::Str(ev.property.to_string())),
+                ("elapsedTime", EventField::Num(ev.elapsed_s)),
+                ("pseudoElement", EventField::Str(ev.pseudo)),
+            ];
+            if let Some(node) = ev.node {
+                self.js_dispatch(Some(&node), ev.kind, &init);
+            }
+        }
         for ev in t.events {
             let init = [
                 ("bubbles", EventField::Bool(true)),
@@ -5272,7 +5299,7 @@ impl crate::event_loop::RenderingHost for App {
         self.sync_js_viewport();
     }
     fn update_animations(&mut self) {
-        if !self.anim.is_idle() {
+        if !self.anims_idle() {
             self.anim_wake = self.anim_tick(app_clock_ms());
         }
     }
@@ -5364,7 +5391,7 @@ impl ApplicationHandler<AppEvent> for App {
         // observer hooks -> paint), when its frame is due.
         self.rendering_update_if_due();
         let now_ms = app_clock_ms();
-        let anim_at = self.anim_wake.filter(|_| !self.anim.is_idle()).map(|ms| std::time::Instant::now() + std::time::Duration::from_secs_f64(((ms - now_ms).max(0.0) + 1.0) / 1000.0));
+        let anim_at = self.anim_wake.filter(|_| !self.anims_idle()).map(|ms| std::time::Instant::now() + std::time::Duration::from_secs_f64(((ms - now_ms).max(0.0) + 1.0) / 1000.0));
         let js_at = self.js.as_ref().and_then(|js| [js.next_deadline(), js.raf_deadline()].into_iter().flatten().min());
         let ctl_at = self.controls_refresh();
         let sb_at = self.scrollbar_hold_tick();

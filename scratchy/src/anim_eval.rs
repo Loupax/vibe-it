@@ -44,6 +44,26 @@ pub(crate) fn animation_passes() -> u64 {
     ANIM_PASSES.with(Cell::get)
 }
 
+thread_local! {
+    /// QANIMHLb: the headless page clock of the task in progress (`event_loop::headless_turn`), so a
+    /// transition a script starts between rendering updates starts at the page's time.
+    static TASK_CLOCK: Cell<Option<f64>> = const { Cell::new(None) };
+}
+
+pub(crate) fn set_task_clock(ms: Option<f64>) {
+    TASK_CLOCK.with(|c| c.set(ms));
+}
+
+/// The clock a new transition starts at: the task clock when set, else the document clock.
+pub(crate) fn start_clock_ms() -> f64 {
+    TASK_CLOCK.with(Cell::get).unwrap_or_else(document_clock_ms)
+}
+
+/// QANIMHLb: whether the read-only evaluation mode (the incremental shadow run) is on.
+pub(crate) fn readonly() -> bool {
+    ANIM_READONLY.with(Cell::get)
+}
+
 /// QINC1f: switches the read-only evaluation mode; returns the previous value.
 pub(crate) fn set_readonly(on: bool) -> bool {
     ANIM_READONLY.with(|r| r.replace(on))
@@ -62,12 +82,21 @@ pub(crate) fn retain_starts(keep: impl Fn(usize, bool) -> bool) {
 /// reduced-motion `*` rule) does not. QANIMHL: an empty `@keyframes x {}` counts too: it changes no
 /// value but runs (and fires its events), so it must be reported by every update.
 pub(crate) fn is_animated(style: &ComputedStyle, viewport_width: f32) -> bool {
+    // QANIMHLb: a running CSS transition follows the clock like an animation.
+    if crate::transition::has_running(style.node, style.pseudo) {
+        return true;
+    }
     let Some(a) = style.animations else { return false };
     let Some(lists) = a.table() else { return false };
     lists
         .resolve()
         .iter()
         .any(|a| a.name.as_deref().is_some_and(|n| lookup_keyframes(n, viewport_width).is_some()))
+}
+
+/// QANIMHLb: the number of the style pass in progress (start times and transitions age by it).
+pub(crate) fn current_pass() -> u64 {
+    ANIM_PASS.with(|p| p.get())
 }
 
 /// QINC1f test seam: the start time kept for `(node, is pseudo, index, name)`.
@@ -144,11 +173,13 @@ pub(crate) fn set_document_clock(ms: f64) {
 /// App clock: milliseconds since the navigation `generation` first built
 /// (navigation start for now; no frame loop, one evaluation per restyle).
 pub(crate) fn set_app_clock(generation: u64) {
+    TASK_CLOCK.with(|c| c.set(None));
     if let Some(ms) = APP_CLOCK_OVERRIDE.with(|c| c.get()) {
         APP_NAV.with(|n| {
             if n.get().is_none_or(|(g, _)| g != generation) {
                 n.set(Some((generation, std::time::Instant::now())));
                 ANIM_STARTS.with(|s| s.borrow_mut().clear());
+                crate::transition::reset();
             }
         });
         set_document_clock(ms);
@@ -160,6 +191,7 @@ pub(crate) fn set_app_clock(generation: u64) {
         _ => {
             n.set(Some((generation, now)));
             ANIM_STARTS.with(|s| s.borrow_mut().clear());
+            crate::transition::reset();
             now
         }
     });
@@ -171,6 +203,7 @@ pub(crate) fn set_app_clock(generation: u64) {
 pub(crate) fn finish_animation_pass() {
     let pass = ANIM_PASS.with(|p| p.get());
     ANIM_STARTS.with(|s| s.borrow_mut().retain(|_, e| e.seen == pass));
+    crate::transition::finish_pass(pass);
     ANIM_PASS.with(|p| p.set(pass + 1));
     let mut rep = ANIM_REPORT.with(|r| std::mem::take(&mut *r.borrow_mut()));
     let mut seen = std::collections::HashSet::new();
@@ -322,7 +355,7 @@ pub(crate) trait Interp: Copy {
     fn same(a: &Self, b: &Self) -> bool;
 }
 
-fn lerp(a: f32, b: f32, t: f32) -> f32 {
+pub(crate) fn lerp(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t
 }
 
@@ -385,15 +418,15 @@ impl Interp for i32 {
     }
 }
 
-fn axis_lerp(a: TranslateAxis, b: TranslateAxis, t: f32) -> TranslateAxis {
+pub(crate) fn axis_lerp(a: TranslateAxis, b: TranslateAxis, t: f32) -> TranslateAxis {
     TranslateAxis { px: lerp(a.px, b.px, t), frac: lerp(a.frac, b.frac, t) }
 }
 
-const ZERO_AXIS: TranslateAxis = TranslateAxis { px: 0.0, frac: 0.0 };
+pub(crate) const ZERO_AXIS: TranslateAxis = TranslateAxis { px: 0.0, frac: 0.0 };
 
 /// `Option<T>`: both set interpolate; both unset stay unset; one unset is
 /// discrete.
-fn opt_interp<T: Interp>(a: &Option<T>, b: &Option<T>, t: f32) -> Option<Option<T>> {
+pub(crate) fn opt_interp<T: Interp>(a: &Option<T>, b: &Option<T>, t: f32) -> Option<Option<T>> {
     match (a, b) {
         (Some(x), Some(y)) => T::interp(x, y, t).map(Some),
         (None, None) => Some(None),
@@ -401,7 +434,7 @@ fn opt_interp<T: Interp>(a: &Option<T>, b: &Option<T>, t: f32) -> Option<Option<
     }
 }
 
-fn opt_same<T: Interp>(a: &Option<T>, b: &Option<T>) -> bool {
+pub(crate) fn opt_same<T: Interp>(a: &Option<T>, b: &Option<T>) -> bool {
     match (a, b) {
         (Some(x), Some(y)) => T::same(x, y),
         (None, None) => true,
@@ -410,7 +443,7 @@ fn opt_same<T: Interp>(a: &Option<T>, b: &Option<T>) -> bool {
 }
 
 /// Colour-valued optional: `None` (no colour) interpolates as transparent.
-fn color_opt(a: &Option<TextColor>, b: &Option<TextColor>, t: f32) -> Option<TextColor> {
+pub(crate) fn color_opt(a: &Option<TextColor>, b: &Option<TextColor>, t: f32) -> Option<TextColor> {
     if a.is_none() && b.is_none() {
         return None;
     }
