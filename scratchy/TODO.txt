@@ -47,7 +47,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       `detail` click counts, dblclick, auxclick, contextmenu, keypress outside text controls.
 - [ ] QWPT7c [S] (P3, from QWPT7 #611; Sonnet; js_geom hit test) Hit-testing gaps: `pointer-events: none`, SVG content
       (mouseEvent-offsetXY-svg), element scroll offsets, accesskey.
-- [ ] QWPT8 [M] (P2; Sonnet; tools/, wire --map-host; user answered Q2 2026-11-21) Phase 2 server: tools/wptserve.sh
+- [ ] [WIP] QWPT8 [M] (P2; Sonnet; tools/, wire --map-host; user answered Q2 2026-11-21) Phase 2 server: tools/wptserve.sh
       (python3 ./wpt serve from a checkout that includes tools/), wire `--map-host
       '*.web-platform.test=127.0.0.1'`, runner `--server wptserve`; add fetch/ and xhr/ to the subset.
 - [ ] QWPT9 [S] (P3; Sonnet; wire; user Q8 2026-11-21: LATER, with fetch, after QWPT8; never for any other host) https tests: wire trusts WPT's test CA for
@@ -170,6 +170,9 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       (browsers do; today the Document object is reused), which then lets a `src` set after insertion reuse the initial
       window too (url.window.html, remove-initial-about-blankness.window.html must stay passing). Also url-fragment.window.html
       is load-dependent (CRASH / 0 / 2 subtests in 5 of 10 loaded runs): find why.
+- [ ] QDOM11b [S] (P3, from QDOM11 #612; Sonnet) XML leftovers: show top-level XML/XHTML/SVG pages in the App
+      (`dispatch_wire_response` rejects them today); document.write/open/close on XML documents; keep the internal DTD
+      subset on the doctype (isEqualNode); XML in `data:` iframes.
 - [ ] QDOM10b [S] (P3, from QDOM10 #580; Sonnet; js.rs dispatch, iframe realms) window.event across realms: constructors
       from another global (EventTarget, XMLHttpRequest), an element from another document, a listener from a different
       global, window.event after moving an element post-dispatch (event-global-extra.window.html 1/6), onerror restoring
