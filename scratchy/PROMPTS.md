@@ -9258,3 +9258,11 @@ Eased viewport scroll (user design #532, D1-D8): `App::scroll_target`, `scroll_a
 > QCSS-E [S] (P2, from QAPI8 #578; Sonnet; css.rs, layout/paint) Per-corner radii, `outline-offset`, `transform-origin`, `border-spacing`, `letter-spacing`, `direction`.
 
 **What changed:** see NOTES.md "Box and text properties (QCSS-E)". `border_radius` became a `CornerRadii` (elliptical corners, `%` per axis, overlap scaling), `outline_offset`, `transform_origin`, `border_spacing` (tables), `letter_spacing` (cosmic-text em), `direction` + `text-align: start|end` (initial `start`). getComputedStyle prints all of them (`border-radius` shortest form; `%` values now print as percentages). `style_diff`: radii, outline offset and origin Paint; letter-spacing, direction, border-spacing Layout. Tests: src/tests/qcss_e_tests.rs (two existing tests adjusted for the `CornerRadii` type: cascade_tests border_radius_percent..., forms_tests).
+
+## QWPT12: html/canvas in the testharness gate (agent item)
+
+> QWPT12 [S] (P2; Sonnet; tools/wpt-dirs.txt, tools/wpt-subset.py AREAS, wpt-th/) Put the `<canvas>` tests in the testharness gate (`--wpt-th`): html/canvas/element, html/canvas/offscreen, html/canvas/other, usual phase-1 exclusions, `.tentative.` included; regenerate subset.txt, `--update`, report counts and added CI time.
+
+**What changed:** `html/canvas` in tools/wpt-dirs.txt (CI cache key changes), three AREAS in wpt-subset.py, regenerated wpt-th/subset.txt (3,254 -> 5,608 URLs), expected files html-canvas-{element,offscreen,other}.txt, areas.txt. No Rust changes.
+
+**Measured:** element 1,276 files (3,021 subtests, 40 pass, score 2.8), offscreen 1,074 (1,370 subtests, 0 pass), other 4 (18 subtests, 0 pass). Skips in the canvas dirs: worker variants 1,040, .https./.sub. 77, test_driver calls 5, testdriver 1, timeout=long 2. Five stability runs: identical. Local time ~1.5-3 min for the three areas at --jobs 4.
