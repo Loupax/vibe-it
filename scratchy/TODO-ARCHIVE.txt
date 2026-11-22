@@ -1230,30 +1230,6 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       band where a browser shows a full olive 800x600. Share the fill (one helper used
       by both). Acceptance: full `--wpt`; record every flip (both directions) in the
       PR, do not assume.
-- [ ] QFF1a [M] (P2) `@font-face` web fonts, ttf/otf/woff first. Parse `@font-face`
-      (font-family, `src` list with `url()` + `format()` and `local()`, font-weight /
-      font-style (single values and ranges), `unicode-range`; ignore `font-display`
-      (always swap), `size-adjust`/`ascent-override` etc. for now) including inside
-      `@media`/`@supports` (at-supports-content-002). Fetch each used face's first
-      supported url through wire like CSS images (`fetch_wanted_css_images` pattern,
-      page partition headers, CORS anonymous mode per spec, same cache rules), decode
-      ttf/otf directly and woff (zlib; flate2 is already in the dependency tree via
-      png) and load the bytes into BOTH font systems (main `App::font_system` for
-      paint, the shaping worker's own one: a new `ShapingRequest` field or message)
-      under a per-page mangled family name that `FontFamilyItem::Name` resolution maps
-      to (so faces do not leak across pages; fontdb `remove_face` on navigation), then
-      a restyle. `local()` = look the name up in the system fontdb. Test: a page with
-      `@font-face{font-family:X;src:url(Ahem.ttf)}` served by a local server lays
-      text out with Ahem metrics; navigation away removes it. Acceptance: WPT
-      at-supports-content-002 (record); github/guardian (Guardian has ttf/woff too)
-      nested-dwl grims before/after. Pages: 88 faces on 6 of 9 surveyed pages (BBC
-      35, Guardian 30, YouTube 11, GitHub 6, DDG 6); 1 023 no-script WPT reftests.
-- [ ] QFF1b [M] (after QFF1a) woff2: needs Brotli plus the glyf/loca transform
-      reconstruction. Pick a pure-Rust crate (check what exists and its size/licence
-      first; do not vendor), or skip woff2 faces whose `src` list has no other format
-      (most real pages list woff2 first and woff/ttf after it only sometimes: BBC and
-      GitHub ship woff2 only). Test: ic-unit-003 (woff2) and a woff2 copy of Ahem.
-      Unblocks the 298 css/WOFF2 reftests (record how many run).
 - [ ] QFF1c [S] (after QFF1a) `document.fonts` / `FontFace` minimal (`ready` promise
       resolved after the faces loaded, `check()`, `load()`, `add()`): GitHub
       references `FontFace`/`document.fonts` (2); keep it honest (QY6g style).

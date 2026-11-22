@@ -7,6 +7,8 @@ their section with the date.
 
 ## Direction and process
 
+- **2026-11-22 Web fonts are rendered.** `@font-face` (QFF1a ttf/otf/woff, then QFF1b woff2) is
+  un-archived and scheduled; fonts are fetched through wire like CSS images and scoped per page.
 - **2026-11-22 No GitHub Support purge of the cached PR refs.** The scratch files still reachable
   through PR #496/#498 refs were checked: test logs, a throwaway wire binary and its dead
   socket token, logged-out screenshots of public pages. Nothing personal; leave them.
