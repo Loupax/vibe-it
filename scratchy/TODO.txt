@@ -321,7 +321,7 @@ UI: scrollbar
 UI: smooth scrolling (user design discussion 2026-11-21; user accepted every proposal below)
 ========================================================================
 
-- [ ] QSMOOTH1 [S] (P3; Sonnet; app.rs, config.rs; cosmetic) Ease the top-level viewport scroll
+- [ ] [WIP] QSMOOTH1 [S] (P3; Sonnet; app.rs, config.rs; cosmetic) Ease the top-level viewport scroll
       toward its target instead of jumping there in one frame.
       Today: every input writes `App::scroll_offset` directly and requests a redraw (the
       `WindowEvent::MouseWheel` viewport branch `scroll_offset -= dy`; `scroll_by` for j/k/arrows/

@@ -187,3 +187,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #543 conflicted on areas.txt itself -> merging it with its own new script (temp copy). #546 QEL6 READY (queued). Launched QDOM16.
 - 2026-11-22 Merged #543 QWPT10 a970657 (merge_pr auto-rebuilds areas.txt). Reinstalling so ~/.cargo/bin/scratchy has --areas-only, then queue #535 #529 #539 #547 #546.
 - 2026-11-22 #548 QMSG1 READY (webmessaging 38.1 -> 63.4, total 32.9) but pre-fetched same-origin iframes now run scripts: sent back for gate-page + live CPU measurement before merge. Filed QMSG1b.
+- 2026-11-22 Merged #535 QXSCR1 f0ef0c1 (horizontal scrolling). #529 conflict NOTES.md, #539 conflict js_dom_tests.rs -> rebases. #541 QSCR404 rebased, queued after #533. Launched QSMOOTH1 (user item) + sent #539 rebase; #529 rebase next slot.
