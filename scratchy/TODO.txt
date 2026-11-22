@@ -51,7 +51,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       increase after QEL1 (observer deliveries 41-59 -> 109-112 per 30 s, forced layouts 31-34 -> 41-49): add a per-observer
       type breakdown (MO/IO/RO) and a rAF callback count to --perf-report, measure main vs QEL1, say whether the page simply
       gets further (correct) or the driver does redundant work (fix item).
-- [ ] QWPT11 [S] (P2, from QWPT10 #543; Sonnet; ci.yml) Main's push CI does not run the --wpt-th gate (only PR CI does), so a
+- [ ] [WIP] QWPT11 [S] (P2, from QWPT10 #543; Sonnet; ci.yml) Main's push CI does not run the --wpt-th gate (only PR CI does), so a
       gate regression that lands through a merge is never seen on main. Run the gate on main pushes too (report-only or
       blocking: blocking for the scratchy job), within the CI time budget (Q4: split only past 5 min).
 - [ ] QCE1 [S] (P3, from QWPTFLK3 #550; Sonnet; html parser + js_dom.rs custom elements) Customized built-ins created by
