@@ -22,7 +22,8 @@ green() { [ "$(gh pr view "$N" --json statusCheckRollup -q '([.statusCheckRollup
 # Wait until CI has registered checks for the PR's CURRENT head commit (under load this took > 40 s and
 # `gh pr checks --watch` then returned at once with no checks: false "CI NOT green", #580 2026-11-22), then watch.
 waitci() {
-  local sha i n; sha=$(gh pr view "$N" --json headRefOid -q .headRefOid)
+  # $1 = the sha we just pushed (right after a push, `gh pr view` can still return the OLD head: #587 2026-11-22)
+  local sha=${1:-} i n; [ -n "$sha" ] || sha=$(gh pr view "$N" --json headRefOid -q .headRefOid)
   # check runs only exist once jobs START; a run queued behind main's runs has none. So wait (up to 40 min) on the
   # workflow run for this sha itself, then for all 4 check runs.
   local rid=""
@@ -170,7 +171,7 @@ if [ "$NEWH" != "$(git rev-parse "$HEAD")" ]; then
   echo "PR #$N: rebased onto origin/main (main code moved: ${CODE:-no}), pushing"
   ( cd "$W" && git push -q -f origin "HEAD:$BR" ) || { git worktree remove --force "$W"; exit 3; }
   git worktree remove --force "$W"; git branch -D "mq-$N" >/dev/null
-  waitci || { echo "PR #$N: CI NOT green after rebase"; exit 1; }
+  waitci "$NEWH" || { echo "PR #$N: CI NOT green after rebase"; exit 1; }
 else
   echo "PR #$N: already on latest main"
   git worktree remove --force "$W"; git branch -D "mq-$N" >/dev/null
