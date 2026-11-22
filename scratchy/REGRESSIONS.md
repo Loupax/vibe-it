@@ -2318,6 +2318,11 @@ images.rs builder; **jsdom** = js_dom.rs + forms*.rs natives; **geom** = js_geom
   KEPT (rewritten against observable behaviour where they called a deleted function: same pages, same asserted rects /
   pixels / layout counts). `SCRATCHY_INCR=0` then means "from scratch every time" (slow, correct). Gate: full suite, WPT,
   clippy count does not rise, R58/R55 recipes not slower than after QINC1l.
+  QINC1m DONE (2026-11-22, user go): everything in the list above is deleted except the per-build `MATCH_MEMO` (the
+  engine's shadow stage takes the build's matches from it); `SCRATCHY_INCR` was removed outright instead of meaning
+  "from scratch" (DECISIONS 2026-11-22: keep only `SCRATCHY_INCR_CHECK`). The tests of the deleted skips were deleted, not
+  rewritten (task instruction: tests that exist solely for the removed path; they already returned early with the engine
+  on, and check mode compares every engine update with the from-scratch layout). Numbers: PROMPTS.md / the PR.
 - Optional, filed only on QINC1k's numbers: **QINC1n [L]** relative-coordinate shared fragments (R60 14.1); **QINC1o [M]**
   damage-rect repaint from the touched-roots list (with QAN1d); **QINC1p [S]** `getComputedStyle` from the element table for
   rendered elements (`StyleCache` only for the rest); **QINC1q [M]** stylesheet invalidation by the added/removed rules'
