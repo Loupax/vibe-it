@@ -9444,3 +9444,12 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       nested-dwl grims before/after. Pages: 88 faces on 6 of 9 surveyed pages (BBC
       35, Guardian 30, YouTube 11, GitHub 6, DDG 6); 1 023 no-script WPT reftests.
       User approved 2026-11-22 (DECISIONS.md): un-archived; web fonts are rendered.
+
+=== from TODO.txt: --- (no header)
+- [x] QFF1b DONE c6b96f1 #598 [M] (P2, un-archived 2026-11-22, after QFF1a; Opus) woff2: needs Brotli plus the glyf/loca transform
+      reconstruction. Pick a pure-Rust crate (check what exists and its size/licence
+      first; do not vendor), or skip woff2 faces whose `src` list has no other format
+      (most real pages list woff2 first and woff/ttf after it only sometimes: BBC and
+      GitHub ship woff2 only). Test: ic-unit-003 (woff2) and a woff2 copy of Ahem.
+      Unblocks the 298 css/WOFF2 reftests (record how many run).
+      User approved 2026-11-22 (DECISIONS.md): un-archived; web fonts are rendered.
