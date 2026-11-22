@@ -1125,7 +1125,7 @@ const PRELUDE: &str = r#"
   Object.defineProperty(MediaQueryList.prototype, 'media', { get: function () { return __scratchy_media(this.__q)[1]; }, configurable: true, enumerable: true });
   var mqls = [], mqlSig = null;
   var mqlWatch = function (m) {
-    if (g.parent !== g || typeof g.__scratchy_qel7 !== 'function' || mqls.indexOf(m) >= 0) return;
+    if (typeof g.__scratchy_qel7 !== 'function' || mqls.indexOf(m) >= 0) return;
     Object.defineProperty(m, '__last', { value: !!__scratchy_media(m.__q)[0], writable: true });
     mqls.push(m);
     g.__scratchy_qel7(4, true);
@@ -1142,6 +1142,10 @@ const PRELUDE: &str = r#"
   MediaQueryList.prototype.addListener = function (fn) { this.addEventListener('change', fn); };
   MediaQueryList.prototype.removeListener = function (fn) { this.removeEventListener('change', fn); };
   Object.defineProperty(g, '__scratchy_mql_run', { value: function () {
+    mqlRun();
+    if (g.__scratchy_q7_each) g.__scratchy_q7_each('__scratchy_mql_run', 4);  // QEL7b: the iframe realms' lists
+  } });
+  var mqlRun = function () {
     var sig = g.innerWidth + 'x' + g.innerHeight;
     if (sig === mqlSig) return;
     mqlSig = sig;
@@ -1155,7 +1159,7 @@ const PRELUDE: &str = r#"
       __scratchy_ua(ev);
       try { __scratchy_dispatch(m, ev); } catch (e) {}
     }
-  } });
+  };
   g.matchMedia = function (q) {
     if (arguments.length < 1) throw new TypeError("Failed to execute 'matchMedia' on 'Window': 1 argument required, but only 0 present.");
     var m = Object.create(MediaQueryList.prototype);
@@ -1354,6 +1358,7 @@ const PRELUDE: &str = r#"
       hostname: u.hostname, port: u.port, pathname: u.pathname, search: u.search, hash: u.hash, origin: o.opaque ? 'null' : p.location.origin });
     Object.defineProperty(g, 'isSecureContext', { value: !!p.isSecureContext, writable: true, configurable: true, enumerable: true });
     g.__d_bind_doc(o.docId, o.base, o.dom);
+    g.__scratchy_q7_attach(p);  // QEL7b: scroll / MediaQueryList work is run by the parent's rendering update
     // QSTASH2: a same-origin frame shares its parent's localStorage/sessionStorage; an opaque one keeps its own.
     if (!o.opaque) g.__scratchy_ls_share(p);
     doc.readyState = 'complete';
@@ -1403,6 +1408,7 @@ const PRELUDE: &str = r#"
     }, configurable: true });
     // QPT1b (R53 D6): the parent calls this when it drops the realm.
     Object.defineProperty(g, '__scratchy_realm_release', { value: function () {
+      g.__scratchy_q7_detach();
       g.__d_frames_drop_all();
       g.__d_realm_purge();
       g.__scratchy_set_closed();

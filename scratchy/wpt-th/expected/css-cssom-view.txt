@@ -418,9 +418,7 @@ OK           1/1  css/cssom-view/htmlelement-offset-width-001.html
 OK           0/2  css/cssom-view/image-x-y-zoom.html
   FAIL      x and y properties for image elements with css zoom
   FAIL      x and y properties for image elements with css zoom 1
-OK           0/2  css/cssom-view/inheritance.html
-  FAIL      Property scroll-behavior has initial value auto
-  FAIL      Property scroll-behavior does not inherit
+OK           2/2  css/cssom-view/inheritance.html
 OK           1/2  css/cssom-view/interrupt-hidden-smooth-scroll.html
   FAIL      Make sure the page is ready for animation.
 TIMEOUT      0/0  css/cssom-view/matchMedia-display-none-iframe.html
@@ -485,9 +483,7 @@ OK           8/8  css/cssom-view/offsetTopLeftInScrollableParent.html
 OK           0/2  css/cssom-view/outer-svg.html
   FAIL      clientWidth, clientHeight, clientTop and clientLeft work on outer svg element
   FAIL      scrollWidth, scrollHeight, scrollTop and scrollLeft work on outer svg element
-OK           0/2  css/cssom-view/parsing/scroll-behavior-computed.html
-  FAIL      Property scroll-behavior value 'auto'
-  FAIL      Property scroll-behavior value 'smooth'
+OK           2/2  css/cssom-view/parsing/scroll-behavior-computed.html
 OK           0/3  css/cssom-view/parsing/scroll-behavior-invalid.html
   FAIL      e.style['scroll-behavior'] = "normal" should not set the property value
   FAIL      e.style['scroll-behavior'] = "auto smooth" should not set the property value

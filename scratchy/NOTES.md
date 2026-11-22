@@ -3987,8 +3987,7 @@ thumb is held). A scroll made inside a rAF callback is reported by the next upda
 the thread-local `js_dom::QEL7_BITS` (native `__d_qel7`: 1 scroll queued, 2 scrollend waiting, 4 a MediaQueryList is watched;
 `JsEngine::qel7_bits`). App: `scroll_step_due` triggers an update (at most one per 16 ms, `SCROLL_STEP_GAP`; `scroll_wake` is
 the wake-up); headless: `headless_anim_due` adds the next frame boundary after the first notice (`HeadlessAnim::scroll_since`).
-Iframe realms have no rendering update of their own: their element scroll events keep the old zero-delay timer; no window
-scroll/MQL events there. A scrollTo past the end is reported even when the App clamps it (headless never clamps y).
+QEL7b: iframe realms have no rendering update of their own; each reports its bits up (`__scratchy_q7_kid`) and the top realm's steps run the kids' scroll steps and `__scratchy_mql_run` (a frame's window/element scroll and MQL change are rendering-step events too; only the top realm writes `__d_qel7`). `scrollTo/By` clamp y to the document height in the top realm before reporting (frames have no layout: unclamped). `behavior: smooth` / `scroll-behavior: smooth` (window scroll* and scrollIntoView's window part) goes to the App as `ScrollReq.smooth` and reuses the QSMOOTH1 easing; `SMOOTH_OK` (set by the App when easing is on) keeps headless, frames and tau 0 instant; element containers and x are instant. `visualViewport` never fires `scroll` (offsets are 0). No scroll-snap in scratchy.
 `wheel`: `App::dispatch_wheel` (MouseWheel handler, after the select popup) sends a trusted cancelable `WheelEvent` (pixel
 deltas, `deltaY` > 0 = down, deltaMode 0) at the element under the pointer when a page has a wheel listener
 (`pointer_listener_mask` bit 8); `preventDefault` skips the whole tick (window/document/body listeners are passive by default

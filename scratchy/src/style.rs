@@ -452,6 +452,8 @@ pub(crate) struct ComputedStyle {
     /// QWPT7c: `pointer-events: none` (inherited): hit testing skips the box.
     pub(crate) pointer_events_none: bool,
     pub(crate) border_spacing: (f32, f32),
+    /// QEL7b: `scroll-behavior: smooth` (not inherited).
+    pub(crate) scroll_smooth: bool,
     /// QCSS-E: `outline-offset` px (not inherited; negative moves the outline inside the border
     /// box). The outline's paint reach is `outline_width + max(outline_offset, 0)`.
     pub(crate) outline_offset: f32,
@@ -838,7 +840,7 @@ pub(crate) fn wide_keys(name: &str) -> Option<&'static [&'static str]> {
         "margin-right", "margin-bottom", "margin-left", "padding-top",
         "padding-right", "padding-bottom", "padding-left", "outline-width",
         "outline-color", "box-shadow", "filter", "backdrop-filter", "text-shadow", "mix-blend-mode", "clip-path",
-        "outline-offset", "transform-origin", "border-spacing",
+        "outline-offset", "scroll-behavior", "transform-origin", "border-spacing",
         "letter-spacing", "direction", "pointer-events",
         "overflow-y", "text-overflow", "flex-direction", "flex-wrap", "justify-content", "align-items",
         "align-content", "justify-items", "justify-self", "grid-auto-flow", "align-self", "order", "flex-grow", "flex-shrink", "flex-basis", "row-gap",
@@ -1012,6 +1014,7 @@ pub(crate) fn copy_prop(dst: &mut ComputedStyle, src: &ComputedStyle, key: &str)
         "clip-path" => dst.clip_path = src.clip_path,
         "mix-blend-mode" => dst.mix_blend_mode = src.mix_blend_mode,
         "outline-offset" => dst.outline_offset = src.outline_offset,
+        "scroll-behavior" => dst.scroll_smooth = src.scroll_smooth,
         "transform-origin" => dst.transform_origin = src.transform_origin,
         "border-spacing" => dst.border_spacing = src.border_spacing,
         "letter-spacing" => dst.letter_spacing = src.letter_spacing,
@@ -2663,6 +2666,7 @@ pub(crate) fn resolve_style_core<'a>(
     )
     .map(|(h, v)| (h.resolve(font_size, inherited.root_font_size).max(0.0), v.resolve(font_size, inherited.root_font_size).max(0.0)))
     .unwrap_or(inherited.border_spacing);
+    let scroll_smooth = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.scroll_smooth), |d| d.scroll_smooth).unwrap_or(false);
     let outline_offset = cascade_property(
         &matches,
         inline_decls.as_ref().and_then(|d| d.outline_offset),
@@ -3055,6 +3059,7 @@ pub(crate) fn resolve_style_core<'a>(
         pointer_events_none,
         border_spacing,
         outline_offset,
+        scroll_smooth,
         transform_origin,
         border_collapse,
         text_indent,
@@ -3202,6 +3207,7 @@ pub(crate) fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         pointer_events_none: inherited.pointer_events_none,
         border_spacing: inherited.border_spacing,
         outline_offset: 0.0,
+        scroll_smooth: false,
         transform_origin: INITIAL_TRANSFORM_ORIGIN,
         border_collapse: inherited.border_collapse,
         text_indent: inherited.text_indent,

@@ -144,8 +144,7 @@ OK           0/1  uievents/order-of-events/mouse-events/mousemove-across.html
 OK           1/1  uievents/order-of-events/mouse-events/mousemove-between.html
 OK           1/1  uievents/order-of-events/mouse-events/mouseover-out.html
 OK           1/1  uievents/order-of-events/mouse-events/wheel-basic.html
-OK           0/1  uievents/order-of-events/mouse-events/wheel-multiple-sources-deadlock.html
-  FAIL      Simultaneous wheel events in different directions should not deadlock.
+OK           1/1  uievents/order-of-events/mouse-events/wheel-multiple-sources-deadlock.html
 OK           1/1  uievents/order-of-events/mouse-events/wheel-scrolling.html
 OK           2/9  uievents/textInput/api.html
   FAIL      No constructor

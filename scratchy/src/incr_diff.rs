@@ -120,6 +120,7 @@ pub(crate) fn style_walk(old: &ComputedStyle, new: &ComputedStyle, f: &mut Field
         direction => L,
         border_spacing => L,
         outline_offset => P,
+        scroll_smooth => P,
         transform_origin => P,
         border_collapse => B,
         text_indent => L,
