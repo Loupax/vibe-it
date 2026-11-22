@@ -205,6 +205,25 @@ wire --socket "$S" --mount http://web-platform.test:8000=$HOME/src/wpt \
      --mount-override /resources/testharnessreport.js=./my-report.js
 ```
 
+## Host mapping (`--map-host`, QWPT8)
+
+```
+wire --map-host '*.web-platform.test=127.0.0.1' [--mount-override PATH=FILE]
+```
+
+Lets wire reach a LOCAL web-platform-tests server (wptserve, started by scratchy's `tools/wptserve.sh`) under its real
+hostnames without /etc/hosts. A request whose host is `web-platform.test` or any subdomain connects to `127.0.0.1` on
+the URL's own port, with no DNS lookup, and is exempt from `X-Wire-Policy: public-only` (the operator opted in); the
+class headers say `loopback`. **Allowed:** one suffix per option, mapped to a loopback IP literal. **Refused at start
+(wire exits 1):** a pattern that is not `*.NAME` (no bare `*`, no exact host, no IP literal, no empty label), a suffix of one
+label, a suffix whose last label is not `test`, `localhost`, `invalid` or `example` (so no real site, `.com` etc., can be
+mapped), and any target that is not an IP literal in 127.0.0.0/8 or `::1` (no hostnames, `0.0.0.0`, private or public
+addresses). **Unchanged:** every other host resolves through DNS and is checked by `public-only` exactly as before; a redirect
+from a mapped host to any other host (also a loopback IP literal) is checked at that hop; look-alikes
+(`evil-web-platform.test`, `web-platform.test.evil.com`) do not match. `--mount-override` also answers for mapped hosts
+(the WPT results hook replaces WPT's empty `testharnessreport.js`). No https for mapped hosts yet (QWPT9). Code `src/hostmap.rs`,
+tests `src/hostmap_tests.rs`.
+
 ## Record and replay (`--record`, `--replay`)
 
 `wire --record DIR` stores every network response it serves (a mounted origin

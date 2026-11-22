@@ -1,7 +1,7 @@
 //! QWPT4b (R64 2.3, 2.5, 3.1): the parent of the testharness.js runner.
 //!
 //! `scratchy --wpt-th <checkout> [--jobs N] [--update] [--area A,B,dir/*] [--except A,B] [--wire PATH] [--dir DIR]
-//! [--timeout SECS] [--no-scope] [-v]` (run from `scratchy/`, like `--wpt`):
+//! [--timeout SECS] [--no-scope] [--server mount|wptserve] [-v]` (run from `scratchy/`, like `--wpt`):
 //!
 //! 1. reads `wpt-th/subset.txt` (paths, one per line; `# area: NAME` comments group them),
 //! 2. starts its OWN private `wire --mount ... --mount-override ...` on its own socket in a temp
@@ -39,7 +39,14 @@ const REPORT_JS: &str = include_str!("../tools/wpt/testharnessreport.js");
 const VENDOR_JS: &str = include_str!("../tools/wpt/testdriver-vendor.js");
 /// The pinned WPT commit, for the areas.txt header.
 const WPT_PIN: &str = include_str!("../tools/wpt-pin.txt");
+/// The static mount's origin (wire `--mount`), the default server.
 const ORIGIN: &str = "http://web-platform.test:8000";
+/// QWPT8: areas that need WPT's Python server (`--server wptserve`); tools/wpt-subset.py has the same list.
+/// The default (mount) run skips them, a wptserve run runs only them.
+pub(crate) const WPTSERVE_AREAS: [&str; 3] = ["fetch/api", "fetch/other", "xhr"];
+pub(crate) fn is_wptserve_area(area: &str) -> bool {
+    WPTSERVE_AREAS.contains(&area)
+}
 const CHILD_TIMEOUT: Duration = Duration::from_secs(30);
 
 // ------------------------------------------------------------------ a file's result
@@ -479,6 +486,8 @@ pub(crate) struct ChildCmd {
     pub program: PathBuf,
     pub args: Vec<String>,
     pub verbose: bool,
+    /// `http://web-platform.test:PORT` the test URLs are built on.
+    pub origin: String,
 }
 
 enum ChildEnd {
@@ -524,7 +533,7 @@ fn result_of(cmd: &ChildCmd, entry: &Entry, timeout: Duration) -> FileResult {
     if is_worker_variant(&entry.path) {
         return FileResult::bare("NOT-RUN");
     }
-    match run_child(cmd, &format!("{ORIGIN}/{}", entry.path), timeout) {
+    match run_child(cmd, &format!("{}/{}", cmd.origin, entry.path), timeout) {
         ChildEnd::Line(l) => parse_child_json(&l).unwrap_or_else(|| FileResult::bare("CRASH")),
         ChildEnd::NoResult => FileResult::bare("CRASH"),
         ChildEnd::TimedOut => FileResult::bare("TIMEOUT"),
@@ -570,6 +579,8 @@ pub(crate) struct Config {
     pub jobs: usize,
     pub timeout: Duration,
     pub verbose: bool,
+    /// `--server wptserve` (QWPT8): run only the WPTSERVE_AREAS; false = run everything but those.
+    pub wptserve: bool,
 }
 
 /// One `--area`/`--except` item: an exact area, or `prefix/*` for every area under `prefix/`.
@@ -607,7 +618,14 @@ pub(crate) fn execute(cfg: &Config, cmd: &ChildCmd) -> i32 {
             return 2;
         }
     }
-    let selected = |area: &str| selected_area(cfg.area.as_deref(), cfg.except.as_deref(), area);
+    // QWPT8: an explicitly named area must belong to the chosen server; otherwise each server runs its own areas.
+    for a in cfg.area.iter().flat_map(|l| l.split(',')) {
+        if let Some(x) = area_order.iter().find(|x| area_matches(a, x) && is_wptserve_area(x) != cfg.wptserve) {
+            diag!("scratchy --wpt-th: area {x} {} --server wptserve", if cfg.wptserve { "is served by the static mount: run it without" } else { "needs" });
+            return 2;
+        }
+    }
+    let selected = |area: &str| is_wptserve_area(area) == cfg.wptserve && selected_area(cfg.area.as_deref(), cfg.except.as_deref(), area);
     let entries: Vec<Entry> = all.iter().filter(|e| selected(&e.area)).cloned().collect();
     if entries.is_empty() {
         diag!("scratchy --wpt-th: the --area/--except selection is empty");
@@ -762,6 +780,19 @@ fn wire_has_flag(wire: &std::path::Path, flag: &str) -> bool {
     Command::new(wire).arg("--help").stdin(Stdio::null()).output().is_ok_and(|o| String::from_utf8_lossy(&o.stderr).contains(flag) || String::from_utf8_lossy(&o.stdout).contains(flag))
 }
 
+/// QWPT8: the WPT Python server and its wire are started OUTSIDE this process by `tools/wptserve.sh start CHECKOUT`
+/// (this process runs under QNET1's seccomp filter, which every child inherits: no TCP socket can be created in
+/// it, so python and a wire that dials 127.0.0.1 cannot be our children). We only read the script's state:
+/// `<checkout>/.wptserve/port` and `wire.sock.path`, and check that the wire socket answers.
+pub(crate) fn wptserve_state(checkout: &std::path::Path) -> Result<(u16, PathBuf), String> {
+    let st = checkout.join(".wptserve");
+    let hint = format!("run `tools/wptserve.sh start {} --wire PATH` first", checkout.display());
+    let port = fs::read_to_string(st.join("port")).ok().and_then(|t| t.trim().parse::<u16>().ok()).ok_or_else(|| format!("no wptserve state in {}: {hint}", st.display()))?;
+    let sock = PathBuf::from(fs::read_to_string(st.join("wire.sock.path")).map_err(|_| format!("no wire socket recorded in {}: {hint}", st.display()))?.trim());
+    std::os::unix::net::UnixStream::connect(&sock).map_err(|e| format!("wptserve's wire socket {} does not answer ({e}): {hint}", sock.display()))?;
+    Ok((port, sock))
+}
+
 fn start_wire(wire: &std::path::Path, checkout: &std::path::Path, verbose: bool) -> Result<(PrivateWire, PathBuf), String> {
     let dir = std::env::temp_dir().join(format!("scratchy-wpt-th-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
@@ -849,7 +880,7 @@ pub(crate) fn areas_from_dir(dir: &std::path::Path) -> Result<String, String> {
     Ok(format_areas(&rows))
 }
 
-const USAGE: &str = "usage: scratchy --wpt-th <wpt-checkout> [--jobs N] [--update] [--area A,B,dir/*] [--except A,B] [--wire PATH] [--dir wpt-th] [--timeout SECS] [--no-scope] [-v]\n       scratchy --wpt-th --areas-only [--dir wpt-th]   (rewrite areas.txt from subset/expected/flaky, no test run, no checkout)";
+const USAGE: &str = "usage: scratchy --wpt-th <wpt-checkout> [--jobs N] [--update] [--area A,B,dir/*] [--except A,B] [--wire PATH] [--dir wpt-th] [--timeout SECS] [--no-scope] [--server mount|wptserve] [-v]\n       scratchy --wpt-th --areas-only [--dir wpt-th]   (rewrite areas.txt from subset/expected/flaky, no test run, no checkout)";
 
 pub(crate) fn main(args: &[String]) -> i32 {
     let (mut checkout, mut wire, mut dir) = (None, None, PathBuf::from("wpt-th"));
@@ -861,6 +892,7 @@ pub(crate) fn main(args: &[String]) -> i32 {
         jobs: thread::available_parallelism().map(|n| n.get()).unwrap_or(4),
         timeout: CHILD_TIMEOUT,
         verbose: false,
+        wptserve: false,
     };
     let mut no_scope = false;
     let mut areas_only = false;
@@ -872,7 +904,7 @@ pub(crate) fn main(args: &[String]) -> i32 {
             args.get(i).cloned()
         };
         match a {
-            "--jobs" | "--area" | "--except" | "--wire" | "--dir" | "--timeout" => {
+            "--jobs" | "--area" | "--except" | "--wire" | "--dir" | "--timeout" | "--server" => {
                 let Some(v) = val() else {
                     diag!("scratchy --wpt-th: {a} needs an argument");
                     return 2;
@@ -883,6 +915,14 @@ pub(crate) fn main(args: &[String]) -> i32 {
                     "--except" => cfg.except = Some(v),
                     "--wire" => wire = Some(PathBuf::from(v)),
                     "--dir" => dir = PathBuf::from(v),
+                    "--server" => match v.as_str() {
+                        "wptserve" => cfg.wptserve = true,
+                        "mount" => cfg.wptserve = false,
+                        _ => {
+                            diag!("scratchy --wpt-th: --server is mount or wptserve");
+                            return 2;
+                        }
+                    },
                     _ => cfg.timeout = Duration::from_secs(v.parse().unwrap_or(30).max(1)),
                 }
             }
@@ -929,21 +969,41 @@ pub(crate) fn main(args: &[String]) -> i32 {
         let z = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
         libc::setrlimit(libc::RLIMIT_CORE, &z);
     }
-    let Some(wire) = find_wire(wire) else {
-        diag!("scratchy --wpt-th: no wire binary: pass --wire PATH or set SCRATCHY_WIRE (build it: `cargo build --release` in wire/)");
-        return 2;
-    };
-    let (_wire, sock) = match start_wire(&wire, &checkout, cfg.verbose) {
-        Ok(w) => w,
-        Err(e) => {
-            diag!("scratchy --wpt-th: {e}");
-            return 2;
+    let mut origin = ORIGIN.to_string();
+    let _wire;
+    let sock;
+    if cfg.wptserve {
+        match wptserve_state(&checkout) {
+            Ok((port, s)) => {
+                origin = format!("http://web-platform.test:{port}");
+                sock = s;
+                _wire = None;
+            }
+            Err(e) => {
+                diag!("scratchy --wpt-th: {e}");
+                return 2;
+            }
         }
-    };
+    } else {
+        let Some(wire) = find_wire(wire) else {
+            diag!("scratchy --wpt-th: no wire binary: pass --wire PATH or set SCRATCHY_WIRE (build it: `cargo build --release` in wire/)");
+            return 2;
+        };
+        match start_wire(&wire, &checkout, cfg.verbose) {
+            Ok((w, s)) => {
+                _wire = Some(w);
+                sock = s;
+            }
+            Err(e) => {
+                diag!("scratchy --wpt-th: {e}");
+                return 2;
+            }
+        }
+    }
     let Ok(exe) = std::env::current_exe() else {
         diag!("scratchy --wpt-th: cannot find own executable");
         return 2;
     };
-    let cmd = ChildCmd { program: exe, args: vec!["--wpt-th-one".into(), "--socket".into(), sock.display().to_string()], verbose: cfg.verbose };
+    let cmd = ChildCmd { program: exe, args: vec!["--wpt-th-one".into(), "--socket".into(), sock.display().to_string()], verbose: cfg.verbose, origin };
     execute(&cfg, &cmd)
 }

@@ -147,8 +147,13 @@ jobs:
   # areas.txt stays ONE committed file: a shard rewrites only its own areas' rows (the others keep the committed rows),
   # so the "CI result differs from the committed areas.txt" check is per shard. The reftest gate runs once, in `rest`.
   # All shards share one rust-cache entry (shared-key; `rest` saves it), so a shard's build is an incremental one.
+  # QWPT8: the `wptserve` shard runs the fetch/* and xhr areas against WPT's Python server (wptserve, DECISIONS Q2): the
+  # "Start wptserve" step runs tools/wptserve.sh (python3 of the runner image, WPT's bundled libraries, no pip, HTTP on
+  # 127.0.0.1 only) which also starts its own wire with `--map-host '*.web-platform.test=127.0.0.1'`; the runner is called
+  # with `--server wptserve` and starts neither (it runs under the QNET1 seccomp filter, so it cannot open TCP). The
+  # server and wire are stopped by PID in an always() step. The other shards never run those areas (a mount run skips them).
   # Required check names are now: scratchy, snag, wire, scratchy-wpt-dom, scratchy-wpt-html,
-  # scratchy-wpt-canvas-element, scratchy-wpt-canvas-other, scratchy-wpt-rest (8; `scratchy-wpt` no longer exists).
+  # scratchy-wpt-canvas-element, scratchy-wpt-canvas-other, scratchy-wpt-wptserve, scratchy-wpt-rest (9; `scratchy-wpt` no longer exists).
   wpt:
     name: scratchy-wpt-${{ matrix.shard }}
     runs-on: ubuntu-latest
@@ -165,9 +170,12 @@ jobs:
             select: --area 'html/canvas/element'
           - shard: canvas-other
             select: --area 'html/canvas/*' --except 'html/canvas/element'
+          - shard: wptserve
+            wptserve: true
+            select: --area 'fetch/*,xhr' --server wptserve
           - shard: rest
             reftests: true
-            select: --except 'dom/*,html/dom,html/editing,html/semantics/*,html/webappapis,custom-elements,html/canvas/*'
+            select: --except 'dom/*,html/dom,html/editing,html/semantics/*,html/webappapis,custom-elements,html/canvas/*,fetch/*,xhr'
     env:
       V8_VERSION: "152.2.0"
       V8_ARCHIVE_NAME: librusty_v8_release_x86_64-unknown-linux-gnu.a.gz
@@ -269,6 +277,11 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           exit $rc
+      - name: Start wptserve and its wire (QWPT8)
+        if: matrix.wptserve
+        run: |
+          python3 --version
+          tools/wptserve.sh start "$RUNNER_TEMP/wpt" --wire ../wire/target/release/wire
       - name: WPT testharness vs wpt-th/expected (QWPT5; blocks on regressions, Q3; shard ${{ matrix.shard }}, QCISPLIT2)
         # Own wire on its own socket (the runner starts it), no display needed (headless children). --no-scope: no
         # systemd user bus on the runner, the 6G cgroup cap is for the user's machine. The areas table and its diff
@@ -317,6 +330,11 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           exit $rc
+      - name: Stop wptserve and its wire (QWPT8)
+        if: always() && matrix.wptserve
+        run: |
+          tools/wptserve.sh --stop "$RUNNER_TEMP/wpt" || true
+          tail -20 "$RUNNER_TEMP/wpt/.wptserve/log" || true
       - name: Stop the headless compositor (QFLK8)
         if: always() && matrix.reftests
         run: |

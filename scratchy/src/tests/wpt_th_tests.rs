@@ -276,7 +276,7 @@ mod qwpt4b {
     fn fake(dir: &std::path::Path, script: &str) -> ChildCmd {
         let p = dir.join("child.sh");
         fs::write(&p, script).unwrap();
-        ChildCmd { program: "sh".into(), args: vec![p.display().to_string()], verbose: false }
+        ChildCmd { program: "sh".into(), args: vec![p.display().to_string()], verbose: false, origin: "http://web-platform.test:8000".into() }
     }
 
     fn tmp(tag: &str) -> PathBuf {
@@ -299,7 +299,7 @@ mod qwpt4b {
             "case \"$1\" in\n *hang.html) sleep 30;;\n *none.html) ;;\n *flaky.html) echo '{{\"harness\":\"OK\",\"message\":null,\"tests\":[[\"r\",\"PASS\",null]]}}';;\n *) echo '{OKJ}';;\nesac\n"
         );
         let cmd = fake(&d, &script);
-        let cfg = |update: bool, area: Option<&str>| Config { dir: wd.clone(), update, area: area.map(String::from), except: None, jobs: 3, timeout: Duration::from_secs(1), verbose: false };
+        let cfg = |update: bool, area: Option<&str>| Config { dir: wd.clone(), update, area: area.map(String::from), except: None, jobs: 3, timeout: Duration::from_secs(1), verbose: false, wptserve: false };
         // Nothing recorded yet: UNRECORDED blocks.
         assert_eq!(execute(&cfg(false, None), &cmd), 1);
         assert_eq!(execute(&cfg(true, None), &cmd), 0);
