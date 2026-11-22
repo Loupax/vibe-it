@@ -930,8 +930,7 @@ OK           0/6  html/canvas/offscreen/manual/the-offscreen-canvas/offscreencan
   FAIL      Test that transfer an OffscreenCanvas twice throws exception in a worker.
   FAIL      Test that calling getContext('2d') on a detached OffscreenCanvas throws exception in a worker.
   FAIL      Test that calling getContext('webgl') on a detached OffscreenCanvas throws exception in a worker.
-OK           0/1  html/canvas/offscreen/manual/transformations/2d.transformation.getTransform.html
-  FAIL      This test ensures that getTransform works correctly.
+OK           1/1  html/canvas/offscreen/manual/transformations/2d.transformation.getTransform.html
 OK           0/1  html/canvas/offscreen/manual/wide-gamut-canvas/2d.color.space.p3.convertToBlobp3.canvas.html
   FAIL      test if toblob returns p3 data from p3 color space canvas
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.arc.angle.1.html

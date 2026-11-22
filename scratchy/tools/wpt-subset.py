@@ -43,6 +43,7 @@ AREAS = OrderedDict([
     ("html/canvas/other", ["html/canvas"]),
     ("css/cssom", ["css/cssom"]),
     ("css/cssom-view", ["css/cssom-view"]),
+    ("css/geometry", ["css/geometry"]),
     ("encoding", ["encoding"]),
     ("url", ["url"]),
     ("streams", ["streams"]),

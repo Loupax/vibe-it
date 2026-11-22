@@ -1367,8 +1367,7 @@ OK           1/3  html/canvas/element/manual/the-canvas-state/2d.state.saveresto
   FAIL      Test that restore() undoes any modifications to imageSmoothingEnabled.
   FAIL      Test that restoring actually changes smoothing and not just the attribute value.
 OK           1/1  html/canvas/element/manual/the-canvas-state/2d.zero.size.canvas.html
-OK           0/1  html/canvas/element/manual/transformations/2d.transformation.getTransform.html
-  FAIL      This test ensures that getTransform works correctly.
+OK           1/1  html/canvas/element/manual/transformations/2d.transformation.getTransform.html
 ERROR        0/4  html/canvas/element/manual/wide-gamut-canvas/ImageData-fidelity.html
   TIMEOUT   Verify that drawImage->getImageData round trip preserves color values when image metadata has no color space and canvas uses the default color space.
   TIMEOUT   Verify that drawImage->getImageData round trip preserves color values when image metadata has srgb color space and canvas uses the srgb color space.
