@@ -465,8 +465,7 @@ OK           3/7  dom/nodes/Document-adoptNode-DocumentFragment-with-host.window
   FAIL      adoptNode() template.content into browsing-context document
   FAIL      adoptNode() shadow root: throws HierarchyRequestError
   FAIL      adoptNode() <template> element: content follows via template adopting steps
-OK           2/7  dom/nodes/Document-adoptNode.html
-  FAIL      Adopting an Element called 'x<' should work.
+OK           3/7  dom/nodes/Document-adoptNode.html
   FAIL      Explicitly adopting a DocumentType should work.
   FAIL      Adopting an Element should adopt its Attr nodes.
   FAIL      Inserting an Element into another document should adopt its Attr nodes.
@@ -1138,17 +1137,11 @@ OK         17/18  dom/nodes/Document-getElementById.html
   FAIL      Calling document.getElementById with an empty string argument.
 OK           1/1  dom/nodes/Document-getElementsByClassName.html
 ERROR        0/0  dom/nodes/Document-getElementsByTagName-xhtml.xhtml
-OK          8/18  dom/nodes/Document-getElementsByTagName.html
+OK         14/18  dom/nodes/Document-getElementsByTagName.html
   FAIL      hasOwnProperty, getOwnPropertyDescriptor, getOwnPropertyNames
   FAIL      HTML element with uppercase tagName never matches in HTML Documents
-  FAIL      Element in non-HTML namespace, no prefix, lowercase name
-  FAIL      Element in non-HTML namespace, no prefix, uppercase name
-  FAIL      Element in non-HTML namespace, prefix, lowercase name
-  FAIL      Element in non-HTML namespace, prefix, uppercase name
   FAIL      Element in HTML namespace, no prefix, non-ascii characters in name
-  FAIL      Element in non-HTML namespace, non-ascii characters in name
   FAIL      Element in HTML namespace, prefix, non-ascii characters in name
-  FAIL      Element in non-HTML namespace, prefix, non-ascii characters in name
 OK         11/14  dom/nodes/Document-getElementsByTagNameNS.html
   FAIL      Empty string namespace
   FAIL      ABC element in html namespace
@@ -1205,17 +1198,11 @@ OK           1/1  dom/nodes/Element-firstElementChild.html
 OK           3/3  dom/nodes/Element-getElementsByClassName.html
 OK           0/1  dom/nodes/Element-getElementsByTagName-change-document-HTMLNess.html
   FAIL      Element-getElementsByTagName-change-document-HTMLNess
-OK          9/19  dom/nodes/Element-getElementsByTagName.html
+OK         15/19  dom/nodes/Element-getElementsByTagName.html
   FAIL      hasOwnProperty, getOwnPropertyDescriptor, getOwnPropertyNames
   FAIL      HTML element with uppercase tagName never matches in HTML Documents
-  FAIL      Element in non-HTML namespace, no prefix, lowercase name
-  FAIL      Element in non-HTML namespace, no prefix, uppercase name
-  FAIL      Element in non-HTML namespace, prefix, lowercase name
-  FAIL      Element in non-HTML namespace, prefix, uppercase name
   FAIL      Element in HTML namespace, no prefix, non-ascii characters in name
-  FAIL      Element in non-HTML namespace, non-ascii characters in name
   FAIL      Element in HTML namespace, prefix, non-ascii characters in name
-  FAIL      Element in non-HTML namespace, prefix, non-ascii characters in name
 OK         13/16  dom/nodes/Element-getElementsByTagNameNS.html
   FAIL      Empty string namespace
   FAIL      ABC element in html namespace
@@ -1500,16 +1487,7 @@ TIMEOUT    13/14  dom/nodes/Node-isEqualNode-xhtml.xhtml
 OK           8/9  dom/nodes/Node-isEqualNode.html
   FAIL      elements should be compared on attribute namespace, local name, and value
 OK           9/9  dom/nodes/Node-isSameNode.html
-OK          0/75  dom/nodes/Node-lookupNamespaceURI.html
-  FAIL      DocumentFragment should have null namespace, prefix null
-  FAIL      DocumentFragment should have null namespace, prefix ""
-  FAIL      DocumentFragment should have null namespace, prefix "foo"
-  FAIL      DocumentFragment should have null namespace, prefix "xml"
-  FAIL      DocumentFragment should have null namespace, prefix "xmlns"
-  FAIL      DocumentFragment is in default namespace, prefix null
-  FAIL      DocumentFragment is in default namespace, prefix ""
-  FAIL      DocumentFragment is in default namespace, prefix "foo"
-  FAIL      DocumentFragment is in default namespace, prefix "xmlns"
+OK         60/75  dom/nodes/Node-lookupNamespaceURI.html
   FAIL      DocumentType should have null namespace, prefix null
   FAIL      DocumentType should have null namespace, prefix ""
   FAIL      DocumentType should have null namespace, prefix "foo"
@@ -1519,69 +1497,14 @@ OK          0/75  dom/nodes/Node-lookupNamespaceURI.html
   FAIL      DocumentType is in default namespace, prefix ""
   FAIL      DocumentType is in default namespace, prefix "foo"
   FAIL      DocumentType is in default namespace, prefix "xmlns"
-  FAIL      Element should have null namespace, prefix null
-  FAIL      Element should have null namespace, prefix ""
-  FAIL      Element should not have namespace matching prefix with namespaceURI value
   FAIL      Element should have XML namespace
   FAIL      Element should have XMLNS namespace
-  FAIL      Element has namespace URI matching prefix
-  FAIL      Empty namespace is not default, prefix null
-  FAIL      Empty namespace is not default, prefix ""
-  FAIL      fooNamespace is not default
-  FAIL      xmlns namespace is not default
-  FAIL      Element should have baz namespace, prefix null
-  FAIL      Element should have baz namespace, prefix ""
   FAIL      Element should have namespace with xmlns prefix
-  FAIL      Element has bar namespace
-  FAIL      Empty namespace is not default on fooElem, prefix null
-  FAIL      Empty namespace is not default on fooElem, prefix ""
-  FAIL      bar namespace is not default
-  FAIL      baz namespace is default
-  FAIL      Comment should inherit baz namespace
-  FAIL      Comment should inherit  baz namespace
-  FAIL      Comment should inherit namespace URI matching prefix
-  FAIL      Comment should inherit bar namespace
-  FAIL      For comment, empty namespace is not default, prefix null
-  FAIL      For comment, empty namespace is not default, prefix ""
-  FAIL      For comment, fooNamespace is not default
-  FAIL      For comment, xmlns namespace is not default
-  FAIL      For comment, inherited bar namespace is not default
-  FAIL      For comment, inherited baz namespace is default
-  FAIL      Child element should inherit baz namespace
-  FAIL      Child element should have null namespace
   FAIL      Child element should have XMLNS namespace
-  FAIL      Child element has namespace URI matching prefix
-  FAIL      Empty namespace is not default for child, prefix null
-  FAIL      Empty namespace is not default for child, prefix ""
-  FAIL      fooNamespace is not default for child
-  FAIL      xmlns namespace is not default for child
-  FAIL      bar namespace is not default for child
-  FAIL      baz namespace is default for child
-  FAIL      childNamespace is default for child
-  FAIL      Document should have xhtml namespace, prefix null
-  FAIL      Document should have xhtml namespace, prefix ""
-  FAIL      Document has no namespace URI matching prefix
-  FAIL      Document has bar namespace
-  FAIL      For document, empty namespace is not default, prefix null
-  FAIL      For document, empty namespace is not default, prefix ""
-  FAIL      For document, fooNamespace is not default
-  FAIL      For document, xmlns namespace is not default
-  FAIL      For document, bar namespace is not default
-  FAIL      For document, baz namespace is not default
-  FAIL      For document, xhtml namespace is default
-  FAIL      Document without documentElement has no namespace URI matching "xml"
-  FAIL      Document without documentElement has no namespace URI matching "xmlns"
-  FAIL      Disconnected Attr has no namespace URI matching "xml"
-  FAIL      Disconnected Attr has no namespace URI matching "xmlns"
   FAIL      Connected Attr has namespace URI matching "xml"
   FAIL      Connected Attr no namespace URI matching "xmlns"
-  FAIL      Comment does not have bar namespace
-OK          0/11  dom/nodes/Node-lookupPrefix.xhtml
+OK          4/11  dom/nodes/Node-lookupPrefix.xhtml
   FAIL      Node.lookupPrefix
-  FAIL      Node.lookupPrefix 1
-  FAIL      Node.lookupPrefix 2
-  FAIL      Node.lookupPrefix 3
-  FAIL      Node.lookupPrefix 4
   FAIL      Node.lookupPrefix 5
   FAIL      Node.lookupPrefix 6
   FAIL      Node.lookupPrefix 7
@@ -1842,16 +1765,11 @@ OK         44/67  dom/nodes/attributes.html
   FAIL      Own property names should only include all-lowercase qualified names for an HTML element in an HTML document
   FAIL      Own property names should include all qualified names for a non-HTML element in an HTML document
   FAIL      Own property names should include all qualified names for an HTML element in a non-HTML document
-OK       252/285  dom/nodes/case.html
-  FAIL      getElementsByTagName Abc
-  FAIL      getElementsByTagName ABC
-  FAIL      getElementsByTagName ä
+OK       261/285  dom/nodes/case.html
   FAIL      createElement Ä
   FAIL      getElementsByTagName Ä
-  FAIL      createElementNS http://www.w3.org/1999/xhtml,abc,abc
   FAIL      createElementNS http://www.w3.org/1999/xhtml,abc,Abc
   FAIL      createElementNS http://www.w3.org/1999/xhtml,abc,ABC
-  FAIL      createElementNS http://www.w3.org/1999/xhtml,abc,ä
   FAIL      createElementNS http://www.w3.org/1999/xhtml,abc,Ä
   FAIL      createElementNS http://www.w3.org/1999/xhtml,Abc,abc
   FAIL      createElementNS http://www.w3.org/1999/xhtml,Abc,Abc
@@ -1863,15 +1781,11 @@ OK       252/285  dom/nodes/case.html
   FAIL      createElementNS http://www.w3.org/1999/xhtml,ABC,ABC
   FAIL      createElementNS http://www.w3.org/1999/xhtml,ABC,ä
   FAIL      createElementNS http://www.w3.org/1999/xhtml,ABC,Ä
-  FAIL      createElementNS http://www.w3.org/1999/xhtml,ä,abc
   FAIL      createElementNS http://www.w3.org/1999/xhtml,ä,Abc
   FAIL      createElementNS http://www.w3.org/1999/xhtml,ä,ABC
-  FAIL      createElementNS http://www.w3.org/1999/xhtml,ä,ä
   FAIL      createElementNS http://www.w3.org/1999/xhtml,ä,Ä
-  FAIL      createElementNS http://www.w3.org/1999/xhtml,Ä,abc
   FAIL      createElementNS http://www.w3.org/1999/xhtml,Ä,Abc
   FAIL      createElementNS http://www.w3.org/1999/xhtml,Ä,ABC
-  FAIL      createElementNS http://www.w3.org/1999/xhtml,Ä,ä
   FAIL      createElementNS http://www.w3.org/1999/xhtml,Ä,Ä
   FAIL      createElementNS Abc
   FAIL      createElementNS ABC
