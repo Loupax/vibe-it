@@ -294,3 +294,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 USER: no GitHub Support purge (checked: PR #496/#498 refs hold test logs, a throwaway wire binary + dead socket token, logged-out screenshots of public pages; nothing personal). #584 QCSS-A hover measured: no extra builds vs main; merging. Filed QHOV1 (github hover = 160 ms full build on main).
 - 2026-11-22 #584 merge: NOTES.md conflict where a side edits existing lines (add-only rule correctly refused). Rebase back to the QCSS-A agent when a slot frees (5 running).
 - 2026-11-22 USER: web fonts are rendered (option 1). QFF1a (ttf/otf/woff) and QFF1b (woff2) un-archived into TODO.txt (Opus), QAPI4b reworded to follow QFF1a. QFF1a next free slot after the #584 rebase.
+- 2026-11-22 #589 QANIMHLc READY (geometry follows animation clock; no extra layouts without animations), merging. Sent #584 rebase.
