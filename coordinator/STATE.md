@@ -354,3 +354,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #612 QDOM11 READY (XML docs; dom/nodes 69.1 -> 75.9), merging. Filed QDOM11b. Launched QWPT8 (first ready P2).
 - 2026-11-22 Merged #612 QDOM11.
 - 2026-11-22 #613 QCNV1 READY (Canvas 2D foundation; canvas/element 2.8 -> 23.5; TOTAL 29.6), merging. AGENT_RULES: 'too complex' refusals vs denials. Launched QCNV2 (Opus, docs).
+- 2026-11-22 Merged #613 QCNV1 43907bd.

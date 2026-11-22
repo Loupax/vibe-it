@@ -184,17 +184,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QWPTBUD [S] (P3, from QDOM5b #592; Sonnet; wpt-th runner) A larger callback budget for the `--wpt-th` runner (flag or
       a longer budget for load callbacks), so Range-insertNode / Range-surroundContents run all 1840 cases deterministically
       and can leave flaky.txt. Related: tests waiting for unload/pagehide/beforeunload on iframe navigation only time out.
-- [ ] [WIP] QCNV1 [M] (P2; Sonnet; js_dom.rs HTMLCanvasElement (QY3), new src/canvas.rs, paint.rs replaced-element paint;
-      after QWPT12; user 2026-11-21: no design step, the html/canvas WPT results are the guide) Canvas 2D foundation.
-      `getContext('2d')` returns one CanvasRenderingContext2D per canvas (same object on every call; null for any
-      other type, 'webgl'/'webgl2' included). Backing store: a tiny-skia Pixmap of width x height (tiny-skia becomes a
-      direct dependency at the version resvg already pulls in, see Cargo.lock; no network). Setting width/height resets
-      the bitmap and the state. First API slice, chosen because the canvas tests read pixels back to check results:
-      fillStyle/strokeStyle as CSS colours, fillRect, clearRect, strokeRect, getImageData, putImageData,
-      createImageData, ImageData, save/restore, globalAlpha. Paint: the canvas box shows the bitmap (premultiplied
-      RGBA -> 0RGB at paint time) and a draw marks that box damaged, so it repaints without a relayout. Report the
-      html/canvas area scores before/after. Not in scope: paths, text, images, transforms (QCNV2 files them), WebGL,
-      `captureStream` (archived media).
 - [ ] [WIP] QCNV2 [S] (P2; Opus, docs only; after QCNV1) Triage the html/canvas WPT failures after QCNV1 and file the
       Canvas 2D items in dependency order (one item per feature group, e.g. paths, transforms, line styles,
       gradients/patterns, drawImage, text, compositing, shadows, toDataURL/toBlob), each with the subtest counts it
