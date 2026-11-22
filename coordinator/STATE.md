@@ -210,3 +210,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #556 QDOM5 READY (ranges 17.1 -> 43.2, total 34.4; includes QDOM12b), queued after #553. Filed QDOM5b. Launched QDOM15.
 - 2026-11-22 Merged #554 QEL3 9255344 (IO in rendering step).
 - 2026-11-22 #546 QEL6 rebased, queued after #556. Launched QDOM17.
+- 2026-11-22 #557 QDOM13 READY (dom/events 407 -> 472; 4 webkit files OK->TIMEOUT with +4 subtests each, no passing subtest lost = Q3 ok). Queued after #546. Filed+launched QANIMHL (Opus).

@@ -69,6 +69,11 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       (`ro-run` forced layouts on YouTube results); microtask checkpoint after each RO callback; notice size changes
       without a DOM write (image decode, CSS animation, :hover). Re-measure ytr/ytw --perf-report and live CPU on a
       quiet machine (QEL2 measured ytw live +13-15 %, inside noise).
+- [ ] [WIP] QANIMHL [S] (P2, from QDOM13 #557; Opus; investigate + fix) CSS animation/transition events never fire in the
+      headless test child (`--wpt-th-one`): a @keyframes rule (insertRule or <style> text) plus `animation: 1ms` fires no
+      animationstart/end; the 4 dom/events/webkit-*-event files now TIMEOUT waiting for them. Find whether it is the
+      runner's rendering step (QEL1 headless frames), the engine's style/animation timeline, or event delivery; fix; list
+      every --wpt-th file that changes.
 - [ ] QEL4 [S] (P2; Sonnet; js.rs TIMERS_PRELUDE, js_dom.rs obsErr) "Report the exception" for timer,
       rAF and observer callbacks (ErrorEvent at window, onerror, then the log line). Gate: WPT
       animation-frames/callback-exception and timers/errors pass.
