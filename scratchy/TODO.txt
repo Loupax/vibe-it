@@ -103,25 +103,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QCSS2 [S] (P2, from QMAPI2 #523; Sonnet; css.rs parse_supports_condition, js.rs) `CSS.supports(prop, value)` and
       `CSS.supports(conditionText)` on top of `parse_supports_condition` (today `CSS.supports` does not exist; pages
       feature-test with it). Tests + --wpt-th (css/cssom has CSS.supports files).
-- [ ] [WIP] QFF1a [M] (P2, un-archived 2026-11-22; Opus) `@font-face` web fonts, ttf/otf/woff first. Parse `@font-face`
-      (font-family, `src` list with `url()` + `format()` and `local()`, font-weight /
-      font-style (single values and ranges), `unicode-range`; ignore `font-display`
-      (always swap), `size-adjust`/`ascent-override` etc. for now) including inside
-      `@media`/`@supports` (at-supports-content-002). Fetch each used face's first
-      supported url through wire like CSS images (`fetch_wanted_css_images` pattern,
-      page partition headers, CORS anonymous mode per spec, same cache rules), decode
-      ttf/otf directly and woff (zlib; flate2 is already in the dependency tree via
-      png) and load the bytes into BOTH font systems (main `App::font_system` for
-      paint, the shaping worker's own one: a new `ShapingRequest` field or message)
-      under a per-page mangled family name that `FontFamilyItem::Name` resolution maps
-      to (so faces do not leak across pages; fontdb `remove_face` on navigation), then
-      a restyle. `local()` = look the name up in the system fontdb. Test: a page with
-      `@font-face{font-family:X;src:url(Ahem.ttf)}` served by a local server lays
-      text out with Ahem metrics; navigation away removes it. Acceptance: WPT
-      at-supports-content-002 (record); github/guardian (Guardian has ttf/woff too)
-      nested-dwl grims before/after. Pages: 88 faces on 6 of 9 surveyed pages (BBC
-      35, Guardian 30, YouTube 11, GitHub 6, DDG 6); 1 023 no-script WPT reftests.
-      User approved 2026-11-22 (DECISIONS.md): un-archived; web fonts are rendered.
 - [ ] [WIP] QFF1b [M] (P2, un-archived 2026-11-22, after QFF1a; Opus) woff2: needs Brotli plus the glyf/loca transform
       reconstruction. Pick a pure-Rust crate (check what exists and its size/licence
       first; do not vendor), or skip woff2 faces whose `src` list has no other format
