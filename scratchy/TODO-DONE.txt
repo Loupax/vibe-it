@@ -9305,3 +9305,13 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QAPI4 DONE c32b311 #571 [S] (P2, from QMAPI3 R66; Sonnet; js_dom.rs, css.rs) `document.fonts` FontFaceSet over the fonts the page
       loaded: `ready` (resolved Promise), `status`, `check`, `load` (resolves the matching FontFace list), `forEach`/`size`,
       `add`, `loadingdone` events, `FontFace` constructor; github reads `document.fonts.ready` 41 times and throws.
+
+=== from TODO.txt: --- (no header)
+- [x] QDOM17 DONE eb8b409 #560 [S] (P2; Sonnet; js_dom.rs `makeDoc`, `__d_tag`, `doc.createElement`; R65; after QDOM8) Document
+      flavours: a per-document "HTML document" flag (true for the page and createHTMLDocument, false for createDocument,
+      new Document(), XML parses). `createElement` lowercases only in HTML documents (XHTML namespace for
+      application/xhtml+xml, null otherwise); `tagName`/`nodeName` upper-case only for HTML-namespace elements in HTML
+      documents and include the prefix; `nodeValue` and `textContent` null for Document and DocumentType (setting is a
+      no-op); `charset` and `inputEncoding` aliases of `characterSet` on every document. WPT: nodes/DOMImplementation-
+      createDocument (306 subtests), DOMImplementation-createDocumentType, Element-tagName, Element-tagName-adopt,
+      Node-nodeValue, Node-textContent, DOMImplementation-createHTMLDocument. Target: nodes +1.2.

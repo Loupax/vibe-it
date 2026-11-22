@@ -251,3 +251,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #560 QDOM17 rebased again (nodes 67.4), queued after #571. Launched QAPI7.
 - 2026-11-22 Merged #572 QAPI5 1e51c80 (ARIA + slots).
 - 2026-11-22 Merged #571 QAPI4 c32b311 (document.fonts).
+- 2026-11-22 Merged #560 QDOM17 eb8b409 (Document members).
