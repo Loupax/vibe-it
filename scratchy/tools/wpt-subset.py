@@ -36,6 +36,7 @@ AREAS = OrderedDict([
     ("intersection-observer", ["intersection-observer"]),
     ("html/semantics/scripting-1", ["html/semantics/scripting-1"]),
     ("html/dom", ["html/dom"]),
+    ("html/editing", ["html/editing"]),
     ("css/cssom", ["css/cssom"]),
     ("css/cssom-view", ["css/cssom-view"]),
     ("encoding", ["encoding"]),
@@ -47,6 +48,11 @@ AREAS = OrderedDict([
     ("custom-elements", ["custom-elements"]),
     ("shadow-dom", ["shadow-dom"]),
 ])
+
+# QWPT6d: areas where a `<script src=".../testdriver*.js">` in the page source also counts as "loads testdriver" (the manifest's
+# script_metadata only lists `// META: script=` lines). html/editing/dnd: 54 files / 162 URLs ending in `action_sequence() is not
+# implemented`. The other areas keep the old filter so their recorded files do not change; a global switch is a separate item.
+SRC_TESTDRIVER_AREAS = {"html/editing"}
 
 PY_REF = re.compile(rb"""\.py(?:["'?#\s)]|$)""")
 
@@ -106,6 +112,9 @@ def main():
                         src = f.read()
                 except OSError:
                     src = b""
+            if area in SRC_TESTDRIVER_AREAS and b"testdriver" in src:
+                skipped["testdriver script tag (phase 2, %s)" % area] += 1
+                continue
             if PY_REF.search(src):
                 skipped[".py handler (wptserve)"] += 1
                 continue

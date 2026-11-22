@@ -3864,6 +3864,7 @@ worker variants and files whose source mentions a `.py` handler; skip counts go 
 Baseline: 3,214 ran, 656 all-pass, 37,045 subtests, 45.6 % pass, mean per-file score 28.4 (table in `wpt-th/areas.txt`).
 Wall time of the full run: 110 s at `--jobs 4` (quiet machine, load 5), 67 s at `--jobs 12`; first run 3:41 on a loaded machine
 (load 30). Peak RSS of the runner tree ~290 MB. Four runs were identical, so `wpt-th/flaky.txt` is empty (comment only).
+html/editing (QWPT6d): 48 files; the filter also drops pages whose source mentions `testdriver` (`SRC_TESTDRIVER_AREAS` in wpt-subset.py; only this area, the others keep the META-only filter). 25 s at `--jobs 4` locally.
 
 ### Window named access (QDOM1)
 

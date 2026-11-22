@@ -9129,3 +9129,9 @@ Eased viewport scroll (user design #532, D1-D8): `App::scroll_target`, `scroll_a
 > QAPI8 [S] (P2, from QMAPI3 R66; Sonnet; css.rs, tools/missing-api) Audit the css `declaration` rows of R66: first make the report skip declarations handled outside `Declarations` or equal to the initial value, then list which of `place-items`, `letter-spacing`, `clip-path`, `backdrop-filter`, `touch-action`, `user-select`, `text-shadow`, `filter`, `color-scheme`, `border-spacing` are really unparsed, and file one S item per property family.
 
 **What changed:** `missing_api::declaration_is_handled` (called from `DeclParser::parse_value`) drops custom properties, `transition*`/`animation*` and initial-value declarations from the report; tests in `src/tests/qapi8_tests.rs`; re-ran corpus.sh on the 12 R66 sites and wrote the audit table plus eight proposed S items (QCSS-A..H, not filed) as REGRESSIONS.md R66 section 4; NOTES.md caveat updated.
+
+## QWPT6d: html/editing joins the WPT testharness subset (agent item)
+
+> QWPT6d [S] (P3, from QAPI7 #577; Sonnet; tools/wpt-dirs.txt, wpt-subset.py) Add html/editing to the WPT checkout dirs and the testharness subset, then triage.
+
+**What changed:** tools/wpt-dirs.txt + wpt-subset.py (area `html/editing`, after html/dom), wpt-th/subset.txt, expected/html-editing.txt, areas.txt (`--area html/editing`). wpt-subset.py also skips html/editing pages whose source mentions `testdriver` (SRC_TESTDRIVER_AREAS; the manifest only sees `// META: script=`): 199 URLs of the 247 would end in `action_sequence() is not implemented`. 48 files remain (dnd 12, editing-0 13, focus 7, activation 3, hidden 12, ...). Five identical runs, flaky.txt unchanged. No scratchy code changes. The execCommand tests live in top-level `editing/`, not html/editing, so none entered.
