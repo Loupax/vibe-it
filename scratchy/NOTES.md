@@ -3351,7 +3351,12 @@ defines an element runs the bare natives (`__ce_stats.hooks` counts hook calls,
 names (`ceSel`; `tag[is]` for customized built-ins) and only touch matches.
 Per-element state lives in `ceState[id]` (the definition, or -1 for a failed
 upgrade) and `ceConnFlag[id]`; `ceNConn` lets removals skip the subtree query
-when no custom element is connected. Upgrade runs `Reflect.construct(ctor)`
+when no custom element is connected. QWPTFLK3: `ceUpgrade` returns at once when
+`ceState[id]` is set and sets it to -1 while the constructor runs (DOM "upgrade
+an element" steps 1 and 4), so a constructor that inserts its own element is
+not upgraded again from the insert hook (that used to recurse until V8's stack
+overflowed, and the binary-dependent overflow point made WPT results differ
+between builds). Upgrade runs `Reflect.construct(ctor)`
 with the element pushed on the definition's construction stack; `HTMLElement`
 (js.rs) forwards `new.target` to `ceNew`, which returns that element (or builds
 a new one for `new X()`). Reactions are synchronous after the API call, not

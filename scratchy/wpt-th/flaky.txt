@@ -2,4 +2,3 @@
 # QWPT6 baseline: four full runs (3 at --jobs 4, 1 at --jobs 12) gave identical results for all 3264 files, so this list is empty.
 dom/events/EventTarget-dispatchEvent.html harness ERROR 'Timeout while running cleanup' under load, also on main 3838650 (3 of 24 parallel children; QEL1 2026-11-21); the virtual clock reaches the 10 s harness timeout before the load task's all_done check, cause not found
 custom-elements/form-associated/fieldset-elements-during-construction.html OK -> TIMEOUT at random on CI (#532 twice on a docs-only change, #526 once, QREG1 #531 twice; passed on main 9eddc8a and on reruns); virtual-clock/timing issue, QWPTFLK2
-custom-elements/parser/parser-sets-attributes-after-built-in-constructor.html 'Live getElementsByClassName reflects a empty class attribute ...' subtest passes locally (debug, private checkout) but failed 5 of 5 CI runs on the QWPT10 PR (#543) while other PRs' runs passed at the same time; cause unknown (QWPT10 note)

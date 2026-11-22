@@ -1903,7 +1903,9 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     return s;
   };
   var cids = function (s) {
-    if (s.live) { var w = __d_wgen(); if (w !== s.wg) { s.wg = w; s.ids = s.f(); s.names = null; } }
+    // QWPTFLK3: the generation is recorded only after `f` returned (a throw, e.g. a stack overflow inside it,
+    // must not leave the previous ids cached as current).
+    if (s.live) { var w = __d_wgen(); if (w !== s.wg) { var ids = s.f(); s.wg = w; s.ids = ids; s.names = null; } }
     return s.ids;
   };
   var cat = function (s, i) { var v = s.ids[i]; return typeof v === 'number' ? wrap(v) : v; };
@@ -2026,7 +2028,9 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     var id = this.__id, sel = '[name="' + String(n).replace(/["\\]/g, '\\$&') + '"]';
     return cached(this, 'B' + n, function () { return mkList(NLp, true, function () { return q(id, sel, false); }); });
   };
-  var safeQ = function (id, sel) { try { return q(id, sel, false); } catch (e) { return []; } };
+  // An invalid selector matches nothing; a stack overflow (RangeError) is not "no match" (QWPTFLK3: a live
+  // collection would cache the empty result for the whole DOM generation).
+  var safeQ = function (id, sel) { try { return q(id, sel, false); } catch (e) { if (e instanceof RangeError) throw e; return []; } };
   var def = function (o, name, get) { Object.defineProperty(o, name, { get: get, configurable: true, enumerable: true }); };
   // Q33b1: hang the accessors off the real constructors' prototypes so
   // `x instanceof Element` and `Element.prototype.foo = ...` work.
@@ -4727,8 +4731,14 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       ceCall(cache[id], ceState[id].disconnected, []);
     }
   };
+  // QWPTFLK3 (DOM "upgrade an element" steps 1 and 4): an element whose state is already set is not upgraded
+  // again, and its state is "failed" (-1) while its constructor runs. Before, a constructor that inserted its own
+  // element (`container.append(this)`) re-upgraded it from the insert hook, recursing until V8's stack overflowed;
+  // which frame threw depended on the build's stack frame sizes, so WPT results differed between binaries.
   var ceUpgrade = function (id, d, conn) {
+    if (ceState[id]) return;
     var el = wrap(id), ok = false;
+    ceState[id] = -1;
     d.stack.push({ el: el, done: false });
     try {
       var run = function () {
