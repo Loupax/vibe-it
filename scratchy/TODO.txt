@@ -243,6 +243,31 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
           without it today, and what else they need that scratchy lacks (Workers/OffscreenCanvas, WebAssembly).
       Output: a REGRESSIONS.md-style report section (or a NOTES.md section) with the findings and measurements, the
       action items in TODO.txt, and the questions for the user in QUESTIONS.md.
+- [ ] QREF1 [M] (P2; user request 2026-11-22; Sonnet; tools/, wpt-subset.txt, wpt-expected.txt, wpt.rs, CI reftest step)
+      Make layout conformance measurable per CSS module, like wpt-th does for script areas. Today the headline score
+      (wpt-th/areas.txt) has no CSS area at all, and layout is only gated by the fixed 634-reftest `wpt-subset.txt`
+      (351 PASS / 275 FAIL; 282 of the 634 are css/CSS2, widened once by Q40b, then frozen). Modules with 0-4 reftests
+      today: css-writing-modes, css-multicol, css-break, css-inline, css-text, css-fonts, css-align, css-display,
+      css-contain (incl. container queries), css-images, css-transforms, compositing, css-ui, css-scrollbars,
+      css-scroll-snap, css-ruby, css-shapes, css-view-transitions, svg rendering; html/rendering has 12.
+      (a) Generate the reftest list from the WPT manifest of the pin (like tools/wpt-subset.py does for testharness),
+          one `# area:` per css/* module (plus html/rendering, svg), with the same exclusions as wpt-th (timeout=long,
+          .https./.sub., print/paged media unless QWPTPRINTb lands, tests needing testdriver). Where a module is huge,
+          take a deterministic sample and say how big it is.
+      (b) A per-area table next to areas.txt (e.g. wpt-th/ref-areas.txt: files, ran, pass, pass%) and a combined
+          headline in coordinator/report/progress.html that shows the script score and the layout score side by side.
+          Expect the layout number to be low; report it as found.
+      (c) CI: keep "no pass->fail" (standing rule); new FAILs are just recorded. Shard the reftest step like
+          QCISPLIT2 if it grows past ~200 s summed; report wall time per area. Note any fonts the runner lacks.
+      (d) Report per-area counts before/after in the PR, and list the top failing modules for QREF2.
+- [ ] QREF2 [S] (P2; after QREF1; Opus, docs only; like QCNV2) Triage the layout reftest failures by module and file
+      the work items in TODO.txt in dependency order (one item per feature group, each with size, model, files, the
+      reftests it should fix and a test plan). Rank by failing tests x how much real sites use it (use the missing-API
+      / recorded-site corpus where it helps); first guess to confirm or overturn: inline/text and fonts, transforms
+      (QCSS-E3), multicol/fragmentation, writing modes, container queries, gradients. Say which failures are really
+      one shared cause (e.g. line-box or font metrics) and which need platform work outside layout (fonts, colour
+      management, compositing on the GPU). Fold existing items (QCSS-B2, QCSS-C2, QCSS-D2, QCSS-E2..E5, QCSS-H) into
+      the plan instead of duplicating them. Output: a NOTES.md section "Layout triage after QREF1 (QREF2)".
 
 ========================================================================
 RELIABILITY (flaky tests undermine CI, which the conformance plan relies on; crashes)
