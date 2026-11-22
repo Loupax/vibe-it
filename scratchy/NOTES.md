@@ -3877,6 +3877,29 @@ A `<script src>` whose fetch fails (network error or a non-2xx status; `fetch_sc
 
 QCISPLIT: the WPT gates run in their own CI job `scratchy-wpt` (parallel to `scratchy`, own release build of scratchy + wire); required checks are scratchy, snag, wire, scratchy-wpt. It runs `--wpt-th "$RUNNER_TEMP/wpt" --jobs 4 --no-scope --wire ../wire/target/release/wire` after the reftest step (no display needed; `--no-scope` because the runner has no systemd user bus). Regressions/unrecorded/changed files fail the job (DECISIONS Q3). Step summary: areas table with deltas vs origin/main's `wpt-th/areas.txt` (`tools/wpt-areas-diff.py NEW BASE`). A CI result that differs from the committed baseline is never re-recorded silently: timing-sensitive files go to `wpt-th/flaky.txt` with a reason, anything else is a question to the user.
 
+### Scroll, scrollend, wheel, MediaQueryList change (QEL7)
+
+Scroll events are QUEUED in JS (js_dom.rs `gScrollNote`: window = the Document as target, elements = the element; a Set
+coalesces to one per target per update) and FIRED by rendering step 2 (`JsEngine::run_scroll_steps` ->
+`__scratchy_scroll_steps(busy)`): `scroll` at each queued target (the Document's bubbles to the Window, an element's does not),
+trusted. Sources: `scrollTo/By`, `scrollTop/Left`, `Element.scroll*` (queued when the offset changed), and the App mirror
+(`JsEngine::set_scroll`, run at every `about_to_wait`/dispatch: a changed window offset queues the Document, `__scratchy_elscroll`
+diffs the element offsets the wheel/scrollbar/keyboard changed and resolves nid -> element with `__d_by_nid`). `scrollend` fires for
+a target in the first update where it did not scroll (the App passes `busy` = the viewport is easing, `scroll_target`, or a
+thumb is held). A scroll made inside a rAF callback is reported by the next update. Rust learns what is owed without an eval from
+the thread-local `js_dom::QEL7_BITS` (native `__d_qel7`: 1 scroll queued, 2 scrollend waiting, 4 a MediaQueryList is watched;
+`JsEngine::qel7_bits`). App: `scroll_step_due` triggers an update (at most one per 16 ms, `SCROLL_STEP_GAP`; `scroll_wake` is
+the wake-up); headless: `headless_anim_due` adds the next frame boundary after the first notice (`HeadlessAnim::scroll_since`).
+Iframe realms have no rendering update of their own: their element scroll events keep the old zero-delay timer; no window
+scroll/MQL events there. A scrollTo past the end is reported even when the App clamps it (headless never clamps y).
+`wheel`: `App::dispatch_wheel` (MouseWheel handler, after the select popup) sends a trusted cancelable `WheelEvent` (pixel
+deltas, `deltaY` > 0 = down, deltaMode 0) at the element under the pointer when a page has a wheel listener
+(`pointer_listener_mask` bit 8); `preventDefault` skips the whole tick (window/document/body listeners are passive by default
+since QDOM4). `onscrollend` handler names exist since QEL7.
+MediaQueryList: lists get `change` (a `MediaQueryListEvent`, then `onchange`) from step 3 (`__scratchy_mql_run`) when the window
+size changed and the result flipped; only lists with a `change` listener / `onchange` are watched (kept alive by the engine),
+so `matchMedia(q)` in a loop costs nothing extra.
+
 ### Event handler IDL attributes (QDOM13)
 
 js.rs `getH`/`setH`: one slot per (target, event type): `v` (IDL value: function or null; undefined = the content attribute applies), `asrc` (attribute text when `v` was set; a later change wins), `entry` (the listener-list entry registered when a non-null value was first set, so handlers keep registration order; a null set removes it). A content attribute never overridden is compiled lazily (cached per element) and runs after the listeners. `isFwdEl`: `<body>`/`<frameset>` forward `onblur/onerror/onfocus/onload/onresize/onscroll` and the Window-only names to the Window; the Window's attribute handler comes from the last body/frameset whose attribute was set (`__scratchy_attr_changed`, called by `setAttribute`/`removeAttribute`) or `document.body`. Accessor tables (`GLOBAL_H`, `WIN_ONLY_H`, ...) sit after the `Window` interface in js.rs; js_dom.rs installs them on `HTMLBodyElement`/`HTMLFrameSetElement`/`SVGElement` through `__scratchy_install_handlers`. No `ontouch*` and no `onscrollend*` names on purpose (see PROMPTS.md QDOM13). Trusted animation/transition events fall back to the `webkit*` listeners per node (`LEGACY` in `dispatch`). Known gap: CSS animation/transition events never fire in the `--wpt-th-one` runner, so dom/events/webkit-*-event ends TIMEOUT after 4 passing subtests each.
@@ -3884,8 +3907,8 @@ js.rs `getH`/`setH`: one slot per (target, event type): `v` (IDL value: function
 ## Rendering steps (QEL1, src/event_loop.rs; R64 section 4 E1-E3)
 
 `event_loop::update_the_rendering(host, ts)` is HTML "update the rendering", ONE function for the App
-and every headless mode. Order: (1) resize events (2) scroll events (hook, QEL7) (3) MediaQueryList
-`change` (hook, QEL7) (4) CSS animation events (5) the animation frame callbacks (6) style + layout
+and every headless mode. Order: (1) resize events (2) scroll events (QEL7) (3) MediaQueryList
+`change` (QEL7) (4) CSS animation events (5) the animation frame callbacks (6) style + layout
 (7) ResizeObserver / IntersectionObserver hooks (8) paint. The host supplies the steps it has through
 the `RenderingHost` trait; the defaults are headless (no resize, no animations, observers = RO then IO
 evaluation, no paint).

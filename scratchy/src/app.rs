@@ -1040,6 +1040,8 @@ pub(crate) struct App {
     pub(crate) swallow_release: bool,
     /// QSB1: a scrollbar thumb drag in progress.
     pub(crate) sb_drag: Option<SbDrag>,
+    /// QEL7: when the scroll steps last ran (`SCROLL_STEP_GAP`).
+    pub(crate) last_scroll_step: Option<std::time::Instant>,
     /// QSB2b: the window's horizontal bar shows (the page viewport is `TRACK_W` shorter).
     pub(crate) hbar: bool,
     /// QSB2: a track press being held (page repeat) and the hovered thumb's bar id.
@@ -1213,12 +1215,16 @@ pub(crate) const MOVE_GAP_PLAYING: std::time::Duration = std::time::Duration::fr
 /// QCUR1: a move after this long without any move is dispatched immediately.
 pub(crate) const MOVE_IDLE: std::time::Duration = std::time::Duration::from_secs(1);
 
+/// QEL7: user-scroll events are coalesced to one per target per frame: the scroll steps run at most this
+/// often when only they asked for an update.
+const SCROLL_STEP_GAP: std::time::Duration = std::time::Duration::from_millis(16);
+
 /// QCUR1: upper bound of the adaptive gap (3x the last dispatch's handler time).
 pub(crate) const MOVE_DISPATCH_MAX_GAP: std::time::Duration = std::time::Duration::from_millis(500);
 
 /// QCUR1: bit order of `JsEngine::pointer_listener_mask` (js.rs `PTR_TYPES`).
-const PTR_BITS: [&str; 8] =
-    ["mousemove", "pointermove", "mouseenter", "mouseleave", "pointerover", "pointerout", "pointerenter", "pointerleave"];
+const PTR_BITS: [&str; 9] =
+    ["mousemove", "pointermove", "mouseenter", "mouseleave", "pointerover", "pointerout", "pointerenter", "pointerleave", "wheel"];
 
 /// QSB1: what a thumb drag scrolls.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1345,11 +1351,53 @@ impl App {
             let now = js.now_ms();
             (due <= now).then_some(now)
         });
-        if !(anim_due || raf_ts.is_some() || self.viewport_changed()) {
+        if !(anim_due || raf_ts.is_some() || self.viewport_changed() || self.scroll_step_due()) {
             return false;
         }
         crate::event_loop::update_the_rendering(self, raf_ts);
         true
+    }
+
+    /// QEL7: a trusted, cancelable `wheel` event (deltas in pixels: DOM `deltaY` > 0 scrolls down, winit's `dy`
+    /// is the opposite) at the element under the pointer (the body when none). True when the page called
+    /// `preventDefault`. Free when no page listener exists.
+    fn dispatch_wheel(&mut self, dx: f32, dy: f32) -> bool {
+        let wheel_bit = PTR_BITS.iter().position(|t| *t == "wheel").map_or(0, |i| 1u32 << i);
+        if self.js.as_ref().is_none_or(|js| js.pointer_listener_mask() & wheel_bit == 0) {
+            return false;
+        }
+        let pos = self.last_mouse_pos.unwrap_or((0.0, 0.0));
+        let node = self.element_at(pos);
+        let target = (node != 0).then(|| find_node_by_id(&self.document, node)).flatten();
+        let mut init = self.pointer_init(pos, &None, true, false);
+        init.push(("deltaX", EventField::Num(f64::from(-dx))));
+        init.push(("deltaY", EventField::Num(f64::from(-dy))));
+        init.push(("deltaZ", EventField::Num(0.0)));
+        init.push(("deltaMode", EventField::Num(0.0)));
+        !self.js_dispatch(target.as_ref(), "wheel", &init)
+    }
+
+    /// QEL7: the window is still scrolling (easing to a target, or a scrollbar thumb is held): `scrollend`
+    /// waits.
+    pub(crate) fn scroll_busy(&self) -> bool {
+        self.scroll_target.is_some() || self.sb_drag.is_some()
+    }
+
+    /// QEL7: scroll events the page owes (`scroll` queued, or a `scrollend` that can fire now) and the
+    /// frame interval since the last scroll steps has passed: user scrolling is coalesced to one event per
+    /// target per frame.
+    fn scroll_step_due(&self) -> bool {
+        self.scroll_owed() && self.last_scroll_step.is_none_or(|t| t.elapsed() >= SCROLL_STEP_GAP)
+    }
+
+    fn scroll_owed(&self) -> bool {
+        let bits = self.js.as_ref().map_or(0, |js| js.qel7_bits());
+        bits & 1 != 0 || (bits & 2 != 0 && !self.scroll_busy())
+    }
+
+    /// QEL7: when the scroll steps are next due (`None` = nothing owed), for the event loop's wake-up.
+    fn scroll_wake(&self) -> Option<std::time::Instant> {
+        self.scroll_owed().then(|| self.last_scroll_step.map_or_else(std::time::Instant::now, |t| t + SCROLL_STEP_GAP))
     }
 
     pub(crate) fn sync_js_viewport(&mut self) {
@@ -1507,6 +1555,7 @@ impl App {
             select_popup: None,
             swallow_release: false,
             sb_drag: None,
+            last_scroll_step: None,
             hbar: false,
             sb_hold: None,
             sb_hover: None,
@@ -1626,6 +1675,7 @@ impl App {
             select_popup: None,
             swallow_release: false,
             sb_drag: None,
+            last_scroll_step: None,
             hbar: false,
             sb_hold: None,
             sb_hover: None,
@@ -5298,6 +5348,20 @@ impl crate::event_loop::RenderingHost for App {
     fn run_resize_steps(&mut self) {
         self.sync_js_viewport();
     }
+    fn run_scroll_steps(&mut self) {
+        let busy = self.scroll_busy();
+        if let Some(js) = &self.js {
+            if js.qel7_bits() & 3 != 0 {
+                self.last_scroll_step = Some(std::time::Instant::now());
+            }
+            js.run_scroll_steps(busy);
+        }
+    }
+    fn evaluate_media_queries(&mut self) {
+        if let Some(js) = &self.js {
+            js.run_media_queries();
+        }
+    }
     fn update_animations(&mut self) {
         if !self.anims_idle() {
             self.anim_wake = self.anim_tick(app_clock_ms());
@@ -5394,7 +5458,7 @@ impl ApplicationHandler<AppEvent> for App {
         let anim_at = self.anim_wake.filter(|_| !self.anims_idle()).map(|ms| std::time::Instant::now() + std::time::Duration::from_secs_f64(((ms - now_ms).max(0.0) + 1.0) / 1000.0));
         let js_at = self.js.as_ref().and_then(|js| [js.next_deadline(), js.raf_deadline()].into_iter().flatten().min());
         let ctl_at = self.controls_refresh();
-        let sb_at = self.scrollbar_hold_tick();
+        let sb_at = self.scrollbar_hold_tick().into_iter().chain(self.scroll_wake()).min();
         // QSMOOTH1 D6: keep frames coming only while the scroll is easing.
         let scroll_at = self.scroll_target.map(|_| {
             self.request_redraw_now();
@@ -5726,6 +5790,10 @@ impl ApplicationHandler<AppEvent> for App {
                 };
                 let (dx, dy) = wheel_axes(dx, dy, self.modifiers.shift_key());
                 if dy != 0.0 && self.select_popup_wheel(dy) {
+                    return;
+                }
+                // QEL7: the cancelable `wheel` event goes to the page first; preventDefault stops the scroll.
+                if self.dispatch_wheel(dx, dy) {
                     return;
                 }
                 // Routes to the deepest `overflow: scroll`/`auto` region

@@ -136,11 +136,11 @@ fn qdom13_webkit_prefixed_handlers_are_not_aliases() {
     );
 }
 
-/// QDOM13: scratchy never fires scrollend, so `window.onscrollend` stays undefined (tests wait for it when it exists).
+/// QDOM13 / QEL7: scratchy fires `scrollend` since QEL7, so `onscrollend` exists (null) on the Window and elements.
 #[test]
-fn qdom13_no_scrollend_handler_names() {
+fn qdom13_scrollend_handler_names_exist_since_qel7() {
     let log = qdom13_run("console.log(window.onscrollend, 'onscrollend' in document.body, window.onscroll);");
-    assert_eq!(log, ["log:undefined false null"], "{log:?}");
+    assert_eq!(log, ["log:null true null"], "{log:?}");
 }
 
 #[test]

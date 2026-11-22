@@ -553,6 +553,7 @@ const PRELUDE: &str = r#"
   evt('BeforeUnloadEvent', Event, {});
   evt('DeviceMotionEvent', Event, { acceleration: null, accelerationIncludingGravity: null, rotationRate: null, interval: 0 });
   evt('DeviceOrientationEvent', Event, { alpha: null, beta: null, gamma: null, absolute: false });
+  evt('MediaQueryListEvent', Event, { media: '', matches: false }, { media: toStr, matches: function (v) { return !!v; } });
   evt('TransitionEvent', Event, { propertyName: '', elapsedTime: 0, pseudoElement: '' });
   evt('AnimationEvent', Event, { animationName: '', elapsedTime: 0, pseudoElement: '' });
   evt('PromiseRejectionEvent', Event, { promise: undefined, reason: undefined });
@@ -616,7 +617,7 @@ const PRELUDE: &str = r#"
   };
   // QCUR1: how many listeners exist per pointer-motion event type, so Rust only builds
   // and dispatches those events when a page can see them. Bit i of the mask = PTR_TYPES[i].
-  var PTR_TYPES = ['mousemove', 'pointermove', 'mouseenter', 'mouseleave', 'pointerover', 'pointerout', 'pointerenter', 'pointerleave'];
+  var PTR_TYPES = ['mousemove', 'pointermove', 'mouseenter', 'mouseleave', 'pointerover', 'pointerout', 'pointerenter', 'pointerleave', 'wheel'];
   var ptrCount = {};
   var setH = function (t, type, fn) {
     var s = hslot(t, type, true), v = typeof fn === 'function' ? fn : null;
@@ -824,14 +825,14 @@ const PRELUDE: &str = r#"
   try { Object.setPrototypeOf(g, Window.prototype); } catch (e) {}
   // QDOM13: event handler IDL attributes (HTML "event handler IDL attributes") as accessors on the
   // prototypes Chrome desktop puts them on. Value rules are `getH`/`setH` above. No `ontouch*` (sites
-  // read `'ontouchstart' in window` as "touch device"). Also left out: onscrollend/onscrollsnapchange/onscrollsnapchanging
-  // (scratchy never fires those events, and tests feature-detect `window.onscrollend !== undefined` to wait for one).
+  // read `'ontouchstart' in window` as "touch device"). Also left out: onscrollsnapchange/onscrollsnapchanging
+  // (never fired). QEL7: `onscrollend` is here since scratchy fires `scrollend`.
   var GLOBAL_H = ('abort animationcancel animationend animationiteration animationstart auxclick beforeinput beforematch beforetoggle ' +
     'blur cancel canplay canplaythrough change click close contentvisibilityautostatechange contextlost contextmenu contextrestored ' +
     'cuechange dblclick drag dragend dragenter dragleave dragover dragstart drop durationchange emptied ended error focus formdata ' +
     'gotpointercapture input invalid keydown keypress keyup load loadeddata loadedmetadata loadstart lostpointercapture mousedown ' +
     'mouseenter mouseleave mousemove mouseout mouseover mouseup mousewheel pause play playing pointercancel pointerdown pointerenter ' +
-    'pointerleave pointermove pointerout pointerover pointerrawupdate pointerup progress ratechange reset resize scroll ' +
+    'pointerleave pointermove pointerout pointerover pointerrawupdate pointerup progress ratechange reset resize scroll scrollend ' +
     'securitypolicyviolation seeked seeking select selectionchange selectstart slotchange stalled ' +
     'submit suspend timeupdate toggle transitioncancel transitionend transitionrun transitionstart volumechange waiting wheel').split(' ');
   // [IDL name, event type] pairs whose type is not the lowercased name
@@ -1054,15 +1055,46 @@ const PRELUDE: &str = r#"
     Object.defineProperty(g, 'caches', { get: function () { return cs; }, set: function () {}, configurable: true, enumerable: true });
   })();
   g.innerWidth = Number(env.innerWidth); g.innerHeight = Number(env.innerHeight);
-  // QY10: MediaQueryList. `matches` is re-evaluated on every read;
-  // `change` never fires (the viewport is fixed for the page's life
-  // until Q33b2 plumbs the real size and a resize event).
+  // QY10: MediaQueryList. `matches` is re-evaluated on every read.
+  // QEL7: `change` fires from the rendering update (step 3, `__scratchy_mql_run`) for a list that has a
+  // listener when the viewport size changed and its result flipped. Lists are registered (and kept alive)
+  // when a `change` listener or `onchange` handler is added; an iframe realm has no rendering update here.
   var MediaQueryList = ctor('MediaQueryList', EventTarget);
   Object.defineProperty(MediaQueryList.prototype, 'matches', { get: function () { return !!__scratchy_media(this.__q)[0]; }, configurable: true, enumerable: true });
   Object.defineProperty(MediaQueryList.prototype, 'media', { get: function () { return __scratchy_media(this.__q)[1]; }, configurable: true, enumerable: true });
-  MediaQueryList.prototype.onchange = null;
+  var mqls = [], mqlSig = null;
+  var mqlWatch = function (m) {
+    if (g.parent !== g || typeof g.__scratchy_qel7 !== 'function' || mqls.indexOf(m) >= 0) return;
+    Object.defineProperty(m, '__last', { value: !!__scratchy_media(m.__q)[0], writable: true });
+    mqls.push(m);
+    g.__scratchy_qel7(4, true);
+  };
+  Object.defineProperty(MediaQueryList.prototype, 'onchange', { get: function () { var v = this.__onchange; return v === undefined ? null : v; },
+    set: function (v) {
+      if (typeof v === 'function') mqlWatch(this);
+      Object.defineProperty(this, '__onchange', { value: typeof v === 'function' ? v : null, writable: true, configurable: true });
+    }, configurable: true, enumerable: true });
+  MediaQueryList.prototype.addEventListener = function (type, fn, opt) {
+    if (String(type) === 'change' && fn != null) mqlWatch(this);
+    return EventTarget.prototype.addEventListener.apply(this, arguments);
+  };
   MediaQueryList.prototype.addListener = function (fn) { this.addEventListener('change', fn); };
   MediaQueryList.prototype.removeListener = function (fn) { this.removeEventListener('change', fn); };
+  Object.defineProperty(g, '__scratchy_mql_run', { value: function () {
+    var sig = g.innerWidth + 'x' + g.innerHeight;
+    if (sig === mqlSig) return;
+    mqlSig = sig;
+    var list = mqls.slice();
+    for (var i = 0; i < list.length; i++) {
+      var m = list[i], r = __scratchy_media(m.__q), now = !!r[0];
+      if (now === m.__last) continue;
+      m.__last = now;
+      var ev = new g.MediaQueryListEvent('change', { matches: now, media: r[1] });
+      __scratchy_trust(ev);
+      __scratchy_ua(ev);
+      try { __scratchy_dispatch(m, ev); } catch (e) {}
+    }
+  } });
   g.matchMedia = function (q) {
     if (arguments.length < 1) throw new TypeError("Failed to execute 'matchMedia' on 'Window': 1 argument required, but only 0 present.");
     var m = Object.create(MediaQueryList.prototype);
@@ -1948,8 +1980,9 @@ impl JsEngine {
             format!("globalThis.__scratchy_elscroll({},{});", obj(ys), obj(xs))
         });
         let code = format!(
-            "{m}if(globalThis.scrollY!=={y}){{globalThis.scrollY=globalThis.pageYOffset={y};}}\
-             if(globalThis.scrollX!=={x}){{globalThis.scrollX=globalThis.pageXOffset={x};}}true"
+            "{m}(function(){{var n=0;if(globalThis.scrollY!=={y}){{globalThis.scrollY=globalThis.pageYOffset={y};n=1;}}\
+             if(globalThis.scrollX!=={x}){{globalThis.scrollX=globalThis.pageXOffset={x};n=1;}}\
+             if(n&&globalThis.__scratchy_scroll_doc)globalThis.__scratchy_scroll_doc();return true}})()"
         );
         let _ = self.eval_value::<bool>("scroll-sync", &code);
     }
@@ -2127,6 +2160,27 @@ impl JsEngine {
 
     /// QEL1-QEL3: the observer hook of the rendering steps (step 7): the ResizeObserver gather/broadcast
     /// loop, then the IntersectionObserver evaluation (its callbacks are queued as a task).
+    /// QEL7: what the rendering update owes (`__d_qel7`): bit 0 = `scroll` events queued, bit 1 = `scrollend`
+    /// waiting for a quiet frame, bit 2 = a MediaQueryList with a `change` listener exists.
+    pub(crate) fn qel7_bits(&self) -> u8 {
+        js_dom::QEL7_BITS.with(|b| b.get())
+    }
+
+    /// QEL7: rendering step 2, "run the scroll steps": the queued `scroll` events, then `scrollend` for the
+    /// targets that were quiet this update (not while `busy`: the window is still easing or a thumb is held).
+    pub(crate) fn run_scroll_steps(&self, busy: bool) {
+        if self.qel7_bits() & 3 != 0 {
+            self.eval("scroll-steps", &format!("globalThis.__scratchy_scroll_steps({busy})"));
+        }
+    }
+
+    /// QEL7: rendering step 3, "evaluate media queries and report changes".
+    pub(crate) fn run_media_queries(&self) {
+        if self.qel7_bits() & 4 != 0 {
+            self.eval("mql-run", "globalThis.__scratchy_mql_run()");
+        }
+    }
+
     pub(crate) fn observer_hook(&self) {
         self.eval("ro-run", "globalThis.__scratchy_roRun && globalThis.__scratchy_roRun()");
         self.eval("io-run", "globalThis.__scratchy_ioRun && globalThis.__scratchy_ioRun()");
@@ -2307,6 +2361,7 @@ fn startup_engine(document: &Handle, store: Rc<js_modules::ModuleStore>, log: Lo
     let storage = crate::js_storage::LocalStorage::default();
     eng.with(|c| storage.install(&c));
     eng.with(|c| crate::js_storage::install_session(&c));
+    js_dom::QEL7_BITS.with(|b| b.set(0));
     let mut engine = JsEngine { eng, log, base, media: None, dirty: dirty.clone(), table: Default::default(), reqs: reqs.clone(), net, ws, storage, anim: Default::default() };
     {
         let (budget, lg) = (engine.eng.budget.clone(), engine.log.clone());

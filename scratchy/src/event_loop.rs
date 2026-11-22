@@ -3,8 +3,8 @@
 //!
 //! One rendering update runs, in this order:
 //!   1. resize events            `RenderingHost::run_resize_steps`
-//!   2. scroll events            `run_scroll_steps` (hook; user-scroll events are QEL7)
-//!   3. media-query `change`     `evaluate_media_queries` (hook; QEL7)
+//!   2. scroll events            `run_scroll_steps` (QEL7: `scroll` per queued target, then `scrollend`)
+//!   3. media-query `change`     `evaluate_media_queries` (QEL7: lists whose result flipped)
 //!   4. CSS animation events     `update_animations`
 //!   5. animation frame callbacks: the whole batch pending when the step starts, one timestamp, never
 //!      split by the timer slice (`JsEngine::run_animation_frames`; rAF ids are their own space)
@@ -29,10 +29,18 @@ pub(crate) trait RenderingHost {
     fn engine(&self) -> Option<&JsEngine>;
     /// Step 1: fire `resize` when the viewport changed since the last update.
     fn run_resize_steps(&mut self) {}
-    /// Step 2: pending scroll events (hook).
-    fn run_scroll_steps(&mut self) {}
-    /// Step 3: MediaQueryList `change` events (hook).
-    fn evaluate_media_queries(&mut self) {}
+    /// Step 2: pending `scroll` / `scrollend` events (QEL7).
+    fn run_scroll_steps(&mut self) {
+        if let Some(js) = self.engine() {
+            js.run_scroll_steps(false);
+        }
+    }
+    /// Step 3: MediaQueryList `change` events (QEL7).
+    fn evaluate_media_queries(&mut self) {
+        if let Some(js) = self.engine() {
+            js.run_media_queries();
+        }
+    }
     /// Step 4: CSS animation events and the restyle they need.
     fn update_animations(&mut self) {}
     /// Step 6: style and layout of what the steps above changed.
@@ -89,6 +97,8 @@ pub(crate) struct HeadlessAnim {
     passes: u64,
     /// The page clock time at which the tracker next has something to say (an event, a phase change).
     next: Option<f64>,
+    /// QEL7: when scroll events (or a `scrollend`) were first noticed owed (page clock).
+    scroll_since: Option<f64>,
 }
 
 /// The first 60 Hz frame boundary strictly after `t` (TIMERS_PRELUDE `__scratchy_raf_due`'s rounding).
@@ -134,12 +144,23 @@ fn headless_anim_due(js: &JsEngine) -> Option<f64> {
     // QANIMHLb: a transition a script's style read started owes its `transitionrun` at the next frame.
     let owed = (a.next.is_none() && crate::transition::owes_events()).then(|| js.now_ms());
     let since = [dirty, a.next, owed].into_iter().flatten().reduce(f64::min);
-    since.map(frame_after)
+    // QEL7: queued `scroll` events and waiting `scrollend`s are owed at the next frame boundary.
+    let scroll = if js.qel7_bits() & 3 != 0 {
+        Some(*a.scroll_since.get_or_insert_with(|| js.now_ms()))
+    } else {
+        a.scroll_since = None;
+        None
+    };
+    [since, scroll].into_iter().flatten().reduce(f64::min).map(frame_after)
 }
 
 impl RenderingHost for Headless<'_> {
     fn engine(&self) -> Option<&JsEngine> {
         Some(self.js)
+    }
+    fn run_scroll_steps(&mut self) {
+        self.js.anim.borrow_mut().scroll_since = None;
+        self.js.run_scroll_steps(false);
     }
     /// Step 4: the events of the animations the last style step reported, at the page clock.
     fn update_animations(&mut self) {
