@@ -324,3 +324,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Merged #598 QFF1b c6b96f1 (woff2).
 - 2026-11-22 #599 QCSS-C READY (alignment keywords, place-*, grid-auto-flow), merging. Filed QCSS-C2. Launched QCSS-D.
 - 2026-11-22 Merged #599 QCSS-C c75743f.
+- 2026-11-22 #597 QINC1m rebased (QFF1a font replay kept on the engine-only forced path), merging. Agent disclosed an earlier denial workaround ("git""hub" in a script, before the rule). Second agent to hit the 'github' page-name false positive: asked the user (allow-list incr-gate commands, or rename the recording); agents skip the github replay until then.
