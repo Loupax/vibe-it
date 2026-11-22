@@ -103,6 +103,12 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       (`slot.assign()`, `slotAssignment: 'manual'`), element-valued ARIA properties (`ariaActiveDescendantElement`,
       `ariaLabelledByElements`, ...). WPT: html/dom aria-element-reflection*, element-internals-aria-element-reflection*,
       shadow-dom slotchange*.
+- [ ] [WIP] QAPI6b [S] (P2, from QAPI6 #573; Opus; style.rs, dom.rs; stacked on scratchy/qapi6-has) Win back the `:has` cost:
+      YouTube results forced layouts +65 % with its 35 `:has` rules (659/556 -> 1085/918 ms). Profile `:has` rules in the
+      universal bucket (`.x :has(> .y)`), share one SelectorCaches per build (cleared on DOM writes). Target: within noise.
+- [ ] QAPI6c [S] (P3, from QAPI6 #573; Opus; incr_style.rs) Check-mode mismatch seen once on YouTube results while the
+      window settled ("adopted element style reads vh: build true vs engine false"); build a repro with a height change
+      during load.
 - [ ] [WIP] QAPI7 [S] (P3, from QMAPI3 R66; Sonnet; js.rs) `BroadcastChannel` (same-process, same-origin delivery through the
       MessageChannel machinery) and `HTMLElement.contentEditable`/`isContentEditable` reflection, the `ontouch*` handler
       attributes on GlobalEventHandlers (null) so `'ontouchstart' in window` is the page's touch test, not a miss.

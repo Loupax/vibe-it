@@ -254,3 +254,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Merged #560 QDOM17 eb8b409 (Document members).
 - 2026-11-22 Found committed conflict markers in scratchy/PROMPTS.md (came in with #571 and #560 agent rebases). Removed them on main; merge_pr.sh now refuses a PR diff that adds marker lines; AGENT_RULES 'No conflict markers, ever'. #574 QAPI3 READY, queued.
 - 2026-11-22 Launched QAPI8 (css declaration audit).
+- 2026-11-22 #573 QAPI6 READY (:has; css/selectors has 1366->2762) but YouTube results forced layouts +65 %: HELD for the user (question in PR body + progress page; recommend hold until QAPI6b). Filed QAPI6b (WIP, stacked on #573) and QAPI6c.
