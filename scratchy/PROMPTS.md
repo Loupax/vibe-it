@@ -9135,3 +9135,9 @@ Eased viewport scroll (user design #532, D1-D8): `App::scroll_target`, `scroll_a
 > QWPT6d [S] (P3, from QAPI7 #577; Sonnet; tools/wpt-dirs.txt, wpt-subset.py) Add html/editing to the WPT checkout dirs and the testharness subset, then triage.
 
 **What changed:** tools/wpt-dirs.txt + wpt-subset.py (area `html/editing`, after html/dom), wpt-th/subset.txt, expected/html-editing.txt, areas.txt (`--area html/editing`). wpt-subset.py also skips html/editing pages whose source mentions `testdriver` (SRC_TESTDRIVER_AREAS; the manifest only sees `// META: script=`): 199 URLs of the 247 would end in `action_sequence() is not implemented`. 48 files remain (dnd 12, editing-0 13, focus 7, activation 3, hidden 12, ...). Five identical runs, flaky.txt unchanged. No scratchy code changes. The execCommand tests live in top-level `editing/`, not html/editing, so none entered.
+
+## QDOM10: window.event in shadow trees (agent item)
+
+> QDOM10 [S] (P2; Sonnet; js.rs dispatch; R65; after QDOM4) window.event: current event while a listener runs, restored after (also after a throw), left alone for listeners whose invocation target is in a shadow tree, undefined outside dispatch.
+
+**What changed:** js.rs dispatch: lazy inShadow(node) (path nodes up to the last shadow root); the three places that set curEvent (IDL handler, added listener, attribute handler) skip it for an in-shadow target, per DOM "inner invoke". Each window already has its own curEvent. Tests: src/tests/qdom10_tests.rs.
