@@ -415,6 +415,10 @@ pub(crate) struct Engine {
     touched: Vec<usize>,
     /// QINC1g: elements whose child list or text changed in this update (list markers count siblings).
     kids_changed: HashSet<usize>,
+    /// QAPI6b: the unstyled subtrees `unentried` answered in this update.
+    has_any_done: HashSet<usize>,
+    /// QAPI6b: elements inserted under a styled parent in this update's log.
+    inserted_now: HashSet<usize>,
     /// QINC1j-ab: what the counter / quote walk reads changed in this update (a DOM write, a stored match,
     /// an entry); otherwise its output is the last one and the document-wide walk is skipped.
     gen_dirty: bool,
@@ -651,6 +655,8 @@ impl Engine {
             full: true,
             touched: Vec::new(),
             kids_changed: HashSet::new(),
+            has_any_done: HashSet::new(),
+            inserted_now: HashSet::new(),
             gen_dirty: false,
             adopt_mism: Vec::new(),
         }
@@ -862,43 +868,27 @@ impl Engine {
                 return;
             }
         };
-        let m = match &e.change {
-            Change::Attr { name, old, new } => map.for_attr(&h, name, val_str(old), val_str(new)),
-            Change::ChildInsert { child, .. } => {
-                let c = h.children.borrow().iter().find(|c| node_id(c) == *child).cloned();
-                match c {
-                    Some(c) if is_el(&c) => map.for_children(&h, &ChildChange::Inserted(c)),
-                    _ => map.for_text(&h),
-                }
+        // QAPI6b: nothing below the topmost entry-less ancestor `top` is styled, so only the `:has` anchors above
+        // it can change: one feature-agnostic answer per `top` and update (`for_has_any`), however many changes
+        // the log holds there.
+        let mut top = h;
+        loop {
+            let Some(p) = parent_handle(&top) else {
+                // detached: out of the document, its removal was logged on a live parent
+                return;
+            };
+            let pk = node_id(&p);
+            if pk == self.doc_key || self.table.contains_key(&pk) {
+                break;
             }
-            Change::ChildRemove { prev, next, .. } => {
-                let kids = h.children.borrow();
-                let pos = |k: usize| kids.iter().position(|c| node_id(c) == k);
-                let index = next.and_then(pos).or_else(|| prev.and_then(pos).map(|i| i + 1)).unwrap_or(kids.len());
-                drop(kids);
-                let mut m = map.for_text(&h);
-                m.extend(map.for_has_removal(&h, index));
-                m
-            }
-            Change::Text => match parent_handle(&h) {
-                Some(p) => map.for_text(&p),
-                None => Vec::new(),
-            },
-            Change::TextContent | Change::InnerHtml => {
-                let mut m = map.for_text(&h);
-                m.extend(map.for_has_removal(&h, 0));
-                for c in h.children.borrow().iter().filter(|c| is_el(c)) {
-                    m.extend(map.for_children(&h, &ChildChange::Inserted(c.clone())));
-                }
-                m
-            }
-            Change::Form(_) => {
-                let mut m = map.for_state(&h, StateKind::Checked);
-                m.extend(map.for_state(&h, StateKind::Indeterminate));
-                m
-            }
-            _ => Vec::new(),
-        };
+            top = p;
+        }
+        // A `top` inserted under its styled parent in this batch did not exist before it: that insertion's own
+        // `HasTree` marks (from the final subtree) already cover every change inside it.
+        if self.inserted_now.contains(&node_id(&top)) || !self.has_any_done.insert(node_id(&top)) {
+            return;
+        }
+        let m = map.for_has_any(&top);
         self.apply(m);
     }
 
@@ -906,6 +896,11 @@ impl Engine {
         let mut text_index = None;
         let mut old_lists: HashMap<usize, Vec<usize>> = HashMap::new();
         for e in entries {
+            if let Change::ChildInsert { child, .. } = e.change
+                && self.table.contains_key(&e.node)
+            {
+                self.inserted_now.insert(child);
+            }
             if matches!(e.change, Change::ChildInsert { .. } | Change::ChildRemove { .. } | Change::TextContent | Change::InnerHtml)
                 && !old_lists.contains_key(&e.node)
                 && let Some(old) = self.old_el_children(e.node)
@@ -1404,6 +1399,8 @@ impl Engine {
         self.updates += 1;
         self.touched.clear();
         self.kids_changed.clear();
+        self.has_any_done.clear();
+        self.inserted_now.clear();
         let log = crate::incr_log::take();
         // A list that is not the cache's current one has no generation: always a full re-match.
         let rkey = (crate::rules_cache::generation_of(rules).unwrap_or(u64::MAX), Rc::as_ptr(rules) as usize);
@@ -1719,6 +1716,7 @@ impl Env {
         crate::style::VAR_EXPAND_MEMO.with(|m| *m.borrow_mut() = Some(Default::default()));
         crate::style::ANCESTOR_BLOOM.with(|b| *b.borrow_mut() = Some(Default::default()));
         crate::dom::CLASS_CACHE.with(|c| *c.borrow_mut() = Some(Default::default()));
+        crate::style::SEL_CACHES.with(|c| *c.borrow_mut() = Some(Default::default()));
         Env {
             flags,
             perf: crate::perf::suspend_forced(),
@@ -1743,6 +1741,7 @@ impl Env {
         crate::style::VAR_EXPAND_MEMO.with(|m| *m.borrow_mut() = None);
         crate::style::ANCESTOR_BLOOM.with(|b| *b.borrow_mut() = None);
         crate::dom::CLASS_CACHE.with(|c| *c.borrow_mut() = None);
+        crate::style::SEL_CACHES.with(|c| *c.borrow_mut() = None);
         crate::anim_eval::set_readonly(self.anim);
         crate::perf::resume_forced(self.perf);
         crate::dom::STATE_RULES.with(|c| c.set(self.flags.0));

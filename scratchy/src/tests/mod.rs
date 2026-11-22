@@ -63,6 +63,7 @@ mod wl_drain_tests;
 mod link_css_tests;
 mod invalidation_tests;
 mod qapi6_tests;
+mod qapi6b_tests;
 mod para_id_tests;
 mod incr_log_tests;
 mod incr_style_tests;

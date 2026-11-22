@@ -130,6 +130,9 @@ enum Key {
     /// QAPI6: a `:has()`: carrier is an inserted element (or the removal point), whose anchors may now find a
     /// different set of elements.
     HasTree,
+    /// QAPI6b: every entry whose path starts at a `:has` anchor hop (`Anc` / `AncSib`), carrier filters dropped:
+    /// "something below this element changed", answered once per unstyled subtree (`for_has_any`).
+    HasAny,
 }
 
 /// A child-list change, as the write log records it (R60 section 5). A move is a `Removed` then an `Inserted`.
@@ -148,6 +151,8 @@ pub(crate) struct InvalidationMap {
     global: bool,
     /// QAPI6: some selector uses `:has()` (the `HasTree` key / `Anc` hops exist).
     has: bool,
+    /// QAPI6b: some `HasAny` path reached its anchor hop through sibling hops (`for_has_any` starts at every sibling).
+    has_any_wide: bool,
     /// Some `content: attr()` cannot be pinned to a name: every attribute write restyles its element.
     attr_all: bool,
     /// Quick gates.
@@ -742,13 +747,57 @@ impl InvalidationMap {
                 }
             }
         }
+        // QAPI6b: the feature-agnostic `:has` paths (see `Key::HasAny`); an entry whose path reaches the anchor hop
+        // through sibling hops first (`:nth-child(of S)` inside `:has`) makes the start set every sibling.
+        let mut any: Vec<Entry> = Vec::new();
+        let mut any_wide = false;
+        for v in b.keys.values() {
+            for e in v {
+                let Some(i) = e.hops.iter().position(|h| matches!(h, Hop::Anc | Hop::AncSib)) else { continue };
+                any_wide |= i > 0;
+                any.push(Entry { hops: e.hops[i..].into(), filter: e.filter.clone(), carrier: None, anchor: e.anchor.clone() });
+            }
+        }
+        if !any.is_empty() {
+            b.keys.insert(Key::HasAny, any);
+        }
         for v in b.keys.values_mut() {
             v.sort_unstable();
             v.dedup();
         }
         let has_state_checked = b.keys.contains_key(&Key::State(StateKind::Checked));
         let has_state_disabled = b.keys.contains_key(&Key::State(StateKind::Disabled)) || b.keys.contains_key(&Key::State(StateKind::Enabled));
-        InvalidationMap { generation, keys: b.keys, global: b.global, has: b.has, attr_all, has_state_checked, has_state_disabled, batch: RefCell::new(None) }
+        InvalidationMap {
+            generation,
+            keys: b.keys,
+            global: b.global,
+            has: b.has,
+            has_any_wide: any_wide,
+            attr_all,
+            has_state_checked,
+            has_state_disabled,
+            batch: RefCell::new(None),
+        }
+    }
+
+    /// QAPI6b: anything in the subtree of `top` (an element nobody styles: under `display: none`, or inserted in
+    /// this batch) changed in any way. Only `:has()` can carry that to styled elements: the anchors above `top`
+    /// (and the earlier siblings of it and of its ancestors), for every `:has` rule, whatever the feature. A
+    /// superset of what the change's own feature entries would reach from inside the subtree, answered once per
+    /// `top` instead of once per change (a script filling a hidden list logs thousands).
+    pub(crate) fn for_has_any(&self, top: &Handle) -> Vec<(Handle, Mark)> {
+        let mut out = Marks::default();
+        if !self.has {
+            return out.out;
+        }
+        let starts: Vec<Handle> = match parent_handle(top) {
+            Some(p) if self.has_any_wide => el_children(&p),
+            _ => vec![top.clone()],
+        };
+        for s in &starts {
+            self.apply(&Key::HasAny, s, false, &mut out);
+        }
+        out.out
     }
 
     /// QAPI6: the calls until `end_batch` answer one batch of changes against one DOM state (an engine update):
@@ -1082,9 +1131,10 @@ impl InvalidationMap {
             && is_el(node)
             && self.has
         {
-            // `node` == `parent`: the caller does not know the removed node
-            let known = (!Rc::ptr_eq(node, parent)).then_some(node);
-            self.has_removed(parent, *index, known, &mut out);
+            // QAPI6b: never pruned by the removed subtree's content: the engine answers a batch against the FINAL
+            // DOM, and a detached subtree can be changed after its removal without a log entry (a removed card
+            // that lost its `.on` class still was found by the anchors before the batch).
+            self.has_removed(parent, *index, None, &mut out);
         }
         // `:empty` sees text too; nothing else does.
         self.apply(&Key::Empty, parent, true, &mut out);
