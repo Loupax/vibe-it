@@ -3971,8 +3971,11 @@ changes. Nothing running = `transition::live()` false = no wake-up. Headless sty
 for pages that parsed a `transition` declaration (`any_declared`). Not here: `transition-behavior:
 allow-discrete` for properties outside the table (display, content-visibility), `inherit` on the
 longhands (treated as initial), `transform` functions other than translate, `getAnimations()`/
-CSSTransition objects, the gCS clock between headless frames (a transition a script starts via
-getComputedStyle starts at the last frame's time).
+CSSTransition objects, the App's clock for a transition a script's getComputedStyle starts between
+builds (the last build's time; headless uses the task's page clock, `anim_eval::set_task_clock`).
+getComputedStyle keeps a snapshot for every element it resolves (`transition::with_watch`), so
+"flush, then set a value and `transition` together" transitions; other elements keep one only while
+they declare `transition` (a compact `Snap` of the transitionable fields, not a `ComputedStyle`).
 
 ## Engine evidence (QINC1n, src/incr_evidence.rs)
 
