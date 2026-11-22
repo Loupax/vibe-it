@@ -9482,3 +9482,10 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- (no header)
 - [x] QCSS-D DONE c1b800c #601 [S] (P2, from QAPI8 #578; Sonnet; css.rs, paint) `filter`, `backdrop-filter`, `text-shadow`, `mix-blend-mode`,
       `clip-path` basic shapes.
+
+=== from TODO.txt: --- (no header)
+- [x] QHOV1 DONE 5e72cef #604 [S] (P2, from QCSS-A #584 hover measurement; Opus; app.rs hover patch, incr engine) Every hover on github.com
+      is a ~160 ms full App build on main (YouTube results: hover built 10/10, ~4 ms each). Note: QINC1m #597 deleted the old
+      hover_patch.rs (engine-only now); find where the engine spends the 160 ms on a github hover (restyle scope? relayout
+      of the whole page?), make hover-only paint changes (colour, fill/stroke, background) skip relayout, measure
+      per-hover build ms before/after in a nested window.

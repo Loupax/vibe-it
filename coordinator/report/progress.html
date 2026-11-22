@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-22 · main 8e09b15 · 130 PRs merged since 2026-11-21 morning (#475–#603) · installed 14:06 (59681b9, engine-only)· 5 agents running (QEL2b, QANIMHLc, QCSS-A hover check, QAPI6c, QDOM5b)</div>
+  <div class="meta" id="updated">Updated 2026-11-22 · main 8e09b15 · 131 PRs merged since 2026-11-21 morning (#475–#604) · installed 14:06 (59681b9, engine-only)· 5 agents running (QEL2b, QANIMHLc, QCSS-A hover check, QAPI6c, QDOM5b)</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -112,6 +112,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#604</td><td>QHOV1</td><td>Hover repaints only the damaged rect (paint+present 4.5 → 1.5 ms per redraw); full repaint near blur/backdrop/blend boxes; the 160 ms github hover was the old pipeline, gone with QINC1m</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#601</td><td>QCSS-D</td><td><code>filter</code>, <code>backdrop-filter</code>, <code>text-shadow</code>, <code>mix-blend-mode</code>, <code>clip-path</code> shapes; reftests 322 → 345 (no pass→fail); worst-case scroll paint ~6 ms/frame</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#603</td><td>QNEST1</td><td><span class="mono">tools/nest.sh</span> keeps one nested compositor per worktree (after an agent leaked 9)</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#602</td><td>gate</td><td>Recording <code>github</code> renamed <code>gh-home</code> (your call; the sandbox read the name as a git command)</td></tr>

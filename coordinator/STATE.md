@@ -335,3 +335,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 READY: #603 QNEST1, #601 QCSS-D (reftests 322->345), #604 QHOV1 (hover damage repaint; the 160 ms github hover was the old pipeline). Merging #603, #601; #604 back for fx reach (blur 256 px > CULL_MARGIN 64; backdrop-filter) after #601. Filed QCSS-D2, QHOV2. AGENT_RULES: nest.sh --stop.
 - 2026-11-22 Merged #603 QNEST1 695c9a9, #601 QCSS-D c1b800c. Sent #604 back for fx reach.
 - 2026-11-22 #604 QHOV1 READY (rebased + fx reach; layer boxes force full repaint), merging. Launched QWPT12.
+- 2026-11-22 Merged #604 QHOV1 5e72cef. Reinstalling.
