@@ -95,7 +95,10 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       honouring an explicit ratio needs a transparent letterbox in media_video.rs; media is archived.)
 - [ ] [WIP] QCSS-C [S] (P2, from QAPI8 #578; Sonnet; css.rs, flex/grid) Box-alignment keywords (`end`, `first baseline`, ...),
       `place-*` shorthands, `grid-auto-flow`, `grid-gap`.
-- [ ] QCSS-D [S] (P2, from QAPI8 #578; Sonnet; css.rs, paint) `filter`, `backdrop-filter`, `text-shadow`, `mix-blend-mode`,
+- [ ] QCSS-C2 [S] (P3, from QCSS-C #599; Sonnet; layout.rs grid) Grid alignment leftovers: vertical stretch of grid items
+      (align-items normal/stretch), baseline alignment in grid, align-content/justify-content distribution of grid tracks
+      (space-between, center, end), `unsafe` overflow, `justify-items: legacy` inheritance, safe/unsafe in serialisation.
+- [ ] [WIP] QCSS-D [S] (P2, from QAPI8 #578; Sonnet; css.rs, paint) `filter`, `backdrop-filter`, `text-shadow`, `mix-blend-mode`,
       `clip-path` basic shapes.
 - [ ] QCSS-E [S] (P2, from QAPI8 #578; Sonnet; css.rs, layout/paint) Per-corner radii, `outline-offset`, `transform-origin`,
       `border-spacing`, `letter-spacing`, `direction`.
