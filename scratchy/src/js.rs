@@ -1008,6 +1008,51 @@ const PRELUDE: &str = r#"
       return uad;
     });
   })();
+  // QAPI3: navigator.serviceWorker and window.caches, inert stubs (DECISIONS "Network and privacy"): no worker is
+  // ever registered, nothing is stored or persisted, no network. Pages probe these and fall back when they fail.
+  (function () {
+    var ServiceWorkerContainer = ctor('ServiceWorkerContainer', EventTarget), CacheStorage = ctor('CacheStorage'), Cache = ctor('Cache');
+    [ServiceWorkerContainer, CacheStorage, Cache].forEach(function (C) {
+      Object.defineProperty(C.prototype, Symbol.toStringTag, { value: C.name, configurable: true });
+    });
+    var method = function (P, iface, name, nargs, fn) {
+      var f = { [name]: function () {
+        if (arguments.length < nargs) return Promise.reject(new TypeError("Failed to execute '" + name + "' on '" + iface + "': " + nargs + ' argument' + (nargs > 1 ? 's' : '') + ' required, but only ' + arguments.length + ' present.'));
+        return fn.apply(this, arguments);
+      } }[name];
+      Object.defineProperty(P, name, { value: f, writable: true, configurable: true, enumerable: true });
+    };
+    var SWC = ServiceWorkerContainer.prototype, never = null;
+    ['oncontrollerchange', 'onmessage', 'onmessageerror'].forEach(function (n) {
+      Object.defineProperty(SWC, n, { value: null, writable: true, configurable: true, enumerable: true });
+    });
+    Object.defineProperty(SWC, 'controller', { get: function () { return null; }, configurable: true, enumerable: true });
+    Object.defineProperty(SWC, 'ready', { get: function () { return never || (never = new Promise(function () {})); }, configurable: true, enumerable: true });
+    method(SWC, 'ServiceWorkerContainer', 'register', 1, function () {
+      return Promise.reject(new g.DOMException('Failed to register a ServiceWorker: service workers are not supported in this browser.', 'SecurityError'));
+    });
+    method(SWC, 'ServiceWorkerContainer', 'getRegistrations', 0, function () { return Promise.resolve([]); });
+    method(SWC, 'ServiceWorkerContainer', 'getRegistration', 0, function () { return Promise.resolve(undefined); });
+    Object.defineProperty(SWC, 'startMessages', { value: function startMessages() {}, writable: true, configurable: true, enumerable: true });
+    var swc = Object.create(SWC);
+    Object.defineProperty(Navigator.prototype, 'serviceWorker', { get: function () { return swc; }, set: undefined, configurable: true, enumerable: true });
+    var CP = Cache.prototype;
+    method(CP, 'Cache', 'match', 1, function () { return Promise.resolve(undefined); });
+    method(CP, 'Cache', 'matchAll', 0, function () { return Promise.resolve([]); });
+    method(CP, 'Cache', 'add', 1, function () { return Promise.resolve(); });
+    method(CP, 'Cache', 'addAll', 1, function () { return Promise.resolve(); });
+    method(CP, 'Cache', 'put', 2, function () { return Promise.resolve(); });
+    method(CP, 'Cache', 'delete', 1, function () { return Promise.resolve(false); });
+    method(CP, 'Cache', 'keys', 0, function () { return Promise.resolve([]); });
+    var CSP = CacheStorage.prototype;
+    method(CSP, 'CacheStorage', 'open', 1, function () { return Promise.resolve(Object.create(CP)); });
+    method(CSP, 'CacheStorage', 'match', 1, function () { return Promise.resolve(undefined); });
+    method(CSP, 'CacheStorage', 'has', 1, function () { return Promise.resolve(false); });
+    method(CSP, 'CacheStorage', 'delete', 1, function () { return Promise.resolve(false); });
+    method(CSP, 'CacheStorage', 'keys', 0, function () { return Promise.resolve([]); });
+    var cs = Object.create(CSP);
+    Object.defineProperty(g, 'caches', { get: function () { return cs; }, set: function () {}, configurable: true, enumerable: true });
+  })();
   g.innerWidth = Number(env.innerWidth); g.innerHeight = Number(env.innerHeight);
   // QY10: MediaQueryList. `matches` is re-evaluated on every read;
   // `change` never fires (the viewport is fixed for the page's life
