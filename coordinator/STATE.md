@@ -274,3 +274,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Merged #581 QWPT6d a509754 (html/editing in the subset). Sent #579 rebase.
 - 2026-11-22 #583 QDOM19 READY (name validation; 6 files up), queued after #580. Filed QDOM19b. Launched QEDIT-A.
 - 2026-11-22 Merged #580 QDOM10 a7cba4a (window.event).
+- 2026-11-22 #579 QWPT6c rebased (scratchy-wpt 4:30), queued after #583. Launched QEL2b (Opus).
