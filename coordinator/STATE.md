@@ -235,3 +235,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #568 QANIMHLb READY (CSS transitions; live check ok, idle CPU ok). Queued after #567. Filed QANIMHLd.
 - 2026-11-22 Merged #566 QDOMATOM e307cf0. Sent #549 QDOM16 rebase onto it (recheck the append subtest).
 - 2026-11-22 #560 QDOM17 rebased (nodes 63.5), queued after #568. Launched QAPI2.
+- 2026-11-22 Merged #552 QSB2b 91a22b3 (horizontal scrollbars), #565 QDOM6b 92101d3, #567 QREC3b 46e0e50.

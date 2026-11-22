@@ -132,10 +132,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       drop the preludes' own probes (script `prelude`), and give `has` misses a receiver interface where it can be found.
 - [ ] QREC1b [S] (P3, from QREC1 #490; Sonnet; wire record.rs) Record Set-Cookie lines separately (index field) and
       feed them to the jar on replay; per-response size cap or streamed hashing so a large body is not held in memory.
-- [ ] [WIP] QREC3b [S] (P2, from QREC3 #537; Sonnet; tools/incr-gate) Record in the mode that replays (`run.sh headless`
-      with RECORD=), re-record ytr/ytw/wiki (after QREC1c) to get replay misses to ~0 (today ytr 66-119, ytw 24-89);
-      gate.sh/run.sh: one nested dwl per page or no 1 h `timeout` on it, and a timeout on the end `grim`. Recordings
-      stay local (Q5); a fresh wire with --no-cookies and an own --state-dir.
 - [ ] QREC3c [S] (P3, from QREC3b #567; Sonnet; tools/incr-gate) Window-mode recordings (the hover/play requests of
       the window input plans; `gate.sh replay` needs them), a quiet-machine re-measure of live vs replay ms variance, and
       why the replayed YouTube results page does ~half the live forced layouts (replay delay? deterministic clock?).
@@ -155,8 +151,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       select.selectedOptions and map.images as live HTMLCollections. --wpt-th per-area table.
 - [ ] QDOM5b [S] (P3, from QDOM5 #556; Sonnet; js_dom.rs Range block) Live Range fix-ups for outerHTML /
       insertAdjacentHTML (`__d_write`) and cross-document adopt; look at the remaining Range-attribute-nodes failures (19/26).
-- [ ] [WIP] QDOM6b [S] (P2, from QDOM6 #526; Sonnet; js_dom.rs) `createElementNS(null, name)` creates an HTML-namespace element
-      (old quirk): use `__d_create_xml` (null namespace, name unchanged) as created XML documents already do. Test + --wpt-th.
 - [ ] QDOM8b [S] (P3, from QDOM8 #539; Sonnet; js_dom.rs serialize) XML serialization: CDATASection as `<![CDATA[..]]>`,
       ProcessingInstruction as `<?target data?>` in XMLSerializer / outerHTML of XML documents.
 - [ ] QBLOBFRAME [S] (P2, from QDOM9 #542; Sonnet; js_dom.rs iframe realms, blob URL store) Load `blob:` URLs in iframes
@@ -404,10 +398,6 @@ QKEYS — input mode / normal mode, Esc Esc, `i`, status bar (user design sessio
 
 - [ ] QXSCR1a [S] (P3, from QXSCR1 #535; Sonnet; layout StickyInfo, paint) `position: sticky` with `left`/`right`:
       resolve against App::scroll_x and region x offsets as top/bottom are against y. Tests + nested-window grim.
-- [ ] [WIP] QSB2b [M] (QXSCR1 done #535; user 2026-11-21 chose: real horizontal scrolling first, then these bars; P3, from QSB2 #497; Sonnet) Horizontal scrollbars (window and overflow-x regions): ScrollInfo gains
-      horizontal content/client widths and a per-region x scroll; the window bar sits above the status bar and the page
-      viewport loses TRACK_W of height while it shows; scrollbar.rs axis-generic geometry/hit-test/drag (SbDrag/SbHold get an
-      axis); wheel and shift-wheel stay consistent. Tests + nest/grim check.
 
 
 ========================================================================

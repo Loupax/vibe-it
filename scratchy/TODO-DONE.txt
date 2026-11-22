@@ -9250,3 +9250,19 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       post-connection steps (script prepare/run, iframe load) run in tree order AFTER the whole insertion, per DOM
       "insert" + HTML "post-connection steps". WPT dom/nodes/insertion-removing-steps/*, Node-appendChild-script-and-
       iframe (its "append() with multiple arguments" subtest stops passing in #549 because #549 makes append atomic).
+
+=== from TODO.txt: --- (no header)
+- [x] QSB2b DONE 91a22b3 #552 [M] (QXSCR1 done #535; user 2026-11-21 chose: real horizontal scrolling first, then these bars; P3, from QSB2 #497; Sonnet) Horizontal scrollbars (window and overflow-x regions): ScrollInfo gains
+      horizontal content/client widths and a per-region x scroll; the window bar sits above the status bar and the page
+      viewport loses TRACK_W of height while it shows; scrollbar.rs axis-generic geometry/hit-test/drag (SbDrag/SbHold get an
+      axis); wheel and shift-wheel stay consistent. Tests + nest/grim check.
+
+=== from TODO.txt: --- (no header)
+- [x] QDOM6b DONE 92101d3 #565 [S] (P2, from QDOM6 #526; Sonnet; js_dom.rs) `createElementNS(null, name)` creates an HTML-namespace element
+      (old quirk): use `__d_create_xml` (null namespace, name unchanged) as created XML documents already do. Test + --wpt-th.
+
+=== from TODO.txt: --- (no header)
+- [x] QREC3b DONE 46e0e50 #567 [S] (P2, from QREC3 #537; Sonnet; tools/incr-gate) Record in the mode that replays (`run.sh headless`
+      with RECORD=), re-record ytr/ytw/wiki (after QREC1c) to get replay misses to ~0 (today ytr 66-119, ytw 24-89);
+      gate.sh/run.sh: one nested dwl per page or no 1 h `timeout` on it, and a timeout on the end `grim`. Recordings
+      stay local (Q5); a fresh wire with --no-cookies and an own --state-dir.
