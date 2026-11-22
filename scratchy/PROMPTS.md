@@ -9273,4 +9273,4 @@ Prompt: load blob: URLs in iframes (iframe.src = URL.createObjectURL(new Blob([h
 
 > QCISPLIT2 [S] (P3, from QWPT6c #579; Sonnet; .github/workflows/ci.yml, tools) Shard the `scratchy-wpt` job into parallel jobs by area; find why the step is slower on CI than locally.
 
-**What changed:** `--wpt-th` takes `--area A,B,dir/*` (comma list, `prefix/*` globs) and `--except ...`; it prints the slowest files and per-area summed time. CI job `scratchy-wpt` became a 3-shard matrix (`scratchy-wpt-dom`, `-html`, `-rest`; reftests run in `rest`). NOTES.md "CI gate (QWPT5)".
+**What changed:** `--wpt-th` takes `--area A,B,dir/*` (comma list, `prefix/*` globs) and `--except ...`; it prints the slowest files and per-area summed time. CI job `scratchy-wpt` became a 5-shard matrix (`scratchy-wpt-dom`, `-html`, `-canvas-element`, `-canvas-other`, `-rest`; reftests run in `rest`). NOTES.md "CI gate (QWPT5)".

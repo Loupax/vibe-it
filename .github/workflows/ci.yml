@@ -140,16 +140,15 @@ jobs:
   # QCISPLIT: the WPT gates (reftests + testharness, both blocking) run in their own jobs, in parallel with the
   # scratchy test/clippy job instead of after it. They build only the release binaries they need (scratchy and wire,
   # no test profiles).
-  # QCISPLIT2: the testharness gate is sharded by area into three parallel jobs (a per-file child process costs
-  # ~0.18 s and 3254 files run 4 at a time; no single file dominates, 11 files take >= 2 s). Shard = a `--area` list
-  # (or, for `rest`, the `--except` of every other shard's list), so a new area always lands in `rest` and is gated.
+  # QCISPLIT2: the testharness gate is sharded by area into five parallel jobs (a per-file child process costs
+  # ~0.18 s and 5608 files run 4 at a time; no single file dominates, 11 files take >= 2 s). Shard = a `--area` list
+  # (or, for `rest`, the `--except` of every other shard's lists), so a new area always lands in a shard and is gated
+  # (new html/canvas/* areas in `canvas-other`, anything else in `rest`). Summed file time per shard is ~200 s.
   # areas.txt stays ONE committed file: a shard rewrites only its own areas' rows (the others keep the committed rows),
   # so the "CI result differs from the committed areas.txt" check is per shard. The reftest gate runs once, in `rest`.
   # All shards share one rust-cache entry (shared-key; `rest` saves it), so a shard's build is an incremental one.
-  # Required check names are now: scratchy, snag, wire, scratchy-wpt-dom, scratchy-wpt-html, scratchy-wpt-rest (6;
-  # `scratchy-wpt` no longer exists).
-  # When html/canvas joins the gate (QWPT12) it gets its own shard: add `canvas` with area `html/canvas/*` and add
-  # `html/canvas/*` to `rest`'s except list.
+  # Required check names are now: scratchy, snag, wire, scratchy-wpt-dom, scratchy-wpt-html,
+  # scratchy-wpt-canvas-element, scratchy-wpt-canvas-other, scratchy-wpt-rest (8; `scratchy-wpt` no longer exists).
   wpt:
     name: scratchy-wpt-${{ matrix.shard }}
     runs-on: ubuntu-latest
@@ -162,9 +161,13 @@ jobs:
             select: --area 'dom/*'
           - shard: html
             select: --area 'html/dom,html/editing,html/semantics/*,html/webappapis,custom-elements'
+          - shard: canvas-element
+            select: --area 'html/canvas/element'
+          - shard: canvas-other
+            select: --area 'html/canvas/*' --except 'html/canvas/element'
           - shard: rest
             reftests: true
-            select: --except 'dom/*,html/dom,html/editing,html/semantics/*,html/webappapis,custom-elements'
+            select: --except 'dom/*,html/dom,html/editing,html/semantics/*,html/webappapis,custom-elements,html/canvas/*'
     env:
       V8_VERSION: "152.2.0"
       V8_ARCHIVE_NAME: librusty_v8_release_x86_64-unknown-linux-gnu.a.gz
