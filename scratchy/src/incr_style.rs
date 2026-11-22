@@ -171,6 +171,9 @@ thread_local! {
     static RECORD: RefCell<Option<Record>> = const { RefCell::new(None) };
     /// QINC1i4: `RECORD` is collecting (one `Cell` test per resolve when off).
     static RECORDING: Cell<bool> = const { Cell::new(false) };
+    /// QAPI6c: a recording build's selector matching evaluated a height media query (`MediaQuery::reads_height`).
+    /// Kept out of the per-resolve flag and folded into `VIEWPORT_H_READ` by `take_record`.
+    static MATCH_VH: Cell<bool> = const { Cell::new(false) };
     /// The last record's size (the next one is sized for it: no rehash while the build runs).
     static RECORD_LEN: Cell<usize> = const { Cell::new(0) };
     static ENGINE: RefCell<Option<Engine>> = const { RefCell::new(None) };
@@ -221,12 +224,16 @@ pub(crate) fn begin_build() -> bool {
     }
     RECORD.with(|r| *r.borrow_mut() = Some(HashMap::with_capacity(RECORD_LEN.with(Cell::get))));
     RECORDING.with(|r| r.set(true));
+    MATCH_VH.with(|m| m.set(false));
     true
 }
 
 /// Stops recording and returns what the build resolved.
 fn take_record() -> Option<Record> {
     RECORDING.with(|r| r.set(false));
+    if MATCH_VH.with(|m| m.replace(false)) {
+        crate::dom::note_viewport_height_read();
+    }
     let r = RECORD.with(|r| r.borrow_mut().take());
     RECORD_LEN.with(|n| n.set(r.as_ref().map_or(0, HashMap::len)));
     r
@@ -237,6 +244,27 @@ fn take_record() -> Option<Record> {
 #[inline]
 pub(crate) fn record_begin() -> Option<bool> {
     if RECORDING.with(Cell::get) { Some(crate::dom::VIEWPORT_H_READ.with(|v| v.replace(false))) } else { None }
+}
+
+/// QAPI6c: selector matching evaluates a rule's media list through this. A height media query decides
+/// WHICH rules match, not what a matched declaration computes to: the engine re-matches in full when
+/// the height changes and some rule's media reads it (`Engine::update`), so the read is no element's
+/// own `reads_vh`. Matches are memoized per build, and an element can be matched inside its one resolve
+/// in the build (`display: none`: resolved once) but before its resolve in the engine (memo hit): the
+/// read would land in the build's per-resolve flag only ("adopted element style reads vh: build true vs
+/// engine false"). While a build records, the read is kept aside (`MATCH_VH`) and reaches the build's
+/// global flag at `take_record`; otherwise it is the plain global note, as before.
+#[inline]
+pub(crate) fn match_media(f: impl FnOnce() -> bool) -> bool {
+    if !RECORDING.with(Cell::get) {
+        return f();
+    }
+    let before = crate::dom::VIEWPORT_H_READ.with(|v| v.replace(false));
+    let ok = f();
+    if crate::dom::VIEWPORT_H_READ.with(|v| v.replace(before)) {
+        MATCH_VH.with(|m| m.set(true));
+    }
+    ok
 }
 
 /// `resolve_style_for` reports each result here with `record_begin`'s token (a no-op unless a build

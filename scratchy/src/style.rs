@@ -1195,7 +1195,8 @@ fn matching_indices_with(
             // what's evaluated. Checked before the (more expensive) real
             // selector match, same short-circuit order `collect_root_
             // custom_props` also uses.
-            if !media_list_matches(&rule.media, viewport_width) {
+            // QAPI6c: a height media read here is not the resolving element's own (`match_media`).
+            if !rule.media.is_empty() && !crate::incr_style::match_media(|| media_list_matches(&rule.media, viewport_width)) {
                 continue;
             }
             if let Some(name) = pseudo {
