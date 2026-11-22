@@ -17,9 +17,9 @@ pub(crate) struct SvgProps {
 }
 pub(crate) type SvgRef = &'static SvgProps;
 
+type SvgIntern = (HashMap<SvgProps, SvgRef>, HashMap<String, &'static str>);
 thread_local! {
-    static SVG_INTERN: std::cell::RefCell<(HashMap<SvgProps, SvgRef>, HashMap<String, &'static str>)> =
-        std::cell::RefCell::new((HashMap::new(), HashMap::new()));
+    static SVG_INTERN: std::cell::RefCell<SvgIntern> = std::cell::RefCell::new((HashMap::new(), HashMap::new()));
 }
 
 pub(crate) fn intern_svg(p: SvgProps) -> SvgRef {
