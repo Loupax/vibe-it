@@ -1044,3 +1044,4 @@ mod qedit_a_tests;
 mod qapi6c_tests;
 mod qcss_a_tests;
 mod qff1b_tests;
+mod qcss_c_tests;

@@ -198,28 +198,72 @@ pub(crate) enum FlexWrap {
     WrapReverse,
 }
 
-/// `justify-content`'s keywords, main-axis distribution. `SpaceEvenly`
-/// is CSS Box Alignment's newer addition (not in the original Flexbox
-/// spec) — implemented anyway since it fell out of the same `leftover`/
-/// `n` arithmetic as `SpaceBetween`/`SpaceAround` for free, despite the
-/// task's own wording treating it as optional.
+/// `justify-content`'s keywords, main-axis distribution (QCSS-C: the CSS Box Alignment
+/// keywords too). The extra variants keep the specified keyword for getComputedStyle;
+/// layout only ever looks at `canon()`, which maps them onto the physical behaviours
+/// (writing modes and `direction` are not modelled, so `left`/`start` are the start edge and
+/// `right`/`end` the end edge; `safe`/`unsafe` are accepted but not kept: layout clamps a
+/// negative free space to 0 already, which is `safe`).
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub(crate) enum JustifyContent {
+    /// The initial value `normal` (behaves as `flex-start`, `start` in a grid).
     #[default]
+    Normal,
     FlexStart,
     FlexEnd,
     Center,
     SpaceBetween,
     SpaceAround,
     SpaceEvenly,
+    Start,
+    End,
+    Left,
+    Right,
+    Stretch,
+    Baseline,
+    LastBaseline,
+}
+
+impl JustifyContent {
+    /// The layout behaviour: one of `FlexStart`, `FlexEnd`, `Center`, `SpaceBetween`,
+    /// `SpaceAround`, `SpaceEvenly`.
+    pub(crate) fn canon(self) -> JustifyContent {
+        use JustifyContent::*;
+        match self {
+            Normal | Start | Left | Stretch | Baseline => FlexStart,
+            End | Right | LastBaseline => FlexEnd,
+            v => v,
+        }
+    }
+
+    pub(crate) fn keyword(self) -> &'static str {
+        use JustifyContent::*;
+        match self {
+            Normal => "normal",
+            FlexStart => "flex-start",
+            FlexEnd => "flex-end",
+            Center => "center",
+            SpaceBetween => "space-between",
+            SpaceAround => "space-around",
+            SpaceEvenly => "space-evenly",
+            Start => "start",
+            End => "end",
+            Left => "left",
+            Right => "right",
+            Stretch => "stretch",
+            Baseline => "baseline",
+            LastBaseline => "last baseline",
+        }
+    }
 }
 
 /// `align-content`'s keywords: how the lines of a *wrapped* row flex
 /// container are distributed along the cross axis when the container
-/// has a definite height. `normal` is `stretch`.
+/// has a definite height. `normal` is `stretch`. `canon()` as for `JustifyContent`.
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub(crate) enum AlignContent {
     #[default]
+    Normal,
     Stretch,
     FlexStart,
     FlexEnd,
@@ -227,25 +271,128 @@ pub(crate) enum AlignContent {
     SpaceBetween,
     SpaceAround,
     SpaceEvenly,
+    Start,
+    End,
+    Baseline,
+    LastBaseline,
 }
 
-/// `align-items`/`align-self`'s keywords, cross-axis alignment.
-/// `Baseline` is accepted but resolves identically to `FlexStart` — real
-/// baseline alignment needs each item's own font ascent threaded out of
-/// `measure`'s box-model math (nothing here tracks a box's baseline
-/// today, only cosmic-text's per-glyph shaping does, several layers
-/// below `measure`), a disproportionate amount of new plumbing for a
-/// value most real "flex row of items" pages don't actually rely on —
-/// explicitly permitted as an approximation and documented (TODO.txt),
-/// not silently dropped.
+impl AlignContent {
+    pub(crate) fn canon(self) -> AlignContent {
+        use AlignContent::*;
+        match self {
+            Normal => Stretch,
+            Start | Baseline => FlexStart,
+            End | LastBaseline => FlexEnd,
+            v => v,
+        }
+    }
+
+    pub(crate) fn keyword(self) -> &'static str {
+        use AlignContent::*;
+        match self {
+            Normal => "normal",
+            Stretch => "stretch",
+            FlexStart => "flex-start",
+            FlexEnd => "flex-end",
+            Center => "center",
+            SpaceBetween => "space-between",
+            SpaceAround => "space-around",
+            SpaceEvenly => "space-evenly",
+            Start => "start",
+            End => "end",
+            Baseline => "baseline",
+            LastBaseline => "last baseline",
+        }
+    }
+}
+
+/// `align-items`/`align-self`/`justify-items`/`justify-self` keywords (QCSS-C: the whole
+/// `<self-position>` / `<baseline-position>` / `legacy` grammar). `canon()` maps them onto
+/// `Stretch`, `FlexStart`, `FlexEnd`, `Center`, `Baseline`. `Baseline` is the first-baseline
+/// alignment for flex items and `FlexStart` for grid items. `LastBaseline` is the end edge
+/// (the spec's own fallback alignment).
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub(crate) enum AlignItems {
+    /// The initial value `normal` (`stretch` for a non-replaced box).
     #[default]
+    Normal,
     Stretch,
     FlexStart,
     FlexEnd,
     Center,
     Baseline,
+    LastBaseline,
+    Start,
+    End,
+    SelfStart,
+    SelfEnd,
+    /// `left`/`right` (justify-* only).
+    Left,
+    Right,
+    /// `justify-items: legacy` and its `legacy left|right|center` forms.
+    Legacy,
+    LegacyLeft,
+    LegacyRight,
+    LegacyCenter,
+    /// `align-self: auto` / `justify-self: auto` (only ever in `Declarations`).
+    Auto,
+}
+
+impl AlignItems {
+    pub(crate) fn canon(self) -> AlignItems {
+        use AlignItems::*;
+        match self {
+            Normal | Legacy => Stretch,
+            Start | SelfStart | Left | LegacyLeft => FlexStart,
+            End | SelfEnd | Right | LastBaseline | LegacyRight => FlexEnd,
+            LegacyCenter => Center,
+            Auto => Stretch,
+            v => v,
+        }
+    }
+
+    pub(crate) fn keyword(self) -> &'static str {
+        use AlignItems::*;
+        match self {
+            Normal => "normal",
+            Stretch => "stretch",
+            FlexStart => "flex-start",
+            FlexEnd => "flex-end",
+            Center => "center",
+            Baseline => "baseline",
+            LastBaseline => "last baseline",
+            Start => "start",
+            End => "end",
+            SelfStart => "self-start",
+            SelfEnd => "self-end",
+            Left => "left",
+            Right => "right",
+            Legacy => "legacy",
+            LegacyLeft => "legacy left",
+            LegacyRight => "legacy right",
+            LegacyCenter => "legacy center",
+            Auto => "auto",
+        }
+    }
+}
+
+/// `grid-auto-flow` (QCSS-C): the auto-placement direction and whether holes are back-filled.
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub(crate) struct GridAutoFlow {
+    pub(crate) column: bool,
+    pub(crate) dense: bool,
+}
+
+impl GridAutoFlow {
+    pub(crate) fn keyword(self) -> &'static str {
+        match (self.column, self.dense) {
+            (false, false) => "row",
+            (true, false) => "column",
+            (false, true) => "row dense",
+            (true, true) => "column dense",
+        }
+    }
 }
 
 /// `flex-basis`'s value: either `auto` (the real initial value — fall
@@ -1226,6 +1373,10 @@ pub(crate) struct Declarations {
     /// same "both collapse to the same thing" simplification `z_index`/
     /// `top`/etc. already use for their own `auto` keyword.
     pub(crate) align_self: Option<AlignItems>,
+    /// QCSS-C: `justify-items` (the grid container's default for `justify-self`).
+    pub(crate) justify_items: Option<AlignItems>,
+    pub(crate) justify_self: Option<AlignItems>,
+    pub(crate) grid_auto_flow: Option<GridAutoFlow>,
     pub(crate) flex_grow: Option<f32>,
     pub(crate) flex_shrink: Option<f32>,
     pub(crate) flex_basis: Option<FlexBasis>,
@@ -4119,23 +4270,183 @@ pub(crate) fn parse_flex_wrap(input: &mut CssParser) -> Result<FlexWrap, ()> {
     flex_wrap_from_keyword(ident).ok_or(())
 }
 
-/// `align-items`/`align-self`'s 5 keywords (minus `align-self`'s own
-/// extra `auto`, handled separately — see its own `DeclParser` branch).
-pub(crate) fn parse_align_keyword(input: &mut CssParser) -> Result<AlignItems, ()> {
-    let ident = input.expect_ident().map_err(|_| ())?;
-    if ident.eq_ignore_ascii_case("stretch") {
-        Ok(AlignItems::Stretch)
-    } else if ident.eq_ignore_ascii_case("flex-start") {
-        Ok(AlignItems::FlexStart)
-    } else if ident.eq_ignore_ascii_case("flex-end") {
-        Ok(AlignItems::FlexEnd)
-    } else if ident.eq_ignore_ascii_case("center") {
-        Ok(AlignItems::Center)
-    } else if ident.eq_ignore_ascii_case("baseline") {
-        Ok(AlignItems::Baseline)
-    } else {
-        Err(())
+/// A gap value: a length/percentage, or `normal` (0 here: grid and flex both use 0).
+fn parse_gap_length(input: &mut CssParser) -> Result<Length, ()> {
+    if input.try_parse(|i| i.expect_ident_matching("normal")).is_ok() {
+        return Ok(Length::Px(0.0));
     }
+    parse_length(input)
+}
+
+/// `align-self`/`justify-self`: `auto` or an item alignment.
+pub(crate) fn parse_self_words(words: &[String], kind: AlignKind) -> Option<AlignItems> {
+    if words.len() == 1 && words[0] == "auto" {
+        return Some(AlignItems::Auto);
+    }
+    parse_align_item_words(words, kind)
+}
+
+/// Which Box Alignment grammar a value is parsed against.
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum AlignKind {
+    Content,
+    JustifyContent,
+    Items,
+    JustifyItems,
+}
+
+/// Reads the keywords of one alignment property value (every remaining identifier).
+pub(crate) fn align_words(input: &mut CssParser) -> Vec<String> {
+    let mut words = Vec::new();
+    while let Ok(w) = input.try_parse(|i| i.expect_ident().map(|s| s.to_ascii_lowercase())) {
+        words.push(w);
+    }
+    words
+}
+
+/// The raw keyword form of one alignment value (`AlignItems` for the item kinds; for the
+/// content kinds the same value is converted by the caller).
+pub(crate) fn parse_align_prefix(words: &[String], kind: AlignKind) -> Option<(AlignItems, usize)> {
+    let w: Vec<&str> = words.iter().map(|s| s.as_str()).collect();
+    let content = matches!(kind, AlignKind::Content | AlignKind::JustifyContent);
+    let justify = matches!(kind, AlignKind::JustifyContent | AlignKind::JustifyItems);
+    let first = *w.first()?;
+    match first {
+        "first" | "last" => {
+            return (w.get(1) == Some(&"baseline")).then_some((
+                if first == "first" { AlignItems::Baseline } else { AlignItems::LastBaseline },
+                2,
+            ));
+        }
+        "baseline" => return Some((AlignItems::Baseline, 1)),
+        "safe" | "unsafe" => {
+            // `safe`/`unsafe` modify a position keyword; layout clamps free space to 0 either way.
+            let (v, n) = parse_align_prefix(&words[1..], kind)?;
+            return matches!(
+                v,
+                AlignItems::FlexStart
+                    | AlignItems::FlexEnd
+                    | AlignItems::Center
+                    | AlignItems::Start
+                    | AlignItems::End
+                    | AlignItems::SelfStart
+                    | AlignItems::SelfEnd
+                    | AlignItems::Left
+                    | AlignItems::Right
+            )
+            .then_some((v, n + 1));
+        }
+        "legacy" if kind == AlignKind::JustifyItems => {
+            return Some(match w.get(1) {
+                Some(&"left") => (AlignItems::LegacyLeft, 2),
+                Some(&"right") => (AlignItems::LegacyRight, 2),
+                Some(&"center") => (AlignItems::LegacyCenter, 2),
+                _ => (AlignItems::Legacy, 1),
+            });
+        }
+        _ => {}
+    }
+    let v = match first {
+        "normal" => AlignItems::Normal,
+        "stretch" => AlignItems::Stretch,
+        "center" => AlignItems::Center,
+        "start" => AlignItems::Start,
+        "end" => AlignItems::End,
+        "flex-start" => AlignItems::FlexStart,
+        "flex-end" => AlignItems::FlexEnd,
+        "self-start" if !content => AlignItems::SelfStart,
+        "self-end" if !content => AlignItems::SelfEnd,
+        "left" if justify => AlignItems::Left,
+        "right" if justify => AlignItems::Right,
+        _ => return None,
+    };
+    Some((v, 1))
+}
+
+/// A whole `align-items`-style value (all words consumed).
+fn parse_align_item_words(words: &[String], kind: AlignKind) -> Option<AlignItems> {
+    let (v, n) = parse_align_prefix(words, kind)?;
+    (n == words.len()).then_some(v)
+}
+
+/// `align-items`/`justify-items` and (`auto` handled by the caller) the `*-self` grammar.
+pub(crate) fn parse_align_keyword(input: &mut CssParser, kind: AlignKind) -> Result<AlignItems, ()> {
+    let words = align_words(input);
+    parse_align_item_words(&words, kind).ok_or(())
+}
+
+/// One `align-content`/`justify-content` value: a distribution keyword (0 `space-between`,
+/// 1 `space-around`, 2 `space-evenly`) or an item-style position.
+#[derive(Clone, Copy)]
+pub(crate) enum ContentVal {
+    Dist(u8),
+    Pos(AlignItems),
+}
+
+pub(crate) fn parse_content_prefix(words: &[String], kind: AlignKind) -> Option<(ContentVal, usize)> {
+    match words.first().map(|s| s.as_str())? {
+        "space-between" => Some((ContentVal::Dist(0), 1)),
+        "space-around" => Some((ContentVal::Dist(1), 1)),
+        "space-evenly" => Some((ContentVal::Dist(2), 1)),
+        _ => parse_align_prefix(words, kind).map(|(v, n)| (ContentVal::Pos(v), n)),
+    }
+}
+
+pub(crate) fn justify_content_from(v: ContentVal) -> JustifyContent {
+    let v = match v {
+        ContentVal::Dist(0) => return JustifyContent::SpaceBetween,
+        ContentVal::Dist(1) => return JustifyContent::SpaceAround,
+        ContentVal::Dist(_) => return JustifyContent::SpaceEvenly,
+        ContentVal::Pos(v) => v,
+    };
+    match v {
+        AlignItems::Normal => JustifyContent::Normal,
+        AlignItems::Stretch => JustifyContent::Stretch,
+        AlignItems::Center => JustifyContent::Center,
+        AlignItems::Start => JustifyContent::Start,
+        AlignItems::End => JustifyContent::End,
+        AlignItems::FlexStart => JustifyContent::FlexStart,
+        AlignItems::FlexEnd => JustifyContent::FlexEnd,
+        AlignItems::Left => JustifyContent::Left,
+        AlignItems::Right => JustifyContent::Right,
+        AlignItems::Baseline => JustifyContent::Baseline,
+        _ => JustifyContent::LastBaseline,
+    }
+}
+
+pub(crate) fn align_content_from(v: ContentVal) -> AlignContent {
+    let v = match v {
+        ContentVal::Dist(0) => return AlignContent::SpaceBetween,
+        ContentVal::Dist(1) => return AlignContent::SpaceAround,
+        ContentVal::Dist(_) => return AlignContent::SpaceEvenly,
+        ContentVal::Pos(v) => v,
+    };
+    match v {
+        AlignItems::Normal => AlignContent::Normal,
+        AlignItems::Stretch => AlignContent::Stretch,
+        AlignItems::Center => AlignContent::Center,
+        AlignItems::Start => AlignContent::Start,
+        AlignItems::End => AlignContent::End,
+        AlignItems::FlexStart => AlignContent::FlexStart,
+        AlignItems::FlexEnd => AlignContent::FlexEnd,
+        AlignItems::Baseline => AlignContent::Baseline,
+        _ => AlignContent::LastBaseline,
+    }
+}
+
+/// A whole content value (all words consumed).
+pub(crate) fn parse_content_words(words: &[String], kind: AlignKind) -> Option<ContentVal> {
+    let (v, n) = parse_content_prefix(words, kind)?;
+    (n == words.len()).then_some(v)
+}
+
+/// Splits `place-*` words into the first value and the optional second.
+pub(crate) fn split_place<T>(
+    words: &[String],
+    first: impl Fn(&[String]) -> Option<(T, usize)>,
+) -> Option<(T, Option<&[String]>)> {
+    let (v, n) = first(words)?;
+    Some((v, (n < words.len()).then(|| &words[n..])))
 }
 
 /// `flex-grow`/`flex-shrink`'s own grammar: a plain non-negative
@@ -4805,6 +5116,8 @@ impl Declarations {
             "justify-content" => justify_content, "align-items" => align_items,
             "align-content" => align_content,
             "align-self" => align_self, "flex-grow" => flex_grow,
+            "justify-items" => justify_items, "justify-self" => justify_self,
+            "grid-auto-flow" => grid_auto_flow,
             "flex-shrink" => flex_shrink, "flex-basis" => flex_basis, "order" => order,
             "row-gap" => row_gap, "column-gap" => column_gap,
             "grid-template-columns" => grid_template_columns,
@@ -5366,55 +5679,89 @@ impl DeclParser<'_> {
                 self.decls.flex_wrap = Some(w);
             }
         } else if name.eq_ignore_ascii_case("justify-content") {
-            if let Ok(ident) = input.expect_ident() {
-                self.decls.justify_content = if ident.eq_ignore_ascii_case("flex-start") {
-                    Some(JustifyContent::FlexStart)
-                } else if ident.eq_ignore_ascii_case("flex-end") {
-                    Some(JustifyContent::FlexEnd)
-                } else if ident.eq_ignore_ascii_case("center") {
-                    Some(JustifyContent::Center)
-                } else if ident.eq_ignore_ascii_case("space-between") {
-                    Some(JustifyContent::SpaceBetween)
-                } else if ident.eq_ignore_ascii_case("space-around") {
-                    Some(JustifyContent::SpaceAround)
-                } else if ident.eq_ignore_ascii_case("space-evenly") {
-                    Some(JustifyContent::SpaceEvenly)
-                } else {
-                    None
-                };
+            let words = align_words(input);
+            if let Some(v) = parse_content_words(&words, AlignKind::JustifyContent) {
+                self.decls.justify_content = Some(justify_content_from(v));
             }
         } else if name.eq_ignore_ascii_case("align-content") {
-            if let Ok(ident) = input.expect_ident() {
-                let v = match &*ident.to_ascii_lowercase() {
-                    "stretch" | "normal" => Some(AlignContent::Stretch),
-                    "flex-start" | "start" => Some(AlignContent::FlexStart),
-                    "flex-end" | "end" => Some(AlignContent::FlexEnd),
-                    "center" => Some(AlignContent::Center),
-                    "space-between" => Some(AlignContent::SpaceBetween),
-                    "space-around" => Some(AlignContent::SpaceAround),
-                    "space-evenly" => Some(AlignContent::SpaceEvenly),
-                    _ => None,
-                };
-                if v.is_some() {
-                    self.decls.align_content = v;
-                }
+            let words = align_words(input);
+            if let Some(v) = parse_content_words(&words, AlignKind::Content) {
+                self.decls.align_content = Some(align_content_from(v));
             }
         } else if name.eq_ignore_ascii_case("align-items") {
-            if let Ok(a) = parse_align_keyword(input) {
+            if let Ok(a) = parse_align_keyword(input, AlignKind::Items) {
                 self.decls.align_items = Some(a);
             }
+        } else if name.eq_ignore_ascii_case("justify-items") {
+            if let Ok(a) = parse_align_keyword(input, AlignKind::JustifyItems) {
+                self.decls.justify_items = Some(a);
+            }
         } else if name.eq_ignore_ascii_case("align-self") {
-            // `auto` (the real initial value) is deliberately *not*
-            // matched here, same `set_length`/`parse_z_index`-wide
-            // "unparseable leaves the cascade's existing value
-            // untouched" convention — `self.decls.align_self: Option
-            // <AlignItems>`'s `None` already covers both "never
-            // declared" and "declared `auto`" identically (see
-            // `ComputedStyle::align_self`'s own docs), so there's
-            // nothing a matched `auto` arm would do differently from
-            // just failing to parse.
-            if let Ok(a) = parse_align_keyword(input) {
+            // `auto` is `AlignItems::Auto`: a later `align-self: auto` must override an earlier
+            // value; `resolve_style` turns it into `None` (= fall back to `align-items`).
+            let words = align_words(input);
+            if let Some(a) = parse_self_words(&words, AlignKind::Items) {
                 self.decls.align_self = Some(a);
+            }
+        } else if name.eq_ignore_ascii_case("justify-self") {
+            let words = align_words(input);
+            if let Some(a) = parse_self_words(&words, AlignKind::JustifyItems) {
+                self.decls.justify_self = Some(a);
+            }
+        } else if name.eq_ignore_ascii_case("place-content") {
+            let words = align_words(input);
+            if let Some((a, rest)) = split_place(&words, |w| parse_content_prefix(w, AlignKind::Content)) {
+                let j = match rest {
+                    Some(r) => parse_content_words(r, AlignKind::JustifyContent),
+                    // The second value is copied from the first.
+                    None => Some(a),
+                };
+                if let Some(j) = j {
+                    self.decls.align_content = Some(align_content_from(a));
+                    self.decls.justify_content = Some(justify_content_from(j));
+                }
+            }
+        } else if name.eq_ignore_ascii_case("place-items") || name.eq_ignore_ascii_case("place-self") {
+            let words = align_words(input);
+            let is_self = name.eq_ignore_ascii_case("place-self");
+            let first = |w: &[String]| {
+                if is_self && w.first().map(|s| s.as_str()) == Some("auto") {
+                    Some((AlignItems::Auto, 1))
+                } else {
+                    parse_align_prefix(w, AlignKind::Items)
+                }
+            };
+            if let Some((a, rest)) = split_place(&words, first) {
+                let j = match rest {
+                    Some(r) if is_self => parse_self_words(r, AlignKind::JustifyItems),
+                    Some(r) => parse_align_item_words(r, AlignKind::JustifyItems),
+                    None => Some(a),
+                };
+                if let Some(j) = j {
+                    if is_self {
+                        self.decls.align_self = Some(a);
+                        self.decls.justify_self = Some(j);
+                    } else {
+                        self.decls.align_items = Some(a);
+                        self.decls.justify_items = Some(j);
+                    }
+                }
+            }
+        } else if name.eq_ignore_ascii_case("grid-auto-flow") {
+            let words = align_words(input);
+            let (mut column, mut dense, mut axis_seen, mut ok) = (false, false, false, !words.is_empty());
+            for w in &words {
+                match w.as_str() {
+                    "row" | "column" if !axis_seen => {
+                        axis_seen = true;
+                        column = w == "column";
+                    }
+                    "dense" if !dense => dense = true,
+                    _ => ok = false,
+                }
+            }
+            if ok {
+                self.decls.grid_auto_flow = Some(GridAutoFlow { column, dense });
             }
         } else if name.eq_ignore_ascii_case("flex-grow") {
             if let Ok(g) = parse_nonneg_number(input) {
@@ -5434,19 +5781,19 @@ impl DeclParser<'_> {
                 self.decls.flex_shrink = Some(shrink);
                 self.decls.flex_basis = Some(basis);
             }
-        } else if name.eq_ignore_ascii_case("gap") {
-            // `gap: <row-gap> <column-gap>?` — one value sets both.
-            if let Ok(row) = parse_length(input) {
-                let col = parse_length(input).unwrap_or(row);
+        } else if name.eq_ignore_ascii_case("gap") || name.eq_ignore_ascii_case("grid-gap") {
+            // `gap: <row-gap> <column-gap>?` — one value sets both (`grid-gap` is the legacy alias).
+            if let Ok(row) = parse_gap_length(input) {
+                let col = parse_gap_length(input).unwrap_or(row);
                 self.decls.row_gap = Some(row);
                 self.decls.column_gap = Some(col);
             }
-        } else if name.eq_ignore_ascii_case("row-gap") {
-            if let Ok(v) = parse_length(input) {
+        } else if name.eq_ignore_ascii_case("row-gap") || name.eq_ignore_ascii_case("grid-row-gap") {
+            if let Ok(v) = parse_gap_length(input) {
                 self.decls.row_gap = Some(v);
             }
-        } else if name.eq_ignore_ascii_case("column-gap") {
-            if let Ok(v) = parse_length(input) {
+        } else if name.eq_ignore_ascii_case("column-gap") || name.eq_ignore_ascii_case("grid-column-gap") {
+            if let Ok(v) = parse_gap_length(input) {
                 self.decls.column_gap = Some(v);
             }
         } else if name.eq_ignore_ascii_case("grid-template-columns") {

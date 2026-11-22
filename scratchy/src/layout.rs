@@ -5118,7 +5118,7 @@ pub(crate) fn distribute_justify_content(leftover: f32, n: usize, justify: Justi
     if n == 0 || leftover <= 0.0 {
         return (0.0, 0.0);
     }
-    match justify {
+    match justify.canon() {
         JustifyContent::FlexStart => (0.0, 0.0),
         JustifyContent::FlexEnd => (leftover, 0.0),
         JustifyContent::Center => (leftover / 2.0, 0.0),
@@ -5132,6 +5132,7 @@ pub(crate) fn distribute_justify_content(leftover: f32, n: usize, justify: Justi
             let extra = leftover / (n + 1) as f32;
             (extra, extra)
         }
+        _ => (0.0, 0.0),
     }
 }
 
@@ -5489,7 +5490,7 @@ pub(crate) fn measure_flex_row<'a>(
                 Some(main_w),
             );
             line_cross = line_cross.max(lc.style.margin.top.px() + lc.h + lc.style.margin.bottom.px());
-            if item.style.align_self.unwrap_or(s.align_items) == AlignItems::Baseline {
+            if item.style.align_self.unwrap_or(s.align_items).canon() == AlignItems::Baseline {
                 let base = first_baseline(&lc, cache).unwrap_or(lc.y + lc.h);
                 base_off[i] = Some(lc.style.margin.top.px() + (base - lc.y));
             }
@@ -5549,7 +5550,7 @@ pub(crate) fn measure_flex_row<'a>(
         let line_cross = line_crosses[j];
         for &i in line {
             let lc = laid[i].as_mut().expect("just measured above");
-            let align = items[i].style.align_self.unwrap_or(s.align_items);
+            let align = items[i].style.align_self.unwrap_or(s.align_items).canon();
             let margin_top = lc.style.margin.top.px();
             let margin_bottom = lc.style.margin.bottom.px();
             if align == AlignItems::Stretch && items[i].style.height.is_none() && items[i].style.aspect_ratio.explicit().is_none() {
@@ -5560,12 +5561,14 @@ pub(crate) fn measure_flex_row<'a>(
                 AlignItems::Baseline => line_top + (line_bases[j] - base_off[i].unwrap_or(margin_top)) + margin_top,
                 AlignItems::FlexEnd => line_top + (line_cross - lc.h - margin_bottom),
                 AlignItems::Center => line_top + (line_cross - lc.h - margin_top - margin_bottom) / 2.0 + margin_top,
+                _ => unreachable!("canon"),
             };
             let rel_y = match align {
                 AlignItems::Stretch | AlignItems::FlexStart => rel_top + margin_top,
                 AlignItems::Baseline => rel_top + (line_bases[j] - base_off[i].unwrap_or(margin_top)) + margin_top,
                 AlignItems::FlexEnd => rel_top + (line_cross - lc.h - margin_bottom),
                 AlignItems::Center => rel_top + (line_cross - lc.h - margin_top - margin_bottom) / 2.0 + margin_top,
+                _ => unreachable!("canon"),
             };
             ext = ext.max(rel_y + margin_bottom + lc.h);
             shift_laid_tree(lc, 0.0, target_y - lc.y);
@@ -5643,7 +5646,7 @@ pub(crate) fn measure_flex_column<'a>(
     let mut prepped: Vec<ColItem> = items
         .iter()
         .map(|item| {
-            let align = item.style.align_self.unwrap_or(s.align_items);
+            let align = item.style.align_self.unwrap_or(s.align_items).canon();
             // Stretch (the default) or an explicit `width` both measure
             // at the full cross width — `box_model_entry`'s own
             // explicit-width-wins-else-auto-fills logic already does
@@ -5787,7 +5790,7 @@ pub(crate) fn measure_flex_column<'a>(
             let item = items[i];
             let p = &mut prepped[i];
             p.lc.h = final_h;
-            let align = item.style.align_self.unwrap_or(s.align_items);
+            let align = item.style.align_self.unwrap_or(s.align_items).canon();
             let margin_l = p.lc.style.margin.left.px();
             let margin_r = p.lc.style.margin.right.px();
             if wrapping && align == AlignItems::Stretch && item.style.width.is_none() {
@@ -5797,6 +5800,7 @@ pub(crate) fn measure_flex_column<'a>(
                 AlignItems::Stretch | AlignItems::FlexStart | AlignItems::Baseline => line_x[j] + margin_l,
                 AlignItems::FlexEnd => line_x[j] + line_crosses[j] - p.lc.w - margin_r,
                 AlignItems::Center => line_x[j] + (line_crosses[j] - p.lc.w - margin_l - margin_r) / 2.0 + margin_l,
+                _ => unreachable!("canon"),
             };
             let target_y = cursor_y + p.margin_top;
             let dx = target_x - p.lc.x;
@@ -5850,7 +5854,7 @@ pub(crate) fn distribute_align_content(free: f32, n: usize, ac: AlignContent) ->
     if free <= 0.0 || n == 0 {
         return (0.0, 0.0, 0.0);
     }
-    match ac {
+    match ac.canon() {
         AlignContent::Stretch => (0.0, 0.0, free / n as f32),
         AlignContent::FlexStart => (0.0, 0.0, 0.0),
         AlignContent::FlexEnd => (free, 0.0, 0.0),
@@ -5859,6 +5863,7 @@ pub(crate) fn distribute_align_content(free: f32, n: usize, ac: AlignContent) ->
         AlignContent::SpaceBetween => (0.0, 0.0, 0.0),
         AlignContent::SpaceAround => (free / n as f32 / 2.0, free / n as f32, 0.0),
         AlignContent::SpaceEvenly => (free / (n + 1) as f32, free / (n + 1) as f32, 0.0),
+        _ => (0.0, 0.0, 0.0),
     }
 }
 
@@ -6241,6 +6246,10 @@ pub(crate) fn measure_grid<'a>(
             occupied.push(vec![false; num_cols]);
         }
         for row in occupied.iter_mut().take(r1).skip(r0) {
+            // `grid-auto-flow: column` may add columns the explicit/fixed pass did not count.
+            if row.len() < c1 {
+                row.resize(c1, false);
+            }
             for cell in row.iter_mut().take(c1).skip(c0) {
                 *cell = true;
             }
@@ -6299,19 +6308,56 @@ pub(crate) fn measure_grid<'a>(
             _ => unreachable!(),
         }
     }
+    // QCSS-C: `grid-auto-flow`. `column` fills down the explicit rows then adds columns; `dense`
+    // restarts the search at the grid origin for every item.
+    let flow = s.grid_auto_flow;
     let mut cursor = (0usize, 0usize);
-    for (item, rs, cs) in unplaced {
-        loop {
-            let (r, c) = cursor;
-            if c + cs <= wrap_cols && free(&occupied, r, r + rs, c, c + cs) {
-                place(&mut occupied, &mut placements, item, r, r + rs, c, c + cs);
-                cursor = if c + cs < wrap_cols { (r, c + cs) } else { (r + 1, 0) };
-                break;
+    if flow.column {
+        let nr = explicit_rows.max(1);
+        for (item, rs, cs) in unplaced {
+            let rs = rs.min(nr);
+            if flow.dense {
+                cursor = (0, 0);
             }
-            cursor = if c + 1 < wrap_cols { (r, c + 1) } else { (r + 1, 0) };
+            loop {
+                let (r, c) = cursor;
+                if r + rs <= nr && free(&occupied, r, r + rs, c, c + cs) {
+                    place(&mut occupied, &mut placements, item, r, r + rs, c, c + cs);
+                    cursor = if r + rs < nr { (r + rs, c) } else { (0, c + 1) };
+                    break;
+                }
+                cursor = if r + 1 < nr { (r + 1, c) } else { (0, c + 1) };
+            }
+        }
+    } else {
+        for (item, rs, cs) in unplaced {
+            if flow.dense {
+                cursor = (0, 0);
+            }
+            loop {
+                let (r, c) = cursor;
+                if c + cs <= wrap_cols && free(&occupied, r, r + rs, c, c + cs) {
+                    place(&mut occupied, &mut placements, item, r, r + rs, c, c + cs);
+                    cursor = if c + cs < wrap_cols { (r, c + cs) } else { (r + 1, 0) };
+                    break;
+                }
+                cursor = if c + 1 < wrap_cols { (r, c + 1) } else { (r + 1, 0) };
+            }
         }
     }
     let num_rows = occupied.len();
+    // Columns added by column-flow auto placement are implicit tracks too.
+    let num_cols = placements.iter().map(|p| p.col_end).max().unwrap_or(0).max(num_cols);
+    {
+        let auto_cols = s.grid_auto_columns.filter(|t| !t.is_empty());
+        while col_tracks.len() < num_cols {
+            let i = col_tracks.len() - orig_cols;
+            col_tracks.push(match auto_cols {
+                Some(a) => a[i % a.len()],
+                None => GridTrackSpec::Auto,
+            });
+        }
+    }
 
     // Content-sized (`auto`/`min-content`/`max-content`) column tracks
     // get their `(min, max)` from the single-column items placed in
@@ -6413,19 +6459,54 @@ pub(crate) fn measure_grid<'a>(
             GridTrackSpec::MinMax(_, TrackBreadth::Len(l)) => Some(l.resolve(s.font_size, s.root_font_size)),
         });
         let mut row_h = explicit_h.unwrap_or(0.0);
-        let mut row_laid = Vec::with_capacity(row_placements.len());
+        let mut row_laid: Vec<(Laid, f32)> = Vec::with_capacity(row_placements.len());
         for p in row_placements {
             let cw: f32 =
                 col_widths[p.col_start..p.col_end].iter().sum::<f32>() + s.column_gap * (p.col_end - p.col_start - 1) as f32;
+            // QCSS-C: a `justify-self`/`justify-items` other than stretch sizes an auto-width item
+            // to its fit-content width and positions it inside its area below.
+            let jus = p.item.style.justify_self.unwrap_or(s.justify_items).canon();
+            let width_param = if jus != AlignItems::Stretch && p.item.style.width.is_none() {
+                let mut item_style = p.item.style;
+                finalize_box_lengths(&mut item_style, cw, entry.child_containing_height);
+                let margin_lr = item_style.margin.left.px() + item_style.margin.right.px();
+                let (_, max_mb) = cell_natural_width(p.item, font_system, next_id, cache, deadline, incomplete);
+                (max_mb - margin_lr).max(0.0).min(cw)
+            } else {
+                cw
+            };
             let lc = measure(
-                p.item, font_system, col_x[p.col_start], cursor_y, cw, entry.child_containing_height, next_id, cache,
-                deadline, incomplete, &mut own_pending, &no_floats, None,
+                p.item, font_system, col_x[p.col_start], cursor_y, width_param, entry.child_containing_height, next_id,
+                cache, deadline, incomplete, &mut own_pending, &no_floats, None,
             );
             if explicit_h.is_none() {
                 row_h = row_h.max(lc.style.margin.top.px() + lc.style.margin.bottom.px() + lc.h);
             }
-            row_laid.push(lc);
+            row_laid.push((lc, cw));
         }
+        // Box alignment inside the area: the inline axis against the column span, the block axis
+        // against the row (`stretch`/`normal`/baseline keep the start edge).
+        let row_laid: Vec<Laid> = row_laid
+            .into_iter()
+            .zip(row_placements)
+            .map(|((mut lc, cw), p)| {
+                let st = &p.item.style;
+                let jus = st.justify_self.unwrap_or(s.justify_items).canon();
+                let als = st.align_self.unwrap_or(s.align_items).canon();
+                let free_x = cw - lc.w - lc.style.margin.left.px() - lc.style.margin.right.px();
+                let free_y = row_h - lc.h - lc.style.margin.top.px() - lc.style.margin.bottom.px();
+                let off = |a: AlignItems, free: f32| match a {
+                    AlignItems::FlexEnd => free.max(0.0),
+                    AlignItems::Center => (free / 2.0).max(0.0),
+                    _ => 0.0,
+                };
+                let (dx, dy) = (off(jus, free_x), off(als, free_y));
+                if dx != 0.0 || dy != 0.0 {
+                    shift_laid_tree(&mut lc, dx, dy);
+                }
+                lc
+            })
+            .collect();
         laid_children.extend(row_laid);
         content_bottom = cursor_y + row_h;
         cursor_y = content_bottom + s.row_gap;

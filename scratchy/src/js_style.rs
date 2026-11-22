@@ -473,6 +473,29 @@ pub(crate) fn serialize(s: &ComputedStyle, prop: &str) -> String {
             WhiteSpace::PreLine => "pre-line",
         }
         .into(),
+        // QCSS-C: box alignment, `gap` and `grid-auto-flow`.
+        "justify-content" => s.justify_content.keyword().into(),
+        "align-content" => s.align_content.keyword().into(),
+        "align-items" => s.align_items.keyword().into(),
+        "align-self" => s.align_self.map_or("auto", |a| a.keyword()).into(),
+        "justify-items" => s.justify_items.keyword().into(),
+        "justify-self" => s.justify_self.map_or("auto", |a| a.keyword()).into(),
+        "place-content" | "place-items" | "place-self" => {
+            let (a, j) = match prop {
+                "place-content" => (s.align_content.keyword(), s.justify_content.keyword()),
+                "place-items" => (s.align_items.keyword(), s.justify_items.keyword()),
+                _ => (
+                    s.align_self.map_or("auto", |v| v.keyword()),
+                    s.justify_self.map_or("auto", |v| v.keyword()),
+                ),
+            };
+            if a == j { a.into() } else { format!("{a} {j}") }
+        }
+        "grid-auto-flow" => s.grid_auto_flow.keyword().into(),
+        "row-gap" | "grid-row-gap" => px(s.row_gap),
+        "column-gap" | "grid-column-gap" => px(s.column_gap),
+        "gap" | "grid-gap" if s.row_gap == s.column_gap => px(s.row_gap),
+        "gap" | "grid-gap" => format!("{} {}", px(s.row_gap), px(s.column_gap)),
         "cursor" => kebab(&format!("{:?}", s.cursor)),
         "vertical-align" => kebab(&format!("{:?}", s.vertical_align)),
         _ => String::new(),
