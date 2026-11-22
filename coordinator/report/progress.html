@@ -231,7 +231,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Open work (54 items)</h2>
   <div class="scroll"><table>
     <tr><th>Group</th><th>Items</th><th>Status</th></tr>
-    <tr><td>Engine</td><td>QINC1m remove the old pipeline</td><td><span class="pill todo">after ~3 days of your use, with your OK</span></td></tr>
+    <tr><td>Engine</td><td>QINC1m remove the old pipeline</td><td><span class="pill wip">your go 2026-11-22; starts after QAPI6c</span></td></tr>
     <tr><td>Conformance</td><td>QWPT2 done · QWPT3–9 test runner and CI · QEL1–9 event loop · QMAPI1–3 missing-API report · QREC1–3 recorded pages · QBUD1 budgets · QAREA-DOM</td><td><span class="pill wip">QWPT2–6, QMAPI1, QREC1/2, QERR1, QAREA-DOM done · QDOM1/2/4/7, QEL1, QMAPI2, QINC1n done · QEL2 (ResizeObserver with real sizes), QCSS1 (media query range syntax), QDOM6 (node constructors), QREC3 (recorded gate pages) running</span></td></tr>
     <tr><td>Reliability</td><td>QFLK7 (tests that never ran) · QFLK6b · QJ4c · QWIKI1 · QINC1k9</td><td><span class="pill wip">QFLK7, QFLK8, QFLK9, QFORM1, QHIST1 done</span></td></tr>
     <tr><td>Product choices</td><td>QCFG1 config file · QTB1 tracker blocking</td><td><span class="pill todo">queued</span></td></tr>
@@ -247,8 +247,6 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Waiting on you</h2>
   <ul id="waiting">
                     <li>Skim <span class="mono">scratchy/DECISIONS.md</span> once and correct anything I misstated.</li>
-    <li>Old pipeline removal (QINC1m): today nothing tells you when the engine falls back. QINC1n is installed tonight. From now on: use scratchy normally; <code>:engine</code> shows the counts and <span class="mono">~/.local/state/scratchy/engine-check.log</span> collects any mismatch. Earliest go for QINC1m: 2026-11-24, if the log is empty and fallbacks are 0. Then you confirm.</li>
-    <li><b>Your state dir was used by agent runs</b> (found by QINC1n): window/gate runs since #484 wrote localStorage (youtube.com, wikipedia.org) and history lines into <span class="mono">~/.local/state/scratchy</span>. Fixed (own state dir per run, rule for agents). Cleanup: (1) you prune <span class="mono">history</span> yourself, (2) I list the lines from the agent run windows for you to pick, or (3) leave it. <code>scratchy --forget-site</code> clears a site's storage.</li>
-  </ul>
+          </ul>
 </section>
 </main>

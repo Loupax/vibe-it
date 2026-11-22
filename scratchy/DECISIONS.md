@@ -7,6 +7,11 @@ their section with the date.
 
 ## Direction and process
 
+- **2026-11-22 Remove the old pipeline now (QINC1m).** The user gave the go before the planned
+  2026-11-24 check. The from-scratch layout stays as the engine's first-layout/fallback path and
+  test oracle; `SCRATCHY_INCR_CHECK` stays as a debug option.
+- **2026-11-22 Agent-written entries in the user's state dir stay** (history, localStorage); no
+  cleanup.
 - **2026-11-22 Web fonts are rendered.** `@font-face` (QFF1a ttf/otf/woff, then QFF1b woff2) is
   un-archived and scheduled; fonts are fetched through wire like CSS images and scoped per page.
 - **2026-11-22 No GitHub Support purge of the cached PR refs.** The scratch files still reachable

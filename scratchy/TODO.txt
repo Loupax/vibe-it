@@ -27,8 +27,8 @@ Site breakage is diagnosed with tooling (missing-API report), not guessed.
 ========================================================================
 NOW
 ========================================================================
-- [ ] QINC1m [M] (P2; QINC1n merged ac1ed5a + installed 2026-11-21: earliest 2026-11-24, needs an empty engine-check.log and 0 fallbacks over >= 3 days of the user's daily use with the engine as default, user to confirm;
-      Sonnet) Delete the old pipeline: the SCRATCHY_INCR flag and its branches, the separate non-incremental App
+- [ ] QINC1m [M] (P2; USER GO 2026-11-22 (DECISIONS.md), unblocked before the planned 2026-11-24 check; Opus; after
+      QAPI6c (same engine area)) Delete the old pipeline: the SCRATCHY_INCR flag and its branches, the separate non-incremental App
       frame and forced-layout paths, the CI engine-off job. KEEP the from-scratch layout (the engine's
       first-layout/fallback path and the test oracle) and SCRATCHY_INCR_CHECK as a debug option.
 
@@ -42,6 +42,9 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       send_keys, action_sequence (pointer + key) as synthetic input through the App's input path in
       the headless rendering loop (hit testing on the real layout). Unlocks dom/events (77 files),
       uievents (57), pointerevents.
+      Update 2026-11-22 (QWPT6e #586): the 111 subset pages that call test_driver were dropped from the subset
+      (DRIVER_CALL in tools/wpt-subset.py: dom/events 30, uievents 47, shadow-dom 19, ...); `--wpt-th-one` has no
+      App and elementFromPoint is a stub there, so real hit testing comes first. When done, drop the filter.
 - [ ] QWPT8 [M] (P2; Sonnet; tools/, wire --map-host; user answered Q2 2026-11-21) Phase 2 server: tools/wptserve.sh
       (python3 ./wpt serve from a checkout that includes tools/), wire `--map-host
       '*.web-platform.test=127.0.0.1'`, runner `--server wptserve`; add fetch/ and xhr/ to the subset.
@@ -203,10 +206,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QEDIT-C [S] (P3, from QWPT6d #581; Sonnet) `hidden=until-found`, the `beforematch` event, details auto-open (5 ERROR).
 - [ ] QEDIT-D [S] (P3, from QWPT6d #581; Sonnet) Why focus-blur, focused-area-removal, focusing-focused-noop TIMEOUT.
 - [ ] QEDIT-E [S] (P3, from QWPT6d #581; Sonnet) `window.getSelection()` in the testharness window, `document.elementsFromPoint`.
-- [ ] QWPT7 [M] (P3, from QWPT6e #586; Opus; headless runner, js_geom elementFromPoint, input paths) Trusted-input driver for
-      the headless testharness runner: real elementFromPoint/hit testing in `--wpt-th-one`, then a testdriver vendor for
-      click, send_keys and pointer/key Actions through the existing trusted-input paths, so the 111 pages that call
-      test_driver (dom/events 30, uievents 47, shadow-dom 19, ...) can return to the subset.
 - [ ] QCISPLIT2 [S] (P3, from QWPT6c #579; Sonnet; .github/workflows/ci.yml, tools) Shard the `scratchy-wpt` job (5:38 after
       #579, WPT step 3:52; the main `scratchy` job is 5:18, so wall time is barely affected) into two parallel jobs by area,
       when it passes ~6 min or before QWPT6d lands. Find why the step grew +1:44 on CI vs ~20 s locally (per-file CI timings).
