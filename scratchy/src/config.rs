@@ -132,6 +132,9 @@ pub(crate) const START_MODE: crate::app::KeyMode = crate::app::KeyMode::Normal;
 pub(crate) const SCROLL_LINE_PX: f32 = 40.0;
 /// Px one mouse-wheel `LineDelta` tick moves (matches `SCROLL_LINE_PX`).
 pub(crate) const WHEEL_LINE_PX: f32 = 40.0;
+/// QSMOOTH1: time constant (ms) of the viewport's eased scroll toward its target (~90% of the distance
+/// in ~2.3x this). 0 turns the easing off (every scroll lands in one frame, as before). Unit tests start at 0.
+pub(crate) const SMOOTH_SCROLL_TAU_MS: f32 = 40.0;
 /// Page scroll (Space/PageDown) overlap: px of the old view kept visible.
 pub(crate) const PAGE_OVERLAP_PX: f32 = 40.0;
 /// Shortest page scroll, px (tiny windows).
