@@ -80,6 +80,19 @@ pub(crate) struct Filter {
     tag: Option<String>,
     id: Option<String>,
     classes: Vec<String>,
+    /// QAPI6: attribute names the compound requires (`[role=dialog]`, `[hidden]`). Only checked on elements a
+    /// walk REACHES (never on the changed element, whose write may be to that very attribute).
+    attrs: Vec<String>,
+}
+
+/// QAPI6: whether `h` has every attribute `f` requires.
+fn has_attrs(h: &Handle, f: &Filter) -> bool {
+    f.attrs.iter().all(|a| element_attr(h, a).is_some())
+}
+
+/// QAPI6: `passes` plus the attribute names, for an element a walk reached.
+fn passes_reached(h: &Handle, f: &Option<Rc<Filter>>) -> bool {
+    passes(h, f) && f.as_ref().is_none_or(|f| has_attrs(h, f))
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
@@ -140,7 +153,12 @@ pub(crate) struct InvalidationMap {
     /// Quick gates.
     has_state_checked: bool,
     has_state_disabled: bool,
+    /// QAPI6: `Some` between `begin_batch` and `end_batch` (one engine update): the walks done so far.
+    batch: RefCell<Option<WalkMemo>>,
 }
+
+/// `(element, hash of the rest of a walk)` pairs (see `walk`).
+type WalkMemo = HashSet<(usize, u64)>;
 
 /// The result accumulator: one mark per element (the strongest), in first-reached order.
 type NodeSet = HashSet<usize, std::hash::BuildHasherDefault<crate::dom::PtrHasher>>;
@@ -229,7 +247,7 @@ fn passes_any(h: &Handle, fs: &[&Rc<Filter>]) -> bool {
                 return false;
             }
         }
-        true
+        has_attrs(h, f)
     })
 }
 
@@ -378,26 +396,89 @@ fn tokens(v: Option<&str>) -> HashSet<&str> {
 
 /// A `Filter` for the subject compound `comps`, `None` when it has no tag/id/class to key on.
 fn subject_filter(comps: &[&Component<OurSelectorImpl>]) -> Option<Rc<Filter>> {
-    let mut f = Filter { tag: None, id: None, classes: Vec::new() };
+    let mut f = Filter { tag: None, id: None, classes: Vec::new(), attrs: Vec::new() };
     for c in comps {
         match c {
             Component::LocalName(n) => f.tag = Some(n.lower_name.0.to_ascii_lowercase()),
             Component::ID(i) => f.id = Some(i.0.clone()),
             Component::Class(k) => f.classes.push(k.0.clone()),
+            Component::AttributeInNoNamespaceExists { local_name_lower, .. } => f.attrs.push(local_name_lower.0.to_ascii_lowercase()),
+            Component::AttributeInNoNamespace { local_name, .. } => f.attrs.push(local_name.0.to_ascii_lowercase()),
+            Component::AttributeOther(a) => f.attrs.push(a.local_name_lower.0.to_ascii_lowercase()),
             _ => {}
         }
     }
-    (f.tag.is_some() || f.id.is_some() || !f.classes.is_empty()).then(|| Rc::new(f))
+    (f.tag.is_some() || f.id.is_some() || !f.classes.is_empty() || !f.attrs.is_empty()).then(|| Rc::new(f))
+}
+
+/// QAPI6: the tags / ids / classes present in a subtree (an inserted or removed one).
+#[derive(Default)]
+struct TreeSummary {
+    tags: HashSet<String>,
+    ids: HashSet<String>,
+    classes: HashSet<String>,
+    attrs: HashSet<String>,
+}
+
+impl TreeSummary {
+    fn of(root: &Handle) -> TreeSummary {
+        let mut s = TreeSummary::default();
+        let mut stack = vec![root.clone()];
+        while let Some(n) = stack.pop() {
+            if !is_el(&n) {
+                continue;
+            }
+            s.tags.insert(element_tag(&n).to_ascii_lowercase());
+            if let Some(i) = element_attr(&n, "id") {
+                s.ids.insert(i.to_string());
+            }
+            if let Some(c) = element_attr(&n, "class") {
+                s.classes.extend(c.split_ascii_whitespace().map(str::to_string));
+            }
+            if let NodeData::Element { attrs, .. } = &n.data {
+                s.attrs.extend(attrs.borrow().iter().map(|a| a.name.local.as_ref().to_ascii_lowercase()));
+            }
+            stack.extend(n.children.borrow().iter().filter(|c| is_el(c)).cloned());
+        }
+        s
+    }
+
+    /// Whether some element of the subtree may pass `f` (classes may come from different elements: a superset).
+    fn may_hold(&self, f: &Option<Rc<Filter>>) -> bool {
+        let Some(f) = f else { return true };
+        f.tag.as_ref().is_none_or(|t| self.tags.contains(t))
+            && f.id.as_ref().is_none_or(|i| self.ids.contains(i))
+            && f.classes.iter().all(|c| self.classes.contains(c))
+            && f.attrs.iter().all(|a| self.attrs.contains(a))
+    }
 }
 
 /// Walks `hops` from `cur` and marks what is reached `Restyle`: `filters` (any of; empty = all) on the last hop,
 /// `anchor` on the elements an `Anc` / `AncSib` hop reaches (QAPI6).
-fn walk(mut cur: Vec<Handle>, hops: &[Hop], filters: &[&Rc<Filter>], anchor: &Option<Rc<Filter>>, out: &mut Marks) {
+/// `memo` (QAPI6, an engine update's batch): `(element, rest of the walk)` pairs already walked in this batch; the
+/// DOM does not change while a batch is answered, so walking one again marks nothing new.
+fn walk(mut cur: Vec<Handle>, hops: &[Hop], filters: &[&Rc<Filter>], anchor: &Option<Rc<Filter>>, memo: Option<&RefCell<Option<WalkMemo>>>, out: &mut Marks) {
     for (i, hop) in hops.iter().enumerate() {
+        if let Some(m) = memo
+            && let Some(set) = m.borrow_mut().as_mut()
+        {
+            use std::hash::{Hash, Hasher};
+            let mut k = std::collections::hash_map::DefaultHasher::new();
+            hops[i..].hash(&mut k);
+            for f in filters {
+                (Rc::as_ptr(f) as usize).hash(&mut k);
+            }
+            anchor.as_ref().map(|a| Rc::as_ptr(a) as usize).hash(&mut k);
+            let k = k.finish();
+            cur.retain(|h| set.insert((node_id(h), k)));
+            if cur.is_empty() {
+                return;
+            }
+        }
         let last = i + 1 == hops.len();
         cur = step(&cur, *hop, if last { filters } else { &[] });
         if anchor.is_some() && matches!(hop, Hop::Anc | Hop::AncSib) {
-            cur.retain(|h| passes(h, anchor));
+            cur.retain(|h| passes_reached(h, anchor));
         }
         if cur.is_empty() {
             break;
@@ -575,8 +656,12 @@ impl Builder {
                     let first = if rs.match_hint.is_descendant_direction() { Hop::Anc } else { Hop::AncSib };
                     let mut h = vec![first];
                     h.extend_from_slice(hops);
-                    self.carrier = None;
+                    // `HasTree` carrier: the relative selector's own subject compound (an inserted / removed
+                    // subtree without an element that can match it changes nothing but adjacency)
+                    let subj: Vec<&Component<OurSelectorImpl>> = rs.selector.iter().collect();
+                    self.carrier = subject_filter(&subj);
                     self.add(Key::HasTree, &h, filter);
+                    self.carrier = None;
                     self.has_depth = 1;
                     self.selector(&rs.selector, &h, filter);
                     self.has_depth = 0;
@@ -638,7 +723,17 @@ impl InvalidationMap {
         }
         let has_state_checked = b.keys.contains_key(&Key::State(StateKind::Checked));
         let has_state_disabled = b.keys.contains_key(&Key::State(StateKind::Disabled)) || b.keys.contains_key(&Key::State(StateKind::Enabled));
-        InvalidationMap { generation, keys: b.keys, global: b.global, has: b.has, attr_all, has_state_checked, has_state_disabled }
+        InvalidationMap { generation, keys: b.keys, global: b.global, has: b.has, attr_all, has_state_checked, has_state_disabled, batch: RefCell::new(None) }
+    }
+
+    /// QAPI6: the calls until `end_batch` answer one batch of changes against one DOM state (an engine update):
+    /// a walk already done in the batch is not repeated (`:has(..) .x` reaches whole subtrees from the anchors).
+    pub(crate) fn begin_batch(&self) {
+        *self.batch.borrow_mut() = Some(WalkMemo::default());
+    }
+
+    pub(crate) fn end_batch(&self) {
+        *self.batch.borrow_mut() = None;
     }
 
     /// Some selector is not bounded (`:host`, ...): every call returns a single `Mark::Global`.
@@ -659,13 +754,18 @@ impl InvalidationMap {
     /// `filter_self`: the change cannot have altered `from`'s own tag / id / classes, so the entries'
     /// carrier filters (and, for an entry without hops, the subject filter) are checked on it.
     fn apply(&self, key: &Key, from: &Handle, filter_self: bool, out: &mut Marks) {
+        self.apply_if(key, from, filter_self, &|_| true, out);
+    }
+
+    /// `apply` over the entries `keep` accepts.
+    fn apply_if(&self, key: &Key, from: &Handle, filter_self: bool, keep: &dyn Fn(&Entry) -> bool, out: &mut Marks) {
         let Some(entries) = self.keys.get(key) else { return };
         // Entries with the same hop path are walked once, keeping what passes any of their subject
         // filters (`None` in the group = no filter): a `:hover` on an ancestor walks its subtree once,
         // not once per rule.
         let mut groups: Vec<HopGroup> = Vec::new();
         let mut anchors: Vec<&Option<Rc<Filter>>> = Vec::new();
-        for e in entries {
+        for e in entries.iter().filter(|e| keep(e)) {
             if filter_self && !passes(from, &e.carrier) {
                 continue;
             }
@@ -689,31 +789,71 @@ impl InvalidationMap {
                 (Some(_), None) => {}
             }
         }
+        // QAPI6: the `:has` groups of one change share their first hop (the carrier's ancestors / their earlier
+        // siblings): computed once, each group only filters it by its anchor compound.
+        let mut firsts: [Option<Vec<Handle>>; 2] = [None, None];
         for ((hops, filters), anchor) in groups.into_iter().zip(anchors) {
             let filters = filters.unwrap_or_default();
-            walk(vec![from.clone()], hops, &filters, anchor, out);
+            match hops.split_first() {
+                Some((&first @ (Hop::Anc | Hop::AncSib), rest)) => {
+                    let slot = usize::from(first != Hop::Anc);
+                    let start = firsts[slot].get_or_insert_with(|| step(std::slice::from_ref(from), first, &[]));
+                    let mut cur: Vec<Handle> = start.iter().filter(|h| passes_reached(h, anchor)).cloned().collect();
+                    if rest.is_empty() {
+                        cur.retain(|h| passes_any(h, &filters));
+                        for h in &cur {
+                            out.add(h, Mark::Restyle);
+                        }
+                    } else {
+                        walk(cur, rest, &filters, &None, Some(&self.batch), out);
+                    }
+                }
+                _ => walk(vec![from.clone()], hops, &filters, anchor, Some(&self.batch), out),
+            }
         }
     }
 
     /// QAPI6: a child of `parent` at child-node index `index` was removed: the `HasTree` paths from the
     /// anchors the removed subtree may have been found by.
-    fn has_removed(&self, parent: &Handle, index: usize, out: &mut Marks) {
+    /// `node`: the removed subtree when known (its tags / ids / classes prune the entries).
+    fn has_removed(&self, parent: &Handle, index: usize, node: Option<&Handle>, out: &mut Marks) {
         let Some(entries) = self.keys.get(&Key::HasTree) else { return };
-        let mut starts: [Option<Vec<Handle>>; 2] = [None, None];
+        let sum = node.map(TreeSummary::of);
+        // grouped like `apply`: (first hop, rest of the path, anchor filter) -> subject filters
+        type Group<'a> = ((Hop, &'a [Hop], &'a Option<Rc<Filter>>), Option<Vec<&'a Rc<Filter>>>);
+        let mut groups: Vec<Group> = Vec::new();
         for e in entries {
-            let Some((&first, rest)) = e.hops.split_first() else { continue };
-            let slot = usize::from(first != Hop::Anc);
-            let start = starts[slot].get_or_insert_with(|| removal_anchors(parent, index, first));
-            let mut cur: Vec<Handle> = start.iter().filter(|h| passes(h, &e.anchor)).cloned().collect();
-            if rest.is_empty() {
-                cur.retain(|h| passes(h, &e.filter));
-            } else {
-                let fs: Vec<&Rc<Filter>> = e.filter.iter().collect();
-                walk(cur, rest, &fs, &None, out);
+            if sum.as_ref().is_some_and(|s| !s.may_hold(&e.carrier)) {
                 continue;
             }
-            for h in &cur {
-                out.add(h, Mark::Restyle);
+            let Some((&first, rest)) = e.hops.split_first() else { continue };
+            let key = (first, rest, &e.anchor);
+            let g = match groups.iter().position(|g| g.0 == key) {
+                Some(i) => &mut groups[i],
+                None => {
+                    groups.push((key, Some(Vec::new())));
+                    groups.last_mut().expect("just pushed")
+                }
+            };
+            match (&e.filter, &mut g.1) {
+                (Some(f), Some(v)) => v.push(f),
+                (None, f) => *f = None,
+                (Some(_), None) => {}
+            }
+        }
+        let mut starts: [Option<Vec<Handle>>; 2] = [None, None];
+        for ((first, rest, anchor), filters) in groups {
+            let filters = filters.unwrap_or_default();
+            let slot = usize::from(first != Hop::Anc);
+            let start = starts[slot].get_or_insert_with(|| removal_anchors(parent, index, first));
+            let mut cur: Vec<Handle> = start.iter().filter(|h| passes_reached(h, anchor)).cloned().collect();
+            if rest.is_empty() {
+                cur.retain(|h| passes_any(h, &filters));
+                for h in &cur {
+                    out.add(h, Mark::Restyle);
+                }
+            } else {
+                walk(cur, rest, &filters, &None, Some(&self.batch), out);
             }
         }
     }
@@ -853,7 +993,7 @@ impl InvalidationMap {
     pub(crate) fn for_has_removal(&self, parent: &Handle, index: usize) -> Vec<(Handle, Mark)> {
         let mut out = Marks::default();
         if self.has && is_el(parent) {
-            self.has_removed(parent, index, &mut out);
+            self.has_removed(parent, index, None, &mut out);
         }
         out.out
     }
@@ -893,13 +1033,20 @@ impl InvalidationMap {
             for d in step(std::slice::from_ref(n), Hop::Desc, &[]) {
                 out.add(&d, Mark::Restyle);
             }
-            // QAPI6: the anchors that may now find the new subtree
-            self.apply(&Key::HasTree, n, false, &mut out);
+            // QAPI6: the anchors that may now find the new subtree (only through an element in it that can
+            // match a relative selector's subject compound; adjacency changes go through SibNext / SibLater)
+            if self.has {
+                let sum = TreeSummary::of(n);
+                self.apply_if(&Key::HasTree, n, false, &|e| sum.may_hold(&e.carrier), &mut out);
+            }
         }
         if let ChildChange::Removed { node, index } = change
             && is_el(node)
+            && self.has
         {
-            self.has_removed(parent, *index, &mut out);
+            // `node` == `parent`: the caller does not know the removed node
+            let known = (!Rc::ptr_eq(node, parent)).then_some(node);
+            self.has_removed(parent, *index, known, &mut out);
         }
         // `:empty` sees text too; nothing else does.
         self.apply(&Key::Empty, parent, true, &mut out);

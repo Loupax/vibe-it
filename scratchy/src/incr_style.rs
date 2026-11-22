@@ -1429,6 +1429,8 @@ impl Engine {
             // QINC1k3: a DOM write dirties the counter / quote walk only through what it reads
             // (`gen_sig`: an entry's `gen` changed, a non-zero `gsig` inserted / moved / removed, an
             // attribute of a `GEN_ATTR` element).
+            // QAPI6: one DOM state for the whole batch: the map skips walks it already did
+            map.begin_batch();
             self.process_log(map, &log.entries);
             self.interaction(map);
             if reconcile_on() && !self.full {
@@ -1437,6 +1439,7 @@ impl Engine {
                     self.gen_dirty = true;
                 }
             }
+            map.end_batch();
             // animated elements are re-cascaded on every update (the clock moved)
             let anim: Vec<usize> = self.table.iter().filter(|(_, e)| e.animated).map(|(k, _)| *k).collect();
             let vh_readers: Vec<usize> =
