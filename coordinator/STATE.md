@@ -331,3 +331,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Merged #600 QDOM5c 470cd4e (re-land of #592).
 - 2026-11-22 USER noticed many Wayland compositors: 9 nested dwl from the running QHOV1 agent (one per measurement run, never killed; each under the 1 h timeout). Told the agent; it killed 8, then one exited; now one dwl per running agent. Filed QNEST1 (nest.sh enforces one per worktree).
 - 2026-11-22 USER: rename the github recording. PR #602 (run.sh/gate.sh page gh-home); moved ~/.cache/scratchy/recordings/github -> gh-home. Merging.
+- 2026-11-22 USER: always fill a free slot with the first available item, never ask. Launched QNEST1.
