@@ -9098,7 +9098,6 @@ Eased viewport scroll (user design #532, D1-D8): `App::scroll_target`, `scroll_a
 
 > QDOM17 [S] (P2; Sonnet; js_dom.rs makeDoc, __d_tag, doc.createElement; R65; after QDOM8) Document flavours: tagName/localName case per document type, createElement per document type, nodeValue/textContent null for Document and DocumentType, charset/inputEncoding aliases.
 
-
 **What changed:** js_dom.rs: tagOf/inXmlDoc (HTML-namespace elements upper-case only in HTML documents; nonHtmlDocs keeps the page path a single native call), natives __d_rawtag and __d_create(15) (XHTML element keeping case); createElement in XHTML documents keeps case; Document.prototype charset/inputEncoding/doctype; created HTML documents without a doctype are BackCompat; nodeValue null except for CharacterData, a null write is empty; textContent null and write no-op for Document/DocumentType. Existing XHR test adjusted (XML document textContent is null). Tests: src/tests/qdom17_tests.rs. WPT dom/nodes 7210 -> 7575 subtests (174 -> 185 all-pass), domparsing +9. Left out: createElementNS(xhtml, "Span") lowercases the local name.
 
 ## QAPI3: navigator.serviceWorker and window.caches stubs (agent item)
