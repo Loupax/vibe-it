@@ -1487,6 +1487,13 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
                 template_contents: RefCell::new(None),
                 mathml_annotation_xml_integration_point: false,
             },
+            // QDOM17: 15 = an XHTML-namespace element keeping the name's case (createElement in an XHTML document).
+            15 => NodeData::Element {
+                name: html_name(&s),
+                attrs: RefCell::new(Vec::new()),
+                template_contents: RefCell::new(None),
+                mathml_annotation_xml_integration_point: false,
+            },
             3 => NodeData::Text { contents: RefCell::new(s.as_str().into()) },
             8 => NodeData::Comment { contents: s.as_str().into() },
             // QDOM8: 4 = CDATASection (a marked Text), 7 = ProcessingInstruction (`s` = target NUL data).
@@ -2116,9 +2123,18 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   // `x instanceof Element` and `Element.prototype.foo = ...` work.
   var NodeProto = Node.prototype;
   def(NodeProto, 'nodeType', function () { return __d_kind(this.__id); });
-  def(NodeProto, 'nodeName', function () { return __d_tag(this.__id); });
-  def(NodeProto, 'textContent', function () { return __d_text(this.__id); });
-  def(NodeProto, 'nodeValue', function () { return this.nodeType === 1 ? null : __d_text(this.__id); });
+  // QDOM17: HTML-namespace elements are upper-cased only in HTML documents (`nonHtmlDocs` counts the created
+  // XML/XHTML documents so the common case stays a single native call).
+  var nonHtmlDocs = 0;
+  var XHTMLNS = 'http://www.w3.org/1999/xhtml';
+  var inXmlDoc = function (n) {
+    if (!nonHtmlDocs || __d_kind(n.__id) !== 1) return false;
+    var od = n.ownerDocument; return !!od && od.contentType !== 'text/html';
+  };
+  var tagOf = function (n) { return inXmlDoc(n) && __d_ns(n.__id) === XHTMLNS ? __d_rawname(n.__id) : __d_tag(n.__id); };
+  def(NodeProto, 'nodeName', function () { return tagOf(this); });
+  def(NodeProto, 'textContent', function () { var t = this.nodeType; return t === 9 || t === 10 ? null : __d_text(this.__id); });
+  def(NodeProto, 'nodeValue', function () { var t = this.nodeType; return t === 3 || t === 4 || t === 7 || t === 8 ? __d_text(this.__id) : null; });
   // QA18a: a node's owner is the document it is attached under, else
   // the document that created/adopted its tree's root (`owners`), else the page.
   var owners = {};
@@ -2302,7 +2318,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   // QSD0: ParentNode queries live on the prototype (zero per-wrapper cost), so a page
   // may freeze or replace them without breaking fragment wrappers.
   queries(DocumentFragment.prototype);
-  def(ElementProto, 'tagName', function () { return __d_tag(this.__id); });
+  def(ElementProto, 'tagName', function () { return tagOf(this); });
   def(ElementProto, 'namespaceURI', function () { return __d_ns(this.__id) || null; });
   // QY45: createElementNS keeps `prefix:local` in the stored local name (QA14), so
   // outside XHTML the prefix is the part before ':'. Case is kept outside XHTML.
@@ -2356,10 +2372,11 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (n && typeof n === 'object' && n.__id !== undefined) return n;
     return wrap(__d_create(3, String(n)));
   };
-  defs(NodeProto, 'textContent', function () { return __d_text(this.__id); },
-    function (v) { __d_settext(this.__id, v == null ? '' : String(v)); });
-  defs(NodeProto, 'nodeValue', function () { return this.nodeType === 1 ? null : __d_text(this.__id); },
-    function (v) { var t = this.nodeType; if (t === 3 || t === 4 || t === 7 || t === 8) __d_settext(this.__id, String(v)); });
+  // QDOM17: textContent/nodeValue are null for Document and DocumentType (setting is a no-op); a null nodeValue is "".
+  defs(NodeProto, 'textContent', function () { var t = this.nodeType; return t === 9 || t === 10 ? null : __d_text(this.__id); },
+    function (v) { var t = this.nodeType; if (t !== 9 && t !== 10) __d_settext(this.__id, v == null ? '' : String(v)); });
+  defs(NodeProto, 'nodeValue', function () { var t = this.nodeType; return t === 3 || t === 4 || t === 7 || t === 8 ? __d_text(this.__id) : null; },
+    function (v) { var t = this.nodeType; if (t === 3 || t === 4 || t === 7 || t === 8) __d_settext(this.__id, v == null ? '' : String(v)); });
   // QY29: `data` lives on CharacterData only (never Node/Element: polymer-resin
   // treats `'data' in element` as a native property and blanks bound values).
   defs(CharacterData.prototype, 'data', function () { return __d_text(this.__id); },
@@ -3763,6 +3780,11 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     def(DocumentType.prototype, k, function () { return __d_doctype(this.__id)[i]; });
   });
   // QDOM6: `new Document()`: an empty XML document (application/xml, createElement keeps case).
+  ['charset', 'inputEncoding'].forEach(function (k) { def(g.Document.prototype, k, function () { return this.characterSet; }); });
+  def(g.Document.prototype, 'doctype', function () {
+    var c = this.childNodes; for (var i = 0; i < c.length; i++) if (c[i].nodeType === 10) return c[i];
+    return null;
+  });
   var DocumentCtor = function Document() {
     if (!new.target) throw new TypeError("Failed to construct 'Document': Please use the 'new' operator, this DOM object constructor cannot be called as a function.");
     return makeDoc(false, 'application/xml', true);
@@ -3786,8 +3808,11 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     xr.byDoc[id] = mk;
     if (myDocs) myDocs.push(id);
     Object.defineProperty(d, '__id', { value: id });
+    if (ct !== 'text/html') nonHtmlDocs++;
     var own = { readyState: 'complete', URL: 'about:blank', documentURI: 'about:blank', baseURI: 'about:blank',
-      contentType: ct, compatMode: html ? 'CSS1Compat' : 'CSS1Compat', characterSet: 'UTF-8', title: undefined };
+      contentType: ct, characterSet: 'UTF-8', title: undefined };
+    // QDOM17: an HTML document without a doctype is in quirks mode.
+    Object.defineProperty(d, 'compatMode', { get: function () { return !html || this.doctype ? 'CSS1Compat' : 'BackCompat'; }, configurable: true, enumerable: true });
     Object.keys(own).forEach(function (k) {
       if (own[k] !== undefined) Object.defineProperty(d, k, { value: own[k], writable: true, configurable: true, enumerable: true });
     });
@@ -3797,7 +3822,8 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       d[k] = mk(doc[k]);
     });
     // QDOM6: createElement of an XML document keeps the name's case and makes a null-namespace element.
-    if (!html && ct !== 'application/xhtml+xml') d.createElement = mk(function (t) { t = String(t); checkName('createElement', t); return wrap(__d_create_xml(t)); });
+    // QDOM17: an XHTML document makes XHTML-namespace elements and keeps the case too.
+    if (!html) d.createElement = mk(function (t) { t = String(t); checkName('createElement', t); return wrap(ct === 'application/xhtml+xml' ? __d_create(15, t) : __d_create_xml(t)); });
     d.write = d.writeln = function () { console.warn('document.write on a created document ignored'); };
     d.importNode = function (n, deep) {
       if (!n || n.__id === undefined || n.nodeType === 9) throw herr("Failed to execute 'importNode' on 'Document': The node provided is a document.", 'NotSupportedError');
