@@ -379,3 +379,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Merged #619 QCNV3 6d1938a.
 - 2026-11-22 #621 QWPT7c READY (pointer-events, svg hit, scroll offsets, accesskey Alt+Shift+key), merging. Filed QWPT7e. Launched QEL7b.
 - 2026-11-22 Merged #621 QWPT7c 206530b.
+- 2026-11-22 #622 QCNV4 READY (OffscreenCanvas; offscreen 0.0 -> 29.9, 316 files), merging. Launched QCNV5 (after #622).

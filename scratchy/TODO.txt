@@ -179,7 +179,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] [WIP] QCNV4 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Sonnet; in order after the items above) OffscreenCanvas on the main thread (no Workers). 278
       offscreen files.
-- [ ] QCNV5 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+- [ ] [WIP] QCNV5 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Sonnet; in order after the items above) Transforms
       (translate/rotate/scale/setTransform/getTransform). 50 files.
 - [ ] QCNV6 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
