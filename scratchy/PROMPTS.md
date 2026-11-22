@@ -9286,3 +9286,9 @@ Prompt: load blob: URLs in iframes (iframe.src = URL.createObjectURL(new Blob([h
 > QCNV1 [M] (P2; Sonnet; js_dom.rs HTMLCanvasElement (QY3), new src/canvas.rs, paint.rs replaced-element paint) Canvas 2D foundation: `getContext('2d')` returns one CanvasRenderingContext2D per canvas (null for other types), a tiny-skia Pixmap backing store, first API slice (fillStyle/strokeStyle, fillRect, clearRect, strokeRect, getImageData, putImageData, createImageData, ImageData, save/restore, globalAlpha), paint shows the bitmap and a draw damages only that box.
 
 **What changed:** src/canvas.rs (state registry keyed by node id, `__cv_*` natives, colour parse), js_dom.rs (context object, `ImageData`), images.rs `build_canvas_box` (`canvas { display: inline-block }` replaced box of its width/height attributes), paint.rs (blit of `canvas::image`), incr_layout.rs `canvas_damage`, app.rs (a draw requests a redraw and adds the box to the QHOV1 damage). tiny-skia 0.12.0 is a direct dependency (the version resvg already uses). Tests: src/tests/qcnv1_tests.rs.
+
+## QCNV2: Canvas 2D triage (agent item, docs only)
+
+> QCNV2 [S] (P2; Opus, docs only; after QCNV1) Triage the html/canvas WPT failures after QCNV1 and file the Canvas 2D items in dependency order (one item per feature group), each with the subtest counts it should fix; note what needs other missing platform features (Workers for offscreen, ImageBitmap, wide gamut) instead of filing it as canvas work.
+
+**What changed:** NOTES.md "Canvas 2D triage after QCNV1 (QCNV2)": failing files/subtests by directory and by missing feature, a cumulative unlock table in dependency order with score ceilings, and the proposed items QCNV3..QCNV20 plus QGEOM1 (DOMMatrix) and QIMGBMP1 (ImageBitmap) as platform items. Main finding: the offscreen area runs main-thread `new OffscreenCanvas` tests (worker variants are NOT-RUN), so a small OffscreenCanvas item early fixes 278 offscreen files at once. No code changes.
