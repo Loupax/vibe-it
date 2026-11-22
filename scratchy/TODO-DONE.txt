@@ -9282,3 +9282,10 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       callback and return its result (or the input when absent), `isHTML/isScript/isScriptURL` (true for what a policy
       made), `emptyHTML/emptyScript`, `getAttributeType` -> null, `defaultPolicy` null; no enforcement. Tests in a new
       src/tests/qapi1_tests.rs; re-run corpus.sh: the row disappears.
+
+=== from TODO.txt: --- (no header)
+- [x] QDOM16 DONE a2e3498 #549 [S] (WAITING FOR USER: #549 one subtest pass->fail to accept; P2; Sonnet; js_dom.rs; R65) ChildNode/ParentNode on every node kind: `before`, `after`,
+      `replaceWith`, `remove` on CharacterData and DocumentType (today only on `ElementProto`), `replaceChildren`/`append`/`prepend` on Document, `Symbol.unscopables` for them;
+      `document.doctype` on the page document (the page's DocumentType node). WPT: nodes/ChildNode-after,
+      ChildNode-before, ChildNode-replaceWith, DocumentType-remove, Document-doctype, ParentNode-replaceChildren,
+      remove-unscopable. Target: nodes +1.2.

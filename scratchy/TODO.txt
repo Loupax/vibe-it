@@ -160,11 +160,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QDOM15b [S] (P3, from QDOM15 #559; Sonnet) Event `timeStamp` > 0 on the manual/virtual clock (time origin offset;
       Event-constructors.any 2 subtests); event attributes as prototype getters instead of own data properties
       (idlharness checks); getModifierState and legacy init* methods for the newer event interfaces.
-- [ ] [WIP] QDOM16 [S] (WAITING FOR USER: #549 one subtest pass->fail to accept; P2; Sonnet; js_dom.rs; R65) ChildNode/ParentNode on every node kind: `before`, `after`,
-      `replaceWith`, `remove` on CharacterData and DocumentType (today only on `ElementProto`), `replaceChildren`/`append`/`prepend` on Document, `Symbol.unscopables` for them;
-      `document.doctype` on the page document (the page's DocumentType node). WPT: nodes/ChildNode-after,
-      ChildNode-before, ChildNode-replaceWith, DocumentType-remove, Document-doctype, ParentNode-replaceChildren,
-      remove-unscopable. Target: nodes +1.2.
 - [ ] [WIP] QDOM17 [S] (P2; Sonnet; js_dom.rs `makeDoc`, `__d_tag`, `doc.createElement`; R65; after QDOM8) Document
       flavours: a per-document "HTML document" flag (true for the page and createHTMLDocument, false for createDocument,
       new Document(), XML parses). `createElement` lowercases only in HTML documents (XHTML namespace for
