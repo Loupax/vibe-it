@@ -1,4 +1,4 @@
-//! QFF1a: `@font-face` web fonts (ttf/otf/woff; woff2 is QFF1b).
+//! QFF1a: `@font-face` web fonts (ttf/otf/woff/woff2).
 //!
 //! **Rules.** css.rs parses `@font-face` blocks (also inside `@media`/`@supports`) into [`FaceRule`]s
 //! (`parse_face_block`); the rules cache publishes the page's list after every parse
@@ -12,7 +12,7 @@
 //!
 //! **Loading.** The App drains the wanted faces ([`take_wanted`]), resolves `local()` sources in its
 //! system font database and fetches the rest through wire on a thread each ([`load_sources`]: CORS
-//! mode, credentials same-origin, the page's partition headers; woff2 / svg / eot sources are skipped
+//! mode, credentials same-origin, the page's partition headers; svg / eot sources are skipped
 //! and the next one is tried), decodes woff (zlib) to sfnt, and registers the result ([`finish_load`]).
 //! Script faces (`FontFace` in `document.fonts`) register through the same registry (`add_script_face`).
 //!
@@ -95,20 +95,20 @@ pub(crate) fn family_key(name: &str) -> String {
     name.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
 }
 
-/// Whether a `url()` source can be decoded here: ttf/otf/woff (and collections). woff2 (QFF1b), svg
+/// Whether a `url()` source can be decoded here: ttf/otf/woff/woff2 (and collections). svg
 /// and eot are skipped. Without `format()` the file extension decides (unknown = try it).
 pub(crate) fn src_supported(url: &str, format: Option<&str>) -> bool {
     if let Some(f) = format {
         return f.split(',').any(|f| {
-            matches!(f.trim().trim_matches(['"', '\'']).to_ascii_lowercase().as_str(), "truetype" | "opentype" | "woff" | "collection" | "truetype-aat")
+            matches!(f.trim().trim_matches(['"', '\'']).to_ascii_lowercase().as_str(), "truetype" | "opentype" | "woff" | "woff2" | "collection" | "truetype-aat")
         });
     }
     if url.trim_start().get(..5).is_some_and(|s| s.eq_ignore_ascii_case("data:")) {
         let head = url.get(..48).unwrap_or(url).to_ascii_lowercase();
-        return !head.contains("woff2") && !head.contains("svg") && !head.contains("embedded-opentype");
+        return !head.contains("svg") && !head.contains("embedded-opentype");
     }
     let path = url.split(['?', '#']).next().unwrap_or("").to_ascii_lowercase();
-    !(path.ends_with(".woff2") || path.ends_with(".svg") || path.ends_with(".svgz") || path.ends_with(".eot"))
+    !(path.ends_with(".svg") || path.ends_with(".svgz") || path.ends_with(".eot"))
 }
 
 // ------------------------------------------------------------------ parsing
@@ -797,12 +797,12 @@ pub(crate) fn sync(fs: &mut FontSystem, st: &mut FontSync) -> bool {
 
 // ------------------------------------------------------------------ decoding
 
-/// sfnt bytes from a font file: ttf/otf/ttc as they are, woff (1.0) decompressed. `None` for woff2
-/// and anything else.
+/// sfnt bytes from a font file: ttf/otf/ttc as they are, woff (1.0) decompressed, woff2 (QFF1b) decoded. `None` for anything else.
 pub(crate) fn to_sfnt(bytes: Vec<u8>) -> Option<Vec<u8>> {
     match bytes.get(..4)? {
         [0, 1, 0, 0] | b"OTTO" | b"true" | b"ttcf" | b"typ1" => Some(bytes),
         b"wOFF" => woff_to_sfnt(&bytes),
+        b"wOF2" => crate::woff2::woff2_to_sfnt(&bytes),
         _ => None,
     }
 }

@@ -17,7 +17,7 @@ fn be32(v: &mut Vec<u8>, x: u32) {
 
 /// The tables of a TrueType font named `family`: units per em 1000, ascent 800, descent 200, glyph 1
 /// (a 1000 x 1000 box, advance 1000) for U+0020..U+007E.
-fn box_font_tables(family: &str) -> Vec<([u8; 4], Vec<u8>)> {
+pub(super) fn box_font_tables(family: &str) -> Vec<([u8; 4], Vec<u8>)> {
     let mut head = Vec::new();
     be32(&mut head, 0x0001_0000);
     be32(&mut head, 0x0001_0000);
@@ -289,15 +289,15 @@ fn qff1a_parses_font_face_rules_also_in_media_and_supports() {
 }
 
 #[test]
-fn qff1a_source_formats_woff2_is_skipped() {
+fn qff1a_source_formats_woff2_is_supported_since_qff1b() {
     assert!(wf::src_supported("x.ttf", None));
     assert!(wf::src_supported("x.woff?v=2", None));
     assert!(wf::src_supported("x", Some("'truetype'")));
-    assert!(!wf::src_supported("x.woff2", None));
-    assert!(!wf::src_supported("x.woff", Some("woff2")));
+    assert!(wf::src_supported("x.woff2", None));
+    assert!(wf::src_supported("x.woff", Some("woff2")));
     assert!(!wf::src_supported("x.eot?#iefix", None));
     assert!(!wf::src_supported("x.svg#f", None));
-    assert!(!wf::src_supported("data:font/woff2;base64,AAAA", None));
+    assert!(wf::src_supported("data:font/woff2;base64,AAAA", None));
 }
 
 #[test]
@@ -317,7 +317,7 @@ fn qff1a_woff_decodes_to_the_same_font() {
 fn qff1a_box_font_metrics_through_a_test_wire_and_removal_on_navigation() {
     let tables = box_font_tables("Test Box");
     let wire = test_wire("metrics", vec![("/box.woff", "", woff(&tables))]);
-    // woff2 first (skipped without a request), then a 404, then the woff.
+    // a woff2 that 404s first (QFF1b: it is requested now), then a 404, then the woff.
     let css = "@font-face { font-family: 'Test Box'; src: url(http://fonts.test/box.woff2) format('woff2'), url(http://fonts.test/missing.ttf), url(http://fonts.test/box.woff) format('woff') }";
     let doc = parse_html(&float_page(css, "Test Box"));
     let mut fs = new_font_system();
@@ -333,7 +333,7 @@ fn qff1a_box_font_metrics_through_a_test_wire_and_removal_on_navigation() {
     assert!(wf::finish_load(&job.key, job.page, face));
     assert_eq!(wf::state_of(&job.key), wf::LoadState::Loaded);
     let seen = wire.seen.lock().unwrap().clone();
-    assert!(seen.iter().all(|r| !r.contains("box.woff2")), "woff2 is never requested: {seen:?}");
+    assert!(seen.iter().any(|r| r.contains("box.woff2")), "the woff2 source is tried first: {seen:?}");
     assert!(seen.iter().any(|r| r.contains("missing.ttf")) && seen.iter().any(|r| r.contains("/box.woff ")), "{seen:?}");
     assert!(wf::sync(&mut fs, &mut sync), "the face is added to the font system");
     let after = float_width(&lay_out(&doc, &mut fs));

@@ -6,6 +6,8 @@ edition = "2024"
 [dependencies]
 arboard = { version = "3.4", features = ["wayland-data-control"] }
 base64 = "0.22"
+# QFF1b: Brotli for WOFF 2.0 web fonts (safe Rust, no sockets; the glyf/hmtx transforms are in src/woff2.rs).
+brotli-decompressor = { version = "5", default-features = false, features = ["std"] }
 cosmic-text = "0.19.0"
 cssparser = "0.38.0"
 cssparser-color = "0.6.0"
