@@ -125,3 +125,9 @@ QKEYS1c: status-bar message full width, URL elided in the middle (Sonnet)
 > Do TODO item QKEYS1c: status-bar messages were clipped to a third of the bar; the message gets the width it needs, the URL gets the rest and is elided in the middle.
 
 **What changed:** paint.rs: pure `status_layout` (+ `elide_end`/`elide_middle`) decides the drawn mode/URL/message strings from a measure closure; `paint_status_bar` uses it. Message capped at bar - mode - min URL slice (160 px), URL middle-elided. Unit tests in `status_layout_tests`. Real check in a nested dwl: URL `file:///.../worktr...status/bar/test/page.html` plus the full message `scratchy: unknown command: :zzzz` (yy's "Copied to clipboard" lands with QREG1 #531).
+
+QDOMATOM: atomic insertion post-connection steps (Sonnet)
+
+> Do TODO item QDOMATOM: when one insertion adds several nodes (a DocumentFragment, a div moved in), the post-connection steps (script prepare/run, iframe setup) run in tree order after the whole insertion; scripts see all inserted siblings and an iframe has no contentWindow until its turn.
+
+**What changed:** js_dom.rs `afterIns(c, kids, par)` (called by appendChild/insertBefore with the fragment's nodes captured before they leave it) collects the inserted scripts and iframes (shadow-including, tree order), marks the iframes pending (`pendIfr`, `frameOf` returns null), then sets up each iframe or prepares each script in order; only the parent script (text appended into it) is prepared afterwards instead of a global sweep, so a nested insertion runs just that script. Tests: src/tests/qdomatom_tests.rs. WPT dom/nodes: Node-appendChild-script-and-iframe 2/4 -> 4/4, three-scripts(-from-fragment) 0/1 -> 1/1. append() with several arguments stays non-atomic (QDOM16 #549).

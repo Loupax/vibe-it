@@ -2702,15 +2702,17 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   var rmNode = function (n) { __d_remove(n.__id); };
   NodeProto.appendChild = function (c) {
     if (!c || c.__id === undefined) throw new TypeError("Failed to execute 'appendChild': parameter 1 is not of type 'Node'.");
+    var ak = afterIns && c.nodeType === 11 ? Array.prototype.slice.call(c.childNodes) : null; // QDOMATOM: a fragment's nodes, before they leave it
     if (!__d_insert(this.__id, c.__id, -1)) throw herr('The new child element contains the parent.', 'HierarchyRequestError');
-    if (afterIns) afterIns(c);
+    if (afterIns) afterIns(c, ak, this);
     return c;
   };
   NodeProto.insertBefore = function (c, ref) {
     if (!c || c.__id === undefined) throw new TypeError("Failed to execute 'insertBefore': parameter 1 is not of type 'Node'.");
     if (ref && ref.parentNode !== this) throw herr('The node before which the new node is to be inserted is not a child of this node.', 'NotFoundError');
+    var ak = afterIns && c.nodeType === 11 ? Array.prototype.slice.call(c.childNodes) : null;
     if (!__d_insert(this.__id, c.__id, ref ? ref.__id : -1)) throw herr('The new child element contains the parent.', 'HierarchyRequestError');
-    if (afterIns) afterIns(c);
+    if (afterIns) afterIns(c, ak, this);
     return c;
   };
   NodeProto.removeChild = function (c) {
@@ -3861,8 +3863,9 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   // fresh context with the preludes replayed, QPT1e), whose `document` is the iframe's second
   // document. `data:` iframes (D4) keep the stand-in object below.
   var capNoted = false, nFrames = 0;
+  var pendIfr = {}; // QDOMATOM: iframes of the current insertion whose setup has not run yet (no browsing context)
   var frameOf = function (el) {
-    if (!inPage(el) || !frameSrcOk(el)) return null;
+    if (pendIfr[el.__id] || !inPage(el) || !frameSrcOk(el)) return null;
     var f = frames[el.__id];
     if (f) return f;
     var sd = frameSrcdoc(el) != null, op = frameIsData(el), pg = (sd || op) ? [] : __d_iframe_page(el.__id), href = sd ? 'about:srcdoc' : op ? frameSrc(el) : 'about:blank';
@@ -4069,12 +4072,13 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     for (var i = 0; i < l.length; i++) if (frameHtml(wrap(l[i])) != null) loadFrame(wrap(l[i]), true);
   };
   Object.defineProperty(g, '__scratchy_frames_boot', { value: function () { bootFrames(); } });
-  afterIns = function (c) {
+  var ifrSetup = function (c) {
     if (c.nodeType !== 1 || __d_tag(c.__id).toLowerCase() !== 'iframe' || !inPage(c)) return;
     syncWin();
     if (frameHtml(c) != null) { loadFrameLater(c); return; }
     g.setTimeout(function () { if (inPage(c) && frameSrcOk(c)) c.dispatchEvent(new Event('load')); }, 0);
   };
+  afterIns = function (c) { ifrSetup(c); };
   def(doc, 'implementation', function () { return impl; });
   // ---- QY11: reflected URL attributes, hyperlink utils, dataset,
   // attributes, getAttributeNames, iterable classList. Pure JS over the
@@ -4324,8 +4328,42 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     step(top);
   };
   Object.defineProperty(g, '__scratchy_frame_load', { value: function (html, top) { frameLoad(html, !!top); } });
-  var sOAfter = afterIns, sOTxt = __d_settext, sOSet = __d_setattr;
-  afterIns = function (c) { if (sOAfter) sOAfter(c); if (xr.s.n > 0) sSweep(); };
+  var sOTxt = __d_settext, sOSet = __d_setattr;
+  // QDOMATOM (DOM "insert" step 7+, HTML post-connection steps): after the WHOLE insertion (a fragment's nodes, a
+  // div moved in), the inserted iframes get their browsing context and the inserted scripts are prepared, together
+  // in tree order; until an iframe's turn it has no contentWindow. Then only the parent script itself (text
+  // appended into it) is prepared, so a nested insertion does not run unrelated scripts early.
+  afterIns = function (c, kids, par) {
+    var list = [], i, k, id;
+    kids = kids || [c];
+    // Scripts and iframes of the shadow-including subtree of `n`, in tree order (a shadow tree right after its host).
+    var coll = function (n, isRoot) {
+      var tg = isRoot ? '' : __d_tag(n).toLowerCase(), sub, j, sr;
+      if (tg === 'script' || tg === 'iframe') list.push(n);
+      if (srHosts.length && !isRoot && (sr = __d_shadow_of(n)) >= 0) coll(sr, true);
+      sub = __d_query(n, srHosts.length ? '*' : 'script, iframe', false) || [];
+      for (j = 0; j < sub.length; j++) {
+        if (srHosts.length) {
+          tg = __d_tag(sub[j]).toLowerCase();
+          if (tg === 'script' || tg === 'iframe') list.push(sub[j]);
+          if ((sr = __d_shadow_of(sub[j])) >= 0) coll(sr, true);
+        } else list.push(sub[j]);
+      }
+    };
+    for (i = 0; i < kids.length; i++) {
+      k = kids[i];
+      if (k.__id !== undefined && k.nodeType === 1) coll(k.__id, false);
+    }
+    try {
+      for (i = 0; i < list.length; i++) if (__d_tag(list[i]).toLowerCase() === 'iframe' && inPage(wrap(list[i]))) pendIfr[list[i]] = 1;
+      for (i = 0; i < list.length; i++) {
+        id = list[i];
+        if (pendIfr[id]) { delete pendIfr[id]; ifrSetup(wrap(id)); }
+        else if (xr.s.n > 0 && xr.s.el[id]) { var pr = xr.prep[composedRootId(id)]; if (pr) pr(id); }
+      }
+    } finally { for (i = 0; i < list.length; i++) delete pendIfr[list[i]]; }
+    if (par && xr.s.n > 0 && par.__id !== undefined && xr.s.el[par.__id]) { var pp = xr.prep[composedRootId(par.__id)]; if (pp) pp(par.__id); }
+  };
   __d_settext = function (id, t) { sOTxt(id, t); if (xr.s.n > 0 && xr.s.el[id]) sSweep(); };
   __d_setattr = function (id, n, v) { sOSet(id, n, v); if (xr.s.n > 0 && xr.s.el[id] && String(n).toLowerCase() === 'src') sSweep(); };
   defs(SCP, 'async', function () { return __d_attr(this.__id, 'async') != null || (!!xr.s.cr[this.__id] && !xr.s.ord[this.__id]); },

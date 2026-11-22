@@ -1828,9 +1828,7 @@ OK           1/1  dom/nodes/insertion-removing-steps/Node-appendChild-script-and
 OK           0/1  dom/nodes/insertion-removing-steps/Node-appendChild-script-and-default-style-meta-from-fragment.html
   FAIL      Inserting <meta> that uses alternate stylesheets, applies the style during DOM post-insertion steps
 OK           1/1  dom/nodes/insertion-removing-steps/Node-appendChild-script-and-div-from-fragment.html
-OK           2/4  dom/nodes/insertion-removing-steps/Node-appendChild-script-and-iframe.html
-  FAIL      A script inserted atomically before an iframe (using a div) does not observe the iframe's contentWindow, since the 'script running' and 'iframe setup' both happen in order, after DOM insertion completes
-  FAIL      A script inserted atomically before an iframe (using a DocumentFragment) does not observe the iframe's contentWindow, since the 'script running' and 'iframe setup' both happen in order, after DOM insertion completes
+OK           4/4  dom/nodes/insertion-removing-steps/Node-appendChild-script-and-iframe.html
 OK           0/1  dom/nodes/insertion-removing-steps/Node-appendChild-script-and-source-from-fragment.html
   FAIL      Empty <source> immediately sets media.networkState during DOM insertion, so that an earlier-running script can observe networkState
 OK           4/5  dom/nodes/insertion-removing-steps/Node-appendChild-script-and-style.html
@@ -1842,10 +1840,8 @@ OK           0/1  dom/nodes/insertion-removing-steps/Node-appendChild-text-and-s
   FAIL      All style rules appended to a <style> element are inserted and script-observable to scripts inserted in the `<style>` element, by the time scripts execute after DOM insertions.
 OK           0/1  dom/nodes/insertion-removing-steps/Node-appendChild-text-in-script.html
   FAIL      Node.appendChild: inserting two text nodes in an empty script
-OK           0/1  dom/nodes/insertion-removing-steps/Node-appendChild-three-scripts-from-fragment.html
-  FAIL      Node.appendChild: inserting three scripts from a document fragment
-OK           0/1  dom/nodes/insertion-removing-steps/Node-appendChild-three-scripts.html
-  FAIL      Node.appendChild: inserting three scripts from a div
+OK           1/1  dom/nodes/insertion-removing-steps/Node-appendChild-three-scripts-from-fragment.html
+OK           1/1  dom/nodes/insertion-removing-steps/Node-appendChild-three-scripts.html
 OK           2/2  dom/nodes/insertion-removing-steps/blur-event.window.html
 OK           0/4  dom/nodes/insertion-removing-steps/frame-post-connection-steps.html
   FAIL      A script before frame and iframe elements observes post-connection order
@@ -1927,9 +1923,8 @@ OK           0/1  dom/nodes/moveBefore/fullscreen-preserve.html
 OK           0/2  dom/nodes/moveBefore/hover-style-update.html
   FAIL      Element loses hover when moved to different position
   FAIL      Hover works immediately after moved
-TIMEOUT      0/7  dom/nodes/moveBefore/iframe-document-preserve.window.html
-  TIMEOUT   moveBefore(): about:blank iframe's document is preserved
-  NOTRUN    moveBefore(): simple same-origin document is preserved
+TIMEOUT      1/7  dom/nodes/moveBefore/iframe-document-preserve.window.html
+  TIMEOUT   moveBefore(): simple same-origin document is preserved
   NOTRUN    moveBefore(): cross-origin iframe is preserved: remove new parent
   NOTRUN    moveBefore(): cross-origin iframe is preserved: remove self
   NOTRUN    moveBefore(): cross-origin iframe is preserved: remove self via replaceChildren()
