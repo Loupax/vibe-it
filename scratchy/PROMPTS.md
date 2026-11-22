@@ -9353,9 +9353,19 @@ Prompt: load blob: URLs in iframes (iframe.src = URL.createObjectURL(new Blob([h
 
 > QCNV4 [S] (P2; Sonnet; js_dom.rs canvas section, canvas.rs) `new OffscreenCanvas(w, h)` on the main thread (no Workers): width/height, `getContext('2d')` returning an OffscreenCanvasRenderingContext2D sharing canvas.rs, `transferToImageBitmap` only if trivial, `convertToBlob` left to QCNV16.
 
+
+
 **What changed:** canvas.rs: `__cv_ctx_off` (bitmap with no element, node 0 = never painted or dirty), `__cv_reset_off`, `__cv_free` (FinalizationRegistry). js_dom.rs: `OffscreenCanvas` (EventTarget subclass, EnforceRange width/height, setting either resets bitmap and state), `OffscreenCanvasRenderingContext2D` (prototype copies the 2D context descriptors; `canvas` returns the OffscreenCanvas). Other context types give null. Not done: transferToImageBitmap (needs ImageBitmap, QIMGBMP1), convertToBlob (QCNV16), transferControlToOffscreen. Tests: src/tests/qcnv4_tests.rs. wpt-th html/canvas/offscreen 0 -> 316 all-pass files, score 0.0 -> 29.9.
 ## QWPTBUD: the --wpt-th runner own callback budget (agent item)
 
 > QWPTBUD [S] (P3, from QDOM5b #592; Sonnet; wpt-th runner) A larger callback budget for the `--wpt-th` runner so Range-insertNode / Range-surroundContents run all 1840 cases deterministically and can leave flaky.txt.
 
 **What changed:** `wpt-th/budgets.txt` (`path ms reason`): the runner gives a listed file's child `--budget-ms` and a longer real-time kill limit; others and the App keep 500 ms. `--wpt-th --budget-ms` forwards to children. insertNode, surroundContents, replaceData (60 s) left flaky.txt with expectations recorded; dataChange stays flaky. Tests in src/tests/qwptbud_tests.rs.
+
+## QCNV5: canvas transforms (agent item)
+
+> QCNV5 [S] (P2; Sonnet; canvas.rs) Transforms: CTM in the saved state; translate/rotate/scale/transform/setTransform (6 numbers or a DOMMatrix2DInit dict)/resetTransform, non-finite arguments ignored; fillRect/strokeRect/clearRect draw through it (putImageData does not). getTransform waits for QGEOM1.
+
+**What changed:** canvas.rs: `DrawState.ctm` ([a,b,c,d,e,f], f64, saved/restored with the state, reset with the bitmap), `set_ctm` (multiply / replace / reset), `draw` passes it to tiny-skia as the `Transform` (line width scales with it). Natives `__cv_xf`, and `__cv_get_num` indices 2..7 read the matrix. js_dom.rs: translate/scale/rotate/transform/setTransform/resetTransform/getTransform on the shared prototype (so OffscreenCanvasRenderingContext2D too). All arguments are converted first, then the call is ignored if any is NaN/infinite; too few arguments is a TypeError. setTransform: 6 numbers, or 0/1 argument = a plain object with a-f / m11..m42 (a and m11 both present and different: TypeError; 2-5 arguments: TypeError). QGEOM1 has not landed, so setTransform's dictionary accepts any plain object and getTransform returns a PLAIN OBJECT (a..f, m11..m44, is2D true, isIdentity), not a DOMMatrix. Tests: src/tests/qcnv5_tests.rs. wpt-th: element 27.8 -> 29.8 (348 -> 374 all-pass), offscreen 29.9 -> 32.3 (316 -> 342).
+
+**Not done:** paths (QCNV6), a real DOMMatrix from getTransform and setTransform (DOMMatrix instance, 3D rejection) (QGEOM1), non-invertible CTM edge cases beyond what tiny-skia does.

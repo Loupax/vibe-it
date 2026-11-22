@@ -3097,6 +3097,47 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   });
   meth('save', function () { g.__cv_save(cv(this)); });
   meth('restore', function () { g.__cv_restore(cv(this)); });
+  // QCNV5: transforms. The CTM lives in canvas.rs; every method converts all arguments first (ToNumber), then ignores
+  // the call when one is NaN/infinite. getTransform returns a plain DOMMatrix-like object (QGEOM1 has not landed:
+  // no DOMMatrix class); setTransform's dictionary overload takes any object with a-f / m11..m42 members.
+  var xfArgs = function (name, n, a) { return cvArgs(name, n, a); };
+  var xfApply = function (c, op, m) {
+    for (var i = 0; i < m.length; i++) if (!isFinite(m[i])) return;
+    g.__cv_xf(c, op, m);
+  };
+  meth('translate', function () { var c = cv(this), a = xfArgs('translate', 2, arguments); xfApply(c, 0, [1, 0, 0, 1, a[0], a[1]]); });
+  meth('scale', function () { var c = cv(this), a = xfArgs('scale', 2, arguments); xfApply(c, 0, [a[0], 0, 0, a[1], 0, 0]); });
+  meth('rotate', function () {
+    var c = cv(this), a = xfArgs('rotate', 1, arguments);
+    if (!isFinite(a[0])) return;
+    var s = Math.sin(a[0]), k = Math.cos(a[0]);
+    xfApply(c, 0, [k, s, -s, k, 0, 0]);
+  });
+  meth('transform', function () { var c = cv(this); xfApply(c, 0, xfArgs('transform', 6, arguments)); });
+  meth('setTransform', function () {
+    var c = cv(this), n = arguments.length;
+    if (n >= 2) { xfApply(c, 1, xfArgs('setTransform', 6, arguments)); return; }
+    var d = arguments[0];
+    if (d !== undefined && d !== null && typeof d !== 'object' && typeof d !== 'function') throw new TypeError("Failed to execute 'setTransform' on 'CanvasRenderingContext2D': parameter 1 ('transform') is not an object.");
+    var get = function (k) { var v = d == null ? undefined : d[k]; return v === undefined ? undefined : Number(v); };
+    var pick = function (k1, k2, dflt) {
+      var x = get(k1), y = get(k2);
+      if (x !== undefined && y !== undefined && !Object.is(x, y)) throw new TypeError("Failed to execute 'setTransform' on 'CanvasRenderingContext2D': The '" + k1 + "' and '" + k2 + "' members must be equal.");
+      return x !== undefined ? x : (y !== undefined ? y : dflt);
+    };
+    var m = [pick('a', 'm11', 1), pick('b', 'm12', 0), pick('c', 'm21', 0), pick('d', 'm22', 1), pick('e', 'm41', 0), pick('f', 'm42', 0)];
+    xfApply(c, 1, m);
+  });
+  meth('resetTransform', function () { g.__cv_xf(cv(this), 2, []); });
+  meth('getTransform', function () {
+    var c = cv(this), m = [];
+    for (var i = 0; i < 6; i++) m.push(g.__cv_get_num(c, 2 + i));
+    var o = { a: m[0], b: m[1], c: m[2], d: m[3], e: m[4], f: m[5],
+      m11: m[0], m12: m[1], m13: 0, m14: 0, m21: m[2], m22: m[3], m23: 0, m24: 0,
+      m31: 0, m32: 0, m33: 1, m34: 0, m41: m[4], m42: m[5], m43: 0, m44: 1, is2D: true };
+    o.isIdentity = m[0] === 1 && m[1] === 0 && m[2] === 0 && m[3] === 1 && m[4] === 0 && m[5] === 0;
+    return o;
+  });
   defs(CtxProto, 'canvas', function () { cv(this); return this.__el; });
   // fillStyle/strokeStyle/shadowColor: ToString of the value (a throwing toString propagates; gradients and patterns
   // are QCNV2-era work), parsed as a CSS colour; an unparsable string leaves the attribute alone. `currentcolor`
