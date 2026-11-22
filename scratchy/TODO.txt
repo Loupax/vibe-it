@@ -72,7 +72,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       (`ro-run` forced layouts on YouTube results); microtask checkpoint after each RO callback; notice size changes
       without a DOM write (image decode, CSS animation, :hover). Re-measure ytr/ytw --perf-report and live CPU on a
       quiet machine (QEL2 measured ytw live +13-15 %, inside noise).
-- [ ] QEL3 [S] (P2; Sonnet; js_dom.rs IO; after QEL1) IntersectionObserver evaluated once per rendering
+- [ ] [WIP] QEL3 [S] (P2; Sonnet; js_dom.rs IO; after QEL1) IntersectionObserver evaluated once per rendering
       update (after RO, before paint) with the frame time, callbacks queued as a task; remove the
       per-timer __scratchy_ioTick calls; keep the App-layout reuse. Gate: intersection-observer score
       not lower, YouTube thumbnails still load (QY57r).
