@@ -9150,3 +9150,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- (no header)
 - [x] QSCR404 DONE 38c1afb #541 [S] (P2; Sonnet; js.rs script fetch; R65 5) A classic/module script whose response status is not 2xx is
       not run; fire `error` on the element (today a 404 "Not found" body runs and throws SyntaxError).
+
+=== from TODO.txt: --- (no header)
+- [x] QWPTFLK2 DONE 425ef1b #555 [S] (NOTE: QWPTFLK3 #550 found a constructor re-upgrade stack overflow whose failing frame depends on the build; this file also builds elements during construction: re-check it on main after #550 first; P3, from #532/#526/#531; Sonnet; wpt_th.rs virtual clock, custom-elements) custom-elements/form-
+      associated/fieldset-elements-during-construction.html goes OK -> TIMEOUT at random on CI (marked flaky in #534).
+      Reproduce under load (--jobs 8 + a CPU hog, 30 runs), find the real-time dependency, fix, remove from flaky.txt.

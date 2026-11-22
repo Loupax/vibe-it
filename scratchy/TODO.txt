@@ -58,9 +58,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       the parser: set attributes before the constructor runs (today after), queue attributeChanged/mutation records in the
       HTML order, and `document.anchors` for customized built-ins (parser-sets-attributes-after-built-in-constructor.html
       7 remaining failures).
-- [ ] [WIP] QWPTFLK2 [S] (NOTE: QWPTFLK3 #550 found a constructor re-upgrade stack overflow whose failing frame depends on the build; this file also builds elements during construction: re-check it on main after #550 first; P3, from #532/#526/#531; Sonnet; wpt_th.rs virtual clock, custom-elements) custom-elements/form-
-      associated/fieldset-elements-during-construction.html goes OK -> TIMEOUT at random on CI (marked flaky in #534).
-      Reproduce under load (--jobs 8 + a CPU hog, 30 runs), find the real-time dependency, fix, remove from flaky.txt.
 - [ ] QDOM3b [S] (P3, from QDOM3 #533; Sonnet) moveBefore follow-ups: CSS transitions/animations continue across a move
       (css-transition-*, continue-css-*; removes the 30 s TIMEOUT of css-transition-trigger), focus events
       (focusin/out, :focus-within) with moveBefore, ElementInternals/form-associated reset.
