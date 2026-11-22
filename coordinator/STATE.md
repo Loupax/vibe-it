@@ -268,3 +268,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #580 QDOM10 READY (window.event shadow rule; events +3 subtests), queued after #579. Filed QDOM10b. Launched QDOM19.
 - 2026-11-22 Merged #576 QEL7 1c1468c (scroll/wheel/MQL events), #578 QAPI8 0f1c2b5 (css audit).
 - 2026-11-22 #579 QWPT6c merge: rebase CONFLICT in wpt-th/expected/dom-events.txt (after #576 QEL7). Rebase queued for next free slot. #580 merging.
+- 2026-11-22 #581 QWPT6d READY (html/editing 48 files, score 21.1; scratchy-wpt 5:45), queued after #580; then #579 rebases onto both (same subset files). Filed QWPT6e, QEDIT-A..E.
