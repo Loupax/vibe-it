@@ -348,6 +348,31 @@ fn qapi6_no_has_page_keeps_no_nodes() {
     assert!(incr_log::taken_node(node_id(&by_id(&doc, "b"))).is_none());
 }
 
+#[test]
+fn qapi6_engine_unfiltered_anchor_with_outer_hops_marks_only_attribute_subjects() {
+    // YouTube's `:has(> [role=dialog]:not([aria-hidden=true]) .x) [dialog]`: the anchors carry no tag/id/class, so
+    // every ancestor is one and the descendant hop reaches the whole page; the subject's attribute keeps the marks
+    // to `[dialog]` elements, and many writes in one update walk the page once (the batch memo).
+    let _g = LogOnly::new();
+    let mut body = String::from("<div id=top><div role=dialog id=d aria-hidden=true><span class=x>x</span></div><p dialog id=s>s</p>");
+    for i in 0..200 {
+        body += &format!("<div><span id=f{i}>f</span></div>");
+    }
+    body += "</div>";
+    let doc = page(":has(> [role=dialog]:not([aria-hidden=true]) .x) [dialog]{color:red}", &body);
+    build(&doc);
+    let s_el = by_id(&doc, "s");
+    assert_eq!(engine_color(&s_el), TextColor::rgb(0, 0, 0));
+    set_attr(&by_id(&doc, "d"), "aria-hidden", None);
+    for i in 0..50 {
+        set_attr(&by_id(&doc, &format!("f{i}")), "aria-hidden", Some("true"));
+    }
+    let s = build(&doc);
+    assert!(!s.full, "{s:?}");
+    assert_eq!(engine_color(&s_el), TextColor::rgb(255, 0, 0));
+    assert!(s.rematched <= 60, "the [dialog] subject and the written elements, not the 600-element page: {s:?}");
+}
+
 // ---------- script forced layouts: engine on and off agree ----------
 
 #[test]
