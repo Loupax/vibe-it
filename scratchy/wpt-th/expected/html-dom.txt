@@ -1743,10 +1743,9 @@ OK         11/22  html/dom/elements/global-attributes/dir-auto-form-associated.w
   FAIL      <textarea dir=auto> directionality
 OK           0/1  html/dom/elements/global-attributes/dir-bdi-script.html
   FAIL      BDI test: Directionality
-OK          5/17  html/dom/elements/global-attributes/dir-slots-directionality.html
+OK          6/17  html/dom/elements/global-attributes/dir-slots-directionality.html
   FAIL      Slots: Directionality: dir=rtl on slot
   FAIL      Slots: Directionality: dir=rtl on host
-  FAIL      Slots: Directionality: dir=auto on host with Arabic shadow tree content
   FAIL      Slots: Directionality: dir=auto in shadow tree with Arabic light tree content
   FAIL      Slots: Directionality: dir=auto in shadow tree with Arabic shadow tree content
   FAIL      Slots: Directionality: dir=auto on slot with Arabic light tree content

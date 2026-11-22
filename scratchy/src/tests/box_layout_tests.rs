@@ -916,9 +916,9 @@ fn text_align_start_and_end_resolve_to_left_and_right() {
         400.0,
     );
     let start = find_by_width(&laid, 10.0).expect("start div not found");
-    assert!(start.style.text_align == TextAlign::Left, "text-align: start should resolve to left for this engine's always-left-to-right content");
+    assert!(start.style.text_align.physical(Direction::Ltr) == TextAlign::Left, "text-align: start should resolve to left for this engine's always-left-to-right content");
     let end = find_by_width(&laid, 20.0).expect("end div not found");
-    assert!(end.style.text_align == TextAlign::Right, "text-align: end should resolve to right for this engine's always-left-to-right content");
+    assert!(end.style.text_align.physical(Direction::Ltr) == TextAlign::Right, "text-align: end should resolve to right for this engine's always-left-to-right content");
 }
 
 // ---------- Q59p: horizontal `margin: auto` ----------

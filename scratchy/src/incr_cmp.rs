@@ -118,7 +118,7 @@ fn cmp_span(path: &str, i: usize, a: &SpanStyle, b: &SpanStyle) -> Result<(), Mi
     }
     each!(
         color, background_color, font_size, font_weight, font_style, font_family, text_decoration, decoration_style,
-        vertical_align, line_height, visibility, cursor, word_spacing, word_break, white_space, href, node, tnode
+        vertical_align, line_height, visibility, cursor, word_spacing, letter_spacing, word_break, white_space, href, node, tnode
     );
     Ok(())
 }

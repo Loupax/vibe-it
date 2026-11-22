@@ -383,6 +383,12 @@ fn same_blen(a: &BoxLength, b: &BoxLength) -> bool {
 fn lerp_blen(a: &BoxLength, b: &BoxLength, t: f32) -> Option<BoxLength> {
     BoxLength::interp(a, b, t)
 }
+fn same_pair(a: &(BoxLength, BoxLength), b: &(BoxLength, BoxLength)) -> bool {
+    <(BoxLength, BoxLength)>::same(a, b)
+}
+fn lerp_pair(a: &(BoxLength, BoxLength), b: &(BoxLength, BoxLength), t: f32) -> Option<(BoxLength, BoxLength)> {
+    <(BoxLength, BoxLength)>::interp(a, b, t)
+}
 fn same_oblen(a: &Option<BoxLength>, b: &Option<BoxLength>) -> bool {
     opt_same(a, b)
 }
@@ -444,6 +450,7 @@ macro_rules! paste_kind {
     (color, $name:literal, $inh:expr, $($f:tt)+) => { pd!($name, $inh, same_color, lerp_color, $($f)+) };
     (ocolor, $name:literal, $inh:expr, $($f:tt)+) => { pd!($name, $inh, same_ocolor, lerp_ocolor, $($f)+) };
     (blen, $name:literal, $inh:expr, $($f:tt)+) => { pd!($name, $inh, same_blen, lerp_blen, $($f)+) };
+    (pair, $name:literal, $inh:expr, $($f:tt)+) => { pd!($name, $inh, same_pair, lerp_pair, $($f)+) };
     (oblen, $name:literal, $inh:expr, $($f:tt)+) => { pd!($name, $inh, same_oblen, lerp_oblen, $($f)+) };
     (oi32, $name:literal, $inh:expr, $($f:tt)+) => { pd!($name, $inh, same_oi32, lerp_oi32, $($f)+) };
     (tr, $name:literal, $inh:expr, $($f:tt)+) => { pd!($name, $inh, same_tr, lerp_tr, $($f)+) };
@@ -552,7 +559,12 @@ fn build_props() -> Vec<PropDef> {
         pdef!("padding-right", false, blen, padding.right),
         pdef!("padding-bottom", false, blen, padding.bottom),
         pdef!("padding-left", false, blen, padding.left),
-        pdef!("border-radius", false, blen, border_radius),
+        pdef!("border-top-left-radius", false, pair, border_radius.0[0]),
+        pdef!("border-top-right-radius", false, pair, border_radius.0[1]),
+        pdef!("border-bottom-right-radius", false, pair, border_radius.0[2]),
+        pdef!("border-bottom-left-radius", false, pair, border_radius.0[3]),
+        pdef!("outline-offset", false, f32, outline_offset),
+        pdef!("letter-spacing", true, f32, letter_spacing),
         pdef!("width", false, oblen, width),
         pdef!("height", false, oblen, height),
         pdef!("min-width", false, oblen, min_width),
@@ -593,6 +605,7 @@ fn covers(p: &TransProp, name: &str) -> bool {
         "border-top" | "border-right" | "border-bottom" | "border-left" => name.starts_with(n) && name.len() > n.len(),
         "margin" => name.starts_with("margin-"),
         "padding" => name.starts_with("padding-"),
+        "border-radius" => name.starts_with("border-") && name.ends_with("-radius"),
         "inset" => ["top", "right", "bottom", "left"].contains(&name),
         "outline" => name == "outline-color" || name == "outline-width",
         "background" => name == "background-color",
@@ -699,10 +712,10 @@ snap_fields! {
     opacity: f32, color: TextColor, background_color: Option<TextColor>, outline_color: Option<TextColor>,
     outline_width: f32, text_decoration_color: Option<TextColor>, border_color: [Option<TextColor>; 4],
     border_width: [f32; 4], margin: Sides, margin_auto: (bool, bool), margin_auto_v: (bool, bool),
-    padding: Sides, border_radius: BoxLength, width: Option<BoxLength>, height: Option<BoxLength>,
+    padding: Sides, border_radius: CornerRadii, width: Option<BoxLength>, height: Option<BoxLength>,
     min_width: Option<BoxLength>, max_width: Option<BoxLength>, min_height: Option<BoxLength>,
     max_height: Option<BoxLength>, inset: Insets, z_index: Option<i32>, font_size: f32, word_spacing: f32,
-    text_indent: f32, flex_grow: f32, flex_shrink: f32, translate: Tr, visibility: Visibility,
+    letter_spacing: f32, outline_offset: f32, text_indent: f32, flex_grow: f32, flex_shrink: f32, translate: Tr, visibility: Visibility,
 }
 
 struct ElemTrans {

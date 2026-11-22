@@ -161,8 +161,8 @@ PASS css/CSS2/linebox/vertical-align-041.xht
 PASS css/CSS2/linebox/vertical-align-078.xht
 FAIL css/CSS2/linebox/vertical-align-117a.xht
 PASS css/CSS2/linebox/vertical-align-applies-to-015.xht
-FAIL css/CSS2/margin-padding-clear/margin-001.xht
-FAIL css/CSS2/margin-padding-clear/margin-007.xht
+PASS css/CSS2/margin-padding-clear/margin-001.xht
+PASS css/CSS2/margin-padding-clear/margin-007.xht
 PASS css/CSS2/margin-padding-clear/margin-applies-to-004.xht
 PASS css/CSS2/margin-padding-clear/margin-applies-to-013.xht
 PASS css/CSS2/margin-padding-clear/margin-border-padding-001.xht
@@ -185,7 +185,7 @@ FAIL css/CSS2/margin-padding-clear/margin-collapse-038.xht
 PASS css/CSS2/margin-padding-clear/margin-left-056.xht
 PASS css/CSS2/margin-padding-clear/margin-right-042.xht
 PASS css/CSS2/margin-padding-clear/margin-top-018.xht
-FAIL css/CSS2/margin-padding-clear/padding-002.xht
+PASS css/CSS2/margin-padding-clear/padding-002.xht
 PASS css/CSS2/margin-padding-clear/padding-bottom-056.xht
 PASS css/CSS2/margin-padding-clear/padding-left-018.xht
 PASS css/CSS2/margin-padding-clear/padding-left-applies-to-004.xht

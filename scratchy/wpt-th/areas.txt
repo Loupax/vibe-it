@@ -12,7 +12,7 @@ html/webappapis                 307    305        94      1141     661   57.9   
 resize-observer                  36     35        19        54      31   57.4   61.6
 intersection-observer           150    150        21       203      48   23.6   16.9
 html/semantics/scripting-1      419    398       126      2405    1081   44.9   34.4
-html/dom                        178    178        49      3866    1282   33.2   41.2
+html/dom                        178    178        49      3866    1283   33.2   41.2
 html/editing                     48     48        12       620     202   32.6   35.0
 css/cssom                       271    269        62      3903    2127   54.5   36.3
 css/cssom-view                  218    216        62      1379     711   51.6   35.7
@@ -24,4 +24,4 @@ webmessaging                    115    115        72       205     137   66.8   
 requestidlecallback               9      9         6        17      14   82.4   75.9
 custom-elements                 201    201        19      2158     691   32.0   20.1
 shadow-dom                      244    244        53      2571     807   31.4   28.3
-TOTAL                          3254   3206      1010     85476   62907   73.6   40.4
+TOTAL                          3254   3206      1010     85476   62908   73.6   40.4

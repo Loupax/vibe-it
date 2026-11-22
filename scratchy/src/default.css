@@ -107,6 +107,10 @@ listing, xmp, pre, plaintext {
   margin-block: 1em;
 }
 
+/* QCSS-E: the dir attribute sets the inline base direction (HTML Standard, Rendering: directionality). */
+[dir=ltr i] { direction: ltr; }
+[dir=rtl i] { direction: rtl; }
+
 /* ---- lists ---- */
 
 dir, dd, dl, dt, menu, ol, ul { display: block; }

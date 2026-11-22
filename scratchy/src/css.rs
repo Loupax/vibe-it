@@ -1014,6 +1014,57 @@ impl BoxLength {
     }
 }
 
+/// QCSS-E: the four resolved corner radii `(horizontal, vertical)` in px, in the order top-left,
+/// top-right, bottom-right, bottom-left (also the order of the `border-*-radius` longhands).
+pub(crate) type Radii = [(f32, f32); 4];
+
+/// QCSS-E: the computed `border-top-left-radius` .. `border-bottom-left-radius`, one
+/// `(horizontal, vertical)` pair of `BoxLength`s per corner (top-left, top-right, bottom-right,
+/// bottom-left). A `%` stays unresolved until paint, where it is resolved against the box's own
+/// border-box width (horizontal) and height (vertical), per CSS Backgrounds 3 section 5.1.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub(crate) struct CornerRadii(pub(crate) [(BoxLength, BoxLength); 4]);
+
+impl CornerRadii {
+    /// All four corners circular with the same radius (what `border-radius: <len>` gives).
+    pub(crate) fn uniform(l: BoxLength) -> Self {
+        CornerRadii([(l, l); 4])
+    }
+
+    /// Resolves against a `w` x `h` border box: a negative value counts as 0, a corner with a
+    /// zero radius on either axis is square, then `fit_radii` applies the overlap rule.
+    pub(crate) fn resolve(&self, w: f32, h: f32) -> Radii {
+        let mut r = [(0.0f32, 0.0f32); 4];
+        for (o, (hz, vt)) in r.iter_mut().zip(self.0.iter()) {
+            let (a, b) = (hz.resolve(w).max(0.0), vt.resolve(h).max(0.0));
+            *o = if a > 0.0 && b > 0.0 { (a, b) } else { (0.0, 0.0) };
+        }
+        fit_radii(r, w, h)
+    }
+}
+
+/// QCSS-E: the overlap rule of CSS Backgrounds 3 section 5.5 for already-resolved radii: when two
+/// adjacent radii add up to more than the side they share, every radius is scaled by the same
+/// factor. All-circular-and-equal radii keep the exact `min(r, w/2, h/2)` clamp.
+pub(crate) fn fit_radii(mut r: Radii, w: f32, h: f32) -> Radii {
+    if r.iter().all(|c| *c == r[0] && c.0 == c.1) {
+        let c = r[0].0.min(w / 2.0).min(h / 2.0).max(0.0);
+        return [(c, c); 4];
+    }
+    let side = |len: f32, a: f32, b: f32| if a + b > len && a + b > 0.0 { len / (a + b) } else { 1.0 };
+    let f = side(w, r[0].0, r[1].0)
+        .min(side(h, r[1].1, r[2].1))
+        .min(side(w, r[3].0, r[2].0))
+        .min(side(h, r[0].1, r[3].1))
+        .max(0.0);
+    if f < 1.0 {
+        for c in r.iter_mut() {
+            *c = (c.0 * f, c.1 * f);
+        }
+    }
+    r
+}
+
 /// `line-height`'s three value forms. Kept symbolic (not resolved to a
 /// pixel value) all the way through `InheritedStyle`/`ComputedStyle` —
 /// unlike every other length-ish property here, `line-height`'s inherited
@@ -1357,7 +1408,19 @@ pub(crate) struct Declarations {
     pub(crate) text_shadow: Option<Fx<&'static [ShadowDeclFn]>>,
     pub(crate) mix_blend_mode: Option<BlendMode>,
     pub(crate) clip_path: Option<Fx<&'static Shape<Length>>>,
-    pub(crate) border_radius: Option<Length>,
+    /// QCSS-E: the four `border-*-radius` longhands as `(horizontal, vertical)`, in the order
+    /// top-left, top-right, bottom-right, bottom-left. The `border-radius` shorthand writes all four.
+    pub(crate) border_radius: [Option<(Length, Length)>; 4],
+    /// QCSS-E: `outline-offset` (any length, negative too).
+    pub(crate) outline_offset: Option<Length>,
+    /// QCSS-E: `transform-origin` x and y (keywords already turned into percentages; z is dropped).
+    pub(crate) transform_origin: Option<(Length, Length)>,
+    /// QCSS-E: `border-spacing` horizontal and vertical (non-negative lengths).
+    pub(crate) border_spacing: Option<(Length, Length)>,
+    /// QCSS-E: `letter-spacing` (`normal` is `Px(0)`).
+    pub(crate) letter_spacing: Option<Length>,
+    /// QCSS-E: `direction`.
+    pub(crate) direction: Option<Direction>,
     /// `overflow` (shorthand) and `overflow-x` both land here: the x axis.
     pub(crate) overflow: Option<Overflow>,
     /// `overflow-y` (Q21); the `overflow` shorthand sets it as well.
@@ -1580,30 +1643,75 @@ impl ListStyleType {
     }
 }
 
-/// The 4 keywords `text-align` actually has (no `start`/`end` — nothing
-/// declares them, and they're writing-mode-relative, which scratchy has
-/// no notion of). `Left` as `#[default]` matches the real CSS initial
-/// value (for left-to-right content, which is all scratchy renders).
+/// `text-align`'s keywords. `Start`/`End` (QCSS-E) are relative to the element's `direction`;
+/// they stay as declared in the computed style (an inherited `start` is resolved again by each
+/// descendant's own `direction`) and `physical` maps them to `Left`/`Right` where layout needs it.
+/// `Start` is the real initial value.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub(crate) enum TextAlign {
     #[default]
+    Start,
+    End,
     Left,
     Right,
     Center,
     Justify,
 }
 
-impl TextAlign {
-    /// `None` for `Left` rather than `Some(CosmicAlign::Left)` — avoids
-    /// relying on cosmic-text's own default matching ours, and `None` is
-    /// what `shape_spans` always passed before this property existed, so
-    /// the common case takes the exact code path it always has.
-    pub(crate) fn to_cosmic(self) -> Option<CosmicAlign> {
+/// `direction` (QCSS-E): the inline base direction. Inherited. Only inline content honours it:
+/// `text-align: start | end` resolution and the alignment of an `rtl` paragraph (blocks, tables,
+/// flex rows and margins are not mirrored).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+pub(crate) enum Direction {
+    #[default]
+    Ltr,
+    Rtl,
+}
+
+impl Direction {
+    pub(crate) fn keyword(self) -> &'static str {
         match self {
-            TextAlign::Left => None,
+            Direction::Ltr => "ltr",
+            Direction::Rtl => "rtl",
+        }
+    }
+}
+
+impl TextAlign {
+    /// `Start`/`End` resolved against `dir` into the physical keyword (the other variants as is).
+    pub(crate) fn physical(self, dir: Direction) -> TextAlign {
+        match (self, dir) {
+            (TextAlign::Start, Direction::Ltr) | (TextAlign::End, Direction::Rtl) => TextAlign::Left,
+            (TextAlign::End, Direction::Ltr) | (TextAlign::Start, Direction::Rtl) => TextAlign::Right,
+            (a, _) => a,
+        }
+    }
+
+    /// `None` for a physical `Left` in a left-to-right element rather than
+    /// `Some(CosmicAlign::Left)` — avoids relying on cosmic-text's own default matching ours, and
+    /// `None` is what `shape_spans` always passed before this property existed, so the common
+    /// case takes the exact code path it always has. In an `rtl` element cosmic-text's `Left` is
+    /// a physical left and has to be passed explicitly.
+    pub(crate) fn to_cosmic(self, dir: Direction) -> Option<CosmicAlign> {
+        match self.physical(dir) {
+            TextAlign::Left | TextAlign::Start | TextAlign::End => {
+                if dir == Direction::Rtl { Some(CosmicAlign::Left) } else { None }
+            }
             TextAlign::Right => Some(CosmicAlign::Right),
             TextAlign::Center => Some(CosmicAlign::Center),
             TextAlign::Justify => Some(CosmicAlign::Justified),
+        }
+    }
+
+    /// The keyword as `getComputedStyle` prints it.
+    pub(crate) fn keyword(self) -> &'static str {
+        match self {
+            TextAlign::Start => "start",
+            TextAlign::End => "end",
+            TextAlign::Left => "left",
+            TextAlign::Right => "right",
+            TextAlign::Center => "center",
+            TextAlign::Justify => "justify",
         }
     }
 }
@@ -2654,6 +2762,124 @@ pub(crate) fn parse_transform(input: &mut CssParser) -> Result<Vec<(Length, Leng
         }
     }
     if unsupported { Ok(Vec::new()) } else { Ok(out) }
+}
+
+/// One `<length-percentage [0,inf]>` of a radius.
+fn parse_radius_len(input: &mut CssParser) -> Option<Length> {
+    input.try_parse(|i| parse_length_percent(i).and_then(|v| if is_negative_length(&v) { Err(()) } else { Ok(v) })).ok()
+}
+
+/// QCSS-E: `border-<corner>-radius: <lp> <lp>?` (one value is a circle).
+pub(crate) fn parse_corner_radius(input: &mut CssParser) -> Option<(Length, Length)> {
+    let h = parse_radius_len(input)?;
+    let v = parse_radius_len(input).unwrap_or(h);
+    only_important_left(input).then_some((h, v))
+}
+
+/// QCSS-E: `border-radius: <lp>{1,4} [ / <lp>{1,4} ]?`, expanded to the four corners (top-left,
+/// top-right, bottom-right, bottom-left) as `(horizontal, vertical)`.
+pub(crate) fn parse_border_radius(input: &mut CssParser) -> Option<[(Length, Length); 4]> {
+    let four = |v: &[Length]| match v.len() {
+        1 => [v[0]; 4],
+        2 => [v[0], v[1], v[0], v[1]],
+        3 => [v[0], v[1], v[2], v[1]],
+        _ => [v[0], v[1], v[2], v[3]],
+    };
+    let mut hs = Vec::new();
+    while hs.len() < 4 {
+        match parse_radius_len(input) {
+            Some(l) => hs.push(l),
+            None => break,
+        }
+    }
+    if hs.is_empty() {
+        return None;
+    }
+    let mut vs = hs.clone();
+    if input.try_parse(|i| i.expect_delim('/')).is_ok() {
+        vs.clear();
+        while vs.len() < 4 {
+            match parse_radius_len(input) {
+                Some(l) => vs.push(l),
+                None => break,
+            }
+        }
+        if vs.is_empty() {
+            return None;
+        }
+    }
+    if !only_important_left(input) {
+        return None;
+    }
+    let (h, v) = (four(&hs), four(&vs));
+    Some([(h[0], v[0]), (h[1], v[1]), (h[2], v[2]), (h[3], v[3])])
+}
+
+/// QCSS-E: `border-spacing: <length>{1,2}` (non-negative; one value is both axes).
+pub(crate) fn parse_border_spacing(input: &mut CssParser) -> Option<(Length, Length)> {
+    let one = |i: &mut CssParser| i.try_parse(|i| parse_length(i).and_then(|v| if is_negative_length(&v) { Err(()) } else { Ok(v) })).ok();
+    let h = one(input)?;
+    let v = one(input).unwrap_or(h);
+    only_important_left(input).then_some((h, v))
+}
+
+/// QCSS-E: `transform-origin`: one to three of `left|center|right|top|bottom|<length-percentage>`
+/// (the third is a z length, dropped). Keywords become percentages: left/top 0%, center 50%,
+/// right/bottom 100%.
+pub(crate) fn parse_transform_origin(input: &mut CssParser) -> Option<(Length, Length)> {
+    #[derive(Clone, Copy, PartialEq)]
+    enum It {
+        Kw(&'static str),
+        Len(Length),
+    }
+    let mut items: Vec<It> = Vec::new();
+    while items.len() < 3 {
+        let kw = input.try_parse(|i| {
+            let id = i.expect_ident().map_err(|_| ())?;
+            ["left", "center", "right", "top", "bottom"]
+                .iter()
+                .find(|k| id.eq_ignore_ascii_case(k))
+                .copied()
+                .ok_or(())
+        });
+        if let Ok(k) = kw {
+            items.push(It::Kw(k));
+            continue;
+        }
+        match input.try_parse(parse_length_percent) {
+            Ok(l) => items.push(It::Len(l)),
+            Err(_) => break,
+        }
+    }
+    if items.is_empty() || !only_important_left(input) {
+        return None;
+    }
+    let pct = |k: &str| Length::Percent(match k { "left" | "top" => 0.0, "center" => 0.5, _ => 1.0 });
+    let center = Length::Percent(0.5);
+    if items.len() == 3 && !matches!(items[2], It::Len(_)) {
+        return None;
+    }
+    let (a, b) = (items[0], items.get(1).copied());
+    let is_x = |k: &str| matches!(k, "left" | "right");
+    let is_y = |k: &str| matches!(k, "top" | "bottom");
+    match (a, b) {
+        (It::Len(x), None) => Some((x, center)),
+        (It::Kw(k), None) => Some(if is_y(k) { (center, pct(k)) } else { (pct(k), center) }),
+        (It::Len(x), Some(It::Len(y))) => Some((x, y)),
+        (It::Len(x), Some(It::Kw(k))) if !is_x(k) => Some((x, pct(k))),
+        (It::Kw(k), Some(It::Len(y))) if !is_y(k) => Some((pct(k), y)),
+        (It::Kw(k1), Some(It::Kw(k2))) => {
+            // `center` fits either axis; two keywords of one axis are invalid.
+            if is_y(k1) && is_y(k2) || is_x(k1) && is_x(k2) {
+                None
+            } else if is_y(k1) || is_x(k2) {
+                Some((pct(k2), pct(k1)))
+            } else {
+                Some((pct(k1), pct(k2)))
+            }
+        }
+        _ => None,
+    }
 }
 
 pub(crate) fn parse_z_index(input: &mut CssParser) -> Result<i32, ()> {
@@ -5066,6 +5292,9 @@ impl Declarations {
                         if let Some(i) = crate::style::SVG_KEYS.iter().position(|k| *k == key) {
                             self.svg[i] = None;
                         }
+                        if let Some(i) = crate::style::CORNER_KEYS.iter().position(|k| *k == key) {
+                            self.border_radius[i] = None;
+                        }
                         if let Some((i, kind)) = border_key(key) {
                             match kind {
                                 'w' => self.border_width[i] = None,
@@ -5104,7 +5333,10 @@ impl Declarations {
             "outline-color" => outline_color, "box-shadow" => box_shadow,
             "filter" => filter, "backdrop-filter" => backdrop_filter, "text-shadow" => text_shadow,
             "mix-blend-mode" => mix_blend_mode, "clip-path" => clip_path,
-            "border-radius" => border_radius, "overflow" => overflow,
+            "overflow" => overflow,
+            "outline-offset" => outline_offset, "transform-origin" => transform_origin,
+            "border-spacing" => border_spacing, "letter-spacing" => letter_spacing,
+            "direction" => direction,
             "overflow-y" => overflow_y, "text-overflow" => text_overflow,
             "flex-direction" => flex_direction, "flex-wrap" => flex_wrap,
             "justify-content" => justify_content, "align-items" => align_items,
@@ -5591,7 +5823,46 @@ impl DeclParser<'_> {
                 self.decls.clip_path = Some(v);
             }
         } else if name.eq_ignore_ascii_case("border-radius") {
-            set_length(input, &mut self.decls.border_radius);
+            if let Some(r) = parse_border_radius(input) {
+                for (d, v) in self.decls.border_radius.iter_mut().zip(r) {
+                    *d = Some(v);
+                }
+            }
+        } else if let Some(i) = [
+            "border-top-left-radius", "border-top-right-radius", "border-bottom-right-radius", "border-bottom-left-radius",
+        ]
+        .iter()
+        .position(|k| name.eq_ignore_ascii_case(k))
+        {
+            if let Some(v) = parse_corner_radius(input) {
+                self.decls.border_radius[i] = Some(v);
+            }
+        } else if name.eq_ignore_ascii_case("outline-offset") {
+            if let Ok(v) = parse_length(input) {
+                self.decls.outline_offset = Some(v);
+            }
+        } else if name.eq_ignore_ascii_case("transform-origin") {
+            if let Some(v) = parse_transform_origin(input) {
+                self.decls.transform_origin = Some(v);
+            }
+        } else if name.eq_ignore_ascii_case("border-spacing") {
+            if let Some(v) = parse_border_spacing(input) {
+                self.decls.border_spacing = Some(v);
+            }
+        } else if name.eq_ignore_ascii_case("letter-spacing") {
+            if input.try_parse(|i| i.expect_ident_matching("normal")).is_ok() {
+                self.decls.letter_spacing = Some(Length::Px(0.0));
+            } else if let Ok(v) = parse_length(input) {
+                self.decls.letter_spacing = Some(v);
+            }
+        } else if name.eq_ignore_ascii_case("direction") {
+            if let Ok(ident) = input.expect_ident() {
+                if ident.eq_ignore_ascii_case("ltr") {
+                    self.decls.direction = Some(Direction::Ltr);
+                } else if ident.eq_ignore_ascii_case("rtl") {
+                    self.decls.direction = Some(Direction::Rtl);
+                }
+            }
         } else if name.eq_ignore_ascii_case("overflow")
             || name.eq_ignore_ascii_case("overflow-x")
             || name.eq_ignore_ascii_case("overflow-y")
@@ -6012,15 +6283,9 @@ impl DeclParser<'_> {
                 } else if ident.eq_ignore_ascii_case("justify") {
                     Some(TextAlign::Justify)
                 } else if ident.eq_ignore_ascii_case("start") {
-                    // Logical, writing-mode-relative keywords — this
-                    // engine has no notion of a writing mode other than
-                    // left-to-right (see `TextAlign`'s own docs, and
-                    // `margin-inline-start`/`-end`'s own already-landed
-                    // "always resolve against left/right" precedent), so
-                    // `start`/`end` always resolve to `left`/`right`.
-                    Some(TextAlign::Left)
+                    Some(TextAlign::Start)
                 } else if ident.eq_ignore_ascii_case("end") {
-                    Some(TextAlign::Right)
+                    Some(TextAlign::End)
                 } else {
                     None
                 };

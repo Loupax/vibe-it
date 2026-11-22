@@ -263,6 +263,9 @@ pub(crate) const PROPS: &[&str] = &[
     "border-left-style", "border-top-color", "border-right-color", "border-bottom-color", "border-left-color",
     "box-sizing", "font-size", "font-weight", "font-style", "font-family", "line-height", "text-align",
     "text-transform", "white-space", "cursor", "vertical-align",
+    // QCSS-E.
+    "direction", "letter-spacing", "outline-offset", "border-spacing", "transform-origin", "border-radius",
+    "border-top-left-radius", "border-top-right-radius", "border-bottom-right-radius", "border-bottom-left-radius",
 ];
 
 fn kebab(s: &str) -> String {
@@ -309,8 +312,40 @@ fn box_len(l: BoxLength) -> String {
     }
 }
 
+/// A corner radius: like `box_len`, but a `%` prints as the percentage (not the raw fraction).
+fn rad_len(l: BoxLength) -> String {
+    match l {
+        BoxLength::Percent(v) => format!("{}%", num(v * 100.0)),
+        other => box_len(other),
+    }
+}
+
 fn opt_len(l: Option<BoxLength>) -> String {
     l.map(box_len).unwrap_or_else(|| "auto".to_string())
+}
+
+/// One `transform-origin` axis: a percentage, a length, or `calc()` of both.
+fn origin_axis(a: TranslateAxis) -> String {
+    if a.px == 0.0 {
+        format!("{}%", num(a.frac * 100.0))
+    } else if a.frac == 0.0 {
+        px(a.px)
+    } else {
+        format!("calc({}% + {})", num(a.frac * 100.0), px(a.px))
+    }
+}
+
+/// The shortest 1 to 4 value form of a box-edge list (top, right, bottom, left).
+fn box4(v: &[String]) -> String {
+    if v[0] == v[1] && v[1] == v[2] && v[2] == v[3] {
+        v[0].clone()
+    } else if v[0] == v[2] && v[1] == v[3] {
+        format!("{} {}", v[0], v[1])
+    } else if v[1] == v[3] {
+        format!("{} {} {}", v[0], v[1], v[2])
+    } else {
+        v.join(" ")
+    }
 }
 
 fn border_style(s: BorderStyle) -> &'static str {
@@ -456,13 +491,30 @@ pub(crate) fn serialize(s: &ComputedStyle, prop: &str) -> String {
             LineHeight::Normal => "normal".into(),
             l => px(l.resolve(s.font_size, s.root_font_size)),
         },
-        "text-align" => match s.text_align {
-            TextAlign::Left => "left",
-            TextAlign::Right => "right",
-            TextAlign::Center => "center",
-            TextAlign::Justify => "justify",
+        "text-align" => s.text_align.keyword().into(),
+        // QCSS-E.
+        "direction" => s.direction.keyword().into(),
+        "letter-spacing" if s.letter_spacing == 0.0 => "normal".into(),
+        "letter-spacing" => px(s.letter_spacing),
+        "outline-offset" => px(s.outline_offset),
+        "border-spacing" => format!("{} {}", px(s.border_spacing.0), px(s.border_spacing.1)),
+        "transform-origin" => format!("{} {}", origin_axis(s.transform_origin.0), origin_axis(s.transform_origin.1)),
+        "border-radius" => {
+            let (h, v): (Vec<String>, Vec<String>) = s.border_radius.0.iter().map(|c| (rad_len(c.0), rad_len(c.1))).unzip();
+            let (sh, sv) = (box4(&h), box4(&v));
+            if sh == sv { sh } else { format!("{sh} / {sv}") }
         }
-        .into(),
+        p if p.starts_with("border-") && p.ends_with("-radius") => {
+            let i = match &p[7..p.len() - 7] {
+                "top-left" => 0,
+                "top-right" => 1,
+                "bottom-right" => 2,
+                "bottom-left" => 3,
+                _ => return String::new(),
+            };
+            let (h, v) = (rad_len(s.border_radius.0[i].0), rad_len(s.border_radius.0[i].1));
+            if h == v { h } else { format!("{h} {v}") }
+        }
         "text-transform" => match s.text_transform {
             TextTransform::None => "none",
             TextTransform::Uppercase => "uppercase",

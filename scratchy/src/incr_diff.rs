@@ -114,6 +114,13 @@ pub(crate) fn style_walk(old: &ComputedStyle, new: &ComputedStyle, f: &mut Field
         // QCSS-A: an inline svg is rasterised when its box is built.
         svg => B,
         word_spacing => L,
+        // QCSS-E: letter-spacing and direction change shaping/alignment (Layout); border-spacing
+        // moves table cells (Layout); an outline's offset and the transform origin only paint.
+        letter_spacing => L,
+        direction => L,
+        border_spacing => L,
+        outline_offset => P,
+        transform_origin => P,
         border_collapse => B,
         text_indent => L,
         outline_width => P,
