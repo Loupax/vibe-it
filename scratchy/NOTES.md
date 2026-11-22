@@ -4313,3 +4313,131 @@ Five paint properties, all `P` (paint, no relayout) in `incr_diff::style_walk`; 
 `src/canvas.rs` keeps one `Canvas` per `<canvas>` that called `getContext('2d')` (global map keyed by node id, replaced at each `getContext`): a tiny-skia `Pixmap` (premultiplied RGBA8, `width` x `height`, none above 2^26 pixels), the draw state (`fillStyle`, `strokeStyle`, `globalAlpha`, `lineWidth`) with its save/restore stack, and a cached straight-alpha `DecodedImage` for paint. The JS object (`CanvasRenderingContext2D`, js_dom.rs next to QY3) validates arguments and calls `__cv_*` natives; it is created once per element (`el.__ctx2d`). Setting `width`/`height` (even to the same value) resets the bitmap and the state. Colours go through the CSS parser (`css::to_text_color`; `lab()`/`color()` are not handled: invalid values are ignored; `currentcolor` is black).
 
 Layout/paint: `canvas` is `display: inline-block` and `images::build_canvas_box` makes a replaced box (width/height attributes, 300x150 default, CSS wins) whose content is an empty-pixel `DecodedImage` with `canvas::MARK` in `svg`. `paint` sees the mark and blits `canvas::image(node)` (object-fit fill). A draw never touches the DOM: it records the node in the dirty set and `App::js_sync` requests a redraw; `App::redraw` drains it (`canvas::take_dirty`), `incr_layout::canvas_damage` turns it into the box's document rect (None under a fixed/sticky/scroll-region/masked box: full paint) and adds it to the engine's damage, so the QHOV1 kept-page path repaints only that rect without a relayout. `canvas::any()` turns the damage path on for pages with a canvas even without `:hover` rules. Not done (QCNV2): paths, text, images, transforms, gradients, compositing modes, shadows, `toDataURL`/`toBlob`, OffscreenCanvas.
+
+## Canvas 2D triage after QCNV1 (QCNV2)
+
+Baseline: origin/main 7a3b00c0 (QCNV1 #613 merged), wpt-th expected files `html-canvas-{element,offscreen,other}.txt`, WPT ac78b567. element 1,276 files / 2,818 subtests / 338 pass / score 23.5; offscreen 1,074 / 1,371 / 0 / 0.0; other 4 / 18 / 2 / 50.0. Failing (not all-pass) files: element 980 (2,485 failing subtests), offscreen 1,074 (1,375), other 2 (16).
+
+**Method.** For every failing file, the inline script and body markup of the test source (pinned checkout) were matched against API tokens that scratchy does not implement yet (`beginPath|moveTo|...` = paths, `createImageBitmap` = ImageBitmap, `globalCompositeOperation` = compositing, an `<img>` that is not the "expected output" image = image source, ...). A file counts as unlocked by a step once every feature it uses is covered by that step or an earlier one, so the cumulative numbers assume each step is implemented correctly: they are a ceiling, not a forecast. Subtests = failing subtests of those files (an ERROR/TIMEOUT 0/0 file counts as 1). The score estimate adds each unlocked file's missing fraction to the wpt-th score (mean of passed/total over the files that ran with subtests: 1,267 element, 1,070 offscreen).
+
+**Findings that shape the order.**
+- The offscreen area is not Worker work. The 1,074 offscreen files wpt-th runs are the `.html` variants: `new OffscreenCanvas(w, h)` on the main thread, otherwise the same generated test as the element twin. The 1,040 `.worker.js` variants are NOT-RUN (`wpt_th_run::is_worker_variant`) and are in no count here. A main-thread OffscreenCanvas turns element passes into offscreen passes: 278 offscreen files (297 subtests) pass as soon as it exists, and every later step counts about twice.
+- Most drawImage, compositing and pattern tests do not use `<img>`: they `fetch('/images/x.png')`, `.blob()`, `createImageBitmap(blob)`. ImageBitmap (platform work; `fetch().blob()` exists) is the main image source of the canvas tests. `<img>` sources also need the decoded pixels on the JS thread (today js_dom.rs `IMAGE_STATES` keeps only the size).
+- 51 of the 125 element text files load the `CanvasTest` web font through `@font-face`/`FontFace`: canvas text needs the web-font registry (QFF1a, QAPI4) reachable from canvas text shaping.
+- 6 manual/wide-gamut-canvas files hold 1,087 of element's 2,485 failing subtests (display-p3 ImageBitmap/pattern matrices). They dominate subtest counts and barely move the score.
+- Proposals, all `.tentative.`: HTML-in-canvas (`drawElementImage`, `captureElementImage`, `onpaint`, `layoutsubtree`) 94 files / 207 subtests; text clusters and shaping (`shapeText`, `fillTextCluster`, glyph runs) 62 files / 378 subtests. Not filed.
+- Residual QCNV1 gaps that use no missing API: 49 element files (canvas-host width/height attribute parsing and reflection 23 + toStringTag 1, `currentcolor` 7, colour objects / CSS Typed OM `CSSHSL` 5, `color-mix()`/relative colours 6, system colour, object `toString`, prototype descriptors, `|this|` checks, ImageData edge cases 7), html/canvas/color.window.html (15 subtests: all fail, even `rgb()` serialisation, so check first why the whole file fails) and historical.any.html (needs OffscreenCanvasRenderingContext2D).
+
+**Failing files and subtests by directory:**
+
+| directory | el files | el failing subtests | off files | off failing subtests |
+|---|---|---|---|---|
+| path-objects | 210 | 210 | 211 | 211 |
+| fill-and-stroke-styles (colours, gradients, patterns) | 129 | 129 | 247 | 247 |
+| text | 118 | 278 | 119 | 277 |
+| compositing | 87 | 87 | 97 | 97 |
+| shadows | 51 | 51 | 56 | 56 |
+| drawing-images-to-the-canvas | 34 | 34 | 28 | 28 |
+| canvas-host | 30 | 40 | 35 | 46 |
+| line-styles | 29 | 29 | 33 | 33 |
+| reset | 29 | 29 | 29 | 29 |
+| transformations | 22 | 22 | 22 | 22 |
+| layers | 17 | 22 | 20 | 25 |
+| the-canvas-state | 15 | 26 | 20 | 56 |
+| pixel-manipulation | 14 | 14 | 59 | 59 |
+| drawing-rectangles-to-the-canvas | 13 | 13 | 32 | 32 |
+| filters | 11 | 11 | 12 | 12 |
+| wide-gamut-canvas, color-type, global-hdr-headroom | 13 | 35 | 7 | 12 |
+| canvas-context, conformance-requirements, (root) | 8 | 18 | 20 | 20 |
+| manual/draw-element-image (tentative) | 92 | 204 | 5 | 6 |
+| manual/wide-gamut-canvas | 13 | 1,087 | 1 | 1 |
+| manual/imagebitmap | 16 | 66 | - | - |
+| manual/the-offscreen-canvas, convert-to-blob, draw-generic-family | - | - | 16 | 93 |
+| other manual dirs (filters, drawing-images, paths, shadows, smoothing, ...) | 30 | 98 | 5 | 13 |
+| video (media archived) | 1 | 1 | - | - |
+
+**Missing features used by failing files** (a file using several counts under each):
+
+| feature | el files | el subtests | off files | off subtests |
+|---|---|---|---|---|
+| OffscreenCanvas | 14 | 62 | 1,073 | 1,374 |
+| paths (beginPath/moveTo/lineTo/rect/fill/stroke/clip) | 281 | 288 | 278 | 298 |
+| text (fillText/strokeText/measureText/font/text*) | 140 | 323 | 136 | 302 |
+| drawImage | 128 | 1,157 | 94 | 151 |
+| transforms | 97 | 184 | 87 | 107 |
+| globalCompositeOperation | 94 | 105 | 105 | 119 |
+| ImageBitmap | 85 | 1,037 | 99 | 140 |
+| curves (arc/arcTo/ellipse/bezier/quadratic) | 76 | 76 | 76 | 76 |
+| createPattern | 76 | 216 | 58 | 70 |
+| shadows | 68 | 85 | 71 | 94 |
+| gradients | 65 | 65 | 63 | 63 |
+| FontFace / document.fonts | 58 | 68 | 54 | 64 |
+| line styles / dash | 56 | 70 | 59 | 79 |
+| roundRect | 56 | 56 | 56 | 56 |
+| img/svg/video element source | 103 | 921 | 9 | 33 |
+| reset() | 39 | 62 | 33 | 33 |
+| DOMMatrix / DOMPoint | 37 | 116 | 27 | 27 |
+| context attributes (alpha, willReadFrequently, colorSpace) | 36 | 1,174 | 19 | 43 |
+| colour space / float16 / HDR | 36 | 1,156 | 14 | 19 |
+| isPointInPath / isPointInStroke | 30 | 30 | 30 | 30 |
+| layers (beginLayer/endLayer) | 20 | 25 | 21 | 26 |
+| filter / CanvasFilter | 20 | 30 | 16 | 16 |
+| toDataURL / toBlob / convertToBlob | 12 | 46 | 6 | 31 |
+| Path2D | 8 | 8 | 9 | 9 |
+| Worker | 7 | 16 | 13 | 63 |
+| imageSmoothing | 7 | 15 | 3 | 11 |
+| drawFocusIfNeeded | 7 | 7 | 2 | 2 |
+
+**Cumulative unlock in dependency order** (files newly passing at each step; score columns are ceilings):
+
+| step | el files | off files | subtests (all areas) | el score | off score | non-canvas dependency |
+|---|---|---|---|---|---|---|
+| now | | | | 23.6 | 0.0 | |
+| QCNV3 residual host/colour | 52 | 1 | 69 | 27.7 | 0.1 | CSS Color 4/5 parsing in css.rs for ~12 files |
+| QCNV4 OffscreenCanvas (main thread) | 0 | 278 | 297 | 27.7 | 26.1 | none (Workers only for the NOT-RUN variants) |
+| QCNV5 transforms | 25 | 25 | 50 | 29.7 | 28.3 | getTransform: QGEOM1 |
+| QCNV6 paths, fill rules, clip | 72 | 72 | 144 | 35.3 | 35.0 | |
+| QCNV7 curves, roundRect | 87 | 87 | 174 | 42.2 | 43.2 | |
+| QCNV8 line styles, dash | 44 | 47 | 104 | 45.6 | 47.6 | |
+| QGEOM1 DOMMatrix/DOMPoint | 25 | 25 | 50 | 47.5 | 49.9 | yes: Geometry Interfaces |
+| QCNV9 Path2D, isPointInPath/Stroke | 32 | 32 | 64 | 50.1 | 52.9 | |
+| QCNV10 gradients | 54 | 53 | 107 | 54.3 | 57.9 | |
+| QCNV11 globalCompositeOperation | 45 | 52 | 101 | 57.8 | 62.7 | |
+| QCNV12 shadows | 47 | 52 | 129 | 61.4 | 67.6 | |
+| QCNV13 drawImage (canvas sources), smoothing | 21 | 17 | 39 | 62.9 | 69.2 | |
+| QIMGBMP1 ImageBitmap | 51 | 58 | 118 | 67.0 | 74.6 | yes: ImageBitmap |
+| QCNV14 img/svg sources, patterns | 93 | 55 | 192 | 74.3 | 79.7 | yes: decoded pixels on the JS thread |
+| QCNV15a+b text | 97 | 95 | 221 | 81.8 | 88.6 | yes: web fonts in canvas shaping |
+| QCNV16 toDataURL/toBlob/convertToBlob | 1 | 0 | 1 | 81.9 | 88.6 | |
+| QCNV17 reset, context attributes, focus | 39 | 36 | 102 | 85.0 | 92.0 | |
+| QCNV18 filter | 15 | 9 | 34 | 86.1 | 92.8 | url(): SVG filter effects |
+| QCNV19 layers (proposal) | 20 | 21 | 51 | 87.7 | 94.8 | |
+| QCNV20 colour spaces, float16, HDR | 35 | 14 | 1,173 | 90.5 | 96.0 | yes: colour management, Float16Array |
+| not filed: Workers | 5 | 9 | 71 | 90.7 | 96.7 | Workers (+ 1,040 NOT-RUN worker variants) |
+| not filed: text clusters (tentative) | 31 | 31 | 378 | 93.2 | 99.6 | proposal |
+| not filed: HTML-in-canvas (tentative) | 89 | 5 | 207 | 100 | 100 | proposal |
+
+Notes on the order: transforms come before paths because path points are transformed when added. OffscreenCanvas comes early because it is small and doubles the yield of every later step. toDataURL/toBlob unlocks almost nothing directly (its files also use images or colour spaces; the plain toDataURL tests live in html/semantics/embedded-content/the-canvas-element, not a wpt-th area), but QCNV14, QCNV20 and the QCNV1-noted `toDataURL -> <img>` tests need it, so it can move earlier. The ERROR/TIMEOUT files 2d.drawImage.svg, 2d.drawImage.zerosource.image, 2d.pattern.animated.gif and the four flaky manual/imagebitmap files (flaky.txt) belong to QIMGBMP1/QCNV14.
+
+**Proposed TODO items** (for the coordinator to file; same text in the QCNV2 PR). Every item's test plan: unit tests in `src/tests/<item>_tests.rs` reading pixels back with getImageData, then `--wpt-th --area html/canvas/*` and `--update`, report the area scores before/after; no pass->fail anywhere.
+- QCNV3 [S] (P2; Sonnet; js_dom.rs canvas section, canvas.rs colour parse, css.rs) Residual QCNV1 conformance: width/height reflection (rules for parsing non-negative integers: `100.999`, `1e2`, `0x10`, `+100`, leading whitespace, trailing junk; the attribute string stays verbatim; IDL setter ToUint32 and non-numbers -> 0; getComputedStyle width from the parsed value), `Object.prototype.toString` = `[object HTMLCanvasElement]`, CanvasRenderingContext2D.prototype descriptors, `|this|` brand checks (TypeError), createImageData truncation before the zero check, ImageData ctor basics, fillStyle/strokeStyle ToString of non-gradient objects (a throwing toString propagates), `currentcolor` = the canvas element's computed colour at set time (inherited, stylesheet, not rendered), system colours, colour serialisation (html/canvas/color.window.html), `color()`/`lab()`/`color-mix()`/relative colours (these need css.rs CSS Color 4/5 parsing: split out if css.rs lacks them). Also the QCNV1 note: key the canvas registry by an id allocated at getContext, not the node address. Not: colour objects/CSSHSL (Typed OM, proposal). Should fix ~49 element files + color.window.html (15 subtests); element 23.6 -> ~27.7.
+- QCNV4 [S] (P2; Sonnet; js_dom.rs, canvas.rs) OffscreenCanvas on the main thread: constructor (`[EnforceRange] unsigned long long`), width/height (setting resets), getContext('2d') -> OffscreenCanvasRenderingContext2D sharing the context implementation (`canvas` returns the OffscreenCanvas; no paint), other types null, `commit` absent. Not: transferControlToOffscreen, convertToBlob (QCNV16), transferToImageBitmap (QIMGBMP1), Workers. Should fix 278 offscreen files (297 subtests) + historical.any.html; offscreen 0 -> ~26.
+- QCNV5 [S] (P2; Sonnet; canvas.rs) Transforms: CTM in the saved state; translate/rotate/scale/transform/setTransform (6 numbers or a DOMMatrix2DInit dict)/resetTransform, non-finite arguments ignored; fillRect/strokeRect/clearRect draw through it (putImageData does not). getTransform waits for QGEOM1. Should fix 50 files (25+25).
+- QCNV6 [M] (P2; Sonnet; canvas.rs, js_dom.rs) Paths: the current default path (beginPath, moveTo, lineTo, closePath, rect incl. negative sizes), fill(fillRule)/stroke()/clip(fillRule) with nonzero/evenodd, points mapped by the CTM when added, clip region in the saved state, stroke via tiny-skia `Stroke` with lineWidth, non-finite arguments ignored, empty subpaths. Should fix 144 files (72+72).
+- QCNV7 [M] (P2; Sonnet; canvas.rs) Curves: arc (anticlockwise, sweeps over 2pi, negative radius IndexSizeError), arcTo (collinear/degenerate cases), ellipse (rotation), quadraticCurveTo, bezierCurveTo, roundRect (radii: number or DOMPointInit, 1-4 entries, RangeError/negative). Should fix 174 files (87+87).
+- QCNV8 [S] (P2; Sonnet; canvas.rs) Line styles: lineCap, lineJoin, miterLimit, setLineDash/getLineDash (odd lists doubled, negative/non-finite rejected), lineDashOffset, through tiny-skia `StrokeDash`; stroke and strokeRect honour them. Should fix 91 files (104 subtests).
+- QGEOM1 [M] (P2; Sonnet; new JS prelude next to DOMRect in js_dom.rs; platform, NOT canvas) Geometry Interfaces: DOMMatrixReadOnly/DOMMatrix (2D/3D, fromMatrix, fromFloat32/64Array, multiply, invert, translate/scale/rotate, is2D/isIdentity, string init through the CSS transform parser), DOMPointReadOnly/DOMPoint (matrixTransform). Then canvas getTransform, setTransform(DOMMatrix), roundRect(DOMPoint). Should fix 50 canvas files; css/geometry WPT is not a wpt-th area (adding it: separate QWPT item).
+- QCNV9 [S] (P2; Sonnet; canvas.rs) Path2D (empty, copy, SVG path data via svgtypes, already in Cargo.lock), addPath(path, transform), fill/stroke/clip(path), isPointInPath/isPointInStroke (inverse CTM, fill rule, stroke geometry, both overloads). Should fix 64 files.
+- QCNV10 [M] (P2; Sonnet; canvas.rs, js_dom.rs) Gradients: CanvasGradient from createLinearGradient, createRadialGradient (full two-point conical incl. r0 > 0 and the cone cases; check tiny-skia's RadialGradient covers it, else a per-pixel shader), createConicGradient (not in tiny-skia: per-pixel), addColorStop (IndexSizeError/SyntaxError), fill/strokeStyle getters return the object, gradient in user space at draw time. Should fix 107 files.
+- QCNV11 [M] (P2; Opus; canvas.rs) globalCompositeOperation: the 26 values (Porter-Duff + blend modes) through tiny-skia BlendMode, invalid ignored; the unbounded operators (copy, source-in, source-out, destination-in, destination-atop) clear outside the shape: draw into a temp layer, composite the whole canvas. Should fix 97 files (101 subtests); 74 more compositing files also need QCNV13/QIMGBMP1/QCNV14.
+- QCNV12 [M] (P2; Opus; canvas.rs, reuse fx.rs gauss_blur) Shadows: shadowColor/Blur/OffsetX/OffsetY state; drawn when the colour is not transparent and blur or offset is non-zero; offsets unaffected by the CTM, sigma = blur/2; via a temp layer composited under the shape with the current operator; for rects, paths, and later images/text. Should fix 99 files (129 subtests).
+- QCNV13 [S] (P2; Sonnet; canvas.rs) drawImage with HTMLCanvasElement/OffscreenCanvas sources (3/5/9 arguments, source-rect clipping, negative sizes, zero-size source, self-draw, InvalidStateError for a 0x0 source, TypeError for bad types), imageSmoothingEnabled/Quality. Should fix 38 files.
+- QIMGBMP1 [M] (P2; Sonnet; js_dom.rs/new prelude, images.rs decoders; platform, NOT canvas) ImageBitmap: createImageBitmap from Blob (images::decode_image_bytes), ImageData, canvas, OffscreenCanvas, ImageBitmap, img (after QCNV14's pixel access); crop rect; options (imageOrientation, premultiplyAlpha, colorSpaceConversion, resizeWidth/Height/Quality); close(); resolves in a task; errors; drawImage/createPattern accept it; OffscreenCanvas.transferToImageBitmap. Should fix 109 files (118 subtests) and may settle the four flaky manual/imagebitmap files.
+- QCNV14 [M] (P2; Opus; js_dom.rs img state, images.rs, canvas.rs; needs image-pipeline work) Image element sources and patterns: drawImage(HTMLImageElement, SVGImageElement, SVG `<img>`) with the decoded RGBA reachable from the JS thread (today only sizes); not-yet-decoded draws nothing, broken -> InvalidStateError; animated GIF first frame; SVG intrinsic size; createPattern (repeat modes, setTransform) from canvas/ImageBitmap/img; origin-clean flag and SecurityError on read-back. Should fix 148 files (192 subtests).
+- QCNV15a [M] (P2; Opus; canvas.rs, css.rs font shorthand, webfonts.rs) Canvas text state and metrics: `font` parse/serialise (default `10px sans-serif`; em/rem/ex/ch against the canvas element/root, incl. the 11 root-font-relative subtests), textAlign/textBaseline/direction (inherit), letterSpacing/wordSpacing/fontKerning/fontStretch/fontVariantCaps/textRendering/lang, measureText -> TextMetrics through cosmic-text, web fonts (CanvasTest via @font-face/FontFace) usable. QCNV15b [M] (P2; Opus) fillText/strokeText: glyph outlines into tiny-skia paths, maxWidth squeeze, alignment/baselines, shadows/composite apply. 15a+15b should fix 192 files (221 subtests); which half fixes which file depends on 15a's pixel-free subtests.
+- QCNV16 [S] (P2; Sonnet; canvas.rs, js_dom.rs) toDataURL/toBlob/convertToBlob: PNG (tiny-skia encode_png on unpremultiplied data), JPEG with quality (image crate), other types -> PNG, 0-size -> `data:,`, toBlob callback as a task, convertToBlob promise, tainted -> SecurityError. Directly 1 file here; needed by QCNV20 and the `toDataURL -> <img>` tests (QCNV1 note).
+- QCNV17 [S] (P2; Sonnet; canvas.rs, js_dom.rs) reset() (bitmap, state stack, path, CTM, clip), getContextAttributes, `{alpha: false}` (opaque black), willReadFrequently, desynchronized, isContextLost() false, drawFocusIfNeeded (focused fallback element). Should fix 75 files (102 subtests).
+- QCNV18 [M] (P3; Opus; canvas.rs, fx.rs) ctx.filter: CSS filter functions on a temp layer (reuse fx.rs), `none`, invalid ignored, url(#id) SVG filters (or split off), CanvasFilter (tentative). Should fix 24 files (13 tentative).
+- QCNV19 [M] (P3; Opus; canvas.rs) beginLayer/endLayer (a proposal): layer stack carrying alpha/composite/shadow/filter, errors for unbalanced calls and reset inside a layer. Should fix 41 files (51 subtests).
+- QCNV20 [L] (P3; Opus; canvas.rs, css.rs; needs colour management) Colour spaces: getContext colorSpace 'display-p3', ImageData colorSpace conversion on get/put, colorType 'float16' + ImageData pixelFormat (needs Float16Array in V8), toBlob colour conversion, globalHDRHeadroom. Should fix 49 files (1,173 subtests, mostly 6 manual matrix files).
+- Not filed: OffscreenCanvas in Workers (needs Worker support; DECISIONS lists Workers at lower priority) — 14 files here plus the 1,040 NOT-RUN worker variants; text clusters/shaping and HTML-in-canvas (tentative proposals; 156 files); colour objects/CSSHSL (Typed OM); video (media archived).
