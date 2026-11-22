@@ -326,11 +326,10 @@ OK           0/1  html/webappapis/dynamic-markup-insertion/opening-the-input-str
 OK           0/2  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/document.open-02.html
   FAIL      document.open should redirect to window.open when called with three arguments
   FAIL      document.open should throw when it has no window and is called with three arguments
-TIMEOUT      0/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/document.open-03.html
-  NOTRUN    document.open and no singleton replacement
-TIMEOUT      0/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/encoding.window.html
-  TIMEOUT   doucment.open() and the document's encoding
-TIMEOUT     6/18  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/event-listeners.window.html
+OK           1/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/document.open-03.html
+OK           0/1  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/encoding.window.html
+  FAIL      doucment.open() and the document's encoding
+OK          6/18  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/event-listeners.window.html
   FAIL      Standard event listeners are to be removed
   FAIL      Custom event listeners are to be removed
   FAIL      Standard event listeners are to be removed from Window

@@ -115,10 +115,8 @@ OK           0/1  webmessaging/message-channels/worker-post-after-close.any.html
 OK           0/1  webmessaging/message-channels/worker.any.html
   FAIL      MessageChannel/MessagePort created and used after a worker self.close()
 OK           3/3  webmessaging/messageerror.html
-OK           0/1  webmessaging/multi-globals/messageport-current.html
-  FAIL      Making the current page become non-active must prevent message transmission
-OK           0/1  webmessaging/multi-globals/messageport-incumbent.html
-  FAIL      Making the incumbent page become non-active must not prevent message transmission
+OK           1/1  webmessaging/multi-globals/messageport-current.html
+OK           1/1  webmessaging/multi-globals/messageport-incumbent.html
 TIMEOUT      0/1  webmessaging/postMessage-to-target-not-fully-active-on-reload.html
   TIMEOUT   postMessage() to a target whose document is no longer fully active (after a reload) is not delivered
 OK           1/1  webmessaging/postMessage_Document.htm
