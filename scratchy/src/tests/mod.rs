@@ -1039,3 +1039,4 @@ static MOTION_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 mod qapi8_tests;
 mod qedit_a_tests;
 mod qapi6c_tests;
+mod qcss_a_tests;

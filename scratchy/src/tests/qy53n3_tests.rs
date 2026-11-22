@@ -177,9 +177,9 @@ fn qy53n2c_value_judged_hover_rules_patch() {
     assert_eq!(enter_leave(".c{border:2px solid #333}.c:hover{border-width:2px;border-style:solid;border-color:#c00}", TXT), Ok(false));
     // A custom property declared in the hover rule is not judged by value.
     assert!(enter_leave(".c{border:2px solid #333}.c:hover{border:var(--w) solid #c00;--w:2px}", TXT).is_err());
-    // SVG fill/stroke through var() do not change the resolved style at all.
+    // QCSS-A: SVG fill/stroke reach the rasterised svg, so a hover rule setting them is not patched.
     let svg = "<p>a</p><svg id=t class=c width=20 height=20><rect width=10 height=10 /></svg><p>b</p>";
-    assert_eq!(enter_leave(":root{--f:red}.c:hover{fill:var(--f);stroke:var(--f)}.c{background:#eee}.c:hover{background-color:#ddd}", svg), Ok(false));
+    assert!(enter_leave(":root{--f:red}.c:hover{fill:var(--f);stroke:var(--f)}.c{background:#eee}.c:hover{background-color:#ddd}", svg).is_err());
     // With an offset rule in the same hover.
     assert_eq!(enter_leave(".c{background:#cde}.c:hover{border-radius:6px;transform:translateX(5px)}", TXT), Ok(true));
 }

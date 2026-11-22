@@ -4168,3 +4168,7 @@ not `hidden`). While it shows, `page_size()` / `page_viewport_hb` are `TRACK_W` 
 
 ### Pre-insert validity (QDOM18)
 `appendChild`/`insertBefore`/`replaceChild` (js_dom.rs) call `cnCheck` ("ensure pre-insert validity", `replace` = the replace variant) before any native edit, then `rawIns` (`__d_insert` + the after-insertion hook). Fast path: an Element parent with an Element/Text/CDATA/PI/Comment/Fragment node skips `cnCheck` (the native insert refuses an inclusive ancestor); an `insertBefore` ref that is not a child still goes through `cnCheck` so the error order is spec (ancestor HierarchyRequestError before NotFoundError). The ParentNode/ChildNode mixins (QDOM16) use `cnCheck` + `rawIns` directly. Nothing is mutated and no mutation record is queued when a check throws.
+
+### Inline SVG paint properties (QCSS-A)
+
+An inline `<svg>` is serialized to XML and rasterised by resvg at box-build time. The seven paint properties (`style::SVG_KEYS`) are real inherited cascade properties (`ComputedStyle::svg`, interned `SvgProps`), so an HTML ancestor's `fill`/`color` reaches the svg. `images::serialize_inline_svg_styled` resolves the style of every svg descendant (not defs/gradients/clip containers) and writes the declared values into `style` attributes; the root also gets inherited values it has no presentation attribute for. The engine sees the descendants as ordinary elements: a change of their computed `svg` marks the owning svg box (`svg => B` in `incr_diff`), and an ancestor change re-cascades them through `inherited_changed`.

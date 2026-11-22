@@ -177,7 +177,7 @@ fn qy53n2_effect_classes() {
     assert_eq!(e("opacity:.5"), Effect::Value);
     assert_eq!(e("visibility:hidden"), Effect::Value);
     assert_eq!(e("border-radius:4px"), Effect::Value);
-    assert_eq!(e("fill:var(--x)"), Effect::Value);
+    assert_eq!(e("fill:var(--x)"), Effect::Layout); // QCSS-A: the inline svg is rasterised at build time
     assert_eq!(e("background:var(--x)"), Effect::Value);
     // What the resolved style does not hold always builds.
     assert_eq!(e("--x:1px"), Effect::Layout);

@@ -2,6 +2,97 @@ use super::*;
 
 // ---------- cascade ----------
 
+/// QCSS-A: the SVG paint properties, in `Declarations::svg` order. All inherit.
+pub(crate) const SVG_KEYS: [&str; 7] =
+    ["fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "fill-opacity", "stroke-opacity"];
+
+/// QCSS-A: the computed SVG paint properties of an element: per key the canonical text (see
+/// `css::parse_svg_prop`; `None` = the initial value), and `decl`: bit i set when `SVG_KEYS[i]` was
+/// declared by CSS on THIS element (presentation attributes lose to it; not inherited). Interned
+/// (one leaked copy per distinct value, so `ComputedStyle` stays `Copy` and equal values are cheap).
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub(crate) struct SvgProps {
+    pub(crate) vals: [Option<&'static str>; 7],
+    pub(crate) decl: u8,
+}
+pub(crate) type SvgRef = &'static SvgProps;
+
+type SvgIntern = (HashMap<SvgProps, SvgRef>, HashMap<String, &'static str>);
+thread_local! {
+    static SVG_INTERN: std::cell::RefCell<SvgIntern> = std::cell::RefCell::new((HashMap::new(), HashMap::new()));
+}
+
+pub(crate) fn intern_svg(p: SvgProps) -> SvgRef {
+    SVG_INTERN.with(|t| {
+        let mut t = t.borrow_mut();
+        if let Some(r) = t.0.get(&p) {
+            return *r;
+        }
+        let r: SvgRef = Box::leak(Box::new(p));
+        t.0.insert(p, r);
+        r
+    })
+}
+
+fn intern_svg_str(s: &str) -> &'static str {
+    SVG_INTERN.with(|t| {
+        let mut t = t.borrow_mut();
+        if let Some(r) = t.1.get(s) {
+            return *r;
+        }
+        let r: &'static str = Box::leak(s.to_string().into_boxed_str());
+        t.1.insert(s.to_string(), r);
+        r
+    })
+}
+
+/// What a child inherits of `s`: the values, no `decl` bits.
+pub(crate) fn svg_inherited(s: Option<SvgRef>) -> Option<SvgRef> {
+    s.map(|p| if p.decl == 0 { p } else { intern_svg(SvgProps { decl: 0, ..*p }) })
+}
+
+fn decls_have_svg(d: &Declarations) -> bool {
+    d.svg.iter().any(Option::is_some) || d.wide.iter().any(|(k, _)| SVG_KEYS.contains(k))
+}
+
+/// QCSS-A: cascades the SVG paint properties (all inherited). Nothing declared (the overwhelmingly
+/// common case): the parent's values.
+fn cascade_svg(matches: &[(u64, &Declarations)], inl: Option<&Declarations>, parent: Option<SvgRef>) -> Option<SvgRef> {
+    if !matches.iter().any(|(_, d)| decls_have_svg(d)) && !inl.is_some_and(decls_have_svg) {
+        return parent;
+    }
+    let mut out = parent.copied_or_default();
+    out.decl = 0;
+    for (i, key) in SVG_KEYS.iter().enumerate() {
+        match cascade_css(matches, inl, key, |d| d.svg[i].clone()) {
+            Cascaded::Value(v) => {
+                out.vals[i] = Some(intern_svg_str(&v));
+                out.decl |= 1 << i;
+            }
+            Cascaded::Wide(kw) => {
+                if !kw.takes_parent(true) {
+                    out.vals[i] = None;
+                }
+                out.decl |= 1 << i;
+            }
+            Cascaded::Unset => {}
+        }
+    }
+    if out.vals.iter().all(Option::is_none) && out.decl == 0 {
+        return None;
+    }
+    Some(intern_svg(out))
+}
+
+trait SvgOrDefault {
+    fn copied_or_default(self) -> SvgProps;
+}
+impl SvgOrDefault for Option<SvgRef> {
+    fn copied_or_default(self) -> SvgProps {
+        self.copied().unwrap_or(SvgProps { vals: [None; 7], decl: 0 })
+    }
+}
+
 /// The subset of computed style that inherits from parent to child
 /// (`color`, and — from v6 — `font-size`/`font-weight`/`font-style`),
 /// threaded through tree-building instead of re-deriving from scratch.
@@ -54,6 +145,8 @@ pub(crate) struct InheritedStyle {
     pub(crate) parent: Option<ComputedStyle>,
     /// The parent's resolved custom properties (Q13), inherited.
     pub(crate) custom_props: Option<CustomPropsRef>,
+    /// QCSS-A: the parent's SVG paint properties (inherited; `decl` bits cleared).
+    pub(crate) svg: Option<SvgRef>,
 }
 
 pub(crate) const ROOT_STYLE: InheritedStyle = InheritedStyle {
@@ -79,6 +172,7 @@ pub(crate) const ROOT_STYLE: InheritedStyle = InheritedStyle {
     vertical_align: VerticalAlign::Baseline,
     parent: None,
     custom_props: None,
+    svg: None,
 };
 
 /// Per-side box-model values. Physical (top/right/bottom/left), not logical
@@ -311,6 +405,8 @@ pub(crate) struct ComputedStyle {
     /// finally needed.
     pub(crate) line_height: LineHeight,
     pub(crate) visibility: Visibility,
+    /// QCSS-A: inherited SVG paint properties (`None`: all initial, nothing declared anywhere above).
+    pub(crate) svg: Option<SvgRef>,
     /// Real CSS inheritance (see `InheritedStyle::word_spacing`'s own
     /// docs), already resolved to pixels. **Deliberately never read by
     /// `shape_spans`/cosmic-text's own `Attrs`** — unlike the reverted
@@ -569,6 +665,7 @@ impl ComputedStyle {
             vertical_align: self.vertical_align,
             parent: Some(*self),
             custom_props: self.custom_props,
+            svg: svg_inherited(self.svg),
         }
     }
 }
@@ -673,6 +770,7 @@ pub(crate) fn wide_keys(name: &str) -> Option<&'static [&'static str]> {
         "align-self", "order", "flex-grow", "flex-shrink", "flex-basis", "row-gap",
         "column-gap", "grid-template-columns", "grid-template-rows", "grid-auto-columns", "grid-auto-rows",
         "grid-template-areas", "grid-area", "font-style", "list-style-type",
+        "fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "fill-opacity", "stroke-opacity",
         "word-spacing", "animation-name", "animation-duration", "animation-timing-function",
         "animation-delay", "animation-iteration-count", "animation-direction",
         "animation-fill-mode", "animation-play-state",
@@ -2225,6 +2323,9 @@ fn judgeable(d: &Declarations) -> bool {
         && d.mask_image.is_none()
         && !d.wide.iter().any(|(k, _)| unjudgeable_name(&k.to_ascii_lowercase()))
         && !d.var_decls.iter().any(|(k, _)| unjudgeable_name(&k.to_ascii_lowercase()))
+        && d.svg.iter().all(Option::is_none) // QCSS-A: the inline svg is rasterised at build time
+        && !d.wide.iter().any(|(k, _)| SVG_KEYS.contains(k))
+        && !d.var_decls.iter().any(|(k, _)| SVG_KEYS.contains(&k.to_ascii_lowercase().as_str()))
         && d.late.iter().all(judgeable)
 }
 
@@ -3294,6 +3395,7 @@ pub(crate) fn resolve_style_core<'a>(
         vertical_align,
         line_height,
         visibility,
+        svg: cascade_svg(&matches, inl, inherited.svg),
         word_spacing,
         border_collapse,
         text_indent,
@@ -3425,6 +3527,7 @@ pub(crate) fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         vertical_align: VerticalAlign::default(),
         line_height: inherited.line_height,
         visibility: inherited.visibility,
+        svg: inherited.svg,
         word_spacing: inherited.word_spacing,
         border_collapse: inherited.border_collapse,
         text_indent: inherited.text_indent,
