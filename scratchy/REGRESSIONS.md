@@ -1,5 +1,208 @@
 # scratchy — regressions
 
+## R66: QMAPI3: missing-API corpus over 12 pages (Sonnet, 2026-11-22, measure only, docs + tools) — OPEN: proposed items in section 3
+
+`tools/missing-api/corpus.sh` runs `scratchy --missing-api-report` over a site list one page at a time and
+`tools/missing-api/merge.py` merges the JSON into "API -> number of sites, total hits, example URL" tables (JS
+members, CSS, errors), sorted by number of sites then hits. Run: scratchy binary from main (commit c682a9c419 in
+its own JSON), wire 15:47 install, a fresh own wire with `--no-cookies`, `SCRATCHY_STATE_DIR` in the worktree,
+`--seconds 30`, `timeout 120` and the 6 GB cap per page, under the perf lock, 04:46-04:54 on 2026-11-22.
+Re-run: `SCRATCHY=.. WIRE=.. SCRATCHY_STATE_DIR=.. OUT=.. tools/missing-api/corpus.sh > table.md`; your own list:
+`SITES=file` (same format as `tools/missing-api/sites.txt`, which holds the 7 gate pages and five big public sites).
+
+### 1. Pages
+
+Per-page counts are distinct entries. Three pages say nothing and are no evidence of "no gaps": nytimes.com and
+stackoverflow.com answer a bot challenge (`challenge` in the JSON; stackoverflow's 5 members come from the
+challenge page itself), reddit.com serves an 8 KB shell (`page_bytes` 8397) that runs one 0.3 ms script. Not
+replayed (QREC1 recordings are local, Q5), so the live pages of that day; counts move with the site.
+
+### 2. The tables (top 40 each; all of them are produced by corpus.sh)
+
+Reading notes. "?" as the interface is a `has` miss (`'x' in obj`, no receiver): mostly feature probes by name, and
+many of the `?.name` rows with high hits (`data`, `text`, `items`, `width`, `icon`) are YouTube's polymer
+`in`-checks on plain objects that reach a DOM prototype, not missing APIs; the actionable rows are the named
+`Interface.member` ones. The CSS `declaration` rows overstate (QMAPI2 caveat): `height: auto`, `width: auto`,
+`transition`, `left: auto` are reported ignored although handled elsewhere or equal to the initial value, and
+some properties (`letter-spacing`, `place-items`, `clip-path`, `backdrop-filter`, `touch-action`, `user-select`)
+are not in `css.rs` `Declarations` at all and are the real candidates. Inline `style=` re-parses inflate counts.
+
+| page | URL | outcome | missing members | css entries |
+|---|---|---|---|---|
+| ytr | https://www.youtube.com/results?search_query=rust | ok | 79 | 222 |
+| ytw | https://www.youtube.com/watch?v=G1AeBgalFZk | ok | 94 | 233 |
+| wiki | https://en.wikipedia.org/wiki/Rust_(programming_language) | ok | 14 | 66 |
+| github | https://github.com/ | ok | 33 | 206 |
+| bbc | https://www.bbc.com/news | ok | 41 | 26 |
+| social | https://social.loupax.com/discover | ok | 2 | 12 |
+| hover | tools/incr-gate/hover.html | ok | 0 | 0 |
+| reddit | https://www.reddit.com/ | ok | 0 | 0 |
+| nyt | https://www.nytimes.com/ | challenge | 0 | 0 |
+| amazon | https://www.amazon.com/ | ok | 75 | 179 |
+| mdn | https://developer.mozilla.org/en-US/docs/Web/API/Document | ok | 6 | 41 |
+| so | https://stackoverflow.com/questions | challenge | 5 | 0 |
+
+### JS members (a hit is one lookup that found nothing): 232 distinct, top 40 by sites then hits
+
+| API | sites | total hits | example URL | which sites | example script |
+|---|---|---|---|---|---|
+| ?.trustedTypes (has) | 5 | 622 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,ytr,amazon,mdn,github | prelude |
+| Window.trustedTypes (get) | 5 | 620 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,ytr,amazon,mdn,github | <anonymous> |
+| ?.CSS (has) | 5 | 30 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,ytr,wiki,social,mdn | prelude |
+| Navigator.userAgentData (get) | 5 | 11 | https://www.amazon.com/ | amazon,bbc,ytr,ytw,wiki | inline script #6 |
+| ?.ontouchstart (has) | 5 | 8 | https://www.amazon.com/ | amazon,wiki,ytw,github,bbc | <anonymous> |
+| Navigator.webdriver (get) | 5 | 8 | https://www.amazon.com/ | amazon,ytr,ytw,wiki,github | eval (eval at <anonymous> (eval at <anonymous> (eval at <anonymous> (eval at <anonymous> (https://www.google.com/js/th/f |
+| ?.nodeType (has) | 4 | 88 | https://www.amazon.com/ | amazon,wiki,ytr,ytw | prelude |
+| Document.fonts (get) | 4 | 45 | https://github.com/ | github,ytr,ytw,amazon | inline script #22 |
+| Window.CSS (get) | 4 | 27 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,ytr,wiki,social | <anonymous> |
+| Navigator.connection (get) | 4 | 20 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,amazon,ytr,bbc | eval (eval at <anonymous> (eval at <anonymous> (eval at <anonymous> (eval at <anonymous> (https://www.google.com/js/th/f |
+| Navigator.deviceMemory (get) | 3 | 9 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,ytr,amazon | https://www.youtube.com/s/_/ytmainappweb/_/js/k=ytmainappweb.kevlar_base.en_US.azleysjlNvM.es5.O/am=AAAAAAgAAAACAKQE/d=1 |
+| ?.webdriver (has) | 3 | 6 | https://www.amazon.com/ | amazon,ytr,ytw | prelude |
+| ?.BroadcastChannel (has) | 3 | 5 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,github,ytr | prelude |
+| Navigator.serviceWorker (get) | 3 | 4 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,ytr,amazon | https://www.youtube.com/s/_/ytmainappweb/_/js/k=ytmainappweb.kevlar_base.en_US.azleysjlNvM.es5.O/am=AAAAAAgAAAACAKQE/d=1 |
+| Navigator.gpu (get) | 3 | 3 | https://www.youtube.com/results?search_query=rust | ytr,ytw,so | eval (eval at <anonymous> (eval at <anonymous> (eval at <anonymous> (eval at <anonymous> (https://www.google.com/js/th/f |
+| Navigator.plugins (get) | 3 | 3 | https://www.youtube.com/results?search_query=rust | ytr,ytw,amazon | eval (eval at <anonymous> (eval at <anonymous> (eval at <anonymous> (eval at <anonymous> (https://www.google.com/js/th/f |
+| ?.data (has) | 2 | 1514 | https://www.youtube.com/results?search_query=rust | ytr,ytw | https://www.youtube.com/s/_/ytmainappweb/_/js/k=ytmainappweb.kevlar_base.en_US.azleysjlNvM.es5.O/am=AAAAAAgAAAACAKQE/d=1 |
+| HTMLSlotElement.name (get) | 2 | 393 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,ytr | https://www.youtube.com/s/desktop/95c3254f/jsbin/webcomponents-all-noPatch.vflset/webcomponents-all-noPatch.js |
+| ?.text (has) | 2 | 333 | https://www.youtube.com/results?search_query=rust | ytr,ytw | https://www.youtube.com/s/_/ytmainappweb/_/js/k=ytmainappweb.kevlar_base.en_US.azleysjlNvM.es5.O/am=AAAAAAgAAAACAKQE/d=1 |
+| ?.ariaLabel (has) | 2 | 205 | https://www.youtube.com/results?search_query=rust | ytr,ytw | https://www.youtube.com/s/_/ytmainappweb/_/js/k=ytmainappweb.kevlar_base.en_US.azleysjlNvM.es5.O/am=AAAAAAgAAAACAKQE/d=1 |
+| ?.items (has) | 2 | 166 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,ytr | https://www.youtube.com/s/_/ytmainappweb/_/js/k=ytmainappweb.kevlar_base.en_US.azleysjlNvM.es5.O/am=AAAAAAgAAAACAKQE/d=1 |
+| ?.width (has) | 2 | 132 | https://www.youtube.com/results?search_query=rust | ytr,ytw | https://www.youtube.com/s/_/ytmainappweb/_/js/k=ytmainappweb.kevlar_base.en_US.azleysjlNvM.es5.O/am=AAAAAAgAAAACAKQE/d=1 |
+| HTMLBodyElement.contentEditable (get) | 2 | 130 | https://github.com/ | github,bbc | https://github.githubassets.com/assets/react-dom-client-35b308126995de85.js |
+| ?.position (has) | 2 | 99 | https://www.youtube.com/results?search_query=rust | ytr,ytw | https://www.youtube.com/s/_/ytmainappweb/_/js/k=ytmainappweb.kevlar_base.en_US.azleysjlNvM.es5.O/am=AAAAAAgAAAACAKQE/d=1 |
+| ?.icon (has) | 2 | 92 | https://www.youtube.com/results?search_query=rust | ytr,ytw | https://www.youtube.com/s/_/ytmainappweb/_/js/k=ytmainappweb.kevlar_base.en_US.azleysjlNvM.es5.O/am=AAAAAAgAAAACAKQE/d=1 |
+| ?.size (has) | 2 | 76 | https://www.youtube.com/results?search_query=rust | ytr,ytw | https://www.youtube.com/s/_/ytmainappweb/_/js/k=ytmainappweb.kevlar_base.en_US.azleysjlNvM.es5.O/am=AAAAAAgAAAACAKQE/d=1 |
+| ?.label (has) | 2 | 56 | https://www.youtube.com/results?search_query=rust | ytr,ytw | https://www.youtube.com/s/_/ytmainappweb/_/js/k=ytmainappweb.kevlar_base.en_US.azleysjlNvM.es5.O/am=AAAAAAgAAAACAKQE/d=1 |
+| HTMLButtonElement.ariaLabel (get) | 2 | 24 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,ytr | https://www.youtube.com/s/_/ytmainappweb/_/js/k=ytmainappweb.kevlar_base.en_US.azleysjlNvM.es5.O/am=AAAAAAgAAAACAKQE/d=1 |
+| HTMLAnchorElement.ariaLabel (get) | 2 | 8 | https://www.youtube.com/results?search_query=rust | ytr,ytw | https://www.youtube.com/s/_/ytmainappweb/_/js/k=ytmainappweb.kevlar_base.en_US.azleysjlNvM.es5.O/am=AAAAAAgAAAACAKQE/d=1 |
+| ?.caches (has) | 2 | 7 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,ytr | prelude |
+| Window.caches (get) | 2 | 5 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,ytr | <anonymous> |
+| ?.WebGLRenderingContext (has) | 2 | 4 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,ytr | prelude |
+| ?.orientation (has) | 2 | 4 | https://www.amazon.com/ | amazon,wiki | prelude |
+| Document.prerendering (get) | 2 | 4 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,ytr | https://www.youtube.com/s/_/ytmainappweb/_/js/k=ytmainappweb.kevlar_base.en_US.azleysjlNvM.es5.O/am=AAAAAAgAAAACAKQE/d=1 |
+| Navigator.mediaCapabilities (get) | 2 | 4 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,ytr | https://www.youtube.com/s/player/6b3d0364/player_ias.vflset/de_DE/base.js |
+| Window.WebGLRenderingContext (get) | 2 | 4 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,ytr | <anonymous> |
+| ?.AudioContext (has) | 2 | 3 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,ytr | prelude |
+| ?.Worker (has) | 2 | 3 | https://www.amazon.com/ | amazon,ytw | <anonymous> |
+| ?.active (has) | 2 | 3 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,ytr | https://www.youtube.com/s/_/ytmainappweb/_/js/k=ytmainappweb.kevlar_base.en_US.azleysjlNvM.es5.O/am=AAAAAAgAAAACAKQE/d=1 |
+| ?.cookieStore (has) | 2 | 3 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,ytr | prelude |
+
+### CSS (what the parser dropped or evaluated false): 405 distinct, top 40 by sites then hits
+
+| API | sites | total hits | example URL | which sites | example |
+|---|---|---|---|---|---|
+| declaration height | 8 | 945 | https://www.amazon.com/ | amazon,github,ytw,ytr,bbc,wiki,social,mdn | height: auto |
+| declaration aspect-ratio | 8 | 456 | https://github.com/ | github,ytw,ytr,amazon,bbc,wiki,mdn,social | aspect-ratio: 1.78 |
+| declaration place-items | 8 | 23 | https://www.bbc.com/news | bbc,github,ytr,ytw,amazon,mdn,wiki,social | place-items: start center |
+| declaration letter-spacing | 7 | 2465 | https://github.com/ | github,bbc,ytw,amazon,ytr,social,mdn | letter-spacing: .01rem |
+| declaration fill | 7 | 2201 | https://github.com/ | github,ytr,ytw,amazon,bbc,mdn,wiki | fill: currentColor |
+| declaration justify-content | 7 | 112 | https://www.amazon.com/ | amazon,ytw,ytr,github,bbc,mdn,wiki | justify-content: end |
+| declaration display | 6 | 9082 | https://www.youtube.com/results?search_query=rust | ytr,ytw,amazon,bbc,github,mdn | display: -ms-flex |
+| declaration transition | 6 | 8852 | https://github.com/ | github,ytw,ytr,amazon,bbc,wiki | transition: top .5s ease-in-out |
+| declaration pointer-events | 6 | 1677 | https://www.amazon.com/ | amazon,ytr,ytw,github,bbc,wiki | pointer-events: none |
+| declaration width | 6 | 593 | https://github.com/ | github,amazon,ytw,ytr,bbc,wiki | width: auto |
+| pseudo_class :has() | 6 | 446 | https://www.amazon.com/ | amazon,github,ytw,ytr,mdn,wiki | .ytProfileIconHost:has(.ytProfileIconImage) |
+| declaration filter | 6 | 404 | https://www.amazon.com/ | amazon,ytw,ytr,github,wiki,social | filter: drop-shadow(0 0 1px rgba(0,0,0,0.8)) |
+| declaration touch-action | 6 | 224 | https://www.youtube.com/results?search_query=rust | ytr,ytw,github,amazon,bbc,wiki | touch-action: pan-y |
+| declaration text-shadow | 6 | 172 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,amazon,ytr,github,bbc,social | text-shadow: 0 2px 8px #000 |
+| declaration user-select | 6 | 122 | https://github.com/ | github,ytw,ytr,wiki,amazon,social | user-select: none |
+| at_rule @font-face | 6 | 95 | https://www.bbc.com/news | bbc,amazon,mdn,ytr,ytw,github | @font-face |
+| declaration transform-origin | 6 | 86 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,ytr,github,amazon,wiki,bbc | transform-origin: center |
+| declaration align-items | 6 | 81 | https://www.youtube.com/results?search_query=rust | ytr,ytw,github,bbc,amazon,mdn | align-items: start |
+| declaration border-spacing | 6 | 79 | https://en.wikipedia.org/wiki/Rust_(programming_language) | wiki,amazon,github,bbc,ytr,ytw | border-spacing: 8px |
+| declaration border-bottom-right-radius | 6 | 74 | https://github.com/ | github,ytw,amazon,ytr,wiki,mdn | border-bottom-right-radius: 12px |
+| declaration border-bottom-left-radius | 6 | 72 | https://github.com/ | github,ytw,amazon,ytr,wiki,mdn | border-bottom-left-radius: 24px |
+| declaration right | 6 | 66 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,ytr,amazon,github,wiki,bbc | right: auto |
+| declaration clip | 6 | 58 | https://github.com/ | github,amazon,ytr,ytw,bbc,wiki | clip: rect(0,0,0,0) |
+| declaration min-height | 6 | 51 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,ytr,github,amazon,wiki,mdn | min-height: auto |
+| declaration color-scheme | 6 | 25 | https://github.com/ | github,wiki,mdn,social,ytr,ytw | color-scheme: only dark |
+| declaration clip-path | 5 | 1787 | https://github.com/ | github,ytw,ytr,amazon,wiki | clip-path: inset(50%) |
+| declaration backdrop-filter | 5 | 701 | https://github.com/ | github,ytw,ytr,bbc,amazon | backdrop-filter: blur(4px) |
+| declaration stroke | 5 | 492 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,ytr,github,amazon,mdn | stroke: #e1002d |
+| declaration outline | 5 | 375 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,ytr,github,amazon,bbc | outline: none |
+| declaration border-top-left-radius | 5 | 195 | https://www.amazon.com/ | amazon,github,ytw,ytr,wiki | border-top-left-radius: 24px |
+| declaration transition-duration | 5 | 184 | https://www.youtube.com/results?search_query=rust | ytr,ytw,github,amazon,wiki | transition-duration: 40ms |
+| declaration outline-offset | 5 | 154 | https://www.amazon.com/ | amazon,github,ytw,ytr,mdn | outline-offset: -2px |
+| declaration -webkit-user-select | 5 | 120 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,ytr,github,wiki,amazon | -webkit-user-select: none |
+| declaration background-color | 5 | 96 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,ytr,mdn,github,amazon | background-color: Highlight |
+| declaration transition-property | 5 | 94 | https://www.youtube.com/results?search_query=rust | ytr,ytw,amazon,github,wiki | transition-property: width,background-color |
+| declaration left | 5 | 82 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,github,ytr,amazon,wiki | left: auto |
+| declaration border-top-right-radius | 5 | 79 | https://github.com/ | github,ytw,ytr,amazon,wiki | border-top-right-radius: 12px |
+| declaration transition-timing-function | 5 | 77 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,amazon,ytr,github,wiki | transition-timing-function: cubic-bezier(.05,0,0,1) |
+| declaration grid-auto-flow | 5 | 75 | https://www.bbc.com/news | bbc,github,amazon,ytr,ytw | grid-auto-flow: dense |
+| declaration direction | 5 | 66 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw,amazon,ytr,wiki,github | direction: rtl |
+
+### Errors by kind: 4 distinct, top 40 by sites then hits
+
+| API | sites | total hits | example URL | which sites |
+|---|---|---|---|---|
+| read_of_nullish ready') TypeError: Cannot read properties of undefined (reading 'ready | 1 | 41 | https://github.com/ | github |
+| not_a_function removeAttribute | 1 | 2 | https://www.amazon.com/ | amazon |
+| not_defined CSS | 1 | 1 | https://developer.mozilla.org/en-US/docs/Web/API/Document | mdn |
+| not_defined lottie | 1 | 1 | https://www.youtube.com/watch?v=G1AeBgalFZk | ytw |
+
+### 3. Top 10 gaps, as TODO item texts
+
+Ranked by sites, then hits, then how much a script stops doing; "covered" says what already exists in TODO.txt.
+
+1. `Window.CSS` / `?.CSS` (5 sites: ytw, ytr, wiki, social, mdn; errors table: `not_defined CSS` on mdn).
+   COVERED by QCSS2 (add `CSS.escape` and `CSS.supports` both; `CSS` object does not exist today).
+2. `window.trustedTypes` (5 sites, 622 `has` + 620 `get` hits, the largest count in the table). NOT covered.
+3. `Navigator.userAgentData`, `webdriver`, `connection`, `deviceMemory`, `plugins`, `gpu`, `mediaCapabilities`,
+   `serviceWorker` (5, 5, 4, 3, 3, 3, 2, 3 sites). NOT covered. Split in two items.
+4. `Document.fonts` (4 sites, 45 hits; github also hits `Cannot read properties of undefined (reading 'ready')`
+   41 times, the biggest runtime error in the errors table). NOT covered.
+5. ARIA reflection `ariaLabel` etc. (`?.ariaLabel` 205 hits on both YouTube pages, `HTMLButtonElement.ariaLabel`,
+   `HTMLAnchorElement.ariaLabel`). NOT covered.
+6. `HTMLSlotElement.name` (393 hits on both YouTube pages, the webcomponents polyfill). NOT covered.
+7. CSS `:has()` (pseudo_class, 6 sites, 446 hits: every rule using it is dropped). NOT covered.
+8. `window.caches`, `BroadcastChannel`, `Worker` presence probes (`has`, 2-3 sites each). BroadcastChannel is only
+   named inside QMSG1b (a P3 semantics item), `caches` and `Worker` are NOT covered.
+9. `HTMLBodyElement.contentEditable` (130 hits, github + bbc) and the touch handlers `ontouchstart` (`has`, 5
+   sites). NOT covered.
+10. CSS declarations that `css.rs` never parses (`place-items`, `letter-spacing`, `clip-path`, `backdrop-filter`,
+    `touch-action`, `user-select`, `text-shadow`, `filter`, `color-scheme`, `border-spacing`: 5-8 sites each).
+    NOT covered; the audit first, because the declaration list overstates.
+
+Proposed TODO.txt items (verbatim, for the coordinator to file):
+
+```
+- [ ] QAPI1 [S] (P2, from QMAPI3 R66; Sonnet; js.rs / globals prelude) `window.trustedTypes` (5 of 12 pages, 1 240 hits):
+      `createPolicy(name, {createHTML, createScript, createScriptURL})` returning a policy whose `create*` call the
+      callback and return its result (or the input when absent), `isHTML/isScript/isScriptURL` (true for what a policy
+      made), `emptyHTML/emptyScript`, `getAttributeType` -> null, `defaultPolicy` null; no enforcement. Tests in a new
+      src/tests/qapi1_tests.rs; re-run corpus.sh: the row disappears.
+- [ ] QAPI2 [S] (P2, from QMAPI3 R66; Sonnet; js.rs navigator) Navigator members pages probe (5 of 12 pages): `webdriver`
+      false, `deviceMemory` 8, `connection` (NetworkInformation stub: effectiveType '4g', downlink, rtt, saveData,
+      addEventListener), `plugins`/`mimeTypes` empty arrays, `userAgentData` (brands from the UA string, mobile false,
+      platform 'Linux', `getHighEntropyValues` resolving the low-entropy fields).
+- [ ] QAPI3 [S] (P2, from QMAPI3 R66; Sonnet; js.rs) `navigator.serviceWorker` (ServiceWorkerContainer stub: `ready` never
+      resolves, `register` rejects with SecurityError, `getRegistrations` resolves [], `controller` null) and `window.caches`
+      (CacheStorage stub: `open` resolves an empty Cache, `match` resolves undefined, `has` false, `keys` []); no real
+      storage. Names stay probe-able (`'caches' in window`).
+- [ ] QAPI4 [S] (P2, from QMAPI3 R66; Sonnet; js_dom.rs, css.rs) `document.fonts` FontFaceSet over the fonts the page
+      loaded: `ready` (resolved Promise), `status`, `check`, `load` (resolves the matching FontFace list), `forEach`/`size`,
+      `add`, `loadingdone` events, `FontFace` constructor; github reads `document.fonts.ready` 41 times and throws.
+- [ ] QAPI5 [S] (P2, from QMAPI3 R66; Sonnet; js_dom.rs) ARIA attribute reflection on Element (`ariaLabel`, `ariaHidden`,
+      `ariaExpanded`, ... the whole ARIA mixin list, null when absent, `aria-*` attribute set/removed on assign) and
+      `HTMLSlotElement.name`/`assignedNodes`/`assignedElements`/`slotchange` reflection. WPT: dom/nodes + wai-aria files.
+- [ ] QAPI6 [M] (P2, from QMAPI3 R66; Opus; css.rs selector parser) `:has()` (relative selector lists, descendant and
+      `>`/`+`/`~` anchors), with invalidation: a DOM change inside the subject re-matches the anchors (needs the QINC1
+      invalidation sets). Gate: WPT css/selectors :has files; the 6 pages' `:has` rows disappear from the css table.
+- [ ] QAPI7 [S] (P3, from QMAPI3 R66; Sonnet; js.rs) `BroadcastChannel` (same-process, same-origin delivery through the
+      MessageChannel machinery) and `HTMLElement.contentEditable`/`isContentEditable` reflection, the `ontouch*` handler
+      attributes on GlobalEventHandlers (null) so `'ontouchstart' in window` is the page's touch test, not a miss.
+- [ ] QAPI8 [S] (P2, from QMAPI3 R66; Sonnet; css.rs, tools/missing-api) Audit the css `declaration` rows of R66: first make the
+      report skip declarations handled outside `Declarations` or equal to the initial value, then list which of
+      `place-items`, `letter-spacing`, `clip-path`, `backdrop-filter`, `touch-action`, `user-select`, `text-shadow`,
+      `filter`, `color-scheme`, `border-spacing` are really unparsed, and file one S item per property family.
+- [ ] QMAPI3b [S] (P3, from QMAPI3 R66; Sonnet; tools/missing-api/merge.py) Merge "?" `has` rows with the named row of the
+      same name where one exists, drop `has` rows whose name only exists as a plain-object key (`data`, `text`, `items`),
+      and print the example script as a short host/path; replay-recordings mode when QREC1 recordings exist.
+```
+
+Sizes: 7 S, 1 M, 1 P3 follow-up; QCSS2 (existing) covers gap 1 and QMSG1b (existing) names BroadcastChannel.
+
 ## R65: QAREA-DOM: the dom/* testharness failures of the QWPT6 baseline, grouped by root cause. Nineteen causes explain most of the gap; each is one missing method family or one wrong rule, and each becomes one fix item (QDOM1-QDOM19, 16 S + 3 M). Three things weigh more than any single DOM gap: 94 of the 194 dom/events entries load testdriver.js (score 1.4 %, wait for QWPT7); 16 of the 41 dom/ranges files are the tentative OpaqueRange API; and the core Range/traversal suites are not in the subset at all (timeout=long), and today they could not run anyway because dom/common.js needs `createCDATASection`. If every proposed item lands, the projected scores are about: nodes 42.4 -> ~65-70, events 23.0 -> ~37-41, ranges 17.1 -> ~33-38, other 55.2 -> ~80-85 (Opus, 2026-11-21, investigation, docs only) — OPEN: proposed QDOM1-QDOM19 (section 4), QWPT6b/QWPT6c (section 6)
 
 ### 1. How this was measured
