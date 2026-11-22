@@ -9582,3 +9582,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QWPT8 DONE 230b1cb #615 [M] (P2; Sonnet; tools/, wire --map-host; user answered Q2 2026-11-21) Phase 2 server: tools/wptserve.sh
       (python3 ./wpt serve from a checkout that includes tools/), wire `--map-host
       '*.web-platform.test=127.0.0.1'`, runner `--server wptserve`; add fetch/ and xhr/ to the subset.
+
+=== from TODO.txt: --- (no header)
+- [x] QWPTFLK4 DONE 28e4a2a #620 [S] (P3, from QWPT8 #615; Sonnet) html/webappapis/atob/base64.any.html: 380 subtests in one CI run vs 286
+      locally/main; flaky-listed by #615. Find the cause (time budget? generated cases?) and take it off flaky.txt.
