@@ -9,7 +9,7 @@ domparsing                       93     93        14      3368     375   11.1   
 webidl                           44     44        10       333     180   54.1   44.2
 uievents                         23     23         7       118      73   61.9   33.6
 html/webappapis                 307    306        85      1139     609   53.5   33.1
-resize-observer                  36     35        18        54      30   55.6   58.7
+resize-observer                  36     35        19        54      31   57.4   61.6
 intersection-observer           150    150        21       202      47   23.3   16.5
 html/semantics/scripting-1      419    398       117      2405    1066   44.3   32.8
 html/dom                        178    178        49      3866    1282   33.2   41.2
