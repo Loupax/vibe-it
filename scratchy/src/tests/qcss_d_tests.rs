@@ -247,3 +247,26 @@ fn effects_respect_ancestor_overflow_clip() {
     assert!(near(px_at(&p, w, 25, 30), 0, 255, 255, 2));
     assert_eq!(px_at(&p, w, 40, 30), 0, "clipped by the ancestor");
 }
+
+#[test]
+fn filter_lists_interpolate_for_animations() {
+    let a = style_of("filter: blur(20px)").filter;
+    let b = style_of("filter: none").filter;
+    let mid = crate::fx::lerp_filter(a, b, 0.5).expect("blur vs none interpolates").expect("not none at the midpoint");
+    assert_eq!(mid.len(), 1);
+    match mid[0] {
+        crate::fx::FilterFn::Blur(px) => assert!((px - 10.0).abs() < 0.2, "{px}"),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(crate::fx::lerp_filter(a, b, 0.0), Some(a));
+    assert_eq!(crate::fx::lerp_filter(a, b, 1.0), Some(b));
+    let g = style_of("filter: grayscale(1)").filter;
+    assert!(crate::fx::lerp_filter(a, g, 0.5).is_none(), "different function lists are discrete");
+}
+
+#[test]
+fn filter_on_an_inline_element_reaches_the_block_inside_it() {
+    let inner = "<div style='width:20px;height:20px;background:#f00'></div>";
+    let (p, w) = page(&format!("<div style='position:absolute;left:20px;top:20px'><span style='filter:invert(1)'>{inner}</span></div>"));
+    assert!(near(px_at(&p, w, 30, 30), 0, 255, 255, 2), "{:06x}", px_at(&p, w, 30, 30));
+}

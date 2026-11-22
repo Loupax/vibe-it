@@ -840,9 +840,108 @@ pub(crate) fn filter_reach(f: &[FilterCompFn]) -> i32 {
     (m.ceil() as i32).min(256)
 }
 
+/// One horizontal box pass of half-width `r` (zero outside), row by row.
+fn box_h(src: &[f32], dst: &mut [f32], w: usize, h: usize, r: usize) {
+    let inv = 1.0 / (2 * r + 1) as f32;
+    for row in 0..h {
+        let (s, d) = (&src[row * w..(row + 1) * w], &mut dst[row * w..(row + 1) * w]);
+        let mut acc: f32 = s[..(r + 1).min(w)].iter().sum();
+        for i in 0..w {
+            d[i] = acc * inv;
+            if i + r + 1 < w {
+                acc += s[i + r + 1];
+            }
+            if i >= r {
+                acc -= s[i - r];
+            }
+        }
+    }
+}
+
+/// One vertical box pass; walks whole rows so the memory access is sequential.
+fn box_v(src: &[f32], dst: &mut [f32], w: usize, h: usize, r: usize) {
+    let inv = 1.0 / (2 * r + 1) as f32;
+    let mut acc = vec![0.0f32; w];
+    for row in 0..(r + 1).min(h) {
+        for (a, v) in acc.iter_mut().zip(&src[row * w..(row + 1) * w]) {
+            *a += *v;
+        }
+    }
+    for i in 0..h {
+        for (d, a) in dst[i * w..(i + 1) * w].iter_mut().zip(acc.iter()) {
+            *d = *a * inv;
+        }
+        if i + r + 1 < h {
+            for (a, v) in acc.iter_mut().zip(&src[(i + r + 1) * w..(i + r + 2) * w]) {
+                *a += *v;
+            }
+        }
+        if i >= r {
+            for (a, v) in acc.iter_mut().zip(&src[(i - r) * w..(i - r + 1) * w]) {
+                *a -= *v;
+            }
+        }
+    }
+}
+
+/// Three box passes per axis (the classic gaussian approximation, zero outside).
+fn gauss_blur(plane: &mut [f32], w: usize, h: usize, sigma: f32) {
+    let r = ((12.0 * sigma * sigma / 3.0 + 1.0).sqrt().floor() as usize).max(1) / 2;
+    if r == 0 || w == 0 || h == 0 {
+        return;
+    }
+    let mut tmp = vec![0.0f32; w * h];
+    for _ in 0..3 {
+        box_h(plane, &mut tmp, w, h, r);
+        box_v(&tmp, plane, w, h, r);
+    }
+}
+
+/// Gaussian blur of one plane. A large sigma is blurred on a plane shrunk by 2, 4 or 8 (box
+/// average down, bilinear back up), so the cost stays bounded whatever the radius.
 fn blur_plane(plane: &mut [f32], w: usize, h: usize, sigma: f32) {
-    if sigma >= 0.3 {
-        blur_mask(plane, w, h, sigma);
+    if sigma < 0.3 || w == 0 || h == 0 {
+        return;
+    }
+    let f = if sigma < 3.0 { 1 } else if sigma < 8.0 { 2 } else if sigma < 20.0 { 4 } else { 8 };
+    if f == 1 {
+        gauss_blur(plane, w, h, sigma);
+        return;
+    }
+    let (dw, dh) = (w.div_ceil(f), h.div_ceil(f));
+    let shift = f.trailing_zeros();
+    let mut small = vec![0.0f32; dw * dh];
+    let norm = 1.0 / (f * f) as f32;
+    for y in 0..h {
+        let drow = (y >> shift) * dw;
+        let src = &plane[y * w..(y + 1) * w];
+        for (x, v) in src.iter().enumerate() {
+            small[drow + (x >> shift)] += v * norm;
+        }
+    }
+    gauss_blur(&mut small, dw, dh, sigma / f as f32);
+    let ff = f as f32;
+    // Bilinear back up: the per-column indices and weights are computed once.
+    let xs: Vec<(usize, usize, f32)> = (0..w)
+        .map(|x| {
+            let sx = ((x as f32 + 0.5) / ff - 0.5).clamp(0.0, (dw - 1) as f32);
+            let x0 = sx as usize;
+            (x0, (x0 + 1).min(dw - 1), sx - x0 as f32)
+        })
+        .collect();
+    let mut row = vec![0.0f32; w];
+    for y in 0..h {
+        let sy = ((y as f32 + 0.5) / ff - 0.5).clamp(0.0, (dh - 1) as f32);
+        let y0 = sy as usize;
+        let (y1, fy) = ((y0 + 1).min(dh - 1), sy - y0 as f32);
+        let (r0, r1) = (&small[y0 * dw..(y0 + 1) * dw], &small[y1 * dw..(y1 + 1) * dw]);
+        for (x, o) in row.iter_mut().enumerate() {
+            let (x0, x1, fx) = xs[x];
+            let top = r0[x0] + (r0[x1] - r0[x0]) * fx;
+            let bot = r1[x0] + (r1[x1] - r1[x0]) * fx;
+            *o = top + (bot - top) * fy;
+        }
+        plane[y * w..(y + 1) * w].copy_from_slice(&row);
     }
 }
 
