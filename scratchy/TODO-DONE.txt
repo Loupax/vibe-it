@@ -9626,3 +9626,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       realms (element scroll there still uses the old zero-delay timer), clamp a scrollTo past the end before reporting
       (headless never clamps y), smooth `behavior` for programmatic scrollTo/scrollBy/scrollIntoView, visualViewport
       scroll, scroll-snap events; live check of a cancelled wheel.
+
+=== from TODO.txt: --- (no header)
+- [x] QCNV7 DONE 5f31523 #629 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+      (QCNV2)"); Sonnet; in order after the items above) arc, arcTo, ellipse, bezier/quadratic curves, roundRect. 174
+      files.
