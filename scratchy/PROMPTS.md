@@ -9354,3 +9354,8 @@ Prompt: load blob: URLs in iframes (iframe.src = URL.createObjectURL(new Blob([h
 > QCNV4 [S] (P2; Sonnet; js_dom.rs canvas section, canvas.rs) `new OffscreenCanvas(w, h)` on the main thread (no Workers): width/height, `getContext('2d')` returning an OffscreenCanvasRenderingContext2D sharing canvas.rs, `transferToImageBitmap` only if trivial, `convertToBlob` left to QCNV16.
 
 **What changed:** canvas.rs: `__cv_ctx_off` (bitmap with no element, node 0 = never painted or dirty), `__cv_reset_off`, `__cv_free` (FinalizationRegistry). js_dom.rs: `OffscreenCanvas` (EventTarget subclass, EnforceRange width/height, setting either resets bitmap and state), `OffscreenCanvasRenderingContext2D` (prototype copies the 2D context descriptors; `canvas` returns the OffscreenCanvas). Other context types give null. Not done: transferToImageBitmap (needs ImageBitmap, QIMGBMP1), convertToBlob (QCNV16), transferControlToOffscreen. Tests: src/tests/qcnv4_tests.rs. wpt-th html/canvas/offscreen 0 -> 316 all-pass files, score 0.0 -> 29.9.
+## QWPTBUD: the --wpt-th runner own callback budget (agent item)
+
+> QWPTBUD [S] (P3, from QDOM5b #592; Sonnet; wpt-th runner) A larger callback budget for the `--wpt-th` runner so Range-insertNode / Range-surroundContents run all 1840 cases deterministically and can leave flaky.txt.
+
+**What changed:** `wpt-th/budgets.txt` (`path ms reason`): the runner gives a listed file's child `--budget-ms` and a longer real-time kill limit; others and the App keep 500 ms. `--wpt-th --budget-ms` forwards to children. insertNode, surroundContents, replaceData (60 s) left flaky.txt with expectations recorded; dataChange stays flaky. Tests in src/tests/qwptbud_tests.rs.
