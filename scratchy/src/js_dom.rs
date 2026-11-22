@@ -2348,9 +2348,27 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       Object.defineProperty(Node, 'DOCUMENT_POSITION_' + kv[0], dsc); Object.defineProperty(NodeProto, 'DOCUMENT_POSITION_' + kv[0], dsc);
     });
   var chainOf = function (id) { var c = [id], p; while ((p = __d_parent(id)) >= 0) { c.push(p); id = p; } return c.reverse(); };
+  // QDOM5b: DOM "compare position" when either node is an Attr (spec steps 4-5: an Attr stands for its element, ties by
+  // attribute order). `other` relative to `self`.
+  var cdpAttr = function (self, other) {
+    var a1 = AttrP.isPrototypeOf(other) ? other : null, a2 = AttrP.isPrototypeOf(self) ? self : null;
+    var e1 = a1 ? a1.ownerElement : other, e2 = a2 ? a2.ownerElement : self;
+    if (other === self) return 0;
+    if (a1 && a2 && e1 && e1 === e2) {
+      var l = e1.attributes;
+      for (var i = 0; i < l.length; i++) { if (l[i].name === a1.name) return 32 | 2; if (l[i].name === a2.name) return 32 | 4; }
+    }
+    if (!e1 || !e2) return 1 | 32 | 4;
+    if (e1 === e2) return a2 ? (8 | 2) : (16 | 4);
+    var base = e2.compareDocumentPosition(e1);
+    if ((base & 8) && a1) return 2;
+    if ((base & 16) && a2) return 4;
+    return base;
+  };
   NodeProto.compareDocumentPosition = function (other) {
     if (arguments.length < 1) throw new TypeError("Failed to execute 'compareDocumentPosition' on 'Node': 1 argument required, but only 0 present.");
-    if (other == null || other.__id === undefined) throw new TypeError("Failed to execute 'compareDocumentPosition' on 'Node': parameter 1 is not of type 'Node'.");
+    if (other == null || (other.__id === undefined && !AttrP.isPrototypeOf(other))) throw new TypeError("Failed to execute 'compareDocumentPosition' on 'Node': parameter 1 is not of type 'Node'.");
+    if (AttrP.isPrototypeOf(other) || AttrP.isPrototypeOf(this)) return cdpAttr(this, other);
     var a = this.__id, b = other.__id;
     if (a === b) return 0;
     var ca = chainOf(a), cb = chainOf(b);
@@ -3008,6 +3026,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   // so focus and selection (native state keyed by node) stay. The reactions the spec keeps are done here:
   // NodeIterator pre-remove steps, live range updates, one MutationObserver record pair, and per custom
   // element `connectedMoveCallback` (else disconnected + connected).
+  var rangeReplace = null; // set by the Range block: (parent, old, node, run) live-range fix-ups of replaceChild in spec order
   var rangeMove = null; // set by the Range block: (node, oldParent, oldIndex) removal fix, then insertion fix
   var moveBefore = function (self, node, child) {
     if (!node || node.__id === undefined) throw new TypeError("Failed to execute 'moveBefore' on 'Node': parameter 1 is not of type 'Node'.");
@@ -4167,6 +4186,31 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       return decodeURIComponent(body);
     } catch (e) { try { return unescape(body); } catch (e2) { return ''; } }
   };
+  // QDOM5b: an iframe whose `src` was set by script (or inserted after load) is not in the page-load prefetch
+  // (net::prefetch_iframes); a same-origin http(s) one is fetched here, once per URL, with a synchronous XHR
+  // (bounded like any sync XHR) and then loads like a prefetched one. Failures and non-HTML answer "no page".
+  var dynPages = {};
+  var ifrPage = function (el) {
+    var pg = __d_iframe_page(el.__id);
+    if (pg.length) return pg;
+    var s = frameSrc(el);
+    if (s === '' || !/^https?:/i.test(s) && /^[a-z][a-z0-9+.-]*:/i.test(s)) return pg;
+    var u;
+    try { u = new URL(s, doc.baseURI); } catch (e) { return pg; }
+    if (!/^https?:$/.test(u.protocol) || u.origin !== g.location.origin) return pg;
+    var k = u.href;
+    if (!Object.prototype.hasOwnProperty.call(dynPages, k)) {
+      dynPages[k] = [];
+      try {
+        var x = new g.XMLHttpRequest();
+        x.open('GET', k, false);
+        x.send();
+        var ct = String(x.getResponseHeader('content-type') || '').toLowerCase();
+        if (x.status >= 200 && x.status < 300 && /^\s*text\/html/.test(ct) && x.responseText.length <= 1048576) dynPages[k] = [k, x.responseText];
+      } catch (e) {}
+    }
+    return dynPages[k];
+  };
   var frameIsData = function (el) { return frameSrcdoc(el) == null && /^data:/i.test(frameSrc(el)); };
   // The html a frame loads by itself (srcdoc, or a data: document), else null.
   var frameHtml = function (el) {
@@ -4176,7 +4220,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     // QMSG1: a pre-fetched same-origin document (QA18b1) loads like a srcdoc: its scripts run in its realm.
     var s = frameSrc(el);
     if (s === '' || /^(about|data):/i.test(s)) return null;
-    var pg = __d_iframe_page(el.__id);
+    var pg = ifrPage(el);
     return pg.length ? pg[1] : null;
   };
   var XO_NAMES = { postMessage: 1, close: 1, closed: 1, focus: 1, blur: 1, frames: 1, length: 1, location: 1, opener: 1, parent: 1, self: 1, top: 1, window: 1 };
@@ -4229,7 +4273,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   var frameSrcOk = function (el) {
     if (frameSrcdoc(el) != null) return true;
     var s = frameSrc(el);
-    return s === '' || /^about:blank/i.test(s) || /^data:/i.test(s) || __d_iframe_page(el.__id).length > 0;
+    return s === '' || /^about:blank/i.test(s) || /^data:/i.test(s) || ifrPage(el).length > 0;
   };
   // QPT1a (R53 D1-D4): an iframe with an empty or about:blank src, or a pre-fetched same-origin
   // one (QA18b1), gets a real window: its own V8 realm (from the startup snapshot, or without it a
@@ -4241,7 +4285,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (pendIfr[el.__id] || !inPage(el) || !frameSrcOk(el)) return null;
     var f = frames[el.__id];
     if (f) return f;
-    var sd = frameSrcdoc(el) != null, op = frameIsData(el), pg = (sd || op) ? [] : __d_iframe_page(el.__id), href = sd ? 'about:srcdoc' : op ? frameSrc(el) : 'about:blank';
+    var sd = frameSrcdoc(el) != null, op = frameIsData(el), pg = (sd || op) ? [] : ifrPage(el), href = sd ? 'about:srcdoc' : op ? frameSrc(el) : 'about:blank';
     {
       var w = g.__scratchy_realm_new();
       if (w) {
@@ -4449,7 +4493,9 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (c.nodeType !== 1 || __d_tag(c.__id).toLowerCase() !== 'iframe' || !inPage(c)) return;
     syncWin();
     if (frameHtml(c) != null) { loadFrameLater(c); return; }
-    g.setTimeout(function () { if (inPage(c) && frameSrcOk(c)) c.dispatchEvent(new Event('load')); }, 0);
+    // QDOM5b: a src set meanwhile starts its own navigation (ifrAttr), whose `load` replaces this one.
+    var s0 = frameSrc(c);
+    g.setTimeout(function () { if (inPage(c) && frameSrcOk(c) && frameSrc(c) === s0) c.dispatchEvent(new Event('load')); }, 0);
   };
   afterIns = function (c) { ifrSetup(c); };
   def(doc, 'implementation', function () { return impl; });
@@ -5066,6 +5112,11 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     function (v) { if (this._el) __d_setq(this._el.__id, this._n, String(v)); else this._d.value = String(v); });
   defs(AttrP, 'nodeValue', function () { return this.value; }, function (v) { this.value = v; });
   defs(AttrP, 'textContent', function () { return this.value; }, function (v) { this.value = v; });
+  // QDOM5b: an Attr is a Node with no parent, no children and itself as its root (the NodeProto getters read `__id`).
+  ['parentNode', 'parentElement', 'firstChild', 'lastChild', 'previousSibling', 'nextSibling'].forEach(function (k) { def(AttrP, k, function () { return null; }); });
+  def(AttrP, 'isConnected', function () { return false; });
+  AttrP.getRootNode = function getRootNode() { return this; };
+  AttrP.contains = function contains(o) { return o === this; };
   var NNM = g.NamedNodeMap = function NamedNodeMap() { throw new TypeError('Illegal constructor'); };
   var NP = NNM.prototype;
   var attrNames = function (el) {
@@ -6049,7 +6100,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     var Range = g.Range = function Range() {
       if (!new.target) throw new TypeError("Failed to construct 'Range': Please use the 'new' operator, this DOM object constructor cannot be called as a function.");
       this[RS] = { sc: doc, so: 0, ec: doc, eo: 0 };
-      live.push(new WeakRef(this));
+      liveL().push(new WeakRef(this[RS]));
     };
     Range.prototype = {};
     Object.defineProperty(Range.prototype, 'constructor', { value: Range, writable: true, configurable: true });
@@ -6164,7 +6215,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
           if (b > a) cb(n, a, b);
           return;
         }
-        if (n.nodeType === 8 || n.nodeType === 7) return;
+        if (n.nodeType === 8 || n.nodeType === 7 || n.nodeType === 2) return;
         var k = wrapAll(__d_children(n.__id, false));
         for (var i = 0; i < k.length; i++) {
           var c = k[i];
@@ -6218,12 +6269,11 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       return new DR(x, y, r - x, b - y);
     });
     // QDOM3: live ranges, updated by moveBefore (removal fix at the old place, then the insertion fix).
-    var live = [];
+    // QDOM5b: the list is page-wide (`xr.rl`, WeakRefs of the range STATES), so a mutation made through one realm's
+    // wrappers (a node cloned by the page, appended to an iframe's document) still fixes up the ranges of every realm.
+    var liveL = function () { return xr.rl || (xr.rl = []); };
     rangeMove = function (node, oldP, oldIdx, newP) {
-      var rs = [];
-      live = live.filter(function (w) { var r = w.deref(); if (r) rs.push(r); return r; });
-      rs.forEach(function (r) {
-        var s = r[RS];
+      liveRanges().forEach(function (s) {
         ['s', 'e'].forEach(function (k) {
           var c = k + 'c', o = k + 'o';
           if (!newP) {
@@ -6236,8 +6286,9 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     // QDOM5: the other live-range fix-ups, on the natives so every route (insertBefore, append, remove,
     // replaceChild, textContent, innerHTML, adoptNode, CharacterData methods, splitText, normalize) is covered.
     var liveRanges = function () {
-      var rs = [];
-      live = live.filter(function (w) { var r = w.deref(); if (r) rs.push(r); return r; });
+      var l = liveL(), rs = [], j = 0;
+      for (var i = 0; i < l.length; i++) { var r = l[i].deref(); if (r) { rs.push(r); l[j++] = l[i]; } }
+      l.length = j;
       return rs;
     };
     var fixRemove = function (id, idx) {
@@ -6246,15 +6297,28 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       rangeMove(wrap(id), wrap(p), idx < 0 ? __d_children(p, false).indexOf(id) : idx, null);
     };
     var fixInsert = function (par, index, count) {
-      liveRanges().forEach(function (r) {
-        var s = r[RS];
+      liveRanges().forEach(function (s) {
         if (s.sc === par && s.so > index) s.so += count;
         if (s.ec === par && s.eo > index) s.eo += count;
       });
     };
+    var rngOff = false;
+    // replaceChild runs insert-then-remove natively; the spec removes `old` first (n leaves its old parent, then old goes,
+    // then n enters at old's index). Fix up in that order and keep the natives' own fix-ups off while `run` does the work.
+    rangeReplace = function (parent, old, n, run) {
+      if (!liveL().length || rngOff) return run();
+      var frag = n.nodeType === 11, kids = frag ? __d_children(n.__id, false) : [n.__id], pid = parent.__id;
+      var sib = __d_children(pid, false), oi = sib.indexOf(old.__id);
+      if (!frag && n.parentNode === parent && sib.indexOf(n.__id) < oi) oi--;
+      kids.forEach(function (k) { fixRemove(k, frag ? 0 : -1); });
+      fixRemove(old.__id, oi);
+      rngOff = true;
+      try { run(); } finally { rngOff = false; }
+      fixInsert(parent, oi, kids.length);
+    };
     var oIns = __d_insert, oRem = __d_remove, oTxt = __d_settext, oHtml = __d_sethtml;
     __d_insert = function (p, c, b) {
-      if (!live.length) return oIns(p, c, b);
+      if (rngOff || !liveL().length) return oIns(p, c, b);
       var pw = wrap(p), cw = wrap(c);
       if (c === p || cw.contains(pw)) return oIns(p, c, b);
       var frag = __d_kind(c) === 11, kids = frag ? __d_children(c, false) : [c];
@@ -6264,19 +6328,18 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       return ok;
     };
     __d_remove = function (id) {
-      if (live.length) fixRemove(id, -1);
+      if (!rngOff && liveL().length) fixRemove(id, -1);
       return oRem(id);
     };
     var fixAll = function (id) {
       var n = wrap(id);
-      liveRanges().forEach(function (r) {
-        var s = r[RS];
+      liveRanges().forEach(function (s) {
         if (s.sc === n || n.contains(s.sc)) { s.sc = n; s.so = 0; }
         if (s.ec === n || n.contains(s.ec)) { s.ec = n; s.eo = 0; }
       });
     };
     __d_settext = function (id, t) {
-      if (!live.length || rSup) return oTxt(id, t);
+      if (!liveL().length || rSup) return oTxt(id, t);
       var k = __d_kind(id);
       if (k === 3 || k === 4 || k === 7 || k === 8) {
         var len = __d_text(id).length;
@@ -6287,14 +6350,24 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       if (k === 1 || k === 11) fixAll(id);
       return oTxt(id, t);
     };
+    // QDOM5b: document.write inserts after the running script through the native, not insertBefore: the parser's
+    // "insert" fixes up the live ranges at the insertion point (offsets past it grow by the number of nodes added).
+    var oWr = __d_write;
+    __d_write = function (a, h) {
+      if (!liveL().length) return oWr(a, h);
+      var p = __d_parent(a);
+      if (p < 0) return oWr(a, h);
+      var n0 = __d_children(p, false).length, r = oWr(a, h), kids = __d_children(p, false);
+      if (kids.length > n0) fixInsert(wrap(p), kids.indexOf(a) + 1, kids.length - n0);
+      return r;
+    };
     __d_sethtml = function (id, h) {
-      if (live.length) fixAll(id);
+      if (liveL().length) fixAll(id);
       return oHtml(id, h);
     };
     rangeText = function (n, off, cnt, len) {
-      if (!live.length) return;
-      liveRanges().forEach(function (r) {
-        var s = r[RS];
+      if (!liveL().length) return;
+      liveRanges().forEach(function (s) {
         ['sc', 'ec'].forEach(function (c) {
           var o = c === 'sc' ? 'so' : 'eo';
           if (s[c] !== n) return;
@@ -6305,8 +6378,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     };
     rangeHook.split = function (node, offset, fresh, parent) {
       var pi = idxOf(node);
-      liveRanges().forEach(function (r) {
-        var s = r[RS];
+      liveRanges().forEach(function (s) {
         if (s.sc === node && s.so > offset) { s.sc = fresh; s.so -= offset; }
         else if (s.sc === parent && s.so === pi + 1) s.so++;
         if (s.ec === node && s.eo > offset) { s.ec = fresh; s.eo -= offset; }
@@ -6315,8 +6387,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     };
     rangeHook.merge = function (cur, node, length) {
       var parent = cur.parentNode, ci = idxOf(cur);
-      liveRanges().forEach(function (r) {
-        var s = r[RS];
+      liveRanges().forEach(function (s) {
         if (s.sc === cur) { s.sc = node; s.so += length; }
         else if (s.sc === parent && s.so === ci) { s.sc = node; s.so = length; }
         if (s.ec === cur) { s.ec = node; s.eo += length; }
@@ -6330,7 +6401,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     var ownerDoc = function (n) { return n.nodeType === 9 ? n : n.nodeType === 2 ? (n.ownerElement && n.ownerElement.ownerDocument) || doc : (n.ownerDocument || doc); };
     var hre = function (fn, m) { return herr("Failed to execute '" + fn + "' on 'Range': " + m, 'HierarchyRequestError'); };
     // The common ancestor, first/last partially contained child and the contained children.
-    var parts = function (fn, sc, so, ec, eo, topOnly) {
+    var parts = function (fn, sc, so, ec, eo, topOnly, noDoctypeCheck) {
       var ca = sc;
       while (!inclAnc(ca, ec)) ca = ca.parentNode;
       var kids = kidsOf(ca), fp = null, lp = null, contained = [];
@@ -6344,7 +6415,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
         });
       };
       if (topOnly) kids.forEach(function (c) { if (isIn(c)) contained.push(c); }); else collect(ca);
-      for (var k = 0; k < contained.length; k++) if (contained[k].nodeType === 10) throw hre(fn, 'The range contains a doctype.');
+      for (var k = 0; !noDoctypeCheck && k < contained.length; k++) if (contained[k].nodeType === 10) throw hre(fn, 'The range contains a doctype.');
       return { ca: ca, fp: fp, lp: lp, contained: contained };
     };
     var cdSub = function (n, a, b) { return n.data.substring(a, b); };
@@ -6406,7 +6477,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       var s = st(this), sc = s.sc, so = s.so, ec = s.ec, eo = s.eo;
       if (sc === ec && so === eo) return;
       if (sc === ec && isCD(sc)) { sc.replaceData(so, eo - so, ''); return; }
-      var p = parts('deleteContents', sc, so, ec, eo, false), pt = newPoint(sc, ec) || { node: sc, offset: so };
+      var p = parts('deleteContents', sc, so, ec, eo, false, true), pt = newPoint(sc, ec) || { node: sc, offset: so };
       if (isCD(sc)) sc.replaceData(so, nlen(sc) - so, '');
       p.contained.forEach(function (n) { if (n.parentNode) n.parentNode.removeChild(n); });
       if (isCD(ec)) ec.replaceData(0, eo, '');
