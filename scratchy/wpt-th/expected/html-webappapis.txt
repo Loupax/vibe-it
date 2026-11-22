@@ -802,10 +802,7 @@ TIMEOUT      2/8  html/webappapis/system-state-and-capabilities/the-navigator-ob
   FAIL      Navigating from the initial about:blank must not replace window.clientInformation
   FAIL      Discarding the browsing context must not change window.clientInformation
   TIMEOUT   document.open() must not replace window.clientInformation
-OK           0/3  html/webappapis/system-state-and-capabilities/the-navigator-object/plugins-and-mimetypes.html
-  FAIL      navigator.pdfViewerEnabled exists
-  FAIL      navigator.mimeTypes is empty
-  FAIL      navigator.plugins is empty
+OK           3/3  html/webappapis/system-state-and-capabilities/the-navigator-object/plugins-and-mimetypes.html
 OK           2/2  html/webappapis/system-state-and-capabilities/the-navigator-object/secure_context.html
 OK           0/6  html/webappapis/the-windoworworkerglobalscope-mixin/Worker_Self_Origin.html
   FAIL      Same Origin Worker
