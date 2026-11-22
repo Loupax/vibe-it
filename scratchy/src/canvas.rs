@@ -73,6 +73,10 @@ struct DrawState {
 enum Seg {
     Move(f64, f64),
     Line(f64, f64),
+    /// QCNV7: quadratic curve (control, end).
+    Quad(f64, f64, f64, f64),
+    /// QCNV7: cubic curve (control 1, control 2, end).
+    Cubic(f64, f64, f64, f64, f64, f64),
     Close,
 }
 
@@ -124,10 +128,177 @@ impl PathData {
             match *s {
                 Seg::Move(x, y) => pb.move_to(x as f32, y as f32),
                 Seg::Line(x, y) => pb.line_to(x as f32, y as f32),
+                Seg::Quad(a, b, x, y) => pb.quad_to(a as f32, b as f32, x as f32, y as f32),
+                Seg::Cubic(a, b, c, d, x, y) => pb.cubic_to(a as f32, b as f32, c as f32, d as f32, x as f32, y as f32),
                 Seg::Close => pb.close(),
             }
         }
         pb.finish()
+    }
+    /// The current point in device space (the end of the last segment).
+    fn cur(&self) -> Option<(f64, f64)> {
+        match *self.segs.last()? {
+            Seg::Move(x, y) | Seg::Line(x, y) | Seg::Quad(_, _, x, y) | Seg::Cubic(_, _, _, _, x, y) => Some((x, y)),
+            Seg::Close => self.start(),
+        }
+    }
+    /// "Ensure there is a subpath for (x, y)": starts one at the point when the path is empty.
+    fn ensure(&mut self, m: &[f64; 6], x: f64, y: f64) {
+        if self.segs.is_empty() {
+            self.move_to(m, x, y);
+        }
+    }
+    fn quad(&mut self, m: &[f64; 6], cx: f64, cy: f64, x: f64, y: f64) {
+        self.ensure(m, cx, cy);
+        let (a, b) = Self::map(m, cx, cy);
+        let (x, y) = Self::map(m, x, y);
+        self.segs.push(Seg::Quad(a, b, x, y));
+    }
+    fn cubic(&mut self, m: &[f64; 6], c1: (f64, f64), c2: (f64, f64), p: (f64, f64)) {
+        self.ensure(m, c1.0, c1.1);
+        let (a, b) = Self::map(m, c1.0, c1.1);
+        let (c, d) = Self::map(m, c2.0, c2.1);
+        let (x, y) = Self::map(m, p.0, p.1);
+        self.segs.push(Seg::Cubic(a, b, c, d, x, y));
+    }
+    /// ellipse()/arc(): a line to the arc's start point (or a new subpath there), then cubics up to the end point.
+    /// All arguments are finite and the radii non-negative (the JS side checks). Angles in radians.
+    #[allow(clippy::too_many_arguments)]
+    fn ellipse(&mut self, m: &[f64; 6], x: f64, y: f64, rx: f64, ry: f64, rot: f64, start: f64, end: f64, ccw: bool) {
+        use std::f64::consts::PI;
+        let (sr, cr) = rot.sin_cos();
+        let pt = |t: f64| {
+            let (px, py) = (rx * t.cos(), ry * t.sin());
+            (x + cr * px - sr * py, y + sr * px + cr * py)
+        };
+        let sweep = if !ccw {
+            if end - start >= 2.0 * PI { 2.0 * PI } else { (end - start).rem_euclid(2.0 * PI) }
+        } else if start - end >= 2.0 * PI {
+            -2.0 * PI
+        } else {
+            -(start - end).rem_euclid(2.0 * PI)
+        };
+        let p0 = pt(start);
+        self.line_to(m, p0.0, p0.1);
+        if rx == 0.0 || ry == 0.0 {
+            let e = pt(start + sweep);
+            self.line_to(m, e.0, e.1);
+            return;
+        }
+        let n = ((sweep.abs() / (PI / 2.0)) - 1e-9).ceil().max(1.0);
+        let d = sweep / n;
+        let k = 4.0 / 3.0 * (d / 4.0).tan();
+        let deriv = |t: f64| {
+            let (px, py) = (-rx * t.sin(), ry * t.cos());
+            (cr * px - sr * py, sr * px + cr * py)
+        };
+        for i in 0..n as usize {
+            let (t0, t1) = (start + d * i as f64, start + d * (i + 1) as f64);
+            let (a, b) = (pt(t0), pt(t1));
+            let (da, db) = (deriv(t0), deriv(t1));
+            let end_pt = if i + 1 == n as usize { pt(start + sweep) } else { b };
+            self.cubic(m, (a.0 + k * da.0, a.1 + k * da.1), (b.0 - k * db.0, b.1 - k * db.1), end_pt);
+        }
+    }
+    /// arcTo(x1, y1, x2, y2, r), computed in user space from the current point.
+    fn arc_to(&mut self, m: &[f64; 6], x1: f64, y1: f64, x2: f64, y2: f64, r: f64) {
+        self.ensure(m, x1, y1);
+        let (Some(inv), Some(cur)) = (invert(m), self.cur()) else {
+            self.line_to(m, x1, y1);
+            return;
+        };
+        let (x0, y0) = Self::map(&inv, cur.0, cur.1);
+        let (v0x, v0y, v2x, v2y) = (x0 - x1, y0 - y1, x2 - x1, y2 - y1);
+        let (l0, l2) = (v0x.hypot(v0y), v2x.hypot(v2y));
+        let cross = v0x * v2y - v0y * v2x;
+        if l0 == 0.0 || l2 == 0.0 || r == 0.0 || cross.abs() <= 1e-14 * l0 * l2 {
+            self.line_to(m, x1, y1);
+            return;
+        }
+        let (u0x, u0y, u2x, u2y) = (v0x / l0, v0y / l0, v2x / l2, v2y / l2);
+        let cos = (u0x * u2x + u0y * u2y).clamp(-1.0, 1.0);
+        let half = cos.acos() / 2.0;
+        let t = r / half.tan();
+        let (bx, by) = (u0x + u2x, u0y + u2y);
+        let bl = bx.hypot(by);
+        let dist = r / half.sin();
+        let (cx, cy) = (x1 + bx / bl * dist, y1 + by / bl * dist);
+        let (t1x, t1y, t2x, t2y) = (x1 + u0x * t, y1 + u0y * t, x1 + u2x * t, y1 + u2y * t);
+        if ![cx, cy, t1x, t1y, t2x, t2y].iter().all(|v| v.is_finite()) {
+            self.line_to(m, x1, y1);
+            return;
+        }
+        let a1 = (t1y - cy).atan2(t1x - cx);
+        let a2 = (t2y - cy).atan2(t2x - cx);
+        let mut d = a2 - a1;
+        while d > std::f64::consts::PI {
+            d -= 2.0 * std::f64::consts::PI;
+        }
+        while d < -std::f64::consts::PI {
+            d += 2.0 * std::f64::consts::PI;
+        }
+        self.line_to(m, t1x, t1y);
+        self.ellipse(m, cx, cy, r, r, 0.0, a1, a1 + d, d < 0.0);
+        // Land exactly on the second tangent point.
+        if let Some(Seg::Cubic(.., ex, ey)) = self.segs.last_mut() {
+            let (dx, dy) = Self::map(m, t2x, t2y);
+            *ex = dx;
+            *ey = dy;
+        }
+    }
+    /// roundRect: `r` = [ul.x, ul.y, ur.x, ur.y, lr.x, lr.y, ll.x, ll.y], radii relative to the (x, y) corner.
+    fn round_rect(&mut self, m: &[f64; 6], mut x: f64, mut y: f64, mut w: f64, mut h: f64, r: &[f64]) {
+        use std::f64::consts::PI;
+        let mut q = [[r[0], r[1]], [r[2], r[3]], [r[4], r[5]], [r[6], r[7]]];
+        // Exactly one negative size mirrors the rectangle, so its subpath runs the other way round (nonzero fills cancel).
+        let reversed = (w < 0.0) != (h < 0.0);
+        if w < 0.0 {
+            x += w;
+            w = -w;
+            q.swap(0, 1);
+            q.swap(2, 3);
+        }
+        if h < 0.0 {
+            y += h;
+            h = -h;
+            q.swap(0, 3);
+            q.swap(1, 2);
+        }
+        let sums = [(w, q[0][0] + q[1][0]), (h, q[1][1] + q[2][1]), (w, q[2][0] + q[3][0]), (h, q[0][1] + q[3][1])];
+        let mut scale = 1.0f64;
+        for (len, sum) in sums {
+            if sum > 0.0 {
+                scale = scale.min(len / sum);
+            }
+        }
+        if scale < 1.0 {
+            for c in q.iter_mut() {
+                c[0] *= scale;
+                c[1] *= scale;
+            }
+        }
+        let [ul, ur, lr, ll] = q;
+        self.move_to(m, x + ul[0], y);
+        if reversed {
+            self.ellipse(m, x + ul[0], y + ul[1], ul[0], ul[1], 0.0, 1.5 * PI, PI, true);
+            self.line_to(m, x, y + h - ll[1]);
+            self.ellipse(m, x + ll[0], y + h - ll[1], ll[0], ll[1], 0.0, PI, 0.5 * PI, true);
+            self.line_to(m, x + w - lr[0], y + h);
+            self.ellipse(m, x + w - lr[0], y + h - lr[1], lr[0], lr[1], 0.0, 0.5 * PI, 0.0, true);
+            self.line_to(m, x + w, y + ur[1]);
+            self.ellipse(m, x + w - ur[0], y + ur[1], ur[0], ur[1], 0.0, 0.0, 1.5 * PI, true);
+            self.close();
+            return;
+        }
+        self.line_to(m, x + w - ur[0], y);
+        self.ellipse(m, x + w - ur[0], y + ur[1], ur[0], ur[1], 0.0, 1.5 * PI, 2.0 * PI, false);
+        self.line_to(m, x + w, y + h - lr[1]);
+        self.ellipse(m, x + w - lr[0], y + h - lr[1], lr[0], lr[1], 0.0, 0.0, 0.5 * PI, false);
+        self.line_to(m, x + ll[0], y + h);
+        self.ellipse(m, x + ll[0], y + h - ll[1], ll[0], ll[1], 0.0, 0.5 * PI, PI, false);
+        self.line_to(m, x, y + ul[1]);
+        self.ellipse(m, x + ul[0], y + ul[1], ul[0], ul[1], 0.0, PI, 1.5 * PI, false);
+        self.close();
     }
 }
 
@@ -395,6 +566,12 @@ fn path_op(c: &mut Canvas, op: i32, a: &[f64]) {
         (2, [x, y]) => c.path.line_to(&m, *x, *y),
         (3, _) => c.path.close(),
         (4, [x, y, w, h]) => c.path.rect(&m, *x, *y, *w, *h),
+        // QCNV7: quadraticCurveTo, bezierCurveTo, arc/ellipse (rx, ry, rotation, start, end, ccw), arcTo, roundRect.
+        (5, [cx, cy, x, y]) => c.path.quad(&m, *cx, *cy, *x, *y),
+        (6, [a, b, cc, d, x, y]) => c.path.cubic(&m, (*a, *b), (*cc, *d), (*x, *y)),
+        (7, [x, y, rx, ry, rot, s, e, ccw]) => c.path.ellipse(&m, *x, *y, *rx, *ry, *rot, *s, *e, *ccw != 0.0),
+        (8, [x1, y1, x2, y2, r]) => c.path.arc_to(&m, *x1, *y1, *x2, *y2, *r),
+        (9, [x, y, w, h, r @ ..]) if r.len() == 8 => c.path.round_rect(&m, *x, *y, *w, *h, r),
         _ => {}
     }
 }

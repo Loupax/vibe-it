@@ -2469,115 +2469,64 @@ OK          0/18  html/canvas/element/manual/wide-gamut-canvas/encode-hdr.html
   FAIL      toBlob image/webp toneMapping=extended
   FAIL      convertToBlob image/webp toneMapping=standard
   FAIL      convertToBlob image/webp toneMapping=extended
-OK           0/1  html/canvas/element/path-objects/2d.path.arc.angle.1.html
-  FAIL      arc() draws pi/2 .. -pi anticlockwise correctly
-OK           0/1  html/canvas/element/path-objects/2d.path.arc.angle.2.html
-  FAIL      arc() draws -3pi/2 .. -pi anticlockwise correctly
-OK           0/1  html/canvas/element/path-objects/2d.path.arc.angle.3.html
-  FAIL      arc() wraps angles mod 2pi when anticlockwise and end > start+2pi
-OK           0/1  html/canvas/element/path-objects/2d.path.arc.angle.4.html
-  FAIL      arc() draws a full circle when clockwise and end > start+2pi
-OK           0/1  html/canvas/element/path-objects/2d.path.arc.angle.5.html
-  FAIL      arc() wraps angles mod 2pi when clockwise and start > end+2pi
-OK           0/1  html/canvas/element/path-objects/2d.path.arc.angle.6.html
-  FAIL      arc() draws a full circle when anticlockwise and start > end+2pi
-OK           0/1  html/canvas/element/path-objects/2d.path.arc.default.html
-  FAIL      arc() with missing last argument defaults to clockwise
-OK           0/1  html/canvas/element/path-objects/2d.path.arc.empty.html
-  FAIL      arc() with an empty path does not draw a straight line to the start point
-OK           0/1  html/canvas/element/path-objects/2d.path.arc.end.html
-  FAIL      arc() adds the end point of the arc to the subpath
+OK           1/1  html/canvas/element/path-objects/2d.path.arc.angle.1.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arc.angle.2.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arc.angle.3.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arc.angle.4.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arc.angle.5.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arc.angle.6.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arc.default.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arc.empty.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arc.end.html
 OK           0/1  html/canvas/element/path-objects/2d.path.arc.negative.html
   FAIL      arc() with negative radius throws INDEX_SIZE_ERR
-OK           0/1  html/canvas/element/path-objects/2d.path.arc.nonempty.html
-  FAIL      arc() with a non-empty path does draw a straight line to the start point
-OK           0/1  html/canvas/element/path-objects/2d.path.arc.nonfinite.html
-  FAIL      arc() with Infinity/NaN is ignored
+OK           1/1  html/canvas/element/path-objects/2d.path.arc.nonempty.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arc.nonfinite.html
 OK           0/1  html/canvas/element/path-objects/2d.path.arc.scale.1.html
   FAIL      Non-uniformly scaled arcs are the right shape
-OK           0/1  html/canvas/element/path-objects/2d.path.arc.scale.2.html
-  FAIL      Highly scaled arcs are the right shape
-OK           0/1  html/canvas/element/path-objects/2d.path.arc.selfintersect.1.html
-  FAIL      arc() with lineWidth > 2*radius is drawn sensibly
-OK           0/1  html/canvas/element/path-objects/2d.path.arc.selfintersect.2.html
-  FAIL      arc() with lineWidth > 2*radius is drawn sensibly
-OK           0/1  html/canvas/element/path-objects/2d.path.arc.shape.1.html
-  FAIL      arc() from 0 to pi does not draw anything in the wrong half
-OK           0/1  html/canvas/element/path-objects/2d.path.arc.shape.2.html
-  FAIL      arc() from 0 to pi draws stuff in the right half
-OK           0/1  html/canvas/element/path-objects/2d.path.arc.shape.3.html
-  FAIL      arc() from 0 to -pi/2 does not draw anything in the wrong quadrant
-OK           0/1  html/canvas/element/path-objects/2d.path.arc.shape.4.html
-  FAIL      arc() from 0 to -pi/2 draws stuff in the right quadrant
-OK           0/1  html/canvas/element/path-objects/2d.path.arc.shape.5.html
-  FAIL      arc() from 0 to 5pi does not draw crazy things
-OK           0/1  html/canvas/element/path-objects/2d.path.arc.twopie.1.html
-  FAIL      arc() draws nothing when end = start + 2pi-e and anticlockwise
-OK           0/1  html/canvas/element/path-objects/2d.path.arc.twopie.2.html
-  FAIL      arc() draws a full circle when end = start + 2pi-e and clockwise
-OK           0/1  html/canvas/element/path-objects/2d.path.arc.twopie.3.html
-  FAIL      arc() draws a full circle when end = start + 2pi+e and anticlockwise
-OK           0/1  html/canvas/element/path-objects/2d.path.arc.twopie.4.html
-  FAIL      arc() draws nothing when end = start + 2pi+e and clockwise
-OK           0/1  html/canvas/element/path-objects/2d.path.arc.twopie.5.html
-  FAIL      arc() draws correctly when start = 2 and end = start + 2pi+e and clockwise
-OK           0/1  html/canvas/element/path-objects/2d.path.arc.twopie.6.html
-  FAIL      arc() draws correctly when start = 5 and end = start + 2pi+e and clockwise
-OK           0/1  html/canvas/element/path-objects/2d.path.arc.zero.1.html
-  FAIL      arc() draws nothing when startAngle = endAngle and anticlockwise
-OK           0/1  html/canvas/element/path-objects/2d.path.arc.zero.2.html
-  FAIL      arc() draws nothing when startAngle = endAngle and clockwise
-OK           0/1  html/canvas/element/path-objects/2d.path.arc.zeroradius.html
-  FAIL      arc() with zero radius draws a line to the start point
-OK           0/1  html/canvas/element/path-objects/2d.path.arcTo.coincide.1.html
-  FAIL      arcTo() has no effect if P0 = P1
-OK           0/1  html/canvas/element/path-objects/2d.path.arcTo.coincide.2.html
-  FAIL      arcTo() draws a straight line to P1 if P1 = P2
-OK           0/1  html/canvas/element/path-objects/2d.path.arcTo.collinear.1.html
-  FAIL      arcTo() with all points on a line, and P1 between P0/P2, draws a straight line to P1
-OK           0/1  html/canvas/element/path-objects/2d.path.arcTo.collinear.2.html
-  FAIL      arcTo() with all points on a line, and P2 between P0/P1, draws a straight line to P1
-OK           0/1  html/canvas/element/path-objects/2d.path.arcTo.collinear.3.html
-  FAIL      arcTo() with all points on a line, and P0 between P1/P2, draws a straight line to P1
-OK           0/1  html/canvas/element/path-objects/2d.path.arcTo.ensuresubpath.1.html
-  FAIL      If there is no subpath, the first control point is added (and nothing is drawn up to it)
-OK           0/1  html/canvas/element/path-objects/2d.path.arcTo.ensuresubpath.2.html
-  FAIL      If there is no subpath, the first control point is added
-OK           0/1  html/canvas/element/path-objects/2d.path.arcTo.ensuresubpath.3.html
-  FAIL      If there is no subpath, the first control point is added (and nothing is drawn up to it)
+OK           1/1  html/canvas/element/path-objects/2d.path.arc.scale.2.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arc.selfintersect.1.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arc.selfintersect.2.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arc.shape.1.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arc.shape.2.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arc.shape.3.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arc.shape.4.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arc.shape.5.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arc.twopie.1.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arc.twopie.2.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arc.twopie.3.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arc.twopie.4.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arc.twopie.5.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arc.twopie.6.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arc.zero.1.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arc.zero.2.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arc.zeroradius.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arcTo.coincide.1.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arcTo.coincide.2.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arcTo.collinear.1.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arcTo.collinear.2.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arcTo.collinear.3.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arcTo.ensuresubpath.1.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arcTo.ensuresubpath.2.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arcTo.ensuresubpath.3.html
 OK           0/1  html/canvas/element/path-objects/2d.path.arcTo.negative.html
   FAIL      arcTo() with negative radius throws an exception
-OK           0/1  html/canvas/element/path-objects/2d.path.arcTo.nonfinite.html
-  FAIL      arcTo() with Infinity/NaN is ignored
-OK           0/1  html/canvas/element/path-objects/2d.path.arcTo.scale.html
-  FAIL      arcTo scales the curve, not just the control points
-OK           0/1  html/canvas/element/path-objects/2d.path.arcTo.shape.curve1.html
-  FAIL      arcTo() curves in the right kind of shape
-OK           0/1  html/canvas/element/path-objects/2d.path.arcTo.shape.curve2.html
-  FAIL      arcTo() curves in the right kind of shape
-OK           0/1  html/canvas/element/path-objects/2d.path.arcTo.shape.end.html
-  FAIL      arcTo() does not draw anything from P1 to P2
-OK           0/1  html/canvas/element/path-objects/2d.path.arcTo.shape.start.html
-  FAIL      arcTo() draws a straight line from P0 to P1
-OK           0/1  html/canvas/element/path-objects/2d.path.arcTo.transformation.html
-  FAIL      arcTo joins up to the last subpath point correctly
-OK           0/1  html/canvas/element/path-objects/2d.path.arcTo.zero.1.html
-  FAIL      arcTo() with zero radius draws a straight line from P0 to P1
-OK           0/1  html/canvas/element/path-objects/2d.path.arcTo.zero.2.html
-  FAIL      arcTo() with zero radius draws a straight line from P0 to P1, even when all points are collinear
+OK           1/1  html/canvas/element/path-objects/2d.path.arcTo.nonfinite.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arcTo.scale.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arcTo.shape.curve1.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arcTo.shape.curve2.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arcTo.shape.end.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arcTo.shape.start.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arcTo.transformation.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arcTo.zero.1.html
+OK           1/1  html/canvas/element/path-objects/2d.path.arcTo.zero.2.html
 OK           1/1  html/canvas/element/path-objects/2d.path.beginPath.html
-OK           0/1  html/canvas/element/path-objects/2d.path.bezierCurveTo.basic.html
-  FAIL      Canvas test: 2d.path.bezierCurveTo.basic
-OK           0/1  html/canvas/element/path-objects/2d.path.bezierCurveTo.ensuresubpath.1.html
-  FAIL      If there is no subpath, the first control point is added (and nothing is drawn up to it)
-OK           0/1  html/canvas/element/path-objects/2d.path.bezierCurveTo.ensuresubpath.2.html
-  FAIL      If there is no subpath, the first control point is added
-OK           0/1  html/canvas/element/path-objects/2d.path.bezierCurveTo.nonfinite.html
-  FAIL      bezierCurveTo() with Infinity/NaN is ignored
-OK           0/1  html/canvas/element/path-objects/2d.path.bezierCurveTo.scaled.html
-  FAIL      Canvas test: 2d.path.bezierCurveTo.scaled
-OK           0/1  html/canvas/element/path-objects/2d.path.bezierCurveTo.shape.html
-  FAIL      Canvas test: 2d.path.bezierCurveTo.shape
+OK           1/1  html/canvas/element/path-objects/2d.path.bezierCurveTo.basic.html
+OK           1/1  html/canvas/element/path-objects/2d.path.bezierCurveTo.ensuresubpath.1.html
+OK           1/1  html/canvas/element/path-objects/2d.path.bezierCurveTo.ensuresubpath.2.html
+OK           1/1  html/canvas/element/path-objects/2d.path.bezierCurveTo.nonfinite.html
+OK           1/1  html/canvas/element/path-objects/2d.path.bezierCurveTo.scaled.html
+OK           1/1  html/canvas/element/path-objects/2d.path.bezierCurveTo.shape.html
 OK           1/1  html/canvas/element/path-objects/2d.path.clip.basic.1.html
 OK           1/1  html/canvas/element/path-objects/2d.path.clip.basic.2.html
 OK           1/1  html/canvas/element/path-objects/2d.path.clip.empty.html
@@ -2591,10 +2540,8 @@ OK           0/1  html/canvas/element/path-objects/2d.path.clip.winding.evenodd.
 OK           1/1  html/canvas/element/path-objects/2d.path.closePath.empty.html
 OK           1/1  html/canvas/element/path-objects/2d.path.closePath.newline.html
 OK           1/1  html/canvas/element/path-objects/2d.path.closePath.nextpoint.html
-OK           0/1  html/canvas/element/path-objects/2d.path.closed.arc.html
-  FAIL      line caps should not be drawn on closed arcs
-OK           0/1  html/canvas/element/path-objects/2d.path.ellipse.basics.html
-  FAIL      Verify canvas throws error when drawing ellipse with negative radii.
+OK           1/1  html/canvas/element/path-objects/2d.path.closed.arc.html
+OK           1/1  html/canvas/element/path-objects/2d.path.ellipse.basics.html
 OK           1/1  html/canvas/element/path-objects/2d.path.fill.closed.basic.html
 OK           1/1  html/canvas/element/path-objects/2d.path.fill.closed.unaffected.html
 OK           1/1  html/canvas/element/path-objects/2d.path.fill.overlap.html
@@ -2670,20 +2617,13 @@ OK           1/1  html/canvas/element/path-objects/2d.path.moveTo.basic.html
 OK           1/1  html/canvas/element/path-objects/2d.path.moveTo.multiple.html
 OK           1/1  html/canvas/element/path-objects/2d.path.moveTo.newsubpath.html
 OK           1/1  html/canvas/element/path-objects/2d.path.moveTo.nonfinite.html
-OK           0/1  html/canvas/element/path-objects/2d.path.open.arc.html
-  FAIL      line caps should be drawn on open arcs
-OK           0/1  html/canvas/element/path-objects/2d.path.quadraticCurveTo.basic.html
-  FAIL      Canvas test: 2d.path.quadraticCurveTo.basic
-OK           0/1  html/canvas/element/path-objects/2d.path.quadraticCurveTo.ensuresubpath.1.html
-  FAIL      If there is no subpath, the first control point is added (and nothing is drawn up to it)
-OK           0/1  html/canvas/element/path-objects/2d.path.quadraticCurveTo.ensuresubpath.2.html
-  FAIL      If there is no subpath, the first control point is added
-OK           0/1  html/canvas/element/path-objects/2d.path.quadraticCurveTo.nonfinite.html
-  FAIL      quadraticCurveTo() with Infinity/NaN is ignored
-OK           0/1  html/canvas/element/path-objects/2d.path.quadraticCurveTo.scaled.html
-  FAIL      Canvas test: 2d.path.quadraticCurveTo.scaled
-OK           0/1  html/canvas/element/path-objects/2d.path.quadraticCurveTo.shape.html
-  FAIL      Canvas test: 2d.path.quadraticCurveTo.shape
+OK           1/1  html/canvas/element/path-objects/2d.path.open.arc.html
+OK           1/1  html/canvas/element/path-objects/2d.path.quadraticCurveTo.basic.html
+OK           1/1  html/canvas/element/path-objects/2d.path.quadraticCurveTo.ensuresubpath.1.html
+OK           1/1  html/canvas/element/path-objects/2d.path.quadraticCurveTo.ensuresubpath.2.html
+OK           1/1  html/canvas/element/path-objects/2d.path.quadraticCurveTo.nonfinite.html
+OK           1/1  html/canvas/element/path-objects/2d.path.quadraticCurveTo.scaled.html
+OK           1/1  html/canvas/element/path-objects/2d.path.quadraticCurveTo.shape.html
 OK           1/1  html/canvas/element/path-objects/2d.path.rect.basic.html
 OK           1/1  html/canvas/element/path-objects/2d.path.rect.closed.html
 OK           1/1  html/canvas/element/path-objects/2d.path.rect.end.1.html
@@ -2703,123 +2643,78 @@ OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.1.radius.do
   FAIL      Verify that when one radius is given to roundRect(), specified as a DOMPoint, it applies to all corners.
 OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.1.radius.dompoint.single.argument.html
   FAIL      Verify that when one radius is given to roundRect() as a non-array argument, specified as a DOMPoint, it applies to all corners.
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.1.radius.dompointinit.html
-  FAIL      Verify that when one radius is given to roundRect(), specified as a DOMPointInit, applies to all corners.
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.1.radius.dompointinit.single.argument.html
-  FAIL      Verify that when one radius is given to roundRect() as a non-array argument, specified as a DOMPointInit, applies to all corners.
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.1.radius.double.html
-  FAIL      Verify that when one radius is given to roundRect(), specified as a double, it applies to all corners.
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.1.radius.double.single.argument.html
-  FAIL      Verify that when one radius is given to roundRect() as a non-array argument, specified as a double, it applies to all corners.
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.1.radius.dompointinit.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.1.radius.dompointinit.single.argument.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.1.radius.double.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.1.radius.double.single.argument.html
 OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.2.radii.1.dompoint.html
   FAIL      Verify that when two radii are given to roundRect(), the first radius, specified as a DOMPoint, applies to the top-left and bottom-right corners.
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.2.radii.1.dompointinit.html
-  FAIL      Verify that when two radii are given to roundRect(), the first radius, specified as a DOMPointInit, applies to the top-left and bottom-right corners.
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.2.radii.1.double.html
-  FAIL      Verify that when two radii are given to roundRect(), the first radius, specified as a double, applies to the top-left and bottom-right corners.
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.2.radii.1.dompointinit.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.2.radii.1.double.html
 OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.2.radii.2.dompoint.html
   FAIL      Verify that when two radii are given to roundRect(), the second radius, specified as a DOMPoint, applies to the top-right and bottom-left corners.
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.2.radii.2.dompointinit.html
-  FAIL      Verify that when two radii are given to roundRect(), the second radius, specified as a DOMPointInit, applies to the top-right and bottom-left corners.
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.2.radii.2.double.html
-  FAIL      Verify that when two radii are given to roundRect(), the second radius, specified as a double, applies to the top-right and bottom-left corners.
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.2.radii.2.dompointinit.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.2.radii.2.double.html
 OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.3.radii.1.dompoint.html
   FAIL      Verify that when three radii are given to roundRect(), the first radius, specified as a DOMPoint, applies to the top-left corner.
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.3.radii.1.dompointinit.html
-  FAIL      Verify that when three radii are given to roundRect(), the first radius, specified as a DOMPointInit, applies to the top-left corner.
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.3.radii.1.double.html
-  FAIL      Verify that when three radii are given to roundRect(), the first radius, specified as a double, applies to the top-left corner.
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.3.radii.1.dompointinit.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.3.radii.1.double.html
 OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.3.radii.2.dompoint.html
   FAIL      Verify that when three radii are given to roundRect(), the second radius, specified as a DOMPoint, applies to the top-right and bottom-left corners.
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.3.radii.2.dompointinit.html
-  FAIL      Verify that when three radii are given to roundRect(), the second radius, specified as a DOMPoint, applies to the top-right and bottom-left corners.
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.3.radii.2.double.html
-  FAIL      Verify that when three radii are given to roundRect(), the second radius, specified as a double, applies to the top-right and bottom-left corners.
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.3.radii.2.dompointinit.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.3.radii.2.double.html
 OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.3.radii.3.dompoint.html
   FAIL      Verify that when three radii are given to roundRect(), the third radius, specified as a DOMPoint, applies to the bottom-right corner.
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.3.radii.3.dompointinit.html
-  FAIL      Verify that when three radii are given to roundRect(), the third radius, specified as a DOMPointInit, applies to the bottom-right corner.
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.3.radii.3.double.html
-  FAIL      Verify that when three radii are given to roundRect(), the third radius, specified as a double, applies to the bottom-right corner.
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.3.radii.3.dompointinit.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.3.radii.3.double.html
 OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.4.radii.1.dompoint.html
   FAIL      Verify that when four radii are given to roundRect(), the first radius, specified as a DOMPoint, applies to the top-left corner.
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.4.radii.1.dompointinit.html
-  FAIL      Verify that when four radii are given to roundRect(), the first radius, specified as a DOMPointInit, applies to the top-left corner.
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.4.radii.1.double.html
-  FAIL      Verify that when four radii are given to roundRect(), the first radius, specified as a double, applies to the top-left corner.
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.4.radii.1.dompointinit.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.4.radii.1.double.html
 OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.4.radii.2.dompoint.html
   FAIL      Verify that when four radii are given to roundRect(), the second radius, specified as a DOMPoint, applies to the top-right corner.
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.4.radii.2.dompointinit.html
-  FAIL      Verify that when four radii are given to roundRect(), the second radius, specified as a DOMPointInit, applies to the top-right corner.
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.4.radii.2.double.html
-  FAIL      Verify that when four radii are given to roundRect(), the second radius, specified as a double, applies to the top-right corner.
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.4.radii.2.dompointinit.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.4.radii.2.double.html
 OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.4.radii.3.dompoint.html
   FAIL      Verify that when four radii are given to roundRect(), the third radius, specified as a DOMPoint, applies to the bottom-right corner.
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.4.radii.3.dompointinit.html
-  FAIL      Verify that when four radii are given to roundRect(), the third radius, specified as a DOMPointInit, applies to the bottom-right corner.
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.4.radii.3.double.html
-  FAIL      Verify that when four radii are given to roundRect(), the third radius, specified as a double, applies to the bottom-right corner.
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.4.radii.3.dompointinit.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.4.radii.3.double.html
 OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.4.radii.4.dompoint.html
   FAIL      Verify that when four radii are given to roundRect(), the fourth radius, specified as a DOMPoint, applies to the bottom-left corner.
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.4.radii.4.dompointinit.html
-  FAIL      Verify that when four radii are given to roundRect(), the fourth radius, specified as a DOMPointInit, applies to the bottom-left corner.
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.4.radii.4.double.html
-  FAIL      Verify that when four radii are given to roundRect(), the fourth radius, specified as a double, applies to the bottom-left corner.
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.badinput.html
-  FAIL      roundRect() throws or does not throw errors given the strange inputs.
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.closed.html
-  FAIL      Canvas test: 2d.path.roundrect.closed
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.end.1.html
-  FAIL      Canvas test: 2d.path.roundrect.end.1
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.end.2.html
-  FAIL      Canvas test: 2d.path.roundrect.end.2
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.end.3.html
-  FAIL      Canvas test: 2d.path.roundrect.end.3
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.end.4.html
-  FAIL      Canvas test: 2d.path.roundrect.end.4
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.negative.html
-  FAIL      Canvas test: 2d.path.roundrect.negative
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.newsubpath.html
-  FAIL      Canvas test: 2d.path.roundrect.newsubpath
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.4.radii.4.dompointinit.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.4.radii.4.double.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.badinput.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.closed.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.end.1.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.end.2.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.end.3.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.end.4.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.negative.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.newsubpath.html
 OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.nonfinite.html
   FAIL      roundRect() with Infinity/NaN is ignored
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.radius.intersecting.1.html
-  FAIL      Check that roundRects with intersecting corner arcs are rendered correctly.
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.radius.intersecting.2.html
-  FAIL      Check that roundRects with intersecting corner arcs are rendered correctly.
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.radius.intersecting.1.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.radius.intersecting.2.html
 OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.radius.negative.html
   FAIL      roundRect() with negative radius throws an exception
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.radius.noargument.html
-  FAIL      Check that roundRect draws a rectangle when no radii are provided.
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.radius.none.html
-  FAIL      Check that roundRect throws an RangeError if radii is an empty array.
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.radius.toomany.html
-  FAIL      Check that roundRect throws an IndeSizeError if radii has more than four items.
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.selfintersect.html
-  FAIL      Canvas test: 2d.path.roundrect.selfintersect
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.winding.html
-  FAIL      Canvas test: 2d.path.roundrect.winding
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.zero.1.html
-  FAIL      Canvas test: 2d.path.roundrect.zero.1
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.zero.2.html
-  FAIL      Canvas test: 2d.path.roundrect.zero.2
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.zero.3.html
-  FAIL      Canvas test: 2d.path.roundrect.zero.3
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.zero.4.html
-  FAIL      Canvas test: 2d.path.roundrect.zero.4
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.zero.5.html
-  FAIL      Canvas test: 2d.path.roundrect.zero.5
-OK           0/1  html/canvas/element/path-objects/2d.path.roundrect.zero.6.html
-  FAIL      Canvas test: 2d.path.roundrect.zero.6
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.radius.noargument.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.radius.none.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.radius.toomany.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.selfintersect.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.winding.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.zero.1.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.zero.2.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.zero.3.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.zero.4.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.zero.5.html
+OK           1/1  html/canvas/element/path-objects/2d.path.roundrect.zero.6.html
 OK           1/1  html/canvas/element/path-objects/2d.path.stroke.empty.html
 OK           1/1  html/canvas/element/path-objects/2d.path.stroke.overlap.html
-OK           0/1  html/canvas/element/path-objects/2d.path.stroke.prune.arc.html
-  FAIL      Zero-length line segments from arcTo and arc are removed before stroking
+OK           1/1  html/canvas/element/path-objects/2d.path.stroke.prune.arc.html
 OK           1/1  html/canvas/element/path-objects/2d.path.stroke.prune.closed.html
 OK           0/1  html/canvas/element/path-objects/2d.path.stroke.prune.corner.html
   FAIL      Zero-length line segments are removed before stroking with miters
-OK           0/1  html/canvas/element/path-objects/2d.path.stroke.prune.curve.html
-  FAIL      Zero-length line segments from quadraticCurveTo and bezierCurveTo are removed before stroking
+OK           1/1  html/canvas/element/path-objects/2d.path.stroke.prune.curve.html
 OK           1/1  html/canvas/element/path-objects/2d.path.stroke.prune.line.html
 OK           1/1  html/canvas/element/path-objects/2d.path.stroke.prune.rect.html
 OK           1/1  html/canvas/element/path-objects/2d.path.stroke.scale1.html
