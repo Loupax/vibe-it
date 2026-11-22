@@ -4135,7 +4135,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     var done = function () {
       if (!inPage(el) || ifrKey(el) !== k) return;
       syncWin();
-      if (dynPages[k].length) { dropFrame(el.__id); loadFrameLater(el); } else el.dispatchEvent(new g.Event('load'));
+      if (dynPages[k].length) { var fo = frames[el.__id]; if (fo && !fo.realm) dropFrame(el.__id); loadFrameLater(el); } else el.dispatchEvent(new g.Event('load'));
     };
     if (dynBusy[k]) { dynBusy[k].push(done); return true; }
     var w = dynBusy[k] = [done];
@@ -4389,7 +4389,9 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     var s = n === 'src' || n === 'srcdoc', nm = n === 'name';
     if (!s && !nm) return;
     if (__d_tag(id).toLowerCase() !== 'iframe') return;
-    if (s && nFrames) dropFrame(id);
+    // QDOM5c: an initial about:blank window that has not loaded anything is navigated in place (the Window is reused, as in
+    // browsers); `loadFrame` moves it to the page's URL when the fetch ends.
+    if (s && nFrames) { var f0 = frames[id]; if (!(n === 'src' && f0 && f0.realm && !f0.loaded && frameSrcdoc(wrap(id)) == null && ifrKey(wrap(id)) !== null)) dropFrame(id); }
     if (s && inPage(wrap(id)) && frameHtml(wrap(id)) != null) loadFrameLater(wrap(id));
     else if (n === 'src' && inPage(wrap(id)) && ifrFetch(wrap(id))) { /* QDOM5b: its load comes when the fetch ends */ }
     else if (n === 'src' && inPage(wrap(id)) && frameSrc(wrap(id)) !== '' && !frameSrcOk(wrap(id))) {
@@ -4419,6 +4421,11 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     var f = frameOf(el);
     if (!f || f.loaded) return;
     f.loaded = true;
+    if (f.realm && frameSrcdoc(el) == null && !frameIsData(el)) {
+      // QDOM5c: the reused initial window is navigated to the fetched page's URL (location, document URL, base).
+      var pgn = ifrPage(el);
+      if (pgn.length && f.win.location.href !== pgn[0]) f.win.__scratchy_realm_nav(pgn[0]);
+    }
     if (f.realm) { f.win.__scratchy_frame_load(html, top); return; }
     // The stand-in (no snapshot, QPT1e): the document only, no scripts.
     __d_load_html(f.doc.__id, html);
@@ -4640,7 +4647,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (ceOn) ceScan(doc.__id, false);
     if (/<iframe/i.test(html)) syncWin();
     var ids = __d_query(doc.__id, 'script', false) || [], k = 0, n = 0;
-    var finish = function () {
+    var finish0 = function () {
       if (g.closed) return;
       doc.readyState = 'interactive';
       g.__scratchy_dispatch(doc, new g.Event('DOMContentLoaded', { bubbles: true }));
@@ -4651,6 +4658,9 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       g.__scratchy_dispatch(g, new g.Event('load'));
       if (frameOnLoad && !g.closed) frameOnLoad();
     };
+    // QDOM5c: document.close() (top false) ends the load in a task, not inside the caller: an iframe `load` handler that
+    // calls document.open()/close() again (per-global.window.html) must not recurse on the stack.
+    var finish = function () { if (top) finish0(); else g.setTimeout(finish0, 0); };
     var step = function (top) {
       while (k < ids.length) {
         if (g.closed) return;
@@ -4689,6 +4699,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     };
     step(top);
   };
+  Object.defineProperty(g, '__scratchy_frame_base_clear', { value: function () { baseFallback = null; } });
   Object.defineProperty(g, '__scratchy_frame_load', { value: function (html, top) { frameLoad(html, !!top); } });
   var sOTxt = __d_settext, sOSet = __d_setattr;
   // QDOMATOM (DOM "insert" step 7+, HTML post-connection steps): after the WHOLE insertion (a fragment's nodes, a

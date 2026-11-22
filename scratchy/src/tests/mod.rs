@@ -91,6 +91,7 @@ mod qsmooth1_tests;
 mod qdom8_tests;
 mod qdom5_tests;
 mod qdom5b_tests;
+mod qdom5c_tests;
 mod qel6_tests;
 mod qel7_tests;
 mod qdom15_tests;

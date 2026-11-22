@@ -1238,6 +1238,7 @@ const PRELUDE: &str = r#"
   // startup snapshot bakes this prelude over an about:blank env; a page engine then calls
   // `__scratchy_apply_env(its env)` (the same values the code above computed from `env`).
   var navObj = g.navigator, envHooks = [];
+  Object.defineProperty(g, 'clientInformation', { get: function () { return g.navigator; }, configurable: true, enumerable: true });
   Object.defineProperty(g, '__scratchy_env_hooks', { value: envHooks, configurable: true });
   Object.defineProperty(g, '__scratchy_apply_env', { value: function (e) {
     var sec = e.protocol === 'https:' || e.protocol === 'wss:' ||
@@ -1308,6 +1309,18 @@ const PRELUDE: &str = r#"
     Object.defineProperty(g, '__ws_detach', { value: wsDetach, configurable: true });
     Object.defineProperty(g, 'WebSocket', { value: WebSocket, writable: true, configurable: true });
     p.__scratchy_rej_sub(g.__scratchy_rej_flush);
+    // QDOM5c: the initial about:blank window navigates in place to a same-origin URL (the Window object stays): the
+    // location parts and the document URL change, the about:blank base fallback goes.
+    Object.defineProperty(g, '__scratchy_realm_nav', { value: function (href) {
+      var n = new g.URL(href);
+      var e = { href: n.href, protocol: n.protocol, host: n.host, hostname: n.hostname, port: n.port, pathname: n.pathname, search: n.search, hash: n.hash };
+      Object.keys(e).forEach(function (k) { locSt[k] = e[k]; });
+      ['URL', 'documentURI'].forEach(function (k) {
+        var d = Object.getOwnPropertyDescriptor(doc, k);
+        if (d && 'value' in d) { d.value = n.href; Object.defineProperty(doc, k, d); }
+      });
+      g.__scratchy_frame_base_clear();
+    }, configurable: true });
     // QPT1b (R53 D6): the parent calls this when it drops the realm.
     Object.defineProperty(g, '__scratchy_realm_release', { value: function () {
       g.__d_frames_drop_all();
