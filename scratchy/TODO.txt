@@ -101,9 +101,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QCSS2 [S] (P2, from QMAPI2 #523; Sonnet; css.rs parse_supports_condition, js.rs) `CSS.supports(prop, value)` and
       `CSS.supports(conditionText)` on top of `parse_supports_condition` (today `CSS.supports` does not exist; pages
       feature-test with it). Tests + --wpt-th (css/cssom has CSS.supports files).
-- [ ] [WIP] QAPI6 [M] (P2, from QMAPI3 R66; Opus; css.rs selector parser) `:has()` (relative selector lists, descendant and
-      `>`/`+`/`~` anchors), with invalidation: a DOM change inside the subject re-matches the anchors (needs the QINC1
-      invalidation sets). Gate: WPT css/selectors :has files; the 6 pages' `:has` rows disappear from the css table.
 - [ ] QAPI4b [S] (P3, from QAPI4 #571; Sonnet; fonts_prelude.js) FontFaceSet `check()`/`load()` match faces by weight,
       style and unicode-range (today: family only). NOT in scope and NEEDS THE USER'S DECISION before anyone does it:
       rendering fetched web fonts (today `FontFace.load()` fetches through wire and drops the bytes).
@@ -111,9 +108,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       (`slot.assign()`, `slotAssignment: 'manual'`), element-valued ARIA properties (`ariaActiveDescendantElement`,
       `ariaLabelledByElements`, ...). WPT: html/dom aria-element-reflection*, element-internals-aria-element-reflection*,
       shadow-dom slotchange*.
-- [ ] [WIP] QAPI6b [S] (P2, from QAPI6 #573; Opus; style.rs, dom.rs; stacked on scratchy/qapi6-has) Win back the `:has` cost:
-      YouTube results forced layouts +65 % with its 35 `:has` rules (659/556 -> 1085/918 ms). Profile `:has` rules in the
-      universal bucket (`.x :has(> .y)`), share one SelectorCaches per build (cleared on DOM writes). Target: within noise.
 - [ ] [WIP] QAPI6c [S] (P3, from QAPI6 #573; Opus; incr_style.rs) Check-mode mismatch seen once on YouTube results while the
       window settled ("adopted element style reads vh: build true vs engine false"); build a repro with a height change
       during load.
