@@ -302,3 +302,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 QFF1a: the stopped agent's worktree was removed on stop; on resume it sat in the main checkout and (correctly) refused my 'reset --hard' instruction. Main checkout verified untouched. Respawned QFF1a fresh with its own worktree. Lesson: never resume a stopped worktree agent; respawn it.
 - 2026-11-22 USER: limit agents to 3 (token budget for the week). 5 running now (QEL2b, QDOM5b, QCSS-B, QCSS-A rebasing #584, QFF1a); none stopped, no launches/resumes until fewer than 3 run. Priority for the next slot: QINC1m (after #590), then QFF1b after QFF1a.
 - 2026-11-22 Merged #590 QAPI6c 1368c44.
+- 2026-11-22 USER asked to merge #591 (TODO QCOMP6) and #544 (TODO QWPT10/QCNV1/QCNV2/QGL1). #544: rebased by me (TODO.txt conflict: kept main + the 4 new items), renumbered QWPT10 -> QWPT12 (id taken by #543). Queue: #591 -> #544 -> #584 (QCSS-A rebased).
