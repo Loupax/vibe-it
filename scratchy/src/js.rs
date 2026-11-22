@@ -683,6 +683,13 @@ const PRELUDE: &str = r#"
     if (isFwdEl(el, type) && el.ownerDocument === g.document) { s = hslot(g, type, true); s.v = undefined; s.el = el; }
     if ((s = hslot(el, type, false))) s.v = undefined;
   } });
+  // QDOM5d: HTML "document open steps" 11-13: the listeners and event handlers of the Document and the Window are erased.
+  Object.defineProperty(g, '__scratchy_erase_listeners', { value: function (t) {
+    var m = store.get(t), k;
+    if (m) { for (k in m) m[k].forEach(function (e) { e.removed = true; }); store.delete(t); }
+    var h = hslots.get(t);
+    if (h) { for (k in h) if (h[k].entry) h[k].entry.removed = true; hslots.delete(t); }
+  } });
   var callHandler = function (node, h, ev) {
     try {
       if (node === g && ev.type === 'error' && ev instanceof g.ErrorEvent) {

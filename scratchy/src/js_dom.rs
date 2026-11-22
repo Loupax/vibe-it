@@ -4446,10 +4446,16 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   }
   doc.write = dwrite(false);
   doc.writeln = dwrite(true);
+  // QIFRNAV: "ignore-opens-during-unload counter": document.open() does nothing while this document (or a window it
+  // contains) is being unloaded by a navigation of its iframe.
+  var ignoreOpens = 0;
   doc.open = function () {
-    if (!frameDoc || this !== doc || (curScript && wlast >= 0) || g.closed) return doc;
+    // HTML "document open steps" 3: an XML document throws, before any other bail-out.
+    if (this === doc && Object.getPrototypeOf(doc) === XMLDocument.prototype) throw herr("Failed to execute 'open' on 'Document': Only HTML documents support open().", 'InvalidStateError');
+    if (!frameDoc || this !== doc || (curScript && wlast >= 0) || g.closed || ignoreOpens > 0) return doc;
     var kids = __d_children(doc.__id, false);
     for (var i = 0; i < kids.length; i++) __d_remove(kids[i]);
+    g.__scratchy_erase_listeners(g); g.__scratchy_erase_listeners(doc);
     wBuf = ''; doc.readyState = 'loading';
     return doc;
   };
@@ -5009,6 +5015,35 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   };
   __d_settext = function (id, t) { sfTxt(id, t); sweepFrames(); };
   // QPT1d: a src/srcdoc/name change of an iframe changes the window list (and `window[name]`).
+  // QIFRNAV: unloading this window's document for a navigation of its iframe (HTML "unload a document", `before` adds the
+  // "prompt to unload" beforeunload pass): beforeunload at the window and, in order, pagehide (persisted false) at the
+  // window, visibilitychange (now hidden) at the document, unload at the window; each pass reaches the nested windows
+  // after this one's own events, with this document's ignore-opens-during-unload counter raised for all of it.
+  // Only a window that finished loading something unloads (the initial about:blank has nothing to unload).
+  var unloadPhase = function (ph) {
+    ignoreOpens++;
+    try {
+      var ev = null;
+      if (ph === 'beforeunload') g.__scratchy_dispatch(g, new g.BeforeUnloadEvent('beforeunload', { cancelable: true }));
+      else {
+        g.__scratchy_dispatch(g, new g.PageTransitionEvent('pagehide', { persisted: false }));
+        Object.defineProperty(doc, 'visibilityState', { get: function () { return 'hidden'; }, configurable: true, enumerable: true });
+        Object.defineProperty(doc, 'hidden', { get: function () { return true; }, configurable: true, enumerable: true });
+        g.__scratchy_dispatch(doc, new g.Event('visibilitychange', { bubbles: true }));
+        g.__scratchy_dispatch(g, new g.Event('unload'));
+      }
+      var kids = [];
+      for (var k in frames) if (frames[k].realm && frames[k].loaded) kids.push(frames[k]);
+      for (var i = 0; i < kids.length; i++) if (frames[kids[i].el.__id] === kids[i]) try { kids[i].win.__scratchy_unload_phase(ph); } catch (e) {}
+    } finally { ignoreOpens--; }
+  };
+  Object.defineProperty(g, '__scratchy_unload_phase', { value: unloadPhase });
+  var unloadFrame = function (id, before) {
+    var f = frames[id];
+    if (!f || !f.realm || !f.loaded || f.unloaded || g.closed) return;
+    f.unloaded = true;
+    try { if (before) f.win.__scratchy_unload_phase('beforeunload'); f.win.__scratchy_unload_phase('unload'); } catch (e) {}
+  };
   var ifrAttr = function (id, n) {
     n = String(n).toLowerCase();
     var s = n === 'src' || n === 'srcdoc', nm = n === 'name';
@@ -5016,7 +5051,20 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (__d_tag(id).toLowerCase() !== 'iframe') return;
     // QDOM5c: a src set AFTER insertion drops the old window as before (its document stays about:blank for scripts that
     // kept it, url.window.html); only a src present at insertion reuses the initial window (see `ifrFetch`).
+    // QIFRNAV: a window that finished loading something is unloaded by the navigation, as a task (HTML navigate is async;
+    // an unload handler may also run longer than the callback budget, so the unload task and the navigation task are
+    // separate: a handler killed by the budget does not stop the navigation). The old window stays the iframe's until then.
+    var of = s && nFrames ? frames[id] : null;
+    if (of && of.realm && of.loaded && !of.unloaded && !of.stand) {
+      var tok = of.navTok = (of.navTok || 0) + 1, cur = function () { return frames[id] === of && of.navTok === tok && inPage(of.el); };
+      g.setTimeout(function () { if (cur()) unloadFrame(id, true); }, 0);
+      g.setTimeout(function () { if (cur()) { dropFrame(id); ifrAttr2(id, n, s, nm); } }, 0);
+      return;
+    }
     if (s && nFrames) dropFrame(id);
+    ifrAttr2(id, n, s, nm);
+  };
+  var ifrAttr2 = function (id, n, s, nm) {
     if (s && inPage(wrap(id)) && frameHtml(wrap(id)) != null) loadFrameLater(wrap(id));
     else if (n === 'src' && inPage(wrap(id)) && ifrFetch(wrap(id))) { /* QDOM5b: its load comes when the fetch ends */ }
     else if (n === 'src' && inPage(wrap(id)) && frameSrc(wrap(id)) !== '' && !frameSrcOk(wrap(id))) {

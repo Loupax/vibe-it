@@ -1634,18 +1634,13 @@ OK           2/8  custom-elements/state/state-pseudo-class.html
   FAIL      :state(foo) and other pseudo classes
   FAIL      :state(foo) and ::part()
   FAIL      :state(foo) and :host()
-TIMEOUT     0/11  custom-elements/throw-on-dynamic-markup-insertion-counter-construct-xml-parser.xhtml
-  FAIL      document.open() must throw an InvalidStateError when synchronously constructing a custom element
-  FAIL      document.open("text/html") must throw an InvalidStateError when synchronously constructing a custom element
-  TIMEOUT   document.open(URL) must NOT throw an InvalidStateError when synchronously constructing a custom element
-  NOTRUN    document.close() must throw an InvalidStateError when synchronously constructing a custom element
-  NOTRUN    document.write must throw an InvalidStateError when synchronously constructing a custom element
-  NOTRUN    document.writeln must throw an InvalidStateError when synchronously constructing a custom element
-  NOTRUN    document.open() of another document must not throw an InvalidStateError when synchronously constructing a custom element
-  NOTRUN    document.open("text/html") of another document must not throw an InvalidStateError when synchronously constructing a custom element
-  NOTRUN    document.close() of another document must not throw an InvalidStateError when synchronously constructing a custom element
-  NOTRUN    document.write of another document must not throw an InvalidStateError when synchronously constructing a custom element
-  NOTRUN    document.writeln of another document must not throw an InvalidStateError when synchronously constructing a custom element
+OK          5/11  custom-elements/throw-on-dynamic-markup-insertion-counter-construct-xml-parser.xhtml
+  FAIL      document.open(URL) must NOT throw an InvalidStateError when synchronously constructing a custom element
+  FAIL      document.close() must throw an InvalidStateError when synchronously constructing a custom element
+  FAIL      document.write must throw an InvalidStateError when synchronously constructing a custom element
+  FAIL      document.writeln must throw an InvalidStateError when synchronously constructing a custom element
+  FAIL      document.write of another document must not throw an InvalidStateError when synchronously constructing a custom element
+  FAIL      document.writeln of another document must not throw an InvalidStateError when synchronously constructing a custom element
 TIMEOUT     0/11  custom-elements/throw-on-dynamic-markup-insertion-counter-construct.html
   FAIL      document.open() must throw an InvalidStateError when synchronously constructing a custom element
   FAIL      document.open("text/html") must throw an InvalidStateError when synchronously constructing a custom element
@@ -1658,18 +1653,13 @@ TIMEOUT     0/11  custom-elements/throw-on-dynamic-markup-insertion-counter-cons
   NOTRUN    document.close() of another document must not throw an InvalidStateError when synchronously constructing a custom element
   NOTRUN    document.write of another document must not throw an InvalidStateError when synchronously constructing a custom element
   NOTRUN    document.writeln of another document must not throw an InvalidStateError when synchronously constructing a custom element
-TIMEOUT     0/11  custom-elements/throw-on-dynamic-markup-insertion-counter-reactions-xml-parser.xhtml
-  FAIL      document.open() must throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
-  FAIL      document.open("text/html") must throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
-  TIMEOUT   document.open(URL) must NOT throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
-  NOTRUN    document.close() must throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
-  NOTRUN    document.write must throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
-  NOTRUN    document.writeln must throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
-  NOTRUN    document.open() of another document must not throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
-  NOTRUN    document.open("text/html") of another document must not throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
-  NOTRUN    document.close() of another document must not throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
-  NOTRUN    document.write of another document must not throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
-  NOTRUN    document.writeln of another document must not throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
+OK          5/11  custom-elements/throw-on-dynamic-markup-insertion-counter-reactions-xml-parser.xhtml
+  FAIL      document.open(URL) must NOT throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
+  FAIL      document.close() must throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
+  FAIL      document.write must throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
+  FAIL      document.writeln must throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
+  FAIL      document.write of another document must not throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
+  FAIL      document.writeln of another document must not throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
 OK          0/11  custom-elements/throw-on-dynamic-markup-insertion-counter-reactions.html
   FAIL      document.open() must throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
   FAIL      document.open("text/html") must throw an InvalidStateError when processing custom element reactions for a synchronous constructed custom element
