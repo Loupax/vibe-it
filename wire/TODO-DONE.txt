@@ -94,3 +94,19 @@
       shows `X-Wire-Cache: hit` on its stylesheets and images on the
       second load, and wire's RSS does not grow with the cache size.
 
+- [x] **W-CACHE2 DONE ebea6bb #607 [S] Clearing the cache** (needs W-CACHE1).
+      - The existing control op `X-Wire-Cookie-Op: clear-site` (token required,
+        `X-Wire-Top-Site`) also deletes that partition's cache entries, so scratchy's
+        forget-site clears both; answer stays 204. Advertise with the `cache` feature
+        (no new op name). Deleting a partition needs the partition in the entry file
+        path (W-CACHE1's `<sha256(top site)>/` directories), so it is one directory
+        removal, not a scan.
+      - Honour the standard `Clear-Site-Data` response header (Chrome and Firefox do):
+        `"cache"` or `"*"` deletes the responding origin's entries in the current
+        partition; `"cookies"` or `"*"` clears the jar the same way (check whether
+        wire handles this today; probably not). The response itself is not stored.
+      - Whole-cache wipe: deleting the directory while wire is stopped is enough; no
+        control op unless scratchy needs one.
+      Tests: clear-site removes only that partition's entries and cookies; a
+      `Clear-Site-Data: "cache"` response makes the next request a miss; without
+      the token -> 403.
