@@ -101,7 +101,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       callback and return its result (or the input when absent), `isHTML/isScript/isScriptURL` (true for what a policy
       made), `emptyHTML/emptyScript`, `getAttributeType` -> null, `defaultPolicy` null; no enforcement. Tests in a new
       src/tests/qapi1_tests.rs; re-run corpus.sh: the row disappears.
-- [ ] QAPI2 [S] (P2, from QMAPI3 R66; Sonnet; js.rs navigator) Navigator members pages probe (5 of 12 pages): `webdriver`
+- [ ] [WIP] QAPI2 [S] (P2, from QMAPI3 R66; Sonnet; js.rs navigator) Navigator members pages probe (5 of 12 pages): `webdriver`
       false, `deviceMemory` 8, `connection` (NetworkInformation stub: effectiveType '4g', downlink, rtt, saveData,
       addEventListener), `plugins`/`mimeTypes` empty arrays, `userAgentData` (brands from the UA string, mobile false,
       platform 'Linux', `getHighEntropyValues` resolving the low-entropy fields).
