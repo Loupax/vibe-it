@@ -381,3 +381,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Merged #621 QWPT7c 206530b.
 - 2026-11-22 #622 QCNV4 READY (OffscreenCanvas; offscreen 0.0 -> 29.9, 316 files), merging. Launched QCNV5 (after #622).
 - 2026-11-22 Merged #622 QCNV4 5a1aad4.
+- 2026-11-22 #623 QWPTBUD READY (per-file budgets; 3 Range files off flaky), merging. Filed QIFRNAV; launched QDOM5d+QIFRNAV together.
