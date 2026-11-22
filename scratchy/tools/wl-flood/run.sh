@@ -71,7 +71,9 @@ trap cleanup EXIT
 # own wire on its own socket
 WSOCK="$OUT/wire.sock"
 rm -f "$WSOCK"
-"$WIRE" --socket "$WSOCK" >"$OUT/wire.log" 2>&1 &
+# W-CACHE1: WIRE_ARGS = extra wire arguments (e.g. --cache-dir DIR --cache-size 256M, or --no-cache)
+# shellcheck disable=SC2086
+"$WIRE" --socket "$WSOCK" ${WIRE_ARGS:-} >"$OUT/wire.log" 2>&1 &
 PIDS+=($!)
 i=0
 while [ ! -S "$WSOCK" ]; do

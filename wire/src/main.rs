@@ -1,3 +1,4 @@
+mod cache;
 mod cookies;
 mod mount;
 mod record;
@@ -44,6 +45,7 @@ use url::Url;
 
 fn print_usage() {
     eprintln!("usage: wire [--socket <path>] [--print-socket] [--no-cookies] [--cookie-file <path>]");
+    eprintln!("            [--cache-dir <path>] [--cache-size <size>] [--no-cache]");
     eprintln!("            [--mount ORIGIN=DIR]... [--mount-override PATH=FILE]...");
     eprintln!("  wire --mount http://HOST[:PORT]=DIR  serve that origin from the directory DIR, no socket");
     eprintln!("                       opened (repeatable). www./www1./www2. subdomains and PORT+1 are");
@@ -70,6 +72,12 @@ fn print_usage() {
     eprintln!("  wire --cookie-file <path> keep the cookie jar in <path> (mode 0600): loaded at start,");
     eprintln!("                       saved at most once a second while it changes and on SIGTERM.");
     eprintln!("                       Session cookies (no expiry date) are not saved.");
+    eprintln!("  wire --cache-dir <path> keep the HTTP cache (on by default, RFC 9111, private, partitioned");
+    eprintln!("                       by top-level site) in <path> instead of $XDG_CACHE_HOME/wire");
+    eprintln!("                       (~/.cache/wire). Mode 0700. One warning line when <path> is on tmpfs.");
+    eprintln!("  wire --cache-size <size> evict oldest entries when the cache is over <size> (default 1G;");
+    eprintln!("                       K/M/G suffixes).");
+    eprintln!("  wire --no-cache      do not cache at all (no files written).");
     eprintln!("  wire --socket <path> listen on <path> instead of the default location.");
     eprintln!("  wire --no-cookies    kill switch: disable the in-memory cookie jar entirely (the");
     eprintln!("                       X-Wire-Jar header is ignored, responses carry X-Wire-Cookies: off).");
@@ -89,6 +97,7 @@ fn main() {
     let mut mounts = mount::Mounts::default();
     let (mut record_dir, mut replay_dir, mut replay_rules) = (None::<PathBuf>, None::<PathBuf>, None::<PathBuf>);
     let mut replay_delay = Duration::ZERO;
+    let (mut cache_dir, mut cache_size, mut no_cache) = (None::<PathBuf>, None::<u64>, false);
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
@@ -147,6 +156,28 @@ fn main() {
                 cookies_enabled = false;
                 i += 1;
             }
+            "--no-cache" => {
+                no_cache = true;
+                i += 1;
+            }
+            "--cache-dir" | "--cache-size" => {
+                let Some(v) = args.get(i + 1) else {
+                    eprintln!("wire: {} needs an argument", args[i]);
+                    std::process::exit(1);
+                };
+                if args[i] == "--cache-dir" {
+                    cache_dir = Some(PathBuf::from(v));
+                } else {
+                    match cache::parse_size(v) {
+                        Ok(n) => cache_size = Some(n),
+                        Err(e) => {
+                            eprintln!("wire: {e}");
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                i += 2;
+            }
             "--print-socket" => {
                 print_socket = true;
                 i += 1;
@@ -161,6 +192,10 @@ fn main() {
 
     if cookie_file.is_some() && !cookies_enabled {
         eprintln!("wire: --cookie-file and --no-cookies contradict each other");
+        std::process::exit(1);
+    }
+    if no_cache && (cache_dir.is_some() || cache_size.is_some()) {
+        eprintln!("wire: --no-cache and --cache-dir/--cache-size contradict each other");
         std::process::exit(1);
     }
     let path = socket_path.unwrap_or_else(default_socket_path);
@@ -200,6 +235,20 @@ fn main() {
     if let Some(file) = cookie_file {
         shared = shared.with_cookie_file(file);
     }
+    // W-CACHE1: on by default. `--record` must see every answer complete and
+    // `--replay` never touches the network, so neither uses the cache.
+    if !no_cache && shared.recorder.is_none() && shared.replayer.is_none() {
+        let Some(dir) = cache_dir.or_else(cache::default_dir) else {
+            fail("no cache directory: set XDG_CACHE_HOME or HOME, or pass --cache-dir or --no-cache".into())
+        };
+        let c = cache::Cache::open(&dir, cache_size.unwrap_or(cache::DEFAULT_SIZE)).unwrap_or_else(|e| fail(e));
+        if cache::on_tmpfs(&dir) {
+            eprintln!("wire: cache dir {} is on tmpfs: up to --cache-size of it stays in RAM", dir.display());
+        }
+        let c = Arc::new(c);
+        c.start_evictor();
+        shared.cache = Some(c);
+    }
     let shared = Arc::new(shared);
     if let Err(e) = shared.write_token_file(&path) {
         eprintln!("wire: cannot write the control token {}: {e}; cookie control will not work", token_file_path(&path).display());
@@ -234,7 +283,7 @@ const DEFAULT_UA: &str = "wire/0.1 (+https://github.com/Loupax/vibe-it) scratchy
 /// Bumped when the scratchy<->wire control protocol (`X-Wire-*`) grows;
 /// sent as `X-Wire-Version` on EVERY response so scratchy can tell an old
 /// wire (no such header) from a new one before relying on the caps.
-const WIRE_VERSION: &str = "3";
+const WIRE_VERSION: &str = "4";
 
 /// Comma-separated optional features, sent as `X-Wire-Features` on every
 /// response (additive; absent on an older wire). `ua`: per-request User-Agent
@@ -243,8 +292,9 @@ const WIRE_VERSION: &str = "3";
 /// `jarfile`: `--cookie-file` persistence exists and the control op
 /// `X-Wire-Cookie-Op: clear-site` (+ `X-Wire-Top-Site`) is understood (W-PERSIST1).
 /// `token`: every cookie control request must carry `X-Wire-Control-Token`
-/// (read from `<socket>.token`).
-const WIRE_FEATURES: &str = "ua,ws,jarfile,token";
+/// (read from `<socket>.token`). `cache`: the HTTP cache (W-CACHE1, protocol
+/// version 4): `X-Wire-Cache` on every response while it is on.
+const WIRE_FEATURES: &str = "ua,ws,jarfile,token,cache";
 
 /// The one jar name scratchy may select with `X-Wire-Jar` (QF-D2a: ONE shared
 /// jar; a later `--profile NAME` changes this single value).
@@ -276,6 +326,9 @@ struct Shared {
     /// `--record DIR` / `--replay DIR` (QREC1): independent of `mounts`.
     recorder: Option<record::Recorder>,
     replayer: Option<record::Replayer>,
+    /// W-CACHE1: the on-disk HTTP cache (`None` under `--no-cache`, in tests
+    /// unless one sets it, and with `--record`/`--replay`).
+    cache: Option<Arc<cache::Cache>>,
 }
 
 impl Shared {
@@ -291,6 +344,7 @@ impl Shared {
             mounts: mount::Mounts::default(),
             recorder: None,
             replayer: None,
+            cache: None,
         }
     }
 
@@ -402,6 +456,20 @@ thread_local! {
     /// Value of the `X-Wire-Cookies` response header for the request this
     /// thread is serving ("" = no header). Set at the start of each request.
     static COOKIES_HDR: Cell<&'static str> = const { Cell::new("") };
+    /// Value of `X-Wire-Cache` (W-CACHE1: hit, miss, revalidated, stale,
+    /// bypass; "" = no header, the cache is off).
+    static CACHE_HDR: Cell<&'static str> = const { Cell::new("") };
+    /// What `stream_response` learned about the upstream body (W-MEDIA2 for
+    /// the cache: a cut body is never stored).
+    static BODY_INFO: Cell<BodyInfo> = const { Cell::new(BodyInfo { announced: None, truncated: false }) };
+}
+
+#[derive(Clone, Copy, Default, Debug)]
+struct BodyInfo {
+    /// Upstream `Content-Length` (ureq drops it when it undid gzip).
+    announced: Option<u64>,
+    /// Reading the upstream body failed before its end.
+    truncated: bool,
 }
 
 fn now_unix() -> i64 {
@@ -736,6 +804,7 @@ fn handle_connection(stream: UnixStream, agent: &ureq::Agent, shared: &Shared) {
     // ordinary request, exactly as before.
     if header(&request.headers, "x-wire-upgrade").is_some() && header(&request.headers, "x-wire-cookie-op").is_none() {
         COOKIES_HDR.with(|c| c.set(if shared.enabled { "" } else { "off" }));
+        CACHE_HDR.with(|c| c.set(if shared.cache.is_some() { "bypass" } else { "" }));
         if shared.replayer.is_some() {
             // QREC1: WebSocket is not recorded, so replay refuses the upgrade.
             let hs = vec![("Content-Type".to_string(), "text/plain".to_string()), ("X-Wire-Replay".to_string(), "websocket-refused".to_string())];
@@ -765,6 +834,7 @@ fn handle_connection(stream: UnixStream, agent: &ureq::Agent, shared: &Shared) {
 /// HTTP proxy reads, chosen specifically because it's the one standard
 /// way to tell a daemon sitting behind a bare Unix socket (no DNS/TLS-
 /// SNI of its own) exactly where to actually connect.
+#[derive(Clone)]
 struct ParsedRequest {
     method: String,
     url: Url,
@@ -1010,6 +1080,7 @@ fn cookie_control(shared: &Shared, request: &ParsedRequest, w: &mut impl Write) 
 
 fn execute_with(agent: &ureq::Agent, shared: &Shared, request: &ParsedRequest, w: &mut impl Write) -> std::io::Result<()> {
     COOKIES_HDR.with(|c| c.set(if shared.enabled { "" } else { "off" }));
+    CACHE_HDR.with(|c| c.set(if shared.cache.is_some() { "bypass" } else { "" }));
     let caps = parse_caps(&request.headers);
     if header(&request.headers, "x-wire-cookie-op").is_some() {
         return cookie_control(shared, request, w);
@@ -1055,7 +1126,28 @@ fn execute_network(agent: &ureq::Agent, shared: &Shared, request: &ParsedRequest
         && !header(&request.headers, "x-wire-cookies").is_some_and(|v| v.eq_ignore_ascii_case("off"));
     if use_jar {
         COOKIES_HDR.with(|c| c.set("on"));
-        return execute_with_jar(shared, request, caps, ua.as_deref(), w);
+    }
+    let ua = ua.as_deref();
+    if let Some(c) = &shared.cache {
+        // `Vary: Cookie` compares the Cookie header wire sends: the jar's.
+        let cookie = if use_jar {
+            let h = &request.headers;
+            let ctx = cookies::RequestCtx::new(&request.url, &request.method, header(h, "x-wire-top-site"), header(h, "x-wire-nav") == Some("1"), header(h, "x-wire-initiator-site"), false);
+            shared.jar().cookie_header(&ctx, now_unix())
+        } else {
+            header(&request.headers, "cookie").map(str::to_string)
+        };
+        let info = cache::ReqInfo { use_jar, ua: ua.unwrap_or(DEFAULT_UA), cookie };
+        return cache::handle(c, request, caps, &info, w, &mut |req, mut w| send_upstream(agent, shared, req, caps, use_jar, ua, &mut w));
+    }
+    send_upstream(agent, shared, request, caps, use_jar, ua, w)
+}
+
+/// The upstream request itself (jar path or not), after the cache decided.
+fn send_upstream(agent: &ureq::Agent, shared: &Shared, request: &ParsedRequest, caps: &Caps, use_jar: bool, ua: Option<&str>, w: &mut impl Write) -> std::io::Result<()> {
+    BODY_INFO.with(|b| b.set(BodyInfo::default()));
+    if use_jar {
+        return execute_with_jar(shared, request, caps, ua, w);
     }
     TRACKER.with(|t| *t.borrow_mut() = Tracker { public_only: caps.public_only, ..Tracker::default() });
     // Redirect limits are agent-level in ureq: only a request asking for a
@@ -1074,7 +1166,7 @@ fn execute_network(agent: &ureq::Agent, shared: &Shared, request: &ParsedRequest
     if let Some(t) = caps.timeout {
         req = req.timeout(t);
     }
-    if let Some(ua) = &ua {
+    if let Some(ua) = ua {
         req = req.set("User-Agent", ua);
     }
     for (name, value) in &request.headers {
@@ -1327,6 +1419,9 @@ fn stream_response(resp: ureq::Response, caps: &Caps, w: &mut impl Write, final_
         headers.push(("X-Wire-Target-Class".to_string(), worst.to_string()));
         headers.push(("X-Wire-Hop-Classes".to_string(), hops.join(",")));
     }
+    // ureq drops Content-Length itself when it undid gzip.
+    let announced = resp.header("content-length").and_then(|v| v.trim().parse::<u64>().ok());
+    BODY_INFO.with(|b| b.set(BodyInfo { announced, truncated: false }));
     let mut reader = resp.into_reader();
     let Some(max) = caps.max_bytes else {
         write_status_and_headers(w, status, &reason, &headers)?;
@@ -1336,20 +1431,27 @@ fn stream_response(resp: ureq::Response, caps: &Caps, w: &mut impl Write, final_
     // a cap needs the body buffered (at most max+1 bytes: the cap itself
     // bounds memory). Over the cap -> 502 + `X-Wire-Error: too-large`.
     let mut buf = Vec::new();
-    let _ = (&mut reader).take(max as u64 + 1).read_to_end(&mut buf);
+    if (&mut reader).take(max as u64 + 1).read_to_end(&mut buf).is_err() {
+        BODY_INFO.with(|b| b.set(BodyInfo { truncated: true, ..b.get() }));
+    }
     if buf.len() > max {
-        let body = format!("wire: response too large (limit {max} bytes)");
-        write_status_and_headers(
-            w,
-            502,
-            "Bad Gateway",
-            &[("Content-Type".to_string(), "text/plain".to_string()), ("X-Wire-Error".to_string(), "too-large".to_string())],
-        )?;
-        w.write_all(body.as_bytes())?;
-        return w.flush();
+        return write_too_large(w, max);
     }
     write_status_and_headers(w, status, &reason, &headers)?;
     w.write_all(&buf)
+}
+
+/// 502 + `X-Wire-Error: too-large` (over `X-Wire-Max-Bytes`).
+fn write_too_large(w: &mut (impl Write + ?Sized), max: usize) -> std::io::Result<()> {
+    let body = format!("wire: response too large (limit {max} bytes)");
+    write_status_and_headers(
+        w,
+        502,
+        "Bad Gateway",
+        &[("Content-Type".to_string(), "text/plain".to_string()), ("X-Wire-Error".to_string(), "too-large".to_string())],
+    )?;
+    w.write_all(body.as_bytes())?;
+    w.flush()
 }
 
 /// `X-Wire-Policy: public-only` refusal: 403 + `X-Wire-Error: policy`.
@@ -1388,13 +1490,17 @@ fn write_synthetic_error_response(w: &mut impl Write, message: &str) -> std::io:
     Ok(502)
 }
 
-fn write_status_and_headers(w: &mut impl Write, status: u16, reason: &str, headers: &[(String, String)]) -> std::io::Result<()> {
+fn write_status_and_headers(w: &mut (impl Write + ?Sized), status: u16, reason: &str, headers: &[(String, String)]) -> std::io::Result<()> {
     write!(w, "HTTP/1.1 {status} {reason}\r\n")?;
     write!(w, "X-Wire-Version: {WIRE_VERSION}\r\n")?;
     write!(w, "X-Wire-Features: {WIRE_FEATURES}\r\n")?;
     let cookies_hdr = COOKIES_HDR.with(Cell::get);
     if !cookies_hdr.is_empty() {
         write!(w, "X-Wire-Cookies: {cookies_hdr}\r\n")?;
+    }
+    let cache_hdr = CACHE_HDR.with(Cell::get);
+    if !cache_hdr.is_empty() {
+        write!(w, "X-Wire-Cache: {cache_hdr}\r\n")?;
     }
     for (name, value) in headers {
         write!(w, "{name}: {value}\r\n")?;
@@ -1408,7 +1514,7 @@ fn write_status_and_headers(w: &mut impl Write, status: u16, reason: &str, heade
 /// came from, and the two sides need different handling here: see
 /// below). 8 KiB: the same chunk size `std::io::copy`'s own default
 /// buffer already uses, not a figure picked specifically for this.
-fn copy_body(mut reader: impl Read, w: &mut impl Write) -> std::io::Result<()> {
+fn copy_body(mut reader: impl Read, w: &mut (impl Write + ?Sized)) -> std::io::Result<()> {
     let mut buf = [0u8; 8192];
     loop {
         let n = match reader.read(&mut buf) {
@@ -1430,7 +1536,11 @@ fn copy_body(mut reader: impl Read, w: &mut impl Write) -> std::io::Result<()> {
             // arrived at all. Only a failure *writing to the client*
             // (`w`, below) propagates — `handle_connection`'s own
             // `BrokenPipe` handling already expects exactly that.
-            Err(_) => return Ok(()),
+            // The cache must know (W-MEDIA2): a cut body is never stored.
+            Err(_) => {
+                BODY_INFO.with(|b| b.set(BodyInfo { truncated: true, ..b.get() }));
+                return Ok(());
+            }
         };
         w.write_all(&buf[..n])?;
     }
@@ -1731,9 +1841,9 @@ mod tests {
     fn every_response_carries_the_wire_version() {
         let addr = spawn_fixture(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
         let agent = build_agent();
-        assert_eq!(hdr(&execute_for_test(&agent, &get_request(addr, "/")), "X-Wire-Version"), Some("3"));
+        assert_eq!(hdr(&execute_for_test(&agent, &get_request(addr, "/")), "X-Wire-Version"), Some("4"));
         let down = get_request("127.0.0.1:1".parse().unwrap(), "/");
-        assert_eq!(hdr(&execute_for_test(&agent, &down), "X-Wire-Version"), Some("3"));
+        assert_eq!(hdr(&execute_for_test(&agent, &down), "X-Wire-Version"), Some("4"));
     }
 
     #[test]
@@ -2208,7 +2318,7 @@ mod tests {
         let r1 = run(&shared, with_headers(get_request(addr, "/set"), &[JAR]));
         assert_eq!(r1.status, 200);
         assert_eq!(hdr(&r1, "X-Wire-Cookies"), Some("on"));
-        assert_eq!(hdr(&r1, "X-Wire-Version"), Some("3"));
+        assert_eq!(hdr(&r1, "X-Wire-Version"), Some("4"));
         assert_eq!(hdr(&r1, "Set-Cookie"), None, "Set-Cookie is stripped when the jar was used");
         assert_eq!(hdr(&r1, "X-Wire-Jar"), None);
         assert_eq!(cookie_header_of(&rx.recv().unwrap()), None);
@@ -2263,7 +2373,7 @@ mod tests {
         let shared = Shared::new(false);
         let r = run(&shared, with_headers(get_request(addr, "/set"), &[JAR]));
         assert_eq!(hdr(&r, "X-Wire-Cookies"), Some("off"));
-        assert_eq!(hdr(&r, "X-Wire-Version"), Some("3"));
+        assert_eq!(hdr(&r, "X-Wire-Version"), Some("4"));
         assert_eq!(r.headers.iter().filter(|(n, _)| n.eq_ignore_ascii_case("set-cookie")).count(), 2, "Set-Cookie passes through untouched");
         let r = run(&shared, with_headers(get_request(addr, "/echo"), &[JAR]));
         assert_eq!(r.body, b"<none>");
@@ -2616,7 +2726,7 @@ mod tests {
             for name in ["X-Wire-User-Agent", "User-Agent"] {
                 let r = execute_for_test(&build_agent(), &with_headers(get_request(addr, "/"), &[(name, bad)]));
                 assert_eq!((r.status, hdr(&r, "X-Wire-Error")), (400, Some("bad-user-agent")), "{name}: {bad:?}");
-                assert_eq!(hdr(&r, "X-Wire-Version"), Some("3"));
+                assert_eq!(hdr(&r, "X-Wire-Version"), Some("4"));
             }
         }
         assert!(rx.try_recv().is_err(), "an invalid UA must never reach upstream");
@@ -2673,11 +2783,11 @@ mod tests {
     #[test]
     fn every_response_advertises_the_ua_feature() {
         let (addr, _rx) = ua_server();
-        assert_eq!(hdr(&execute_for_test(&build_agent(), &get_request(addr, "/")), "X-Wire-Features"), Some("ua,ws,jarfile,token"));
+        assert_eq!(hdr(&execute_for_test(&build_agent(), &get_request(addr, "/")), "X-Wire-Features"), Some("ua,ws,jarfile,token,cache"));
         let down = get_request("127.0.0.1:1".parse().unwrap(), "/");
-        assert_eq!(hdr(&execute_for_test(&build_agent(), &down), "X-Wire-Features"), Some("ua,ws,jarfile,token"));
+        assert_eq!(hdr(&execute_for_test(&build_agent(), &down), "X-Wire-Features"), Some("ua,ws,jarfile,token,cache"));
         let bad = with_headers(get_request(addr, "/"), &[("X-Wire-User-Agent", "a\r\nb")]);
-        assert_eq!(hdr(&execute_for_test(&build_agent(), &bad), "X-Wire-Features"), Some("ua,ws,jarfile,token"));
+        assert_eq!(hdr(&execute_for_test(&build_agent(), &bad), "X-Wire-Features"), Some("ua,ws,jarfile,token,cache"));
     }
 }
 
@@ -2705,7 +2815,7 @@ mod mount_wire_tests {
         execute_with(&build_agent(), &shared, &req("GET", "http://www1.web-platform.test:8001/resources/a.txt", &[("X-Wire-Policy", "public-only")]), &mut raw).unwrap();
         let text = String::from_utf8(raw).unwrap();
         assert!(text.starts_with("HTTP/1.1 200 OK\r\n"), "{text}");
-        assert!(text.contains("Content-Type: text/plain\r\n") && text.contains("X-Wire-Version: 3\r\n"), "{text}");
+        assert!(text.contains("Content-Type: text/plain\r\n") && text.contains("X-Wire-Version: 4\r\n"), "{text}");
         assert!(text.ends_with("\r\n\r\nhello"), "{text}");
         let mut raw = Vec::new();
         execute_with(&build_agent(), &shared, &req("GET", "http://web-platform.test:8000/resources/../../etc/passwd", &[]), &mut raw).unwrap();
@@ -2715,3 +2825,5 @@ mod mount_wire_tests {
 
 #[cfg(test)]
 mod record_tests;
+#[cfg(test)]
+mod cache_tests;

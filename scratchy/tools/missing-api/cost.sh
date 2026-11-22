@@ -18,7 +18,9 @@ mkdir -p "$OUT"
 ulimit -c 0
 SOCK="${XDG_RUNTIME_DIR:-/tmp}/qmapi1-cost-$$.sock" # short path: sockets are limited to ~108 bytes
 rm -f "$SOCK"
-"$WIRE" --socket "$SOCK" >"$OUT/wire.log" 2>&1 9>&- &
+# W-CACHE1: WIRE_ARGS = extra wire arguments (e.g. --cache-dir DIR --cache-size 256M, or --no-cache)
+# shellcheck disable=SC2086
+"$WIRE" --socket "$SOCK" ${WIRE_ARGS:-} >"$OUT/wire.log" 2>&1 9>&- &
 WPID=$!
 cleanup() { if [ -r "/proc/$WPID/cmdline" ]; then kill "$WPID" 2>/dev/null; fi; }
 trap cleanup EXIT

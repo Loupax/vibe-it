@@ -1021,6 +1021,7 @@
       method: String(init.method || 'GET'), url: String(init.url), headers: init.headers || [],
       body: binary(init.body), mode: init.mode || 'cors', credentials: init.credentials || 'same-origin',
       keepalive: !!init.keepalive, api: init.api || 'fetch', sync: !!init.sync,
+      cache: String(init.cache || 'default'),
     };
   }
   function build(res) {
@@ -1144,7 +1145,8 @@
 // http(s) (and file:, which the policy warns about) goes to __net_request,
 // which applies the request policy, CORS, beacon suppression and returns a
 // real Response. Other schemes reject with TypeError.
-// Ignored on purpose (documented in NOTES.md): cache, referrer,
+// `cache` becomes standard request headers for wire's HTTP cache (W-CACHE1,
+// js_net.rs). Ignored on purpose (documented in NOTES.md): referrer,
 // referrerPolicy, integrity, priority; redirect:'manual' behaves as
 // 'follow'; credentials are accepted but no cookie jar exists yet (QF14).
 (function (g) {
@@ -1218,7 +1220,7 @@
       req.headers.forEach(function (v, n) { hs.push([n, v]); });
       var h = g.__net_request({
         method: req.method, url: url, headers: hs, body: bytes, mode: req.mode, credentials: req.credentials,
-        keepalive: req.keepalive, api: 'fetch', signal: signal,
+        keepalive: req.keepalive, api: 'fetch', signal: signal, cache: req.cache,
       });
       return h.promise.then(function (res) {
         if (req.redirect === 'error' && res.redirected) throw te('Failed to fetch');

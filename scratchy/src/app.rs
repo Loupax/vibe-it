@@ -890,6 +890,9 @@ pub(crate) struct App {
     pub(crate) pending_post: Option<PostBody>,
     /// QCOMP3: the load in flight is a visit (link, `:go`, page script): record it once it loaded.
     pub(crate) visit_pending: bool,
+    /// W-CACHE1: the next `fetch_url_inner` is a reload (`:refresh`,
+    /// `location.reload()`): its document request revalidates (`max-age=0`).
+    pub(crate) pending_reload: bool,
     /// Every URL navigated to via a real click or `:go`, oldest
     /// first — `:historyBack`/`:historyFront` (bound to `h`/`l` in vim
     /// Normal mode) move `history_index` through this instead of
@@ -1530,6 +1533,7 @@ impl App {
             nav_initiator: None,
             pending_post: None,
             visit_pending: false,
+            pending_reload: false,
             history: Vec::new(),
             history_index: 0,
             history_doc: Vec::new(),
@@ -1652,6 +1656,7 @@ impl App {
             nav_initiator: None,
             pending_post: None,
             visit_pending: false,
+            pending_reload: false,
             history: Vec::new(),
             history_index: 0,
             history_doc: Vec::new(),
@@ -4386,6 +4391,15 @@ impl App {
     /// `base_url`-less page (a local file with no `<base href>` of its
     /// own) has truly nothing to refresh.
     pub(crate) fn refresh(&mut self) {
+        self.reload(false);
+    }
+
+    /// `:refresh` (`hard = false`): the document request carries
+    /// `Cache-Control: max-age=0` (wire revalidates it; sub-resources use the
+    /// cache as usual). `:refresh hard`: every request of the reloaded page
+    /// carries `Cache-Control: no-cache` + `Pragma: no-cache` (W-CACHE1, as
+    /// Chrome and Firefox reload).
+    pub(crate) fn reload(&mut self, hard: bool) {
         self.meta_chain = 0;
         self.visit_pending = false; // QCOMP3: reload is not a visit
         let url = match self.history.get(self.history_index).cloned() {
@@ -4398,6 +4412,8 @@ impl App {
                 }
             },
         };
+        self.pending_reload = true;
+        crate::net::set_hard_reload(hard);
         self.fetch_url_inner(url);
     }
 
@@ -4460,12 +4476,18 @@ impl App {
         let initiator = self.nav_initiator.take();
         let post = self.pending_post.take();
         let page_for_origin = self.base_url.clone();
+        // W-CACHE1: any navigation that is not a reload ends a hard reload.
+        let reload = std::mem::take(&mut self.pending_reload);
+        if !reload {
+            crate::net::set_hard_reload(false);
+        }
         thread::spawn(move || {
             let ctx = CookieContext::navigation(&url, initiator.as_ref());
             let request_text = match &post {
                 Some(p) => build_post_request_ctx(&url, &ctx, p, page_for_origin.as_ref()),
                 None => build_get_request_ctx(&url, &ctx),
             };
+            let request_text = if reload { crate::net::with_reload_revalidate(&request_text) } else { request_text };
             let url_for_log = url.clone();
             let outcome: Result<FetchedPage, String> = match &socket_path {
                 Some(path) => {
@@ -5383,6 +5405,8 @@ impl App {
             ("historyBack", []) => self.navigate_history(-1),
             ("historyFront", []) => self.navigate_history(1),
             ("refresh", []) => self.refresh(),
+            // W-CACHE1: hard reload, every request of the page skips wire's cache.
+            ("refresh", ["hard"]) => self.reload(true),
             // Takes effect from the next page load (`:refresh`).
             ("set", ["js"]) => set_js_enabled(true),
             ("set", ["nojs"]) => set_js_enabled(false),

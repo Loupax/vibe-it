@@ -252,7 +252,46 @@ pub(crate) fn build_get_request_text_with(url: &Url, ua: &UaOverride) -> String 
         None => host.to_string(),
     };
     let ua_line = ua.header().map(|(n, v)| format!("{n}: {v}\r\n")).unwrap_or_default();
-    format!("GET {url} HTTP/1.1\r\nHost: {host_header}\r\n{ua_line}\r\n")
+    let reload: String = reload_headers(hard_reload(), &[]).iter().map(|(n, v)| format!("{n}: {v}\r\n")).collect();
+    format!("GET {url} HTTP/1.1\r\nHost: {host_header}\r\n{ua_line}{reload}\r\n")
+}
+
+/// W-CACHE1: a hard reload (`:refresh hard`) sends `Cache-Control: no-cache`
+/// and `Pragma: no-cache` on EVERY request of the reloaded page (Chrome and
+/// Firefox do the same), so wire's cache fetches everything again. Cleared by
+/// the next navigation that is not a hard reload.
+static HARD_RELOAD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub(crate) fn set_hard_reload(on: bool) {
+    HARD_RELOAD.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub(crate) fn hard_reload() -> bool {
+    HARD_RELOAD.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The headers a hard reload adds to a request (none when `hard` is off or
+/// the request already says something about caching: a page's own
+/// `fetch(.., {cache})` wins).
+pub(crate) fn reload_headers(hard: bool, headers: &[(String, String)]) -> Vec<(String, String)> {
+    if !hard || headers.iter().any(|(n, _)| n.eq_ignore_ascii_case("cache-control") || n.eq_ignore_ascii_case("pragma")) {
+        return Vec::new();
+    }
+    vec![("Cache-Control".to_string(), "no-cache".to_string()), ("Pragma".to_string(), "no-cache".to_string())]
+}
+
+/// W-CACHE1: a normal reload (`:refresh`, `location.reload()`) revalidates
+/// the main document only: `Cache-Control: max-age=0` on its request (added
+/// after the request line, unless the request already has a Cache-Control).
+pub(crate) fn with_reload_revalidate(text: &str) -> String {
+    let head_end = text.find("\r\n\r\n").unwrap_or(text.len());
+    if text[..head_end].lines().any(|l| l.to_ascii_lowercase().starts_with("cache-control:")) {
+        return text.to_string();
+    }
+    match text.find("\r\n") {
+        Some(i) => format!("{}\r\nCache-Control: max-age=0{}", &text[..i], &text[i..]),
+        None => text.to_string(),
+    }
 }
 
 /// QF14b: `build_get_request_text` plus the cookie headers of `ctx` (the ONE
@@ -786,6 +825,9 @@ pub(crate) fn build_wire_request_with(method: &str, url: &Url, headers: &[(Strin
     let mut out = format!("{method} {url} HTTP/1.1\r\nHost: {host_header}\r\n").into_bytes();
     let ua_header = ua.header();
     if let Some((n, v)) = &ua_header {
+        out.extend_from_slice(format!("{n}: {v}\r\n").as_bytes());
+    }
+    for (n, v) in reload_headers(hard_reload(), headers) {
         out.extend_from_slice(format!("{n}: {v}\r\n").as_bytes());
     }
     for (name, value) in headers {

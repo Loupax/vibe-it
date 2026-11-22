@@ -176,6 +176,8 @@ struct SendDesc {
     keepalive: bool,
     api: String,
     sync: bool,
+    /// The Fetch `cache` mode (W-CACHE1; "" = default).
+    cache: String,
 }
 
 struct NetMeta {
@@ -652,6 +654,10 @@ impl NetState {
         if matches!(kind, FetchKind::Cors { .. }) {
             wire_headers.push(("Origin".into(), origin_header(&page)));
         }
+        // W-CACHE1: the `cache` mode as standard headers, after the CORS
+        // classification above (they never cause a preflight).
+        let cache_headers = cache_mode_headers(&d.cache, &wire_headers);
+        wire_headers.extend(cache_headers);
         let sync_ms = d.sync.then_some(self.policy.sync_xhr_timeout_ms);
         wire_headers.extend(self.cap_headers(sync_ms));
         if preflighted {
@@ -1083,6 +1089,7 @@ fn parse_desc(o: &JsObject<'_>) -> SendDesc {
         keepalive: o.get::<bool>("keepalive").unwrap_or(false),
         api: s("api"),
         sync: o.get::<bool>("sync").unwrap_or(false),
+        cache: s("cache"),
     }
 }
 

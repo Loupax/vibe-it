@@ -243,7 +243,7 @@ fn parse_set_cookie(line: &str, limits: &Limits) -> Option<Parsed> {
 }
 
 /// RFC 6265 section 5.1.1 lenient date parser; returns unix seconds.
-fn parse_cookie_date(s: &str) -> Option<i64> {
+pub fn parse_cookie_date(s: &str) -> Option<i64> {
     let is_delim = |c: char| matches!(c as u32, 0x09 | 0x20..=0x2F | 0x3B..=0x40 | 0x5B..=0x60 | 0x7B..=0x7E);
     let (mut time, mut day, mut month, mut year) = (None, None, None, None);
     let lead = |t: &str, max: usize| -> Option<i64> {
