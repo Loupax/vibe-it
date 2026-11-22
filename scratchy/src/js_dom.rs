@@ -6387,6 +6387,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   // the App is still easing the scroll or a scrollbar thumb is held). Events queued by the handlers wait
   // for the next update.
   var scrollFire = function (t, type) {
+    if (t !== doc && !t.isConnected) return; // a removed scroller reports nothing
     var ev = new g.Event(type, { bubbles: t === doc });
     __scratchy_trust(ev);
     __scratchy_ua(ev);
