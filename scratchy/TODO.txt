@@ -64,6 +64,9 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       realms (element scroll there still uses the old zero-delay timer), clamp a scrollTo past the end before reporting
       (headless never clamps y), smooth `behavior` for programmatic scrollTo/scrollBy/scrollIntoView, visualViewport
       scroll, scroll-snap events; live check of a cancelled wheel.
+- [ ] QEL7c [S] (P3, from QEL7b #625; Sonnet; app.rs smooth scroll) Smooth `behavior` for element scroll containers and
+      horizontal x (today the App's easing is viewport-only; element smooth is validated but instant); iframe realms have
+      no layout, so their scrollTo is unclamped and a frame element's scrollTop stays 0 (waits for frame layout).
 - [ ] QEL8 [S] (P3; Sonnet; globals_prelude.js) postMessage/MessageChannel on their own task queue (not
       the timer table); requestIdleCallback only when the loop is idle, deadline from the next timer
       or frame. Measure bbc.com (R62 MessagePort finding) before/after.
@@ -75,7 +78,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       size and compare every listed page (today only page 1 is rendered).
 - [ ] QCSS1b [S] (P2, from QCSS1 #527; Sonnet; css.rs, dom.rs stylesheet collection) Honour `media` on `<link rel=stylesheet>`,
       `<style media>` and `@import url(...) media` with `media_query_string_matches` (today ignored: always applied).
-- [ ] QHOV2 [S] (P3, from QHOV1 #604; Sonnet; app.rs damage paint) Damage-rect repaint for pages without :hover/:active
+- [ ] [WIP] QHOV2 [S] (P3, from QHOV1 #604; Sonnet; app.rs damage paint) Damage-rect repaint for pages without :hover/:active
       rules (JS class-toggle hovers); avoid the 4 MB kept-page copy by tracking buffer age.
 - [ ] QYTS1 [S] (P3, from QINC1m #597 live session; Sonnet) YouTube Shorts opened from the results page shows blank and
       scrolled sideways in a nested window (main showed a stuck black player in a similar run). Reproduce with a recording,
