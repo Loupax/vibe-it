@@ -1108,7 +1108,7 @@ fn qy45_validation_errors() {
     );
     assert_eq!(
         log,
-        ["log:NamespaceError|InvalidCharacterError|InvalidCharacterError|InvalidCharacterError|InvalidCharacterError|NamespaceError|ok|NamespaceError|NamespaceError|ok|ok|NamespaceError|ok|InvalidCharacterError|NamespaceError|InvalidCharacterError|InvalidCharacterError|en|en|urn:a|urn:d|id,xml:lang,xmlns:a,xmlns,p:q"],
+        ["log:NamespaceError|InvalidCharacterError|ok|InvalidCharacterError|InvalidCharacterError|NamespaceError|ok|NamespaceError|NamespaceError|ok|ok|NamespaceError|ok|InvalidCharacterError|NamespaceError|InvalidCharacterError|InvalidCharacterError|en|en|urn:a|urn:d|id,a:b:c,xml:lang,xmlns:a,xmlns,p:q"],
         "{log:?}"
     );
 }

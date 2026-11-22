@@ -29,51 +29,9 @@ OK         33/33  dom/nodes/ChildNode-replaceWith.html
 OK         16/16  dom/nodes/Comment-constructor.html
 OK           1/1  dom/nodes/Comment-in-doctype.xhtml
 OK           5/5  dom/nodes/DOMImplementation-createDocument-no-browsing-context.html
-OK       388/434  dom/nodes/DOMImplementation-createDocument.html
+OK       430/434  dom/nodes/DOMImplementation-createDocument.html
   FAIL      createDocument test: null,undefined,null,null
-  FAIL      createDocument test: null,"f}oo",null,null
-  FAIL      createDocument test: metadata for null,"f}oo",null
-  FAIL      createDocument test: characterSet aliases for null,"f}oo",null
-  FAIL      createDocument test: null,"foo}",null,null
-  FAIL      createDocument test: metadata for null,"foo}",null
-  FAIL      createDocument test: characterSet aliases for null,"foo}",null
-  FAIL      createDocument test: null,"f<oo",null,null
-  FAIL      createDocument test: metadata for null,"f<oo",null
-  FAIL      createDocument test: characterSet aliases for null,"f<oo",null
-  FAIL      createDocument test: null,":foo",null,"INVALID_CHARACTER_ERR"
-  FAIL      createDocument test: null,"foo:",null,"INVALID_CHARACTER_ERR"
-  FAIL      createDocument test: null,":",null,"INVALID_CHARACTER_ERR"
-  FAIL      createDocument test: "",":foo",null,"INVALID_CHARACTER_ERR"
-  FAIL      createDocument test: "","foo:",null,"INVALID_CHARACTER_ERR"
   FAIL      createDocument test: undefined,undefined,null,null
-  FAIL      createDocument test: undefined,":foo",null,"INVALID_CHARACTER_ERR"
-  FAIL      createDocument test: undefined,"foo:",null,"INVALID_CHARACTER_ERR"
-  FAIL      createDocument test: "http://example.com/","fo<o",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","fo<o",null
-  FAIL      createDocument test: characterSet aliases for "http://example.com/","fo<o",null
-  FAIL      createDocument test: "http://example.com/",":foo",null,"INVALID_CHARACTER_ERR"
-  FAIL      createDocument test: "http://example.com/","f:o:o",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","f:o:o",null
-  FAIL      createDocument test: characterSet aliases for "http://example.com/","f:o:o",null
-  FAIL      createDocument test: "http://example.com/","foo:",null,"INVALID_CHARACTER_ERR"
-  FAIL      createDocument test: "http://example.com/","f::oo",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","f::oo",null
-  FAIL      createDocument test: characterSet aliases for "http://example.com/","f::oo",null
-  FAIL      createDocument test: "http://example.com/","a:0",null,"INVALID_CHARACTER_ERR"
-  FAIL      createDocument test: "http://example.com/","0:a",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","0:a",null
-  FAIL      createDocument test: characterSet aliases for "http://example.com/","0:a",null
-  FAIL      createDocument test: "http://example.com/","prefix::local",null,null
-  FAIL      createDocument test: metadata for "http://example.com/","prefix::local",null
-  FAIL      createDocument test: characterSet aliases for "http://example.com/","prefix::local",null
-  FAIL      createDocument test: "/",":foo",null,"INVALID_CHARACTER_ERR"
-  FAIL      createDocument test: "/","foo:",null,"INVALID_CHARACTER_ERR"
-  FAIL      createDocument test: "http://www.w3.org/XML/1998/namespace",":foo",null,"INVALID_CHARACTER_ERR"
-  FAIL      createDocument test: "http://www.w3.org/XML/1998/namespace","foo:",null,"INVALID_CHARACTER_ERR"
-  FAIL      createDocument test: "http://www.w3.org/2000/xmlns/",":foo",null,"INVALID_CHARACTER_ERR"
-  FAIL      createDocument test: "http://www.w3.org/2000/xmlns/","foo:",null,"INVALID_CHARACTER_ERR"
-  FAIL      createDocument test: "foo:",":foo",null,"INVALID_CHARACTER_ERR"
-  FAIL      createDocument test: "foo:","foo:",null,"INVALID_CHARACTER_ERR"
   FAIL      createDocument test: undefined,undefined,undefined,null
   FAIL      createDocument with missing arguments
 OK          3/82  dom/nodes/DOMImplementation-createDocumentType.html
@@ -225,22 +183,9 @@ OK           1/1  dom/nodes/Document-contentType/contentType/createDocument.html
 OK           1/1  dom/nodes/Document-contentType/contentType/createHTMLDocument.html
 OK           0/1  dom/nodes/Document-contentType/contentType/xhr_responseType_document.html
   FAIL      XHR - retrieve HTML document: document.contentType === 'application/xml'
-OK         20/36  dom/nodes/Document-createAttribute.html
+OK         33/36  dom/nodes/Document-createAttribute.html
   FAIL      XML document.createAttribute("X")
-  FAIL      HTML document.createAttribute("invalid^Name")
   FAIL      XML document.createAttribute("invalid^Name")
-  FAIL      HTML document.createAttribute("\\\\")
-  FAIL      XML document.createAttribute("\\\\")
-  FAIL      HTML document.createAttribute("'")
-  FAIL      XML document.createAttribute("'")
-  FAIL      HTML document.createAttribute("\\"")
-  FAIL      XML document.createAttribute("\\"")
-  FAIL      HTML document.createAttribute("0")
-  FAIL      XML document.createAttribute("0")
-  FAIL      HTML document.createAttribute("0:a")
-  FAIL      XML document.createAttribute("0:a")
-  FAIL      HTML document.createAttribute("~")
-  FAIL      XML document.createAttribute("~")
   FAIL      XML document.createAttribute("TITLE")
 OK           0/7  dom/nodes/Document-createCDATASection-xhtml.xhtml
   FAIL      createCDATASection("\\v")
@@ -252,7 +197,7 @@ OK           0/7  dom/nodes/Document-createCDATASection-xhtml.xhtml
   FAIL      Creating a CDATA section containing the string "]]>" must throw
 OK           1/1  dom/nodes/Document-createCDATASection.html
 OK           6/6  dom/nodes/Document-createComment.html
-OK        46/147  dom/nodes/Document-createElement.html
+OK        49/147  dom/nodes/Document-createElement.html
   FAIL      createElement(undefined) in XML document
   FAIL      createElement(undefined) in XHTML document
   FAIL      createElement(null) in XML document
@@ -317,10 +262,8 @@ OK        46/147  dom/nodes/Document-createElement.html
   FAIL      createElement("ınput") in XHTML document
   FAIL      createElement("̀foo") in XML document
   FAIL      createElement("̀foo") in XHTML document
-  FAIL      createElement("f}oo") in HTML document
   FAIL      createElement("f}oo") in XML document
   FAIL      createElement("f}oo") in XHTML document
-  FAIL      createElement("foo}") in HTML document
   FAIL      createElement("foo}") in XML document
   FAIL      createElement("foo}") in XHTML document
   FAIL      createElement("\\ufffffoo") in XML document
@@ -329,7 +272,6 @@ OK        46/147  dom/nodes/Document-createElement.html
   FAIL      createElement("f\\uffffoo") in XHTML document
   FAIL      createElement("foo\\uffff") in XML document
   FAIL      createElement("foo\\uffff") in XHTML document
-  FAIL      createElement("f<oo") in HTML document
   FAIL      createElement("f<oo") in XML document
   FAIL      createElement("f<oo") in XHTML document
   FAIL      createElement("̀") in XML document
@@ -354,7 +296,7 @@ OK        46/147  dom/nodes/Document-createElement.html
   FAIL      createElement("-foo") in XHTML document
   FAIL      createElement(".foo") in XML document
   FAIL      createElement(".foo") in XHTML document
-OK       177/596  dom/nodes/Document-createElementNS.html
+OK       203/596  dom/nodes/Document-createElementNS.html
   FAIL      createElementNS test in XML document: null,null,null
   FAIL      createElementNS test in XHTML document: null,null,null
   FAIL      createElementNS test in XML document: null,undefined,null
@@ -373,10 +315,8 @@ OK       177/596  dom/nodes/Document-createElementNS.html
   FAIL      createElementNS test in XHTML document: null,";foo",null
   FAIL      createElementNS test in XML document: null,"}foo","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XHTML document: null,"}foo","INVALID_CHARACTER_ERR"
-  FAIL      createElementNS test in HTML document: null,"f}oo",null
   FAIL      createElementNS test in XML document: null,"f}oo",null
   FAIL      createElementNS test in XHTML document: null,"f}oo",null
-  FAIL      createElementNS test in HTML document: null,"foo}",null
   FAIL      createElementNS test in XML document: null,"foo}",null
   FAIL      createElementNS test in XHTML document: null,"foo}",null
   FAIL      createElementNS test in XML document: null,"\\ufffffoo",null
@@ -391,7 +331,6 @@ OK       177/596  dom/nodes/Document-createElementNS.html
   FAIL      createElementNS test in XHTML document: null,"foo>","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: null,"<foo>","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XHTML document: null,"<foo>","INVALID_CHARACTER_ERR"
-  FAIL      createElementNS test in HTML document: null,"f<oo",null
   FAIL      createElementNS test in XML document: null,"f<oo",null
   FAIL      createElementNS test in XHTML document: null,"f<oo",null
   FAIL      createElementNS test in XML document: null,"^^","INVALID_CHARACTER_ERR"
@@ -402,17 +341,14 @@ OK       177/596  dom/nodes/Document-createElementNS.html
   FAIL      createElementNS test in XHTML document: null,"-foo","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: null,".foo","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XHTML document: null,".foo","INVALID_CHARACTER_ERR"
-  FAIL      createElementNS test in HTML document: null,":foo","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: null,":foo","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XHTML document: null,":foo","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: null,"f:oo","NAMESPACE_ERR"
   FAIL      createElementNS test in XHTML document: null,"f:oo","NAMESPACE_ERR"
-  FAIL      createElementNS test in HTML document: null,"foo:","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: null,"foo:","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XHTML document: null,"foo:","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: null,"f:o:o","NAMESPACE_ERR"
   FAIL      createElementNS test in XHTML document: null,"f:o:o","NAMESPACE_ERR"
-  FAIL      createElementNS test in HTML document: null,":","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: null,":","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XHTML document: null,":","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: null,"xml",null
@@ -431,12 +367,10 @@ OK       177/596  dom/nodes/Document-createElementNS.html
   FAIL      createElementNS test in XHTML document: null,"null:xml","NAMESPACE_ERR"
   FAIL      createElementNS test in XML document: "",null,null
   FAIL      createElementNS test in XHTML document: "",null,null
-  FAIL      createElementNS test in HTML document: "",":foo","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: "",":foo","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XHTML document: "",":foo","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: "","f:oo","NAMESPACE_ERR"
   FAIL      createElementNS test in XHTML document: "","f:oo","NAMESPACE_ERR"
-  FAIL      createElementNS test in HTML document: "","foo:","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: "","foo:","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XHTML document: "","foo:","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: undefined,null,null
@@ -451,12 +385,10 @@ OK       177/596  dom/nodes/Document-createElementNS.html
   FAIL      createElementNS test in XHTML document: undefined,"f1oo",null
   FAIL      createElementNS test in XML document: undefined,"foo1",null
   FAIL      createElementNS test in XHTML document: undefined,"foo1",null
-  FAIL      createElementNS test in HTML document: undefined,":foo","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: undefined,":foo","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XHTML document: undefined,":foo","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: undefined,"f:oo","NAMESPACE_ERR"
   FAIL      createElementNS test in XHTML document: undefined,"f:oo","NAMESPACE_ERR"
-  FAIL      createElementNS test in HTML document: undefined,"foo:","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: undefined,"foo:","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XHTML document: undefined,"foo:","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: undefined,"f::oo","NAMESPACE_ERR"
@@ -479,7 +411,6 @@ OK       177/596  dom/nodes/Document-createElementNS.html
   FAIL      createElementNS test in XHTML document: "http://example.com/","1foo","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: "http://example.com/","<foo>","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XHTML document: "http://example.com/","<foo>","INVALID_CHARACTER_ERR"
-  FAIL      createElementNS test in HTML document: "http://example.com/","fo<o",null
   FAIL      createElementNS test in XML document: "http://example.com/","fo<o",null
   FAIL      createElementNS test in XHTML document: "http://example.com/","fo<o",null
   FAIL      createElementNS test in XML document: "http://example.com/","-foo","INVALID_CHARACTER_ERR"
@@ -490,24 +421,18 @@ OK       177/596  dom/nodes/Document-createElementNS.html
   FAIL      createElementNS test in XHTML document: "http://example.com/","f1oo",null
   FAIL      createElementNS test in XML document: "http://example.com/","foo1",null
   FAIL      createElementNS test in XHTML document: "http://example.com/","foo1",null
-  FAIL      createElementNS test in HTML document: "http://example.com/",":foo","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: "http://example.com/",":foo","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XHTML document: "http://example.com/",":foo","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: "http://example.com/","f:oo",null
   FAIL      createElementNS test in XHTML document: "http://example.com/","f:oo",null
-  FAIL      createElementNS test in HTML document: "http://example.com/","f:o:o",null
   FAIL      createElementNS test in XML document: "http://example.com/","f:o:o",null
   FAIL      createElementNS test in XHTML document: "http://example.com/","f:o:o",null
-  FAIL      createElementNS test in HTML document: "http://example.com/","foo:","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: "http://example.com/","foo:","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XHTML document: "http://example.com/","foo:","INVALID_CHARACTER_ERR"
-  FAIL      createElementNS test in HTML document: "http://example.com/","f::oo",null
   FAIL      createElementNS test in XML document: "http://example.com/","f::oo",null
   FAIL      createElementNS test in XHTML document: "http://example.com/","f::oo",null
-  FAIL      createElementNS test in HTML document: "http://example.com/","a:0","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: "http://example.com/","a:0","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XHTML document: "http://example.com/","a:0","INVALID_CHARACTER_ERR"
-  FAIL      createElementNS test in HTML document: "http://example.com/","0:a",null
   FAIL      createElementNS test in XML document: "http://example.com/","0:a",null
   FAIL      createElementNS test in XHTML document: "http://example.com/","0:a",null
   FAIL      createElementNS test in XML document: "http://example.com/","a:_",null
@@ -570,7 +495,6 @@ OK       177/596  dom/nodes/Document-createElementNS.html
   FAIL      createElementNS test in XHTML document: "http://example.com/","XMLNS:foo",null
   FAIL      createElementNS test in XML document: "http://example.com/","xmlfoo:bar",null
   FAIL      createElementNS test in XHTML document: "http://example.com/","xmlfoo:bar",null
-  FAIL      createElementNS test in HTML document: "http://example.com/","prefix::local",null
   FAIL      createElementNS test in XML document: "http://example.com/","prefix::local",null
   FAIL      createElementNS test in XHTML document: "http://example.com/","prefix::local",null
   FAIL      createElementNS test in XML document: "http://example.com/","namespaceURI:{","INVALID_CHARACTER_ERR"
@@ -635,12 +559,10 @@ OK       177/596  dom/nodes/Document-createElementNS.html
   FAIL      createElementNS test in XHTML document: "/","f1oo",null
   FAIL      createElementNS test in XML document: "/","foo1",null
   FAIL      createElementNS test in XHTML document: "/","foo1",null
-  FAIL      createElementNS test in HTML document: "/",":foo","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: "/",":foo","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XHTML document: "/",":foo","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: "/","f:oo",null
   FAIL      createElementNS test in XHTML document: "/","f:oo",null
-  FAIL      createElementNS test in HTML document: "/","foo:","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: "/","foo:","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XHTML document: "/","foo:","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: "/","xml",null
@@ -663,12 +585,10 @@ OK       177/596  dom/nodes/Document-createElementNS.html
   FAIL      createElementNS test in XHTML document: "http://www.w3.org/XML/1998/namespace","f1oo",null
   FAIL      createElementNS test in XML document: "http://www.w3.org/XML/1998/namespace","foo1",null
   FAIL      createElementNS test in XHTML document: "http://www.w3.org/XML/1998/namespace","foo1",null
-  FAIL      createElementNS test in HTML document: "http://www.w3.org/XML/1998/namespace",":foo","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: "http://www.w3.org/XML/1998/namespace",":foo","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XHTML document: "http://www.w3.org/XML/1998/namespace",":foo","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: "http://www.w3.org/XML/1998/namespace","f:oo",null
   FAIL      createElementNS test in XHTML document: "http://www.w3.org/XML/1998/namespace","f:oo",null
-  FAIL      createElementNS test in HTML document: "http://www.w3.org/XML/1998/namespace","foo:","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: "http://www.w3.org/XML/1998/namespace","foo:","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XHTML document: "http://www.w3.org/XML/1998/namespace","foo:","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: "http://www.w3.org/XML/1998/namespace","xml",null
@@ -695,12 +615,10 @@ OK       177/596  dom/nodes/Document-createElementNS.html
   FAIL      createElementNS test in XHTML document: "http://www.w3.org/2000/xmlns/","f1oo","NAMESPACE_ERR"
   FAIL      createElementNS test in XML document: "http://www.w3.org/2000/xmlns/","foo1","NAMESPACE_ERR"
   FAIL      createElementNS test in XHTML document: "http://www.w3.org/2000/xmlns/","foo1","NAMESPACE_ERR"
-  FAIL      createElementNS test in HTML document: "http://www.w3.org/2000/xmlns/",":foo","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: "http://www.w3.org/2000/xmlns/",":foo","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XHTML document: "http://www.w3.org/2000/xmlns/",":foo","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: "http://www.w3.org/2000/xmlns/","f:oo","NAMESPACE_ERR"
   FAIL      createElementNS test in XHTML document: "http://www.w3.org/2000/xmlns/","f:oo","NAMESPACE_ERR"
-  FAIL      createElementNS test in HTML document: "http://www.w3.org/2000/xmlns/","foo:","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: "http://www.w3.org/2000/xmlns/","foo:","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XHTML document: "http://www.w3.org/2000/xmlns/","foo:","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: "http://www.w3.org/2000/xmlns/","xml","NAMESPACE_ERR"
@@ -725,12 +643,10 @@ OK       177/596  dom/nodes/Document-createElementNS.html
   FAIL      createElementNS test in XHTML document: "foo:","f1oo",null
   FAIL      createElementNS test in XML document: "foo:","foo1",null
   FAIL      createElementNS test in XHTML document: "foo:","foo1",null
-  FAIL      createElementNS test in HTML document: "foo:",":foo","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: "foo:",":foo","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XHTML document: "foo:",":foo","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: "foo:","f:oo",null
   FAIL      createElementNS test in XHTML document: "foo:","f:oo",null
-  FAIL      createElementNS test in HTML document: "foo:","foo:","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: "foo:","foo:","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XHTML document: "foo:","foo:","INVALID_CHARACTER_ERR"
   FAIL      createElementNS test in XML document: "foo:","xml",null
@@ -1178,11 +1094,8 @@ OK           0/2  dom/nodes/attributes-namednodemap-cross-document.window.html
 OK           6/8  dom/nodes/attributes-namednodemap.html
   FAIL      setNamedItem and removeNamedItem on `attributes` should add and remove fields from `attributes`
   FAIL      setNamedItem and removeNamedItem on `attributes` should not interfere with existing method names
-OK         45/67  dom/nodes/attributes.html
-  FAIL      When qualifiedName does not match the Name production, an INVALID_CHARACTER_ERR exception is to be thrown. (toggleAttribute)
-  FAIL      Basic functionality should be intact. (toggleAttribute)
+OK         48/67  dom/nodes/attributes.html
   FAIL      toggleAttribute should set the first attribute with the given name
-  FAIL      Basic functionality should be intact.
   FAIL      setAttribute should set the first attribute with the given name
   FAIL      Attribute with prefix in local name
   FAIL      Attribute loses its owner when removed
@@ -1593,7 +1506,7 @@ OK         0/136  dom/nodes/processing-instruction-attributes-clone-and-range.ht
   FAIL      deleteData() updates processing instruction attributes (source: xml-parser)
   FAIL      replaceData() updates processing instruction attributes (source: xml-parser)
   FAIL      CharacterData methods can make processing instruction data unparsable and parsable again (source: xml-parser)
-OK         4/755  dom/nodes/processing-instruction-attributes.html
+OK        26/755  dom/nodes/processing-instruction-attributes.html
   FAIL      Processing instruction in main parser
   FAIL      Processing instruction attribute parsing rejects unquoted attributes from html-dom
   FAIL      Malformed pseudo-attributes "name=\\"p\\" name=\\"q\\"" yield no attributes (source: html-dom)
@@ -2205,28 +2118,6 @@ OK         4/755  dom/nodes/processing-instruction-attributes.html
   FAIL      Invalid attribute value: "\\ufffe" (source: xml-parser)
   FAIL      Invalid attribute value: "\\uffff" (source: xml-parser)
   FAIL      Invalid attribute value: "a\\ufffeb" (source: xml-parser)
-  FAIL      Invalid attribute name: "" (source: xml-parser)
-  FAIL      Invalid attribute name: "=" (source: xml-parser)
-  FAIL      Invalid attribute name: "a=" (source: xml-parser)
-  FAIL      Invalid attribute name: "=x" (source: xml-parser)
-  FAIL      Invalid attribute name: "b>" (source: xml-parser)
-  FAIL      Invalid attribute name: ">" (source: xml-parser)
-  FAIL      Invalid attribute name: ">x" (source: xml-parser)
-  FAIL      Invalid attribute name: "/x/" (source: xml-parser)
-  FAIL      Invalid attribute name: "/" (source: xml-parser)
-  FAIL      Invalid attribute name: "x/" (source: xml-parser)
-  FAIL      Invalid attribute name: "x\\t" (source: xml-parser)
-  FAIL      Invalid attribute name: "\\tx" (source: xml-parser)
-  FAIL      Invalid attribute name: "x\\n" (source: xml-parser)
-  FAIL      Invalid attribute name: "\\nx" (source: xml-parser)
-  FAIL      Invalid attribute name: "x\\r" (source: xml-parser)
-  FAIL      Invalid attribute name: "\\rx" (source: xml-parser)
-  FAIL      Invalid attribute name: "x\\f" (source: xml-parser)
-  FAIL      Invalid attribute name: "\\fx" (source: xml-parser)
-  FAIL      Invalid attribute name: "x " (source: xml-parser)
-  FAIL      Invalid attribute name: " x" (source: xml-parser)
-  FAIL      Invalid attribute name: "x\\0" (source: xml-parser)
-  FAIL      Invalid attribute name: "\\0x" (source: xml-parser)
   FAIL      Invalid attribute name: "$" (source: xml-parser)
   FAIL      Invalid attribute name: "$foo" (source: xml-parser)
   FAIL      Invalid attribute name: "a$b" (source: xml-parser)

@@ -2556,7 +2556,7 @@ fn qa14_dom_methods_throw_domexception() {
         log,
         ["log:InvalidCharacterError 5 true", "log:InvalidCharacterError 5 true", "log:HierarchyRequestError 3 true",
          "log:NotFoundError 8 true", "log:NotFoundError 8 true", "log:SyntaxError 12 true",
-         "log:InvalidCharacterError 5 true", "log:NamespaceError 14 true", "log:NamespaceError 14 true",
+         "log:InvalidCharacterError 5 true", "log:none", "log:NamespaceError 14 true",
          "log:NotSupportedError 9 true", "log:none", "log:PREFIX:LOCALNAME"],
         "{log:?}"
     );
