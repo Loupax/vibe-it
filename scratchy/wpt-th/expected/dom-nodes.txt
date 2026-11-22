@@ -1308,7 +1308,7 @@ OK           0/3  dom/nodes/Node-cloneNode-document-with-doctype.html
   FAIL      Created with DOMParser
 OK           2/2  dom/nodes/Node-cloneNode-parser-created-names.html
 OK           4/4  dom/nodes/Node-cloneNode-svg.html
-OK       125/135  dom/nodes/Node-cloneNode.html
+OK       126/135  dom/nodes/Node-cloneNode.html
   FAIL      createElement(dir)
   FAIL      createElement(font)
   FAIL      createElement(frame)
