@@ -3177,6 +3177,71 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (sw <= 0 || sh <= 0) return;
     g.__cv_put_image(c, new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength), [img.width, trunc(a[0]), trunc(a[1]), sx, sy, sw, sh]);
   });
+  // QCNV4: OffscreenCanvas on the main thread (no Workers). Its context is an OffscreenCanvasRenderingContext2D with the
+  // same API slice and the same canvas.rs bitmap as the element's (the methods are copied from CtxProto); `canvas`
+  // is the OffscreenCanvas. Not done: transferToImageBitmap (needs ImageBitmap, QIMGBMP1), convertToBlob (QCNV16),
+  // HTMLCanvasElement.transferControlToOffscreen, the `commit()` of the old spec.
+  var OffProto = {};
+  var OffscreenCanvasRenderingContext2D = function OffscreenCanvasRenderingContext2D() { throw new TypeError('Illegal constructor'); };
+  Object.defineProperty(OffscreenCanvasRenderingContext2D, 'prototype', { value: OffProto, writable: false, enumerable: false, configurable: false });
+  Object.defineProperty(OffProto, 'constructor', { value: OffscreenCanvasRenderingContext2D, writable: true, configurable: true });
+  Object.defineProperty(OffProto, Symbol.toStringTag, { value: 'OffscreenCanvasRenderingContext2D', configurable: true });
+  g.OffscreenCanvasRenderingContext2D = OffscreenCanvasRenderingContext2D;
+  Object.getOwnPropertyNames(CtxProto).forEach(function (k) {
+    if (k === 'constructor' || k === 'canvas') return;
+    Object.defineProperty(OffProto, k, Object.getOwnPropertyDescriptor(CtxProto, k));
+  });
+  defs(OffProto, 'canvas', function () { cv(this); return this.__oc; });
+  var enforceRange = function (v, what) {
+    v = Number(v);
+    if (!isFinite(v)) throw new TypeError("Failed to construct 'OffscreenCanvas': Failed to read the '" + what + "' property: The provided value is non-finite.");
+    v = v < 0 ? Math.ceil(v) : Math.floor(v);
+    if (v < 0 || v > 4294967295) throw new TypeError("Failed to construct 'OffscreenCanvas': Failed to read the '" + what + "' property: Value is outside the 'unsigned long' value range.");
+    return v === 0 ? 0 : v;
+  };
+  var offBrand = new WeakSet();
+  var offOf = function (t) {
+    if (t === null || (typeof t !== 'object' && typeof t !== 'function') || !offBrand.has(t)) throw new TypeError('Illegal invocation');
+    return t;
+  };
+  var offFree = typeof FinalizationRegistry === 'function' ? new FinalizationRegistry(function (cid) { g.__cv_free(cid); }) : null;
+  var OffscreenCanvas = function OffscreenCanvas(w, h) {
+    if (new.target === undefined) throw new TypeError("Failed to construct 'OffscreenCanvas': Please use the 'new' operator, this DOM object constructor cannot be called as a function.");
+    if (arguments.length < 2) throw new TypeError("Failed to construct 'OffscreenCanvas': 2 arguments required, but only " + arguments.length + " present.");
+    var o = Reflect.construct(g.EventTarget, [], new.target);
+    offBrand.add(o);
+    Object.defineProperty(o, '__w', { value: enforceRange(w, 'width'), writable: true });
+    Object.defineProperty(o, '__h', { value: enforceRange(h, 'height'), writable: true });
+    Object.defineProperty(o, '__ctx', { value: null, writable: true });
+    return o;
+  };
+  OffscreenCanvas.prototype = Object.create(g.EventTarget.prototype, { constructor: { value: OffscreenCanvas, writable: true, configurable: true } });
+  Object.setPrototypeOf(OffscreenCanvas, g.EventTarget);
+  Object.defineProperty(OffscreenCanvas.prototype, Symbol.toStringTag, { value: 'OffscreenCanvas', configurable: true });
+  [['width', '__w'], ['height', '__h']].forEach(function (p) {
+    defs(OffscreenCanvas.prototype, p[0], function () { return offOf(this)[p[1]]; }, function (v) {
+      var o = offOf(this);
+      v = enforceRange(v, p[0]);
+      o[p[1]] = v;
+      if (o.__ctx) g.__cv_reset_off(o.__ctx.__cid, o.__w, o.__h);
+    });
+  });
+  Object.defineProperty(OffscreenCanvas.prototype, 'getContext', { value: function getContext(type) {
+    var o = offOf(this);
+    if (arguments.length < 1) throw new TypeError("Failed to execute 'getContext' on 'OffscreenCanvas': 1 argument required, but only 0 present.");
+    if (String(type) !== '2d') return null;
+    if (!o.__ctx) {
+      var cid = g.__cv_ctx_off(o.__w, o.__h);
+      var c = Object.create(OffProto);
+      ctxBrand.add(c);
+      Object.defineProperty(c, '__oc', { value: o });
+      Object.defineProperty(c, '__cid', { value: cid });
+      if (offFree) offFree.register(o, cid);
+      o.__ctx = c;
+    }
+    return o.__ctx;
+  }, writable: true, enumerable: true, configurable: true });
+  g.OffscreenCanvas = OffscreenCanvas;
   CP.getContext = function (type) {
     if (arguments.length < 1) throw new TypeError("Failed to execute 'getContext' on 'HTMLCanvasElement': 1 argument required, but only 0 present.");
     if (String(type) !== '2d') return null;

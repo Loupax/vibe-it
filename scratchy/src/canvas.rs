@@ -30,6 +30,8 @@ pub(crate) const MARK: &[u8] = b"scratchy:canvas";
 /// Bitmaps above this many pixels are not allocated (the context then draws nothing, as when allocation fails).
 const MAX_PIXELS: u64 = 1 << 26;
 /// The default size of a canvas element without `width`/`height` attributes.
+/// `Canvas::node` of an OffscreenCanvas bitmap (QCNV4): never a node address, so it is not in `by_node` and never dirty.
+const NO_NODE: usize = 0;
 pub(crate) const DEFAULT_W: u32 = 300;
 pub(crate) const DEFAULT_H: u32 = 150;
 
@@ -104,6 +106,12 @@ impl Registry {
     fn get_mut(&mut self, id: u32) -> Option<&mut Canvas> {
         self.by_id.get_mut(&id)
     }
+    /// A bitmap with no element (OffscreenCanvas, QCNV4).
+    fn create_offscreen(&mut self, w: u32, h: u32) -> u32 {
+        self.next += 1;
+        self.by_id.insert(self.next, Canvas::new(NO_NODE, w, h));
+        self.next
+    }
     /// A fresh canvas for `node`; a canvas the same node address had before (a freed element's) is dropped.
     fn create(&mut self, node: usize, w: u32, h: u32) -> u32 {
         if let Some(old) = self.by_node.remove(&node) {
@@ -145,6 +153,10 @@ pub(crate) fn pending() -> bool {
 }
 
 fn mark(node: usize) {
+    // QCNV4: an OffscreenCanvas has no node (NO_NODE): nothing paints it.
+    if node == NO_NODE {
+        return;
+    }
     let mut d = DIRTY.lock().unwrap_or_else(|e| e.into_inner());
     if !d.contains(&node) {
         d.push(node);
@@ -333,6 +345,17 @@ pub(crate) fn register(ctx: &Ctx<'_>, table: Rc<RefCell<DomTable>>) {
         let Some((node, w, h)) = nd(id) else { return 0 };
         ANY.store(true, Ordering::Relaxed);
         map().create(node, w, h) as i32
+    });
+    // QCNV4: a bitmap for `new OffscreenCanvas(w, h)` (no element; nothing paints it), its reset when `width`/`height`
+    // is set, and its release when the JS object is collected.
+    native!(ctx, "__cv_ctx_off", move |w: f64, h: f64| -> i32 { map().create_offscreen(w as u32, h as u32) as i32 });
+    native!(ctx, "__cv_reset_off", move |cid: i32, w: f64, h: f64| {
+        if let Some(c) = map().get_mut(cid as u32) {
+            *c = Canvas::new(NO_NODE, w as u32, h as u32);
+        }
+    });
+    native!(ctx, "__cv_free", move |cid: i32| {
+        map().by_id.remove(&(cid as u32));
     });
     // width/height was set: the bitmap and the state are reset.
     native!(ctx, "__cv_reset", move |cid: i32, id: i32| {

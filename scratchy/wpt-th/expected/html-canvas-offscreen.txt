@@ -5,123 +5,77 @@ OK           0/1  html/canvas/offscreen/2d.conformance.requirements.missingargs.
   FAIL      Missing arguments cause TypeError
 OK           0/1  html/canvas/offscreen/OffscreenCanvas-ctx-font-sibling-index-invalid.tentative.html
   FAIL      OffscreenCanvas ctx.font should ignore element-dependent calc and preserve previous value
-OK           0/1  html/canvas/offscreen/canvas-context/2d.canvas.context.arguments.missing.html
-  FAIL      OffscreenCanvas test: 2d.canvas.context.arguments.missing
+OK           1/1  html/canvas/offscreen/canvas-context/2d.canvas.context.arguments.missing.html
 OK           0/1  html/canvas/offscreen/canvas-context/2d.canvas.context.casesensitive.html
   FAIL      Context name "2D" is unrecognised; matching is case sensitive
 OK           0/1  html/canvas/offscreen/canvas-context/2d.canvas.context.emptystring.html
   FAIL      getContext with empty string returns null
-OK           0/1  html/canvas/offscreen/canvas-context/2d.canvas.context.exists.html
-  FAIL      The 2D context is implemented
-OK           0/1  html/canvas/offscreen/canvas-context/2d.canvas.context.extraargs.cache.html
-  FAIL      The 2D context doesn't throw with extra getContext arguments (cached)
-OK           0/1  html/canvas/offscreen/canvas-context/2d.canvas.context.extraargs.create.html
-  FAIL      The 2D context doesn't throw with extra getContext arguments (new context)
+OK           1/1  html/canvas/offscreen/canvas-context/2d.canvas.context.exists.html
+OK           1/1  html/canvas/offscreen/canvas-context/2d.canvas.context.extraargs.cache.html
+OK           1/1  html/canvas/offscreen/canvas-context/2d.canvas.context.extraargs.create.html
 OK           0/1  html/canvas/offscreen/canvas-context/2d.canvas.context.invalid.args.html
   FAIL      Calling getContext with invalid arguments.
-OK           0/1  html/canvas/offscreen/canvas-context/2d.canvas.context.prototype.html
-  FAIL      checks OffscreenCanvasRenderingContext2D prototype
-OK           0/1  html/canvas/offscreen/canvas-context/2d.canvas.context.shared.html
-  FAIL      getContext('2d') returns objects which share canvas state
-OK           0/1  html/canvas/offscreen/canvas-context/2d.canvas.context.type.exists.html
-  FAIL      The 2D context interface is a property of 'window'
-OK           0/1  html/canvas/offscreen/canvas-context/2d.canvas.context.type.extend.html
-  FAIL      Interface methods can be added
+OK           1/1  html/canvas/offscreen/canvas-context/2d.canvas.context.prototype.html
+OK           1/1  html/canvas/offscreen/canvas-context/2d.canvas.context.shared.html
+OK           1/1  html/canvas/offscreen/canvas-context/2d.canvas.context.type.exists.html
+OK           1/1  html/canvas/offscreen/canvas-context/2d.canvas.context.type.extend.html
 OK           0/1  html/canvas/offscreen/canvas-context/2d.canvas.context.type.prototype.html
   FAIL      window.CanvasRenderingContext2D.prototype are not [[Writable]] and not [[Configurable]], and its methods are [[Configurable]].
-OK           0/1  html/canvas/offscreen/canvas-context/2d.canvas.context.type.replace.html
-  FAIL      Interface methods can be overridden
-OK           0/1  html/canvas/offscreen/canvas-context/2d.canvas.context.unique.html
-  FAIL      getContext('2d') returns the same object
+OK           1/1  html/canvas/offscreen/canvas-context/2d.canvas.context.type.replace.html
+OK           1/1  html/canvas/offscreen/canvas-context/2d.canvas.context.unique.html
 OK           0/1  html/canvas/offscreen/canvas-context/2d.getContext.options.any.html
   FAIL      2d
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.initial.color.html
-  FAIL      Initial state is transparent black
-OK          0/12  html/canvas/offscreen/canvas-host/2d.canvas.host.initial.reset.2dstate.html
-  FAIL      Resetting the canvas state resets strokeStyle
-  FAIL      Resetting the canvas state resets fillStyle
-  FAIL      Resetting the canvas state resets globalAlpha
-  FAIL      Resetting the canvas state resets lineWidth
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.initial.color.html
+OK          5/12  html/canvas/offscreen/canvas-host/2d.canvas.host.initial.reset.2dstate.html
   FAIL      Resetting the canvas state resets lineCap
   FAIL      Resetting the canvas state resets lineJoin
   FAIL      Resetting the canvas state resets miterLimit
   FAIL      Resetting the canvas state resets shadowOffsetX
   FAIL      Resetting the canvas state resets shadowOffsetY
   FAIL      Resetting the canvas state resets shadowBlur
-  FAIL      Resetting the canvas state resets shadowColor
   FAIL      Resetting the canvas state resets globalCompositeOperation
 OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.initial.reset.clip.html
   FAIL      Resetting the canvas state resets the current clip region
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.initial.reset.different.html
-  FAIL      Changing size resets canvas to transparent black
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.initial.reset.different.html
 OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.initial.reset.gradient.html
   FAIL      Resetting the canvas state does not invalidate any existing gradients
 OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.initial.reset.path.html
   FAIL      Resetting the canvas state resets the current path
 OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.initial.reset.pattern.html
   FAIL      Resetting the canvas state does not invalidate any existing patterns
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.initial.reset.same.html
-  FAIL      Setting size (not changing the value) resets canvas to transparent black
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.initial.reset.same.html
 OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.initial.reset.transform.html
   FAIL      Resetting the canvas state resets the current transformation matrix
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.readonly.html
-  FAIL      Canvas objects are readonly
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.reference.html
-  FAIL      canvas refers back to its canvas
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.default.html
-  FAIL      Default width/height when attributes are missing
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.idl.html
-  FAIL      Getting/setting width/height IDL attributes
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.idl.set.zero.html
-  FAIL      Setting width/height IDL attributes to 0
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.decimal.html
-  FAIL      Parsing of non-negative integers
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.em.html
-  FAIL      Parsing of non-negative integers
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.empty.html
-  FAIL      Parsing of non-negative integers
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.exp.html
-  FAIL      Parsing of non-negative integers
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.hex.html
-  FAIL      Parsing of non-negative integers
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.junk.html
-  FAIL      Parsing of non-negative integers
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.minus.html
-  FAIL      Parsing of non-negative integers
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.octal.html
-  FAIL      Parsing of non-negative integers
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.onlyspace.html
-  FAIL      Parsing of non-negative integers
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.percent.html
-  FAIL      Parsing of non-negative integers
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.plus.html
-  FAIL      Parsing of non-negative integers
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.space.html
-  FAIL      Parsing of non-negative integers
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.trailingjunk.html
-  FAIL      Parsing of non-negative integers
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.whitespace.html
-  FAIL      Parsing of non-negative integers
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.zero.html
-  FAIL      Parsing of non-negative integers
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.reflect.setidl.html
-  FAIL      Setting IDL attributes updates IDL and content attributes
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.reflect.setidlzero.html
-  FAIL      Setting IDL attributes to 0 updates IDL and content attributes
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.invalid.attributes.idl.html
-  FAIL      Getting/setting width/height IDL attributes
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.large.html
-  FAIL      OffscreenCanvas test: 2d.canvas.host.size.large
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.type.delete.html
-  FAIL      OffscreenCanvas interface object is [[Configurable]]
-OK           0/1  html/canvas/offscreen/canvas-host/2d.canvas.host.type.name.html
-  FAIL      OffscreenCanvas type and toString
-OK           0/1  html/canvas/offscreen/color-type/2d.color.type.u8p3.to.f16srgb.to.u8p3.html
-  FAIL      test srgb float16 canvas storing 8-bit display-p3 data accurately
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.readonly.html
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.reference.html
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.default.html
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.idl.html
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.idl.set.zero.html
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.decimal.html
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.em.html
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.empty.html
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.exp.html
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.hex.html
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.junk.html
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.minus.html
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.octal.html
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.onlyspace.html
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.percent.html
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.plus.html
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.space.html
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.trailingjunk.html
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.whitespace.html
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.parse.zero.html
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.reflect.setidl.html
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.attributes.reflect.setidlzero.html
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.invalid.attributes.idl.html
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.size.large.html
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.type.delete.html
+OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.type.name.html
+OK           1/1  html/canvas/offscreen/color-type/2d.color.type.u8p3.to.f16srgb.to.u8p3.html
 OK           0/1  html/canvas/offscreen/color-type/2d.color.type.u8p3.to.u8srgb.to.u8p3.html
   FAIL      test srgb unorm8 canvas storing 8-bit display-p3 data accurately
-OK           0/1  html/canvas/offscreen/color-type/2d.color.type.u8srgb.to.f16p3.to.u8srgb.html
-  FAIL      test display-p3 float16 canvas storing 8-bit srgb data accurately
+OK           1/1  html/canvas/offscreen/color-type/2d.color.type.u8srgb.to.f16p3.to.u8srgb.html
 OK           0/1  html/canvas/offscreen/color-type/2d.color.type.u8srgb.to.u8p3.to.u8srgb.html
   FAIL      test display-p3 unorm8 canvas not storing 8-bit srgb data accurately
 OK           0/1  html/canvas/offscreen/compositing/2d.composite.canvas.clear.html
@@ -178,18 +132,14 @@ OK           0/1  html/canvas/offscreen/compositing/2d.composite.globalAlpha.can
   FAIL      OffscreenCanvas test: 2d.composite.globalAlpha.canvascopy
 OK           0/1  html/canvas/offscreen/compositing/2d.composite.globalAlpha.canvaspattern.html
   FAIL      OffscreenCanvas test: 2d.composite.globalAlpha.canvaspattern
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.globalAlpha.default.html
-  FAIL      OffscreenCanvas test: 2d.composite.globalAlpha.default
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.globalAlpha.fill.html
-  FAIL      OffscreenCanvas test: 2d.composite.globalAlpha.fill
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.globalAlpha.default.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.globalAlpha.fill.html
 OK           0/1  html/canvas/offscreen/compositing/2d.composite.globalAlpha.image.html
   FAIL      OffscreenCanvas test: 2d.composite.globalAlpha.image
 OK           0/1  html/canvas/offscreen/compositing/2d.composite.globalAlpha.imagepattern.html
   FAIL      OffscreenCanvas test: 2d.composite.globalAlpha.imagepattern
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.globalAlpha.invalid.html
-  FAIL      OffscreenCanvas test: 2d.composite.globalAlpha.invalid
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.globalAlpha.range.html
-  FAIL      OffscreenCanvas test: 2d.composite.globalAlpha.range
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.globalAlpha.invalid.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.globalAlpha.range.html
 OK           0/1  html/canvas/offscreen/compositing/2d.composite.image.clear.html
   FAIL      OffscreenCanvas test: 2d.composite.image.clear
 OK           0/1  html/canvas/offscreen/compositing/2d.composite.image.copy.html
@@ -216,14 +166,12 @@ OK           0/1  html/canvas/offscreen/compositing/2d.composite.image.xor.html
   FAIL      OffscreenCanvas test: 2d.composite.image.xor
 OK           0/1  html/canvas/offscreen/compositing/2d.composite.operation.casesensitive.html
   FAIL      OffscreenCanvas test: 2d.composite.operation.casesensitive
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.operation.clear.html
-  FAIL      OffscreenCanvas test: 2d.composite.operation.clear
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.operation.clear.html
 OK           0/1  html/canvas/offscreen/compositing/2d.composite.operation.darker.html
   FAIL      OffscreenCanvas test: 2d.composite.operation.darker
 OK           0/1  html/canvas/offscreen/compositing/2d.composite.operation.default.html
   FAIL      OffscreenCanvas test: 2d.composite.operation.default
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.operation.get.html
-  FAIL      OffscreenCanvas test: 2d.composite.operation.get
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.operation.get.html
 OK           0/1  html/canvas/offscreen/compositing/2d.composite.operation.highlight.html
   FAIL      OffscreenCanvas test: 2d.composite.operation.highlight
 OK           0/1  html/canvas/offscreen/compositing/2d.composite.operation.nullsuffix.html
@@ -234,8 +182,7 @@ OK           0/1  html/canvas/offscreen/compositing/2d.composite.operation.unrec
   FAIL      OffscreenCanvas test: 2d.composite.operation.unrecognised
 OK           0/1  html/canvas/offscreen/compositing/2d.composite.solid.clear.html
   FAIL      OffscreenCanvas test: 2d.composite.solid.clear
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.solid.copy.html
-  FAIL      OffscreenCanvas test: 2d.composite.solid.copy
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.solid.copy.html
 OK           0/1  html/canvas/offscreen/compositing/2d.composite.solid.destination-atop.html
   FAIL      OffscreenCanvas test: 2d.composite.solid.destination-atop
 OK           0/1  html/canvas/offscreen/compositing/2d.composite.solid.destination-in.html
@@ -246,14 +193,11 @@ OK           0/1  html/canvas/offscreen/compositing/2d.composite.solid.destinati
   FAIL      OffscreenCanvas test: 2d.composite.solid.destination-over
 OK           0/1  html/canvas/offscreen/compositing/2d.composite.solid.lighter.html
   FAIL      OffscreenCanvas test: 2d.composite.solid.lighter
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.solid.source-atop.html
-  FAIL      OffscreenCanvas test: 2d.composite.solid.source-atop
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.solid.source-in.html
-  FAIL      OffscreenCanvas test: 2d.composite.solid.source-in
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.solid.source-atop.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.solid.source-in.html
 OK           0/1  html/canvas/offscreen/compositing/2d.composite.solid.source-out.html
   FAIL      OffscreenCanvas test: 2d.composite.solid.source-out
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.solid.source-over.html
-  FAIL      OffscreenCanvas test: 2d.composite.solid.source-over
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.solid.source-over.html
 OK           0/1  html/canvas/offscreen/compositing/2d.composite.solid.xor.html
   FAIL      OffscreenCanvas test: 2d.composite.solid.xor
 OK           0/1  html/canvas/offscreen/compositing/2d.composite.transparent.clear.html
@@ -276,8 +220,7 @@ OK           0/1  html/canvas/offscreen/compositing/2d.composite.transparent.sou
   FAIL      OffscreenCanvas test: 2d.composite.transparent.source-in
 OK           0/1  html/canvas/offscreen/compositing/2d.composite.transparent.source-out.html
   FAIL      OffscreenCanvas test: 2d.composite.transparent.source-out
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.transparent.source-over.html
-  FAIL      OffscreenCanvas test: 2d.composite.transparent.source-over
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.transparent.source-over.html
 OK           0/1  html/canvas/offscreen/compositing/2d.composite.transparent.xor.html
   FAIL      OffscreenCanvas test: 2d.composite.transparent.xor
 OK           0/1  html/canvas/offscreen/compositing/2d.composite.uncovered.fill.copy.html
@@ -358,390 +301,221 @@ OK           0/1  html/canvas/offscreen/drawing-images-to-the-canvas/2d.drawImag
   FAIL      drawImage() with Infinity/NaN is ignored
 OK           0/1  html/canvas/offscreen/drawing-images-to-the-canvas/2d.drawImage.nowrap.html
   FAIL      Stretched images do not get pixels wrapping around the edges
-OK           0/1  html/canvas/offscreen/drawing-images-to-the-canvas/2d.drawImage.null.html
-  FAIL      OffscreenCanvas test: 2d.drawImage.null
+OK           1/1  html/canvas/offscreen/drawing-images-to-the-canvas/2d.drawImage.null.html
 OK           0/1  html/canvas/offscreen/drawing-images-to-the-canvas/2d.drawImage.path.html
   FAIL      OffscreenCanvas test: 2d.drawImage.path
 OK           0/1  html/canvas/offscreen/drawing-images-to-the-canvas/2d.drawImage.self.1.html
   FAIL      OffscreenCanvas test: 2d.drawImage.self.1
 OK           0/1  html/canvas/offscreen/drawing-images-to-the-canvas/2d.drawImage.self.2.html
   FAIL      OffscreenCanvas test: 2d.drawImage.self.2
-OK           0/1  html/canvas/offscreen/drawing-images-to-the-canvas/2d.drawImage.svg.html
-  FAIL      drawImage() of an SVG image
+TIMEOUT      0/1  html/canvas/offscreen/drawing-images-to-the-canvas/2d.drawImage.svg.html
+  TIMEOUT   drawImage() of an SVG image
 OK           0/1  html/canvas/offscreen/drawing-images-to-the-canvas/2d.drawImage.transform.html
   FAIL      OffscreenCanvas test: 2d.drawImage.transform
-OK           0/1  html/canvas/offscreen/drawing-images-to-the-canvas/2d.drawImage.wrongtype.html
-  FAIL      Incorrect image types in drawImage do not match any defined overloads, so WebIDL throws a TypeError
+OK           1/1  html/canvas/offscreen/drawing-images-to-the-canvas/2d.drawImage.wrongtype.html
 OK           0/1  html/canvas/offscreen/drawing-images-to-the-canvas/2d.drawImage.zerocanvas.html
   FAIL      OffscreenCanvas test: 2d.drawImage.zerocanvas
 OK           0/1  html/canvas/offscreen/drawing-images-to-the-canvas/2d.drawImage.zerosource.html
   FAIL      drawImage with zero-sized source rectangle draws nothing without exception
-OK           0/1  html/canvas/offscreen/drawing-images-to-the-canvas/2d.drawImage.zerosource.image.html
-  FAIL      drawImage with zero-sized source rectangle from image draws nothing without exception
-OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.clearRect.basic.html
-  FAIL      clearRect clears to transparent black
+TIMEOUT      0/1  html/canvas/offscreen/drawing-images-to-the-canvas/2d.drawImage.zerosource.image.html
+  TIMEOUT   drawImage with zero-sized source rectangle from image draws nothing without exception
+OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.clearRect.basic.html
 OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.clearRect.clip.html
   FAIL      clearRect is affected by clipping regions
-OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.clearRect.globalalpha.html
-  FAIL      clearRect is not affected by globalAlpha
-OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.clearRect.globalcomposite.html
-  FAIL      clearRect is not affected by globalCompositeOperation
-OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.clearRect.negative.html
-  FAIL      clearRect of negative sizes works
-OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.clearRect.nonfinite.html
-  FAIL      clearRect() with Infinity/NaN is ignored
+OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.clearRect.globalalpha.html
+OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.clearRect.globalcomposite.html
+OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.clearRect.negative.html
+OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.clearRect.nonfinite.html
 OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.clearRect.path.html
   FAIL      clearRect does not affect the current path
-OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.clearRect.shadow.html
-  FAIL      clearRect does not draw shadows
+OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.clearRect.shadow.html
 OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.clearRect.transform.html
   FAIL      clearRect is affected by transforms
-OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.clearRect.zero.html
-  FAIL      clearRect of zero pixels has no effect
-OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.fillRect.basic.html
-  FAIL      fillRect works
+OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.clearRect.zero.html
+OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.fillRect.basic.html
 OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.fillRect.clip.html
   FAIL      fillRect is affected by clipping regions
-OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.fillRect.negative.html
-  FAIL      fillRect of negative sizes works
-OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.fillRect.nonfinite.html
-  FAIL      fillRect() with Infinity/NaN is ignored
+OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.fillRect.negative.html
+OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.fillRect.nonfinite.html
 OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.fillRect.path.html
   FAIL      fillRect does not affect the current path
 OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.fillRect.shadow.html
   FAIL      fillRect draws shadows
 OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.fillRect.transform.html
   FAIL      fillRect is affected by transforms
-OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.fillRect.zero.html
-  FAIL      fillRect of zero pixels has no effect
-OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.basic.html
-  FAIL      strokeRect works
+OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.fillRect.zero.html
+OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.basic.html
 OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.clip.html
   FAIL      strokeRect is affected by clipping regions
-OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.globalalpha.html
-  FAIL      strokeRect is affected by globalAlpha
+OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.globalalpha.html
 OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.globalcomposite.html
   FAIL      strokeRect is not affected by globalCompositeOperation
-OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.negative.html
-  FAIL      strokeRect of negative sizes works
-OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.nonfinite.html
-  FAIL      strokeRect() with Infinity/NaN is ignored
+OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.negative.html
+OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.nonfinite.html
 OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.path.html
   FAIL      strokeRect does not affect the current path
 OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.shadow.html
   FAIL      strokeRect draws shadows
 OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.transform.html
   FAIL      fillRect is affected by transforms
-OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.zero.1.html
-  FAIL      strokeRect of 0x0 pixels draws nothing
-OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.zero.2.html
-  FAIL      strokeRect of 0x0 pixels draws nothing, including caps and joins
-OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.zero.3.html
-  FAIL      strokeRect of Nx0 pixels draws a straight line
-OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.zero.4.html
-  FAIL      strokeRect of Nx0 pixels draws a closed line with no caps
+OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.zero.1.html
+OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.zero.2.html
+OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.zero.3.html
+OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.zero.4.html
 OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.zero.5.html
   FAIL      strokeRect of Nx0 pixels draws a closed line with joins
 OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.CSSHSL.html
   FAIL      CSSHSL works as color input
 OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.CSSRGB.html
   FAIL      CSSRGB works as color input
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.colormix.html
-  FAIL      color-mix works as color input
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.default.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.default
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.get.halftransparent.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.get.halftransparent
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.get.semitransparent.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.get.semitransparent
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.get.solid.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.get.solid
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.get.transparent.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.get.transparent
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.invalidstring.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.invalidstring
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.invalidtype.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.invalidtype
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsl-1.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.css-color-4-hsl-1
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsl-2.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.css-color-4-hsl-2
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsl-3.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.css-color-4-hsl-3
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsl-4.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.css-color-4-hsl-4
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsl-5.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.css-color-4-hsl-5
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsl-6.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.css-color-4-hsl-6
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsl-7.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.css-color-4-hsl-7
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsl-8.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.css-color-4-hsl-8
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsl-9.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.css-color-4-hsl-9
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsla-1.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.css-color-4-hsla-1
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsla-2.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.css-color-4-hsla-2
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsla-3.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.css-color-4-hsla-3
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsla-4.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.css-color-4-hsla-4
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsla-5.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.css-color-4-hsla-5
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsla-6.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.css-color-4-hsla-6
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsla-7.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.css-color-4-hsla-7
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsla-8.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.css-color-4-hsla-8
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsla-9.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.css-color-4-hsla-9
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgb-1.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.css-color-4-rgb-1
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgb-2.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.css-color-4-rgb-2
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgb-3.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.css-color-4-rgb-3
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgb-4.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.css-color-4-rgb-4
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgb-5.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.css-color-4-rgb-5
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgb-6.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.css-color-4-rgb-6
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgba-1.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.css-color-4-rgba-1
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgba-2.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.css-color-4-rgba-2
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgba-3.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.css-color-4-rgba-3
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgba-4.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.css-color-4-rgba-4
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgba-5.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.css-color-4-rgba-5
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgba-6.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.css-color-4-rgba-6
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hex3.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.hex3
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hex4.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.hex4
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hex6.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.hex6
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hex8.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.hex8
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsl-1.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.hsl-1
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsl-2.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.hsl-2
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsl-3.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.hsl-3
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsl-4.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.hsl-4
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsl-5.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.hsl-5
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsl-6.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.hsl-6
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsl-clamp-1.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.hsl-clamp-1
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsl-clamp-2.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.hsl-clamp-2
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsl-clamp-3.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.hsl-clamp-3
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsl-clamp-4.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.hsl-clamp-4
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsl-clamp-negative-saturation.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.hsl-clamp-negative-saturation
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsla-1.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.hsla-1
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsla-2.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.hsla-2
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsla-clamp-1.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.hsla-clamp-1
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsla-clamp-2.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.hsla-clamp-2
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsla-clamp-3.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.hsla-clamp-3
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsla-clamp-4.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.hsla-clamp-4
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsla-clamp-5.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.hsla-clamp-5
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsla-clamp-6.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.hsla-clamp-6
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsla-clamp-alpha-1.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.hsla-clamp-alpha-1
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsla-clamp-alpha-2.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.hsla-clamp-alpha-2
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsla-clamp-negative-saturation.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.hsla-clamp-negative-saturation
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.html4.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.html4
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-hsl-1.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.css-color-4-hsl-1
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-hsl-2.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.css-color-4-hsl-2
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-hsl-3.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.css-color-4-hsl-3
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-hsl-4.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.css-color-4-hsl-4
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-hsl-5.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.css-color-4-hsl-5
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-hsl-6.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.css-color-4-hsl-6
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-hsl-7.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.css-color-4-hsl-7
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-hsla-1.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.css-color-4-hsla-1
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-hsla-2.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.css-color-4-hsla-2
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-hsla-3.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.css-color-4-hsla-3
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-rgb-1.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.css-color-4-rgb-1
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-rgb-2.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.css-color-4-rgb-2
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-rgb-3.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.css-color-4-rgb-3
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-rgb-4.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.css-color-4-rgb-4
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-rgb-5.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.css-color-4-rgb-5
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-rgb-6.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.css-color-4-rgb-6
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-rgb-7.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.css-color-4-rgb-7
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-rgba-1.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.css-color-4-rgba-1
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-rgba-2.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.css-color-4-rgba-2
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-rgba-3.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.css-color-4-rgba-3
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hex1.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.hex1
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hex2.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.hex2
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hex3.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.hex3
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hex4.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.hex4
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hex5.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.hex5
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hex6.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.hex6
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hex7.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.hex7
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hex8.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.hex8
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsl-1.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.hsl-1
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsl-2.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.hsl-2
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsl-3.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.hsl-3
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsl-4.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.hsl-4
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsl-5.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.hsl-5
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsl-6.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.hsl-6
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsla-1.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.hsla-1
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsla-2.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.hsla-2
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsla-3.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.hsla-3
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.name-1.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.name-1
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.name-2.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.name-2
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.name-3.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.name-3
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.name-4.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.name-4
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.name-5.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.name-5
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.no-context.em-1.html
-  FAIL      Colors depending on a style context are invalid in OffscreenCanvas
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.no-context.em-2.html
-  FAIL      Colors depending on a style context are invalid in OffscreenCanvas
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.no-context.em-3.html
-  FAIL      Colors depending on a style context are invalid in OffscreenCanvas
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.no-context.em-4.html
-  FAIL      Colors depending on a style context are invalid in OffscreenCanvas
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.no-context.random-1.html
-  FAIL      Colors depending on a style context are invalid in OffscreenCanvas
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.no-context.random-2.html
-  FAIL      Colors depending on a style context are invalid in OffscreenCanvas
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.no-context.random-3.html
-  FAIL      Colors depending on a style context are invalid in OffscreenCanvas
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.no-context.random-4.html
-  FAIL      Colors depending on a style context are invalid in OffscreenCanvas
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.rgb-1.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.rgb-1
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.rgb-2.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.rgb-2
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.rgb-3.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.rgb-3
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.rgba-1.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.rgba-1
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.rgba-2.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.rgba-2
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.rgba-3.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.rgba-3
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.rgba-4.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.rgba-4
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.rgba-5.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.invalid.rgba-5
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgb-clamp-1.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.rgb-clamp-1
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgb-clamp-2.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.rgb-clamp-2
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgb-clamp-3.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.rgb-clamp-3
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgb-clamp-4.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.rgb-clamp-4
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgb-clamp-5.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.rgb-clamp-5
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgb-eof.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.rgb-eof
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgb-num.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.rgb-num
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgb-percent.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.rgb-percent
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgba-clamp-1.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.rgba-clamp-1
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgba-clamp-2.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.rgba-clamp-2
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgba-eof.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.rgba-eof
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgba-num-1.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.rgba-num-1
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgba-num-2.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.rgba-num-2
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgba-percent.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.rgba-percent
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgba-solid-1.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.rgba-solid-1
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgba-solid-2.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.rgba-solid-2
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgba-solid-3.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.rgba-solid-3
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgba-solid-4.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.rgba-solid-4
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.svg-1.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.svg-1
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.svg-2.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.svg-2
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.system.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.system
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.transparent-1.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.transparent-1
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.transparent-2.html
-  FAIL      OffscreenCanvas test: 2d.fillStyle.parse.transparent-2
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.relativecolor.html
-  FAIL      Relative color works as color input
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.toStringFunctionCallback.html
-  FAIL      Passing a function in to ctx.fillStyle or ctx.strokeStyle with a toString callback works as specified
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.colormix.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.default.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.get.halftransparent.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.get.semitransparent.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.get.solid.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.get.transparent.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.invalidstring.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.invalidtype.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsl-1.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsl-2.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsl-3.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsl-4.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsl-5.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsl-6.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsl-7.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsl-8.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsl-9.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsla-1.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsla-2.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsla-3.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsla-4.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsla-5.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsla-6.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsla-7.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsla-8.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-hsla-9.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgb-1.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgb-2.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgb-3.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgb-4.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgb-5.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgb-6.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgba-1.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgba-2.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgba-3.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgba-4.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgba-5.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgba-6.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hex3.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hex4.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hex6.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hex8.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsl-1.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsl-2.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsl-3.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsl-4.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsl-5.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsl-6.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsl-clamp-1.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsl-clamp-2.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsl-clamp-3.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsl-clamp-4.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsl-clamp-negative-saturation.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsla-1.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsla-2.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsla-clamp-1.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsla-clamp-2.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsla-clamp-3.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsla-clamp-4.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsla-clamp-5.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsla-clamp-6.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsla-clamp-alpha-1.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsla-clamp-alpha-2.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.hsla-clamp-negative-saturation.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.html4.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-hsl-1.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-hsl-2.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-hsl-3.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-hsl-4.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-hsl-5.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-hsl-6.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-hsl-7.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-hsla-1.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-hsla-2.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-hsla-3.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-rgb-1.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-rgb-2.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-rgb-3.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-rgb-4.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-rgb-5.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-rgb-6.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-rgb-7.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-rgba-1.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-rgba-2.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.css-color-4-rgba-3.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hex1.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hex2.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hex3.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hex4.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hex5.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hex6.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hex7.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hex8.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsl-1.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsl-2.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsl-3.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsl-4.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsl-5.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsl-6.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsla-1.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsla-2.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.hsla-3.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.name-1.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.name-2.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.name-3.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.name-4.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.name-5.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.no-context.em-1.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.no-context.em-2.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.no-context.em-3.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.no-context.em-4.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.no-context.random-1.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.no-context.random-2.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.no-context.random-3.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.no-context.random-4.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.rgb-1.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.rgb-2.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.rgb-3.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.rgba-1.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.rgba-2.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.rgba-3.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.rgba-4.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.invalid.rgba-5.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgb-clamp-1.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgb-clamp-2.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgb-clamp-3.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgb-clamp-4.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgb-clamp-5.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgb-eof.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgb-num.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgb-percent.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgba-clamp-1.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgba-clamp-2.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgba-eof.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgba-num-1.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgba-num-2.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgba-percent.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgba-solid-1.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgba-solid-2.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgba-solid-3.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.rgba-solid-4.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.svg-1.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.svg-2.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.system.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.transparent-1.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.parse.transparent-2.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.relativecolor.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.fillStyle.toStringFunctionCallback.html
 OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.conic.invalid.inputs.html
   FAIL      Conic gradient function with invalid inputs
 OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.conic.negative.rotation.html
@@ -780,8 +554,7 @@ OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.inter
   FAIL      OffscreenCanvas test: 2d.gradient.interpolate.zerosize.strokeRect
 OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.interpolate.zerosize.strokeText.html
   FAIL      OffscreenCanvas test: 2d.gradient.interpolate.zerosize.strokeText
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.linear.nonfinite.html
-  FAIL      createLinearGradient() throws TypeError if arguments are not finite
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.linear.nonfinite.html
 OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.linear.transform.1.html
   FAIL      Linear gradient coordinates are relative to the coordinate space at the time of filling
 OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.linear.transform.2.html
@@ -828,8 +601,7 @@ OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.radia
   FAIL      OffscreenCanvas test: 2d.gradient.radial.inside3
 OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.radial.negative.html
   FAIL      createRadialGradient() throws INDEX_SIZE_ERR if either radius is negative
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.radial.nonfinite.html
-  FAIL      createRadialGradient() throws TypeError if arguments are not finite
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.radial.nonfinite.html
 OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.radial.outside1.html
   FAIL      OffscreenCanvas test: 2d.gradient.radial.outside1
 OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.gradient.radial.outside2.html
@@ -862,12 +634,9 @@ OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.basic.
   FAIL      OffscreenCanvas test: 2d.pattern.basic.zerocanvas
 OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.crosscanvas.html
   FAIL      OffscreenCanvas test: 2d.pattern.crosscanvas
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.image.null.html
-  FAIL      OffscreenCanvas test: 2d.pattern.image.null
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.image.string.html
-  FAIL      OffscreenCanvas test: 2d.pattern.image.string
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.image.undefined.html
-  FAIL      OffscreenCanvas test: 2d.pattern.image.undefined
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.image.null.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.image.string.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.image.undefined.html
 OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.modify.canvas1.html
   FAIL      OffscreenCanvas test: 2d.pattern.modify.canvas1
 OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.modify.canvas2.html
@@ -930,12 +699,9 @@ OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.transf
   FAIL      OffscreenCanvas test: 2d.pattern.transform.infinity
 OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.pattern.transform.invalid.html
   FAIL      OffscreenCanvas test: 2d.pattern.transform.invalid
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.strokeStyle.colormix.html
-  FAIL      color-mix works as color input
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.strokeStyle.default.html
-  FAIL      OffscreenCanvas test: 2d.strokeStyle.default
-OK           0/1  html/canvas/offscreen/fill-and-stroke-styles/2d.strokeStyle.relativecolor.html
-  FAIL      Relative color works as color input
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.strokeStyle.colormix.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.strokeStyle.default.html
+OK           1/1  html/canvas/offscreen/fill-and-stroke-styles/2d.strokeStyle.relativecolor.html
 OK           0/1  html/canvas/offscreen/filters/2d.filter.canvasFilterObject.blur.exceptions.tentative.html
   FAIL      Test exceptions on gaussianBlur filter
 OK           0/1  html/canvas/offscreen/filters/2d.filter.canvasFilterObject.colorMatrix.tentative.html
@@ -948,8 +714,7 @@ OK           0/1  html/canvas/offscreen/filters/2d.filter.canvasFilterObject.ten
   FAIL      Test CanvasFilter() object
 OK           0/1  html/canvas/offscreen/filters/2d.filter.canvasFilterObject.turbulence.inputTypes.tentative.html
   FAIL      Test exceptions on CanvasFilter() turbulence object
-OK           0/1  html/canvas/offscreen/filters/2d.filter.layers.blur.exceptions.tentative.html
-  FAIL      Test exceptions on gaussianBlur filter
+OK           1/1  html/canvas/offscreen/filters/2d.filter.layers.blur.exceptions.tentative.html
 OK           0/1  html/canvas/offscreen/filters/2d.filter.layers.colorMatrix.tentative.html
   FAIL      Test the functionality of ColorMatrix filters
 OK           0/1  html/canvas/offscreen/filters/2d.filter.layers.convolveMatrix.exceptions.tentative.html
@@ -995,16 +760,13 @@ OK           0/1  html/canvas/offscreen/layers/2d.layer.valid-calls.beginLayer-s
   FAIL      No exception raised on beginLayer() + save().
 OK           0/1  html/canvas/offscreen/layers/2d.layer.valid-calls.beginLayer.html
   FAIL      No exception raised on lone beginLayer() calls.
-OK           0/1  html/canvas/offscreen/layers/2d.layer.valid-calls.restore.html
-  FAIL      No exception raised on lone restore() calls.
+OK           1/1  html/canvas/offscreen/layers/2d.layer.valid-calls.restore.html
 OK           0/1  html/canvas/offscreen/layers/2d.layer.valid-calls.save-beginLayer.html
   FAIL      No exception raised on save() + beginLayer().
-OK           0/1  html/canvas/offscreen/layers/2d.layer.valid-calls.save.html
-  FAIL      No exception raised on lone save() calls.
+OK           1/1  html/canvas/offscreen/layers/2d.layer.valid-calls.save.html
 OK           0/1  html/canvas/offscreen/layers/2d.layer.valid-calls.save_reset_restore.html
   FAIL      No exception raised on save() + reset() + restore().
-OK           0/1  html/canvas/offscreen/layers/2d.layer.valid-calls.save_restore.html
-  FAIL      No exception raised on save() + restore().
+OK           1/1  html/canvas/offscreen/layers/2d.layer.valid-calls.save_restore.html
 OK           0/1  html/canvas/offscreen/line-styles/2d.line.cap.butt.html
   FAIL      lineCap 'butt' is rendered correctly
 OK           0/1  html/canvas/offscreen/line-styles/2d.line.cap.closed.html
@@ -1017,8 +779,7 @@ OK           0/1  html/canvas/offscreen/line-styles/2d.line.cap.round.html
   FAIL      lineCap 'round' is rendered correctly
 OK           0/1  html/canvas/offscreen/line-styles/2d.line.cap.square.html
   FAIL      lineCap 'square' is rendered correctly
-OK           0/1  html/canvas/offscreen/line-styles/2d.line.cap.valid.html
-  FAIL      Setting lineCap to valid values works
+OK           1/1  html/canvas/offscreen/line-styles/2d.line.cap.valid.html
 OK           0/1  html/canvas/offscreen/line-styles/2d.line.cross.html
   FAIL      OffscreenCanvas test: 2d.line.cross
 OK           0/1  html/canvas/offscreen/line-styles/2d.line.defaults.html
@@ -1041,8 +802,7 @@ OK           0/1  html/canvas/offscreen/line-styles/2d.line.join.parallel.html
   FAIL      Line joins are drawn at 180-degree joins
 OK           0/1  html/canvas/offscreen/line-styles/2d.line.join.round.html
   FAIL      lineJoin 'round' is rendered correctly
-OK           0/1  html/canvas/offscreen/line-styles/2d.line.join.valid.html
-  FAIL      Setting lineJoin to valid values works
+OK           1/1  html/canvas/offscreen/line-styles/2d.line.join.valid.html
 OK           0/1  html/canvas/offscreen/line-styles/2d.line.miter.acute.html
   FAIL      Miter joins are drawn correctly with acute angles
 OK           0/1  html/canvas/offscreen/line-styles/2d.line.miter.exceeded.html
@@ -1063,15 +823,29 @@ OK           0/1  html/canvas/offscreen/line-styles/2d.line.union.html
   FAIL      OffscreenCanvas test: 2d.line.union
 OK           0/1  html/canvas/offscreen/line-styles/2d.line.width.basic.html
   FAIL      lineWidth determines the width of line strokes
-OK           0/1  html/canvas/offscreen/line-styles/2d.line.width.invalid.html
-  FAIL      Setting lineWidth to invalid values is ignored
+OK           1/1  html/canvas/offscreen/line-styles/2d.line.width.invalid.html
 OK           0/1  html/canvas/offscreen/line-styles/2d.line.width.scaledefault.html
   FAIL      Default lineWidth strokes are affected by scale transformations
 OK           0/1  html/canvas/offscreen/line-styles/2d.line.width.transformed.html
   FAIL      Line stroke widths are affected by scale transformations
-OK           0/1  html/canvas/offscreen/line-styles/2d.line.width.valid.html
-  FAIL      Setting lineWidth to valid values works
-ERROR        0/0  html/canvas/offscreen/manual/context-attributes/getContextAttributes.html
+OK           1/1  html/canvas/offscreen/line-styles/2d.line.width.valid.html
+OK          0/16  html/canvas/offscreen/manual/context-attributes/getContextAttributes.html
+  FAIL      Test default offscreen context creation attributes
+  FAIL      Test offscreen context creation attributes alpha: true
+  FAIL      Test offscreen context creation attributes alpha: false
+  FAIL      Test offscreen context creation attributes colorSpace: 'srgb'
+  FAIL      Test offscreen context creation attributes colorSpace: 'display-p3'
+  FAIL      Test offscreen context creation attributes colorSpace: 'srgb-linear'
+  FAIL      Test offscreen context creation attributes colorSpace: 'display-p3-linear'
+  FAIL      Test offscreen context creation attributes desynchronized: true
+  FAIL      Test offscreen context creation attributes desynchronized: false
+  FAIL      Test offscreen context creation attributes willReadFrequently: true
+  FAIL      Test offscreen context creation attributes willReadFrequently: false
+  FAIL      Test context creation attributes colorType: unorm8
+  FAIL      Test context creation attributes colorType: float16
+  FAIL      Test offscreen context creation attributes toneMapping: {}
+  FAIL      Test offscreen context creation attributes toneMapping: {mode: 'standard'}
+  FAIL      Test offscreen context creation attributes toneMapping: {mode: 'extended'}
 TIMEOUT      0/8  html/canvas/offscreen/manual/convert-to-blob/offscreencanvas.convert.to.blob.html
   FAIL      Test that convertToBlob with default type produces correct result
   FAIL      Test that convertToBlob with png produces correct result
@@ -1123,9 +897,8 @@ OK           0/5  html/canvas/offscreen/manual/draw-generic-family/2d.text.draw.
 OK           0/1  html/canvas/offscreen/manual/filter/offscreencanvas.filter.html
   FAIL      none
 ERROR        0/0  html/canvas/offscreen/manual/filter/offscreencanvas.filter.w.html
-OK           0/9  html/canvas/offscreen/manual/image-smoothing/image.smoothing.html
+OK           1/9  html/canvas/offscreen/manual/image-smoothing/image.smoothing.html
   FAIL      When the context is created, imageSmoothingEnabled must be set to true.
-  FAIL      On getting imageSmoothingEnabled, the user agent must return the last value it was set to.
   FAIL      Test that image smoothing is actually on by default.
   FAIL      Test that image smoothing works when imageSmoothingEnabled is set to true
   FAIL      Test that imageSmoothingEnabled = false (nearest-neighbor interpolation) works with drawImage().
@@ -1133,32 +906,23 @@ OK           0/9  html/canvas/offscreen/manual/image-smoothing/image.smoothing.h
   FAIL      Test that imageSmoothingEnabled = false (nearest-neighbor interpolation) works with fill() and createPattern().
   FAIL      Test that imageSmoothingEnabled = false (nearest-neighbor interpolation) works with stroke() and createPattern().
   FAIL      Test that imageSmoothingEnabled = false (nearest-neighbor interpolation) still works after repaints.
-OK           0/3  html/canvas/offscreen/manual/the-offscreen-canvas/offscreencanvas.constructor.html
-  FAIL      OffscreenCanvas constructor called as normal function
-  FAIL      Test that calling OffscreenCanvas's constructor generates correct width and height.
-  FAIL      Test that OffscreenCanvas constructor handles invalid arguments correctly
-OK           0/8  html/canvas/offscreen/manual/the-offscreen-canvas/offscreencanvas.getcontext.html
+OK           3/3  html/canvas/offscreen/manual/the-offscreen-canvas/offscreencanvas.constructor.html
+OK           3/8  html/canvas/offscreen/manual/the-offscreen-canvas/offscreencanvas.getcontext.html
   FAIL      Test that getContext with un-supported string throws a TypeError.
   FAIL      Test that getContext with supported string returns correct results
   FAIL      Test that getContext twice with different context type returns null the second time
-  FAIL      Test that 2dcontext.canvas should return the original OffscreenCanvas
   FAIL      Test that webglcontext.canvas should return the original OffscreenCanvas
   FAIL      Test that OffscreenCanvasRenderingContext2D with alpha disabled makes the OffscreenCanvas opaque
-  FAIL      Test that OffscreenCanvasRenderingContext2D with alpha enabled preserves the alpha
-  FAIL      Test that 'alpha' context creation attribute is true by default
 OK           0/4  html/canvas/offscreen/manual/the-offscreen-canvas/offscreencanvas.placeholder.size.html
   FAIL      Setting width or height on a placeholder canvas throws
   FAIL      The width and height content attributes do not resize a placeholder canvas
   FAIL      Transferring the OffscreenCanvas preserves the placeholder size
   FAIL      The width and height content attributes do not change the aspect ratio of a placeholder canvas
-OK          0/10  html/canvas/offscreen/manual/the-offscreen-canvas/offscreencanvas.resize.html
-  FAIL      Verify that writing to the width and height attributes of an OffscreenCanvas works when there is no context attached.
+OK          3/10  html/canvas/offscreen/manual/the-offscreen-canvas/offscreencanvas.resize.html
   FAIL      Verify that writing to the width and height attributes of an OffscreenCanvas works when there is a 2d context attached.
   FAIL      Verify that writing to the width and height attributes of an OffscreenCanvas works when there is a webgl context attached.
   FAIL      Verify that writing to the width or height attribute of a placeholder canvas throws an exception
   FAIL      Verify that writing to the width or height attribute of a placeholder canvas throws an exception even when not changing the value of the attribute.
-  FAIL      Verify that resizing a 2d context resets its state.
-  FAIL      Verify that setting the size of a 2d context to the same size it already had resets its state.
   FAIL      Verify that resizing an OffscreenCanvas with a 2d context propagates the new size to its placeholder canvas asynchronously.
   FAIL      Verify that resizing an OffscreenCanvas with a webgl context propagates the new size to its placeholder canvas asynchronously.
   FAIL      Verify that drawImage uses the size of the frame as the intinsic size of a placeholder canvas.
@@ -1204,7 +968,8 @@ OK           0/6  html/canvas/offscreen/manual/the-offscreen-canvas/offscreencan
   FAIL      Test that transfer an OffscreenCanvas twice throws exception in a worker.
   FAIL      Test that calling getContext('2d') on a detached OffscreenCanvas throws exception in a worker.
   FAIL      Test that calling getContext('webgl') on a detached OffscreenCanvas throws exception in a worker.
-ERROR        0/0  html/canvas/offscreen/manual/transformations/2d.transformation.getTransform.html
+OK           0/1  html/canvas/offscreen/manual/transformations/2d.transformation.getTransform.html
+  FAIL      This test ensures that getTransform works correctly.
 OK           0/1  html/canvas/offscreen/manual/wide-gamut-canvas/2d.color.space.p3.convertToBlobp3.canvas.html
   FAIL      test if toblob returns p3 data from p3 color space canvas
 OK           0/1  html/canvas/offscreen/path-objects/2d.path.arc.angle.1.html
@@ -1629,124 +1394,73 @@ OK           0/1  html/canvas/offscreen/path-objects/2d.path.transformation.chan
   FAIL      Transformations are applied while building paths, not when drawing
 OK           0/1  html/canvas/offscreen/path-objects/2d.path.transformation.multiple.html
   FAIL      Transformations are applied while building paths, not when drawing
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.create1.basic.html
-  FAIL      createImageData(imgdata) exists and returns something
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.create1.initial.html
-  FAIL      createImageData(imgdata) returns transparent black data of the right size
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.create1.zero.html
-  FAIL      createImageData(null) throws TypeError
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.create2.basic.html
-  FAIL      createImageData(sw, sh) exists and returns something
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.create2.double.html
-  FAIL      createImageData(w, h) double is converted to long
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.create2.initial.html
-  FAIL      createImageData(sw, sh) returns transparent black data of the right size
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.create2.large.html
-  FAIL      createImageData(sw, sh) works for sizes much larger than the canvas
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.create2.negative.html
-  FAIL      createImageData(sw, sh) takes the absolute magnitude of the size arguments
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.create2.nonfinite.html
-  FAIL      createImageData() throws TypeError if arguments are not finite
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.create2.round.html
-  FAIL      createImageData(w, h) is rounded the same as getImageData(0, 0, w, h)
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.create2.zero.html
-  FAIL      createImageData(sw, sh) throws INDEX_SIZE_ERR if size is zero
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.create1.basic.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.create1.initial.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.create1.zero.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.create2.basic.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.create2.double.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.create2.initial.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.create2.large.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.create2.negative.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.create2.nonfinite.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.create2.round.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.create2.zero.html
 OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.createImageBitmap.p3.rgba.unorm8.html
   FAIL      Verify round-trip of 8-bit P3 data ImageData through ImageBitmap
 OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.createImageBitmap.srgb.rgba.float16.html
   FAIL      Verify round-trip of 16-bit float sRGB data ImageData through ImageBitmap
 OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.createImageBitmap.srgb.rgba.unorm8.html
   FAIL      Verify round-trip of 8-bit sRGB data ImageData through ImageBitmap
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.basic.html
-  FAIL      getImageData() exists and returns something
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.clamp.html
-  FAIL      getImageData() clamps colors to the range [0, 255]
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.double.html
-  FAIL      createImageData(w, h) double is converted to long
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.invalid.html
-  FAIL      Verify getImageData() behavior in invalid cases.
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.large.crash.html
-  FAIL      Test that canvas crash when image data cannot be allocated.
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.length.html
-  FAIL      getImageData() returns a correctly-sized Uint8ClampedArray
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.nonfinite.html
-  FAIL      getImageData() throws TypeError if arguments are not finite
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.nonpremul.html
-  FAIL      getImageData() returns non-premultiplied colors
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.order.alpha.html
-  FAIL      getImageData() returns A in the fourth component
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.order.cols.html
-  FAIL      getImageData() returns leftmost columns first
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.order.rgb.html
-  FAIL      getImageData() returns R then G then B
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.order.rows.html
-  FAIL      getImageData() returns topmost rows first
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.range.html
-  FAIL      getImageData() returns values in the range [0, 255]
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.rounding.html
-  FAIL      Test the handling of non-integer source coordinates in getImageData().
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.source.negative.html
-  FAIL      getImageData() works with negative width and height, and returns top-to-bottom left-to-right
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.source.outside.html
-  FAIL      getImageData() returns transparent black outside the canvas
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.source.size.html
-  FAIL      getImageData() returns bigger ImageData for bigger source rectangle
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.basic.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.clamp.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.double.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.invalid.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.large.crash.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.length.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.nonfinite.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.nonpremul.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.order.alpha.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.order.cols.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.order.rgb.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.order.rows.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.range.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.rounding.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.source.negative.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.source.outside.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.source.size.html
 OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.unaffected.html
   FAIL      getImageData() is not affected by context state
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.zero.html
-  FAIL      getImageData() throws INDEX_SIZE_ERR if size is zero
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.object.clamp.html
-  FAIL      ImageData.data clamps numbers to [0, 255]
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.object.nan.html
-  FAIL      ImageData.data converts NaN to 0
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.object.properties.html
-  FAIL      ImageData objects have the right properties
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.object.readonly.html
-  FAIL      ImageData objects properties are read-only
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.object.round.html
-  FAIL      ImageData.data rounds numbers with round-to-zero
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.object.set.html
-  FAIL      ImageData.data can be modified
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.object.string.html
-  FAIL      ImageData.data converts strings to numbers with ToNumber
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.object.undefined.html
-  FAIL      ImageData.data converts undefined to 0
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.alpha.html
-  FAIL      putImageData() puts non-solid image data correctly
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.basic.html
-  FAIL      putImageData() puts image data from getImageData() onto the canvas
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.get.zero.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.object.clamp.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.object.nan.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.object.properties.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.object.readonly.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.object.round.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.object.set.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.object.string.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.object.undefined.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.alpha.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.basic.html
 OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.basic.rgba.float16.html
   FAIL      putImageData() puts 16-bit floating point image data from getImageData() onto the canvas
 OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.clip.html
   FAIL      putImageData() is not affected by clipping regions
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.created.html
-  FAIL      putImageData() puts image data from createImageData() onto the canvas
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.cross.html
-  FAIL      putImageData() accepts image data got from a different canvas
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.dirty.negative.html
-  FAIL      putImageData() handles negative-sized dirty rectangles correctly
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.dirty.outside.html
-  FAIL      putImageData() handles dirty rectangles outside the canvas correctly
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.dirty.rect1.html
-  FAIL      putImageData() only modifies areas inside the dirty rectangle, using width and height
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.dirty.rect2.html
-  FAIL      putImageData() only modifies areas inside the dirty rectangle, using x and y
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.dirty.zero.html
-  FAIL      putImageData() with zero-sized dirty rectangle puts nothing
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.modified.html
-  FAIL      putImageData() puts modified image data correctly
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.nonfinite.html
-  FAIL      putImageData() throws TypeError if arguments are not finite
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.null.html
-  FAIL      putImageData() with null imagedata throws TypeError
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.created.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.cross.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.dirty.negative.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.dirty.outside.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.dirty.rect1.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.dirty.rect2.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.dirty.zero.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.modified.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.nonfinite.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.null.html
 OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.path.html
   FAIL      putImageData() does not affect the current path
 OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.unaffected.html
   FAIL      putImageData() is not affected by context state
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.unchanged.html
-  FAIL      putImageData(getImageData(...), ...) has no effect
-OK           0/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.wrongtype.html
-  FAIL      putImageData() does not accept non-ImageData objects
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.unchanged.html
+OK           1/1  html/canvas/offscreen/pixel-manipulation/2d.imageData.put.wrongtype.html
 OK           0/1  html/canvas/offscreen/reset/2d.reset.basic.html
   FAIL      reset clears to transparent black
 OK           0/1  html/canvas/offscreen/reset/2d.reset.state.direction.html
@@ -1805,8 +1519,7 @@ OK           0/1  html/canvas/offscreen/reset/2d.reset.state.transformation_matr
   FAIL      check that the state is reset
 OK           0/1  html/canvas/offscreen/reset/2d.reset.state.word_spacing.html
   FAIL      check that the state is reset
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.alpha.1.html
-  FAIL      Shadow color alpha components are used
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.alpha.1.html
 OK           0/1  html/canvas/offscreen/shadows/2d.shadow.alpha.2.html
   FAIL      Shadow color alpha components are used
 OK           0/1  html/canvas/offscreen/shadows/2d.shadow.alpha.3.html
@@ -1819,20 +1532,15 @@ OK           0/1  html/canvas/offscreen/shadows/2d.shadow.attributes.shadowBlur.
   FAIL      OffscreenCanvas test: 2d.shadow.attributes.shadowBlur.initial
 OK           0/1  html/canvas/offscreen/shadows/2d.shadow.attributes.shadowBlur.invalid.html
   FAIL      OffscreenCanvas test: 2d.shadow.attributes.shadowBlur.invalid
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.attributes.shadowBlur.valid.html
-  FAIL      OffscreenCanvas test: 2d.shadow.attributes.shadowBlur.valid
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.attributes.shadowColor.initial.html
-  FAIL      OffscreenCanvas test: 2d.shadow.attributes.shadowColor.initial
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.attributes.shadowColor.invalid.html
-  FAIL      OffscreenCanvas test: 2d.shadow.attributes.shadowColor.invalid
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.attributes.shadowColor.valid.html
-  FAIL      OffscreenCanvas test: 2d.shadow.attributes.shadowColor.valid
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.attributes.shadowBlur.valid.html
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.attributes.shadowColor.initial.html
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.attributes.shadowColor.invalid.html
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.attributes.shadowColor.valid.html
 OK           0/1  html/canvas/offscreen/shadows/2d.shadow.attributes.shadowOffset.initial.html
   FAIL      OffscreenCanvas test: 2d.shadow.attributes.shadowOffset.initial
 OK           0/1  html/canvas/offscreen/shadows/2d.shadow.attributes.shadowOffset.invalid.html
   FAIL      OffscreenCanvas test: 2d.shadow.attributes.shadowOffset.invalid
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.attributes.shadowOffset.valid.html
-  FAIL      OffscreenCanvas test: 2d.shadow.attributes.shadowOffset.valid
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.attributes.shadowOffset.valid.html
 OK           0/1  html/canvas/offscreen/shadows/2d.shadow.canvas.alpha.html
   FAIL      Shadows are drawn correctly for partially-transparent canvases
 OK           0/1  html/canvas/offscreen/shadows/2d.shadow.canvas.basic.html
@@ -1847,18 +1555,13 @@ OK           0/1  html/canvas/offscreen/shadows/2d.shadow.clip.2.html
   FAIL      Shadows are not drawn outside the clipping region
 OK           0/1  html/canvas/offscreen/shadows/2d.shadow.clip.3.html
   FAIL      Shadows of clipped shapes are still drawn within the clipping region
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.composite.1.html
-  FAIL      Shadows are drawn using globalCompositeOperation
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.composite.2.html
-  FAIL      Shadows are drawn using globalCompositeOperation
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.composite.3.html
-  FAIL      Areas outside shadows are drawn correctly with destination-out
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.composite.1.html
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.composite.2.html
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.composite.3.html
 OK           0/1  html/canvas/offscreen/shadows/2d.shadow.enable.blur.html
   FAIL      Shadows are drawn if shadowBlur is set
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.enable.off.1.html
-  FAIL      Shadows are not drawn when only shadowColor is set
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.enable.off.2.html
-  FAIL      Shadows are not drawn when only shadowColor is set
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.enable.off.1.html
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.enable.off.2.html
 OK           0/1  html/canvas/offscreen/shadows/2d.shadow.enable.x.html
   FAIL      Shadows are drawn if shadowOffsetX is set
 OK           0/1  html/canvas/offscreen/shadows/2d.shadow.enable.y.html
@@ -1921,20 +1624,17 @@ OK           0/1  html/canvas/offscreen/text/2d.text.align.default.html
   FAIL      OffscreenCanvas test: 2d.text.align.default
 OK           0/1  html/canvas/offscreen/text/2d.text.align.invalid.html
   FAIL      OffscreenCanvas test: 2d.text.align.invalid
-OK           0/1  html/canvas/offscreen/text/2d.text.align.valid.html
-  FAIL      OffscreenCanvas test: 2d.text.align.valid
+OK           1/1  html/canvas/offscreen/text/2d.text.align.valid.html
 OK           0/1  html/canvas/offscreen/text/2d.text.baseline.default.html
   FAIL      OffscreenCanvas test: 2d.text.baseline.default
 OK           0/1  html/canvas/offscreen/text/2d.text.baseline.invalid.html
   FAIL      OffscreenCanvas test: 2d.text.baseline.invalid
-OK           0/1  html/canvas/offscreen/text/2d.text.baseline.valid.html
-  FAIL      OffscreenCanvas test: 2d.text.baseline.valid
+OK           1/1  html/canvas/offscreen/text/2d.text.baseline.valid.html
 OK           0/1  html/canvas/offscreen/text/2d.text.direction.default.html
   FAIL      OffscreenCanvas test: 2d.text.direction.default
 OK           0/1  html/canvas/offscreen/text/2d.text.direction.invalid.html
   FAIL      OffscreenCanvas test: 2d.text.direction.invalid
-OK           0/1  html/canvas/offscreen/text/2d.text.direction.valid.html
-  FAIL      OffscreenCanvas test: 2d.text.direction.valid
+OK           1/1  html/canvas/offscreen/text/2d.text.direction.valid.html
 OK           0/1  html/canvas/offscreen/text/2d.text.draw.align.center.html
   FAIL      textAlign center is the center of the em squares (not the bounding box)
 OK           0/1  html/canvas/offscreen/text/2d.text.draw.align.end.ltr.html
@@ -2021,8 +1721,7 @@ OK           0/1  html/canvas/offscreen/text/2d.text.drawing.style.measure.textA
   FAIL      Measurement should be related to textAlignment
 OK           0/1  html/canvas/offscreen/text/2d.text.drawing.style.nonfinite.spacing.html
   FAIL      Testing letter spacing and word spacing with nonfinite inputs
-OK           0/1  html/canvas/offscreen/text/2d.text.drawing.style.reset.TextRendering.html
-  FAIL      TextRendering stays the same after font change.
+OK           1/1  html/canvas/offscreen/text/2d.text.drawing.style.reset.TextRendering.html
 OK           0/1  html/canvas/offscreen/text/2d.text.drawing.style.reset.fontKerning.none.html
   FAIL      crbug/338965374, fontKerning still works after setting font for a second time.
 OK           0/1  html/canvas/offscreen/text/2d.text.drawing.style.textRendering.settings.html
@@ -2045,8 +1744,7 @@ OK           0/1  html/canvas/offscreen/text/2d.text.font.parse.invalid.html
   FAIL      OffscreenCanvas test: 2d.text.font.parse.invalid
 OK           0/1  html/canvas/offscreen/text/2d.text.font.parse.system.html
   FAIL      System fonts must be computed to explicit values
-OK           0/1  html/canvas/offscreen/text/2d.text.font.parse.tiny.html
-  FAIL      OffscreenCanvas test: 2d.text.font.parse.tiny
+OK           1/1  html/canvas/offscreen/text/2d.text.font.parse.tiny.html
 OK           0/1  html/canvas/offscreen/text/2d.text.font.relative_size.html
   FAIL      OffscreenCanvas test: 2d.text.font.relative_size
 OK           0/1  html/canvas/offscreen/text/2d.text.font.weight.html
@@ -2055,8 +1753,7 @@ OK           0/1  html/canvas/offscreen/text/2d.text.fontVariantCaps2.html
   FAIL      Testing small caps setting in fontVariant
 OK           0/1  html/canvas/offscreen/text/2d.text.lang.default.html
   FAIL      OffscreenCanvas test: 2d.text.lang.default
-OK           0/1  html/canvas/offscreen/text/2d.text.lang.valid.html
-  FAIL      OffscreenCanvas test: 2d.text.lang.valid
+OK           1/1  html/canvas/offscreen/text/2d.text.lang.valid.html
 OK           0/1  html/canvas/offscreen/text/2d.text.measure.actualBoundingBox.html
   FAIL      Testing actualBoundingBox
 OK           0/1  html/canvas/offscreen/text/2d.text.measure.actualBoundingBox.small-font.html
@@ -2202,8 +1899,7 @@ OK           0/1  html/canvas/offscreen/text/2d.text.measure.width.nullCharacter
   FAIL      Null character does not take up space
 OK           0/1  html/canvas/offscreen/text/2d.text.measure.width.space.html
   FAIL      Space characters are converted to U+0020 and NOT collapsed
-OK           0/1  html/canvas/offscreen/text/2d.text.setFont.mathFont.html
-  FAIL      crbug.com/1212190, make sure offscreencanvas doesn't crash with Math Font
+OK           1/1  html/canvas/offscreen/text/2d.text.setFont.mathFont.html
 OK           0/1  html/canvas/offscreen/text/2d.text.shape.actualBoundingBox-exceptions.tentative.html
   FAIL      Check that ShapedText::actualBoundingBox() throws when using invalid indexes.
 OK           0/4  html/canvas/offscreen/text/2d.text.shape.actualBoundingBox-full-text.tentative.html
@@ -2313,82 +2009,44 @@ OK          0/24  html/canvas/offscreen/text/2d.text.shape.selection-rects.tenta
   FAIL      Check that ShapedText::selectionRects() matches its DOM equivalent, with direction rtl, text align right, 10px letter spacing, and directional-override.
 OK           0/1  html/canvas/offscreen/text/2d.text.shape.strokeGlyphRun-range.tentative.html
   FAIL      Test that glyphClusters(start, end) and strokeGlyphRuns() correctly render different ranges of the input text.
-OK           0/1  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.bitmap.html
-  FAIL      save()/restore() does not affect the current bitmap
+OK           1/1  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.bitmap.html
 OK           0/1  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.clip.2.html
   FAIL      save()/restore() affects the clipping path
 OK           0/1  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.clip.html
   FAIL      save()/restore() affects the clipping path
-OK           0/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.fillStyle.html
-  FAIL      save()/restore() restores fillStyle, for a canvas of size (300, 150).
-  FAIL      save() does not modify fillStyle, for a canvas of size (300, 150).
-  FAIL      save()/restore() restores fillStyle, for a canvas of size (0, 0).
-  FAIL      save() does not modify fillStyle, for a canvas of size (0, 0).
-OK           0/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.globalAlpha.html
-  FAIL      save()/restore() restores globalAlpha, for a canvas of size (300, 150).
-  FAIL      save() does not modify globalAlpha, for a canvas of size (300, 150).
-  FAIL      save()/restore() restores globalAlpha, for a canvas of size (0, 0).
-  FAIL      save() does not modify globalAlpha, for a canvas of size (0, 0).
-OK           0/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.globalCompositeOperation.html
+OK           4/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.fillStyle.html
+OK           4/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.globalAlpha.html
+OK           2/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.globalCompositeOperation.html
   FAIL      save()/restore() restores globalCompositeOperation, for a canvas of size (300, 150).
-  FAIL      save() does not modify globalCompositeOperation, for a canvas of size (300, 150).
   FAIL      save()/restore() restores globalCompositeOperation, for a canvas of size (0, 0).
-  FAIL      save() does not modify globalCompositeOperation, for a canvas of size (0, 0).
-OK           0/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.lineCap.html
+OK           2/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.lineCap.html
   FAIL      save()/restore() restores lineCap, for a canvas of size (300, 150).
-  FAIL      save() does not modify lineCap, for a canvas of size (300, 150).
   FAIL      save()/restore() restores lineCap, for a canvas of size (0, 0).
-  FAIL      save() does not modify lineCap, for a canvas of size (0, 0).
-OK           0/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.lineJoin.html
+OK           2/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.lineJoin.html
   FAIL      save()/restore() restores lineJoin, for a canvas of size (300, 150).
-  FAIL      save() does not modify lineJoin, for a canvas of size (300, 150).
   FAIL      save()/restore() restores lineJoin, for a canvas of size (0, 0).
-  FAIL      save() does not modify lineJoin, for a canvas of size (0, 0).
-OK           0/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.lineWidth.html
-  FAIL      save()/restore() restores lineWidth, for a canvas of size (300, 150).
-  FAIL      save() does not modify lineWidth, for a canvas of size (300, 150).
-  FAIL      save()/restore() restores lineWidth, for a canvas of size (0, 0).
-  FAIL      save() does not modify lineWidth, for a canvas of size (0, 0).
-OK           0/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.miterLimit.html
+OK           4/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.lineWidth.html
+OK           2/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.miterLimit.html
   FAIL      save()/restore() restores miterLimit, for a canvas of size (300, 150).
-  FAIL      save() does not modify miterLimit, for a canvas of size (300, 150).
   FAIL      save()/restore() restores miterLimit, for a canvas of size (0, 0).
-  FAIL      save() does not modify miterLimit, for a canvas of size (0, 0).
 OK           0/1  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.path.html
   FAIL      save()/restore() does not affect the current path
-OK           0/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.shadowBlur.html
+OK           2/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.shadowBlur.html
   FAIL      save()/restore() restores shadowBlur, for a canvas of size (300, 150).
-  FAIL      save() does not modify shadowBlur, for a canvas of size (300, 150).
   FAIL      save()/restore() restores shadowBlur, for a canvas of size (0, 0).
-  FAIL      save() does not modify shadowBlur, for a canvas of size (0, 0).
-OK           0/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.shadowColor.html
-  FAIL      save()/restore() restores shadowColor, for a canvas of size (300, 150).
-  FAIL      save() does not modify shadowColor, for a canvas of size (300, 150).
-  FAIL      save()/restore() restores shadowColor, for a canvas of size (0, 0).
-  FAIL      save() does not modify shadowColor, for a canvas of size (0, 0).
-OK           0/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.shadowOffsetX.html
+OK           4/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.shadowColor.html
+OK           2/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.shadowOffsetX.html
   FAIL      save()/restore() restores shadowOffsetX, for a canvas of size (300, 150).
-  FAIL      save() does not modify shadowOffsetX, for a canvas of size (300, 150).
   FAIL      save()/restore() restores shadowOffsetX, for a canvas of size (0, 0).
-  FAIL      save() does not modify shadowOffsetX, for a canvas of size (0, 0).
-OK           0/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.shadowOffsetY.html
+OK           2/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.shadowOffsetY.html
   FAIL      save()/restore() restores shadowOffsetY, for a canvas of size (300, 150).
-  FAIL      save() does not modify shadowOffsetY, for a canvas of size (300, 150).
   FAIL      save()/restore() restores shadowOffsetY, for a canvas of size (0, 0).
-  FAIL      save() does not modify shadowOffsetY, for a canvas of size (0, 0).
-OK           0/1  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.stack.html
-  FAIL      save()/restore() can be nested as a stack
-OK           0/1  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.stackdepth.html
-  FAIL      save()/restore() stack depth is not unreasonably limited
-OK           0/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.strokeStyle.html
-  FAIL      save()/restore() restores strokeStyle, for a canvas of size (300, 150).
-  FAIL      save() does not modify strokeStyle, for a canvas of size (300, 150).
-  FAIL      save()/restore() restores strokeStyle, for a canvas of size (0, 0).
-  FAIL      save() does not modify strokeStyle, for a canvas of size (0, 0).
+OK           1/1  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.stack.html
+OK           1/1  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.stackdepth.html
+OK           4/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.strokeStyle.html
 OK           0/1  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.transformation.html
   FAIL      save()/restore() affects the current transformation matrix
-OK           0/1  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.underflow.html
-  FAIL      restore() with an empty stack has no effect
+OK           1/1  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.underflow.html
 OK           0/1  html/canvas/offscreen/transformations/2d.transformation.order.html
   FAIL      Transformations are applied in the right order
 OK           0/1  html/canvas/offscreen/transformations/2d.transformation.rotate.direction.html

@@ -810,19 +810,9 @@ OK           0/1  html/canvas/element/filters/2d.filter.layers.turbulence.inputT
   FAIL      Test exceptions on CanvasFilter() turbulence object
 OK           0/1  html/canvas/element/filters/2d.filter.value.html
   FAIL      test if ctx.filter works correctly
-OK           0/1  html/canvas/element/global-hdr-headroom/attribute.html
-  FAIL      attribute
-OK           0/4  html/canvas/element/global-hdr-headroom/clli-mdcv-png.html
-  FAIL      No CLLI or MDCV
-  FAIL      CLLI 100, MDCV 5000
-  FAIL      CLLI 500
-  FAIL      MDCV 5000
-OK           0/5  html/canvas/element/global-hdr-headroom/iso21496-1-jpg.html
-  FAIL      base sRGB, use base primaries
-  FAIL      base sRGB, alternate Rec2020, use alternate primaries
-  FAIL      base Rec2100 PQ, use base primaries
-  FAIL      base Rec2100 PQ, alternate has no profile, use alternate primaries
-  FAIL      base Rec2100 HLG, use base primaries
+OK           1/1  html/canvas/element/global-hdr-headroom/attribute.html
+OK           4/4  html/canvas/element/global-hdr-headroom/clli-mdcv-png.html
+OK           5/5  html/canvas/element/global-hdr-headroom/iso21496-1-jpg.html
 OK           0/1  html/canvas/element/layers/2d.layer.beginLayer-options.tentative.html
   FAIL      Checks beginLayer works for different option parameter values
 OK           0/1  html/canvas/element/layers/2d.layer.ctm.getTransform.html
