@@ -115,7 +115,7 @@ fn hsl_to_srgb(h: f64, s: f64, l: f64) -> [f64; 3] {
     let h = h.rem_euclid(360.0);
     let f = |n: f64| {
         let k = (n + h / 30.0).rem_euclid(12.0);
-        l - s * l.min(1.0 - l) * (k - 3.0).min(9.0 - k).min(1.0).max(-1.0)
+        l - s * l.min(1.0 - l) * (k - 3.0).min(9.0 - k).clamp(-1.0, 1.0)
     };
     [f(0.0), f(8.0), f(4.0)]
 }
@@ -279,10 +279,10 @@ pub(crate) fn from_css(c: &Color) -> Option<Col> {
         Color::Rgba(r) => Col { space: Space::Srgb, c: [Some(f64::from(r.red) / 255.0), Some(f64::from(r.green) / 255.0), Some(f64::from(r.blue) / 255.0)], a: Some(f64::from(r.alpha)) },
         Color::Hsl(h) => Col { space: Space::Hsl, c: [f(h.hue), f(h.saturation), f(h.lightness)], a: f(h.alpha) },
         Color::Hwb(h) => Col { space: Space::Hwb, c: [f(h.hue), f(h.whiteness), f(h.blackness)], a: f(h.alpha) },
-        Color::Lab(l) => Col { space: Space::Lab, c: [f(l.lightness), f(l.a), f(l.b)], a: f(l.alpha) },
-        Color::Lch(l) => Col { space: Space::Lch, c: [f(l.lightness), f(l.chroma), f(l.hue)], a: f(l.alpha) },
-        Color::Oklab(l) => Col { space: Space::Oklab, c: [f(l.lightness), f(l.a), f(l.b)], a: f(l.alpha) },
-        Color::Oklch(l) => Col { space: Space::Oklch, c: [f(l.lightness), f(l.chroma), f(l.hue)], a: f(l.alpha) },
+        Color::Lab(l) => Col { space: Space::Lab, c: [f(l.lightness).map(|v| v.clamp(0.0, 100.0)), f(l.a), f(l.b)], a: f(l.alpha) },
+        Color::Lch(l) => Col { space: Space::Lch, c: [f(l.lightness).map(|v| v.clamp(0.0, 100.0)), f(l.chroma), f(l.hue)], a: f(l.alpha) },
+        Color::Oklab(l) => Col { space: Space::Oklab, c: [f(l.lightness).map(|v| v.clamp(0.0, 1.0)), f(l.a), f(l.b)], a: f(l.alpha) },
+        Color::Oklch(l) => Col { space: Space::Oklch, c: [f(l.lightness).map(|v| v.clamp(0.0, 1.0)), f(l.chroma), f(l.hue)], a: f(l.alpha) },
         Color::ColorFunction(cf) => {
             let space = match cf.color_space {
                 Pcs::Srgb => Space::Srgb,
@@ -370,7 +370,7 @@ pub(crate) fn parse<'i>(input: &mut Parser<'i>, current: Option<&Color>) -> PRes
         }
         if matches!(lower.as_str(), "rgb" | "rgba" | "hsl" | "hsla" | "hwb" | "lab" | "lch" | "oklab" | "oklch" | "color") {
             return i.parse_nested_block(|b| {
-                b.expect_ident_matching("from").map_err(|e| ParseError::from(e))?;
+                b.expect_ident_matching("from").map_err(ParseError::from)?;
                 relative(b, &lower, current)
             });
         }

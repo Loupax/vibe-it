@@ -31,14 +31,13 @@ OK           0/1  html/canvas/element/canvas-context/2d.canvas.context.type.prot
 OK           1/1  html/canvas/element/canvas-context/2d.canvas.context.type.replace.html
 OK           1/1  html/canvas/element/canvas-context/2d.canvas.context.unique.html
 OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.initial.color.html
-OK          4/15  html/canvas/element/canvas-host/2d.canvas.host.initial.reset.2dstate.html
+OK          5/15  html/canvas/element/canvas-host/2d.canvas.host.initial.reset.2dstate.html
   FAIL      Resetting the canvas state resets lineCap
   FAIL      Resetting the canvas state resets lineJoin
   FAIL      Resetting the canvas state resets miterLimit
   FAIL      Resetting the canvas state resets shadowOffsetX
   FAIL      Resetting the canvas state resets shadowOffsetY
   FAIL      Resetting the canvas state resets shadowBlur
-  FAIL      Resetting the canvas state resets shadowColor
   FAIL      Resetting the canvas state resets globalCompositeOperation
   FAIL      Resetting the canvas state resets font
   FAIL      Resetting the canvas state resets textAlign
@@ -60,68 +59,44 @@ OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.reference.html
 OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.default.html
 OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.idl.html
 OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.idl.set.zero.html
-OK           0/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.parse.decimal.html
-  FAIL      Parsing of non-negative integers
-OK           0/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.parse.em.html
-  FAIL      Parsing of non-negative integers
+OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.parse.decimal.html
+OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.parse.em.html
 OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.parse.empty.html
-OK           0/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.parse.exp.html
-  FAIL      Parsing of non-negative integers
-OK           0/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.parse.hex.html
-  FAIL      Parsing of non-negative integers
+OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.parse.exp.html
+OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.parse.hex.html
 OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.parse.junk.html
 OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.parse.minus.html
-OK           0/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.parse.octal.html
-  FAIL      Parsing of non-negative integers
+OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.parse.octal.html
 OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.parse.onlyspace.html
-OK           0/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.parse.percent.html
-  FAIL      Parsing of non-negative integers
-OK           0/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.parse.plus.html
-  FAIL      Parsing of non-negative integers
-OK           0/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.parse.space.html
-  FAIL      Parsing of non-negative integers
-OK           0/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.parse.trailingjunk.html
-  FAIL      Parsing of non-negative integers
-OK           0/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.parse.whitespace.html
-  FAIL      Parsing of non-negative integers
-OK           0/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.parse.zero.html
-  FAIL      Parsing of non-negative integers
+OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.parse.percent.html
+OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.parse.plus.html
+OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.parse.space.html
+OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.parse.trailingjunk.html
+OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.parse.whitespace.html
+OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.parse.zero.html
 OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.reflect.setcontent.html
 OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.reflect.setidl.html
 OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.reflect.setidlzero.html
 OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.removed.html
-OK           0/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.setAttribute.decimal.html
-  FAIL      Parsing of non-negative integers in setAttribute
-OK           0/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.setAttribute.em.html
-  FAIL      Parsing of non-negative integers in setAttribute
+OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.setAttribute.decimal.html
+OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.setAttribute.em.html
 OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.setAttribute.empty.html
-OK           0/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.setAttribute.exp.html
-  FAIL      Parsing of non-negative integers in setAttribute
-OK           0/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.setAttribute.hex.html
-  FAIL      Parsing of non-negative integers in setAttribute
+OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.setAttribute.exp.html
+OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.setAttribute.hex.html
 OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.setAttribute.junk.html
 OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.setAttribute.minus.html
-OK           0/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.setAttribute.octal.html
-  FAIL      Parsing of non-negative integers in setAttribute
+OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.setAttribute.octal.html
 OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.setAttribute.onlyspace.html
-OK           0/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.setAttribute.percent.html
-  FAIL      Parsing of non-negative integers in setAttribute
-OK           0/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.setAttribute.plus.html
-  FAIL      Parsing of non-negative integers in setAttribute
-OK           0/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.setAttribute.space.html
-  FAIL      Parsing of non-negative integers in setAttribute
-OK           0/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.setAttribute.trailingjunk.html
-  FAIL      Parsing of non-negative integers in setAttribute
-OK           0/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.setAttribute.whitespace.html
-  FAIL      Parsing of non-negative integers in setAttribute
-OK           0/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.setAttribute.zero.html
-  FAIL      Parsing of non-negative integers in setAttribute
-OK           0/1  html/canvas/element/canvas-host/2d.canvas.host.size.invalid.attributes.idl.html
-  FAIL      Getting/setting width/height IDL attributes
+OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.setAttribute.percent.html
+OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.setAttribute.plus.html
+OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.setAttribute.space.html
+OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.setAttribute.trailingjunk.html
+OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.setAttribute.whitespace.html
+OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.attributes.setAttribute.zero.html
+OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.invalid.attributes.idl.html
 OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.size.large.html
 OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.type.delete.html
-OK           0/1  html/canvas/element/canvas-host/2d.canvas.host.type.name.html
-  FAIL      HTMLCanvasElement type and toString
+OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.type.name.html
 OK           1/1  html/canvas/element/color-type/2d.color.type.u8p3.to.f16srgb.to.u8p3.html
 OK           0/1  html/canvas/element/color-type/2d.color.type.u8p3.to.u8srgb.to.u8p3.html
   FAIL      test srgb unorm8 canvas storing 8-bit display-p3 data accurately
@@ -444,10 +419,8 @@ OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.colorO
   FAIL      ctx.fillStyle works with color objects
 OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.colorObject.transparency.html
   FAIL      ctx.fillStyle with color objects has transparency
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.colormix.currentcolor.html
-  FAIL      color-mix works as color input with currentcolor
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.colormix.html
-  FAIL      color-mix works as color input
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.colormix.currentcolor.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.colormix.html
 OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.default.html
 OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.get.halftransparent.html
 OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.get.semitransparent.html
@@ -485,18 +458,13 @@ OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.parse.
 OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgba-4.html
 OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgba-5.html
 OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.parse.css-color-4-rgba-6.html
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.parse.current.basic.html
-  FAIL      currentColor is computed from the canvas element
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.parse.current.changed.html
-  FAIL      currentColor is computed when the attribute is set, not when it is painted
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.parse.current.inherited.html
-  FAIL      currentColor should take into account color inherited from ancestor elements
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.parse.current.notcached.html
-  FAIL      Setting fillStyle to currentColor always re-computes it
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.parse.current.basic.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.parse.current.changed.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.parse.current.inherited.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.parse.current.notcached.html
 OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.parse.current.removed.html
   FAIL      currentColor is solid black when the canvas element is not in a document
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.parse.current.stylesheet.html
-  FAIL      currentColor should take into account color set by CSS stylesheet
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.parse.current.stylesheet.html
 OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.parse.hex3.html
 OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.parse.hex4.html
 OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.parse.hex6.html
@@ -584,16 +552,12 @@ OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.parse.
 OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.parse.rgba-solid-4.html
 OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.parse.svg-1.html
 OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.parse.svg-2.html
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.parse.system.html
-  FAIL      Canvas test: 2d.fillStyle.parse.system
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.parse.system.html
 OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.parse.transparent-1.html
 OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.parse.transparent-2.html
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.relativecolor.currentcolor.html
-  FAIL      Relative color works as color input with currentcolor
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.relativecolor.html
-  FAIL      Relative color works as color input
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.toStringFunctionCallback.html
-  FAIL      Passing a function in to ctx.fillStyle or ctx.strokeStyle with a toString callback works as specified
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.relativecolor.currentcolor.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.relativecolor.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.toStringFunctionCallback.html
 OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.colormix.html
   FAIL      color-mix works as CanvasGradient color input
 OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.conic.invalid.inputs.html
@@ -819,13 +783,10 @@ OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.strokeStyle.colo
   FAIL      ctx.strokeStyle works with color objects
 OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.strokeStyle.colorObject.transparency.html
   FAIL      ctx.strokeStyle with color objects has transparency
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.strokeStyle.colormix.html
-  FAIL      color-mix works as color input
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.strokeStyle.colormix.html
 OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.strokeStyle.default.html
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.strokeStyle.parse.current.notcached.html
-  FAIL      Setting strokeStyle to currentColor always re-computes it
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.strokeStyle.relativecolor.html
-  FAIL      Relative color works as color input
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.strokeStyle.parse.current.notcached.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.strokeStyle.relativecolor.html
 OK           0/1  html/canvas/element/filters/2d.filter.canvasFilterObject.blur.exceptions.tentative.html
   FAIL      Test exceptions on gaussianBlur filter
 OK           0/1  html/canvas/element/filters/2d.filter.canvasFilterObject.colorMatrix.tentative.html
@@ -1324,8 +1285,7 @@ OK           0/1  html/canvas/element/manual/drawing-paths-to-the-canvas/drawFoc
   FAIL      drawFocusIfNeeded does draw a focus ring if the element is in focus.
 OK           0/1  html/canvas/element/manual/drawing-paths-to-the-canvas/drawFocusIfNeeded_005.html
   FAIL      drawFocusIfNeeded does draw a focus ring if the element is in focus and the user activated a particular focus ring.
-OK           0/1  html/canvas/element/manual/fill-and-stroke-styles/2d.fillStyle.parse.current.notrendered.html
-  FAIL      currentColor is computed from the canvas element even when element is not rendered
+OK           1/1  html/canvas/element/manual/fill-and-stroke-styles/2d.fillStyle.parse.current.notrendered.html
 OK           0/1  html/canvas/element/manual/fill-and-stroke-styles/canvas_colorsandstyles_createlineargradient_001.htm
   FAIL      linear gradient from point to self draws nothing
 OK           0/2  html/canvas/element/manual/filters/2d.filter.function-then-svg-reference.html
@@ -2980,8 +2940,7 @@ OK           0/1  html/canvas/element/path-objects/2d.path.transformation.multip
 OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.create.and.resize.html
 OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.create1.basic.html
 OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.create1.initial.html
-OK           0/1  html/canvas/element/pixel-manipulation/2d.imageData.create1.this.html
-  FAIL      createImageData(imgdata) should throw when called with the wrong |this|
+OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.create1.this.html
 OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.create1.type.html
 OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.create1.zero.html
 OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.create2.basic.html
@@ -2991,11 +2950,9 @@ OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.create2.la
 OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.create2.negative.html
 OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.create2.nonfinite.html
 OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.create2.round.html
-OK           0/1  html/canvas/element/pixel-manipulation/2d.imageData.create2.this.html
-  FAIL      createImageData(sw, sh) should throw when called with the wrong |this|
+OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.create2.this.html
 OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.create2.type.html
-OK           0/1  html/canvas/element/pixel-manipulation/2d.imageData.create2.zero.html
-  FAIL      createImageData(sw, sh) throws INDEX_SIZE_ERR if size is zero
+OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.create2.zero.html
 OK           0/1  html/canvas/element/pixel-manipulation/2d.imageData.createImageBitmap.p3.rgba.unorm8.html
   FAIL      Verify round-trip of 8-bit P3 data ImageData through ImageBitmap
 OK           0/1  html/canvas/element/pixel-manipulation/2d.imageData.createImageBitmap.srgb.rgba.float16.html
@@ -3026,15 +2983,13 @@ OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.get.zero.h
 OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.object.clamp.html
 OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.object.ctor.array.bounds.html
 OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.object.ctor.array.html
-OK           0/1  html/canvas/element/pixel-manipulation/2d.imageData.object.ctor.basics.html
-  FAIL      Testing different type of ImageData constructor
+OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.object.ctor.basics.html
 OK           0/1  html/canvas/element/pixel-manipulation/2d.imageData.object.ctor.pixelFormat.html
   FAIL      Testing ImageData constructor pixelFormat behaviors
 OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.object.ctor.size.bounds.html
 OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.object.ctor.size.html
 OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.object.nan.html
-OK           0/1  html/canvas/element/pixel-manipulation/2d.imageData.object.properties.html
-  FAIL      ImageData objects have the right properties
+OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.object.properties.html
 OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.object.readonly.html
 OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.object.round.html
 OK           1/1  html/canvas/element/pixel-manipulation/2d.imageData.object.set.html
@@ -3134,18 +3089,12 @@ OK           0/1  html/canvas/element/shadows/2d.shadow.attributes.shadowBlur.in
 OK           0/1  html/canvas/element/shadows/2d.shadow.attributes.shadowBlur.invalid.html
   FAIL      Canvas test: 2d.shadow.attributes.shadowBlur.invalid
 OK           1/1  html/canvas/element/shadows/2d.shadow.attributes.shadowBlur.valid.html
-OK           0/1  html/canvas/element/shadows/2d.shadow.attributes.shadowColor.current.basic.html
-  FAIL      currentColor is computed from the canvas element
-OK           0/1  html/canvas/element/shadows/2d.shadow.attributes.shadowColor.current.changed.html
-  FAIL      currentColor is computed when the attribute is set, not when it is painted
-OK           0/1  html/canvas/element/shadows/2d.shadow.attributes.shadowColor.current.removed.html
-  FAIL      currentColor is solid black when the canvas element is not in a document
-OK           0/1  html/canvas/element/shadows/2d.shadow.attributes.shadowColor.initial.html
-  FAIL      Canvas test: 2d.shadow.attributes.shadowColor.initial
-OK           0/1  html/canvas/element/shadows/2d.shadow.attributes.shadowColor.invalid.html
-  FAIL      Canvas test: 2d.shadow.attributes.shadowColor.invalid
-OK           0/1  html/canvas/element/shadows/2d.shadow.attributes.shadowColor.valid.html
-  FAIL      Canvas test: 2d.shadow.attributes.shadowColor.valid
+OK           1/1  html/canvas/element/shadows/2d.shadow.attributes.shadowColor.current.basic.html
+OK           1/1  html/canvas/element/shadows/2d.shadow.attributes.shadowColor.current.changed.html
+OK           1/1  html/canvas/element/shadows/2d.shadow.attributes.shadowColor.current.removed.html
+OK           1/1  html/canvas/element/shadows/2d.shadow.attributes.shadowColor.initial.html
+OK           1/1  html/canvas/element/shadows/2d.shadow.attributes.shadowColor.invalid.html
+OK           1/1  html/canvas/element/shadows/2d.shadow.attributes.shadowColor.valid.html
 OK           0/1  html/canvas/element/shadows/2d.shadow.attributes.shadowOffset.initial.html
   FAIL      Canvas test: 2d.shadow.attributes.shadowOffset.initial
 OK           0/1  html/canvas/element/shadows/2d.shadow.attributes.shadowOffset.invalid.html
@@ -3661,9 +3610,7 @@ OK           0/1  html/canvas/element/the-canvas-state/2d.state.saverestore.path
 OK           2/4  html/canvas/element/the-canvas-state/2d.state.saverestore.shadowBlur.html
   FAIL      save()/restore() restores shadowBlur, for a canvas of size (300, 150).
   FAIL      save()/restore() restores shadowBlur, for a canvas of size (0, 0).
-OK           2/4  html/canvas/element/the-canvas-state/2d.state.saverestore.shadowColor.html
-  FAIL      save()/restore() restores shadowColor, for a canvas of size (300, 150).
-  FAIL      save()/restore() restores shadowColor, for a canvas of size (0, 0).
+OK           4/4  html/canvas/element/the-canvas-state/2d.state.saverestore.shadowColor.html
 OK           2/4  html/canvas/element/the-canvas-state/2d.state.saverestore.shadowOffsetX.html
   FAIL      save()/restore() restores shadowOffsetX, for a canvas of size (300, 150).
   FAIL      save()/restore() restores shadowOffsetX, for a canvas of size (0, 0).

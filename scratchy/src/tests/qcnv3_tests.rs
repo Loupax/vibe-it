@@ -192,6 +192,10 @@ fn qcnv3_css_colour_functions() {
     near(span_color("color: oklab(0.5 0 0)"), [99, 99, 99], 1);
     near(span_color("color: lch(50% 0 0)"), [119, 119, 119], 1);
     near(span_color("color: oklch(0.5 0 120)"), [99, 99, 99], 1);
+    // Lightness is clamped (css-color/lch-l-over-100-1.html).
+    let (a, b) = (span_color("color: lch(150 150 20)"), span_color("color: lch(100 150 20)"));
+    assert_eq!((a.r(), a.g(), a.b()), (b.r(), b.g(), b.b()));
+    near(span_color("color: oklab(2 0 0)"), [255, 255, 255], 0);
     near(span_color("color: color(srgb 0 1 0)"), [0, 255, 0], 0);
     near(span_color("color: color(display-p3 0 1 0)"), [0, 255, 0], 0);
     near(span_color("color: color(srgb-linear 1 1 1)"), [255, 255, 255], 0);
