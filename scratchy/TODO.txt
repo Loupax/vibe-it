@@ -73,7 +73,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QANIMHLc [S] (P3, from QANIMHL #562; Sonnet; js_geom GeomCache) Geometry reads during a CSS animation: the forced-layout cache
       is keyed only on the DOM write generation, so getBoundingClientRect of an animated box keeps its first-frame
       geometry between DOM writes; key on the animation clock too when animations are live.
-- [ ] QEL7 [S] (P2; Sonnet; app.rs, js.rs; after QEL1) scroll events for user scrolling (window and
+- [ ] [WIP] QEL7 [S] (P2; Sonnet; app.rs, js.rs; after QEL1) scroll events for user scrolling (window and
       elements, coalesced per frame in the rendering step), scrollend, wheel events; MQL change events.
 - [ ] QEL8 [S] (P3; Sonnet; globals_prelude.js) postMessage/MessageChannel on their own task queue (not
       the timer table); requestIdleCallback only when the loop is idle, deadline from the next timer
