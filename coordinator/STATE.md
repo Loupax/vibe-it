@@ -314,3 +314,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 USER: agents' wire caches go in /tmp (AGENT_RULES: --cache-dir /tmp/wire-cache-<worktree> --cache-size 256M, deleted by name when done).
 - 2026-11-22 Merged #594 a83a37f (wire TODO W-CACHE1/2); added the user's eviction-check note to W-CACHE1.
 - 2026-11-22 #592 QDOM5b READY again (async iframe load, 0 fetches on ytr/ytw/github, perf noise; 3 files to flaky.txt with reasons), merging. Launched QCSS-C (Sonnet). Agents: QFF1a, QINC1m, QCSS-C.
+- 2026-11-22 Merged #592 QDOM5b f544697.

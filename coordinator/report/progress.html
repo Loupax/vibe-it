@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-22 · main 8e09b15 · 120 PRs merged since 2026-11-21 morning (#475–#594) · installed 10:49 · 5 agents running (QEL2b, QANIMHLc, QCSS-A hover check, QAPI6c, QDOM5b)</div>
+  <div class="meta" id="updated">Updated 2026-11-22 · main 8e09b15 · 121 PRs merged since 2026-11-21 morning (#475–#594) · installed 10:49 · 5 agents running (QEL2b, QANIMHLc, QCSS-A hover check, QAPI6c, QDOM5b)</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -112,6 +112,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#592</td><td>QDOM5b</td><td>Script-created same-origin iframes now load (asynchronously; 0 extra fetches on YouTube/github), live Ranges fixed across realms and for innerHTML/outerHTML/insertAdjacentHTML; Range clone/extract/delete 100 %, Range-attribute-nodes 26/26</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#594</td><td>TODO (wire)</td><td>Your items W-CACHE1/W-CACHE2: wire's on-disk HTTP cache and clearing it; reviewed, 4 notes added</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#593</td><td>QCSS-B</td><td>CSS <code>aspect-ratio</code> for blocks, flex, grid and images; 2 more reftests pass (343/626)</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#588</td><td>QEL2b</td><td>ResizeObserver reads the layout each frame already makes; its own forced layouts on YouTube results 20 → 0–1, watch page 15–45 → 0</td></tr>
