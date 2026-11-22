@@ -2703,6 +2703,7 @@ html/canvas/element/manual/draw-element-image/canvas-transform-update-element-im
 html/canvas/element/manual/draw-element-image/canvas-transform-update.tentative.html
 html/canvas/element/manual/draw-element-image/captureElementImage.tentative.html
 html/canvas/element/manual/draw-element-image/containment.tentative.html
+html/canvas/element/manual/draw-element-image/content-drawable-no-hit-test.tentative.html
 html/canvas/element/manual/draw-element-image/css-backdrop-filter-with-mix-blend-mode-and-sibling.tentative.html
 html/canvas/element/manual/draw-element-image/display-contents.tentative.html
 html/canvas/element/manual/draw-element-image/draw-element-different-canvas.tentative.html
@@ -2731,6 +2732,8 @@ html/canvas/element/manual/draw-element-image/hit-test/elementsFromPoint-object-
 html/canvas/element/manual/draw-element-image/hit-test/elementsFromPoint-update-element-geometry-offscreen.tentative.html
 html/canvas/element/manual/draw-element-image/hit-test/elementsFromPoint-update-element-geometry.tentative.html
 html/canvas/element/manual/draw-element-image/hit-test/elementsFromPoint.tentative.html
+html/canvas/element/manual/draw-element-image/hit-test/low-dpi-hit-test.tentative.html
+html/canvas/element/manual/draw-element-image/hit-test/selection.tentative.html
 html/canvas/element/manual/draw-element-image/hit-test/z-index.tentative.html
 html/canvas/element/manual/draw-element-image/intersection-observer-visibility.tentative.html
 html/canvas/element/manual/draw-element-image/layout-canvas-children.tentative.html
@@ -2738,6 +2741,8 @@ html/canvas/element/manual/draw-element-image/moved-nested-content-drawable-canv
 html/canvas/element/manual/draw-element-image/moved-webgl-canvas.tentative.html
 html/canvas/element/manual/draw-element-image/nested-content-drawable-canvas.tentative.html
 html/canvas/element/manual/draw-element-image/nested-div-content-drawable-canvas.tentative.html
+html/canvas/element/manual/draw-element-image/onpaint-after-scroll-2.tentative.html
+html/canvas/element/manual/draw-element-image/onpaint-after-scroll.tentative.html
 html/canvas/element/manual/draw-element-image/onpaint-changedElements.tentative.html
 html/canvas/element/manual/draw-element-image/onpaint-css-animation.tentative.html
 html/canvas/element/manual/draw-element-image/onpaint-display-none.tentative.html

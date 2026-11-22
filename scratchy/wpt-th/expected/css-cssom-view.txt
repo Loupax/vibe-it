@@ -328,8 +328,7 @@ OK           0/2  css/cssom-view/elementsFromPoint-iframes.html
   FAIL      elementsFromPoint on the root document for points in iframe elements
   FAIL      elementsFromPoint on inner documents
 OK           1/1  css/cssom-view/elementsFromPoint-inline-htb-ltr.html
-OK           0/1  css/cssom-view/elementsFromPoint-inline-htb-rtl.html
-  FAIL      elementsFromPoint should return all elements under a point
+OK           1/1  css/cssom-view/elementsFromPoint-inline-htb-rtl.html
 OK           1/1  css/cssom-view/elementsFromPoint-inline-nested.html
 OK           4/4  css/cssom-view/elementsFromPoint-inline-self-painting.html
 OK           1/1  css/cssom-view/elementsFromPoint-inline-vlr-ltr.html

@@ -1035,6 +1035,10 @@ ERROR        0/6  html/canvas/element/manual/draw-element-image/captureElementIm
   NOTRUN    getElementImageDefaultSize updates when canvas pixel grid size changes
 OK           0/1  html/canvas/element/manual/draw-element-image/containment.tentative.html
   FAIL      canvas child containment
+OK           0/3  html/canvas/element/manual/draw-element-image/content-drawable-no-hit-test.tentative.html
+  FAIL      canvas elementFromPoint
+  FAIL      canvas mouseenter
+  FAIL      canvas click
 OK           0/1  html/canvas/element/manual/draw-element-image/css-backdrop-filter-with-mix-blend-mode-and-sibling.tentative.html
   FAIL      drawElementImage preserves sibling content after CSS backdrop-filter with mix-blend-mode
 OK           0/2  html/canvas/element/manual/draw-element-image/display-contents.tentative.html
@@ -1130,6 +1134,12 @@ OK           0/7  html/canvas/element/manual/draw-element-image/hit-test/element
   FAIL      Pointer-events: none and inert should be excluded from elementsFromPoint
   FAIL      CSS transform should be used for hit testing
   FAIL      Canvas transform should be used for hit testing
+OK           0/3  html/canvas/element/manual/draw-element-image/hit-test/low-dpi-hit-test.tentative.html
+  FAIL      single target
+  FAIL      multiple targets, should only hit first
+  FAIL      single target miss
+OK           0/1  html/canvas/element/manual/draw-element-image/hit-test/selection.tentative.html
+  FAIL      Double-clicking on canvas should be able to modify selection.
 OK           0/1  html/canvas/element/manual/draw-element-image/hit-test/z-index.tentative.html
   FAIL      Draw order trumps z-index in hit testing.
 OK           0/1  html/canvas/element/manual/draw-element-image/intersection-observer-visibility.tentative.html
@@ -1144,6 +1154,10 @@ OK           0/1  html/canvas/element/manual/draw-element-image/nested-content-d
   FAIL      Nested content=drawable canvas should draw
 OK           0/1  html/canvas/element/manual/draw-element-image/nested-div-content-drawable-canvas.tentative.html
   FAIL      drawElementImage should succeed if called on a nested canvas in a div
+OK           0/1  html/canvas/element/manual/draw-element-image/onpaint-after-scroll-2.tentative.html
+  FAIL      onpaint should fire when the drawn element scrolls.
+OK           0/1  html/canvas/element/manual/draw-element-image/onpaint-after-scroll.tentative.html
+  FAIL      onpaint should fire for scrolls
 OK           0/2  html/canvas/element/manual/draw-element-image/onpaint-changedElements.tentative.html
   FAIL      CanvasPaintEvent constructor and [SameObject] changedElements
   FAIL      onpaint event should have a list of changed elements

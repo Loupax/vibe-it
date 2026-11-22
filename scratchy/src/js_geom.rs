@@ -616,7 +616,7 @@ impl GeomCache {
         if self.part_done.insert(id) {
             let part = &mut self.part_glyphs;
             crate::incr_layout::with_laid(|l, c| {
-                if let Some(sub) = crate::paint::find_laid_node(l, id) {
+                if let Some(sub) = find_laid(l, id) {
                     walk_glyphs(sub, c, part);
                 }
             });
@@ -699,6 +699,27 @@ impl GeomCache {
         }
         found.filter(|p| matches!(p.data, NodeData::Element { .. })).map_or(n, |p| node_id(&p))
     }
+}
+
+/// The outermost laid box of element `node` (an iterative `paint::find_laid_node`: a 5,000-deep
+/// document must not overflow the stack, QSTK1).
+fn find_laid(root: &Laid, node: usize) -> Option<&Laid> {
+    let mut stack = vec![root];
+    while let Some(l) = stack.pop() {
+        if l.style.node == node {
+            return Some(l);
+        }
+        match &l.content {
+            LaidContent::Blocks(c) | LaidContent::TableRow(c) => stack.extend(c.iter().rev()),
+            LaidContent::MixedInline(items) => stack.extend(items.iter().rev().filter_map(|i| match i {
+                MixedPositioned::Embedded(b) => Some(&**b),
+                _ => None,
+            })),
+            _ => {}
+        }
+        stack.extend(l.positioned.iter().rev());
+    }
+    None
 }
 
 /// (left, top, right, bottom) of a zero-width box at the pen position of `h` (an inline element

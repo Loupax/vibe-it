@@ -316,7 +316,9 @@ OK           0/6  dom/events/relatedTarget.window.html
   FAIL      Reset targets before activation behavior
 OK           2/2  dom/events/remove-all-listeners.html
 OK           1/1  dom/events/scrolling/iframe-chains.html
-TIMEOUT      0/0  dom/events/scrolling/input-text-scroll-event-when-using-arrow-keys.html
+TIMEOUT      0/2  dom/events/scrolling/input-text-scroll-event-when-using-arrow-keys.html
+  TIMEOUT   Scroll event fired for <input> element.
+  NOTRUN    Scroll event fired for <textarea> element.
 ERROR        0/2  dom/events/scrolling/save-iframe-scroll-offset-when-display-none.html
   FAIL      Ensure that the scroll position is not lost when the local iframe is set to display:none and shown again.
   TIMEOUT   Ensure that the scroll position is not lost when the remote iframe is set to display:none and shown again.
