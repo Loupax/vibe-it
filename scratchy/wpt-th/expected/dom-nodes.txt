@@ -1876,10 +1876,8 @@ ERROR      17/32  dom/nodes/moveBefore/Node-moveBefore.html
   NOTRUN    Invalid node hierarchy with null old parent does not crash
   NOTRUN    Move disconnected iframe does not crash
 OK           1/1  dom/nodes/moveBefore/child-style-preserve.html
-TIMEOUT      0/1  dom/nodes/moveBefore/continue-css-animation-left.html
-  TIMEOUT   Node.moveBefore should preserve CSS animation state (left)
-TIMEOUT      0/1  dom/nodes/moveBefore/continue-css-animation-transform.html
-  TIMEOUT   Node.moveBefore should preserve CSS animation state (transform)
+OK           1/1  dom/nodes/moveBefore/continue-css-animation-left.html
+OK           1/1  dom/nodes/moveBefore/continue-css-animation-transform.html
 TIMEOUT      0/1  dom/nodes/moveBefore/continue-css-transition-left-pseudo.html
   TIMEOUT   Node.moveBefore should preserve CSS transition state on pseudo-elements (left)
 TIMEOUT      0/1  dom/nodes/moveBefore/continue-css-transition-left.html
@@ -1888,8 +1886,8 @@ TIMEOUT      0/1  dom/nodes/moveBefore/continue-css-transition-transform-pseudo.
   TIMEOUT   Node.moveBefore should preserve CSS transition state on pseudo-elements (transform)
 TIMEOUT      0/1  dom/nodes/moveBefore/continue-css-transition-transform.html
   TIMEOUT   Node.moveBefore should preserve CSS transition state (transform)
-TIMEOUT      0/1  dom/nodes/moveBefore/css-animation-commit-styles.html
-  TIMEOUT   Calling commitStyles after Node.moveBefore should commit mid-transition value
+OK           0/1  dom/nodes/moveBefore/css-animation-commit-styles.html
+  FAIL      Calling commitStyles after Node.moveBefore should commit mid-transition value
 TIMEOUT      0/1  dom/nodes/moveBefore/css-transition-cross-document.html
   TIMEOUT   Moving a transition across documents should reset its state
 TIMEOUT      0/1  dom/nodes/moveBefore/css-transition-cross-shadow.html

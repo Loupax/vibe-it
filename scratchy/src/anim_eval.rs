@@ -34,6 +34,14 @@ thread_local! {
     /// QINC1f: while set (the incremental restyle's shadow run), evaluation reads start times without
     /// creating, marking or reporting anything, so the from-scratch build's pass is unaffected.
     static ANIM_READONLY: Cell<bool> = const { Cell::new(false) };
+    /// QANIMHL: finished passes (`finish_animation_pass` / `finish_report_only`), so a reader can tell
+    /// "no pass since" from "a pass that styled no animation".
+    static ANIM_PASSES: Cell<u64> = const { Cell::new(0) };
+}
+
+/// QANIMHL: how many style passes have finished their animation report on this thread.
+pub(crate) fn animation_passes() -> u64 {
+    ANIM_PASSES.with(Cell::get)
 }
 
 /// QINC1f: switches the read-only evaluation mode; returns the previous value.
@@ -51,14 +59,15 @@ pub(crate) fn retain_starts(keep: impl Fn(usize, bool) -> bool) {
 
 /// QINC1f (R60 6.5): whether `style` runs an animation `evaluate` would apply (a named animation
 /// whose `@keyframes` exist), i.e. its value depends on the clock. A bare `animation-duration` (a
-/// reduced-motion `*` rule) does not.
+/// reduced-motion `*` rule) does not. QANIMHL: an empty `@keyframes x {}` counts too: it changes no
+/// value but runs (and fires its events), so it must be reported by every update.
 pub(crate) fn is_animated(style: &ComputedStyle, viewport_width: f32) -> bool {
     let Some(a) = style.animations else { return false };
     let Some(lists) = a.table() else { return false };
     lists
         .resolve()
         .iter()
-        .any(|a| a.name.as_deref().is_some_and(|n| lookup_keyframes(n, viewport_width).is_some_and(|k| !k.is_empty())))
+        .any(|a| a.name.as_deref().is_some_and(|n| lookup_keyframes(n, viewport_width).is_some()))
 }
 
 /// QINC1f test seam: the start time kept for `(node, is pseudo, index, name)`.
@@ -169,6 +178,7 @@ pub(crate) fn finish_animation_pass() {
     rep.retain(|r| seen.insert(r.key.clone()));
     rep.reverse();
     ANIM_LAST.with(|l| *l.borrow_mut() = rep);
+    ANIM_PASSES.with(|p| p.set(p.get() + 1));
 }
 
 /// QINC1j: the end of an App frame's incremental restyle: the animations it styled become the
@@ -181,6 +191,7 @@ pub(crate) fn finish_report_only() {
     rep.retain(|r| seen.insert(r.key.clone()));
     rep.reverse();
     ANIM_LAST.with(|l| *l.borrow_mut() = rep);
+    ANIM_PASSES.with(|p| p.set(p.get() + 1));
 }
 
 fn start_time(handle: &Handle, pseudo: bool, idx: usize, name: &str) -> f64 {
@@ -512,9 +523,6 @@ pub(crate) fn evaluate(
     for (idx, a) in lists.resolve().into_iter().enumerate() {
         let Some(name) = a.name.as_deref() else { continue };
         let Some(kf) = lookup_keyframes(name, viewport_width) else { continue };
-        if kf.is_empty() {
-            continue;
-        }
         let start = start_time(handle, pseudo.is_some(), idx, name);
         if !ANIM_READONLY.with(Cell::get) {
             ANIM_REPORT.with(|r| {
@@ -525,6 +533,10 @@ pub(crate) fn evaluate(
                     start,
                 })
             });
+        }
+        // QANIMHL: an empty `@keyframes` runs (it has a start, an end and events) but changes nothing.
+        if kf.is_empty() {
+            continue;
         }
         let elapsed = if a.play_state == AnimPlayState::Paused { 0.0 } else { now - start };
         let Some(p) = directed_progress(&a, elapsed) else { continue };

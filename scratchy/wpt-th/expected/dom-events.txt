@@ -149,12 +149,10 @@ OK           0/5  dom/events/EventListener-handleEvent-cross-realm.html
   FAIL      EventListener is cross-realm non-callable revoked Proxy
   FAIL      EventListener is cross-realm callable revoked Proxy
 OK           6/6  dom/events/EventListener-handleEvent.html
-TIMEOUT      0/6  dom/events/EventListener-invoke-legacy.html
+TIMEOUT      2/6  dom/events/EventListener-invoke-legacy.html
   TIMEOUT   Listener of transitionend
   TIMEOUT   Legacy listener of transitionend
-  TIMEOUT   Listener of animationend
   TIMEOUT   Legacy listener of animationend
-  TIMEOUT   Listener of animationstart
   TIMEOUT   Legacy listener of animationstart
 OK           2/4  dom/events/EventListenerOptions-capture.html
   FAIL      Capture boolean should be honored correctly

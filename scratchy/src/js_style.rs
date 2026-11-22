@@ -102,8 +102,9 @@ struct Piece {
 
 struct Entry {
     fp: u64,
-    /// Set for styles that depend on the clock (animations): valid for this generation only.
-    wgen: Option<u64>,
+    /// Set for styles that depend on the clock (animations): valid for this generation and this
+    /// document clock only (QANIMHL: headless frames move the clock without a DOM write).
+    wgen: Option<(u64, u64)>,
     style: ComputedStyle,
 }
 
@@ -728,6 +729,7 @@ impl StyleCache {
             }
         };
         let mut out = None;
+        let clocked = (wgen, crate::anim_eval::document_clock_ms().to_bits());
         let last = chain.len().saturating_sub(1);
         for (i, n) in chain.iter().enumerate() {
             let (cx, formish) = ctx_hash(n, self.sib_rules);
@@ -738,11 +740,11 @@ impl StyleCache {
             let fp = acc;
             let key = (Rc::as_ptr(n) as usize, 0u8);
             let st = match self.map.get(&key) {
-                Some(e) if e.fp == fp && e.wgen.is_none_or(|w| w == wgen) => e.style,
+                Some(e) if e.fp == fp && e.wgen.is_none_or(|w| w == clocked) => e.style,
                 _ => {
                     CASCADES.with(|c| c.set(c.get() + 1));
                     let s = resolve_style_for(n, &rules, inh, vw, None);
-                    let w = s.animations.is_some().then_some(wgen);
+                    let w = s.animations.is_some().then_some(clocked);
                     self.map.insert(key, Entry { fp, wgen: w, style: s });
                     s
                 }
@@ -755,11 +757,11 @@ impl StyleCache {
                     Some(p) => {
                         let pk = (key.0, if p == "before" { 1u8 } else { 2 });
                         match self.map.get(&pk) {
-                            Some(e) if e.fp == fp && e.wgen.is_none_or(|w| w == wgen) => e.style,
+                            Some(e) if e.fp == fp && e.wgen.is_none_or(|w| w == clocked) => e.style,
                             _ => {
                                 CASCADES.with(|c| c.set(c.get() + 1));
                                 let s = resolve_style_for(n, &rules, st.inherited(), vw, Some(p));
-                                let w = s.animations.is_some().then_some(wgen);
+                                let w = s.animations.is_some().then_some(clocked);
                                 self.map.insert(pk, Entry { fp, wgen: w, style: s });
                                 s
                             }

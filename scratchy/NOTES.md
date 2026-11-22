@@ -3919,6 +3919,27 @@ timers first; when none ran, the rendering update if its frame is due) drive `wp
 `--js-report --run-timers` pump and the test helper `run_with_timers`; `--perf-report` uses
 `headless_frame` on its real-time loop. A page without rAF has no frames at all (no extra cost).
 
+**Headless CSS animations (QANIMHL).** Before QANIMHL the headless host had no animation step at all:
+the document clock (`anim_eval::DOC_CLOCK`) stayed 0, nothing fed an `AnimTracker`, so no
+`animation*` event ever fired in `--wpt-th-one` (the App path did fire them, from its builds). Also an
+EMPTY `@keyframes x {}` (the dom/events webkit-* tests) was skipped by `evaluate` and `is_animated`
+in every mode, App included: it now runs (start/end/iteration/cancel events) and changes no value.
+Now `event_loop::Headless { js, now }` keeps a `HeadlessAnim` in the `JsEngine`: step 6 (style),
+when the page's rules define `@keyframes` (`JsEngine::page_has_keyframes`, checked once per geometry
+generation) and the geometry generation moved since the last style step (or animations are live), sets
+the document clock to the page clock and runs the page's forced layout (`__d_anim_pass` ->
+`GeomCache::style_pass`, the same cache a geometry read uses, so it is a no-op when a script already
+read geometry); the report of the pass (`anim_eval::animation_passes` tells a new pass from none)
+goes to the tracker. Step 4 of the NEXT update ticks the tracker at the page clock and dispatches the
+events (trusted, bubbling) before the rAF batch, so a rAF requested by an `animationend` handler runs
+in that same update. `headless_frame_due` adds the animation due time (frame boundary after the
+DOM change or after the tracker's next change). A page without `@keyframes`, or one whose DOM does
+not change and has no animation event coming, owes no frame. `getComputedStyle`'s cache keys animated
+entries on the clock as well as the write generation. Not here: CSS transitions (no engine support at
+all, so `transitionend` and dom/events/webkit-transition-end-event still time out), WAAPI
+(`el.animate`), animated geometry for forced layouts between DOM writes (the geometry cache is keyed on
+the write generation only).
+
 ## Engine evidence (QINC1n, src/incr_evidence.rs)
 
 Daily-use evidence for deleting the old pipeline (QINC1m). Both engine paths, App frames
