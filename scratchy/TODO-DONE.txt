@@ -9592,3 +9592,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       (QCNV2)"); Sonnet) QCNV1 leftovers: width/height reflection, toStringTag/descriptors, brand checks, ImageData
       edges, style toString, currentcolor, colour serialisation (start with color.window.html 0/15),
       lab/color()/color-mix; canvas registry keyed by id, not node address. ~49 files.
+
+=== from TODO.txt: --- (no header)
+- [x] QWPT7c DONE 206530b #621 [S] (P3, from QWPT7 #611; Sonnet; js_geom hit test) Hit-testing gaps: `pointer-events: none`, SVG content
+      (mouseEvent-offsetXY-svg), element scroll offsets, accesskey.
