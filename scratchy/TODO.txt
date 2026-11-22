@@ -81,6 +81,16 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] [WIP] QEL6 [S] (P2; Sonnet; js.rs dispatch, __scratchy_dn) Microtask checkpoint between listeners of
       UA-dispatched (trusted) events. Test: two click listeners, a promise in the first resolves
       before the second runs; synthetic el.click() keeps today's order.
+- [ ] [WIP] QANIMHLb [M] (P2, from QANIMHL #562; Opus; css.rs, anim_eval, layout/paint, event_loop.rs, js) CSS transitions: the
+      engine has none (no `transition`/`transition-*` parsing, no interpolation on style change, no transitionrun/start/
+      end/cancel). Implement per CSS Transitions 1 for the properties the animation engine can already interpolate
+      (start on computed-value change, delay/duration/timing-function, cancel on removal/display:none, events in the
+      rendering step before rAF, both App and headless). Gates: dom/events/webkit-transition-end-event.html,
+      EventListener-invoke-legacy transitionend subtests, css areas in --wpt-th, reftests (transition reftests!),
+      --perf-report on gate pages (transitions on hover must not cost idle CPU), live window check (a hover transition).
+- [ ] QANIMHLc [S] (P3, from QANIMHL #562; Sonnet; js_geom GeomCache) Geometry reads during a CSS animation: the forced-layout cache
+      is keyed only on the DOM write generation, so getBoundingClientRect of an animated box keeps its first-frame
+      geometry between DOM writes; key on the animation clock too when animations are live.
 - [ ] QEL7 [S] (P2; Sonnet; app.rs, js.rs; after QEL1) scroll events for user scrolling (window and
       elements, coalesced per frame in the rendering step), scrollend, wheel events; MQL change events.
 - [ ] QEL8 [S] (P3; Sonnet; globals_prelude.js) postMessage/MessageChannel on their own task queue (not
