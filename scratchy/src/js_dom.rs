@@ -2793,35 +2793,130 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (od && od !== doc) owners[c.__id] = od;
     return c;
   };
-  var many = function (args) { return Array.prototype.map.call(args, toNode); };
-  ElementProto.append = function () {
-    var s = this, own = moBegin();
-    try { many(arguments).forEach(function (n) { s.appendChild(n); }); } finally { moEnd(own); }
+  // QDOM16: ChildNode / ParentNode mixins (DOM "convert nodes into a node", viable siblings, pre-insert validity).
+  var cnConv = function (self, args) {
+    var od = self.nodeType === 9 ? self : self.ownerDocument, list = [];
+    for (var i = 0; i < args.length; i++) {
+      var a = args[i];
+      if (a && typeof a === 'object' && a.__id !== undefined) { list.push(a); continue; }
+      if (typeof a === 'symbol') throw new TypeError('Cannot convert a Symbol value to a string');
+      var t = wrap(__d_create(3, String(a)));
+      if (od && od !== doc) owners[t.__id] = od;
+      list.push(t);
+    }
+    return { list: list, od: od };
   };
-  ElementProto.prepend = function () {
-    var s = this, first = this.firstChild, own = moBegin();
-    try { many(arguments).forEach(function (n) { s.insertBefore(n, first); }); } finally { moEnd(own); }
+  var cnOne = function (c) {
+    if (c.list.length === 1) return c.list[0];
+    var d = c.od || doc, f = d.createDocumentFragment();
+    c.list.forEach(function (n) {
+      if ([1, 3, 4, 7, 8, 10, 11].indexOf(n.nodeType) < 0) throw herr('This node type cannot be inserted.', 'HierarchyRequestError');
+      f.appendChild(n);
+    });
+    return f;
   };
-  ElementProto.replaceChildren = function () {
-    var s = this, nodes = many(arguments), own = moBegin();
-    try {
-      while (s.firstChild) rmNode(s.firstChild);
-      nodes.forEach(function (n) { s.appendChild(n); });
-    } finally { moEnd(own); }
+  var cnIncl = function (a, b) { for (; b; b = b.parentNode) if (a === b) return true; return false; };
+  var cnKids = function (p, t) { var r = [], c = p.childNodes; for (var i = 0; i < c.length; i++) if (c[i].nodeType === t) r.push(c[i]); return r; };
+  // "Ensure pre-insert validity" (replace = the "replace" variant where `child` is replaced; empty = ignore the
+  // parent's existing children, for replaceChildren).
+  var cnCheck = function (parent, node, child, replace, empty) {
+    var pt = parent.nodeType, nt = node.nodeType;
+    if (pt !== 9 && pt !== 11 && pt !== 1) throw herr('This node type does not support this method.', 'HierarchyRequestError');
+    if (cnIncl(node, parent)) throw herr('The new child element contains the parent.', 'HierarchyRequestError');
+    if (child && child.parentNode !== parent) throw herr('The node before which the new node is to be inserted is not a child of this node.', 'NotFoundError');
+    if ([1, 3, 4, 7, 8, 10, 11].indexOf(nt) < 0) throw herr('This node type cannot be inserted.', 'HierarchyRequestError');
+    if ((nt === 3 || nt === 4) && pt === 9) throw herr('Nodes of type \'#text\' may not be inserted inside nodes of type \'#document\'.', 'HierarchyRequestError');
+    if (nt === 10 && pt !== 9) throw herr('Nodes of type \'#doctype\' may not be inserted here.', 'HierarchyRequestError');
+    if (pt !== 9) return;
+    var bad = function () { throw herr('The new child element would make the document invalid.', 'HierarchyRequestError'); };
+    var kids = empty ? [] : Array.prototype.slice.call(parent.childNodes);
+    var idx = child ? kids.indexOf(child) : kids.length;
+    var hasEl = function () { return kids.some(function (k) { return k.nodeType === 1 && k !== child; }); };
+    var docAfter = function () { for (var i = idx + (replace ? 1 : 0); i < kids.length; i++) if (kids[i].nodeType === 10) return true; return false; };
+    var elBefore = function () { for (var i = 0; i < idx; i++) if (kids[i].nodeType === 1) return true; return false; };
+    if (nt === 11) {
+      var els = cnKids(node, 1).length, k = node.childNodes, i;
+      if (els > 1) bad();
+      for (i = 0; i < k.length; i++) if (k[i].nodeType === 3 || k[i].nodeType === 4) bad();
+      if (els === 1 && (hasEl() || (child && child.nodeType === 10) || (child && docAfter()))) bad();
+    } else if (nt === 1) {
+      if (hasEl() || (child && child.nodeType === 10) || (child && docAfter())) bad();
+    } else if (nt === 10) {
+      if (kids.some(function (k) { return k.nodeType === 10 && k !== child; }) || (child && elBefore()) || (!child && hasEl())) bad();
+    }
   };
-  ElementProto.remove = function () { rmNode(this); };
-  ElementProto.before = function () {
-    var p = this.parentNode, s = this, own = moBegin();
-    try { if (p) many(arguments).forEach(function (n) { p.insertBefore(n, s); }); } finally { moEnd(own); }
+  var cnPre = function (parent, node, child) {
+    cnCheck(parent, node, child, false, false);
+    if (child === node) child = node.nextSibling;
+    parent.insertBefore(node, child);
   };
-  ElementProto.after = function () {
-    var p = this.parentNode, nx = this.nextSibling, own = moBegin();
-    try { if (p) many(arguments).forEach(function (n) { p.insertBefore(n, nx); }); } finally { moEnd(own); }
+  var cnViable = function (self, list, prev) {
+    var s = prev ? self.previousSibling : self.nextSibling;
+    while (s && list.indexOf(s) >= 0) s = prev ? s.previousSibling : s.nextSibling;
+    return s;
   };
-  ElementProto.replaceWith = function () {
-    var own = moBegin();
-    try { this.before.apply(this, arguments); this.remove(); } finally { moEnd(own); }
+  var cnMixin = {
+    append: function () {
+      var c = cnConv(this, arguments), own = moBegin();
+      try { cnPre(this, cnOne(c), null); } finally { moEnd(own); }
+    },
+    prepend: function () {
+      var c = cnConv(this, arguments), own = moBegin();
+      try { var f = this.firstChild; cnPre(this, cnOne(c), f); } finally { moEnd(own); }
+    },
+    replaceChildren: function () {
+      var c = cnConv(this, arguments), own = moBegin();
+      try {
+        var node = cnOne(c);
+        cnCheck(this, node, null, false, true);
+        while (this.firstChild) rmNode(this.firstChild);
+        this.insertBefore(node, null);
+      } finally { moEnd(own); }
+    },
+    remove: function () { if (this.parentNode) rmNode(this); },
+    before: function () {
+      var p = this.parentNode, c = cnConv(this, arguments);
+      if (!p) return;
+      var own = moBegin();
+      try {
+        var vp = cnViable(this, c.list, true), node = cnOne(c);
+        cnPre(p, node, vp ? vp.nextSibling : p.firstChild);
+      } finally { moEnd(own); }
+    },
+    after: function () {
+      var p = this.parentNode, c = cnConv(this, arguments);
+      if (!p) return;
+      var own = moBegin();
+      try {
+        var vn = cnViable(this, c.list, false), node = cnOne(c);
+        cnPre(p, node, vn);
+      } finally { moEnd(own); }
+    },
+    replaceWith: function () {
+      var p = this.parentNode, c = cnConv(this, arguments);
+      if (!p) return;
+      var own = moBegin();
+      try {
+        var vn = cnViable(this, c.list, false), node = cnOne(c);
+        if (this.parentNode === p) {
+          if (node === this) return;
+          cnCheck(p, node, this, true, false);
+          p.insertBefore(node, this); rmNode(this);
+        } else cnPre(p, node, vn);
+      } finally { moEnd(own); }
+    }
   };
+  var cnInstall = function (proto, names) {
+    var u = Object.prototype.hasOwnProperty.call(proto, Symbol.unscopables) ? proto[Symbol.unscopables] : Object.create(null);
+    names.forEach(function (k) {
+      Object.defineProperty(proto, k, { value: cnMixin[k], writable: true, enumerable: true, configurable: true });
+      u[k] = true;
+    });
+    Object.defineProperty(proto, Symbol.unscopables, { value: u, writable: false, enumerable: false, configurable: true });
+  };
+  var cnChild = ['before', 'after', 'replaceWith', 'remove'], cnParent = ['prepend', 'append', 'replaceChildren'];
+  cnInstall(ElementProto, cnChild.concat(cnParent));
+  cnInstall(CharacterData.prototype, cnChild);
   // QY61: insertAdjacentElement / insertAdjacentText / insertAdjacentHTML
   // (skins.vector.js movePinnableElement died on the missing method).
   var adjacent = function (self, where, node, fn) {
@@ -4892,9 +4987,14 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   ['children', 'firstElementChild', 'lastElementChild', 'childElementCount'].forEach(function (k) {
     Object.defineProperty(DocumentFragment.prototype, k, Object.getOwnPropertyDescriptor(ElementProto, k));
   });
-  ['append', 'prepend', 'replaceChildren', 'moveBefore'].forEach(function (k) {
-    if (ElementProto[k]) DocumentFragment.prototype[k] = ElementProto[k];
-  });
+  if (ElementProto.moveBefore) DocumentFragment.prototype.moveBefore = ElementProto.moveBefore;
+  cnInstall(DocumentFragment.prototype, cnParent);
+  cnInstall(DocumentType.prototype, cnChild);
+  cnInstall(g.Document.prototype, cnParent);
+  Object.defineProperty(g.Document.prototype, 'doctype', { configurable: true, enumerable: true, get: function () {
+    var c = this.childNodes; for (var i = 0; i < c.length; i++) if (c[i].nodeType === 10) return c[i];
+    return null;
+  } });
 
   // ---- QY6e: Custom Elements (window.customElements). Everything is JS over the
   // wrappers; the DOM mutation natives (`__d_insert/remove/sethtml/settext/
