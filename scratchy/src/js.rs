@@ -2204,6 +2204,11 @@ impl JsEngine {
         }
     }
 
+    /// QFF1a: `document.fonts` re-reads the web-font load states (a load started or finished).
+    pub(crate) fn fonts_sync(&self) {
+        self.eval("fonts-sync", "globalThis.__scratchy_fonts_sync && globalThis.__scratchy_fonts_sync()");
+    }
+
     pub(crate) fn observer_hook(&self) {
         if crate::ro_geom::active() {
             self.eval("ro-run", "globalThis.__scratchy_roRun && globalThis.__scratchy_roRun()");
@@ -2370,6 +2375,13 @@ fn startup_engine(document: &Handle, store: Rc<js_modules::ModuleStore>, log: Lo
             let (m, media) = css::media_query_string_matches(&q, vw as f32, vh as f32);
             vec![if m { "1".into() } else { String::new() }, media]
         });
+        // QFF1a: `document.fonts` and the web-font registry (fonts_prelude.js).
+        native!(&ctx, "__scratchy_font_state", |key: String| -> String { crate::webfonts::state_of(&key).word().to_string() });
+        native!(&ctx, "__scratchy_font_add", |key: String, family: String, bytes: crate::js_engine::Bytes, weight: String, style: String| -> bool {
+            crate::webfonts::add_script_face(&key, &family, bytes.0, &weight, &style)
+        });
+        native!(&ctx, "__scratchy_font_check", |bytes: crate::js_engine::Bytes| -> bool { crate::webfonts::decode_face(bytes.0).is_some() });
+        native!(&ctx, "__scratchy_font_remove", |key: String| crate::webfonts::remove_script_face(&key));
         // QSD1b: OS CSPRNG for `crypto.getRandomValues`/`randomUUID` (<= 65536 bytes per call).
         native!(&ctx, "__scratchy_random", |n: i32| -> Vec<u8> { os_random_bytes(n.clamp(0, 65536) as usize) });
         native!(&ctx, "__scratchy_now", move || match &clock {

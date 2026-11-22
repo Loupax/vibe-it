@@ -75,6 +75,8 @@ pub(crate) enum AppEvent {
     /// reason: a since-superseded page's late-arriving image must never
     /// populate the *new* page's cache.
     ImageFetched(u64, String, Option<DecodedImage>),
+    /// QFF1a: a web font fetch finished: (nav generation, face key, registry page, the decoded face).
+    FontFetched(u64, String, u64, Option<Box<fontdb::FaceInfo>>),
     /// Q22b: the stylesheets of a streamed page, fetched after EOF
     /// (`start_stream_resources`); replaces `App::extra_css`.
     StreamCss(u64, String, crate::link_css::SheetParts, Vec<ScriptSource>),
@@ -674,6 +676,8 @@ pub(crate) struct App {
     pub(crate) window: Option<Rc<Window>>,
     pub(crate) surface: Option<Surface<Rc<Window>, Rc<Window>>>,
     pub(crate) font_system: FontSystem,
+    /// QFF1a: `font_system`'s position in the web-font log (`webfonts::sync`).
+    pub(crate) font_sync: crate::webfonts::FontSync,
     pub(crate) swash_cache: SwashCache,
     pub(crate) scroll_offset: f32,
     /// QSMOOTH1: where the eased viewport scroll is heading (`None` = not animating). `scroll_offset`
@@ -1462,6 +1466,7 @@ impl App {
             window: None,
             surface: None,
             font_system: new_font_system(),
+            font_sync: crate::webfonts::FontSync::default(),
             swash_cache: SwashCache::new(),
             scroll_offset: 0.0,
             scroll_target: None,
@@ -1582,6 +1587,7 @@ impl App {
             window: None,
             surface: None,
             font_system: new_font_system(),
+            font_sync: crate::webfonts::FontSync::default(),
             swash_cache: SwashCache::new(),
             scroll_offset: 0.0,
             scroll_target: None,
@@ -2431,7 +2437,11 @@ impl App {
         // QSTK1: measure recurses once per nesting level (~14 KB a level); the 2 MB default stack
         // reached `crate::stack::grow`'s red zone ~100 levels deep, so give the worker room.
         let worker = thread::Builder::new().name("shaping".into()).stack_size(32 << 20);
+        // QFF1a: the App's web-font registry (faces are replayed into this thread's font system).
+        let webfonts = crate::webfonts::handle();
         let spawned = worker.spawn(move || {
+            crate::webfonts::install(webfonts);
+            let mut font_sync = crate::webfonts::FontSync::default();
             let mut font_system = new_font_system();
             SHAPE_MEMO_ENABLED.with(|m| m.set(true));
             // `rx.recv()` blocks here whenever there's no page waiting
@@ -2455,7 +2465,10 @@ impl App {
                     request = newer;
                 }
                 let ShapingRequest { tree, width, height, generation, reuse_shaping, id_base, engine } = request;
-                if !reuse_shaping {
+                // QFF1a: web faces that arrived (or went) since the last request; a change drops the
+                // shape memo (`sync` did) and every cached shape.
+                let fonts_changed = crate::webfonts::sync(&mut font_system, &mut font_sync);
+                if !reuse_shaping || fonts_changed {
                     crate::layout::memo_clear();
                     // A new document: nothing in the cache can be live.
                     shape_cache.clear();
@@ -2632,6 +2645,10 @@ impl App {
         crate::images::clear_style_overrides();
         // QY53i2: the old document's custom-property tables (and the QY53i memo) go with it.
         crate::css::reset_custom_props_arena();
+        // QFF1a: the old page's web fonts go (from every font system at its next sync).
+        crate::webfonts::new_page();
+        crate::webfonts::sync(&mut self.font_system, &mut self.font_sync);
+        crate::js_geom::sync_forced_fonts();
         self.adopted_css.clear();
         self.link_sheets = crate::link_css::LinkSheets::adopt(&self.document, self.base_url.as_ref(), extra_css.len(), Vec::new());
         self.extra_css = extra_css;
@@ -2798,6 +2815,8 @@ impl App {
     /// Q33c: if page scripts wrote to the DOM, request one layout
     /// rebuild (never one per write) and a redraw.
     pub(crate) fn js_sync(&mut self) {
+        // QFF1a: faces layout asked for, and faces that arrived (fetches, script `FontFace`s).
+        self.webfonts_tick();
         for src in std::mem::take(&mut self.late_image_errors) {
             self.image_settled(&src, None);
         }
@@ -3288,6 +3307,71 @@ impl App {
         // a shaping pass is still in flight, until it completes.
         if self.layout_dirty {
             // A rebuild is already queued (first layout, chunk, resize...).
+            return;
+        }
+        let now = std::time::Instant::now();
+        let since = *self.image_relayout_since.get_or_insert(now);
+        if image_relayout_wait(Some(now.duration_since(since)), self.layout_dirty).is_some() && !self.image_flush_scheduled {
+            self.schedule_image_flush(IMAGE_RELAYOUT_DEBOUNCE);
+        }
+        self.flush_image_relayout();
+    }
+
+    /// QFF1a: `AppEvent::FontFetched`: registers the face (stale pages are dropped) and lays out again.
+    pub(crate) fn handle_font_fetched(&mut self, generation: u64, key: &str, page: u64, face: Option<fontdb::FaceInfo>) {
+        if generation != self.nav_generation {
+            return;
+        }
+        let failed = face.is_none();
+        if crate::webfonts::finish_load(key, page, face) {
+            if failed && let Some(js) = &self.js {
+                js.fonts_sync();
+            }
+            self.webfonts_tick();
+        }
+    }
+
+    /// QFF1a: starts fetches for the web faces layout asked for (`webfonts::take_wanted`): `local()`
+    /// sources are looked up here in the system fonts, the rest is fetched through wire on a thread
+    /// per face; the result comes back as `AppEvent::FontFetched`.
+    pub(crate) fn fetch_wanted_fonts(&mut self) {
+        if !crate::webfonts::has_wanted() {
+            return;
+        }
+        let jobs = crate::webfonts::take_wanted();
+        if jobs.is_empty() {
+            return;
+        }
+        let base = self.base_url.clone().unwrap_or_else(|| Url::parse("about:blank").expect("static url"));
+        for job in jobs {
+            let locals = crate::webfonts::resolve_locals(self.font_system.db(), &job.srcs);
+            let (proxy, socket, base, generation) = (self.proxy.clone(), self.socket_path.clone(), base.clone(), self.nav_generation);
+            thread::spawn(move || {
+                let face = crate::webfonts::load_sources(socket.as_deref(), &base, &base, &base, &job.srcs, &locals);
+                let _ = proxy.send_event(AppEvent::FontFetched(generation, job.key, job.page, face.map(Box::new)));
+            });
+        }
+        if let Some(js) = &self.js {
+            js.fonts_sync();
+        }
+    }
+
+    /// QFF1a: after events and script tasks: fetch wanted faces, and when faces were added or removed
+    /// (a fetch, script `FontFace`s), bring the App's and the forced-layout font systems up to date,
+    /// restart the incremental engine (its kept shapes used the fallback font) and lay out again.
+    pub(crate) fn webfonts_tick(&mut self) {
+        self.fetch_wanted_fonts();
+        if !crate::webfonts::sync(&mut self.font_system, &mut self.font_sync) {
+            return;
+        }
+        crate::js_geom::sync_forced_fonts();
+        crate::incr_style::drop_engines();
+        if let Some(js) = &self.js {
+            js.fonts_sync();
+        }
+        // Collapsed like image arrivals (a burst of faces is one relayout).
+        self.restyle_requested = true;
+        if self.layout_dirty {
             return;
         }
         let now = std::time::Instant::now();
@@ -5590,6 +5674,7 @@ impl ApplicationHandler<AppEvent> for App {
             AppEvent::JsNet(generation, id, result, completed) => self.handle_js_net(generation, id, result, completed),
             AppEvent::JsWs => self.handle_js_ws(),
             AppEvent::ImageFetched(generation, src, image) => self.handle_image_fetched(generation, src, image),
+            AppEvent::FontFetched(generation, key, page, face) => self.handle_font_fetched(generation, &key, page, face.map(|f| *f)),
             AppEvent::ShapeResult(generation, laid, shape_cache, incomplete, next_id, adopt) => {
                 self.next_para_id = self.next_para_id.max(next_id);
                 self.handle_shape_result_job(generation, laid, shape_cache, incomplete, adopt.map(|a| (a, next_id)))

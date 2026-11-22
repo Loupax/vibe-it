@@ -3,7 +3,7 @@
 use super::*;
 
 const PAGE: &str = "<html><head><style>\
-    @font-face { font-family: 'Fancy Sans'; src: url(data:font/woff2;base64,AAAA) format('woff2'); font-weight: 700; }\
+    @font-face { font-family: 'Fancy Sans'; src: url(data:font/woff2;base64,AAAA) format('woff2'), local(Arial); font-weight: 700; }\
     @font-face { font-family: Other; src: local(Arial); }\
     p { color: red }</style></head><body></body></html>";
 

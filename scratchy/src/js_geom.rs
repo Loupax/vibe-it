@@ -45,7 +45,20 @@ pub(crate) fn install_extra_fonts(fonts: Vec<Vec<u8>>) -> usize {
     }
     let added = fs.db().len() - before;
     FONTS.with(|f| *f.borrow_mut() = Some(fs));
+    FONTS_SYNC.with(|s| *s.borrow_mut() = crate::webfonts::FontSync::default());
     added
+}
+
+/// QFF1a: brings this thread's forced-layout font system up to the web-font registry (when it exists).
+pub(crate) fn sync_forced_fonts() {
+    FONTS.with(|f| {
+        if let Some(fs) = f.borrow_mut().as_mut() {
+            // QFF1a: web faces came or went: the engine's kept shapes used other fonts.
+            if FONTS_SYNC.with(|s| crate::webfonts::sync(fs, &mut s.borrow_mut())) {
+                crate::incr_style::drop_engines();
+            }
+        }
+    });
 }
 
 thread_local! {
@@ -57,6 +70,8 @@ thread_local! {
     #[cfg(test)]
     pub(crate) static NO_ORACLE: Cell<bool> = const { Cell::new(false) };
     static FONTS: RefCell<Option<FontSystem>> = const { RefCell::new(None) };
+    /// QFF1a: `FONTS`' position in the web-font log.
+    static FONTS_SYNC: RefCell<crate::webfonts::FontSync> = RefCell::new(crate::webfonts::FontSync::default());
     /// QY53l2: the `display: none` subtrees of the last forced layout on this thread.
     static HIDDEN: RefCell<Option<HiddenSnap>> = const { RefCell::new(None) };
     /// QY53o1: the attribute readers of the last forced layout's rule list, with the
@@ -517,6 +532,8 @@ pub(crate) fn class_write_post(p: ClassProbe) -> bool {
 #[derive(Default)]
 pub(crate) struct GeomCache {
     key: Option<(u64, u32, u32, (u64, u64))>,
+    /// QFF1a: the web-font registry generation of the last layout (a face that arrived since lays out again).
+    font_gen: u64,
     /// QANIMHLc: document clock (bits) of the layout when it styled a running animation or
     /// transition; such a layout is only fresh at that clock. `None`: nothing was animated, the key alone decides.
     anim_clock: Option<u64>,
@@ -909,9 +926,16 @@ impl GeomCache {
         let key = (wgen, vw as u32, vh as u32, crate::js_style::css_ver());
         // QYTC1d: a geometry read: class writes after it may be probed again.
         PROBE_BUDGET.with(|b| b.set(CLASS_PROBES_PER_READ));
-        if self.key == Some(key) && self.clock_ok() {
+        if self.key == Some(key) && self.clock_ok() && self.font_gen == crate::webfonts::generation() {
             return;
         }
+        self.layout_now(page, vw, vh, key);
+        // QFF1a: after the layout: its own rule publish (a first parse) does not make it stale.
+        self.font_gen = crate::webfonts::generation();
+    }
+
+    fn layout_now(&mut self, page: &Handle, vw: f32, vh: f32, key: (u64, u32, u32, (u64, u64))) {
+        let wgen = key.0;
         #[cfg(test)]
         GEOM_LAYOUTS.with(|c| c.set(c.get() + 1));
         // QANIMHLc: the last layout styled a running animation: this one is at the clock of the read
@@ -969,6 +993,10 @@ impl GeomCache {
             FONTS.with(|f| {
                 let mut f = f.borrow_mut();
                 let fs = f.get_or_insert_with(new_font_system);
+                // QFF1a: web faces came or went: the engine's kept shapes used other fonts.
+                if FONTS_SYNC.with(|s| crate::webfonts::sync(fs, &mut s.borrow_mut())) {
+                    crate::incr_style::drop_engines();
+                }
                 loop {
                     let mut incomplete = false;
                     let mut next_id = id_base;
@@ -1095,6 +1123,10 @@ impl GeomCache {
             FONTS.with(|f| {
                 let mut f = f.borrow_mut();
                 let fs = f.get_or_insert_with(new_font_system);
+                // QFF1a: web faces came or went: the engine's kept shapes used other fonts.
+                if FONTS_SYNC.with(|s| crate::webfonts::sync(fs, &mut s.borrow_mut())) {
+                    crate::incr_style::drop_engines();
+                }
                 let ok = crate::incr_engine::update(page, vw, vh, &css, &images, fs);
                 // QINC1n: one engine update in `ENGINE_CHECK_EVERY` is checked in daily use too.
                 let sampled = ok && crate::incr_evidence::sample();
