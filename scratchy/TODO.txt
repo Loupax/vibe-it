@@ -67,11 +67,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QWPTFLK1 [S] (P3, from QEL1 #510; Sonnet; wpt_th.rs virtual clock) dom/events/EventTarget-dispatchEvent.html ends
       with harness ERROR "Timeout while running cleanup" under load in the test child (main too: 3 of 24 parallel runs).
       Find which real-time behaviour leaks into the virtual clock's order, fix it, then remove the file from flaky.txt.
-- [ ] [WIP] QEL2 [M] (P1; Sonnet; js_dom.rs RO, geometry; after QEL1; supersedes archived QRO1) ResizeObserver
-      with real sizes (content/border/device-pixel boxes from the engine's layout), gathered and
-      delivered in the rendering step, depth loop and the "ResizeObserver loop completed with
-      undelivered notifications" error event. Gate: resize-observer score up, github.com card grids
-      no longer dropped (QINC1k5 finding).
 - [ ] QEL2b [M] (P2, from QEL2 #529; Sonnet; js_dom.rs RO, app.rs, event_loop.rs) Run ResizeObserver on the App/engine
       layout in rendering step 7 (one layout per frame shared by style, layout and RO) instead of a JS-side forced layout
       (`ro-run` forced layouts on YouTube results); microtask checkpoint after each RO callback; notice size changes

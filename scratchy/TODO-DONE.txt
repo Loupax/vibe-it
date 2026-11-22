@@ -9124,3 +9124,10 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       keys_tests/interaction_tests pass unchanged). Manual check: wheel and j/k on a long page look
       smooth, the window idles (no wakeups) once the scroll settles, and frame_stats shows no
       regression.
+
+=== from TODO.txt: --- (no header)
+- [x] QEL2 DONE 9a5e38e #529 [M] (P1; Sonnet; js_dom.rs RO, geometry; after QEL1; supersedes archived QRO1) ResizeObserver
+      with real sizes (content/border/device-pixel boxes from the engine's layout), gathered and
+      delivered in the rendering step, depth loop and the "ResizeObserver loop completed with
+      undelivered notifications" error event. Gate: resize-observer score up, github.com card grids
+      no longer dropped (QINC1k5 finding).
