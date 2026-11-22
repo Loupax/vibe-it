@@ -324,6 +324,13 @@ impl Driver<'_> {
         if !self.js.dispatch_event(focus.as_ref(), "keydown", &init) {
             return;
         }
+        // QWPT7c: the accesskey chord.
+        if let Some(k) = input_host::accesskey_chord(&key, physical, self.st.mods) {
+            let doc = self.doc.clone();
+            if input_host::accesskey_activate(self, &doc, &k) {
+                return;
+            }
+        }
         let tab = matches!(key, Key::Named(NamedKey::Tab));
         let text = focus.as_ref().filter(|h| !tab && crate::forms_text::text_control_kind(h).is_some() && !is_disabled_control(h)).cloned();
         if let Some(h) = text

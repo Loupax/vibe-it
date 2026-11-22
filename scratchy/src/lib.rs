@@ -141,6 +141,7 @@ mod js_ws;
 mod js_style;
 mod js_geom;
 mod ro_geom; // QEL2b: ResizeObserver boxes from the rendering update's layout
+mod svg_geom; // QWPT7c: boxes and hit testing of the elements inside an inline svg
 mod link_css;
 mod woff2; // QFF1b: WOFF 2.0 to sfnt (brotli-decompressor + glyf/hmtx transforms)
 mod webfonts; // QFF1a: @font-face web fonts

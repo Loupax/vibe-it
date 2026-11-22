@@ -554,7 +554,7 @@ impl GeomCache {
         self.refresh(page, wgen, vw, vh);
         // QWPT7: an inline element without a box of its own and without boxed descendants (a
         // `<span>` of text) gets the union of its glyphs, not its line's block.
-        let r = lookup_in(&self.rects, h).or_else(|| union_below_in(&self.rects, h)).or_else(|| self.glyph_union(h)).or_else(|| find_in(&self.rects, h));
+        let r = lookup_in(&self.rects, h).or_else(|| self.svg_child_rect(h)).or_else(|| union_below_in(&self.rects, h)).or_else(|| self.glyph_union(h)).or_else(|| find_in(&self.rects, h));
         let Some(r) = r else { return Vec::new() };
         vec![
             r.x as f64,
@@ -575,16 +575,16 @@ impl GeomCache {
     /// `vw` x `vh` and scrolled to (`sx`, `sy`); 0 when nothing is there. The same glyph-precise
     /// walk as the App's pointer (`paint::hit_test_element`) on the engine's kept laid tree (the
     /// tree this read just refreshed). Without one (the from-scratch fallback) the deepest
-    /// recorded element box containing the point answers. Element scroll offsets are not applied
-    /// (headless scrolling is script-only).
+    /// recorded element box containing the point answers. `scrolls` are the elements' script-side scroll offsets by node id (`layout::xk` keys for x).
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn hit(&mut self, page: &Handle, wgen: u64, x: f32, y: f32, vw: f32, vh: f32, sx: f32, sy: f32) -> usize {
+    pub(crate) fn hit(&mut self, page: &Handle, wgen: u64, x: f32, y: f32, vw: f32, vh: f32, sx: f32, sy: f32, scrolls: &HashMap<usize, f32>) -> usize {
         self.refresh(page, wgen, vw, vh);
         let (dx, dy) = (x + sx, y + sy);
         let engine = crate::incr_layout::with_laid(|l, cache| {
-            crate::paint::with_scroll_x(sx, || crate::paint::hit_test_element(l, dx, dy, cache, &HashMap::new(), sy, vh))
+            crate::paint::with_scroll_x(sx, || crate::paint::hit_test_element(l, dx, dy, cache, &regions_by_node(l, scrolls), sy, vh))
         });
         if let Some(n) = engine {
+            let n = crate::js_geom::refine_svg_hit(page, n, dx, dy, |id| crate::incr_layout::with_laid(|l, _| find_laid(l, id).map(laid_content_box)).flatten());
             return self.refine_inline(page, n, dx, dy);
         }
         let mut best: Option<(usize, usize)> = None; // (depth, node)
@@ -868,3 +868,78 @@ impl GeomCache {
 thread_local! { pub(crate) static TEST_FIXED_COST_MS: std::cell::Cell<Option<f64>> = const { std::cell::Cell::new(None) }; }
 #[cfg(test)]
 thread_local! { pub(crate) static TEST_NO_LAYOUT_LIMITS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+
+/// The content box (x, y, w, h) of a laid box, document space.
+fn laid_content_box(l: &Laid) -> (f32, f32, f32, f32) {
+    let (bl, bt) = (l.style.border_left() + l.style.padding.left.px(), l.style.border_top() + l.style.padding.top.px());
+    (l.x + bl, l.y + bt, (l.w - bl - (l.style.border_h() - l.style.border_left()) - l.style.padding.right.px()).max(0.0), (l.h - bt - (l.style.border_v() - l.style.border_top()) - l.style.padding.bottom.px()).max(0.0))
+}
+
+/// QWPT7c: when the hit `n` is an inline `<svg>` root, the SVG child under document point (`x`, `y`)
+/// (its id), else `n`. Shared by the App's pointer and `elementFromPoint`/the testdriver. `content_box`
+/// gives the root's content box by node id.
+pub(crate) fn refine_svg_hit(page: &Handle, n: usize, x: f32, y: f32, content_box: impl FnOnce(usize) -> Option<(f32, f32, f32, f32)>) -> usize {
+    if n == 0 {
+        return n;
+    }
+    let Some(h) = find_node_by_id(page, n) else { return n };
+    if !matches!(&h.data, NodeData::Element { name, .. } if name.local.as_ref().eq_ignore_ascii_case("svg")) {
+        return n;
+    }
+    let Some(cb) = content_box(n) else { return n };
+    crate::svg_geom::hit(&h, cb, x, y).map_or(n, |c| node_id(&c))
+}
+
+impl GeomCache {
+    /// QWPT7c: the box of an element below an inline `<svg>` root (which has the layout box).
+    fn svg_child_rect(&self, h: &Handle) -> Option<GeomRect> {
+        let mut root = None;
+        let mut cur = parent_handle(h);
+        while let Some(a) = cur {
+            if matches!(&a.data, NodeData::Element { name, .. } if name.local.as_ref().eq_ignore_ascii_case("svg")) && lookup_in(&self.rects, &a).is_some() {
+                root = Some(a.clone());
+                break;
+            }
+            cur = parent_handle(&a);
+        }
+        let root = root?;
+        let r = lookup_in(&self.rects, &root)?;
+        let (x, y, w, hh) = crate::svg_geom::element_rect(&root, (r.x, r.y, r.w, r.h), h)?;
+        Some(GeomRect { x, y, w, h: hh, fixed: r.fixed, ink_r: x + w, ink_b: y + hh })
+    }
+}
+
+/// The content box of the laid box of node `id` in `root` (the App's pointer path).
+pub(crate) fn laid_box_of(root: &Laid, id: usize) -> Option<(f32, f32, f32, f32)> {
+    find_laid(root, id).map(laid_content_box)
+}
+
+/// QWPT7c: the scroll regions of `root` keyed the way `hit_test_element` reads them (`ScrollInfo::id`,
+/// `layout::xk` for x) from offsets keyed by DOM node id (what script's `scrollTop` keeps).
+fn regions_by_node(root: &Laid, by_node: &HashMap<usize, f32>) -> HashMap<usize, f32> {
+    let mut out = HashMap::new();
+    if by_node.is_empty() {
+        return out;
+    }
+    let mut stack = vec![root];
+    while let Some(l) = stack.pop() {
+        if let Some(info) = &l.scroll {
+            if let Some(y) = by_node.get(&info.node) {
+                out.insert(info.id, *y);
+            }
+            if let Some(x) = by_node.get(&crate::layout::xk(info.node)) {
+                out.insert(crate::layout::xk(info.id), *x);
+            }
+        }
+        match &l.content {
+            LaidContent::Blocks(c) | LaidContent::TableRow(c) => stack.extend(c.iter()),
+            LaidContent::MixedInline(items) => stack.extend(items.iter().filter_map(|i| match i {
+                MixedPositioned::Embedded(b) => Some(&**b),
+                _ => None,
+            })),
+            _ => {}
+        }
+        stack.extend(l.positioned.iter());
+    }
+    out
+}

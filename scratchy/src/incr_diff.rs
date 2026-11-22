@@ -156,6 +156,8 @@ pub(crate) fn style_walk(old: &ComputedStyle, new: &ComputedStyle, f: &mut Field
         icb_height => L,
         first_line => L,
         cursor => P,
+        // QWPT7c: read by hit testing on the laid tree, like cursor.
+        pointer_events_none => P,
         flex_direction => L,
         flex_wrap => L,
         justify_content => L,

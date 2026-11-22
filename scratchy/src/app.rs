@@ -3601,12 +3601,14 @@ impl App {
             return 0;
         }
         match &self.cached {
-            Some(laid) => crate::paint::with_scroll_x(self.scroll_x, || {
-                hit_test_element(
-                    laid, pos.0 + self.scroll_x, pos.1 + self.scroll_offset, &self.shape_cache, &self.scroll_offsets,
-                    self.scroll_offset, self.page_size().1 as f32,
-                )
-            }),
+            Some(laid) => {
+                let (dx, dy) = (pos.0 + self.scroll_x, pos.1 + self.scroll_offset);
+                let n = crate::paint::with_scroll_x(self.scroll_x, || {
+                    hit_test_element(laid, dx, dy, &self.shape_cache, &self.scroll_offsets, self.scroll_offset, self.page_size().1 as f32)
+                });
+                // QWPT7c: an inline svg's child under the pointer (the same refinement as elementFromPoint).
+                crate::js_geom::refine_svg_hit(&self.document, n, dx, dy, |id| crate::js_geom::laid_box_of(laid, id))
+            }
             None => 0,
         }
     }
@@ -4531,6 +4533,18 @@ impl App {
                 self.js_key_codes("keyup", key, physical, repeat);
             }
             return;
+        }
+        // QWPT7c: Alt+Shift+key activates the element with that `accesskey` (either mode).
+        if !repeat
+            && let Some(k) = crate::input_host::accesskey_chord(key, physical, self.modifiers)
+        {
+            let doc = self.document.clone();
+            if crate::input_host::accesskey_activate(self, &doc, &k) {
+                if let Some(w) = &self.window {
+                    w.request_redraw();
+                }
+                return;
+            }
         }
         if self.key_mode == KeyMode::Normal {
             self.handle_normal_key(key, repeat);

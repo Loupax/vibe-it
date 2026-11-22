@@ -147,6 +147,9 @@ pub(crate) fn pointer_init(
         ("clientY", EventField::Num(f64::from(pos.1))),
         ("screenX", EventField::Num(f64::from(pos.0))),
         ("screenY", EventField::Num(f64::from(pos.1))),
+        // QWPT7c: a pointing-device event: offsetX/Y are relative to its target.
+        // A keyboard-generated click (accesskey, Enter) is sent at (0, 0): no position, offsetX/Y stay 0.
+        ("positioned", EventField::Bool(pos != (0.0, 0.0))),
         ("pageX", EventField::Num(f64::from(pos.0 + page.0))),
         ("pageY", EventField::Num(f64::from(pos.1 + page.1))),
         ("buttons", EventField::Num(buttons)),
@@ -216,5 +219,81 @@ pub(crate) fn focus_events<H: InputHost + ?Sized>(host: &mut H, old: Option<&Han
     if let Some(h) = new {
         host.ih_dispatch(Some(h), "focus", &init(false, old));
         host.ih_dispatch(Some(h), "focusin", &init(true, old));
+    }
+}
+
+/// QWPT7c: the first element (document order) whose `accesskey` lists `key` (one character,
+/// compared ignoring case) and that can be activated: not a disabled control, not `hidden`.
+pub(crate) fn accesskey_target(document: &Handle, key: &str) -> Option<Handle> {
+    let mut chars = key.chars();
+    let (Some(want), None) = (chars.next(), chars.next()) else { return None };
+    let want = want.to_lowercase().to_string();
+    let mut stack = vec![document.clone()];
+    while let Some(n) = stack.pop() {
+        if matches!(n.data, NodeData::Element { .. })
+            && element_attr(&n, "accesskey").is_some_and(|v| v.split_whitespace().any(|t| t.to_lowercase() == want))
+            && !is_disabled_control(&n)
+            && element_attr(&n, "hidden").is_none()
+        {
+            return Some(n);
+        }
+        stack.extend(n.children.borrow().iter().rev().cloned());
+    }
+    None
+}
+
+/// QWPT7c: accesskey activation (the key combination is the caller's: Alt+Shift+key, see KEYS.md).
+/// Per the HTML spec: an element with activation behaviour (button, link, checkbox, radio, label,
+/// summary, ...) gets a synthetic click (no pointer or mouse events; client coordinates 0), after
+/// taking focus when focusable; a text field, textarea or select only takes focus; any other
+/// element is focused when it can be. Returns whether an element was found.
+pub(crate) fn accesskey_activate<H: InputHost + ?Sized>(host: &mut H, document: &Handle, key: &str) -> bool {
+    let Some(el) = accesskey_target(document, key) else { return false };
+    let tag = element_tag(&el);
+    let ty = element_attr(&el, "type").map(|t| t.trim().to_ascii_lowercase()).unwrap_or_default();
+    let text_like = tag == "textarea" || tag == "select" || (tag == "input" && !matches!(ty.as_str(), "button" | "submit" | "reset" | "image" | "checkbox" | "radio" | "file" | "color" | "range"));
+    let activatable = !text_like
+        && (matches!(tag, "button" | "label" | "summary" | "input") || (matches!(tag, "a" | "area") && element_attr(&el, "href").is_some()));
+    if tag == "label" {
+        // The label's click, then the forwarded click on its control.
+        host.ih_click(Some(&el), (0.0, 0.0));
+        if let Some(c) = label_control(document, &el)
+            && !is_disabled_control(&c)
+        {
+            host.ih_set_focus(Some(&c), click_focus_is_visible(&c));
+            click_activate(host, Some(&c), (0.0, 0.0));
+        }
+        return true;
+    }
+    if is_focusable(&el) {
+        host.ih_set_focus(Some(&el), true);
+    }
+    if activatable {
+        click_activate(host, Some(&el), (0.0, 0.0));
+    }
+    true
+}
+
+/// QWPT7c: the accesskey character of a key press when the chord is held: Alt+Shift+key (Ctrl and
+/// Super not held). This is the Firefox convention on Linux and Windows (Chrome uses Alt alone);
+/// plain Alt is left to the window manager and menu mnemonics, and Alt+Shift keeps scratchy's vim
+/// keys (which never use that chord) working. The key comes from the physical code when it is a
+/// letter or digit (Shift changes the logical character), else from the logical character.
+pub(crate) fn accesskey_chord(key: &Key, physical: Option<PhysicalKey>, m: ModifiersState) -> Option<String> {
+    if !(m.alt_key() && m.shift_key()) || m.control_key() || m.super_key() {
+        return None;
+    }
+    if let Some(PhysicalKey::Code(c)) = physical {
+        let s = format!("{c:?}");
+        if let Some(l) = s.strip_prefix("Key").filter(|l| l.len() == 1) {
+            return Some(l.to_lowercase());
+        }
+        if let Some(d) = s.strip_prefix("Digit").filter(|d| d.len() == 1) {
+            return Some(d.to_string());
+        }
+    }
+    match key {
+        Key::Character(s) if s.chars().count() == 1 => Some(s.to_lowercase()),
+        _ => None,
     }
 }

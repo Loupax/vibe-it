@@ -1384,9 +1384,13 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     // QWPT7: hit testing on the real layout (elementFromPoint, the testdriver's pointer): the table id
     // of the element under viewport point (x, y) at scroll (sx, sy), -1 when there is none.
     let (t_hit, geom_hit) = (table.clone(), geom.clone());
-    native!(ctx, "__d_hit", move |x: f64, y: f64, vw: f64, vh: f64, sx: f64, sy: f64| -> i32 {
+    native!(ctx, "__d_hit", move |x: f64, y: f64, vw: f64, vh: f64, offs: Vec<f64>| -> i32 {
         let Some(page) = t_hit.borrow().get(0) else { return -1 };
-        let n = geom_hit.borrow_mut().hit(&page, geom_gen(), x as f32, y as f32, vw as f32, vh as f32, sx as f32, sy as f32);
+        // QWPT7c: `offs` = [window scrollX, scrollY, then the elements' script-side scroll offsets as
+        // (node id, offset, axis (1 = x)) triples].
+        let (sx, sy) = (offs.first().copied().unwrap_or(0.0), offs.get(1).copied().unwrap_or(0.0));
+        let scrolls: HashMap<usize, f32> = offs.iter().skip(2).copied().collect::<Vec<_>>().chunks_exact(3).map(|c| (if c[2] != 0.0 { crate::layout::xk(c[0] as usize) } else { c[0] as usize }, c[1] as f32)).collect();
+        let n = geom_hit.borrow_mut().hit(&page, geom_gen(), x as f32, y as f32, vw as f32, vh as f32, sx as f32, sy as f32, &scrolls);
         match (n != 0).then(|| find_node_by_id(&page, n)).flatten() {
             Some(h) => t_hit.borrow_mut().intern(&h),
             None => -1,
@@ -3837,6 +3841,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (init && init.relatedTargetId !== undefined) init.relatedTarget = wrap(init.relatedTargetId);
     if (g.__media_activate && (type === 'click' || type === 'keydown' || type === 'mousedown' || type === 'mouseup' || type === 'keyup')) g.__media_activate();
     var ev = new C(type, init);
+    if (init && init.positioned) Object.defineProperty(ev, '__pos', { value: true });
     __scratchy_trust(ev);
     __scratchy_ua(ev);
     var ok = __scratchy_dispatch(t, ev);
@@ -4359,7 +4364,10 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     x = Number(x); y = Number(y);
     var vw = Number(g.innerWidth) || 0, vh = Number(g.innerHeight) || 0;
     if (!(x >= 0 && y >= 0 && x <= vw && y <= vh)) return undefined;
-    var id = __d_hit(x, y, vw, vh, Number(g.scrollX) || 0, Number(g.scrollY) || 0);
+    var offs = [Number(g.scrollX) || 0, Number(g.scrollY) || 0];
+    gElScroll.forEach(function (v, k) { offs.push(k, v, 0); });
+    gElScrollX.forEach(function (v, k) { offs.push(k, v, 1); });
+    var id = __d_hit(x, y, vw, vh, offs);
     return id >= 0 ? wrap(id) : null;
   };
   Object.defineProperty(g, '__scratchy_hit', { value: function (x, y) { var h = hitAt(x, y); return h ? h.__id : -1; } });

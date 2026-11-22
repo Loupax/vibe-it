@@ -2813,6 +2813,9 @@ fn hit_test_inner_body(
     if !laid.ink.contains(x, y) && !laid.positioned.iter().any(|p| p.fixed) {
         return None;
     }
+    // QWPT7c: `pointer-events: none` (inherited): the box and its text/image never are the target; a
+    // descendant that sets `pointer-events: auto` still is (it is walked below with its own style).
+    let pe_none = laid.style.pointer_events_none;
     let inside = x >= laid.x && x < laid.x + laid.w && y >= laid.y && y < laid.y + laid.h;
     let own = (laid.style.cursor, None, laid.style.node);
     // Same `is_explicit_stacking_child` pull-out `paint` uses, merged
@@ -2899,10 +2902,10 @@ fn hit_test_inner_body(
                     return Some(hit_test_fb(r, laid.style.node));
                 }
             }
-            inside.then_some(own)
+            (inside && !pe_none).then_some(own)
         }
         LaidContent::Text(id) => {
-            if !inside {
+            if !inside || pe_none {
                 return None;
             }
             if let Some(entry) = cache.get(id) {
@@ -2938,7 +2941,7 @@ fn hit_test_inner_body(
         // own box — see `SpanStyle::href`'s own docs; a deliberate,
         // narrow scope cut, same spirit as other "images don't carry
         // the per-span machinery text does" gaps already in TODO.txt.)
-        LaidContent::Image(_) => inside.then_some(own),
+        LaidContent::Image(_) => (inside && !pe_none).then_some(own),
         LaidContent::MixedInline(positioned) => {
             for item in positioned {
                 match item {
@@ -2948,7 +2951,7 @@ fn hit_test_inner_body(
                         }
                     }
                     MixedPositioned::Word { id, x: wx, y: wy, w, h } => {
-                        if x < *wx || x >= *wx + *w || y < *wy || y >= *wy + *h {
+                        if pe_none || x < *wx || x >= *wx + *w || y < *wy || y >= *wy + *h {
                             continue;
                         }
                         if let Some(entry) = cache.get(id) {
@@ -2975,7 +2978,7 @@ fn hit_test_inner_body(
                     }
                 }
             }
-            inside.then_some(own)
+            (inside && !pe_none).then_some(own)
         }
     }
 }
