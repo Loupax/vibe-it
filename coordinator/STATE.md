@@ -319,3 +319,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 MAIN CI RED after #592 (per-global.window.html 3/8 OK -> ERROR; #592's last CI predated its final rebase). Opened #596 revert of #592; filed QDOM5c to re-land with the initial window kept. #595 QFF1a CI failed on the same file (not its fault): retry after #596.
 - 2026-11-22 Merged #596 revert of #592 (76b8004) and #595 QFF1a (a61dba8). Main CI should be green again.
 - 2026-11-22 #597 QINC1m READY (old pipeline deleted, -2656 prod lines, check mode 0 mismatches, 10-min YouTube 0 fallbacks), merging. QHOV1 reworded (hover_patch.rs gone). Filed QYTS1. Launched QDOM5c.
+- 2026-11-22 #597 QINC1m merge: rebase CONFLICT in js_geom.rs (with #595 web fonts). Rebase to the QINC1m agent in the next free slot (3 running: QCSS-C, QFF1b, QDOM5c).
