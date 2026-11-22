@@ -3026,7 +3026,6 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   // so focus and selection (native state keyed by node) stay. The reactions the spec keeps are done here:
   // NodeIterator pre-remove steps, live range updates, one MutationObserver record pair, and per custom
   // element `connectedMoveCallback` (else disconnected + connected).
-  var rangeReplace = null; // set by the Range block: (parent, old, node, run) live-range fix-ups of replaceChild in spec order
   var rangeMove = null; // set by the Range block: (node, oldParent, oldIndex) removal fix, then insertion fix
   var moveBefore = function (self, node, child) {
     if (!node || node.__id === undefined) throw new TypeError("Failed to execute 'moveBefore' on 'Node': parameter 1 is not of type 'Node'.");
@@ -6302,28 +6301,9 @@ pub(crate) const DOM_PRELUDE: &str = r#"
         if (s.ec === par && s.eo > index) s.eo += count;
       });
     };
-    var rngOff = false;
-    // replaceChild runs insert-then-remove natively; the spec removes `old` first (n leaves its old parent, then old goes,
-    // then n enters at old's index). Fix up in that order and keep the natives' own fix-ups off while `run` does the work.
-    rangeReplace = function (parent, old, n, run) {
-      if (!liveL().length || rngOff) return run();
-      var frag = n.nodeType === 11, kids = frag ? __d_children(n.__id, false) : [n.__id], pid = parent.__id;
-      var snap = liveRanges().map(function (x) { return [x, x.sc, x.so, x.ec, x.eo]; });
-      var sib = __d_children(pid, false), oi = sib.indexOf(old.__id);
-      if (!frag && n.parentNode === parent && sib.indexOf(n.__id) < oi) oi--;
-      kids.forEach(function (k) { fixRemove(k, frag ? 0 : -1); });
-      fixRemove(old.__id, oi);
-      rngOff = true;
-      try { run(); } catch (e) {
-        // A failed replace (HierarchyRequestError ...) changed nothing: put the boundary points back.
-        snap.forEach(function (x) { x[0].sc = x[1]; x[0].so = x[2]; x[0].ec = x[3]; x[0].eo = x[4]; });
-        throw e;
-      } finally { rngOff = false; }
-      fixInsert(parent, oi, kids.length);
-    };
     var oIns = __d_insert, oRem = __d_remove, oTxt = __d_settext, oHtml = __d_sethtml;
     __d_insert = function (p, c, b) {
-      if (rngOff || !liveL().length) return oIns(p, c, b);
+      if (!liveL().length) return oIns(p, c, b);
       var pw = wrap(p), cw = wrap(c);
       if (c === p || cw.contains(pw)) return oIns(p, c, b);
       var frag = __d_kind(c) === 11, kids = frag ? __d_children(c, false) : [c];
@@ -6333,7 +6313,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       return ok;
     };
     __d_remove = function (id) {
-      if (!rngOff && liveL().length) fixRemove(id, -1);
+      if (liveL().length) fixRemove(id, -1);
       return oRem(id);
     };
     var fixAll = function (id) {
