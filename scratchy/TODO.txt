@@ -185,7 +185,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       post-connection steps (script prepare/run, iframe load) run in tree order AFTER the whole insertion, per DOM
       "insert" + HTML "post-connection steps". WPT dom/nodes/insertion-removing-steps/*, Node-appendChild-script-and-
       iframe (its "append() with multiple arguments" subtest stops passing in #549 because #549 makes append atomic).
-- [ ] QDOM17 [S] (P2; Sonnet; js_dom.rs `makeDoc`, `__d_tag`, `doc.createElement`; R65; after QDOM8) Document
+- [ ] [WIP] QDOM17 [S] (P2; Sonnet; js_dom.rs `makeDoc`, `__d_tag`, `doc.createElement`; R65; after QDOM8) Document
       flavours: a per-document "HTML document" flag (true for the page and createHTMLDocument, false for createDocument,
       new Document(), XML parses). `createElement` lowercases only in HTML documents (XHTML namespace for
       application/xhtml+xml, null otherwise); `tagName`/`nodeName` upper-case only for HTML-namespace elements in HTML
