@@ -3275,6 +3275,37 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
     v = Number(v);
     if (isFinite(v) && v > 0) g.__cv_set_num(c, 1, v);
   });
+  defs(CtxProto, 'lineCap', function () { return ['butt', 'round', 'square'][g.__cv_get_ls(cv(this), 0)]; }, function (v) {
+    var c = cv(this), i = ['butt', 'round', 'square'].indexOf(String(v));
+    if (i >= 0) g.__cv_set_ls(c, 0, i);
+  });
+  defs(CtxProto, 'lineJoin', function () { return ['miter', 'round', 'bevel'][g.__cv_get_ls(cv(this), 1)]; }, function (v) {
+    var c = cv(this), i = ['miter', 'round', 'bevel'].indexOf(String(v));
+    if (i >= 0) g.__cv_set_ls(c, 1, i);
+  });
+  defs(CtxProto, 'miterLimit', function () { return g.__cv_get_ls(cv(this), 2); }, function (v) {
+    var c = cv(this);
+    v = Number(v);
+    if (isFinite(v) && v > 0) g.__cv_set_ls(c, 2, v);
+  });
+  defs(CtxProto, 'lineDashOffset', function () { return g.__cv_get_ls(cv(this), 3); }, function (v) {
+    var c = cv(this);
+    v = Number(v);
+    if (isFinite(v)) g.__cv_set_ls(c, 3, v);
+  });
+  meth('setLineDash', function (list) {
+    var c = cv(this);
+    if (arguments.length < 1) throw new TypeError("Failed to execute 'setLineDash' on 'CanvasRenderingContext2D': 1 argument required, but only 0 present.");
+    if (list === null || (typeof list !== 'object' && typeof list !== 'function') || typeof list[Symbol.iterator] !== 'function') throw new TypeError("Failed to execute 'setLineDash' on 'CanvasRenderingContext2D': The provided value cannot be converted to a sequence.");
+    var a = Array.from(list, Number);
+    for (var i = 0; i < a.length; i++) if (!isFinite(a[i]) || a[i] < 0) return;
+    if (a.length % 2) a = a.concat(a);
+    g.__cv_set_dash(c, a.join(','));
+  });
+  meth('getLineDash', function () {
+    var s = g.__cv_get_dash(cv(this));
+    return s === '' ? [] : s.split(',').map(Number);
+  });
   var finite = function (name, vals) {
     for (var i = 0; i < vals.length; i++) if (!isFinite(vals[i])) throw new TypeError("Failed to execute '" + name + "' on 'CanvasRenderingContext2D': The provided double value is non-finite.");
   };
