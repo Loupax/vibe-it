@@ -180,7 +180,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] [WIP] QCNV7 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Sonnet; in order after the items above) arc, arcTo, ellipse, bezier/quadratic curves, roundRect. 174
       files.
-- [ ] QCNV8 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+- [ ] [WIP] QCNV8 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Sonnet; in order after the items above) Line caps/joins/miter limit, dashes. 91 files.
 - [ ] [WIP] QGEOM1 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Sonnet; in order after the items above) DOMMatrix/DOMPoint/DOMRect (platform, not canvas). 50 files.

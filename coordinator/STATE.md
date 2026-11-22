@@ -392,3 +392,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #625 QEL7b READY (iframe scroll/MQL, y clamp, smooth behavior), merging. Filed QEL7c. Launched QHOV2.
 - 2026-11-22 Merged #625 QEL7b 0e792e6. Reinstalling.
 - 2026-11-22 Reinstalled ~/.cargo/bin/scratchy from main 1b48efd (canvas transforms/paths, iframe unload, smooth scroll, pointer-events).
+- 2026-11-23 #629 QCNV7 READY (curves; element 46.2, offscreen 51.8, TOTAL 45.5), merging. Launched QCNV8.
