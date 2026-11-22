@@ -9289,3 +9289,9 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       `document.doctype` on the page document (the page's DocumentType node). WPT: nodes/ChildNode-after,
       ChildNode-before, ChildNode-replaceWith, DocumentType-remove, Document-doctype, ParentNode-replaceChildren,
       remove-unscopable. Target: nodes +1.2.
+
+=== from TODO.txt: --- (no header)
+- [x] QAPI2 DONE 0e8eca3 #570 [S] (P2, from QMAPI3 R66; Sonnet; js.rs navigator) Navigator members pages probe (5 of 12 pages): `webdriver`
+      false, `deviceMemory` 8, `connection` (NetworkInformation stub: effectiveType '4g', downlink, rtt, saveData,
+      addEventListener), `plugins`/`mimeTypes` empty arrays, `userAgentData` (brands from the UA string, mobile false,
+      platform 'Linux', `getHighEntropyValues` resolving the low-entropy fields).
