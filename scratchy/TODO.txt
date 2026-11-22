@@ -122,13 +122,17 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       nested-dwl grims before/after. Pages: 88 faces on 6 of 9 surveyed pages (BBC
       35, Guardian 30, YouTube 11, GitHub 6, DDG 6); 1 023 no-script WPT reftests.
       User approved 2026-11-22 (DECISIONS.md): un-archived; web fonts are rendered.
-- [ ] QFF1b [M] (P2, un-archived 2026-11-22, after QFF1a; Opus) woff2: needs Brotli plus the glyf/loca transform
+- [ ] [WIP] QFF1b [M] (P2, un-archived 2026-11-22, after QFF1a; Opus) woff2: needs Brotli plus the glyf/loca transform
       reconstruction. Pick a pure-Rust crate (check what exists and its size/licence
       first; do not vendor), or skip woff2 faces whose `src` list has no other format
       (most real pages list woff2 first and woff/ttf after it only sometimes: BBC and
       GitHub ship woff2 only). Test: ic-unit-003 (woff2) and a woff2 copy of Ahem.
       Unblocks the 298 css/WOFF2 reftests (record how many run).
       User approved 2026-11-22 (DECISIONS.md): un-archived; web fonts are rendered.
+- [ ] QFF1c [S] (P3, from QFF1a #595; Sonnet; webfonts.rs) Use every loaded unicode-range subset of a family: fall back
+      within the family (e.g. a latin-ext subset) before system fonts; today one face per weight/style is used.
+- [ ] QFF1d [S] (P3, from QFF1a #595; Sonnet) Stylesheet @font-face loads in `--wpt-th-one` (no App there: only script
+      FontFace faces load today); `size-adjust` / `ascent-override` / `descent-override` / `line-gap-override`.
 - [ ] QAPI4b [S] (P3, from QAPI4 #571; Sonnet; fonts_prelude.js) FontFaceSet `check()`/`load()` match faces by weight,
       style and unicode-range (today: family only). After QFF1a: FontFace/FontFaceSet use the real loaded faces
       (`FontFace.load()` loads into the font systems instead of dropping the bytes).

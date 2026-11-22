@@ -315,3 +315,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Merged #594 a83a37f (wire TODO W-CACHE1/2); added the user's eviction-check note to W-CACHE1.
 - 2026-11-22 #592 QDOM5b READY again (async iframe load, 0 fetches on ytr/ytw/github, perf noise; 3 files to flaky.txt with reasons), merging. Launched QCSS-C (Sonnet). Agents: QFF1a, QINC1m, QCSS-C.
 - 2026-11-22 Merged #592 QDOM5b f544697.
+- 2026-11-22 #595 QFF1a READY (web fonts ttf/otf/woff; Guardian renders its faces; +1 reftest), merging. Filed QFF1c, QFF1d. Launched QFF1b (woff2). Agents: QINC1m, QCSS-C, QFF1b.
