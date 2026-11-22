@@ -1030,3 +1030,4 @@ fn q30e_log(app: &App) -> String {
 // ---------- QAN1d0: prefers-reduced-motion defaults to reduce ----------
 
 static MOTION_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+mod qapi8_tests;

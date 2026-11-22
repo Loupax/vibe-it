@@ -203,6 +203,87 @@ Proposed TODO.txt items (verbatim, for the coordinator to file):
 
 Sizes: 7 S, 1 M, 1 P3 follow-up; QCSS2 (existing) covers gap 1 and QMSG1b (existing) names BroadcastChannel.
 
+### 4. QAPI8: audit of the css `declaration` rows (Sonnet, 2026-11-22)
+
+Code change first (src/missing_api.rs `declaration_is_handled`, hook in css.rs `DeclParser::parse_value`): the report no
+longer names a declaration that is a custom property, a `transition*`/`animation*` family (parsed by transition.rs /
+animation.rs; they already landed in `Declarations`, the filter is a safeguard), or whose value equals the initial value
+that `Declarations` stores as unset (`auto` for width/height/min-*/top/right/bottom/left/z-index, `none` for max-*,
+`none`/`medium none` for outline). Tests: src/tests/qapi8_tests.rs. A probe over the R66 suspects before the change showed
+that only `height|width|left|right|min-height: auto` and `outline: none` were false positives; `transition` already
+parses into `Declarations::trans` (the R66 `transition` row came from values such as `transition: top .5s` that were
+reported by the older binary). The report code is a branch on report mode only and touches no shared path, so no full
+`--wpt-th` run.
+
+Re-run: scratchy at 52d9d20176 (this branch), same 12 sites, own wire (`--no-cookies`), own state dir, 30 s per page,
+07:48-07:54 on 2026-11-22. Live pages: counts moved a little since R66 (YouTube css entries 222 -> 210). "Sites" counts
+the pages that answered (reddit, nyt and so give little or nothing, see section 1); hits include inline `style=`
+re-parses. "Unparsed" was verified by feeding the value to `parse_stylesheet` (the declaration leaves `Declarations`
+untouched); "visible" is a judgement from the code, not a screenshot.
+
+| property | really unparsed? | sites | hits | visible in rendering? |
+|---|---|---|---|---|
+| `fill` | yes (the property; only `object-fit: fill` exists). Inline `<svg>` is serialized standalone with `currentColor` substituted, so stylesheet `fill`/`stroke` never reach it | 8 | 1427 | yes: icons whose colour comes from CSS render in the SVG default (black) |
+| `aspect-ratio` | yes (only the media feature exists) | 8 | 333 | yes: boxes sized by ratio (thumbnails, embeds) get the wrong height |
+| `place-items` | yes | 8 | 24 | yes for grid/flex centring |
+| `letter-spacing` | yes (also with `inherit`: no CSS-wide handling for unknown properties) | 7 | 1601 | yes, slightly: text width and wrapping |
+| `justify-content` | partly: new keywords (`end`, `start`) fail | 7 | 121 | yes: flex row alignment |
+| `transform-origin` | yes | 7 | 90 | yes for rotate/scale |
+| `pointer-events` | yes (no hit-test flag) | 6 | 1543 | rarely in pixels; clicks hit overlays that should be click-through |
+| `stroke`, `stroke-width`, `stroke-linecap` | yes (as `fill`) | 6/5/5 | 384/38/9 | yes, SVG line icons |
+| `filter` | yes | 6 | 378 | yes: blur/drop-shadow/greyscale ignored |
+| `touch-action` | yes | 6 | 256 | no (no touch input) |
+| `text-shadow` | yes | 6 | 181 | yes, small (text over images) |
+| `outline-offset` | yes (`outline-width/color` exist) | 6 | 176 | yes, focus rings sit on the border |
+| `user-select`, `-webkit-user-select`, `-moz-user-select` | yes | 6/5/4 | 123/121/88 | no, until text selection of page chrome matters |
+| `border-spacing` | yes | 6 | 91 | yes: table cell gaps (Wikipedia infoboxes) |
+| `align-items` | partly: `first baseline`, `start`, `end` | 6 | 81 | yes, alignment |
+| `border-{top,bottom}-{left,right}-radius` | yes (only the `border-radius` shorthand) | 6/6/5/5 | 76, 74, 174, 80 | yes: per-corner rounding lost |
+| `direction` | yes | 6 | 67 | only on rtl pages |
+| `clip` | yes | 6 | 61 | no in practice (`rect(0,0,0,0)` visually-hidden idiom) |
+| `color-scheme` | yes | 6 | 25 | yes in dark pages: form controls, scrollbars, canvas |
+| `clip-path` | yes | 5 | 1113 | mostly no (`inset(50%)` visually-hidden idiom); yes for shaped avatars |
+| `backdrop-filter` | yes | 5 | 583 | yes: frosted bars become see-through |
+| `height`/`max-height` | only intrinsic keywords (`-webkit-fit-content`) | 5/4 | 215/69 | rarely |
+| `background-color: Highlight`, `background: Canvas` | system colour keywords | 5/4 | 94/48 | small |
+| `grid-auto-flow`, `grid-template-columns: auto -webkit-min-content`, `grid-gap`, `justify-self` | yes / prefixed values | 5/5/4/5 | 78/48/118/34 | yes in grids |
+| `-webkit-line-clamp` + `-webkit-box-orient` | yes | 4 | 1301 / 5874 | yes: clamped titles overflow |
+| `text-wrap`, `scrollbar-width`, `overscroll-behavior`, `scroll-margin-top`, `mix-blend-mode`, `mask-image`, `background-clip`, `inset-inline-start`, `vertical-align: -10%` | yes | 4-5 | 15-138 | `mix-blend-mode`, `mask-image`, `inset-inline-start`, `background-clip` yes; rest minor |
+| `display: -ms-flex` and other `-ms-`/`-o-` legacy values | invalid on purpose | 6 | 9061 | no |
+
+Verdict: none of the ten named properties was a false positive; all ten are really unparsed (`place-items`,
+`letter-spacing`, `clip-path`, `backdrop-filter`, `touch-action`, `user-select`, `text-shadow`, `filter`, `color-scheme`,
+`border-spacing`). `fill`/`stroke`, `aspect-ratio`, new `justify-content`/`align-items` keywords, `transform-origin`,
+`pointer-events`, `outline-offset`, the per-corner radii and `-webkit-line-clamp` are further real gaps that rank above
+several of the ten.
+
+Proposed S items (verbatim for the coordinator; not in TODO.txt):
+
+```
+- [ ] QCSS-A [S] (P2; Sonnet; css.rs, images.rs) SVG paint properties from CSS: `fill`, `stroke`, `stroke-width`,
+      `stroke-linecap`/`-linejoin`, `fill-opacity` as inherited properties applied to inline `<svg>`
+      (serialize_inline_svg passes the computed values onto the shapes). 8 of 9 sites, ~1 900 hits; icons render black.
+- [ ] QCSS-B [S] (P2; Sonnet; css.rs, layout.rs) `aspect-ratio` (`<number> [/ <number>]`, `auto`) for block and
+      flex/grid items with one definite dimension; replaced elements use it as fallback. 8 sites, 333 hits.
+- [ ] QCSS-C [S] (P2; Sonnet; css.rs, layout.rs) Box alignment: `place-items`/`place-content`/`place-self`, the
+      `start`/`end`/`self-start`/`self-end`/`first baseline`/`last baseline`/`safe`/`unsafe` keywords for justify-content,
+      align-items/-self/-content, justify-self/-items; `grid-auto-flow`, `grid-gap` alias. 8 sites.
+- [ ] QCSS-D [S] (P2; Sonnet; css.rs, paint.rs) Visual effects: `filter` (blur, brightness, grayscale, drop-shadow),
+      `backdrop-filter`, `text-shadow`, `mix-blend-mode`, `clip-path: inset()/circle()/polygon()`. 5-6 sites each,
+      ~2 800 hits together. Start with text-shadow and clip-path inset; measure paint cost under the perf lock.
+- [ ] QCSS-E [S] (P2; Sonnet; css.rs, paint.rs) Longhands and small box properties: the four `border-*-*-radius`,
+      `outline-offset`, `transform-origin`, `border-spacing`, `letter-spacing` (with CSS-wide keywords), `direction`
+      (parse + rtl base direction only).
+- [ ] QCSS-F [S] (P3; Sonnet; css.rs, hit-test) `pointer-events` (none/auto, inherited) in hit testing; `user-select`
+      (+ `-webkit-`/`-moz-`) and `touch-action` parsed and stored (no effect until selection exists). 6 sites each.
+- [ ] QCSS-G [S] (P3; Sonnet; css.rs) `color-scheme` (`only dark`/`dark` switch UA form-control, scrollbar and canvas
+      colours; `meta name=color-scheme`), `scrollbar-width`, `overscroll-behavior`, `scroll-margin-*`.
+- [ ] QCSS-H [S] (P3; Sonnet; css.rs, layout.rs) `-webkit-line-clamp` + `-webkit-box-orient` (7 000 hits),
+      `text-wrap: balance|pretty|nowrap`, `-webkit-fit-content`/`min-content` for height, system colour keywords
+      (Highlight, Canvas) in background.
+```
+
+
 ## R65: QAREA-DOM: the dom/* testharness failures of the QWPT6 baseline, grouped by root cause. Nineteen causes explain most of the gap; each is one missing method family or one wrong rule, and each becomes one fix item (QDOM1-QDOM19, 16 S + 3 M). Three things weigh more than any single DOM gap: 94 of the 194 dom/events entries load testdriver.js (score 1.4 %, wait for QWPT7); 16 of the 41 dom/ranges files are the tentative OpaqueRange API; and the core Range/traversal suites are not in the subset at all (timeout=long), and today they could not run anyway because dom/common.js needs `createCDATASection`. If every proposed item lands, the projected scores are about: nodes 42.4 -> ~65-70, events 23.0 -> ~37-41, ranges 17.1 -> ~33-38, other 55.2 -> ~80-85 (Opus, 2026-11-21, investigation, docs only) — OPEN: proposed QDOM1-QDOM19 (section 4), QWPT6b/QWPT6c (section 6)
 
 ### 1. How this was measured

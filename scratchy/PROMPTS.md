@@ -9123,3 +9123,9 @@ Eased viewport scroll (user design #532, D1-D8): `App::scroll_target`, `scroll_a
 > QEL7 [S] (P2; Sonnet; app.rs, js.rs; after QEL1) scroll events for user scrolling (window and elements, coalesced per frame in the rendering step), scrollend, wheel events; MQL change events.
 
 **What changed:** see NOTES.md "Scroll, scrollend, wheel, MediaQueryList change (QEL7)". `scroll` is queued (JS Set per target) and fired in rendering step 2 for programmatic and user scrolling (wheel, keyboard, smooth frames, scrollbar drag via the App mirror); `scrollend` after the first quiet update (not while easing / thumb held); trusted cancelable `wheel` (App `dispatch_wheel`, preventDefault skips the tick); MediaQueryList `change` + `onchange` from step 3 on a viewport change. `onscrollend` names exist now (qdom13 test updated; hscroll/qj6 scroll-event tests pump frames). Tests: src/tests/qel7_tests.rs.
+
+## QAPI8: css declaration rows of the missing-API report (agent item)
+
+> QAPI8 [S] (P2, from QMAPI3 R66; Sonnet; css.rs, tools/missing-api) Audit the css `declaration` rows of R66: first make the report skip declarations handled outside `Declarations` or equal to the initial value, then list which of `place-items`, `letter-spacing`, `clip-path`, `backdrop-filter`, `touch-action`, `user-select`, `text-shadow`, `filter`, `color-scheme`, `border-spacing` are really unparsed, and file one S item per property family.
+
+**What changed:** `missing_api::declaration_is_handled` (called from `DeclParser::parse_value`) drops custom properties, `transition*`/`animation*` and initial-value declarations from the report; tests in `src/tests/qapi8_tests.rs`; re-ran corpus.sh on the 12 R66 sites and wrote the audit table plus eight proposed S items (QCSS-A..H, not filed) as REGRESSIONS.md R66 section 4; NOTES.md caveat updated.
