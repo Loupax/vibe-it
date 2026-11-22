@@ -2068,8 +2068,7 @@ OK           6/7  dom/nodes/moveBefore/custom-element-move-reactions.html
   FAIL      connectedMove runs when custom element is nested within a shadow root
 OK           1/1  dom/nodes/moveBefore/fieldset-child-blur-event.html
 OK           1/1  dom/nodes/moveBefore/fieldset-child-date-input-blur-event.html
-OK           0/5  dom/nodes/moveBefore/fire-focusin-focusout.html
-  FAIL      Don't fire focusin/out when reparenting focused element directly
+OK           1/5  dom/nodes/moveBefore/fire-focusin-focusout.html
   FAIL      Don't fire focusin/out when reparenting an element that has focus within
   FAIL      Don't fire focusin/out when moving to the same parent
   FAIL      Don't fire focusin and then correct when moving to an inert subtree
@@ -2079,10 +2078,9 @@ OK           1/5  dom/nodes/moveBefore/focus-preserve.html
   FAIL      Focus is fixed up after moveBefore() moves the focused element into an inert subtree
   FAIL      Focus is fixed up after moveBefore() moves the focused element into a hidden parent
   FAIL      Focus is fixed up after moveBefore() moves an ancestor of the focused element into a hidden parent
-OK           0/5  dom/nodes/moveBefore/focus-within.html
+OK           1/5  dom/nodes/moveBefore/focus-within.html
   FAIL      focus-within should be updated when reparenting focused element directly
   FAIL      focus-within should be updated when reparenting an element that has focus within
-  FAIL      focus-within should remain the same when moving to the same parent
   FAIL      :focus-within should be eventually up to date when moving to an inert subtree
   FAIL      :focus-within should be eventually up to date when moving to a subtree that would become inert via style
 OK           0/4  dom/nodes/moveBefore/form-associated-custom-element-reset.html

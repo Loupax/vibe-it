@@ -9306,3 +9306,11 @@ Prompt: load blob: URLs in iframes (iframe.src = URL.createObjectURL(new Blob([h
 > QCSS2 [S] (P2, from QMAPI2 #523; Sonnet; css.rs parse_supports_condition, js.rs) `CSS.supports(prop, value)` and `CSS.supports(conditionText)` on top of `parse_supports_condition`, plus `CSS.escape`.
 
 **What changed:** css.rs `supports_declaration` (shared by `@supports (prop: value)` and CSS.supports), `supports_condition_text` / `supports_property_value`, `font-format()` in `@supports`; js.rs the `CSS` namespace object (toStringTag, no constructor, `supports`, `escape`) and natives `__scratchy_supports1/2`; src/tests/qcss2_tests.rs; wpt-th expectations (css/cssom CSS-supports, escape, CSS-namespace-object-class-string, ...).
+
+## QWPT7a: synchronous focus()/blur() events (agent item)
+
+> QWPT7a [S] (P2, from QWPT7 #611; Sonnet) `el.focus()`/`blur()` fire focus events synchronously (HTML focusing steps), in the App and headless (focus-blur, focusing-focused-noop, blur-relatedTarget).
+
+**What changed:** `focus()`/`blur()` now fire blur/focusout/focus/focusin (relatedTarget) before returning, from the JS prelude through `__scratchy_dn`; `__d_focus` returns the previous active element (-1 = no change: same element, unfocusable, blur of a non-focused one) and mirrors `:focus` for style at once. The App (`set_focus_element_ev`) and headless driver (`set_focus_ev`) apply the queued request without firing events again; user input still fires them through the shared `input_host::focus_events`. A disconnected element's `focus()` is a no-op. Tests: src/tests/qwpt7a_tests.rs.
+
+**Measured:** full `--wpt-th` on the final head: no pass->fail; newly passing focus-blur, focusing-focused-noop, blur-relatedTarget (TIMEOUT -> 2/2), retargeting-focus-events test-002/003, focus-selector-delegatesFocus (4/12), moveBefore focus files, no-focus-events-at-clicking-editable-content-in-link; shadow-dom test-003 subtest TIMEOUT -> FAIL. 10 runs of the 13 changed files identical (~1 s each). Reftest subset: no change. Live nested window: load-time focus(), typing, Tab order with focus ring, focus() from a click handler and GET form submission all work, one event set per focus move.

@@ -763,6 +763,30 @@ pub(crate) fn set_active_element(h: Option<&Handle>) {
     ACTIVE_ELEMENT.with(|a| *a.borrow_mut() = h.map(Rc::downgrade));
 }
 
+/// QWPT7a: `focus()`/`blur()` take effect for `:focus` matching at once (the style thread-local
+/// mirrors them; the App's own state catches up in `js_sync`).
+fn mirror_focus(h: Option<&Handle>) {
+    let mut st = crate::dom::INTERACTION.with(|i| i.borrow().clone());
+    match h {
+        Some(h) => {
+            let ids = crate::dom::ancestor_ids(h);
+            st.focus = ids.first().copied();
+            st.focus_within = ids.into_iter().collect();
+        }
+        None => {
+            st.focus = None;
+            st.focus_within.clear();
+        }
+    }
+    st.focus_visible = false;
+    crate::dom::set_interaction(&st);
+    interaction_changed();
+}
+
+pub(crate) fn js_active_element() -> Option<Handle> {
+    active_element()
+}
+
 fn active_element() -> Option<Handle> {
     ACTIVE_ELEMENT.with(|a| a.borrow().as_ref().and_then(|w| w.upgrade()))
 }
@@ -1964,20 +1988,32 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             geom_bump();
         }
     });
-    // QB5: focus()/blur() only record a request; the App applies it.
+    // QB5/QWPT7a: focus()/blur() update the page-visible active element and record a request the App
+    // catches its state up with (no events there); the focus events fire synchronously from script.
+    // Returns -1 (nothing changed), -3 (changed, no previous focus) or the previous element's id.
     let (t, r) = (table.clone(), reqs.clone());
-    native!(ctx, "__d_focus", move |id: i32, focus: bool| {
-        if let Some(h) = t.borrow().get(id) {
-            if focus && js_focusable(&h) {
-                set_active_element(Some(&h));
-                r.borrow_mut().focus = Some(FocusReq::Focus(h));
-            } else if !focus {
-                if active_element().is_some_and(|a| Rc::ptr_eq(&a, &h)) {
-                    set_active_element(None);
-                }
-                r.borrow_mut().focus = Some(FocusReq::Blur(h));
+    native!(ctx, "__d_focus", move |id: i32, focus: bool| -> i32 {
+        let Some(h) = t.borrow().get(id) else { return -1 };
+        let old = active_element();
+        if focus && js_focusable(&h) {
+            if old.as_ref().is_some_and(|a| Rc::ptr_eq(a, &h)) {
+                return -1;
             }
+            set_active_element(Some(&h));
+            mirror_focus(Some(&h));
+            r.borrow_mut().focus = Some(FocusReq::Focus(h));
+            return match old {
+                Some(o) => t.borrow_mut().intern(&o),
+                None => -3,
+            };
         }
+        if !focus && old.as_ref().is_some_and(|a| Rc::ptr_eq(a, &h)) {
+            set_active_element(None);
+            mirror_focus(None);
+            r.borrow_mut().focus = Some(FocusReq::Blur(h));
+            return -3;
+        }
+        -1
     });
     let (r, d, gn) = (reqs.clone(), dirty.clone(), wgen.clone());
     native!(ctx, "__d_adopted", move |css: String| {
@@ -2825,8 +2861,26 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   // interfaces further down, not on every element.
   reflectBool('autofocus', 'autofocus');
   // QB5: focus/blur record a request the App applies in `js_sync`.
-  HTMLElement.prototype.focus = function () { __d_focus(this.__id, true); };
-  HTMLElement.prototype.blur = function () { __d_focus(this.__id, false); };
+  // QWPT7a: the HTML focusing steps fire blur/focusout, then focus/focusin, before focus() returns.
+  var focusEv = function (el, rel, type, bubbles) {
+    var init = { bubbles: bubbles, composed: true };
+    if (rel) init.relatedTargetId = rel.__id;
+    g.__scratchy_dn(el.__id, type, init);
+  };
+  HTMLElement.prototype.focus = function () {
+    if (!this.isConnected) return;
+    var oid = __d_focus(this.__id, true);
+    if (oid === -1) return;
+    var old = oid >= 0 ? wrap(oid) : null;
+    if (old) { focusEv(old, this, 'blur', false); focusEv(old, this, 'focusout', true); }
+    focusEv(this, old, 'focus', false);
+    focusEv(this, old, 'focusin', true);
+  };
+  HTMLElement.prototype.blur = function () {
+    if (__d_focus(this.__id, false) === -1) return;
+    focusEv(this, null, 'blur', false);
+    focusEv(this, null, 'focusout', true);
+  };
   // QJ9: window.open/close and alert/confirm/prompt: no tabs, no dialogs. Each call
   // logs one `not implemented` line (argument truncated) and returns the inert value.
   var qj9 = function (what, arg) {

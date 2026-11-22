@@ -2889,12 +2889,12 @@ impl App {
             }
             match reqs.focus {
                 Some(crate::js_dom::FocusReq::Focus(h)) => {
-                    self.set_focus_element(Some(&h), false);
+                    self.set_focus_element_ev(Some(&h), false, false);
                     self.scroll_focus_into_view();
                 }
                 Some(crate::js_dom::FocusReq::Blur(h)) => {
-                    if self.interaction.focus == Some(node_id(&h)) {
-                        self.set_focus_element(None, false);
+                    if self.interaction.focus == Some(node_id(&h)) || crate::js_dom::js_active_element().is_none() {
+                        self.set_focus_element_ev(None, false, false);
                     }
                 }
                 None => {}
@@ -3866,6 +3866,12 @@ impl App {
     /// Focuses `h` (or blurs on `None`). `visible` = reached by keyboard
     /// (`:focus-visible`). The entry point forms (Q30) reuse.
     pub(crate) fn set_focus_element(&mut self, h: Option<&Handle>, visible: bool) {
+        self.set_focus_element_ev(h, visible, true)
+    }
+
+    /// QWPT7a: `events` false when script's own `focus()`/`blur()` already fired the focus events
+    /// synchronously (the App only catches its state up).
+    pub(crate) fn set_focus_element_ev(&mut self, h: Option<&Handle>, visible: bool, events: bool) {
         let mut st = self.interaction.clone();
         match h {
             Some(h) => {
@@ -3881,7 +3887,9 @@ impl App {
             }
         }
         let (old_focus, new_focus) = (self.interaction.focus, st.focus);
-        crate::js_dom::set_active_element(h);
+        if events {
+            crate::js_dom::set_active_element(h);
+        }
         self.set_interaction_state(st);
         if old_focus != new_focus {
             self.select_popup_close(PopupEvent::Blur);
@@ -3893,7 +3901,7 @@ impl App {
                 self.text_focus_gained(&h);
             }
         }
-        if old_focus != new_focus && self.js.is_some() {
+        if events && old_focus != new_focus && self.js.is_some() {
             // Q33d: blur/focusout on the old element, focus/focusin on the new one (QWPT7: shared).
             let old_h = old_focus.and_then(|f| find_node_by_id(&self.document, f));
             let new_h = new_focus.and_then(|f| find_node_by_id(&self.document, f));

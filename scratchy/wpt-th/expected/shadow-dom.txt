@@ -1161,19 +1161,15 @@ TIMEOUT     0/20  shadow-dom/focus/focus-pseudo-matches-on-shadow-host.html
   NOTRUN    :focus behavior on tree structure changes; {mode:closed, delegatesFocus:true}
 TIMEOUT      0/1  shadow-dom/focus/focus-scroll-under-delegatesFocus.html
   TIMEOUT   delegatesFocus shouldn't cause extra focus steps
-OK          0/12  shadow-dom/focus/focus-selector-delegatesFocus.html
+OK          4/12  shadow-dom/focus/focus-selector-delegatesFocus.html
   FAIL      :focus applies to host with delegatesFocus=true when the shadow root's descendant has focus
   FAIL      :focus does not apply to host with delegatesFocus=true when slotted element has focus
   FAIL      :focus applies to host with delegatesFocus=true when an element in a nested shadow tree with delegatesFocus=true is focused
-  FAIL      :focus should be removed from hosts with delegatesFocus=true when none of the elements in a nested shadow tree with delegatesFocus=true is focused
   FAIL      :focus applies to host with delegatesFocus=true when an element in a nested shadow tree with delegatesFocus=false is focused
-  FAIL      :focus should be removed from hosts with delegatesFocus=true when none of the elements in a nested shadow tree with delegatesFocus=false is focused
   FAIL      :focus applies to host with delegatesFocus=false when the shadow root's descendant has focus
   FAIL      :focus does not apply to host with delegatesFocus=false when slotted element has focus
   FAIL      :focus applies to host with delegatesFocus=false when an element in a nested shadow tree with delegatesFocus=true is focused
-  FAIL      :focus should be removed from hosts with delegatesFocus=false when none of the elements in a nested shadow tree with delegatesFocus=true is focused
   FAIL      :focus applies to host with delegatesFocus=false when an element in a nested shadow tree with delegatesFocus=false is focused
-  FAIL      :focus should be removed from hosts with delegatesFocus=false when none of the elements in a nested shadow tree with delegatesFocus=false is focused
 OK           0/2  shadow-dom/focus/focus-shadowhost-display-none.html
   FAIL      when shadow host itself is focused, it should match display:none, lose focus then becomes display:block again.
   FAIL      when shadow host with delegatesFocus=true has focused element inside the shadow, it should also match display:none, then lose focus and become display:block again.
@@ -2013,15 +2009,13 @@ OK           0/1  shadow-dom/untriaged/elements-and-dom-objects/shadowroot-objec
   FAIL      A_10_01_02_09_T01
 OK           0/1  shadow-dom/untriaged/events/event-dispatch/test-002.html
   FAIL      A_05_05_02_T01
-TIMEOUT      0/1  shadow-dom/untriaged/events/event-dispatch/test-003.html
-  TIMEOUT   A_05_05_03_T01
+OK           0/1  shadow-dom/untriaged/events/event-dispatch/test-003.html
+  FAIL      A_05_05_03_T01
 OK           2/2  shadow-dom/untriaged/events/event-retargeting/test-001.html
 OK           1/1  shadow-dom/untriaged/events/event-retargeting/test-003.html
 OK           6/6  shadow-dom/untriaged/events/retargeting-focus-events/test-001.html
-OK           0/1  shadow-dom/untriaged/events/retargeting-focus-events/test-002.html
-  FAIL      A_05_03_02_T01
-OK           0/1  shadow-dom/untriaged/events/retargeting-focus-events/test-003.html
-  FAIL      A_05_03_03_T01
+OK           1/1  shadow-dom/untriaged/events/retargeting-focus-events/test-002.html
+OK           1/1  shadow-dom/untriaged/events/retargeting-focus-events/test-003.html
 OK           0/1  shadow-dom/untriaged/events/retargeting-relatedtarget/test-001.html
   FAIL      A_05_02_01_T1
 OK           0/1  shadow-dom/untriaged/events/retargeting-relatedtarget/test-002.html

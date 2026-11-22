@@ -222,9 +222,8 @@ OK           1/1  dom/events/label-default-action.html
 OK           1/1  dom/events/legacy-pre-activation-behavior.window.html
 OK           0/1  dom/events/mouse-event-retarget.html
   FAIL      offsetX is correctly adjusted
-OK           0/2  dom/events/no-focus-events-at-clicking-editable-content-in-link.html
+OK           1/2  dom/events/no-focus-events-at-clicking-editable-content-in-link.html
   FAIL      Click editable element in link
-  FAIL      Click editable link
 OK           1/1  dom/events/non-cancelable-when-passive/generic-events-stay-cancelable.html
 OK           0/1  dom/events/non-cancelable-when-passive/non-passive-mousewheel-event-listener-on-body.html
   FAIL      non-passive mousewheel event listener on body

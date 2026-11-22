@@ -68,34 +68,7 @@ impl InputHost for Driver<'_> {
         self.st.mods
     }
     fn ih_set_focus(&mut self, h: Option<&Handle>, visible: bool) {
-        let old = self.st.focus.clone();
-        if old.as_ref().map(node_id) == h.map(node_id) {
-            return;
-        }
-        crate::js_dom::set_active_element(h);
-        self.st.focus = h.cloned();
-        let mut st = self.st.interaction.clone();
-        match h {
-            Some(h) => {
-                let ids = ancestor_ids(h);
-                st.focus = ids.first().copied();
-                st.focus_within = ids.into_iter().collect();
-                st.focus_visible = visible;
-            }
-            None => {
-                st.focus = None;
-                st.focus_within.clear();
-                st.focus_visible = false;
-            }
-        }
-        self.set_interaction(st);
-        if let Some(o) = &old {
-            crate::forms_text::text_focus_lost(self, o);
-        }
-        if let Some(n) = h {
-            crate::forms_text::text_focus_gained(n);
-        }
-        input_host::focus_events(self, old.as_ref(), h);
+        self.set_focus_ev(h, visible, true)
     }
     fn ih_request_submit(&mut self, form: &Handle, submitter: Option<&Handle>) {
         // No navigation headless: the submit event only (as `form.requestSubmit()` fires it).
@@ -461,14 +434,50 @@ impl Driver<'_> {
         dur
     }
 
+    /// Focus state change; `events` false when script's `focus()`/`blur()` fired them itself (QWPT7a).
+    pub(crate) fn set_focus_ev(&mut self, h: Option<&Handle>, visible: bool, events: bool) {
+        let old = self.st.focus.clone();
+        if old.as_ref().map(node_id) == h.map(node_id) {
+            return;
+        }
+        if events {
+            crate::js_dom::set_active_element(h);
+        }
+        self.st.focus = h.cloned();
+        let mut st = self.st.interaction.clone();
+        match h {
+            Some(h) => {
+                let ids = ancestor_ids(h);
+                st.focus = ids.first().copied();
+                st.focus_within = ids.into_iter().collect();
+                st.focus_visible = visible;
+            }
+            None => {
+                st.focus = None;
+                st.focus_within.clear();
+                st.focus_visible = false;
+            }
+        }
+        self.set_interaction(st);
+        if let Some(o) = &old {
+            crate::forms_text::text_focus_lost(self, o);
+        }
+        if let Some(n) = h {
+            crate::forms_text::text_focus_gained(n);
+        }
+        if events {
+            input_host::focus_events(self, old.as_ref(), h);
+        }
+    }
+
     /// A focus request page script made (`el.focus()` / `el.blur()`, QB5): applied as the App's
     /// `js_sync` does, so the focus events fire.
     pub(crate) fn apply_focus_request(&mut self, req: crate::js_dom::FocusReq) {
         match req {
-            crate::js_dom::FocusReq::Focus(h) => self.ih_set_focus(Some(&h), false),
+            crate::js_dom::FocusReq::Focus(h) => self.set_focus_ev(Some(&h), false, false),
             crate::js_dom::FocusReq::Blur(h) => {
-                if self.st.focus.as_ref().is_some_and(|f| Rc::ptr_eq(f, &h)) {
-                    self.ih_set_focus(None, false);
+                if self.st.focus.as_ref().is_some_and(|f| Rc::ptr_eq(f, &h)) || crate::js_dom::js_active_element().is_none() {
+                    self.set_focus_ev(None, false, false);
                 }
             }
         }
