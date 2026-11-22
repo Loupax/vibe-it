@@ -273,6 +273,17 @@ pub(crate) fn wheel_axes(dx: f32, dy: f32, shift: bool) -> (f32, f32) {
     if shift && dx == 0.0 { (dy, 0.0) } else { (dx, dy) }
 }
 
+/// QSMOOTH1 D5: one frame-rate-independent exponential easing step of `offset` toward `target`
+/// after `dt_ms` (capped at 50 ms so a stalled frame does not teleport). Returns the new offset and
+/// whether the scroll settled (within 0.5 px: snapped to `target`). `tau_ms <= 0` jumps at once.
+pub(crate) fn scroll_ease(offset: f32, target: f32, dt_ms: f32, tau_ms: f32) -> (f32, bool) {
+    if tau_ms <= 0.0 {
+        return (target, true);
+    }
+    let next = offset + (target - offset) * (1.0 - (-dt_ms.clamp(0.0, 50.0) / tau_ms).exp());
+    if (target - next).abs() < 0.5 { (target, true) } else { (next, false) }
+}
+
 /// QYSCR1: how far `Action::PageDown`/`PageUp` scroll for a viewport `view_h`
 /// px tall: a viewport less one 40 px line, so the last line stays in view.
 /// QKEYS1: the viewport the page sees for a window of `win` px: the window minus the status bar
@@ -658,6 +669,13 @@ pub(crate) struct App {
     pub(crate) font_system: FontSystem,
     pub(crate) swash_cache: SwashCache,
     pub(crate) scroll_offset: f32,
+    /// QSMOOTH1: where the eased viewport scroll is heading (`None` = not animating). `scroll_offset`
+    /// stays "what is painted now"; `redraw` steps it toward this (`scroll_ease_step`).
+    pub(crate) scroll_target: Option<f32>,
+    /// QSMOOTH1: when the animation was last stepped (for the frame-rate-independent `dt`).
+    pub(crate) scroll_anim_last: std::time::Instant,
+    /// QSMOOTH1: the easing time constant, ms (`config::SMOOTH_SCROLL_TAU_MS`); 0 = off. Unit tests start with 0.
+    pub(crate) smooth_scroll_tau_ms: f32,
     /// QXSCR1: the window's horizontal scroll (document x at the viewport's left edge). Clamped
     /// to `0..=doc_scroll_width - viewport width` by `redraw`, like `scroll_offset`.
     pub(crate) scroll_x: f32,
@@ -1385,6 +1403,9 @@ impl App {
             font_system: new_font_system(),
             swash_cache: SwashCache::new(),
             scroll_offset: 0.0,
+            scroll_target: None,
+            scroll_anim_last: std::time::Instant::now(),
+            smooth_scroll_tau_ms: if cfg!(test) { 0.0 } else { crate::config::SMOOTH_SCROLL_TAU_MS },
             scroll_x: 0.0,
             cached: None,
             live_ver: 0,
@@ -1500,6 +1521,9 @@ impl App {
             font_system: new_font_system(),
             swash_cache: SwashCache::new(),
             scroll_offset: 0.0,
+            scroll_target: None,
+            scroll_anim_last: std::time::Instant::now(),
+            smooth_scroll_tau_ms: if cfg!(test) { 0.0 } else { crate::config::SMOOTH_SCROLL_TAU_MS },
             scroll_x: 0.0,
             cached: None,
             live_ver: 0,
@@ -1694,6 +1718,15 @@ impl App {
                 }
             }
             let max_scroll = (laid.h - page_h as f32).max(0.0);
+            if let Some(target) = self.scroll_target {
+                let now = std::time::Instant::now();
+                let dt = now.duration_since(self.scroll_anim_last).as_secs_f32() * 1000.0;
+                self.scroll_anim_last = now;
+                let target = target.clamp(0.0, max_scroll);
+                let (offset, done) = scroll_ease(self.scroll_offset.clamp(0.0, max_scroll), target, dt, self.smooth_scroll_tau_ms);
+                self.scroll_offset = offset;
+                self.scroll_target = if done { None } else { Some(target) };
+            }
             self.scroll_offset = self.scroll_offset.clamp(0.0, max_scroll);
             let max_scroll_x = (crate::layout::doc_scroll_width(laid) - width as f32).max(0.0);
             self.scroll_x = self.scroll_x.clamp(0.0, max_scroll_x);
@@ -2528,7 +2561,7 @@ impl App {
         self.scroll_offsets.clear();
         self.node_scroll.clear();
         self.node_scroll_dirty = false;
-        self.scroll_offset = 0.0;
+        self.set_scroll_now(0.0);
         self.scroll_x = 0.0;
         if let Some(window) = &self.window {
             window.request_redraw();
@@ -2744,7 +2777,7 @@ impl App {
             }
             if let Some(sr) = reqs.scroll {
                 if let Some(y) = sr.y {
-                    self.scroll_offset = if sr.relative { self.scroll_offset + y as f32 } else { y as f32 }.max(0.0);
+                    self.set_scroll_now(if sr.relative { self.scroll_offset + y as f32 } else { y as f32 }.max(0.0));
                 }
                 // QXSCR1: and the x axis.
                 if let Some(x) = sr.x {
@@ -3242,7 +3275,7 @@ impl App {
         js_style::set_js_adopted_css(&self.adopted_css);
         self.image_cache = saved.image_cache;
         self.scroll_offsets = saved.scroll_offsets;
-        self.scroll_offset = saved.scroll_offset;
+        self.set_scroll_now(saved.scroll_offset);
         self.scroll_x = saved.scroll_x;
         self.js = saved.js;
         self.js_viewport = None;
@@ -3813,9 +3846,9 @@ impl App {
             self.scroll_x = (right + MARGIN - view_w).max(0.0).min(left.max(0.0));
         }
         if top < self.scroll_offset {
-            self.scroll_offset = (top - MARGIN).max(0.0);
+            self.set_scroll_now((top - MARGIN).max(0.0));
         } else if bottom > self.scroll_offset + view {
-            self.scroll_offset = (bottom + MARGIN - view).max(0.0).min(top.max(0.0));
+            self.set_scroll_now((bottom + MARGIN - view).max(0.0).min(top.max(0.0)));
         }
         if before == (self.scroll_x, self.scroll_offset) {
             return;
@@ -3841,7 +3874,7 @@ impl App {
         self.set_interaction_state(st);
         let Some(target) = target else {
             if frag.is_empty() || frag.eq_ignore_ascii_case("top") {
-                self.scroll_offset = 0.0;
+                self.set_scroll_now(0.0);
             }
             return true;
         };
@@ -3851,7 +3884,7 @@ impl App {
         while let Some(n) = cur {
             let geom = node_geometry(laid, &self.shape_cache, node_id(&n));
             if let Some(top) = geom.rects.iter().map(|r| r.1).reduce(f32::min) {
-                self.scroll_offset = top.max(0.0);
+                self.set_scroll_now(top.max(0.0));
                 if let Some(w) = &self.window {
                     w.request_redraw();
                 }
@@ -4533,9 +4566,9 @@ impl App {
             Action::SearchPrev => self.search_step(false),
             Action::ActivateMatch => self.activate_match(),
             Action::EnterInputMode => self.set_key_mode(KeyMode::Input),
-            Action::ScrollTop => self.scroll_offset = 0.0,
+            Action::ScrollTop => self.smooth_scroll_to(0.0),
             // `redraw` clamps to the real max scroll every frame, same as `j`.
-            Action::ScrollBottom => self.scroll_offset = f32::MAX,
+            Action::ScrollBottom => self.smooth_scroll_to(f32::MAX),
             Action::HistoryBack => self.navigate_history(-1),
             Action::HistoryFront => self.navigate_history(1),
             Action::YankUrl => self.dispatch_command("let", &["@+", "=", "@%"]),
@@ -4603,7 +4636,7 @@ impl App {
 
     fn scrollbar_set(&mut self, target: SbTarget, next: f32) {
         match target {
-            SbTarget::Viewport => self.scroll_offset = next,
+            SbTarget::Viewport => self.set_scroll_now(next),
             SbTarget::Region(id, node) => self.set_region_scroll(id, node, next),
         }
     }
@@ -4684,7 +4717,7 @@ impl App {
         let Some(d) = self.sb_drag else { return };
         let next = crate::scrollbar::drag_scroll(d.start_scroll, d.start_ptr, py, d.ratio, d.max);
         match d.target {
-            SbTarget::Viewport => self.scroll_offset = next,
+            SbTarget::Viewport => self.set_scroll_now(next),
             SbTarget::Region(id, node) => self.set_region_scroll(id, node, next),
         }
         self.request_redraw_now();
@@ -4705,8 +4738,43 @@ impl App {
         }
     }
 
+    /// QSMOOTH1 D2: a smoothed relative scroll (j/k/arrows, PageUp/PageDown, wheel notches). With
+    /// easing on it moves the TARGET (accumulating over a running animation); off, it is instant.
     pub(crate) fn scroll_by(&mut self, dy: f32) {
-        self.scroll_offset = (self.scroll_offset + dy).max(0.0);
+        if self.smooth_scroll_tau_ms > 0.0 {
+            let base = self.scroll_target.unwrap_or(self.scroll_offset);
+            self.smooth_scroll_to(base + dy);
+        } else {
+            self.set_scroll_now(self.scroll_offset + dy);
+        }
+    }
+
+    /// QSMOOTH1: a smoothed absolute scroll (gg = 0, G = `f32::MAX`, clamped in `redraw`).
+    pub(crate) fn smooth_scroll_to(&mut self, y: f32) {
+        let y = y.max(0.0);
+        if self.smooth_scroll_tau_ms > 0.0 {
+            if self.scroll_target.is_none() {
+                self.scroll_anim_last = std::time::Instant::now();
+            }
+            self.scroll_target = Some(y);
+        } else {
+            self.set_scroll_now(y);
+        }
+    }
+
+    /// QSMOOTH1 D4: an instant write to the painted viewport scroll; cancels a running animation.
+    pub(crate) fn set_scroll_now(&mut self, y: f32) {
+        self.scroll_offset = y;
+        self.scroll_target = None;
+    }
+
+    /// QSMOOTH1 D5: one animation step with a fixed `dt_ms` (tests; `redraw` inlines the same step with the real dt).
+    #[cfg(test)]
+    pub(crate) fn scroll_anim_step_dt(&mut self, max_scroll: f32, dt_ms: f32, target: f32) {
+        let target = target.clamp(0.0, max_scroll);
+        let (offset, done) = scroll_ease(self.scroll_offset.clamp(0.0, max_scroll), target, dt_ms, self.smooth_scroll_tau_ms);
+        self.scroll_offset = offset;
+        self.scroll_target = if done { None } else { Some(target) };
     }
 
     /// QXSCR1: the window's horizontal counterpart of `scroll_by` (`redraw` clamps the far end).
@@ -4881,7 +4949,7 @@ impl App {
             self.set_region_scroll(id, node, v);
         }
         if let Some(p) = page {
-            self.scroll_offset = p;
+            self.set_scroll_now(p);
         }
         // QXSCR1: and horizontally (regions first, then the window).
         let Some(m) = self.search.current.and_then(|i| self.search.matches.get(i)) else { return };
@@ -5218,6 +5286,11 @@ impl ApplicationHandler<AppEvent> for App {
         let js_at = self.js.as_ref().and_then(|js| [js.next_deadline(), js.raf_deadline()].into_iter().flatten().min());
         let ctl_at = self.controls_refresh();
         let sb_at = self.scrollbar_hold_tick();
+        // QSMOOTH1 D6: keep frames coming only while the scroll is easing.
+        let scroll_at = self.scroll_target.map(|_| {
+            self.request_redraw_now();
+            std::time::Instant::now() + std::time::Duration::from_millis(16)
+        });
         let stats_at = match &mut self.frame_stats {
             Some(fs) => {
                 let now = std::time::Instant::now();
@@ -5238,7 +5311,7 @@ impl ApplicationHandler<AppEvent> for App {
             crate::mem_trim::request();
         }
         let idle_at = self.idle_trim.wake_in(input_age, video_age).map(|d| std::time::Instant::now() + d);
-        let flow = match [js_at, anim_at, ctl_at, stats_at, trail_at, idle_at, sb_at].into_iter().flatten().min() {
+        let flow = match [js_at, anim_at, ctl_at, stats_at, trail_at, idle_at, sb_at, scroll_at].into_iter().flatten().min() {
             Some(t) => ControlFlow::WaitUntil(t),
             None => ControlFlow::Wait,
         };
@@ -5564,6 +5637,7 @@ impl ApplicationHandler<AppEvent> for App {
                 if dx != 0.0 {
                     self.wheel_x(&chain, dx);
                 }
+                let line_wheel = matches!(delta, MouseScrollDelta::LineDelta(..));
                 match chain.iter().find(|info| dy != 0.0 && info.user && region_takes_wheel(info, &self.scroll_offsets, dy)) {
                     Some(info) => {
                         let current = self.scroll_offsets.get(&info.id).copied().unwrap_or(0.0);
@@ -5576,9 +5650,11 @@ impl ApplicationHandler<AppEvent> for App {
                     }
                     None if dy == 0.0 || self.viewport_user_scroll_blocked() => {}
                     None => {
-                        self.scroll_offset -= dy;
-                        if self.scroll_offset < 0.0 {
-                            self.scroll_offset = 0.0;
+                        // QSMOOTH1 D2/D3: real notches ease; touchpad pixel deltas stay instant.
+                        if line_wheel {
+                            self.scroll_by(-dy);
+                        } else {
+                            self.set_scroll_now((self.scroll_offset - dy).max(0.0));
                         }
                     }
                 }
