@@ -92,7 +92,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QCSS2 [S] (P2, from QMAPI2 #523; Sonnet; css.rs parse_supports_condition, js.rs) `CSS.supports(prop, value)` and
       `CSS.supports(conditionText)` on top of `parse_supports_condition` (today `CSS.supports` does not exist; pages
       feature-test with it). Tests + --wpt-th (css/cssom has CSS.supports files).
-- [ ] QAPI1 [S] (P2, from QMAPI3 R66; Sonnet; js.rs / globals prelude) `window.trustedTypes` (5 of 12 pages, 1 240 hits):
+- [ ] [WIP] QAPI1 [S] (P2, from QMAPI3 R66; Sonnet; js.rs / globals prelude) `window.trustedTypes` (5 of 12 pages, 1 240 hits):
       `createPolicy(name, {createHTML, createScript, createScriptURL})` returning a policy whose `create*` call the
       callback and return its result (or the input when absent), `isHTML/isScript/isScriptURL` (true for what a policy
       made), `emptyHTML/emptyScript`, `getAttributeType` -> null, `defaultPolicy` null; no enforcement. Tests in a new
@@ -134,6 +134,9 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       with RECORD=), re-record ytr/ytw/wiki (after QREC1c) to get replay misses to ~0 (today ytr 66-119, ytw 24-89);
       gate.sh/run.sh: one nested dwl per page or no 1 h `timeout` on it, and a timeout on the end `grim`. Recordings
       stay local (Q5); a fresh wire with --no-cookies and an own --state-dir.
+- [ ] QREC3c [S] (P3, from QREC3b #567; Sonnet; tools/incr-gate) Window-mode recordings (the hover/play requests of
+      the window input plans; `gate.sh replay` needs them), a quiet-machine re-measure of live vs replay ms variance, and
+      why the replayed YouTube results page does ~half the live forced layouts (replay delay? deterministic clock?).
 - [ ] QBUD1 [S] (P2; Sonnet; perf-budgets.txt, tools/budget-check.py; after QREC3) First budgets (R64 6
       table); local check in the AGENTS.md checklist for perf-touching PRs; CI only counts + RSS on
       synthetic or (per Q5) replayed pages.
