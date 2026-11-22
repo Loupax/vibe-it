@@ -23,6 +23,17 @@ pub(crate) fn set_page_url(url: Option<&Url>) {
     PAGE_URL.with(|u| *u.borrow_mut() = url.cloned());
 }
 
+thread_local! {
+    /// QDOM11: the XML MIME type of the top-level document being run (None: an HTML document).
+    static PAGE_XML_MIME: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+/// QDOM11: marks the page about to run as an XML document of this MIME type (`run_page` turns the document into an
+/// XMLDocument before its scripts run and clears the mark).
+pub(crate) fn set_page_xml_mime(mime: Option<&str>) {
+    PAGE_XML_MIME.with(|m| *m.borrow_mut() = mime.map(crate::js_dom::mime_essence));
+}
+
 pub(crate) fn page_url() -> Option<Url> {
     PAGE_URL.with(|u| u.borrow().clone())
 }
@@ -150,7 +161,8 @@ pub(crate) fn script_ref(handle: &Handle) -> Option<ScriptRef> {
     if !module && !importmap && (!is_classic_script_type(ty.as_deref()) || element_attr(handle, "nomodule").is_some()) {
         return None;
     }
-    let src = if importmap { None } else { element_attr(handle, "src") };
+    // QDOM11: an SVG script names its file in `href` / `xlink:href`.
+    let src = if importmap { None } else if script_namespace(handle) == Some(SVG_NS) { element_attr(handle, "href") } else { element_attr(handle, "src") };
     if let Some(src) = src {
         let src = src.trim();
         return (!src.is_empty()).then(|| if module { ScriptRef::ModuleExternal(src.to_string()) } else { ScriptRef::External(src.to_string()) });
@@ -173,12 +185,27 @@ pub(crate) fn script_ref(handle: &Handle) -> Option<ScriptRef> {
     })
 }
 
+const SVG_NS: &str = "http://www.w3.org/2000/svg";
+
+/// QDOM11: the namespace of a `<script>` element: only the XHTML and SVG ones are scripts (a `script` in no
+/// namespace, in an XML document, is just data). The local name may carry a prefix (`svg:script`, QDOM14).
+pub(crate) fn script_namespace(handle: &Handle) -> Option<&'static str> {
+    let NodeData::Element { name, .. } = &handle.data else { return None };
+    let local = name.local.as_ref();
+    if local.rsplit(':').next() != Some("script") {
+        return None;
+    }
+    match name.ns.as_ref() {
+        "http://www.w3.org/1999/xhtml" => Some("http://www.w3.org/1999/xhtml"),
+        SVG_NS => Some(SVG_NS),
+        _ => None,
+    }
+}
+
 /// QB8: every runnable classic `<script>` element in document order, the
 /// same order and filter as `find_external_resources`.
 fn collect_script_elements(handle: &Handle, out: &mut Vec<Handle>) {
-    if let NodeData::Element { name, .. } = &handle.data
-        && name.local.as_ref() == "script"
-        && script_ref(handle).is_some()
+    if script_namespace(handle).is_some() && script_ref(handle).is_some()
     {
         out.push(handle.clone());
     }
@@ -2450,6 +2477,9 @@ pub(crate) fn realm_preludes() -> [&'static str; 12] {
 
 /// The page's own scripts and lifecycle events, over a started engine.
 fn run_page(engine: JsEngine, document: &Handle, scripts: &[ScriptSource]) -> Option<JsEngine> {
+    if let Some(mime) = PAGE_XML_MIME.with(|m| m.borrow_mut().take()) {
+        engine.eval_value::<()>("xml-doc", &format!("__scratchy_xml_doc({mime:?})"));
+    }
     let mut script_els = Vec::new();
     collect_script_elements(document, &mut script_els);
     let el_id = |s: &ScriptSource| match s.index.and_then(|i| script_els.get(i)) {
