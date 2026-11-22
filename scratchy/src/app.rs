@@ -2740,6 +2740,11 @@ impl App {
             if let Some(js) = &self.js {
                 js.rendered_geometry(&laid, self.build_stamp, self.cached_width, self.cached_height);
             }
+            // QEL2b: the ResizeObserver targets' boxes of this frame's layout (a change with no DOM
+            // write, e.g. an image decode or an animated size, asks for a rendering update).
+            if self.js.is_some() && crate::ro_geom::active() {
+                crate::ro_geom::app_install(&self.document, &laid, self.build_stamp, self.cached_width, self.cached_height);
+            }
         }
         // Replaced wholesale on every tick this generation's
         // worker reports, not merged — see `App::shape_cache`'s
@@ -5370,6 +5375,27 @@ impl crate::event_loop::RenderingHost for App {
     fn update_style_layout(&mut self) {
         self.js_sync();
     }
+    /// Step 7. QEL2b: ResizeObserver reads this frame's App layout. Shown layout of the DOM as it is
+    /// now: its boxes are recorded (when not yet); the frame's layout still to come (DOM writes since
+    /// the shown one): the observers wait for it (`install_laid` records it and ends the wait) instead of
+    /// forcing a layout of their own. IntersectionObserver as before.
+    fn run_observers(&mut self) {
+        if self.js.is_some() && crate::ro_geom::active() {
+            let (vw, vh) = (self.cached_width, self.cached_height);
+            let pending = self.layout_dirty || self.layout_in_flight;
+            let shown_current = !pending && !self.hold_old_frame && self.build_stamp == crate::js_geom::render_stamp();
+            if crate::ro_geom::current(&self.document, vw, vh) {
+                crate::ro_geom::set_wait(false);
+            } else if shown_current && let Some(laid) = self.cached.clone() {
+                crate::ro_geom::app_layout(&self.document, &laid, self.build_stamp, vw, vh);
+            } else {
+                crate::ro_geom::set_wait(pending);
+            }
+        }
+        if let Some(js) = &self.js {
+            js.observer_hook();
+        }
+    }
     fn paint(&mut self) {
         if self.layout_dirty
             && let Some(w) = &self.window
@@ -5428,6 +5454,7 @@ impl ApplicationHandler<AppEvent> for App {
         if self.frame_stats.is_some() && (crate::incr_frame::live() || crate::incr_style::checking()) {
             diag!("scratchy: incr: {}", crate::perf::incr_json());
             diag!("scratchy: {}", crate::incr_evidence::status_text());
+            diag!("scratchy: resize-observer: {}", crate::ro_geom::stats_json());
         }
     }
 

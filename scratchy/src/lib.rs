@@ -136,6 +136,7 @@ mod ws_frames;
 mod js_ws;
 mod js_style;
 mod js_geom;
+mod ro_geom; // QEL2b: ResizeObserver boxes from the rendering update's layout
 mod link_css;
 // QSTASH1: the localStorage state directory (STASH.md); QSTASH2: localStorage over it.
 #[cfg_attr(not(test), allow(dead_code))] // clear/forget: `--forget-site` is a later QSTASH item

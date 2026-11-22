@@ -4128,9 +4128,31 @@ DOM write), content box = minus padding and border (computed styles), 0 for disp
 inline, inline/block swapped for vertical writing modes, device-pixel box = content x `devicePixelRatio` rounded.
 Depth is the flat-tree depth (a shadow root continues at its host). `__scratchy_ro_want()` (geometry gen, viewport, DPR
 or a new observation since the last run) makes `__scratchy_raf_due` ask for a rendering update even with no rAF.
-Known limits: the layout is the JS-side forced one, not the App/engine layout (an extra layout per frame with DOM
-changes: `ro-run` shows as caller in `--perf-report` forced layouts); no microtask checkpoint between RO callbacks;
-layout changes with no DOM write (image decode, CSS animation, :hover) are not noticed until the next geometry gen change.
+(QEL2b replaced the layout source, below.)
+
+**ResizeObserver on the frame's layout (QEL2b, src/ro_geom.rs).** `observe`/`unobserve`/`disconnect` register the
+target with Rust (`__d_ro_track`, refcounted). Every complete layout records the targets' boxes `[bw, bh, cw, ch, cx, cy]`
+from the `Laid` tree (outermost box; content = minus padding and border from `Laid.style`; non-replaced inline / no box =
+none): every forced layout, inside its own rect walk (`js_geom::walk` -> `ro_geom::note` between `begin_forced`/`end_forced`,
+no walk of its own), and the App's frame (`ro_geom::app_install` from `App::install_laid`, a walk of its own, only when the
+observers wait for it, nothing is recorded, the viewport changed, or the DOM is as recorded, i.e. the layout changed with no
+DOM write; a frame for DOM writes is recorded lazily by step 7 when the shown layout is of the DOM as it is now). `roBoxes` reads `__d_ro_box(id, vw, vh)`: the recorded box when it is of
+this DOM state (render stamp, or the cache key's gen/CSS for in-place shifts) and viewport; otherwise (a callback wrote the
+DOM inside the depth loop, or no layout of this state exists) it runs the layout itself, `io` reason, caller
+`(rendering update: ResizeObserver)`. No `getComputedStyle` read per gather: `writing-mode` is read only when a target's
+physical sizes moved (a writing-mode change with equal physical sizes is not reported). SVG child elements keep the old JS
+path (`roBoxesJs`). Size changes with no DOM write: an App layout whose target boxes differ from the last recorded ones bumps
+`__d_ro_epoch`, part of `roHardSig`, so `__scratchy_ro_want` asks for a rendering update (image decode, CSS
+animation/transition, `:hover` restyle, viewport). App step 7 (`RenderingHost::run_observers`): when DOM writes since the
+shown layout mean the frame's layout is still to come (`layout_dirty` / `layout_in_flight`), `ro_geom::set_wait(true)`:
+`__scratchy_ro_want` says -1 (no update owed, no spin) until `install_laid` records that layout and ends the wait, then the
+next update's step 7 gathers from it. So the App's own frame layout (main thread or worker, incremental engine) is the one RO
+reads; RO forces nothing per frame. Effect: one painted frame shows the pre-callback state (layout -> paint -> RO callbacks ->
+layout -> paint), where browsers run the callbacks before painting. Headless: step 6 (`Headless::update_style_layout` ->
+`JsEngine::observer_layout` -> `__scratchy_ro_layout`) lays out when an observation may have changed, caller
+`(rendering update: style and layout)`; step 7 reads it. A microtask checkpoint runs after each RO callback. Counters:
+`--perf-report` `resize_observer` {runs, callbacks, app_collects, forced_collects, ro_layouts, changes}; window runs with
+`SCRATCHY_FRAME_STATS` print them at exit.
 
 **IntersectionObserver (QEL3, js_dom.rs).** Step 7 runs `__scratchy_ioRun` right after RO: when an observation is new
 (`need`), the viewport / scroll position changed (`ioHardSig`) or the geometry generation moved, every observer that needs it
