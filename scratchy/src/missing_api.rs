@@ -68,6 +68,28 @@ pub(crate) fn css_note(kind: &'static str, name: &str, example: &str) {
     });
 }
 
+/// QAPI8: true when a declaration that left `Declarations` unchanged is NOT a gap: a custom property or a
+/// property family parsed outside the struct (`transition*` -> `transition.rs`, `animation*` -> `animation.rs`),
+/// or a value that equals the property's initial value, which `Declarations` stores as "unset"
+/// (`height: auto`, `max-width: none`, `outline: none`). Vendor prefixes are looked through.
+pub(crate) fn declaration_is_handled(name: &str, value: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    let n = crate::css::unprefixed_property(&lower);
+    if n.starts_with("--") || n.starts_with("transition") || n.starts_with("animation") {
+        return true;
+    }
+    let v = value.to_ascii_lowercase();
+    let v = v.split('!').next().unwrap_or("").trim();
+    let initial: &[&str] = match n {
+        "width" | "height" | "min-width" | "min-height" | "top" | "right" | "bottom" | "left" | "z-index" => &["auto", "initial"],
+        "max-width" | "max-height" => &["none", "initial"],
+        "outline" => &["none", "initial", "medium none"],
+        "outline-style" => &["none", "initial"],
+        _ => return false,
+    };
+    initial.contains(&v)
+}
+
 /// QMAPI2: the stylesheet parser starts / ends parsing one rule's selector (start clears the example queue).
 pub(crate) fn css_selector_ctx(on: bool) {
     if !enabled() {

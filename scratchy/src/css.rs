@@ -5691,7 +5691,10 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                     if css_debug_enabled() {
                         css_debug_report(format!("scratchy: css: ignored `{name}: {raw_value}`"));
                     }
-                    crate::missing_api::css_note("declaration", &name.to_ascii_lowercase(), &format!("{name}: {raw_value}"));
+                    // QAPI8: only a declaration that is really dropped is a gap in the report.
+                    if !crate::missing_api::declaration_is_handled(&name, &raw_value) {
+                        crate::missing_api::css_note("declaration", &name.to_ascii_lowercase(), &format!("{name}: {raw_value}"));
+                    }
                 }
             }
         }
