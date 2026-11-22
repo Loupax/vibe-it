@@ -263,6 +263,54 @@ jar, RFC 6265bis parsing/matching, its own unit tests) and `execute_with_jar`,
 - **Logging:** names and values never reach a log line; `cookies::log_line`
   prints host and counts only, and only under `WIRE_TIMING=1`.
 
+## The HTTP cache (W-CACHE1, protocol version 4, `X-Wire-Features: cache`)
+
+Design: wire/TODO.txt W-CACHE1 (user decisions 2026-11-22: on disk only, on by
+default, standard request headers). Code: `src/cache.rs`; hooked into
+`execute_network`, which computes the jar decision and the effective
+User-Agent, then hands `cache::handle` a closure that does the upstream call
+(`send_upstream`, the old jar / non-jar paths unchanged).
+
+- **The writer in between.** `cache::handle` does not touch ureq. It passes a
+  `CacheWriter` as the response writer: it collects the response head as wire
+  writes it, parses it (status, headers, `X-Wire-Final-Url`, class headers,
+  `X-Wire-Error`), decides whether the answer is storable and from then on
+  copies body bytes to the client and to a temp file. To wire's own
+  conditional a `304` is swallowed (never reaches the client) and `handle`
+  answers from the rewritten entry. Unsafe methods use the writer only to see
+  the status for invalidation.
+- **Completeness (W-MEDIA2 for the cache).** `stream_response` records the
+  upstream `Content-Length` in the thread-local `BODY_INFO` (ureq drops it when
+  it undid gzip) and `copy_body` / the max-bytes path mark a read error as
+  `truncated`. The temp file is renamed only when the body is complete.
+- **File format.** `WIRECACHE1 <20-digit body length>\n` (32 bytes, patched in
+  place at the end, before the rename), one JSON metadata line, the body. A
+  file whose length does not match, or that does not parse, is deleted on
+  lookup (renames are atomic, so only an old format or a damaged disk gets
+  there).
+- **No index.** `Cache::approx` counts bytes (exact after a scan, plus own
+  stores) only to decide when to scan; the evictor thread scans at start-up,
+  when a store takes it over the limit and once a minute while over. Scan items
+  are 64 bytes each (mtime, size, partition index, name as 32 raw bytes), freed
+  after the pass; temp files older than an hour are deleted. Shared directory:
+  every vanished file or directory during a scan or lookup is a miss / skipped,
+  never an error; creating a temp file retries once when an eviction removed the
+  empty partition directory meanwhile.
+- **Write errors.** Any error creating or writing the temp file (full disk,
+  read-only, a file where the partition directory should be) drops the store,
+  logs ONE warning line (again only after a store has worked), and the response
+  is still served from the network.
+- **`X-Wire-Cache`** comes from the thread-local `CACHE_HDR` that
+  `write_status_and_headers` prints (like `X-Wire-Cookies`): `bypass` at the
+  start of every request while the cache is on, `miss` before a network call
+  through the cache, `hit` / `stale` / `revalidated` when served from the store.
+- **Not done (v1):** caching redirects or 3xx (needs W-POOL2's own redirect
+  following), several variants of one URL (a `Vary` mismatch replaces the
+  entry, as Chromium does), serving stale on upstream errors, updating an entry
+  from a `HEAD` or from a 304 to the client's own conditional, `If-Range`
+  (such requests skip the store). W-CACHE2 (clearing) builds on the partition
+  directories.
+
 ## The WebSocket pipe (QF19w1, `X-Wire-Features: ws`)
 
 Design: scratchy/TODO.txt QF19 (user, 2026-11-17: "wire as a pipe"). Code:

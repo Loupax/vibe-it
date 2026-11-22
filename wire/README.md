@@ -8,7 +8,12 @@ connection gets its own thread. It must be started by hand.
 
 ```
 wire [--socket <path>] [--print-socket] [--no-cookies] [--cookie-file <path>]
+     [--cache-dir <path>] [--cache-size <size>] [--no-cache]
 ```
+
+**wire writes to disk by default** (since W-CACHE1): its HTTP cache is on unless
+you pass `--no-cache`, and lives in `$XDG_CACHE_HOME/wire` (falling back to
+`~/.cache/wire`). See "HTTP cache" below.
 
 - `wire` listens on `$XDG_RUNTIME_DIR/wire.sock` (falling back to
   `/tmp/wire-$UID.sock`).
@@ -23,7 +28,62 @@ wire [--socket <path>] [--print-socket] [--no-cookies] [--cookie-file <path>]
   Format: a `# wire cookies v1` line, then one cookie per line, tab-separated,
   `%`-escaped. Cookies with no expiry date (session cookies) are not saved.
   Cannot be combined with `--no-cookies`.
+- `--cache-dir <path>` keeps the HTTP cache in `<path>` (created mode 0700;
+  one warning line when it is on tmpfs, whose pages stay in RAM).
+- `--cache-size <size>` is the cache limit (default `1G`; `K`/`M`/`G` suffixes).
+- `--no-cache` turns the cache off (no files written). Cannot be combined with
+  `--cache-dir` / `--cache-size`.
 - `WIRE_TIMING=1 wire` prints one timing line per request.
+
+## HTTP cache (W-CACHE1)
+
+A private RFC 9111 cache, on disk only: wire keeps no cache data in memory (no
+index, no hot-body tier); a lookup is one `open`, and hot entries live in the
+kernel's page cache. One file per entry at
+`<cache dir>/<sha256(top site)>/<sha256(cache key)>` (one directory per
+`X-Wire-Top-Site` partition; requests without it use the bucket of the empty
+site). Key: partition, jar on/off, `GET`, URL; then the response's `Vary`
+names are compared with the request headers wire sent (`User-Agent` after
+`X-Wire-User-Agent`, `Cookie` as the jar sends it; `Accept-Encoding` ignored).
+
+- Bodies stream into a temp file in the partition directory while they go to
+  the client and are renamed into place only once complete. A body that was cut
+  (upstream error, `Content-Length` mismatch) or is larger than an eighth of
+  `--cache-size` is not stored. Several wires may share one directory.
+- Eviction: a hit touches the file's mtime; at start-up, whenever a store takes
+  the cache over `--cache-size`, and once a minute while over, wire scans the
+  directory and deletes the oldest-mtime files until it is at 90% of the limit.
+- Stored: `GET` answers without `no-store`, `Vary: *`, a redirect, `206`, a
+  3xx, `X-Wire-Error`, a `Range` request; with `Authorization` only if
+  `public`, `must-revalidate` or `s-maxage`. `Set-Cookie` is never stored. Not
+  cached at all: `file:`, `--mount` origins, the cookie control channel, the
+  WebSocket pipe, `--record` and `--replay` runs (the cache is off there).
+- Freshness: `max-age`, then `Expires`, else 10% of (Date - Last-Modified),
+  at most 7 days, for heuristically cacheable statuses. `Age` is sent on every
+  stored answer. A stale entry with validators is revalidated
+  (`If-None-Match` / `If-Modified-Since`); a `304` updates the stored headers
+  and the client gets the stored `200`. `no-cache` = always revalidate,
+  `must-revalidate` = never serve stale, `immutable` = no revalidation on a
+  normal reload. `HEAD` and `Range` (one range, `206`/`416`) are answered from
+  a stored full `200`. A 2xx/3xx to POST/PUT/DELETE/PATCH drops the URL's
+  entries (and its same-origin `Location` / `Content-Location`).
+- Request control is the standard headers the Fetch `cache` modes send (they
+  are forwarded upstream too): nothing = `default`; `Cache-Control: no-store` =
+  skip the cache; `no-cache` (or `Pragma: no-cache`) = fetch unconditionally and
+  store; `max-age=0` = revalidate; `max-stale` = any stored copy, else network;
+  `only-if-cached` = a stored copy or `504` + `X-Wire-Error: only-if-cached`.
+  A client's own `If-None-Match` / `If-Modified-Since` is answered `304` from a
+  fresh entry whose validators match, otherwise passed upstream.
+- Security: under `X-Wire-Policy: public-only` an entry is used only if every
+  hop it came from was public; this is checked before anything is served from
+  it (else the request goes to the network and gets the usual `403 policy`).
+  A hit replays `X-Wire-Final-Url` / `X-Wire-Target-Class` / `X-Wire-Hop-Classes`
+  from the entry.
+- `X-Wire-Cache: hit|miss|revalidated|stale|bypass` is on every response while
+  the cache is on (scratchy strips it like every `X-Wire-*` header). wire adds
+  no `Cache-Status` entry; an upstream `Cache-Status` passes through.
+
+Code: `src/cache.rs`, tests `src/cache_tests.rs`. Details: NOTES.md "The HTTP cache".
 
 ## Cookie control token
 
@@ -50,10 +110,11 @@ never forwarded upstream. Without them wire behaves as a plain proxy.
 | `X-Wire-User-Agent: <ua>` | request | upstream `User-Agent` for this request (takes precedence over the request's own `User-Agent`); never forwarded as such |
 | `User-Agent` | request | forwarded upstream when no `X-Wire-User-Agent` is given; with neither, wire sends its honest default `wire/0.1 (+https://github.com/Loupax/vibe-it) ...` |
 | `X-Wire-Upgrade: websocket` | request | with `Connection: Upgrade` + `Upgrade: websocket`: the WebSocket pipe (below); without it an Upgrade request is an ordinary request |
-| `X-Wire-Features: ua,ws,jarfile` | response | comma-separated optional features, on every response (absent on an older wire); `ua` = the User-Agent override above, `ws` = the WebSocket pipe, `token` = cookie control requests need the control token (below), `jarfile` = `--cookie-file` and the `X-Wire-Cookie-Op: clear-site` control op (with `X-Wire-Top-Site` and `X-Wire-Jar: scratchy`; removes every cookie of that top-level site's partition, first-party and embedded third-party, answers 204, saves at once) |
-| `X-Wire-Version` | response | protocol version (currently 3), on every response |
+| `X-Wire-Cache: hit/miss/revalidated/stale/bypass` | response | how the HTTP cache answered (only while it is on) |
+| `X-Wire-Features: ua,ws,jarfile,token,cache` | response | comma-separated optional features, on every response (absent on an older wire); `ua` = the User-Agent override above, `ws` = the WebSocket pipe, `token` = cookie control requests need the control token (below), `jarfile` = `--cookie-file` and the `X-Wire-Cookie-Op: clear-site` control op (with `X-Wire-Top-Site` and `X-Wire-Jar: scratchy`; removes every cookie of that top-level site's partition, first-party and embedded third-party, answers 204, saves at once), `cache` = the HTTP cache (protocol version 4) |
+| `X-Wire-Version` | response | protocol version (currently 4), on every response |
 | `X-Wire-Final-Url`, `X-Wire-Target-Class`, `X-Wire-Hop-Classes` | response | URL after redirects, address classes |
-| `X-Wire-Error` | response | on wire-made errors (`1`, `too-large`, `policy`, `cookie-control`, `bad-user-agent`) |
+| `X-Wire-Error` | response | on wire-made errors (`1`, `too-large`, `policy`, `cookie-control`, `bad-user-agent`, `only-if-cached`) |
 | `X-Wire-Cookies: on/off` | response | jar used / disabled |
 
 The chosen User-Agent must be printable ASCII (space allowed), at most 512
