@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-22 · main c32b311 · 98 PRs merged since 2026-11-21 morning (#475–#572) · installed 06:53 (ebb022e) · 5 agents running (QAPI2, QAPI4, QAPI5, QAPI6, QDOM16 rebasing) · merging: #560</div>
+  <div class="meta" id="updated">Updated 2026-11-22 · main ea48946 · 99 PRs merged since 2026-11-21 morning (#475–#572) · installed 06:53 (ebb022e) · 5 agents running (QAPI3, QAPI6, QAPI7, QCE1, QEL7)</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -74,7 +74,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Measurements</h2>
   <div class="stats">
     <div class="stat"><span class="v">340 / 626</span><span class="l">WPT visual CSS tests passing (reftests), now checked in CI</span></div>
-    <div class="stat"><span class="v">37.0</span><span class="l">WPT JavaScript tests, mean score per file (0–100) over the phase-1 subset: 3,264 files, 23 areas; 53.2% of 42,813 subtests pass (more files run now). Baseline 28.4 (#504); every PR is gated on it in CI since #507</span></div>
+    <div class="stat"><span class="v">37.4</span><span class="l">WPT JavaScript tests, mean score per file (0–100) over the phase-1 subset: 3,264 files, 23 areas; 54.4% of 42,864 subtests pass (more files run now). Baseline 28.4 (#504); every PR is gated on it in CI since #507</span></div>
     <div class="stat"><span class="v">1852 / 1852</span><span class="l">Unit and integration tests passing, engine on and off (CI runs both)</span></div>
     <div class="stat"><span class="v">0</span><span class="l">Engine mismatches on the 7 test pages (check mode)</span></div>
   </div>
@@ -111,6 +111,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#560</td><td>QDOM17</td><td>Document members per spec (doctype, characterSet, compatMode, contentType, URL…); dom/nodes 66.6 → 67.4</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#571</td><td>QAPI4</td><td><code>document.fonts</code> and <code>FontFace</code> (web fonts are still not rendered; <code>load()</code> fetches through wire and drops the bytes); github's 61 <code>.ready</code> errors gone</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#572</td><td>QAPI5</td><td>ARIA properties (<code>role</code>, 42 <code>aria*</code>) and shadow-DOM slot assignment; HTMLSlotElement-interface 1 → 18/18</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#570</td><td>QAPI2</td><td><code>navigator</code> members pages probe (webdriver, connection, userAgentData, plugins…) as fixed values, nothing read from your machine; 5 missing-API rows gone</td></tr>
