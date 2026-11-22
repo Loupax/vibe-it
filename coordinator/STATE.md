@@ -272,3 +272,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #580 false 'CI NOT green' (both runs success): merge_pr.sh waitci sleeps only 40 s, then 'gh pr checks --watch' finds no checks yet under load and returns non-green. Fix (wait until checks exist for the pushed sha) to apply when NO merge chain is running. #580 retry queued after #581.
 - 2026-11-22 #582 QDOM18 READY (pre-insert validity; nodes 67.4 -> 67.9) but ytr script CPU main 613/569/1535 vs branch 1541/1274/1417 ms: not merged yet; agent re-measuring (6 interleaved pairs + insert micro-benchmark).
 - 2026-11-22 Merged #581 QWPT6d a509754 (html/editing in the subset). Sent #579 rebase.
+- 2026-11-22 #583 QDOM19 READY (name validation; 6 files up), queued after #580. Filed QDOM19b. Launched QEDIT-A.

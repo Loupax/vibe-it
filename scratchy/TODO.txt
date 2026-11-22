@@ -164,6 +164,8 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QDOM15b [S] (P3, from QDOM15 #559; Sonnet) Event `timeStamp` > 0 on the manual/virtual clock (time origin offset;
       Event-constructors.any 2 subtests); event attributes as prototype getters instead of own data properties
       (idlharness checks); getModifierState and legacy init* methods for the newer event interfaces.
+- [ ] QDOM19b [S] (P3, from QDOM19 #583; Sonnet) Triage the remaining Document-createElement (49/147) and
+      Document-createElementNS (203/596) failures (XML/XHTML contentType documents? namespace cases?) and file S items.
 - [ ] QDOM10b [S] (P3, from QDOM10 #580; Sonnet; js.rs dispatch, iframe realms) window.event across realms: constructors
       from another global (EventTarget, XMLHttpRequest), an element from another document, a listener from a different
       global, window.event after moving an element post-dispatch (event-global-extra.window.html 1/6), onerror restoring
@@ -189,7 +191,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       (313 subset files mention it; they end in `action_sequence() is not implemented`): either apply the source filter
       to every area and re-record, or give the runner a minimal testdriver vendor (action_sequence/click/send_keys through
       the existing trusted-input paths). Say which, with the file counts per area.
-- [ ] QEDIT-A [S] (P3, from QWPT6d #581; Sonnet; js_dom.rs) Reflection: contentEditable enumerated values + throws,
+- [ ] [WIP] QEDIT-A [S] (P3, from QWPT6d #581; Sonnet; js_dom.rs) Reflection: contentEditable enumerated values + throws,
       isContentEditable, designMode, spellcheck, autocapitalize, autocorrect, writingSuggestions (~11 html/editing files).
 - [ ] QEDIT-B [S] (P3, from QWPT6d #581; Sonnet) `draggable` IDL attribute, DataTransfer / DataTransferItemList (data
       store only, no drag UI) (9 files).
