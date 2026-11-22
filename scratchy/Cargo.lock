@@ -2575,6 +2575,7 @@ dependencies = [
  "cssparser",
  "cssparser-color",
  "encoding_rs",
+ "flate2",
  "fontdb",
  "html5ever",
  "image",

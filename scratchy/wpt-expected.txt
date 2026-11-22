@@ -346,7 +346,7 @@ PASS css/css-conditional/at-supports-004.html
 PASS css/css-conditional/at-supports-016.html
 PASS css/css-conditional/at-supports-028.html
 PASS css/css-conditional/at-supports-043.html
-FAIL css/css-conditional/at-supports-content-002.html
+PASS css/css-conditional/at-supports-content-002.html
 PASS css/css-conditional/at-supports-content-003.html
 FAIL css/css-conditional/at-supports-selector-details-content.html
 FAIL css/css-conditional/container-queries/display-in-container.html

@@ -138,6 +138,7 @@ mod js_style;
 mod js_geom;
 mod ro_geom; // QEL2b: ResizeObserver boxes from the rendering update's layout
 mod link_css;
+mod webfonts; // QFF1a: @font-face web fonts
 // QSTASH1: the localStorage state directory (STASH.md); QSTASH2: localStorage over it.
 #[cfg_attr(not(test), allow(dead_code))] // clear/forget: `--forget-site` is a later QSTASH item
 mod stash;

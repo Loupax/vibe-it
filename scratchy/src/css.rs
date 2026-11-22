@@ -1932,17 +1932,27 @@ impl FontFamily {
     /// rebuild the match list for all installed faces (about 71 font files
     /// opened and mmapped per span). That was R32 (~10-37x slower shaping
     /// on every page); the guard test is `layout_shaping_never_wipes_font_cache`.
+    ///
+    /// QFF1a: a named family some `@font-face` declares tries its loaded web faces first (the
+    /// per-page mangled family, `webfonts::lookup`, which also notes the face as wanted); the
+    /// cache is cleared whenever this thread's font system gains or loses web faces.
     pub(crate) fn resolve(self, db: &fontdb::Database, weight: FontWeight, style: FontStyle) -> CosmicFamily<'static> {
-        thread_local! {
-            static CACHE: RefCell<HashMap<(FontFamily, FontWeight, FontStyle), CosmicFamily<'static>>> =
-                RefCell::new(HashMap::new());
-        }
         let key = (self, weight, style);
-        if let Some(cached) = CACHE.with(|c| c.borrow().get(&key).copied()) {
+        if let Some(cached) = FAMILY_CACHE.with(|c| c.borrow().get(&key).copied()) {
             return cached;
         }
         let mut resolved = CosmicFamily::SansSerif;
         for item in self.0.iter().copied() {
+            if let FontFamilyItem::Name(n) = item
+                && let Some(web) = crate::webfonts::lookup(n, weight, style)
+            {
+                let family = CosmicFamily::Name(web);
+                let query = fontdb::Query { families: std::slice::from_ref(&family), weight, style, ..Default::default() };
+                if db.query(&query).is_some() {
+                    resolved = family;
+                    break;
+                }
+            }
             let family = item.to_cosmic();
             let query = fontdb::Query {
                 families: std::slice::from_ref(&family),
@@ -1955,9 +1965,20 @@ impl FontFamily {
                 break;
             }
         }
-        CACHE.with(|c| c.borrow_mut().insert(key, resolved));
+        FAMILY_CACHE.with(|c| c.borrow_mut().insert(key, resolved));
         resolved
     }
+}
+
+thread_local! {
+    /// `FontFamily::resolve`'s memo (see its docs).
+    static FAMILY_CACHE: RefCell<HashMap<(FontFamily, FontWeight, FontStyle), CosmicFamily<'static>>> =
+        RefCell::new(HashMap::new());
+}
+
+/// QFF1a: forgets this thread's family resolutions (web faces came or went, or the declared set changed).
+pub(crate) fn clear_family_cache() {
+    FAMILY_CACHE.with(|c| c.borrow_mut().clear());
 }
 
 /// QY53f1c: a style rule. The declaration block is kept as its source text
@@ -5836,6 +5857,8 @@ pub(crate) fn parse_declarations_split(source: &str) -> (Declarations, Declarati
 
 /// Prelude of a top-level at-rule we understand.
 pub(crate) enum AtPrelude {
+    /// QFF1a: `@font-face`.
+    FontFace,
     Media(Vec<MediaQuery>),
     /// `@supports`: the condition's truth value, evaluated up front.
     Supports(bool),
@@ -5987,16 +6010,19 @@ pub(crate) struct TopLevelParser {
     prefix: Vec<String>,
     /// `@keyframes` seen so far, in source order (QAN1a).
     keyframes: Vec<KeyframesDef>,
+    /// QFF1a: `@font-face` rules seen so far, in source order.
+    font_faces: Vec<crate::webfonts::FaceRule>,
 }
 
 impl TopLevelParser {
     /// A parser for a block's contents (same layer registry, `prefix`).
     fn nested(&mut self, prefix: Vec<String>) -> TopLevelParser {
-        TopLevelParser { layers: std::mem::take(&mut self.layers), prefix, keyframes: Vec::new() }
+        TopLevelParser { layers: std::mem::take(&mut self.layers), prefix, keyframes: Vec::new(), font_faces: Vec::new() }
     }
     fn absorb(&mut self, nested: TopLevelParser) {
         self.layers = nested.layers;
         self.keyframes.extend(nested.keyframes);
+        self.font_faces.extend(nested.font_faces);
     }
 }
 
@@ -6021,7 +6047,10 @@ impl<'i> AtRuleParser<'i> for TopLevelParser {
         name: CowRcStr<'i>,
         input: &mut CssParser<'i>,
     ) -> Result<Self::Prelude, ParseError<Self::Error>> {
-        if name.eq_ignore_ascii_case("media") {
+        if name.eq_ignore_ascii_case("font-face") {
+            input.expect_exhausted()?;
+            Ok(AtPrelude::FontFace)
+        } else if name.eq_ignore_ascii_case("media") {
             Ok(AtPrelude::Media(parse_media_query_list(input)))
         } else if name.eq_ignore_ascii_case("supports") {
             // Unparseable conditions are false (rules dropped), never an error.
@@ -6065,6 +6094,14 @@ impl<'i> AtRuleParser<'i> for TopLevelParser {
     ) -> Result<Self::AtRule, ParseError<Self::Error>> {
         let mut layer_path: Option<Vec<String>> = None;
         let (prelude, supported) = match prelude {
+            AtPrelude::FontFace => {
+                let start = input.position();
+                while input.next().is_ok() {}
+                if let Some(face) = crate::webfonts::parse_face_block(input.slice_from(start), Vec::new()) {
+                    self.font_faces.push(face);
+                }
+                return Ok(Vec::new());
+            }
             AtPrelude::Keyframes(name) => {
                 let kf = parse_keyframes_block(input);
                 self.keyframes.push((name, Vec::new(), kf));
@@ -6134,6 +6171,9 @@ impl<'i> AtRuleParser<'i> for TopLevelParser {
         }
         for k in nested.keyframes.iter_mut().filter(|k| k.1.is_empty()) {
             k.1 = prelude.clone();
+        }
+        for f in nested.font_faces.iter_mut().filter(|f| f.media.is_empty()) {
+            f.media = prelude.clone();
         }
         self.absorb(nested);
         Ok(rules)
@@ -6223,6 +6263,7 @@ pub(crate) fn parse_stylesheet_into(css: &str, rules: &mut Vec<StyleRule>) -> Ke
             r.layer = ranks[(r.layer - 2) as usize] + 2;
         }
     }
+    crate::webfonts::stash_parsed(std::mem::take(&mut top.font_faces));
     build_registry(top.keyframes)
 }
 

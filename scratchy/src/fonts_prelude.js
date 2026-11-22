@@ -1,10 +1,12 @@
 // QAPI4: `document.fonts` (FontFaceSet), `FontFace` and `FontFaceSetLoadEvent`. Runs after the CSSOM prelude.
-// scratchy does not render web fonts (@font-face rules are skipped by css.rs), so this layer is bookkeeping over
-// the fonts the page declares: the document's set mirrors the @font-face rules of its style sheets (read lazily
-// through document.styleSheets, one FontFace per rule, status 'unloaded') plus the faces the page adds. A face's
-// `load()` fetches its first url() source through the page's `fetch` (so only wire ever sees the request: this
-// file opens no sockets), keeps the bytes unused, and moves the face to 'loaded' or 'error'. Families that no
-// face names are "system fonts": `check()` is true for them and `load()` resolves with an empty list.
+// The document's set mirrors the @font-face rules of its style sheets (read lazily through document.styleSheets,
+// one FontFace per rule) plus the faces the page adds. QFF1a: the faces are real. A rule's face follows the
+// load the renderer started for it (`__scratchy_font_state(key)`, re-read by `__scratchy_fonts_sync`, which the
+// App calls when a load starts or ends). A face's `load()` fetches its first supported url() source through the
+// page's `fetch` (so only wire ever sees the request: this file opens no sockets); the bytes are decoded by
+// `__scratchy_font_add` (a face in document.fonts: used for rendering) or `__scratchy_font_check`, and the face
+// ends 'loaded' or 'error'. Families that no face names are "system fonts": `check()` is true for them and
+// `load()` resolves with an empty list.
 (function (g) {
   var ET = g.EventTarget;
   function def(o, name, v) { Object.defineProperty(o, name, { value: v, writable: true, configurable: true, enumerable: false }); }
@@ -13,12 +15,34 @@
   function quiet(p) { p.then(null, function () {}); return p; }
   function ctor(name, fn) { return ({ [name]: fn })[name]; }
   var TOKEN = {};
+  var nat = function (n) { return typeof g[n] === 'function' ? g[n] : null; };
+  var fState = nat('__scratchy_font_state'), fAdd = nat('__scratchy_font_add'), fCheck = nat('__scratchy_font_check'), fRemove = nat('__scratchy_font_remove');
+  var serial = 0;
 
   // ---- descriptor parsing helpers ----
-  var SRC_RE = /^\s*(?:(?:url\(\s*(?:"[^"]*"|'[^']*'|[^)\s]*)\s*\)|local\(\s*[^)]*\))(?:\s*format\([^)]*\))?(?:\s*tech\([^)]*\))?\s*(?:,|$))+\s*$/;
+  var SRC_RE = /^(?:\s*(?:url\(\s*(?:"[^"]*"|'[^']*'|[^)\s]*)\s*\)|local\(\s*[^)]*\))(?:\s*format\([^)]*\))?(?:\s*tech\([^)]*\))?\s*(?:,|$))+\s*$/;
   function firstUrl(src) {
     var m = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)\s]*))\s*\)/.exec(src);
     return m ? (m[1] !== undefined ? m[1] : m[2] !== undefined ? m[2] : m[3]) : null;
+  }
+  // QFF1a: the registry key of a face: family (whitespace collapsed, lower case) | the first source as written.
+  function famKey(f) { return unquote(f).replace(/\s+/g, ' ').trim().toLowerCase(); }
+  function srcKey(src) {
+    var first = splitTop(String(src || ''), ',')[0] || '', m;
+    if (/^\s*local\(/i.test(first)) { m = /local\(([\s\S]*)\)/i.exec(first); return 'local(' + unquote(m ? m[1] : '').replace(/\s+/g, ' ').trim() + ')'; }
+    return firstUrl(first) || '';
+  }
+  // The first url() whose format scratchy decodes (ttf/otf/woff; woff2, svg and eot are skipped).
+  function usableUrl(src) {
+    var items = splitTop(String(src || ''), ','), i, u, f;
+    for (i = 0; i < items.length; i++) {
+      u = firstUrl(items[i]);
+      if (u === null) continue;
+      f = /format\(\s*["']?([^"')]*)/i.exec(items[i]);
+      if (f) { if (/^(truetype|opentype|woff|collection)$/i.test(f[1].trim())) return u; continue; }
+      if (!/\.(woff2|svgz?|eot)(?:[?#]|$)/i.test(u)) return u;
+    }
+    return null;
   }
   function unquote(s) { s = String(s).trim(); var m = /^(["'])(.*)\1$/.exec(s); return m ? m[2] : s; }
   function splitTop(text, sep) {
@@ -60,14 +84,18 @@
     hid(this, '__res', res);
     hid(this, '__rej', rej);
     hid(this, '__inflight', null);
+    hid(this, '__key', 'js:' + (++serial));
+    hid(this, '__bytes', null);
+    hid(this, '__css', false);
     if (typeof source === 'string') {
       if (SRC_RE.test(source)) this.__src = source;
       else { setStatus(this, 'error'); rej(DE("Failed to construct 'FontFace': The value provided ('" + source + "') could not be parsed as a value list.", 'SyntaxError')); }
     } else if (source && (source instanceof ArrayBuffer || ArrayBuffer.isView(source))) {
       this.__src = '<binary>';
       setStatus(this, 'loading');
-      // Binary data is decoded in the background; scratchy keeps no font, so it simply finishes.
-      g.queueMicrotask(function () { finish(self, null); });
+      var view = source instanceof ArrayBuffer ? new Uint8Array(source.slice(0)) : new Uint8Array(source.buffer.slice(source.byteOffset, source.byteOffset + source.byteLength));
+      // Decoded in the background (a microtask), like browsers do.
+      g.queueMicrotask(function () { gotBytes(self, view); });
     } else {
       setStatus(this, 'error');
       rej(DE("Failed to construct 'FontFace': The source provided is neither a string nor a buffer.", 'SyntaxError'));
@@ -90,18 +118,49 @@
   });
 
   // Face state changes are reported to every set holding the face.
+  function inDoc(face) { return face.__sets.indexOf(docSet) >= 0; }
+  // Decoded bytes: a face in document.fonts is added to the font systems, any other one only checked.
+  function gotBytes(face, bytes) {
+    face.__bytes = bytes;
+    var ok = inDoc(face) && fAdd ? fAdd(face.__key, face.__family, bytes, face.__d.weight, face.__d.style)
+      : fCheck ? fCheck(bytes) : true;
+    finish(face, ok ? null : new Error('not a font'));
+  }
   function startLoad(face) {
     setStatus(face, 'loading');
     face.__sets.forEach(function (s) { s.__begin(face); });
-    var url = face.__src ? firstUrl(face.__src) : null;
-    if (!url || /^data:/i.test(url) || typeof g.fetch !== 'function') { g.queueMicrotask(function () { finish(face, null); }); return; }
+    // A stylesheet face the renderer is already loading: `__scratchy_fonts_sync` finishes it.
+    if (face.__css && fState) {
+      var st = fState(face.__key);
+      if (st === 'loading') return;
+      if (st === 'loaded') { g.queueMicrotask(function () { finish(face, null); }); return; }
+    }
+    var url = face.__src ? usableUrl(face.__src) : null;
+    // Only local() sources: the system font (or the fallback) is what renders; nothing to fetch.
+    if (!url && face.__src && /local\(/i.test(face.__src)) { g.queueMicrotask(function () { finish(face, null); }); return; }
+    if (!url || typeof g.fetch !== 'function') { g.queueMicrotask(function () { finish(face, new Error('no usable source')); }); return; }
     var abs;
     try { abs = new g.URL(url, face.__base || g.location.href).href; } catch (e) { abs = url; }
     g.fetch(abs).then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.arrayBuffer();
-    }).then(function () { finish(face, null); }, function (e) { finish(face, e || new Error('fetch failed')); });
+    }).then(function (ab) { gotBytes(face, new Uint8Array(ab)); }, function (e) { finish(face, e || new Error('fetch failed')); });
   }
+  // QFF1a: stylesheet faces follow the renderer's loads (called by the App when a load starts or ends).
+  function syncCss() {
+    if (!fState) return;
+    var faces = cssFaces(), i, f, st;
+    for (i = 0; i < faces.length; i++) {
+      f = faces[i];
+      st = fState(f.__key);
+      if (f.__status === 'unloaded' && st !== 'unloaded') {
+        setStatus(f, 'loading');
+        f.__sets.forEach(function (s) { s.__begin(f); });
+      }
+      if (f.__status === 'loading' && (st === 'loaded' || st === 'error')) finish(f, st === 'error' ? new Error('font load failed') : null);
+    }
+  }
+  hid(g, '__scratchy_fonts_sync', syncCss);
   function finish(face, err) {
     if (face.__status !== 'loading') return;
     if (err) {
@@ -206,6 +265,8 @@
     this.__faces.push(face);
     if (face.__sets.indexOf(this) < 0) face.__sets.push(this);
     if (face.__status === 'loading') this.__begin(face);
+    // QFF1a: a loaded script face added to document.fonts is used for rendering from now on.
+    if (this === docSet && face.__status === 'loaded' && face.__bytes && fAdd) fAdd(face.__key, face.__family, face.__bytes, face.__d.weight, face.__d.style);
     return this;
   });
   def(P, 'delete', function (face) {
@@ -214,6 +275,7 @@
     this.__faces.splice(i, 1);
     j = face.__sets.indexOf(this);
     if (j >= 0) face.__sets.splice(j, 1);
+    if (this === docSet && fRemove && !face.__css) fRemove(face.__key);
     return true;
   });
   def(P, 'clear', function () {
@@ -276,8 +338,14 @@
     f = new FontFace(unquote(d['font-family'] || ''), d.src || 'local(x)', desc);
     if (f.__status === 'error') { f.__status = 'unloaded'; f.__src = null; } // an unparsable `src` stays a declared, never-loadable face
     try { f.__base = sheet.href || g.document.baseURI; } catch (e) {}
+    f.__css = true;
+    f.__key = famKey(d['font-family'] || '') + '|' + srcKey(d.src || '');
     f.__sets.push(docSet);
     byRule.set(rule, f);
+    // The renderer may have loaded it already (a face it is still loading is picked up by the next sync).
+    var st = fState ? fState(f.__key) : 'unloaded';
+    if (st === 'loaded') { setStatus(f, 'loaded'); f.__res(f); }
+    else if (st === 'error') { setStatus(f, 'error'); f.__rej(DE('A network error occurred.', 'NetworkError')); }
     return f;
   }
   function cssFaces() {

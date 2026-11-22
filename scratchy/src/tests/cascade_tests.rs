@@ -2020,13 +2020,13 @@ fn css_debug_distinguishes_duplicates_dropped_selectors_and_at_rules() {
     parse_stylesheet(
         "p { color: red; color: red; frobnicate: 3; }\
          p::bogus { color: blue; }\
-         @font-face { font-family: x; }",
+         @counter-style x { system: cyclic; }",
     );
     let lines = CSS_DEBUG_CAPTURE.with(|c| c.borrow_mut().take().unwrap());
     assert!(lines.iter().any(|l| l == "scratchy: css: ignored `frobnicate: 3`"), "{lines:?}");
     assert!(!lines.iter().any(|l| l.contains("ignored `color")), "{lines:?}");
     assert!(lines.iter().any(|l| l == "scratchy: css: dropped selector `p::bogus`"), "{lines:?}");
-    assert!(lines.iter().any(|l| l == "scratchy: css: dropped @font-face"), "{lines:?}");
+    assert!(lines.iter().any(|l| l == "scratchy: css: dropped @counter-style"), "{lines:?}");
 }
 
 /// Q10: `@supports` conditions gate their block.

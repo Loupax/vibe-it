@@ -4186,7 +4186,48 @@ not `hidden`). While it shows, `page_size()` / `page_viewport_hb` are `TRACK_W` 
 `innerHeight`, JS viewport, vertical bar); the strip above the status bar is filled with the canvas colour and
 `paint_viewport_hbar` draws the bar, plus the corner when the vertical bar shows. A change of `hbar` redoes the frame.
 ### document.fonts (QAPI4)
-`src/fonts_prelude.js` (after the CSSOM prelude; `FONTS_PRELUDE` in js.rs, in `realm_preludes` and `PRELUDE_SCRIPTS`). Bookkeeping only: css.rs still skips `@font-face` and no web font is ever rendered. `document.fonts` is a `FontFaceSet` whose members are the `@font-face` rules of `document.styleSheets` (a `FontFace` cached per rule object, status `unloaded`; re-read on every access, so rules added later appear) plus faces added by script. `FontFace.load()` / `fonts.load(font)` fetch the first `url()` source with the page `fetch` (so only wire sees it), discard the bytes and set `loaded`/`error`; `check(font)` is true when every face matching the font shorthand's families is `loaded` (true for unknown = system families). Set status/events: `loading` on the first pending face, `loadingdone`/`loadingerror` from a timer once none is pending; `ready` is a lazily created promise (do not create promises while a prelude runs: the leftover job keeps a dropped iframe realm alive, QPT1b nosnap heap test). Not done: matching by weight/style/unicode-range, `FontFace` in workers, loading `local()` fonts for real.
+`src/fonts_prelude.js` (after the CSSOM prelude; `FONTS_PRELUDE` in js.rs, in `realm_preludes` and `PRELUDE_SCRIPTS`). (QFF1a: faces are real now; see "Web fonts (QFF1a)" below.) `document.fonts` is a `FontFaceSet` whose members are the `@font-face` rules of `document.styleSheets` (a `FontFace` cached per rule object, status `unloaded`; re-read on every access, so rules added later appear) plus faces added by script. `FontFace.load()` / `fonts.load(font)` fetch the first `url()` source with the page `fetch` (so only wire sees it), discard the bytes and set `loaded`/`error`; `check(font)` is true when every face matching the font shorthand's families is `loaded` (true for unknown = system families). Set status/events: `loading` on the first pending face, `loadingdone`/`loadingerror` from a timer once none is pending; `ready` is a lazily created promise (do not create promises while a prelude runs: the leftover job keeps a dropped iframe realm alive, QPT1b nosnap heap test). Not done: matching by weight/style/unicode-range, `FontFace` in workers, loading `local()` fonts for real.
+
+### Web fonts (QFF1a, src/webfonts.rs)
+- **Rules:** css.rs `TopLevelParser` parses `@font-face` (also inside `@media`, which is kept on the rule, and true
+  `@supports`) into `webfonts::FaceRule` (family, `src` list of `url()`+`format()` / `local()`, weight or weight range,
+  style, `unicode-range`; `font-display` ignored = swap). `parse_stylesheet_into` stashes them in a thread-local; the rules
+  cache keeps them per piece (`Piece::ff`) and publishes the page's list on every `cached_rules` (`publish_declared`, a
+  pointer/value compare when unchanged). `@media` is evaluated at publish time.
+- **Use:** `FontFamily::resolve` asks `webfonts::lookup` for each named family on a cache miss: a declared family marks
+  the best face for the requested (weight, style) as wanted (style first, then weight; a face whose `unicode-range` misses
+  Basic Latin only when nothing else fits; at most 64 per page), and a family with a loaded face resolves to its mangled
+  per-page name `"<family> \u{2063}wf<page>"` (tried with `db.query` first, so a font system that has not synced yet
+  falls through to the next family).
+- **Loading:** `App::webfonts_tick` (start of `js_sync`, i.e. after every event batch and script task) drains the wanted
+  faces: `local()` is looked up in the App's system fonts (bytes copied), `url()` sources are fetched in order on a thread
+  per face through wire (`load_sources` / `fetch_font_bytes`: credentials same-origin, partition headers, `Origin` +
+  ACAO check cross-origin, 2xx only; woff2/svg/eot skipped by `format()` or extension; `data:` decoded in place), woff 1.0
+  is inflated to sfnt (flate2), the first face is parsed with a throwaway fontdb. `AppEvent::FontFetched` (nav
+  generation + registry page guard) registers it: its `FaceInfo` gets the mangled family and the descriptor's weight
+  (clamped into the range) and style.
+- **Font systems:** the registry (one per App: `webfonts::handle`/`install`, the shaping worker installs its App's; any
+  other thread gets its own, so parallel tests are isolated) keeps an append-only log of face adds/removes. `sync(fs,
+  &mut FontSync)` replays it into a font system: App (`App::font_sync`), worker (each request), forced layout
+  (`js_geom::FONTS_SYNC`, also `sync_forced_fonts`), reftest renderer. Same ops in the same order = the same fontdb ids
+  everywhere (the worker shapes, the App paints); a removed slot replays as a dummy add + remove so a late joiner matches.
+  A sync that removed faces rebuilds the `FontSystem` around its database (cosmic-text's font cache holds the bytes). Any
+  change clears that thread's `FontFamily::resolve` cache and shape memo; the worker also drops its shape cache.
+- **Relayout:** a face that arrives (`webfonts_tick`): App + forced-layout fonts synced, `incr_style::drop_engines()`
+  (the kept trees were shaped with the fallback), `document.fonts` re-synced, `restyle_requested` and the image-arrival
+  debounce (a burst of faces is one relayout; the old frame stays up until the new one is shaped). `GeomCache` also keys on
+  `webfonts::generation()` (taken after the layout, so a first parse's publish does not make it stale).
+- **Navigation:** `App::replace_document` calls `webfonts::new_page()` (every face removed, page number bumped) and syncs.
+- **document.fonts:** a rule's `FontFace` key is `family|first source` (same as `FaceRule::key`); its status follows
+  `__scratchy_font_state` (`__scratchy_fonts_sync` is called by the App when a load starts or ends). `FontFace.load()`
+  fetches the first usable url through page `fetch` and hands the bytes to `__scratchy_font_add` (in `document.fonts`:
+  used for rendering) or `__scratchy_font_check`; binary sources the same; `document.fonts.delete` of a script face calls
+  `__scratchy_font_remove`. So `--wpt-th-one` gets script faces too, but not CSS-driven loads (no App).
+- **Reftests (`--wpt`):** `Renderer::render_inner` starts a page per test, lays out, loads the wanted faces synchronously
+  from the checkout (`load_wanted_now`), and lays out again (at most 3 rounds).
+- Not done: woff2 (QFF1b); `unicode-range` beyond picking one face per (weight, style) (a second subset is never used for
+  the characters the first lacks); `size-adjust`/`ascent-override`; variable-font axes beyond cosmic-text's own weight
+  handling; CSS-driven loads in `--wpt-th-one`.
 
 ### Pre-insert validity (QDOM18)
 `appendChild`/`insertBefore`/`replaceChild` (js_dom.rs) call `cnCheck` ("ensure pre-insert validity", `replace` = the replace variant) before any native edit, then `rawIns` (`__d_insert` + the after-insertion hook). Fast path: an Element parent with an Element/Text/CDATA/PI/Comment/Fragment node skips `cnCheck` (the native insert refuses an inclusive ancestor); an `insertBefore` ref that is not a child still goes through `cnCheck` so the error order is spec (ancestor HierarchyRequestError before NotFoundError). The ParentNode/ChildNode mixins (QDOM16) use `cnCheck` + `rawIns` directly. Nothing is mutated and no mutation record is queued when a check throws.

@@ -454,6 +454,41 @@ fn fetch_raw_detailed(
     }
 }
 
+/// QFF1a: a sub-resource response with the CORS response headers (font fetches check them).
+pub(crate) struct SubResponse {
+    pub(crate) status: u16,
+    pub(crate) body: Vec<u8>,
+    /// `Access-Control-Allow-Origin` / `-Credentials`, when present.
+    pub(crate) cors_headers: Vec<(String, String)>,
+}
+
+/// QFF1a: `fetch_raw_sub` keeping the CORS headers. `None` when wire could not be reached.
+pub(crate) fn fetch_raw_sub_headers(path: &std::path::Path, request_text: &str) -> Option<SubResponse> {
+    let read = || -> Result<Vec<u8>, String> {
+        let mut stream = UnixStream::connect(path).map_err(|e| describe_os_error(&e))?;
+        let _ = stream.set_read_timeout(Some(RequestPolicy::default().legacy_idle_timeout));
+        stream.write_all(request_text.as_bytes()).map_err(|e| describe_os_error(&e))?;
+        let mut buf = Vec::new();
+        stream.read_to_end(&mut buf).map_err(|e| describe_os_error(&e))?;
+        Ok(buf)
+    };
+    let buf = match read() {
+        Ok(b) => b,
+        Err(e) => {
+            note_wire_skip(Some(path), &e);
+            return None;
+        }
+    };
+    let (_, body) = parse_wire_response(&buf).ok()?;
+    let mut cors_headers = Vec::new();
+    for h in ["access-control-allow-origin", "access-control-allow-credentials"] {
+        if let Some(v) = raw_response_header(&buf, h) {
+            cors_headers.push((h.to_string(), v));
+        }
+    }
+    Some(SubResponse { status: raw_status_code(&buf), body, cors_headers })
+}
+
 /// `io::Error` as `<text>, os error N` (the std Display is
 /// `<text> (os error N)`, which would nest parentheses in the QWU1 line).
 pub(crate) fn describe_os_error(e: &io::Error) -> String {

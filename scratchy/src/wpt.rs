@@ -150,6 +150,8 @@ pub fn strip_cdata(path: &Path, html: String) -> String {
 }
 
 pub struct Renderer {
+    /// QFF1a: `font_system`'s position in the web-font log.
+    font_sync: crate::webfonts::FontSync,
     font_system: FontSystem,
     swash_cache: SwashCache,
     cache: HashMap<PathBuf, Rc<Vec<u32>>>,
@@ -161,7 +163,7 @@ pub struct Renderer {
 
 impl Renderer {
     pub fn new(extra_fonts: &[PathBuf]) -> Self {
-        Renderer { font_system: new_font_system_with(extra_fonts), swash_cache: SwashCache::new(), cache: HashMap::new(), root: None, print: false }
+        Renderer { font_system: new_font_system_with(extra_fonts), font_sync: Default::default(), swash_cache: SwashCache::new(), cache: HashMap::new(), root: None, print: false }
     }
 
     /// Resolve a stylesheet/image href. Root-relative ones (`/fonts/ahem.css`,
@@ -228,14 +230,35 @@ impl Renderer {
             }
         }
         set_document_clock(0.0);
-        let tree = build_layout_tree_with_resources(&dom.document, win_w as f32, Some(win_h as f32), &extra_css, &images);
-        let mut shape_cache = ShapeCache::new();
-        let mut next_id = 0usize;
-        let mut incomplete = false;
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
-        let laid = measure_document(
-            &tree, &mut self.font_system, win_w as f32, win_h as f32, &mut next_id, &mut shape_cache, deadline, &mut incomplete,
-        );
+        // QFF1a: each test is a page of its own; its @font-face faces load synchronously from the
+        // checkout once the first layout has asked for them, then the page is laid out again.
+        crate::webfonts::new_page();
+        crate::webfonts::sync(&mut self.font_system, &mut self.font_sync);
+        let mut shape_cache;
+        let mut laid;
+        let mut pass = 0;
+        loop {
+            let tree = build_layout_tree_with_resources(&dom.document, win_w as f32, Some(win_h as f32), &extra_css, &images);
+            shape_cache = ShapeCache::new();
+            let mut next_id = 0usize;
+            let mut incomplete = false;
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            laid = measure_document(
+                &tree, &mut self.font_system, win_w as f32, win_h as f32, &mut next_id, &mut shape_cache, deadline, &mut incomplete,
+            );
+            pass += 1;
+            let fetch = |u: &str| -> Option<Vec<u8>> {
+                if let Some(b) = crate::images::decode_data_uri(u) {
+                    return Some(b);
+                }
+                let p = self.resolve_resource(&base, u).ok()?.to_file_path().ok()?;
+                fs::read(p).ok()
+            };
+            if pass > 3 || !crate::webfonts::load_wanted_now(self.font_system.db(), fetch) {
+                break;
+            }
+            crate::webfonts::sync(&mut self.font_system, &mut self.font_sync);
+        }
         let mut pixels = vec![0x00FF_FFFFu32; (win_w * win_h) as usize];
         paint(
             &laid, &mut self.font_system, &mut self.swash_cache, &mut shape_cache, &HashMap::new(), &mut pixels, win_w, win_h,

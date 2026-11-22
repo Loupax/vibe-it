@@ -20,6 +20,8 @@ struct Piece {
     layer: bool,
     mask: u8,
     kf: KeyframesRegistry,
+    /// QFF1a: the piece's `@font-face` rules.
+    ff: Vec<crate::webfonts::FaceRule>,
     /// QMEM3e: some selector uses `:has(` / reads earlier siblings (what `getComputedStyle` needs).
     has: bool,
     sib: bool,
@@ -45,6 +47,8 @@ pub(crate) struct RulesCache {
     rules: Rc<Vec<StyleRule>>,
     mask: u8,
     kf: Rc<KeyframesRegistry>,
+    /// QFF1a: every piece's `@font-face` rules, in order (published to `webfonts` on every call).
+    ff: Rc<Vec<crate::webfonts::FaceRule>>,
     /// Bumped whenever `rules` changes (a rule-list identity that does not hold the `Rc`).
     generation: u64,
     /// QY53f1d2: the selector index of `rules` (built once, on first use, shared by the layout build and
@@ -137,9 +141,10 @@ fn parse_piece(text: String, out: &mut Vec<StyleRule>) -> Piece {
     PIECES_PARSED.with(|c| c.set(c.get() + 1));
     let n0 = out.len();
     let (kf, mask) = with_mask(|| parse_stylesheet_into(&text, out));
+    let ff = crate::webfonts::take_parsed();
     let layer = has_layer(&text);
     let (has, sib) = crate::js_style::rule_flags(&out[n0..]);
-    Piece { count: out.len() - n0, text, layer, mask, kf, has, sib }
+    Piece { count: out.len() - n0, text, layer, mask, kf, ff, has, sib }
 }
 
 /// Whether the node's effective text equals `key`, without building a string
@@ -173,9 +178,14 @@ fn merged_keyframes(pieces: &[Piece]) -> Rc<KeyframesRegistry> {
     Rc::new(reg)
 }
 
+fn merged_font_faces(pieces: &[Piece]) -> Rc<Vec<crate::webfonts::FaceRule>> {
+    Rc::new(pieces.iter().flat_map(|p| p.ff.iter().cloned()).collect())
+}
+
 fn finish_hit(rc: &RulesCache) -> Rc<Vec<StyleRule>> {
     note_state_rule(rc.mask);
     set_keyframes(rc.kf.clone());
+    crate::webfonts::publish_declared(&rc.ff);
     rc.rules.clone()
 }
 
@@ -251,6 +261,7 @@ pub(crate) fn cached_rules_for(document: &Handle, extra: Extra) -> Rc<Vec<StyleR
                         rc.pieces.splice(p..old_end, new_pieces);
                         rc.mask = rc.ua_mask | rc.pieces.iter().fold(0, |a, x| a | x.mask);
                         rc.kf = merged_keyframes(&rc.pieces);
+                        rc.ff = merged_font_faces(&rc.pieces);
                         rc.generation = next_generation();
                         rc.index = None;
                         if !ex_same {
@@ -279,7 +290,7 @@ pub(crate) fn cached_rules_for(document: &Handle, extra: Extra) -> Rc<Vec<StyleR
         let ua_flags = crate::js_style::rule_flags(&rules);
         let concat = texts.iter().any(|t| has_layer(t));
         let mut pieces = Vec::with_capacity(texts.len());
-        let (mask, kf);
+        let (mask, kf, ff);
         let concat_flags;
         if concat {
             // Layer ranks are numbered across sheets: parse the joined text as one.
@@ -290,11 +301,12 @@ pub(crate) fn cached_rules_for(document: &Handle, extra: Extra) -> Rc<Vec<StyleR
             }
             let n0 = rules.len();
             let (k, m) = with_mask(|| parse_stylesheet_into(&src, &mut rules));
+            ff = Rc::new(crate::webfonts::take_parsed());
             concat_flags = crate::js_style::rule_flags(&rules[n0..]);
             mask = ua_mask | m;
             kf = Rc::new(k);
             for t in texts {
-                pieces.push(Piece { text: t, count: 0, layer: true, mask: 0, kf: KeyframesRegistry::new(), has: concat_flags.0, sib: concat_flags.1 });
+                pieces.push(Piece { text: t, count: 0, layer: true, mask: 0, kf: KeyframesRegistry::new(), ff: Vec::new(), has: concat_flags.0, sib: concat_flags.1 });
             }
         } else {
             for t in texts {
@@ -302,6 +314,7 @@ pub(crate) fn cached_rules_for(document: &Handle, extra: Extra) -> Rc<Vec<StyleR
             }
             mask = ua_mask | pieces.iter().fold(0, |a, x| a | x.mask);
             kf = merged_keyframes(&pieces);
+            ff = merged_font_faces(&pieces);
         }
         let rc = RulesCache {
             js,
@@ -315,6 +328,7 @@ pub(crate) fn cached_rules_for(document: &Handle, extra: Extra) -> Rc<Vec<StyleR
             }),
             mask,
             kf,
+            ff,
             generation: next_generation(),
             index: None,
             extra_ver: new_ver,
