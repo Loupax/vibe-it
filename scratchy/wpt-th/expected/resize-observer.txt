@@ -4,8 +4,9 @@ OK           0/1  resize-observer/callback-cross-realm-report-exception.html
   FAIL      ResizeObserver reports the exception from its callback in the callback's global object
 OK           1/1  resize-observer/change-layout-in-error.html
 OK           1/1  resize-observer/entry-size-arrays-cached.html
-TIMEOUT      1/2  resize-observer/eventloop.html
-  NOTRUN    guard
+OK           3/5  resize-observer/eventloop.html
+  FAIL      test0: multiple notifications inside same event loop
+  FAIL      test1: depths of shadow roots
 OK           2/5  resize-observer/fragments.html
   FAIL      Adding 2nd fragment
   FAIL      Resizing 2nd fragment

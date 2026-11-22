@@ -2502,8 +2502,10 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     g.scrollX = g.pageXOffset = nx;
     if (a[1] === a[1]) g.scrollY = g.pageYOffset = Math.max(0, g.scrollY + a[1]);
   };
-  ElementProto.setAttribute = function (n, v) { checkName('setAttribute', String(n)); __d_setq(this.__id, String(n), String(v)); };
-  ElementProto.removeAttribute = function (n) { __d_rmq(this.__id, String(n)); };
+  // QDOM13: an `on*` attribute change on <body>/<frameset> forwards to the Window's handler (js.rs `__scratchy_attr_changed`).
+  var onAttr = function (el, n) { n = String(n).toLowerCase(); if (n.charCodeAt(0) === 111 && n.charCodeAt(1) === 110) g.__scratchy_attr_changed(el, n); };
+  ElementProto.setAttribute = function (n, v) { checkName('setAttribute', String(n)); __d_setq(this.__id, String(n), String(v)); onAttr(this, n); };
+  ElementProto.removeAttribute = function (n) { __d_rmq(this.__id, String(n)); onAttr(this, n); };
   ElementProto.toggleAttribute = function (n, force) {
     var has = this.hasAttribute(n), want = force === undefined ? !has : !!force;
     if (want && !has) this.setAttribute(n, ''); else if (!want && has) this.removeAttribute(n);
@@ -4734,7 +4736,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   var illegal = function (name) { return ({ [name]: function () { throw new TypeError('Illegal constructor'); } })[name]; };
   [['HTMLDivElement', 'div'], ['HTMLSpanElement', 'span'], ['HTMLAnchorElement', 'a'], ['HTMLImageElement', 'img'],
     ['HTMLScriptElement', 'script'], ['HTMLStyleElement', 'style'], ['HTMLLinkElement', 'link'],
-    ['HTMLBodyElement', 'body'], ['HTMLHeadElement', 'head'], ['HTMLHtmlElement', 'html'],
+    ['HTMLBodyElement', 'body'], ['HTMLFrameSetElement', 'frameset'], ['HTMLHeadElement', 'head'], ['HTMLHtmlElement', 'html'],
     ['HTMLParagraphElement', 'p'], ['HTMLUListElement', 'ul'], ['HTMLOListElement', 'ol'], ['HTMLLIElement', 'li'],
     ['HTMLTitleElement', 'title'], ['HTMLBaseElement', 'base'], ['HTMLHRElement', 'hr'], ['HTMLBRElement', 'br'],
     ['HTMLPictureElement', 'picture'], ['HTMLSlotElement', 'slot'], ['HTMLTemplateElement', 'template'],
@@ -4747,6 +4749,9 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (!g[r[0]]) mkProto(r[0], r.slice(1));
   });
   var HTMLUnknownElement = g.HTMLUnknownElement;
+  // QDOM13: body/frameset forward the Window-level event handler attributes (blur, error, focus, load, resize, scroll, unload, ...).
+  g.__scratchy_install_handlers(g.HTMLBodyElement.prototype, 'body');
+  g.__scratchy_install_handlers(g.HTMLFrameSetElement.prototype, 'body');
   rBool(g.HTMLStyleElement.prototype, 'disabled', 'disabled');
   // QY6f: `template.content` is a DocumentFragment owned by ONE inert document (created
   // lazily): it never renders, never upgrades custom elements, never runs scripts.
@@ -4788,6 +4793,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (r[2]) svgProto[r[2]] = C.prototype;
   });
   var SVGElement = g.SVGElement;
+  g.__scratchy_install_handlers(SVGElement.prototype, 'svg');
   tokProp(svgProto.a, 'relList', 'rel', ANCHOR_SUP);
   // CDATASection / ProcessingInstruction exist as interfaces (the parser never produces them).
   [['CDATASection', Text], ['ProcessingInstruction', CharacterData]].forEach(function (r) {

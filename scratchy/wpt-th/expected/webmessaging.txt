@@ -117,10 +117,7 @@ OK           0/1  webmessaging/message-channels/worker-post-after-close.any.html
   FAIL      MessageChannel/MessagePort should not work after a worker self.close()
 OK           0/1  webmessaging/message-channels/worker.any.html
   FAIL      MessageChannel/MessagePort created and used after a worker self.close()
-OK           0/3  webmessaging/messageerror.html
-  FAIL      The default value of onmessageerror is null
-  FAIL      The onmessageerror content attribute must be compiled into the onmessageerror property
-  FAIL      The onmessageerror content attribute must execute when an event is dispatched on the window
+OK           3/3  webmessaging/messageerror.html
 OK           0/1  webmessaging/multi-globals/messageport-current.html
   FAIL      Making the current page become non-active must prevent message transmission
 OK           0/1  webmessaging/multi-globals/messageport-incumbent.html

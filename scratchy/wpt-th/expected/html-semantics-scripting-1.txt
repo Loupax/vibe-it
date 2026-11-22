@@ -543,18 +543,18 @@ OK           1/1  html/semantics/scripting-1/the-script-element/module/dynamic-i
 OK           1/1  html/semantics/scripting-1/the-script-element/module/dynamic-import/propagate-nonce-external-module.html
 OK           1/1  html/semantics/scripting-1/the-script-element/module/dynamic-import/propagate-nonce-inline-classic.html
 OK           1/1  html/semantics/scripting-1/the-script-element/module/dynamic-import/propagate-nonce-inline-module.html
-TIMEOUT      0/5  html/semantics/scripting-1/the-script-element/module/dynamic-import/string-compilation-base-url-external-classic.html
+OK           0/5  html/semantics/scripting-1/the-script-element/module/dynamic-import/string-compilation-base-url-external-classic.html
   FAIL      setTimeout should successfully import
   FAIL      eval should successfully import
   FAIL      Function should successfully import
-  TIMEOUT   reflected-inline-event-handlers should successfully import
-  NOTRUN    inline-event-handlers-UA-code should successfully import
-TIMEOUT      0/5  html/semantics/scripting-1/the-script-element/module/dynamic-import/string-compilation-base-url-external-module.html
+  FAIL      reflected-inline-event-handlers should successfully import
+  FAIL      inline-event-handlers-UA-code should successfully import
+OK           0/5  html/semantics/scripting-1/the-script-element/module/dynamic-import/string-compilation-base-url-external-module.html
   FAIL      setTimeout should successfully import
   FAIL      eval should successfully import
   FAIL      Function should successfully import
-  TIMEOUT   reflected-inline-event-handlers should successfully import
-  NOTRUN    inline-event-handlers-UA-code should successfully import
+  FAIL      reflected-inline-event-handlers should successfully import
+  FAIL      inline-event-handlers-UA-code should successfully import
 OK           0/5  html/semantics/scripting-1/the-script-element/module/dynamic-import/string-compilation-base-url-inline-classic.html
   FAIL      setTimeout should successfully import
   FAIL      eval should successfully import
@@ -758,8 +758,7 @@ TIMEOUT      0/1  html/semantics/scripting-1/the-script-element/script-onerror-i
   NOTRUN    Test that the insertion point is not defined in the error event of a\n  parser-inserted script that has an unparseable URL
 TIMEOUT      0/1  html/semantics/scripting-1/the-script-element/script-onload-insertion-point.html
   NOTRUN    Test that the insertion point is defined in the load event of a parser-inserted script.
-OK           0/1  html/semantics/scripting-1/the-script-element/script-onload-string.html
-  FAIL      Setting onload to a string should convert to null.
+OK           1/1  html/semantics/scripting-1/the-script-element/script-onload-string.html
 OK           0/1  html/semantics/scripting-1/the-script-element/script-referrerpolicy-idl.html
   FAIL      Missing/invalid/null referrerPolicy should reflect as the empty string
 OK           0/5  html/semantics/scripting-1/the-script-element/script-supports.html

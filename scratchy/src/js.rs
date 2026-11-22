@@ -526,27 +526,39 @@ const PRELUDE: &str = r#"
     return { capture: !!o.capture, once: !!o.once, passive: o.passive === undefined ? undefined : !!o.passive };
   };
   var oops = function (e) { __scratchy_err('Uncaught ' + String(e) + (e && e.stack ? '\n' + e.stack : '')); };
-  // QA12: inline `on<type>="..."` content attributes. Compiled lazily on
-  // the first dispatch that reaches the element (recompiled when the
-  // attribute text changes) as `function (event) { code }`, so `this` is
-  // the element; the body's/frameset's window-forwarded handlers
-  // (`onload`, `onresize`, ...) are looked up from <body> when the event
-  // reaches the window. Compile errors are logged and remembered.
-  var fwd = { load: 1, unload: 1, beforeunload: 1, resize: 1, scroll: 1, hashchange: 1, popstate: 1,
-    pageshow: 1, pagehide: 1, online: 1, offline: 1, message: 1, storage: 1, error: 1, blur: 1, focus: 1 };
-  var compiled = new WeakMap();
-  var attrHandler = function (node, type) {
-    var el = node;
-    if (node === g) {
-      if (!fwd[type] || !g.document) return null;
-      el = g.document.body;
-    } else if (node.nodeType !== 1 || (fwd[type] && node.__id !== undefined && /^(BODY|FRAMESET)$/.test(node.tagName) && type !== 'focus' && type !== 'blur' && type !== 'error')) {
-      return null;
-    }
-    if (!el || el.__id === undefined) return null;
+  // QA12 + QDOM13: event handlers (HTML "event handlers"). One slot per (target, event type): `v` is
+  // the value set through the IDL attribute (a function, or null; undefined = not set, so the content
+  // attribute applies), `asrc` the content attribute text at that moment (a later change of the
+  // attribute wins), `entry` the listener-list entry registered when a non-null value was first set
+  // (so a handler runs in registration order among the listeners). A content attribute that was
+  // never overridden is compiled lazily as `function (event) { code }` (recompiled when the text
+  // changes) and runs after the listeners. `<body>`/`<frameset>` forward the Window-level names to
+  // the Window (`fwdTypes`); the Window's attribute value comes from `slot.el` (the last body /
+  // frameset whose attribute was set, `__scratchy_attr_changed`) or else `document.body`.
+  var fwdTypes = {};
+  'blur error focus load resize scroll afterprint beforeprint beforeunload hashchange languagechange message messageerror offline online pagehide pageshow popstate rejectionhandled storage unhandledrejection unload'
+    .split(' ').forEach(function (k) { fwdTypes[k] = 1; });
+  var compiled = new WeakMap(), hslots = new WeakMap();
+  var isFwdEl = function (n, type) {
+    return !!(fwdTypes[type] && n !== g && n && n.nodeType === 1 && n.__id !== undefined && /^(BODY|FRAMESET)$/.test(n.tagName));
+  };
+  var hslot = function (t, type, create) {
+    var m = hslots.get(t);
+    if (!m) { if (!create) return null; m = {}; hslots.set(t, m); }
+    return m[type] || (create ? (m[type] = { v: undefined, asrc: null, el: null, entry: null }) : null);
+  };
+  var hsrc = function (t, s, type) {
+    var el = t === g ? (s && s.el) || (g.document && g.document.body) : t;
     // QDOM4: scripting is disabled in a document without a browsing context (DOMParser, createHTMLDocument).
-    if (el.ownerDocument !== g.document) return null;
-    var src = __d_attr(el.__id, 'on' + type);
+    if (!el || el.nodeType !== 1 || el.__id === undefined || el.ownerDocument !== g.document) return [null, null];
+    return [el, __d_getns(el.__id, '', ('on' + type).toLowerCase())];
+  };
+  var getH = function (t, type) {
+    var s = hslot(t, type, false), r = hsrc(t, s, type), el = r[0], src = r[1];
+    if (s && s.v !== undefined) {
+      if (s.asrc === src) return s.v;
+      s.v = undefined;
+    }
     if (src == null) return null;
     var m = compiled.get(el);
     if (!m) { m = {}; compiled.set(el, m); }
@@ -556,6 +568,43 @@ const PRELUDE: &str = r#"
       try { c.fn = new Function('event', src); } catch (x) { oops(x); }
     }
     return c.fn;
+  };
+  // QCUR1: how many listeners exist per pointer-motion event type, so Rust only builds
+  // and dispatches those events when a page can see them. Bit i of the mask = PTR_TYPES[i].
+  var PTR_TYPES = ['mousemove', 'pointermove', 'mouseenter', 'mouseleave', 'pointerover', 'pointerout', 'pointerenter', 'pointerleave'];
+  var ptrCount = {};
+  var setH = function (t, type, fn) {
+    var s = hslot(t, type, true), v = typeof fn === 'function' ? fn : null;
+    s.v = v; s.asrc = hsrc(t, s, type)[1];
+    var l;
+    if (v) {
+      if (!s.entry) {
+        s.entry = { fn: s, h: true, capture: false, once: false, passive: false, removed: false };
+        lists(t, type, true).push(s.entry);
+        if (PTR_TYPES.indexOf(type) >= 0) ptrCount[type] = (ptrCount[type] | 0) + 1;
+      }
+    } else if (s.entry) {
+      s.entry.removed = true;
+      if ((l = lists(t, type, false))) { var i = l.indexOf(s.entry); if (i >= 0) l.splice(i, 1); }
+      s.entry = null;
+      if (ptrCount[type]) ptrCount[type]--;
+    }
+  };
+  // The DOM prelude calls this after setAttribute/removeAttribute of an `on*` attribute: on a body/frameset
+  // the Window's handler takes the element's attribute (HTML "event handler content attributes").
+  Object.defineProperty(g, '__scratchy_attr_changed', { value: function (el, name) {
+    var type = String(name).slice(2), s;
+    // setting the attribute re-activates the handler even when the text is the same
+    if (isFwdEl(el, type) && el.ownerDocument === g.document) { s = hslot(g, type, true); s.v = undefined; s.el = el; }
+    if ((s = hslot(el, type, false))) s.v = undefined;
+  } });
+  var callHandler = function (node, h, ev) {
+    try {
+      if (node === g && ev.type === 'error' && ev instanceof g.ErrorEvent) {
+        // QERR1: window.onerror takes the 5-argument form; `true` cancels.
+        if (h.call(node, ev.message, ev.filename, ev.lineno, ev.colno, ev.error) === true) ev.preventDefault();
+      } else if (h.call(node, ev) === false) ev.preventDefault();
+    } catch (x) { reportListenerError(x); }
   };
   // QDOM4: a listener exception is reported (window `error` event / onerror, the QERR1 path) and
   // dispatch continues; an unhandled one is logged as before.
@@ -585,16 +634,39 @@ const PRELUDE: &str = r#"
     ev._path = path; ev._disp = true;
     var pl = g.__perf_lis; // QOBS4b: only present while --perf-report is recording
     // capFilter: true = capture listeners only, false = non-capture only.
-    var invoke = function (node, phase, capFilter) {
-      if (ev._stop) return;
-      ev.currentTarget = node; ev.eventPhase = phase;
-      var l = lists(node, ev.type, false);
+    // QDOM13: the legacy prefixed names of UA-dispatched animation/transition events (DOM "inner invoke" step 8).
+    var LEGACY = { animationstart: 'webkitAnimationStart', animationiteration: 'webkitAnimationIteration',
+      animationend: 'webkitAnimationEnd', transitionend: 'webkitTransitionEnd' };
+    // The handler a node runs for `type` (null: none). A body/frameset's Window-level handlers belong to
+    // the Window; its own `focus`/`blur`/`error` (the window-focus event is dispatched at the body) use them.
+    var handlerOf = function (node, type) {
+      var fe = isFwdEl(node, type);
+      if (fe && type !== 'focus' && type !== 'blur' && type !== 'error') return null;
+      var h = getH(fe ? g : node, type);
+      if (typeof h !== 'function' && !fe) h = node['on' + type];
+      return typeof h === 'function' ? h : null;
+    };
+    var found = function (node, type, capFilter) {
+      var l = lists(node, type, false);
+      if (l) for (var j = 0; j < l.length; j++) if (!l[j].removed && l[j].capture === capFilter) return true;
+      return !capFilter && !!handlerOf(node, type);
+    };
+    var run = function (node, type, capFilter) {
+      var l = lists(node, type, false), hs = null;
       if (l) {
         var snap = l.slice();
         for (var i = 0; i < snap.length; i++) {
           var e = snap[i];
           if (e.removed || e.capture !== capFilter) continue;
-          if (e.once) node.removeEventListener(ev.type, e.fn, e.capture);
+          if (e.h) {
+            // an IDL event handler registered in the list
+            hs = e;
+            var hf = handlerOf(node, type);
+            if (hf) { ev._passive = false; var pe = curEvent; curEvent = ev; callHandler(node, hf, ev); curEvent = pe; }
+            if (ev._stopNow) return;
+            continue;
+          }
+          if (e.once) node.removeEventListener(type, e.fn, e.capture);
           ev._passive = e.passive;
           var t0 = pl ? g.__perf_cpu() : 0;
           var lf = e.fn, prevEv = curEvent;
@@ -605,23 +677,25 @@ const PRELUDE: &str = r#"
             else { lf = lf.handleEvent; if (typeof lf !== 'function') throw new TypeError('handleEvent is not a function'); lf.call(e.fn, ev); }
           } catch (x) { reportListenerError(x); }
           curEvent = prevEv;
-          if (pl && typeof lf === 'function') pl(ev.type, lf, g.__perf_cpu() - t0);
+          if (pl && typeof lf === 'function') pl(type, lf, g.__perf_cpu() - t0);
           ev._passive = false;
           if (ev._stopNow) return;
         }
       }
-      if (!capFilter && !ev._stopNow) {
-        var h = node['on' + ev.type];
-        if (typeof h !== 'function') h = attrHandler(node, ev.type);
-        if (typeof h === 'function') {
-          try {
-            if (node === g && ev.type === 'error' && ev instanceof g.ErrorEvent) {
-              // QERR1: window.onerror takes the 5-argument form; `true` cancels.
-              if (h.call(node, ev.message, ev.filename, ev.lineno, ev.colno, ev.error) === true) ev.preventDefault();
-            } else if (h.call(node, ev) === false) ev.preventDefault();
-          } catch (x) { reportListenerError(x); }
-        }
+      // a content attribute (or plain `node.onfoo` property) that was never set through the IDL attribute
+      if (!capFilter && !ev._stopNow && !hs) {
+        var h = handlerOf(node, type);
+        if (h) { var pv = curEvent; curEvent = ev; callHandler(node, h, ev); curEvent = pv; }
       }
+    };
+    var invoke = function (node, phase, capFilter) {
+      if (ev._stop) return;
+      ev.currentTarget = node; ev.eventPhase = phase;
+      var type = ev.type, lt = LEGACY[type];
+      if (lt && ev.isTrusted && !found(node, type, capFilter) && found(node, lt, capFilter)) type = lt;
+      var savedType = ev.type;
+      ev.type = type;
+      try { run(node, type, capFilter); } finally { ev.type = savedType; }
     };
     var i;
     try {
@@ -651,10 +725,6 @@ const PRELUDE: &str = r#"
     } catch (x) { return false; } finally { reporting = false; }
   } });
   var ETP = EventTarget.prototype;
-  // QCUR1: how many listeners exist per pointer-motion event type, so Rust only builds
-  // and dispatches those events when a page can see them. Bit i of the mask = PTR_TYPES[i].
-  var PTR_TYPES = ['mousemove', 'pointermove', 'mouseenter', 'mouseleave', 'pointerover', 'pointerout', 'pointerenter', 'pointerleave'];
-  var ptrCount = {};
   Object.defineProperty(g, '__scratchy_ptr_mask', { value: function () {
     var m = 0;
     for (var i = 0; i < PTR_TYPES.length; i++) if (ptrCount[PTR_TYPES[i]] > 0) m |= 1 << i;
@@ -699,6 +769,58 @@ const PRELUDE: &str = r#"
   // and breaks ShadyDOM); the global object inherits from it.
   var Window = ctor('Window', EventTarget, function () { throw new TypeError('Illegal constructor'); });
   try { Object.setPrototypeOf(g, Window.prototype); } catch (e) {}
+  // QDOM13: event handler IDL attributes (HTML "event handler IDL attributes") as accessors on the
+  // prototypes Chrome desktop puts them on. Value rules are `getH`/`setH` above. No `ontouch*` (sites
+  // read `'ontouchstart' in window` as "touch device"). Also left out: onscrollend/onscrollsnapchange/onscrollsnapchanging
+  // (scratchy never fires those events, and tests feature-detect `window.onscrollend !== undefined` to wait for one).
+  var GLOBAL_H = ('abort animationcancel animationend animationiteration animationstart auxclick beforeinput beforematch beforetoggle ' +
+    'blur cancel canplay canplaythrough change click close contentvisibilityautostatechange contextlost contextmenu contextrestored ' +
+    'cuechange dblclick drag dragend dragenter dragleave dragover dragstart drop durationchange emptied ended error focus formdata ' +
+    'gotpointercapture input invalid keydown keypress keyup load loadeddata loadedmetadata loadstart lostpointercapture mousedown ' +
+    'mouseenter mouseleave mousemove mouseout mouseover mouseup mousewheel pause play playing pointercancel pointerdown pointerenter ' +
+    'pointerleave pointermove pointerout pointerover pointerrawupdate pointerup progress ratechange reset resize scroll ' +
+    'securitypolicyviolation seeked seeking select selectionchange selectstart slotchange stalled ' +
+    'submit suspend timeupdate toggle transitioncancel transitionend transitionrun transitionstart volumechange waiting wheel').split(' ');
+  // [IDL name, event type] pairs whose type is not the lowercased name
+  var PREFIXED_H = [['onwebkitanimationstart', 'webkitAnimationStart'], ['onwebkitanimationiteration', 'webkitAnimationIteration'],
+    ['onwebkitanimationend', 'webkitAnimationEnd'], ['onwebkittransitionend', 'webkitTransitionEnd']];
+  var DOC_ELEMENT_H = ['copy', 'cut', 'paste'];
+  var DOC_H = ['fullscreenchange', 'fullscreenerror', 'pointerlockchange', 'pointerlockerror', 'readystatechange', 'visibilitychange',
+    'freeze', 'resume', 'prerenderingchange', 'beforexrselect'];
+  var WIN_ONLY_H = ['afterprint', 'beforeprint', 'beforeunload', 'hashchange', 'languagechange', 'message', 'messageerror', 'offline',
+    'online', 'pagehide', 'pageshow', 'popstate', 'rejectionhandled', 'storage', 'unhandledrejection', 'unload'];
+  var WIN_EXTRA_H = ['devicemotion', 'deviceorientation', 'deviceorientationabsolute', 'appinstalled', 'beforeinstallprompt',
+    'pagereveal', 'pageswap', 'orientationchange'];
+  var FWD_BODY_H = ['blur', 'error', 'focus', 'load', 'resize', 'scroll'];
+  // kind: 'el' (an element: forwarding on body/frameset), 'doc', 'win'.
+  var installH = function (P, name, type, kind) {
+    var tgt = function (self) {
+      if (kind === 'win') return self === undefined || self === null ? g : self;
+      if (self === null || typeof self !== 'object' || (kind === 'el' && self.__id === undefined && !(self instanceof EventTarget))) throw new TypeError('Illegal invocation');
+      return kind === 'el' && isFwdEl(self, type) && BODY_FWD[name] ? g : self;
+    };
+    var gf = { get [name]() { return getH(tgt(this), type); } };
+    var get = Object.getOwnPropertyDescriptor(gf, name).get;
+    var sf = { set [name](v) { setH(tgt(this), type, v); } };
+    var set = Object.getOwnPropertyDescriptor(sf, name).set;
+    Object.defineProperty(P, name, { get: get, set: set, enumerable: true, configurable: true });
+  };
+  var BODY_FWD = {};
+  FWD_BODY_H.concat(WIN_ONLY_H).forEach(function (n) { BODY_FWD['on' + n] = true; });
+  var installAll = function (P, kind, extra) {
+    GLOBAL_H.forEach(function (n) { installH(P, 'on' + n, n, kind); });
+    PREFIXED_H.forEach(function (r) { installH(P, r[0], r[1], kind); });
+    if (kind !== 'win') DOC_ELEMENT_H.forEach(function (n) { installH(P, 'on' + n, n, kind); });
+    (extra || []).forEach(function (n) { installH(P, 'on' + n, n, kind); });
+  };
+  installAll(HTMLElement.prototype, 'el');
+  installAll(Document.prototype, 'doc', DOC_H);
+  installAll(Window.prototype, 'win', WIN_ONLY_H.concat(WIN_EXTRA_H));
+  // `HTMLBodyElement` / `HTMLFrameSetElement` / `SVGElement` are created by the DOM prelude, which calls this.
+  Object.defineProperty(g, '__scratchy_install_handlers', { value: function (P, which) {
+    if (which === 'svg') installAll(P, 'el');
+    else WIN_ONLY_H.forEach(function (n) { installH(P, 'on' + n, n, 'el'); }), FWD_BODY_H.forEach(function (n) { installH(P, 'on' + n, n, 'el'); });
+  } });
   // QDOM1: WindowProperties, between Window.prototype and EventTarget.prototype: named access by id /
   // embed|form|img|object name (`__scratchy_set_named` is set by the DOM prelude). Only names that nothing
   // else in the chain (EventTarget.prototype, Object.prototype) defines are visible; own globals and `var`s

@@ -10,12 +10,7 @@ OK          4/11  dom/events/AddEventListenerOptions-signal.any.html
   FAIL      Aborting from a listener does not call future listeners
   FAIL      Passing null as the signal should throw
   FAIL      Passing null as the signal should throw (listener is also null)
-ERROR        0/5  dom/events/Body-FrameSet-Event-Handlers.html
-  FAIL      Set HTMLBodyElement.onblur
-  FAIL      Enumerate HTMLBodyElement.onblur
-  FAIL      Reflect HTMLBodyElement.onblur
-  FAIL      Forward HTMLBodyElement.onblur to Window
-  FAIL      Set HTMLFrameSetElement.onblur
+OK         48/48  dom/events/Body-FrameSet-Event-Handlers.html
 OK           2/3  dom/events/CustomEvent.html
   FAIL      First parameter to initCustomEvent should be mandatory.
 OK           8/8  dom/events/Event-cancelBubble.html
@@ -236,10 +231,9 @@ OK           0/1  dom/events/event-global-is-still-set-when-reporting-exception-
   FAIL      window.onerror handler restores window.event after it reports an exception
 OK           2/2  dom/events/event-global-replaceable.html
 OK           1/1  dom/events/event-global-set-before-handleEvent-lookup.window.html
-OK           5/8  dom/events/event-global.html
+OK           6/8  dom/events/event-global.html
   FAIL      window.event is undefined if the target is in a shadow tree (event dispatched inside shadow tree)
   FAIL      window.event is undefined inside window.onerror if the target is in a shadow tree (ErrorEvent dispatched inside shadow tree)
-  FAIL      window.event is set to the current event, which is the event passed to dispatch (2)
 OK           2/2  dom/events/event-handler-attribute-replace-preserves-passive.html
 TIMEOUT      0/5  dom/events/event-listener-not-fully-active-adopted-node.html
   TIMEOUT   Node created in an iframe's realm and adopted into this document, iframe removed
@@ -291,46 +285,86 @@ OK           0/2  dom/events/no-focus-events-at-clicking-editable-content-in-lin
   FAIL      Click editable element in link
   FAIL      Click editable link
 OK           1/1  dom/events/non-cancelable-when-passive/generic-events-stay-cancelable.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/non-passive-mousewheel-event-listener-on-body.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/non-passive-mousewheel-event-listener-on-div.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/non-passive-mousewheel-event-listener-on-document.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/non-passive-mousewheel-event-listener-on-root.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/non-passive-mousewheel-event-listener-on-window.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/non-passive-touchmove-event-listener-on-body.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/non-passive-touchmove-event-listener-on-div.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/non-passive-touchmove-event-listener-on-document.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/non-passive-touchmove-event-listener-on-root.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/non-passive-touchmove-event-listener-on-window.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/non-passive-touchstart-event-listener-on-body.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/non-passive-touchstart-event-listener-on-div.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/non-passive-touchstart-event-listener-on-document.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/non-passive-touchstart-event-listener-on-root.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/non-passive-touchstart-event-listener-on-window.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/non-passive-wheel-event-listener-on-body.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/non-passive-wheel-event-listener-on-div.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/non-passive-wheel-event-listener-on-document.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/non-passive-wheel-event-listener-on-root.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/non-passive-wheel-event-listener-on-window.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/passive-mousewheel-event-listener-on-body.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/passive-mousewheel-event-listener-on-div.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/passive-mousewheel-event-listener-on-document.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/passive-mousewheel-event-listener-on-root.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/passive-mousewheel-event-listener-on-window.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/passive-touchmove-event-listener-on-body.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/passive-touchmove-event-listener-on-div.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/passive-touchmove-event-listener-on-document.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/passive-touchmove-event-listener-on-root.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/passive-touchmove-event-listener-on-window.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/passive-touchstart-event-listener-on-body.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/passive-touchstart-event-listener-on-div.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/passive-touchstart-event-listener-on-document.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/passive-touchstart-event-listener-on-root.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/passive-touchstart-event-listener-on-window.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/passive-wheel-event-listener-on-body.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/passive-wheel-event-listener-on-div.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/passive-wheel-event-listener-on-document.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/passive-wheel-event-listener-on-root.html
-TIMEOUT      0/0  dom/events/non-cancelable-when-passive/passive-wheel-event-listener-on-window.html
+OK           0/1  dom/events/non-cancelable-when-passive/non-passive-mousewheel-event-listener-on-body.html
+  FAIL      non-passive mousewheel event listener on body
+OK           0/1  dom/events/non-cancelable-when-passive/non-passive-mousewheel-event-listener-on-div.html
+  FAIL      non-passive mousewheel event listener on div
+OK           0/1  dom/events/non-cancelable-when-passive/non-passive-mousewheel-event-listener-on-document.html
+  FAIL      non-passive mousewheel event listener on document
+OK           0/1  dom/events/non-cancelable-when-passive/non-passive-mousewheel-event-listener-on-root.html
+  FAIL      non-passive mousewheel event listener on root
+OK           0/1  dom/events/non-cancelable-when-passive/non-passive-mousewheel-event-listener-on-window.html
+  FAIL      non-passive mousewheel event listener on window
+OK           0/1  dom/events/non-cancelable-when-passive/non-passive-touchmove-event-listener-on-body.html
+  FAIL      non-passive touchmove event listener on body
+OK           0/1  dom/events/non-cancelable-when-passive/non-passive-touchmove-event-listener-on-div.html
+  FAIL      non-passive touchmove event listener on div
+OK           0/1  dom/events/non-cancelable-when-passive/non-passive-touchmove-event-listener-on-document.html
+  FAIL      non-passive touchmove event listener on document
+OK           0/1  dom/events/non-cancelable-when-passive/non-passive-touchmove-event-listener-on-root.html
+  FAIL      non-passive touchmove event listener on root
+OK           0/1  dom/events/non-cancelable-when-passive/non-passive-touchmove-event-listener-on-window.html
+  FAIL      non-passive-touchmove-event-listener-on-window
+OK           0/1  dom/events/non-cancelable-when-passive/non-passive-touchstart-event-listener-on-body.html
+  FAIL      non-passive touchstart event listener on body
+OK           0/1  dom/events/non-cancelable-when-passive/non-passive-touchstart-event-listener-on-div.html
+  FAIL      non-passive touchstart event listener on div
+OK           0/1  dom/events/non-cancelable-when-passive/non-passive-touchstart-event-listener-on-document.html
+  FAIL      non-passive touchstart event listener on document
+OK           0/1  dom/events/non-cancelable-when-passive/non-passive-touchstart-event-listener-on-root.html
+  FAIL      non-passive touchstart event listener on root
+OK           0/1  dom/events/non-cancelable-when-passive/non-passive-touchstart-event-listener-on-window.html
+  FAIL      non-passive touchstart event listener on window
+OK           0/1  dom/events/non-cancelable-when-passive/non-passive-wheel-event-listener-on-body.html
+  FAIL      non-passive wheel event listener on body
+OK           0/1  dom/events/non-cancelable-when-passive/non-passive-wheel-event-listener-on-div.html
+  FAIL      non-passive wheel event listener on div
+OK           0/1  dom/events/non-cancelable-when-passive/non-passive-wheel-event-listener-on-document.html
+  FAIL      non-passive wheel event listener on document
+OK           0/1  dom/events/non-cancelable-when-passive/non-passive-wheel-event-listener-on-root.html
+  FAIL      non-passive wheel event listener on root
+OK           0/1  dom/events/non-cancelable-when-passive/non-passive-wheel-event-listener-on-window.html
+  FAIL      non-passive wheel event listener on window
+OK           0/1  dom/events/non-cancelable-when-passive/passive-mousewheel-event-listener-on-body.html
+  FAIL      passive mousewheel event listener on body
+OK           0/1  dom/events/non-cancelable-when-passive/passive-mousewheel-event-listener-on-div.html
+  FAIL      passive mousewheel event listener on div
+OK           0/1  dom/events/non-cancelable-when-passive/passive-mousewheel-event-listener-on-document.html
+  FAIL      passive mousewheel event listener on document
+OK           0/1  dom/events/non-cancelable-when-passive/passive-mousewheel-event-listener-on-root.html
+  FAIL      passive mousewheel event listener on root
+OK           0/1  dom/events/non-cancelable-when-passive/passive-mousewheel-event-listener-on-window.html
+  FAIL      passive mousewheel event listener on window
+OK           0/1  dom/events/non-cancelable-when-passive/passive-touchmove-event-listener-on-body.html
+  FAIL      passive touchmove event listener on body
+OK           0/1  dom/events/non-cancelable-when-passive/passive-touchmove-event-listener-on-div.html
+  FAIL      passive touchmove event listener on div
+OK           0/1  dom/events/non-cancelable-when-passive/passive-touchmove-event-listener-on-document.html
+  FAIL      passive touchmove event listener on document
+OK           0/1  dom/events/non-cancelable-when-passive/passive-touchmove-event-listener-on-root.html
+  FAIL      passive touchmove event listener on root
+OK           0/1  dom/events/non-cancelable-when-passive/passive-touchmove-event-listener-on-window.html
+  FAIL      passive touchmove event listener on window
+OK           0/1  dom/events/non-cancelable-when-passive/passive-touchstart-event-listener-on-body.html
+  FAIL      passive touchstart event listener on body
+OK           0/1  dom/events/non-cancelable-when-passive/passive-touchstart-event-listener-on-div.html
+  FAIL      passive touchstart event listener on div
+OK           0/1  dom/events/non-cancelable-when-passive/passive-touchstart-event-listener-on-document.html
+  FAIL      passive touchstart event listener on document
+OK           0/1  dom/events/non-cancelable-when-passive/passive-touchstart-event-listener-on-root.html
+  FAIL      passive touchstart event listener on root
+OK           0/1  dom/events/non-cancelable-when-passive/passive-touchstart-event-listener-on-window.html
+  FAIL      passive touchstart event listener on window
+OK           0/1  dom/events/non-cancelable-when-passive/passive-wheel-event-listener-on-body.html
+  FAIL      passive wheel event listener on body
+OK           0/1  dom/events/non-cancelable-when-passive/passive-wheel-event-listener-on-div.html
+  FAIL      passive wheel event listener on div
+OK           0/1  dom/events/non-cancelable-when-passive/passive-wheel-event-listener-on-document.html
+  FAIL      passive wheel event listener on document
+OK           0/1  dom/events/non-cancelable-when-passive/passive-wheel-event-listener-on-root.html
+  FAIL      passive wheel event listener on root
+OK           0/1  dom/events/non-cancelable-when-passive/passive-wheel-event-listener-on-window.html
+  FAIL      passive wheel event listener on window
 OK         12/12  dom/events/non-cancelable-when-passive/synthetic-events-cancelable.html
 OK           1/2  dom/events/passive-by-default-non-node.html
   FAIL      wheel listeners on Performance are not passive by default
@@ -482,61 +516,45 @@ OK           0/1  dom/events/scrolling/wheel-event-transactions-target-resize.ht
 TIMEOUT      0/2  dom/events/shadow-relatedTarget.html
   TIMEOUT   relatedTarget should not leak at capturing phase, at window object.
   TIMEOUT   relatedTarget should not leak at target.
-OK          0/13  dom/events/webkit-animation-end-event.html
-  FAIL      onanimationend and onwebkitanimationend are not aliases
-  FAIL      dispatchEvent of a webkitAnimationEnd event does trigger a prefixed event handler or listener
-  FAIL      dispatchEvent of a webkitAnimationEnd event does not trigger an unprefixed event handler or listener
-  FAIL      dispatchEvent of an animationend event does not trigger a prefixed event handler or listener
-  FAIL      onwebkitanimationend event handler should trigger for an animation
-  FAIL      onwebkitanimationend event handler should not trigger if an unprefixed event handler also exists
-  FAIL      onwebkitanimationend event handler should not trigger if an unprefixed listener also exists
-  FAIL      event types for prefixed and unprefixed animationend event handlers should be named appropriately
-  FAIL      webkitAnimationEnd event listener should trigger for an animation
-  FAIL      webkitAnimationEnd event listener should not trigger if an unprefixed listener also exists
-  FAIL      webkitAnimationEnd event listener should not trigger if an unprefixed event handler also exists
-  FAIL      event types for prefixed and unprefixed animationend event listeners should be named appropriately
-  FAIL      webkitAnimationEnd event listener is case sensitive
-OK          0/13  dom/events/webkit-animation-iteration-event.html
-  FAIL      onanimationiteration and onwebkitanimationiteration are not aliases
-  FAIL      dispatchEvent of a webkitAnimationIteration event does trigger a prefixed event handler or listener
-  FAIL      dispatchEvent of a webkitAnimationIteration event does not trigger an unprefixed event handler or listener
-  FAIL      dispatchEvent of an animationiteration event does not trigger a prefixed event handler or listener
-  FAIL      onwebkitanimationiteration event handler should trigger for an animation
-  FAIL      onwebkitanimationiteration event handler should not trigger if an unprefixed event handler also exists
-  FAIL      onwebkitanimationiteration event handler should not trigger if an unprefixed listener also exists
-  FAIL      event types for prefixed and unprefixed animationiteration event handlers should be named appropriately
-  FAIL      webkitAnimationIteration event listener should trigger for an animation
-  FAIL      webkitAnimationIteration event listener should not trigger if an unprefixed listener also exists
-  FAIL      webkitAnimationIteration event listener should not trigger if an unprefixed event handler also exists
-  FAIL      event types for prefixed and unprefixed animationiteration event listeners should be named appropriately
-  FAIL      webkitAnimationIteration event listener is case sensitive
-OK          0/13  dom/events/webkit-animation-start-event.html
-  FAIL      onanimationstart and onwebkitanimationstart are not aliases
-  FAIL      dispatchEvent of a webkitAnimationStart event does trigger a prefixed event handler or listener
-  FAIL      dispatchEvent of a webkitAnimationStart event does not trigger an unprefixed event handler or listener
-  FAIL      dispatchEvent of an animationstart event does not trigger a prefixed event handler or listener
-  FAIL      onwebkitanimationstart event handler should trigger for an animation
-  FAIL      onwebkitanimationstart event handler should not trigger if an unprefixed event handler also exists
-  FAIL      onwebkitanimationstart event handler should not trigger if an unprefixed listener also exists
-  FAIL      event types for prefixed and unprefixed animationstart event handlers should be named appropriately
-  FAIL      webkitAnimationStart event listener should trigger for an animation
-  FAIL      webkitAnimationStart event listener should not trigger if an unprefixed listener also exists
-  FAIL      webkitAnimationStart event listener should not trigger if an unprefixed event handler also exists
-  FAIL      event types for prefixed and unprefixed animationstart event listeners should be named appropriately
-  FAIL      webkitAnimationStart event listener is case sensitive
-OK          0/13  dom/events/webkit-transition-end-event.html
-  FAIL      ontransitionend and onwebkittransitionend are not aliases
-  FAIL      dispatchEvent of a webkitTransitionEnd event does trigger a prefixed event handler or listener
-  FAIL      dispatchEvent of a webkitTransitionEnd event does not trigger an unprefixed event handler or listener
-  FAIL      dispatchEvent of an transitionend event does not trigger a prefixed event handler or listener
-  FAIL      onwebkittransitionend event handler should trigger for an animation
-  FAIL      onwebkittransitionend event handler should not trigger if an unprefixed event handler also exists
-  FAIL      onwebkittransitionend event handler should not trigger if an unprefixed listener also exists
-  FAIL      event types for prefixed and unprefixed transitionend event handlers should be named appropriately
-  FAIL      webkitTransitionEnd event listener should trigger for an animation
-  FAIL      webkitTransitionEnd event listener should not trigger if an unprefixed listener also exists
-  FAIL      webkitTransitionEnd event listener should not trigger if an unprefixed event handler also exists
-  FAIL      event types for prefixed and unprefixed transitionend event listeners should be named appropriately
-  FAIL      webkitTransitionEnd event listener is case sensitive
+TIMEOUT     4/13  dom/events/webkit-animation-end-event.html
+  TIMEOUT   onwebkitanimationend event handler should trigger for an animation
+  NOTRUN    onwebkitanimationend event handler should not trigger if an unprefixed event handler also exists
+  NOTRUN    onwebkitanimationend event handler should not trigger if an unprefixed listener also exists
+  NOTRUN    event types for prefixed and unprefixed animationend event handlers should be named appropriately
+  NOTRUN    webkitAnimationEnd event listener should trigger for an animation
+  NOTRUN    webkitAnimationEnd event listener should not trigger if an unprefixed listener also exists
+  NOTRUN    webkitAnimationEnd event listener should not trigger if an unprefixed event handler also exists
+  NOTRUN    event types for prefixed and unprefixed animationend event listeners should be named appropriately
+  NOTRUN    webkitAnimationEnd event listener is case sensitive
+TIMEOUT     4/13  dom/events/webkit-animation-iteration-event.html
+  TIMEOUT   onwebkitanimationiteration event handler should trigger for an animation
+  NOTRUN    onwebkitanimationiteration event handler should not trigger if an unprefixed event handler also exists
+  NOTRUN    onwebkitanimationiteration event handler should not trigger if an unprefixed listener also exists
+  NOTRUN    event types for prefixed and unprefixed animationiteration event handlers should be named appropriately
+  NOTRUN    webkitAnimationIteration event listener should trigger for an animation
+  NOTRUN    webkitAnimationIteration event listener should not trigger if an unprefixed listener also exists
+  NOTRUN    webkitAnimationIteration event listener should not trigger if an unprefixed event handler also exists
+  NOTRUN    event types for prefixed and unprefixed animationiteration event listeners should be named appropriately
+  NOTRUN    webkitAnimationIteration event listener is case sensitive
+TIMEOUT     4/13  dom/events/webkit-animation-start-event.html
+  TIMEOUT   onwebkitanimationstart event handler should trigger for an animation
+  NOTRUN    onwebkitanimationstart event handler should not trigger if an unprefixed event handler also exists
+  NOTRUN    onwebkitanimationstart event handler should not trigger if an unprefixed listener also exists
+  NOTRUN    event types for prefixed and unprefixed animationstart event handlers should be named appropriately
+  NOTRUN    webkitAnimationStart event listener should trigger for an animation
+  NOTRUN    webkitAnimationStart event listener should not trigger if an unprefixed listener also exists
+  NOTRUN    webkitAnimationStart event listener should not trigger if an unprefixed event handler also exists
+  NOTRUN    event types for prefixed and unprefixed animationstart event listeners should be named appropriately
+  NOTRUN    webkitAnimationStart event listener is case sensitive
+TIMEOUT     4/13  dom/events/webkit-transition-end-event.html
+  TIMEOUT   onwebkittransitionend event handler should trigger for an animation
+  NOTRUN    onwebkittransitionend event handler should not trigger if an unprefixed event handler also exists
+  NOTRUN    onwebkittransitionend event handler should not trigger if an unprefixed listener also exists
+  NOTRUN    event types for prefixed and unprefixed transitionend event handlers should be named appropriately
+  NOTRUN    webkitTransitionEnd event listener should trigger for an animation
+  NOTRUN    webkitTransitionEnd event listener should not trigger if an unprefixed listener also exists
+  NOTRUN    webkitTransitionEnd event listener should not trigger if an unprefixed event handler also exists
+  NOTRUN    event types for prefixed and unprefixed transitionend event listeners should be named appropriately
+  NOTRUN    webkitTransitionEnd event listener is case sensitive
 OK           1/1  dom/events/window-composed-path.html
 OK           1/1  dom/events/window-event-restored-after-throwing-onerror.html
