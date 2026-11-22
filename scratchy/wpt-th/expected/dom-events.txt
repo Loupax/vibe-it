@@ -168,12 +168,11 @@ OK           3/3  dom/events/element-click.html
 OK           1/1  dom/events/event-disabled-dynamic.html
 OK           4/5  dom/events/event-global-event-targets.html
   FAIL      window.event is set when dispatching on Performance
-OK           0/6  dom/events/event-global-extra.window.html
+OK           1/6  dom/events/event-global-extra.window.html
   FAIL      window.event for constructors from another global: EventTarget
   FAIL      window.event for constructors from another global: XMLHttpRequest
   FAIL      window.event and element from another document
   FAIL      window.event and moving an element post-dispatch
-  FAIL      window.event should not be affected by nodes moving post-dispatch
   FAIL      Listener from a different global
 TIMEOUT      0/1  dom/events/event-global-is-still-set-when-coercing-beforeunload-result.html
   TIMEOUT   window.event is still set when 'beforeunload' result is coerced to string
@@ -181,9 +180,7 @@ OK           0/1  dom/events/event-global-is-still-set-when-reporting-exception-
   FAIL      window.onerror handler restores window.event after it reports an exception
 OK           2/2  dom/events/event-global-replaceable.html
 OK           1/1  dom/events/event-global-set-before-handleEvent-lookup.window.html
-OK           6/8  dom/events/event-global.html
-  FAIL      window.event is undefined if the target is in a shadow tree (event dispatched inside shadow tree)
-  FAIL      window.event is undefined inside window.onerror if the target is in a shadow tree (ErrorEvent dispatched inside shadow tree)
+OK           8/8  dom/events/event-global.html
 OK           2/2  dom/events/event-handler-attribute-replace-preserves-passive.html
 TIMEOUT      0/5  dom/events/event-listener-not-fully-active-adopted-node.html
   TIMEOUT   Node created in an iframe's realm and adopted into this document, iframe removed
