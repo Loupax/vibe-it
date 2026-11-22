@@ -39,7 +39,7 @@ OK           1/1  resize-observer/observe-016.html
 OK           1/1  resize-observer/observe-017.html
 OK           1/1  resize-observer/observe-018.html
 OK           1/1  resize-observer/observe-019.html
-ERROR        0/0  resize-observer/observe-020.html
+TIMEOUT      0/0  resize-observer/observe-020.html
 OK           1/1  resize-observer/ordering.html
 OK           1/1  resize-observer/scrollbars-2.html
 OK           0/1  resize-observer/scrollbars.html

@@ -1143,6 +1143,40 @@ const PRELUDE: &str = r#"
     Object.defineProperty(m, '__q', { value: String(q) });
     return m;
   };
+  // QCSS2: the `CSS` namespace (no constructor): `supports` runs the `@supports` evaluator, `escape` is CSS.escape.
+  (function () {
+    var CSS = {};
+    Object.defineProperty(CSS, Symbol.toStringTag, { value: 'CSS', configurable: true });
+    function def(name, len, fn) {
+      Object.defineProperty(fn, 'name', { value: name, configurable: true });
+      Object.defineProperty(fn, 'length', { value: len, configurable: true });
+      Object.defineProperty(CSS, name, { value: fn, writable: true, configurable: true, enumerable: true });
+    }
+    def('supports', 1, function (a, b) {
+      if (arguments.length < 1) throw new TypeError("Failed to execute 'supports' on 'CSS': 1 argument required, but only 0 present.");
+      if (arguments.length === 1) return !!__scratchy_supports1(String(a));
+      return !!__scratchy_supports2(String(a), String(b));
+    });
+    def('escape', 1, function (v) {
+      if (arguments.length < 1) throw new TypeError("Failed to execute 'escape' on 'CSS': 1 argument required, but only 0 present.");
+      var s = String(v), out = '', n = s.length;
+      for (var i = 0; i < n; i++) {
+        var c = s.charCodeAt(i), ch = s.charAt(i);
+        if (c >= 0xD800 && c <= 0xDBFF && i + 1 < n) {
+          var d = s.charCodeAt(i + 1);
+          if (d >= 0xDC00 && d <= 0xDFFF) { out += ch + s.charAt(i + 1); i++; continue; }
+        }
+        if (c === 0) out += '�';
+        else if ((c >= 1 && c <= 0x1F) || c === 0x7F || (i === 0 && c >= 0x30 && c <= 0x39) ||
+                 (i === 1 && c >= 0x30 && c <= 0x39 && s.charCodeAt(0) === 0x2D)) out += '\\' + c.toString(16) + ' ';
+        else if (i === 0 && n === 1 && c === 0x2D) out += '\\' + ch;
+        else if (c >= 0x80 || c === 0x2D || c === 0x5F || (c >= 0x30 && c <= 0x39) || (c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A)) out += ch;
+        else out += '\\' + ch;
+      }
+      return out;
+    });
+    Object.defineProperty(g, 'CSS', { value: CSS, writable: true, configurable: true, enumerable: false });
+  })();
   g.outerWidth = g.innerWidth; g.outerHeight = g.innerHeight; g.devicePixelRatio = 1;
   // QY44b: window.screen / visualViewport. The screen is the viewport
   // (headless: no separate monitor), read live so it stays >= innerWidth.
@@ -2437,6 +2471,9 @@ fn startup_engine(document: &Handle, store: Rc<js_modules::ModuleStore>, log: Lo
             let (m, media) = css::media_query_string_matches(&q, vw as f32, vh as f32);
             vec![if m { "1".into() } else { String::new() }, media]
         });
+        // QCSS2: `CSS.supports` shares `@supports`' evaluator (css.rs).
+        native!(&ctx, "__scratchy_supports1", |c: String| -> bool { css::supports_condition_text(&c) });
+        native!(&ctx, "__scratchy_supports2", |p: String, v: String| -> bool { css::supports_property_value(&p, &v) });
         // QFF1a: `document.fonts` and the web-font registry (fonts_prelude.js).
         native!(&ctx, "__scratchy_font_state", |key: String| -> String { crate::webfonts::state_of(&key).word().to_string() });
         native!(&ctx, "__scratchy_font_add", |key: String, family: String, bytes: crate::js_engine::Bytes, weight: String, style: String| -> bool {
