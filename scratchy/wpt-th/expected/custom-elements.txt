@@ -537,6 +537,8 @@ OK           0/1  custom-elements/form-associated/disabled-delegatesFocus.html
   FAIL      Focus events fire on disabled form-associated custom elements with delegatesFocus
 OK           0/1  custom-elements/form-associated/fieldset-elements-after-upgrade.html
   FAIL      Upgrading form-associated custom elements updates all ancestor fieldsets, including inside legend
+OK           0/1  custom-elements/form-associated/fieldset-elements-during-construction.html
+  FAIL      Form associated custom element isn't a fieldset listed element until fully custom
 OK           0/1  custom-elements/form-associated/fieldset-elements.html
   FAIL      Form associated custom elements should work with fieldset.elements
 OK           0/1  custom-elements/form-associated/focusability.html
