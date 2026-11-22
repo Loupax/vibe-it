@@ -2223,6 +2223,67 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   CharacterData.prototype.deleteData = function (o, c) { cdReplace(this, 'deleteData', o, c, ''); };
   CharacterData.prototype.replaceData = function (o, c, s) { cdReplace(this, 'replaceData', o, c, String(s)); };
   CharacterData.prototype.substringData = function (o, c) { var r = cdRange(this, 'substringData', o, c); return r[0].substr(r[1], r[2]); };
+  // QDOM12: Text.splitText / wholeText and Node.normalize, on top of the logging natives (__d_settext,
+  // __d_insert, __d_remove), so every step is a recorded DOM write for the incremental engine and for
+  // MutationObservers. `rangeHook` is where live-Range fix-ups go (DOM "split a Text node" step 7 and
+  // "normalize" step 6.4): QDOM3 keeps the WeakRef list of live Ranges; until it lands these are no-ops.
+  var rangeHook = {
+    split: function (node, offset, fresh, parent) {},     // after `fresh` is inserted, before node's data is cut
+    merge: function (cur, node, length) {}                // `cur` (about to be removed) merges into `node` at `length`
+  };
+  Object.defineProperty(Text.prototype, 'splitText', { configurable: true, enumerable: true, writable: true, value: function splitText(offset) {
+    if (arguments.length < 1) throw new TypeError("Failed to execute 'splitText' on 'Text': 1 argument required, but only 0 present.");
+    var d = __d_text(this.__id), off = Number(offset);
+    off = off !== off || off === Infinity || off === -Infinity ? 0 : (off < 0 ? Math.ceil(off) : Math.floor(off));
+    off = ((off % 4294967296) + 4294967296) % 4294967296;
+    if (off > d.length) throw herr("Failed to execute 'splitText' on 'Text': The offset " + off + ' is larger than the Text node\'s length (' + d.length + ').', 'IndexSizeError');
+    var fresh = this.cloneNode(false), parent = this.parentNode;
+    __d_settext(fresh.__id, d.slice(off));
+    if (parent) {
+      parent.insertBefore(fresh, this.nextSibling);
+      rangeHook.split(this, off, fresh, parent);
+    }
+    __d_settext(this.__id, d.slice(0, off));
+    return fresh;
+  } });
+  defs(Text.prototype, 'wholeText', function () {
+    var a = this;
+    while (a.previousSibling && (a.previousSibling.nodeType === 3 || a.previousSibling.nodeType === 4)) a = a.previousSibling;
+    var out = '';
+    for (; a && (a.nodeType === 3 || a.nodeType === 4); a = a.nextSibling) out += __d_text(a.__id);
+    return out;
+  }, undefined);
+  Object.defineProperty(NodeProto, 'normalize', { configurable: true, enumerable: true, writable: true, value: function normalize() {
+    var walk = function (parent) {
+      var node = parent.firstChild;
+      while (node) {
+        var next = node.nextSibling;
+        if (node.nodeType === 1) walk(node);
+        else if (node.nodeType === 3) {
+          var length = __d_text(node.__id).length;
+          if (length === 0) { parent.removeChild(node); node = next; continue; }
+          var data = '', cur = next, runs = [];
+          while (cur && cur.nodeType === 3) {
+            runs.push(cur);
+            data += __d_text(cur.__id);
+            cur = cur.nextSibling;
+          }
+          if (runs.length) {
+            __d_settext(node.__id, __d_text(node.__id) + data);
+            var len = length;
+            for (var i = 0; i < runs.length; i++) {
+              rangeHook.merge(runs[i], node, len);
+              len += __d_text(runs[i].__id).length;
+            }
+            for (var j = 0; j < runs.length; j++) parent.removeChild(runs[j]);
+            next = cur;
+          }
+        }
+        node = next;
+      }
+    };
+    walk(this);
+  } });
   defs(ElementProto, 'innerText', function () { return __d_text(this.__id); },
     function (v) { __d_settext(this.__id, v == null ? '' : String(v)); });
   defs(ElementProto, 'innerHTML', function () { return __d_gethtml(this.__id, false); },
