@@ -4,7 +4,7 @@
 # 1. Always rebase onto origin/main in a temp worktree; PROMPTS.md/REGRESSIONS.md conflicts keep both
 #    (main first); a conflict in scratchy/wpt-th/areas.txt is rebuilt with `scratchy --wpt-th --areas-only` (QWPT10);
 #    any other conflict or duplicate R-heading -> exit 2; if the head changed, force-push, wait CI.
-# 2. Require all eight checks (scratchy, snag, wire + 5 scratchy-wpt-* shards, QCISPLIT2 #610) green on the PR head, then squash-merge.
+# 2. Require all nine checks (scratchy, snag, wire + 6 scratchy-wpt-* shards incl. wptserve, QWPT8 #615) green on the PR head, then squash-merge.
 # Exit 0 = merged; 1 = CI red (resume the agent); 2 = conflict it could not resolve; 3 = other.
 set -u
 N=$1
@@ -18,14 +18,14 @@ HEAD=origin/$BR
 BASE=$(git merge-base "$HEAD" origin/main)
 CODE=$(git diff --name-only "$BASE" origin/main | grep -Ev '^(PROMPTS\.md|README\.md)$|^scratchy/(TODO\.txt|TODO-DONE\.txt|PROMPTS\.md|REGRESSIONS\.md|PERF\.md|NOTES\.md|AGENTS\.md|QUESTIONS\.md|HANDOFF\.md)$' | head -1)
 # all checks SUCCESS (4 jobs today; 3 after QV8-6 drops scratchy-quickjs)
-green() { [ "$(gh pr view "$N" --json statusCheckRollup -q '([.statusCheckRollup[]|select(.conclusion=="SUCCESS")]|length) as $ok | (.statusCheckRollup|length) as $all | if $all>=8 and $ok==$all then "y" else "n" end')" = y ]; }
+green() { [ "$(gh pr view "$N" --json statusCheckRollup -q '([.statusCheckRollup[]|select(.conclusion=="SUCCESS")]|length) as $ok | (.statusCheckRollup|length) as $all | if $all>=9 and $ok==$all then "y" else "n" end')" = y ]; }
 # Wait until CI has registered checks for the PR's CURRENT head commit (under load this took > 40 s and
 # `gh pr checks --watch` then returned at once with no checks: false "CI NOT green", #580 2026-11-22), then watch.
 waitci() {
   # $1 = the sha we just pushed (right after a push, `gh pr view` can still return the OLD head: #587 2026-11-22)
   local sha=${1:-} i n; [ -n "$sha" ] || sha=$(gh pr view "$N" --json headRefOid -q .headRefOid)
   # check runs only exist once jobs START; a run queued behind main's runs has none. So wait (up to 40 min) on the
-  # workflow run for this sha itself, then for all 8 check runs.
+  # workflow run for this sha itself, then for all 9 check runs.
   local rid=""
   for i in $(seq 1 240); do
     rid=$(gh run list --commit "$sha" --event pull_request --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null)
@@ -34,7 +34,7 @@ waitci() {
   [ -n "$rid" ] && timeout 2700 gh run watch "$rid" >/dev/null 2>&1
   for i in $(seq 1 30); do
     n=$(gh api "repos/{owner}/{repo}/commits/$sha/check-runs" -q '.total_count' 2>/dev/null || echo 0)
-    [ "${n:-0}" -ge 8 ] && break; sleep 10
+    [ "${n:-0}" -ge 9 ] && break; sleep 10
   done
   timeout 2700 gh pr checks "$N" --watch >/dev/null 2>&1; green
 }

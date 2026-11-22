@@ -368,3 +368,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #618 QREG2 READY (:let @+ = expr; live paste skipped: real clipboard is the user's), merging; user can try it. Launched QWPTFLK4.
 - 2026-11-22 Merged #618 QREG2 c6c0e11. Reinstalling.
 - 2026-11-22 Reinstalled ~/.cargo/bin/scratchy 20:15 from main e91a994 (Canvas 2D, XML docs, testdriver/input, sync focus, CSS.supports, :let @+).
+- 2026-11-22 merge_pr.sh -> 9 checks (QWPT8 adds scratchy-wpt-wptserve). Merging #615.
