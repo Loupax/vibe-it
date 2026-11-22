@@ -1108,6 +1108,8 @@ pub(crate) struct Declarations {
     /// `object-fit` / `object-position` (Q28) for `<img>`.
     pub(crate) object_fit: Option<ObjectFit>,
     pub(crate) object_position: Option<BgPosDecl>,
+    /// QCSS-B: `aspect-ratio`.
+    pub(crate) aspect_ratio: Option<AspectRatio>,
     pub(crate) display: Option<Display>,
     pub(crate) position: Option<Position>,
     pub(crate) float: Option<Float>,
@@ -3354,6 +3356,82 @@ impl Default for BgPosDecl {
     }
 }
 
+/// QCSS-B: `aspect-ratio: auto | <ratio> | auto && <ratio>` (css-sizing-4). `ratio` is the written
+/// `(numerator, denominator)` (denominator `None` when only one number was written); a degenerate
+/// ratio (0 on either side) is kept as written but counts as "no ratio".
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub(crate) struct AspectRatio {
+    pub(crate) auto: bool,
+    pub(crate) ratio: Option<(f32, Option<f32>)>,
+}
+
+impl AspectRatio {
+    /// `auto`, the initial value.
+    pub(crate) const AUTO: AspectRatio = AspectRatio { auto: true, ratio: None };
+
+    /// width / height of the explicit `<ratio>`, if it is non-degenerate.
+    pub(crate) fn explicit(&self) -> Option<f32> {
+        let (n, d) = self.ratio?;
+        let d = d.unwrap_or(1.0);
+        (n > 0.0 && d > 0.0 && n.is_finite() && d.is_finite()).then(|| n / d)
+    }
+
+    /// CSSOM serialisation (`auto`, `16 / 9`, `auto 16 / 9`).
+    pub(crate) fn serialize(&self) -> String {
+        let mut out = String::new();
+        if self.auto || self.ratio.is_none() {
+            out.push_str("auto");
+        }
+        if let Some((n, d)) = self.ratio {
+            if !out.is_empty() {
+                out.push(' ');
+            }
+            out.push_str(&fmt_num(n));
+            out.push_str(" / ");
+            out.push_str(&fmt_num(d.unwrap_or(1.0)));
+        }
+        out
+    }
+}
+
+fn fmt_num(v: f32) -> String {
+    if v.fract() == 0.0 && v.abs() < 1e9 { format!("{}", v as i64) } else { format!("{v}") }
+}
+
+/// `aspect-ratio` value: `auto`, `<number> [/ <number>]`, or both in either order.
+pub(crate) fn parse_aspect_ratio(input: &mut CssParser) -> Result<AspectRatio, ()> {
+    fn ratio(input: &mut CssParser) -> Result<(f32, Option<f32>), ()> {
+        let n = match input.next().map_err(|_| ())? {
+            Token::Number { value, .. } if *value >= 0.0 => *value,
+            _ => return Err(()),
+        };
+        let st = input.state();
+        if input.try_parse(|i| i.expect_delim('/')).is_ok() {
+            match input.next().map_err(|_| ())? {
+                Token::Number { value, .. } if *value >= 0.0 => return Ok((n, Some(*value))),
+                _ => return Err(()),
+            }
+        }
+        input.reset(&st);
+        Ok((n, None))
+    }
+    let is_auto = |i: &mut CssParser| i.try_parse(|i| i.expect_ident_matching("auto")).is_ok();
+    let r = if is_auto(input) {
+        let st = input.state();
+        match ratio(input) {
+            Ok(r) => AspectRatio { auto: true, ratio: Some(r) },
+            Err(()) => {
+                input.reset(&st);
+                AspectRatio::AUTO
+            }
+        }
+    } else {
+        let r = ratio(input)?;
+        AspectRatio { auto: is_auto(input), ratio: Some(r) }
+    };
+    if only_important_left(input) { Ok(r) } else { Err(()) }
+}
+
 /// `object-fit` (Q28): how a replaced `<img>`'s picture sits in its box.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub(crate) enum ObjectFit {
@@ -4684,6 +4762,7 @@ impl Declarations {
             "background-attachment" => background_attachment,
             "object-fit" => object_fit,
             "object-position" => object_position,
+            "aspect-ratio" => aspect_ratio,
             "font-size" => font_size, "line-height" => line_height,
             "vertical-align" => vertical_align, "font-family" => font_family,
             "font-weight" => font_weight, "text-align" => text_align,
@@ -4845,6 +4924,10 @@ impl DeclParser<'_> {
         } else if name.eq_ignore_ascii_case("object-fit") {
             if let Ok(id) = input.expect_ident() {
                 self.decls.object_fit = ObjectFit::from_keyword(&id.to_ascii_lowercase());
+            }
+        } else if name.eq_ignore_ascii_case("aspect-ratio") {
+            if let Ok(v) = parse_aspect_ratio(input) {
+                self.decls.aspect_ratio = Some(v);
             }
         } else if name.eq_ignore_ascii_case("object-position") {
             if let Ok(v) = parse_bg_position(input) {

@@ -403,6 +403,7 @@ pub(crate) fn serialize(s: &ComputedStyle, prop: &str) -> String {
         "height" => opt_len(s.height),
         "min-width" => s.min_width.map(box_len).unwrap_or_else(|| "0px".into()),
         "min-height" => s.min_height.map(box_len).unwrap_or_else(|| "0px".into()),
+        "aspect-ratio" => s.aspect_ratio.serialize(),
         "max-width" => s.max_width.map(box_len).unwrap_or_else(|| "none".into()),
         "max-height" => s.max_height.map(box_len).unwrap_or_else(|| "none".into()),
         "top" => opt_len(s.inset.top),

@@ -126,6 +126,7 @@ pub(crate) fn style_walk(old: &ComputedStyle, new: &ComputedStyle, f: &mut Field
         viewport_hidden_x => B,
         mask_layout => B,
         object_fit => P,
+        aspect_ratio => L,
         object_pos => P,
         border_radius => P,
         overflow_x => B,
