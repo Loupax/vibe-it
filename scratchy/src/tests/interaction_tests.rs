@@ -1189,9 +1189,9 @@ fn qj6_scroll_event_fires_on_change_only() {
     )
     .unwrap();
     for _ in 0..100 {
-        let Some(due) = engine.next_due_ms() else { break };
+        let Some(due) = crate::event_loop::headless_next_due(&engine) else { break };
         clock.set(clock.get().max(due));
-        engine.run_due();
+        crate::event_loop::headless_turn(&engine, clock.get());
     }
     assert_eq!(*out.borrow(), ["log:scroll 40"]);
 }

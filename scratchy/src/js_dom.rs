@@ -498,6 +498,11 @@ pub(crate) enum UrlEv {
     Move(isize),
 }
 
+thread_local! {
+    /// QEL7: see the `__d_qel7` native. Reset when an engine starts.
+    pub(crate) static QEL7_BITS: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
+}
+
 /// Installs the `__d_*` natives for `document` and the JS wrappers on top.
 /// QB5: requests page script made of the App (which owns focus and the
 /// scroll offset); drained by `App::js_sync` through `take_requests`.
@@ -1869,6 +1874,22 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         let f = |v: f64| if v.is_finite() { Some(v) } else { None };
         r.borrow_mut().scroll = Some(ScrollReq { x: f(x), y: f(y), relative });
     });
+    // QEL7: the scroll/scrollend/MQL work the rendering update owes (bit 0 = `scroll` events queued, bit 1 =
+    // `scrollend` waiting for a quiet frame, bit 2 = a MediaQueryList exists); the App and the headless
+    // frame clock read it without an eval (`qel7_bits`). `__d_by_nid` = the wrapper id of the element
+    // with layout node id `nid` in document `doc` (-1: none).
+    native!(ctx, "__d_qel7", move |bits: i32| {
+        QEL7_BITS.with(|b| b.set(bits as u8));
+    });
+    let t = table.clone();
+    native!(ctx, "__d_by_nid", move |doc: i32, nid: f64| -> i32 {
+        let mut t = t.borrow_mut();
+        let Some(root) = t.get(doc) else { return -1 };
+        match find_node_by_id(&root, nid as usize) {
+            Some(h) => t.intern(&h),
+            None => -1,
+        }
+    });
     // QJ6: element scrolling. `__d_nid` is the layout/App node id of a JS
     // wrapper id (what the App keys its per-box scroll offsets by).
     let t = table.clone();
@@ -2566,19 +2587,39 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (x > 0 && g.__scratchy_maxScrollX) x = Math.min(x, g.__scratchy_maxScrollX());
     return x;
   };
+  // QEL7: scroll events are queued here and fired by the rendering update's "run the scroll steps"
+  // (`__scratchy_scroll_steps`, once per target per frame); `scrollend` follows the first update in which
+  // the target did not scroll (and the App is not easing / dragging). The window's target is the Document.
+  // `__d_qel7(bits)` tells Rust what is owed: 1 = scroll events queued, 2 = scrollend waiting, 4 = MQLs exist.
+  var gScrollQ = [], gScrollQS = new Set(), gEndQ = new Set(), gQ7 = 0;
+  var qel7Bits = function (b, on) { var n = on ? gQ7 | b : gQ7 & ~b; if (n !== gQ7) { gQ7 = n; __d_qel7(n); } };
+  var gScrollNote = function (t) {
+    if (g.parent !== g) {
+      // An iframe realm has no rendering update of its own here: keep the old timer-fired event.
+      if (t !== doc) sTimeout.call(g, function () { t.dispatchEvent(new g.Event('scroll')); }, 0);
+      return;
+    }
+    if (!gScrollQS.has(t)) { gScrollQS.add(t); gScrollQ.push(t); }
+    gEndQ.add(t);
+    qel7Bits(3, true);
+  };
+  g.__scratchy_qel7 = qel7Bits;
+  g.__scratchy_scroll_doc = function () { gScrollNote(doc); };
   g.scroll = g.scrollTo = function () {
-    var a = scrollArgs(arguments[0], arguments[1]);
+    var a = scrollArgs(arguments[0], arguments[1]), ox = g.scrollX, oy = g.scrollY;
     if (a[0] === a[0]) a[0] = clampX(a[0]);
     __d_scroll(a[0], a[1], false);
     if (a[0] === a[0]) g.scrollX = g.pageXOffset = a[0];
     if (a[1] === a[1]) g.scrollY = g.pageYOffset = Math.max(0, a[1]);
+    if (g.scrollX !== ox || g.scrollY !== oy) gScrollNote(doc);
   };
   g.scrollBy = function () {
-    var a = scrollArgs(arguments[0], arguments[1]);
+    var a = scrollArgs(arguments[0], arguments[1]), ox = g.scrollX, oy = g.scrollY;
     var nx = a[0] === a[0] ? clampX(g.scrollX + a[0]) : g.scrollX;
     __d_scroll(nx - g.scrollX, a[1] === a[1] ? a[1] : 0, true);
     g.scrollX = g.pageXOffset = nx;
     if (a[1] === a[1]) g.scrollY = g.pageYOffset = Math.max(0, g.scrollY + a[1]);
+    if (g.scrollX !== ox || g.scrollY !== oy) gScrollNote(doc);
   };
   // QDOM13: an `on*` attribute change on <body>/<frameset> forwards to the Window's handler (js.rs `__scratchy_attr_changed`).
   var onAttr = function (el, n) { n = String(n).toLowerCase(); if (n.charCodeAt(0) === 111 && n.charCodeAt(1) === 110) g.__scratchy_attr_changed(el, n); };
@@ -3272,7 +3313,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       keyup: KeyboardEvent, mouseover: MouseEvent, mouseout: MouseEvent, focus: FocusEvent, blur: FocusEvent, focusin: FocusEvent, focusout: FocusEvent,
       animationstart: AnimationEvent, animationend: AnimationEvent, animationiteration: AnimationEvent, animationcancel: AnimationEvent,
       transitionrun: g.TransitionEvent, transitionstart: g.TransitionEvent, transitionend: g.TransitionEvent, transitioncancel: g.TransitionEvent,
-      beforeinput: g.InputEvent, input: g.InputEvent }[type] || Event;
+      beforeinput: g.InputEvent, input: g.InputEvent, wheel: g.WheelEvent }[type] || Event;
     if (type === '__dialogclose') { t.close(init && init.rv !== undefined ? init.rv : undefined); return true; }
     if (type === 'submit') C = SubmitEvent;
     if (init && init.submitterId !== undefined) init.submitter = wrap(init.submitterId);
@@ -6340,8 +6381,28 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     gScrollGen++;
     gScrollEvent(el);
   };
-  gScrollEvent = function (el) {
-    sTimeout.call(g, function () { el.dispatchEvent(new g.Event('scroll')); }, 0);
+  gScrollEvent = function (el) { gScrollNote(el); };
+  // QEL7 "run the scroll steps": one `scroll` per queued target (the Document bubbles to the Window, an
+  // element does not), then `scrollend` for the targets that did not scroll in this update (unless `busy`:
+  // the App is still easing the scroll or a scrollbar thumb is held). Events queued by the handlers wait
+  // for the next update.
+  var scrollFire = function (t, type) {
+    var ev = new g.Event(type, { bubbles: t === doc });
+    __scratchy_trust(ev);
+    __scratchy_ua(ev);
+    try { __scratchy_dispatch(t, ev); } catch (e) {}
+  };
+  g.__scratchy_scroll_steps = function (busy) {
+    var q = gScrollQ, now = gScrollQS;
+    gScrollQ = []; gScrollQS = new Set();
+    for (var i = 0; i < q.length; i++) scrollFire(q[i], 'scroll');
+    if (!busy && gEndQ.size) {
+      var ends = [];
+      gEndQ.forEach(function (t) { if (!now.has(t)) ends.push(t); });
+      for (var j = 0; j < ends.length; j++) { gEndQ.delete(ends[j]); scrollFire(ends[j], 'scrollend'); }
+    }
+    qel7Bits(1, gScrollQ.length > 0);
+    qel7Bits(2, gEndQ.size > 0);
   };
   var gScrollProp = function (name, axis) {
     defs(ElementProto, name, function () {
@@ -6372,11 +6433,24 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     return true;
   };
   g.__scratchy_elscroll = function (m, mx) {
+    // QEL7: the elements whose offset the user changed (wheel, scrollbar) get a `scroll` event.
+    var changed = [], seen = {}, note = function (cur, now) {
+      cur.forEach(function (v, k) { if ((now.get(k) || 0) !== v) seen[k] = 1; });
+      now.forEach(function (v, k) { if ((cur.get(k) || 0) !== v) seen[k] = 1; });
+    };
+    var nm = new Map(), nx = new Map();
+    for (var k in m) if (m[k]) nm.set(Number(k), m[k]);
+    for (var j in mx || {}) if (mx[j]) nx.set(Number(j), mx[j]);
+    note(gElScroll, nm); note(gElScrollX, nx);
     gElScroll.clear();
     gElScrollX.clear();
     gScrollGen++;
-    for (var k in m) if (m[k]) gElScroll.set(Number(k), m[k]);
-    for (var j in mx || {}) if (mx[j]) gElScrollX.set(Number(j), mx[j]);
+    nm.forEach(function (v, k) { gElScroll.set(k, v); });
+    nx.forEach(function (v, k) { gElScrollX.set(k, v); });
+    for (var n in seen) {
+      var id = __d_by_nid(doc.__id, Number(n));
+      if (id >= 0) { var el = wrap(id); if (el) gScrollNote(el); }
+    }
   };
   // QXSCR1: the window's horizontal scroll range (`scrollWidth - innerWidth` of the root).
   g.__scratchy_maxScrollX = function () {
