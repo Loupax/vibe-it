@@ -143,6 +143,49 @@ impl PathData {
         }
         pb.finish()
     }
+    /// QCNV8: the path for stroking: zero-length segments are removed ("prune") so a round/square cap does not
+    /// draw a dot for them; a subpath left with no segment draws nothing (its close is dropped too).
+    fn build_pruned(&self) -> Option<tiny_skia::Path> {
+        let mut pb = PathBuilder::new();
+        let mut cur = (f64::NAN, f64::NAN);
+        let mut start = cur;
+        let mut drawn = false;
+        for s in &self.segs {
+            let (kept, end) = match *s {
+                Seg::Move(x, y) => {
+                    cur = (x, y);
+                    start = cur;
+                    drawn = false;
+                    continue;
+                }
+                Seg::Close => {
+                    if drawn {
+                        pb.close();
+                    }
+                    cur = start;
+                    drawn = false;
+                    continue;
+                }
+                Seg::Line(x, y) => ((x, y) != cur, (x, y)),
+                Seg::Quad(a, b, x, y) => ((a, b) != cur || (x, y) != cur, (x, y)),
+                Seg::Cubic(a, b, c, d, x, y) => ((a, b) != cur || (c, d) != cur || (x, y) != cur, (x, y)),
+            };
+            if kept {
+                if !drawn {
+                    pb.move_to(cur.0 as f32, cur.1 as f32);
+                    drawn = true;
+                }
+                match *s {
+                    Seg::Line(x, y) => pb.line_to(x as f32, y as f32),
+                    Seg::Quad(a, b, x, y) => pb.quad_to(a as f32, b as f32, x as f32, y as f32),
+                    Seg::Cubic(a, b, c, d, x, y) => pb.cubic_to(a as f32, b as f32, c as f32, d as f32, x as f32, y as f32),
+                    _ => {}
+                }
+            }
+            cur = end;
+        }
+        pb.finish()
+    }
     /// The current point in device space (the end of the last segment).
     fn cur(&self) -> Option<(f64, f64)> {
         match *self.segs.last()? {
@@ -603,7 +646,7 @@ fn path_op(c: &mut Canvas, op: i32, a: &[f64]) {
 /// QCNV6: `op` 0 fill, 1 stroke, 2 clip; `evenodd` picks the fill rule (fill and clip).
 fn paint_path(c: &mut Canvas, op: i32, evenodd: bool) {
     let rule = if evenodd { FillRule::EvenOdd } else { FillRule::Winding };
-    let path = c.path.build();
+    let path = if op == 1 { c.path.build_pruned() } else { c.path.build() };
     let (w, h) = (c.w, c.h);
     if op == 2 {
         // The region is replaced by its intersection with the path (an empty path clips everything away).
