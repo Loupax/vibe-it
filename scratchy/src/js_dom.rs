@@ -2386,9 +2386,16 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   var herr = function (msg, name) { return new DOMException(msg, name); };
   // QA14: XML Name check (approximate: ASCII start, then ASCII name chars or any non-ASCII).
   var validName = function (n) { return /^[A-Za-z_:\u00C0-\uFFFF][-A-Za-z0-9_:.\u00B7-\uFFFF]*$/.test(n); };
-  var checkName = function (fn, n) {
-    if (!validName(n)) throw herr("Failed to execute '" + fn + "': The string contains invalid characters.", 'InvalidCharacterError');
+  // QDOM19: whatwg/dom productions. `validName`/`ncName` (XML Name) stay for processing-instruction targets only.
+  var reElemName = /^(?:[A-Za-z][^\0\t\n\f\r \/>]*|[:_\u{80}-\u{10FFFF}][A-Za-z0-9\-.:_\u{80}-\u{10FFFF}]*)$/u;
+  var reAttrName = /^[^\0\t\n\f\r \/>=]+$/;
+  var reDoctypeName = /^[^\0\t\n\f\r >]*$/;
+  var rePrefix = /^[^\0\t\n\f\r \/>]+$/;
+  var invChars = function (fn, owner) {
+    return herr("Failed to execute '" + fn + "'" + (owner ? " on '" + owner + "'" : '') + ": The string contains invalid characters.", 'InvalidCharacterError');
   };
+  var checkName = function (fn, n, owner) { if (!reElemName.test(n)) throw invChars(fn, owner); };
+  var checkAttrName = function (fn, n, owner) { if (!reAttrName.test(n)) throw invChars(fn, owner); };
   var toNode = function (n) {
     if (n && typeof n === 'object' && n.__id !== undefined) return n;
     return wrap(__d_create(3, String(n)));
@@ -2623,9 +2630,10 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   };
   // QDOM13: an `on*` attribute change on <body>/<frameset> forwards to the Window's handler (js.rs `__scratchy_attr_changed`).
   var onAttr = function (el, n) { n = String(n).toLowerCase(); if (n.charCodeAt(0) === 111 && n.charCodeAt(1) === 110) g.__scratchy_attr_changed(el, n); };
-  ElementProto.setAttribute = function (n, v) { checkName('setAttribute', String(n)); __d_setq(this.__id, String(n), String(v)); onAttr(this, n); };
+  ElementProto.setAttribute = function (n, v) { checkAttrName('setAttribute', String(n), 'Element'); __d_setq(this.__id, String(n), String(v)); onAttr(this, n); };
   ElementProto.removeAttribute = function (n) { __d_rmq(this.__id, String(n)); onAttr(this, n); };
   ElementProto.toggleAttribute = function (n, force) {
+    checkAttrName('toggleAttribute', n = String(n), 'Element');
     var has = this.hasAttribute(n), want = force === undefined ? !has : !!force;
     if (want && !has) this.setAttribute(n, ''); else if (!want && has) this.removeAttribute(n);
     return want;
@@ -3052,16 +3060,10 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (xr.cn && n.nodeType === 1 && (od < 0 ? 0 : od) !== doc.__id) ceAdopt([n.__id], [od], doc.__id);
     return n;
   };
-  doc.createElement = function (t) { t = String(t); checkName('createElement', t); return wrap(__d_create(1, t)); };
+  doc.createElement = function (t) { t = String(t); checkName('createElement', t, 'Document'); return wrap(__d_create(1, t)); };
   doc.createElementNS = function (ns, t) {
-    ns = ns == null || ns === '' ? null : String(ns); t = String(t);
-    checkName('createElementNS', t);
-    var i = t.indexOf(':'), pre = i < 0 ? null : t.slice(0, i), loc = i < 0 ? t : t.slice(i + 1);
-    if (i === 0 || loc === '' || loc.indexOf(':') >= 0 || (pre !== null && (ns === null ||
-      (pre === 'xml' && ns !== 'http://www.w3.org/XML/1998/namespace'))) ||
-      ((t === 'xmlns' || pre === 'xmlns') !== (ns === 'http://www.w3.org/2000/xmlns/')))
-      throw herr("Failed to execute 'createElementNS': The namespace is invalid for the qualified name.", 'NamespaceError');
-    return wrap(__d_create_ns(ns === null ? '' : ns, t));
+    var x = extractName('createElementNS', 'Document', ns, t, true);
+    return wrap(__d_create_ns(x[0], x[1] ? x[1] + ':' + x[2] : x[2]));
   };
   doc.createTextNode = function (s) { return wrap(__d_create(3, String(s))); };
   doc.createComment = function (s) { return wrap(__d_create(8, String(s))); };
@@ -3884,7 +3886,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     });
     // QDOM6: createElement of an XML document keeps the name's case and makes a null-namespace element.
     // QDOM17: an XHTML document makes XHTML-namespace elements and keeps the case too.
-    if (!html) d.createElement = mk(function (t) { t = String(t); checkName('createElement', t); return wrap(ct === 'application/xhtml+xml' ? __d_create(15, t) : __d_create_xml(t)); });
+    if (!html) d.createElement = mk(function (t) { t = String(t); checkName('createElement', t, 'Document'); return wrap(ct === 'application/xhtml+xml' ? __d_create(15, t) : __d_create_xml(t)); });
     d.write = d.writeln = function () { console.warn('document.write on a created document ignored'); };
     d.importNode = function (n, deep) {
       if (!n || n.__id === undefined || n.nodeType === 9) throw herr("Failed to execute 'importNode' on 'Document': The node provided is a document.", 'NotSupportedError');
@@ -3920,7 +3922,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   var impl = Object.create(DOMImpl.prototype);
   DOMImpl.prototype.createDocumentType = function (name, pub, sys) {
     if (arguments.length < 3) throw new TypeError("Failed to execute 'createDocumentType' on 'DOMImplementation': 3 arguments required, but only " + arguments.length + " present.");
-    name = String(name); checkName('createDocumentType', name);
+    name = String(name); if (!reDoctypeName.test(name)) throw invChars('createDocumentType', 'DOMImplementation');
     var n = wrap(__d_create_doctype(name, String(pub), String(sys)));
     owners[n.__id] = doc; return n;
   };
@@ -4962,12 +4964,12 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   ElementProto.hasAttributes = function () { return __d_attr_list(this.__id).length > 0; };
   ElementProto.getAttributeNode = function (n) { return this.attributes.getNamedItem(n); };
   // QY45: the namespaced family. "validate and extract" per the DOM spec.
-  var extractName = function (fn, owner, ns, q) {
+  // QDOM19: split at the first ':' (prefix = valid namespace prefix, local = valid element/attribute local name).
+  var extractName = function (fn, owner, ns, q, isEl) {
     ns = ns == null || ns === '' ? null : String(ns); q = String(q);
     var P = "Failed to execute '" + fn + "' on '" + owner + "': ";
-    if (!validName(q)) throw herr(P + 'The string contains invalid characters.', 'InvalidCharacterError');
     var i = q.indexOf(':'), pre = i < 0 ? null : q.slice(0, i), loc = i < 0 ? q : q.slice(i + 1);
-    if (i >= 0 && !(ncName.test(pre) && ncName.test(loc))) throw herr(P + 'The qualified name provided is not a valid XML name.', 'InvalidCharacterError');
+    if ((pre !== null && !rePrefix.test(pre)) || !(isEl ? reElemName : reAttrName).test(loc)) throw herr(P + 'The string contains invalid characters.', 'InvalidCharacterError');
     if ((pre !== null && ns === null) || (pre === 'xml' && ns !== XML_NS) ||
       ((q === 'xmlns' || pre === 'xmlns') && ns !== XMLNS_NS) || (ns === XMLNS_NS && q !== 'xmlns' && pre !== 'xmlns'))
       throw herr(P + 'The namespace provided is invalid for the qualified name.', 'NamespaceError');
@@ -5002,7 +5004,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   };
   doc.createAttribute = function (n) {
     n = String(n);
-    if (!validName(n)) throw herr("Failed to execute 'createAttribute' on 'Document': String contains an invalid character.", 'InvalidCharacterError');
+    checkAttrName('createAttribute', n, 'Document');
     return mkDetached('', '', n.toLowerCase(), '');
   };
   doc.createAttributeNS = function (ns, q) {
