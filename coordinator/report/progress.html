@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-22 · main 78c705f · 62 PRs merged since 2026-11-21 morning (#475–#542) · 5 agents running (QWPT10, QEL5, QEL6, QDOM12, QMSG1)</div>
+  <div class="meta" id="updated">Updated 2026-11-22 · main cd70d6b · 81 PRs merged since 2026-11-21 morning (#475–#558) · 5 agents running (QDOM15, QDOM17, QANIMHL, QEL4, QMSG1 rebasing)</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -74,7 +74,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Measurements</h2>
   <div class="stats">
     <div class="stat"><span class="v">340 / 626</span><span class="l">WPT visual CSS tests passing (reftests), now checked in CI</span></div>
-    <div class="stat"><span class="v">31.9</span><span class="l">WPT JavaScript tests, mean score per file (0–100) over the phase-1 subset: 3,264 files, 23 areas; 47.5% of 37,294 subtests pass. Waiting to merge: QDOM3 (nodes 57), QDOM8 (+3,600 subtests), QEL2 (resize-observer 59), QXSCR1 (cssom-view), QSCR404. Baseline 28.4 (#504); every PR is gated on it in CI since #507</span></div>
+    <div class="stat"><span class="v">34.7</span><span class="l">WPT JavaScript tests, mean score per file (0–100) over the phase-1 subset: 3,264 files, 23 areas; 52.4% of 41,843 subtests pass (more files run now). Baseline 28.4 (#504); every PR is gated on it in CI since #507</span></div>
     <div class="stat"><span class="v">1852 / 1852</span><span class="l">Unit and integration tests passing, engine on and off (CI runs both)</span></div>
     <div class="stat"><span class="v">0</span><span class="l">Engine mismatches on the 7 test pages (check mode)</span></div>
   </div>
@@ -83,21 +83,21 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
     <tr><td>url</td><td class="n">44</td><td class="n">81.1</td><td class="n">77.6%</td></tr>
     <tr><td>requestidlecallback</td><td class="n">9</td><td class="n">64.8</td><td class="n">76.5%</td></tr>
     <tr><td>dom/other</td><td class="n">46</td><td class="n">82.9 <span class="note">(was 55.2)</span></td><td class="n">90.5%</td></tr>
-    <tr><td>dom/nodes</td><td class="n">393</td><td class="n">50.4 <span class="note">(was 42.4)</span></td><td class="n">56.0%</td></tr>
+    <tr><td>dom/nodes</td><td class="n">393</td><td class="n">61.7 <span class="note">(was 42.4)</span></td><td class="n">74.0%</td></tr>
     <tr><td>webidl</td><td class="n">44</td><td class="n">41.3 <span class="note">(was 38.1)</span></td><td class="n">52.0%</td></tr>
     <tr><td>html/dom</td><td class="n">180</td><td class="n">36.2</td><td class="n">26.9%</td></tr>
-    <tr><td>webmessaging</td><td class="n">115</td><td class="n">35.5</td><td class="n">42.6%</td></tr>
+    <tr><td>webmessaging</td><td class="n">115</td><td class="n">39.0 <span class="note">(was 35.5; QMSG1 63 pending)</span></td><td class="n">43.7%</td></tr>
     <tr><td>encoding</td><td class="n">41</td><td class="n">33.2</td><td class="n">43.5%</td></tr>
     <tr><td>html/semantics/scripting-1</td><td class="n">419</td><td class="n">31.4</td><td class="n">44.0%</td></tr>
     <tr><td>css/cssom</td><td class="n">271</td><td class="n">36.3 <span class="note">(was 31.2)</span></td><td class="n">54.1%</td></tr>
-    <tr><td>resize-observer</td><td class="n">36</td><td class="n">31.1</td><td class="n">31.9%</td></tr>
+    <tr><td>resize-observer</td><td class="n">36</td><td class="n">59.6 <span class="note">(was 31.1)</span></td><td class="n">58.8%</td></tr>
     <tr><td>hr-time</td><td class="n">9</td><td class="n">24.8</td><td class="n">31.2%</td></tr>
-    <tr><td>css/cssom-view</td><td class="n">220</td><td class="n">28.6 <span class="note">(was 24.6)</span></td><td class="n">40.5%</td></tr>
-    <tr><td>html/webappapis</td><td class="n">308</td><td class="n">24.4</td><td class="n">49.0%</td></tr>
-    <tr><td>dom/events</td><td class="n">194</td><td class="n">32.5 <span class="note">(was 23.0)</span></td><td class="n">54.7%</td></tr>
+    <tr><td>css/cssom-view</td><td class="n">220</td><td class="n">33.0 <span class="note">(was 24.6)</span></td><td class="n">50.4%</td></tr>
+    <tr><td>html/webappapis</td><td class="n">308</td><td class="n">27.4 <span class="note">(was 24.4)</span></td><td class="n">50.4%</td></tr>
+    <tr><td>dom/events</td><td class="n">194</td><td class="n">34.8 <span class="note">(was 23.0)</span></td><td class="n">56.3%</td></tr>
     <tr><td>domparsing</td><td class="n">93</td><td class="n">21.9</td><td class="n">5.4%</td></tr>
     <tr><td>shadow-dom</td><td class="n">263</td><td class="n">21.6</td><td class="n">31.8%</td></tr>
-    <tr><td>dom/ranges</td><td class="n">41</td><td class="n">17.1</td><td class="n">6.0%</td></tr>
+    <tr><td>dom/ranges</td><td class="n">41</td><td class="n">43.2 <span class="note">(was 17.1)</span></td><td class="n">40.6%</td></tr>
     <tr><td>custom-elements</td><td class="n">204</td><td class="n">16.8</td><td class="n">30.3%</td></tr>
     <tr><td>uievents</td><td class="n">70</td><td class="n">12.8</td><td class="n">38.1%</td></tr>
     <tr><td>intersection-observer</td><td class="n">150</td><td class="n">16.5 <span class="note">(was 12.0)</span></td><td class="n">19.6%</td></tr>
@@ -111,6 +111,18 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#558</td><td>QWPT11</td><td>Main's CI runs are no longer cancelled by the next merge, so every main commit is checked</td></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#557</td><td>QDOM13</td><td>Event handler properties (<code>onclick</code>, <code>document.body.onload</code>) per spec; dom/events 407 → 472 subtests</td></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#556</td><td>QDOM5</td><td>Range clone/extract/delete/insert/surround and live ranges; dom/ranges 17.1 → 43.2</td></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#553</td><td>QDOM14</td><td>Namespace lookups, <code>Element.prefix</code>, getElementsByTagName(NS)</td></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#554</td><td>QEL3</td><td>IntersectionObserver runs once per frame in the rendering step</td></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#555</td><td>QWPTFLK2</td><td>A "flaky" custom-elements test was the #550 bug; back in the gate</td></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#541</td><td>QSCR404</td><td>A script that fails to load (404) fires <code>error</code> instead of running the error page</td></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#539</td><td>QDOM8</td><td>ProcessingInstruction/CDATA nodes, XMLDocument; ~3,600 more subtests run</td></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#529</td><td>QEL2</td><td>ResizeObserver with real sizes; resize-observer 31 → 59.6</td></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#551</td><td>QSMOOTH1</td><td>Smooth vertical scrolling (your design)</td></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#550</td><td>QWPTFLK3</td><td>Real bug behind a "flaky" test: custom elements re-upgraded themselves until the stack overflowed</td></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#533</td><td>QDOM3</td><td><code>moveBefore</code> (move without re-running scripts/reloading iframes)</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#547</td><td>QDOM12</td><td><code>splitText</code>, <code>wholeText</code>, <code>normalize()</code></td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#535</td><td>QXSCR1</td><td>Horizontal scrolling (your call): Shift+wheel / horizontal wheel, ArrowLeft/Right; real scrollLeft/scrollX; scrollIntoView 40/40</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#543</td><td>QWPT10</td><td>The merge script rebuilds the WPT summary file itself, so PRs stop bouncing on it</td></tr>
@@ -184,7 +196,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 </section>
 
 <section>
-  <h2>Open work (62 items)</h2>
+  <h2>Open work (54 items)</h2>
   <div class="scroll"><table>
     <tr><th>Group</th><th>Items</th><th>Status</th></tr>
     <tr><td>Engine</td><td>QINC1m remove the old pipeline</td><td><span class="pill todo">after ~3 days of your use, with your OK</span></td></tr>
