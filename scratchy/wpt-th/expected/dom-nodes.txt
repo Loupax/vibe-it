@@ -1829,8 +1829,7 @@ TIMEOUT      0/1  dom/nodes/moveBefore/css-transition-cross-document.html
 OK           0/1  dom/nodes/moveBefore/css-transition-cross-shadow.html
   FAIL      Moving an element with a transition across shadow boundaries preserves the transition
 OK           1/1  dom/nodes/moveBefore/css-transition-to-disconnected-document.html
-OK           0/1  dom/nodes/moveBefore/css-transition-trigger.html
-  FAIL      Node.moveBefore should trigger CSS transition state (left) if needed
+OK           1/1  dom/nodes/moveBefore/css-transition-trigger.html
 OK           6/7  dom/nodes/moveBefore/custom-element-move-reactions.html
   FAIL      connectedMove runs when custom element is nested within a shadow root
 OK           1/1  dom/nodes/moveBefore/fieldset-child-blur-event.html
