@@ -183,7 +183,7 @@
     postMessageTask(function () {
       if (g.closed) return;
       var fire = function () { g.dispatchEvent(new MessageEvent('message', { data: d, origin: sorigin, source: src, ports: list })); };
-      if (typeof g.__scratchy_enter === 'function') g.__scratchy_enter(g, fire); else fire();
+      if (g.top !== g && typeof g.__scratchy_enter === 'function') g.__scratchy_enter(g, fire); else fire();  // the page window is its own incumbent already
     });
   });
 
