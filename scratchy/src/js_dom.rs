@@ -1226,6 +1226,10 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
                 .then(|| crate::js_geom::class_write_pre(&h, old.as_deref(), Some(&val)))
                 .flatten();
             set_attr(&h, &name, &val);
+            // QANIMHLb: an inline `transition` makes the headless rendering step style the page.
+            if name == "style" && val.contains("transition") {
+                crate::transition::note_declared();
+            }
             log_attr(&t.borrow(), &h, changed, &name, old.as_deref(), Some(&val));
             // QY53m: a write that changed no value does not wake the App's restyle.
             d.set(d.get() | changed);
@@ -3122,6 +3126,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       pointerenter: PE, pointerleave: PE, click: MouseEvent, mousedown: MouseEvent, mouseup: MouseEvent, keydown: KeyboardEvent, keypress: KeyboardEvent,
       keyup: KeyboardEvent, mouseover: MouseEvent, mouseout: MouseEvent, focus: FocusEvent, blur: FocusEvent, focusin: FocusEvent, focusout: FocusEvent,
       animationstart: AnimationEvent, animationend: AnimationEvent, animationiteration: AnimationEvent, animationcancel: AnimationEvent,
+      transitionrun: g.TransitionEvent, transitionstart: g.TransitionEvent, transitionend: g.TransitionEvent, transitioncancel: g.TransitionEvent,
       beforeinput: g.InputEvent, input: g.InputEvent }[type] || Event;
     if (type === '__dialogclose') { t.close(init && init.rv !== undefined ? init.rv : undefined); return true; }
     if (type === 'submit') C = SubmitEvent;

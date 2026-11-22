@@ -116,7 +116,8 @@ impl HeadlessAnim {
                 has
             }
         };
-        has || !self.tracker.is_idle()
+        // QANIMHLb: a page that declares transitions may start one on any DOM change.
+        has || crate::transition::any_declared() || !self.tracker.is_idle() || crate::transition::live()
     }
 }
 
@@ -130,10 +131,9 @@ fn headless_anim_due(js: &JsEngine) -> Option<f64> {
     } else {
         None
     };
-    let since = match (dirty, a.next) {
-        (Some(x), Some(y)) => Some(x.min(y)),
-        (x, y) => x.or(y),
-    };
+    // QANIMHLb: a transition a script's style read started owes its `transitionrun` at the next frame.
+    let owed = (a.next.is_none() && crate::transition::owes_events()).then(|| js.now_ms());
+    let since = [dirty, a.next, owed].into_iter().flatten().reduce(f64::min);
     since.map(frame_after)
 }
 
@@ -143,19 +143,35 @@ impl RenderingHost for Headless<'_> {
     }
     /// Step 4: the events of the animations the last style step reported, at the page clock.
     fn update_animations(&mut self) {
-        let t = {
+        let trans = crate::transition::live();
+        let (t, tt) = {
             let mut a = self.js.anim.borrow_mut();
-            if a.tracker.is_idle() {
+            if a.tracker.is_idle() && !trans {
                 a.next = None;
                 return;
             }
             // The animation timeline moves with the rendering updates (getComputedStyle between them
             // reads this frame's values). No frames are added just to move it.
             crate::anim_eval::set_document_clock(self.now);
-            let t = a.tracker.tick(self.now);
-            a.next = t.next;
-            t
+            let t = if a.tracker.is_idle() { crate::AnimTick::default() } else { a.tracker.tick(self.now) };
+            // QANIMHLb: CSS transitions; headless paints nothing, so no in-between frames.
+            let tt = crate::transition::tick(self.now, f64::INFINITY);
+            a.next = match (t.next, tt.next) {
+                (Some(x), Some(y)) => Some(x.min(y)),
+                (x, y) => x.or(y),
+            };
+            (t, tt)
         };
+        for ev in tt.events {
+            let Some(node) = ev.node else { continue };
+            let init = [
+                ("bubbles", crate::js::EventField::Bool(true)),
+                ("propertyName", crate::js::EventField::Str(ev.property.to_string())),
+                ("elapsedTime", crate::js::EventField::Num(ev.elapsed_s)),
+                ("pseudoElement", crate::js::EventField::Str(ev.pseudo)),
+            ];
+            self.js.dispatch_event(Some(&node), ev.kind, &init);
+        }
         for ev in t.events {
             // An element nobody holds any more has nobody to tell.
             let Some(node) = ev.node else { continue };
@@ -191,6 +207,10 @@ impl RenderingHost for Headless<'_> {
                 a.tracker.after_build(0, report, self.now);
                 a.next = Some(self.now);
             }
+        }
+        // QANIMHLb: a transition the pass (or a script's style read) started sends its events at the next update.
+        if crate::transition::owes_events() {
+            a.next = Some(a.next.map_or(self.now, |n| n.min(self.now)));
         }
     }
 }
@@ -228,6 +248,7 @@ pub(crate) fn headless_next_due(js: &JsEngine) -> Option<f64> {
 /// Headless, one turn at virtual time `now`: the due timers (tasks) first; when none ran, the
 /// rendering update if its frame is due. Returns the callbacks run (0 = nothing was due).
 pub(crate) fn headless_turn(js: &JsEngine, now: f64) -> usize {
+    crate::anim_eval::set_task_clock(Some(now));
     match js.run_due_counted() {
         0 => headless_frame(js, now),
         n => n,

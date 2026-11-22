@@ -1536,6 +1536,8 @@ impl Engine {
     pub(crate) fn age_animations(&self) {
         let animated: HashSet<usize> = self.table.iter().filter(|(_, e)| e.animated).map(|(k, _)| *k).collect();
         crate::anim_eval::retain_starts(|node, _| animated.contains(&node));
+        // QANIMHLb: transitions (and the base style they compare with) of every element still listed.
+        crate::transition::retain(|node| self.table.contains_key(&node));
     }
 
     /// Compares every style the from-scratch build resolved with the table: the mismatch reports.

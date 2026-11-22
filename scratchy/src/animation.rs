@@ -173,6 +173,7 @@ thread_local! {
 pub(crate) fn reset_anim_arena() {
     let old = ANIM_ARENA.with(|a| std::mem::replace(&mut *a.borrow_mut(), AnimArena::new()));
     drop(old);
+    crate::transition::reset_trans_arena();
 }
 
 /// Test-only: number of interned list sets in this thread's arena.
@@ -229,7 +230,7 @@ impl AnimDecls {
 
 type PErr = ParseError<()>;
 
-fn parse_time(tok: &Token<'_>) -> Option<f32> {
+pub(crate) fn parse_time(tok: &Token<'_>) -> Option<f32> {
     match tok {
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("s") => Some(value * 1000.0),
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("ms") => Some(*value),
@@ -237,7 +238,7 @@ fn parse_time(tok: &Token<'_>) -> Option<f32> {
     }
 }
 
-fn timing_keyword(id: &str) -> Option<TimingFunction> {
+pub(crate) fn timing_keyword(id: &str) -> Option<TimingFunction> {
     Some(match_ignore_ascii_case! { id,
         "linear" => TimingFunction::Linear,
         "ease" => TimingFunction::EASE,
@@ -250,7 +251,7 @@ fn timing_keyword(id: &str) -> Option<TimingFunction> {
     })
 }
 
-fn parse_timing<'i>(i: &mut CssParser<'i>) -> Result<TimingFunction, PErr> {
+pub(crate) fn parse_timing<'i>(i: &mut CssParser<'i>) -> Result<TimingFunction, PErr> {
     let tok = i.next()?.clone();
     match tok {
         Token::Ident(id) => timing_keyword(&id).ok_or_else(|| i.new_error_for_next_token()),
@@ -295,7 +296,7 @@ fn parse_timing<'i>(i: &mut CssParser<'i>) -> Result<TimingFunction, PErr> {
     }
 }
 
-fn is_reserved_name(id: &str) -> bool {
+pub(crate) fn is_reserved_name(id: &str) -> bool {
     ["initial", "inherit", "unset", "revert", "revert-layer", "default"]
         .iter()
         .any(|k| id.eq_ignore_ascii_case(k))

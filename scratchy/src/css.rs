@@ -1048,6 +1048,8 @@ pub(crate) fn parse_quotes(input: &mut CssParser) -> Result<Vec<(String, String)
 pub(crate) struct Declarations {
     /// QAN1a: `animation` and its longhands (parse only).
     pub(crate) anim: Option<Box<AnimDecls>>,
+    /// QANIMHLb: `transition` and its longhands.
+    pub(crate) trans: Option<Box<TransDecls>>,
     /// `--name: <raw text>` custom-property declarations on this rule,
     /// in source order, name kept exactly as written (custom property
     /// names are case-*sensitive*, unlike every other property this file
@@ -2537,6 +2539,8 @@ pub(crate) fn unprefixed_property(name: &str) -> &str {
         "animation", "animation-name", "animation-duration", "animation-timing-function",
         "animation-delay", "animation-iteration-count", "animation-direction",
         "animation-fill-mode", "animation-play-state",
+        "transition", "transition-property", "transition-duration", "transition-timing-function",
+        "transition-delay", "transition-behavior",
     ];
     let lower = name.to_ascii_lowercase();
     for prefix in ["-webkit-", "-moz-"] {
@@ -5173,6 +5177,8 @@ impl DeclParser<'_> {
             }
         } else if is_animation_property(name) {
             self.apply_animation(name, input);
+        } else if is_transition_property(name) {
+            self.apply_transition(name, input);
         } else if name.eq_ignore_ascii_case("text-overflow") {
             if let Ok(ident) = input.expect_ident() {
                 if ident.eq_ignore_ascii_case("ellipsis") {

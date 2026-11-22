@@ -3937,10 +3937,45 @@ DOM change or after the tracker's next change). A page without `@keyframes`, or 
 not change and has no animation event coming, owes no frame. `getComputedStyle`'s cache keys animated
 entries on the clock as well as the write generation. Under `--perf-report` the step's layout counts
 as `io` (rendering-update work, like the IntersectionObserver's), caller `(rendering update: CSS
-animations)`; on GitHub that is one first layout (~480 ms) a script never asked for. Not here: CSS transitions (no engine support at
-all, so `transitionend` and dom/events/webkit-transition-end-event still time out), WAAPI
+animations)`; on GitHub that is one first layout (~480 ms) a script never asked for. Not here: CSS transitions (since QANIMHLb,
+below), WAAPI
 (`el.animate`), animated geometry for forced layouts between DOM writes (the geometry cache is keyed on
 the write generation only).
+
+**CSS transitions (QANIMHLb, src/transition.rs).** `transition` + the five longhands (`-webkit-`
+aliased) parse into `Declarations::trans` and cascade into an interned `TransRef` (`ComputedStyle::
+transitions`, arena reset with the animation arena). Engine: `transition::apply` runs at the end of
+every `resolve_style_for` (one flag test when the element declares none and no transition exists).
+Each element that declares transitions keeps its last BASE style (no transitions applied) as the
+next resolve's before-change style; a changed base value of a transitionable property (the
+`lerp_styles` set: opacity, colours, border widths/colours, margins, paddings, sizes, insets,
+z-index, font-size, word-spacing, text-indent, flex-grow/shrink, translate-only `transform`,
+`visibility`; table `build_props`) whose matching list entry has a combined duration > 0 starts a
+transition at the document clock from the before-change value (or the running transition's current
+value; the reverse of a running one is shortened per §3.1). The comparison is idempotent, so any
+number of resolves of one state (getComputedStyle, a forced layout, the incremental engine's adopt /
+check builds) agree; read-only resolves (shadow run) only apply. `display: none`, a property no
+longer listed, removal (from-scratch pass ageing in `finish_animation_pass`, membership ageing in
+`age_animations`) cancel. An inherited property moved by a transitioning ancestor starts nothing on
+the child (Firefox's "animation-only restyle" rule; otherwise `* {transition: color}` restarts a
+child transition every frame). Values: applied over the base where no CSS animation set the field.
+`is_animated` is true while a transition runs, so the incremental engine re-cascades the element on
+every update; the hover patch refuses an element that declares transitions (the real restyle starts
+them). Events: `transition::tick(now, interval)` in step 4 of the rendering update (App `anim_tick`,
+headless `update_animations`): run/start/end by phase change (pending -> before/active/after), cancel
+events queued at the style change; an ended transition is dropped one tick later (a child's restyle
+in between still sees it). App frames: an active transition asks for a restyle no more often than
+every max(33 ms, 2 x last build), none in between after a build > 50 ms (start/end only, QAN1d's
+rule for layout-affecting animations); headless asks for none in between (no paint), only at phase
+changes. Nothing running = `transition::live()` false = no wake-up. Headless style step also runs
+for pages that parsed a `transition` declaration (`any_declared`). Not here: `transition-behavior:
+allow-discrete` for properties outside the table (display, content-visibility), `inherit` on the
+longhands (treated as initial), `transform` functions other than translate, `getAnimations()`/
+CSSTransition objects, the App's clock for a transition a script's getComputedStyle starts between
+builds (the last build's time; headless uses the task's page clock, `anim_eval::set_task_clock`).
+getComputedStyle keeps a snapshot for every element it resolves (`transition::with_watch`), so
+"flush, then set a value and `transition` together" transitions; other elements keep one only while
+they declare `transition` (a compact `Snap` of the transitionable fields, not a `ComputedStyle`).
 
 ## Engine evidence (QINC1n, src/incr_evidence.rs)
 

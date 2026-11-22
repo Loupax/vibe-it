@@ -743,8 +743,8 @@ impl StyleCache {
                 Some(e) if e.fp == fp && e.wgen.is_none_or(|w| w == clocked) => e.style,
                 _ => {
                     CASCADES.with(|c| c.set(c.get() + 1));
-                    let s = resolve_style_for(n, &rules, inh, vw, None);
-                    let w = s.animations.is_some().then_some(clocked);
+                    let s = crate::transition::with_watch(|| resolve_style_for(n, &rules, inh, vw, None));
+                    let w = (s.animations.is_some() || s.transitions.is_some()).then_some(clocked);
                     self.map.insert(key, Entry { fp, wgen: w, style: s });
                     s
                 }
@@ -760,8 +760,8 @@ impl StyleCache {
                             Some(e) if e.fp == fp && e.wgen.is_none_or(|w| w == clocked) => e.style,
                             _ => {
                                 CASCADES.with(|c| c.set(c.get() + 1));
-                                let s = resolve_style_for(n, &rules, st.inherited(), vw, Some(p));
-                                let w = s.animations.is_some().then_some(clocked);
+                                let s = crate::transition::with_watch(|| resolve_style_for(n, &rules, st.inherited(), vw, Some(p)));
+                                let w = (s.animations.is_some() || s.transitions.is_some()).then_some(clocked);
                                 self.map.insert(pk, Entry { fp, wgen: w, style: s });
                                 s
                             }

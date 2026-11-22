@@ -130,6 +130,8 @@ pub(crate) fn style_walk(old: &ComputedStyle, new: &ComputedStyle, f: &mut Field
         overflow_y => B,
         text_overflow => L,
         animations => L,
+        // QANIMHLb: the lists alone change no output (a started transition changes the animated fields).
+        transitions => P,
         appearance_none => B,
         contain_lp => L,
         check_widget => B,

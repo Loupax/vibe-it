@@ -233,6 +233,11 @@ fn value_same(o: &ComputedStyle, n: &ComputedStyle) -> bool {
 /// Whether some `animation` of `s` names existing, non-empty keyframes (many
 /// pages declare `animation-*` longhands everywhere without running anything).
 fn animated(s: &ComputedStyle, vw: f32) -> bool {
+    // QANIMHLb: an element that declares transitions (or runs one) needs the real restyle, which
+    // starts them; the patch would jump to the end value.
+    if s.transitions.is_some() || crate::transition::has_running(s.node, s.pseudo) {
+        return true;
+    }
     let Some(a) = s.animations else { return false };
     let Some(t) = a.table() else { return true };
     t.resolve().iter().any(|a| a.name.as_deref().is_some_and(|n| lookup_keyframes(n, vw).is_some_and(|k| !k.is_empty())))
