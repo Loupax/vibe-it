@@ -9239,3 +9239,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       ci.yml; after #558) Split the WPT gates (testharness, and reftests if it helps) into their own job that reuses the
       built binaries (artifact or rust-cache) instead of rebuilding; keep every gate blocking; measure job and total wall
       time before/after.
+
+=== from TODO.txt: --- (no header)
+- [x] QMAPI3 DONE 0577527 #564 [S] (P2; Sonnet; tools/missing-api/; after QMAPI1) corpus.sh over a site list (gate pages +
+      a list the user provides), merged table "API -> sites, hits, example URL" into an R-section.
