@@ -3931,3 +3931,46 @@ Daily-use evidence for deleting the old pipeline (QINC1m). Both engine paths, Ap
   a window run with `SCRATCHY_FRAME_STATS` prints the counts at exit.
 Test seams (`incr_evidence::with_seam`): interval, forced fallback / mismatch, state dir, printed
 lines; tests default to checks off (they run in check mode anyway).
+
+## QXSCR1: horizontal scrolling
+
+**Style.** `ComputedStyle` has `overflow_x`/`overflow_y` (the old single `overflow` folded the two).
+`style::overflow_axes` applies CSS Overflow 3: when either axis is `hidden`/`scroll`/`auto`, a
+`visible` other axis computes to `auto` and a `clip` one to `hidden`. `Overflow::Clip` is new: it
+clips its axis but is no scroll container (`ComputedStyle::scroll_container`), so `overflow-x: clip`
+with `overflow-y: visible` clips only x (`paint`'s `child_clip` and `compute_ink` are per axis).
+The viewport propagation (`propagate_viewport_overflow`) records `viewport_hidden` (y) and
+`viewport_hidden_x` separately; `clip` on the viewport counts as hidden.
+
+**Layout.** `ScrollInfo` gains `user_x` (x not `hidden`), `content_w`, `client_w`. The widths are
+set by `compute_ink` (and the engine's `incr_layout::pass`), which now folds the content's union in
+per axis (`fold_content_ink`) and gives the right edge of that union to the region. `compute_ink`
+takes the `ShapeCache`: a `white-space: pre`/`nowrap` paragraph's widest line extends the ink
+(`text_overflow_right`), so a nowrap line in an `overflow-x: auto` box is scrollable and wide text
+widens the document. `layout::doc_scroll_width` is the root's width or its ink's right edge.
+
+**Offsets.** No new maps: an x offset lives in the same `App::scroll_offsets` / `node_scroll` as the
+y one, under the key `layout::xk(id)` (`X_KEY`, the top bit). Clearing, history save/restore and
+`collect_scroll_regions` carry both. `ScrollInfo::offsets(map)` returns the clamped (y, x).
+`App::scroll_x` is the window's (clamped in `redraw` against `doc_scroll_width`).
+
+**Paint / hit test.** The ambient x shift is a thread-local, `paint::SCROLL_X` (like
+`PAINT_OPACITY`), not a parameter, so the many `paint`/`hit_test_*` callers keep their signatures.
+The App sets it with `paint::with_scroll_x(self.scroll_x, ..)` around the frame's paint and every
+hit test; `paint` adds a region's own x offset for its content and z-layers and forces 0 for a
+`fixed` subtree. Hit tests take document-space x (`pos.0 + scroll_x`) and add each region's x offset
+for its children (like y); a fixed box subtracts the window's `scroll_x()`. Tests that call `paint`
+directly get 0 by default. Focus ring, search highlights (`visible_rects`, `reveal_x`, `doc_left`),
+the select popup anchor, the text caret click and `pageX` subtract or add `scroll_x`.
+
+**Input.** `wheel_axes`: winit's x delta, or Shift turning a vertical wheel horizontal.
+`App::wheel_x` routes the x part through the same scroll chain (first region that can move on x,
+else the window unless `viewport_hidden_x`). `Action::ScrollLeft/Right` on ArrowLeft/ArrowRight
+(normal-mode bindings and the input-mode UA scroll keys; a focused text field keeps its arrows).
+No letter keys (DECISIONS 2026-11-21).
+
+**Script.** `scrollX` is mirrored from the App (`JsEngine::set_scroll(x, y, els)`); `scrollTo`/
+`scrollBy` clamp x to `scrollWidth - innerWidth` (a layout read, only for x > 0). Elements:
+`scrollLeft` reads/writes `gElScrollX`, `__d_scrollel(id, v, xAxis)`, a `scroll` event like
+`scrollTop`; `getBoundingClientRect` subtracts ancestors' x offsets; `scrollIntoView` handles
+`inline` for scroll containers too. Horizontal scrollbars are QSB2b.

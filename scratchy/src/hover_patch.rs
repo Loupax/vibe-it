@@ -547,7 +547,7 @@ fn patch_with_rules(
                     shift_laid_tree(b, -m.dx, -m.dy);
                 }
             }
-            compute_ink(laid);
+            compute_ink(laid, cache);
             return Err("the document height depends on a moved box");
         }
         for m in &moves {
@@ -556,7 +556,7 @@ fn patch_with_rules(
                 b.style.inset = m.inset;
             }
         }
-        compute_ink(laid);
+        compute_ink(laid, cache);
     }
     patch_boxes(laid, &paints);
     for (id, sp) in staged {

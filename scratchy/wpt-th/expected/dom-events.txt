@@ -362,9 +362,7 @@ TIMEOUT      0/2  dom/events/scrolling/save-iframe-scroll-offset-when-display-no
   NOTRUN    Ensure that the scroll position is not lost when the remote iframe is set to display:none and shown again.
 TIMEOUT      0/1  dom/events/scrolling/scroll-cross-origin-iframes.html
   TIMEOUT   Verify sibling cross-origin iframes can wheel-scroll.
-OK           2/4  dom/events/scrolling/scroll-event-fired-to-element.html
-  FAIL      scrollTop and scrollLeft should fire scroll event.
-  FAIL      scrollTop and scrollLeft when scrolling above maximum offset.
+OK           4/4  dom/events/scrolling/scroll-event-fired-to-element.html
 TIMEOUT      0/4  dom/events/scrolling/scroll-event-fired-to-iframe.html
   TIMEOUT   scrollX and scrollY should fire scroll event.
   NOTRUN    scrollX and scrollY being set with the same value.

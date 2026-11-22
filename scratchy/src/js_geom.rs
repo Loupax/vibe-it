@@ -967,7 +967,7 @@ impl GeomCache {
         self.skel_multi.clear();
         match done {
             Ok((Some(l), glyphs, deps)) => {
-                self.page = (l.w, l.h);
+                self.page = (crate::layout::doc_scroll_width(&l), l.h); // QXSCR1: the scroll width
                 walk(&l, false, &mut self.rects, &mut self.skel, u32::MAX);
                 for (i, e) in self.skel.iter().enumerate() {
                     if e.node != 0 && self.skel_of.insert(e.node, i as u32).is_some() {
@@ -1116,7 +1116,7 @@ impl GeomCache {
             (Some(_), Some(l)) => {
                 // Not trusted any more: every stage starts over; this read uses the from-scratch layout.
                 crate::incr_style::drop_engines();
-                self.page = (l.w, l.h);
+                self.page = (crate::layout::doc_scroll_width(l), l.h); // QXSCR1: the scroll width
                 walk(l, false, &mut self.rects, &mut skel, u32::MAX);
                 walk_glyphs(l, &self.shape_cache, &mut self.glyphs);
             }
@@ -1124,7 +1124,7 @@ impl GeomCache {
                 let rects = &mut self.rects;
                 self.page = crate::incr_layout::with_laid(|l, _| {
                     walk(l, false, rects, &mut skel, u32::MAX);
-                    (l.w, l.h)
+                    (crate::layout::doc_scroll_width(l), l.h)
                 })
                 .unwrap_or((0.0, 0.0));
                 self.glyphs_lazy = true;

@@ -42,6 +42,8 @@ pub(crate) struct SearchRegion {
     pub node: usize,
     pub rect: Rect,
     pub max_scroll: f32,
+    /// QXSCR1: the region's horizontal scroll range.
+    pub max_scroll_x: f32,
 }
 
 impl SearchLine {
@@ -80,6 +82,11 @@ fn region_offset(r: &SearchRegion, offsets: &HashMap<usize, f32>) -> f32 {
     offsets.get(&r.id).copied().unwrap_or(0.0).clamp(0.0, r.max_scroll)
 }
 
+/// QXSCR1: the same for the x axis (key `xk(id)`).
+fn region_offset_x(r: &SearchRegion, offsets: &HashMap<usize, f32>) -> f32 {
+    offsets.get(&crate::layout::xk(r.id)).copied().unwrap_or(0.0).clamp(0.0, r.max_scroll_x)
+}
+
 impl SearchMatch {
     /// The match's bounding box in the frame of its content (before any region offset).
     pub(crate) fn bbox(&self) -> Rect {
@@ -100,21 +107,29 @@ impl SearchMatch {
         self.origin().1 - self.regions.iter().map(|r| region_offset(r, offsets)).sum::<f32>()
     }
 
+    /// QXSCR1: the document x of the match's left edge once the regions' x offsets are applied.
+    pub(crate) fn doc_left(&self, offsets: &HashMap<usize, f32>) -> f32 {
+        self.origin().0 - self.regions.iter().map(|r| region_offset_x(r, offsets)).sum::<f32>()
+    }
+
     /// The rectangles to paint, in document space (the page's own scroll not applied): each shifted
     /// by the regions' offsets and clipped to every region's box; fully clipped ones are dropped.
     pub(crate) fn visible_rects(&self, offsets: &HashMap<usize, f32>) -> Vec<Rect> {
-        let offs: Vec<f32> = self.regions.iter().map(|r| region_offset(r, offsets)).collect();
-        let total: f32 = offs.iter().sum();
+        let offs: Vec<(f32, f32)> =
+            self.regions.iter().map(|r| (region_offset(r, offsets), region_offset_x(r, offsets))).collect();
+        let total: f32 = offs.iter().map(|o| o.0).sum();
+        let total_x: f32 = offs.iter().map(|o| o.1).sum();
         // Clip boxes in document space: region i's box sits in the frame shifted by the outer offsets.
-        let mut acc = 0.0;
+        let (mut acc, mut acc_x) = (0.0, 0.0);
         let mut clips = Vec::new();
         for (r, o) in self.regions.iter().zip(&offs) {
-            clips.push((r.rect.0, r.rect.1 - acc, r.rect.2, r.rect.3));
-            acc += o;
+            clips.push((r.rect.0 - acc_x, r.rect.1 - acc, r.rect.2, r.rect.3));
+            acc += o.0;
+            acc_x += o.1;
         }
         let mut out = Vec::new();
         'rects: for &(x, y, w, h) in &self.rects {
-            let (mut x0, mut y0, mut x1, mut y1) = (x, y - total, x + w, y - total + h);
+            let (mut x0, mut y0, mut x1, mut y1) = (x - total_x, y - total, x - total_x + w, y - total + h);
             for &(cx, cy, cw, ch) in &clips {
                 x0 = x0.max(cx);
                 y0 = y0.max(cy);
@@ -169,6 +184,43 @@ impl SearchMatch {
 }
 
 impl SearchMatch {
+    /// QXSCR1: `reveal` for the x axis: the regions' x offsets (changes keyed by `xk(id)` and
+    /// `xk(node)`, node 0 staying 0) and the page's new `scroll_x`. Same rule: a region or the page
+    /// that already shows the match's whole width does not move, else the match is centred.
+    pub(crate) fn reveal_x(
+        &self,
+        offsets: &HashMap<usize, f32>,
+        page_x: f32,
+        view_w: f32,
+        page_w: f32,
+    ) -> (Vec<(usize, usize, f32)>, Option<f32>) {
+        use crate::layout::xk;
+        let (bx, _, bw, _) = self.bbox();
+        let mut offs: Vec<f32> = self.regions.iter().map(|r| region_offset_x(r, offsets)).collect();
+        let mut changes = Vec::new();
+        for i in (0..self.regions.len()).rev() {
+            let r = &self.regions[i];
+            let left = bx - offs[i..].iter().sum::<f32>();
+            let (rx, _, rw, _) = r.rect;
+            if left >= rx && left + bw <= rx + rw {
+                continue;
+            }
+            let want = offs[i] + (left + bw / 2.0) - (rx + rw / 2.0);
+            let next = want.clamp(0.0, r.max_scroll_x);
+            if (next - offs[i]).abs() > f32::EPSILON {
+                offs[i] = next;
+                changes.push((xk(r.id), if r.node == 0 { 0 } else { xk(r.node) }, next));
+            }
+        }
+        let left = bx - offs.iter().sum::<f32>();
+        let page = if left >= page_x && left + bw <= page_x + view_w {
+            None
+        } else {
+            Some((left + bw / 2.0 - view_w / 2.0).clamp(0.0, (page_w - view_w).max(0.0)))
+        };
+        (changes, page)
+    }
+
     /// The top-left corner of the first rectangle (where "the match" is on the page).
     pub(crate) fn origin(&self) -> (f32, f32) {
         self.rects.first().map(|r| (r.0, r.1)).unwrap_or((0.0, 0.0))
@@ -303,7 +355,7 @@ fn collect_in(laid: &Laid, cache: &ShapeCache, regions: &mut Vec<SearchRegion>, 
     }
     let start = out.len();
     // This box's own content is inside its own scroll region (its positioned children are not).
-    let own = laid.scroll.map(|i| SearchRegion { id: i.id, node: i.node, rect: (laid.x, laid.y, laid.w, laid.h), max_scroll: i.max_scroll() });
+    let own = laid.scroll.map(|i| SearchRegion { id: i.id, node: i.node, rect: (laid.x, laid.y, laid.w, laid.h), max_scroll: i.max_scroll(), max_scroll_x: i.max_scroll_x() });
     if let Some(r) = own {
         regions.push(r);
     }

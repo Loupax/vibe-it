@@ -749,7 +749,7 @@ fn build_box_for_element_body(
     };
     let mut children =
         build_children_with_prefix(handle, rules, style.inherited(), prefix, own_decoration, href, viewport_width, image_cache);
-    if style.text_overflow == TextOverflow::Ellipsis && style.overflow != Overflow::Visible {
+    if style.text_overflow == TextOverflow::Ellipsis && style.overflow_x != Overflow::Visible {
         for c in children.iter_mut().filter(|c| matches!(c.content, BoxContent::Inline(_))) {
             c.style.text_overflow = TextOverflow::Ellipsis;
         }
@@ -1282,8 +1282,10 @@ pub(crate) fn parse_overflow_keyword(input: &mut CssParser) -> Option<Overflow> 
     let ident = input.expect_ident().ok()?;
     if ident.eq_ignore_ascii_case("visible") {
         Some(Overflow::Visible)
-    } else if ident.eq_ignore_ascii_case("hidden") || ident.eq_ignore_ascii_case("clip") {
+    } else if ident.eq_ignore_ascii_case("hidden") {
         Some(Overflow::Hidden)
+    } else if ident.eq_ignore_ascii_case("clip") {
+        Some(Overflow::Clip)
     } else if ident.eq_ignore_ascii_case("scroll") {
         Some(Overflow::Scroll)
     } else if ident.eq_ignore_ascii_case("auto") {
@@ -2432,24 +2434,28 @@ pub(crate) fn propagate_canvas_background(tree: &mut LayoutBox) {
 /// Layout/paint containment on either element stops the propagation from `<body>`
 /// (WPT css-overflow/overflow-body-propagation-011).
 pub(crate) fn propagate_viewport_overflow(tree: &mut LayoutBox) {
+    // QXSCR1: per axis, (x hidden, y hidden).
     let hidden = (|| {
-        let BoxContent::Blocks(top) = &mut tree.content else { return false };
-        let Some(html) = top.iter_mut().find(|b| b.style.canvas_src == 1) else { return false };
-        if html.style.overflow != Overflow::Visible {
-            let hidden = html.style.overflow == Overflow::Hidden;
-            html.style.overflow = Overflow::Visible;
-            return hidden;
+        let take = |st: &mut ComputedStyle| {
+            let hid = |o: Overflow| matches!(o, Overflow::Hidden | Overflow::Clip);
+            let h = (hid(st.overflow_x), hid(st.overflow_y));
+            st.set_overflow(Overflow::Visible);
+            h
+        };
+        let BoxContent::Blocks(top) = &mut tree.content else { return (false, false) };
+        let Some(html) = top.iter_mut().find(|b| b.style.canvas_src == 1) else { return (false, false) };
+        if html.style.clips_any() {
+            return take(&mut html.style);
         }
         if html.style.contain_lp {
-            return false;
+            return (false, false);
         }
-        let BoxContent::Blocks(kids) = &mut html.content else { return false };
-        let Some(body) = kids.iter_mut().find(|b| b.style.canvas_src == 2 && !b.style.contain_lp) else { return false };
-        let hidden = body.style.overflow == Overflow::Hidden;
-        body.style.overflow = Overflow::Visible;
-        hidden
+        let BoxContent::Blocks(kids) = &mut html.content else { return (false, false) };
+        let Some(body) = kids.iter_mut().find(|b| b.style.canvas_src == 2 && !b.style.contain_lp) else { return (false, false) };
+        take(&mut body.style)
     })();
-    tree.style.viewport_hidden = hidden;
+    tree.style.viewport_hidden_x = hidden.0;
+    tree.style.viewport_hidden = hidden.1;
 }
 
 pub(crate) fn collect_text_only(handle: &Handle, out: &mut String) {

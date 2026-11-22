@@ -653,11 +653,11 @@ fn shift_ink(l: &mut Laid, dx: f32, dy: f32) {
 
 /// `compute_ink` + `in_flow_bottom` in one pass that stops at every subtree whose ink is still valid
 /// (shifting it when the subtree moved). Returns (ink, in-flow bottom).
-fn pass(l: &mut Laid) -> (Ink, f32) {
-    crate::stack::grow(|| pass_body(l))
+fn pass(l: &mut Laid, cache: &ShapeCache) -> (Ink, f32) {
+    crate::stack::grow(|| pass_body(l, cache))
 }
 
-fn pass_body(l: &mut Laid) -> (Ink, f32) {
+fn pass_body(l: &mut Laid, cache: &ShapeCache) -> (Ink, f32) {
     if let Some(ck) = l.ck.as_ref()
         && ck.ink_ok
     {
@@ -670,54 +670,69 @@ fn pass_body(l: &mut Laid) -> (Ink, f32) {
     }
     WALKED.with(|w| w.set(w.get() + 1));
     let mut ink = Ink { l: l.x, t: l.y, r: l.x + l.w, b: l.y + l.h };
-    let clips = l.style.overflow != Overflow::Visible;
+    let mut inner: Option<Ink> = None;
+    let mut add = |i: Ink| match &mut inner {
+        Some(a) => a.union(i),
+        None => inner = Some(i),
+    };
+    // QXSCR1: the in-flow bottom stops at a box that clips vertically (`layout::in_flow_bottom`).
+    let clips_y = l.style.overflow_y != Overflow::Visible;
     let mut ifb = l.y + l.h;
     match &mut l.content {
         LaidContent::Blocks(children) | LaidContent::TableRow(children) => {
             for c in children.iter_mut() {
-                let (ci, cf) = pass(c);
-                if clips {
-                    continue;
-                }
-                ink.union(ci);
+                let (mut ci, cf) = pass(c, cache);
                 if let Some(info) = &c.sticky {
-                    ink.t = ink.t.min(info.cb_top);
-                    ink.b = ink.b.max(info.cb_bottom);
+                    ci.t = ci.t.min(info.cb_top);
+                    ci.b = ci.b.max(info.cb_bottom);
                 }
-                ifb = ifb.max(cf);
+                add(ci);
+                if !clips_y {
+                    ifb = ifb.max(cf);
+                }
             }
         }
         LaidContent::MixedInline(items) => {
             for item in items.iter_mut() {
                 match item {
                     MixedPositioned::Embedded(e) => {
-                        let (ei, ef) = pass(e);
-                        if !clips {
-                            ink.union(ei);
+                        let (ei, ef) = pass(e, cache);
+                        add(ei);
+                        if !clips_y {
                             ifb = ifb.max(ef);
                         }
                     }
                     MixedPositioned::Word { x, y, w, h, .. } => {
-                        if !clips {
-                            ink.union(Ink { l: *x, t: *y, r: *x + *w, b: *y + *h });
-                        }
+                        add(Ink { l: *x, t: *y, r: *x + *w, b: *y + *h });
                     }
                 }
             }
         }
-        LaidContent::Text(_) | LaidContent::Image(_) => {}
+        LaidContent::Text(_) => {}
+        LaidContent::Image(_) => {}
     }
-    let extra = l.scroll.filter(|i| i.user).map_or(0.0, |i| i.max_scroll());
+    if let Some(r) = crate::layout::text_overflow_right(l, cache) {
+        add(Ink { l: l.x, t: l.y, r, b: l.y + l.h });
+    }
+    let mut pos = Vec::new();
     for p in l.positioned.iter_mut() {
-        let (pi, pf) = pass(p);
+        let (pi, pf) = pass(p, cache);
         if p.fixed {
             continue;
         }
-        if !clips && p.style.position != Position::Fixed {
+        if !clips_y && p.style.position != Position::Fixed {
             ifb = ifb.max(pf);
         }
-        let mut pi = pi;
+        pos.push(pi);
+    }
+    let pos_r = pos.iter().fold(f32::NEG_INFINITY, |m, i| m.max(i.r));
+    crate::layout::fold_content_ink(l, &mut ink, inner, pos_r);
+    let (extra, extra_x) = l.scroll.map_or((0.0, 0.0), |i| {
+        (if i.user { i.max_scroll() } else { 0.0 }, if i.user_x { i.max_scroll_x() } else { 0.0 })
+    });
+    for mut pi in pos {
         pi.t -= extra;
+        pi.l -= extra_x;
         ink.union(pi);
     }
     l.ink = ink;
@@ -733,12 +748,12 @@ fn pass_body(l: &mut Laid) -> (Ink, f32) {
 
 /// The end of `measure_document` for the engine's tree: the root's height grows to the in-flow
 /// extent, then ink, both only through what changed.
-pub(crate) fn finish_root(root: &mut Laid, measured_h: f32) {
+pub(crate) fn finish_root(root: &mut Laid, measured_h: f32, cache: &ShapeCache) {
     root.h = measured_h;
-    let (_, extent) = pass(root);
+    let (_, extent) = pass(root, cache);
     if extent > root.y + root.h {
         root.h = extent - root.y;
-        pass(root);
+        pass(root, cache);
     }
 }
 
@@ -1116,7 +1131,7 @@ impl LayoutEngine {
                 self.laid = SharedLaid::new(laid);
                 self.root_h = rh;
             } else {
-                finish_root(&mut self.laid, self.root_h);
+                finish_root(&mut self.laid, self.root_h, &self.cache);
             }
             !inc
         });
