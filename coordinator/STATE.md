@@ -245,3 +245,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #570 QAPI2 READY (navigator constants), queued after #549. Launched QEL7. Note: qm1k1b_mpv test failed once under full-suite load (QAPI2 agent), watch.
 - 2026-11-22 Merged #549 QDOM16 a2e3498 (ChildNode/ParentNode; dom/nodes ~65.5). Sent #560 rebase.
 - 2026-11-22 Merged #570 QAPI2 0e8eca3 (navigator constants).
+- 2026-11-22 Merged... #572 QAPI5 READY (ARIA + slots; HTMLSlotElement 1->18/18), queued after reinstall. Filed QAPI5b. Launched QAPI3.
