@@ -3332,8 +3332,12 @@ pub(crate) fn image_box_size(image: &DecodedImage, s: &ComputedStyle) -> (f32, f
     let intrinsic_h = (image.height.max(1)) as f32;
     // QCSS-B: an explicit `<ratio>` overrides the natural ratio (`auto <ratio>` keeps the natural one:
     // an `<img>` always has it once decoded). Only the ratio changes; the natural width stays.
+    // A `<video>` poster placeholder (`pixels` empty, poster in `mask`) is excluded: the poster is
+    // composed into a black buffer of the box size, so a box wider than the poster would show black
+    // bars (WPT replaced-element-026 expects them transparent). Follow-up in the PR.
+    let video_poster = image.pixels.is_empty() && image.mask.is_some();
     let (intrinsic_h, aspect) = match s.aspect_ratio.explicit() {
-        Some(r) if !s.aspect_ratio.auto => (intrinsic_w / r, 1.0 / r),
+        Some(r) if !s.aspect_ratio.auto && !video_poster => (intrinsic_w / r, 1.0 / r),
         _ => (intrinsic_h, intrinsic_h / intrinsic_w),
     };
     let extra_w = s.border_h() + s.padding.left.px() + s.padding.right.px();

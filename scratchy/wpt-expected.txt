@@ -378,7 +378,7 @@ FAIL css/css-flexbox/align-self-015.html
 FAIL css/css-flexbox/align-self-016.html
 FAIL css/css-flexbox/auto-margins-002.html
 PASS css/css-flexbox/css-flexbox-height-animation-stretch.html
-FAIL css/css-flexbox/flex-aspect-ratio-cross-size-002.html
+PASS css/css-flexbox/flex-aspect-ratio-cross-size-002.html
 PASS css/css-flexbox/flex-basis-003.html
 PASS css/css-flexbox/flex-grow-008.html
 PASS css/css-flexbox/flex-minimum-height-flex-items-001.xht
@@ -484,7 +484,7 @@ FAIL css/css-pseudo/marker-text-transform-uppercase.html
 PASS css/css-pseudo/placeholder-vertical-align.html
 PASS css/css-sizing/abspos-auto-sizing-fit-content-percentage-001.html
 FAIL css/css-sizing/aspect-ratio/block-aspect-ratio-016.html
-FAIL css/css-sizing/aspect-ratio/flex-aspect-ratio-006.html
+PASS css/css-sizing/aspect-ratio/flex-aspect-ratio-006.html
 FAIL css/css-sizing/aspect-ratio/flex-aspect-ratio-055.html
 FAIL css/css-sizing/aspect-ratio/intrinsic-size-005.html
 PASS css/css-sizing/aspect-ratio/replaced-element-026.html
