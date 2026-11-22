@@ -350,3 +350,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #610 QCISPLIT2 READY (5 WPT shards, 8 checks), queued after reinstall; then merge_pr.sh to 8 checks (when nothing merges). Launched QDOM11.
 - 2026-11-22 Main CI green after #609 (1570bf3); reinstalled ~/.cargo/bin/scratchy 17:28 (adds wire cache client side, :refresh hard, QCSS-E, blob iframes).
 - 2026-11-22 Merged #610 QCISPLIT2 d2ddf9c. merge_pr.sh now requires 8 checks (green >=8, waitci -ge 8).
+- 2026-11-22 #611 QWPT7 READY (testdriver + headless input + real elementFromPoint; 115 pages back, 14 -> 95 subtests) but it refactors App input (input_host.rs) and inline geometry: sent back for a live App check + ytr/ytw perf. Filed QWPT7a/b/c.

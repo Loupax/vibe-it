@@ -41,6 +41,12 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       Update 2026-11-22 (QWPT6e #586): the 111 subset pages that call test_driver were dropped from the subset
       (DRIVER_CALL in tools/wpt-subset.py: dom/events 30, uievents 47, shadow-dom 19, ...); `--wpt-th-one` has no
       App and elementFromPoint is a stub there, so real hit testing comes first. When done, drop the filter.
+- [ ] QWPT7a [S] (P2, from QWPT7 #611; Sonnet) `el.focus()`/`blur()` fire focus events synchronously (HTML focusing steps),
+      in the App and headless (focus-blur, focusing-focused-noop, blur-relatedTarget).
+- [ ] QWPT7b [S] (P3, from QWPT7 #611; Sonnet; app.rs) The App fires what the headless driver fires: pointerdown/pointerup,
+      `detail` click counts, dblclick, auxclick, contextmenu, keypress outside text controls.
+- [ ] QWPT7c [S] (P3, from QWPT7 #611; Sonnet; js_geom hit test) Hit-testing gaps: `pointer-events: none`, SVG content
+      (mouseEvent-offsetXY-svg), element scroll offsets, accesskey.
 - [ ] QWPT8 [M] (P2; Sonnet; tools/, wire --map-host; user answered Q2 2026-11-21) Phase 2 server: tools/wptserve.sh
       (python3 ./wpt serve from a checkout that includes tools/), wire `--map-host
       '*.web-platform.test=127.0.0.1'`, runner `--server wptserve`; add fetch/ and xhr/ to the subset.
