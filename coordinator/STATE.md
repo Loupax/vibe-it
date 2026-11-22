@@ -224,3 +224,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #546 QEL6 rebased; merge order now 561 -> 546 -> 559 -> 562. Launched QDOMATOM (fixes #549's subtest properly).
 - 2026-11-22 #552 QSB2b rebased; merge order 561 -> 546 -> 552 -> 559 -> 562. Launched QREC3b.
 - 2026-11-22 #560 QDOM17 READY (nodes 60.8 -> 63.0), queued after #562. Launched QDOM6b (+ createElementNS(xhtml,'Span') case from QDOM17).
+- 2026-11-22 Merged #561 QEL4 8f2f7d5.

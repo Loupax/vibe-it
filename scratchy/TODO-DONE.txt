@@ -9206,3 +9206,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QMSG1 DONE 80df64b #548 [S] (P2, from QDOM1 #516; Sonnet; js_dom.rs iframe realms, globals_prelude.js postMessage) postMessage to and
       from an iframe's contentWindow (`window[0].postMessage`, `parent.postMessage`, MessageEvent origin/source): today the
       webmessaging 019 / cross-document files time out waiting for the reply. Target: webmessaging score up, list files.
+
+=== from TODO.txt: --- (no header)
+- [x] QEL4 DONE 8f2f7d5 #561 [S] (P2; Sonnet; js.rs TIMERS_PRELUDE, js_dom.rs obsErr) "Report the exception" for timer,
+      rAF and observer callbacks (ErrorEvent at window, onerror, then the log line). Gate: WPT
+      animation-frames/callback-exception and timers/errors pass.
