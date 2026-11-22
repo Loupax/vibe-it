@@ -9472,3 +9472,13 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       per-global and every other main-passing file stays; then the full gate on the FINAL rebased head. Note: the
       SAME tree passed CI on the PR and failed on main, so the breakage is timing-dependent: run per-global and the
       iframe-heavy files 10x each and show they are stable.
+
+=== from TODO.txt: --- (no header)
+- [x] QNEST1 DONE 695c9a9 #603 [S] (P2, coordinator: 2026-11-22 one agent leaked 9 nested dwl, one per run; Sonnet; tools/nest.sh) nest.sh
+      keeps one compositor per worktree: a pid file under the nest dir; if a live dwl from this worktree exists, print its
+      socket and PID and reuse it (or refuse with the PID, flag `--new` kills the old one first). `nest.sh --stop` kills it
+      by the recorded PID. Test with two calls in a row: one dwl.
+
+=== from TODO.txt: --- (no header)
+- [x] QCSS-D DONE c1b800c #601 [S] (P2, from QAPI8 #578; Sonnet; css.rs, paint) `filter`, `backdrop-filter`, `text-shadow`, `mix-blend-mode`,
+      `clip-path` basic shapes.

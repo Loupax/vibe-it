@@ -333,3 +333,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 USER: rename the github recording. PR #602 (run.sh/gate.sh page gh-home); moved ~/.cache/scratchy/recordings/github -> gh-home. Merging.
 - 2026-11-22 USER: always fill a free slot with the first available item, never ask. Launched QNEST1.
 - 2026-11-22 READY: #603 QNEST1, #601 QCSS-D (reftests 322->345), #604 QHOV1 (hover damage repaint; the 160 ms github hover was the old pipeline). Merging #603, #601; #604 back for fx reach (blur 256 px > CULL_MARGIN 64; backdrop-filter) after #601. Filed QCSS-D2, QHOV2. AGENT_RULES: nest.sh --stop.
+- 2026-11-22 Merged #603 QNEST1 695c9a9, #601 QCSS-D c1b800c. Sent #604 back for fx reach.
