@@ -9513,3 +9513,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QBLOBFRAME DONE 73911bc #609 [S] (P2, from QDOM9 #542; Sonnet; js_dom.rs iframe realms, blob URL store) Load `blob:` URLs in iframes
       (`iframe.src = URL.createObjectURL(new Blob([html], {type:'text/html'}))`): same-origin document from the blob's
       bytes. html/semantics/scripting-1/.../module-script-disabled-scripting.html now TIMEOUTs (30 s) waiting for it.
+
+=== from TODO.txt: --- (no header)
+- [x] QCISPLIT2 DONE d2ddf9c #610 [S] (P3, from QWPT6c #579; Sonnet; .github/workflows/ci.yml, tools) Shard the `scratchy-wpt` job (5:38 after
+      #579, WPT step 3:52; the main `scratchy` job is 5:18, so wall time is barely affected) into two parallel jobs by area,
+      when it passes ~6 min or before QWPT6d lands. Find why the step grew +1:44 on CI vs ~20 s locally (per-file CI timings).

@@ -349,3 +349,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Merged #609 QBLOBFRAME 73911bc. Watch main CI (stability check was not real).
 - 2026-11-22 #610 QCISPLIT2 READY (5 WPT shards, 8 checks), queued after reinstall; then merge_pr.sh to 8 checks (when nothing merges). Launched QDOM11.
 - 2026-11-22 Main CI green after #609 (1570bf3); reinstalled ~/.cargo/bin/scratchy 17:28 (adds wire cache client side, :refresh hard, QCSS-E, blob iframes).
+- 2026-11-22 Merged #610 QCISPLIT2 d2ddf9c. merge_pr.sh now requires 8 checks (green >=8, waitci -ge 8).
