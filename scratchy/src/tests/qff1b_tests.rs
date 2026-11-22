@@ -96,7 +96,7 @@ fn woff2_parts(family: &str, transform: bool, stream_override: Option<Vec<u8>>) 
         }
         stream.extend_from_slice(&body);
     }
-    let comp = brotli_stored(&stream_override.as_deref().unwrap_or(&stream));
+    let comp = brotli_stored(stream_override.as_deref().unwrap_or(&stream));
     let mut out = Vec::new();
     out.extend_from_slice(b"wOF2");
     out.extend_from_slice(&0x0001_0000u32.to_be_bytes());

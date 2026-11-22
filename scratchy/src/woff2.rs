@@ -81,6 +81,9 @@ impl<'a> Cur<'a> {
     }
 }
 
+/// glyf, loca, per-glyph xMin, indexFormat.
+type GlyfLoca = (Vec<u8>, Vec<u8>, Vec<i16>, u16);
+
 struct Entry {
     tag: [u8; 4],
     orig_len: usize,
@@ -154,7 +157,7 @@ pub(crate) fn woff2_to_sfnt(b: &[u8]) -> Option<Vec<u8>> {
     let find = |tag: &[u8; 4]| entries.iter().position(|e| &e.tag == tag);
 
     let mut out_tables: Vec<([u8; 4], Vec<u8>)> = Vec::with_capacity(entries.len());
-    let mut glyf_loca: Option<(Vec<u8>, Vec<u8>, Vec<i16>, u16)> = None; // glyf, loca, per-glyph xMin, indexFormat
+    let mut glyf_loca: Option<GlyfLoca> = None;
     if let Some(gi) = find(b"glyf") {
         if entries[gi].transformed {
             let li = find(b"loca")?;
@@ -190,13 +193,11 @@ pub(crate) fn woff2_to_sfnt(b: &[u8]) -> Option<Vec<u8>> {
                 return None;
             }
             let mut v = slices[i].to_vec();
-            if &e.tag == b"head" {
-                if let Some((_, _, _, fmt)) = &glyf_loca {
-                    if v.len() < 52 {
-                        return None;
-                    }
-                    v[50..52].copy_from_slice(&fmt.to_be_bytes());
+            if let (b"head", Some((_, _, _, fmt))) = (&e.tag, &glyf_loca) {
+                if v.len() < 52 {
+                    return None;
                 }
+                v[50..52].copy_from_slice(&fmt.to_be_bytes());
             }
             v
         };
@@ -234,7 +235,7 @@ fn write_sfnt(flavor: u32, mut tables: Vec<([u8; 4], Vec<u8>)>) -> Option<Vec<u8
     }
     for (_, data) in &tables {
         out.extend_from_slice(data);
-        while out.len() % 4 != 0 {
+        while !out.len().is_multiple_of(4) {
             out.push(0);
         }
     }
@@ -291,7 +292,7 @@ fn with_sign(flag: u8, v: i32) -> i32 {
 }
 
 /// Rebuild `glyf` and `loca` from the transformed glyf table. Returns (glyf, loca, per-glyph xMin, indexFormat).
-fn reconstruct_glyf(t: &[u8]) -> Option<(Vec<u8>, Vec<u8>, Vec<i16>, u16)> {
+fn reconstruct_glyf(t: &[u8]) -> Option<GlyfLoca> {
     let mut h = Cur::new(t);
     if h.u16()? != 0 {
         return None; // transform version
@@ -439,7 +440,7 @@ fn reconstruct_glyf(t: &[u8]) -> Option<(Vec<u8>, Vec<u8>, Vec<i16>, u16)> {
         if glyf.len() > MAX_DECODED || glyf.len() < start {
             return None;
         }
-        while glyf.len() % 4 != 0 {
+        while !glyf.len().is_multiple_of(4) {
             glyf.push(0);
         }
     }
