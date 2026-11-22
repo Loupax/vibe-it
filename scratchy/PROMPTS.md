@@ -9268,3 +9268,9 @@ Eased viewport scroll (user design #532, D1-D8): `App::scroll_target`, `scroll_a
 **Measured:** element 1,276 files (3,021 subtests, 40 pass, score 2.8), offscreen 1,074 (1,370 subtests, 0 pass), other 4 (18 subtests, 0 pass). Skips in the canvas dirs: worker variants 1,040, .https./.sub. 77, test_driver calls 5, testdriver 1, timeout=long 2. Five stability runs: identical. Local time ~1.5-3 min for the three areas at --jobs 4.
 ## QBLOBFRAME
 Prompt: load blob: URLs in iframes (iframe.src = URL.createObjectURL(new Blob([html], {type:"text/html"}))) through the #600 async iframe load path; revoked/non-HTML fail cleanly. Done: js_dom.rs ifrKey/ifrFetch blob branch, src/tests/qblobframe_tests.rs, wpt-th expectations.
+
+## QCISPLIT2: shard the WPT testharness gate (agent item)
+
+> QCISPLIT2 [S] (P3, from QWPT6c #579; Sonnet; .github/workflows/ci.yml, tools) Shard the `scratchy-wpt` job into parallel jobs by area; find why the step is slower on CI than locally.
+
+**What changed:** `--wpt-th` takes `--area A,B,dir/*` (comma list, `prefix/*` globs) and `--except ...`; it prints the slowest files and per-area summed time. CI job `scratchy-wpt` became a 3-shard matrix (`scratchy-wpt-dom`, `-html`, `-rest`; reftests run in `rest`). NOTES.md "CI gate (QWPT5)".

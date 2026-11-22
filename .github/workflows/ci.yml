@@ -137,14 +137,34 @@ jobs:
           pid="$(cat "$RUNNER_TEMP/weston.pid" 2>/dev/null || true)"
           if [ -n "$pid" ] && ps -o comm= -p "$pid" | grep -q weston; then kill "$pid" || true; fi
 
-  # QCISPLIT: the WPT gates (reftests + testharness, both blocking) run in their own job, in parallel with the
-  # scratchy test/clippy job instead of after it. It builds only the release binaries it needs (scratchy and wire,
-  # no test profiles); its own rust-cache makes that incremental. Required check names are now: scratchy, snag,
-  # wire, scratchy-wpt.
+  # QCISPLIT: the WPT gates (reftests + testharness, both blocking) run in their own jobs, in parallel with the
+  # scratchy test/clippy job instead of after it. They build only the release binaries they need (scratchy and wire,
+  # no test profiles).
+  # QCISPLIT2: the testharness gate is sharded by area into three parallel jobs (a per-file child process costs
+  # ~0.18 s and 3254 files run 4 at a time; no single file dominates, 11 files take >= 2 s). Shard = a `--area` list
+  # (or, for `rest`, the `--except` of every other shard's list), so a new area always lands in `rest` and is gated.
+  # areas.txt stays ONE committed file: a shard rewrites only its own areas' rows (the others keep the committed rows),
+  # so the "CI result differs from the committed areas.txt" check is per shard. The reftest gate runs once, in `rest`.
+  # All shards share one rust-cache entry (shared-key; `rest` saves it), so a shard's build is an incremental one.
+  # Required check names are now: scratchy, snag, wire, scratchy-wpt-dom, scratchy-wpt-html, scratchy-wpt-rest (6;
+  # `scratchy-wpt` no longer exists).
+  # When html/canvas joins the gate (QWPT12) it gets its own shard: add `canvas` with area `html/canvas/*` and add
+  # `html/canvas/*` to `rest`'s except list.
   wpt:
-    name: scratchy-wpt
+    name: scratchy-wpt-${{ matrix.shard }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: dom
+            select: --area 'dom/*'
+          - shard: html
+            select: --area 'html/dom,html/editing,html/semantics/*,html/webappapis,custom-elements'
+          - shard: rest
+            reftests: true
+            select: --except 'dom/*,html/dom,html/editing,html/semantics/*,html/webappapis,custom-elements'
     env:
       V8_VERSION: "152.2.0"
       V8_ARCHIVE_NAME: librusty_v8_release_x86_64-unknown-linux-gnu.a.gz
@@ -190,6 +210,8 @@ jobs:
           echo "RUSTY_V8_ARCHIVE=$f" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
+          shared-key: scratchy-wpt
+          save-if: ${{ matrix.shard == 'rest' }}
           workspaces: |
             scratchy
             wire
@@ -198,6 +220,7 @@ jobs:
           cargo build --release --locked
           cargo build --release --locked --manifest-path ../wire/Cargo.toml
       - name: Headless Wayland compositor for the App-level tests (QFLK8)
+        if: matrix.reftests
         # weston --backend=headless on a private socket; the following test steps see WAYLAND_DISPLAY and
         # XDG_RUNTIME_DIR through GITHUB_ENV, and SCRATCHY_REQUIRE_DISPLAY=1 makes a missing display fail
         # the tests instead of skipping them (QFLK7). The compositor is killed by PID in the last step.
@@ -229,6 +252,7 @@ jobs:
       - name: WPT checkout (sparse, pinned; verifies the pin always)
         run: tools/wpt-checkout.sh "$RUNNER_TEMP/wpt"
       - name: WPT reftests vs wpt-expected.txt (CI fonts verified to match, QWPT2)
+        if: matrix.reftests
         run: |
           export FONTCONFIG_FILE="$(tools/ci-fontconfig.sh /usr/share/fonts/truetype/liberation "$RUNNER_TEMP/fc")"
           start=$(date +%s)
@@ -242,12 +266,13 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           exit $rc
-      - name: WPT testharness vs wpt-th/expected (QWPT5; blocks on regressions, Q3)
+      - name: WPT testharness vs wpt-th/expected (QWPT5; blocks on regressions, Q3; shard ${{ matrix.shard }}, QCISPLIT2)
         # Own wire on its own socket (the runner starts it), no display needed (headless children). --no-scope: no
         # systemd user bus on the runner, the 6G cgroup cap is for the user's machine. The areas table and its diff
         # against origin/main's committed wpt-th/areas.txt go to the step summary.
         env:
           PUSH_BEFORE: ${{ github.event.before }}
+          SHARD_SELECT: ${{ matrix.select }}
         run: |
           export FONTCONFIG_FILE="$(tools/ci-fontconfig.sh /usr/share/fonts/truetype/liberation "$RUNNER_TEMP/fc")"
           # PR: the delta is against main's tip. Push to main: main's tip IS this commit, so the delta is against the
@@ -260,13 +285,18 @@ jobs:
           cp wpt-th/areas.txt "$RUNNER_TEMP/areas-committed.txt"
           start=$(date +%s)
           rc=0
-          target/release/scratchy --wpt-th "$RUNNER_TEMP/wpt" --jobs 4 --no-scope --wire ../wire/target/release/wire \
+          # SHARD_SELECT is `--area '<list>'` or `--except '<list>'`: word-split on purpose, the quotes are literal
+          # characters of the arguments only if eval-ed, so eval it.
+          eval "target/release/scratchy --wpt-th \"$RUNNER_TEMP/wpt\" --jobs 4 --no-scope --wire ../wire/target/release/wire $SHARD_SELECT" \
             > "$RUNNER_TEMP/wpt-th.log" 2>&1 || rc=$?
           secs=$(( $(date +%s) - start ))
           tail -30 "$RUNNER_TEMP/wpt-th.log"
+          grep -E "(ran [0-9]+ files|summed file time|took >= 2 s|SLOW|AREA-TIME)" "$RUNNER_TEMP/wpt-th.log" || true
           grep -E "^(REGRESSION|UNRECORDED|CHANGED) " "$RUNNER_TEMP/wpt-th.log" | head -60 || true
           {
-            echo "### WPT testharness (pin $(cat tools/wpt-pin.txt)), exit $rc, $secs s"
+            echo "### WPT testharness, shard ${{ matrix.shard }} (pin $(cat tools/wpt-pin.txt)), exit $rc, $secs s"
+            echo
+            echo "Shard selection: \`$SHARD_SELECT\` (rows of the other shards' areas below are the committed ones)."
             echo
             echo "Areas table, deltas vs $base_ref's committed wpt-th/areas.txt (origin/main on PRs, the previous main commit on pushes):"
             echo
@@ -285,7 +315,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit $rc
       - name: Stop the headless compositor (QFLK8)
-        if: always()
+        if: always() && matrix.reftests
         run: |
           pid="$(cat "$RUNNER_TEMP/weston.pid" 2>/dev/null || true)"
           if [ -n "$pid" ] && ps -o comm= -p "$pid" | grep -q weston; then kill "$pid" || true; fi

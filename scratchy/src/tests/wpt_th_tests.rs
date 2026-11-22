@@ -299,7 +299,7 @@ mod qwpt4b {
             "case \"$1\" in\n *hang.html) sleep 30;;\n *none.html) ;;\n *flaky.html) echo '{{\"harness\":\"OK\",\"message\":null,\"tests\":[[\"r\",\"PASS\",null]]}}';;\n *) echo '{OKJ}';;\nesac\n"
         );
         let cmd = fake(&d, &script);
-        let cfg = |update: bool, area: Option<&str>| Config { dir: wd.clone(), update, area: area.map(String::from), jobs: 3, timeout: Duration::from_secs(1), verbose: false };
+        let cfg = |update: bool, area: Option<&str>| Config { dir: wd.clone(), update, area: area.map(String::from), except: None, jobs: 3, timeout: Duration::from_secs(1), verbose: false };
         // Nothing recorded yet: UNRECORDED blocks.
         assert_eq!(execute(&cfg(false, None), &cmd), 1);
         assert_eq!(execute(&cfg(true, None), &cmd), 0);

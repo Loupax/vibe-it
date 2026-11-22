@@ -1,6 +1,6 @@
 //! QWPT4b (R64 2.3, 2.5, 3.1): the parent of the testharness.js runner.
 //!
-//! `scratchy --wpt-th <checkout> [--jobs N] [--update] [--area A] [--wire PATH] [--dir DIR]
+//! `scratchy --wpt-th <checkout> [--jobs N] [--update] [--area A,B,dir/*] [--except A,B] [--wire PATH] [--dir DIR]
 //! [--timeout SECS] [--no-scope] [-v]` (run from `scratchy/`, like `--wpt`):
 //!
 //! 1. reads `wpt-th/subset.txt` (paths, one per line; `# area: NAME` comments group them),
@@ -530,21 +530,29 @@ fn result_of(cmd: &ChildCmd, entry: &Entry, timeout: Duration) -> FileResult {
 }
 
 /// Runs every entry with `jobs` threads; results in entry order.
+#[cfg(test)]
 pub(crate) fn run_all(cmd: &ChildCmd, entries: &[Entry], jobs: usize, timeout: Duration) -> Vec<FileResult> {
+    run_all_timed(cmd, entries, jobs, timeout).into_iter().map(|(r, _)| r).collect()
+}
+
+/// `run_all` plus each file's wall time (QCISPLIT2: the per-file CI timings).
+pub(crate) fn run_all_timed(cmd: &ChildCmd, entries: &[Entry], jobs: usize, timeout: Duration) -> Vec<(FileResult, Duration)> {
     let next = AtomicUsize::new(0);
-    let slots: Vec<Mutex<Option<FileResult>>> = entries.iter().map(|_| Mutex::new(None)).collect();
+    let slots: Vec<Mutex<Option<(FileResult, Duration)>>> = entries.iter().map(|_| Mutex::new(None)).collect();
     thread::scope(|s| {
         for _ in 0..jobs.clamp(1, entries.len().max(1)) {
             s.spawn(|| {
                 loop {
                     let i = next.fetch_add(1, Ordering::SeqCst);
                     let Some(e) = entries.get(i) else { break };
-                    *slots[i].lock().unwrap() = Some(result_of(cmd, e, timeout));
+                    let t = Instant::now();
+                    let r = result_of(cmd, e, timeout);
+                    *slots[i].lock().unwrap() = Some((r, t.elapsed()));
                 }
             });
         }
     });
-    slots.into_iter().map(|m| m.into_inner().unwrap().unwrap_or_else(|| FileResult::bare("CRASH"))).collect()
+    slots.into_iter().map(|m| m.into_inner().unwrap().unwrap_or_else(|| (FileResult::bare("CRASH"), Duration::ZERO))).collect()
 }
 
 // ------------------------------------------------------------------ the run
@@ -553,10 +561,27 @@ pub(crate) struct Config {
     /// The `wpt-th` directory (subset.txt, expected/, flaky.txt, areas.txt).
     pub dir: PathBuf,
     pub update: bool,
+    /// `--area`: comma-separated exact areas or `prefix/*` patterns (QCISPLIT2); None = all.
     pub area: Option<String>,
+    /// `--except`: comma-separated areas/patterns to leave out (the CI "rest" shard).
+    pub except: Option<String>,
     pub jobs: usize,
     pub timeout: Duration,
     pub verbose: bool,
+}
+
+/// One `--area`/`--except` item: an exact area, or `prefix/*` for every area under `prefix/`.
+fn area_matches(pat: &str, area: &str) -> bool {
+    match pat.strip_suffix("/*") {
+        Some(p) => area.strip_prefix(p).is_some_and(|r| r.starts_with('/')),
+        None => pat == area,
+    }
+}
+
+/// QCISPLIT2: the shard filter. `only` (None = everything) minus `except`.
+pub(crate) fn selected_area(only: Option<&str>, except: Option<&str>, area: &str) -> bool {
+    let any = |l: &str| l.split(',').any(|p| area_matches(p, area));
+    only.is_none_or(any) && !except.is_some_and(any)
 }
 
 /// Compare (or, with `update`, record) and report. Returns the exit code.
@@ -573,16 +598,42 @@ pub(crate) fn execute(cfg: &Config, cmd: &ChildCmd) -> i32 {
             area_order.push(e.area.clone());
         }
     }
-    if let Some(a) = &cfg.area
-        && !area_order.contains(a)
-    {
-        diag!("scratchy --wpt-th: no area {a} in subset.txt (areas: {})", area_order.join(", "));
+    // Every --area item must name something (a typo must not turn a shard into an empty pass).
+    for a in cfg.area.iter().chain(cfg.except.iter()).flat_map(|l| l.split(',')) {
+        if !area_order.iter().any(|x| area_matches(a, x)) {
+            diag!("scratchy --wpt-th: no area {a} in subset.txt (areas: {})", area_order.join(", "));
+            return 2;
+        }
+    }
+    let selected = |area: &str| selected_area(cfg.area.as_deref(), cfg.except.as_deref(), area);
+    let entries: Vec<Entry> = all.iter().filter(|e| selected(&e.area)).cloned().collect();
+    if entries.is_empty() {
+        diag!("scratchy --wpt-th: the --area/--except selection is empty");
         return 2;
     }
-    let entries: Vec<Entry> = all.iter().filter(|e| cfg.area.as_ref().is_none_or(|a| *a == e.area)).cloned().collect();
     let t0 = Instant::now();
-    let results = run_all(cmd, &entries, cfg.jobs, cfg.timeout);
+    let timed = run_all_timed(cmd, &entries, cfg.jobs, cfg.timeout);
     diag!("scratchy --wpt-th: ran {} files in {:.1} s ({} jobs)", entries.len(), t0.elapsed().as_secs_f64(), cfg.jobs);
+    // QCISPLIT2: the slowest files, so CI logs show what dominates the step.
+    let mut slow: Vec<(f64, &str)> = timed.iter().zip(&entries).map(|((_, d), e)| (d.as_secs_f64(), e.path.as_str())).collect();
+    slow.sort_by(|a, b| b.0.total_cmp(&a.0));
+    let total: f64 = slow.iter().map(|s| s.0).sum();
+    diag!("scratchy --wpt-th: summed file time {total:.1} s; slowest files:");
+    for (secs, path) in slow.iter().take(10) {
+        diag!("  SLOW {secs:6.2} s {path}");
+    }
+    let over2 = slow.iter().filter(|s| s.0 >= 2.0).count();
+    diag!("scratchy --wpt-th: {over2} files took >= 2 s, summing {:.1} s", 0.0 + slow.iter().filter(|s| s.0 >= 2.0).map(|s| s.0).sum::<f64>());
+    let mut per_area: BTreeMap<&str, (usize, f64)> = BTreeMap::new();
+    for ((_, d), e) in timed.iter().zip(&entries) {
+        let x = per_area.entry(e.area.as_str()).or_default();
+        x.0 += 1;
+        x.1 += d.as_secs_f64();
+    }
+    for (a, (n, secs)) in &per_area {
+        diag!("  AREA-TIME {a} {n} files {secs:.1} s");
+    }
+    let results: Vec<FileResult> = timed.into_iter().map(|(r, _)| r).collect();
 
     let mut blocking = 0usize;
     let mut newly = 0usize;
@@ -635,12 +686,12 @@ pub(crate) fn execute(cfg: &Config, cmd: &ChildCmd) -> i32 {
         diag!("flaky (not compared) {}: {}", e.0.path, describe(e.1));
     }
 
-    // areas.txt: this run's rows; with --area the other areas keep their old rows.
+    // areas.txt: this run's rows; with --area/--except the other areas keep their old rows.
     let old = fs::read_to_string(cfg.dir.join("areas.txt")).map(|t| parse_areas(&t)).unwrap_or_default();
     let mut rows = Vec::new();
     for area in &area_order {
         let idx: Vec<usize> = (0..entries.len()).filter(|&i| entries[i].area == *area).collect();
-        if cfg.area.as_ref().is_none_or(|a| a == area) {
+        if selected(area) {
             let counted: Vec<&FileResult> = idx.iter().filter(|&&i| !flaky.contains(&entries[i].path)).map(|&i| &results[i]).collect();
             rows.push(area_row(area, idx.len(), &counted));
         } else if let Some(o) = old.iter().find(|r| r.area == *area) {
@@ -793,7 +844,7 @@ pub(crate) fn areas_from_dir(dir: &std::path::Path) -> Result<String, String> {
     Ok(format_areas(&rows))
 }
 
-const USAGE: &str = "usage: scratchy --wpt-th <wpt-checkout> [--jobs N] [--update] [--area A] [--wire PATH] [--dir wpt-th] [--timeout SECS] [--no-scope] [-v]\n       scratchy --wpt-th --areas-only [--dir wpt-th]   (rewrite areas.txt from subset/expected/flaky, no test run, no checkout)";
+const USAGE: &str = "usage: scratchy --wpt-th <wpt-checkout> [--jobs N] [--update] [--area A,B,dir/*] [--except A,B] [--wire PATH] [--dir wpt-th] [--timeout SECS] [--no-scope] [-v]\n       scratchy --wpt-th --areas-only [--dir wpt-th]   (rewrite areas.txt from subset/expected/flaky, no test run, no checkout)";
 
 pub(crate) fn main(args: &[String]) -> i32 {
     let (mut checkout, mut wire, mut dir) = (None, None, PathBuf::from("wpt-th"));
@@ -801,6 +852,7 @@ pub(crate) fn main(args: &[String]) -> i32 {
         dir: PathBuf::new(),
         update: false,
         area: None,
+        except: None,
         jobs: thread::available_parallelism().map(|n| n.get()).unwrap_or(4),
         timeout: CHILD_TIMEOUT,
         verbose: false,
@@ -815,7 +867,7 @@ pub(crate) fn main(args: &[String]) -> i32 {
             args.get(i).cloned()
         };
         match a {
-            "--jobs" | "--area" | "--wire" | "--dir" | "--timeout" => {
+            "--jobs" | "--area" | "--except" | "--wire" | "--dir" | "--timeout" => {
                 let Some(v) = val() else {
                     diag!("scratchy --wpt-th: {a} needs an argument");
                     return 2;
@@ -823,6 +875,7 @@ pub(crate) fn main(args: &[String]) -> i32 {
                 match a {
                     "--jobs" => cfg.jobs = v.parse().unwrap_or(0).max(1),
                     "--area" => cfg.area = Some(v),
+                    "--except" => cfg.except = Some(v),
                     "--wire" => wire = Some(PathBuf::from(v)),
                     "--dir" => dir = PathBuf::from(v),
                     _ => cfg.timeout = Duration::from_secs(v.parse().unwrap_or(30).max(1)),
