@@ -540,6 +540,10 @@ pub(crate) struct ComputedStyle {
     /// doesn't know whether this element's parent is even a flex
     /// container at all.
     pub(crate) align_self: Option<AlignItems>,
+    /// QCSS-C: grid alignment of items on the inline axis; `justify_self` `None` is `auto`.
+    pub(crate) justify_items: AlignItems,
+    pub(crate) justify_self: Option<AlignItems>,
+    pub(crate) grid_auto_flow: GridAutoFlow,
     pub(crate) flex_grow: f32,
     pub(crate) flex_shrink: f32,
     pub(crate) flex_basis: FlexBasis,
@@ -769,7 +773,7 @@ pub(crate) fn wide_keys(name: &str) -> Option<&'static [&'static str]> {
         "padding-right", "padding-bottom", "padding-left", "outline-width",
         "outline-color", "box-shadow", "border-radius",
         "overflow-y", "text-overflow", "flex-direction", "flex-wrap", "justify-content", "align-items",
-        "align-self", "order", "flex-grow", "flex-shrink", "flex-basis", "row-gap",
+        "align-content", "justify-items", "justify-self", "grid-auto-flow", "align-self", "order", "flex-grow", "flex-shrink", "flex-basis", "row-gap",
         "column-gap", "grid-template-columns", "grid-template-rows", "grid-auto-columns", "grid-auto-rows",
         "grid-template-areas", "grid-area", "font-style", "list-style-type",
         "fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "fill-opacity", "stroke-opacity",
@@ -822,7 +826,12 @@ pub(crate) fn wide_keys(name: &str) -> Option<&'static [&'static str]> {
         "outline" => &["outline-width", "outline-color"],
         "flex-flow" => &["flex-direction", "flex-wrap"],
         "flex" => &["flex-grow", "flex-shrink", "flex-basis"],
-        "gap" => &["row-gap", "column-gap"],
+        "gap" | "grid-gap" => &["row-gap", "column-gap"],
+        "grid-row-gap" => &["row-gap"],
+        "grid-column-gap" => &["column-gap"],
+        "place-content" => &["align-content", "justify-content"],
+        "place-items" => &["align-items", "justify-items"],
+        "place-self" => &["align-self", "justify-self"],
         "list-style" => &["list-style-type"],
         "text-decoration" => &TEXT_DECO_KEYS,
         "text-decoration-line" => &TEXT_DECO_KEYS[1..2],
@@ -931,6 +940,9 @@ pub(crate) fn copy_prop(dst: &mut ComputedStyle, src: &ComputedStyle, key: &str)
         "align-content" => dst.align_content = src.align_content,
         "align-items" => dst.align_items = src.align_items,
         "align-self" => dst.align_self = src.align_self,
+        "justify-items" => dst.justify_items = src.justify_items,
+        "justify-self" => dst.justify_self = src.justify_self,
+        "grid-auto-flow" => dst.grid_auto_flow = src.grid_auto_flow,
         "order" => dst.order = src.order,
         "flex-grow" => dst.flex_grow = src.flex_grow,
         "flex-shrink" => dst.flex_shrink = src.flex_shrink,
@@ -3285,6 +3297,26 @@ pub(crate) fn resolve_style_core<'a>(
         inline_decls.as_ref().and_then(|d| d.align_self),
         |d| d.align_self,
     );
+    // `align-self: auto` is `None`.
+    let align_self = align_self.filter(|a| *a != AlignItems::Auto);
+    let justify_items = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.justify_items),
+        |d| d.justify_items,
+    )
+    .unwrap_or_default();
+    let justify_self = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.justify_self),
+        |d| d.justify_self,
+    )
+    .filter(|a| *a != AlignItems::Auto);
+    let grid_auto_flow = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.grid_auto_flow),
+        |d| d.grid_auto_flow,
+    )
+    .unwrap_or_default();
     let order = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.order), |d| d.order).unwrap_or(0);
     let flex_grow = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.flex_grow), |d| d.flex_grow)
         .unwrap_or(0.0);
@@ -3440,6 +3472,9 @@ pub(crate) fn resolve_style_core<'a>(
         align_content,
         align_items,
         align_self,
+        justify_items,
+        justify_self,
+        grid_auto_flow,
         flex_grow,
         order,
         flex_shrink,
@@ -3572,6 +3607,9 @@ pub(crate) fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         align_content: AlignContent::default(),
         align_items: AlignItems::default(),
         align_self: None,
+        justify_items: AlignItems::default(),
+        justify_self: None,
+        grid_auto_flow: GridAutoFlow::default(),
         flex_grow: 0.0,
         order: 0,
         flex_shrink: 1.0,
