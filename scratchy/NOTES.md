@@ -3118,6 +3118,20 @@ or behind it, and a clipped repaint would blur / blend against unpainted scratch
 qhov1_tests. `SCRATCHY_NO_DAMAGE=1` disables it. Measured (hover-big.html, 960x1006
 nested window, 5000 elements): paint+present 3.0 -> 1.7 ms per redraw, 108 of 147 redraws damage-presented.
 
+Damage repaint for any page (QHOV2): the gate `state_rules != 0 || canvas` is gone. Any frame of the engine's own
+tree with known damage and an equal `PaintKey` patches the buffer: JS class toggles, small DOM writes, animation
+frames. No kept copy of the page any more (it was a 4 MB copy per full paint): `DamagePaint::hist` holds the
+`Damage` of the last `DAMAGE_HISTORY` (4) frames since the chain started, and a swap buffer of age `a`
+(`pixels.age()`; 0 = unknown contents) is missing exactly the newest `a - 1` of them, so `damage_plan` merges those
+rects (deduplicated) with this frame's and `redraw` repaints the union into the buffer (the present damage stays
+this frame's rects: that is what changed on screen). A frame with known damage and the chain's key extends the
+chain even when it was painted whole (too big, buffer too old), so a double-buffered window is patching from
+the third frame; unknown damage, another key or an overlay (video, search highlight, select popup) restarts it
+(`hist` empty: only this frame's buffer is current; the other buffers are older than the chain). Layer boxes /
+fixed / sticky / scroll regions are unchanged: their damage is unknown (`None`), or `layer_hit` on the merged
+rects, and the frame is a full paint. `SCRATCHY_DAMAGE_VERIFY=1` paints every patched frame whole as well and
+prints `damage-verify: ... differs` (and counts `app::DAMAGE_VERIFY_BAD`) when the two differ.
+
 JS DOM writes (QB2): `App::js_sync` is a restyle request like a hover
 change (`layout_dirty` + `restyle_requested` + `keep_scroll_on_rebuild`).
 `layout_in_flight` is true from the moment `redraw` queues a shaping pass

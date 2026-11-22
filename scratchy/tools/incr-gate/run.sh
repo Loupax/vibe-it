@@ -72,6 +72,7 @@ case $PAGE in
   social) URL='https://social.loupax.com/discover'; SECS=40; HSECS=20 ;;
   hover) URL="$HERE/hover.html"; SECS=32; HSECS=10 ;;
   hoverbig) URL="$HERE/hover-big.html"; SECS=40; HSECS=20 ;;
+  hoverjs) URL="$HERE/hover-big-js.html"; SECS=40; HSECS=20 ;; # QHOV2: hover-big with script-driven (.hv class) hovers
   imggeom) URL="$HERE/img-geom.html"; SECS=10; HSECS=5 ;;
   fxscroll) URL="$HERE/fx-scroll.html"; SECS=26; HSECS=10 ;; # QCSS-D: blur/backdrop-filter/text-shadow page, scrolled
   *) echo "run.sh: unknown page $PAGE" >&2; exit 2 ;;
@@ -85,7 +86,7 @@ esac
 # QREC3: record / replay arguments for this run's wire; local-file pages never touch the network
 WARGS=()
 DET=()
-case $PAGE in hover|hoverbig|imggeom|fxscroll) ;; *)
+case $PAGE in hover|hoverbig|hoverjs|imggeom|fxscroll) ;; *)
   if [ -n "$REPLAY" ] && [ -n "$RECORD" ]; then echo "run.sh: REPLAY and RECORD contradict each other" >&2; exit 2; fi
   if [ -n "$REPLAY" ]; then
     [ -s "$REPLAY/$PAGE/index.jsonl" ] || { echo "run.sh: no recording in $REPLAY/$PAGE" >&2; exit 2; }
@@ -173,7 +174,7 @@ plan() {
       inj $(dwell 600 6 240,261 60,287 180,287 270,287 410,287 96,169 602,169 670,169)
       inj move:600,700 wait:200
       at 50; shot end ;;
-    gh-home|bbc|social|hoverbig)
+    gh-home|bbc|social|hoverbig|hoverjs)
       at 12; shot pre
       at 13
       # shellcheck disable=SC2046

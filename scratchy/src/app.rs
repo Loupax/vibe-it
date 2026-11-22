@@ -1785,6 +1785,11 @@ impl App {
         // QHOV1: the page's own changes since its last paint, as damaged screen rects (`Some`), when
         // the kept page can be patched instead of painting everything again.
         let mut fast: Option<DamageRects> = None;
+        // QHOV2: the screen rects to present with `fast` (this frame's damage only; `fast` itself also
+        // holds the older frames' rects a buffer of age > 1 is missing) and the damage to remember.
+        let mut present_rects: Vec<(u32, u32, u32, u32)> = Vec::new();
+        let mut cur_damage: Option<crate::incr_layout::Damage> = None;
+        let mut verify_snap: Option<Vec<u32>> = None;
         // QHOV1: the key a full paint's page is kept under for the next damage repaint.
         let mut keep_key: Option<PaintKey> = None;
         // (A page without a `<video>` paints no video box, so the media backend alone is no overlay.)
@@ -1833,11 +1838,14 @@ impl App {
                     other => other,
                 };
             }
-            let canvas_page = crate::canvas::any();
             // SCRATCHY_NO_DAMAGE=1: every hover frame paints the whole page (A/B measurements).
             static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
             let off = *OFF.get_or_init(|| std::env::var_os("SCRATCHY_NO_DAMAGE").is_some());
-            if !off && !overlays && (self.state_rules != 0 || canvas_page) && damage.is_some() {
+            // QHOV2: any page, not only those with state rules: the engine's damage is known for JS class
+            // toggles, small DOM writes and animation frames too. No kept copy of the page: the buffer's
+            // age says which of the last frames' rects it is missing (`damage_plan`).
+            let verify = *VERIFY.get_or_init(|| std::env::var_os("SCRATCHY_DAMAGE_VERIFY").is_some());
+            if !off && !overlays && damage.is_some() {
                 let mut offsets: Vec<(usize, u32)> = self.scroll_offsets.iter().map(|(k, v)| (*k, v.to_bits())).collect();
                 offsets.sort_unstable();
                 let vb = Self::viewport_bar(&self.cached, (width, page_h));
@@ -1851,21 +1859,25 @@ impl App {
                     vbar: vb.map(|(r, c, h)| [r.2.to_bits(), r.3.to_bits(), c.to_bits(), h.to_bits(), r.0.to_bits(), r.1.to_bits()]),
                     canvas: laid.style.background_color.map(|c| c.as_rgba_tuple()),
                 };
-                if let Some(Some(d)) = damage
-                    && self.dp.key.as_ref() == Some(&key)
-                    && self.dp.kept.len() == pixels.len()
-                    && self.dp.scratch.len() == pixels.len()
-                {
-                    fast = damage_screen_rects(&d, laid, (self.scroll_x, self.scroll_offset), (width, page_h));
+                if let Some(Some(d)) = damage {
+                    if self.dp.key.as_ref() == Some(&key)
+                        && self.dp.scratch.len() == pixels.len()
+                        && let Some((merged, cur)) = damage_plan(&self.dp.hist, &d, pixels.age() as usize)
+                    {
+                        fast = damage_screen_rects(&merged, laid, (self.scroll_x, self.scroll_offset), (width, page_h));
+                        present_rects = match (&fast, merged.rects.len() == cur) {
+                            (Some((r, _)), true) => r.clone(),
+                            (Some(_), false) => damage_screen_rects(&d, laid, (self.scroll_x, self.scroll_offset), (width, page_h)).map(|x| x.0).unwrap_or_default(),
+                            _ => Vec::new(),
+                        };
+                    }
+                    cur_damage = Some(d);
                 }
                 keep_key = Some(key);
             }
             if let Some((rects, margin)) = &fast {
-                // Patch the kept page: each rect is painted into the scratch page (its own white and
+                // Patch the buffer: each rect is painted into the scratch page (its own white and
                 // canvas colour first, everything that reaches it, culled to it) and copied over.
-                if pixels.age() != 1 {
-                    pixels.copy_from_slice(&self.dp.kept);
-                }
                 let vb = Self::viewport_bar(&self.cached, (width, page_h));
                 for &(l, t, r, b) in rects {
                     let w = width as usize;
@@ -1876,11 +1888,18 @@ impl App {
                     );
                     for y in t..b {
                         let (a, z) = (y as usize * w + l as usize, y as usize * w + r as usize);
-                        self.dp.kept[a..z].copy_from_slice(&self.dp.scratch[a..z]);
                         pixels[a..z].copy_from_slice(&self.dp.scratch[a..z]);
                     }
                 }
-            } else {
+                if verify {
+                    // SCRATCHY_DAMAGE_VERIFY=1: keep the patched page, paint everything too and compare.
+                    verify_snap = Some(pixels[..(page_h * width) as usize].to_vec());
+                }
+            }
+            if verify_snap.is_some() {
+                fast = None;
+            }
+            if fast.is_none() {
             pixels.fill(0x00FFFFFF);
             // QW6: the canvas colour covers the whole window, also past a
             // short document's end.
@@ -1943,6 +1962,23 @@ impl App {
             crate::paint::paint_viewport_hbar(content_w, client_w, self.scroll_x, vbar.is_some(), &mut pixels, width, height, rect);
         }
 
+        // QHOV2: SCRATCHY_DAMAGE_VERIFY: the page (bars included) as patched against the page as painted whole.
+        if let Some(snap) = verify_snap.take() {
+            let w = width as usize;
+            let (mut bad, mut bb) = (0usize, (usize::MAX, usize::MAX, 0usize, 0usize));
+            for (i, (a, b)) in snap.iter().zip(pixels.iter()).enumerate() {
+                if a != b {
+                    bad += 1;
+                    let (x, y) = (i % w, i / w);
+                    bb = (bb.0.min(x), bb.1.min(y), bb.2.max(x + 1), bb.3.max(y + 1));
+                }
+            }
+            if bad != 0 {
+                DAMAGE_VERIFY_BAD.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                eprintln!("damage-verify: the patched page differs from a full paint in {bad} pixels, within {bb:?} (l, t, r, b)");
+            }
+        }
+
         // QSEARCH1 (S3): search highlights, chrome over the page (below the status bar).
         if self.search.highlight {
             for (i, m) in self.search.matches.iter().enumerate() {
@@ -1983,16 +2019,27 @@ impl App {
                 }
             }
         }
-        // QHOV1: the page as painted so far is what a later damage repaint patches.
-        if fast.is_none() {
-            match keep_key {
-                Some(key) => {
-                    self.dp.kept.clear();
-                    self.dp.kept.extend_from_slice(&pixels);
-                    self.dp.scratch.resize(pixels.len(), 0);
-                    self.dp.key = Some(key);
+        // QHOV1: what a later damage repaint patches is the buffer itself; QHOV2: its age says which
+        // frames' rects it misses (`DamagePaint::hist`).
+        // A frame whose damage is known and whose key is the chain's key extends the chain, whether it
+        // was patched or (too big, buffer too old) painted whole: its page is right either way. Anything
+        // else starts a new chain (`hist` empty: only the buffer of this frame is current).
+        match keep_key {
+            Some(key) if self.dp.key.as_ref() == Some(&key) && cur_damage.is_some() => {
+                if let Some(d) = cur_damage.take() {
+                    self.dp.hist.push(d);
+                    let extra = self.dp.hist.len().saturating_sub(DAMAGE_HISTORY);
+                    self.dp.hist.drain(..extra);
                 }
-                None => self.dp.key = None,
+            }
+            Some(key) => {
+                self.dp.hist.clear();
+                self.dp.scratch.resize(pixels.len(), 0);
+                self.dp.key = Some(key);
+            }
+            None => {
+                self.dp.hist.clear();
+                self.dp.key = None;
             }
         }
         // QKEYS1: the status bar is the top layer (over a video that reaches into its strip).
@@ -2026,8 +2073,8 @@ impl App {
         }
         window.pre_present_notify();
         let presented = match &fast {
-            Some((rects, _)) => {
-                let mut damage: Vec<softbuffer::Rect> = rects
+            Some(_) => {
+                let mut damage: Vec<softbuffer::Rect> = present_rects
                     .iter()
                     .filter_map(|r| Some(softbuffer::Rect { x: r.0, y: r.1, width: NonZeroU32::new(r.2 - r.0)?, height: NonZeroU32::new(r.3 - r.1)? }))
                     .collect();
@@ -5442,19 +5489,58 @@ pub(crate) struct PaintKey {
     canvas: Option<(u8, u8, u8, u8)>,
 }
 
-/// QHOV1: the page as the last full or damage paint left it (before the status bar and the overlays),
-/// the key it was painted under, and a scratch page the damaged rects are painted into.
+/// QHOV1: the scratch page the damaged rects are painted into, the key the buffers were painted under;
+/// QHOV2: and the damage of the last frames patched since the last full paint (`hist`, oldest first).
+/// A buffer of age `a` holds the page of `a` frames ago, so it misses the damage of the newest `a - 1`
+/// of them: `damage_plan`. No copy of the page is kept.
 #[derive(Default)]
 pub(crate) struct DamagePaint {
-    pub(crate) kept: Vec<u32>,
     pub(crate) scratch: Vec<u32>,
     pub(crate) key: Option<PaintKey>,
+    pub(crate) hist: Vec<crate::incr_layout::Damage>,
+}
+
+/// QHOV2: how many patched frames are remembered (a buffer older than this is painted whole).
+pub(crate) const DAMAGE_HISTORY: usize = 4;
+
+static VERIFY: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+/// QHOV2: `SCRATCHY_DAMAGE_VERIFY=1` counts the frames whose patched page differed from a full paint.
+pub(crate) static DAMAGE_VERIFY_BAD: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// QHOV2: the damage a buffer of age `age` (1 = the page presented last, 0 = unknown contents) must be
+/// patched with: this frame's `cur` plus the damage of the `age - 1` frames since the buffer's page
+/// (`hist` = the patched frames since the last full paint, oldest first). Returns the merged damage and
+/// how many of its rects are `cur`'s (they come first), or `None` when the buffer is too old (or new):
+/// paint the whole page.
+pub(crate) fn damage_plan(hist: &[crate::incr_layout::Damage], cur: &crate::incr_layout::Damage, age: usize) -> Option<(crate::incr_layout::Damage, usize)> {
+    if age == 0 || age - 1 > hist.len() {
+        return None;
+    }
+    let mut rects: Vec<crate::layout::Ink> = Vec::new();
+    let push = |r: &crate::layout::Ink, rects: &mut Vec<crate::layout::Ink>| {
+        if !rects.iter().any(|x| (x.l, x.t, x.r, x.b) == (r.l, r.t, r.r, r.b)) {
+            rects.push(*r);
+        }
+    };
+    for r in &cur.rects {
+        push(r, &mut rects);
+    }
+    let n = rects.len();
+    let (mut reach, mut layer_fx) = (cur.reach, cur.layer_fx);
+    for h in &hist[hist.len() - (age - 1)..] {
+        for r in &h.rects {
+            push(r, &mut rects);
+        }
+        reach = reach.max(h.reach);
+        layer_fx |= h.layer_fx;
+    }
+    Some((crate::incr_layout::Damage { rects, reach, layer_fx }, n))
 }
 
 /// QHOV1: a damage repaint covers at most this share of the viewport (else one full paint is cheaper).
 const DAMAGE_MAX_SHARE: f32 = 0.5;
 /// QHOV1: ... and at most this many rects.
-const DAMAGE_MAX_RECTS: usize = 8;
+const DAMAGE_MAX_RECTS: usize = 12;
 
 /// QHOV1: screen rects to repaint and the paint cull's margin.
 pub(crate) type DamageRects = (Vec<(u32, u32, u32, u32)>, f32);
