@@ -294,6 +294,12 @@ impl<'js> FromJs<'js> for Bytes {
     }
 }
 
+impl<'js> IntoJs<'js> for Bytes {
+    fn into_js(self, ctx: &Ctx<'js>) -> JsResult<L<v8::Value>> {
+        BytesRef(&self.0).into_js(ctx)
+    }
+}
+
 /// A `Uint8Array` result built from a borrowed slice (one copy, into the engine).
 pub(crate) struct BytesRef<'a>(pub(crate) &'a [u8]);
 

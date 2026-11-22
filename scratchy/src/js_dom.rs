@@ -908,6 +908,7 @@ fn insert_native(t: &DomTable, d: &Cell<bool>, gn: &Cell<u64>, lk: Option<&Rc<Re
 
 pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>>, reqs: Rc<RefCell<JsRequests>>) -> Rc<RefCell<DomTable>> {
     let table = Rc::new(RefCell::new(DomTable::default()));
+    crate::canvas::register(ctx, table.clone());
     table.borrow_mut().intern(document);
     // QA16: DOM write generation (invalidates the getComputedStyle cache).
     let wgen: Rc<Cell<u64>> = Rc::new(Cell::new(0));
@@ -2899,13 +2900,13 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   defs(DP, 'returnValue', function () { return this.__rv === undefined ? '' : this.__rv; },
     function (v) { this.__rv = String(v); });
   DP.show = function () {
-    if (this.open) { if (__d_attr(this.__id, 'data-scratchy-modal') != null) throw domErr('InvalidStateError', "Failed to execute 'show' on 'HTMLDialogElement': The element is already open, and therefore cannot be opened non-modally."); return; }
+    if (this.open) { if (__d_attr(this.__id, 'data-scratchy-modal') != null) throw domErr("Failed to execute 'show' on 'HTMLDialogElement': The element is already open, and therefore cannot be opened non-modally.", 'InvalidStateError'); return; }
     __d_setattr(this.__id, 'open', '');
   };
   DP.showModal = function () {
     if (this.open) {
       if (__d_attr(this.__id, 'data-scratchy-modal') != null) return;
-      throw domErr('InvalidStateError', "Failed to execute 'showModal' on 'HTMLDialogElement': The element already has an 'open' attribute, and therefore cannot be opened modally.");
+      throw domErr("Failed to execute 'showModal' on 'HTMLDialogElement': The element already has an 'open' attribute, and therefore cannot be opened modally.", 'InvalidStateError');
     }
     __d_setattr(this.__id, 'data-scratchy-modal', '');
     __d_setattr(this.__id, 'open', '');
@@ -2917,9 +2918,8 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     __d_rmattr(this.__id, 'data-scratchy-modal');
     this.dispatchEvent(new Event('close'));
   };
-  // QY3: HTMLCanvasElement without drawing: no context type is supported,
-  // so `getContext` is null (as in a browser lacking it), `toDataURL` is
-  // the empty data URL, `toBlob` calls back null.
+  // QY3 / QCNV1: HTMLCanvasElement. `getContext('2d')` is a CanvasRenderingContext2D backed by canvas.rs (a tiny-skia
+  // bitmap); every other context type is null (WebGL included). `toDataURL` is still the empty data URL.
   var HTMLCanvasElement = function HTMLCanvasElement() {};
   HTMLCanvasElement.prototype = Object.create(HTMLElement.prototype, { constructor: { value: HTMLCanvasElement, writable: true, configurable: true } });
   g.HTMLCanvasElement = HTMLCanvasElement;
@@ -2928,11 +2928,147 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     defs(CP, name, function () {
       var v = parseInt(__d_attr(this.__id, name), 10);
       return v >= 0 ? v : dflt;
-    }, function (v) { __d_setattr(this.__id, name, String(Math.max(0, Math.floor(Number(v)) || 0))); });
+    }, function (v) {
+      v = Number(v);
+      v = isFinite(v) ? Math.floor(v) : 0;
+      __d_setattr(this.__id, name, String(v >= 0 && v <= 4294967295 ? v : dflt));
+      if (this.__ctx2d) g.__cv_reset(this.__id);
+    });
   };
   canvasDim('width', 300);
   canvasDim('height', 150);
-  CP.getContext = function () { return null; };
+  var ImageData = function ImageData(a, b, c, d) {
+    if (!(this instanceof ImageData)) throw new TypeError("Failed to construct 'ImageData': Please use the 'new' operator, this DOM object constructor cannot be called as a function.");
+    var data, w, h;
+    var n = arguments.length;
+    if (n < 2) throw new TypeError("Failed to construct 'ImageData': 2 arguments required, but only " + n + " present.");
+    var toUL = function (v) { v = Number(v); if (!isFinite(v) || v < 0 || v > 4294967295) return NaN; return Math.floor(v); };
+    var opt;
+    if (a !== null && typeof a === 'object') {
+      if (!(a instanceof Uint8ClampedArray)) throw new TypeError("Failed to construct 'ImageData': parameter 1 is not of type 'Uint8ClampedArray'.");
+      w = toUL(b);
+      if (!(w > 0)) throw domErr("Failed to construct 'ImageData': The source width is zero or not a number.", 'IndexSizeError');
+      if (a.length === 0 || a.length % 4 !== 0) throw domErr("Failed to construct 'ImageData': The input data length is not a multiple of 4.", 'InvalidStateError');
+      var px = a.length / 4;
+      if (px % w !== 0) throw domErr("Failed to construct 'ImageData': The input data length is not a multiple of (4 * width).", 'IndexSizeError');
+      h = px / w;
+      if (c !== undefined && typeof c !== 'object' && toUL(c) !== h) throw domErr("Failed to construct 'ImageData': The input data length is not equal to (4 * width * height).", 'IndexSizeError');
+      data = a;
+      opt = (c !== undefined && typeof c === 'object') ? c : d;
+    } else {
+      w = toUL(a); h = toUL(b);
+      if (!(w > 0) || !(h > 0)) throw domErr("Failed to construct 'ImageData': The source " + (w > 0 ? 'height' : 'width') + " is zero or not a number.", 'IndexSizeError');
+      if (w * h * 4 > 1073741824) throw new RangeError("Failed to construct 'ImageData': The requested image size exceeds the supported range.");
+      data = new Uint8ClampedArray(w * h * 4);
+      opt = c;
+    }
+    var cs = 'srgb';
+    if (opt !== undefined && opt !== null && typeof opt === 'object' && opt.colorSpace !== undefined) {
+      cs = String(opt.colorSpace);
+      if (cs !== 'srgb' && cs !== 'display-p3') throw new TypeError("Failed to construct 'ImageData': The provided value '" + cs + "' is not a valid enum value of type PredefinedColorSpace.");
+    }
+    Object.defineProperty(this, '__w', { value: w }); Object.defineProperty(this, '__h', { value: h });
+    Object.defineProperty(this, '__data', { value: data }); Object.defineProperty(this, '__cs', { value: cs });
+  };
+  defs(ImageData.prototype, 'width', function () { return this.__w; });
+  defs(ImageData.prototype, 'height', function () { return this.__h; });
+  defs(ImageData.prototype, 'data', function () { return this.__data; });
+  defs(ImageData.prototype, 'colorSpace', function () { return this.__cs; });
+  Object.defineProperty(ImageData.prototype, Symbol.toStringTag, { value: 'ImageData', configurable: true });
+  g.ImageData = ImageData;
+  var CtxProto = {};
+  var CanvasRenderingContext2D = function CanvasRenderingContext2D() { throw new TypeError('Illegal constructor'); };
+  CanvasRenderingContext2D.prototype = CtxProto;
+  Object.defineProperty(CtxProto, 'constructor', { value: CanvasRenderingContext2D, writable: true, configurable: true });
+  Object.defineProperty(CtxProto, Symbol.toStringTag, { value: 'CanvasRenderingContext2D', configurable: true });
+  g.CanvasRenderingContext2D = CanvasRenderingContext2D;
+  var cvArgs = function (name, n, a) {
+    if (a.length < n) throw new TypeError("Failed to execute '" + name + "' on 'CanvasRenderingContext2D': " + n + " arguments required, but only " + a.length + " present.");
+    var o = [];
+    for (var i = 0; i < n; i++) o.push(Number(a[i]));
+    return o;
+  };
+  [['fillRect', 0], ['clearRect', 1], ['strokeRect', 2]].forEach(function (p) {
+    CtxProto[p[0]] = function () { g.__cv_draw(this.__el.__id, p[1], cvArgs(p[0], 4, arguments)); };
+  });
+  CtxProto.save = function () { g.__cv_save(this.__el.__id); };
+  CtxProto.restore = function () { g.__cv_restore(this.__el.__id); };
+  defs(CtxProto, 'canvas', function () { return this.__el; });
+  ['fillStyle', 'strokeStyle'].forEach(function (name, which) {
+    defs(CtxProto, name, function () { return g.__cv_get_style(this.__el.__id, which); }, function (v) {
+      if (typeof v === 'object' && v !== null) return; // gradients and patterns are QCNV2 work
+      g.__cv_set_style(this.__el.__id, which, String(v));
+    });
+  });
+  defs(CtxProto, 'globalAlpha', function () { return g.__cv_get_num(this.__el.__id, 0); }, function (v) {
+    v = Number(v);
+    if (isFinite(v) && v >= 0 && v <= 1) g.__cv_set_num(this.__el.__id, 0, v);
+  });
+  defs(CtxProto, 'lineWidth', function () { return g.__cv_get_num(this.__el.__id, 1); }, function (v) {
+    v = Number(v);
+    if (isFinite(v) && v > 0) g.__cv_set_num(this.__el.__id, 1, v);
+  });
+  var finite = function (name, vals) {
+    for (var i = 0; i < vals.length; i++) if (!isFinite(vals[i])) throw new TypeError("Failed to execute '" + name + "' on 'CanvasRenderingContext2D': The provided double value is non-finite.");
+  };
+  var trunc = function (v) { return v < 0 ? Math.ceil(v) : Math.floor(v); };
+  CtxProto.createImageData = function (a, b) {
+    if (arguments.length < 1) throw new TypeError("Failed to execute 'createImageData' on 'CanvasRenderingContext2D': 1 argument required, but only 0 present.");
+    if (a !== null && typeof a === 'object') {
+      if (!(a instanceof ImageData)) throw new TypeError("Failed to execute 'createImageData' on 'CanvasRenderingContext2D': parameter 1 is not of type 'ImageData'.");
+      return new ImageData(a.width, a.height);
+    }
+    if (arguments.length < 2) throw new TypeError("Failed to execute 'createImageData' on 'CanvasRenderingContext2D': 2 arguments required, but only 1 present.");
+    var w = Number(a), h = Number(b);
+    finite('createImageData', [w, h]);
+    if (w === 0 || h === 0) throw domErr("Failed to execute 'createImageData' on 'CanvasRenderingContext2D': The source width or height is zero.", 'IndexSizeError');
+    return new ImageData(Math.abs(trunc(w)) || 1, Math.abs(trunc(h)) || 1);
+  };
+  CtxProto.getImageData = function () {
+    var a = cvArgs('getImageData', 4, arguments);
+    finite('getImageData', a);
+    var x = trunc(a[0]), y = trunc(a[1]), w = trunc(a[2]), h = trunc(a[3]);
+    if (w === 0 || h === 0) throw domErr("Failed to execute 'getImageData' on 'CanvasRenderingContext2D': The source width or height is zero.", 'IndexSizeError');
+    if (w < 0) { x += w; w = -w; }
+    if (h < 0) { y += h; h = -h; }
+    if (w * h * 4 > 1073741824) throw new TypeError("Failed to execute 'getImageData' on 'CanvasRenderingContext2D': Out of memory at ImageData creation");
+    var out = new ImageData(w, h);
+    var bytes = g.__cv_get_image(this.__el.__id, x, y, w, h);
+    if (bytes) out.data.set(bytes);
+    return out;
+  };
+  CtxProto.putImageData = function (img, dx, dy) {
+    if (arguments.length < 3) throw new TypeError("Failed to execute 'putImageData' on 'CanvasRenderingContext2D': 3 arguments required, but only " + arguments.length + " present.");
+    if (!(img instanceof ImageData)) throw new TypeError("Failed to execute 'putImageData' on 'CanvasRenderingContext2D': parameter 1 is not of type 'ImageData'.");
+    var a = [Number(dx), Number(dy)];
+    var sx = 0, sy = 0, sw = img.width, sh = img.height;
+    if (arguments.length >= 7) {
+      var d = [Number(arguments[3]), Number(arguments[4]), Number(arguments[5]), Number(arguments[6])];
+      finite('putImageData', a.concat(d));
+      sx = trunc(d[0]); sy = trunc(d[1]); sw = trunc(d[2]); sh = trunc(d[3]);
+      if (sw < 0) { sx += sw; sw = -sw; }
+      if (sh < 0) { sy += sh; sh = -sh; }
+      if (sx < 0) { sw += sx; sx = 0; }
+      if (sy < 0) { sh += sy; sy = 0; }
+      if (sx + sw > img.width) sw = img.width - sx;
+      if (sy + sh > img.height) sh = img.height - sy;
+    } else {
+      finite('putImageData', a);
+    }
+    if (sw <= 0 || sh <= 0) return;
+    g.__cv_put_image(this.__el.__id, new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength), [img.width, trunc(a[0]), trunc(a[1]), sx, sy, sw, sh]);
+  };
+  CP.getContext = function (type) {
+    if (arguments.length < 1) throw new TypeError("Failed to execute 'getContext' on 'HTMLCanvasElement': 1 argument required, but only 0 present.");
+    if (String(type) !== '2d') return null;
+    if (!this.__ctx2d) {
+      g.__cv_ctx(this.__id);
+      var c = Object.create(CtxProto);
+      Object.defineProperty(c, '__el', { value: this });
+      Object.defineProperty(this, '__ctx2d', { value: c, configurable: true });
+    }
+    return this.__ctx2d;
+  };
   CP.toDataURL = function () { return 'data:,'; };
   CP.toBlob = function (cb) { if (typeof cb === 'function') setTimeout(function () { cb(null); }, 0); };
   var classes = function (el) { var v = __d_attr(el.__id, 'class'); return (v == null ? '' : v).split(/\s+/).filter(Boolean); };

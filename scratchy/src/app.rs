@@ -1820,11 +1820,24 @@ impl App {
 
             // QHOV1: this paint takes the engine's damage (every paint of its own tree does, so the
             // next one starts from this one).
-            let damage = crate::incr_layout::owns(laid).then(crate::incr_layout::take_damage);
+            let mut damage = crate::incr_layout::owns(laid).then(crate::incr_layout::take_damage);
+            // QCNV1: canvases drawn on since the last paint add their boxes to the damage (their pixels are
+            // read at paint time, nothing else changed); a box that cannot be placed leaves it unknown.
+            let cv_dirty = crate::canvas::take_dirty();
+            if !cv_dirty.is_empty() {
+                damage = match damage {
+                    Some(Some(mut d)) => crate::incr_layout::canvas_damage(laid, &cv_dirty).map(|r| {
+                        d.rects.extend(r);
+                        d
+                    }).map(Some).or(Some(None)),
+                    other => other,
+                };
+            }
+            let canvas_page = crate::canvas::any();
             // SCRATCHY_NO_DAMAGE=1: every hover frame paints the whole page (A/B measurements).
             static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
             let off = *OFF.get_or_init(|| std::env::var_os("SCRATCHY_NO_DAMAGE").is_some());
-            if !off && !overlays && self.state_rules != 0 && damage.is_some() {
+            if !off && !overlays && (self.state_rules != 0 || canvas_page) && damage.is_some() {
                 let mut offsets: Vec<(usize, u32)> = self.scroll_offsets.iter().map(|(k, v)| (*k, v.to_bits())).collect();
                 offsets.sort_unstable();
                 let vb = Self::viewport_bar(&self.cached, (width, page_h));
@@ -2889,7 +2902,8 @@ impl App {
             if reqs.check_changed {
                 self.check_state_changed();
             }
-            if reqs.text_changed
+            // QCNV1: a canvas was drawn on: repaint (no relayout; the redraw turns it into a damage rect).
+            if (reqs.text_changed || crate::canvas::pending())
                 && let Some(w) = &self.window
             {
                 w.request_redraw();

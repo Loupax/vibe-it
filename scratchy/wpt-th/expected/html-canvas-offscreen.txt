@@ -1120,7 +1120,8 @@ OK           0/5  html/canvas/offscreen/manual/draw-generic-family/2d.text.draw.
   FAIL      Test that drawing cursive produces the same result between canvas and OffscreenCanvas in a Worker
   FAIL      Test that drawing fantasy produces the same result between canvas and OffscreenCanvas in a Worker
   FAIL      Test that drawing monospace produces the same result between canvas and OffscreenCanvas in a Worker
-ERROR        0/0  html/canvas/offscreen/manual/filter/offscreencanvas.filter.html
+OK           0/1  html/canvas/offscreen/manual/filter/offscreencanvas.filter.html
+  FAIL      none
 ERROR        0/0  html/canvas/offscreen/manual/filter/offscreencanvas.filter.w.html
 OK           0/9  html/canvas/offscreen/manual/image-smoothing/image.smoothing.html
   FAIL      When the context is created, imageSmoothingEnabled must be set to true.

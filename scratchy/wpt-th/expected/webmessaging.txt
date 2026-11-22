@@ -177,8 +177,7 @@ OK           1/1  webmessaging/without-ports/024.html
 ERROR        1/1  webmessaging/without-ports/025.html
 OK           1/1  webmessaging/without-ports/026.html
 OK           1/1  webmessaging/without-ports/027.html
-OK           0/1  webmessaging/without-ports/028.html
-  FAIL      Cloning objects, preserving sharing #2
+OK           1/1  webmessaging/without-ports/028.html
 OK           1/1  webmessaging/without-ports/029.html
 OK           0/1  webmessaging/worker_postMessage_user_activation.tentative.html
   FAIL      Post Message from a worker

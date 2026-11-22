@@ -528,7 +528,7 @@ fn path_of(h: &Handle) -> String {
 
 fn owns_box(tag: &str, s: &ComputedStyle) -> bool {
     !matches!(s.display, Display::Inline | Display::None | Display::TableGroup)
-        || matches!(tag, "img" | "svg" | "video" | "iframe" | "input" | "textarea" | "select" | "progress" | "meter" | "br")
+        || matches!(tag, "img" | "svg" | "video" | "iframe" | "canvas" | "input" | "textarea" | "select" | "progress" | "meter" | "br")
 }
 
 /// The fields a child's cascade reads from its parent without a CSS-wide keyword: the inherited

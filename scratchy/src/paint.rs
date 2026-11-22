@@ -2592,7 +2592,12 @@ fn paint_inner_body(
             let content_y = draw_y + s.border_top() + s.padding.top.px();
             let content_w = (laid.w - s.border_h() - s.padding.left.px() - s.padding.right.px()).max(0.0);
             let content_h = (laid.h - s.border_v() - s.padding.top.px() - s.padding.bottom.px()).max(0.0);
-            if image.pixels.is_empty() && image.width > 0 {
+            if crate::canvas::is_placeholder(image) {
+                // QCNV1: a `<canvas>`: the bitmap of its 2d context (nothing before `getContext`).
+                if let Some(bitmap) = crate::canvas::image(s.node) {
+                    blit_image(&bitmap, crate::css::ObjectFit::Fill, s.object_pos, pixels, win_w, win_h, content_x, content_y, content_w, content_h, child_clip);
+                }
+            } else if image.pixels.is_empty() && image.width > 0 {
                 // QM1g: a `<video>` box (the empty-pixel placeholder).
                 let opaque = PAINT_OPACITY.with(|o| o.get()) >= 1.0;
                 crate::media_video::paint_box(image, s.node, s.object_fit, s.object_pos, pixels, win_w, win_h, content_x, content_y, content_w, content_h, child_clip, opaque);

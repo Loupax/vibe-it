@@ -674,6 +674,26 @@ pub(crate) fn build_video_box(
     LayoutBox { style, background_image, content: BoxContent::Image(placeholder) }
 }
 
+/// QCNV1: `<canvas>` is a replaced box of its `width` x `height` attributes (300 x 150 default; CSS wins). Its
+/// content is an empty-pixel placeholder marked with `canvas::MARK`; `paint` draws the bitmap of the element's
+/// 2d context into it, so a draw never needs a rebuild.
+pub(crate) fn build_canvas_box(handle: &Handle, mut style: ComputedStyle, background_image: Option<Arc<DecodedImage>>) -> LayoutBox {
+    let dim = |name: &str, dflt: u32| {
+        let v = element_attr(handle, name);
+        let digits: String = v.as_deref().unwrap_or("").trim().chars().take_while(char::is_ascii_digit).collect();
+        digits.parse::<u32>().map_or(dflt as f32, |n| n as f32)
+    };
+    let (w, h) = (dim("width", crate::canvas::DEFAULT_W), dim("height", crate::canvas::DEFAULT_H));
+    if style.width.is_none() {
+        style.width = Some(BoxLength::Px(w));
+    }
+    if style.height.is_none() {
+        style.height = Some(BoxLength::Px(h));
+    }
+    let placeholder = Arc::new(DecodedImage { width: (w as u32).max(1), height: (h as u32).max(1), pixels: Vec::new(), svg: Some(Arc::new(crate::canvas::MARK.to_vec())), mask: None });
+    LayoutBox { style, background_image, content: BoxContent::Image(placeholder) }
+}
+
 /// `decoration` is the *ambient* text-decoration this element inherited
 /// from whatever called it — a block boundary alone doesn't interrupt
 /// propagation (see `collect_children`'s own docs on why it's ambient,
@@ -746,6 +766,9 @@ fn build_box_for_element_body(
         && let Some(b) = build_form_control_box(handle, style, background_image.clone(), &FormCtx { rules, viewport_width })
     {
         return b;
+    }
+    if element_tag(handle) == "canvas" {
+        return build_canvas_box(handle, style, background_image);
     }
     if element_tag(handle) == "iframe" {
         // Q52a: a replaced box with no nested browsing context: default

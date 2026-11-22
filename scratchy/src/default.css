@@ -179,6 +179,7 @@ td, th { display: table-cell; vertical-align: inherit; padding: 1px; }
 th { font-weight: bold; }
 
 iframe { display: inline-block; }
+canvas { display: inline-block; }
 
 /* ---- forms (Q30a) ----
    UA styles of form controls. Hand-curated to look like Chrome's defaults; the
