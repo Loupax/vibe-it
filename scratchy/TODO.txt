@@ -192,6 +192,58 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       Also (from QCNV1 #613): the canvas registry is keyed by node address (a canvas that never calls getContext
       could show a stale bitmap after address reuse); `currentcolor` treated as black; lab()/color() fill styles ignored;
       the toDataURL->image-load and zerosource files need image work, not canvas work.
+- [ ] [WIP] QCNV3 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+      (QCNV2)"); Sonnet) QCNV1 leftovers: width/height reflection, toStringTag/descriptors, brand checks, ImageData
+      edges, style toString, currentcolor, colour serialisation (start with color.window.html 0/15),
+      lab/color()/color-mix; canvas registry keyed by id, not node address. ~49 files.
+- [ ] QCNV4 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+      (QCNV2)"); Sonnet; in order after the items above) OffscreenCanvas on the main thread (no Workers). 278
+      offscreen files.
+- [ ] QCNV5 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+      (QCNV2)"); Sonnet; in order after the items above) Transforms
+      (translate/rotate/scale/setTransform/getTransform). 50 files.
+- [ ] QCNV6 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+      (QCNV2)"); Sonnet; in order after the items above) Paths, nonzero/evenodd fill rules, clip. 144 files.
+- [ ] QCNV7 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+      (QCNV2)"); Sonnet; in order after the items above) arc, arcTo, ellipse, bezier/quadratic curves, roundRect. 174
+      files.
+- [ ] QCNV8 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+      (QCNV2)"); Sonnet; in order after the items above) Line caps/joins/miter limit, dashes. 91 files.
+- [ ] QGEOM1 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+      (QCNV2)"); Sonnet; in order after the items above) DOMMatrix/DOMPoint/DOMRect (platform, not canvas). 50 files.
+- [ ] QCNV9 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+      (QCNV2)"); Sonnet; in order after the items above) Path2D, isPointInPath/isPointInStroke. 64 files.
+- [ ] QCNV10 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+      (QCNV2)"); Sonnet; in order after the items above) Linear, radial and conic gradients. 107 files.
+- [ ] QCNV11 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+      (QCNV2)"); Opus; in order after the items above) globalCompositeOperation. 97 files.
+- [ ] QCNV12 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+      (QCNV2)"); Opus; in order after the items above) Shadows. 99 files.
+- [ ] QCNV13 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+      (QCNV2)"); Sonnet; in order after the items above) drawImage from canvas sources, imageSmoothing. 38 files.
+- [ ] QIMGBMP1 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+      (QCNV2)"); Sonnet; in order after the items above) ImageBitmap and createImageBitmap (platform). 109 files.
+- [ ] QCNV14 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+      (QCNV2)"); Opus; in order after the items above) img/svg drawImage sources and patterns; decoded pixels on the
+      JS thread (js_dom IMAGE_STATES keeps only sizes). 148 files.
+- [ ] QCNV15a [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+      (QCNV2)"); Opus; in order after the items above) font, measureText, text state; canvas text through the web-font
+      registry (QFF1a). 15a+15b: 192 files.
+- [ ] QCNV15b [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+      (QCNV2)"); Opus; in order after the items above) fillText/strokeText rendering (after 15a).
+- [ ] QCNV16 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+      (QCNV2)"); Sonnet; in order after the items above) toDataURL/toBlob/convertToBlob (needed by QCNV14, QCNV20 and
+      the toDataURL -> img tests).
+- [ ] QCNV17 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+      (QCNV2)"); Sonnet; in order after the items above) reset(), context attributes, isContextLost,
+      drawFocusIfNeeded. 75 files.
+- [ ] QCNV18 [M] (P3, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+      (QCNV2)"); Opus; in order after the items above) ctx.filter. 24 files.
+- [ ] QCNV19 [M] (P3, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+      (QCNV2)"); Opus; in order after the items above) beginLayer/endLayer (proposal). 41 files.
+- [ ] QCNV20 [L] (P3, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+      (QCNV2)"); Opus; in order after the items above) Colour spaces, float16, HDR (needs colour management,
+      Float16Array). 49 files / 1 173 subtests.
 - [ ] QGL1 [M] (P3; Opus, investigation, docs only, no code; can run any time, it does not wait for QCNV1) WebGL:
       find out what it takes and file the action items (each with size, model, files, dependencies and a test plan)
       in TODO.txt, in dependency order. Today `getContext('webgl'|'webgl2')` returns null (QY3, js_dom.rs). Starting
