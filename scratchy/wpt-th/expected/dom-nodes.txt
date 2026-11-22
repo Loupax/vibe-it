@@ -1084,8 +1084,7 @@ OK           3/8  dom/nodes/ParentNode-querySelector-All-scope.html
   FAIL      querySelectorAll with :scope > child should only match direct children
 OK           3/3  dom/nodes/ParentNode-querySelector-argument-stringification.html
 OK           7/7  dom/nodes/ParentNode-querySelector-attribute-change.html
-OK           0/1  dom/nodes/ParentNode-querySelector-basic-has.html
-  FAIL      Basic :has() support in querySelector
+OK           1/1  dom/nodes/ParentNode-querySelector-basic-has.html
 OK           2/2  dom/nodes/ParentNode-querySelector-case-insensitive.html
 OK           6/6  dom/nodes/ParentNode-querySelector-class-change.html
 OK           2/2  dom/nodes/ParentNode-querySelector-dupe-id.html
@@ -1131,8 +1130,7 @@ OK           0/3  dom/nodes/ParentNode-querySelector-xml-capitalization.window.h
   FAIL      Child combinator
 OK           2/2  dom/nodes/ParentNode-querySelectorAll-case-insensitive-attribute-flag.html
 OK           1/1  dom/nodes/ParentNode-querySelectorAll-namespace.html
-OK           0/1  dom/nodes/ParentNode-querySelectorAll-nested-not-has.html
-  FAIL      querySelectorAll with :not(:has(..))
+OK           1/1  dom/nodes/ParentNode-querySelectorAll-nested-not-has.html
 OK           1/1  dom/nodes/ParentNode-querySelectorAll-not-descendant.html
 OK           1/1  dom/nodes/ParentNode-querySelectorAll-removed-elements.html
 OK           0/1  dom/nodes/ParentNode-querySelectorAll-scope-change.html
@@ -1345,8 +1343,7 @@ OK           2/6  dom/nodes/moveBefore/listed-form-element-reset.html
 OK           3/3  dom/nodes/moveBefore/live-range-updates.html
 OK           0/1  dom/nodes/moveBefore/modal-dialog.html
   FAIL      when reparenting a modal dialog, the dialog should stay modal
-OK           8/9  dom/nodes/moveBefore/moveBefore-child-list-selector-invalidation.html
-  FAIL      :has(> .marked) on the old and new parents
+OK           9/9  dom/nodes/moveBefore/moveBefore-child-list-selector-invalidation.html
 OK           0/4  dom/nodes/moveBefore/moveBefore-custom-element-registry.html
   FAIL      An element with the global registry keeps it when moved into a shadow root with a scoped registry
   FAIL      An element with a scoped registry keeps it when moved out of its shadow root

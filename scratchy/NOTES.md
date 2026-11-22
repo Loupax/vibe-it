@@ -3977,6 +3977,29 @@ getComputedStyle keeps a snapshot for every element it resolves (`transition::wi
 "flush, then set a value and `transition` together" transitions; other elements keep one only while
 they declare `transition` (a compact `Snap` of the transitionable fields, not a `ComputedStyle`).
 
+## `:has()` (QAPI6, src/dom.rs, src/invalidation.rs, src/incr_style.rs, src/incr_log.rs)
+
+Parsing and matching are the `selectors` crate's (`OurSelectorParser::parse_has`); every matching call builds its own
+`SelectorCaches`, so a cached relative-selector result never outlives a DOM write. `:has(:has())` and `:has()` are parse
+errors (SyntaxError in `querySelector`). The fast paths written for "no `:has` rule" keep their guards and simply turn off on
+a `:has` page: `HiddenSnap` (`has_sel`), `ClassDeps` (`CF_UNBOUNDED`), `StyleCache` (`has_rules`), `HoverKeys::unbounded`
+(only for a `:hover` inside `:has`), the incremental-layout rule 5 (R59).
+
+Invalidation map: a feature anywhere inside a relative selector `R` reaches the anchors in ONE hop, `Hop::Anc` (the carrier's
+ancestors) or for `:has(+ ..)`/`:has(~ ..)` `Hop::AncSib` (earlier siblings of the carrier and of each ancestor), because every
+element `R` looks at is a descendant / later sibling (subtree) of the anchor; `R`'s own combinators are ignored (flattened). The
+anchors are filtered by the tag/id/class of the compound holding the `:has` (`Entry::anchor`), then the outer hops lead to the
+subject. `Key::HasTree` = any element inserted (walked from the new node) or removed (`removal_anchors`: the parent and its
+ancestors, or the earlier siblings of the removal point and of the parent's chain). Global only for a selector WITH combinators
+nested in `R` (`:has(:is(.a .b))` can match through an `.a` above the anchor). Soundness fuzz with 14 `:has` shapes in
+`qapi6_tests.rs` (same generator as QINC1d).
+
+Engine: a logged change of a node WITHOUT an entry (under `display: none`) used to be skipped (only `gen_dirty`); with a `:has`
+rule it can still flip a rendered anchor (`.card:has(.hidden .on)`). `incr_log::note_node` keeps a `Weak` of every logged node
+while the current map has `:has` (`set_keep_nodes`, set when the map is built; no `:has` = no map lookup, nothing kept), and
+`Engine::unentried` replays the change through the map from that handle (a freed node is skipped: its removal was logged on a live
+parent; a node that was not kept forces a full restyle).
+
 ## Engine evidence (QINC1n, src/incr_evidence.rs)
 
 Daily-use evidence for deleting the old pipeline (QINC1m). Both engine paths, App frames
