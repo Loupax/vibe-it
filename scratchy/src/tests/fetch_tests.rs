@@ -1172,7 +1172,7 @@ fn qf9a_xhr_response_type_document_and_response_xml() {
         &fake,
         "function get(u, rt, tag) { var x = new XMLHttpRequest(); x.open('GET', u); if (rt) x.responseType = rt;\
            x.onload = function () { var d = rt === 'document' ? x.response : x.responseXML;\
-             console.log(tag, d === null ? 'null' : d.contentType + ' ' + d.documentElement.tagName + ' ' + (d.getElementById && d.getElementById('k') ? d.getElementById('k').textContent : d.textContent), x.responseXML === d, typeof window.__ran); }; x.send(); }\
+             console.log(tag, d === null ? 'null' : d.contentType + ' ' + d.documentElement.tagName + ' ' + (d.getElementById && d.getElementById('k') ? d.getElementById('k').textContent : d.documentElement.textContent), x.responseXML === d, typeof window.__ran); }; x.send(); }\
          get('/h', 'document', 'html'); get('/x', 'document', 'xml'); get('/x', '', 'xml2'); get('/h', '', 'htmlplain'); get('/t', 'document', 'txt'); get('/t', '', 'txt2'); get('/e', '', 'bad');",
     );
     assert!(l.contains(&"log:html text/html HTML hello true undefined".to_string()), "{l:?}");

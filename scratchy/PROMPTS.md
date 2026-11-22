@@ -9075,7 +9075,6 @@ Eased viewport scroll (user design #532, D1-D8): `App::scroll_target`, `scroll_a
 > QDOM16 [S] (P2) ChildNode/ParentNode on every node kind: `before`, `after`, `replaceWith`, `remove` on CharacterData and DocumentType, `replaceChildren`/`append`/`prepend` on Document, `Symbol.unscopables`; `document.doctype` on the page document.
 
 **What changed:** js_dom.rs `cnMixin` (one implementation installed by `cnInstall` on Element, CharacterData, DocumentType, DocumentFragment, Document): "convert nodes into a node" (strings to Text, one node or a fragment, conversion before any mutation, Symbol throws TypeError), viable previous/next sibling, `cnCheck` pre-insert/replace validity (HierarchyRequestError for bad parent/node types, text under a Document, doctype outside a Document, a second element or doctype, fragment with text or two elements; NotFoundError for a foreign child; replaceChildren checks as if the parent were empty). `Symbol.unscopables` (null-prototype object) on each prototype. `Document.prototype.doctype` getter for the page document. Tests: src/tests/qdom16_tests.rs (4). Known cost: `append(script, iframe)` now inserts atomically like the spec, so wpt-th Node-appendChild-script-and-iframe.html "using a append() with multiple arguments" fails like its div/DocumentFragment siblings (it used to pass only because the old append inserted one node at a time).
-<<<<<<< HEAD
 
 ## QAPI2: navigator members pages probe (agent item)
 
@@ -9083,16 +9082,23 @@ Eased viewport scroll (user design #532, D1-D8): `App::scroll_target`, `scroll_a
 
 **What changed:** js.rs PRELUDE (after `g.navigator`): accessors on `Navigator.prototype` and the interfaces `NetworkInformation` (EventTarget), `NavigatorUAData`, `PluginArray`, `MimeTypeArray` (with `Symbol.toStringTag`). Values are fixed constants, never read from the machine (privacy, DECISIONS "Network and privacy"): `webdriver` false (scratchy is not automation-driven), `deviceMemory` 8 (top Chrome bucket, not the real RAM), `hardwareConcurrency` stays 1 (unchanged constant), `connection` = effectiveType '4g', type 'unknown', downlink 10, rtt 50, saveData false, `onchange` null, never fires; `plugins`/`mimeTypes` empty with `item/namedItem/refresh/iterator`, `pdfViewerEnabled` false (no PDF viewer); `userAgentData.brands` = a GREASE brand plus the last `Name/major` product token of `navigator.userAgent` (scratchy/<major> by default, Chrome/120 under a Chrome `--user-agent`), `mobile` false, `platform` 'Linux', `getHighEntropyValues(hints)` resolves ONLY brands/mobile/platform whatever the hints (no architecture/model/versions), `toJSON`. Tests: src/tests/qapi2_tests.rs (6). Corpus (own wire, 6 pages): before 5 `Navigator.*` rows (userAgentData 5 sites, webdriver 5, connection 4, deviceMemory 3, plugins 3); after none (one new row `NetworkInformation.type` found and fixed with 'unknown').
 
+<<<<<<< HEAD
 ## QAPI5: ARIA reflection and slot assignment (agent item)
 
 > QAPI5 [S] (P2, from QMAPI3 R66; js_dom.rs) ARIA attribute reflection on Element (`role` and the whole `aria*` string list, null when absent, assign sets/removes the attribute) and `HTMLSlotElement.name`/`assignedNodes`/`assignedElements`/`slotchange`.
 
 **What changed:** js_dom.rs: `role` + 42 `aria*` nullable-string accessors on Element.prototype (null removes the attribute); `Element.slot`, `HTMLSlotElement.name`, `assignedNodes`/`assignedElements` (`{flatten}`) and `Element/Text.assignedSlot` computed on demand for named slot assignment in open/closed shadow trees. Tests: src/tests/qapi5_tests.rs. Corpus (ytr, ytw): the `ariaLabel`/`ariaPressed` rows (4 rows) are gone. WPT-th: 9 files newly pass (html/dom aria enumerated 203 -> 419 of 1761, shadow-dom HTMLSlotElement-interface 18/18, slots, slots-fallback, Slottable-mixin, ...), no regressions; reftests unchanged (340/286). Left out: `slotchange` events, manual slot assignment (`slot.assign`), element-valued ARIA properties (`ariaActiveDescendantElement`, `ariaLabelledByElements`, ...).
 
-=======
 ## QAPI4: document.fonts / FontFace (agent item)
 
 > QAPI4 [S] (P2, from QMAPI3 R66; Sonnet; js_dom.rs, css.rs) `document.fonts` FontFaceSet over the fonts the page loaded: `ready`, `status`, `check`, `load`, `forEach`/`size`, `add`, `loadingdone` events, `FontFace` constructor; github reads `document.fonts.ready` 41 times and throws.
 
 **What changed:** new `src/fonts_prelude.js` (run after the CSSOM prelude, also replayed in iframe realms): `FontFace`, `FontFaceSet` (EventTarget with add/delete/clear/has/forEach/keys/values/entries/iterator/size/check/load/ready/status/onloading*), `FontFaceSetLoadEvent`, `document.fonts`. The document's set mirrors the page's @font-face rules (read lazily through `document.styleSheets`, one `FontFace` per rule, status `unloaded`) plus script-added faces; families no face names are system fonts (`check` true, `load` resolves `[]`). `load()` fetches the first `url()` source through the page's `fetch` (wire only; data: urls and `local()` need no request), drops the bytes (scratchy renders no web fonts) and ends `loaded` or `error` (NetworkError). `ready` is created on first read (a promise made while the prelude runs kept a dropped iframe realm alive in the QPT1b heap test). Tests: `src/tests/qapi4_tests.rs`.
->>>>>>> 751fc11 (scratchy: QAPI4 FontFace.load returns its own promise, docs, wpt-th record)
+=======
+
+## QDOM17: Document flavours and properties (agent item)
+
+> QDOM17 [S] (P2; Sonnet; js_dom.rs makeDoc, __d_tag, doc.createElement; R65; after QDOM8) Document flavours: tagName/localName case per document type, createElement per document type, nodeValue/textContent null for Document and DocumentType, charset/inputEncoding aliases.
+
+**What changed:** js_dom.rs: tagOf/inXmlDoc (HTML-namespace elements upper-case only in HTML documents; nonHtmlDocs keeps the page path a single native call), natives __d_rawtag and __d_create(15) (XHTML element keeping case); createElement in XHTML documents keeps case; Document.prototype charset/inputEncoding/doctype; created HTML documents without a doctype are BackCompat; nodeValue null except for CharacterData, a null write is empty; textContent null and write no-op for Document/DocumentType. Existing XHR test adjusted (XML document textContent is null). Tests: src/tests/qdom17_tests.rs. WPT dom/nodes 7210 -> 7575 subtests (174 -> 185 all-pass), domparsing +9. Left out: createElementNS(xhtml, "Span") lowercases the local name.
+>>>>>>> 9e48be74 (scratchy: QDOM17 Document flavours: tagName case per document type, charset aliases, nodeValue/textContent)
