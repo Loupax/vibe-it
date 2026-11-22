@@ -14,6 +14,22 @@ thread_local! {
     /// inside a `position: fixed` subtree. The x counterpart of `paint`'s `scroll_offset`
     /// parameter, kept out of the signatures (like `PAINT_OPACITY`).
     pub(crate) static SCROLL_X: Cell<f32> = const { Cell::new(0.0) };
+    /// QHOV1: while the App repaints only a damaged rect (screen space, `(l, t, r, b)`), a box whose
+    /// `ink` (grown by `CULL_MARGIN`) misses it, and so its whole subtree, is skipped like one
+    /// outside the viewport.
+    pub(crate) static PAINT_CULL: Cell<Option<(f32, f32, f32, f32)>> = const { Cell::new(None) };
+}
+
+/// QHOV1: how far a box may paint past its `ink` (a neighbour's box-shadow, an outline), added to
+/// the damage-rect cull. `ink` is the union of the boxes' rects only.
+pub(crate) const CULL_MARGIN: f32 = 64.0;
+
+/// QHOV1: runs `f` with the damage-rect cull set to `r` (restored afterwards).
+pub(crate) fn with_paint_cull<R>(r: (f32, f32, f32, f32), f: impl FnOnce() -> R) -> R {
+    let prev = PAINT_CULL.with(|c| c.replace(Some(r)));
+    let out = f();
+    PAINT_CULL.with(|c| c.set(prev));
+    out
 }
 
 /// QXSCR1: runs `f` with the ambient horizontal scroll set to `sx` (restored afterwards).
@@ -2272,6 +2288,14 @@ fn paint_inner_body(
         // border box, since descendants are not contained in their
         // parent's rect in CSS. Skip the whole subtree instead of
         // clipping per-pixel, so a redraw costs O(visible content).
+        return;
+    }
+    if let Some((cl, ct, cr, cb)) = PAINT_CULL.with(Cell::get)
+        && (laid.ink.r - sx + CULL_MARGIN < cl
+            || laid.ink.l - sx - CULL_MARGIN > cr
+            || laid.ink.b - scroll_offset + CULL_MARGIN < ct
+            || laid.ink.t - scroll_offset - CULL_MARGIN > cb)
+    {
         return;
     }
 

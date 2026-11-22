@@ -527,7 +527,7 @@ pub(crate) struct ZInfo {
 }
 
 /// See `Laid::ink`.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct Ink {
     pub(crate) l: f32,
     pub(crate) t: f32,
