@@ -1826,11 +1826,11 @@ impl JsEngine {
         n
     }
 
-    /// QEL1/QEL2: the observer hook of the rendering steps (step 7): the ResizeObserver gather/broadcast
-    /// loop, then the IntersectionObserver timer-boundary check (QEL3 replaces it with the real evaluation).
+    /// QEL1-QEL3: the observer hook of the rendering steps (step 7): the ResizeObserver gather/broadcast
+    /// loop, then the IntersectionObserver evaluation (its callbacks are queued as a task).
     pub(crate) fn observer_hook(&self) {
         self.eval("ro-run", "globalThis.__scratchy_roRun && globalThis.__scratchy_roRun()");
-        self.eval("io-tick", "globalThis.__scratchy_ioTick && globalThis.__scratchy_ioTick()");
+        self.eval("io-run", "globalThis.__scratchy_ioRun && globalThis.__scratchy_ioRun()");
     }
 }
 
@@ -2318,9 +2318,13 @@ const TIMERS_PRELUDE: &str = r#"
   // QEL1: the time of the frame the pending callbacks wait for, -1 when there are none.
   Object.defineProperty(g, '__scratchy_raf_due', { value: function () {
     // QEL2: a ResizeObserver that may have a new size also wants a rendering update.
+    // QEL3: so does an IntersectionObserver that may have a new intersection.
     var ro = g.__scratchy_ro_want ? g.__scratchy_ro_want() : -1;
-    if (!rafs.length && ro < 0) return -1;
-    var since = !rafs.length ? ro : ro >= 0 ? Math.min(ro, rafSince) : rafSince;
+    var io = g.__scratchy_io_want ? g.__scratchy_io_want() : -1;
+    if (!rafs.length && ro < 0 && io < 0) return -1;
+    var since = rafs.length ? rafSince : -1;
+    if (ro >= 0 && (since < 0 || ro < since)) since = ro;
+    if (io >= 0 && (since < 0 || io < since)) since = io;
     var due = (Math.floor(since / FRAME) + 1) * FRAME;
     while (due <= since) due += FRAME;
     return due;
@@ -2357,7 +2361,6 @@ const TIMERS_PRELUDE: &str = r#"
     return m;
   } });
   Object.defineProperty(g, '__scratchy_timers_run_one', { value: function () {
-    if (g.__scratchy_ioTick) g.__scratchy_ioTick();
     var now = __scratchy_now(), best = -1;
     for (var i = 0; i < timers.length; i++) {
       if (timers[i].due <= now && (best < 0 || timers[i].due < timers[best].due)) best = i;
@@ -2371,7 +2374,6 @@ const TIMERS_PRELUDE: &str = r#"
     try { t.fn.apply(t.recv || g, t.args); }
     catch (e) { __scratchy_err('Uncaught ' + String(e) + (e && e.stack ? '\n' + e.stack : '')); }
     level = saved;
-    if (g.__scratchy_ioTick) g.__scratchy_ioTick();
     return true;
   } });
 })(globalThis);

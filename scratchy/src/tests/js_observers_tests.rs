@@ -643,9 +643,9 @@ fn qy6g_run(code: &str) -> Vec<String> {
     )
     .unwrap();
     for _ in 0..1000 {
-        let Some(due) = engine.next_due_ms() else { break };
+        let Some(due) = crate::event_loop::headless_next_due(&engine) else { break };
         clock.set(clock.get().max(due));
-        engine.run_due();
+        crate::event_loop::headless_turn(&engine, clock.get());
     }
     let v = out.borrow().clone();
     v
@@ -778,9 +778,9 @@ fn qy57_run(body: &str, code: &str) -> Vec<String> {
     )
     .unwrap();
     for _ in 0..1000 {
-        let Some(due) = engine.next_due_ms() else { break };
+        let Some(due) = crate::event_loop::headless_next_due(&engine) else { break };
         clock.set(clock.get().max(due));
-        engine.run_due();
+        crate::event_loop::headless_turn(&engine, clock.get());
     }
     out.borrow().clone()
 }
@@ -827,9 +827,9 @@ fn qy57r_run(html: &str, code: &str) -> Vec<String> {
     )
     .unwrap();
     for _ in 0..1000 {
-        let Some(due) = engine.next_due_ms() else { break };
+        let Some(due) = crate::event_loop::headless_next_due(&engine) else { break };
         clock.set(clock.get().max(due));
-        engine.run_due();
+        crate::event_loop::headless_turn(&engine, clock.get());
     }
     out.borrow().clone()
 }
@@ -975,7 +975,7 @@ fn qy53e1_moved_target_is_delivered_by_the_deadline() {
            setTimeout(() => { $('t').style.marginTop = '900px'; }, 50);"#,
     );
     assert_eq!(log.len(), 2, "{log:?}");
-    assert_eq!(log[0], "log:0 true");
+    assert_eq!(log[0], "log:17 true"); // QEL3: the first frame boundary
     let (t, v) = log[1].strip_prefix("log:").unwrap().split_once(' ').unwrap();
     assert_eq!(v, "false");
     let t: i64 = t.parse().unwrap();
@@ -990,8 +990,8 @@ fn qy53e1_script_read_after_a_write_feeds_io_without_a_second_layout() {
         r#"new IntersectionObserver(es => es.forEach(e => console.log(Math.round(performance.now()), e.isIntersecting))).observe($('t'));
            setTimeout(() => { $('t').style.marginTop = '900px'; $('t').offsetWidth; }, 50);"#,
     );
-    // The read laid the page out; IO re-evaluates on that layout right after the task (no deadline wait).
-    assert_eq!(log, ["log:0 true", "log:50 false"], "{log:?}");
+    // The read laid the page out; IO re-evaluates at the next rendering update (QEL3: frame boundaries 17 / 67 ms), no deadline wait.
+    assert_eq!(log, ["log:17 true", "log:67 false"], "{log:?}");
     assert_eq!(layouts, 2);
 }
 
@@ -1002,7 +1002,7 @@ fn qy53e1_scroll_keeps_the_immediate_path() {
         r#"new IntersectionObserver(es => es.forEach(e => console.log(Math.round(performance.now()), e.isIntersecting))).observe($('t'));
            setTimeout(() => window.scrollTo(0, 1900), 50);"#,
     );
-    assert_eq!(log, ["log:0 false", "log:50 true"], "{log:?}");
+    assert_eq!(log, ["log:17 false", "log:67 true"], "{log:?}");
 }
 
 #[test]
@@ -1759,12 +1759,12 @@ fn qy53e2_run(mode: u8) -> (Vec<String>, usize) {
     .unwrap();
     let step = |until: f64| {
         for _ in 0..1000 {
-            let Some(due) = engine.next_due_ms() else { break };
+            let Some(due) = crate::event_loop::headless_next_due(&engine) else { break };
             if due > until {
                 break;
             }
             clock.set(clock.get().max(due));
-            engine.run_due();
+            crate::event_loop::headless_turn(&engine, clock.get());
         }
     };
     step(60.0);
@@ -1793,8 +1793,8 @@ fn qy53e2_app_layout_gives_the_same_entries_as_a_forced_layout_without_forcing()
     }
     let (forced, forced_layouts) = qy53e2_run(0);
     let (app, app_layouts) = qy53e2_run(1);
-    assert!(forced.iter().any(|l| l.starts_with("log:150 far true")), "initial entries plus the ones the write changed: {forced:?}");
-    assert!(forced.iter().any(|l| l.starts_with("log:0 in1 ")) && forced.iter().any(|l| l.contains(" tr ")), "{forced:?}");
+    assert!(forced.iter().any(|l| l.starts_with("log:170 far true")), "initial entries plus the ones the write changed: {forced:?}");
+    assert!(forced.iter().any(|l| l.starts_with("log:20 in1 ")) && forced.iter().any(|l| l.contains(" tr ")), "{forced:?}");
     // Same entries; the App-layout one is delivered right after the write instead of at the deadline.
     let untimed = |v: &[String]| v.iter().map(|l| l.split_once(' ').unwrap().1.to_string()).collect::<Vec<_>>();
     assert_eq!(untimed(&app), untimed(&forced), "IO entries must not depend on where the rects came from");

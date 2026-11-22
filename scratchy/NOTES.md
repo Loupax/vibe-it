@@ -3883,8 +3883,8 @@ The scratchy CI job builds wire, then runs `--wpt-th "$RUNNER_TEMP/wpt" --jobs 4
 and every headless mode. Order: (1) resize events (2) scroll events (hook, QEL7) (3) MediaQueryList
 `change` (hook, QEL7) (4) CSS animation events (5) the animation frame callbacks (6) style + layout
 (7) ResizeObserver / IntersectionObserver hooks (8) paint. The host supplies the steps it has through
-the `RenderingHost` trait; the defaults are headless (no resize, no animations, observers = today's
-`__scratchy_ioTick` check once per frame, no paint).
+the `RenderingHost` trait; the defaults are headless (no resize, no animations, observers = RO then IO
+evaluation, no paint).
 
 **rAF list (TIMERS_PRELUDE).** `requestAnimationFrame` no longer uses the timer table: each realm
 numbers its own ids from 1 (`clearTimeout(rafId)` and `cancelAnimationFrame(timerId)` do not cross),
@@ -3996,3 +3996,14 @@ or a new observation since the last run) makes `__scratchy_raf_due` ask for a re
 Known limits: the layout is the JS-side forced one, not the App/engine layout (an extra layout per frame with DOM
 changes: `ro-run` shows as caller in `--perf-report` forced layouts); no microtask checkpoint between RO callbacks;
 layout changes with no DOM write (image decode, CSS animation, :hover) are not noticed until the next geometry gen change.
+
+**IntersectionObserver (QEL3, js_dom.rs).** Step 7 runs `__scratchy_ioRun` right after RO: when an observation is new
+(`need`), the viewport / scroll position changed (`ioHardSig`) or the geometry generation moved, every observer that needs it
+is evaluated once against one `performance.now()` (the update's time, shared by all entries), entries are queued and delivered
+by ONE timer-queue task (`obsFlush`, ordered by observer creation). No IO timer remains: `__scratchy_ioTick`, `ioNudge` and
+`ioDueT` are gone; `__scratchy_io_want` (like `ro_want`) feeds `__scratchy_raf_due`, so a page without rAF still gets its
+frame. A geometry-only change with stale geometry waits `max(100, 4 x last layout cost)` ms (cap 2 s) before the update forces a
+layout (QY53e1 rate limit, unchanged); a fresh geometry evaluates at the next frame. The App-layout reuse (QY53e2,
+`JsEngine::rendered_geometry` -> `__scratchy_ioRendered`) still evaluates at once on the App's own complete layout, but queues
+the callbacks as a task too. Delivery is now at frame boundaries (first entry ~17 ms after `observe()` headless, not 0 ms).
+

@@ -2413,7 +2413,6 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     __d_scroll(a[0], a[1], false);
     if (a[0] === a[0]) g.scrollX = g.pageXOffset = a[0];
     if (a[1] === a[1]) g.scrollY = g.pageYOffset = Math.max(0, a[1]);
-    if (g.__scratchy_ioNudge) g.__scratchy_ioNudge();
   };
   g.scrollBy = function () {
     var a = scrollArgs(arguments[0], arguments[1]);
@@ -2421,7 +2420,6 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     __d_scroll(nx - g.scrollX, a[1] === a[1] ? a[1] : 0, true);
     g.scrollX = g.pageXOffset = nx;
     if (a[1] === a[1]) g.scrollY = g.pageYOffset = Math.max(0, g.scrollY + a[1]);
-    if (g.__scratchy_ioNudge) g.__scratchy_ioNudge();
   };
   ElementProto.setAttribute = function (n, v) { checkName('setAttribute', String(n)); __d_setq(this.__id, String(n), String(v)); };
   ElementProto.removeAttribute = function (n) { __d_rmq(this.__id, String(n)); };
@@ -5295,7 +5293,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   // geometry): rootBounds = viewport (or the explicit root's padding box)
   // grown by rootMargin, the target rect clipped by overflow ancestors and
   // the root, thresholds per the spec's previous-threshold-index rule. Entries
-  // are computed at delivery time (one flush per timer turn, one cached
+  // are computed once per rendering update (QEL3; one cached
   // layout shared by every observer) and queued only when the crossing state
   // changes; re-checks follow scrolling, DOM writes and viewport resizes.
   // RO (QEL2) reports the real boxes from that layout, in the rendering step. No hooks or state
@@ -5791,23 +5789,20 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   var obsFlush = function () {
     obsQueued = false;
     var list = obsPending; obsPending = [];
-    // QEL2 (until QEL3 moves IO into the rendering step): RO notifications come before IO ones.
-    if (g.__scratchy_roRun) g.__scratchy_roRun();
     list.sort(function (a, b) { return a.id - b.id; });
     if (g.__perf_b) g.__perf_b();
     for (var i = 0; i < list.length; i++) {
       var st = list[i];
       st.pending = false;
-      if (st.need) ioEval(st);
       var recs = st.q; st.q = [];
       if (recs.length) { try { st.cb.call(st.obs, recs, st.obs); } catch (e) { obsErr(st.name, e); } }
     }
     if (g.__perf_e) g.__perf_e();
-    if (ioRendNext) { ioRendNext = false; __d_rend_clear(); }
   };
-  var obsSchedule = function (st) {
-    if (!st.pending) { st.pending = true; obsPending.push(st); }
-    if (!obsQueued) { obsQueued = true; g.setTimeout(obsFlush, 0); }
+  // QEL3: an IO's entries were computed in the rendering step; deliver them as a task.
+  var obsQueue = function (st) {
+    if (st.q.length && !st.pending) { st.pending = true; obsPending.push(st); }
+    if (obsPending.length && !obsQueued) { obsQueued = true; sTimeout.call(g, obsFlush, 0); }
   };
   var defGetters = function (P, S, keys) {
     keys.forEach(function (k) {
@@ -5855,47 +5850,64 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   var ioTarget = function (fn, t) {
     if (!t || t.__id === undefined || t.nodeType !== 1) throw new TypeError("Failed to execute '" + fn + "' on 'IntersectionObserver': parameter 1 is not of type 'Element'.");
   };
-  // QY57: observers with targets, re-checked when the page scrolls, writes
-  // the DOM or resizes (cheap signature compare, only while one exists).
-  // QY53e1: a recheck caused ONLY by a geometry-generation change is deferred: free when the
-  // geometry is already fresh (a script read laid it out), else evaluated at the first of the end
-  // of a task after which it is fresh, or `ioDue` (one timer; later writes do not move it).
-  // Scroll, viewport and element scroll keep the immediate path.
-  var ioActive = new Set(), ioSig = '', ioGen = -1, ioTickQ = false, ioDueT = null, ioRendNext = false;
+  // QY57: observers with targets, re-checked when the page scrolls, writes the DOM or resizes.
+  // QEL3: evaluated ONCE per rendering update (`__scratchy_ioRun`, step 7 of event_loop.rs, after RO,
+  // before paint) with that update's time; the callbacks are queued as a task (`obsFlush`). Never from
+  // a timer turn. `__scratchy_io_want` tells the loop an update is owed (like `__scratchy_ro_want`).
+  // QY53e1: a recheck caused ONLY by a geometry-generation change waits when the geometry is not
+  // fresh (no script read laid it out), at most `ioSince`; free otherwise.
+  // QY53e2: the App's own complete layout (`__scratchy_ioRendered`) evaluates at once, without a layout of ours.
+  var ioActive = new Set(), ioSig = '', ioGen = -1, ioSince = -1;
   var ioHardSig = function () { return g.innerWidth + 'x' + g.innerHeight + ':' + g.scrollX + ',' + g.scrollY + ':' + gScrollGen; };
+  var ioAnyNeed = function () {
+    var any = false;
+    ioActive.forEach(function (st) { if (st.need) any = true; });
+    return any;
+  };
   var ioRecheck = function () {
-    ioTickQ = false;
-    if (ioDueT !== null) { g.clearTimeout(ioDueT); ioDueT = null; }
+    ioSince = -1;
     ioSig = ioHardSig(); ioGen = __d_ggen();
-    ioActive.forEach(function (st) { st.need = true; obsSchedule(st); });
+    ioActive.forEach(function (st) { st.need = true; });
   };
-  var ioNudge = function () {
-    if (!ioActive.size || ioTickQ) return;
-    ioTickQ = true;
-    sTimeout.call(g, ioRecheck, 0);
+  var ioFresh = function () { return __d_geom_fresh(Number(g.innerWidth) || 0, Number(g.innerHeight) || 0); };
+  // The page-clock time since when an evaluation is owed, -1 when none.
+  g.__scratchy_io_want = function () {
+    if (!ioActive.size) return -1;
+    if (ioSince >= 0) return ioSince;
+    var now = __scratchy_now();
+    if (ioAnyNeed() || ioHardSig() !== ioSig) return (ioSince = now);
+    if (__d_ggen() === ioGen) return -1;
+    return (ioSince = ioFresh() ? now : now + Math.min(2000, Math.max(100, 4 * __d_geom_cost())));
   };
-  g.__scratchy_ioNudge = ioNudge;
-  g.__scratchy_ioTick = function () {
-    if (!ioActive.size || ioTickQ) return;
-    if (ioHardSig() !== ioSig) { ioNudge(); return; }
-    var gen = __d_ggen();
-    if (gen === ioGen) return;
-    if (__d_geom_fresh(Number(g.innerWidth) || 0, Number(g.innerHeight) || 0)) { ioNudge(); return; }
-    if (ioDueT === null) {
-      var d = Math.min(2000, Math.max(100, 4 * __d_geom_cost()));
-      ioDueT = sTimeout.call(g, function () { ioDueT = null; ioNudge(); }, d);
+  g.__scratchy_ioRun = function () {
+    if (!ioActive.size) return;
+    if (!ioAnyNeed() && ioHardSig() === ioSig) {
+      if (__d_ggen() === ioGen) { ioSince = -1; return; }
+      if (!ioFresh() && !(ioSince >= 0 && __scratchy_now() >= ioSince)) return;
     }
+    ioRecheck();
+    ioCompute(false);
+  };
+  // Every observer that needs it evaluates against the same time; entries queue, delivery is a task.
+  var ioCompute = function (rend) {
+    var now = g.performance && g.performance.now ? g.performance.now() : 0;
+    var list = Array.from(ioActive).sort(function (a, b) { return a.id - b.id; });
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].need) ioEval(list[i], rend, now);
+      obsQueue(list[i]);
+    }
+    if (rend) __d_rend_clear();
   };
   // QY53e2: the App finished a complete layout of this very DOM (`__d_rend_ok`): is a geometry-only
   // recheck waiting? (cheap; the App builds its rect map only when this says yes)
   g.__scratchy_ioWant = function () {
-    return ioActive.size > 0 && !ioTickQ && ioHardSig() === ioSig && __d_ggen() !== ioGen;
+    return ioActive.size > 0 && ioHardSig() === ioSig && __d_ggen() !== ioGen && !ioAnyNeed();
   };
   // ... then evaluate every observer on it, with no layout of our own.
   g.__scratchy_ioRendered = function () {
     if (!g.__scratchy_ioWant() || !__d_rend_ok(Number(g.innerWidth) || 0, Number(g.innerHeight) || 0)) return;
-    ioRendNext = true;
     ioRecheck();
+    ioCompute(true);
   };
   var ioPx = function (v, size) { var n = parseFloat(v) || 0; return v.slice(-1) === '%' ? size * n / 100 : n; };
   // [l, t, r, b] viewport-space padding box of an overflow ancestor / root.
@@ -5909,7 +5921,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     for (var i = 0; i < th.length; i++) if (th[i] > ratio) return i;
     return th.length;
   };
-  var ioEval0 = function (st) {
+  var ioEval0 = function (st, now) {
     st.need = false;
     var rootEl = st.root && st.root.nodeType === 1 && !gRoot(st.root) ? st.root : null;
     var base = rootEl ? ioPad(rootEl) : [0, 0, Number(g.innerWidth) || 0, Number(g.innerHeight) || 0];
@@ -5921,7 +5933,6 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     var clips = new Map();
     // QY57r: a <body> whose overflow is propagated to the viewport is not an element clip.
     var propBody = gViewportBody();
-    var now = g.performance && g.performance.now ? g.performance.now() : 0;
     for (var i = 0; i < st.targets.length; i++) {
       var t = st.targets[i], v = rb ? gViewRect(t) : null;
       var l = 0, tp = 0, r = 0, b = 0, inRoot = !rootEl, isInt = false, il = 0, it = 0, ir = 0, ib = 0;
@@ -5959,10 +5970,10 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   };
   // QOBS3: geometry reads made while this runs are the `io` reason of a forced layout (--perf-report).
   // QY53e2: on the App's layout when it is still the page as it is (else the forced path, as before).
-  var ioEval = function (st) {
+  var ioEval = function (st, rend, now) {
     __d_io(true);
-    gRend = ioRendNext && __d_rend_ok(Number(g.innerWidth) || 0, Number(g.innerHeight) || 0);
-    try { ioEval0(st); } finally { gRend = false; __d_io(false); }
+    gRend = !!rend && __d_rend_ok(Number(g.innerWidth) || 0, Number(g.innerHeight) || 0);
+    try { ioEval0(st, now); } finally { gRend = false; __d_io(false); }
   };
   IO.prototype.observe =function (target) {
     var st = ioSt(this, 'observe');
@@ -5972,7 +5983,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     st.targets.push(target);
     ioActive.add(st);
     st.need = true;
-    obsSchedule(st);
+    ioSince = -1;
   };
   IO.prototype.unobserve = function (target) {
     var st = ioSt(this, 'unobserve');
@@ -5986,7 +5997,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     }
   };
   IO.prototype.disconnect = function () { var st = ioSt(this, 'disconnect'); st.targets = []; st.q = []; st.prev.clear(); st.need = false; ioActive.delete(st); };
-  IO.prototype.takeRecords = function () { var st = ioSt(this, 'takeRecords'); if (st.need) ioEval(st); var q = st.q; st.q = []; return q; };
+  IO.prototype.takeRecords = function () { var st = ioSt(this, 'takeRecords'); if (st.need) ioEval(st, false, g.performance && g.performance.now ? g.performance.now() : 0); var q = st.q; st.q = []; return q; };
   defGetters(IO.prototype, IO_S, ['root', 'rootMargin', 'thresholds']);
   Object.defineProperty(IO.prototype, Symbol.toStringTag, { value: 'IntersectionObserver', configurable: true });
   // -- ResizeObserver (QEL2): real sizes from the layout, evaluated once per rendering update

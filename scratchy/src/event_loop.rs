@@ -10,7 +10,7 @@
 //!      split by the timer slice (`JsEngine::run_animation_frames`; rAF ids are their own space)
 //!   6. style + layout           `update_style_layout` (the App hands DOM writes to the incremental
 //!      engine; headless has nothing to do: geometry reads force the engine lazily, as before)
-//!   7. ResizeObserver / IntersectionObserver hooks `run_observers` (QEL2 / QEL3 fill them in)
+//!   7. ResizeObserver / IntersectionObserver hooks `run_observers` (RO gather/broadcast, then the IO evaluation)
 //!   8. paint                    `paint` (App only)
 //!
 //! When it runs: the App at frame time (a rAF is pending and its 60 Hz frame is due, the viewport
