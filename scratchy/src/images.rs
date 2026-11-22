@@ -678,11 +678,7 @@ pub(crate) fn build_video_box(
 /// content is an empty-pixel placeholder marked with `canvas::MARK`; `paint` draws the bitmap of the element's
 /// 2d context into it, so a draw never needs a rebuild.
 pub(crate) fn build_canvas_box(handle: &Handle, mut style: ComputedStyle, background_image: Option<Arc<DecodedImage>>) -> LayoutBox {
-    let dim = |name: &str, dflt: u32| {
-        let v = element_attr(handle, name);
-        let digits: String = v.as_deref().unwrap_or("").trim().chars().take_while(char::is_ascii_digit).collect();
-        digits.parse::<u32>().map_or(dflt as f32, |n| n as f32)
-    };
+    let dim = |name: &str, dflt: u32| crate::canvas::parse_dim(element_attr(handle, name).as_deref(), dflt) as f32;
     let (w, h) = (dim("width", crate::canvas::DEFAULT_W), dim("height", crate::canvas::DEFAULT_H));
     if style.width.is_none() {
         style.width = Some(BoxLength::Px(w));

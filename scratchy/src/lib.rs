@@ -72,6 +72,7 @@ mod wpt_input; // QWPT7: the headless testdriver back end (trusted input)
 mod input_host; // QWPT7: trusted-input default actions shared by the App and wpt_input
 mod dom;
 mod css;
+mod csscolor; // QCNV3: color-mix(), relative colours, lab()/color() to sRGB
 mod animation;
 mod anim_eval;
 mod anim_app;

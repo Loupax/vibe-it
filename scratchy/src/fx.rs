@@ -226,7 +226,7 @@ fn parse_shadow_parts(input: &mut CssParser) -> Result<ShadowDeclFn, ()> {
         }
         input.reset(&st);
         if color.is_none() {
-            if let Ok(c) = CssColor::parse(input) {
+            if let Ok(c) = crate::css::parse_color(input) {
                 color = Some(c);
                 continue;
             }

@@ -1,6 +1,7 @@
 //! QCNV1: the Canvas 2D backing store and its first API slice.
 //!
-//! Each `<canvas>` that asked for a `'2d'` context owns one [`Canvas`] here, keyed by the element's node id: a
+//! Each `<canvas>` that asked for a `'2d'` context owns one [`Canvas`] here, keyed by an id allocated at `getContext`
+//! (QCNV3; `BY_NODE` maps the element's node address to it for paint and damage only): a
 //! tiny-skia `Pixmap` (premultiplied RGBA8) of the element's `width` x `height`, the drawing state (colours,
 //! `globalAlpha`, `lineWidth`, the save/restore stack) and a cached straight-alpha `DecodedImage` of the bitmap for
 //! paint. The JS side (`js_dom.rs`, the `CanvasRenderingContext2D` object) is thin: it validates arguments and
@@ -36,21 +37,37 @@ pub(crate) fn is_placeholder(img: &DecodedImage) -> bool {
     img.svg.as_ref().is_some_and(|s| s.as_slice() == MARK)
 }
 
+/// A colour attribute: the straight RGBA to paint with and what the getter returns.
+#[derive(Clone)]
+pub(crate) struct Style {
+    rgba: [u8; 4],
+    ser: String,
+}
+
+impl Style {
+    fn new(rgba: [u8; 4]) -> Style {
+        Style { rgba, ser: serialize_color(rgba) }
+    }
+}
+
 #[derive(Clone)]
 struct DrawState {
-    fill: [u8; 4],
-    stroke: [u8; 4],
+    fill: Style,
+    stroke: Style,
+    shadow: Style,
     alpha: f32,
     line_width: f32,
 }
 
 impl Default for DrawState {
     fn default() -> DrawState {
-        DrawState { fill: [0, 0, 0, 255], stroke: [0, 0, 0, 255], alpha: 1.0, line_width: 1.0 }
+        DrawState { fill: Style::new([0, 0, 0, 255]), stroke: Style::new([0, 0, 0, 255]), shadow: Style::new([0, 0, 0, 0]), alpha: 1.0, line_width: 1.0 }
     }
 }
 
 struct Canvas {
+    /// The element's node address (paint and damage know canvases by it).
+    node: usize,
     w: u32,
     h: u32,
     pixmap: Option<Pixmap>,
@@ -61,19 +78,60 @@ struct Canvas {
 }
 
 impl Canvas {
-    fn new(w: u32, h: u32) -> Canvas {
+    fn new(node: usize, w: u32, h: u32) -> Canvas {
         let pixmap = if u64::from(w) * u64::from(h) <= MAX_PIXELS { Pixmap::new(w, h) } else { None };
-        Canvas { w, h, pixmap, state: DrawState::default(), stack: Vec::new(), image: None }
+        Canvas { node, w, h, pixmap, state: DrawState::default(), stack: Vec::new(), image: None }
     }
 }
 
-static CANVASES: OnceLock<Mutex<HashMap<usize, Canvas>>> = OnceLock::new();
+static CANVASES: OnceLock<Mutex<Registry>> = OnceLock::new();
 static DIRTY: Mutex<Vec<usize>> = Mutex::new(Vec::new());
 static ANY: AtomicBool = AtomicBool::new(false);
 static PENDING: AtomicBool = AtomicBool::new(false);
 
-fn map() -> std::sync::MutexGuard<'static, HashMap<usize, Canvas>> {
-    CANVASES.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap_or_else(|e| e.into_inner())
+/// The canvases by id, and the node-address -> id index for paint.
+#[derive(Default)]
+struct Registry {
+    next: u32,
+    by_id: HashMap<u32, Canvas>,
+    by_node: HashMap<usize, u32>,
+}
+
+impl Registry {
+    fn get(&self, id: u32) -> Option<&Canvas> {
+        self.by_id.get(&id)
+    }
+    fn get_mut(&mut self, id: u32) -> Option<&mut Canvas> {
+        self.by_id.get_mut(&id)
+    }
+    /// A fresh canvas for `node`; a canvas the same node address had before (a freed element's) is dropped.
+    fn create(&mut self, node: usize, w: u32, h: u32) -> u32 {
+        if let Some(old) = self.by_node.remove(&node) {
+            self.by_id.remove(&old);
+        }
+        self.next += 1;
+        self.by_id.insert(self.next, Canvas::new(node, w, h));
+        self.by_node.insert(node, self.next);
+        self.next
+    }
+}
+
+fn map() -> std::sync::MutexGuard<'static, Registry> {
+    CANVASES.get_or_init(|| Mutex::new(Registry::default())).lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// The value of a `width`/`height` attribute by the HTML rules for parsing non-negative integers (leading ASCII
+/// whitespace, an optional `+`, digits, anything after them ignored), or `dflt` when it is missing, not a number,
+/// negative or above 2^31 - 1. `100.999` -> 100, `1e2` -> 1, `0x10` -> 0, `+100` -> 100.
+pub(crate) fn parse_dim(v: Option<&str>, dflt: u32) -> u32 {
+    let Some(v) = v else { return dflt };
+    let v = v.trim_start_matches(['\t', '\n', '\x0c', '\r', ' ']);
+    let v = v.strip_prefix('+').unwrap_or(v);
+    let digits: String = v.chars().take_while(char::is_ascii_digit).collect();
+    match digits.parse::<u64>() {
+        Ok(n) if n <= 2_147_483_647 => n as u32,
+        _ => dflt,
+    }
 }
 
 /// Some canvas owns a bitmap (pages without one never look further).
@@ -105,7 +163,8 @@ pub(crate) fn take_dirty() -> Vec<usize> {
 /// The bitmap of canvas `node` for paint, if it has a context.
 pub(crate) fn image(node: usize) -> Option<Arc<DecodedImage>> {
     let mut m = map();
-    let c = m.get_mut(&node)?;
+    let id = *m.by_node.get(&node)?;
+    let c = m.get_mut(id)?;
     if c.image.is_none() {
         let px = c.pixmap.as_ref()?;
         let pixels = px
@@ -123,17 +182,25 @@ pub(crate) fn image(node: usize) -> Option<Arc<DecodedImage>> {
 
 // ------------------------------------------------------------ colours
 
-/// A CSS colour string as straight RGBA, or `None` when it does not parse (the assignment is then ignored).
-pub(crate) fn parse_color(s: &str) -> Option<[u8; 4]> {
+/// A CSS colour string as a [`Style`], or `None` when it does not parse (the assignment is then ignored). `cur` is
+/// what `currentcolor` is (the canvas element's computed `color`, straight RGBA). Legacy sRGB colours serialise as
+/// `#rrggbb`/`rgba()`; `color()`, `lab()`, `color-mix()` and relative colours keep their CSS form.
+pub(crate) fn parse_color(s: &str, cur: [u8; 4]) -> Option<Style> {
+    use cssparser::ToCss;
     let s = s.trim();
-    if s.eq_ignore_ascii_case("currentcolor") {
-        return Some([0, 0, 0, 255]);
-    }
+    let cur_css = cssparser_color::Color::Rgba(cssparser_color::RgbaLegacy::new(cur[0], cur[1], cur[2], f32::from(cur[3]) / 255.0));
     let mut p = cssparser::Parser::new(s);
-    let c = cssparser_color::Color::parse(&mut p).ok()?;
-    p.expect_exhausted().ok()?;
-    let t = crate::css::to_text_color(&c)?;
-    Some([t.r(), t.g(), t.b(), t.a()])
+    let parsed = crate::csscolor::parse(&mut p, Some(&cur_css)).ok().filter(|_| p.expect_exhausted().is_ok());
+    let Some(c) = parsed else {
+        let rgb = crate::csscolor::system_color(s)?;
+        return Some(Style::new([rgb[0], rgb[1], rgb[2], 255]));
+    };
+    let rgba = crate::csscolor::to_srgb8(&c)?;
+    if matches!(c, cssparser_color::Color::Rgba(_) | cssparser_color::Color::Hsl(_) | cssparser_color::Color::Hwb(_)) {
+        Some(Style::new(rgba))
+    } else {
+        Some(Style { rgba, ser: c.to_css_string() })
+    }
 }
 
 /// The serialisation of a `fillStyle`/`strokeStyle` getter: `#rrggbb`, or `rgba(r, g, b, a)` when not opaque.
@@ -173,7 +240,7 @@ fn draw(c: &mut Canvas, op: i32, a: &[f64]) {
     match op {
         0 => {
             if let Some(r) = rect_of(*x, *y, *w, *h) {
-                px.fill_rect(r, &paint_of(c.state.fill, c.state.alpha), Transform::identity(), None);
+                px.fill_rect(r, &paint_of(c.state.fill.rgba, c.state.alpha), Transform::identity(), None);
             }
         }
         1 => {
@@ -195,7 +262,7 @@ fn draw(c: &mut Canvas, op: i32, a: &[f64]) {
             pb.close();
             if let Some(path) = pb.finish() {
                 let stroke = Stroke { width: c.state.line_width, ..Stroke::default() };
-                px.stroke_path(&path, &paint_of(c.state.stroke, c.state.alpha), &stroke, Transform::identity(), None);
+                px.stroke_path(&path, &paint_of(c.state.stroke.rgba, c.state.alpha), &stroke, Transform::identity(), None);
             }
         }
     }
@@ -249,71 +316,69 @@ fn put_image_data(c: &mut Canvas, data: &[u8], dw: u32, dx: i32, dy: i32, sx: i3
 
 // ------------------------------------------------------------ natives
 
-/// The `__cv_*` natives of the JS context object. `id` is the element's DOM-table id.
+/// The `__cv_*` natives of the JS context object. `id` is the element's DOM-table id (only `__cv_ctx`/`__cv_reset` need
+/// it, to read the attributes and find the node); every other native takes the canvas id `__cv_ctx` returned.
 pub(crate) fn register(ctx: &Ctx<'_>, table: Rc<RefCell<DomTable>>) {
-    let node_of = {
+    let node_dims = {
         let t = table.clone();
-        move |id: i32| t.borrow().get(id).map(|h| crate::dom::node_id(&h))
-    };
-    let attr_dim = {
-        let t = table.clone();
-        move |id: i32, name: &str, dflt: u32| -> u32 {
-            let Some(h) = t.borrow().get(id) else { return dflt };
-            crate::dom::element_attr(&h, name).and_then(|v| v.trim().parse::<i64>().ok()).filter(|v| *v >= 0).map_or(dflt, |v| v.min(i64::from(u32::MAX)) as u32)
+        move |id: i32| -> Option<(usize, u32, u32)> {
+            let h = t.borrow().get(id)?;
+            let dim = |n: &str, d: u32| parse_dim(crate::dom::element_attr(&h, n).as_deref(), d);
+            Some((crate::dom::node_id(&h), dim("width", DEFAULT_W), dim("height", DEFAULT_H)))
         }
     };
-    // Ensures the element has a bitmap (a context was asked for); true when it exists.
-    let (n, a) = (node_of.clone(), attr_dim.clone());
-    native!(ctx, "__cv_ctx", move |id: i32| -> bool {
-        let Some(node) = n(id) else { return false };
-        let mut m = map();
-        m.insert(node, Canvas::new(a(id, "width", DEFAULT_W), a(id, "height", DEFAULT_H)));
+    // A new bitmap for the element (a context was asked for); returns the canvas id, 0 when the element is gone.
+    let nd = node_dims.clone();
+    native!(ctx, "__cv_ctx", move |id: i32| -> i32 {
+        let Some((node, w, h)) = nd(id) else { return 0 };
         ANY.store(true, Ordering::Relaxed);
-        true
+        map().create(node, w, h) as i32
     });
     // width/height was set: the bitmap and the state are reset.
-    let (n, a) = (node_of.clone(), attr_dim);
-    native!(ctx, "__cv_reset", move |id: i32| {
-        let Some(node) = n(id) else { return };
+    native!(ctx, "__cv_reset", move |cid: i32, id: i32| {
+        let Some((_, w, h)) = node_dims(id) else { return };
         let mut m = map();
-        if let Some(c) = m.get_mut(&node) {
-            *c = Canvas::new(a(id, "width", DEFAULT_W), a(id, "height", DEFAULT_H));
+        if let Some(c) = m.get_mut(cid as u32) {
+            let node = c.node;
+            *c = Canvas::new(node, w, h);
             drop(m);
             mark(node);
         }
     });
-    let n = node_of.clone();
-    native!(ctx, "__cv_draw", move |id: i32, op: i32, a: Vec<f64>| {
-        let Some(node) = n(id) else { return };
-        if let Some(c) = map().get_mut(&node) {
+    native!(ctx, "__cv_draw", move |cid: i32, op: i32, a: Vec<f64>| {
+        if let Some(c) = map().get_mut(cid as u32) {
             draw(c, op, &a);
             c.image = None;
-            mark(node);
+            mark(c.node);
         }
     });
-    // which: 0 fillStyle, 1 strokeStyle. Returns the serialised colour, or "" when `s` is not a colour.
-    let n = node_of.clone();
-    native!(ctx, "__cv_set_style", move |id: i32, which: i32, s: String| -> String {
-        let (Some(node), Some(col)) = (n(id), parse_color(&s)) else { return String::new() };
-        if let Some(c) = map().get_mut(&node) {
-            if which == 0 {
-                c.state.fill = col;
-            } else {
-                c.state.stroke = col;
+    // which: 0 fillStyle, 1 strokeStyle, 2 shadowColor. `cur` is the element's computed colour (only read when the
+    // string needs it). Returns false when `s` is not a colour (the attribute keeps its value).
+    native!(ctx, "__cv_set_style", move |cid: i32, which: i32, s: String, cur: String| -> bool {
+        let cur = parse_color(&cur, [0, 0, 0, 255]).map_or([0, 0, 0, 255], |c| c.rgba);
+        let Some(col) = parse_color(&s, cur) else { return false };
+        if let Some(c) = map().get_mut(cid as u32) {
+            match which {
+                0 => c.state.fill = col,
+                1 => c.state.stroke = col,
+                _ => c.state.shadow = col,
             }
         }
-        serialize_color(col)
+        true
     });
-    let n = node_of.clone();
-    native!(ctx, "__cv_get_style", move |id: i32, which: i32| -> String {
-        let Some(node) = n(id) else { return String::new() };
-        map().get(&node).map(|c| serialize_color(if which == 0 { c.state.fill } else { c.state.stroke })).unwrap_or_default()
+    native!(ctx, "__cv_get_style", move |cid: i32, which: i32| -> String {
+        map()
+            .get(cid as u32)
+            .map(|c| match which {
+                0 => c.state.fill.ser.clone(),
+                1 => c.state.stroke.ser.clone(),
+                _ => c.state.shadow.ser.clone(),
+            })
+            .unwrap_or_default()
     });
     // which: 0 globalAlpha, 1 lineWidth.
-    let n = node_of.clone();
-    native!(ctx, "__cv_set_num", move |id: i32, which: i32, v: f64| {
-        let Some(node) = n(id) else { return };
-        if let Some(c) = map().get_mut(&node) {
+    native!(ctx, "__cv_set_num", move |cid: i32, which: i32, v: f64| {
+        if let Some(c) = map().get_mut(cid as u32) {
             if which == 0 {
                 c.state.alpha = v as f32;
             } else {
@@ -321,43 +386,34 @@ pub(crate) fn register(ctx: &Ctx<'_>, table: Rc<RefCell<DomTable>>) {
             }
         }
     });
-    let n = node_of.clone();
-    native!(ctx, "__cv_get_num", move |id: i32, which: i32| -> f64 {
-        let Some(node) = n(id) else { return 0.0 };
-        map().get(&node).map_or(0.0, |c| f64::from(if which == 0 { c.state.alpha } else { c.state.line_width }))
+    native!(ctx, "__cv_get_num", move |cid: i32, which: i32| -> f64 {
+        map().get(cid as u32).map_or(0.0, |c| f64::from(if which == 0 { c.state.alpha } else { c.state.line_width }))
     });
-    let n = node_of.clone();
-    native!(ctx, "__cv_save", move |id: i32| {
-        if let Some(node) = n(id)
-            && let Some(c) = map().get_mut(&node)
-        {
+    native!(ctx, "__cv_save", move |cid: i32| {
+        if let Some(c) = map().get_mut(cid as u32) {
             let s = c.state.clone();
             c.stack.push(s);
         }
     });
-    let n = node_of.clone();
-    native!(ctx, "__cv_restore", move |id: i32| {
-        if let Some(node) = n(id)
-            && let Some(c) = map().get_mut(&node)
+    native!(ctx, "__cv_restore", move |cid: i32| {
+        if let Some(c) = map().get_mut(cid as u32)
             && let Some(s) = c.stack.pop()
         {
             c.state = s;
         }
     });
-    let n = node_of.clone();
-    native!(ctx, "__cv_get_image", move |id: i32, x: i32, y: i32, w: i32, h: i32| -> Option<Bytes> {
-        let node = n(id)?;
+    native!(ctx, "__cv_get_image", move |cid: i32, x: i32, y: i32, w: i32, h: i32| -> Option<Bytes> {
         let m = map();
-        let c = m.get(&node)?;
+        let c = m.get(cid as u32)?;
         Some(Bytes(get_image_data(c, x, y, w.max(0) as u32, h.max(0) as u32)))
     });
-    let n = node_of;
-    native!(ctx, "__cv_put_image", move |id: i32, data: Bytes, g: Vec<f64>| {
-        let Some(node) = n(id) else { return };
-        if let Some(c) = map().get_mut(&node) {
-            if let [dw, dx, dy, sx, sy, sw, sh] = g[..] { put_image_data(c, &data.0, dw.max(0.0) as u32, dx as i32, dy as i32, sx as i32, sy as i32, sw as i32, sh as i32); }
+    native!(ctx, "__cv_put_image", move |cid: i32, data: Bytes, g: Vec<f64>| {
+        if let Some(c) = map().get_mut(cid as u32) {
+            if let [dw, dx, dy, sx, sy, sw, sh] = g[..] {
+                put_image_data(c, &data.0, dw.max(0.0) as u32, dx as i32, dy as i32, sx as i32, sy as i32, sw as i32, sh as i32);
+            }
             c.image = None;
-            mark(node);
+            mark(c.node);
         }
     });
 }
@@ -366,7 +422,7 @@ pub(crate) fn register(ctx: &Ctx<'_>, table: Rc<RefCell<DomTable>>) {
 #[cfg(test)]
 pub(crate) fn pixel(node: usize, x: u32, y: u32) -> Option<[u8; 4]> {
     let m = map();
-    let c = m.get(&node)?;
+    let c = m.get(*m.by_node.get(&node)?)?;
     let d = get_image_data(c, x as i32, y as i32, 1, 1);
     Some([d[0], d[1], d[2], d[3]])
 }

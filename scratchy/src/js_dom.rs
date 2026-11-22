@@ -2996,15 +2996,20 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   HTMLCanvasElement.prototype = Object.create(HTMLElement.prototype, { constructor: { value: HTMLCanvasElement, writable: true, configurable: true } });
   g.HTMLCanvasElement = HTMLCanvasElement;
   var CP = HTMLCanvasElement.prototype;
+  Object.defineProperty(CP, Symbol.toStringTag, { value: 'HTMLCanvasElement', configurable: true });
+  // QCNV3: the HTML rules for parsing non-negative integers (`100.999` -> 100, `1e2` -> 1, `+100` -> 100, junk after the
+  // digits ignored); the attribute text stays verbatim. The IDL setter is ToUint32 and values above 2^31-1 store the
+  // default.
   var canvasDim = function (name, dflt) {
     defs(CP, name, function () {
-      var v = parseInt(__d_attr(this.__id, name), 10);
-      return v >= 0 ? v : dflt;
+      var a = __d_attr(this.__id, name);
+      var m = a == null ? null : /^[\t\n\f\r ]*\+?([0-9]+)/.exec(a);
+      var n = m ? Number(m[1]) : dflt;
+      return n <= 2147483647 ? n : dflt;
     }, function (v) {
-      v = Number(v);
-      v = isFinite(v) ? Math.floor(v) : 0;
-      __d_setattr(this.__id, name, String(v >= 0 && v <= 4294967295 ? v : dflt));
-      if (this.__ctx2d) g.__cv_reset(this.__id);
+      v = v >>> 0;
+      __d_setattr(this.__id, name, String(v <= 2147483647 ? v : dflt));
+      if (this.__ctx2d) g.__cv_reset(this.__ctx2d.__cid, this.__id);
     });
   };
   canvasDim('width', 300);
@@ -3016,7 +3021,8 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (n < 2) throw new TypeError("Failed to construct 'ImageData': 2 arguments required, but only " + n + " present.");
     var toUL = function (v) { v = Number(v); if (!isFinite(v) || v < 0 || v > 4294967295) return NaN; return Math.floor(v); };
     var opt;
-    if (a !== null && typeof a === 'object') {
+    if (n >= 3 && (a === null || (ArrayBuffer.isView(a) && !(a instanceof Uint8ClampedArray)))) throw new TypeError("Failed to construct 'ImageData': parameter 1 is not of type 'Uint8ClampedArray'.");
+    if (a !== null && typeof a === 'object' && !(ArrayBuffer.isView(a) && !(a instanceof Uint8ClampedArray))) {
       if (!(a instanceof Uint8ClampedArray)) throw new TypeError("Failed to construct 'ImageData': parameter 1 is not of type 'Uint8ClampedArray'.");
       w = toUL(b);
       if (!(w > 0)) throw domErr("Failed to construct 'ImageData': The source width is zero or not a number.", 'IndexSizeError');
@@ -3035,6 +3041,11 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       opt = c;
     }
     var cs = 'srgb';
+    if (opt !== undefined && opt !== null && typeof opt === 'object' && opt.pixelFormat !== undefined && String(opt.pixelFormat) !== 'rgba-unorm8') {
+      var pf = String(opt.pixelFormat);
+      if (pf !== 'rgba-float16') throw new TypeError("Failed to construct 'ImageData': The provided value '" + pf + "' is not a valid enum value of type ImageDataPixelFormat.");
+      throw domErr("Failed to construct 'ImageData': pixelFormat 'rgba-float16' is not supported.", 'InvalidStateError');
+    }
     if (opt !== undefined && opt !== null && typeof opt === 'object' && opt.colorSpace !== undefined) {
       cs = String(opt.colorSpace);
       if (cs !== 'srgb' && cs !== 'display-p3') throw new TypeError("Failed to construct 'ImageData': The provided value '" + cs + "' is not a valid enum value of type PredefinedColorSpace.");
@@ -3046,14 +3057,25 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   defs(ImageData.prototype, 'height', function () { return this.__h; });
   defs(ImageData.prototype, 'data', function () { return this.__data; });
   defs(ImageData.prototype, 'colorSpace', function () { return this.__cs; });
+  defs(ImageData.prototype, 'pixelFormat', function () { return 'rgba-unorm8'; });
   Object.defineProperty(ImageData.prototype, Symbol.toStringTag, { value: 'ImageData', configurable: true });
   g.ImageData = ImageData;
   var CtxProto = {};
   var CanvasRenderingContext2D = function CanvasRenderingContext2D() { throw new TypeError('Illegal constructor'); };
-  CanvasRenderingContext2D.prototype = CtxProto;
+  Object.defineProperty(CanvasRenderingContext2D, 'prototype', { value: CtxProto, writable: false, enumerable: false, configurable: false });
   Object.defineProperty(CtxProto, 'constructor', { value: CanvasRenderingContext2D, writable: true, configurable: true });
   Object.defineProperty(CtxProto, Symbol.toStringTag, { value: 'CanvasRenderingContext2D', configurable: true });
   g.CanvasRenderingContext2D = CanvasRenderingContext2D;
+  // QCNV3: |this| brand check. Every method and accessor of the prototype starts with it (TypeError: Illegal invocation).
+  var ctxBrand = new WeakSet();
+  var cv = function (t) {
+    if (t === null || (typeof t !== 'object' && typeof t !== 'function') || !ctxBrand.has(t)) throw new TypeError('Illegal invocation');
+    return t.__cid;
+  };
+  // Defines a method the way WebIDL does: writable, enumerable, configurable.
+  var meth = function (name, fn) {
+    Object.defineProperty(CtxProto, name, { value: fn, writable: true, enumerable: true, configurable: true });
+  };
   var cvArgs = function (name, n, a) {
     if (a.length < n) throw new TypeError("Failed to execute '" + name + "' on 'CanvasRenderingContext2D': " + n + " arguments required, but only " + a.length + " present.");
     var o = [];
@@ -3061,30 +3083,41 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     return o;
   };
   [['fillRect', 0], ['clearRect', 1], ['strokeRect', 2]].forEach(function (p) {
-    CtxProto[p[0]] = function () { g.__cv_draw(this.__el.__id, p[1], cvArgs(p[0], 4, arguments)); };
+    meth(p[0], function () { var c = cv(this); g.__cv_draw(c, p[1], cvArgs(p[0], 4, arguments)); });
   });
-  CtxProto.save = function () { g.__cv_save(this.__el.__id); };
-  CtxProto.restore = function () { g.__cv_restore(this.__el.__id); };
-  defs(CtxProto, 'canvas', function () { return this.__el; });
-  ['fillStyle', 'strokeStyle'].forEach(function (name, which) {
-    defs(CtxProto, name, function () { return g.__cv_get_style(this.__el.__id, which); }, function (v) {
-      if (typeof v === 'object' && v !== null) return; // gradients and patterns are QCNV2 work
-      g.__cv_set_style(this.__el.__id, which, String(v));
+  meth('save', function () { g.__cv_save(cv(this)); });
+  meth('restore', function () { g.__cv_restore(cv(this)); });
+  defs(CtxProto, 'canvas', function () { cv(this); return this.__el; });
+  // fillStyle/strokeStyle/shadowColor: ToString of the value (a throwing toString propagates; gradients and patterns
+  // are QCNV2-era work), parsed as a CSS colour; an unparsable string leaves the attribute alone. `currentcolor`
+  // is the element's computed colour at set time (black when it is not in a document).
+  ['fillStyle', 'strokeStyle', 'shadowColor'].forEach(function (name, which) {
+    defs(CtxProto, name, function () { return g.__cv_get_style(cv(this), which); }, function (v) {
+      var c = cv(this);
+      var str = String(v);
+      var cur = '';
+      if (/current/i.test(str)) {
+        try { cur = this.__el.isConnected ? g.getComputedStyle(this.__el).color : ''; } catch (e) { cur = ''; }
+      }
+      g.__cv_set_style(c, which, str, cur || '#000');
     });
   });
-  defs(CtxProto, 'globalAlpha', function () { return g.__cv_get_num(this.__el.__id, 0); }, function (v) {
+  defs(CtxProto, 'globalAlpha', function () { return g.__cv_get_num(cv(this), 0); }, function (v) {
+    var c = cv(this);
     v = Number(v);
-    if (isFinite(v) && v >= 0 && v <= 1) g.__cv_set_num(this.__el.__id, 0, v);
+    if (isFinite(v) && v >= 0 && v <= 1) g.__cv_set_num(c, 0, v);
   });
-  defs(CtxProto, 'lineWidth', function () { return g.__cv_get_num(this.__el.__id, 1); }, function (v) {
+  defs(CtxProto, 'lineWidth', function () { return g.__cv_get_num(cv(this), 1); }, function (v) {
+    var c = cv(this);
     v = Number(v);
-    if (isFinite(v) && v > 0) g.__cv_set_num(this.__el.__id, 1, v);
+    if (isFinite(v) && v > 0) g.__cv_set_num(c, 1, v);
   });
   var finite = function (name, vals) {
     for (var i = 0; i < vals.length; i++) if (!isFinite(vals[i])) throw new TypeError("Failed to execute '" + name + "' on 'CanvasRenderingContext2D': The provided double value is non-finite.");
   };
   var trunc = function (v) { return v < 0 ? Math.ceil(v) : Math.floor(v); };
-  CtxProto.createImageData = function (a, b) {
+  meth('createImageData', function (a, b) {
+    cv(this);
     if (arguments.length < 1) throw new TypeError("Failed to execute 'createImageData' on 'CanvasRenderingContext2D': 1 argument required, but only 0 present.");
     if (a !== null && typeof a === 'object') {
       if (!(a instanceof ImageData)) throw new TypeError("Failed to execute 'createImageData' on 'CanvasRenderingContext2D': parameter 1 is not of type 'ImageData'.");
@@ -3093,10 +3126,13 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (arguments.length < 2) throw new TypeError("Failed to execute 'createImageData' on 'CanvasRenderingContext2D': 2 arguments required, but only 1 present.");
     var w = Number(a), h = Number(b);
     finite('createImageData', [w, h]);
+    // The sizes are `long`: truncated first, then a zero is an error (0.99 is 0).
+    w = trunc(w); h = trunc(h);
     if (w === 0 || h === 0) throw domErr("Failed to execute 'createImageData' on 'CanvasRenderingContext2D': The source width or height is zero.", 'IndexSizeError');
-    return new ImageData(Math.abs(trunc(w)) || 1, Math.abs(trunc(h)) || 1);
-  };
-  CtxProto.getImageData = function () {
+    return new ImageData(Math.abs(w), Math.abs(h));
+  });
+  meth('getImageData', function () {
+    var c = cv(this);
     var a = cvArgs('getImageData', 4, arguments);
     finite('getImageData', a);
     var x = trunc(a[0]), y = trunc(a[1]), w = trunc(a[2]), h = trunc(a[3]);
@@ -3105,11 +3141,12 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (h < 0) { y += h; h = -h; }
     if (w * h * 4 > 1073741824) throw new TypeError("Failed to execute 'getImageData' on 'CanvasRenderingContext2D': Out of memory at ImageData creation");
     var out = new ImageData(w, h);
-    var bytes = g.__cv_get_image(this.__el.__id, x, y, w, h);
+    var bytes = g.__cv_get_image(c, x, y, w, h);
     if (bytes) out.data.set(bytes);
     return out;
-  };
-  CtxProto.putImageData = function (img, dx, dy) {
+  });
+  meth('putImageData', function (img, dx, dy) {
+    var c = cv(this);
     if (arguments.length < 3) throw new TypeError("Failed to execute 'putImageData' on 'CanvasRenderingContext2D': 3 arguments required, but only " + arguments.length + " present.");
     if (!(img instanceof ImageData)) throw new TypeError("Failed to execute 'putImageData' on 'CanvasRenderingContext2D': parameter 1 is not of type 'ImageData'.");
     var a = [Number(dx), Number(dy)];
@@ -3128,15 +3165,17 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       finite('putImageData', a);
     }
     if (sw <= 0 || sh <= 0) return;
-    g.__cv_put_image(this.__el.__id, new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength), [img.width, trunc(a[0]), trunc(a[1]), sx, sy, sw, sh]);
-  };
+    g.__cv_put_image(c, new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength), [img.width, trunc(a[0]), trunc(a[1]), sx, sy, sw, sh]);
+  });
   CP.getContext = function (type) {
     if (arguments.length < 1) throw new TypeError("Failed to execute 'getContext' on 'HTMLCanvasElement': 1 argument required, but only 0 present.");
     if (String(type) !== '2d') return null;
     if (!this.__ctx2d) {
-      g.__cv_ctx(this.__id);
+      var cid = g.__cv_ctx(this.__id);
       var c = Object.create(CtxProto);
+      ctxBrand.add(c);
       Object.defineProperty(c, '__el', { value: this });
+      Object.defineProperty(c, '__cid', { value: cid });
       Object.defineProperty(this, '__ctx2d', { value: c, configurable: true });
     }
     return this.__ctx2d;
@@ -3244,7 +3283,12 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   g.getComputedStyle = function (el, pseudo) {
     if (!el || el.__id === undefined || el.nodeType !== 1) throw new TypeError("Failed to execute 'getComputedStyle' on 'Window': parameter 1 is not of type 'Element'.");
     var ps = pseudo == null ? '' : String(pseudo);
-    var get = function (p) { return __d_cs(el.__id, ps, p); };
+    var get = function (p) {
+      var v = __d_cs(el.__id, ps, p);
+      // QCNV3: a canvas without CSS width/height is as big as its (parsed) attributes; there is no layout here.
+      if (v === 'auto' && ps === '' && (p === 'width' || p === 'height') && el instanceof HTMLCanvasElement) return el[p] + 'px';
+      return v;
+    };
     var api = {
       getPropertyValue: function (p) { return get(kebab(String(p)).toLowerCase()); },
       getPropertyPriority: function () { return ''; },
