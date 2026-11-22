@@ -172,7 +172,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QEDIT-C [S] (P3, from QWPT6d #581; Sonnet) `hidden=until-found`, the `beforematch` event, details auto-open (5 ERROR).
 - [ ] QEDIT-D [S] (P3, from QWPT6d #581; Sonnet) Why focus-blur, focused-area-removal, focusing-focused-noop TIMEOUT.
 - [ ] QEDIT-E [S] (P3, from QWPT6d #581; Sonnet) `window.getSelection()` in the testharness window, `document.elementsFromPoint`.
-- [ ] QWPTBUD [S] (P3, from QDOM5b #592; Sonnet; wpt-th runner) A larger callback budget for the `--wpt-th` runner (flag or
+- [ ] [WIP] QWPTBUD [S] (P3, from QDOM5b #592; Sonnet; wpt-th runner) A larger callback budget for the `--wpt-th` runner (flag or
       a longer budget for load callbacks), so Range-insertNode / Range-surroundContents run all 1840 cases deterministically
       and can leave flaky.txt. Related: tests waiting for unload/pagehide/beforeunload on iframe navigation only time out.
 - [ ] [WIP] QCNV3 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1

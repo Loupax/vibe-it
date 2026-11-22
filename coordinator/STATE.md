@@ -373,3 +373,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Merged #615 QWPT8 230b1cb.
 - 2026-11-22 #620 QWPTFLK4: atob 286 vs 380 = sparse checkout missing fetch/data-urls (not timing). Sent back to rebase onto #615 and drop atob from flaky.txt.
 - 2026-11-22 #619 QCNV3 READY (canvas element 23.6 -> 27.5; CSS Color 4 parsing for all stylesheets; +2 reftests); asked for a CSS-parse perf check before merge. Filed QCNV3b.
+- 2026-11-22 #620 QWPTFLK4 rebased, merging. Launched QWPTBUD.
