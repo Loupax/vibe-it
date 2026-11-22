@@ -461,7 +461,11 @@ OK           0/1  html/semantics/scripting-1/the-script-element/microtasks/evalu
   FAIL      Module script queueing a microtask then top-level await
 TIMEOUT      0/1  html/semantics/scripting-1/the-script-element/module-script-disabled-scripting.html
   TIMEOUT   Module script with syntax error should not report error when scripting is disabled
-ERROR        0/0  html/semantics/scripting-1/the-script-element/module/charset-03.html
+OK           0/4  html/semantics/scripting-1/the-script-element/module/charset-03.html
+  FAIL      UTF-8 imported module script
+  FAIL      UTF-8 imported module script with wrong charset in Content-Type
+  FAIL      Non-UTF-8 imported module script
+  FAIL      Non-UTF-8 imported module script with charset in Content-Type
 OK           0/1  html/semantics/scripting-1/the-script-element/module/choice-of-error-1.html
   FAIL      Parse errors in different files should be reported depending on different roots
 OK           0/1  html/semantics/scripting-1/the-script-element/module/choice-of-error-2.html
@@ -632,10 +636,8 @@ OK           0/1  html/semantics/scripting-1/the-script-element/module/evaluatio
   FAIL      Test that exceptions during evaluation lead to error events on window, and that exceptions are remembered.\n
 OK           0/1  html/semantics/scripting-1/the-script-element/module/evaluation-error-5.html
   FAIL      Test for the inline module script error that reports wrong line\n
-ERROR        0/1  html/semantics/scripting-1/the-script-element/module/fetch-error-1.html
-  FAIL      Test that failure to fetch root leads to error event on script.
-ERROR        0/1  html/semantics/scripting-1/the-script-element/module/fetch-error-2.html
-  FAIL      Test that failure to fetch dependency leads to error event on script.
+OK           1/1  html/semantics/scripting-1/the-script-element/module/fetch-error-1.html
+OK           1/1  html/semantics/scripting-1/the-script-element/module/fetch-error-2.html
 CRASH        0/0  html/semantics/scripting-1/the-script-element/module/import-meta/import-meta-object.any.serviceworker-module.html
 CRASH        0/0  html/semantics/scripting-1/the-script-element/module/import-meta/import-meta-object.any.sharedworker-module.html
 CRASH        0/0  html/semantics/scripting-1/the-script-element/module/import-meta/import-meta-object.any.worker-module.html
@@ -682,11 +684,7 @@ OK           1/3  html/semantics/scripting-1/the-script-element/module/integrity
   FAIL      The integrity attribute must be verified on the top-level of a module and not allow it to execute when there's a mismatch
 OK           1/1  html/semantics/scripting-1/the-script-element/module/late-namespace-request.html
 OK           1/1  html/semantics/scripting-1/the-script-element/module/late-star-export-request.html
-ERROR        4/8  html/semantics/scripting-1/the-script-element/module/load-error-events-inline.html
-  NOTRUN    src, 404, parser-inserted, defer, no async
-  NOTRUN    src, 404, parser-inserted, no defer, async
-  NOTRUN    src, 404, not parser-inserted, no defer, no async, no non-blocking
-  NOTRUN    src, 404, not parser-inserted, no defer, async
+OK           8/8  html/semantics/scripting-1/the-script-element/module/load-error-events-inline.html
 OK           1/1  html/semantics/scripting-1/the-script-element/module/module-in-xhtml.xhtml
 OK           1/1  html/semantics/scripting-1/the-script-element/module/module-vs-script-1.html
 OK           1/1  html/semantics/scripting-1/the-script-element/module/module-vs-script-2.html
@@ -696,7 +694,7 @@ OK           1/1  html/semantics/scripting-1/the-script-element/module/nomodule-
 OK         18/18  html/semantics/scripting-1/the-script-element/module/script-for-event.html
 OK           1/1  html/semantics/scripting-1/the-script-element/module/single-evaluation-1.html
 OK           1/1  html/semantics/scripting-1/the-script-element/module/single-evaluation-2.html
-ERROR        0/0  html/semantics/scripting-1/the-script-element/module/slow-cycle.html
+TIMEOUT      0/0  html/semantics/scripting-1/the-script-element/module/slow-cycle.html
 OK           0/1  html/semantics/scripting-1/the-script-element/module/specifier-error.html
   FAIL      Test that invalid module specifier leads to TypeError on window.
 OK           2/2  html/semantics/scripting-1/the-script-element/module/top-level-await/sibling-imports-not-blocked.any.html

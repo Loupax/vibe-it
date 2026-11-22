@@ -558,7 +558,16 @@ OK           0/5  custom-elements/form-associated/form-associated-callback.html
   FAIL      Disassociation
   FAIL      Updating "form" content attribute
   FAIL      Updating "id" attribute of form element
-ERROR        0/0  custom-elements/form-associated/form-disabled-callback.html
+OK          1/10  custom-elements/form-associated/form-disabled-callback.html
+  FAIL      Adding/removing disabled content attribute
+  FAIL      Relationship with FIELDSET
+  FAIL      A disabled form-associated custom element should not submit an entry for it
+  FAIL      Disabled attribute affects focus-capability
+  FAIL      Upgrading an element with disabled content attribute
+  FAIL      Toggling "disabled" attribute on a custom element inside disabled <fieldset> does not trigger a callback
+  FAIL      Toggling "disabled" attribute on a <fieldset> does not trigger a callback on disabled custom element descendant
+  FAIL      Callback triggered during a clone/append operation, with disabled state provided by ancestor
+  FAIL      Callback triggered during a clone operation, with disabled state provided by ancestor
 OK           0/6  custom-elements/form-associated/form-disabled-legend.html
   FAIL      Custom element inside the first legend of a disabled fieldset is not disabled
   FAIL      Custom element inside a legend other than the first one is disabled

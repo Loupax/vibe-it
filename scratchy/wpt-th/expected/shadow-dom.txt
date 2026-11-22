@@ -1253,7 +1253,11 @@ OK          2/15  shadow-dom/focus/focus-method-delegatesFocus.html
   FAIL      focus() on host with delegatesFocus with another host with no delegatesFocus and a focusable child
   FAIL      focus() on host with delegatesFocus with another host with delegatesFocus and a focusable child
   FAIL      focus() on host with delegatesFocus and slotted focusable children
-ERROR        0/0  shadow-dom/focus/focus-method-with-delegatesFocus.html
+OK           4/8  shadow-dom/focus/focus-method-with-delegatesFocus.html
+  FAIL      on focus(), focusable xshadow2 with delegatesFocus=true delegates focus into its inner element.
+  FAIL      if an element within shadow is focused, focusing on shadow host should not slide focus to its inner element.
+  FAIL      xshadow2.focus() shouldn't move focus to #one when its inner element is already focused.
+  FAIL      If no element is focusable within a delegatesFocus shadow root, the host can't get focus regardless of host's tabIndex.
 OK           1/1  shadow-dom/focus/focus-preserved-on-slot-reorder.html
 TIMEOUT     0/20  shadow-dom/focus/focus-pseudo-matches-on-shadow-host.html
   TIMEOUT   :focus must not match a shadow host with {mode:open, delegatesFocus:false} shadow root that does not contain the focused element
@@ -1425,8 +1429,26 @@ OK           1/3  shadow-dom/offsetTop-offsetLeft-across-shadow-boundaries.html
   FAIL      Verifies that HTMLElement.offsetTop accounts for shadow boundaries.
   FAIL      Verifies that HTMLElement.offsetTop accounts for shadow boundaries when nested in multiple shadow roots.
 ERROR        0/0  shadow-dom/reference-target/tentative/aria-labelledby.html
-ERROR        0/0  shadow-dom/reference-target/tentative/commandfor.html
-ERROR        0/0  shadow-dom/reference-target/tentative/dom-mutation.html
+OK           0/3  shadow-dom/reference-target/tentative/commandfor.html
+  FAIL      Shadow root reference target works with commandfor attribute.
+  FAIL      Shadow root reference target works with commandfor attribute via options.
+  FAIL      Shadow root reference target works with .commandForElement property.
+OK          0/15  shadow-dom/reference-target/tentative/dom-mutation.html
+  FAIL      Changing the ID of the referenced element results in an empty computed label
+  FAIL      Removing the referenced element results in an empty computed label
+  FAIL      New referenced element prepended to the shadow supercedes the existing label
+  FAIL      The existing label supercedes new element (with same id as the existing label) appended to the shadow
+  FAIL      Changing the reference target ID updates the computed label
+  FAIL      Changing the nested referenceTarget to reference a different element updates the computed label
+  FAIL      Changing the ID of the nested referenced element results in an empty computed label
+  FAIL      Changing the middle shadow's reference target from an invalid to a valid ID establishes the association
+  FAIL      Changing the middle shadow's reference target from a valid to an invalid ID breaks the association
+  FAIL      Changing the inner host's ID from an invalid to a valid value establishes the association
+  FAIL      Changing the inner host's ID from a valid to an invalid value breaks the association
+  FAIL      .labels property is updated when for attribute changes on label outside of shadow root
+  FAIL      .labels property is updated when ID changes on input
+  FAIL      .labels property is updated when reference target changes on shadow root
+  FAIL      .labels property is updated when wrapped label changes
 OK          0/12  shadow-dom/reference-target/tentative/event-path.html
   FAIL      Event propagates to source's shadow tree only; target in deeper shadow root
   FAIL      Event propagates to source's shadow tree only; source in deeper shadow root
@@ -1453,17 +1475,553 @@ OK           0/3  shadow-dom/reference-target/tentative/gethtml-serialization.ht
   FAIL      shadowrootreferencetarget is serialized in the expected order
   FAIL      shadowrootreferencetarget with no value is serialized as empty string
   FAIL      shadowrootreferencetarget is serialized before shadowrootcustomelementregistry
-ERROR        0/0  shadow-dom/reference-target/tentative/interestfor.tentative.html
-ERROR        0/0  shadow-dom/reference-target/tentative/label-descendant.html
-ERROR        0/0  shadow-dom/reference-target/tentative/label-for.html
+OK           0/3  shadow-dom/reference-target/tentative/interestfor.tentative.html
+  FAIL      Shadow root reference target works with interestfor attribute.
+  FAIL      Shadow root reference target works with interestfor attribute via options.
+  FAIL      Shadow root reference target works with .interestForElement property.
+OK          0/22  shadow-dom/reference-target/tentative/label-descendant.html
+  FAIL      Label applies to descendant custom element that uses shadowrootreferencetarget (Input 1)
+  FAIL      Label applies to descendant custom element that uses shadowrootreferencetarget (Input 1 via Options)
+  FAIL      Label applies to multiple layers of descendant custom elements that use shadowrootreferencetarget (Input 2)
+  FAIL      Label applies to multiple layers of descendant custom elements that use shadowrootreferencetarget (Input 2 via Options)
+  FAIL      Implicit <label> association should work with a custom element targeting 'button' for computed name
+  FAIL      Implicit <label> association should work with a custom element targeting 'button' for .labels
+  FAIL      Implicit <label> association should work with a custom element targeting 'input' for computed name
+  FAIL      Implicit <label> association should work with a custom element targeting 'input' for .labels
+  FAIL      Implicit <label> association should work with a custom element targeting 'meter' for computed name
+  FAIL      Implicit <label> association should work with a custom element targeting 'meter' for .labels
+  FAIL      Implicit <label> association should work with a custom element targeting 'output' for computed name
+  FAIL      Implicit <label> association should work with a custom element targeting 'output' for .labels
+  FAIL      Implicit <label> association should work with a custom element targeting 'progress' for computed name
+  FAIL      Implicit <label> association should work with a custom element targeting 'progress' for .labels
+  FAIL      Implicit <label> association should work with a custom element targeting 'select' for computed name
+  FAIL      Implicit <label> association should work with a custom element targeting 'select' for .labels
+  FAIL      Implicit <label> association should work with a custom element targeting 'textarea' for computed name
+  FAIL      Implicit <label> association should work with a custom element targeting 'textarea' for .labels
+  FAIL      Implicit <label> association should apply to only the first labelable custom element for computed name
+  FAIL      Implicit <label> association should apply to only the first labelable custom element for .labels
+  FAIL      Changing the reference target causes label association to change for computed name
+  FAIL      Changing the reference target causes label association to change for .labels
+OK          0/12  shadow-dom/reference-target/tentative/label-for.html
+  FAIL      Label for attribute targeting a custom element using shadowrootreferencetarget works for computed name
+  FAIL      Label for attribute targeting a custom element using shadowrootreferencetarget works for .labels property
+  FAIL      Label for attribute targeting a custom element using shadowrootreferencetarget inside multiple layers of shadow roots works for computed name
+  FAIL      Label for attribute targeting a custom element using shadowrootreferencetarget inside multiple layers of shadow roots works for .labels property
+  FAIL      Multiple labels targeting a custom element using shadowrootreferencetarget inside multiple layers of shadow roots works for computed name
+  FAIL      Multiple labels targeting a custom element using shadowrootreferencetarget inside multiple layers of shadow roots works for .labels property
+  FAIL      Setting .htmlFor property to target a custom element using shadowrootreferencetarget works for computed name
+  FAIL      Setting .htmlFor property to target a custom element using shadowrootreferencetarget works for .labels
+  FAIL      Modifying the reference target changes the computed label when using label/for
+  FAIL      Modifying the reference target changes .labels when using label/for
+  FAIL      Moving an input from one shadow root to another causes its .labels to be updated
+  FAIL      Attaching a shadow root, inserting and removing a shadow host, and changing reference targets all cause label association to be updated
 OK           0/3  shadow-dom/reference-target/tentative/label-lifetime.html
   FAIL      .labels across shadow roots keeps working across GC
   FAIL      .labels keeps working after an intermediate shadow host is removed and collected
   FAIL      .labels keeps working after its whole tree is removed from the document and only the list is referenced
-ERROR        0/0  shadow-dom/reference-target/tentative/popovertarget.html
-ERROR        0/0  shadow-dom/reference-target/tentative/property-reflection-idl-setters.html
-ERROR        0/0  shadow-dom/reference-target/tentative/property-reflection-imperative-setup.html
-ERROR        0/0  shadow-dom/reference-target/tentative/property-reflection.html
+OK           0/3  shadow-dom/reference-target/tentative/popovertarget.html
+  FAIL      Shadow root reference target works with popovertarget attribute.
+  FAIL      Shadow root reference target works with popovertarget attribute via options.
+  FAIL      Shadow root reference target works with .popoverTargetElement property.
+OK         0/165  shadow-dom/reference-target/tentative/property-reflection-idl-setters.html
+  FAIL      button.form has IDL setter behavior IsNull when pointing to button with reference target
+  FAIL      button.form has IDL setter behavior IsNull when pointing to input with reference target
+  FAIL      button.form has IDL setter behavior IsNull when pointing to meter with reference target
+  FAIL      button.form has IDL setter behavior IsNull when pointing to output with reference target
+  FAIL      button.form has IDL setter behavior IsNull when pointing to progress with reference target
+  FAIL      button.form has IDL setter behavior IsNull when pointing to select with reference target
+  FAIL      button.form has IDL setter behavior IsNull when pointing to textarea with reference target
+  FAIL      button.form has IDL setter behavior IsNull when pointing to div with reference target
+  FAIL      button.form has IDL setter behavior IsNull when pointing to object with reference target
+  FAIL      button.form has IDL setter behavior IsNull when pointing to label with reference target
+  FAIL      button.form has IDL setter behavior IsNull when pointing to fieldset with reference target
+  FAIL      button.form has IDL setter behavior IsNull when pointing to legend with reference target
+  FAIL      button.form has IDL setter behavior IsNull when pointing to option with reference target
+  FAIL      button.form has IDL setter behavior IsNull when pointing to datalist with reference target
+  FAIL      button.form has IDL setter behavior ReflectsHostReadOnly when pointing to form with reference target
+  FAIL      input.form has IDL setter behavior IsNull when pointing to button with reference target
+  FAIL      input.form has IDL setter behavior IsNull when pointing to input with reference target
+  FAIL      input.form has IDL setter behavior IsNull when pointing to meter with reference target
+  FAIL      input.form has IDL setter behavior IsNull when pointing to output with reference target
+  FAIL      input.form has IDL setter behavior IsNull when pointing to progress with reference target
+  FAIL      input.form has IDL setter behavior IsNull when pointing to select with reference target
+  FAIL      input.form has IDL setter behavior IsNull when pointing to textarea with reference target
+  FAIL      input.form has IDL setter behavior IsNull when pointing to div with reference target
+  FAIL      input.form has IDL setter behavior IsNull when pointing to object with reference target
+  FAIL      input.form has IDL setter behavior IsNull when pointing to label with reference target
+  FAIL      input.form has IDL setter behavior IsNull when pointing to fieldset with reference target
+  FAIL      input.form has IDL setter behavior IsNull when pointing to legend with reference target
+  FAIL      input.form has IDL setter behavior IsNull when pointing to option with reference target
+  FAIL      input.form has IDL setter behavior IsNull when pointing to datalist with reference target
+  FAIL      input.form has IDL setter behavior ReflectsHostReadOnly when pointing to form with reference target
+  FAIL      output.htmlFor has IDL setter behavior ReflectsHostIDInDOMTokenList when pointing to button with reference target
+  FAIL      output.form has IDL setter behavior IsNull when pointing to button with reference target
+  FAIL      output.htmlFor has IDL setter behavior ReflectsHostIDInDOMTokenList when pointing to input with reference target
+  FAIL      output.form has IDL setter behavior IsNull when pointing to input with reference target
+  FAIL      output.htmlFor has IDL setter behavior ReflectsHostIDInDOMTokenList when pointing to meter with reference target
+  FAIL      output.form has IDL setter behavior IsNull when pointing to meter with reference target
+  FAIL      output.htmlFor has IDL setter behavior ReflectsHostIDInDOMTokenList when pointing to output with reference target
+  FAIL      output.form has IDL setter behavior IsNull when pointing to output with reference target
+  FAIL      output.htmlFor has IDL setter behavior ReflectsHostIDInDOMTokenList when pointing to progress with reference target
+  FAIL      output.form has IDL setter behavior IsNull when pointing to progress with reference target
+  FAIL      output.htmlFor has IDL setter behavior ReflectsHostIDInDOMTokenList when pointing to select with reference target
+  FAIL      output.form has IDL setter behavior IsNull when pointing to select with reference target
+  FAIL      output.htmlFor has IDL setter behavior ReflectsHostIDInDOMTokenList when pointing to textarea with reference target
+  FAIL      output.form has IDL setter behavior IsNull when pointing to textarea with reference target
+  FAIL      output.htmlFor has IDL setter behavior ReflectsHostIDInDOMTokenList when pointing to div with reference target
+  FAIL      output.form has IDL setter behavior IsNull when pointing to div with reference target
+  FAIL      output.htmlFor has IDL setter behavior ReflectsHostIDInDOMTokenList when pointing to object with reference target
+  FAIL      output.form has IDL setter behavior IsNull when pointing to object with reference target
+  FAIL      output.htmlFor has IDL setter behavior ReflectsHostIDInDOMTokenList when pointing to label with reference target
+  FAIL      output.form has IDL setter behavior IsNull when pointing to label with reference target
+  FAIL      output.htmlFor has IDL setter behavior ReflectsHostIDInDOMTokenList when pointing to fieldset with reference target
+  FAIL      output.form has IDL setter behavior IsNull when pointing to fieldset with reference target
+  FAIL      output.htmlFor has IDL setter behavior ReflectsHostIDInDOMTokenList when pointing to legend with reference target
+  FAIL      output.form has IDL setter behavior IsNull when pointing to legend with reference target
+  FAIL      output.htmlFor has IDL setter behavior ReflectsHostIDInDOMTokenList when pointing to option with reference target
+  FAIL      output.form has IDL setter behavior IsNull when pointing to option with reference target
+  FAIL      output.htmlFor has IDL setter behavior ReflectsHostIDInDOMTokenList when pointing to datalist with reference target
+  FAIL      output.form has IDL setter behavior IsNull when pointing to datalist with reference target
+  FAIL      output.htmlFor has IDL setter behavior ReflectsHostIDInDOMTokenList when pointing to form with reference target
+  FAIL      output.form has IDL setter behavior ReflectsHostReadOnly when pointing to form with reference target
+  FAIL      select.form has IDL setter behavior IsNull when pointing to button with reference target
+  FAIL      select.form has IDL setter behavior IsNull when pointing to input with reference target
+  FAIL      select.form has IDL setter behavior IsNull when pointing to meter with reference target
+  FAIL      select.form has IDL setter behavior IsNull when pointing to output with reference target
+  FAIL      select.form has IDL setter behavior IsNull when pointing to progress with reference target
+  FAIL      select.form has IDL setter behavior IsNull when pointing to select with reference target
+  FAIL      select.form has IDL setter behavior IsNull when pointing to textarea with reference target
+  FAIL      select.form has IDL setter behavior IsNull when pointing to div with reference target
+  FAIL      select.form has IDL setter behavior IsNull when pointing to object with reference target
+  FAIL      select.form has IDL setter behavior IsNull when pointing to label with reference target
+  FAIL      select.form has IDL setter behavior IsNull when pointing to fieldset with reference target
+  FAIL      select.form has IDL setter behavior IsNull when pointing to legend with reference target
+  FAIL      select.form has IDL setter behavior IsNull when pointing to option with reference target
+  FAIL      select.form has IDL setter behavior IsNull when pointing to datalist with reference target
+  FAIL      select.form has IDL setter behavior ReflectsHostReadOnly when pointing to form with reference target
+  FAIL      textarea.form has IDL setter behavior IsNull when pointing to button with reference target
+  FAIL      textarea.form has IDL setter behavior IsNull when pointing to input with reference target
+  FAIL      textarea.form has IDL setter behavior IsNull when pointing to meter with reference target
+  FAIL      textarea.form has IDL setter behavior IsNull when pointing to output with reference target
+  FAIL      textarea.form has IDL setter behavior IsNull when pointing to progress with reference target
+  FAIL      textarea.form has IDL setter behavior IsNull when pointing to select with reference target
+  FAIL      textarea.form has IDL setter behavior IsNull when pointing to textarea with reference target
+  FAIL      textarea.form has IDL setter behavior IsNull when pointing to div with reference target
+  FAIL      textarea.form has IDL setter behavior IsNull when pointing to object with reference target
+  FAIL      textarea.form has IDL setter behavior IsNull when pointing to label with reference target
+  FAIL      textarea.form has IDL setter behavior IsNull when pointing to fieldset with reference target
+  FAIL      textarea.form has IDL setter behavior IsNull when pointing to legend with reference target
+  FAIL      textarea.form has IDL setter behavior IsNull when pointing to option with reference target
+  FAIL      textarea.form has IDL setter behavior IsNull when pointing to datalist with reference target
+  FAIL      textarea.form has IDL setter behavior ReflectsHostReadOnly when pointing to form with reference target
+  FAIL      label.htmlFor has IDL setter behavior ReflectsHostID when pointing to button with reference target
+  FAIL      label.form has IDL setter behavior IsNull when pointing to button with reference target
+  FAIL      label.control has IDL setter behavior ReflectsHostReadOnly when pointing to button with reference target
+  FAIL      label.htmlFor has IDL setter behavior ReflectsHostID when pointing to input with reference target
+  FAIL      label.form has IDL setter behavior IsNull when pointing to input with reference target
+  FAIL      label.control has IDL setter behavior ReflectsHostReadOnly when pointing to input with reference target
+  FAIL      label.htmlFor has IDL setter behavior ReflectsHostID when pointing to meter with reference target
+  FAIL      label.form has IDL setter behavior IsNull when pointing to meter with reference target
+  FAIL      label.control has IDL setter behavior ReflectsHostReadOnly when pointing to meter with reference target
+  FAIL      label.htmlFor has IDL setter behavior ReflectsHostID when pointing to output with reference target
+  FAIL      label.form has IDL setter behavior IsNull when pointing to output with reference target
+  FAIL      label.control has IDL setter behavior ReflectsHostReadOnly when pointing to output with reference target
+  FAIL      label.htmlFor has IDL setter behavior ReflectsHostID when pointing to progress with reference target
+  FAIL      label.form has IDL setter behavior IsNull when pointing to progress with reference target
+  FAIL      label.control has IDL setter behavior ReflectsHostReadOnly when pointing to progress with reference target
+  FAIL      label.htmlFor has IDL setter behavior ReflectsHostID when pointing to select with reference target
+  FAIL      label.form has IDL setter behavior IsNull when pointing to select with reference target
+  FAIL      label.control has IDL setter behavior ReflectsHostReadOnly when pointing to select with reference target
+  FAIL      label.htmlFor has IDL setter behavior ReflectsHostID when pointing to textarea with reference target
+  FAIL      label.form has IDL setter behavior IsNull when pointing to textarea with reference target
+  FAIL      label.control has IDL setter behavior ReflectsHostReadOnly when pointing to textarea with reference target
+  FAIL      label.htmlFor has IDL setter behavior ReflectsHostID when pointing to div with reference target
+  FAIL      label.form has IDL setter behavior IsNull when pointing to div with reference target
+  FAIL      label.control has IDL setter behavior IsNull when pointing to div with reference target
+  FAIL      label.htmlFor has IDL setter behavior ReflectsHostID when pointing to object with reference target
+  FAIL      label.form has IDL setter behavior IsNull when pointing to object with reference target
+  FAIL      label.control has IDL setter behavior IsNull when pointing to object with reference target
+  FAIL      label.htmlFor has IDL setter behavior ReflectsHostID when pointing to label with reference target
+  FAIL      label.form has IDL setter behavior IsNull when pointing to label with reference target
+  FAIL      label.control has IDL setter behavior IsNull when pointing to label with reference target
+  FAIL      label.htmlFor has IDL setter behavior ReflectsHostID when pointing to fieldset with reference target
+  FAIL      label.form has IDL setter behavior IsNull when pointing to fieldset with reference target
+  FAIL      label.control has IDL setter behavior IsNull when pointing to fieldset with reference target
+  FAIL      label.htmlFor has IDL setter behavior ReflectsHostID when pointing to legend with reference target
+  FAIL      label.form has IDL setter behavior IsNull when pointing to legend with reference target
+  FAIL      label.control has IDL setter behavior IsNull when pointing to legend with reference target
+  FAIL      label.htmlFor has IDL setter behavior ReflectsHostID when pointing to option with reference target
+  FAIL      label.form has IDL setter behavior IsNull when pointing to option with reference target
+  FAIL      label.control has IDL setter behavior IsNull when pointing to option with reference target
+  FAIL      label.htmlFor has IDL setter behavior ReflectsHostID when pointing to datalist with reference target
+  FAIL      label.form has IDL setter behavior IsNull when pointing to datalist with reference target
+  FAIL      label.control has IDL setter behavior IsNull when pointing to datalist with reference target
+  FAIL      label.htmlFor has IDL setter behavior ReflectsHostID when pointing to form with reference target
+  FAIL      label.form has IDL setter behavior IsNull when pointing to form with reference target
+  FAIL      label.control has IDL setter behavior IsNull when pointing to form with reference target
+  FAIL      fieldset.form has IDL setter behavior IsNull when pointing to button with reference target
+  FAIL      fieldset.form has IDL setter behavior IsNull when pointing to input with reference target
+  FAIL      fieldset.form has IDL setter behavior IsNull when pointing to meter with reference target
+  FAIL      fieldset.form has IDL setter behavior IsNull when pointing to output with reference target
+  FAIL      fieldset.form has IDL setter behavior IsNull when pointing to progress with reference target
+  FAIL      fieldset.form has IDL setter behavior IsNull when pointing to select with reference target
+  FAIL      fieldset.form has IDL setter behavior IsNull when pointing to textarea with reference target
+  FAIL      fieldset.form has IDL setter behavior IsNull when pointing to div with reference target
+  FAIL      fieldset.form has IDL setter behavior IsNull when pointing to object with reference target
+  FAIL      fieldset.form has IDL setter behavior IsNull when pointing to label with reference target
+  FAIL      fieldset.form has IDL setter behavior IsNull when pointing to fieldset with reference target
+  FAIL      fieldset.form has IDL setter behavior IsNull when pointing to legend with reference target
+  FAIL      fieldset.form has IDL setter behavior IsNull when pointing to option with reference target
+  FAIL      fieldset.form has IDL setter behavior IsNull when pointing to datalist with reference target
+  FAIL      fieldset.form has IDL setter behavior ReflectsHostReadOnly when pointing to form with reference target
+  FAIL      option.form has IDL setter behavior IsNull when pointing to button with reference target
+  FAIL      option.form has IDL setter behavior IsNull when pointing to input with reference target
+  FAIL      option.form has IDL setter behavior IsNull when pointing to meter with reference target
+  FAIL      option.form has IDL setter behavior IsNull when pointing to output with reference target
+  FAIL      option.form has IDL setter behavior IsNull when pointing to progress with reference target
+  FAIL      option.form has IDL setter behavior IsNull when pointing to select with reference target
+  FAIL      option.form has IDL setter behavior IsNull when pointing to textarea with reference target
+  FAIL      option.form has IDL setter behavior IsNull when pointing to div with reference target
+  FAIL      option.form has IDL setter behavior IsNull when pointing to object with reference target
+  FAIL      option.form has IDL setter behavior IsNull when pointing to label with reference target
+  FAIL      option.form has IDL setter behavior IsNull when pointing to fieldset with reference target
+  FAIL      option.form has IDL setter behavior IsNull when pointing to legend with reference target
+  FAIL      option.form has IDL setter behavior IsNull when pointing to option with reference target
+  FAIL      option.form has IDL setter behavior IsNull when pointing to datalist with reference target
+  FAIL      option.form has IDL setter behavior IsNull when pointing to form with reference target
+OK         0/165  shadow-dom/reference-target/tentative/property-reflection-imperative-setup.html
+  FAIL      button.form has reflection behavior IsNull when pointing to button with reference target with imperative setup
+  FAIL      button.form has reflection behavior IsNull when pointing to input with reference target with imperative setup
+  FAIL      button.form has reflection behavior IsNull when pointing to meter with reference target with imperative setup
+  FAIL      button.form has reflection behavior IsNull when pointing to output with reference target with imperative setup
+  FAIL      button.form has reflection behavior IsNull when pointing to progress with reference target with imperative setup
+  FAIL      button.form has reflection behavior IsNull when pointing to select with reference target with imperative setup
+  FAIL      button.form has reflection behavior IsNull when pointing to textarea with reference target with imperative setup
+  FAIL      button.form has reflection behavior IsNull when pointing to div with reference target with imperative setup
+  FAIL      button.form has reflection behavior IsNull when pointing to object with reference target with imperative setup
+  FAIL      button.form has reflection behavior IsNull when pointing to label with reference target with imperative setup
+  FAIL      button.form has reflection behavior IsNull when pointing to fieldset with reference target with imperative setup
+  FAIL      button.form has reflection behavior IsNull when pointing to legend with reference target with imperative setup
+  FAIL      button.form has reflection behavior IsNull when pointing to option with reference target with imperative setup
+  FAIL      button.form has reflection behavior IsNull when pointing to datalist with reference target with imperative setup
+  FAIL      button.form has reflection behavior ReflectsHostReadOnly when pointing to form with reference target with imperative setup
+  FAIL      input.form has reflection behavior IsNull when pointing to button with reference target with imperative setup
+  FAIL      input.form has reflection behavior IsNull when pointing to input with reference target with imperative setup
+  FAIL      input.form has reflection behavior IsNull when pointing to meter with reference target with imperative setup
+  FAIL      input.form has reflection behavior IsNull when pointing to output with reference target with imperative setup
+  FAIL      input.form has reflection behavior IsNull when pointing to progress with reference target with imperative setup
+  FAIL      input.form has reflection behavior IsNull when pointing to select with reference target with imperative setup
+  FAIL      input.form has reflection behavior IsNull when pointing to textarea with reference target with imperative setup
+  FAIL      input.form has reflection behavior IsNull when pointing to div with reference target with imperative setup
+  FAIL      input.form has reflection behavior IsNull when pointing to object with reference target with imperative setup
+  FAIL      input.form has reflection behavior IsNull when pointing to label with reference target with imperative setup
+  FAIL      input.form has reflection behavior IsNull when pointing to fieldset with reference target with imperative setup
+  FAIL      input.form has reflection behavior IsNull when pointing to legend with reference target with imperative setup
+  FAIL      input.form has reflection behavior IsNull when pointing to option with reference target with imperative setup
+  FAIL      input.form has reflection behavior IsNull when pointing to datalist with reference target with imperative setup
+  FAIL      input.form has reflection behavior ReflectsHostReadOnly when pointing to form with reference target with imperative setup
+  FAIL      output.htmlFor has reflection behavior ReflectsHostIDInDOMTokenList when pointing to button with reference target with imperative setup
+  FAIL      output.form has reflection behavior IsNull when pointing to button with reference target with imperative setup
+  FAIL      output.htmlFor has reflection behavior ReflectsHostIDInDOMTokenList when pointing to input with reference target with imperative setup
+  FAIL      output.form has reflection behavior IsNull when pointing to input with reference target with imperative setup
+  FAIL      output.htmlFor has reflection behavior ReflectsHostIDInDOMTokenList when pointing to meter with reference target with imperative setup
+  FAIL      output.form has reflection behavior IsNull when pointing to meter with reference target with imperative setup
+  FAIL      output.htmlFor has reflection behavior ReflectsHostIDInDOMTokenList when pointing to output with reference target with imperative setup
+  FAIL      output.form has reflection behavior IsNull when pointing to output with reference target with imperative setup
+  FAIL      output.htmlFor has reflection behavior ReflectsHostIDInDOMTokenList when pointing to progress with reference target with imperative setup
+  FAIL      output.form has reflection behavior IsNull when pointing to progress with reference target with imperative setup
+  FAIL      output.htmlFor has reflection behavior ReflectsHostIDInDOMTokenList when pointing to select with reference target with imperative setup
+  FAIL      output.form has reflection behavior IsNull when pointing to select with reference target with imperative setup
+  FAIL      output.htmlFor has reflection behavior ReflectsHostIDInDOMTokenList when pointing to textarea with reference target with imperative setup
+  FAIL      output.form has reflection behavior IsNull when pointing to textarea with reference target with imperative setup
+  FAIL      output.htmlFor has reflection behavior ReflectsHostIDInDOMTokenList when pointing to div with reference target with imperative setup
+  FAIL      output.form has reflection behavior IsNull when pointing to div with reference target with imperative setup
+  FAIL      output.htmlFor has reflection behavior ReflectsHostIDInDOMTokenList when pointing to object with reference target with imperative setup
+  FAIL      output.form has reflection behavior IsNull when pointing to object with reference target with imperative setup
+  FAIL      output.htmlFor has reflection behavior ReflectsHostIDInDOMTokenList when pointing to label with reference target with imperative setup
+  FAIL      output.form has reflection behavior IsNull when pointing to label with reference target with imperative setup
+  FAIL      output.htmlFor has reflection behavior ReflectsHostIDInDOMTokenList when pointing to fieldset with reference target with imperative setup
+  FAIL      output.form has reflection behavior IsNull when pointing to fieldset with reference target with imperative setup
+  FAIL      output.htmlFor has reflection behavior ReflectsHostIDInDOMTokenList when pointing to legend with reference target with imperative setup
+  FAIL      output.form has reflection behavior IsNull when pointing to legend with reference target with imperative setup
+  FAIL      output.htmlFor has reflection behavior ReflectsHostIDInDOMTokenList when pointing to option with reference target with imperative setup
+  FAIL      output.form has reflection behavior IsNull when pointing to option with reference target with imperative setup
+  FAIL      output.htmlFor has reflection behavior ReflectsHostIDInDOMTokenList when pointing to datalist with reference target with imperative setup
+  FAIL      output.form has reflection behavior IsNull when pointing to datalist with reference target with imperative setup
+  FAIL      output.htmlFor has reflection behavior ReflectsHostIDInDOMTokenList when pointing to form with reference target with imperative setup
+  FAIL      output.form has reflection behavior ReflectsHostReadOnly when pointing to form with reference target with imperative setup
+  FAIL      select.form has reflection behavior IsNull when pointing to button with reference target with imperative setup
+  FAIL      select.form has reflection behavior IsNull when pointing to input with reference target with imperative setup
+  FAIL      select.form has reflection behavior IsNull when pointing to meter with reference target with imperative setup
+  FAIL      select.form has reflection behavior IsNull when pointing to output with reference target with imperative setup
+  FAIL      select.form has reflection behavior IsNull when pointing to progress with reference target with imperative setup
+  FAIL      select.form has reflection behavior IsNull when pointing to select with reference target with imperative setup
+  FAIL      select.form has reflection behavior IsNull when pointing to textarea with reference target with imperative setup
+  FAIL      select.form has reflection behavior IsNull when pointing to div with reference target with imperative setup
+  FAIL      select.form has reflection behavior IsNull when pointing to object with reference target with imperative setup
+  FAIL      select.form has reflection behavior IsNull when pointing to label with reference target with imperative setup
+  FAIL      select.form has reflection behavior IsNull when pointing to fieldset with reference target with imperative setup
+  FAIL      select.form has reflection behavior IsNull when pointing to legend with reference target with imperative setup
+  FAIL      select.form has reflection behavior IsNull when pointing to option with reference target with imperative setup
+  FAIL      select.form has reflection behavior IsNull when pointing to datalist with reference target with imperative setup
+  FAIL      select.form has reflection behavior ReflectsHostReadOnly when pointing to form with reference target with imperative setup
+  FAIL      textarea.form has reflection behavior IsNull when pointing to button with reference target with imperative setup
+  FAIL      textarea.form has reflection behavior IsNull when pointing to input with reference target with imperative setup
+  FAIL      textarea.form has reflection behavior IsNull when pointing to meter with reference target with imperative setup
+  FAIL      textarea.form has reflection behavior IsNull when pointing to output with reference target with imperative setup
+  FAIL      textarea.form has reflection behavior IsNull when pointing to progress with reference target with imperative setup
+  FAIL      textarea.form has reflection behavior IsNull when pointing to select with reference target with imperative setup
+  FAIL      textarea.form has reflection behavior IsNull when pointing to textarea with reference target with imperative setup
+  FAIL      textarea.form has reflection behavior IsNull when pointing to div with reference target with imperative setup
+  FAIL      textarea.form has reflection behavior IsNull when pointing to object with reference target with imperative setup
+  FAIL      textarea.form has reflection behavior IsNull when pointing to label with reference target with imperative setup
+  FAIL      textarea.form has reflection behavior IsNull when pointing to fieldset with reference target with imperative setup
+  FAIL      textarea.form has reflection behavior IsNull when pointing to legend with reference target with imperative setup
+  FAIL      textarea.form has reflection behavior IsNull when pointing to option with reference target with imperative setup
+  FAIL      textarea.form has reflection behavior IsNull when pointing to datalist with reference target with imperative setup
+  FAIL      textarea.form has reflection behavior ReflectsHostReadOnly when pointing to form with reference target with imperative setup
+  FAIL      label.htmlFor has reflection behavior ReflectsHostID when pointing to button with reference target with imperative setup
+  FAIL      label.form has reflection behavior IsNull when pointing to button with reference target with imperative setup
+  FAIL      label.control has reflection behavior ReflectsHostReadOnly when pointing to button with reference target with imperative setup
+  FAIL      label.htmlFor has reflection behavior ReflectsHostID when pointing to input with reference target with imperative setup
+  FAIL      label.form has reflection behavior IsNull when pointing to input with reference target with imperative setup
+  FAIL      label.control has reflection behavior ReflectsHostReadOnly when pointing to input with reference target with imperative setup
+  FAIL      label.htmlFor has reflection behavior ReflectsHostID when pointing to meter with reference target with imperative setup
+  FAIL      label.form has reflection behavior IsNull when pointing to meter with reference target with imperative setup
+  FAIL      label.control has reflection behavior ReflectsHostReadOnly when pointing to meter with reference target with imperative setup
+  FAIL      label.htmlFor has reflection behavior ReflectsHostID when pointing to output with reference target with imperative setup
+  FAIL      label.form has reflection behavior IsNull when pointing to output with reference target with imperative setup
+  FAIL      label.control has reflection behavior ReflectsHostReadOnly when pointing to output with reference target with imperative setup
+  FAIL      label.htmlFor has reflection behavior ReflectsHostID when pointing to progress with reference target with imperative setup
+  FAIL      label.form has reflection behavior IsNull when pointing to progress with reference target with imperative setup
+  FAIL      label.control has reflection behavior ReflectsHostReadOnly when pointing to progress with reference target with imperative setup
+  FAIL      label.htmlFor has reflection behavior ReflectsHostID when pointing to select with reference target with imperative setup
+  FAIL      label.form has reflection behavior IsNull when pointing to select with reference target with imperative setup
+  FAIL      label.control has reflection behavior ReflectsHostReadOnly when pointing to select with reference target with imperative setup
+  FAIL      label.htmlFor has reflection behavior ReflectsHostID when pointing to textarea with reference target with imperative setup
+  FAIL      label.form has reflection behavior IsNull when pointing to textarea with reference target with imperative setup
+  FAIL      label.control has reflection behavior ReflectsHostReadOnly when pointing to textarea with reference target with imperative setup
+  FAIL      label.htmlFor has reflection behavior ReflectsHostID when pointing to div with reference target with imperative setup
+  FAIL      label.form has reflection behavior IsNull when pointing to div with reference target with imperative setup
+  FAIL      label.control has reflection behavior IsNull when pointing to div with reference target with imperative setup
+  FAIL      label.htmlFor has reflection behavior ReflectsHostID when pointing to object with reference target with imperative setup
+  FAIL      label.form has reflection behavior IsNull when pointing to object with reference target with imperative setup
+  FAIL      label.control has reflection behavior IsNull when pointing to object with reference target with imperative setup
+  FAIL      label.htmlFor has reflection behavior ReflectsHostID when pointing to label with reference target with imperative setup
+  FAIL      label.form has reflection behavior IsNull when pointing to label with reference target with imperative setup
+  FAIL      label.control has reflection behavior IsNull when pointing to label with reference target with imperative setup
+  FAIL      label.htmlFor has reflection behavior ReflectsHostID when pointing to fieldset with reference target with imperative setup
+  FAIL      label.form has reflection behavior IsNull when pointing to fieldset with reference target with imperative setup
+  FAIL      label.control has reflection behavior IsNull when pointing to fieldset with reference target with imperative setup
+  FAIL      label.htmlFor has reflection behavior ReflectsHostID when pointing to legend with reference target with imperative setup
+  FAIL      label.form has reflection behavior IsNull when pointing to legend with reference target with imperative setup
+  FAIL      label.control has reflection behavior IsNull when pointing to legend with reference target with imperative setup
+  FAIL      label.htmlFor has reflection behavior ReflectsHostID when pointing to option with reference target with imperative setup
+  FAIL      label.form has reflection behavior IsNull when pointing to option with reference target with imperative setup
+  FAIL      label.control has reflection behavior IsNull when pointing to option with reference target with imperative setup
+  FAIL      label.htmlFor has reflection behavior ReflectsHostID when pointing to datalist with reference target with imperative setup
+  FAIL      label.form has reflection behavior IsNull when pointing to datalist with reference target with imperative setup
+  FAIL      label.control has reflection behavior IsNull when pointing to datalist with reference target with imperative setup
+  FAIL      label.htmlFor has reflection behavior ReflectsHostID when pointing to form with reference target with imperative setup
+  FAIL      label.form has reflection behavior IsNull when pointing to form with reference target with imperative setup
+  FAIL      label.control has reflection behavior IsNull when pointing to form with reference target with imperative setup
+  FAIL      fieldset.form has reflection behavior IsNull when pointing to button with reference target with imperative setup
+  FAIL      fieldset.form has reflection behavior IsNull when pointing to input with reference target with imperative setup
+  FAIL      fieldset.form has reflection behavior IsNull when pointing to meter with reference target with imperative setup
+  FAIL      fieldset.form has reflection behavior IsNull when pointing to output with reference target with imperative setup
+  FAIL      fieldset.form has reflection behavior IsNull when pointing to progress with reference target with imperative setup
+  FAIL      fieldset.form has reflection behavior IsNull when pointing to select with reference target with imperative setup
+  FAIL      fieldset.form has reflection behavior IsNull when pointing to textarea with reference target with imperative setup
+  FAIL      fieldset.form has reflection behavior IsNull when pointing to div with reference target with imperative setup
+  FAIL      fieldset.form has reflection behavior IsNull when pointing to object with reference target with imperative setup
+  FAIL      fieldset.form has reflection behavior IsNull when pointing to label with reference target with imperative setup
+  FAIL      fieldset.form has reflection behavior IsNull when pointing to fieldset with reference target with imperative setup
+  FAIL      fieldset.form has reflection behavior IsNull when pointing to legend with reference target with imperative setup
+  FAIL      fieldset.form has reflection behavior IsNull when pointing to option with reference target with imperative setup
+  FAIL      fieldset.form has reflection behavior IsNull when pointing to datalist with reference target with imperative setup
+  FAIL      fieldset.form has reflection behavior ReflectsHostReadOnly when pointing to form with reference target with imperative setup
+  FAIL      option.form has reflection behavior IsNull when pointing to button with reference target with imperative setup
+  FAIL      option.form has reflection behavior IsNull when pointing to input with reference target with imperative setup
+  FAIL      option.form has reflection behavior IsNull when pointing to meter with reference target with imperative setup
+  FAIL      option.form has reflection behavior IsNull when pointing to output with reference target with imperative setup
+  FAIL      option.form has reflection behavior IsNull when pointing to progress with reference target with imperative setup
+  FAIL      option.form has reflection behavior IsNull when pointing to select with reference target with imperative setup
+  FAIL      option.form has reflection behavior IsNull when pointing to textarea with reference target with imperative setup
+  FAIL      option.form has reflection behavior IsNull when pointing to div with reference target with imperative setup
+  FAIL      option.form has reflection behavior IsNull when pointing to object with reference target with imperative setup
+  FAIL      option.form has reflection behavior IsNull when pointing to label with reference target with imperative setup
+  FAIL      option.form has reflection behavior IsNull when pointing to fieldset with reference target with imperative setup
+  FAIL      option.form has reflection behavior IsNull when pointing to legend with reference target with imperative setup
+  FAIL      option.form has reflection behavior IsNull when pointing to option with reference target with imperative setup
+  FAIL      option.form has reflection behavior IsNull when pointing to datalist with reference target with imperative setup
+  FAIL      option.form has reflection behavior IsNull when pointing to form with reference target with imperative setup
+OK         0/166  shadow-dom/reference-target/tentative/property-reflection.html
+  FAIL      button.form has reflection behavior IsNull when pointing to button with reference target
+  FAIL      button.form has reflection behavior IsNull when pointing to input with reference target
+  FAIL      button.form has reflection behavior IsNull when pointing to meter with reference target
+  FAIL      button.form has reflection behavior IsNull when pointing to output with reference target
+  FAIL      button.form has reflection behavior IsNull when pointing to progress with reference target
+  FAIL      button.form has reflection behavior IsNull when pointing to select with reference target
+  FAIL      button.form has reflection behavior IsNull when pointing to textarea with reference target
+  FAIL      button.form has reflection behavior IsNull when pointing to div with reference target
+  FAIL      button.form has reflection behavior IsNull when pointing to object with reference target
+  FAIL      button.form has reflection behavior IsNull when pointing to label with reference target
+  FAIL      button.form has reflection behavior IsNull when pointing to fieldset with reference target
+  FAIL      button.form has reflection behavior IsNull when pointing to legend with reference target
+  FAIL      button.form has reflection behavior IsNull when pointing to option with reference target
+  FAIL      button.form has reflection behavior IsNull when pointing to datalist with reference target
+  FAIL      button.form has reflection behavior ReflectsHostReadOnly when pointing to form with reference target
+  FAIL      input.form has reflection behavior IsNull when pointing to button with reference target
+  FAIL      input.form has reflection behavior IsNull when pointing to input with reference target
+  FAIL      input.form has reflection behavior IsNull when pointing to meter with reference target
+  FAIL      input.form has reflection behavior IsNull when pointing to output with reference target
+  FAIL      input.form has reflection behavior IsNull when pointing to progress with reference target
+  FAIL      input.form has reflection behavior IsNull when pointing to select with reference target
+  FAIL      input.form has reflection behavior IsNull when pointing to textarea with reference target
+  FAIL      input.form has reflection behavior IsNull when pointing to div with reference target
+  FAIL      input.form has reflection behavior IsNull when pointing to object with reference target
+  FAIL      input.form has reflection behavior IsNull when pointing to label with reference target
+  FAIL      input.form has reflection behavior IsNull when pointing to fieldset with reference target
+  FAIL      input.form has reflection behavior IsNull when pointing to legend with reference target
+  FAIL      input.form has reflection behavior IsNull when pointing to option with reference target
+  FAIL      input.form has reflection behavior IsNull when pointing to datalist with reference target
+  FAIL      input.form has reflection behavior ReflectsHostReadOnly when pointing to form with reference target
+  FAIL      output.htmlFor has reflection behavior ReflectsHostIDInDOMTokenList when pointing to button with reference target
+  FAIL      output.form has reflection behavior IsNull when pointing to button with reference target
+  FAIL      output.htmlFor has reflection behavior ReflectsHostIDInDOMTokenList when pointing to input with reference target
+  FAIL      output.form has reflection behavior IsNull when pointing to input with reference target
+  FAIL      output.htmlFor has reflection behavior ReflectsHostIDInDOMTokenList when pointing to meter with reference target
+  FAIL      output.form has reflection behavior IsNull when pointing to meter with reference target
+  FAIL      output.htmlFor has reflection behavior ReflectsHostIDInDOMTokenList when pointing to output with reference target
+  FAIL      output.form has reflection behavior IsNull when pointing to output with reference target
+  FAIL      output.htmlFor has reflection behavior ReflectsHostIDInDOMTokenList when pointing to progress with reference target
+  FAIL      output.form has reflection behavior IsNull when pointing to progress with reference target
+  FAIL      output.htmlFor has reflection behavior ReflectsHostIDInDOMTokenList when pointing to select with reference target
+  FAIL      output.form has reflection behavior IsNull when pointing to select with reference target
+  FAIL      output.htmlFor has reflection behavior ReflectsHostIDInDOMTokenList when pointing to textarea with reference target
+  FAIL      output.form has reflection behavior IsNull when pointing to textarea with reference target
+  FAIL      output.htmlFor has reflection behavior ReflectsHostIDInDOMTokenList when pointing to div with reference target
+  FAIL      output.form has reflection behavior IsNull when pointing to div with reference target
+  FAIL      output.htmlFor has reflection behavior ReflectsHostIDInDOMTokenList when pointing to object with reference target
+  FAIL      output.form has reflection behavior IsNull when pointing to object with reference target
+  FAIL      output.htmlFor has reflection behavior ReflectsHostIDInDOMTokenList when pointing to label with reference target
+  FAIL      output.form has reflection behavior IsNull when pointing to label with reference target
+  FAIL      output.htmlFor has reflection behavior ReflectsHostIDInDOMTokenList when pointing to fieldset with reference target
+  FAIL      output.form has reflection behavior IsNull when pointing to fieldset with reference target
+  FAIL      output.htmlFor has reflection behavior ReflectsHostIDInDOMTokenList when pointing to legend with reference target
+  FAIL      output.form has reflection behavior IsNull when pointing to legend with reference target
+  FAIL      output.htmlFor has reflection behavior ReflectsHostIDInDOMTokenList when pointing to option with reference target
+  FAIL      output.form has reflection behavior IsNull when pointing to option with reference target
+  FAIL      output.htmlFor has reflection behavior ReflectsHostIDInDOMTokenList when pointing to datalist with reference target
+  FAIL      output.form has reflection behavior IsNull when pointing to datalist with reference target
+  FAIL      output.htmlFor has reflection behavior ReflectsHostIDInDOMTokenList when pointing to form with reference target
+  FAIL      output.form has reflection behavior ReflectsHostReadOnly when pointing to form with reference target
+  FAIL      select.form has reflection behavior IsNull when pointing to button with reference target
+  FAIL      select.form has reflection behavior IsNull when pointing to input with reference target
+  FAIL      select.form has reflection behavior IsNull when pointing to meter with reference target
+  FAIL      select.form has reflection behavior IsNull when pointing to output with reference target
+  FAIL      select.form has reflection behavior IsNull when pointing to progress with reference target
+  FAIL      select.form has reflection behavior IsNull when pointing to select with reference target
+  FAIL      select.form has reflection behavior IsNull when pointing to textarea with reference target
+  FAIL      select.form has reflection behavior IsNull when pointing to div with reference target
+  FAIL      select.form has reflection behavior IsNull when pointing to object with reference target
+  FAIL      select.form has reflection behavior IsNull when pointing to label with reference target
+  FAIL      select.form has reflection behavior IsNull when pointing to fieldset with reference target
+  FAIL      select.form has reflection behavior IsNull when pointing to legend with reference target
+  FAIL      select.form has reflection behavior IsNull when pointing to option with reference target
+  FAIL      select.form has reflection behavior IsNull when pointing to datalist with reference target
+  FAIL      select.form has reflection behavior ReflectsHostReadOnly when pointing to form with reference target
+  FAIL      textarea.form has reflection behavior IsNull when pointing to button with reference target
+  FAIL      textarea.form has reflection behavior IsNull when pointing to input with reference target
+  FAIL      textarea.form has reflection behavior IsNull when pointing to meter with reference target
+  FAIL      textarea.form has reflection behavior IsNull when pointing to output with reference target
+  FAIL      textarea.form has reflection behavior IsNull when pointing to progress with reference target
+  FAIL      textarea.form has reflection behavior IsNull when pointing to select with reference target
+  FAIL      textarea.form has reflection behavior IsNull when pointing to textarea with reference target
+  FAIL      textarea.form has reflection behavior IsNull when pointing to div with reference target
+  FAIL      textarea.form has reflection behavior IsNull when pointing to object with reference target
+  FAIL      textarea.form has reflection behavior IsNull when pointing to label with reference target
+  FAIL      textarea.form has reflection behavior IsNull when pointing to fieldset with reference target
+  FAIL      textarea.form has reflection behavior IsNull when pointing to legend with reference target
+  FAIL      textarea.form has reflection behavior IsNull when pointing to option with reference target
+  FAIL      textarea.form has reflection behavior IsNull when pointing to datalist with reference target
+  FAIL      textarea.form has reflection behavior ReflectsHostReadOnly when pointing to form with reference target
+  FAIL      label.htmlFor has reflection behavior ReflectsHostID when pointing to button with reference target
+  FAIL      label.form has reflection behavior IsNull when pointing to button with reference target
+  FAIL      label.control has reflection behavior ReflectsHostReadOnly when pointing to button with reference target
+  FAIL      label.htmlFor has reflection behavior ReflectsHostID when pointing to input with reference target
+  FAIL      label.form has reflection behavior IsNull when pointing to input with reference target
+  FAIL      label.control has reflection behavior ReflectsHostReadOnly when pointing to input with reference target
+  FAIL      label.htmlFor has reflection behavior ReflectsHostID when pointing to meter with reference target
+  FAIL      label.form has reflection behavior IsNull when pointing to meter with reference target
+  FAIL      label.control has reflection behavior ReflectsHostReadOnly when pointing to meter with reference target
+  FAIL      label.htmlFor has reflection behavior ReflectsHostID when pointing to output with reference target
+  FAIL      label.form has reflection behavior IsNull when pointing to output with reference target
+  FAIL      label.control has reflection behavior ReflectsHostReadOnly when pointing to output with reference target
+  FAIL      label.htmlFor has reflection behavior ReflectsHostID when pointing to progress with reference target
+  FAIL      label.form has reflection behavior IsNull when pointing to progress with reference target
+  FAIL      label.control has reflection behavior ReflectsHostReadOnly when pointing to progress with reference target
+  FAIL      label.htmlFor has reflection behavior ReflectsHostID when pointing to select with reference target
+  FAIL      label.form has reflection behavior IsNull when pointing to select with reference target
+  FAIL      label.control has reflection behavior ReflectsHostReadOnly when pointing to select with reference target
+  FAIL      label.htmlFor has reflection behavior ReflectsHostID when pointing to textarea with reference target
+  FAIL      label.form has reflection behavior IsNull when pointing to textarea with reference target
+  FAIL      label.control has reflection behavior ReflectsHostReadOnly when pointing to textarea with reference target
+  FAIL      label.htmlFor has reflection behavior ReflectsHostID when pointing to div with reference target
+  FAIL      label.form has reflection behavior IsNull when pointing to div with reference target
+  FAIL      label.control has reflection behavior IsNull when pointing to div with reference target
+  FAIL      label.htmlFor has reflection behavior ReflectsHostID when pointing to object with reference target
+  FAIL      label.form has reflection behavior IsNull when pointing to object with reference target
+  FAIL      label.control has reflection behavior IsNull when pointing to object with reference target
+  FAIL      label.htmlFor has reflection behavior ReflectsHostID when pointing to label with reference target
+  FAIL      label.form has reflection behavior IsNull when pointing to label with reference target
+  FAIL      label.control has reflection behavior IsNull when pointing to label with reference target
+  FAIL      label.htmlFor has reflection behavior ReflectsHostID when pointing to fieldset with reference target
+  FAIL      label.form has reflection behavior IsNull when pointing to fieldset with reference target
+  FAIL      label.control has reflection behavior IsNull when pointing to fieldset with reference target
+  FAIL      label.htmlFor has reflection behavior ReflectsHostID when pointing to legend with reference target
+  FAIL      label.form has reflection behavior IsNull when pointing to legend with reference target
+  FAIL      label.control has reflection behavior IsNull when pointing to legend with reference target
+  FAIL      label.htmlFor has reflection behavior ReflectsHostID when pointing to option with reference target
+  FAIL      label.form has reflection behavior IsNull when pointing to option with reference target
+  FAIL      label.control has reflection behavior IsNull when pointing to option with reference target
+  FAIL      label.htmlFor has reflection behavior ReflectsHostID when pointing to datalist with reference target
+  FAIL      label.form has reflection behavior IsNull when pointing to datalist with reference target
+  FAIL      label.control has reflection behavior IsNull when pointing to datalist with reference target
+  FAIL      label.htmlFor has reflection behavior ReflectsHostID when pointing to form with reference target
+  FAIL      label.form has reflection behavior IsNull when pointing to form with reference target
+  FAIL      label.control has reflection behavior IsNull when pointing to form with reference target
+  FAIL      fieldset.form has reflection behavior IsNull when pointing to button with reference target
+  FAIL      fieldset.form has reflection behavior IsNull when pointing to input with reference target
+  FAIL      fieldset.form has reflection behavior IsNull when pointing to meter with reference target
+  FAIL      fieldset.form has reflection behavior IsNull when pointing to output with reference target
+  FAIL      fieldset.form has reflection behavior IsNull when pointing to progress with reference target
+  FAIL      fieldset.form has reflection behavior IsNull when pointing to select with reference target
+  FAIL      fieldset.form has reflection behavior IsNull when pointing to textarea with reference target
+  FAIL      fieldset.form has reflection behavior IsNull when pointing to div with reference target
+  FAIL      fieldset.form has reflection behavior IsNull when pointing to object with reference target
+  FAIL      fieldset.form has reflection behavior IsNull when pointing to label with reference target
+  FAIL      fieldset.form has reflection behavior IsNull when pointing to fieldset with reference target
+  FAIL      fieldset.form has reflection behavior IsNull when pointing to legend with reference target
+  FAIL      fieldset.form has reflection behavior IsNull when pointing to option with reference target
+  FAIL      fieldset.form has reflection behavior IsNull when pointing to datalist with reference target
+  FAIL      fieldset.form has reflection behavior ReflectsHostReadOnly when pointing to form with reference target
+  FAIL      option.form has reflection behavior IsNull when pointing to button with reference target
+  FAIL      option.form has reflection behavior IsNull when pointing to input with reference target
+  FAIL      option.form has reflection behavior IsNull when pointing to meter with reference target
+  FAIL      option.form has reflection behavior IsNull when pointing to output with reference target
+  FAIL      option.form has reflection behavior IsNull when pointing to progress with reference target
+  FAIL      option.form has reflection behavior IsNull when pointing to select with reference target
+  FAIL      option.form has reflection behavior IsNull when pointing to textarea with reference target
+  FAIL      option.form has reflection behavior IsNull when pointing to div with reference target
+  FAIL      option.form has reflection behavior IsNull when pointing to object with reference target
+  FAIL      option.form has reflection behavior IsNull when pointing to label with reference target
+  FAIL      option.form has reflection behavior IsNull when pointing to fieldset with reference target
+  FAIL      option.form has reflection behavior IsNull when pointing to legend with reference target
+  FAIL      option.form has reflection behavior IsNull when pointing to option with reference target
+  FAIL      option.form has reflection behavior IsNull when pointing to datalist with reference target
+  FAIL      option.form has reflection behavior IsNull when pointing to form with reference target
+  FAIL      The .labels property of the referenced input element should point to the referencing label element
 OK           0/6  shadow-dom/reference-target/tentative/reference-target-basics.html
   FAIL      ShadowRoot.referenceTarget defaults to null when shadow is created declaratively
   FAIL      Empty shadowrootreferencetarget attribute is reflected as empty string

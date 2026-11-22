@@ -2025,7 +2025,8 @@ OK           0/4  dom/nodes/moveBefore/form-associated-custom-element-reset.html
   FAIL      Moving a non-form ID match updates custom control form owners in a shadow tree
   FAIL      Moving an ancestor of an ID match across a shadow boundary updates custom control form owners in both trees
   FAIL      Moving a custom control without an ID across a shadow boundary resets its form owner
-ERROR        0/0  dom/nodes/moveBefore/fullscreen-preserve.html
+OK           0/1  dom/nodes/moveBefore/fullscreen-preserve.html
+  FAIL      Document#fullscreenElement
 OK           0/2  dom/nodes/moveBefore/hover-style-update.html
   FAIL      Element loses hover when moved to different position
   FAIL      Hover works immediately after moved

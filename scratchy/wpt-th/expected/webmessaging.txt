@@ -44,8 +44,15 @@ OK           0/7  webmessaging/broadcastchannel/basics.any.html
 OK           0/2  webmessaging/broadcastchannel/blobs.html
   FAIL      Blobs work on BroadcastChannel
   FAIL      Blobs work with workers on BroadcastChannel
-ERROR        0/0  webmessaging/broadcastchannel/cross-origin.html
-ERROR        0/0  webmessaging/broadcastchannel/detached-iframe.html
+OK           0/1  webmessaging/broadcastchannel/cross-origin.html
+  FAIL      Messages aren't delivered across origins
+OK           0/6  webmessaging/broadcastchannel/detached-iframe.html
+  FAIL      BroadcastChannel messages from detached iframe to parent should be ignored (BC created before detaching)
+  FAIL      BroadcastChannel messages from detached iframe to parent should be ignored (BC created after detaching)
+  FAIL      BroadcastChannel messages from parent to detached iframe should be ignored (BC created before detaching)
+  FAIL      BroadcastChannel messages from parent to detached iframe should be ignored (BC created after detaching)
+  FAIL      BroadcastChannel messages within detached iframe should be ignored (BCs created before detaching)
+  FAIL      BroadcastChannel messages within detached iframe should be ignored (BCs created after detaching)
 OK          0/13  webmessaging/broadcastchannel/interface.any.html
   FAIL      Should throw if no name is provided
   FAIL      Null name should not throw
@@ -88,7 +95,9 @@ OK           4/6  webmessaging/message-channels/close.any.html
   FAIL      close() detaches a MessagePort (but not the one its entangled with)
 TIMEOUT      0/1  webmessaging/message-channels/cross-document.html
   TIMEOUT   cross-document channel
-ERROR        0/0  webmessaging/message-channels/detached-iframe.window.html
+OK           0/2  webmessaging/message-channels/detached-iframe.window.html
+  FAIL      MessageChannel created from a detached iframe should not send messages (remove after create)
+  FAIL      MessageChannel created from a detached iframe should not send messages (remove before create)
 OK           1/1  webmessaging/message-channels/dictionary-transferrable.any.html
 OK           3/3  webmessaging/message-channels/historical.any.html
 OK           1/1  webmessaging/message-channels/implied-start.any.html

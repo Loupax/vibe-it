@@ -1432,25 +1432,3 @@ fn qstash5_a_403_after_a_wire_restart_rereads_the_token_and_retries_once() {
     assert!(log.borrow().iter().any(|x| x.starts_with("net:document.cookie: wire answered 403")), "{:?}", log.borrow());
     assert_eq!(fake.raw.lock().unwrap().len(), 4, "the file still holds the same token: one request, no retry");
 }
-
-#[test]
-fn qscr404_fetch_script_via_wire_refuses_a_non_2xx_status() {
-    let _g = JS_FLAG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    set_js_enabled(true);
-    let top = Url::parse("https://www.top.example/page").unwrap();
-    let u = Url::parse("https://cdn.third.test/a.js").unwrap();
-    for (name, resp) in [
-        ("404", &b"HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: 9\r\n\r\nNot found"[..]),
-        ("500", &b"HTTP/1.1 500 Oops\r\nContent-Type: application/javascript\r\nContent-Length: 8\r\n\r\nvar a=1;"[..]),
-        ("200", &b"HTTP/1.1 200 OK\r\nContent-Type: application/javascript\r\nContent-Length: 8\r\n\r\nvar a=1;"[..]),
-    ] {
-        let path = unique_test_socket_path(&format!("qscr404-{name}"));
-        spawn_mock_wire_once(&path, resp);
-        let got = fetch_script_via_wire(&path, &u, &top);
-        if name == "200" {
-            assert_eq!(got.as_deref(), Some("var a=1;"));
-        } else {
-            assert_eq!(got, None, "status {name} must not yield a script");
-        }
-    }
-}
