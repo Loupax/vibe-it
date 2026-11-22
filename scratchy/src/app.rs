@@ -1789,6 +1789,7 @@ impl App {
         // holds the older frames' rects a buffer of age > 1 is missing) and the damage to remember.
         let mut present_rects: Vec<(u32, u32, u32, u32)> = Vec::new();
         let mut cur_damage: Option<crate::incr_layout::Damage> = None;
+        let mut verify_snap: Option<Vec<u32>> = None;
         // QHOV1: the key a full paint's page is kept under for the next damage repaint.
         let mut keep_key: Option<PaintKey> = None;
         // (A page without a `<video>` paints no video box, so the media backend alone is no overlay.)
@@ -1859,21 +1860,21 @@ impl App {
                     canvas: laid.style.background_color.map(|c| c.as_rgba_tuple()),
                 };
                 if let Some(Some(d)) = damage {
-                    if self.dp.key.as_ref() == Some(&key) && self.dp.scratch.len() == pixels.len() {
-                        if let Some((merged, cur)) = damage_plan(&self.dp.hist, &d, pixels.age() as usize) {
-                            fast = damage_screen_rects(&merged, laid, (self.scroll_x, self.scroll_offset), (width, page_h));
-                            present_rects = match (&fast, merged.rects.len() == cur) {
-                                (Some((r, _)), true) => r.clone(),
-                                (Some(_), false) => damage_screen_rects(&d, laid, (self.scroll_x, self.scroll_offset), (width, page_h)).map(|x| x.0).unwrap_or_default(),
-                                _ => Vec::new(),
-                            };
-                        }
+                    if self.dp.key.as_ref() == Some(&key)
+                        && self.dp.scratch.len() == pixels.len()
+                        && let Some((merged, cur)) = damage_plan(&self.dp.hist, &d, pixels.age() as usize)
+                    {
+                        fast = damage_screen_rects(&merged, laid, (self.scroll_x, self.scroll_offset), (width, page_h));
+                        present_rects = match (&fast, merged.rects.len() == cur) {
+                            (Some((r, _)), true) => r.clone(),
+                            (Some(_), false) => damage_screen_rects(&d, laid, (self.scroll_x, self.scroll_offset), (width, page_h)).map(|x| x.0).unwrap_or_default(),
+                            _ => Vec::new(),
+                        };
                     }
                     cur_damage = Some(d);
                 }
                 keep_key = Some(key);
             }
-            let mut verify_snap: Option<Vec<u32>> = None;
             if let Some((rects, margin)) = &fast {
                 // Patch the buffer: each rect is painted into the scratch page (its own white and
                 // canvas colour first, everything that reaches it, culled to it) and copied over.
@@ -1935,13 +1936,6 @@ impl App {
                 }
             }
             }
-            if let Some(snap) = verify_snap.take() {
-                let bad = snap.iter().zip(pixels.iter()).filter(|(a, b)| a != b).count();
-                if bad != 0 {
-                    DAMAGE_VERIFY_BAD.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    eprintln!("damage-verify: the patched page differs from a full paint in {bad} pixels");
-                }
-            }
         }
 
         // QSB1: the window's own scrollbar (overlay, same look as a region's).
@@ -1966,6 +1960,23 @@ impl App {
                 }
             }
             crate::paint::paint_viewport_hbar(content_w, client_w, self.scroll_x, vbar.is_some(), &mut pixels, width, height, rect);
+        }
+
+        // QHOV2: SCRATCHY_DAMAGE_VERIFY: the page (bars included) as patched against the page as painted whole.
+        if let Some(snap) = verify_snap.take() {
+            let w = width as usize;
+            let (mut bad, mut bb) = (0usize, (usize::MAX, usize::MAX, 0usize, 0usize));
+            for (i, (a, b)) in snap.iter().zip(pixels.iter()).enumerate() {
+                if a != b {
+                    bad += 1;
+                    let (x, y) = (i % w, i / w);
+                    bb = (bb.0.min(x), bb.1.min(y), bb.2.max(x + 1), bb.3.max(y + 1));
+                }
+            }
+            if bad != 0 {
+                DAMAGE_VERIFY_BAD.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                eprintln!("damage-verify: the patched page differs from a full paint in {bad} pixels, within {bb:?} (l, t, r, b)");
+            }
         }
 
         // QSEARCH1 (S3): search highlights, chrome over the page (below the status bar).
