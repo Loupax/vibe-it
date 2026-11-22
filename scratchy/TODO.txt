@@ -176,9 +176,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       and can leave flaky.txt. Related: tests waiting for unload/pagehide/beforeunload on iframe navigation only time out.
 - [ ] QCNV3b [S] (P3, from QCNV3 #619; Sonnet) Canvas/colour leftovers: `calc()` inside relative colours; reset.2dstate
       for lineCap/shadowBlur and similar state; colour objects (CSSRGB/CSSHSL) wait for Typed OM.
-- [ ] [WIP] QCNV4 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
-      (QCNV2)"); Sonnet; in order after the items above) OffscreenCanvas on the main thread (no Workers). 278
-      offscreen files.
 - [ ] [WIP] QCNV5 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Sonnet; in order after the items above) Transforms
       (translate/rotate/scale/setTransform/getTransform). 50 files.

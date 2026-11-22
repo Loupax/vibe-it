@@ -9596,3 +9596,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- (no header)
 - [x] QWPT7c DONE 206530b #621 [S] (P3, from QWPT7 #611; Sonnet; js_geom hit test) Hit-testing gaps: `pointer-events: none`, SVG content
       (mouseEvent-offsetXY-svg), element scroll offsets, accesskey.
+
+=== from TODO.txt: --- (no header)
+- [x] QCNV4 DONE 5a1aad4 #622 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+      (QCNV2)"); Sonnet; in order after the items above) OffscreenCanvas on the main thread (no Workers). 278
+      offscreen files.
