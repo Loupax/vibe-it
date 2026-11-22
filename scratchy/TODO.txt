@@ -27,7 +27,7 @@ Site breakage is diagnosed with tooling (missing-API report), not guessed.
 ========================================================================
 NOW
 ========================================================================
-- [ ] QINC1m [M] (P2; USER GO 2026-11-22 (DECISIONS.md), unblocked before the planned 2026-11-24 check; Opus; after
+- [ ] [WIP] QINC1m [M] (P2; USER GO 2026-11-22 (DECISIONS.md), unblocked before the planned 2026-11-24 check; Opus; after
       QAPI6c (same engine area)) Delete the old pipeline: the SCRATCHY_INCR flag and its branches, the separate non-incremental App
       frame and forced-layout paths, the CI engine-off job. KEEP the from-scratch layout (the engine's
       first-layout/fallback path and the test oracle) and SCRATCHY_INCR_CHECK as a debug option.
@@ -87,6 +87,9 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       apply there (which style fields / rules force Effect::Layout), widen the patch where safe (incl. a paint-level svg
       re-rasterise for fill/stroke-only hover changes), measure per-hover build ms before/after in a nested window.
 - [ ] [WIP] QCSS-B [S] (P2, from QAPI8 #578; Sonnet; css.rs, layout) `aspect-ratio` (8 sites).
+- [ ] QCSS-B2 [S] (P3, from QCSS-B #593; Sonnet; layout.rs) aspect-ratio leftovers: table boxes, absolute-position width
+      from height, grid `align-self: normal` acting as start for items with a ratio. (Not filed: `<video>` poster
+      honouring an explicit ratio needs a transparent letterbox in media_video.rs; media is archived.)
 - [ ] QCSS-C [S] (P2, from QAPI8 #578; Sonnet; css.rs, flex/grid) Box-alignment keywords (`end`, `first baseline`, ...),
       `place-*` shorthands, `grid-auto-flow`, `grid-gap`.
 - [ ] QCSS-D [S] (P2, from QAPI8 #578; Sonnet; css.rs, paint) `filter`, `backdrop-filter`, `text-shadow`, `mix-blend-mode`,
