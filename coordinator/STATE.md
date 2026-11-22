@@ -215,3 +215,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Merged #553 QDOM14 6012d35.
 - 2026-11-22 #558 QWPT11 READY (gate did run; main runs were cancelled by concurrency; fixed). Queued after #552. Filed QCISPLIT (Q4: job ~7 min). Launched QEL4.
 - 2026-11-22 Merged #556 QDOM5 0ed067c (ranges 17.1 -> 43.2; QDOM12b included).
+- 2026-11-22 #546 QEL6 NOTES.md conflict again (4th) -> rebase queued. NOTES.md keep-both question pending with the user.
