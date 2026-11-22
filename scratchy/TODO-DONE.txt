@@ -9295,3 +9295,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       false, `deviceMemory` 8, `connection` (NetworkInformation stub: effectiveType '4g', downlink, rtt, saveData,
       addEventListener), `plugins`/`mimeTypes` empty arrays, `userAgentData` (brands from the UA string, mobile false,
       platform 'Linux', `getHighEntropyValues` resolving the low-entropy fields).
+
+=== from TODO.txt: --- (no header)
+- [x] QAPI5 DONE 1e51c80 #572 [S] (P2, from QMAPI3 R66; Sonnet; js_dom.rs) ARIA attribute reflection on Element (`ariaLabel`, `ariaHidden`,
+      `ariaExpanded`, ... the whole ARIA mixin list, null when absent, `aria-*` attribute set/removed on assign) and
+      `HTMLSlotElement.name`/`assignedNodes`/`assignedElements`/`slotchange` reflection. WPT: dom/nodes + wai-aria files.
