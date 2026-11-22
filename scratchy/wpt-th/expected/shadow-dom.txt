@@ -1212,7 +1212,7 @@ OK           2/3  shadow-dom/form-control-form-attribute.html
 OK           1/1  shadow-dom/getElementById-dynamic-001.html
 OK           1/1  shadow-dom/getElementById-dynamic-002.html
 OK           5/5  shadow-dom/historical.html
-ERROR        0/0  shadow-dom/host-with-namespace.xhtml
+OK           2/2  shadow-dom/host-with-namespace.xhtml
 OK           0/2  shadow-dom/imperative-slot-api-cross-shadow-root.html
   FAIL      HTMLSlotElement.assign drops DidSlotChange for previous_slot in different shadow root
   FAIL      HTMLSlotElement.assign cross shadow root layout should not crash
@@ -1256,7 +1256,9 @@ OK           0/4  shadow-dom/imperative-slot-removed-slot-focused-host-removal.h
   FAIL      Removing a manual slot, then its host (unfocused slottable, after rendering)
   FAIL      Removing a manual slot, then its host (focused slottable, before rendering)
   FAIL      Removing a manual slot, then its host (focused slottable, after rendering)
-ERROR        0/0  shadow-dom/innerHTML-setter.xhtml
+OK           2/4  shadow-dom/innerHTML-setter.xhtml
+  FAIL      InnerHTML behavior on custom element in default 'foo' namespace
+  FAIL      InnerHTML behavior with prefixes on custom element
 OK           0/2  shadow-dom/input-element-list.html
   FAIL      Input element's list attribute should point to the datalist element.
   FAIL      Input element's list attribute should point to the datalist element in Shadow DOM.

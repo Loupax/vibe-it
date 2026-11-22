@@ -303,7 +303,7 @@ OK           0/7  html/webappapis/dynamic-markup-insertion/opening-the-input-str
   FAIL      document.open() removes the document's children (non-active document without an associated Window object; DOMParser)
   FAIL      document.open() removes the document's children (non-active document without an associated Window object; XMLHttpRequest)
 TIMEOUT      0/4  html/webappapis/dynamic-markup-insertion/opening-the-input-stream/bailout-exception-vs-return-xml.window.html
-  TIMEOUT   document.open should throw an InvalidStateError with XML document even when there is an active parser executing script
+  FAIL      document.open should throw an InvalidStateError with XML document even when there is an active parser executing script
   TIMEOUT   document.open should throw an InvalidStateError with XML document even when the ignore-opens-during-unload counter is greater than 0 (during beforeunload event)
   TIMEOUT   document.open should throw an InvalidStateError with XML document even when the ignore-opens-during-unload counter is greater than 0 (during pagehide event)
   TIMEOUT   document.open should throw an InvalidStateError with XML document even when the ignore-opens-during-unload counter is greater than 0 (during unload event)
@@ -406,7 +406,16 @@ OK           2/5  html/webappapis/dynamic-markup-insertion/opening-the-input-str
   FAIL      document.open() does not change document's URL (non-active document without an associated Window object)
 OK           1/2  html/webappapis/dynamic-markup-insertion/the-innerhtml-property/annotation-xml-fragment-parsing.html
   FAIL      HTML parsing does apply in <annotation-xml encoding="application/xhtml+xml">
-CRASH        0/0  html/webappapis/dynamic-markup-insertion/the-innerhtml-property/innerhtml-and-xml-namespaces.svg
+OK          5/14  html/webappapis/dynamic-markup-insertion/the-innerhtml-property/innerhtml-and-xml-namespaces.svg
+  FAIL      default namespace applies to children of namespaced element
+  FAIL      default namespace prefix applies to descendants of namespaced element
+  FAIL      unsetting default namespace works inside parse of fragment (on element)
+  FAIL      unsetting default namespace works inside parse of fragment (on child of element)
+  FAIL      default namespace applied to sibling of namespace-resetting element in parse of fragment.
+  FAIL      default namespace applied to sibling of namespace-resetting template element in parse of fragment.
+  FAIL      nested default namespace reset works inside parse of fragment
+  FAIL      declaring namespace with prefix inside of fragment parsed by innerHTML
+  FAIL      declaring default namespace inside of fragment parsed by innerHTML
 OK           1/1  html/webappapis/dynamic-markup-insertion/the-outerhtml-property/outerhtml-documentfragment.html
 OK           1/1  html/webappapis/dynamic-markup-insertion/the-outerhtml-property/outerhtml-no-parent.html
 ERROR        0/1  html/webappapis/events/event-handler-object-environment-instantiation.html
@@ -424,7 +433,8 @@ OK           1/1  html/webappapis/scripting/event-loops/microtask_after_raf.html
 OK           1/1  html/webappapis/scripting/event-loops/microtask_after_script.html
 OK           0/1  html/webappapis/scripting/event-loops/microtask_before_prepare_the_script_element-01.html
   FAIL      Microtask before prepare-the-script-element steps
-ERROR        0/0  html/webappapis/scripting/event-loops/microtask_before_prepare_the_script_element-02.xhtml
+OK           0/1  html/webappapis/scripting/event-loops/microtask_before_prepare_the_script_element-02.xhtml
+  FAIL      Microtask before prepare-the-script-element steps
 OK           0/1  html/webappapis/scripting/event-loops/new-scroll-event-dispatched-at-next-updating-rendering-time.html
   FAIL      new-scroll-event-dispatched-at-next-updating-rendering-time
 OK           2/3  html/webappapis/scripting/event-loops/opaque-origin-same-agent.window.html

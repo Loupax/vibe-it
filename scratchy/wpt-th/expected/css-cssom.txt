@@ -268,7 +268,8 @@ OK          0/13  css/cssom/MediaList-parsing.html
   FAIL      deleteMedium throws NotFoundError when no "not all" entry exists
 OK           0/1  css/cssom/MediaList.html
   FAIL      CSSOM - MediaList interface
-CRASH        0/0  css/cssom/MediaList2.xhtml
+OK           4/5  css/cssom/MediaList2.xhtml
+  FAIL      MediaList getter
 OK           1/2  css/cssom/MutationObserver-style.html
   FAIL      Updating style property with the same value does not trigger an observation callback
 OK         23/35  css/cssom/StyleSheet-properties.html

@@ -344,7 +344,11 @@ OK          0/38  domparsing/all-stream-methods-with-trusted-types-no-policy.htm
   FAIL      streamPrependHTMLUnsafe on a <script> with no default policy throws TypeError before NotSupportedError.
 OK           0/1  domparsing/createContextualFragment-external-scripts-async.html
   FAIL      External scripts from createContextualFragment() have async=true and execute as async once connected
-ERROR        0/0  domparsing/createContextualFragment-xhtml.xhtml
+OK           0/4  domparsing/createContextualFragment-xhtml.xhtml
+  FAIL      A <body> element must be stripped, preserving its children
+  FAIL      The <head> and <body> nested inside a stray <html> element must be stripped too
+  FAIL      Stripping must recurse through nested <html> elements
+  FAIL      <html>, <head> and <body> in a different namespace must not be special
 OK          1/35  domparsing/createContextualFragment.html
   FAIL      Must not throw INVALID_STATE_ERR for a detached node.
   FAIL      Simple test with paragraphs
@@ -427,9 +431,15 @@ OK          0/15  domparsing/html-unsafe-external-scripts-async.html
 OK           0/2  domparsing/innerhtml-01.xhtml
   FAIL      innerHTML in XHTML: getting while the document is in an invalid state
   FAIL      innerHTML in XHTML: getting while the document is in an invalid state 1
-ERROR        0/0  domparsing/innerhtml-03.xhtml
+OK           3/8  domparsing/innerhtml-03.xhtml
+  FAIL      innerHTML in XHTML
+  FAIL      innerHTML in XHTML 1
+  FAIL      innerHTML in XHTML 3
+  FAIL      innerHTML in XHTML 4
+  FAIL      innerHTML in XHTML 7
 OK           1/1  domparsing/innerhtml-04.html
-ERROR        0/0  domparsing/innerhtml-05.xhtml
+OK           0/1  domparsing/innerhtml-05.xhtml
+  FAIL      innerHTML in XHTML
 OK           1/1  domparsing/innerhtml-06.html
 OK           4/5  domparsing/innerhtml-07.html
   FAIL      innerHTML and string conversion: undefined.
@@ -442,7 +452,14 @@ OK           3/7  domparsing/insert-adjacent-parent-errors.html
   FAIL      Throws when inserting using "beforebegin" into an element whose parent is a document
   FAIL      Throws when inserting using "afterend" into an element whose parent is a document
 OK           4/4  domparsing/insert-adjacent.html
-ERROR        0/0  domparsing/insert_adjacent_html-xhtml.xhtml
+OK         23/30  domparsing/insert_adjacent_html-xhtml.xhtml
+  FAIL      When the parent node is null, insertAdjacentHTML should throw for beforebegin and afterend (text)
+  FAIL      When the parent node is null, insertAdjacentHTML should throw for beforebegin and afterend (comments)
+  FAIL      When the parent node is null, insertAdjacentHTML should throw for beforebegin and afterend (elements)
+  FAIL      When the parent node is a document, insertAdjacentHTML should throw for beforebegin and afterend (text)
+  FAIL      When the parent node is a document, insertAdjacentHTML should throw for beforebegin and afterend (comments)
+  FAIL      When the parent node is a document, insertAdjacentHTML should throw for beforebegin and afterend (elements)
+  FAIL      insertAdjacentHTML in HTML
 OK         25/31  domparsing/insert_adjacent_html.html
   FAIL      When the parent node is null, insertAdjacentHTML should throw for beforebegin and afterend (text)
   FAIL      When the parent node is null, insertAdjacentHTML should throw for beforebegin and afterend (comments)
@@ -3111,5 +3128,22 @@ OK          0/12  domparsing/unsafe-and-trusted-types-external-scripts-async.htm
 OK           0/2  domparsing/xml-parse-serialize-roundtrip.html
   FAIL      DOMParser and XMLSerializer should round trip with CDATA sections: large CDATA
   FAIL      DOMParser and XMLSerializer should round trip with CDATA sections: multiple CDATAs
-ERROR        0/0  domparsing/xml-serialization.xhtml
+OK          0/17  domparsing/xml-serialization.xhtml
+  FAIL      Comment: containing --
+  FAIL      Comment: starting with -
+  FAIL      Comment: ending with -
+  FAIL      Comment: containing -->
+  FAIL      DocumentType: empty public and system id
+  FAIL      DocumentType: empty system id
+  FAIL      DocumentType: empty public id
+  FAIL      DocumentType: non-empty public and system id
+  FAIL      DocumentType: 'APOSTROPHE' (U+0027)
+  FAIL      DocumentType: 'QUOTATION MARK' (U+0022)
+  FAIL      DocumentType: 'APOSTROPHE' (U+0027) and 'QUOTATION MARK' (U+0022)
+  FAIL      Element: href attributes are not percent-encoded
+  FAIL      Element: query parts in href attributes are not percent-encoded
+  FAIL      ProcessingInstruction: empty data
+  FAIL      ProcessingInstruction: non-empty data
+  FAIL      ProcessingInstruction: target contains xml
+  FAIL      ProcessingInstruction: target contains a 'COLON' (U+003A)
 OK           1/1  domparsing/xmldomparser.html

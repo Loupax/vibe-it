@@ -1654,11 +1654,10 @@ TIMEOUT      6/7  html/dom/documents/resource-metadata-management/document-ready
 OK           1/1  html/dom/documents/resource-metadata-management/load-event-after-readystatechange-starts-load.html
 OK           1/1  html/dom/elements/elements-in-the-dom/click-in-progress-flag.html
 OK           8/8  html/dom/elements/elements-in-the-dom/historical.html
-TIMEOUT      0/4  html/dom/elements/global-attributes/cdata-dir_auto.html
+OK           1/4  html/dom/elements/global-attributes/cdata-dir_auto.html
   FAIL      Content of CDATA is ignored for dir=auto in html document
-  TIMEOUT   Text in CDATASection is considered when determining auto directionality
-  NOTRUN    Directionality is updated when removing CDATASection
-  NOTRUN    Directionality is updated when changing text of CDATASection
+  FAIL      Directionality is updated when removing CDATASection
+  FAIL      Directionality is updated when changing text of CDATASection
 OK           7/7  html/dom/elements/global-attributes/classlist-nonstring.html
 OK           0/1  html/dom/elements/global-attributes/custom-attrs.html
   FAIL      Setting an Element's dataset property should not interfere with namespaced attributes with same name
