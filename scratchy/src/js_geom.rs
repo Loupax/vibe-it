@@ -517,6 +517,9 @@ pub(crate) fn class_write_post(p: ClassProbe) -> bool {
 #[derive(Default)]
 pub(crate) struct GeomCache {
     key: Option<(u64, u32, u32, (u64, u64))>,
+    /// QANIMHLc: document clock (bits) of the layout when it styled a running animation or
+    /// transition; such a layout is only fresh at that clock. `None`: nothing was animated, the key alone decides.
+    anim_clock: Option<u64>,
     /// QP2: viewport of the previous refresh; a change clears the shape memo.
     last_vp: Option<(u32, u32)>,
     rects: HashMap<usize, GeomRect>,
@@ -857,7 +860,17 @@ impl GeomCache {
 
     /// QY53e1: would a read at this viewport be served without a layout? Cheap: no layout, no CSS string.
     pub(crate) fn is_fresh(&self, wgen: u64, vw: f32, vh: f32) -> bool {
-        self.key == Some((wgen, vw as u32, vh as u32, crate::js_style::css_ver()))
+        self.key == Some((wgen, vw as u32, vh as u32, crate::js_style::css_ver())) && self.clock_ok()
+    }
+
+    /// QANIMHLc: a layout that styled a running animation or transition is only the page's at the
+    /// clock it was made at (a headless frame or an App build moves the clock without a DOM write).
+    fn clock_ok(&self) -> bool {
+        self.anim_clock.is_none_or(|c| c == crate::anim_eval::read_clock_ms().to_bits())
+    }
+
+    fn note_anim_clock(&mut self) {
+        self.anim_clock = crate::anim_eval::layout_animated().then(|| crate::anim_eval::document_clock_ms().to_bits());
     }
 
     /// QY53e1: CPU ms the last forced layout took.
@@ -882,11 +895,16 @@ impl GeomCache {
         let key = (wgen, vw as u32, vh as u32, crate::js_style::css_ver());
         // QYTC1d: a geometry read: class writes after it may be probed again.
         PROBE_BUDGET.with(|b| b.set(CLASS_PROBES_PER_READ));
-        if self.key == Some(key) {
+        if self.key == Some(key) && self.clock_ok() {
             return;
         }
         #[cfg(test)]
         GEOM_LAYOUTS.with(|c| c.set(c.get() + 1));
+        // QANIMHLc: the last layout styled a running animation: this one is at the clock of the read
+        // (headless frames are not added to move it, so the document clock may be a frame or more behind).
+        if self.anim_clock.is_some() {
+            crate::anim_eval::set_document_clock(crate::anim_eval::read_clock_ms());
+        }
         // QINC1i: through the incremental engine (`SCRATCHY_INCR=1`); from scratch when it has no tree.
         if crate::incr_engine::forced_on() && self.refresh_engine(page, vw, vh, key) {
             return;
@@ -1013,6 +1031,7 @@ impl GeomCache {
             crate::perf::forced_detail(d, no_change);
         }
         self.key = Some(key);
+        self.note_anim_clock();
         self.forced += 1;
         self.forced_ms += t0.elapsed().as_millis();        if !self.logged && (self.forced >= 20 || self.forced_ms >= 1000) {
             self.logged = true;
@@ -1149,6 +1168,7 @@ impl GeomCache {
             crate::perf::forced_detail(d, no_change);
         }
         self.key = Some(key);
+        self.note_anim_clock();
         self.forced += 1;
         self.forced_ms += t0.elapsed().as_millis();
         if !self.logged && (self.forced >= 20 || self.forced_ms >= 1000) {

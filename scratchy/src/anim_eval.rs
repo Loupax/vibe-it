@@ -37,6 +37,20 @@ thread_local! {
     /// QANIMHL: finished passes (`finish_animation_pass` / `finish_report_only`), so a reader can tell
     /// "no pass since" from "a pass that styled no animation".
     static ANIM_PASSES: Cell<u64> = const { Cell::new(0) };
+    /// QANIMHLc: the last finished pass styled an animation that has not ended, or a transition runs.
+    static ANIM_LIVE: Cell<bool> = const { Cell::new(false) };
+}
+
+/// QANIMHLc: did the last finished style pass see a running (or not yet started) animation or a
+/// running transition? A layout of such a pass depends on the document clock.
+pub(crate) fn layout_animated() -> bool {
+    ANIM_LIVE.with(Cell::get)
+}
+
+fn note_live(rep: &[AnimRecord]) {
+    let now = DOC_CLOCK.with(Cell::get);
+    let live = rep.iter().any(|r| phase_of(&r.anim, now - r.start) != AnimPhase::After) || crate::transition::live();
+    ANIM_LIVE.with(|l| l.set(live));
 }
 
 /// QANIMHL: how many style passes have finished their animation report on this thread.
@@ -52,6 +66,11 @@ thread_local! {
 
 pub(crate) fn set_task_clock(ms: Option<f64>) {
     TASK_CLOCK.with(|c| c.set(ms));
+}
+
+/// QANIMHLc: the clock a geometry read sees: the headless task's page clock when set, else the document clock.
+pub(crate) fn read_clock_ms() -> f64 {
+    TASK_CLOCK.with(Cell::get).unwrap_or_else(document_clock_ms)
 }
 
 /// The clock a new transition starts at: the task clock when set, else the document clock.
@@ -210,6 +229,7 @@ pub(crate) fn finish_animation_pass() {
     rep.reverse();
     rep.retain(|r| seen.insert(r.key.clone()));
     rep.reverse();
+    note_live(&rep);
     ANIM_LAST.with(|l| *l.borrow_mut() = rep);
     ANIM_PASSES.with(|p| p.set(p.get() + 1));
 }
@@ -223,6 +243,7 @@ pub(crate) fn finish_report_only() {
     rep.reverse();
     rep.retain(|r| seen.insert(r.key.clone()));
     rep.reverse();
+    note_live(&rep);
     ANIM_LAST.with(|l| *l.borrow_mut() = rep);
     ANIM_PASSES.with(|p| p.set(p.get() + 1));
 }
