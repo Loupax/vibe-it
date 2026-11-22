@@ -1663,6 +1663,22 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     native!(ctx, "__d_insert", move |parent: i32, child: i32, before: i32| -> bool {
         insert_native(&t.borrow(), &d, &gn, Some(&lk), parent, child, before)
     });
+    // QDOM18: ONE native call for the pre-insert fast path: the parent is an Element (not a fragment/shadow
+    // root), the node is an Element/Text/CDATA/PI/Comment/DocumentFragment and `before` (< 0 = none) is a child of
+    // the parent. Anything else (Document parents, doctypes, a wrong child) goes through the JS `cnCheck`. It does
+    // NOT insert: the JS-wrapped `__d_insert` (shadow DOM, forced-layout and incremental hooks) still does.
+    let t = table.clone();
+    native!(ctx, "__d_fastins", move |parent: i32, child: i32, before: i32| -> bool {
+        let t = t.borrow();
+        let (Some(p), Some(c)) = (t.get(parent), t.get(child)) else { return false };
+        if !is_element(&p) || t.is_frag(parent, &p) {
+            return false;
+        }
+        if !t.is_frag(child, &c) && !matches!(node_type(&c), 1 | 3 | 4 | 7 | 8) {
+            return false;
+        }
+        before < 0 || t.get(before).is_some_and(|b| parent_handle(&b).is_some_and(|pp| Rc::ptr_eq(&pp, &p)))
+    });
     // QDOM3: `moveBefore`: the same tree edit and incremental-engine log (a remove + an insert of the
     // subtree), but not the insertion steps: no `<link>` rescan (stylesheets are not refetched).
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
@@ -2887,20 +2903,30 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   };
   var afterIns = null; // QA18b: set below (iframe load events)
   var rmNode = function (n) { __d_remove(n.__id); };
-  NodeProto.appendChild = function (c) {
-    if (!c || c.__id === undefined) throw new TypeError("Failed to execute 'appendChild': parameter 1 is not of type 'Node'.");
+  // QDOM18: one native insert + the after-insertion hook. Callers have validated (cnCheck) or are on the fast path.
+  var rawIns = function (self, c, ref) {
     var ak = afterIns && c.nodeType === 11 ? Array.prototype.slice.call(c.childNodes) : null; // QDOMATOM: a fragment's nodes, before they leave it
-    if (!__d_insert(this.__id, c.__id, -1)) throw herr('The new child element contains the parent.', 'HierarchyRequestError');
-    if (afterIns) afterIns(c, ak, this);
+    if (!__d_insert(self.__id, c.__id, ref ? ref.__id : -1)) throw herr('The new child element contains the parent.', 'HierarchyRequestError');
+    if (afterIns) afterIns(c, ak, self);
     return c;
   };
+  // Node types the common Element-parent case needs no "ensure pre-insert validity" walk for: the native insert
+  // already refuses an inclusive ancestor, and every other rule only constrains Document parents / odd node types.
+  NodeProto.appendChild = function (c) {
+    if (!c || c.__id === undefined) throw new TypeError("Failed to execute 'appendChild' on 'Node': parameter 1 is not of type 'Node'.");
+    if (!__d_fastins(this.__id, c.__id, -1)) cnCheck(this, c, null, false, false);
+    return rawIns(this, c, null);
+  };
   NodeProto.insertBefore = function (c, ref) {
-    if (!c || c.__id === undefined) throw new TypeError("Failed to execute 'insertBefore': parameter 1 is not of type 'Node'.");
-    if (ref && ref.parentNode !== this) throw herr('The node before which the new node is to be inserted is not a child of this node.', 'NotFoundError');
-    var ak = afterIns && c.nodeType === 11 ? Array.prototype.slice.call(c.childNodes) : null;
-    if (!__d_insert(this.__id, c.__id, ref ? ref.__id : -1)) throw herr('The new child element contains the parent.', 'HierarchyRequestError');
-    if (afterIns) afterIns(c, ak, this);
-    return c;
+    if (!c || c.__id === undefined) throw new TypeError("Failed to execute 'insertBefore' on 'Node': parameter 1 is not of type 'Node'.");
+    if (arguments.length < 2) throw new TypeError("Failed to execute 'insertBefore' on 'Node': 2 arguments required, but only 1 present.");
+    if (ref == null) ref = null;
+    else if (ref.__id === undefined) throw new TypeError("Failed to execute 'insertBefore' on 'Node': parameter 2 is not of type 'Node'.");
+    if (ref === c || !__d_fastins(this.__id, c.__id, ref ? ref.__id : -1)) {
+      cnCheck(this, c, ref, false, false);
+      if (ref === c) ref = c.nextSibling;
+    }
+    return rawIns(this, c, ref);
   };
   NodeProto.removeChild = function (c) {
     if (!c || c.__id === undefined) throw new TypeError("Failed to execute 'removeChild': parameter 1 is not of type 'Node'.");
@@ -2909,11 +2935,15 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     return c;
   };
   NodeProto.replaceChild = function (n, old) {
-    if (!old || old.parentNode !== this) throw herr('The node to be replaced is not a child of this node.', 'NotFoundError');
+    if (!n || n.__id === undefined) throw new TypeError("Failed to execute 'replaceChild' on 'Node': parameter 1 is not of type 'Node'.");
+    if (!old || old.__id === undefined) throw new TypeError("Failed to execute 'replaceChild' on 'Node': parameter 2 is not of type 'Node'.");
+    cnCheck(this, n, old, true, false);
     var own = moBegin();
     try {
-      this.insertBefore(n, old);
-      if (n !== old) rmNode(old);
+      var ref = old.nextSibling;
+      if (ref === n) ref = n.nextSibling;
+      rmNode(old); // self replacement too: the spec removes then re-inserts (two records)
+      rawIns(this, n, ref);
     } finally { moEnd(own); }
     return old;
   };
@@ -2984,11 +3014,12 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     var d = c.od || doc, f = d.createDocumentFragment();
     c.list.forEach(function (n) {
       if ([1, 3, 4, 7, 8, 10, 11].indexOf(n.nodeType) < 0) throw herr('This node type cannot be inserted.', 'HierarchyRequestError');
-      f.appendChild(n);
+      rawIns(f, n, null); // "append" to the new fragment: no validity check
     });
     return f;
   };
-  var cnIncl = function (a, b) { for (; b; b = b.parentNode) if (a === b) return true; return false; };
+  // host-including inclusive ancestor: a shadow root continues at its host
+  var cnIncl = function (a, b) { for (; b; b = b.parentNode || (b.nodeType === 11 && b.host) || null) if (a === b) return true; return false; };
   var cnKids = function (p, t) { var r = [], c = p.childNodes; for (var i = 0; i < c.length; i++) if (c[i].nodeType === t) r.push(c[i]); return r; };
   // "Ensure pre-insert validity" (replace = the "replace" variant where `child` is replaced; empty = ignore the
   // parent's existing children, for replaceChildren).
@@ -3004,24 +3035,24 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     var bad = function () { throw herr('The new child element would make the document invalid.', 'HierarchyRequestError'); };
     var kids = empty ? [] : Array.prototype.slice.call(parent.childNodes);
     var idx = child ? kids.indexOf(child) : kids.length;
-    var hasEl = function () { return kids.some(function (k) { return k.nodeType === 1 && k !== child; }); };
+    var hasEl = function () { return kids.some(function (k) { return k.nodeType === 1 && (!replace || k !== child); }); };
     var docAfter = function () { for (var i = idx + (replace ? 1 : 0); i < kids.length; i++) if (kids[i].nodeType === 10) return true; return false; };
     var elBefore = function () { for (var i = 0; i < idx; i++) if (kids[i].nodeType === 1) return true; return false; };
     if (nt === 11) {
       var els = cnKids(node, 1).length, k = node.childNodes, i;
       if (els > 1) bad();
       for (i = 0; i < k.length; i++) if (k[i].nodeType === 3 || k[i].nodeType === 4) bad();
-      if (els === 1 && (hasEl() || (child && child.nodeType === 10) || (child && docAfter()))) bad();
+      if (els === 1 && (hasEl() || (child && docAfter()))) bad();
     } else if (nt === 1) {
-      if (hasEl() || (child && child.nodeType === 10) || (child && docAfter())) bad();
+      if (hasEl() || (child && docAfter())) bad();
     } else if (nt === 10) {
-      if (kids.some(function (k) { return k.nodeType === 10 && k !== child; }) || (child && elBefore()) || (!child && hasEl())) bad();
+      if (kids.some(function (k) { return k.nodeType === 10 && (!replace || k !== child); }) || (child && elBefore()) || (!child && hasEl())) bad();
     }
   };
   var cnPre = function (parent, node, child) {
     cnCheck(parent, node, child, false, false);
     if (child === node) child = node.nextSibling;
-    parent.insertBefore(node, child);
+    rawIns(parent, node, child);
   };
   var cnViable = function (self, list, prev) {
     var s = prev ? self.previousSibling : self.nextSibling;
@@ -3043,7 +3074,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
         var node = cnOne(c);
         cnCheck(this, node, null, false, true);
         while (this.firstChild) rmNode(this.firstChild);
-        this.insertBefore(node, null);
+        rawIns(this, node, null);
       } finally { moEnd(own); }
     },
     remove: function () { if (this.parentNode) rmNode(this); },
@@ -3074,7 +3105,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
         if (this.parentNode === p) {
           if (node === this) return;
           cnCheck(p, node, this, true, false);
-          p.insertBefore(node, this); rmNode(this);
+          rawIns(p, node, this); rmNode(this);
         } else cnPre(p, node, vn);
       } finally { moEnd(own); }
     }
