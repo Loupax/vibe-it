@@ -82,6 +82,7 @@ mod qwptflk3_tests;
 mod qsmooth1_tests;
 mod qdom8_tests;
 mod qdom5_tests;
+mod qel6_tests;
 #[cfg(feature = "memprof")]
 mod memprof_tests;
 

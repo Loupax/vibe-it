@@ -618,8 +618,15 @@ const PRELUDE: &str = r#"
   Object.defineProperty(g, 'event', { get: function () { return curEvent; },
     set: function (v) { Object.defineProperty(g, 'event', { value: v, writable: true, configurable: true, enumerable: true }); },
     configurable: true, enumerable: true });
+  // QEL6: an event born in Rust (__scratchy_dn) is dispatched with an empty JS stack, so HTML "clean up after
+  // running script" runs a microtask checkpoint after each listener's callback. A script-made dispatch
+  // (el.click(), dispatchEvent) has script below it on the stack: no checkpoint there.
+  var uaEv = null;
+  Object.defineProperty(g, '__scratchy_ua', { value: function (ev) { uaEv = ev; } });
   var dispatch = function (target, ev) {
     ev.target = target;
+    var ua = uaEv === ev;
+    uaEv = null;
     var path = [target];
     if (target && target.__id !== undefined) {
       // QSD3: a composed event continues from a shadow root to its host (no retargeting yet, QSD8).
@@ -662,7 +669,7 @@ const PRELUDE: &str = r#"
             // an IDL event handler registered in the list
             hs = e;
             var hf = handlerOf(node, type);
-            if (hf) { ev._passive = false; var pe = curEvent; curEvent = ev; callHandler(node, hf, ev); curEvent = pe; }
+            if (hf) { ev._passive = false; var pe = curEvent; curEvent = ev; callHandler(node, hf, ev); curEvent = pe; if (ua) g.__scratchy_microtasks(); }
             if (ev._stopNow) return;
             continue;
           }
@@ -677,6 +684,7 @@ const PRELUDE: &str = r#"
             else { lf = lf.handleEvent; if (typeof lf !== 'function') throw new TypeError('handleEvent is not a function'); lf.call(e.fn, ev); }
           } catch (x) { reportListenerError(x); }
           curEvent = prevEv;
+          if (ua) g.__scratchy_microtasks();
           if (pl && typeof lf === 'function') pl(type, lf, g.__perf_cpu() - t0);
           ev._passive = false;
           if (ev._stopNow) return;
@@ -685,7 +693,7 @@ const PRELUDE: &str = r#"
       // a content attribute (or plain `node.onfoo` property) that was never set through the IDL attribute
       if (!capFilter && !ev._stopNow && !hs) {
         var h = handlerOf(node, type);
-        if (h) { var pv = curEvent; curEvent = ev; callHandler(node, h, ev); curEvent = pv; }
+        if (h) { var pv = curEvent; curEvent = ev; callHandler(node, h, ev); curEvent = pv; if (ua) g.__scratchy_microtasks(); }
       }
     };
     var invoke = function (node, phase, capFilter) {
