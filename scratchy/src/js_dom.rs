@@ -3070,9 +3070,15 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   def(doc, 'defaultView', function () { return g; });
   // QY4/QA15: legacy createEvent.
   doc.createEvent = function (iface) {
-    var C = { event: Event, events: Event, htmlevents: Event, svgevents: Event, customevent: CustomEvent,
-      uievent: UIEvent, uievents: UIEvent, mouseevent: MouseEvent, mouseevents: MouseEvent,
-      keyboardevent: KeyboardEvent, focusevent: FocusEvent, errorevent: ErrorEvent }[String(iface).toLowerCase()];
+    // QDOM15: the DOM spec's createEvent table (names ASCII case-insensitive). TouchEvent is only
+    // exposed when 'expose legacy touch event APIs' is true (not on this desktop engine).
+    var names = { beforeunloadevent: 'BeforeUnloadEvent', compositionevent: 'CompositionEvent', customevent: 'CustomEvent',
+      devicemotionevent: 'DeviceMotionEvent', deviceorientationevent: 'DeviceOrientationEvent', dragevent: 'DragEvent',
+      event: 'Event', events: 'Event', focusevent: 'FocusEvent', hashchangeevent: 'HashChangeEvent', htmlevents: 'Event',
+      keyboardevent: 'KeyboardEvent', messageevent: 'MessageEvent', mouseevent: 'MouseEvent', mouseevents: 'MouseEvent',
+      storageevent: 'StorageEvent', svgevents: 'Event', textevent: 'TextEvent', uievent: 'UIEvent', uievents: 'UIEvent' };
+    var key = String(iface).toLowerCase();
+    var C = Object.prototype.hasOwnProperty.call(names, key) ? g[names[key]] : null;
     if (!C) throw herr('The provided event type (\'' + iface + '\') is invalid.', 'NotSupportedError');
     var e = new C('');
     e._init = false;

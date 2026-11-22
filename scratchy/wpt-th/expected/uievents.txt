@@ -30,8 +30,7 @@ OK          0/16  uievents/constructors/event-getmodifierstate.html
   FAIL      MouseEvent.getModifierState('AltGraph') reflects modifierAltGraph in isolation
   FAIL      MouseEvent.getModifierState('CapsLock') reflects modifierCapsLock in isolation
   FAIL      MouseEvent.getModifierState() reports every modifier when all are set
-OK           4/5  uievents/constructors/inputevent-constructor.html
-  FAIL      InputEvent construtor with InputEventInit where data is null
+OK           5/5  uievents/constructors/inputevent-constructor.html
 TIMEOUT      0/2  uievents/focusevents/blur-relatedTarget.html
   TIMEOUT   relatedTarget on self blur
   NOTRUN    relatedTarget for blur when focusing on another element
@@ -182,10 +181,8 @@ CRASH        0/0  uievents/order-of-events/mouse-events/wheel-basic.html
 OK           0/1  uievents/order-of-events/mouse-events/wheel-multiple-sources-deadlock.html
   FAIL      Simultaneous wheel events in different directions should not deadlock.
 CRASH        0/0  uievents/order-of-events/mouse-events/wheel-scrolling.html
-OK           0/9  uievents/textInput/api.html
+OK           2/9  uievents/textInput/api.html
   FAIL      No constructor
-  FAIL      document.CreateEvent('TextEvent') prototype chain
-  FAIL      initTextEvent() no arguments
   FAIL      initTextEvent('foo')
   FAIL      initTextEvent('foo', true, true, window, 'bar')
   FAIL      case sensitivity: textInput vs textinput
