@@ -2345,7 +2345,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   };
   var cdReplace = function (n, fn, off, cnt, ins) {
     var r = cdRange(n, fn, off, cnt);
-    __d_settext(n.__id, r[0].slice(0, r[1]) + ins + r[0].slice(r[1] + r[2]));
+    settextKeep(n.__id, r[0].slice(0, r[1]) + ins + r[0].slice(r[1] + r[2]), n, r[1], r[2], ins.length);
   };
   CharacterData.prototype.appendData = function (s) { cdReplace(this, 'appendData', __d_text(this.__id).length, 0, String(s)); };
   CharacterData.prototype.insertData = function (o, s) { cdReplace(this, 'insertData', o, 0, String(s)); };
@@ -2360,6 +2360,14 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     split: function (node, offset, fresh, parent) {},     // after `fresh` is inserted, before node's data is cut
     merge: function (cur, node, length) {}                // `cur` (about to be removed) merges into `node` at `length`
   };
+  // QDOM5: set by the Range block: "replace data" fix-up (node, offset, count, new length), and a depth counter
+  // that makes the generic `__d_settext` fix-up (replace ALL data) stand aside while a caller does its own.
+  var rangeText = function (n, off, cnt, len) {}, rSup = 0;
+  var settextKeep = function (id, t, n, off, cnt, ins) {
+    rSup++;
+    try { __d_settext(id, t); } finally { rSup--; }
+    rangeText(n, off, cnt, ins);
+  };
   Object.defineProperty(Text.prototype, 'splitText', { configurable: true, enumerable: true, writable: true, value: function splitText(offset) {
     if (arguments.length < 1) throw new TypeError("Failed to execute 'splitText' on 'Text': 1 argument required, but only 0 present.");
     var d = __d_text(this.__id), off = Number(offset);
@@ -2372,7 +2380,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       parent.insertBefore(fresh, this.nextSibling);
       rangeHook.split(this, off, fresh, parent);
     }
-    __d_settext(this.__id, d.slice(0, off));
+    settextKeep(this.__id, d.slice(0, off), this, off, d.length - off, 0);
     return fresh;
   } });
   defs(Text.prototype, 'wholeText', function () {
@@ -2398,7 +2406,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
             cur = cur.nextSibling;
           }
           if (runs.length) {
-            __d_settext(node.__id, __d_text(node.__id) + data);
+            settextKeep(node.__id, __d_text(node.__id) + data, node, length, 0, data.length);
             var len = length;
             for (var i = 0; i < runs.length; i++) {
               rangeHook.merge(runs[i], node, len);
@@ -5509,16 +5517,16 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   };
   // QJ7: DOM Range, first slice of QA19: boundary points (spec rules: IndexSizeError,
   // InvalidNodeTypeError, root change collapses, start/end ordering), comparisons,
-  // toString and client rects from the laid-out glyphs of each text node. Not yet:
-  // extract/clone/insert/surroundContents, live fixups on DOM mutation (QA19).
+  // toString and client rects from the laid-out glyphs of each text node. QDOM5: content operations
+  // (clone/extract/delete/insertNode/surroundContents), live fix-ups on every DOM mutation, Attr boundary points.
   (function () {
     var RS = Symbol('range'), ST = Symbol('rangeStates');
     var nlen = function (n) {
       var t = n.nodeType;
-      return t === 3 || t === 4 || t === 7 || t === 8 ? n.length : n.childNodes.length;
+      return t === 3 || t === 4 || t === 7 || t === 8 ? n.length : (t === 2 ? 0 : n.childNodes.length);
     };
     var checkNode = function (fn, n) {
-      if (n == null || n.__id === undefined) throw new TypeError("Failed to execute '" + fn + "' on 'Range': parameter 1 is not of type 'Node'.");
+      if (n == null || (n.__id === undefined && !AttrP.isPrototypeOf(n))) throw new TypeError("Failed to execute '" + fn + "' on 'Range': parameter 1 is not of type 'Node'.");
       if (n.nodeType === 10) throw herr("Failed to execute '" + fn + "' on 'Range': The node provided is a doctype.", 'InvalidNodeTypeError');
     };
     var checkOff = function (fn, n, o) {
@@ -5541,7 +5549,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       while (c2.parentNode !== nb) c2 = c2.parentNode;
       return idxOf(c2) < ob ? -1 : 1;
     };
-    var rootOf = function (n) { return n.getRootNode(); };
+    var rootOf = function (n) { return n.nodeType === 2 ? n : n.getRootNode(); };  // an Attr is its own root
     var set = function (r, which, n, o) {
       var s = r[RS];
       if (which === 'start') {
@@ -5739,6 +5747,244 @@ pub(crate) const DOM_PRELUDE: &str = r#"
         });
       });
     };
+    // QDOM5: the other live-range fix-ups, on the natives so every route (insertBefore, append, remove,
+    // replaceChild, textContent, innerHTML, adoptNode, CharacterData methods, splitText, normalize) is covered.
+    var liveRanges = function () {
+      var rs = [];
+      live = live.filter(function (w) { var r = w.deref(); if (r) rs.push(r); return r; });
+      return rs;
+    };
+    var fixRemove = function (id, idx) {
+      var p = __d_parent(id);
+      if (p < 0) return;
+      rangeMove(wrap(id), wrap(p), idx < 0 ? __d_children(p, false).indexOf(id) : idx, null);
+    };
+    var fixInsert = function (par, index, count) {
+      liveRanges().forEach(function (r) {
+        var s = r[RS];
+        if (s.sc === par && s.so > index) s.so += count;
+        if (s.ec === par && s.eo > index) s.eo += count;
+      });
+    };
+    var oIns = __d_insert, oRem = __d_remove, oTxt = __d_settext, oHtml = __d_sethtml;
+    __d_insert = function (p, c, b) {
+      if (!live.length) return oIns(p, c, b);
+      var pw = wrap(p), cw = wrap(c);
+      if (c === p || cw.contains(pw)) return oIns(p, c, b);
+      var frag = __d_kind(c) === 11, kids = frag ? __d_children(c, false) : [c];
+      kids.forEach(function (k) { fixRemove(k, frag ? 0 : -1); });
+      var ok = oIns(p, c, b);
+      if (ok && kids.length) fixInsert(pw, __d_children(p, false).indexOf(kids[0]), kids.length);
+      return ok;
+    };
+    __d_remove = function (id) {
+      if (live.length) fixRemove(id, -1);
+      return oRem(id);
+    };
+    var fixAll = function (id) {
+      var n = wrap(id);
+      liveRanges().forEach(function (r) {
+        var s = r[RS];
+        if (s.sc === n || n.contains(s.sc)) { s.sc = n; s.so = 0; }
+        if (s.ec === n || n.contains(s.ec)) { s.ec = n; s.eo = 0; }
+      });
+    };
+    __d_settext = function (id, t) {
+      if (!live.length || rSup) return oTxt(id, t);
+      var k = __d_kind(id);
+      if (k === 3 || k === 4 || k === 7 || k === 8) {
+        var len = __d_text(id).length;
+        var r = oTxt(id, t);
+        rangeText(wrap(id), 0, len, String(t).length);
+        return r;
+      }
+      if (k === 1 || k === 11) fixAll(id);
+      return oTxt(id, t);
+    };
+    __d_sethtml = function (id, h) {
+      if (live.length) fixAll(id);
+      return oHtml(id, h);
+    };
+    rangeText = function (n, off, cnt, len) {
+      if (!live.length) return;
+      liveRanges().forEach(function (r) {
+        var s = r[RS];
+        ['sc', 'ec'].forEach(function (c) {
+          var o = c === 'sc' ? 'so' : 'eo';
+          if (s[c] !== n) return;
+          if (s[o] > off && s[o] <= off + cnt) s[o] = off;
+          else if (s[o] > off + cnt) s[o] += len - cnt;
+        });
+      });
+    };
+    rangeHook.split = function (node, offset, fresh, parent) {
+      var pi = idxOf(node);
+      liveRanges().forEach(function (r) {
+        var s = r[RS];
+        if (s.sc === node && s.so > offset) { s.sc = fresh; s.so -= offset; }
+        else if (s.sc === parent && s.so === pi + 1) s.so++;
+        if (s.ec === node && s.eo > offset) { s.ec = fresh; s.eo -= offset; }
+        else if (s.ec === parent && s.eo === pi + 1) s.eo++;
+      });
+    };
+    rangeHook.merge = function (cur, node, length) {
+      var parent = cur.parentNode, ci = idxOf(cur);
+      liveRanges().forEach(function (r) {
+        var s = r[RS];
+        if (s.sc === cur) { s.sc = node; s.so += length; }
+        else if (s.sc === parent && s.so === ci) { s.sc = node; s.so = length; }
+        if (s.ec === cur) { s.ec = node; s.eo += length; }
+        else if (s.ec === parent && s.eo === ci) { s.ec = node; s.eo = length; }
+      });
+    };
+    // Content operations (DOM "range" algorithms): clone / extract / delete / insertNode / surroundContents.
+    var isCD = function (n) { var t = n.nodeType; return t === 3 || t === 4 || t === 7 || t === 8; };
+    var inclAnc = function (a, b) { return a === b || a.contains(b); };
+    var kidsOf = function (n) { return n.nodeType === 2 ? [] : Array.prototype.slice.call(n.childNodes); };
+    var ownerDoc = function (n) { return n.nodeType === 9 ? n : n.nodeType === 2 ? (n.ownerElement && n.ownerElement.ownerDocument) || doc : (n.ownerDocument || doc); };
+    var hre = function (fn, m) { return herr("Failed to execute '" + fn + "' on 'Range': " + m, 'HierarchyRequestError'); };
+    // The common ancestor, first/last partially contained child and the contained children.
+    var parts = function (fn, sc, so, ec, eo, topOnly) {
+      var ca = sc;
+      while (!inclAnc(ca, ec)) ca = ca.parentNode;
+      var kids = kidsOf(ca), fp = null, lp = null, contained = [];
+      if (!inclAnc(sc, ec)) for (var i = 0; i < kids.length; i++) if (inclAnc(kids[i], sc)) { fp = kids[i]; break; }
+      if (!inclAnc(ec, sc)) for (var j = kids.length - 1; j >= 0; j--) if (inclAnc(kids[j], ec)) { lp = kids[j]; break; }
+      var isIn = function (c) { return cmp(c, 0, sc, so) > 0 && cmp(c, nlen(c), ec, eo) < 0; };
+      var collect = function (n) {
+        kidsOf(n).forEach(function (c) {
+          if (isIn(c)) contained.push(c);
+          else if (inclAnc(c, sc) || inclAnc(c, ec)) collect(c);
+        });
+      };
+      if (topOnly) kids.forEach(function (c) { if (isIn(c)) contained.push(c); }); else collect(ca);
+      for (var k = 0; k < contained.length; k++) if (contained[k].nodeType === 10) throw hre(fn, 'The range contains a doctype.');
+      return { ca: ca, fp: fp, lp: lp, contained: contained };
+    };
+    var cdSub = function (n, a, b) { return n.data.substring(a, b); };
+    // how: 0 clone, 1 extract. Returns the fragment; for an extract also {node, offset} through `out`.
+    var newPoint = function (sc, ec) {
+      if (inclAnc(sc, ec)) return null;
+      var rf = sc;
+      while (rf.parentNode && !inclAnc(rf.parentNode, ec)) rf = rf.parentNode;
+      return { node: rf.parentNode, offset: idxOf(rf) + 1 };
+    };
+    var cutOut = function (fn, sc, so, ec, eo, how, out) {
+      var frag = ownerDoc(sc).createDocumentFragment();
+      if (sc === ec && so === eo) return frag;
+      if (sc === ec && isCD(sc)) {
+        var c0 = sc.cloneNode(false);
+        c0.data = cdSub(sc, so, eo);
+        frag.appendChild(c0);
+        if (how) sc.replaceData(so, eo - so, '');
+        return frag;
+      }
+      var p = parts(fn, sc, so, ec, eo, true);
+      if (how) out.pt = newPoint(sc, ec) || { node: sc, offset: so };
+      var c;
+      if (p.fp) {
+        if (isCD(p.fp)) {
+          c = p.fp.cloneNode(false);
+          c.data = cdSub(sc, so, nlen(sc));
+          frag.appendChild(c);
+          if (how) sc.replaceData(so, nlen(sc) - so, '');
+        } else {
+          c = p.fp.cloneNode(false);
+          frag.appendChild(c);
+          c.appendChild(cutOut(fn, sc, so, p.fp, nlen(p.fp), how, {}));
+        }
+      }
+      p.contained.forEach(function (n) { frag.appendChild(how ? n : n.cloneNode(true)); });
+      if (p.lp) {
+        if (isCD(p.lp)) {
+          c = p.lp.cloneNode(false);
+          c.data = cdSub(ec, 0, eo);
+          frag.appendChild(c);
+          if (how) ec.replaceData(0, eo, '');
+        } else {
+          c = p.lp.cloneNode(false);
+          frag.appendChild(c);
+          c.appendChild(cutOut(fn, p.lp, 0, ec, eo, how, {}));
+        }
+      }
+      return frag;
+    };
+    meth('cloneContents', 0, function () { var s = st(this); return cutOut('cloneContents', s.sc, s.so, s.ec, s.eo, 0, null); });
+    meth('extractContents', 0, function () {
+      var s = st(this), out = {};
+      var f = cutOut('extractContents', s.sc, s.so, s.ec, s.eo, 1, out);
+      if (out.pt) { s.sc = s.ec = out.pt.node; s.so = s.eo = out.pt.offset; }
+      return f;
+    });
+    meth('deleteContents', 0, function () {
+      var s = st(this), sc = s.sc, so = s.so, ec = s.ec, eo = s.eo;
+      if (sc === ec && so === eo) return;
+      if (sc === ec && isCD(sc)) { sc.replaceData(so, eo - so, ''); return; }
+      var p = parts('deleteContents', sc, so, ec, eo, false), pt = newPoint(sc, ec) || { node: sc, offset: so };
+      if (isCD(sc)) sc.replaceData(so, nlen(sc) - so, '');
+      p.contained.forEach(function (n) { if (n.parentNode) n.parentNode.removeChild(n); });
+      if (isCD(ec)) ec.replaceData(0, eo, '');
+      s.sc = s.ec = pt.node; s.so = s.eo = pt.offset;
+    });
+    // Pre-insertion validity (DOM "ensure pre-insert validity").
+    var preInsert = function (fn, parent, node, ref) {
+      var pt = parent.nodeType, nt = node.nodeType;
+      if (pt !== 9 && pt !== 11 && pt !== 1) throw hre(fn, 'The node cannot have children.');
+      for (var a = parent; a; a = a.parentNode || (a.nodeType === 11 ? a.host : null)) if (a === node) throw hre(fn, 'The new child contains the parent.');
+      if (ref && ref.parentNode !== parent) throw herr("Failed to execute '" + fn + "' on 'Range': The reference node is not a child of the parent.", 'NotFoundError');
+      if (nt !== 11 && nt !== 10 && nt !== 1 && nt !== 3 && nt !== 4 && nt !== 7 && nt !== 8) throw hre(fn, 'The node type cannot be inserted.');
+      if (((nt === 3 || nt === 4) && pt === 9) || (nt === 10 && pt !== 9)) throw hre(fn, 'The node cannot be inserted here.');
+      if (pt !== 9) return;
+      var pk = kidsOf(parent), hasEl = pk.some(function (c) { return c.nodeType === 1; });
+      var docAfter = function () { // a doctype follows `ref`
+        for (var q = ref && ref.nextSibling; q; q = q.nextSibling) if (q.nodeType === 10) return true;
+        return false;
+      };
+      var elBefore = function () { // an element precedes `ref`
+        for (var q = ref && ref.previousSibling; q; q = q.previousSibling) if (q.nodeType === 1) return true;
+        return false;
+      };
+      if (nt === 11) {
+        var nk = kidsOf(node), els = nk.filter(function (c) { return c.nodeType === 1; }).length;
+        if (els > 1 || nk.some(function (c) { return c.nodeType === 3 || c.nodeType === 4; })) throw hre(fn, 'The fragment cannot be inserted into a document.');
+        if (els === 1 && (hasEl || (ref && ref.nodeType === 10) || (ref && docAfter()))) throw hre(fn, 'The document already has an element.');
+      } else if (nt === 1) {
+        if (hasEl || (ref && ref.nodeType === 10) || (ref && docAfter())) throw hre(fn, 'The document already has an element.');
+      } else if (nt === 10) {
+        if (pk.some(function (c) { return c.nodeType === 10; }) || (ref && elBefore()) || (!ref && hasEl)) throw hre(fn, 'The document already has a doctype.');
+      }
+    };
+    var insertNode = function (s, node) {
+      var sc = s.sc, t = sc.nodeType, text = t === 3 || t === 4;
+      if (t === 7 || t === 8 || (text && !sc.parentNode) || node === sc) throw hre('insertNode', 'The start node cannot take the node.');
+      var ref = text ? sc : (t !== 2 && sc.childNodes[s.so]) || null;
+      var parent = ref === null ? sc : ref.parentNode;
+      preInsert('insertNode', parent, node, ref);
+      if (text) ref = sc.splitText(s.so);
+      if (node === ref) ref = node.nextSibling;
+      if (node.parentNode) node.parentNode.removeChild(node);
+      var no = ref === null ? nlen(parent) : idxOf(ref);
+      no += node.nodeType === 11 ? node.childNodes.length : 1;
+      parent.insertBefore(node, ref);
+      if (s.sc === s.ec && s.so === s.eo) { s.ec = parent; s.eo = no; }
+    };
+    var nodeArg = function (fn, n) {
+      if (n == null || (n.__id === undefined && !AttrP.isPrototypeOf(n))) throw new TypeError("Failed to execute '" + fn + "' on 'Range': parameter 1 is not of type 'Node'.");
+    };
+    meth('insertNode', 1, function (node) { nodeArg('insertNode', node); insertNode(st(this), node); });
+    meth('surroundContents', 1, function (np) {
+      nodeArg('surroundContents', np);
+      var s = st(this), msg = "Failed to execute 'surroundContents' on 'Range': The Range has partially selected a non-Text node.";
+      for (var a = s.sc; a && !inclAnc(a, s.ec); a = a.parentNode) if (a.nodeType !== 3 && a.nodeType !== 4) throw herr(msg, 'InvalidStateError');
+      for (var b = s.ec; b && !inclAnc(b, s.sc); b = b.parentNode) if (b.nodeType !== 3 && b.nodeType !== 4) throw herr(msg, 'InvalidStateError');
+      var t = np.nodeType;
+      if (t === 9 || t === 10 || t === 11) throw herr("Failed to execute 'surroundContents' on 'Range': The node provided is of an invalid type.", 'InvalidNodeTypeError');
+      var frag = this.extractContents();
+      while (np.firstChild) np.removeChild(np.firstChild);
+      insertNode(s, np);
+      np.appendChild(frag);
+      this.selectNode(np);
+    });
     doc.createRange = function () {
       var r = new Range(), s = r[RS];
       s.sc = s.ec = this;
