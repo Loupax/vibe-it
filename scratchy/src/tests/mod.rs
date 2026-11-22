@@ -56,6 +56,7 @@ mod qmem3d_tests;
 mod shape_memo_tests;
 mod qy53n2_tests;
 mod qy53n3_tests;
+mod qapi4_tests;
 mod wl_drain_tests;
 mod link_css_tests;
 mod invalidation_tests;
