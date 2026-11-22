@@ -84,6 +84,7 @@ mod forms_text;
 mod forms_select;
 mod forms_submit;
 mod paint;
+mod fx; // QCSS-D: filter, backdrop-filter, text-shadow, mix-blend-mode, clip-path
 mod scrollbar;
 mod net;
 #[allow(dead_code)] // nothing calls the policy until QF7/QF8
@@ -161,6 +162,7 @@ pub(crate) use forms_text::*;
 pub(crate) use forms_select::*;
 pub(crate) use forms_submit::*;
 pub(crate) use paint::*;
+pub(crate) use fx::{BlendMode, FilterCompFn, FilterDeclFn, Fx, ShadowCompFn, ShadowDeclFn, Shape, LP};
 pub(crate) use net::*;
 pub(crate) use net_policy::*;
 pub(crate) use user_agent::*;

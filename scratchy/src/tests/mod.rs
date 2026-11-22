@@ -54,6 +54,7 @@ mod qmem3d_tests;
 mod shape_memo_tests;
 mod qapi4_tests;
 mod qff1a_tests;
+mod qcss_d_tests;
 mod wl_drain_tests;
 mod link_css_tests;
 mod invalidation_tests;

@@ -69,6 +69,7 @@ case $PAGE in
   social) URL='https://social.loupax.com/discover'; SECS=40; HSECS=20 ;;
   hover) URL="$HERE/hover.html"; SECS=32; HSECS=10 ;;
   imggeom) URL="$HERE/img-geom.html"; SECS=10; HSECS=5 ;;
+  fxscroll) URL="$HERE/fx-scroll.html"; SECS=26; HSECS=10 ;; # QCSS-D: blur/backdrop-filter/text-shadow page, scrolled
   *) echo "run.sh: unknown page $PAGE" >&2; exit 2 ;;
 esac
 case $MODE in
@@ -80,7 +81,7 @@ esac
 # QREC3: record / replay arguments for this run's wire; local-file pages never touch the network
 WARGS=()
 DET=()
-case $PAGE in hover|imggeom) ;; *)
+case $PAGE in hover|imggeom|fxscroll) ;; *)
   if [ -n "$REPLAY" ] && [ -n "$RECORD" ]; then echo "run.sh: REPLAY and RECORD contradict each other" >&2; exit 2; fi
   if [ -n "$REPLAY" ]; then
     [ -s "$REPLAY/$PAGE/index.jsonl" ] || { echo "run.sh: no recording in $REPLAY/$PAGE" >&2; exit 2; }
@@ -184,6 +185,13 @@ plan() {
       inj $(sweep 10 950 10 900 40 30 16)
       # shellcheck disable=SC2046
       inj $(sweep 25 950 25 900 40 30 16)
+      at $((SECS - 3)); shot end ;;
+    fxscroll)
+      at 4; shot pre
+      at 5
+      # shellcheck disable=SC2046
+      inj move:480,500 $(for i in $(seq 1 20); do echo "scroll:3 wait:400"; done)
+      inj $(for i in $(seq 1 20); do echo "scroll:-3 wait:400"; done)
       at $((SECS - 3)); shot end ;;
     imggeom)
       at 3; shot pre

@@ -1351,6 +1351,12 @@ pub(crate) struct Declarations {
     /// See `ShadowDecl`'s own docs for why a plain `Option<BoxShadow>`
     /// can't tell those two cases apart.
     pub(crate) box_shadow: Option<ShadowDecl>,
+    /// QCSS-D: `filter` / `backdrop-filter` / `text-shadow` / `mix-blend-mode` / `clip-path`.
+    pub(crate) filter: Option<Fx<&'static [FilterDeclFn]>>,
+    pub(crate) backdrop_filter: Option<Fx<&'static [FilterDeclFn]>>,
+    pub(crate) text_shadow: Option<Fx<&'static [ShadowDeclFn]>>,
+    pub(crate) mix_blend_mode: Option<BlendMode>,
+    pub(crate) clip_path: Option<Fx<&'static Shape<Length>>>,
     pub(crate) border_radius: Option<Length>,
     /// `overflow` (shorthand) and `overflow-x` both land here: the x axis.
     pub(crate) overflow: Option<Overflow>,
@@ -2698,7 +2704,7 @@ pub(crate) fn unprefixed_property(name: &str) -> &str {
     const ALIASED: &[&str] = &[
         "box-sizing", "flex", "flex-direction", "flex-wrap", "flex-flow", "flex-grow",
         "flex-shrink", "flex-basis", "box-shadow", "justify-content", "align-items",
-        "align-self", "order", "border-radius", "opacity", "appearance",
+        "align-self", "order", "border-radius", "opacity", "appearance", "filter", "backdrop-filter", "clip-path",
         "animation", "animation-name", "animation-duration", "animation-timing-function",
         "animation-delay", "animation-iteration-count", "animation-direction",
         "animation-fill-mode", "animation-play-state",
@@ -5096,6 +5102,8 @@ impl Declarations {
             "padding-right" => padding_right, "padding-bottom" => padding_bottom,
             "padding-left" => padding_left, "outline-width" => outline_width,
             "outline-color" => outline_color, "box-shadow" => box_shadow,
+            "filter" => filter, "backdrop-filter" => backdrop_filter, "text-shadow" => text_shadow,
+            "mix-blend-mode" => mix_blend_mode, "clip-path" => clip_path,
             "border-radius" => border_radius, "overflow" => overflow,
             "overflow-y" => overflow_y, "text-overflow" => text_overflow,
             "flex-direction" => flex_direction, "flex-wrap" => flex_wrap,
@@ -5561,6 +5569,26 @@ impl DeclParser<'_> {
                 self.decls.box_shadow = Some(ShadowDecl::None);
             } else if let Ok(v) = parse_box_shadow(input) {
                 self.decls.box_shadow = Some(ShadowDecl::Shadow(v));
+            }
+        } else if name.eq_ignore_ascii_case("filter") {
+            if let Ok(v) = crate::fx::parse_filter(input) {
+                self.decls.filter = Some(v);
+            }
+        } else if name.eq_ignore_ascii_case("backdrop-filter") {
+            if let Ok(v) = crate::fx::parse_filter(input) {
+                self.decls.backdrop_filter = Some(v);
+            }
+        } else if name.eq_ignore_ascii_case("text-shadow") {
+            if let Ok(v) = crate::fx::parse_text_shadow(input) {
+                self.decls.text_shadow = Some(v);
+            }
+        } else if name.eq_ignore_ascii_case("mix-blend-mode") {
+            if let Ok(v) = crate::fx::parse_mix_blend_mode(input) {
+                self.decls.mix_blend_mode = Some(v);
+            }
+        } else if name.eq_ignore_ascii_case("clip-path") {
+            if let Ok(v) = crate::fx::parse_clip_path(input) {
+                self.decls.clip_path = Some(v);
             }
         } else if name.eq_ignore_ascii_case("border-radius") {
             set_length(input, &mut self.decls.border_radius);

@@ -381,6 +381,11 @@ pub(crate) fn serialize(s: &ComputedStyle, prop: &str) -> String {
         "color" => color(s.color),
         "background-color" => opt_color(s.background_color),
         "opacity" => num(s.opacity),
+        "filter" => crate::fx::serialize_filter(s.filter),
+        "backdrop-filter" => crate::fx::serialize_filter(s.backdrop_filter),
+        "text-shadow" => crate::fx::serialize_text_shadow(s.text_shadow),
+        "clip-path" => crate::fx::serialize_clip_path(s.clip_path),
+        "mix-blend-mode" => s.mix_blend_mode.keyword().into(),
         "z-index" => s.z_index.map(|z| z.to_string()).unwrap_or_else(|| "auto".into()),
         "float" | "css-float" => match s.float {
             Float::None => "none",

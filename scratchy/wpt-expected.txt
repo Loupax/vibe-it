@@ -276,7 +276,7 @@ FAIL css/CSS2/tables/table-anonymous-objects-095.xht
 PASS css/CSS2/tables/table-anonymous-objects-200.xht
 PASS css/CSS2/tables/table-height-algorithm-008a.xht
 PASS css/CSS2/visuren/fixed-pos-stacking-001.xht
-FAIL css/compositing/mix-blend-mode/mix-blend-mode-animation.html
+PASS css/compositing/mix-blend-mode/mix-blend-mode-animation.html
 PASS css/css-animations/animate-font-size-with-margin-override.html
 PASS css/css-animations/animation-delay-011.html
 PASS css/css-animations/animation-delay-012.html

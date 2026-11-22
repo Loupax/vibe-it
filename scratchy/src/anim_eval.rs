@@ -511,6 +511,16 @@ pub(crate) fn lerp_styles(a: &ComputedStyle, b: &ComputedStyle, t: f32) -> Compu
     if a.visibility != b.visibility && t > 0.0 && t < 1.0 {
         r.visibility = Visibility::Visible;
     }
+    // QCSS-D: filter lists interpolate function by function.
+    if let Some(v) = crate::fx::lerp_filter(a.filter, b.filter, t) {
+        r.filter = v;
+    }
+    if let Some(v) = crate::fx::lerp_filter(a.backdrop_filter, b.backdrop_filter, t) {
+        r.backdrop_filter = v;
+    }
+    if a.text_shadow != b.text_shadow {
+        r.text_shadow = crate::fx::lerp_text_shadow(a.text_shadow, b.text_shadow, t);
+    }
     r
 }
 
@@ -557,6 +567,15 @@ fn merge_styles(r: &mut ComputedStyle, s: &ComputedStyle, base: &ComputedStyle) 
     }
     if s.visibility != base.visibility {
         r.visibility = s.visibility;
+    }
+    if s.filter != base.filter {
+        r.filter = s.filter;
+    }
+    if s.backdrop_filter != base.backdrop_filter {
+        r.backdrop_filter = s.backdrop_filter;
+    }
+    if s.text_shadow != base.text_shadow {
+        r.text_shadow = s.text_shadow;
     }
 }
 
