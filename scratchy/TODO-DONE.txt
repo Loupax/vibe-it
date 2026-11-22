@@ -9453,3 +9453,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       GitHub ship woff2 only). Test: ic-unit-003 (woff2) and a woff2 copy of Ahem.
       Unblocks the 298 css/WOFF2 reftests (record how many run).
       User approved 2026-11-22 (DECISIONS.md): un-archived; web fonts are rendered.
+
+=== from TODO.txt: --- (no header)
+- [x] QCSS-C DONE c75743f #599 [S] (P2, from QAPI8 #578; Sonnet; css.rs, flex/grid) Box-alignment keywords (`end`, `first baseline`, ...),
+      `place-*` shorthands, `grid-auto-flow`, `grid-gap`.
