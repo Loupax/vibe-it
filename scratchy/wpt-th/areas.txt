@@ -1,8 +1,8 @@
 # wpt-th areas at WPT ac78b567f5404b6f2dc0418ea380af3946a47fca; score = mean over files of passed/total subtests (files that ran; flaky.txt files and NOT-RUN/CRASH excluded)
 # area                        files    ran  all-pass  subtests    pass  pass%  score
-dom/nodes                       393    380       165      6194    3557   57.4   57.7
-dom/events                      194    193        52       755     401   53.1   33.0
-dom/ranges                       41     41         7       302      18    6.0   17.1
+dom/nodes                       393    380       174      9883    7210   73.0   60.8
+dom/events                      194    193        53       755     407   53.9   33.6
+dom/ranges                       41     41         7       319      18    5.6   17.1
 dom/observable                   29     29         0       251       0    0.0    0.0
 dom/other                        46     46        32       462     418   90.5   82.9
 domparsing                       93     93        12      2323     129    5.6   22.2
@@ -11,8 +11,8 @@ uievents                         70     62         6       204      72   35.3   
 html/webappapis                 308    307        67      1140     562   49.3   26.6
 resize-observer                  36     35        18        48      28   58.3   59.3
 intersection-observer           150    150        21       196      47   24.0   16.5
-html/semantics/scripting-1      419    398       112      2394    1053   44.0   31.4
-html/dom                        180    180        48      3869    1062   27.4   40.0
+html/semantics/scripting-1      419    398       112      2401    1058   44.1   31.7
+html/dom                        180    180        48      3870    1062   27.4   40.0
 css/cssom                       271    269        62      3899    2127   54.6   36.3
 css/cssom-view                  220    218        58      1338     674   50.4   33.0
 encoding                         41     41         7       648     282   43.5   33.2
@@ -23,4 +23,4 @@ webmessaging                    115    115        40       190      84   44.2   
 requestidlecallback               9      9         5        17      13   76.5   64.8
 custom-elements                 204    203        15      2168     672   31.0   17.7
 shadow-dom                      263    263        43      2082     662   31.8   22.3
-TOTAL                          3264   3212       799     37294   17911   48.0   33.4
+TOTAL                          3264   3212       809     41008   21575   52.6   33.8

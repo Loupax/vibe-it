@@ -10,6 +10,16 @@ thread_local! {
     /// QDOM7: rcdom's `Comment { contents }` is not a cell, so a data write keeps the new text here, keyed by the node's pointer
     /// (the handle is held so the pointer cannot be reused while the entry lives).
     static COMMENT_DATA: RefCell<HashMap<usize, (Handle, String)>> = RefCell::new(HashMap::new());
+    /// QDOM8: Text nodes that are CDATASections (nodeType 4), keyed by pointer (the handle keeps the pointer valid).
+    static CDATA: RefCell<HashMap<usize, Handle>> = RefCell::new(HashMap::new());
+}
+
+fn is_cdata(h: &Handle) -> bool {
+    matches!(h.data, NodeData::Text { .. }) && CDATA.with(|m| m.borrow().contains_key(&(Rc::as_ptr(h) as usize)))
+}
+
+fn mark_cdata(h: &Handle) {
+    CDATA.with(|m| m.borrow_mut().insert(Rc::as_ptr(h) as usize, h.clone()));
 }
 
 /// The current data of a Comment (the override if written, else the parsed contents).
@@ -86,11 +96,17 @@ fn is_element(h: &Handle) -> bool {
 fn node_type(h: &Handle) -> i32 {
     match &h.data {
         NodeData::Element { .. } => 1,
-        NodeData::Text { .. } => 3,
+        NodeData::Text { .. } => {
+            if is_cdata(h) {
+                4
+            } else {
+                3
+            }
+        }
+        NodeData::ProcessingInstruction { .. } => 7,
         NodeData::Comment { .. } => 8,
         NodeData::Document => 9,
         NodeData::Doctype { .. } => 10,
-        _ => 0,
     }
 }
 
@@ -291,6 +307,9 @@ fn xml_to_dom(x: roxmltree::Node) -> Option<Handle> {
         }
         roxmltree::NodeType::Text => Some(Node::new(NodeData::Text { contents: RefCell::new(x.text().unwrap_or("").into()) })),
         roxmltree::NodeType::Comment => Some(Node::new(NodeData::Comment { contents: x.text().unwrap_or("").into() })),
+        roxmltree::NodeType::PI => x.pi().map(|pi| {
+            Node::new(NodeData::ProcessingInstruction { target: pi.target.into(), contents: pi.value.unwrap_or("").into() })
+        }),
         _ => None,
     }
 }
@@ -395,7 +414,7 @@ fn serialize_node(h: &Handle, outer: bool) -> String {
             NodeData::Doctype { name, .. } => s.write_doctype(name),
             NodeData::Text { contents } => s.write_text(&contents.borrow()),
             NodeData::Comment { contents } => s.write_comment(&comment_data(h, contents)),
-            NodeData::ProcessingInstruction { target, contents } => s.write_processing_instruction(target, contents),
+            NodeData::ProcessingInstruction { target, contents } => s.write_processing_instruction(target, &comment_data(h, contents)),
             NodeData::Document => {
                 for c in h.children.borrow().clone() {
                     node(s, &c)?;
@@ -441,9 +460,15 @@ fn clone_node_body(h: &Handle, deep: bool) -> Handle {
         },
         NodeData::Text { contents } => NodeData::Text { contents: RefCell::new(contents.borrow().clone()) },
         NodeData::Comment { contents } => NodeData::Comment { contents: comment_data(h, contents).as_str().into() },
+        NodeData::ProcessingInstruction { target, contents } => {
+            NodeData::ProcessingInstruction { target: target.clone(), contents: comment_data(h, contents).as_str().into() }
+        }
         _ => NodeData::Document,
     };
     let n = Node::new(data);
+    if is_cdata(h) {
+        mark_cdata(&n);
+    }
     // QY6f: cloning a template copies its content (deep clones only).
     if deep {
         if let (Some(src), NodeData::Element { template_contents, .. }) = (template_content(h), &n.data) {
@@ -681,7 +706,7 @@ fn geom_bump_children(p: &Handle, pre: Option<crate::js_geom::HiddenChildren>) {
 fn text_write_changes(h: &Handle, text: &str) -> bool {
     match &h.data {
         NodeData::Text { contents } => &*contents.borrow() != text,
-        NodeData::Comment { contents } => comment_data(h, contents) != text,
+        NodeData::Comment { contents } | NodeData::ProcessingInstruction { contents, .. } => comment_data(h, contents) != text,
         _ => {
             let kids = h.children.borrow();
             match kids.as_slice() {
@@ -876,12 +901,13 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
                     name.local.as_ref().to_string()
                 }
             }
+            NodeData::Text { .. } if is_cdata(&h) => "#cdata-section".into(),
             NodeData::Text { .. } => "#text".into(),
+            NodeData::ProcessingInstruction { target, .. } => target.to_string(),
             NodeData::Comment { .. } => "#comment".into(),
             NodeData::Doctype { name, .. } => name.to_string(),
             NodeData::Document if id != 0 && !t.borrow().docs.contains(&id) => "#document-fragment".into(),
             NodeData::Document => "#document".into(),
-            _ => String::new(),
         }
     });
     let t = table.clone();
@@ -903,7 +929,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         let mut s = String::new();
         if let Some(h) = t.borrow().get(id) {
             match &h.data {
-                NodeData::Comment { contents } => s.push_str(&comment_data(&h, contents)),
+                NodeData::Comment { contents } | NodeData::ProcessingInstruction { contents, .. } => s.push_str(&comment_data(&h, contents)),
                 _ => text_content(&h, &mut s),
             }
         }
@@ -1333,7 +1359,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             }
             // QY53l2: the element whose child list (or child text) changes.
             let owner = match &h.data {
-                NodeData::Text { .. } | NodeData::Comment { .. } => parent_handle(&h),
+                NodeData::Text { .. } | NodeData::Comment { .. } | NodeData::ProcessingInstruction { .. } => parent_handle(&h),
                 _ => Some(h.clone()),
             };
             let conn = changed && page_connected(&t.borrow(), &h);
@@ -1346,7 +1372,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             };
             match &h.data {
                 NodeData::Text { contents } => *contents.borrow_mut() = text.as_str().into(),
-                NodeData::Comment { .. } => COMMENT_DATA.with(|m| {
+                NodeData::Comment { .. } | NodeData::ProcessingInstruction { .. } => COMMENT_DATA.with(|m| {
                     m.borrow_mut().insert(Rc::as_ptr(&h) as usize, (h.clone(), text.clone()));
                 }),
                 _ => set_children_text(&h, &text),
@@ -1422,9 +1448,19 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             },
             3 => NodeData::Text { contents: RefCell::new(s.as_str().into()) },
             8 => NodeData::Comment { contents: s.as_str().into() },
+            // QDOM8: 4 = CDATASection (a marked Text), 7 = ProcessingInstruction (`s` = target NUL data).
+            4 => NodeData::Text { contents: RefCell::new(s.as_str().into()) },
+            7 => {
+                let (tg, d) = s.split_once('\0').unwrap_or((&s, ""));
+                NodeData::ProcessingInstruction { target: tg.into(), contents: d.into() }
+            }
             _ => NodeData::Document,
         };
-        t.borrow_mut().intern(&Node::new(data))
+        let n = Node::new(data);
+        if kind == 4 {
+            mark_cdata(&n);
+        }
+        t.borrow_mut().intern(&n)
     });
     // QY6f: id of a template's content fragment (-1 when not a template).
     let t = table.clone();
@@ -1864,7 +1900,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
         : raw !== raw.toUpperCase() || ns ? Element.prototype : tagProto[tg] || (tg.indexOf('-') < 0 ? HTMLUnknownElement : HTMLElement).prototype;
     }
     var o = Object.create(k === 1 ? eP
-      : k === 3 ? Text.prototype : k === 8 ? Comment.prototype : k === 11 ? DocumentFragment.prototype
+      : k === 3 ? Text.prototype : k === 8 ? Comment.prototype : k === 4 ? g.CDATASection.prototype : k === 7 ? g.ProcessingInstruction.prototype : k === 11 ? DocumentFragment.prototype
       : k === 10 ? DocumentType.prototype : Node.prototype);
     Object.defineProperty(o, '__id', { value: id });
     cache[id] = o;
@@ -2084,8 +2120,8 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     } else if (k === 10) {
       var da = __d_doctype(a), db = __d_doctype(b);
       if (da[0] !== db[0] || da[1] !== db[1] || da[2] !== db[2]) return false;
-    } else if (k === 3 || k === 8) {
-      if (__d_text(a) !== __d_text(b)) return false;
+    } else if (k === 3 || k === 4 || k === 7 || k === 8) {
+      if (__d_text(a) !== __d_text(b) || (k === 7 && __d_tag(a) !== __d_tag(b))) return false;
     }
     var ca = __d_children(a, false), cb = __d_children(b, false);
     if (ca.length !== cb.length) return false;
@@ -2113,7 +2149,10 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   // QSD2: DOM spec "compare position". Different roots: DISCONNECTED |
   // IMPLEMENTATION_SPECIFIC plus a consistent PRECEDING/FOLLOWING (by node id).
   [['DISCONNECTED', 1], ['PRECEDING', 2], ['FOLLOWING', 4], ['CONTAINS', 8], ['CONTAINED_BY', 16], ['IMPLEMENTATION_SPECIFIC', 32]]
-    .forEach(function (kv) { Node['DOCUMENT_POSITION_' + kv[0]] = NodeProto['DOCUMENT_POSITION_' + kv[0]] = kv[1]; });
+    .forEach(function (kv) {
+      var dsc = { value: kv[1], enumerable: true };
+      Object.defineProperty(Node, 'DOCUMENT_POSITION_' + kv[0], dsc); Object.defineProperty(NodeProto, 'DOCUMENT_POSITION_' + kv[0], dsc);
+    });
   var chainOf = function (id) { var c = [id], p; while ((p = __d_parent(id)) >= 0) { c.push(p); id = p; } return c.reverse(); };
   NodeProto.compareDocumentPosition = function (other) {
     if (arguments.length < 1) throw new TypeError("Failed to execute 'compareDocumentPosition' on 'Node': 1 argument required, but only 0 present.");
@@ -2219,7 +2258,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   defs(NodeProto, 'textContent', function () { return __d_text(this.__id); },
     function (v) { __d_settext(this.__id, v == null ? '' : String(v)); });
   defs(NodeProto, 'nodeValue', function () { return this.nodeType === 1 ? null : __d_text(this.__id); },
-    function (v) { if (this.nodeType === 3 || this.nodeType === 8) __d_settext(this.__id, String(v)); });
+    function (v) { var t = this.nodeType; if (t === 3 || t === 4 || t === 7 || t === 8) __d_settext(this.__id, String(v)); });
   // QY29: `data` lives on CharacterData only (never Node/Element: polymer-resin
   // treats `'data' in element` as a native property and blanks bound values).
   defs(CharacterData.prototype, 'data', function () { return __d_text(this.__id); },
@@ -2730,6 +2769,21 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   doc.createTextNode = function (s) { return wrap(__d_create(3, String(s))); };
   doc.createComment = function (s) { return wrap(__d_create(8, String(s))); };
   doc.createDocumentFragment = function () { return wrap(__d_create(11, '')); };
+  // QDOM8: ProcessingInstruction (nodeType 7, nodeName = target) and CDATASection (a marked Text, nodeType 4).
+  doc.createProcessingInstruction = function (target, data) {
+    if (arguments.length < 2) throw new TypeError("Failed to execute 'createProcessingInstruction' on 'Document': 2 arguments required, but only " + arguments.length + " present.");
+    target = String(target); data = String(data);
+    if (!validName(target)) throw herr("Failed to execute 'createProcessingInstruction' on 'Document': The target provided ('" + target + "') is not a valid name.", 'InvalidCharacterError');
+    if (data.indexOf('?>') >= 0) throw herr("Failed to execute 'createProcessingInstruction' on 'Document': The data provided ('" + data + "') contains '?>'.", 'InvalidCharacterError');
+    return wrap(__d_create(7, target + '\0' + data));
+  };
+  doc.createCDATASection = function (data) {
+    if (arguments.length < 1) throw new TypeError("Failed to execute 'createCDATASection' on 'Document': 1 argument required, but only 0 present.");
+    data = String(data);
+    if (this.contentType === 'text/html') throw herr("Failed to execute 'createCDATASection' on 'Document': This operation is not supported for HTML documents.", 'NotSupportedError');
+    if (data.indexOf(']]>') >= 0) throw herr("Failed to execute 'createCDATASection' on 'Document': String contains the CDATA section termination sequence (']]>').", 'InvalidCharacterError');
+    return wrap(__d_create(4, data));
+  };
   // QDOM6: `new Text(data)`, `new Comment(data)`, `new DocumentFragment()` make real nodes owned by this realm's
   // document (also for subclasses: the instance gets new.target.prototype); `new Document()` is made below (makeDoc).
   var nodeCtor = function (name, make) {
@@ -3482,16 +3536,23 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   // QDOM6: `new Document()`: an empty XML document (application/xml, createElement keeps case).
   var DocumentCtor = function Document() {
     if (!new.target) throw new TypeError("Failed to construct 'Document': Please use the 'new' operator, this DOM object constructor cannot be called as a function.");
-    return makeDoc(false, 'application/xml');
+    return makeDoc(false, 'application/xml', true);
   };
   DocumentCtor.prototype = g.Document.prototype;
   Object.defineProperty(DocumentCtor.prototype, 'constructor', { value: DocumentCtor, writable: true, configurable: true });
   Object.setPrototypeOf(DocumentCtor, Object.getPrototypeOf(g.Document));
   g.Document = DocumentCtor;
   var DOMImpl = g.DOMImplementation = function DOMImplementation() { throw new TypeError('Illegal constructor'); };
-  var makeDoc = function (html, ct) {
+  // QDOM8: XMLDocument (createDocument and XML parses); the HTML flavour is HTMLDocument, `new Document()` a plain Document.
+  var XMLDocument = g.XMLDocument = function XMLDocument() { throw new TypeError('Illegal constructor'); };
+  XMLDocument.prototype = Object.create(g.Document.prototype, { constructor: { value: XMLDocument, writable: true, configurable: true } });
+  Object.setPrototypeOf(XMLDocument, g.Document);
+  // A created document gets the real prototype with the page document's own members copied on (they are keyed by `this.__id`).
+  var docDescs = null;
+  var makeDoc = function (html, ct, plain) {
     var id = __d_newdoc();
-    var d = Object.create(doc);
+    if (!docDescs) { docDescs = Object.getOwnPropertyDescriptors(doc); delete docDescs.__id; }
+    var d = Object.create(plain ? g.Document.prototype : html ? g.HTMLDocument.prototype : XMLDocument.prototype, docDescs);
     cache[id] = d;
     xr.byDoc[id] = mk;
     if (myDocs) myDocs.push(id);
@@ -3503,7 +3564,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     });
     ['location', 'defaultView', 'currentScript'].forEach(function (k) { def(d, k, function () { return null; }); });
     var mk = function (f) { return function () { var n = f.apply(d, arguments); owners[n.__id] = d; return n; }; };
-    ['createElement', 'createElementNS', 'createTextNode', 'createComment', 'createDocumentFragment'].forEach(function (k) {
+    ['createElement', 'createElementNS', 'createTextNode', 'createComment', 'createDocumentFragment', 'createProcessingInstruction', 'createCDATASection'].forEach(function (k) {
       d[k] = mk(doc[k]);
     });
     // QDOM6: createElement of an XML document keeps the name's case and makes a null-namespace element.
@@ -4649,6 +4710,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     C.prototype = Object.create(r[1].prototype, { constructor: { value: C, writable: true, configurable: true } });
     g[r[0]] = C;
   });
+  def(g.ProcessingInstruction.prototype, 'target', function () { return __d_tag(this.__id); });
   ['Selection', 'NamedNodeMap', 'DOMTokenList', 'StyleSheet', 'CSSStyleSheet', 'CSSRule', 'CSSStyleDeclaration',
     'Screen', 'Storage'].forEach(function (n) { if (!g[n]) g[n] = illegal(n); });
   // ParentNode on DocumentFragment.
@@ -4877,7 +4939,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     __d_settext = function (id, t) {
       ceStats.hooks++;
       var k = __d_kind(id), mo = xr.mo.n > 0, old = null, oldTxt = null;
-      if (mo) { if (k === 3 || k === 8) oldTxt = __d_text(id); else old = __d_children(id, false); }
+      if (mo) { if (k === 3 || k === 4 || k === 7 || k === 8) oldTxt = __d_text(id); else old = __d_children(id, false); }
       var pre = xr.cn && (k === 1 || k === 11) ? cePre(id, false) : null;
       oTxt(id, t);
       if (old) { var nw = __d_children(id, false); if (old.length || nw.length) moChild(id, nw, old, -1, -1); }

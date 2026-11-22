@@ -115,7 +115,24 @@ OK           0/4  dom/ranges/Range-mutations-normalize.html
   FAIL      Live range updates properly when its boundaries are initially indices to merged nodes
   FAIL      Live range updates properly when text nodes merged before and after them
 OK           5/5  dom/ranges/Range-stringifier.html
-ERROR        0/0  dom/ranges/StaticRange-constructor.html
+OK          0/17  dom/ranges/StaticRange-constructor.html
+  FAIL      Construct static range with Element container
+  FAIL      Construct static range with Text container
+  FAIL      Construct static range with Element startContainer and Text endContainer
+  FAIL      Construct static range with Text startContainer and Element endContainer
+  FAIL      Construct static range with ProcessingInstruction container
+  FAIL      Construct static range with Comment container
+  FAIL      Construct static range with CDATASection container
+  FAIL      Construct static range with Document container
+  FAIL      Construct static range with DocumentFragment container
+  FAIL      Construct collapsed static range
+  FAIL      Construct inverted static range
+  FAIL      Construct static range with offset greater than length
+  FAIL      Construct static range with standalone Node container
+  FAIL      Construct static range with endpoints in disconnected trees
+  FAIL      Construct static range with endpoints in disconnected documents
+  FAIL      Throw on DocumentType or Attr container
+  FAIL      Throw on missing or invalid arguments
 OK          0/17  dom/ranges/tentative/OpaqueRange-auto-disconnect.html
   FAIL      OpaqueRange disconnected on element removal (textarea)
   FAIL      All OpaqueRanges disconnected on element removal (textarea)

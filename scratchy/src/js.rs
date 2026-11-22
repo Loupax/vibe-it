@@ -368,8 +368,13 @@ const PRELUDE: &str = r#"
     Object.defineProperty(DOMException.prototype, k, { value: DOM_CONSTS[k], enumerable: true });
   });
   g.DOMException = DOMException;
-  [['ELEMENT_NODE', 1], ['ATTRIBUTE_NODE', 2], ['TEXT_NODE', 3], ['COMMENT_NODE', 8], ['DOCUMENT_NODE', 9], ['DOCUMENT_FRAGMENT_NODE', 11]]
-    .forEach(function (kv) { Node[kv[0]] = Node.prototype[kv[0]] = kv[1]; });
+  [['ELEMENT_NODE', 1], ['ATTRIBUTE_NODE', 2], ['TEXT_NODE', 3], ['CDATA_SECTION_NODE', 4], ['ENTITY_REFERENCE_NODE', 5],
+    ['ENTITY_NODE', 6], ['PROCESSING_INSTRUCTION_NODE', 7], ['COMMENT_NODE', 8], ['DOCUMENT_NODE', 9], ['DOCUMENT_TYPE_NODE', 10],
+    ['DOCUMENT_FRAGMENT_NODE', 11], ['NOTATION_NODE', 12]]
+    .forEach(function (kv) {
+      var dsc = { value: kv[1], enumerable: true };
+      Object.defineProperty(Node, kv[0], dsc); Object.defineProperty(Node.prototype, kv[0], dsc);
+    });
   // Q33d: events. One listener store (a WeakMap keyed by the target
   // object) serves window, document, nodes and bare `new EventTarget()`.
   var store = new WeakMap();
