@@ -1245,7 +1245,7 @@ pub(crate) fn perf_report(opts: &ReportOpts) -> String {
             let request = build_get_request_ctx(&url, &CookieContext::navigation(&url, None));
             begin_wire_load(0);
             let (content_type, body, final_url) = match fetch_raw_via_wire(socket, &request) {
-                WireFetchRaw::Responded { content_type, body, final_url } => (content_type, body, final_url),
+                WireFetchRaw::Responded { content_type, body, final_url, .. } => (content_type, body, final_url),
                 WireFetchRaw::Unreachable => return failed_report(opts, "fetch_failed", "wire is not reachable"),
             };
             let html = match dispatch_wire_response(content_type, body) {

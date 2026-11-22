@@ -1653,9 +1653,8 @@ OK         11/26  html/dom/documents/dom-tree-accessors/Document.body.html
   FAIL      Setting document.body to a frameset will replace an existing body if there is one.
   FAIL      Setting document.body to a frameset will replace the first existing body/frameset.
   FAIL      Setting document.body to a new body element when the root element is a test element.
-TIMEOUT    11/18  html/dom/documents/dom-tree-accessors/Document.currentScript.html
+TIMEOUT    12/18  html/dom/documents/dom-tree-accessors/Document.currentScript.html
   NOTRUN    Script dom-ext
-  NOTRUN    Script script-load-error
   FAIL      Script script-window-error
   NOTRUN    Script xhr-test
   NOTRUN    Script script-async-false
@@ -2912,7 +2911,8 @@ OK           0/6  html/dom/render-blocking/blocking-idl-attr.html
   FAIL      Setting the 'blocking' IDL attribute of the script element
   FAIL      Supported tokens of the 'blocking' IDL attribute of the style element
   FAIL      Setting the 'blocking' IDL attribute of the style element
-ERROR        0/0  html/dom/render-blocking/expect-parser-associated-form.html
+OK           0/1  html/dom/render-blocking/expect-parser-associated-form.html
+  FAIL      A parser-inserted flag must not skip internal resource link processing on insertion
 OK           0/1  html/dom/render-blocking/link-rel-expect-supported.html
   FAIL      link.relList.supports("expect") is true
 TIMEOUT     4/14  html/dom/render-blocking/non-render-blocking-scripts.optional.html
@@ -2928,7 +2928,7 @@ TIMEOUT     4/14  html/dom/render-blocking/non-render-blocking-scripts.optional.
   NOTRUN    script-inserted module script should eventually be loaded and evaluated
 OK           1/2  html/dom/render-blocking/parser-blocking-script.html
   FAIL      Rendering is blocked before render-blocking resources are loaded
-ERROR        0/1  html/dom/render-blocking/parser-inserted-async-inline-module-with-import.html
+OK           0/1  html/dom/render-blocking/parser-inserted-async-inline-module-with-import.html
   FAIL      Parser-inserted async inline module script elements with "blocking=render" are render-blocking
 TIMEOUT      0/2  html/dom/render-blocking/parser-inserted-async-script.html
   FAIL      Rendering is blocked before render-blocking resources are loaded
@@ -2936,7 +2936,7 @@ TIMEOUT      0/2  html/dom/render-blocking/parser-inserted-async-script.html
 TIMEOUT      0/2  html/dom/render-blocking/parser-inserted-defer-script.html
   FAIL      Rendering is blocked before render-blocking resources are loaded
   TIMEOUT   Parser-inserted render-blocking defer script is evaluated
-ERROR        0/1  html/dom/render-blocking/parser-inserted-inline-module-with-import.html
+OK           0/1  html/dom/render-blocking/parser-inserted-inline-module-with-import.html
   FAIL      Parser-inserted module script elements with "blocking=render" are render-blocking
 TIMEOUT      0/2  html/dom/render-blocking/parser-inserted-module-script.html
   FAIL      Rendering is blocked before render-blocking resources are loaded

@@ -284,6 +284,12 @@ pub(crate) fn note_cookie_response(support: &CookieSupport, request_head: &[u8],
 }
 
 /// Reads one header value out of a raw response head.
+/// The status code of a raw wire response (0 when the status line is unreadable).
+fn raw_status_code(bytes: &[u8]) -> u16 {
+    let line = bytes.split(|b| *b == b'\r').next().unwrap_or(&[]);
+    std::str::from_utf8(line).ok().and_then(|l| l.split(' ').nth(1)).and_then(|c| c.parse().ok()).unwrap_or(0)
+}
+
 fn raw_response_header(bytes: &[u8], name: &str) -> Option<String> {
     let end = bytes.windows(4).position(|w| w == b"\r\n\r\n")?;
     let head = std::str::from_utf8(&bytes[..end]).ok()?;
@@ -380,7 +386,7 @@ pub(crate) fn wrap_text_as_html(text: &str) -> Vec<u8> {
 /// top-level page only — a sub-resource fetch has nothing worth printing
 /// since the user never directly asked for *it*).
 pub(crate) enum WireFetchRaw {
-    Responded { content_type: Option<String>, body: Vec<u8>, final_url: Option<String> },
+    Responded { content_type: Option<String>, body: Vec<u8>, final_url: Option<String>, status: u16 },
     Unreachable,
 }
 
@@ -441,7 +447,8 @@ fn fetch_raw_detailed(
             note_cookie_response(support, request_text.as_bytes(), version.as_deref(), cookies.as_deref());
             note_ua_response(raw_response_header(&buf, "x-wire-features").as_deref());
             let final_url = raw_response_header(&buf, "x-wire-final-url");
-            Ok(WireFetchRaw::Responded { content_type, body, final_url })
+            let status = raw_status_code(&buf);
+            Ok(WireFetchRaw::Responded { content_type, body, final_url, status })
         }
         Err(_) => Err("unreadable reply from wire".to_string()),
     }
@@ -950,11 +957,15 @@ pub(crate) fn fetch_stylesheet_via_wire(path: &std::path::Path, url: &Url, top: 
     Some(decode_css_bytes(&body, content_type_charset(&content_type)))
 }
 
-/// Fetches one external script (Q33a). `None` on failure or an HTML
-/// response (an error page is not a script).
+/// Fetches one external script (Q33a). `None` on failure, a non-2xx status
+/// (QSCR404: HTML "fetch a classic script": not an ok status -> null result,
+/// the element gets `error`) or an HTML response (an error page is not a script).
 pub(crate) fn fetch_script_via_wire(path: &std::path::Path, url: &Url, top: &Url) -> Option<String> {
     let request_text = build_get_request_ctx(url, &CookieContext::subresource(top));
-    let WireFetchRaw::Responded { content_type, body, .. } = fetch_raw_sub(path, &request_text) else { return None };
+    let WireFetchRaw::Responded { content_type, body, status, .. } = fetch_raw_sub(path, &request_text) else { return None };
+    if !(200..300).contains(&status) {
+        return None;
+    }
     let content_type = content_type.unwrap_or_default();
     if content_type.trim_start().to_ascii_lowercase().starts_with("text/html") {
         return None;

@@ -774,7 +774,7 @@ fn qy16_locale_fallback_and_misc_apis() {
 
 /// Runs `html` as a page whose module fetches are served from `files`
 /// (url -> source); returns the log lines.
-fn run_module_page(html: &str, files: &[(&str, &str)]) -> Vec<String> {
+pub(super) fn run_module_page(html: &str, files: &[(&str, &str)]) -> Vec<String> {
     let _g = JS_FLAG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     set_js_enabled(true);
     let dom = parse_html(html);

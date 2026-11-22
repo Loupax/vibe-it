@@ -95,6 +95,12 @@ pub(crate) enum ScriptKind {
     ImportMap,
     /// A module script whose fetch failed: `code` is the message to log.
     ModuleError,
+    /// QSCR404: a classic external script whose fetch failed (network error or a non-2xx
+    /// status): it is not run, the element gets `error`. `code` is the message to log.
+    ClassicError,
+    /// QSCR404: a module that a static import could not fetch (`name` = its URL). Never run;
+    /// an entry module whose static graph reaches it fails (`error` on its element).
+    ModuleMissing,
 }
 
 /// A script ready to run: `name` is only used in error messages.
@@ -248,7 +254,7 @@ pub(crate) fn fetch_scripts_with(base: &Url, refs: Vec<ScriptRef>, fetch: js_mod
                                 Some(code) => Some(mk(url.to_string(), code, ScriptKind::Classic)),
                                 None => {
                                     diag!("scratchy: js: could not fetch script {url}");
-                                    None
+                                    Some(mk(url.to_string(), "failed to load script".to_string(), ScriptKind::ClassicError))
                                 }
                             }
                         }
@@ -2056,20 +2062,34 @@ pub(crate) fn realm_preludes() -> [&'static str; 11] {
 fn run_page(engine: JsEngine, document: &Handle, scripts: &[ScriptSource]) -> Option<JsEngine> {
     let mut script_els = Vec::new();
     collect_script_elements(document, &mut script_els);
-    for s in scripts.iter().filter(|s| s.kind == ScriptKind::Classic) {
-        let id = match s.index.and_then(|i| script_els.get(i)) {
-            Some(h) => engine.table.borrow_mut().intern(h),
-            None => -1,
-        };
+    let el_id = |s: &ScriptSource| match s.index.and_then(|i| script_els.get(i)) {
+        Some(h) => engine.table.borrow_mut().intern(h),
+        None => -1,
+    };
+    // QSCR404: a script that could not be fetched is not run; the element gets `error` (and `onerror`).
+    let fire_error = |s: &ScriptSource| {
+        (engine.log)("error", &format!("{}: {}", s.name, s.code));
+        engine.eval_value::<()>("script-error", &format!("__scratchy_script_error({})", el_id(s)));
+    };
+    for s in scripts.iter().filter(|s| matches!(s.kind, ScriptKind::Classic | ScriptKind::ClassicError)) {
+        if s.kind == ScriptKind::ClassicError {
+            fire_error(s);
+            continue;
+        }
+        let id = el_id(s);
         engine.eval_value::<()>("script", &format!("__scratchy_cs({id})"));
         engine.eval_as(Some(perf::Kind::ClassicScript), &s.name, &s.code);
         engine.eval_value::<()>("script", "__scratchy_cs(-1)");
     }
     // QY15: module scripts are deferred: after parsing (and the classic
     // scripts), in document order, before DOMContentLoaded.
+    let store = js_modules::ModuleStore::from_scripts(scripts, &|_, _| {});
+    let missing: Vec<&str> = scripts.iter().filter(|s| s.kind == ScriptKind::ModuleMissing).map(|s| s.name.as_str()).collect();
     for s in scripts.iter().filter(|s| matches!(s.kind, ScriptKind::Module | ScriptKind::ModuleError)) {
         if s.kind == ScriptKind::ModuleError {
-            (engine.log)("error", &format!("{}: {}", s.name, s.code));
+            fire_error(s);
+        } else if let Some(m) = js_modules::static_graph_missing(&s.name, &store, &missing) {
+            fire_error(&ScriptSource { code: format!("failed to load module {m}"), ..s.clone() });
         } else {
             engine.eval_module(&s.name, s.code.len());
         }
@@ -2164,14 +2184,19 @@ fn install_script_natives<'js>(ctx: &Ctx<'js>, budget: js_engine::Budget, log: L
     // store yet, resolved to URLs (the graph the page-side code still fetches).
     let st = store;
     native!(ctx, "__mod_deps", move |name: String, code: String| -> Vec<String> {
+        // QSCR404: a URL only reached by a literal `import()` gets a leading `?`: it is still
+        // prefetched (so the import resolves) but its failure is not the script's failure.
+        let all = js_modules::scan_imports(&code);
+        let resolved: Vec<(String, bool)> = all.iter().filter_map(|(sp, dynamic)| js_modules::resolve_specifier(sp, &name, &st.map, &st.doc_base).ok().map(|u| (u, *dynamic))).collect();
         let mut out: Vec<String> = Vec::new();
-        for (spec, _) in js_modules::scan_imports(&code) {
-            if let Ok(u) = js_modules::resolve_specifier(&spec, &name, &st.map, &st.doc_base)
-                && !is_data_url(&u)
-                && !st.sources.borrow().contains_key(&u)
-                && !out.contains(&u)
-            {
-                out.push(u);
+        for (u, dynamic) in &resolved {
+            if is_data_url(u) || st.sources.borrow().contains_key(u) {
+                continue;
+            }
+            let lazy = *dynamic && !resolved.iter().any(|(v, d)| v == u && !*d);
+            let tagged = if lazy { format!("?{u}") } else { u.clone() };
+            if !out.contains(&tagged) {
+                out.push(tagged);
             }
         }
         out

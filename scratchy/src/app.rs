@@ -4292,7 +4292,7 @@ impl App {
                         );
                     }
                     match wire_result {
-                        WireFetchRaw::Responded { content_type, body, final_url } => match dispatch_wire_response(content_type, body) {
+                        WireFetchRaw::Responded { content_type, body, final_url, .. } => match dispatch_wire_response(content_type, body) {
                             Ok(html) => {
                                 // Sub-resources (v67): fetched from *this*
                                 // background thread, not the event-loop one —

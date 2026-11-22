@@ -283,7 +283,45 @@ OK          0/33  domparsing/XMLSerializer-serializeToString.html
   FAIL      Check children were included for void elements
   FAIL      Check if a prefix bound to an empty namespace URI ("no namespace") serialize
   FAIL      Attribute nodes are serialized as the empty string
-ERROR        0/0  domparsing/all-stream-methods-with-trusted-types-no-policy.html
+OK          0/38  domparsing/all-stream-methods-with-trusted-types-no-policy.html
+  FAIL      streamHTML with trusted types and no default policy returns a WritableStream.
+  FAIL      streamHTMLUnsafe with trusted types and no default policy throws.
+  FAIL      streamAppendHTML with trusted types and no default policy returns a WritableStream.
+  FAIL      streamAppendHTMLUnsafe with trusted types and no default policy throws.
+  FAIL      streamPrependHTML with trusted types and no default policy returns a WritableStream.
+  FAIL      streamPrependHTMLUnsafe with trusted types and no default policy throws.
+  FAIL      streamBeforeHTML with trusted types and no default policy returns a WritableStream.
+  FAIL      streamBeforeHTMLUnsafe with trusted types and no default policy throws.
+  FAIL      streamAfterHTML with trusted types and no default policy returns a WritableStream.
+  FAIL      streamAfterHTMLUnsafe with trusted types and no default policy throws.
+  FAIL      streamReplaceWithHTML with trusted types and no default policy returns a WritableStream.
+  FAIL      streamReplaceWithHTMLUnsafe with trusted types and no default policy throws.
+  FAIL      ShadowRoot.streamHTML with trusted types and no default policy returns a WritableStream.
+  FAIL      ShadowRoot.streamHTMLUnsafe with trusted types and no default policy throws.
+  FAIL      ShadowRoot.streamAppendHTML with trusted types and no default policy returns a WritableStream.
+  FAIL      ShadowRoot.streamAppendHTMLUnsafe with trusted types and no default policy throws.
+  FAIL      ShadowRoot.streamPrependHTML with trusted types and no default policy returns a WritableStream.
+  FAIL      ShadowRoot.streamPrependHTMLUnsafe with trusted types and no default policy throws.
+  FAIL      CharacterData.streamBeforeHTML with trusted types and no default policy returns a WritableStream.
+  FAIL      CharacterData.streamBeforeHTMLUnsafe with trusted types and no default policy throws.
+  FAIL      CharacterData.streamAfterHTML with trusted types and no default policy returns a WritableStream.
+  FAIL      CharacterData.streamAfterHTMLUnsafe with trusted types and no default policy throws.
+  FAIL      CharacterData.streamReplaceWithHTML with trusted types and no default policy returns a WritableStream.
+  FAIL      CharacterData.streamReplaceWithHTMLUnsafe with trusted types and no default policy throws.
+  FAIL      streamBeforeHTMLUnsafe on a detached node with no default policy throws TypeError before HierarchyRequestError.
+  FAIL      streamBeforeHTMLUnsafe on a DocumentFragment child with no default policy throws TypeError before HierarchyRequestError.
+  FAIL      streamBeforeHTMLUnsafe on head (parent is the html element) with no default policy throws TypeError before HierarchyRequestError.
+  FAIL      streamAfterHTMLUnsafe on a detached node with no default policy throws TypeError before HierarchyRequestError.
+  FAIL      streamAfterHTMLUnsafe on a DocumentFragment child with no default policy throws TypeError before HierarchyRequestError.
+  FAIL      streamAfterHTMLUnsafe on head (parent is the html element) with no default policy throws TypeError before HierarchyRequestError.
+  FAIL      streamReplaceWithHTMLUnsafe on a detached node with no default policy throws TypeError before HierarchyRequestError.
+  FAIL      streamReplaceWithHTMLUnsafe on a DocumentFragment child with no default policy throws TypeError before HierarchyRequestError.
+  FAIL      streamReplaceWithHTMLUnsafe on head (parent is the html element) with no default policy throws TypeError before HierarchyRequestError.
+  FAIL      streamAppendHTMLUnsafe on the html element with no default policy throws TypeError before HierarchyRequestError.
+  FAIL      streamPrependHTMLUnsafe on the html element with no default policy throws TypeError before HierarchyRequestError.
+  FAIL      streamHTMLUnsafe on a <script> with no default policy throws TypeError before NotSupportedError.
+  FAIL      streamAppendHTMLUnsafe on a <script> with no default policy throws TypeError before NotSupportedError.
+  FAIL      streamPrependHTMLUnsafe on a <script> with no default policy throws TypeError before NotSupportedError.
 OK           0/1  domparsing/createContextualFragment-external-scripts-async.html
   FAIL      External scripts from createContextualFragment() have async=true and execute as async once connected
 ERROR        0/0  domparsing/createContextualFragment-xhtml.xhtml
@@ -1777,8 +1815,56 @@ OK          0/12  domparsing/stream-html-with-trusted-types-from-non-tt.tentativ
   FAIL      streamReplaceWithHTMLUnsafe called from non-TT document on an element adopted into a TT document throws TypeError.
 ERROR        0/0  domparsing/stream-html-with-trusted-types-no-createParserOptions.html
 ERROR        0/0  domparsing/stream-html-with-trusted-types-pass-trusted.html
-ERROR        0/0  domparsing/stream-html-with-trusted-types-report-only.html
-ERROR        0/0  domparsing/stream-html-with-trusted-types-reporting.html
+OK          0/24  domparsing/stream-html-with-trusted-types-report-only.html
+  FAIL      Element.streamHTMLUnsafe in report-only mode returns a WritableStream and reports sink "Element streamHTMLUnsafe"
+  FAIL      Element.streamHTML in report-only mode does not report a Trusted Types violation
+  FAIL      ShadowRoot.streamHTMLUnsafe in report-only mode returns a WritableStream and reports sink "ShadowRoot streamHTMLUnsafe"
+  FAIL      ShadowRoot.streamHTML in report-only mode does not report a Trusted Types violation
+  FAIL      Element.streamAppendHTMLUnsafe in report-only mode returns a WritableStream and reports sink "Element streamAppendHTMLUnsafe"
+  FAIL      Element.streamAppendHTML in report-only mode does not report a Trusted Types violation
+  FAIL      ShadowRoot.streamAppendHTMLUnsafe in report-only mode returns a WritableStream and reports sink "ShadowRoot streamAppendHTMLUnsafe"
+  FAIL      ShadowRoot.streamAppendHTML in report-only mode does not report a Trusted Types violation
+  FAIL      Element.streamPrependHTMLUnsafe in report-only mode returns a WritableStream and reports sink "Element streamPrependHTMLUnsafe"
+  FAIL      Element.streamPrependHTML in report-only mode does not report a Trusted Types violation
+  FAIL      ShadowRoot.streamPrependHTMLUnsafe in report-only mode returns a WritableStream and reports sink "ShadowRoot streamPrependHTMLUnsafe"
+  FAIL      ShadowRoot.streamPrependHTML in report-only mode does not report a Trusted Types violation
+  FAIL      Element.streamBeforeHTMLUnsafe in report-only mode returns a WritableStream and reports sink "Node streamBeforeHTMLUnsafe"
+  FAIL      Element.streamBeforeHTML in report-only mode does not report a Trusted Types violation
+  FAIL      Text.streamBeforeHTMLUnsafe in report-only mode returns a WritableStream and reports sink "Node streamBeforeHTMLUnsafe"
+  FAIL      Text.streamBeforeHTML in report-only mode does not report a Trusted Types violation
+  FAIL      Element.streamAfterHTMLUnsafe in report-only mode returns a WritableStream and reports sink "Node streamAfterHTMLUnsafe"
+  FAIL      Element.streamAfterHTML in report-only mode does not report a Trusted Types violation
+  FAIL      Text.streamAfterHTMLUnsafe in report-only mode returns a WritableStream and reports sink "Node streamAfterHTMLUnsafe"
+  FAIL      Text.streamAfterHTML in report-only mode does not report a Trusted Types violation
+  FAIL      Element.streamReplaceWithHTMLUnsafe in report-only mode returns a WritableStream and reports sink "Node streamReplaceWithHTMLUnsafe"
+  FAIL      Element.streamReplaceWithHTML in report-only mode does not report a Trusted Types violation
+  FAIL      Text.streamReplaceWithHTMLUnsafe in report-only mode returns a WritableStream and reports sink "Node streamReplaceWithHTMLUnsafe"
+  FAIL      Text.streamReplaceWithHTML in report-only mode does not report a Trusted Types violation
+OK          0/24  domparsing/stream-html-with-trusted-types-reporting.html
+  FAIL      Element.streamHTMLUnsafe reports a Trusted Types violation with sink "Element streamHTMLUnsafe"
+  FAIL      Element.streamHTML does not report a Trusted Types violation
+  FAIL      ShadowRoot.streamHTMLUnsafe reports a Trusted Types violation with sink "ShadowRoot streamHTMLUnsafe"
+  FAIL      ShadowRoot.streamHTML does not report a Trusted Types violation
+  FAIL      Element.streamAppendHTMLUnsafe reports a Trusted Types violation with sink "Element streamAppendHTMLUnsafe"
+  FAIL      Element.streamAppendHTML does not report a Trusted Types violation
+  FAIL      ShadowRoot.streamAppendHTMLUnsafe reports a Trusted Types violation with sink "ShadowRoot streamAppendHTMLUnsafe"
+  FAIL      ShadowRoot.streamAppendHTML does not report a Trusted Types violation
+  FAIL      Element.streamPrependHTMLUnsafe reports a Trusted Types violation with sink "Element streamPrependHTMLUnsafe"
+  FAIL      Element.streamPrependHTML does not report a Trusted Types violation
+  FAIL      ShadowRoot.streamPrependHTMLUnsafe reports a Trusted Types violation with sink "ShadowRoot streamPrependHTMLUnsafe"
+  FAIL      ShadowRoot.streamPrependHTML does not report a Trusted Types violation
+  FAIL      Element.streamBeforeHTMLUnsafe reports a Trusted Types violation with sink "Node streamBeforeHTMLUnsafe"
+  FAIL      Element.streamBeforeHTML does not report a Trusted Types violation
+  FAIL      Text.streamBeforeHTMLUnsafe reports a Trusted Types violation with sink "Node streamBeforeHTMLUnsafe"
+  FAIL      Text.streamBeforeHTML does not report a Trusted Types violation
+  FAIL      Element.streamAfterHTMLUnsafe reports a Trusted Types violation with sink "Node streamAfterHTMLUnsafe"
+  FAIL      Element.streamAfterHTML does not report a Trusted Types violation
+  FAIL      Text.streamAfterHTMLUnsafe reports a Trusted Types violation with sink "Node streamAfterHTMLUnsafe"
+  FAIL      Text.streamAfterHTML does not report a Trusted Types violation
+  FAIL      Element.streamReplaceWithHTMLUnsafe reports a Trusted Types violation with sink "Node streamReplaceWithHTMLUnsafe"
+  FAIL      Element.streamReplaceWithHTML does not report a Trusted Types violation
+  FAIL      Text.streamReplaceWithHTMLUnsafe reports a Trusted Types violation with sink "Node streamReplaceWithHTMLUnsafe"
+  FAIL      Text.streamReplaceWithHTML does not report a Trusted Types violation
 ERROR        0/0  domparsing/stream-html-with-trusted-types-runScripts-can-be-turned-on.html
 ERROR        0/0  domparsing/stream-html-with-trusted-types-runScripts-off.html
 ERROR        0/0  domparsing/stream-html-with-trusted-types-sanitizer.html
