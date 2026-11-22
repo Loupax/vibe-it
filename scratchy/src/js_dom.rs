@@ -2530,26 +2530,100 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   reflect('lang', 'lang'); reflect('dir', 'dir');
   defs(ElementProto, 'hidden', function () { return __d_attr(this.__id, 'hidden') != null; },
     function (v) { if (v) __d_setattr(this.__id, 'hidden', ''); else __d_rmattr(this.__id, 'hidden'); });
-  // QAPI7: contentEditable / isContentEditable reflect the attribute only; no editing behaviour.
+  // QAPI7 + QEDIT-A: contentEditable / isContentEditable / designMode and the spellcheck, autocapitalize, autocorrect and
+  // writingSuggestions reflections. Reflection only: no editing behaviour and no checking. Keyword matching is ASCII
+  // case-insensitive (never toLowerCase: it folds U+212A KELVIN SIGN to `k`).
+  var asciiLower = function (v) { return String(v).replace(/[A-Z]/g, function (c) { return c.toLowerCase(); }); };
   var qapi7EditState = function (el) {
     var v = __d_attr(el.__id, 'contenteditable');
     if (v == null) return 'inherit';
-    v = String(v).toLowerCase();
+    v = asciiLower(v);
     return v === '' || v === 'true' ? 'true' : v === 'false' ? 'false' : v === 'plaintext-only' ? 'plaintext-only' : 'inherit';
   };
   defs(HTMLElement.prototype, 'contentEditable', function () { return qapi7EditState(this); }, function (v) {
-    var s = String(v).toLowerCase();
+    var s = asciiLower(v);
     if (s === 'inherit') __d_rmattr(this.__id, 'contenteditable');
     else if (s === 'true' || s === 'false' || s === 'plaintext-only') __d_setattr(this.__id, 'contenteditable', s);
     else throw herr("Failed to set the 'contentEditable' property on 'HTMLElement': The value provided ('" + String(v) + "') is not one of 'true', 'false', 'plaintext-only', or 'inherit'.", 'SyntaxError');
+  });
+  var designModes = {};
+  defs(g.Document.prototype, 'designMode', function () { return designModes[this.__id] ? 'on' : 'off'; }, function (v) {
+    var s = asciiLower(v);
+    if (s === 'on') designModes[this.__id] = true;
+    else if (s === 'off') delete designModes[this.__id];
   });
   defs(HTMLElement.prototype, 'isContentEditable', function () {
     for (var n = this; n && n.nodeType === 1; n = n.parentNode) {
       var st = qapi7EditState(n);
       if (st !== 'inherit') return st !== 'false';
     }
-    return false;
+    var od = this.ownerDocument;
+    return !!(od && this.isConnected && designModes[od.__id]);
   });
+  // spellcheck: "true"/"" -> true, "false" -> false, otherwise the default state (inherit from the parent, root: true).
+  defs(HTMLElement.prototype, 'spellcheck', function () {
+    for (var n = this; n && n.nodeType === 1; n = n.parentNode) {
+      var v = __d_attr(n.__id, 'spellcheck');
+      if (v == null) continue;
+      v = asciiLower(v);
+      if (v === 'true' || v === '') return true;
+      if (v === 'false') return false;
+    }
+    return true;
+  }, function (v) { __d_setattr(this.__id, 'spellcheck', v ? 'true' : 'false'); });
+  // writingSuggestions: enumerated "true"/"" -> "true", "false" -> "false"; missing/invalid inherits, root "true".
+  defs(HTMLElement.prototype, 'writingSuggestions', function () {
+    for (var n = this; n && n.nodeType === 1; n = n.parentNode) {
+      var v = __d_attr(n.__id, 'writingsuggestions');
+      if (v == null) continue;
+      v = asciiLower(v);
+      if (v === 'true' || v === '') return 'true';
+      if (v === 'false') return 'false';
+    }
+    return 'true';
+  }, function (v) { __d_setattr(this.__id, 'writingsuggestions', String(v)); });
+  // autocapitalize / autocorrect: the form-associated "inheriting" elements take the form owner's state when they have
+  // none of their own (HTML "autocapitalize-and-autocorrect inheriting element").
+  var acInherits = { button: 1, fieldset: 1, input: 1, output: 1, select: 1, textarea: 1 };
+  var acFormOwner = function (el) {
+    if (el.namespaceURI !== 'http://www.w3.org/1999/xhtml' || !acInherits[el.localName]) return null;
+    var f = el.form;
+    return f && f.nodeType === 1 ? f : null;
+  };
+  var autocapState = function (el) {
+    var v = __d_attr(el.__id, 'autocapitalize');
+    if (v != null) {
+      v = asciiLower(v);
+      if (v === 'none' || v === 'off') return 'none';
+      if (v === 'on' || v === 'sentences') return 'sentences';
+      if (v === 'words' || v === 'characters') return v;
+      if (v !== '') return 'sentences';
+    }
+    return null;
+  };
+  defs(HTMLElement.prototype, 'autocapitalize', function () {
+    var st = autocapState(this);
+    if (st !== null) return st;
+    var f = acFormOwner(this);
+    st = f ? autocapState(f) : null;
+    return st === null ? '' : st;
+  }, function (v) { __d_setattr(this.__id, 'autocapitalize', String(v)); });
+  var autocorrectOf = function (el) {
+    if (el.localName === 'input' && el.namespaceURI === 'http://www.w3.org/1999/xhtml') {
+      var t = asciiLower(__d_attr(el.__id, 'type') || '');
+      if (t === 'password' || t === 'email' || t === 'url') return false;
+    }
+    var v = __d_attr(el.__id, 'autocorrect');
+    if (v != null) return asciiLower(v) !== 'off';
+    var f = acFormOwner(el);
+    if (f) {
+      var fv = __d_attr(f.__id, 'autocorrect');
+      if (fv != null) return asciiLower(fv) !== 'off';
+    }
+    return true;
+  };
+  defs(HTMLElement.prototype, 'autocorrect', function () { return autocorrectOf(this); },
+    function (v) { __d_setattr(this.__id, 'autocorrect', v ? 'on' : 'off'); });
   var reflectBool = function (prop, attr) {
     defs(ElementProto, prop, function () { return __d_attr(this.__id, attr) != null; },
       function (v) { if (v) __d_setattr(this.__id, attr, ''); else __d_rmattr(this.__id, attr); });
