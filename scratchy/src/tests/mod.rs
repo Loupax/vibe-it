@@ -18,6 +18,7 @@ mod js_engine_tests;
 mod js_geometry_tests;
 mod js_observers_tests;
 mod qapi5_tests;
+mod qdom10_tests;
 mod qdom14_tests;
 mod qdom3_tests;
 mod js_geometry_incr_forced_tests;

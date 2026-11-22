@@ -659,7 +659,7 @@ const PRELUDE: &str = r#"
     try { r = g.__scratchy_report_error(x, '', 0, 0); } catch (y) {}
     if (!r) oops(x);
   };
-  // QDOM4 (minimal; QDOM10 refines it): `window.event` is the event whose listener is running.
+  // QDOM4/QDOM10: `window.event` is the event whose listener is running.
   var curEvent;
   Object.defineProperty(g, 'event', { get: function () { return curEvent; },
     set: function (v) { Object.defineProperty(g, 'event', { value: v, writable: true, configurable: true, enumerable: true }); },
@@ -699,6 +699,21 @@ const PRELUDE: &str = r#"
       if (typeof h !== 'function' && !fe) h = node['on' + type];
       return typeof h === 'function' ? h : null;
     };
+    // QDOM10: DOM "inner invoke" leaves window.event alone for a listener whose invocation target is in a shadow
+    // tree. Path nodes up to the last shadow root are in one (lazy: computed at the first listener that runs).
+    var shMax = -2;
+    var inShadow = function (node) {
+      if (shMax === -2) {
+        shMax = -1;
+        if (g.__scratchy_shadow_host) for (var k = path.length - 1; k >= 0; k--) {
+          var pn = path[k];
+          if (pn && pn.nodeType === 11 && g.__scratchy_shadow_host(pn)) { shMax = k; break; }
+        }
+      }
+      if (shMax < 0) return false;
+      for (var q = 0; q <= shMax; q++) if (path[q] === node) return true;
+      return false;
+    };
     var found = function (node, type, capFilter) {
       var l = lists(node, type, false);
       if (l) for (var j = 0; j < l.length; j++) if (!l[j].removed && l[j].capture === capFilter) return true;
@@ -715,7 +730,7 @@ const PRELUDE: &str = r#"
             // an IDL event handler registered in the list
             hs = e;
             var hf = handlerOf(node, type);
-            if (hf) { ev._passive = false; var pe = curEvent; curEvent = ev; callHandler(node, hf, ev); curEvent = pe; if (ua) g.__scratchy_microtasks(); }
+            if (hf) { ev._passive = false; var pe = curEvent; if (!inShadow(node)) curEvent = ev; callHandler(node, hf, ev); curEvent = pe; if (ua) g.__scratchy_microtasks(); }
             if (ev._stopNow) return;
             continue;
           }
@@ -723,7 +738,7 @@ const PRELUDE: &str = r#"
           ev._passive = e.passive;
           var t0 = pl ? g.__perf_cpu() : 0;
           var lf = e.fn, prevEv = curEvent;
-          curEvent = ev;
+          if (!inShadow(node)) curEvent = ev;
           try {
             // QDOM4: handleEvent is looked up at every invoke; a non-callable one is a reported TypeError.
             if (typeof lf === 'function') lf.call(node, ev);
@@ -739,7 +754,7 @@ const PRELUDE: &str = r#"
       // a content attribute (or plain `node.onfoo` property) that was never set through the IDL attribute
       if (!capFilter && !ev._stopNow && !hs) {
         var h = handlerOf(node, type);
-        if (h) { var pv = curEvent; curEvent = ev; callHandler(node, h, ev); curEvent = pv; if (ua) g.__scratchy_microtasks(); }
+        if (h) { var pv = curEvent; if (!inShadow(node)) curEvent = ev; callHandler(node, h, ev); curEvent = pv; if (ua) g.__scratchy_microtasks(); }
       }
     };
     var invoke = function (node, phase, capFilter) {
