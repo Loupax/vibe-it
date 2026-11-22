@@ -86,6 +86,10 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       `<style media>` and `@import url(...) media` with `media_query_string_matches` (today ignored: always applied).
 - [ ] [WIP] QCSS-A [S] (P2, from QAPI8 #578 R66 §4; Sonnet; css.rs, svg paint) SVG `fill`/`stroke`/`stroke-width`/`stroke-linecap`
       from stylesheets onto inline SVG (8 sites, 1 427 hits: icons render black today).
+- [ ] QHOV1 [S] (P2, from QCSS-A #584 hover measurement; Opus; app.rs hover patch, incr engine) Every hover on github.com
+      is a ~160 ms full App build on main (YouTube results: hover built 10/10, ~4 ms each). Find why the hover patch does not
+      apply there (which style fields / rules force Effect::Layout), widen the patch where safe (incl. a paint-level svg
+      re-rasterise for fill/stroke-only hover changes), measure per-hover build ms before/after in a nested window.
 - [ ] QCSS-B [S] (P2, from QAPI8 #578; Sonnet; css.rs, layout) `aspect-ratio` (8 sites).
 - [ ] QCSS-C [S] (P2, from QAPI8 #578; Sonnet; css.rs, flex/grid) Box-alignment keywords (`end`, `first baseline`, ...),
       `place-*` shorthands, `grid-auto-flow`, `grid-gap`.

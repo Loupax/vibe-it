@@ -291,3 +291,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Merged #587 b09e4c8 = QAPI6 (#573, closed with note) + QAPI6b. #582 merging next.
 - 2026-11-22 Merged #582 QDOM18 a6bd563. Queue empty; reinstalling.
 - 2026-11-22 Reinstalled ~/.cargo/bin/scratchy 10:49 (main CI: 91159f1 success): includes :has() #587, insert checks #582, editing reflection #585.
+- 2026-11-22 USER: no GitHub Support purge (checked: PR #496/#498 refs hold test logs, a throwaway wire binary + dead socket token, logged-out screenshots of public pages; nothing personal). #584 QCSS-A hover measured: no extra builds vs main; merging. Filed QHOV1 (github hover = 160 ms full build on main).

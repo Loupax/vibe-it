@@ -246,8 +246,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 <section>
   <h2>Waiting on you</h2>
   <ul id="waiting">
-                <li><b>Public repo cleanup:</b> two PRs (#496, #498) accidentally committed an agent's scratch folder: a test wire binary, its private token (for a throwaway wire, not yours), logs, and logged-out screenshots of social.loupax.com and YouTube. They are removed from main and now ignored, but are still in git history (commits 40d9f8c, 97e5e83). <b>Done</b> (your OK): <code>.git</code> backed up to <span class="mono">~/src/vibe-it-git-backup-2026-11-21</span>, history rewritten without them, main force-pushed. GitHub still serves the old commits through its saved pull-request refs; only GitHub Support can drop those ("remove cached views / sensitive data").</li>
-    <li>Skim <span class="mono">scratchy/DECISIONS.md</span> once and correct anything I misstated.</li>
+                    <li>Skim <span class="mono">scratchy/DECISIONS.md</span> once and correct anything I misstated.</li>
     <li>Old pipeline removal (QINC1m): today nothing tells you when the engine falls back. QINC1n is installed tonight. From now on: use scratchy normally; <code>:engine</code> shows the counts and <span class="mono">~/.local/state/scratchy/engine-check.log</span> collects any mismatch. Earliest go for QINC1m: 2026-11-24, if the log is empty and fallbacks are 0. Then you confirm.</li>
     <li><b>Your state dir was used by agent runs</b> (found by QINC1n): window/gate runs since #484 wrote localStorage (youtube.com, wikipedia.org) and history lines into <span class="mono">~/.local/state/scratchy</span>. Fixed (own state dir per run, rule for agents). Cleanup: (1) you prune <span class="mono">history</span> yourself, (2) I list the lines from the agent run windows for you to pick, or (3) leave it. <code>scratchy --forget-site</code> clears a site's storage.</li>
   </ul>
