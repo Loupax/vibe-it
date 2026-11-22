@@ -388,18 +388,21 @@ OK          0/14  encoding/unsupported-encodings.any.html
   FAIL      UTF-32be with BOM should decode as UTF-8
   FAIL      utf-32be with no BOM should decode as UTF-8
   FAIL      utf-32be with BOM should decode as UTF-8
-OK           0/8  encoding/utf-32-from-win1252.html
-  FAIL      Expect resources/utf-32-big-endian-bom.html to parse as windows-1252
-  FAIL      Expect resources/utf-32-big-endian-bom.xml to parse as UTF-8
-  FAIL      Expect resources/utf-32-big-endian-nobom.html to parse as windows-1252
-  FAIL      Expect resources/utf-32-big-endian-nobom.xml to parse as UTF-8
-  FAIL      Expect resources/utf-32-little-endian-bom.html to parse as UTF-16LE
-  FAIL      Expect resources/utf-32-little-endian-bom.xml to parse as UTF-16LE
-  FAIL      Expect resources/utf-32-little-endian-nobom.html to parse as windows-1252
-  FAIL      Expect resources/utf-32-little-endian-nobom.xml to parse as UTF-8
-OK           3/8  encoding/utf-32.html
-  FAIL      Expect resources/utf-32-big-endian-bom.xml to parse as UTF-8
-  FAIL      Expect resources/utf-32-big-endian-nobom.xml to parse as UTF-8
-  FAIL      Expect resources/utf-32-little-endian-bom.html to parse as UTF-16LE
-  FAIL      Expect resources/utf-32-little-endian-bom.xml to parse as UTF-16LE
-  FAIL      Expect resources/utf-32-little-endian-nobom.xml to parse as UTF-8
+TIMEOUT      0/8  encoding/utf-32-from-win1252.html
+  TIMEOUT   Expect resources/utf-32-big-endian-bom.html to parse as windows-1252
+  TIMEOUT   Expect resources/utf-32-big-endian-bom.xml to parse as UTF-8
+  TIMEOUT   Expect resources/utf-32-big-endian-nobom.html to parse as windows-1252
+  TIMEOUT   Expect resources/utf-32-big-endian-nobom.xml to parse as UTF-8
+  TIMEOUT   Expect resources/utf-32-little-endian-bom.html to parse as UTF-16LE
+  TIMEOUT   Expect resources/utf-32-little-endian-bom.xml to parse as UTF-16LE
+  TIMEOUT   Expect resources/utf-32-little-endian-nobom.html to parse as windows-1252
+  TIMEOUT   Expect resources/utf-32-little-endian-nobom.xml to parse as UTF-8
+TIMEOUT      0/8  encoding/utf-32.html
+  TIMEOUT   Expect resources/utf-32-big-endian-bom.html to parse as UTF-8
+  TIMEOUT   Expect resources/utf-32-big-endian-bom.xml to parse as UTF-8
+  TIMEOUT   Expect resources/utf-32-big-endian-nobom.html to parse as UTF-8
+  TIMEOUT   Expect resources/utf-32-big-endian-nobom.xml to parse as UTF-8
+  TIMEOUT   Expect resources/utf-32-little-endian-bom.html to parse as UTF-16LE
+  TIMEOUT   Expect resources/utf-32-little-endian-bom.xml to parse as UTF-16LE
+  TIMEOUT   Expect resources/utf-32-little-endian-nobom.html to parse as UTF-8
+  TIMEOUT   Expect resources/utf-32-little-endian-nobom.xml to parse as UTF-8

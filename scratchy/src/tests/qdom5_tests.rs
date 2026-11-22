@@ -32,7 +32,7 @@ fn qdom5_clone_extract_delete() {
             "log:<div><p>H</p><i>il</i></div> DIV:1-DIV:1",
             "log:<p>H</p><i>il</i> <div></div> DIV:0-DIV:0",
             "log:bcd bcd aef #text:1-#text:1",
-            "log:HierarchyRequestError no no",
+            "log:HierarchyRequestError HierarchyRequestError HierarchyRequestError",
         ]
     );
 }
