@@ -368,6 +368,7 @@ pub(crate) fn xml_parse_error_element(msg: &str, row: u32, col: u32, text: &str,
 
 /// QDOM11: roxmltree has no doctype node, so the prolog is scanned by hand: `(misc nodes before it, name, publicId,
 /// systemId)`; the internal subset is skipped (quotes, comments and nested brackets respected).
+#[allow(clippy::question_mark)]
 fn xml_doctype(text: &str) -> Option<(usize, usize, String, String, String)> {
     let mut s = text.strip_prefix('\u{feff}').unwrap_or(text);
     let mut misc = 0usize;

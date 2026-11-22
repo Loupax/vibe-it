@@ -8,6 +8,7 @@ fn logs(log: &[String]) -> Vec<String> {
 }
 
 /// Runs the scripts of the XML document `xml` (served as `mime`) as a top-level page, then `extra` in a script of its own.
+#[allow(clippy::let_and_return)]
 fn run_xml(mime: &str, xml: &str, extra: &str) -> Vec<String> {
     crate::js::set_page_url(Url::parse("http://qdom11.test/a.xhtml").ok().as_ref());
     crate::js::set_page_xml_mime(Some(mime));
@@ -23,6 +24,7 @@ fn run_xml(mime: &str, xml: &str, extra: &str) -> Vec<String> {
     v
 }
 
+#[allow(clippy::let_and_return)]
 fn run_frames(js: &str) -> Vec<String> {
     let fake = QfFake::new(vec![]);
     let (engine, log) = qf7_engine("https://page.test/", &fake);
