@@ -213,3 +213,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #557 QDOM13 READY (dom/events 407 -> 472; 4 webkit files OK->TIMEOUT with +4 subtests each, no passing subtest lost = Q3 ok). Queued after #546. Filed+launched QANIMHL (Opus).
 - 2026-11-22 #552 QSB2b rebased, queued after #557. Launched QWPT11.
 - 2026-11-22 Merged #553 QDOM14 6012d35.
+- 2026-11-22 #558 QWPT11 READY (gate did run; main runs were cancelled by concurrency; fixed). Queued after #552. Filed QCISPLIT (Q4: job ~7 min). Launched QEL4.
