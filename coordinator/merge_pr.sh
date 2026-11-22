@@ -23,10 +23,17 @@ green() { [ "$(gh pr view "$N" --json statusCheckRollup -q '([.statusCheckRollup
 # `gh pr checks --watch` then returned at once with no checks: false "CI NOT green", #580 2026-11-22), then watch.
 waitci() {
   local sha i n; sha=$(gh pr view "$N" --json headRefOid -q .headRefOid)
-  for i in $(seq 1 60); do
+  # check runs only exist once jobs START; a run queued behind main's runs has none. So wait (up to 40 min) on the
+  # workflow run for this sha itself, then for all 4 check runs.
+  local rid=""
+  for i in $(seq 1 240); do
+    rid=$(gh run list --commit "$sha" --event pull_request --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null)
+    [ -n "$rid" ] && break; sleep 10
+  done
+  [ -n "$rid" ] && timeout 2700 gh run watch "$rid" >/dev/null 2>&1
+  for i in $(seq 1 30); do
     n=$(gh api "repos/{owner}/{repo}/commits/$sha/check-runs" -q '.total_count' 2>/dev/null || echo 0)
-    [ "${n:-0}" -ge 4 ] && break
-    sleep 10
+    [ "${n:-0}" -ge 4 ] && break; sleep 10
   done
   timeout 2700 gh pr checks "$N" --watch >/dev/null 2>&1; green
 }
