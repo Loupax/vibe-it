@@ -2144,7 +2144,9 @@ pub(crate) fn collect_real_nodes(
                             content: BoxContent::Inline(std::mem::take(pending)),
                         });
                     }
-                    result.push(build_box_for_element(child, rules, inherited, decoration, child_href, viewport_width, image_cache));
+                    result.push(crate::fx::with_inline_fx(|| {
+                        build_box_for_element(child, rules, inherited, decoration, child_href, viewport_width, image_cache)
+                    }));
                 } else if matches!(style.display, Display::InlineBlock | Display::InlineFlex) {
                     // Inline-level, but — unlike the plain-`Inline`
                     // flatten-and-recurse arm just below — keeps its own
@@ -2179,6 +2181,7 @@ pub(crate) fn collect_real_nodes(
                     if start_w > 0.0 {
                         pending.push(InlineItem::Spacer { w: start_w, pad_w: start_pad, bg: own_bg, start: true });
                     }
+                    let _fx_guard = crate::fx::InlineFxGuard::enter(&style);
                     collect_children(
                         child,
                         rules,

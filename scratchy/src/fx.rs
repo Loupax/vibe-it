@@ -1321,3 +1321,154 @@ pub(crate) fn paint_text_shadows(
         }
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Inline wrappers: the box builder flattens a non-replaced inline element (no box of its own), so
+// its `filter` / `backdrop-filter` / `mix-blend-mode` would be lost. A block-level box built
+// inside it (block-in-inline) takes them instead, per box. Text directly in the inline element
+// is not filtered (known gap).
+// ---------------------------------------------------------------------------------------------
+
+type InlineFx = (Option<&'static [FilterCompFn]>, Option<&'static [FilterCompFn]>, BlendMode);
+
+thread_local! {
+    static INLINE_FX: Cell<Option<InlineFx>> = const { Cell::new(None) };
+}
+
+pub(crate) struct InlineFxGuard(Option<InlineFx>);
+
+impl InlineFxGuard {
+    /// Sets the ambient effects of the inline element `s` while its children are collected.
+    pub(crate) fn enter(s: &ComputedStyle) -> InlineFxGuard {
+        let own: InlineFx = (s.filter, s.backdrop_filter, s.mix_blend_mode);
+        let prev = INLINE_FX.with(|c| c.get());
+        if own.0.is_some() || own.1.is_some() || own.2 != BlendMode::Normal {
+            INLINE_FX.with(|c| c.set(Some(own)));
+        }
+        InlineFxGuard(prev)
+    }
+}
+
+impl Drop for InlineFxGuard {
+    fn drop(&mut self) {
+        INLINE_FX.with(|c| c.set(self.0));
+    }
+}
+
+/// Runs `build` (a block box inside the inline element) with no ambient effects for its own
+/// descendants, then gives the built box the effects of the inline element (unless it has its own).
+pub(crate) fn with_inline_fx(build: impl FnOnce() -> LayoutBox) -> LayoutBox {
+    let amb = INLINE_FX.with(|c| c.take());
+    let mut b = build();
+    INLINE_FX.with(|c| c.set(amb));
+    if let Some((f, bf, m)) = amb {
+        let s = &mut b.style;
+        s.filter = s.filter.or(f);
+        s.backdrop_filter = s.backdrop_filter.or(bf);
+        if s.mix_blend_mode == BlendMode::Normal {
+            s.mix_blend_mode = m;
+        }
+    }
+    b
+}
+
+// ---------------------------------------------------------------------------------------------
+// Animation (keyframe interpolation, called from anim_eval::lerp_styles)
+// ---------------------------------------------------------------------------------------------
+
+/// `o`'s colour at zero alpha (the identity of a shadow colour).
+fn clear_of(o: TextColor) -> TextColor {
+    TextColor::rgba(o.r(), o.g(), o.b(), 0)
+}
+
+fn identity_filter(f: &FilterCompFn) -> FilterCompFn {
+    match f {
+        FilterFn::Blur(_) => FilterFn::Blur(0.0),
+        FilterFn::Brightness(_) => FilterFn::Brightness(1.0),
+        FilterFn::Contrast(_) => FilterFn::Contrast(1.0),
+        FilterFn::Grayscale(_) => FilterFn::Grayscale(0.0),
+        FilterFn::Invert(_) => FilterFn::Invert(0.0),
+        FilterFn::Opacity(_) => FilterFn::Opacity(1.0),
+        FilterFn::Saturate(_) => FilterFn::Saturate(1.0),
+        FilterFn::Sepia(_) => FilterFn::Sepia(0.0),
+        FilterFn::HueRotate(_) => FilterFn::HueRotate(0.0),
+        FilterFn::DropShadow(s) => FilterFn::DropShadow(Shadow { dx: 0.0, dy: 0.0, blur: 0.0, color: clear_of(s.color) }),
+    }
+}
+
+fn lerp_shadow(a: &ShadowCompFn, b: &ShadowCompFn, t: f32) -> ShadowCompFn {
+    let l = |x: f32, y: f32| x + (y - x) * t;
+    let color = crate::anim_eval::Interp::interp(&a.color, &b.color, t).unwrap_or(b.color);
+    Shadow { dx: l(a.dx, b.dx), dy: l(a.dy, b.dy), blur: l(a.blur, b.blur).max(0.0), color }
+}
+
+fn lerp_filter_fn(a: &FilterCompFn, b: &FilterCompFn, t: f32) -> Option<FilterCompFn> {
+    let l = |x: f32, y: f32| x + (y - x) * t;
+    Some(match (a, b) {
+        (FilterFn::Blur(x), FilterFn::Blur(y)) => FilterFn::Blur(l(*x, *y).max(0.0)),
+        (FilterFn::Brightness(x), FilterFn::Brightness(y)) => FilterFn::Brightness(l(*x, *y)),
+        (FilterFn::Contrast(x), FilterFn::Contrast(y)) => FilterFn::Contrast(l(*x, *y)),
+        (FilterFn::Grayscale(x), FilterFn::Grayscale(y)) => FilterFn::Grayscale(l(*x, *y)),
+        (FilterFn::Invert(x), FilterFn::Invert(y)) => FilterFn::Invert(l(*x, *y)),
+        (FilterFn::Opacity(x), FilterFn::Opacity(y)) => FilterFn::Opacity(l(*x, *y)),
+        (FilterFn::Saturate(x), FilterFn::Saturate(y)) => FilterFn::Saturate(l(*x, *y)),
+        (FilterFn::Sepia(x), FilterFn::Sepia(y)) => FilterFn::Sepia(l(*x, *y)),
+        (FilterFn::HueRotate(x), FilterFn::HueRotate(y)) => FilterFn::HueRotate(l(*x, *y)),
+        (FilterFn::DropShadow(x), FilterFn::DropShadow(y)) => FilterFn::DropShadow(lerp_shadow(x, y, t)),
+        _ => return None,
+    })
+}
+
+/// `t` snapped to 1/128 so a long animation interns at most 129 lists per keyframe pair.
+fn snap_t(t: f32) -> f32 {
+    (t.clamp(0.0, 1.0) * 128.0).round() / 128.0
+}
+
+/// Interpolates two `filter` / `backdrop-filter` values. `None` (outer) = the values do not
+/// interpolate (different function lists): discrete. `none` pads with each other function's identity.
+pub(crate) fn lerp_filter(a: Option<&'static [FilterCompFn]>, b: Option<&'static [FilterCompFn]>, t: f32) -> Option<Option<&'static [FilterCompFn]>> {
+    if a.is_none() && b.is_none() {
+        return Some(None);
+    }
+    let t = snap_t(t);
+    if t <= 0.0 {
+        return Some(a);
+    }
+    if t >= 1.0 {
+        return Some(b);
+    }
+    let la: Vec<FilterCompFn> = match a {
+        Some(l) => l.to_vec(),
+        None => b?.iter().map(identity_filter).collect(),
+    };
+    let lb: Vec<FilterCompFn> = match b {
+        Some(l) => l.to_vec(),
+        None => a?.iter().map(identity_filter).collect(),
+    };
+    if la.len() != lb.len() {
+        return None;
+    }
+    let out: Option<Vec<FilterCompFn>> = la.iter().zip(lb.iter()).map(|(x, y)| lerp_filter_fn(x, y, t)).collect();
+    Some(Some(intern_list(&T_FILTER_COMP, out?)))
+}
+
+/// Interpolates two `text-shadow` values (the shorter list is padded with transparent shadows).
+pub(crate) fn lerp_text_shadow(a: Option<&'static [ShadowCompFn]>, b: Option<&'static [ShadowCompFn]>, t: f32) -> Option<&'static [ShadowCompFn]> {
+    let t = snap_t(t);
+    if t <= 0.0 {
+        return a;
+    }
+    if t >= 1.0 {
+        return b;
+    }
+    let (la, lb) = (a.unwrap_or(&[]), b.unwrap_or(&[]));
+    let zero = |o: Option<&ShadowCompFn>| Shadow { dx: 0.0, dy: 0.0, blur: 0.0, color: clear_of(o.map_or(TextColor::rgba(0, 0, 0, 0), |s| s.color)) };
+    let out: Vec<ShadowCompFn> = (0..la.len().max(lb.len()))
+        .map(|i| {
+            let x = la.get(i).copied().unwrap_or_else(|| zero(lb.get(i)));
+            let y = lb.get(i).copied().unwrap_or_else(|| zero(la.get(i)));
+            lerp_shadow(&x, &y, t)
+        })
+        .collect();
+    Some(intern_list(&T_SHADOW_COMP, out))
+}
