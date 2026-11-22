@@ -4250,3 +4250,10 @@ The user said remove the old pipeline (DECISIONS.md 2026-11-22). Since QINC1m:
   required check names, scratchy / snag / wire / scratchy-wpt, are unchanged).
 - `tools/incr-gate`: modes `incr` and `check` only (`off` and the `perf` series that compared against it
   were removed); compare against an older build with `SCRATCHY=` instead.
+
+## tools/nest.sh keeps one compositor per worktree (QNEST1)
+- The nested dwl is recorded in `<worktree>/.qwork/nest/` (`dwl.pid`, `disp`, `dwl.log`). A live recorded dwl
+  (PID alive and its command line names that registry) is reused: nest.sh prints its socket and does not start
+  another, whatever OUT_DIR the caller passes. `--new` stops it first, `--stop` stops it and removes the pid file,
+  a stale pid file is cleaned. `NEST_TIMEOUT` remains the last-resort cap. Test: `tools/nest-one-test.sh`.
+- incr-gate/run.sh no longer leaks one dwl per run; gate.sh still kills its dwl by PID at the end.

@@ -134,3 +134,10 @@ tools/incr-gate/ holds the durable recipes the QINC1 gates use (the R55 input sc
   `google-chrome --headless=new --window-size=960,1006 --dump-dom file://...` prints the reference into #out.
   Runs are bimodal on YouTube watch (`vid` column: playback started or not) and Wikipedia (builds ~100
   vs 13-23): compare pairs within a regime.
+
+QNEST1: nest.sh keeps ONE nested dwl per worktree (registry <worktree>/.qwork/nest: dwl.pid, disp,
+dwl.log; env NEST_REG overrides). A second call prints the live dwl's socket and reuses it (OUT_DIR/dwl.pid
+and OUT_DIR/disp are refreshed for callers); `nest.sh --new` stops the recorded dwl first; `nest.sh --stop`
+stops it by the recorded PID and removes the pid file; a stale pid file is cleaned. Callers that kill the
+PID they read (gate.sh) still work: the next call sees a dead PID and starts a fresh one. NEST_TIMEOUT stays
+as the last-resort cap. Test: tools/nest-one-test.sh (headless backend when there is no Wayland session).
