@@ -9,6 +9,9 @@
 # The wayland backend is required for input: headless dwl advertises no
 # seat capabilities, so clients get no pointer or keyboard.
 set -e
+# QREC3b: NEST_TIMEOUT (seconds, default 3600; 0 = none): gate.sh runs longer than an hour and kills its own dwl by PID.
+NEST_TIMEOUT=${NEST_TIMEOUT-3600}
+[ "$NEST_TIMEOUT" = 0 ] && NEST_TIMEOUT=
 OUT=${1:-${TMPDIR:-/tmp}/scratchy-nest}
 mkdir -p "$OUT"
 rm -f "$OUT/disp"
@@ -18,7 +21,7 @@ rm -f "$OUT/disp"
     if [ "$n" -gt 2 ] 2>/dev/null; then eval "exec $n>&-" 2>/dev/null || true; fi
   done
   exec env -u DISPLAY WLR_BACKENDS=wayland WLR_RENDERER=pixman \
-    setsid timeout 3600 dwl -s "echo \$WAYLAND_DISPLAY > '$OUT/disp'" \
+    setsid ${NEST_TIMEOUT:+timeout $NEST_TIMEOUT} dwl -s "echo \$WAYLAND_DISPLAY > '$OUT/disp'" \
     >"$OUT/dwl.log" 2>&1
 ) &
 echo $! > "$OUT/dwl.pid"

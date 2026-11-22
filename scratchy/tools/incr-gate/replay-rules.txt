@@ -6,3 +6,7 @@
 www.youtube.com rn,cpn,t
 youtube.com rn,cpn,t
 m.youtube.com rn,cpn,t
+# QREC3b: YouTube's player POSTs (SABR videoplayback, QoE stats) carry a random per-run body and a different query each run:
+# answer them by the n-th recorded request to the same host+path (the response is not parsed by the page's layout work).
+path-fallback * /videoplayback
+path-fallback www.youtube.com /api/stats/qoe

@@ -36,7 +36,7 @@ mkdir -p "$OUT"
 DWL=
 case $SERIES in replay|replay-headless) [ -n "${REPLAY:-}" ] || { echo "gate.sh: $SERIES needs REPLAY=DIR" >&2; exit 2; } ;; esac
 if [ "$SERIES" != headless ] && [ "$SERIES" != replay-headless ]; then
-  SOCK=$("$HERE/../nest.sh" "$OUT/nest") || exit 1
+  SOCK=$(NEST_TIMEOUT=0 "$HERE/../nest.sh" "$OUT/nest") || exit 1
   DWL=$(cat "$OUT/nest/dwl.pid")
   export SOCK
   sleep 1

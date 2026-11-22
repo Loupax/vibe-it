@@ -10714,6 +10714,46 @@ deterministic-mode run of github still races (worker/timer ordering, `performanc
 clock, QREC2 note) and its timing-dependent script path changes the number of forced layouts. Wall-clock budgets need
 a quiet machine.
 
+**QREC3b re-record (2026-11-22, wire from main de6261b with QREC1c, scratchy 4e75abba6cd7 copy, uptime load average 21 / 20 / 18
+at the start, other agents running: NOT a quiet machine).** The first recordings were made by a WINDOW run (input plan,
+hover/play requests) but replayed HEADLESS, so replay asked for different things (ytr 66-119 misses, ytw 24-89, wiki
+batches that fell back to wrong JS). Now recorded in the mode that replays: `RECORD=~/.cache/scratchy/rec2 run.sh headless
+incr <page> <tag>` (`--no-cookies`, own wire/socket, own `SCRATCHY_STATE_DIR`); ytr and ytw were recorded 3 times into the
+same directory (record appends; the replay picks the n-th matching entry, so extra passes fill in requests a single pass
+missed), the others once. Old recordings deleted after the new ones replayed with fewer misses. Window plans (hover/play
+requests) are NOT in these recordings: a window replay needs a window recording (not redone here).
+Rules added: `path-fallback * /videoplayback` and `path-fallback www.youtube.com /api/stats/qoe` (SABR POSTs with a random
+body and query per run; these were all of ytw's remaining misses). Not needed elsewhere.
+
+| page | headless replay misses before | after |
+|---|---|---|
+| ytr | 66 | 0-2 (the remaining 1-2 are `m=QlbBce,De8mUc` JS chunks of another build id) |
+| ytw | 24-89 (10 in a retest) | 0 |
+| wiki | 0, but wrong JS (see the bug above; the headless run now records its own `load.php` batches) | 0 |
+| bbc | 5 | 5 (OPTIONS privacy-mgmt, dotmetrics door.js, 3 POSTs to a1.api.bbc.com/event, none recorded) |
+| github, social | 0 | 0 (recorded in the new mode, 0 misses on one replay) |
+
+Headless variance, `gate.sh replay-headless 3` (20 s `--perf-report`, `min / median / max (spread)`), same shared machine
+(load 14-22), round 3 of ytw/wiki/bbc re-run after a `timeout` of mine cut the series short:
+
+| page | variant | forced n | forced ms | worst cb ms | rss MB |
+|---|---|---|---|---|---|
+| bbc | live | 3 / 3 / 3 (0%) | 226 / 260 / 527 (116%) | 618 / 747 / 1345 (97%) | 153 / 154 / 154 (1%) |
+| bbc | rep | 3 / 3 / 3 (0%) | 276 / 330 / 511 (71%) | 828 / 1003 / 1368 (54%) | 152 / 153 / 155 (2%) |
+| wiki | live | 3 / 3 / 3 (0%) | 583 / 1463 / 1672 (74%) | 137 / 337 / 345 (62%) | 288 / 290 / 291 (1%) |
+| wiki | rep | 3 / 3 / 3 (0%) | 524 / 797 / 1606 (136%) | 129 / 206 / 359 (112%) | 287 / 288 / 289 (1%) |
+| ytr | live | 63 / 63 / 66 (5%) | 1268 / 1369 / 1528 (19%) | 2067 / 2406 / 2655 (24%) | 408 / 415 / 420 (3%) |
+| ytr | rep | 29 / 34 / 37 (24%) | 931 / 991 / 1054 (12%) | 5272 / 5959 / 8147 (48%) | 425 / 426 / 426 (0%) |
+| ytw | live | 119 / 120 / 122 (2%) | 1620 / 2247 / 2260 (28%) | 1845 / 3050 / 3425 (52%) | 451 / 458 / 492 (9%) |
+| ytw | rep | 96 / 99 / 101 (5%) | 1291 / 1689 / 1860 (34%) | 3193 / 5249 / 6588 (65%) | 488 / 500 / 502 (3%) |
+
+Reading: wiki replay is now complete (3 forced layouts, rss 288 MB, same as live; the broken-replay row above is gone) and
+bbc is exact. ytw replay is steady (counts 5% spread) but does 20% fewer forced layouts than live (99 vs 120); ytr replay
+does about HALF the forced layouts of live (34 vs 63) with a wider spread (24% vs 5%): even with 0-2 misses the replayed
+YouTube results page runs a different script path (instant answers, no real latency, `--replay-delay 5 ms`, deterministic
+clock), so live and replay numbers are not interchangeable, and a replay budget must be set from replay runs. Millisecond
+columns are still 50-140% apart between runs on this loaded machine; a quiet-machine re-measure is still open.
+
 Window (`gate.sh replay 3`, nested dwl, `SCRATCHY_INCR=1`): ytr, ytw, wiki have 3 valid runs per variant (table
 below). bbc, github, hover, social have 2 (round 3 died early: gate.sh's nested dwl runs under `timeout 3600` and
 the series took longer than an hour; run it per page or in two series); bbc live 2 / bbc rep 2 / social rep 2 are

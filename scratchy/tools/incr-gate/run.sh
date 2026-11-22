@@ -31,7 +31,7 @@
 #                recording's index.jsonl, ms; override with EPOCH=). hover/imggeom have no network: they
 #                ignore REPLAY. Misses are counted into <TAG>.meta (replay_misses=N): more than a handful
 #                makes the run invalid. Recordings stay LOCAL (R64, DECISIONS Q5): never commit one.
-#      RECORD    QREC3: base dir; the run's wire is started `--no-cookies --record <RECORD>/<page>` (a
+#      RECORD    QREC3: base dir; record in the mode that replays (`run.sh headless incr <page> <tag>` for a headless replay; QREC3b: record ytr/ytw 3 passes into the same dir, it appends); the run's wire is started `--no-cookies --record <RECORD>/<page>` (a
 #                fresh jar, so no personal cookie is recorded; dirs mode 0700). Use a window run with the
 #                page's input plan so hover/play requests are recorded too.
 #      RULES     replay-rules file (default tools/incr-gate/replay-rules.txt).
@@ -121,7 +121,7 @@ inj() { WAYLAND_DISPLAY="$SOCK" "$INJECT" $RW $RH "$@" >>"$OUT/$TAG.inject.log" 
 T0=0
 # sleep until T seconds after launch
 at() { local now; now=$(date +%s.%N); local d; d=$(awk -v a="$T0" -v b="$now" -v t="$1" 'BEGIN { d = a + t - b; print (d > 0 ? d : 0) }'); sleep "$d"; }
-shot() { WAYLAND_DISPLAY="$SOCK" grim "$OUT/$TAG.$1.png" 2>>"$OUT/$TAG.inject.log"; }
+shot() { WAYLAND_DISPLAY="$SOCK" timeout 20 grim "$OUT/$TAG.$1.png" 2>>"$OUT/$TAG.inject.log"; }
 
 # raster sweep: rows from y0 to y1 step dy, x from x0 to x1 step dx, wait ms per move
 sweep() {

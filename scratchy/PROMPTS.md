@@ -9051,3 +9051,9 @@ Eased viewport scroll (user design #532, D1-D8): `App::scroll_target`, `scroll_a
 > QDOM6b [S] (P2, from QDOM6 #526; js_dom.rs) createElementNS(null, name) created an HTML-namespace element: make it a null-namespace element with the name unchanged; also createElementNS(XHTML_NS, "Span") keeps the local name case (DOM "create an element NS", no lowercasing).
 
 **What changed:** js_dom.rs: `__d_create_ns` keeps the qualified name as given and maps the empty namespace to the null namespace (not HTML); new `__d_rawname` native and `qnameOf` read the stored name, so `localName` of an XHTML element made by createElementNS keeps its case (`tagName` is still uppercased). The existing validate-and-extract (NamespaceError rules for prefix/xml/xmlns) of createElementNS/createAttributeNS was already complete. Tests: src/tests/qdom6b_tests.rs.
+
+## QREC3b: re-record the gate pages in the mode that replays (agent item)
+
+> QREC3b [S] (P2, from QREC3 #537; tools/incr-gate) Record in the mode that replays (`run.sh headless` with RECORD=), re-record ytr/ytw/wiki to get replay misses to ~0; gate.sh/run.sh: one nested dwl per page or no 1 h timeout, a timeout on the end grim.
+
+**What changed:** recordings re-made locally (headless, 3 passes for ytr/ytw; old ones deleted, none committed). replay-rules.txt: `path-fallback` for YouTube `/videoplayback` and `/api/stats/qoe`. nest.sh: NEST_TIMEOUT (0 = none), gate.sh uses it; run.sh: `timeout 20 grim`. REGRESSIONS R64 section 6: new miss counts and 3-run live/replay variance (loaded machine).
