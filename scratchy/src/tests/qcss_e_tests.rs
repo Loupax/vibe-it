@@ -525,3 +525,11 @@ fn new_longhands_animate_and_transition() {
     assert_eq!(mid.outline_offset, 4.0);
     assert_eq!(mid.letter_spacing, 2.0);
 }
+
+#[test]
+fn outline_offset_widens_the_damage_paint_reach() {
+    let s = style_of("<div style='width:41px;outline:3px solid red;outline-offset:20px'></div>", 41.0);
+    assert!(crate::incr_layout::box_reach(&s).0 >= 23.0, "{:?}", crate::incr_layout::box_reach(&s));
+    let plain = style_of("<div style='width:41px;outline:3px solid red'></div>", 41.0);
+    assert_eq!(crate::incr_layout::box_reach(&plain).0, 3.0);
+}

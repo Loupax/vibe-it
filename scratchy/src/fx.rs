@@ -1158,7 +1158,7 @@ pub(crate) fn paint_with_effects(
     if let Some(bf) = s.backdrop_filter {
         let area = rect_of(bx, by, laid.w, laid.h).intersect(vis);
         if !area.is_empty() && area.area() <= MAX_REGION_PX && s.visibility == Visibility::Visible {
-            backdrop(pixels, win_w, win, area, bbox, s.border_radius.resolve(laid.w), bf);
+            backdrop(pixels, win_w, win, area, bbox, s.border_radius.resolve(laid.w, laid.h), bf);
         }
     }
     let layered = s.filter.is_some() || s.mix_blend_mode.separable();
@@ -1277,7 +1277,7 @@ pub(crate) fn paint_with_effects(
 
 /// `backdrop-filter`: filters the page pixels in `area` (clipped border box), writing back only
 /// inside the rounded border box. The input includes the blur's reach, so the edge is not faded.
-fn backdrop(pixels: &mut [u32], win_w: u32, win: Rect, area: Rect, bbox: (f32, f32, f32, f32), radius: f32, f: &[FilterCompFn]) {
+fn backdrop(pixels: &mut [u32], win_w: u32, win: Rect, area: Rect, bbox: (f32, f32, f32, f32), radius: Radii, f: &[FilterCompFn]) {
     let src = area.grow(filter_reach(f)).intersect(win);
     let (rw, rh) = (src.w(), src.h());
     if rw == 0 || rh == 0 {
@@ -1297,7 +1297,7 @@ fn backdrop(pixels: &mut [u32], win_w: u32, win: Rect, area: Rect, bbox: (f32, f
     apply_filters_opaque(&mut layer, f);
     for y in area.y0..area.y1 {
         for x in area.x0..area.x1 {
-            if radius > 0.0 && !in_uniform_rrect(x as f32 + 0.5, y as f32 + 0.5, bbox.0, bbox.1, bbox.2, bbox.3, radius) {
+            if !square_corners(&radius) && !in_rrect(x as f32 + 0.5, y as f32 + 0.5, bbox.0, bbox.1, bbox.2, bbox.3, radius) {
                 continue;
             }
             let i = (y - src.y0) as usize * rw + (x - src.x0) as usize;

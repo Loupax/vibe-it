@@ -781,7 +781,8 @@ const MAX_DAMAGE: usize = 32;
 /// (`filter`, `backdrop-filter`, a non-normal `mix-blend-mode`): such a box is only right when painted
 /// whole, so a damage rect touching one is a full repaint (`App::redraw`).
 pub(crate) fn box_reach(s: &ComputedStyle) -> (f32, bool) {
-    let mut r = s.outline_width;
+    // QCSS-E: an outline paints `outline-offset + outline-width` past the border box.
+    let mut r = s.outline_width.max(s.outline_reach());
     for sh in s.box_shadow.iter().flatten() {
         r = r.max(sh.offset_x.abs().max(sh.offset_y.abs()) + sh.blur * 2.0 + sh.spread.max(0.0));
     }
