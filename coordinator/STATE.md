@@ -342,3 +342,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 #607 W-CACHE2 READY (clear-site + Clear-Site-Data), merging. W-CACHE3 note. Launched QBLOBFRAME.
 - 2026-11-22 #608 QCSS-E READY (radii, outline-offset, letter-spacing, direction; reftests 348), queued after #607. Filed QCSS-E2..E5. Launched QWPT7 (Opus).
 - 2026-11-22 Merged #607 W-CACHE2 ebea6bb. #608 merging.
+- 2026-11-22 Merged #608 QCSS-E 0bf4cbf.

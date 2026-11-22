@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-22 · main 8e09b15 · 133 PRs merged since 2026-11-21 morning (#475–#607) · installed 16:07 (fdaf271)· 5 agents running (QEL2b, QANIMHLc, QCSS-A hover check, QAPI6c, QDOM5b)</div>
+  <div class="meta" id="updated">Updated 2026-11-22 · main 8e09b15 · 134 PRs merged since 2026-11-21 morning (#475–#608) · installed 16:07 (fdaf271)· 5 agents running (QEL2b, QANIMHLc, QCSS-A hover check, QAPI6c, QDOM5b)</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -73,7 +73,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 <section>
   <h2>Measurements</h2>
   <div class="stats">
-    <div class="stat"><span class="v">345 / 626</span><span class="l">WPT visual CSS tests passing (reftests), now checked in CI</span></div>
+    <div class="stat"><span class="v">348 / 626</span><span class="l">WPT visual CSS tests passing (reftests), now checked in CI</span></div>
     <div class="stat"><span class="v">39.3</span><span class="l">WPT JavaScript tests, mean score per file (0–100) over the phase-1 subset: 3,254 files, 24 areas; 67.2% of 85,795 subtests pass. Today the subset gained the long dom files and html/editing and lost the 111 pages that need simulated input (QWPT6e), so part of the rise from 37.9 is subset composition, not engine progress (more files run now). Baseline 28.4 (#504); every PR is gated on it in CI since #507</span></div>
     <div class="stat"><span class="v">1852 / 1852</span><span class="l">Unit and integration tests passing, engine on and off (CI runs both)</span></div>
     <div class="stat"><span class="v">0</span><span class="l">Engine mismatches on the 7 test pages (check mode)</span></div>
@@ -112,6 +112,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-22</td><td class="n">#608</td><td>QCSS-E</td><td>Per-corner/elliptical radii, <code>outline-offset</code>, <code>border-spacing</code>, <code>letter-spacing</code>, basic <code>direction</code> + text-align start/end; reftests 344 → 348</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#607</td><td>W-CACHE2</td><td>Clearing wire's cache: forget-site also removes that site's cache; <code>Clear-Site-Data</code> (cache, cookies, *) honoured</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#605</td><td>W-CACHE1</td><td>wire's on-disk HTTP cache (RFC 9111, private, partitioned per top site; on by default in ~/.cache/wire, 1 GB; <code>--no-cache</code>). Second Wikipedia load: 42 hits; wire RSS flat; eviction verified at 256 MB. <code>:refresh hard</code> added</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#604</td><td>QHOV1</td><td>Hover repaints only the damaged rect (paint+present 4.5 → 1.5 ms per redraw); full repaint near blur/backdrop/blend boxes; the 160 ms github hover was the old pipeline, gone with QINC1m</td></tr>

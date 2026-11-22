@@ -9489,3 +9489,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       hover_patch.rs (engine-only now); find where the engine spends the 160 ms on a github hover (restyle scope? relayout
       of the whole page?), make hover-only paint changes (colour, fill/stroke, background) skip relayout, measure
       per-hover build ms before/after in a nested window.
+
+=== from TODO.txt: --- (no header)
+- [x] QCSS-E DONE 0bf4cbf #608 [S] (P2, from QAPI8 #578; Sonnet; css.rs, layout/paint) Per-corner radii, `outline-offset`, `transform-origin`,
+      `border-spacing`, `letter-spacing`, `direction`.

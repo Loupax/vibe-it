@@ -93,8 +93,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       backdrop-filter, text-shadow and clip-path interpolation; `inset() round` per-corner radii and 3-4 value `at` offsets
       for circle/ellipse; text directly inside a filtered inline element, per-span text-shadow; apply an effect box's opacity
       after its filter; bound the interned filter-list table; a filtered-layer cache if a real page proves slow.
-- [ ] [WIP] QCSS-E [S] (P2, from QAPI8 #578; Sonnet; css.rs, layout/paint) Per-corner radii, `outline-offset`, `transform-origin`,
-      `border-spacing`, `letter-spacing`, `direction`.
 - [ ] QCSS-E2 [S] (P3, from QCSS-E #608; Sonnet) rtl completeness: bidi paragraph level from `direction` (cosmic-text or an
       offset-safe approach); mirror block/flex-row/table column order and inline-start/end margins.
 - [ ] QCSS-E3 [S] (P3, from QCSS-E #608; Sonnet) `scale()`/`rotate()` transforms so `transform-origin` takes effect; animate
