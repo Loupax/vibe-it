@@ -36,6 +36,8 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 
 - [ ] [WIP] QWPT7a [S] (P2, from QWPT7 #611; Sonnet) `el.focus()`/`blur()` fire focus events synchronously (HTML focusing steps),
       in the App and headless (focus-blur, focusing-focused-noop, blur-relatedTarget).
+- [ ] QWPT7d [S] (P3, from QWPT7a #617; Sonnet) `document.activeElement` is `body` during a blur handler (today already
+      the new element); `change` on a text control fires before the script-fired blur (today at the App's later catch-up).
 - [ ] QWPT7b [S] (P3, from QWPT7 #611; Sonnet; app.rs) The App fires what the headless driver fires: pointerdown/pointerup,
       `detail` click counts, dblclick, auxclick, contextmenu, keypress outside text controls.
 - [ ] QWPT7c [S] (P3, from QWPT7 #611; Sonnet; js_geom hit test) Hit-testing gaps: `pointer-events: none`, SVG content
@@ -471,7 +473,7 @@ QREG — copying: vim registers, `yy`, later a page cursor (user design session 
   R5 Long term (QCURSOR-D, design first): a keyboard cursor in the page, moved by hjkl like
      vim; n/N move it; Enter acts on what is under it; visual mode `v` + `y`/`"+y`/`:yank`.
 
-- [ ] QREG2 [S] (P2, from QREG1; Sonnet; registers.rs, app.rs dispatch_command, js.rs eval_value) `:let @+ = <expr>`: when
+- [ ] [WIP] QREG2 [S] (P2, from QREG1; Sonnet; registers.rs, app.rs dispatch_command, js.rs eval_value) `:let @+ = <expr>`: when
       the right side is not `@<register>`, the raw rest of the line after `=` (not re-joined words) is evaluated in
       the page's main realm, `String()` of the result goes into the register. JS off or no engine: `scratchy: :let
       needs JS (:set js)`. A thrown error: its message in the status bar, nothing copied. Long results: copied
