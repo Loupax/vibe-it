@@ -9170,3 +9170,17 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       `__d_query` (the selector parser rejects `te:st`). Returns QDOM2 collections when that has landed. WPT:
       nodes/Node-lookupNamespaceURI, Node-lookupPrefix.xhtml (after QDOM11), case, Document-getElementsByTagName(NS),
       Element-getElementsByTagName(NS), collections/HTMLCollection-empty-name. Target: nodes +1.2.
+
+=== from TODO.txt: --- (no header)
+- [x] QDOM5 DONE 0ed067c #556 [M] (P2; Sonnet; js_dom.rs Range block (QJ7) + native helpers; R65; finishes archived QA19) Range content
+      operations: `cloneContents`, `extractContents`, `deleteContents`, `insertNode`, `surroundContents` (partially
+      selected CharacterData split/clone, DocumentFragment result, HierarchyRequestError/InvalidStateError rules), live
+      boundary-point updates on insert/remove/CharacterData changes/splitText/normalize (spec "live range pre-remove
+      steps"), and Attr nodes as boundary points (nodes without `__id` today: Range-attribute-nodes). WPT in subset:
+      ranges/Range-{clone,delete,extract}Contents-{around-shadow,in-ShadowRoot}, Range-attribute-nodes. Target: ranges
+      17.1 -> 30. After QWPT6c also the core Range-* suite.
+
+=== from TODO.txt: --- (no header)
+- [x] QDOM12b DONE 0ed067c #556 (in QDOM5) [S] (P3, after QDOM3 #533; Sonnet; js_dom.rs rangeHook) Wire `rangeHook.split` / `rangeHook.merge` (QDOM12
+      #547) to QDOM3's live Range list so splitText/normalize update live Ranges per spec; re-run dom/ranges
+      (Range-mutations-normalize).

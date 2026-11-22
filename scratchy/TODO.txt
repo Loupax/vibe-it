@@ -127,13 +127,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QDOM2b [S] (P2, from QDOM2 #521; Sonnet; js_dom.rs) Remaining collections: MutationRecord addedNodes/removedNodes
       as static NodeLists; HTMLOptionsCollection for select.options (add, remove, length setter, selectedIndex);
       select.selectedOptions and map.images as live HTMLCollections. --wpt-th per-area table.
-- [ ] [WIP] QDOM5 [M] (P2; Sonnet; js_dom.rs Range block (QJ7) + native helpers; R65; finishes archived QA19) Range content
-      operations: `cloneContents`, `extractContents`, `deleteContents`, `insertNode`, `surroundContents` (partially
-      selected CharacterData split/clone, DocumentFragment result, HierarchyRequestError/InvalidStateError rules), live
-      boundary-point updates on insert/remove/CharacterData changes/splitText/normalize (spec "live range pre-remove
-      steps"), and Attr nodes as boundary points (nodes without `__id` today: Range-attribute-nodes). WPT in subset:
-      ranges/Range-{clone,delete,extract}Contents-{around-shadow,in-ShadowRoot}, Range-attribute-nodes. Target: ranges
-      17.1 -> 30. After QWPT6c also the core Range-* suite.
 - [ ] QDOM5b [S] (P3, from QDOM5 #556; Sonnet; js_dom.rs Range block) Live Range fix-ups for outerHTML /
       insertAdjacentHTML (`__d_write`) and cross-document adopt; look at the remaining Range-attribute-nodes failures (19/26).
 - [ ] QDOM6b [S] (P2, from QDOM6 #526; Sonnet; js_dom.rs) `createElementNS(null, name)` creates an HTML-namespace element
@@ -156,9 +149,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       `.xhtml/.xml` files and 13 CRASH `.svg` files in dom/nodes (Element-childElementCount-*, Element-firstElementChild-*,
       ...), Document-createElement(NS) (XML iframes: 488 subtests), Document-createProcessingInstruction-xhtml,
       Node-lookupPrefix.xhtml. Target: nodes +5 (13 SVG files also start counting).
-- [ ] QDOM12b [S] (P3, after QDOM3 #533; Sonnet; js_dom.rs rangeHook) Wire `rangeHook.split` / `rangeHook.merge` (QDOM12
-      #547) to QDOM3's live Range list so splitText/normalize update live Ranges per spec; re-run dom/ranges
-      (Range-mutations-normalize).
 - [ ] [WIP] QDOM13 [S] (P2; Sonnet; js.rs attrHandler/`fwd`, js_dom.rs; R65) Event handler IDL attributes as accessors:
       GlobalEventHandlers/WindowEventHandlers/DocumentAndElementEventHandlers on HTMLElement, Document and Window
       (default null; setting a non-function stores null; the content attribute still compiles lazily). `<body>`/
