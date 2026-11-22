@@ -14,9 +14,9 @@ intersection-observer           150    150        21       204      48   23.5   
 html/semantics/scripting-1      419    400       131      2863    1333   46.6   35.5
 html/dom                        180    180        49      4053    1284   31.7   40.9
 html/editing                     48     48        15       626     205   32.7   41.2
-html/canvas/element            1281   1277       294      2827     344   12.2   23.6
+html/canvas/element            1281   1277       345      2827     397   14.0   27.5
 html/canvas/offscreen          1074   1074         0      1371       0    0.0    0.0
-html/canvas/other                 4      4         2        18       2   11.1   50.0
+html/canvas/other                 4      4         3        18      17   94.4   75.0
 css/cssom                       271    270        67      3939    2180   55.3   38.6
 css/cssom-view                  220    220        76      1625     874   53.8   43.1
 encoding                         41     41         7       648     285   44.0   34.1
@@ -30,4 +30,4 @@ shadow-dom                      263    263        60      2650     843   31.8   
 fetch/api                       145    145        42      1382     873   63.2   44.7
 fetch/other                      68     64         6       759     293   38.6   27.3
 xhr                             299    298       120      1091     748   68.6   48.8
-TOTAL                          6235   6198      1591     96411   68390   70.9   31.6
+TOTAL                          6235   6198      1643     96411   68458   71.0   32.4
