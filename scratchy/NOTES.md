@@ -4003,6 +4003,51 @@ getComputedStyle keeps a snapshot for every element it resolves (`transition::wi
 "flush, then set a value and `transition` together" transitions; other elements keep one only while
 they declare `transition` (a compact `Snap` of the transitionable fields, not a `ComputedStyle`).
 
+## `:has()` (QAPI6, src/dom.rs, src/invalidation.rs, src/incr_style.rs, src/incr_log.rs)
+
+Parsing and matching are the `selectors` crate's (`OurSelectorParser::parse_has`); every matching call builds its own
+`SelectorCaches`, so a cached relative-selector result never outlives a DOM write. `:has(:has())` and `:has()` are parse
+errors (SyntaxError in `querySelector`). The fast paths written for "no `:has` rule" keep their guards and simply turn off on
+a `:has` page: `HiddenSnap` (`has_sel`), `ClassDeps` (`CF_UNBOUNDED`), `StyleCache` (`has_rules`), `HoverKeys::unbounded`
+(only for a `:hover` inside `:has`), the incremental-layout rule 5 (R59).
+
+Invalidation map: a feature anywhere inside a relative selector `R` reaches the anchors in ONE hop, `Hop::Anc` (the carrier's
+ancestors) or for `:has(+ ..)`/`:has(~ ..)` `Hop::AncSib` (earlier siblings of the carrier and of each ancestor), because every
+element `R` looks at is a descendant / later sibling (subtree) of the anchor; `R`'s own combinators are ignored (flattened). The
+anchors are filtered by the tag/id/class of the compound holding the `:has` (`Entry::anchor`), then the outer hops lead to the
+subject. `Key::HasTree` = an element inserted (walked from the new node) or removed (`removal_anchors`: the parent and its
+ancestors, or the earlier siblings of the removal point and of the parent's chain), pruned by a `TreeSummary` of the subtree
+(tags / ids / classes / attribute names): only a subtree that can hold an element matching `R`'s own subject compound can change
+what `R` finds (adjacency changes go through `SibNext` / `SibLater`). Global only for a selector WITH combinators nested in `R`
+(`:has(:is(.a .b))` can match through an `.a` above the anchor). Soundness fuzz with 14 `:has` shapes in `qapi6_tests.rs`
+(same generator as QINC1d).
+
+Cost on YouTube (the measured case): `:has(> [role=dialog]:not([aria-hidden=true]) .x) [dialog]` has no tag/id/class on the
+anchor, so every `aria-hidden` write reached the whole page through `[Anc, Desc]`. Three things keep that bounded: `Filter::attrs`
+(attribute names of a compound, checked only on elements a walk REACHES, never on the written element), the shared first hop per
+change (`apply_if` computes the ancestors once for all `:has` groups), and the batch memo (`begin_batch`/`end_batch` around one
+engine update: a `(element, rest of the walk)` already walked against this DOM state is not walked again).
+
+Engine: a logged change of a node WITHOUT an entry (under `display: none`) used to be skipped (only `gen_dirty`); with a `:has`
+rule it can still flip a rendered anchor (`.card:has(.hidden .on)`). `incr_log::note_node` keeps a `Weak` of every logged node
+while the current map has `:has` (`set_keep_nodes`, set when the map is built; no `:has` = no map lookup, nothing kept), and
+`Engine::unentried` answers it from that handle (a freed node is skipped: its removal was logged on a live parent; a node that
+was not kept forces a full restyle).
+
+QAPI6b (cost, measured on YouTube results): `unentried` no longer replays each change. Nothing below the topmost entry-less
+ancestor `top` is styled, so only `:has` anchors above it can change: `InvalidationMap::for_has_any(top)` walks every `:has`
+path (`Key::HasAny`: each entry's path from its `Anc`/`AncSib` hop, carrier filters dropped, i.e. feature-agnostic) once per
+`top` and update, and a `top` inserted under its styled parent in the same log is skipped (that insertion's `HasTree` marks,
+taken from the final subtree, cover everything inside; the subtree did not exist before the batch). One update had 1 329
+logged inserts into hidden lists: 236 ms of replays before, one answer per list now. Removals are no longer pruned by the
+removed subtree's summary: the batch is answered against the final DOM and a detached subtree can change without a log entry.
+`style::SEL_CACHES`: one `SelectorCaches` shared by every match of a build or engine update (installed and dropped with
+`CLASS_CACHE`; the DOM does not change meanwhile), so `:has` results per (anchor, relative selector) and `:nth-*` indices are
+computed once per build instead of being rebuilt and dropped for every element. A `:has` inside `:not()` / `:is()` /
+`:where()` is anchored by the ENCLOSING compound (`Builder::enclosing`, merged into the nested selector's subject compound
+filter: it is the same element): `.acc:not(:has(.open)) .vis` walked from every ancestor before (github.com's RiverAccordion
+rule re-matched the whole page, ~1 900 elements, on each removal), from `.acc` elements now.
+
 ## Engine evidence (QINC1n, src/incr_evidence.rs)
 
 Daily-use evidence for deleting the old pipeline (QINC1m). Both engine paths, App frames

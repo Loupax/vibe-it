@@ -838,6 +838,12 @@ impl<'i> SelectorsParser<'i> for OurSelectorParser {
         true
     }
 
+    /// QAPI6: `:has()` with relative selector lists. Matching is the crate's (per-call `SelectorCaches`, so a
+    /// cached relative match never outlives a DOM write); invalidation is `invalidation.rs`'s `Hop::Anc`.
+    fn parse_has(&self) -> bool {
+        true
+    }
+
     fn parse_non_ts_pseudo_class(
         &self,
         name: CowRcStr<'i>,

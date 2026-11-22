@@ -1106,6 +1106,9 @@ pub(crate) fn seed_match(handle: &Handle, rules: &[StyleRule], viewport_width: f
 thread_local! {
     /// QY53d: `Some` only while `build_layout_tree_with_resources` runs.
     pub(crate) static MATCH_MEMO: RefCell<Option<MatchMemo>> = const { RefCell::new(None) };
+    /// QAPI6b: `Some` only while a build (or the engine's update) runs, with `CLASS_CACHE`: the DOM does not
+    /// change meanwhile, so the selector caches of one match are valid for the next.
+    pub(crate) static SEL_CACHES: RefCell<Option<SelectorCaches>> = const { RefCell::new(None) };
     /// QY53g: `Some` only while `build_layout_tree_with_resources` runs.
     pub(crate) static ANCESTOR_BLOOM: RefCell<Option<AncestorBloom>> = const { RefCell::new(None) };
     /// Test-only: how many real selector-matching passes ran.
@@ -1120,8 +1123,31 @@ fn matching_indices_for(
     viewport_width: f32,
     pseudo: Option<&str>,
 ) -> Vec<(u64, u32, bool)> {
+    // QAPI6b: inside a build (the DOM does not change) every match shares one `SelectorCaches`: `:has()`
+    // results per (anchor, relative selector) and `:nth-*` indices are computed once per build, not per element.
+    let shared = SEL_CACHES.with(|c| c.try_borrow_mut().ok().and_then(|mut c| c.take()));
+    match shared {
+        Some(mut caches) => {
+            let r = matching_indices_with(handle, rules, viewport_width, pseudo, &mut caches);
+            SEL_CACHES.with(|c| {
+                if let Ok(mut c) = c.try_borrow_mut() {
+                    *c = Some(caches);
+                }
+            });
+            r
+        }
+        None => matching_indices_with(handle, rules, viewport_width, pseudo, &mut SelectorCaches::default()),
+    }
+}
+
+fn matching_indices_with(
+    handle: &Handle,
+    rules: &[StyleRule],
+    viewport_width: f32,
+    pseudo: Option<&str>,
+    caches: &mut SelectorCaches,
+) -> Vec<(u64, u32, bool)> {
     let element = El(handle.clone());
-    let mut caches = SelectorCaches::default();
     let mut matches: Vec<(u64, u32, bool)> = Vec::new();
     // R3.3: when an index was registered for exactly this rule slice,
     // only test the rules whose rightmost compound could match this
@@ -1184,7 +1210,7 @@ fn matching_indices_for(
                     let mut ctx = MatchingContext::new(
                         MatchingMode::ForStatelessPseudoElement,
                         None,
-                        &mut caches,
+                        caches,
                         QuirksMode::NoQuirks,
                         NeedsSelectorFlags::No,
                         MatchingForInvalidation::No,
@@ -1205,7 +1231,7 @@ fn matching_indices_for(
             let mut ctx = MatchingContext::new(
                 MatchingMode::Normal,
                 None,
-                &mut caches,
+                caches,
                 QuirksMode::NoQuirks,
                 NeedsSelectorFlags::No,
                 MatchingForInvalidation::No,
