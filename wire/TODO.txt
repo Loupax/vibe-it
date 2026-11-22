@@ -288,6 +288,9 @@ the commit it came up during.
       writes atomic; eviction and lookups treat a file vanishing mid-scan as a miss,
       never an error); a write error or full disk means "don't store" plus one warning
       line, and the response is still served from the network. Tests for each.
+      Eviction check (user 2026-11-22): agents run wire with `--cache-size 256M` in /tmp, so
+      eviction happens in normal runs; the PR shows a real-page session at that cap staying
+      under the limit, oldest-mtime first, with no error when a file vanishes mid-scan.
       Acceptance: loading the same page twice through a rebuilt wire (no flags)
       shows `X-Wire-Cache: hit` on its stylesheets and images on the
       second load, and wire's RSS does not grow with the cache size.
