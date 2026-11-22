@@ -202,10 +202,13 @@ the commit it came up during.
 - [ ] **W-CACHE1 [M] Local HTTP cache, on disk only** (user decision 2026-11-22: a
       private RFC 9111 cache in wire; wire keeps no cache data in memory and relies on
       the kernel page cache for hot entries; standard request headers instead of new
-      `X-Wire-*` request headers). Opt-in: `--cache-dir PATH` (default when enabled:
-      `$XDG_CACHE_HOME/wire`, i.e. `~/.cache/wire`, mode 0700; one warning line if
-      PATH is on tmpfs, whose pages the kernel cannot give back) and
-      `--cache-size SIZE` (default 1G). Without the flag: today's behaviour.
+      `X-Wire-*` request headers). On by default (user 2026-11-22), like the cookie
+      jar: stored in `$XDG_CACHE_HOME/wire` (falling back to `~/.cache/wire`),
+      mode 0700. `--cache-dir PATH` moves it (one warning line if PATH is on tmpfs,
+      whose pages the kernel cannot give back), `--cache-size SIZE` sets the limit
+      (default 1G), `--no-cache` turns it off (today's behaviour); `--no-cache` with
+      `--cache-dir` is an error, as `--no-cookies` with `--cookie-file`. This makes
+      wire write to disk by default (the jar file is opt-in): say so in README.md.
       Storage: one file per entry at `<sha256(top site)>/<sha256(cache key)>` (one
       directory per partition, so W-CACHE2 clears a site by removing it), headers + metadata
       (stored time, request time, response time, target class, hop classes, final
@@ -278,8 +281,8 @@ the commit it came up during.
       (announces 1000 bytes, sends 10) is not stored; temp files never visible as
       entries; eviction keeps the directory under `--cache-size`; `Range` served from
       a stored full body; peak RSS unchanged while storing a 1 GiB body.
-      Acceptance: loading the same page twice through a rebuilt wire with
-      `--cache-dir` shows `X-Wire-Cache: hit` on its stylesheets and images on the
+      Acceptance: loading the same page twice through a rebuilt wire (no flags)
+      shows `X-Wire-Cache: hit` on its stylesheets and images on the
       second load, and wire's RSS does not grow with the cache size.
 
 - [ ] **W-CACHE2 [S] Clearing the cache** (needs W-CACHE1).
