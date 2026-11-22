@@ -4186,29 +4186,55 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     } catch (e) { try { return unescape(body); } catch (e2) { return ''; } }
   };
   // QDOM5b: an iframe whose `src` was set by script (or inserted after load) is not in the page-load prefetch
-  // (net::prefetch_iframes); a same-origin http(s) one is fetched here, once per URL, with a synchronous XHR
-  // (bounded like any sync XHR) and then loads like a prefetched one. Failures and non-HTML answer "no page".
-  var dynPages = {};
+  // (net::prefetch_iframes). A same-origin http(s) one is fetched here ASYNCHRONOUSLY (XHR), once per URL; until it
+  // arrives the iframe has no window (as for any network iframe before), then `contentDocument` is set up and `load`
+  // fires like for a parsed iframe. Failures and non-HTML answers fire `load` with no page. `dynPages`: url ->
+  // [url, html] or [] (failed); `dynBusy`: url -> callbacks of the fetch in flight.
+  var dynPages = {}, dynBusy = {};
+  var ifrKey = function (el) {
+    var s = frameSrc(el);
+    if (s === '' || frameSrcdoc(el) != null || !/^https?:/i.test(s) && /^[a-z][a-z0-9+.-]*:/i.test(s)) return null;
+    if (__d_iframe_page(el.__id).length) return null;
+    var u;
+    try { u = new URL(s, doc.baseURI); } catch (e) { return null; }
+    return /^https?:$/.test(u.protocol) && u.origin === g.location.origin ? u.href : null;
+  };
   var ifrPage = function (el) {
     var pg = __d_iframe_page(el.__id);
     if (pg.length) return pg;
-    var s = frameSrc(el);
-    if (s === '' || !/^https?:/i.test(s) && /^[a-z][a-z0-9+.-]*:/i.test(s)) return pg;
-    var u;
-    try { u = new URL(s, doc.baseURI); } catch (e) { return pg; }
-    if (!/^https?:$/.test(u.protocol) || u.origin !== g.location.origin) return pg;
-    var k = u.href;
-    if (!Object.prototype.hasOwnProperty.call(dynPages, k)) {
-      dynPages[k] = [];
-      try {
-        var x = new g.XMLHttpRequest();
-        x.open('GET', k, false);
-        x.send();
+    var k = ifrKey(el);
+    return k !== null && dynPages[k] ? dynPages[k] : pg;
+  };
+  // A script-set same-origin src whose fetch ran or is running: until its page arrives (or when it failed) the iframe
+  // shows its initial about:blank window, as in a browser; the page's own window replaces it (`dropFrame`) on arrival.
+  var ifrPending = function (el) {
+    var k = ifrKey(el);
+    return k !== null && (dynBusy[k] !== undefined || dynPages[k] !== undefined);
+  };
+  // Starts the fetch for `el`'s src when it is a not-yet-fetched candidate; true when a load is now pending
+  // (the caller must not complete the navigation itself).
+  var ifrFetch = function (el) {
+    var k = ifrKey(el);
+    if (k === null || dynPages[k]) return false;
+    var done = function () {
+      if (!inPage(el) || ifrKey(el) !== k) return;
+      syncWin();
+      if (dynPages[k].length) { dropFrame(el.__id); loadFrameLater(el); } else el.dispatchEvent(new g.Event('load'));
+    };
+    if (dynBusy[k]) { dynBusy[k].push(done); return true; }
+    var w = dynBusy[k] = [done];
+    var fin = function (page) { dynPages[k] = page; delete dynBusy[k]; w.forEach(function (f) { f(); }); };
+    try {
+      var x = new g.XMLHttpRequest();
+      x.open('GET', k, true);
+      x.onload = function () {
         var ct = String(x.getResponseHeader('content-type') || '').toLowerCase();
-        if (x.status >= 200 && x.status < 300 && /^\s*text\/html/.test(ct) && x.responseText.length <= 1048576) dynPages[k] = [k, x.responseText];
-      } catch (e) {}
-    }
-    return dynPages[k];
+        fin(x.status >= 200 && x.status < 300 && /^\s*text\/html/.test(ct) && x.responseText.length <= 1048576 ? [k, x.responseText] : []);
+      };
+      x.onerror = x.onabort = x.ontimeout = function () { fin([]); };
+      x.send();
+    } catch (e) { fin([]); }
+    return true;
   };
   var frameIsData = function (el) { return frameSrcdoc(el) == null && /^data:/i.test(frameSrc(el)); };
   // The html a frame loads by itself (srcdoc, or a data: document), else null.
@@ -4272,7 +4298,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   var frameSrcOk = function (el) {
     if (frameSrcdoc(el) != null) return true;
     var s = frameSrc(el);
-    return s === '' || /^about:blank/i.test(s) || /^data:/i.test(s) || ifrPage(el).length > 0;
+    return s === '' || /^about:blank/i.test(s) || /^data:/i.test(s) || ifrPage(el).length > 0 || ifrPending(el);
   };
   // QPT1a (R53 D1-D4): an iframe with an empty or about:blank src, or a pre-fetched same-origin
   // one (QA18b1), gets a real window: its own V8 realm (from the startup snapshot, or without it a
@@ -4449,6 +4475,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (__d_tag(id).toLowerCase() !== 'iframe') return;
     if (s && nFrames) dropFrame(id);
     if (s && inPage(wrap(id)) && frameHtml(wrap(id)) != null) loadFrameLater(wrap(id));
+    else if (n === 'src' && inPage(wrap(id)) && ifrFetch(wrap(id))) { /* QDOM5b: its load comes when the fetch ends */ }
     else if (n === 'src' && inPage(wrap(id)) && frameSrc(wrap(id)) !== '' && !frameSrcOk(wrap(id))) {
       // QMSG1: a navigation to a document scratchy does not load completes at once, so scripts waiting for `load` go on.
       var ne = wrap(id);
@@ -4492,6 +4519,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     if (c.nodeType !== 1 || __d_tag(c.__id).toLowerCase() !== 'iframe' || !inPage(c)) return;
     syncWin();
     if (frameHtml(c) != null) { loadFrameLater(c); return; }
+    if (ifrFetch(c)) return;
     // QDOM5b: a src set meanwhile starts its own navigation (ifrAttr), whose `load` replaces this one.
     var s0 = frameSrc(c);
     g.setTimeout(function () { if (inPage(c) && frameSrcOk(c) && frameSrc(c) === s0) c.dispatchEvent(new Event('load')); }, 0);
