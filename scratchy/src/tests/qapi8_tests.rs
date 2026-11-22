@@ -36,7 +36,7 @@ fn qapi8_initial_values_are_not_reported() {
 #[test]
 fn qapi8_properties_handled_elsewhere_are_not_reported() {
     let _g = Guard;
-    let r = reported("--x:1;transition:top .5s ease-in-out;-webkit-transition:opacity 1s;animation:spin 1s;-webkit-animation-name:spin;transition-duration:40ms");
+    let r = reported("--x:1;transition:top .5s ease-in-out;-webkit-transition:opacity 1s;animation:spin 1s;-webkit-animation-name:spin;transition-duration:40ms;pointer-events:none");
     assert!(r.is_empty(), "{r:?}");
 }
 
@@ -45,11 +45,11 @@ fn qapi8_really_unparsed_declarations_are_still_reported() {
     let _g = Guard;
     let r = reported(
         "scroll-margin-top:4px;touch-action:pan-y;user-select:none;\
-         color-scheme:only dark;pointer-events:none;frobnicate:1",
+         color-scheme:only dark;frobnicate:1",
     );
     for n in [
         "scroll-margin-top", "touch-action", "user-select",
-        "color-scheme", "pointer-events", "frobnicate",
+        "color-scheme", "frobnicate",
     ] {
         assert!(r.iter().any(|x| x == n), "{n} missing from {r:?}");
     }

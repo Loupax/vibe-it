@@ -1389,7 +1389,13 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         // QWPT7c: `offs` = [window scrollX, scrollY, then the elements' script-side scroll offsets as
         // (node id, offset, axis (1 = x)) triples].
         let (sx, sy) = (offs.first().copied().unwrap_or(0.0), offs.get(1).copied().unwrap_or(0.0));
-        let scrolls: HashMap<usize, f32> = offs.iter().skip(2).copied().collect::<Vec<_>>().chunks_exact(3).map(|c| (if c[2] != 0.0 { crate::layout::xk(c[0] as usize) } else { c[0] as usize }, c[1] as f32)).collect();
+        let mut scrolls: HashMap<usize, f32> = HashMap::new();
+        let mut i = 2;
+        while i + 2 < offs.len() {
+            let id = offs[i] as usize;
+            scrolls.insert(if offs[i + 2] != 0.0 { crate::layout::xk(id) } else { id }, offs[i + 1] as f32);
+            i += 3;
+        }
         let n = geom_hit.borrow_mut().hit(&page, geom_gen(), x as f32, y as f32, vw as f32, vh as f32, sx as f32, sy as f32, &scrolls);
         match (n != 0).then(|| find_node_by_id(&page, n)).flatten() {
             Some(h) => t_hit.borrow_mut().intern(&h),

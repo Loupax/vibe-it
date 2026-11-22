@@ -339,7 +339,7 @@ fn leaf_shape(el: &Handle, tag: &str) -> Option<Shape> {
         "polyline" | "polygon" => {
             let p = numbers(&element_attr(el, "points")?);
             let mut acc = None;
-            for c in p.chunks_exact(2) {
+            for c in p.windows(2).step_by(2) {
                 acc = union(acc, (c[0], c[1], c[0], c[1]));
             }
             acc.map(|r| Shape::Box(grow(r)))
@@ -384,10 +384,8 @@ fn bbox_in_parent(el: &Handle, text: &mut Option<(usize, Vec<(usize, Rect)>)>) -
 /// space it sits in, before its own transform, which `bbox_in_parent` applies).
 fn text_rect(el: &Handle, cache: &mut Option<(usize, Vec<(usize, Rect)>)>) -> Option<Rect> {
     let mut root = el.clone();
-    let mut chain = vec![el.clone()];
-    while local(&root).to_ascii_lowercase() != "text" {
+    while !local(&root).eq_ignore_ascii_case("text") {
         root = crate::parent_handle(&root)?;
-        chain.push(root.clone());
     }
     let rid = node_id(&root);
     if cache.as_ref().is_none_or(|c| c.0 != rid) {
@@ -469,7 +467,23 @@ fn hit_in(el: &Handle, x: f32, y: f32, none: bool, text: &mut Option<(usize, Vec
         return (x >= r.0 && x <= r.2 && y >= r.1 && y <= r.3).then(|| el.clone());
     }
     let shape = leaf_shape(el, &tag)?;
-    // `fill: none` without a stroke paints nothing: not a target under the default `visiblePainted`.
-    let unpainted = prop(el, "fill").is_some_and(|f| f == "none") && prop(el, "stroke").is_none_or(|s| s == "none");
-    (!unpainted && shape.contains(x, y)).then(|| el.clone())
+    if !shape.contains(x, y) {
+        return None;
+    }
+    // `fill: none` paints only the stroke (the default `visiblePainted`): no stroke, no target. A
+    // rect/circle/ellipse is then hit on its stroke ring; a path/polyline/polygon (no exact geometry
+    // here) is not hit at all, so the svg underneath is.
+    if prop(el, "fill").is_some_and(|f| f == "none") {
+        let stroked = prop(el, "stroke").is_some_and(|s| s != "none");
+        let sw = prop(el, "stroke-width").and_then(|v| parse_num(&v)).unwrap_or(1.0);
+        let ring = match &shape {
+            Shape::Box(r) if matches!(tag.as_str(), "rect" | "image" | "foreignobject") => {
+                !Shape::Box((r.0 + sw, r.1 + sw, r.2 - sw, r.3 - sw)).contains(x, y)
+            }
+            Shape::Ellipse(cx, cy, rx, ry) if matches!(tag.as_str(), "circle" | "ellipse") => !Shape::Ellipse(*cx, *cy, rx - sw, ry - sw).contains(x, y),
+            _ => false,
+        };
+        return (stroked && ring).then(|| el.clone());
+    }
+    Some(el.clone())
 }

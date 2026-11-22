@@ -298,19 +298,15 @@ OK           0/1  css/cssom-view/elementFromPoint-mixed-font-sizes.html
   FAIL      document.elementFromPoint finds container SPAN in the empty region above a child SPAN with a smaller font size
 OK           0/1  css/cssom-view/elementFromPoint-negative-z-index-inline-overflow-clip.html
   FAIL      Hit testing respects single-axis overflow clipping with negative z-index children
-OK           3/8  css/cssom-view/elementFromPoint-negative-z-index-inline.html
-  FAIL      A negative z-index child with pointer-events:none falls through to its stacking context
+OK           5/8  css/cssom-view/elementFromPoint-negative-z-index-inline.html
   FAIL      An inline ancestor remains above its negative z-index child
   FAIL      A first-line background stays above negative z-index children
   FAIL      A non-stacking block ancestor remains above a negative z-index child
-  FAIL      Scrolling preserves hit testing of negative z-index inline content
 OK           4/4  css/cssom-view/elementFromPoint-parameters.html
 OK           4/4  css/cssom-view/elementFromPoint-subpixel.html
 OK           0/1  css/cssom-view/elementFromPoint-visibility-hidden-resizer.html
   FAIL      elementFromPoint on resizer area of an element with visibility:hidden
-OK          5/11  css/cssom-view/elementFromPoint.html
-  FAIL      First element to get mouse events with pointer-events css
-  FAIL      transformed element at x,y
+OK          7/11  css/cssom-view/elementFromPoint.html
   FAIL      no hit target at x,y
   FAIL      No viewport available
   FAIL      Image Maps
@@ -366,9 +362,7 @@ OK           0/4  css/cssom-view/elementsFromPoint-table.html
   FAIL      elementsFromPoint for points between table cells
   FAIL      elementsFromPoint for points inside cells in a right-to-left table
   FAIL      elementsFromPoint for points inside cells in a flipped (writing-mode:vertical-lr) table
-OK           5/9  css/cssom-view/elementsFromPoint.html
-  FAIL      First element to get mouse events with pointer-events css
-  FAIL      transformed element at x,y
+OK           7/9  css/cssom-view/elementsFromPoint.html
   FAIL      no hit target at x,y
   FAIL      No viewport available
 OK           4/4  css/cssom-view/getBoundingClientRect-content-visibility-hidden.html
@@ -434,9 +428,7 @@ OK          7/10  css/cssom-view/matchMedia.html
   FAIL      media query with syntax error is serialized as "not all"
   FAIL      iframe.matchMedia("(max-width: 199px), all and (min-width: 200px)") is serialized w/o "all"
   FAIL      iframe.matchMedia("(width: 200px)") matches
-ERROR        0/2  css/cssom-view/mouseEvent-offsetXY-svg.html
-  TIMEOUT   rect offsetX/Y is relative to the root svg
-  TIMEOUT   tspan offsetX/Y is relative to the root svg
+OK           2/2  css/cssom-view/mouseEvent-offsetXY-svg.html
 OK           1/3  css/cssom-view/mouseEvent.html
   FAIL      MouseEvent's x and y must be equal to clientX and clientY.
   FAIL      MouseEvent's pageX and pageY attributes should be the sum of the scroll offset and clientX/clientY
@@ -641,10 +633,7 @@ OK           0/4  css/cssom-view/scrollIntoView-smooth.html
   FAIL      Smooth scrollIntoView should scroll the element to the 'end' position
 OK           0/1  css/cssom-view/scrollIntoView-stuck.tentative.html
   FAIL      CSSOM View - scrollIntoView doesn't consider scroll-padding when target is stuck
-OK           4/8  css/cssom-view/scrollIntoView-svg-container.html
-  FAIL      , group, nearest on a fully visible element
-  FAIL      , translated, nearest on a fully visible element
-  FAIL      , nested, nearest on a fully visible element
+OK           7/8  css/cssom-view/scrollIntoView-svg-container.html
   FAIL      , use, nearest on a fully visible element
 OK           3/3  css/cssom-view/scrollIntoView-svg-shape.html
 OK           0/1  css/cssom-view/scrollIntoView-then-scrollBy.html
