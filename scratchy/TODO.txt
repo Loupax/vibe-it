@@ -134,19 +134,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       17.1 -> 30. After QWPT6c also the core Range-* suite.
 - [ ] QDOM6b [S] (P2, from QDOM6 #526; Sonnet; js_dom.rs) `createElementNS(null, name)` creates an HTML-namespace element
       (old quirk): use `__d_create_xml` (null namespace, name unchanged) as created XML documents already do. Test + --wpt-th.
-- [ ] [WIP] QDOM8 [S] (P1; Sonnet; js_dom.rs; R65; after QDOM6, QDOM7) ProcessingInstruction and CDATASection nodes:
-      `document.createProcessingInstruction(target, data)` (target must match Name, data must not contain `?>`:
-      InvalidCharacterError), `createCDATASection(data)` (NotSupportedError on HTML documents, `]]>` ->
-      InvalidCharacterError); rcdom `NodeData::ProcessingInstruction` (nodeType 7, nodeName = target, `target`),
-      CDATA = a Text node marked in DomTable (nodeType 4, `#cdata-section`, CDATASection.prototype); both in `__d_kind`,
-      `__d_tag`, `mk` prototypes, clone, isEqualNode, textContent, serialization; CharacterData methods work on both
-      (QDOM7). `XMLDocument` interface (prototype of createDocument/new Document results). Node constants:
-      CDATA_SECTION_NODE, ENTITY_REFERENCE_NODE, ENTITY_NODE, NOTATION_NODE, DOCUMENT_POSITION_* on Node and
-      instances. Not the WICG "PI attributes" proposal (processing-instruction-attributes*.html stay failing). WPT:
-      nodes/Document-createProcessingInstruction, Document-createCDATASection, Node-textContent, Node-constants,
-      CharacterData-appendChild, CharacterData-remove, rootNode, Node-isSameNode, Node-compareDocumentPosition,
-      Node-contains, Node-properties, ranges/StaticRange-constructor, traversal/NodeIterator, NodeIterator-removal,
-      TreeWalker, events/EventTarget-this-of-listener. Target: nodes +3, ranges +1.5, other +4.
 - [ ] QDOM8b [S] (P3, from QDOM8 #539; Sonnet; js_dom.rs serialize) XML serialization: CDATASection as `<![CDATA[..]]>`,
       ProcessingInstruction as `<?target data?>` in XMLSerializer / outerHTML of XML documents.
 - [ ] QBLOBFRAME [S] (P2, from QDOM9 #542; Sonnet; js_dom.rs iframe realms, blob URL store) Load `blob:` URLs in iframes

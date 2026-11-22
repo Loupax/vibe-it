@@ -9131,3 +9131,18 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       delivered in the rendering step, depth loop and the "ResizeObserver loop completed with
       undelivered notifications" error event. Gate: resize-observer score up, github.com card grids
       no longer dropped (QINC1k5 finding).
+
+=== from TODO.txt: --- (no header)
+- [x] QDOM8 DONE 30abd61 #539 [S] (P1; Sonnet; js_dom.rs; R65; after QDOM6, QDOM7) ProcessingInstruction and CDATASection nodes:
+      `document.createProcessingInstruction(target, data)` (target must match Name, data must not contain `?>`:
+      InvalidCharacterError), `createCDATASection(data)` (NotSupportedError on HTML documents, `]]>` ->
+      InvalidCharacterError); rcdom `NodeData::ProcessingInstruction` (nodeType 7, nodeName = target, `target`),
+      CDATA = a Text node marked in DomTable (nodeType 4, `#cdata-section`, CDATASection.prototype); both in `__d_kind`,
+      `__d_tag`, `mk` prototypes, clone, isEqualNode, textContent, serialization; CharacterData methods work on both
+      (QDOM7). `XMLDocument` interface (prototype of createDocument/new Document results). Node constants:
+      CDATA_SECTION_NODE, ENTITY_REFERENCE_NODE, ENTITY_NODE, NOTATION_NODE, DOCUMENT_POSITION_* on Node and
+      instances. Not the WICG "PI attributes" proposal (processing-instruction-attributes*.html stay failing). WPT:
+      nodes/Document-createProcessingInstruction, Document-createCDATASection, Node-textContent, Node-constants,
+      CharacterData-appendChild, CharacterData-remove, rootNode, Node-isSameNode, Node-compareDocumentPosition,
+      Node-contains, Node-properties, ranges/StaticRange-constructor, traversal/NodeIterator, NodeIterator-removal,
+      TreeWalker, events/EventTarget-this-of-listener. Target: nodes +3, ranges +1.5, other +4.
