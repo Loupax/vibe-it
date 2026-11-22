@@ -246,3 +246,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-22 Merged #549 QDOM16 a2e3498 (ChildNode/ParentNode; dom/nodes ~65.5). Sent #560 rebase.
 - 2026-11-22 Merged #570 QAPI2 0e8eca3 (navigator constants).
 - 2026-11-22 Merged... #572 QAPI5 READY (ARIA + slots; HTMLSlotElement 1->18/18), queued after reinstall. Filed QAPI5b. Launched QAPI3.
+- 2026-11-22 #571 QAPI4 READY (document.fonts; github .ready errors gone), queued after #572. Filed QAPI4b. Launched QCE1.
