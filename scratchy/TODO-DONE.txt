@@ -9146,3 +9146,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       CharacterData-appendChild, CharacterData-remove, rootNode, Node-isSameNode, Node-compareDocumentPosition,
       Node-contains, Node-properties, ranges/StaticRange-constructor, traversal/NodeIterator, NodeIterator-removal,
       TreeWalker, events/EventTarget-this-of-listener. Target: nodes +3, ranges +1.5, other +4.
+
+=== from TODO.txt: --- (no header)
+- [x] QSCR404 DONE 38c1afb #541 [S] (P2; Sonnet; js.rs script fetch; R65 5) A classic/module script whose response status is not 2xx is
+      not run; fire `error` on the element (today a 404 "Not found" body runs and throws SyntaxError).
