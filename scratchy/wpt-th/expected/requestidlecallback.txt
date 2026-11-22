@@ -2,8 +2,7 @@
 OK           5/6  requestidlecallback/basic.html
   FAIL      requestIdleCallback schedules callbacks
 OK           1/1  requestidlecallback/callback-after-removed-frame-with-pending-timeout.html
-TIMEOUT      0/1  requestidlecallback/callback-exception.html
-  TIMEOUT   requestIdleCallback callback exceptions are reported to error handler
+OK           1/1  requestidlecallback/callback-exception.html
 TIMEOUT      0/1  requestidlecallback/callback-iframe-different-origin.html
   TIMEOUT   Check that idle tasks run in a cross-origin iframe
 OK           2/2  requestidlecallback/callback-multiple-calls.html

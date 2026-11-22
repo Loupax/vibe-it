@@ -2459,6 +2459,15 @@ const TIMERS_PRELUDE: &str = r#"
     rafRun = rafs; rafs = []; rafTs = ts;
     return rafRun.length;
   } });
+  // QEL4: "report the exception" for a timer / rAF callback, in the callback's own global
+  // (WPT callback-cross-realm-report-exception): ErrorEvent + onerror; the log line only when unhandled.
+  var reportCb = function (e, fn, recv) {
+    var G = recv;
+    try { var F = fn.constructor; if (typeof F === 'function' && F.name === 'Function') G = F('return globalThis')(); } catch (x) {}
+    var handled = false;
+    try { handled = (G.__scratchy_report_error || g.__scratchy_report_error)(e, '', 0, 0); } catch (x) {}
+    if (!handled) __scratchy_err('Uncaught ' + String(e) + (e && e.stack ? '\n' + e.stack : ''));
+  };
   Object.defineProperty(g, '__scratchy_raf_run_one', { value: function () {
     while (rafRun.length && rafRun[0].dead) rafRun.shift();
     if (!rafRun.length) return false;
@@ -2467,12 +2476,7 @@ const TIMERS_PRELUDE: &str = r#"
     if (g.__perf_src) g.__perf_src(c.fn);
     try { c.fn.call(c.recv, rafTs); }
     catch (e) {
-      // "report the exception" in the callback's own global (WPT callback-cross-realm-report-exception).
-      var G = c.recv;
-      try { var F = c.fn.constructor; if (typeof F === 'function' && F.name === 'Function') G = F('return globalThis')(); } catch (x) {}
-      var handled = false;
-      try { handled = (G.__scratchy_report_error || g.__scratchy_report_error)(e, '', 0, 0); } catch (x) {}
-      if (!handled) __scratchy_err('Uncaught ' + String(e) + (e && e.stack ? '\n' + e.stack : ''));
+      reportCb(e, c.fn, c.recv);
     }
     level = saved;
     return true;
@@ -2494,7 +2498,7 @@ const TIMERS_PRELUDE: &str = r#"
     level = runLvl;
     if (g.__perf_src) g.__perf_src(t.fn);
     try { t.fn.apply(t.recv || g, t.args); }
-    catch (e) { __scratchy_err('Uncaught ' + String(e) + (e && e.stack ? '\n' + e.stack : '')); }
+    catch (e) { reportCb(e, t.fn, t.recv || g); }
     level = saved;
     return true;
   } });
