@@ -75,6 +75,10 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       geometry between DOM writes; key on the animation clock too when animations are live.
 - [ ] [WIP] QEL7 [S] (P2; Sonnet; app.rs, js.rs; after QEL1) scroll events for user scrolling (window and
       elements, coalesced per frame in the rendering step), scrollend, wheel events; MQL change events.
+- [ ] QEL7b [S] (P3, from QEL7 #576; Sonnet; app.rs, js.rs) Scroll leftovers: window scroll + MQL change inside iframe
+      realms (element scroll there still uses the old zero-delay timer), clamp a scrollTo past the end before reporting
+      (headless never clamps y), smooth `behavior` for programmatic scrollTo/scrollBy/scrollIntoView, visualViewport
+      scroll, scroll-snap events; live check of a cancelled wheel.
 - [ ] QEL8 [S] (P3; Sonnet; globals_prelude.js) postMessage/MessageChannel on their own task queue (not
       the timer table); requestIdleCallback only when the loop is idle, deadline from the next timer
       or frame. Measure bbc.com (R62 MessagePort finding) before/after.
@@ -143,7 +147,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QBLOBFRAME [S] (P2, from QDOM9 #542; Sonnet; js_dom.rs iframe realms, blob URL store) Load `blob:` URLs in iframes
       (`iframe.src = URL.createObjectURL(new Blob([html], {type:'text/html'}))`): same-origin document from the blob's
       bytes. html/semantics/scripting-1/.../module-script-disabled-scripting.html now TIMEOUTs (30 s) waiting for it.
-- [ ] QDOM10 [S] (P2; Sonnet; js.rs ETP.dispatchEvent, attrHandler; R65; after QDOM4) `window.event`: set to the
+- [ ] [WIP] QDOM10 [S] (P2; Sonnet; js.rs ETP.dispatchEvent, attrHandler; R65; after QDOM4) `window.event`: set to the
       current event while a listener of a node in the page's realm runs, restored afterwards (also after a throwing
       listener), `undefined` for listeners inside a shadow tree, unset outside dispatch. WPT: dom/events/event-global*,
       window-event-restored-after-throwing-onerror. Target: events +3.
