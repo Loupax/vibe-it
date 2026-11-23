@@ -325,13 +325,22 @@ fn keys_smartcase_a_capital_makes_the_search_case_sensitive() {
 }
 
 #[test]
-fn keys_s7_enter_in_normal_is_left_alone() {
-    // Enter on a match is its own item (T18-T20): in NORMAL it does nothing yet.
+fn keys_s7_enter_after_a_search_ends_it_and_clicks_nothing_itself() {
+    // C-ENTER: Enter in NORMAL is the page's (T18, c_enter_tests.rs): the shell only ends the
+    // find (T7) and hands the page an Enter; no click, no `Match spans N links`.
     let mut k = keys();
     search(&mut k, "x", 1, 2);
     tap(&mut k, KeyInput::sym(Keysym::Return));
-    assert!(effects(&mut k).is_empty());
-    assert_eq!(k.message, "[1/2]");
+    assert_eq!(
+        effects(&mut k),
+        vec![
+            Effect::Send(Command::FindClear),
+            Effect::Pause(crate::config::ENTER_AFTER_FIND_CLEAR_MS),
+            Effect::KeyDown(crate::config::evdev::KEY_ENTER),
+            Effect::KeyUp(crate::config::evdev::KEY_ENTER)
+        ]
+    );
+    assert_eq!(k.message, "");
 }
 
 fn sent_find_ids(k: &mut Keys) -> Vec<u64> {

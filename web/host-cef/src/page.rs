@@ -707,6 +707,9 @@ wrap_browser_process_handler! {
     impl BrowserProcessHandler {
         fn on_context_initialized(&self) {
             apply_cookie_policy();
+            // C-CARETCMD: caret browsing starts off in every run (the preference is saved in
+            // the profile, so a `:set caret` of an earlier run would otherwise come back).
+            set_caret_browsing(false);
             if let Some(site) = FORGET_AT_START.get() {
                 crate::forget::forget_site(site.clone());
             }
@@ -756,6 +759,26 @@ fn apply_cookie_policy() {
     );
 }
 
+/// Caret browsing on/off (C-CARETCMD, `:set caret`): Chrome's preference
+/// `settings.a11y.caretbrowsing.enabled` on the global request context, the one the page
+/// uses. Chrome watches it and updates every open page's settings, so it takes effect
+/// without a reload. Read back and logged; a failure is an `error` event.
+fn set_caret_browsing(on: bool) -> bool {
+    let Some(ctx) = request_context_get_global_context() else {
+        log!("caret: no global request context");
+        return false;
+    };
+    let name = CefString::from(protocol::CARET_PREF);
+    let Some(mut v) = value_create() else { return false };
+    v.set_bool(on as i32);
+    // Not CefString::default(): SetPreference then fails silently (see apply_cookie_policy).
+    let mut err = CefString::from("");
+    let ok = ctx.set_preference(Some(&name), Some(&mut v), Some(&mut err));
+    let now = ctx.preference(Some(&name)).map(|v| v.bool() != 0);
+    log!("caret: {}={on}: set={ok} now={now:?} {err}", protocol::CARET_PREF);
+    ok != 0 && now == Some(on)
+}
+
 /// Closes the page (no beforeunload prompts); on_before_close then quits.
 pub fn quit() {
     crate::forget::shutdown(Box::new(|| {}));
@@ -778,6 +801,15 @@ pub fn run_command(line: &str) {
     // Needs no page (also with --no-window).
     if let Command::ForgetSite { site } = cmd {
         return crate::forget::forget_site(site);
+    }
+    // A profile setting: needs no page.
+    if let Command::Caret { on } = cmd {
+        if !set_caret_browsing(on) {
+            emit(Event::Error {
+                message: format!("caret: could not set {} to {on}", protocol::CARET_PREF),
+            });
+        }
+        return;
     }
     let Some(browser) = with_page(|p| p.browser.clone()) else {
         return emit(Event::Error {
@@ -849,6 +881,6 @@ pub fn run_command(line: &str) {
             }
             Err(message) => emit(Event::Error { message }),
         },
-        Command::Quit | Command::ForgetSite { .. } => unreachable!(),
+        Command::Quit | Command::ForgetSite { .. } | Command::Caret { .. } => unreachable!(),
     }
 }

@@ -283,14 +283,6 @@ fn keys_t14_h_and_l_go_back_and_forward_not_on_repeat() {
 }
 
 #[test]
-fn keys_t20_enter_in_normal_does_nothing() {
-    let mut k = keys();
-    assert_eq!(tap(&mut k, KeyInput::sym(Keysym::Return), Instant::now()), (false, false));
-    assert!(effects(&mut k).is_empty());
-    assert!(k.message.is_empty());
-}
-
-#[test]
 fn keys_t21_t33_normal_mode_the_page_sees_no_key_nor_release() {
     let t = Instant::now();
     let mut k = keys();

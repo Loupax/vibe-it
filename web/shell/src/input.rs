@@ -8,7 +8,9 @@ use smithay::backend::input::{
     AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, InputBackend, InputEvent, KeyboardKeyEvent, PointerAxisEvent,
     PointerButtonEvent,
 };
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
 
 use smithay::backend::input::KeyState;
 use smithay::desktop::WindowSurfaceType;
@@ -130,9 +132,36 @@ impl State {
 
     /// Carries out what the key model queued: commands to the host, scroll input given
     /// to the page window (KEYS.md T13), quitting.
+    /// An `Effect::Pause` holds back everything queued after it, in order, until its timer fires.
     pub fn apply_key_effects(&mut self, time: u32) {
-        for effect in std::mem::take(&mut self.keys.effects) {
+        let new = std::mem::take(&mut self.keys.effects);
+        self.deferred.extend(new);
+        if !self.paused {
+            self.run_effects(time);
+        }
+        self.redraw();
+    }
+
+    fn run_effects(&mut self, time: u32) {
+        while let Some(effect) = self.deferred.pop_front() {
             match effect {
+                Effect::Pause(ms) => {
+                    self.paused = true;
+                    let timer = Timer::from_duration(Duration::from_millis(ms));
+                    let later = time.wrapping_add(ms as u32);
+                    let inserted = self.loop_handle.insert_source(timer, move |_, _, state| {
+                        state.paused = false;
+                        state.run_effects(later);
+                        state.redraw();
+                        TimeoutAction::Drop
+                    });
+                    if inserted.is_err() {
+                        // No timer: carry on at once rather than lose the rest.
+                        self.paused = false;
+                        continue;
+                    }
+                    return;
+                }
                 Effect::Send(cmd) => self.send(cmd),
                 Effect::KeyDown(k) | Effect::KeyUp(k) => {
                     let st = if matches!(effect, Effect::KeyDown(_)) {
@@ -166,7 +195,6 @@ impl State {
                 Effect::Quit => self.quit(":q"),
             }
         }
-        self.redraw();
     }
 
     pub fn pointer_motion(&mut self, pos: Point<f64, Logical>, time: u32) {

@@ -52,6 +52,11 @@ pub enum Command {
     ForgetSite {
         site: String,
     },
+    /// Caret browsing on/off (`:set caret`, C-CARETCMD): the engine's own text caret in the
+    /// page. Off at every start; not kept between runs.
+    Caret {
+        on: bool,
+    },
     Quit,
 }
 
@@ -308,6 +313,10 @@ pub fn quiet_switches(disable_features: &str, has_component_updater: bool) -> Ve
     }
     out
 }
+
+/// Chromium's caret browsing preference (Chrome's `prefs::kCaretBrowsingEnabled`, F7 in
+/// Chrome). The host sets it to false at start, so `:set caret` never outlives a run.
+pub const CARET_PREF: &str = "settings.a11y.caretbrowsing.enabled";
 
 /// Value of Chromium's `profile.cookie_controls_mode` preference
 /// (`content_settings::CookieControlsMode`: 0 off, 1 block third-party, 2 incognito
@@ -592,6 +601,8 @@ mod tests {
             ),
             (r#"{"cmd":"find-clear"}"#, Command::FindClear),
             (r#"{"cmd":"zoom","factor":1.5}"#, Command::Zoom { factor: 1.5 }),
+            (r#"{"cmd":"caret","on":true}"#, Command::Caret { on: true }),
+            (r#"{"cmd":"caret","on":false}"#, Command::Caret { on: false }),
             (r#"{"cmd":"quit"}"#, Command::Quit),
         ];
         for (line, want) in cases {
@@ -618,6 +629,8 @@ mod tests {
             r#"{"cmd":"close-tab","tab":1}"#,
             r#"{"cmd":"find","query":"x","dir":"up"}"#,
             r#"{"cmd":"zoom","factor":"big"}"#,
+            r#"{"cmd":"caret"}"#,
+            r#"{"cmd":"caret","on":"yes"}"#,
             r#"{"url":"x"}"#,
         ] {
             assert!(parse_command(bad).is_err(), "{bad:?} parsed");

@@ -102,6 +102,10 @@ pub enum Command {
         match_case: bool,
     },
     FindClear,
+    /// Caret browsing on/off (`:set caret` / `:set nocaret`, C-CARETCMD).
+    Caret {
+        on: bool,
+    },
     Quit,
 }
 
@@ -290,6 +294,8 @@ mod tests {
                 r#"{"cmd":"find","id":2,"query":"Needle","dir":"prev","match_case":true}"#,
             ),
             (Command::FindClear, r#"{"cmd":"find-clear"}"#),
+            (Command::Caret { on: true }, r#"{"cmd":"caret","on":true}"#),
+            (Command::Caret { on: false }, r#"{"cmd":"caret","on":false}"#),
             (Command::Quit, r#"{"cmd":"quit"}"#),
         ];
         for (cmd, want) in cases {

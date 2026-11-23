@@ -101,6 +101,11 @@ pub struct State {
     /// The status bar as last logged.
     pub bar_log: String,
     pub damage_tracker: Option<smithay::backend::renderer::damage::OutputDamageTracker>,
+    /// C-ENTER: key effects waiting behind an `Effect::Pause` (kept in order) and whether its
+    /// timer is running (`input.rs` `apply_key_effects`).
+    pub deferred: std::collections::VecDeque<crate::keys::Effect>,
+    pub paused: bool,
+    pub loop_handle: smithay::reexports::calloop::LoopHandle<'static, State>,
 }
 
 #[derive(Default)]

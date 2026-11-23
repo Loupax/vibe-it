@@ -253,6 +253,9 @@ fn main() {
         last_click: None,
         bar_log: String::new(),
         damage_tracker: None,
+        deferred: Default::default(),
+        paused: false,
+        loop_handle: event_loop.handle(),
     };
     state.damage_tracker = Some(OutputDamageTracker::from_output(&state.output));
     state.keys.clipboard = Some(Box::new(desktop_clipboard));
