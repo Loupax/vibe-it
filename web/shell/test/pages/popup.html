@@ -1,0 +1,25 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>po ready</title>
+<style>
+  body { margin: 0; font: 20px sans-serif; }
+  .box { position: absolute; left: 100px; width: 400px; height: 80px; line-height: 80px; text-align: center; border: 2px solid #345; }
+  #blank { top: 60px; } #btn { top: 180px; } #arm { top: 300px; } #plain { top: 420px; }
+</style>
+<a id="blank" class="box" href="second.html?via=blank" target="_blank">target=_blank link</a>
+<button id="btn" class="box" type="button">window.open button</button>
+<a id="plain" class="box" href="second.html?via=plain">plain link</a>
+<button id="arm" class="box" type="button">arm a late timer</button>
+<script>
+// C1-INPUT: the title reports what the page saw (the host sends it as a title event).
+const st = { opened: [] };
+const show = () => { document.title = 'po ' + st.opened.join(','); };
+const open = (tag) => { const w = window.open('second.html?via=' + tag); st.opened.push(tag + '=' + (w ? 'win' : 'null')); show(); };
+document.getElementById('btn').onclick = () => open('button');
+// Two calls with no user gesture: one at load (no input ever), one 7 s after a click (the transient
+// activation of the click is gone after 5 s).
+setTimeout(() => open('timer'), 800);
+document.getElementById('arm').onclick = () => setTimeout(() => open('late'), 7000);
+for (const t of ['mousedown', 'auxclick'])
+  addEventListener(t, e => { document.title = `po ev:${t}:b${e.button}:${e.ctrlKey ? 'c' : ''}${e.shiftKey ? 's' : ''}`; }, true);
+</script>

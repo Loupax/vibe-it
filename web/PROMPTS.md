@@ -594,3 +594,7 @@ Done in `keys.rs` (`:go` dispatch) with `completion::history_scheme_for` (first 
 > (coordinator) focuskeys_live.py and c_keymap_live.py (written in parallel with LIVE-GEOM) do not use livelib's settle() yet. And in windowed nest mode a client started after an inject run ended gets no keymap and Chromium crashes on the first modifiers event (the headless patch handles it; windowed does not).
 
 Both checks now call `livelib.settle(log, shot)` for the output size, window size and the desktop focus (no fallback size). `dwl-headless.patch`: the destroykeyboardgroup fallback (seat goes back to dwl's own keyboard group when a virtual keyboard goes away) is no longer gated on NEST_HEADLESS_SIZE; `NEST_NO_KEYMAP_FALLBACK=1` switches it off. `nest.sh --windowed` runs the patched dwl too (every other hunk stays gated on NEST_HEADLESS_SIZE). The windowed path itself is UNTESTED (agents never open a window on the user's desktop). Reproduction in the headless nest: an inject session ends, then the shell starts: with the fallback off the shell's first `desktop keymap:` line comes 11988 ms in (only when the next inject run creates a new virtual keyboard); with it on, 427 ms in, at start. The Chromium crash itself was not reproduced (the shell client tolerates a missing keymap).
+
+## 2026-11-23 C1-INPUT (parked, WIP)
+
+Prompt: real-input version of the C1 popup check through the shell (popup_live.py). Parked when the coordinator announced the plan that reverses "No tabs yet" (C-POPUPS). Script and page kept as a WIP helper; the same-page assertions are obsolete.
