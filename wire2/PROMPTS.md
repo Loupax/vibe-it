@@ -98,3 +98,34 @@ fails again, with it 70+ runs pass). It now flushes after every chunk. The share
 also flushes now (its TLS tail had the same problem on the test side). Headless Chrome check (throwaway
 HOME/profile/NSS db with only the proxy CA): a wss page sent a text and a 2 MiB binary message, got both
 echoed, closed cleanly. NOTES.md updated.
+
+---
+
+## W2-F filters (2026-11-23, agent run by the coordinator)
+
+> You are the agent for item W2-F in the vibe-it repository (project `wire2/`). [...] W2-F: implement the
+> spec's filter chain. Concretely: `--filter unix:<path>` (repeatable, order = chain order; other schemes
+> are a startup error), `--hub` socket, `--connect-timeout`, `--stage-timeout`; the handshake (GET /hello
+> with Proxy-Id, Proxy-Filter-Version, Proxy-Hub; JSON answer validated: name unique, version 1, layer
+> tunnel|http, hosts globs, fail open|closed); reconnect with backoff (100 ms - 5 s) and re-handshake;
+> per-request routing through the matching filters computed once per flow; Proxy-Flow issued per flow and
+> checked at the hub (refuse unknown flows); strip every Proxy-* header the proxy did not set; filters
+> forward to the hub (streamed both ways) or answer themselves; tunnel-layer filters see CONNECT and pipe
+> bytes, may refuse (non-2xx) or close a tunnel; http-layer filters claim hosts -> add_http_claim (lazy CA
+> creation, --no-decrypt wins); failure handling table [...]; socket trust checks [...] and peer
+> credentials where the spec says; flow registry/log including the chain. Ship the `pass` reference
+> filter [...] as a second binary in the wire2 crate (or a workspace member; say why) plus the example
+> systemd units from the spec under wire2/systemd/. Build the test-only pass-decrypt filter and the
+> scripted fake filter [...] in the test suite only. Then remove the test-only `--test-decrypt` (W2-2c)
+> [...]; keep `--test-resolve`. Tests: every spec Acceptance criterion that applies [...]. Measurements
+> per the spec's Performance table [...]. Open questions already filed: W2-1c and W2-2d -- keep current
+> behaviour. Append to wire2/PROMPTS.md, update NOTES.md and README.md (how to run with pass).
+
+Result: one PR. The crate is now a library plus two binaries, `wire2` and `wire2-pass` (not `pass`: that
+name belongs to the password manager). New `filter.rs` (state per filter, supervisor with handshake and
+backoff, routing, the hub's per-flow expectation, the stage clock), `hub.rs` (the hub socket), `pass.rs`
+(the reference filter, also used by the tests as pass-decrypt), `proxy.rs` reworked around `http_from`
+(http chain, then the upstream connector) and `connect_from` (CONNECT through the tunnel chain, then the
+server); `--test-decrypt` removed and every decrypted test now runs through pass-decrypt. Tests:
+tests/w2_f_filters.rs (18), w2_f_large.rs (2 GiB through pass), w2_f_perf.rs (ignored); systemd units in
+wire2/systemd/. NOTES.md "W2-F" has the design, the acceptance list and the measurements.

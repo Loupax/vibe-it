@@ -249,7 +249,8 @@ They are real flags rather than `cfg(test)` because the integration tests run th
 
 - `--test-resolve GLOB=IP` (W2-1a, filed from #669 and done here): the upstream connector maps
   matching names to IP instead of asking DNS, so tests use `www.example.test` like the spec.
-- `--test-decrypt GLOB`: registers a claim named `test-decrypt` at startup, standing in for an
+- `--test-decrypt GLOB` (REMOVED in W2-F, replaced by the test-only pass-decrypt filter): registered a
+  claim named `test-decrypt` at startup, standing in for an
   http-layer filter until W2-F brings filters and the test-only pass-decrypt filter. It goes through
   `add_http_claim` like a real filter will (creates the CA, obeys `--no-decrypt`). Once W2-F's
   pass-decrypt exists, this flag can go (proposed in the PR).
@@ -368,3 +369,221 @@ cert chain signed by a test root, given to wire2 as `SSL_CERT_FILE`) serves a pa
 `access flow=23 req=1 GET https://www.example.test:18943/ws status=101 up=2098021 down=2097310 duration=0.134s`.
 Direct (no proxy) Chrome behaved identically, which is how the test server's own fragmentation bug was
 found. No measurements: nothing looked slow (2 MiB each way in 0.13 s through the proxy).
+
+## W2-F filters (2026-11-23)
+
+What exists: the spec's filter chain. `--filter unix:<path>` (repeatable, chain order; any other
+scheme is a startup error), `--hub`, `--connect-timeout`, `--stage-timeout`; the handshake; routing per
+flow; the hub with its `Proxy-Flow` check; tunnel and http layers; lazy decryption driven by http
+filters; the failure table; socket trust and peer credentials; the reference filter `pass` and example
+systemd units. `--test-decrypt` is gone; the tests use the test-only pass-decrypt filter.
+
+### Crate layout: a library and two binaries
+
+`src/lib.rs` holds every module; `src/main.rs` (`wire2`) and `src/bin/pass.rs` (`wire2-pass`) are
+three-line `main`s. Why a second binary in this crate and not a workspace member: pass needs the same
+head parser (`http.rs`), splice pump (`splice.rs`) and logger as the proxy; a separate crate would need
+those moved into a third, shared crate, and the repository's tooling installs one crate per directory
+(`ci_then_push.sh --install wire2` now installs both binaries). The library is also what lets the tests
+run pass-decrypt from pass's own code (`wire2::pass::serve` with `layer: http`) without a test-only
+flag in the shipped binary. The binary is `wire2-pass`, not `pass`: `pass` is the standard password
+manager's name, and `~/.cargo/bin/pass` would shadow it. Its handshake name is `pass`, as the spec says.
+
+### Filters and their supervisors (`filter.rs`)
+
+- One supervisor task per `--filter` owns a `watch` with the filter's state: `Starting` (first
+  handshake still being tried, at most `--connect-timeout`), `Up(caps)`, or `Down { last }` where `last`
+  holds the capabilities of the last good handshake (`None`: never shook hands, or the last answer was
+  rejected).
+- Handshake: a new connection, `GET /hello` with `Host: proxy`, `Proxy-Id` (random per start, also the
+  first half of every `Proxy-Flow`), `Proxy-Filter-Version: 1`, `Proxy-Hub: unix:<hub>`, then a `200`
+  with JSON (body up to 64 KiB; Content-Length, chunked or until close). Validated: `name` non-empty, at
+  most 64 characters without spaces, commas or control characters (it appears in log lines and in
+  `chain=` lists), unique among filters that are up; `version` exactly 1; `layer` `tunnel` or `http`;
+  `hosts` a list of globs (normalised like `--no-decrypt`, default `*`); `fail` `open` or `closed`
+  (default closed); unknown fields ignored (forward compatible). An http filter's hosts go to
+  `Policy::add_http_claim` before it counts as up, so the CA exists before the first decrypted CONNECT;
+  `remove_http_claim` runs when it goes down.
+- Retry: socket missing or silent -> retried with exponential backoff (100 ms doubling to 5 s) forever.
+  At startup a filter that has not answered within `--connect-timeout` becomes `Down { last: None }`
+  and an ERROR line says that every host is refused until its handshake succeeds. A rejected answer
+  (non-200, bad JSON, wrong version/layer, duplicate name) is logged with the reason and also leaves the
+  filter down with no known capabilities; it is retried the same way (a fixed filter is picked up).
+- Down detection is passive: the data path calls `Filter::mark_down` when connecting fails or a
+  connection closes before response headers; the supervisor then redials and repeats the handshake.
+  This is also how a restarted filter is noticed: pass closes traffic from a proxy it has not shaken
+  hands with, the proxy marks it down and asks again (one request gets 502 in that case).
+- Flows arriving while a filter is still `Starting` wait for it (bounded by `--connect-timeout`), so the
+  first requests after startup are routed by real capabilities instead of being refused.
+
+### Routing (`Filters::route`, once per flow)
+
+For each filter in `--filter` order: up and its hosts match -> added to the flow's tunnel or http
+chain; down with known capabilities whose hosts match -> refuse the flow with 503 if it fails closed,
+skip it if it fails open; down with unknown capabilities (before any handshake, or rejected) -> refuse,
+whatever the host (SPEC: "Before any handshake this applies to all hosts"). A browser CONNECT that is not
+decrypted drops the http chain (those filters never see it), and a down http filter cannot refuse a
+CONNECT to a host on `--no-decrypt` (it would never have seen it). The chain is stored in the flow and
+logged (`chain=` lists http filters, then tunnel filters, in the order a request meets them). Each hop
+re-checks the filter's state: one that went down since the flow opened is skipped (fail open) or
+answers 503 (fail closed). Plain `http://` requests to hosts on `--no-decrypt` still go through http
+filters: nothing needs decrypting there.
+
+### The path of a request
+
+- `proxy::forward` (every parsed browser request) -> `http_from(stage 0)`. A filter stage gets a new
+  Unix connection with the request head in absolute form plus `Proxy-Flow: <id>/<flow>`, the body
+  streamed by the same `exchange` code as before (now taking the next hop's head and a byte-counter
+  pair). Past the last http stage, `connect_from(stage 0)` opens the server connection: a tunnel stage
+  gets `CONNECT host:port` with `Proxy-Flow`; a 2xx makes that connection the pipe; past the last tunnel
+  stage the proxy dials the server; for decrypted flows TLS (verified, `upstream::tls`) runs over
+  whatever `connect_from` returned, so tunnel filters only ever see the encrypted bytes. Plain `http://`
+  requests therefore pass tunnel filters too (as `CONNECT host:80`), so a tunnel-layer blocker covers
+  them.
+- An undecrypted browser CONNECT is `connect_from(stage 0)` and then the same splice as before, now
+  between the browser and the first filter's connection.
+- The hub (`hub.rs`, mode 0600, created only when there are filters) accepts one request per
+  connection, checks the peer's uid, then `Proxy-Flow`: issued by this proxy (`Proxy-Id` half), a flow
+  that is still open, and a flow whose stage at that layer is waiting for a request (`Route::expect`
+  arms it before a stage is sent its request, `Route::take` consumes it, a guard disarms it when the
+  stage is over). A flow has at most one request in flight per layer (decrypted requests are served one
+  after the other and each opens its own upstream connection), so one slot per layer suffices and a
+  filter cannot forward the same request twice. Anything else is a 403 naming the reason. Then every
+  `Proxy-*` header is stripped and the hub runs the next stage: `connect_from(stage + 1)` for a CONNECT
+  (answering `200` and splicing), `http_from(stage + 1)` for anything else, with the filter's connection
+  in the browser's place. A filter may change anything in a request except its destination: a changed
+  scheme, host or port is a 502 (tunnel filters and the decrypt decision were chosen for the original).
+- `Proxy-*` stripping: the browser's request (`build_request`, as before), every request arriving at
+  the hub, and every response (`strip_hop_by_hop`). The proxy adds `Proxy-Flow` only on what it sends to
+  a filter; `Proxy-Id` only on handshakes. A browser's own `GET /hello`, with or without a forged
+  `Proxy-Id`, is ordinary traffic.
+- Byte counts in the access log are the browser-facing hop's only (hub hops use scratch counters), so
+  they mean the same with or without filters (W2-1c's question about heads stands).
+- When the browser-facing flow ends, its cancel token is cancelled, which ends whatever the hub still
+  runs for it.
+
+### Failure handling
+
+| Situation | Implementation |
+|---|---|
+| Socket missing at startup | `Starting` up to `--connect-timeout` (flows wait), then down, redialled every <= 5 s |
+| Handshake rejected | WARN with the reason, down with no capabilities (refuses every host), retried |
+| Down, fail closed | 503 `wire2: filter <name> is down (fail closed), so <host> is refused`; a CONNECT gets the same 503 |
+| Down, fail open | skipped (DEBUG line) |
+| Connect fails | marked down, then the rule above applies to this very request (503 or skip) |
+| Closes before response headers | 502, marked down (WARN), redialled from 100 ms, handshake repeated |
+| No headers within `--stage-timeout` | 504, filter stays up. The clock stops while the request is downstream of the stage (the hub reports `Downstream` when the stage forwards, `Answered` on the first byte back), so a slow origin behind a prompt filter is not a filter timeout |
+| Malformed HTTP from a filter | 502, connection dropped, ERROR line |
+
+A refused CONNECT (non-2xx) from a tunnel filter is answered to the browser with that status. An error
+the hub produces (an upstream 502/504, a refusal) travels back through the filters like any response.
+
+### Security bits
+
+- Socket trust: before connecting to a filter and before creating the hub, the socket's directory must
+  not be group/world-writable and must be owned by our euid; at startup a filter directory that exists
+  and fails the check, or a hub directory that fails it, is a startup error (exit 1). A missing directory
+  is only a filter that is down. Peer credentials: a filter's listening end must belong to our uid or
+  root (a systemd-created socket), and so must every peer that connects to the hub.
+- The hub's 0600 mode plus the uid check means only the proxy's own user can forward into it. Within
+  that user nothing is protected (SPEC non-goal); `pass` remembers the hub per `Proxy-Id` so traffic
+  goes back to the proxy that issued it.
+
+### pass (`src/pass.rs`, binary `wire2-pass`)
+
+Handshake answer `{"name":"pass","version":1,"layer":"tunnel","hosts":["*"],"fail":"open"}`, no flag
+that changes it. Socket: systemd socket activation (`LISTEN_PID`/`LISTEN_FDS`, fd 3), else `--socket
+PATH` created under umask 0177 and chmod 0600 (a stale socket is replaced, a live one refused).
+Traffic: it reads one request head (keeping the raw bytes), connects to the hub of the proxy that
+issued the `Proxy-Flow`, writes the head and whatever followed it, then splices both ways with the
+proxy's splice pump; it never parses or buffers a body, so tunnels, upgrades and both body framings are
+all the same byte pipe. `--verbose` logs every request; SIGTERM exits 0.
+
+Units in `systemd/`: `pass.socket` (`ListenStream=%t/pass.sock`, `SocketMode=0600`, `Accept=no`),
+`pass.service`, and `wire2.service` (`Wants=`/`After=pass.socket`, `SystemCallFilter=~execve
+execveat`, `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome=read-only` with the CA directory
+writable, `PrivateTmp`, `RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6`). Checked with
+`systemd-analyze --user verify` (only complaint: the binaries are not installed yet). Not run as
+installed units here (the coordinator installs binaries); the spec's execve check under the unit is
+manual.
+
+### Unix socket buffers
+
+The first tunnel-through-pass measurement was 77 % of direct. Unix stream sockets get
+`net.core.wmem_default` (208 KiB) of buffer, loopback TCP autotunes to megabytes, so each splice through
+a filter hop moved at most ~208 KiB per wakeup. `conn::tune_unix` asks for 1 MiB SO_SNDBUF/SO_RCVBUF on
+every filter and hub connection (both ends; the kernel caps it at `wmem_max`/`rmem_max`): 89-93 %. A
+quick sweep: 512 KiB and 1 MiB alike, 2 MiB and 4 MiB worse (76-83 %). The hub's http hops use owned
+socket halves instead of `tokio::io::split` (no lock between body directions).
+
+### Acceptance criteria (SPEC), tests
+
+| Criterion | Test | Result |
+|---|---|---|
+| No filters: curl through, no CA | w2_1_tunnel, w2_2_decrypt `no_claim_no_ca` (unchanged) | pass |
+| Only pass: browsing works, no CA, one access line per tunnel | w2_f_filters `pass_tunnels_and_plain_http_no_ca`; headless Chrome below | pass |
+| pass-decrypt creates the CA; new tunnels decrypted (filter sees `GET https://`), others tunnels, earlier tunnels untouched | `http_claim_creates_ca_new_tunnels_only` (a fake filter that re-handshakes from tunnel to http layer) and every w2_2/w2_3 test through pass-decrypt | pass |
+| `--no-decrypt` wins | `no_decrypt_wins_over_pass_decrypt`, w2_2 `unclaimed_and_no_decrypt_hosts_stay_tunnels` | pass |
+| http filter answers itself (451 + HTML), https and http | `http_filter_answers_itself` | pass |
+| http filter rewrites a chunked body, valid framing | `http_filter_rewrites_chunked_body` (plain, and decrypted keep-alive with a second request) | pass |
+| tunnel filter 403 refuses; closing ends the tunnel within 1 s | `tunnel_filter_refuses_and_revokes` | pass |
+| non-matching filter never connected | `unmatched_filter_never_sees_the_flow` | pass |
+| 2 GB through pass and pass-decrypt, flat memory, early first bytes | w2_f_large (tunnel and plain http through pass; proxy and pass RSS), w2_2_large (pass-decrypt; proxy and test-process RSS) | pass |
+| WebSocket echo through pass and pass-decrypt | `websocket_through_pass` (tunnel and ws://), w2_3_websocket (all through pass-decrypt) | pass |
+| Host normalisation, `[::1]:443` | w2_1 tests (unchanged; routing uses the same normalised host) | pass |
+| plain http to a non-80 port | w2_1_http (unchanged; every W2-F test uses non-80 ports through filters) | pass |
+| Upstream 502/504, bad certificate 502 | w2_1_tunnel, w2_2 `bad_upstream_certificate_is_502` (now through pass-decrypt: the 502 comes back through the filter) | pass |
+| Killing a fail-closed filter -> 503, restart restores; fail-open down skipped | `fail_closed_503_recovery_and_fail_open_skip`, `before_any_handshake_everything_is_refused` | pass |
+| Stage timeout 504 | `stage_timeout_504` (http and tunnel layer; a slow origin behind a prompt filter is not a timeout) | pass |
+| Proxy-* from browser or filter never reach the next stage or the server | `proxy_headers_are_stripped` | pass |
+| A page's `GET /hello` is traffic | `page_hello_is_traffic` (through the real pass code) | pass |
+| Browser Proxy-Id/Proxy-Flow stripped; hub refuses unknown Proxy-Flow | `proxy_headers_are_stripped`, `hub_refuses_unknown_flows` | pass |
+| Refuses root, world-writable socket dir, non-loopback `--listen` | `untrusted_socket_dirs_are_refused` (/tmp, root's /run, hub in /tmp), w2_1_cli | pass (root: the W2-1 check, not re-tested) |
+| execve denied under the unit | manual | not run |
+| Performance targets | w2_f_perf, w2_2_perf, below | see below |
+
+Also: `pass_socket_activation` (pass under `systemd-socket-activate`, LISTEN_FDS), malformed/closed
+filter -> 502 with re-handshake (`malformed_and_closed_filter_502`), unit tests for the handshake
+validation, socket-dir checks, the hub's expectation slots and the stage clock (paused tokio time).
+
+### Measurements (2026-11-23, Ryzen 7 5700X, Fedora, loopback, release build)
+
+Each under `flock /tmp/scratchy-perf.lock`, load average 1.2-2.6 at the time (desktop session and other
+agents' builds). `cargo test --release --test w2_f_perf -- --ignored --nocapture --test-threads 1` and
+`--test w2_2_perf`.
+
+| Metric | Result | Target |
+|---|---|---|
+| Added time to response headers, one pass stage | p50 +0.16 ms, p99 +0.19 ms (no filter p99 0.24 ms, pass p99 0.43 ms; 5,000 requests each) | p99 < 2 ms |
+| Undecrypted tunnel through pass vs direct, 4 GiB x 9 | median 89.1 % (5188 vs 5824 MiB/s); earlier 1 GiB x 9 runs with the same build: 89.5, 91.1, 78.5 % | >= 90 % |
+| Tunnel with no filters vs direct (same session) | 91.2 % | >= 95 % |
+| Decrypted through pass-decrypt vs direct TLS, 2 GiB x 7 | 51.4 % (1.12 vs 2.17 GiB/s); 1 GiB runs 49.0, 49.8 % | >= 50 % |
+| Proxy RSS at 500 / 2,000 tunnels through pass | 13.6 MB / 38.4 MB (pass 8.8 / 23.4 MB); 2,000 x 64 KiB echoed at once in 0.14 s | < 100 MB |
+| 2 GiB through pass (tunnel / plain http) | proxy RSS +36 KiB / +312 KiB, pass +0 | flat |
+| 2 GiB through pass-decrypt | proxy +1.0 MB, test process (filter, origin, client) +1.2 MB | flat |
+
+The two throughput ratios sit at their targets, not clearly above: the direct baseline on this machine
+swings between 5.3 and 7.5 GiB/s from run to run, and the no-filter tunnel measured 91 % in the same
+session (W2-1 recorded 87-96 %). Comparing the two ratios (each against its own direct runs), one pass stage
+costs about 2 points.
+Decrypted through pass-decrypt was 52-54 % without the filter stage (W2-2); the stage costs 2-3 points.
+
+### Browser check (headless Chrome 156, 2026-11-23)
+
+Throwaway HOME and profile under `.qwork/`, nothing logged in, no CA imported: `wire2-pass --socket`
+and `wire2 --filter unix:.../pass.sock`, `--dump-dom https://example.com/` -> `<title>Example
+Domain</title>`; 23 flows (Chrome's own background connections included), every access line
+`decrypted=no chain=pass`, pass logged 23 requests, no data directory (no CA) was created.
+
+### Known gaps
+
+- A filter restart is noticed only when the proxy next uses it (connect fails, or pass closes traffic
+  from an unknown proxy). A filter whose hosts match no traffic keeps its old capabilities in the proxy
+  until then; with systemd socket activation the socket never goes away, so changed capabilities show
+  up after the first request that reaches the new process. A periodic re-handshake would close this.
+- A duplicate name (or any rejected handshake) leaves that filter down with no capabilities, which
+  blocks every host (fail closed); the log says why.
+- One upstream connection per decrypted request (W2-2a) now also means one CONNECT through the tunnel
+  chain per decrypted request.
+- The access log's byte counts include heads (W2-1c, open question, unchanged); the CA directory default
+  is still `$XDG_DATA_HOME/proxy` (W2-2d, open question, unchanged).
