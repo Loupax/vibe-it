@@ -718,7 +718,7 @@ wrap_browser_process_handler! {
 
 /// Closes the page (no beforeunload prompts); on_before_close then quits.
 pub fn quit() {
-    crate::forget::close_browser();
+    crate::forget::shutdown(Box::new(|| {}));
     let b = with_page(|p| p.browser.clone());
     match b.and_then(|b| b.host()) {
         Some(h) => h.close_browser(1),

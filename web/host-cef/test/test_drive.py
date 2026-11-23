@@ -59,16 +59,23 @@ class ProxyTargets(unittest.TestCase):
 
 class ForgetChecks(unittest.TestCase):
     FULL = {"server_cookie": "sid=a-secret; hsid=1; js=1", "cookie": "sid=a-secret; js=1", "ls": "v", "ss": "v",
-            "idb": ["db"], "caches": ["c"], "sw": 1}
-    EMPTY = {"server_cookie": "", "cookie": "", "ls": None, "ss": None, "idb": [], "caches": [], "sw": 0}
+            "idb": ["db"], "caches": ["c"], "sw": 1, "http_cached": True}
+    EMPTY = {"server_cookie": "", "cookie": "", "ls": None, "ss": None, "idb": [], "caches": [], "sw": 0,
+             "http_cached": False}
 
     def test_full(self):
         self.assertEqual(forget.stored_everything(self.FULL, "a"), [])
-        self.assertEqual(len(forget.stored_nothing(self.FULL, "a")), 7)
+        self.assertEqual(len(forget.stored_nothing(self.FULL, "a")), 8)
 
     def test_empty(self):
         self.assertEqual(forget.stored_nothing(self.EMPTY, "a"), [])
-        self.assertEqual(len(forget.stored_everything(self.EMPTY, "a")), 8)
+        self.assertEqual(len(forget.stored_everything(self.EMPTY, "a")), 9)
+
+    def test_http_cache_optional(self):
+        r = dict(self.FULL, http_cached=False)
+        self.assertEqual(forget.stored_everything(r, "a"), ["a: HTTP cache entry missing"])
+        self.assertEqual(forget.stored_everything(r, "a", http=False), [])
+        self.assertEqual(forget.stored_nothing(dict(self.EMPTY, http_cached=True), "a"), ["a: HTTP cache entry still there"])
 
     def test_session_optional(self):
         r = dict(self.EMPTY, ss="v")

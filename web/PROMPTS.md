@@ -229,3 +229,24 @@ list origins. sessionStorage of the page's frames on the site; the whole HTTP ca
 (headless ozone, prints `forgot` on stdout, exit 0/1/2). `test/forget.py` is the
 check; STASH.md and host-cef/README.md updated. `web --forget-site` wiring is left to
 the shell (proposed TODO item).
+
+Rework, the user's decision on #670 relayed by the coordinator: "no need for hacks, use
+Storage.clearDataForOrigin. Make sure that's done in an extendable manner for other
+engines." And: "why does every forget clear the whole HTTP cache? I thought devtools
+allow to clear the cache for a specific origin."
+
+**What changed:** the hidden-page mechanism is gone. Storage is now cleared with
+`Storage.clearDataForOrigin` (`all`), called in process through `ExecuteDevToolsMethod`
+on a hidden about:blank browser, and its results are awaited with a
+`DevToolsMessageObserver`. The engine-neutral part is `forget.rs`, with a
+`SiteForgetter` trait; the CEF implementation is `forget_cef.rs`. PROTOCOL.md "What
+every engine host implements" covers both engines, including the WebKitGTK plan. The
+protocol is unchanged.
+
+Findings from experiments with test/forget.py:
+- `clearDataForOrigin` leaves `Domain=` cookies, so the CookieManager pass stays.
+- Neither `clearDataForOrigin` nor `clearDataForStorageKey` removes HTTP cache
+  entries, and no per-site removal is reachable from CEF. The whole cache is still
+  cleared, and PROTOCOL.md says why.
+
+forget.py now also checks the HTTP cache (a `max-age` response).

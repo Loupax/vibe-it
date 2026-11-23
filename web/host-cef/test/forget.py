@@ -42,6 +42,10 @@ sys.path.insert(0, HERE)
 
 from drive import Fail, Shell, is_ev  # noqa: E402
 
+# web-host-cef clears the whole HTTP cache (Chromium has no per-site removal it can
+# reach; PROTOCOL.md "forget-site"), so the kept site loses its cached responses too.
+KEEPS_OTHER_HTTP_CACHE = False
+
 FORGOTTEN = ["site-a.test", "sub.site-a.test"]
 KEPT = ["site-b.test"]
 HOSTS = FORGOTTEN + KEPT
@@ -60,6 +64,7 @@ LOGIN = """<!doctype html><meta charset="utf-8"><title>login</title><script>
   });
   const c = await caches.open('c'); await c.put('/cached', new Response('x'));
   await navigator.serviceWorker.register('/sw.js'); await navigator.serviceWorker.ready;
+  await (await fetch('/cached.js')).text();  // into the HTTP cache (max-age)
   document.title = 'stored ' + location.host;
 })().catch(e => { document.title = 'store failed ' + e; });
 </script>"""
@@ -71,12 +76,13 @@ CHECK = """<!doctype html><meta charset="utf-8"><title>check</title><script>
   r.idb = (await indexedDB.databases()).map(d => d.name);
   r.caches = await caches.keys();
   r.sw = (await navigator.serviceWorker.getRegistrations()).length;
+  await (await fetch('/cached.js')).text();  // from the HTTP cache, unless it was cleared
   document.title = 'check ' + JSON.stringify(r);
 })().catch(e => { document.title = 'check failed ' + e; });
 </script>"""
 
 # An "app shell" service worker: answers every navigation except /login and /check
-# itself, as offline-first sites do. forget-site's hidden page is one of those.
+# itself, as offline-first sites do.
 SW = """self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', e => e.waitUntil(clients.claim()));
 self.addEventListener('fetch', e => {
@@ -90,6 +96,7 @@ self.addEventListener('fetch', e => {
 class Server(http.server.BaseHTTPRequestHandler):
     log = None
     cookies = {}  # host -> Cookie header of the last /check
+    hits = {}  # host -> requests for /cached.js (a response the HTTP cache keeps an hour)
     lock = threading.Lock()
 
     def do_GET(self):
@@ -111,13 +118,17 @@ class Server(http.server.BaseHTTPRequestHandler):
             body, ctype = CHECK, "text/html"
         elif path == "/sw.js":
             body, ctype = SW, "text/javascript"
+        elif path == "/cached.js":
+            with Server.lock:
+                Server.hits[host] = Server.hits.get(host, 0) + 1
+            body, ctype = "// cached", "text/javascript"
         else:
             body, ctype = "<title>other</title>other", "text/html"
         data = body.encode()
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", "max-age=3600" if path == "/cached.js" else "no-store")
         for k, v in extra:
             self.send_header(k, v)
         self.end_headers()
@@ -168,10 +179,14 @@ class Host:
         return ev["title"]
 
     def check(self, host):
+        with Server.lock:
+            hits = Server.hits.get(host, 0)
         t = self.title(f"http://{host}/check", "check {")
         r = json.loads(t[len("check "):])
         with Server.lock:
             r["server_cookie"] = Server.cookies.get(host, "")
+            # True: /cached.js came from the HTTP cache (the server saw no request).
+            r["http_cached"] = Server.hits.get(host, 0) == hits
         self.sh.note(f"check {host}: {json.dumps(r)}")
         return r
 
@@ -204,9 +219,11 @@ def finish(proc, unit, sh=None, timeout=30):
         proc.wait(timeout=15)
 
 
-def stored_everything(r, host, session=True):
+def stored_everything(r, host, session=True, http=True):
     """Problems if the check of host does not show everything the login stored."""
     bad = []
+    if http and not r["http_cached"]:
+        bad.append("HTTP cache entry missing")
     for name in ("sid", "hsid"):
         if f"{name}=" not in r["server_cookie"]:
             bad.append(f"cookie {name} not sent")
@@ -225,9 +242,11 @@ def stored_everything(r, host, session=True):
     return [f"{host}: {b}" for b in bad]
 
 
-def stored_nothing(r, host, session=True):
+def stored_nothing(r, host, session=True, http=True):
     """Problems if the check of host shows anything of the login."""
     bad = []
+    if http and r["http_cached"]:
+        bad.append("HTTP cache entry still there")
     if r["server_cookie"]:
         bad.append(f"cookies still sent: {r['server_cookie']}")
     if r["cookie"]:
@@ -287,7 +306,9 @@ def run(a):
         # site-a was cleared (sub.site-a's entry stays until the page closes).
         expect_none(stored_nothing(h.check("site-a.test"), "site-a.test"), h.sh)
         expect_none(stored_nothing(h.check("sub.site-a.test"), "sub.site-a.test", session=False), h.sh)
-        expect_none(stored_everything(h.check("site-b.test"), "site-b.test"), h.sh)
+        r = h.check("site-b.test")
+        expect_none(stored_everything(r, "site-b.test", http=KEEPS_OTHER_HTTP_CACHE), h.sh)
+        h.sh.note(f"site-b's HTTP cache entry after forgetting site-a: {'kept' if r['http_cached'] else 'gone'}")
         h.send({"cmd": "forget-site", "site": "com"})
         h.sh.expect("error for forget-site com", is_ev("error", message=lambda m: "forget-site" in (m or "")))
         h.sh.note("phase 1 passed: site-a forgotten, site-b intact")
@@ -296,7 +317,8 @@ def run(a):
         # Phase 2: a fresh process, fresh loads.
         h = Host(a, out, "2", port)
         for host in FORGOTTEN:
-            expect_none(stored_nothing(h.check(host), host), h.sh)
+            # Phase 1's checks after the forget fetched /cached.js into the cache again.
+            expect_none(stored_nothing(h.check(host), host, http=False), h.sh)
         expect_none(stored_everything(h.check("site-b.test"), "site-b.test", session=False), h.sh)
         h.sh.note("phase 2 passed: after a restart site-a still has nothing, site-b everything")
         h.quit()

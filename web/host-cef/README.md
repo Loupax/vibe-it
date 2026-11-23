@@ -69,8 +69,10 @@ one log line per request or tunnel).
 `--host-resolver-rules` and made secure contexts with
 `--unsafely-treat-insecure-origin-as-secure`. A fake `/login` on each host sets
 cookies (HttpOnly, script, and a `Domain=` one), localStorage, sessionStorage,
-IndexedDB, Cache Storage and an "app shell" service worker that answers navigations;
-`/check` reports what a fresh load sees and the server records the cookies it gets.
+IndexedDB, Cache Storage, an "app shell" service worker that answers navigations, and
+an HTTP cache entry (`/cached.js`, `max-age`); `/check` reports what a fresh load sees,
+and the server records the cookies it gets and whether `/cached.js` was fetched again
+(it was not if it came from the HTTP cache).
 Four host processes on one profile: forget site-a by a subdomain URL while its page is
 shown; restart and check again; `--no-window --forget-site site-b.test`; restart and
 check site-b. Headless by default (no display needed), `--wayland` for the nested

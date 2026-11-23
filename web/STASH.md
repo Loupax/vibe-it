@@ -62,19 +62,17 @@ does not know how.
   cannot start. If a web instance runs, `web --forget-site` sends the command to its host
   (through the shell's socket); if none runs, it starts the host with
   `--no-window` for that one command and exits.
-- **Per engine** (to check in the item):
-  - CEF has no per-site wipe in its API. Cookies: `CefCookieManager::VisitAllCookies`,
-    delete those whose domain matches. Storage (P-FORGET, done): **not** the DevTools
-    method `Storage.clearDataForOrigin` (no automation protocol, DECISIONS.md); a
-    hidden windowless browser of the host loads each origin's `/__web-host-forget__`,
-    which the host answers itself with a page that clears localStorage, IndexedDB,
-    Cache Storage and service workers from inside the origin. The origins come from
-    the host's own record of the origins it has loaded (`<profile>/web-host-origins`)
-    plus the cookie hosts, since the API cannot list them. The HTTP cache can only be
-    cleared whole (`CefRequestContext::ClearHttpCache`). `host-cef/src/forget.rs`.
+- **Per engine:**
+  - CEF (P-FORGET, done; user 2026-11-23: "use Storage.clearDataForOrigin"):
+    - Cookies: `CefCookieManager::VisitAllCookies`, deleting those under the site.
+    - Storage: `Storage.clearDataForOrigin` (`all`) through `ExecuteDevToolsMethod`,
+      in process, on a hidden browser, for each origin. The origins come from the
+      host's record of the origins it loaded plus the cookie hosts.
+    - HTTP cache: cleared whole; no per-site removal is reachable.
+    - Details: PROTOCOL.md "What every engine host implements".
   - WebKitGTK: `webkit_website_data_manager_fetch` returns records grouped by
     registrable domain; `webkit_website_data_manager_remove` those of the site, all
-    data types.
+    data types (the same `SiteForgetter` contract, PROTOCOL.md).
 
 ## History
 

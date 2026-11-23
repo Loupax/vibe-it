@@ -38,6 +38,7 @@ mod control;
 mod download;
 mod newtab;
 mod forget;
+mod forget_cef;
 mod page;
 mod protocol;
 mod renderer;
@@ -154,13 +155,14 @@ fn main() {
     page::START_URL.get_or_init(|| protocol::normalize_url(opts.url.as_deref().unwrap_or("about:blank")));
     page::NO_WINDOW.get_or_init(|| opts.no_window);
     forget::ONE_SHOT.get_or_init(|| opts.no_window);
+    forget::set_engine(Box::new(forget_cef::CefForgetter));
     forget::RECORD.get_or_init(|| format!("{profile}/web-host-origins"));
     if let Some(site) = &opts.forget_site {
         page::FORGET_AT_START.get_or_init(|| site.clone());
     }
 
     let settings = Settings {
-        // forget-site's hidden browser is windowless (forget.rs).
+        // forget-site's hidden browser is windowless (forget_cef.rs).
         windowless_rendering_enabled: 1,
         // Chromium's own Linux sandbox (user namespaces) stays on.
         no_sandbox: std::env::var("WEB_HOST_NO_SANDBOX").is_ok() as i32,
