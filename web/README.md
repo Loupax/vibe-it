@@ -5,15 +5,17 @@ default; `--proxy <host:port>` (optional, any HTTP forward proxy) sends everythi
 through a proxy instead. Keeping it off the network except through that proxy is left to
 a separate wrapper (DECISIONS.md).
 
-Status: **planning.** The CEF spike (`spike/`, TODO.txt W1-W7) proved Chromium can run
-with no network of its own; the plan now is Architecture C (DECISIONS.md, TODO.txt C1-C8):
+Status: **C1 (engine host) done, no shell yet.** The CEF spike (`spike/`, TODO.txt
+W1-W7) proved Chromium can run with no network of its own; the plan now is
+Architecture C (DECISIONS.md, TODO.txt C1-C8):
 
 - `web-shell`: a small Wayland compositor that draws the status bar and command line and
   owns all input (scratchy's keys, KEYS.md). It runs as one window on a Wayland or X11
   desktop.
-- an engine host, picked at start: `web-host-cef` (Chromium) first; a lighter one
-  (`web-host-webkit`, WebKitGTK) later. It shows the page only, one window per tab, and is driven by the shell
-  over a control socket.
+- an engine host, picked at start: `web-host-cef` (Chromium, `host-cef/`) first; a
+  lighter one (`web-host-webkit`, WebKitGTK) later. It shows one page in one window, the
+  page only (tabs are deferred), and is driven by the shell over a control socket
+  (`PROTOCOL.md`).
 
 `web` succeeds [`scratchy`](../scratchy/), which is paused (see
 `../scratchy/DECISIONS.md`). scratchy's own engine is not carried over; its shell is.
@@ -21,6 +23,8 @@ with no network of its own; the plan now is Architecture C (DECISIONS.md, TODO.t
 - `KEYS.md`: modes, bindings, completion (from scratchy).
 - `STASH.md`: what web keeps on disk: state directory, history and `:go` ranking,
   forget-site, cookies (from scratchy).
+- `PROTOCOL.md`: the shell <-> engine-host control protocol (v0).
+- `host-cef/`: web-host-cef, its run script and the C1 check (`host-cef/README.md`).
 - `DECISIONS.md`: what has been decided and why.
 - `TODO.txt`: the plan (C1-C8, E1) and the spike record (W1-W7), each step with a check that ends it.
 - `PROMPTS.md`: the exact prompts that produced this project, in order.

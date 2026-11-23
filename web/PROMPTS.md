@@ -169,3 +169,22 @@ namespace from run.sh and checks against a local proxy; README.md and the root R
 
 **What changed:** DECISIONS.md "The proxy is optional"; TODO.txt header and C1's check
 (runs once without `--proxy`, once with); README.md.
+
+## C1 web-host-cef (2026-11-23)
+
+> C1 web-host-cef (coordinator launch of web/TODO.txt C1)
+
+Mid-item, relayed by the coordinator: "do not expose tab functionality yet (tabs are
+deferred; maybe later as a vim-style buffers interface, undecided). ... the host shows
+ONE page. Drop `new-tab` and `close-tab` from protocol v0. `window.open` and
+target=_blank still go through OnBeforePopup, but instead of a new window they load
+the target URL in the existing page".
+
+**What changed:** the spike crate moved to `web/host-cef/` as `web-host-cef`
+(`web/spike/README.md` stays as the record). W3's resource handler, the wire client
+and run.sh's network namespace are gone; `--proxy <host:port>` becomes Chromium's
+`--proxy-server` (optional). One page in one Views window, no Chrome toolbar, Chrome
+commands blocked; popups load in place. Control socket protocol v0 (JSON lines),
+documented in `web/PROTOCOL.md`; W5's download handler kept. `test/drive.py` (the C1
+check, with a test forward proxy `test/fwd_proxy.py`) and Rust/Python unit tests.
+DECISIONS.md "No tabs yet" (recorded by the coordinator) is what the host follows.

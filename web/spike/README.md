@@ -1,5 +1,11 @@
 # web spike
 
+**Record only (C1, 2026-11-23):** the spike's code became the engine host
+`web/host-cef/` (build, run and check: `web/host-cef/README.md`). W3's resource
+handler and wire client (`handler.rs`, `wire.rs`) and run.sh's network namespace were
+dropped there (Architecture C); they are in git history before C1. Paths and env names
+below (`web/spike/run.sh`, `WEB_SPIKE_*`) describe the spike as it was.
+
 Throwaway spike code for `web/TODO.txt` (W1..W7). Its own workspace root: it joins
 no other build and is not in CI.
 
