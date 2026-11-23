@@ -498,3 +498,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Merged #680 C-BGNET eb6b62e; web reinstalled. Filed C-DRM, C-H264 (user). C-BGNET agent briefly ran a check in another agent's nest (wayland-1): noted. Launched C-NOTAB-ALLOW (Sonnet; host-cef context menu, + cargo fmt of newtab.rs).
 - 2026-11-23 USER: C-DRM and C-H264 parked. Asked about dropping the context menu for command-mode actions (discussing).
 - 2026-11-23 USER: no context menu; actions as : commands. C-NOTAB-ALLOW agent repurposed to C-NOMENU; filed C-CMDS (after C-NOMENU; :yank after C6). C3-RCLICK told to test with selects. Recorded in web/DECISIONS.md.
+- 2026-11-23 USER: Enter on a search match does nothing. Never filed after C5 (only mentioned). Filed C5-ENTER (S7, T18-T20), next web/shell slot after C3-RCLICK.
