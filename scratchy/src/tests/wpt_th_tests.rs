@@ -211,7 +211,7 @@ mod qwpt4b {
     use std::time::Duration;
 
     fn fr(status: &str, passed: usize, total: usize, np: &[(&str, &str)]) -> FileResult {
-        FileResult { status: status.into(), passed, total, nonpass: np.iter().map(|(s, n)| (s.to_string(), n.to_string())).collect() }
+        FileResult { status: status.into(), passed, total, nonpass: np.iter().map(|(s, n)| (s.to_string(), n.to_string())).collect(), msgs: Default::default() }
     }
 
     #[test]
