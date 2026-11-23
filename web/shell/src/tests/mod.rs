@@ -3,6 +3,7 @@
 mod c3_rclick_tests;
 mod c6_tests;
 mod c6b_tests;
+mod c6c_tests;
 mod c_enter_tests;
 mod c_keymap_tests;
 mod completion_tests;

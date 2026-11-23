@@ -87,6 +87,12 @@ pub struct State {
     pub url: String,
     pub title: String,
     pub dirty: bool,
+    /// C6c: frame pacing (`pacing.rs`): the outer monitor's refresh, the last render, and
+    /// whether a timer is already waiting to release a render that came too soon.
+    pub pacer: crate::pacing::Pacer,
+    pub pace_timer: bool,
+    /// C6c: renders counted since the last `frames:` line (only with WEB_FRAME_STATS=1).
+    pub frame_stats: Option<(Instant, u32)>,
 
     pub control: Option<UnixStream>,
     /// `web --forget-site` clients waiting for their `forgot` (site as sent, the client's socket).
@@ -257,9 +263,16 @@ impl State {
     /// up) and xdg_output's logical size; fractional-scale-v1 carries the exact one.
     pub fn apply_output_state(&mut self) {
         use smithay::output::{Mode, Scale};
+        // C6c: the page is told the outer monitor's refresh rate (60 Hz when the desktop says
+        // none), so its animations and requestAnimationFrame run at the outer frame rate.
+        let refresh = crate::pacing::sane_refresh(self.backend.window().current_monitor().and_then(|m| m.refresh_rate_millihertz()));
+        if refresh != self.pacer.refresh_mhz() {
+            self.log(&format!("output refresh {refresh} mHz"));
+            self.pacer.set_refresh(refresh);
+        }
         let mode = Mode {
             size: self.layout.physical,
-            refresh: 60_000,
+            refresh: refresh as i32,
         };
         self.output
             .change_current_state(Some(mode), None, Some(Scale::Fractional(self.layout.scale)), None);

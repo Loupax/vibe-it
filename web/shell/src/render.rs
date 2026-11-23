@@ -84,6 +84,16 @@ impl State {
                 }
             }
         };
+        self.pacer.rendered(std::time::Instant::now());
+        if let Some((since, n)) = &mut self.frame_stats {
+            *n += 1;
+            if since.elapsed() >= Duration::from_secs(5) {
+                let line = format!("frames: {} renders in {:.1} s", n, since.elapsed().as_secs_f64());
+                *since = std::time::Instant::now();
+                *n = 0;
+                self.log(&line);
+            }
+        }
         if let Some(damage) = damage {
             if let Err(e) = self.backend.submit(Some(&damage)) {
                 self.log(&format!("submit: {e:?}"));

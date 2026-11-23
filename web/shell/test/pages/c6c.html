@@ -1,0 +1,51 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>c6c loaded</title>
+<style>
+  body { margin: 0; background: #fff; font: 16px sans-serif; }
+  #box { position: absolute; left: 0; top: 60px; width: 80px; height: 80px; background: #c33;
+         animation: slide 2s linear infinite alternate; }
+  @keyframes slide { from { left: 0 } to { left: 600px } }
+  video { position: absolute; left: 20px; top: 200px; width: 320px; height: 240px; }
+</style>
+<div id="box" hidden></div>
+<video id="v" muted loop autoplay playsinline hidden src="c6c.webm"></video>
+<script>
+// C6c: the harness loads c6c.html#MODE (idle | raf | css | video). After 2 s of settling the
+// page measures for SECS seconds and reports through the title:
+//   "c6c MODE running"  (the harness samples the shell's CPU between these two titles)
+//   "c6c MODE done n=N mean=M sd=S max=X [vn=N vmean=M vsd=S]"   (frame intervals, ms)
+const mode = location.hash.slice(1) || "idle", SECS = 10;
+const stats = a => { const m = a.reduce((x, y) => x + y, 0) / a.length;
+  return { n: a.length, mean: m, sd: Math.sqrt(a.reduce((x, y) => x + (y - m) ** 2, 0) / a.length), max: Math.max(...a) }; };
+if (mode == "css") document.getElementById("box").hidden = false;
+if (mode == "video") { const v = document.getElementById("v"); v.hidden = false; v.play(); }
+setTimeout(() => {
+  document.title = "c6c " + mode + " running";
+  const raf = [], vid = [];
+  let last = 0, vlast = 0, over = false;
+  const t0 = performance.now();
+  if (mode != "idle") (function tick(t) {
+    if (last) raf.push(t - last);
+    last = t;
+    if (!over) requestAnimationFrame(tick);
+  })(performance.now());
+  if (mode == "video") {
+    const v = document.getElementById("v");
+    v.requestVideoFrameCallback(function vcb(now) {
+      if (vlast) vid.push(now - vlast);
+      vlast = now;
+      if (!over) v.requestVideoFrameCallback(vcb);
+    });
+
+  }
+  setTimeout(() => {
+    over = true;
+    const f = x => x.toFixed(2);
+    let s = "c6c " + mode + " done";
+    if (raf.length) { const r = stats(raf); s += ` n=${r.n} mean=${f(r.mean)} sd=${f(r.sd)} max=${f(r.max)}`; }
+    if (vid.length) { const r = stats(vid); s += ` vn=${r.n} vmean=${f(r.mean)} vsd=${f(r.sd)}`; }
+    document.title = s;
+  }, SECS * 1000);
+}, 2000);
+</script>

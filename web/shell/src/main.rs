@@ -18,6 +18,7 @@ mod keymap;
 mod keys;
 mod layout;
 mod lock;
+mod pacing;
 mod pairing;
 mod protocol;
 mod registers;
@@ -290,6 +291,9 @@ fn main() {
         url: String::new(),
         title: String::new(),
         dirty: true,
+        pacer: pacing::Pacer::new(pacing::DEFAULT_REFRESH_MHZ, desktop == "an X11"),
+        pace_timer: false,
+        frame_stats: std::env::var_os("WEB_FRAME_STATS").map(|_| (Instant::now(), 0)),
         control: None,
         forget_clients: Vec::new(),
         host: None,
@@ -362,9 +366,23 @@ fn main() {
 
     event_loop
         .run(None, &mut state, |state| {
-            if state.dirty {
-                state.dirty = false;
-                state.backend.window().request_redraw();
+            // C6c: a render wanted sooner than the outer frame spacing waits on a timer.
+            if state.dirty && !state.pace_timer {
+                match state.pacer.wait(Instant::now()) {
+                    None => {
+                        state.dirty = false;
+                        state.backend.window().request_redraw();
+                    }
+                    Some(wait) => {
+                        let armed = state.loop_handle.insert_source(Timer::from_duration(wait), |_, _, state| {
+                            state.pace_timer = false;
+                            state.dirty = false;
+                            state.backend.window().request_redraw();
+                            TimeoutAction::Drop
+                        });
+                        state.pace_timer = armed.is_ok();
+                    }
+                }
             }
             state.read_page_copies();
             state.space.refresh();

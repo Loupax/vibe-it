@@ -17,6 +17,9 @@
 #               output has NEST_SIZE * NEST_SCALE pixels (grim's screenshots are that big)
 #   NEST_SCALE  headless output scale (C6b; default 1; fractional ok, e.g. 1.5 or 2), written to
 #               the registry file `scale`. A live dwl with another scale is replaced.
+#   NEST_REFRESH  headless output refresh rate in Hz (C6c; default unset = wlroots' 60), written to the
+#               registry file `refresh`; a live dwl with another one is replaced. The shell's window
+#               gets frames at this rate, so it is what the page's requestAnimationFrame follows.
 #   DWL_SRC     dwl source tree to build from (default /home/loupax/src/dotfiles/dwl)
 #   WLROOTS_DIR wlroots tree with install/lib/pkgconfig (default: $DWL_SRC/../wlroots)
 #
@@ -60,6 +63,7 @@ ROOT=$(git -C "$HERE" rev-parse --show-toplevel 2>/dev/null || echo "$HERE/../..
 REG=${NEST_REG:-$ROOT/.qwork/nest}
 SIZE=${NEST_SIZE:-960x1006}
 SCALE=${NEST_SCALE:-1}
+REFRESH=${NEST_REFRESH:-0}
 # The output's pixels: the logical NEST_SIZE times the scale, rounded (as a desktop sizes a scaled output).
 PXSIZE=$(echo "$SIZE $SCALE" | awk '{ split($1, a, "x"); printf "%dx%d", int(a[1] * $2 + 0.5), int(a[2] * $2 + 0.5) }')
 mkdir -p "$REG"
@@ -123,7 +127,7 @@ if [ "$MODE" = --x11-display ]; then
 fi
 [ "$MODE" = --new ] && stop_nest
 if live_pid >/dev/null && [ -s "$REG/disp" ]; then
-  if [ "$(cat "$REG/mode" 2>/dev/null || echo windowed)" = "$WANT" ] && { [ "$WANT" = windowed ] || [ "$(cat "$REG/scale" 2>/dev/null || echo 1)" = "$SCALE" ]; }; then
+  if [ "$(cat "$REG/mode" 2>/dev/null || echo windowed)" = "$WANT" ] && { [ "$WANT" = windowed ] || [ "$(cat "$REG/scale" 2>/dev/null || echo 1)" = "$SCALE" ] && [ "$(cat "$REG/refresh" 2>/dev/null || echo 0)" = "$REFRESH" ]; }; then
     publish
     cat "$REG/disp"
     exit 0
@@ -133,11 +137,11 @@ fi
 # QREC3b: NEST_TIMEOUT (seconds, default 3600; 0 = none): gate.sh runs longer than an hour and kills its own dwl by PID.
 NEST_TIMEOUT=${NEST_TIMEOUT-3600}
 [ "$NEST_TIMEOUT" = 0 ] && NEST_TIMEOUT=
-rm -f "$REG/disp" "$REG/dwl.pid" "$REG/xdisp" "$REG/mode" "$REG/size" "$REG/scale"
+rm -f "$REG/disp" "$REG/dwl.pid" "$REG/xdisp" "$REG/mode" "$REG/size" "$REG/scale" "$REG/refresh"
 if [ "$WANT" = headless ]; then
   DWL=$(build_dwl)
   ENV=(env -u DISPLAY -u WAYLAND_DISPLAY -u WAYLAND_SOCKET WLR_BACKENDS=headless WLR_RENDERER=pixman
-       WLR_HEADLESS_OUTPUTS=1 NEST_HEADLESS_SIZE="$PXSIZE" NEST_HEADLESS_SCALE="$SCALE")
+       WLR_HEADLESS_OUTPUTS=1 NEST_HEADLESS_SIZE="$PXSIZE" NEST_HEADLESS_SCALE="$SCALE" NEST_HEADLESS_REFRESH="$REFRESH")
 else
   DWL=dwl
   ENV=(env -u DISPLAY WLR_BACKENDS=wayland WLR_RENDERER=pixman)
@@ -152,7 +156,7 @@ fi
 ) &
 echo $! > "$REG/dwl.pid"
 echo "$WANT" > "$REG/mode"
-[ "$WANT" = headless ] && echo "$SIZE" > "$REG/size" && echo "$SCALE" > "$REG/scale"
+[ "$WANT" = headless ] && echo "$SIZE" > "$REG/size" && echo "$SCALE" > "$REG/scale" && echo "$REFRESH" > "$REG/refresh"
 i=0
 while [ ! -s "$REG/disp" ]; do
   i=$((i+1))
