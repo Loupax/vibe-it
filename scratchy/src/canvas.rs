@@ -19,7 +19,7 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use tiny_skia::{BlendMode, Color, FillRule, LineCap, LineJoin, Mask, Paint, PathBuilder, Pixmap, Rect, Stroke, StrokeDash, Transform};
+use tiny_skia::{BlendMode, Color, FillRule, FilterQuality, LineCap, LineJoin, Mask, Paint, PathBuilder, Pattern, Pixmap, Rect, SpreadMode, Stroke, StrokeDash, Transform};
 
 use crate::js_dom::DomTable;
 use crate::js_engine::{native, Bytes, Ctx};
@@ -44,11 +44,13 @@ pub(crate) fn is_placeholder(img: &DecodedImage) -> bool {
 pub(crate) struct Style {
     rgba: [u8; 4],
     ser: String,
+    /// QCNV10: the id of the `CanvasGradient` this style is (the colour fields are then transparent and unused).
+    grad: Option<u32>,
 }
 
 impl Style {
     fn new(rgba: [u8; 4]) -> Style {
-        Style { rgba, ser: serialize_color(rgba) }
+        Style { rgba, ser: serialize_color(rgba), grad: None }
     }
 }
 
@@ -696,7 +698,7 @@ pub(crate) fn parse_color(s: &str, cur: [u8; 4]) -> Option<Style> {
     if matches!(c, cssparser_color::Color::Rgba(_) | cssparser_color::Color::Hsl(_) | cssparser_color::Color::Hwb(_)) {
         Some(Style::new(rgba))
     } else {
-        Some(Style { rgba, ser: c.to_css_string() })
+        Some(Style { rgba, ser: c.to_css_string(), grad: None })
     }
 }
 
@@ -710,6 +712,164 @@ pub(crate) fn serialize_color(c: [u8; 4]) -> String {
         let a = [100.0, 1000.0].iter().map(|k| (exact * k).round() / k).find(|r| (r * 255.0).round() as u8 == c[3]).unwrap_or(exact);
         format!("rgba({}, {}, {}, {})", c[0], c[1], c[2], a)
     }
+}
+
+// ------------------------------------------------------------ gradients (QCNV10)
+//
+// Linear, radial (the spec's full two-circle cone gradient) and conic gradients are all evaluated per pixel by
+// `Gradient::param` / `color_at` into a layer covering the shape's device bounds; the layer is then used as a
+// tiny-skia Pattern shader (nearest, identity in device space) for the fill or stroke. tiny-skia's own gradient
+// shaders were not used: they lack the cone cases and conic gradients, and the spec interpolates unpremultiplied.
+
+/// The geometry of a `CanvasGradient`, in the user space of the CTM at the time it is used.
+#[derive(Clone)]
+enum GKind {
+    /// (x0, y0, x1, y1)
+    Linear([f64; 4]),
+    /// (x0, y0, r0, x1, y1, r1)
+    Radial([f64; 6]),
+    /// (startAngle, x, y)
+    Conic([f64; 3]),
+}
+
+#[derive(Clone)]
+struct Gradient {
+    kind: GKind,
+    /// Colour stops sorted by offset (equal offsets keep insertion order), straight RGBA.
+    stops: Vec<(f64, [u8; 4])>,
+}
+
+#[derive(Default)]
+struct GradRegistry {
+    next: u32,
+    map: HashMap<u32, Gradient>,
+}
+
+static GRADS: OnceLock<Mutex<GradRegistry>> = OnceLock::new();
+
+fn grads() -> std::sync::MutexGuard<'static, GradRegistry> {
+    GRADS.get_or_init(|| Mutex::new(GradRegistry::default())).lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// The gradient a style refers to (None: a plain colour, or the gradient is gone).
+fn style_grad(s: &Style) -> Option<Gradient> {
+    grads().map.get(&s.grad?).cloned()
+}
+
+impl Gradient {
+    /// The position along the gradient at user-space point (x, y); None where nothing is painted.
+    fn param(&self, x: f64, y: f64) -> Option<f64> {
+        match self.kind {
+            GKind::Linear([x0, y0, x1, y1]) => {
+                let (dx, dy) = (x1 - x0, y1 - y0);
+                let len2 = dx * dx + dy * dy;
+                if len2 == 0.0 {
+                    return None;
+                }
+                Some(((x - x0) * dx + (y - y0) * dy) / len2)
+            }
+            GKind::Radial([x0, y0, r0, x1, y1, r1]) => {
+                let (dx, dy, dr) = (x1 - x0, y1 - y0, r1 - r0);
+                if dx == 0.0 && dy == 0.0 && dr == 0.0 {
+                    return None;
+                }
+                let (px, py) = (x - x0, y - y0);
+                // |p - (c0 + w d)|^2 = (r0 + w dr)^2  ->  a w^2 - 2 b w + c = 0; the largest w with r(w) >= 0 wins.
+                let a = dx * dx + dy * dy - dr * dr;
+                let b = px * dx + py * dy + r0 * dr;
+                let c = px * px + py * py - r0 * r0;
+                let ok = |w: f64| w.is_finite() && r0 + w * dr >= 0.0;
+                if a.abs() < 1e-12 {
+                    if b == 0.0 {
+                        return None;
+                    }
+                    let w = c / (2.0 * b);
+                    return ok(w).then_some(w);
+                }
+                let disc = b * b - a * c;
+                if disc < 0.0 {
+                    return None;
+                }
+                let sq = disc.sqrt();
+                let (w1, w2) = ((b + sq) / a, (b - sq) / a);
+                let (hi, lo) = if w1 >= w2 { (w1, w2) } else { (w2, w1) };
+                if ok(hi) {
+                    Some(hi)
+                } else if ok(lo) {
+                    Some(lo)
+                } else {
+                    None
+                }
+            }
+            GKind::Conic([start, cx, cy]) => {
+                let tau = std::f64::consts::TAU;
+                let ang = ((y - cy).atan2(x - cx) - start).rem_euclid(tau);
+                Some(ang / tau)
+            }
+        }
+    }
+
+    /// The straight RGBA (0..1) at position `t`; stops are interpolated without premultiplying (spec).
+    fn color_at(&self, t: f64) -> [f64; 4] {
+        let s = &self.stops;
+        let f = |c: [u8; 4]| [f64::from(c[0]) / 255.0, f64::from(c[1]) / 255.0, f64::from(c[2]) / 255.0, f64::from(c[3]) / 255.0];
+        let (Some(first), Some(last)) = (s.first(), s.last()) else { return [0.0; 4] };
+        if t < first.0 {
+            return f(first.1);
+        }
+        if t >= last.0 {
+            return f(last.1);
+        }
+        let i = s.partition_point(|st| st.0 <= t) - 1;
+        let (a, b) = (&s[i], &s[i + 1]);
+        let k = (t - a.0) / (b.0 - a.0);
+        let (ca, cb) = (f(a.1), f(b.1));
+        [0, 1, 2, 3].map(|j| ca[j] + (cb[j] - ca[j]) * k)
+    }
+}
+
+/// The device rect a stroke of `path` (user space) can touch, generously.
+fn stroke_bounds(path: &tiny_skia::Path, ctm: &[f64; 6], st: &DrawState) -> (f64, f64, f64, f64) {
+    let b = path.bounds();
+    let corners = [(b.left(), b.top()), (b.right(), b.top()), (b.right(), b.bottom()), (b.left(), b.bottom())];
+    let pts = corners.map(|(x, y)| PathData::map(ctm, f64::from(x), f64::from(y)));
+    let (x0, y0, x1, y1) = pts.iter().fold((f64::MAX, f64::MAX, f64::MIN, f64::MIN), |b, p| (b.0.min(p.0), b.1.min(p.1), b.2.max(p.0), b.3.max(p.1)));
+    let scale = ctm[0].hypot(ctm[1]).max(ctm[2].hypot(ctm[3]));
+    let e = f64::from(st.line_width) * f64::from(st.miter_limit).max(1.5) * scale + 2.0;
+    (x0 - e, y0 - e, x1 + e, y1 + e)
+}
+
+/// Paints with gradient `g` (defined in the user space of `ctm`, evaluated at each pixel centre): renders it into a
+/// layer covering the device rect `bb` and hands `draw` a Pattern paint. `ts` is the transform `draw` applies to its
+/// geometry; the pattern is compensated for it so the layer lands in device space.
+fn fill_gradient(px: &mut Pixmap, g: &Gradient, ctm: &[f64; 6], bb: (f64, f64, f64, f64), alpha: f32, ts: Transform, draw: impl FnOnce(&mut Pixmap, &Paint)) {
+    let Some(inv) = invert(ctm) else { return };
+    let Some(ts_inv) = ts.invert() else { return };
+    let (pw, ph) = (f64::from(px.width()), f64::from(px.height()));
+    let (x0, y0) = (bb.0.max(0.0).floor(), bb.1.max(0.0).floor());
+    let (x1, y1) = (bb.2.min(pw).ceil(), bb.3.min(ph).ceil());
+    if !(x1 > x0 && y1 > y0) {
+        return;
+    }
+    let (ox, oy, lw, lh) = (x0 as i32, y0 as i32, (x1 - x0) as u32, (y1 - y0) as u32);
+    let Some(mut layer) = Pixmap::new(lw, lh) else { return };
+    for ly in 0..lh {
+        for lx in 0..lw {
+            let (ux, uy) = PathData::map(&inv, f64::from(ox) + f64::from(lx) + 0.5, f64::from(oy) + f64::from(ly) + 0.5);
+            let Some(t) = g.param(ux, uy) else { continue };
+            let [r, gr, b, a] = g.color_at(t);
+            let q = |v: f64| (v * 255.0).round().clamp(0.0, 255.0) as u8;
+            let a8 = q(a);
+            let pm = |v: f64| q(v * a).min(a8);
+            if let Some(c) = tiny_skia::PremultipliedColorU8::from_rgba(pm(r), pm(gr), pm(b), a8) {
+                layer.pixels_mut()[(ly * lw + lx) as usize] = c;
+            }
+        }
+    }
+    let pt = ts_inv.pre_concat(Transform::from_translate(ox as f32, oy as f32));
+    let mut p = Paint { shader: Pattern::new(layer.as_ref(), SpreadMode::Pad, FilterQuality::Nearest, alpha.clamp(0.0, 1.0), pt), ..Paint::default() };
+    p.anti_alias = true;
+    draw(px, &p);
 }
 
 // ------------------------------------------------------------ drawing
@@ -760,7 +920,14 @@ fn draw(c: &mut Canvas, op: i32, a: &[f64]) {
     match op {
         0 => {
             if let Some(r) = rect_of(*x, *y, *w, *h) {
-                px.fill_rect(r, &paint_of(c.state.fill.rgba, c.state.alpha), ts, mask);
+                if let Some(g) = style_grad(&c.state.fill) {
+                    let m = c.state.ctm;
+                    let pts = [(r.left(), r.top()), (r.right(), r.top()), (r.right(), r.bottom()), (r.left(), r.bottom())].map(|(x, y)| PathData::map(&m, f64::from(x), f64::from(y)));
+                    let bb = pts.iter().fold((f64::MAX, f64::MAX, f64::MIN, f64::MIN), |b, p| (b.0.min(p.0), b.1.min(p.1), b.2.max(p.0), b.3.max(p.1)));
+                    fill_gradient(px, &g, &m, bb, c.state.alpha, ts, |px, p| px.fill_rect(r, p, ts, mask));
+                } else {
+                    px.fill_rect(r, &paint_of(c.state.fill.rgba, c.state.alpha), ts, mask);
+                }
             }
         }
         1 => {
@@ -783,7 +950,13 @@ fn draw(c: &mut Canvas, op: i32, a: &[f64]) {
             pb.close();
             if let Some(path) = pb.finish() {
                 let stroke = stroke_of(&c.state);
-                px.stroke_path(&path, &paint_of(c.state.stroke.rgba, c.state.alpha), &stroke, ts, mask);
+                if let Some(g) = style_grad(&c.state.stroke) {
+                    let m = c.state.ctm;
+                    let bb = stroke_bounds(&path, &m, &c.state);
+                    fill_gradient(px, &g, &m, bb, c.state.alpha, ts, |px, p| px.stroke_path(&path, p, &stroke, ts, mask));
+                } else {
+                    px.stroke_path(&path, &paint_of(c.state.stroke.rgba, c.state.alpha), &stroke, ts, mask);
+                }
             }
         }
     }
@@ -841,13 +1014,26 @@ fn paint_path(c: &mut Canvas, op: i32, evenodd: bool, over: Option<&PathData>) {
     let (Some(px), Some(path)) = (c.pixmap.as_mut(), path) else { return };
     let mask = c.state.clip.as_deref();
     if op == 0 {
-        px.fill_path(&path, &paint_of(c.state.fill.rgba, c.state.alpha), rule, Transform::identity(), mask);
+        if let Some(g) = style_grad(&c.state.fill) {
+            let b = path.bounds();
+            let bb = (f64::from(b.left()), f64::from(b.top()), f64::from(b.right()), f64::from(b.bottom()));
+            let id = Transform::identity();
+            fill_gradient(px, &g, &c.state.ctm, bb, c.state.alpha, id, |px, p| px.fill_path(&path, p, rule, id, mask));
+        } else {
+            px.fill_path(&path, &paint_of(c.state.fill.rgba, c.state.alpha), rule, Transform::identity(), mask);
+        }
     } else {
         // The path is in device space; the pen is in user space, so stroke the user-space path through the CTM.
         let Some(inv) = invert(&c.state.ctm) else { return };
         let Some(user) = path.transform(transform_of(&inv)) else { return };
         let stroke = stroke_of(&c.state);
-        px.stroke_path(&user, &paint_of(c.state.stroke.rgba, c.state.alpha), &stroke, transform_of(&c.state.ctm), mask);
+        let ts = transform_of(&c.state.ctm);
+        if let Some(g) = style_grad(&c.state.stroke) {
+            let bb = stroke_bounds(&user, &c.state.ctm, &c.state);
+            fill_gradient(px, &g, &c.state.ctm, bb, c.state.alpha, ts, |px, p| px.stroke_path(&user, p, &stroke, ts, mask));
+        } else {
+            px.stroke_path(&user, &paint_of(c.state.stroke.rgba, c.state.alpha), &stroke, ts, mask);
+        }
     }
 }
 
@@ -1052,6 +1238,52 @@ pub(crate) fn register(ctx: &Ctx<'_>, table: Rc<RefCell<DomTable>>) {
             }
         }
         true
+    });
+    // QCNV10: gradients by id (`__gr_free` when the JS object is collected). kind 0 linear, 1 radial, 2 conic.
+    native!(ctx, "__gr_new", move |kind: i32, a: Vec<f64>| -> i32 {
+        let kind = match (kind, a.len()) {
+            (0, 4) => GKind::Linear([a[0], a[1], a[2], a[3]]),
+            (1, 6) => GKind::Radial([a[0], a[1], a[2], a[3], a[4], a[5]]),
+            (2, 3) => GKind::Conic([a[0], a[1], a[2]]),
+            _ => return 0,
+        };
+        let mut r = grads();
+        r.next += 1;
+        let id = r.next;
+        r.map.insert(id, Gradient { kind, stops: Vec::new() });
+        id as i32
+    });
+    native!(ctx, "__gr_free", move |id: i32| {
+        grads().map.remove(&(id as u32));
+    });
+    // addColorStop (offset already range-checked): false when `s` is not a colour.
+    native!(ctx, "__gr_stop", move |id: i32, off: f64, s: String, cur: String| -> bool {
+        let cur = parse_color(&cur, [0, 0, 0, 255]).map_or([0, 0, 0, 255], |c| c.rgba);
+        let Some(col) = parse_color(&s, cur) else { return false };
+        if let Some(g) = grads().map.get_mut(&(id as u32)) {
+            let at = g.stops.partition_point(|st| st.0 <= off);
+            g.stops.insert(at, (off, col.rgba));
+        }
+        true
+    });
+    native!(ctx, "__cv_set_grad", move |cid: i32, which: i32, gid: i32| {
+        if let Some(c) = map().get_mut(cid as u32) {
+            let st = Style { rgba: [0, 0, 0, 0], ser: String::new(), grad: Some(gid as u32) };
+            if which == 0 {
+                c.state.fill = st;
+            } else {
+                c.state.stroke = st;
+            }
+        }
+    });
+    native!(ctx, "__cv_grad_of", move |cid: i32, which: i32| -> i32 {
+        map().get(cid as u32).and_then(|c| if which == 0 { c.state.fill.grad } else { c.state.stroke.grad }).unwrap_or(0) as i32
+    });
+    // The gradient ids the state and the save stack refer to (comma separated), so the JS side can prune.
+    native!(ctx, "__cv_grads_in_use", move |cid: i32| -> String {
+        let m = map();
+        let Some(c) = m.get(cid as u32) else { return String::new() };
+        std::iter::once(&c.state).chain(c.stack.iter()).flat_map(|s| [s.fill.grad, s.stroke.grad]).flatten().map(|g| g.to_string()).collect::<Vec<_>>().join(",")
     });
     native!(ctx, "__cv_get_style", move |cid: i32, which: i32| -> String {
         map()
