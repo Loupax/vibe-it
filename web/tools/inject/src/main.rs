@@ -2,6 +2,7 @@
 // Usage: inject W H cmd...
 //   move:X,Y  click  rclick  mclick  hold:c|s|cs  release  down  up  scroll:DY  hscroll:DX  sscroll:DY (Shift held)  wait:MS
 //   key:NAME (j k g G h l esc ret tab space bs colon slash ins ...) with optional c- / s- prefix
+//   ev:CODE evs:CODE (raw evdev code, evs with Shift)  group:N (layout group)
 //   type:TEXT (letters, digits, space, . : / - _ = ?)
 // Or: inject output W H SCALE   (C6b: the output becomes W x H pixels at SCALE; src/output.rs)
 mod output;
@@ -10,7 +11,7 @@ use std::io::Write;
 use std::os::fd::AsFd;
 use std::time::{Duration, Instant};
 use wayland_client::{
-    protocol::{wl_pointer, wl_registry, wl_seat},
+    protocol::{wl_keyboard, wl_pointer, wl_registry, wl_seat},
     Connection, Dispatch, QueueHandle,
 };
 use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{
@@ -25,6 +26,25 @@ struct St {
     seat: Option<wl_seat::WlSeat>,
     vpm: Option<ZwlrVirtualPointerManagerV1>,
     vkm: Option<ZwpVirtualKeyboardManagerV1>,
+    /// C-KEYMAP: the desktop's own keymap text (from a wl_keyboard of ours), so the virtual
+    /// keyboard has the same keymap and the seat's keymap does not flip to us while injecting.
+    desktop_keymap: Option<Vec<u8>>,
+}
+
+impl Dispatch<wl_keyboard::WlKeyboard, ()> for St {
+    fn event(s: &mut Self, _: &wl_keyboard::WlKeyboard, e: wl_keyboard::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let wl_keyboard::Event::Keymap { fd, size, .. } = e {
+            use std::os::unix::fs::FileExt;
+            let f = std::fs::File::from(fd);
+            let mut buf = vec![0u8; size as usize];
+            if f.read_exact_at(&mut buf, 0).is_ok() {
+                if let Some(end) = buf.iter().position(|b| *b == 0) {
+                    buf.truncate(end);
+                }
+                s.desktop_keymap = Some(buf);
+            }
+        }
+    }
 }
 
 impl Dispatch<wl_registry::WlRegistry, ()> for St {
@@ -88,7 +108,10 @@ fn main() {
     let seat = st.seat.clone();
     let vp = st.vpm.as_ref().expect("no virtual pointer").create_virtual_pointer(seat.as_ref(), &qh, ());
     let vk = st.vkm.as_ref().expect("no virtual keyboard").create_virtual_keyboard(seat.as_ref().unwrap(), &qh, ());
-    let km = include_bytes!("../keymap.xkb");
+    let _kb = seat.as_ref().map(|sh| sh.get_keyboard(&qh, ()));
+    q.roundtrip(&mut st).unwrap();
+    let builtin: &[u8] = include_bytes!("../keymap.xkb");
+    let km: &[u8] = st.desktop_keymap.as_deref().unwrap_or(builtin);
     let path = std::env::temp_dir().join(format!("inject-km-{}", std::process::id()));
     let mut f = std::fs::File::create(&path).unwrap();
     f.write_all(km).unwrap();
@@ -101,14 +124,15 @@ fn main() {
     let t0 = Instant::now();
     let ms = || t0.elapsed().as_millis() as u32;
     let mut q_rt = |st: &mut St| { conn.flush().unwrap(); q.roundtrip(st).unwrap(); };
+    let group = std::cell::Cell::new(0u32);
     let key = |code: u32, shift: bool, ctrl: bool| {
         let mut mods = 0;
         if shift { mods |= 1; }
         if ctrl { mods |= 4; }
-        vk.modifiers(mods, 0, 0, 0);
+        vk.modifiers(mods, 0, 0, group.get());
         vk.key(ms(), code, 1);
         vk.key(ms(), code, 0);
-        vk.modifiers(0, 0, 0, 0);
+        vk.modifiers(0, 0, 0, group.get());
     };
     // NEST-HEADLESS: motions carry time 0. dwl's motionabsolute() warps the cursor only
     // when the event time is 0 ("this is 0 with virtual pointers"); with any other time
@@ -205,6 +229,15 @@ fn main() {
                 if let Some(r) = name.strip_prefix("s-") { sh = true; name = r; }
                 let (c, shift) = code(name).unwrap_or_else(|| panic!("unknown key {name}"));
                 key(c, shift || sh, ctrl);
+            }
+            // C-KEYMAP: a raw evdev key code (the physical key, whatever the layout makes of it):
+            // ev:21 presses it, evs:52 with Shift. group:N sets the virtual keyboard's active layout group.
+            "ev" | "evs" => {
+                key(arg.parse().unwrap(), op == "evs", false);
+            }
+            "group" => {
+                group.set(arg.parse().unwrap());
+                vk.modifiers(0, 0, 0, group.get());
             }
             "type" => {
                 for ch in arg.chars() {

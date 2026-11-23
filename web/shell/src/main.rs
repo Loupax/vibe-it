@@ -14,6 +14,7 @@ mod forget;
 mod history;
 mod host;
 mod input;
+mod keymap;
 mod keys;
 mod layout;
 mod lock;
@@ -138,6 +139,24 @@ fn main() {
             Ok(RawDisplayHandle::Xlib(_)) | Ok(RawDisplayHandle::Xcb(_)) => clipboard::DesktopKind::X11,
             _ => clipboard::DesktopKind::None,
         };
+        // C-KEYMAP: the desktop's keyboard layout goes to the seat (first keymap, then every change).
+        let (keymap_tx, keymap_rx) = calloop::channel::channel::<keymap::Update>();
+        let mut latest = keymap::Latest::default();
+        event_loop
+            .handle()
+            .insert_source(keymap_rx, move |ev, _, state| {
+                match ev {
+                    calloop::channel::Event::Msg(keymap::Update::Keymap(text)) => {
+                        if latest.is_new(&text) && !state.set_desktop_keymap(text) {
+                            latest.forget();
+                        }
+                    }
+                    calloop::channel::Event::Msg(keymap::Update::Group(g)) => state.set_desktop_group(g),
+                    calloop::channel::Event::Closed => {}
+                }
+            })
+            .unwrap();
+        keymap::start(kind, keymap_tx);
         clipboard::Desktop::start(kind)
     };
     let (copies_tx, copies_rx) = calloop::channel::channel::<selection::Copied>();

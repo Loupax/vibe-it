@@ -2321,6 +2321,10 @@ dependencies = [
  "smithay",
  "tiny-skia",
  "url",
+ "wayland-backend",
+ "wayland-client",
+ "x11rb",
+ "xkbcommon-dl",
 ]
 
 [[package]]

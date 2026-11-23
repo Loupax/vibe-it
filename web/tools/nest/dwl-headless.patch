@@ -8,7 +8,23 @@
  #include <wlr/backend/libinput.h>
  #include <wlr/render/allocator.h>
  #include <wlr/render/wlr_renderer.h>
-@@ -1114,6 +1115,16 @@
+@@ -994,7 +995,14 @@
+ 
+ 	/* Prepare an XKB keymap and assign it to the keyboard group. */
+ 	context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+-	if (!(keymap = xkb_keymap_new_from_names(context, &xkb_rules,
++	/* NEST-HEADLESS: NEST_XKB_LAYOUT / NEST_XKB_OPTIONS replace the configured layout list
++	 * (C-KEYMAP live checks: a nested desktop on de, fr, ...). */
++	struct xkb_rule_names names = xkb_rules;
++	if (getenv("NEST_HEADLESS_SIZE")) {
++		if (getenv("NEST_XKB_LAYOUT")) names.layout = getenv("NEST_XKB_LAYOUT");
++		if (getenv("NEST_XKB_OPTIONS")) names.options = getenv("NEST_XKB_OPTIONS");
++	}
++	if (!(keymap = xkb_keymap_new_from_names(context, &names,
+ 				XKB_KEYMAP_COMPILE_NO_FLAGS)))
+ 		die("failed to compile keymap");
+ 
+@@ -1114,6 +1122,16 @@
  	 * monitor's preferred mode; a more sophisticated compositor would let
  	 * the user configure it. */
  	wlr_output_state_set_mode(&state, wlr_output_preferred_mode(wlr_output));
@@ -25,7 +41,7 @@
  
  	/* Set up event listeners */
  	LISTEN(&wlr_output->events.frame, &m->frame, rendermon);
-@@ -1416,12 +1427,18 @@
+@@ -1416,12 +1434,18 @@
  destroykeyboardgroup(struct wl_listener *listener, void *data)
  {
  	KeyboardGroup *group = wl_container_of(listener, group, destroy);
@@ -44,7 +60,17 @@
  }
  
  Monitor *
-@@ -2716,6 +2733,15 @@
+@@ -1728,7 +1752,8 @@
+ 			&group->wlr_group->keyboard.modifiers);
+ 
+ 	/* Write current XKB layout name to file and signal someblocks, only on group change */
+-	{
++	/* NEST-HEADLESS: never write the user's /tmp/dwl-keyboard-layout or signal their someblocks. */
++	if (!getenv("NEST_HEADLESS_SIZE")) {
+ 		static xkb_layout_index_t last_layout = XKB_LAYOUT_INVALID;
+ 		struct xkb_state *xkb_state = group->wlr_group->keyboard.xkb_state;
+ 		if (xkb_state) {
+@@ -2716,6 +2741,15 @@
  
  	kb_group = createkeyboardgroup();
  	wl_list_init(&kb_group->destroy.link);

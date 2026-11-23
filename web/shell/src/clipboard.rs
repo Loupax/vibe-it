@@ -107,7 +107,7 @@ fn is_empty_error(e: &str) -> bool {
 /// SIGTERM and SIGINT reach the shell through calloop's signalfd, which works only while every
 /// thread blocks them: this thread (and smithay-clipboard's, started from it) is created before
 /// the main thread blocks them, and would otherwise take them and kill the process.
-fn block_quit_signals() {
+pub fn block_quit_signals() {
     // Safety: plain libc calls on a local, zeroed signal set.
     unsafe {
         let mut set: libc::sigset_t = std::mem::zeroed();

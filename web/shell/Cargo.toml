@@ -29,3 +29,10 @@ url = "2"
 copypasta = "0.10"
 # C6: the clipboard thread blocks SIGTERM/SIGINT (they are for the main loop's signalfd).
 libc = "0.2"
+# C-KEYMAP: the desktop's keyboard layout (winit does not expose it): on Wayland a second wl_keyboard on
+# the shell window's own connection (as smithay-clipboard does), on X11 the XKB extension + libxkbcommon-x11
+# (dlopen'd through xkbcommon-dl, as winit does).
+wayland-client = "0.31"
+wayland-backend = { version = "0.3", default-features = false, features = ["client_system"] }
+x11rb = { version = "0.13", features = ["xkb", "allow-unsafe-code", "dl-libxcb"] }
+xkbcommon-dl = { version = "0.4", features = ["x11"] }
