@@ -421,3 +421,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 #641 QEDIT-B READY (draggable + DataTransfer; 8/9 dnd files), merging. Filed QINC2b (qinc2 test is wall-clock sensitive; launched), QWPTFLK6, QEDIT-B2.
 - 2026-11-23 Merged #641 QEDIT-B 3ee5c85. QDOM5e agent stopped without PR/report: resumed to finish. Launched QINC2b.
 - 2026-11-23 #642 QINC2b READY (deterministic tick test; fails on the old bug; 52/52 under load), merging. Launched QWPTFLK6.
+- 2026-11-23 #643 QDOM5e found as PR (agent report lost): new Document for initial-about:blank navigation, unload on removal; promise-job-incumbent not done. Queued after #642. Launched QWPTFLK6.
