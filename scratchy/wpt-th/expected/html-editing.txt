@@ -57,8 +57,7 @@ OK         73/80  html/editing/editing-0/writing-suggestions/writingsuggestions.
   FAIL      Test overriding a non-parent ancestor element's `writingsuggestions` attribute on a span element from "false" to an invalid value.
   FAIL      Test overriding a non-parent ancestor element's `writingsuggestions` attribute on an input type which the attribute doesn't apply from "false" to an invalid value. The User Agent is responsible that writing suggestions are not applied to the element.
   FAIL      Test overriding a non-parent ancestor element's `writingsuggestions` attribute on a disabled textarea element from "false" to an invalid value. The User Agent is responsible that writing suggestions are not applied to the element.
-OK           2/3  html/editing/focus/focus-management/active-element.html
-  FAIL      re-adding the formerly active element to the document does not make it active again
+OK           3/3  html/editing/focus/focus-management/active-element.html
 OK           1/1  html/editing/focus/focus-management/focus-blur.html
 OK           1/1  html/editing/focus/focus-management/focus-on-all-elements.html
 OK           1/1  html/editing/focus/focus-management/focused-area-removal.html

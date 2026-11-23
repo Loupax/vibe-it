@@ -795,6 +795,21 @@ fn active_element() -> Option<Handle> {
     ACTIVE_ELEMENT.with(|a| a.borrow().as_ref().and_then(|w| w.upgrade()))
 }
 
+/// QEDIT-D: the focus fixup rule. A focused element that was removed from its document (its tree root is
+/// an element, not a Document/shadow root) stops being the active element at once, so re-inserting it
+/// does not make it active again. Called before every insertion and when the active element is read.
+fn focus_fixup() {
+    let Some(a) = active_element() else { return };
+    let mut top = a;
+    while let Some(p) = parent_handle(&top) {
+        top = p;
+    }
+    if !matches!(top.data, NodeData::Document) {
+        set_active_element(None);
+        mirror_focus(None);
+    }
+}
+
 thread_local! {
     /// QY53c: the GEOMETRY generation. Bumped only by a DOM write that changed a
     /// value of a node connected to the page (or by a write of unknown effect),
@@ -1218,6 +1233,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     // QJ8: id of the focused element when it is inside document `doc`, else -1.
     let t = table.clone();
     native!(ctx, "__d_active", move |doc: i32| -> i32 {
+        focus_fixup();
         let mut t = t.borrow_mut();
         let (Some(root), Some(a)) = (t.get(doc), active_element()) else { return -1 };
         let mut top = a.clone();
@@ -1864,6 +1880,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     // `before` < 0 appends. `false` = HierarchyRequestError.
     let (t, d, gn, lk) = (table.clone(), dirty.clone(), wgen.clone(), reqs.clone());
     native!(ctx, "__d_insert", move |parent: i32, child: i32, before: i32| -> bool {
+        focus_fixup();
         insert_native(&t.borrow(), &d, &gn, Some(&lk), parent, child, before)
     });
     // QDOM18: ONE native call for the pre-insert fast path: the parent is an Element (not a fragment/shadow
@@ -1886,6 +1903,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     // subtree), but not the insertion steps: no `<link>` rescan (stylesheets are not refetched).
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
     native!(ctx, "__d_move", move |parent: i32, child: i32, before: i32| -> bool {
+        focus_fixup();
         insert_native(&t.borrow(), &d, &gn, None, parent, child, before)
     });
     let (t, d, gn, lk) = (table.clone(), dirty.clone(), wgen.clone(), reqs.clone());
@@ -2779,6 +2797,17 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
       function (v) { if (v === null) __d_rmattr(this.__id, attr); else __d_setattr(this.__id, attr, String(v)); });
   });
   reflect('lang', 'lang'); reflect('dir', 'dir');
+  // QEDIT-D: `tabIndex` (HTML focus: the attribute as an integer; when absent or invalid 0 for the elements that are
+  // focusable by default, else -1). Set writes the attribute as a long.
+  defs(HTMLElement.prototype, 'tabIndex', function () {
+    var v = __d_attr(this.__id, 'tabindex'), m = v == null ? null : /^[ \t\n\f\r]*([+-]?[0-9]+)/.exec(v);
+    if (m) { var n = parseInt(m[1], 10); if (n >= -2147483648 && n <= 2147483647) return n; }
+    var t = this.localName;
+    if (t === 'a' || t === 'area') return this.namespaceURI === 'http://www.w3.org/1999/xhtml' && __d_attr(this.__id, 'href') == null ? -1 : 0;
+    if (t === 'button' || t === 'input' || t === 'select' || t === 'textarea' || t === 'iframe' || t === 'frame' || t === 'object' ||
+        t === 'summary') return 0;
+    return -1;
+  }, function (v) { var n = Number(v); __d_setattr(this.__id, 'tabindex', String(isFinite(n) ? Math.trunc(n) : 0)); });
   // QEDIT-C: `hidden` is `boolean or unrestricted double or DOMString`: "until-found" (ASCII case-insensitive) reads back
   // as the string and is stored lowercase; '' / false / 0 / NaN / null / undefined remove it; anything else is `hidden`.
   defs(ElementProto, 'hidden', function () {
@@ -2905,15 +2934,43 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
     if (rel) init.relatedTargetId = rel.__id;
     g.__scratchy_dn(el.__id, type, init);
   };
-  HTMLElement.prototype.focus = function () {
-    if (!this.isConnected) return;
-    var oid = __d_focus(this.__id, true);
+  // QEDIT-D: a shadow host with delegatesFocus is not itself a focus target: the focus delegate is the first
+  // focusable element in its shadow tree (tree order); none means nothing is focused.
+  var focusEl = function (el) {
+    if (!el.isConnected) return;
+    var sid = __d_shadow_of(el.__id);
+    if (sid >= 0 && srOpts[sid] && srOpts[sid].delegatesFocus) {
+      var all = wrap(sid).querySelectorAll('*');
+      for (var i = 0; i < all.length; i++) {
+        var o2 = __d_focus(all[i].__id, true);
+        if (o2 !== -1) { focusEv2(all[i], o2); return; }
+      }
+      return;
+    }
+    var oid = __d_focus(el.__id, true);
     if (oid === -1) return;
-    var old = oid >= 0 ? wrap(oid) : null;
-    if (old) { focusEv(old, this, 'blur', false); focusEv(old, this, 'focusout', true); }
-    focusEv(this, old, 'focus', false);
-    focusEv(this, old, 'focusin', true);
+    focusEv2(el, oid);
   };
+  // Focus fixup: a focused element that stops being rendered (`:focus { display: none }`) loses focus, with
+  // blur/focusout, once the script that focused it has finished (checked once per batch, after a microtask).
+  var fixupPending = false;
+  var fixupSoon = function () {
+    if (fixupPending) return;
+    fixupPending = true;
+    Promise.resolve().then(function () {
+      fixupPending = false;
+      var a = __d_active(0) >= 0 ? wrap(__d_active(0)) : null;
+      if (a && a.nodeType === 1 && g.getComputedStyle(a).display === 'none') a.blur();
+    });
+  };
+  var focusEv2 = function (el, oid) {
+    var old = oid >= 0 ? wrap(oid) : null;
+    if (old) { focusEv(old, el, 'blur', false); focusEv(old, el, 'focusout', true); }
+    focusEv(el, old, 'focus', false);
+    focusEv(el, old, 'focusin', true);
+    fixupSoon();
+  };
+  HTMLElement.prototype.focus = function () { focusEl(this); };
   HTMLElement.prototype.blur = function () {
     if (__d_focus(this.__id, false) === -1) return;
     focusEv(this, null, 'blur', false);
