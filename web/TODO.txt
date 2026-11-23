@@ -157,7 +157,7 @@ stop early on a hard failure.
 - [ ] C-FOCUSKEYS [S] (from C2 #671; from reading code, untested) smithay's winit backend drops winit's synthetic
       key releases: a modifier held when the shell loses focus (Alt of Alt+Tab) can stay down. Release every
       pressed key on focus-out. Done when Alt+Tab away and back leaves no stuck modifier (keydown logger page).
-- [ ] C-SOCKDIR [XS] (from C2 #671) A hard-killed shell leaves $XDG_RUNTIME_DIR/web-<pid>/ behind: clean stale
+- [WIP] C-SOCKDIR [XS] (from C2 #671) A hard-killed shell leaves $XDG_RUNTIME_DIR/web-<pid>/ behind: clean stale
       dirs at start.
 - [x] C-INSTALL [S] (DONE 2026-11-23, 3bce370, #678: web/install.sh -> ~/.local/lib/web/<ver> + ~/.local/bin/web;
       `ci_then_push.sh --install web`; installed for the user 14:33; ~1.5 GB per version, 2 kept) (user bumped it 2026-11-23) (coordinator, 2026-11-23) Make web installable for daily use: `cargo install` copies only
@@ -167,7 +167,7 @@ stop early on a hard failure.
       works from a fresh shell after the install.
 - [ ] NEST-WINKEYMAP [XS] (from #673) Windowed nest: a client started after an inject run ended gets no keymap
       and Chromium crashes on the first modifiers event (the headless patch handles it; windowed does not).
-- [ ] C3-GOHTTP [XS] (from #677) A `:go` ghost taken from an http:// history entry typed without its scheme
+- [WIP] C3-GOHTTP [XS] (bundled with C-SOCKDIR) (from #677) A `:go` ghost taken from an http:// history entry typed without its scheme
       (`:go 127` Tab Enter) runs as https://. When the completed word matches a history URL with its scheme
       stripped, use that URL's own scheme.
 - [ ] C3-SHIFTSYNC [S] (from #677; with C-FOCUSKEYS) The shell learns held modifiers only from key events: a
@@ -195,15 +195,15 @@ stop early on a hard failure.
       falls out. Done when tests named after the new rows pass and a live check `/`-finds a link, `n`s to a
       second one, presses Enter and lands on that link's target; and Enter with the pointer moved by the
       mouse clicks there.
-- [WIP] C3-LIVE-REFRESH [XS] (bundled with C5-FRAG and C5-STALE) (from #681) web/shell/test/c3_live.py is stale since C5 (`/` opens SEARCH): steps
+- [x] C3-LIVE-REFRESH [XS] (DONE 2026-11-23, 95fc985, #684; c3_live 19/19) (from #681) web/shell/test/c3_live.py is stale since C5 (`/` opens SEARCH): steps
       from "T7 T8" on fail. Update it so its 19 steps pass again.
 - [ ] C5b [S] (from #679; shares the rectangle mechanism with C7 and S7) Exact T23: first current match = first
       whose top is at/below the top of the screen (CEF picks its own, e.g. one above the screen). Needs a
       host `find-matches` event (one rect per match + scroll offset) or a way to start CEF's find at the
       viewport top.
-- [WIP] C5-FRAG [XS] (from #679) Same-document navigations (#fragment) get no load callbacks, so T31's clear on
+- [x] C5-FRAG [XS] (DONE #684: shell clears find on load ... same-document) (from #679) Same-document navigations (#fragment) get no load callbacks, so T31's clear on
       navigation does not happen for them; host emits a navigated signal, shell clears.
-- [WIP] C5-STALE [XS] (from #679) CEF sends a stale `find-result 0 0` at a cross-document load start; an `n`
+- [x] C5-STALE [XS] (DONE #684: find ids echoed in find-result) (from #679) CEF sends a stale `find-result 0 0` at a cross-document load start; an `n`
       pressed within ms of navigating could take it as its answer. Tag find requests/results.
 - [ ] C-DRM PARKED (user, 2026-11-23) (from #680) Widevine DRM (Netflix, Spotify web player): CEF ships no CDM, so DRM never
       worked. Getting it needs a CDM path plus the component updater back on (Google traffic again).

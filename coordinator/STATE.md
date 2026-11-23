@@ -504,3 +504,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Merged #683 C-NOMENU 2d4da10 (no CI job for host-cef-only; local live check PASS); web reinstalled 15:18. C-CMDS held until the caret question is answered. Launched bundle C3-LIVE-REFRESH + C5-FRAG + C5-STALE (Sonnet).
 - 2026-11-23 Merged #682 W2-F fe69303 (wire2's planned chain complete). wire2 + wire2-pass installed 15:21. Filed W2-F1, W2-F2 (user manual), W2-F3 folded into W2-1b. Launched W2-2a (Sonnet). USER: not Chromium's caret browsing (tried it in Chrome, bad) -> own caret, design pending (C5-ENTER note).
 - 2026-11-23 USER: park everything caret-related (C5-ENTER, C-CMDS, CARET-1 idea). Discussed: Chromium caret drawn by the shell as a spike.
+- 2026-11-23 Merged #684 C5-FIXES 95fc985; web reinstalled 15:33. Launched bundle C3-GOHTTP + C-SOCKDIR + cargo fmt drift (Sonnet). Waiting on the user re: Enter in NORMAL / caret always on (discussion, no changes).
