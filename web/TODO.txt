@@ -5,10 +5,10 @@ request answered through wire, the whole CEF process tree in an empty network
 namespace. Proposed time box: two weeks. Each step ends with a check, so the
 spike can stop early on a hard failure. Decisions: DECISIONS.md.
 
-- [WIP] W1 Bare CEF window. A Rust binary with the `cef` crate opens one window and
+- [x] W1 Bare CEF window (DONE 2026-11-23, 4cb0793, #656; see web/spike/README.md). A Rust binary with the `cef` crate opens one window and
       loads a URL, no interception yet.
       Done when: a site loads on Linux (X11 and Wayland).
-- [ ] W2 Empty network namespace. Launch under `unshare -rn` (or bubblewrap
+- [WIP] W2 Empty network namespace. Launch under `unshare -rn` (or bubblewrap
       `--unshare-net`).
       Done when: the same site fails to load and nothing else in CEF crashes.
 - [ ] W3 Answer requests from wire. A `CefResourceRequestHandler` sends each
