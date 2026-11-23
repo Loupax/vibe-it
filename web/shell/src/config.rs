@@ -1,0 +1,254 @@
+//! web's configuration: edit and rebuild; every new user-tunable knob goes here.
+//!
+//! dwm `config.h` style (KEYS.md "Configuration", carried over from scratchy's
+//! `src/config.rs`): plain constants and tables, no runtime config file. Each knob has a
+//! one-line comment. To add a binding, add a row to `BINDINGS`; to add a knob, add a
+//! `pub const` below with a comment, then read it from the code that needs it. Keep this
+//! file free of logic beyond the tiny `Binding` helpers.
+
+use smithay::input::keyboard::Keysym;
+
+use crate::keys::{Action, KeyInput, KeyMode};
+
+// ---------- key bindings ----------
+
+/// Which key a `Binding` matches.
+#[derive(Clone, Copy, Debug)]
+pub enum KeySpec {
+    /// A character key, as the keymap gives it with Shift applied (`"G"`, `":"`; so no
+    /// `Shift` condition is needed for those).
+    Char(char),
+    /// A non-character key (arrows, Home, Space, ...).
+    Sym(Keysym),
+}
+
+/// The modifier condition of a `Binding`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mods {
+    /// Fires whatever modifiers are held.
+    Any,
+    /// Fires only while Ctrl is held.
+    Ctrl,
+    /// Fires only while Shift is held.
+    Shift,
+}
+
+/// One NORMAL-mode key binding: key, modifier condition, resulting action.
+#[derive(Clone, Copy, Debug)]
+pub struct Binding {
+    pub key: KeySpec,
+    pub mods: Mods,
+    pub action: Action,
+}
+
+impl Binding {
+    /// Whether this row matches a key press.
+    pub fn matches(&self, key: &KeyInput) -> bool {
+        let key_ok = match self.key {
+            KeySpec::Char(c) => key.ch == Some(c),
+            KeySpec::Sym(s) => key.sym == s,
+        };
+        key_ok
+            && match self.mods {
+                Mods::Any => true,
+                Mods::Ctrl => key.ctrl,
+                Mods::Shift => key.shift,
+            }
+    }
+}
+
+const fn bind(key: KeySpec, mods: Mods, action: Action) -> Binding {
+    Binding { key, mods, action }
+}
+
+use Action as A;
+use KeySpec::{Char, Sym};
+
+/// NORMAL-mode key bindings. The FIRST matching row wins, so a more specific row (a
+/// modifier condition) must come before a more general one on the same key (Shift+Space
+/// before Space). `A::Scroll(n)` is row `n` of `SCROLL_INPUTS` below.
+/// `/`, `n` and `N` (search) only say "not yet" until C5 (web/TODO.txt).
+pub const BINDINGS: &[Binding] = &[
+    bind(Char('j'), Mods::Any, A::Scroll(DOWN)),
+    bind(Char('k'), Mods::Any, A::Scroll(UP)),
+    bind(Char('d'), Mods::Ctrl, A::Scroll(PAGE_DOWN)),
+    bind(Char('u'), Mods::Ctrl, A::Scroll(PAGE_UP)),
+    bind(Char(':'), Mods::Any, A::EnterCommandMode),
+    bind(Char('/'), Mods::Any, A::SearchNotYet),
+    bind(Sym(Keysym::Escape), Mods::Any, A::ClearSearch),
+    bind(Char('n'), Mods::Any, A::SearchNotYet),
+    bind(Char('N'), Mods::Any, A::SearchNotYet),
+    bind(Char('i'), Mods::Any, A::EnterInputMode),
+    bind(Char('h'), Mods::Any, A::HistoryBack),
+    bind(Char('l'), Mods::Any, A::HistoryForward),
+    bind(Char('G'), Mods::Any, A::Scroll(BOTTOM)),
+    bind(Sym(Keysym::Down), Mods::Any, A::Scroll(DOWN)),
+    bind(Sym(Keysym::Up), Mods::Any, A::Scroll(UP)),
+    bind(Sym(Keysym::Left), Mods::Any, A::Scroll(LEFT)),
+    bind(Sym(Keysym::Right), Mods::Any, A::Scroll(RIGHT)),
+    bind(Sym(Keysym::space), Mods::Shift, A::Scroll(PAGE_UP)),
+    bind(Sym(Keysym::space), Mods::Any, A::Scroll(PAGE_DOWN)),
+    bind(Sym(Keysym::Page_Down), Mods::Any, A::Scroll(PAGE_DOWN)),
+    bind(Sym(Keysym::Page_Up), Mods::Any, A::Scroll(PAGE_UP)),
+    bind(Sym(Keysym::Home), Mods::Any, A::Scroll(TOP)),
+    bind(Sym(Keysym::End), Mods::Any, A::Scroll(BOTTOM)),
+];
+
+/// A two-key NORMAL sequence: `first` arms, `second` fires `action` (KEYS.md T10-T12,
+/// T54-T56). Any other key clears the pending state and is handled as in NORMAL.
+#[derive(Clone, Copy, Debug)]
+pub struct KeySeq {
+    pub first: char,
+    pub second: char,
+    pub action: Action,
+}
+
+/// The two-key sequences (character keys, no Ctrl/Alt).
+pub const KEY_SEQUENCES: &[KeySeq] = &[
+    // `gg`: scroll to the top.
+    KeySeq {
+        first: 'g',
+        second: 'g',
+        action: Action::Scroll(TOP),
+    },
+    // `yy`: copy the URL (`:let @+ = @%`); needs the clipboard (C6), says so until then.
+    KeySeq {
+        first: 'y',
+        second: 'y',
+        action: Action::YankUrl,
+    },
+];
+
+// ---------- scrolling (KEYS.md T13, web note) ----------
+
+/// What a scroll binding sends to the page: real input, never a page API.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScrollInput {
+    /// A key press given to the page window (evdev key code, below), held for as long as
+    /// the bound key is held, so the engine's own key repeat keeps scrolling.
+    Key(u32),
+    /// Wheel steps (positive = down) at the pointer; only when the pointer is over the
+    /// page (the wheel goes to the surface under it). One press, one event.
+    #[allow(dead_code)] // only used by a user's SCROLL_INPUTS row (and the tests)
+    Wheel(i32),
+}
+
+/// evdev key codes (linux/input-event-codes.h) for `ScrollInput::Key`.
+pub mod evdev {
+    pub const KEY_HOME: u32 = 102;
+    pub const KEY_UP: u32 = 103;
+    pub const KEY_PAGEUP: u32 = 104;
+    pub const KEY_LEFT: u32 = 105;
+    pub const KEY_RIGHT: u32 = 106;
+    pub const KEY_END: u32 = 107;
+    pub const KEY_DOWN: u32 = 108;
+    pub const KEY_PAGEDOWN: u32 = 109;
+}
+
+pub const DOWN: usize = 0;
+pub const UP: usize = 1;
+pub const PAGE_DOWN: usize = 2;
+pub const PAGE_UP: usize = 3;
+pub const TOP: usize = 4;
+pub const BOTTOM: usize = 5;
+pub const LEFT: usize = 6;
+pub const RIGHT: usize = 7;
+
+/// The scroll table, indexed by the constants above. Chromium has no half-page key, so
+/// Ctrl-d / Ctrl-u scroll a page (`PAGE_DOWN`/`PAGE_UP`); for half a page put e.g.
+/// `ScrollInput::Wheel(5)` in a row of its own and bind Ctrl-d to it.
+/// Note: a key goes to whatever has focus in the page, so `j` in NORMAL moves the caret
+/// of a text field the page focused itself (T32); `Wheel` rows do not.
+pub const SCROLL_INPUTS: &[ScrollInput] = &[
+    ScrollInput::Key(evdev::KEY_DOWN),     // DOWN
+    ScrollInput::Key(evdev::KEY_UP),       // UP
+    ScrollInput::Key(evdev::KEY_PAGEDOWN), // PAGE_DOWN
+    ScrollInput::Key(evdev::KEY_PAGEUP),   // PAGE_UP
+    ScrollInput::Key(evdev::KEY_HOME),     // TOP
+    ScrollInput::Key(evdev::KEY_END),      // BOTTOM
+    ScrollInput::Key(evdev::KEY_LEFT),     // LEFT
+    ScrollInput::Key(evdev::KEY_RIGHT),    // RIGHT
+];
+
+// ---------- modes ----------
+
+/// Esc Esc: the second Esc must come within this many ms of the first (INPUT -> NORMAL).
+/// A QMK user can swap the trigger for F13 by editing `resolve_esc_esc`'s key test.
+pub const ESC_ESC_MS: u64 = 300;
+
+/// The key mode a fresh window starts in (user 2026-11-21, scratchy QKEYS5: NORMAL).
+/// Navigations keep the current mode; a click into a text control still switches to INPUT.
+pub const START_MODE: KeyMode = KeyMode::Normal;
+
+/// T29: the host's `editable-focused true` (or a new popup: a `<select>` menu) switches to
+/// INPUT only this many ms after a mouse button press; later it was the page's own script (T32).
+pub const CLICK_FOCUS_MS: u64 = 1000;
+
+// ---------- status bar ----------
+
+/// Height of the status bar at the bottom of the window, px. The page is the window minus this.
+pub const STATUS_BAR_H: i32 = 24;
+/// Horizontal padding inside the status bar, px.
+pub const STATUS_BAR_PAD_X: f32 = 6.0;
+/// Space between the mode, the URL and the message, px.
+pub const STATUS_BAR_GAP: f32 = 12.0;
+/// Least room the URL keeps when a message is shown, px.
+pub const STATUS_BAR_MIN_URL_W: f32 = 160.0;
+/// Font size of the status bar text, px.
+pub const STATUS_BAR_FONT_PX: f32 = 14.0;
+/// Status bar background, RGB.
+pub const STATUS_BAR_BG: (u8, u8, u8) = (24, 24, 24);
+/// Status bar text colour (URL, message, the `:` line), RGB.
+pub const STATUS_BAR_FG: (u8, u8, u8) = (225, 225, 225);
+/// Status bar mode-name colour (`INPUT` / `NORMAL`), RGB.
+pub const STATUS_BAR_MODE_FG: (u8, u8, u8) = (120, 200, 255);
+/// Ghost (suggestion) text colour in the `:` line, RGB (dimmed).
+pub const GHOST_FG: (u8, u8, u8) = (120, 120, 120);
+
+// ---------- command line and completion ----------
+
+/// Arguments `:refresh` completes (`hard` bypasses the cache).
+pub const REFRESH_ARGS: &[&str] = &["hard"];
+
+/// Where a command's arguments complete from (KEYS.md "Completion").
+#[derive(Clone, Copy)]
+pub enum Source {
+    /// A Rust function: given the line, the word and its argument index, the candidates
+    /// (full words that start with the word), best first.
+    Builtin(fn(&crate::completion::CompleteCtx) -> Vec<String>),
+    /// An external program (argv, run with NO shell, so `$(...)` and `;` are plain text). It
+    /// gets the context in its environment: WEB_LINE (the whole line), WEB_WORD (the word
+    /// being completed), WEB_ARG (its index, 1 = first argument), WEB_URL (the current
+    /// page), WEB_STATE_DIR. It prints one candidate per line on stdout; a non-zero exit or
+    /// no output means no ghost. It runs on a thread once per command line and argument
+    /// position (not per key) and is killed after `SOURCE_TIMEOUT_MS`.
+    #[allow(dead_code)] // only used by a user's COMPLETERS row (and the tests)
+    Cmd(&'static [&'static str]),
+}
+
+/// The completion table, one row per command (the first word always completes from the
+/// command names). No row = no ghost after that command's name. `:go` completes from the
+/// history file. To use your own program, replace a row, e.g.
+/// `("go", Source::Cmd(&["my-url-source", "--flag"]))`.
+pub const COMPLETERS: &[(&str, Source)] = &[
+    ("go", Source::Builtin(crate::completion::complete_history_urls)),
+    ("refresh", Source::Builtin(crate::completion::complete_refresh_args)),
+    // ("go", Source::Cmd(&["my-url-source"])),
+];
+
+/// An external completion source still running after this many milliseconds is killed and
+/// gives no candidates.
+pub const SOURCE_TIMEOUT_MS: u64 = 2000;
+/// At most this many bytes of an external source's stdout are read; the rest is dropped.
+pub const SOURCE_MAX_OUTPUT: usize = 1 << 20;
+
+/// Commands whose argument, once selected with Tab (a single match), is followed by a
+/// space (T53). The command name itself always gets one; a URL never.
+pub const SPACE_AFTER_ARG: &[&str] = &[];
+
+// ---------- history (STASH.md "History") ----------
+
+/// Record visits in `DIR/history` (the `:go` completion reads it). false = never write the file.
+pub const HISTORY: bool = true;
+/// At startup a history file with more lines than this keeps only the newest ones.
+pub const HISTORY_MAX_LINES: usize = 50_000;

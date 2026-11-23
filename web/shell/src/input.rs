@@ -1,18 +1,23 @@
 //! Keyboard and pointer from the shell window (winit) to the page.
 //!
-//! C2 forwards every key to the focused window (the page, or a dialog, or a popup that
-//! holds a grab). C3 hooks its modes into the keyboard filter below.
+//! A key reaches the focused window (the page, or a dialog, or a popup that holds a grab)
+//! only when the key model (C3, `keys.rs`, KEYS.md) says so; pointer events always go to
+//! the surface under the pointer (T30).
 
 use smithay::backend::input::{
     AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, InputBackend, InputEvent, KeyboardKeyEvent, PointerAxisEvent,
     PointerButtonEvent,
 };
+use std::time::Instant;
+
+use smithay::backend::input::KeyState;
 use smithay::desktop::WindowSurfaceType;
-use smithay::input::keyboard::FilterResult;
+use smithay::input::keyboard::{FilterResult, Keycode};
 use smithay::input::pointer::{AxisFrame, ButtonEvent, MotionEvent};
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Logical, Point, SERIAL_COUNTER};
 
+use crate::keys::{Effect, KeyInput};
 use crate::layout::Region;
 use crate::state::State;
 
@@ -32,9 +37,21 @@ impl State {
             InputEvent::Keyboard { event } => {
                 let serial = SERIAL_COUNTER.next_serial();
                 let time = Event::time_msec(&event);
+                let code = event.key_code();
+                let pressed = event.state() == KeyState::Pressed;
                 let keyboard = self.seat.get_keyboard().unwrap();
-                // C3: modes (KEYS.md) decide here what the page gets.
-                keyboard.input::<(), _>(self, event.key_code(), event.state(), serial, time, |_, _, _| FilterResult::Forward);
+                // C3: the modes (KEYS.md, `keys.rs`) decide what the page gets. Modifier
+                // keys go through the same decision, so in NORMAL the page's idea of the
+                // held modifiers stays as it was (a scroll key given to it is unmodified).
+                keyboard.input::<(), _>(self, code, event.state(), serial, time, |state, mods, handle| {
+                    let key = KeyInput::from_xkb(handle.modified_sym(), mods);
+                    if state.keys.key(code.raw(), pressed, &key, Instant::now()) {
+                        FilterResult::Forward
+                    } else {
+                        FilterResult::Intercept(())
+                    }
+                });
+                self.apply_key_effects(time);
             }
             InputEvent::PointerMotionAbsolute { event } => {
                 let pos = event.position_transformed(self.layout.window);
@@ -44,6 +61,10 @@ impl State {
                 let pointer = self.seat.get_pointer().unwrap();
                 let serial = SERIAL_COUNTER.next_serial();
                 let state = event.state();
+                if state == ButtonState::Pressed && self.surface_under(pointer.current_location()).is_some() {
+                    // T29: a focus change reported soon after this is the user's click.
+                    self.last_click = Some(Instant::now());
+                }
                 if state == ButtonState::Pressed && !pointer.is_grabbed() {
                     // A click on a dialog raises it and gives it the keyboard; a click on
                     // the page focuses the page (dialogs stay above it).
@@ -94,6 +115,47 @@ impl State {
             }
             _ => {}
         }
+    }
+
+    /// Carries out what the key model queued: commands to the host, scroll input given
+    /// to the page window (KEYS.md T13), quitting.
+    pub fn apply_key_effects(&mut self, time: u32) {
+        for effect in std::mem::take(&mut self.keys.effects) {
+            match effect {
+                Effect::Send(cmd) => self.send(cmd),
+                Effect::KeyDown(k) | Effect::KeyUp(k) => {
+                    let st = if matches!(effect, Effect::KeyDown(_)) {
+                        KeyState::Pressed
+                    } else {
+                        KeyState::Released
+                    };
+                    let keyboard = self.seat.get_keyboard().unwrap();
+                    let serial = SERIAL_COUNTER.next_serial();
+                    // xkb key codes are evdev + 8. Not through the filter: the page gets it.
+                    keyboard.input_forward(self, Keycode::new(k + 8), st, serial, time, false);
+                }
+                Effect::Wheel(steps) => {
+                    let pointer = self.seat.get_pointer().unwrap();
+                    let over_page = pointer.current_focus().is_some_and(|s| {
+                        self.page
+                            .as_ref()
+                            .is_some_and(|p| p.toplevel().is_some_and(|t| t.wl_surface() == &s))
+                    });
+                    if over_page {
+                        let frame = AxisFrame::new(time)
+                            .source(AxisSource::Wheel)
+                            .value(Axis::Vertical, steps as f64 * 15.0)
+                            .v120(Axis::Vertical, steps * 120);
+                        pointer.axis(self, frame);
+                        pointer.frame(self);
+                    } else {
+                        self.keys.message = "web: wheel scrolling needs the pointer over the page".into();
+                    }
+                }
+                Effect::Quit => self.quit(":q"),
+            }
+        }
+        self.redraw();
     }
 
     pub fn pointer_motion(&mut self, pos: Point<f64, Logical>, time: u32) {

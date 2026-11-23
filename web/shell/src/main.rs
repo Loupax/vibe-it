@@ -6,20 +6,27 @@
 //! on (web/PROTOCOL.md). The page's window fills the shell window minus the status bar.
 
 mod args;
+mod completion;
+mod config;
 mod control;
+mod history;
 mod host;
 mod input;
+mod keys;
 mod layout;
 mod pairing;
 mod protocol;
+mod registers;
 mod render;
 mod state;
+mod statusbar;
+#[cfg(test)]
+mod tests;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use smithay::backend::renderer::damage::OutputDamageTracker;
-use smithay::backend::renderer::element::solid::SolidColorBuffer;
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::winit::{self, WinitEvent};
 use smithay::desktop::{PopupManager, Space};
@@ -159,6 +166,26 @@ fn main() {
         }
     );
 
+    // `:help`'s page, and the channel external completion sources answer on (C3).
+    let help_url = control::write_help(&control_path).unwrap_or_else(|e| {
+        eprintln!("web: cannot write the help page: {e}");
+        String::new()
+    });
+    let (complete_tx, complete_rx) = calloop::channel::channel::<completion::ExtResult>();
+    let complete_tx = std::sync::Mutex::new(complete_tx);
+    let sink: completion::ExtSink = Arc::new(move |r| {
+        let _ = complete_tx.lock().unwrap_or_else(|e| e.into_inner()).send(r);
+    });
+    event_loop
+        .handle()
+        .insert_source(complete_rx, |ev, _, state| {
+            if let calloop::channel::Event::Msg(r) = ev {
+                state.keys.complete_result(r);
+                state.redraw();
+            }
+        })
+        .unwrap();
+
     let mut state = State {
         start,
         display_handle: dh.clone(),
@@ -195,7 +222,11 @@ fn main() {
         host: None,
         quit_deadline: None,
         exit_code: 0,
-        bar: SolidColorBuffer::new((window_size.w, layout::BAR_H), layout::BAR_BG),
+        bar: statusbar::Bar::new(),
+        keys: keys::Keys::new(Some(state_dir.clone()), help_url, Some(sink)),
+        history: history::History::open(Some(state_dir.clone())),
+        visits: history::Visits::default(),
+        last_click: None,
         damage_tracker: None,
     };
     state.damage_tracker = Some(OutputDamageTracker::from_output(&state.output));

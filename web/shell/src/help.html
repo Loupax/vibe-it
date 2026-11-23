@@ -1,0 +1,123 @@
+<!-- web's `:help` page (web/TODO.txt C3; rewritten from scratchy's src/help.html).
+     Built into the `web` binary, written next to its control socket at start and
+     loaded by the engine host from that file. Update it whenever a command or a key
+     binding changes, in the same change: a help page that drifts from what the
+     command line does is worse than none. -->
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>web help</title>
+<style>
+body { font: 15px/1.5 sans-serif; max-width: 52em; margin: 2em auto; padding: 0 1em; }
+code { background: #eee; padding: 0 .2em; }
+table { border-collapse: collapse; }
+td, th { border: 1px solid #ccc; padding: .2em .5em; text-align: left; vertical-align: top; }
+</style>
+</head>
+<body>
+
+<h1>web</h1>
+<p>A quick reference for the keys and the command line. <code>:q</code> goes
+back to the page you were on.</p>
+
+<h2>Modes and the status bar</h2>
+<p>The bar at the bottom of the window shows the mode (<code>INPUT</code> or
+<code>NORMAL</code>), the page's URL, and on the right the last message (a load
+error, a command's answer). While you type a command the bar shows that line
+instead: <code>:</code> followed by what you typed.</p>
+<ul>
+<li><b>INPUT</b>: every key goes to the page, and the page and the browser do
+what they always do with it (text fields, <code>Tab</code>, arrows and
+<code>PageDown</code> scrolling, shortcuts). web's own keys below do nothing here.</li>
+<li>Press <code>Esc</code> twice quickly (within 300 ms) to go to
+<b>NORMAL</b>. The first <code>Esc</code> reaches the page as usual (it may
+close a dialog or leave a text field); the second one never does.</li>
+<li><b>NORMAL</b> (the mode at start): keys are web's and the page gets no
+key events. Press <code>i</code> to go back to INPUT. Clicking into a text
+field, or opening a select's menu (or a context menu) with the mouse, also
+switches to INPUT. The mouse always goes to the page.</li>
+<li>Going to another page does not change the mode, and a page cannot switch
+it by focusing a field itself.</li>
+</ul>
+
+<h2>Normal mode keys</h2>
+<table>
+<tr><th>Key</th><th>Effect</th></tr>
+<tr><td><code>j</code> / <code>Down</code></td><td>Scroll down (hold to keep scrolling)</td></tr>
+<tr><td><code>k</code> / <code>Up</code></td><td>Scroll up</td></tr>
+<tr><td><code>Left</code> / <code>Right</code></td><td>Scroll left / right</td></tr>
+<tr><td><code>Ctrl</code>+<code>d</code>, <code>Space</code>, <code>PageDown</code></td><td>Scroll down one page</td></tr>
+<tr><td><code>Ctrl</code>+<code>u</code>, <code>Shift</code>+<code>Space</code>, <code>PageUp</code></td><td>Scroll up one page</td></tr>
+<tr><td><code>g</code> <code>g</code> / <code>Home</code></td><td>Scroll to the top</td></tr>
+<tr><td><code>G</code> / <code>End</code></td><td>Scroll to the bottom</td></tr>
+<tr><td><code>h</code></td><td>Go back one page in history (same as <code>:historyBack</code>)</td></tr>
+<tr><td><code>l</code></td><td>Go forward one page (same as <code>:historyFront</code>)</td></tr>
+<tr><td><code>:</code></td><td>Open the command line</td></tr>
+<tr><td><code>i</code></td><td>Switch to INPUT mode</td></tr>
+<tr><td><code>/</code>, <code>n</code>, <code>N</code></td><td>Search: not built yet (the status bar says so)</td></tr>
+<tr><td><code>y</code> <code>y</code></td><td>Copy the page URL: needs the clipboard, not built yet (the status bar says so)</td></tr>
+</table>
+<p>Scrolling is done by giving the page a real key press (<code>Down</code>,
+<code>PageDown</code>, <code>Home</code>, ...), so the page scrolls exactly as
+it would for that key. The keys are the <code>BINDINGS</code> and
+<code>SCROLL_INPUTS</code> tables in <code>web/shell/src/config.rs</code>, with
+the timing next to them. There is no config file: edit that file and rebuild.</p>
+
+<h2>Command line</h2>
+<p>In NORMAL mode press <code>:</code>, type a command, then <code>Enter</code>
+to run it. <code>Esc</code> cancels. <code>Left</code>, <code>Right</code>,
+<code>Home</code>, <code>End</code>, <code>Backspace</code>,
+<code>Ctrl</code>+<code>w</code> (delete a word) and <code>Ctrl</code>+<code>u</code>
+(delete to the start) edit the line.</p>
+<p>While you type a command name, a <code>:go</code> address or a
+<code>:refresh</code> argument, the rest of the best match shows dimmed after
+the cursor (a ghost suggestion; only when the cursor is at the end of the line).
+<code>Enter</code> runs what you typed plus the ghost. <code>Tab</code> and
+<code>Shift</code>+<code>Tab</code> show the next and previous match; with a
+single match <code>Tab</code> selects it (after a command name a space follows).
+<code>Right</code> or <code>End</code> accept the ghost into the line.
+<code>Delete</code> hides it until your next edit, so <code>Enter</code> runs
+only what you typed.</p>
+<p><code>:go</code> suggests from the pages you visited: sites you visit most
+first (<code>you</code> suggests YouTube's home page even if you mostly watched
+videos), then single pages. <code>https://</code>, <code>http://</code> and
+<code>www.</code> are ignored when matching.</p>
+<table>
+<tr><th>Command</th><th>Effect</th></tr>
+<tr><td><code>:go &lt;url&gt;</code></td><td>Go to a URL. Without a scheme <code>https://</code> is assumed (<code>:go example.com</code>); <code>/x</code>, <code>./x</code>, <code>../x</code>, <code>#x</code>, <code>?x</code> are relative to the page on screen</td></tr>
+<tr><td><code>:refresh</code></td><td>Reload the page</td></tr>
+<tr><td><code>:refresh hard</code></td><td>Reload the page and everything on it, bypassing the cache</td></tr>
+<tr><td><code>:historyBack</code></td><td>Go back one page (same as <code>h</code>)</td></tr>
+<tr><td><code>:historyFront</code></td><td>Go forward one page (same as <code>l</code>)</td></tr>
+<tr><td><code>:let @&lt;dst&gt; = @&lt;src&gt;</code></td><td>Copy a register into another (vim's <code>:let @+ = @%</code>). <code>%</code> is the page URL as the status bar shows it (read-only), <code>+</code> is the system clipboard, which is not connected yet: the status bar says so</td></tr>
+<tr><td><code>:help</code></td><td>Show this page</td></tr>
+<tr><td><code>:q</code> or <code>:quit</code></td><td>On this help page, go back to the page before it; otherwise close web</td></tr>
+</table>
+<p>Paste into the command line (<code>Ctrl</code>+<code>v</code>) needs the
+clipboard too, not built yet.</p>
+
+<h2>What is kept between runs</h2>
+<p>Everything lives under the state directory (<code>--state-dir</code>,
+<code>$WEB_STATE_DIR</code>, else <code>~/.local/state/web</code>):</p>
+<ul>
+<li><code>history</code>: one line per page visited (time, URL, title).
+<code>:go</code> suggests from it. Reloads, back/forward and failed loads are
+not visits. scratchy's history file has the same format and can be copied over.</li>
+<li><code>engines/cef/</code>: the engine's profile: cookies, site storage,
+cache.</li>
+<li>Your own completion source: in <code>config.rs</code> a row of
+<code>COMPLETERS</code> can be <code>Source::Cmd(&amp;["my-source"])</code>. The
+program runs with no shell, once per command line and argument position, with
+<code>WEB_LINE</code>, <code>WEB_WORD</code>, <code>WEB_ARG</code>,
+<code>WEB_URL</code> and <code>WEB_STATE_DIR</code> in its environment, and
+prints one candidate per line.</li>
+</ul>
+
+<h2>Starting web</h2>
+<p><code>web [--proxy HOST:PORT] [--state-dir DIR] [URL]</code>. Without
+<code>--proxy</code> the engine connects directly; with it every request goes
+through that HTTP proxy.</p>
+
+</body>
+</html>

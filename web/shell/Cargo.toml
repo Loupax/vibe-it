@@ -3,7 +3,7 @@ name = "web"
 version = "0.0.0"
 edition = "2021"
 publish = false
-description = "web-shell: the browser's compositor shell (web/TODO.txt C2)"
+description = "web-shell: the browser's compositor shell (web/TODO.txt C2, C3)"
 
 # Own workspace root, like host-cef: joins no other build.
 [workspace]
@@ -18,3 +18,8 @@ smithay = { version = "0.7", default-features = false, features = ["backend_wini
 calloop = { version = "0.14", features = ["signals"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# C3: the status bar's text (as in scratchy: cosmic-text shapes and rasterizes, tiny-skia fills).
+cosmic-text = "0.19"
+tiny-skia = { version = "0.12", default-features = false, features = ["std", "simd"] }
+# C3: `:go`'s relative forms and the history ranking (site roots).
+url = "2"
