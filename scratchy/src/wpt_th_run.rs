@@ -52,7 +52,7 @@ const CHILD_TIMEOUT: Duration = Duration::from_secs(30);
 // ------------------------------------------------------------------ a file's result
 
 /// One test file's outcome (what the expected files record).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub(crate) struct FileResult {
     /// `OK` `ERROR` `TIMEOUT` `PRECONDITION_FAILED` (harness), or `CRASH` / `NOT-RUN` (no result).
     pub status: String,
@@ -60,11 +60,28 @@ pub(crate) struct FileResult {
     pub total: usize,
     /// Subtests that did not pass: (status, name); duplicate names carry ` #2`, ` #3`.
     pub nonpass: Vec<(String, String)>,
+    /// QWPTFLK5: the failure message of each non-passing subtest (same names as `nonpass`). Diagnostics only: shown in
+    /// REGRESSION/CHANGED lines, never recorded and never compared (messages carry run-dependent text).
+    pub msgs: BTreeMap<String, String>,
 }
+
+impl PartialEq for FileResult {
+    fn eq(&self, o: &FileResult) -> bool {
+        self.status == o.status && self.passed == o.passed && self.total == o.total && self.nonpass == o.nonpass
+    }
+}
+impl Eq for FileResult {}
 
 impl FileResult {
     fn bare(status: &str) -> FileResult {
-        FileResult { status: status.to_string(), passed: 0, total: 0, nonpass: Vec::new() }
+        FileResult { status: status.to_string(), passed: 0, total: 0, nonpass: Vec::new(), msgs: BTreeMap::new() }
+    }
+    /// ` (message)` for a non-passing subtest, empty when there is none.
+    fn why(&self, name: &str) -> String {
+        match self.msgs.get(name) {
+            Some(m) if !m.is_empty() => format!(" ({})", m.chars().take(300).collect::<String>().replace('\n', " ")),
+            _ => String::new(),
+        }
     }
     fn has_result(&self) -> bool {
         !matches!(self.status.as_str(), "CRASH" | "NOT-RUN")
@@ -232,6 +249,9 @@ pub(crate) fn parse_child_json(line: &str) -> Option<FileResult> {
         if status == "PASS" {
             r.passed += 1;
         } else {
+            if let Some(J::Str(m)) = t.get(2) {
+                r.msgs.insert(name.clone(), m.clone());
+            }
             r.nonpass.push((status.clone(), name));
         }
     }
@@ -351,10 +371,10 @@ pub(crate) fn compare(e: &FileResult, a: &FileResult) -> Verdict {
     let enp: BTreeMap<&str, &str> = e.nonpass.iter().map(|(s, n)| (n.as_str(), s.as_str())).collect();
     let anp: BTreeMap<&str, &str> = a.nonpass.iter().map(|(s, n)| (n.as_str(), s.as_str())).collect();
     if let Some((n, s)) = anp.iter().find(|(n, _)| !enp.contains_key(*n)) {
-        return Verdict::Regression(format!("subtest was passing, now {s}: {n}"));
+        return Verdict::Regression(format!("subtest was passing, now {s}: {n}{}", a.why(n)));
     }
     if let Some((n, s)) = anp.iter().find(|(n, s)| enp.get(*n).is_some_and(|o| o != *s)) {
-        return Verdict::Changed(format!("subtest {} -> {s}: {n}", enp[n]));
+        return Verdict::Changed(format!("subtest {} -> {s}: {n}{}", enp[n], a.why(n)));
     }
     if ra == re && e.status != a.status {
         return Verdict::Changed(format!("{} -> {}", e.status, a.status));

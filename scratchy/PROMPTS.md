@@ -9402,3 +9402,9 @@ Task: arc, arcTo, ellipse, quadraticCurveTo, bezierCurveTo, roundRect through th
 ## QCNV8: canvas line styles (agent item)
 
 Task: lineWidth edge cases, lineCap, lineJoin, miterLimit, setLineDash/getLineDash, lineDashOffset, saved/restored and applied to stroke/strokeRect through the CTM, canvas and OffscreenCanvas. canvas.rs: DrawState gains cap, join, miter_limit, dash, dash_offset; stroke_of builds the tiny-skia Stroke (with StrokeDash); natives __cv_set_ls/__cv_get_ls/__cv_set_dash/__cv_get_dash; PathData::build_pruned drops zero-length segments before stroking as the spec requires (round caps would otherwise draw dots). js_dom.rs: accessors ignore invalid values, setLineDash rejects negative/non-finite lists, doubles odd lists, TypeError for a non-sequence. Tests: src/tests/qcnv8_tests.rs (pixel readback). Not done: caps on lone zero-length subpaths, Path2D (QCNV9).
+
+## QWPTFLK5: request-upload.any.html flake (agent item)
+
+> QWPTFLK5 [S] fetch/api/basic/request-upload.any.html failed once on CI and passed on re-run; find the cause and fix, or flaky-list with the reason.
+
+**What changed:** not reproducible in 450 local runs (plain and parallel) nor in 4,000+ POSTs through wire; flaky-listed with the reason. The wpt-th runner's REGRESSION/CHANGED subtest lines now include the failure message (`FileResult.msgs`, not compared). Tests: src/tests/qwptflk5_tests.rs.

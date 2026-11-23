@@ -11,3 +11,4 @@ fetch/security/dangling-markup/media.html OK 2/4 in 4 of 6 runs, TIMEOUT in 2: t
 fetch/range/general.window.html 0 subtests locally, 2 on CI (timing of the range responses; first CI run of QWPT8)
 fetch/redirects/subresource-fragments.html a subtest is NOTRUN locally and FAIL on CI (timing; first CI run of QWPT8)
 xhr/send-redirect.htm subtest '(307, GET, content.py)' passes locally and failed once on CI (PR 615 run on the rebased branch); redirect handling against wptserve is timing-dependent (QWPT8)
+fetch/api/basic/request-upload.any.html subtest 'Fetch with POST with Uint8Array body' failed once on CI (PR 624, first attempt: 'subtest was passing'), green on a re-run; 450 local runs (30 sequential, 120 at 4-way, 300 at 12-way under load) were all identical; cause not found, suspect a POST on a pooled connection that wptserve had just closed (ureq retries only idempotent methods; QWPTFLK5)
