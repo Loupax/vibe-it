@@ -681,11 +681,9 @@ TIMEOUT      2/3  html/webappapis/scripting/processing-model-2/unhandled-promise
 ERROR        0/0  html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events-many-promises.dedicatedworker.html
 OK           5/6  html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events-many-promises.html
   FAIL      unhandledrejection: handling a reported batch does not suppress a batch rejected after it
-TIMEOUT      0/1  html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events-onerror.html
-  TIMEOUT   Throwing inside an unhandledrejection handler invokes the error handler.
+OK           1/1  html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events-onerror.html
 ERROR        0/0  html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html
-TIMEOUT    31/43  html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html
-  TIMEOUT   unhandledrejection: from a task-delayed rejection
+OK         32/43  html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html
   FAIL      unhandledrejection: from createImageBitmap which is UA triggered
   FAIL      no unhandledrejection/rejectionhandled: rejection handler attached synchronously to a promise created from createImageBitmap
   FAIL      delayed handling: a task delay before attaching a handler prevents unhandledrejection
@@ -694,9 +692,9 @@ TIMEOUT    31/43  html/webappapis/scripting/processing-model-2/unhandled-promise
   FAIL      delayed handling: queueTask after promise creation/rejection, plus many promise microtasks, is not too late to attach a rejection handler
   FAIL      delayed handling: delaying handling by setTimeout(,10) will cause both events to fire
   FAIL      delayed handling: delaying handling rejected promise created from createImageBitmap will cause both events to fire
-  TIMEOUT   queueTask ordering vs. the task queued for unhandled rejection notification (1)
-  TIMEOUT   queueTask ordering vs. the task queued for unhandled rejection notification (2)
-  TIMEOUT   rejectionhandled is dispatched from a queued task, and not immediately
+  FAIL      queueTask ordering vs. the task queued for unhandled rejection notification (1)
+  FAIL      queueTask ordering vs. the task queued for unhandled rejection notification (2)
+  FAIL      rejectionhandled is dispatched from a queued task, and not immediately
 OK           0/1  html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-resolution-order.html
   FAIL      Promise rejection ordering
 OK           1/1  html/webappapis/scripting/processing-model-2/window-onerror-event-throw-null.html
