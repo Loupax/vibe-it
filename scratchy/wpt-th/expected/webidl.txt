@@ -199,5 +199,30 @@ OK          4/13  webidl/ecmascript-binding/window-named-properties-object.html
   FAIL      [[Set]] (direct)
   FAIL      [[Delete]]
   FAIL      [[OwnPropertyKeys]]
-OK           0/1  webidl/idlharness.any.html
-  FAIL      idl_test setup
+OK       133/159  webidl/idlharness.any.html
+  FAIL      QuotaExceededError interface: existence and properties of interface object
+  FAIL      QuotaExceededError interface object length
+  FAIL      QuotaExceededError interface object name
+  FAIL      QuotaExceededError interface: existence and properties of interface prototype object
+  FAIL      QuotaExceededError interface: existence and properties of interface prototype object's "constructor" property
+  FAIL      QuotaExceededError interface: existence and properties of interface prototype object's @@unscopables property
+  FAIL      QuotaExceededError interface: attribute quota
+  FAIL      QuotaExceededError interface: attribute requested
+  FAIL      DOMException interface: existence and properties of interface object
+  FAIL      DOMException interface object length
+  FAIL      DOMException interface: existence and properties of interface prototype object
+  FAIL      DOMException interface: attribute name
+  FAIL      DOMException interface: attribute message
+  FAIL      DOMException interface: attribute code
+  FAIL      Stringification of new DOMException()
+  FAIL      DOMException interface: new DOMException() must inherit property "name" with the proper type
+  FAIL      DOMException interface: new DOMException() must inherit property "message" with the proper type
+  FAIL      DOMException interface: new DOMException() must inherit property "code" with the proper type
+  FAIL      Stringification of new DOMException("my message")
+  FAIL      DOMException interface: new DOMException("my message") must inherit property "name" with the proper type
+  FAIL      DOMException interface: new DOMException("my message") must inherit property "message" with the proper type
+  FAIL      DOMException interface: new DOMException("my message") must inherit property "code" with the proper type
+  FAIL      Stringification of new DOMException("my message", "myName")
+  FAIL      DOMException interface: new DOMException("my message", "myName") must inherit property "name" with the proper type
+  FAIL      DOMException interface: new DOMException("my message", "myName") must inherit property "message" with the proper type
+  FAIL      DOMException interface: new DOMException("my message", "myName") must inherit property "code" with the proper type

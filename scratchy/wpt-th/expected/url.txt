@@ -1465,8 +1465,39 @@ OK           0/1  url/data-uri-fragment.html
 OK           6/8  url/historical.any.html
   FAIL      URL: no structured serialize/deserialize support
   FAIL      URLSearchParams: no structured serialize/deserialize support
-OK           0/1  url/idlharness.any.html
-  FAIL      idl_test setup
+OK         45/77  url/idlharness.any.html
+  FAIL      URL interface object length
+  FAIL      URL interface: legacy window alias
+  FAIL      URL interface: existence and properties of interface prototype object
+  FAIL      URL interface: operation parse(USVString, optional USVString)
+  FAIL      URL interface: operation canParse(USVString, optional USVString)
+  FAIL      URL interface: attribute href
+  FAIL      URL interface: attribute origin
+  FAIL      URL interface: attribute protocol
+  FAIL      URL interface: attribute username
+  FAIL      URL interface: attribute password
+  FAIL      URL interface: attribute host
+  FAIL      URL interface: attribute hostname
+  FAIL      URL interface: attribute port
+  FAIL      URL interface: attribute pathname
+  FAIL      URL interface: attribute search
+  FAIL      URL interface: attribute searchParams
+  FAIL      URL interface: attribute hash
+  FAIL      URL interface: operation toJSON()
+  FAIL      URL interface: calling parse(USVString, optional USVString) on new URL("http://foo") with too few arguments must throw TypeError
+  FAIL      URL interface: calling canParse(USVString, optional USVString) on new URL("http://foo") with too few arguments must throw TypeError
+  FAIL      URLSearchParams interface object length
+  FAIL      URLSearchParams interface: existence and properties of interface prototype object
+  FAIL      URLSearchParams interface: attribute size
+  FAIL      URLSearchParams interface: operation append(USVString, USVString)
+  FAIL      URLSearchParams interface: operation delete(USVString, optional USVString)
+  FAIL      URLSearchParams interface: operation get(USVString)
+  FAIL      URLSearchParams interface: operation getAll(USVString)
+  FAIL      URLSearchParams interface: operation has(USVString, optional USVString)
+  FAIL      URLSearchParams interface: operation set(USVString, USVString)
+  FAIL      URLSearchParams interface: operation sort()
+  FAIL      URLSearchParams interface: iterable<USVString, USVString>
+  FAIL      URLSearchParams interface: stringifier
 TIMEOUT      0/6  url/javascript-urls.window.html
   TIMEOUT   javascript: URL that fails to parse due to invalid host
   NOTRUN    javascript: URL that fails to parse due to invalid host and has a U+0009 in scheme

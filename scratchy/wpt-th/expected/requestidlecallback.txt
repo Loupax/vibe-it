@@ -9,5 +9,19 @@ OK           2/2  requestidlecallback/callback-multiple-calls.html
 OK           1/1  requestidlecallback/callback-removed-frame.html
 OK           3/3  requestidlecallback/cancel-invoked.html
 OK           1/1  requestidlecallback/deadline-after-expired-timer.html
-OK           0/1  requestidlecallback/idlharness.window.html
-  FAIL      idl_test setup
+OK         14/29  requestidlecallback/idlharness.window.html
+  FAIL      IdleDeadline interface: existence and properties of interface object
+  FAIL      IdleDeadline interface object length
+  FAIL      IdleDeadline interface object name
+  FAIL      IdleDeadline interface: existence and properties of interface prototype object
+  FAIL      IdleDeadline interface: existence and properties of interface prototype object's "constructor" property
+  FAIL      IdleDeadline interface: existence and properties of interface prototype object's @@unscopables property
+  FAIL      IdleDeadline interface: operation timeRemaining()
+  FAIL      IdleDeadline interface: attribute didTimeout
+  FAIL      IdleDeadline must be primary interface of deadline
+  FAIL      Stringification of deadline
+  FAIL      IdleDeadline interface: deadline must inherit property "timeRemaining()" with the proper type
+  FAIL      IdleDeadline interface: deadline must inherit property "didTimeout" with the proper type
+  FAIL      Window interface: operation requestIdleCallback(IdleRequestCallback, optional IdleRequestOptions)
+  FAIL      Window interface: operation cancelIdleCallback(unsigned long)
+  FAIL      Window interface: calling cancelIdleCallback(unsigned long) on window with too few arguments must throw TypeError

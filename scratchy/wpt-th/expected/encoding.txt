@@ -20,8 +20,33 @@ OK           1/1  encoding/bom-handling.html
 OK           1/1  encoding/encodeInto-tail-unmodified.any.html
 OK       110/111  encoding/encodeInto.any.html
   FAIL      encodeInto() and a detached output buffer
-OK           0/1  encoding/idlharness.any.html
-  FAIL      idl_test setup
+OK         31/57  encoding/idlharness.any.html
+  FAIL      TextDecoder interface object length
+  FAIL      TextDecoder interface: existence and properties of interface prototype object
+  FAIL      TextDecoder interface: operation decode(optional AllowSharedBufferSource, optional TextDecodeOptions)
+  FAIL      TextDecoder interface: attribute encoding
+  FAIL      TextDecoder interface: attribute fatal
+  FAIL      TextDecoder interface: attribute ignoreBOM
+  FAIL      TextEncoder interface: existence and properties of interface prototype object
+  FAIL      TextEncoder interface: operation encode(optional USVString)
+  FAIL      TextEncoder interface: operation encodeInto(USVString, Uint8Array)
+  FAIL      TextEncoder interface: attribute encoding
+  FAIL      TextDecoderStream interface: existence and properties of interface object
+  FAIL      TextDecoderStream interface object length
+  FAIL      TextDecoderStream interface object name
+  FAIL      TextDecoderStream interface: existence and properties of interface prototype object
+  FAIL      TextDecoderStream interface: existence and properties of interface prototype object's "constructor" property
+  FAIL      TextDecoderStream interface: existence and properties of interface prototype object's @@unscopables property
+  FAIL      TextDecoderStream interface: attribute encoding
+  FAIL      TextDecoderStream interface: attribute fatal
+  FAIL      TextDecoderStream interface: attribute ignoreBOM
+  FAIL      TextEncoderStream interface: existence and properties of interface object
+  FAIL      TextEncoderStream interface object length
+  FAIL      TextEncoderStream interface object name
+  FAIL      TextEncoderStream interface: existence and properties of interface prototype object
+  FAIL      TextEncoderStream interface: existence and properties of interface prototype object's "constructor" property
+  FAIL      TextEncoderStream interface: existence and properties of interface prototype object's @@unscopables property
+  FAIL      TextEncoderStream interface: attribute encoding
 OK          0/38  encoding/iso-2022-jp-decoder.any.html
   FAIL      iso-2022-jp decoder: Error ESC
   FAIL      iso-2022-jp decoder: Error ESC, character
