@@ -451,3 +451,80 @@ async fn parked_connection_outlives_the_flow_that_dialled_it_through_a_filter() 
     assert_eq!(b.get("/b").await, (200, "ok /b".into()));
     assert_eq!((connects(&f), c.accepted(), c.live()), (1, 1, 1));
 }
+
+/// W2-2f: SIGUSR1 lists the pool: the totals and caps, then one line per key (host, port, chain) with
+/// the number of parked connections and each one's idle age, oldest first.
+#[tokio::test(flavor = "multi_thread")]
+async fn sigusr1_dumps_the_pool_one_line_per_key() {
+    let pki = pki();
+    let roots = root_file(&pki);
+    let (addr, c) = origin(pki.server.clone()).await;
+    let d = sock_dir();
+    let pd = pass_decrypt(&d.path().join("pd.sock"), &["*.example.test"]);
+    let f = Fake::start(
+        &d.path().join("gate.sock"),
+        hello_json("gate", "tunnel", &["*.example.test"], "closed"),
+        Action::Forward,
+    );
+    let p = proxy_with(
+        &[&pd.path, &f.inproc.path],
+        &[
+            "--test-resolve",
+            "*.test=127.0.0.1",
+            "--filter-check",
+            "100ms",
+        ],
+        &[("SSL_CERT_FILE", roots.path())],
+    );
+    wait_up(&p, "pass-decrypt");
+    wait_up(&p, "gate");
+    // Key 1 (chain [gate]): two parallel requests park two connections.
+    let mut a = Browser::open(&p, addr.port()).await;
+    let mut a2 = Browser::open(&p, addr.port()).await;
+    let (ra, ra2) = tokio::join!(a.get("/slow"), a2.get("/slow"));
+    assert_eq!((ra.0, ra2.0), (200, 200));
+    // Key 2 (empty chain: the gate no longer claims the host for new flows): one connection.
+    *f.hello.lock().unwrap() = (
+        200,
+        hello_json("gate", "tunnel", &["nothing.test"], "closed"),
+    );
+    p.wait_log(
+        |l| l.contains("filter gate CHANGED"),
+        Duration::from_secs(10),
+    )
+    .unwrap_or_else(|| panic!("{}", p.log()));
+    let mut b = Browser::open(&p, addr.port()).await;
+    assert_eq!(b.get("/b").await.0, 200);
+    assert_eq!(c.accepted(), 3);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    p.signal(libc::SIGUSR1);
+    let summary = p
+        .wait_log(|l| l.contains("pool: "), Duration::from_secs(5))
+        .unwrap_or_else(|| panic!("{}", p.log()));
+    assert!(
+        summary.contains("pool: 3 idle upstream connection(s) in 2 key(s), caps 6 per key and 64 total, idle expiry 30.000s"),
+        "{summary}"
+    );
+    let port = addr.port();
+    let none = p
+        .wait_log(
+            |l| l.contains(&format!("pool host={HOST} port={port} chain=- ")),
+            Duration::from_secs(5),
+        )
+        .unwrap_or_else(|| panic!("{}", p.log()));
+    assert!(none.contains(" idle=1 ages=0."), "{none}");
+    let gate = p
+        .wait_log(
+            |l| l.contains(&format!("pool host={HOST} port={port} chain=gate ")),
+            Duration::from_secs(5),
+        )
+        .unwrap_or_else(|| panic!("{}", p.log()));
+    assert!(gate.contains(" idle=2 ages=0."), "{gate}");
+    let ages = gate.split("ages=").nth(1).unwrap();
+    let ages: Vec<f64> = ages
+        .split(',')
+        .map(|a| a.trim().trim_end_matches('s').parse().unwrap())
+        .collect();
+    assert_eq!(ages.len(), 2, "{gate}");
+    assert!(ages[0] >= ages[1], "oldest first: {gate}");
+}

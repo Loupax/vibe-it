@@ -200,7 +200,7 @@ async fn run(cfg: Config) -> Result<(), String> {
     loop {
         let accepted = tokio::select! {
             a = accept(&listener) => a,
-            _ = usr1.recv() => { dump_filters(&filters); ctx.reg.dump(); continue; }
+            _ = usr1.recv() => { dump_filters(&filters); ctx.reg.dump(); ctx.pool.dump(); continue; }
             _ = term.recv() => break,
             _ = int.recv() => break,
         };

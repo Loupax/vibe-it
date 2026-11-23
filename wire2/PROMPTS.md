@@ -181,3 +181,10 @@ Result: one PR. proxy.rs (`pipelined_upload`, leg-close rule), hub.rs; NOTES.md 
 
 Result: one PR. New `pool.rs`; `proxy.rs` origin step, `hub.rs`/`filter.rs` (per-dial kill token), flags
 `--pool-idle/--pool-per-host/--pool-total`. NOTES.md "W2-2e"; tests in tests/w2_2e_pool.rs.
+
+## W2-2f: SIGUSR1 lists the upstream pool (2026-11-23)
+
+> W2-2f: include the upstream pool in the SIGUSR1 registry dump: per key (host:port, tunnel chain) the number of
+> parked connections and each idle age, plus totals and caps; one line per key, same log style. Test with two keys.
+
+Result: one PR. `UpPool::dump` in pool.rs, called from app.rs after the registry dump. NOTES.md "W2-2f".
