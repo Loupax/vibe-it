@@ -179,9 +179,9 @@ stop early on a hard failure.
       navigation does not happen for them; host emits a navigated signal, shell clears.
 - [ ] C5-STALE [XS] (from #679) CEF sends a stale `find-result 0 0` at a cross-document load start; an `n`
       pressed within ms of navigating could take it as its answer. Tag find requests/results.
-- [ ] C-DRM NEEDS USER (from #680) Widevine DRM (Netflix, Spotify web player): CEF ships no CDM, so DRM never
+- [ ] C-DRM PARKED (user, 2026-11-23) (from #680) Widevine DRM (Netflix, Spotify web player): CEF ships no CDM, so DRM never
       worked. Getting it needs a CDM path plus the component updater back on (Google traffic again).
-- [ ] C-H264 NEEDS USER (from #680) This CEF build cannot play H.264 (canPlayType avc1 = ""); VP9/WebM work.
+- [ ] C-H264 PARKED (user, 2026-11-23) (from #680) This CEF build cannot play H.264 (canPlayType avc1 = ""); VP9/WebM work.
       A proprietary-codecs CEF build would be needed.
 - [ ] C-KEYH [S] (from #672) The cef crate's KeyboardHandler wrapper treats `os_event` as an XEvent and
       segfaults the host on Wayland. Needed if C3 wants key events from the host; fix or work around
