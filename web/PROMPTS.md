@@ -33,3 +33,14 @@ note (code and TODOs stay as they are).
 **What changed:** new `web/` with README.md, DECISIONS.md, TODO.txt (the spike, W1-W7)
 and this file. scratchy marked paused in its DECISIONS.md, the coordinator prompt and
 STATE.md, and the root README.
+
+## W1 Bare CEF window (2026-11-23)
+
+> W1 Bare CEF window (coordinator launch of web/TODO.txt W1)
+
+**What changed:** new crate `web/spike/` (own workspace root, not in CI): one binary
+with the `cef` crate 156.7.0 (CEF 156.0.31, Chromium 156.0.8078.100) that opens one
+Views window and loads `--url`; `run.sh` starts it in a 6G memory-capped systemd scope
+with a throwaway profile; README.md has the fetch/build/run commands and what W1
+learned (process model, sandbox, Chromium moving itself out of the scope, startup, RSS).
+example.com and en.wikipedia.org load on Wayland and X11 (nested dwl and its Xwayland).
