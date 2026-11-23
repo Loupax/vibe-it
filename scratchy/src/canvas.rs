@@ -19,7 +19,7 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use tiny_skia::{BlendMode, Color, FillRule, Mask, Paint, PathBuilder, Pixmap, Rect, Stroke, Transform};
+use tiny_skia::{BlendMode, Color, FillRule, LineCap, LineJoin, Mask, Paint, PathBuilder, Pixmap, Rect, Stroke, StrokeDash, Transform};
 
 use crate::js_dom::DomTable;
 use crate::js_engine::{native, Bytes, Ctx};
@@ -61,6 +61,14 @@ struct DrawState {
     shadow: Style,
     alpha: f32,
     line_width: f32,
+    /// QCNV8: 0 butt, 1 round, 2 square.
+    cap: u8,
+    /// QCNV8: 0 miter, 1 round, 2 bevel.
+    join: u8,
+    miter_limit: f32,
+    /// QCNV8: the dash list as set (already even length), and the offset.
+    dash: Vec<f64>,
+    dash_offset: f64,
     /// QCNV5: the current transformation matrix as (a, b, c, d, e, f): x' = a x + c y + e, y' = b x + d y + f.
     ctm: [f64; 6],
     /// QCNV6: the clipping region (coverage 0..255 per pixel); `None` = no clip. Shared between saved copies.
@@ -132,6 +140,49 @@ impl PathData {
                 Seg::Cubic(a, b, c, d, x, y) => pb.cubic_to(a as f32, b as f32, c as f32, d as f32, x as f32, y as f32),
                 Seg::Close => pb.close(),
             }
+        }
+        pb.finish()
+    }
+    /// QCNV8: the path for stroking: zero-length segments are removed ("prune") so a round/square cap does not
+    /// draw a dot for them; a subpath left with no segment draws nothing (its close is dropped too).
+    fn build_pruned(&self) -> Option<tiny_skia::Path> {
+        let mut pb = PathBuilder::new();
+        let mut cur = (f64::NAN, f64::NAN);
+        let mut start = cur;
+        let mut drawn = false;
+        for s in &self.segs {
+            let (kept, end) = match *s {
+                Seg::Move(x, y) => {
+                    cur = (x, y);
+                    start = cur;
+                    drawn = false;
+                    continue;
+                }
+                Seg::Close => {
+                    if drawn {
+                        pb.close();
+                    }
+                    cur = start;
+                    drawn = false;
+                    continue;
+                }
+                Seg::Line(x, y) => ((x, y) != cur, (x, y)),
+                Seg::Quad(a, b, x, y) => ((a, b) != cur || (x, y) != cur, (x, y)),
+                Seg::Cubic(a, b, c, d, x, y) => ((a, b) != cur || (c, d) != cur || (x, y) != cur, (x, y)),
+            };
+            if kept {
+                if !drawn {
+                    pb.move_to(cur.0 as f32, cur.1 as f32);
+                    drawn = true;
+                }
+                match *s {
+                    Seg::Line(x, y) => pb.line_to(x as f32, y as f32),
+                    Seg::Quad(a, b, x, y) => pb.quad_to(a as f32, b as f32, x as f32, y as f32),
+                    Seg::Cubic(a, b, c, d, x, y) => pb.cubic_to(a as f32, b as f32, c as f32, d as f32, x as f32, y as f32),
+                    _ => {}
+                }
+            }
+            cur = end;
         }
         pb.finish()
     }
@@ -312,9 +363,30 @@ fn invert(m: &[f64; 6]) -> Option<[f64; 6]> {
     Some([a, b, c, d, -(a * m[4] + c * m[5]), -(b * m[4] + d * m[5])])
 }
 
+/// QCNV8: the pen for stroke/strokeRect from the line-style state (user space; the CTM is the stroke transform).
+fn stroke_of(st: &DrawState) -> Stroke {
+    let mut s = Stroke { width: st.line_width, miter_limit: st.miter_limit, ..Stroke::default() };
+    s.line_cap = match st.cap {
+        1 => LineCap::Round,
+        2 => LineCap::Square,
+        _ => LineCap::Butt,
+    };
+    s.line_join = match st.join {
+        1 => LineJoin::Round,
+        2 => LineJoin::Bevel,
+        _ => LineJoin::Miter,
+    };
+    if !st.dash.is_empty() {
+        let arr: Vec<f32> = st.dash.iter().map(|d| *d as f32).collect();
+        // None (all zeros, overflow): the stroke stays solid.
+        s.dash = StrokeDash::new(arr, st.dash_offset as f32);
+    }
+    s
+}
+
 impl Default for DrawState {
     fn default() -> DrawState {
-        DrawState { fill: Style::new([0, 0, 0, 255]), stroke: Style::new([0, 0, 0, 255]), shadow: Style::new([0, 0, 0, 0]), alpha: 1.0, line_width: 1.0, ctm: IDENTITY, clip: None }
+        DrawState { fill: Style::new([0, 0, 0, 255]), stroke: Style::new([0, 0, 0, 255]), shadow: Style::new([0, 0, 0, 0]), alpha: 1.0, line_width: 1.0, cap: 0, join: 0, miter_limit: 10.0, dash: Vec::new(), dash_offset: 0.0, ctm: IDENTITY, clip: None }
     }
 }
 
@@ -545,7 +617,7 @@ fn draw(c: &mut Canvas, op: i32, a: &[f64]) {
             pb.line_to(x0, y1);
             pb.close();
             if let Some(path) = pb.finish() {
-                let stroke = Stroke { width: c.state.line_width, ..Stroke::default() };
+                let stroke = stroke_of(&c.state);
                 px.stroke_path(&path, &paint_of(c.state.stroke.rgba, c.state.alpha), &stroke, ts, mask);
             }
         }
@@ -574,7 +646,7 @@ fn path_op(c: &mut Canvas, op: i32, a: &[f64]) {
 /// QCNV6: `op` 0 fill, 1 stroke, 2 clip; `evenodd` picks the fill rule (fill and clip).
 fn paint_path(c: &mut Canvas, op: i32, evenodd: bool) {
     let rule = if evenodd { FillRule::EvenOdd } else { FillRule::Winding };
-    let path = c.path.build();
+    let path = if op == 1 { c.path.build_pruned() } else { c.path.build() };
     let (w, h) = (c.w, c.h);
     if op == 2 {
         // The region is replaced by its intersection with the path (an empty path clips everything away).
@@ -601,7 +673,7 @@ fn paint_path(c: &mut Canvas, op: i32, evenodd: bool) {
         // The path is in device space; the pen is in user space, so stroke the user-space path through the CTM.
         let Some(inv) = invert(&c.state.ctm) else { return };
         let Some(user) = path.transform(transform_of(&inv)) else { return };
-        let stroke = Stroke { width: c.state.line_width, ..Stroke::default() };
+        let stroke = stroke_of(&c.state);
         px.stroke_path(&user, &paint_of(c.state.stroke.rgba, c.state.alpha), &stroke, transform_of(&c.state.ctm), mask);
     }
 }
@@ -758,6 +830,34 @@ pub(crate) fn register(ctx: &Ctx<'_>, table: Rc<RefCell<DomTable>>) {
         })
     });
     // QCNV5: transform/setTransform/resetTransform (see `set_ctm`); the JS side has already dropped non-finite input.
+    // QCNV8: which 0 lineCap, 1 lineJoin, 2 miterLimit, 3 lineDashOffset (the JS side validated the value).
+    native!(ctx, "__cv_set_ls", move |cid: i32, which: i32, v: f64| {
+        if let Some(c) = map().get_mut(cid as u32) {
+            match which {
+                0 => c.state.cap = v as u8,
+                1 => c.state.join = v as u8,
+                2 => c.state.miter_limit = v as f32,
+                _ => c.state.dash_offset = v,
+            }
+        }
+    });
+    native!(ctx, "__cv_get_ls", move |cid: i32, which: i32| -> f64 {
+        map().get(cid as u32).map_or(0.0, |c| match which {
+            0 => f64::from(c.state.cap),
+            1 => f64::from(c.state.join),
+            2 => f64::from(c.state.miter_limit),
+            _ => c.state.dash_offset,
+        })
+    });
+    // setLineDash/getLineDash: the list travels as a comma-separated string (the JS side validated and doubled it).
+    native!(ctx, "__cv_set_dash", move |cid: i32, list: String| {
+        if let Some(c) = map().get_mut(cid as u32) {
+            c.state.dash = list.split(',').filter_map(|t| t.parse::<f64>().ok()).collect();
+        }
+    });
+    native!(ctx, "__cv_get_dash", move |cid: i32| -> String {
+        map().get(cid as u32).map(|c| c.state.dash.iter().map(|d| d.to_string()).collect::<Vec<_>>().join(",")).unwrap_or_default()
+    });
     native!(ctx, "__cv_xf", move |cid: i32, op: i32, m: Vec<f64>| {
         if let Some(c) = map().get_mut(cid as u32) {
             set_ctm(c, op, &m);

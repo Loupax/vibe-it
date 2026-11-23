@@ -4401,6 +4401,8 @@ QCNV6: paths. `canvas::PathData` holds the current default path as `Seg::{Move,L
 
 QCNV7: curves. `Seg::Quad`/`Seg::Cubic`; arcs/ellipses (and roundRect corners) are cubics built in user space then mapped by the CTM (`PathData::ellipse`); arcTo works in user space from the current point mapped back through the inverse CTM. Natives: `__cv_path` ops 5 quad, 6 cubic, 7 arc/ellipse, 8 arcTo, 9 roundRect. wpt-th: element 38.0 -> 46.2, offscreen 42.1 -> 51.8.
 
+QCNV8: line styles. `DrawState` holds cap/join (0..2 indices), miter limit, the dash list (already even length) and offset; all are saved/restored. `stroke_of` maps them to tiny-skia (`StrokeDash::new` returns None for an all-zero list: the stroke stays solid). Strokes run in user space with the CTM as transform, so widths, dashes and joins are all transformed. `PathData::build_pruned` removes zero-length segments before `stroke` only (the spec prunes them; otherwise round caps draw dots). wpt-th: element 22.7 -> 23.7 (score 46.2 -> 47.8), offscreen 42.9 -> 44.7 (51.8 -> 53.6); 41 more all-pass files in total (the QCNV2 table's 91 files overcounted: many line-styles tests also need gradients, text or drawImage).
+
 ## Canvas 2D triage after QCNV1 (QCNV2)
 
 Baseline: origin/main 7a3b00c0 (QCNV1 #613 merged), wpt-th expected files `html-canvas-{element,offscreen,other}.txt`, WPT ac78b567. element 1,276 files / 2,818 subtests / 338 pass / score 23.5; offscreen 1,074 / 1,371 / 0 / 0.0; other 4 / 18 / 2 / 50.0. Failing (not all-pass) files: element 980 (2,485 failing subtests), offscreen 1,074 (1,375), other 2 (16).

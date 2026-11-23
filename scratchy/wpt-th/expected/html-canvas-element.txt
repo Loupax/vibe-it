@@ -30,10 +30,7 @@ OK           1/1  html/canvas/element/canvas-context/2d.canvas.context.type.prot
 OK           1/1  html/canvas/element/canvas-context/2d.canvas.context.type.replace.html
 OK           1/1  html/canvas/element/canvas-context/2d.canvas.context.unique.html
 OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.initial.color.html
-OK          5/15  html/canvas/element/canvas-host/2d.canvas.host.initial.reset.2dstate.html
-  FAIL      Resetting the canvas state resets lineCap
-  FAIL      Resetting the canvas state resets lineJoin
-  FAIL      Resetting the canvas state resets miterLimit
+OK          8/15  html/canvas/element/canvas-host/2d.canvas.host.initial.reset.2dstate.html
   FAIL      Resetting the canvas state resets shadowOffsetX
   FAIL      Resetting the canvas state resets shadowOffsetY
   FAIL      Resetting the canvas state resets shadowBlur
@@ -384,8 +381,7 @@ OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.stroke
 OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.strokeRect.zero.2.html
 OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.strokeRect.zero.3.html
 OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.strokeRect.zero.4.html
-OK           0/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.strokeRect.zero.5.html
-  FAIL      strokeRect of Nx0 pixels draws a closed line with joins
+OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.strokeRect.zero.5.html
 OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.CSSHSL.html
   FAIL      CSSHSL works as color input
 OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.CSSRGB.html
@@ -831,47 +827,32 @@ OK           0/1  html/canvas/element/layers/2d.layer.valid-calls.save_reset_res
   FAIL      No exception raised on save() + reset() + restore().
 OK           1/1  html/canvas/element/layers/2d.layer.valid-calls.save_restore.html
 OK           1/1  html/canvas/element/line-styles/2d.line.cap.butt.html
-OK           0/1  html/canvas/element/line-styles/2d.line.cap.closed.html
-  FAIL      Line caps are not drawn at the corners of an unclosed rectangle
-OK           0/1  html/canvas/element/line-styles/2d.line.cap.invalid.html
-  FAIL      Setting lineCap to invalid values is ignored
-OK           0/1  html/canvas/element/line-styles/2d.line.cap.open.html
-  FAIL      Line caps are drawn at the corners of an unclosed rectangle
-OK           0/1  html/canvas/element/line-styles/2d.line.cap.round.html
-  FAIL      lineCap 'round' is rendered correctly
-OK           0/1  html/canvas/element/line-styles/2d.line.cap.square.html
-  FAIL      lineCap 'square' is rendered correctly
+OK           1/1  html/canvas/element/line-styles/2d.line.cap.closed.html
+OK           1/1  html/canvas/element/line-styles/2d.line.cap.invalid.html
+OK           1/1  html/canvas/element/line-styles/2d.line.cap.open.html
+OK           1/1  html/canvas/element/line-styles/2d.line.cap.round.html
+OK           1/1  html/canvas/element/line-styles/2d.line.cap.square.html
 OK           1/1  html/canvas/element/line-styles/2d.line.cap.valid.html
 OK           1/1  html/canvas/element/line-styles/2d.line.cross.html
-OK           0/1  html/canvas/element/line-styles/2d.line.defaults.html
-  FAIL      Canvas test: 2d.line.defaults
+OK           1/1  html/canvas/element/line-styles/2d.line.defaults.html
 OK           1/1  html/canvas/element/line-styles/2d.line.fill.noop.html
 OK           1/1  html/canvas/element/line-styles/2d.line.invalid.strokestyle.html
-OK           0/1  html/canvas/element/line-styles/2d.line.join.bevel.html
-  FAIL      lineJoin 'bevel' is rendered correctly
+OK           1/1  html/canvas/element/line-styles/2d.line.join.bevel.html
 OK           1/1  html/canvas/element/line-styles/2d.line.join.closed.html
-OK           0/1  html/canvas/element/line-styles/2d.line.join.invalid.html
-  FAIL      Setting lineJoin to invalid values is ignored
+OK           1/1  html/canvas/element/line-styles/2d.line.join.invalid.html
 OK           1/1  html/canvas/element/line-styles/2d.line.join.miter.html
 OK           1/1  html/canvas/element/line-styles/2d.line.join.open.html
-OK           0/1  html/canvas/element/line-styles/2d.line.join.parallel.html
-  FAIL      Line joins are drawn at 180-degree joins
+OK           1/1  html/canvas/element/line-styles/2d.line.join.parallel.html
 OK           0/1  html/canvas/element/line-styles/2d.line.join.round.html
   FAIL      lineJoin 'round' is rendered correctly
 OK           1/1  html/canvas/element/line-styles/2d.line.join.valid.html
-OK           0/1  html/canvas/element/line-styles/2d.line.miter.acute.html
-  FAIL      Miter joins are drawn correctly with acute angles
-OK           0/1  html/canvas/element/line-styles/2d.line.miter.exceeded.html
-  FAIL      Miter joins are not drawn when the miter limit is exceeded
-OK           0/1  html/canvas/element/line-styles/2d.line.miter.invalid.html
-  FAIL      Setting miterLimit to invalid values is ignored
+OK           1/1  html/canvas/element/line-styles/2d.line.miter.acute.html
+OK           1/1  html/canvas/element/line-styles/2d.line.miter.exceeded.html
+OK           1/1  html/canvas/element/line-styles/2d.line.miter.invalid.html
 OK           1/1  html/canvas/element/line-styles/2d.line.miter.lineedge.html
-OK           0/1  html/canvas/element/line-styles/2d.line.miter.obtuse.html
-  FAIL      Miter joins are drawn correctly with obtuse angles
-OK           0/1  html/canvas/element/line-styles/2d.line.miter.rightangle.html
-  FAIL      Miter joins are not drawn when the miter limit is exceeded, on exact right angles
-OK           0/1  html/canvas/element/line-styles/2d.line.miter.valid.html
-  FAIL      Setting miterLimit to valid values works
+OK           1/1  html/canvas/element/line-styles/2d.line.miter.obtuse.html
+OK           1/1  html/canvas/element/line-styles/2d.line.miter.rightangle.html
+OK           1/1  html/canvas/element/line-styles/2d.line.miter.valid.html
 OK           1/1  html/canvas/element/line-styles/2d.line.miter.within.html
 OK           1/1  html/canvas/element/line-styles/2d.line.union.html
 OK           1/1  html/canvas/element/line-styles/2d.line.width.basic.html
@@ -1353,9 +1334,7 @@ TIMEOUT      0/8  html/canvas/element/manual/imagebitmap/imagebitmap-replication
   NOTRUN    ImageBitmap from file with EXIF rotation, duplicated via worker serialization round-trip
   NOTRUN    ImageBitmap from file with EXIF rotation, duplicated via worker transfer round-trip
   NOTRUN    ImageBitmap from file with EXIF rotation, duplicated via worker transfer round-trip, while referenced by a CanvasPattern
-OK           0/2  html/canvas/element/manual/line-styles/setLineDash.html
-  FAIL      Invalid arguments to setLineDash()
-  FAIL      setLineDash
+OK           2/2  html/canvas/element/manual/line-styles/setLineDash.html
 OK           0/1  html/canvas/element/manual/shadows/canvas_shadows_001.htm
   FAIL      linear gradient fillRect draws shadow (black rectange)
 OK           0/4  html/canvas/element/manual/shadows/shadowBlur_gaussian_tolerance.1.html
@@ -2698,8 +2677,7 @@ OK           1/1  html/canvas/element/path-objects/2d.path.stroke.empty.html
 OK           1/1  html/canvas/element/path-objects/2d.path.stroke.overlap.html
 OK           1/1  html/canvas/element/path-objects/2d.path.stroke.prune.arc.html
 OK           1/1  html/canvas/element/path-objects/2d.path.stroke.prune.closed.html
-OK           0/1  html/canvas/element/path-objects/2d.path.stroke.prune.corner.html
-  FAIL      Zero-length line segments are removed before stroking with miters
+OK           1/1  html/canvas/element/path-objects/2d.path.stroke.prune.corner.html
 OK           1/1  html/canvas/element/path-objects/2d.path.stroke.prune.curve.html
 OK           1/1  html/canvas/element/path-objects/2d.path.stroke.prune.line.html
 OK           1/1  html/canvas/element/path-objects/2d.path.stroke.prune.rect.html
@@ -3359,16 +3337,10 @@ OK           4/4  html/canvas/element/the-canvas-state/2d.state.saverestore.glob
 OK           2/4  html/canvas/element/the-canvas-state/2d.state.saverestore.globalCompositeOperation.html
   FAIL      save()/restore() restores globalCompositeOperation, for a canvas of size (300, 150).
   FAIL      save()/restore() restores globalCompositeOperation, for a canvas of size (0, 0).
-OK           2/4  html/canvas/element/the-canvas-state/2d.state.saverestore.lineCap.html
-  FAIL      save()/restore() restores lineCap, for a canvas of size (300, 150).
-  FAIL      save()/restore() restores lineCap, for a canvas of size (0, 0).
-OK           2/4  html/canvas/element/the-canvas-state/2d.state.saverestore.lineJoin.html
-  FAIL      save()/restore() restores lineJoin, for a canvas of size (300, 150).
-  FAIL      save()/restore() restores lineJoin, for a canvas of size (0, 0).
+OK           4/4  html/canvas/element/the-canvas-state/2d.state.saverestore.lineCap.html
+OK           4/4  html/canvas/element/the-canvas-state/2d.state.saverestore.lineJoin.html
 OK           4/4  html/canvas/element/the-canvas-state/2d.state.saverestore.lineWidth.html
-OK           2/4  html/canvas/element/the-canvas-state/2d.state.saverestore.miterLimit.html
-  FAIL      save()/restore() restores miterLimit, for a canvas of size (300, 150).
-  FAIL      save()/restore() restores miterLimit, for a canvas of size (0, 0).
+OK           4/4  html/canvas/element/the-canvas-state/2d.state.saverestore.miterLimit.html
 OK           1/1  html/canvas/element/the-canvas-state/2d.state.saverestore.path.html
 OK           2/4  html/canvas/element/the-canvas-state/2d.state.saverestore.shadowBlur.html
   FAIL      save()/restore() restores shadowBlur, for a canvas of size (300, 150).
