@@ -744,7 +744,7 @@ Replaces W2-2a's one-slot-per-flow (`FlowInfo::pool`, removed) with `pool.rs`, o
   GET/HEAD/OPTIONS once on a FRESH connection, never another parked one; never a POST), W2-HUBCLOSE's close
   rules (the exchange code is untouched).
 - Beyond SPEC.md (SPEC.md not edited): three flags, `--pool-idle D` (30s), `--pool-per-host N` (6), `--pool-total N`
-  (64). Not done: SIGUSR1 does not list pooled connections.
+  (64). SIGUSR1 lists the pool since W2-2f.
 
 ### Measurements (2026-11-23 16:19, release, loopback, under `flock /tmp/scratchy-perf.lock`, load average 9.6 -> 8.9: other agents were running, so absolute times are noisy)
 
@@ -776,3 +776,16 @@ exactly the first connection it carried (`Action::CloseFirstAfter`, new in tests
 chains never share, a parked connection outliving the flow that dialled it through a filter (fails if the hub
 pipe is tied to the flow's token again, checked). Seven of the eight fail on the old binary (checked with
 `WIRE2_TEST_BIN`); the filter-close test passes there too, it guards behaviour that must not change.
+
+## W2-2f SIGUSR1 pool dump (2026-11-23)
+
+SIGUSR1 now also logs the pool (after the filters and the flow registry), at info, one line per key, keys sorted
+by host, port, chain:
+
+    pool: 3 idle upstream connection(s) in 2 key(s), caps 6 per key and 64 total, idle expiry 30.000s
+    pool host=www.example.test port=8443 chain=gate idle=2 ages=0.412s,0.215s
+
+Ages are oldest first (the order they would be closed in); `chain=-` is the empty chain. The lock is held only
+to copy the ages. Beyond SPEC.md (not edited). Closes the "SIGUSR1 does not list pooled connections" gap of W2-2e.
+Test: `sigusr1_dumps_the_pool_one_line_per_key` in tests/w2_2e_pool.rs (two keys: chain [gate] with 2 parked
+connections, empty chain with 1; waits for the log lines, bounded 5 s).

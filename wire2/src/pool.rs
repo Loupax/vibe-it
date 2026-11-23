@@ -87,6 +87,44 @@ impl UpPool {
         self.lock().n
     }
 
+    /// SIGUSR1: one summary line (totals and caps), then one line per key with its parked
+    /// connections' idle ages, oldest first.
+    pub fn dump(&self) {
+        let mut keys: Vec<(Key, Vec<Duration>)> = {
+            let st = self.lock();
+            st.map
+                .iter()
+                .map(|(k, v)| (k.clone(), v.iter().map(|e| e.since.elapsed()).collect()))
+                .collect()
+        };
+        keys.sort_by(|a, b| {
+            (&a.0.host, a.0.port, &a.0.chain).cmp(&(&b.0.host, b.0.port, &b.0.chain))
+        });
+        let n: usize = keys.iter().map(|(_, v)| v.len()).sum();
+        crate::info!(
+            "pool: {n} idle upstream connection(s) in {} key(s), caps {} per key and {} total, idle expiry {}",
+            keys.len(),
+            self.per_key,
+            self.total,
+            crate::flow::fmt_secs(self.idle)
+        );
+        for (k, ages) in keys {
+            let chain = if k.chain.is_empty() {
+                "-".to_string()
+            } else {
+                k.chain.join(",")
+            };
+            let ages: Vec<String> = ages.into_iter().map(crate::flow::fmt_secs).collect();
+            crate::info!(
+                "pool host={} port={} chain={chain} idle={} ages={}",
+                k.host,
+                k.port,
+                ages.len(),
+                ages.join(",")
+            );
+        }
+    }
+
     /// The freshest idle connection for `key`, if any (an expired one is closed instead). The caller
     /// checks that it is still alive.
     pub fn take(&self, key: &Key) -> Option<Entry> {
