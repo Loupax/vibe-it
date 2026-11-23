@@ -72,9 +72,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       size and compare every listed page (today only page 1 is rendered).
 - [ ] QCSS1b [S] (P2, from QCSS1 #527; Sonnet; css.rs, dom.rs stylesheet collection) Honour `media` on `<link rel=stylesheet>`,
       `<style media>` and `@import url(...) media` with `media_query_string_matches` (today ignored: always applied).
-- [ ] [WIP] QINC2b [S] (P2, from QEDIT-B #641; Sonnet; tests) qinc2_ticks_number_paragraphs_like_a_single_complete_pass
-      fails under machine load (it lays out in 40 ms wall-clock ticks): make it deterministic (tick by work units or a
-      test clock, keeping the incomplete-tick case it must cover), so CI cannot flake on it.
 - [ ] [WIP] QWPTFLK6 [S] (P3, from QEDIT-B #641; Sonnet) hr-time/timeOrigin.html fails under heavy local load (load 40+), passes on CI
       and alone: find whether the runner's clock or the test's tolerance is the cause; fix or flaky-list with the reason.
 - [ ] QINCUMB1 [M] (P3, from QDOM5e #643; Opus) Incumbent settings object through V8 promise jobs and callbacks, postMessage

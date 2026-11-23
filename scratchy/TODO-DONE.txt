@@ -9681,3 +9681,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- (no header)
 - [x] QEDIT-B DONE 3ee5c85 #641 [S] (P3, from QWPT6d #581; Sonnet) `draggable` IDL attribute, DataTransfer / DataTransferItemList (data
       store only, no drag UI) (9 files).
+
+=== from TODO.txt: --- (no header)
+- [x] QINC2b DONE 34fcc48 #642 [S] (P2, from QEDIT-B #641; Sonnet; tests) qinc2_ticks_number_paragraphs_like_a_single_complete_pass
+      fails under machine load (it lays out in 40 ms wall-clock ticks): make it deterministic (tick by work units or a
+      test clock, keeping the incomplete-tick case it must cover), so CI cannot flake on it.
