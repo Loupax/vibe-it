@@ -497,3 +497,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 USER: editable focus always switches to INPUT (script focus too; reverses T32), no return on blur. Recorded in web/DECISIONS.md; added to the running C3-RCLICK agent (same code).
 - 2026-11-23 Merged #680 C-BGNET eb6b62e; web reinstalled. Filed C-DRM, C-H264 (user). C-BGNET agent briefly ran a check in another agent's nest (wayland-1): noted. Launched C-NOTAB-ALLOW (Sonnet; host-cef context menu, + cargo fmt of newtab.rs).
 - 2026-11-23 USER: C-DRM and C-H264 parked. Asked about dropping the context menu for command-mode actions (discussing).
+- 2026-11-23 USER: no context menu; actions as : commands. C-NOTAB-ALLOW agent repurposed to C-NOMENU; filed C-CMDS (after C-NOMENU; :yank after C6). C3-RCLICK told to test with selects. Recorded in web/DECISIONS.md.

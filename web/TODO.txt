@@ -139,7 +139,15 @@ stop early on a hard failure.
       click on links open nothing new. Script window.open / target=_blank keep loading in the same page
       (DECISIONS "No tabs yet").
 
-- [WIP] C-NOTAB-ALLOW [S] (from #672; #673's live run: Print…, Cast…, Create QR Code still remain and open Chrome UI) Context menu by allow-list
+- [WIP] C-NOMENU [S] (user, 2026-11-23: "maybe we could disable it completely, and expose it via the command
+      mode" ... "yes, go ahead") No context menu at all; right-click still reaches the page. Replaces
+      C-NOTAB-ALLOW (same agent, repurposed).
+- [ ] C-CMDS [S] (after C-NOMENU; :yank parts after C6) Context-menu actions as `:` commands acting on the element
+      under the mouse pointer (later: picked by C7 hints): `:save` (page), `:save link`, `:save image`,
+      `:yank link`, `:yank image` (copy to the system clipboard, needs C6). Host: hit-test at the pointer
+      position (element kind, href, src) and download by URL; shell: commands, completion of their arguments,
+      status-bar messages. Done when each works on a test page in the headless nest.
+- [-] C-NOTAB-ALLOW (REPLACED by C-NOMENU, user 2026-11-23) (from #672; #673's live run: Print…, Cast…, Create QR Code still remain and open Chrome UI) Context menu by allow-list
       instead of deny-list, so a new Chrome item that opens a tab can't slip in.
 - [ ] C-KEYMAP [S] (from C2 #671) The page gets xkbcommon's default keymap (XKB_DEFAULT_*, else us), not the
       desktop's layout (winit does not expose it). Read it (X11: xkbcommon-x11; Wayland: wl_keyboard.keymap)

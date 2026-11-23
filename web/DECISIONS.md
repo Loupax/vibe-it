@@ -2,6 +2,14 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-23 No context menu; its actions become commands
+
+User: "maybe we could disable it completely, and expose it via the command mode" and, after the
+coordinator's proposal (commands act on the element under the pointer now, picked by link hints later;
+`:yank` needs the clipboard of C6), "yes, go ahead". C-NOMENU removes the menu (right-click still reaches
+the page); C-CMDS adds `:save`, `:save link`, `:save image`, `:yank link`, `:yank image`. DRM (C-DRM) and
+H.264 (C-H264) are parked (user, same day).
+
 ## 2026-11-23 Focusing an editable switches to INPUT
 
 User: "when input elements gain focus, we should automatically switch to Input Mode. No auto-return on
