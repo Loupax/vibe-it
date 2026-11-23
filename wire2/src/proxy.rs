@@ -241,6 +241,14 @@ async fn decrypted(
     };
     let tls = match tls {
         Ok(Ok(t)) => t,
+        Ok(Err(e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
+            // Browsers open speculative connections and close some before any ClientHello.
+            crate::debug!(
+                "flow={} host={host} browser closed before the TLS handshake",
+                flow.id
+            );
+            return;
+        }
         Ok(Err(e)) => {
             crate::info!(
                 "flow={} host={host} TLS handshake with the browser failed: {e} (does it trust {}?)",
