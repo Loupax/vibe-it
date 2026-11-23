@@ -1,83 +1,96 @@
-//! Pairs the engine host's page window with its `tab-created` event (web/PROTOCOL.md "One
-//! page per host"). The two arrive on different sockets, so either can come first.
+//! Pairs the engine host's page windows with their `tab-created` events (web/PROTOCOL.md
+//! "Pairing"). The two arrive on different sockets, so either can come first.
 //!
-//! One page only (DECISIONS.md "No tabs yet"): the first toplevel without a parent is the
-//! page; every other toplevel (a dialog, a parented window) is shown over it. A second
-//! `tab-created` is a protocol error for this shell.
+//! C4, several pages: the host announces every page with `tab-created` before it maps the page's
+//! window, and maps windows in the order of their `tab-created`s. So a new toplevel without a parent
+//! is the page of the oldest announced tab that has no window yet (FIFO). A parentless toplevel that
+//! arrives while no tab is waiting is held as a candidate (shown as a dialog meanwhile): the next
+//! `tab-created` takes the oldest candidate (its event was read after the window). A toplevel with a
+//! parent is always a dialog.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Role {
-    Page,
-    Dialog,
-}
+use std::collections::VecDeque;
 
 #[derive(Debug)]
 pub struct Pairing<T> {
-    page: Option<T>,
-    tab: Option<u64>,
-    closed: bool,
+    /// Tabs announced whose window has not come yet, oldest first.
+    waiting: VecDeque<u64>,
+    /// Parentless toplevels that came while no tab was waiting, oldest first.
+    candidates: Vec<T>,
+    /// Paired page windows and their tabs.
+    pages: Vec<(T, u64)>,
 }
 
-impl<T: PartialEq> Default for Pairing<T> {
+impl<T: PartialEq + Clone> Default for Pairing<T> {
     fn default() -> Self {
         Pairing {
-            page: None,
-            tab: None,
-            closed: false,
+            waiting: VecDeque::new(),
+            candidates: Vec::new(),
+            pages: Vec::new(),
         }
     }
 }
 
-impl<T: PartialEq> Pairing<T> {
-    /// A new xdg_toplevel. `has_parent`: it was given a parent toplevel.
-    pub fn toplevel(&mut self, t: T, has_parent: bool) -> Role {
-        if self.page.is_none() && !has_parent && !self.closed {
-            self.page = Some(t);
-            Role::Page
-        } else {
-            Role::Dialog
+impl<T: PartialEq + Clone> Pairing<T> {
+    /// A new xdg_toplevel. `has_parent`: it was given a parent toplevel. Returns its tab when it
+    /// is a page whose `tab-created` already came; None: a dialog, or a candidate for the next
+    /// `tab-created` (`is_candidate`).
+    pub fn toplevel(&mut self, t: T, has_parent: bool) -> Option<u64> {
+        if has_parent {
+            return None;
         }
-    }
-
-    /// The host announced its page. Returns whether this completed the pair.
-    pub fn tab_created(&mut self, tab: u64) -> Result<bool, String> {
-        match self.tab {
-            Some(old) => Err(format!("tab-created {tab} after tab-created {old}: one page only (No tabs yet)")),
+        match self.waiting.pop_front() {
+            Some(tab) => {
+                self.pages.push((t, tab));
+                Some(tab)
+            }
             None => {
-                self.tab = Some(tab);
-                Ok(self.page.is_some())
+                self.candidates.push(t);
+                None
             }
         }
     }
 
-    pub fn is_page(&self, t: &T) -> bool {
-        self.page.as_ref() == Some(t)
-    }
-
-    /// The page's tab id once both halves are in.
-    pub fn paired_tab(&self) -> Option<u64> {
-        self.page.as_ref().and(self.tab)
-    }
-
-    /// A toplevel went away; true if it was the page.
-    pub fn toplevel_destroyed(&mut self, t: &T) -> bool {
-        if self.is_page(t) {
-            self.page = None;
-            self.closed = true;
-            true
-        } else {
-            false
+    /// The host announced a page. Returns the window it pairs with, if that came first.
+    pub fn tab_created(&mut self, tab: u64) -> Option<T> {
+        if self.pages.iter().any(|(_, x)| *x == tab) || self.waiting.contains(&tab) {
+            return None;
         }
+        if self.candidates.is_empty() {
+            self.waiting.push_back(tab);
+            return None;
+        }
+        let t = self.candidates.remove(0);
+        self.pages.push((t.clone(), tab));
+        Some(t)
     }
 
-    /// `tab-closed`: the page is gone and the host is exiting.
-    pub fn tab_closed(&mut self, tab: u64) -> bool {
-        if self.tab == Some(tab) {
-            self.closed = true;
-            true
-        } else {
-            false
-        }
+    /// The tab of a paired page window.
+    #[cfg(test)]
+    pub fn tab_of(&self, t: &T) -> Option<u64> {
+        self.pages.iter().find(|(w, _)| w == t).map(|(_, tab)| *tab)
+    }
+
+    /// The window of a paired tab.
+    #[cfg(test)]
+    pub fn window_of(&self, tab: u64) -> Option<&T> {
+        self.pages.iter().find(|(_, x)| *x == tab).map(|(w, _)| w)
+    }
+
+    /// Whether `t` is waiting for a `tab-created` (no parent, no tab yet).
+    pub fn is_candidate(&self, t: &T) -> bool {
+        self.candidates.contains(t)
+    }
+
+    /// A toplevel went away; returns its tab if it was a page.
+    pub fn toplevel_destroyed(&mut self, t: &T) -> Option<u64> {
+        self.candidates.retain(|c| c != t);
+        let i = self.pages.iter().position(|(w, _)| w == t)?;
+        Some(self.pages.remove(i).1)
+    }
+
+    /// `tab-closed`: the page is gone (its window goes, or went, separately).
+    pub fn tab_closed(&mut self, tab: u64) {
+        self.waiting.retain(|x| *x != tab);
     }
 }
 
@@ -88,48 +101,55 @@ mod tests {
     #[test]
     fn event_first_then_window() {
         let mut p = Pairing::default();
-        assert_eq!(p.tab_created(1), Ok(false));
-        assert_eq!(p.paired_tab(), None);
-        assert_eq!(p.toplevel("w1", false), Role::Page);
-        assert_eq!(p.paired_tab(), Some(1));
+        assert_eq!(p.tab_created(1), None);
+        assert_eq!(p.toplevel("w1", false), Some(1));
+        assert_eq!(p.tab_of(&"w1"), Some(1));
     }
 
     #[test]
     fn window_first_then_event() {
         let mut p = Pairing::default();
-        assert_eq!(p.toplevel("w1", false), Role::Page);
-        assert_eq!(p.tab_created(7), Ok(true));
-        assert_eq!(p.paired_tab(), Some(7));
-        assert!(p.is_page(&"w1"));
+        assert_eq!(p.toplevel("w1", false), None);
+        assert!(p.is_candidate(&"w1"));
+        assert_eq!(p.tab_created(7), Some("w1"));
+        assert_eq!(p.tab_of(&"w1"), Some(7));
+        assert!(!p.is_candidate(&"w1"));
     }
 
     #[test]
-    fn other_toplevels_are_dialogs() {
+    fn parented_toplevels_are_dialogs() {
         let mut p = Pairing::default();
-        assert_eq!(p.toplevel("dlg", true), Role::Dialog);
-        assert_eq!(p.toplevel("w1", false), Role::Page);
-        assert_eq!(p.toplevel("w2", false), Role::Dialog);
-        assert!(p.is_page(&"w1"));
+        p.tab_created(1);
+        assert_eq!(p.toplevel("dlg", true), None);
+        assert!(!p.is_candidate(&"dlg"));
+        assert_eq!(p.toplevel("w1", false), Some(1));
     }
 
     #[test]
-    fn second_tab_created_is_an_error() {
-        let mut p: Pairing<&str> = Pairing::default();
-        p.tab_created(1).unwrap();
-        assert!(p.tab_created(2).unwrap_err().contains("one page only"));
-    }
-
-    #[test]
-    fn page_gone_is_not_replaced() {
+    fn several_pages_pair_in_announcement_order() {
         let mut p = Pairing::default();
+        p.tab_created(1);
+        p.tab_created(4);
+        assert_eq!(p.toplevel("a", false), Some(1));
+        assert_eq!(p.toplevel("b", false), Some(4));
+        // A third window before its event: the next tab-created takes it.
+        assert_eq!(p.toplevel("c", false), None);
+        assert_eq!(p.tab_created(9), Some("c"));
+        assert_eq!(p.window_of(4), Some(&"b"));
+        assert_eq!(p.tab_created(4), None, "a repeated tab-created changes nothing");
+    }
+
+    #[test]
+    fn a_closed_page_frees_its_window() {
+        let mut p = Pairing::default();
+        p.tab_created(1);
         p.toplevel("w1", false);
-        p.tab_created(1).unwrap();
-        assert!(!p.toplevel_destroyed(&"other"));
-        assert!(p.toplevel_destroyed(&"w1"));
-        assert_eq!(p.paired_tab(), None);
-        // The host is exiting; a late window is not taken as the page.
-        assert_eq!(p.toplevel("w3", false), Role::Dialog);
-        assert!(p.tab_closed(1));
-        assert!(!p.tab_closed(9));
+        assert_eq!(p.toplevel_destroyed(&"other"), None);
+        assert_eq!(p.toplevel_destroyed(&"w1"), Some(1));
+        assert_eq!(p.window_of(1), None);
+        // A page closed before its window came: the next window is not paired with it.
+        p.tab_created(2);
+        p.tab_closed(2);
+        assert_eq!(p.toplevel("w3", false), None);
     }
 }

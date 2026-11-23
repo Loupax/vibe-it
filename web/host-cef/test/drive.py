@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""C1 check: drive web-host-cef over its control socket (protocol v0, web/PROTOCOL.md)
+"""C1 check: drive web-host-cef over its control socket (protocol v1, web/PROTOCOL.md)
 and check every event. Run it inside a nested compositor (web/tools/nest.sh), never
 on the user's display:
 
@@ -340,7 +340,7 @@ def steps(sh, conn, base, a):
             sh.seen_since(mark, f"title {title}", is_ev("title", title=title))
 
     hello = sh.expect("hello", is_ev("hello"))
-    if hello["protocol"] != 0:
+    if hello["protocol"] != 1:
         raise Fail(f"protocol {hello['protocol']}")
     tab = sh.expect("tab-created", is_ev("tab-created"), 60)["tab"]
 
@@ -481,16 +481,71 @@ def steps(sh, conn, base, a):
     send({"cmd": "open", "url": A})
     nav("new", A, timeout=30)
 
-    sh.note("step: quit")
+    tabs = several_pages(sh, send, nav, base, tab)
+
+    sh.note("step: quit closes every page")
     send({"cmd": "quit"})
-    sh.expect("tab-closed", is_ev("tab-closed", tab=tab), 20)
+    for t in tabs:
+        sh.seen_since(0, f"tab-closed {t}", is_ev("tab-closed", tab=t), 20)
     with sh.cv:
         sh.cv.wait_for(lambda: sh.closed, 20)
     if not sh.closed:
         raise Fail("host did not close the control socket after quit")
-    tabs = {ev["tab"] for _, ev in sh.events if "tab" in ev}
-    if tabs != {tab}:
-        raise Fail(f"events name more than one page: {sorted(tabs)}")
+
+
+def several_pages(sh, send, nav, base, tab):
+    """C4 (PROTOCOL.md "Several pages"): new-tab, show-tab, close-tab, `tab` on page commands,
+    the host hiding every page but the shown one. Returns the pages still open."""
+    A = base + "a.html"
+    vis = lambda n: f"{A}?do=vis&n={n}"  # noqa: E731
+
+    def title(t, text, timeout=20.0, since=0):
+        sh.seen_since(since, f"title {text!r} of tab {t}", is_ev("title", tab=t, title=text), timeout)
+
+    sh.note("step: several pages: the first page reports its visibility")
+    send({"cmd": "open", "url": vis(1), "tab": tab})
+    title(tab, "vis visible 1")
+    sh.note("step: new-tab: answered by tab-created with its req, hidden until show-tab")
+    mark = len(sh.events)
+    send({"cmd": "new-tab", "req": 7, "url": vis(2)})
+    two = sh.expect("tab-created req 7", is_ev("tab-created", req=7), 30)["tab"]
+    if two == tab:
+        raise Fail(f"new-tab reused page id {tab}")
+    title(two, "vis hidden 2")
+    sh.seen_since(mark, "load end of the new page", is_ev("load", tab=two, phase="end", kind="new"))
+    sh.note("step: show-tab: the new page is shown, the first one hidden")
+    send({"cmd": "show-tab", "tab": two})
+    title(two, "vis visible 2")
+    title(tab, "vis hidden 1")
+    sh.note("step: a page command with `tab` acts on a hidden page (reload of the first)")
+    mark = len(sh.events)
+    send({"cmd": "reload", "tab": tab})
+    sh.seen_since(mark, "load end reload of the hidden page", is_ev("load", tab=tab, phase="end", kind="reload"))
+    if not sh.none_since(mark, is_ev("load", tab=two)):
+        raise Fail("reload with tab reloaded the shown page")
+    sh.note("step: a page command without `tab` acts on the shown page")
+    mark = len(sh.events)
+    send({"cmd": "open", "url": vis(3)})
+    title(two, "vis visible 3")
+    if not sh.none_since(mark, is_ev("load", tab=tab)):
+        raise Fail("open without tab loaded in the hidden page")
+    sh.note("step: show-tab back, then close-tab of the hidden page; the host keeps running")
+    mark = len(sh.events)
+    send({"cmd": "show-tab", "tab": tab})
+    title(tab, "vis visible 1", since=mark)
+    send({"cmd": "close-tab", "tab": two})
+    sh.expect(f"tab-closed {two}", is_ev("tab-closed", tab=two), 20)
+    sh.note("step: unknown pages are errors")
+    send({"cmd": "show-tab", "tab": 99999})
+    sh.expect("error for show-tab 99999", is_ev("error", message=lambda m: "99999" in (m or "")))
+    send({"cmd": "close-tab", "tab": two})
+    sh.expect(f"error for close-tab {two}", is_ev("error", message=lambda m: str(two) in (m or "")))
+    sh.note("step: a third page, so quit has two to close")
+    send({"cmd": "new-tab", "req": 8})
+    three = sh.expect("tab-created req 8", is_ev("tab-created", req=8), 30)["tab"]
+    if three in (tab, two):
+        raise Fail(f"page id {three} reused")
+    return [tab, three]
 
 
 def main():

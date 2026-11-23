@@ -1,6 +1,13 @@
-//! The one page: its window (CEF Views, page only), the CEF handlers that become
-//! protocol events, and the commands that act on it. Everything here runs on CEF's
-//! UI thread; the page state lives in a thread-local.
+//! The pages (C4: several, one per buffer of the shell): each page's window (CEF Views,
+//! page only), the CEF handlers that become protocol events, and the commands that act on
+//! a page. Everything here runs on CEF's UI thread; the pages' state lives in a
+//! thread-local, keyed by the page id (the CEF browser identifier).
+//!
+//! Several pages (PROTOCOL.md "Several pages"): every page is a browser in its own
+//! top-level window (CEF 156 cannot put two Chrome-style BrowserViews in one window,
+//! C4-SPIKE). One page is shown; the host hides every other one itself
+//! (`BrowserView::SetVisible(false)`: a background page, rAF stopped, timers throttled), since
+//! a window the compositor merely does not draw keeps running at full speed.
 //!
 //! Load events: CEF calls `on_load_start` when a cross-document navigation commits
 //! (with its transition type) and `on_load_end` when it finished. Same-document
@@ -16,6 +23,7 @@ use crate::newtab;
 use crate::protocol::{self, kind_from_transition, kind_name, Command, Event, FindDir, LoadKind, LoadPhase, TabId};
 use cef::*;
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 pub static START_URL: OnceLock<String> = OnceLock::new();
@@ -24,16 +32,17 @@ pub static NO_WINDOW: OnceLock<bool> = OnceLock::new();
 /// `--forget-site <site>`: run at start.
 pub static FORGET_AT_START: OnceLock<String> = OnceLock::new();
 
-/// The page's browser, once created.
-pub fn browser() -> Option<Browser> {
-    with_page(|p| p.browser.clone())
+/// Every page's browser (forget-site clears sessionStorage in all of them).
+pub fn browsers() -> Vec<Browser> {
+    with_pages(|ps| ps.pages.values().filter_map(|p| p.browser.clone()).collect())
 }
 
 #[derive(Default)]
 struct Page {
     browser: Option<Browser>,
+    /// The page's view in its own window (shown or hidden with `set_visible`).
+    view: Option<BrowserView>,
     id: TabId,
-    announced: bool,
     /// Chromium's loading state (on_loading_state_change).
     loading: bool,
     /// A cross-document load started during the current loading period. A
@@ -80,19 +89,37 @@ fn entry_kind(browser: Option<&Browser>) -> LoadKind {
         .unwrap_or(LoadKind::New)
 }
 
+/// Every page of the host, which one is shown, and the bookkeeping of `new-tab` and `quit`.
+#[derive(Default)]
+struct Pages {
+    pages: BTreeMap<TabId, Page>,
+    /// The page shown (the first page at start, then the latest `show-tab`).
+    shown: Option<TabId>,
+    /// `quit` was asked: the host exits when the last page has closed.
+    quitting: bool,
+    /// `new-tab`s whose browser is not announced yet: its view and the shell's `req`.
+    pending: Vec<(BrowserView, u64)>,
+    /// Pages announced so far (the first one is shown, later ones start hidden).
+    announced: u32,
+}
+
 thread_local! {
-    static PAGE: RefCell<Page> = RefCell::new(Page::default());
+    static PAGES: RefCell<Pages> = RefCell::new(Pages::default());
 }
 
-fn with_page<R>(f: impl FnOnce(&mut Page) -> R) -> R {
-    PAGE.with(|p| f(&mut p.borrow_mut()))
+fn with_pages<R>(f: impl FnOnce(&mut Pages) -> R) -> R {
+    PAGES.with(|p| f(&mut p.borrow_mut()))
 }
 
-fn is_page(browser: &Option<&mut Browser>) -> bool {
-    match browser {
-        Some(b) => with_page(|p| p.id != 0 && p.id == b.identifier()),
-        None => false,
-    }
+/// Runs `f` on page `id`; None when there is no such page (closed, or never announced).
+fn with_page<R>(id: TabId, f: impl FnOnce(&mut Page) -> R) -> Option<R> {
+    with_pages(|ps| ps.pages.get_mut(&id).map(f))
+}
+
+/// The id of the page `browser` is, if it is one (forget-site's helper browser is not).
+fn page_of(browser: &Option<&mut Browser>) -> Option<TabId> {
+    let id = browser.as_ref()?.identifier();
+    with_pages(|ps| ps.pages.contains_key(&id)).then_some(id)
 }
 
 fn is_main(frame: &Option<&mut Frame>) -> bool {
@@ -109,26 +136,123 @@ fn load_event(id: TabId, phase: LoadPhase, status: i32, kind: LoadKind, error: O
     });
 }
 
-/// Announces the page (once) and maps its window. `tab-created` always goes out
-/// before `show()`, so the shell can pair it with the window that appears.
+/// Announces a page (once) and maps its window. `tab-created` always goes out before
+/// `show()`, and windows are shown in the order of their `tab-created`s, so the shell can
+/// pair each with the window that appears (PROTOCOL.md "Pairing"). The first page is the
+/// shown one; a page from `new-tab` starts hidden (its view invisible, its window mapped).
 fn announce_and_show(browser: &Browser, window: &Window) {
     let id = browser.identifier();
-    let first = with_page(|p| {
-        if p.announced {
-            return false;
+    let mut b = browser.clone();
+    let view = browser_view_get_for_browser(Some(&mut b));
+    let announce = with_pages(|ps| {
+        if ps.pages.contains_key(&id) {
+            return None;
         }
-        p.announced = true;
-        p.id = id;
-        p.browser = Some(browser.clone());
-        true
+        let req = view.as_ref().and_then(|v| {
+            let i = ps.pending.iter().position(|(pv, _)| pv.is_same(Some(&mut View::from(v))) != 0)?;
+            Some(ps.pending.remove(i).1)
+        });
+        let first = ps.announced == 0;
+        ps.announced += 1;
+        if first {
+            ps.shown = Some(id);
+        }
+        ps.pages.insert(
+            id,
+            Page {
+                browser: Some(browser.clone()),
+                view: view.clone(),
+                id,
+                ..Default::default()
+            },
+        );
+        Some((req, first))
     });
-    if first {
-        emit(Event::TabCreated { tab: id });
-    }
+    let Some((req, first)) = announce else {
+        if window.is_visible() == 0 {
+            window.show();
+        }
+        return;
+    };
+    emit(Event::TabCreated { tab: id, req });
     if window.is_visible() == 0 {
         window.show();
         log!("window of tab {id} shown");
     }
+    if !first {
+        // Hidden right here, the page still reports `visible` (the view is not laid out in its
+        // window yet, checked with test/drive.py): hide it from a task, once the window is up.
+        post_delayed_task(ThreadId::UI, Some(&mut HideTask::new(id)), HIDE_NEW_PAGE_MS);
+    }
+}
+
+/// How long after its window is shown a new page is hidden (`HideTask`).
+const HIDE_NEW_PAGE_MS: i64 = 50;
+
+wrap_task! {
+    struct HideTask {
+        id: TabId,
+    }
+
+    impl Task {
+        fn execute(&self) {
+            let id = self.id;
+            let view = with_pages(|ps| (ps.shown != Some(id)).then(|| ps.pages.get(&id).and_then(|p| p.view.clone())).flatten());
+            if let Some(v) = view {
+                v.set_visible(0);
+                log!("tab {id} is hidden until show-tab");
+            }
+        }
+    }
+}
+
+/// `show-tab`: page `id` visible and focused, every other page hidden.
+fn show_tab(id: TabId) -> Result<(), String> {
+    let views = with_pages(|ps| {
+        if !ps.pages.contains_key(&id) {
+            return None;
+        }
+        ps.shown = Some(id);
+        Some(ps.pages.values().map(|p| (p.id, p.view.clone())).collect::<Vec<_>>())
+    })
+    .ok_or_else(|| format!("show-tab: no tab {id}"))?;
+    for (pid, v) in &views {
+        if *pid != id {
+            if let Some(v) = v {
+                v.set_visible(0);
+            }
+        }
+    }
+    if let Some((_, Some(v))) = views.iter().find(|(pid, _)| *pid == id) {
+        v.set_visible(1);
+        v.request_focus();
+    }
+    log!("tab {id} shown, {} hidden", views.len() - 1);
+    Ok(())
+}
+
+/// `new-tab`: a new page in a window of its own, hidden until `show-tab`; `tab-created`
+/// with `req` answers when its browser exists.
+fn new_tab(req: u64, url: &str) {
+    let url = protocol::normalize_url(url);
+    let mut client = Some(HostClient::new());
+    let bv = browser_view_create(
+        client.as_mut(),
+        Some(&CefString::from(url.as_str())),
+        Some(&BrowserSettings::default()),
+        None,
+        None,
+        Some(&mut HostBrowserViewDelegate::new()),
+    );
+    let Some(bv) = bv else {
+        return emit(Event::Error {
+            message: format!("new-tab {req}: the engine could not create a page"),
+        });
+    };
+    log!("new-tab {req}: {url}");
+    with_pages(|ps| ps.pending.push((bv.clone(), req)));
+    let mut d = HostWindowDelegate::new(RefCell::new(Some(bv)));
+    window_create_top_level(Some(&mut d));
 }
 
 wrap_window_delegate! {
@@ -248,23 +372,21 @@ wrap_client! {
             if CefString::from(&msg.name()).to_string() != crate::renderer::EDITABLE_MSG {
                 return 0;
             }
-            if !is_page(&browser) {
-                return 1;
-            }
+            let Some(id) = page_of(&browser) else { return 1 };
             let editable = msg.argument_list().map(|a| a.bool(0) != 0).unwrap_or(false);
-            set_editable(editable);
+            set_editable(id, editable);
             1
         }
     }
 }
 
-fn set_editable(editable: bool) {
-    let changed = with_page(|p| {
+fn set_editable(id: TabId, editable: bool) {
+    let changed = with_page(id, |p| {
         let c = p.editable != editable;
         p.editable = editable;
-        c.then_some(p.id)
+        c
     });
-    if let Some(id) = changed {
+    if changed == Some(true) {
         emit(Event::EditableFocused {
             tab: id,
             focused: editable,
@@ -277,11 +399,12 @@ wrap_display_handler! {
 
     impl DisplayHandler {
         fn on_address_change(&self, browser: Option<&mut Browser>, frame: Option<&mut Frame>, url: Option<&CefString>) {
-            if !is_page(&browser) || !is_main(&frame) {
+            let Some(id) = page_of(&browser) else { return };
+            if !is_main(&frame) {
                 return;
             }
             let url = url.map(|u| u.to_string()).unwrap_or_default();
-            let (id, same_doc, changed) = with_page(|p| {
+            let Some((same_doc, changed)) = with_page(id, |p| {
                 trace!("on_address_change {url} (loading {}, load {:?})", p.loading, p.load);
                 let changed = p.url != url;
                 p.url = url.clone();
@@ -294,8 +417,10 @@ wrap_display_handler! {
                 } else {
                     true
                 };
-                (p.id, same_doc, changed)
-            });
+                (same_doc, changed)
+            }) else {
+                return;
+            };
             if changed {
                 emit(Event::Url { tab: id, url });
             }
@@ -316,28 +441,27 @@ wrap_display_handler! {
         ) -> ::std::os::raw::c_int {
             let m = message.map(|m| m.to_string()).unwrap_or_default();
             let Some(wrapped) = m.strip_prefix("web-host.find-start:") else { return 0 };
-            if !is_page(&browser) {
-                return 0;
-            }
-            let Some((query, forward, match_case)) = with_page(|p| p.find_start.take()) else { return 1 };
-            with_page(|p| p.find_wrapped = wrapped == "1");
+            let Some(id) = page_of(&browser) else { return 0 };
+            let Some((query, forward, match_case)) = with_page(id, |p| p.find_start.take()).flatten() else { return 1 };
+            with_page(id, |p| p.find_wrapped = wrapped == "1");
             if let Some(h) = browser.as_ref().and_then(|b| b.host()) {
-                start_find(&h, &query, forward, match_case, false);
+                start_find(id, &h, &query, forward, match_case, false);
             }
             1
         }
 
         fn on_title_change(&self, browser: Option<&mut Browser>, title: Option<&CefString>) {
-            if !is_page(&browser) {
-                return;
-            }
+            let Some(id) = page_of(&browser) else { return };
             let t = title.map(|t| t.to_string()).unwrap_or_default();
             // CEF repeats the title on every navigation start; send changes only.
-            let changed = with_page(|p| (p.title != t).then(|| {
+            let changed = with_page(id, |p| {
+                let c = p.title != t;
                 p.title = t.clone();
-                p.id
-            }));
-            let Some(id) = changed else { return };
+                c
+            });
+            if changed != Some(true) {
+                return;
+            }
             emit(Event::Title { tab: id, title: t });
             let mut browser = browser.cloned();
             if let Some(w) = browser_view_get_for_browser(browser.as_mut()).and_then(|bv| bv.window()) {
@@ -404,16 +528,23 @@ wrap_life_span_handler! {
         }
 
         fn on_before_close(&self, browser: Option<&mut Browser>) {
-            if !is_page(&browser) {
-                return;
-            }
-            let id = with_page(|p| {
-                p.browser = None;
-                p.id
+            let Some(id) = page_of(&browser) else { return };
+            let (left, quitting) = with_pages(|ps| {
+                ps.pages.remove(&id);
+                if ps.shown == Some(id) {
+                    ps.shown = None;
+                }
+                (ps.pages.len(), ps.quitting)
             });
             emit(Event::TabClosed { tab: id });
-            log!("page closed, quitting");
-            quit_message_loop();
+            // The last page gone ends the host only on `quit` (or standalone, when its window was
+            // closed): the shell opens a new page before it closes its last one (PROTOCOL.md).
+            if left == 0 && (quitting || !crate::control::connected()) {
+                log!("tab {id} closed, no page left: quitting");
+                quit_message_loop();
+            } else {
+                log!("tab {id} closed, {left} left");
+            }
         }
     }
 }
@@ -441,31 +572,27 @@ wrap_load_handler! {
 
     impl LoadHandler {
         fn on_loading_state_change(&self, browser: Option<&mut Browser>, is_loading: i32, can_go_back: i32, can_go_forward: i32) {
-            if !is_page(&browser) {
-                return;
-            }
+            let Some(id) = page_of(&browser) else { return };
             trace!("on_loading_state_change loading {is_loading} back {can_go_back} forward {can_go_forward}");
-            let (id, same_doc) = with_page(|p| {
+            let same_doc = with_page(id, |p| {
                 p.loading = is_loading != 0;
                 if p.loading {
                     p.period_load = false;
                 }
-                let same_doc = !p.loading && std::mem::take(&mut p.addr_pending) && !p.period_load;
-                (p.id, same_doc)
+                !p.loading && std::mem::take(&mut p.addr_pending) && !p.period_load
             });
-            if same_doc {
+            if same_doc == Some(true) {
                 same_document(id);
             }
         }
 
         fn on_load_start(&self, browser: Option<&mut Browser>, frame: Option<&mut Frame>, transition_type: TransitionType) {
             // Every frame's origin, for forget-site (forget.rs: CEF cannot list origins).
-            if is_page(&browser) {
-                if let Some(f) = frame.as_ref() {
-                    crate::forget::record(&CefString::from(&f.url()).to_string());
-                }
+            let Some(id) = page_of(&browser) else { return };
+            if let Some(f) = frame.as_ref() {
+                crate::forget::record(&CefString::from(&f.url()).to_string());
             }
-            if !is_page(&browser) || !is_main(&frame) {
+            if !is_main(&frame) {
                 return;
             }
             // TransitionType wraps a #[repr(u32)] enum that really is a bit set
@@ -473,7 +600,7 @@ wrap_load_handler! {
             let raw: u32 = unsafe { std::mem::transmute_copy(&transition_type) };
             let kind = kind_from_transition(raw);
             trace!("on_load_start transition {raw:#x} -> {}", kind_name(kind));
-            let (id, was_editable) = with_page(|p| {
+            let was_editable = with_page(id, |p| {
                 p.load = Some(kind);
                 p.stop_requested = false;
                 p.period_load = true;
@@ -482,17 +609,18 @@ wrap_load_handler! {
                 p.find_step = None;
                 p.find_pending = None;
                 p.find_start = None;
-                (p.id, p.editable)
+                p.editable
             });
             load_event(id, LoadPhase::Start, 0, kind, None);
             // The new document starts with nothing focused.
-            if was_editable {
-                set_editable(false);
+            if was_editable == Some(true) {
+                set_editable(id, false);
             }
         }
 
         fn on_load_end(&self, browser: Option<&mut Browser>, frame: Option<&mut Frame>, http_status_code: i32) {
-            if !is_page(&browser) || !is_main(&frame) {
+            let Some(id) = page_of(&browser) else { return };
+            if !is_main(&frame) {
                 return;
             }
             trace!("on_load_end {http_status_code}");
@@ -511,13 +639,15 @@ wrap_load_handler! {
             // A back-forward-cache restore calls on_address_change only after this:
             // send the new URL first, so `url` always precedes its `load end`.
             let url = frame.as_ref().map(|f| CefString::from(&f.url()).to_string()).unwrap_or_default();
-            let (id, kind, error, new_url) = with_page(|p| {
+            let Some((kind, error, new_url)) = with_page(id, |p| {
                 let new_url = (!url.is_empty() && p.url != url).then(|| {
                     p.url = url.clone();
                     url.clone()
                 });
-                (p.id, p.load.take(), p.error.take(), new_url)
-            });
+                (p.load.take(), p.error.take(), new_url)
+            }) else {
+                return;
+            };
             // An error page (on_load_error, e.g. ERR_NAME_NOT_RESOLVED) ends with no
             // on_load_start: send the start here.
             let kind = kind.unwrap_or_else(|| {
@@ -539,7 +669,8 @@ wrap_load_handler! {
             error_text: Option<&CefString>,
             failed_url: Option<&CefString>,
         ) {
-            if !is_page(&browser) || !is_main(&frame) {
+            let Some(id) = page_of(&browser) else { return };
+            if !is_main(&frame) {
                 return;
             }
             let name = error_name(error_code);
@@ -553,23 +684,22 @@ wrap_load_handler! {
             // navigation (which gets its own events) or was the engine's own retry of
             // an error page, which the shell has no use for.
             let aborted = name == "ERR_ABORTED";
-            let (stopped, in_end) = with_page(|p| {
+            let (stopped, in_end) = with_page(id, |p| {
                 if aborted && p.load.is_none() {
                     (std::mem::take(&mut p.stop_requested), false)
                 } else {
                     p.error = Some(name.clone());
                     (false, true)
                 }
-            });
+            })
+            .unwrap_or((false, false));
             // The shell hears of every failure it will also see in a `load end`.
             if in_end || stopped {
-                let id = with_page(|p| p.id);
                 let code = sys::cef_errorcode_t::from(error_code) as i32;
                 let text = error_text.map(|t| t.to_string()).unwrap_or_default();
                 emit(Event::LoadError { tab: id, code, name: name.clone(), text });
             }
             if stopped {
-                let id = with_page(|p| p.id);
                 let kind = entry_kind(browser.as_deref());
                 load_event(id, LoadPhase::Start, 0, kind, None);
                 load_event(id, LoadPhase::End, 0, kind, Some(name));
@@ -610,16 +740,13 @@ wrap_request_handler! {
             error_code: i32,
             _error_string: Option<&CefString>,
         ) {
-            if !is_page(&browser) {
-                return;
-            }
+            let Some(id) = page_of(&browser) else { return };
             let reason = format!("{:?} (exit code {error_code})", sys::cef_termination_status_t::from(status));
-            let id = with_page(|p| {
+            with_page(id, |p| {
                 p.load = None;
                 p.loading = false;
                 p.addr_pending = false;
                 p.editable = false;
-                p.id
             });
             emit(Event::Crashed { tab: id, reason });
         }
@@ -639,13 +766,11 @@ wrap_find_handler! {
             active_match_ordinal: i32,
             final_update: i32,
         ) {
-            if !is_page(&browser) {
-                return;
-            }
+            let Some(id) = page_of(&browser) else { return };
             trace!("on_find_result count {count} active {active_match_ordinal} final {final_update}");
-            let (id, find_id, index, step) = with_page(|p| {
+            let Some((find_id, index, step)) = with_page(id, |p| {
                 if p.find_pending.is_none() {
-                    return (p.id, None, 0, None);
+                    return (None, 0, None);
                 }
                 if active_match_ordinal > 0 {
                     p.find_index = active_match_ordinal;
@@ -656,8 +781,10 @@ wrap_find_handler! {
                 if final_update != 0 {
                     p.find_step = None;
                 }
-                (p.id, p.find_pending, p.find_index, step)
-            });
+                (p.find_pending, p.find_index, step)
+            }) else {
+                return;
+            };
             let Some(find_id) = find_id else {
                 trace!("on_find_result dropped: no find pending");
                 return;
@@ -670,10 +797,11 @@ wrap_find_handler! {
             }
             // Intermediate updates carry partial counts; the shell gets the final one.
             if final_update != 0 {
-                let wrapped = with_page(|p| {
+                let wrapped = with_page(id, |p| {
                     p.find_pending = None;
                     std::mem::take(&mut p.find_wrapped)
-                });
+                })
+                .unwrap_or(false);
                 emit(Event::FindResult { tab: id, id: find_id, index: if count == 0 { 0 } else { index }, count, wrapped });
             }
         }
@@ -812,13 +940,23 @@ fn set_caret_browsing(on: bool) -> bool {
     ok != 0 && now == Some(on)
 }
 
-/// Closes the page (no beforeunload prompts); on_before_close then quits.
+/// `quit`: closes every page (no beforeunload prompts); on_before_close quits the message
+/// loop when the last one is gone.
 pub fn quit() {
     crate::forget::shutdown(Box::new(|| {}));
-    let b = with_page(|p| p.browser.clone());
-    match b.and_then(|b| b.host()) {
-        Some(h) => h.close_browser(1),
-        None => quit_message_loop(),
+    let hosts = with_pages(|ps| {
+        ps.quitting = true;
+        ps.pages
+            .values()
+            .filter_map(|p| p.browser.as_ref().and_then(|b| b.host()))
+            .collect::<Vec<_>>()
+    });
+    if hosts.is_empty() {
+        return quit_message_loop();
+    }
+    log!("quit: closing {} page(s)", hosts.len());
+    for h in hosts {
+        h.close_browser(1);
     }
 }
 
@@ -834,8 +972,8 @@ fn find_start_js(query: &str, match_case: bool) -> String {
 /// Starts (or steps) the engine's find. A new session counts the matches but activates none
 /// (active ordinal 0); on_find_result steps once so the first (or, for prev, last) match is
 /// active, as in a browser's find bar, and reports only that.
-fn start_find(h: &BrowserHost, query: &str, forward: i32, match_case: i32, again: bool) {
-    with_page(|p| p.find_step = (!again).then(|| (query.to_string(), forward, match_case)));
+fn start_find(id: TabId, h: &BrowserHost, query: &str, forward: i32, match_case: i32, again: bool) {
+    with_page(id, |p| p.find_step = (!again).then(|| (query.to_string(), forward, match_case)));
     if !again {
         // After a navigation CEF still holds the old session; the same text would be
         // taken for the same search and never answer (found live by C5). Ending it
@@ -847,29 +985,57 @@ fn start_find(h: &BrowserHost, query: &str, forward: i32, match_case: i32, again
 
 /// Runs one command line from the shell (UI thread).
 pub fn run_command(line: &str) {
-    let cmd = match protocol::parse_command(line) {
+    let (cmd, tab) = match protocol::parse_command_tab(line) {
         Ok(c) => c,
         Err(message) => return emit(Event::Error { message }),
     };
-    if cmd == Command::Quit {
-        return quit();
-    }
-    // Needs no page (also with --no-window).
-    if let Command::ForgetSite { site } = cmd {
-        return crate::forget::forget_site(site);
-    }
-    // A profile setting: needs no page.
-    if let Command::Caret { on } = cmd {
-        if !set_caret_browsing(on) {
-            emit(Event::Error {
-                message: format!("caret: could not set {} to {on}", protocol::CARET_PREF),
+    match cmd {
+        Command::Quit => return quit(),
+        // Needs no page (also with --no-window).
+        Command::ForgetSite { site } => return crate::forget::forget_site(site),
+        // A profile setting: needs no page.
+        Command::Caret { on } => {
+            if !set_caret_browsing(on) {
+                emit(Event::Error {
+                    message: format!("caret: could not set {} to {on}", protocol::CARET_PREF),
+                });
+            }
+            return;
+        }
+        Command::NewTab { req, .. } if with_pages(|ps| ps.quitting) => {
+            // A browser created while CEF shuts down crashes the host (seen live by C4).
+            return emit(Event::Error {
+                message: format!("new-tab {req}: the host is quitting"),
             });
         }
-        return;
+        Command::NewTab { req, url } => return new_tab(req, url.as_deref().unwrap_or("about:blank")),
+        Command::ShowTab { tab } => {
+            if let Err(message) = show_tab(tab) {
+                emit(Event::Error { message });
+            }
+            return;
+        }
+        Command::CloseTab { tab } => {
+            let h = with_page(tab, |p| p.browser.as_ref().and_then(|b| b.host())).flatten();
+            match h {
+                Some(h) => h.close_browser(1),
+                None => emit(Event::Error {
+                    message: format!("close-tab: no tab {tab}"),
+                }),
+            }
+            return;
+        }
+        _ => {}
     }
-    let Some(browser) = with_page(|p| p.browser.clone()) else {
+    // A page command: the page `tab` names, else the shown one.
+    let Some(id) = tab.or_else(|| with_pages(|ps| ps.shown)) else {
         return emit(Event::Error {
             message: "no page yet".into(),
+        });
+    };
+    let Some(browser) = with_page(id, |p| p.browser.clone()).flatten() else {
+        return emit(Event::Error {
+            message: format!("no tab {id}"),
         });
     };
     let host = browser.host();
@@ -884,7 +1050,7 @@ pub fn run_command(line: &str) {
         Command::Reload { hard: false } => browser.reload(),
         Command::Reload { hard: true } => browser.reload_ignore_cache(),
         Command::Stop => {
-            with_page(|p| p.stop_requested = true);
+            with_page(id, |p| p.stop_requested = true);
             browser.stop_load()
         }
         Command::Find {
@@ -895,34 +1061,33 @@ pub fn run_command(line: &str) {
             screen_top,
         } => {
             let Some(h) = host else { return };
-            with_page(|p| {
+            let again = with_page(id, |p| {
                 p.find_pending = Some(find_id);
                 p.find_start = None;
                 p.find_wrapped = false;
-            });
-            let again = with_page(|p| {
                 let again = p.find_query.as_deref() == Some(query.as_str());
                 if !again {
                     p.find_query = Some(query.clone());
                     p.find_index = 0;
                 }
                 again
-            });
+            })
+            .unwrap_or(false);
             let forward = (dir == FindDir::Next) as i32;
             if screen_top && !again {
                 // C5b (T23): the engine's find starts from the selection, so first put the
                 // selection at the first text at or below the top of the screen; the page
                 // answers with a console line (see on_console_message) and the find runs then.
                 if let Some(f) = browser.main_frame() {
-                    with_page(|p| p.find_start = Some((query.clone(), forward, match_case as i32)));
+                    with_page(id, |p| p.find_start = Some((query.clone(), forward, match_case as i32)));
                     f.execute_java_script(Some(&CefString::from(find_start_js(&query, match_case).as_str())), None, 0);
                     return;
                 }
             }
-            start_find(&h, &query, forward, match_case as i32, again);
+            start_find(id, &h, &query, forward, match_case as i32, again);
         }
         Command::FindClear => {
-            with_page(|p| {
+            with_page(id, |p| {
                 p.find_query = None;
                 p.find_index = 0;
                 p.find_pending = None;
@@ -937,12 +1102,17 @@ pub fn run_command(line: &str) {
             Ok(level) => {
                 if let Some(h) = host {
                     h.set_zoom_level(level);
-                    log!("zoom factor {factor} -> level {level:.3}");
+                    log!("zoom factor {factor} -> level {level:.3} (tab {id})");
                 }
             }
             Err(message) => emit(Event::Error { message }),
         },
-        Command::Quit | Command::ForgetSite { .. } | Command::Caret { .. } => unreachable!(),
+        Command::Quit
+        | Command::ForgetSite { .. }
+        | Command::Caret { .. }
+        | Command::NewTab { .. }
+        | Command::ShowTab { .. }
+        | Command::CloseTab { .. } => unreachable!(),
     }
 }
 

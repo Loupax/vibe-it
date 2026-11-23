@@ -1,13 +1,13 @@
-//! Control protocol v0 (web/PROTOCOL.md): one JSON object per line, shell -> host
+//! Control protocol v1 (web/PROTOCOL.md; v1 = v0 plus several pages, C4): one JSON object per line, shell -> host
 //! commands tagged by "cmd", host -> shell events tagged by "event". No CEF types
 //! here, so all of it is unit tested.
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 0;
+pub const PROTOCOL_VERSION: u32 = 1;
 
-/// The page's id in events: the CEF browser identifier. There is one page per host
-/// today; the id stays in the events so a later multi-page design needs no change.
+/// A page's id in events and commands: the CEF browser identifier (positive, never reused
+/// in a run, not contiguous).
 pub type TabId = i32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -17,7 +17,9 @@ pub enum FindDir {
     Prev,
 }
 
-/// shell -> host. The host shows one page, so no command names a tab.
+/// shell -> host. A page command (open, back, forward, reload, stop, find, find-clear, zoom)
+/// may also carry `"tab"`: the page it acts on (default: the shown one); `parse_command_tab`
+/// reads it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 pub enum Command {
@@ -61,6 +63,23 @@ pub enum Command {
     Caret {
         on: bool,
     },
+    /// C4: a new page (`url`, default about:blank), hidden until `show-tab`; answered by
+    /// `tab-created` with the same `req`.
+    NewTab {
+        req: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        url: Option<String>,
+    },
+    /// C4: show page `tab` (visible, focused) and hide the one shown before.
+    ShowTab {
+        tab: TabId,
+    },
+    /// C4: close page `tab` (no beforeunload prompt); answered by `tab-closed`. Closing the
+    /// last page does not end the host (only `quit` does).
+    CloseTab {
+        tab: TabId,
+    },
+    /// Closes every page, then the host exits.
     Quit,
 }
 
@@ -100,11 +119,14 @@ pub enum Event {
         protocol: u32,
         engine: String,
     },
-    /// Sent once, before the page's window is mapped.
+    /// Sent once per page, before its window is mapped. `req`: the `new-tab` it answers
+    /// (none for the first page).
     TabCreated {
         tab: TabId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        req: Option<u64>,
     },
-    /// Sent once, when the page's browser has closed (the host exits next).
+    /// Sent once, when the page's browser has closed (`close-tab`, `quit`).
     TabClosed {
         tab: TabId,
     },
@@ -175,8 +197,26 @@ pub enum Event {
     },
 }
 
+#[cfg(test)]
 pub fn parse_command(line: &str) -> Result<Command, String> {
-    serde_json::from_str(line.trim()).map_err(|e| format!("bad command {:?}: {e}", line.trim()))
+    parse_command_tab(line).map(|(c, _)| c)
+}
+
+/// A command and the page it names with `"tab"` (None: the shown page). `show-tab` and
+/// `close-tab` carry their page in the command itself.
+pub fn parse_command_tab(line: &str) -> Result<(Command, Option<TabId>), String> {
+    let bad = |e: serde_json::Error| format!("bad command {:?}: {e}", line.trim());
+    let v: serde_json::Value = serde_json::from_str(line.trim()).map_err(bad)?;
+    let tab = match v.get("tab") {
+        None => None,
+        Some(t) => Some(
+            t.as_i64()
+                .and_then(|t| TabId::try_from(t).ok())
+                .ok_or_else(|| format!("bad command {:?}: tab is not a page id", line.trim()))?,
+        ),
+    };
+    let cmd: Command = serde_json::from_value(v).map_err(bad)?;
+    Ok((cmd, tab))
 }
 
 pub fn encode_event(ev: &Event) -> String {
@@ -196,7 +236,8 @@ pub fn kind_name(k: LoadKind) -> &'static str {
 pub fn event_text(ev: &Event) -> String {
     match ev {
         Event::Hello { protocol, engine } => format!("hello {protocol} {engine}"),
-        Event::TabCreated { tab } => format!("tab-created {tab}"),
+        Event::TabCreated { tab, req: None } => format!("tab-created {tab}"),
+        Event::TabCreated { tab, req: Some(r) } => format!("tab-created {tab} (req {r})"),
         Event::TabClosed { tab } => format!("tab-closed {tab}"),
         Event::Url { tab, url } => format!("url {tab} {url}"),
         Event::Title { tab, title } => format!("title {tab} {title}"),
@@ -635,6 +676,37 @@ mod tests {
     }
 
     #[test]
+    fn several_pages_commands() {
+        let cases: Vec<(&str, Command, Option<TabId>)> = vec![
+            (
+                r#"{"cmd":"new-tab","req":3,"url":"example.com"}"#,
+                Command::NewTab {
+                    req: 3,
+                    url: Some("example.com".into()),
+                },
+                None,
+            ),
+            (r#"{"cmd":"new-tab","req":4}"#, Command::NewTab { req: 4, url: None }, None),
+            (r#"{"cmd":"show-tab","tab":4}"#, Command::ShowTab { tab: 4 }, Some(4)),
+            (r#"{"cmd":"close-tab","tab":5}"#, Command::CloseTab { tab: 5 }, Some(5)),
+            // Every page command takes an optional tab; without it, the shown page.
+            (r#"{"cmd":"reload","tab":7}"#, Command::Reload { hard: false }, Some(7)),
+            (
+                r#"{"cmd":"open","url":"a.test","tab":2}"#,
+                Command::Open { url: "a.test".into() },
+                Some(2),
+            ),
+            (r#"{"cmd":"find-clear","tab":2}"#, Command::FindClear, Some(2)),
+            (r#"{"cmd":"back"}"#, Command::Back, None),
+        ];
+        for (line, want, tab) in cases {
+            assert_eq!(parse_command_tab(line).unwrap(), (want.clone(), tab), "{line}");
+            let again = serde_json::to_string(&want).unwrap();
+            assert_eq!(parse_command(&again).unwrap(), want, "{again}");
+        }
+    }
+
+    #[test]
     fn tolerates_whitespace_and_unknown_fields() {
         assert_eq!(parse_command("  {\"cmd\":\"quit\",\"x\":1}\n").unwrap(), Command::Quit);
     }
@@ -647,7 +719,10 @@ mod tests {
             r#"{"cmd":"fly"}"#,
             r#"{"cmd":"open"}"#,
             r#"{"cmd":"new-tab"}"#,
-            r#"{"cmd":"close-tab","tab":1}"#,
+            r#"{"cmd":"close-tab"}"#,
+            r#"{"cmd":"show-tab","tab":"x"}"#,
+            r#"{"cmd":"back","tab":-99999999999}"#,
+            r#"{"cmd":"back","tab":"1"}"#,
             r#"{"cmd":"find","query":"x","dir":"up"}"#,
             r#"{"cmd":"zoom","factor":"big"}"#,
             r#"{"cmd":"caret"}"#,
@@ -663,12 +738,16 @@ mod tests {
         let cases: Vec<(Event, &str)> = vec![
             (
                 Event::Hello {
-                    protocol: 0,
+                    protocol: 1,
                     engine: "cef".into(),
                 },
-                r#"{"event":"hello","protocol":0,"engine":"cef"}"#,
+                r#"{"event":"hello","protocol":1,"engine":"cef"}"#,
             ),
-            (Event::TabCreated { tab: 1 }, r#"{"event":"tab-created","tab":1}"#),
+            (Event::TabCreated { tab: 1, req: None }, r#"{"event":"tab-created","tab":1}"#),
+            (
+                Event::TabCreated { tab: 5, req: Some(3) },
+                r#"{"event":"tab-created","tab":5,"req":3}"#,
+            ),
             (Event::TabClosed { tab: 3 }, r#"{"event":"tab-closed","tab":3}"#),
             (
                 Event::Url {
@@ -773,7 +852,8 @@ mod tests {
             error: Some("ERR_ABORTED".into()),
         };
         assert_eq!(event_text(&ev), "load 3 end 0 new (ERR_ABORTED)");
-        assert_eq!(event_text(&Event::TabCreated { tab: 4 }), "tab-created 4");
+        assert_eq!(event_text(&Event::TabCreated { tab: 4, req: None }), "tab-created 4");
+        assert_eq!(event_text(&Event::TabCreated { tab: 4, req: Some(2) }), "tab-created 4 (req 2)");
         assert_eq!(
             event_text(&Event::FindResult {
                 tab: 1,

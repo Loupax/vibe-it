@@ -11,7 +11,7 @@ use cef::sys::cef_window_open_disposition_t as D;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PopupAction {
     /// Cancel the popup and load its URL in this page (script `window.open`,
-    /// plain `target=_blank`: PROTOCOL.md "One page per host").
+    /// plain `target=_blank`: PROTOCOL.md "Several pages"; C-POPUPS will open them as pages).
     LoadInPlace,
     /// Cancel it and do nothing: no new page, and this page is not navigated either.
     Drop,

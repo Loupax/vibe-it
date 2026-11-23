@@ -1,36 +1,48 @@
-# web — engine-host control protocol, v0
+# web — engine-host control protocol, v1
 
 How the shell (web-shell, C2/C3) drives an engine host (web-host-cef, C1; later
 web-host-webkit, E1). Engine-neutral: nothing here names a CEF or WebKit type.
 Implemented in `host-cef/src/protocol.rs` (encoding, unit tested) and
 `host-cef/src/page.rs` (meaning); checked end to end by `host-cef/test/drive.py`.
 
-## One page per host
+## Several pages (protocol 1, C4)
 
-A host shows **one page** in **one window**, the page only (no toolbar, tab strip or
-menus). Tabs are deferred (user, 2026-11-23; maybe later as a vim-style buffers
-interface, undecided), so v0 has no `new-tab` / `close-tab`. **Planned** (DECISIONS.md 2026-11-23
-"A picker, bookmarks, buffers as tabs, popups like Chrome"): buffers (TODO.txt C4-SPIKE, C4) and
-popups that open buffers (C-POPUPS) will change this section and the popup rules below; the
-proposed protocol is "Proposal: several pages (C4, C-POPUPS)" further down.
+A host holds **any number of pages** (the shell's buffers, KEYS.md "Buffers"); v0 had one. Protocol 1
+is v0 plus `new-tab`, `show-tab`, `close-tab`, an optional `tab` on page commands and `req` on
+`tab-created`; every v0 field keeps its meaning. (Measured by C4-SPIKE, `notes/C4-SPIKE.md`.)
 
-- `window.open(...)` and `target=_blank` links go through the host (CEF:
-  `OnBeforePopup`), which cancels the popup and loads its URL **in the same page**.
-  `window.open` returns `null` to the page. **Known loss:** pages that rely on the
-  popup's `window.opener` / a handle to the popup (OAuth and payment login popups,
-  "open in a small window" flows) do not work. Popups without a URL
-  (`window.open()` then `document.write`) show nothing.
-- **No user gesture opens a second tab or window** (user, 2026-11-23, C-NOTAB). Ctrl+click,
+- **One window per page.** Each page is a browser with its own top-level window, the page only (no
+  toolbar, tab strip or menus): CEF 156 cannot put two Chrome-style browsers in one window.
+- **One page is shown.** The first page is shown; a page from `new-tab` starts hidden; `show-tab`
+  shows one and hides the one shown before. The host hides a page itself (web-host-cef:
+  `BrowserView::SetVisible(false)` in its window, which stays mapped): it is then a background page as
+  in Chrome (requestAnimationFrame stops, timers at most 1/s, audio keeps playing, memory stays). A
+  window the shell merely does not draw is NOT enough (the page keeps running at full speed, checked).
+  The shell draws only the shown page's window and gives it input; it sizes every page window to the
+  page area, so switching does not re-layout the page.
+- **Pairing.** Every page is announced by `tab-created` before its window is mapped, and windows are
+  mapped in the order of their `tab-created`s; the shell pairs each new parentless toplevel with the
+  oldest announced tab that has no window yet (FIFO). A parentless toplevel that arrives while no tab
+  is waiting is held: the next `tab-created` takes it (its event was read after the window); until
+  then it is shown as a dialog. A toplevel with a parent is a dialog. All windows have the app_id
+  `web-host-cef`.
+- **Page ids.** `tab` is the engine's page id (CEF: the browser identifier); positive, never reused
+  in a run, not contiguous (forget-site's hidden browser takes one too). The shell's buffer numbers
+  are its own.
+- **Closing.** `close-tab` closes one page; closing the last page does **not** end the host (the shell
+  opens an `about:blank` page first, KEYS.md T82). `quit` closes every page and the host exits when
+  the last is gone. Without `--control` (standalone) the host exits when its last page closes.
+- **Popups still load in place** (until C-POPUPS, proposal below): `window.open(...)` and
+  `target=_blank` links go through the host (CEF: `OnBeforePopup`), which cancels the popup and loads
+  its URL **in the page that asked**. `window.open` returns `null` to the page. **Known loss:** pages
+  that rely on the popup's `window.opener` / a handle to the popup (OAuth and payment login popups,
+  "open in a small window" flows) do not work. Popups without a URL (`window.open()` then
+  `document.write`) show nothing.
+- **No user gesture opens a page** (user, 2026-11-23, C-NOTAB). Ctrl+click,
   middle-click, Shift+click, Ctrl+Shift+click on a link and Ctrl+Enter in a form do
   nothing at all: nothing opens and the page is not navigated. There is no context
   menu at all (C-NOMENU): the host suppresses Chrome's menu for every context, the right-click
-  still reaches the page as a normal `contextmenu` event. Script
-  `window.open` and plain `target=_blank` still load in place (above).
-- Events still carry the page's id (`tab`), so a later multi-page design needs no
-  protocol change. Today it is always the same number. `tab-created` and
-  `tab-closed` stay: `tab-created` is how the shell pairs the host with the window
-  that appears (it is sent before that window is mapped), `tab-closed` says the page
-  is gone and the host is exiting.
+  still reaches the page as a normal `contextmenu` event.
 
 ## Transport
 
@@ -87,7 +99,15 @@ proposed protocol is "Proposal: several pages (C4, C-POPUPS)" further down.
 | `zoom <n>` | `{"cmd":"zoom","factor":1.25}` | page zoom as a factor, 1.0 = 100 %, 0.25..5 |
 | `caret on\|off` | `{"cmd":"caret","on":true}` | the engine's caret browsing (a text caret in the page that the arrow keys move; `:set caret`, C-CARETCMD). Off at every host start, also when an earlier run turned it on; takes effect at once, no reload. web-host-cef: Chrome's preference `settings.a11y.caretbrowsing.enabled` set with `CefRequestContext::SetPreference` on the global request context (`CefString::from("")` as the error out-parameter, see "Third-party cookies off"), read back and logged (`caret: ...=true: set=1 now=Some(true)`); a failure is an `error` event. Needs no page |
 | `forget-site <site>` | `{"cmd":"forget-site","site":"https://mail.example.com/"}` | forget a site: cookies and storage (below); answered by `forgot` |
-| `quit` | `{"cmd":"quit"}` | close the page (no `beforeunload` prompt) and exit |
+| `new-tab <req> [url]` | `{"cmd":"new-tab","req":3,"url":"example.com"}` | create a page (default `about:blank`; no scheme means `https://`), hidden; answered by `tab-created` with the same `req`. While quitting: an `error` |
+| `show-tab <id>` | `{"cmd":"show-tab","tab":4}` | show page `id` (visible, keyboard focus), hide every other page; unknown id: `error` |
+| `close-tab <id>` | `{"cmd":"close-tab","tab":4}` | close page `id` (no `beforeunload` prompt); answered by `tab-closed`; unknown id: `error`. Closing the last page does NOT end the host |
+| `quit` | `{"cmd":"quit"}` | close **every** page (no `beforeunload` prompt) and exit when the last is gone |
+
+**`tab` on page commands.** `open`, `back`, `forward`, `reload`, `stop`, `find`, `find-clear` and
+`zoom` take an optional `"tab":<id>` (`{"cmd":"reload","tab":4}`): they act on that page, shown or
+hidden; without it on the shown page. An unknown `tab` is an `error`. `forget-site` and `caret` are
+host-wide.
 
 Commands that need no answer get none; a command the host cannot use (not JSON,
 unknown `cmd`, missing field, zoom out of range) gets an `error` event.
@@ -96,8 +116,8 @@ unknown `cmd`, missing field, zoom out of range) gets an `error` event.
 
 | text form | JSON |
 |---|---|
-| `hello` | `{"event":"hello","protocol":0,"engine":"cef"}` |
-| `tab-created <id>` | `{"event":"tab-created","tab":1}` |
+| `hello` | `{"event":"hello","protocol":1,"engine":"cef"}` |
+| `tab-created <id>` | `{"event":"tab-created","tab":1}`; the answer to `new-tab`: `{"event":"tab-created","tab":4,"req":3}` |
 | `tab-closed <id>` | `{"event":"tab-closed","tab":1}` |
 | `url <id> <url>` | `{"event":"url","tab":1,"url":"https://example.com/"}` |
 | `title <id> <text>` | `{"event":"title","tab":1,"title":"Example Domain"}` |
@@ -109,8 +129,12 @@ unknown `cmd`, missing field, zoom out of range) gets an `error` event.
 | `forgot <site> ok`, `forgot <site> partial <what failed>` | `{"event":"forgot","site":"https://mail.example.com/","domain":"example.com","result":"ok","cookies":3,"origins":["http://example.com","https://example.com","https://mail.example.com"]}`, with `"result":"partial","failed":["storage https://x.example.com (timeout)"]` |
 | (error) | `{"event":"error","message":"..."}` |
 
-- `tab-created`: once, **before the page's window is mapped**. The window's Wayland
-  app_id (X11 WM_CLASS) is `web-host-cef`.
+- `tab-created`: once per page, **before the page's window is mapped**. The window's Wayland
+  app_id (X11 WM_CLASS) is `web-host-cef`. `req` echoes the `new-tab` it answers (none for the
+  first page).
+- `tab-closed`: once per page, when its browser has closed (`close-tab`, `quit`).
+- Every page event (`url`, `title`, `load`, `load-error`, `editable-focused`, `find-result`,
+  `crashed`) carries the page's `tab`; hidden pages send theirs too.
 - `url`: the main frame's URL, sent when it changes (also for same-document
   navigations). For every load, the new `url` comes **before** its `load end`.
 - `title`: sent when the title changes (not repeated for the same text).
@@ -151,8 +175,8 @@ unknown `cmd`, missing field, zoom out of range) gets an `error` event.
   ignores one whose `id` it is not waiting for.
 - Find after a same-document navigation: no new event; the shell reacts to
   `load ... same-document` by sending `find-clear` (C5-FRAG).
-- `crashed`: the page's renderer process died (crash, killed, out of memory). The
-  page stays; `open` or `reload` loads it again in a new renderer.
+- `crashed`: the page's renderer process died (crash, killed, out of memory). It concerns
+  that page only; the page stays; `open` or `reload` loads it again in a new renderer.
 
 ## forget-site
 
@@ -178,8 +202,8 @@ for a site. Needs no page: it also works before the page exists and with `--no-w
   (<why>)`). Text form: `forgot <site> ok` / `forgot <site> partial <failed,
   comma-separated>`. Several `forget-site`s are run one after the other, each with its
   own `forgot`.
-- **Afterwards** the shell reloads its page if it shows the site (STASH.md); the
-  host does not.
+- **Afterwards** the shell reloads every page that shows the site (STASH.md; `reload` with
+  `tab`); the host does not.
 
 ### What every engine host implements
 
@@ -286,52 +310,30 @@ Chromium's own way for a frame to ask; not checked here.
 - Storage the site has as a third party inside other sites' pages (partitioned
   storage keys) is not reached.
 
-## Proposal: several pages (C4, C-POPUPS) — NOT BUILT
+## Proposal: popups as pages (C-POPUPS) — NOT BUILT
 
-**Proposal from C4-SPIKE (`notes/C4-SPIKE.md`); nothing below is implemented.** It replaces "One
-page per host" when C4 lands, and becomes protocol 1 (`hello` says `"protocol":1`; v0 fields keep
-their meaning).
+**Proposal from C4-SPIKE (`notes/C4-SPIKE.md`).** C4 built the several-pages part ("Several pages"
+above: the model, pairing, page ids, `new-tab`, `show-tab`, `close-tab`, `tab` on page commands,
+`tab-created`'s `req`, `quit` closing every page); what follows below that is not built yet is the
+popup part: `popup-open`, `popup-blocked`, `tab-created`'s `opener`/`cause`, `tab-closed`'s `by`, and
+the host as the popup blocker. The tables repeat the built rows for context.
 
-**Model.** A host holds any number of pages (the shell's buffers). Each page is a browser with
-**its own top-level window** (CEF 156 cannot put two Chrome-style browsers in one window). Exactly
-one page is shown; the host keeps every other page **hidden** (CEF: `BrowserView::SetVisible(false)`
-in its window, which stays mapped): it is then a background page as in Chrome (requestAnimationFrame
-stops, timers at most 1/s, audio keeps playing, memory stays). The shell draws only the shown
-page's window and gives it input; it sizes every page window to the page area. A window the
-shell merely does not draw is NOT enough (the page keeps running at full speed, checked).
-
-**Pairing.** Every page is announced by `tab-created` before its window is mapped, and windows are
-mapped in the order of their `tab-created`s; the shell pairs each new parentless toplevel with
-the oldest announced-but-unpaired tab (FIFO). A toplevel arriving while no tab is waiting is not a
-page (dialog, as today). All windows keep the app_id `web-host-cef`.
-
-**Page ids.** `tab` is the engine's page id (CEF: browser identifier); positive, never reused in a
-run, not contiguous. The shell's buffer numbers are its own.
-
-### Commands (new and changed)
+### Commands (new)
 
 | text form | JSON | what it does |
 |---|---|---|
-| `new-tab <req> [url]` | `{"cmd":"new-tab","req":3,"url":"example.com"}` | create a page (default `about:blank`), hidden; answered by `tab-created` with the same `req` |
-| `show-tab <id>` | `{"cmd":"show-tab","tab":4}` | show page `id` (visible, keyboard focus), hide the previously shown one; unknown id: `error` |
-| `close-tab <id>` | `{"cmd":"close-tab","tab":4}` | close the page (no `beforeunload` prompt); answered by `tab-closed`. Closing the last page does NOT end the host (the shell opens an `about:blank` page first, KEYS.md "Buffers") |
 | `popup-open <id> <n>` | `{"cmd":"popup-open","tab":1,"popup":7}` | open blocked popup `n` of page `id` (below); the result is a `tab-created` with `"opener"` or an `error` |
-| every page command (`open`, `back`, `forward`, `reload`, `stop`, `find`, `find-clear`, `zoom`) | gains optional `"tab":<id>` | acts on that page; without it, on the shown page |
-| `quit` | unchanged | closes **every** page, then exits |
-
-`forget-site` and `caret` stay host-wide. After `forgot` the shell reloads every page on the site.
 
 ### Events (new and changed)
 
 | text form | JSON |
 |---|---|
-| `tab-created <id>` | `{"event":"tab-created","tab":4,"req":3}` (answer to `new-tab`), `{"event":"tab-created","tab":5,"opener":4,"cause":"popup"}` (`cause`: `new-tab`, `popup` for `window.open`, `link` for `target=_blank`; `opener` the page it came from; for popups the shell switches to it with `show-tab`) |
+| `tab-created <id>` | `{"event":"tab-created","tab":5,"opener":4,"cause":"popup"}` (`cause`: `new-tab`, `popup` for `window.open`, `link` for `target=_blank`; `opener` the page it came from; for popups the shell switches to it with `show-tab`) |
 | `tab-closed <id>` | `{"event":"tab-closed","tab":5}`, optional `"by":"page"` when the page closed itself (`window.close()`) |
 | `popup-blocked <id> <n> <url>` | `{"event":"popup-blocked","tab":1,"popup":7,"url":"https://idp.example/auth","name":"login","frame":"sub"}`; `url` `""` when the popup had no URL (status bar `popup blocked (no URL)`) |
 
-- Every page event (`url`, `title`, `load`, `editable-focused`, `find-result`, `crashed`) already
-  carries `tab`; hidden pages send theirs too.
-- `crashed <id>` concerns that page only.
+Pairing (above) already covers popup windows: a Chrome-style popup window has no parent, and it is
+announced by `tab-created` like any page.
 
 ### Popups
 
@@ -352,7 +354,7 @@ popup reaches it; CEF `OnBeforePopup` says whether the page had a user gesture).
   is that frame. If the frame is gone, it loads the URL in a new page (no opener). The page's
   original call already returned `null`; only the popup side of the relation comes back.
 
-## Not in v0 (engine default for now)
+## Not in the protocol (engine default for now)
 
 Downloads are saved without asking (see `--downloads`); permission prompts and JS
 dialogs (`alert`, `confirm`, `prompt`, `beforeunload`) are the engine's own UI. Each

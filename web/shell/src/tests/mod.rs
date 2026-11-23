@@ -1,6 +1,7 @@
 //! C3 tests, named after KEYS.md rows (as in scratchy).
 
 mod c3_rclick_tests;
+mod c4_tests;
 mod c_bookmarks_tests;
 mod c6_tests;
 mod c6b_tests;
