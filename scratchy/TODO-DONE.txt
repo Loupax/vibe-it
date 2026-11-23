@@ -9686,3 +9686,11 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QINC2b DONE 34fcc48 #642 [S] (P2, from QEDIT-B #641; Sonnet; tests) qinc2_ticks_number_paragraphs_like_a_single_complete_pass
       fails under machine load (it lays out in 40 ms wall-clock ticks): make it deterministic (tick by work units or a
       test clock, keeping the incomplete-tick case it must cover), so CI cannot flake on it.
+
+=== from TODO.txt: --- (no header)
+- [x] QDOM5e DONE 54de567 #643 [M] (P3, from QDOM5d/QIFRNAV #626; Sonnet; js_dom.rs DOM prelude) In-place iframe navigation creates a NEW
+      Document in the kept Window (browsers do; today the Document object is reused): the prelude binds `doc` once
+      (`__d_bind_doc`), so a swap must rebind the node cache, xr.byDoc, xr.prep, myDocs, the custom-element registry,
+      frames[..].doc and g.document. Then a `src` set after insertion can reuse the initial window too (url.window.html,
+      remove-initial-about-blankness.window.html must stay passing). Also: unload events on iframe REMOVAL (deferred
+      realm release; no sync script during removal), and promise-job-incumbent needs window.open from a realm.
