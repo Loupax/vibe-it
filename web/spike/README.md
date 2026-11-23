@@ -68,7 +68,7 @@ mapping): `cargo test` (same `CEF_PATH`).
   cookie jar on every load end: name, domain, Secure/HttpOnly/SameSite/persistent flags, NEVER values), `WEB_SPIKE_DUMP=1` (main-frame
   URL, `document.cookie` and text on load end), `WEB_SPIKE_JS=<code>` (run in the main
   frame on every load end), `WEB_SPIKE_REPORT_MS=<ms>` (request counters that long after
-  start).
+  start). `WEB_SPIKE_DOWNLOAD_DIR=<dir>` (W5) is where downloads are saved (default `<profile>/downloads`, no prompt).
 
 In the nested compositor (never the user's display):
 
@@ -235,7 +235,7 @@ request the handler sent, URL for URL.
   (still through the browser's handler). **Not:** `blob:` and `data:` URLs (never asked;
   CEF serves them), WebSockets (`new WebSocket('wss://...')` fails at once with close code
   1006 and never reaches the handler; W6), service workers (not tested; W6), downloads
-  (`is_download` is logged; not tested, W5). A Chromium net log (`--log-net-log=FILE`,
+  (`is_download` is logged; W5 made them work). A Chromium net log (`--log-net-log=FILE`,
   a run.sh extra switch) lists what the network service tried itself, i.e. what
   bypassed the handler; all of it failed in the namespace (`-106
   ERR_INTERNET_DISCONNECTED`, `-105`, `-109`, ...): the component updater
@@ -367,3 +367,104 @@ an account is proven below. The user's part is the checklist at the end of this 
 9. Wipe afterwards: quit the spike, then `rm -rf ~/.local/share/web-spike/profile`
    (that deletes every login made in the spike). Log out of the sites on their own
    pages first if you want the sessions revoked server-side.
+
+## What W5 learned (streaming and large bodies)
+
+Done-when met: a video seeks without stalling (after one fix, below) and downloads of 150 MB
+and 1 GiB finish without hitting any wire cap or timeout. Everything below ran through my own
+wire (`WIRE_TIMING=1`, cache dir in /tmp, 256M) in the empty namespace, in the nested dwl.
+
+- **Code.** `src/download.rs` (new): a `DownloadHandler`. Without one CEF refuses every
+  download (`can_download` defaults to 0 in the crate). It saves under
+  `WEB_SPIKE_DOWNLOAD_DIR` (default `<profile>/downloads`) with no prompt, takes only the last
+  component of the suggested name, and logs ten progress lines plus the end state.
+  `src/handler.rs`: a `skip` method (the fix) and a `range:` log line. `tests/stream_fixture.py`:
+  the loopback fixture (Range-capable video, throttled 150 MB download with a known SHA-256, a
+  deliberately cut body, a long-poll, pages that measure seeks and pings).
+- **Bug found and fixed: CEF applies the request's `Range` to the handler's stream itself.**
+  The handler already sent `Range` to wire and wire answered a correct `206` with the matching
+  `Content-Range`, yet every range request that did not start at byte 0 failed: CEF
+  (`StreamReaderURLLoader`) parses `Range: bytes=N-M` from the request, calls the handler's
+  `skip(N)` before it asks for the headers, and the crate's default `skip` reports failure
+  (`ERR_REQUEST_RANGE_NOT_SATISFIABLE`; the response head was accepted by the handler and
+  then CEF cancelled it without reading a byte). Symptom before the fix: a video played
+  from the start, but every seek (even Chromium's first read of the file's tail for the
+  index) was retried every 0.3-1.3 s with growing back-off, never resolved, and after ~50 s
+  the element failed with `PIPELINE_ERROR_READ`. `fetch` with `Range: bytes=100-199` or
+  `bytes=62324736-` rejected with `TypeError: Failed to fetch`; `bytes=0-` and a suffix
+  range (`bytes=-1000`) worked, which is what made it look like a media problem. The fix is a
+  `skip` that answers "skipped N bytes" and discards nothing, because wire's body already starts
+  at byte N. Our own head (status 206, `Content-Range` and the rest, unchanged) and
+  `X-Wire-Upstream-Length` as the length then go to Chromium. A server that ignores `Range` and
+  answers 200 with the whole body also works the way it would in Chrome (the whole body, as 200).
+  Another trap of the same kind as W3's `on_before_resource_load`: check every default method of
+  `ResourceHandler` that CEF calls on its own.
+- **Range evidence.** Handler log (`range:` line) and the fixture's log agree on every request;
+  the 206 and `Content-Range` come back unchanged. Local file (62 MB webm, 120 s, VP9+Opus):
+  `bytes=0-` (206, `0-62329955/62329956`), then per seek one open-ended range at the
+  keyframe offset (`bytes=30605312-` -> `206 30605312-62329955/62329956`); the previous
+  open-ended request is cancelled by CEF at once (`cancel` shuts the socket, wire and the fixture
+  see the connection close), so a seek never leaves a 60 MB transfer running. `fetch` ranges:
+  `100-199` -> 206, `Content-Length=100`, 100 bytes; `-1000` -> 206 `62328956-62329955/62329956`.
+- **Seek timing** (8 seeks back and forth through the file; the page waits until
+  `currentTime` is 0.3 s past the target, so subtract ~300 ms of playback from the numbers):
+  local fixture 380 ms every time (median = max = 380); public Wikimedia Commons 1080p VP9
+  (`Big_Buck_Bunny_4K.webm.1080p.vp9.webm`, 300 MB, 635 s, `Accept-Ranges: bytes`, via
+  `https://upload.wikimedia.org`): 620, 720, 880, 640, 640, 620, 680, 720 ms, median 660, max 880;
+  no `waiting` that lasted, no error, 10 range requests for 8 seeks plus the first read.
+  Debug build, nested dwl software rendering, uptime load 0.5-1.0.
+- **wire's cache does not interfere with ranges.** wire never stores a `Range` request or a
+  `206`: all 11 media requests said `X-Wire-Cache: miss` and wire's cache dir stayed empty. (It
+  can answer a `Range` from a stored full `200`, but a video larger than an eighth of
+  `--cache-size` is never stored; a small clip stored by a plain `GET` would be served as
+  206 from the cache; not exercised here.)
+- **Download over 100 MB, local fixture (150 MiB, 5 MB/s, so 30 s > wire's 20 s default).**
+  `download #1 COMPLETE: 157286400 of 157286400 bytes`, started 0.2 s, finished at 30.1 s;
+  SHA-256 `408350b5...81933a` equals the fixture's. Public: `https://proof.ovh.net/files/1Gb.dat`
+  (1 GiB, `application/octet-stream`, 5.2 MB/s) completed in 195 s with exactly 1073741824
+  bytes. No cap: the handler never sends `X-Wire-Max-Bytes`, so wire takes its streamed path,
+  and `X-Wire-Timeout-Ms: 3600000` replaces the 20 s total timeout (without it wire cuts a
+  25 s body response at 20.2 s: `curl` to wire gave `502`; with the header `200` at 25.0 s).
+- **Memory stays flat.** Scope `memory.stat` during a 150 MiB download at 15 MB/s: `anon`
+  138.1 MB -> 140.6 MB (+2.5 MB) over the whole transfer; `file` (the page cache of the file
+  being written, counted in the scope's `MemoryCurrent`, reclaimable) grew to the file size.
+  `MemoryCurrent` therefore shows +140 MB during a 150 MiB download; read `anon`, not that
+  number. Nothing is buffered: one read (<= 256 KiB) at a time.
+- **A cut body is a failed download.** `/cut.bin` announces 50 MiB and closes after 10 MiB:
+  the handler logs `body cut: 10485760 of 52428800 bytes` (`X-Wire-Upstream-Length`), CEF ends
+  the transfer `INTERRUPTED` (`NETWORK_DISCONNECTED`) and the partial file is removed (the
+  download directory was empty). Never `COMPLETE`. Chromium then tries one resume (a second
+  `download #N start` line with 0 bytes, which fails at once; no second request reached wire).
+  Without `X-Wire-Upstream-Length` (chunked, or gzip undone) a cut cannot be detected, as
+  wire's README says.
+- **Long-poll.** `/longpoll?s=65` held open 65 s with no byte of head: wire's log says
+  `65000 ms to head`, the page got the answer at 65.05 s (not cut by wire's 20 s because of
+  `X-Wire-Timeout-Ms`, not by Chromium). Meanwhile a `fetch('/ping')` every second (108 pings
+  in 108 s, 0 failures, worst round trip 3 ms) shows other requests keep flowing: one thread
+  per request, no shared lock held while a request waits. (A long-poll that sends a head and
+  then drips bytes is the same path as the download; the 3600000 ms cap, 1 hour, is
+  the longest hold the spike allows: a longer SSE stream would be cut at 1 h. Not tested.)
+
+### Open question answered: does wire's body cap need a per-request off switch?
+
+**No.** There is no body cap to switch off for a client that does not ask for one. wire
+streams the body unmodified when the request has no `X-Wire-Max-Bytes`
+(`wire/src/main.rs`, the `let Some(max) = caps.max_bytes else {...}` branch: headers out, then
+`copy_body`); the cap exists only as the buffered `X-Wire-Max-Bytes` path (scratchy sends
+it for `fetch`/XHR) and as a fixed buffer cap on a non-101 WebSocket answer. The spike never sends
+`X-Wire-Max-Bytes`, and it passed a 1 GiB download, a 62 MB and a 300 MB video (ranges) and a 150 MiB
+download with flat memory. What the browser needs from wire is the **timeout** switch
+(`X-Wire-Timeout-Ms`, exists; wire's 20 s default covers the body), plus `X-Wire-Upstream-Length`
+(exists, W-MEDIA2) so a cut body is detectable. Proposed wire items: none required; optional:
+an idle timeout in place of the hard `X-Wire-Timeout-Ms` ceiling (a 1 h cap cuts a stream that is
+alive and a 20 s one cuts a slow download), and `Content-Length` pass-through so
+`X-Wire-Upstream-Length` is not needed.
+
+### Not covered / for later
+
+- Downloads started with `Content-Disposition` or a non-renderable type work; save-as prompts,
+  progress UI, pause/resume across restarts and `chrome://downloads` are shell work (after a go).
+- Video with H.264/AAC (most of the web): CEF's prebuilt distributions are normally built without the
+  proprietary codecs, so mp4/H.264 sites may not play. Not tested here (the test files are
+  VP9/Opus); W7 should check, it is a codec question, not a streaming one.
+- Live streams (HLS/DASH segments are ordinary requests and should work; MSE is in the renderer).

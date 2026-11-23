@@ -84,3 +84,17 @@ real account: persistent cookies survive a restart, session cookies do not, Http
 SameSite and third-party cookies behave as in Chrome, and wire's jar stays empty with no
 `X-Wire-Jar` sent. The real-site login is the user's step; the checklist is in spike/README.md
 and the (draft) PR.
+
+## W5 Streaming and large bodies (2026-11-23)
+
+> W5 Streaming and large bodies (coordinator launch of web/TODO.txt W5)
+
+**What changed:** the spike's `ResourceHandler` now implements `skip` (CEF applies `Range` to
+the handler's stream itself; without it every range request that did not start at byte 0
+failed and no seek ever finished), and the client has a `DownloadHandler` (saves under
+`WEB_SPIKE_DOWNLOAD_DIR`, no prompt). Checked with a loopback fixture
+(`spike/tests/stream_fixture.py`) and public files: a video seeks 8 times back and forth in
+380 ms (local) / 660 ms median (Wikimedia 1080p), 150 MiB and 1 GiB downloads complete with
+the right size/checksum and flat anonymous memory, a cut body is an interrupted download, a
+65 s long-poll is not cut while pings keep flowing. Answered the TODO question: wire's body cap
+needs no off switch (it is opt-in via `X-Wire-Max-Bytes`; the timeout switch exists).
