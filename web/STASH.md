@@ -5,7 +5,7 @@ DECISIONS.md). In scratchy, stash was the plain-file `localStorage` store plus t
 directory, forget-site and history. In web the engine owns page storage and cookies, so
 what carries over is: the state directory, history (unchanged format), forget-site (now
 through the engine), and the cookie partitioning goal. The plain-file `localStorage`
-store does not carry over as is; see the end of this file.
+store is dropped; see the end of this file.
 
 ## State directory
 
@@ -108,16 +108,7 @@ suggestion: the first match is shown, Tab walks down the list (KEYS.md T45-T53).
 
 ## Not carried: the plain-file localStorage store
 
-scratchy's stash kept `localStorage` as one file per key under
-`storage/<site>/<origin>/`, readable and editable by hand (e.g. `vimOff` for
-social.loupax.com), with per-site locks and a generation counter. In web, CEF and
-WebKitGTK keep localStorage in their own databases and offer no hook to put another
-store behind it. What remains possible, each only if the user asks (open question in
-TODO.txt P-STASH):
-- **Read and write single keys from the shell** (`:stash get/set <origin> <key>`):
-  CEF through the `DOMStorage` methods of `ExecuteDevToolsMethod`; WebKitGTK has no API
-  for values, only by running a script in a page of that origin.
-- **Replace `window.localStorage` with our own file-backed object**: WebKitGTK can do
-  it from a web process extension (file access added to its sandbox); CEF cannot without
-  synchronous renderer IPC. Pages can tell the difference, `storage` events and quotas
-  become ours to implement, and the two engines would differ. Not recommended.
+Dropped (user, 2026-11-23; DECISIONS.md): the engine keeps localStorage (and
+sessionStorage, IndexedDB) in its own profile. scratchy's one-file-per-key store existed
+because scratchy had no storage of its own; it comes back only with a use case for
+centralizing storage outside the engine.

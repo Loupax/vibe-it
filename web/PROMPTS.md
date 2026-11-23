@@ -122,3 +122,12 @@ off as the closest match to scratchy's per-site partitioning), forget-site throu
 engine hosts, history and ranking unchanged. scratchy's plain-file localStorage cannot
 sit behind CEF's or WebKit's storage; the options are in STASH.md and TODO.txt P-STASH
 (waiting for the user). New items P-COOKIES and P-STASH; DECISIONS.md, README.md updated.
+
+## localStorage stays in the engine (2026-11-23, docs only)
+
+> does it even make sense? maybe it doesn't.
+
+> yes, drop it and record the decision. Have the engine deal with localStorage unless we have a use case for centralizing it
+
+**What changed:** DECISIONS.md "The engine owns localStorage"; TODO.txt P-STASH dropped;
+STASH.md's last section records the drop instead of listing options.

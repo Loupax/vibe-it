@@ -89,10 +89,8 @@ stop early on a hard failure.
 - [ ] P-COOKIES Third-party cookies off in both hosts (STASH.md "Cookies"), the closest
       the engines get to scratchy's per-top-level-site jar.
 
-- [ ] P-STASH WAITING FOR USER: scratchy's plain-file localStorage (one file per key,
-      editable by hand) cannot sit behind the engines' own storage. Options in STASH.md
-      "Not carried": read/write single keys from the shell, or replace
-      window.localStorage (not recommended), or nothing.
+- [-] P-STASH DROPPED (user, 2026-11-23): the engine owns localStorage; scratchy's
+      plain-file store comes back only with a use case for centralizing it.
 
 ## From scratchy (user, 2026-11-23: carry over everything that can be carried)
 
@@ -102,7 +100,7 @@ Docs, carried in this commit:
 - STASH.md -> web/STASH.md: state directory (engine profiles under it), history and
   ranking (same file format; scratchy's history file can be copied over), forget-site
   (through the engine), cookie partitioning (closest engine setting). The plain-file
-  localStorage store does not carry over as is (P-STASH).
+  localStorage store is dropped (P-STASH).
 
 Code, ported in C3 (shell crate, `web/shell/`; scratchy file -> what is kept):
 - `src/config.rs`: the dwm config.h rule, `BINDINGS`, `KEY_SEQUENCES`, `ESC_ESC_MS`,
@@ -121,7 +119,7 @@ Code, ported in C3 (shell crate, `web/shell/`; scratchy file -> what is kept):
   testing; copied to web/tools/ when C2 starts.
 
 Not carried (the engine owns it, or it was scratchy's wire client): the HTML/CSS/layout/paint/V8 engine,
-`stash.rs` (localStorage; see P-STASH), `forget.rs` (wire's cookie op), `user_agent.rs` (wire
+`stash.rs` (localStorage, dropped: P-STASH), `forget.rs` (wire's cookie op), `user_agent.rs` (wire
 header), `input_host.rs`, `search.rs` (layout-based), the net policy, media, WPT tooling.
 
 ## The CEF + wire spike (record; stopped 2026-11-23, judged a success)

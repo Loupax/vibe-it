@@ -2,6 +2,15 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-23 The engine owns localStorage; scratchy's stash store is dropped
+
+User: "drop it and record the decision. Have the engine deal with localStorage unless we
+have a use case for centralizing it". localStorage, sessionStorage and IndexedDB live in
+each engine host's profile (STASH.md "State directory"), in the engine's own format.
+scratchy's one-file-per-key store, its locks and generation counter are not carried
+over. Reopen only with a concrete reason to keep page storage outside the engine (e.g.
+sharing it between engines or editing it by hand).
+
 ## 2026-11-23 Architecture C: compositor shell, engine hosts, a web proxy
 
 From the discussion after the spike (PROMPTS.md "Architecture C"). Overrides "Request
@@ -30,7 +39,7 @@ network namespace" still hold.
   there, and the engine hosts keep speaking Wayland to the shell. C2's check covers both.
 - **Carry over from scratchy everything that can be carried** (user): KEYS.md and the
   STASH.md now live in web/ (KEYS.md, STASH.md: state directory, history, forget-site,
-  cookies; scratchy's plain-file localStorage does not carry over as is); the shell code to port is
+  cookies); the shell code to port is
   listed in TODO.txt "From scratchy".
 
 ## 2026-11-23 The spike is a success; testing stops
