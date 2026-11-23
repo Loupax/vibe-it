@@ -905,6 +905,15 @@ impl Keys {
         let send = |me: &mut Keys, c: Command| me.effects.push(Effect::Send(c));
         match (name, args) {
             ("go", [word]) => match go_url(word, &self.url) {
+                // C3-GOHTTP: a scheme-less word that is a history URL minus its scheme runs
+                // as that URL (an http:// site stays http://). A typed scheme never gets here.
+                Ok(url) if !word.contains("://") && url.starts_with("https://") => {
+                    let url = match crate::completion::history_scheme_for(&self.cache, word) {
+                        Some(scheme) => format!("{scheme}{word}"),
+                        None => url,
+                    };
+                    send(self, Command::Open { url })
+                }
                 Ok(url) => send(self, Command::Open { url }),
                 Err(m) => self.message = m,
             },
