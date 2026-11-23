@@ -479,3 +479,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 USER: remove tab opening in general (context menus etc.). Filed C-NOTAB and launched it (Sonnet). Launched W2-2 (Opus).
 - 2026-11-23 Progress page republished after #669 (+ #670 held, C-NOTAB, W2-2).
 - 2026-11-23 USER on #670: use Storage.clearDataForOrigin (in-process DevTools call allowed for forget-site), engine-neutral interface; asked why the whole HTTP cache is cleared. Recorded in web/DECISIONS.md; P-FORGET agent resumed to rework #670 and verify per-origin HTTP cache clearing.
+- 2026-11-23 USER: monitor moves to the work laptop. Filed NEST-HEADLESS (next free slot). Told C2, C-NOTAB, P-FORGET: live runs may stall without a display; mark them owed, don't debug. Note: 4 agents running (P-FORGET resumed for rework on top of 3); no launch until two finish.

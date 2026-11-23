@@ -132,6 +132,18 @@ stop early on a hard failure.
       click on links open nothing new. Script window.open / target=_blank keep loading in the same page
       (DECISIONS "No tabs yet").
 
+- [ ] NEST-HEADLESS [S] (user, 2026-11-23: the monitor moves to the work laptop; NEXT free slot) Live tests
+      must run with no display connected. Today tools/nest.sh runs dwl on the wayland backend (a window
+      on the user's desktop) because headless dwl offers no input; with no output it stops getting
+      frame callbacks and live runs stall. Make a nested compositor that needs no display AND accepts
+      injected input (tools/inject: virtual keyboard + pointer) and grim screenshots: e.g. headless
+      dwl with the virtual-keyboard/pointer protocols working, or another wlroots compositor run
+      headless (sway/cage), whichever is smallest. Make it the default for agents (no window on the
+      desktop at all), keep the old mode behind a flag. Lives in web/tools/ (C2 copies nest.sh and
+      inject there; if C2 has not merged, coordinate). Done when drive.py and an inject click test
+      pass with the monitor disconnected (or with the user's compositor having no outputs), and
+      AGENT_RULES' nested-compositor section is updated.
+
 - [ ] P-COOKIES Third-party cookies off in each host (STASH.md "Cookies"), the closest
       the engines get to scratchy's per-top-level-site jar.
 
