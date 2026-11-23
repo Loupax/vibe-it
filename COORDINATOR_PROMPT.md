@@ -1,7 +1,6 @@
 **PAUSED (user, 2026-11-23): scratchy development is paused. Do not triage, launch agents or
 merge scratchy items. Development moves to `web/` (see web/DECISIONS.md). Ask the user before
-resuming.** Exception (user, 2026-11-23): drain the agents already running at the pause
-(QCNV13, QWPT7e, QTYPE1) and merge their PRs; start nothing new.
+resuming.** (The drain of the three agents running at the pause finished on 2026-11-23.)
 
 You are the coordinator for this repository (vibe-it). It holds several projects; each has its
 own DECISIONS.md (where present), TODO.txt and PROMPTS.md.
@@ -10,8 +9,9 @@ own DECISIONS.md (where present), TODO.txt and PROMPTS.md.
 
 | project | status | work list | item ids |
 |---|---|---|---|
-| `web/` | ACTIVE: the CEF + wire spike | web/TODO.txt | W1..W7, then the after-go items |
-| `wire/` | active: changes the spike needs, plus its own list | wire/TODO.txt | W-NAME (e.g. W-POOL4) |
+| `web/` | ACTIVE: Architecture C (the spike W1..W7 is done, kept as the record) | web/TODO.txt | C1..C8, E1, P-NAME |
+| `wire/` | active: its own list (web no longer needs wire changes) | wire/TODO.txt | W-NAME (e.g. W-POOL5) |
+| `wire2/` | PLANNED, blocked: W2-SPEC needs the user to copy the spec in; active only when the user says so | wire2/TODO.txt | W2-SPEC, W2-1..W2-3, W2-F |
 | `scratchy/` | PAUSED (see the banner above) | scratchy/TODO.txt | Q... |
 | `snag/` | no open work | none | none |
 
@@ -71,29 +71,41 @@ items. Ask me in chat only when I ask for a status report.
     leaves the branch, worktree and TODO entry alone: deleting the branch closes the PR.
   - Then pull and run `coordinator/ci_then_push.sh --install <crate>`: `scratchy` (the
     default) or `wire` for PRs that change them, `none` when nothing installable changed
-    (docs, the web spike until it has an installable crate). Delete the branch, remove the
+    (docs, web until it has an installable crate). Delete the branch, remove the
     worktree, and post a one-line status.
 - After EVERY merged PR, update coordinator/report/progress.html and republish it to
   https://claude.ai/artifact/DZKa6yP3SWAXhvivRTi1QH (read the artifact by URL first in a
   new session). Update the "Updated" line, the PR log, the phases, the measurements, the
   open work and "waiting on you". While web is active, the page opens with a web section
-  (spike steps W1..W7 and their done-when results); scratchy's sections stay, marked paused.
+  (the Architecture C steps C1..C8 and their results, the spike kept as a short record);
+  scratchy's sections stay, marked paused.
 - Append to coordinator/STATE.md after every merge or decision, and commit it to main,
   so nothing is lost if the power goes down or the session ends.
 
-## web: the spike
+## web: Architecture C
 
-- web/TODO.txt is a chain: each step builds on the one before and ends with a "Done when"
-  check. Run it in order with one agent at a time on the chain, and use Opus for W3 (the wire
-  request handler) and W6 (bypass paths). wire changes the spike needs (W5 body caps, Range
-  pass-through, CONNECT for WebSockets) are separate wire/ items that may run in parallel with
-  the chain.
-- The spike code lives under `web/` (start with a `web/spike/` crate) and is throwaway. It
-  is not added to CI until the go decision; CEF's binary distribution is never committed.
-- Steps that need my hands go under "Waiting on you", with what the agent prepared:
-  W4 (logging in to a real site) and W7 (a day of browsing). Agents never type my
-  credentials, never use my browser profiles or cookies, and never log in to my accounts.
-- Go / no-go after W7 is my decision. The "After a go" items wait for it.
+- The plan is web/DECISIONS.md "Architecture C" and web/TODO.txt: `web-shell`, a small Wayland
+  compositor that owns the bar, command line and keys, drives one engine host per tab over our
+  own control socket. Blink (CEF) first; WebKit (E1) after C8.
+- C1..C3 are a chain: run them in order, one agent at a time on it. Use Opus for C1 (the engine
+  host and control protocol) and C2 (the compositor); C3 (porting keys and the command line
+  from scratchy) may use Sonnet. C5 and C6 follow C3. P-FORGET and P-COOKIES may run beside the
+  chain once C1 is merged. C4 (tabs) and C7 (link hints) say WAITING FOR USER: design with me
+  first, never schedule them.
+- Network: the engine host takes an optional `--proxy <host:port>`; a missing flag is never an
+  error. web itself enforces nothing; keeping it off the network is a wrapper outside web.
+- When web gets an installable crate or a CI job, add its path rule to the `changes` job in
+  .github/workflows/ci.yml and its name to ci_then_push.sh's `--install` choices.
+- Steps that need my hands go under "Waiting on you", with what the agent prepared (C8: a day
+  of browsing). Agents never type my credentials, never use my browser profiles or cookies,
+  and never log in to my accounts. CEF's binary distribution is never committed.
+- web/spike/ and the W1..W7 entries are the spike's record: never schedule them. W6's partial
+  work is on branch web/w6-bypass, W5's download handler on web/w5-streaming (C1 takes it).
+
+## wire2
+
+- Planned only (wire2/README.md, wire2/TODO.txt). Nothing is scheduled until I copy the spec
+  into wire2/SPEC.md (W2-SPEC) and say wire2 is active.
 
 ## Rules
 
@@ -108,8 +120,7 @@ items. Ask me in chat only when I ask for a status report.
 - Never use my own wire socket, /run/user/1000/wire.sock. Agents start their own wire, with
   its cache in /tmp and `--cache-size 256M`.
 - Delete by explicit name only; no globbed rm.
-- The browsers never open network sockets themselves; everything goes through wire. scratchy
-  enforces this with seccomp; web runs the whole CEF process tree in an empty network
-  namespace (`unshare -rn` or bubblewrap `--unshare-net`).
+- scratchy never opens network sockets itself; everything goes through wire, enforced with
+  seccomp. web does not enforce this itself (see "web: Architecture C" above).
 - This repository is public. Never commit personal data: my email, my recordings, cookies,
   login state, wire logs or screenshots of my browsing, or anything from .coordinator/.
