@@ -488,3 +488,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Merged #673 NEST-HEADLESS 5864476 (rebased with C2's --x11-display). C-NOTAB live check done (notab.py PASS headless). Filed NEST-WINKEYMAP; scratchy/tools/inject has the same motion-time bug (fix when scratchy resumes). Running: C3, W2-3.
 - 2026-11-23 Launched P-COOKIES (Sonnet). Progress page republished after #671/#673/#674.
 - 2026-11-23 Merged #675 P-COOKIES 127f926. Filed P-COOKIES-2 (needs user). Launched C-BGNET (Sonnet; host-cef, C3 is in web/shell).
+- 2026-11-23 USER: bump C-INSTALL -> next free slot (3/3 busy: C3, W2-3, C-BGNET).
