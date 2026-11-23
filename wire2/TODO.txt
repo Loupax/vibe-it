@@ -1,0 +1,79 @@
+wire2 — TODO
+
+wire2 is a new project next to wire/ (user, 2026-11-23): a forwarding proxy
+for any browser or program, built from scratch. wire/ (wire 1) stays as it is
+and keeps serving scratchy and the web/ spike; nothing here changes it.
+
+No browser semantics: no cookie jar, no redirect following, no decompression,
+no response normalization, no HTTP cache, no per-request instructions from the
+client. It streams bytes between browser and server as they arrive and buffers
+only when it must (reading a request or response head to parse it); bodies and
+tunnels are copied with small fixed buffers and backpressure, never whole.
+
+- [ ] W2-SPEC wire2 follows the spec "Scriptable Filtering Proxy -
+      Feature Spec" (user's design doc, 2026-11-23, finished in the session
+      that added this item: https://claude.ai/artifact/5gvAoaXvi7mAiCY2oHYPmj).
+      The doc wins over the W2 items below wherever they differ. Its main
+      decisions, so this file stands on its own:
+      - Filters are external HTTP/1.1 servers on Unix sockets, chained in
+        --filter order. Each request streams through them; a filter forwards
+        it (changed or not) to the proxy's hub socket, or answers it itself.
+        This replaces the earlier embedded-language idea (W2-F).
+      - Handshake: GET /hello with a Proxy-Id header (random per proxy
+        start); the filter answers JSON (name, version, layer tunnel|http,
+        hosts, fail). Only requests with Proxy-Id are handshakes. Traffic
+        carries Proxy-Flow (proxy id + flow number). The proxy strips every
+        Proxy-* header it did not set.
+      - Lazy decryption: no CA until an http-layer filter completes its
+        handshake, then only for the hosts it claims, minus --no-decrypt.
+        Tunnel filters see CONNECT and encrypted bytes and revoke a tunnel
+        by closing it.
+      - v1 ships one filter, `pass` (tunnel layer, no flags). `pass-decrypt`
+        exists only in the test suite.
+      - Before the first code: copy the spec into wire2/SPEC.md so the repo
+        holds it (the doc link is private to the user).
+
+- [ ] W2-1 Plain forwarding proxy (no TLS interception).
+      - Listens on 127.0.0.1:<port> (browsers only speak TCP to a proxy)
+        and optionally on a Unix socket (the bridge out of an empty network
+        namespace, through a forwarder such as socat inside it).
+      - `http://` requests in absolute form: forward to the origin and
+        stream the response back unchanged. Remove only hop-by-hop headers
+        (Connection and the headers it names, Proxy-*, Keep-Alive, TE,
+        Trailer, Upgrade unless tunnelling). Keep Content-Encoding,
+        Transfer-Encoding framing semantics and status codes, 3xx included.
+      - `CONNECT host:port`: open the TCP connection and copy bytes both
+        ways until either side closes. This alone carries https and
+        WebSockets (ws:// and wss://) opaquely.
+      - One log line per request or tunnel: method, host, status or
+        "tunnel", bytes each way, duration.
+      - Done when: Chromium and Firefox with the proxy setting browse
+        normally (pages, video seek, a large download, a WebSocket chat),
+        and memory stays flat during a multi-GB download.
+
+- [ ] W2-2 TLS interception.
+      - Generate a local CA on first run (stored with 0600 permissions,
+        never committed); mint and cache a leaf certificate per host.
+      - Inside a CONNECT tunnel: terminate TLS toward the browser, open TLS
+        to the origin (certificates verified against webpki roots), and
+        forward HTTP/1.1 requests and responses as in W2-1, still streamed.
+      - ALPN: offer http/1.1 only to start; HTTP/2 toward the browser is a
+        later item (heavy pages are limited to ~6 connections per host).
+      - A pass-through list of hosts that are tunnelled without decryption
+        (banking, pinned apps).
+      - Done when: the W2-1 check passes with decryption on, and the log
+        shows full URLs for https requests.
+
+- [ ] W2-3 WebSockets inside decrypted tunnels: forward the upgrade request,
+      and after `101` switch that connection to plain byte copy. Frame
+      parsing waits for W2-S (message hooks).
+
+- [ ] W2-F Filters, as the spec defines them: external HTTP/1.1 servers on
+      Unix sockets, chained, with the Proxy-Id handshake, lazy decryption and
+      the `pass` reference filter. This replaces the earlier embedded-language
+      scripting idea. Every step above must leave room for it: one place every
+      request, response and tunnel passes through, bodies streamed in chunks,
+      a stage able to answer, forward, change or close.
+
+Not in Wire 2 (left to the browser): cookies, redirects, caching, CORS,
+decompression for the client.
