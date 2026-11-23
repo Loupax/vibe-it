@@ -917,6 +917,85 @@ fn unbounded(m: BlendMode) -> bool {
     matches!(m, BlendMode::SourceIn | BlendMode::SourceOut | BlendMode::DestinationIn | BlendMode::DestinationAtop | BlendMode::Source)
 }
 
+/// tiny-skia 0.12's non-separable modes skip ClipColor's `min < 0` step (highp `clip_color` tests `mx >= 0`), so
+/// hue/saturation/color/luminosity are composited here with the W3C Compositing formulas.
+fn non_separable(m: BlendMode) -> bool {
+    matches!(m, BlendMode::Hue | BlendMode::Saturation | BlendMode::Color | BlendMode::Luminosity)
+}
+
+fn lum(c: [f32; 3]) -> f32 {
+    0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2]
+}
+
+fn clip_color(c: [f32; 3]) -> [f32; 3] {
+    let l = lum(c);
+    let n = c[0].min(c[1]).min(c[2]);
+    let x = c[0].max(c[1]).max(c[2]);
+    let mut c = c;
+    if n < 0.0 {
+        c = c.map(|v| l + (v - l) * l / (l - n));
+    }
+    if x > 1.0 {
+        c = c.map(|v| l + (v - l) * (1.0 - l) / (x - l));
+    }
+    c.map(|v| v.clamp(0.0, 1.0))
+}
+
+fn set_lum(c: [f32; 3], l: f32) -> [f32; 3] {
+    let d = l - lum(c);
+    clip_color(c.map(|v| v + d))
+}
+
+fn sat(c: [f32; 3]) -> f32 {
+    c[0].max(c[1]).max(c[2]) - c[0].min(c[1]).min(c[2])
+}
+
+fn set_sat(c: [f32; 3], s: f32) -> [f32; 3] {
+    let mut idx = [0usize, 1, 2];
+    idx.sort_by(|a, b| c[*a].total_cmp(&c[*b]));
+    let [mn, md, mx] = idx;
+    let mut out = [0.0; 3];
+    if c[mx] > c[mn] {
+        out[md] = (c[md] - c[mn]) * s / (c[mx] - c[mn]);
+        out[mx] = s;
+    }
+    out
+}
+
+/// Composites `layer` (the shape, already scaled by coverage and globalAlpha) onto `px` with a non-separable blend
+/// mode, then source-over, within `mask`. A transparent layer pixel leaves the destination alone (bounded).
+fn blend_non_separable(px: &mut Pixmap, layer: &Pixmap, mode: BlendMode, mask: Option<&Mask>) {
+    let m = mask.map(Mask::data);
+    for (i, (d, s)) in px.pixels_mut().iter_mut().zip(layer.pixels()).enumerate() {
+        let cov = m.map_or(1.0, |m| f32::from(m[i]) / 255.0);
+        if s.alpha() == 0 || cov == 0.0 {
+            continue;
+        }
+        let f = |v: u8| f32::from(v) / 255.0;
+        let (sa, da) = (f(s.alpha()), f(d.alpha()));
+        let sp = [f(s.red()), f(s.green()), f(s.blue())];
+        let dp = [f(d.red()), f(d.green()), f(d.blue())];
+        let cs = sp.map(|v| (v / sa).min(1.0));
+        let cb = if da > 0.0 { dp.map(|v| (v / da).min(1.0)) } else { [0.0; 3] };
+        let b = match mode {
+            BlendMode::Hue => set_lum(set_sat(cs, sat(cb)), lum(cb)),
+            BlendMode::Saturation => set_lum(set_sat(cb, sat(cs)), lum(cb)),
+            BlendMode::Color => set_lum(cs, lum(cb)),
+            _ => set_lum(cb, lum(cs)),
+        };
+        // Premultiplied: co = cs (1 - ab) + cb (1 - as) + as ab B; ao = as + ab - as ab; then the clip coverage.
+        let ao = sa + da - sa * da;
+        let co: [f32; 3] = std::array::from_fn(|k| sp[k] * (1.0 - da) + dp[k] * (1.0 - sa) + sa * da * b[k]);
+        let mix = |new: f32, old: f32| old + (new - old) * cov;
+        let a = mix(ao, da).clamp(0.0, 1.0);
+        let q = |v: f32| (v.clamp(0.0, a) * 255.0).round() as u8;
+        let a8 = (a * 255.0).round() as u8;
+        if let Some(c) = tiny_skia::PremultipliedColorU8::from_rgba(q(mix(co[0], dp[0])).min(a8), q(mix(co[1], dp[1])).min(a8), q(mix(co[2], dp[2])).min(a8), a8) {
+            *d = c;
+        }
+    }
+}
+
 /// What a draw call covers, in the form tiny-skia paints it.
 enum Shape<'a> {
     /// fillRect: a user-space rect and the CTM.
@@ -961,7 +1040,7 @@ impl Shape<'_> {
 /// Paints `shape` with `style` (colour or gradient), globalAlpha, the clip and the composite operator of `st`.
 /// Source-over and the other bounded operators go straight to tiny-skia with the operator as the paint's blend mode:
 /// each of them is linear in the source, so applying the anti-aliasing coverage after the blend (tiny-skia) equals
-/// scaling the source by it first (the canvas model). The unbounded ones go through a layer.
+/// scaling the source by it first (the canvas model). The unbounded and the non-separable ones go through a layer.
 fn paint_shape(px: &mut Pixmap, st: &DrawState, style: &Style, shape: &Shape) {
     let mask = st.clip.as_deref();
     let mode = OPS[usize::from(st.op).min(OPS.len() - 1)];
@@ -969,6 +1048,12 @@ fn paint_shape(px: &mut Pixmap, st: &DrawState, style: &Style, shape: &Shape) {
         // Clear within the shape's coverage, whatever the colour; tiny-skia's Clear ignores the mask (QCNV6).
         let p = Paint { blend_mode: BlendMode::DestinationOut, anti_alias: true, ..Paint::default() };
         shape.put(px, &p, mask);
+        return;
+    }
+    if non_separable(mode) {
+        let Some(mut layer) = Pixmap::new(px.width(), px.height()) else { return };
+        paint_source(&mut layer, st, style, shape, BlendMode::SourceOver, None);
+        blend_non_separable(px, &layer, mode, mask);
         return;
     }
     if unbounded(mode) {

@@ -174,3 +174,24 @@ fn qcnv11_offscreen_canvas() {
          console.log(Array.from(o.getImageData(5, 5, 1, 1).data).join(','), Array.from(o.getImageData(15, 5, 1, 1).data).join(','));");
     near(&l[0], &[[0, 255, 0, 255], [0, 0, 0, 0]], 0);
 }
+
+#[test]
+fn qcnv11_blend_modes_dodge_burn_soft_and_non_separable() {
+    // Backdrop (255,128,0); source (128,128,128) for the first three, (0,64,255) for the non-separable ones
+    // (expected values from the W3C Compositing formulas; ClipColor's min < 0 branch matters for luminosity).
+    let l = js("[['color-dodge', 'rgb(128,128,128)'], ['color-burn', 'rgb(128,128,128)'], ['soft-light', 'rgb(128,128,128)'],\
+           ['hue', 'rgb(0,64,255)'], ['saturation', 'rgb(0,64,255)'], ['color', 'rgb(0,64,255)'], ['luminosity', 'rgb(0,64,255)']].forEach(function (p) {\
+           x.globalCompositeOperation = 'source-over'; x.fillStyle = 'rgb(255, 128, 0)'; x.fillRect(0, 0, 100, 50);\
+           x.globalCompositeOperation = p[0]; x.fillStyle = p[1]; x.fillRect(0, 0, 50, 50);\
+           console.log(px(25, 25), px(75, 25)); });\
+         x.globalCompositeOperation = 'source-over'; x.clearRect(0, 0, 100, 50); x.fillStyle = 'rgba(255, 128, 0, 0.5)'; x.fillRect(0, 0, 100, 50);\
+         x.globalCompositeOperation = 'luminosity'; x.fillStyle = 'rgb(0, 64, 255)'; x.globalAlpha = 0.5; x.fillRect(0, 0, 50, 50);\
+         console.log(px(25, 25));");
+    let b = [255, 128, 0, 255];
+    let want = [[255, 255, 0, 255], [255, 2, 0, 255], [255, 128, 0, 255], [116, 151, 255, 255], [255, 128, 0, 255], [116, 151, 255, 255], [110, 55, 0, 255]];
+    for (line, w) in l.iter().zip(&want) {
+        near(line, &[*w, b], 3);
+    }
+    // as = ab = 0.5: ao = 0.75; co = 0.25 cs + 0.25 cb + 0.25 B (premultiplied), read back unpremultiplied.
+    near(&l[7], &[[122, 82, 85, 191]], 3);
+}
