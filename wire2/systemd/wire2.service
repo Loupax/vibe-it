@@ -1,0 +1,26 @@
+# The wire2 proxy (SPEC.md) with the `pass` filter. User unit: copy this and pass.socket/pass.service to
+# ~/.config/systemd/user/, then `systemctl --user enable --now wire2.service`; point the browser's HTTP
+# and HTTPS proxy at 127.0.0.1:8080.
+#
+# The CA directory (--ca-dir, default ~/.local/share/proxy) is the only place the proxy writes, and only
+# once an http-layer filter connects. ProtectHome=read-only keeps it from creating that directory, so
+# create it once before you add an http filter: mkdir -p -m 700 ~/.local/share/proxy
+[Unit]
+Description=wire2 filtering proxy
+Wants=pass.socket
+After=pass.socket
+
+[Service]
+ExecStart=%h/.cargo/bin/wire2 --listen 127.0.0.1:8080 --filter unix:%t/pass.sock
+Restart=on-failure
+# SPEC "Security requirements": no process execution, no privileges, read-only system and home.
+SystemCallFilter=~execve execveat
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=-%h/.local/share/proxy
+PrivateTmp=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=default.target

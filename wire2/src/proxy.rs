@@ -6,9 +6,12 @@
 //! decrypted tunnel     -> [`decrypted`]: `200`, TLS toward the browser with a minted leaf, then each
 //!                         HTTP/1.1 request on that connection goes through [`forward`].
 //!
-//! [`forward`] is the one place every parsed request and its response pass through, plain or decrypted:
-//! W2-F puts the http filter chain at its top, before the upstream connector. W2-F routes CONNECTs
-//! through tunnel filters inside the upstream connector.
+//! [`forward`] is the one place every parsed request and its response pass through, plain or decrypted.
+//! It hands the request to [`http_from`], which sends it through the flow's http filters (each forwards
+//! it back to the hub, [`crate::hub`], which calls [`http_from`] for the next stage) and finally to the
+//! upstream connector [`connect_from`], which opens the server connection as `CONNECT host:port`
+//! through the flow's tunnel filters (the hub again continues each stage), then dials the server.
+//! Undecrypted browser CONNECTs use [`connect_from`] directly and splice the browser to its result.
 
 use std::io;
 use std::pin::pin;
@@ -17,17 +20,20 @@ use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::sync::watch;
 
 use crate::config::Config;
 use crate::conn::{Conn, Prefixed};
 use crate::decrypt::{Decision, Policy};
-use crate::flow::{Flow, Kind, Registry};
+use crate::filter::{Filter, Filters, Layer, Route, StageState, Use, stage_wait};
+use crate::flow::{Flow, FlowInfo, Kind, Registry};
 use crate::host::{authority_host, normalise_host, split_authority};
 use crate::http::{self, ChunkScanner, Framing, HeadError, Headers, RequestHead};
 use crate::upstream;
 
-/// How long a browser may take to send a complete request head (and, decrypted, its TLS handshake).
-const HEAD_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long a browser (or a filter, at the hub) may take to send a complete request head (and,
+/// decrypted, its TLS handshake).
+pub const HEAD_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long a decrypted browser connection may sit idle between requests.
 const KEEPALIVE_IDLE: Duration = Duration::from_secs(120);
 /// Userspace copy buffer for parsed (non-spliced) bodies.
@@ -36,7 +42,59 @@ const COPY_BUF: usize = 64 * 1024;
 pub struct Ctx {
     pub cfg: Config,
     pub reg: Arc<Registry>,
-    pub policy: Policy,
+    pub policy: Arc<Policy>,
+    pub filters: Arc<Filters>,
+}
+
+/// Byte counters a hop adds to: the flow's own for the browser-facing hop (the access log counts what
+/// the browser sent and got), scratch ones for hops the hub runs.
+#[derive(Clone, Copy)]
+pub struct Ctr<'a> {
+    pub up: &'a AtomicU64,
+    pub down: &'a AtomicU64,
+}
+
+impl<'a> Ctr<'a> {
+    fn of(flow: &'a FlowInfo) -> Ctr<'a> {
+        Ctr {
+            up: &flow.up,
+            down: &flow.down,
+        }
+    }
+}
+
+/// A hop that could not deliver: the status to answer with and why (the body says `wire2: <msg>`).
+pub struct HopErr {
+    pub status: u16,
+    pub msg: String,
+}
+
+impl HopErr {
+    pub fn body(&self) -> String {
+        format!("wire2: {}", self.msg)
+    }
+}
+
+/// `Proxy-Flow` value for `flow` (SPEC "Traffic": the proxy's id, a slash, the flow number).
+fn flow_token(ctx: &Ctx, flow: &FlowInfo) -> String {
+    format!("{}/{}", ctx.filters.proxy_id, flow.id)
+}
+
+/// A down fail-closed filter refuses the flow: 503 naming it (SPEC "Failure handling").
+fn down_err(flow: &FlowInfo, name: &str) -> HopErr {
+    crate::warn!(
+        "flow={} host={} port={} refused with 503: filter {name} is down and fails closed",
+        flow.id,
+        flow.host,
+        flow.port
+    );
+    HopErr {
+        status: 503,
+        msg: format!(
+            "filter {name} is down (fail closed), so {} is refused",
+            flow.host
+        ),
+    }
 }
 
 /// Handle one browser connection from accept to close.
@@ -78,7 +136,7 @@ pub async fn handle(mut conn: Conn, peer: String, ctx: Arc<Ctx>) {
 }
 
 /// Answer with a short plain-text error and close (a response the proxy produces itself).
-async fn refuse(conn: &mut Conn, code: u16, body: &str) -> usize {
+pub async fn refuse(conn: &mut Conn, code: u16, body: &str) -> usize {
     let resp = http::error_response(code, body);
     if conn.write_all(&resp).await.is_err() {
         return 0;
@@ -89,13 +147,19 @@ async fn refuse(conn: &mut Conn, code: u16, body: &str) -> usize {
 
 /// Half-close and give the browser a moment to read the response before the socket goes away, so
 /// unread request bytes on our side do not turn the close into a reset that eats the response.
-async fn finish<S: AsyncRead + AsyncWrite + Unpin>(conn: &mut S) {
-    let _ = conn.shutdown().await;
+pub async fn finish<S: AsyncRead + AsyncWrite + Unpin>(conn: &mut S) {
+    let (r, w) = tokio::io::split(conn);
+    finish_halves(r, w).await;
+}
+
+/// [`finish`] for a connection already split into its two halves.
+pub async fn finish_halves<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(mut r: R, mut w: W) {
+    let _ = w.shutdown().await;
     let mut sink = [0u8; 4096];
     let _ = tokio::time::timeout(Duration::from_secs(1), async {
         let mut total = 0usize;
         while total < 1 << 20 {
-            match conn.read(&mut sink).await {
+            match r.read(&mut sink).await {
                 Ok(0) | Err(_) => break,
                 Ok(n) => total += n,
             }
@@ -110,7 +174,7 @@ async fn refuse_flow(conn: &mut Conn, flow: &Flow, code: u16, body: &str) {
     flow.down.fetch_add(n as u64, Ordering::Relaxed);
 }
 
-fn log_upstream_error(flow: &Flow, e: &upstream::DialError) {
+fn log_upstream_error(flow: &FlowInfo, e: &upstream::DialError) {
     crate::warn!(
         "flow={} host={} port={} upstream error, answering {}: {e}",
         flow.id,
@@ -145,29 +209,46 @@ async fn tunnel(mut conn: Conn, head: RequestHead, leftover: Vec<u8>, ctx: &Ctx)
             return;
         }
     };
+    // The flow's chain, once (SPEC "Routing"); a down fail-closed filter covering the host refuses it.
+    let route = match ctx.filters.route(&host, true, &ctx.policy).await {
+        Ok(r) => r,
+        Err(name) => {
+            let flow = ctx.reg.open(
+                Kind::Tunnel,
+                "CONNECT",
+                &host,
+                port,
+                false,
+                Route::default(),
+            );
+            let e = down_err(&flow, &name);
+            refuse_flow(&mut conn, &flow, e.status, &e.body()).await;
+            return;
+        }
+    };
     // The one decrypt decision of this CONNECT (SPEC: made per CONNECT, never changed later).
     if let Decision::Decrypt { by } = ctx.policy.decide(&host) {
         drop(head);
-        decrypted(conn, host, port, leftover, &by, ctx).await;
+        decrypted(conn, host, port, leftover, &by, route, ctx).await;
         return;
     }
-    let flow = ctx.reg.open(Kind::Tunnel, "CONNECT", &host, port);
-    // W2-F: the chain of tunnel filters for `host` is computed here, once, and the dial goes through it.
+    // Not decrypted: http filters never see this flow.
+    let flow = ctx.reg.open(
+        Kind::Tunnel,
+        "CONNECT",
+        &host,
+        port,
+        false,
+        route.tunnel_only(),
+    );
     let up = tokio::select! {
-        r = upstream::dial(&host, port, ctx.cfg.dial_timeout) => r,
+        r = connect_from(ctx, &flow, 0) => r,
         _ = flow.cancel.cancelled() => return,
     };
-    let mut up = match up {
-        Ok(s) => Conn::Tcp(s),
+    let (up, pre) = match up {
+        Ok(x) => x,
         Err(e) => {
-            log_upstream_error(&flow, &e);
-            refuse_flow(
-                &mut conn,
-                &flow,
-                e.status(),
-                &format!("wire2: {host}:{port}: {e}"),
-            )
-            .await;
+            refuse_flow(&mut conn, &flow, e.status, &e.body()).await;
             return;
         }
     };
@@ -177,6 +258,15 @@ async fn tunnel(mut conn: Conn, head: RequestHead, leftover: Vec<u8>, ctx: &Ctx)
     }
     flow.set_status(200);
     flow.down.fetch_add(OK.len() as u64, Ordering::Relaxed);
+    // Bytes a filter passed on right behind its 2xx belong to the browser.
+    if !pre.is_empty() {
+        if conn.write_all(&pre).await.is_err() {
+            return;
+        }
+        flow.down.fetch_add(pre.len() as u64, Ordering::Relaxed);
+    }
+    drop(pre);
+    let mut up = up;
     // Bytes the browser sent right behind the CONNECT head (an early ClientHello) go first.
     if !leftover.is_empty() {
         if up.write_all(&leftover).await.is_err() {
@@ -205,11 +295,12 @@ async fn decrypted(
     port: u16,
     leftover: Vec<u8>,
     by: &str,
+    route: Route,
     ctx: &Ctx,
 ) {
     let flow = ctx
         .reg
-        .open_with(Kind::Tunnel, "CONNECT", &host, port, true);
+        .open(Kind::Tunnel, "CONNECT", &host, port, true, route);
     crate::debug!("flow={} decrypting {host}:{port} for {by}", flow.id);
     let tls_cfg = match ctx.policy.ca.server_config(&host) {
         Ok(c) => c,
@@ -309,17 +400,11 @@ async fn decrypted(
         );
         let (next, url) = match decrypted_request(&head, &host, port) {
             Ok(req) => {
-                let dest = Dest {
-                    host: &host,
-                    port,
-                    tls: true,
-                };
                 let next = forward(
                     &mut br,
                     &mut bw,
                     std::mem::take(&mut buf),
                     &req,
-                    dest,
                     ctx,
                     &flow,
                     &status,
@@ -460,7 +545,25 @@ async fn plain(mut conn: Conn, head: RequestHead, leftover: Vec<u8>, ctx: &Ctx) 
             return;
         }
     };
-    let flow = ctx.reg.open(Kind::Http, &head.method, &host, port);
+    let route = match ctx.filters.route(&host, false, &ctx.policy).await {
+        Ok(r) => r,
+        Err(name) => {
+            let flow = ctx.reg.open(
+                Kind::Http,
+                &head.method,
+                &host,
+                port,
+                false,
+                Route::default(),
+            );
+            let e = down_err(&flow, &name);
+            refuse_flow(&mut conn, &flow, e.status, &e.body()).await;
+            return;
+        }
+    };
+    let flow = ctx
+        .reg
+        .open(Kind::Http, &head.method, &host, port, false, route);
     let host_hdr = match port {
         80 => authority_host(&host),
         p => format!("{}:{p}", authority_host(&host)),
@@ -475,17 +578,11 @@ async fn plain(mut conn: Conn, head: RequestHead, leftover: Vec<u8>, ctx: &Ctx) 
         }
     };
     let (mut br, mut bw) = tokio::io::split(conn);
-    let dest = Dest {
-        host: &host,
-        port,
-        tls: false,
-    };
     let next = forward(
         &mut br,
         &mut bw,
         leftover,
         &req,
-        dest,
         ctx,
         &flow,
         &flow.status,
@@ -501,16 +598,17 @@ async fn plain(mut conn: Conn, head: RequestHead, leftover: Vec<u8>, ctx: &Ctx) 
 // ---------------------------------------------------------------------------------------------------
 // The shared request path
 
-/// A request as it reaches the upstream connector, plain or decrypted. This is what W2-F's http chain
-/// will see (it sends `url` in absolute form to the filters).
+/// A request as it reaches the http chain and the upstream connector, plain or decrypted. Filters get
+/// it in absolute form (`url`), the server in origin form (`path`).
 #[derive(Debug)]
-struct Request {
+pub struct Request {
     method: String,
     /// Full URL (`http://host[:port]/path`, `https://host[:port]/path`), for logs and filters.
     url: String,
     /// Origin-form target sent upstream.
     path: String,
-    /// Headers for upstream: hop-by-hop and `Proxy-*` removed, `Host` from the URL, `Connection` set.
+    /// Headers for the next hop: hop-by-hop and every `Proxy-*` removed, `Host` from the URL,
+    /// `Connection` set.
     headers: Headers,
     framing: Framing,
     upgrade: bool,
@@ -545,16 +643,54 @@ fn build_request(
     })
 }
 
-/// Where a request goes: the origin, over TLS for decrypted hosts.
-#[derive(Clone, Copy)]
-struct Dest<'a> {
-    host: &'a str,
-    port: u16,
-    tls: bool,
+/// A request a filter forwarded to the hub, for the flow it belongs to. The target may be absolute
+/// (as the filter got it) or origin-form; a filter may change anything but the destination (scheme,
+/// host and port stay the flow's: tunnel filters and the decrypt decision were chosen for them).
+pub fn hop_request(head: &RequestHead, flow: &FlowInfo) -> Result<Request, (u16, String)> {
+    let (scheme, default_port) = if flow.decrypted {
+        ("https://", 443)
+    } else {
+        ("http://", 80)
+    };
+    let path = if head.target.starts_with('/') {
+        head.target.split('#').next().unwrap_or("/").to_string()
+    } else if let Some((auth, path)) = split_url(&head.target, scheme) {
+        let (h, p) = split_authority(auth)
+            .and_then(|(h, p)| Ok((normalise_host(h)?, p.unwrap_or(default_port))))
+            .map_err(|e| (400, e.to_string()))?;
+        if h != flow.host || p != flow.port {
+            return Err((
+                502,
+                format!(
+                    "a filter changed the destination to {h}:{p} (the flow is for {}:{})",
+                    flow.host, flow.port
+                ),
+            ));
+        }
+        path
+    } else {
+        return Err((
+            400,
+            format!(
+                "bad request target {:?} (expected {scheme}{}...)",
+                head.target, flow.host
+            ),
+        ));
+    };
+    if head.method.eq_ignore_ascii_case("CONNECT") {
+        return Err((400, "CONNECT at the http layer".into()));
+    }
+    let auth = if flow.port == default_port {
+        authority_host(&flow.host)
+    } else {
+        format!("{}:{}", authority_host(&flow.host), flow.port)
+    };
+    let url = format!("{scheme}{auth}{path}");
+    build_request(head, url, path, auth).map_err(|e| (400, e))
 }
 
 /// What the browser connection does after one exchange.
-enum Next {
+pub enum Next {
     /// It may carry another request; these bytes were already read past this one.
     KeepAlive(Vec<u8>),
     /// The answer is complete; close gracefully.
@@ -580,17 +716,16 @@ async fn answer<W: AsyncWrite + Unpin>(
     Next::Close
 }
 
-/// The one place every parsed request passes through on its way to the origin, and its response on
-/// the way back. W2-F's http filter chain goes at the top of this function, before the upstream
-/// connector. `status` receives the response status (the flow's for plain http, a per-request slot
-/// for decrypted tunnels). `keep_alive`: the browser connection may carry further requests.
+/// The one place every parsed request from the browser passes through on its way to the origin, and
+/// its response on the way back: the flow's http filters in chain order, then the upstream connector.
+/// `status` receives the response status (the flow's for plain http, a per-request slot for decrypted
+/// tunnels). `keep_alive`: the browser connection may carry further requests.
 #[allow(clippy::too_many_arguments)]
 async fn forward<BR, BW>(
     br: &mut BR,
     bw: &mut BW,
     leftover: Vec<u8>,
     req: &Request,
-    dest: Dest<'_>,
     ctx: &Ctx,
     flow: &Flow,
     status: &AtomicU16,
@@ -607,45 +742,303 @@ where
         req.url,
         req.framing
     );
-    // W2-F: the http filter chain runs here, before the upstream connector.
-    let timeout = ctx.cfg.dial_timeout;
-    if dest.tls {
-        let up = tokio::select! {
-            r = upstream::dial_tls(dest.host, dest.port, timeout) => r,
+    http_from(
+        br,
+        bw,
+        leftover,
+        req,
+        ctx,
+        flow,
+        Ctr::of(flow),
+        status,
+        keep_alive,
+        0,
+    )
+    .await
+}
+
+/// Send `req` to stage `stage` of the flow's http chain (a filter that is down is skipped when it
+/// fails open, and refuses with 503 when it fails closed); past the last stage, to the origin through
+/// [`connect_from`]. `br`/`bw` is the side the request came from: the browser, or (at the hub) the
+/// filter of the previous stage.
+#[allow(clippy::too_many_arguments)]
+pub async fn http_from<BR, BW>(
+    br: &mut BR,
+    bw: &mut BW,
+    leftover: Vec<u8>,
+    req: &Request,
+    ctx: &Ctx,
+    flow: &FlowInfo,
+    ctr: Ctr<'_>,
+    status: &AtomicU16,
+    keep_alive: bool,
+    mut stage: usize,
+) -> Next
+where
+    BR: AsyncRead + Unpin,
+    BW: AsyncWrite + Unpin,
+{
+    let chain = &flow.route.http;
+    let mut redials = 0;
+    while stage < chain.len() {
+        let (f, name) = &chain[stage];
+        match f.usable() {
+            Use::Skip => {
+                crate::debug!(
+                    "flow={} skipping http filter {name}: down, fails open",
+                    flow.id
+                );
+                stage += 1;
+                continue;
+            }
+            Use::Refuse(n) => {
+                let e = down_err(flow, &n);
+                return answer(bw, ctr.down, status, e.status, &e.body()).await;
+            }
+            Use::Send => {}
+        }
+        let s = tokio::select! {
+            r = f.connect() => r,
             _ = flow.cancel.cancelled() => return Next::Abort,
         };
-        match up {
+        let s = match s {
+            Ok(s) => s,
+            Err(e) => {
+                // Gone: mark it down and apply its failure policy to this request.
+                f.mark_down(&format!("connect: {e}"));
+                redials += 1;
+                if redials > 2 {
+                    let body = format!("wire2: filter {name}: {e}");
+                    return answer(bw, ctr.down, status, 502, &body).await;
+                }
+                continue;
+            }
+        };
+        let (_expect, rx) = flow.route.expect(Layer::Http, stage);
+        let mut hs = req.headers.clone();
+        hs.push(("Proxy-Flow".into(), flow_token(ctx, flow).into_bytes()));
+        let head = http::write_request_head(&req.method, &req.url, &hs);
+        crate::debug!("flow={} -> http filter {name}", flow.id);
+        let (ur, uw) = Conn::Unix(s).into_split();
+        let hop = Hop::Filter {
+            f,
+            name,
+            rx,
+            timeout: ctx.filters.stage_timeout(),
+        };
+        return exchange(
+            br,
+            bw,
+            leftover,
+            head,
+            req,
+            (ur, uw, Vec::new()),
+            flow,
+            ctr,
+            status,
+            keep_alive,
+            hop,
+        )
+        .await;
+    }
+    let up = tokio::select! {
+        r = connect_from(ctx, flow, 0) => r,
+        _ = flow.cancel.cancelled() => return Next::Abort,
+    };
+    let (conn, pre) = match up {
+        Ok(x) => x,
+        Err(e) => return answer(bw, ctr.down, status, e.status, &e.body()).await,
+    };
+    let head = http::write_request_head(&req.method, &req.path, &req.headers);
+    if flow.decrypted {
+        let tls = tokio::select! {
+            r = upstream::tls(Prefixed::new(pre, conn), &flow.host, ctx.cfg.dial_timeout) => r,
+            _ = flow.cancel.cancelled() => return Next::Abort,
+        };
+        match tls {
             Ok(s) => {
                 let (ur, uw) = tokio::io::split(s);
-                exchange(br, bw, leftover, req, ur, uw, flow, status, keep_alive).await
+                exchange(
+                    br,
+                    bw,
+                    leftover,
+                    head,
+                    req,
+                    (ur, uw, Vec::new()),
+                    flow,
+                    ctr,
+                    status,
+                    keep_alive,
+                    Hop::Origin,
+                )
+                .await
             }
-            Err(e) => upstream_failed(bw, flow, status, dest, &e).await,
+            Err(e) => {
+                log_upstream_error(flow, &e);
+                let body = format!("wire2: {}:{}: {e}", flow.host, flow.port);
+                answer(bw, ctr.down, status, e.status(), &body).await
+            }
         }
     } else {
-        let up = tokio::select! {
-            r = upstream::dial(dest.host, dest.port, timeout) => r,
-            _ = flow.cancel.cancelled() => return Next::Abort,
-        };
-        match up {
-            Ok(s) => {
-                let (ur, uw) = s.into_split();
-                exchange(br, bw, leftover, req, ur, uw, flow, status, keep_alive).await
+        // Bytes a tunnel filter passed on behind its 2xx are the start of the server's response.
+        let (ur, uw) = conn.into_split();
+        exchange(
+            br,
+            bw,
+            leftover,
+            head,
+            req,
+            (ur, uw, pre),
+            flow,
+            ctr,
+            status,
+            keep_alive,
+            Hop::Origin,
+        )
+        .await
+    }
+}
+
+/// The upstream connector (SPEC "Path of a flow", step 3): open the connection to the flow's origin
+/// through its tunnel filters from `stage` on, each sent `CONNECT host:port` (a 2xx turns that filter
+/// connection into the byte pipe; the filter forwards to the hub, which continues with the next stage),
+/// then dial the server. Returns the connection and any bytes that arrived behind the last 2xx.
+pub async fn connect_from(
+    ctx: &Ctx,
+    flow: &FlowInfo,
+    mut stage: usize,
+) -> Result<(Conn, Vec<u8>), HopErr> {
+    let chain = &flow.route.tunnel;
+    let auth = format!("{}:{}", authority_host(&flow.host), flow.port);
+    let mut redials = 0;
+    while stage < chain.len() {
+        let (f, name) = &chain[stage];
+        match f.usable() {
+            Use::Skip => {
+                crate::debug!(
+                    "flow={} skipping tunnel filter {name}: down, fails open",
+                    flow.id
+                );
+                stage += 1;
+                continue;
             }
-            Err(e) => upstream_failed(bw, flow, status, dest, &e).await,
+            Use::Refuse(n) => return Err(down_err(flow, &n)),
+            Use::Send => {}
+        }
+        let mut s = match f.connect().await {
+            Ok(s) => s,
+            Err(e) => {
+                f.mark_down(&format!("connect: {e}"));
+                redials += 1;
+                if redials > 2 {
+                    return Err(HopErr {
+                        status: 502,
+                        msg: format!("filter {name}: {e}"),
+                    });
+                }
+                continue;
+            }
+        };
+        let (_expect, rx) = flow.route.expect(Layer::Tunnel, stage);
+        let req = format!(
+            "CONNECT {auth} HTTP/1.1\r\nHost: {auth}\r\nProxy-Flow: {}\r\n\r\n",
+            flow_token(ctx, flow)
+        );
+        crate::debug!("flow={} -> tunnel filter {name}: CONNECT {auth}", flow.id);
+        if let Err(e) = s.write_all(req.as_bytes()).await {
+            f.mark_down(&format!("write: {e}"));
+            return Err(lost(flow, name, &e.to_string()));
+        }
+        let mut buf = Vec::new();
+        let timeout = ctx.filters.stage_timeout();
+        let r = stage_wait(http::read_response(&mut s, &mut buf), rx, timeout).await;
+        return match r {
+            None => Err(stage_timed_out(flow, name, timeout)),
+            Some(Err(HeadError::Eof | HeadError::Truncated | HeadError::Io(_))) => {
+                f.mark_down("closed the connection before response headers");
+                Err(lost(flow, name, "closed before response headers"))
+            }
+            Some(Err(e)) => Err(malformed(flow, name, &e.to_string())),
+            Some(Ok(rh)) if (200..300).contains(&rh.code) => Ok((Conn::Unix(s), buf)),
+            Some(Ok(rh)) => {
+                crate::info!(
+                    "flow={} CONNECT {auth} refused at tunnel filter {name}: {} {}",
+                    flow.id,
+                    rh.code,
+                    rh.reason
+                );
+                Err(HopErr {
+                    status: if rh.code < 200 { 502 } else { rh.code },
+                    msg: format!("{auth}: refused ({}) at filter {name}", rh.code),
+                })
+            }
+        };
+    }
+    match upstream::dial(&flow.host, flow.port, ctx.cfg.dial_timeout).await {
+        Ok(s) => Ok((Conn::Tcp(s), Vec::new())),
+        Err(e) => {
+            log_upstream_error(flow, &e);
+            Err(HopErr {
+                status: e.status(),
+                msg: format!("{auth}: {e}"),
+            })
         }
     }
 }
 
-async fn upstream_failed<W: AsyncWrite + Unpin>(
-    bw: &mut W,
-    flow: &Flow,
-    status: &AtomicU16,
-    dest: Dest<'_>,
-    e: &upstream::DialError,
-) -> Next {
-    log_upstream_error(flow, e);
-    let body = format!("wire2: {}:{}: {e}", dest.host, dest.port);
-    answer(bw, &flow.down, status, e.status(), &body).await
+/// SPEC "Failure handling": a filter connection that fails or closes before response headers -> 502.
+fn lost(flow: &FlowInfo, name: &str, why: &str) -> HopErr {
+    crate::warn!(
+        "flow={} host={} port={} filter {name} failed ({why}), answering 502",
+        flow.id,
+        flow.host,
+        flow.port
+    );
+    HopErr {
+        status: 502,
+        msg: format!("filter {name} failed: {why}"),
+    }
+}
+
+/// SPEC "Failure handling": no response headers within `--stage-timeout` -> 504; the filter stays up.
+fn stage_timed_out(flow: &FlowInfo, name: &str, t: Duration) -> HopErr {
+    crate::warn!(
+        "flow={} host={} port={} filter {name} sent no response headers within --stage-timeout {}ms, \
+         answering 504",
+        flow.id,
+        flow.host,
+        flow.port,
+        t.as_millis()
+    );
+    HopErr {
+        status: 504,
+        msg: format!("filter {name} did not answer in time"),
+    }
+}
+
+/// SPEC "Failure handling": malformed HTTP from a filter -> 502, connection closed, logged.
+fn malformed(flow: &FlowInfo, name: &str, why: &str) -> HopErr {
+    crate::error!(
+        "flow={} host={} port={} malformed HTTP from filter {name}: {why}; answering 502",
+        flow.id,
+        flow.host,
+        flow.port
+    );
+    HopErr {
+        status: 502,
+        msg: format!("malformed response from filter {name}"),
+    }
+}
+
+/// The next hop of an exchange: a filter (under `--stage-timeout`) or the origin.
+enum Hop<'a> {
+    Origin,
+    Filter {
+        f: &'a Filter,
+        name: &'a str,
+        rx: watch::Receiver<StageState>,
+        timeout: Duration,
+    },
 }
 
 #[derive(Debug)]
@@ -952,18 +1345,33 @@ enum Response {
     Upgrade(http::ResponseHead, Vec<u8>),
 }
 
-/// One request/response exchange over an open upstream connection (`ur`/`uw`), both bodies streamed.
+/// Why no usable response head came back.
+enum RecvErr {
+    Head(HeadError),
+    /// The stage sent no response headers within `--stage-timeout`.
+    Timeout,
+    /// `101` to a request that did not ask to upgrade.
+    Unexpected101,
+    /// Relaying an interim response to our side failed.
+    Back,
+}
+
+/// One request/response exchange over an open connection to the next hop (`up`: read half, write
+/// half, bytes of the response already read), both bodies streamed. `up_head` is the request head as
+/// that hop gets it (absolute form plus `Proxy-Flow` for a filter, origin form for the server).
 #[allow(clippy::too_many_arguments)]
 async fn exchange<BR, BW, UR, UW>(
     br: &mut BR,
     bw: &mut BW,
     leftover: Vec<u8>,
+    up_head: Vec<u8>,
     req: &Request,
-    mut ur: UR,
-    mut uw: UW,
-    flow: &Flow,
+    up: (UR, UW, Vec<u8>),
+    flow: &FlowInfo,
+    ctr: Ctr<'_>,
     status: &AtomicU16,
     keep_alive: bool,
+    hop: Hop<'_>,
 ) -> Next
 where
     BR: AsyncRead + Unpin,
@@ -971,16 +1379,16 @@ where
     UR: AsyncRead + Unpin + Send + 'static,
     UW: AsyncWrite + Unpin,
 {
-    let up_head = http::write_request_head(&req.method, &req.path, &req.headers);
+    let (mut ur, mut uw, rpre) = up;
     // Request: head + body, streamed, concurrently with waiting for the response (a server may answer
     // before it has read the whole body).
     let mut send = Box::pin(async {
-        put(&mut uw, &up_head, &flow.up).await?;
+        put(&mut uw, &up_head, ctr.up).await?;
         let rest = if req.upgrade && req.framing == Framing::None {
-            put(&mut uw, &leftover, &flow.up).await?;
+            put(&mut uw, &leftover, ctr.up).await?;
             Vec::new()
         } else {
-            copy_body(&mut *br, &mut uw, req.framing, &leftover, &flow.up).await?
+            copy_body(&mut *br, &mut uw, req.framing, &leftover, ctr.up).await?
         };
         flush(&mut uw).await?;
         Ok::<_, CopyError>(rest)
@@ -988,15 +1396,27 @@ where
     let mut sent: Option<Result<Vec<u8>, CopyError>> = None;
 
     let resp = {
+        let hop = &hop;
         let mut recv = pin!(async {
-            let mut rbuf = Vec::new();
+            let mut rbuf = rpre;
+            let mut first = true;
             loop {
-                let rh = http::read_response(&mut ur, &mut rbuf)
-                    .await
-                    .map_err(|e| e.to_string())?;
+                let rh = match (first, hop) {
+                    (true, Hop::Filter { rx, timeout, .. }) => {
+                        let r = http::read_response(&mut ur, &mut rbuf);
+                        match stage_wait(r, rx.clone(), *timeout).await {
+                            None => return Err(RecvErr::Timeout),
+                            Some(r) => r.map_err(RecvErr::Head)?,
+                        }
+                    }
+                    _ => http::read_response(&mut ur, &mut rbuf)
+                        .await
+                        .map_err(RecvErr::Head)?,
+                };
+                first = false;
                 match rh.code {
                     101 if req.upgrade => return Ok(Response::Upgrade(rh, rbuf)),
-                    101 => return Err("101 to a request that did not ask to upgrade".to_string()),
+                    101 => return Err(RecvErr::Unexpected101),
                     100..=199 => {
                         // Interim responses (100 Continue, 103 Early Hints) are relayed, minus hop-by-hop.
                         let ih = http::write_response_head(
@@ -1007,8 +1427,8 @@ where
                         bw.write_all(&ih)
                             .await
                             .and(bw.flush().await)
-                            .map_err(|e| format!("browser: {e}"))?;
-                        flow.down.fetch_add(ih.len() as u64, Ordering::Relaxed);
+                            .map_err(|_| RecvErr::Back)?;
+                        ctr.down.fetch_add(ih.len() as u64, Ordering::Relaxed);
                     }
                     _ => return Ok(Response::Final(rh, rbuf)),
                 }
@@ -1019,12 +1439,12 @@ where
                 r = &mut send, if sent.is_none() => {
                     match r {
                         Err(CopyError::Dst(e)) => {
-                            // Upstream stopped reading; it may still have answered.
-                            crate::debug!("flow={} upstream stopped reading the request: {e}", flow.id);
+                            // The next hop stopped reading; it may still have answered.
+                            crate::debug!("flow={} next hop stopped reading the request: {e}", flow.id);
                             sent = Some(Err(CopyError::Dst(e)));
                         }
                         Err(e) => {
-                            crate::debug!("flow={} request from browser failed: {e}", flow.id);
+                            crate::debug!("flow={} request body failed: {e}", flow.id);
                             return Next::Abort;
                         }
                         Ok(rest) => sent = Some(Ok(rest)),
@@ -1039,16 +1459,44 @@ where
     let (rh, rbuf, is_upgrade) = match resp {
         Ok(Response::Final(rh, rbuf)) => (rh, rbuf, false),
         Ok(Response::Upgrade(rh, rbuf)) => (rh, rbuf, true),
+        Err(RecvErr::Back) => return Next::Abort,
         Err(e) => {
-            crate::warn!(
-                "flow={} host={} port={} bad upstream response, answering 502: {e}",
-                flow.id,
-                flow.host,
-                flow.port
-            );
             drop(send);
-            let body = format!("wire2: {}:{}: bad upstream response", flow.host, flow.port);
-            return answer(bw, &flow.down, status, 502, &body).await;
+            let err = match (&hop, e) {
+                (Hop::Filter { name, timeout, .. }, RecvErr::Timeout) => {
+                    stage_timed_out(flow, name, *timeout)
+                }
+                (
+                    Hop::Filter { f, name, .. },
+                    RecvErr::Head(HeadError::Eof | HeadError::Truncated | HeadError::Io(_)),
+                ) => {
+                    f.mark_down("closed the connection before response headers");
+                    lost(flow, name, "closed before response headers")
+                }
+                (Hop::Filter { name, .. }, RecvErr::Head(h)) => {
+                    malformed(flow, name, &h.to_string())
+                }
+                (Hop::Filter { name, .. }, _) => {
+                    malformed(flow, name, "101 to a request that did not upgrade")
+                }
+                (Hop::Origin, e) => {
+                    let why = match e {
+                        RecvErr::Head(h) => h.to_string(),
+                        _ => "101 to a request that did not ask to upgrade".to_string(),
+                    };
+                    crate::warn!(
+                        "flow={} host={} port={} bad upstream response, answering 502: {why}",
+                        flow.id,
+                        flow.host,
+                        flow.port
+                    );
+                    HopErr {
+                        status: 502,
+                        msg: format!("{}:{}: bad upstream response", flow.host, flow.port),
+                    }
+                }
+            };
+            return answer(bw, ctr.down, status, err.status, &err.body()).await;
         }
     };
 
@@ -1056,15 +1504,15 @@ where
         let mut hs = http::strip_hop_by_hop(&rh.headers, true);
         hs.push(("Connection".into(), b"upgrade".to_vec()));
         let h = http::write_response_head(101, &rh.reason, &hs);
-        if put(bw, &h, &flow.down).await.is_err() || flush(bw).await.is_err() {
+        if put(bw, &h, ctr.down).await.is_err() || flush(bw).await.is_err() {
             return Next::Abort;
         }
         status.store(101, Ordering::Relaxed);
         drop(send);
         let r = tokio::select! {
             r = crate::splice::both_ways(
-                copy_until_eof(br, &mut uw, &[], &flow.up),
-                copy_until_eof(&mut ur, bw, &rbuf, &flow.down),
+                copy_until_eof(br, &mut uw, &[], ctr.up),
+                copy_until_eof(&mut ur, bw, &rbuf, ctr.down),
             ) => r,
             _ = flow.cancel.cancelled() => Ok(()),
         };
@@ -1077,15 +1525,23 @@ where
     let rframing = match http::response_framing(&req.method, rh.code, &rh.headers) {
         Ok(f) => f,
         Err(e) => {
-            crate::warn!(
-                "flow={} host={} port={} bad upstream framing, answering 502: {e}",
-                flow.id,
-                flow.host,
-                flow.port
-            );
             drop(send);
-            let body = format!("wire2: {}:{}: bad upstream response", flow.host, flow.port);
-            return answer(bw, &flow.down, status, 502, &body).await;
+            let err = match &hop {
+                Hop::Filter { name, .. } => malformed(flow, name, &e),
+                Hop::Origin => {
+                    crate::warn!(
+                        "flow={} host={} port={} bad upstream framing, answering 502: {e}",
+                        flow.id,
+                        flow.host,
+                        flow.port
+                    );
+                    HopErr {
+                        status: 502,
+                        msg: format!("{}:{}: bad upstream response", flow.host, flow.port),
+                    }
+                }
+            };
+            return answer(bw, ctr.down, status, err.status, &err.body()).await;
         }
     };
     // The browser connection survives only if this response's end is visible without a close.
@@ -1096,19 +1552,19 @@ where
         hs.push(("Connection".into(), b"close".to_vec()));
     }
     let h = http::write_response_head(rh.code, &rh.reason, &hs);
-    if put(bw, &h, &flow.down).await.is_err() {
+    if put(bw, &h, ctr.down).await.is_err() {
         return Next::Abort;
     }
     status.store(rh.code, Ordering::Relaxed);
     crate::debug!("flow={} <- {} (body {rframing:?})", flow.id, rh.code);
 
     let r = {
-        let mut body = pin!(pipelined_body(ur, bw, rframing, rbuf, &flow.down));
+        let mut body = pin!(pipelined_body(ur, bw, rframing, rbuf, ctr.down));
         loop {
             tokio::select! {
                 r = &mut send, if sent.is_none() => {
                     if let Err(e @ (CopyError::Src(_) | CopyError::Framing(_))) = &r {
-                        crate::debug!("flow={} request from browser failed: {e}", flow.id);
+                        crate::debug!("flow={} request body failed: {e}", flow.id);
                         return Next::Abort;
                     }
                     sent = Some(r);

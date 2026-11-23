@@ -6,9 +6,18 @@ rust-version = "1.85"
 description = "Local forward proxy whose traffic streams through a chain of external filters (see SPEC.md)"
 publish = false
 
+[lib]
+path = "src/lib.rs"
+
 [[bin]]
 name = "wire2"
 path = "src/main.rs"
+
+# The reference filter `pass` (SPEC "Reference filter: pass"). Not called `pass`: that name belongs to
+# the password manager and would shadow it on PATH.
+[[bin]]
+name = "wire2-pass"
+path = "src/bin/pass.rs"
 
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "macros", "time", "signal", "sync"] }
@@ -22,7 +31,9 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["ring",
 rcgen = { version = "0.13", default-features = false, features = ["ring", "pem", "x509-parser"] }
 rustls-native-certs = "0.8"
 time = "0.3"
+# W2-F: the filter handshake answer is JSON.
+serde_json = "1"
 
 [dev-dependencies]
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["full", "test-util"] }
 tempfile = "3"

@@ -1,0 +1,17 @@
+# wire2's reference filter `pass`: forwards everything to the proxy's hub unchanged (tunnel layer, all
+# hosts, fail open). Socket-activated by pass.socket (LISTEN_FDS, fd 3); exits on SIGTERM.
+[Unit]
+Description=wire2 filter pass
+Requires=pass.socket
+After=pass.socket
+
+[Service]
+ExecStart=%h/.cargo/bin/wire2-pass
+# Add --verbose to log every request.
+Restart=on-failure
+NoNewPrivileges=yes
+SystemCallFilter=~execve execveat
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+RestrictAddressFamilies=AF_UNIX

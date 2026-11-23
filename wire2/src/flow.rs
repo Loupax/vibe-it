@@ -12,6 +12,8 @@ use std::time::{Duration, Instant};
 
 use tokio_util::sync::CancellationToken;
 
+use crate::filter::Route;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     /// A browser `CONNECT`, spliced as opaque bytes.
@@ -32,8 +34,10 @@ pub struct FlowInfo {
     /// A `CONNECT` whose TLS the proxy terminates (W2-2); decided once when the flow opens. Its byte
     /// counters then count plaintext HTTP (heads and bodies), not TLS records.
     pub decrypted: bool,
-    /// Filter names the flow passes through, computed once when it opens (empty until W2-F).
+    /// Filter names the flow passes through, computed once when it opens.
     pub chain: Vec<String>,
+    /// The filters themselves and the hub's per-layer expectation (SPEC "Traffic": `Proxy-Flow`).
+    pub route: Route,
     pub opened: Instant,
     /// Bytes browser -> upstream.
     pub up: AtomicU64,
@@ -69,17 +73,14 @@ impl Registry {
         Arc::new(Registry::default())
     }
 
-    pub fn open(self: &Arc<Self>, kind: Kind, method: &str, host: &str, port: u16) -> Flow {
-        self.open_with(kind, method, host, port, false)
-    }
-
-    pub fn open_with(
+    pub fn open(
         self: &Arc<Self>,
         kind: Kind,
         method: &str,
         host: &str,
         port: u16,
         decrypted: bool,
+        route: Route,
     ) -> Flow {
         let id = self.next.fetch_add(1, Ordering::Relaxed) + 1;
         let info = Arc::new(FlowInfo {
@@ -89,7 +90,8 @@ impl Registry {
             host: host.to_string(),
             port,
             decrypted,
-            chain: Vec::new(),
+            chain: route.names(),
+            route,
             opened: Instant::now(),
             up: AtomicU64::new(0),
             down: AtomicU64::new(0),
@@ -106,6 +108,11 @@ impl Registry {
 
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<u64, Arc<FlowInfo>>> {
         self.flows.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// An open flow by id (the hub's `Proxy-Flow` check).
+    pub fn get(&self, id: u64) -> Option<Arc<FlowInfo>> {
+        self.lock().get(&id).cloned()
     }
 
     pub fn len(&self) -> usize {
@@ -165,6 +172,9 @@ impl std::ops::Deref for Flow {
 impl Drop for Flow {
     fn drop(&mut self) {
         self.reg.lock().remove(&self.info.id);
+        // The browser side is done: whatever the hub still runs for this flow (filter hops, tunnel
+        // pipes) ends too (SPEC: "when any stage or either end closes, the proxy closes the rest").
+        self.info.cancel.cancel();
         let f = &self.info;
         let status = match (f.kind, f.status.load(Ordering::Relaxed)) {
             (_, STATUS_NONE) => "-".to_string(),
@@ -201,8 +211,17 @@ mod tests {
     #[test]
     fn open_close_and_ids() {
         let r = Registry::new();
-        let a = r.open(Kind::Tunnel, "CONNECT", "a.test", 443);
-        let b = r.open(Kind::Http, "GET", "b.test", 80);
+        let a = r.open(
+            Kind::Tunnel,
+            "CONNECT",
+            "a.test",
+            443,
+            false,
+            Route::default(),
+        );
+        let b = r.open(Kind::Http, "GET", "b.test", 80, false, Route::default());
+        assert_eq!(r.get(2).map(|f| f.host.clone()), Some("b.test".into()));
+        assert!(r.get(3).is_none());
         assert_eq!((a.id, b.id), (1, 2));
         assert_eq!(r.len(), 2);
         b.up.fetch_add(5, Ordering::Relaxed);
