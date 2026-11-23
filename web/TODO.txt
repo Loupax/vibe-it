@@ -85,7 +85,7 @@ stop early on a hard failure.
       (picker over URL and title; Enter opens). `:go`'s ghost source ranks bookmarks before history.
       Status-bar messages for each. Done when each command has a test and works live.
 
-- [ ] C4-SPIKE [S] (before C4; can run beside C-PICK) In web-host-cef: (1) several CEF browsers in one
+- [WIP] C4-SPIKE [S] (before C4; can run beside C-PICK) In web-host-cef: (1) several CEF browsers in one
       host, each its own window paired by `tab-created`, the shell showing one; what a hidden page does
       (frame callbacks, timers, audio); (2) `OnBeforePopup` letting a gesture popup become a second page of
       the same host with `window.opener` working (a test page that posts to its opener); whether CEF says
@@ -275,7 +275,11 @@ stop early on a hard failure.
       mouse clicks there.
 - [x] C3-LIVE-REFRESH [XS] (DONE 2026-11-23, 95fc985, #684; c3_live 19/19) (from #681) web/shell/test/c3_live.py is stale since C5 (`/` opens SEARCH): steps
       from "T7 T8" on fail. Update it so its 19 steps pass again.
-- [WIP] C5b [S] (from #679; shares the rectangle mechanism with C7 and S7) Exact T23: first current match = first
+- [x] C5b [S] (DONE 2026-11-23, 2243928, #705: injected script collapses the selection at the first line at/below
+      the screen top before find; wrap flag in find-result; c5_live 15/15. Not seen by the walk: matches split over
+      elements, in shadow DOM or iframes)
+- [ ] C5b-X [XS] ONLY IF WANTED (from #705) The same screen-top start for `n` after Esc (and a backward search if one
+      is ever added). (from #679; shares the rectangle mechanism with C7 and S7) Exact T23: first current match = first
       whose top is at/below the top of the screen (CEF picks its own, e.g. one above the screen). Needs a
       host `find-matches` event (one rect per match + scroll offset) or a way to start CEF's find at the
       viewport top.
@@ -303,7 +307,14 @@ stop early on a hard failure.
       outer window's frames; measure rAF cadence before/after under the perf lock.
 - [ ] C6h [M] (from #699) Chromium's rAF stays 60 Hz on a 120 Hz output although it reads the refresh: find what
       drives its BeginFrame interval (wl_output/xdg-output, a CEF switch) in web-host-cef.
-- [WIP] C6d [M] (from #686) dmabuf: no linux-dmabuf offered, CEF hands shm buffers, every frame is CPU-copied.
+- [x] C6d [M] (DONE 2026-11-23, 985f223, #706: linux-dmabuf v5 offered when the renderer is on a GPU, shm fallback;
+      scroll engine CPU 36 -> 8 % of a core on a GPU nest (kwin --virtual, web/tools/gpu-nest.sh))
+- [ ] C6d-DESKTOP [XS] NEEDS USER (from #706) Run web/shell/test/c6d_desktop_check.sh on your real desktop (release
+      builds): PASS/FAIL, the CPU table, and whether pages look right and scroll smoothly; once also as an X11 window.
+- [WIP] C3-LIVE-GOHTTP [XS] (from #706) c3_live's T45/T47/T50 and history steps still expect https:// for an http
+      history ghost; update them to #702's behaviour. Bundled with C6b-LIVE-DPR.
+- [WIP] C6b-LIVE-DPR [XS] (from #706) Release builds: c6b_live's dpr() reads the first (pre-configure 1200x800)
+      title; wait for the title matching the page window. Its click step flakes on a reused nest. (from #686) dmabuf: no linux-dmabuf offered, CEF hands shm buffers, every frame is CPU-copied.
       Measure today's CPU cost (video, fast scroll), then import dmabufs with an shm fallback.
 - [ ] C6e [M] (from #686) IME (text-input-v3): shell as IME client of the desktop and text-input server for
       the page, INPUT only. Done when fcitx5 in the nest types composed text into a page field.

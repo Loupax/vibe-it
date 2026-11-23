@@ -222,3 +222,36 @@ rate (winit; 60 Hz if unknown). An idle page costs nothing: no dirty flag, no ti
 `WEB_FRAME_STATS=1` logs `frames: N renders in 5 s`. `test/c6c_bench.py` measures cadence and
 CPU (run it under `flock /tmp/scratchy-perf.lock`); `NEST_REFRESH=Hz` for web/tools/nest.sh sets
 the headless output's refresh (default 60).
+
+## C6d: dmabuf
+
+The shell offers `zwp_linux_dmabuf_v1` (v5, one feedback tranche: every format/modifier its
+GlesRenderer imports, main device = the renderer's DRM render node) and imports each client
+dmabuf as a texture (`src/dmabuf.rs`, `DmabufHandler` in state.rs). Chromium's Ozone/Wayland
+then composites on the GPU and hands the shell GPU buffers; without the global it falls back
+to software compositing in its GPU process and wl_shm, and every frame is copied by the CPU
+(and uploaded again by the shell). Nothing to configure in the engine: CEF switches by itself.
+wl_shm stays offered. The global is NOT offered (log line `dmabuf: not offered, wl_shm only:
+<why>`) when the shell's renderer is software (llvmpipe), imports no dmabufs, has no DRM
+device, or `WEB_NO_DMABUF=1` is set; then everything is as before. A failed import is logged
+and takes the global away for clients that bind later. The start log says `dmabuf: offered (N
+formats on /dev/dri/renderD128)`, and the first imported page buffer is logged once.
+
+Headless: web/tools/nest.sh's dwl renders with pixman and offers no dmabuf (the user's wlroots
+is built without GLES/Vulkan), so the shell inside it is llvmpipe and stays on wl_shm.
+`web/tools/gpu-nest.sh` runs KWin's virtual backend instead (no display, own D-Bus session,
+memory-capped scope; it renders on the GPU and offers linux-dmabuf, like a Plasma desktop):
+`c6c_bench.py --wayland $(web/tools/gpu-nest.sh)` exercises the dmabuf path headless,
+`web/tools/gpu-nest.sh --shot f.png` screenshots it, `--stop` ends it. It has no input injection.
+`c6c_bench.py` now also has a `scroll` mode (a long page scrolled 40 px per frame), reports the
+engine's GPU-process / renderer / total CPU, and with `--wayland-debug` counts the page's
+wl_shm pools and dmabufs. On the real desktop: `web/shell/test/c6d_desktop_check.sh` (PASS/FAIL
+plus CPU with and without dmabuf).
+
+Measured 2026-11-23 on the GPU nest (960x1006, release, % of one core, 2 runs averaged):
+
+| mode   | shell before | shell dmabuf | engine GPU process before | dmabuf | engine total before | dmabuf |
+|--------|-------------:|-------------:|--------------------------:|-------:|--------------------:|-------:|
+| scroll |          7.5 |          3.0 |                      27.5 |    3.5 |                36.5 |    8.0 |
+| video  |          2.7 |          1.6 |                       3.0 |    2.5 |                 8.8 |    6.6 |
+| css    |          4.2 |          3.2 |                       2.4 |    3.8 |                 8.7 |    8.9 |

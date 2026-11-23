@@ -58,6 +58,8 @@ pub struct State {
     pub xdg_shell_state: XdgShellState,
     pub _xdg_decoration_state: XdgDecorationState,
     pub shm_state: ShmState,
+    /// C6d: zwp_linux_dmabuf_v1, when the shell's renderer can import (`dmabuf.rs`).
+    pub dmabuf: crate::dmabuf::Dmabuf,
     pub _output_manager_state: OutputManagerState,
     pub seat_state: SeatState<State>,
     pub data_device_state: DataDeviceState,
@@ -87,6 +89,8 @@ pub struct State {
     pub url: String,
     pub title: String,
     pub dirty: bool,
+    /// C6d: a dmabuf from the page was imported (logged once).
+    pub dmabuf_seen: bool,
     /// C6c: frame pacing (`pacing.rs`): the outer monitor's refresh, the last render, and
     /// whether a timer is already waiting to release a render that came too soon.
     pub pacer: crate::pacing::Pacer,
@@ -390,7 +394,9 @@ impl State {
                 // The find-clear it queued is not a key's effect: send it now.
                 self.apply_key_effects(0);
             }
-            Event::FindResult { id, index, count, .. } => self.keys.find_result(id, index, count),
+            Event::FindResult {
+                id, index, count, wrapped, ..
+            } => self.keys.find_result_wrapped(id, index, count, wrapped),
             // A page that loaded clears the last message (a failed load keeps its error).
             Event::Load {
                 ref phase,
@@ -680,6 +686,47 @@ impl ShmHandler for State {
     }
 }
 
+impl smithay::wayland::dmabuf::DmabufHandler for State {
+    fn dmabuf_state(&mut self) -> &mut smithay::wayland::dmabuf::DmabufState {
+        &mut self.dmabuf.state
+    }
+
+    fn dmabuf_imported(
+        &mut self,
+        global: &smithay::wayland::dmabuf::DmabufGlobal,
+        dmabuf: smithay::backend::allocator::dmabuf::Dmabuf,
+        notifier: smithay::wayland::dmabuf::ImportNotifier,
+    ) {
+        use smithay::backend::allocator::Buffer;
+        use smithay::backend::renderer::ImportDma;
+        match self.backend.renderer().import_dmabuf(&dmabuf, None) {
+            Ok(_) => {
+                if !self.dmabuf_seen {
+                    self.dmabuf_seen = true;
+                    let size = dmabuf.size();
+                    self.log(&format!(
+                        "dmabuf: the page's first dmabuf imported ({}x{}, {:?})",
+                        size.w,
+                        size.h,
+                        dmabuf.format()
+                    ));
+                }
+                let _ = notifier.successful::<State>();
+            }
+            Err(e) => {
+                // The client gets `failed` (or, for create_immed, a protocol error). Take the
+                // global away so engines started from now on stay on wl_shm.
+                self.log(&format!(
+                    "dmabuf: import failed ({:?}): {e:?}; no dmabuf for new clients",
+                    dmabuf.format()
+                ));
+                self.dmabuf.state.disable_global::<State>(&self.display_handle, global);
+                notifier.failed();
+            }
+        }
+    }
+}
+
 impl XdgShellHandler for State {
     fn xdg_shell_state(&mut self) -> &mut XdgShellState {
         &mut self.xdg_shell_state
@@ -863,6 +910,7 @@ impl smithay::wayland::fractional_scale::FractionalScaleHandler for State {
 
 delegate_compositor!(State);
 delegate_shm!(State);
+smithay::delegate_dmabuf!(State);
 delegate_xdg_shell!(State);
 delegate_xdg_decoration!(State);
 delegate_seat!(State);

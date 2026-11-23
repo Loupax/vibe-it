@@ -41,6 +41,10 @@ pub enum Command {
         /// Match upper and lower case apart (the shell's smartcase decides, C5).
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         match_case: bool,
+        /// C5b (T23): start from the first text at or below the top of the screen, not where
+        /// the engine would (the shell sets it for `/` Enter only).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        screen_top: bool,
     },
     FindClear,
     /// Page zoom as a factor: 1.0 = 100 %.
@@ -143,6 +147,10 @@ pub enum Event {
         id: u64,
         index: i32,
         count: i32,
+        /// C5b: a find that asked for `screen_top` had no match at or below the top of the
+        /// screen: the active match is the first one, after a wrap.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        wrapped: bool,
     },
     Crashed {
         tab: TabId,
@@ -205,7 +213,7 @@ pub fn event_text(ev: &Event) -> String {
         }
         Event::LoadError { tab, code, name, text } => format!("load-error {tab} {code} {name} {text}"),
         Event::EditableFocused { tab, focused } => format!("editable-focused {tab} {focused}"),
-        Event::FindResult { tab, id, index, count } => format!("find-result {tab} {id} {index} {count}"),
+        Event::FindResult { tab, id, index, count, .. } => format!("find-result {tab} {id} {index} {count}"),
         Event::Crashed { tab, reason } => format!("crashed {tab} ({reason})"),
         Event::Forgot { site, result, failed, .. } => match result {
             ForgetResult::Ok => format!("forgot {site} ok"),
@@ -579,6 +587,7 @@ mod tests {
                     query: "needle".into(),
                     dir: FindDir::Next,
                     match_case: false,
+                    screen_top: false,
                 },
             ),
             (
@@ -588,6 +597,7 @@ mod tests {
                     query: "Needle".into(),
                     dir: FindDir::Next,
                     match_case: true,
+                    screen_top: false,
                 },
             ),
             (
@@ -597,6 +607,17 @@ mod tests {
                     query: "n".into(),
                     dir: FindDir::Prev,
                     match_case: false,
+                    screen_top: false,
+                },
+            ),
+            (
+                r#"{"cmd":"find","id":3,"query":"x","dir":"next","screen_top":true}"#,
+                Command::Find {
+                    id: 3,
+                    query: "x".into(),
+                    dir: FindDir::Next,
+                    match_case: false,
+                    screen_top: true,
                 },
             ),
             (r#"{"cmd":"find-clear"}"#, Command::FindClear),
@@ -693,8 +714,19 @@ mod tests {
                     id: 5,
                     index: 2,
                     count: 3,
+                    wrapped: false,
                 },
                 r#"{"event":"find-result","tab":1,"id":5,"index":2,"count":3}"#,
+            ),
+            (
+                Event::FindResult {
+                    tab: 1,
+                    id: 6,
+                    index: 1,
+                    count: 3,
+                    wrapped: true,
+                },
+                r#"{"event":"find-result","tab":1,"id":6,"index":1,"count":3,"wrapped":true}"#,
             ),
             (
                 Event::Crashed {
@@ -747,7 +779,8 @@ mod tests {
                 tab: 1,
                 id: 4,
                 index: 1,
-                count: 3
+                count: 3,
+                wrapped: false
             }),
             "find-result 1 4 1 3"
         );
