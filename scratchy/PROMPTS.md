@@ -9454,3 +9454,9 @@ Task: navigating an iframe's initial about:blank window creates a NEW Document i
 **Not done:** promise-job-incumbent needs the incumbent settings object tracked through V8 promise jobs (HostMakeJobCallback) and `postMessage` `source` taken from it; scratchy has no incumbent concept, so it is not cheap. `insertion-removing-steps-iframe` stays 3/4: its failing subtest is the insertion-step `load` timing, not removal.
 
 **Tests:** src/tests/qdom5e_tests.rs (5).
+
+## QCNV11: canvas globalCompositeOperation (agent item)
+
+Task: all Porter-Duff operators and the separable + non-separable blend modes for canvas and OffscreenCanvas, with the unbounded operators affecting pixels outside the shape (within the clip), globalAlpha, invalid values ignored, saved/restored, for fills, strokes, rects and gradients; prefer tiny-skia BlendMode where it matches, implement the rest.
+
+**What changed:** canvas.rs: `DrawState.op`, `OPS`, `Shape` + `paint_shape`/`paint_source` (one path for fillRect/strokeRect/fill/stroke/Path2D, solid or gradient), a layer + `draw_pixmap` for source-in/source-out/destination-in/destination-atop/copy, own W3C non-separable blending (`blend_non_separable`; tiny-skia's ClipColor misses the `min < 0` branch), `clear` as DestinationOut with an opaque source; js_dom.rs: the `globalCompositeOperation` accessor (`CV_OPS`, `__cv_set_ls`/`__cv_get_ls` which 4). Tests: src/tests/qcnv11_tests.rs. wpt-th expectations for html/canvas/element and offscreen; 2d.shadow.composite.1/.2 go pass -> fail (they need shadows, QCNV12): user decision asked in the PR.
