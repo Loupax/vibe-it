@@ -91,16 +91,20 @@ server gets opened.
   count makes raw `thread::spawn` itself the bottleneck, which nothing
   here has shown yet.
 
-- **Only `gzip` decompression, not `brotli` too.** Real CSS/browser
-  precedent treats gzip as the dominant real-world `Content-Encoding`
-  by a wide margin, and `ureq`'s `brotli` feature is a separate,
-  additional dependency with its own compile cost — not justified
-  before something real actually needs it, the same per-need-only
-  philosophy this repo already applies everywhere else (see e.g.
-  `scratchy/TODO.txt`'s own `box-shadow`/`gap`-percentage items for the
-  same reasoning pattern). Easy to add later; `is_response_header_to_
-  strip`/`normalize_response` don't care which encoding produced the
-  decompressed bytes they're framing.
+- **`gzip` and `br` decompression (W-ENC1).** ureq's `brotli` feature adds
+  `brotli-decompressor` 4.0.3 (BSD-3-Clause/MIT; ureq 2.12 pins ^4, so it is
+  not scratchy's 5.0.3) plus `alloc-no-stdlib`/`alloc-stdlib`, makes ureq
+  send `Accept-Encoding: gzip, br` and decode `br`; the release binary grew
+  5351432 -> 5566920 bytes (+4%). ureq 2 has no zstd, so wire never asks for
+  it: a client's `Accept-Encoding` is dropped (`is_request_header_to_skip`).
+  ureq already removes `Content-Encoding` and `Content-Length` itself when it
+  decodes, so `is_response_header_to_strip` no longer strips
+  `Content-Encoding`: one still present is one nobody undid and reaches the
+  client. ureq matches the value case-sensitively (`gzip`, `x-gzip`, `br`),
+  so `GZIP` passes through encoded, with its header. The cache stores what
+  wire emits, so decoded bodies are stored without the header and
+  passed-through ones with it. A `Range` request gets no `Accept-Encoding`
+  from ureq (identity), which keeps `Content-Range` offsets valid.
 
 - **No request-side chunked support.** The one real client is
   `scratchy`, which always knows its own request body's length up front

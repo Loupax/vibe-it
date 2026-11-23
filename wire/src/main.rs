@@ -977,7 +977,9 @@ fn is_request_header_to_skip(name: &str) -> bool {
     // `X-Wire-*` is the scratchy<->wire control channel (caps, policy):
     // never forwarded upstream.
     // `User-Agent` is set separately from `resolve_user_agent` (QY39a).
-    matches!(n.as_str(), "host" | "content-length" | "connection" | "user-agent") || n.starts_with("x-wire-")
+    // `Accept-Encoding` is wire's own (W-ENC1): ureq asks for exactly the encodings it
+    // decodes (gzip, br), so a client's list (zstd...) must not reach the origin.
+    matches!(n.as_str(), "host" | "content-length" | "connection" | "user-agent" | "accept-encoding") || n.starts_with("x-wire-")
 }
 
 /// The request headers to forward, one entry per header name (W-HDR1). `ureq`'s
@@ -1036,14 +1038,19 @@ fn write_bad_ua_response(w: &mut impl Write) -> std::io::Result<u16> {
 
 /// Response header names this file strips before forwarding — each one
 /// describes the *wire-to-real-server* transport leg (`transfer-
-/// encoding`/`content-encoding`: the body has already been de-chunked/
-/// decompressed by the time any of it reaches the client) or a length
-/// this daemon can no longer state up front now that the body streams
-/// through as it arrives rather than being fully in hand first
-/// (`content-length` — see `stream_response`'s own docs for why there's
-/// nothing to put there instead, not even a recomputed one).
+/// encoding`: the body has already been de-chunked by the time any of it
+/// reaches the client) or a length this daemon can no longer state up
+/// front now that the body streams through as it arrives rather than
+/// being fully in hand first (`content-length` — see `stream_response`'s
+/// own docs for why there's nothing to put there instead, not even a
+/// recomputed one).
+///
+/// `content-encoding` is deliberately NOT here (W-ENC1): ureq itself drops
+/// it (and `Content-Length`) when it decodes the body (gzip, br). One that
+/// is still on the response is one nobody undid (zstd, `x-custom`, a
+/// stacked `gzip, br`), so the client must see it.
 fn is_response_header_to_strip(name: &str) -> bool {
-    matches!(name.to_ascii_lowercase().as_str(), "content-length" | "transfer-encoding" | "content-encoding")
+    matches!(name.to_ascii_lowercase().as_str(), "content-length" | "transfer-encoding")
 }
 
 /// Sends `request` for real via `agent`, then streams a normalized
@@ -1594,11 +1601,10 @@ fn serve_file(request: &ParsedRequest, caps: &Caps, w: &mut impl Write) -> std::
 /// Writes a real upstream response's status/headers, then streams its
 /// body straight through to `w` as it arrives — never buffered in this
 /// daemon's own memory first, regardless of how large it is. `ureq`'s
-/// own `gzip` feature already decompressed it transparently on the way
-/// in if `Content-Encoding: gzip` was sent (the dominant real-world
-/// encoding; see this crate's own `Cargo.toml` for why `brotli` isn't
-/// enabled too — nothing has needed it yet), so what streams through
-/// here is the real, final bytes.
+/// own `gzip` and `brotli` features already decompressed it transparently
+/// on the way in if `Content-Encoding: gzip` or `br` was sent, so what
+/// streams through here is the real, final bytes (any other encoding
+/// still has its `Content-Encoding` header and passes through as is).
 ///
 /// **No `Content-Length`, ever — on purpose, not an oversight.** The
 /// whole point of streaming is to never need the body fully in hand
@@ -1638,7 +1644,7 @@ fn stream_response(resp: ureq::Response, caps: &Caps, w: &mut impl Write, final_
         headers.push(("X-Wire-Target-Class".to_string(), worst.to_string()));
         headers.push(("X-Wire-Hop-Classes".to_string(), hops.join(",")));
     }
-    // ureq drops Content-Length itself when it undid gzip.
+    // ureq drops Content-Length itself when it undid gzip or br.
     let announced = resp.header("content-length").and_then(|v| v.trim().parse::<u64>().ok());
     BODY_INFO.with(|b| b.set(BodyInfo { announced, truncated: false }));
     let mut reader = resp.into_reader();
@@ -3129,3 +3135,5 @@ mod w_hdr1_tests;
 mod no_follow_tests;
 #[cfg(test)]
 mod w_flk1_tests;
+#[cfg(test)]
+mod w_enc1_tests;
