@@ -27,7 +27,8 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.dont_write_bytecode = True  # no __pycache__ in the source tree
-import live  # noqa: E402  (the C2 check's page server and log follower)
+import live  # noqa: E402
+import livelib  # noqa: E402  (the C2 check's page server and log follower)
 
 SHELL = live.SHELL
 WEB = live.WEB
@@ -101,14 +102,9 @@ def main():
 
     try:
         log.wait(r'"title":"c3 y=0 ', timeout=60)
-        log.wait(r"page window is (\d+)x(\d+)", timeout=30)
-        time.sleep(0.5)
-        sizes = [re.search(r"\] window (\d+)x(\d+), page", l) for l in log.lines]
-        ww, wh = [int(x) for x in [s for s in sizes if s][-1].groups()]
         # C6b: logical coordinates at any nest scale (NEST_SCALE); screenshots are scale times larger.
-        S = live.nest_scale()
-        ow, oh = live.output_size(shot("start.png"), S)
-        bx, by = (ow - ww) // 2, (oh - wh) // 2
+        geo = livelib.settle(log, shot)
+        S, ow, oh, ww, wh, bx, by = geo.scale, geo.ow, geo.oh, geo.ww, geo.wh, geo.bx, geo.by
         print(f"output {ow}x{oh} at scale {S}, shell window {ww}x{wh} at {bx},{by}; pages at {base}")
 
         def inject(*cmds):

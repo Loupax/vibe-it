@@ -23,6 +23,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.dont_write_bytecode = True
 import live  # noqa: E402
+import livelib  # noqa: E402
 
 SHELL = live.SHELL
 WEB = live.WEB
@@ -77,12 +78,8 @@ def main():
 
     try:
         log.wait(r'"title":"rclick ready"', timeout=60)
-        log.wait(r"page window is (\d+)x(\d+)", timeout=30)
-        time.sleep(0.5)
-        sizes = [re.search(r"\] window (\d+)x(\d+), page", l) for l in log.lines]
-        ww, wh = [int(x) for x in [s for s in sizes if s][-1].groups()]
-        ow, oh = live.png_size(shot("start.png"))
-        bx, by = (ow - ww) // 2, (oh - wh) // 2
+        geo = livelib.settle(log, shot)
+        ow, oh, ww, wh, bx, by = geo.ow, geo.oh, geo.ww, geo.wh, geo.bx, geo.by
         print(f"output {ow}x{oh}, shell window {ww}x{wh} at {bx},{by}; pages at {base}")
 
         def inject(*cmds):

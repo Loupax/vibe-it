@@ -200,15 +200,9 @@ def main():
 
     try:
         log.wait(r"host event: .*\"title\":\"c2 ready:", timeout=60)
-        log.wait(r"page window is (\d+)x(\d+)", timeout=10)
-        time.sleep(0.5)
-        # The last window size the shell logged is the one dwl gave it.
-        sizes = [re.search(r"\] window (\d+)x(\d+), page", l) for l in log.lines]
-        ww, wh = [int(x) for x in [s for s in sizes if s][-1].groups()]
-        scale = nest_scale()
-        ow, oh = output_size(shot("start.png"), scale)
-        # dwl centres its single tiled window inside a border.
-        bx, by = (ow - ww) // 2, (oh - wh) // 2
+        import livelib  # shared settled-size wait (imports this module)
+        geo = livelib.settle(log, shot)
+        scale, ow, oh, ww, wh, bx, by = geo.scale, geo.ow, geo.oh, geo.ww, geo.wh, geo.bx, geo.by
         print(f"output {ow}x{oh} at scale {scale} (the shell's {shell_scale(log.lines)}), shell window {ww}x{wh} at {bx},{by}")
 
         def inject(*cmds, fullscreen=False):

@@ -25,6 +25,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.dont_write_bytecode = True
 import live  # noqa: E402
+import livelib  # noqa: E402
 from c3_live import keys_for  # noqa: E402
 
 SHELL = live.SHELL
@@ -82,9 +83,8 @@ def main():
 
     try:
         log.wait(r'"title":"c5 y=0"', timeout=60)
-        log.wait(r"page window is (\d+)x(\d+)", timeout=30)
-        time.sleep(0.5)
-        ow, oh = live.png_size(shot("start.png"))
+        geo = livelib.settle(log, shot)
+        ow, oh = geo.ow, geo.oh
 
         def inject(*cmds):
             subprocess.run([a.inject, str(ow), str(oh)] + list(cmds), env=nest_env, check=True)
