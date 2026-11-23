@@ -501,3 +501,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 USER: Enter on a search match does nothing. Never filed after C5 (only mentioned). Filed C5-ENTER (S7, T18-T20), next web/shell slot after C3-RCLICK.
 - 2026-11-23 USER: search moves the pointer to the match start; Enter clicks at the pointer (always, my reading, told the user). C5-ENTER rewritten; web/DECISIONS.md.
 - 2026-11-23 Merged #681 C3-RCLICK 1068028; web reinstalled 15:15. Filed C3-LIVE-REFRESH. USER: unsure about moving the real pointer, prefers caret browsing -> C5-ENTER WAITING FOR USER (design with QCURSOR-D). Launched C6 (Opus).
+- 2026-11-23 Merged #683 C-NOMENU 2d4da10 (no CI job for host-cef-only; local live check PASS); web reinstalled 15:18. C-CMDS held until the caret question is answered. Launched bundle C3-LIVE-REFRESH + C5-FRAG + C5-STALE (Sonnet).
