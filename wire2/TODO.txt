@@ -56,7 +56,7 @@ tunnels are copied with small fixed buffers and backpressure, never whole.
 - [x] W2-1a [S] (DONE in W2-2 #674: hidden `--test-resolve GLOB=IP`) (from #669) Test-only name mapping (hosts file via env in test builds, or a hidden
       `--resolve host=ip`) so tests can use `www.example.test` as the spec does. W2-2/W2-F routing
       tests need it.
-- [ ] W2-1b [S] (from #669) Re-measure tunnel throughput on a quiet machine or with `perf`; decide
+- [ ] W2-1b [S] (from #669; + W2-F3 from #682: tunnel via pass >= 90 %, no-filter >= 95 %) Re-measure tunnel throughput on a quiet machine or with `perf`; decide
       whether the >= 95 % target needs work (SPLICE_F_MORE, fewer wakeups).
 - [ ] W2-1c [XS] (from #669, needs the user's say) Access-log up/down byte counts: include heads
       (today) or payload only?
@@ -64,7 +64,7 @@ tunnels are copied with small fixed buffers and backpressure, never whole.
 - [x] W2-2 TLS interception. (DONE 2026-11-23, c8a5f49, #674: lazy CA in --ca-dir, Policy::decide per CONNECT
       with add_http_claim for W2-F, --no-decrypt, decrypted keep-alive tunnels, one forward() for every
       request; decrypted 52-54 % of direct (target 50 %); hidden test-only --test-decrypt/--test-resolve.)
-- [ ] W2-2a [S] (from #674) Reuse upstream connections inside decrypted tunnels (today: fresh TCP+TLS per
+- [WIP] W2-2a [S] (from #674) Reuse upstream connections inside decrypted tunnels (today: fresh TCP+TLS per
       request, Connection: close); on a stale connection retry only idempotent requests with no body.
 - [ ] W2-2b [XS] (from #674) Pipeline request bodies (uploads) like response bodies (two tasks).
 - [ ] W2-2c [XS] (after W2-F) Remove the test-only --test-decrypt once pass-decrypt exists; keep --test-resolve.
@@ -87,12 +87,17 @@ tunnels are copied with small fixed buffers and backpressure, never whole.
       and after `101` switch that connection to plain byte copy. Frame
       parsing waits for W2-F.
 
-- [WIP] W2-F Filters, as the spec defines them: external HTTP/1.1 servers on
-      Unix sockets, chained, with the Proxy-Id handshake, lazy decryption and
-      the `pass` reference filter. This replaces the earlier embedded-language
-      scripting idea. Every step above must leave room for it: one place every
-      request, response and tunnel passes through, bodies streamed in chunks,
-      a stage able to answer, forward, change or close.
+- [x] W2-F (DONE 2026-11-23, fe69303, #682: filter chain, hub with Proxy-Flow checks, handshake + reconnect,
+      tunnel and http layers, failure table, socket trust + peer uid, `wire2-pass` binary + systemd units,
+      --test-decrypt removed; p99 +0.19 ms per pass stage; tunnel via pass 89 % (target 90), decrypted 51 %;
+      38 MB at 2,000 tunnels. Agent's calls for the user: binary `wire2-pass`, unit `wire2.service`,
+      filters may not change a request's destination (502), plain http also goes through tunnel filters.)
+      Was: Filters, as the spec defines them: external HTTP/1.1 servers on Unix sockets, chained, with the
+      Proxy-Id handshake, lazy decryption and the `pass` reference filter.
+- [ ] W2-F1 [S] (from #682) Notice filter restarts without traffic: today the first request after a filter
+      restart gets 502 while the proxy re-handshakes. Periodic re-handshake / health check.
+- [ ] W2-F2 [XS] USER, manual (from #682) Install wire2's systemd units and check an execve from the proxy is
+      denied under wire2.service (SystemCallFilter).
 
 Not in Wire 2 (left to the browser): cookies, redirects, caching, CORS,
 decompression for the client.

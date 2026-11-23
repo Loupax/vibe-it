@@ -183,7 +183,8 @@ stop early on a hard failure.
       KEYS.md's transition table, a test named after it, and a live check (right-click -> Copy link
       address -> back in NORMAL; select an option -> back in NORMAL; right-click in a field -> stays INPUT).
 - [ ] C5-ENTER [S] WAITING FOR USER (2026-11-23: user unsure about moving the real pointer, prefers caret
-      browsing, a text cursor in the page; design with QCURSOR-D first). Was: (user 2026-11-23, DECISIONS "Search places the pointer, Enter clicks")
+      browsing, a text cursor in the page; design with QCURSOR-D first; NOT Chromium's built-in caret browsing:
+      the user tried it in Chrome, "it was pretty bad" -> our own caret). Was: (user 2026-11-23, DECISIONS "Search places the pointer, Enter clicks")
       `/`+Enter, `n` and `N` move the mouse pointer (a real pointer motion from the compositor) to the start
       of the current match (left edge of its first character, vertically centred). Enter in NORMAL sends a
       real click (press/release) at the pointer's position, wherever it is. Rewrite KEYS.md S7 and T18-T20
