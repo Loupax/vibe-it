@@ -70,10 +70,20 @@ host-cef it is in CI (it needs only libxkbcommon to link).
   `Pattern not found: <q>`, `No previous search`; Esc in NORMAL sends `find-clear` (the
   query stays); a cross-document load start forgets the session (T31). Tests
   `src/tests/search_tests.rs`, live check `test/c5_live.py`. Enter on a match is a later item.
-- Not yet: the clipboard (`@+`, `yy`, paste say so; C6).
+- **The clipboard** (C6, `src/clipboard.rs` the desktop's side, `src/selection.rs` the page's):
+  the shell bridges the page's wl_data_device / zwp_primary_selection (on its own seat) and
+  the desktop's clipboard and primary selection (copypasta: smithay-clipboard on the shell
+  window's Wayland connection, x11-clipboard on X11; a worker thread, every wait bounded to
+  1 s). A copy in the page is read (a text type) and written to the desktop; the desktop's
+  text is offered to the page (a compositor selection served from memory) when the window
+  gains focus, before a paste key reaches the page and before a middle click, only when it
+  changed since it was last carried across. `yy`, `:let @+ = @%`, `@+` as a source, and
+  paste (Ctrl-v, Ctrl-Shift-v, Shift-Insert) into the `:` and `/` lines use the desktop's
+  clipboard directly. Text only. Tests `src/tests/c6_tests.rs`, live check
+  `test/c6_live.py` (Wayland and `--x11`).
 
-Not in C2/C3/C5 (later items): clipboard, HiDPI and
-fractional scale, dmabuf, IME (C6), the desktop's keyboard layout (the shell uses
+Not in C2/C3/C5/C6 (later items): HiDPI and
+fractional scale, frame pacing, dmabuf, IME, the desktop's keyboard layout (the shell uses
 xkbcommon's default, i.e. `XKB_DEFAULT_*` or us).
 
 ## Build and test
@@ -130,10 +140,10 @@ so winit opens an X11 window while the engine host still speaks Wayland to the s
 
 `test/c3_live.py` drives the keys for real in the headless nest (19 steps, each naming
 its KEYS.md rows): starts in NORMAL with the bar drawn; `j`/`k`/`G`/`gg`/Ctrl-d/Home
-scroll by real keys while the page never sees the bound keys; `/` says not yet; `i`,
+scroll by real keys while the page never sees the bound keys; `/` opens the search line; `i`,
 typing, Esc Esc (the page sees exactly the first Esc), a slow Esc Esc; a click into a
 field enters INPUT, the page's own focus() does not; `:go`, `h`/`l`, the `:go` ghost from
-history with Tab and Enter, `:refresh [hard]`, `:help` and `:q` on it, `:let`/`yy` stubs,
+history with Tab and Enter, `:refresh [hard]`, `:help` and `:q` on it, `:let`/`yy` (C6),
 Esc cancelling the line, a load error in the bar, the history file, `:q` quitting.
 Shifted characters are typed with a held Shift key (`hold:s`): inject's `type:` sends
 modifier state alone, which the shell (smithay's winit backend) does not see.

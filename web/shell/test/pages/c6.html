@@ -1,0 +1,19 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>c6 loading</title>
+<style>
+  body { margin: 0; font: 20px sans-serif; }
+  #t { position: absolute; left: 40px; top: 40px; width: 500px; height: 80px; font-size: 20px; }
+  p { position: absolute; left: 40px; top: 160px; }
+</style>
+<textarea id="t">copied in the page 7</textarea>
+<p>web C6 live check: the title reports the field's value.</p>
+<script>
+  // The title: "c6 v=<the field's value>" (newlines as |).
+  const t = document.getElementById("t");
+  const show = () => { document.title = "c6 v=" + t.value.replace(/\n/g, "|"); };
+  t.addEventListener("input", show);
+  // A middle click reaches the page (the primary-selection step tells this from a paste).
+  addEventListener("auxclick", e => { if (e.button === 1) document.title = "c6 middle click v=" + t.value; });
+  show();
+</script>

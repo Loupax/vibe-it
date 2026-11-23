@@ -7,7 +7,7 @@ use smithay::input::keyboard::Keysym;
 use crate::config::{evdev, ScrollInput, BINDINGS, ESC_ESC_MS, KEY_SEQUENCES, SCROLL_INPUTS};
 use crate::keys::*;
 use crate::protocol::Command;
-use crate::registers::{let_message, parse_let, CLIPBOARD_NOT_YET, LET_USAGE};
+use crate::registers::{let_message, parse_let, CLIPBOARD_UNREACHABLE, LET_USAGE};
 
 const HELP: &str = "file:///run/user/1000/web-1/help.html";
 
@@ -362,12 +362,12 @@ fn keys_t26_editing_keys_edit_the_line() {
     type_str(&mut k, "ñé", t);
     tap(&mut k, KeyInput::sym(Keysym::BackSpace), t);
     assert_eq!(k.line.text, "ñ");
-    // Ctrl/Alt chords type nothing; paste says it needs C6.
+    // Ctrl/Alt chords type nothing; paste with no desktop clipboard changes nothing (C6 tests
+    // the paste itself, c6_tests.rs).
     tap(&mut k, KeyInput::ch('k').ctrl(), t);
     tap(&mut k, KeyInput::ch('k').alt(), t);
     assert_eq!(k.line.text, "ñ");
     tap(&mut k, KeyInput::ch('v').ctrl(), t);
-    assert_eq!(k.message, NOT_YET_PASTE);
     assert_eq!(k.line.text, "ñ");
     tap(&mut k, KeyInput::sym(Keysym::Insert).shift(), t);
     assert_eq!(k.line.text, "ñ");
@@ -458,17 +458,17 @@ fn keys_t32_a_page_focus_enters_input_and_a_blur_changes_nothing() {
     assert!(!click_recent(Some(t), ms(t, crate::config::CLICK_FOCUS_MS + 1)), "an old click");
 }
 
-// ---------- T54-T56: yy (C6 stub) ----------
+// ---------- T54-T56: yy (with a clipboard: c6_tests.rs) ----------
 
 #[test]
-fn keys_t54_t55_yy_says_it_needs_the_clipboard_and_the_page_sees_nothing() {
+fn keys_t54_t55_yy_runs_let_and_the_page_sees_nothing() {
     let t = Instant::now();
     let mut k = keys();
     k.url = "https://example.com/".into();
     assert_eq!(tap(&mut k, KeyInput::ch('y'), t), (false, false));
     assert!(k.message.is_empty(), "T54: one y does nothing");
     assert_eq!(tap(&mut k, KeyInput::ch('y'), t), (false, false));
-    assert_eq!(k.message, CLIPBOARD_NOT_YET);
+    assert_eq!(k.message, CLIPBOARD_UNREACHABLE, "no desktop clipboard in this test");
     assert!(KEY_SEQUENCES.iter().any(|s| s.first == 'g' && s.second == 'g'));
     assert!(KEY_SEQUENCES
         .iter()
@@ -498,7 +498,7 @@ fn keys_t56_g_y_and_y_g_rearm() {
     for c in ['g', 'y', 'y'] {
         tap(&mut k, KeyInput::ch(c), t);
     }
-    assert_eq!(k.message, CLIPBOARD_NOT_YET, "g y leaves y pending");
+    assert_eq!(k.message, CLIPBOARD_UNREACHABLE, "g y leaves y pending");
     let mut k = keys();
     for c in ['y', 'g', 'g'] {
         tap(&mut k, KeyInput::ch(c), t);
@@ -584,16 +584,16 @@ fn keys_let_reads_the_url_register_and_reports_errors() {
     assert_eq!(parse_let("@+ = @% x"), None);
     assert_eq!(parse_let("@+ = document.title"), None);
     let url = "https://example.com/";
-    assert_eq!(let_message("@+ = @%", url), CLIPBOARD_NOT_YET);
-    assert_eq!(let_message("@+ = @%", ""), "web: no URL to copy");
-    assert_eq!(let_message("@% = @+", url), "web: register @% is read-only");
-    assert_eq!(let_message("@x = @%", url), "web: no register @x");
-    assert_eq!(let_message("@+ = @q", url), "web: no register @q");
-    assert_eq!(let_message("+ = %", url), LET_USAGE);
+    assert_eq!(let_message("@+ = @%", url, None), CLIPBOARD_UNREACHABLE);
+    assert_eq!(let_message("@+ = @%", "", None), "web: no URL to copy");
+    assert_eq!(let_message("@% = @+", url, None), "web: register @% is read-only");
+    assert_eq!(let_message("@x = @%", url, None), "web: no register @x");
+    assert_eq!(let_message("@+ = @q", url, None), "web: no register @q");
+    assert_eq!(let_message("+ = %", url, None), LET_USAGE);
     let mut k = keys();
     k.url = url.into();
     assert!(run(&mut k, "let @+ = @%").is_empty());
-    assert_eq!(k.message, CLIPBOARD_NOT_YET);
+    assert_eq!(k.message, CLIPBOARD_UNREACHABLE);
 }
 
 #[test]

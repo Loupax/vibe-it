@@ -1,7 +1,9 @@
 //! Vim-style registers (KEYS.md "Registers"), ported from scratchy's `src/registers.rs`
 //! (QREG1). `%` is the current URL as the status bar shows it (read-only); `+` is the
-//! system clipboard, which needs C6's clipboard bridge: until then every use of it says so.
-//! `:let @<dst> = @<src>` copies one register into another; `yy` runs `:let @+ = @%`.
+//! desktop's clipboard (C6, `clipboard.rs`). `:let @<dst> = @<src>` copies one register into
+//! another; `yy` runs `:let @+ = @%`.
+
+use crate::clipboard::{SystemClipboard, Which};
 
 /// A register name `:let` knows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -13,7 +15,9 @@ pub enum Register {
 }
 
 pub const LET_USAGE: &str = "web: usage: :let @<dst> = @<src>";
-pub const CLIPBOARD_NOT_YET: &str = "web: @+ (and yy) need the clipboard, not built yet (web/TODO.txt C6)";
+pub const COPIED: &str = "Copied to clipboard";
+pub const CLIPBOARD_EMPTY: &str = "web: the clipboard is empty";
+pub const CLIPBOARD_UNREACHABLE: &str = "web: could not reach the system clipboard";
 
 /// The two register names of `:let @dst = @src` (spaces optional); None for another shape.
 pub fn parse_let(line: &str) -> Option<(char, char)> {
@@ -34,8 +38,9 @@ pub fn register(name: char) -> Option<Register> {
     }
 }
 
-/// `:let @<dst> = @<src>` with `url` as register `%`: what the status bar says.
-pub fn let_message(line: &str, url: &str) -> String {
+/// `:let @<dst> = @<src>` with `url` as register `%` and `clipboard` as `+` (None: there is no
+/// desktop clipboard): does it and returns what the status bar says.
+pub fn let_message(line: &str, url: &str, clipboard: Option<&mut (dyn SystemClipboard + 'static)>) -> String {
     let Some((d, s)) = parse_let(line) else {
         return LET_USAGE.to_string();
     };
@@ -52,5 +57,19 @@ pub fn let_message(line: &str, url: &str) -> String {
     if src == Register::Url && url.is_empty() {
         return "web: no URL to copy".to_string();
     }
-    CLIPBOARD_NOT_YET.to_string()
+    let Some(clipboard) = clipboard else {
+        return CLIPBOARD_UNREACHABLE.to_string();
+    };
+    let text = match src {
+        Register::Url => url.to_string(),
+        Register::Clipboard => match clipboard.read(Which::Clipboard) {
+            Ok(t) if t.is_empty() => return CLIPBOARD_EMPTY.to_string(),
+            Ok(t) => t,
+            Err(_) => return CLIPBOARD_UNREACHABLE.to_string(),
+        },
+    };
+    match clipboard.write(Which::Clipboard, &text) {
+        Ok(()) => COPIED.to_string(),
+        Err(_) => CLIPBOARD_UNREACHABLE.to_string(),
+    }
 }

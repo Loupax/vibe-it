@@ -321,15 +321,15 @@ def main():
         def let_yy():
             k = log.mark()
             command("let @+ = @%", wait=300)
-            bar(r"NORMAL \| web: @\+ \(and yy\) need the clipboard", k)
+            bar(r"NORMAL \| Copied to clipboard", k)
             k = log.mark()
             command("let @% = @+", wait=300)
             bar(r"NORMAL \| web: register @% is read-only", k)
             k = log.mark()
             inject("key:y", "wait:50", "key:y", "wait:300")
-            bar(r"NORMAL \| web: @\+ \(and yy\) need the clipboard", k)
-            return ":let and yy say they need the clipboard (C6); @% is read-only"
-        step(":let @+ = @%, yy (C6 stubs)", let_yy)
+            bar(r"NORMAL \| Copied to clipboard", k)
+            return ":let @+ = @% and yy copy (the nested desktop's clipboard; c6_live.py checks its content); @% is read-only"
+        step(":let @+ = @%, yy (C6)", let_yy)
 
         def esc_cancels():
             k = log.mark()

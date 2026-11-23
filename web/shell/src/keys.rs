@@ -197,6 +197,11 @@ pub fn mode_name(mode: KeyMode) -> &'static str {
 /// from). Keep it in step with `dispatch_command`'s `match` by hand.
 pub const COMMAND_NAMES: &[&str] = &["go", "help", "historyBack", "historyFront", "let", "q", "quit", "refresh"];
 
+/// KEYS.md "Paste": Ctrl-v, Ctrl-Shift-v, Shift-Insert.
+pub fn is_paste_chord(key: &KeyInput) -> bool {
+    (key.ctrl && matches!(key.ch, Some('v') | Some('V'))) || (key.shift && key.sym == Keysym::Insert)
+}
+
 /// The byte offset the token ending at `cursor` starts at: after the last whitespace before
 /// `cursor`, or 0.
 pub fn token_start_before(text: &str, cursor: usize) -> usize {
@@ -322,7 +327,6 @@ impl SearchState {
         self.waiting.front().map(|w| w.0)
     }
 }
-pub const NOT_YET_PASTE: &str = "web: paste needs the clipboard, not built yet (web/TODO.txt C6)";
 
 /// Whether a mouse press at `click` was recent enough at `now` for a focus change to count
 /// as the user's click: a popup after it is the click's (T29, T57), later ones are the page's own.
@@ -396,6 +400,8 @@ pub struct Keys {
     /// T57: the mode the user's click left behind when its popup switched to INPUT; restored when the
     /// popup session ends, unless the click focused a field (`user_focused_control`).
     popup_return: Option<KeyMode>,
+    /// The desktop's clipboard (register `+`, paste; C6). None: there is none.
+    pub clipboard: Option<Box<dyn crate::clipboard::SystemClipboard>>,
 }
 
 impl Keys {
@@ -420,6 +426,7 @@ impl Keys {
             forwarded: HashSet::new(),
             held: Vec::new(),
             effects: Vec::new(),
+            clipboard: None,
         }
     }
 
@@ -765,9 +772,8 @@ impl Keys {
 
     fn line_edit_key(&mut self, key: &KeyInput) {
         let s = key.sym;
-        let paste = (key.ctrl && matches!(key.ch, Some('v') | Some('V'))) || (key.shift && s == Keysym::Insert);
-        if paste {
-            self.message = NOT_YET_PASTE.to_string();
+        if is_paste_chord(key) {
+            self.paste();
         } else if s == Keysym::BackSpace {
             self.line.backspace();
         } else if s == Keysym::Left || s == Keysym::KP_Left {
@@ -782,6 +788,15 @@ impl Keys {
             if let Some(c) = key.ch {
                 self.line.insert(c);
             }
+        }
+    }
+
+    /// KEYS.md "Paste" (T22, T26): the desktop clipboard's text, made one line, at the cursor.
+    /// An empty or unreadable clipboard changes nothing.
+    fn paste(&mut self) {
+        let Some(cb) = self.clipboard.as_mut() else { return };
+        if let Ok(text) = cb.read(crate::clipboard::Which::Clipboard) {
+            self.line.insert_str(&crate::clipboard::clean_paste_text(&text));
         }
     }
 
@@ -809,7 +824,7 @@ impl Keys {
         let args: Vec<&str> = parts.collect();
         if name == "let" {
             let raw = input.trim_start().strip_prefix(name).unwrap_or("");
-            self.message = crate::registers::let_message(raw, &self.url);
+            self.message = crate::registers::let_message(raw, &self.url, self.clipboard.as_deref_mut());
             return;
         }
         self.dispatch_command(name, &args);

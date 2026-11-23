@@ -94,9 +94,9 @@ fn keys_t22_the_search_line_edits_like_the_command_line() {
     tap(&mut k, KeyInput::sym(Keysym::Tab));
     assert_eq!(k.bar_view().ghost, "");
     assert_eq!(k.line.text, "foo a");
-    // Paste is the same stub as in `:` until C6.
+    // Paste (with no desktop clipboard here) changes nothing; c6_tests.rs pastes for real.
     tap(&mut k, KeyInput::ch('v').ctrl());
-    assert_eq!(k.message, NOT_YET_PASTE);
+    assert_eq!(k.line.text, "foo a");
 }
 
 #[test]

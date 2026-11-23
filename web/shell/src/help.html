@@ -60,7 +60,7 @@ switch back; press <code>Esc</code> twice.</li>
 <tr><td><code>/</code></td><td>Search: type the text in the status bar, <code>Enter</code> finds it (all matches are highlighted), <code>Esc</code> cancels</td></tr>
 <tr><td><code>n</code> / <code>N</code></td><td>Next / previous match (the bar shows <code>[i/N]</code> and says when the search wrapped; <code>Pattern not found: ...</code> when there is none)</td></tr>
 <tr><td><code>Esc</code></td><td>Clear the highlights (the search text is kept for <code>n</code>)</td></tr>
-<tr><td><code>y</code> <code>y</code></td><td>Copy the page URL: needs the clipboard, not built yet (the status bar says so)</td></tr>
+<tr><td><code>y</code> <code>y</code></td><td>Copy the page URL to the clipboard (same as <code>:let @+ = @%</code>)</td></tr>
 </table>
 <p>Scrolling is done by giving the page a real key press (<code>Down</code>,
 <code>PageDown</code>, <code>Home</code>, ...), so the page scrolls exactly as
@@ -94,12 +94,23 @@ videos), then single pages. <code>https://</code>, <code>http://</code> and
 <tr><td><code>:refresh hard</code></td><td>Reload the page and everything on it, bypassing the cache</td></tr>
 <tr><td><code>:historyBack</code></td><td>Go back one page (same as <code>h</code>)</td></tr>
 <tr><td><code>:historyFront</code></td><td>Go forward one page (same as <code>l</code>)</td></tr>
-<tr><td><code>:let @&lt;dst&gt; = @&lt;src&gt;</code></td><td>Copy a register into another (vim's <code>:let @+ = @%</code>). <code>%</code> is the page URL as the status bar shows it (read-only), <code>+</code> is the system clipboard, which is not connected yet: the status bar says so</td></tr>
+<tr><td><code>:let @&lt;dst&gt; = @&lt;src&gt;</code></td><td>Copy a register into another (vim's <code>:let @+ = @%</code>). <code>%</code> is the page URL as the status bar shows it (read-only), <code>+</code> is the system clipboard (<code>:let @+ = @%</code> copies the URL)</td></tr>
 <tr><td><code>:help</code></td><td>Show this page</td></tr>
 <tr><td><code>:q</code> or <code>:quit</code></td><td>On this help page, go back to the page before it; otherwise close web</td></tr>
 </table>
-<p>Paste into the command line (<code>Ctrl</code>+<code>v</code>) needs the
-clipboard too, not built yet.</p>
+<p><code>Ctrl</code>+<code>v</code>, <code>Ctrl</code>+<code>Shift</code>+<code>v</code>
+and <code>Shift</code>+<code>Insert</code> paste the clipboard into the command
+line and the search line (one line: newlines and tabs become spaces).</p>
+
+<h2>Clipboard</h2>
+<p>web shares the clipboard with your desktop: text copied in the page
+(<code>Ctrl</code>+<code>c</code>) can be pasted in other programs, and text
+copied elsewhere pastes in the page (<code>Ctrl</code>+<code>v</code> in INPUT
+mode), in the command line and in the search line. Text selected in the page
+also becomes the desktop's primary selection (what a middle click pastes in
+other programs). Only text crosses over: an image or a file copied on either
+side does not. Middle-click paste inside the page does not work (the engine
+does not do it); dragging files in from the desktop does not either.</p>
 
 <h2>What is kept between runs</h2>
 <p>Everything lives under the state directory (<code>--state-dir</code>,
