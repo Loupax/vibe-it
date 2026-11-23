@@ -493,3 +493,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Merged #678 C-INSTALL 3bce370. Installed web for the user: ~/.local/bin/web -> lib/web/20261123-143308-3bce370f (14:33). Launched W2-F (Opus).
 - 2026-11-23 Merged #677 C3 f5e329c (PROMPTS.md-only conflict resolved by hand in .coordinator/tmp, keep-both). web reinstalled 14:39 (20261123-143909-f5e329ce). Filed C3-GOHTTP, C3-SHIFTSYNC, C3-RCLICK (user). Launched C5 (Sonnet).
 - 2026-11-23 USER: popups (context menu, select) return to the previous mode when closed, unless a field got focus. Recorded in web/DECISIONS.md; C3-RCLICK ready (after C5: same area, web/shell keys).
+- 2026-11-23 Merged #679 C5 f7a5cba; web reinstalled. Filed C5b, C5-FRAG, C5-STALE. Launched C3-RCLICK (Sonnet).

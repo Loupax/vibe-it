@@ -74,7 +74,8 @@ stop early on a hard failure.
       tab keys, commands and their status-bar display need a design. The mechanism (one
       host window per tab, the shell shows one) is C1/C2.
 
-- [WIP] C5 Search (KEYS.md "Search", web notes): `/`, `n`/`N`, Esc, the messages, through
+- [x] C5 (DONE 2026-11-23, f7a5cba, #679: / Enter n N, wrap messages, not-found, Esc rules, [i/N], smartcase;
+      host find sessions fixed; c5_live.py 12/12) Search (KEYS.md "Search", web notes): `/`, `n`/`N`, Esc, the messages, through
       the host's `find`. Enter on a match (S7, T18-T19) is its own item after this one.
 
 - [ ] C6 Desktop integration: clipboard and primary selection bridged between the engine
@@ -160,12 +161,20 @@ stop early on a hard failure.
 - [ ] C3-SHIFTSYNC [S] (from #677; with C-FOCUSKEYS) The shell learns held modifiers only from key events: a
       modifier held when the window gains focus, or set by wl_keyboard.modifiers alone, is not seen. Done
       when Shift held across a focus change, or set by modifiers alone, still types `:` and `G`.
-- [ ] C3-RCLICK [XS] (user, 2026-11-23: keep INPUT while a popup is open, then return) A popup opened by a
+- [WIP] C3-RCLICK [XS] (user, 2026-11-23: keep INPUT while a popup is open, then return) A popup opened by a
       user click (context menu, select dropdown) switches to INPUT as today (T29); when that popup closes
       (option picked, Esc, click outside) the shell returns to the mode it had before, unless the host
       reported `editable-focused true` for that click (a field got focus: stay INPUT). Add the row to
       KEYS.md's transition table, a test named after it, and a live check (right-click -> Copy link
       address -> back in NORMAL; select an option -> back in NORMAL; right-click in a field -> stays INPUT).
+- [ ] C5b [S] (from #679; shares the rectangle mechanism with C7 and S7) Exact T23: first current match = first
+      whose top is at/below the top of the screen (CEF picks its own, e.g. one above the screen). Needs a
+      host `find-matches` event (one rect per match + scroll offset) or a way to start CEF's find at the
+      viewport top.
+- [ ] C5-FRAG [XS] (from #679) Same-document navigations (#fragment) get no load callbacks, so T31's clear on
+      navigation does not happen for them; host emits a navigated signal, shell clears.
+- [ ] C5-STALE [XS] (from #679) CEF sends a stale `find-result 0 0` at a cross-document load start; an `n`
+      pressed within ms of navigating could take it as its answer. Tag find requests/results.
 - [ ] C-KEYH [S] (from #672) The cef crate's KeyboardHandler wrapper treats `os_event` as an XEvent and
       segfaults the host on Wayland. Needed if C3 wants key events from the host; fix or work around
       upstream/in a local patch when that comes up.
