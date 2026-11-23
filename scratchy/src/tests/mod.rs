@@ -1047,6 +1047,7 @@ mod w_cache2_tests;
 mod qcss_e_tests;
 mod qblobframe_tests;
 mod qdom5d_tests;
+mod qdom5e_tests;
 mod qdom11_tests;
 mod qcnv1_tests;
 mod qcss2_tests;

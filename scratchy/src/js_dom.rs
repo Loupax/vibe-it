@@ -4618,7 +4618,7 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
   // QPT1a (R53 D2): an iframe realm (a context from the startup snapshot, whose `document` is id 0
   // here) binds its `document` to the iframe's second document `id`; `base` = the creator's base URL
   // (an about:blank document's fallback base). Builds <html><head><body> in an empty document.
-  var baseFallback = null, frameDoc = false, frameOnLoad = null;
+  var baseFallback = null, frameDoc = false, frameOnLoad = null, pristine = null, winInitial = true;
   Object.defineProperty(g, '__d_bind_doc', { value: function (id, base, shared) {
     delete g.__d_bind_doc;
     delete cache[doc.__id];
@@ -4638,7 +4638,39 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
       var html = doc.createElement('html'); doc.appendChild(html);
       html.appendChild(doc.createElement('head')); html.appendChild(doc.createElement('body'));
     }
+    // QDOM5e: the document as the preludes left it (no script has run in this realm yet): a navigation of the initial
+    // about:blank window makes a NEW Document from these descriptors (`__scratchy_new_document`).
+    pristine = Object.getOwnPropertyDescriptors(doc); delete pristine.__id;
   }, configurable: true });
+  // QDOM5e: navigating the initial about:blank window (src/srcdoc) keeps the Window and makes a NEW Document in it, as
+  // browsers do: the old one stays about:blank for scripts that kept it (non-active). Everything that captured `doc`
+  // follows: the closure variable, `g.document`, the node cache and document tables (xr.byDoc/prep, myDocs), the
+  // custom-element registry (definitions move to the new document), the window's frame list. The parent updates its
+  // `frames[..].doc`. js.rs/globals read `g.document` at use. Returns the new document.
+  Object.defineProperty(g, '__scratchy_is_initial', { value: function () { return frameDoc && winInitial && !g.closed; } });
+  Object.defineProperty(g, '__scratchy_new_document', { value: function () {
+    if (!frameDoc || g.closed) return doc;
+    var old = doc, oldId = old.__id, nid = __d_newdoc();
+    g.__d_frames_drop_all();  // the old document's nested windows go with it
+    var pr = Object.getPrototypeOf(old);
+    var nd = Object.create(pr === XMLDocument.prototype ? g.HTMLDocument.prototype : pr, pristine);
+    Object.defineProperty(nd, '__id', { value: nid });
+    cache[nid] = nd; xr.byDoc[nid] = mk; if (myDocs) myDocs.push(nid); xr.prep[nid] = xr.prep[oldId];
+    ['URL', 'documentURI'].forEach(function (k) {
+      var d = Object.getOwnPropertyDescriptor(old, k);
+      if (d && 'value' in d) Object.defineProperty(nd, k, d);
+    });
+    Object.defineProperty(nd, 'readyState', { value: 'loading', writable: true, configurable: true, enumerable: true });
+    if (ceOn) {
+      __d_ce_drop(oldId); delete xr.ce[oldId]; xr.ce[nid] = ceApi;
+      for (var nm in ceByName) __d_ce_add(nid, nm, ceByName[nm].ext || '');
+      if (ceWrapDoc) ceWrapDoc(nd);
+    }
+    domainOv = null; curScript = null; wlast = -1; wBuf = null; ignoreOpens = 0; winInitial = false;
+    doc = nd; g.document = nd;
+    syncWin();
+    return nd;
+  } });
   Object.defineProperty(doc, 'nodeType', { value: 9 });
   Object.defineProperty(doc, 'nodeName', { value: '#document' });
   queries(doc);
@@ -4737,7 +4769,8 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
   doc.open = function () {
     // HTML "document open steps" 3: an XML document throws, before any other bail-out.
     if (this === doc && Object.getPrototypeOf(doc) === XMLDocument.prototype) throw herr("Failed to execute 'open' on 'Document': Only HTML documents support open().", 'InvalidStateError');
-    if (!frameDoc || this !== doc || (curScript && wlast >= 0) || g.closed || ignoreOpens > 0) return doc;
+    if (!frameDoc || this !== doc || (curScript && wlast >= 0) || g.closed || ignoreOpens > 0) return this;  // a replaced (non-active) document returns itself
+    winInitial = false;  // document.open() ends the initial about:blank-ness: a later navigation does not reuse the window
     var kids = __d_children(doc.__id, false);
     for (var i = 0; i < kids.length; i++) __d_remove(kids[i]);
     g.__scratchy_erase_listeners(g); g.__scratchy_erase_listeners(doc);
@@ -5187,14 +5220,28 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
   // QPT1b (R53 D6): a frame's window lives while its iframe is connected and keeps its src. Dropping
   // cancels the realm's timers, requests and rejection reports, drops the nested frames, and detaches
   // the global (`contentWindow` of a removed iframe is null; a re-inserted one gets a NEW realm).
-  var dropFrame = function (id) {
+  // QDOM5e: `removed` = the iframe left the document: a window that finished loading something gets its pagehide /
+  // visibilitychange / unload events, but not synchronously (HTML "removing steps" must not run script): the window is
+  // gone from the frame tree at once (contentWindow null, `length`), its realm is released in a task after the events.
+  var releaseRealm = function (f) {
+    try { f.win.__scratchy_realm_release(); } catch (e) {}
+    g.__scratchy_realm_drop(f.win);
+  };
+  var dropFrame = function (id, removed) {
     var f = frames[id];
     if (!f) return;
     delete frames[id]; nFrames--;
     if (!f.realm) f.win.closed = true;
     if (f.realm) {
-      try { f.win.__scratchy_realm_release(); } catch (e) {}
-      g.__scratchy_realm_drop(f.win);
+      if (removed && f.loaded && !f.unloaded && !g.closed) {
+        f.unloaded = true;
+        g.setTimeout(function () {
+          try { f.win.__scratchy_unload_phase('unload'); } catch (e) {}
+          releaseRealm(f);
+        }, 0);
+        return;
+      }
+      releaseRealm(f);
     }
   };
   Object.defineProperty(g, '__d_frames_drop_all', { value: function () { for (var k in frames) dropFrame(k); } });
@@ -5220,7 +5267,7 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
     xr.n--; mine = myDocs = null;
   } });
   var sweepFrames = function () {
-    if (nFrames) for (var k in frames) if (!inPage(frames[k].el)) dropFrame(k);
+    if (nFrames) for (var k in frames) if (!inPage(frames[k].el)) dropFrame(k, true);
     if (ixN) syncWin();
   };
   // QPT1d (R53 D8): the window's child list. `window.length`, `window[i]` and `window[name]` follow the
@@ -5346,6 +5393,12 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
       g.setTimeout(function () { if (cur()) { dropFrame(id); ifrAttr2(id, n, s, nm); } }, 0);
       return;
     }
+    // QDOM5e: a window still on its initial about:blank (never navigated, document.open() not called) is REUSED by a
+    // same-origin navigation: the Window stays, loadFrame gives it a new Document. Other targets drop it as before.
+    if (of && of.realm && !of.loaded && !of.opaque && of.win.__scratchy_is_initial()) {
+      var rel = wrap(id), rs = frameSrc(rel);
+      if (frameSrcdoc(rel) != null || (!frameIsData(rel) && rs !== '' && !/^(about|data):/i.test(rs) && (ifrPage(rel).length || ifrKey(rel) !== null))) { ifrAttr2(id, n, s, nm); return; }
+    }
     if (s && nFrames) dropFrame(id);
     ifrAttr2(id, n, s, nm);
   };
@@ -5379,6 +5432,9 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
     var f = frameOf(el);
     if (!f || f.loaded) return;
     f.loaded = true;
+    // QDOM5e: the navigation makes a new Document in the kept (initial) window; the old one stays about:blank.
+    if (f.realm && f.win.__scratchy_is_initial()) f.doc = f.win.__scratchy_new_document();
+    if (f.realm && frameSrcdoc(el) != null && f.win.location.href !== 'about:srcdoc') f.win.__scratchy_realm_nav('about:srcdoc', true);
     if (f.realm && frameSrcdoc(el) == null && !frameIsData(el)) {
       // QDOM5c: the reused initial window is navigated to the fetched page's URL (location, document URL, base).
       var pgn = ifrPage(el);
@@ -6244,7 +6300,7 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
   // the CEReactions stack). Only the realm's own document is ever upgraded
   // (the page: id 0; an iframe realm: its document, with its own registry, QPT1f).
   // Cuts: `:defined`, no shadow DOM (attachShadow throws).
-  var ceOn = false, ceByName = Object.create(null), ceByCtor = new Map(), ceWhen = Object.create(null);
+  var ceWrapDoc = null, ceOn = false, ceByName = Object.create(null), ceByCtor = new Map(), ceWhen = Object.create(null);
   var ceState = Object.create(null), ceConnFlag = Object.create(null), ceNConn = 0;
   var ceStats = { hooks: 0, defineQueries: 0 };
   Object.defineProperty(g, '__ce_stats', { value: ceStats });
@@ -6538,7 +6594,7 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
   xr.hk.push(hookInstall);
   var ceInstall = function () {
     hookInstall();
-    var oCE = doc.createElement, oCENS = doc.createElementNS, oClone = NodeProto.cloneNode;
+    var oClone = NodeProto.cloneNode;
     var created = function (el, opts, self) {
       if (self && self.__id !== doc.__id) return el; // second documents: never upgraded
       var id = el.__id, raw = __d_tag(id), tg = raw.toLowerCase(), is = opts && opts.is != null ? String(opts.is) : null, d = null;
@@ -6548,11 +6604,16 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
       if (d) ceUpgrade(id, d, false);
       return el;
     };
-    doc.createElement = function (t, o) { return created(oCE.call(this, t), o, this); };
-    doc.createElementNS = function (ns, t, o) {
-      var el = oCENS.call(this, ns, t);
-      return ns === 'http://www.w3.org/1999/xhtml' ? created(el, o, this) : el;
+    // QDOM5e: also run on the NEW document of an iframe window (`__scratchy_new_document`).
+    ceWrapDoc = function (d) {
+      var oCE = d.createElement, oCENS = d.createElementNS;
+      d.createElement = function (t, o) { return created(oCE.call(this, t), o, this); };
+      d.createElementNS = function (ns, t, o) {
+        var el = oCENS.call(this, ns, t);
+        return ns === 'http://www.w3.org/1999/xhtml' ? created(el, o, this) : el;
+      };
     };
+    ceWrapDoc(doc);
     NodeProto.cloneNode = function (deep) {
       var c = oClone.call(this, deep);
       if (c && c.__id !== undefined && c.ownerDocument === doc) ceScan(c.__id, true); // inert docs: never upgraded
