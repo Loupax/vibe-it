@@ -710,3 +710,69 @@ No measurable gain: the uploader (one TLS-encrypting client task in the same tes
 both legs, so the proxy was already keeping up; the ratio difference is within the run-to-run noise of the direct
 baseline. The benefit is structural (decrypt and encrypt overlap on two cores, so a faster uploader than this test
 client is no longer capped by one proxy core) and is not shown by this harness; a client in its own process would.
+
+## W2-2e shared upstream pool and idle expiry (2026-11-23)
+
+Replaces W2-2a's one-slot-per-flow (`FlowInfo::pool`, removed) with `pool.rs`, one `UpPool` in `Ctx`.
+
+- Key: (host, port, names of the flow's tunnel-filter chain). A connection parked by a flow is taken by the next
+  request of any decrypted flow with the same key, LIFO (freshest first). The chain is in the key because a tunnel
+  filter decided over one CONNECT for the whole connection: a connection that went through chain X is never given
+  to a flow with chain Y (test: a filter's hosts change, NEW flows have another chain, and the two chains keep to
+  their own connections). A dial that skipped a down fail-open tunnel filter (`FlowInfo::skipped`, set by
+  `connect_from` at any stage, reset when a dial starts) is not parked, so a connection never reaches a flow
+  whose chain names a filter the connection did not go through. Each upstream connection still went through
+  exactly one CONNECT per tunnel filter of its chain, however many flows used it.
+- Hub pipe lifetime: the hub's splice behind a tunnel filter used to end when the flow that dialled it ended
+  (`flow.cancel`). That would kill a parked connection another flow is about to use, so each tunnel dial now has
+  its own token (`Route::expect` returns it, `Route::take` hands it to the hub); the dialler holds a `DropGuard`
+  with the connection (in `Dialed`, then in the pool entry) and the pipe ends when the connection is dropped, by
+  the pool (expiry, cap, dead on take) or at the end of the exchange. A filter closing its pipe ends exactly that
+  connection: the take-time `still_open` check sees it and the request goes to another parked connection or dials
+  again, through the filters again (so a filter can refuse).
+- Idle expiry: `--pool-idle`, default 30 s. Why: below the usual origin keep-alive timeouts (nginx 75 s,
+  Go net/http and Caddy 90-120 s, HAProxy 50 s; Apache's 5 s is shorter, and the stale-race retry covers that),
+  so the proxy normally closes first and idle sockets do not pile up; a page's burst of requests is far
+  shorter. A janitor task sweeps every idle/5 (2 s at most), so a connection lives idle..idle+tick; `take` also
+  refuses an entry older than the idle time, so the lag never matters for reuse. Closing is a TLS close_notify
+  then the FIN (the test origin sees a clean EOF), done in a spawned task so no request waits for it.
+  `--pool-idle 0` turns reuse off. The browser connection's own 120 s idle is unchanged and now independent.
+- Caps: `--pool-per-host` default 6 (what a browser opens per host), `--pool-total` default 64. Over a cap the
+  OLDEST idle connection is closed (per key first, then overall). 20 parallel browser connections need 20
+  upstream connections, 6 stay parked and 14 are closed cleanly (test).
+- Rules kept: W2-2a's idle check (`still_open`) on every take, the stale-reused retry (idempotent no-body
+  GET/HEAD/OPTIONS once on a FRESH connection, never another parked one; never a POST), W2-HUBCLOSE's close
+  rules (the exchange code is untouched).
+- Beyond SPEC.md (SPEC.md not edited): three flags, `--pool-idle D` (30s), `--pool-per-host N` (6), `--pool-total N`
+  (64). Not done: SIGUSR1 does not list pooled connections.
+
+### Measurements (2026-11-23 16:19, release, loopback, under `flock /tmp/scratchy-perf.lock`, load average 9.6 -> 8.9: other agents were running, so absolute times are noisy)
+
+`cargo test --release --test w2_2a_reuse -- --ignored --nocapture perf` (the W2-2a harness: a new set of browser
+connections per run, 15 runs, median; before = the wire2 installed by the coordinator after #688, copied to
+.qwork; after = this branch). TCP = connections the origin accepted over the 15 runs.
+
+| Load | Before | After |
+|---|---|---|
+| 50 requests on 1 connection | 157.8 ms, 17 TCP | 106.8 ms, 1 TCP |
+| 50 requests on each of 6 parallel connections | 162.4 ms, 90 TCP | 116.3 ms, 6 TCP |
+| 5 requests on each of 6 parallel connections (short-lived browser connections) | 92.8 ms, 91 TCP | 51.4 ms, 6 TCP |
+
+The gain comes from browser connections that open and close: their origin connections are reused by the next
+connections instead of being dialled (TCP + TLS) again.
+
+### Browser check (headless Chrome, google-chrome, 2026-11-23)
+
+Throwaway HOME / NSS db / `--user-data-dir` under `.qwork/browser/` (test CA only, nothing logged in); the W2-2a
+page (30 images, 10 scripts, local python HTTPS keep-alive origin `page.example.test:18443`) through wire2 +
+pass-decrypt (`serve_for_browser`). `--dump-dom`: `<title>loaded 30</title>`; the proxy logged 42 per-request
+access lines over 12 decrypted flows; the origin accepted 6 TCP connections (W2-2a: 12; before W2-2a: 41).
+
+### Tests (tests/w2_2e_pool.rs: 8)
+
+Sequential sharing across browser connections (also after the first closed), idle expiry with clean close and a
+fresh dial, `--pool-idle 0`, per-host cap under 20 parallel connections, overall cap, a tunnel filter closing
+exactly the first connection it carried (`Action::CloseFirstAfter`, new in tests/common/filters.rs), different
+chains never share, a parked connection outliving the flow that dialled it through a filter (fails if the hub
+pipe is tied to the flow's token again, checked). Seven of the eight fail on the old binary (checked with
+`WIRE2_TEST_BIN`); the filter-close test passes there too, it guards behaviour that must not change.
