@@ -157,6 +157,12 @@ stop early on a hard failure.
 - [WIP] C-KEYMAP [S] (from C2 #671) The page gets xkbcommon's default keymap (XKB_DEFAULT_*, else us), not the
       desktop's layout (winit does not expose it). Read it (X11: xkbcommon-x11; Wayland: wl_keyboard.keymap)
       and give it to the shell's seat. Done when a non-us desktop layout types the same characters in the page.
+- [ ] C-SINGLE [S] (user hit it 2026-11-23) A second `web` with the same state dir while one runs: Chromium's
+      profile lock makes the new host print "Opening in existing browser session", CEF initialize fails and
+      web-host-cef panics (main.rs:190 assert). Fix: `web [URL]` finds the running instance (#694's web.pid +
+      run-dir socket) and asks it to open the URL (status-bar message), then exits 0; if the lock is held by
+      something else (stale lock, a host without a shell), a clear error naming the profile and the pid,
+      never a panic. The host itself: turn the initialize failure into a clean error exit.
 - [ ] C-FOCUSKEYS [S] (from C2 #671; from reading code, untested) smithay's winit backend drops winit's synthetic
       key releases: a modifier held when the shell loses focus (Alt of Alt+Tab) can stay down. Release every
       pressed key on focus-out. Done when Alt+Tab away and back leaves no stuck modifier (keydown logger page).

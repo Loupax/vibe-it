@@ -517,3 +517,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Merged #692 C2-POPUP 9a37017; web reinstalled 16:30. Closed #689's worktree/branch. Launched C6b HiDPI (Opus) and W2-2f (Sonnet).
 - 2026-11-23 Merged #693 W2-2f 1330ff6; wire2 reinstalled 16:39. W2-2c marked done (#682). wire2 agent work left: W2-1b (needs a quiet machine). Launched P-FORGET-SHELL + C-SOCKDIR (Sonnet).
 - 2026-11-23 Merged #694 P-FORGET-SHELL+C-SOCKDIR 424db43 (revert-to-fail check skipped by the agent; live check covers it); web reinstalled. Launched C-KEYMAP (Sonnet).
+- 2026-11-23 USER hit: second web with the same profile -> Chromium singleton lock -> host panic (their first web, pid 4129359, still running since 16:44). Filed C-SINGLE (next web slot).
