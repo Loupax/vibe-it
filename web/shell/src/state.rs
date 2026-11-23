@@ -70,6 +70,9 @@ pub struct State {
     /// C6b: wp_fractional_scale_v1 (with wp_viewporter, how a client draws at 1.25, 1.5, ...).
     pub _fractional_scale_state: smithay::wayland::fractional_scale::FractionalScaleManagerState,
     pub _cursor_shape_state: CursorShapeManagerState,
+    /// C6h: wp_presentation, and the clock its feedback times are on.
+    pub _presentation_state: smithay::wayland::presentation::PresentationState,
+    pub presentation_clock: smithay::utils::Clock<smithay::utils::Monotonic>,
 
     pub layout: Layout,
     pub pairing: Pairing<WlSurface>,
@@ -919,6 +922,7 @@ delegate_output!(State);
 delegate_viewporter!(State);
 smithay::delegate_fractional_scale!(State);
 delegate_cursor_shape!(State);
+smithay::delegate_presentation!(State);
 
 /// Writes one line to a `web --forget-site` client and closes the connection.
 fn reply_to(mut client: UnixStream, line: &str) {

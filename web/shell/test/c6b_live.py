@@ -40,6 +40,8 @@ BAR_H = 24
 # test/pages/c6b.html
 BOX = (200, 150)  # the centre of #box, CSS px
 HAIR_Y, HAIR_X = 120, 550  # a 1 px black line, CSS px
+CUR = (200, 450)  # inside #cur (cursor: url(32x32 magenta png) 0 0), CSS px
+CUR_PX = 32  # the cursor image's size in CSS px
 
 
 def main():
@@ -181,6 +183,36 @@ def main():
 
         step("the page is drawn at the output's resolution", crisp)
 
+        def cursor():
+            """C6b-CURSOR: a CSS cursor: url() image is drawn CUR_PX logical px wide, i.e. CUR_PX * scale
+            device px, at the pointer (hotspot 0 0), not 1x-sized or doubled by a buffer scale."""
+            S, bx, by = geo["S"], geo["bx"], geo["by"]
+            inject("move:1,1", "wait:100", f"move:{CUR[0]},{CUR[1]}", "wait:100", f"move:{CUR[0] + 1},{CUR[1]}",
+                   f"move:{CUR[0]},{CUR[1]}", "wait:500")
+            im = Image.open(shot("cursor.png")).convert("RGB")
+            w, h = im.size
+            px = im.load()
+            xs, ys = [], []
+            for y in range(h):
+                for x in range(w):
+                    r, g, b = px[x, y]
+                    if r > 230 and g < 40 and b > 230:
+                        xs.append(x)
+                        ys.append(y)
+            if not xs:
+                raise Fail(f"no magenta cursor image in the screenshot ({os.path.join(out, 'cursor.png')}); "
+                           f"cursor lines: {[l for l in log.lines if 'cursor:' in l][-3:]}")
+            bw, bh = max(xs) - min(xs) + 1, max(ys) - min(ys) + 1
+            want = round(CUR_PX * S)
+            if abs(bw - want) > 2 or abs(bh - want) > 2:
+                raise Fail(f"the cursor image is {bw}x{bh} device px at scale {S}, want {want}x{want} ({CUR_PX} CSS px)")
+            ex, ey = round((bx + CUR[0]) * S), round((by + CUR[1]) * S)
+            if abs(min(xs) - ex) > 2 or abs(min(ys) - ey) > 2:
+                raise Fail(f"the cursor image starts at {min(xs)},{min(ys)}, the pointer is at {ex},{ey} (hotspot 0 0)")
+            return f"a {CUR_PX} CSS px cursor image is {bw}x{bh} device px at {S:g}, at the pointer"
+
+        step("a CSS cursor: url() image is drawn at its CSS size", cursor)
+
         def bar():
             S, bx, by = geo["S"], geo["bx"], geo["by"]
             im = Image.open(shot("bar.png")).convert("RGB")
@@ -213,7 +245,8 @@ def main():
             detail = dpr(k)
             clicked = click()
             crisp_ok = crisp()
-            return f"{S0:g} -> {S1:g}: {detail}; {clicked}; {crisp_ok}"
+            cur_ok = cursor()
+            return f"{S0:g} -> {S1:g}: {detail}; {clicked}; {crisp_ok}; {cur_ok}"
 
         step("a scale change while running re-configures the page", rescale)
 

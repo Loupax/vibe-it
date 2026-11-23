@@ -13,6 +13,7 @@
   #long p:nth-child(odd) { background: linear-gradient(90deg, #fde, #def); }
 </style>
 <div id="box" hidden></div>
+<div id="dot" style="position:absolute;left:0;bottom:0;width:8px;height:8px"></div>
 <div id="long"></div>
 <video id="v" muted loop autoplay playsinline hidden src="c6c.webm"></video>
 <script>
@@ -40,6 +41,9 @@ setTimeout(() => {
   if (mode != "idle") (function tick(t) {
     if (last) raf.push(t - last);
     last = t;
+    // C6h: raf mode draws something every frame: a frame nothing changed in is never presented,
+    // and Chromium learns the output's refresh from the presentation feedback of presented frames.
+    document.getElementById("dot").style.background = raf.length % 2 ? "#c33" : "#33c";
     if (mode == "scroll") {
       if (window.scrollY + innerHeight + 40 >= document.documentElement.scrollHeight) window.scrollTo(0, 0);
       else window.scrollBy(0, 40);

@@ -103,6 +103,20 @@ impl State {
                 self.log(&format!("submit: {e:?}"));
             }
         }
+        // C6h: presentation feedback: the page's `presented` events say when and at which refresh
+        // the frame was shown; Chromium derives its BeginFrame interval from them (without
+        // wp_presentation it assumes 60 Hz).
+        {
+            use smithay::reexports::wayland_protocols::wp::presentation_time::server::wp_presentation_feedback::Kind;
+            use smithay::wayland::presentation::Refresh;
+            let mut feedback = smithay::desktop::utils::OutputPresentationFeedback::new(&self.output);
+            let out = self.output.clone();
+            for w in self.space.elements() {
+                w.take_presentation_feedback(&mut feedback, |_, _| Some(out.clone()), |_, _| Kind::Vsync);
+            }
+            let refresh = Refresh::fixed(self.pacer.interval());
+            feedback.presented(self.presentation_clock.now(), refresh, 0, Kind::Vsync);
+        }
         // Frame callbacks: the page draws its next frame now.
         let time = self.start.elapsed();
         let output = self.output.clone();

@@ -286,6 +286,9 @@ fn main() {
         _viewporter_state: ViewporterState::new::<State>(&dh),
         _fractional_scale_state: smithay::wayland::fractional_scale::FractionalScaleManagerState::new::<State>(&dh),
         _cursor_shape_state: CursorShapeManagerState::new::<State>(&dh),
+        // C6h: wp_presentation (CLOCK_MONOTONIC): Chromium's BeginFrame interval comes from its feedback.
+        _presentation_state: smithay::wayland::presentation::PresentationState::new::<State>(&dh, libc::CLOCK_MONOTONIC as u32),
+        presentation_clock: smithay::utils::Clock::new(),
         layout: layout::Layout::from_physical(window_size, window_scale),
         pairing: Default::default(),
         pending_toplevels: Vec::new(),
