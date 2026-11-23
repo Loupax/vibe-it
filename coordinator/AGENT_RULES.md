@@ -29,7 +29,7 @@ checkout is available, and say in the PR which local checks were skipped so the 
 7. Tests: add or update tests for your change. Before opening the PR, the full test suite must pass locally on the default
    features (V8 is the only engine: QuickJS was removed by QV8-6 b717000; there is no second config any more). (QSTK1x #397: plain debug `cargo test` passes, no RUST_MIN_STACK/--skip needed. QFLK1 8f4fc79 fixed the known load flakes: a full-suite failure is now a real signal, investigate it.) clippy warning count <= 77 with the local
    toolchain (CI baseline file says 74). WPT subset (/home/loupax/src/wpt at ac78b567, 322 pass / 292 fail): no pass->fail.
-8. PR: push your branch and open a PR (`gh pr create`). Then WAIT for CI: all jobs green (three since QV8-6: scratchy, snag, wire) (`gh pr checks <n> --watch`).
+8. PR: push your branch and open a PR (`gh pr create`). Then WAIT for CI: all checks green or skipped (CI runs only the jobs for the crates you touched; `changes` decides) (`gh pr checks <n> --watch`).
    If CI fails you get at most 2 fix attempts (push a fix, wait again). Main may move meanwhile: do NOT rebase on your own
    unless the PR conflicts; the coordinator rebases at merge time.
    IMPORTANT: GitHub does NOT run pull_request CI while the PR conflicts with main. If no checks appear within ~5 min,
