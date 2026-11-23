@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-23 09:00 · main 0b4f6e5 · web spike: W4 waits on you (#659), W5 ready (#662, after #659), W6 running · wire reinstalled 10:42 (0b4f6e5; restart your wire to use it) · scratchy paused</div>
+  <div class="meta" id="updated">Updated 2026-11-23 09:00 · main 5738664 · web spike: judged a success by you, testing stopped (W6 stopped; W4 #659 and W5 #662 open) · wire2 planned (#663) · wire reinstalled 10:42 (0b4f6e5; restart your wire to use it) · scratchy paused</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -68,7 +68,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
     <tr><td>W3</td><td>Answer requests from wire</td><td><span class="pill done">done #658</span></td><td>Inside the empty namespace every http(s) request goes through wire (Wikipedia 48/48 in wire's log) and pages render; Wikipedia 524 ms through wire vs 498 ms direct. Chromium follows redirects itself so cookies and origins stay right. Chromium's own HTTP cache stores nothing, so wire's cache does all of it. Gaps: Blob/File uploads fail (W-UPLOAD1), WebSockets never reach the handler (W6)</td></tr>
     <tr><td>W4</td><td>Cookies in Chromium (needs your login)</td><td><span class="pill wait">waiting on you #659</span></td><td>Prepared and proven on test cookies: persistent cookies survive a restart, session cookies do not, HttpOnly/Secure/SameSite behave as in Chrome, wire's jar stays empty. Your real-site login is the check</td></tr>
     <tr><td>W5</td><td>Streaming and large bodies</td><td><span class="pill wait">ready #662, merges after #659</span></td><td>Seeks resume in 0.4–0.9 s (300 MB 1080p Commons video) after fixing a CEF range bug (the crate's default <code>skip</code> cancelled every seek); 1 GiB download completes with memory flat; a cut body shows as a failed download; 65 s long-poll survives. No body-cap switch needed; H.264 untested (CEF ships without proprietary codecs)</td></tr>
-    <tr><td>W6</td><td>Paths that bypass the handler</td><td><span class="pill wip">running (stacked on #662)</span></td><td></td></tr>
+    <tr><td>W6</td><td>Paths that bypass the handler</td><td><span class="pill todo">stopped (your call); WIP on branch web/w6-bypass</span></td><td></td></tr>
     <tr><td>W7</td><td>A day of browsing (yours)</td><td><span class="pill todo">later</span></td><td></td></tr>
   </table></div>
   <p class="note">wire items for the spike: W-MEDIA2 done (#654); W-HDR1 done (#655). W-FLK1 done (#660): the intermittent “Failed to fetch” was a stray-bytes bug in ureq's connection pool. W-ENC1 done (#661): wire decodes brotli and passes through encodings it cannot undo.</p>
@@ -128,6 +128,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-23</td><td class="n">#663</td><td>(user)</td><td>wire2: plan for a streaming filtering proxy as its own project (docs only; wire/ unchanged)</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#661</td><td>W-ENC1</td><td>wire decodes brotli as well as gzip (+215 KB binary), asks origins only for <code>gzip, br</code>, and passes through any encoding it did not undo instead of stripping its header</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#660</td><td>W-FLK1</td><td>wire: a server that sends a body after a 204/304/HEAD left bytes on a pooled connection and broke the next request (the random WPT “Failed to fetch”); safe requests are now resent once on a fresh connection. 5/30 failing runs → 0/100</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#658</td><td>W3</td><td>web: CEF answers every http(s) request from wire, streamed; wire reuses connections for no-redirect requests (was a new TLS handshake each)</td></tr>
