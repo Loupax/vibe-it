@@ -2,6 +2,14 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-23 The picker's, bookmarks' and buffers' defaults are kept
+
+User, on the choices agents made without asking ("they all look good right now"): the picker (C-PICK, KEYS.md
+T58-T68: `>` prompt and `PICK history m/n` header, no wrap at the ends, Enter with no match does nothing, a
+click on the list closes it and is kept from the page, words after the command prefill the filter, best
+match on top) and bookmarks (C-BOOKMARKS: search newest first, delete by exact URL, a hand-edited file is
+normalized on rewrite) stay as built; their *(proposed)* marks go.
+
 ## 2026-11-23 A picker, bookmarks, buffers as tabs, popups like Chrome
 
 User, in a planning session (no code; PROMPTS.md "Picker, bookmarks, buffers, popups"). Overrides
