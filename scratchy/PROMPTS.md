@@ -9428,3 +9428,9 @@ Task: Path2D (empty, copy, SVG path data), all path methods, addPath(path, DOMMa
 **Fix**: `NAT` stores the number of ids the computation consumed and a hit consumes them too (`natural_width_impl`, `nat_get`/`nat_put`), so id numbering no longer depends on which tick stored a result.
 
 **Tests**: src/tests/qinc2_tests.rs `qinc2_ticks_number_paragraphs_like_a_single_complete_pass`: the hover-big-js page laid out in 40 ms ticks over one cache through a new test hook (`incr_layout::tick_for_test` = `worker_measure` without a job): every tick (incomplete ones too) must end at the same next_id as a single complete pass, and the last tick's tree must equal it (`cmp_laid`). It failed before the fix (`left: 10131, right: 8387`).
+
+## QGEOM2: DOMRectList, structured clone of geometry classes (agent item)
+
+Task: getClientRects returns a DOMRectList (not an Array); structuredClone/postMessage clone DOMPoint/DOMRect/DOMQuad/DOMMatrix and their read-only twins; css/geometry idlharness setup if cheap.
+
+**What changed:** geometry_prelude.js: DOMRectList (own read-only index properties, `length`, `item`, Symbol.iterator, illegal constructor, DataCloneError when cloned), `__scratchy_geom.rectList` used by Element and Range getClientRects (js_dom.rs). Clone hook `g[Symbol.for('scratchy.structuredClone.geometry')]` that globals_prelude.js's structuredClone calls first (postMessage, MessageChannel, BroadcastChannel and history state all go through it); state is read via the Symbol.for brand keys, the copy uses the receiving realm's prototypes; a 2D matrix clones only a..f. Tests: src/tests/qgeom2_tests.rs. idlharness: see NOTES.md.

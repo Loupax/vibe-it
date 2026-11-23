@@ -10,63 +10,7 @@ OK           2/2  css/geometry/DOMMatrix-invert-preserves-2d.html
 OK           4/4  css/geometry/DOMMatrix-invertSelf.html
 OK         30/30  css/geometry/DOMMatrix-newobject.html
 OK         78/78  css/geometry/DOMMatrix-stringifier.html
-OK        56/112  css/geometry/DOMMatrix2DInit-validate-fixup.html
-  FAIL      addPath({a: 1, m11: 2}) (invalid)
-  FAIL      addPath({b: 0, m12: -1}) (invalid)
-  FAIL      addPath({c: Infinity, m21: -Infinity}) (invalid)
-  FAIL      addPath({d: 0, m22: NaN}) (invalid)
-  FAIL      addPath({e: 1, m41: 1.00000001}) (invalid)
-  FAIL      addPath({f: 0, m42: 5e-324}) (invalid)
-  FAIL      addPath (Sanity check without second parameter)
-  FAIL      addPath({})
-  FAIL      addPath({is2D: undefined})
-  FAIL      addPath({a: 1, m11: 1})
-  FAIL      addPath({b: 0, m12: undefined})
-  FAIL      addPath({c: 0, m21: 0})
-  FAIL      addPath({c: 0, m21: -0})
-  FAIL      addPath({c: -0, m21: 0})
-  FAIL      addPath({c: -0, m21: -0})
-  FAIL      addPath({d: Infinity, m22: Infinity})
-  FAIL      addPath({e: -Infinity, m41: -Infinity})
-  FAIL      addPath({f: NaN, m42: NaN})
-  FAIL      addPath({f: NaN, m42: NaN, is2D: true})
-  FAIL      addPath({f: 0, m42: null})
-  FAIL      addPath({f: -0, m42: null})
-  FAIL      addPath({a: 2})
-  FAIL      addPath({b: 2})
-  FAIL      addPath({c: 2})
-  FAIL      addPath({d: 2})
-  FAIL      addPath({e: 2})
-  FAIL      addPath({f: 2})
-  FAIL      addPath({a: -0, b: -0, c: -0, d: -0, e: -0, f: -0})
-  FAIL      addPath({a: -0, b: -0, c: -0, d: -0, e: -0, f: -0, is2D: true})
-  FAIL      addPath({m11: 2})
-  FAIL      addPath({m12: 2})
-  FAIL      addPath({m21: 2})
-  FAIL      addPath({m22: 2})
-  FAIL      addPath({m41: 2})
-  FAIL      addPath({m42: 2})
-  FAIL      addPath({m11: -0, m12: -0, m21: -0, m22: -0, m41: -0, m42: -0})
-  FAIL      addPath({m11: -0, m12: -0, m21: -0, m22: -0, m41: -0, m42: -0, is2D: true})
-  FAIL      addPath({m13: 0, is2D: true})
-  FAIL      addPath({m13: -0, is2D: true})
-  FAIL      addPath({m14: 0, is2D: true})
-  FAIL      addPath({m14: -0, is2D: true})
-  FAIL      addPath({m23: 0, is2D: true})
-  FAIL      addPath({m23: -0, is2D: true})
-  FAIL      addPath({m24: 0, is2D: true})
-  FAIL      addPath({m24: -0, is2D: true})
-  FAIL      addPath({m31: 0, is2D: true})
-  FAIL      addPath({m31: -0, is2D: true})
-  FAIL      addPath({m32: 0, is2D: true})
-  FAIL      addPath({m32: -0, is2D: true})
-  FAIL      addPath({m33: 1, is2D: true})
-  FAIL      addPath({m34: 0, is2D: true})
-  FAIL      addPath({m34: -0, is2D: true})
-  FAIL      addPath({m43: 0, is2D: true})
-  FAIL      addPath({m43: -0, is2D: true})
-  FAIL      addPath({m44: 1, is2D: true})
-  FAIL      addPath({is2D: true})
+OK       112/112  css/geometry/DOMMatrix2DInit-validate-fixup.html
 OK         91/91  css/geometry/DOMMatrixInit-validate-fixup.html
 OK         16/16  css/geometry/DOMPoint-001.html
 OK         40/40  css/geometry/DOMPoint-002.html
@@ -77,36 +21,10 @@ OK           8/8  css/geometry/DOMQuad-nan.html
 OK         30/30  css/geometry/DOMRect-001.html
 OK         32/32  css/geometry/DOMRect-002.html
 OK           8/8  css/geometry/DOMRect-nan.html
-OK           3/5  css/geometry/DOMRectList.html
-  FAIL      DOMRectList is exposed
-  FAIL      DOMRectList is not [LegacyArrayClass]
+OK           5/5  css/geometry/DOMRectList.html
 OK           3/3  css/geometry/WebKitCSSMatrix.html
 OK         39/39  css/geometry/historical.html
 OK           0/1  css/geometry/idlharness.any.html
   FAIL      idl_test setup
 OK           7/7  css/geometry/spec-examples.html
-OK          7/31  css/geometry/structured-serialization.html
-  FAIL      DOMPointReadOnly clone: basic
-  FAIL      DOMPointReadOnly clone: custom property
-  FAIL      DOMPointReadOnly clone: non-initial values
-  FAIL      DOMPoint clone: basic
-  FAIL      DOMPoint clone: custom property
-  FAIL      DOMPoint clone: non-initial values
-  FAIL      DOMRectReadOnly clone: basic
-  FAIL      DOMRectReadOnly clone: custom property
-  FAIL      DOMRectReadOnly clone: non-initial values
-  FAIL      DOMRect clone: basic
-  FAIL      DOMRect clone: custom property
-  FAIL      DOMRect clone: non-initial values
-  FAIL      DOMQuad clone: basic
-  FAIL      DOMQuad clone: custom property
-  FAIL      DOMQuad clone: non-initial values
-  FAIL      DOMMatrixReadOnly clone: basic
-  FAIL      DOMMatrixReadOnly clone: custom property
-  FAIL      DOMMatrixReadOnly clone: non-initial values (2d)
-  FAIL      DOMMatrixReadOnly clone: non-initial values (3d)
-  FAIL      DOMMatrix clone: basic
-  FAIL      DOMMatrix clone: custom property
-  FAIL      DOMMatrix clone: non-initial values (2d)
-  FAIL      DOMMatrix clone: non-initial values (3d)
-  FAIL      DOMRectList clone
+OK         31/31  css/geometry/structured-serialization.html

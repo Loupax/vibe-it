@@ -1063,6 +1063,7 @@ mod qcnv6_tests;
 mod qel7b_tests;
 mod qcnv7_tests;
 mod qgeom1_tests;
+mod qgeom2_tests;
 mod qcnv8_tests;
 mod qwptflk5_tests;
 mod qcnv9_tests;
