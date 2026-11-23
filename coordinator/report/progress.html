@@ -166,6 +166,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-23</td><td class="n">#717</td><td>C-NORMALMODS</td><td>web: clicks in NORMAL carry the held modifiers (your call), NORMAL's keys stay unmodified; installed</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#715</td><td>C-POPUPS</td><td>web: popups like Chrome (click popups = buffers with opener; others blocked, <code>:popupOpen</code>, <code>:popupSearch</code>); installed</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#714</td><td>C-FMT</td><td>web: formatting clean and checked in CI; stale unit tests fixed</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#713</td><td>C4</td><td>web: buffers are the tabs: several pages per host, buffer commands, <code>[N]</code> in the bar; installed</td></tr>
@@ -423,7 +424,6 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 <section>
   <h2>Waiting on you</h2>
   <ul id="waiting">
-    <li><b>C-NORMALMODS:</b> in NORMAL, Ctrl/Shift-click reach the page as plain clicks (a Ctrl-click on a <code>target=_blank</code> link opens a popup buffer); in INPUT they open nothing. Make them the same? (send the modifiers in NORMAL, or drop those clicks)</li>
     <li><b>C4 buffers, choices made without asking</b> (arrived as you answered): a crashed page keeps its buffer (bar says crashed, <code>:refresh</code> reloads); buffer numbers are never reused in a run; <code>:b &lt;partial&gt;</code> needs one unique substring hit; <code>:bd</code> moves to the alternate buffer, else the next; <code>:ls</code> marks current <code>%</code> and alternate <code>#</code>.</li>
     <li><b>C6d-DESKTOP (when your monitor is back):</b> run <code>web/shell/test/c6d_desktop_check.sh</code> on your real desktop; it prints PASS/FAIL and the CPU with and without dmabuf. Also tell me if pages look right and scroll smoothly.</li>
     <li><b>W2-1 by hand:</b> browse in your real Chromium and Firefox through <code>wire2 --listen 127.0.0.1:8080</code> (installed): video seeking, a large download while watching its memory, a WebSocket chat. Agents only ran headless browsers.</li>
