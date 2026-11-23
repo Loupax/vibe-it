@@ -400,3 +400,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Merged #630 QGEOM1 4cf20ec.
 - 2026-11-23 #633 QCNV8 READY (line styles; element 47.8, offscreen 53.6), merging. Launched QCNV9 (Path2D, after #633).
 - 2026-11-23 Merged #633 QCNV8 adac85d.
+- 2026-11-23 #632 QWPTFLK5 READY (not reproducible; flaky-listed; gate lines carry failure messages), merging. Filed + launched W-POOL3 (POST on stale pooled connection).
