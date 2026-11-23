@@ -1,14 +1,14 @@
 # wpt-th areas at WPT ac78b567f5404b6f2dc0418ea380af3946a47fca; score = mean over files of passed/total subtests (files that ran; flaky.txt files and NOT-RUN/CRASH excluded)
 # area                        files    ran  all-pass  subtests    pass  pass%  score
 dom/nodes                       406    406       258     15889   13199   83.1   75.4
-dom/events                      201    200        88       848     605   71.3   50.7
+dom/events                      201    200        88       848     616   72.6   50.7
 dom/ranges                       69     68        30     41902   39313   93.8   59.2
 dom/observable                   29     29         0       286       2    0.7    0.2
 dom/other                        51     51        33      3952    3115   78.8   82.7
 domparsing                       93     93        15      3458     403   11.7   26.0
 webidl                           44     44        10       505     322   63.8   49.0
 uievents                         70     70        38       238     147   61.8   59.9
-html/webappapis                 307    307       103      1627    1083   66.6   39.5
+html/webappapis                 307    307       104      1627    1085   66.7   39.8
 resize-observer                  36     36        19       106      64   60.4   63.6
 intersection-observer           150    150        22       253      72   28.5   17.4
 html/semantics/scripting-1      419    400       131      2863    1333   46.6   35.5
@@ -31,4 +31,4 @@ shadow-dom                      263    263        60      2650     843   31.8   
 fetch/api                       145    144        42      1364     857   62.8   44.4
 fetch/other                      68     64         6       759     293   38.6   27.3
 xhr                             299    298       120      1091     748   68.6   48.8
-TOTAL                          6263   6229      2879    105202   77335   73.5   52.2
+TOTAL                          6263   6229      2880    105202   77348   73.5   52.2
