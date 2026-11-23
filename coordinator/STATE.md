@@ -414,3 +414,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Merged #637 QINC2 442162f.
 - 2026-11-23 #638 QGEOM2 READY (DOMRectList, structured clone of geometry), merging. Filed + launched QWPT-IDL.
 - 2026-11-23 Merged #638 QGEOM2 253a2f2.
+- 2026-11-23 #640 QWPT-IDL READY (+3132 idlharness subtests, +2096 passing), merging. Launched QEDIT-B.
