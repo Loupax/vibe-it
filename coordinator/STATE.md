@@ -463,3 +463,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 USER: merge_pr.sh docs-only fast path (only *.md / TODO*.txt changed -> no CI wait; merge retried while GitHub computes mergeability). Recorded in scratchy/DECISIONS.md process section.
 - 2026-11-23 Merged #663 wire2 plan 5738664 (user's PR, docs only: wire2/ README, TODO, PROMPTS). wire/ unchanged. wire-v1 branch left (PR says deletable; not deleted without the user's word).
 - 2026-11-23 Merged #664 (user's PR, docs only, first docs-only fast-path merge: seconds) 0fb2e2e: web Architecture C plan (compositor shell + engine hosts + optional --proxy; Blink first; C1..C8, E1, P-FORGET, P-COOKIES; W-UPLOAD1 moot). Open for the user: merge #659/#662 as spike record or close them.
+- 2026-11-23 USER closes #659 (W4) and #662 (W5) (moot under Architecture C). Branches kept; C1 notes to take the DownloadHandler from web/w5-streaming.

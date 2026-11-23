@@ -17,6 +17,10 @@ code (inside the nested dwl from ../scratchy/tools/nest.sh). Each step ends with
 stop early on a hard failure.
 
 - [ ] C1 web-host-cef. The spike binary becomes the CEF engine host:
+      - take the CEF DownloadHandler from branch web/w5-streaming (closed #662, src/download.rs):
+        CEF refuses every download without one. (W5's Range `skip` fix belonged to W3's handler and
+        goes with it. If C1 keeps any ResourceRequestHandler, keep the `on_before_resource_load`
+        override from handler.rs: the cef crate's default cancels every request.)
       - drop W3's resource handler, the spike's wire client and run.sh's network
         namespace (run.sh keeps the memory-capped scope for development); pass
         `--proxy` on as `--proxy-server`. Chromium owns cookies, cache and uploads
@@ -146,11 +150,11 @@ wire. Architecture C replaces that request path with a web proxy; its findings
       `CefResourceHandler`.
       Done when: the site loads again inside the namespace and wire's log shows
       every request.
-- [WIP] W4 Cookies in Chromium (DRAFT #659 waits for the user's login checklist). Requests go without `X-Wire-Jar`; `Set-Cookie`
+- [-] W4 Cookies in Chromium (CLOSED by the user 2026-11-23: #659 moot under Architecture C; branch web/w4-cookies). Requests go without `X-Wire-Jar`; `Set-Cookie`
       reaches CEF.
       Done when: logging in to a real site works and survives a restart of the
       spike, with wire's jar unused.
-- [WIP] W5 (READY #662, stacked on #659: merges after W4) Streaming and large bodies: video byte ranges (`Range`/`206` passed
+- [-] W5 (CLOSED by the user 2026-11-23: #662 moot under Architecture C; findings on branch web/w5-streaming) Streaming and large bodies: video byte ranges (`Range`/`206` passed
       through), a download over 100 MB, a long-poll request.
       Done when: a video seeks without stalling and the download finishes without
       hitting wire's body caps.
