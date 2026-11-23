@@ -128,3 +128,7 @@ reply instead of hunting PIDs; `--new` forces a fresh one. Never start dwl any o
 If a CI check fails for a reason that looks unrelated to your change (a flaky test), do not re-run the job until
 it is green. Say in the PR and your reply which test failed and why you think it is unrelated; the coordinator files
 it. (2026-11-22, QCNV5 #624.)
+
+## WPT checkout
+Never use /home/loupax/src/wpt: it is a stale sparse checkout (no dom/, url/, html/canvas, ...) and gives thousands of
+bogus 404/CRASH results. Always make your own pinned checkout under your worktree with tools/wpt-checkout.sh.

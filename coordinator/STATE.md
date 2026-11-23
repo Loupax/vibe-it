@@ -410,3 +410,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Reinstalled ~/.cargo/bin/scratchy 02:44 from main 5b9cfd9 (App pointer events, damage repaint everywhere, canvas line styles, DOMMatrix).
 - 2026-11-23 #636 QCNV9 READY (Path2D; element score 48.9 -> 51.5, offscreen 54.9 -> 58.0, TOTAL 47.9; report quoted pass% not score), merging. QCNV3b += missing args. Launched QCNV10.
 - 2026-11-23 Merged #636 QCNV9 981b8bf.
+- 2026-11-23 #637 QINC2 READY (paragraph-id numbering across shaping ticks: NAT cache hits now consume ids; check mode 10/10 clean), merging. AGENT_RULES: never /home/loupax/src/wpt. Launched QDOM5e.
