@@ -1232,6 +1232,69 @@ fn execute_network(agent: &ureq::Agent, shared: &Shared, request: &ParsedRequest
     send_upstream(agent, shared, request, caps, use_jar, ua, w)
 }
 
+/// W-POOL3: sends `build(agent)` once; when it failed the way a REUSED
+/// pooled connection that the server had already closed fails, sends it once
+/// more on a connection that is certainly new (a fresh one-off agent has an
+/// empty pool), for every method. ureq itself retries only idempotent
+/// requests without a body, so a POST (or a PUT with a body) used to fail
+/// once per stale connection and surfaced as a fetch() TypeError.
+///
+/// The exact rule (`stale_pooled_failure`), all of it required:
+///
+/// 1. a transport error whose cause is an `io::Error` of kind ConnectionReset
+///    or BrokenPipe (the peer's TCP stack answered our bytes with an RST, or
+///    refused the write: the peer socket was already closed, so its
+///    application never read them). A clean EOF is NOT retried: a server that
+///    read the body and then closed answers with EOF, indistinguishable from
+///    a stale close, so retrying would risk a duplicate POST (ureq reports a
+///    clean EOF as ConnectionAborted, which is why that kind is not listed);
+/// 2. the resolver was not called during the attempt: ureq resolves only to
+///    open a new connection, so the connection was a reused one (a request on
+///    a connection this very request opened is never retried);
+/// 3. the failing hop is the request's own URL (not a later redirect hop,
+///    whose predecessor was a real, answered request);
+/// 4. the policy resolver did not refuse anything.
+///
+/// Residual: a peer that read the whole request and then aborted with an RST
+/// (linger 0, crash) looks the same and is retried.
+#[allow(clippy::result_large_err)] // ureq's own Result type
+fn call_with_stale_retry(
+    agent: &ureq::Agent,
+    build: &dyn Fn(&ureq::Agent) -> ureq::Request,
+    body: &[u8],
+    first_url: &Url,
+    fresh_agent: impl FnOnce() -> ureq::Agent,
+) -> Result<ureq::Response, ureq::Error> {
+    let hops_before = TRACKER.with(|t| t.borrow().hops.len());
+    let send = |req: ureq::Request| if body.is_empty() { req.call() } else { req.send_bytes(body) };
+    let result = send(build(agent));
+    match &result {
+        Err(e) if stale_pooled_failure(e, first_url, hops_before) => {
+            eprintln!("wire: retrying {} once on a fresh connection (stale pooled connection: {e})", first_url);
+            send(build(&fresh_agent()))
+        }
+        _ => result,
+    }
+}
+
+fn stale_pooled_failure(err: &ureq::Error, first_url: &Url, hops_before: usize) -> bool {
+    use std::error::Error as _;
+    let ureq::Error::Transport(t) = err else { return false };
+    if t.kind() != ureq::ErrorKind::Io || t.url().is_some_and(|u| u != first_url) {
+        return false;
+    }
+    let reset = t.source().and_then(|s| s.downcast_ref::<std::io::Error>()).is_some_and(|e| {
+        matches!(
+            e.kind(),
+            std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::BrokenPipe
+        )
+    });
+    reset && TRACKER.with(|tr| {
+        let tr = tr.borrow();
+        tr.hops.len() == hops_before && tr.blocked.is_none()
+    })
+}
+
 /// The upstream request itself (jar path or not), after the cache decided.
 fn send_upstream(agent: &ureq::Agent, shared: &Shared, request: &ParsedRequest, caps: &Caps, use_jar: bool, ua: Option<&str>, w: &mut impl Write) -> std::io::Result<()> {
     BODY_INFO.with(|b| b.set(BodyInfo::default()));
@@ -1251,20 +1314,26 @@ fn send_upstream(agent: &ureq::Agent, shared: &Shared, request: &ParsedRequest, 
         _ if caps.public_only => &shared.public_agent,
         _ => agent,
     };
-    let mut req = agent.request(&request.method, request.url.as_str());
-    if let Some(t) = caps.timeout {
-        req = req.timeout(t);
-    }
-    if let Some(ua) = ua {
-        req = req.set("User-Agent", ua);
-    }
-    for (name, value) in &request.headers {
-        if !is_request_header_to_skip(name) {
-            req = req.set(name, value);
+    let build = |agent: &ureq::Agent| {
+        let mut req = agent.request(&request.method, request.url.as_str());
+        if let Some(t) = caps.timeout {
+            req = req.timeout(t);
         }
-    }
+        if let Some(ua) = ua {
+            req = req.set("User-Agent", ua);
+        }
+        for (name, value) in &request.headers {
+            if !is_request_header_to_skip(name) {
+                req = req.set(name, value);
+            }
+        }
+        req
+    };
     let headers_start = Instant::now();
-    let result = if request.body.is_empty() { req.call() } else { req.send_bytes(&request.body) };
+    let result = call_with_stale_retry(agent, &build, &request.body, &request.url, || match caps.max_redirects {
+        Some(n) if n != DEFAULT_REDIRECTS => agent_builder().redirects(n).build(),
+        _ => build_agent(),
+    });
     let headers_elapsed = headers_start.elapsed();
 
     let body_start = Instant::now();
@@ -1328,27 +1397,30 @@ fn execute_with_jar(shared: &Shared, request: &ParsedRequest, caps: &Caps, ua: O
         }
         let hops_before = TRACKER.with(|t| t.borrow().hops.len());
         let manual = if caps.public_only { &shared.public_manual_agent } else { &shared.manual_agent };
-        let mut req = manual.request(&method, url.as_str());
-        if let Some(t) = caps.timeout {
-            req = req.timeout(t);
-        }
-        if let Some(ua) = ua {
-            req = req.set("User-Agent", ua);
-        }
         let drop_body_headers = body.is_empty() && request.method != method;
-        for (name, value) in h {
-            if is_request_header_to_skip(name)
-                || name.eq_ignore_ascii_case("cookie")
-                || (drop_body_headers && name.eq_ignore_ascii_case("content-type"))
-            {
-                continue;
+        let build = |agent: &ureq::Agent| {
+            let mut req = agent.request(&method, url.as_str());
+            if let Some(t) = caps.timeout {
+                req = req.timeout(t);
             }
-            req = req.set(name, value);
-        }
-        if let Some(c) = &cookie {
-            req = req.set("Cookie", c);
-        }
-        let result = if body.is_empty() { req.call() } else { req.send_bytes(&body) };
+            if let Some(ua) = ua {
+                req = req.set("User-Agent", ua);
+            }
+            for (name, value) in h {
+                if is_request_header_to_skip(name)
+                    || name.eq_ignore_ascii_case("cookie")
+                    || (drop_body_headers && name.eq_ignore_ascii_case("content-type"))
+                {
+                    continue;
+                }
+                req = req.set(name, value);
+            }
+            if let Some(c) = &cookie {
+                req = req.set("Cookie", c);
+            }
+            req
+        };
+        let result = call_with_stale_retry(manual, &build, &body, &url, || agent_builder().redirects(0).build());
         let resp = match result {
             Ok(r) | Err(ureq::Error::Status(_, r)) => r,
             Err(ureq::Error::Transport(e)) => {
@@ -2921,3 +2993,5 @@ mod mount_wire_tests {
 mod record_tests;
 #[cfg(test)]
 mod cache_tests;
+#[cfg(test)]
+mod pool_tests;

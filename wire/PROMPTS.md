@@ -265,3 +265,9 @@ Result: `src/cache.rs` (+ `src/cache_tests.rs`), `--cache-dir` / `--cache-size` 
 > Item: implement W-CACHE2 exactly as written in wire/TODO.txt (clear-site also removes the partition cache directory, Clear-Site-Data honoured, scratchy --forget-site confirmed by a test).
 
 Result: `Cache::clear_partition`/`clear_origin`, `Jar::clear_host`, `apply_clear_site_data`, tests in `wire/src/cache_tests.rs` and `scratchy/src/tests/w_cache2_tests.rs`.
+
+## W-POOL3 — a POST on a stale pooled connection (agent task)
+
+> Item: implement W-POOL3 exactly as written in wire/TODO.txt (confirm the suspect with a loopback server, then retry once on a fresh connection when the request cannot have reached the server application; never once the server could have read the body).
+
+Result: `call_with_stale_retry` / `stale_pooled_failure` in `src/main.rs` (jar and non-jar path), tests in `src/pool_tests.rs`, NOTES "Stale pooled connections".
