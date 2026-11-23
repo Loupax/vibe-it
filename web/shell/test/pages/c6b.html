@@ -6,12 +6,16 @@
   body { margin: 0; font: 16px sans-serif; background: #fff; color: #000; }
   #box { position: absolute; left: 100px; top: 100px; width: 200px; height: 100px; background: #36c; color: #fff; }
   .hair { position: absolute; left: 400px; width: 300px; height: 1px; background: #000; }
+  /* C6b-CURSOR: a 32x32 magenta PNG (1x, no image-set) as the cursor, hotspot 0 0: drawn 32 CSS px wide. */
+  #cur { position: absolute; left: 100px; top: 400px; width: 200px; height: 100px; background: #eee;
+         cursor: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAJ0lEQVR4nO3NMQkAAAwDsPo33anoMQjkT5pORSAQCAQCgUAgEHwJDmDu+GrYQW2TAAAAAElFTkSuQmCC) 0 0, crosshair; }
   p { position: absolute; left: 20px; top: 300px; margin: 0; }
 </style></head>
 <body>
 <div id="box">click me</div>
 <div class="hair" style="top: 120px"></div>
 <div class="hair" style="top: 122px"></div>
+<div id="cur"></div>
 <p>The quick brown fox jumps over the lazy dog. 0123456789</p>
 <script>
   let clicks = 0;
