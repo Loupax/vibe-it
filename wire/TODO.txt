@@ -165,7 +165,7 @@ the commit it came up during.
       Range -> 200 with Accept-Ranges; memory: a 64 MiB file with `bytes=0-1023`
       returns 1024 bytes.
 
-- [ ] **W-MEDIA2 [S] A truncated body is indistinguishable from a complete one.**
+- [WIP] **W-MEDIA2 [S] A truncated body is indistinguishable from a complete one.**
       `copy_body` returns `Ok` on an upstream read error, and the
       `X-Wire-Max-Bytes` path ignores `read_to_end`'s error (`let _ =`); since wire
       strips `Content-Length`, the client cannot tell a dropped upstream (or the
