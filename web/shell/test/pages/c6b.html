@@ -1,0 +1,31 @@
+<!doctype html>
+<!-- C6b: the page reports devicePixelRatio and its CSS size in its title (test/c6b_live.py);
+     the text and the 1 px lines show whether the page is drawn at the output's scale. -->
+<html><head><meta charset="utf-8"><title>c6b</title>
+<style>
+  body { margin: 0; font: 16px sans-serif; background: #fff; color: #000; }
+  #box { position: absolute; left: 100px; top: 100px; width: 200px; height: 100px; background: #36c; color: #fff; }
+  .hair { position: absolute; left: 400px; width: 300px; height: 1px; background: #000; }
+  p { position: absolute; left: 20px; top: 300px; margin: 0; }
+</style></head>
+<body>
+<div id="box">click me</div>
+<div class="hair" style="top: 120px"></div>
+<div class="hair" style="top: 122px"></div>
+<p>The quick brown fox jumps over the lazy dog. 0123456789</p>
+<script>
+  let clicks = 0;
+  function report() {
+    document.title = `c6b dpr:${devicePixelRatio} css:${innerWidth}x${innerHeight} clicks:${clicks}`;
+  }
+  document.getElementById("box").addEventListener("click", (e) => {
+    clicks++;
+    document.title = `c6b click:${e.clientX},${e.clientY}`;
+    setTimeout(report, 50);
+  });
+  matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener("change", report);
+  addEventListener("resize", report);
+  setInterval(report, 500);
+  report();
+</script>
+</body></html>

@@ -8,20 +8,24 @@
  #include <wlr/backend/libinput.h>
  #include <wlr/render/allocator.h>
  #include <wlr/render/wlr_renderer.h>
-@@ -1114,6 +1115,12 @@
+@@ -1114,6 +1115,16 @@
  	 * monitor's preferred mode; a more sophisticated compositor would let
  	 * the user configure it. */
  	wlr_output_state_set_mode(&state, wlr_output_preferred_mode(wlr_output));
-+	/* NEST-HEADLESS: a headless output has no modes; NEST_HEADLESS_SIZE=WxH sets one. */
++	/* NEST-HEADLESS: a headless output has no modes; NEST_HEADLESS_SIZE=WxH sets one
++	 * (pixels). C6b: NEST_HEADLESS_SCALE sets the output's (fractional) scale. */
 +	if (wlr_output_is_headless(wlr_output) && getenv("NEST_HEADLESS_SIZE")) {
 +		int nw = 0, nh = 0;
++		float ns = 0;
 +		if (sscanf(getenv("NEST_HEADLESS_SIZE"), "%dx%d", &nw, &nh) == 2 && nw > 0 && nh > 0)
 +			wlr_output_state_set_custom_mode(&state, nw, nh, 0);
++		if (getenv("NEST_HEADLESS_SCALE") && sscanf(getenv("NEST_HEADLESS_SCALE"), "%f", &ns) == 1 && ns > 0)
++			wlr_output_state_set_scale(&state, ns);
 +	}
  
  	/* Set up event listeners */
  	LISTEN(&wlr_output->events.frame, &m->frame, rendermon);
-@@ -1416,12 +1423,18 @@
+@@ -1416,12 +1427,18 @@
  destroykeyboardgroup(struct wl_listener *listener, void *data)
  {
  	KeyboardGroup *group = wl_container_of(listener, group, destroy);
@@ -40,7 +44,7 @@
  }
  
  Monitor *
-@@ -2716,6 +2729,15 @@
+@@ -2716,6 +2733,15 @@
  
  	kb_group = createkeyboardgroup();
  	wl_list_init(&kb_group->destroy.link);

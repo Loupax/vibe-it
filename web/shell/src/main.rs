@@ -105,6 +105,8 @@ fn main() {
     let (backend, winit_loop) =
         winit::init_from_attributes::<GlesRenderer>(attrs).unwrap_or_else(|e| fail(format!("cannot open the window: {e}")));
     let window_size = backend.window_size();
+    // C6b: the desktop's scale for the window (winit may report the real one only later, as a Resized).
+    let window_scale = backend.scale_factor();
     let desktop = {
         use smithay::reexports::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
         match backend.window().window_handle().map(|h| h.as_raw()) {
@@ -244,8 +246,9 @@ fn main() {
         primary_selection_state: PrimarySelectionState::new::<State>(&dh),
         bridge: selection::Bridge::new(desktop_clipboard.clone(), copies_tx),
         _viewporter_state: ViewporterState::new::<State>(&dh),
+        _fractional_scale_state: smithay::wayland::fractional_scale::FractionalScaleManagerState::new::<State>(&dh),
         _cursor_shape_state: CursorShapeManagerState::new::<State>(&dh),
-        layout: layout::Layout::new(window_size.w, window_size.h),
+        layout: layout::Layout::from_physical(window_size, window_scale),
         pairing: Default::default(),
         pending_toplevels: Vec::new(),
         page: None,
@@ -275,6 +278,7 @@ fn main() {
         paused: false,
         loop_handle: event_loop.handle(),
     };
+    state.apply_output_state();
     state.damage_tracker = Some(OutputDamageTracker::from_output(&state.output));
     state.keys.clipboard = Some(Box::new(desktop_clipboard));
 
@@ -299,7 +303,7 @@ fn main() {
     event_loop
         .handle()
         .insert_source(winit_loop, |event, _, state| match event {
-            WinitEvent::Resized { size, .. } => state.resized((size.w, size.h).into()),
+            WinitEvent::Resized { size, scale_factor } => state.resized(size, scale_factor),
             WinitEvent::Focus(focused) => {
                 state.window_focused = focused;
                 // Live checks wait for this before the first click (c6_live.py).

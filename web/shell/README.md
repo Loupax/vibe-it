@@ -86,9 +86,26 @@ host-cef it is in CI (it needs only libxkbcommon to link).
   (`Effect::Pause`, `input.rs`). **`:set caret|nocaret|caret?`** (C-CARETCMD): the host's
   `caret` command, Chromium's caret browsing, off at start. Tests `src/tests/c_enter_tests.rs`,
   live check `test/c_enter_live.py`.
+- **HiDPI and fractional scale** (C6b): the inner output takes the shell window's scale factor
+  (winit's, from the desktop; its `Resized` events carry changes, e.g. the window moved to
+  another monitor). The output's mode is the window's framebuffer in pixels and its scale the
+  window's (`Scale::Fractional`: wl_output.scale gets it rounded up, xdg_output the logical
+  size); every page surface gets fractional-scale-v1's preferred scale and wl_surface v6's
+  preferred_buffer_scale (`State::send_scale`, on creation, on commit and after a change).
+  Everything the shell lays out is logical (`layout.rs`: the page, the 24 px bar, pointer
+  positions, popup constraints); the Space draws the page at the scale, and the bar is
+  painted at the framebuffer's resolution (font, paddings and caret times the scale) and drawn
+  1:1 (`Layout::bar_physical`). Each change is logged as `window WxH, page ..., scale S (PxQ
+  px)` and `scale A -> B`. CEF 156 (Ozone/Wayland) binds wp_fractional_scale_manager_v1 and
+  uses it: at 1.5 it draws 1.5x buffers (1434x1467 for a 956x978 page) with a wp_viewport
+  destination of the logical size and never calls wl_surface.set_buffer_scale; at 1 it
+  unsets the viewport. Without fractional-scale-v1 it takes the integer scale (wl_output /
+  preferred_buffer_scale: 2 at 1.5) and still draws through the viewport, which the shell then
+  shrinks. devicePixelRatio is the scale. An X11 shell window sees whatever winit's X11
+  backend reports (1 under the nest's Xwayland, which then scales the window up). Tests
+  `src/tests/c6b_tests.rs`, live check `test/c6b_live.py`.
 
-Not in C2/C3/C5/C6 (later items): HiDPI and
-fractional scale, frame pacing, dmabuf, IME, the desktop's keyboard layout (the shell uses
+Not in C2/C3/C5/C6 (later items): frame pacing, dmabuf, IME, the desktop's keyboard layout (the shell uses
 xkbcommon's default, i.e. `XKB_DEFAULT_*` or us).
 
 ## Build and test
@@ -162,3 +179,19 @@ Shifted characters are typed with a held Shift key (`hold:s`): inject's `type:` 
 modifier state alone, which the shell (smithay's winit backend) does not see.
 
     web/shell/test/c3_live.py --out .qwork/c3 --inject .qwork/inject/release/inject
+
+## The C6b check
+
+`test/c6b_live.py` runs at the nest's scale (`NEST_SCALE`, passed on to `web/tools/nest.sh`,
+which replaces a nest of another scale; the output then has NEST_SIZE times the scale pixels):
+the shell takes the output's scale; the page's devicePixelRatio is the scale and its CSS
+viewport the page window; a click lands on the CSS pixel aimed at; a 1 CSS px line is pure
+black device pixels with no grey (drawn at the scale, not stretched); the bar is 24 logical px
+with text; then the output's scale is changed while the shell runs (`inject output W H S`,
+wlr-output-management) and the page follows (devicePixelRatio, CSS size, clicks, crispness),
+and the scale is put back. live.py and c3_live.py run at any `NEST_SCALE` too (coordinates
+logical; screenshot checks multiply by the nest's scale).
+
+    NEST_SCALE=1.5 web/shell/test/c6b_live.py --out .qwork/c6b-1.5 --inject .qwork/inject/release/inject
+    NEST_SCALE=2 web/shell/test/c6b_live.py --out .qwork/c6b-2 --inject .qwork/inject/release/inject
+    NEST_SCALE=2 web/shell/test/live.py --out .qwork/c2-s2 --inject .qwork/inject/release/inject

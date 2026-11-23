@@ -3,18 +3,43 @@
 //! The page's window fills the shell window minus the status bar at the bottom (KEYS.md
 //! "Status bar": the page never overlaps it). In page fullscreen the page gets the whole
 //! window and the bar is hidden.
+//!
+//! C6b: the shell window's scale factor (winit's: the desktop's output scale, possibly
+//! fractional) maps logical to physical pixels. Everything here is logical except
+//! `physical` and `bar_physical` (the framebuffer's pixels).
 
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_positioner::ConstraintAdjustment;
-use smithay::utils::{Logical, Point, Rectangle, Size};
+use smithay::utils::{Logical, Physical, Point, Rectangle, Size};
 use smithay::wayland::shell::xdg::PositionerState;
 
 /// The status bar's height (`config::STATUS_BAR_H`).
 pub const BAR_H: i32 = crate::config::STATUS_BAR_H;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Layout {
+    /// The shell window, logical pixels.
     pub window: Size<i32, Logical>,
     pub fullscreen: bool,
+    /// The shell window's scale factor (1, 1.25, 1.5, 2, ...), see `sanitize_scale`.
+    pub scale: f64,
+    /// The shell window's framebuffer, physical pixels.
+    pub physical: Size<i32, Physical>,
+}
+
+/// A scale factor the outputs can carry: fractional-scale-v1 speaks in 120ths; a nonsense
+/// value (0, NaN) is 1.
+pub fn sanitize_scale(s: f64) -> f64 {
+    if !s.is_finite() || s <= 0.0 {
+        return 1.0;
+    }
+    ((s * 120.0).round() / 120.0).clamp(0.25, 8.0)
+}
+
+/// The logical size of a framebuffer of `phys` pixels at `scale`, rounded: desktops size a
+/// fractionally scaled window as round(logical * scale), so this gets the logical size back.
+pub fn logical_size(phys: Size<i32, Physical>, scale: f64) -> Size<i32, Logical> {
+    let l = |v: i32| ((v as f64 / scale).round() as i32).max(1);
+    (l(phys.w), l(phys.h)).into()
 }
 
 /// What a pointer position in the shell window is over.
@@ -26,11 +51,40 @@ pub enum Region {
 }
 
 impl Layout {
+    /// A scale 1 layout (logical and physical sizes are the same).
     pub fn new(w: i32, h: i32) -> Layout {
         Layout {
             window: Size::from((w, h)),
             fullscreen: false,
+            scale: 1.0,
+            physical: Size::from((w, h)),
         }
+    }
+
+    /// The layout of a framebuffer of `phys` pixels at scale factor `scale`.
+    pub fn from_physical(phys: Size<i32, Physical>, scale: f64) -> Layout {
+        let mut l = Layout::new(1, 1);
+        l.set_physical(phys, scale);
+        l
+    }
+
+    /// The shell window got a new framebuffer size or scale; fullscreen is kept.
+    pub fn set_physical(&mut self, phys: Size<i32, Physical>, scale: f64) {
+        self.scale = sanitize_scale(scale);
+        self.physical = phys;
+        self.window = logical_size(phys, self.scale);
+    }
+
+    /// Where the status bar's pixels go in the framebuffer and how many there are. The bar
+    /// is painted into a buffer of exactly this size and drawn 1:1 (crisp at a fractional
+    /// scale). Each edge is rounded on its own, as smithay rounds its render elements, so the
+    /// element covers exactly these pixels.
+    pub fn bar_physical(&self) -> Option<(Point<i32, Physical>, Size<i32, Physical>)> {
+        let bar = self.bar()?;
+        let r = |v: i32| (v as f64 * self.scale).round() as i32;
+        let (x0, y0) = (r(bar.loc.x), r(bar.loc.y));
+        let (x1, y1) = (r(bar.loc.x + bar.size.w), r(bar.loc.y + bar.size.h));
+        Some(((x0, y0).into(), ((x1 - x0).max(1), (y1 - y0).max(1)).into()))
     }
 
     fn bar_h(&self) -> i32 {

@@ -23,7 +23,7 @@ use smithay::reexports::wayland_server::backend::{ClientData, ClientId, Disconne
 use smithay::reexports::wayland_server::protocol::{wl_buffer, wl_output, wl_seat, wl_surface::WlSurface};
 use smithay::reexports::wayland_server::{Client, DisplayHandle, Resource};
 use smithay::reexports::winit::window::Fullscreen;
-use smithay::utils::{Logical, Point, Serial, Size};
+use smithay::utils::{Logical, Physical, Point, Serial, Size};
 use smithay::wayland::buffer::BufferHandler;
 use smithay::wayland::compositor::{get_parent, is_sync_subsurface, CompositorClientState, CompositorHandler, CompositorState};
 use smithay::wayland::cursor_shape::CursorShapeManagerState;
@@ -65,6 +65,8 @@ pub struct State {
     /// The clipboard bridge between the page and the desktop (C6, `selection.rs`).
     pub bridge: crate::selection::Bridge,
     pub _viewporter_state: ViewporterState,
+    /// C6b: wp_fractional_scale_v1 (with wp_viewporter, how a client draws at 1.25, 1.5, ...).
+    pub _fractional_scale_state: smithay::wayland::fractional_scale::FractionalScaleManagerState,
     pub _cursor_shape_state: CursorShapeManagerState,
 
     pub layout: Layout,
@@ -222,23 +224,82 @@ impl State {
         self.redraw();
     }
 
-    /// The shell window was resized (physical pixels; scale 1 until C6).
-    pub fn resized(&mut self, size: Size<i32, Logical>) {
-        use smithay::output::Mode;
-        let mode = Mode {
-            size: (size.w, size.h).into(),
-            refresh: 60_000,
-        };
-        self.output.change_current_state(Some(mode), None, None, None);
-        self.output.set_preferred(mode);
-        self.layout.window = size;
+    /// The shell window was resized or its scale changed (winit: physical pixels and the
+    /// desktop's scale factor for the window, e.g. after moving to another monitor).
+    pub fn resized(&mut self, size: Size<i32, Physical>, scale_factor: f64) {
+        let old_scale = self.layout.scale;
+        self.layout.set_physical(size, scale_factor);
+        self.apply_output_state();
         // Left fullscreen from the desktop side (e.g. the window manager's key): tell the page.
         if self.layout.fullscreen && self.backend.window().fullscreen().is_none() {
             self.log("fullscreen off (by the desktop)");
             self.layout.fullscreen = false;
         }
-        self.log(&format!("window {}x{}, page {:?}", size.w, size.h, self.layout.page()));
+        let l = self.layout.window;
+        self.log(&format!(
+            "window {}x{}, page {:?}, scale {} ({}x{} px)",
+            l.w,
+            l.h,
+            self.layout.page(),
+            self.layout.scale,
+            size.w,
+            size.h
+        ));
+        if self.layout.scale != old_scale {
+            self.log(&format!("scale {} -> {}", old_scale, self.layout.scale));
+            self.send_scale_to_all();
+        }
         self.relayout();
+    }
+
+    /// The inner output mirrors the shell window: its mode is the framebuffer (physical
+    /// pixels), its scale the window's. smithay sends wl_output.scale (the scale rounded
+    /// up) and xdg_output's logical size; fractional-scale-v1 carries the exact one.
+    pub fn apply_output_state(&mut self) {
+        use smithay::output::{Mode, Scale};
+        let mode = Mode {
+            size: self.layout.physical,
+            refresh: 60_000,
+        };
+        self.output
+            .change_current_state(Some(mode), None, Some(Scale::Fractional(self.layout.scale)), None);
+        self.output.set_preferred(mode);
+    }
+
+    /// Tells a surface tree the scale to draw at: fractional-scale-v1's preferred scale and
+    /// wl_surface v6's preferred_buffer_scale (the integer one). Both are sent only when
+    /// they change, so this is cheap on every commit.
+    pub fn send_scale(&self, surface: &WlSurface) {
+        use smithay::wayland::compositor::{send_surface_state, with_surface_tree_downward, TraversalAction};
+        use smithay::wayland::fractional_scale::with_fractional_scale;
+        let scale = self.layout.scale;
+        let int = scale.ceil() as i32;
+        with_surface_tree_downward(
+            surface,
+            (),
+            |_, _, _| TraversalAction::DoChildren(()),
+            |s, states, _| {
+                with_fractional_scale(states, |fs| fs.set_preferred_scale(scale));
+                // The output's Flipped180 is winit's GL quirk, not something clients should draw.
+                send_surface_state(s, states, int, smithay::utils::Transform::Normal);
+            },
+            |_, _, _| true,
+        );
+    }
+
+    /// After a scale change: every window, popup and the cursor surface.
+    pub fn send_scale_to_all(&self) {
+        for w in self.space.elements() {
+            if let Some(t) = w.toplevel() {
+                self.send_scale(t.wl_surface());
+                for (p, _) in PopupManager::popups_for_surface(t.wl_surface()) {
+                    self.send_scale(p.wl_surface());
+                }
+            }
+        }
+        if let CursorImageStatus::Surface(s) = &self.cursor {
+            self.send_scale(s);
+        }
     }
 
     pub fn set_fullscreen(&mut self, on: bool) {
@@ -531,6 +592,8 @@ impl CompositorHandler for State {
 
     fn commit(&mut self, surface: &WlSurface) {
         on_commit_buffer_handler::<Self>(surface);
+        // C6b: new subsurfaces (and the cursor surface) learn the scale too.
+        self.send_scale(surface);
         if !is_sync_subsurface(surface) {
             if let Some(w) = self.root_window(surface) {
                 w.on_commit();
@@ -586,6 +649,8 @@ impl XdgShellHandler for State {
     }
 
     fn new_toplevel(&mut self, surface: ToplevelSurface) {
+        // C6b: the scale before its first buffer, so the first frame is already sharp.
+        self.send_scale(surface.wl_surface());
         self.pending_toplevels.push(surface);
     }
 
@@ -598,6 +663,7 @@ impl XdgShellHandler for State {
         if self.keys.key_mode != was {
             self.log("popup after a click: INPUT");
         }
+        self.send_scale(surface.wl_surface());
         self.unconstrain_popup(&surface);
         let g = surface.with_pending_state(|s| s.geometry);
         self.log(&format!(
@@ -752,6 +818,12 @@ impl ServerDndGrabHandler for State {}
 
 impl OutputHandler for State {}
 
+impl smithay::wayland::fractional_scale::FractionalScaleHandler for State {
+    fn new_fractional_scale(&mut self, surface: WlSurface) {
+        self.send_scale(&surface);
+    }
+}
+
 delegate_compositor!(State);
 delegate_shm!(State);
 delegate_xdg_shell!(State);
@@ -759,6 +831,7 @@ delegate_xdg_decoration!(State);
 delegate_seat!(State);
 delegate_output!(State);
 delegate_viewporter!(State);
+smithay::delegate_fractional_scale!(State);
 delegate_cursor_shape!(State);
 
 /// Writes one line to a `web --forget-site` client and closes the connection.
