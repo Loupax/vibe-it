@@ -11,7 +11,8 @@ A host shows **one page** in **one window**, the page only (no toolbar, tab stri
 menus). Tabs are deferred (user, 2026-11-23; maybe later as a vim-style buffers
 interface, undecided), so v0 has no `new-tab` / `close-tab`. **Planned** (DECISIONS.md 2026-11-23
 "A picker, bookmarks, buffers as tabs, popups like Chrome"): buffers (TODO.txt C4-SPIKE, C4) and
-popups that open buffers (C-POPUPS) will change this section and the popup rules below.
+popups that open buffers (C-POPUPS) will change this section and the popup rules below; the
+proposed protocol is "Proposal: several pages (C4, C-POPUPS)" further down.
 
 - `window.open(...)` and `target=_blank` links go through the host (CEF:
   `OnBeforePopup`), which cancels the popup and loads its URL **in the same page**.
@@ -284,6 +285,72 @@ Chromium's own way for a frame to ask; not checked here.
   iframe.
 - Storage the site has as a third party inside other sites' pages (partitioned
   storage keys) is not reached.
+
+## Proposal: several pages (C4, C-POPUPS) — NOT BUILT
+
+**Proposal from C4-SPIKE (`notes/C4-SPIKE.md`); nothing below is implemented.** It replaces "One
+page per host" when C4 lands, and becomes protocol 1 (`hello` says `"protocol":1`; v0 fields keep
+their meaning).
+
+**Model.** A host holds any number of pages (the shell's buffers). Each page is a browser with
+**its own top-level window** (CEF 156 cannot put two Chrome-style browsers in one window). Exactly
+one page is shown; the host keeps every other page **hidden** (CEF: `BrowserView::SetVisible(false)`
+in its window, which stays mapped): it is then a background page as in Chrome (requestAnimationFrame
+stops, timers at most 1/s, audio keeps playing, memory stays). The shell draws only the shown
+page's window and gives it input; it sizes every page window to the page area. A window the
+shell merely does not draw is NOT enough (the page keeps running at full speed, checked).
+
+**Pairing.** Every page is announced by `tab-created` before its window is mapped, and windows are
+mapped in the order of their `tab-created`s; the shell pairs each new parentless toplevel with
+the oldest announced-but-unpaired tab (FIFO). A toplevel arriving while no tab is waiting is not a
+page (dialog, as today). All windows keep the app_id `web-host-cef`.
+
+**Page ids.** `tab` is the engine's page id (CEF: browser identifier); positive, never reused in a
+run, not contiguous. The shell's buffer numbers are its own.
+
+### Commands (new and changed)
+
+| text form | JSON | what it does |
+|---|---|---|
+| `new-tab <req> [url]` | `{"cmd":"new-tab","req":3,"url":"example.com"}` | create a page (default `about:blank`), hidden; answered by `tab-created` with the same `req` |
+| `show-tab <id>` | `{"cmd":"show-tab","tab":4}` | show page `id` (visible, keyboard focus), hide the previously shown one; unknown id: `error` |
+| `close-tab <id>` | `{"cmd":"close-tab","tab":4}` | close the page (no `beforeunload` prompt); answered by `tab-closed`. Closing the last page does NOT end the host (the shell opens an `about:blank` page first, KEYS.md "Buffers") |
+| `popup-open <id> <n>` | `{"cmd":"popup-open","tab":1,"popup":7}` | open blocked popup `n` of page `id` (below); the result is a `tab-created` with `"opener"` or an `error` |
+| every page command (`open`, `back`, `forward`, `reload`, `stop`, `find`, `find-clear`, `zoom`) | gains optional `"tab":<id>` | acts on that page; without it, on the shown page |
+| `quit` | unchanged | closes **every** page, then exits |
+
+`forget-site` and `caret` stay host-wide. After `forgot` the shell reloads every page on the site.
+
+### Events (new and changed)
+
+| text form | JSON |
+|---|---|
+| `tab-created <id>` | `{"event":"tab-created","tab":4,"req":3}` (answer to `new-tab`), `{"event":"tab-created","tab":5,"opener":4,"cause":"popup"}` (`cause`: `new-tab`, `popup` for `window.open`, `link` for `target=_blank`; `opener` the page it came from; for popups the shell switches to it with `show-tab`) |
+| `tab-closed <id>` | `{"event":"tab-closed","tab":5}`, optional `"by":"page"` when the page closed itself (`window.close()`) |
+| `popup-blocked <id> <n> <url>` | `{"event":"popup-blocked","tab":1,"popup":7,"url":"https://idp.example/auth","name":"login","frame":"sub"}`; `url` `""` when the popup had no URL (status bar `popup blocked (no URL)`) |
+
+- Every page event (`url`, `title`, `load`, `editable-focused`, `find-result`, `crashed`) already
+  carries `tab`; hidden pages send theirs too.
+- `crashed <id>` concerns that page only.
+
+### Popups
+
+The host is the popup blocker (web-host-cef runs Chromium with `--disable-popup-blocking`, so every
+popup reaches it; CEF `OnBeforePopup` says whether the page had a user gesture). By disposition
+(newtab.rs) and gesture:
+- background tab, new window, and the rest that C-NOTAB drops (Ctrl/Shift/middle click): still
+  dropped, nothing opens.
+- `window.open` / `target=_blank` **with** a user gesture: a new page (`tab-created`, `cause`
+  `popup`/`link`, `opener`). `window.opener` works in it (`target=_blank` links get none: Chromium's
+  implicit `noopener`, as in Chrome). Size and position features are ignored.
+- **without** a gesture: cancelled (the page's `window.open` returns `null`, as with Chrome's
+  blocker), recorded and reported as `popup-blocked`. `n` numbers the page's blocked popups. The
+  host forgets a page's records when that page starts a cross-document load (the shell clears its
+  list on the same `load start`).
+- `popup-open <id> <n>`: the host runs `window.open(url, name, features)` again **in the frame that
+  asked** (main frame or iframe) and lets that one call through, so the new page's `window.opener`
+  is that frame. If the frame is gone, it loads the URL in a new page (no opener). The page's
+  original call already returned `null`; only the popup side of the relation comes back.
 
 ## Not in v0 (engine default for now)
 
