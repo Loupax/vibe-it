@@ -1,0 +1,47 @@
+<!doctype html><meta charset=utf-8><title>webex probe</title>
+<button id=b style="position:fixed;left:0;top:0;width:100%;height:100%;font-size:40px">share screen</button>
+<script>
+const tag = new URLSearchParams(location.search).get('tag') || 'x';
+function post(name, obj){ return fetch('/report?tag='+tag+'&name='+name,{method:'POST',body:JSON.stringify(obj,null,1)}); }
+async function safe(f){ try { return await f(); } catch(e){ return 'ERR '+e.name+': '+e.message; } }
+async function run(){
+  const r = {};
+  r.ua = navigator.userAgent; r.vendor = navigator.vendor; r.platform = navigator.platform;
+  r.windowChrome = typeof window.chrome; r.chromeKeys = window.chrome ? Object.keys(window.chrome) : null;
+  r.uaData = navigator.userAgentData ? {brands: navigator.userAgentData.brands, mobile: navigator.userAgentData.mobile, platform: navigator.userAgentData.platform} : null;
+  r.uaHigh = await safe(()=>navigator.userAgentData.getHighEntropyValues(['fullVersionList','platformVersion','architecture','uaFullVersion','model','bitness']));
+  const codecs = c => c ? c.codecs.map(x=>x.mimeType+(x.sdpFmtpLine?' '+x.sdpFmtpLine:'')) : null;
+  r.senderVideo = await safe(()=>codecs(RTCRtpSender.getCapabilities('video')));
+  r.receiverVideo = await safe(()=>codecs(RTCRtpReceiver.getCapabilities('video')));
+  r.senderAudio = await safe(()=>codecs(RTCRtpSender.getCapabilities('audio')).map(s=>s.split(' ')[0]));
+  r.offerRtpmap = await safe(async()=>{ const pc=new RTCPeerConnection(); pc.addTransceiver('video'); const o=await pc.createOffer(); pc.close(); return o.sdp.split('\r\n').filter(l=>l.startsWith('a=rtpmap')&&!/rtx|red|ulpfec|flexfec/.test(l)); });
+  r.mediaRecorder = {}; for (const t of ['video/webm;codecs=vp8','video/webm;codecs=vp9','video/webm;codecs=h264','video/x-matroska;codecs=avc1','video/mp4;codecs=avc1.42E01E','video/mp4']) r.mediaRecorder[t]=typeof MediaRecorder!=='undefined' && MediaRecorder.isTypeSupported(t);
+  const v=document.createElement('video'); r.canPlayType={}; for (const t of ['video/mp4; codecs="avc1.42E01E"','video/webm; codecs="vp9"','audio/mp4; codecs="mp4a.40.2"','video/mp4; codecs="hev1.1.6.L93.B0"']) r.canPlayType[t]=v.canPlayType(t);
+  r.mse = {}; for (const t of ['video/mp4; codecs="avc1.42E01E"','video/webm; codecs="vp9"']) r.mse[t]=window.MediaSource?MediaSource.isTypeSupported(t):null;
+  r.webcodecs = {};
+  for (const c of ['avc1.42001f','vp8','vp09.00.10.08','av01.0.04M.08']) {
+    r.webcodecs['enc '+c] = await safe(async()=>(await VideoEncoder.isConfigSupported({codec:c,width:640,height:480,bitrate:1e6,framerate:30})).supported);
+    r.webcodecs['dec '+c] = await safe(async()=>(await VideoDecoder.isConfigSupported({codec:c})).supported);
+  }
+  r.mediaCapsEncodeWebrtcH264 = await safe(async()=>(await navigator.mediaCapabilities.encodingInfo({type:'webrtc',video:{contentType:'video/H264',width:640,height:480,bitrate:1e6,framerate:30}})));
+  r.mediaCapsDecodeWebrtcH264 = await safe(async()=>(await navigator.mediaCapabilities.decodingInfo({type:'webrtc',video:{contentType:'video/H264',width:640,height:480,bitrate:1e6,framerate:30}})));
+  r.getDisplayMediaType = typeof (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+  r.getUserMediaType = typeof (navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  r.enumerateDevices = await safe(async()=>(await navigator.mediaDevices.enumerateDevices()).map(d=>d.kind));
+  r.permCamera = await safe(async()=>(await navigator.permissions.query({name:'camera'})).state);
+  r.captureHandle = typeof (navigator.mediaDevices && navigator.mediaDevices.setCaptureHandleConfig);
+  r.cropTarget = typeof window.CropTarget; r.restrictionTarget = typeof window.RestrictionTarget;
+  r.insertableStreams = typeof window.RTCRtpScriptTransform + '/' + typeof (window.RTCRtpSender && RTCRtpSender.prototype.createEncodedStreams);
+  r.mediaStreamTrackProcessor = typeof window.MediaStreamTrackProcessor;
+  r.sharedArrayBuffer = typeof SharedArrayBuffer; r.crossOriginIsolated = window.crossOriginIsolated;
+  r.offscreenCanvas = typeof OffscreenCanvas;
+  r.gpu = typeof navigator.gpu; r.webgl2 = !!document.createElement('canvas').getContext('webgl2');
+  await post('caps', r);
+}
+document.getElementById('b').onclick = async () => {
+  const res = await safe(async()=>{ const s = await navigator.mediaDevices.getDisplayMedia({video:true}); const t=s.getVideoTracks()[0]; const o={ok:true,label:t.label,settings:t.getSettings()}; s.getTracks().forEach(x=>x.stop()); return o; });
+  await post('gdm', {res, t: Date.now()});
+};
+run();
+setTimeout(async()=>post('gdm-nogesture', {res: await safe(async()=>{ const s=await navigator.mediaDevices.getDisplayMedia({video:true}); s.getTracks().forEach(x=>x.stop()); return 'ok'; })}), 500);
+</script>
