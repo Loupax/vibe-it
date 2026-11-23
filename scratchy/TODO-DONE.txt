@@ -9694,3 +9694,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       frames[..].doc and g.document. Then a `src` set after insertion can reuse the initial window too (url.window.html,
       remove-initial-about-blankness.window.html must stay passing). Also: unload events on iframe REMOVAL (deferred
       realm release; no sync script during removal), and promise-job-incumbent needs window.open from a realm.
+
+=== from TODO.txt: --- (no header)
+- [x] QWPTFLK6 DONE 9f404ad #646 [S] (P3, from QEDIT-B #641; Sonnet) hr-time/timeOrigin.html fails under heavy local load (load 40+), passes on CI
+      and alone: find whether the runner's clock or the test's tolerance is the cause; fix or flaky-list with the reason.
