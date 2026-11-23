@@ -15,11 +15,16 @@ pub enum Event {
         #[serde(default)]
         engine: String,
     },
-    /// A page exists (C4: one per buffer); `req` names the `new-tab` it answers.
+    /// A page exists (C4: one per buffer); `req` names the `new-tab` it answers. C-POPUPS: a popup
+    /// names the page it came from (`opener`) and why (`cause`: `popup`, `popup-open`, `popup-fresh`).
     TabCreated {
         tab: u64,
         #[serde(default)]
         req: Option<u64>,
+        #[serde(default)]
+        opener: Option<u64>,
+        #[serde(default)]
+        cause: Option<String>,
     },
     TabClosed {
         tab: u64,
@@ -71,6 +76,20 @@ pub enum Event {
         #[serde(default)]
         reason: String,
     },
+    /// C-POPUPS: the page's popup without a user gesture was blocked; `popup` numbers it for
+    /// `popup-open`. `url` "" when it had none; `frame` `main` or `sub`.
+    PopupBlocked {
+        tab: u64,
+        popup: u32,
+        #[serde(default)]
+        url: String,
+        #[serde(default)]
+        name: String,
+        #[serde(default)]
+        frame: String,
+        #[serde(default)]
+        features: String,
+    },
     Error {
         message: String,
     },
@@ -96,7 +115,7 @@ impl Event {
     }
 
     /// The page a page event is about (`url`, `title`, `load`, `load-error`, `editable-focused`,
-    /// `find-result`, `crashed`); None for the others, `tab-created`/`tab-closed` included.
+    /// `find-result`, `crashed`, `popup-blocked`); None for the others, `tab-created`/`tab-closed` included.
     pub fn page_tab(&self) -> Option<u64> {
         match self {
             Event::Url { tab, .. }
@@ -105,7 +124,8 @@ impl Event {
             | Event::LoadError { tab, .. }
             | Event::EditableFocused { tab, .. }
             | Event::FindResult { tab, .. }
-            | Event::Crashed { tab, .. } => Some(*tab),
+            | Event::Crashed { tab, .. }
+            | Event::PopupBlocked { tab, .. } => Some(*tab),
             _ => None,
         }
     }
@@ -160,6 +180,11 @@ pub enum Command {
     /// C4: close this page (`:bufferKill`).
     CloseTab {
         tab: u64,
+    },
+    /// C-POPUPS: open blocked popup `popup` of page `tab` (`:popupOpen`, `:popupSearch`).
+    PopupOpen {
+        tab: u64,
+        popup: u32,
     },
     Quit,
 }
@@ -227,10 +252,43 @@ mod tests {
                     engine: "cef".into(),
                 },
             ),
-            (r#"{"event":"tab-created","tab":1}"#, Event::TabCreated { tab: 1, req: None }),
+            (
+                r#"{"event":"tab-created","tab":1}"#,
+                Event::TabCreated {
+                    tab: 1,
+                    req: None,
+                    opener: None,
+                    cause: None,
+                },
+            ),
             (
                 r#"{"event":"tab-created","tab":4,"req":2}"#,
-                Event::TabCreated { tab: 4, req: Some(2) },
+                Event::TabCreated {
+                    tab: 4,
+                    req: Some(2),
+                    opener: None,
+                    cause: None,
+                },
+            ),
+            (
+                r#"{"event":"tab-created","tab":5,"opener":1,"cause":"popup"}"#,
+                Event::TabCreated {
+                    tab: 5,
+                    req: None,
+                    opener: Some(1),
+                    cause: Some("popup".into()),
+                },
+            ),
+            (
+                r#"{"event":"popup-blocked","tab":1,"popup":3,"url":"https://idp.test/a","name":"login","frame":"sub","features":"popup"}"#,
+                Event::PopupBlocked {
+                    tab: 1,
+                    popup: 3,
+                    url: "https://idp.test/a".into(),
+                    name: "login".into(),
+                    frame: "sub".into(),
+                    features: "popup".into(),
+                },
             ),
             (r#"{"event":"tab-closed","tab":1}"#, Event::TabClosed { tab: 1 }),
             (
@@ -323,7 +381,12 @@ mod tests {
     fn unknown_fields_and_events_are_ignored() {
         assert_eq!(
             Event::parse(r#"{"event":"tab-created","tab":3,"later":"field"}"#).unwrap(),
-            Event::TabCreated { tab: 3, req: None }
+            Event::TabCreated {
+                tab: 3,
+                req: None,
+                opener: None,
+                cause: None
+            }
         );
         assert_eq!(Event::parse(r#"{"event":"future-thing","x":1}"#).unwrap(), Event::Unknown);
         assert_eq!(

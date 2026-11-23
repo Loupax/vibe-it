@@ -10,8 +10,8 @@ It plays the shell like drive.py (control socket, memory-capped host, test pages
   - Ctrl+click, middle-click, Shift+click and Ctrl+Shift+click on a link, and Ctrl+Enter
     in a form that targets _blank: no event at all (no new page, the page is not
     navigated either), and the host log says the popup was dropped;
-  - a plain click on a target=_blank link and a plain Enter in that form still load in
-    the same page;
+  - a plain click on a target=_blank link and a plain Enter in that form open a new page
+    (C-POPUPS: `tab-created` with `opener`, closed again with `close-tab`); nothing else does;
   - right-click on a link, an image, selected text, the page and an editable field: no context
     menu at all (C-NOMENU): the host log says it was suppressed and a grim screenshot taken
     before and after the click is identical (no popup surface); the page still receives its
@@ -105,7 +105,7 @@ def run(a):
     lsock.listen(1)
     lsock.settimeout(60)
     unit = f"web-host-notab-{os.getpid()}"
-    # No --disable-popup-blocking: the clicks are real user gestures.
+    # The clicks are real user gestures (the host adds --disable-popup-blocking itself: it is the blocker).
     cmd = [os.path.join(HOST_DIR, "run.sh"), "--control", sock_path, "--url", base + "links.html"] + a.host_arg
     env = dict(os.environ, WEB_HOST_UNIT=unit, WEB_HOST_PROFILE=os.path.join(out, "profile"))
     host_log_path = os.path.join(out, "host.log")
@@ -160,7 +160,7 @@ def steps(sh, conn, base, a, host_log_path):
         return f"move:{x},{y}"
 
     sh.expect("hello", is_ev("hello"))
-    sh.expect("tab-created", is_ev("tab-created"), 60)
+    first = sh.expect("tab-created", is_ev("tab-created"), 60)["tab"]
     sh.expect("load end new", is_ev("load", phase="end", kind="new"), 60)
     time.sleep(1.0)
     inject(move("page"), "click", "wait:300")  # focus the page
@@ -203,25 +203,28 @@ def steps(sh, conn, base, a, host_log_path):
     quiet("ctrl+enter in the form", move("input"), "click", "wait:200", "key:c-ret", "wait:200",
           saw="ev:keydown:Enter:c")
 
-    sh.note("step: plain target=_blank click still loads in the same page")
-    # The url event comes before its load end (drive.py nav()): look back from the load end.
-    mark = sh.cursor
-    inject(move("blank"), "click", "wait:200")
-    sh.expect("load end new via=blank", is_ev("load", phase="end", kind="new"), 20)
-    sh.seen_since(mark, "url via=blank", is_ev("url", url=base + "b.html?via=blank"), before=sh.cursor)
-    send({"cmd": "back"})
-    sh.expect("load end traverse", is_ev("load", phase="end", kind="traverse"), 20)
-    time.sleep(0.5)
+    def popup(what, url, *cmds):
+        """C-POPUPS: a plain click (a user gesture) on target=_blank opens a new page; the first
+        page is not navigated. The new page is closed again."""
+        mark = len(sh.events)
+        inject(*cmds)
+        new = sh.expect(f"tab-created for {what}", is_ev("tab-created", opener=first, cause="popup"), 20)["tab"]
+        sh.seen_since(mark, f"url of the new page ({what})", is_ev("url", tab=new, url=url), 20)
+        if not sh.none_since(mark, is_ev("url", tab=first)):
+            raise Fail(f"{what}: the first page navigated")
+        send({"cmd": "close-tab", "tab": new})
+        sh.seen_since(mark, f"tab-closed {new}", is_ev("tab-closed", tab=new), 20)
+        sh.cursor = len(sh.events)
+        time.sleep(0.8)
+        sh.note(f"ok: {what}: a new page (tab {new}), the first page stayed")
 
-    sh.note("step: plain Enter in the form still loads in the same page")
-    mark = sh.cursor
-    inject(move("input"), "click", "wait:200", "key:ret", "wait:200")
-    sh.expect("load end new via=form", is_ev("load", phase="end", kind="new"), 20)
-    sh.seen_since(mark, "url via=form", is_ev("url", url=lambda u: (u or "").startswith(base + "b.html?via=form")),
-                  before=sh.cursor)
-    send({"cmd": "back"})
-    sh.expect("load end traverse", is_ev("load", phase="end", kind="traverse"), 20)
-    time.sleep(0.5)
+    sh.note("step: plain target=_blank click opens a new page (C-POPUPS)")
+    popup("target=_blank click", base + "b.html?via=blank", move("blank"), "click", "wait:200")
+
+    sh.note("step: plain Enter in the target=_blank form opens a new page (C-POPUPS)")
+    popup("Enter in the form", lambda u: (u or "").startswith(base + "b.html?via=form"),
+          move("input"), "click", "wait:200", "key:ret", "wait:200")
+    inject(move("page"), "click", "wait:300")  # focus the first page again
 
     sh.note("step: no context menu for any right-click; the page still gets the event")
     shot_dir = os.path.join(os.path.dirname(host_log_path), "shots")
@@ -258,16 +261,23 @@ def steps(sh, conn, base, a, host_log_path):
         inject("key:esc", "wait:200")
     if not suppressed_lines(read_log(host_log_path)):
         sh.note("note: the host never logged a suppressed menu (Chromium asked for none)")
-    if sum(1 for _, e in sh.events if e.get("event") == "tab-created") != 1:
-        raise Fail("a second page was created")
+    if pages_created(sh) != (1, 2):
+        raise Fail(f"pages created (other, popups): {pages_created(sh)}, want (1, 2)")
 
     sh.note("step: quit")
     send({"cmd": "quit"})
-    sh.expect("tab-closed", is_ev("tab-closed"), 20)
+    sh.expect("tab-closed", is_ev("tab-closed", tab=first), 20)
     with sh.cv:
         sh.cv.wait_for(lambda: sh.closed, 20)
-    if sum(1 for _, e in sh.events if e.get("event") == "tab-created") != 1:
-        raise Fail("more than one tab-created")
+    if pages_created(sh) != (1, 2):
+        raise Fail(f"pages created (other, popups): {pages_created(sh)}, want (1, 2)")
+
+
+def pages_created(sh):
+    """(pages that are not popups, popups): only the first page and the two target=_blank popups."""
+    created = [e for _, e in sh.events if e.get("event") == "tab-created"]
+    popups = sum(1 for e in created if e.get("opener") is not None)
+    return len(created) - popups, popups
 
 
 def main():

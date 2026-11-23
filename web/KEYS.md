@@ -403,7 +403,7 @@ in every list (move, Enter runs the row, Esc closes) and a mode of its own").
 
 | # | From | Event | Guard | To | Effect |
 |---|---|---|---|---|---|
-| T58 | COMMAND | Enter on `:historySearch [filter]` (later: `:bookmarkSearch`, `:bufferList`, `:popupSearch`) | the source has rows | PICK | the list opens with every row matching the filter (none typed: all, in the source's order), the first selected. No rows: stays NORMAL, status bar `web: the history is empty` |
+| T58 | COMMAND | Enter on `:historySearch [filter]` (also `:bookmarkSearch`, `:bufferList`, `:popupSearch`) | the source has rows | PICK | the list opens with every row matching the filter (none typed: all, in the source's order), the first selected. No rows: stays NORMAL, status bar `web: the history is empty` |
 | T59 | PICK | text editing keys, paste | none | PICK | edit the filter (the `:` line's keys, T26: Left, Right, Home, End, Backspace, Ctrl-w, Ctrl-u, paste); after a change the list is re-ranked (fuzzy, best first) and the best match selected. The page gets no keys, `i` and `j` are typed |
 | T60 | PICK | Ctrl-n, Down | not on the last row | PICK | the next row is selected; the list scrolls to keep it shown. On the last row nothing happens (no wrap) |
 | T61 | PICK | Ctrl-p, Up | not on the first row | PICK | the previous row is selected (no wrap) |
@@ -482,11 +482,38 @@ contents, restoring buffers after a restart.
 | T89 | any | `crashed` | none | same | only that buffer's page is gone (the others keep running); the buffer stays. Current: as before, `web: the page crashed; :refresh loads it again`; in the background: `web: the page of buffer N crashed (the other buffers are fine)`, and switching to it shows the first message |
 | T90 | COMMAND | typing a command name | none | COMMAND | the ghost offers `bufferList`, `buffer`, `bufferNext`, ... but never `ls`, `b`, `bn`, `bp`, `bd`; a word that is an alias in full has no ghost text, so Enter runs it as typed (`:b` stays `:b`, not the first `b...` name); Tab still cycles the long names |
 | T91 | COMMAND | Enter on `:q` / `:quit` | not on `:help` | (exit) | the host closes every page (`quit`) and exits when the last one is gone; the shell opens no page meanwhile |
-| T92 | INPUT | Ctrl-click, middle-click, Shift-click on a link | none | same | nothing opens (C-NOTAB stays): no buffer, no page, no navigation. (In NORMAL the page gets no modifier keys, so a Ctrl-click there is a plain click and follows the link in this buffer: C1-INPUT's open case, unchanged) |
+| T92 | INPUT | Ctrl-click, middle-click, Shift-click on a link | none | same | nothing opens (C-NOTAB stays): no buffer, no page, no navigation. (In NORMAL the page gets no modifier keys, so a Ctrl-click or Shift-click there is a plain click: it follows the link in this buffer, and on a `target=_blank` link or a `window.open` button it opens a popup buffer as a plain click does, T93/T94. A middle-click opens nothing in either mode. C-POPUPS kept this, see "Popups") |
 
-Popups (C-POPUPS, not built): a `window.open` from a user gesture and a `target=_blank` link will open a new
-buffer; one without a gesture is blocked (`popup blocked: <url>`) and opened with `:popupOpen` (the latest)
-or `:popupSearch`. Until then they load in the current buffer's page, as before.
+## Popups (C-POPUPS)
+
+Built by C-POPUPS (`shell/src/popups.rs`; host side PROTOCOL.md "Popups"). DECISIONS.md "A picker,
+bookmarks, buffers as tabs, popups like Chrome": "a `window.open` from a user gesture opens a new buffer
+with `window.opener` kept (OAuth/payment logins work); one without a gesture is blocked, the status bar
+says `popup blocked: <url>` (or that it had no URL), and `:popupOpen` (latest) / `:popupSearch` (the
+buffer's list, cleared when it navigates away) open it in a new buffer. A `target=_blank` link opens a new
+buffer." The engine host is the popup blocker: it tells a click's popup from a script's by the user
+gesture.
+
+| command | what it does |
+|---|---|
+| `:popupOpen` | open the current buffer's latest blocked popup in a new buffer (`window.opener` kept) |
+| `:popupSearch [filter]` | the picker over the current buffer's blocked popups; Enter opens one |
+
+| # | From | Event | Guard | To | Effect |
+|---|---|---|---|---|---|
+| T93 | any | the page calls `window.open` from a user gesture (a click, a key in INPUT) | none | same | a new buffer for the popup (the next number), shown at once: the host shows its page, `buffer N: popup from buffer M` (the popup's first load then clears the message, as any load does). The opener's buffer becomes the alternate (Ctrl-^ goes back). `window.opener` works in the popup, so it can post to its opener or call it (login and payment popups); its size and position features are ignored (every page fills the page area). Not a mode change |
+| T94 | any | a click on a `target=_blank` link (or Enter in a `target=_blank` form) | none | same | a new buffer, as T93 (`window.opener` is null in it: Chromium's implicit `noopener`, as in Chrome). The current page is not navigated |
+| T95 | any | a popup calls `window.close()` | none | same | only its buffer goes, as `:bufferKill` of it (T81: the alternate, usually the opener, becomes current): `buffer N closed by the page`. The opener is not touched |
+| T96 | any | the page calls `window.open` (or opens a `target=_blank` link) without a user gesture (a timer, page load, a script after the click's activation expired) | none | same | blocked: the page's `window.open` returns null, the popup joins the buffer's blocked list and the bar says `popup blocked: <url>` (`popup blocked (no URL)` for `window.open()` with no URL). A blocked popup of a buffer that is not current only joins that buffer's list. The list is cleared when the page starts another document (a link, `:go`, back/forward, `:refresh`); a same-document navigation keeps it |
+| T97 | COMMAND | Enter on `:popupOpen` | the current buffer has a blocked popup | NORMAL | the latest one leaves the list (`opening blocked popup: <url>`); the host re-runs the page's `window.open` in the frame that asked (an iframe too) and lets it through, so it opens as T93 with `window.opener` = that frame: `buffer N: blocked popup opened from buffer M`. If that frame is gone the URL loads fresh: `buffer N: blocked popup loaded fresh from buffer M (its frame is gone: no window.opener)`. None: `web: no blocked popup in this buffer`. An argument: `web: usage: :popupOpen` |
+| T98 | COMMAND | Enter on `:popupSearch [filter]` | the current buffer has a blocked popup | PICK | the picker (T58-T68) over the buffer's blocked popups, newest first: label the URL (`(no URL)`), detail the target name and `in a frame`; matched on the URL and the name; Enter opens the row's popup as T97 (it leaves the list). None: stays NORMAL, `web: no blocked popup in this buffer` |
+
+Modifier clicks (C1-INPUT's open case, decided here by the user's words "Ctrl/middle-click on links still
+open nothing", DECISIONS.md): unchanged. In INPUT the page gets the modifiers and the host drops
+Ctrl/Shift/middle-click (T92). In NORMAL the page gets no modifier keys (NORMAL keeps the keyboard from
+the page), so Ctrl-click and Shift-click arrive as plain clicks and do what a plain click does (follow
+the link here, or open a popup buffer for `target=_blank`); a middle-click is dropped by the host in both
+modes. Not now (DECISIONS.md): a per-site "always allow popups" list.
 
 ## What went away in scratchy (QKEYS3)
 
@@ -495,6 +522,12 @@ or `:popupSearch`. Until then they load in the current buffer's page, as before.
 Esc Esc, so there is nothing left to switch off, and Esc Esc cannot be locked out (T2).
 
 ## Decision log
+
+- 2026-11-23 (C-POPUPS): popups built as "Popups" says (T93-T98). The implementer's choices, not asked:
+  the shell switches to every popup, also one a background buffer opened; a blocked popup that is
+  opened leaves the list (as Chrome's blocked-popup list); `:popupSearch` lists newest first; no hint
+  after `popup blocked: <url>` (the decision's exact words); a background buffer's blocked popup is not
+  announced in the bar (T87's rule). Modifier clicks in NORMAL stay plain clicks (see "Popups").
 
 - 2026-11-23 (C4): buffers built as "Buffers" says (T77-T92). The implementer's choices, not asked: buffer
   numbers never reused (vim's); `:buffer <partial>` needs exactly one match (vim's) and is a substring match,

@@ -18,6 +18,14 @@ const later = (f, ms) => setTimeout(f, ms || 200);
 const q = document.getElementById('q');
 if (act === 'popup') later(() => window.open('b.html?via=open', 'w', 'width=400,height=300'));
 if (act === 'blank') later(() => document.getElementById('blank').click());
+// C-POPUPS: an iframe's gesture-less window.open (blocked), then the iframe goes, so popup-open
+// finds its frame gone and loads the popup fresh.
+if (act === 'framepopup') {
+  const f = document.createElement('iframe');
+  f.srcdoc = "<script>setTimeout(() => { window.open('b.html?via=frame'); parent.postMessage('opened', '*'); }, 200)<\/script>";
+  addEventListener('message', () => later(() => { f.remove(); document.title = 'C1 frame removed'; }));
+  document.body.appendChild(f);
+}
 if (act === 'focus') later(() => { q.focus(); later(() => q.blur(), 400); });
 if (act === 'hash') later(() => { location.hash = 'frag'; });
 if (act === 'push') later(() => history.pushState({}, '', 'a.html?pushed=1'));

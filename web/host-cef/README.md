@@ -46,7 +46,7 @@ In the nested compositor (never the user's display):
 `test/drive.py` plays the shell: it listens on the control socket, starts the host
 through run.sh, serves `test/pages/` from 127.0.0.1, sends every command and waits for
 the events each must give (open, back/forward, reload, same-document navigations,
-editable focus, find, zoom, window.open and target=_blank loading in the same page,
+editable focus, find, zoom, script popups blocked and opened with `popup-open`,
 reload hard, stop, an unresolvable host (load-error), an external page, bad commands, a renderer crash, quit),
 then checks that every event type was seen and that `tab-created` went out before the
 window was shown. With `--proxy` it routes everything, the local pages included,
@@ -69,8 +69,11 @@ fwd_proxy.py logs `CONNECT host:port opened` when a tunnel starts (and the closi
 when it ends), so a late request shows up when it is made.
 
 `--out` gets events.jsonl (the transcript), host.log and fixture.log. The pages call
-`window.open` and click a `target=_blank` link from script, so the check passes
-`--disable-popup-blocking` (there is no input injection yet).
+`window.open` and click a `target=_blank` link from script, with no user gesture: the host
+blocks them (`popup-blocked`) and the check opens them with `popup-open` (re-run in the
+frame, and fresh after the iframe that asked is gone). The check no longer passes
+`--disable-popup-blocking`: the host always adds it itself (C-POPUPS, "Popups" below).
+Popups from real clicks are checked through the shell, `web/shell/test/c_popups_live.py`.
 
 ## The forget-site check
 
@@ -114,11 +117,12 @@ The verdict logic is unit-tested in `test/test_cookies.py`.
   own window with `CEF_CTT_NONE` (no toolbar). Chrome-style keyboard shortcuts (Ctrl+T,
   Ctrl+N, Ctrl+F, Ctrl+L, ...) would open Chrome UI; a `CommandHandler` blocks every
   Chrome command, since the shell owns keys.
-- **No new tab or window by any user gesture (C-NOTAB, `src/newtab.rs`).** `OnBeforePopup`
-  and `OnOpenURLFromTab` decide by disposition (`popup_action`, unit-tested): foreground
-  tab (`target=_blank`, `window.open`) and popup load in place; background tab (Ctrl+click,
-  middle-click, Ctrl+Enter), new window (Shift+click), off-the-record, save-to-disk,
-  split view, PiP and the rest are dropped (nothing opens, the page is not navigated).
+- **No new tab or window by a new-tab gesture (C-NOTAB, `src/newtab.rs`).** `OnBeforePopup`
+  (`popup_action`) and `OnOpenURLFromTab` (`open_url_action`) decide by disposition (unit-tested):
+  foreground tab (`target=_blank`, `window.open`) and popup are popups ("Popups" below);
+  background tab (Ctrl+click, middle-click, Ctrl+Enter), new window (Shift+click),
+  off-the-record, save-to-disk, split view, PiP and the rest are dropped (nothing opens, the
+  page is not navigated).
   Live (NEST-HEADLESS): real Ctrl/middle/Shift clicks arrive through `OnOpenURLFromTab`
   (`open-url-from-tab Drop:` in the log), and Chromium does not submit a form on
   Ctrl+Enter at all (no keypress), so nothing reaches the host there.
@@ -140,8 +144,21 @@ The verdict logic is unit-tested in `test/test_cookies.py`.
 - **Resizable window.** The window delegate says `can_resize`/`can_maximize` (C2): the
   cef crate's defaults (0) pin the window at its preferred 1200x800 (xdg_toplevel min =
   max size), and the shell's configure would be ignored.
-- **Popups load in place.** `OnBeforePopup` cancels every popup and loads its URL in
-  the page that asked (PROTOCOL.md "Several pages"; C-POPUPS will change this).
+- **Popups (C-POPUPS, PROTOCOL.md "Popups").** The host is the popup blocker: it always runs
+  Chromium with `--disable-popup-blocking` (main.rs), because Chromium's own blocker cancels a
+  gesture-less popup before CEF hears of it (C4-SPIKE). `OnBeforePopup` (page.rs `before_popup`):
+  with `user_gesture` 1 it returns 0, and `OnPopupBrowserViewCreated` puts the popup's
+  BrowserView (given our `HostBrowserViewDelegate` by `GetDelegateForPopupBrowserView`: no
+  Chrome toolbar) in a top-level window of ours, announced as `tab-created` with `opener` and
+  `cause`; the popup inherits the opener's client, so its events are page events like any
+  other. With `user_gesture` 0 it is cancelled, recorded in its page (frame identifier, URL,
+  name, the features rebuilt from `CefPopupFeatures`) and reported as `popup-blocked`; the
+  record goes at the page's next cross-document load start. `popup-open` runs
+  `window.open(url, name, features)` in the recorded frame (`GetFrameByIdentifier` +
+  `ExecuteJavaScript`) with a one-shot allow (page, frame, URL), so `OnBeforePopup` lets that
+  gesture-less call through (`cause` `popup-open`, opener kept); the frame gone, or no popup
+  within 1 s, loads the URL in a new page (`cause` `popup-fresh`). `window.close()` in a popup
+  closes its browser (`tab-closed`).
 - **Several pages** (C4). The pages live in a thread-local map by browser id (`page.rs`
   `Pages`). `new-tab` creates a BrowserView in its own top-level window; its `tab-created`
   carries the `req` (the view is matched with `IsSame` when the browser is announced). A new

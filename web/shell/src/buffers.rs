@@ -40,6 +40,8 @@ pub struct Buffer {
     pub search: SearchState,
     /// T57's mode to return to while the buffer is not current (`Keys::popup_return` while it is).
     pub popup_return: Option<KeyMode>,
+    /// C-POPUPS: the page's blocked popups, oldest first; cleared when it starts another document.
+    pub blocked: Vec<crate::popups::BlockedPopup>,
 }
 
 impl Buffer {
@@ -193,6 +195,12 @@ impl Buffers {
             b.tab = Some(tab);
             return TabCreated::Buffer(b.num);
         }
+        TabCreated::Adopted(self.adopt(tab))
+    }
+
+    /// A new buffer for page `tab`, which the host created by itself (a popup, a newer host's own
+    /// page): its number.
+    pub fn adopt(&mut self, tab: u64) -> u32 {
         let num = self.next_num;
         self.next_num += 1;
         self.list.push(Buffer {
@@ -200,7 +208,7 @@ impl Buffers {
             tab: Some(tab),
             ..Default::default()
         });
-        TabCreated::Adopted(num)
+        num
     }
 
     /// The buffers whose title, hostname or description holds `text` (case-insensitive).
@@ -268,6 +276,8 @@ impl Keys {
                 if phase == "start" {
                     b.loading = true;
                     b.crashed = false;
+                    // C-POPUPS (T96): another document; its blocked popups go (the host's too).
+                    b.blocked.clear();
                     if !current {
                         b.title.clear();
                         b.search.forget_session();

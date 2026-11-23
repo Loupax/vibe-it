@@ -70,6 +70,7 @@ fn selected_url(k: &Keys) -> String {
     match &k.picker.as_ref().expect("a picker").selected_row().expect("a selection").action {
         PickAction::Open(u) => u.clone(),
         PickAction::Buffer(n) => format!("buffer {n}"),
+        PickAction::Popup(n) => format!("popup {n}"),
     }
 }
 
@@ -107,6 +108,7 @@ fn keys_t58_history_search_opens_the_picker_in_ranking_order() {
         .map(|r| match &r.action {
             PickAction::Open(u) => u.clone(),
             PickAction::Buffer(n) => format!("buffer {n}"),
+            PickAction::Popup(n) => format!("popup {n}"),
         })
         .collect();
     // STASH.md "Ranking": site roots by visits to the site, then pages by their own visits.

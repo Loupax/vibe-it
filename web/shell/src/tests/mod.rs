@@ -13,6 +13,7 @@ mod c_enter_tests;
 mod c_focuskeys_tests;
 mod c_keymap_tests;
 mod c_pick_tests;
+mod c_popups_tests;
 mod completion_tests;
 mod history_tests;
 mod keys_tests;

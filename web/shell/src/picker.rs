@@ -3,7 +3,7 @@
 //!
 //! A list the shell draws over the page, just above the status bar (the page is not resized), opened
 //! only by dedicated commands (`:historySearch` here; `:bookmarkSearch`, `:bufferList`, `:popupSearch`
-//! later). Its own mode, PICK (`VimMode::Pick`): the bar shows the filter being typed, the page gets no
+//! in their modules). Its own mode, PICK (`VimMode::Pick`): the bar shows the filter being typed, the page gets no
 //! keys, Ctrl-n/Down and Ctrl-p/Up move the selection, Enter runs the selected row's action and closes,
 //! Esc closes.
 //!
@@ -45,6 +45,8 @@ pub enum PickAction {
     Open(String),
     /// Show this buffer (C4, `:bufferList`).
     Buffer(u32),
+    /// Open the current buffer's blocked popup with this number (C-POPUPS, `:popupSearch`).
+    Popup(u32),
 }
 
 /// One row of a source: what is drawn (the label, then the dimmed detail), what the filter is
@@ -513,6 +515,7 @@ impl Keys {
                     self.switch_to(n)
                 }
             }
+            PickAction::Popup(n) => self.popup_open_n(n),
         }
     }
 
@@ -534,6 +537,7 @@ impl Keys {
             .map(|r| match &r.action {
                 PickAction::Open(u) => u.clone(),
                 PickAction::Buffer(n) => format!("buffer {n}"),
+                PickAction::Popup(n) => format!("popup {n}"),
             })
             .unwrap_or_default();
         let at = if p.match_count() == 0 { 0 } else { p.selected + 1 };

@@ -1,0 +1,15 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>child</title>
+<style>
+  /* C-POPUPS live check: a popup. Green; the whole page is a button that calls window.close(). */
+  html, body { margin: 0; height: 100%; background: #00ff00; }
+  button { width: 100%; height: 100%; border: 0; background: #00ff00; font: 24px sans-serif; }
+</style>
+<button id="close" type="button">window.close()</button>
+<script>
+  const n = new URLSearchParams(location.search).get('n') || '';
+  document.title = 'child ' + n + ' opener=' + (window.opener ? 'yes' : 'no');
+  if (window.opener) window.opener.postMessage('hello from child ' + n, '*');
+  document.getElementById('close').onclick = () => window.close();
+</script>

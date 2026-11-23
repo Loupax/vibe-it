@@ -79,6 +79,14 @@ pub enum Command {
     CloseTab {
         tab: TabId,
     },
+    /// C-POPUPS: open blocked popup `popup` of page `tab` (a `popup-blocked` number): its
+    /// `window.open` runs again in the frame that asked, let through once (`window.opener` kept);
+    /// frame gone: its URL in a new page. Answered by `tab-created` (`cause` `popup-open` or
+    /// `popup-fresh`) or an `error`.
+    PopupOpen {
+        tab: TabId,
+        popup: u32,
+    },
     /// Closes every page, then the host exits.
     Quit,
 }
@@ -103,6 +111,36 @@ pub enum LoadKind {
     SameDocument,
 }
 
+/// C-POPUPS: why a page was created (`tab-created`'s `cause`; none for the first page and for
+/// `new-tab`, which carry no `opener`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Cause {
+    /// The page opened it with a user gesture (`window.open`, a `target=_blank` link or form;
+    /// the engine does not tell them apart).
+    Popup,
+    /// `popup-open` re-ran a blocked `window.open` in its frame (`window.opener` kept).
+    PopupOpen,
+    /// `popup-open` found the frame gone and loaded the URL in a new page (no opener).
+    PopupFresh,
+}
+
+pub fn cause_name(c: Cause) -> &'static str {
+    match c {
+        Cause::Popup => "popup",
+        Cause::PopupOpen => "popup-open",
+        Cause::PopupFresh => "popup-fresh",
+    }
+}
+
+/// C-POPUPS: which frame asked for a blocked popup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FrameKind {
+    Main,
+    Sub,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ForgetResult {
@@ -125,6 +163,11 @@ pub enum Event {
         tab: TabId,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         req: Option<u64>,
+        /// C-POPUPS: the page it came from (a popup; `popup-open`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        opener: Option<TabId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cause: Option<Cause>,
     },
     /// Sent once, when the page's browser has closed (`close-tab`, `quit`).
     TabClosed {
@@ -177,6 +220,19 @@ pub enum Event {
     Crashed {
         tab: TabId,
         reason: String,
+    },
+    /// C-POPUPS: a popup without a user gesture was cancelled (`window.open` returned null) and
+    /// recorded as blocked popup `popup` of the page (numbered per page, never reused; the
+    /// records go when the page starts a cross-document load). `url` "" when it had none;
+    /// `name` the target name; `frame` main or sub; `features` as `window.open` took them,
+    /// rebuilt (`popup,width=400,height=300`).
+    PopupBlocked {
+        tab: TabId,
+        popup: u32,
+        url: String,
+        name: String,
+        frame: FrameKind,
+        features: String,
     },
     /// The answer to `forget-site`. `site`: the argument as the shell sent it;
     /// `domain`: the registrable domain that was forgotten (with every host under it);
@@ -236,8 +292,17 @@ pub fn kind_name(k: LoadKind) -> &'static str {
 pub fn event_text(ev: &Event) -> String {
     match ev {
         Event::Hello { protocol, engine } => format!("hello {protocol} {engine}"),
-        Event::TabCreated { tab, req: None } => format!("tab-created {tab}"),
-        Event::TabCreated { tab, req: Some(r) } => format!("tab-created {tab} (req {r})"),
+        Event::TabCreated { tab, req, opener, cause } => {
+            let mut s = format!("tab-created {tab}");
+            if let Some(r) = req {
+                s += &format!(" (req {r})");
+            }
+            if let (Some(o), Some(c)) = (opener, cause) {
+                s += &format!(" ({} from {o})", cause_name(*c));
+            }
+            s
+        }
+        Event::PopupBlocked { tab, popup, url, .. } => format!("popup-blocked {tab} {popup} {url}"),
         Event::TabClosed { tab } => format!("tab-closed {tab}"),
         Event::Url { tab, url } => format!("url {tab} {url}"),
         Event::Title { tab, title } => format!("title {tab} {title}"),
@@ -689,6 +754,12 @@ mod tests {
             (r#"{"cmd":"new-tab","req":4}"#, Command::NewTab { req: 4, url: None }, None),
             (r#"{"cmd":"show-tab","tab":4}"#, Command::ShowTab { tab: 4 }, Some(4)),
             (r#"{"cmd":"close-tab","tab":5}"#, Command::CloseTab { tab: 5 }, Some(5)),
+            // C-POPUPS.
+            (
+                r#"{"cmd":"popup-open","tab":3,"popup":2}"#,
+                Command::PopupOpen { tab: 3, popup: 2 },
+                Some(3),
+            ),
             // Every page command takes an optional tab; without it, the shown page.
             (r#"{"cmd":"reload","tab":7}"#, Command::Reload { hard: false }, Some(7)),
             (
@@ -743,9 +814,51 @@ mod tests {
                 },
                 r#"{"event":"hello","protocol":1,"engine":"cef"}"#,
             ),
-            (Event::TabCreated { tab: 1, req: None }, r#"{"event":"tab-created","tab":1}"#),
             (
-                Event::TabCreated { tab: 5, req: Some(3) },
+                Event::TabCreated {
+                    tab: 1,
+                    req: None,
+                    opener: None,
+                    cause: None,
+                },
+                r#"{"event":"tab-created","tab":1}"#,
+            ),
+            (
+                Event::TabCreated {
+                    tab: 6,
+                    req: None,
+                    opener: Some(1),
+                    cause: Some(Cause::Popup),
+                },
+                r#"{"event":"tab-created","tab":6,"opener":1,"cause":"popup"}"#,
+            ),
+            (
+                Event::TabCreated {
+                    tab: 7,
+                    req: None,
+                    opener: Some(1),
+                    cause: Some(Cause::PopupFresh),
+                },
+                r#"{"event":"tab-created","tab":7,"opener":1,"cause":"popup-fresh"}"#,
+            ),
+            (
+                Event::PopupBlocked {
+                    tab: 1,
+                    popup: 3,
+                    url: "https://idp.test/auth".into(),
+                    name: "login".into(),
+                    frame: FrameKind::Sub,
+                    features: "popup,width=400".into(),
+                },
+                r#"{"event":"popup-blocked","tab":1,"popup":3,"url":"https://idp.test/auth","name":"login","frame":"sub","features":"popup,width=400"}"#,
+            ),
+            (
+                Event::TabCreated {
+                    tab: 5,
+                    req: Some(3),
+                    opener: None,
+                    cause: None,
+                },
                 r#"{"event":"tab-created","tab":5,"req":3}"#,
             ),
             (Event::TabClosed { tab: 3 }, r#"{"event":"tab-closed","tab":3}"#),
@@ -852,8 +965,18 @@ mod tests {
             error: Some("ERR_ABORTED".into()),
         };
         assert_eq!(event_text(&ev), "load 3 end 0 new (ERR_ABORTED)");
-        assert_eq!(event_text(&Event::TabCreated { tab: 4, req: None }), "tab-created 4");
-        assert_eq!(event_text(&Event::TabCreated { tab: 4, req: Some(2) }), "tab-created 4 (req 2)");
+        let tc = |req, opener, cause| Event::TabCreated {
+            tab: 4,
+            req,
+            opener,
+            cause,
+        };
+        assert_eq!(event_text(&tc(None, None, None)), "tab-created 4");
+        assert_eq!(event_text(&tc(Some(2), None, None)), "tab-created 4 (req 2)");
+        assert_eq!(
+            event_text(&tc(None, Some(1), Some(Cause::PopupOpen))),
+            "tab-created 4 (popup-open from 1)"
+        );
         assert_eq!(
             event_text(&Event::FindResult {
                 tab: 1,

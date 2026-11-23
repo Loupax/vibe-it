@@ -11,8 +11,11 @@ It plays the shell: listens on the control socket, starts the host through run.s
 URL for `stop`), sends commands and waits for the events each one must produce.
 With --proxy the host gets `--proxy` and Chromium's `--proxy-bypass-list=<-loopback>`,
 so the local test pages go through the proxy too (Chromium bypasses loopback by
-default). Pages call window.open / click a target=_blank link from script, so the
-run passes `--disable-popup-blocking` (no user gesture without input injection).
+default). Pages call window.open / click a target=_blank link from script: with no
+user gesture the host blocks them (`popup-blocked`; the host runs Chromium with
+`--disable-popup-blocking` itself and is the popup blocker, C-POPUPS), and `popup-open`
+opens them (with the opener, or fresh when the frame is gone). Popups opened by real
+clicks are checked through the shell (web/shell/test/c_popups_live.py).
 
 Writes into --out: events.jsonl (every event with its time), host.log (the host's
 stderr), fixture.log (requests the test page server saw). Exit 0 when every step
@@ -40,6 +43,7 @@ REQUIRED = [
     "load start traverse", "load end traverse",
     "load start same-document", "load end same-document",
     "editable-focused true", "editable-focused false", "load-error", "find-result", "crashed", "error",
+    "popup-blocked",
 ]
 
 
@@ -250,7 +254,7 @@ def run(a):
 
     unit = f"web-host-c1-{os.getpid()}"
     cmd = [os.path.join(HOST_DIR, "run.sh")] + (["--x11"] if a.x11 else []) + [
-        "--control", sock_path, "--url", base + "a.html", "--disable-popup-blocking"]
+        "--control", sock_path, "--url", base + "a.html"]
     cmd += a.host_arg
     if a.headless:
         cmd += ["--ozone-platform=headless"]
@@ -426,18 +430,7 @@ def steps(sh, conn, base, a):
         raise Fail("zoom 1.5 was refused")
     send({"cmd": "zoom", "factor": 1.0})
 
-    sh.note("step: window.open from the page loads in the same page")
-    mark = len(sh.events)
-    send({"cmd": "open", "url": A + "?do=popup"})
-    nav("new", A + "?do=popup")
-    nav("new", base + "b.html?via=open", "C1 page B")
-
-    sh.note("step: target=_blank link loads in the same page")
-    send({"cmd": "open", "url": A + "?do=blank"})
-    nav("new", A + "?do=blank", "C1 page A")
-    nav("new", base + "b.html?via=blank", "C1 page B")
-    if not sh.none_since(mark, is_ev("tab-created")):
-        raise Fail("a popup created a second page")
+    popups(sh, send, nav, base, tab)
 
     sh.note("step: stop a slow load")
     send({"cmd": "open", "url": base + "slow"})
@@ -491,6 +484,54 @@ def steps(sh, conn, base, a):
         sh.cv.wait_for(lambda: sh.closed, 20)
     if not sh.closed:
         raise Fail("host did not close the control socket after quit")
+
+
+def popups(sh, send, nav, base, tab):
+    """C-POPUPS (PROTOCOL.md "Popups"): the host blocks popups without a user gesture and
+    reports them; `popup-open` re-runs one in its frame (opener kept) or, with the frame gone,
+    loads it fresh in a new page."""
+    A = base + "a.html"
+
+    def opened(cause, url, popup_tab_url_note):
+        new = sh.expect(f"tab-created {cause}", is_ev("tab-created", opener=tab, cause=cause), 20)["tab"]
+        sh.expect(f"load end of the {popup_tab_url_note}", is_ev("load", tab=new, phase="end", kind="new"), 20)
+        sh.seen_since(0, f"url {url} of tab {new}", is_ev("url", tab=new, url=url))
+        send({"cmd": "close-tab", "tab": new})
+        sh.expect(f"tab-closed {new}", is_ev("tab-closed", tab=new), 20)
+        return new
+
+    sh.note("step: window.open from a timer is blocked and reported; popup-open opens it with its opener")
+    mark = len(sh.events)
+    send({"cmd": "open", "url": A + "?do=popup"})
+    nav("new", A + "?do=popup")
+    ev = sh.expect("popup-blocked", is_ev("popup-blocked", tab=tab, url=base + "b.html?via=open", name="w", frame="main"))
+    if ev.get("features") != "popup,width=400,height=300" or ev.get("popup", 0) < 1:
+        raise Fail(f"popup-blocked fields: {ev}")
+    if not sh.none_since(mark, is_ev("tab-created")) or not sh.none_since(mark, is_ev("url", url=base + "b.html?via=open")):
+        raise Fail("a blocked popup opened or loaded")
+    send({"cmd": "popup-open", "tab": tab, "popup": ev["popup"]})
+    opened("popup-open", base + "b.html?via=open", "re-run popup")
+    send({"cmd": "popup-open", "tab": tab, "popup": ev["popup"]})
+    sh.expect("error for the same popup again", is_ev("error", message=lambda m: "no blocked popup" in (m or "")))
+
+    sh.note("step: a target=_blank click from script is blocked too; a new document forgets it")
+    send({"cmd": "open", "url": A + "?do=blank"})
+    nav("new", A + "?do=blank")
+    ev = sh.expect("popup-blocked target=_blank", is_ev("popup-blocked", tab=tab, url=base + "b.html?via=blank"))
+    send({"cmd": "open", "url": A})
+    nav("new", A)
+    send({"cmd": "popup-open", "tab": tab, "popup": ev["popup"]})
+    sh.expect("error: forgotten at the new document", is_ev("error", message=lambda m: "no blocked popup" in (m or "")))
+
+    sh.note("step: popup-open of a popup whose frame is gone loads it fresh")
+    send({"cmd": "open", "url": A + "?do=framepopup"})
+    nav("new", A + "?do=framepopup")
+    ev = sh.expect("popup-blocked from an iframe", is_ev("popup-blocked", tab=tab, frame="sub", url=base + "b.html?via=frame"))
+    sh.expect("the iframe removed", is_ev("title", tab=tab, title="C1 frame removed"))
+    send({"cmd": "popup-open", "tab": tab, "popup": ev["popup"]})
+    opened("popup-fresh", base + "b.html?via=frame", "fresh popup")
+    if not sh.none_since(mark, is_ev("url", tab=tab, url=lambda u: (u or "").startswith(base + "b.html"))):
+        raise Fail("a popup loaded in the opener's page")
 
 
 def several_pages(sh, send, nav, base, tab):
