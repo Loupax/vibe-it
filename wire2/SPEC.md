@@ -79,6 +79,7 @@ proxy --listen 127.0.0.1:8080 \
 | `--ca-dir` | `$XDG_DATA_HOME/proxy` | Where the CA is created on first need. `ca.pem` is what the user imports into the browser. |
 | `--connect-timeout` | 5s | How long to keep retrying a filter socket and its handshake at startup before treating that filter as down. |
 | `--stage-timeout` | 30s | How long a stage may take to send response headers. Streaming bodies have no total timeout. |
+| `--filter-check` | 2s | How often an up filter is re-handshaken, so a restart or changed capabilities are noticed without traffic. New capabilities apply to new flows only. |
 | `--dial-timeout` | 10s | Upstream TCP connect timeout. |
 | `--log-level` | info | `debug` logs every hop of every request. |
 
@@ -151,6 +152,7 @@ Default behaviour is fail-closed: a filter that can't do its job refuses the hos
 | Filter down, `fail: closed` | Its hosts get `503` with a short plain-text body naming the filter (a refused `CONNECT` for tunnels). Before any handshake this applies to all hosts. |
 | Filter down, `fail: open` | It is skipped; the flow continues through the rest of the chain. |
 | Filter connection fails or closes before response headers | That request gets `502`. The filter is marked down and redialled with exponential backoff (100 ms to 5 s), then the handshake repeats. |
+| Filter goes away while idle | Noticed by the periodic handshake (`--filter-check`): marked down and redialled as above, with no request failing. A changed answer replaces the capabilities for new flows only. |
 | No response headers within `--stage-timeout` | That request gets `504`. The filter stays connected. |
 | Malformed HTTP from a filter | That request gets `502`, the connection is closed, and the error is logged. |
 

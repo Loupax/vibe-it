@@ -703,8 +703,13 @@ async fn stage_timeout_504() {
     );
     assert!(
         proxy
-            .log()
-            .contains("filter slowpoke sent no response headers")
+            .wait_log(
+                |l| l.contains("filter slowpoke sent no response headers"),
+                Duration::from_secs(5)
+            )
+            .is_some(),
+        "{}",
+        proxy.log()
     );
     let t0 = Instant::now();
     let (_s, head, _) = connect_via(proxy.addr(), "tunnel.test:443").await;
@@ -742,8 +747,14 @@ async fn malformed_and_closed_filter_502() {
     wait_up(&proxy, "bad");
     let (h, _) = get(proxy.addr(), &url, "").await;
     assert_eq!(status_of(&h), 502, "{h}");
+    // The log line is written after the 502 reaches the client: wait for it (bounded).
     assert!(
-        proxy.log().contains("malformed HTTP from filter bad"),
+        proxy
+            .wait_log(
+                |l| l.contains("malformed HTTP from filter bad"),
+                Duration::from_secs(5)
+            )
+            .is_some(),
         "{}",
         proxy.log()
     );
@@ -752,7 +763,9 @@ async fn malformed_and_closed_filter_502() {
     let (h, _) = get(proxy.addr(), &url, "").await;
     assert_eq!(status_of(&h), 502, "{h}");
     assert!(
-        proxy.log().contains("filter bad is DOWN"),
+        proxy
+            .wait_log(|l| l.contains("filter bad is DOWN"), Duration::from_secs(5))
+            .is_some(),
         "{}",
         proxy.log()
     );
@@ -1110,4 +1123,157 @@ async fn pass_socket_activation() {
     // SAFETY: our own child.
     unsafe { libc::kill(act.id() as i32, libc::SIGTERM) };
     let _ = act.wait();
+}
+
+fn count(p: &Proxy, pat: &str) -> usize {
+    p.log().matches(pat).count()
+}
+
+/// Wait (bounded) until the proxy log has at least `n` occurrences of `pat`.
+fn wait_count(p: &Proxy, pat: &str, n: usize, to: Duration) -> Option<()> {
+    let end = Instant::now() + to;
+    while Instant::now() < end {
+        if count(p, pat) >= n {
+            return Some(());
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    None
+}
+
+/// W2-F1: a fail-closed filter that restarts with other capabilities while no traffic flows is noticed
+/// by the periodic handshake: 503 while it is down, then the first request after the new handshake
+/// succeeds (no 502) and is routed by the NEW hosts.
+#[tokio::test(flavor = "multi_thread")]
+async fn idle_restart_is_noticed_without_traffic() {
+    let (plain, _) = origin(None).await;
+    let url = format!("http://{HOST}:{}/", plain.port());
+    let other = format!("http://other.test:{}/", plain.port());
+    let d = sock_dir();
+    let path = d.path().join("guard.sock");
+    let f = Fake::start(
+        &path,
+        hello_json("guard", "tunnel", &["*.example.test"], "closed"),
+        Action::Forward,
+    );
+    let proxy = proxy_with(
+        &[&path],
+        &[
+            "--test-resolve",
+            "*.test=127.0.0.1",
+            "--filter-check",
+            "100ms",
+        ],
+        &[],
+    );
+    wait_up(&proxy, "guard");
+    drop(f);
+    // No traffic: the proxy notices by itself.
+    let to = Duration::from_secs(10);
+    proxy
+        .wait_log(|l| l.contains("filter guard is DOWN"), to)
+        .unwrap_or_else(|| panic!("not noticed: {}", proxy.log()));
+    let (h, body) = get(proxy.addr(), &url, "").await;
+    assert_eq!(status_of(&h), 503, "{h}");
+    assert!(
+        String::from_utf8(body)
+            .unwrap()
+            .contains("filter guard is down")
+    );
+    // Restart with different hosts.
+    let f2 = Fake::start(
+        &path,
+        hello_json("guard", "tunnel", &["other.test"], "closed"),
+        Action::Forward,
+    );
+    wait_count(&proxy, "filter guard up", 2, to)
+        .unwrap_or_else(|| panic!("no second handshake: {}", proxy.log()));
+    let (h, _) = get(proxy.addr(), &other, "").await;
+    assert_eq!(status_of(&h), 200, "first request after the restart: {h}");
+    assert_eq!(
+        f2.seen().len(),
+        1,
+        "other.test is routed through the new filter"
+    );
+    let (h, _) = get(proxy.addr(), &url, "").await;
+    assert_eq!(status_of(&h), 200, "no longer claimed: {h}");
+    assert_eq!(f2.seen().len(), 1, "example host skips the filter now");
+}
+
+/// W2-F1: the shipped pass filter killed and started again with no traffic in between; the first request
+/// afterwards succeeds (before this, it got a 502 while the proxy re-handshook).
+#[tokio::test(flavor = "multi_thread")]
+async fn idle_pass_restart_first_request_succeeds() {
+    let (plain, _) = origin(None).await;
+    let url = format!("http://{HOST}:{}/", plain.port());
+    let d = sock_dir();
+    let path = d.path().join("pass.sock");
+    let pass = PassBin::start(&path);
+    let proxy = proxy_with(
+        &[&path],
+        &[
+            "--test-resolve",
+            "*.test=127.0.0.1",
+            "--filter-check",
+            "100ms",
+        ],
+        &[],
+    );
+    wait_up(&proxy, "pass");
+    let (h, _) = get(proxy.addr(), &url, "").await;
+    assert_eq!(status_of(&h), 200, "{h}");
+    drop(pass);
+    let to = Duration::from_secs(10);
+    proxy
+        .wait_log(|l| l.contains("filter pass is DOWN"), to)
+        .unwrap_or_else(|| panic!("not noticed: {}", proxy.log()));
+    let _pass2 = PassBin::start(&path);
+    wait_count(&proxy, "filter pass up", 2, to)
+        .unwrap_or_else(|| panic!("no second handshake: {}", proxy.log()));
+    let (h, body) = get(proxy.addr(), &url, "").await;
+    assert_eq!(status_of(&h), 200, "{h} {}", proxy.log());
+    assert_eq!(body, b"ok /");
+}
+
+/// W2-F1: a filter that stays up but answers its handshake differently gets its new capabilities
+/// applied to new flows (no down phase).
+#[tokio::test(flavor = "multi_thread")]
+async fn changed_handshake_applies_to_new_flows() {
+    let (plain, _) = origin(None).await;
+    let url = format!("http://{HOST}:{}/", plain.port());
+    let d = sock_dir();
+    let path = d.path().join("c.sock");
+    let f = Fake::start(
+        &path,
+        hello_json("chg", "tunnel", &["*"], "closed"),
+        Action::Forward,
+    );
+    let proxy = proxy_with(
+        &[&path],
+        &[
+            "--test-resolve",
+            "*.test=127.0.0.1",
+            "--filter-check",
+            "100ms",
+        ],
+        &[],
+    );
+    wait_up(&proxy, "chg");
+    let (h, _) = get(proxy.addr(), &url, "").await;
+    assert_eq!(status_of(&h), 200, "{h}");
+    assert_eq!(f.seen().len(), 1);
+    *f.hello.lock().unwrap() = (
+        200,
+        hello_json("chg", "tunnel", &["nothing.test"], "closed"),
+    );
+    proxy
+        .wait_log(
+            |l| l.contains("filter chg CHANGED"),
+            Duration::from_secs(10),
+        )
+        .unwrap_or_else(|| panic!("{}", proxy.log()));
+    let (h, _) = get(proxy.addr(), &url, "").await;
+    assert_eq!(status_of(&h), 200, "{h}");
+    assert_eq!(f.seen().len(), 1, "the new hosts exclude this one");
+    assert_eq!(count(&proxy, "is DOWN"), 0, "{}", proxy.log());
 }

@@ -654,3 +654,23 @@ request bodies (300 KB), origin `Connection: close` and idle close give a new co
 dead-after-read gives GET retried once / POST 502 and not resent, tunnel filter: one CONNECT for four requests
 and a revocation (`403`) after it closed, close then redial, plain http still `Connection: close`. Six of the
 nine fail with the pool switched off (checked).
+
+## W2-F1 / W2-FLK1: idle filter restarts
+
+Design: a supervisor of an up filter repeats the handshake every `--filter-check` (default 2s). A held keep-alive
+handshake connection was rejected: the reference `pass`, the test fakes and any third-party filter answer the
+handshake with `Connection: close` (the spec does not require keep-alive), so a close would be no signal.
+Outcomes of a check: same answer, nothing; connect/answer failure, `mark_down` (then the existing 100 ms-5 s redial,
+fail-closed 503 / fail-open skip as before, no request fails); different answer, the capabilities (and the http
+decrypt claim) are replaced for NEW flows only (a flow's chain is fixed when it opens); a wrong answer, down and
+fail-closed for all hosts (as at startup). A filter that is down and comes back with other hosts is simply the
+normal redial. Cost: one tiny request per filter per 2s; a socket-activated filter that is not running is started
+by the check (same as by traffic). A restart faster than the interval, with the same answer, is invisible, which
+is fine: the data path still marks down on a failed request as before.
+Test harness: `proxy_with` passes `--filter-check 1h` first so tests that count handshakes stay exact; the new
+tests pass `100ms`. New tests: idle_restart_is_noticed_without_traffic, idle_pass_restart_first_request_succeeds,
+changed_handshake_applies_to_new_flows (the first two fail with the check at 1h, checked).
+
+W2-FLK1: `malformed_and_closed_filter_502` and `stage_timeout_504` (same race, it flaked once in a full run) now
+`wait_log` (5 s bound) instead of reading the log once after the response. w2_f_filters x20: 20/20 green (twice,
+before and after fixing stage_timeout_504, which failed once in between), full suite x3 green.

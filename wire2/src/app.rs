@@ -157,6 +157,7 @@ async fn run(cfg: Config) -> Result<(), String> {
         hub.clone(),
         cfg.connect_timeout,
         cfg.stage_timeout,
+        cfg.filter_check,
     ));
     let ctx = Arc::new(Ctx {
         cfg: cfg.clone(),

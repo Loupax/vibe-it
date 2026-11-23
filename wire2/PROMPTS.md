@@ -145,3 +145,14 @@ wire2/systemd/. NOTES.md "W2-F" has the design, the acceptance list and the meas
 
 Result: one PR, `proxy.rs` plus a slot in `FlowInfo`. NOTES.md "W2-2a" has the design and numbers; tests in
 tests/w2_2a_reuse.rs.
+
+## W2-F1 + W2-FLK1: notice filter restarts without traffic; de-flake the log-line test (2026-11-23)
+
+> W2-F1: today a filter's restart (new capabilities, or simply a new process) is noticed only when the proxy next
+> sends it traffic, and that one request gets 502 while the proxy re-handshakes. Make the proxy notice without
+> traffic (held handshake connection, or periodic lightweight re-handshake; pick what the protocol allows).
+> Capabilities from the new handshake apply to new flows only. Fail-closed/open while down stays as the spec says.
+> W2-FLK1: `w2_f_filters::malformed_and_closed_filter_502` failed once because the proxy's log line was not yet
+> visible; make the test wait (bounded). Run the w2_f_filters suite 20 times in a row.
+
+Result: one PR. Periodic re-handshake (`--filter-check`, default 2s); `filter.rs` `watch_up`. NOTES.md "W2-F1".
