@@ -62,8 +62,11 @@ items. Ask me in chat only when I ask for a status report.
     tests/mod.rs, and the root PROMPTS.md. The script does not know web/PROMPTS.md or
     coordinator/STATE.md: when only those append-only files conflict, keep both sides by hand
     in a temp worktree under .coordinator/tmp, push, and re-run the script.
-  - Push, wait for CI (the script requires at least 9 green checks; when a web/ CI job is
-    added, raise that count in merge_pr.sh's `green()` and wait loop), squash-merge.
+  - Push, wait for CI, squash-merge. CI runs only the jobs for crates the change touches (the
+    `changes` job; a wire change also runs scratchy and its WPT shards); the script requires
+    `changes` green and every other check green or skipped. A PR that touches only `*.md` and
+    `TODO*.txt` files merges without waiting for CI. When a web/ CI job is added, add its path
+    rule to the `changes` job in .github/workflows/ci.yml.
   - Act on the result only after the log shows `MERGED <sha>` and exit 0. A failed merge
     leaves the branch, worktree and TODO entry alone: deleting the branch closes the PR.
   - Then pull and run `coordinator/ci_then_push.sh --install <crate>`: `scratchy` (the

@@ -4,7 +4,8 @@
 # 1. Always rebase onto origin/main in a temp worktree; PROMPTS.md/REGRESSIONS.md conflicts keep both
 #    (main first); a conflict in scratchy/wpt-th/areas.txt is rebuilt with `scratchy --wpt-th --areas-only` (QWPT10);
 #    any other conflict or duplicate R-heading -> exit 2; if the head changed, force-push, wait CI.
-# 2. Require all nine checks (scratchy, snag, wire + 6 scratchy-wpt-* shards incl. wptserve, QWPT8 #615) green on the PR head, then squash-merge.
+# 2. Require the PR head's checks green, then squash-merge. Since the CI path filter (2026-11-23) a check may be
+#    SKIPPED (crate untouched); the `changes` job must have succeeded and nothing may be failed or pending.
 # 3. Docs-only fast path (user 2026-11-23): when every file the PR changes (after the rebase) is a `*.md` or a
 #    `TODO*.txt`, skip the CI wait and merge right after the push. No test reads those files (checked 2026-11-23);
 #    main's own CI still runs on the merge commit, and ci_then_push.sh still checks it.
@@ -21,7 +22,7 @@ HEAD=origin/$BR
 BASE=$(git merge-base "$HEAD" origin/main)
 CODE=$(git diff --name-only "$BASE" origin/main | grep -Ev '^(PROMPTS\.md|README\.md)$|^scratchy/(TODO\.txt|TODO-DONE\.txt|PROMPTS\.md|REGRESSIONS\.md|PERF\.md|NOTES\.md|AGENTS\.md|QUESTIONS\.md|HANDOFF\.md)$' | head -1)
 # all checks SUCCESS (4 jobs today; 3 after QV8-6 drops scratchy-quickjs)
-green() { [ "$(gh pr view "$N" --json statusCheckRollup -q '[.statusCheckRollup|group_by(.name)[]|max_by(.startedAt)] as $l | ([$l[]|select(.conclusion=="SUCCESS")]|length) as $ok | ($l|length) as $all | if $all>=9 and $ok==$all then "y" else "n" end')" = y ]; }
+green() { [ "$(gh pr view "$N" --json statusCheckRollup -q '[.statusCheckRollup|group_by(.name)[]|max_by(.startedAt)] as $l | ([$l[]|select(.conclusion=="SUCCESS" or .conclusion=="SKIPPED" or .conclusion=="NEUTRAL")]|length) as $ok | ([$l[]|select(.name=="changes" and .conclusion=="SUCCESS")]|length) as $ch | if $ch==1 and $ok==($l|length) then "y" else "n" end')" = y ]; }
 # green(): judge only the LATEST run of each check name (a close/reopen or a re-run leaves older CANCELLED/FAILED
 # runs in the rollup: #655 2026-11-23).
 # Wait until CI has registered checks for the PR's CURRENT head commit (under load this took > 40 s and
@@ -30,17 +31,13 @@ waitci() {
   # $1 = the sha we just pushed (right after a push, `gh pr view` can still return the OLD head: #587 2026-11-22)
   local sha=${1:-} i n; [ -n "$sha" ] || sha=$(gh pr view "$N" --json headRefOid -q .headRefOid)
   # check runs only exist once jobs START; a run queued behind main's runs has none. So wait (up to 40 min) on the
-  # workflow run for this sha itself, then for all 9 check runs.
+  # workflow run for this sha itself (all its jobs, skipped ones included, are done when the watch returns).
   local rid=""
   for i in $(seq 1 240); do
     rid=$(gh run list --commit "$sha" --event pull_request --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null)
     [ -n "$rid" ] && break; sleep 10
   done
   [ -n "$rid" ] && timeout 2700 gh run watch "$rid" >/dev/null 2>&1
-  for i in $(seq 1 30); do
-    n=$(gh api "repos/{owner}/{repo}/commits/$sha/check-runs" -q '.total_count' 2>/dev/null || echo 0)
-    [ "${n:-0}" -ge 9 ] && break; sleep 10
-  done
   timeout 2700 gh pr checks "$N" --watch >/dev/null 2>&1; green
 }
 # user rule (session 2): ALWAYS rebase onto the latest main; ANY conflict -> exit 2 (back to the agent);
