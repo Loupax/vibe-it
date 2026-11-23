@@ -1,4 +1,8 @@
-//! `web --forget-site <site>` (P-FORGET-SHELL) and the run directory's housekeeping (C-SOCKDIR).
+//! The running instance's command socket: `web --forget-site <site>` (P-FORGET-SHELL), `web URL`
+//! handing the URL to the running instance (C-SINGLE), and the run directory's housekeeping
+//! (C-SOCKDIR). The socket keeps its file name `forget.sock` (a shell started before C-SINGLE
+//! must still be found); it takes one request line per connection, `forget-site <site>` or
+//! `open <url>`, and answers with one JSON line.
 //!
 //! How `web --forget-site` finds a running web for the same state directory: the running
 //! shell writes its pid to `<state dir>/web.pid` and listens on
@@ -97,22 +101,39 @@ fn read_pid(path: &Path) -> Option<u32> {
     std::fs::read_to_string(path).ok()?.trim().parse().ok()
 }
 
-/// The forget socket of the running web that owns `state_dir`, if there is one.
-pub fn running_instance(state_dir: &Path, runtime: &Path, proc_root: &Path) -> Option<PathBuf> {
+/// The pid and command socket of the running web that owns `state_dir`, if there is one.
+pub fn running_instance(state_dir: &Path, runtime: &Path, proc_root: &Path) -> Option<(u32, PathBuf)> {
     let pid = read_pid(&state_dir.join(PID_FILE))?;
     if !is_web_shell(proc_root, pid) {
         return None;
     }
     let sock = run_dir(runtime, pid).join(FORGET_SOCK);
-    sock.exists().then_some(sock)
+    sock.exists().then_some((pid, sock))
 }
 
 // ---- the running shell's end
 
-/// `forget-site <site>` from a client: the site, or None for anything else.
-pub fn parse_request(line: &str) -> Option<String> {
-    let site = line.trim().strip_prefix("forget-site ")?.trim();
-    (!site.is_empty()).then(|| site.to_string())
+/// One request line from a client.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Request {
+    /// `forget-site <site>`
+    ForgetSite(String),
+    /// `open <url>` (C-SINGLE): load the URL in the page.
+    Open(String),
+}
+
+/// A client's request line, or None for anything else.
+pub fn parse_request(line: &str) -> Option<Request> {
+    let line = line.trim();
+    let arg = |prefix: &str| {
+        Some(line.strip_prefix(prefix)?.trim())
+            .filter(|a| !a.is_empty())
+            .map(str::to_string)
+    };
+    if let Some(site) = arg("forget-site ") {
+        return Some(Request::ForgetSite(site));
+    }
+    arg("open ").map(Request::Open)
 }
 
 // ---- the client's end
@@ -126,18 +147,69 @@ pub fn exit_code_of(line: &str) -> i32 {
     }
 }
 
-/// Asks the running web at `sock`; returns the line it answers with (the host's event).
-pub fn ask_running(sock: &Path, site: &str, timeout: Duration) -> std::io::Result<String> {
+/// Sends one request line to the running web at `sock`; returns the line it answers with.
+pub fn ask_running(sock: &Path, request: &str, timeout: Duration) -> std::io::Result<String> {
     let mut s = UnixStream::connect(sock)?;
     s.set_read_timeout(Some(timeout))?;
     s.set_write_timeout(Some(Duration::from_secs(5)))?;
-    s.write_all(format!("forget-site {site}\n").as_bytes())?;
+    s.write_all(format!("{request}\n").as_bytes())?;
     let mut line = String::new();
     BufReader::new(s).read_line(&mut line)?;
     if line.trim().is_empty() {
         return Err(std::io::Error::other("the running web closed the connection without an answer"));
     }
     Ok(line)
+}
+
+/// What `web [URL]` does when a web already runs on the state directory (C-SINGLE): with a URL,
+/// asks it to load it; without, only says so (raising its window is not done: a Wayland client
+/// cannot ask for focus without a token, and there is no portable X11 route from here). Returns
+/// the exit code, or None when no instance runs (the caller then starts a new one, after the
+/// profile-lock check).
+pub fn run_second(url: Option<&str>, state_dir: &Path) -> Option<i32> {
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR").filter(|v| !v.is_empty()).map(PathBuf::from)?;
+    let (pid, sock) = running_instance(state_dir, &runtime, Path::new("/proc"))?;
+    let Some(url) = url else {
+        println!(
+            "web: already running (pid {pid}, state directory {}); nothing started. Give a URL to open it there.",
+            state_dir.display()
+        );
+        return Some(0);
+    };
+    let url = match crate::keys::go_url(url, "") {
+        Ok(u) => u,
+        Err(m) => {
+            eprintln!("{m}");
+            return Some(2);
+        }
+    };
+    match ask_running(&sock, &format!("open {url}"), Duration::from_secs(10)) {
+        Ok(line) => match open_answer(&line) {
+            Ok(opened) => {
+                println!("web: opened {opened} in the running instance (pid {pid})");
+                Some(0)
+            }
+            Err(m) => {
+                eprintln!("web: the running instance (pid {pid}) refused: {m}");
+                Some(2)
+            }
+        },
+        // A shell that is going away, or one older than C-SINGLE that only knows forget-site.
+        Err(e) => {
+            eprintln!("web: the running instance (pid {pid}) did not answer ({e})");
+            Some(2)
+        }
+    }
+}
+
+/// The shell's answer to `open`: the URL it loaded, or its error message.
+pub fn open_answer(line: &str) -> Result<String, String> {
+    let v: serde_json::Value = serde_json::from_str(line.trim()).map_err(|_| format!("unexpected answer {line:?}"))?;
+    match v["event"].as_str() {
+        Some("opened") => Ok(v["url"].as_str().unwrap_or_default().to_string()),
+        Some("error") => Err(v["message"].as_str().unwrap_or("error").to_string()),
+        _ => Err(format!("unexpected answer {line:?}")),
+    }
 }
 
 /// The host command that forgets without a window (PROTOCOL.md "--no-window").
@@ -156,8 +228,8 @@ pub fn standalone_command(host_bin: PathBuf, profile: &Path, site: &str, host_ar
 /// `web --forget-site`: returns the process exit code. Prints the `forgot` line on stdout.
 pub fn run_cli(site: &str, state_dir: &Path, profile: &Path, host_bin: PathBuf, host_args: &[String]) -> i32 {
     let runtime = std::env::var_os("XDG_RUNTIME_DIR").filter(|v| !v.is_empty()).map(PathBuf::from);
-    if let Some(sock) = runtime.and_then(|r| running_instance(state_dir, &r, Path::new("/proc"))) {
-        match ask_running(&sock, site, Duration::from_secs(120)) {
+    if let Some((_, sock)) = runtime.and_then(|r| running_instance(state_dir, &r, Path::new("/proc"))) {
+        match ask_running(&sock, &format!("forget-site {site}"), Duration::from_secs(120)) {
             Ok(line) => {
                 println!("{}", line.trim_end());
                 return exit_code_of(&line);
@@ -265,7 +337,7 @@ mod tests {
         assert_eq!(running_instance(&state, &runtime, &proc), None, "no socket yet");
         let d = t.mkdir("run/web-55");
         std::fs::write(d.join(FORGET_SOCK), "").unwrap();
-        assert_eq!(running_instance(&state, &runtime, &proc), Some(d.join(FORGET_SOCK)));
+        assert_eq!(running_instance(&state, &runtime, &proc), Some((55, d.join(FORGET_SOCK))));
         t.fake_proc(55, "firefox");
         assert_eq!(running_instance(&state, &runtime, &proc), None, "pid reused by another program");
         std::fs::write(state.join(PID_FILE), "garbage").unwrap();
@@ -274,8 +346,19 @@ mod tests {
 
     #[test]
     fn requests_and_exit_codes() {
-        assert_eq!(parse_request("forget-site example.com\n").as_deref(), Some("example.com"));
-        assert_eq!(parse_request("forget-site   https://a.b/x  ").as_deref(), Some("https://a.b/x"));
+        let fs = |s: &str| Some(Request::ForgetSite(s.to_string()));
+        assert_eq!(parse_request("forget-site example.com\n"), fs("example.com"));
+        assert_eq!(parse_request("forget-site   https://a.b/x  "), fs("https://a.b/x"));
+        assert_eq!(
+            parse_request("open https://a.test/p?q=1\n"),
+            Some(Request::Open("https://a.test/p?q=1".into()))
+        );
+        assert_eq!(parse_request("open"), None);
+        assert_eq!(parse_request("open   \n"), None);
+        assert_eq!(parse_request("opened x"), None);
+        assert_eq!(open_answer(r#"{"event":"opened","url":"https://a/"}"#), Ok("https://a/".into()));
+        assert_eq!(open_answer(r#"{"event":"error","message":"no host"}"#), Err("no host".into()));
+        assert!(open_answer("junk").is_err());
         assert_eq!(parse_request("forget-site"), None);
         assert_eq!(parse_request("forget-site  \n"), None);
         assert_eq!(parse_request("quit"), None);
@@ -305,13 +388,13 @@ mod tests {
             let (s, _) = l.accept().unwrap();
             let mut line = String::new();
             BufReader::new(&s).read_line(&mut line).unwrap();
-            assert_eq!(parse_request(&line).as_deref(), Some("a.test"));
+            assert_eq!(parse_request(&line), Some(Request::ForgetSite("a.test".into())));
             (&s).write_all(b"{\"event\":\"forgot\",\"site\":\"a.test\",\"result\":\"ok\"}\n")
                 .unwrap();
         });
-        let ans = ask_running(&sock, "a.test", Duration::from_secs(5)).unwrap();
+        let ans = ask_running(&sock, "forget-site a.test", Duration::from_secs(5)).unwrap();
         assert_eq!(exit_code_of(&ans), 0);
         h.join().unwrap();
-        assert!(ask_running(&t.0.join("none.sock"), "a.test", Duration::from_secs(1)).is_err());
+        assert!(ask_running(&t.0.join("none.sock"), "forget-site a.test", Duration::from_secs(1)).is_err());
     }
 }

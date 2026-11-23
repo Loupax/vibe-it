@@ -158,3 +158,24 @@ Dropped (user, 2026-11-23; DECISIONS.md): the engine keeps localStorage (and
 sessionStorage, IndexedDB) in its own profile. scratchy's one-file-per-key store existed
 because scratchy had no storage of its own; it comes back only with a use case for
 centralizing storage outside the engine.
+
+## One web per state directory (C-SINGLE)
+
+- A second `web [URL]` with the same state directory does not start a second engine host
+  (Chromium locks the profile). It finds the running shell as `web --forget-site` does (`DIR/web.pid`,
+  checked through `/proc/<pid>/comm`) and talks to the same socket,
+  `$XDG_RUNTIME_DIR/web-<pid>/forget.sock` (the name is kept, so a shell started before C-SINGLE is
+  still found; it is now the instance's command socket). One request line per connection:
+  `forget-site <site>` (answer: the host's `forgot` event) or `open <url>` (answer
+  `{"event":"opened","url":...}` or `{"event":"error","message":...}`). The shell loads the URL in its
+  page and shows `opened <url> (from another web)`; the second `web` prints what happened and exits 0.
+  A URL is read as `:go` reads it (no scheme: `https://`; relative forms are refused).
+- `web` with no URL while one runs prints "already running (pid N ...)" and exits 0, starting
+  nothing. It does not raise the window: a Wayland client cannot take focus without an activation
+  token, and X11 has no route from here that works on every desktop.
+- Profile lock: Chromium keeps `<profile>/SingletonLock`, a symlink to `<hostname>-<pid>`, with
+  `SingletonCookie` and `SingletonSocket`. When no live web owns the state directory, the shell
+  checks it before starting the host: a lock whose pid is dead is removed (those three files, by
+  name, with a log line); a lock whose pid lives (or is on another host, or has an odd target) is an
+  error naming the profile, the pid and what to do, exit 2, and the lock is never touched. If the host
+  itself still gets a failed `initialize` it exits 3 with a message (PROTOCOL.md "Host exit statuses").

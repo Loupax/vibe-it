@@ -293,3 +293,12 @@ gets its own item later.
 
 `hello` carries `protocol`. Adding fields or events is compatible (both sides ignore
 what they do not know); changing or removing one bumps the version.
+
+## Host exit statuses
+
+0 normal; 2 bad command line or no control socket; 3 (C-SINGLE) CEF's `initialize` failed,
+almost always because another browser process holds the profile (Chromium's process
+singleton: the second process hands over its command line and `initialize` returns 0). The
+host prints one line on stderr naming the profile and, if `<profile>/SingletonLock` exists, its
+`<host>-<pid>` target; the shell logs that the host could not start. For `--forget-site` runs
+the codes 0/1/2 are as above.
