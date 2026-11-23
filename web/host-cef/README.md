@@ -82,6 +82,22 @@ compositor:
     web/host-cef/test/forget.py --out .qwork/forget
     WAYLAND_DISPLAY=wayland-1 web/host-cef/test/forget.py --out .qwork/forget-wl --wayland
 
+## The third-party cookie check
+
+`test/cookies.py` checks that third-party cookies are blocked by default
+(PROTOCOL.md "Third-party cookies off"). It serves `site-a.test`, `site-b.test` and
+`site-c.test` over https from one local server (self-signed certificate,
+`--host-resolver-rules`, `--ignore-certificate-errors`), and runs two fresh hosts: the
+default, and `--allow-third-party-cookies` as the control. site-a embeds a site-b
+iframe and image that try to set and read cookies; site-b at top level must keep its
+cookies and gain none; a `Partitioned` cookie and localStorage in the frame must work
+and stay in the top-level site's partition (site-c does not see site-a's). Headless
+by default:
+
+    web/host-cef/test/cookies.py --out .qwork/cookies
+
+The verdict logic is unit-tested in `test/test_cookies.py`.
+
 ## Notes
 
 - **Chrome runtime style, no Chrome UI.** The page is a CEF Views `BrowserView` in our

@@ -290,3 +290,22 @@ carry time 0. notab.py: dropped clicks log `open-url-from-tab Drop:`, Ctrl+Enter
 checked by the key reaching the page (Chromium never submits on it), focus events are
 allowed, url-before-load-end lookups; links.html shows key names. AGENT_RULES "Nested
 compositor helper" points agents at web/tools/nest.sh.
+
+## P-COOKIES third-party cookies off in web-host-cef (2026-11-23)
+
+> (coordinator) Third-party cookies off in web-host-cef by default, the closest Chromium
+> gets to scratchy's per-top-level-site jar. Find the mechanism that takes effect in CEF
+> 156 and whether CHIPS and storage partitioning stay on. Engine-neutral in PROTOCOL.md
+> (and WebKitGTK's way for E1); no new protocol command; a host flag to turn it off for
+> testing is fine. Test with two hostnames served locally: a cross-site frame or
+> subresource cannot set or read the other site's cookie, the site at top level can, and
+> a Partitioned cookie still works in the third-party context.
+
+**What changed:** `page.rs` sets `profile.cookie_controls_mode` = 1 on the global request
+context in `OnContextInitialized` (`--allow-third-party-cookies` leaves Chromium's 2).
+`profile.block_third_party_cookies` does not exist in CEF 156. `SetPreference` silently
+fails with `CefString::default()` as its `error` argument (found by trying a control
+preference). `test/cookies.py` (two runs, default and the flag as control, over https
+because third-party cookies need `SameSite=None; Secure`) passes: nothing crosses, top
+level keeps its cookies, CHIPS and localStorage stay per top-level site. Docs:
+PROTOCOL.md "Third-party cookies off", STASH.md "Cookies", host-cef/README.

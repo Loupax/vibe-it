@@ -34,12 +34,16 @@ DIR/
 
 The engine owns the jar (DECISIONS.md "Cookies"), persisted in its profile directory.
 scratchy's jar was partitioned by top-level site (like Firefox's Total Cookie Protection).
-The closest engine settings, set by each host at start:
-- CEF: block third-party cookies (the `profile.cookie_controls_mode` preference); CHIPS
-  partitioned cookies stay allowed.
-- WebKitGTK: `WEBKIT_COOKIE_POLICY_ACCEPT_NO_THIRD_PARTY`, plus its built-in
-  tracking prevention.
-Neither is exactly scratchy's partitioning; the item is P-COOKIES in TODO.txt.
+The closest engine settings, set by each host at start (P-COOKIES, done for CEF):
+- CEF: third-party cookies blocked (`profile.cookie_controls_mode` = 1, set through
+  `CefRequestContext::SetPreference`; the host flag `--allow-third-party-cookies` undoes
+  it for testing). CHIPS partitioned cookies and storage partitioning stay on, as
+  checked by `host-cef/test/cookies.py`. Details: PROTOCOL.md "Third-party cookies off".
+- WebKitGTK (E1): `WEBKIT_COOKIE_POLICY_ACCEPT_NO_THIRD_PARTY`, plus its built-in
+  tracking prevention (ITP).
+Not exactly scratchy's partitioning: a third party gets no cookie at all instead of its
+own jar per top-level site (only `Partitioned` cookies and partitioned storage are
+per-site), so embedded logins that need a third-party cookie break.
 
 ## Forget site
 

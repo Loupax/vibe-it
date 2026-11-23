@@ -65,6 +65,8 @@ interface, undecided), so v0 has no `new-tab` / `close-tab`.
   one JSON line on stdout, exit. Exit status 0 `ok`, 1 `partial`, 2 refused (bad
   site or options). This is how `web --forget-site` works when no web instance runs
   (the engine locks its profile, so it cannot run beside a running host).
+- `--allow-third-party-cookies`: keep the engine's default cookie policy instead of
+  blocking third-party cookies (testing only; "Third-party cookies off" below).
 - Anything else starting with `--` is passed to Chromium unchanged.
 
 ## Commands (shell -> host)
@@ -219,6 +221,51 @@ engine gives its own implementation:
   records whose name is the domain with `webkit_website_data_manager_remove`, then
   report. WebKit can list what it stores, so it needs neither the origin record nor
   a separate cookie pass, and its disk cache entries go per domain.
+
+#### Third-party cookies off (P-COOKIES)
+
+Every engine host starts with **third-party cookies blocked**, the closest an engine
+gets to scratchy's jar partitioned by top-level site. A cross-site iframe or
+subresource can neither set nor read a cookie of its own site; the site as the
+top-level page still has its cookies (including `SameSite=None` ones). No protocol
+command: it is set at start, before the first page loads. A host flag
+`--allow-third-party-cookies` restores the engine's default, for testing only (it is
+the control in `host-cef/test/cookies.py`).
+
+Storage partitioning (third-party localStorage, IndexedDB, caches keyed by the
+top-level site) and partitioned cookies (CHIPS, `Partitioned`) stay on: they are
+per-top-level-site by design, the thing scratchy's jar gave.
+
+- **web-host-cef** (`page.rs` `apply_cookie_policy`): the preference
+  `profile.cookie_controls_mode` = 1 (`content_settings::CookieControlsMode`:
+  0 off, 1 block third-party, 2 incognito only = Chromium's default) set with
+  `CefRequestContext::SetPreference` on the global request context in
+  `OnContextInitialized`, before the first browser exists; read back and logged
+  (`cookies: profile.cookie_controls_mode=1 ... now=Some(1)`). Checked in CEF 156 with
+  `test/cookies.py`: a frame on site-a cannot read site-b's `sid`, and its
+  `Set-Cookie`/`document.cookie` writes (`SameSite=None; Secure`) never reach site-b's
+  own jar; site-b at top level keeps its cookies; a `Partitioned` cookie works in the
+  third-party frame (header and script) and is seen only under the same top-level site;
+  localStorage in the frame is partitioned by top-level site. With the flag the same
+  frame reads and writes site-b's cookies (so the test can tell). Notes:
+  - `profile.block_third_party_cookies` is not registered in CEF 156 (the old name);
+    `profile.cookie_controls_mode` is the one that exists and takes effect.
+  - `SetPreference` fails silently (returns false, no message, sets nothing) if the
+    `error` out-parameter is `CefString::default()` in the Rust bindings; pass
+    `CefString::from("")`.
+  - Not used: a command-line switch (`--enable-features=ForceThirdPartyCookieBlocking`
+    made no difference in a test run while the preference was still failing; not
+    retried since).
+- **web-host-webkit** (E1, not built): `WebKitCookieManager`
+  (`webkit_website_data_manager_get_cookie_manager`) with
+  `webkit_cookie_manager_set_accept_policy(WEBKIT_COOKIE_POLICY_ACCEPT_NO_THIRD_PARTY)`,
+  and `webkit_website_data_manager_set_itp_enabled(TRUE)` (Intelligent Tracking
+  Prevention); WebKit also partitions third-party storage by default. Check with the
+  same test (WebKit's support for `Partitioned` cookies: unchecked).
+
+Consequence to know: embedded logins (SSO iframes, some payment and comment widgets)
+that need a third-party cookie break. `document.requestStorageAccess()` is
+Chromium's own way for a frame to ask; not checked here.
 
 **Limits (web-host-cef):**
 - The whole HTTP cache is cleared (above).

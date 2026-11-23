@@ -256,6 +256,21 @@ pub struct HostOptions {
     pub forget_site: Option<String>,
     /// `--no-window`: show no page; only with `--forget-site`.
     pub no_window: bool,
+    /// `--allow-third-party-cookies`: leave Chromium's third-party cookie default
+    /// (testing only; the host blocks them otherwise, STASH.md "Cookies").
+    pub allow_third_party_cookies: bool,
+}
+
+/// Value of Chromium's `profile.cookie_controls_mode` preference
+/// (`content_settings::CookieControlsMode`: 0 off, 1 block third-party, 2 incognito
+/// only, which is Chromium's default). The host blocks third-party cookies in every
+/// profile unless the testing flag turns that off.
+pub fn cookie_controls_mode(allow_third_party: bool) -> i32 {
+    if allow_third_party {
+        2
+    } else {
+        1
+    }
 }
 
 const HOST_OPTS: [&str; 6] = ["control", "proxy", "profile", "url", "downloads", "forget-site"];
@@ -291,6 +306,10 @@ pub fn host_options(argv: &[String]) -> Result<HostOptions, String> {
     for a in argv.iter().skip(1) {
         if a == "--no-window" {
             o.no_window = true;
+            continue;
+        }
+        if a == "--allow-third-party-cookies" {
+            o.allow_third_party_cookies = true;
             continue;
         }
         let Some((name, value)) = a.strip_prefix("--").and_then(|s| s.split_once('=')) else {
@@ -712,6 +731,16 @@ mod tests {
         assert_eq!(o.control.as_deref(), Some("/s/c.sock"));
         assert_eq!(o.url.as_deref(), Some("https://a.test/"));
         assert_eq!(o.profile, None);
+    }
+
+    #[test]
+    fn third_party_cookies_blocked_unless_flag() {
+        let o = host_options(&s(&["h", "--profile=/p"])).unwrap();
+        assert!(!o.allow_third_party_cookies);
+        assert_eq!(cookie_controls_mode(o.allow_third_party_cookies), 1);
+        let o = host_options(&s(&["h", "--profile=/p", "--allow-third-party-cookies"])).unwrap();
+        assert!(o.allow_third_party_cookies);
+        assert_eq!(cookie_controls_mode(true), 2);
     }
 
     #[test]
