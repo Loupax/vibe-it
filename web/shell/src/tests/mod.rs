@@ -6,5 +6,6 @@ mod c_enter_tests;
 mod completion_tests;
 mod history_tests;
 mod keys_tests;
+mod p_forget_shell_tests;
 mod search_tests;
 mod statusbar_tests;

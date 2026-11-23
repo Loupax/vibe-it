@@ -108,6 +108,14 @@ xkbcommon's default, i.e. `XKB_DEFAULT_*` or us).
 - `--proxy` is optional and passed to the host; without it the engine connects directly.
 - After `--`: passed to the host unchanged (Chromium switches).
 - The control socket is `$XDG_RUNTIME_DIR/web-<pid>/control.sock`, removed at exit.
+- `--forget-site SITE` (P-FORGET-SHELL, `src/forget.rs`): no window. If a web runs on the
+  same state dir (pid in `DIR/web.pid`, a live `web`), the request goes to its
+  `$XDG_RUNTIME_DIR/web-<pid>/forget.sock` and the host's `forgot` line comes back; else the
+  host runs `--no-window --forget-site`. Exit 0 ok, 1 partial, 2 refused. In the shell,
+  `:forget-site [site]` does it for the page's site, shows `forgot ...` and reloads the page.
+  Check: `test/forget_live.py` (running instance, `:forget-site`, no instance, SIGKILL).
+- At start the shell removes `web-<pid>` run directories whose pid is not a running web
+  (C-SOCKDIR; a hard-killed shell leaves its directory), by explicit file names.
 - Log lines go to stderr as `[web +<ms>ms] ...` (every host event and command, cursor
   changes, popups, fullscreen, the page window's size, the status bar).
 

@@ -67,7 +67,18 @@ pub enum Event {
     Error {
         message: String,
     },
-    /// An event this shell does not know (a newer host, or P-FORGET's `forgot`).
+    /// The answer to `forget-site` (P-FORGET-SHELL).
+    Forgot {
+        site: String,
+        #[serde(default)]
+        domain: String,
+        result: String,
+        #[serde(default)]
+        failed: Vec<String>,
+        #[serde(default)]
+        cookies: u32,
+    },
+    /// An event this shell does not know (a newer host).
     #[serde(other)]
     Unknown,
 }
@@ -105,6 +116,10 @@ pub enum Command {
     /// Caret browsing on/off (`:set caret` / `:set nocaret`, C-CARETCMD).
     Caret {
         on: bool,
+    },
+    /// Forget a site's cookies and storage (P-FORGET-SHELL; `:forget-site`, `web --forget-site`).
+    ForgetSite {
+        site: String,
     },
     Quit,
 }
@@ -244,7 +259,20 @@ mod tests {
             Event::parse(r#"{"event":"tab-created","tab":3,"later":"field"}"#).unwrap(),
             Event::TabCreated { tab: 3 }
         );
-        assert_eq!(Event::parse(r#"{"event":"forgot","site":"example.com"}"#).unwrap(), Event::Unknown);
+        assert_eq!(Event::parse(r#"{"event":"future-thing","x":1}"#).unwrap(), Event::Unknown);
+        assert_eq!(
+            Event::parse(
+                r#"{"event":"forgot","site":"a.test","domain":"a.test","result":"partial","failed":["cookies"],"cookies":2,"origins":[]}"#
+            )
+            .unwrap(),
+            Event::Forgot {
+                site: "a.test".into(),
+                domain: "a.test".into(),
+                result: "partial".into(),
+                failed: vec!["cookies".into()],
+                cookies: 2
+            }
+        );
     }
 
     #[test]
@@ -296,6 +324,12 @@ mod tests {
             (Command::FindClear, r#"{"cmd":"find-clear"}"#),
             (Command::Caret { on: true }, r#"{"cmd":"caret","on":true}"#),
             (Command::Caret { on: false }, r#"{"cmd":"caret","on":false}"#),
+            (
+                Command::ForgetSite {
+                    site: "https://a.example/".into(),
+                },
+                r#"{"cmd":"forget-site","site":"https://a.example/"}"#,
+            ),
             (Command::Quit, r#"{"cmd":"quit"}"#),
         ];
         for (cmd, want) in cases {

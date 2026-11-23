@@ -25,7 +25,8 @@ Architecture C (DECISIONS.md, TODO.txt C1-C8):
 
 - `KEYS.md`: modes, bindings, completion (from scratchy).
 - `STASH.md`: what web keeps on disk: state directory, history and `:go` ranking,
-  forget-site, cookies (from scratchy).
+  forget-site (`web --forget-site`, `:forget-site`, how the running instance is found),
+  cookies (from scratchy).
 - `PROTOCOL.md`: the shell <-> engine-host control protocol (v0).
 - `host-cef/`: web-host-cef, its run script and the C1 check (`host-cef/README.md`).
 - `shell/`: web-shell, the `web` binary: the compositor and the C2 check (`shell/README.md`).

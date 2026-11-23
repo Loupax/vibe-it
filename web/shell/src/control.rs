@@ -28,6 +28,8 @@ pub fn write_help(control_path: &Path) -> std::io::Result<String> {
 pub struct Control {
     pub path: PathBuf,
     listener: UnixListener,
+    /// P-FORGET-SHELL: `web --forget-site` clients (forget.rs).
+    forget_listener: UnixListener,
 }
 
 impl Control {
@@ -41,11 +43,29 @@ impl Control {
         let path = dir.join("control.sock");
         let listener = UnixListener::bind(&path)?;
         listener.set_nonblocking(true)?;
-        Ok(Control { path, listener })
+        let forget_listener = UnixListener::bind(dir.join(crate::forget::FORGET_SOCK))?;
+        forget_listener.set_nonblocking(true)?;
+        Ok(Control {
+            path,
+            listener,
+            forget_listener,
+        })
     }
 
     /// Accepts the host's one connection, then reads its events into the state.
     pub fn register(self, handle: &LoopHandle<'static, State>) -> std::io::Result<()> {
+        handle
+            .insert_source(
+                Generic::new(self.forget_listener, Interest::READ, Mode::Level),
+                |_, listener, state| loop {
+                    match listener.accept() {
+                        Ok((s, _)) => forget_client(s, state),
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => return Ok(PostAction::Continue),
+                        Err(e) => return Err(e),
+                    }
+                },
+            )
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
         let h = handle.clone();
         handle
             .insert_source(
@@ -70,6 +90,21 @@ impl Control {
             )
             .map_err(|e| std::io::Error::other(e.to_string()))?;
         Ok(())
+    }
+}
+
+/// A `web --forget-site` client: reads its one request line (it sends it at once; a short
+/// timeout keeps a silent client from stalling the loop), then the state sends the command
+/// and answers the client when the host's `forgot` arrives.
+fn forget_client(stream: UnixStream, state: &mut State) {
+    use std::io::BufRead;
+    let _ = stream.set_nonblocking(false);
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(500)));
+    let mut line = String::new();
+    let read = std::io::BufReader::new((&stream).take(4096)).read_line(&mut line);
+    match (read, crate::forget::parse_request(&line)) {
+        (Ok(_), Some(site)) => state.forget_requested(site, stream),
+        _ => state.log(&format!("forget socket: bad request {line:?}")),
     }
 }
 
@@ -99,11 +134,9 @@ fn read_events(stream: &UnixStream, lines: &mut LineBuffer, state: &mut State) -
     }
 }
 
-/// Removes the socket, `:help`'s page and their directory.
+/// Removes the sockets, `:help`'s page and their directory.
 pub fn cleanup(path: &Path) {
-    let _ = std::fs::remove_file(path);
     if let Some(dir) = path.parent() {
-        let _ = std::fs::remove_file(dir.join(HELP_FILE));
-        let _ = std::fs::remove_dir(dir);
+        crate::forget::remove_run_dir(dir);
     }
 }
