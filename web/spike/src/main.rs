@@ -34,6 +34,7 @@ macro_rules! log {
     ($($a:tt)*) => { eprintln!("[web-spike +{}ms] {}", crate::ms(), format!($($a)*)) };
 }
 
+mod download;
 mod handler;
 mod wire;
 
@@ -115,6 +116,9 @@ wrap_client! {
     impl Client {
         fn display_handler(&self) -> Option<DisplayHandler> {
             Some(SpikeDisplayHandler::new())
+        }
+        fn download_handler(&self) -> Option<DownloadHandler> {
+            Some(download::SpikeDownloadHandler::new())
         }
         fn life_span_handler(&self) -> Option<LifeSpanHandler> {
             Some(SpikeLifeSpanHandler::new())

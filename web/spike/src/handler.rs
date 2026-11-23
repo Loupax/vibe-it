@@ -194,6 +194,18 @@ fn run_request(state: Arc<State>, socket: String, req: WireRequest, ready: SendB
         t0.elapsed().as_millis(),
         head.header("x-wire-cache").map(|c| format!(", cache {c}")).unwrap_or_default()
     );
+    // W5: ranges. What Chromium asked for and what came back, verbatim.
+    let range_req = req.headers.iter().find(|(n, _)| n.eq_ignore_ascii_case("range")).map(|(_, v)| v.as_str());
+    if range_req.is_some() || head.status == 206 {
+        log!(
+            "wire #{id} range: asked {:?}, got {} Content-Range {:?} Content-Length {:?} upstream-length {:?}",
+            range_req,
+            head.status,
+            head.header("content-range"),
+            head.header("content-length"),
+            head.header("x-wire-upstream-length")
+        );
+    }
     let (tx, rx) = mpsc::channel::<ReadReq>();
     {
         let mut inner = state.inner.lock().unwrap();
@@ -221,7 +233,12 @@ fn run_request(state: Arc<State>, socket: String, req: WireRequest, ready: SendB
                     log!("wire #{id} {} body cut: {total} of {want} bytes", req.url);
                     sys::cef_errorcode_t::ERR_CONTENT_LENGTH_MISMATCH as i32
                 }
-                _ => 0,
+                _ => {
+                    if std::env::var_os("WEB_SPIKE_LOG_REQUESTS").is_some() {
+                        log!("wire #{id} body done: {total} bytes");
+                    }
+                    0
+                }
             },
             Ok(n) => {
                 // SAFETY: CEF keeps `data` (len bytes) valid until cont() and we hold
@@ -324,6 +341,18 @@ wrap_resource_handler! {
             }
         }
 
+        // Range requests (W5). CEF applies a request's `Range: bytes=N-...` to the
+        // handler's stream itself: it calls `skip(N)` before the headers, and without
+        // this method (default: failure) the request ends ERR_REQUEST_RANGE_NOT_SATISFIABLE.
+        // wire already forwarded the Range header and its body starts at byte N, so report
+        // "skipped" and consume nothing. (A server that ignores Range answers 200 with the
+        // whole body; Chromium then gets exactly that, as it would without CEF.)
+        fn skip(&self, bytes_to_skip: i64, bytes_skipped: Option<&mut i64>, _callback: Option<&mut ResourceSkipCallback>) -> i32 {
+            let Some(bytes_skipped) = bytes_skipped else { return 0 };
+            *bytes_skipped = bytes_to_skip;
+            1
+        }
+
         fn read(
             &self,
             data_out: *mut u8,
@@ -341,6 +370,9 @@ wrap_resource_handler! {
         }
 
         fn cancel(&self) {
+            if std::env::var_os("WEB_SPIKE_LOG_REQUESTS").is_some() {
+                log!("wire #{} cancelled by CEF", self.state.id.load(Ordering::Relaxed));
+            }
             let mut conn = self.state.conn.lock().unwrap();
             conn.cancelled = true;
             if let Some(s) = conn.stream.take() {
