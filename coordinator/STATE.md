@@ -470,3 +470,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 USER: wire PARKED ("we only work on wire2 now"). Parked W-MEDIA1 (draft #667, code+tests done, CI unfinished) and W-POOL2 (branch wire/w-pool2-redirects 697fef4d, WIP, no PR). W-MEDIA1 left /tmp/wire-w-media1-3588680 and -3591557 (40K each; its rm was denied, left for the user).
 - 2026-11-23 USER: no tabs for now (C4 deferred; maybe buffers later). C1 told: one page, no new-tab/close-tab, popups load in the same page (known loss: window.opener popups). Recorded in web/DECISIONS.md "No tabs yet".
 - 2026-11-23 USER: wire2 ACTIVE. Copied the spec doc into wire2/SPEC.md (diagram as ASCII); W2-SPEC done; wire2/DECISIONS.md started. Launched W2-1 (Opus). C7 hint design: explained to the user, awaiting their answer.
+- 2026-11-23 USER: keep C7 (link hints), not dropped; user is thinking it over. Noted in web/TODO.txt with the open design questions.

@@ -77,7 +77,9 @@ stop early on a hard failure.
       not copied through the CPU; text input methods (IME) if needed. Drag and drop from
       the host desktop is a known loss until asked for.
 
-- [ ] C7 Link hints. WAITING FOR USER (design first; scratchy's QCURSOR-D is the open
+- [ ] C7 Link hints. WAITING FOR USER (2026-11-23: not originally requested, came in with #664's plan; the user
+      likes it and is thinking it over; design questions: alphabet, label style, text filtering, which
+      elements, extra modes like yf, relation to QCURSOR-D. Design first; scratchy's QCURSOR-D is the open
       design for a keyboard page cursor). Mechanism agreed: the host returns the visible
       links' rectangles, the shell draws the labels itself, a chosen hint is a real
       pointer click from the compositor.
