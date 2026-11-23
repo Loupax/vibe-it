@@ -61,6 +61,24 @@ one log line per request or tunnel).
 `window.open` and click a `target=_blank` link from script, so the check passes
 `--disable-popup-blocking` (there is no input injection yet).
 
+## The forget-site check
+
+`test/forget.py` checks `forget-site` and `--no-window --forget-site` (PROTOCOL.md
+"forget-site") against local sites it serves itself: `site-a.test`, `sub.site-a.test`
+(forgotten) and `site-b.test` (kept), mapped to its server with
+`--host-resolver-rules` and made secure contexts with
+`--unsafely-treat-insecure-origin-as-secure`. A fake `/login` on each host sets
+cookies (HttpOnly, script, and a `Domain=` one), localStorage, sessionStorage,
+IndexedDB, Cache Storage and an "app shell" service worker that answers navigations;
+`/check` reports what a fresh load sees and the server records the cookies it gets.
+Four host processes on one profile: forget site-a by a subdomain URL while its page is
+shown; restart and check again; `--no-window --forget-site site-b.test`; restart and
+check site-b. Headless by default (no display needed), `--wayland` for the nested
+compositor:
+
+    web/host-cef/test/forget.py --out .qwork/forget
+    WAYLAND_DISPLAY=wayland-1 web/host-cef/test/forget.py --out .qwork/forget-wl --wayland
+
 ## Notes
 
 - **Chrome runtime style, no Chrome UI.** The page is a CEF Views `BrowserView` in our

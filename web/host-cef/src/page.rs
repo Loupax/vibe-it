@@ -19,6 +19,15 @@ use std::cell::RefCell;
 use std::sync::OnceLock;
 
 pub static START_URL: OnceLock<String> = OnceLock::new();
+/// `--no-window`: no page at all (the host only runs `--forget-site`).
+pub static NO_WINDOW: OnceLock<bool> = OnceLock::new();
+/// `--forget-site <site>`: run at start.
+pub static FORGET_AT_START: OnceLock<String> = OnceLock::new();
+
+/// The page's browser, once created.
+pub fn browser() -> Option<Browser> {
+    with_page(|p| p.browser.clone())
+}
 
 #[derive(Default)]
 struct Page {
@@ -405,6 +414,12 @@ wrap_load_handler! {
         }
 
         fn on_load_start(&self, browser: Option<&mut Browser>, frame: Option<&mut Frame>, transition_type: TransitionType) {
+            // Every frame's origin, for forget-site (forget.rs: CEF cannot list origins).
+            if is_page(&browser) {
+                if let Some(f) = frame.as_ref() {
+                    crate::forget::record(&CefString::from(&f.url()).to_string());
+                }
+            }
             if !is_page(&browser) || !is_main(&frame) {
                 return;
             }
@@ -677,6 +692,13 @@ wrap_browser_process_handler! {
 
     impl BrowserProcessHandler {
         fn on_context_initialized(&self) {
+            if let Some(site) = FORGET_AT_START.get() {
+                crate::forget::forget_site(site.clone());
+            }
+            if *NO_WINDOW.get().unwrap_or(&false) {
+                log!("context initialized, no window");
+                return;
+            }
             let url = START_URL.get().cloned().unwrap_or_else(|| "about:blank".into());
             log!("context initialized, opening {url}");
             let mut client = Some(HostClient::new());
@@ -696,6 +718,7 @@ wrap_browser_process_handler! {
 
 /// Closes the page (no beforeunload prompts); on_before_close then quits.
 pub fn quit() {
+    crate::forget::close_browser();
     let b = with_page(|p| p.browser.clone());
     match b.and_then(|b| b.host()) {
         Some(h) => h.close_browser(1),
@@ -711,6 +734,10 @@ pub fn run_command(line: &str) {
     };
     if cmd == Command::Quit {
         return quit();
+    }
+    // Needs no page (also with --no-window).
+    if let Command::ForgetSite { site } = cmd {
+        return crate::forget::forget_site(site);
     }
     let Some(browser) = with_page(|p| p.browser.clone()) else {
         return emit(Event::Error {
@@ -772,6 +799,6 @@ pub fn run_command(line: &str) {
             }
             Err(message) => emit(Event::Error { message }),
         },
-        Command::Quit => unreachable!(),
+        Command::Quit | Command::ForgetSite { .. } => unreachable!(),
     }
 }

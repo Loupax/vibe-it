@@ -202,3 +202,30 @@ added (sent before the `load end` that carries the same error), and both are in 
 list, Ctrl+Shift cancel script), handlers in `page.rs` and `renderer.rs`; `test/notab.py`
 and `test/pages/links.html` (live check); `web/tools/inject` (copy of scratchy's, plus
 `hold:`/`release`); PROTOCOL.md and README notes.
+
+## P-FORGET forget a site (2026-11-23)
+
+> P-FORGET (coordinator launch of web/TODO.txt P-FORGET): add a `forget-site <site>`
+> command to protocol v0 with a reply event (`forgot <site> ...`), implemented in
+> web-host-cef with CEF's own APIs (cookies through CefCookieManager; localStorage,
+> IndexedDB, cache storage, service workers, HTTP cache where possible) for the site and
+> its subdomains. No automation protocol (CDP/BiDi): if the only way to clear origin
+> storage is `ExecuteDevToolsMethod("Storage.clearDataForOrigin")`, stop and ask. Also
+> `web-host-cef --forget-site <site> --no-window`. Do not touch web/shell/ (C2).
+> Done when, with a local test site (two hostnames, a fake login that sets a cookie,
+> localStorage and IndexedDB on the site and a subdomain), forget-site leaves no cookie
+> or storage for it (checked from a fresh load) and another test site's intact.
+
+**What changed:** `forget-site` / `forgot` in PROTOCOL.md (new "forget-site" section)
+and `host-cef/src/protocol.rs` (site -> registrable domain, origins; unit tested);
+`host-cef/src/forget.rs`: cookies through `CookieManager::visit_all_cookies`; storage
+NOT through DevTools: a hidden windowless browser loads each origin's
+`/__web-host-forget__`, answered by the host's own resource handler with a page that
+clears localStorage, IndexedDB, Cache Storage and service workers from inside the
+origin (a service worker answering it is bypassed with `reload_ignore_cache`). The host
+records every frame origin it loads in `<profile>/web-host-origins`, since CEF cannot
+list origins. sessionStorage of the page's frames on the site; the whole HTTP cache
+(`ClearHttpCache`: CEF has no per-site one). `--forget-site` and `--no-window`
+(headless ozone, prints `forgot` on stdout, exit 0/1/2). `test/forget.py` is the
+check; STASH.md and host-cef/README.md updated. `web --forget-site` wiring is left to
+the shell (proposed TODO item).

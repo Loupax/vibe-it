@@ -45,7 +45,7 @@ interface, undecided), so v0 has no `new-tab` / `close-tab`.
 ## Host command line
 
 `web-host-cef --profile <dir> [--control <path>] [--proxy <host:port>] [--url <url>]
-[--downloads <dir>] [Chromium switches...]`
+[--downloads <dir>] [--forget-site <site> [--no-window]] [Chromium switches...]`
 
 - `--profile`: the engine profile (cookies, cache, localStorage; STASH.md "State
   directory"). Required, so the engine never falls back to a default location.
@@ -58,6 +58,13 @@ interface, undecided), so v0 has no `new-tab` / `close-tab`.
 - `--url`: the first page (default `about:blank`).
 - `--downloads`: where downloads are saved without asking (default
   `<profile>/downloads`). A download UI is a later item.
+- `--forget-site <site>`: run `forget-site <site>` at start (below); the `forgot`
+  event goes to the control socket as usual.
+- `--no-window` (only with `--forget-site`): show no page and need no display
+  (Chromium's headless platform): start, forget the site, print the `forgot` event as
+  one JSON line on stdout, exit. Exit status 0 `ok`, 1 `partial`, 2 refused (bad
+  site or options). This is how `web --forget-site` works when no web instance runs
+  (the engine locks its profile, so it cannot run beside a running host).
 - Anything else starting with `--` is passed to Chromium unchanged.
 
 ## Commands (shell -> host)
@@ -72,6 +79,7 @@ interface, undecided), so v0 has no `new-tab` / `close-tab`.
 | `find <query> next\|prev` | `{"cmd":"find","query":"needle","dir":"next"}` | find in page; the same query again steps to the next/previous match; a new query starts at the first (`next`) or last (`prev`) match |
 | `find-clear` | `{"cmd":"find-clear"}` | end the find: highlights go, the active match stays selected |
 | `zoom <n>` | `{"cmd":"zoom","factor":1.25}` | page zoom as a factor, 1.0 = 100 %, 0.25..5 |
+| `forget-site <site>` | `{"cmd":"forget-site","site":"https://mail.example.com/"}` | forget a site: cookies and storage (below); answered by `forgot` |
 | `quit` | `{"cmd":"quit"}` | close the page (no `beforeunload` prompt) and exit |
 
 Commands that need no answer get none; a command the host cannot use (not JSON,
@@ -91,6 +99,7 @@ unknown `cmd`, missing field, zoom out of range) gets an `error` event.
 | `editable-focused <id> true\|false` | `{"event":"editable-focused","tab":1,"focused":true}` |
 | `find-result <id> <i> <n>` | `{"event":"find-result","tab":1,"index":2,"count":5}` |
 | `crashed <id>` | `{"event":"crashed","tab":1,"reason":"TS_PROCESS_CRASHED (exit code 139)"}` |
+| `forgot <site> ok`, `forgot <site> partial <what failed>` | `{"event":"forgot","site":"https://mail.example.com/","domain":"example.com","result":"ok","cookies":3,"origins":["http://example.com","https://example.com","https://mail.example.com"]}`, with `"result":"partial","failed":["storage https://x.example.com (timeout)"]` |
 | (error) | `{"event":"error","message":"..."}` |
 
 - `tab-created`: once, **before the page's window is mapped**. The window's Wayland
@@ -132,11 +141,47 @@ unknown `cmd`, missing field, zoom out of range) gets an `error` event.
 - `crashed`: the page's renderer process died (crash, killed, out of memory). The
   page stays; `open` or `reload` loads it again in a new renderer.
 
+## forget-site
+
+`forget-site <site>` (P-FORGET; STASH.md "Forget site") deletes what the engine keeps
+for a site. Needs no page: it also works before the page exists and with `--no-window`.
+
+- `site`: a site, host or http(s) URL. What is forgotten is its **registrable domain**
+  (eTLD+1, scratchy's `site_of` with the same short public-suffix list) and **every
+  host under it**, over **both http and https** (cookies do not keep the schemes
+  apart either): `https://mail.example.co.uk/x` forgets `example.co.uk`,
+  `www.example.co.uk`, `mail.example.co.uk`, ... A top-level domain or public suffix
+  (`com`, `co.uk`, `github.io`) or a non-http(s) URL is refused with an `error` event.
+- **What goes:** every cookie whose domain is the site or under it (HttpOnly and
+  script cookies alike); for every origin under the site: localStorage, IndexedDB
+  (every database), Cache Storage, service worker registrations; sessionStorage of
+  the page's frames that show the site at that moment; the HTTP cache.
+- **`forgot`** answers every `forget-site`, after everything is done and the cookie
+  store is flushed to disk. `site` is the argument as sent (so the shell can pair
+  them), `domain` what was forgotten, `cookies` how many were deleted, `origins` the
+  origins whose storage was cleared. `result` is `ok`, or `partial` with `failed`
+  listing what could not be cleared (`cookies`, `http-cache`, `storage <origin>
+  (<why>)`, `<kind> <origin>` for one kind of storage). Text form: `forgot <site> ok`
+  / `forgot <site> partial <failed, comma-separated>`. Several `forget-site`s are
+  run one after the other, each with its own `forgot`.
+- **Afterwards** the shell reloads its page if it shows the site (STASH.md); the
+  host does not.
+- **Limits (web-host-cef):** the HTTP cache is cleared **entirely** (CEF offers no
+  per-site cache clear without the DevTools protocol). Storage is found by origin:
+  the host records the origin of every frame it loads (`<profile>/web-host-origins`;
+  forgotten origins are removed from it) and adds the domain, `www.` and every cookie
+  host; an origin it never loaded and that has no cookie (e.g. one visited before
+  the record existed, or only inside another site's iframe) is not reached.
+  Storage the site has as a third party inside other sites' pages (partitioned
+  storage) is not reached. sessionStorage of the site in earlier history entries of
+  the page stays until the page closes. How the host does it (no DevTools/automation
+  protocol): `host-cef/src/forget.rs`.
+
 ## Not in v0 (engine default for now)
 
 Downloads are saved without asking (see `--downloads`); permission prompts and JS
 dialogs (`alert`, `confirm`, `prompt`, `beforeunload`) are the engine's own UI. Each
-gets its own item later. `forget-site <site>` is added by P-FORGET (STASH.md).
+gets its own item later.
 
 ## Versioning
 

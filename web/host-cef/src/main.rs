@@ -37,6 +37,7 @@ static TRACE: OnceLock<bool> = OnceLock::new();
 mod control;
 mod download;
 mod newtab;
+mod forget;
 mod page;
 mod protocol;
 mod renderer;
@@ -46,6 +47,7 @@ use protocol::{host_options, normalize_argv};
 wrap_app! {
     struct HostApp {
         proxy: Option<String>,
+        no_window: bool,
     }
 
     impl App {
@@ -55,6 +57,11 @@ wrap_app! {
             let (true, Some(cmd)) = (is_browser, command_line) else { return };
             if let Some(p) = &self.proxy {
                 cmd.append_switch_with_value(Some(&CefString::from("proxy-server")), Some(&CefString::from(p.as_str())));
+            }
+            // --no-window needs no display: Chromium's headless platform (replaces
+            // run.sh's --ozone-platform; the helper processes inherit it).
+            if self.no_window {
+                cmd.append_switch_with_value(Some(&CefString::from("ozone-platform")), Some(&CefString::from("headless")));
             }
         }
 
@@ -118,7 +125,7 @@ fn main() {
     };
     let cargv = Argv::new(&argv);
     let main_args = cargv.main_args();
-    let mut app = HostApp::new(opts.proxy.clone());
+    let mut app = HostApp::new(opts.proxy.clone(), opts.no_window);
 
     // Helper processes (renderer, gpu, utility, zygote) run here and return >= 0.
     let code = execute_process(Some(&main_args), Some(&mut app), std::ptr::null_mut());
@@ -145,8 +152,16 @@ fn main() {
         log!("control socket {path} connected");
     }
     page::START_URL.get_or_init(|| protocol::normalize_url(opts.url.as_deref().unwrap_or("about:blank")));
+    page::NO_WINDOW.get_or_init(|| opts.no_window);
+    forget::ONE_SHOT.get_or_init(|| opts.no_window);
+    forget::RECORD.get_or_init(|| format!("{profile}/web-host-origins"));
+    if let Some(site) = &opts.forget_site {
+        page::FORGET_AT_START.get_or_init(|| site.clone());
+    }
 
     let settings = Settings {
+        // forget-site's hidden browser is windowless (forget.rs).
+        windowless_rendering_enabled: 1,
         // Chromium's own Linux sandbox (user namespaces) stays on.
         no_sandbox: std::env::var("WEB_HOST_NO_SANDBOX").is_ok() as i32,
         root_cache_path: CefString::from(profile.as_str()),
@@ -160,4 +175,9 @@ fn main() {
     run_message_loop();
     shutdown();
     log!("shutdown");
+    // --no-window --forget-site: 0 ok, 1 partial, 2 refused.
+    let code = *forget::EXIT_CODE.lock().unwrap();
+    if code != 0 {
+        std::process::exit(code);
+    }
 }
