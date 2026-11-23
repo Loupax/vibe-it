@@ -28,6 +28,9 @@ pub fn proxy_with(filters: &[&Path], args: &[&str], envs: &[(&str, &Path)]) -> P
         full.push("--filter".into());
         full.push(format!("unix:{}", f.display()));
     }
+    // Quiet by default so tests that count handshakes stay exact; a test may pass its own.
+    full.push("--filter-check".into());
+    full.push("1h".into());
     full.extend(args.iter().map(|s| s.to_string()));
     let refs: Vec<&str> = full.iter().map(|s| s.as_str()).collect();
     Proxy::start_env(&refs, envs)

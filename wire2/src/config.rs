@@ -32,6 +32,7 @@ pub struct Config {
     pub hub: Option<PathBuf>,
     pub connect_timeout: Duration,
     pub stage_timeout: Duration,
+    pub filter_check: Duration,
 }
 
 pub enum Parsed {
@@ -42,7 +43,7 @@ pub enum Parsed {
 
 pub const USAGE: &str = "\
 usage: wire2 [--listen 127.0.0.1:8080 | --listen unix:<path>] [--allow-remote]
-             [--filter unix:<path>]... [--hub <path>] [--connect-timeout 5s] [--stage-timeout 30s]
+             [--filter unix:<path>]... [--hub <path>] [--connect-timeout 5s] [--stage-timeout 30s] [--filter-check 2s]
              [--dial-timeout 10s] [--log-level error|warn|info|debug]
              [--no-decrypt GLOB]... [--ca-dir DIR]
 
@@ -60,6 +61,8 @@ http-layer filter claims; with no filters every CONNECT is an opaque tunnel and 
   --connect-timeout D  how long to retry a filter's socket and handshake at startup before treating
                        it as down (default 5s); it is redialled in the background after that.
   --stage-timeout D    how long a filter may take to send response headers (default 30s).
+  --filter-check D     how often an up filter is re-handshaken, so a restart or a change of its
+                       capabilities is noticed without traffic (default 2s).
   --dial-timeout DUR   upstream TCP connect timeout, e.g. 10s, 500ms, 2m (default 10s).
   --log-level LEVEL    error, warn, info (default) or debug.
   --no-decrypt GLOB    host never decrypted, even when an http filter claims it (repeatable). `*` matches
@@ -130,6 +133,7 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Parsed, Str
     let mut hub = None;
     let mut connect_timeout = Duration::from_secs(5);
     let mut stage_timeout = Duration::from_secs(30);
+    let mut filter_check = Duration::from_secs(2);
     let mut it = args.into_iter();
     while let Some(arg) = it.next() {
         let (flag, inline) = match arg.split_once('=') {
@@ -168,6 +172,7 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Parsed, Str
             }
             "--connect-timeout" => connect_timeout = parse_duration(&value(&mut it)?)?,
             "--stage-timeout" => stage_timeout = parse_duration(&value(&mut it)?)?,
+            "--filter-check" => filter_check = parse_duration(&value(&mut it)?)?,
             "--no-decrypt" => no_decrypt.push(parse_glob(&value(&mut it)?)?),
             "--ca-dir" => {
                 let v = value(&mut it)?;
@@ -213,6 +218,7 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Parsed, Str
         hub,
         connect_timeout,
         stage_timeout,
+        filter_check,
     })))
 }
 
@@ -368,6 +374,7 @@ mod tests {
         assert!(d.filters.is_empty() && d.hub.is_none());
         assert_eq!(d.connect_timeout, Duration::from_secs(5));
         assert_eq!(d.stage_timeout, Duration::from_secs(30));
+        assert_eq!(d.filter_check, Duration::from_secs(2));
     }
 
     #[test]

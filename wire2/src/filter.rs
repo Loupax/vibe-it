@@ -212,6 +212,7 @@ pub struct Filters {
     pub hub: PathBuf,
     connect_timeout: Duration,
     stage_timeout: Duration,
+    check_interval: Duration,
 }
 
 /// Why a handshake attempt failed.
@@ -229,6 +230,7 @@ impl Filters {
         hub: PathBuf,
         connect_timeout: Duration,
         stage_timeout: Duration,
+        check_interval: Duration,
     ) -> Filters {
         Filters {
             list: paths
@@ -244,6 +246,7 @@ impl Filters {
             hub,
             connect_timeout,
             stage_timeout,
+            check_interval,
         }
     }
 
@@ -295,8 +298,7 @@ impl Filters {
                     f.state.send_replace(State::Up(caps.clone()));
                     last_err.clear();
                     backoff = BACKOFF_MIN;
-                    let mut rx = f.state.subscribe();
-                    let _ = rx.wait_for(|s| !matches!(s, State::Up(_))).await;
+                    let caps = self.watch_up(&f, caps, &policy).await;
                     if caps.layer == Layer::Http {
                         policy.remove_http_claim(&caps.name);
                     }
@@ -336,6 +338,81 @@ impl Filters {
             tokio::time::sleep(sleep).await;
             backoff = (backoff * 2).min(BACKOFF_MAX);
         }
+    }
+
+    /// While the filter is up: repeat the handshake every `--filter-check` so a restart is noticed
+    /// without traffic (SPEC "Failure handling"). Returns the capabilities in force when the filter went
+    /// down (the data path marked it down, the check found it gone, or it answered wrongly). New
+    /// capabilities replace the old ones for new flows only; open flows keep their chain.
+    async fn watch_up(&self, f: &Filter, mut caps: Arc<Caps>, policy: &Policy) -> Arc<Caps> {
+        let mut rx = f.state.subscribe();
+        loop {
+            tokio::select! {
+                _ = rx.wait_for(|s| !matches!(s, State::Up(_))) => return caps,
+                _ = tokio::time::sleep(self.check_interval) => {}
+            }
+            let r = match tokio::time::timeout(self.stage_timeout, self.handshake(f)).await {
+                Ok(r) => r,
+                Err(_) => Err(HsError::Unreachable("no handshake answer in time".into())),
+            };
+            let new = match r {
+                Ok(new) if new == *caps => continue,
+                Ok(new) => new,
+                Err(HsError::Unreachable(why)) => {
+                    f.mark_down(&format!("it did not answer a handshake check ({why})"));
+                    return caps;
+                }
+                Err(HsError::Rejected(why)) => {
+                    self.reject_up(f, &why);
+                    return caps;
+                }
+            };
+            if caps.layer == Layer::Http {
+                policy.remove_http_claim(&caps.name);
+            }
+            match self.accept(f, new, policy) {
+                Ok(new) => {
+                    crate::info!(
+                        "filter {} CHANGED (unix:{}): layer={} hosts={} fail={}; new flows use it",
+                        new.name,
+                        f.path.display(),
+                        new.layer.name(),
+                        new.hosts.join(","),
+                        if new.fail == Fail::Open {
+                            "open"
+                        } else {
+                            "closed"
+                        }
+                    );
+                    let replaced = f.state.send_if_modified(|s| {
+                        if matches!(s, State::Up(_)) {
+                            *s = State::Up(new.clone());
+                            true
+                        } else {
+                            false
+                        }
+                    });
+                    caps = new;
+                    if !replaced {
+                        return caps;
+                    }
+                }
+                Err(HsError::Rejected(why)) | Err(HsError::Unreachable(why)) => {
+                    self.reject_up(f, &why);
+                    return caps;
+                }
+            }
+        }
+    }
+
+    /// An up filter answered a handshake check wrongly: down, fail-closed for every host.
+    fn reject_up(&self, f: &Filter, why: &str) {
+        crate::warn!(
+            "filter unix:{} handshake REJECTED: {why}; it counts as down and fail-closed for ALL hosts \
+             until a handshake succeeds",
+            f.path.display()
+        );
+        f.state.send_replace(State::Down { last: None });
     }
 
     /// Final checks on a good answer: unique name, and the CA for an http-layer claim.
