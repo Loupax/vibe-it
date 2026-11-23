@@ -84,6 +84,7 @@ def main():
     proc = subprocess.Popen(cmd, env=shell_env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     log = live.Log(proc, os.path.join(out, "web.log"))
     results = []
+    GHOST_URL = [""]
 
     def step(name, fn):
         t0 = time.monotonic()
@@ -287,10 +288,18 @@ def main():
             g2 = bar(r":go 127\|(\.0\.0\.1:\d+/\S+)", k)
             shot("bar-ghost.png")
             inject("key:ret", "wait:1200")
-            want = "https://127" + g2[1]
+            want = "http://127" + g2[1]
+            GHOST_URL[0] = want
             log.wait(r'command: \{"cmd":"open","url":"' + re.escape(want) + '"', k)
-            return f"ghost {g[1]!r} (the site root first), Tab -> {g2[1]!r}, Enter opened {want} (https:// assumed, QCOMP6)"
+            return f"ghost {g[1]!r} (the site root first), Tab -> {g2[1]!r}, Enter opened {want} (the history entry's own http://, #702)"
         step("T45 T47 T50: the :go ghost from history", ghost)
+
+        def go_no_match():
+            k = log.mark()
+            command("go web-c3-nomatch.invalid", wait=1500)
+            log.wait(r'command: \{"cmd":"open","url":"https://web-c3-nomatch\.invalid', k)
+            return "a scheme-less word with no history match opens with https:// (QCOMP6)"
+        step("T50: :go with no history match assumes https://", go_no_match)
 
         def back_to_c3():
             k = log.mark()
@@ -357,8 +366,9 @@ def main():
             with open(os.path.join(state, "history")) as f:
                 lines = [l.rstrip("\n").split("\t") for l in f]
             urls = [l[1] for l in lines]
-            # The ghost step's https:// guess failed (the server is plain http): no visit.
-            want =[f"{base}/c3.html", f"{base}/second.html", f"{base}/c3.html"]
+            # The ghost step keeps the history entry's http:// and loads: a visit. The no-match
+            # https:// guess fails (no visit).
+            want = [f"{base}/c3.html", f"{base}/second.html", GHOST_URL[0], f"{base}/c3.html"]
             if urls != want:
                 raise Fail(f"history {urls}, want {want}")
             titles = [l[2] for l in lines]
