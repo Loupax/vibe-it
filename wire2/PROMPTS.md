@@ -19,3 +19,12 @@ Result: wire2/ with README.md, TODO.txt (W2-SPEC pointing at the spec, W2-1
 plain forwarding proxy, W2-2 TLS interception, W2-3 WebSockets in decrypted
 tunnels, W2-F filters per the spec) and this file. wire/ is unchanged. The
 `wire-v1` branch made earlier for the in-place plan is no longer needed.
+
+---
+
+## Spec copied, wire2 active (2026-11-23)
+
+> 1. Park the wire tasks in general. We only work on wire2 now. [...] 4. Yes, copy the spec. wire2 is active
+
+Result: wire2/SPEC.md (the user's design doc, copied by the coordinator; its one
+diagram redrawn as ASCII). W2-SPEC done; wire/ parked.

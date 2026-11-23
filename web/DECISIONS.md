@@ -2,6 +2,15 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-23 No tabs yet
+
+User: "Do not bother with tabs for now. Do not expose tab functionality yet. Maybe we'll mimic
+them using the buffers interface, but let's not commit now." C4 is deferred (not scheduled, no
+design session). The engine host shows one page: protocol v0 has no `new-tab`/`close-tab`, and
+`window.open`/target=_blank load in the same page (coordinator's reading, sent to C1; known loss:
+popups that rely on `window.opener`, e.g. OAuth login popups). Events keep their `<id>` field so
+a later buffers or tabs design needs no protocol change.
+
 ## 2026-11-23 The proxy is optional
 
 User: "do not have it require a proxy. It should support it but a missing --proxy flag

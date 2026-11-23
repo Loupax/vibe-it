@@ -10,7 +10,7 @@ client. It streams bytes between browser and server as they arrive and buffers
 only when it must (reading a request or response head to parse it); bodies and
 tunnels are copied with small fixed buffers and backpressure, never whole.
 
-- [ ] W2-SPEC wire2 follows the spec "Scriptable Filtering Proxy -
+- [x] W2-SPEC (DONE 2026-11-23: copied into wire2/SPEC.md by the coordinator; user: "wire2 is active") wire2 follows the spec "Scriptable Filtering Proxy -
       Feature Spec" (user's design doc, 2026-11-23, finished in the session
       that added this item: https://claude.ai/artifact/5gvAoaXvi7mAiCY2oHYPmj).
       The doc wins over the W2 items below wherever they differ. Its main
@@ -33,7 +33,7 @@ tunnels are copied with small fixed buffers and backpressure, never whole.
       - Before the first code: copy the spec into wire2/SPEC.md so the repo
         holds it (the doc link is private to the user).
 
-- [ ] W2-1 Plain forwarding proxy (no TLS interception).
+- [WIP] W2-1 Plain forwarding proxy (no TLS interception).
       - Listens on 127.0.0.1:<port> (browsers only speak TCP to a proxy)
         and optionally on a Unix socket (the bridge out of an empty network
         namespace, through a forwarder such as socat inside it).

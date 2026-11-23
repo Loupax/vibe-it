@@ -5,9 +5,8 @@ filters, each a small HTTP server on its own Unix socket. It decrypts TLS only
 for hosts a connected filter asks to see in plaintext; everything else stays an
 opaque tunnel.
 
-Status: **planning only, no code yet.** See `TODO.txt`; the design is the
-user's spec "Scriptable Filtering Proxy - Feature Spec", to be copied into
-`SPEC.md` before the first code.
+Status: **active (2026-11-23), no code yet.** The design is [`SPEC.md`](SPEC.md)
+(the user's "Scriptable Filtering Proxy - Feature Spec"); the work list is `TODO.txt`.
 
 wire2 is separate from [`wire`](../wire/) (wire 1), which stays the HTTP
 client that scratchy and the web/ spike use.

@@ -1,5 +1,10 @@
 wire — known gaps / deferred work
 
+**PARKED (user, 2026-11-23): "Park the wire tasks in general. We only work on wire2 now."**
+Nothing here is scheduled. Parked mid-work: W-MEDIA1 (draft PR #667, code + tests done, CI
+unfinished) and W-POOL2 (branch wire/w-pool2-redirects 697fef4d, WIP: code + tests done; clippy,
+docs and PR left; also covers W-CACHE3's Clear-Site-Data-on-redirect-hop part).
+
 Same spirit as scratchy/TODO.txt and snag/TODO.txt: things found-and-
 deliberately-deferred, not a speculative feature backlog. See NOTES.md
 for the fuller story behind any item; a commit hash in parens points at
@@ -136,12 +141,12 @@ the commit it came up during.
       against a rebuilt wire answers 403 on the second step.
       DONE (ca5e6c7): separate public-only pools + CLASS_MAP; see NOTES.md.
 
-- [WIP] **W-POOL2 [S] Intermediate redirect hops on pooled connections are missing from
+- [ ] **W-POOL2 [S] (PARKED: branch wire/w-pool2-redirects) Intermediate redirect hops on pooled connections are missing from
       `X-Wire-Hop-Classes` on the non-jar path** (ureq follows redirects itself and
       exposes no history; first and last hop are reported, security is unaffected).
       Fix by following redirects in wire for all paths. Low priority.
 
-- [WIP] **W-MEDIA1 [S] `file:` URLs: honour `Range` and name media types** (scratchy
+- [ ] **W-MEDIA1 [S] (PARKED: draft #667) `file:` URLs: honour `Range` and name media types** (scratchy
       QM1e needs it for local `<video src=clip.mp4>` pages and fixtures; R30).
       Today `serve_file` reads the WHOLE file into memory (`std::fs::read`) and
       answers `200` with no `Accept-Ranges`, ignoring `Range` (measured: a 64 MiB

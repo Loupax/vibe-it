@@ -10,8 +10,8 @@ own DECISIONS.md (where present), TODO.txt and PROMPTS.md.
 | project | status | work list | item ids |
 |---|---|---|---|
 | `web/` | ACTIVE: Architecture C (the spike W1..W7 is done, kept as the record) | web/TODO.txt | C1..C8, E1, P-NAME |
-| `wire/` | active: its own list (web no longer needs wire changes) | wire/TODO.txt | W-NAME (e.g. W-POOL5) |
-| `wire2/` | PLANNED, blocked: W2-SPEC needs the user to copy the spec in; active only when the user says so | wire2/TODO.txt | W2-SPEC, W2-1..W2-3, W2-F |
+| `wire/` | PARKED (user, 2026-11-23: "We only work on wire2 now") | wire/TODO.txt | W-NAME (e.g. W-POOL5) |
+| `wire2/` | ACTIVE (2026-11-23): spec in wire2/SPEC.md | wire2/TODO.txt | W2-1..W2-3, W2-F |
 | `scratchy/` | PAUSED (see the banner above) | scratchy/TODO.txt | Q... |
 | `snag/` | no open work | none | none |
 
@@ -90,8 +90,8 @@ items. Ask me in chat only when I ask for a status report.
 - C1..C3 are a chain: run them in order, one agent at a time on it. Use Opus for C1 (the engine
   host and control protocol) and C2 (the compositor); C3 (porting keys and the command line
   from scratchy) may use Sonnet. C5 and C6 follow C3. P-FORGET and P-COOKIES may run beside the
-  chain once C1 is merged. C4 (tabs) and C7 (link hints) say WAITING FOR USER: design with me
-  first, never schedule them.
+  chain once C1 is merged. C4 (tabs) is DEFERRED (no tabs for now) and C7 (link hints) says WAITING FOR USER: never
+  schedule them.
 - Network: the engine host takes an optional `--proxy <host:port>`; a missing flag is never an
   error. web itself enforces nothing; keeping it off the network is a wrapper outside web.
 - When web gets an installable crate or a CI job, add its path rule to the `changes` job in
@@ -104,8 +104,9 @@ items. Ask me in chat only when I ask for a status report.
 
 ## wire2
 
-- Planned only (wire2/README.md, wire2/TODO.txt). Nothing is scheduled until I copy the spec
-  into wire2/SPEC.md (W2-SPEC) and say wire2 is active.
+- Active (2026-11-23). wire2/SPEC.md is the design and wins over TODO.txt. W2-1..W2-3 and W2-F
+  are a chain: one agent at a time, Opus. When wire2 gets a crate and CI job, add its path rule to
+  the `changes` job and its name to ci_then_push.sh's `--install` choices.
 
 ## Rules
 
