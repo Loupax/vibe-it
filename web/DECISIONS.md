@@ -29,7 +29,8 @@ network namespace" still hold.
 - **X11:** web-shell runs on an X11 desktop too: its winit backend opens an X11 window
   there, and the engine hosts keep speaking Wayland to the shell. C2's check covers both.
 - **Carry over from scratchy everything that can be carried** (user): KEYS.md and the
-  history design now live in web/ (KEYS.md, HISTORY.md); the shell code to port is
+  STASH.md now live in web/ (KEYS.md, STASH.md: state directory, history, forget-site,
+  cookies; scratchy's plain-file localStorage does not carry over as is); the shell code to port is
   listed in TODO.txt "From scratchy".
 
 ## 2026-11-23 The spike is a success; testing stops

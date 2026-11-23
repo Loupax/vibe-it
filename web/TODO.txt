@@ -57,7 +57,7 @@ stop early on a hard failure.
 - [ ] C3 Keys and command line, ported from scratchy (see "From scratchy" below):
       KEYS.md modes INPUT/NORMAL/SEARCH/COMMAND, Esc Esc, the status bar, T1-T34 and the
       ghost completion T45-T53; commands `:go`, `:refresh`, `:refresh hard`, `:help`,
-      `:q`, `:let` with `@%`; history (HISTORY.md) written from C1's load events; scroll
+      `:q`, `:let` with `@%`; history (STASH.md) written from C1's load events; scroll
       bindings as real input to the host window. `@+` and `yy` need C6's clipboard.
       Done when: every KEYS.md row C3 covers has a test (named after the row, as in
       scratchy) and works by hand in both hosts.
@@ -82,16 +82,27 @@ stop early on a hard failure.
 
 - [ ] C8 A day of browsing: W7's list below, with both engine hosts.
 
-- [ ] P-FORGET Forget a site (scratchy's `--forget-site`): an engine-host command that
-      clears the site's cookies and storage (CEF and WebKit each have their own API).
+- [ ] P-FORGET Forget a site (scratchy's `--forget-site`, STASH.md "Forget site"): an
+      engine-host command that clears the site's cookies and storage (CEF and WebKit each
+      have their own API).
+
+- [ ] P-COOKIES Third-party cookies off in both hosts (STASH.md "Cookies"), the closest
+      the engines get to scratchy's per-top-level-site jar.
+
+- [ ] P-STASH WAITING FOR USER: scratchy's plain-file localStorage (one file per key,
+      editable by hand) cannot sit behind the engines' own storage. Options in STASH.md
+      "Not carried": read/write single keys from the shell, or replace
+      window.localStorage (not recommended), or nothing.
 
 ## From scratchy (user, 2026-11-23: carry over everything that can be carried)
 
 Docs, carried in this commit:
 - KEYS.md -> web/KEYS.md (modes, rows, completion, paste, registers, config rule; **web:**
   notes mark what the compositor changes).
-- STASH.md "History" + "Ranking" -> web/HISTORY.md (same file format; scratchy's history
-  file can be copied over).
+- STASH.md -> web/STASH.md: state directory (engine profiles under it), history and
+  ranking (same file format; scratchy's history file can be copied over), forget-site
+  (through the engine), cookie partitioning (closest engine setting). The plain-file
+  localStorage store does not carry over as is (P-STASH).
 
 Code, ported in C3 (shell crate, `web/shell/`; scratchy file -> what is kept):
 - `src/config.rs`: the dwm config.h rule, `BINDINGS`, `KEY_SEQUENCES`, `ESC_ESC_MS`,
@@ -110,7 +121,7 @@ Code, ported in C3 (shell crate, `web/shell/`; scratchy file -> what is kept):
   testing; copied to web/tools/ when C2 starts.
 
 Not carried (the engine owns it, or it was scratchy's wire client): the HTML/CSS/layout/paint/V8 engine,
-`stash.rs` (localStorage), `forget.rs` (wire's cookie op), `user_agent.rs` (wire
+`stash.rs` (localStorage; see P-STASH), `forget.rs` (wire's cookie op), `user_agent.rs` (wire
 header), `input_host.rs`, `search.rs` (layout-based), the net policy, media, WPT tooling.
 
 ## The CEF + wire spike (record; stopped 2026-11-23, judged a success)

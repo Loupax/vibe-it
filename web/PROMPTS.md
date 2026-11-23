@@ -109,3 +109,16 @@ history and ranking sections; README.md. No code.
 proxy (plain requests and CONNECT) on a Unix socket", given with `--proxy <socket path>`
 (DECISIONS.md, TODO.txt C0/C1, README.md, root README). The C0 dependency on another
 project's TODO item is gone. The prompts above are kept verbatim.
+
+## STASH from scratchy (2026-11-23, docs only)
+
+> @scratchy/STASH.md ,that's what I meant
+
+(Answering "I guess KEYS and CRATE?" above: CRATE was STASH.md.)
+
+**What changed:** HISTORY.md became STASH.md, mirroring scratchy's: state directory
+(engine profiles under `DIR/engines/`), cookies (the engine's jar, third-party cookies
+off as the closest match to scratchy's per-site partitioning), forget-site through the
+engine hosts, history and ranking unchanged. scratchy's plain-file localStorage cannot
+sit behind CEF's or WebKit's storage; the options are in STASH.md and TODO.txt P-STASH
+(waiting for the user). New items P-COOKIES and P-STASH; DECISIONS.md, README.md updated.
