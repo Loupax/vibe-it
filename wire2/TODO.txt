@@ -95,8 +95,9 @@ tunnels are copied with small fixed buffers and backpressure, never whole.
       filters may not change a request's destination (502), plain http also goes through tunnel filters.)
       Was: Filters, as the spec defines them: external HTTP/1.1 servers on Unix sockets, chained, with the
       Proxy-Id handshake, lazy decryption and the `pass` reference filter.
-- [WIP] W2-2e [S] (from #685) Parked origin connections: an idle expiry of their own, and a pool shared across
-      the browser's (up to 6) connections per host.
+- [x] W2-2e [S] (DONE 2026-11-23, 995d0c0, #691: shared pool keyed by host/port/tunnel chain, 30 s idle, caps
+      6/64, --pool-* flags beyond SPEC.md; Chrome page: 41 -> 6 origin connections)
+- [ ] W2-2f [XS] (from #691) Include pool counts (per key, idle ages) in the SIGUSR1 registry dump.
 - [x] W2-HUBCLOSE [XS] (DONE 2026-11-23, #688: hub legs keep-alive, proxy-made errors close the browser connection) (from #685) With a filter in the chain, a proxy-made 502 reaches the browser as a
       keep-alive response: the hub leg's close does not propagate. Make it close the browser connection.
 - [x] W2-FLK1 [XS] (DONE 2026-11-23, 390a956, #687; also stage_timeout_504; 20/20 twice) (from #685) `w2_f_filters::malformed_and_closed_filter_502` failed once in a full run
