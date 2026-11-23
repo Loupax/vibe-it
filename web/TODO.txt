@@ -222,7 +222,7 @@ stop early on a hard failure.
 - [WIP] C6-LIVE [S] (from #690) c6_live.py fails 4/8 on main in an agent's headless nest (copy takes more than the
       field, Ctrl-v into the page, page -> `:` line, primary selection), though #686 reported 8/8. Find out
       whether the test or the bridge is wrong, and fix it.
-- [ ] C6b [M] (from #686) HiDPI and fractional scale: output is always scale 1; use winit's scale factor, set
+- [WIP] C6b [M] (from #686) HiDPI and fractional scale: output is always scale 1; use winit's scale factor, set
       the output's (fractional) scale, add fractional-scale-v1. Done when scales 1.5 and 2 in the nest give
       crisp page text and a correctly sized bar.
 - [ ] C6c [S] (from #686) Frame pacing: frame callbacks after every shell render, unthrottled; pace them to the
@@ -234,11 +234,11 @@ stop early on a hard failure.
 - [-] C6f DROPPED (user, 2026-11-23: "Drop middle-click paste in the page and keep GTK as it is."; #689 closed;
       the fix needed --ui-toolkit=fallback, which loses GTK theming) (from #686) Middle-click paste in the page does nothing (CEF never pastes primary); find the
       Blink/CEF setting and turn it on in web-host-cef; c6_live's primary step checks the paste.
-- [WIP] C2-POPUP [S] (from #689) Bug: Chromium's select popups request no constraint adjustment, so the
+- [x] C2-POPUP [S] (DONE 2026-11-23, 9a37017, #692: SlideX|SlideY|FlipY forced; live.py 16/16 Wayland + X11) (from #689) Bug: Chromium's select popups request no constraint adjustment, so the
       shell's unconstrain_popup does nothing and a <select> at the right edge opens outside the window. Force
       SlideX|SlideY before computing the unconstrained geometry (Layout::constrain_popup), unit test, and
       take #689's live.py/c2.html step (sel2 flush right) so live.py is 16/16. Includes C2-LIVE-REFRESH.
-- [WIP] C2-LIVE-REFRESH [XS] (in C2-POPUP) (from #686) web/shell/test/live.py's "context menu near the right edge" step is
+- [x] C2-LIVE-REFRESH [XS] (DONE in #692) (from #686) web/shell/test/live.py's "context menu near the right edge" step is
       stale since C-NOMENU; replace it with a <select> near the right edge (popup kept inside the window).
 - [ ] C-KEYH [S] (from #672) The cef crate's KeyboardHandler wrapper treats `os_event` as an XEvent and
       segfaults the host on Wayland. Needed if C3 wants key events from the host; fix or work around
