@@ -29,7 +29,8 @@ stop early on a hard failure.
         announces `tab-created <id>` before the window maps, so the shell can pair them.
       - control socket (Unix, path given by the shell), protocol v0 (JSON lines):
         shell->host `open <url>`, `back`, `forward`, `reload`, `stop`, `new-tab [url]`,
-        `close-tab <id>`, `find <query> next|prev`, `find-clear`, `zoom <n>`, `quit`;
+        `close-tab <id>`, `find <query> next|prev`, `find-clear`, `zoom <n>`, `quit`
+        (`forget-site <site>` / `forgot ...` is added by P-FORGET);
         host->shell `tab-created <id>`, `tab-closed <id>`, `url <id> <url>`,
         `title <id> <text>`, `load <id> start|end <status> <kind>` (kind: new, reload,
         traverse, same-document), `editable-focused <id> true|false`,
@@ -82,9 +83,13 @@ stop early on a hard failure.
 
 - [ ] C8 A day of browsing: W7's list below, with both engine hosts.
 
-- [ ] P-FORGET Forget a site (scratchy's `--forget-site`, STASH.md "Forget site"): an
-      engine-host command that clears the site's cookies and storage (CEF and WebKit each
-      have their own API).
+- [ ] P-FORGET Forget a site (scratchy's `--forget-site`, STASH.md "Forget site"): a
+      `forget-site` command in the engine-host interface, implemented by each host with
+      its engine's API; `web --forget-site` sends it to the running host or starts one
+      with `--no-window`.
+      Done when: for each host, after logging in to a site and storing localStorage and
+      IndexedDB on it and a subdomain, forget-site leaves no cookie or storage for it
+      (checked from a fresh load) and leaves another site's login intact.
 
 - [ ] P-COOKIES Third-party cookies off in both hosts (STASH.md "Cookies"), the closest
       the engines get to scratchy's per-top-level-site jar.

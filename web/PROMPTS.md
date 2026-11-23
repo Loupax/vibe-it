@@ -131,3 +131,13 @@ sit behind CEF's or WebKit's storage; the options are in STASH.md and TODO.txt P
 
 **What changed:** DECISIONS.md "The engine owns localStorage"; TODO.txt P-STASH dropped;
 STASH.md's last section records the drop instead of listing options.
+
+## Forget-site in the engine-host interface (2026-11-23, docs only)
+
+> I suppose we could introduce an interface for -forget-site per engine
+
+**What changed:** STASH.md "Forget site" defines it as an engine-host command
+(`forget-site <site>` -> `forgot <site> ok|partial`): the site is scheme + registrable
+domain, what is removed, who runs it (the running host, or one started with
+`--no-window`, since an engine locks its profile), and how CEF and WebKitGTK would do it.
+TODO.txt P-FORGET gets a done-when; C1's protocol notes the command.
