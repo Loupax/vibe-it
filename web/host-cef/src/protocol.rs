@@ -262,6 +262,46 @@ pub struct HostOptions {
     /// `--allow-third-party-cookies`: leave Chromium's third-party cookie default
     /// (testing only; the host blocks them otherwise, STASH.md "Cookies").
     pub allow_third_party_cookies: bool,
+    /// `--allow-background-traffic`: leave Chromium's own background requests on
+    /// (testing only, e.g. to measure them; the host switches them off otherwise).
+    pub allow_background_traffic: bool,
+}
+
+/// Chromium features the host turns off (C-BGNET; README "Chromium's own traffic" says
+/// what each one stops). Names are `base::Feature` names, without the `k` of the
+/// C++ constant.
+pub const QUIET_FEATURES: [&str; 4] = [
+    "NetworkTimeServiceQuerying",
+    "AimEnabled",
+    "PreconnectToSearch",
+    "AutofillServerCommunication",
+];
+
+/// `--component-updater=url-source=...`: where the component updater sends its checks.
+/// Nothing listens on port 9 of loopback (Chromium never uses a proxy for loopback), so
+/// every check fails at once and nothing leaves the machine. `--disable-component-update`
+/// and `--disable-background-networking` do not stop the check made at start.
+pub const COMPONENT_UPDATER_SINK: &str = "url-source=http://127.0.0.1:9/";
+
+/// The switches (name, value) that keep Chromium quiet, given the command line's own
+/// `--disable-features` value (merged, not replaced) and whether it already has
+/// `--component-updater` (kept as the caller wrote it).
+pub fn quiet_switches(disable_features: &str, has_component_updater: bool) -> Vec<(&'static str, String)> {
+    let mut features: Vec<&str> = disable_features.split(',').filter(|f| !f.is_empty()).collect();
+    for f in QUIET_FEATURES {
+        if !features.contains(&f) {
+            features.push(f);
+        }
+    }
+    let mut out = vec![
+        ("disable-sync", String::new()),
+        ("disable-background-networking", String::new()),
+        ("disable-features", features.join(",")),
+    ];
+    if !has_component_updater {
+        out.push(("component-updater", COMPONENT_UPDATER_SINK.to_string()));
+    }
+    out
 }
 
 /// Value of Chromium's `profile.cookie_controls_mode` preference
@@ -309,6 +349,10 @@ pub fn host_options(argv: &[String]) -> Result<HostOptions, String> {
     for a in argv.iter().skip(1) {
         if a == "--no-window" {
             o.no_window = true;
+            continue;
+        }
+        if a == "--allow-background-traffic" {
+            o.allow_background_traffic = true;
             continue;
         }
         if a == "--allow-third-party-cookies" {
@@ -754,6 +798,27 @@ mod tests {
         let o = host_options(&s(&["h", "--profile=/p", "--allow-third-party-cookies"])).unwrap();
         assert!(o.allow_third_party_cookies);
         assert_eq!(cookie_controls_mode(true), 2);
+    }
+
+    #[test]
+    fn quiet_switches_merge_features() {
+        let q = quiet_switches("", false);
+        assert!(q.contains(&("disable-sync", String::new())));
+        assert!(q.contains(&("component-updater", COMPONENT_UPDATER_SINK.to_string())));
+        let f = &q.iter().find(|(n, _)| *n == "disable-features").unwrap().1;
+        assert_eq!(f.split(',').collect::<Vec<_>>(), QUIET_FEATURES);
+        // The caller's own list is kept, nothing is listed twice, their component-updater wins.
+        let q = quiet_switches("Foo,AimEnabled", true);
+        let f = &q.iter().find(|(n, _)| *n == "disable-features").unwrap().1;
+        assert!(f.starts_with("Foo,AimEnabled,"));
+        assert_eq!(f.matches("AimEnabled").count(), 1);
+        assert!(!q.iter().any(|(n, _)| *n == "component-updater"));
+    }
+
+    #[test]
+    fn background_traffic_flag() {
+        assert!(!host_options(&s(&["h", "--profile=/p"])).unwrap().allow_background_traffic);
+        assert!(host_options(&s(&["h", "--profile=/p", "--allow-background-traffic"])).unwrap().allow_background_traffic);
     }
 
     #[test]

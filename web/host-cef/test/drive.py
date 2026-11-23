@@ -69,6 +69,37 @@ def announced_before_shown(host_log_lines, tab):
     return created is not None and shown is not None and created < shown
 
 
+def proxy_log_hosts(text):
+    """Hosts a fwd_proxy.py log shows traffic for, in order of first appearance. The log
+    has `HH:MM:SS GET http://host:port/... -> status`, `CONNECT host:port ...` and
+    `REFUSED ...` lines (plus `listening` and `error:` lines, which name no host)."""
+    hosts = []
+    for line in text.splitlines():
+        parts = line.split(" ", 1)  # time, rest
+        if len(parts) < 2:
+            continue
+        m = parts[1].split(" ", 2)
+        if m[0] == "REFUSED":
+            m = m[1:]
+        if len(m) < 2 or m[0] not in ("GET", "POST", "HEAD", "PUT", "DELETE", "OPTIONS", "CONNECT", "PATCH"):
+            continue
+        target = m[1]
+        if m[0] == "CONNECT":
+            host = target.rpartition(":")[0].strip("[]")
+        else:
+            host = urllib.parse.urlsplit(target).hostname or ""
+        if host and host not in hosts:
+            hosts.append(host)
+    return hosts
+
+
+def foreign_hosts(text, allowed):
+    """Hosts in the proxy log that are not page traffic: not in `allowed` (a host matches
+    when it equals an entry or is a subdomain of it)."""
+    return [h for h in proxy_log_hosts(text)
+            if not any(h == a or h.endswith("." + a) for a in allowed)]
+
+
 class Fail(Exception):
     pass
 
@@ -182,6 +213,11 @@ class Shell:
             return not any(pred(ev) for _, ev in self.events[mark:])
 
 
+def proxy_log_lines(path):
+    with open(path) as f:
+        return f.read().splitlines()
+
+
 def is_ev(event, **fields):
     def p(ev):
         return ev.get("event") == event and all(
@@ -215,6 +251,9 @@ def run(a):
     unit = f"web-host-c1-{os.getpid()}"
     cmd = [os.path.join(HOST_DIR, "run.sh")] + (["--x11"] if a.x11 else []) + [
         "--control", sock_path, "--url", base + "a.html", "--disable-popup-blocking"]
+    cmd += a.host_arg
+    if a.headless:
+        cmd += ["--ozone-platform=headless"]
     if a.proxy:
         cmd += ["--proxy", a.proxy, "--proxy-bypass-list=<-loopback>"]
     env = dict(os.environ, WEB_HOST_UNIT=unit, WEB_HOST_PROFILE=os.path.join(out, "profile"))
@@ -264,6 +303,16 @@ def run(a):
             with open(a.proxy_log) as f:
                 plog = f.read()
             ext = urllib.parse.urlsplit(a.external)
+            # C-BGNET: only page traffic. The test pages (127.0.0.1), the external page, and
+            # the unresolvable host the step opens; anything else is Chromium talking to itself.
+            allowed = ["127.0.0.1", ext.hostname, "nx-c1-check.invalid"] + a.allow_host
+            sh.note(f"hosts in the proxy log: {proxy_log_hosts(plog)}")
+            extra = foreign_hosts(plog, allowed)
+            if extra:
+                sh.note(f"FAIL: background traffic, hosts that are not page traffic: {extra}")
+                ok = False
+            else:
+                sh.note(f"proxy log shows page traffic only (allowed: {allowed})")
             want = [f"GET {base}a.html ", f"GET {base}b.html?via=open ", f"GET {base}b.html?via=blank ",
                     f"CONNECT {ext.hostname}:{ext.port or 443} "]
             miss = [w.strip() for w in want if w not in plog]
@@ -298,6 +347,19 @@ def steps(sh, conn, base, a):
     sh.note(f"step: first page ({A})")
     sh.expect("load start new", is_ev("load", phase="start", kind="new"), 60)
     nav("new", A, "C1 page A")
+
+    if a.idle:
+        # C-BGNET: background requests come at start and again later (component updater,
+        # time sync). The first page is local, so no tunnel to a page host is open to log
+        # a late close line: the proxy must log nothing at all while we wait.
+        time.sleep(3)  # let the load's own requests finish
+        n0 = proxy_log_lines(a.proxy_log)
+        sh.note(f"step: idle {a.idle} s after the first page load (proxy log has {len(n0)} lines)")
+        time.sleep(a.idle)
+        n1 = proxy_log_lines(a.proxy_log)
+        if len(n1) != len(n0):
+            raise Fail(f"background traffic while idle: {n1[len(n0):]}")
+        sh.note("idle: the proxy saw no request")
 
     sh.note("step: open B")
     send({"cmd": "open", "url": B})
@@ -436,10 +498,20 @@ def main():
     ap.add_argument("--out", required=True, help="output dir (use one under .qwork/)")
     ap.add_argument("--proxy", help="host:port of an HTTP forward proxy you started")
     ap.add_argument("--proxy-log", help="that proxy's log (fwd_proxy.py --log): check the page requests are in it")
+    ap.add_argument("--idle", type=int, default=0, metavar="SECONDS",
+                    help="wait this long after the first page loads and fail if the proxy logs anything "
+                         "(needs --proxy-log; C-BGNET: use 150)")
+    ap.add_argument("--host-arg", action="append", default=[], metavar="ARG",
+                    help="an extra argument for the host (repeatable), e.g. --host-arg=--allow-background-traffic")
+    ap.add_argument("--allow-host", action="append", default=[], metavar="HOST",
+                    help="another host that may appear in the proxy log (repeatable)")
+    ap.add_argument("--headless", action="store_true", help="run the host with Chromium's headless platform (no display)")
     ap.add_argument("--x11", action="store_true", help="run the host on X11 (DISPLAY)")
     ap.add_argument("--external", default="https://example.com/", help="a public page to load")
     a = ap.parse_args()
-    if not a.x11 and not os.environ.get("WAYLAND_DISPLAY"):
+    if a.idle and not (a.proxy and a.proxy_log):
+        sys.exit("drive.py: --idle needs --proxy and --proxy-log")
+    if not a.x11 and not a.headless and not os.environ.get("WAYLAND_DISPLAY"):
         sys.exit("drive.py: set WAYLAND_DISPLAY to a nested compositor (web/tools/nest.sh)")
     return run(a)
 

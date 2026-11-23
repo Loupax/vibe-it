@@ -96,6 +96,7 @@ class Proxy:
                 client.sendall(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n")
                 return
             if method == "CONNECT":
+                self.logline(f"CONNECT {target} opened")
                 client.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
                 if rest:
                     up.sendall(rest)

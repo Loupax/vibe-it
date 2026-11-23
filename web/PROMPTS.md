@@ -372,3 +372,30 @@ clipboard (C6). Tests named after the KEYS.md rows in `shell/src/tests/`; live c
 (coordinator launch of web/TODO.txt C5; the full prompt also carries the agent rules.)
 
 **What changed:** web/shell: `SearchState` and the SEARCH line in `keys.rs` (`/`, `n`, `N`, Esc, `find-result` -> `[i/N]`, wrap messages from the indices, not-found, no-previous-search, smartcase), `Command::Find`/`FindClear` in `protocol.rs`, `find-result` and cross-document load start wired in `state.rs`, help.html. web/host-cef (minimal, `page.rs`, `protocol.rs`): `find` takes an optional `match_case`; a new session ends the old one first (after a navigation CEF never answered the same text again) and the activating step now happens from `on_find_result` once the count is final, so a count of 0 is always reported (live: the old skip-one logic left `n` after a navigation unanswered). Tests: `shell/src/tests/search_tests.rs` named after the rows; live check `shell/test/c5_live.py` (12 steps, headless nest). What CEF gives for T23: from the top of the page match 1; with the screen scrolled to y=1710 it made the match above the screen (at 1300) current, not the first below the top, so exact T23 is proposed as a follow-up.
+
+## C-BGNET switch off Chromium's background traffic in web-host-cef (2026-11-23)
+
+> (coordinator) Switch off Chromium's background traffic in web-host-cef. Through the
+> proxy a drive.py run reached update.googleapis.com, *.gvt1.com, clients2.google.com/time,
+> www.google.com, content-autofill.googleapis.com. Find the switches/preferences that stop
+> each and apply the smallest set that works, documented one by one in host-cef/README.md.
+> Decide about the component updater (Widevine): keep page media working without DRM and
+> state plainly what is lost. Done when a drive.py run through test/fwd_proxy.py shows only
+> page traffic plus a run left idle 2-3 minutes showing no background requests; add a check
+> that fails if a non-page host appears.
+
+**What changed:** `protocol::quiet_switches` (applied in `main.rs`'s
+`on_before_command_line_processing`): `--disable-sync`, `--disable-background-networking`,
+`--component-updater=url-source=http://127.0.0.1:9/`, and `--disable-features=
+NetworkTimeServiceQuerying,AimEnabled,PreconnectToSearch,AutofillServerCommunication`;
+`--allow-background-traffic` turns them off. Found with a net log (`--log-net-log`) and
+leave-one-out runs; `--disable-component-update` and `--disable-background-networking` do
+not stop the update check at start (it is an on-demand install), so the updater is pointed
+at a closed loopback port. CEF 156's feature names are the C++ constant without the `k`
+(the `k` form is silently ignored), which cost several wrong guesses for AI Mode. The late
+request (`safebrowsing.googleapis.com`, ~2 min) only showed in a 150 s idle run, which is
+why the check has `--idle`. Widevine: CEF ships no CDM and `requestMediaKeySystemAccess`
+says no for `com.widevine.alpha` even after 130 s with all background traffic on, so DRM
+was already off; the switches lose nothing there. drive.py: host-list check, `--idle`,
+`--host-arg`, `--headless`; fwd_proxy.py logs tunnel opens (unit tests for the log parser
+caught a field-offset bug in my first version).
