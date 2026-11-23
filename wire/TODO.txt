@@ -165,20 +165,6 @@ the commit it came up during.
       Range -> 200 with Accept-Ranges; memory: a 64 MiB file with `bytes=0-1023`
       returns 1024 bytes.
 
-- [WIP] **W-MEDIA2 [S] A truncated body is indistinguishable from a complete one.**
-      `copy_body` returns `Ok` on an upstream read error, and the
-      `X-Wire-Max-Bytes` path ignores `read_to_end`'s error (`let _ =`); since wire
-      strips `Content-Length`, the client cannot tell a dropped upstream (or the
-      ureq total timeout, which INCLUDES reading the body: 20 s default) from the
-      real end. For ranged media reads the client can compare with `Content-Range`
-      (QM1e must), but other large bodies cannot. Option: when upstream sent a
-      `Content-Length` (and no compression was undone), pass it on as
-      `X-Wire-Upstream-Length: N` (protocol version 4); or, on the buffered
-      `X-Wire-Max-Bytes` path, which knows the whole body before writing headers,
-      answer `502` + `X-Wire-Error: truncated` instead of a short 2xx. Tests: a
-      fixture that announces 1000 bytes, sends 10 and closes. Low priority: nothing
-      has hit it yet.
-
 - [ ] **W-PERF1 [S, optional] Streaming copy is the throughput limit through wire.**
       Measured (R30, loopback Python server, Python client): 4 MiB ranged GETs
       ~60-90 MB/s through wire vs ~145-200 MB/s direct; 1-byte ranges ~9 ms vs

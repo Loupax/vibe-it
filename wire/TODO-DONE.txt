@@ -1,3 +1,20 @@
+- [x] **W-MEDIA2 DONE c5b85e6 #654 [S] A truncated body is indistinguishable from a complete one.**
+      `copy_body` returns `Ok` on an upstream read error, and the
+      `X-Wire-Max-Bytes` path ignores `read_to_end`'s error (`let _ =`); since wire
+      strips `Content-Length`, the client cannot tell a dropped upstream (or the
+      ureq total timeout, which INCLUDES reading the body: 20 s default) from the
+      real end. For ranged media reads the client can compare with `Content-Range`
+      (QM1e must), but other large bodies cannot. Option: when upstream sent a
+      `Content-Length` (and no compression was undone), pass it on as
+      `X-Wire-Upstream-Length: N` (protocol version 4); or, on the buffered
+      `X-Wire-Max-Bytes` path, which knows the whole body before writing headers,
+      answer `502` + `X-Wire-Error: truncated` instead of a short 2xx. Tests: a
+      fixture that announces 1000 bytes, sends 10 and closes. Low priority: nothing
+      has hit it yet.
+      DONE: X-Wire-Upstream-Length on streamed bodies passed through unmodified; 502 X-Wire-Error: truncated on the
+      buffered path when a read error leaves fewer bytes than Content-Length. A streamed cut still cannot be signalled
+      with the current framing (close = end); clients compare the byte count. README "Truncated bodies (W-MEDIA2)".
+
 - [x] **W-CACHE1 DONE 8d19a83 #605 [M] Local HTTP cache, on disk only** (user decision 2026-11-22: a
       private RFC 9111 cache in wire; wire keeps no cache data in memory and relies on
       the kernel page cache for hot entries; standard request headers instead of new
