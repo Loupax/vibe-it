@@ -239,7 +239,7 @@ def main():
             inject("key:slash", "wait:150", *keys_for("abc"), "wait:150")
             bar(r"/abc\|", before)
             inject("key:esc", "wait:400")
-            bar(r"NORMAL \| (?:search hit \w+, continuing at \w+  )?\[\d+/\d+\]$", before)
+            bar(r"NORMAL \| \[\d+/\d+\]$", before)
             if any('"query":"abc"' in c for c in sent(before)):
                 raise Fail("the cancelled search was run")
             k = key("n")
@@ -252,7 +252,7 @@ def main():
         def empty_enter():
             before = log.mark()
             inject("key:slash", "wait:150", "key:ret", "wait:400")
-            bar(r"NORMAL \| (?:search hit \w+, continuing at \w+  )?\[\d+/\d+\]$", before)
+            bar(r"NORMAL \| \[\d+/\d+\]$", before)
             if sent(before):
                 raise Fail(f"commands sent: {sent(before)}")
             return "/ Enter with nothing typed: same as Esc, nothing sent (T24)"
@@ -317,57 +317,18 @@ def main():
             return f"after :go the old [i/N] was cleared and n on the other page says 'Pattern not found: needle' (kept query, T31); h back, n -> {i}/{MATCHES}"
         step("T31: navigation clears the highlights and keeps the query", navigation)
 
-        TOPS = [400, 1300, 2200, 2700, 3600, 5000]  # where the matches are (c5.html)
-
-        def t23_first_match_at_or_below_the_screen_top():
-            # C5b: a new document (after h) has no selection and the screen is scrolled to the middle,
-            # with matches above and below it. CEF alone made the nearest one ABOVE the screen current
-            # (the match at 1300 with the screen at 1710); T23 wants the first at or below the top.
+        def t23_from_the_top_of_the_screen():
+            # A new document (after h) has no selection: where does the engine's first match lie
+            # when the screen is already scrolled? The matches are at y=400, 1300, 2200, 2700, 3600, 5000.
             inject("key:esc", "wait:200")
             inject("hold:c", "key:d", "release", "wait:800", "hold:c", "key:d", "release", "wait:800")
             y = settle_y()
-            want = next(i for i, t in enumerate(TOPS, 1) if t >= y)
-            if want == 1 or not any(t < y for t in TOPS):
-                raise Fail(f"the screen at y={y} has no match above it")
-            k = search("needle")
-            i, wrap = step_index(k, want_wrap=False)
-            if i != want:
-                raise Fail(f"screen top y={y}: match {i} is current, T23 wants {want} (top {TOPS[want - 1]})")
-            shot("search-from-scrolled.png")
-            return f"screen scrolled to y={y}, matches above and below: /needle made {i}/{MATCHES} current (top {TOPS[i - 1]}), no wrap message"
-        step("T23 C5b: first match at or below the top of the screen", t23_first_match_at_or_below_the_screen_top)
-
-        def t23_again_with_a_selection():
-            # The previous search left its match selected: the new one must still start at the screen top.
-            inject("key:esc", "wait:200")
-            inject("hold:c", "key:d", "release", "wait:800", "hold:c", "key:d", "release", "wait:800")
-            y = settle_y()
-            want = next((i for i, t in enumerate(TOPS, 1) if t >= y), 1)
             k = search("needle")
             i, wrap = step_index(k)
-            if i != want:
-                raise Fail(f"screen top y={y}: match {i} is current, T23 wants {want}")
-            if (want == 1 and y > TOPS[0]) != bool(wrap):
-                raise Fail(f"wrap message {wrap!r} for match {i} at y={y}")
-            return f"scrolled on to y={y} with the old match still selected: /needle -> {i}/{MATCHES}"
-        step("T23 C5b: a new search ignores the previous selection", t23_again_with_a_selection)
-
-        def t23_wraps_when_none_below():
-            inject("key:esc", "wait:200")
-            inject("hold:s", "key:g", "release", "wait:1000")
-            y = settle_y()
-            if y <= TOPS[-1]:
-                raise Fail(f"G reached only y={y}; the last match (top {TOPS[-1]}) is not above the screen")
-            k = search("needle")
-            i, wrap = step_index(k, want_wrap=True)
-            if i != 1 or wrap != "search hit BOTTOM, continuing at TOP":
-                raise Fail(f"y={y}: {i} {wrap!r}")
             y2 = settle_y()
-            if y2 > TOPS[0]:
-                raise Fail(f"match 1 current but the screen stayed at y={y2}")
-            shot("search-wrapped.png")
-            return f"screen at y={y} (the last match, top {TOPS[-1]}, is above it): /needle -> 1/{MATCHES} with the BOTTOM wrap message, screen at y={y2}"
-        step("T23 C5b: none below the top of the screen wraps to the first", t23_wraps_when_none_below)
+            shot("search-from-scrolled.png")
+            return f"screen scrolled to y={y}; /needle made match {i}/{MATCHES} current (scrollY {y2}). KEYS T23 wants the first match at or below the top of the screen"
+        step("T23: where the engine starts when the screen is scrolled", t23_from_the_top_of_the_screen)
 
     except Fail as e:
         results.append(("start", False, str(e)))

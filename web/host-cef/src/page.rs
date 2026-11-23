@@ -57,12 +57,6 @@ struct Page {
     /// results nobody asked for (a stale `0 0` at a load start): with no request pending
     /// they are dropped, and a result carries the id of the request it answers.
     find_pending: Option<u64>,
-    /// C5b: a find from the top of the screen waits for the page's `web-host.find-start` line:
-    /// (query, forward, match_case).
-    find_start: Option<(String, i32, i32)>,
-    /// C5b: the page said there is no match at or below the top of the screen (the find
-    /// wrapped); goes out with the `find-result`.
-    find_wrapped: bool,
     /// The shell sent `stop` and no load has started since.
     stop_requested: bool,
 }
@@ -304,29 +298,6 @@ wrap_display_handler! {
             }
         }
 
-        // C5b: the answer of find_start.js. A page can print the same line; the worst it does
-        // is start a waiting find early, or claim a wrap.
-        fn on_console_message(
-            &self,
-            browser: Option<&mut Browser>,
-            _level: LogSeverity,
-            message: Option<&CefString>,
-            _source: Option<&CefString>,
-            _line: ::std::os::raw::c_int,
-        ) -> ::std::os::raw::c_int {
-            let m = message.map(|m| m.to_string()).unwrap_or_default();
-            let Some(wrapped) = m.strip_prefix("web-host.find-start:") else { return 0 };
-            if !is_page(&browser) {
-                return 0;
-            }
-            let Some((query, forward, match_case)) = with_page(|p| p.find_start.take()) else { return 1 };
-            with_page(|p| p.find_wrapped = wrapped == "1");
-            if let Some(h) = browser.as_ref().and_then(|b| b.host()) {
-                start_find(&h, &query, forward, match_case, false);
-            }
-            1
-        }
-
         fn on_title_change(&self, browser: Option<&mut Browser>, title: Option<&CefString>) {
             if !is_page(&browser) {
                 return;
@@ -481,7 +452,6 @@ wrap_load_handler! {
                 p.find_query = None;
                 p.find_step = None;
                 p.find_pending = None;
-                p.find_start = None;
                 (p.id, p.editable)
             });
             load_event(id, LoadPhase::Start, 0, kind, None);
@@ -670,11 +640,8 @@ wrap_find_handler! {
             }
             // Intermediate updates carry partial counts; the shell gets the final one.
             if final_update != 0 {
-                let wrapped = with_page(|p| {
-                    p.find_pending = None;
-                    std::mem::take(&mut p.find_wrapped)
-                });
-                emit(Event::FindResult { tab: id, id: find_id, index: if count == 0 { 0 } else { index }, count, wrapped });
+                with_page(|p| p.find_pending = None);
+                emit(Event::FindResult { tab: id, id: find_id, index: if count == 0 { 0 } else { index }, count });
             }
         }
     }
@@ -822,29 +789,6 @@ pub fn quit() {
     }
 }
 
-/// The page script that puts the selection at the top of the screen (find_start.js), called with
-/// the query and the case flag.
-fn find_start_js(query: &str, match_case: bool) -> String {
-    let q = serde_json::to_string(query).expect("a string serializes");
-    // JSON allows U+2028/2029 inside strings, JavaScript before ES2019 did not: escape them.
-    let q = q.replace('\u{2028}', "\\u2028").replace('\u{2029}', "\\u2029");
-    format!("{}({q}, {match_case});", include_str!("find_start.js"))
-}
-
-/// Starts (or steps) the engine's find. A new session counts the matches but activates none
-/// (active ordinal 0); on_find_result steps once so the first (or, for prev, last) match is
-/// active, as in a browser's find bar, and reports only that.
-fn start_find(h: &BrowserHost, query: &str, forward: i32, match_case: i32, again: bool) {
-    with_page(|p| p.find_step = (!again).then(|| (query.to_string(), forward, match_case)));
-    if !again {
-        // After a navigation CEF still holds the old session; the same text would be
-        // taken for the same search and never answer (found live by C5). Ending it
-        // first is what `find-clear` does, which works.
-        h.stop_finding(0);
-    }
-    h.find(Some(&CefString::from(query)), forward, match_case, again as i32);
-}
-
 /// Runs one command line from the shell (UI thread).
 pub fn run_command(line: &str) {
     let cmd = match protocol::parse_command(line) {
@@ -892,14 +836,9 @@ pub fn run_command(line: &str) {
             query,
             dir,
             match_case,
-            screen_top,
         } => {
             let Some(h) = host else { return };
-            with_page(|p| {
-                p.find_pending = Some(find_id);
-                p.find_start = None;
-                p.find_wrapped = false;
-            });
+            with_page(|p| p.find_pending = Some(find_id));
             let again = with_page(|p| {
                 let again = p.find_query.as_deref() == Some(query.as_str());
                 if !again {
@@ -908,25 +847,25 @@ pub fn run_command(line: &str) {
                 }
                 again
             });
+            let text = CefString::from(query.as_str());
             let forward = (dir == FindDir::Next) as i32;
-            if screen_top && !again {
-                // C5b (T23): the engine's find starts from the selection, so first put the
-                // selection at the first text at or below the top of the screen; the page
-                // answers with a console line (see on_console_message) and the find runs then.
-                if let Some(f) = browser.main_frame() {
-                    with_page(|p| p.find_start = Some((query.clone(), forward, match_case as i32)));
-                    f.execute_java_script(Some(&CefString::from(find_start_js(&query, match_case).as_str())), None, 0);
-                    return;
-                }
+            // A new find session counts the matches but activates none (active ordinal 0);
+            // on_find_result steps once so the first (or, for prev, last) match is active,
+            // as in a browser's find bar, and reports only that.
+            with_page(|p| p.find_step = (!again).then(|| (query.clone(), forward, match_case as i32)));
+            if !again {
+                // After a navigation CEF still holds the old session; the same text would be
+                // taken for the same search and never answer (found live by C5). Ending it
+                // first is what `find-clear` does, which works.
+                h.stop_finding(0);
             }
-            start_find(&h, &query, forward, match_case as i32, again);
+            h.find(Some(&text), forward, match_case as i32, again as i32);
         }
         Command::FindClear => {
             with_page(|p| {
                 p.find_query = None;
                 p.find_index = 0;
                 p.find_pending = None;
-                p.find_start = None;
             });
             // Keep the active match selected (C5: Enter on a match acts on it).
             if let Some(h) = host {
@@ -943,20 +882,5 @@ pub fn run_command(line: &str) {
             Err(message) => emit(Event::Error { message }),
         },
         Command::Quit | Command::ForgetSite { .. } | Command::Caret { .. } => unreachable!(),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::find_start_js;
-
-    #[test]
-    fn find_start_js_passes_the_query_as_a_json_string() {
-        let js = find_start_js("a\"b\\c\n</script>\u{2028}", true);
-        assert!(js.ends_with(r#"("a\"b\\c\n</script>\u2028", true);"#), "{js}");
-        assert!(!js.contains('\u{2028}'));
-        let js = find_start_js("needle", false);
-        assert!(js.ends_with(r#"("needle", false);"#));
-        assert!(js.contains("web-host.find-start:"));
     }
 }

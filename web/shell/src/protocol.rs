@@ -58,10 +58,6 @@ pub enum Event {
         id: u64,
         index: u32,
         count: u32,
-        /// C5b: the find asked for `screen_top` and no match is at or below it: the match is
-        /// the first one, after a wrap.
-        #[serde(default)]
-        wrapped: bool,
     },
     Crashed {
         tab: u64,
@@ -115,10 +111,6 @@ pub enum Command {
         dir: FindDir,
         #[serde(skip_serializing_if = "std::ops::Not::not")]
         match_case: bool,
-        /// C5b (T23): the engine starts at the first text at or below the top of the screen
-        /// (`/` Enter); without it, where the engine picks.
-        #[serde(skip_serializing_if = "std::ops::Not::not")]
-        screen_top: bool,
     },
     FindClear,
     /// Caret browsing on/off (`:set caret` / `:set nocaret`, C-CARETCMD).
@@ -240,17 +232,6 @@ mod tests {
                     id: 7,
                     index: 2,
                     count: 5,
-                    wrapped: false,
-                },
-            ),
-            (
-                r#"{"event":"find-result","tab":1,"id":8,"index":1,"count":5,"wrapped":true}"#,
-                Event::FindResult {
-                    tab: 1,
-                    id: 8,
-                    index: 1,
-                    count: 5,
-                    wrapped: true,
                 },
             ),
             (
@@ -328,7 +309,6 @@ mod tests {
                     query: "needle".into(),
                     dir: FindDir::Next,
                     match_case: false,
-                    screen_top: false,
                 },
                 r#"{"cmd":"find","id":1,"query":"needle","dir":"next"}"#,
             ),
@@ -338,19 +318,8 @@ mod tests {
                     query: "Needle".into(),
                     dir: FindDir::Prev,
                     match_case: true,
-                    screen_top: false,
                 },
                 r#"{"cmd":"find","id":2,"query":"Needle","dir":"prev","match_case":true}"#,
-            ),
-            (
-                Command::Find {
-                    id: 3,
-                    query: "x".into(),
-                    dir: FindDir::Next,
-                    match_case: false,
-                    screen_top: true,
-                },
-                r#"{"cmd":"find","id":3,"query":"x","dir":"next","screen_top":true}"#,
             ),
             (Command::FindClear, r#"{"cmd":"find-clear"}"#),
             (Command::Caret { on: true }, r#"{"cmd":"caret","on":true}"#),

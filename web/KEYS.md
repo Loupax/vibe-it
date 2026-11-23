@@ -17,7 +17,8 @@ Status: **built in web by C3** (`shell/src/keys.rs`, `config.rs`, `completion.rs
 `registers.rs`, `statusbar.rs`; tests named after the rows in `shell/src/tests/`, live
 check `shell/test/c3_live.py`), Search built by C5 (`shell/src/tests/search_tests.rs`, live
 check `shell/test/c5_live.py`), clipboard (`@+`, `yy`, paste) built by C6 (`shell/src/tests/c6_tests.rs`, live check `shell/test/c6_live.py`), Enter in NORMAL by C-ENTER (`shell/src/tests/c_enter_tests.rs`, live
-check `shell/test/c_enter_live.py`). **This file is the source of truth** for web's keys: when web/TODO.txt and this
+check `shell/test/c_enter_live.py`), the picker by C-PICK (`shell/src/picker.rs`, `shell/src/tests/c_pick_tests.rs`,
+live check `shell/test/c_pick_live.py`). **This file is the source of truth** for web's keys: when web/TODO.txt and this
 file disagree, this file wins. Rows marked *(proposed)* are Claude's
 proposals that the user has not confirmed yet; they are built as written unless the
 user changes them before the item starts.
@@ -42,6 +43,7 @@ home-row mods, e.g. a Corne where Ctrl is a held `a`, or a tap-hold Caps Lock).
 | NORMAL | `NORMAL` | sticky | scratchy's bindings; the page gets no key events *(proposed, P2)* |
 | SEARCH | `/` + the query | one line | the status-bar line editor |
 | COMMAND | `:` + the command | one line | the status-bar line editor |
+| PICK | `>` + the filter; the list over the page shows `PICK` | one line + a list | the status-bar line editor and the picker's keys (C-PICK, "Picker") |
 
 Two short-lived helper states hold the timing rules: **ESC1** (in INPUT, one Esc seen,
 waiting for a second) and **G** (in NORMAL, one `g` seen, waiting for a second). The
@@ -68,6 +70,9 @@ stateDiagram-v2
     COMMAND --> NORMAL: Enter = run, Esc = cancel
     SEARCH --> INPUT: click into a text field or select
     COMMAND --> INPUT: click into a text field or select
+    COMMAND --> PICK: Enter on a picker command (historySearch)
+    PICK --> NORMAL: Enter = run the row, Esc or a click = close
+    PICK --> INPUT: an editable gains focus
 ```
 
 ## Transition table
@@ -122,7 +127,7 @@ key; a press of a key already down is treated as a repeat (`Keys::key`).
 | # | From | Event | Guard | To | Effect |
 |---|---|---|---|---|---|
 | T22 | SEARCH | text editing keys, paste | none | SEARCH | edit the query (`TextEditBuffer`, same as `:`); paste as in "Paste" below |
-| T23 | SEARCH | Enter | query not empty | NORMAL | the query becomes the kept query; find matches; current = the first match whose top is at or below the top of the screen, in document order (none below: wrap to the first match, with the wrap message); bring the screen to it (S4); `[i/N]` in the status bar. No matches: T16's message. **web (C5b, exact):** the shell sends `find-clear` (if a session is open) and then the new query with `screen_top`, so the same query again starts fresh. Chromium's find starts from the selection, and left alone CEF picked its own first match (with the screen at y=1710 and matches at 1300/2200/..., match 2, the one above the screen). So the host first collapses the selection at the first text (text node or text-field value, in document order) with a line whose top is at or below the top of the screen (`host-cef/src/find_start.js`) and then starts the find: the current match is the first one at or below the top of the screen. None at or below, one above: the selection goes to the document start, the first match is current and the host's `find-result` says `wrapped`, so the bar shows `search hit BOTTOM, continuing at TOP  [1/N]`. Only `/` Enter does this; `n`/`N` step the open session, and `n` after Esc or a navigation still starts where the engine picks (T7, T15). Limits: matches split over elements, in shadow DOM or in iframes are not seen by the page walk (the engine still finds them; no wrap is claimed for them) |
+| T23 | SEARCH | Enter | query not empty | NORMAL | the query becomes the kept query; find matches; current = the first match whose top is at or below the top of the screen, in document order (none below: wrap to the first match, with the wrap message); bring the screen to it (S4); `[i/N]` in the status bar. No matches: T16's message. **web (what CEF gives):** the shell sends `find-clear` (if a session is open) and then the new query, so the same query again starts fresh; CEF's first current match depends on where the page is scrolled: from the top it is match 1; with the screen at y=1710 and matches at 1300/2200/..., it made match 2 (1300) current, i.e. NOT the first at or below the top of the screen (that would be the one at 2200). It never wraps on the first result, so no wrap message. Exact T23 needs the host to report match rectangles (proposed item in the C5 PR) |
 | T24 | SEARCH | Enter | query empty | NORMAL | same as Esc (T25) |
 | T25 | SEARCH | Esc | none | NORMAL | cancel: highlights and the kept query as they were before `/`. **web:** nothing is sent while typing, so nothing has to be restored |
 | T26 | COMMAND | text editing keys, paste | none | COMMAND | as today; paste as in "Paste" below (a paste is an edit for T45). **web:** Left, Right, Home, End, Backspace, Ctrl-w (delete the word before the cursor), Ctrl-u (delete to the start); Ctrl/Alt/Super chords type nothing |
@@ -156,11 +161,11 @@ Numbers are not reused.
 
 | # | From | Event | Guard | To | Effect |
 |---|---|---|---|---|---|
-| T29 | NORMAL, G, SEARCH, COMMAND | an editable element gains focus (a click, Tab, a page script: `autofocus`, `el.focus()`), or a click opens a popup (select menu, context menu) | none | INPUT | the click goes to the page as usual; an open SEARCH/COMMAND line is cancelled first. **web:** the host reports `editable-focused true` after the engine moved focus; the shell switches whatever caused it (user decision 2026-11-23, see T32); `editable-focused false` (blur) never changes the mode. A `<select>` is not editable, so a new popup (xdg_popup) within `CLICK_FOCUS_MS` (1000) of a mouse press also switches (it is the select's menu, or a context menu, whose keys must reach the page); that mode returns when the popup closes (T57) |
+| T29 | NORMAL, G, SEARCH, COMMAND, PICK | an editable element gains focus (a click, Tab, a page script: `autofocus`, `el.focus()`), or a click opens a popup (select menu, context menu) | none | INPUT | the click goes to the page as usual; an open SEARCH/COMMAND line or the picker (T68) is cancelled first. **web:** the host reports `editable-focused true` after the engine moved focus; the shell switches whatever caused it (user decision 2026-11-23, see T32); `editable-focused false` (blur) never changes the mode. A `<select>` is not editable, so a new popup (xdg_popup) within `CLICK_FOCUS_MS` (1000) of a mouse press also switches (it is the select's menu, or a context menu, whose keys must reach the page); that mode returns when the popup closes (T57) |
 | T30 | any | other mouse input | none | same | goes to the page as today |
 | T31 | any | navigation (any cause: `:go`, `h`/`l`, a followed link or click, page script) | none | same | highlights and the current match cleared; the kept query stays (`n` on the new page searches again); an open SEARCH/COMMAND line stays open. **web:** cleared on the host's `load start` of a cross-document load (the host drops its session itself and the shell forgets the index and `[i/N]`); same-document navigations (a `#fragment`, `history.pushState`) get no load callbacks, so the host's `load start ... same-document` is the signal: the shell sends `find-clear` and forgets the index and `[i/N]` (C5-FRAG). A `find-result` is matched to its `find` by id; one nobody asked for (CEF's stale `0 0` at a load start) is ignored (C5-STALE) |
 | T32 | any | page script focuses an element (`el.focus()`, `autofocus`) | the element is editable | INPUT | **changed 2026-11-23 (user):** focus of an input element switches to INPUT whatever caused it, same as T29; there is no auto-return on blur (the exit of the form context is not clear). Focus of a non-editable element, a blur (`editable-focused false`) and a popup the page opens without a user click change nothing. **web:** `Event::EditableFocused { focused: true }` always calls `user_focused_control` (no click window) |
-| T33 | NORMAL, G, SEARCH, COMMAND | key release | none | same | not delivered to the page *(proposed, P2)*. **web:** a release goes to the page exactly when its press did: a key pressed in INPUT and released after Esc Esc is released in the page too (no stuck keys); a press in NORMAL is never followed by a release in the page (T34). When the shell window loses the desktop's keyboard focus (C-FOCUSKEYS: smithay's winit backend drops winit's synthetic releases) the shell releases, in the page, every key whose press it delivered and has no release for, and forgets what it saw held; a physical release that comes after the refocus is then not delivered (T33 still holds). The held modifiers are the desktop's (C3-SHIFTSYNC): its `wl_keyboard.modifiers` (X11: XKB StateNotify) set the seat's modifier state while no key is down, so a Shift held at focus-in or set by a modifiers event alone still makes `;` a `:` and `g` a `G`; the page is told of it only in INPUT |
+| T33 | NORMAL, G, SEARCH, COMMAND, PICK | key release | none | same | not delivered to the page *(proposed, P2)*. **web:** a release goes to the page exactly when its press did: a key pressed in INPUT and released after Esc Esc is released in the page too (no stuck keys); a press in NORMAL is never followed by a release in the page (T34). When the shell window loses the desktop's keyboard focus (C-FOCUSKEYS: smithay's winit backend drops winit's synthetic releases) the shell releases, in the page, every key whose press it delivered and has no release for, and forgets what it saw held; a physical release that comes after the refocus is then not delivered (T33 still holds). The held modifiers are the desktop's (C3-SHIFTSYNC): its `wl_keyboard.modifiers` (X11: XKB StateNotify) set the seat's modifier state while no key is down, so a Shift held at focus-in or set by a modifiers event alone still makes `;` a `:` and `g` a `G`; the page is told of it only in INPUT |
 | T34 | INPUT | release of a key whose press was NOT delivered to the page (the `i` of T6, the second Esc of T2) | none | INPUT | not delivered either, so the page never sees a `keyup` without its `keydown` |
 
 ## Accesskey (QWPT7c)
@@ -242,7 +247,7 @@ set per command, like bash's `complete`:
   **web:** scratchy's `:set js`/`motion` (engine settings) are dropped; `:set` has
   `caret`, `nocaret` and `caret?` (C-CARETCMD, below). The rows are `go` (the history),
   `refresh` (`hard`) and `set` (`config::SET_ARGS`; a selected `:set` argument gets a space,
-  T53). The commands are `:go`, `:refresh [hard]`, `:historyBack`, `:historyFront`, `:help`,
+  T53). The commands are `:go`, `:refresh [hard]`, `:historyBack`, `:historyFront`, `:historySearch` (the picker, C-PICK), `:help`,
   `:let`, `:set`, `:q`/`:quit`.
   `:go` without a scheme means `https://` (scratchy's QCOMP6); the ghost still continues
   exactly what was typed. C3-GOHTTP: when the run line's URL (typed + accepted ghost) equals
@@ -362,22 +367,57 @@ they send real keys (measured with `c_enter_live.py`):
 
 The rest of caret mode (our own caret, C5-ENTER) is parked.
 
-## Picker (planned, C-PICK)
+## Picker (C-PICK)
 
-Not built. Decided 2026-11-23 (DECISIONS.md "A picker, bookmarks, buffers as tabs, popups like
-Chrome"); the transition rows get written with C-PICK.
+Built by C-PICK (`shell/src/picker.rs`). Decided 2026-11-23 (DECISIONS.md "A picker, bookmarks, buffers
+as tabs, popups like Chrome"); the rows below are the implementer's, from the user's words in that
+decision ("a list the shell draws over the page, above the status bar", "fuzzy filtering, the same keys
+in every list (move, Enter runs the row, Esc closes) and a mode of its own").
 
-- A list the shell draws over the page, above the status bar; the page is not resized. Opened only by
-  dedicated commands: `:historySearch`, `:bookmarkSearch` (C-BOOKMARKS), `:bufferList`/`:ls` (C4),
+- A list the shell draws over the page, right above the status bar; the page is not resized. Opened only by
+  dedicated commands: `:historySearch` (built), `:bookmarkSearch` (C-BOOKMARKS), `:bufferList`/`:ls` (C4),
   `:popupSearch` (C-POPUPS). Context-menu actions (C-CMDS, parked) may become a source later.
-- It is a mode of its own, **PICK**: the status bar shows the filter being typed; the page gets no keys.
-- Keys: typing edits the filter (`TextEditBuffer`, as the `:` line), Ctrl-n / Down and Ctrl-p / Up move
-  the selection, Enter runs the selected row's action and closes, Esc closes. An editable focus or a
-  click into the page closes it as T29 closes the `:` line.
-- Matching is fuzzy (the typed letters in order, best matches first), the same in every list. Each row
-  is a label plus a dimmed detail; what is matched is the source's choice (history and bookmarks: URL
-  and title; buffers: title, hostname, description).
-- It never shows Tab candidates: the ghost (T45-T53) stays the only completion of the `:` line.
+- It is a mode of its own, **PICK**: the status bar shows `>` and the filter being typed (with a caret, like
+  the `:` line); the list's header shows `PICK`, the source's name and `matches/total`; the page gets no keys.
+- Each row is a label plus a dimmed detail; what is matched is the source's choice (history and bookmarks:
+  URL and title; buffers: title, hostname, description). It never shows Tab candidates: the ghost
+  (T45-T53) stays the only completion of the `:` line.
+- **Matching** (the same in every list, `picker::fuzzy_score`): fzf-style. Each whitespace-separated term
+  of the filter must appear in one of the row's fields with its letters in order (not necessarily
+  together); smartcase as in Search. Score: every matched letter counts, a match at a word start (after a
+  non-alphanumeric character, or the text's start) or a camelCase hump scores more, a run of consecutive
+  matches keeps the bonus of its first letter, a gap between matches costs; the best placement of the term
+  is found. A row's score is the sum over the terms (each in its best field). **Best first**, ties in the
+  source's own order (history: the `:go` ranking, STASH.md "Ranking"). An empty filter lists everything in
+  the source's order.
+- **Drawn** at the window's scale like the bar (C6b): painted at the framebuffer's resolution with the bar's
+  font and paddings; at most `PICKER_MAX_ROWS` (12) rows of `PICKER_ROW_H` (22) logical px under a header row
+  of the same height, fewer when the page is shorter; the list scrolls to keep the selection shown. Colours
+  and sizes are `config.rs` `PICKER_*`.
+- **`:historySearch [filter]`**: the history file (STASH.md "History") in the `:go` ranking (site roots
+  first, then pages). Label: the newest title recorded for exactly that URL (a site root without one: its
+  host; a page without one: its URL, and no detail); detail: the URL. Matched on the URL without
+  `https://`/`http://`/`www.`, and the title. Enter loads the URL in the current page (`open`). An argument
+  is typed into the filter *(proposed)*.
+
+| # | From | Event | Guard | To | Effect |
+|---|---|---|---|---|---|
+| T58 | COMMAND | Enter on `:historySearch [filter]` (later: `:bookmarkSearch`, `:bufferList`, `:popupSearch`) | the source has rows | PICK | the list opens with every row matching the filter (none typed: all, in the source's order), the first selected. No rows: stays NORMAL, status bar `web: the history is empty` |
+| T59 | PICK | text editing keys, paste | none | PICK | edit the filter (the `:` line's keys, T26: Left, Right, Home, End, Backspace, Ctrl-w, Ctrl-u, paste); after a change the list is re-ranked (fuzzy, best first) and the best match selected. The page gets no keys, `i` and `j` are typed |
+| T60 | PICK | Ctrl-n, Down | not on the last row | PICK | the next row is selected; the list scrolls to keep it shown. On the last row nothing happens *(proposed: no wrap)* |
+| T61 | PICK | Ctrl-p, Up | not on the first row | PICK | the previous row is selected (no wrap) |
+| T62 | PICK | Enter (keypad Enter too) | a row matches | NORMAL | the picker closes, then the selected row's action runs (history: `open <url>` in the current page) |
+| T63 | PICK | Enter | no row matches | PICK | nothing *(proposed)*: edit the filter or Esc |
+| T64 | PICK | Esc | none | NORMAL | the picker closes; nothing runs |
+| T65 | PICK | Tab, Shift-Tab, Delete, other Ctrl/Alt/Super chords | none | PICK | nothing (no Tab candidates in a picker) |
+| T66 | PICK | a mouse press | over the list | NORMAL | the picker closes; the press and its release are not delivered to the page (it was under the list) *(proposed: the rows are not clickable, keyboard only)* |
+| T67 | PICK | a mouse press | elsewhere (the page outside the list, the bar) | NORMAL | the picker closes; the click goes to the page as usual (as T29 for the `:` line) |
+| T68 | PICK | an editable gains focus, or a click opens a popup | none | INPUT | as T29: the picker closes first; a popup's return (T57) is to NORMAL |
+
+**Adding a source** (C-BOOKMARKS, C4, C-POPUPS): a function returning `Vec<picker::Row>` (label, detail, the
+fields to match, a `PickAction`) in the source's own order, opened from its command with
+`Keys::open_picker(name, rows, filter, empty_message)`; a new kind of action is a `PickAction` variant and its
+arm in `Keys::run_pick_action`.
 
 ## Buffers (planned, C4)
 
@@ -404,6 +444,11 @@ gesture and a `target=_blank` link open a new buffer; one without a gesture is b
 Esc Esc, so there is nothing left to switch off, and Esc Esc cannot be locked out (T2).
 
 ## Decision log
+
+- 2026-11-23 (C-PICK): the picker built as "Picker" says (T58-T68). The implementer's choices, not asked:
+  the bar prompt `>`, no wrap at the list's ends (T60/T61), Enter with no match does nothing (T63), a press
+  over the list is kept from the page (T66), `:historySearch <filter>` pre-types the filter, fzf-style
+  scoring with ties in the source's order, the list's best row at the top under a header.
 
 - 2026-11-23 (user, planning): a picker for dedicated searches (`:historySearch`, `:bookmarkSearch`,
   `:bufferList`), bookmarks, buffers as tabs with camelCase commands and vim aliases, popups like

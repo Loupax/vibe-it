@@ -65,6 +65,10 @@ impl State {
                     Err(e) => eprintln!("[web] status bar: {e:?}"),
                 }
             }
+            // C-PICK: the picker's list over the page, right above the bar.
+            if let Some(e) = self.pick_overlay.element(renderer, &self.keys, &self.layout, &mut self.bar) {
+                elements.push(ShellElement::Bar(e));
+            }
             let tracker = self.damage_tracker.as_mut().unwrap();
             match smithay::desktop::space::render_output(
                 &self.output,

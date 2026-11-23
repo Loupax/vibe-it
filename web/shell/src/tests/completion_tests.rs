@@ -82,16 +82,17 @@ fn keys_t46_no_match_empty_word_or_cursor_not_at_the_end_means_no_ghost() {
 
 #[test]
 fn keys_t47_t48_tab_cycles_and_wraps_shift_tab_goes_back() {
-    // `h` matches help, historyBack, historyFront.
+    // `h` matches help, historyBack, historyFront, historySearch (C-PICK).
     let mut g = ghost("h").expect("ghost");
-    assert_eq!(g.candidates, vec!["help", "historyBack", "historyFront"]);
+    assert_eq!(g.candidates, vec!["help", "historyBack", "historyFront", "historySearch"]);
     assert_eq!(g.tab("h"), None);
     assert_eq!(g.rest("h"), "istoryBack");
     g.tab("h");
     g.tab("h");
+    g.tab("h");
     assert_eq!(g.rest("h"), "elp", "wrapped to the first");
     g.prev();
-    assert_eq!(g.rest("h"), "istoryFront", "Shift-Tab wraps backwards");
+    assert_eq!(g.rest("h"), "istorySearch", "Shift-Tab wraps backwards");
     // In the key model: the typed text does not change; Shift-Tab arrives as ISO_Left_Tab.
     let mut k = line_with(None);
     type_line(&mut k, "h");
@@ -101,7 +102,7 @@ fn keys_t47_t48_tab_cycles_and_wraps_shift_tab_goes_back() {
     tap(&mut k, KeyInput::sym(Keysym::ISO_Left_Tab).shift());
     assert_eq!(ghost_rest(&k).as_deref(), Some("elp"));
     tap(&mut k, KeyInput::sym(Keysym::Tab).shift());
-    assert_eq!(ghost_rest(&k).as_deref(), Some("istoryFront"));
+    assert_eq!(ghost_rest(&k).as_deref(), Some("istorySearch"));
 }
 
 #[test]

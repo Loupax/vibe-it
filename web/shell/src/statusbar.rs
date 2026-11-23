@@ -112,7 +112,7 @@ pub struct Painter {
     fonts: FontSystem,
     swash: SwashCache,
     /// C6b: the scale of the strip being painted (sizes in config.rs are logical px).
-    scale: f32,
+    pub(crate) scale: f32,
 }
 
 impl Painter {
@@ -149,7 +149,7 @@ impl Painter {
     }
 
     /// Draws `text` at `x` (clipped at `x + max_w`); returns its width.
-    fn text(&mut self, pm: &mut Pixmap, text: &str, x: f32, max_w: f32, color: TextColor) -> f32 {
+    pub(crate) fn text(&mut self, pm: &mut Pixmap, text: &str, x: f32, max_w: f32, color: TextColor) -> f32 {
         if text.is_empty() || max_w <= 0.0 {
             return 0.0;
         }
@@ -253,6 +253,11 @@ impl Bar {
             buffer: MemoryRenderBuffer::new(Fourcc::Abgr8888, (1, 1), 1, Transform::Normal, None),
             drawn: None,
         }
+    }
+
+    /// The painter (its fonts are loaded once and shared with the picker's overlay, C-PICK).
+    pub fn painter(&mut self) -> &mut Painter {
+        self.painter.get_or_insert_with(Painter::new)
     }
 
     /// Redraws the buffer if `view`, the size (physical px) or the scale changed.

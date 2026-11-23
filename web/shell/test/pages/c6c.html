@@ -7,18 +7,11 @@
          animation: slide 2s linear infinite alternate; }
   @keyframes slide { from { left: 0 } to { left: 600px } }
   video { position: absolute; left: 20px; top: 200px; width: 320px; height: 240px; }
-  /* C6d: scroll mode, a tall page of text and colour bands scrolled by 40 px every frame. */
-  #long { display: none; }
-  #long p { margin: 0; padding: 8px 16px; }
-  #long p:nth-child(odd) { background: linear-gradient(90deg, #fde, #def); }
 </style>
 <div id="box" hidden></div>
-<div id="long"></div>
 <video id="v" muted loop autoplay playsinline hidden src="c6c.webm"></video>
 <script>
-// C6c: the harness loads c6c.html#MODE (idle | raf | css | video | scroll).
-// C6d: scroll = the whole window repaints every frame (a fast scroll of a long page).
-// After 2 s of settling the
+// C6c: the harness loads c6c.html#MODE (idle | raf | css | video). After 2 s of settling the
 // page measures for SECS seconds and reports through the title:
 //   "c6c MODE running"  (the harness samples the shell's CPU between these two titles)
 //   "c6c MODE done n=N mean=M sd=S max=X [vn=N vmean=M vsd=S]"   (frame intervals, ms)
@@ -26,11 +19,6 @@ const mode = location.hash.slice(1) || "idle", SECS = 10;
 const stats = a => { const m = a.reduce((x, y) => x + y, 0) / a.length;
   return { n: a.length, mean: m, sd: Math.sqrt(a.reduce((x, y) => x + (y - m) ** 2, 0) / a.length), max: Math.max(...a) }; };
 if (mode == "css") document.getElementById("box").hidden = false;
-if (mode == "scroll") {
-  const long = document.getElementById("long"), words = "the quick brown fox jumps over the lazy dog ".repeat(6);
-  for (let i = 0; i < 2000; i++) { const p = document.createElement("p"); p.textContent = i + " " + words; long.appendChild(p); }
-  long.style.display = "block";
-}
 if (mode == "video") { const v = document.getElementById("v"); v.hidden = false; v.play(); }
 setTimeout(() => {
   document.title = "c6c " + mode + " running";
@@ -40,10 +28,6 @@ setTimeout(() => {
   if (mode != "idle") (function tick(t) {
     if (last) raf.push(t - last);
     last = t;
-    if (mode == "scroll") {
-      if (window.scrollY + innerHeight + 40 >= document.documentElement.scrollHeight) window.scrollTo(0, 0);
-      else window.scrollBy(0, 40);
-    }
     if (!over) requestAnimationFrame(tick);
   })(performance.now());
   if (mode == "video") {
