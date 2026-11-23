@@ -88,8 +88,8 @@ a net log, load times, upload gap) in spike/README.md.
 
 > Let's say I want to compile an X version of this, would that still be possible? or are we stuck with wayland?
 
-Outcome: wire2 (a forward proxy) plus the empty network namespace makes the network
-path engine-neutral. Options weighed for the shell: an extension (rejected: no reliance
+Outcome: a web proxy plus the empty network namespace makes the network path
+engine-neutral. Options weighed for the shell: an extension (rejected: no reliance
 on the extension API), remote control over CDP/BiDi (automation flags), a compositor
 shell driving a stock browser, and finally a compositor shell driving our own engine
 hosts. Chosen: Architecture C with own engine hosts (CEF first, WebKitGTK second), the
@@ -100,3 +100,12 @@ engine hosts speak Wayland to the shell either way.
 "From scratchy" carry-over list (W1-W7 kept as the spike record, W-UPLOAD1 moot);
 KEYS.md copied from scratchy with **web:** notes; HISTORY.md from scratchy's STASH.md
 history and ranking sections; README.md. No code.
+
+## No proxy named in web (2026-11-23, docs only)
+
+> remove references of Wire2 from web. as far as web is concerned, it's just a web proxy
+
+**What changed:** web's docs name no particular proxy: the contract is "any HTTP forward
+proxy (plain requests and CONNECT) on a Unix socket", given with `--proxy <socket path>`
+(DECISIONS.md, TODO.txt C0/C1, README.md, root README). The C0 dependency on another
+project's TODO item is gone. The prompts above are kept verbatim.

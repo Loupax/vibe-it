@@ -2,17 +2,18 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
-## 2026-11-23 Architecture C: compositor shell, engine hosts, wire2
+## 2026-11-23 Architecture C: compositor shell, engine hosts, a web proxy
 
 From the discussion after the spike (PROMPTS.md "Architecture C"). Overrides "Request
 path" and "Engine" below; "Cookies: Chromium owns the jar" and "Enforcement: an empty
 network namespace" still hold.
 
-- **Network: wire2**, the forward proxy (`../wire2`, on its own branch until merged).
-  The engine host gets a proxy setting pointing at a forwarder inside its empty network
-  namespace, which reaches wire2's Unix socket. Nothing engine-specific sits on the
-  network path, so the namespace plus a proxy setting is the whole contract. W3's
-  resource handler and wire 1 leave the browser; wire 1 stays for scratchy.
+- **Network: a web proxy.** web needs one thing from the network side: an HTTP forward
+  proxy (plain requests and `CONNECT`) reachable on a Unix socket. Which proxy that is
+  is the user's choice, not web's. The engine host gets a proxy setting pointing at a
+  forwarder inside its empty network namespace, which reaches that socket. Nothing
+  engine-specific sits on the network path, so the namespace plus a proxy setting is
+  the whole contract. W3's resource handler and its wire client leave the browser.
 - **Shell: web-shell is a Wayland compositor** (smithay, a nested compositor shown as
   one window on the user's desktop). It draws the status bar and command line, owns all
   keys and pointer input, and forwards to the page what the mode allows.

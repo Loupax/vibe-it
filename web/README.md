@@ -2,7 +2,7 @@
 
 A keyboard-driven browser meant to be a daily driver. It keeps the vibe-it networking
 contract: the browser runs in an empty network namespace and reaches the network only
-through [`wire2`](../wire2/), a forward proxy.
+through a web proxy (any HTTP forward proxy on a Unix socket).
 
 Status: **planning.** The CEF spike (`spike/`, TODO.txt W1-W7) proved Chromium can run
 with no network of its own; the plan now is Architecture C (DECISIONS.md, TODO.txt C0-C8):

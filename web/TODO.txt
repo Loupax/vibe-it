@@ -5,23 +5,24 @@ Wayland compositor (smithay) that draws the shell (status bar, command line, lat
 and hints) and owns all input; the page is drawn by an engine host, a separate program
 with no browser UI of its own (web-host-cef first, web-host-webkit second) that the shell
 drives over a control socket in our own protocol. The engine host runs in an empty
-network namespace and reaches the network only through wire2 (forward proxy, ../wire2 on
-its branch until merged). No browser extension, no automation protocol (CDP, BiDi).
+network namespace and reaches the network only through a web proxy: any HTTP forward
+proxy (plain requests and CONNECT) on a Unix socket, given with `--proxy <socket path>`.
+No browser extension, no automation protocol (CDP, BiDi).
 
-Order: C0 needs wire2's W2-1. C1 and C1b can run before any compositor code (inside the
+Order: C1 and C1b can run before any compositor code (inside the
 nested dwl from ../scratchy/tools/nest.sh). Each step ends with a check, so the plan can
 stop early on a hard failure.
 
 - [ ] C0 Launcher. `web/run.sh` (from spike/run.sh): the systemd scope and the empty
       network namespace (W2, unchanged) plus a forwarder inside it from
-      127.0.0.1:<port> (lo brought up) to wire2's Unix socket. Engine-neutral: it takes
-      the program to start. Needs wire2 W2-1 (plain forwarding, CONNECT tunnels).
+      127.0.0.1:<port> (lo brought up) to the proxy's Unix socket. Engine-neutral: it
+      takes the program to start.
       Done when: stock Chromium with `--proxy-server=127.0.0.1:<port>` loads https and a
-      WebSocket page through it and wire2's log has every request and tunnel; with the
+      WebSocket page through it and the proxy's log has every request and tunnel; with the
       forwarder stopped, nothing loads.
 
 - [ ] C1 web-host-cef. The spike binary becomes the CEF engine host:
-      - drop W3's resource handler and the wire (wire 1) client; set the proxy to C0's
+      - drop W3's resource handler and the spike's wire client; set the proxy to C0's
         forwarder. Chromium owns cookies, cache and uploads (W-UPLOAD1 goes away).
       - one window per tab, the page only (no Chrome toolbar, tab strip or menus);
         `window.open` and target=_blank go through the host (OnBeforePopup), which
@@ -34,7 +35,7 @@ stop early on a hard failure.
         traverse, same-document), `editable-focused <id> true|false`,
         `find-result <id> <i> <n>`, `crashed <id>`. Downloads, permission prompts and JS
         dialogs: the engine's default for now, each its own item later.
-      Done when: a script drives it inside nested dwl, in C0's namespace through wire2:
+      Done when: a script drives it inside nested dwl, in C0's namespace through the proxy:
       open, back/forward, two tabs, a window.open popup announced before it maps, all
       events above seen; Wayland.
 
@@ -108,14 +109,14 @@ Code, ported in C3 (shell crate, `web/shell/`; scratchy file -> what is kept):
 - Tools: `tools/nest.sh` and `tools/inject` (nested dwl, virtual keyboard/pointer) for
   testing; copied to web/tools/ when C2 starts.
 
-Not carried (the engine owns it, or wire 1 only): the HTML/CSS/layout/paint/V8 engine,
-`stash.rs` (localStorage), `forget.rs` (wire 1 cookie op), `user_agent.rs` (wire 1
+Not carried (the engine owns it, or it was scratchy's wire client): the HTML/CSS/layout/paint/V8 engine,
+`stash.rs` (localStorage), `forget.rs` (wire's cookie op), `user_agent.rs` (wire
 header), `input_host.rs`, `search.rs` (layout-based), the net policy, media, WPT tooling.
 
 ## The CEF + wire spike (record; stopped 2026-11-23, judged a success)
 
 The spike below proved CEF in an empty network namespace with every request answered by
-wire 1. Architecture C replaces its request path with wire2; its findings
+wire. Architecture C replaces that request path with a web proxy; its findings
 (spike/README.md) still hold for the CEF host.
 
 - [x] W1 Bare CEF window (DONE 2026-11-23, 4cb0793, #656; see web/spike/README.md). A Rust binary with the `cef` crate opens one window and
@@ -149,7 +150,7 @@ wire 1. Architecture C replaces its request path with wire2; its findings
       wire's log for that load and any request that never reached wire, and the
       cause (engine, interception gap, wire, or namespace).
 
-- [-] W-UPLOAD1 (MOOT under Architecture C: with wire2 as a proxy Chromium sends upload bodies itself) Uploads with Blob, File (also inside FormData) or ReadableStream bodies (from W3 #658).
+- [-] W-UPLOAD1 (MOOT under Architecture C: behind a web proxy Chromium sends upload bodies itself) Uploads with Blob, File (also inside FormData) or ReadableStream bodies (from W3 #658).
       CEF's CefPostData hands these over as empty elements, so file uploads and fetch(blob) fail with
       ERR_NOT_IMPLEMENTED today. Options: a proxy inside the namespace forwarding to wire (ties in with
       W6's CONNECT idea), a CEF API that exposes the body, or patching CEF. Decide before W7.
@@ -175,5 +176,5 @@ After a go (superseded in part by Architecture C above):
 - [-] Port the shell from scratchy: now "From scratchy" above and C3.
 - [ ] W-FS1 (optional hardening, from W2 #657) Hide $HOME and the rest of the filesystem from the CEF
       tree with a bubblewrap bind-only profile (plus the D-Bus, Wayland/X11 and wire sockets).
-- [ ] Document the browser's network contract (wire2 as the only way out, cookies and
+- [ ] Document the browser's network contract (the web proxy as the only way out, cookies and
       cache in the engine, namespace enforcement) in a NETWORKING.md here.
