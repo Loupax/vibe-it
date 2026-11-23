@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-23 · main 8e09b15 · 174 PRs merged since 2026-11-21 morning (#475–#649) · installed 07:03 (6e19ab9)· 5 agents running (QEL2b, QANIMHLc, QCSS-A hover check, QAPI6c, QDOM5b)</div>
+  <div class="meta" id="updated">Updated 2026-11-23 · main 8e09b15 · 174 PRs merged since 2026-11-21 morning (#475–#649) · installed 07:45 (1d5a317)· 5 agents running (QEL2b, QANIMHLc, QCSS-A hover check, QAPI6c, QDOM5b)</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -112,6 +112,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-23</td><td class="n">#652</td><td>QCNV13</td><td>Canvas <code>drawImage</code> from canvas sources, image smoothing; 39 more files pass (element 60.8&rarr;62.4, offscreen 68.6&rarr;70.3)</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#651</td><td>QTYPE1</td><td>Typing into a second form field showed only the first character: control edits never reached the repaint damage (since #631). Fixed for text, value writes, caret and checkboxes</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#650</td><td>(user)</td><td>Starts <code>web/</code> (Chromium via CEF, wire as the only network path; docs only). scratchy paused.</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#648</td><td>QEDIT-D</td><td><code>tabIndex</code> (was missing, so <code>focus()</code> often did nothing), focus fixup on removal, <code>delegatesFocus</code>; 7 more files pass</td></tr>

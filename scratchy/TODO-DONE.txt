@@ -9723,3 +9723,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QTYPE1 DONE a353c05 #651 [S] (P1, from QEDIT-D #648; Sonnet; app.rs, input_host.rs, text editing) In the App, typing into a
       SECOND text field after Tab or a click drops characters (only the first one appears); also on main. Reproduce in a
       nested window, find the cause (focus/caret state, input-mode handoff, incremental repaint?), fix, regression test.
+
+=== from TODO.txt: --- (no header)
+- [x] QCNV13 DONE b608fa4 #652 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+      (QCNV2)"); Sonnet; in order after the items above) drawImage from canvas sources, imageSmoothing. 38 files.
