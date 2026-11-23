@@ -184,10 +184,12 @@ stop early on a hard failure.
       reported `editable-focused true` for that click (a field got focus: stay INPUT). Add the row to
       KEYS.md's transition table, a test named after it, and a live check (right-click -> Copy link
       address -> back in NORMAL; select an option -> back in NORMAL; right-click in a field -> stays INPUT).
-- [WIP] C-ENTER [XS] (user, 2026-11-23: "Enter in NORMAL forwards to the page.") Enter in NORMAL is delivered to
+- [x] C-ENTER [XS] (DONE 2026-11-23, #690: Enter goes to the page; with a find open it ends the find first, waits
+      50 ms, then sends Enter, so the matched link/button is focused; 10/10 live) (user, 2026-11-23: "Enter in NORMAL forwards to the page.") Enter in NORMAL is delivered to
       the page (rewrite KEYS.md T18-T20: no shell-side click; the engine decides, e.g. after a find the
       matched link is focused and Enter follows it). Bundled with C-CARETCMD.
-- [WIP] C-CARETCMD [S] (user, 2026-11-23: "Expose caret browsing from a command mode command, so I can
+- [x] C-CARETCMD [S] (DONE #690: settings.a11y.caretbrowsing.enabled live, reset to off at start; j/k move the
+      caret, gg/G go to line start/end while caret is on; caret into a field does not focus it) (user, 2026-11-23: "Expose caret browsing from a command mode command, so I can
       experiment with it but don't change the defaults.") `:set caret` / `:set nocaret` turn Chromium's
       caret browsing on/off at runtime (default off; not persisted unless the user asks later).
 - [ ] C5-ENTER [S] PARKED (user 2026-11-23: "park everything related to caret mode, I want to think about it
@@ -217,6 +219,9 @@ stop early on a hard failure.
       worked. Getting it needs a CDM path plus the component updater back on (Google traffic again).
 - [ ] C-H264 PARKED (user, 2026-11-23) (from #680) This CEF build cannot play H.264 (canPlayType avc1 = ""); VP9/WebM work.
       A proprietary-codecs CEF build would be needed.
+- [WIP] C6-LIVE [S] (from #690) c6_live.py fails 4/8 on main in an agent's headless nest (copy takes more than the
+      field, Ctrl-v into the page, page -> `:` line, primary selection), though #686 reported 8/8. Find out
+      whether the test or the bridge is wrong, and fix it.
 - [ ] C6b [M] (from #686) HiDPI and fractional scale: output is always scale 1; use winit's scale factor, set
       the output's (fractional) scale, add fractional-scale-v1. Done when scales 1.5 and 2 in the nest give
       crisp page text and a correctly sized bar.
