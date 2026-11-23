@@ -171,7 +171,7 @@ stop early on a hard failure.
 - [ ] C6g [XS] ONLY IF THE USER WANTS IT (from #695) A middle click on the status bar in COMMAND/SEARCH inserts the
       desktop's primary selection (KEYS.md Paste row first).
 - [ ] C-KEYMAP-NAMES [XS] ONLY IF WANTED (from #698) Show the active keyboard layout name in the status bar.
-- [WIP] C-FOCUSKEYS [S] (bundled with C3-SHIFTSYNC) (from C2 #671; from reading code, untested) smithay's winit backend drops winit's synthetic
+- [x] C-FOCUSKEYS [S] (DONE 2026-11-23, ec4c966, #700: focus loss releases the page's keys) (from C2 #671; from reading code, untested) smithay's winit backend drops winit's synthetic
       key releases: a modifier held when the shell loses focus (Alt of Alt+Tab) can stay down. Release every
       pressed key on focus-out. Done when Alt+Tab away and back leaves no stuck modifier (keydown logger page).
 - [x] C-SOCKDIR [XS] (DONE #694) (from C2 #671) A hard-killed shell leaves $XDG_RUNTIME_DIR/web-<pid>/ behind: clean stale
@@ -184,10 +184,10 @@ stop early on a hard failure.
       works from a fresh shell after the install.
 - [ ] NEST-WINKEYMAP [XS] (from #673) Windowed nest: a client started after an inject run ended gets no keymap
       and Chromium crashes on the first modifiers event (the headless patch handles it; windowed does not).
-- [ ] C3-GOHTTP [XS] (bundle with C-SOCKDIR) (from #677) A `:go` ghost taken from an http:// history entry typed without its scheme
+- [WIP] C3-GOHTTP [XS] (bundle with C-SOCKDIR) (from #677) A `:go` ghost taken from an http:// history entry typed without its scheme
       (`:go 127` Tab Enter) runs as https://. When the completed word matches a history URL with its scheme
       stripped, use that URL's own scheme.
-- [WIP] C3-SHIFTSYNC [S] (from #677; with C-FOCUSKEYS) The shell learns held modifiers only from key events: a
+- [x] C3-SHIFTSYNC [S] (DONE #700: desktop modifier masks drive keys.rs; X11 modifier-only path untested live) (from #677; with C-FOCUSKEYS) The shell learns held modifiers only from key events: a
       modifier held when the window gains focus, or set by wl_keyboard.modifiers alone, is not seen. Done
       when Shift held across a focus change, or set by modifiers alone, still types `:` and `G`.
 - [x] C3-RCLICK [XS] (DONE 2026-11-23, 1068028, #681: T57 popups return to the previous mode; T29/T32 rewritten:
