@@ -111,6 +111,8 @@ fn rgb(c: (u8, u8, u8)) -> TextColor {
 pub struct Painter {
     fonts: FontSystem,
     swash: SwashCache,
+    /// C6b: the scale of the strip being painted (sizes in config.rs are logical px).
+    scale: f32,
 }
 
 impl Painter {
@@ -118,6 +120,7 @@ impl Painter {
         Painter {
             fonts: FontSystem::new(),
             swash: SwashCache::new(),
+            scale: 1.0,
         }
     }
 
@@ -128,7 +131,7 @@ impl Painter {
     }
 
     fn shaped(&mut self, text: &str, h: f32, color: TextColor) -> Buffer {
-        let mut buffer = Buffer::new(&mut self.fonts, Metrics::new(STATUS_BAR_FONT_PX, h));
+        let mut buffer = Buffer::new(&mut self.fonts, Metrics::new(STATUS_BAR_FONT_PX * self.scale, h));
         buffer.set_size(None, Some(h));
         buffer.set_wrap(Wrap::None);
         buffer.set_text(text, &Attrs::new().color(color), Shaping::Advanced, None);
@@ -136,12 +139,12 @@ impl Painter {
         buffer
     }
 
-    /// The advance of `text`, px.
+    /// The advance of `text`, px of the strip being painted (physical at a scale).
     pub fn measure(&mut self, text: &str) -> f32 {
         if text.is_empty() {
             return 0.0;
         }
-        let b = self.shaped(text, 24.0, rgb(STATUS_BAR_FG));
+        let b = self.shaped(text, 24.0 * self.scale, rgb(STATUS_BAR_FG));
         b.layout_runs().next().map_or(0.0, |r| r.line_w)
     }
 
@@ -173,7 +176,7 @@ impl Painter {
 
     /// The x of the caret before byte `target` of `text` drawn at 0.
     fn caret_x(&mut self, text: &str, target: usize) -> f32 {
-        let b = self.shaped(text, 24.0, rgb(STATUS_BAR_FG));
+        let b = self.shaped(text, 24.0 * self.scale, rgb(STATUS_BAR_FG));
         b.layout_runs()
             .next()
             .map(|run| {
@@ -186,43 +189,53 @@ impl Painter {
             .unwrap_or(0.0)
     }
 
-    /// The whole strip for `view`, `w` x `h` px (premultiplied RGBA).
+    /// The whole strip for `view`, `w` x `h` px (premultiplied RGBA), at scale 1.
+    #[cfg(test)]
     pub fn paint(&mut self, view: &BarView, w: u32, h: u32) -> Option<Pixmap> {
+        self.paint_scaled(view, w, h, 1.0)
+    }
+
+    /// The whole strip for `view`, `w` x `h` physical px at `scale` (C6b): the font size,
+    /// paddings, gaps and caret are the logical sizes times `scale`, so text is rasterized
+    /// at the output's resolution, not stretched.
+    pub fn paint_scaled(&mut self, view: &BarView, w: u32, h: u32, scale: f32) -> Option<Pixmap> {
+        self.scale = scale;
+        let (pad, gap, min_url) = (STATUS_BAR_PAD_X * scale, STATUS_BAR_GAP * scale, STATUS_BAR_MIN_URL_W * scale);
         let mut pm = Pixmap::new(w.max(1), h.max(1))?;
         pm.fill(tiny_skia::Color::from_rgba8(STATUS_BAR_BG.0, STATUS_BAR_BG.1, STATUS_BAR_BG.2, 255));
-        let avail = (w as f32 - 2.0 * STATUS_BAR_PAD_X).max(0.0);
+        let avail = (w as f32 - 2.0 * pad).max(0.0);
         let fg = rgb(STATUS_BAR_FG);
         if let Some((prompt, text, cursor)) = &view.line {
             let display = format!("{prompt}{text}");
-            let text_w = self.text(&mut pm, &display, STATUS_BAR_PAD_X, avail, fg);
+            let text_w = self.text(&mut pm, &display, pad, avail, fg);
             let caret = self.caret_x(&display, cursor + prompt.len_utf8());
             let mut paint = Paint::default();
             paint.set_color_rgba8(STATUS_BAR_FG.0, STATUS_BAR_FG.1, STATUS_BAR_FG.2, 255);
-            if let Some(r) = Rect::from_xywh(STATUS_BAR_PAD_X + caret, 3.0, 1.5, (h as f32 - 6.0).max(1.0)) {
+            if let Some(r) = Rect::from_xywh(pad + caret, 3.0 * scale, (1.5 * scale).round().max(1.0), (h as f32 - 6.0 * scale).max(1.0)) {
                 pm.fill_rect(r, &paint, tiny_skia::Transform::identity(), None);
             }
             if !view.ghost.is_empty() {
-                let x = STATUS_BAR_PAD_X + text_w;
+                let x = pad + text_w;
                 self.text(&mut pm, &view.ghost, x, (avail - text_w).max(0.0), rgb(GHOST_FG));
             }
             return Some(pm);
         }
         let lay = status_layout(
             avail,
-            STATUS_BAR_GAP,
-            STATUS_BAR_MIN_URL_W,
+            gap,
+            min_url,
             &view.mode,
             &view.url,
             &view.message,
             &mut |t| self.measure(t),
         );
-        let mode_w = self.text(&mut pm, &lay.mode, STATUS_BAR_PAD_X, avail, rgb(STATUS_BAR_MODE_FG));
-        let url_x = STATUS_BAR_PAD_X + mode_w + STATUS_BAR_GAP;
+        let mode_w = self.text(&mut pm, &lay.mode, pad, avail, rgb(STATUS_BAR_MODE_FG));
+        let url_x = pad + mode_w + gap;
         let msg_w = self.measure(&lay.message);
-        let url_max = (w as f32 - STATUS_BAR_PAD_X - msg_w - if msg_w > 0.0 { STATUS_BAR_GAP } else { 0.0 } - url_x).max(0.0);
+        let url_max = (w as f32 - pad - msg_w - if msg_w > 0.0 { gap } else { 0.0 } - url_x).max(0.0);
         self.text(&mut pm, &lay.url, url_x, url_max + 0.5, fg);
         if msg_w > 0.0 {
-            let x = w as f32 - STATUS_BAR_PAD_X - msg_w;
+            let x = w as f32 - pad - msg_w;
             self.text(&mut pm, &lay.message, x, msg_w + 0.5, fg);
         }
         Some(pm)
@@ -233,7 +246,7 @@ impl Painter {
 pub struct Bar {
     painter: Option<Painter>,
     pub buffer: MemoryRenderBuffer,
-    drawn: Option<(BarView, u32, u32)>,
+    drawn: Option<(BarView, u32, u32, u32)>,
 }
 
 impl Bar {
@@ -245,13 +258,14 @@ impl Bar {
         }
     }
 
-    /// Redraws the buffer if `view` or the size changed.
-    pub fn update(&mut self, view: &BarView, w: u32, h: u32) {
-        if self.drawn.as_ref().is_some_and(|(v, dw, dh)| v == view && *dw == w && *dh == h) {
+    /// Redraws the buffer if `view`, the size (physical px) or the scale changed.
+    pub fn update(&mut self, view: &BarView, w: u32, h: u32, scale: f64) {
+        let s120 = (scale * 120.0).round() as u32;
+        if self.drawn.as_ref().is_some_and(|(v, dw, dh, ds)| v == view && *dw == w && *dh == h && *ds == s120) {
             return;
         }
         let painter = self.painter.get_or_insert_with(Painter::new);
-        let Some(pm) = painter.paint(view, w, h) else { return };
+        let Some(pm) = painter.paint_scaled(view, w, h, scale as f32) else { return };
         let (pw, ph) = (pm.width() as i32, pm.height() as i32);
         let mut ctx = self.buffer.render();
         ctx.resize((pw, ph));
@@ -262,6 +276,6 @@ impl Bar {
         });
         ctx.update_opaque_regions(Some(vec![Rectangle::from_size((pw, ph).into())]));
         drop(ctx);
-        self.drawn = Some((view.clone(), w, h));
+        self.drawn = Some((view.clone(), w, h, s120));
     }
 }

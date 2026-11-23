@@ -105,9 +105,12 @@ impl State {
             }
             InputEvent::PointerAxis { event } => {
                 let source = event.source();
+                // C6b: winit's pixel deltas are physical; the page scrolls in logical px.
+                let scale = self.layout.scale;
                 let amount = |axis| {
                     event
                         .amount(axis)
+                        .map(|v| v / scale)
                         .unwrap_or_else(|| event.amount_v120(axis).unwrap_or(0.0) * 15.0 / 120.0)
                 };
                 let mut frame = AxisFrame::new(Event::time_msec(&event)).source(source);

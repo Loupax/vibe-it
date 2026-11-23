@@ -24,6 +24,8 @@ impl State {
     pub fn render(&mut self) {
         let mut elements: Vec<ShellElement> = Vec::new();
         let age = self.backend.buffer_age().unwrap_or(0);
+        // C6b: the output's scale (the shell window's); the Space renders the page at it.
+        let scale = self.layout.scale;
         let damage = {
             let Ok((renderer, mut framebuffer)) = self.backend.bind() else {
                 return;
@@ -37,23 +39,26 @@ impl State {
                             .map(|d| d.lock().unwrap().hotspot)
                             .unwrap_or_default()
                     });
-                    let pos = (self.pointer_loc - hotspot.to_f64()).to_physical(1.0).to_i32_round();
+                    let pos = (self.pointer_loc - hotspot.to_f64()).to_physical(scale).to_i32_round();
                     elements.extend(
-                        render_elements_from_surface_tree(renderer, surface, pos, 1.0, 1.0, Kind::Cursor)
+                        render_elements_from_surface_tree(renderer, surface, pos, scale, 1.0, Kind::Cursor)
                             .into_iter()
                             .map(ShellElement::Surface),
                     );
                 }
             }
-            if let Some(bar) = self.layout.bar() {
-                self.bar.update(&self.keys.bar_view(), bar.size.w as u32, bar.size.h as u32);
+            if let (Some(bar), Some((loc, px))) = (self.layout.bar(), self.layout.bar_physical()) {
+                // C6b: painted at the framebuffer's resolution (`px` physical pixels) and drawn
+                // 1:1 into the bar's logical strip: `src` is the whole buffer (buffer scale 1),
+                // `size` the strip's logical size, which smithay scales back to `px`.
+                self.bar.update(&self.keys.bar_view(), px.w as u32, px.h as u32, scale);
                 match MemoryRenderBufferRenderElement::from_buffer(
                     renderer,
-                    bar.loc.to_physical(1).to_f64(),
+                    loc.to_f64(),
                     &self.bar.buffer,
                     None,
-                    None,
-                    None,
+                    Some(smithay::utils::Rectangle::from_size((px.w as f64, px.h as f64).into())),
+                    Some(bar.size),
                     Kind::Unspecified,
                 ) {
                     Ok(e) => elements.push(ShellElement::Bar(e)),
