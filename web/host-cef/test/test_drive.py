@@ -19,7 +19,7 @@ class EventKeys(unittest.TestCase):
         self.assertEqual(drive.event_key({"event": "url", "tab": 1, "url": "x"}), "url")
 
     def test_missing(self):
-        evs = [{"event": e} for e in ("hello", "tab-created", "tab-closed", "url", "title", "find-result", "crashed", "error")]
+        evs = [{"event": e} for e in ("hello", "tab-created", "tab-closed", "url", "title", "load-error", "find-result", "crashed", "error")]
         evs += [{"event": "editable-focused", "focused": f} for f in (True, False)]
         evs += [{"event": "load", "phase": p, "kind": k} for p in ("start", "end") for k in ("new", "reload", "traverse")]
         self.assertEqual(drive.missing_events(evs), ["load start same-document", "load end same-document"])

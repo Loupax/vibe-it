@@ -480,14 +480,21 @@ wrap_load_handler! {
             // navigation (which gets its own events) or was the engine's own retry of
             // an error page, which the shell has no use for.
             let aborted = name == "ERR_ABORTED";
-            let stopped = with_page(|p| {
+            let (stopped, in_end) = with_page(|p| {
                 if aborted && p.load.is_none() {
-                    std::mem::take(&mut p.stop_requested)
+                    (std::mem::take(&mut p.stop_requested), false)
                 } else {
                     p.error = Some(name.clone());
-                    false
+                    (false, true)
                 }
             });
+            // The shell hears of every failure it will also see in a `load end`.
+            if in_end || stopped {
+                let id = with_page(|p| p.id);
+                let code = sys::cef_errorcode_t::from(error_code) as i32;
+                let text = error_text.map(|t| t.to_string()).unwrap_or_default();
+                emit(Event::LoadError { tab: id, code, name: name.clone(), text });
+            }
             if stopped {
                 let id = with_page(|p| p.id);
                 let kind = entry_kind(browser.as_deref());

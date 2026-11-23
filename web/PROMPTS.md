@@ -188,3 +188,8 @@ commands blocked; popups load in place. Control socket protocol v0 (JSON lines),
 documented in `web/PROTOCOL.md`; W5's download handler kept. `test/drive.py` (the C1
 check, with a test forward proxy `test/fwd_proxy.py`) and Rust/Python unit tests.
 DECISIONS.md "No tabs yet" (recorded by the coordinator) is what the host follows.
+
+Later, relayed by the coordinator: "two small protocol additions that C3's status bar and
+navigation need ... (1) `reload hard` ... (2) A network-level load failure must reach the
+shell: add `load-error <id> <code> <text>`". `reload hard` was already in; `load-error`
+added (sent before the `load end` that carries the same error), and both are in the check.

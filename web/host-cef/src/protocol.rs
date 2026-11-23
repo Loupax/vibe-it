@@ -100,6 +100,15 @@ pub enum Event {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     },
+    /// A main-frame load failed at the network level (or was stopped). `code`: the
+    /// engine's error number (-105), `name`: its name (ERR_NAME_NOT_RESOLVED),
+    /// `text`: the engine's description. Sent before the `load end` carrying `name`.
+    LoadError {
+        tab: TabId,
+        code: i32,
+        name: String,
+        text: String,
+    },
     EditableFocused {
         tab: TabId,
         focused: bool,
@@ -156,6 +165,7 @@ pub fn event_text(ev: &Event) -> String {
             let e = error.as_ref().map(|e| format!(" ({e})")).unwrap_or_default();
             format!("load {tab} {p} {status} {}{e}", kind_name(*kind))
         }
+        Event::LoadError { tab, code, name, text } => format!("load-error {tab} {code} {name} {text}"),
         Event::EditableFocused { tab, focused } => format!("editable-focused {tab} {focused}"),
         Event::FindResult { tab, index, count } => format!("find-result {tab} {index} {count}"),
         Event::Crashed { tab, reason } => format!("crashed {tab} ({reason})"),
@@ -418,6 +428,15 @@ mod tests {
                     reason: "crashed".into(),
                 },
                 r#"{"event":"crashed","tab":1,"reason":"crashed"}"#,
+            ),
+            (
+                Event::LoadError {
+                    tab: 1,
+                    code: -105,
+                    name: "ERR_NAME_NOT_RESOLVED".into(),
+                    text: "net::ERR_NAME_NOT_RESOLVED".into(),
+                },
+                r#"{"event":"load-error","tab":1,"code":-105,"name":"ERR_NAME_NOT_RESOLVED","text":"net::ERR_NAME_NOT_RESOLVED"}"#,
             ),
             (Event::Error { message: "bad".into() }, r#"{"event":"error","message":"bad"}"#),
         ];

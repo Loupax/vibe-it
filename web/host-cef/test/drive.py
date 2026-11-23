@@ -39,7 +39,7 @@ REQUIRED = [
     "load start new", "load end new", "load start reload", "load end reload",
     "load start traverse", "load end traverse",
     "load start same-document", "load end same-document",
-    "editable-focused true", "editable-focused false", "find-result", "crashed", "error",
+    "editable-focused true", "editable-focused false", "load-error", "find-result", "crashed", "error",
 ]
 
 
@@ -182,9 +182,9 @@ class Shell:
             return not any(pred(ev) for _, ev in self.events[mark:])
 
 
-def is_ev(name, **fields):
+def is_ev(event, **fields):
     def p(ev):
-        return ev.get("event") == name and all(
+        return ev.get("event") == event and all(
             (v(ev.get(k)) if callable(v) else ev.get(k) == v) for k, v in fields.items())
     return p
 
@@ -228,7 +228,7 @@ def run(a):
         threading.Thread(target=sh.reader, args=(conn,), daemon=True).start()
         steps(sh, conn, base, a)
         ok = True
-    except Fail as e:
+    except (Fail, AssertionError, KeyError, TypeError) as e:
         sh.note(f"FAIL: {e}")
     finally:
         try:
@@ -381,14 +381,24 @@ def steps(sh, conn, base, a):
     send({"cmd": "open", "url": base + "slow"})
     time.sleep(1.0)
     send({"cmd": "stop"})
+    sh.expect("load-error -3 ERR_ABORTED", is_ev("load-error", code=-3, name="ERR_ABORTED"), 5)
     sh.expect("load end with ERR_ABORTED", is_ev("load", phase="end", error="ERR_ABORTED"), 5)
 
     sh.note("step: a host that does not resolve (error page; through a proxy: the proxy's 502)")
+    mark = sh.cursor
     send({"cmd": "open", "url": "http://nx-c1-check.invalid/"})
-    sh.expect("load start new", is_ev("load", phase="start", kind="new"))
     ev = sh.expect("load end", is_ev("load", phase="end", kind="new"))
-    if not (ev.get("error") == "ERR_NAME_NOT_RESOLVED" or ev["status"] >= 500):
+    sh.seen_since(mark, "load start before its end", is_ev("load", phase="start", kind="new"), before=sh.cursor)
+    if a.proxy:
+        # The proxy answers 502; Chromium fails that load as ERR_HTTP_RESPONSE_CODE_FAILURE.
+        want = is_ev("load-error", name=ev.get("error"), code=lambda c: isinstance(c, int) and c < 0)
+        ok = ev["status"] >= 500 and ev.get("error")
+    else:
+        want = is_ev("load-error", code=-105, name="ERR_NAME_NOT_RESOLVED", text=lambda t: bool(t))
+        ok = ev["status"] == 0 and ev.get("error") == "ERR_NAME_NOT_RESOLVED"
+    if not ok:
         raise Fail(f"unresolvable host ended with {ev}")
+    sh.seen_since(mark, "load-error before its load end", want, before=sh.cursor)
     time.sleep(2.0)  # the engine retries error pages on its own; that must not show up
     if not sh.none_since(sh.cursor, is_ev("load")):
         raise Fail("load events after the error page with no command")

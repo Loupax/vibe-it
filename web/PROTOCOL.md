@@ -62,7 +62,7 @@ interface, undecided), so v0 has no `new-tab` / `close-tab`.
 | `open <url>` | `{"cmd":"open","url":"example.com"}` | load a URL; no scheme means `https://` |
 | `back` | `{"cmd":"back"}` | history back |
 | `forward` | `{"cmd":"forward"}` | history forward |
-| `reload` | `{"cmd":"reload"}`, `{"cmd":"reload","hard":true}` | reload; `hard` bypasses the cache (`:refresh hard`) |
+| `reload`, `reload hard` | `{"cmd":"reload"}`, `{"cmd":"reload","hard":true}` | reload; `hard` bypasses the cache (`:refresh hard`; CEF ReloadIgnoreCache) |
 | `stop` | `{"cmd":"stop"}` | stop the current load |
 | `find <query> next\|prev` | `{"cmd":"find","query":"needle","dir":"next"}` | find in page; the same query again steps to the next/previous match; a new query starts at the first (`next`) or last (`prev`) match |
 | `find-clear` | `{"cmd":"find-clear"}` | end the find: highlights go, the active match stays selected |
@@ -82,6 +82,7 @@ unknown `cmd`, missing field, zoom out of range) gets an `error` event.
 | `url <id> <url>` | `{"event":"url","tab":1,"url":"https://example.com/"}` |
 | `title <id> <text>` | `{"event":"title","tab":1,"title":"Example Domain"}` |
 | `load <id> start\|end <status> <kind>` | `{"event":"load","tab":1,"phase":"end","status":200,"kind":"new"}`, optional `"error":"ERR_ABORTED"` |
+| `load-error <id> <code> <text>` | `{"event":"load-error","tab":1,"code":-105,"name":"ERR_NAME_NOT_RESOLVED","text":"ERR_NAME_NOT_RESOLVED"}` |
 | `editable-focused <id> true\|false` | `{"event":"editable-focused","tab":1,"focused":true}` |
 | `find-result <id> <i> <n>` | `{"event":"find-result","tab":1,"index":2,"count":5}` |
 | `crashed <id>` | `{"event":"crashed","tab":1,"reason":"TS_PROCESS_CRASHED (exit code 139)"}` |
@@ -103,8 +104,20 @@ unknown `cmd`, missing field, zoom out of range) gets an `error` event.
   - `end`: `status` is the HTTP status (back-forward-cache restores report the
     status the page was loaded with); 0 for `same-document` and when no response
     arrived. `error` names the engine's error when the load failed (`ERR_NAME_NOT_RESOLVED`,
-    ...; an error page is then shown) or was stopped / replaced before it committed
-    (`ERR_ABORTED`; then `start` and `end` come together, kind `new`).
+    ...; an error page is then shown) or was stopped by `stop` before it committed
+    (`ERR_ABORTED`; then `start` and `end` come together, with the kind of the
+    stopped navigation). A load replaced by another navigation before it committed
+    gets no events of its own.
+- `load-error`: a main-frame load failed at the network level (DNS, connection, TLS,
+  proxy, an HTTP error the engine turns into a failure) or was stopped. Sent **in
+  addition to** the load's events, always **before** its `load end`, whose `error` is
+  the same `name`; so a shell can show the failure from `load-error` and keep its
+  start/end bookkeeping on `load`. `code` is the engine's error number (Chromium's
+  net error: -105 ERR_NAME_NOT_RESOLVED, -3 ERR_ABORTED, ...), `name` its symbolic
+  name, `text` the engine's description (CEF gives the name again). Not sent for the
+  engine's own silent retries, nor for a load aborted because another navigation
+  replaced it (that one has its own events). Through a proxy, an unresolvable host is
+  the proxy's answer: e.g. a 502, failed as -379 ERR_HTTP_RESPONSE_CODE_FAILURE.
 - `editable-focused`: on change, when keyboard focus moves into or out of an
   editable element (text inputs, textareas, contenteditable) in any frame of the
   page. A new document starts with `false`. The shell uses it for INPUT mode

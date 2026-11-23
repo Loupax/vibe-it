@@ -45,7 +45,7 @@ In the nested compositor (never the user's display):
 through run.sh, serves `test/pages/` from 127.0.0.1, sends every command and waits for
 the events each must give (open, back/forward, reload, same-document navigations,
 editable focus, find, zoom, window.open and target=_blank loading in the same page,
-stop, an unresolvable host, an external page, bad commands, a renderer crash, quit),
+reload hard, stop, an unresolvable host (load-error), an external page, bad commands, a renderer crash, quit),
 then checks that every event type was seen and that `tab-created` went out before the
 window was shown. With `--proxy` it routes everything, the local pages included,
 through an HTTP forward proxy; `test/fwd_proxy.py` is a small one (plain + CONNECT,
