@@ -634,51 +634,16 @@ wrap_find_handler! {
     }
 }
 
-/// Removes the new-tab/window items (newtab::MENU_REMOVE) from `model` and its
-/// submenus, then the separators left useless. Collects what was removed.
-fn clean_menu(model: &MenuModel, removed: &mut Vec<String>) {
-    for i in (0..model.count()).rev() {
-        let id = model.command_id_at(i);
-        if let Some(name) = newtab::menu_name_to_remove(id) {
-            removed.push(format!("{name}({id})"));
-            model.remove_at(i);
-        } else if let Some(sub) = model.sub_menu_at(i) {
-            clean_menu(&sub, removed);
-        }
-    }
-    let items: Vec<newtab::Item> = (0..model.count())
-        .map(|i| {
-            let t = sys::cef_menu_item_type_t::from(model.type_at(i));
-            if t == sys::cef_menu_item_type_t::MENUITEMTYPE_SEPARATOR {
-                newtab::Item::Separator
-            } else {
-                newtab::Item::Other
-            }
-        })
-        .collect();
-    for i in newtab::useless_separators(&items) {
-        model.remove_at(i);
-    }
-}
-
-fn menu_items(model: &MenuModel) -> Vec<String> {
-    (0..model.count())
-        .map(|i| {
-            let label = CefString::from(&model.label_at(i)).to_string();
-            match model.sub_menu_at(i) {
-                Some(sub) => format!("{label}[{}]", menu_items(&sub).join(", ")),
-                None => format!("{}:{label}", model.command_id_at(i)),
-            }
-        })
-        .collect()
-}
-
 wrap_context_menu_handler! {
     struct HostContextMenuHandler {}
 
     impl ContextMenuHandler {
-        // No way to open a second tab or window (newtab.rs). What stays acts on the
-        // page itself (back/forward/reload, copy/paste, save as, print, ...).
+        // No context menu at all (C-NOMENU, user 2026-11-23): its useful actions move to
+        // `:` commands (C-CMDS). Two layers: the model is emptied here (an empty model
+        // shows nothing), and run_context_menu says "handled" and cancels, in case a
+        // build runs the menu anyway. The right-click itself still reaches the page
+        // (the `contextmenu` event is dispatched before the browser asks for a menu), so
+        // pages with their own right-click menus keep working.
         fn on_before_context_menu(
             &self,
             _browser: Option<&mut Browser>,
@@ -687,9 +652,24 @@ wrap_context_menu_handler! {
             model: Option<&mut MenuModel>,
         ) {
             let Some(model) = model else { return };
-            let mut removed = Vec::new();
-            clean_menu(model, &mut removed);
-            log!("context menu: removed [{}]; remaining [{}]", removed.join(", "), menu_items(model).join(", "));
+            let n = model.count();
+            model.clear();
+            log!("context menu: suppressed ({n} items cleared)");
+        }
+
+        fn run_context_menu(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _params: Option<&mut ContextMenuParams>,
+            _model: Option<&mut MenuModel>,
+            callback: Option<&mut RunContextMenuCallback>,
+        ) -> ::std::os::raw::c_int {
+            if let Some(cb) = callback {
+                cb.cancel();
+            }
+            log!("context menu: run suppressed");
+            1
         }
     }
 }

@@ -10,6 +10,7 @@
   #blank { top: 220px; }
   #img   { top: 340px; width: 200px; height: 120px; background: #c33; display: block; }
   #txt   { top: 500px; border: 0; }
+  #cust  { top: 600px; left: 560px; width: 300px; height: 80px; border: 2px solid #543; }
   #form  { position: absolute; left: 100px; top: 620px; }
 </style>
 </head>
@@ -18,6 +19,7 @@
 <a id="blank" class="box" href="b.html?via=blank" target="_blank">target=_blank link to B</a>
 <img id="img" class="box" alt="red" src="data:image/svg+xml;utf8,&lt;svg xmlns='http://www.w3.org/2000/svg' width='200' height='120'&gt;&lt;rect width='200' height='120' fill='%23c33'/&gt;&lt;/svg&gt;">
 <div id="txt" class="box">selectable words here</div>
+<div id="cust" class="box">own contextmenu</div>
 <form id="form" action="b.html" method="get" target="_blank"><input id="q" name="via" value="form"><input type="submit" value="go"></form>
 <script>
 // Diagnostics for the C-NOTAB check: the last pointer/key event shows in the title (the host logs title events).
@@ -27,6 +29,7 @@ for (const t of ['mousedown', 'auxclick', 'contextmenu', 'keydown'])
     // Keys: the key name (no coordinates or button); pointer events: position and button.
     document.title = t === 'keydown' ? `ev:keydown:${e.key}:${mods}` : `ev:${t}:${e.clientX},${e.clientY}:${mods}:${e.button}`;
   }, true);
+document.getElementById('cust').addEventListener('contextmenu', e => { e.preventDefault(); document.title = 'ev:custom'; });
 </script>
 </body>
 </html>

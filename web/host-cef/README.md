@@ -122,12 +122,13 @@ The verdict logic is unit-tested in `test/test_cookies.py`.
   (`open-url-from-tab Drop:` in the log), and Chromium does not submit a form on
   Ctrl+Enter at all (no keypress), so nothing reaches the host there.
   Ctrl+Shift+click has the same disposition as `target=_blank`, so the renderer
-  cancels that click on links (`CTRL_SHIFT_JS`, `preventDefault` only). The context menu
-  (`OnBeforeContextMenu`) loses `newtab::MENU_REMOVE`: open link in new tab / window /
-  incognito / profile / split view, open image/video/audio in new tab, search the web
-  (for text, image, video frame, Lens), view page source, Inspect and DevTools, in the
-  menu and its submenus; the host log prints `context menu: removed [...]; remaining [...]`
-  per menu. Chrome keyboard commands (Ctrl+T, Ctrl+N, Ctrl+Shift+N, ...) stay blocked by
+  cancels that click on links (`CTRL_SHIFT_JS`, `preventDefault` only). There is no context menu at all (C-NOMENU, user 2026-11-23: its useful
+  actions move to `:` commands, C-CMDS): `OnBeforeContextMenu` empties the model and
+  `RunContextMenu` returns handled after `callback.cancel()`. Both are needed: with only the
+  model cleared, Chrome style still opens a popup (checked live, notab.py fails). The
+  right-click still reaches the page as an ordinary `mousedown`/`contextmenu` event, so
+  pages with their own right-click menus work; the host log prints
+  `context menu: suppressed (N items cleared)`. Chrome keyboard commands (Ctrl+T, Ctrl+N, Ctrl+Shift+N, ...) stay blocked by
   the `CommandHandler`. Other paths: dropping a dragged link on the page navigates the
   page itself (no new tab); the PDF viewer's buttons and the DevTools shortcuts
   (F12, Ctrl+Shift+I) go through Chrome commands, which the `CommandHandler` blocks
