@@ -276,6 +276,9 @@ impl State {
                     }
                 }
                 Effect::Quit => self.quit(":q"),
+                Effect::OpenExternal(url) => {
+                    self.keys.message = crate::external::open(&url, crate::config::EXTERNAL_BROWSER);
+                }
             }
         }
     }

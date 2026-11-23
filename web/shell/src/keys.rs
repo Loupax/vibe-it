@@ -217,6 +217,7 @@ pub const COMMAND_NAMES: &[&str] = &[
     "historyFront",
     "historySearch",
     "let",
+    "openExternal",
     "popupOpen",
     "popupSearch",
     "q",
@@ -321,6 +322,8 @@ pub enum Effect {
     Pause(u64),
     /// Quit web (`:q`).
     Quit,
+    /// C-EXTERNAL: hand this checked URL to the other browser (`external::open`).
+    OpenExternal(String),
 }
 
 /// T17.
@@ -942,6 +945,14 @@ impl Keys {
         self.recompute_ghost();
     }
 
+    /// `:openExternal`: checks the scheme and queues the hand-over (the message comes from it).
+    fn open_external(&mut self, url: &str) {
+        match crate::external::check_url(url) {
+            Ok(url) => self.effects.push(Effect::OpenExternal(url)),
+            Err(m) => self.message = m,
+        }
+    }
+
     /// Splits a submitted line into its name and arguments and runs it.
     pub fn run_command_line(&mut self, input: &str) {
         let mut parts = input.split_whitespace();
@@ -975,6 +986,16 @@ impl Keys {
                 Err(m) => self.message = m,
             },
             ("go", _) => self.message = "web: usage: :go <url>".to_string(),
+            // C-EXTERNAL (KEYS.md "Opening a page in another browser").
+            ("openExternal", []) => {
+                let url = self.url.clone();
+                self.open_external(&url)
+            }
+            ("openExternal", [word]) => match go_url(word, &self.url) {
+                Ok(url) => self.open_external(&url),
+                Err(m) => self.message = m,
+            },
+            ("openExternal", _) => self.message = "web: usage: :openExternal [url]".to_string(),
             // C-BOOKMARKS (KEYS.md "Bookmarks").
             ("bookmarkAdd", []) => self.bookmark_add(),
             ("bookmarkAdd", _) => self.message = "web: usage: :bookmarkAdd".to_string(),

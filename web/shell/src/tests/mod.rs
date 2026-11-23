@@ -10,6 +10,7 @@ mod c6d_tests;
 mod c6h_tests;
 mod c_bookmarks_tests;
 mod c_enter_tests;
+mod c_external_tests;
 mod c_flicker_tests;
 mod c_focuskeys_tests;
 mod c_keymap_tests;

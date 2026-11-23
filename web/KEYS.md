@@ -248,7 +248,7 @@ set per command, like bash's `complete`:
   **web:** scratchy's `:set js`/`motion` (engine settings) are dropped; `:set` has
   `caret`, `nocaret` and `caret?` (C-CARETCMD, below). The rows are `go` (the bookmarks, then the history), `bookmarkDelete` (the bookmarks),
   `refresh` (`hard`) and `set` (`config::SET_ARGS`; a selected `:set` argument gets a space,
-  T53). The commands are `:go`, `:refresh [hard]`, `:historyBack`, `:historyFront`, `:historySearch` (the picker, C-PICK), `:bookmarkAdd`, `:bookmarkDelete [url]`, `:bookmarkSearch` (C-BOOKMARKS, "Bookmarks"), `:help`,
+  T53). The commands are `:go`, `:refresh [hard]`, `:historyBack`, `:historyFront`, `:historySearch` (the picker, C-PICK), `:bookmarkAdd`, `:bookmarkDelete [url]`, `:bookmarkSearch` (C-BOOKMARKS, "Bookmarks"), `:openExternal [url]` (C-EXTERNAL, "Opening a page in another browser"; completes like `:go`), `:help`,
   `:let`, `:set`, `:q`/`:quit`.
   `:go` without a scheme means `https://` (scratchy's QCOMP6); the ghost still continues
   exactly what was typed. C3-GOHTTP: when the run line's URL (typed + accepted ghost) equals
@@ -514,6 +514,18 @@ open nothing", DECISIONS.md): in INPUT the page gets the modifiers with the keys
 unmodified again after the release), so Ctrl/Shift/Ctrl+Shift-click and middle-click are dropped by the
 host in both modes (T92). NORMAL's keys are unaffected: the page's modifiers are never changed by a key
 there. Not now (DECISIONS.md): a per-site "always allow popups" list.
+
+## Opening a page in another browser (C-EXTERNAL)
+
+User, 2026-11-23, after C-WEBEX (#718) showed Webex needs WebRTC H.264, which the prebuilt CEF lacks: "Let's do both.
+Create :openExternal but let's also build chromium" (DECISIONS.md). A cheap way out for sites web cannot play (Webex now, DRM sites).
+
+| ID | Mode | Key | Condition | Next | Action |
+|---|---|---|---|---|---|
+| T99 | COMMAND | Enter on `:openExternal [url]` | the URL (the buffer's own when none is given; else normalised as `:go`: `https://` assumed, `/x` `./x` `#x` `?x` relative to the page) has the scheme http, https or file | NORMAL | runs the other browser with that URL as ONE argv element and does not wait for it: `opened externally: <url> (<program>)`. The `:` line completes the argument like `:go` (bookmarks, then history) |
+| T100 | COMMAND | Enter on `:openExternal [url]` | any other scheme (`javascript:`, `data:`, `about:`, `mailto:`), no page, or no program | NORMAL | nothing is run: `web: :openExternal: refused javascript: URLs (only http, https, file are handed over)`, `web: :openExternal: no page to open`, or `web: :openExternal: <program>: not found (...)`. Two arguments: `web: usage: :openExternal [url]` |
+| T101 | - | which program | - | - | `config::EXTERNAL_BROWSER` (an argv; `%s` becomes the URL, else the URL is appended) when set; else `$BROWSER`: its `:`-separated entries (each may carry arguments and `%s`) in order, the first whose program exists; else `xdg-open` |
+| T102 | - | how it is started | - | - | never through a shell, so the URL is not interpreted; a new session (`setsid`), stdio on /dev/null, reaped by a thread (no zombie); it outlives web |
 
 ## What went away in scratchy (QKEYS3)
 

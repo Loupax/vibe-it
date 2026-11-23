@@ -13,6 +13,7 @@ mod completion;
 mod config;
 mod control;
 mod dmabuf;
+mod external;
 mod forget;
 mod history;
 mod host;
