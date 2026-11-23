@@ -71,3 +71,16 @@ uses the shared no-follow agents, so connections are reused (was one TLS handsha
 request). example.com and en.wikipedia.org load inside the namespace; wire's log has every
 request (2/2 and 48/48). Findings (Chromium's HTTP cache stores nothing, bypass paths in
 a net log, load times, upload gap) in spike/README.md.
+
+## W4 Cookies in Chromium (2026-11-23)
+
+> W4 Cookies in Chromium (coordinator launch of web/TODO.txt W4)
+
+**What changed:** a persistent profile option for the spike (`run.sh --persistent` =
+`~/.local/share/web-spike/profile`, mode 0700; `--profile DIR`; agents keep the throwaway
+`.profile`), cookies flushed to disk on every load end, `WEB_SPIKE_COOKIES=1` (names and flags
+only), and a local cookie/login fixture (`spike/tests/cookie_fixture.py`). Proven without a
+real account: persistent cookies survive a restart, session cookies do not, HttpOnly / Secure /
+SameSite and third-party cookies behave as in Chrome, and wire's jar stays empty with no
+`X-Wire-Jar` sent. The real-site login is the user's step; the checklist is in spike/README.md
+and the (draft) PR.

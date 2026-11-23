@@ -46,7 +46,9 @@ mapping): `cargo test` (same `CEF_PATH`).
 - Runs the binary in `systemd-run --user --scope -p MemoryMax=6G -p MemorySwapMax=0`
   as unit `$WEB_SPIKE_UNIT` (default `web-spike-<pid>`). Stop the whole process tree
   with `systemctl --user stop <unit>.scope`.
-- Profile/cache: `$WEB_SPIKE_PROFILE` (default `web/spike/.profile/`, git-ignored).
+- Profile/cache: `--profile DIR` or `$WEB_SPIKE_PROFILE`; default `web/spike/.profile/`
+  (git-ignored, throwaway; what agents use). `--persistent` is the user's long-lived profile
+  `${XDG_DATA_HOME:-~/.local/share}/web-spike/profile` (outside the repo, mode 0700; W4).
   The binary refuses to start without it, so CEF never falls back to `~/.config`.
   CEF's own log goes to `<profile>/cef.log`; the spike's lines go to stderr as
   `[web-spike +<ms>ms] ...` (title, main-frame load end with HTTP status, load
@@ -62,7 +64,8 @@ mapping): `cargo test` (same `CEF_PATH`).
   --cache-size 256M`; `WIRE_TIMING=1` makes wire log one `TIMING` line per request.
   Unset: no interception, so nothing loads inside the namespace.
 - Debug env (optional): `WEB_SPIKE_LOG_REQUESTS=1` (every request CEF asks about),
-  `WEB_SPIKE_LOG_HEADERS=1` (header names sent to wire), `WEB_SPIKE_DUMP=1` (main-frame
+  `WEB_SPIKE_LOG_HEADERS=1` (header names sent to wire), `WEB_SPIKE_COOKIES=1` (Chromium's
+  cookie jar on every load end: name, domain, Secure/HttpOnly/SameSite/persistent flags, NEVER values), `WEB_SPIKE_DUMP=1` (main-frame
   URL, `document.cookie` and text on load end), `WEB_SPIKE_JS=<code>` (run in the main
   frame on every load end), `WEB_SPIKE_REPORT_MS=<ms>` (request counters that long after
   start).
@@ -273,3 +276,94 @@ request the handler sent, URL for URL.
   daily-driver basics.
 - wire: keep `Content-Encoding` when ureq did not undo it (today wire always strips it,
   so br/zstd bodies arrive undecodable), or enable ureq's `brotli` feature.
+
+## What W4 learned (cookies in Chromium)
+
+Done-when needs the user's hands (a real login); everything that can be proven without
+an account is proven below. The user's part is the checklist at the end of this section.
+
+- **Code.** Almost nothing: since W3 the handler sends no `X-Wire-Jar` and `Set-Cookie`
+  reaches Chromium untouched. W4 adds `persist_session_cookies = 0` (explicit),
+  `cookie_manager.flush_store()` on every main-frame load end (Chromium writes cookies to
+  disk lazily, so a killed spike would lose the latest ones), `WEB_SPIKE_COOKIES=1`, and the
+  `run.sh` profile flags (`--persistent`, `--profile DIR`; every profile dir is chmod 0700).
+- **Persistence is the Chrome default.** `cache_path` set = an on-disk cookie store
+  (`<profile>/default`); persistent cookies (Max-Age/Expires) survive a restart, session
+  cookies do not (Chrome only restores them with "continue where you left off", which this
+  spike does not have).
+- **Evidence A: local fixture** (`tests/cookie_fixture.py`, loopback, behind my own wire; the
+  page is `http://localhost:PORT/`, the "third party" is `http://127.0.0.1:PORT/`). A login
+  form is auto-submitted; `POST /login` answers 302 with 8 `Set-Cookie` lines on the redirect
+  hop, Chromium follows to `/home`:
+  - Run 1: `/home` says "logged in"; the jar holds `sid` (HttpOnly, Lax, persistent),
+    `persist`, `sessck` (session), `httponly`, `secure`, `lax`, `strict`, `none`
+    (SameSite=None+Secure). `document.cookie` lacks the HttpOnly ones.
+  - Run 2 (new process, same profile, scope stopped hard in between): `/home` says "logged in";
+    the browser sent `httponly,lax,none,persist,secure,sid,strict` and NOT `sessck`; the jar
+    has no `sessck`.
+  - Run 3 (cross-site, as Chrome does): a cross-site subresource request to localhost sent only
+    `none`; a cross-site top-level navigation to localhost sent the Lax cookies (`sid`, `lax`)
+    and `none`, not `strict`; the next same-site request sent `strict` again.
+  - `Secure` cookies are accepted from `http://localhost` and `127.0.0.1` (Chrome treats
+    loopback as potentially trustworthy).
+- **Evidence B: public https** (`https://httpbin.org/response-headers?Set-Cookie=...`): a
+  `Secure; HttpOnly; Max-Age` cookie and a session cookie are stored; after a restart
+  `https://httpbin.org/cookies` shows only the persistent one, `document.cookie` is empty
+  (HttpOnly).
+- **Third-party cookies (Chrome's default: allowed, with SameSite rules).** A cookie set by a
+  cross-site image: `SameSite=None; Secure` is stored and sent back on the next cross-site
+  request; one with no SameSite attribute (Lax by default) is rejected, as in Chrome. No
+  CEF switch needed; nothing blocks 3P cookies by default.
+- **wire's jar stays unused.** The headers sent to wire (`WEB_SPIKE_LOG_HEADERS=1`) never
+  include `X-Wire-Jar` (0 in every run); wire runs with `--cookie-file` and the file was never
+  created; wire's cookie `get` op (`X-Wire-Cookie-Op: get` + control token) answers an
+  empty body for every host/top-site combination of the runs (with `X-Wire-Cookies: on`, i.e.
+  the jar is enabled and empty).
+- **Reproduce** (own wire + fixture in the nested compositor; see Run above):
+
+      python3 web/spike/tests/cookie_fixture.py 18431 fixture.log &
+      WEB_SPIKE_WIRE=$PWD/wire.sock WEB_SPIKE_COOKIES=1 WEB_SPIKE_DUMP=1 \
+        WEB_SPIKE_JS="if(location.pathname=='/login')document.forms[0].submit()" \
+        web/spike/run.sh http://localhost:18431/login
+      # stop the scope, start again with .../home: still logged in; fixture.log lists the cookie names sent
+
+### W4 checklist for the user (real login, persistent profile)
+
+1. Build (once, from this branch or after merge):
+
+       cd ~/src/vibe-it/web/spike
+       export CEF_PATH=$HOME/.cache/web-spike/cef
+       CARGO_BUILD_JOBS=4 nice -n 19 ionice -c3 cargo build
+
+2. Restart YOUR wire so it runs the latest install (the spike needs the W3 `X-Wire-Max-Redirects: 0`
+   handling), however you normally start it; its socket is `/run/user/1000/wire.sock`.
+3. Start the spike on your persistent profile (`~/.local/share/web-spike/profile`, mode 0700):
+
+       WEB_SPIKE_WIRE=/run/user/1000/wire.sock WEB_SPIKE_UNIT=web-spike \
+         WEB_SPIKE_COOKIES=1 ./run.sh --persistent https://SITE/
+
+   (Wayland session; add `--x11` on X11. `WEB_SPIKE_COOKIES=1` only prints cookie names and
+   flags to the terminal, never values.)
+4. Pick two sites you use daily: one with a plain username + password login (not Google), and
+   one with 2FA (a bank, GitHub with TOTP, ...). Do NOT try a passkey-only flow yet (W7).
+5. Log in on each. Check: login works; the terminal shows the new cookies (`httponly=1`,
+   `persistent=1` ones for the session).
+6. Quit the spike (close the window, or `systemctl --user stop web-spike.scope`), start it again with
+   the same command and the same URL: you should still be logged in (a site that only uses
+   session cookies, or logs you out after minutes, will not be: note which).
+7. wire's jar unused: with the control token, ask your wire for the jar of that site before the
+   login and after step 6; both must be empty (body length 0), e.g.
+
+       T=$(cat /run/user/1000/wire.sock.token)
+       curl -s --unix-socket /run/user/1000/wire.sock --request-target https://SITE/ https://SITE/ \
+         -H 'X-Wire-Jar: scratchy' -H 'X-Wire-Cookie-Op: get' -H 'X-Wire-Cookie-Url: https://SITE/' \
+         -H 'X-Wire-Top-Site: https://SITE' -H "X-Wire-Control-Token: $T" | wc -c
+
+   (If you used scratchy on that site its cookies show up here; then compare before/after: no
+   change.)
+8. Report back: per site: login worked / failed (what the page showed), still logged in after the
+   restart yes/no, jar bytes before/after, anything that looked wrong (redirect loop, "cookies
+   disabled", captcha, a missing `Sec-Fetch-*` complaint). Do not paste cookie values.
+9. Wipe afterwards: quit the spike, then `rm -rf ~/.local/share/web-spike/profile`
+   (that deletes every login made in the spike). Log out of the sites on their own
+   pages first if you want the sessions revoked server-side.

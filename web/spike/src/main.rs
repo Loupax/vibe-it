@@ -10,6 +10,7 @@
 //! WEB_SPIKE_DUMP=1 logs the main frame's URL, document.cookie and text on load end;
 //! WEB_SPIKE_REPORT_MS=<ms> logs the request counters that long after start;
 //! WEB_SPIKE_JS=<code> runs in the main frame on every load end (spike checks);
+//! WEB_SPIKE_COOKIES=1 logs Chromium's cookie jar (names and flags, no values) on load end;
 //! WEB_SPIKE_LOG_REQUESTS=1 logs every request CEF asks about; WEB_SPIKE_LOG_HEADERS=1
 //! the header names (no values) of every request sent to wire.
 
@@ -175,6 +176,39 @@ wrap_life_span_handler! {
     }
 }
 
+wrap_cookie_visitor! {
+    struct CookieDump {}
+
+    impl CookieVisitor {
+        fn visit(
+            &self,
+            cookie: Option<&Cookie>,
+            count: i32,
+            total: i32,
+            _delete_cookie: Option<&mut i32>,
+        ) -> i32 {
+            // Names and flags only, never values (a real profile holds real sessions).
+            if let Some(c) = cookie {
+                log!(
+                    "cookie {}/{total}: name={} domain={} path={} secure={} httponly={} samesite={:?} persistent={}",
+                    count + 1,
+                    c.name,
+                    c.domain,
+                    c.path,
+                    c.secure,
+                    c.httponly,
+                    c.same_site,
+                    c.has_expires
+                );
+            }
+            if total == 0 {
+                log!("cookies: none");
+            }
+            1
+        }
+    }
+}
+
 wrap_load_handler! {
     struct SpikeLoadHandler {}
 
@@ -184,6 +218,13 @@ wrap_load_handler! {
             if frame.is_main() != 0 {
                 log!("load end: {} (HTTP {status})", CefString::from(&frame.url()));
                 log!("{}", handler::counters());
+                if let Some(cm) = cookie_manager_get_global_manager(None) {
+                    // Chromium writes cookies to disk lazily; flush so a kill loses nothing.
+                    cm.flush_store(None);
+                    if std::env::var_os("WEB_SPIKE_COOKIES").is_some() {
+                        cm.visit_all_cookies(Some(&mut CookieDump::new()));
+                    }
+                }
                 if std::env::var_os("WEB_SPIKE_DUMP").is_some() {
                     let js = "console.log('DUMP url=' + location.href + ' cookie=' + JSON.stringify(document.cookie) + ' text=' + JSON.stringify((document.body ? document.body.innerText : '').slice(0, 600)))";
                     frame.execute_java_script(Some(&CefString::from(js)), None, 0);
@@ -285,6 +326,9 @@ fn main() {
         // Chromium's own Linux sandbox (user namespaces); the `sandbox` cargo
         // feature only matters for the Windows/macOS bootstrap.
         no_sandbox: std::env::var("WEB_SPIKE_NO_SANDBOX").is_ok() as i32,
+        // Chrome's default: session cookies die with the browser (persistent ones are
+        // kept in <profile>/default/Cookies). Explicit so a CEF default change is visible.
+        persist_session_cookies: 0,
         root_cache_path: CefString::from(profile.as_str()),
         cache_path: CefString::from(format!("{profile}/default").as_str()),
         log_file: CefString::from(format!("{profile}/cef.log").as_str()),
