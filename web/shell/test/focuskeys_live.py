@@ -31,6 +31,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.dont_write_bytecode = True
 import live  # noqa: E402
+import livelib  # noqa: E402  (LIVE-GEOM: the settled window size and focus)
 
 SHELL = live.SHELL
 WEB = live.WEB
@@ -84,12 +85,13 @@ def main():
 
     try:
         log.wait(r'"title":"fk y=0 ev="', timeout=60)
-        log.wait(r"page window is (\d+)x(\d+)", timeout=10)
-        log.wait(r"shell window focused: true", timeout=10)
-        time.sleep(0.5)
-        shot = os.path.join(out, "start.png")
-        subprocess.run(["grim", shot], env=nest_env, check=True)
-        ow, oh = live.png_size(shot)
+        def shot(name):
+            p = os.path.join(out, name)
+            subprocess.run(["grim", p], env=nest_env, check=True)
+            return p
+
+        geo = livelib.settle(log, shot)
+        ow, oh = geo.ow, geo.oh
 
         def inject(*cmds):
             subprocess.run([a.inject, str(ow), str(oh)] + list(cmds), env=nest_env, check=True)

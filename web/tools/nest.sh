@@ -23,8 +23,10 @@
 #   DWL_SRC     dwl source tree to build from (default /home/loupax/src/dotfiles/dwl)
 #   WLROOTS_DIR wlroots tree with install/lib/pkgconfig (default: $DWL_SRC/../wlroots)
 #
-# --windowed: the old mode, the installed dwl on the wayland backend: a window inside the
-# current session (needs the user's display; use only when a human wants to watch).
+# --windowed: the old mode, dwl on the wayland backend: a window inside the current session (needs
+# the user's display; use only when a human wants to watch). NEST-WINKEYMAP: it runs the same patched dwl
+# (only the keymap fallback hunk applies there: the seat falls back to dwl's keyboard group when a virtual
+# keyboard goes away; NEST_NO_KEYMAP_FALLBACK=1 disables it). UNTESTED in a real window (agents never open one).
 #
 # QNEST1: ONE nested dwl per worktree. The compositor is recorded in the registry dir
 # <worktree>/.qwork/nest (env NEST_REG overrides): dwl.pid, disp (socket), mode, size, dwl.log.
@@ -143,7 +145,9 @@ if [ "$WANT" = headless ]; then
   ENV=(env -u DISPLAY -u WAYLAND_DISPLAY -u WAYLAND_SOCKET WLR_BACKENDS=headless WLR_RENDERER=pixman
        WLR_HEADLESS_OUTPUTS=1 NEST_HEADLESS_SIZE="$PXSIZE" NEST_HEADLESS_SCALE="$SCALE" NEST_HEADLESS_REFRESH="$REFRESH")
 else
-  DWL=dwl
+  # NEST-WINKEYMAP: the windowed nest runs the patched dwl too (every other hunk is gated on
+  # NEST_HEADLESS_SIZE, which is not set here), for the keymap fallback when a virtual keyboard goes away.
+  DWL=$(build_dwl)
   ENV=(env -u DISPLAY WLR_BACKENDS=wayland WLR_RENDERER=pixman)
 fi
 (

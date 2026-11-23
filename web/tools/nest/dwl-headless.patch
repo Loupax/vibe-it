@@ -43,7 +43,7 @@
  
  	/* Set up event listeners */
  	LISTEN(&wlr_output->events.frame, &m->frame, rendermon);
-@@ -1416,12 +1434,18 @@
+@@ -1416,12 +1434,20 @@
  destroykeyboardgroup(struct wl_listener *listener, void *data)
  {
  	KeyboardGroup *group = wl_container_of(listener, group, destroy);
@@ -54,10 +54,12 @@
  	wl_list_remove(&group->destroy.link);
  	wlr_keyboard_group_destroy(group->wlr_group);
  	free(group);
-+	/* NEST-HEADLESS: a gone virtual keyboard (tools/inject exited) leaves the seat with
-+	 * no keyboard; clients that bind wl_keyboard then get no keymap. Fall back to the
-+	 * keyboard group again. */
-+	if (virtual && getenv("NEST_HEADLESS_SIZE") && !wlr_seat_get_keyboard(seat))
++	/* NEST-HEADLESS, NEST-WINKEYMAP: a gone virtual keyboard (tools/inject exited) leaves the
++	 * seat with no keyboard; clients that bind wl_keyboard then get no keymap (Chromium
++	 * crashes on the first modifiers event). Fall back to the keyboard group again. Not gated
++	 * on the headless mode: the windowed nest runs this patched dwl too.
++	 * NEST_NO_KEYMAP_FALLBACK=1 turns it off (to reproduce the crash). */
++	if (virtual && !getenv("NEST_NO_KEYMAP_FALLBACK") && !wlr_seat_get_keyboard(seat))
 +		wlr_seat_set_keyboard(seat, &kb_group->wlr_group->keyboard);
  }
  

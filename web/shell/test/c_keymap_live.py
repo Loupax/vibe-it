@@ -31,6 +31,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.dont_write_bytecode = True
 import live  # noqa: E402
+import livelib  # noqa: E402  (LIVE-GEOM: the settled window size and focus)
 
 SHELL = live.SHELL
 WEB = live.WEB
@@ -103,14 +104,13 @@ def main():
 
     try:
         log.wait(r'"title":"km v=copied in the page 7 keys="', timeout=60)
-        log.wait(r"page window is (\d+)x(\d+)", timeout=10)
-        time.sleep(0.5)
-        sizes = [re.search(r"\] window (\d+)x(\d+), page", l) for l in log.lines]
-        ww, wh = [int(x) for x in [s for s in sizes if s][-1].groups()]
-        shot = os.path.join(out, "start.png")
-        subprocess.run(["grim", shot], env=nest_env, check=True)
-        ow, oh = live.png_size(shot)
-        bx, by = (ow - ww) // 2, (oh - wh) // 2
+        def shot(name):
+            p = os.path.join(out, name)
+            subprocess.run(["grim", p], env=nest_env, check=True)
+            return p
+
+        geo = livelib.settle(log, shot)
+        ow, oh, bx, by = geo.ow, geo.oh, geo.bx, geo.by
 
         grp = [None]  # the active layout group: a virtual keyboard starts at 0 in every inject run
 
