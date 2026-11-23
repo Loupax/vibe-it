@@ -29,7 +29,8 @@ pub struct FlowInfo {
     pub method: String,
     pub host: String,
     pub port: u16,
-    /// Always false until W2-2 (decryption); kept so the log format does not change later.
+    /// A `CONNECT` whose TLS the proxy terminates (W2-2); decided once when the flow opens. Its byte
+    /// counters then count plaintext HTTP (heads and bodies), not TLS records.
     pub decrypted: bool,
     /// Filter names the flow passes through, computed once when it opens (empty until W2-F).
     pub chain: Vec<String>,
@@ -69,6 +70,17 @@ impl Registry {
     }
 
     pub fn open(self: &Arc<Self>, kind: Kind, method: &str, host: &str, port: u16) -> Flow {
+        self.open_with(kind, method, host, port, false)
+    }
+
+    pub fn open_with(
+        self: &Arc<Self>,
+        kind: Kind,
+        method: &str,
+        host: &str,
+        port: u16,
+        decrypted: bool,
+    ) -> Flow {
         let id = self.next.fetch_add(1, Ordering::Relaxed) + 1;
         let info = Arc::new(FlowInfo {
             id,
@@ -76,7 +88,7 @@ impl Registry {
             method: method.to_string(),
             host: host.to_string(),
             port,
-            decrypted: false,
+            decrypted,
             chain: Vec::new(),
             opened: Instant::now(),
             up: AtomicU64::new(0),
@@ -178,7 +190,7 @@ impl Drop for Flow {
     }
 }
 
-fn fmt_secs(d: Duration) -> String {
+pub fn fmt_secs(d: Duration) -> String {
     format!("{:.3}s", d.as_secs_f64())
 }
 

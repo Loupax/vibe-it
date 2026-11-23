@@ -1,9 +1,11 @@
-//! wire2: local forward proxy (wire2/SPEC.md). This is step W2-1, the plain forwarding proxy ("zero
-//! --filter flags"): CONNECT tunnels spliced as opaque bytes, plain http:// requests streamed through.
-//! See NOTES.md for the design choices.
+//! wire2: local forward proxy (wire2/SPEC.md). Steps W2-1 (plain forwarding: CONNECT tunnels spliced
+//! as opaque bytes, plain http:// requests streamed through) and W2-2 (TLS interception for hosts an
+//! http-layer filter claims, which needs W2-F's filters to switch on). See NOTES.md for the design.
 
+mod ca;
 mod config;
 mod conn;
+mod decrypt;
 mod flow;
 mod host;
 mod http;
@@ -142,12 +144,40 @@ async fn run(cfg: Config) -> Result<(), String> {
             Listen::Tcp(_) => unreachable!(),
         },
     };
+    let ca_dir = cfg.ca_dir.clone().or_else(ca::default_dir);
+    let policy = decrypt::Policy::new(cfg.no_decrypt.clone(), ca::Ca::new(ca_dir));
+    if !cfg.test_resolve.is_empty() {
+        let shown: Vec<String> = cfg
+            .test_resolve
+            .iter()
+            .map(|(g, ip)| format!("{g}={ip}"))
+            .collect();
+        warn!(
+            "TEST-ONLY --test-resolve: {} (DNS is not asked for these)",
+            shown.join(",")
+        );
+        upstream::set_test_resolve(cfg.test_resolve.clone());
+    }
+    if !cfg.test_decrypt.is_empty() {
+        // Stands in for an http-layer filter completing its handshake (W2-F): creates the CA now.
+        warn!(
+            "TEST-ONLY --test-decrypt: forcing decryption of {}; this is not a filter and is for tests only",
+            cfg.test_decrypt.join(",")
+        );
+        policy.add_http_claim("test-decrypt", cfg.test_decrypt.clone())?;
+    }
     let ctx = Arc::new(Ctx {
         cfg: cfg.clone(),
         reg: Registry::new(),
+        policy,
     });
+    let mode = if cfg.test_decrypt.is_empty() {
+        "no filters: CONNECT is an opaque tunnel, nothing is decrypted, no CA"
+    } else {
+        "no filters; TEST-ONLY forced decryption is on"
+    };
     info!(
-        "wire2 {} proxy-id={} listening on {shown} (no filters: CONNECT is an opaque tunnel, nothing is decrypted, no CA)",
+        "wire2 {} proxy-id={} listening on {shown} ({mode})",
         env!("CARGO_PKG_VERSION"),
         proxy_id()
     );

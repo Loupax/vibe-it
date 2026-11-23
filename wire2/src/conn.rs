@@ -41,6 +41,59 @@ impl Conn {
     }
 }
 
+/// A stream that first yields `pre` (bytes already read past a head, e.g. an early ClientHello behind
+/// a `CONNECT`), then reads from `inner`. Writes go straight to `inner`.
+pub struct Prefixed<S> {
+    pre: Vec<u8>,
+    pos: usize,
+    inner: S,
+}
+
+impl<S> Prefixed<S> {
+    pub fn new(pre: Vec<u8>, inner: S) -> Self {
+        Prefixed { pre, pos: 0, inner }
+    }
+}
+
+impl<S: AsyncRead + Unpin> AsyncRead for Prefixed<S> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let me = self.get_mut();
+        if me.pos < me.pre.len() {
+            let n = (me.pre.len() - me.pos).min(buf.remaining());
+            buf.put_slice(&me.pre[me.pos..me.pos + n]);
+            me.pos += n;
+            if me.pos == me.pre.len() {
+                me.pre = Vec::new();
+                me.pos = 0;
+            }
+            return Poll::Ready(Ok(()));
+        }
+        Pin::new(&mut me.inner).poll_read(cx, buf)
+    }
+}
+
+impl<S: AsyncWrite + Unpin> AsyncWrite for Prefixed<S> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.get_mut().inner).poll_write(cx, buf)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.get_mut().inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
+    }
+}
+
 impl From<TcpStream> for Conn {
     fn from(s: TcpStream) -> Self {
         Conn::Tcp(s)

@@ -49,3 +49,28 @@ normalisation (idna); 502/504 upstream errors with Happy Eyeballs dialing; flow 
 SIGUSR1 dump; refuses root and a non-loopback listen without --allow-remote. Integration tests for the
 applicable acceptance criteria (TLS through a tunnel with no CA, curl, [::1], normalisation, 502/504,
 Proxy-* stripping, 2 GiB transfers with flat RSS, WebSocket echo), a perf test, a CI job, NOTES.md.
+
+---
+
+## W2-2 TLS interception (2026-11-23, agent run by the coordinator)
+
+> You are the agent for item W2-2 in the vibe-it repository (project `wire2/`). [...] W2-2, TLS
+> interception, shaped by the spec rather than TODO's older wording: the spec decrypts lazily, only for
+> hosts an http-layer filter claims, and creates the CA only when the first http filter completes its
+> handshake. Filters arrive in W2-F, so build the machinery now and the policy hook it plugs into [...]
+> The decrypt decision is one function per CONNECT [...] Until W2-F there are no filters, so in
+> production it is always "no" and the proxy behaves exactly as W2-1 (no CA file created — keep that
+> test green). Implement `--no-decrypt` [...] For tests, a test-only way to force decryption for given
+> hosts [...] Also do W2-1a first if you need it [...] Tests: decrypted GET/POST through a local TLS
+> origin with a test root [...] 2 GiB through the decrypted path with flat memory, and the spec's
+> decrypted throughput target (>= 50 % of direct) [...] A browser check: headless Chromium with a
+> throwaway profile under .qwork/ trusting the test CA [...]
+
+Result: `decrypt::Policy` (one decision per CONNECT; `add_http_claim` is W2-F's hook and creates the
+CA), `ca::Ca` (CA on demand in `--ca-dir`, key 0600, reload on restart, per-host leaves cached in
+memory), the decrypted tunnel (TLS to the browser with ALPN http/1.1, keep-alive, each request through
+`proxy::forward`, the one request path shared with plain http; upstream TLS verified against the system
+roots via rustls-native-certs, failures 502), `--no-decrypt` and `--ca-dir`, the TEST-ONLY
+`--test-decrypt` and `--test-resolve` (W2-1a, included). Response bodies are pipelined across two
+tasks, with a per-chunk yield so tokio's LIFO slot does not pin both to one core: decrypted throughput
+went from 47 % to 52-54 % of direct TLS. Tests in tests/w2_2_*.rs, a headless Chrome check, NOTES.md.
