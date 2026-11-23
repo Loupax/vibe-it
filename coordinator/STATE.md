@@ -534,3 +534,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Launched C6h + C6b-CURSOR (Sonnet). Third slot kept for C4 after C-BOOKMARKS.
 - 2026-11-23 Merged #711 C-BOOKMARKS d9a3035 (PROMPTS conflict by hand); web reinstalled. Launched C4 Buffers (Opus) per plan.
 - 2026-11-23 Merged #712 C6h+C6b-CURSOR f50e795; web reinstalled. Filed C6h-144 (optional), C-FMT (after C4). Holding the free slots: C4 touches most of web/shell (conflict risk); C-POPUPS waits for C4.
+- 2026-11-23 Merged #713 C4 Buffers 335f5fe (31 web files, 2-dot = 3-dot); web reinstalled. Launched C-POPUPS (Opus) and C-FMT + test_notab fix (Sonnet).

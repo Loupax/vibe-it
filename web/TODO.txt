@@ -99,7 +99,9 @@ stop early on a hard failure.
       `window.open(url, name, features)` in the frame that asked (keeping the opener) despite Chromium's own
       blocker, else it loads the URL fresh. Report only; PROTOCOL.md proposal for C4.
 
-- [WIP] C4 Buffers [L] (after C4-SPIKE and C-PICK; replaces the deferred "Tabs", same decision) Several pages
+- [x] C4 Buffers [L] (DONE 2026-11-23, 335f5fe, #713: protocol 1 new-tab/show-tab/close-tab; buffers.rs,
+      KEYS.md T77-T92; c4_live 10/10. Unasked: crash keeps the buffer (bar says crashed, :refresh reloads);
+      buffer numbers never reused; :b <partial> = unique substring; :bd -> alternate else next; :ls marks % and #) (after C4-SPIKE and C-PICK; replaces the deferred "Tabs", same decision) Several pages
       in one host; protocol `new-tab [url]`, `close-tab <id>`, `show-tab <id>` (or what C4-SPIKE proposes).
       Commands (KEYS.md "Buffers"): `:bufferList`/`:ls` (picker: number, title, hostname, description;
       fuzzy over title, hostname, description), `:buffer N|<partial>`/`:b`, `:bufferNext`/`:bn`,
@@ -118,7 +120,7 @@ stop early on a hard failure.
       optional `tab` on commands, tab-created opener/cause/req, popup-blocked). Shell: pair several announced
       pages; a Chrome-style popup window (no parent) is a page, not a dialog. Host: `quit` closes every browser
       and exits when the last is gone (today it closes only the first).
-- [ ] C-POPUPS [M] (after C4; same decision; reverses C-NOTAB for script popups and target=_blank)
+- [WIP] C-POPUPS [M] (after C4; same decision; reverses C-NOTAB for script popups and target=_blank)
       `window.open` with a user gesture: a new buffer, switched to, `window.opener` kept; `window.close()`
       from it kills that buffer. Without a gesture: blocked, status bar `popup blocked: <url>` (or `popup
       blocked (no URL)`), kept in the buffer's blocked list (cleared when it navigates to another
@@ -324,7 +326,7 @@ stop early on a hard failure.
       outer window's frames; measure rAF cadence before/after under the perf lock.
 - [x] C6h [M] (DONE 2026-11-23, f50e795, #712: the shell offers wp_presentation; rAF follows 120/144 Hz)
 - [ ] C6h-144 [XS] ONLY IF WANTED (from #712) rAF runs ~155 Hz on a 144 Hz output (presented refresh 6944 us).
-- [ ] C-FMT [XS] (after C4, to avoid conflicts) cargo fmt drift in web/shell (completion.rs, c5b_tests.rs,
+- [WIP] C-FMT [XS] (+ fix host-cef/test/test_notab.py's stale helper names, from #713) cargo fmt drift in web/shell (completion.rs, c5b_tests.rs,
       completion_tests.rs, search_tests.rs, tests/mod.rs) and anything else `cargo fmt --check` flags; add a
       `cargo fmt --check` step to the web/shell CI job. (from #699) Chromium's rAF stays 60 Hz on a 120 Hz output although it reads the refresh: find what
       drives its BeginFrame interval (wl_output/xdg-output, a CEF switch) in web-host-cef.
