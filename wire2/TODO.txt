@@ -56,7 +56,7 @@ tunnels are copied with small fixed buffers and backpressure, never whole.
 - [x] W2-1a [S] (DONE in W2-2 #674: hidden `--test-resolve GLOB=IP`) (from #669) Test-only name mapping (hosts file via env in test builds, or a hidden
       `--resolve host=ip`) so tests can use `www.example.test` as the spec does. W2-2/W2-F routing
       tests need it.
-- [ ] W2-1b [S] (from #669; + W2-F3 from #682: tunnel via pass >= 90 %, no-filter >= 95 %) Re-measure tunnel throughput on a quiet machine or with `perf`; decide
+- [ ] W2-1b [S] (run when no CEF agents load the machine) (from #669; + W2-F3 from #682: tunnel via pass >= 90 %, no-filter >= 95 %) Re-measure tunnel throughput on a quiet machine or with `perf`; decide
       whether the >= 95 % target needs work (SPLICE_F_MORE, fewer wakeups).
 - [ ] W2-1c [XS] (from #669, needs the user's say) Access-log up/down byte counts: include heads
       (today) or payload only?
@@ -68,7 +68,7 @@ tunnels are copied with small fixed buffers and backpressure, never whole.
       retried once, POST 502 never resent; 50 requests 2097 -> 113 ms, origin connections 750 -> 15) (from #674) Reuse upstream connections inside decrypted tunnels (today: fresh TCP+TLS per
       request, Connection: close); on a stale connection retry only idempotent requests with no body.
 - [x] W2-2b [XS] (DONE #688: uploads >= 256 KiB / chunked pipelined; 2 GiB flat memory; no measurable speedup, test client was the bottleneck) (from #674) Pipeline request bodies (uploads) like response bodies (two tasks).
-- [ ] W2-2c [XS] (after W2-F) Remove the test-only --test-decrypt once pass-decrypt exists; keep --test-resolve.
+- [x] W2-2c [XS] (DONE in W2-F #682) (after W2-F) Remove the test-only --test-decrypt once pass-decrypt exists; keep --test-resolve.
 - [ ] W2-2d [XS] NEEDS USER (from #674) CA dir default: spec says $XDG_DATA_HOME/proxy, binary is wire2; keep or
       use .../wire2?
       - Generate a local CA on first run (stored with 0600 permissions,
@@ -97,7 +97,7 @@ tunnels are copied with small fixed buffers and backpressure, never whole.
       Proxy-Id handshake, lazy decryption and the `pass` reference filter.
 - [x] W2-2e [S] (DONE 2026-11-23, 995d0c0, #691: shared pool keyed by host/port/tunnel chain, 30 s idle, caps
       6/64, --pool-* flags beyond SPEC.md; Chrome page: 41 -> 6 origin connections)
-- [WIP] W2-2f [XS] (from #691) Include pool counts (per key, idle ages) in the SIGUSR1 registry dump.
+- [x] W2-2f [XS] (DONE 2026-11-23, 1330ff6, #693) (from #691) Include pool counts (per key, idle ages) in the SIGUSR1 registry dump.
 - [x] W2-HUBCLOSE [XS] (DONE 2026-11-23, #688: hub legs keep-alive, proxy-made errors close the browser connection) (from #685) With a filter in the chain, a proxy-made 502 reaches the browser as a
       keep-alive response: the hub leg's close does not propagate. Make it close the browser connection.
 - [x] W2-FLK1 [XS] (DONE 2026-11-23, 390a956, #687; also stage_timeout_504; 20/20 twice) (from #685) `w2_f_filters::malformed_and_closed_filter_502` failed once in a full run

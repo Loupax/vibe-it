@@ -128,7 +128,7 @@ stop early on a hard failure.
       IndexedDB on it and a subdomain, forget-site leaves no cookie or storage for it
       (checked from a fresh load) and leaves another site's login intact.
 
-- [ ] P-FORGET-SHELL [S] (after C2 and #670) `web --forget-site <site>` in web/shell: a running web sends
+- [WIP] P-FORGET-SHELL [S] (bundled with C-SOCKDIR) (after C2 and #670) `web --forget-site <site>` in web/shell: a running web sends
       `forget-site` to its host; otherwise run `web-host-cef --profile <state>/engines/cef --no-window
       --forget-site <site>` and use its exit code and stdout `forgot` line. Status bar shows `forgot ...`;
       reload the page if it shows the site. Done when both paths work against test/forget.py's sites.
@@ -159,7 +159,7 @@ stop early on a hard failure.
 - [ ] C-FOCUSKEYS [S] (from C2 #671; from reading code, untested) smithay's winit backend drops winit's synthetic
       key releases: a modifier held when the shell loses focus (Alt of Alt+Tab) can stay down. Release every
       pressed key on focus-out. Done when Alt+Tab away and back leaves no stuck modifier (keydown logger page).
-- [ ] C-SOCKDIR [XS] (from C2 #671) A hard-killed shell leaves $XDG_RUNTIME_DIR/web-<pid>/ behind: clean stale
+- [WIP] C-SOCKDIR [XS] (from C2 #671) A hard-killed shell leaves $XDG_RUNTIME_DIR/web-<pid>/ behind: clean stale
       dirs at start.
 - [x] C-INSTALL [S] (DONE 2026-11-23, 3bce370, #678: web/install.sh -> ~/.local/lib/web/<ver> + ~/.local/bin/web;
       `ci_then_push.sh --install web`; installed for the user 14:33; ~1.5 GB per version, 2 kept) (user bumped it 2026-11-23) (coordinator, 2026-11-23) Make web installable for daily use: `cargo install` copies only
