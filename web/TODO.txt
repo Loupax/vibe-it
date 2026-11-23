@@ -226,9 +226,15 @@ stop early on a hard failure.
       Measure today's CPU cost (video, fast scroll), then import dmabufs with an shm fallback.
 - [ ] C6e [M] (from #686) IME (text-input-v3): shell as IME client of the desktop and text-input server for
       the page, INPUT only. Done when fcitx5 in the nest types composed text into a page field.
-- [WIP] C6f [XS] (from #686) Middle-click paste in the page does nothing (CEF never pastes primary); find the
+- [ ] C6f [XS] (DRAFT #689, WAITING FOR USER: the fix --ui-toolkit=fallback drops GTK theming, so the desktop's
+      dark theme no longer reaches pages; options (a) accept, (b) accept + our own colour-scheme setting,
+      (c) drop middle-click paste in the page) (from #686) Middle-click paste in the page does nothing (CEF never pastes primary); find the
       Blink/CEF setting and turn it on in web-host-cef; c6_live's primary step checks the paste.
-- [WIP] C2-LIVE-REFRESH [XS] (from #686) web/shell/test/live.py's "context menu near the right edge" step is
+- [WIP] C2-POPUP [S] (from #689) Bug: Chromium's select popups request no constraint adjustment, so the
+      shell's unconstrain_popup does nothing and a <select> at the right edge opens outside the window. Force
+      SlideX|SlideY before computing the unconstrained geometry (Layout::constrain_popup), unit test, and
+      take #689's live.py/c2.html step (sel2 flush right) so live.py is 16/16. Includes C2-LIVE-REFRESH.
+- [WIP] C2-LIVE-REFRESH [XS] (in C2-POPUP) (from #686) web/shell/test/live.py's "context menu near the right edge" step is
       stale since C-NOMENU; replace it with a <select> near the right edge (popup kept inside the window).
 - [ ] C-KEYH [S] (from #672) The cef crate's KeyboardHandler wrapper treats `os_event` as an XEvent and
       segfaults the host on Wayland. Needed if C3 wants key events from the host; fix or work around
