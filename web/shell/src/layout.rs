@@ -1,0 +1,188 @@
+//! Where things go in the shell window (logical pixels, origin top left).
+//!
+//! The page's window fills the shell window minus the status bar at the bottom (KEYS.md
+//! "Status bar": the page never overlaps it). In page fullscreen the page gets the whole
+//! window and the bar is hidden.
+
+use smithay::utils::{Logical, Point, Rectangle, Size};
+
+/// The status bar's height (scratchy's STATUS_BAR_H; C3 draws its contents).
+pub const BAR_H: i32 = 24;
+/// The status bar's colour until C3 draws it (scratchy's STATUS_BAR_BG).
+pub const BAR_BG: [f32; 4] = [24.0 / 255.0, 24.0 / 255.0, 24.0 / 255.0, 1.0];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Layout {
+    pub window: Size<i32, Logical>,
+    pub fullscreen: bool,
+}
+
+/// What a pointer position in the shell window is over.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Region {
+    Page,
+    Bar,
+    Outside,
+}
+
+impl Layout {
+    pub fn new(w: i32, h: i32) -> Layout {
+        Layout {
+            window: Size::from((w, h)),
+            fullscreen: false,
+        }
+    }
+
+    fn bar_h(&self) -> i32 {
+        if self.fullscreen {
+            0
+        } else {
+            // A window shorter than the bar still leaves the page one pixel.
+            BAR_H.min((self.window.h - 1).max(0))
+        }
+    }
+
+    /// The page window's place and size; never smaller than 1x1 (a configure of 0 means
+    /// "pick your own size" in xdg_shell).
+    pub fn page(&self) -> Rectangle<i32, Logical> {
+        let w = self.window.w.max(1);
+        let h = (self.window.h - self.bar_h()).max(1);
+        Rectangle::new((0, 0).into(), (w, h).into())
+    }
+
+    /// The status bar strip, none in fullscreen.
+    pub fn bar(&self) -> Option<Rectangle<i32, Logical>> {
+        let h = self.bar_h();
+        (h > 0).then(|| Rectangle::new((0, self.window.h - h).into(), (self.window.w.max(1), h).into()))
+    }
+
+    pub fn region(&self, p: Point<f64, Logical>) -> Region {
+        let inside = |r: Rectangle<i32, Logical>| {
+            p.x >= r.loc.x as f64 && p.y >= r.loc.y as f64 && p.x < (r.loc.x + r.size.w) as f64 && p.y < (r.loc.y + r.size.h) as f64
+        };
+        if inside(self.page()) {
+            Region::Page
+        } else if self.bar().is_some_and(inside) {
+            Region::Bar
+        } else {
+            Region::Outside
+        }
+    }
+
+    /// Where a dialog-like toplevel (one that is not the page) goes: centred over the page,
+    /// its top left kept inside the page.
+    pub fn dialog_loc(&self, size: Size<i32, Logical>) -> Point<i32, Logical> {
+        let page = self.page();
+        let x = page.loc.x + ((page.size.w - size.w) / 2).max(0);
+        let y = page.loc.y + ((page.size.h - size.h) / 2).max(0);
+        (x, y).into()
+    }
+
+    /// The xdg_positioner constraint area for a popup: the whole shell window (a menu may
+    /// cover the status bar), in the coordinates of the popup's parent surface.
+    /// `root_loc`: where the popup's toplevel is in the shell window; `parent_offset`:
+    /// the parent's offset inside that toplevel (0 for a popup on the toplevel itself,
+    /// the parent popup's position for nested menus).
+    pub fn popup_target(&self, root_loc: Point<i32, Logical>, parent_offset: Point<i32, Logical>) -> Rectangle<i32, Logical> {
+        let mut r = Rectangle::new((0, 0).into(), self.window);
+        r.loc -= root_loc;
+        r.loc -= parent_offset;
+        r
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_positioner::{Anchor, ConstraintAdjustment, Gravity};
+    use smithay::wayland::shell::xdg::PositionerState;
+
+    #[test]
+    fn page_is_window_minus_bar() {
+        let l = Layout::new(1000, 800);
+        assert_eq!(l.page(), Rectangle::new((0, 0).into(), (1000, 776).into()));
+        assert_eq!(l.bar(), Some(Rectangle::new((0, 776).into(), (1000, 24).into())));
+    }
+
+    #[test]
+    fn fullscreen_page_fills_the_window() {
+        let l = Layout {
+            fullscreen: true,
+            ..Layout::new(1920, 1080)
+        };
+        assert_eq!(l.page(), Rectangle::new((0, 0).into(), (1920, 1080).into()));
+        assert_eq!(l.bar(), None);
+        assert_eq!(l.region((5.0, 1079.0).into()), Region::Page);
+    }
+
+    #[test]
+    fn tiny_windows_keep_a_page() {
+        for (w, h) in [(0, 0), (1, 1), (10, 10), (10, 24), (10, 25)] {
+            let p = Layout::new(w, h).page();
+            assert!(p.size.w >= 1 && p.size.h >= 1, "{w}x{h}: {p:?}");
+        }
+        assert_eq!(Layout::new(10, 25).page().size.h, 1);
+        assert_eq!(Layout::new(10, 25).bar().unwrap().size.h, 24);
+    }
+
+    #[test]
+    fn regions() {
+        let l = Layout::new(1000, 800);
+        assert_eq!(l.region((0.0, 0.0).into()), Region::Page);
+        assert_eq!(l.region((999.9, 775.9).into()), Region::Page);
+        assert_eq!(l.region((500.0, 776.0).into()), Region::Bar);
+        assert_eq!(l.region((500.0, 799.5).into()), Region::Bar);
+        assert_eq!(l.region((500.0, 800.0).into()), Region::Outside);
+        assert_eq!(l.region((-1.0, 10.0).into()), Region::Outside);
+    }
+
+    #[test]
+    fn dialogs_are_centred_over_the_page() {
+        let l = Layout::new(1000, 824);
+        assert_eq!(l.dialog_loc((400, 200).into()), Point::from((300, 300)));
+        // Larger than the page: pinned to its top left.
+        assert_eq!(l.dialog_loc((2000, 2000).into()), Point::from((0, 0)));
+    }
+
+    fn positioner(anchor_rect: Rectangle<i32, Logical>, size: (i32, i32)) -> PositionerState {
+        PositionerState {
+            rect_size: size.into(),
+            anchor_rect,
+            anchor_edges: Anchor::BottomLeft,
+            gravity: Gravity::BottomRight,
+            constraint_adjustment: ConstraintAdjustment::FlipY | ConstraintAdjustment::SlideX | ConstraintAdjustment::SlideY,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn select_near_the_bottom_flips_up_and_may_cover_the_bar() {
+        let l = Layout::new(1000, 800);
+        // A <select> 30 px tall at y=740 on the page; its 200 px menu does not fit below.
+        let pos = positioner(Rectangle::new((100, 740).into(), (150, 30).into()), (150, 200));
+        let target = l.popup_target(l.page().loc, (0, 0).into());
+        let g = pos.get_unconstrained_geometry(target);
+        assert_eq!(g, Rectangle::new((100, 540).into(), (150, 200).into()));
+        // A menu that fits below the select (630..790), over the bar strip: left where it is.
+        let pos = positioner(Rectangle::new((100, 600).into(), (150, 30).into()), (150, 160));
+        assert_eq!(pos.get_unconstrained_geometry(target).loc, Point::from((100, 630)));
+    }
+
+    #[test]
+    fn context_menu_at_the_right_edge_slides_left() {
+        let l = Layout::new(1000, 800);
+        let pos = positioner(Rectangle::new((950, 100).into(), (1, 1).into()), (220, 300));
+        let g = pos.get_unconstrained_geometry(l.popup_target(l.page().loc, (0, 0).into()));
+        assert_eq!(g.loc.x + g.size.w, 1000);
+    }
+
+    #[test]
+    fn nested_popup_target_is_in_parent_coordinates() {
+        let l = Layout::new(1000, 800);
+        let t = l.popup_target((0, 0).into(), (300, 200).into());
+        assert_eq!(t, Rectangle::new((-300, -200).into(), (1000, 800).into()));
+        // A dialog's popup: its toplevel is not at the origin.
+        let t = l.popup_target((300, 300).into(), (0, 0).into());
+        assert_eq!(t.loc, Point::from((-300, -300)));
+    }
+}

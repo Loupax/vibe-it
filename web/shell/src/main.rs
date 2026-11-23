@@ -1,0 +1,271 @@
+//! web: the browser's shell (web/TODO.txt C2, Architecture C in web/DECISIONS.md).
+//!
+//! A small Wayland compositor (smithay) shown as one window on the user's desktop (winit:
+//! a Wayland or an X11 window). It starts the engine host (web-host-cef) with
+//! WAYLAND_DISPLAY set to its own socket and drives it over a control socket it listens
+//! on (web/PROTOCOL.md). The page's window fills the shell window minus the status bar.
+
+mod args;
+mod control;
+mod host;
+mod input;
+mod layout;
+mod pairing;
+mod protocol;
+mod render;
+mod state;
+
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use smithay::backend::renderer::damage::OutputDamageTracker;
+use smithay::backend::renderer::element::solid::SolidColorBuffer;
+use smithay::backend::renderer::gles::GlesRenderer;
+use smithay::backend::winit::{self, WinitEvent};
+use smithay::desktop::{PopupManager, Space};
+use smithay::input::pointer::CursorImageStatus;
+use smithay::input::SeatState;
+use smithay::output::{Mode, Output, PhysicalProperties, Subpixel};
+use smithay::reexports::calloop::generic::Generic;
+use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
+use smithay::reexports::calloop::{EventLoop, Interest, Mode as CalloopMode, PostAction};
+use smithay::reexports::wayland_server::Display;
+use smithay::reexports::winit::dpi::LogicalSize;
+use smithay::reexports::winit::platform::wayland::WindowAttributesExtWayland;
+use smithay::reexports::winit::platform::x11::WindowAttributesExtX11;
+use smithay::reexports::winit::window::Window as WinitWindow;
+use smithay::utils::Transform;
+use smithay::wayland::compositor::CompositorState;
+use smithay::wayland::cursor_shape::CursorShapeManagerState;
+use smithay::wayland::output::OutputManagerState;
+use smithay::wayland::selection::data_device::DataDeviceState;
+use smithay::wayland::shell::xdg::decoration::XdgDecorationState;
+use smithay::wayland::shell::xdg::XdgShellState;
+use smithay::wayland::shm::ShmState;
+use smithay::wayland::socket::ListeningSocketSource;
+use smithay::wayland::viewporter::ViewporterState;
+
+use state::{ClientState, State};
+
+fn fail(msg: impl std::fmt::Display) -> ! {
+    eprintln!("web: {msg}");
+    std::process::exit(2)
+}
+
+fn main() {
+    let start = Instant::now();
+    let args = match args::parse(std::env::args().skip(1)) {
+        Ok(Some(a)) => a,
+        Ok(None) => {
+            println!("{}", args::USAGE);
+            return;
+        }
+        Err(e) => fail(format!("{e}\n{}", args::USAGE)),
+    };
+    let env = |k: &str| std::env::var(k).ok();
+    let state_dir = host::state_dir(&args, &env).unwrap_or_else(|e| fail(e));
+    // The engine needs an absolute profile path (CEF falls back to in-memory storage).
+    let state_dir = std::path::absolute(&state_dir).unwrap_or_else(|e| fail(format!("{}: {e}", state_dir.display())));
+    let profile = host::profile_dir(&state_dir, args.engine);
+    create_private_dir(&profile).unwrap_or_else(|e| fail(format!("state directory {}: {e}", profile.display())));
+    let exe = std::env::current_exe().ok();
+    let host_bin = host::host_bin(&args, &env, exe.as_deref());
+
+    let mut event_loop: EventLoop<State> = EventLoop::try_new().unwrap_or_else(|e| fail(e));
+    let display: Display<State> = Display::new().unwrap_or_else(|e| fail(e));
+    let dh = display.handle();
+
+    // The shell window on the user's desktop.
+    let attrs = WinitWindow::default_attributes()
+        .with_title("web")
+        .with_inner_size(LogicalSize::new(1280.0, 800.0));
+    let attrs = WindowAttributesExtWayland::with_name(attrs, "web", "web");
+    let attrs = WindowAttributesExtX11::with_name(attrs, "web", "web");
+    let (backend, winit_loop) =
+        winit::init_from_attributes::<GlesRenderer>(attrs).unwrap_or_else(|e| fail(format!("cannot open the window: {e}")));
+    let window_size = backend.window_size();
+    let desktop = {
+        use smithay::reexports::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        match backend.window().window_handle().map(|h| h.as_raw()) {
+            Ok(RawWindowHandle::Wayland(_)) => "a Wayland",
+            Ok(RawWindowHandle::Xlib(_)) | Ok(RawWindowHandle::Xcb(_)) => "an X11",
+            _ => "an unknown",
+        }
+    };
+    eprintln!(
+        "[web +{}ms] the shell is {desktop} window on the desktop",
+        start.elapsed().as_millis()
+    );
+
+    // Our own Wayland socket for the engine host.
+    let socket = ListeningSocketSource::new_auto().unwrap_or_else(|e| fail(format!("wayland socket: {e}")));
+    let socket_name = socket.socket_name().to_string_lossy().into_owned();
+    event_loop
+        .handle()
+        .insert_source(socket, |stream, _, state| {
+            if let Err(e) = state.display_handle.insert_client(stream, Arc::new(ClientState::default())) {
+                state.log(&format!("wayland client: {e}"));
+            }
+        })
+        .unwrap();
+    event_loop
+        .handle()
+        .insert_source(Generic::new(display, Interest::READ, CalloopMode::Level), |_, display, state| {
+            // Safety: the display is not dropped while the loop runs.
+            unsafe { display.get_mut().dispatch_clients(state).unwrap() };
+            Ok(PostAction::Continue)
+        })
+        .unwrap();
+
+    let output = Output::new(
+        "web".into(),
+        PhysicalProperties {
+            size: (0, 0).into(),
+            subpixel: Subpixel::Unknown,
+            make: "web".into(),
+            model: "shell".into(),
+        },
+    );
+    let _global = output.create_global::<State>(&dh);
+    let mode = Mode {
+        size: window_size,
+        refresh: 60_000,
+    };
+    output.change_current_state(Some(mode), Some(Transform::Flipped180), None, Some((0, 0).into()));
+    output.set_preferred(mode);
+
+    let mut seat_state = SeatState::new();
+    let mut seat = seat_state.new_wl_seat(&dh, "web");
+    seat.add_keyboard(Default::default(), 400, 30)
+        .unwrap_or_else(|e| fail(format!("keyboard: {e:?}")));
+    seat.add_pointer();
+
+    let mut space = Space::default();
+    space.map_output(&output, (0, 0));
+
+    let control = control::Control::listen().unwrap_or_else(|e| fail(format!("control socket: {e}")));
+    let control_path = control.path.clone();
+
+    let cmd = host::host_command(&args, host_bin, &profile, &control_path, &socket_name);
+    eprintln!(
+        "[web +{}ms] wayland socket {socket_name}, control {}, engine {} ({}), {}",
+        start.elapsed().as_millis(),
+        control_path.display(),
+        args.engine.name(),
+        cmd.program.display(),
+        match &args.proxy {
+            Some(p) => format!("proxy {p}"),
+            None => "no --proxy: direct connections".into(),
+        }
+    );
+
+    let mut state = State {
+        start,
+        display_handle: dh.clone(),
+        loop_signal: event_loop.get_signal(),
+        backend,
+        output,
+        space,
+        popups: PopupManager::default(),
+        seat,
+        compositor_state: CompositorState::new::<State>(&dh),
+        xdg_shell_state: XdgShellState::new::<State>(&dh),
+        _xdg_decoration_state: XdgDecorationState::new::<State>(&dh),
+        shm_state: ShmState::new::<State>(&dh, vec![]),
+        _output_manager_state: OutputManagerState::new_with_xdg_output::<State>(&dh),
+        seat_state,
+        data_device_state: DataDeviceState::new::<State>(&dh),
+        _viewporter_state: ViewporterState::new::<State>(&dh),
+        _cursor_shape_state: CursorShapeManagerState::new::<State>(&dh),
+        layout: layout::Layout::new(window_size.w, window_size.h),
+        pairing: Default::default(),
+        pending_toplevels: Vec::new(),
+        page: None,
+        page_size: (0, 0).into(),
+        dialogs: Vec::new(),
+        window_focused: true,
+        pointer_loc: (0.0, 0.0).into(),
+        cursor: CursorImageStatus::default_named(),
+        cursor_log: String::new(),
+        over_bar: false,
+        url: String::new(),
+        title: String::new(),
+        dirty: true,
+        control: None,
+        host: None,
+        quit_deadline: None,
+        exit_code: 0,
+        bar: SolidColorBuffer::new((window_size.w, layout::BAR_H), layout::BAR_BG),
+        damage_tracker: None,
+    };
+    state.damage_tracker = Some(OutputDamageTracker::from_output(&state.output));
+
+    control
+        .register(&event_loop.handle())
+        .unwrap_or_else(|e| fail(format!("control socket: {e}")));
+    match cmd.spawn() {
+        Ok(child) => {
+            state.log(&format!("engine host pid {}", child.id()));
+            state.host = Some(child);
+        }
+        Err(e) => fail(format!("cannot start the engine host {}: {e}", cmd.program.display())),
+    }
+    // After the spawn: Signals blocks these signals, and a child would inherit the mask.
+    let signals = calloop::signals::Signals::new(&[calloop::signals::Signal::SIGTERM, calloop::signals::Signal::SIGINT])
+        .unwrap_or_else(|e| fail(format!("signals: {e}")));
+    event_loop
+        .handle()
+        .insert_source(signals, |ev, _, state| state.quit(&format!("{:?}", ev.signal())))
+        .unwrap();
+
+    event_loop
+        .handle()
+        .insert_source(winit_loop, |event, _, state| match event {
+            WinitEvent::Resized { size, .. } => state.resized((size.w, size.h).into()),
+            WinitEvent::Focus(focused) => {
+                state.window_focused = focused;
+                state.refocus();
+                state.relayout();
+            }
+            WinitEvent::Input(event) => {
+                state.process_input(event);
+                state.redraw();
+            }
+            WinitEvent::Redraw => state.render(),
+            WinitEvent::CloseRequested => state.quit("shell window closed"),
+        })
+        .unwrap();
+    event_loop
+        .handle()
+        .insert_source(Timer::from_duration(Duration::from_millis(200)), |_, _, state| {
+            state.watch_host();
+            TimeoutAction::ToDuration(Duration::from_millis(200))
+        })
+        .unwrap();
+
+    event_loop
+        .run(None, &mut state, |state| {
+            if state.dirty {
+                state.dirty = false;
+                state.backend.window().request_redraw();
+            }
+            state.space.refresh();
+            state.popups.cleanup();
+            let _ = state.display_handle.flush_clients();
+        })
+        .unwrap_or_else(|e| fail(e));
+
+    let code = state.exit_code;
+    if let Some(mut child) = state.host.take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    drop(state);
+    control::cleanup(&control_path);
+    std::process::exit(code);
+}
+
+fn create_private_dir(dir: &std::path::Path) -> std::io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)
+}

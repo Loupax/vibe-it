@@ -250,3 +250,19 @@ Findings from experiments with test/forget.py:
   cleared, and PROTOCOL.md says why.
 
 forget.py now also checks the HTTP cache (a `max-age` response).
+
+## C2 web-shell (2026-11-23)
+
+> C2, web-shell, the compositor minimum: a smithay compositor, winit backend (the shell is one window on the user's desktop), in a new crate web/shell/ (the user-facing binary; name it `web` unless you find a reason not to, and say why). It starts the engine host (`--engine cef`, the only one for now) with WAYLAND_DISPLAY = its own socket, owns the control socket the host connects to (`--control <path>`, see PROTOCOL.md), and passes the optional `--proxy` through. It shows the page's window filling the shell window minus a status-bar strip (C3 draws the bar; for C2 a plain reserved strip, or the current URL from the `url` event as plain text if trivial); forwards keyboard and pointer to it; places popups (xdg_popup: menus, selects, permission bubbles); passes cursor shapes to the host desktop; makes the shell window fullscreen when the page asks. One page only (No tabs yet): pair the host's single toplevel with `tab-created`.
+> Done when (web/TODO.txt): browsing a site with mouse and typing works with web-host-cef, on a Wayland desktop AND an X11 desktop ... Test inside nested dwl (tools/nest.sh; copy scratchy's tools/nest.sh and tools/inject to web/tools/ ...) with injected input; for X11, use Xwayland inside the nested session if available ...
+
+(coordinator launch of web/TODO.txt C2; the full prompt also carries the agent rules.)
+
+**What changed:** new crate `web/shell/` (binary `web`, smithay 0.7 + winit): the page
+window paired with `tab-created`, sized to the window minus a plain 24 px bar strip,
+keyboard and pointer forwarded, xdg popups constrained to the window, cursor shapes to
+the desktop (image cursors drawn by the shell), page fullscreen, quit on window close and
+SIGTERM/SIGINT; unit tests and `test/live.py` (the C2 check, Wayland and X11, with and
+without `--proxy`). `web/tools/nest.sh` (also records the nested Xwayland's DISPLAY) and
+`web/tools/inject` copied from scratchy. host-cef: the window is now resizable (the cef
+crate's default pinned it at 1200x800). CI: a `web/shell` leg (build, test, clippy).

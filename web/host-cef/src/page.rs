@@ -157,6 +157,17 @@ wrap_window_delegate! {
             }
         }
 
+        // The shell (C2) sizes the page window to its own. The cef crate's default (0)
+        // pins the window at preferred_size (xdg_toplevel min = max size), so a
+        // configure from the shell would be ignored.
+        fn can_resize(&self, _window: Option<&mut Window>) -> i32 {
+            1
+        }
+
+        fn can_maximize(&self, _window: Option<&mut Window>) -> i32 {
+            1
+        }
+
         fn linux_window_properties(&self, _window: Option<&mut Window>, properties: Option<&mut LinuxWindowProperties>) -> i32 {
             let Some(p) = properties else { return 0 };
             p.wayland_app_id = CefString::from("web-host-cef");

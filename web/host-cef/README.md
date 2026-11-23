@@ -106,6 +106,9 @@ compositor:
   `os_event` is not an `XEvent`, the crate's wrapper crashed the host).
   Live check: `test/notab.py` (real input through `web/tools/inject`; written, not yet run
   green: the nested compositor had no display, live check owed).
+- **Resizable window.** The window delegate says `can_resize`/`can_maximize` (C2): the
+  cef crate's defaults (0) pin the window at its preferred 1200x800 (xdg_toplevel min =
+  max size), and the shell's configure would be ignored.
 - **Popups load in place.** `OnBeforePopup` cancels every popup and loads its URL in
   the page (PROTOCOL.md "One page per host").
 - **Find.** A new CEF find session counts matches but activates none; the host steps
