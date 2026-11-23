@@ -57,6 +57,38 @@ class ProxyTargets(unittest.TestCase):
                 fwd_proxy.split_target(m, t)
 
 
+class BackgroundTraffic(unittest.TestCase):
+    LOG = (
+        "10:00:00 listening 127.0.0.1:3128\n"
+        "10:00:01 GET http://127.0.0.1:8000/a.html -> HTTP/1.0 200 OK\n"
+        "10:00:01 CONNECT example.com:443 opened\n"
+        "10:00:02 CONNECT example.com:443 tunnel closed (10 B up, 20 B down)\n"
+        "10:00:03 GET http://nx-c1-check.invalid/ -> 502 (gaierror)\n"
+        "10:00:04 CONNECT update.googleapis.com:443 opened\n"
+        "10:00:05 GET http://clients2.google.com/time/1/current?cup2key=x -> HTTP/1.1 200 OK\n"
+        "10:00:06 CONNECT [::1]:8443 opened\n"
+        "10:00:07 REFUSED GET /x (not an absolute http URI: '/x')\n"
+        "10:00:08 error: OSError()\n"
+    )
+
+    def test_hosts_in_order_without_duplicates(self):
+        self.assertEqual(
+            drive.proxy_log_hosts(self.LOG),
+            ["127.0.0.1", "example.com", "nx-c1-check.invalid", "update.googleapis.com", "clients2.google.com", "::1"])
+
+    def test_foreign_hosts(self):
+        allowed = ["127.0.0.1", "example.com", "nx-c1-check.invalid"]
+        self.assertEqual(drive.foreign_hosts(self.LOG, allowed), ["update.googleapis.com", "clients2.google.com", "::1"])
+        self.assertEqual(drive.foreign_hosts(self.LOG, allowed + ["googleapis.com", "google.com", "::1"]), [])
+
+    def test_subdomain_matches_but_suffix_does_not(self):
+        log = "10:00:00 CONNECT www.example.com:443 opened\n10:00:00 CONNECT notexample.com:443 opened\n"
+        self.assertEqual(drive.foreign_hosts(log, ["example.com"]), ["notexample.com"])
+
+    def test_empty_log(self):
+        self.assertEqual(drive.foreign_hosts("", ["example.com"]), [])
+
+
 class ForgetChecks(unittest.TestCase):
     FULL = {"server_cookie": "sid=a-secret; hsid=1; js=1", "cookie": "sid=a-secret; js=1", "ls": "v", "ss": "v",
             "idb": ["db"], "caches": ["c"], "sw": 1, "http_cached": True}

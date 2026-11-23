@@ -49,6 +49,7 @@ wrap_app! {
     struct HostApp {
         proxy: Option<String>,
         no_window: bool,
+        quiet: bool,
     }
 
     impl App {
@@ -58,6 +59,19 @@ wrap_app! {
             let (true, Some(cmd)) = (is_browser, command_line) else { return };
             if let Some(p) = &self.proxy {
                 cmd.append_switch_with_value(Some(&CefString::from("proxy-server")), Some(&CefString::from(p.as_str())));
+            }
+            // C-BGNET: keep Chromium from talking to Google by itself (README).
+            if self.quiet {
+                let name = |n: &str| CefString::from(n);
+                let features = CefString::from(&cmd.switch_value(Some(&name("disable-features")))).to_string();
+                let has_updater = cmd.has_switch(Some(&name("component-updater"))) != 0;
+                for (n, v) in protocol::quiet_switches(&features, has_updater) {
+                    if v.is_empty() {
+                        cmd.append_switch(Some(&name(n)));
+                    } else {
+                        cmd.append_switch_with_value(Some(&name(n)), Some(&name(&v)));
+                    }
+                }
             }
             // --no-window needs no display: Chromium's headless platform (replaces
             // run.sh's --ozone-platform; the helper processes inherit it).
@@ -126,7 +140,7 @@ fn main() {
     };
     let cargv = Argv::new(&argv);
     let main_args = cargv.main_args();
-    let mut app = HostApp::new(opts.proxy.clone(), opts.no_window);
+    let mut app = HostApp::new(opts.proxy.clone(), opts.no_window, !opts.allow_background_traffic);
 
     // Helper processes (renderer, gpu, utility, zygote) run here and return >= 0.
     let code = execute_process(Some(&main_args), Some(&mut app), std::ptr::null_mut());

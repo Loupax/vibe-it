@@ -58,6 +58,15 @@ one log line per request or tunnel).
         --proxy 127.0.0.1:PORT --proxy-log .qwork/proxy.log
     kill "$(cat .qwork/proxy.pid)"
 
+With `--proxy-log` the run also fails when the proxy log shows any host but the test
+pages, the external page and the test's unresolvable host (C-BGNET, "Chromium's own
+traffic is off" below); `--idle SECONDS` adds a wait after the first page loads in which
+the proxy must log nothing; `--allow-host`, `--host-arg` (extra host arguments, e.g.
+`--allow-background-traffic` for a control run) and `--headless` (no display; the find
+step needs the nested compositor, headless alone fails it) are the other options.
+fwd_proxy.py logs `CONNECT host:port opened` when a tunnel starts (and the closing line
+when it ends), so a late request shows up when it is made.
+
 `--out` gets events.jsonl (the transcript), host.log and fixture.log. The pages call
 `window.open` and click a `target=_blank` link from script, so the check passes
 `--disable-popup-blocking` (there is no input injection yet).
@@ -139,8 +148,54 @@ The verdict logic is unit-tested in `test/test_cookies.py`.
   CEF's `matchCase`.
 - **Same-document loads** get no CEF load callbacks; page.rs derives them from address
   changes outside a cross-document load (see its module comment).
-- **Chromium's own traffic.** With `--proxy`, the proxy also sees what Chromium sends by
-  itself at start: component updater (`update.googleapis.com`, `*.gvt1.com`,
+- **Chromium's own traffic is off (C-BGNET).** Unswitched, Chromium talks to Google by
+  itself, and a proxy sees it: component updater (`update.googleapis.com`,
   `edgedl.me.gvt1.com`), `clients2.google.com/time`, `www.google.com`,
-  `content-autofill.googleapis.com` (the same list the spike's W3 net log found). Not
-  switched off in C1 (proposed item).
+  `content-autofill.googleapis.com`, the spellcheck dictionary (`redirector.gvt1.com`,
+  `*.gvt1.com`), and after about two minutes `safebrowsing.googleapis.com`. The host
+  adds these to Chromium's command line (`protocol::quiet_switches`, applied in
+  `main.rs`; merged with a `--disable-features` you pass, and your own
+  `--component-updater` wins). The smallest set that works, found by removing one at a
+  time from a larger candidate list (each is needed: without it, the host named next
+  shows up in the proxy log):
+  - `--component-updater=url-source=http://127.0.0.1:9/`: the update check Chromium
+    makes at start (`update.googleapis.com`, then `edgedl.me.gvt1.com` downloads of
+    whatever the server offers). Its address is a closed loopback port, so every check
+    fails at once, and loopback never goes through the proxy. `--disable-component-update`
+    and `--disable-background-networking` do NOT stop it (tried, alone and together:
+    the first check is an on-demand install, not the scheduled update).
+  - `--disable-background-networking`: the Safe Browsing list update
+    (`safebrowsing.googleapis.com`, first request after about two minutes; also what
+    keeps the other background fetchers quiet later).
+  - `--disable-sync`: the spellcheck dictionary download (`redirector.gvt1.com`,
+    `en-us-10-2.bdic`). Found empirically; the switch name says sync, but removing it
+    brings the download back and `--disable-spell-checking` does not stop it.
+  - `--disable-features=NetworkTimeServiceQuerying`: `clients2.google.com/time/1/current`
+    (Chromium's network time sync, used to judge certificate dates).
+  - `--disable-features=AimEnabled`: `www.google.com/async/folae` (Google's AI Mode
+    eligibility check at start). `AimServerRequestOnStartupEnabled` alone also works;
+    `AimServerEligibilityEnabled` alone does not.
+  - `--disable-features=PreconnectToSearch`: the TCP+TLS preconnect to `www.google.com`
+    (the default search engine) at start.
+  - `--disable-features=AutofillServerCommunication`: `content-autofill.googleapis.com`,
+    queried when a page with a form loads.
+  Feature names in CEF 156 are the C++ constant without its `k`
+  (`kNetworkTimeServiceQuerying` -> `NetworkTimeServiceQuerying`); the `k` form is
+  silently ignored. Tried without effect (not needed in the set): `--disable-domain-reliability`,
+  `--no-pings`, `--disable-breakpad`, `--disable-component-update`, and the features
+  `OptimizationHints`, `MediaRouter`, `Translate`, `CertificateTransparencyComponentUpdater`.
+  `--allow-background-traffic` turns the whole set off (measuring, comparing).
+  What is lost: **spellcheck** (no dictionary to download), Safe Browsing's list checks,
+  Google's time sync, form-field prediction from Google's servers, AI Mode. **DRM
+  (Widevine) loses nothing**: CEF's distribution ships no CDM, and with every switch off
+  `requestMediaKeySystemAccess("com.widevine.alpha")` answers no, even 130 s after start
+  (checked); only the component updater could ever have delivered one, so DRM video
+  (Netflix, Spotify's web player) would need a CDM path and the updater switched back on.
+  Clear Key (`org.w3.clearkey`) is available, VP9/WebM plays (`canPlayType` "probably").
+  Unrelated to this item: the same probe says `video/mp4; codecs=avc1` (H.264) is NOT
+  playable in this CEF build (no proprietary codecs), with or without the switches.
+  Check: `test/drive.py ... --proxy ... --proxy-log ... --idle 150` fails when a host
+  other than the test pages, the external page and the unresolvable test host appears in
+  the proxy log (`--allow-host` adds one), or when the proxy logs anything in the 150 s
+  after the first page loads (`proxy_log_hosts`/`foreign_hosts`, unit-tested). Results,
+  before and after, are in the C-BGNET entry of `../PROMPTS.md`.
