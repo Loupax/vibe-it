@@ -703,6 +703,7 @@ wrap_browser_process_handler! {
 
     impl BrowserProcessHandler {
         fn on_context_initialized(&self) {
+            apply_cookie_policy();
             if let Some(site) = FORGET_AT_START.get() {
                 crate::forget::forget_site(site.clone());
             }
@@ -725,6 +726,31 @@ wrap_browser_process_handler! {
             window_create_top_level(Some(&mut d));
         }
     }
+}
+
+pub static ALLOW_THIRD_PARTY_COOKIES: OnceLock<bool> = OnceLock::new();
+
+/// Third-party cookies off (STASH.md "Cookies"): `profile.cookie_controls_mode` = 1 on
+/// the global request context, before any page loads; read back and logged.
+/// Note: the `error` out-parameter must not be `CefString::default()` (an unset
+/// string): with it `SetPreference` returns false with no message and sets nothing.
+fn apply_cookie_policy() {
+    let allow = *ALLOW_THIRD_PARTY_COOKIES.get().unwrap_or(&false);
+    let mode = crate::protocol::cookie_controls_mode(allow);
+    let Some(ctx) = request_context_get_global_context() else {
+        log!("cookies: no global request context, third-party cookie policy NOT set");
+        return;
+    };
+    let name = CefString::from("profile.cookie_controls_mode");
+    let Some(mut v) = value_create() else { return };
+    v.set_int(mode);
+    let mut err = CefString::from("");
+    let ok = ctx.set_preference(Some(&name), Some(&mut v), Some(&mut err));
+    let now = ctx.preference(Some(&name)).map(|v| v.int());
+    log!(
+        "cookies: profile.cookie_controls_mode={mode} (third-party {}): set={ok} now={now:?} {err}",
+        if allow { "default" } else { "blocked" }
+    );
 }
 
 /// Closes the page (no beforeunload prompts); on_before_close then quits.

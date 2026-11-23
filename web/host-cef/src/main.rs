@@ -153,6 +153,7 @@ fn main() {
         log!("control socket {path} connected");
     }
     page::START_URL.get_or_init(|| protocol::normalize_url(opts.url.as_deref().unwrap_or("about:blank")));
+    page::ALLOW_THIRD_PARTY_COOKIES.get_or_init(|| opts.allow_third_party_cookies);
     page::NO_WINDOW.get_or_init(|| opts.no_window);
     forget::ONE_SHOT.get_or_init(|| opts.no_window);
     forget::set_engine(Box::new(forget_cef::CefForgetter));
