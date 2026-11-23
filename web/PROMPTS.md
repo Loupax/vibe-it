@@ -71,3 +71,101 @@ uses the shared no-follow agents, so connections are reused (was one TLS handsha
 request). example.com and en.wikipedia.org load inside the namespace; wire's log has every
 request (2/2 and 48/48). Findings (Chromium's HTTP cache stores nothing, bypass paths in
 a net log, load times, upload gap) in spike/README.md.
+
+## Architecture C (2026-11-23, docs only)
+
+> I'm happy with how wire2 is going so it looks like we have no reason to enforce the connectivity layer to a single app on the application level. Which enables me to pick whatever engine I want for web. we might as well pick webkit or blink but what options do we have in general? Can we make the engine hot swappable?
+
+> wire2 is a web proxy, the documentation is not merged yet
+
+> I can do that? how would that look? the browser and the shell being two different processes?
+
+> I don't want to use an extension because I don't want to rely on the extension API. C looks closest to what I like, can you give me a more detailed view on this?
+
+> Nothing stops us to "make" our own kiosk mode by implementing a bare-bones engine-only browser, right?
+
+> Yes, let's go with C and carry over everything that can be carried from scratchy. I guess KEYS and CRATE?
+
+> Let's say I want to compile an X version of this, would that still be possible? or are we stuck with wayland?
+
+Outcome: a web proxy plus the empty network namespace makes the network path
+engine-neutral. Options weighed for the shell: an extension (rejected: no reliance
+on the extension API), remote control over CDP/BiDi (automation flags), a compositor
+shell driving a stock browser, and finally a compositor shell driving our own engine
+hosts. Chosen: Architecture C with own engine hosts (CEF first, WebKitGTK second), the
+engine picked at start. X11: the shell runs on an X11 desktop as a winit window; the
+engine hosts speak Wayland to the shell either way.
+
+**What changed:** DECISIONS.md "Architecture C"; TODO.txt rewritten around C0-C8 and a
+"From scratchy" carry-over list (W1-W7 kept as the spike record, W-UPLOAD1 moot);
+KEYS.md copied from scratchy with **web:** notes; HISTORY.md from scratchy's STASH.md
+history and ranking sections; README.md. No code.
+
+## No proxy named in web (2026-11-23, docs only)
+
+> remove references of Wire2 from web. as far as web is concerned, it's just a web proxy
+
+**What changed:** web's docs name no particular proxy: the contract is "any HTTP forward
+proxy (plain requests and CONNECT) on a Unix socket", given with `--proxy <socket path>`
+(DECISIONS.md, TODO.txt C0/C1, README.md, root README). The C0 dependency on another
+project's TODO item is gone. The prompts above are kept verbatim.
+
+## STASH from scratchy (2026-11-23, docs only)
+
+> @scratchy/STASH.md ,that's what I meant
+
+(Answering "I guess KEYS and CRATE?" above: CRATE was STASH.md.)
+
+**What changed:** HISTORY.md became STASH.md, mirroring scratchy's: state directory
+(engine profiles under `DIR/engines/`), cookies (the engine's jar, third-party cookies
+off as the closest match to scratchy's per-site partitioning), forget-site through the
+engine hosts, history and ranking unchanged. scratchy's plain-file localStorage cannot
+sit behind CEF's or WebKit's storage; the options are in STASH.md and TODO.txt P-STASH
+(waiting for the user). New items P-COOKIES and P-STASH; DECISIONS.md, README.md updated.
+
+## localStorage stays in the engine (2026-11-23, docs only)
+
+> does it even make sense? maybe it doesn't.
+
+> yes, drop it and record the decision. Have the engine deal with localStorage unless we have a use case for centralizing it
+
+**What changed:** DECISIONS.md "The engine owns localStorage"; TODO.txt P-STASH dropped;
+STASH.md's last section records the drop instead of listing options.
+
+## Forget-site in the engine-host interface (2026-11-23, docs only)
+
+> I suppose we could introduce an interface for -forget-site per engine
+
+**What changed:** STASH.md "Forget site" defines it as an engine-host command
+(`forget-site <site>` -> `forgot <site> ok|partial`): the site is scheme + registrable
+domain, what is removed, who runs it (the running host, or one started with
+`--no-window`, since an engine locks its profile), and how CEF and WebKitGTK would do it.
+TODO.txt P-FORGET gets a done-when; C1's protocol notes the command.
+
+## Blink first; PR (2026-11-23, docs only)
+
+> open a PR for the web plan, let's begin with Blink so we can have something working as soon as possible. We can switch to a more lightweight engine later
+
+**What changed:** DECISIONS.md "Blink first"; TODO.txt: C1b (web-host-webkit) moves
+after C8 as E1, C2/C3/C8 checks use web-host-cef only; README.md. The plan goes up as a
+pull request.
+
+## No enforcement in web (2026-11-23, docs only)
+
+> C0: launcher (namespace plus forwarder to the proxy).
+>
+> What's namespace on this context?
+
+> don't enforce that. It's something we can do separately, right?
+
+**What changed:** DECISIONS.md "No enforcement in web": web takes `--proxy <host:port>`
+and hands it to the engine; the empty network namespace and the forwarder to a proxy's
+Unix socket become a separate wrapper outside web. TODO.txt: C0 removed, C1 drops the
+namespace from run.sh and checks against a local proxy; README.md and the root README.
+
+## The proxy is optional (2026-11-23, docs only)
+
+> also, just for ease of usage, do not have it require a proxy. It should support it but a missing --proxy flag should default to standard connectivity
+
+**What changed:** DECISIONS.md "The proxy is optional"; TODO.txt header and C1's check
+(runs once without `--proxy`, once with); README.md.

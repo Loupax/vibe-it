@@ -2,6 +2,70 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-23 The proxy is optional
+
+User: "do not have it require a proxy. It should support it but a missing --proxy flag
+should default to standard connectivity". Without `--proxy`, the engine uses its normal
+networking; a missing flag is never an error or a warning.
+
+## 2026-11-23 No enforcement in web
+
+User: "don't enforce that. It's something we can do separately". web passes a proxy to
+the engine (`--proxy <host:port>`, handed to the engine host; without it the engine
+connects directly) and does nothing else about the network. Keeping a program off the
+network except through a proxy (an empty network namespace plus a forwarder to the
+proxy's socket, as the spike's W2 did) is a separate, engine-neutral wrapper that can be
+put around web, or any other program, from outside. Overrides "Enforcement: an empty
+network namespace" below and the namespace parts of "Architecture C". Paths that ignore
+a proxy setting (WebRTC's UDP, for one) are not web's concern.
+
+## 2026-11-23 Blink first
+
+User: "let's begin with Blink so we can have something working as soon as possible. We
+can switch to a more lightweight engine later". web-host-cef is the only engine host
+through C8; web-host-webkit (or another lighter engine) is E1, after C8. The control
+protocol stays engine-neutral so E1 needs no shell change.
+
+## 2026-11-23 The engine owns localStorage; scratchy's stash store is dropped
+
+User: "drop it and record the decision. Have the engine deal with localStorage unless we
+have a use case for centralizing it". localStorage, sessionStorage and IndexedDB live in
+each engine host's profile (STASH.md "State directory"), in the engine's own format.
+scratchy's one-file-per-key store, its locks and generation counter are not carried
+over. Reopen only with a concrete reason to keep page storage outside the engine (e.g.
+sharing it between engines or editing it by hand).
+
+## 2026-11-23 Architecture C: compositor shell, engine hosts, a web proxy
+
+From the discussion after the spike (PROMPTS.md "Architecture C"). Overrides "Request
+path" and "Engine" below; "Cookies: Chromium owns the jar" and "Enforcement: an empty
+network namespace" still hold.
+
+- **Network: a web proxy.** web needs one thing from the network side: an HTTP forward
+  proxy (plain requests and `CONNECT`) reachable on a Unix socket. Which proxy that is
+  is the user's choice, not web's. The engine host gets a proxy setting pointing at a
+  forwarder inside its empty network namespace, which reaches that socket. Nothing
+  engine-specific sits on the network path, so the namespace plus a proxy setting is
+  the whole contract. W3's resource handler and its wire client leave the browser.
+- **Shell: web-shell is a Wayland compositor** (smithay, a nested compositor shown as
+  one window on the user's desktop). It draws the status bar and command line, owns all
+  keys and pointer input, and forwards to the page what the mode allows.
+- **Engine: separate engine-host programs, own protocol.** Each engine gets a small host
+  with no browser UI (one window per tab, the page only) and a control socket speaking
+  our protocol. `web-host-cef` first (from the spike), `web-host-webkit` (WebKitGTK)
+  second. The engine is picked at start (`--engine`); no switching while running, and
+  logins do not carry between engines (each keeps its own cookies).
+- **Rejected:** a browser extension as the shell (the user does not want to rely on the
+  extension API); driving a stock browser over CDP or WebDriver BiDi (automation flags,
+  sites that detect it); off-screen rendering into the shell (rebuilds popups, IME,
+  drag and drop that the engine does natively as a Wayland client).
+- **X11:** web-shell runs on an X11 desktop too: its winit backend opens an X11 window
+  there, and the engine hosts keep speaking Wayland to the shell. C2's check covers both.
+- **Carry over from scratchy everything that can be carried** (user): KEYS.md and the
+  STASH.md now live in web/ (KEYS.md, STASH.md: state directory, history, forget-site,
+  cookies); the shell code to port is
+  listed in TODO.txt "From scratchy".
+
 ## 2026-11-23 The spike is a success; testing stops
 
 The user, after W1-W5 (W4 prepared, W5 ready) and with W6 in progress: "I consider that a
