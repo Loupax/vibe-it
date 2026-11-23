@@ -123,8 +123,8 @@ fn main() {
                 vp.frame();
                 last_move = Some((x.parse::<u32>().unwrap(), y.parse::<u32>().unwrap()));
             }
-            "click" | "rclick" => {
-                let b = if op == "click" { 0x110 } else { 0x111 };
+            "click" | "rclick" | "mclick" => {
+                let b = match op { "click" => 0x110, "rclick" => 0x111, _ => 0x112 };
                 vp.button(ms(), b, wl_pointer::ButtonState::Pressed);
                 vp.frame();
                 q_rt(&mut st);

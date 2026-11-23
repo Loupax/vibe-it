@@ -10,10 +10,8 @@
 //!
 //! Headless differences (no window): no select dropdown, no navigation (a link click or a form
 //! submission only fires its events), element scroll offsets are script-side only, and focus has no
-//! ring. What the App does not do yet and this driver does (spec order, UI Events / Pointer Events):
-//! `pointerdown`/`pointerup` around `mousedown`/`mouseup` (a cancelled `pointerdown` suppresses the
-//! compatibility mouse events), `detail` click counts, `dblclick`, `auxclick`, `contextmenu`, and
-//! `keypress` for printable keys outside text controls.
+//! ring. The pointer sequences (pointerdown/up, click counts, dblclick, auxclick, contextmenu) and
+//! `keypress` are the App's too (QWPT7b, `input_host.rs`).
 use super::*;
 use crate::input_host::{self, ancestors_incl, common_ancestor, InputHost, PointerState};
 

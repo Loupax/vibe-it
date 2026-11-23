@@ -171,14 +171,10 @@ OK           3/8  webidl/ecmascript-binding/replaceable-setter-throws-if-defineo
   FAIL      window.origin setter throws TypeError if called on non-configurable accessor property
   FAIL      window.innerWidth setter throws TypeError if called on non-configurable accessor property
   FAIL      window.length setter throws TypeError if called on non-configurable non-writable data property
-OK           1/8  webidl/ecmascript-binding/sequence-conversion.html
-  FAIL      An array
-  FAIL      A generator
+OK           5/8  webidl/ecmascript-binding/sequence-conversion.html
   FAIL      An array with an overridden Symbol.iterator
   FAIL      An object with an overriden Symbol.iterator
   FAIL      An array with an overridden Symbol.iterator on the prototype
-  FAIL      An array with an overridden %ArrayIterator%.prototype.next
-  FAIL      A holey array with fallback to an accessor on the prototype
 OK          4/17  webidl/ecmascript-binding/setter-argument.html
   FAIL      String attribute setter should throw if this value is invalid
   FAIL      String attribute setter should treat no arguments as undefined
