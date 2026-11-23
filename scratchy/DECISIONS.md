@@ -24,6 +24,9 @@ their section with the date.
 - **2026-11-22 No GitHub Support purge of the cached PR refs.** The scratch files still reachable
   through PR #496/#498 refs were checked: test logs, a throwaway wire binary and its dead
   socket token, logged-out screenshots of public pages. Nothing personal; leave them.
+- **2026-11-23 merge_pr.sh docs-only fast path** (user): a PR whose whole diff touches only `*.md` and
+  `TODO*.txt` files merges right after the rebase push, without waiting for CI. Main's CI still runs on
+  the merge commit.
 - **2026-11-22 merge_pr.sh keeps both sides of NOTES.md conflicts when both sides only add
   lines** (neither deletes or changes a line of the common base). Any other NOTES.md conflict goes
   back to the agent.

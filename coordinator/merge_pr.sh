@@ -5,6 +5,9 @@
 #    (main first); a conflict in scratchy/wpt-th/areas.txt is rebuilt with `scratchy --wpt-th --areas-only` (QWPT10);
 #    any other conflict or duplicate R-heading -> exit 2; if the head changed, force-push, wait CI.
 # 2. Require all nine checks (scratchy, snag, wire + 6 scratchy-wpt-* shards incl. wptserve, QWPT8 #615) green on the PR head, then squash-merge.
+# 3. Docs-only fast path (user 2026-11-23): when every file the PR changes (after the rebase) is a `*.md` or a
+#    `TODO*.txt`, skip the CI wait and merge right after the push. No test reads those files (checked 2026-11-23);
+#    main's own CI still runs on the merge commit, and ci_then_push.sh still checks it.
 # Exit 0 = merged; 1 = CI red (resume the agent); 2 = conflict it could not resolve; 3 = other.
 set -u
 N=$1
@@ -169,17 +172,27 @@ if [ "$MK" != 0 ]; then
   git worktree remove --force "$W"; git branch -D "mq-$N" >/dev/null; exit 2
 fi
 NEWH=$(cd "$W" && git rev-parse HEAD)
+# docs-only: the PR's whole diff against main touches only *.md and TODO*.txt files
+PRFILES=$(cd "$W" && git diff --name-only origin/main HEAD)
+NONDOC=$(echo "$PRFILES" | grep -vE '\.md$|(^|/)TODO[^/]*\.txt$' | grep -v '^$' | head -1)
+DOCS=; [ -n "$PRFILES" ] && [ -z "$NONDOC" ] && DOCS=y
 if [ "$NEWH" != "$(git rev-parse "$HEAD")" ]; then
   echo "PR #$N: rebased onto origin/main (main code moved: ${CODE:-no}), pushing"
   ( cd "$W" && git push -q -f origin "HEAD:$BR" ) || { git worktree remove --force "$W"; exit 3; }
   git worktree remove --force "$W"; git branch -D "mq-$N" >/dev/null
-  waitci "$NEWH" || { echo "PR #$N: CI NOT green after rebase"; exit 1; }
+  if [ -n "$DOCS" ]; then echo "PR #$N: docs-only ($(echo $PRFILES)), not waiting for CI"
+  else waitci "$NEWH" || { echo "PR #$N: CI NOT green after rebase"; exit 1; }; fi
 else
   echo "PR #$N: already on latest main"
   git worktree remove --force "$W"; git branch -D "mq-$N" >/dev/null
-  green || waitci || { echo "PR #$N: CI NOT green"; exit 1; }
+  if [ -n "$DOCS" ]; then echo "PR #$N: docs-only ($(echo $PRFILES)), not waiting for CI"
+  else green || waitci || { echo "PR #$N: CI NOT green"; exit 1; }; fi
 fi
-gh pr merge "$N" --squash --delete-branch >/dev/null 2>&1
-S=$(gh pr view "$N" --json state,mergeCommit -q '"\(.state) \(.mergeCommit.oid[0:7])"')
+# right after a push GitHub may still be computing mergeability: retry briefly (docs-only path hits this)
+for i in 1 2 3 4 5 6; do
+  gh pr merge "$N" --squash --delete-branch >/dev/null 2>&1
+  S=$(gh pr view "$N" --json state,mergeCommit -q '"\(.state) \(.mergeCommit.oid[0:7])"')
+  case "$S" in MERGED*) break;; esac; sleep 10
+done
 echo "PR #$N: $S"
 case "$S" in MERGED*) exit 0;; *) exit 3;; esac
