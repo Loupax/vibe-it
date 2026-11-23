@@ -19,6 +19,7 @@ store is dropped; see the end of this file.
 ```
 DIR/
   history                 <- the shell's (format below)
+  bookmarks               <- the shell's (planned, "Bookmarks" below)
   .history.lock
   engines/
     cef/                  <- web-host-cef's profile: cookies, localStorage, IndexedDB, cache
@@ -151,6 +152,15 @@ Ties (both groups): the most recent visit first. This is the order of the ghost
 suggestion: the first match is shown, Tab walks down the list (KEYS.md T45-T53).
 
 - `--forget-site` does not touch history (yet).
+
+## Bookmarks (planned, C-BOOKMARKS)
+
+`DIR/bookmarks`, next to `history`: plain UTF-8, one bookmark per line, `url<TAB>title`, in the
+order they were added; meant to be editable by hand (a line without a tab is a URL with no title;
+blank lines are skipped). Written by `:bookmarkAdd` (the current page; a URL already present gets
+its title updated) and `:bookmarkDelete [url]`, with the same lock as the history. `:bookmarkSearch`
+lists them in the picker; `:go`'s ghost source puts bookmarks before history. `--forget-site` does not
+touch them (as history).
 
 ## Not carried: the plain-file localStorage store
 

@@ -9,7 +9,9 @@ Implemented in `host-cef/src/protocol.rs` (encoding, unit tested) and
 
 A host shows **one page** in **one window**, the page only (no toolbar, tab strip or
 menus). Tabs are deferred (user, 2026-11-23; maybe later as a vim-style buffers
-interface, undecided), so v0 has no `new-tab` / `close-tab`.
+interface, undecided), so v0 has no `new-tab` / `close-tab`. **Planned** (DECISIONS.md 2026-11-23
+"A picker, bookmarks, buffers as tabs, popups like Chrome"): buffers (TODO.txt C4-SPIKE, C4) and
+popups that open buffers (C-POPUPS) will change this section and the popup rules below.
 
 - `window.open(...)` and `target=_blank` links go through the host (CEF:
   `OnBeforePopup`), which cancels the popup and loads its URL **in the same page**.

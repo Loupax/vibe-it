@@ -594,3 +594,49 @@ Done in `keys.rs` (`:go` dispatch) with `completion::history_scheme_for` (first 
 > (coordinator) focuskeys_live.py and c_keymap_live.py (written in parallel with LIVE-GEOM) do not use livelib's settle() yet. And in windowed nest mode a client started after an inject run ended gets no keymap and Chromium crashes on the first modifiers event (the headless patch handles it; windowed does not).
 
 Both checks now call `livelib.settle(log, shot)` for the output size, window size and the desktop focus (no fallback size). `dwl-headless.patch`: the destroykeyboardgroup fallback (seat goes back to dwl's own keyboard group when a virtual keyboard goes away) is no longer gated on NEST_HEADLESS_SIZE; `NEST_NO_KEYMAP_FALLBACK=1` switches it off. `nest.sh --windowed` runs the patched dwl too (every other hunk stays gated on NEST_HEADLESS_SIZE). The windowed path itself is UNTESTED (agents never open a window on the user's desktop). Reproduction in the headless nest: an inject session ends, then the shell starts: with the fallback off the shell's first `desktop keymap:` line comes 11988 ms in (only when the next inject run creates a new virtual keyboard); with it on, 427 ms in, at start. The Chromium crash itself was not reproduced (the shell client tolerates a missing keymap).
+
+## Picker, bookmarks, buffers, popups (2026-11-23, planning, docs only)
+
+> Let me plan a few features with you about web. First, I want to create something similar to the "temporary buffer" vim has for showing results, tab completions etc. I want it to allow the user to search for bookmarks, their history etc. Then I also want to introduce bookmarks, by just adding the relevant commands in command mode. :bookmark add, :bookmark delete, :bookmark find (with search). finally I want to ad something similar to vims buffers which will play the role of tabs. the user must be able to navigate through buffers, search across them by name and contents and kill them
+>
+> Don't implement anything yet. how does that sound? be critical
+
+> that decision was specific about the autocompletion of the :go command
+>
+> the temporary buffer should be used for dedicated historySearch, bookmarkSearch and even context menu related commands
+
+> the context menu stays parked, I just mentioned  that as a potential usecase. use camelcase for not.
+
+> what does window.open do in most browsers?
+
+> the easy ones first
+> Should buffer search cover only titles and URLs, or page contents too? Only titles for now, might add contents as a separate feature.
+> What happens when you kill the last buffer: quit, or about:blank? about:blank. The user doesn't know if the buffer they just killed is the last one
+>
+> I think window.open should mimic the behavior of add blockers, which then allows you to open the link manually. Let's talk this through first
+
+> Search is by titles only. One caveat: generic titles like "Login" or "Home" won't tell buffers apart, and matching the URL too would cost nothing. Your call.
+>
+> I think we should add some context from content. Not the entire page necessarily, but at least the hostname and maybe the first paragraph of text?
+
+> keep it minimal for now then. Allow the user to set a short description (optional). Then the user can do fuzzy search using the page title, the hostname and possibly the description. Those should also appear in the list buffer
+
+> go with b
+
+> how do existing browsers deal with that?
+
+> go with your suggestions
+
+> yes. do that and create a PR
+
+Outcome (DECISIONS.md "A picker, bookmarks, buffers as tabs, popups like Chrome"): a picker drawn
+by the shell for dedicated commands (`:historySearch` first), fuzzy filtered, never showing Tab
+candidates; bookmarks in a plain `DIR/bookmarks` file with `:bookmarkAdd`, `:bookmarkDelete`,
+`:bookmarkSearch`, also feeding `:go`; buffers as tabs with camelCase commands and vim aliases,
+searched by title, hostname and an optional user description, the last kill leaving `about:blank`;
+popups like Chrome (gesture popups and target=_blank open a buffer with the opener kept, others are
+blocked and opened by hand with `:popupOpen` / `:popupSearch`).
+
+**What changed:** docs only. TODO.txt: C-PICK, C-BOOKMARKS, C4-SPIKE, C4 Buffers (replacing the
+deferred Tabs), C-POPUPS and a "later" list. DECISIONS.md, KEYS.md ("Picker", "Buffers", decision
+log), STASH.md ("Bookmarks"), PROTOCOL.md (note that buffers will change "One page per host").

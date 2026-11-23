@@ -362,6 +362,41 @@ they send real keys (measured with `c_enter_live.py`):
 
 The rest of caret mode (our own caret, C5-ENTER) is parked.
 
+## Picker (planned, C-PICK)
+
+Not built. Decided 2026-11-23 (DECISIONS.md "A picker, bookmarks, buffers as tabs, popups like
+Chrome"); the transition rows get written with C-PICK.
+
+- A list the shell draws over the page, above the status bar; the page is not resized. Opened only by
+  dedicated commands: `:historySearch`, `:bookmarkSearch` (C-BOOKMARKS), `:bufferList`/`:ls` (C4),
+  `:popupSearch` (C-POPUPS). Context-menu actions (C-CMDS, parked) may become a source later.
+- It is a mode of its own, **PICK**: the status bar shows the filter being typed; the page gets no keys.
+- Keys: typing edits the filter (`TextEditBuffer`, as the `:` line), Ctrl-n / Down and Ctrl-p / Up move
+  the selection, Enter runs the selected row's action and closes, Esc closes. An editable focus or a
+  click into the page closes it as T29 closes the `:` line.
+- Matching is fuzzy (the typed letters in order, best matches first), the same in every list. Each row
+  is a label plus a dimmed detail; what is matched is the source's choice (history and bookmarks: URL
+  and title; buffers: title, hostname, description).
+- It never shows Tab candidates: the ghost (T45-T53) stays the only completion of the `:` line.
+
+## Buffers (planned, C4)
+
+Not built; replaces the deferred tabs. Commands are camelCase with vim aliases; the ghost offers the
+long names only, an alias typed in full still runs.
+
+| command | alias | what it does |
+|---|---|---|
+| `:bufferList` | `:ls` | the picker over the buffers: number, title, hostname, description |
+| `:buffer N`, `:buffer <partial>` | `:b` | switch to buffer N, or to the one whose title, hostname or description matches |
+| `:bufferNext`, `:bufferPrev` | `:bn`, `:bp` | the next / previous buffer (wraps) |
+| `:bufferKill [N]` | `:bd` | kill the current buffer (or N); killing the last one leaves an empty `about:blank` buffer |
+| `:bufferDescribe [text]` | | set the current buffer's description (kept across navigation); no text clears it |
+| Ctrl-^ (NORMAL) | | the previously shown buffer |
+
+The status bar shows the current buffer's number. Popups (C-POPUPS): a `window.open` from a user
+gesture and a `target=_blank` link open a new buffer; one without a gesture is blocked
+(`popup blocked: <url>`) and opened with `:popupOpen` (the latest) or `:popupSearch`.
+
 ## What went away in scratchy (QKEYS3)
 
 `:set vim` / `:set novim` (`App::vim_enabled`), the SIGUSR1 toggle
@@ -369,6 +404,12 @@ The rest of caret mode (our own caret, C5-ENTER) is parked.
 Esc Esc, so there is nothing left to switch off, and Esc Esc cannot be locked out (T2).
 
 ## Decision log
+
+- 2026-11-23 (user, planning): a picker for dedicated searches (`:historySearch`, `:bookmarkSearch`,
+  `:bufferList`), bookmarks, buffers as tabs with camelCase commands and vim aliases, popups like
+  Chrome ("Picker", "Buffers" above; DECISIONS.md). The 2026-11-20 "no menu" decision was about `:go`'s
+  completion only (user: "that decision was specific about the autocompletion of the :go command"); it
+  stays, and the picker never shows Tab candidates.
 
 - 2026-11-23 (user, C-ENTER + C-CARETCMD): "Enter in NORMAL forwards to the page. Expose caret
   browsing from a command mode command, so I can experiment with it but don't change the
