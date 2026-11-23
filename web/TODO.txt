@@ -120,7 +120,10 @@ stop early on a hard failure.
       optional `tab` on commands, tab-created opener/cause/req, popup-blocked). Shell: pair several announced
       pages; a Chrome-style popup window (no parent) is a page, not a dialog. Host: `quit` closes every browser
       and exits when the last is gone (today it closes only the first).
-- [ ] C-WEBEX [S] (user, 2026-11-23, investigation) On Webex in web: banner "Your browser doesn't support shared
+- [ ] C-NORMALMODS [XS] NEEDS USER (from #715) In NORMAL the page gets no modifier keys, so Ctrl/Shift-click act as
+      plain clicks (a Ctrl-click on a target=_blank link opens a popup buffer); in INPUT they open nothing.
+      Same in both modes? (send modifiers on clicks in NORMAL, or drop those clicks)
+- [WIP] C-WEBEX [S] (user, 2026-11-23, investigation) On Webex in web: banner "Your browser doesn't support shared
       content and video. For best experience, use another supported browser."; starting a meeting: "Your browser
       needs the Cisco OpenH264 Video Codec to join. Install or turn on the codec, then try again." The camera works.
       Find out what Webex checks (UA sniffing, getDisplayMedia / screen sharing on Wayland via the portal +
@@ -132,7 +135,8 @@ stop early on a hard failure.
       find the cause (suspects: wl_subsurface sync/commit handling for Chromium's delegated layers; buffer
       release timing, esp. with dmabuf since #706; frame-callback pacing #699/#712), fix, add a regression check.
       User's A/B 2026-11-23: gone with WEB_NO_DMABUF=1 -> the dmabuf path (#706) on their NVIDIA desktop (sync/release).
-- [WIP] C-POPUPS [M] (after C4; same decision; reverses C-NOTAB for script popups and target=_blank)
+- [x] C-POPUPS [M] (DONE 2026-11-23, 2d48e31, #715: host is the popup blocker; click popups = buffers with opener;
+      popup-blocked + :popupOpen/:popupSearch; KEYS.md T93-T98. In NORMAL, Ctrl/Shift-click act as plain clicks) (after C4; same decision; reverses C-NOTAB for script popups and target=_blank)
       `window.open` with a user gesture: a new buffer, switched to, `window.opener` kept; `window.close()`
       from it kills that buffer. Without a gesture: blocked, status bar `popup blocked: <url>` (or `popup
       blocked (no URL)`), kept in the buffer's blocked list (cleared when it navigates to another
@@ -338,7 +342,7 @@ stop early on a hard failure.
       outer window's frames; measure rAF cadence before/after under the perf lock.
 - [x] C6h [M] (DONE 2026-11-23, f50e795, #712: the shell offers wp_presentation; rAF follows 120/144 Hz)
 - [ ] C6h-144 [XS] ONLY IF WANTED (from #712) rAF runs ~155 Hz on a 144 Hz output (presented refresh 6944 us).
-- [WIP] C-FMT [XS] (+ fix host-cef/test/test_notab.py's stale helper names, from #713) cargo fmt drift in web/shell (completion.rs, c5b_tests.rs,
+- [x] C-FMT [XS] (DONE 2026-11-23, 634925a, #714: fmt clean, fmt --check in web/shell CI, test_notab fixed) (+ fix host-cef/test/test_notab.py's stale helper names, from #713) cargo fmt drift in web/shell (completion.rs, c5b_tests.rs,
       completion_tests.rs, search_tests.rs, tests/mod.rs) and anything else `cargo fmt --check` flags; add a
       `cargo fmt --check` step to the web/shell CI job. (from #699) Chromium's rAF stays 60 Hz on a 120 Hz output although it reads the refresh: find what
       drives its BeginFrame interval (wl_output/xdg-output, a CEF switch) in web-host-cef.
