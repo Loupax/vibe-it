@@ -34,6 +34,10 @@ CONFORMANCE (R64 plan, merged #474; user accepted all R64 s7 recommendations 202
 Order: QWPT2 -> QWPT3 -> QWPT4a -> QWPT4b -> QWPT5/QWPT6, with QMAPI1 and QREC1 in parallel (other
 crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details: REGRESSIONS.md R64.
 
+- [ ] QWPT7f [S] (P3, from QWPT7e #653; Sonnet; svg_geom.rs, css) SVG hit-test leftovers: fill/stroke from stylesheets
+      (ComputedStyle has none, so class-based fill:none paths still hit by fill); foreignObject HTML as a hit target;
+      shaped SVG text advances instead of 0.55 em; rounded rect corners, line caps/joins; pointer-events on inline spans
+      and accesskey in shadow trees (no WPT in the subset covers these two).
 - [ ] QIMGERR1 [S] (P3, from QCNV13 #652; Sonnet) An <img> whose src origin is unreachable never fires load or error,
       so tests that wait on it hang (desynchronized-crossorigin-snapshot-isolation.html went OK -> TIMEOUT, 0/10 both).
 - [ ] QAUTOFOC1 [S] (P3, from QTYPE1 #651; Sonnet) `autofocus` focuses nothing on load; also an App-level redraw test
@@ -46,9 +50,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       tools/wpt-subset.py, regenerated subset.txt and a recorded baseline. Today details/dialog tests are not measured.
 - [ ] QDET2 [S] (P3, from QDET1 #649; Sonnet) details leftovers: parse-time `<details open>` fires `toggle`; parse-time
       and `name`-change exclusivity per the accordion rules; focus ring on a focused summary.
-- [ ] [WIP] QWPT7e [S] (P3, from QWPT7c #621; Sonnet; svg_geom.rs, hit test) Hit-test leftovers: exact path stroke/fill geometry,
-      SVG text metrics (0.55 em estimate today), `use` and nested-svg viewBox, svg inside scrolled/fixed boxes,
-      pointer-events on inline spans, SVG-only pointer-events values (bounding-box, visibleFill), accesskey in shadow trees.
 - [ ] QWPT7d [S] (P3, from QWPT7a #617; Sonnet) `document.activeElement` is `body` during a blur handler (today already
       the new element); `change` on a text control fires before the script-fired blur (today at the App's later catch-up).
 - [ ] QWPT9 [S] (P3; Sonnet; wire; user Q8 2026-11-21: LATER, with fetch, after QWPT8; never for any other host) https tests: wire trusts WPT's test CA for

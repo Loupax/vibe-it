@@ -9727,3 +9727,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- (no header)
 - [x] QCNV13 DONE b608fa4 #652 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Sonnet; in order after the items above) drawImage from canvas sources, imageSmoothing. 38 files.
+
+=== from TODO.txt: --- (no header)
+- [x] QWPT7e DONE 4432661 #653 [S] (P3, from QWPT7c #621; Sonnet; svg_geom.rs, hit test) Hit-test leftovers: exact path stroke/fill geometry,
+      SVG text metrics (0.55 em estimate today), `use` and nested-svg viewBox, svg inside scrolled/fixed boxes,
+      pointer-events on inline spans, SVG-only pointer-events values (bounding-box, visibleFill), accesskey in shadow trees.

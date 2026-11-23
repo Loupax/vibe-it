@@ -443,3 +443,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Merged #650 a1ba206 (web/ started, scratchy PAUSED). Draining QCNV13, QWPT7e, QTYPE1; their PRs get merged; no new launches.
 - 2026-11-23 Merged #651 QTYPE1 a353c05 (drain). Filed QAUTOFOC1 (not scheduled: paused). Reinstalling.
 - 2026-11-23 Reinstalled scratchy 07:45 from 1d5a317 (has #651). Merged #652 QCNV13 b608fa4 (drain). Filed QIMGERR1 (not scheduled). Coordinator prompt/rules/scripts now cover web/ and wire/ (d1409917). Draining: QWPT7e only.
+- 2026-11-23 Merged #653 QWPT7e 4432661. DRAIN COMPLETE: no scratchy agents running, nothing scheduled. Filed QWPT7f (not scheduled). Final reinstall.

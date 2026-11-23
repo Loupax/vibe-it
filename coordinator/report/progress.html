@@ -112,6 +112,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-23</td><td class="n">#653</td><td>QWPT7e</td><td>Vertical margins on inline-level boxes (svg, img, inline-block) now apply; exact SVG fill/stroke hit testing, <code>use</code>, nested svg, SVG pointer-events values; 2 reftests newly pass</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#652</td><td>QCNV13</td><td>Canvas <code>drawImage</code> from canvas sources, image smoothing; 39 more files pass (element 60.8&rarr;62.4, offscreen 68.6&rarr;70.3)</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#651</td><td>QTYPE1</td><td>Typing into a second form field showed only the first character: control edits never reached the repaint damage (since #631). Fixed for text, value writes, caret and checkboxes</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#650</td><td>(user)</td><td>Starts <code>web/</code> (Chromium via CEF, wire as the only network path; docs only). scratchy paused.</td></tr>
@@ -311,7 +312,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 <section>
   <h2>Waiting on you</h2>
   <ul id="waiting">
-    <li><b>scratchy is paused (#650, 2026-11-23).</b> The three running agents (QCNV13, QWPT7e, QTYPE1) finish and I merge their PRs; nothing new starts. Development moves to <span class="mono">web/</span>.</li>
+    <li><b>scratchy is paused (#650, 2026-11-23).</b> Drain finished: QTYPE1 (#651), QCNV13 (#652) and QWPT7e (#653) merged; no scratchy agents run. Development moves to <span class="mono">web/</span>.</li>
     <li><b>wire: retry a POST after a clean close? (W-POOL4)</b> W-POOL3 (#634) makes wire retry a request once when a reused connection was reset before the server read it (safe: never duplicates). Left: a clean close (FIN) on a reused connection before any response, ~1 in 1000 POSTs in a stress test; it looks the same as "server read the body and hung up". (1) keep it safe: rare failed POST, never a duplicate (current), or (2) retry like Chromium: fixes the rare failure, rare duplicate POST. Recommendation: (1) for now.</li>
                         <li>Skim <span class="mono">scratchy/DECISIONS.md</span> once and correct anything I misstated.</li>
           </ul>
