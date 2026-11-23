@@ -132,7 +132,11 @@ The verdict logic is unit-tested in `test/test_cookies.py`.
 - **Popups load in place.** `OnBeforePopup` cancels every popup and loads its URL in
   the page (PROTOCOL.md "One page per host").
 - **Find.** A new CEF find session counts matches but activates none; the host steps
-  once more so the first (or last) match is active, and reports only the final count.
+  once more (from `on_find_result`, once the count is final and above 0) so a match is
+  active, and reports only that result; a count of 0 is reported as it is. Every new
+  session first ends the old one (`stop_finding`): after a navigation CEF keeps the old
+  session and never answered the same text again (C5, found live). `match_case` goes to
+  CEF's `matchCase`.
 - **Same-document loads** get no CEF load callbacks; page.rs derives them from address
   changes outside a cross-document load (see its module comment).
 - **Chromium's own traffic.** With `--proxy`, the proxy also sees what Chromium sends by

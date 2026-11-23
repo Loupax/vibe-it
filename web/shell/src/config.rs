@@ -67,17 +67,16 @@ use KeySpec::{Char, Sym};
 /// NORMAL-mode key bindings. The FIRST matching row wins, so a more specific row (a
 /// modifier condition) must come before a more general one on the same key (Shift+Space
 /// before Space). `A::Scroll(n)` is row `n` of `SCROLL_INPUTS` below.
-/// `/`, `n` and `N` (search) only say "not yet" until C5 (web/TODO.txt).
 pub const BINDINGS: &[Binding] = &[
     bind(Char('j'), Mods::Any, A::Scroll(DOWN)),
     bind(Char('k'), Mods::Any, A::Scroll(UP)),
     bind(Char('d'), Mods::Ctrl, A::Scroll(PAGE_DOWN)),
     bind(Char('u'), Mods::Ctrl, A::Scroll(PAGE_UP)),
     bind(Char(':'), Mods::Any, A::EnterCommandMode),
-    bind(Char('/'), Mods::Any, A::SearchNotYet),
+    bind(Char('/'), Mods::Any, A::SearchOpen),
     bind(Sym(Keysym::Escape), Mods::Any, A::ClearSearch),
-    bind(Char('n'), Mods::Any, A::SearchNotYet),
-    bind(Char('N'), Mods::Any, A::SearchNotYet),
+    bind(Char('n'), Mods::Any, A::SearchNext),
+    bind(Char('N'), Mods::Any, A::SearchPrev),
     bind(Char('i'), Mods::Any, A::EnterInputMode),
     bind(Char('h'), Mods::Any, A::HistoryBack),
     bind(Char('l'), Mods::Any, A::HistoryForward),

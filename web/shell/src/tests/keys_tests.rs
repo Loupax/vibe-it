@@ -170,18 +170,6 @@ fn keys_t07_esc_in_normal_stays_normal() {
 }
 
 #[test]
-fn keys_t08_t15_t16_t17_search_keys_say_not_yet() {
-    // `/`, `n`, `N` are bound but search is C5: the status bar says so, nothing else.
-    for c in ['/', 'n', 'N'] {
-        let mut k = keys();
-        assert_eq!(tap(&mut k, KeyInput::ch(c), Instant::now()), (false, false));
-        assert_eq!(k.message, NOT_YET_SEARCH, "{c}");
-        assert_eq!(k.vim_mode, VimMode::Normal);
-        assert!(effects(&mut k).is_empty());
-    }
-}
-
-#[test]
 fn keys_t09_colon_opens_the_command_line() {
     let mut k = keys();
     tap(&mut k, KeyInput::ch(':'), Instant::now());
