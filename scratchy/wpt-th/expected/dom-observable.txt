@@ -10,8 +10,41 @@ OK           0/8  dom/observable/tentative/crashtests/observable-gc.any.html
   FAIL      reduce(): does not crash on observable being GCed
 OK           0/1  dom/observable/tentative/crashtests/observable-takeUntil-toArray.any.html
   FAIL      takeUntil correctly passes error on inner observable to outer observables
-OK           0/1  dom/observable/tentative/idlharness.html
-  FAIL      idl_test setup
+OK          2/36  dom/observable/tentative/idlharness.html
+  FAIL      Subscriber interface: existence and properties of interface object
+  FAIL      Subscriber interface object length
+  FAIL      Subscriber interface object name
+  FAIL      Subscriber interface: existence and properties of interface prototype object
+  FAIL      Subscriber interface: existence and properties of interface prototype object's "constructor" property
+  FAIL      Subscriber interface: existence and properties of interface prototype object's @@unscopables property
+  FAIL      Subscriber interface: operation next(any)
+  FAIL      Subscriber interface: operation error(any)
+  FAIL      Subscriber interface: operation complete()
+  FAIL      Subscriber interface: operation addTeardown(VoidFunction)
+  FAIL      Subscriber interface: attribute active
+  FAIL      Subscriber interface: attribute signal
+  FAIL      Subscriber must be primary interface of (() => { let s = null; new Observable(_s => s = _s).subscribe({}); return s })()
+  FAIL      Stringification of (() => { let s = null; new Observable(_s => s = _s).subscribe({}); return s })()
+  FAIL      Subscriber interface: (() => { let s = null; new Observable(_s => s = _s).subscribe({}); return s })() must inherit property "next(any)" with the proper type
+  FAIL      Subscriber interface: calling next(any) on (() => { let s = null; new Observable(_s => s = _s).subscribe({}); return s })() with too few arguments must throw TypeError
+  FAIL      Subscriber interface: (() => { let s = null; new Observable(_s => s = _s).subscribe({}); return s })() must inherit property "error(any)" with the proper type
+  FAIL      Subscriber interface: calling error(any) on (() => { let s = null; new Observable(_s => s = _s).subscribe({}); return s })() with too few arguments must throw TypeError
+  FAIL      Subscriber interface: (() => { let s = null; new Observable(_s => s = _s).subscribe({}); return s })() must inherit property "complete()" with the proper type
+  FAIL      Subscriber interface: (() => { let s = null; new Observable(_s => s = _s).subscribe({}); return s })() must inherit property "addTeardown(VoidFunction)" with the proper type
+  FAIL      Subscriber interface: calling addTeardown(VoidFunction) on (() => { let s = null; new Observable(_s => s = _s).subscribe({}); return s })() with too few arguments must throw TypeError
+  FAIL      Subscriber interface: (() => { let s = null; new Observable(_s => s = _s).subscribe({}); return s })() must inherit property "active" with the proper type
+  FAIL      Subscriber interface: (() => { let s = null; new Observable(_s => s = _s).subscribe({}); return s })() must inherit property "signal" with the proper type
+  FAIL      Observable interface: existence and properties of interface object
+  FAIL      Observable interface object length
+  FAIL      Observable interface object name
+  FAIL      Observable interface: existence and properties of interface prototype object
+  FAIL      Observable interface: existence and properties of interface prototype object's "constructor" property
+  FAIL      Observable interface: existence and properties of interface prototype object's @@unscopables property
+  FAIL      Observable interface: operation subscribe(optional ObserverUnion, optional SubscribeOptions)
+  FAIL      Observable must be primary interface of new Observable(() => {})
+  FAIL      Stringification of new Observable(() => {})
+  FAIL      Observable interface: new Observable(() => {}) must inherit property "subscribe(optional ObserverUnion, optional SubscribeOptions)" with the proper type
+  FAIL      Observable interface: calling subscribe(optional ObserverUnion, optional SubscribeOptions) on new Observable(() => {}) with too few arguments must throw TypeError
 OK           0/9  dom/observable/tentative/observable-catch.any.html
   FAIL      catch(): Returns an Observable that is a pass-through for next()/complete()
   FAIL      catch(): Handle errors from source and flatten to a new Observable

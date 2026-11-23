@@ -33,8 +33,34 @@ OK           0/1  intersection-observer/fixed-position-iframe-scroll.html
 OK           0/1  intersection-observer/fixed-position-scroll.html
   FAIL      Fixed-position intersection observer on scroll
 OK           3/3  intersection-observer/grow-height-and-scrolled.html
-OK           0/1  intersection-observer/idlharness.window.html
-  FAIL      idl_test setup
+OK         23/50  intersection-observer/idlharness.window.html
+  FAIL      IntersectionObserver interface: existence and properties of interface object
+  FAIL      IntersectionObserver interface object length
+  FAIL      IntersectionObserver interface: existence and properties of interface prototype object
+  FAIL      IntersectionObserver interface: attribute root
+  FAIL      IntersectionObserver interface: attribute rootMargin
+  FAIL      IntersectionObserver interface: attribute scrollMargin
+  FAIL      IntersectionObserver interface: attribute thresholds
+  FAIL      IntersectionObserver interface: attribute delay
+  FAIL      IntersectionObserver interface: attribute trackVisibility
+  FAIL      IntersectionObserver interface: operation observe(Element)
+  FAIL      IntersectionObserver interface: operation unobserve(Element)
+  FAIL      IntersectionObserver interface: operation disconnect()
+  FAIL      IntersectionObserver interface: operation takeRecords()
+  FAIL      IntersectionObserver interface: observer must inherit property "scrollMargin" with the proper type
+  FAIL      IntersectionObserver interface: observer must inherit property "delay" with the proper type
+  FAIL      IntersectionObserver interface: observer must inherit property "trackVisibility" with the proper type
+  FAIL      IntersectionObserverEntry interface: existence and properties of interface object
+  FAIL      IntersectionObserverEntry interface object length
+  FAIL      IntersectionObserverEntry interface: existence and properties of interface prototype object
+  FAIL      IntersectionObserverEntry interface: attribute time
+  FAIL      IntersectionObserverEntry interface: attribute rootBounds
+  FAIL      IntersectionObserverEntry interface: attribute boundingClientRect
+  FAIL      IntersectionObserverEntry interface: attribute intersectionRect
+  FAIL      IntersectionObserverEntry interface: attribute isIntersecting
+  FAIL      IntersectionObserverEntry interface: attribute isVisible
+  FAIL      IntersectionObserverEntry interface: attribute intersectionRatio
+  FAIL      IntersectionObserverEntry interface: attribute target
 OK           0/1  intersection-observer/iframe-no-root-with-wrapping-scroller.html
   FAIL      Observer with the implicit root; target in a same-origin iframe.
 OK           0/1  intersection-observer/iframe-no-root.html

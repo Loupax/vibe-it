@@ -11,8 +11,26 @@ OK           2/5  resize-observer/fragments.html
   FAIL      Adding 2nd fragment
   FAIL      Resizing 2nd fragment
   FAIL      Resizing all fragments
-OK           0/1  resize-observer/idlharness.window.html
-  FAIL      idl_test setup
+OK         30/49  resize-observer/idlharness.window.html
+  FAIL      ResizeObserver interface: existence and properties of interface object
+  FAIL      ResizeObserver interface: existence and properties of interface prototype object
+  FAIL      ResizeObserver interface: operation observe(Element, optional ResizeObserverOptions)
+  FAIL      ResizeObserver interface: operation unobserve(Element)
+  FAIL      ResizeObserver interface: operation disconnect()
+  FAIL      ResizeObserverEntry interface: existence and properties of interface object
+  FAIL      ResizeObserverEntry interface: existence and properties of interface prototype object
+  FAIL      ResizeObserverEntry interface: attribute target
+  FAIL      ResizeObserverEntry interface: attribute contentRect
+  FAIL      ResizeObserverEntry interface: attribute borderBoxSize
+  FAIL      ResizeObserverEntry interface: attribute contentBoxSize
+  FAIL      ResizeObserverEntry interface: attribute devicePixelContentBoxSize
+  FAIL      ResizeObserverEntry interface: entry must inherit property "borderBoxSize" with the proper type
+  FAIL      ResizeObserverEntry interface: entry must inherit property "contentBoxSize" with the proper type
+  FAIL      ResizeObserverEntry interface: entry must inherit property "devicePixelContentBoxSize" with the proper type
+  FAIL      ResizeObserverSize interface: existence and properties of interface object
+  FAIL      ResizeObserverSize interface: existence and properties of interface prototype object
+  FAIL      ResizeObserverSize interface: attribute inlineSize
+  FAIL      ResizeObserverSize interface: attribute blockSize
 ERROR        3/5  resize-observer/notify.html
   NOTRUN    guard
   FAIL      test2: remove/appendChild trigger notification

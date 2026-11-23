@@ -9434,3 +9434,9 @@ Task: Path2D (empty, copy, SVG path data), all path methods, addPath(path, DOMMa
 Task: getClientRects returns a DOMRectList (not an Array); structuredClone/postMessage clone DOMPoint/DOMRect/DOMQuad/DOMMatrix and their read-only twins; css/geometry idlharness setup if cheap.
 
 **What changed:** geometry_prelude.js: DOMRectList (own read-only index properties, `length`, `item`, Symbol.iterator, illegal constructor, DataCloneError when cloned), `__scratchy_geom.rectList` used by Element and Range getClientRects (js_dom.rs). Clone hook `g[Symbol.for('scratchy.structuredClone.geometry')]` that globals_prelude.js's structuredClone calls first (postMessage, MessageChannel, BroadcastChannel and history state all go through it); state is read via the Symbol.for brand keys, the copy uses the receiving realm's prototypes; a 2D matrix clones only a..f. Tests: src/tests/qgeom2_tests.rs. idlharness: see NOTES.md.
+
+## QWPT-IDL: idlharness files in the WPT testharness subset (agent item)
+
+Task: add `interfaces` to tools/wpt-dirs.txt so the idlharness files run, record the new subtests, check their stability, report shard times.
+
+**What changed:** tools/wpt-dirs.txt (`interfaces`), wpt-th/expected/{css-geometry,dom-observable,dom-other,encoding,html-webappapis,intersection-observer,requestidlecallback,resize-observer,url,webidl}.txt, wpt-th/areas.txt (`--areas-only`). No Rust change, so no new tests; the gate is the test. Numbers in NOTES.md (QWPT-IDL) and the PR.

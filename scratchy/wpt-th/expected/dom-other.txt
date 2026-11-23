@@ -29,10 +29,791 @@ OK           3/3  dom/collections/namednodemap-supported-property-names.html
 OK           1/1  dom/eventPathRemoved.html
 OK         10/10  dom/historical-mutation-events.html
 OK         80/80  dom/historical.html
-OK           0/1  dom/idlharness.window.html?exclude=Node
+OK       631/1325  dom/idlharness.window.html?exclude=Node
   FAIL      idl_test setup
-OK           0/1  dom/idlharness.window.html?include=Node
+  FAIL      Event interface: existence and properties of interface object
+  FAIL      Event interface object length
+  FAIL      Event interface: existence and properties of interface prototype object
+  FAIL      Event interface: attribute type
+  FAIL      Event interface: attribute target
+  FAIL      Event interface: attribute srcElement
+  FAIL      Event interface: attribute currentTarget
+  FAIL      Event interface: operation composedPath()
+  FAIL      Event interface: attribute eventPhase
+  FAIL      Event interface: operation stopPropagation()
+  FAIL      Event interface: attribute cancelBubble
+  FAIL      Event interface: operation stopImmediatePropagation()
+  FAIL      Event interface: attribute bubbles
+  FAIL      Event interface: attribute cancelable
+  FAIL      Event interface: attribute returnValue
+  FAIL      Event interface: operation preventDefault()
+  FAIL      Event interface: attribute defaultPrevented
+  FAIL      Event interface: attribute composed
+  FAIL      Event interface: attribute timeStamp
+  FAIL      Event interface: operation initEvent(DOMString, optional boolean, optional boolean)
+  FAIL      Stringification of document.createEvent("Event")
+  FAIL      Event interface: document.createEvent("Event") must inherit property "type" with the proper type
+  FAIL      Event interface: document.createEvent("Event") must inherit property "target" with the proper type
+  FAIL      Event interface: document.createEvent("Event") must inherit property "currentTarget" with the proper type
+  FAIL      Event interface: document.createEvent("Event") must inherit property "eventPhase" with the proper type
+  FAIL      Event interface: document.createEvent("Event") must inherit property "bubbles" with the proper type
+  FAIL      Event interface: document.createEvent("Event") must inherit property "cancelable" with the proper type
+  FAIL      Event interface: document.createEvent("Event") must inherit property "defaultPrevented" with the proper type
+  FAIL      Event interface: document.createEvent("Event") must inherit property "composed" with the proper type
+  FAIL      Event interface: document.createEvent("Event") must have own property "isTrusted"
+  FAIL      Event interface: document.createEvent("Event") must inherit property "timeStamp" with the proper type
+  FAIL      Event interface: calling initEvent(DOMString, optional boolean, optional boolean) on document.createEvent("Event") with too few arguments must throw TypeError
+  FAIL      Stringification of new Event("foo")
+  FAIL      Event interface: new Event("foo") must inherit property "type" with the proper type
+  FAIL      Event interface: new Event("foo") must inherit property "target" with the proper type
+  FAIL      Event interface: new Event("foo") must inherit property "currentTarget" with the proper type
+  FAIL      Event interface: new Event("foo") must inherit property "eventPhase" with the proper type
+  FAIL      Event interface: new Event("foo") must inherit property "bubbles" with the proper type
+  FAIL      Event interface: new Event("foo") must inherit property "cancelable" with the proper type
+  FAIL      Event interface: new Event("foo") must inherit property "defaultPrevented" with the proper type
+  FAIL      Event interface: new Event("foo") must inherit property "composed" with the proper type
+  FAIL      Event interface: new Event("foo") must have own property "isTrusted"
+  FAIL      Event interface: new Event("foo") must inherit property "timeStamp" with the proper type
+  FAIL      Event interface: calling initEvent(DOMString, optional boolean, optional boolean) on new Event("foo") with too few arguments must throw TypeError
+  FAIL      CustomEvent interface: existence and properties of interface object
+  FAIL      CustomEvent interface object length
+  FAIL      CustomEvent interface: existence and properties of interface prototype object
+  FAIL      CustomEvent interface: attribute detail
+  FAIL      CustomEvent interface: operation initCustomEvent(DOMString, optional boolean, optional boolean, optional any)
+  FAIL      Stringification of new CustomEvent("foo")
+  FAIL      CustomEvent interface: new CustomEvent("foo") must inherit property "detail" with the proper type
+  FAIL      CustomEvent interface: calling initCustomEvent(DOMString, optional boolean, optional boolean, optional any) on new CustomEvent("foo") with too few arguments must throw TypeError
+  FAIL      Event interface: new CustomEvent("foo") must inherit property "type" with the proper type
+  FAIL      Event interface: new CustomEvent("foo") must inherit property "target" with the proper type
+  FAIL      Event interface: new CustomEvent("foo") must inherit property "currentTarget" with the proper type
+  FAIL      Event interface: new CustomEvent("foo") must inherit property "eventPhase" with the proper type
+  FAIL      Event interface: new CustomEvent("foo") must inherit property "bubbles" with the proper type
+  FAIL      Event interface: new CustomEvent("foo") must inherit property "cancelable" with the proper type
+  FAIL      Event interface: new CustomEvent("foo") must inherit property "defaultPrevented" with the proper type
+  FAIL      Event interface: new CustomEvent("foo") must inherit property "composed" with the proper type
+  FAIL      Event interface: new CustomEvent("foo") must have own property "isTrusted"
+  FAIL      Event interface: new CustomEvent("foo") must inherit property "timeStamp" with the proper type
+  FAIL      Event interface: calling initEvent(DOMString, optional boolean, optional boolean) on new CustomEvent("foo") with too few arguments must throw TypeError
+  FAIL      EventTarget interface: existence and properties of interface object
+  FAIL      EventTarget interface: existence and properties of interface prototype object
+  FAIL      EventTarget interface: operation addEventListener(DOMString, EventListener?, optional (AddEventListenerOptions or boolean))
+  FAIL      EventTarget interface: operation removeEventListener(DOMString, EventListener?, optional (EventListenerOptions or boolean))
+  FAIL      EventTarget interface: operation dispatchEvent(Event)
+  FAIL      Stringification of new EventTarget()
+  FAIL      EventTarget interface: calling addEventListener(DOMString, EventListener?, optional (AddEventListenerOptions or boolean)) on new EventTarget() with too few arguments must throw TypeError
+  FAIL      EventTarget interface: calling removeEventListener(DOMString, EventListener?, optional (EventListenerOptions or boolean)) on new EventTarget() with too few arguments must throw TypeError
+  FAIL      AbortController interface: existence and properties of interface object
+  FAIL      AbortController interface: existence and properties of interface prototype object
+  FAIL      AbortController interface: attribute signal
+  FAIL      AbortController interface: operation abort(optional any)
+  FAIL      Stringification of new AbortController()
+  FAIL      AbortController interface: new AbortController() must inherit property "signal" with the proper type
+  FAIL      AbortSignal interface: existence and properties of interface object
+  FAIL      AbortSignal interface: existence and properties of interface prototype object
+  FAIL      AbortSignal interface: operation abort(optional any)
+  FAIL      AbortSignal interface: operation timeout(unsigned long long)
+  FAIL      AbortSignal interface: operation any(sequence<AbortSignal>)
+  FAIL      AbortSignal interface: attribute aborted
+  FAIL      AbortSignal interface: attribute reason
+  FAIL      AbortSignal interface: operation throwIfAborted()
+  FAIL      AbortSignal interface: attribute onabort
+  FAIL      Stringification of new AbortController().signal
+  FAIL      AbortSignal interface: calling timeout(unsigned long long) on new AbortController().signal with too few arguments must throw TypeError
+  FAIL      AbortSignal interface: calling any(sequence<AbortSignal>) on new AbortController().signal with too few arguments must throw TypeError
+  FAIL      AbortSignal interface: new AbortController().signal must inherit property "aborted" with the proper type
+  FAIL      AbortSignal interface: new AbortController().signal must inherit property "reason" with the proper type
+  FAIL      AbortSignal interface: new AbortController().signal must inherit property "onabort" with the proper type
+  FAIL      EventTarget interface: calling addEventListener(DOMString, EventListener?, optional (AddEventListenerOptions or boolean)) on new AbortController().signal with too few arguments must throw TypeError
+  FAIL      EventTarget interface: calling removeEventListener(DOMString, EventListener?, optional (EventListenerOptions or boolean)) on new AbortController().signal with too few arguments must throw TypeError
+  FAIL      NodeList interface: existence and properties of interface object
+  FAIL      NodeList interface: existence and properties of interface prototype object
+  FAIL      NodeList interface: attribute length
+  FAIL      HTMLCollection interface: existence and properties of interface object
+  FAIL      HTMLCollection interface: existence and properties of interface prototype object
+  FAIL      HTMLCollection interface: attribute length
+  FAIL      MutationObserver interface: existence and properties of interface object
+  FAIL      MutationObserver interface: existence and properties of interface prototype object
+  FAIL      MutationObserver interface: operation observe(Node, optional MutationObserverInit)
+  FAIL      MutationObserver interface: operation disconnect()
+  FAIL      MutationObserver interface: operation takeRecords()
+  FAIL      MutationRecord interface: existence and properties of interface object
+  FAIL      MutationRecord interface: existence and properties of interface prototype object
+  FAIL      MutationRecord interface: attribute type
+  FAIL      MutationRecord interface: attribute target
+  FAIL      MutationRecord interface: attribute addedNodes
+  FAIL      MutationRecord interface: attribute removedNodes
+  FAIL      MutationRecord interface: attribute previousSibling
+  FAIL      MutationRecord interface: attribute nextSibling
+  FAIL      MutationRecord interface: attribute attributeName
+  FAIL      MutationRecord interface: attribute attributeNamespace
+  FAIL      MutationRecord interface: attribute oldValue
+  FAIL      Document interface: existence and properties of interface object
+  FAIL      Document interface: existence and properties of interface prototype object
+  FAIL      Document interface: attribute implementation
+  FAIL      Document interface: attribute URL
+  FAIL      Document interface: attribute documentURI
+  FAIL      Document interface: attribute compatMode
+  FAIL      Document interface: attribute characterSet
+  FAIL      Document interface: attribute charset
+  FAIL      Document interface: attribute inputEncoding
+  FAIL      Document interface: attribute contentType
+  FAIL      Document interface: attribute doctype
+  FAIL      Document interface: attribute documentElement
+  FAIL      Document interface: operation getElementsByTagName(DOMString)
+  FAIL      Document interface: operation getElementsByTagNameNS(DOMString?, DOMString)
+  FAIL      Document interface: operation getElementsByClassName(DOMString)
+  FAIL      Document interface: operation createElement(DOMString, optional (DOMString or ElementCreationOptions))
+  FAIL      Document interface: operation createElementNS(DOMString?, DOMString, optional (DOMString or ElementCreationOptions))
+  FAIL      Document interface: operation createDocumentFragment()
+  FAIL      Document interface: operation createTextNode(DOMString)
+  FAIL      Document interface: operation createCDATASection(DOMString)
+  FAIL      Document interface: operation createComment(DOMString)
+  FAIL      Document interface: operation createProcessingInstruction(DOMString, DOMString)
+  FAIL      Document interface: operation importNode(Node, optional (boolean or ImportNodeOptions))
+  FAIL      Document interface: operation adoptNode(Node)
+  FAIL      Document interface: operation createAttribute(DOMString)
+  FAIL      Document interface: operation createAttributeNS(DOMString?, DOMString)
+  FAIL      Document interface: operation createEvent(DOMString)
+  FAIL      Document interface: operation createRange()
+  FAIL      Document interface: operation createNodeIterator(Node, optional unsigned long, optional NodeFilter?)
+  FAIL      Document interface: operation createTreeWalker(Node, optional unsigned long, optional NodeFilter?)
+  FAIL      Document interface: attribute fullscreenEnabled
+  FAIL      Document interface: attribute fullscreen
+  FAIL      Document interface: operation exitFullscreen()
+  FAIL      Document interface: attribute onfullscreenchange
+  FAIL      Document interface: attribute onfullscreenerror
+  FAIL      Document interface: operation getElementById(DOMString)
+  FAIL      Document interface: attribute customElementRegistry
+  FAIL      Document interface: attribute fullscreenElement
+  FAIL      Document interface: attribute children
+  FAIL      Document interface: attribute firstElementChild
+  FAIL      Document interface: attribute lastElementChild
+  FAIL      Document interface: attribute childElementCount
+  FAIL      Document interface: operation prepend((Node or DOMString)...)
+  FAIL      Document interface: operation append((Node or DOMString)...)
+  FAIL      Document interface: operation replaceChildren((Node or DOMString)...)
+  FAIL      Document interface: operation querySelector(DOMString)
+  FAIL      Document interface: operation querySelectorAll(DOMString)
+  FAIL      Document interface: operation createExpression(DOMString, optional XPathNSResolver?)
+  FAIL      Document interface: operation createNSResolver(Node)
+  FAIL      Document interface: operation evaluate(DOMString, Node, optional XPathNSResolver?, optional unsigned short, optional XPathResult?)
+  FAIL      Stringification of new Document()
+  FAIL      Document interface: new Document() must inherit property "implementation" with the proper type
+  FAIL      Document interface: new Document() must inherit property "URL" with the proper type
+  FAIL      Document interface: new Document() must inherit property "documentURI" with the proper type
+  FAIL      Document interface: new Document() must inherit property "compatMode" with the proper type
+  FAIL      Document interface: new Document() must inherit property "characterSet" with the proper type
+  FAIL      Document interface: new Document() must inherit property "contentType" with the proper type
+  FAIL      Document interface: new Document() must inherit property "doctype" with the proper type
+  FAIL      Document interface: new Document() must inherit property "documentElement" with the proper type
+  FAIL      Document interface: new Document() must inherit property "getElementsByTagName(DOMString)" with the proper type
+  FAIL      Document interface: calling getElementsByTagName(DOMString) on new Document() with too few arguments must throw TypeError
+  FAIL      Document interface: new Document() must inherit property "getElementsByTagNameNS(DOMString?, DOMString)" with the proper type
+  FAIL      Document interface: calling getElementsByTagNameNS(DOMString?, DOMString) on new Document() with too few arguments must throw TypeError
+  FAIL      Document interface: new Document() must inherit property "getElementsByClassName(DOMString)" with the proper type
+  FAIL      Document interface: calling getElementsByClassName(DOMString) on new Document() with too few arguments must throw TypeError
+  FAIL      Document interface: new Document() must inherit property "createElement(DOMString, optional (DOMString or ElementCreationOptions))" with the proper type
+  FAIL      Document interface: calling createElement(DOMString, optional (DOMString or ElementCreationOptions)) on new Document() with too few arguments must throw TypeError
+  FAIL      Document interface: new Document() must inherit property "createElementNS(DOMString?, DOMString, optional (DOMString or ElementCreationOptions))" with the proper type
+  FAIL      Document interface: calling createElementNS(DOMString?, DOMString, optional (DOMString or ElementCreationOptions)) on new Document() with too few arguments must throw TypeError
+  FAIL      Document interface: new Document() must inherit property "createDocumentFragment()" with the proper type
+  FAIL      Document interface: new Document() must inherit property "createTextNode(DOMString)" with the proper type
+  FAIL      Document interface: calling createTextNode(DOMString) on new Document() with too few arguments must throw TypeError
+  FAIL      Document interface: new Document() must inherit property "createCDATASection(DOMString)" with the proper type
+  FAIL      Document interface: calling createCDATASection(DOMString) on new Document() with too few arguments must throw TypeError
+  FAIL      Document interface: new Document() must inherit property "createComment(DOMString)" with the proper type
+  FAIL      Document interface: calling createComment(DOMString) on new Document() with too few arguments must throw TypeError
+  FAIL      Document interface: new Document() must inherit property "createProcessingInstruction(DOMString, DOMString)" with the proper type
+  FAIL      Document interface: calling createProcessingInstruction(DOMString, DOMString) on new Document() with too few arguments must throw TypeError
+  FAIL      Document interface: new Document() must inherit property "importNode(Node, optional (boolean or ImportNodeOptions))" with the proper type
+  FAIL      Document interface: calling importNode(Node, optional (boolean or ImportNodeOptions)) on new Document() with too few arguments must throw TypeError
+  FAIL      Document interface: new Document() must inherit property "adoptNode(Node)" with the proper type
+  FAIL      Document interface: calling adoptNode(Node) on new Document() with too few arguments must throw TypeError
+  FAIL      Document interface: new Document() must inherit property "createAttribute(DOMString)" with the proper type
+  FAIL      Document interface: calling createAttribute(DOMString) on new Document() with too few arguments must throw TypeError
+  FAIL      Document interface: new Document() must inherit property "createAttributeNS(DOMString?, DOMString)" with the proper type
+  FAIL      Document interface: calling createAttributeNS(DOMString?, DOMString) on new Document() with too few arguments must throw TypeError
+  FAIL      Document interface: new Document() must inherit property "createEvent(DOMString)" with the proper type
+  FAIL      Document interface: calling createEvent(DOMString) on new Document() with too few arguments must throw TypeError
+  FAIL      Document interface: new Document() must inherit property "createRange()" with the proper type
+  FAIL      Document interface: new Document() must inherit property "createNodeIterator(Node, optional unsigned long, optional NodeFilter?)" with the proper type
+  FAIL      Document interface: calling createNodeIterator(Node, optional unsigned long, optional NodeFilter?) on new Document() with too few arguments must throw TypeError
+  FAIL      Document interface: new Document() must inherit property "createTreeWalker(Node, optional unsigned long, optional NodeFilter?)" with the proper type
+  FAIL      Document interface: calling createTreeWalker(Node, optional unsigned long, optional NodeFilter?) on new Document() with too few arguments must throw TypeError
+  FAIL      Document interface: new Document() must inherit property "fullscreenEnabled" with the proper type
+  FAIL      Document interface: new Document() must inherit property "fullscreen" with the proper type
+  FAIL      Document interface: new Document() must inherit property "exitFullscreen()" with the proper type
+  FAIL      Document interface: new Document() must inherit property "getElementById(DOMString)" with the proper type
+  FAIL      Document interface: calling getElementById(DOMString) on new Document() with too few arguments must throw TypeError
+  FAIL      Document interface: new Document() must inherit property "customElementRegistry" with the proper type
+  FAIL      Document interface: new Document() must inherit property "fullscreenElement" with the proper type
+  FAIL      Document interface: new Document() must inherit property "children" with the proper type
+  FAIL      Document interface: new Document() must inherit property "firstElementChild" with the proper type
+  FAIL      Document interface: new Document() must inherit property "lastElementChild" with the proper type
+  FAIL      Document interface: new Document() must inherit property "childElementCount" with the proper type
+  FAIL      Document interface: new Document() must inherit property "querySelector(DOMString)" with the proper type
+  FAIL      Document interface: calling querySelector(DOMString) on new Document() with too few arguments must throw TypeError
+  FAIL      Document interface: new Document() must inherit property "querySelectorAll(DOMString)" with the proper type
+  FAIL      Document interface: calling querySelectorAll(DOMString) on new Document() with too few arguments must throw TypeError
+  FAIL      Document interface: new Document() must inherit property "createExpression(DOMString, optional XPathNSResolver?)" with the proper type
+  FAIL      Document interface: calling createExpression(DOMString, optional XPathNSResolver?) on new Document() with too few arguments must throw TypeError
+  FAIL      Document interface: new Document() must inherit property "createNSResolver(Node)" with the proper type
+  FAIL      Document interface: calling createNSResolver(Node) on new Document() with too few arguments must throw TypeError
+  FAIL      Document interface: new Document() must inherit property "evaluate(DOMString, Node, optional XPathNSResolver?, optional unsigned short, optional XPathResult?)" with the proper type
+  FAIL      Document interface: calling evaluate(DOMString, Node, optional XPathNSResolver?, optional unsigned short, optional XPathResult?) on new Document() with too few arguments must throw TypeError
+  FAIL      EventTarget interface: calling addEventListener(DOMString, EventListener?, optional (AddEventListenerOptions or boolean)) on new Document() with too few arguments must throw TypeError
+  FAIL      EventTarget interface: calling removeEventListener(DOMString, EventListener?, optional (EventListenerOptions or boolean)) on new Document() with too few arguments must throw TypeError
+  FAIL      XMLDocument interface: existence and properties of interface object
+  FAIL      XMLDocument interface: existence and properties of interface prototype object
+  FAIL      Stringification of xmlDoc
+  FAIL      Document interface: xmlDoc must inherit property "implementation" with the proper type
+  FAIL      Document interface: xmlDoc must inherit property "URL" with the proper type
+  FAIL      Document interface: xmlDoc must inherit property "documentURI" with the proper type
+  FAIL      Document interface: xmlDoc must inherit property "compatMode" with the proper type
+  FAIL      Document interface: xmlDoc must inherit property "characterSet" with the proper type
+  FAIL      Document interface: xmlDoc must inherit property "contentType" with the proper type
+  FAIL      Document interface: xmlDoc must inherit property "doctype" with the proper type
+  FAIL      Document interface: xmlDoc must inherit property "documentElement" with the proper type
+  FAIL      Document interface: xmlDoc must inherit property "getElementsByTagName(DOMString)" with the proper type
+  FAIL      Document interface: calling getElementsByTagName(DOMString) on xmlDoc with too few arguments must throw TypeError
+  FAIL      Document interface: xmlDoc must inherit property "getElementsByTagNameNS(DOMString?, DOMString)" with the proper type
+  FAIL      Document interface: calling getElementsByTagNameNS(DOMString?, DOMString) on xmlDoc with too few arguments must throw TypeError
+  FAIL      Document interface: xmlDoc must inherit property "getElementsByClassName(DOMString)" with the proper type
+  FAIL      Document interface: calling getElementsByClassName(DOMString) on xmlDoc with too few arguments must throw TypeError
+  FAIL      Document interface: xmlDoc must inherit property "createElement(DOMString, optional (DOMString or ElementCreationOptions))" with the proper type
+  FAIL      Document interface: calling createElement(DOMString, optional (DOMString or ElementCreationOptions)) on xmlDoc with too few arguments must throw TypeError
+  FAIL      Document interface: xmlDoc must inherit property "createElementNS(DOMString?, DOMString, optional (DOMString or ElementCreationOptions))" with the proper type
+  FAIL      Document interface: calling createElementNS(DOMString?, DOMString, optional (DOMString or ElementCreationOptions)) on xmlDoc with too few arguments must throw TypeError
+  FAIL      Document interface: xmlDoc must inherit property "createDocumentFragment()" with the proper type
+  FAIL      Document interface: xmlDoc must inherit property "createTextNode(DOMString)" with the proper type
+  FAIL      Document interface: calling createTextNode(DOMString) on xmlDoc with too few arguments must throw TypeError
+  FAIL      Document interface: xmlDoc must inherit property "createCDATASection(DOMString)" with the proper type
+  FAIL      Document interface: calling createCDATASection(DOMString) on xmlDoc with too few arguments must throw TypeError
+  FAIL      Document interface: xmlDoc must inherit property "createComment(DOMString)" with the proper type
+  FAIL      Document interface: calling createComment(DOMString) on xmlDoc with too few arguments must throw TypeError
+  FAIL      Document interface: xmlDoc must inherit property "createProcessingInstruction(DOMString, DOMString)" with the proper type
+  FAIL      Document interface: calling createProcessingInstruction(DOMString, DOMString) on xmlDoc with too few arguments must throw TypeError
+  FAIL      Document interface: xmlDoc must inherit property "importNode(Node, optional (boolean or ImportNodeOptions))" with the proper type
+  FAIL      Document interface: calling importNode(Node, optional (boolean or ImportNodeOptions)) on xmlDoc with too few arguments must throw TypeError
+  FAIL      Document interface: xmlDoc must inherit property "adoptNode(Node)" with the proper type
+  FAIL      Document interface: calling adoptNode(Node) on xmlDoc with too few arguments must throw TypeError
+  FAIL      Document interface: xmlDoc must inherit property "createAttribute(DOMString)" with the proper type
+  FAIL      Document interface: calling createAttribute(DOMString) on xmlDoc with too few arguments must throw TypeError
+  FAIL      Document interface: xmlDoc must inherit property "createAttributeNS(DOMString?, DOMString)" with the proper type
+  FAIL      Document interface: calling createAttributeNS(DOMString?, DOMString) on xmlDoc with too few arguments must throw TypeError
+  FAIL      Document interface: xmlDoc must inherit property "createEvent(DOMString)" with the proper type
+  FAIL      Document interface: calling createEvent(DOMString) on xmlDoc with too few arguments must throw TypeError
+  FAIL      Document interface: xmlDoc must inherit property "createRange()" with the proper type
+  FAIL      Document interface: xmlDoc must inherit property "createNodeIterator(Node, optional unsigned long, optional NodeFilter?)" with the proper type
+  FAIL      Document interface: calling createNodeIterator(Node, optional unsigned long, optional NodeFilter?) on xmlDoc with too few arguments must throw TypeError
+  FAIL      Document interface: xmlDoc must inherit property "createTreeWalker(Node, optional unsigned long, optional NodeFilter?)" with the proper type
+  FAIL      Document interface: calling createTreeWalker(Node, optional unsigned long, optional NodeFilter?) on xmlDoc with too few arguments must throw TypeError
+  FAIL      Document interface: xmlDoc must inherit property "fullscreenEnabled" with the proper type
+  FAIL      Document interface: xmlDoc must inherit property "fullscreen" with the proper type
+  FAIL      Document interface: xmlDoc must inherit property "exitFullscreen()" with the proper type
+  FAIL      Document interface: xmlDoc must inherit property "getElementById(DOMString)" with the proper type
+  FAIL      Document interface: calling getElementById(DOMString) on xmlDoc with too few arguments must throw TypeError
+  FAIL      Document interface: xmlDoc must inherit property "customElementRegistry" with the proper type
+  FAIL      Document interface: xmlDoc must inherit property "fullscreenElement" with the proper type
+  FAIL      Document interface: xmlDoc must inherit property "children" with the proper type
+  FAIL      Document interface: xmlDoc must inherit property "firstElementChild" with the proper type
+  FAIL      Document interface: xmlDoc must inherit property "lastElementChild" with the proper type
+  FAIL      Document interface: xmlDoc must inherit property "childElementCount" with the proper type
+  FAIL      Document interface: xmlDoc must inherit property "querySelector(DOMString)" with the proper type
+  FAIL      Document interface: calling querySelector(DOMString) on xmlDoc with too few arguments must throw TypeError
+  FAIL      Document interface: xmlDoc must inherit property "querySelectorAll(DOMString)" with the proper type
+  FAIL      Document interface: calling querySelectorAll(DOMString) on xmlDoc with too few arguments must throw TypeError
+  FAIL      Document interface: xmlDoc must inherit property "createExpression(DOMString, optional XPathNSResolver?)" with the proper type
+  FAIL      Document interface: calling createExpression(DOMString, optional XPathNSResolver?) on xmlDoc with too few arguments must throw TypeError
+  FAIL      Document interface: xmlDoc must inherit property "createNSResolver(Node)" with the proper type
+  FAIL      Document interface: calling createNSResolver(Node) on xmlDoc with too few arguments must throw TypeError
+  FAIL      Document interface: xmlDoc must inherit property "evaluate(DOMString, Node, optional XPathNSResolver?, optional unsigned short, optional XPathResult?)" with the proper type
+  FAIL      Document interface: calling evaluate(DOMString, Node, optional XPathNSResolver?, optional unsigned short, optional XPathResult?) on xmlDoc with too few arguments must throw TypeError
+  FAIL      EventTarget interface: calling addEventListener(DOMString, EventListener?, optional (AddEventListenerOptions or boolean)) on xmlDoc with too few arguments must throw TypeError
+  FAIL      EventTarget interface: calling removeEventListener(DOMString, EventListener?, optional (EventListenerOptions or boolean)) on xmlDoc with too few arguments must throw TypeError
+  FAIL      DOMImplementation interface: existence and properties of interface object
+  FAIL      DOMImplementation interface: existence and properties of interface prototype object
+  FAIL      DOMImplementation interface: operation createDocumentType(DOMString, DOMString, DOMString)
+  FAIL      DOMImplementation interface: operation createDocument(DOMString?, DOMString, optional DocumentType?)
+  FAIL      DOMImplementation interface: operation createHTMLDocument(optional DOMString)
+  FAIL      DOMImplementation interface: operation hasFeature()
+  FAIL      Stringification of document.implementation
+  FAIL      DOMImplementation interface: calling createDocument(DOMString?, DOMString, optional DocumentType?) on document.implementation with too few arguments must throw TypeError
+  FAIL      DocumentType interface: existence and properties of interface object
+  FAIL      DocumentType interface: existence and properties of interface prototype object
+  FAIL      DocumentType interface: attribute name
+  FAIL      DocumentType interface: attribute publicId
+  FAIL      DocumentType interface: attribute systemId
+  FAIL      DocumentType interface: operation before((Node or DOMString)...)
+  FAIL      DocumentType interface: operation after((Node or DOMString)...)
+  FAIL      DocumentType interface: operation replaceWith((Node or DOMString)...)
+  FAIL      DocumentType interface: operation remove()
+  FAIL      Stringification of document.doctype
+  FAIL      EventTarget interface: calling addEventListener(DOMString, EventListener?, optional (AddEventListenerOptions or boolean)) on document.doctype with too few arguments must throw TypeError
+  FAIL      EventTarget interface: calling removeEventListener(DOMString, EventListener?, optional (EventListenerOptions or boolean)) on document.doctype with too few arguments must throw TypeError
+  FAIL      DocumentFragment interface: existence and properties of interface object
+  FAIL      DocumentFragment interface: existence and properties of interface prototype object
+  FAIL      DocumentFragment interface: operation getElementById(DOMString)
+  FAIL      DocumentFragment interface: attribute children
+  FAIL      DocumentFragment interface: attribute firstElementChild
+  FAIL      DocumentFragment interface: attribute lastElementChild
+  FAIL      DocumentFragment interface: attribute childElementCount
+  FAIL      DocumentFragment interface: operation prepend((Node or DOMString)...)
+  FAIL      DocumentFragment interface: operation append((Node or DOMString)...)
+  FAIL      DocumentFragment interface: operation replaceChildren((Node or DOMString)...)
+  FAIL      DocumentFragment interface: operation querySelector(DOMString)
+  FAIL      DocumentFragment interface: operation querySelectorAll(DOMString)
+  FAIL      Stringification of document.createDocumentFragment()
+  FAIL      DocumentFragment interface: calling getElementById(DOMString) on document.createDocumentFragment() with too few arguments must throw TypeError
+  FAIL      DocumentFragment interface: calling querySelector(DOMString) on document.createDocumentFragment() with too few arguments must throw TypeError
+  FAIL      DocumentFragment interface: calling querySelectorAll(DOMString) on document.createDocumentFragment() with too few arguments must throw TypeError
+  FAIL      EventTarget interface: calling addEventListener(DOMString, EventListener?, optional (AddEventListenerOptions or boolean)) on document.createDocumentFragment() with too few arguments must throw TypeError
+  FAIL      EventTarget interface: calling removeEventListener(DOMString, EventListener?, optional (EventListenerOptions or boolean)) on document.createDocumentFragment() with too few arguments must throw TypeError
+  FAIL      ShadowRoot interface: existence and properties of interface object
+  FAIL      ShadowRoot interface: existence and properties of interface prototype object
+  FAIL      ShadowRoot interface: attribute mode
+  FAIL      ShadowRoot interface: attribute delegatesFocus
+  FAIL      ShadowRoot interface: attribute serializable
+  FAIL      ShadowRoot interface: attribute slotAssignment
+  FAIL      ShadowRoot interface: attribute clonable
+  FAIL      ShadowRoot interface: attribute host
+  FAIL      ShadowRoot interface: attribute onslotchange
+  FAIL      ShadowRoot interface: attribute customElementRegistry
+  FAIL      ShadowRoot interface: attribute fullscreenElement
+  FAIL      Element interface: existence and properties of interface object
+  FAIL      Element interface: existence and properties of interface prototype object
+  FAIL      Element interface: attribute namespaceURI
+  FAIL      Element interface: attribute prefix
+  FAIL      Element interface: attribute localName
+  FAIL      Element interface: attribute tagName
+  FAIL      Element interface: attribute id
+  FAIL      Element interface: attribute className
+  FAIL      Element interface: attribute classList
+  FAIL      Element interface: attribute slot
+  FAIL      Element interface: operation hasAttributes()
+  FAIL      Element interface: attribute attributes
+  FAIL      Element interface: operation getAttributeNames()
+  FAIL      Element interface: operation getAttribute(DOMString)
+  FAIL      Element interface: operation getAttributeNS(DOMString?, DOMString)
+  FAIL      Element interface: operation setAttribute(DOMString, (TrustedType or DOMString))
+  FAIL      Element interface: operation setAttributeNS(DOMString?, DOMString, (TrustedType or DOMString))
+  FAIL      Element interface: operation removeAttribute(DOMString)
+  FAIL      Element interface: operation removeAttributeNS(DOMString?, DOMString)
+  FAIL      Element interface: operation toggleAttribute(DOMString, optional boolean)
+  FAIL      Element interface: operation hasAttribute(DOMString)
+  FAIL      Element interface: operation hasAttributeNS(DOMString?, DOMString)
+  FAIL      Element interface: operation getAttributeNode(DOMString)
+  FAIL      Element interface: operation getAttributeNodeNS(DOMString?, DOMString)
+  FAIL      Element interface: operation setAttributeNode(Attr)
+  FAIL      Element interface: operation setAttributeNodeNS(Attr)
+  FAIL      Element interface: operation removeAttributeNode(Attr)
+  FAIL      Element interface: operation attachShadow(ShadowRootInit)
+  FAIL      Element interface: attribute shadowRoot
+  FAIL      Element interface: attribute customElementRegistry
+  FAIL      Element interface: operation closest(DOMString)
+  FAIL      Element interface: operation matches(DOMString)
+  FAIL      Element interface: operation webkitMatchesSelector(DOMString)
+  FAIL      Element interface: operation getElementsByTagName(DOMString)
+  FAIL      Element interface: operation getElementsByTagNameNS(DOMString?, DOMString)
+  FAIL      Element interface: operation getElementsByClassName(DOMString)
+  FAIL      Element interface: operation insertAdjacentElement(DOMString, Element)
+  FAIL      Element interface: operation insertAdjacentText(DOMString, DOMString)
+  FAIL      Element interface: operation requestFullscreen(optional FullscreenOptions)
+  FAIL      Element interface: attribute onfullscreenchange
+  FAIL      Element interface: attribute onfullscreenerror
+  FAIL      Element interface: attribute children
+  FAIL      Element interface: attribute firstElementChild
+  FAIL      Element interface: attribute lastElementChild
+  FAIL      Element interface: attribute childElementCount
+  FAIL      Element interface: operation prepend((Node or DOMString)...)
+  FAIL      Element interface: operation append((Node or DOMString)...)
+  FAIL      Element interface: operation replaceChildren((Node or DOMString)...)
+  FAIL      Element interface: operation querySelector(DOMString)
+  FAIL      Element interface: operation querySelectorAll(DOMString)
+  FAIL      Element interface: attribute previousElementSibling
+  FAIL      Element interface: attribute nextElementSibling
+  FAIL      Element interface: operation before((Node or DOMString)...)
+  FAIL      Element interface: operation after((Node or DOMString)...)
+  FAIL      Element interface: operation replaceWith((Node or DOMString)...)
+  FAIL      Element interface: operation remove()
+  FAIL      Element interface: attribute assignedSlot
+  FAIL      Stringification of element
+  FAIL      Element interface: calling getAttribute(DOMString) on element with too few arguments must throw TypeError
+  FAIL      Element interface: calling getAttributeNS(DOMString?, DOMString) on element with too few arguments must throw TypeError
+  FAIL      Element interface: calling setAttribute(DOMString, (TrustedType or DOMString)) on element with too few arguments must throw TypeError
+  FAIL      Element interface: calling setAttributeNS(DOMString?, DOMString, (TrustedType or DOMString)) on element with too few arguments must throw TypeError
+  FAIL      Element interface: calling removeAttribute(DOMString) on element with too few arguments must throw TypeError
+  FAIL      Element interface: calling removeAttributeNS(DOMString?, DOMString) on element with too few arguments must throw TypeError
+  FAIL      Element interface: calling toggleAttribute(DOMString, optional boolean) on element with too few arguments must throw TypeError
+  FAIL      Element interface: calling hasAttribute(DOMString) on element with too few arguments must throw TypeError
+  FAIL      Element interface: calling hasAttributeNS(DOMString?, DOMString) on element with too few arguments must throw TypeError
+  FAIL      Element interface: calling getAttributeNode(DOMString) on element with too few arguments must throw TypeError
+  FAIL      Element interface: calling getAttributeNodeNS(DOMString?, DOMString) on element with too few arguments must throw TypeError
+  FAIL      Element interface: element must inherit property "customElementRegistry" with the proper type
+  FAIL      Element interface: calling closest(DOMString) on element with too few arguments must throw TypeError
+  FAIL      Element interface: calling matches(DOMString) on element with too few arguments must throw TypeError
+  FAIL      Element interface: element must inherit property "webkitMatchesSelector(DOMString)" with the proper type
+  FAIL      Element interface: calling webkitMatchesSelector(DOMString) on element with too few arguments must throw TypeError
+  FAIL      Element interface: calling getElementsByTagName(DOMString) on element with too few arguments must throw TypeError
+  FAIL      Element interface: calling getElementsByTagNameNS(DOMString?, DOMString) on element with too few arguments must throw TypeError
+  FAIL      Element interface: calling getElementsByClassName(DOMString) on element with too few arguments must throw TypeError
+  FAIL      Element interface: calling insertAdjacentText(DOMString, DOMString) on element with too few arguments must throw TypeError
+  FAIL      Element interface: element must inherit property "requestFullscreen(optional FullscreenOptions)" with the proper type
+  FAIL      Element interface: calling requestFullscreen(optional FullscreenOptions) on element with too few arguments must throw TypeError
+  FAIL      Element interface: element must inherit property "onfullscreenchange" with the proper type
+  FAIL      Element interface: element must inherit property "onfullscreenerror" with the proper type
+  FAIL      Element interface: calling querySelector(DOMString) on element with too few arguments must throw TypeError
+  FAIL      Element interface: calling querySelectorAll(DOMString) on element with too few arguments must throw TypeError
+  FAIL      EventTarget interface: calling addEventListener(DOMString, EventListener?, optional (AddEventListenerOptions or boolean)) on element with too few arguments must throw TypeError
+  FAIL      EventTarget interface: calling removeEventListener(DOMString, EventListener?, optional (EventListenerOptions or boolean)) on element with too few arguments must throw TypeError
+  FAIL      NamedNodeMap interface: existence and properties of interface object
+  FAIL      NamedNodeMap interface: existence and properties of interface prototype object
+  FAIL      NamedNodeMap interface: attribute length
+  FAIL      NamedNodeMap interface: operation item(unsigned long)
+  FAIL      NamedNodeMap interface: operation getNamedItem(DOMString)
+  FAIL      NamedNodeMap interface: operation getNamedItemNS(DOMString?, DOMString)
+  FAIL      NamedNodeMap interface: operation setNamedItem(Attr)
+  FAIL      NamedNodeMap interface: operation setNamedItemNS(Attr)
+  FAIL      NamedNodeMap interface: operation removeNamedItem(DOMString)
+  FAIL      NamedNodeMap interface: operation removeNamedItemNS(DOMString?, DOMString)
+  FAIL      Attr interface: existence and properties of interface object
+  FAIL      Attr interface: existence and properties of interface prototype object
+  FAIL      Attr interface: attribute namespaceURI
+  FAIL      Attr interface: attribute prefix
+  FAIL      Attr interface: attribute localName
+  FAIL      Attr interface: attribute name
+  FAIL      Attr interface: attribute value
+  FAIL      Attr interface: attribute ownerElement
+  FAIL      Attr interface: attribute specified
+  FAIL      Stringification of document.querySelector("[id]").attributes[0]
+  FAIL      EventTarget interface: calling addEventListener(DOMString, EventListener?, optional (AddEventListenerOptions or boolean)) on document.querySelector("[id]").attributes[0] with too few arguments must throw TypeError
+  FAIL      EventTarget interface: calling removeEventListener(DOMString, EventListener?, optional (EventListenerOptions or boolean)) on document.querySelector("[id]").attributes[0] with too few arguments must throw TypeError
+  FAIL      CharacterData interface: existence and properties of interface object
+  FAIL      CharacterData interface: existence and properties of interface prototype object
+  FAIL      CharacterData interface: attribute data
+  FAIL      CharacterData interface: attribute length
+  FAIL      CharacterData interface: operation substringData(unsigned long, unsigned long)
+  FAIL      CharacterData interface: operation appendData(DOMString)
+  FAIL      CharacterData interface: operation insertData(unsigned long, DOMString)
+  FAIL      CharacterData interface: operation deleteData(unsigned long, unsigned long)
+  FAIL      CharacterData interface: operation replaceData(unsigned long, unsigned long, DOMString)
+  FAIL      CharacterData interface: attribute previousElementSibling
+  FAIL      CharacterData interface: attribute nextElementSibling
+  FAIL      CharacterData interface: operation before((Node or DOMString)...)
+  FAIL      CharacterData interface: operation after((Node or DOMString)...)
+  FAIL      CharacterData interface: operation replaceWith((Node or DOMString)...)
+  FAIL      CharacterData interface: operation remove()
+  FAIL      Text interface: existence and properties of interface object
+  FAIL      Text interface: existence and properties of interface prototype object
+  FAIL      Text interface: attribute wholeText
+  FAIL      Text interface: attribute assignedSlot
+  FAIL      Stringification of document.createTextNode("abc")
+  FAIL      CharacterData interface: calling substringData(unsigned long, unsigned long) on document.createTextNode("abc") with too few arguments must throw TypeError
+  FAIL      CharacterData interface: calling appendData(DOMString) on document.createTextNode("abc") with too few arguments must throw TypeError
+  FAIL      CharacterData interface: calling insertData(unsigned long, DOMString) on document.createTextNode("abc") with too few arguments must throw TypeError
+  FAIL      CharacterData interface: calling deleteData(unsigned long, unsigned long) on document.createTextNode("abc") with too few arguments must throw TypeError
+  FAIL      CharacterData interface: calling replaceData(unsigned long, unsigned long, DOMString) on document.createTextNode("abc") with too few arguments must throw TypeError
+  FAIL      CharacterData interface: document.createTextNode("abc") must inherit property "previousElementSibling" with the proper type
+  FAIL      CharacterData interface: document.createTextNode("abc") must inherit property "nextElementSibling" with the proper type
+  FAIL      EventTarget interface: calling addEventListener(DOMString, EventListener?, optional (AddEventListenerOptions or boolean)) on document.createTextNode("abc") with too few arguments must throw TypeError
+  FAIL      EventTarget interface: calling removeEventListener(DOMString, EventListener?, optional (EventListenerOptions or boolean)) on document.createTextNode("abc") with too few arguments must throw TypeError
+  FAIL      CDATASection interface: existence and properties of interface object
+  FAIL      CDATASection interface: existence and properties of interface prototype object
+  FAIL      ProcessingInstruction interface: existence and properties of interface object
+  FAIL      ProcessingInstruction interface object length
+  FAIL      ProcessingInstruction interface: existence and properties of interface prototype object
+  FAIL      ProcessingInstruction interface: attribute target
+  FAIL      ProcessingInstruction interface: operation hasAttributes()
+  FAIL      ProcessingInstruction interface: operation getAttributeNames()
+  FAIL      ProcessingInstruction interface: operation getAttribute(DOMString)
+  FAIL      ProcessingInstruction interface: operation setAttribute(DOMString, DOMString)
+  FAIL      ProcessingInstruction interface: operation removeAttribute(DOMString)
+  FAIL      ProcessingInstruction interface: operation toggleAttribute(DOMString, optional boolean)
+  FAIL      ProcessingInstruction interface: operation hasAttribute(DOMString)
+  FAIL      Stringification of xmlDoc.createProcessingInstruction("abc", "def")
+  FAIL      ProcessingInstruction interface: xmlDoc.createProcessingInstruction("abc", "def") must inherit property "hasAttributes()" with the proper type
+  FAIL      ProcessingInstruction interface: xmlDoc.createProcessingInstruction("abc", "def") must inherit property "getAttributeNames()" with the proper type
+  FAIL      ProcessingInstruction interface: xmlDoc.createProcessingInstruction("abc", "def") must inherit property "getAttribute(DOMString)" with the proper type
+  FAIL      ProcessingInstruction interface: calling getAttribute(DOMString) on xmlDoc.createProcessingInstruction("abc", "def") with too few arguments must throw TypeError
+  FAIL      ProcessingInstruction interface: xmlDoc.createProcessingInstruction("abc", "def") must inherit property "setAttribute(DOMString, DOMString)" with the proper type
+  FAIL      ProcessingInstruction interface: calling setAttribute(DOMString, DOMString) on xmlDoc.createProcessingInstruction("abc", "def") with too few arguments must throw TypeError
+  FAIL      ProcessingInstruction interface: xmlDoc.createProcessingInstruction("abc", "def") must inherit property "removeAttribute(DOMString)" with the proper type
+  FAIL      ProcessingInstruction interface: calling removeAttribute(DOMString) on xmlDoc.createProcessingInstruction("abc", "def") with too few arguments must throw TypeError
+  FAIL      ProcessingInstruction interface: xmlDoc.createProcessingInstruction("abc", "def") must inherit property "toggleAttribute(DOMString, optional boolean)" with the proper type
+  FAIL      ProcessingInstruction interface: calling toggleAttribute(DOMString, optional boolean) on xmlDoc.createProcessingInstruction("abc", "def") with too few arguments must throw TypeError
+  FAIL      ProcessingInstruction interface: xmlDoc.createProcessingInstruction("abc", "def") must inherit property "hasAttribute(DOMString)" with the proper type
+  FAIL      ProcessingInstruction interface: calling hasAttribute(DOMString) on xmlDoc.createProcessingInstruction("abc", "def") with too few arguments must throw TypeError
+  FAIL      CharacterData interface: calling substringData(unsigned long, unsigned long) on xmlDoc.createProcessingInstruction("abc", "def") with too few arguments must throw TypeError
+  FAIL      CharacterData interface: calling appendData(DOMString) on xmlDoc.createProcessingInstruction("abc", "def") with too few arguments must throw TypeError
+  FAIL      CharacterData interface: calling insertData(unsigned long, DOMString) on xmlDoc.createProcessingInstruction("abc", "def") with too few arguments must throw TypeError
+  FAIL      CharacterData interface: calling deleteData(unsigned long, unsigned long) on xmlDoc.createProcessingInstruction("abc", "def") with too few arguments must throw TypeError
+  FAIL      CharacterData interface: calling replaceData(unsigned long, unsigned long, DOMString) on xmlDoc.createProcessingInstruction("abc", "def") with too few arguments must throw TypeError
+  FAIL      CharacterData interface: xmlDoc.createProcessingInstruction("abc", "def") must inherit property "previousElementSibling" with the proper type
+  FAIL      CharacterData interface: xmlDoc.createProcessingInstruction("abc", "def") must inherit property "nextElementSibling" with the proper type
+  FAIL      EventTarget interface: calling addEventListener(DOMString, EventListener?, optional (AddEventListenerOptions or boolean)) on xmlDoc.createProcessingInstruction("abc", "def") with too few arguments must throw TypeError
+  FAIL      EventTarget interface: calling removeEventListener(DOMString, EventListener?, optional (EventListenerOptions or boolean)) on xmlDoc.createProcessingInstruction("abc", "def") with too few arguments must throw TypeError
+  FAIL      Comment interface: existence and properties of interface object
+  FAIL      Comment interface: existence and properties of interface prototype object
+  FAIL      Stringification of document.createComment("abc")
+  FAIL      CharacterData interface: calling substringData(unsigned long, unsigned long) on document.createComment("abc") with too few arguments must throw TypeError
+  FAIL      CharacterData interface: calling appendData(DOMString) on document.createComment("abc") with too few arguments must throw TypeError
+  FAIL      CharacterData interface: calling insertData(unsigned long, DOMString) on document.createComment("abc") with too few arguments must throw TypeError
+  FAIL      CharacterData interface: calling deleteData(unsigned long, unsigned long) on document.createComment("abc") with too few arguments must throw TypeError
+  FAIL      CharacterData interface: calling replaceData(unsigned long, unsigned long, DOMString) on document.createComment("abc") with too few arguments must throw TypeError
+  FAIL      CharacterData interface: document.createComment("abc") must inherit property "previousElementSibling" with the proper type
+  FAIL      CharacterData interface: document.createComment("abc") must inherit property "nextElementSibling" with the proper type
+  FAIL      EventTarget interface: calling addEventListener(DOMString, EventListener?, optional (AddEventListenerOptions or boolean)) on document.createComment("abc") with too few arguments must throw TypeError
+  FAIL      EventTarget interface: calling removeEventListener(DOMString, EventListener?, optional (EventListenerOptions or boolean)) on document.createComment("abc") with too few arguments must throw TypeError
+  FAIL      AbstractRange interface: existence and properties of interface object
+  FAIL      AbstractRange interface object length
+  FAIL      AbstractRange interface object name
+  FAIL      AbstractRange interface: existence and properties of interface prototype object
+  FAIL      AbstractRange interface: existence and properties of interface prototype object's "constructor" property
+  FAIL      AbstractRange interface: existence and properties of interface prototype object's @@unscopables property
+  FAIL      AbstractRange interface: attribute startOffset
+  FAIL      AbstractRange interface: attribute endOffset
+  FAIL      AbstractRange interface: attribute collapsed
+  FAIL      NodeRange interface: existence and properties of interface object
+  FAIL      NodeRange interface object length
+  FAIL      NodeRange interface object name
+  FAIL      NodeRange interface: existence and properties of interface prototype object
+  FAIL      NodeRange interface: existence and properties of interface prototype object's "constructor" property
+  FAIL      NodeRange interface: existence and properties of interface prototype object's @@unscopables property
+  FAIL      NodeRange interface: attribute startContainer
+  FAIL      NodeRange interface: attribute endContainer
+  FAIL      StaticRange interface: existence and properties of interface object
+  FAIL      StaticRange interface object length
+  FAIL      StaticRange interface object name
+  FAIL      StaticRange interface: existence and properties of interface prototype object
+  FAIL      StaticRange interface: existence and properties of interface prototype object's "constructor" property
+  FAIL      StaticRange interface: existence and properties of interface prototype object's @@unscopables property
+  FAIL      Range interface: existence and properties of interface object
+  FAIL      Range interface: existence and properties of interface prototype object
+  FAIL      Range interface: attribute commonAncestorContainer
+  FAIL      Range interface: constant START_TO_START on interface object
+  FAIL      Range interface: constant START_TO_START on interface prototype object
+  FAIL      Range interface: constant START_TO_END on interface object
+  FAIL      Range interface: constant START_TO_END on interface prototype object
+  FAIL      Range interface: constant END_TO_END on interface object
+  FAIL      Range interface: constant END_TO_END on interface prototype object
+  FAIL      Range interface: constant END_TO_START on interface object
+  FAIL      Range interface: constant END_TO_START on interface prototype object
+  FAIL      NodeIterator interface: existence and properties of interface object
+  FAIL      NodeIterator interface: existence and properties of interface prototype object
+  FAIL      NodeIterator interface: attribute root
+  FAIL      NodeIterator interface: attribute referenceNode
+  FAIL      NodeIterator interface: attribute pointerBeforeReferenceNode
+  FAIL      NodeIterator interface: attribute whatToShow
+  FAIL      NodeIterator interface: attribute filter
+  FAIL      NodeIterator interface: operation nextNode()
+  FAIL      NodeIterator interface: operation previousNode()
+  FAIL      NodeIterator interface: operation detach()
+  FAIL      Stringification of document.createNodeIterator(document.body, NodeFilter.SHOW_ALL, null, false)
+  FAIL      TreeWalker interface: existence and properties of interface object
+  FAIL      TreeWalker interface: existence and properties of interface prototype object
+  FAIL      TreeWalker interface: attribute root
+  FAIL      TreeWalker interface: attribute whatToShow
+  FAIL      TreeWalker interface: attribute filter
+  FAIL      TreeWalker interface: attribute currentNode
+  FAIL      TreeWalker interface: operation parentNode()
+  FAIL      TreeWalker interface: operation firstChild()
+  FAIL      TreeWalker interface: operation lastChild()
+  FAIL      TreeWalker interface: operation previousSibling()
+  FAIL      TreeWalker interface: operation nextSibling()
+  FAIL      TreeWalker interface: operation previousNode()
+  FAIL      TreeWalker interface: operation nextNode()
+  FAIL      Stringification of document.createTreeWalker(document.body, NodeFilter.SHOW_ALL, null, false)
+  FAIL      NodeFilter interface: existence and properties of interface object
+  FAIL      NodeFilter interface object name
+  FAIL      NodeFilter interface: constant FILTER_ACCEPT on interface object
+  FAIL      NodeFilter interface: constant FILTER_REJECT on interface object
+  FAIL      NodeFilter interface: constant FILTER_SKIP on interface object
+  FAIL      NodeFilter interface: constant SHOW_ALL on interface object
+  FAIL      NodeFilter interface: constant SHOW_ELEMENT on interface object
+  FAIL      NodeFilter interface: constant SHOW_ATTRIBUTE on interface object
+  FAIL      NodeFilter interface: constant SHOW_TEXT on interface object
+  FAIL      NodeFilter interface: constant SHOW_CDATA_SECTION on interface object
+  FAIL      NodeFilter interface: constant SHOW_ENTITY_REFERENCE on interface object
+  FAIL      NodeFilter interface: constant SHOW_ENTITY on interface object
+  FAIL      NodeFilter interface: constant SHOW_PROCESSING_INSTRUCTION on interface object
+  FAIL      NodeFilter interface: constant SHOW_COMMENT on interface object
+  FAIL      NodeFilter interface: constant SHOW_DOCUMENT on interface object
+  FAIL      NodeFilter interface: constant SHOW_DOCUMENT_TYPE on interface object
+  FAIL      NodeFilter interface: constant SHOW_DOCUMENT_FRAGMENT on interface object
+  FAIL      NodeFilter interface: constant SHOW_NOTATION on interface object
+  FAIL      DOMTokenList interface: existence and properties of interface object
+  FAIL      DOMTokenList interface: existence and properties of interface prototype object
+  FAIL      DOMTokenList interface: attribute length
+  FAIL      DOMTokenList interface: operation item(unsigned long)
+  FAIL      DOMTokenList interface: operation contains(DOMString)
+  FAIL      DOMTokenList interface: operation add(DOMString...)
+  FAIL      DOMTokenList interface: operation remove(DOMString...)
+  FAIL      DOMTokenList interface: operation toggle(DOMString, optional boolean)
+  FAIL      DOMTokenList interface: operation replace(DOMString, DOMString)
+  FAIL      DOMTokenList interface: operation supports(DOMString)
+  FAIL      DOMTokenList interface: attribute value
+  FAIL      DOMTokenList interface: iterable<DOMString>
+  FAIL      DOMTokenList interface: calling contains(DOMString) on document.body.classList with too few arguments must throw TypeError
+  FAIL      DOMTokenList interface: calling toggle(DOMString, optional boolean) on document.body.classList with too few arguments must throw TypeError
+  FAIL      DOMTokenList interface: calling replace(DOMString, DOMString) on document.body.classList with too few arguments must throw TypeError
+  FAIL      XPathResult interface: existence and properties of interface object
+  FAIL      XPathResult interface object length
+  FAIL      XPathResult interface object name
+  FAIL      XPathResult interface: existence and properties of interface prototype object
+  FAIL      XPathResult interface: existence and properties of interface prototype object's "constructor" property
+  FAIL      XPathResult interface: existence and properties of interface prototype object's @@unscopables property
+  FAIL      XPathResult interface: constant ANY_TYPE on interface object
+  FAIL      XPathResult interface: constant ANY_TYPE on interface prototype object
+  FAIL      XPathResult interface: constant NUMBER_TYPE on interface object
+  FAIL      XPathResult interface: constant NUMBER_TYPE on interface prototype object
+  FAIL      XPathResult interface: constant STRING_TYPE on interface object
+  FAIL      XPathResult interface: constant STRING_TYPE on interface prototype object
+  FAIL      XPathResult interface: constant BOOLEAN_TYPE on interface object
+  FAIL      XPathResult interface: constant BOOLEAN_TYPE on interface prototype object
+  FAIL      XPathResult interface: constant UNORDERED_NODE_ITERATOR_TYPE on interface object
+  FAIL      XPathResult interface: constant UNORDERED_NODE_ITERATOR_TYPE on interface prototype object
+  FAIL      XPathResult interface: constant ORDERED_NODE_ITERATOR_TYPE on interface object
+  FAIL      XPathResult interface: constant ORDERED_NODE_ITERATOR_TYPE on interface prototype object
+  FAIL      XPathResult interface: constant UNORDERED_NODE_SNAPSHOT_TYPE on interface object
+  FAIL      XPathResult interface: constant UNORDERED_NODE_SNAPSHOT_TYPE on interface prototype object
+  FAIL      XPathResult interface: constant ORDERED_NODE_SNAPSHOT_TYPE on interface object
+  FAIL      XPathResult interface: constant ORDERED_NODE_SNAPSHOT_TYPE on interface prototype object
+  FAIL      XPathResult interface: constant ANY_UNORDERED_NODE_TYPE on interface object
+  FAIL      XPathResult interface: constant ANY_UNORDERED_NODE_TYPE on interface prototype object
+  FAIL      XPathResult interface: constant FIRST_ORDERED_NODE_TYPE on interface object
+  FAIL      XPathResult interface: constant FIRST_ORDERED_NODE_TYPE on interface prototype object
+  FAIL      XPathResult interface: attribute resultType
+  FAIL      XPathResult interface: attribute numberValue
+  FAIL      XPathResult interface: attribute stringValue
+  FAIL      XPathResult interface: attribute booleanValue
+  FAIL      XPathResult interface: attribute singleNodeValue
+  FAIL      XPathResult interface: attribute invalidIteratorState
+  FAIL      XPathResult interface: attribute snapshotLength
+  FAIL      XPathResult interface: operation iterateNext()
+  FAIL      XPathResult interface: operation snapshotItem(unsigned long)
+  FAIL      XPathResult must be primary interface of document.evaluate("//*", document.body)
+  FAIL      Stringification of document.evaluate("//*", document.body)
+  FAIL      XPathResult interface: document.evaluate("//*", document.body) must inherit property "ANY_TYPE" with the proper type
+  FAIL      XPathResult interface: document.evaluate("//*", document.body) must inherit property "NUMBER_TYPE" with the proper type
+  FAIL      XPathResult interface: document.evaluate("//*", document.body) must inherit property "STRING_TYPE" with the proper type
+  FAIL      XPathResult interface: document.evaluate("//*", document.body) must inherit property "BOOLEAN_TYPE" with the proper type
+  FAIL      XPathResult interface: document.evaluate("//*", document.body) must inherit property "UNORDERED_NODE_ITERATOR_TYPE" with the proper type
+  FAIL      XPathResult interface: document.evaluate("//*", document.body) must inherit property "ORDERED_NODE_ITERATOR_TYPE" with the proper type
+  FAIL      XPathResult interface: document.evaluate("//*", document.body) must inherit property "UNORDERED_NODE_SNAPSHOT_TYPE" with the proper type
+  FAIL      XPathResult interface: document.evaluate("//*", document.body) must inherit property "ORDERED_NODE_SNAPSHOT_TYPE" with the proper type
+  FAIL      XPathResult interface: document.evaluate("//*", document.body) must inherit property "ANY_UNORDERED_NODE_TYPE" with the proper type
+  FAIL      XPathResult interface: document.evaluate("//*", document.body) must inherit property "FIRST_ORDERED_NODE_TYPE" with the proper type
+  FAIL      XPathResult interface: document.evaluate("//*", document.body) must inherit property "resultType" with the proper type
+  FAIL      XPathResult interface: document.evaluate("//*", document.body) must inherit property "numberValue" with the proper type
+  FAIL      XPathResult interface: document.evaluate("//*", document.body) must inherit property "stringValue" with the proper type
+  FAIL      XPathResult interface: document.evaluate("//*", document.body) must inherit property "booleanValue" with the proper type
+  FAIL      XPathResult interface: document.evaluate("//*", document.body) must inherit property "singleNodeValue" with the proper type
+  FAIL      XPathResult interface: document.evaluate("//*", document.body) must inherit property "invalidIteratorState" with the proper type
+  FAIL      XPathResult interface: document.evaluate("//*", document.body) must inherit property "snapshotLength" with the proper type
+  FAIL      XPathResult interface: document.evaluate("//*", document.body) must inherit property "iterateNext()" with the proper type
+  FAIL      XPathResult interface: document.evaluate("//*", document.body) must inherit property "snapshotItem(unsigned long)" with the proper type
+  FAIL      XPathResult interface: calling snapshotItem(unsigned long) on document.evaluate("//*", document.body) with too few arguments must throw TypeError
+  FAIL      XPathExpression interface: existence and properties of interface object
+  FAIL      XPathExpression interface object length
+  FAIL      XPathExpression interface object name
+  FAIL      XPathExpression interface: existence and properties of interface prototype object
+  FAIL      XPathExpression interface: existence and properties of interface prototype object's "constructor" property
+  FAIL      XPathExpression interface: existence and properties of interface prototype object's @@unscopables property
+  FAIL      XPathExpression interface: operation evaluate(Node, optional unsigned short, optional XPathResult?)
+  FAIL      XPathExpression must be primary interface of document.createExpression("//*")
+  FAIL      Stringification of document.createExpression("//*")
+  FAIL      XPathExpression interface: document.createExpression("//*") must inherit property "evaluate(Node, optional unsigned short, optional XPathResult?)" with the proper type
+  FAIL      XPathExpression interface: calling evaluate(Node, optional unsigned short, optional XPathResult?) on document.createExpression("//*") with too few arguments must throw TypeError
+OK       524/613  dom/idlharness.window.html?include=Node
   FAIL      idl_test setup
+  FAIL      Node interface: existence and properties of interface object
+  FAIL      Node interface: existence and properties of interface prototype object
+  FAIL      Node interface: attribute nodeType
+  FAIL      Node interface: attribute nodeName
+  FAIL      Node interface: attribute baseURI
+  FAIL      Node interface: attribute isConnected
+  FAIL      Node interface: attribute ownerDocument
+  FAIL      Node interface: operation getRootNode(optional GetRootNodeOptions)
+  FAIL      Node interface: attribute parentNode
+  FAIL      Node interface: attribute parentElement
+  FAIL      Node interface: operation hasChildNodes()
+  FAIL      Node interface: attribute childNodes
+  FAIL      Node interface: attribute firstChild
+  FAIL      Node interface: attribute lastChild
+  FAIL      Node interface: attribute previousSibling
+  FAIL      Node interface: attribute nextSibling
+  FAIL      Node interface: attribute nodeValue
+  FAIL      Node interface: attribute textContent
+  FAIL      Node interface: operation normalize()
+  FAIL      Node interface: operation cloneNode(optional boolean)
+  FAIL      Node interface: operation isEqualNode(Node?)
+  FAIL      Node interface: operation isSameNode(Node?)
+  FAIL      Node interface: operation compareDocumentPosition(Node)
+  FAIL      Node interface: operation contains(Node?)
+  FAIL      Node interface: operation lookupPrefix(DOMString?)
+  FAIL      Node interface: operation lookupNamespaceURI(DOMString?)
+  FAIL      Node interface: operation isDefaultNamespace(DOMString?)
+  FAIL      Node interface: operation insertBefore(Node, Node?)
+  FAIL      Node interface: operation appendChild(Node)
+  FAIL      Node interface: operation replaceChild(Node, Node)
+  FAIL      Node interface: operation removeChild(Node)
+  FAIL      Node interface: new Document() must inherit property "nodeType" with the proper type
+  FAIL      Node interface: new Document() must inherit property "nodeName" with the proper type
+  FAIL      Node interface: new Document() must inherit property "baseURI" with the proper type
+  FAIL      Node interface: new Document() must inherit property "hasChildNodes()" with the proper type
+  FAIL      Node interface: new Document() must inherit property "childNodes" with the proper type
+  FAIL      Node interface: calling isEqualNode(Node?) on new Document() with too few arguments must throw TypeError
+  FAIL      Node interface: calling isSameNode(Node?) on new Document() with too few arguments must throw TypeError
+  FAIL      Node interface: new Document() must inherit property "contains(Node?)" with the proper type
+  FAIL      Node interface: calling contains(Node?) on new Document() with too few arguments must throw TypeError
+  FAIL      Node interface: new Document() must inherit property "insertBefore(Node, Node?)" with the proper type
+  FAIL      Node interface: calling insertBefore(Node, Node?) on new Document() with too few arguments must throw TypeError
+  FAIL      Node interface: new Document() must inherit property "appendChild(Node)" with the proper type
+  FAIL      Node interface: calling appendChild(Node) on new Document() with too few arguments must throw TypeError
+  FAIL      Node interface: new Document() must inherit property "removeChild(Node)" with the proper type
+  FAIL      Node interface: calling removeChild(Node) on new Document() with too few arguments must throw TypeError
+  FAIL      Node interface: xmlDoc must inherit property "nodeType" with the proper type
+  FAIL      Node interface: xmlDoc must inherit property "nodeName" with the proper type
+  FAIL      Node interface: xmlDoc must inherit property "baseURI" with the proper type
+  FAIL      Node interface: xmlDoc must inherit property "hasChildNodes()" with the proper type
+  FAIL      Node interface: xmlDoc must inherit property "childNodes" with the proper type
+  FAIL      Node interface: calling isEqualNode(Node?) on xmlDoc with too few arguments must throw TypeError
+  FAIL      Node interface: calling isSameNode(Node?) on xmlDoc with too few arguments must throw TypeError
+  FAIL      Node interface: xmlDoc must inherit property "contains(Node?)" with the proper type
+  FAIL      Node interface: calling contains(Node?) on xmlDoc with too few arguments must throw TypeError
+  FAIL      Node interface: xmlDoc must inherit property "insertBefore(Node, Node?)" with the proper type
+  FAIL      Node interface: calling insertBefore(Node, Node?) on xmlDoc with too few arguments must throw TypeError
+  FAIL      Node interface: xmlDoc must inherit property "appendChild(Node)" with the proper type
+  FAIL      Node interface: calling appendChild(Node) on xmlDoc with too few arguments must throw TypeError
+  FAIL      Node interface: xmlDoc must inherit property "removeChild(Node)" with the proper type
+  FAIL      Node interface: calling removeChild(Node) on xmlDoc with too few arguments must throw TypeError
+  FAIL      Node interface: document.doctype must inherit property "baseURI" with the proper type
+  FAIL      Node interface: calling isEqualNode(Node?) on document.doctype with too few arguments must throw TypeError
+  FAIL      Node interface: calling isSameNode(Node?) on document.doctype with too few arguments must throw TypeError
+  FAIL      Node interface: calling contains(Node?) on document.doctype with too few arguments must throw TypeError
+  FAIL      Node interface: document.createDocumentFragment() must inherit property "baseURI" with the proper type
+  FAIL      Node interface: calling isEqualNode(Node?) on document.createDocumentFragment() with too few arguments must throw TypeError
+  FAIL      Node interface: calling isSameNode(Node?) on document.createDocumentFragment() with too few arguments must throw TypeError
+  FAIL      Node interface: calling contains(Node?) on document.createDocumentFragment() with too few arguments must throw TypeError
+  FAIL      Node interface: calling isEqualNode(Node?) on element with too few arguments must throw TypeError
+  FAIL      Node interface: calling isSameNode(Node?) on element with too few arguments must throw TypeError
+  FAIL      Node interface: calling contains(Node?) on element with too few arguments must throw TypeError
+  FAIL      Node interface: document.querySelector("[id]").attributes[0] must inherit property "baseURI" with the proper type
+  FAIL      Node interface: calling isEqualNode(Node?) on document.querySelector("[id]").attributes[0] with too few arguments must throw TypeError
+  FAIL      Node interface: calling isSameNode(Node?) on document.querySelector("[id]").attributes[0] with too few arguments must throw TypeError
+  FAIL      Node interface: calling contains(Node?) on document.querySelector("[id]").attributes[0] with too few arguments must throw TypeError
+  FAIL      Node interface: document.createTextNode("abc") must inherit property "baseURI" with the proper type
+  FAIL      Node interface: calling isEqualNode(Node?) on document.createTextNode("abc") with too few arguments must throw TypeError
+  FAIL      Node interface: calling isSameNode(Node?) on document.createTextNode("abc") with too few arguments must throw TypeError
+  FAIL      Node interface: calling contains(Node?) on document.createTextNode("abc") with too few arguments must throw TypeError
+  FAIL      Node interface: xmlDoc.createProcessingInstruction("abc", "def") must inherit property "baseURI" with the proper type
+  FAIL      Node interface: calling isEqualNode(Node?) on xmlDoc.createProcessingInstruction("abc", "def") with too few arguments must throw TypeError
+  FAIL      Node interface: calling isSameNode(Node?) on xmlDoc.createProcessingInstruction("abc", "def") with too few arguments must throw TypeError
+  FAIL      Node interface: calling contains(Node?) on xmlDoc.createProcessingInstruction("abc", "def") with too few arguments must throw TypeError
+  FAIL      Node interface: document.createComment("abc") must inherit property "baseURI" with the proper type
+  FAIL      Node interface: calling isEqualNode(Node?) on document.createComment("abc") with too few arguments must throw TypeError
+  FAIL      Node interface: calling isSameNode(Node?) on document.createComment("abc") with too few arguments must throw TypeError
+  FAIL      Node interface: calling contains(Node?) on document.createComment("abc") with too few arguments must throw TypeError
 ERROR        1/2  dom/interface-objects.html
   FAIL      Interface objects properties should not be Enumerable
 OK           6/6  dom/lists/DOMTokenList-Iterable.html

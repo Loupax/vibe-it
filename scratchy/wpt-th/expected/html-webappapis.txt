@@ -433,7 +433,87 @@ TIMEOUT      1/3  html/webappapis/scripting/events/compile-event-handler-setting
   TIMEOUT   The entry settings object while executing the compiled callback via Web IDL's invoke must be that of the node document
   TIMEOUT   The incumbent settings object while executing the compiled callback via Web IDL's invoke must be that of the node document
 OK           3/3  html/webappapis/scripting/events/compile-event-handler-symbol-unscopables.html
-ERROR        0/0  html/webappapis/scripting/events/event-handler-all-global-events.html
+OK       295/375  html/webappapis/scripting/events/event-handler-all-global-events.html
+  FAIL      onabort: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onauxclick: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onbeforeinput: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onbeforematch: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onbeforetoggle: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onblur: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      oncancel: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      oncanplay: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      oncanplaythrough: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onchange: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onclick: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onclose: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      oncommand: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      oncommand: the default value must be null
+  FAIL      oncommand: the content attribute must be compiled into a function as the corresponding property
+  FAIL      oncontextlost: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      oncontextmenu: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      oncontextrestored: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      oncopy: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      oncopy: the default value must be null
+  FAIL      oncuechange: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      oncut: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      oncut: the default value must be null
+  FAIL      ondblclick: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      ondrag: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      ondragend: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      ondragenter: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      ondragleave: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      ondragover: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      ondragstart: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      ondrop: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      ondurationchange: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onemptied: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onended: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onfocus: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onformdata: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      oninput: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      oninvalid: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onkeydown: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onkeypress: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onkeyup: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onload: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onloadeddata: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onloadedmetadata: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onloadstart: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onmousedown: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onmouseenter: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onmouseleave: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onmousemove: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onmouseout: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onmouseover: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onmouseup: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onpaste: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onpaste: the default value must be null
+  FAIL      onpause: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onplay: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onplaying: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onprogress: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onratechange: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onreset: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onresize: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onscroll: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onscrollend: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onsecuritypolicyviolation: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onseeked: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onseeking: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onselect: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onslotchange: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onstalled: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onsubmit: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onsuspend: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      ontimeupdate: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      ontoggle: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onvolumechange: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onwaiting: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onwebkitanimationend: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onwebkitanimationiteration: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onwebkitanimationstart: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onwebkittransitionend: must be on the appropriate locations for GlobalEventHandlers
+  FAIL      onwheel: must be on the appropriate locations for GlobalEventHandlers
 OK           0/3  html/webappapis/scripting/events/event-handler-attributes-no-bc.html
   FAIL      template contents
   FAIL      new Document()
