@@ -1,0 +1,21 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>fk loading</title>
+<style>
+  body { margin: 0; font: 20px sans-serif; height: 6000px; background: linear-gradient(#eef, #fee); }
+  p { position: absolute; left: 40px; top: 160px; }
+</style>
+<p>web C-FOCUSKEYS / C3-SHIFTSYNC live check: the title reports scrollY and the key events the page saw.</p>
+<script>
+  // The title: "fk y=<scrollY> ev=<last 12 events>": d:<key> (keydown) or u:<key> (keyup), then
+  // the modifier flags the event carried (A alt, S shift, C ctrl) after a slash.
+  const ev = [];
+  const flags = e => (e.altKey ? "A" : "") + (e.shiftKey ? "S" : "") + (e.ctrlKey ? "C" : "");
+  const show = () => { document.title = `fk y=${Math.round(scrollY)} ev=${ev.join(",")}`; };
+  const rec = t => e => { ev.push(`${t}:${e.key}/${flags(e)}`); if (ev.length > 12) ev.shift(); show(); };
+  addEventListener("keydown", rec("d"), true);
+  addEventListener("keyup", rec("u"), true);
+  let tm = 0;
+  addEventListener("scroll", () => { clearTimeout(tm); tm = setTimeout(show, 150); });
+  show();
+</script>

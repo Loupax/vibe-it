@@ -3,6 +3,7 @@
 //   move:X,Y  click  rclick  mclick  hold:c|s|cs  release  down  up  scroll:DY  hscroll:DX  sscroll:DY (Shift held)  wait:MS
 //   key:NAME (j k g G h l esc ret tab space bs colon slash ins ...) with optional c- / s- prefix
 //   ev:CODE evs:CODE (raw evdev code, evs with Shift)  group:N (layout group)
+//   mods:BITS (modifier state alone)  kdown:CODE kup:CODE (a key held across commands)
 //   type:TEXT (letters, digits, space, . : / - _ = ?)
 // Or: inject output W H SCALE   (C6b: the output becomes W x H pixels at SCALE; src/output.rs)
 mod output;
@@ -249,6 +250,15 @@ fn main() {
                     q_rt(&mut st);
                     std::thread::sleep(Duration::from_millis(30));
                 }
+            }
+            // C-FOCUSKEYS / C3-SHIFTSYNC: mods:BITS sets the modifier state alone (1 Shift, 4 Ctrl,
+            // 8 Alt; no key event, as a desktop does when a modifier was already held); kdown:CODE
+            // and kup:CODE are bare key events (the key stays down until kup, also across `wait:`).
+            "mods" => {
+                vk.modifiers(arg.parse().unwrap(), 0, 0, group.get());
+            }
+            "kdown" | "kup" => {
+                vk.key(ms(), arg.parse().unwrap(), if op == "kdown" { 1 } else { 0 });
             }
             "group" => {
                 group.set(arg.parse().unwrap());

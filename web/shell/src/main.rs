@@ -152,6 +152,7 @@ fn main() {
                     }
                 }
                 calloop::channel::Event::Msg(keymap::Update::Group(g)) => state.set_desktop_group(g),
+                calloop::channel::Event::Msg(keymap::Update::Mods(d, l, k)) => state.set_desktop_mods(d, l, k),
                 calloop::channel::Event::Closed => {}
             })
             .unwrap();
@@ -337,6 +338,9 @@ fn main() {
         .insert_source(winit_loop, |event, _, state| match event {
             WinitEvent::Resized { size, scale_factor } => state.resized(size, scale_factor),
             WinitEvent::Focus(focused) => {
+                // C-FOCUSKEYS: winit's synthetic releases never reach us (smithay drops them): release
+                // what the page holds while it still has the keyboard, and start clean on regaining it.
+                state.release_pressed_keys();
                 state.window_focused = focused;
                 // Live checks wait for this before the first click (c6_live.py).
                 state.log(&format!("shell window focused: {focused}"));
