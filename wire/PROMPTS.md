@@ -286,3 +286,11 @@ when it passed the body through unmodified, and answers 502 +
 path cannot signal an error after the headers are out (Unix-socket close is
 the same either way), so the header is the client's check; README documents
 this and that `X-Wire-Timeout-Ms` raises the 20 s total timeout.
+
+---
+
+## W-HDR1 — duplicate request headers (agent task)
+
+> W-HDR1 (coordinator launch of wire/TODO.txt duplicate request headers, for the web spike)
+
+Result: `forwardable_request_headers` in `src/main.rs` merges a repeated request header into one field (Cookie joined with "; ", anything else with ", ") before `req.set`; used by the shared-agent path, the jar path and the WebSocket handshake. The response direction already forwarded every Set-Cookie (`resp.all`); now covered by a test. Tests in `src/w_hdr1_tests.rs`.

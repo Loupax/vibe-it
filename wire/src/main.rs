@@ -980,6 +980,29 @@ fn is_request_header_to_skip(name: &str) -> bool {
     matches!(n.as_str(), "host" | "content-length" | "connection" | "user-agent") || n.starts_with("x-wire-")
 }
 
+/// The request headers to forward, one entry per header name (W-HDR1). `ureq`'s
+/// `set` replaces a prior value of the same name (except for `X-*` names), so a request
+/// that repeats a header would lose all but the last value. Repeats are merged into one
+/// field, first-seen order and spelling: `Cookie` values joined with "; " (RFC 6265
+/// section 5.4), every other name with ", " (RFC 9110 section 5.3). Skipped names
+/// (`X-Wire-*`, `Host`, ...) never appear. `drop` removes further names (lowercase compare).
+fn forwardable_request_headers(headers: &[(String, String)], drop: impl Fn(&str) -> bool) -> Vec<(&str, String)> {
+    let mut out: Vec<(&str, String)> = Vec::new();
+    for (name, value) in headers {
+        if is_request_header_to_skip(name) || drop(name) {
+            continue;
+        }
+        match out.iter_mut().find(|(n, _)| n.eq_ignore_ascii_case(name)) {
+            Some((_, v)) => {
+                v.push_str(if name.eq_ignore_ascii_case("cookie") { "; " } else { ", " });
+                v.push_str(value);
+            }
+            None => out.push((name.as_str(), value.clone())),
+        }
+    }
+    out
+}
+
 /// Longest accepted per-request User-Agent (QY39a).
 const MAX_UA_LEN: usize = 512;
 
@@ -1326,10 +1349,8 @@ fn send_upstream(agent: &ureq::Agent, shared: &Shared, request: &ParsedRequest, 
         if let Some(ua) = ua {
             req = req.set("User-Agent", ua);
         }
-        for (name, value) in &request.headers {
-            if !is_request_header_to_skip(name) {
-                req = req.set(name, value);
-            }
+        for (name, value) in forwardable_request_headers(&request.headers, |_| false) {
+            req = req.set(name, &value);
         }
         req
     };
@@ -1410,14 +1431,8 @@ fn execute_with_jar(shared: &Shared, request: &ParsedRequest, caps: &Caps, ua: O
             if let Some(ua) = ua {
                 req = req.set("User-Agent", ua);
             }
-            for (name, value) in h {
-                if is_request_header_to_skip(name)
-                    || name.eq_ignore_ascii_case("cookie")
-                    || (drop_body_headers && name.eq_ignore_ascii_case("content-type"))
-                {
-                    continue;
-                }
-                req = req.set(name, value);
+            for (name, value) in forwardable_request_headers(h, |n| n.eq_ignore_ascii_case("cookie") || (drop_body_headers && n.eq_ignore_ascii_case("content-type"))) {
+                req = req.set(name, &value);
             }
             if let Some(c) = &cookie {
                 req = req.set("Cookie", c);
@@ -3071,3 +3086,5 @@ mod record_tests;
 mod cache_tests;
 #[cfg(test)]
 mod pool_tests;
+#[cfg(test)]
+mod w_hdr1_tests;
