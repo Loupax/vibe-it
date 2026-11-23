@@ -584,7 +584,7 @@ impl GeomCache {
             crate::paint::with_scroll_x(sx, || crate::paint::hit_test_element(l, dx, dy, cache, &regions_by_node(l, scrolls), sy, vh))
         });
         if let Some(n) = engine {
-            let n = crate::js_geom::refine_svg_hit(page, n, dx, dy, |id| crate::incr_layout::with_laid(|l, _| find_laid(l, id).map(laid_content_box)).flatten());
+            let n = crate::js_geom::refine_svg_hit(page, n, |id| crate::incr_layout::with_laid(|l, _| find_laid(l, id).map(laid_content_box)).flatten());
             return self.refine_inline(page, n, dx, dy);
         }
         let mut best: Option<(usize, usize)> = None; // (depth, node)
@@ -602,6 +602,26 @@ impl GeomCache {
         match best {
             Some((_, n)) => self.refine_inline(page, n, dx, dy),
             None => 0,
+        }
+    }
+
+    /// QWPT7e: `hit`, but every element of an svg under the point (see `svg_geom::hit_all`).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn hit_all(&mut self, page: &Handle, wgen: u64, x: f32, y: f32, vw: f32, vh: f32, sx: f32, sy: f32, scrolls: &HashMap<usize, f32>) -> Vec<usize> {
+        self.refresh(page, wgen, vw, vh);
+        let (dx, dy) = (x + sx, y + sy);
+        let engine = crate::incr_layout::with_laid(|l, cache| {
+            crate::paint::with_scroll_x(sx, || crate::paint::hit_test_element(l, dx, dy, cache, &regions_by_node(l, scrolls), sy, vh))
+        });
+        match engine {
+            Some(n) if n != 0 => {
+                let ids = crate::js_geom::refine_svg_hits(page, n, |id| crate::incr_layout::with_laid(|l, _| find_laid(l, id).map(laid_content_box)).flatten());
+                if ids.len() == 1 && ids[0] == n { vec![self.refine_inline(page, n, dx, dy)] } else { ids }
+            }
+            _ => match self.hit(page, wgen, x, y, vw, vh, sx, sy, scrolls) {
+                0 => Vec::new(),
+                n => vec![n],
+            },
         }
     }
 
@@ -875,19 +895,34 @@ fn laid_content_box(l: &Laid) -> (f32, f32, f32, f32) {
     (l.x + bl, l.y + bt, (l.w - bl - (l.style.border_h() - l.style.border_left()) - l.style.padding.right.px()).max(0.0), (l.h - bt - (l.style.border_v() - l.style.border_top()) - l.style.padding.bottom.px()).max(0.0))
 }
 
-/// QWPT7c: when the hit `n` is an inline `<svg>` root, the SVG child under document point (`x`, `y`)
-/// (its id), else `n`. Shared by the App's pointer and `elementFromPoint`/the testdriver. `content_box`
-/// gives the root's content box by node id.
-pub(crate) fn refine_svg_hit(page: &Handle, n: usize, x: f32, y: f32, content_box: impl FnOnce(usize) -> Option<(f32, f32, f32, f32)>) -> usize {
-    if n == 0 {
-        return n;
-    }
-    let Some(h) = find_node_by_id(page, n) else { return n };
-    if !matches!(&h.data, NodeData::Element { name, .. } if name.local.as_ref().eq_ignore_ascii_case("svg")) {
-        return n;
-    }
-    let Some(cb) = content_box(n) else { return n };
+/// QWPT7c: when the hit `n` is an inline `<svg>` root, the SVG child under the point (its id), else
+/// `n`. Shared by the App's pointer and `elementFromPoint`/the testdriver. `content_box` gives the
+/// root's content box by node id. The point is the one `paint::hit_test_element` saw in the svg box's
+/// own frame (QWPT7e: right in a scrolled or fixed box too).
+pub(crate) fn refine_svg_hit(page: &Handle, n: usize, content_box: impl FnOnce(usize) -> Option<(f32, f32, f32, f32)>) -> usize {
+    let Some((h, cb)) = svg_root_hit(page, n, content_box) else { return n };
+    let (x, y) = crate::paint::last_image_hit_point();
     crate::svg_geom::hit(&h, cb, x, y).map_or(n, |c| node_id(&c))
+}
+
+/// QWPT7e: every element of the svg hit `n` under the point, topmost first (see `svg_geom::hit_all`),
+/// ending with the svg root; just `[n]` when `n` is not an svg root.
+pub(crate) fn refine_svg_hits(page: &Handle, n: usize, content_box: impl FnOnce(usize) -> Option<(f32, f32, f32, f32)>) -> Vec<usize> {
+    let Some((h, cb)) = svg_root_hit(page, n, content_box) else { return vec![n] };
+    let (x, y) = crate::paint::last_image_hit_point();
+    crate::svg_geom::hit_all(&h, cb, x, y).iter().map(node_id).collect()
+}
+
+fn svg_root_hit(page: &Handle, n: usize, content_box: impl FnOnce(usize) -> Option<(f32, f32, f32, f32)>) -> Option<(Handle, (f32, f32, f32, f32))> {
+    if n == 0 {
+        return None;
+    }
+    let h = find_node_by_id(page, n)?;
+    if !matches!(&h.data, NodeData::Element { name, .. } if name.local.as_ref().eq_ignore_ascii_case("svg")) {
+        return None;
+    }
+    let cb = content_box(n)?;
+    Some((h, cb))
 }
 
 impl GeomCache {

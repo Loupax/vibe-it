@@ -1078,3 +1078,4 @@ mod qcnv12_tests;
 mod qedit_d_tests;
 mod qtype1_tests;
 mod qcnv13_tests;
+mod qwpt7e_tests;

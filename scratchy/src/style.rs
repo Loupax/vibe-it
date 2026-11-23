@@ -132,6 +132,8 @@ pub(crate) struct InheritedStyle {
     pub(crate) direction: Direction,
     /// QWPT7c: `pointer-events: none` (inherited): hit testing skips the box.
     pub(crate) pointer_events_none: bool,
+    /// QWPT7e: the `pointer-events` keyword (`pointer_events_code`), for SVG hit testing.
+    pub(crate) pointer_events_kw: u8,
     /// QCSS-E: `border-spacing` (inherited): horizontal, vertical px between table cells.
     pub(crate) border_spacing: (f32, f32),
     /// `border-collapse: collapse` (inherited). Only used to decide that a
@@ -177,6 +179,7 @@ pub(crate) const ROOT_STYLE: InheritedStyle = InheritedStyle {
     letter_spacing: 0.0,
     direction: Direction::Ltr,
     pointer_events_none: false,
+    pointer_events_kw: 0,
     border_spacing: (0.0, 0.0),
     border_collapse: false,
     text_indent: 0.0,
@@ -451,6 +454,8 @@ pub(crate) struct ComputedStyle {
     pub(crate) direction: Direction,
     /// QWPT7c: `pointer-events: none` (inherited): hit testing skips the box.
     pub(crate) pointer_events_none: bool,
+    /// QWPT7e: the `pointer-events` keyword (`pointer_events_code`), for SVG hit testing.
+    pub(crate) pointer_events_kw: u8,
     pub(crate) border_spacing: (f32, f32),
     /// QEL7b: `scroll-behavior: smooth` (not inherited).
     pub(crate) scroll_smooth: bool,
@@ -726,6 +731,7 @@ impl ComputedStyle {
             letter_spacing: self.letter_spacing,
             direction: self.direction,
             pointer_events_none: self.pointer_events_none,
+            pointer_events_kw: self.pointer_events_kw,
             border_spacing: self.border_spacing,
             border_collapse: self.border_collapse,
             text_indent: self.text_indent,
@@ -1019,7 +1025,10 @@ pub(crate) fn copy_prop(dst: &mut ComputedStyle, src: &ComputedStyle, key: &str)
         "border-spacing" => dst.border_spacing = src.border_spacing,
         "letter-spacing" => dst.letter_spacing = src.letter_spacing,
         "direction" => dst.direction = src.direction,
-        "pointer-events" => dst.pointer_events_none = src.pointer_events_none,
+        "pointer-events" => {
+            dst.pointer_events_none = src.pointer_events_none;
+            dst.pointer_events_kw = src.pointer_events_kw;
+        }
         "overflow" => dst.overflow_x = src.overflow_x,
         "overflow-y" => dst.overflow_y = src.overflow_y,
         "text-overflow" => dst.text_overflow = src.text_overflow,
@@ -2657,8 +2666,9 @@ pub(crate) fn resolve_style_core<'a>(
     .unwrap_or(inherited.letter_spacing);
     let direction = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.direction), |d| d.direction)
         .unwrap_or(inherited.direction);
-    let pointer_events_none = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.pointer_events_none), |d| d.pointer_events_none)
-        .unwrap_or(inherited.pointer_events_none);
+    let pointer_events_kw = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.pointer_events_none), |d| d.pointer_events_none)
+        .unwrap_or(inherited.pointer_events_kw);
+    let pointer_events_none = pointer_events_kw == 1;
     let border_spacing = cascade_property(
         &matches,
         inline_decls.as_ref().and_then(|d| d.border_spacing),
@@ -3057,6 +3067,7 @@ pub(crate) fn resolve_style_core<'a>(
         letter_spacing,
         direction,
         pointer_events_none,
+        pointer_events_kw,
         border_spacing,
         outline_offset,
         scroll_smooth,
@@ -3205,6 +3216,7 @@ pub(crate) fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         letter_spacing: inherited.letter_spacing,
         direction: inherited.direction,
         pointer_events_none: inherited.pointer_events_none,
+        pointer_events_kw: inherited.pointer_events_kw,
         border_spacing: inherited.border_spacing,
         outline_offset: 0.0,
         scroll_smooth: false,
@@ -3318,4 +3330,22 @@ pub(crate) fn overflow_axes(x: Overflow, y: Overflow) -> (Overflow, Overflow) {
         o => o,
     };
     if scrolls(x) || scrolls(y) { (fix(x), fix(y)) } else { (x, y) }
+}
+
+/// QWPT7e: the code of a `pointer-events` keyword: 0 auto / visiblePainted, 1 none, 2 bounding-box,
+/// 3 visibleFill, 4 visibleStroke, 5 visible, 6 painted, 7 fill, 8 stroke, 9 all.
+pub(crate) fn pointer_events_code(kw: &str) -> Option<u8> {
+    Some(match kw.to_ascii_lowercase().as_str() {
+        "auto" | "visiblepainted" => 0,
+        "none" => 1,
+        "bounding-box" => 2,
+        "visiblefill" => 3,
+        "visiblestroke" => 4,
+        "visible" => 5,
+        "painted" => 6,
+        "fill" => 7,
+        "stroke" => 8,
+        "all" => 9,
+        _ => return None,
+    })
 }
