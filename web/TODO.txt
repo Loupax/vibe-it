@@ -8,10 +8,10 @@ spike can stop early on a hard failure. Decisions: DECISIONS.md.
 - [x] W1 Bare CEF window (DONE 2026-11-23, 4cb0793, #656; see web/spike/README.md). A Rust binary with the `cef` crate opens one window and
       loads a URL, no interception yet.
       Done when: a site loads on Linux (X11 and Wayland).
-- [WIP] W2 Empty network namespace. Launch under `unshare -rn` (or bubblewrap
+- [x] W2 Empty network namespace (DONE 2026-11-23, 5ea040c, #657: `unshare -n --map-user=$(id -u)`, not -r: Chromium refuses to run as root with its sandbox on). Launch under `unshare -rn` (or bubblewrap
       `--unshare-net`).
       Done when: the same site fails to load and nothing else in CEF crashes.
-- [ ] W3 Answer requests from wire. A `CefResourceRequestHandler` sends each
+- [WIP] W3 Answer requests from wire. A `CefResourceRequestHandler` sends each
       http(s) request to wire's socket and streams the response back through
       `CefResourceHandler`.
       Done when: the site loads again inside the namespace and wire's log shows
@@ -55,5 +55,7 @@ After a go:
 - [ ] Archive scratchy's engine on a branch (do not delete it).
 - [ ] Port the shell from scratchy: keys (KEYS.md), command line and completion,
       history, stash, forget, config, help.
+- [ ] W-FS1 (optional hardening, from W2 #657) Hide $HOME and the rest of the filesystem from the CEF
+      tree with a bubblewrap bind-only profile (plus the D-Bus, Wayland/X11 and wire sockets).
 - [ ] Document the browser's wire contract (cookies in Chromium, namespace
       enforcement) in a NETWORKING.md here.

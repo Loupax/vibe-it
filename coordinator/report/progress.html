@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-23 09:00 · main c5b85e6 · web spike running (W2) · wire reinstalled 08:57 (c5b85e6; restart your wire to use it) · scratchy paused</div>
+  <div class="meta" id="updated">Updated 2026-11-23 09:00 · main 5ea040c · web spike running (W3) · wire reinstalled 08:57 (c5b85e6; restart your wire to use it) · scratchy paused</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -64,8 +64,8 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <div class="scroll"><table>
     <tr><th>Step</th><th>What</th><th>Status</th><th>Result</th></tr>
     <tr><td>W1</td><td>Bare CEF window</td><td><span class="pill done">done #656</span></td><td>CEF 156 via the <code>cef</code> crate loads example.com and Wikipedia on nested Wayland and Xwayland (page loaded 0.2–0.75 s after launch). Chromium tried to move itself out of the memory-capped scope; <code>FLATPAK_SANDBOX_DIR</code> stops it. ~10 processes per tab; the scope uses ~300 MB</td></tr>
-    <tr><td>W2</td><td>Empty network namespace</td><td><span class="pill wip">running</span></td><td></td></tr>
-    <tr><td>W3</td><td>Answer requests from wire</td><td><span class="pill todo">next</span></td><td></td></tr>
+    <tr><td>W2</td><td>Empty network namespace</td><td><span class="pill done">done #657</span></td><td>All 10 CEF processes see only <code>lo</code>; example.com and Wikipedia fail at once (ERR_INTERNET_DISCONNECTED), no crashes, Chromium's sandbox stays on. <code>unshare -rn</code> fails (Chromium refuses root); <code>unshare -n --map-user=$(id -u)</code> works</td></tr>
+    <tr><td>W3</td><td>Answer requests from wire</td><td><span class="pill wip">running</span></td><td></td></tr>
     <tr><td>W4</td><td>Cookies in Chromium (needs your login)</td><td><span class="pill todo">later</span></td><td></td></tr>
     <tr><td>W5</td><td>Streaming and large bodies</td><td><span class="pill todo">later</span></td><td>wire side ready: W-MEDIA2 (#654) makes cut-off bodies detectable</td></tr>
     <tr><td>W6</td><td>Paths that bypass the handler</td><td><span class="pill todo">later</span></td><td></td></tr>
@@ -128,6 +128,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-23</td><td class="n">#657</td><td>W2</td><td>web: the whole CEF process tree runs in an empty network namespace by default (<code>run.sh --net</code> opts out)</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#654</td><td>W-MEDIA2</td><td>wire: <code>X-Wire-Upstream-Length</code> lets a client tell a cut-off body from a complete one; the buffered path answers 502 <code>truncated</code> instead of a short 200</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#656</td><td>W1</td><td>web: first CEF window (spike crate <span class="mono">web/spike/</span>, run script under the memory cap)</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#653</td><td>QWPT7e</td><td>Vertical margins on inline-level boxes (svg, img, inline-block) now apply; exact SVG fill/stroke hit testing, <code>use</code>, nested svg, SVG pointer-events values; 2 reftests newly pass</td></tr>
