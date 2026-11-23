@@ -1,7 +1,7 @@
 // Test-only input injector for a NESTED headless compositor (copied from scratchy/tools/inject; adds hold:/release:).
 // Usage: inject W H cmd...
 //   move:X,Y  click  rclick  mclick  hold:c|s|cs  release  down  up  scroll:DY  hscroll:DX  sscroll:DY (Shift held)  wait:MS
-//   key:NAME (j k g G h l esc ret tab space bs colon slash ...) with optional c- / s- prefix
+//   key:NAME (j k g G h l esc ret tab space bs colon slash ins ...) with optional c- / s- prefix
 //   type:TEXT (letters, digits, space, . : / - _ = ?)
 use std::io::Write;
 use std::os::fd::AsFd;
@@ -63,7 +63,7 @@ fn code(name: &str) -> Option<(u32, bool)> {
         "esc" => (1, false), "ret" => (28, false), "tab" => (15, false), "space" => (57, false), "bs" => (14, false),
         "colon" => (39, true), "slash" => (53, false), "up" => (103, false), "down" => (108, false),
         "left" => (105, false), "right" => (106, false), "pgdn" => (109, false), "pgup" => (104, false),
-        "home" => (102, false), "end" => (107, false), "del" => (111, false),
+        "home" => (102, false), "end" => (107, false), "del" => (111, false), "ins" => (110, false),
         _ => return None,
     })
 }

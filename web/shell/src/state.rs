@@ -28,16 +28,16 @@ use smithay::wayland::buffer::BufferHandler;
 use smithay::wayland::compositor::{get_parent, is_sync_subsurface, CompositorClientState, CompositorHandler, CompositorState};
 use smithay::wayland::cursor_shape::CursorShapeManagerState;
 use smithay::wayland::output::{OutputHandler, OutputManagerState};
-use smithay::wayland::selection::data_device::{ClientDndGrabHandler, DataDeviceHandler, DataDeviceState, ServerDndGrabHandler};
-use smithay::wayland::selection::SelectionHandler;
+use smithay::wayland::selection::data_device::{ClientDndGrabHandler, DataDeviceState, ServerDndGrabHandler};
+use smithay::wayland::selection::primary_selection::PrimarySelectionState;
 use smithay::wayland::shell::xdg::decoration::{XdgDecorationHandler, XdgDecorationState};
 use smithay::wayland::shell::xdg::{PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState};
 use smithay::wayland::shm::{ShmHandler, ShmState};
 use smithay::wayland::tablet_manager::TabletSeatHandler;
 use smithay::wayland::viewporter::ViewporterState;
 use smithay::{
-    delegate_compositor, delegate_cursor_shape, delegate_data_device, delegate_output, delegate_seat, delegate_shm, delegate_viewporter,
-    delegate_xdg_decoration, delegate_xdg_shell,
+    delegate_compositor, delegate_cursor_shape, delegate_output, delegate_seat, delegate_shm, delegate_viewporter, delegate_xdg_decoration,
+    delegate_xdg_shell,
 };
 
 use crate::layout::Layout;
@@ -61,6 +61,9 @@ pub struct State {
     pub _output_manager_state: OutputManagerState,
     pub seat_state: SeatState<State>,
     pub data_device_state: DataDeviceState,
+    pub primary_selection_state: PrimarySelectionState,
+    /// The clipboard bridge between the page and the desktop (C6, `selection.rs`).
+    pub bridge: crate::selection::Bridge,
     pub _viewporter_state: ViewporterState,
     pub _cursor_shape_state: CursorShapeManagerState,
 
@@ -687,20 +690,12 @@ impl SeatHandler for State {
         self.apply_cursor();
     }
 
-    fn focus_changed(&mut self, _seat: &Seat<Self>, _focused: Option<&WlSurface>) {}
+    fn focus_changed(&mut self, _seat: &Seat<Self>, focused: Option<&WlSurface>) {
+        self.selection_focus(focused);
+    }
 }
 
 impl TabletSeatHandler for State {}
-
-impl SelectionHandler for State {
-    type SelectionUserData = ();
-}
-
-impl DataDeviceHandler for State {
-    fn data_device_state(&self) -> &DataDeviceState {
-        &self.data_device_state
-    }
-}
 
 impl ClientDndGrabHandler for State {}
 impl ServerDndGrabHandler for State {}
@@ -712,7 +707,6 @@ delegate_shm!(State);
 delegate_xdg_shell!(State);
 delegate_xdg_decoration!(State);
 delegate_seat!(State);
-delegate_data_device!(State);
 delegate_output!(State);
 delegate_viewporter!(State);
 delegate_cursor_shape!(State);

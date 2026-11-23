@@ -435,3 +435,36 @@ Negative runs (menu back on) fail the check as intended.
 > C5-FRAG: same-document navigations (#fragment, pushState) must clear the find session (T31). C5-STALE: tag find requests and results so a stale `find-result 0 0` is never taken as an answer. C3-LIVE-REFRESH: bring c3_live.py back to passing after C5 made `/` a search. (coordinator bundle)
 
 **What changed:** the host already sent `load ... same-document`, so no new event: the shell now sends `find-clear` on it (`Keys::navigated_same_document`; the effect is applied from `host_event`, which the live run showed was missing: effects queued outside a key were never sent). `find` carries an id, `find-result` echoes it; the host keeps `find_pending` and drops results when none is pending (cleared by load start and find-clear); the shell ignores results whose id it is not waiting for and drops older waiting requests when the latest is answered. Unit tests `keys_t16_c5_stale_*`, `keys_t15_c5_stale_*`, `keys_t31_a_same_document_*`. PROTOCOL.md and KEYS.md T31 updated. Live: c3_live.py 19/19 (the `/` step now checks the search line; `#` added to the typed shifted keys; page-window wait 30 s in the three live scripts), c5_live.py 13/13 with a new fragment step, c3_rclick_live.py 8/8, all in the headless nest.
+
+## C6 desktop integration: the clipboard (2026-11-23)
+
+> C6: desktop integration. 1. Clipboard and primary selection bridged between the engine host
+> (a client of our nested compositor: wl_data_device / primary-selection on the shell's seat) and
+> the host desktop (winit window on Wayland or X11; smithay's selection support on the inner side
+> and a desktop-clipboard crate on the outer side; pick what works on both and say why). Copy in
+> the page -> desktop clipboard; desktop clipboard -> paste in the page. Then enable what C3
+> stubbed: `yy` and `:let @+ = @%`, `@+` readable in `:let`, paste into the `:` and `/` lines;
+> register `*` only if KEYS.md asks. 2. HiDPI and fractional scale. 3. Frame timing. 4. dmabuf.
+> 5. IME only if cheap. If too big for one PR, split: 1 first, propose 2-5 as TODO text.
+> Done when: tests named after the KEYS.md rows pass; a live check in the headless nest copies
+> from a page and pastes into the `:` line and vice versa through a clipboard the test controls
+> (the nested dwl's, never the user's).
+
+(coordinator launch of web/TODO.txt C6; the full prompt also carries the agent rules.)
+
+**What changed:** split as allowed: this PR is part 1 (clipboard), 2-5 are proposed as C6b-C6e.
+web/shell: `clipboard.rs` (the desktop's side: copypasta, i.e. smithay-clipboard on the shell
+window's own Wayland connection and x11-clipboard on X11, on a worker thread with 1 s bounded
+waits; arboard / wl-clipboard-rs were not taken because on Wayland they need data-control,
+which GNOME lacks, while smithay-clipboard uses core wl_data_device with the window's own
+focus), `selection.rs` (the page's side: data device and primary selection handlers, focus
+follows the keyboard, a page copy is read after smithay stores it, the desktop's text is
+offered lazily at focus-in, on a paste key in INPUT and on a middle click), register `+` and
+paste in `keys.rs`/`registers.rs`. Found on the way: smithay calls `new_selection` before it
+stores the selection (so the read is deferred to after dispatch), and a thread started before
+the main loop blocks SIGTERM took the signal and killed the shell (live.py's SIGTERM step
+caught it; the clipboard thread now blocks SIGTERM/SIGINT). Tests `src/tests/c6_tests.rs`;
+live check `test/c6_live.py` (8 steps, Wayland via wl-copy/wl-paste on the nested dwl and
+`--x11` via xsel on its Xwayland); c3_live.py's `:let`/`yy` stub step updated; inject
+learned `key:ins`. Not working: middle-click paste inside the page (CEF does none, even of its
+own selection).

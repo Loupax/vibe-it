@@ -16,7 +16,7 @@ after a click (T29, T32), and find-in-page (Search).
 Status: **built in web by C3** (`shell/src/keys.rs`, `config.rs`, `completion.rs`,
 `registers.rs`, `statusbar.rs`; tests named after the rows in `shell/src/tests/`, live
 check `shell/test/c3_live.py`), Search built by C5 (`shell/src/tests/search_tests.rs`, live
-check `shell/test/c5_live.py`; Enter on a match, S7, is a later item), except what needs the clipboard (C6: `@+`, `yy`, paste say so). **This file is the source of truth** for web's keys: when web/TODO.txt and this
+check `shell/test/c5_live.py`; Enter on a match, S7, is a later item), clipboard (`@+`, `yy`, paste) built by C6 (`shell/src/tests/c6_tests.rs`, live check `shell/test/c6_live.py`). **This file is the source of truth** for web's keys: when web/TODO.txt and this
 file disagree, this file wins. Rows marked *(proposed)* are Claude's
 proposals that the user has not confirmed yet; they are built as written unless the
 user changes them before the item starts.
@@ -103,7 +103,7 @@ key; a press of a key already down is treated as a repeat (`Keys::key`).
 | T11 | G | `g` | none | NORMAL | scroll to the top |
 | T12 | G | any other key | none | NORMAL | handle that key as in NORMAL (it may itself be `:`, `/`, `i`, ...) |
 | T54 | NORMAL | `y` | none | Y | nothing |
-| T55 | Y | `y` | not a repeat | NORMAL | copy the URL to the system clipboard, same as `:let @+ = @%` (see "Registers"). **web:** until C6 the status bar says the clipboard is not built yet |
+| T55 | Y | `y` | not a repeat | NORMAL | copy the URL to the system clipboard, same as `:let @+ = @%` (see "Registers"). **web:** built (C6) |
 | T56 | G or Y | a key that is not the sequence's second key | none | NORMAL | as T12: handled as in NORMAL, so `g` `y` leaves Y pending and `y` `g` leaves G pending |
 | T57 | INPUT, entered by T29 from a popup | the popup closes (option picked, Esc, click outside; the xdg_popup is destroyed) | the click did not focus a field | the mode before the click | the user's decision (DECISIONS.md, "Popups return to the previous mode"). A click that focused a field (`editable-focused true`) stays INPUT. Nested popups (submenus) are one session: the return happens when the last one closes. A popup with no user click (T32) never changed the mode, so nothing returns. An open `:` or `/` line was cancelled by T29, so the return is plain NORMAL. **web:** `Keys::popup_opened` / `popup_closed`, called from the shell's `new_popup` / `popup_destroyed`; `popup_return` holds the mode, `user_focused_control` (the `editable-focused` path) clears it |
 | T13 | NORMAL | `j` `k` Ctrl-d Ctrl-u `G` Home End | none | NORMAL | scroll (repeats keep scrolling). **web:** done by sending the host window real input (arrow/PageDown/Home/End keys or wheel steps), not through a page API; which event each binding becomes is a `config.rs` table. Built (C3): `SCROLL_INPUTS`; a key row (`ScrollInput::Key`) is pressed in the page window while the bound key is held and released with it, so the engine's own key repeat keeps scrolling; a `ScrollInput::Wheel(n)` row sends wheel steps at the pointer (only over the page). Defaults: `j`/`k`/arrows -> arrow keys, Ctrl-d/Space/PageDown -> PageDown, Ctrl-u/Shift-Space/PageUp -> PageUp (Chromium has no half-page key), `gg`/Home -> Home, `G`/End -> End. A key goes to whatever the page focused (T32), so `j` moves the caret of a field the page focused itself |
@@ -275,8 +275,11 @@ set per command, like bash's `complete`:
 
 ## Paste
 
-**web:** not built until C6 (the shell has no clipboard bridge yet): Ctrl-v, Ctrl-Shift-v
-and Shift-Insert in the `:` and `/` lines say `web: paste needs the clipboard, not built yet`.
+**web:** built (C6). The `:` and `/` lines read the desktop's clipboard directly (the shell
+window is a client of the desktop: smithay-clipboard on Wayland, x11-clipboard on X11). In
+INPUT the paste keys go to the page; just before they do, the shell offers the page the
+desktop's clipboard if it changed since it was last carried across (same before a middle
+click, for the primary selection). An unreadable clipboard changes nothing and says nothing.
 
 Every status-bar mode you type into (today COMMAND and SEARCH; user, 2026-11-20) takes a
 paste: Ctrl-v, Ctrl-Shift-v (terminal habit) and Shift-Insert insert the system
@@ -286,7 +289,10 @@ in a newline, and the bar is one line). An empty or unreadable clipboard changes
 nothing. The clipboard is the Wayland one (scratchy is a Wayland window; item QPASTE1).
 **web:** the shell is both a client of the host display (whose clipboard is "the system
 clipboard") and the compositor of the engine host; it bridges the two, so a copy in the
-page reaches the host clipboard and a paste in the page reads it (web/TODO.txt C6).
+page reaches the host clipboard and a paste in the page reads it (C6, text only; the
+primary selection is bridged too: a selection in the page becomes the desktop's primary.
+Middle-click paste inside the page does nothing: CEF does not do it, even for its own
+selection).
 
 ## Registers
 
@@ -299,10 +305,12 @@ system clipboard is the register `+`.
 | `%` | the current URL, exactly what the status bar shows (never asks the page, so it works with JS off) | no: `scratchy: register @% is read-only` |
 | `+` | the system clipboard (Wayland, as in "Paste") | yes |
 
-**web (C3):** `%` is the URL of the host's last `url` event. `+` needs C6: until then
-`:let @+ = @%` and `yy` check their arguments as below and then say `web: @+ (and yy) need
-the clipboard, not built yet (web/TODO.txt C6)`. Messages start with `web:` instead of
-`scratchy:`. `:let @+ = <JS expression>` (QREG2) is not carried (usage line).
+**web (C3, C6):** `%` is the URL of the host's last `url` event. `+` is the desktop's
+clipboard (C6), read and written directly by the shell, so `:let @+ = @%` and `yy` work in
+any mode the page is in; `@+` is readable (`:let @+ = @+` says `web: the clipboard is
+empty` for an empty one). Messages start with `web:` instead of `scratchy:` (`Copied to
+clipboard` stays). `:let @+ = <JS expression>` (QREG2) is not carried (usage line). `*`
+(primary) is not a register yet (its own item, as in scratchy).
 
 - `:let @<dst> = @<src>` copies a register into another (spaces optional), as vim's
   `:let @+ = @%` copies the file name. The status bar says `Copied to clipboard`, or

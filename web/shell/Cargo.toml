@@ -23,3 +23,9 @@ cosmic-text = "0.19"
 tiny-skia = { version = "0.12", default-features = false, features = ["std", "simd"] }
 # C3: `:go`'s relative forms and the history ranking (site roots).
 url = "2"
+# C6: the host desktop's clipboard and primary selection (as alacritty): smithay-clipboard on Wayland
+# (the shell window's own connection, core wl_data_device: works on every Wayland desktop),
+# x11-clipboard on X11.
+copypasta = "0.10"
+# C6: the clipboard thread blocks SIGTERM/SIGINT (they are for the main loop's signalfd).
+libc = "0.2"

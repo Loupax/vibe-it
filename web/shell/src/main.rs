@@ -6,6 +6,7 @@
 //! on (web/PROTOCOL.md). The page's window fills the shell window minus the status bar.
 
 mod args;
+mod clipboard;
 mod completion;
 mod config;
 mod control;
@@ -18,6 +19,7 @@ mod pairing;
 mod protocol;
 mod registers;
 mod render;
+mod selection;
 mod state;
 mod statusbar;
 #[cfg(test)]
@@ -46,6 +48,7 @@ use smithay::wayland::compositor::CompositorState;
 use smithay::wayland::cursor_shape::CursorShapeManagerState;
 use smithay::wayland::output::OutputManagerState;
 use smithay::wayland::selection::data_device::DataDeviceState;
+use smithay::wayland::selection::primary_selection::PrimarySelectionState;
 use smithay::wayland::shell::xdg::decoration::XdgDecorationState;
 use smithay::wayland::shell::xdg::XdgShellState;
 use smithay::wayland::shm::ShmState;
@@ -103,6 +106,25 @@ fn main() {
         "[web +{}ms] the shell is {desktop} window on the desktop",
         start.elapsed().as_millis()
     );
+    // C6: the desktop's clipboard, reached as the shell window.
+    let desktop_clipboard = {
+        use smithay::reexports::winit::raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
+        let kind = match backend.window().display_handle().map(|h| h.as_raw()) {
+            Ok(RawDisplayHandle::Wayland(h)) => clipboard::DesktopKind::Wayland(h.display.as_ptr() as usize),
+            Ok(RawDisplayHandle::Xlib(_)) | Ok(RawDisplayHandle::Xcb(_)) => clipboard::DesktopKind::X11,
+            _ => clipboard::DesktopKind::None,
+        };
+        clipboard::Desktop::start(kind)
+    };
+    let (copies_tx, copies_rx) = calloop::channel::channel::<selection::Copied>();
+    event_loop
+        .handle()
+        .insert_source(copies_rx, |ev, _, state| {
+            if let calloop::channel::Event::Msg(c) = ev {
+                state.page_copied(c);
+            }
+        })
+        .unwrap();
 
     // Our own Wayland socket for the engine host.
     let socket = ListeningSocketSource::new_auto().unwrap_or_else(|e| fail(format!("wayland socket: {e}")));
@@ -202,6 +224,8 @@ fn main() {
         _output_manager_state: OutputManagerState::new_with_xdg_output::<State>(&dh),
         seat_state,
         data_device_state: DataDeviceState::new::<State>(&dh),
+        primary_selection_state: PrimarySelectionState::new::<State>(&dh),
+        bridge: selection::Bridge::new(desktop_clipboard.clone(), copies_tx),
         _viewporter_state: ViewporterState::new::<State>(&dh),
         _cursor_shape_state: CursorShapeManagerState::new::<State>(&dh),
         layout: layout::Layout::new(window_size.w, window_size.h),
@@ -231,6 +255,7 @@ fn main() {
         damage_tracker: None,
     };
     state.damage_tracker = Some(OutputDamageTracker::from_output(&state.output));
+    state.keys.clipboard = Some(Box::new(desktop_clipboard));
 
     control
         .register(&event_loop.handle())
@@ -256,6 +281,11 @@ fn main() {
             WinitEvent::Resized { size, .. } => state.resized((size.w, size.h).into()),
             WinitEvent::Focus(focused) => {
                 state.window_focused = focused;
+                if focused {
+                    // C6: a copy made on the desktop meanwhile is offered to the page.
+                    state.sync_from_desktop(clipboard::Which::Clipboard);
+                    state.sync_from_desktop(clipboard::Which::Primary);
+                }
                 state.refocus();
                 state.relayout();
             }
@@ -281,6 +311,7 @@ fn main() {
                 state.dirty = false;
                 state.backend.window().request_redraw();
             }
+            state.read_page_copies();
             state.space.refresh();
             state.popups.cleanup();
             let _ = state.display_handle.flush_clients();
