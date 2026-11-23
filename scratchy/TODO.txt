@@ -178,7 +178,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QEDIT-E [S] (P3, from QWPT6d #581; Sonnet) `window.getSelection()` in the testharness window, `document.elementsFromPoint`.
 - [ ] QCNV3b [S] (P3, from QCNV3 #619; Sonnet) Canvas/colour leftovers: `calc()` inside relative colours; reset.2dstate
       for lineCap/shadowBlur and similar state; colour objects (CSSRGB/CSSHSL) wait for Typed OM.
-- [ ] QGEOM2 [S] (P3, from QGEOM1 #630; Sonnet) DOMRectList (getClientRects returns an Array today; DOMRectList.html 2
+- [ ] [WIP] QGEOM2 [S] (P3, from QGEOM1 #630; Sonnet) DOMRectList (getClientRects returns an Array today; DOMRectList.html 2
       subtests), structured clone of the geometry classes (structured-serialization.html, 24 subtests), css/geometry
       idlharness setup.
 - [ ] [WIP] QCNV9 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1

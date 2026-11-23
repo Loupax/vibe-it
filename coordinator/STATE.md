@@ -405,3 +405,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 #634 W-POOL3 READY (stale pooled POST retried on RST/EPIPE only; 0/1000 failures), merging. Filed W-POOL4 needing the user's decision (retry on clean EOF?) — on the progress page. request-upload stays flaky (not proven).
 - 2026-11-23 Launched QWPT7b.
 - 2026-11-23 Merged #634 W-POOL3 0542efc.
+- 2026-11-23 #635 QWPT7b READY (App pointer/click/dblclick/auxclick/contextmenu/keypress; no native context menu), merging. Launched QGEOM2.
