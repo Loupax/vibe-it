@@ -199,6 +199,21 @@ header is skipped in `is_request_header_to_skip`):
   without Content-Length" suspect in QWPTFLK5 does not produce stale
   connections. Tests: `pool_tests.rs`.
 
+  **Stray bytes on a pooled connection (W-FLK1):** ureq 2 pools a connection
+  as soon as a response it treats as bodiless (HEAD, 204, 304) or a declared
+  `Content-Length` ends, without checking its read buffer, and its liveness
+  check on reuse peeks only the socket. A server that sends a body anyway
+  (WPT's `status.py?code=204&content=...` does on purpose) leaves bytes in
+  front of the next response on that connection: that request failed with
+  ureq `BadStatus` (502, a fetch() TypeError in a random WPT subtest; 5 of 30
+  runs of request-forbidden-headers looped next to response-null-body). An
+  idempotent request without a body whose REUSED connection (resolver not
+  called) gives `BadStatus` on its own URL is now sent once more on a fresh
+  connection (`junk_on_reused`). A POST is not (the server read it; W-POOL4),
+  so a POST that lands on such a connection still fails once. The proper fix
+  is in ureq (never pool a stream whose read buffer is not empty). Tests:
+  `w_flk1_tests.rs`.
+
 Response headers wire ALWAYS adds (upstream copies of `X-Wire-*` are dropped so
 a server cannot spoof them):
 

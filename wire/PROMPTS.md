@@ -294,3 +294,25 @@ this and that `X-Wire-Timeout-Ms` raises the 20 s total timeout.
 > W-HDR1 (coordinator launch of wire/TODO.txt duplicate request headers, for the web spike)
 
 Result: `forwardable_request_headers` in `src/main.rs` merges a repeated request header into one field (Cookie joined with "; ", anything else with ", ") before `req.set`; used by the shared-agent path, the jar path and the WebSocket handshake. The response direction already forwarded every Set-Cookie (`resp.all`); now covered by a test. Tests in `src/w_hdr1_tests.rs`.
+
+---
+
+## W-FLK1 — intermittent "Failed to fetch" in the wptserve WPT shard (agent task)
+
+> W-FLK1 (coordinator launch of wire/TODO.txt W-FLK1)
+
+Cause: ureq 2 returns a connection to its pool as soon as a response it treats
+as bodiless (HEAD, 204, 304) or the declared `Content-Length` ends, without
+checking that its read buffer is empty; its liveness check on reuse peeks only
+the socket. WPT's `status.py?code=204&content=hello-world` (response-null-body)
+sends a body anyway, so `hello-world` stayed in front of the NEXT response on
+that connection, and a random later request (a GET to inspect-headers.py,
+once `/resources/testharness.js`) failed with `BadStatus: HTTP version did not
+start with HTTP/` -> 502 `X-Wire-Error: 1` -> `TypeError: Failed to fetch`.
+Not a stale close (W-POOL3/W-POOL4), not wptserve load, not a timeout.
+
+Result: `call_with_stale_retry` also resends an idempotent request without a
+body (GET/HEAD/OPTIONS/TRACE) once on a fresh connection when a REUSED
+connection answered with a garbled status line (`junk_on_reused`). A POST is
+not resent (the server did read it; W-POOL4). Tests in `src/w_flk1_tests.rs`,
+NOTES "Stray bytes on a pooled connection".
