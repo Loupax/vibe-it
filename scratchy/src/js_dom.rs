@@ -3368,7 +3368,6 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
     var o = Object.create(GProto);
     var id = g.__gr_new(kind, a);
     Object.defineProperty(o, '__gid', { value: id });
-    Object.defineProperty(o, '__ctx', { value: ctx });
     grBrand.add(o);
     if (grFree) grFree.register(o, id);
     return o;
@@ -3398,7 +3397,8 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
     var o = Number(offset), s = String(color);
     if (!isFinite(o)) throw new TypeError("Failed to execute 'addColorStop' on 'CanvasGradient': The provided double value is non-finite.");
     if (o < 0 || o > 1) throw domErr("Failed to execute 'addColorStop' on 'CanvasGradient': The provided value (" + o + ") is outside the range (0.0, 1.0).", 'IndexSizeError');
-    if (!g.__gr_stop(this.__gid, o, s, curColor(this.__ctx, s))) throw domErr("Failed to execute 'addColorStop' on 'CanvasGradient': The value provided ('" + s + "') could not be parsed as a color.", 'SyntaxError');
+    // currentcolor in a gradient stop is black (2d.gradient.object.current), not the canvas element's colour.
+    if (!g.__gr_stop(this.__gid, o, s, '#000')) throw domErr("Failed to execute 'addColorStop' on 'CanvasGradient': The value provided ('" + s + "') could not be parsed as a color.", 'SyntaxError');
   }, writable: true, enumerable: true, configurable: true });
   defs(CtxProto, 'globalAlpha', function () { return g.__cv_get_num(cv(this), 0); }, function (v) {
     var c = cv(this);

@@ -4,8 +4,7 @@ OK           0/1  html/canvas/element/2d.conformance.requirements.basics.html
 OK           1/1  html/canvas/element/2d.conformance.requirements.delete.html
 OK           0/1  html/canvas/element/2d.conformance.requirements.drawings.html
   FAIL      void methods return undefined
-OK           0/1  html/canvas/element/2d.conformance.requirements.missingargs.html
-  FAIL      Missing arguments cause TypeError
+OK           1/1  html/canvas/element/2d.conformance.requirements.missingargs.html
 OK          0/11  html/canvas/element/2d.text-root-font-relative-units.html
   FAIL      font: rem resolves against the root element, not the canvas element
   FAIL      font: em still resolves against the canvas element
@@ -40,8 +39,7 @@ OK          8/15  html/canvas/element/canvas-host/2d.canvas.host.initial.reset.2
   FAIL      Resetting the canvas state resets textBaseline
 OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.initial.reset.clip.html
 OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.initial.reset.different.html
-OK           0/1  html/canvas/element/canvas-host/2d.canvas.host.initial.reset.gradient.html
-  FAIL      Resetting the canvas state does not invalidate any existing gradients
+OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.initial.reset.gradient.html
 OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.initial.reset.path.html
 OK           0/1  html/canvas/element/canvas-host/2d.canvas.host.initial.reset.pattern.html
   FAIL      Resetting the canvas state does not invalidate any existing patterns
@@ -274,8 +272,7 @@ OK           0/1  html/canvas/element/conformance-requirements/2d.conformance.re
 OK           1/1  html/canvas/element/conformance-requirements/2d.conformance.requirements.delete.html
 OK           0/1  html/canvas/element/conformance-requirements/2d.conformance.requirements.drawings.html
   FAIL      void methods return undefined
-OK           0/1  html/canvas/element/conformance-requirements/2d.conformance.requirements.missingargs.html
-  FAIL      Missing arguments cause TypeError
+OK           1/1  html/canvas/element/conformance-requirements/2d.conformance.requirements.missingargs.html
 OK           0/1  html/canvas/element/drawing-images-to-the-canvas/2d.drawImage.3arg.html
   FAIL      Canvas test: 2d.drawImage.3arg
 OK           0/1  html/canvas/element/drawing-images-to-the-canvas/2d.drawImage.5arg.html
@@ -531,112 +528,62 @@ OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.relati
 OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.fillStyle.toStringFunctionCallback.html
 OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.colormix.html
   FAIL      color-mix works as CanvasGradient color input
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.conic.invalid.inputs.html
-  FAIL      Conic gradient function with invalid inputs
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.conic.negative.rotation.html
-  FAIL      Conic gradient with negative rotation
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.conic.positive.rotation.html
-  FAIL      Conic gradient with positive rotation
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.empty.html
-  FAIL      Canvas test: 2d.gradient.empty
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.alpha.html
-  FAIL      Canvas test: 2d.gradient.interpolate.alpha
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.color.html
-  FAIL      Canvas test: 2d.gradient.interpolate.color
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.coloralpha.html
-  FAIL      Canvas test: 2d.gradient.interpolate.coloralpha
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.multiple.html
-  FAIL      Canvas test: 2d.gradient.interpolate.multiple
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.outside.html
-  FAIL      Canvas test: 2d.gradient.interpolate.outside
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.overlap.html
-  FAIL      Canvas test: 2d.gradient.interpolate.overlap
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.overlap2.html
-  FAIL      Canvas test: 2d.gradient.interpolate.overlap2
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.solid.html
-  FAIL      Canvas test: 2d.gradient.interpolate.solid
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.vertical.html
-  FAIL      Canvas test: 2d.gradient.interpolate.vertical
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.zerosize.fill.html
-  FAIL      Canvas test: 2d.gradient.interpolate.zerosize.fill
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.zerosize.fillRect.html
-  FAIL      Canvas test: 2d.gradient.interpolate.zerosize.fillRect
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.conic.invalid.inputs.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.conic.negative.rotation.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.conic.positive.rotation.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.empty.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.alpha.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.color.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.coloralpha.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.multiple.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.outside.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.overlap.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.overlap2.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.solid.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.vertical.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.zerosize.fill.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.zerosize.fillRect.html
 OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.zerosize.fillText.html
   FAIL      Canvas test: 2d.gradient.interpolate.zerosize.fillText
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.zerosize.stroke.html
-  FAIL      Canvas test: 2d.gradient.interpolate.zerosize.stroke
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.zerosize.strokeRect.html
-  FAIL      Canvas test: 2d.gradient.interpolate.zerosize.strokeRect
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.zerosize.stroke.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.zerosize.strokeRect.html
 OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.zerosize.strokeText.html
   FAIL      Canvas test: 2d.gradient.interpolate.zerosize.strokeText
 OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.linear.nonfinite.html
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.linear.transform.1.html
-  FAIL      Linear gradient coordinates are relative to the coordinate space at the time of filling
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.linear.transform.2.html
-  FAIL      Linear gradient coordinates are relative to the coordinate space at the time of filling
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.linear.transform.3.html
-  FAIL      Linear gradient transforms do not experience broken caching effects
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.object.compare.html
-  FAIL      Canvas test: 2d.gradient.object.compare
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.object.crosscanvas.html
-  FAIL      Canvas test: 2d.gradient.object.crosscanvas
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.object.current.html
-  FAIL      Canvas test: 2d.gradient.object.current
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.object.invalidcolor.html
-  FAIL      Canvas test: 2d.gradient.object.invalidcolor
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.object.invalidoffset.html
-  FAIL      Canvas test: 2d.gradient.object.invalidoffset
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.object.return.html
-  FAIL      createLinearGradient() and createRadialGradient() returns objects implementing CanvasGradient
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.object.type.html
-  FAIL      window.CanvasGradient exists and has the right properties
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.object.update.html
-  FAIL      Canvas test: 2d.gradient.object.update
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.cone.behind.html
-  FAIL      Canvas test: 2d.gradient.radial.cone.behind
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.cone.beside.html
-  FAIL      Canvas test: 2d.gradient.radial.cone.beside
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.cone.bottom.html
-  FAIL      Canvas test: 2d.gradient.radial.cone.bottom
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.cone.cylinder.html
-  FAIL      Canvas test: 2d.gradient.radial.cone.cylinder
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.cone.front.html
-  FAIL      Canvas test: 2d.gradient.radial.cone.front
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.cone.shape1.html
-  FAIL      Canvas test: 2d.gradient.radial.cone.shape1
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.cone.shape2.html
-  FAIL      Canvas test: 2d.gradient.radial.cone.shape2
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.cone.top.html
-  FAIL      Canvas test: 2d.gradient.radial.cone.top
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.equal.html
-  FAIL      Canvas test: 2d.gradient.radial.equal
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.inside1.html
-  FAIL      Canvas test: 2d.gradient.radial.inside1
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.inside2.html
-  FAIL      Canvas test: 2d.gradient.radial.inside2
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.inside3.html
-  FAIL      Canvas test: 2d.gradient.radial.inside3
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.negative.html
-  FAIL      createRadialGradient() throws INDEX_SIZE_ERR if either radius is negative
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.linear.transform.1.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.linear.transform.2.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.linear.transform.3.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.object.compare.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.object.crosscanvas.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.object.current.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.object.invalidcolor.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.object.invalidoffset.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.object.return.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.object.type.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.object.update.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.cone.behind.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.cone.beside.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.cone.bottom.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.cone.cylinder.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.cone.front.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.cone.shape1.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.cone.shape2.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.cone.top.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.equal.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.inside1.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.inside2.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.inside3.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.negative.html
 OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.nonfinite.html
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.outside1.html
-  FAIL      Canvas test: 2d.gradient.radial.outside1
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.outside2.html
-  FAIL      Canvas test: 2d.gradient.radial.outside2
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.outside3.html
-  FAIL      Canvas test: 2d.gradient.radial.outside3
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.touch1.html
-  FAIL      Canvas test: 2d.gradient.radial.touch1
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.touch2.html
-  FAIL      Canvas test: 2d.gradient.radial.touch2
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.touch3.html
-  FAIL      Canvas test: 2d.gradient.radial.touch3
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.transform.1.html
-  FAIL      Radial gradient coordinates are relative to the coordinate space at the time of filling
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.transform.2.html
-  FAIL      Radial gradient coordinates are relative to the coordinate space at the time of filling
-OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.transform.3.html
-  FAIL      Radial gradient transforms do not experience broken caching effects
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.outside1.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.outside2.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.outside3.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.touch1.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.touch2.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.touch3.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.transform.1.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.transform.2.html
+OK           1/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.radial.transform.3.html
 OK           0/1  html/canvas/element/fill-and-stroke-styles/2d.gradient.relativecolor.html
   FAIL      Relative color works as CanvasGradient color input
 ERROR        0/1  html/canvas/element/fill-and-stroke-styles/2d.pattern.animated.gif.html
@@ -1217,8 +1164,7 @@ OK           0/1  html/canvas/element/manual/drawing-paths-to-the-canvas/drawFoc
 OK           0/1  html/canvas/element/manual/drawing-paths-to-the-canvas/drawFocusIfNeeded_005.html
   FAIL      drawFocusIfNeeded does draw a focus ring if the element is in focus and the user activated a particular focus ring.
 OK           1/1  html/canvas/element/manual/fill-and-stroke-styles/2d.fillStyle.parse.current.notrendered.html
-OK           0/1  html/canvas/element/manual/fill-and-stroke-styles/canvas_colorsandstyles_createlineargradient_001.htm
-  FAIL      linear gradient from point to self draws nothing
+OK           1/1  html/canvas/element/manual/fill-and-stroke-styles/canvas_colorsandstyles_createlineargradient_001.htm
 OK           0/2  html/canvas/element/manual/filters/2d.filter.function-then-svg-reference.html
   FAIL      url() alone renders correctly
   FAIL      brightness() chained before url() renders correctly
@@ -2843,8 +2789,7 @@ OK           0/1  html/canvas/element/shadows/2d.shadow.gradient.alpha.html
   FAIL      Shadows are drawn correctly for partially-transparent gradient fills
 OK           0/1  html/canvas/element/shadows/2d.shadow.gradient.basic.html
   FAIL      Shadows are drawn for gradient fills
-OK           0/1  html/canvas/element/shadows/2d.shadow.gradient.transparent.1.html
-  FAIL      Shadows are not drawn for transparent gradient fills
+OK           1/1  html/canvas/element/shadows/2d.shadow.gradient.transparent.1.html
 OK           0/1  html/canvas/element/shadows/2d.shadow.gradient.transparent.2.html
   FAIL      Shadows are not drawn for transparent parts of gradient fills
 OK           0/1  html/canvas/element/shadows/2d.shadow.image.alpha.html
