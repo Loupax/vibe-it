@@ -93,7 +93,7 @@ impl Control {
     }
 }
 
-/// A `web --forget-site` client: reads its one request line (it sends it at once; a short
+/// A `web --forget-site` or `web URL` client: reads its one request line (it sends it at once; a short
 /// timeout keeps a silent client from stalling the loop), then the state sends the command
 /// and answers the client when the host's `forgot` arrives.
 fn forget_client(stream: UnixStream, state: &mut State) {
@@ -103,7 +103,8 @@ fn forget_client(stream: UnixStream, state: &mut State) {
     let mut line = String::new();
     let read = std::io::BufReader::new((&stream).take(4096)).read_line(&mut line);
     match (read, crate::forget::parse_request(&line)) {
-        (Ok(_), Some(site)) => state.forget_requested(site, stream),
+        (Ok(_), Some(crate::forget::Request::ForgetSite(site))) => state.forget_requested(site, stream),
+        (Ok(_), Some(crate::forget::Request::Open(url))) => state.open_requested(&url, stream),
         _ => state.log(&format!("forget socket: bad request {line:?}")),
     }
 }

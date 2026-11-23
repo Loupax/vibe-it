@@ -446,6 +446,21 @@ impl State {
         self.send(Command::ForgetSite { site });
     }
 
+    /// A second `web URL` asked (C-SINGLE): load the URL here, say so in the status bar, answer it.
+    pub fn open_requested(&mut self, word: &str, client: UnixStream) {
+        match crate::keys::go_url(word, &self.url) {
+            Ok(url) if self.control.is_some() => {
+                self.log(&format!("open {url} (from a second web)"));
+                self.keys.message = format!("opened {url} (from another web)");
+                reply_to(client, &serde_json::json!({"event": "opened", "url": url}).to_string());
+                self.send(Command::Open { url });
+                self.redraw();
+            }
+            Ok(_) => reply_to(client, r#"{"event":"error","message":"the engine host is not connected"}"#),
+            Err(m) => reply_to(client, &serde_json::json!({"event": "error", "message": m}).to_string()),
+        }
+    }
+
     pub fn send(&mut self, cmd: Command) {
         use std::io::Write;
         if cmd != Command::Quit {
@@ -478,6 +493,10 @@ impl State {
         match child.try_wait() {
             Ok(Some(status)) => {
                 self.log(&format!("engine host exited: {status}"));
+                if self.quit_deadline.is_none() && status.code() == Some(3) {
+                    // C-SINGLE: the host's initialize failed (its message is on stderr above).
+                    self.log("the engine host could not start: its profile is in use or unusable (message above)");
+                }
                 self.exit_code = if self.quit_deadline.is_some() {
                     0
                 } else {

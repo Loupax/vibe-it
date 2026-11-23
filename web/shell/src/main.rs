@@ -16,6 +16,7 @@ mod host;
 mod input;
 mod keys;
 mod layout;
+mod lock;
 mod pairing;
 mod protocol;
 mod registers;
@@ -84,6 +85,16 @@ fn main() {
     // P-FORGET-SHELL: no window, no shell: forget the site and exit with the host's code.
     if let Some(site) = &args.forget_site {
         std::process::exit(forget::run_cli(site, &state_dir, &profile, host_bin, &args.host_args));
+    }
+    // C-SINGLE: a web already runs on this state directory: hand it the URL and leave.
+    if let Some(code) = forget::run_second(args.url.as_deref(), &state_dir) {
+        std::process::exit(code);
+    }
+    // C-SINGLE: the profile's lock (a stale one is removed, a live one is an error, no panic).
+    match lock::check(&profile, std::path::Path::new("/proc")) {
+        Ok(Some(line)) => eprintln!("[web] {line}"),
+        Ok(None) => {}
+        Err(m) => fail(m),
     }
     // C-SOCKDIR: run directories of shells that were killed hard.
     if let Some(runtime) = env("XDG_RUNTIME_DIR").filter(|v| !v.is_empty()) {

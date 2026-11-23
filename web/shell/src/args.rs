@@ -42,6 +42,8 @@ pub const USAGE: &str = "usage: web [--engine cef] [--proxy HOST:PORT] [--state-
                      this binary, else on PATH)
   --forget-site SITE forget SITE's cookies and storage (through the running web on the same state
                      directory, else with no window) and exit: 0 ok, 1 partial, 2 refused
+  A web already running on the same state directory gets the URL (it opens it and shows a message)
+  and this command exits 0; with no URL it only says that one runs.
   -- HOST-ARGS       passed to the engine host unchanged (e.g. Chromium switches)";
 
 /// Parses the arguments after the program name. `Ok(None)` means `--help`.

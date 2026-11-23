@@ -187,7 +187,17 @@ fn main() {
         ..Default::default()
     };
     let ok = initialize(Some(&main_args), Some(&settings), Some(&mut app), std::ptr::null_mut());
-    assert_eq!(ok, 1, "cef initialize failed");
+    if ok != 1 {
+        // Most often the profile is in use: Chromium's process singleton hands the command line to
+        // the browser that holds it and CEF's initialize returns 0 (C-SINGLE). A clean exit, no panic.
+        let holder = std::fs::read_link(format!("{profile}/SingletonLock"))
+            .map(|t| format!(" The profile's lock says it is held by {:?} (<host>-<pid>).", t.to_string_lossy()))
+            .unwrap_or_default();
+        eprintln!(
+            "web-host-cef: cef initialize failed: the profile {profile} is probably in use by another browser process.{holder} See {profile}/cef.log."
+        );
+        std::process::exit(3)
+    }
     control::start_reader();
     run_message_loop();
     shutdown();

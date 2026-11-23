@@ -530,3 +530,9 @@ Tests `src/tests/c6b_tests.rs`; live check `test/c6b_live.py` 7/7 at 1.5 and at 
 1.5 <-> 2 change while running); it fails on main (scale 1, devicePixelRatio 1). live.py 16/16
 and c3_live.py 19/19 at scale 1 and 2 (made scale-aware: logical coordinates, screenshot
 checks times the nest's scale), live.py --x11 16/16 at 1 and 2.
+
+## C-SINGLE: a second `web` on the same state dir panicked the host (2026-11-23)
+
+> (coordinator) With one `web` running, a second `web` with the same state dir started a second web-host-cef on the profile; Chromium's singleton printed "Opening in existing browser session", CEF initialize returned 0 and the host panicked at the assert. `web [URL]` should find the running instance and open the URL there; a stale or foreign lock should be a clear error, never a panic; the host should exit cleanly.
+
+Mechanism: `forget.sock` became the instance's command socket (`open <url>` next to `forget-site`); `forget::run_second` is the second `web`'s end (URL: opens and exits 0; no URL: says "already running (pid)" and exits 0, no raise); `lock.rs` reads `<profile>/SingletonLock` (`<host>-<pid>`): dead pid removed by name with a log line, live/foreign/odd lock is an exit-2 error that names the profile and the pid; the host exits 3 with a message instead of the assert. Tests: `lock.rs`, `forget.rs` (request parsing, answers); live `shell/test/single_live.py` 5/5 in the headless nest (state under .qwork, nothing of the user's touched).
