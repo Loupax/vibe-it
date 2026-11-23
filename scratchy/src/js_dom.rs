@@ -5235,6 +5235,7 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
     if (f.realm) {
       if (removed && f.loaded && !f.unloaded && !g.closed) {
         f.unloaded = true;
+        try { f.win.__scratchy_set_closed(); } catch (e) {}  // a running load stops at once (no more scripts), as before
         g.setTimeout(function () {
           try { f.win.__scratchy_unload_phase('unload'); } catch (e) {}
           releaseRealm(f);
