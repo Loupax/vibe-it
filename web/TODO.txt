@@ -120,6 +120,13 @@ stop early on a hard failure.
       optional `tab` on commands, tab-created opener/cause/req, popup-blocked). Shell: pair several announced
       pages; a Chrome-style popup window (no parent) is a page, not a dialog. Host: `quit` closes every browser
       and exits when the last is gone (today it closes only the first).
+- [ ] C-WEBEX [S] (user, 2026-11-23, investigation) On Webex in web: banner "Your browser doesn't support shared
+      content and video. For best experience, use another supported browser."; starting a meeting: "Your browser
+      needs the Cisco OpenH264 Video Codec to join. Install or turn on the codec, then try again." The camera works.
+      Find out what Webex checks (UA sniffing, getDisplayMedia / screen sharing on Wayland via the portal +
+      PipeWire and CEF's media-stream picker, RTCRtpSender.getCapabilities('video') listing H264, WebCodecs)
+      and what each fix costs (H.264 needs a proprietary-codecs / OpenH264 CEF build: C-H264, parked by the
+      user). Report + proposed items; no login to the user's account (use Webex's public test pages if any).
 - [WIP] C-FLICKER [M] (user, 2026-11-23: "there some flickering regarding absolutely positioned elements and
       scrolling. For example when I scoll through youtube the static UI flickers") Reproduce (YouTube scroll),
       find the cause (suspects: wl_subsurface sync/commit handling for Chromium's delegated layers; buffer
