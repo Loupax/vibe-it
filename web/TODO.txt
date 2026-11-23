@@ -126,11 +126,18 @@ stop early on a hard failure.
 - [ ] P-FORGET-CACHE (optional, ask the user first) Clear only the site's HTTP cache entries instead of
       the whole cache (needs DevTools or another mechanism).
 
-- [WIP] C-NOTAB [S] (user, 2026-11-23: "can we remove tab opening functionality in general, like from
+- [x] C-NOTAB [S] (DONE 2026-11-23, 866ea8b, #672; LIVE CHECK OWED: re-run web/host-cef/test/notab.py after
+      NEST-HEADLESS (menu contents, ctrl/middle/shift/ctrl+shift clicks); unit-tested only) (user, 2026-11-23: "can we remove tab opening functionality in general, like from
       context menus and such?") No way to open a second tab or window from the page: remove the
       context-menu items (open link in new tab/window, incognito, etc.), and make Ctrl/Shift/middle-
       click on links open nothing new. Script window.open / target=_blank keep loading in the same page
       (DECISIONS "No tabs yet").
+
+- [ ] C-NOTAB-ALLOW [S] (from #672, after the owed live run dumps the real menu) Context menu by allow-list
+      instead of deny-list, so a new Chrome item that opens a tab can't slip in.
+- [ ] C-KEYH [S] (from #672) The cef crate's KeyboardHandler wrapper treats `os_event` as an XEvent and
+      segfaults the host on Wayland. Needed if C3 wants key events from the host; fix or work around
+      upstream/in a local patch when that comes up.
 
 - [ ] NEST-HEADLESS [S] (user, 2026-11-23: the monitor moves to the work laptop; NEXT free slot) Live tests
       must run with no display connected. Today tools/nest.sh runs dwl on the wayland backend (a window
