@@ -64,9 +64,15 @@ host-cef it is in CI (it needs only libxkbcommon to link).
   from the host's `url`/`title`/`load` events; `:go` completes from it (ranked).
 - **`:help`**: `src/help.html`, built in, written next to the control socket at start
   and loaded by the host as a `file://` URL; `:q` there goes back.
-- Not yet: search (`/`, `n`, `N` say so; C5), the clipboard (`@+`, `yy`, paste say so; C6).
+- **Search** (C5, `src/keys.rs` `SearchState`, KEYS.md Search): `/` opens the `/` line (the
+  `:` line's editor, no ghost), Enter sends `find` (smartcase -> `match_case`), `n`/`N` step
+  it, `find-result` gives `[i/N]` and the wrap messages (derived from the indices),
+  `Pattern not found: <q>`, `No previous search`; Esc in NORMAL sends `find-clear` (the
+  query stays); a cross-document load start forgets the session (T31). Tests
+  `src/tests/search_tests.rs`, live check `test/c5_live.py`. Enter on a match is a later item.
+- Not yet: the clipboard (`@+`, `yy`, paste say so; C6).
 
-Not in C2/C3 (later items): search (C5), clipboard, HiDPI and
+Not in C2/C3/C5 (later items): clipboard, HiDPI and
 fractional scale, dmabuf, IME (C6), the desktop's keyboard layout (the shell uses
 xkbcommon's default, i.e. `XKB_DEFAULT_*` or us).
 

@@ -35,6 +35,9 @@ pub enum Command {
     Find {
         query: String,
         dir: FindDir,
+        /// Match upper and lower case apart (the shell's smartcase decides, C5).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        match_case: bool,
     },
     FindClear,
     /// Page zoom as a factor: 1.0 = 100 %.
@@ -516,6 +519,15 @@ mod tests {
                 Command::Find {
                     query: "needle".into(),
                     dir: FindDir::Next,
+                    match_case: false,
+                },
+            ),
+            (
+                r#"{"cmd":"find","query":"Needle","dir":"next","match_case":true}"#,
+                Command::Find {
+                    query: "Needle".into(),
+                    dir: FindDir::Next,
+                    match_case: true,
                 },
             ),
             (
@@ -523,6 +535,7 @@ mod tests {
                 Command::Find {
                     query: "n".into(),
                     dir: FindDir::Prev,
+                    match_case: false,
                 },
             ),
             (r#"{"cmd":"find-clear"}"#, Command::FindClear),

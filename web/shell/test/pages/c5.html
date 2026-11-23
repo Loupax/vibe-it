@@ -1,0 +1,21 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>c5 loading</title>
+<style>
+  body { margin: 0; font: 20px sans-serif; height: 6000px; background: #fff; }
+  p { position: absolute; left: 40px; margin: 0; }
+</style>
+<p style="top:60px">web C5 live check: six matches of the word below, at known heights.</p>
+<p style="top:400px">a needle in the first screen</p>
+<p style="top:1300px">a second needle, one screen down</p>
+<p style="top:2200px">the third needle</p>
+<p style="top:2700px">Needle with a capital</p>
+<p style="top:3600px">the fourth needle</p>
+<p style="top:5000px">the last needle near the bottom</p>
+<script>
+  // The title: "c5 y=<scrollY>" so the live check can read where the page is scrolled.
+  const show = () => { document.title = `c5 y=${Math.round(scrollY)}`; };
+  let t = 0;
+  addEventListener("scroll", () => { clearTimeout(t); t = setTimeout(show, 150); });
+  show();
+</script>

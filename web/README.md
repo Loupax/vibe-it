@@ -8,7 +8,7 @@ a separate wrapper (DECISIONS.md).
 Status: **C1 (engine host), C2 (the shell's compositor) and C3 (keys and command line)
 done**: `web` shows one page with mouse and keyboard, on a Wayland or an X11 desktop,
 with scratchy's modes, status bar, `:` command line, ghost completion and history
-(KEYS.md); search (C5) and the clipboard (C6) are next. The CEF spike (`spike/`, TODO.txt
+(KEYS.md) and search (C5); the clipboard (C6) is next. The CEF spike (`spike/`, TODO.txt
 W1-W7) proved Chromium can run with no network of its own; the plan now is
 Architecture C (DECISIONS.md, TODO.txt C1-C8):
 

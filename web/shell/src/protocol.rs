@@ -75,7 +75,7 @@ impl Event {
     }
 }
 
-/// A command to the engine host (the ones the shell sends so far; `find`, `zoom` and
+/// A command to the engine host (the ones the shell sends so far; `zoom` and
 /// `forget-site` come with their items).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "cmd", rename_all = "kebab-case")]
@@ -89,7 +89,23 @@ pub enum Command {
         #[serde(skip_serializing_if = "std::ops::Not::not")]
         hard: bool,
     },
+    /// Find in the page (`dir` as in PROTOCOL.md; the same query again steps).
+    Find {
+        query: String,
+        dir: FindDir,
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        match_case: bool,
+    },
+    FindClear,
     Quit,
+}
+
+/// Which way a `find` steps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FindDir {
+    Next,
+    Prev,
 }
 
 impl Command {
@@ -249,6 +265,23 @@ mod tests {
             (Command::Forward, r#"{"cmd":"forward"}"#),
             (Command::Reload { hard: false }, r#"{"cmd":"reload"}"#),
             (Command::Reload { hard: true }, r#"{"cmd":"reload","hard":true}"#),
+            (
+                Command::Find {
+                    query: "needle".into(),
+                    dir: FindDir::Next,
+                    match_case: false,
+                },
+                r#"{"cmd":"find","query":"needle","dir":"next"}"#,
+            ),
+            (
+                Command::Find {
+                    query: "Needle".into(),
+                    dir: FindDir::Prev,
+                    match_case: true,
+                },
+                r#"{"cmd":"find","query":"Needle","dir":"prev","match_case":true}"#,
+            ),
+            (Command::FindClear, r#"{"cmd":"find-clear"}"#),
             (Command::Quit, r#"{"cmd":"quit"}"#),
         ];
         for (cmd, want) in cases {

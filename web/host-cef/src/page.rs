@@ -50,8 +50,9 @@ struct Page {
     editable: bool,
     find_query: Option<String>,
     find_index: i32,
-    /// Skip the next final find result (see Command::Find).
-    find_skip_one: bool,
+    /// A new find session still to step once it has counted matches (see Command::Find):
+    /// the query, `forward` and `match_case` for `CefBrowserHost::Find`.
+    find_step: Option<(String, i32, i32)>,
     /// The shell sent `stop` and no load has started since.
     stop_requested: bool,
 }
@@ -445,6 +446,7 @@ wrap_load_handler! {
                 p.period_load = true;
                 p.addr_pending = false;
                 p.find_query = None;
+                p.find_step = None;
                 (p.id, p.editable)
             });
             load_event(id, LoadPhase::Start, 0, kind, None);
@@ -606,18 +608,26 @@ wrap_find_handler! {
                 return;
             }
             trace!("on_find_result count {count} active {active_match_ordinal} final {final_update}");
-            let (id, index, skip) = with_page(|p| {
+            let (id, index, step) = with_page(|p| {
                 if active_match_ordinal > 0 {
                     p.find_index = active_match_ordinal;
                 }
-                let skip = final_update != 0 && p.find_skip_one;
+                // The count of a new session is final: with matches, step once (below)
+                // and report that result; with none, report the zero.
+                let step = if final_update != 0 && count > 0 { p.find_step.take() } else { None };
                 if final_update != 0 {
-                    p.find_skip_one = false;
+                    p.find_step = None;
                 }
-                (p.id, p.find_index, skip)
+                (p.id, p.find_index, step)
             });
+            if let Some((query, forward, match_case)) = step {
+                if let Some(h) = browser.as_ref().and_then(|b| b.host()) {
+                    h.find(Some(&CefString::from(query.as_str())), forward, match_case, 1);
+                }
+                return;
+            }
             // Intermediate updates carry partial counts; the shell gets the final one.
-            if final_update != 0 && !skip {
+            if final_update != 0 {
                 emit(Event::FindResult { tab: id, index: if count == 0 { 0 } else { index }, count });
             }
         }
@@ -796,7 +806,7 @@ pub fn run_command(line: &str) {
             with_page(|p| p.stop_requested = true);
             browser.stop_load()
         }
-        Command::Find { query, dir } => {
+        Command::Find { query, dir, match_case } => {
             let Some(h) = host else { return };
             let again = with_page(|p| {
                 let again = p.find_query.as_deref() == Some(query.as_str());
@@ -808,14 +818,17 @@ pub fn run_command(line: &str) {
             });
             let text = CefString::from(query.as_str());
             let forward = (dir == FindDir::Next) as i32;
-            h.find(Some(&text), forward, 0, again as i32);
+            // A new find session counts the matches but activates none (active ordinal 0);
+            // on_find_result steps once so the first (or, for prev, last) match is active,
+            // as in a browser's find bar, and reports only that.
+            with_page(|p| p.find_step = (!again).then(|| (query.clone(), forward, match_case as i32)));
             if !again {
-                // A new find session counts the matches but activates none (active
-                // ordinal 0); step once so the first (or, for prev, last) match is
-                // active, as in a browser's find bar. The first final result is skipped.
-                with_page(|p| p.find_skip_one = true);
-                h.find(Some(&text), forward, 0, 1);
+                // After a navigation CEF still holds the old session; the same text would be
+                // taken for the same search and never answer (found live by C5). Ending it
+                // first is what `find-clear` does, which works.
+                h.stop_finding(0);
             }
+            h.find(Some(&text), forward, match_case as i32, again as i32);
         }
         Command::FindClear => {
             with_page(|p| {

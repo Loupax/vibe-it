@@ -292,6 +292,9 @@ impl State {
                 self.title = title;
                 self.update_window_title();
             }
+            // T31: a navigation ends the find session (the host dropped it); the query stays.
+            Event::Load { ref phase, ref kind, .. } if phase == "start" && kind != "same-document" => self.keys.navigated(),
+            Event::FindResult { index, count, .. } => self.keys.find_result(index, count),
             // A page that loaded clears the last message (a failed load keeps its error).
             Event::Load {
                 ref phase,

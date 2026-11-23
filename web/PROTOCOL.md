@@ -78,7 +78,7 @@ interface, undecided), so v0 has no `new-tab` / `close-tab`.
 | `forward` | `{"cmd":"forward"}` | history forward |
 | `reload`, `reload hard` | `{"cmd":"reload"}`, `{"cmd":"reload","hard":true}` | reload; `hard` bypasses the cache (`:refresh hard`; CEF ReloadIgnoreCache) |
 | `stop` | `{"cmd":"stop"}` | stop the current load |
-| `find <query> next\|prev` | `{"cmd":"find","query":"needle","dir":"next"}` | find in page; the same query again steps to the next/previous match; a new query starts at the first (`next`) or last (`prev`) match |
+| `find <query> next\|prev [match_case]` | `{"cmd":"find","query":"needle","dir":"next"}`, optional `"match_case":true` (default false: case-insensitive; the shell's smartcase sets it when the query has a capital) | find in page; the same query again steps to the next/previous match; a new query starts at the match the engine picks from where the page is scrolled (C5 measured: from the top, the first match; scrolled down, the one nearest above the screen; not exactly "first at or below the top of the screen") |
 | `find-clear` | `{"cmd":"find-clear"}` | end the find: highlights go, the active match stays selected |
 | `zoom <n>` | `{"cmd":"zoom","factor":1.25}` | page zoom as a factor, 1.0 = 100 %, 0.25..5 |
 | `forget-site <site>` | `{"cmd":"forget-site","site":"https://mail.example.com/"}` | forget a site: cookies and storage (below); answered by `forgot` |

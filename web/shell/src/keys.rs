@@ -14,7 +14,7 @@ use smithay::input::keyboard::{Keysym, ModifiersState};
 
 use crate::completion::{compute_ghost, CompleteCache, ExtResult, ExtSink, Ghost};
 use crate::config::{ScrollInput, BINDINGS, CLICK_FOCUS_MS, ESC_ESC_MS, KEY_SEQUENCES, SCROLL_INPUTS, START_MODE};
-use crate::protocol::Command;
+use crate::protocol::{Command, FindDir};
 
 /// A key press as the bindings see it: the keysym with Shift (and the layout) applied, the
 /// character it types (none for Escape, arrows, ...), and the modifiers held.
@@ -95,12 +95,13 @@ pub enum KeyMode {
     Normal,
 }
 
-/// The NORMAL sub-state: the bindings, or the `:` line (KEYS.md COMMAND). SEARCH comes
-/// with C5.
+/// The NORMAL sub-state: the bindings, the `:` line (KEYS.md COMMAND) or the `/` line
+/// (SEARCH).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VimMode {
     Normal,
     Command,
+    Search,
 }
 
 /// The Esc Esc recogniser's state (KEYS.md ESC1). `Esc1(t)` = one Esc seen at `t`.
@@ -133,9 +134,13 @@ pub enum Action {
     Scroll(usize),
     /// `:` (T9).
     EnterCommandMode,
-    /// `/`, `n`, `N`: search is C5; the status bar says so.
-    SearchNotYet,
-    /// Esc in NORMAL (T7): clears the search highlights once C5 exists; never changes the mode.
+    /// `/` (T8).
+    SearchOpen,
+    /// `n` (T15-T17).
+    SearchNext,
+    /// `N` (T15-T17).
+    SearchPrev,
+    /// Esc in NORMAL (T7): clears the search highlights (the query is kept); never changes the mode.
     ClearSearch,
     /// `i` (T6).
     EnterInputMode,
@@ -274,7 +279,39 @@ pub enum Effect {
     Quit,
 }
 
-pub const NOT_YET_SEARCH: &str = "web: search is not built yet (web/TODO.txt C5)";
+/// T17.
+pub const NO_PREVIOUS_SEARCH: &str = "No previous search";
+/// T15: the wrap messages (vim's), by the direction that wrapped.
+pub const SEARCH_WRAP_BOTTOM: &str = "search hit BOTTOM, continuing at TOP";
+pub const SEARCH_WRAP_TOP: &str = "search hit TOP, continuing at BOTTOM";
+
+/// T16: the status bar's answer when a query has no match.
+pub fn pattern_not_found(query: &str) -> String {
+    format!("Pattern not found: {query}")
+}
+
+/// Smartcase (KEYS.md Search): case matters only when the query has a capital.
+pub fn smartcase_match_case(query: &str) -> bool {
+    query.chars().any(char::is_uppercase)
+}
+
+/// The search the shell keeps (KEYS.md S1-S6, T7, T15-T17, T23-T25, T31). The host's `find`
+/// does the searching and painting; the shell keeps the query, which result it is waiting
+/// for and the last `find-result`, from which the wrap messages are derived.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct SearchState {
+    /// The kept query (`n`/`N` use it; Esc in NORMAL and navigation keep it).
+    pub query: Option<String>,
+    /// The host has a find session (highlights shown, or a count of zero): `find-clear`
+    /// ends it.
+    pub session: bool,
+    /// The last `find-result`: 1-based active match (0 = none) and match count.
+    pub index: u32,
+    pub count: u32,
+    /// One entry per `find` sent whose `find-result` has not arrived (the host answers each
+    /// command once, in order). `true` = it started a session (no wrap can be derived).
+    waiting: std::collections::VecDeque<(FindDir, bool)>,
+}
 pub const NOT_YET_PASTE: &str = "web: paste needs the clipboard, not built yet (web/TODO.txt C6)";
 
 /// Whether a mouse press at `click` was recent enough at `now` for a focus change to count
@@ -332,6 +369,8 @@ pub struct Keys {
     pub url: String,
     /// `:help`'s page.
     pub help_url: String,
+    /// The kept query, the host's find session, the last result (T7, T15-T25).
+    pub search: SearchState,
     state_dir: Option<PathBuf>,
     sink: Option<ExtSink>,
     /// Key codes held down (a press of one already down is an OS repeat).
@@ -357,6 +396,7 @@ impl Keys {
             message: String::new(),
             url: String::new(),
             help_url,
+            search: SearchState::default(),
             state_dir,
             sink,
             down: HashSet::new(),
@@ -397,6 +437,7 @@ impl Keys {
             KeyMode::Normal => {
                 match self.vim_mode {
                     VimMode::Command => self.command_line_key(key),
+                    VimMode::Search => self.search_line_key(key),
                     VimMode::Normal => self.normal_key(code, key, repeat),
                 }
                 false
@@ -443,8 +484,10 @@ impl Keys {
                 None => self.message = format!("web: no SCROLL_INPUTS row {i} (config.rs)"),
             },
             Action::EnterCommandMode => self.open_line(),
-            Action::SearchNotYet => self.message = NOT_YET_SEARCH.to_string(),
-            Action::ClearSearch => {}
+            Action::SearchOpen => self.open_search_line(),
+            Action::SearchNext => self.search_step(FindDir::Next),
+            Action::SearchPrev => self.search_step(FindDir::Prev),
+            Action::ClearSearch => self.clear_search(),
             Action::EnterInputMode => self.set_key_mode(KeyMode::Input),
             Action::HistoryBack => self.effects.push(Effect::Send(Command::Back)),
             Action::HistoryForward => self.effects.push(Effect::Send(Command::Forward)),
@@ -479,6 +522,129 @@ impl Keys {
             cache = cache.with_external(sink.clone(), self.url.clone());
         }
         self.cache = cache;
+    }
+
+    /// T8: `/` opens an empty search line.
+    fn open_search_line(&mut self) {
+        self.vim_mode = VimMode::Search;
+        self.line.clear();
+        self.ghost = None;
+    }
+
+    /// A key in the `/` line (T22-T25): the `:` line's editing keys, no completion.
+    fn search_line_key(&mut self, key: &KeyInput) {
+        let s = key.sym;
+        if s == Keysym::Escape {
+            // T25: nothing was changed while typing, so cancelling restores nothing.
+            self.close_line();
+        } else if s == Keysym::Return || s == Keysym::KP_Enter {
+            let query = std::mem::take(&mut self.line.text);
+            self.close_line();
+            // T24: an empty query is Esc.
+            if !query.is_empty() {
+                self.search_run(query);
+            }
+        } else if s == Keysym::Right || s == Keysym::End || s == Keysym::KP_Right || s == Keysym::KP_End {
+            if s == Keysym::End || s == Keysym::KP_End {
+                self.line.cursor = self.line.text.len();
+            } else {
+                self.line.move_right();
+            }
+        } else if s != Keysym::Tab && s != Keysym::ISO_Left_Tab && s != Keysym::Delete && s != Keysym::KP_Delete {
+            self.line_edit_key(key);
+        }
+    }
+
+    /// T23: the query becomes the kept one and runs from a fresh session.
+    fn search_run(&mut self, query: String) {
+        self.message.clear();
+        if self.search.session {
+            self.effects.push(Effect::Send(Command::FindClear));
+        }
+        self.search.waiting.clear();
+        self.search.index = 0;
+        self.search.count = 0;
+        self.send_find(&query, FindDir::Next, true);
+        self.search.query = Some(query);
+    }
+
+    fn send_find(&mut self, query: &str, dir: FindDir, fresh: bool) {
+        self.search.session = true;
+        self.search.waiting.push_back((dir, fresh));
+        self.effects.push(Effect::Send(Command::Find {
+            query: query.to_string(),
+            dir,
+            match_case: smartcase_match_case(query),
+        }));
+    }
+
+    /// T15-T17: `n` / `N`.
+    fn search_step(&mut self, dir: FindDir) {
+        let Some(query) = self.search.query.clone() else {
+            self.message = NO_PREVIOUS_SEARCH.to_string();
+            return;
+        };
+        // No host session (Esc, a navigation, or the page changed): the host starts a new
+        // one, at its first (n) or last (N) match, so no wrap can be told.
+        let fresh = !self.search.session;
+        self.send_find(&query, dir, fresh);
+    }
+
+    /// T7: highlights go, the query stays.
+    fn clear_search(&mut self) {
+        if self.search.session {
+            self.effects.push(Effect::Send(Command::FindClear));
+            self.forget_session();
+            self.message.clear();
+        }
+    }
+
+    /// T31: any navigation. The host dropped its session itself; the query stays.
+    pub fn navigated(&mut self) {
+        if self.search.session {
+            self.forget_session();
+            self.message.clear();
+        }
+    }
+
+    fn forget_session(&mut self) {
+        self.search.session = false;
+        self.search.index = 0;
+        self.search.count = 0;
+        self.search.waiting.clear();
+    }
+
+    /// The host's `find-result` for the oldest `find` still waiting (T15, T16, T23): the
+    /// status bar gets `Pattern not found: <q>`, or `[i/N]` with a wrap message when the
+    /// index went the wrong way (next: not higher than before; previous: not lower).
+    pub fn find_result(&mut self, index: u32, count: u32) {
+        let Some((dir, fresh)) = self.search.waiting.pop_front() else {
+            return;
+        };
+        let old = self.search.index;
+        self.search.index = index;
+        self.search.count = count;
+        let Some(query) = self.search.query.clone() else { return };
+        if count == 0 || index == 0 {
+            self.message = pattern_not_found(&query);
+            return;
+        }
+        let wrapped = !fresh
+            && old > 0
+            && match dir {
+                FindDir::Next => index <= old,
+                FindDir::Prev => index >= old,
+            };
+        let wrap = match (wrapped, dir) {
+            (false, _) => "",
+            (true, FindDir::Next) => SEARCH_WRAP_BOTTOM,
+            (true, FindDir::Prev) => SEARCH_WRAP_TOP,
+        };
+        self.message = if wrap.is_empty() {
+            format!("[{index}/{count}]")
+        } else {
+            format!("{wrap}  [{index}/{count}]")
+        };
     }
 
     fn close_line(&mut self) {
@@ -615,7 +781,12 @@ impl Keys {
 
     /// What the status bar shows now.
     pub fn bar_view(&self) -> BarView {
-        let line = (self.vim_mode == VimMode::Command).then(|| (':', self.line.text.clone(), self.line.cursor));
+        let prompt = match self.vim_mode {
+            VimMode::Command => Some(':'),
+            VimMode::Search => Some('/'),
+            VimMode::Normal => None,
+        };
+        let line = prompt.map(|p| (p, self.line.text.clone(), self.line.cursor));
         BarView {
             mode: mode_name(self.key_mode).to_string(),
             url: self.url.clone(),
