@@ -165,3 +165,8 @@ These rules apply to every project. For a web/ (or wire/) item, read "scratchy" 
   login (W4) or a day of real use (W7): prepare everything (a build, a run script, what to check) and stop with a
   DRAFT PR saying exactly what the user should do.
 - Never commit cookies, login state, wire logs or screenshots of real browsing; this repository is public.
+
+## The user's specs are read-only (2026-11-23, #687 edited wire2/SPEC.md)
+wire2/SPEC.md is the user's own design document, copied verbatim. Never edit it. Additions or deviations
+(new flags, extra rows) go in the project's NOTES.md / README.md, marked as beyond the spec, and the PR
+says so. The same holds for any file a TODO item calls the user's spec.
