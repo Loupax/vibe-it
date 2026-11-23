@@ -16,7 +16,11 @@ shell's log), and the page server's request log. Screenshots of the test page go
 
 Needs: web/shell/target/debug/web, web/host-cef/target/debug/web-host-cef (or --web,
 --host-bin), the inject tool (--inject; build web/tools/inject), grim, dwl (and Xwayland
-for --x11)."""
+for --x11).
+
+C6b: at a nest scale (`NEST_SCALE=2 web/shell/test/live.py ...`, passed on to nest.sh) the
+coordinates stay logical: the output's logical size is grim's pixels over the nest's scale
+(nest.sh's registry), and pixel checks on screenshots multiply by it."""
 
 import argparse
 import functools
@@ -102,6 +106,31 @@ def png_size(path):
     return struct.unpack(">II", head[16:24])
 
 
+def shell_scale(lines):
+    """C6b: the shell window's scale as the shell last logged it (`window WxH, page ..., scale S`)."""
+    found = [re.search(r"\] window \d+x\d+, page .*, scale ([\d.]+)", line) for line in lines]
+    found = [f for f in found if f]
+    return float(found[-1][1]) if found else 1.0
+
+
+def nest_scale():
+    """C6b: the nested output's scale (NEST_SCALE, recorded by nest.sh in its registry).
+    Screenshots are logical px times this, whatever the shell's own scale (an X11 shell sees
+    1 and Xwayland scales its window up)."""
+    reg = os.environ.get("NEST_REG") or os.path.join(os.path.dirname(WEB), ".qwork", "nest")
+    try:
+        with open(os.path.join(reg, "scale")) as f:
+            return float(f.read().strip() or 1)
+    except (OSError, ValueError):
+        return 1.0
+
+
+def output_size(png, scale):
+    """The nested output's logical size (inject's coordinates) from a grim shot (pixels)."""
+    pw, ph = png_size(png)
+    return round(pw / scale), round(ph / scale)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", required=True)
@@ -176,10 +205,11 @@ def main():
         # The last window size the shell logged is the one dwl gave it.
         sizes = [re.search(r"\] window (\d+)x(\d+), page", l) for l in log.lines]
         ww, wh = [int(x) for x in [s for s in sizes if s][-1].groups()]
-        ow, oh = png_size(shot("start.png"))
+        scale = nest_scale()
+        ow, oh = output_size(shot("start.png"), scale)
         # dwl centres its single tiled window inside a border.
         bx, by = (ow - ww) // 2, (oh - wh) // 2
-        print(f"output {ow}x{oh}, shell window {ww}x{wh} at {bx},{by}")
+        print(f"output {ow}x{oh} at scale {scale} (the shell's {shell_scale(log.lines)}), shell window {ww}x{wh} at {bx},{by}")
 
         def inject(*cmds, fullscreen=False):
             ox, oy = (0, 0) if fullscreen else (bx, by)
@@ -302,7 +332,7 @@ def main():
             detail = f"page {fm[1]}x{fm[2]}"
             try:
                 from PIL import Image
-                px = Image.open(p).convert("RGB").getpixel((ow // 2, oh - 3))
+                px = Image.open(p).convert("RGB").getpixel((int(ow * scale) // 2, int(oh * scale) - 3))
                 if px == BAR_BG:
                     raise Fail("the bar is still drawn in fullscreen")
                 detail += ", no bar"

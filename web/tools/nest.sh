@@ -13,7 +13,10 @@
 # NEST_HEADLESS_SIZE). It is built once into <worktree>/.qwork/nest-dwl/ (rebuilt when the
 # source or the patch changes; takes a few seconds).
 #   NEST_SIZE   headless output size WxH (default 960x1006, what notab.py/inject assume);
-#               also written to the registry file `size`
+#               also written to the registry file `size`. Logical px: with NEST_SCALE the
+#               output has NEST_SIZE * NEST_SCALE pixels (grim's screenshots are that big)
+#   NEST_SCALE  headless output scale (C6b; default 1; fractional ok, e.g. 1.5 or 2), written to
+#               the registry file `scale`. A live dwl with another scale is replaced.
 #   DWL_SRC     dwl source tree to build from (default /home/loupax/src/dotfiles/dwl)
 #   WLROOTS_DIR wlroots tree with install/lib/pkgconfig (default: $DWL_SRC/../wlroots)
 #
@@ -56,6 +59,9 @@ OUT=${1:-${TMPDIR:-/tmp}/scratchy-nest}
 ROOT=$(git -C "$HERE" rev-parse --show-toplevel 2>/dev/null || echo "$HERE/../..")
 REG=${NEST_REG:-$ROOT/.qwork/nest}
 SIZE=${NEST_SIZE:-960x1006}
+SCALE=${NEST_SCALE:-1}
+# The output's pixels: the logical NEST_SIZE times the scale, rounded (as a desktop sizes a scaled output).
+PXSIZE=$(echo "$SIZE $SCALE" | awk '{ split($1, a, "x"); printf "%dx%d", int(a[1] * $2 + 0.5), int(a[2] * $2 + 0.5) }')
 mkdir -p "$REG"
 # live_pid: print the recorded PID if it is our dwl (cmdline names $REG/disp), else clean the files.
 live_pid() {
@@ -64,7 +70,7 @@ live_pid() {
   if [ -n "$p" ] && [ -r "/proc/$p/cmdline" ] && tr '\0' ' ' <"/proc/$p/cmdline" | grep -qF "$REG/disp"; then
     echo "$p"; return 0
   fi
-  rm -f "$REG/dwl.pid" "$REG/disp" "$REG/xdisp" "$REG/mode" "$REG/size"
+  rm -f "$REG/dwl.pid" "$REG/disp" "$REG/xdisp" "$REG/mode" "$REG/size" "$REG/scale"
   return 1
 }
 stop_nest() {
@@ -73,7 +79,7 @@ stop_nest() {
   kill "$p" 2>/dev/null || true   # timeout forwards TERM to dwl; without timeout it is dwl itself
   i=0
   while [ -d "/proc/$p" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done
-  rm -f "$REG/dwl.pid" "$REG/disp" "$REG/xdisp" "$REG/mode" "$REG/size"
+  rm -f "$REG/dwl.pid" "$REG/disp" "$REG/xdisp" "$REG/mode" "$REG/size" "$REG/scale"
 }
 publish() {  # refresh the caller's OUT dir
   mkdir -p "$OUT"
@@ -117,7 +123,7 @@ if [ "$MODE" = --x11-display ]; then
 fi
 [ "$MODE" = --new ] && stop_nest
 if live_pid >/dev/null && [ -s "$REG/disp" ]; then
-  if [ "$(cat "$REG/mode" 2>/dev/null || echo windowed)" = "$WANT" ]; then
+  if [ "$(cat "$REG/mode" 2>/dev/null || echo windowed)" = "$WANT" ] && { [ "$WANT" = windowed ] || [ "$(cat "$REG/scale" 2>/dev/null || echo 1)" = "$SCALE" ]; }; then
     publish
     cat "$REG/disp"
     exit 0
@@ -127,11 +133,11 @@ fi
 # QREC3b: NEST_TIMEOUT (seconds, default 3600; 0 = none): gate.sh runs longer than an hour and kills its own dwl by PID.
 NEST_TIMEOUT=${NEST_TIMEOUT-3600}
 [ "$NEST_TIMEOUT" = 0 ] && NEST_TIMEOUT=
-rm -f "$REG/disp" "$REG/dwl.pid" "$REG/xdisp" "$REG/mode" "$REG/size"
+rm -f "$REG/disp" "$REG/dwl.pid" "$REG/xdisp" "$REG/mode" "$REG/size" "$REG/scale"
 if [ "$WANT" = headless ]; then
   DWL=$(build_dwl)
   ENV=(env -u DISPLAY -u WAYLAND_DISPLAY -u WAYLAND_SOCKET WLR_BACKENDS=headless WLR_RENDERER=pixman
-       WLR_HEADLESS_OUTPUTS=1 NEST_HEADLESS_SIZE="$SIZE")
+       WLR_HEADLESS_OUTPUTS=1 NEST_HEADLESS_SIZE="$PXSIZE" NEST_HEADLESS_SCALE="$SCALE")
 else
   DWL=dwl
   ENV=(env -u DISPLAY WLR_BACKENDS=wayland WLR_RENDERER=pixman)
@@ -146,7 +152,7 @@ fi
 ) &
 echo $! > "$REG/dwl.pid"
 echo "$WANT" > "$REG/mode"
-[ "$WANT" = headless ] && echo "$SIZE" > "$REG/size"
+[ "$WANT" = headless ] && echo "$SIZE" > "$REG/size" && echo "$SCALE" > "$REG/scale"
 i=0
 while [ ! -s "$REG/disp" ]; do
   i=$((i+1))

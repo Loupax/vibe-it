@@ -3,6 +3,9 @@
 //   move:X,Y  click  rclick  mclick  hold:c|s|cs  release  down  up  scroll:DY  hscroll:DX  sscroll:DY (Shift held)  wait:MS
 //   key:NAME (j k g G h l esc ret tab space bs colon slash ins ...) with optional c- / s- prefix
 //   type:TEXT (letters, digits, space, . : / - _ = ?)
+// Or: inject output W H SCALE   (C6b: the output becomes W x H pixels at SCALE; src/output.rs)
+mod output;
+
 use std::io::Write;
 use std::os::fd::AsFd;
 use std::time::{Duration, Instant};
@@ -70,6 +73,9 @@ fn code(name: &str) -> Option<(u32, bool)> {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("output") {
+        return output::set(args[2].parse().unwrap(), args[3].parse().unwrap(), args[4].parse().unwrap());
+    }
     let w: u32 = args[1].parse().unwrap();
     let h: u32 = args[2].parse().unwrap();
     let conn = Connection::connect_to_env().unwrap();

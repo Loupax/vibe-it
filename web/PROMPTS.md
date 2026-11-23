@@ -508,3 +508,25 @@ no instance, SIGKILL then next start; other sessions' live shells were left alon
 **Finding: the test, not the bridge.** Main's c6_live.py passed 8/8 in 16 runs here (fresh nest, after c_enter_live in the same nest, the installed and a debug-built host, under a 24-thread CPU load, `:set caret`, `--x11`). The four failing steps are exactly the four that click into the textarea (`into_field`), and #690's first message ("the field value plus the next paragraph") is a Ctrl-A on the whole page. Main's test reproduces that 4/8 with the same messages whenever the click misses the field, e.g. with the window size the shell has before dwl tiles it (1280x800, so every click lands 160 px left and 103 px low, on the paragraph). Two test faults let that happen: the window size was read from the log right after the first `page window is`, which can still be the pre-tiling size; and when the bar was not INPUT after the click, the test pressed `i`, putting the shell in INPUT with nothing focused, so a missed click turned into four confusing failures instead of one clear one.
 
 **What changed:** `test/c6_live.py`: waits for the shell window to be focused (new log line `shell window focused: <bool>` in main.rs) and for a settled geometry (the latest `window WxH` fits the output and the page window has the matching page size); `into_field` clicks an empty spot (blurs the field), then the textarea, and requires the host's `editable-focused true` (no `i` fallback; a miss fails with a screenshot and the geometry used). The primary step checks only that a selection in the page becomes the desktop's primary; the middle click and the page's `auxclick` listener are gone. No bridge change. Live: c6_live 10/10 Wayland, 5/5 `--x11`; c3_live, c5_live, c_enter_live pass.
+
+## 2026-11-23 C6b (HiDPI and fractional scale)
+Agent task from the coordinator: the shell's output was always scale 1 (and the window's
+physical size was used as its logical size). Now `Layout` keeps the window's logical size, its
+framebuffer size and the scale (winit's scale factor; `Resized` carries changes, e.g. a move
+to another monitor); the inner output gets the framebuffer as its mode and `Scale::Fractional`;
+fractional-scale-v1 is offered (with the existing wp_viewporter) and every page surface gets
+its preferred scale and wl_surface v6's preferred_buffer_scale (on creation, on commit, after a
+change). The Space draws the page at the scale; the status bar is painted at the framebuffer's
+resolution (font, paddings, caret times the scale) and drawn 1:1 (`Layout::bar_physical`); the
+image cursor surface is drawn at the scale; pixel wheel deltas are divided by it. Pointer
+positions, popups (C2-POPUP's constraint) and the page's configure stay logical.
+Found: CEF 156 binds wp_fractional_scale_manager_v1 and uses it (1.5x buffers with a viewport
+destination of the logical size, never set_buffer_scale); without it, it uses the integer
+scale (2 at 1.5) through the viewport. devicePixelRatio is the scale.
+Tools: `NEST_SCALE` for web/tools/nest.sh (patched headless dwl takes NEST_HEADLESS_SCALE; the
+output has NEST_SIZE times the scale pixels; a nest of another scale is replaced; nest-test.sh
+checks it), `inject output W H S` (wlr-output-management) to change the scale while running.
+Tests `src/tests/c6b_tests.rs`; live check `test/c6b_live.py` 7/7 at 1.5 and at 2 (with a
+1.5 <-> 2 change while running); it fails on main (scale 1, devicePixelRatio 1). live.py 16/16
+and c3_live.py 19/19 at scale 1 and 2 (made scale-aware: logical coordinates, screenshot
+checks times the nest's scale), live.py --x11 16/16 at 1 and 2.

@@ -105,9 +105,11 @@ def main():
         time.sleep(0.5)
         sizes = [re.search(r"\] window (\d+)x(\d+), page", l) for l in log.lines]
         ww, wh = [int(x) for x in [s for s in sizes if s][-1].groups()]
-        ow, oh = live.png_size(shot("start.png"))
+        # C6b: logical coordinates at any nest scale (NEST_SCALE); screenshots are scale times larger.
+        S = live.nest_scale()
+        ow, oh = live.output_size(shot("start.png"), S)
         bx, by = (ow - ww) // 2, (oh - wh) // 2
-        print(f"output {ow}x{oh}, shell window {ww}x{wh} at {bx},{by}; pages at {base}")
+        print(f"output {ow}x{oh} at scale {S}, shell window {ww}x{wh} at {bx},{by}; pages at {base}")
 
         def inject(*cmds):
             args = []
@@ -153,14 +155,20 @@ def main():
             p = shot("bar-normal.png")
             from PIL import Image
             im = Image.open(p).convert("RGB")
-            top = by + wh - BAR_H
-            ink = sum(1 for x in range(bx, bx + ww // 3) for y in range(top, top + BAR_H) if im.getpixel((x, y)) != BAR_BG)
+            px = lambda v: round(v * S)  # logical -> screenshot pixels
+            top, bar_h = px(by + wh - BAR_H), px(BAR_H)
+            ink = sum(1 for x in range(px(bx), px(bx + ww // 3)) for y in range(top, top + bar_h) if im.getpixel((x, y)) != BAR_BG)
             if ink < 40:
                 raise Fail(f"only {ink} text pixels in the left of the bar")
-            bg = im.getpixel((bx + ww - 3, top + 2))
+            bg = im.getpixel((px(bx + ww) - 3, top + 2))
             if bg != BAR_BG:
                 raise Fail(f"bar background {bg}")
-            return f"starts in NORMAL; the bar has text ({ink} px of ink in its left third)"
+            # C6b: the bar is BAR_H logical px tall at any scale (its pixels: BAR_H * scale).
+            x = px(bx + ww) - 3
+            rows = [y for y in range(top - 4, px(by + wh) + 1) if im.getpixel((x, y)) == BAR_BG]
+            if abs(len(rows) - bar_h) > 1:
+                raise Fail(f"bar {len(rows)} px tall at scale {S}, want {bar_h}")
+            return f"starts in NORMAL; the bar has text ({ink} px of ink in its left third), {len(rows)} px tall at scale {S}"
         step("START_MODE: NORMAL, the status bar drawn", start_normal)
 
         def jk():

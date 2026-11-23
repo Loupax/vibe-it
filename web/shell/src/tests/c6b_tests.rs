@@ -35,10 +35,18 @@ fn logical_size_inverts_the_desktops_rounding() {
     for s in [1.0, 1.25, 1.5, 1.75, 2.0, 2.25] {
         for l in [1, 23, 24, 25, 480, 777, 956, 1002, 1920] {
             let p = (l as f64 * s).round() as i32;
-            assert_eq!(logical_size(phys(p, p), s), Size::<i32, Logical>::from((l, l)), "scale {s}, logical {l}");
+            assert_eq!(
+                logical_size(phys(p, p), s),
+                Size::<i32, Logical>::from((l, l)),
+                "scale {s}, logical {l}"
+            );
         }
     }
-    assert_eq!(logical_size(phys(0, 0), 2.0), Size::from((1, 1)), "never 0 (a configure of 0 means: pick a size)");
+    assert_eq!(
+        logical_size(phys(0, 0), 2.0),
+        Size::from((1, 1)),
+        "never 0 (a configure of 0 means: pick a size)"
+    );
 }
 
 #[test]
@@ -188,9 +196,23 @@ fn the_bar_is_painted_at_the_scale_not_stretched() {
     let (x0_2, y0_2, x1_2, y1_2) = ink(&two).unwrap();
     let r = |a: u32, b: u32| b as f64 / a.max(1) as f64;
     assert!((1.8..=2.2).contains(&r(x0_1, x0_2)), "left padding {x0_1} -> {x0_2}");
-    assert!((1.8..=2.2).contains(&r(x1_1 - x0_1, x1_2 - x0_2)), "text width {} -> {}", x1_1 - x0_1, x1_2 - x0_2);
-    assert!((1.7..=2.3).contains(&r(y1_1 - y0_1, y1_2 - y0_2)), "glyph height {} -> {}", y1_1 - y0_1, y1_2 - y0_2);
+    assert!(
+        (1.8..=2.2).contains(&r(x1_1 - x0_1, x1_2 - x0_2)),
+        "text width {} -> {}",
+        x1_1 - x0_1,
+        x1_2 - x0_2
+    );
+    assert!(
+        (1.7..=2.3).contains(&r(y1_1 - y0_1, y1_2 - y0_2)),
+        "glyph height {} -> {}",
+        y1_1 - y0_1,
+        y1_2 - y0_2
+    );
     // At 1.5 the glyphs are 1.5 times as tall: rasterized at that size, not at 1x and stretched.
     let (_, y0_f, _, y1_f) = ink(&frac).unwrap();
-    assert!((1.3..=1.7).contains(&r(y1_1 - y0_1, y1_f - y0_f)), "glyph height at 1.5: {}", y1_f - y0_f);
+    assert!(
+        (1.3..=1.7).contains(&r(y1_1 - y0_1, y1_f - y0_f)),
+        "glyph height at 1.5: {}",
+        y1_f - y0_f
+    );
 }

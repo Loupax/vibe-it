@@ -211,7 +211,12 @@ impl Painter {
             let caret = self.caret_x(&display, cursor + prompt.len_utf8());
             let mut paint = Paint::default();
             paint.set_color_rgba8(STATUS_BAR_FG.0, STATUS_BAR_FG.1, STATUS_BAR_FG.2, 255);
-            if let Some(r) = Rect::from_xywh(pad + caret, 3.0 * scale, (1.5 * scale).round().max(1.0), (h as f32 - 6.0 * scale).max(1.0)) {
+            if let Some(r) = Rect::from_xywh(
+                pad + caret,
+                3.0 * scale,
+                (1.5 * scale).round().max(1.0),
+                (h as f32 - 6.0 * scale).max(1.0),
+            ) {
                 pm.fill_rect(r, &paint, tiny_skia::Transform::identity(), None);
             }
             if !view.ghost.is_empty() {
@@ -220,15 +225,7 @@ impl Painter {
             }
             return Some(pm);
         }
-        let lay = status_layout(
-            avail,
-            gap,
-            min_url,
-            &view.mode,
-            &view.url,
-            &view.message,
-            &mut |t| self.measure(t),
-        );
+        let lay = status_layout(avail, gap, min_url, &view.mode, &view.url, &view.message, &mut |t| self.measure(t));
         let mode_w = self.text(&mut pm, &lay.mode, pad, avail, rgb(STATUS_BAR_MODE_FG));
         let url_x = pad + mode_w + gap;
         let msg_w = self.measure(&lay.message);
@@ -261,11 +258,17 @@ impl Bar {
     /// Redraws the buffer if `view`, the size (physical px) or the scale changed.
     pub fn update(&mut self, view: &BarView, w: u32, h: u32, scale: f64) {
         let s120 = (scale * 120.0).round() as u32;
-        if self.drawn.as_ref().is_some_and(|(v, dw, dh, ds)| v == view && *dw == w && *dh == h && *ds == s120) {
+        if self
+            .drawn
+            .as_ref()
+            .is_some_and(|(v, dw, dh, ds)| v == view && *dw == w && *dh == h && *ds == s120)
+        {
             return;
         }
         let painter = self.painter.get_or_insert_with(Painter::new);
-        let Some(pm) = painter.paint_scaled(view, w, h, scale as f32) else { return };
+        let Some(pm) = painter.paint_scaled(view, w, h, scale as f32) else {
+            return;
+        };
         let (pw, ph) = (pm.width() as i32, pm.height() as i32);
         let mut ctx = self.buffer.render();
         ctx.resize((pw, ph));
