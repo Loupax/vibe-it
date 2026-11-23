@@ -30,11 +30,9 @@ pub enum PopupAction {
 ///   split view: drop.
 pub fn popup_action(disposition: D) -> PopupAction {
     match disposition {
-        D::CEF_WOD_UNKNOWN
-        | D::CEF_WOD_CURRENT_TAB
-        | D::CEF_WOD_SINGLETON_TAB
-        | D::CEF_WOD_NEW_POPUP
-        | D::CEF_WOD_NEW_FOREGROUND_TAB => PopupAction::LoadInPlace,
+        D::CEF_WOD_UNKNOWN | D::CEF_WOD_CURRENT_TAB | D::CEF_WOD_SINGLETON_TAB | D::CEF_WOD_NEW_POPUP | D::CEF_WOD_NEW_FOREGROUND_TAB => {
+            PopupAction::LoadInPlace
+        }
         _ => PopupAction::Drop,
     }
 }
@@ -126,7 +124,13 @@ mod tests {
 
     #[test]
     fn plain_loads_in_place() {
-        for d in [D::CEF_WOD_UNKNOWN, D::CEF_WOD_CURRENT_TAB, D::CEF_WOD_SINGLETON_TAB, D::CEF_WOD_NEW_POPUP, D::CEF_WOD_NEW_FOREGROUND_TAB] {
+        for d in [
+            D::CEF_WOD_UNKNOWN,
+            D::CEF_WOD_CURRENT_TAB,
+            D::CEF_WOD_SINGLETON_TAB,
+            D::CEF_WOD_NEW_POPUP,
+            D::CEF_WOD_NEW_FOREGROUND_TAB,
+        ] {
             assert_eq!(popup_action(d), PopupAction::LoadInPlace, "{d:?}");
         }
     }
