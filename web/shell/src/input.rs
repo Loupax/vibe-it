@@ -70,6 +70,23 @@ impl State {
                 let pointer = self.seat.get_pointer().unwrap();
                 let serial = SERIAL_COUNTER.next_serial();
                 let state = event.state();
+                let button = event.button_code();
+                // C-PICK T66/T67: a press closes the picker; over its list neither the press nor its
+                // release reaches the page (the list was drawn over it).
+                if state == ButtonState::Pressed && self.keys.vim_mode == crate::keys::VimMode::Pick {
+                    let pos = pointer.current_location();
+                    let over = crate::picker::current_rect(&self.keys, &self.layout).is_some_and(|r| r.to_f64().contains(pos));
+                    let swallow = self.keys.pick_click(over);
+                    self.redraw();
+                    if swallow {
+                        self.swallowed_button = Some(button);
+                        return;
+                    }
+                }
+                if state == ButtonState::Released && self.swallowed_button == Some(button) {
+                    self.swallowed_button = None;
+                    return;
+                }
                 if state == ButtonState::Pressed && self.surface_under(pointer.current_location()).is_some() {
                     // T29: a focus change reported soon after this is the user's click.
                     self.last_click = Some(Instant::now());

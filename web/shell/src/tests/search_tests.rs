@@ -52,18 +52,6 @@ fn find(query: &str, dir: FindDir, match_case: bool) -> Effect {
         query: query.into(),
         dir,
         match_case,
-        screen_top: false,
-    })
-}
-
-/// The find a `/query` Enter sends (C5b, T23): from the top of the screen.
-fn find_top(query: &str, match_case: bool) -> Effect {
-    Effect::Send(Command::Find {
-        id: 0,
-        query: query.into(),
-        dir: FindDir::Next,
-        match_case,
-        screen_top: true,
     })
 }
 
@@ -118,7 +106,7 @@ fn keys_t23_enter_runs_the_query_and_shows_the_index() {
     type_str(&mut k, "needle");
     tap(&mut k, KeyInput::sym(Keysym::Return));
     assert_eq!(k.vim_mode, VimMode::Normal);
-    assert_eq!(effects(&mut k), vec![find_top("needle", false)]);
+    assert_eq!(effects(&mut k), vec![find("needle", FindDir::Next, false)]);
     assert_eq!(k.search.query.as_deref(), Some("needle"), "the kept query");
     answer(&mut k, 3, 7);
     assert_eq!(k.message, "[3/7]");
@@ -134,7 +122,7 @@ fn keys_t23_a_new_search_starts_a_fresh_host_session() {
     tap(&mut k, KeyInput::sym(Keysym::Return));
     assert_eq!(
         effects(&mut k),
-        vec![Effect::Send(Command::FindClear), find_top("needle", false)]
+        vec![Effect::Send(Command::FindClear), find("needle", FindDir::Next, false)]
     );
     answer(&mut k, 2, 4);
     assert_eq!(k.message, "[2/4]", "a fresh session never reports a wrap");
@@ -330,7 +318,7 @@ fn keys_smartcase_a_capital_makes_the_search_case_sensitive() {
     tap(&mut k, KeyInput::ch('/'));
     type_str(&mut k, "Foo");
     tap(&mut k, KeyInput::sym(Keysym::Return));
-    assert_eq!(effects(&mut k), vec![find_top("Foo", true)]);
+    assert_eq!(effects(&mut k), vec![find("Foo", FindDir::Next, true)]);
     answer(&mut k, 1, 1);
     tap(&mut k, KeyInput::ch('n'));
     assert_eq!(effects(&mut k), vec![find("Foo", FindDir::Next, true)], "n keeps the case flag");

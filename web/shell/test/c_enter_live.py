@@ -126,7 +126,7 @@ def main():
         def search(query):
             k = log.mark()
             inject("key:slash", "wait:150", *keys_for(query), "key:ret", "wait:900")
-            return bar(r"NORMAL \| (?:search hit \w+, continuing at \w+  )?\[(\d+)/(\d+)\]", k)
+            return bar(r"NORMAL \| \[(\d+)/(\d+)\]", k)
 
         def to_normal():
             if not bar_now().startswith("NORMAL"):

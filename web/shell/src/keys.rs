@@ -95,13 +95,14 @@ pub enum KeyMode {
     Normal,
 }
 
-/// The NORMAL sub-state: the bindings, the `:` line (KEYS.md COMMAND) or the `/` line
-/// (SEARCH).
+/// The NORMAL sub-state: the bindings, the `:` line (KEYS.md COMMAND), the `/` line
+/// (SEARCH) or the picker (PICK, C-PICK, `picker.rs`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VimMode {
     Normal,
     Command,
     Search,
+    Pick,
 }
 
 /// The Esc Esc recogniser's state (KEYS.md ESC1). `Esc1(t)` = one Esc seen at `t`.
@@ -203,6 +204,7 @@ pub const COMMAND_NAMES: &[&str] = &[
     "help",
     "historyBack",
     "historyFront",
+    "historySearch",
     "let",
     "q",
     "quit",
@@ -424,6 +426,8 @@ pub struct Keys {
     /// `:set caret` (C-CARETCMD): Chromium's caret browsing, as last asked of the host. Off at
     /// start, not kept between runs (the host also turns it off at its start).
     pub caret: bool,
+    /// The open picker (C-PICK, `picker.rs`), while `vim_mode` is `Pick`.
+    pub picker: Option<crate::picker::Picker>,
 }
 
 impl Keys {
@@ -436,6 +440,7 @@ impl Keys {
             open_popups: 0,
             popup_return: None,
             caret: false,
+            picker: None,
             line: TextEditBuffer::default(),
             ghost: None,
             cache: CompleteCache::new(state_dir.clone()),
@@ -510,6 +515,7 @@ impl Keys {
                 match self.vim_mode {
                     VimMode::Command => self.command_line_key(key),
                     VimMode::Search => self.search_line_key(key),
+                    VimMode::Pick => self.pick_key(key),
                     VimMode::Normal => return self.normal_key(code, key, repeat),
                 }
                 false
@@ -688,13 +694,11 @@ impl Keys {
         self.search.waiting.clear();
         self.search.index = 0;
         self.search.count = 0;
-        self.send_find(&query, FindDir::Next, true, true);
+        self.send_find(&query, FindDir::Next, true);
         self.search.query = Some(query);
     }
 
-    /// `screen_top`: T23's start (the first match at or below the top of the screen) rather
-    /// than where the engine picks.
-    fn send_find(&mut self, query: &str, dir: FindDir, fresh: bool, screen_top: bool) {
+    fn send_find(&mut self, query: &str, dir: FindDir, fresh: bool) {
         self.search.session = true;
         self.search.last_id += 1;
         let id = self.search.last_id;
@@ -704,7 +708,6 @@ impl Keys {
             query: query.to_string(),
             dir,
             match_case: smartcase_match_case(query),
-            screen_top,
         }));
     }
 
@@ -717,7 +720,7 @@ impl Keys {
         // No host session (Esc, a navigation, or the page changed): the host starts a new
         // one, at its first (n) or last (N) match, so no wrap can be told.
         let fresh = !self.search.session;
-        self.send_find(&query, dir, fresh, false);
+        self.send_find(&query, dir, fresh);
     }
 
     /// T7: highlights go, the query stays.
@@ -758,14 +761,7 @@ impl Keys {
     /// `0/0` at a load start, an answer to a find that a navigation or Esc dropped) is
     /// ignored; the requests older than the answered one will never be answered (the host
     /// answers only the latest) and are dropped with it.
-    #[cfg(test)]
     pub fn find_result(&mut self, id: u64, index: u32, count: u32) {
-        self.find_result_wrapped(id, index, count, false);
-    }
-
-    /// `wrapped` (C5b, T23): the host found no match at or below the top of the screen and
-    /// went to the first one: the BOTTOM wrap message.
-    pub fn find_result_wrapped(&mut self, id: u64, index: u32, count: u32, wrapped: bool) {
         if !self.search.waiting.iter().any(|w| w.0 == id) {
             return;
         }
@@ -783,13 +779,12 @@ impl Keys {
             self.message = pattern_not_found(&query);
             return;
         }
-        let wrapped = wrapped
-            || (!fresh
-                && old > 0
-                && match dir {
-                    FindDir::Next => index <= old,
-                    FindDir::Prev => index >= old,
-                });
+        let wrapped = !fresh
+            && old > 0
+            && match dir {
+                FindDir::Next => index <= old,
+                FindDir::Prev => index >= old,
+            };
         let wrap = match (wrapped, dir) {
             (false, _) => "",
             (true, FindDir::Next) => SEARCH_WRAP_BOTTOM,
@@ -802,10 +797,17 @@ impl Keys {
         };
     }
 
-    fn close_line(&mut self) {
+    /// Closes the `:` or `/` line or the picker (T25, T28, T29, T64).
+    pub(crate) fn close_line(&mut self) {
         self.vim_mode = VimMode::Normal;
         self.line.clear();
         self.ghost = None;
+        self.picker = None;
+    }
+
+    /// The state directory (the history file's), if any.
+    pub fn state_dir(&self) -> Option<PathBuf> {
+        self.state_dir.clone()
     }
 
     /// A key in the `:` line (T26-T28, T45-T53).
@@ -849,7 +851,7 @@ impl Keys {
         }
     }
 
-    fn line_edit_key(&mut self, key: &KeyInput) {
+    pub(crate) fn line_edit_key(&mut self, key: &KeyInput) {
         let s = key.sym;
         if is_paste_chord(key) {
             self.paste();
@@ -931,6 +933,8 @@ impl Keys {
             ("go", _) => self.message = "web: usage: :go <url>".to_string(),
             ("historyBack", []) => send(self, Command::Back),
             ("historyFront", []) => send(self, Command::Forward),
+            // C-PICK: the picker over the history; an argument is the filter already typed.
+            ("historySearch", rest) => self.history_search(&rest.join(" ")),
             ("refresh", []) => send(self, Command::Reload { hard: false }),
             ("refresh", ["hard"]) => send(self, Command::Reload { hard: true }),
             // `:forget-site [site]`: the site is the page's own when omitted.
@@ -992,6 +996,7 @@ impl Keys {
         let prompt = match self.vim_mode {
             VimMode::Command => Some(':'),
             VimMode::Search => Some('/'),
+            VimMode::Pick => Some('>'),
             VimMode::Normal => None,
         };
         let line = prompt.map(|p| (p, self.line.text.clone(), self.line.cursor));

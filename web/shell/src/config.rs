@@ -217,6 +217,19 @@ pub const STATUS_BAR_MODE_FG: (u8, u8, u8) = (120, 200, 255);
 /// Ghost (suggestion) text colour in the `:` line, RGB (dimmed).
 pub const GHOST_FG: (u8, u8, u8) = (120, 120, 120);
 
+// ---------- picker (C-PICK, KEYS.md "Picker") ----------
+
+/// At most this many rows are shown (fewer when the page is shorter); the list scrolls.
+pub const PICKER_MAX_ROWS: usize = 12;
+/// Height of one picker row (and of its header), logical px.
+pub const PICKER_ROW_H: i32 = 22;
+/// Picker background, RGB.
+pub const PICKER_BG: (u8, u8, u8) = (36, 36, 36);
+/// The selected row's background, RGB.
+pub const PICKER_SEL_BG: (u8, u8, u8) = (60, 72, 96);
+/// The source's name in the header, RGB.
+pub const PICKER_HEADER_FG: (u8, u8, u8) = (225, 225, 225);
+
 // ---------- command line and completion ----------
 
 /// Arguments `:refresh` completes (`hard` bypasses the cache).

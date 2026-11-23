@@ -641,32 +641,8 @@ blocked and opened by hand with `:popupOpen` / `:popupSearch`).
 deferred Tabs), C-POPUPS and a "later" list. DECISIONS.md, KEYS.md ("Picker", "Buffers", decision
 log), STASH.md ("Bookmarks"), PROTOCOL.md (note that buffers will change "One page per host").
 
-## 2026-11-23 C6d (dmabuf)
+## 2026-11-23 C-PICK (the picker and `:historySearch`)
 
-Task (coordinator): the shell offered no linux-dmabuf, so CEF handed wl_shm buffers and every
-frame went through the CPU. Measure today's cost (video, css, a new fast-scroll mode; shell CPU
-and the engine's GPU-process CPU), offer zwp_linux_dmabuf_v1 with smithay's DmabufState and
-feedback, import into the GlesRenderer, keep wl_shm as the fallback, re-measure; say what the
-headless nest can and cannot exercise and leave a one-command check for the real desktop.
-Found: the headless dwl nest renders with pixman (the user's wlroots has GLES/Vulkan disabled at
-compile time), offers no dmabuf, and the shell's winit EGL there is llvmpipe; KWin's virtual
-backend (`kwin_wayland --virtual`, own D-Bus session) renders on the RTX 3060 and offers
-linux-dmabuf v5 like the user's Plasma desktop, so it became `web/tools/gpu-nest.sh`. CEF needs no
-flags: with the global offered its GPU process composites on the GPU and creates dmabufs by itself.
-Done: `src/dmabuf.rs` (decide: GPU renderer with importable formats and a DRM node -> v5 global
-with one feedback tranche; software / no formats / no node / `WEB_NO_DMABUF=1` -> wl_shm only,
-logged with the reason), DmabufHandler (import into the renderer; a failed import is logged and
-disables the global for later clients). Bench: `scroll` mode, engine CPU by process kind (zygote
-children are told apart by thread names), `--wayland`, `--wayland-debug` (counts wl_shm pools and
-dmabufs from WAYLAND_DEBUG=server). `test/c6d_desktop_check.sh` for the real desktop.
-Measured (GPU nest, release, perf lock, load 1.5-5, % of one core, 2 runs averaged): scroll shell
-7.5 -> 3.0, engine GPU process 27.5 -> 3.5, engine total 36.5 -> 8.0; video and css about the same
-(small damage; css engine +2 points with GPU compositing). dwl nest unchanged (shm, as before).
+> (coordinator) C-PICK: implement the picker exactly as web/TODO.txt and KEYS.md "Picker" specify (the shell draws a list over the page above the status bar, fuzzy-filtered as you type, its own PICK mode, opened only by dedicated commands). Build the generic picker plus the source(s) the TODO assigns to C-PICK (e.g. `:historySearch`); leave a clean source interface for bookmarks, buffers and popups (later items). Respect the KEYS.md rows (add the PICK mode's rows/transitions to KEYS.md if the plan left them for the implementer, with the user's words from the decision), drawing at the window's scale, keyboard only, status-bar integration, and no change to `:go`'s ghost completion.
 
-
-## 2026-11-23 C5b (exact T23: `/query` Enter makes the first match at or below the top of the screen current)
-> (coordinator) Exact T23: first current match = first whose top is at/below the top of the screen (CEF picks its own, e.g. one above the screen). Smallest mechanism: either a host `find-matches` event with every match rectangle and the shell stepping `find next`, or a way to start CEF's find at the viewport top (collapse the selection at the first visible text before find). Prefer the second if it works reliably; say what you tried. Keep `[i/N]` correct. Done when unit tests for the choosing logic pass and c5_live gains steps: scrolled to the middle with matches above and below, `/needle` Enter makes the first one below the screen top current with the right [i/N]; with none below, the wrap message appears.
-
-Took the second way, and it works: Chromium's find starts from the selection. Not tried: stepping CEF's find to collect rectangles (N round trips on a big page) or the `find-matches` event. New optional `screen_top` on `find` (the shell sets it for `/` Enter only, not `n`/`N`, not `n` after Esc). The host (`page.rs`) then runs `host-cef/src/find_start.js` in the main frame: it walks the text nodes and text-field values in document order, takes the first one with a line whose top is at or below y=0 (bisecting the offset inside a multi-line node), and collapses the selection there; the page answers with a console line `web-host.find-start:<0|1>` (CEF's `on_console_message`; execute_java_script returns nothing), and only then does the host start the find (stop_finding, find, the one step that activates a match). No match at or below the top but one above: the selection goes to the document start (the find lands on match 1) and `find-result` gets `"wrapped":true`, which the shell shows as the BOTTOM wrap message with `[1/N]`. Limits: a match split over elements, in shadow DOM or an iframe is not seen by the walk (no wrap is claimed then); the console line can be forged by a page (worst effect: a waiting find starts early or claims a wrap). A load start or `find-clear` drops a waiting start.
-
-Tests: `shell/src/tests/c5b_tests.rs` (screen_top only on `/` Enter, the wrap flag, Pattern not found, `n` still wraps), search_tests updated for `screen_top`, protocol round trips on both sides, `find_start_js` escaping in `host-cef/src/page.rs`. c5_live gained three steps (screen at y=1710: match 3 (top 2200), not CEF's 2; again with the old match still selected at y=3420: match 5; at the end of the page, the last match above the screen: 1/6 with the wrap message); they fail 3/3 with `screen_top` off. The T24/T25 steps now accept a wrap message in the bar (the search now starts where the screen is). KEYS.md T23 web note and PROTOCOL.md updated.
+New `shell/src/picker.rs`: rows (label, dimmed detail, fields to match, `PickAction`), fzf-style fuzzy scoring (terms in any field, word-start and run bonuses, gap costs, smartcase), ranking best first with ties in the source's order, the selection (no wrap, scrolling), the overlay's geometry and painting (the bar's `Painter`, at the scale), and the PICK keys as an `impl Keys`. `keys.rs` gets `VimMode::Pick`, the `picker` field, the `:historySearch` command and the `>` prompt; `input.rs` closes the picker on a mouse press (kept from the page over the list); `render.rs` adds the overlay element. KEYS.md "Picker" now has rows T58-T68 (T29/T33 include PICK) and the implementer's choices in the decision log; `:go`'s ghost is unchanged apart from `historySearch` joining the command names. Tests `tests/c_pick_tests.rs` (25, named after the rows plus matching, ranking, scroll and scale); live check `test/c_pick_live.py` in the headless nest (6/6: open on a seeded history, the list drawn above the bar at scale 1 and 2 checked in grim shots, filter, Down/Ctrl-p/Ctrl-n, Enter loads the chosen URL, Esc loads nothing).
