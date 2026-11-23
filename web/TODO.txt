@@ -128,8 +128,7 @@ stop early on a hard failure.
 - [-] P-FORGET-CACHE (MOOT: #670 found no per-origin HTTP cache clear in CEF or DevTools; was: optional) Clear only the site's HTTP cache entries instead of
       the whole cache (needs DevTools or another mechanism).
 
-- [x] C-NOTAB [S] (DONE 2026-11-23, 866ea8b, #672; LIVE CHECK OWED: re-run web/host-cef/test/notab.py after
-      NEST-HEADLESS (menu contents, ctrl/middle/shift/ctrl+shift clicks); unit-tested only) (user, 2026-11-23: "can we remove tab opening functionality in general, like from
+- [x] C-NOTAB [S] (DONE 2026-11-23, 866ea8b, #672; live check done in #673: notab.py PASS headless) (user, 2026-11-23: "can we remove tab opening functionality in general, like from
       context menus and such?") No way to open a second tab or window from the page: remove the
       context-menu items (open link in new tab/window, incognito, etc.), and make Ctrl/Shift/middle-
       click on links open nothing new. Script window.open / target=_blank keep loading in the same page
@@ -150,11 +149,15 @@ stop early on a hard failure.
       target) that puts web, web-host-cef and the CEF runtime in one prefix (e.g. ~/.local/lib/web +
       ~/.local/bin/web), and ci_then_push.sh `--install web` calling it. Done when `web https://example.com`
       works from a fresh shell after the install.
+- [ ] NEST-WINKEYMAP [XS] (from #673) Windowed nest: a client started after an inject run ended gets no keymap
+      and Chromium crashes on the first modifiers event (the headless patch handles it; windowed does not).
 - [ ] C-KEYH [S] (from #672) The cef crate's KeyboardHandler wrapper treats `os_event` as an XEvent and
       segfaults the host on Wayland. Needed if C3 wants key events from the host; fix or work around
       upstream/in a local patch when that comes up.
 
-- [WIP] NEST-HEADLESS [S] (user, 2026-11-23: the monitor moves to the work laptop; NEXT free slot) Live tests
+- [x] NEST-HEADLESS [S] (DONE 2026-11-23, 5864476, #673: headless dwl by default via a small patch built from
+      ~/src/dotfiles/dwl into .qwork/nest-dwl; inject motion-time fix; Xwayland works headless; drive.py,
+      notab.py, shell live.py 16/16 pass with no display) (user, 2026-11-23: the monitor moves to the work laptop; NEXT free slot) Live tests
       must run with no display connected. Today tools/nest.sh runs dwl on the wayland backend (a window
       on the user's desktop) because headless dwl offers no input; with no output it stops getting
       frame callbacks and live runs stall. Make a nested compositor that needs no display AND accepts
