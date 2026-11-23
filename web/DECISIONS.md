@@ -2,6 +2,14 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-23 Focusing an editable switches to INPUT
+
+User: "when input elements gain focus, we should automatically switch to Input Mode. No auto-return on
+blur since the exit of the form context isn't that clear." Any `editable-focused true` from the host
+switches to INPUT, whether a click, the keyboard or page script (`autofocus`, `el.focus()`) caused it.
+This reverses KEYS.md T32 (a page could not pull the user out of NORMAL). Blur never changes the mode.
+Known effect: pages that autofocus a field (search engines, login pages) open in INPUT. Done in C3-RCLICK.
+
 ## 2026-11-23 Popups return to the previous mode
 
 User, on C3's rule that a click opening a popup (context menu, select dropdown) switches to INPUT: "I
