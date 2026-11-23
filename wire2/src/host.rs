@@ -107,9 +107,92 @@ pub fn authority_host(host: &str) -> String {
     }
 }
 
+/// Normalise a host glob (`--no-decrypt`, `--test-resolve`, later a filter's `hosts`): `*` stays the
+/// wildcard, every label without one is normalised like a host, so `*.Bücher.Example.` becomes
+/// `*.xn--bcher-kva.example` and matches what [`normalise_host`] produces.
+pub fn normalise_glob(raw: &str) -> Result<String, HostError> {
+    if raw == "*" {
+        return Ok(raw.into());
+    }
+    if !raw.contains('*') {
+        return normalise_host(raw);
+    }
+    let bad = |why: &str| HostError(format!("bad host glob {raw:?}: {why}"));
+    let name = raw.strip_suffix('.').unwrap_or(raw);
+    let mut out = Vec::new();
+    for label in name.split('.') {
+        if label.contains('*') {
+            if !label
+                .bytes()
+                .all(|b| b == b'*' || b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+            {
+                return Err(bad(
+                    "a label with `*` may hold only ASCII letters, digits, - and _",
+                ));
+            }
+            out.push(label.to_ascii_lowercase());
+        } else {
+            out.push(normalise_host(label).map_err(|_| bad("bad label"))?);
+        }
+    }
+    Ok(out.join("."))
+}
+
+/// Does the normalised `host` match the normalised `glob`? `*` matches any run of characters, dots
+/// included; everything else matches literally. `*.example.com` therefore does not match `example.com`
+/// (SPEC), but does match `a.b.example.com`.
+pub fn glob_match(glob: &str, host: &str) -> bool {
+    let (g, h) = (glob.as_bytes(), host.as_bytes());
+    let (mut gi, mut hi) = (0, 0);
+    let mut star: Option<(usize, usize)> = None;
+    while hi < h.len() {
+        if gi < g.len() && g[gi] == b'*' {
+            star = Some((gi, hi));
+            gi += 1;
+        } else if gi < g.len() && g[gi] == h[hi] {
+            gi += 1;
+            hi += 1;
+        } else if let Some((sg, sh)) = star {
+            gi = sg + 1;
+            hi = sh + 1;
+            star = Some((sg, sh + 1));
+        } else {
+            return false;
+        }
+    }
+    g[gi..].iter().all(|&b| b == b'*')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn globs() {
+        assert!(glob_match("*", "anything.test"));
+        assert!(glob_match("*.example.com", "www.example.com"));
+        assert!(glob_match("*.example.com", "a.b.example.com"));
+        assert!(!glob_match("*.example.com", "example.com"));
+        assert!(!glob_match("*.example.com", "badexample.com"));
+        assert!(glob_match("example.com", "example.com"));
+        assert!(!glob_match("example.com", "www.example.com"));
+        assert!(glob_match("www.*.test", "www.a.test"));
+        assert!(glob_match("cdn*.example", "cdn12.example"));
+        assert!(!glob_match("cdn*.example", "cdn12.example.evil"));
+        assert!(glob_match("::1", "::1"));
+        assert_eq!(
+            normalise_glob("*.Bücher.Example.").unwrap(),
+            "*.xn--bcher-kva.example"
+        );
+        assert_eq!(
+            normalise_glob("WWW.Example.TEST.").unwrap(),
+            "www.example.test"
+        );
+        assert_eq!(normalise_glob("[::1]").unwrap(), "::1");
+        assert_eq!(normalise_glob("*").unwrap(), "*");
+        assert!(normalise_glob("*.ex ample").is_err());
+        assert!(normalise_glob("a..*").is_err());
+    }
 
     #[test]
     fn normalises_names() {

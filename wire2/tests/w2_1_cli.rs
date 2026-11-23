@@ -27,9 +27,10 @@ fn unknown_and_not_yet_flags_are_errors() {
     let (code, err) = run(&["--filter", "unix:/tmp/pass.sock"]);
     assert_eq!(code, 2);
     assert!(err.contains("--filter is not supported yet"), "{err}");
-    let (code, err) = run(&["--ca-dir", "/tmp/x"]);
+    // W2-2: --ca-dir and --no-decrypt exist now; a bad glob is still a startup error.
+    let (code, err) = run(&["--no-decrypt", "a..b"]);
     assert_eq!(code, 2);
-    assert!(err.contains("--ca-dir is not supported yet"), "{err}");
+    assert!(err.contains("bad host glob"), "{err}");
     let (code, _) = run(&["--help"]);
     assert_eq!(code, 0);
 }

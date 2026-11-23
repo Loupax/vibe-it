@@ -1,14 +1,18 @@
 //! Upstream connector: resolves the host itself (browsers send names to a proxy) and dials it.
 //!
 //! In W2-F this becomes the place that first sends `CONNECT host:port` through the tunnel filters that
-//! claim the host; in W2-2 it also opens verified TLS. Callers only see [`dial`] and [`DialError`].
+//! claim the host. For decrypted hosts [`dial_tls`] also opens TLS, verified against the system roots.
+//! Callers only see [`dial`], [`dial_tls`] and [`DialError`].
 
 use std::fmt;
 use std::io;
 use std::net::{IpAddr, SocketAddr};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use tokio::net::TcpStream;
+use tokio_rustls::client::TlsStream;
+use tokio_rustls::rustls::pki_types::ServerName;
 
 #[derive(Debug)]
 pub enum DialError {
@@ -18,10 +22,12 @@ pub enum DialError {
     Connect(String),
     /// No connection within `--dial-timeout`.
     Timeout(Duration),
+    /// The upstream TLS handshake failed (bad certificate, wrong name, protocol error).
+    Tls(String),
 }
 
 impl DialError {
-    /// SPEC: DNS failure or refused connection -> 502, dial timeout -> 504.
+    /// SPEC: DNS failure, refused connection or upstream TLS failure -> 502, dial timeout -> 504.
     pub fn status(&self) -> u16 {
         match self {
             DialError::Timeout(_) => 504,
@@ -36,7 +42,50 @@ impl fmt::Display for DialError {
             DialError::Dns(e) => write!(f, "dns: {e}"),
             DialError::Connect(e) => write!(f, "connect: {e}"),
             DialError::Timeout(d) => write!(f, "dial timeout after {}ms", d.as_millis()),
+            DialError::Tls(e) => write!(f, "upstream tls: {e}"),
         }
+    }
+}
+
+/// TEST-ONLY name mapping from `--test-resolve GLOB=IP` (W2-1a). Set once at startup; empty in
+/// normal use, and then [`dial`] always asks the system resolver.
+static TEST_RESOLVE: OnceLock<Vec<(String, IpAddr)>> = OnceLock::new();
+
+pub fn set_test_resolve(map: Vec<(String, IpAddr)>) {
+    let _ = TEST_RESOLVE.set(map);
+}
+
+fn test_resolved(host: &str) -> Option<IpAddr> {
+    TEST_RESOLVE
+        .get()?
+        .iter()
+        .find(|(g, _)| crate::host::glob_match(g, host))
+        .map(|(_, ip)| *ip)
+}
+
+/// [`dial`], then TLS to `host` verified against the system roots (`decrypt::upstream_config`), with
+/// SNI and ALPN `http/1.1`. The handshake gets its own `timeout`.
+pub async fn dial_tls(
+    host: &str,
+    port: u16,
+    timeout: Duration,
+) -> Result<TlsStream<TcpStream>, DialError> {
+    let tcp = dial(host, port, timeout).await?;
+    let cfg = crate::decrypt::upstream_config().map_err(DialError::Tls)?;
+    let name = match host.parse::<IpAddr>() {
+        Ok(ip) => ServerName::IpAddress(ip.into()),
+        Err(_) => ServerName::try_from(host.to_string())
+            .map_err(|e| DialError::Tls(format!("server name {host:?}: {e}")))?,
+    };
+    match tokio::time::timeout(
+        timeout,
+        tokio_rustls::TlsConnector::from(cfg).connect(name, tcp),
+    )
+    .await
+    {
+        Ok(Ok(s)) => Ok(s),
+        Ok(Err(e)) => Err(DialError::Tls(e.to_string())),
+        Err(_) => Err(DialError::Timeout(timeout)),
     }
 }
 
@@ -49,9 +98,9 @@ pub async fn dial(host: &str, port: u16, timeout: Duration) -> Result<TcpStream,
 }
 
 async fn dial_inner(host: &str, port: u16) -> Result<TcpStream, DialError> {
-    let addrs: Vec<SocketAddr> = match host.parse::<IpAddr>() {
-        Ok(ip) => vec![SocketAddr::new(ip, port)],
-        Err(_) => tokio::net::lookup_host((host, port))
+    let addrs: Vec<SocketAddr> = match host.parse::<IpAddr>().ok().or_else(|| test_resolved(host)) {
+        Some(ip) => vec![SocketAddr::new(ip, port)],
+        None => tokio::net::lookup_host((host, port))
             .await
             .map_err(|e| DialError::Dns(e.to_string()))?
             .collect(),

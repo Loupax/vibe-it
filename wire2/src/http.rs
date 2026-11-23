@@ -18,6 +18,17 @@ pub struct RequestHead {
     pub method: String,
     pub target: String,
     pub headers: Headers,
+    /// Minor version: 1 for HTTP/1.1, 0 for HTTP/1.0.
+    pub version: u8,
+}
+
+impl RequestHead {
+    /// Does the browser want the connection closed after this exchange (RFC 9112 9.3)?
+    pub fn wants_close(&self) -> bool {
+        let t = tokens(&self.headers, "connection");
+        t.iter().any(|t| t == "close")
+            || (self.version == 0 && !t.iter().any(|t| t == "keep-alive"))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -118,6 +129,7 @@ pub fn parse_request(buf: &[u8]) -> Result<Option<(RequestHead, usize)>, String>
                 method: req.method.unwrap_or_default().to_string(),
                 target: req.path.unwrap_or_default().to_string(),
                 headers: owned_headers(req.headers)?,
+                version: req.version.unwrap_or(1),
             };
             Ok(Some((head, len)))
         }
@@ -313,6 +325,7 @@ pub fn reason(code: u16) -> &'static str {
         403 => "Forbidden",
         405 => "Method Not Allowed",
         408 => "Request Timeout",
+        421 => "Misdirected Request",
         431 => "Request Header Fields Too Large",
         501 => "Not Implemented",
         502 => "Bad Gateway",

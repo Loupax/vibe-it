@@ -16,9 +16,13 @@ tokio-util = "0.7"
 httparse = "1"
 idna = "1"
 libc = "0.2"
+# W2-2 TLS interception: rustls (ring backend, no C toolchain needed), certificates minted with rcgen
+# (x509-parser to reload an existing CA), upstream roots from the system store.
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rcgen = { version = "0.13", default-features = false, features = ["ring", "pem", "x509-parser"] }
+rustls-native-certs = "0.8"
+time = "0.3"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
-tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
-rcgen = "0.13"
 tempfile = "3"

@@ -19,6 +19,17 @@ pub struct Config {
     pub allow_remote: bool,
     pub dial_timeout: Duration,
     pub log_level: Level,
+    /// `--no-decrypt` host globs, normalised (SPEC: never decrypted, whatever a filter claims).
+    pub no_decrypt: Vec<String>,
+    /// `--ca-dir`; `None` means the spec default `$XDG_DATA_HOME/proxy`, resolved when the CA is needed.
+    pub ca_dir: Option<PathBuf>,
+    /// TEST-ONLY `--test-resolve GLOB=IP` (W2-1a): names the upstream connector maps to an address
+    /// instead of asking DNS, so tests can use `www.example.test`. Not in `--help`.
+    pub test_resolve: Vec<(String, IpAddr)>,
+    /// TEST-ONLY `--test-decrypt GLOB`: a stand-in for an http-layer filter claiming these hosts, so the
+    /// decrypted path can be exercised before filters exist (W2-F brings the spec's pass-decrypt). Not
+    /// in `--help`.
+    pub test_decrypt: Vec<String>,
 }
 
 pub enum Parsed {
@@ -30,18 +41,24 @@ pub enum Parsed {
 pub const USAGE: &str = "\
 usage: wire2 [--listen 127.0.0.1:8080 | --listen unix:<path>] [--allow-remote]
              [--dial-timeout 10s] [--log-level error|warn|info|debug]
+             [--no-decrypt GLOB]... [--ca-dir DIR]
 
-Local forward proxy (wire2/SPEC.md). This build is step W2-1: with no filters every CONNECT is an
-opaque tunnel and plain http:// requests are forwarded; nothing is decrypted and no CA is created.
+Local forward proxy (wire2/SPEC.md), steps W2-1 and W2-2: CONNECT tunnels and plain http:// requests
+are forwarded. TLS is decrypted only for hosts an http-layer filter claims; filters arrive with W2-F,
+so this build decrypts nothing and creates no CA.
 
   --listen ADDR        host:port for the browser's HTTP proxy setting (default 127.0.0.1:8080; port 0
                        picks a free one), or unix:<path> for a forwarder inside a network namespace.
   --allow-remote       allow a non-loopback --listen address (otherwise refused: an open proxy).
   --dial-timeout DUR   upstream TCP connect timeout, e.g. 10s, 500ms, 2m (default 10s).
   --log-level LEVEL    error, warn, info (default) or debug.
+  --no-decrypt GLOB    host never decrypted, even when an http filter claims it (repeatable). `*` matches
+                       any run of characters; *.example.com does not match example.com.
+  --ca-dir DIR         where the CA is created on first need (default $XDG_DATA_HOME/proxy). ca.pem is
+                       what the browser imports; ca-key.pem (mode 0600) never leaves this directory.
   --help, --version
 
-Not yet in this build: --filter, --hub, --connect-timeout, --stage-timeout (W2-F), --no-decrypt, --ca-dir (W2-2).
+Not yet in this build: --filter, --hub, --connect-timeout, --stage-timeout (W2-F).
 ";
 
 /// Parse `10s`, `500ms`, `2m`, `1h` or a bare number of seconds.
@@ -98,6 +115,10 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Parsed, Str
     let mut allow_remote = false;
     let mut dial_timeout = Duration::from_secs(10);
     let mut log_level = Level::Info;
+    let mut no_decrypt = Vec::new();
+    let mut ca_dir = None;
+    let mut test_resolve = Vec::new();
+    let mut test_decrypt = Vec::new();
     let mut it = args.into_iter();
     while let Some(arg) = it.next() {
         let (flag, inline) = match arg.split_once('=') {
@@ -130,11 +151,29 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Parsed, Str
                     "{flag} is not supported yet (filters arrive with step W2-F)"
                 ));
             }
-            "--no-decrypt" | "--ca-dir" => {
-                return Err(format!(
-                    "{flag} is not supported yet (decryption arrives with step W2-2)"
-                ));
+            "--no-decrypt" => no_decrypt.push(parse_glob(&value(&mut it)?)?),
+            "--ca-dir" => {
+                let v = value(&mut it)?;
+                if v.is_empty() {
+                    return Err("--ca-dir needs a directory".into());
+                }
+                ca_dir = Some(PathBuf::from(v));
             }
+            // TEST-ONLY flags, deliberately absent from USAGE (NOTES.md "Test-only flags"); using one
+            // logs a warning at startup.
+            "--test-resolve" => {
+                let v = value(&mut it)?;
+                let (name, ip) = v
+                    .split_once('=')
+                    .ok_or_else(|| format!("--test-resolve {v:?}: expected GLOB=IP"))?;
+                let ip: IpAddr = ip
+                    .trim_start_matches('[')
+                    .trim_end_matches(']')
+                    .parse()
+                    .map_err(|_| format!("--test-resolve {v:?}: bad IP address"))?;
+                test_resolve.push((parse_glob(name)?, ip));
+            }
+            "--test-decrypt" => test_decrypt.push(parse_glob(&value(&mut it)?)?),
             _ => return Err(format!("unknown argument {arg:?}")),
         }
     }
@@ -151,7 +190,17 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Parsed, Str
         allow_remote,
         dial_timeout,
         log_level,
+        no_decrypt,
+        ca_dir,
+        test_resolve,
+        test_decrypt,
     }))
+}
+
+/// A host glob as written on the command line, normalised like hosts are (lowercase, no trailing dot,
+/// punycode, canonical IP), with `*` kept as the wildcard.
+pub fn parse_glob(s: &str) -> Result<String, String> {
+    crate::host::normalise_glob(s).map_err(|e| format!("bad host glob {s:?}: {e}"))
 }
 
 #[cfg(test)]
@@ -205,11 +254,14 @@ mod tests {
                 .unwrap_err()
                 .contains("not supported yet")
         );
+        assert!(run(&["--no-decrypt", "a..b"]).is_err());
         assert!(
-            run(&["--no-decrypt", "*.bank"])
+            run(&["--no-decrypt"])
                 .unwrap_err()
-                .contains("not supported yet")
+                .contains("needs a value")
         );
+        assert!(run(&["--test-resolve", "a.test"]).is_err());
+        assert!(run(&["--test-resolve", "a.test=nope"]).is_err());
         assert!(run(&["--listen"]).unwrap_err().contains("needs a value"));
         assert!(
             run(&["--listen", "0.0.0.0:8080"])
@@ -225,6 +277,36 @@ mod tests {
         assert!(run(&["--listen", "example.com:80"]).is_err());
         assert!(run(&["--dial-timeout", "0"]).is_err());
         assert!(run(&["--dial-timeout", "5parsecs"]).is_err());
+    }
+
+    #[test]
+    fn decrypt_flags() {
+        let c = run(&[
+            "--no-decrypt",
+            "*.Bank.Example.",
+            "--no-decrypt=Bücher.de",
+            "--ca-dir",
+            "/x/ca",
+            "--test-resolve",
+            "WWW.example.test=127.0.0.1",
+            "--test-resolve",
+            "*.v6.test=[::1]",
+            "--test-decrypt",
+            "*.example.test",
+        ])
+        .unwrap();
+        assert_eq!(c.no_decrypt, vec!["*.bank.example", "xn--bcher-kva.de"]);
+        assert_eq!(c.ca_dir, Some(PathBuf::from("/x/ca")));
+        assert_eq!(
+            c.test_resolve,
+            vec![
+                ("www.example.test".to_string(), "127.0.0.1".parse().unwrap()),
+                ("*.v6.test".to_string(), "::1".parse().unwrap())
+            ]
+        );
+        assert_eq!(c.test_decrypt, vec!["*.example.test"]);
+        let d = run(&[]).unwrap();
+        assert!(d.no_decrypt.is_empty() && d.ca_dir.is_none() && d.test_decrypt.is_empty());
     }
 
     #[test]

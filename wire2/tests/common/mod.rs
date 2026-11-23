@@ -25,6 +25,12 @@ pub struct Proxy {
 
 impl Proxy {
     pub fn start(args: &[&str]) -> Proxy {
+        Proxy::start_env(args, &[])
+    }
+
+    /// Like [`Proxy::start`] with extra environment variables (e.g. `SSL_CERT_FILE` for the upstream
+    /// roots of decrypted tests).
+    pub fn start_env(args: &[&str], envs: &[(&str, &Path)]) -> Proxy {
         let dir = tempfile::tempdir().unwrap();
         let mut full: Vec<String> = args.iter().map(|s| s.to_string()).collect();
         if !args.contains(&"--listen") {
@@ -34,6 +40,7 @@ impl Proxy {
             .args(&full)
             .env("XDG_DATA_HOME", dir.path().join("data"))
             .env("XDG_RUNTIME_DIR", dir.path().join("run"))
+            .envs(envs.iter().map(|(k, v)| (*k, *v)))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -561,4 +568,97 @@ fn sha1_and_base64_known_answers() {
         "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
     );
     assert_eq!(base64(b"ab"), "YWI=");
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Browser-side TLS for decrypted tunnels (W2-2)
+
+use tokio_rustls::client::TlsStream;
+use tokio_rustls::rustls::pki_types::{CertificateDer, ServerName};
+
+/// The test root as a file, for `SSL_CERT_FILE`.
+pub fn root_file(pki: &Pki) -> tempfile::NamedTempFile {
+    let f = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(f.path(), &pki.ca_pem).unwrap();
+    f
+}
+
+/// A browser-side TLS client that trusts exactly the PEM certificates in `pem`.
+pub fn client_trusting(pem: &str) -> Arc<rustls::ClientConfig> {
+    let mut roots = rustls::RootCertStore::empty();
+    for c in pem_certs(pem) {
+        roots.add(c).unwrap();
+    }
+    let mut cfg = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .unwrap()
+    .with_root_certificates(roots)
+    .with_no_client_auth();
+    // Like a browser: offer h2 too; the proxy must pick http/1.1.
+    cfg.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+    Arc::new(cfg)
+}
+
+pub fn pem_certs(pem: &str) -> Vec<CertificateDer<'static>> {
+    let mut out = Vec::new();
+    for block in pem.split("-----BEGIN CERTIFICATE-----").skip(1) {
+        let b64: String = block
+            .split("-----END CERTIFICATE-----")
+            .next()
+            .unwrap()
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect();
+        out.push(CertificateDer::from(unbase64(&b64)));
+    }
+    out
+}
+
+pub fn unbase64(s: &str) -> Vec<u8> {
+    let val = |c: u8| -> u32 {
+        match c {
+            b'A'..=b'Z' => (c - b'A') as u32,
+            b'a'..=b'z' => (c - b'a' + 26) as u32,
+            b'0'..=b'9' => (c - b'0' + 52) as u32,
+            b'+' => 62,
+            b'/' => 63,
+            _ => panic!("bad base64"),
+        }
+    };
+    let bytes: Vec<u8> = s.bytes().filter(|&c| c != b'=').collect();
+    let mut out = Vec::new();
+    for ch in bytes.chunks(4) {
+        let mut n = 0u32;
+        for (i, &c) in ch.iter().enumerate() {
+            n |= val(c) << (18 - 6 * i);
+        }
+        let take = ch.len() * 6 / 8;
+        out.extend_from_slice(&n.to_be_bytes()[1..1 + take]);
+    }
+    out
+}
+
+pub fn ca_dir(p: &Proxy) -> PathBuf {
+    p.data_dir().join("proxy")
+}
+
+pub fn ca_pem(p: &Proxy) -> String {
+    std::fs::read_to_string(ca_dir(p).join("ca.pem")).expect("ca.pem")
+}
+
+/// CONNECT through the proxy, then TLS with `cfg` for `sni`.
+pub async fn tls_via(
+    proxy: std::net::SocketAddr,
+    target: &str,
+    sni: &str,
+    cfg: Arc<rustls::ClientConfig>,
+) -> Result<TlsStream<TcpStream>, std::io::Error> {
+    let (s, head, rest) = connect_via(proxy, target).await;
+    assert_eq!(status_of(&head), 200, "{head}");
+    assert!(rest.is_empty());
+    tokio_rustls::TlsConnector::from(cfg)
+        .connect(ServerName::try_from(sni.to_string()).unwrap(), s)
+        .await
 }
