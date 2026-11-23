@@ -105,8 +105,14 @@ host-cef it is in CI (it needs only libxkbcommon to link).
   backend reports (1 under the nest's Xwayland, which then scales the window up). Tests
   `src/tests/c6b_tests.rs`, live check `test/c6b_live.py`.
 
-Not in C2/C3/C5/C6 (later items): frame pacing, dmabuf, IME, the desktop's keyboard layout (the shell uses
-xkbcommon's default, i.e. `XKB_DEFAULT_*` or us).
+Not in C2/C3/C5/C6 (later items): frame pacing, dmabuf, IME.
+
+The desktop's keyboard layout (C-KEYMAP, `src/keymap.rs`): the shell's seat (and so the page and the
+shell's own keysym bindings) uses the desktop's keymap, read on a worker thread: on Wayland a second
+`wl_keyboard` on the window's own connection (keymap on start and on every change, plus the active
+layout group of its `modifiers`), on X11 the XKB extension and libxkbcommon-x11 (`NewKeyboardNotify`,
+`MapNotify`, group `StateNotify`). Without a desktop keymap it falls back to xkbcommon's default
+(`XKB_DEFAULT_*` or us). Live check `test/c_keymap_live.py` (de, fr, layout groups, X11 with setxkbmap).
 
 ## Build and test
 

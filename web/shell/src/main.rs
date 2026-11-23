@@ -144,16 +144,14 @@ fn main() {
         let mut latest = keymap::Latest::default();
         event_loop
             .handle()
-            .insert_source(keymap_rx, move |ev, _, state| {
-                match ev {
-                    calloop::channel::Event::Msg(keymap::Update::Keymap(text)) => {
-                        if latest.is_new(&text) && !state.set_desktop_keymap(text) {
-                            latest.forget();
-                        }
+            .insert_source(keymap_rx, move |ev, _, state| match ev {
+                calloop::channel::Event::Msg(keymap::Update::Keymap(text)) => {
+                    if latest.is_new(&text) && !state.set_desktop_keymap(text) {
+                        latest.forget();
                     }
-                    calloop::channel::Event::Msg(keymap::Update::Group(g)) => state.set_desktop_group(g),
-                    calloop::channel::Event::Closed => {}
                 }
+                calloop::channel::Event::Msg(keymap::Update::Group(g)) => state.set_desktop_group(g),
+                calloop::channel::Event::Closed => {}
             })
             .unwrap();
         keymap::start(kind, keymap_tx);

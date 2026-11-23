@@ -112,8 +112,10 @@ def main():
         ow, oh = live.png_size(shot)
         bx, by = (ow - ww) // 2, (oh - wh) // 2
 
+        grp = [None]  # the active layout group: a virtual keyboard starts at 0 in every inject run
+
         def inject(*cmds):
-            args = []
+            args = [f"group:{grp[0]}", "wait:150"] if grp[0] is not None else []
             for c in cmds:
                 mm = re.fullmatch(r"move:(-?\d+),(-?\d+)", c)
                 args.append(f"move:{int(mm[1]) + bx},{int(mm[2]) + by}" if mm else c)
@@ -201,39 +203,75 @@ def main():
             step("group 0 (us) types y,z", g0)
 
             def g1():
+                grp[0] = 1  # what Alt+Shift gives (us,de,gr): the virtual keyboard sets the group itself
                 k = log.mark()
-                inject("group:1", "wait:400")
+                inject("wait:100")
                 log.wait(r"desktop layout group: 1", k, timeout=6)
                 return "group 1 (de): physical Y,Z -> " + type_physical([Y, Z], "zy")
             step("group 1 (de) types z,y", g1)
             step("group 1 (de): ':' (Shift+period) opens the command line", lambda: line_opens(":", shift(DOT)))
 
             def g0_again():
+                grp[0] = 0
                 k = log.mark()
-                inject("group:0", "wait:400")
-                log.wait(r"desktop layout group: 0", k, timeout=6)
+                inject("wait:100")
                 into_field()
                 return "back to group 0: physical Y,Z -> " + type_physical([Y, Z], "yz")
             step("back to group 0 (us) types y,z", g0_again)
         else:
-            def x_set(layout):
-                subprocess.run(["setxkbmap", "-display", x_env["DISPLAY"], layout], check=True)
+            # Keys go in through XTEST (xdotool, X keycodes of the current X keymap), not through dwl:
+            # dwl's seat re-sends its own keymap whenever input starts, and Xwayland then replaces
+            # whatever setxkbmap set. With XTEST the key the page gets is decided by the X server's
+            # keymap (what the user's key press would give) and the shell's seat has to agree.
+            def xk(*names):
+                subprocess.run(["xdotool", "key", "--delay", "40"] + list(names), env=x_env, check=True)
+                time.sleep(0.4)
 
-            def x_layout(layout, y_z, a_q):
+            def x_set(layout):
                 k = log.mark()
-                x_set(layout)
+                subprocess.run(["setxkbmap", "-display", x_env["DISPLAY"], layout], check=True)
                 log.wait(r"desktop keymap: ", k, timeout=10)
-                time.sleep(0.5)
-                into_field()
-                v = type_physical([Y, Z], y_z)
-                v2 = type_physical([A, Q], a_q)
-                return f"setxkbmap {layout}: physical Y,Z,A,Q -> ...{v2[-4:]}"
+                time.sleep(0.4)
+
+            def x_field():
+                xk("Escape", "Escape")
+                xk("i")
+                xk("End")
+
+            def x_types(keysyms, want):
+                before = last_value()
+                xk(*keysyms)
+                end = time.monotonic() + 5
+                while time.monotonic() < end:
+                    v = last_value()
+                    if v != before and v.endswith(want):
+                        return v
+                    time.sleep(0.2)
+                raise Fail(f"xdotool keys {keysyms} typed into {before!r} gave {last_value()!r}, want ...{want!r}")
+
+            def x_layout(layout):
+                x_set(layout)
+                x_field()
+                # The same keysyms are typed whatever the layout (xdotool finds the keycode in the
+                # X server's map): they only arrive intact when the shell's keymap is the X server's.
+                v = x_types(["y", "z", "a", "q", "w"], "yzaqw")
+                return f"setxkbmap {layout}: xdotool y z a q w -> ...{v[-5:]}"
+
+            def x_colon(layout):
+                x_set(layout)
+                xk("Escape", "Escape")
+                k = log.mark()
+                xk("colon")
+                log.wait(BAR + r":\|", k, timeout=5)
+                xk("Escape")
+                return f"setxkbmap {layout}: the colon key opens the command line"
+
             step("x11: the first keymap is the X server's", lambda: "keymap: " + str(log.wait(r"desktop keymap: (.*)$", 0, 10)[1]))
-            step("x11: setxkbmap de -> Y,Z swap", lambda: x_layout("de", "zy", "aq"))
-            step("x11: setxkbmap fr -> A,Q swap", lambda: x_layout("fr", "yw", "qa"))
-            step("x11: setxkbmap de again: ':' (Shift+period) opens the command line",
-                 lambda: (x_set("de"), time.sleep(1), line_opens(":", shift(DOT)))[-1])
-            step("x11: setxkbmap us -> back to y,z,a,q", lambda: x_layout("us", "yz", "aq"))
+            step("x11: setxkbmap de: y z a q w typed through the de keycodes", lambda: x_layout("de"))
+            step("x11: setxkbmap fr", lambda: x_layout("fr"))
+            step("x11: setxkbmap de: colon (Shift+period) opens the command line", lambda: x_colon("de"))
+            step("x11: setxkbmap fr: colon (the period key) opens the command line", lambda: x_colon("fr"))
+            step("x11: setxkbmap us", lambda: x_layout("us"))
     except Fail as e:
         results.append(("start", False, str(e)))
         print(f"  FAIL start: {e}")

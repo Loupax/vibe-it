@@ -174,7 +174,10 @@ mod wayland {
 
     impl Dispatch<WlSeat, ()> for Watch {
         fn event(w: &mut Self, seat: &WlSeat, event: wl_seat::Event, _: &(), _: &Connection, qh: &QueueHandle<Self>) {
-            if let wl_seat::Event::Capabilities { capabilities: WEnum::Value(caps) } = event {
+            if let wl_seat::Event::Capabilities {
+                capabilities: WEnum::Value(caps),
+            } = event
+            {
                 if caps.contains(wl_seat::Capability::Keyboard) && w.keyboard.is_none() {
                     w.keyboard = Some(seat.get_keyboard(qh, ()));
                 }
@@ -208,7 +211,10 @@ mod wayland {
         let conn = Connection::from_backend(backend);
         let (globals, mut queue) = registry_queue_init::<Watch>(&conn).map_err(|e| format!("wayland registry: {e}"))?;
         let qh = queue.handle();
-        let mut w = Watch { tx: tx.clone(), keyboard: None };
+        let mut w = Watch {
+            tx: tx.clone(),
+            keyboard: None,
+        };
         let _seat: WlSeat = globals
             .bind(&qh, 1..=7, ())
             .map_err(|e| format!("the desktop has no wl_seat: {e}"))?;
@@ -219,9 +225,8 @@ mod wayland {
 }
 
 mod x11 {
-    use std::ffi::c_void;
-    use std::time::Duration;
     use super::Update;
+    use std::time::Duration;
     use x11rb::connection::Connection;
     use x11rb::protocol::xkb::{self, ConnectionExt as _};
     use x11rb::protocol::Event;
@@ -233,7 +238,7 @@ mod x11 {
     fn fetch(conn: &XCBConnection) -> Result<String, String> {
         let x = xkbcommon_x11_option().ok_or("libxkbcommon-x11 is not installed")?;
         let c = xkbcommon_handle();
-        let raw = conn.get_raw_xcb_connection() as *mut c_void;
+        let raw = conn.get_raw_xcb_connection();
         // Safety: libxkbcommon calls on a live xcb connection; every object made is released.
         unsafe {
             let mut sink = (0u16, 0u16, 0u8, 0u8);
@@ -291,11 +296,13 @@ mod x11 {
             | xkb::MapPart::KEY_ACTIONS
             | xkb::MapPart::VIRTUAL_MODS
             | xkb::MapPart::VIRTUAL_MOD_MAP;
-        let events = xkb::EventType::NEW_KEYBOARD_NOTIFY | xkb::EventType::MAP_NOTIFY | xkb::EventType::STATE_NOTIFY;
+        // select_all: the events that need no details; the state notifications (group changes
+        // only) take theirs from the aux.
+        let full = xkb::EventType::NEW_KEYBOARD_NOTIFY | xkb::EventType::MAP_NOTIFY;
         conn.xkb_select_events(
             xkb::ID::USE_CORE_KBD.into(),
             xkb::EventType::from(0u16),
-            events,
+            full,
             parts,
             parts,
             &xkb::SelectEventsAux::new().state_notify(xkb::SelectEventsAuxStateNotify {

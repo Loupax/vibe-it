@@ -2,7 +2,7 @@
 
 use crate::keymap::{keymap_name, keymap_text, read_keymap_fd, Latest};
 use smithay::input::keyboard::xkb;
-use std::io::{Seek, SeekFrom, Write};
+use std::io::{Seek, Write};
 use std::os::fd::OwnedFd;
 
 fn keymap_for(layout: &str) -> String {
@@ -14,8 +14,8 @@ fn keymap_for(layout: &str) -> String {
 /// The character a keymap text gives the evdev key `evdev` (no modifiers).
 fn char_for(text: &str, evdev: u32) -> String {
     let ctx = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
-    let km = xkb::Keymap::new_from_string(&ctx, text.to_string(), xkb::KEYMAP_FORMAT_TEXT_V1, xkb::KEYMAP_COMPILE_NO_FLAGS)
-        .expect("compile");
+    let km =
+        xkb::Keymap::new_from_string(&ctx, text.to_string(), xkb::KEYMAP_FORMAT_TEXT_V1, xkb::KEYMAP_COMPILE_NO_FLAGS).expect("compile");
     let st = xkb::State::new(&km);
     st.key_get_utf8(xkb::Keycode::new(evdev + 8))
 }
@@ -27,7 +27,13 @@ const KEY_Z: u32 = 44;
 
 fn scratch_file(tag: &str) -> std::fs::File {
     let path = std::env::temp_dir().join(format!("web-keymap-test-{}-{tag}", std::process::id()));
-    let f = std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(true).open(&path).unwrap();
+    let f = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&path)
+        .unwrap();
     std::fs::remove_file(&path).unwrap();
     f
 }
@@ -46,7 +52,7 @@ fn fd_is_read_from_the_start_whatever_its_offset() {
     let mut f = scratch_file("offset");
     f.write_all(b"xkb_keymap { }\0").unwrap();
     // The writer's offset is at the end, as a compositor's shared description would be.
-    assert_eq!(f.seek(SeekFrom::Current(0)).unwrap(), 15);
+    assert_eq!(f.stream_position().unwrap(), 15);
     let fd: OwnedFd = f.into();
     assert_eq!(read_keymap_fd(fd, 15).unwrap(), "xkb_keymap { }");
 }

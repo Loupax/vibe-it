@@ -235,6 +235,21 @@ fn main() {
             "ev" | "evs" => {
                 key(arg.parse().unwrap(), op == "evs", false);
             }
+            // C-KEYMAP: chord:56,42 presses the keys in order and releases them in reverse, as bare
+            // key events (no modifiers request): Alt+Shift, which toggles a keymap's layout group.
+            "chord" => {
+                let codes: Vec<u32> = arg.split(',').map(|c| c.parse().unwrap()).collect();
+                for c in &codes {
+                    vk.key(ms(), *c, 1);
+                    q_rt(&mut st);
+                    std::thread::sleep(Duration::from_millis(30));
+                }
+                for c in codes.iter().rev() {
+                    vk.key(ms(), *c, 0);
+                    q_rt(&mut st);
+                    std::thread::sleep(Duration::from_millis(30));
+                }
+            }
             "group" => {
                 group.set(arg.parse().unwrap());
                 vk.modifiers(0, 0, 0, group.get());
