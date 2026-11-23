@@ -841,7 +841,11 @@ mod tests {
     #[test]
     fn background_traffic_flag() {
         assert!(!host_options(&s(&["h", "--profile=/p"])).unwrap().allow_background_traffic);
-        assert!(host_options(&s(&["h", "--profile=/p", "--allow-background-traffic"])).unwrap().allow_background_traffic);
+        assert!(
+            host_options(&s(&["h", "--profile=/p", "--allow-background-traffic"]))
+                .unwrap()
+                .allow_background_traffic
+        );
     }
 
     #[test]
