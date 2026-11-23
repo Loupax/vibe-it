@@ -75,7 +75,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] [WIP] QINC2b [S] (P2, from QEDIT-B #641; Sonnet; tests) qinc2_ticks_number_paragraphs_like_a_single_complete_pass
       fails under machine load (it lays out in 40 ms wall-clock ticks): make it deterministic (tick by work units or a
       test clock, keeping the incomplete-tick case it must cover), so CI cannot flake on it.
-- [ ] QWPTFLK6 [S] (P3, from QEDIT-B #641; Sonnet) hr-time/timeOrigin.html fails under heavy local load (load 40+), passes on CI
+- [ ] [WIP] QWPTFLK6 [S] (P3, from QEDIT-B #641; Sonnet) hr-time/timeOrigin.html fails under heavy local load (load 40+), passes on CI
       and alone: find whether the runner's clock or the test's tolerance is the cause; fix or flaky-list with the reason.
 - [ ] QEDIT-B2 [S] (P3, from QEDIT-B #641; Sonnet; wpt_input.rs, input_host.rs) Headless driver fires dragstart/drag/
       dragenter/dragover/drop/dragend on pointer drags of draggable elements, with a DataTransfer carried from Rust.
