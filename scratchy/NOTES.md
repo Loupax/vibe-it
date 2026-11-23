@@ -3879,6 +3879,14 @@ QWPT7c: hit testing honours `pointer-events: none` (`ComputedStyle::pointer_even
 the App and the driver share it), element scroll offsets (the script-side `scrollTop` map goes to `__d_hit`; `js_geom::regions_by_node`
 maps node ids to region ids) and inline-svg children (`svg_geom.rs`, `js_geom::refine_svg_hit`, also the rect of an svg child).
 `offsetX/Y` are computed on read for pointing-device events. Accesskey is Alt+Shift+key (`input_host::accesskey_activate`).
+QWPT7b: the pointer sequences live in `input_host` (`PointerState`: buttons mask, suppress-mouse flag, press targets, last click for counts;
+`pointer_press` / `pointer_release` / `auxclick` / `dblclick` / `click_event` / `keypress`), used by both the Driver and the App
+(`App::page_press` / `page_release`, `App.ptr`). The App's left press still runs scratchy's own widgets first (select popup, video controls,
+scrollbars take it without page events). Middle, right, back and forward buttons reach the page only (pointerdown, mousedown, contextmenu
+on right press; pointerup, mouseup, auxclick on release); scratchy shows no context menu and has no middle-click action, so nothing happens after an
+un-prevented `contextmenu`. Click target: the App keeps the element under the release (the drag threshold applies), the headless driver the common
+ancestor of press and release. `keypress` (Enter, printable keys, no Ctrl/Alt/Meta) fires in input mode after keydown was not cancelled and
+no control consumed the key; normal mode (vim keys) still sends the page nothing.
 Not headless: navigation (link clicks, form submission fire their events only), the select dropdown, drag and drop, touch/pen pointers (reported as mouse), window rects.
 
 **Hit testing (`document.elementFromPoint`, `elementsFromPoint`, ShadowRoot versions).** Native `__d_hit(x, y, vw, vh,

@@ -36,7 +36,7 @@ Driving a real scratchy window (click, type, wheel-scroll)
 
    Commands (run in order):
      move:X,Y      absolute pointer move (window pixels)
-     click rclick  left / right button press+release (40 ms apart)
+     click rclick mclick  left / right / middle button press+release (40 ms apart)
      down up       left button press / release alone (drag: move down move up)
      scroll:N      N wheel notches (positive = down)
      hscroll:N     N horizontal wheel notches (positive = right) (QXSCR1)

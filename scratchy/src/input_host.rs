@@ -29,6 +29,175 @@ pub(crate) trait InputHost {
     fn ih_click(&mut self, target: Option<&Handle>, pos: (f32, f32)) -> bool;
     /// A `keypress` (or other key event) for `key` at the focused element.
     fn ih_key(&mut self, kind: &str, key: &Key, repeat: bool) -> bool;
+    /// QWPT7b: the pointer's button/click-count state.
+    fn ih_ptr(&mut self) -> &mut PointerState;
+    /// QWPT7b: the window's scroll offset (page coordinates of pointer events).
+    fn ih_page_offset(&self) -> (f32, f32);
+}
+
+/// QWPT7b: how close in time (ms) two clicks on the same element must be to count as one multi-click.
+pub(crate) const MULTI_CLICK_MS: f64 = 500.0;
+
+/// QWPT7b: the mouse's button state across events, for `buttons`, click counts and the
+/// pointerdown/mousedown suppression rule. One per input source (the App, the headless driver).
+#[derive(Default)]
+pub(crate) struct PointerState {
+    /// DOM `buttons` mask.
+    pub(crate) buttons: u16,
+    /// The pointerdown of the current press was cancelled: no compatibility mouse events until all
+    /// buttons are up.
+    pub(crate) suppress_mouse: bool,
+    /// Where each button went down (DOM button number -> target).
+    pub(crate) down: Vec<(i16, Option<Handle>)>,
+    /// (target, time in ms, count) of the last click.
+    pub(crate) last_click: Option<(Handle, f64, u32)>,
+}
+
+impl PointerState {
+    /// The click count a press or click on `target` at `now` would have.
+    pub(crate) fn count_for(&self, target: Option<&Handle>, now: f64) -> u32 {
+        match &self.last_click {
+            Some((h, t, n)) if target.is_some_and(|x| Rc::ptr_eq(x, h)) && now - t <= MULTI_CLICK_MS => n + 1,
+            _ => 1,
+        }
+    }
+    /// Records a click on `target` at `now`; returns its count.
+    pub(crate) fn note_click(&mut self, target: &Handle, now: f64) -> u32 {
+        let n = self.count_for(Some(target), now);
+        self.last_click = Some((target.clone(), now, n));
+        n
+    }
+    /// Forgets a press whose release will never reach the page (a UI widget took it).
+    pub(crate) fn forget(&mut self, b: i16) {
+        self.buttons &= !button_bit(b);
+        self.down.retain(|(x, _)| *x != b);
+        if self.buttons == 0 {
+            self.suppress_mouse = false;
+        }
+    }
+    pub(crate) fn is_down(&self, b: i16) -> bool {
+        self.down.iter().any(|(x, _)| *x == b)
+    }
+}
+
+/// WebDriver / DOM `button` -> the DOM `buttons` bit.
+pub(crate) fn button_bit(b: i16) -> u16 {
+    match b {
+        0 => 1,
+        1 => 4,
+        2 => 2,
+        n if (0..16).contains(&n) => 1 << n,
+        _ => 0,
+    }
+}
+
+/// QWPT7b: init fields of a mouse or pointer event at `pos`: the position, modifiers, the held
+/// `buttons`, `button`, `detail` (mouse events only) and, for pointer events, the PointerEvent fields
+/// (`pointerId` 1, `pointerType` "mouse").
+pub(crate) fn mouse_fields<H: InputHost + ?Sized>(
+    host: &mut H, pos: (f32, f32), button: i16, detail: u32, bubbles: bool, pointer: bool, related: &Option<Handle>,
+) -> Vec<(&'static str, EventField)> {
+    let page = host.ih_page_offset();
+    let buttons = f64::from(host.ih_ptr().buttons);
+    let mut v = pointer_init(pos, page, buttons, host.ih_mods(), related, bubbles, pointer);
+    v.push(("button", EventField::Num(f64::from(button))));
+    if !pointer {
+        v.push(("detail", EventField::Num(f64::from(detail))));
+    }
+    v
+}
+
+/// QWPT7b: the `click` event (main button) at `target`. A pointer click carries the click count
+/// as `detail`; one sent by the keyboard or an accesskey (position (0, 0)) has `detail` 0.
+pub(crate) fn click_event<H: InputHost + ?Sized>(host: &mut H, target: Option<&Handle>, pos: (f32, f32)) -> bool {
+    let detail = if pos == (0.0, 0.0) { 0 } else { host.ih_ptr().last_click.as_ref().map_or(1, |c| c.2) };
+    let init = mouse_fields(host, pos, 0, detail, true, false, &None);
+    host.ih_dispatch(target, "click", &init)
+}
+
+/// QWPT7b: button `b` goes down on `target`: `pointerdown` (the first button held only; a cancelled
+/// one suppresses the compatibility mouse events until all buttons are up), `mousedown` (`detail` =
+/// the click count so far), `contextmenu` for the right button when `mousedown` was not cancelled.
+/// Returns whether `mousedown` was not cancelled (and fired). Scratchy shows no menu: what the
+/// page does with `contextmenu` is all there is.
+pub(crate) fn pointer_press<H: InputHost + ?Sized>(host: &mut H, target: Option<&Handle>, pos: (f32, f32), b: i16, now: f64) -> bool {
+    host.ih_ptr().forget(b); // a stale press of this button (its release never arrived)
+    let first = host.ih_ptr().buttons == 0;
+    let detail = host.ih_ptr().count_for(target, now);
+    {
+        let st = host.ih_ptr();
+        st.buttons |= button_bit(b);
+        st.down.push((b, target.cloned()));
+    }
+    if first {
+        let f = mouse_fields(host, pos, b, 0, true, true, &None);
+        let ok = host.ih_dispatch(target, "pointerdown", &f);
+        host.ih_ptr().suppress_mouse = !ok;
+    }
+    let mut ok = true;
+    if !host.ih_ptr().suppress_mouse {
+        let f = mouse_fields(host, pos, b, detail, true, false, &None);
+        ok = host.ih_dispatch(target, "mousedown", &f);
+    }
+    if b == 2 && ok {
+        let f = mouse_fields(host, pos, b, 0, true, false, &None);
+        host.ih_dispatch(target, "contextmenu", &f);
+    }
+    ok
+}
+
+/// QWPT7b: button `b` goes up on `target`: `pointerup` (when the last button is released), `mouseup`
+/// (unless the press was cancelled). Returns where the button went down (`None` outer = it never
+/// went down here).
+pub(crate) fn pointer_release<H: InputHost + ?Sized>(host: &mut H, target: Option<&Handle>, pos: (f32, f32), b: i16, now: f64) -> Option<Option<Handle>> {
+    let (down, suppressed) = {
+        let st = host.ih_ptr();
+        st.buttons &= !button_bit(b);
+        (st.down.iter().position(|(x, _)| *x == b).map(|i| st.down.remove(i).1), st.suppress_mouse)
+    };
+    if host.ih_ptr().buttons == 0 {
+        let f = mouse_fields(host, pos, b, 0, true, true, &None);
+        host.ih_dispatch(target, "pointerup", &f);
+        host.ih_ptr().suppress_mouse = false;
+    }
+    if !suppressed {
+        // `detail` of mouseup = the click count the release completes (the press's count).
+        let detail = match &down {
+            Some(Some(d)) => {
+                let c = target.and_then(|t| common_ancestor(d, t));
+                host.ih_ptr().count_for(c.as_ref(), now)
+            }
+            _ => 1,
+        };
+        let f = mouse_fields(host, pos, b, detail, true, false, &None);
+        host.ih_dispatch(target, "mouseup", &f);
+    }
+    down
+}
+
+/// QWPT7b: `auxclick` for a non-main button at the common ancestor of press and release.
+pub(crate) fn auxclick<H: InputHost + ?Sized>(host: &mut H, target: &Handle, pos: (f32, f32), b: i16, count: u32) {
+    let f = mouse_fields(host, pos, b, count, true, false, &None);
+    host.ih_dispatch(Some(target), "auxclick", &f);
+}
+
+/// QWPT7b: `dblclick` after the second main-button click of a series.
+pub(crate) fn dblclick<H: InputHost + ?Sized>(host: &mut H, target: &Handle, pos: (f32, f32)) {
+    let f = mouse_fields(host, pos, 0, 2, true, false, &None);
+    host.ih_dispatch(Some(target), "dblclick", &f);
+}
+
+/// QWPT7b: after `keydown` was not cancelled and nothing consumed the key: `keypress` for Enter and
+/// printable keys (no Ctrl/Alt/Meta). Returns false when the page cancelled it.
+pub(crate) fn keypress<H: InputHost + ?Sized>(host: &mut H, key: &Key, repeat: bool) -> bool {
+    let m = host.ih_mods();
+    if m.control_key() || m.alt_key() || m.super_key() {
+        return true;
+    }
+    if matches!(key, Key::Named(NamedKey::Enter)) || key_insertion_text(key).is_some_and(|t| !t.chars().all(char::is_control)) {
+        return host.ih_key("keypress", key, repeat);
+    }
+    true
 }
 
 /// Q30c: a click on `target` (None = body). A checkbox/radio toggles BEFORE the click event
@@ -115,22 +284,6 @@ pub(crate) fn implicit_submit<H: InputHost + ?Sized>(host: &mut H, field: &Handl
             }
         }
     }
-}
-
-/// Q33d1: `mousedown`/`mouseup`/`click` init fields at window position `pos` (`button` 0 = main).
-pub(crate) fn mouse_init(pos: (f32, f32), m: ModifiersState) -> [(&'static str, EventField); 10] {
-    [
-        ("bubbles", EventField::Bool(true)),
-        ("composed", EventField::Bool(true)),
-        ("cancelable", EventField::Bool(true)),
-        ("clientX", EventField::Num(pos.0 as f64)),
-        ("clientY", EventField::Num(pos.1 as f64)),
-        ("button", EventField::Num(0.0)),
-        ("ctrlKey", EventField::Bool(m.control_key())),
-        ("shiftKey", EventField::Bool(m.shift_key())),
-        ("altKey", EventField::Bool(m.alt_key())),
-        ("metaKey", EventField::Bool(m.super_key())),
-    ]
 }
 
 /// Q33d1/QCUR1: pointer/mouse motion and boundary event init fields. `page` is the window's scroll
@@ -296,4 +449,23 @@ pub(crate) fn accesskey_chord(key: &Key, physical: Option<PhysicalKey>, m: Modif
         Key::Character(s) if s.chars().count() == 1 => Some(s.to_lowercase()),
         _ => None,
     }
+}
+
+/// `h` and its element ancestors, innermost first.
+pub(crate) fn ancestors_incl(h: &Handle) -> Vec<Handle> {
+    let mut out = Vec::new();
+    let mut cur = Some(h.clone());
+    while let Some(n) = cur {
+        if matches!(n.data, NodeData::Element { .. }) {
+            out.push(n.clone());
+        }
+        cur = parent_handle(&n);
+    }
+    out
+}
+
+/// The nearest inclusive ancestor element of both `a` and `b`.
+pub(crate) fn common_ancestor(a: &Handle, b: &Handle) -> Option<Handle> {
+    let bs = ancestors_incl(b);
+    ancestors_incl(a).into_iter().find(|x| bs.iter().any(|y| Rc::ptr_eq(x, y)))
 }

@@ -9408,3 +9408,9 @@ Task: lineWidth edge cases, lineCap, lineJoin, miterLimit, setLineDash/getLineDa
 > QWPTFLK5 [S] fetch/api/basic/request-upload.any.html failed once on CI and passed on re-run; find the cause and fix, or flaky-list with the reason.
 
 **What changed:** not reproducible in 450 local runs (plain and parallel) nor in 4,000+ POSTs through wire; flaky-listed with the reason. The wpt-th runner's REGRESSION/CHANGED subtest lines now include the failure message (`FileResult.msgs`, not compared). Tests: src/tests/qwptflk5_tests.rs.
+
+## QWPT7b: the App fires pointer events, click counts and keypress (agent item)
+
+> QWPT7b [S] The App fires what the headless driver fires: pointerdown/pointerup, `detail` click counts, dblclick, auxclick, contextmenu, keypress outside text controls.
+
+**What changed:** the press/release/click-count/auxclick/dblclick/keypress sequences moved from `wpt_input.rs` into `input_host.rs` (`PointerState`, `pointer_press`, `pointer_release`, `auxclick`, `dblclick`, `click_event`, `keypress`, `mouse_fields`); the Driver and the App both call them. The App now handles middle/right/back/forward buttons for the page only (pointerdown, mousedown, contextmenu on press for the right button; pointerup, mouseup, auxclick on release) and does nothing else for them: no context menu, no middle-click action (there was none). Left clicks carry `detail` and `buttons`, a second click within 500 ms fires `dblclick`. `keypress` fires in input mode for Enter and printable keys when keydown was not cancelled (a page that cancels keypress stops the UA scroll key). `pointerdown`/`pointerup` are now PointerEvents, `dblclick`/`auxclick`/`contextmenu` MouseEvents (`__scratchy_dn`). The `click` of a keyboard activation has `detail` 0. Tests: src/tests/qwpt7b_tests.rs. tools/inject gained `mclick`.
