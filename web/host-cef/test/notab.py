@@ -12,8 +12,10 @@ It plays the shell like drive.py (control socket, memory-capped host, test pages
     navigated either), and the host log says the popup was dropped;
   - a plain click on a target=_blank link and a plain Enter in that form still load in
     the same page;
-  - right-click on a link, an image, selected text, the page and an editable field: the host log lists the
-    menu (what was removed, what remains) and every remaining item is on the allow-list (newtab.rs MENU_ALLOW).
+  - right-click on a link, an image, selected text, the page and an editable field: no context
+    menu at all (C-NOMENU): the host log says it was suppressed and a grim screenshot taken
+    before and after the click is identical (no popup surface); the page still receives its
+    `contextmenu` event, and a page's own `contextmenu` handler (a custom menu) still fires.
 Writes events.jsonl, host.log, fixture.log into --out. Exit 0 when every step passed."""
 
 import argparse
@@ -36,47 +38,51 @@ HOST_DIR = os.path.dirname(HERE)
 REPO = os.path.dirname(os.path.dirname(HOST_DIR))
 INJECT = os.path.join(REPO, "web", "tools", "inject", "target", "release", "inject")
 
-# Command ids that may remain in a menu: newtab.rs MENU_ALLOW (allow-list, C-NOTAB-ALLOW).
-ALLOWED_IDS = {
-    100, 101, 102, 110, 111, 112, 113, 114, 115, 116, 117, 200, 201, 202, 203, 204,
-    33000, 33001, 33002, 35004, 50103, 50104, 50107, 50120, 50121, 50122, 50150, 50151,
-    50152, 50154, 50155, 50156, 50157, 50158, 50167,
-}
-
-# Menu labels that must not remain (lowercase substrings), a second check by label.
-FORBIDDEN = [
-    "new tab", "new window", "incognito", "in profile", "view page source", "view source",
-    "inspect", "search google", "search the web", "search with google", "search image", "lens",
-    "open link", "open image", "open video", "open audio", "open in",
-]
-
-
 # The host's line for a dropped new-tab/window request: `popup Drop: ...` (on_before_popup)
 # or `open-url-from-tab Drop: ...` (on_open_url_from_tab; what real Ctrl/middle/Shift
 # clicks on a link go through, NEST-HEADLESS live run).
 DROP = " Drop: "
 
 
-def forbidden_labels(remaining):
-    """The labels in a logged remaining-items list that open a tab, window or devtools.
-    `remaining` is the host's text: `id:label, id:label, Sub[id:label, ...]`."""
-    labels = re.findall(r"(?:^|[\[,]\s*)(?:\d+:)?([^\[\],]+)", remaining)
-    return [l.strip() for l in labels if any(f in l.lower() for f in FORBIDDEN)]
+def suppressed_lines(host_log_lines):
+    """The host's `context menu: suppressed` / `run suppressed` lines."""
+    return [l for l in host_log_lines if "context menu: " in l and "suppressed" in l]
 
 
-def disallowed_ids(remaining):
-    """The command ids in a logged remaining-items list that are not on the allow-list."""
-    return [i for i in (int(x) for x in re.findall(r"(?:^|[\[,]\s*)(-?\d+):", remaining)) if i not in ALLOWED_IDS]
+def menu_shown_lines(host_log_lines):
+    """Old-style `context menu: removed [...]; remaining [...]` lines: a menu got through."""
+    return [l for l in host_log_lines if re.search(r"context menu: removed \[", l)]
 
 
-def context_menus(host_log_lines):
-    """[(removed, remaining)] of every `context menu:` line of the host log."""
-    out = []
-    for line in host_log_lines:
-        m = re.search(r"context menu: removed \[(.*?)\]; remaining \[(.*)\]$", line)
-        if m:
-            out.append((m.group(1), m.group(2)))
-    return out
+def ppm_diff(a, b, masks=((90, 615, 430, 665), (90, 90, 520, 320))):
+    """Number of pixels that differ between two P6 screenshots, ignoring the rectangle
+    `masks` (x0, y0, x1, y1): the form's input (blinking caret) and the two links (their focus ring comes and goes when focus moves). A menu popup would
+    paint far more than that rectangle (it opens below and right of the click)."""
+    def parse(d):
+        _, size, _, body = d.split(b"\n", 3)
+        w, h = map(int, size.split())
+        return w, h, body
+    w, h, pa = parse(a)
+    w2, h2, pb = parse(b)
+    if (w, h) != (w2, h2):
+        return w * h
+    n = 0
+    for y in range(h):
+        ra, rb = pa[y * w * 3:(y + 1) * w * 3], pb[y * w * 3:(y + 1) * w * 3]
+        if ra == rb:
+            continue
+        for x in range(w):
+            if ra[x * 3:x * 3 + 3] != rb[x * 3:x * 3 + 3] and not any(m[0] <= x < m[2] and m[1] <= y < m[3] for m in masks):
+                n += 1
+    return n
+
+
+def grim(path):
+    r = subprocess.run(["grim", "-t", "ppm", path], check=False, timeout=30)
+    if r.returncode != 0:
+        raise Fail(f"grim exited {r.returncode} (WAYLAND_DISPLAY must be the nested compositor)")
+    with open(path, "rb") as f:
+        return f.read()
 
 
 def run(a):
@@ -147,7 +153,7 @@ def steps(sh, conn, base, a, host_log_path):
     def at(sel):
         # Centres of the boxes in links.html (window coordinates; dwl border ignored).
         return {"plain": (300, 140), "blank": (300, 260), "img": (200, 400), "txt": (300, 540),
-                "input": (150, 632), "page": (800, 800)}[sel]
+                "input": (150, 632), "page": (800, 800), "cust": (710, 640)}[sel]
 
     def move(sel):
         x, y = at(sel)
@@ -217,25 +223,41 @@ def steps(sh, conn, base, a, host_log_path):
     sh.expect("load end traverse", is_ev("load", phase="end", kind="traverse"), 20)
     time.sleep(0.5)
 
-    sh.note("step: context menus (link, image, selected text, page)")
-    n_before = len(context_menus(read_log(host_log_path)))
-    for what, pre in (("link", [move("plain")]), ("target=_blank link", [move("blank")]), ("image", [move("img")]),
-                      ("selected text", [move("txt"), "click", "wait:100", "key:c-a"]),
-                      ("page", [move("page")]),
-                      ("editable field", [move("input"), "click", "wait:200"])):
+    sh.note("step: no context menu for any right-click; the page still gets the event")
+    shot_dir = os.path.join(os.path.dirname(host_log_path), "shots")
+    os.makedirs(shot_dir, exist_ok=True)
+    cases = (("link", [move("plain")], "ev:contextmenu"), ("target=_blank link", [move("blank")], "ev:contextmenu"),
+             ("image", [move("img")], "ev:contextmenu"),
+             ("selected text", [move("txt"), "click", "wait:100", "key:c-a"], "ev:contextmenu"),
+             ("page", [move("page"), "click"], "ev:contextmenu"),
+             ("editable field", [move("input"), "click", "wait:200"], "ev:contextmenu"),
+             ("page's own contextmenu handler", [move("cust")], "ev:custom"))
+    for what, pre, want in cases:
+        inject(*pre, "wait:500")  # (a link hover shows Chromium's status bubble, which fades in)
+        time.sleep(2.0)
+        before = grim(os.path.join(shot_dir, "before.ppm"))
         lines = len(read_log(host_log_path))
-        inject(*pre, "rclick", "wait:1200", "key:esc", "wait:400")
-        menus = context_menus(read_log(host_log_path)[lines:])
-        if len(menus) != 1:
-            raise Fail(f"context menu on {what}: expected one menu line in the host log, got {len(menus)}")
-        removed, remaining = menus[0]
-        bad = forbidden_labels(remaining) + [f"id {i}" for i in disallowed_ids(remaining)]
-        sh.note(f"context menu on {what}: removed [{removed}]")
-        sh.note(f"context menu on {what}: remaining [{remaining}]")
-        if bad:
-            raise Fail(f"context menu on {what} still has {bad}")
-    if len(context_menus(read_log(host_log_path))) - n_before != 6:
-        raise Fail("not every right-click gave a context menu")
+        n = len(sh.events)
+        inject("rclick", "wait:1200")
+        time.sleep(0.3)
+        after = grim(os.path.join(shot_dir, "after.ppm"))
+        new = read_log(host_log_path)[lines:]
+        with sh.cv:
+            titles = [ev["title"] for _, ev in sh.events[n:] if ev.get("event") == "title"]
+        changed = ppm_diff(before, after)
+        shown = menu_shown_lines(new)
+        sup = suppressed_lines(new)
+        sh.note(f"right-click on {what}: host log {[l.split('] ', 1)[-1] for l in sup]}, page titles {titles}, "
+                f"screen: {changed} px changed outside the input")
+        if shown:
+            raise Fail(f"{what}: a menu was built: {shown}")
+        if changed:
+            raise Fail(f"{what}: the screen changed after the right-click (a menu popup?): see {shot_dir}")
+        if not any(t.startswith(want) for t in titles):
+            raise Fail(f"{what}: the page never saw '{want}' (saw {titles}): the right-click did not reach it")
+        inject("key:esc", "wait:200")
+    if not suppressed_lines(read_log(host_log_path)):
+        sh.note("note: the host never logged a suppressed menu (Chromium asked for none)")
     if sum(1 for _, e in sh.events if e.get("event") == "tab-created") != 1:
         raise Fail("a second page was created")
 

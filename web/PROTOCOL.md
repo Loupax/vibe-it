@@ -19,8 +19,9 @@ interface, undecided), so v0 has no `new-tab` / `close-tab`.
   (`window.open()` then `document.write`) show nothing.
 - **No user gesture opens a second tab or window** (user, 2026-11-23, C-NOTAB). Ctrl+click,
   middle-click, Shift+click, Ctrl+Shift+click on a link and Ctrl+Enter in a form do
-  nothing at all: nothing opens and the page is not navigated. The context menu has
-  no item that opens a tab, window, profile, view-source or DevTools. Script
+  nothing at all: nothing opens and the page is not navigated. There is no context
+  menu at all (C-NOMENU): the host suppresses Chrome's menu for every context, the right-click
+  still reaches the page as a normal `contextmenu` event. Script
   `window.open` and plain `target=_blank` still load in place (above).
 - Events still carry the page's id (`tab`), so a later multi-page design needs no
   protocol change. Today it is always the same number. `tab-created` and

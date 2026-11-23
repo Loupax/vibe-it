@@ -634,61 +634,16 @@ wrap_find_handler! {
     }
 }
 
-/// Cleans `model` and its submenus by the allow-list (newtab::MENU_ALLOW): every command
-/// not on it is removed, then the submenus and separators left useless. Collects what was
-/// removed as `id:label`.
-fn clean_menu(model: &MenuModel, removed: &mut Vec<String>) {
-    // Submenus first, so "empty" is known when this level is judged.
-    for i in 0..model.count() {
-        if let Some(sub) = model.sub_menu_at(i) {
-            clean_menu(&sub, removed);
-        }
-    }
-    let items: Vec<newtab::Item> = (0..model.count())
-        .map(|i| {
-            if let Some(sub) = model.sub_menu_at(i) {
-                return newtab::Item::Sub { empty: sub.count() == 0 };
-            }
-            let t = sys::cef_menu_item_type_t::from(model.type_at(i));
-            if t == sys::cef_menu_item_type_t::MENUITEMTYPE_SEPARATOR {
-                newtab::Item::Separator
-            } else {
-                newtab::Item::Command(model.command_id_at(i))
-            }
-        })
-        .collect();
-    for i in newtab::menu_removals(&items) {
-        match items[i] {
-            newtab::Item::Separator => {}
-            newtab::Item::Command(id) => {
-                removed.push(format!("{id}:{}", CefString::from(&model.label_at(i)).to_string()));
-            }
-            newtab::Item::Sub { .. } => {
-                removed.push(format!("submenu:{}", CefString::from(&model.label_at(i)).to_string()));
-            }
-        }
-        model.remove_at(i);
-    }
-}
-
-fn menu_items(model: &MenuModel) -> Vec<String> {
-    (0..model.count())
-        .map(|i| {
-            let label = CefString::from(&model.label_at(i)).to_string();
-            match model.sub_menu_at(i) {
-                Some(sub) => format!("{label}[{}]", menu_items(&sub).join(", ")),
-                None => format!("{}:{label}", model.command_id_at(i)),
-            }
-        })
-        .collect()
-}
-
 wrap_context_menu_handler! {
     struct HostContextMenuHandler {}
 
     impl ContextMenuHandler {
-        // Allow-list (newtab.rs MENU_ALLOW): what stays acts on the page itself or the
-        // clipboard/disk; nothing that opens a tab, a window or Chrome UI.
+        // No context menu at all (C-NOMENU, user 2026-11-23): its useful actions move to
+        // `:` commands (C-CMDS). Two layers: the model is emptied here (an empty model
+        // shows nothing), and run_context_menu says "handled" and cancels, in case a
+        // build runs the menu anyway. The right-click itself still reaches the page
+        // (the `contextmenu` event is dispatched before the browser asks for a menu), so
+        // pages with their own right-click menus keep working.
         fn on_before_context_menu(
             &self,
             _browser: Option<&mut Browser>,
@@ -697,9 +652,24 @@ wrap_context_menu_handler! {
             model: Option<&mut MenuModel>,
         ) {
             let Some(model) = model else { return };
-            let mut removed = Vec::new();
-            clean_menu(model, &mut removed);
-            log!("context menu: removed [{}]; remaining [{}]", removed.join(", "), menu_items(model).join(", "));
+            let n = model.count();
+            model.clear();
+            log!("context menu: suppressed ({n} items cleared)");
+        }
+
+        fn run_context_menu(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _params: Option<&mut ContextMenuParams>,
+            _model: Option<&mut MenuModel>,
+            callback: Option<&mut RunContextMenuCallback>,
+        ) -> ::std::os::raw::c_int {
+            if let Some(cb) = callback {
+                cb.cancel();
+            }
+            log!("context menu: run suppressed");
+            1
         }
     }
 }

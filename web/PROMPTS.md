@@ -399,6 +399,7 @@ says no for `com.widevine.alpha` even after 130 s with all background traffic on
 was already off; the switches lose nothing there. drive.py: host-list check, `--idle`,
 `--host-arg`, `--headless`; fwd_proxy.py logs tunnel opens (unit tests for the log parser
 caught a field-offset bug in my first version).
+
 ## C3-RCLICK popups return to the previous mode (2026-11-23)
 
 > C3-RCLICK: a popup opened by a user click (context menu, select dropdown) switches to INPUT as today; when that popup closes the shell returns to the mode it had before the click, unless the host reported `editable-focused true` for that click. Nested popups count as one session. New KEYS.md row, unit test, help.html, live check in the headless nest.
@@ -406,3 +407,25 @@ caught a field-offset bug in my first version).
 > Later note (coordinator): the user is removing the context menu (C-NOMENU), so the live check uses <select> popups.
 
 **What changed:** web/shell: `Keys::popup_opened`/`popup_closed` (T57, `popup_return`, an open-popup counter for nested sessions) called from `new_popup`/`popup_destroyed`; `editable-focused true` always calls `user_focused_control` (T29/T32, no click window; it also cancels a pending return); KEYS.md T29/T32 rewritten, T57 and decision-log entry added; help.html updated; tests in `tests/c3_rclick_tests.rs` and a rewritten T32 test; live check `test/c3_rclick_live.py` (select Esc / outside / option, page popup without a click, autofocus, timer focus(), blur; 8 steps, plus right-click link menu and field menu cases seen passing before C-NOMENU). `c3_live.py`: T29/T32 steps updated; its steps after "T7 T8" were already stale on main (C5 made `/` a search) and are not fixed here.
+
+## C-NOMENU: no context menu at all
+
+> (coordinator, change of task from the user 2026-11-23, "maybe we could disable it
+> completely, and expose it via the command mode" ... "yes, go ahead") The item began as
+> C-NOTAB-ALLOW (context menu by allow-list); now: no context menu ever appears, for any
+> context. Right-click must still reach the page as a normal `contextmenu`/mouse event.
+> Remove the deny-list code and tests; keep the cargo fmt commit; the live check asserts
+> no menu (no popup, host log line) and that a page's own `contextmenu` handler fires.
+
+**What changed:** `page.rs`: `on_before_context_menu` clears the model, `run_context_menu`
+cancels the callback and returns handled; `newtab.rs` lost `MENU_REMOVE`, the cleanup and
+their tests. First I built the allow-list (committed in history: `MENU_ALLOW`, tested), then
+dropped it. notab.py: for link, target=_blank link, image, selected text, page, editable
+field and a page with its own `contextmenu` handler (new `#cust` box in links.html) it
+takes a grim screenshot before and after the right-click, asserts the same pixels (masked:
+the input's caret and the two links' focus rings, which change when focus moves), the host
+log has no `removed [`, and the page saw `ev:contextmenu` (and `ev:custom`). Findings:
+clearing the model alone is NOT enough on CEF 156 Chrome style (a popup still opened,
+12k pixels changed); `run_context_menu` returning handled is what stops it. CEF's
+`sub_menu_at` returns Some for ordinary items, so submenu detection must use `type_at`.
+Negative runs (menu back on) fail the check as intended.
