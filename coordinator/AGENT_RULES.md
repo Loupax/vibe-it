@@ -47,7 +47,7 @@ checkout is available, and say in the PR which local checks were skipped so the 
 11. If the coordinator later sends you a rebase conflict: `git fetch origin && git rebase origin/main` in your worktree,
     resolve, re-run the tests, force-push (`--force-with-lease`), wait for CI green, reply `READY #<pr> <ITEM> — rebased`.
 12. Commit messages: `scratchy: <ITEM> <summary>` ending with the line
-    `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`; PR bodies end with
+    `Co-Authored-By: Claude <your model, e.g. Opus 5.5 or Sonnet 5.5> <noreply@anthropic.com>` (your own model); PR bodies end with
     `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
 
 

@@ -176,7 +176,10 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       (2d.conformance.requirements.missingargs, from QCNV9 #636); colour objects (CSSRGB/CSSHSL) wait for Typed OM.
 - [ ] [WIP] QCNV10 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Sonnet; in order after the items above) Linear, radial and conic gradients. 107 files.
-- [ ] QCNV11 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+- [ ] QCNV10b [S] (P3, from QCNV10 #639; Sonnet; canvas.rs) Gradients are evaluated per pixel per fill/stroke with no
+      cache: measure a page that fills a large canvas with gradients every frame and cache the layer if slow;
+      2d.gradient.colormix / relativecolor expect a different interpolation than plain sRGB (find out which).
+- [ ] [WIP] QCNV11 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Opus; in order after the items above) globalCompositeOperation. 97 files.
 - [ ] QCNV12 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Opus; in order after the items above) Shadows. 99 files.
