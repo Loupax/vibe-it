@@ -1,5 +1,5 @@
-//! W2-2: TLS interception. Decryption is forced with the TEST-ONLY `--test-decrypt GLOB` (a stand-in
-//! for an http-layer filter until W2-F), names are mapped with the TEST-ONLY `--test-resolve` (W2-1a),
+//! W2-2: TLS interception. Decryption comes from the test-only pass-decrypt filter (W2-F) claiming
+//! `*.example.test`, names are mapped with the TEST-ONLY `--test-resolve` (W2-1a),
 //! and the upstream roots are the test root through `SSL_CERT_FILE`.
 
 mod common;
@@ -120,15 +120,12 @@ async fn origin(cfg: Arc<rustls::ServerConfig>) -> std::net::SocketAddr {
     .await
 }
 
-fn decrypting_proxy(extra: &[&str], roots: &Path) -> Proxy {
-    let mut args = vec![
-        "--test-resolve",
-        "*.example.test=127.0.0.1",
-        "--test-decrypt",
-        "*.example.test",
-    ];
+/// The proxy with the test-only pass-decrypt filter claiming `*.example.test` (W2-F; it replaced the
+/// TEST-ONLY `--test-decrypt` of W2-2).
+fn decrypting_proxy(extra: &[&str], roots: &Path) -> Decrypting {
+    let mut args = vec!["--test-resolve", "*.example.test=127.0.0.1"];
     args.extend_from_slice(extra);
-    Proxy::start_env(&args, &[("SSL_CERT_FILE", roots)])
+    decrypting(&["*.example.test"], &args, &[("SSL_CERT_FILE", roots)])
 }
 
 async fn send<W: AsyncWrite + Unpin>(w: &mut W, data: &[u8]) {
@@ -144,7 +141,7 @@ async fn decrypted_requests_and_cert_chain() {
     let roots = root_file(&pki);
     let server = origin(pki.server.clone()).await;
     let proxy = decrypting_proxy(&[], roots.path());
-    // The claim (--test-decrypt) created the CA at startup, loudly, with a 0600 key.
+    // pass-decrypt's handshake (its claim) created the CA, loudly, with a 0600 key.
     assert!(proxy.log().contains("CREATED A NEW CA"), "{}", proxy.log());
     use std::os::unix::fs::PermissionsExt;
     let mode = std::fs::metadata(ca_dir(&proxy).join("ca-key.pem"))
@@ -346,7 +343,9 @@ async fn bad_upstream_certificate_is_502() {
             .unwrap();
         send(
             &mut tls,
-            format!("GET /head HTTP/1.1\r\nHost: {target}\r\n\r\n").as_bytes(),
+            // Connection: close: the 502 now comes back through pass-decrypt like any response, so the
+            // keep-alive connection would stay open after it.
+            format!("GET /head HTTP/1.1\r\nHost: {target}\r\nConnection: close\r\n\r\n").as_bytes(),
         )
         .await;
         let (h, rest) = read_head(&mut tls).await;

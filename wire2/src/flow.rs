@@ -208,7 +208,14 @@ mod tests {
     #[test]
     fn open_close_and_ids() {
         let r = Registry::new();
-        let a = r.open(Kind::Tunnel, "CONNECT", "a.test", 443, false, Route::default());
+        let a = r.open(
+            Kind::Tunnel,
+            "CONNECT",
+            "a.test",
+            443,
+            false,
+            Route::default(),
+        );
         let b = r.open(Kind::Http, "GET", "b.test", 80, false, Route::default());
         assert_eq!(r.get(2).map(|f| f.host.clone()), Some("b.test".into()));
         assert!(r.get(3).is_none());

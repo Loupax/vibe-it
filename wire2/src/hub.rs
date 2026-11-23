@@ -76,20 +76,20 @@ fn issued_flow(ctx: &Ctx, head: &RequestHead) -> Result<Arc<FlowInfo>, String> {
 async fn handle(s: UnixStream, ctx: Arc<Ctx>) {
     let mut conn = Conn::Unix(s);
     let mut buf = Vec::new();
-    let head = match tokio::time::timeout(HEAD_TIMEOUT, http::read_request(&mut conn, &mut buf)).await
-    {
-        Ok(Ok(h)) => h,
-        Ok(Err(HeadError::Eof | HeadError::Io(_))) => return,
-        Err(_) => {
-            proxy::refuse(&mut conn, 408, "wire2 hub: request head timeout").await;
-            return;
-        }
-        Ok(Err(e)) => {
-            crate::warn!("hub: bad request from a filter: {e}");
-            proxy::refuse(&mut conn, 400, "wire2 hub: malformed request").await;
-            return;
-        }
-    };
+    let head =
+        match tokio::time::timeout(HEAD_TIMEOUT, http::read_request(&mut conn, &mut buf)).await {
+            Ok(Ok(h)) => h,
+            Ok(Err(HeadError::Eof | HeadError::Io(_))) => return,
+            Err(_) => {
+                proxy::refuse(&mut conn, 408, "wire2 hub: request head timeout").await;
+                return;
+            }
+            Ok(Err(e)) => {
+                crate::warn!("hub: bad request from a filter: {e}");
+                proxy::refuse(&mut conn, 400, "wire2 hub: malformed request").await;
+                return;
+            }
+        };
     let layer = if head.method.eq_ignore_ascii_case("CONNECT") {
         Layer::Tunnel
     } else {

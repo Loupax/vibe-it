@@ -3,8 +3,8 @@
 //!   cargo test --release --test w2_2_perf -- --ignored --nocapture --test-threads 1
 //! On the user's machine run it under `flock /tmp/scratchy-perf.lock` and note `uptime`.
 //! "Direct" is a TLS client talking to the HTTPS origin itself; "decrypted" is the same client through
-//! the proxy with decryption forced by the TEST-ONLY `--test-decrypt` (pass-decrypt comes with W2-F,
-//! and will add one filter stage on top). `W2_PERF_BYTES` sets the bytes per run (default 2 GiB).
+//! the proxy and the test-only pass-decrypt filter (W2-F: one http-layer stage, in-process on its own
+//! runtime). `W2_PERF_BYTES` sets the bytes per run (default 2 GiB).
 
 mod common;
 
@@ -84,13 +84,9 @@ async fn origin_server(acceptor: tokio_rustls::TlsAcceptor, n: u64) -> std::net:
 }
 
 async fn measure(n: u64, pki: &Pki, roots: &std::path::Path, origin: std::net::SocketAddr) {
-    let proxy = Proxy::start_env(
-        &[
-            "--test-resolve",
-            "*.example.test=127.0.0.1",
-            "--test-decrypt",
-            HOST,
-        ],
+    let proxy = decrypting(
+        &[HOST],
+        &["--test-resolve", "*.example.test=127.0.0.1"],
         &[("SSL_CERT_FILE", roots)],
     );
     let browser = client_trusting(&ca_pem(&proxy));

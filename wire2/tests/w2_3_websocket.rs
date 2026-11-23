@@ -1,6 +1,6 @@
 //! W2-3: WebSockets inside decrypted tunnels. The upgrade request goes through the single
 //! `proxy::forward` path; after `101` the connection is a plain byte copy (no frame parsing).
-//! Decryption is forced with the TEST-ONLY `--test-decrypt`, names mapped with `--test-resolve`.
+//! Decryption through the test-only pass-decrypt filter (W2-F), names mapped with `--test-resolve`.
 //! (ws:// through plain http and wss:// through an opaque tunnel live in w2_1_http / w2_1_tunnel.)
 
 mod common;
@@ -81,14 +81,10 @@ async fn origin(cfg: Arc<rustls::ServerConfig>, seen: Seen) -> std::net::SocketA
     .await
 }
 
-fn proxy(roots: &Path) -> Proxy {
-    Proxy::start_env(
-        &[
-            "--test-resolve",
-            "*.example.test=127.0.0.1",
-            "--test-decrypt",
-            "*.example.test",
-        ],
+fn proxy(roots: &Path) -> Decrypting {
+    decrypting(
+        &["*.example.test"],
+        &["--test-resolve", "*.example.test=127.0.0.1"],
         &[("SSL_CERT_FILE", roots)],
     )
 }

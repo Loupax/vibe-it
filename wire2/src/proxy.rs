@@ -1467,8 +1467,12 @@ where
                     f.mark_down("closed the connection before response headers");
                     lost(flow, name, "closed before response headers")
                 }
-                (Hop::Filter { name, .. }, RecvErr::Head(h)) => malformed(flow, name, &h.to_string()),
-                (Hop::Filter { name, .. }, _) => malformed(flow, name, "101 to a request that did not upgrade"),
+                (Hop::Filter { name, .. }, RecvErr::Head(h)) => {
+                    malformed(flow, name, &h.to_string())
+                }
+                (Hop::Filter { name, .. }, _) => {
+                    malformed(flow, name, "101 to a request that did not upgrade")
+                }
                 (Hop::Origin, e) => {
                     let why = match e {
                         RecvErr::Head(h) => h.to_string(),

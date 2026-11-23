@@ -20,7 +20,7 @@ use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::signal::unix::{SignalKind, signal};
 
@@ -97,10 +97,37 @@ fn header_str(head: &http::RequestHead, name: &str) -> Option<String> {
     http::header(&head.headers, name).map(|v| String::from_utf8_lossy(v).trim().to_string())
 }
 
+/// Read until a complete request head is in `buf` (which keeps every byte read, head included, so it
+/// can be passed on unchanged).
+async fn read_raw_head(c: &mut Conn, buf: &mut Vec<u8>) -> Result<http::RequestHead, HeadError> {
+    let mut tmp = [0u8; 8192];
+    loop {
+        if !buf.is_empty() {
+            match http::parse_request(buf) {
+                Ok(Some((h, _))) => return Ok(h),
+                Ok(None) => {}
+                Err(m) => return Err(HeadError::Malformed(m)),
+            }
+        }
+        if buf.len() >= http::MAX_HEAD {
+            return Err(HeadError::TooLarge);
+        }
+        let n = c.read(&mut tmp).await.map_err(HeadError::Io)?;
+        if n == 0 {
+            return Err(if buf.is_empty() {
+                HeadError::Eof
+            } else {
+                HeadError::Truncated
+            });
+        }
+        buf.extend_from_slice(&tmp[..n]);
+    }
+}
+
 async fn conn(s: UnixStream, json: Arc<str>, hubs: Hubs, verbose: bool) {
     let mut c = Conn::Unix(s);
     let mut buf = Vec::new();
-    let head = match tokio::time::timeout(HEAD_TIMEOUT, http::read_request(&mut c, &mut buf)).await {
+    let head = match tokio::time::timeout(HEAD_TIMEOUT, read_raw_head(&mut c, &mut buf)).await {
         Ok(Ok(h)) => h,
         Ok(Err(HeadError::Eof)) => return,
         Ok(Err(e)) => {

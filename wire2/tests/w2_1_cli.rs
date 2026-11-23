@@ -24,9 +24,13 @@ fn unknown_and_not_yet_flags_are_errors() {
     let (code, err) = run(&["--bogus"]);
     assert_eq!(code, 2, "{err}");
     assert!(err.contains("unknown argument \"--bogus\""), "{err}");
-    let (code, err) = run(&["--filter", "unix:/tmp/pass.sock"]);
+    // W2-F: filters exist; any scheme but unix: is a startup error, and --test-decrypt is gone.
+    let (code, err) = run(&["--filter", "tcp:127.0.0.1:9"]);
     assert_eq!(code, 2);
-    assert!(err.contains("--filter is not supported yet"), "{err}");
+    assert!(err.contains("only unix:<path>"), "{err}");
+    let (code, err) = run(&["--test-decrypt", "*.example.test"]);
+    assert_eq!(code, 2);
+    assert!(err.contains("unknown argument"), "{err}");
     // W2-2: --ca-dir and --no-decrypt exist now; a bad glob is still a startup error.
     let (code, err) = run(&["--no-decrypt", "a..b"]);
     assert_eq!(code, 2);

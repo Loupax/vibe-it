@@ -1,6 +1,6 @@
 //! W2-2: SPEC "A 2 GB download through ... pass-decrypt keeps proxy ... memory flat, and its first bytes
-//! arrive before the upstream finishes sending." Decryption forced with the TEST-ONLY `--test-decrypt`
-//! (pass-decrypt arrives with W2-F). Generated on the fly, never stored. `W2_LARGE_BYTES` overrides
+//! arrive before the upstream finishes sending." Decryption through the test-only pass-decrypt filter
+//! (W2-F). Generated on the fly, never stored. `W2_LARGE_BYTES` overrides
 //! the size.
 
 mod common;
@@ -67,13 +67,9 @@ async fn large_download_decrypted_flat_memory() {
         })
         .await
     };
-    let proxy = Proxy::start_env(
-        &[
-            "--test-resolve",
-            "*.example.test=127.0.0.1",
-            "--test-decrypt",
-            HOST,
-        ],
+    let proxy = decrypting(
+        &[HOST],
+        &["--test-resolve", "*.example.test=127.0.0.1"],
         &[("SSL_CERT_FILE", roots.path())],
     );
     let target = format!("{HOST}:{}", origin.port());

@@ -98,7 +98,9 @@ fn hub_path(cfg: &Config) -> Result<PathBuf, String> {
     }
     match std::env::var_os("XDG_RUNTIME_DIR") {
         Some(d) if !d.is_empty() => Ok(PathBuf::from(d).join("proxy-hub.sock")),
-        _ => Err("filters need a hub socket: XDG_RUNTIME_DIR is not set, so pass --hub <path>".into()),
+        _ => Err(
+            "filters need a hub socket: XDG_RUNTIME_DIR is not set, so pass --hub <path>".into(),
+        ),
     }
 }
 
@@ -238,11 +240,7 @@ fn dump_filters(filters: &Filters) {
             State::Down { last: Some(_) } => "down".to_string(),
             State::Down { last: None } => "down (no handshake: blocks all hosts)".to_string(),
         };
-        info!(
-            "filter {} unix:{}: {st}",
-            f.label(),
-            f.path.display()
-        );
+        info!("filter {} unix:{}: {st}", f.label(), f.path.display());
     }
 }
 

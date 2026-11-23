@@ -87,7 +87,9 @@ pub enum State {
     Up(Arc<Caps>),
     /// Down. `last` holds the capabilities of the last good handshake; `None` (never shook hands, or
     /// the last handshake was rejected) means fail closed for every host.
-    Down { last: Option<Arc<Caps>> },
+    Down {
+        last: Option<Arc<Caps>>,
+    },
 }
 
 pub struct Filter {
@@ -166,20 +168,20 @@ pub fn check_socket_dir(sock: &Path) -> Result<(), String> {
     let m = std::fs::metadata(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     // SAFETY: plain getter.
     let me = unsafe { libc::geteuid() };
-    if m.uid() != me {
-        return Err(format!(
-            "refusing socket {}: its directory {} is owned by uid {}, not by this proxy's uid {me}",
-            sock.display(),
-            dir.display(),
-            m.uid()
-        ));
-    }
     if m.mode() & 0o022 != 0 {
         return Err(format!(
             "refusing socket {}: its directory {} is group- or world-writable (mode {:o})",
             sock.display(),
             dir.display(),
             m.mode() & 0o7777
+        ));
+    }
+    if m.uid() != me {
+        return Err(format!(
+            "refusing socket {}: its directory {} is owned by uid {}, not by this proxy's uid {me}",
+            sock.display(),
+            dir.display(),
+            m.uid()
         ));
     }
     Ok(())
@@ -481,10 +483,7 @@ async fn read_small_body(
 fn dechunk(mut b: &[u8]) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
     loop {
-        let eol = b
-            .windows(2)
-            .position(|w| w == b"\r\n")
-            .ok_or("bad chunk")?;
+        let eol = b.windows(2).position(|w| w == b"\r\n").ok_or("bad chunk")?;
         let line = std::str::from_utf8(&b[..eol]).map_err(|_| "bad chunk size")?;
         let size = line.split(';').next().unwrap_or("").trim();
         let n = usize::from_str_radix(size, 16).map_err(|_| "bad chunk size")?;
@@ -509,14 +508,22 @@ pub fn parse_caps(body: &[u8]) -> Result<Caps, String> {
         Some(serde_json::Value::String(s)) if !s.trim().is_empty() => s.trim().to_string(),
         _ => return Err("missing or empty \"name\"".into()),
     };
-    if name.len() > 64 || name.chars().any(|c| c.is_control() || c.is_whitespace() || c == ',') {
+    if name.len() > 64
+        || name
+            .chars()
+            .any(|c| c.is_control() || c.is_whitespace() || c == ',')
+    {
         return Err(format!(
             "bad name {name:?} (at most 64 characters, no spaces, commas or control characters)"
         ));
     }
     match o.get("version").and_then(|v| v.as_u64()) {
         Some(VERSION) => {}
-        Some(v) => return Err(format!("unsupported protocol version {v} (this proxy speaks 1)")),
+        Some(v) => {
+            return Err(format!(
+                "unsupported protocol version {v} (this proxy speaks 1)"
+            ));
+        }
         None => return Err("missing or bad \"version\"".into()),
     }
     let layer = match o.get("layer").and_then(|v| v.as_str()) {

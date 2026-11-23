@@ -13,6 +13,10 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::rustls;
 
+pub mod filters;
+#[allow(unused_imports)]
+pub use filters::*;
+
 pub const BIN: &str = env!("CARGO_BIN_EXE_wire2");
 
 /// A running wire2 with its own temp dir (used as XDG_DATA_HOME, so a CA would land there).
@@ -32,6 +36,8 @@ impl Proxy {
     /// roots of decrypted tests).
     pub fn start_env(args: &[&str], envs: &[(&str, &Path)]) -> Proxy {
         let dir = tempfile::tempdir().unwrap();
+        // XDG_RUNTIME_DIR: private, like the real one (the hub socket goes there).
+        std::fs::create_dir(dir.path().join("run")).unwrap();
         let mut full: Vec<String> = args.iter().map(|s| s.to_string()).collect();
         if !args.contains(&"--listen") {
             full.extend(["--listen".into(), "127.0.0.1:0".into()]);
