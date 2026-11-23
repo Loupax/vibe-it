@@ -16,11 +16,11 @@ spike can stop early on a hard failure. Decisions: DECISIONS.md.
       `CefResourceHandler`.
       Done when: the site loads again inside the namespace and wire's log shows
       every request.
-- [WIP] W4 Cookies in Chromium. Requests go without `X-Wire-Jar`; `Set-Cookie`
+- [WIP] W4 Cookies in Chromium (DRAFT #659 waits for the user's login checklist). Requests go without `X-Wire-Jar`; `Set-Cookie`
       reaches CEF.
       Done when: logging in to a real site works and survives a restart of the
       spike, with wire's jar unused.
-- [ ] W5 Streaming and large bodies: video byte ranges (`Range`/`206` passed
+- [WIP] W5 Streaming and large bodies: video byte ranges (`Range`/`206` passed
       through), a download over 100 MB, a long-poll request.
       Done when: a video seeks without stalling and the download finishes without
       hitting wire's body caps.

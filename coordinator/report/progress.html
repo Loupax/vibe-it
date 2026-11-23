@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-23 09:00 · main a35f6ad · web spike running (W4 prep) · wire reinstalled 09:46 (a35f6ad; restart your wire to use it) · W-FLK1 running · scratchy paused</div>
+  <div class="meta" id="updated">Updated 2026-11-23 09:00 · main a35f6ad · web spike: W4 waits on you (#659), W5 running · wire reinstalled 09:46 (a35f6ad; restart your wire to use it) · W-FLK1 running · scratchy paused</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -66,8 +66,8 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
     <tr><td>W1</td><td>Bare CEF window</td><td><span class="pill done">done #656</span></td><td>CEF 156 via the <code>cef</code> crate loads example.com and Wikipedia on nested Wayland and Xwayland (page loaded 0.2–0.75 s after launch). Chromium tried to move itself out of the memory-capped scope; <code>FLATPAK_SANDBOX_DIR</code> stops it. ~10 processes per tab; the scope uses ~300 MB</td></tr>
     <tr><td>W2</td><td>Empty network namespace</td><td><span class="pill done">done #657</span></td><td>All 10 CEF processes see only <code>lo</code>; example.com and Wikipedia fail at once (ERR_INTERNET_DISCONNECTED), no crashes, Chromium's sandbox stays on. <code>unshare -rn</code> fails (Chromium refuses root); <code>unshare -n --map-user=$(id -u)</code> works</td></tr>
     <tr><td>W3</td><td>Answer requests from wire</td><td><span class="pill done">done #658</span></td><td>Inside the empty namespace every http(s) request goes through wire (Wikipedia 48/48 in wire's log) and pages render; Wikipedia 524 ms through wire vs 498 ms direct. Chromium follows redirects itself so cookies and origins stay right. Chromium's own HTTP cache stores nothing, so wire's cache does all of it. Gaps: Blob/File uploads fail (W-UPLOAD1), WebSockets never reach the handler (W6)</td></tr>
-    <tr><td>W4</td><td>Cookies in Chromium (needs your login)</td><td><span class="pill wip">agent preparing</span></td><td></td></tr>
-    <tr><td>W5</td><td>Streaming and large bodies</td><td><span class="pill todo">later</span></td><td>wire side ready: W-MEDIA2 (#654) makes cut-off bodies detectable</td></tr>
+    <tr><td>W4</td><td>Cookies in Chromium (needs your login)</td><td><span class="pill wait">waiting on you #659</span></td><td>Prepared and proven on test cookies: persistent cookies survive a restart, session cookies do not, HttpOnly/Secure/SameSite behave as in Chrome, wire's jar stays empty. Your real-site login is the check</td></tr>
+    <tr><td>W5</td><td>Streaming and large bodies</td><td><span class="pill wip">running (stacked on #659)</span></td><td>wire side ready: W-MEDIA2 (#654) makes cut-off bodies detectable</td></tr>
     <tr><td>W6</td><td>Paths that bypass the handler</td><td><span class="pill todo">later</span></td><td></td></tr>
     <tr><td>W7</td><td>A day of browsing (yours)</td><td><span class="pill todo">later</span></td><td></td></tr>
   </table></div>
@@ -333,6 +333,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 <section>
   <h2>Waiting on you</h2>
   <ul id="waiting">
+    <li><b>W4: log in to real sites in the spike (draft PR #659).</b> The checklist is in the PR body and in <span class="mono">web/spike/README.md</span> (“W4 checklist for the user”). In short: restart your wire (it has the latest install), build the spike, start it with <code>web/spike/run.sh --persistent</code> (profile in <span class="mono">~/.local/share/web-spike/profile</span>, outside the repo), log in to one password site and one 2FA site, restart the spike, check you are still logged in and wire's jar is empty, and tell me the result. W5 continues meanwhile, stacked on #659.</li>
     <li><b>scratchy is paused (#650, 2026-11-23).</b> Drain finished: QTYPE1 (#651), QCNV13 (#652) and QWPT7e (#653) merged; no scratchy agents run. Development moves to <span class="mono">web/</span>.</li>
                         <li>Skim <span class="mono">scratchy/DECISIONS.md</span> once and correct anything I misstated.</li>
           </ul>
