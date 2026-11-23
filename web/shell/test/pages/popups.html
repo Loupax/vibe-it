@@ -4,7 +4,7 @@
 <style>
   /* C-POPUPS live check (c_popups_live.py). Red page: the opener. Its title reports what it saw:
      `pp <window.open results> | <messages from popups>`. */
-  html, body { margin: 0; font: 20px sans-serif; background: #ff0000; }
+  html, body { margin: 0; min-height: 4000px; font: 20px sans-serif; background: #ff0000; }
   .box { position: absolute; left: 40px; width: 300px; height: 80px; line-height: 80px; text-align: center;
          border: 2px solid #345; background: #fff; }
   #btn { top: 40px; } #blank { top: 160px; }
@@ -15,7 +15,7 @@
 <iframe src="popframe.html"></iframe>
 <script>
   const st = { opened: [], msgs: [] };
-  const show = () => { document.title = 'pp ' + st.opened.join(',') + ' | ' + st.msgs.join(','); };
+  const show = () => { document.title = 'pp ' + st.opened.join(',') + ' | ' + st.msgs.join(',') + (scrollY > 0 ? ' y=' + Math.round(scrollY) : ''); };
   const open = (n, name, features) => {
     const w = window.open('popchild.html?n=' + n, name, features);
     st.opened.push(n + '=' + (w ? 'win' : 'null'));
@@ -26,5 +26,7 @@
   // No user gesture ever: blocked by the host.
   setTimeout(() => open('timer', 'tkid', ''), 800);
   addEventListener('message', e => { st.msgs.push(String(e.data)); show(); });
+  let stm = 0;
+  addEventListener('scroll', () => { clearTimeout(stm); stm = setTimeout(show, 150); });
   show();
 </script>

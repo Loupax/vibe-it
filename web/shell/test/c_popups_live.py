@@ -244,23 +244,45 @@ def main():
         step("T94 a target=_blank link opens a buffer", blank)
 
         def modifiers_in_normal():
-            # NORMAL keeps the keyboard (modifiers too) from the page: a Ctrl-click is a plain click there.
-            k = log.mark()
+            # C-NORMALMODS: NORMAL clicks carry the held modifiers, so they act as in INPUT: nothing opens.
             x, y = AT["blank"]
-            inject(f"move:{g.bx + x},{g.by + y}", "wait:100", "hold:c", "click", "release", "wait:300")
-            tab = created(k, "popup")
-            log.wait(r'host event: \{"event":"title","tab":' + str(tab) + r',"title":"child blank opener=no"', k, 15)
-            log.wait(r"buffer 6 of 2 is current", k, 5)
-            k = command("bd", r"NORMAL \| buffer 6 killed")
-            log.wait(r"buffer 1 of 1 is current", k, 5)
-            time.sleep(0.5)
+            for held in ("c", "s", "cs"):
+                k = log.mark()
+                inject(f"move:{g.bx + x},{g.by + y}", "wait:100", f"hold:{held}", "click", "release", "wait:1500")
+                if any('"tab-created"' in l or '"event":"url"' in l for l in log.lines[k:]):
+                    raise Fail(f"{held}-click on the target=_blank link opened or loaded something: {log.lines[k:]}")
             k = log.mark()
             inject(f"move:{g.bx + x},{g.by + y}", "wait:100", "mclick", "wait:1500")
             if any('"tab-created"' in l or '"event":"url"' in l for l in log.lines[k:]):
                 raise Fail(f"a middle-click opened or loaded something: {log.lines[k:]}")
-            return "NORMAL: Ctrl-click on target=_blank = a plain click (popup buffer 6); middle-click: nothing"
+            # a plain click right after still opens the popup (the modifiers were restored)
+            k = log.mark()
+            click("blank")
+            tab = created(k, "popup")
+            log.wait(r"buffer 6 of 2 is current", k, 15)
+            k = command("bd", r"NORMAL \| buffer 6 killed")
+            log.wait(r"buffer 1 of 1 is current", k, 5)
+            return "NORMAL: Ctrl/Shift/Ctrl+Shift/middle-click on target=_blank open nothing; a plain click opens buffer 6"
 
-        step("T92 modifier clicks in NORMAL (kept: plain click; middle-click nothing)", modifiers_in_normal)
+        step("T92 modifier clicks in NORMAL (as INPUT: nothing opens)", modifiers_in_normal)
+
+        def scroll_after_shift_click():
+            # NORMAL's own keys stay unmodified after a Shift-click: G -> End scrolls, gg back, j scrolls.
+            x, y = AT["btn"]
+            k = log.mark()
+            inject(f"move:{g.bx + x},{g.by + y + 600}", "wait:100", "hold:s", "click", "release", "wait:300")
+            inject(*keys_for("G"), "wait:600")
+            opener_title(r" y=[1-9]\d{3}", k)
+            k = log.mark()
+            inject(*keys_for("gg"), "wait:600")
+            # no ` y=` any more: back at the top
+            log.wait(r'host event: \{"event":"title","tab":' + str(tabs["opener"]) + r',"title":"pp (?:(?!y=)[^"])*"', k, 10)
+            k = log.mark()
+            inject(*keys_for("j"), "wait:600")
+            opener_title(r" y=[1-9]", k)
+            return "after a Shift-click, G scrolled to the end, gg back to the top, j scrolled"
+
+        step("T21 NORMAL keys still scroll unmodified after a Shift-click", scroll_after_shift_click)
 
         def nav_clears():
             # A reload is another document: its timers block popups 3 and 4.

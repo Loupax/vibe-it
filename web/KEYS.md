@@ -482,7 +482,7 @@ contents, restoring buffers after a restart.
 | T89 | any | `crashed` | none | same | only that buffer's page is gone (the others keep running); the buffer stays. Current: as before, `web: the page crashed; :refresh loads it again`; in the background: `web: the page of buffer N crashed (the other buffers are fine)`, and switching to it shows the first message |
 | T90 | COMMAND | typing a command name | none | COMMAND | the ghost offers `bufferList`, `buffer`, `bufferNext`, ... but never `ls`, `b`, `bn`, `bp`, `bd`; a word that is an alias in full has no ghost text, so Enter runs it as typed (`:b` stays `:b`, not the first `b...` name); Tab still cycles the long names |
 | T91 | COMMAND | Enter on `:q` / `:quit` | not on `:help` | (exit) | the host closes every page (`quit`) and exits when the last one is gone; the shell opens no page meanwhile |
-| T92 | INPUT | Ctrl-click, middle-click, Shift-click on a link | none | same | nothing opens (C-NOTAB stays): no buffer, no page, no navigation. (In NORMAL the page gets no modifier keys, so a Ctrl-click or Shift-click there is a plain click: it follows the link in this buffer, and on a `target=_blank` link or a `window.open` button it opens a popup buffer as a plain click does, T93/T94. A middle-click opens nothing in either mode. C-POPUPS kept this, see "Popups") |
+| T92 | any | Ctrl-click, middle-click, Shift-click on a link | none | same | nothing opens (C-NOTAB stays): no buffer, no page, no navigation, in NORMAL as in INPUT. **C-NORMALMODS** (user 2026-11-23): in NORMAL a pointer click carries the modifiers actually held (the shell tells the page the held modifiers just before the press and puts them back, unmodified, after the release), so the host's rules apply there too; NORMAL's own keys still reach the page unmodified (`G` is End, T21). A middle-click opens nothing in either mode. C-POPUPS kept this, see "Popups" |
 
 ## Popups (C-POPUPS)
 
@@ -509,11 +509,11 @@ gesture.
 | T98 | COMMAND | Enter on `:popupSearch [filter]` | the current buffer has a blocked popup | PICK | the picker (T58-T68) over the buffer's blocked popups, newest first: label the URL (`(no URL)`), detail the target name and `in a frame`; matched on the URL and the name; Enter opens the row's popup as T97 (it leaves the list). None: stays NORMAL, `web: no blocked popup in this buffer` |
 
 Modifier clicks (C1-INPUT's open case, decided here by the user's words "Ctrl/middle-click on links still
-open nothing", DECISIONS.md): unchanged. In INPUT the page gets the modifiers and the host drops
-Ctrl/Shift/middle-click (T92). In NORMAL the page gets no modifier keys (NORMAL keeps the keyboard from
-the page), so Ctrl-click and Shift-click arrive as plain clicks and do what a plain click does (follow
-the link here, or open a popup buffer for `target=_blank`); a middle-click is dropped by the host in both
-modes. Not now (DECISIONS.md): a per-site "always allow popups" list.
+open nothing", DECISIONS.md): in INPUT the page gets the modifiers with the keys; in NORMAL (user
+2026-11-23, C-NORMALMODS) a click carries the modifiers held (the page is told just before the press and
+unmodified again after the release), so Ctrl/Shift/Ctrl+Shift-click and middle-click are dropped by the
+host in both modes (T92). NORMAL's keys are unaffected: the page's modifiers are never changed by a key
+there. Not now (DECISIONS.md): a per-site "always allow popups" list.
 
 ## What went away in scratchy (QKEYS3)
 
@@ -522,6 +522,11 @@ modes. Not now (DECISIONS.md): a per-site "always allow popups" list.
 Esc Esc, so there is nothing left to switch off, and Esc Esc cannot be locked out (T2).
 
 ## Decision log
+
+- 2026-11-23 (C-NORMALMODS, the user's words in DECISIONS.md): a pointer click in NORMAL carries the held
+  modifiers: the shell sends the page `wl_keyboard.modifiers` with the held state just before a press and
+  the unmodified state after the release (INPUT: the desktop's); the seat's own state and NORMAL's keys are
+  untouched, so `G` is still End. Ctrl/Shift/Ctrl+Shift-click open nothing in either mode (T92).
 
 - 2026-11-23 (C-POPUPS): popups built as "Popups" says (T93-T98). The implementer's choices, not asked:
   the shell switches to every popup, also one a background buffer opened; a blocked popup that is

@@ -121,6 +121,8 @@ pub struct State {
     /// T66: a mouse button whose press closed the picker over its list: neither it nor its
     /// release reaches the page.
     pub swallowed_button: Option<u32>,
+    /// C-NORMALMODS: buttons pressed in NORMAL with modifiers sent to the page, not yet released.
+    pub click_mods_out: u32,
     /// The key model: modes, the `:` line, the status bar's text (C3).
     pub keys: crate::keys::Keys,
     pub history: crate::history::History,
