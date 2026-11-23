@@ -24,3 +24,4 @@ with no network of its own; the plan now is Architecture C (DECISIONS.md, TODO.t
 - `DECISIONS.md`: what has been decided and why.
 - `TODO.txt`: the plan (C1-C8, E1) and the spike record (W1-W7), each step with a check that ends it.
 - `PROMPTS.md`: the exact prompts that produced this project, in order.
+
