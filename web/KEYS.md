@@ -405,13 +405,13 @@ in every list (move, Enter runs the row, Esc closes) and a mode of its own").
 |---|---|---|---|---|---|
 | T58 | COMMAND | Enter on `:historySearch [filter]` (later: `:bookmarkSearch`, `:bufferList`, `:popupSearch`) | the source has rows | PICK | the list opens with every row matching the filter (none typed: all, in the source's order), the first selected. No rows: stays NORMAL, status bar `web: the history is empty` |
 | T59 | PICK | text editing keys, paste | none | PICK | edit the filter (the `:` line's keys, T26: Left, Right, Home, End, Backspace, Ctrl-w, Ctrl-u, paste); after a change the list is re-ranked (fuzzy, best first) and the best match selected. The page gets no keys, `i` and `j` are typed |
-| T60 | PICK | Ctrl-n, Down | not on the last row | PICK | the next row is selected; the list scrolls to keep it shown. On the last row nothing happens *(proposed: no wrap)* |
+| T60 | PICK | Ctrl-n, Down | not on the last row | PICK | the next row is selected; the list scrolls to keep it shown. On the last row nothing happens (no wrap) |
 | T61 | PICK | Ctrl-p, Up | not on the first row | PICK | the previous row is selected (no wrap) |
 | T62 | PICK | Enter (keypad Enter too) | a row matches | NORMAL | the picker closes, then the selected row's action runs (history: `open <url>` in the current page) |
-| T63 | PICK | Enter | no row matches | PICK | nothing *(proposed)*: edit the filter or Esc |
+| T63 | PICK | Enter | no row matches | PICK | nothing: edit the filter or Esc |
 | T64 | PICK | Esc | none | NORMAL | the picker closes; nothing runs |
 | T65 | PICK | Tab, Shift-Tab, Delete, other Ctrl/Alt/Super chords | none | PICK | nothing (no Tab candidates in a picker) |
-| T66 | PICK | a mouse press | over the list | NORMAL | the picker closes; the press and its release are not delivered to the page (it was under the list) *(proposed: the rows are not clickable, keyboard only)* |
+| T66 | PICK | a mouse press | over the list | NORMAL | the picker closes; the press and its release are not delivered to the page (it was under the list) (the rows are not clickable, keyboard only) |
 | T67 | PICK | a mouse press | elsewhere (the page outside the list, the bar) | NORMAL | the picker closes; the click goes to the page as usual (as T29 for the `:` line) |
 | T68 | PICK | an editable gains focus, or a click opens a popup | none | INPUT | as T29: the picker closes first; a popup's return (T57) is to NORMAL |
 

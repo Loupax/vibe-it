@@ -11,14 +11,18 @@ import notab  # noqa: E402
 
 
 class Menus(unittest.TestCase):
-    def test_forbidden(self):
-        r = "100:Back, 101:Forward, 50100:Open link in new tab, Sub[1:Copy, 2:Inspect]"
-        self.assertEqual(notab.forbidden_labels(r), ["Open link in new tab", "Inspect"])
-        self.assertEqual(notab.forbidden_labels("100:Back, 102:Reload, 113:Copy"), [])
+    def test_suppressed_lines(self):
+        lines = [
+            "noise",
+            "[web-host-cef +5ms] context menu: suppressed",
+            "[web-host-cef +6ms] context menu: run suppressed",
+            "context menu: removed [A(1)]; remaining [100:Back]",
+        ]
+        self.assertEqual(notab.suppressed_lines(lines), lines[1:3])
 
-    def test_menu_lines(self):
-        lines = ["noise", "[web-host-cef +5ms] context menu: removed [A(1), B(2)]; remaining [100:Back]"]
-        self.assertEqual(notab.context_menus(lines), [("A(1), B(2)", "100:Back")])
+    def test_menu_shown_lines(self):
+        lines = ["noise", "[web-host-cef +5ms] context menu: removed [A(1), B(2)]; remaining [100:Back]", "context menu: suppressed"]
+        self.assertEqual(notab.menu_shown_lines(lines), [lines[1]])
 
 
 if __name__ == "__main__":
