@@ -2,6 +2,13 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-23 The spike is a success; testing stops
+
+The user, after W1-W5 (W4 prepared, W5 ready) and with W6 in progress: "I consider that a
+success. you can stop testing now". W6 was stopped; its partial work (switch lists, start of a
+WebSocket proxy) is on branch `web/w6-bypass`. W4's real-site login and W7's day of browsing
+are not run. Whether this is the go for the "After a go" items is asked separately.
+
 ## 2026-11-23 Start `web`, a CEF-based browser; pause scratchy
 
 From the engine discussion of 2026-11-23 (PROMPTS.md "Engine discussion").
