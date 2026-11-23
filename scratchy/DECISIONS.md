@@ -7,6 +7,9 @@ their section with the date.
 
 ## Direction and process
 
+- **2026-11-23 scratchy is PAUSED.** No new scratchy work is scheduled, to save tokens: no agents,
+  no merges of new items. Development moves to `web/` (a CEF-based browser; see `../web/DECISIONS.md`).
+  Code, TODO.txt and open PRs stay as they are. Only the user un-pauses it.
 - **2026-11-22 The incr-gate page `github` is renamed `gh-home`** (recording dir too), because the
   sandbox read the name in gate commands as a git command.
 - **2026-11-22 Remove the old pipeline now (QINC1m).** The user gave the go before the planned
