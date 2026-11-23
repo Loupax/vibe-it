@@ -583,7 +583,74 @@ Domain</title>`; 23 flows (Chrome's own background connections included), every 
   up after the first request that reaches the new process. A periodic re-handshake would close this.
 - A duplicate name (or any rejected handshake) leaves that filter down with no capabilities, which
   blocks every host (fail closed); the log says why.
-- One upstream connection per decrypted request (W2-2a) now also means one CONNECT through the tunnel
-  chain per decrypted request.
+- (Fixed by W2-2a, below: one upstream connection per decrypted request meant one CONNECT per request.)
 - The access log's byte counts include heads (W2-1c, open question, unchanged); the CA directory default
   is still `$XDG_DATA_HOME/proxy` (W2-2d, open question, unchanged).
+
+## W2-2a upstream connection reuse (2026-11-23)
+
+### Design
+
+- One slot per flow: `FlowInfo::pool` holds the idle origin connection (TLS halves) of a decrypted flow.
+  A browser connection's requests are sequential (HTTP/1.1, no pipelining), so one slot is the whole pool.
+  The slot lives in the flow, not the filter or hub path: a request that went through http filters and
+  came back through the hub reaches `http_from`'s origin step with the same `FlowInfo` and uses the same slot.
+  Plain `http://` flows and upgrades never use it (`Hop::Origin { pool: false }`); plain requests still go
+  out with `Connection: close`.
+- Request side: `build_request` no longer adds `Connection: close` for decrypted flows (HTTP/1.1 default
+  is keep-alive). Plain http and upgrades are as before.
+- Reuse conditions (`exchange`, `origin_ok`): the origin answered HTTP/1.1 without `Connection: close`, the
+  response end is visible from its framing (Content-Length, chunked, no body; not until-close), nothing
+  was read past the body, and the whole request body had been sent. Then the two halves come back out of
+  `pipelined_body` (the reader task now returns its reader) and are parked, whether or not the browser
+  connection itself stays open (the hub's filter-facing leg is always `Connection: close`, the origin leg
+  is independent).
+- Before reuse, `still_open` polls the parked connection once with a zero timeout: data, EOF or an error
+  while idle means the origin closed it, and a fresh connection is dialled without sending anything (so even
+  a POST is safe then). A dead connection that looks alive (FIN not arrived yet) is the race the retry
+  covers: the request was written, no response byte came (EOF or I/O error on the first read).
+  `resendable(req)` (GET, HEAD, OPTIONS, no body) gives `Next::Stale` and one more attempt on a new connection
+  (the old one is dropped); anything else gives `502` "upstream closed the kept connection; <method>
+  request not resent" and the dead connection is dropped; the browser connection itself carries on (when a
+  filter sits in the chain, the 502 reaches the browser as an ordinary response). A fresh connection is
+  never retried.
+- Tunnel filters: each origin connection is still dialled through `connect_from`, so a tunnel filter sees one
+  `CONNECT` per upstream connection (four requests, one CONNECT in the test). A filter closing its pipe ends
+  the parked connection (the idle check sees it, or a request in flight fails); the next request dials again
+  and the filter is asked again, so it can refuse (`403` reaches the browser) or allow.
+- Access log: unchanged, one `req=N` line per request plus the flow line.
+- Not done: no expiry of a parked connection other than the browser connection's 120 s idle and the origin's
+  own close; no pool shared across browser connections (Chrome opens up to 6 per host, each gets its own
+  upstream connection, as before).
+
+### Measurements (2026-11-23, release builds, loopback, `flock /tmp/scratchy-perf.lock`, load average 2.9-3.7)
+
+`cargo test --release --test w2_2a_reuse -- --ignored --nocapture perf` (`W2_CONNS`, `W2_REQS`, `W2_RUNS`;
+`WIRE2_TEST_BIN` picks the proxy binary: before = origin/main e68312f9). Small GETs through pass-decrypt to a
+keep-alive TLS origin, 15 runs, median:
+
+| Load | Before (fresh TCP+TLS per request) | After | Origin TCP connections (15 runs) |
+|---|---|---|---|
+| 50 requests on 1 decrypted connection | 2097 ms (41.9 ms/request) | 113 ms (2.25 ms/request) | 750 -> 15 |
+| 50 requests on each of 6 connections | 2145 ms (7.2 ms/request) | 156 ms (0.52 ms/request) | 4500 -> 90 |
+
+The "before" figure is dominated by something near 40 ms per fresh upstream connection (not isolated; a
+delayed-ACK stall in the handshake flights is the suspicion), so read the ratios (~19x, ~14x) as an upper
+bound for a real network; the point is that the handshake cost is gone.
+
+### Browser check (headless Chrome 156, 2026-11-23)
+
+Throwaway HOME, NSS db and `--user-data-dir` under `.qwork/browser/` (test CA only, nothing logged in).
+A local HTTPS origin (python, HTTP/1.1 keep-alive, a test root as the proxy's `SSL_CERT_FILE`) serving a
+page with 30 images and 10 scripts as `page.example.test:18443`; wire2 + pass-decrypt claiming
+`*.example.test` (the ignored test `serve_for_browser`). `--dump-dom` gave `<title>loaded 30</title>`; 41
+requests answered 200 over 12 decrypted flows (7 flows carried 2-6 requests each); the origin accepted 12
+TCP connections (before: one per request, 41).
+
+### Tests (tests/w2_2a_reuse.rs: 9, plus 2 ignored)
+
+Reuse of one origin connection over 7 requests (CL, chunked), HEAD without body keeps framing, CL/chunked/PUT
+request bodies (300 KB), origin `Connection: close` and idle close give a new connection for GET and POST,
+dead-after-read gives GET retried once / POST 502 and not resent, tunnel filter: one CONNECT for four requests
+and a revocation (`403`) after it closed, close then redial, plain http still `Connection: close`. Six of the
+nine fail with the pool switched off (checked).

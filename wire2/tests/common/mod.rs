@@ -42,7 +42,9 @@ impl Proxy {
         if !args.contains(&"--listen") {
             full.extend(["--listen".into(), "127.0.0.1:0".into()]);
         }
-        let mut child = Command::new(BIN)
+        // WIRE2_TEST_BIN: measure another build (a "before" binary) with the same tests.
+        let bin = std::env::var("WIRE2_TEST_BIN").unwrap_or_else(|_| BIN.to_string());
+        let mut child = Command::new(bin)
             .args(&full)
             .env("XDG_DATA_HOME", dir.path().join("data"))
             .env("XDG_RUNTIME_DIR", dir.path().join("run"))

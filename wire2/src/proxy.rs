@@ -443,9 +443,10 @@ async fn decrypted(
         match next {
             Next::KeepAlive(rest) => buf = rest,
             Next::Close => break,
-            Next::Abort => return,
+            Next::Abort | Next::Stale => return,
         }
     }
+    flow.pool.lock().unwrap_or_else(|e| e.into_inner()).take();
     let mut tls = br.unsplit(bw);
     finish(&mut tls).await;
 }
@@ -488,7 +489,7 @@ fn decrypted_request(head: &RequestHead, host: &str, port: u16) -> Result<Reques
     } else {
         format!("https://{auth}{path}")
     };
-    build_request(head, url, path, auth).map_err(|e| (400, e))
+    build_request(head, url, path, auth, true).map_err(|e| (400, e))
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -569,7 +570,7 @@ async fn plain(mut conn: Conn, head: RequestHead, leftover: Vec<u8>, ctx: &Ctx) 
         p => format!("{}:{p}", authority_host(&host)),
     };
     let url = format!("http://{host_hdr}{path}");
-    let req = match build_request(&head, url, path, host_hdr) {
+    let req = match build_request(&head, url, path, host_hdr, false) {
         Ok(r) => r,
         Err(e) => {
             crate::warn!("flow={} bad request body framing: {e}", flow.id);
@@ -621,16 +622,20 @@ fn build_request(
     url: String,
     path: String,
     host_hdr: String,
+    decrypted: bool,
 ) -> Result<Request, String> {
     let framing = http::request_framing(&head.headers)?;
     let upgrade = http::is_upgrade_request(&head.headers);
     let mut hs: Headers = http::strip_hop_by_hop(&head.headers, upgrade);
     hs.retain(|(n, _)| !n.eq_ignore_ascii_case("host"));
     hs.insert(0, ("Host".into(), host_hdr.into_bytes()));
-    hs.push((
-        "Connection".into(),
-        if upgrade { &b"upgrade"[..] } else { b"close" }.to_vec(),
-    ));
+    // Plain http is one request per connection (SPEC v1: close). A decrypted flow keeps its upstream
+    // connection for the next request (W2-2a), so no `Connection: close` there (HTTP/1.1 default).
+    if upgrade {
+        hs.push(("Connection".into(), b"upgrade".to_vec()));
+    } else if !decrypted {
+        hs.push(("Connection".into(), b"close".to_vec()));
+    }
     http::drop_length_if_chunked(&mut hs);
     Ok(Request {
         method: head.method.clone(),
@@ -686,7 +691,25 @@ pub fn hop_request(head: &RequestHead, flow: &FlowInfo) -> Result<Request, (u16,
         format!("{}:{}", authority_host(&flow.host), flow.port)
     };
     let url = format!("{scheme}{auth}{path}");
-    build_request(head, url, path, auth).map_err(|e| (400, e))
+    build_request(head, url, path, auth, flow.decrypted).map_err(|e| (400, e))
+}
+
+/// May a request be sent a second time after its first attempt died before any response byte? Only
+/// idempotent methods without a body: never a POST (wire 1's ureq lesson, W-FLK1 #660).
+fn resendable(req: &Request) -> bool {
+    req.framing == Framing::None
+        && ["GET", "HEAD", "OPTIONS"]
+            .iter()
+            .any(|m| req.method.eq_ignore_ascii_case(m))
+}
+
+/// A parked upstream connection that is still alive: nothing to read yet. Data, EOF or an error while
+/// idle all mean the origin has closed it (or sent something we do not understand).
+async fn still_open(p: &mut upstream::Pooled) -> bool {
+    let mut b = [0u8; 1];
+    tokio::time::timeout(Duration::ZERO, p.0.read(&mut b))
+        .await
+        .is_err()
 }
 
 /// What the browser connection does after one exchange.
@@ -697,6 +720,9 @@ pub enum Next {
     Close,
     /// Stop at once (cancelled, broken connection, an upgraded pipe that ended).
     Abort,
+    /// Internal to [`http_from`]: a reused upstream connection was dead before any response byte and
+    /// the request may be sent again on a fresh one. Never returned to a caller.
+    Stale,
 }
 
 /// Write an error response the proxy produces itself (it says `Connection: close`).
@@ -829,8 +855,8 @@ where
         return exchange(
             br,
             bw,
-            leftover,
-            head,
+            &leftover,
+            &head,
             req,
             (ur, uw, Vec::new()),
             flow,
@@ -838,8 +864,50 @@ where
             status,
             keep_alive,
             hop,
+            &mut None,
         )
         .await;
+    }
+    let head = http::write_request_head(&req.method, &req.path, &req.headers);
+    // W2-2a: a decrypted flow keeps its origin connection between requests (one slot: the requests of a
+    // browser connection are sequential). A tunnel filter saw one CONNECT for it and keeps its power to
+    // close it; once closed, the next request dials again, through the filters again.
+    let pool = flow.decrypted && !req.upgrade;
+    if pool {
+        let parked = flow.pool.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(mut p) = parked {
+            if still_open(&mut p).await {
+                crate::debug!("flow={} reusing the upstream connection", flow.id);
+                let mut keep = None;
+                let (ur, uw) = p;
+                let next = exchange(
+                    br,
+                    bw,
+                    &leftover,
+                    &head,
+                    req,
+                    (ur, uw, Vec::new()),
+                    flow,
+                    ctr,
+                    status,
+                    keep_alive,
+                    Hop::Origin { pool, reused: true },
+                    &mut keep,
+                )
+                .await;
+                if let Some(k) = keep {
+                    *flow.pool.lock().unwrap_or_else(|e| e.into_inner()) = Some(k);
+                }
+                if !matches!(next, Next::Stale) {
+                    return next;
+                }
+            } else {
+                crate::debug!(
+                    "flow={} the origin closed the kept upstream connection; dialing a new one",
+                    flow.id
+                );
+            }
+        }
     }
     let up = tokio::select! {
         r = connect_from(ctx, flow, 0) => r,
@@ -849,7 +917,10 @@ where
         Ok(x) => x,
         Err(e) => return answer(bw, ctr.down, status, e.status, &e.body()).await,
     };
-    let head = http::write_request_head(&req.method, &req.path, &req.headers);
+    let hop = Hop::Origin {
+        pool,
+        reused: false,
+    };
     if flow.decrypted {
         let tls = tokio::select! {
             r = upstream::tls(Prefixed::new(pre, conn), &flow.host, ctx.cfg.dial_timeout) => r,
@@ -858,20 +929,26 @@ where
         match tls {
             Ok(s) => {
                 let (ur, uw) = tokio::io::split(s);
-                exchange(
+                let mut keep = None;
+                let next = exchange(
                     br,
                     bw,
-                    leftover,
-                    head,
+                    &leftover,
+                    &head,
                     req,
                     (ur, uw, Vec::new()),
                     flow,
                     ctr,
                     status,
                     keep_alive,
-                    Hop::Origin,
+                    hop,
+                    &mut keep,
                 )
-                .await
+                .await;
+                if let Some(k) = keep {
+                    *flow.pool.lock().unwrap_or_else(|e| e.into_inner()) = Some(k);
+                }
+                next
             }
             Err(e) => {
                 log_upstream_error(flow, &e);
@@ -885,15 +962,16 @@ where
         exchange(
             br,
             bw,
-            leftover,
-            head,
+            &leftover,
+            &head,
             req,
             (ur, uw, pre),
             flow,
             ctr,
             status,
             keep_alive,
-            Hop::Origin,
+            hop,
+            &mut None,
         )
         .await
     }
@@ -1032,7 +1110,8 @@ fn malformed(flow: &FlowInfo, name: &str, why: &str) -> HopErr {
 
 /// The next hop of an exchange: a filter (under `--stage-timeout`) or the origin.
 enum Hop<'a> {
-    Origin,
+    /// `pool`: the connection may be parked in the flow afterwards; `reused`: it came out of the pool.
+    Origin { pool: bool, reused: bool },
     Filter {
         f: &'a Filter,
         name: &'a str,
@@ -1301,7 +1380,7 @@ async fn pipelined_body<UR, BW>(
     framing: Framing,
     pre: Vec<u8>,
     down: &AtomicU64,
-) -> Result<(), CopyError>
+) -> Result<(UR, Vec<u8>), CopyError>
 where
     UR: AsyncRead + Unpin + Send + 'static,
     BW: AsyncWrite + Unpin,
@@ -1320,9 +1399,10 @@ where
             spare: spare_w,
         };
         let ctr = AtomicU64::new(0);
+        // The reader comes back with the bytes read past the body, for connection reuse.
         copy_body(&mut ur, &mut w, framing, &pre, &ctr)
             .await
-            .map(drop)
+            .map(|rest| (ur.inner, rest))
     });
     let _guard = AbortOnDrop(reader.abort_handle());
     while let Some(chunk) = rx.recv().await {
@@ -1359,12 +1439,16 @@ enum RecvErr {
 /// One request/response exchange over an open connection to the next hop (`up`: read half, write
 /// half, bytes of the response already read), both bodies streamed. `up_head` is the request head as
 /// that hop gets it (absolute form plus `Proxy-Flow` for a filter, origin form for the server).
+/// `keep` receives the connection's two halves when the origin's response ended cleanly with the
+/// connection still usable (`Hop::Origin { pool: true, .. }`), for the flow to park (W2-2a). A reused
+/// connection that was dead before any response byte gives [`Next::Stale`] when the request may be
+/// sent again (see [`resendable`]) and nothing was written to the browser.
 #[allow(clippy::too_many_arguments)]
 async fn exchange<BR, BW, UR, UW>(
     br: &mut BR,
     bw: &mut BW,
-    leftover: Vec<u8>,
-    up_head: Vec<u8>,
+    leftover: &[u8],
+    up_head: &[u8],
     req: &Request,
     up: (UR, UW, Vec<u8>),
     flow: &FlowInfo,
@@ -1372,6 +1456,7 @@ async fn exchange<BR, BW, UR, UW>(
     status: &AtomicU16,
     keep_alive: bool,
     hop: Hop<'_>,
+    keep: &mut Option<(UR, UW)>,
 ) -> Next
 where
     BR: AsyncRead + Unpin,
@@ -1383,12 +1468,12 @@ where
     // Request: head + body, streamed, concurrently with waiting for the response (a server may answer
     // before it has read the whole body).
     let mut send = Box::pin(async {
-        put(&mut uw, &up_head, ctr.up).await?;
+        put(&mut uw, up_head, ctr.up).await?;
         let rest = if req.upgrade && req.framing == Framing::None {
-            put(&mut uw, &leftover, ctr.up).await?;
+            put(&mut uw, leftover, ctr.up).await?;
             Vec::new()
         } else {
-            copy_body(&mut *br, &mut uw, req.framing, &leftover, ctr.up).await?
+            copy_body(&mut *br, &mut uw, req.framing, leftover, ctr.up).await?
         };
         flush(&mut uw).await?;
         Ok::<_, CopyError>(rest)
@@ -1462,6 +1547,32 @@ where
         Err(RecvErr::Back) => return Next::Abort,
         Err(e) => {
             drop(send);
+            if let Hop::Origin { reused: true, .. } = hop
+                && matches!(e, RecvErr::Head(HeadError::Eof | HeadError::Io(_)))
+            {
+                if resendable(req) {
+                    crate::debug!(
+                        "flow={} reused upstream connection was dead before any response byte; \
+                         retrying {} on a fresh one",
+                        flow.id,
+                        req.method
+                    );
+                    return Next::Stale;
+                }
+                crate::warn!(
+                    "flow={} host={} port={} reused upstream connection closed before any response \
+                     byte; {} is not resent, answering 502",
+                    flow.id,
+                    flow.host,
+                    flow.port,
+                    req.method
+                );
+                let msg = format!(
+                    "{}:{}: upstream closed the kept connection; {} request not resent",
+                    flow.host, flow.port, req.method
+                );
+                return answer(bw, ctr.down, status, 502, &msg).await;
+            }
             let err = match (&hop, e) {
                 (Hop::Filter { name, timeout, .. }, RecvErr::Timeout) => {
                     stage_timed_out(flow, name, *timeout)
@@ -1479,7 +1590,7 @@ where
                 (Hop::Filter { name, .. }, _) => {
                     malformed(flow, name, "101 to a request that did not upgrade")
                 }
-                (Hop::Origin, e) => {
+                (Hop::Origin { .. }, e) => {
                     let why = match e {
                         RecvErr::Head(h) => h.to_string(),
                         _ => "101 to a request that did not ask to upgrade".to_string(),
@@ -1528,7 +1639,7 @@ where
             drop(send);
             let err = match &hop {
                 Hop::Filter { name, .. } => malformed(flow, name, &e),
-                Hop::Origin => {
+                Hop::Origin { .. } => {
                     crate::warn!(
                         "flow={} host={} port={} bad upstream framing, answering 502: {e}",
                         flow.id,
@@ -1546,6 +1657,14 @@ where
     };
     // The browser connection survives only if this response's end is visible without a close.
     let ka = keep_alive && !req.close && rframing != Framing::UntilClose;
+    // The origin connection survives only if the origin did not close it and the response's end is
+    // visible from its framing (RFC 9112 9.3: HTTP/1.1 persists unless `Connection: close`).
+    let origin_ok = matches!(hop, Hop::Origin { pool: true, .. })
+        && rh.version == 1
+        && rframing != Framing::UntilClose
+        && !http::tokens(&rh.headers, "connection")
+            .iter()
+            .any(|t| t == "close");
     let mut hs = http::strip_hop_by_hop(&rh.headers, false);
     http::drop_length_if_chunked(&mut hs);
     if !ka {
@@ -1574,15 +1693,20 @@ where
             }
         }
     };
-    if let Err(e) = r {
-        crate::debug!("flow={} response body ended: {e}", flow.id);
-        return Next::Abort;
-    }
-    if !ka {
+    let (ur, excess) = match r {
+        Ok(x) => x,
+        Err(e) => {
+            crate::debug!("flow={} response body ended: {e}", flow.id);
+            return Next::Abort;
+        }
+    };
+    let origin_ok = origin_ok && excess.is_empty();
+    if !ka && !origin_ok {
         return Next::Close;
     }
-    // Keep-alive needs the whole request read from the browser; a request still streaming after the
-    // response is complete (the origin answered early) ends the connection instead.
+    // Both keep-alive and reuse need the whole request read from the browser and written on; a request
+    // still streaming after the response is complete (the origin answered early) ends the connection
+    // instead.
     let sent = match sent {
         Some(r) => r,
         None => match tokio::time::timeout(Duration::ZERO, &mut send).await {
@@ -1590,9 +1714,13 @@ where
             Err(_) => return Next::Close,
         },
     };
+    drop(send);
+    if origin_ok && sent.is_ok() {
+        *keep = Some((ur, uw));
+    }
     match sent {
-        Ok(rest) => Next::KeepAlive(rest),
-        Err(_) => Next::Close,
+        Ok(rest) if ka => Next::KeepAlive(rest),
+        _ => Next::Close,
     }
 }
 
