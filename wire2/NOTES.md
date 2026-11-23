@@ -308,6 +308,63 @@ background connections.
 
 - No upstream connection reuse for decrypted requests (one TCP + TLS handshake per request).
 - Request bodies (uploads) are copied in one task, so they run at single-core decrypt+encrypt speed.
-- WebSockets inside decrypted tunnels go through the same `101` code as plain http but are untested
-  there (W2-3).
+- WebSockets inside decrypted tunnels: done in W2-3 (below).
 - `--test-decrypt` should be removed once W2-F's pass-decrypt exists.
+
+## W2-3 WebSockets inside decrypted tunnels (2026-11-23)
+
+What exists: nothing new in the design. An upgrade request in a decrypted tunnel already went through
+`proxy::forward` -> `exchange`, the code plain `http://` uses: `Upgrade` and `Connection: upgrade` kept
+(every other hop-by-hop header and every `Proxy-*` removed), `Sec-WebSocket-*` untouched, a `101` is
+relayed (with `Connection: upgrade`) and both directions become `copy_until_eof` (no frame parsing;
+message-level filtering is W2-F's). A non-101 answer to an upgrade request is an ordinary response
+(`Connection: close`, body framing kept). After the pipe ends the function returns `Next::Abort`, so the
+decrypted keep-alive connection is never read for another request; the request line in the log says
+`status=101` with the bytes of that exchange, then the flow line follows.
+
+### Bug found by the tests: no flush on the until-close copy
+
+`copy_body` in `UntilClose` mode wrote each chunk and flushed only at EOF. With a TLS stream on the
+destination (the browser side of a decrypted tunnel, or the upstream TLS) tokio-rustls keeps the
+encrypted tail of a `write_all` that did not fit in the socket buffer until the next write or a flush.
+An upgraded connection can go quiet right after such a write, so the last ~16-130 KiB of a large message
+sat in the proxy until the peer sent something else (a 32 MiB message stalled, about 1 run in 8; with the
+fix removed the test fails again within 8 runs, with it 70+ runs passed). The loop now flushes after
+every chunk (a no-op on plain TCP). The same loop serves until-close response bodies, where it costs
+nothing measurable. The test helper `ws_write` had the same missing flush on its own TLS stream.
+
+### Behaviour worth knowing
+
+- Closing: when the origin closes, the browser side gets a TLS `close_notify` and the proxy waits up to
+  5 s (`HALF_CLOSE_GRACE`, as for tunnels) for the browser to close its side; browsers do at once, so
+  the access lines come immediately in practice (the tests drop their client like a browser).
+- Chrome fragments large WebSocket messages itself (a 2 MiB send arrived as ~128 KiB frames); the byte
+  copy does not care, a test server must reassemble.
+- Memory: 2 x 32 MiB echoed through the decrypted pipe moved the proxy's RSS by 0.2-0.4 MB.
+
+### Tests (tests/w2_3_websocket.rs)
+
+All use `--test-decrypt`, `--test-resolve` and a wss origin with the test root:
+- `decrypted_websocket_echo_and_close`: a plain request first on the same connection, then the upgrade;
+  the origin sees `Upgrade`/`Connection: Upgrade`, `Sec-WebSocket-Key/Version/Protocol/Extensions`,
+  the tunnel's Host and no `Proxy-Flow`; the browser sees 101 with Accept, Protocol and the origin's own
+  header; text, small binary and 200 kB binary echoes; close handshake; EOF; another request on the dead
+  connection gets nothing and the origin sees no third connection; the log has `status=101` and both byte
+  counts (> 200 kB) and one flow line.
+- `server_initiated_close_ends_flow`, `browser_hangup_ends_flow`: either side closing ends the flow.
+- `non_101_answer_is_a_normal_response`: 401 with body to an upgrade request, `Connection: close`.
+- `large_message_flat_memory`: two 32 MiB messages, RSS growth < 16 MiB.
+
+ws:// through plain http (`plain_http_websocket_upgrade`) and wss:// through an opaque tunnel
+(`websocket_echo_through_tunnel`) are the W2-1 tests, still green.
+
+### Browser check (headless Chrome 156, 2026-11-23)
+
+HOME, `--user-data-dir` and the NSS db under `.qwork/browser/` (only the proxy's `ca.pem` imported; the
+user's profiles and trust store untouched; nothing logged in). A local Python wss server (a throwaway
+cert chain signed by a test root, given to wire2 as `SSL_CERT_FILE`) serves a page that opens
+`wss://www.example.test:PORT/ws` through `wire2 --test-decrypt --test-resolve`, sends a text message and a
+2 MiB binary message, checks both echoes and closes. Result `RESULT OK`; log:
+`access flow=23 req=1 GET https://www.example.test:18943/ws status=101 up=2098021 down=2097310 duration=0.134s`.
+Direct (no proxy) Chrome behaved identically, which is how the test server's own fragmentation bug was
+found. No measurements: nothing looked slow (2 MiB each way in 0.13 s through the proxy).

@@ -472,6 +472,8 @@ pub async fn ws_write<W: AsyncWrite + Unpin>(
         None => f.extend_from_slice(payload),
     }
     w.write_all(&f).await.unwrap();
+    // TLS writers keep an unsent tail until flushed.
+    w.flush().await.unwrap();
 }
 
 /// Read one frame -> (opcode, unmasked payload).
