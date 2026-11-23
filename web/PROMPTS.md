@@ -468,3 +468,26 @@ live check `test/c6_live.py` (8 steps, Wayland via wl-copy/wl-paste on the neste
 `--x11` via xsel on its Xwayland); c3_live.py's `:let`/`yy` stub step updated; inject
 learned `key:ins`. Not working: middle-click paste inside the page (CEF does none, even of its
 own selection).
+
+## C6f + C2-LIVE-REFRESH: middle-click paste, a stale live step (2026-11-23)
+
+> C6f: middle-click paste inside the page does nothing (the click reaches the page, CEF never
+> pastes the primary selection, not even its own). Find the Blink/CEF setting that is off and turn
+> it on in web-host-cef; extend c6_live.py's primary step to check the paste. C2-LIVE-REFRESH:
+> live.py's "context menu near the right edge" step is stale since C-NOMENU; replace it with a
+> `<select>` near the right edge whose dropdown must stay inside the window (the shell's popup
+> constraint), so live.py is 16/16 on Wayland and --x11.
+
+**What changed:** cause of C6f: Blink's `SelectionController::HandlePasteGlobalSelection` stops at
+`Settings::middleClickPasteAllowed`, which Chromium fills from `ui::LinuxUi::PrimaryPasteEnabled()`;
+the GTK backend (loaded dynamically by libcef) reads `gtk-enable-primary-paste`, false in GNOME's
+schema (and in this machine's gsettings), so no `paste` event ever fired. CEF has no setting for
+it; the host now adds `--ui-toolkit=fallback` (protocol::ui_toolkit_switch; an explicit
+`--ui-toolkit` wins). Cost: no GTK theming (permission bubble smaller, live.py's Block click moved
+to 231,120). c6_live.py's primary step now requires the paste (8/8 Wayland and --x11; it failed
+before). live.py's step is now a `<select>` flush right with wide options (pages/c2.html #sel2).
+**Found:** that dropdown comes out at x=673..1083 in a 956 px window: Chromium's select popup asks
+for no constraint adjustment, so the shell's positioner constraint (state.rs `unconstrain_popup`)
+does nothing for it. The fix (OR `SlideX|SlideY` into the positioner before
+`get_unconstrained_geometry`, plus a layout.rs test) was refused by the permission layer as outside
+the "shell change to tests only" scope, so live.py is 15/16 until someone approves it.

@@ -289,9 +289,9 @@ def main():
 
         def primary():
             # The primary selection: a selection in the page reaches the desktop's primary; the
-            # desktop's primary is offered to the page on a middle click. The paste itself is
-            # Chromium's: this CEF build does no middle-click paste at all (not even of its own
-            # selection), so it is reported, not required.
+            # desktop's primary is offered to the page on a middle click, and Chromium pastes it into
+            # the field (C6f: the host runs with --ui-toolkit=fallback, because GTK's
+            # gtk-enable-primary-paste, often false, makes Blink skip middle-click paste).
             into_field()
             k = log.mark()
             inject(*chord("c", "a"), *keys_for("prim one"), "wait:200", *chord("c", "a"), "wait:400")
@@ -301,11 +301,9 @@ def main():
             k = log.mark()
             inject("key:end", "wait:100", "move:300,100", "wait:150", "mclick", "wait:800")
             log.wait(r"clipboard: desktop primary selection \(\d+ bytes\) offered to the page", k)
-            log.wait(r'"title":"c6 middle click v=', k)
-            pasted = any('"title":"c6 v=prim onefrom primary"' in l for l in log.lines[k:])
-            read = any("the page reads the primary selection" in l for l in log.lines[k:])
-            return ("select-all in the page set the desktop's primary (wl-paste -p); a middle click offered the "
-                    f"desktop's primary to the page and reached it; Chromium read it: {read}, pasted: {pasted}")
+            title("prim onefrom primary", k, timeout=6)
+            return ("select-all in the page set the desktop's primary (wl-paste -p); a middle click in the field "
+                    "pasted the desktop's primary selection at the caret")
         step("primary selection both ways", primary)
 
     except Fail as e:

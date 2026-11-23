@@ -291,8 +291,9 @@ nothing. The clipboard is the Wayland one (scratchy is a Wayland window; item QP
 clipboard") and the compositor of the engine host; it bridges the two, so a copy in the
 page reaches the host clipboard and a paste in the page reads it (C6, text only; the
 primary selection is bridged too: a selection in the page becomes the desktop's primary.
-Middle-click paste inside the page does nothing: CEF does not do it, even for its own
-selection).
+A middle click in a page field pastes the primary selection (C6f: the host runs with
+`--ui-toolkit=fallback`; Chromium otherwise asks GTK's `gtk-enable-primary-paste`, false by
+default on GNOME, and Blink never tries).
 
 ## Registers
 

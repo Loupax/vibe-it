@@ -121,8 +121,8 @@ compositor, never on the user's display:
 `test/live.py` browses `test/pages/` in the shell inside the nested dwl with injected
 input (`web/tools/inject`): the page fills the window minus the bar, pairing, a click,
 typing into a field, cursor shapes (pointer, crosshair, an image cursor, default over
-the bar), a `<select>` popup chosen with the keyboard, wheel scrolling, a context menu
-near the right edge (slid inside the window, closed by Esc and by a click outside), page
+the bar), a `<select>` popup chosen with the keyboard, wheel scrolling, a `<select>` dropdown flush with the right edge
+(slid inside the window, closed by a click outside), page
 fullscreen and back, a JS alert, a permission bubble, a form submitted with Enter, a
 link, `--proxy` passed through, and quitting on SIGTERM. Screenshots of the test page
 land in `--out` (never commit them).

@@ -60,6 +60,11 @@ wrap_app! {
             if let Some(p) = &self.proxy {
                 cmd.append_switch_with_value(Some(&CefString::from("proxy-server")), Some(&CefString::from(p.as_str())));
             }
+            // C6f: middle-click paste in the page (see protocol::ui_toolkit_switch).
+            let has_toolkit = cmd.has_switch(Some(&CefString::from("ui-toolkit"))) != 0;
+            if let Some(v) = protocol::ui_toolkit_switch(has_toolkit) {
+                cmd.append_switch_with_value(Some(&CefString::from("ui-toolkit")), Some(&CefString::from(v)));
+            }
             // C-BGNET: keep Chromium from talking to Google by itself (README).
             if self.quiet {
                 let name = |n: &str| CefString::from(n);

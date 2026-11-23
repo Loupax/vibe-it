@@ -200,3 +200,13 @@ The verdict logic is unit-tested in `test/test_cookies.py`.
   the proxy log (`--allow-host` adds one), or when the proxy logs anything in the 150 s
   after the first page loads (`proxy_log_hosts`/`foreign_hosts`, unit-tested). Results,
   before and after, are in the C-BGNET entry of `../PROMPTS.md`.
+
+## Middle-click paste (C6f)
+
+Blink pastes the primary selection on a middle click only when the desktop toolkit says
+`PrimaryPasteEnabled`. Chromium loads GTK dynamically and reads `gtk-enable-primary-paste`, which
+GNOME's schema defaults to false, so the click reached the page but nothing was pasted (the
+`paste` event never fired). The host adds `--ui-toolkit=fallback` (whose answer is always yes)
+unless the command line already has `--ui-toolkit`. Side effect: GTK theming is gone (a dark GTK
+theme no longer makes pages prefer a dark colour scheme; the permission bubble is smaller).
+`shell/test/c6_live.py`'s primary step checks the paste.

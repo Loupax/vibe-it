@@ -309,6 +309,19 @@ pub fn quiet_switches(disable_features: &str, has_component_updater: bool) -> Ve
     out
 }
 
+/// C6f: the `--ui-toolkit` value the host adds when the command line has none. Chromium asks
+/// the desktop toolkit (GTK, loaded dynamically) whether a middle click may paste the primary
+/// selection (`gtk-enable-primary-paste`, which GNOME's schema defaults to false) and Blink then
+/// never tries; the fallback toolkit always says yes. Side effect: the page no longer follows the
+/// GTK theme (e.g. a dark GTK theme as prefers-color-scheme). An explicit `--ui-toolkit` wins.
+pub fn ui_toolkit_switch(has_ui_toolkit: bool) -> Option<&'static str> {
+    if has_ui_toolkit {
+        None
+    } else {
+        Some("fallback")
+    }
+}
+
 /// Value of Chromium's `profile.cookie_controls_mode` preference
 /// (`content_settings::CookieControlsMode`: 0 off, 1 block third-party, 2 incognito
 /// only, which is Chromium's default). The host blocks third-party cookies in every
@@ -823,6 +836,12 @@ mod tests {
         assert!(f.starts_with("Foo,AimEnabled,"));
         assert_eq!(f.matches("AimEnabled").count(), 1);
         assert!(!q.iter().any(|(n, _)| *n == "component-updater"));
+    }
+
+    #[test]
+    fn ui_toolkit_fallback_unless_given() {
+        assert_eq!(ui_toolkit_switch(false), Some("fallback"));
+        assert_eq!(ui_toolkit_switch(true), None);
     }
 
     #[test]
