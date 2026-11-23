@@ -207,15 +207,16 @@ thread_local! {
 }
 
 thread_local! {
-    /// QINC1h2: `cell_natural_width` results of element boxes: (node, as_child) -> (bver, min, max).
+    /// QINC1h2: `cell_natural_width` results of element boxes: (node, as_child) -> (bver, min, max, ids).
+    /// QINC2: `ids` is how many paragraph ids the computation consumed (a hit consumes them too).
     /// Used only during an engine measure; cleared when the engine starts over.
     static NAT: RefCell<NatMap> = RefCell::new(HashMap::new());
 }
 
-type NatMap = HashMap<(usize, bool), (u64, f32, f32)>;
+type NatMap = HashMap<(usize, bool), (u64, f32, f32, usize)>;
 
 /// The cached (min, max) natural width of element box `node` when it is still clean.
-pub(crate) fn nat_get(node: usize, as_child: bool) -> Option<(f32, f32)> {
+pub(crate) fn nat_get(node: usize, as_child: bool) -> Option<(f32, f32, usize)> {
     let v = nat_peek(node, as_child);
     CTX.with(|c| {
         if let Ok(mut c) = c.try_borrow_mut()
@@ -231,19 +232,19 @@ pub(crate) fn nat_get(node: usize, as_child: bool) -> Option<(f32, f32)> {
     v
 }
 
-fn nat_peek(node: usize, as_child: bool) -> Option<(f32, f32)> {
+fn nat_peek(node: usize, as_child: bool) -> Option<(f32, f32, usize)> {
     let cur = bver(node);
     if cur == u64::MAX {
         return None;
     }
-    NAT.with(|n| n.borrow().get(&(node, as_child)).filter(|e| e.0 == cur).map(|e| (e.1, e.2)))
+    NAT.with(|n| n.borrow().get(&(node, as_child)).filter(|e| e.0 == cur).map(|e| (e.1, e.2, e.3)))
 }
 
-pub(crate) fn nat_put(node: usize, as_child: bool, v: (f32, f32)) {
+pub(crate) fn nat_put(node: usize, as_child: bool, v: (f32, f32), ids: usize) {
     let cur = bver(node);
     if cur != u64::MAX {
         NAT.with(|n| {
-            n.borrow_mut().insert((node, as_child), (cur, v.0, v.1))
+            n.borrow_mut().insert((node, as_child), (cur, v.0, v.1, ids))
         });
     }
 }
@@ -1990,6 +1991,23 @@ pub(crate) fn worker_measure(
     let _g = VerGuard;
     nat_clear(); // the worker thread's cache may hold another job's boxes
     with_ctx(false, || crate::layout::measure_document_engine(tree, fs, vw, vh, next_id, cache, deadline, incomplete)).0
+}
+
+/// QINC2 test hook: one worker-style tick (`worker_measure` without a job's box versions).
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn tick_for_test(
+    tree: &LayoutBox,
+    fs: &mut FontSystem,
+    vw: f32,
+    vh: f32,
+    next_id: &mut usize,
+    cache: &mut ShapeCache,
+    deadline: std::time::Instant,
+    incomplete: &mut bool,
+) -> Laid {
+    let ver = WorkerVer { base: 1, bver: std::sync::Arc::new(HashMap::new()) };
+    worker_measure(tree, fs, vw, vh, next_id, cache, deadline, incomplete, &ver).0
 }
 
 /// QINC1j: a complete worker layout of the kept tree becomes the engine's tree.
