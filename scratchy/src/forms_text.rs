@@ -100,7 +100,14 @@ fn default_text(h: &Handle) -> String {
     }
 }
 
+/// Every use but layout's `register_text_control` may change what paints (text, caret, selection):
+/// QTYPE1: the control's box joins the next paint's damage.
 fn with_state<R>(h: &Handle, f: impl FnOnce(&mut TextState) -> R) -> R {
+    crate::forms::mark_ctl_dirty(node_id(h));
+    with_state_quiet(h, f)
+}
+
+fn with_state_quiet<R>(h: &Handle, f: impl FnOnce(&mut TextState) -> R) -> R {
     let def = default_text(h);
     TEXT_LIVE.with(|m| {
         let mut m = m.borrow_mut();
@@ -125,14 +132,14 @@ fn with_state<R>(h: &Handle, f: impl FnOnce(&mut TextState) -> R) -> R {
 /// Called whenever the layout box of a control is (re)built: remembers the
 /// placeholder and its colour (resolved with the `::placeholder` rules).
 pub(crate) fn register_text_control(h: &Handle, placeholder: String, ph_color: TextColor) {
-    with_state(h, |st| {
+    with_state_quiet(h, |st| {
         st.placeholder = placeholder;
         st.ph_color = Some(ph_color);
     });
 }
 
 pub(crate) fn text_value(h: &Handle) -> String {
-    with_state(h, |st| st.buf.text.clone())
+    with_state_quiet(h, |st| st.buf.text.clone())
 }
 
 /// `el.value = v`: replaces the live value (dirty), caret to the end when it
@@ -168,7 +175,7 @@ fn utf16_to_byte(s: &str, units: usize) -> usize {
 
 /// `selectionStart` (`end` false) / `selectionEnd` in UTF-16 units.
 pub(crate) fn text_selection(h: &Handle, end: bool) -> usize {
-    with_state(h, |st| {
+    with_state_quiet(h, |st| {
         let (a, b) = st.buf.selection().unwrap_or((st.buf.cursor, st.buf.cursor));
         byte_to_utf16(&st.buf.text, if end { b } else { a })
     })
@@ -713,7 +720,7 @@ pub(crate) fn text_control_key<H: InputHost + ?Sized>(host: &mut H, h: &Handle, 
             }
             "c" | "x" => {
                 let password = text_control_kind(h).is_some_and(|k| k & TEXT_PASSWORD != 0);
-                let sel = with_state(h, |st| st.buf.selected_text().map(str::to_string));
+                let sel = with_state_quiet(h, |st| st.buf.selected_text().map(str::to_string));
                 if let (Some(t), false) = (sel, password) {
                     let _ = clipboard_set(&t);
                     if s.to_lowercase() == "x" && editable {

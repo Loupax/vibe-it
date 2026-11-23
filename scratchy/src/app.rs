@@ -1833,7 +1833,13 @@ impl App {
             let mut damage = crate::incr_layout::owns(laid).then(crate::incr_layout::take_damage);
             // QCNV1: canvases drawn on since the last paint add their boxes to the damage (their pixels are
             // read at paint time, nothing else changed); a box that cannot be placed leaves it unknown.
-            let cv_dirty = crate::canvas::take_dirty();
+            let mut cv_dirty = crate::canvas::take_dirty();
+            // QTYPE1: so are text controls and checkboxes whose live state changed (typing, caret, toggles).
+            for n in crate::forms::take_ctl_dirty() {
+                if !cv_dirty.contains(&n) {
+                    cv_dirty.push(n);
+                }
+            }
             if !cv_dirty.is_empty() {
                 damage = match damage {
                     Some(Some(mut d)) => crate::incr_layout::canvas_damage(laid, &cv_dirty).map(|r| {
