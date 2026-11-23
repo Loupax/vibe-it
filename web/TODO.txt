@@ -85,7 +85,7 @@ stop early on a hard failure.
       (picker over URL and title; Enter opens). `:go`'s ghost source ranks bookmarks before history.
       Status-bar messages for each. Done when each command has a test and works live.
 
-- [ ] C4-SPIKE [S] (before C4; can run beside C-PICK) In web-host-cef: (1) several CEF browsers in one
+- [WIP] C4-SPIKE [S] (before C4; can run beside C-PICK) In web-host-cef: (1) several CEF browsers in one
       host, each its own window paired by `tab-created`, the shell showing one; what a hidden page does
       (frame callbacks, timers, audio); (2) `OnBeforePopup` letting a gesture popup become a second page of
       the same host with `window.opener` working (a test page that posts to its opener); whether CEF says
@@ -275,7 +275,11 @@ stop early on a hard failure.
       mouse clicks there.
 - [x] C3-LIVE-REFRESH [XS] (DONE 2026-11-23, 95fc985, #684; c3_live 19/19) (from #681) web/shell/test/c3_live.py is stale since C5 (`/` opens SEARCH): steps
       from "T7 T8" on fail. Update it so its 19 steps pass again.
-- [WIP] C5b [S] (from #679; shares the rectangle mechanism with C7 and S7) Exact T23: first current match = first
+- [x] C5b [S] (DONE 2026-11-23, 2243928, #705: injected script collapses the selection at the first line at/below
+      the screen top before find; wrap flag in find-result; c5_live 15/15. Not seen by the walk: matches split over
+      elements, in shadow DOM or iframes)
+- [ ] C5b-X [XS] ONLY IF WANTED (from #705) The same screen-top start for `n` after Esc (and a backward search if one
+      is ever added). (from #679; shares the rectangle mechanism with C7 and S7) Exact T23: first current match = first
       whose top is at/below the top of the screen (CEF picks its own, e.g. one above the screen). Needs a
       host `find-matches` event (one rect per match + scroll offset) or a way to start CEF's find at the
       viewport top.
