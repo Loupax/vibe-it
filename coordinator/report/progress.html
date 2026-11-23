@@ -376,6 +376,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 <section>
   <h2>Waiting on you</h2>
   <ul id="waiting">
+    <li><b>#689 C6f, middle-click paste vs. dark mode:</b> the fix starts Chromium without GTK, so your dark GTK theme no longer reaches pages (<code>prefers-color-scheme</code>). (a) accept; (b) accept + our own colour-scheme setting (recommended); (c) no middle-click paste in the page. Draft until you answer.</li>
     <li><b>W2-1 by hand:</b> browse in your real Chromium and Firefox through <code>wire2 --listen 127.0.0.1:8080</code> (installed): video seeking, a large download while watching its memory, a WebSocket chat. Agents only ran headless browsers.</li>
     <li><b>Caret mode: parked by you</b> (C5-ENTER, C-CMDS, the CARET-1 spike idea: Chromium's caret drawn by our shell). Nothing scheduled until you pick it up.</li>
     <li><b>W2-F, the agent's calls (override if you like):</b> filter binary named <code>wire2-pass</code> (not <code>pass</code>, which would shadow the password manager); proxy unit <code>wire2.service</code>; a filter may change a request but not its destination; plain http also passes tunnel-layer filters.</li>
