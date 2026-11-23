@@ -69,7 +69,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
     <tr><td>C4</td><td>Tabs</td><td><span class="pill todo">deferred (no tabs for now)</span></td><td></td></tr>
     <tr><td>C5</td><td>Search: <code>/</code>, <code>n</code>/<code>N</code>, wrap messages</td><td><span class="pill done">done #679</span></td><td><code>/</code> with smartcase, <code>n</code>/<code>N</code>, “search hit BOTTOM, continuing at TOP”, <code>Pattern not found</code>, <code>[i/N]</code>, Esc rules; live check 12/12. The first match is Chromium's choice, not “first below the top of the screen” (C5b)</td></tr>
     <tr><td>C3-RCLICK</td><td>Popups return to the previous mode; focusing a field enters INPUT (your rules)</td><td><span class="pill done">done #681</span></td><td>A select's dropdown opened by your click returns to the previous mode when it closes; any field gaining focus (click, Tab, autofocus, script) enters INPUT; blur never changes the mode</td></tr>
-    <tr><td>C5-ENTER</td><td>Enter acts on the search match</td><td><span class="pill wait">design with you (caret browsing)</span></td><td></td></tr>
+    <tr><td>C5-ENTER</td><td>Enter acts on the search match</td><td><span class="pill todo">parked (caret mode)</span></td><td></td></tr>
     <tr><td>C6</td><td>Desktop integration (clipboard first, then HiDPI, frame pacing, dmabuf)</td><td><span class="pill wip">running</span></td><td></td></tr>
     <tr><td>C7</td><td>Link hints</td><td><span class="pill wait">you are thinking it over</span></td><td></td></tr>
     <tr><td>C8</td><td>A day of browsing (yours)</td><td><span class="pill todo">later</span></td><td></td></tr>
@@ -371,7 +371,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Waiting on you</h2>
   <ul id="waiting">
     <li><b>W2-1 by hand:</b> browse in your real Chromium and Firefox through <code>wire2 --listen 127.0.0.1:8080</code> (installed): video seeking, a large download while watching its memory, a WebSocket chat. Agents only ran headless browsers.</li>
-    <li><b>Caret (C5-ENTER, QCURSOR-D):</b> not Chromium's caret browsing (you found it bad); our own caret needs a design session with you.</li>
+    <li><b>Caret mode: parked by you</b> (C5-ENTER, C-CMDS, the CARET-1 spike idea: Chromium's caret drawn by our shell). Nothing scheduled until you pick it up.</li>
     <li><b>W2-F, the agent's calls (override if you like):</b> filter binary named <code>wire2-pass</code> (not <code>pass</code>, which would shadow the password manager); proxy unit <code>wire2.service</code>; a filter may change a request but not its destination; plain http also passes tunnel-layer filters.</li>
     <li><b>W2-F2 (manual):</b> install wire2's systemd units and check that the proxy cannot exec anything under <code>wire2.service</code>.</li>
     <li><b>W2-2d:</b> wire2's CA directory defaults to <code>$XDG_DATA_HOME/proxy</code> as your spec says, but the binary is called <code>wire2</code>. Keep <code>proxy</code> or use <code>wire2</code>?</li>
