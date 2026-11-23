@@ -495,3 +495,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 USER: popups (context menu, select) return to the previous mode when closed, unless a field got focus. Recorded in web/DECISIONS.md; C3-RCLICK ready (after C5: same area, web/shell keys).
 - 2026-11-23 Merged #679 C5 f7a5cba; web reinstalled. Filed C5b, C5-FRAG, C5-STALE. Launched C3-RCLICK (Sonnet).
 - 2026-11-23 USER: editable focus always switches to INPUT (script focus too; reverses T32), no return on blur. Recorded in web/DECISIONS.md; added to the running C3-RCLICK agent (same code).
+- 2026-11-23 Merged #680 C-BGNET eb6b62e; web reinstalled. Filed C-DRM, C-H264 (user). C-BGNET agent briefly ran a check in another agent's nest (wayland-1): noted. Launched C-NOTAB-ALLOW (Sonnet; host-cef context menu, + cargo fmt of newtab.rs).

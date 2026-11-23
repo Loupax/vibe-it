@@ -93,7 +93,9 @@ stop early on a hard failure.
 
 - [ ] C8 A day of browsing: W7's list below, with web-host-cef.
 
-- [WIP] C-BGNET [S] (from C1 #668) Switch off Chromium's background traffic in web-host-cef: through the
+- [x] C-BGNET [S] (DONE 2026-11-23, eb6b62e, #680: 8 switches, each needed in leave-one-out runs; drive.py
+      --proxy-log fails on any non-page host, --idle 150 clean. Lost: spellcheck, Safe Browsing, Google time
+      sync, autofill prediction, AI Mode. DRM: CEF ships no Widevine CDM, so nothing lost) (from C1 #668) Switch off Chromium's background traffic in web-host-cef: through the
       proxy a drive.py run reaches update.googleapis.com, *.gvt1.com, clients2.google.com/time,
       www.google.com, content-autofill.googleapis.com. Pick switches/prefs; check with test/fwd_proxy.py
       that a drive.py run shows only page traffic. Keep what Widevine needs (component updater) or say
@@ -137,7 +139,7 @@ stop early on a hard failure.
       click on links open nothing new. Script window.open / target=_blank keep loading in the same page
       (DECISIONS "No tabs yet").
 
-- [ ] C-NOTAB-ALLOW [S] (from #672; #673's live run: Print…, Cast…, Create QR Code still remain and open Chrome UI) Context menu by allow-list
+- [WIP] C-NOTAB-ALLOW [S] (from #672; #673's live run: Print…, Cast…, Create QR Code still remain and open Chrome UI) Context menu by allow-list
       instead of deny-list, so a new Chrome item that opens a tab can't slip in.
 - [ ] C-KEYMAP [S] (from C2 #671) The page gets xkbcommon's default keymap (XKB_DEFAULT_*, else us), not the
       desktop's layout (winit does not expose it). Read it (X11: xkbcommon-x11; Wayland: wl_keyboard.keymap)
@@ -177,6 +179,10 @@ stop early on a hard failure.
       navigation does not happen for them; host emits a navigated signal, shell clears.
 - [ ] C5-STALE [XS] (from #679) CEF sends a stale `find-result 0 0` at a cross-document load start; an `n`
       pressed within ms of navigating could take it as its answer. Tag find requests/results.
+- [ ] C-DRM NEEDS USER (from #680) Widevine DRM (Netflix, Spotify web player): CEF ships no CDM, so DRM never
+      worked. Getting it needs a CDM path plus the component updater back on (Google traffic again).
+- [ ] C-H264 NEEDS USER (from #680) This CEF build cannot play H.264 (canPlayType avc1 = ""); VP9/WebM work.
+      A proprietary-codecs CEF build would be needed.
 - [ ] C-KEYH [S] (from #672) The cef crate's KeyboardHandler wrapper treats `os_event` as an XEvent and
       segfaults the host on Wayland. Needed if C3 wants key events from the host; fix or work around
       upstream/in a local patch when that comes up.
