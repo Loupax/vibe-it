@@ -162,3 +162,10 @@ pull request.
 and hands it to the engine; the empty network namespace and the forwarder to a proxy's
 Unix socket become a separate wrapper outside web. TODO.txt: C0 removed, C1 drops the
 namespace from run.sh and checks against a local proxy; README.md and the root README.
+
+## The proxy is optional (2026-11-23, docs only)
+
+> also, just for ease of usage, do not have it require a proxy. It should support it but a missing --proxy flag should default to standard connectivity
+
+**What changed:** DECISIONS.md "The proxy is optional"; TODO.txt header and C1's check
+(runs once without `--proxy`, once with); README.md.

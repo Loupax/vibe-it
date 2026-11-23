@@ -1,8 +1,9 @@
 # web
 
-A keyboard-driven browser meant to be a daily driver. Its network setting is one
-`--proxy <host:port>` (any HTTP forward proxy) handed to the engine. Keeping it off the
-network except through that proxy is left to a separate wrapper (DECISIONS.md).
+A keyboard-driven browser meant to be a daily driver. It connects like any browser by
+default; `--proxy <host:port>` (optional, any HTTP forward proxy) sends everything
+through a proxy instead. Keeping it off the network except through that proxy is left to
+a separate wrapper (DECISIONS.md).
 
 Status: **planning.** The CEF spike (`spike/`, TODO.txt W1-W7) proved Chromium can run
 with no network of its own; the plan now is Architecture C (DECISIONS.md, TODO.txt C1-C8):

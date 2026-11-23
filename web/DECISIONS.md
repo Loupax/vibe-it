@@ -2,6 +2,12 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-23 The proxy is optional
+
+User: "do not have it require a proxy. It should support it but a missing --proxy flag
+should default to standard connectivity". Without `--proxy`, the engine uses its normal
+networking; a missing flag is never an error or a warning.
+
 ## 2026-11-23 No enforcement in web
 
 User: "don't enforce that. It's something we can do separately". web passes a proxy to
