@@ -1507,7 +1507,7 @@ pub(crate) fn register(ctx: &Ctx<'_>, table: Rc<RefCell<DomTable>>) {
     });
     // QCNV13: drawImage from a canvas/OffscreenCanvas bitmap (see `draw_image`; the JS side validated the arguments).
     native!(ctx, "__cv_draw_image", move |cid: i32, src: i32, w: f64, h: f64, a: Vec<f64>| {
-        draw_image(&mut *map(), cid as u32, src, w as u32, h as u32, &a);
+        draw_image(&mut map(), cid as u32, src, w as u32, h as u32, &a);
     });
     // QCNV6: path building (see `path_op`; the JS side drops non-finite arguments) and fill/stroke/clip (`paint_path`).
     native!(ctx, "__cv_path", move |cid: i32, op: i32, a: Vec<f64>| {
