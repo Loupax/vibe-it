@@ -9677,3 +9677,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- (no header)
 - [x] QCNV10 DONE 423be6a #639 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Sonnet; in order after the items above) Linear, radial and conic gradients. 107 files.
+
+=== from TODO.txt: --- (no header)
+- [x] QEDIT-B DONE 3ee5c85 #641 [S] (P3, from QWPT6d #581; Sonnet) `draggable` IDL attribute, DataTransfer / DataTransferItemList (data
+      store only, no drag UI) (9 files).

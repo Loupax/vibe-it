@@ -173,8 +173,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QEDIT-F [S] (P3, from QEDIT-A #585; Sonnet; js_dom.rs) `document.queryCommandSupported/Enabled/State/Value`
       stubs (designMode-aware, no editing) for the html/editing designMode files; SVG/XML designMode variants ERROR
       because those pages are not parsed as XML/SVG documents (say whether that is a separate item).
-- [ ] [WIP] QEDIT-B [S] (P3, from QWPT6d #581; Sonnet) `draggable` IDL attribute, DataTransfer / DataTransferItemList (data
-      store only, no drag UI) (9 files).
 - [ ] QEDIT-C [S] (P3, from QWPT6d #581; Sonnet) `hidden=until-found`, the `beforematch` event, details auto-open (5 ERROR).
 - [ ] QEDIT-D [S] (P3, from QWPT6d #581; Sonnet) Why focus-blur, focused-area-removal, focusing-focused-noop TIMEOUT.
 - [ ] QEDIT-E [S] (P3, from QWPT6d #581; Sonnet) `window.getSelection()` in the testharness window, `document.elementsFromPoint`.

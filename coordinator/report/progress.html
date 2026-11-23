@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-23 · main 8e09b15 · 166 PRs merged since 2026-11-21 morning (#475–#640) · installed 02:44 (5b9cfd9)· 5 agents running (QEL2b, QANIMHLc, QCSS-A hover check, QAPI6c, QDOM5b)</div>
+  <div class="meta" id="updated">Updated 2026-11-23 · main 8e09b15 · 167 PRs merged since 2026-11-21 morning (#475–#641) · installed 02:44 (5b9cfd9)· 5 agents running (QEL2b, QANIMHLc, QCSS-A hover check, QAPI6c, QDOM5b)</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -112,6 +112,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-23</td><td class="n">#641</td><td>QEDIT-B</td><td><code>draggable</code> and DataTransfer (data store only, no drag UI); 8 of 9 html/editing dnd files fully pass</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#639</td><td>QCNV10</td><td>Canvas gradients (linear, radial/cone, conic); canvas element 55.8, offscreen 62.9</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#640</td><td>QWPT-IDL</td><td>WPT interface checks (idlharness) now really run: +3 132 subtests, +2 096 passing, no regressions</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#638</td><td>QGEOM2</td><td>getClientRects returns a DOMRectList; structuredClone/postMessage copy geometry objects (structured-serialization 7 → 31/31)</td></tr>
