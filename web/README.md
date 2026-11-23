@@ -8,7 +8,8 @@ a separate wrapper (DECISIONS.md).
 Status: **C1 (engine host), C2 (the shell's compositor) and C3 (keys and command line)
 done**: `web` shows one page with mouse and keyboard, on a Wayland or an X11 desktop,
 with scratchy's modes, status bar, `:` command line, ghost completion and history
-(KEYS.md), search (C5) and the desktop's clipboard (C6). The CEF spike (`spike/`, TODO.txt
+(KEYS.md), search (C5), the desktop's clipboard (C6), the picker, bookmarks and buffers (C4:
+several pages in one host, vim's `:ls`/`:b`/`:bd`). The CEF spike (`spike/`, TODO.txt
 W1-W7) proved Chromium can run with no network of its own; the plan now is
 Architecture C (DECISIONS.md, TODO.txt C1-C8):
 
@@ -16,8 +17,8 @@ Architecture C (DECISIONS.md, TODO.txt C1-C8):
   owns all input (scratchy's keys, KEYS.md). It runs as one window on a Wayland or X11
   desktop.
 - an engine host, picked at start: `web-host-cef` (Chromium, `host-cef/`) first; a
-  lighter one (`web-host-webkit`, WebKitGTK) later. It shows one page in one window, the
-  page only (tabs are deferred), and is driven by the shell over a control socket
+  lighter one (`web-host-webkit`, WebKitGTK) later. It holds the pages (one per buffer, each in a
+  window of its own, the page only; it hides every page but the shown one), and is driven by the shell over a control socket
   (`PROTOCOL.md`).
 
 `web` succeeds [`scratchy`](../scratchy/), which is paused (see
@@ -27,7 +28,7 @@ Architecture C (DECISIONS.md, TODO.txt C1-C8):
 - `STASH.md`: what web keeps on disk: state directory, history and `:go` ranking,
   forget-site (`web --forget-site`, `:forget-site`, how the running instance is found),
   cookies (from scratchy).
-- `PROTOCOL.md`: the shell <-> engine-host control protocol (v0).
+- `PROTOCOL.md`: the shell <-> engine-host control protocol (v1: several pages, C4).
 - `host-cef/`: web-host-cef, its run script and the C1 check (`host-cef/README.md`).
 - `shell/`: web-shell, the `web` binary: the compositor and the C2 check (`shell/README.md`).
 - `tools/`: `nest.sh` (the nested dwl for live tests, also its Xwayland) and `inject`

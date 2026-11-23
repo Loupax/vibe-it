@@ -25,8 +25,13 @@ fn ms() -> u128 {
     START.get().map(|s| s.elapsed().as_millis()).unwrap_or(0)
 }
 
+// One write per line: the shell's log shares the pipe (C4 saw pieces of two lines interleaved).
 macro_rules! log {
-    ($($a:tt)*) => { eprintln!("[web-host-cef +{}ms] {}", crate::ms(), format!($($a)*)) };
+    ($($a:tt)*) => {{
+        use std::io::Write as _;
+        let line = format!("[web-host-cef +{}ms] {}\n", crate::ms(), format!($($a)*));
+        let _ = std::io::stderr().write_all(line.as_bytes());
+    }};
 }
 
 macro_rules! trace {

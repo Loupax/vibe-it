@@ -76,7 +76,7 @@ does not know how.
   state dirs can be deep) and over a lock file (a pid file is stale-checkable without
   holding anything). A stale pid file, a recycled pid or a refused connection mean "no
   instance": the command runs the host itself. The running shell shows `forgot ...` in its
-  status bar and reloads the page if it is on the site.
+  status bar and reloads every buffer whose page is on the site (C4).
 - **`:forget-site [site]`** in the shell does the same for the page's own site (or the
   site given); it exists because the status line and the reload come for free.
 - **Run directories (C-SOCKDIR):** `$XDG_RUNTIME_DIR/web-<pid>/` holds the control and

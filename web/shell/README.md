@@ -93,6 +93,12 @@ host-cef it is in CI (it needs only libxkbcommon to link).
   click closes. Painted with the bar's `Painter` at the window's scale into its own memory buffer
   (`picker::Overlay`). Other lists (bookmarks, buffers, popups) add a source: rows + a
   `PickAction`. Tests `src/tests/c_pick_tests.rs`, live check `test/c_pick_live.py`.
+- **Buffers** (C4, `src/buffers.rs`, KEYS.md "Buffers", T77-T92): every buffer is a page of the
+  host (PROTOCOL.md "Several pages"); `Keys::buffers` holds them, `Keys` keeps the current one's
+  URL, title, search and popup return and swaps them on a switch. The compositor keeps every page
+  window (`State::pages`, paired FIFO by `pairing.rs`), sizes them all to the page area and maps
+  only the current buffer's (`State::sync_page`); events of other pages update their buffer only
+  (`Keys::page_event`). Tests `src/tests/c4_tests.rs`, live check `test/c4_live.py`.
 - **HiDPI and fractional scale** (C6b): the inner output takes the shell window's scale factor
   (winit's, from the desktop; its `Resized` events carry changes, e.g. the window moved to
   another monitor). The output's mode is the window's framebuffer in pixels and its scale the

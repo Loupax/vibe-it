@@ -597,7 +597,7 @@ fn keys_bar_view_shows_mode_url_message_or_the_line() {
     let v = k.bar_view();
     assert_eq!(
         (v.mode.as_str(), v.url.as_str(), v.message.as_str(), v.line),
-        ("NORMAL", "https://example.com/", "hello", None)
+        ("NORMAL", "[1] https://example.com/", "hello", None)
     );
     tap(&mut k, KeyInput::ch(':'), t);
     type_str(&mut k, "hel", t);

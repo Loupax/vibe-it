@@ -43,6 +43,8 @@ use crate::statusbar::{elide_end, elide_middle, Painter};
 pub enum PickAction {
     /// Load this URL in the current page (history, bookmarks).
     Open(String),
+    /// Show this buffer (C4, `:bufferList`).
+    Buffer(u32),
 }
 
 /// One row of a source: what is drawn (the label, then the dimmed detail), what the filter is
@@ -506,6 +508,11 @@ impl Keys {
     fn run_pick_action(&mut self, action: PickAction) {
         match action {
             PickAction::Open(url) => self.effects.push(Effect::Send(Command::Open { url })),
+            PickAction::Buffer(n) => {
+                if self.buffers.get(n).is_some() {
+                    self.switch_to(n)
+                }
+            }
         }
     }
 
@@ -526,6 +533,7 @@ impl Keys {
             .selected_row()
             .map(|r| match &r.action {
                 PickAction::Open(u) => u.clone(),
+                PickAction::Buffer(n) => format!("buffer {n}"),
             })
             .unwrap_or_default();
         let at = if p.match_count() == 0 { 0 } else { p.selected + 1 };

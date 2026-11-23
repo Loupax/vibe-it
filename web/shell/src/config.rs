@@ -84,6 +84,10 @@ pub const BINDINGS: &[Binding] = &[
     bind(Char('h'), Mods::Any, A::HistoryBack),
     bind(Char('l'), Mods::Any, A::HistoryForward),
     bind(Char('G'), Mods::Any, A::Scroll(BOTTOM)),
+    // Ctrl-^ (C4): the previous buffer. On a US layout it is Ctrl-Shift-6, which the keymap gives
+    // as `^`; vim also takes Ctrl-6.
+    bind(Char('^'), Mods::Ctrl, A::AlternateBuffer),
+    bind(Char('6'), Mods::Ctrl, A::AlternateBuffer),
     bind(Sym(Keysym::Down), Mods::Any, A::Scroll(DOWN)),
     bind(Sym(Keysym::Up), Mods::Any, A::Scroll(UP)),
     bind(Sym(Keysym::Left), Mods::Any, A::Scroll(LEFT)),

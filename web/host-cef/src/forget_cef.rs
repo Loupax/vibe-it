@@ -279,7 +279,7 @@ fn after_origins() {
     // sessionStorage of the page's frames under the site.
     let domain = with(|s| s.job.as_ref().map(|j| j.domain.clone()));
     let Some(domain) = domain else { return };
-    if let Some(b) = crate::page::browser() {
+    for b in crate::page::browsers() {
         let mut ids = CefStringList::new();
         b.frame_identifiers(Some(&mut ids));
         for id in ids {

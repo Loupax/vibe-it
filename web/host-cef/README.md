@@ -1,7 +1,8 @@
 # web-host-cef
 
-The CEF (Chromium) engine host (web/TODO.txt C1). It shows one page in one window,
-the page only, and is driven by the shell over a control socket: protocol v0,
+The CEF (Chromium) engine host (web/TODO.txt C1). It holds several pages (C4: the shell's
+buffers), each in a window of its own, the page only; it shows one and hides the others
+(`BrowserView::SetVisible`). It is driven by the shell over a control socket: protocol 1,
 `../PROTOCOL.md`. It grew out of the spike (`../spike/README.md` keeps the record of
 W1-W7 and what CEF taught us; the code moved here).
 
@@ -140,7 +141,14 @@ The verdict logic is unit-tested in `test/test_cookies.py`.
   cef crate's defaults (0) pin the window at its preferred 1200x800 (xdg_toplevel min =
   max size), and the shell's configure would be ignored.
 - **Popups load in place.** `OnBeforePopup` cancels every popup and loads its URL in
-  the page (PROTOCOL.md "One page per host").
+  the page that asked (PROTOCOL.md "Several pages"; C-POPUPS will change this).
+- **Several pages** (C4). The pages live in a thread-local map by browser id (`page.rs`
+  `Pages`). `new-tab` creates a BrowserView in its own top-level window; its `tab-created`
+  carries the `req` (the view is matched with `IsSame` when the browser is announced). A new
+  page is hidden 50 ms after its window is shown (`HideTask`): hidden at once, inside the
+  callback that shows the window, the page still reported `visible` (`test/drive.py`).
+  `quit` closes every browser; the message loop ends when the last one is gone; a `new-tab`
+  while quitting is refused (a browser created during shutdown crashed the host).
 - **Find.** A new CEF find session counts matches but activates none; the host steps
   once more (from `on_find_result`, once the count is final and above 0) so a match is
   active, and reports only that result; a count of 0 is reported as it is. Every new

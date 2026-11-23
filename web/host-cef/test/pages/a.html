@@ -21,6 +21,13 @@ if (act === 'blank') later(() => document.getElementById('blank').click());
 if (act === 'focus') later(() => { q.focus(); later(() => q.blur(), 400); });
 if (act === 'hash') later(() => { location.hash = 'frag'; });
 if (act === 'push') later(() => history.pushState({}, '', 'a.html?pushed=1'));
+// C4: the title says whether the page is shown (`vis visible <n>`) or hidden by the host.
+if (act === 'vis') {
+  const n = new URLSearchParams(location.search).get('n') || '';
+  const show = () => { document.title = 'vis ' + document.visibilityState + ' ' + n; };
+  show();
+  document.addEventListener('visibilitychange', show);
+}
 </script>
 </body>
 </html>

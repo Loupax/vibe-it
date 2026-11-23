@@ -21,6 +21,12 @@ pub fn connect(path: &str) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Whether a shell is connected (without one the host runs standalone and exits when its
+/// last page closes).
+pub fn connected() -> bool {
+    CONTROL.lock().unwrap().is_some()
+}
+
 /// Sends one event (and logs it). Without a control socket it is only logged.
 pub fn emit(ev: Event) {
     log!("event: {}", event_text(&ev));

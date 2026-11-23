@@ -15,8 +15,11 @@ pub enum Event {
         #[serde(default)]
         engine: String,
     },
+    /// A page exists (C4: one per buffer); `req` names the `new-tab` it answers.
     TabCreated {
         tab: u64,
+        #[serde(default)]
+        req: Option<u64>,
     },
     TabClosed {
         tab: u64,
@@ -91,6 +94,21 @@ impl Event {
     pub fn parse(line: &str) -> Result<Event, String> {
         serde_json::from_str(line).map_err(|e| format!("bad event {line:?}: {e}"))
     }
+
+    /// The page a page event is about (`url`, `title`, `load`, `load-error`, `editable-focused`,
+    /// `find-result`, `crashed`); None for the others, `tab-created`/`tab-closed` included.
+    pub fn page_tab(&self) -> Option<u64> {
+        match self {
+            Event::Url { tab, .. }
+            | Event::Title { tab, .. }
+            | Event::Load { tab, .. }
+            | Event::LoadError { tab, .. }
+            | Event::EditableFocused { tab, .. }
+            | Event::FindResult { tab, .. }
+            | Event::Crashed { tab, .. } => Some(*tab),
+            _ => None,
+        }
+    }
 }
 
 /// A command to the engine host (the ones the shell sends so far; `zoom` and
@@ -129,6 +147,20 @@ pub enum Command {
     ForgetSite {
         site: String,
     },
+    /// C4: a new page for a buffer (hidden until `show-tab`); `tab-created` answers with `req`.
+    NewTab {
+        req: u64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        url: Option<String>,
+    },
+    /// C4: show this page (the current buffer's), hide the others.
+    ShowTab {
+        tab: u64,
+    },
+    /// C4: close this page (`:bufferKill`).
+    CloseTab {
+        tab: u64,
+    },
     Quit,
 }
 
@@ -144,6 +176,17 @@ impl Command {
     /// One JSON line, `\n`-terminated.
     pub fn line(&self) -> String {
         let mut s = serde_json::to_string(self).expect("a command always serializes");
+        s.push('\n');
+        s
+    }
+
+    /// A page command for page `tab` rather than the shown one (C4: `"tab"` added).
+    pub fn line_for(&self, tab: u64) -> String {
+        let mut v = serde_json::to_value(self).expect("a command always serializes");
+        if let Some(o) = v.as_object_mut() {
+            o.insert("tab".into(), tab.into());
+        }
+        let mut s = v.to_string();
         s.push('\n');
         s
     }
@@ -184,7 +227,11 @@ mod tests {
                     engine: "cef".into(),
                 },
             ),
-            (r#"{"event":"tab-created","tab":1}"#, Event::TabCreated { tab: 1 }),
+            (r#"{"event":"tab-created","tab":1}"#, Event::TabCreated { tab: 1, req: None }),
+            (
+                r#"{"event":"tab-created","tab":4,"req":2}"#,
+                Event::TabCreated { tab: 4, req: Some(2) },
+            ),
             (r#"{"event":"tab-closed","tab":1}"#, Event::TabClosed { tab: 1 }),
             (
                 r#"{"event":"url","tab":1,"url":"https://example.com/"}"#,
@@ -276,7 +323,7 @@ mod tests {
     fn unknown_fields_and_events_are_ignored() {
         assert_eq!(
             Event::parse(r#"{"event":"tab-created","tab":3,"later":"field"}"#).unwrap(),
-            Event::TabCreated { tab: 3 }
+            Event::TabCreated { tab: 3, req: None }
         );
         assert_eq!(Event::parse(r#"{"event":"future-thing","x":1}"#).unwrap(), Event::Unknown);
         assert_eq!(

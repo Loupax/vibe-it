@@ -1,6 +1,7 @@
 //! The compositor: smithay state, the Wayland protocol handlers, and the engine host's
-//! events. One page window (the host's toplevel paired with `tab-created`), any other
-//! toplevel shown as a dialog over it, xdg popups placed inside the shell window.
+//! events. The page windows (C4: one per buffer, each paired with its `tab-created`; only the
+//! current buffer's is shown), any other toplevel shown as a dialog over it, xdg popups placed
+//! inside the shell window.
 
 use std::os::unix::net::UnixStream;
 use std::process::Child;
@@ -41,7 +42,7 @@ use smithay::{
 };
 
 use crate::layout::Layout;
-use crate::pairing::{Pairing, Role};
+use crate::pairing::Pairing;
 use crate::protocol::{Command, Event};
 
 pub struct State {
@@ -79,7 +80,13 @@ pub struct State {
     /// Toplevels created but not committed yet (role decided at the first commit, when
     /// the client has set its parent).
     pub pending_toplevels: Vec<ToplevelSurface>,
+    /// The shown page window: the current buffer's (C4; `sync_page`).
     pub page: Option<Window>,
+    /// Every page window (C4: one per buffer) and its tab. Only `page` is mapped in the Space;
+    /// the others are sized to the page area too but not drawn (the host hides them).
+    pub pages: Vec<(u64, Window)>,
+    /// The buffer and tab last shown (logged when it changes).
+    pub shown: (u32, Option<u64>),
     /// The page window's size as last committed (logged when it changes).
     pub page_size: Size<i32, Logical>,
     pub dialogs: Vec<Window>,
@@ -117,7 +124,8 @@ pub struct State {
     /// The key model: modes, the `:` line, the status bar's text (C3).
     pub keys: crate::keys::Keys,
     pub history: crate::history::History,
-    pub visits: crate::history::Visits,
+    /// Visits per page (C4: pages load side by side).
+    pub visits: std::collections::HashMap<u64, crate::history::Visits>,
     /// The last mouse press on a window (T29: a focus change soon after it is the user's).
     pub last_click: Option<Instant>,
     /// The status bar as last logged.
@@ -153,17 +161,110 @@ impl State {
             Some((p, text, _)) => format!("{p}{text}|{}{}", v.ghost, self.keys.pick_log()),
             None => format!("{} | {}", v.mode, v.message),
         };
-        if desc != self.bar_log {
-            self.log(&format!("bar: {desc}"));
-            self.bar_log = desc;
+        // C4: the URL part (with the buffer number) on a line of its own, when it changes.
+        let full = format!("{desc}\n{}", v.url);
+        if full != self.bar_log {
+            let (old_desc, old_url) = self.bar_log.split_once('\n').unwrap_or((self.bar_log.as_str(), ""));
+            let (desc_changed, url_changed) = (desc != old_desc, v.url != old_url);
+            if desc_changed {
+                self.log(&format!("bar: {desc}"));
+            }
+            if url_changed {
+                self.log(&format!("bar url: {}", v.url));
+            }
+            self.bar_log = full;
         }
     }
 
     fn window_of(&self, surface: &WlSurface) -> Option<Window> {
         self.space
             .elements()
+            .chain(self.pages.iter().map(|(_, w)| w))
             .find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == surface))
             .cloned()
+    }
+
+    /// C4: shows the current buffer's page window (once it is paired) and nothing else of the
+    /// pages; logs a change of buffer. Called after key effects and host events.
+    pub fn sync_page(&mut self) {
+        let num = self.keys.buffers.current;
+        let tab = self.keys.buffers.current_tab();
+        let want = tab.and_then(|t| self.pages.iter().find(|(x, _)| *x == t).map(|(_, w)| w.clone()));
+        let changed = want != self.page;
+        if (num, tab) != self.shown {
+            self.shown = (num, tab);
+            self.log(&format!(
+                "buffer {num} of {} is current (tab {})",
+                self.keys.buffers.list.len(),
+                tab.map(|t| t.to_string()).unwrap_or_else(|| "not created yet".into())
+            ));
+            self.url = self.keys.url.clone();
+            self.title = self.keys.title.clone();
+            self.update_window_title();
+        }
+        if !changed {
+            return;
+        }
+        if self.layout.fullscreen {
+            self.set_fullscreen(false);
+        }
+        if let Some(w) = &self.page {
+            self.space.unmap_elem(w);
+        }
+        self.page = want;
+        self.page_size = (0, 0).into();
+        if let Some(t) = tab.filter(|_| self.page.is_some()) {
+            self.log(&format!("buffer {num} shown: page window of tab {t}"));
+        }
+        self.relayout();
+        self.refocus();
+    }
+
+    /// C4: `tab-created`: the page joins its buffer (shown if that buffer is current) and its window,
+    /// if it came first.
+    fn tab_created(&mut self, tab: u64, req: Option<u64>) {
+        use crate::buffers::TabCreated;
+        match self.keys.buffers.tab_created(tab, req) {
+            TabCreated::Buffer(n) => {
+                self.log(&format!("tab {tab} is buffer {n}'s page"));
+                if n == self.keys.buffers.current && req.is_some() {
+                    self.send(Command::ShowTab { tab });
+                }
+            }
+            TabCreated::Adopted(n) => self.log(&format!("tab {tab} was not asked for: buffer {n}")),
+            TabCreated::Doomed => {
+                self.log(&format!("tab {tab}: its buffer was killed meanwhile; closing it"));
+                self.send(Command::CloseTab { tab });
+            }
+        }
+        if let Some(s) = self.pairing.tab_created(tab) {
+            if let Some(i) = self.dialogs.iter().position(|w| w.toplevel().is_some_and(|t| t.wl_surface() == &s)) {
+                let w = self.dialogs.remove(i);
+                self.space.unmap_elem(&w);
+                self.pages.push((tab, w));
+            }
+            self.log(&format!("page window paired with tab {tab}"));
+        }
+        self.sync_page();
+    }
+
+    /// C4: a page event's effect on its buffer (`Keys::page_event`). True: not the current buffer's,
+    /// nothing else is done with it.
+    fn buffer_event(&mut self, tab: u64, ev: &Event) -> bool {
+        self.keys.page_event(tab, ev)
+    }
+
+    /// Sends a page command to page `tab` (not necessarily the shown one).
+    pub fn send_to(&mut self, tab: u64, cmd: Command) {
+        use std::io::Write;
+        let line = cmd.line_for(tab);
+        self.log(&format!("command: {}", line.trim_end()));
+        if let Some(c) = &mut self.control {
+            if let Err(e) = c.write_all(line.as_bytes()) {
+                self.log(&format!("control socket: {e}"));
+                self.control = None;
+            }
+        }
     }
 
     /// The window whose surface tree (popups excluded) holds `surface`.
@@ -202,8 +303,12 @@ impl State {
     pub fn relayout(&mut self) {
         let page_rect = self.layout.page();
         let fullscreen = self.layout.fullscreen;
-        let activated = self.window_focused;
-        if let Some(w) = self.page.clone() {
+        let window_focused = self.window_focused;
+        // C4: every page window gets the page area (switching does not re-layout the page); only
+        // the shown one is mapped and activated.
+        for w in self.pages.iter().map(|(_, w)| w.clone()).collect::<Vec<_>>() {
+            let shown = self.page.as_ref() == Some(&w);
+            let activated = window_focused && shown;
             let t = w.toplevel().unwrap();
             let wl_output = t.wl_surface().client().and_then(|c| self.output.client_outputs(&c).next());
             t.with_pending_state(|s| {
@@ -228,8 +333,13 @@ impl State {
             if t.is_initial_configure_sent() {
                 t.send_pending_configure();
             }
-            self.space.map_element(w, page_rect.loc, false);
+            if shown {
+                self.space.map_element(w, page_rect.loc, false);
+            } else {
+                self.space.unmap_elem(&w);
+            }
         }
+        let activated = window_focused;
         for w in self.dialogs.clone() {
             let t = w.toplevel().unwrap();
             t.with_pending_state(|s| set_state(s, ToplevelState::Activated, activated));
@@ -342,7 +452,10 @@ impl State {
     }
 
     pub fn log(&self, msg: &str) {
-        eprintln!("[web +{}ms] {msg}", self.log_ms());
+        // One write per line: the host's log shares the pipe (C4 saw two lines interleaved).
+        use std::io::Write as _;
+        let line = format!("[web +{}ms] {msg}\n", self.log_ms());
+        let _ = std::io::stderr().write_all(line.as_bytes());
     }
 
     fn update_window_title(&self) {
@@ -362,22 +475,33 @@ impl State {
             }
         };
         self.log(&format!("host event: {line}"));
-        if let Some((url, title)) = self.visits.event(&ev) {
-            self.history.record(&url, &title);
+        // C4: page events of every page keep their buffer up to date; only the current buffer's
+        // reach the status bar, the search and the mode below.
+        if let Some(tab) = ev.page_tab() {
+            if let Some((url, title)) = self.visits.entry(tab).or_default().event(&ev) {
+                self.history.record(&url, &title);
+            }
+            if self.buffer_event(tab, &ev) {
+                self.redraw();
+                return;
+            }
         }
         match ev {
             Event::Hello { protocol, engine } => {
-                if protocol != 0 {
-                    self.log(&format!("host speaks protocol {protocol} ({engine}); this shell knows 0"));
+                if protocol != 1 {
+                    self.log(&format!("host speaks protocol {protocol} ({engine}); this shell knows 1"));
                 }
             }
-            Event::TabCreated { tab } => match self.pairing.tab_created(tab) {
-                Ok(true) => self.log(&format!("page window paired with tab {tab}")),
-                Ok(false) => {}
-                Err(e) => self.log(&e),
-            },
+            Event::TabCreated { tab, req } => self.tab_created(tab, req),
             Event::TabClosed { tab } => {
                 self.pairing.tab_closed(tab);
+                self.visits.remove(&tab);
+                if self.quit_deadline.is_none() && self.keys.buffers.list.iter().any(|b| b.tab == Some(tab)) {
+                    // Not killed by the shell: the page closed itself.
+                    self.keys.tab_gone(tab);
+                    self.apply_key_effects(0);
+                }
+                self.sync_page();
             }
             Event::Url { url, .. } => {
                 self.url = url.clone();
@@ -449,13 +573,10 @@ impl State {
                     let (_, c) = self.forget_clients.remove(i);
                     reply_to(c, line);
                 }
-                // The page shows the forgotten site (or a host under it): load it again.
-                let host = url::Url::parse(&self.url)
-                    .ok()
-                    .and_then(|u| u.host_str().map(str::to_ascii_lowercase));
-                if let Some(h) = host.filter(|h| !domain.is_empty() && (*h == *domain || h.ends_with(&format!(".{domain}")))) {
-                    self.log(&format!("reloading {h}: its site {domain} was forgotten"));
-                    self.send(Command::Reload { hard: false });
+                // C4: every buffer that shows the forgotten site (or a host under it) loads again.
+                for (num, tab, h) in self.keys.buffers_on_site(domain) {
+                    self.log(&format!("reloading {h} (buffer {num}): its site {domain} was forgotten"));
+                    self.send_to(tab, Command::Reload { hard: false });
                 }
             }
             _ => {}
@@ -474,15 +595,19 @@ impl State {
         self.send(Command::ForgetSite { site });
     }
 
-    /// A second `web URL` asked (C-SINGLE): load the URL here, say so in the status bar, answer it.
+    /// A second `web URL` asked (C-SINGLE): open the URL in a new buffer (C4) and show it, say so in
+    /// the status bar, answer it.
     pub fn open_requested(&mut self, word: &str, client: UnixStream) {
         match crate::keys::go_url(word, &self.url) {
             Ok(url) if self.control.is_some() => {
                 self.log(&format!("open {url} (from a second web)"));
-                self.keys.message = format!("opened {url} (from another web)");
                 reply_to(client, &serde_json::json!({"event": "opened", "url": url}).to_string());
-                self.send(Command::Open { url });
-                self.redraw();
+                if self.keys.vim_mode != crate::keys::VimMode::Normal {
+                    self.keys.close_line();
+                }
+                let num = self.keys.open_buffer(&url);
+                self.keys.message = format!("opened {url} (from another web) in buffer {num}");
+                self.apply_key_effects(0);
             }
             Ok(_) => reply_to(client, r#"{"event":"error","message":"the engine host is not connected"}"#),
             Err(m) => reply_to(client, &serde_json::json!({"event": "error", "message": m}).to_string()),
@@ -584,31 +709,33 @@ impl State {
     /// First commit of a toplevel: decide whether it is the page or a dialog.
     fn classify(&mut self, t: ToplevelSurface) {
         let surface = t.wl_surface().clone();
-        let role = self.pairing.toplevel(surface, t.parent().is_some());
+        let paired = self.pairing.toplevel(surface.clone(), t.parent().is_some());
         let window = Window::new_wayland_window(t.clone());
         let app_id = smithay::wayland::compositor::with_states(t.wl_surface(), |s| {
             s.data_map
                 .get::<smithay::wayland::shell::xdg::XdgToplevelSurfaceData>()
                 .and_then(|d| d.lock().unwrap().app_id.clone())
         });
-        match role {
-            Role::Page => {
+        match paired {
+            Some(tab) => {
                 self.log(&format!(
-                    "page window (app_id {:?}){}",
-                    app_id.unwrap_or_default(),
-                    match self.pairing.paired_tab() {
-                        Some(tab) => format!(", paired with tab {tab}"),
-                        None => ", waiting for tab-created".into(),
-                    }
+                    "page window (app_id {:?}), paired with tab {tab}",
+                    app_id.unwrap_or_default()
                 ));
-                self.page = Some(window);
+                self.pages.push((tab, window));
             }
-            Role::Dialog => {
-                self.log(&format!("dialog window (app_id {:?})", app_id.unwrap_or_default()));
+            None => {
+                let waiting = if self.pairing.is_candidate(&surface) {
+                    " (no parent: a page if a tab-created comes for it)"
+                } else {
+                    ""
+                };
+                self.log(&format!("dialog window (app_id {:?}){waiting}", app_id.unwrap_or_default()));
                 t.with_pending_state(|s| s.decoration_mode = Some(DecorationMode::ServerSide));
                 self.dialogs.push(window);
             }
         }
+        self.sync_page();
         self.relayout();
         t.send_configure();
     }
@@ -800,7 +927,7 @@ impl XdgShellHandler for State {
     }
 
     fn fullscreen_request(&mut self, surface: ToplevelSurface, _output: Option<wl_output::WlOutput>) {
-        if self.pairing.is_page(surface.wl_surface()) {
+        if self.is_shown_page(surface.wl_surface()) {
             self.set_fullscreen(true);
         } else if surface.is_initial_configure_sent() {
             surface.send_configure();
@@ -808,7 +935,7 @@ impl XdgShellHandler for State {
     }
 
     fn unfullscreen_request(&mut self, surface: ToplevelSurface) {
-        if self.pairing.is_page(surface.wl_surface()) {
+        if self.is_shown_page(surface.wl_surface()) {
             self.set_fullscreen(false);
         }
     }
@@ -826,11 +953,14 @@ impl XdgShellHandler for State {
         if let Some(w) = self.window_of(s) {
             self.space.unmap_elem(&w);
         }
-        if self.pairing.toplevel_destroyed(s) {
-            self.log("page window closed");
-            self.page = None;
-            if self.layout.fullscreen {
-                self.set_fullscreen(false);
+        if let Some(tab) = self.pairing.toplevel_destroyed(s) {
+            self.log(&format!("page window of tab {tab} closed"));
+            self.pages.retain(|(t, _)| *t != tab);
+            if self.is_shown_page(s) {
+                self.page = None;
+                if self.layout.fullscreen {
+                    self.set_fullscreen(false);
+                }
             }
         }
         self.dialogs.retain(|w| w.toplevel().is_some_and(|t| t.wl_surface() != s));
@@ -850,6 +980,13 @@ impl XdgShellHandler for State {
 }
 
 impl State {
+    /// Whether `s` is the shown page window (C4: the current buffer's).
+    fn is_shown_page(&self, s: &WlSurface) -> bool {
+        self.page
+            .as_ref()
+            .is_some_and(|w| w.toplevel().is_some_and(|t| t.wl_surface() == s))
+    }
+
     /// Keeps a popup inside the shell window (xdg_positioner constraint adjustment).
     fn unconstrain_popup(&self, popup: &PopupSurface) {
         let kind = PopupKind::Xdg(popup.clone());

@@ -159,6 +159,8 @@ impl State {
         if !self.paused {
             self.run_effects(time);
         }
+        // C4: a buffer command may have changed the current buffer.
+        self.sync_page();
         self.redraw();
     }
 

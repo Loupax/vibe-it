@@ -7,6 +7,7 @@
 
 mod args;
 mod bookmarks;
+mod buffers;
 mod clipboard;
 mod completion;
 mod config;
@@ -293,6 +294,8 @@ fn main() {
         pairing: Default::default(),
         pending_toplevels: Vec::new(),
         page: None,
+        pages: Vec::new(),
+        shown: (0, None),
         page_size: (0, 0).into(),
         dialogs: Vec::new(),
         window_focused: true,
@@ -317,7 +320,7 @@ fn main() {
         swallowed_button: None,
         keys: keys::Keys::new(Some(state_dir.clone()), help_url, Some(sink)),
         history: history::History::open(Some(state_dir.clone())),
-        visits: history::Visits::default(),
+        visits: Default::default(),
         last_click: None,
         bar_log: String::new(),
         damage_tracker: None,

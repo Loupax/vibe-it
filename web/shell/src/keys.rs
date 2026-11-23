@@ -151,6 +151,8 @@ pub enum Action {
     HistoryForward,
     /// `yy` (T55): `:let @+ = @%`.
     YankUrl,
+    /// Ctrl-^ (C4, KEYS.md "Buffers"): the buffer shown before this one.
+    AlternateBuffer,
     /// The key press (and its release) goes to the page (T19: Enter; T18 ends an open find first).
     ToPage,
 }
@@ -202,6 +204,12 @@ pub const COMMAND_NAMES: &[&str] = &[
     "bookmarkAdd",
     "bookmarkDelete",
     "bookmarkSearch",
+    "buffer",
+    "bufferDescribe",
+    "bufferKill",
+    "bufferList",
+    "bufferNext",
+    "bufferPrev",
     "forget-site",
     "go",
     "help",
@@ -214,6 +222,11 @@ pub const COMMAND_NAMES: &[&str] = &[
     "refresh",
     "set",
 ];
+
+/// Short names `dispatch_command` also runs (C4: vim's aliases of the buffer commands). The ghost
+/// never offers them; typed in full, an alias leads the first word's candidates, so Enter runs it
+/// as typed (`:b` stays `:b`, not the ghost's `bookmarkAdd`).
+pub const COMMAND_ALIASES: &[&str] = &["b", "bd", "bn", "bp", "ls"];
 
 /// `:set`'s usage line (C-CARETCMD).
 pub const SET_USAGE: &str = "web: usage: :set caret | nocaret | caret?";
@@ -345,6 +358,14 @@ pub struct SearchState {
 }
 
 impl SearchState {
+    /// The host has no find session any more (a navigation, Esc): the query stays.
+    pub fn forget_session(&mut self) {
+        self.session = false;
+        self.index = 0;
+        self.count = 0;
+        self.waiting.clear();
+    }
+
     /// The id of the oldest `find` still waiting for its result.
     #[cfg(test)]
     pub fn pending_id(&self) -> Option<u64> {
@@ -424,8 +445,8 @@ pub struct Keys {
     /// xdg_popups currently open (a submenu counts too): a popup session ends when the last closes.
     open_popups: usize,
     /// T57: the mode the user's click left behind when its popup switched to INPUT; restored when the
-    /// popup session ends, unless the click focused a field (`user_focused_control`).
-    popup_return: Option<KeyMode>,
+    /// popup session ends, unless the click focused a field (`user_focused_control`). Per buffer (C4).
+    pub(crate) popup_return: Option<KeyMode>,
     /// The desktop's clipboard (register `+`, paste; C6). None: there is none.
     pub clipboard: Option<Box<dyn crate::clipboard::SystemClipboard>>,
     /// `:set caret` (C-CARETCMD): Chromium's caret browsing, as last asked of the host. Off at
@@ -433,6 +454,9 @@ pub struct Keys {
     pub caret: bool,
     /// The open picker (C-PICK, `picker.rs`), while `vim_mode` is `Pick`.
     pub picker: Option<crate::picker::Picker>,
+    /// The buffers (C4, `buffers.rs`); `url`, `title`, `search` and `popup_return` above are the
+    /// current buffer's.
+    pub buffers: crate::buffers::Buffers,
 }
 
 impl Keys {
@@ -446,6 +470,7 @@ impl Keys {
             popup_return: None,
             caret: false,
             picker: None,
+            buffers: crate::buffers::Buffers::new(),
             line: TextEditBuffer::default(),
             ghost: None,
             cache: CompleteCache::new(state_dir.clone()),
@@ -596,6 +621,7 @@ impl Keys {
             Action::HistoryBack => self.effects.push(Effect::Send(Command::Back)),
             Action::HistoryForward => self.effects.push(Effect::Send(Command::Forward)),
             Action::YankUrl => self.run_command_line("let @+ = @%"),
+            Action::AlternateBuffer => self.buffer_alternate(),
         }
     }
 
@@ -758,10 +784,7 @@ impl Keys {
     }
 
     fn forget_session(&mut self) {
-        self.search.session = false;
-        self.search.index = 0;
-        self.search.count = 0;
-        self.search.waiting.clear();
+        self.search.forget_session();
     }
 
     /// The host's `find-result` for the oldest `find` still waiting (T15, T16, T23): the
@@ -980,6 +1003,13 @@ impl Keys {
                 let url = self.help_url.clone();
                 send(self, Command::Open { url })
             }
+            // C4 (KEYS.md "Buffers"): camelCase names with vim's aliases.
+            ("bufferList", rest) | ("ls", rest) => self.buffer_list(&rest.join(" ")),
+            ("buffer", rest) | ("b", rest) => self.buffer_command(rest),
+            ("bufferNext", []) | ("bn", []) => self.buffer_step(1),
+            ("bufferPrev", []) | ("bp", []) => self.buffer_step(-1),
+            ("bufferKill", rest) | ("bd", rest) => self.buffer_kill(rest),
+            ("bufferDescribe", rest) => self.buffer_describe(rest),
             ("set", [opt]) => self.set_option(opt),
             ("set", _) => self.message = SET_USAGE.to_string(),
             ("q", []) | ("quit", []) => {
@@ -1031,7 +1061,8 @@ impl Keys {
         let line = prompt.map(|p| (p, self.line.text.clone(), self.line.cursor));
         BarView {
             mode: mode_name(self.key_mode).to_string(),
-            url: self.url.clone(),
+            // C4: the current buffer's number before the URL.
+            url: format!("[{}] {}", self.buffers.current, self.url),
             message: self.message.clone(),
             ghost: match (&self.ghost, &line) {
                 (Some(g), Some(_)) => g.rest(&self.line.text),

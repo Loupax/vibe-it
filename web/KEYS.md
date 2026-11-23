@@ -18,7 +18,8 @@ Status: **built in web by C3** (`shell/src/keys.rs`, `config.rs`, `completion.rs
 check `shell/test/c3_live.py`), Search built by C5 (`shell/src/tests/search_tests.rs`, live
 check `shell/test/c5_live.py`), clipboard (`@+`, `yy`, paste) built by C6 (`shell/src/tests/c6_tests.rs`, live check `shell/test/c6_live.py`), Enter in NORMAL by C-ENTER (`shell/src/tests/c_enter_tests.rs`, live
 check `shell/test/c_enter_live.py`), the picker by C-PICK (`shell/src/picker.rs`, `shell/src/tests/c_pick_tests.rs`,
-live check `shell/test/c_pick_live.py`). **This file is the source of truth** for web's keys: when web/TODO.txt and this
+live check `shell/test/c_pick_live.py`), buffers by C4 (`shell/src/buffers.rs`, `shell/src/tests/c4_tests.rs`, live check
+`shell/test/c4_live.py`). **This file is the source of truth** for web's keys: when web/TODO.txt and this
 file disagree, this file wins. Rows marked *(proposed)* are Claude's
 proposals that the user has not confirmed yet; they are built as written unless the
 user changes them before the item starts.
@@ -441,23 +442,51 @@ The file is written as a temp file `DIR/.bookmarks.tmp-<pid>` renamed over `book
 a failed write says `web: bookmark failed: <error>` and leaves the old file. Without a state directory the
 commands say `web: no state directory: bookmarks are off`. `--forget-site` does not touch bookmarks.
 
-## Buffers (planned, C4)
+## Buffers (C4)
 
-Not built; replaces the deferred tabs. Commands are camelCase with vim aliases; the ghost offers the
-long names only, an alias typed in full still runs.
+Built by C4 (`shell/src/buffers.rs`; host side PROTOCOL.md "Several pages"). Replaces the deferred tabs
+(DECISIONS.md "A picker, bookmarks, buffers as tabs, popups like Chrome"). Commands are camelCase with vim
+aliases; the ghost offers the long names only, an alias typed in full still runs.
 
 | command | alias | what it does |
 |---|---|---|
-| `:bufferList` | `:ls` | the picker over the buffers: number, title, hostname, description |
+| `:bufferList [filter]` | `:ls` | the picker over the buffers: number, title, hostname, description |
 | `:buffer N`, `:buffer <partial>` | `:b` | switch to buffer N, or to the one whose title, hostname or description matches |
 | `:bufferNext`, `:bufferPrev` | `:bn`, `:bp` | the next / previous buffer (wraps) |
 | `:bufferKill [N]` | `:bd` | kill the current buffer (or N); killing the last one leaves an empty `about:blank` buffer |
 | `:bufferDescribe [text]` | | set the current buffer's description (kept across navigation); no text clears it |
 | Ctrl-^ (NORMAL) | | the previously shown buffer |
 
-The status bar shows the current buffer's number. Popups (C-POPUPS): a `window.open` from a user
-gesture and a `target=_blank` link open a new buffer; one without a gesture is blocked
-(`popup blocked: <url>`) and opened with `:popupOpen` (the latest) or `:popupSearch`.
+Every buffer is a page of the one engine host (each page has a window of its own; the host hides every
+page but the shown one, so a buffer in the background runs like a background tab in Chrome: no
+animation frames, timers at most once a second, audio keeps playing). Buffer numbers are the shell's:
+1, 2, 3, ... in the order buffers were opened, never reused in a run (vim's). Per buffer the shell keeps
+the URL, the title, whether it is loading or crashed, the search (kept query, find session, `[i/N]`), the
+mode a popup returns to (T57) and the description. Not now (the user's decision): searching page
+contents, restoring buffers after a restart.
+
+| # | From | Event | Guard | To | Effect |
+|---|---|---|---|---|---|
+| T77 | COMMAND | Enter on `:bufferList [filter]` / `:ls` | none | PICK | the picker (T58-T68) over the buffers in number order; label `N name` with vim's `%` after the current buffer's number and `#` after the alternate's (name: the title, else the URL); detail: the hostname, then the description; matched on the title, hostname and description; an argument is typed into the filter; Enter shows the buffer (T78) |
+| T78 | COMMAND | Enter on `:buffer N` / `:b N` | buffer N exists | NORMAL | buffer N becomes current: the host shows its page (`show-tab`) and hides the others; the bar shows its URL, its last message is gone (a crashed page says so, T89). The current one: `buffer N: <name>`. No such buffer: `web: no buffer N`. `:buffer` alone names the current buffer |
+| T79 | COMMAND | Enter on `:buffer <partial>` / `:b <partial>` | not a number | NORMAL | the buffers whose title, hostname or description contains the text (case-insensitive, the words as one string): exactly one becomes current (T78); none: `web: no buffer matches <text>`; several: `web: more than one buffer matches <text> (:bufferList)` (vim's rule) |
+| T80 | COMMAND | Enter on `:bufferNext` / `:bn`, `:bufferPrev` / `:bp` | none | NORMAL | the next / previous buffer in number order becomes current, wrapping at the ends; with one buffer nothing changes |
+| T81 | COMMAND | Enter on `:bufferKill [N]` / `:bd [N]` | another buffer remains | NORMAL | buffer N (default: the current one) goes and its page is closed (`close-tab`); `buffer N killed`. If it was current, the alternate buffer (Ctrl-^'s) becomes current, else the next one. A buffer killed before its page existed has its page closed when it comes. No such buffer: `web: no buffer N`; a word that is not a number: `web: usage: :bufferKill [N]` |
+| T82 | COMMAND | Enter on `:bufferKill` / `:bd` | it is the last buffer | NORMAL | a new buffer with an empty `about:blank` page becomes current first, then the old one goes as in T81 (the user does not have to know it was the last one). The new buffer has no alternate |
+| T83 | COMMAND | Enter on `:bufferDescribe [text]` | none | NORMAL | the current buffer's description becomes the text (`buffer N: <text>`); no text clears it (`buffer N: description cleared`). Kept across navigation in that buffer; never written to disk |
+| T84 | NORMAL | Ctrl-^ (Ctrl-Shift-6 on a US layout; Ctrl-6 too) | an alternate buffer exists | NORMAL | the buffer shown before the current one becomes current (so Ctrl-^ twice comes back). None: `web: no alternate buffer`. In INPUT the page gets the key |
+| T85 | any | the current buffer changes | none | same | the status bar shows `[N]` before the URL (N: the current buffer's number) |
+| T86 | any | a second `web <url>` (C-SINGLE) | none | NORMAL | the URL opens in a new buffer (`new-tab`), which becomes current; the bar says `opened <url> (from another web) in buffer N`. An open `:` line or picker is closed |
+| T87 | any | switching buffers; an event of a page that is not current | none | same | the URL, title, search (query, find session, `[i/N]`), loading state and popup return (T57) are the buffer's own: `n` in another buffer uses that buffer's query (`No previous search` if it has none), coming back `n` continues where it was. A page in the background updates only its buffer: its `editable-focused` never switches to INPUT, its find results, load errors and titles never reach the bar |
+| T88 | COMMAND | `forgot` (after `:forget-site`, `web --forget-site`) | none | same | every buffer whose page is on the forgotten site (the domain or a host under it) reloads, shown or not |
+| T89 | any | `crashed` | none | same | only that buffer's page is gone (the others keep running); the buffer stays. Current: as before, `web: the page crashed; :refresh loads it again`; in the background: `web: the page of buffer N crashed (the other buffers are fine)`, and switching to it shows the first message |
+| T90 | COMMAND | typing a command name | none | COMMAND | the ghost offers `bufferList`, `buffer`, `bufferNext`, ... but never `ls`, `b`, `bn`, `bp`, `bd`; a word that is an alias in full has no ghost text, so Enter runs it as typed (`:b` stays `:b`, not the first `b...` name); Tab still cycles the long names |
+| T91 | COMMAND | Enter on `:q` / `:quit` | not on `:help` | (exit) | the host closes every page (`quit`) and exits when the last one is gone; the shell opens no page meanwhile |
+| T92 | INPUT | Ctrl-click, middle-click, Shift-click on a link | none | same | nothing opens (C-NOTAB stays): no buffer, no page, no navigation. (In NORMAL the page gets no modifier keys, so a Ctrl-click there is a plain click and follows the link in this buffer: C1-INPUT's open case, unchanged) |
+
+Popups (C-POPUPS, not built): a `window.open` from a user gesture and a `target=_blank` link will open a new
+buffer; one without a gesture is blocked (`popup blocked: <url>`) and opened with `:popupOpen` (the latest)
+or `:popupSearch`. Until then they load in the current buffer's page, as before.
 
 ## What went away in scratchy (QKEYS3)
 
@@ -466,6 +495,12 @@ gesture and a `target=_blank` link open a new buffer; one without a gesture is b
 Esc Esc, so there is nothing left to switch off, and Esc Esc cannot be locked out (T2).
 
 ## Decision log
+
+- 2026-11-23 (C4): buffers built as "Buffers" says (T77-T92). The implementer's choices, not asked: buffer
+  numbers never reused (vim's); `:buffer <partial>` needs exactly one match (vim's) and is a substring match,
+  not the picker's fuzzy one; `:bufferKill` of the current buffer goes to the alternate, else the next; the
+  bar shows `[N]` before the URL; `:bufferList` marks `%`/`#` as vim's `:ls`; a crash keeps the buffer (the
+  page stays, `:refresh` loads it) rather than killing it; a second `web <url>` shows the new buffer at once.
 
 - 2026-11-23 (C-PICK): the picker built as "Picker" says (T58-T68). The implementer's choices, not asked:
   the bar prompt `>`, no wrap at the list's ends (T60/T61), Enter with no match does nothing (T63), a press

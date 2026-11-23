@@ -372,10 +372,13 @@ impl Ghost {
 }
 
 /// The built-in source of the first word: the command names.
+/// C4: an alias typed in full (`b`, `ls`, ...) comes first with nothing to add, so Enter runs it
+/// as typed; the long names follow for Tab. Aliases are never offered otherwise.
 pub fn complete_command_names(ctx: &CompleteCtx) -> Vec<String> {
-    crate::keys::COMMAND_NAMES
-        .iter()
-        .filter(|n| n.starts_with(ctx.word))
+    let alias = crate::keys::COMMAND_ALIASES.iter().find(|a| **a == ctx.word);
+    alias
+        .into_iter()
+        .chain(crate::keys::COMMAND_NAMES.iter().filter(|n| n.starts_with(ctx.word)))
         .map(|n| n.to_string())
         .collect()
 }
