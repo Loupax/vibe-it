@@ -77,6 +77,8 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       test clock, keeping the incomplete-tick case it must cover), so CI cannot flake on it.
 - [ ] [WIP] QWPTFLK6 [S] (P3, from QEDIT-B #641; Sonnet) hr-time/timeOrigin.html fails under heavy local load (load 40+), passes on CI
       and alone: find whether the runner's clock or the test's tolerance is the cause; fix or flaky-list with the reason.
+- [ ] QINCUMB1 [M] (P3, from QDOM5e #643; Opus) Incumbent settings object through V8 promise jobs and callbacks, postMessage
+      `source` from it (html/webappapis promise-job-incumbent.html and similar).
 - [ ] QEDIT-B2 [S] (P3, from QEDIT-B #641; Sonnet; wpt_input.rs, input_host.rs) Headless driver fires dragstart/drag/
       dragenter/dragover/drop/dragend on pointer drags of draggable elements, with a DataTransfer carried from Rust.
 - [ ] QHOV3 [S] (P3, from QHOV2 #631; Sonnet; app.rs) Scroll frames paint whole (scroll offset is in PaintKey): blit-scroll
@@ -173,7 +175,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QEDIT-F [S] (P3, from QEDIT-A #585; Sonnet; js_dom.rs) `document.queryCommandSupported/Enabled/State/Value`
       stubs (designMode-aware, no editing) for the html/editing designMode files; SVG/XML designMode variants ERROR
       because those pages are not parsed as XML/SVG documents (say whether that is a separate item).
-- [ ] QEDIT-C [S] (P3, from QWPT6d #581; Sonnet) `hidden=until-found`, the `beforematch` event, details auto-open (5 ERROR).
+- [ ] [WIP] QEDIT-C [S] (P3, from QWPT6d #581; Sonnet) `hidden=until-found`, the `beforematch` event, details auto-open (5 ERROR).
 - [ ] QEDIT-D [S] (P3, from QWPT6d #581; Sonnet) Why focus-blur, focused-area-removal, focusing-focused-noop TIMEOUT.
 - [ ] QEDIT-E [S] (P3, from QWPT6d #581; Sonnet) `window.getSelection()` in the testharness window, `document.elementsFromPoint`.
 - [ ] QCNV3b [S] (P3, from QCNV3 #619; Sonnet) Canvas/colour leftovers: `calc()` inside relative colours; reset.2dstate
