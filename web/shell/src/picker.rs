@@ -411,6 +411,54 @@ impl Keys {
         self.open_picker("history", rows, filter, "web: the history is empty");
     }
 
+    /// `:bookmarkAdd` (T69): the current page, with the host's title (none when the host gave only
+    /// the URL, as the history does); a URL already there gets its title updated.
+    pub fn bookmark_add(&mut self) {
+        let url = self.url.clone();
+        let Some(dir) = self.state_dir() else {
+            self.message = "web: no state directory: bookmarks are off".to_string();
+            return;
+        };
+        if url.is_empty() || url == "about:blank" {
+            self.message = "web: no page to bookmark".to_string();
+            return;
+        }
+        let bare = |u: &str| u.split_once("://").map_or(u, |(_, r)| r).to_string();
+        let title = if self.title == url || self.title == bare(&url) {
+            ""
+        } else {
+            self.title.as_str()
+        };
+        self.message = match crate::bookmarks::add(&dir, &url, title) {
+            Ok(crate::bookmarks::Added::New) => format!("bookmarked: {url}"),
+            Ok(crate::bookmarks::Added::Updated) => format!("bookmark updated: {url}"),
+            Err(e) => format!("web: bookmark failed: {e}"),
+        };
+    }
+
+    /// `:bookmarkDelete [url]` (T70, T71).
+    pub fn bookmark_delete(&mut self, url: &str) {
+        let Some(dir) = self.state_dir() else {
+            self.message = "web: no state directory: bookmarks are off".to_string();
+            return;
+        };
+        if url.is_empty() {
+            self.message = "web: no page: give the bookmark's URL".to_string();
+            return;
+        }
+        self.message = match crate::bookmarks::delete(&dir, url) {
+            Ok(true) => format!("bookmark removed: {url}"),
+            Ok(false) => format!("web: not bookmarked: {url}"),
+            Err(e) => format!("web: bookmark failed: {e}"),
+        };
+    }
+
+    /// `:bookmarkSearch [filter]` (T72).
+    pub fn bookmark_search(&mut self, filter: &str) {
+        let rows = crate::bookmarks::rows(&crate::bookmarks::load(self.state_dir().as_deref()));
+        self.open_picker("bookmarks", rows, filter, "web: no bookmarks (:bookmarkAdd adds the page)");
+    }
+
     /// A key in PICK (T59-T65).
     pub(crate) fn pick_key(&mut self, key: &KeyInput) {
         use smithay::input::keyboard::Keysym as K;

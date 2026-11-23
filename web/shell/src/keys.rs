@@ -199,6 +199,9 @@ pub fn mode_name(mode: KeyMode) -> &'static str {
 /// Every name `dispatch_command` knows as the first word (what the first word completes
 /// from). Keep it in step with `dispatch_command`'s `match` by hand.
 pub const COMMAND_NAMES: &[&str] = &[
+    "bookmarkAdd",
+    "bookmarkDelete",
+    "bookmarkSearch",
     "forget-site",
     "go",
     "help",
@@ -402,6 +405,8 @@ pub struct Keys {
     pub message: String,
     /// The page's URL as the host reported it (register `%`).
     pub url: String,
+    /// The page's title as the host reported it ("" when none yet; `:bookmarkAdd` stores it).
+    pub title: String,
     /// `:help`'s page.
     pub help_url: String,
     /// The kept query, the host's find session, the last result (T7, T15-T25).
@@ -446,6 +451,7 @@ impl Keys {
             cache: CompleteCache::new(state_dir.clone()),
             message: String::new(),
             url: String::new(),
+            title: String::new(),
             help_url,
             search: SearchState::default(),
             state_dir,
@@ -737,6 +743,8 @@ impl Keys {
 
     /// T31: any navigation. The host dropped its session itself; the query stays.
     pub fn navigated(&mut self) {
+        // A new document has no title yet (the previous page's must not be bookmarked with it).
+        self.title.clear();
         if self.search.session {
             self.forget_session();
             self.message.clear();
@@ -942,6 +950,16 @@ impl Keys {
                 Err(m) => self.message = m,
             },
             ("go", _) => self.message = "web: usage: :go <url>".to_string(),
+            // C-BOOKMARKS (KEYS.md "Bookmarks").
+            ("bookmarkAdd", []) => self.bookmark_add(),
+            ("bookmarkAdd", _) => self.message = "web: usage: :bookmarkAdd".to_string(),
+            ("bookmarkDelete", []) => {
+                let url = self.url.clone();
+                self.bookmark_delete(&url)
+            }
+            ("bookmarkDelete", [url]) => self.bookmark_delete(url),
+            ("bookmarkDelete", _) => self.message = "web: usage: :bookmarkDelete [url]".to_string(),
+            ("bookmarkSearch", rest) => self.bookmark_search(&rest.join(" ")),
             ("historyBack", []) => send(self, Command::Back),
             ("historyFront", []) => send(self, Command::Forward),
             // C-PICK: the picker over the history; an argument is the filter already typed.
