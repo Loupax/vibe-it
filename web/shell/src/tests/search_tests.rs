@@ -132,10 +132,7 @@ fn keys_t23_a_new_search_starts_a_fresh_host_session() {
     tap(&mut k, KeyInput::ch('/'));
     type_str(&mut k, "needle");
     tap(&mut k, KeyInput::sym(Keysym::Return));
-    assert_eq!(
-        effects(&mut k),
-        vec![Effect::Send(Command::FindClear), find_top("needle", false)]
-    );
+    assert_eq!(effects(&mut k), vec![Effect::Send(Command::FindClear), find_top("needle", false)]);
     answer(&mut k, 2, 4);
     assert_eq!(k.message, "[2/4]", "a fresh session never reports a wrap");
 }

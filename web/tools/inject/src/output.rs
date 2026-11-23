@@ -19,8 +19,20 @@ struct Om {
 }
 
 impl Dispatch<wl_registry::WlRegistry, ()> for Om {
-    fn event(s: &mut Self, r: &wl_registry::WlRegistry, e: wl_registry::Event, _: &(), _: &Connection, qh: &QueueHandle<Self>) {
-        if let wl_registry::Event::Global { name, interface, version } = e {
+    fn event(
+        s: &mut Self,
+        r: &wl_registry::WlRegistry,
+        e: wl_registry::Event,
+        _: &(),
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+    ) {
+        if let wl_registry::Event::Global {
+            name,
+            interface,
+            version,
+        } = e
+        {
             if interface == "zwlr_output_manager_v1" {
                 s.mgr = Some(r.bind(name, version.min(4), qh, ()));
             }
@@ -29,7 +41,14 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Om {
 }
 
 impl Dispatch<ZwlrOutputManagerV1, ()> for Om {
-    fn event(s: &mut Self, _: &ZwlrOutputManagerV1, e: zwlr_output_manager_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+    fn event(
+        s: &mut Self,
+        _: &ZwlrOutputManagerV1,
+        e: zwlr_output_manager_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
         match e {
             zwlr_output_manager_v1::Event::Head { head } => s.heads.push(head),
             zwlr_output_manager_v1::Event::Done { serial } => s.serial = Some(serial),
@@ -42,14 +61,29 @@ impl Dispatch<ZwlrOutputManagerV1, ()> for Om {
 }
 
 impl Dispatch<ZwlrOutputHeadV1, ()> for Om {
-    fn event(_: &mut Self, _: &ZwlrOutputHeadV1, _: zwlr_output_head_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+    fn event(
+        _: &mut Self,
+        _: &ZwlrOutputHeadV1,
+        _: zwlr_output_head_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
     wayland_client::event_created_child!(Om, ZwlrOutputHeadV1, [
         zwlr_output_head_v1::EVT_MODE_OPCODE => (ZwlrOutputModeV1, ()),
     ]);
 }
 
 impl Dispatch<ZwlrOutputConfigurationV1, ()> for Om {
-    fn event(s: &mut Self, _: &ZwlrOutputConfigurationV1, e: zwlr_output_configuration_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+    fn event(
+        s: &mut Self,
+        _: &ZwlrOutputConfigurationV1,
+        e: zwlr_output_configuration_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
         s.result = Some(match e {
             zwlr_output_configuration_v1::Event::Succeeded => "succeeded",
             zwlr_output_configuration_v1::Event::Failed => "failed",

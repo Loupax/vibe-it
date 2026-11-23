@@ -16,10 +16,12 @@ use wayland_client::{
     Connection, Dispatch, QueueHandle,
 };
 use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{
-    zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1, zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1,
+    zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1,
+    zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1,
 };
 use wayland_protocols_wlr::virtual_pointer::v1::client::{
-    zwlr_virtual_pointer_manager_v1::ZwlrVirtualPointerManagerV1, zwlr_virtual_pointer_v1::ZwlrVirtualPointerV1,
+    zwlr_virtual_pointer_manager_v1::ZwlrVirtualPointerManagerV1,
+    zwlr_virtual_pointer_v1::ZwlrVirtualPointerV1,
 };
 
 #[derive(Default)]
@@ -33,7 +35,14 @@ struct St {
 }
 
 impl Dispatch<wl_keyboard::WlKeyboard, ()> for St {
-    fn event(s: &mut Self, _: &wl_keyboard::WlKeyboard, e: wl_keyboard::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+    fn event(
+        s: &mut Self,
+        _: &wl_keyboard::WlKeyboard,
+        e: wl_keyboard::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
         if let wl_keyboard::Event::Keymap { fd, size, .. } = e {
             use std::os::unix::fs::FileExt;
             let f = std::fs::File::from(fd);
@@ -49,11 +58,25 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for St {
 }
 
 impl Dispatch<wl_registry::WlRegistry, ()> for St {
-    fn event(s: &mut Self, r: &wl_registry::WlRegistry, e: wl_registry::Event, _: &(), _: &Connection, qh: &QueueHandle<Self>) {
-        if let wl_registry::Event::Global { name, interface, version } = e {
+    fn event(
+        s: &mut Self,
+        r: &wl_registry::WlRegistry,
+        e: wl_registry::Event,
+        _: &(),
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+    ) {
+        if let wl_registry::Event::Global {
+            name,
+            interface,
+            version,
+        } = e
+        {
             match interface.as_str() {
                 "wl_seat" => s.seat = Some(r.bind(name, version.min(7), qh, ())),
-                "zwlr_virtual_pointer_manager_v1" => s.vpm = Some(r.bind(name, version.min(2), qh, ())),
+                "zwlr_virtual_pointer_manager_v1" => {
+                    s.vpm = Some(r.bind(name, version.min(2), qh, ()))
+                }
                 "zwp_virtual_keyboard_manager_v1" => s.vkm = Some(r.bind(name, 1, qh, ())),
                 _ => {}
             }
@@ -61,7 +84,13 @@ impl Dispatch<wl_registry::WlRegistry, ()> for St {
     }
 }
 macro_rules! noop { ($($t:ty),*) => { $(impl Dispatch<$t, ()> for St { fn event(_: &mut Self, _: &$t, _: <$t as wayland_client::Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {} })* } }
-noop!(wl_seat::WlSeat, ZwlrVirtualPointerManagerV1, ZwlrVirtualPointerV1, ZwpVirtualKeyboardManagerV1, ZwpVirtualKeyboardV1);
+noop!(
+    wl_seat::WlSeat,
+    ZwlrVirtualPointerManagerV1,
+    ZwlrVirtualPointerV1,
+    ZwpVirtualKeyboardManagerV1,
+    ZwpVirtualKeyboardV1
+);
 
 fn code(name: &str) -> Option<(u32, bool)> {
     // evdev codes; bool = needs shift
@@ -72,22 +101,52 @@ fn code(name: &str) -> Option<(u32, bool)> {
         let c = name.chars().next().unwrap();
         let lc = c.to_ascii_lowercase();
         let shift = c.is_ascii_uppercase();
-        if let Some(i) = letters.find(lc) { return Some((16 + i as u32, shift)); }
-        if let Some(i) = l2.find(lc) { return Some((30 + i as u32, shift)); }
-        if let Some(i) = l3.find(lc) { return Some((44 + i as u32, shift)); }
-        if let Some(d) = c.to_digit(10) { return Some((if d == 0 { 11 } else { 1 + d }, false)); }
+        if let Some(i) = letters.find(lc) {
+            return Some((16 + i as u32, shift));
+        }
+        if let Some(i) = l2.find(lc) {
+            return Some((30 + i as u32, shift));
+        }
+        if let Some(i) = l3.find(lc) {
+            return Some((44 + i as u32, shift));
+        }
+        if let Some(d) = c.to_digit(10) {
+            return Some((if d == 0 { 11 } else { 1 + d }, false));
+        }
         return match c {
-            ' ' => Some((57, false)), '.' => Some((52, false)), ':' => Some((39, true)), ';' => Some((39, false)),
-            '/' => Some((53, false)), '-' => Some((12, false)), '_' => Some((12, true)), '=' => Some((13, false)),
-            '?' => Some((53, true)), '&' => Some((8, true)), '#' => Some((4, true)), '%' => Some((6, true)),
+            ' ' => Some((57, false)),
+            '.' => Some((52, false)),
+            ':' => Some((39, true)),
+            ';' => Some((39, false)),
+            '/' => Some((53, false)),
+            '-' => Some((12, false)),
+            '_' => Some((12, true)),
+            '=' => Some((13, false)),
+            '?' => Some((53, true)),
+            '&' => Some((8, true)),
+            '#' => Some((4, true)),
+            '%' => Some((6, true)),
             _ => None,
         };
     }
     Some(match name {
-        "esc" => (1, false), "ret" => (28, false), "tab" => (15, false), "space" => (57, false), "bs" => (14, false),
-        "colon" => (39, true), "slash" => (53, false), "up" => (103, false), "down" => (108, false),
-        "left" => (105, false), "right" => (106, false), "pgdn" => (109, false), "pgup" => (104, false),
-        "home" => (102, false), "end" => (107, false), "del" => (111, false), "ins" => (110, false),
+        "esc" => (1, false),
+        "ret" => (28, false),
+        "tab" => (15, false),
+        "space" => (57, false),
+        "bs" => (14, false),
+        "colon" => (39, true),
+        "slash" => (53, false),
+        "up" => (103, false),
+        "down" => (108, false),
+        "left" => (105, false),
+        "right" => (106, false),
+        "pgdn" => (109, false),
+        "pgup" => (104, false),
+        "home" => (102, false),
+        "end" => (107, false),
+        "del" => (111, false),
+        "ins" => (110, false),
         _ => return None,
     })
 }
@@ -95,7 +154,11 @@ fn code(name: &str) -> Option<(u32, bool)> {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(String::as_str) == Some("output") {
-        return output::set(args[2].parse().unwrap(), args[3].parse().unwrap(), args[4].parse().unwrap());
+        return output::set(
+            args[2].parse().unwrap(),
+            args[3].parse().unwrap(),
+            args[4].parse().unwrap(),
+        );
     }
     let w: u32 = args[1].parse().unwrap();
     let h: u32 = args[2].parse().unwrap();
@@ -107,8 +170,16 @@ fn main() {
     q.roundtrip(&mut st).unwrap();
     q.roundtrip(&mut st).unwrap();
     let seat = st.seat.clone();
-    let vp = st.vpm.as_ref().expect("no virtual pointer").create_virtual_pointer(seat.as_ref(), &qh, ());
-    let vk = st.vkm.as_ref().expect("no virtual keyboard").create_virtual_keyboard(seat.as_ref().unwrap(), &qh, ());
+    let vp = st
+        .vpm
+        .as_ref()
+        .expect("no virtual pointer")
+        .create_virtual_pointer(seat.as_ref(), &qh, ());
+    let vk = st
+        .vkm
+        .as_ref()
+        .expect("no virtual keyboard")
+        .create_virtual_keyboard(seat.as_ref().unwrap(), &qh, ());
     let _kb = seat.as_ref().map(|sh| sh.get_keyboard(&qh, ()));
     q.roundtrip(&mut st).unwrap();
     let builtin: &[u8] = include_bytes!("../keymap.xkb");
@@ -124,12 +195,19 @@ fn main() {
     q.roundtrip(&mut st).unwrap();
     let t0 = Instant::now();
     let ms = || t0.elapsed().as_millis() as u32;
-    let mut q_rt = |st: &mut St| { conn.flush().unwrap(); q.roundtrip(st).unwrap(); };
+    let mut q_rt = |st: &mut St| {
+        conn.flush().unwrap();
+        q.roundtrip(st).unwrap();
+    };
     let group = std::cell::Cell::new(0u32);
     let key = |code: u32, shift: bool, ctrl: bool| {
         let mut mods = 0;
-        if shift { mods |= 1; }
-        if ctrl { mods |= 4; }
+        if shift {
+            mods |= 1;
+        }
+        if ctrl {
+            mods |= 4;
+        }
         vk.modifiers(mods, 0, 0, group.get());
         vk.key(ms(), code, 1);
         vk.key(ms(), code, 0);
@@ -161,7 +239,11 @@ fn main() {
                 last_move = Some((x.parse::<u32>().unwrap(), y.parse::<u32>().unwrap()));
             }
             "click" | "rclick" | "mclick" => {
-                let b = match op { "click" => 0x110, "rclick" => 0x111, _ => 0x112 };
+                let b = match op {
+                    "click" => 0x110,
+                    "rclick" => 0x111,
+                    _ => 0x112,
+                };
                 vp.button(ms(), b, wl_pointer::ButtonState::Pressed);
                 vp.frame();
                 q_rt(&mut st);
@@ -172,7 +254,11 @@ fn main() {
             // QSB1: press and release the left button separately, for drags.
             "down" | "up" => {
                 flush_move(&mut last_move);
-                let state = if op == "down" { wl_pointer::ButtonState::Pressed } else { wl_pointer::ButtonState::Released };
+                let state = if op == "down" {
+                    wl_pointer::ButtonState::Pressed
+                } else {
+                    wl_pointer::ButtonState::Released
+                };
                 vp.button(ms(), 0x110, state);
                 vp.frame();
                 q_rt(&mut st);
@@ -187,7 +273,12 @@ fn main() {
             "hscroll" => {
                 let dx: f64 = arg.parse().unwrap();
                 vp.axis_source(wl_pointer::AxisSource::Wheel);
-                vp.axis_discrete(ms(), wl_pointer::Axis::HorizontalScroll, dx * 15.0, dx as i32);
+                vp.axis_discrete(
+                    ms(),
+                    wl_pointer::Axis::HorizontalScroll,
+                    dx * 15.0,
+                    dx as i32,
+                );
                 vp.frame();
             }
             "sscroll" => {
@@ -205,16 +296,26 @@ fn main() {
             // between are modified clicks.
             "hold" => {
                 let mut mods = 0;
-                if arg.contains('c') { vk.key(ms(), 29, 1); mods |= 4; }
-                if arg.contains('s') { vk.key(ms(), 42, 1); mods |= 1; }
+                if arg.contains('c') {
+                    vk.key(ms(), 29, 1);
+                    mods |= 4;
+                }
+                if arg.contains('s') {
+                    vk.key(ms(), 42, 1);
+                    mods |= 1;
+                }
                 vk.modifiers(mods, 0, 0, 0);
                 held = arg.to_string();
                 q_rt(&mut st);
             }
             "release" => {
                 vk.modifiers(0, 0, 0, 0);
-                if held.contains('c') { vk.key(ms(), 29, 0); }
-                if held.contains('s') { vk.key(ms(), 42, 0); }
+                if held.contains('c') {
+                    vk.key(ms(), 29, 0);
+                }
+                if held.contains('s') {
+                    vk.key(ms(), 42, 0);
+                }
                 held.clear();
                 q_rt(&mut st);
             }
@@ -225,9 +326,15 @@ fn main() {
             }
             "key" => {
                 let (mut ctrl, mut sh, mut name) = (false, false, arg);
-                if let Some(r) = name.strip_prefix("c-") { ctrl = true; name = r; }
+                if let Some(r) = name.strip_prefix("c-") {
+                    ctrl = true;
+                    name = r;
+                }
                 // QWPT7: s- holds Shift (Shift+Tab, Shift+arrows); may follow c-.
-                if let Some(r) = name.strip_prefix("s-") { sh = true; name = r; }
+                if let Some(r) = name.strip_prefix("s-") {
+                    sh = true;
+                    name = r;
+                }
                 let (c, shift) = code(name).unwrap_or_else(|| panic!("unknown key {name}"));
                 key(c, shift || sh, ctrl);
             }
@@ -258,7 +365,11 @@ fn main() {
                 vk.modifiers(arg.parse().unwrap(), 0, 0, group.get());
             }
             "kdown" | "kup" => {
-                vk.key(ms(), arg.parse().unwrap(), if op == "kdown" { 1 } else { 0 });
+                vk.key(
+                    ms(),
+                    arg.parse().unwrap(),
+                    if op == "kdown" { 1 } else { 0 },
+                );
             }
             "group" => {
                 group.set(arg.parse().unwrap());

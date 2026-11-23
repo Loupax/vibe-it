@@ -55,7 +55,11 @@ fn keys_t23_enter_asks_for_the_screen_top_start_and_n_does_not() {
     let id = search_enter(&mut k, "needle");
     k.find_result_wrapped(id, 3, 6, false);
     tap(&mut k, KeyInput::ch('n'));
-    assert_eq!(finds(&mut k).iter().map(|f| f.1).collect::<Vec<_>>(), vec![false], "n steps the open session");
+    assert_eq!(
+        finds(&mut k).iter().map(|f| f.1).collect::<Vec<_>>(),
+        vec![false],
+        "n steps the open session"
+    );
     tap(&mut k, KeyInput::sym(Keysym::Escape));
     k.effects.clear();
     tap(&mut k, KeyInput::ch('n'));
