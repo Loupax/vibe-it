@@ -29,6 +29,8 @@ pub(crate) trait InputHost {
     fn ih_click(&mut self, target: Option<&Handle>, pos: (f32, f32)) -> bool;
     /// A `keypress` (or other key event) for `key` at the focused element.
     fn ih_key(&mut self, kind: &str, key: &Key, repeat: bool) -> bool;
+    /// QDET1: the activation behaviour of a `<summary>`: toggle its `<details>`.
+    fn ih_summary_activate(&mut self, summary: &Handle);
     /// QWPT7b: the pointer's button/click-count state.
     fn ih_ptr(&mut self) -> &mut PointerState;
     /// QWPT7b: the window's scroll offset (page coordinates of pointer events).
@@ -205,7 +207,19 @@ pub(crate) fn keypress<H: InputHost + ?Sized>(host: &mut H, key: &Key, repeat: b
 /// from it when the state really changed. A reset button resets its form's live state, a select
 /// opens, a submit button submits. Returns whether the click was not cancelled.
 pub(crate) fn click_activate<H: InputHost + ?Sized>(host: &mut H, target: Option<&Handle>, pos: (f32, f32)) -> bool {
-    let Some(control) = target.and_then(enclosing_control) else { return host.ih_click(target, pos) };
+    let Some(control) = target.and_then(enclosing_control) else {
+        let ok = host.ih_click(target, pos);
+        // QDET1: a click inside the first <summary> of a <details> (not on a link in it) toggles it.
+        if ok
+            && let Some(t) = target
+            && enclosing_link(t).is_none()
+            && let Some(s) = ancestors_incl(t).into_iter().find(|e| element_tag(e) == "summary")
+            && is_details_summary(&s)
+        {
+            host.ih_summary_activate(&s);
+        }
+        return ok;
+    };
     let Some(radio) = checkable_kind(&control) else {
         let ok = host.ih_click(target, pos);
         let is_reset = matches!(element_tag(&control), "button" | "input")

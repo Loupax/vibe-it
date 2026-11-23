@@ -56,6 +56,9 @@ impl InputHost for Driver<'_> {
     fn ih_click(&mut self, target: Option<&Handle>, pos: (f32, f32)) -> bool {
         input_host::click_event(self, target, pos)
     }
+    fn ih_summary_activate(&mut self, summary: &Handle) {
+        self.js.summary_activate(summary);
+    }
     fn ih_ptr(&mut self) -> &mut PointerState {
         &mut self.st.ptr
     }
@@ -281,6 +284,9 @@ impl Driver<'_> {
             Key::Named(NamedKey::Space)
                 if !m.control_key() && !m.alt_key() && focus.as_ref().is_some_and(|h| checkable_kind(h).is_some() && !is_disabled_control(h)) =>
             {
+                input_host::click_activate(self, focus.as_ref(), (0.0, 0.0));
+            }
+            Key::Named(NamedKey::Enter | NamedKey::Space) if focus.as_ref().is_some_and(crate::dom::is_details_summary) => {
                 input_host::click_activate(self, focus.as_ref(), (0.0, 0.0));
             }
             Key::Named(NamedKey::Enter | NamedKey::Space)

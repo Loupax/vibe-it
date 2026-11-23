@@ -1612,6 +1612,9 @@ pub(crate) enum ListStyleType {
     LowerRoman,
     UpperRoman,
     LowerGreek,
+    /// QDET1: `disclosure-closed` / `disclosure-open` (the `<summary>` triangle).
+    DisclosureClosed,
+    DisclosureOpen,
     None,
 }
 
@@ -1641,6 +1644,8 @@ impl ListStyleType {
             "lower-roman" => ListStyleType::LowerRoman,
             "upper-roman" => ListStyleType::UpperRoman,
             "lower-greek" => ListStyleType::LowerGreek,
+            "disclosure-closed" => ListStyleType::DisclosureClosed,
+            "disclosure-open" => ListStyleType::DisclosureOpen,
             "none" => ListStyleType::None,
             _ => return None,
         })

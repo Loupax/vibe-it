@@ -4724,6 +4724,16 @@ impl App {
             {
                 self.click_activate(Some(&h), (0.0, 0.0));
             }
+            // QDET1: Enter/Space on a focused <summary> toggles its <details> (a click).
+            Key::Named(NamedKey::Enter | NamedKey::Space)
+                if !repeat
+                    && !self.modifiers.control_key()
+                    && !self.modifiers.alt_key()
+                    && let Some(h) = self.interaction.focus.and_then(|f| find_node_by_id(&self.document, f))
+                    && crate::dom::is_details_summary(&h) =>
+            {
+                self.click_activate(Some(&h), (0.0, 0.0));
+            }
             // Q30e: Enter/Space presses a focused button.
             Key::Named(NamedKey::Enter | NamedKey::Space)
                 if !repeat
@@ -6504,6 +6514,11 @@ impl crate::input_host::InputHost for App {
     }
     fn ih_ptr(&mut self) -> &mut crate::input_host::PointerState {
         &mut self.ptr
+    }
+    fn ih_summary_activate(&mut self, summary: &Handle) {
+        let Some(js) = &self.js else { return };
+        js.summary_activate(summary);
+        self.js_sync();
     }
     fn ih_page_offset(&self) -> (f32, f32) {
         (self.scroll_x, self.scroll_offset)

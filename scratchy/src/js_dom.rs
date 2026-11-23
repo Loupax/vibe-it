@@ -4320,6 +4320,7 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
         __scratchy_dispatch(this, new Event('input', { bubbles: true }));
         __scratchy_dispatch(this, new Event('change', { bubbles: true }));
       }
+      if (tag === 'summary') g.__scratchy_summary_activate(this);
       var href = (tag === 'a' || tag === 'area') ? __d_attr(this.__id, 'href') : null;
       if (href != null) { __d_navigate(href); return; }
       var submit = (tag === 'button' && this.type === 'submit') || (tag === 'input' && (type === 'submit' || type === 'image'));
@@ -6262,24 +6263,60 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
   var DetP = g.HTMLDetailsElement.prototype;
   var toggleQ = new WeakMap();
   var queueToggle = function (el, oldState) {
+    // Coalesced (HTML "details notification task steps"): a pending task keeps its oldState; the event
+    // reports the state at the time the task runs, even when it equals oldState.
     if (toggleQ.has(el)) return;
     toggleQ.set(el, oldState);
     g.setTimeout(function () {
       var o = toggleQ.get(el);
       toggleQ.delete(el);
       var n = el.hasAttribute('open') ? 'open' : 'closed';
-      if (o === n) return;
       var C = g.ToggleEvent || g.Event, e = new C('toggle', { oldState: o, newState: n });
       if (!g.ToggleEvent) { e.oldState = o; e.newState = n; }
       el.dispatchEvent(e);
     }, 0);
   };
   defs(DetP, 'open', function () { return __d_attr(this.__id, 'open') != null; },
-    function (v) {
-      var had = __d_attr(this.__id, 'open') != null;
-      if (v) __d_setattr(this.__id, 'open', ''); else __d_rmattr(this.__id, 'open');
-      if (had !== !!v) queueToggle(this, had ? 'open' : 'closed');
-    });
+    function (v) { if (v) __d_setattr(this.__id, 'open', ''); else __d_rmattr(this.__id, 'open'); });
+  // QDET1: every write of `open` on a <details> (setter, setAttribute, removeAttribute, toggleAttribute, attribute
+  // nodes) goes through __d_setattr / __d_rmattr: it queues `toggle`, and opening one closes the other open
+  // <details> of its name group (same non-empty `name`, same tree). `details` fires no `beforetoggle`.
+  var detNative = function (id, n) {
+    if (String(n).toLowerCase() !== 'open') return null;
+    var e = wrap(id);
+    return e && e.localName === 'details' && e.namespaceURI === 'http://www.w3.org/1999/xhtml' ? e : null;
+  };
+  var detBusy = false;
+  var detWrapSet = function (base) { return function (id, n, v) {
+    var d = detNative(id, n), had = d && __d_attr(id, 'open') != null;
+    base(id, n, v);
+    if (d && !had) detOpened(d);
+  }; };
+  var detWrapRm = function (base) { return function (id, n) {
+    var d = detNative(id, n), had = d && __d_attr(id, 'open') != null;
+    base(id, n);
+    if (d && had) queueToggle(d, 'open');
+  }; };
+  var detOpened = function (d) {
+    queueToggle(d, 'closed');
+    var name = d.getAttribute('name');
+    if (name && !detBusy) {
+      detBusy = true;
+      try {
+        var all = d.getRootNode().querySelectorAll('details[open][name]');
+        for (var i = 0; i < all.length; i++) if (all[i] !== d && all[i].getAttribute('name') === name) all[i].removeAttribute('open');
+      } finally { detBusy = false; }
+    }
+  };
+  __d_setattr = detWrapSet(__d_setattr); __d_setq = detWrapSet(__d_setq);
+  __d_rmattr = detWrapRm(__d_rmattr); __d_rmq = detWrapRm(__d_rmq);
+  // Activation behaviour of the first <summary> child of a <details>: toggles `open`.
+  g.__scratchy_summary_activate = function (s) {
+    var p = s.parentNode;
+    if (!p || p.localName !== 'details') return;
+    for (var c = p.firstElementChild; c; c = c.nextElementSibling) if (c.localName === 'summary') { if (c === s) p.open = !p.open; return; }
+  };
+  g.__scratchy_summary_activate_id = function (id) { var e = wrap(id); if (e) g.__scratchy_summary_activate(e); return 0; };
   var isUntilFound = function (el) { var a = el.getAttribute('hidden'); return a !== null && a.toLowerCase() === 'until-found'; };
   var flatParent = function (n) { var p = n.parentNode; return p && p.nodeType === 11 && p.host ? p.host : p; };
   // Opens/reveals what hides `target` (inclusive ancestors, nearest first). The list is collected first; each
