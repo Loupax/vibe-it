@@ -30,6 +30,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.dont_write_bytecode = True  # no __pycache__ in the source tree
 import live  # noqa: E402
+import livelib  # noqa: E402
 
 SHELL = live.SHELL
 WEB = live.WEB
@@ -94,10 +95,8 @@ def main():
 
     try:
         log.wait(r'"title":"c6b dpr:', timeout=60)
-        log.wait(r"page window is (\d+)x(\d+)", timeout=30)
-        time.sleep(0.5)
-        sizes = [re.search(r"\] window (\d+)x(\d+), page", line) for line in log.lines]
-        ww, wh = [int(x) for x in [s for s in sizes if s][-1].groups()]
+        g0 = livelib.settle(log, shot)
+        ww, wh = g0.ww, g0.wh
         geo = {}
 
         def measure(name, S):

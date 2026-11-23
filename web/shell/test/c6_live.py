@@ -32,6 +32,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.dont_write_bytecode = True
 import live  # noqa: E402
+import livelib  # noqa: E402
 from c3_live import keys_for  # noqa: E402
 
 SHELL = live.SHELL
@@ -160,39 +161,8 @@ def main():
 
     try:
         log.wait(r'"title":"c6 v=copied in the page 7"', timeout=60)
-        log.wait(r"page window is (\d+)x(\d+)", timeout=10)
-        # The first click must find the shell window focused on the desktop (else the page
-        # window is not activated and the click may not focus the field).
-        log.wait(r"shell window focused: true", timeout=10)
-        time.sleep(0.5)
-        ow, oh = live.png_size(shot("start.png"))
-
-        def settled():
-            """The shell window's size once dwl has tiled it: the latest `window WxH` fits the
-            output and the page window has taken the page size that goes with it. The shell
-            starts at 1280x800 and the first `page window is` can be that size's page, so a
-            size read too early puts every click 160 px left and 103 px low (C6-LIVE: the
-            textarea clicks then hit the paragraph, and four steps fail)."""
-            win = page = None
-            for l in log.lines:
-                m = re.search(r"\] window (\d+)x(\d+), page .*width: (\d+), height: (\d+)", l)
-                if m:
-                    win = [int(x) for x in m.groups()]
-                m = re.search(r"\] page window is (\d+)x(\d+)", l)
-                if m:
-                    page = [int(x) for x in m.groups()]
-            if win and page and win[0] <= ow and win[1] <= oh and win[2:] == page:
-                return win[0], win[1]
-            return None
-
-        end = time.monotonic() + 10
-        while not settled() and time.monotonic() < end:
-            time.sleep(0.1)
-        if not settled():
-            raise Fail(f"the shell window never settled to the {ow}x{oh} output: "
-                       f"{[l for l in log.lines if '] window ' in l or 'page window is' in l]}")
-        ww, wh = settled()
-        bx, by = (ow - ww) // 2, (oh - wh) // 2
+        geo = livelib.settle(log, shot)
+        ow, oh, ww, wh, bx, by = geo.ow, geo.oh, geo.ww, geo.wh, geo.bx, geo.by
 
         def inject(*cmds):
             args = []

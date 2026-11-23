@@ -35,6 +35,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "host-cef", "test"))
 import live  # noqa: E402
+import livelib  # noqa: E402
 import forget as fg  # noqa: E402
 from c3_live import keys_for  # noqa: E402
 
@@ -146,11 +147,12 @@ def main():
         # ---- 1 + 2: a running instance
         proc, log = start_shell("1", "http://site-a.test/login")
         log.wait(r'"title":"stored site-a.test', timeout=90)
-        log.wait(r"page window is (\d+)x(\d+)", timeout=30)
-        time.sleep(0.5)
-        png = os.path.join(out, "start.png")
-        subprocess.run(["grim", png], env=nest_env, check=True)
-        ow, oh = live.png_size(png)
+        def grab(name):
+            p = os.path.join(out, name)
+            subprocess.run(["grim", p], env=nest_env, check=True)
+            return p
+        geo = livelib.settle(log, grab)
+        ow, oh = geo.ow, geo.oh
         pid_file = os.path.join(state, "web.pid")
         if open(pid_file).read().strip() != str(proc.pid):
             raise Fail(f"{pid_file} says {open(pid_file).read().strip()!r}, shell is {proc.pid}")
@@ -201,8 +203,7 @@ def main():
         forgot_line(r.stdout)
         proc, log = start_shell("2", "http://site-a.test/check")
         log.wait(r'"title":"check ', timeout=90)
-        log.wait(r"page window is (\d+)x(\d+)", timeout=30)
-        time.sleep(0.5)
+        livelib.settle(log, grab)
         expect_a_gone_b_kept(log, session_b=False)
         print("  ok   no instance: host forgot site-a (exit 0), site-b kept", flush=True)
 
