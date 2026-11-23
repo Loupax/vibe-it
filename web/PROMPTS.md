@@ -475,3 +475,15 @@ own selection).
 > (coordinator) Enter press and release delivered to the page in NORMAL; rewrite KEYS.md T18-T20 (no shell-side click, no "Match spans N links"; the engine decides). `:set caret` / `:set nocaret` / `:set caret?` through a new protocol command, default off, not persisted; leave j/k/gg/G as they are and describe how they behave with caret on.
 
 **What changed:** shell: a `ToPage` action bound to Enter / keypad Enter with no modifier (`config::BINDINGS`, `Mods::None`); with no find open the real press and release reach the page (T19). Live, Chromium did NOT focus the matched link while the find was open (`act=body`); it does when the find ends (CEF `StopFinding` keeping the selection = our `find-clear`). So with a find open Enter sends `find-clear` (as T7) and then gives the page a synthesized Enter, held until the real key is released (T18). Sent at once, the Enter beat the focus change in 1 of 4 runs; a new `Effect::Pause` (ordered effect queue in `input.rs`, one-shot calloop timer) puts `ENTER_AFTER_FIND_CLEAR_MS` = 50 between them: 10/10. `:set caret|nocaret|caret?` (`Keys::set_option`, `COMPLETERS` row `set` from `SET_ARGS`), protocol `caret` command; host: `settings.a11y.caretbrowsing.enabled` via `SetPreference` on the global context, also set false at start (the preference is saved in the profile). Takes effect without a reload. KEYS.md T18-T21, "Caret browsing", decision log; PROTOCOL.md; help.html. Tests `tests/c_enter_tests.rs` (they fail with the Enter rows removed); live check `test/c_enter_live.py` 11/11; c3_live 19/19, c5_live 13/13, c3_rclick_live 8/8.
+
+## 2026-11-23 C2-POPUP (select dropdowns kept inside the window)
+Agent task from the coordinator, found by #689: Chromium's select popups send an xdg_positioner
+with no constraint adjustment, so smithay's `get_unconstrained_geometry` did nothing and a
+`<select>` flush right opened its dropdown at x=673..1083 in a 956 px window. `Layout::constrain_popup`
+ORs SlideX|SlideY|FlipY into the positioner's adjustment before computing the geometry
+(FlipY so a dropdown that does not fit below a select at the bottom edge opens above it; the slide
+catches what is still out); `unconstrain_popup` calls it. Unit test in layout.rs (right and bottom
+edge, no adjustment). live.py's stale context-menu step (C2-LIVE-REFRESH) became the
+`<select id="sel2">` flush right in pages/c2.html, taken from #689's branch (live.py and c2.html
+only; main's permission Block coordinate kept). live.py 16/16 on Wayland and `--x11`; the
+step fails (15/16, 673..1083) with the fix reverted.

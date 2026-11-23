@@ -265,24 +265,32 @@ def main():
             return f"down to {t[1]} and back"
         step("wheel scroll", scroll)
 
-        def context_menu():
-            k = log.mark()
-            inject("move:%d,600" % (ww - 60), "wait:100", "rclick", "wait:900")
-            g = log.wait(r"popup at (-?\d+),(-?\d+) (\d+)x(\d+)", k)
+        def select_right_edge():
+            # C2-LIVE-REFRESH (the context menu this step used to open went with C-NOMENU): a <select>
+            # flush with the right edge whose dropdown is wider than the select; the shell's popup
+            # constraint must keep it inside the window. Opened twice: closed with Esc, and by a click outside.
+            def open_it():
+                k = log.mark()
+                inject("move:%d,770" % (ww - 60), "wait:100", "click", "wait:900")
+                return k, log.wait(r"popup at (-?\d+),(-?\d+) (\d+)x(\d+)", k)
+            k, g = open_it()
             x, w = int(g[1]), int(g[3])
-            if x < 0 or x + w > ww:
-                raise Fail(f"menu {x}..{x + w} not inside the window width {ww}")
-            shot("context-menu.png")
+            if x < 0 or x + w > ww or w <= 268:
+                inject("key:esc", "wait:400")  # close it, so the later steps still run
+                if w <= 268:
+                    raise Fail(f"dropdown {w}px wide is not wider than the select, so the constraint was not exercised")
+                raise Fail(f"dropdown {x}..{x + w} not inside the window width {ww}")
+            shot("select-right-edge.png")
             k = log.mark()
-            inject("key:esc", "wait:400")
+            inject("key:down", "wait:200", "key:ret", "wait:500")
+            title("select2:r2", k)
             log.wait(r"popup closed", k)
-            # Again, closed by a click on the page outside the menu.
-            inject("move:%d,600" % (ww - 60), "wait:100", "rclick", "wait:900")
+            k, g2 = open_it()
             k = log.mark()
-            inject("move:600,800", "wait:100", "click", "wait:600")
+            inject("move:600,300", "wait:100", "click", "wait:600")
             log.wait(r"popup closed", k)
-            return f"menu at {g[1]},{g[2]} {g[3]}x{g[4]} kept inside the window (slid left); Esc and a click outside close it"
-        step("context menu near the right edge", context_menu)
+            return f"dropdown at {g[1]},{g[2]} {g[3]}x{g[4]} kept inside the {ww}px window; option chosen with the keyboard; a click outside closes it"
+        step("select dropdown near the right edge", select_right_edge)
 
         def fullscreen():
             k = log.mark()
