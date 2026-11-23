@@ -2,6 +2,14 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-23 Search places the pointer, Enter clicks
+
+User: "On Search Mode n/N moves the cursor at the beginning of the match. Enter sends a click event to
+it. I think that's better defined behavior." `/`+Enter, `n`, `N` move the mouse pointer to the start of
+the current match; Enter in NORMAL clicks at the pointer, wherever it is (coordinator's reading: always,
+not only after a search). Replaces KEYS.md S7/T18-T20 ("click the match", "Match spans N links"). Pairs
+with C-CMDS, whose commands act on the element under the pointer. Item C5-ENTER.
+
 ## 2026-11-23 No context menu; its actions become commands
 
 User: "maybe we could disable it completely, and expose it via the command mode" and, after the

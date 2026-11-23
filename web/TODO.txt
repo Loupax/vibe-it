@@ -179,14 +179,16 @@ stop early on a hard failure.
       reported `editable-focused true` for that click (a field got focus: stay INPUT). Add the row to
       KEYS.md's transition table, a test named after it, and a live check (right-click -> Copy link
       address -> back in NORMAL; select an option -> back in NORMAL; right-click in a field -> stays INPUT).
-- [ ] C5-ENTER [S] (NEXT web/shell slot; user asked 2026-11-23, "I did search but it didn't work") Enter on the
-      current search match (KEYS.md S7, T18-T20): in NORMAL, Enter with a current match makes a real click
-      on it through the compositor (same path as a mouse click: pointer moves there, press/release), so the
-      page's own handlers run; match inside 2+ different links -> `Match spans N links`, nothing else (T19);
-      no current match -> nothing (T20). Host: report the active match's rectangle (and which link(s) it is
-      inside), e.g. a `find-match <id> <x> <y> <w> <h> <links>` event after find-result; this is the same
-      rectangle mechanism C5b needs, so do C5b in the same PR if it falls out. Done when tests named after
-      T18-T20 pass and a live check clicks a link found by `/` and lands on its target.
+- [ ] C5-ENTER [S] (NEXT web/shell slot; user 2026-11-23, DECISIONS "Search places the pointer, Enter clicks")
+      `/`+Enter, `n` and `N` move the mouse pointer (a real pointer motion from the compositor) to the start
+      of the current match (left edge of its first character, vertically centred). Enter in NORMAL sends a
+      real click (press/release) at the pointer's position, wherever it is. Rewrite KEYS.md S7 and T18-T20
+      accordingly (the "Match spans N links" case goes away) with the user's words in the decision log.
+      Host: report the active match's start point in view coordinates after each find-result (e.g. extend
+      `find-result` or add `find-match <id> <x> <y>`); C5b needs the same mechanism, do it in the same PR if it
+      falls out. Done when tests named after the new rows pass and a live check `/`-finds a link, `n`s to a
+      second one, presses Enter and lands on that link's target; and Enter with the pointer moved by the
+      mouse clicks there.
 - [ ] C5b [S] (from #679; shares the rectangle mechanism with C7 and S7) Exact T23: first current match = first
       whose top is at/below the top of the screen (CEF picks its own, e.g. one above the screen). Needs a
       host `find-matches` event (one rect per match + scroll offset) or a way to start CEF's find at the
