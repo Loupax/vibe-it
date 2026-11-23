@@ -83,7 +83,8 @@ stop early on a hard failure.
 
 - [ ] C-PICK-PAGE [XS] (from #707) PageUp/PageDown move the picker selection by a screenful.
 
-- [WIP] C-BOOKMARKS [S] (after C-PICK; same decision) Bookmarks: `DIR/bookmarks` (STASH.md "Bookmarks"),
+- [x] C-BOOKMARKS [S] (DONE 2026-11-23, d9a3035, #711: bookmarks.rs, KEYS.md T69-T76; unasked choices: search
+      newest first, delete by exact URL, hand-edited file normalized on rewrite) (after C-PICK; same decision) Bookmarks: `DIR/bookmarks` (STASH.md "Bookmarks"),
       `:bookmarkAdd` (current page, title from the host; adding a URL twice updates its title),
       `:bookmarkDelete [url]` (current page; the argument completes from the bookmarks), `:bookmarkSearch`
       (picker over URL and title; Enter opens). `:go`'s ghost source ranks bookmarks before history.
@@ -98,7 +99,7 @@ stop early on a hard failure.
       `window.open(url, name, features)` in the frame that asked (keeping the opener) despite Chromium's own
       blocker, else it loads the URL fresh. Report only; PROTOCOL.md proposal for C4.
 
-- [ ] C4 Buffers [L] (after C4-SPIKE and C-PICK; replaces the deferred "Tabs", same decision) Several pages
+- [WIP] C4 Buffers [L] (after C4-SPIKE and C-PICK; replaces the deferred "Tabs", same decision) Several pages
       in one host; protocol `new-tab [url]`, `close-tab <id>`, `show-tab <id>` (or what C4-SPIKE proposes).
       Commands (KEYS.md "Buffers"): `:bufferList`/`:ls` (picker: number, title, hostname, description;
       fuzzy over title, hostname, description), `:buffer N|<partial>`/`:b`, `:bufferNext`/`:bn`,
