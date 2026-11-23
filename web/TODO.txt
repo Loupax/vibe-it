@@ -11,12 +11,12 @@ spike can stop early on a hard failure. Decisions: DECISIONS.md.
 - [x] W2 Empty network namespace (DONE 2026-11-23, 5ea040c, #657: `unshare -n --map-user=$(id -u)`, not -r: Chromium refuses to run as root with its sandbox on). Launch under `unshare -rn` (or bubblewrap
       `--unshare-net`).
       Done when: the same site fails to load and nothing else in CEF crashes.
-- [WIP] W3 Answer requests from wire. A `CefResourceRequestHandler` sends each
+- [x] W3 Answer requests from wire (DONE 2026-11-23, a35f6ad, #658: 48/48 Wikipedia requests through wire; Chromium follows redirects (X-Wire-Max-Redirects: 0); Accept-Encoding not forwarded). A `CefResourceRequestHandler` sends each
       http(s) request to wire's socket and streams the response back through
       `CefResourceHandler`.
       Done when: the site loads again inside the namespace and wire's log shows
       every request.
-- [ ] W4 Cookies in Chromium. Requests go without `X-Wire-Jar`; `Set-Cookie`
+- [WIP] W4 Cookies in Chromium. Requests go without `X-Wire-Jar`; `Set-Cookie`
       reaches CEF.
       Done when: logging in to a real site works and survives a restart of the
       spike, with wire's jar unused.
@@ -36,9 +36,14 @@ spike can stop early on a hard failure. Decisions: DECISIONS.md.
       wire's log for that load and any request that never reached wire, and the
       cause (engine, interception gap, wire, or namespace).
 
+- [ ] W-UPLOAD1 Uploads with Blob, File (also inside FormData) or ReadableStream bodies (from W3 #658).
+      CEF's CefPostData hands these over as empty elements, so file uploads and fetch(blob) fail with
+      ERR_NOT_IMPLEMENTED today. Options: a proxy inside the namespace forwarding to wire (ties in with
+      W6's CONNECT idea), a CEF API that exposes the body, or patching CEF. Decide before W7.
+
 Open questions (answer during the spike):
-- [ ] Does Chromium's HTTP cache store handler-served responses, or does wire's
-      cache do all the work?
+- [x] Does Chromium's HTTP cache store handler-served responses, or does wire's
+      cache do all the work? (W3 #658: Chromium stores nothing; wire's cache does all of it.)
 - [ ] Which wire policy checks still make sense when Chromium enforces CORS and
       mixed content?
 - [ ] Does wire's body cap need a per-request off switch for downloads and video?

@@ -43,7 +43,11 @@ the commit it came up during.
       check against a real remote server. Worth doing for real the next
       time a session's sandbox allows it.
 
-- [ ] **`brotli` decompression isn't supported**, only `gzip` (`ureq`'s
+- [ ] **W-ENC1 [S] Content-Encoding beyond gzip** (from web W3 #658): wire always strips
+      `Content-Encoding`, and ureq only decodes gzip, so a br/zstd body would reach the client as garbage.
+      The web spike therefore does not forward Chromium's `Accept-Encoding` (wire asks for gzip). Either keep
+      `Content-Encoding` when wire did not undo it, or enable ureq's `brotli` feature. Original note:
+      **`brotli` decompression isn't supported**, only `gzip` (`ureq`'s
       `gzip` Cargo feature) — a response with `Content-Encoding: br`
       would be forwarded still-compressed with its `Content-Encoding`
       header stripped (since `normalize_response` always strips it,
