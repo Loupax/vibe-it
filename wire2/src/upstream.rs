@@ -178,6 +178,11 @@ fn interleave_families(addrs: Vec<SocketAddr>) -> Vec<SocketAddr> {
     }
 }
 
+/// The verified TLS connection to a decrypted flow's origin (behind any bytes a tunnel filter passed on).
+pub type UpTls = TlsStream<crate::conn::Prefixed<crate::conn::Conn>>;
+/// Its two halves, parked in the flow between requests (W2-2a).
+pub type Pooled = (tokio::io::ReadHalf<UpTls>, tokio::io::WriteHalf<UpTls>);
+
 #[cfg(test)]
 mod tests {
     use super::*;

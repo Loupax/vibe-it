@@ -129,3 +129,19 @@ backoff, routing, the hub's per-flow expectation, the stage clock), `hub.rs` (th
 server); `--test-decrypt` removed and every decrypted test now runs through pass-decrypt. Tests:
 tests/w2_f_filters.rs (18), w2_f_large.rs (2 GiB through pass), w2_f_perf.rs (ignored); systemd units in
 wire2/systemd/. NOTES.md "W2-F" has the design, the acceptance list and the measurements.
+
+## W2-2a: reuse upstream connections inside decrypted tunnels (2026-11-23)
+
+> Reuse upstream connections inside decrypted tunnels. Today each decrypted request opens a fresh TCP + TLS
+> connection to the origin (through the tunnel-layer filters as a CONNECT) and sends `Connection: close`.
+> Keep the upstream connection open per decrypted browser connection (or a small per-flow pool keyed by
+> host:port and the tunnel chain) and reuse it for the next request; honour the origin's
+> Connection/keep-alive and framing; on a stale reused connection (closed before any response byte) retry
+> only idempotent requests without a body (GET/HEAD/OPTIONS), once, on a fresh connection, never a POST
+> (wire 1's ureq lesson, W-FLK1 #660). Tunnel-layer filters must still see one CONNECT per upstream
+> connection and keep the power to close it. Plain `http://` stays one request per browser connection.
+> Access log: one line per request, plus the flow line. Tests [...]; measure a page-like load (50 small
+> requests on one decrypted connection) before/after under the perf lock; headless Chrome check [...].
+
+Result: one PR, `proxy.rs` plus a slot in `FlowInfo`. NOTES.md "W2-2a" has the design and numbers; tests in
+tests/w2_2a_reuse.rs.

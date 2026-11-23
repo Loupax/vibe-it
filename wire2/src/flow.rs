@@ -46,6 +46,9 @@ pub struct FlowInfo {
     pub status: AtomicU16,
     /// Cancelling it closes every connection of the flow.
     pub cancel: CancellationToken,
+    /// W2-2a: the idle upstream connection of a decrypted flow, kept for its next request. Requests of
+    /// one browser connection are sequential, so one slot is a whole pool. Held only to take or put.
+    pub pool: Mutex<Option<crate::upstream::Pooled>>,
 }
 
 impl FlowInfo {
@@ -97,6 +100,7 @@ impl Registry {
             down: AtomicU64::new(0),
             status: AtomicU16::new(STATUS_NONE),
             cancel: CancellationToken::new(),
+            pool: Mutex::new(None),
         });
         self.lock().insert(id, info.clone());
         crate::debug!("flow={id} open {method} host={host} port={port}");

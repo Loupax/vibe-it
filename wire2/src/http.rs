@@ -33,6 +33,8 @@ impl RequestHead {
 
 #[derive(Debug, Clone)]
 pub struct ResponseHead {
+    /// Minor version: 1 for HTTP/1.1, 0 for HTTP/1.0.
+    pub version: u8,
     pub code: u16,
     pub reason: String,
     pub headers: Headers,
@@ -144,6 +146,7 @@ pub fn parse_response(buf: &[u8]) -> Result<Option<(ResponseHead, usize)>, Strin
     match res.parse(buf) {
         Ok(httparse::Status::Complete(len)) => {
             let head = ResponseHead {
+                version: res.version.unwrap_or(1),
                 code: res.code.unwrap_or(0),
                 reason: res.reason.unwrap_or("").to_string(),
                 headers: owned_headers(res.headers)?,
