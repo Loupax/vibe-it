@@ -82,7 +82,8 @@ tunnels are copied with small fixed buffers and backpressure, never whole.
       - Done when: the W2-1 check passes with decryption on, and the log
         shows full URLs for https requests.
 
-- [WIP] W2-3 WebSockets inside decrypted tunnels: forward the upgrade request,
+- [x] W2-3 (DONE 2026-11-23, b888097, #676: 6 tests + headless Chrome wss echo; fixed a missing flush on the
+      until-close copy that stalled large messages through TLS) WebSockets inside decrypted tunnels: forward the upgrade request,
       and after `101` switch that connection to plain byte copy. Frame
       parsing waits for W2-F.
 

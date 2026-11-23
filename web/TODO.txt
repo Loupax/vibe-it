@@ -144,7 +144,7 @@ stop early on a hard failure.
       pressed key on focus-out. Done when Alt+Tab away and back leaves no stuck modifier (keydown logger page).
 - [ ] C-SOCKDIR [XS] (from C2 #671) A hard-killed shell leaves $XDG_RUNTIME_DIR/web-<pid>/ behind: clean stale
       dirs at start.
-- [ ] C-INSTALL [S] (NEXT free slot: user bumped it 2026-11-23) (coordinator, 2026-11-23) Make web installable for daily use: `cargo install` copies only
+- [WIP] C-INSTALL [S] (user bumped it 2026-11-23) (coordinator, 2026-11-23) Make web installable for daily use: `cargo install` copies only
       the binary, but web-host-cef needs CEF's runtime files beside it. An install script (or Makefile
       target) that puts web, web-host-cef and the CEF runtime in one prefix (e.g. ~/.local/lib/web +
       ~/.local/bin/web), and ci_then_push.sh `--install web` calling it. Done when `web https://example.com`
