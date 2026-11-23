@@ -112,6 +112,8 @@ pub struct HistoryEntry {
 pub struct CompleteCache {
     dir: Option<PathBuf>,
     history: OnceCell<Vec<HistoryEntry>>,
+    /// C-BOOKMARKS: the bookmarks, in file order, read once per line like the history.
+    bookmarks: OnceCell<Vec<HistoryEntry>>,
     /// How many times the file was read (tests check "once per line").
     pub loads: Cell<usize>,
     /// QCOMP2: names this command line, so a late result for an earlier line is dropped.
@@ -131,6 +133,7 @@ impl CompleteCache {
         CompleteCache {
             dir,
             history: OnceCell::new(),
+            bookmarks: OnceCell::new(),
             loads: Cell::new(0),
             id: NEXT_LINE_ID.fetch_add(1, Ordering::Relaxed),
             sink: None,
@@ -205,6 +208,22 @@ impl CompleteCache {
     }
 }
 
+impl CompleteCache {
+    /// The bookmarks (`DIR/bookmarks`) in the order they were added, as ghost entries; they come
+    /// before the history in `:go`'s ghost and are `:bookmarkDelete`'s candidates.
+    pub fn bookmarks(&self) -> &[HistoryEntry] {
+        self.bookmarks.get_or_init(|| {
+            crate::bookmarks::load(self.dir.as_deref())
+                .into_iter()
+                .map(|(url, _)| {
+                    let skip = url.len() - strip_scheme_www(&url).len();
+                    HistoryEntry { url, skip }
+                })
+                .collect()
+        })
+    }
+}
+
 /// `url` without `https://`/`http://` and then `www.`: what typed words are compared with.
 pub fn strip_scheme_www(url: &str) -> &str {
     let rest = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://")).unwrap_or(url);
@@ -259,13 +278,23 @@ pub fn rank_history(text: &str) -> Vec<HistoryEntry> {
 /// always continues exactly what was typed (typed `https://google`, visited `https://www.google.com/`:
 /// candidate `https://google.com/`).
 pub fn complete_history_urls(ctx: &CompleteCtx) -> Vec<String> {
-    let typed = strip_scheme_www(ctx.word);
+    // C-BOOKMARKS: bookmarks rank before history.
+    match_urls(ctx.word, ctx.cache.bookmarks().iter().chain(ctx.cache.history()))
+}
+
+/// `:bookmarkDelete`'s source: the bookmarked URLs that continue the word (same matching as `:go`).
+pub fn complete_bookmark_urls(ctx: &CompleteCtx) -> Vec<String> {
+    match_urls(ctx.word, ctx.cache.bookmarks().iter())
+}
+
+fn match_urls<'a>(word: &str, entries: impl Iterator<Item = &'a HistoryEntry>) -> Vec<String> {
+    let typed = strip_scheme_www(word);
     let mut out: Vec<String> = Vec::new();
-    for e in ctx.cache.history() {
-        let cand = if e.url.starts_with(ctx.word) {
+    for e in entries {
+        let cand = if e.url.starts_with(word) {
             e.url.clone()
         } else if let Some(rest) = e.url[e.skip..].strip_prefix(typed) {
-            format!("{}{rest}", ctx.word)
+            format!("{word}{rest}")
         } else {
             continue;
         };
@@ -283,8 +312,9 @@ pub fn complete_history_urls(ctx: &CompleteCtx) -> Vec<String> {
 pub fn history_scheme_for(cache: &CompleteCache, word: &str) -> Option<&'static str> {
     let typed = strip_scheme_www(word);
     cache
-        .history()
+        .bookmarks()
         .iter()
+        .chain(cache.history())
         .find(|e| strip_scheme_www(&e.url) == typed)
         .map(|e| if e.url.starts_with("http://") { "http://" } else { "https://" })
 }

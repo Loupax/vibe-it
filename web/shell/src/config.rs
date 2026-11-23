@@ -262,6 +262,7 @@ pub enum Source {
 /// `("go", Source::Cmd(&["my-url-source", "--flag"]))`.
 pub const COMPLETERS: &[(&str, Source)] = &[
     ("go", Source::Builtin(crate::completion::complete_history_urls)),
+    ("bookmarkDelete", Source::Builtin(crate::completion::complete_bookmark_urls)),
     ("refresh", Source::Builtin(crate::completion::complete_refresh_args)),
     ("set", Source::Builtin(crate::completion::complete_set_args)),
     // ("go", Source::Cmd(&["my-url-source"])),

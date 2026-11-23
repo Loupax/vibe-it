@@ -245,9 +245,9 @@ set per command, like bash's `complete`:
   ];
   ```
   **web:** scratchy's `:set js`/`motion` (engine settings) are dropped; `:set` has
-  `caret`, `nocaret` and `caret?` (C-CARETCMD, below). The rows are `go` (the history),
+  `caret`, `nocaret` and `caret?` (C-CARETCMD, below). The rows are `go` (the bookmarks, then the history), `bookmarkDelete` (the bookmarks),
   `refresh` (`hard`) and `set` (`config::SET_ARGS`; a selected `:set` argument gets a space,
-  T53). The commands are `:go`, `:refresh [hard]`, `:historyBack`, `:historyFront`, `:historySearch` (the picker, C-PICK), `:help`,
+  T53). The commands are `:go`, `:refresh [hard]`, `:historyBack`, `:historyFront`, `:historySearch` (the picker, C-PICK), `:bookmarkAdd`, `:bookmarkDelete [url]`, `:bookmarkSearch` (C-BOOKMARKS, "Bookmarks"), `:help`,
   `:let`, `:set`, `:q`/`:quit`.
   `:go` without a scheme means `https://` (scratchy's QCOMP6); the ghost still continues
   exactly what was typed. C3-GOHTTP: when the run line's URL (typed + accepted ghost) equals
@@ -418,6 +418,28 @@ in every list (move, Enter runs the row, Esc closes) and a mode of its own").
 fields to match, a `PickAction`) in the source's own order, opened from its command with
 `Keys::open_picker(name, rows, filter, empty_message)`; a new kind of action is a `PickAction` variant and its
 arm in `Keys::run_pick_action`.
+
+## Bookmarks (C-BOOKMARKS)
+
+Built by C-BOOKMARKS (`shell/src/bookmarks.rs`). The user's decision, 2026-11-23 (DECISIONS.md "A picker,
+bookmarks, buffers as tabs, popups like Chrome"): "A plain file `DIR/bookmarks` (`url<TAB>title`, editable by
+hand); `:bookmarkAdd`, `:bookmarkDelete [url]`, `:bookmarkSearch`; bookmarks also feed `:go`'s ghost, above
+history." The rows below are the implementer's reading of it. The file format is STASH.md "Bookmarks".
+
+| # | From | Event | Guard | To | Effect |
+|---|---|---|---|---|---|
+| T69 | COMMAND | Enter on `:bookmarkAdd` | the page has a URL (not empty, not `about:blank`) | NORMAL | appends `url<TAB>title` to `DIR/bookmarks` (the title the host reported; none when it is only the URL); status bar `bookmarked: <url>`. No page: `web: no page to bookmark` |
+| T70 | COMMAND | Enter on `:bookmarkAdd` | the URL is already bookmarked | NORMAL | the title is replaced, the line keeps its place; `bookmark updated: <url>` |
+| T71 | COMMAND | Enter on `:bookmarkDelete [url]` | the URL (the page's when none is given) is bookmarked | NORMAL | the line is removed; `bookmark removed: <url>` |
+| T72 | COMMAND | Enter on `:bookmarkDelete [url]` | not bookmarked | NORMAL | nothing changes; `web: not bookmarked: <url>` |
+| T73 | COMMAND | Enter on `:bookmarkSearch [filter]` | there are bookmarks | PICK | the picker (T58-T68) over the bookmarks, newest first; label = title (a bookmark without one: its URL), detail = URL; matched on the URL without scheme/`www.` and the title; Enter loads the URL in the current page (T62) |
+| T74 | COMMAND | Enter on `:bookmarkSearch` | no bookmarks | NORMAL | `web: no bookmarks (:bookmarkAdd adds the page)` |
+| T75 | COMMAND | typing `:go <word>` | a bookmark and a history entry match | COMMAND | the ghost lists the bookmarks (in the order they were added) before the history's ranking (T45-T53, "Completion") |
+| T76 | COMMAND | typing `:bookmarkDelete <word>` | a bookmark's URL continues the word | COMMAND | the ghost offers the bookmarked URLs only (same matching as `:go`) |
+
+The file is written as a temp file `DIR/.bookmarks.tmp-<pid>` renamed over `bookmarks`, under the history's lock;
+a failed write says `web: bookmark failed: <error>` and leaves the old file. Without a state directory the
+commands say `web: no state directory: bookmarks are off`. `--forget-site` does not touch bookmarks.
 
 ## Buffers (planned, C4)
 

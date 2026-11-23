@@ -382,6 +382,7 @@ impl State {
                 self.update_window_title();
             }
             Event::Title { title, .. } => {
+                self.keys.title = title.clone();
                 self.title = title;
                 self.update_window_title();
             }

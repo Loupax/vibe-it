@@ -6,6 +6,7 @@
 //! on (web/PROTOCOL.md). The page's window fills the shell window minus the status bar.
 
 mod args;
+mod bookmarks;
 mod clipboard;
 mod completion;
 mod config;
