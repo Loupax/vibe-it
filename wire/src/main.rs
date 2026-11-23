@@ -278,12 +278,14 @@ fn main() {
     run_server(&path, agent, shared);
 }
 
+/// The daemon's agent for plain (non-jar, not public-only) requests. It never
+/// follows redirects: `send_upstream` does that itself (W-POOL2).
 fn build_agent() -> ureq::Agent {
-    agent_builder().build()
+    agent_builder().redirects(0).build()
 }
 
-/// ureq's own default redirect limit; a request asking for exactly this
-/// (or sending no `X-Wire-Max-Redirects`) uses the shared agent.
+/// The redirect limit without `X-Wire-Max-Redirects` (ureq's own default,
+/// with ureq's counting on the non-jar path; see `send_upstream`).
 const DEFAULT_REDIRECTS: u32 = 5;
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -336,13 +338,13 @@ struct Shared {
     /// Agent with redirects switched off: the jar path follows redirects
     /// itself so it can store and re-send cookies on every hop.
     manual_agent: ureq::Agent,
-    /// Own agents (own connection pools) for `X-Wire-Policy: public-only`
-    /// requests (W-POOL1). ureq only calls the resolver when it opens a NEW
-    /// connection, so a pooled connection skips the public-only check. These
-    /// pools only ever hold connections that went through the checking
-    /// resolver under public-only, so reuse inside them is safe, and no plain
-    /// request can leave a non-public connection in them.
-    public_agent: ureq::Agent,
+    /// Own agent (own connection pool, redirects off like every agent since
+    /// W-POOL2) for `X-Wire-Policy: public-only` requests, jar or not
+    /// (W-POOL1). ureq only calls the resolver when it opens a NEW
+    /// connection, so a pooled connection skips the public-only check. This
+    /// pool only ever holds connections that went through the checking
+    /// resolver under public-only, so reuse inside it is safe, and no plain
+    /// request can leave a non-public connection in it.
     public_manual_agent: ureq::Agent,
     /// `--mount` / `--mount-override` (QWPT3): origins served from directories.
     mounts: mount::Mounts,
@@ -362,7 +364,6 @@ impl Shared {
             control_token: random_token(),
             cookie_file: None,
             manual_agent: agent_builder().redirects(0).build(),
-            public_agent: agent_builder().build(),
             public_manual_agent: agent_builder().redirects(0).build(),
             mounts: mount::Mounts::default(),
             recorder: None,
@@ -676,27 +677,6 @@ fn netloc_key(url: &Url) -> String {
     format!("{}:{}", url.host_str().unwrap_or(""), url.port_or_known_default().unwrap_or(0)).to_ascii_lowercase()
 }
 
-/// Make sure the first and last hops of this request are represented in the
-/// tracker, filling from the class map the hops that reused a pooled
-/// connection (no resolution happened). An intermediate redirect hop on a
-/// pooled connection is not visible to wire when ureq follows redirects
-/// itself (see NOTES.md); the jar path follows them itself and is exact.
-fn reconcile_hops(first: &Url, final_url: &Url) {
-    TRACKER.with(|t| {
-        let mut t = t.borrow_mut();
-        let (a, b) = (netloc_key(first), netloc_key(final_url));
-        if t.hops.first().map(|h| &h.0) != Some(&a)
-            && let Some(c) = class_map_get(&a)
-        {
-            t.hops.insert(0, (a, c));
-        }
-        if t.hops.last().map(|h| &h.0) != Some(&b)
-            && let Some(c) = class_map_get(&b)
-        {
-            t.hops.push((b, c));
-        }
-    });
-}
 
 impl ureq::Resolver for TrackingResolver {
     fn resolve(&self, netloc: &str) -> std::io::Result<Vec<SocketAddr>> {
@@ -1363,74 +1343,133 @@ fn stale_pooled_failure(err: &ureq::Error, first_url: &Url, hops_before: usize) 
 }
 
 /// The upstream request itself (jar path or not), after the cache decided.
+///
+/// W-POOL2: wire follows redirects itself on this path too (the agents never
+/// do: `agent` and `Shared::public_manual_agent` are built with
+/// `redirects(0)`), so every hop is a request wire sees: its class is
+/// recorded even when it reused a pooled connection, and `Clear-Site-Data`
+/// on a redirect hop is honoured. The rules are ureq 2.12's own redirect
+/// loop (`unit::connect`), kept exactly so nothing changes for clients:
+///
+/// - only a status in 300..=398 is a redirect; limit `n`
+///   (`X-Wire-Max-Redirects`, default 5) means: `0` returns the 3xx as is,
+///   otherwise the request fails (marked 502) at the 3xx that would be
+///   redirect number `n` (so at most `n - 1` are followed), checked before
+///   the `Location` header is looked at;
+/// - no `Location`: the 3xx is the answer; one that does not parse against
+///   the hop's URL, or names another scheme: marked 502;
+/// - 301/302/303: GET and HEAD stay, every other method becomes GET;
+///   307/308: followed only for GET, HEAD, OPTIONS and TRACE (any other
+///   method gets the 307/308 itself); the body is never re-sent;
+/// - from the first redirect on, the client's `Cookie` and `Authorization`
+///   headers are dropped;
+/// - `X-Wire-Timeout-Ms` (default 20 s) bounds the whole chain, as ureq's
+///   request deadline did.
 fn send_upstream(agent: &ureq::Agent, shared: &Shared, request: &ParsedRequest, caps: &Caps, use_jar: bool, ua: Option<&str>, w: &mut impl Write) -> std::io::Result<()> {
     BODY_INFO.with(|b| b.set(BodyInfo::default()));
     if use_jar {
         return execute_with_jar(shared, request, caps, ua, w);
     }
     TRACKER.with(|t| *t.borrow_mut() = Tracker { public_only: caps.public_only, ..Tracker::default() });
-    // Redirect limits are agent-level in ureq: only a request asking for a
-    // non-default limit pays for its own agent (and loses connection reuse).
-    let own_agent;
-    let agent = match caps.max_redirects {
-        // A client that follows redirects itself (web's CEF handler, W3) sends 0
-        // on every request: the shared no-follow agents keep connection reuse.
-        Some(0) if caps.public_only => &shared.public_manual_agent,
-        Some(0) => &shared.manual_agent,
-        Some(n) if n != DEFAULT_REDIRECTS => {
-            own_agent = agent_builder().redirects(n).build();
-            &own_agent
-        }
-        // public-only never shares a pool with plain requests (W-POOL1).
-        _ if caps.public_only => &shared.public_agent,
-        _ => agent,
-    };
-    let build = |agent: &ureq::Agent| {
-        let mut req = agent.request(&request.method, request.url.as_str());
-        if let Some(t) = caps.timeout {
-            req = req.timeout(t);
-        }
-        if let Some(ua) = ua {
-            req = req.set("User-Agent", ua);
-        }
-        for (name, value) in forwardable_request_headers(&request.headers, |_| false) {
-            req = req.set(name, &value);
-        }
-        req
-    };
+    // public-only never shares a pool with plain requests (W-POOL1). Both
+    // agents keep their pools whatever the redirect limit is.
+    let agent = if caps.public_only { &shared.public_manual_agent } else { agent };
+    let limit = caps.max_redirects.unwrap_or(DEFAULT_REDIRECTS);
     let headers_start = Instant::now();
-    let result = call_with_stale_retry(agent, &build, &request.body, &request.url, || match caps.max_redirects {
-        Some(n) if n != DEFAULT_REDIRECTS => agent_builder().redirects(n).build(),
-        _ => build_agent(),
-    });
-    let headers_elapsed = headers_start.elapsed();
-
-    let body_start = Instant::now();
-    let status = match result {
-        // `ureq` treats any non-2xx status as `Err(Error::Status(..))`,
-        // but the wrapped `Response` is a perfectly real upstream
-        // response (a 404, a 500, ...) — not a transport failure — so it
-        // streams through exactly like `Ok` does, just reached from the
-        // other match arm.
-        Ok(resp) | Err(ureq::Error::Status(_, resp)) => {
-            let status = resp.status();
-            if let Ok(final_url) = Url::parse(resp.get_url()) {
-                reconcile_hops(&request.url, &final_url);
-                apply_clear_site_data(shared, &request.headers, &final_url, resp.all("clear-site-data"), None);
+    let deadline = headers_start + caps.timeout.unwrap_or(DEFAULT_TIMEOUT);
+    let (mut url, mut method) = (request.url.clone(), request.method.clone());
+    let mut body: &[u8] = &request.body;
+    let mut followed = 0u32;
+    let finish = |status: u16, headers_elapsed: Duration, body_elapsed: Duration| log_timing(&request.method, &request.url, status, headers_elapsed, body_elapsed);
+    loop {
+        let hops_before = TRACKER.with(|t| t.borrow().hops.len());
+        let build = |agent: &ureq::Agent| {
+            let mut req = agent.request(&method, url.as_str()).timeout(deadline.saturating_duration_since(Instant::now()));
+            if let Some(ua) = ua {
+                req = req.set("User-Agent", ua);
             }
+            let dropped = |n: &str| followed > 0 && (n.eq_ignore_ascii_case("cookie") || n.eq_ignore_ascii_case("authorization"));
+            for (name, value) in forwardable_request_headers(&request.headers, dropped) {
+                req = req.set(name, &value);
+            }
+            req
+        };
+        let result = call_with_stale_retry(agent, &build, body, &url, || agent_builder().redirects(0).build());
+        let resp = match result {
+            // `ureq` treats any non-2xx status as `Err(Error::Status(..))`,
+            // but the wrapped `Response` is a perfectly real upstream
+            // response (a 404, a 500, ...) — not a transport failure — so it
+            // streams through exactly like `Ok` does.
+            Ok(r) | Err(ureq::Error::Status(_, r)) => r,
+            Err(ureq::Error::Transport(e)) => {
+                let blocked = TRACKER.with(|t| t.borrow().blocked.clone());
+                let status = match blocked {
+                    Some(msg) => write_policy_response(w, &msg)?,
+                    None => write_synthetic_error_response(w, &e.to_string())?,
+                };
+                finish(status, headers_start.elapsed(), Duration::ZERO);
+                return Ok(());
+            }
+        };
+        note_pooled_hop(hops_before, &url);
+        apply_clear_site_data(shared, &request.headers, &url, resp.all("clear-site-data"), None);
+        let status = resp.status();
+        let next = match redirect_step(status, resp.header("location"), &url, &method, limit, followed) {
+            Ok(next) => next,
+            Err(msg) => {
+                let code = write_synthetic_error_response(w, &msg)?;
+                finish(code, headers_start.elapsed(), Duration::ZERO);
+                return Ok(());
+            }
+        };
+        let Some((next_url, next_method)) = next else {
+            let headers_elapsed = headers_start.elapsed();
+            let body_start = Instant::now();
             stream_response(resp, caps, w, None, false)?;
-            status
-        }
-        Err(ureq::Error::Transport(e)) => {
-            let blocked = TRACKER.with(|t| t.borrow().blocked.clone());
-            match blocked {
-                Some(msg) => write_policy_response(w, &msg)?,
-                None => write_synthetic_error_response(w, &e.to_string())?,
-            }
-        }
+            finish(status, headers_elapsed, body_start.elapsed());
+            return Ok(());
+        };
+        followed += 1;
+        url = next_url;
+        method = next_method;
+        body = &[];
+    }
+}
+
+/// The redirect decision of the non-jar path for one answer (see
+/// `send_upstream`): `Ok(None)` = this answer is the final one,
+/// `Ok(Some((url, method)))` = the next hop, `Err(message)` = fail the request
+/// (the marked 502, same messages as ureq's).
+fn redirect_step(status: u16, location: Option<&str>, url: &Url, method: &str, limit: u32, followed: u32) -> Result<Option<(Url, String)>, String> {
+    if !(300..399).contains(&status) || limit == 0 {
+        return Ok(None);
+    }
+    if followed + 1 >= limit {
+        return Err(format!("Too Many Redirects: reached max redirects ({limit})"));
+    }
+    let Some(location) = location else { return Ok(None) };
+    let next = url.join(location).map_err(|e| format!("Bad URL: Bad redirection: {location}: {e}"))?;
+    let next_method = match status {
+        301..=303 if method == "GET" || method == "HEAD" => method.to_string(),
+        301..=303 => "GET".to_string(),
+        307 | 308 if ["GET", "HEAD", "OPTIONS", "TRACE"].contains(&method) => method.to_string(),
+        _ => return Ok(None),
     };
-    log_timing(&request.method, &request.url, status, headers_elapsed, body_start.elapsed());
-    Ok(())
+    if !matches!(next.scheme(), "http" | "https") {
+        return Err(format!("Unknown Scheme: unknown scheme '{}' in redirect to {next}", next.scheme()));
+    }
+    Ok(Some((next, next_method)))
+}
+
+/// A hop that reused a pooled connection did not call the resolver: record
+/// its class from the class map (W-POOL1), so every hop is listed.
+fn note_pooled_hop(hops_before: usize, url: &Url) {
+    if TRACKER.with(|t| t.borrow().hops.len()) == hops_before {
+        let key = netloc_key(url);
+        if let Some(c) = class_map_get(&key) {
+            TRACKER.with(|t| t.borrow_mut().hops.push((key, c)));
+        }
+    }
 }
 
 /// The request path when the jar is used (`X-Wire-Jar: scratchy`). Redirects
@@ -1497,12 +1536,7 @@ fn execute_with_jar(shared: &Shared, request: &ParsedRequest, caps: &Caps, ua: O
             }
         };
         // A pooled connection skips the resolver: fill this hop's class from the map.
-        if TRACKER.with(|t| t.borrow().hops.len()) == hops_before {
-            let key = netloc_key(&url);
-            if let Some(c) = class_map_get(&key) {
-                TRACKER.with(|t| t.borrow_mut().hops.push((key, c)));
-            }
-        }
+        note_pooled_hop(hops_before, &url);
         {
             let mut jar = shared.jar();
             for line in resp.all("set-cookie") {
@@ -3137,3 +3171,5 @@ mod no_follow_tests;
 mod w_flk1_tests;
 #[cfg(test)]
 mod w_enc1_tests;
+#[cfg(test)]
+mod w_pool2_tests;
