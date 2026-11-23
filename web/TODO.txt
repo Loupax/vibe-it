@@ -157,12 +157,17 @@ stop early on a hard failure.
 - [WIP] C-KEYMAP [S] (from C2 #671) The page gets xkbcommon's default keymap (XKB_DEFAULT_*, else us), not the
       desktop's layout (winit does not expose it). Read it (X11: xkbcommon-x11; Wayland: wl_keyboard.keymap)
       and give it to the shell's seat. Done when a non-us desktop layout types the same characters in the page.
-- [ ] C-SINGLE [S] (user hit it 2026-11-23) A second `web` with the same state dir while one runs: Chromium's
+- [WIP] C-SINGLE [S] (user hit it 2026-11-23) A second `web` with the same state dir while one runs: Chromium's
       profile lock makes the new host print "Opening in existing browser session", CEF initialize fails and
       web-host-cef panics (main.rs:190 assert). Fix: `web [URL]` finds the running instance (#694's web.pid +
       run-dir socket) and asks it to open the URL (status-bar message), then exits 0; if the lock is held by
       something else (stale lock, a host without a shell), a clear error naming the profile and the pid,
       never a panic. The host itself: turn the initialize failure into a clean error exit.
+- [ ] LIVE-GEOM [XS] (from #695) live.py, c3_live, c3_rclick_live and c_enter_live read the window size before
+      dwl tiles the shell, like c6_live did: move c6_live's settled-size wait into a shared helper and use it in
+      every live check.
+- [ ] C6g [XS] ONLY IF THE USER WANTS IT (from #695) A middle click on the status bar in COMMAND/SEARCH inserts the
+      desktop's primary selection (KEYS.md Paste row first).
 - [ ] C-FOCUSKEYS [S] (from C2 #671; from reading code, untested) smithay's winit backend drops winit's synthetic
       key releases: a modifier held when the shell loses focus (Alt of Alt+Tab) can stay down. Release every
       pressed key on focus-out. Done when Alt+Tab away and back leaves no stuck modifier (keydown logger page).
@@ -226,7 +231,8 @@ stop early on a hard failure.
       worked. Getting it needs a CDM path plus the component updater back on (Google traffic again).
 - [ ] C-H264 PARKED (user, 2026-11-23) (from #680) This CEF build cannot play H.264 (canPlayType avc1 = ""); VP9/WebM work.
       A proprietary-codecs CEF build would be needed.
-- [WIP] C6-LIVE [S] (from #690) c6_live.py fails 4/8 on main in an agent's headless nest (copy takes more than the
+- [x] C6-LIVE [S] (DONE 2026-11-23, 006e846, #695: the test, not the bridge: it read the pre-tiling window size
+      and hid a missed click with `i`; now waits for the settled size and requires editable-focused) (from #690) c6_live.py fails 4/8 on main in an agent's headless nest (copy takes more than the
       field, Ctrl-v into the page, page -> `:` line, primary selection), though #686 reported 8/8. Find out
       whether the test or the bridge is wrong, and fix it.
 - [WIP] C6b [M] (from #686) HiDPI and fractional scale: output is always scale 1; use winit's scale factor, set

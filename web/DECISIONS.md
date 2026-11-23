@@ -7,8 +7,9 @@ A newer decision overrides an older one; add new ones at the top with the date.
 User: "didn't know I hade gtk dependencies in the first place. it's ok tho, Drop middle-click paste in the
 page and keep GTK as it is." Chromium (libcef) loads GTK at run time for desktop integration: theme, dark
 mode via prefers-color-scheme, and GTK settings such as gtk-enable-primary-paste, which GNOME ships off and
-which gates middle-click paste into pages. web keeps GTK; middle-click paste works only in the `:` and `/`
-lines (C6), not in the page. #689 closed.
+which gates middle-click paste into pages. web keeps GTK; there is no middle-click paste into the page. #689 closed.
+(Corrected 2026-11-23 after #695: the coordinator first wrote that middle-click paste works in the `:` and
+`/` lines; it was never built. Those lines paste the clipboard only: Ctrl-v, Ctrl-Shift-v, Shift-Insert.)
 
 ## 2026-11-23 Enter in NORMAL goes to the page; caret browsing as an experiment
 
