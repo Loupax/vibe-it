@@ -28,6 +28,7 @@
   // Error, cycles. Functions and DOM nodes throw DataCloneError; typed
   // arrays/ArrayBuffer are copied through slice().
   if (typeof g.structuredClone !== 'function') {
+    var GEOMKEY = Symbol.for('scratchy.structuredClone.geometry');
     def(g, 'structuredClone', function (v) {
       if (arguments.length < 1) throw new TypeError("Failed to execute 'structuredClone' on 'Window': 1 argument required, but only 0 present.");
       var seen = new Map();
@@ -36,11 +37,13 @@
         if (typeof x === 'function' || typeof x === 'symbol') throw bad(x);
         if (x === null || typeof x !== 'object') return x;
         if (seen.has(x)) return seen.get(x);
-        var r, i;
+        var r, i, gh;
         if (x instanceof Date) { r = new Date(x.getTime()); seen.set(x, r); return r; }
         if (x instanceof RegExp) { r = new RegExp(x.source, x.flags); seen.set(x, r); return r; }
         if (x instanceof Boolean || x instanceof Number || x instanceof String) { r = Object(x.valueOf()); seen.set(x, r); return r; }
         if (typeof g.Node === 'function' && x instanceof g.Node) throw bad(x);
+        gh = g[GEOMKEY]; // QGEOM2: DOMPoint/DOMRect/DOMQuad/DOMMatrix (+ read-only twins), set by the geometry prelude
+        if (typeof gh === 'function' && (r = gh(x, walk)) !== undefined) { seen.set(x, r); return r; }
         if (x instanceof Map) { r = new Map(); seen.set(x, r); x.forEach(function (val, k) { r.set(walk(k), walk(val)); }); return r; }
         if (x instanceof Set) { r = new Set(); seen.set(x, r); x.forEach(function (val) { r.add(walk(val)); }); return r; }
         if (x instanceof Error) {

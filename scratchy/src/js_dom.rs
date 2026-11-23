@@ -6819,9 +6819,8 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
   };
   ElementProto.getBoundingClientRect = function () { return gViewRect(this) || DR(0, 0, 0, 0); };
   ElementProto.getClientRects = function () {
-    var v = gViewRect(this), l = v ? [v] : [];
-    Object.defineProperty(l, 'item', { value: function (i) { return this[i] || null; } });
-    return l;
+    var v = gViewRect(this);
+    return GEOM.rectList(v ? [v] : []);
   };
   // QJ5/QJ6: scrollIntoView scrolls each scrollable ancestor (nearest first),
   // then the window; no smooth animation.
@@ -7077,9 +7076,7 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
       return out.map(function (c) { return DR(c.x - sx, c.y - sy, c.r - c.x, c.h); });
     };
     meth('getClientRects', 0, function () {
-      var l = rectsOf(st(this));
-      Object.defineProperty(l, 'item', { value: function (i) { return this[i] || null; } });
-      return l;
+      return GEOM.rectList(rectsOf(st(this)));
     });
     meth('getBoundingClientRect', 0, function () {
       var l = rectsOf(st(this));

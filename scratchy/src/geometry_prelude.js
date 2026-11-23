@@ -611,10 +611,50 @@
     return { p1: p[0].toJSON(), p2: p[1].toJSON(), p3: p[2].toJSON(), p4: p[3].toJSON() };
   });
 
+  // ---------- DOMRectList (QGEOM2): what getClientRects() returns ----------
+  // Instances are platform objects with own, read-only, enumerable index properties (an indexed getter in the IDL);
+  // the list is not an Array and not cloneable (DataCloneError).
+  var LS = store('LS');
+  var lst = function (o) { var s = (o !== null && typeof o === 'object') ? LS.get(o) : undefined; if (!s) throw illegal(); return s; };
+  var DOMRectList = ctorName('DOMRectList', 0)(function () { throw TE('Illegal constructor'); });
+  var DLp = {};
+  defClass(DOMRectList, 'DOMRectList', DLp);
+  defGetter(DLp, 'length', function () { return lst(this).a.length; });
+  defMethod(DLp, 'item', 1, function (i) {
+    var s = lst(this);
+    if (arguments.length < 1) throw TE("Failed to execute 'item' on 'DOMRectList': 1 argument required, but only 0 present.");
+    i = num(i); i = i === i && i !== Infinity && i !== -Infinity ? (i < 0 ? Math.ceil(i) : Math.floor(i)) : 0;
+    i = i >= 0 ? i % 4294967296 : (i % 4294967296 + 4294967296) % 4294967296;
+    return i < s.a.length ? s.a[i] : null;
+  });
+  Object.defineProperty(DLp, Symbol.iterator, { value: Array.prototype[Symbol.iterator], writable: true, enumerable: false, configurable: true });
+  var mkList = function (arr) {
+    var o = Object.create(DLp), i;
+    LS.set(o, { a: arr });
+    for (i = 0; i < arr.length; i++) Object.defineProperty(o, i, { value: arr[i], writable: false, enumerable: true, configurable: true });
+    return o;
+  };
+
+  // QGEOM2: structured clone (globals_prelude.js `structuredClone` asks this hook first). The state is read through
+  // the page-wide Symbol.for brand keys, so an object of another realm clones too; the copy is made with THIS
+  // realm's prototypes (the receiving realm's clone call). Returns undefined for anything that is not a geometry object.
+  var CLONE_KEY = Symbol.for('scratchy.structuredClone.geometry');
+  var cloneGeom = function (x, walk) {
+    var s;
+    if (LS.get(x)) throw new g.DOMException('DOMRectList object could not be cloned.', 'DataCloneError');
+    if ((s = PS.get(x))) return mkPoint(s.rw ? DPp : DPRp, s.rw, s.x, s.y, s.z, s.w);
+    if ((s = RS.get(x))) return mkRect(s.rw ? DRp : DRRp, s.rw, s.x, s.y, s.width, s.height);
+    if ((s = MS.get(x))) return mkMatrix(s.rw ? DMp : DMRp, s.rw, s.is2D ? M2D(s.m[0], s.m[1], s.m[4], s.m[5], s.m[12], s.m[13]) : s.m.slice(), s.is2D);
+    if ((s = QS.get(x))) return mkQuad(walk(s.p[0]), walk(s.p[1]), walk(s.p[2]), walk(s.p[3]));
+    return undefined;
+  };
+  Object.defineProperty(g, CLONE_KEY, { value: cloneGeom, configurable: true });
+
   Object.defineProperty(g, '__scratchy_geom', { value: {
     rect: function (x, y, w, h) { return mkRect(DRp, true, x, y, w, h); },
     rectRO: function (x, y, w, h) { return mkRect(DRRp, false, x, y, w, h); },
     matrix2d: function (a, b, c, d, e, f) { return mkMatrix(DMp, true, M2D(a, b, c, d, e, f), true); },
+    rectList: mkList,
     fixup2D: fixup2D, dict: dict
   }, configurable: true });
 })(globalThis);
