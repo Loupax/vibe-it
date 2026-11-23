@@ -160,8 +160,12 @@ stop early on a hard failure.
 - [ ] C3-SHIFTSYNC [S] (from #677; with C-FOCUSKEYS) The shell learns held modifiers only from key events: a
       modifier held when the window gains focus, or set by wl_keyboard.modifiers alone, is not seen. Done
       when Shift held across a focus change, or set by modifiers alone, still types `:` and `G`.
-- [ ] C3-RCLICK [XS] NEEDS USER (from #677) A right-click context menu also switches to INPUT (T29's popup
-      rule). Keep, or only selects/fields?
+- [ ] C3-RCLICK [XS] (user, 2026-11-23: keep INPUT while a popup is open, then return) A popup opened by a
+      user click (context menu, select dropdown) switches to INPUT as today (T29); when that popup closes
+      (option picked, Esc, click outside) the shell returns to the mode it had before, unless the host
+      reported `editable-focused true` for that click (a field got focus: stay INPUT). Add the row to
+      KEYS.md's transition table, a test named after it, and a live check (right-click -> Copy link
+      address -> back in NORMAL; select an option -> back in NORMAL; right-click in a field -> stays INPUT).
 - [ ] C-KEYH [S] (from #672) The cef crate's KeyboardHandler wrapper treats `os_event` as an XEvent and
       segfaults the host on Wayland. Needed if C3 wants key events from the host; fix or work around
       upstream/in a local patch when that comes up.

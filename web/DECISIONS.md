@@ -2,6 +2,13 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-23 Popups return to the previous mode
+
+User, on C3's rule that a click opening a popup (context menu, select dropdown) switches to INPUT: "I
+think it makes sense as UX, but what do you think about switching back to the previous mode after
+clicking an option?" Agreed: INPUT while the popup is open, back to the previous mode when it closes,
+unless the click focused an editable field. Item C3-RCLICK.
+
 ## 2026-11-23 forget-site uses DevTools Storage.clearDataForOrigin
 
 User (on #670): "no need for hacks, use Storage.clearDataForOrigin. Make sure that's done in an
