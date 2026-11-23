@@ -9673,3 +9673,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       observers, event-handler-all-global-events; no regressions in a trial run). Full `--wpt-th`, record, `--areas-only`,
       5 stability runs of the idlharness files (big ones like dom/idlharness may be slow or flaky: budgets.txt or flaky.txt
       with reasons); report the CI shard times.
+
+=== from TODO.txt: --- (no header)
+- [x] QCNV10 DONE 423be6a #639 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+      (QCNV2)"); Sonnet; in order after the items above) Linear, radial and conic gradients. 107 files.

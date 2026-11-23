@@ -174,8 +174,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QCNV3b [S] (P3, from QCNV3 #619; Sonnet) Canvas/colour leftovers: `calc()` inside relative colours; reset.2dstate
       for lineCap/shadowBlur and similar state; missing-argument TypeErrors for the remaining context methods
       (2d.conformance.requirements.missingargs, from QCNV9 #636); colour objects (CSSRGB/CSSHSL) wait for Typed OM.
-- [ ] [WIP] QCNV10 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
-      (QCNV2)"); Sonnet; in order after the items above) Linear, radial and conic gradients. 107 files.
 - [ ] QCNV10b [S] (P3, from QCNV10 #639; Sonnet; canvas.rs) Gradients are evaluated per pixel per fill/stroke with no
       cache: measure a page that fills a large canvas with gradients every frame and cache the layer if slow;
       2d.gradient.colormix / relativecolor expect a different interpolation than plain sRGB (find out which).
