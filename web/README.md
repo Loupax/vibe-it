@@ -33,3 +33,24 @@ Architecture C (DECISIONS.md, TODO.txt C1-C8):
 - `DECISIONS.md`: what has been decided and why.
 - `TODO.txt`: the plan (C1-C8, E1) and the spike record (W1-W7), each step with a check that ends it.
 - `PROMPTS.md`: the exact prompts that produced this project, in order.
+
+## Install and uninstall
+
+    web/install.sh [--prefix DIR] [--no-build]     # default prefix ~/.local, no root
+
+Builds web/shell and web/host-cef in release mode (`nice -n 19 ionice -c3`; the CEF
+download is cached under `$HOME/.cache/web-spike/cef`, see `host-cef/README.md`) and installs
+`PREFIX/lib/web/<version>/` (web, web-host-cef and CEF's runtime files together),
+`PREFIX/lib/web/current` (symlink to the newest version) and `PREFIX/bin/web` (symlink to
+`../lib/web/current/web`). `web` finds `web-host-cef` next to its real executable, so no wrapper or
+environment variable is needed. A reinstall writes a new version dir and switches `current`
+atomically, so a running `web` keeps working; the last two versions are kept.
+`WEB_BUILD_DIR=DIR` puts the cargo target dirs somewhere else (they are ~2 GB). The
+coordinator runs it through `coordinator/ci_then_push.sh --install web`. Then:
+
+    web https://example.com
+
+Uninstall (state lives apart, in `~/.local/state/web`, and is kept unless you remove it):
+
+    rm -f ~/.local/bin/web && rm -rf ~/.local/lib/web
+    rm -rf ~/.local/state/web      # optional: profile, history, cookies

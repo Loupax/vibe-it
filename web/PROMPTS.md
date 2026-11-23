@@ -309,3 +309,19 @@ preference). `test/cookies.py` (two runs, default and the flag as control, over 
 because third-party cookies need `SameSite=None; Secure`) passes: nothing crosses, top
 level keeps its cookies, CHIPS and localStorage stay per top-level site. Docs:
 PROTOCOL.md "Third-party cookies off", STASH.md "Cookies", host-cef/README.
+
+## C-INSTALL make web installable (2026-11-23)
+
+> (user, via the coordinator) Make `web` installable for daily use, so `web https://example.com`
+> works as an ordinary command. An install script (no root) builds web/shell and web/host-cef in
+> release mode and installs the host and CEF runtime into one directory under a prefix (default
+> ~/.local) and `web` into ~/.local/bin, atomically enough that a running web is not broken
+> mid-copy. `coordinator/ci_then_push.sh --install web` calls it; uninstall instructions in
+> web/README.md. Test in the headless nest with a prefix under .qwork/, never the real ~/.local.
+
+**What changed:** `web/install.sh` installs into `PREFIX/lib/web/<version>/` (web, web-host-cef,
+CEF runtime) and switches `lib/web/current` and `bin/web` (a symlink) atomically; no shell change
+(the shell already finds `web-host-cef` next to its resolved executable). `ci_then_push.sh
+--install web` and COORDINATOR_PROMPT.md updated. Checked: drive.py against the installed host
+passes (19/19 events), and `web https://example.com` from PATH in the headless nest loads the page
+(load end 200, grim screenshot).

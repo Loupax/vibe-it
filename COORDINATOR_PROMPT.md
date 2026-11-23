@@ -70,8 +70,8 @@ items. Ask me in chat only when I ask for a status report.
   - Act on the result only after the log shows `MERGED <sha>` and exit 0. A failed merge
     leaves the branch, worktree and TODO entry alone: deleting the branch closes the PR.
   - Then pull and run `coordinator/ci_then_push.sh --install <crate>`: `scratchy` (the
-    default) or `wire` for PRs that change them, `none` when nothing installable changed
-    (docs, web until it has an installable crate). Delete the branch, remove the
+    default), `wire` or `web` (runs web/install.sh into ~/.local) for PRs that change them, `none` when nothing installable changed
+    (docs; for web: only when web/shell, web/host-cef or web/install.sh changed). Delete the branch, remove the
     worktree, and post a one-line status.
 - After EVERY merged PR, update coordinator/report/progress.html and republish it to
   https://claude.ai/artifact/DZKa6yP3SWAXhvivRTi1QH (read the artifact by URL first in a
