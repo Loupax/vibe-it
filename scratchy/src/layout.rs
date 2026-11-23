@@ -4295,13 +4295,18 @@ fn natural_width_impl(
     // intrinsic-size cache (keyed by `bver`); a complete result is stored.
     let el = ENG_ON.with(Cell::get) && cell.style.node != 0 && cell.style.pseudo == 0;
     if el {
-        if let Some(v) = crate::incr_layout::nat_get(cell.style.node, as_child) {
-            return v;
+        // QINC2: a hit consumes the paragraph ids the computation does, so the ids of everything after
+        // it do not depend on which tick stored the result (an incomplete tick never stores): the
+        // shape cache is keyed by id and lives across the worker's ticks.
+        if let Some((min, max, ids)) = crate::incr_layout::nat_get(cell.style.node, as_child) {
+            *next_id += ids;
+            return (min, max);
         }
         let was = *incomplete;
+        let first = *next_id;
         let v = natural_width_body(cell, font_system, next_id, cache, deadline, incomplete, as_child);
         if !was && !*incomplete {
-            crate::incr_layout::nat_put(cell.style.node, as_child, v);
+            crate::incr_layout::nat_put(cell.style.node, as_child, v, *next_id - first);
         }
         return v;
     }

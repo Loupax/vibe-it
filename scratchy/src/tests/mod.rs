@@ -99,6 +99,7 @@ mod qel7_tests;
 mod qdom15_tests;
 mod qdom6b_tests;
 mod qapi1_tests;
+mod qinc2_tests;
 mod qdom16_tests;
 mod qdom17_tests;
 mod qdom19_tests;
