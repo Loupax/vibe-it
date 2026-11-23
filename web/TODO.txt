@@ -78,7 +78,7 @@ stop early on a hard failure.
       host find sessions fixed; c5_live.py 12/12) Search (KEYS.md "Search", web notes): `/`, `n`/`N`, Esc, the messages, through
       the host's `find`. Enter on a match (S7, T18-T19) is its own item after this one.
 
-- [ ] C6 Desktop integration: clipboard and primary selection bridged between the engine
+- [WIP] C6 Desktop integration: clipboard and primary selection bridged between the engine
       host and the host desktop (then `@+`, `yy`, paste into the page); HiDPI and
       fractional scale; frame timing (video and scrolling smooth); dmabuf so frames are
       not copied through the CPU; text input methods (IME) if needed. Drag and drop from
@@ -171,7 +171,8 @@ stop early on a hard failure.
 - [ ] C3-SHIFTSYNC [S] (from #677; with C-FOCUSKEYS) The shell learns held modifiers only from key events: a
       modifier held when the window gains focus, or set by wl_keyboard.modifiers alone, is not seen. Done
       when Shift held across a focus change, or set by modifiers alone, still types `:` and `G`.
-- [WIP] C3-RCLICK [XS] (user, 2026-11-23: keep INPUT while a popup is open, then return)
+- [x] C3-RCLICK [XS] (DONE 2026-11-23, 1068028, #681: T57 popups return to the previous mode; T29/T32 rewritten:
+      editable focus always enters INPUT; live 8/8 with selects) (user, 2026-11-23: keep INPUT while a popup is open, then return)
       + (user, 2026-11-23, DECISIONS "Focusing an editable switches to INPUT") any editable focus -> INPUT,
       script focus included (reverses T32); blur never changes the mode. A popup opened by a
       user click (context menu, select dropdown) switches to INPUT as today (T29); when that popup closes
@@ -179,7 +180,8 @@ stop early on a hard failure.
       reported `editable-focused true` for that click (a field got focus: stay INPUT). Add the row to
       KEYS.md's transition table, a test named after it, and a live check (right-click -> Copy link
       address -> back in NORMAL; select an option -> back in NORMAL; right-click in a field -> stays INPUT).
-- [ ] C5-ENTER [S] (NEXT web/shell slot; user 2026-11-23, DECISIONS "Search places the pointer, Enter clicks")
+- [ ] C5-ENTER [S] WAITING FOR USER (2026-11-23: user unsure about moving the real pointer, prefers caret
+      browsing, a text cursor in the page; design with QCURSOR-D first). Was: (user 2026-11-23, DECISIONS "Search places the pointer, Enter clicks")
       `/`+Enter, `n` and `N` move the mouse pointer (a real pointer motion from the compositor) to the start
       of the current match (left edge of its first character, vertically centred). Enter in NORMAL sends a
       real click (press/release) at the pointer's position, wherever it is. Rewrite KEYS.md S7 and T18-T20
@@ -189,6 +191,8 @@ stop early on a hard failure.
       falls out. Done when tests named after the new rows pass and a live check `/`-finds a link, `n`s to a
       second one, presses Enter and lands on that link's target; and Enter with the pointer moved by the
       mouse clicks there.
+- [ ] C3-LIVE-REFRESH [XS] (from #681) web/shell/test/c3_live.py is stale since C5 (`/` opens SEARCH): steps
+      from "T7 T8" on fail. Update it so its 19 steps pass again.
 - [ ] C5b [S] (from #679; shares the rectangle mechanism with C7 and S7) Exact T23: first current match = first
       whose top is at/below the top of the screen (CEF picks its own, e.g. one above the screen). Needs a
       host `find-matches` event (one rect per match + scroll offset) or a way to start CEF's find at the
