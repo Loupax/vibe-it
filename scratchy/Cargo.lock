@@ -2615,6 +2615,7 @@ dependencies = [
  "rustix 1.1.6",
  "selectors",
  "softbuffer",
+ "svgtypes",
  "sys-locale",
  "tiny-skia 0.12.0",
  "url",

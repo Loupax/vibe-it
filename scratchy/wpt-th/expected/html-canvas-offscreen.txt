@@ -755,8 +755,7 @@ OK           1/1  html/canvas/offscreen/line-styles/2d.line.join.invalid.html
 OK           1/1  html/canvas/offscreen/line-styles/2d.line.join.miter.html
 OK           1/1  html/canvas/offscreen/line-styles/2d.line.join.open.html
 OK           1/1  html/canvas/offscreen/line-styles/2d.line.join.parallel.html
-OK           0/1  html/canvas/offscreen/line-styles/2d.line.join.round.html
-  FAIL      lineJoin 'round' is rendered correctly
+OK           1/1  html/canvas/offscreen/line-styles/2d.line.join.round.html
 OK           1/1  html/canvas/offscreen/line-styles/2d.line.join.valid.html
 OK           1/1  html/canvas/offscreen/line-styles/2d.line.miter.acute.html
 OK           1/1  html/canvas/offscreen/line-styles/2d.line.miter.exceeded.html
@@ -923,8 +922,7 @@ OK           1/1  html/canvas/offscreen/path-objects/2d.path.arc.angle.6.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.arc.default.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.arc.empty.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.arc.end.html
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.arc.negative.html
-  FAIL      arc() with negative radius throws INDEX_SIZE_ERR
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.arc.negative.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.arc.nonempty.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.arc.nonfinite.html
 OK           0/1  html/canvas/offscreen/path-objects/2d.path.arc.scale.1.html
@@ -954,8 +952,7 @@ OK           1/1  html/canvas/offscreen/path-objects/2d.path.arcTo.collinear.3.h
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.arcTo.ensuresubpath.1.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.arcTo.ensuresubpath.2.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.arcTo.ensuresubpath.3.html
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.arcTo.negative.html
-  FAIL      arcTo() with negative radius throws an exception
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.arcTo.negative.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.arcTo.nonfinite.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.arcTo.scale.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.arcTo.shape.curve1.html
@@ -980,8 +977,7 @@ OK           1/1  html/canvas/offscreen/path-objects/2d.path.clip.unaffected.htm
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.clip.winding.1.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.clip.winding.2.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.clip.winding.evenodd.1.html
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.clip.winding.evenodd.2.html
-  FAIL      evenodd winding number rule works in clip
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.clip.winding.evenodd.2.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.closePath.empty.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.closePath.newline.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.closePath.nextpoint.html
@@ -992,68 +988,39 @@ OK           1/1  html/canvas/offscreen/path-objects/2d.path.fill.closed.unaffec
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.fill.overlap.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.fill.winding.add.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.fill.winding.evenodd.1.html
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.fill.winding.evenodd.2.html
-  FAIL      evenodd winding number rule works in fill
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.fill.winding.evenodd.2.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.fill.winding.subtract.1.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.fill.winding.subtract.2.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.fill.winding.subtract.3.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.initial.html
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.arc.html
-  FAIL      isPointInPath() works on arcs
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.basic.1.html
-  FAIL      isPointInPath() detects whether the point is inside the path
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.basic.2.html
-  FAIL      isPointInPath() detects whether the point is inside the path
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.basic.html
-  FAIL      Verify the winding rule in isPointInPath works for for rect path.
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.bezier.html
-  FAIL      isPointInPath() works on Bezier curves
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.bigarc.html
-  FAIL      isPointInPath() works on unclosed arcs larger than 2pi
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.edge.html
-  FAIL      isPointInPath() counts points on the path as being inside
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.empty.html
-  FAIL      isPointInPath() works when there is no path
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.nobitmap.html
-  FAIL      isPointInPath() works on a canvas with no bitmap
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.nobitmap.path2d.html
-  FAIL      isPointInPath(path) works on a canvas with no bitmap
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.nobitmap.transform.html
-  FAIL      The transformation matrix mutators apply on a canvas with no bitmap
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.nobitmap.winding.html
-  FAIL      isPointInPath() honours the fill rule on a canvas with no bitmap
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.nonfinite.html
-  FAIL      isPointInPath() returns false for non-finite arguments
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.outside.html
-  FAIL      isPointInPath() works on paths outside the canvas
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.subpath.html
-  FAIL      isPointInPath() uses the current path, not just the subpath
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.transform.1.html
-  FAIL      isPointInPath() handles transformations correctly
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.transform.2.html
-  FAIL      isPointInPath() handles transformations correctly
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.transform.3.html
-  FAIL      isPointInPath() handles transformations correctly
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.transform.4.html
-  FAIL      isPointInPath() handles transformations correctly
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.unclosed.html
-  FAIL      isPointInPath() works on unclosed subpaths
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.winding.html
-  FAIL      isPointInPath() uses the non-zero winding number rule
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInStroke.basic.html
-  FAIL      detects whether point is in the area contained by the stroke of the path
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInStroke.nobitmap.html
-  FAIL      isPointInStroke() works on a canvas with no bitmap
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInStroke.nobitmap.path2d.html
-  FAIL      isPointInStroke(path) works on a canvas with no bitmap
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInStroke.nobitmap.transform.html
-  FAIL      isPointInStroke() honours the transformation matrix on a canvas with no bitmap
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInStroke.scaleddashes.html
-  FAIL      isPointInStroke() should return correct results on dashed paths at high scale factors
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInpath.invalid.html
-  FAIL      Verify isPointInPath throws exceptions with invalid inputs.
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.isPointInpath.multi.path.html
-  FAIL      Verify the winding rule in isPointInPath works for path object.
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.arc.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.basic.1.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.basic.2.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.basic.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.bezier.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.bigarc.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.edge.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.empty.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.nobitmap.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.nobitmap.path2d.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.nobitmap.transform.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.nobitmap.winding.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.nonfinite.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.outside.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.subpath.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.transform.1.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.transform.2.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.transform.3.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.transform.4.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.unclosed.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.isPointInPath.winding.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.isPointInStroke.basic.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.isPointInStroke.nobitmap.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.isPointInStroke.nobitmap.path2d.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.isPointInStroke.nobitmap.transform.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.isPointInStroke.scaleddashes.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.isPointInpath.invalid.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.isPointInpath.multi.path.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.lineTo.basic.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.lineTo.ensuresubpath.1.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.lineTo.ensuresubpath.2.html

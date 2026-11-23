@@ -88,8 +88,9 @@ enum Seg {
     Close,
 }
 
-/// The current default path: segments plus whether it has a subpath yet.
-#[derive(Default)]
+/// The current default path: segments plus whether it has a subpath yet. A `Path2D` (QCNV9) is the same type in
+/// USER space (built with the identity matrix); drawing it maps a copy through the CTM ([`PathData::transformed`]).
+#[derive(Default, Clone)]
 struct PathData {
     segs: Vec<Seg>,
 }
@@ -97,7 +98,9 @@ struct PathData {
 impl PathData {
     /// The point `(x, y)` after the CTM.
     fn map(m: &[f64; 6], x: f64, y: f64) -> (f64, f64) {
-        (m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5])
+        // Clamped so an extreme scale (Number.MAX_VALUE) keeps finite device coordinates instead of infinities.
+        let f = |v: f64| v.clamp(-1e30, 1e30);
+        (f(m[0] * x + m[2] * y + m[4]), f(m[1] * x + m[3] * y + m[5]))
     }
     fn move_to(&mut self, m: &[f64; 6], x: f64, y: f64) {
         let (x, y) = Self::map(m, x, y);
@@ -128,6 +131,137 @@ impl PathData {
         self.line_to(m, x + w, y + h);
         self.line_to(m, x, y + h);
         self.close();
+    }
+    /// QCNV9: a copy with every point mapped by `m`.
+    fn transformed(&self, m: &[f64; 6]) -> PathData {
+        let f = |x: f64, y: f64| Self::map(m, x, y);
+        let segs = self
+            .segs
+            .iter()
+            .map(|s| match *s {
+                Seg::Move(x, y) => {
+                    let p = f(x, y);
+                    Seg::Move(p.0, p.1)
+                }
+                Seg::Line(x, y) => {
+                    let p = f(x, y);
+                    Seg::Line(p.0, p.1)
+                }
+                Seg::Quad(a, b, x, y) => {
+                    let (c, p) = (f(a, b), f(x, y));
+                    Seg::Quad(c.0, c.1, p.0, p.1)
+                }
+                Seg::Cubic(a, b, c, d, x, y) => {
+                    let (c1, c2, p) = (f(a, b), f(c, d), f(x, y));
+                    Seg::Cubic(c1.0, c1.1, c2.0, c2.1, p.0, p.1)
+                }
+                Seg::Close => Seg::Close,
+            })
+            .collect();
+        PathData { segs }
+    }
+    /// QCNV9: `new Path2D("M 10 10 L ...")`: SVG path data through svgtypes' simplifying parser (absolute M/L/Q/C/Z;
+    /// arcs become cubics). A syntax error keeps the segments before it, as the spec says.
+    fn from_svg(d: &str) -> PathData {
+        use svgtypes::SimplePathSegment as S;
+        let mut p = PathData::default();
+        for seg in svgtypes::SimplifyingPathParser::from(d) {
+            let Ok(seg) = seg else { break };
+            match seg {
+                S::MoveTo { x, y } => p.segs.push(Seg::Move(x, y)),
+                S::LineTo { x, y } => p.segs.push(Seg::Line(x, y)),
+                S::Quadratic { x1, y1, x, y } => p.segs.push(Seg::Quad(x1, y1, x, y)),
+                S::CurveTo { x1, y1, x2, y2, x, y } => p.segs.push(Seg::Cubic(x1, y1, x2, y2, x, y)),
+                S::ClosePath => p.close(),
+            }
+        }
+        p
+    }
+    /// QCNV9: the segments of a tiny-skia path.
+    fn from_path(path: &tiny_skia::Path) -> PathData {
+        use tiny_skia::PathSegment as P;
+        let mut p = PathData::default();
+        for s in path.segments() {
+            let f = |q: tiny_skia::Point| (f64::from(q.x), f64::from(q.y));
+            p.segs.push(match s {
+                P::MoveTo(a) => Seg::Move(f(a).0, f(a).1),
+                P::LineTo(a) => Seg::Line(f(a).0, f(a).1),
+                P::QuadTo(a, b) => Seg::Quad(f(a).0, f(a).1, f(b).0, f(b).1),
+                P::CubicTo(a, b, c) => Seg::Cubic(f(a).0, f(a).1, f(b).0, f(b).1, f(c).0, f(c).1),
+                P::Close => Seg::Close,
+            });
+        }
+        p
+    }
+    /// QCNV9: is `(px, py)` inside the filled path (every subpath implicitly closed)? Points ON an edge count as
+    /// inside. Curves are flattened to 40 steps each.
+    fn contains(&self, px: f64, py: f64, evenodd: bool) -> bool {
+        let mut winding = 0i32;
+        let mut on_edge = false;
+        let mut start = (0.0, 0.0);
+        let mut cur = (0.0, 0.0);
+        let mut open = false;
+        let mut edge = |a: (f64, f64), b: (f64, f64), winding: &mut i32| {
+            // On the segment (within a tiny tolerance)?
+            let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+            let len2 = dx * dx + dy * dy;
+            let t = if len2 == 0.0 { 0.0 } else { (((px - a.0) * dx + (py - a.1) * dy) / len2).clamp(0.0, 1.0) };
+            let (qx, qy) = (a.0 + t * dx - px, a.1 + t * dy - py);
+            if qx * qx + qy * qy < 1e-18 {
+                on_edge = true;
+            }
+            if (a.1 <= py) != (b.1 <= py) {
+                let x = a.0 + (py - a.1) / (b.1 - a.1) * dx;
+                if x > px {
+                    *winding += if b.1 > a.1 { 1 } else { -1 };
+                }
+            }
+        };
+        for s in &self.segs {
+            match *s {
+                Seg::Move(x, y) => {
+                    if open {
+                        edge(cur, start, &mut winding);
+                    }
+                    start = (x, y);
+                    cur = start;
+                    open = true;
+                }
+                Seg::Line(x, y) => {
+                    edge(cur, (x, y), &mut winding);
+                    cur = (x, y);
+                }
+                Seg::Quad(a, b, x, y) => {
+                    let p0 = cur;
+                    for i in 1..=40 {
+                        let t = f64::from(i) / 40.0;
+                        let u = 1.0 - t;
+                        let q = (u * u * p0.0 + 2.0 * u * t * a + t * t * x, u * u * p0.1 + 2.0 * u * t * b + t * t * y);
+                        edge(cur, q, &mut winding);
+                        cur = q;
+                    }
+                }
+                Seg::Cubic(a, b, c, d, x, y) => {
+                    let p0 = cur;
+                    for i in 1..=40 {
+                        let t = f64::from(i) / 40.0;
+                        let u = 1.0 - t;
+                        let (w0, w1, w2, w3) = (u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t);
+                        let q = (w0 * p0.0 + w1 * a + w2 * c + w3 * x, w0 * p0.1 + w1 * b + w2 * d + w3 * y);
+                        edge(cur, q, &mut winding);
+                        cur = q;
+                    }
+                }
+                Seg::Close => {
+                    edge(cur, start, &mut winding);
+                    cur = start;
+                }
+            }
+        }
+        if open {
+            edge(cur, start, &mut winding);
+        }
+        on_edge || if evenodd { winding % 2 != 0 } else { winding != 0 }
     }
     /// The tiny-skia path in device space (None when it has no drawable segment).
     fn build(&self) -> Option<tiny_skia::Path> {
@@ -222,12 +356,22 @@ impl PathData {
             let (px, py) = (rx * t.cos(), ry * t.sin());
             (x + cr * px - sr * py, y + sr * px + cr * py)
         };
+        // As Chrome's AdjustEndAngle: a clockwise arc from a larger to a smaller angle that differ by an exact
+        // multiple of 2pi is a full circle (2d.path.isPointInStroke.scaleddashes: ellipse(.., 2*PI, false)).
         let sweep = if !ccw {
-            if end - start >= 2.0 * PI { 2.0 * PI } else { (end - start).rem_euclid(2.0 * PI) }
+            if end - start >= 2.0 * PI {
+                2.0 * PI
+            } else if start > end {
+                2.0 * PI - (start - end) % (2.0 * PI)
+            } else {
+                end - start
+            }
         } else if start - end >= 2.0 * PI {
             -2.0 * PI
+        } else if start < end {
+            -(2.0 * PI - (end - start) % (2.0 * PI))
         } else {
-            -(start - end).rem_euclid(2.0 * PI)
+            end - start
         };
         let p0 = pt(start);
         self.line_to(m, p0.0, p0.1);
@@ -449,6 +593,27 @@ impl Registry {
     }
 }
 
+/// QCNV9: the `Path2D` objects by id.
+#[derive(Default)]
+struct P2Registry {
+    next: u32,
+    map: HashMap<u32, PathData>,
+}
+
+impl P2Registry {
+    fn add(&mut self, p: PathData) -> u32 {
+        self.next += 1;
+        self.map.insert(self.next, p);
+        self.next
+    }
+}
+
+static PATH2D: OnceLock<Mutex<P2Registry>> = OnceLock::new();
+
+fn p2() -> std::sync::MutexGuard<'static, P2Registry> {
+    PATH2D.get_or_init(|| Mutex::new(P2Registry::default())).lock().unwrap_or_else(|e| e.into_inner())
+}
+
 fn map() -> std::sync::MutexGuard<'static, Registry> {
     CANVASES.get_or_init(|| Mutex::new(Registry::default())).lock().unwrap_or_else(|e| e.into_inner())
 }
@@ -627,26 +792,34 @@ fn draw(c: &mut Canvas, op: i32, a: &[f64]) {
 /// QCNV6: `op` 0 beginPath, 1 moveTo, 2 lineTo, 3 closePath, 4 rect (`a` = the arguments, all finite).
 fn path_op(c: &mut Canvas, op: i32, a: &[f64]) {
     let m = c.state.ctm;
+    path_op_on(&mut c.path, &m, op, a);
+}
+
+/// `path_op` on any path with the matrix `m` (QCNV9: a `Path2D` uses the identity).
+fn path_op_on(path: &mut PathData, m: &[f64; 6], op: i32, a: &[f64]) {
+    let m = *m;
     match (op, a) {
-        (0, _) => c.path.segs.clear(),
-        (1, [x, y]) => c.path.move_to(&m, *x, *y),
-        (2, [x, y]) => c.path.line_to(&m, *x, *y),
-        (3, _) => c.path.close(),
-        (4, [x, y, w, h]) => c.path.rect(&m, *x, *y, *w, *h),
+        (0, _) => path.segs.clear(),
+        (1, [x, y]) => path.move_to(&m, *x, *y),
+        (2, [x, y]) => path.line_to(&m, *x, *y),
+        (3, _) => path.close(),
+        (4, [x, y, w, h]) => path.rect(&m, *x, *y, *w, *h),
         // QCNV7: quadraticCurveTo, bezierCurveTo, arc/ellipse (rx, ry, rotation, start, end, ccw), arcTo, roundRect.
-        (5, [cx, cy, x, y]) => c.path.quad(&m, *cx, *cy, *x, *y),
-        (6, [a, b, cc, d, x, y]) => c.path.cubic(&m, (*a, *b), (*cc, *d), (*x, *y)),
-        (7, [x, y, rx, ry, rot, s, e, ccw]) => c.path.ellipse(&m, *x, *y, *rx, *ry, *rot, *s, *e, *ccw != 0.0),
-        (8, [x1, y1, x2, y2, r]) => c.path.arc_to(&m, *x1, *y1, *x2, *y2, *r),
-        (9, [x, y, w, h, r @ ..]) if r.len() == 8 => c.path.round_rect(&m, *x, *y, *w, *h, r),
+        (5, [cx, cy, x, y]) => path.quad(&m, *cx, *cy, *x, *y),
+        (6, [a, b, cc, d, x, y]) => path.cubic(&m, (*a, *b), (*cc, *d), (*x, *y)),
+        (7, [x, y, rx, ry, rot, s, e, ccw]) => path.ellipse(&m, *x, *y, *rx, *ry, *rot, *s, *e, *ccw != 0.0),
+        (8, [x1, y1, x2, y2, r]) => path.arc_to(&m, *x1, *y1, *x2, *y2, *r),
+        (9, [x, y, w, h, r @ ..]) if r.len() == 8 => path.round_rect(&m, *x, *y, *w, *h, r),
         _ => {}
     }
 }
 
 /// QCNV6: `op` 0 fill, 1 stroke, 2 clip; `evenodd` picks the fill rule (fill and clip).
-fn paint_path(c: &mut Canvas, op: i32, evenodd: bool) {
+/// QCNV9: `over` is a `Path2D` already mapped to device space (None = the current default path).
+fn paint_path(c: &mut Canvas, op: i32, evenodd: bool, over: Option<&PathData>) {
     let rule = if evenodd { FillRule::EvenOdd } else { FillRule::Winding };
-    let path = if op == 1 { c.path.build_pruned() } else { c.path.build() };
+    let src = over.unwrap_or(&c.path);
+    let path = if op == 1 { src.build_pruned() } else { src.build() };
     let (w, h) = (c.w, c.h);
     if op == 2 {
         // The region is replaced by its intersection with the path (an empty path clips everything away).
@@ -676,6 +849,43 @@ fn paint_path(c: &mut Canvas, op: i32, evenodd: bool) {
         let stroke = stroke_of(&c.state);
         px.stroke_path(&user, &paint_of(c.state.stroke.rgba, c.state.alpha), &stroke, transform_of(&c.state.ctm), mask);
     }
+}
+
+/// QCNV9: isPointInPath (`stroke` false) / isPointInStroke. `(x, y)` is a point of the CANVAS (device space, not
+/// affected by the CTM); `over` is a `Path2D` in user space (None = the default path, which is stored in device space).
+fn point_in(c: &Canvas, stroke: bool, x: f64, y: f64, evenodd: bool, over: Option<&PathData>) -> bool {
+    if !(x.is_finite() && y.is_finite()) {
+        return false;
+    }
+    let ctm = c.state.ctm;
+    if ctm[0] * ctm[3] - ctm[1] * ctm[2] == 0.0 {
+        return false;
+    }
+    if !stroke {
+        return match over {
+            Some(p) => p.transformed(&ctm).contains(x, y, evenodd),
+            None => c.path.contains(x, y, evenodd),
+        };
+    }
+    let Some(inv) = invert(&ctm) else { return false };
+    let user = match over {
+        Some(p) => p.clone(),
+        None => c.path.transformed(&inv),
+    };
+    let (ux, uy) = PathData::map(&inv, x, y);
+    let Some(path) = user.build_pruned() else { return false };
+    let pen = stroke_of(&c.state);
+    // The pen is in user space, the CTM scales it: flatten curves for the device resolution.
+    let res = ctm[0].hypot(ctm[1]).max(ctm[2].hypot(ctm[3])).clamp(1.0, 1e6) as f32;
+    let path = match &pen.dash {
+        Some(d) => match path.dash(d, res) {
+            Some(p) => p,
+            None => return false,
+        },
+        None => path,
+    };
+    let Some(outline) = path.stroke(&pen, res) else { return false };
+    PathData::from_path(&outline).contains(ux, uy, false)
 }
 
 /// Straight RGBA of the `w` x `h` rect at `(x, y)` (may reach outside the bitmap: transparent black there).
@@ -781,12 +991,53 @@ pub(crate) fn register(ctx: &Ctx<'_>, table: Rc<RefCell<DomTable>>) {
     });
     native!(ctx, "__cv_paint", move |cid: i32, op: i32, evenodd: bool| {
         if let Some(c) = map().get_mut(cid as u32) {
-            paint_path(c, op, evenodd);
+            paint_path(c, op, evenodd, None);
             c.image = None;
             if op != 2 {
                 mark(c.node);
             }
         }
+    });
+    // QCNV9: Path2D objects live here in user space, by id (`__p2_free` when the JS object is collected).
+    native!(ctx, "__p2_new", move |d: String| -> i32 { p2().add(PathData::from_svg(&d)) as i32 });
+    native!(ctx, "__p2_copy", move |id: i32| -> i32 {
+        let mut r = p2();
+        let c = r.map.get(&(id as u32)).cloned().unwrap_or_default();
+        r.add(c) as i32
+    });
+    native!(ctx, "__p2_free", move |id: i32| {
+        p2().map.remove(&(id as u32));
+    });
+    native!(ctx, "__p2_op", move |id: i32, op: i32, a: Vec<f64>| {
+        if let Some(p) = p2().map.get_mut(&(id as u32)) {
+            path_op_on(p, &IDENTITY, op, &a);
+        }
+    });
+    // addPath: the other path's segments mapped by `m` (a..f) and appended.
+    native!(ctx, "__p2_add", move |id: i32, other: i32, m: Vec<f64>| {
+        let Ok(m) = <[f64; 6]>::try_from(m) else { return };
+        let mut r = p2();
+        let Some(o) = r.map.get(&(other as u32)).map(|o| o.transformed(&m)) else { return };
+        if let Some(p) = r.map.get_mut(&(id as u32)) {
+            p.segs.extend(o.segs);
+        }
+    });
+    // fill/stroke/clip of a Path2D (`op` as __cv_paint): a copy mapped through the CTM.
+    native!(ctx, "__cv_paint_p", move |cid: i32, op: i32, evenodd: bool, pid: i32| {
+        let Some(user) = p2().map.get(&(pid as u32)).cloned() else { return };
+        if let Some(c) = map().get_mut(cid as u32) {
+            let dev = user.transformed(&c.state.ctm);
+            paint_path(c, op, evenodd, Some(&dev));
+            c.image = None;
+            if op != 2 {
+                mark(c.node);
+            }
+        }
+    });
+    // isPointInPath (`stroke` false) / isPointInStroke; `pid` 0 = the default path.
+    native!(ctx, "__cv_hit", move |cid: i32, stroke: bool, x: f64, y: f64, evenodd: bool, pid: i32| -> bool {
+        let user = if pid == 0 { None } else { Some(p2().map.get(&(pid as u32)).cloned().unwrap_or_default()) };
+        map().get(cid as u32).is_some_and(|c| point_in(c, stroke, x, y, evenodd, user.as_ref()))
     });
     // which: 0 fillStyle, 1 strokeStyle, 2 shadowColor. `cur` is the element's computed colour (only read when the
     // string needs it). Returns false when `s` is not a colour (the attribute keeps its value).

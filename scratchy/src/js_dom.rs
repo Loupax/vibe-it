@@ -3136,8 +3136,8 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
   var meth = function (name, fn) {
     Object.defineProperty(CtxProto, name, { value: fn, writable: true, enumerable: true, configurable: true });
   };
-  var cvArgs = function (name, n, a) {
-    if (a.length < n) throw new TypeError("Failed to execute '" + name + "' on 'CanvasRenderingContext2D': " + n + " arguments required, but only " + a.length + " present.");
+  var cvArgs = function (name, n, a, iface) {
+    if (a.length < n) throw new TypeError("Failed to execute '" + name + "' on '" + (iface || 'CanvasRenderingContext2D') + "': " + n + " arguments required, but only " + a.length + " present.");
     var o = [];
     for (var i = 0; i < n; i++) o.push(Number(a[i]));
     return o;
@@ -3145,42 +3145,74 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
   [['fillRect', 0], ['clearRect', 1], ['strokeRect', 2]].forEach(function (p) {
     meth(p[0], function () { var c = cv(this); g.__cv_draw(c, p[1], cvArgs(p[0], 4, arguments)); });
   });
+  // QCNV9: Path2D. The path lives in canvas.rs (user space, by id); the path-building methods are written once and
+  // installed on both CanvasRenderingContext2D (emit -> the default path, points mapped by the CTM) and Path2D (emit ->
+  // the object's own path, identity).
+  var P2Proto = {};
+  var p2Brand = new WeakSet();
+  var p2id = function (t) {
+    if (t === null || (typeof t !== 'object' && typeof t !== 'function') || !p2Brand.has(t)) throw new TypeError('Illegal invocation');
+    return t.__pid;
+  };
+  var p2Free = typeof FinalizationRegistry === 'function' ? new FinalizationRegistry(function (id) { g.__p2_free(id); }) : null;
+  var Path2D = function Path2D() {
+    if (!new.target) throw new TypeError("Failed to construct 'Path2D': Please use the 'new' operator, this DOM object constructor cannot be called as a function.");
+    var arg = arguments[0], id;
+    if (arg === undefined) id = g.__p2_new('');
+    else if (arg !== null && typeof arg === 'object' && p2Brand.has(arg)) id = g.__p2_copy(arg.__pid);
+    else id = g.__p2_new(String(arg));
+    Object.defineProperty(this, '__pid', { value: id });
+    p2Brand.add(this);
+    if (p2Free) p2Free.register(this, id);
+  };
+  Object.defineProperty(Path2D, 'prototype', { value: P2Proto, writable: false, enumerable: false, configurable: false });
+  Object.defineProperty(P2Proto, 'constructor', { value: Path2D, writable: true, configurable: true });
+  Object.defineProperty(P2Proto, Symbol.toStringTag, { value: 'Path2D', configurable: true });
+  g.Path2D = Path2D;
+  var pmeth = function (name, fn) {
+    Object.defineProperty(P2Proto, name, { value: fn, writable: true, enumerable: true, configurable: true });
+  };
+  // `fn(emit, args, iface)`; emit(op, numbers) sends one path op (see canvas.rs path_op).
+  var both = function (name, fn) {
+    meth(name, function () { var c = cv(this); return fn(function (op, a) { g.__cv_path(c, op, a); }, arguments, 'CanvasRenderingContext2D'); });
+    pmeth(name, function () { var id = p2id(this); return fn(function (op, a) { g.__p2_op(id, op, a); }, arguments, 'Path2D'); });
+  };
   // QCNV6: paths. Arguments are converted first (ToNumber), then the call is ignored when one is non-finite.
-  var pathArgs = function (name, n, a) { var o = cvArgs(name, n, a); for (var i = 0; i < n; i++) if (!isFinite(o[i])) return null; return o; };
+  var pathArgs = function (name, n, a, iface) { var o = cvArgs(name, n, a, iface); for (var i = 0; i < n; i++) if (!isFinite(o[i])) return null; return o; };
   meth('beginPath', function () { g.__cv_path(cv(this), 0, []); });
-  meth('closePath', function () { g.__cv_path(cv(this), 3, []); });
+  both('closePath', function (emit) { emit(3, []); });
   [['moveTo', 1, 2], ['lineTo', 2, 2], ['rect', 4, 4]].forEach(function (p) {
-    meth(p[0], function () { var c = cv(this), a = pathArgs(p[0], p[2], arguments); if (a) g.__cv_path(c, p[1], a); });
+    both(p[0], function (emit, args, iface) { var a = pathArgs(p[0], p[2], args, iface); if (a) emit(p[1], a); });
   });
   // QCNV7: curves. Arguments are converted first (ToNumber), non-finite ones make the call a no-op, then a negative
   // radius is an IndexSizeError. The geometry (arcs as cubics, arcTo tangents, roundRect corners) is in canvas.rs.
-  meth('quadraticCurveTo', function () { var c = cv(this), a = pathArgs('quadraticCurveTo', 4, arguments); if (a) g.__cv_path(c, 5, a); });
-  meth('bezierCurveTo', function () { var c = cv(this), a = pathArgs('bezierCurveTo', 6, arguments); if (a) g.__cv_path(c, 6, a); });
-  var negRadius = function (name, r) { return domErr("Failed to execute '" + name + "' on 'CanvasRenderingContext2D': The radius provided (" + r + ') is negative.', 'IndexSizeError'); };
-  meth('arc', function () {
-    var c = cv(this), a = pathArgs('arc', 5, arguments);
-    var ccw = !!arguments[5];
+  both('quadraticCurveTo', function (emit, args, iface) { var a = pathArgs('quadraticCurveTo', 4, args, iface); if (a) emit(5, a); });
+  both('bezierCurveTo', function (emit, args, iface) { var a = pathArgs('bezierCurveTo', 6, args, iface); if (a) emit(6, a); });
+  var negRadius = function (name, r, iface) { return domErr("Failed to execute '" + name + "' on '" + iface + "': The radius provided (" + r + ') is negative.', 'IndexSizeError'); };
+  both('arc', function (emit, args, iface) {
+    var a = pathArgs('arc', 5, args, iface);
+    var ccw = !!args[5];
     if (!a) return;
-    if (a[2] < 0) throw negRadius('arc', a[2]);
-    g.__cv_path(c, 7, [a[0], a[1], a[2], a[2], 0, a[3], a[4], ccw ? 1 : 0]);
+    if (a[2] < 0) throw negRadius('arc', a[2], iface);
+    emit(7, [a[0], a[1], a[2], a[2], 0, a[3], a[4], ccw ? 1 : 0]);
   });
-  meth('ellipse', function () {
-    var c = cv(this), a = pathArgs('ellipse', 7, arguments);
-    var ccw = !!arguments[7];
+  both('ellipse', function (emit, args, iface) {
+    var a = pathArgs('ellipse', 7, args, iface);
+    var ccw = !!args[7];
     if (!a) return;
-    if (a[2] < 0) throw negRadius('ellipse', a[2]);
-    if (a[3] < 0) throw negRadius('ellipse', a[3]);
-    g.__cv_path(c, 7, [a[0], a[1], a[2], a[3], a[4], a[5], a[6], ccw ? 1 : 0]);
+    if (a[2] < 0) throw negRadius('ellipse', a[2], iface);
+    if (a[3] < 0) throw negRadius('ellipse', a[3], iface);
+    emit(7, [a[0], a[1], a[2], a[3], a[4], a[5], a[6], ccw ? 1 : 0]);
   });
-  meth('arcTo', function () {
-    var c = cv(this), a = pathArgs('arcTo', 5, arguments);
+  both('arcTo', function (emit, args, iface) {
+    var a = pathArgs('arcTo', 5, args, iface);
     if (!a) return;
-    if (a[4] < 0) throw negRadius('arcTo', a[4]);
-    g.__cv_path(c, 8, a);
+    if (a[4] < 0) throw negRadius('arcTo', a[4], iface);
+    emit(8, a);
   });
-  meth('roundRect', function () {
-    var c = cv(this), a = cvArgs('roundRect', 4, arguments);
-    var radii = arguments.length > 4 ? arguments[4] : 0;
+  both('roundRect', function (emit, args, iface) {
+    var a = cvArgs('roundRect', 4, args, iface);
+    var radii = args.length > 4 ? args[4] : 0;
     var list;
     // (unrestricted double or DOMPointInit or sequence<(unrestricted double or DOMPointInit)>)
     var isObj = function (v) { return v !== null && (typeof v === 'object' || typeof v === 'function'); };
@@ -3199,26 +3231,62 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
     var rs = list.map(pt);
     var fin = a.every(isFinite);
     if (!fin) return;
-    if (rs.length < 1 || rs.length > 4) throw new RangeError("Failed to execute 'roundRect' on 'CanvasRenderingContext2D': " + rs.length + ' radii provided. Between one and four radii are necessary.');
+    if (rs.length < 1 || rs.length > 4) throw new RangeError("Failed to execute 'roundRect' on '" + iface + "': " + rs.length + ' radii provided. Between one and four radii are necessary.');
     for (var i = 0; i < rs.length; i++) {
       if (!isFinite(rs[i][0]) || !isFinite(rs[i][1])) return;
-      if (rs[i][0] < 0 || rs[i][1] < 0) throw new RangeError("Failed to execute 'roundRect' on 'CanvasRenderingContext2D': Radius value " + (rs[i][0] < 0 ? rs[i][0] : rs[i][1]) + ' is negative.');
+      if (rs[i][0] < 0 || rs[i][1] < 0) throw new RangeError("Failed to execute 'roundRect' on '" + iface + "': Radius value " + (rs[i][0] < 0 ? rs[i][0] : rs[i][1]) + ' is negative.');
     }
     var ul, ur, lr, ll;
     if (rs.length === 1) { ul = ur = lr = ll = rs[0]; }
     else if (rs.length === 2) { ul = lr = rs[0]; ur = ll = rs[1]; }
     else if (rs.length === 3) { ul = rs[0]; ur = ll = rs[1]; lr = rs[2]; }
     else { ul = rs[0]; ur = rs[1]; lr = rs[2]; ll = rs[3]; }
-    g.__cv_path(c, 9, [a[0], a[1], a[2], a[3], ul[0], ul[1], ur[0], ur[1], lr[0], lr[1], ll[0], ll[1]]);
+    emit(9, [a[0], a[1], a[2], a[3], ul[0], ul[1], ur[0], ur[1], lr[0], lr[1], ll[0], ll[1]]);
+  });
+  pmeth('addPath', function (path, transform) {
+    var id = p2id(this);
+    if (arguments.length < 1) throw new TypeError("Failed to execute 'addPath' on 'Path2D': 1 argument required, but only 0 present.");
+    if (path === null || typeof path !== 'object' || !p2Brand.has(path)) throw new TypeError("Failed to execute 'addPath' on 'Path2D': parameter 1 is not of type 'Path2D'.");
+    var o = GEOM.fixup2D(GEOM.dict(transform, 'DOMMatrix2DInit'));
+    var m = [o.m11, o.m12, o.m21, o.m22, o.m41, o.m42];
+    for (var i = 0; i < 6; i++) if (!isFinite(m[i])) return;
+    g.__p2_add(id, path.__pid, m);
   });
   var fillRuleArg = function (name, a) {
     var r = a.length > 0 && a[0] !== undefined ? String(a[0]) : 'nonzero';
     if (r !== 'nonzero' && r !== 'evenodd') throw new TypeError("Failed to execute '" + name + "' on 'CanvasRenderingContext2D': The provided value '" + r + "' is not a valid enum value of type CanvasFillRule.");
     return r === 'evenodd';
   };
-  meth('fill', function () { var c = cv(this), e = fillRuleArg('fill', arguments); g.__cv_paint(c, 0, e); });
-  meth('stroke', function () { g.__cv_paint(cv(this), 1, false); });
-  meth('clip', function () { var c = cv(this), e = fillRuleArg('clip', arguments); g.__cv_paint(c, 2, e); });
+  var isP2 = function (v) { return v !== null && typeof v === 'object' && p2Brand.has(v); };
+  // fill(fillRule) / fill(path, fillRule), clip likewise; stroke() / stroke(path).
+  var paintOverload = function (name, op, a, c) {
+    var first = a[0];
+    if (a.length >= 2 || isP2(first)) {
+      if (!isP2(first)) throw new TypeError("Failed to execute '" + name + "' on 'CanvasRenderingContext2D': parameter 1 is not of type 'Path2D'.");
+      g.__cv_paint_p(c, op, fillRuleArg(name, Array.prototype.slice.call(a, 1)), first.__pid);
+    } else g.__cv_paint(c, op, fillRuleArg(name, a));
+  };
+  meth('fill', function () { paintOverload('fill', 0, arguments, cv(this)); });
+  meth('stroke', function () {
+    var c = cv(this);
+    if (arguments.length >= 1) {
+      if (!isP2(arguments[0])) throw new TypeError("Failed to execute 'stroke' on 'CanvasRenderingContext2D': parameter 1 is not of type 'Path2D'.");
+      g.__cv_paint_p(c, 1, false, arguments[0].__pid);
+    } else g.__cv_paint(c, 1, false);
+  });
+  meth('clip', function () { paintOverload('clip', 2, arguments, cv(this)); });
+  // isPointInPath(x, y, rule) / isPointInPath(path, x, y, rule); isPointInStroke(x, y) / isPointInStroke(path, x, y).
+  var hitTest = function (name, stroke, a, c) {
+    var withPath = isP2(a[0]) || a.length >= (stroke ? 3 : 4);
+    var o = withPath ? 1 : 0;
+    if (a.length < o + 2) throw new TypeError("Failed to execute '" + name + "' on 'CanvasRenderingContext2D': " + (o + 2) + " arguments required, but only " + a.length + " present.");
+    if (withPath && !isP2(a[0])) throw new TypeError("Failed to execute '" + name + "' on 'CanvasRenderingContext2D': parameter 1 is not of type 'Path2D'.");
+    var x = Number(a[o]), y = Number(a[o + 1]);
+    var e = stroke ? false : fillRuleArg(name, Array.prototype.slice.call(a, o + 2));
+    return g.__cv_hit(c, stroke, x, y, e, withPath ? a[0].__pid : 0);
+  };
+  meth('isPointInPath', function () { return hitTest('isPointInPath', false, arguments, cv(this)); });
+  meth('isPointInStroke', function () { return hitTest('isPointInStroke', true, arguments, cv(this)); });
   meth('save', function () { g.__cv_save(cv(this)); });
   meth('restore', function () { g.__cv_restore(cv(this)); });
   // QCNV5: transforms. The CTM lives in canvas.rs; every method converts all arguments first (ToNumber), then ignores
