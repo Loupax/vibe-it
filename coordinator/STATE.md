@@ -472,3 +472,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 USER: wire2 ACTIVE. Copied the spec doc into wire2/SPEC.md (diagram as ASCII); W2-SPEC done; wire2/DECISIONS.md started. Launched W2-1 (Opus). C7 hint design: explained to the user, awaiting their answer.
 - 2026-11-23 USER: keep C7 (link hints), not dropped; user is thinking it over. Noted in web/TODO.txt with the open design questions.
 - 2026-11-23 Status bar/navigation check vs KEYS.md: C1 protocol lacked `reload hard` (:refresh hard) and a network load-error event. Sent both to C1; noted in web/TODO.txt.
+- 2026-11-23 Merged #668 C1 9b16bbe (web/host-cef, protocol v0 in web/PROTOCOL.md, one page, reload hard, load-error; drive.py passes with/without --proxy). Install: none. Filed C-BGNET, C-DL, C1-INPUT, C-PENDING. Parked wire worktrees removed (branches kept). Launched C2 (Opus) and P-FORGET (Opus; host side only, `web --forget-site` wiring waits for the shell).

@@ -16,7 +16,8 @@ a lighter engine (web-host-webkit, E1) only after C8. C1 can run before any comp
 code (inside the nested dwl from ../scratchy/tools/nest.sh). Each step ends with a check, so the plan can
 stop early on a hard failure.
 
-- [WIP] C1 web-host-cef. The spike binary becomes the CEF engine host:
+- [x] C1 web-host-cef (DONE 2026-11-23, 9b16bbe, #668: web/host-cef/, protocol v0 in web/PROTOCOL.md; check
+      web/host-cef/test/drive.py passes with and without --proxy). The spike binary becomes the CEF engine host:
       (2026-11-23 "No tabs yet": one page only; no new-tab/close-tab; popups load in the same page;
       this overrides the tab parts below.)
       (2026-11-23, for C3: also `reload hard` (bypass the cache, `:refresh hard`) and
@@ -47,7 +48,7 @@ stop early on a hard failure.
       open, back/forward, two tabs, a window.open popup announced before it maps, all
       events above seen; Wayland.
 
-- [ ] C2 web-shell, the compositor minimum. smithay, winit backend (the shell is one
+- [WIP] C2 web-shell, the compositor minimum. smithay, winit backend (the shell is one
       window on the user's desktop). Starts the engine host (`--engine cef`, the only one for now) with
       WAYLAND_DISPLAY = its own socket; shows the current tab's window filling the shell
       window minus the status bar; forwards keyboard and pointer; places popups
@@ -88,6 +89,19 @@ stop early on a hard failure.
 
 - [ ] C8 A day of browsing: W7's list below, with web-host-cef.
 
+- [ ] C-BGNET [S] (from C1 #668) Switch off Chromium's background traffic in web-host-cef: through the
+      proxy a drive.py run reaches update.googleapis.com, *.gvt1.com, clients2.google.com/time,
+      www.google.com, content-autofill.googleapis.com. Pick switches/prefs; check with test/fwd_proxy.py
+      that a drive.py run shows only page traffic. Keep what Widevine needs (component updater) or say
+      what is lost.
+- [ ] C-DL (from C1 #668) Downloads, JS dialogs and permission prompts as protocol events (today:
+      downloads save without asking to <profile>/downloads; dialogs/prompts are the engine default).
+      One item each when picked up; download directory and UI need the user's say.
+- [ ] C1-INPUT [S] (after C2; from C1 #668) Real-input version of the C1 check: click target=_blank
+      and window.open with a user gesture (tools/inject), without --disable-popup-blocking.
+- [ ] C-PENDING [S] (only if C3 wants it; from C1 #668) `load start` is sent at commit, not on the
+      click; add a `pending` load phase if the status bar needs a spinner from the click.
+
 - [ ] E1 web-host-webkit (after C8; the lighter engine). GTK4 + WebKitGTK 6, the same
       control protocol as C1, nothing in the shell changes but `--engine webkit`. Also
       check that WebKitGTK's own bubblewrap sandbox for its web processes still works
@@ -96,7 +110,7 @@ stop early on a hard failure.
       Done when: C1's check passes with the WebKit host, unchanged script, and C8's day
       of browsing is repeated with it.
 
-- [ ] P-FORGET Forget a site (scratchy's `--forget-site`, STASH.md "Forget site"): a
+- [WIP] P-FORGET Forget a site (scratchy's `--forget-site`, STASH.md "Forget site"): a
       `forget-site` command in the engine-host interface, implemented by each host with
       its engine's API; `web --forget-site` sends it to the running host or starts one
       with `--no-window`.
