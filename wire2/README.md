@@ -43,7 +43,7 @@ Once an http-layer filter claims hosts, the CA is created in `--ca-dir` (default
 claims.
 
 Flags: `--listen host:port|unix:<path>`, `--allow-remote`, `--filter unix:<path>`, `--hub <path>`,
-`--connect-timeout`, `--stage-timeout`, `--filter-check D` (default 2s, re-handshakes an up filter so a restart or changed capabilities are noticed without traffic; an addition beyond SPEC.md, see NOTES.md "W2-F1"), `--dial-timeout`, `--log-level`, `--no-decrypt GLOB`,
+`--connect-timeout`, `--stage-timeout`, `--filter-check D` (default 2s, re-handshakes an up filter so a restart or changed capabilities are noticed without traffic; an addition beyond SPEC.md, see NOTES.md "W2-F1"), `--pool-idle D` (30s), `--pool-per-host N` (6), `--pool-total N` (64) (the shared upstream connection pool; additions beyond SPEC.md, see NOTES.md "W2-2e"), `--dial-timeout`, `--log-level`, `--no-decrypt GLOB`,
 `--ca-dir DIR` (`wire2 --help`, `wire2-pass --help`). Writing a filter: SPEC.md "Filter protocol";
 `src/pass.rs` is the smallest complete one. Tests: `cargo test --release` (the 2 GB transfer tests take
 a few seconds in release; decrypted tests use the test-only pass-decrypt filter and the TEST-ONLY

@@ -240,6 +240,9 @@ pub enum Action {
     Malformed,
     /// Forward, and close everything this long after the request arrived.
     CloseAfter(Duration),
+    /// Forward; the FIRST traffic request's connection is closed this long after it arrived, every other
+    /// one keeps being piped (W2-2e: a filter ending exactly the connection it carried).
+    CloseFirstAfter(Duration),
 }
 
 #[derive(Clone)]
@@ -357,7 +360,11 @@ async fn fake_conn(mut s: UnixStream, st: FakeState) {
         let _ = s.write_all(resp.as_bytes()).await;
         return;
     }
-    st.seen.lock().unwrap().push(head.clone());
+    let nth = {
+        let mut seen = st.seen.lock().unwrap();
+        seen.push(head.clone());
+        seen.len()
+    };
     let action = st.action.lock().unwrap().clone();
     st.open.fetch_add(1, Ordering::SeqCst);
     let _guard = Dec(st.open.clone());
@@ -369,7 +376,7 @@ async fn fake_conn(mut s: UnixStream, st: FakeState) {
         h
     };
     match action {
-        Action::Forward | Action::Delay(_) | Action::CloseAfter(_) => {
+        Action::Forward | Action::Delay(_) | Action::CloseAfter(_) | Action::CloseFirstAfter(_) => {
             if let Action::Delay(d) = action {
                 tokio::time::sleep(d).await;
             }
@@ -377,6 +384,8 @@ async fn fake_conn(mut s: UnixStream, st: FakeState) {
             let pipe = tokio::io::copy_bidirectional(&mut s, &mut h);
             if let Action::CloseAfter(d) = action {
                 let _ = tokio::time::timeout(d, pipe).await;
+            } else if let (Action::CloseFirstAfter(d), 1) = (&action, nth) {
+                let _ = tokio::time::timeout(*d, pipe).await;
             } else {
                 let _ = pipe.await;
             }

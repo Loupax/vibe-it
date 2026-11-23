@@ -33,6 +33,10 @@ pub struct Config {
     pub connect_timeout: Duration,
     pub stage_timeout: Duration,
     pub filter_check: Duration,
+    /// W2-2e (beyond SPEC.md): idle expiry, per-key cap and overall cap of the upstream connection pool.
+    pub pool_idle: Duration,
+    pub pool_per_key: usize,
+    pub pool_total: usize,
 }
 
 pub enum Parsed {
@@ -44,7 +48,8 @@ pub enum Parsed {
 pub const USAGE: &str = "\
 usage: wire2 [--listen 127.0.0.1:8080 | --listen unix:<path>] [--allow-remote]
              [--filter unix:<path>]... [--hub <path>] [--connect-timeout 5s] [--stage-timeout 30s] [--filter-check 2s]
-             [--dial-timeout 10s] [--log-level error|warn|info|debug]
+             [--dial-timeout 10s] [--pool-idle 30s] [--pool-per-host 6] [--pool-total 64]
+             [--log-level error|warn|info|debug]
              [--no-decrypt GLOB]... [--ca-dir DIR]
 
 Local forward proxy (wire2/SPEC.md): CONNECT tunnels and plain http:// requests stream through a chain
@@ -64,6 +69,10 @@ http-layer filter claims; with no filters every CONNECT is an opaque tunnel and 
   --filter-check D     how often an up filter is re-handshaken, so a restart or a change of its
                        capabilities is noticed without traffic (default 2s).
   --dial-timeout DUR   upstream TCP connect timeout, e.g. 10s, 500ms, 2m (default 10s).
+  --pool-idle D        how long an idle upstream connection of a decrypted flow is kept for reuse by any of
+                       the browser's connections to that host (default 30s; 0 turns reuse off).
+  --pool-per-host N    idle upstream connections kept per host, port and tunnel-filter chain (default 6).
+  --pool-total N       idle upstream connections kept overall (default 64).
   --log-level LEVEL    error, warn, info (default) or debug.
   --no-decrypt GLOB    host never decrypted, even when an http filter claims it (repeatable). `*` matches
                        any run of characters; *.example.com does not match example.com.
@@ -91,6 +100,13 @@ pub fn parse_duration(s: &str) -> Result<Duration, String> {
         return Err(format!("duration {s:?} out of range"));
     }
     Ok(Duration::from_secs_f64(secs))
+}
+
+/// A count flag (`--pool-per-host`): a whole number, 0 allowed.
+fn parse_count(flag: &str, s: &str) -> Result<usize, String> {
+    s.trim()
+        .parse()
+        .map_err(|_| format!("bad {flag} value {s:?}: expected a whole number"))
 }
 
 pub fn parse_listen(s: &str) -> Result<Listen, String> {
@@ -134,6 +150,9 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Parsed, Str
     let mut connect_timeout = Duration::from_secs(5);
     let mut stage_timeout = Duration::from_secs(30);
     let mut filter_check = Duration::from_secs(2);
+    let mut pool_idle = Duration::from_secs(30);
+    let mut pool_per_key = 6usize;
+    let mut pool_total = 64usize;
     let mut it = args.into_iter();
     while let Some(arg) = it.next() {
         let (flag, inline) = match arg.split_once('=') {
@@ -173,6 +192,16 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Parsed, Str
             "--connect-timeout" => connect_timeout = parse_duration(&value(&mut it)?)?,
             "--stage-timeout" => stage_timeout = parse_duration(&value(&mut it)?)?,
             "--filter-check" => filter_check = parse_duration(&value(&mut it)?)?,
+            "--pool-idle" => {
+                let v = value(&mut it)?;
+                pool_idle = if v.trim() == "0" {
+                    Duration::ZERO
+                } else {
+                    parse_duration(&v)?
+                }
+            }
+            "--pool-per-host" => pool_per_key = parse_count(&flag, &value(&mut it)?)?,
+            "--pool-total" => pool_total = parse_count(&flag, &value(&mut it)?)?,
             "--no-decrypt" => no_decrypt.push(parse_glob(&value(&mut it)?)?),
             "--ca-dir" => {
                 let v = value(&mut it)?;
@@ -219,6 +248,9 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Parsed, Str
         connect_timeout,
         stage_timeout,
         filter_check,
+        pool_idle,
+        pool_per_key,
+        pool_total,
     })))
 }
 
@@ -375,6 +407,24 @@ mod tests {
         assert_eq!(d.connect_timeout, Duration::from_secs(5));
         assert_eq!(d.stage_timeout, Duration::from_secs(30));
         assert_eq!(d.filter_check, Duration::from_secs(2));
+        assert_eq!(
+            (d.pool_idle, d.pool_per_key, d.pool_total),
+            (Duration::from_secs(30), 6, 64)
+        );
+        let p = run(&[
+            "--pool-idle",
+            "0",
+            "--pool-per-host",
+            "2",
+            "--pool-total",
+            "9",
+        ])
+        .unwrap();
+        assert_eq!(
+            (p.pool_idle, p.pool_per_key, p.pool_total),
+            (Duration::ZERO, 2, 9)
+        );
+        assert!(run(&["--pool-total", "x"]).is_err());
     }
 
     #[test]

@@ -28,6 +28,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 use tokio::sync::watch;
 use tokio::time::Instant;
+use tokio_util::sync::CancellationToken;
 
 use crate::decrypt::Policy;
 use crate::host::glob_match;
@@ -655,6 +656,8 @@ struct Pending {
     stage: usize,
     seq: u64,
     tx: Arc<watch::Sender<StageState>>,
+    /// W2-2e: ends the hub's pipe for the one upstream connection this request opens (see `take`).
+    kill: CancellationToken,
 }
 
 /// A flow's chain (computed once) and, per layer, the stage the hub currently expects a request from.
@@ -700,13 +703,22 @@ impl Route {
 
     /// The request is about to go to `stage` of `layer`: the hub may now accept one request back from
     /// it. The guard withdraws that permission when the stage is over.
-    pub fn expect(&self, layer: Layer, stage: usize) -> (Expect<'_>, watch::Receiver<StageState>) {
+    /// The third value ends the hub's pipe for this one request (a tunnel stage's upstream connection):
+    /// the connection's owner cancels it when it drops the connection (W2-2e, so a parked connection
+    /// does not depend on the flow that dialled it).
+    pub fn expect(
+        &self,
+        layer: Layer,
+        stage: usize,
+    ) -> (Expect<'_>, watch::Receiver<StageState>, CancellationToken) {
         let seq = self.seq.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = watch::channel(StageState::Waiting);
+        let kill = CancellationToken::new();
         *self.slot(layer) = Some(Pending {
             stage,
             seq,
             tx: Arc::new(tx),
+            kill: kill.clone(),
         });
         (
             Expect {
@@ -715,12 +727,16 @@ impl Route {
                 seq,
             },
             rx,
+            kill,
         )
     }
 
     /// The hub got a request for this flow at `layer`: which stage sent it (once per [`Route::expect`]).
-    pub fn take(&self, layer: Layer) -> Option<(usize, Arc<watch::Sender<StageState>>)> {
-        self.slot(layer).take().map(|p| (p.stage, p.tx))
+    pub fn take(
+        &self,
+        layer: Layer,
+    ) -> Option<(usize, Arc<watch::Sender<StageState>>, CancellationToken)> {
+        self.slot(layer).take().map(|p| (p.stage, p.tx, p.kill))
     }
 }
 
@@ -844,22 +860,22 @@ mod tests {
         let r = Route::default();
         assert!(r.take(Layer::Http).is_none());
         {
-            let (_g, _rx) = r.expect(Layer::Http, 2);
+            let (_g, _rx, _) = r.expect(Layer::Http, 2);
             assert!(r.take(Layer::Tunnel).is_none());
-            assert_eq!(r.take(Layer::Http).map(|(s, _)| s), Some(2));
+            assert_eq!(r.take(Layer::Http).map(|(s, _, _)| s), Some(2));
             // Taken once only.
             assert!(r.take(Layer::Http).is_none());
         }
         {
-            let (_g, _rx) = r.expect(Layer::Tunnel, 0);
+            let (_g, _rx, _) = r.expect(Layer::Tunnel, 0);
         }
         // The guard withdrew it.
         assert!(r.take(Layer::Tunnel).is_none());
         // A stale guard does not clear a newer expectation.
-        let (g1, _rx1) = r.expect(Layer::Tunnel, 0);
-        let (_g2, _rx2) = r.expect(Layer::Tunnel, 1);
+        let (g1, _rx1, _) = r.expect(Layer::Tunnel, 0);
+        let (_g2, _rx2, _) = r.expect(Layer::Tunnel, 1);
         drop(g1);
-        assert_eq!(r.take(Layer::Tunnel).map(|(s, _)| s), Some(1));
+        assert_eq!(r.take(Layer::Tunnel).map(|(s, _, _)| s), Some(1));
     }
 
     #[tokio::test(start_paused = true)]

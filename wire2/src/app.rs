@@ -164,6 +164,7 @@ async fn run(cfg: Config) -> Result<(), String> {
         reg: Registry::new(),
         policy: policy.clone(),
         filters: filters.clone(),
+        pool: crate::pool::UpPool::new(cfg.pool_idle, cfg.pool_per_key, cfg.pool_total),
     });
     let mode = if cfg.filters.is_empty() {
         "no filters: CONNECT is an opaque tunnel, nothing is decrypted, no CA".to_string()

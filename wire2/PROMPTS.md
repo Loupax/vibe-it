@@ -167,3 +167,17 @@ Result: one PR. Periodic re-handshake (`--filter-check`, default 2s); `filter.rs
 > pass-decrypt; measure upload throughput vs direct before/after under the perf lock.
 
 Result: one PR. proxy.rs (`pipelined_upload`, leg-close rule), hub.rs; NOTES.md "W2-HUBCLOSE + W2-2b".
+
+## W2-2e: parked origin connections expire; one pool for all of a browser's connections (2026-11-23)
+
+> W2-2e: today each decrypted browser connection has one parked origin connection, kept until the browser
+> connection's 120 s idle or the origin closes. Do: (1) an idle expiry for parked origin connections of their own
+> (30-60 s, below typical origin keep-alive timeouts; say what you chose and why), closing them cleanly; (2) a
+> pool shared across the browser's parallel decrypted connections to the same origin, keyed by (host, port, the
+> tunnel-filter chain that carries it) so a tunnel filter's per-connection decisions still hold; cap per key (6)
+> and overall. Keep W2-2a's retry rules and W2-HUBCLOSE's close rules. Tests: sequential sharing, expiry then
+> fresh dial, caps under 20 parallel connections, a tunnel filter's close ends exactly its connection, different
+> chains never share. Measure the page-like load before/after under the perf lock; headless Chrome check.
+
+Result: one PR. New `pool.rs`; `proxy.rs` origin step, `hub.rs`/`filter.rs` (per-dial kill token), flags
+`--pool-idle/--pool-per-host/--pool-total`. NOTES.md "W2-2e"; tests in tests/w2_2e_pool.rs.

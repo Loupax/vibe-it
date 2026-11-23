@@ -16,6 +16,7 @@ mod http;
 mod hub;
 mod log;
 pub mod pass;
+mod pool;
 mod proxy;
 mod splice;
 mod upstream;
