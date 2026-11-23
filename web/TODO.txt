@@ -90,7 +90,7 @@ stop early on a hard failure.
 
 - [ ] C8 A day of browsing: W7's list below, with web-host-cef.
 
-- [ ] C-BGNET [S] (from C1 #668) Switch off Chromium's background traffic in web-host-cef: through the
+- [WIP] C-BGNET [S] (from C1 #668) Switch off Chromium's background traffic in web-host-cef: through the
       proxy a drive.py run reaches update.googleapis.com, *.gvt1.com, clients2.google.com/time,
       www.google.com, content-autofill.googleapis.com. Pick switches/prefs; check with test/fwd_proxy.py
       that a drive.py run shows only page traffic. Keep what Widevine needs (component updater) or say
@@ -169,7 +169,11 @@ stop early on a hard failure.
       pass with the monitor disconnected (or with the user's compositor having no outputs), and
       AGENT_RULES' nested-compositor section is updated.
 
-- [ ] P-COOKIES Third-party cookies off in each host (STASH.md "Cookies"), the closest
+- [ ] P-COOKIES-2 NEEDS USER (only if wanted; from #675) Third parties now get no cookies at all, so embedded
+      SSO/payment/comment widgets that need one break. Option: a status-bar hint or a per-site exception
+      (requestStorageAccess or a site content setting).
+- [x] P-COOKIES (DONE 2026-11-23, 127f926, #675: profile.cookie_controls_mode=1 set at context init;
+      --allow-third-party-cookies for tests; CHIPS and storage partitioning still work; test/cookies.py) Third-party cookies off in each host (STASH.md "Cookies"), the closest
       the engines get to scratchy's per-top-level-site jar.
 
 - [-] P-STASH DROPPED (user, 2026-11-23): the engine owns localStorage; scratchy's
