@@ -362,8 +362,11 @@ async fn stale_reused_connection_retries_get_never_post() {
     assert_eq!(st, 502, "{h}");
     assert_eq!(c.seen("POST /flaky"), 1, "sent once, never again");
     assert_eq!(c.conns(), 2);
-    // The dead connection was dropped; the browser connection (the 502 came through pass-decrypt as an
-    // ordinary response) carries on with a new upstream connection.
+    // The 502 is proxy-made: it came through pass-decrypt with `Connection: close` and the browser
+    // connection is closed (W2-HUBCLOSE). A new browser connection dials a new upstream connection.
+    assert_eq!(header_of(&h, "connection").as_deref(), Some("close"), "{h}");
+    assert!(b.recv().await.is_none(), "the browser connection is closed");
+    let mut b = Browser::open(&p, addr.port()).await;
     let (st, _, body) = b.req("GET", "/next", "", b"").await;
     assert_eq!((st, body), (200, b"ok /next".to_vec()));
     assert_eq!(c.conns(), 3);

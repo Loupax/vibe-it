@@ -26,6 +26,7 @@ async fn respond<S: AsyncRead + AsyncWrite + Unpin>(s: &mut S, seen: &Seen) {
     seen.lock().unwrap().push(head);
     let out: Vec<u8> = match path.as_str() {
         "/chunked" => b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nX-Origin: yes\r\n\r\n6\r\nhello \r\n3;e=1\r\nwor\r\n2\r\nld\r\n0\r\n\r\n".to_vec(),
+        "/junk" => b"this is not HTTP\r\n\r\n".to_vec(),
         "/slow" => {
             tokio::time::sleep(Duration::from_millis(1500)).await;
             b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nslow".to_vec()
@@ -1276,4 +1277,69 @@ async fn changed_handshake_applies_to_new_flows() {
     assert_eq!(status_of(&h), 200, "{h}");
     assert_eq!(f.seen().len(), 1, "the new hosts exclude this one");
     assert_eq!(count(&proxy, "is DOWN"), 0, "{}", proxy.log());
+}
+
+/// W2-HUBCLOSE: with a filter in the chain, a response the proxy made itself on the far side of the
+/// hub (here a 502 for an origin that sent garbage) reaches the browser with `Connection: close` and
+/// the connection really closes; an ordinary keep-alive response through the same chain keeps it.
+#[tokio::test(flavor = "multi_thread")]
+async fn proxy_made_error_through_a_filter_closes_the_browser_connection() {
+    let pki = pki();
+    let roots = root_file(&pki);
+    let (tls_origin, _) = origin(Some(pki.server.clone())).await;
+    let d = sock_dir();
+    let f = Fake::start(
+        &d.path().join("fwd.sock"),
+        hello_json("fwd", "http", &["*.example.test"], "closed"),
+        Action::Forward,
+    );
+    let proxy = proxy_with(
+        &[&f.inproc.path],
+        RESOLVE,
+        &[("SSL_CERT_FILE", roots.path())],
+    );
+    wait_up(&proxy, "fwd");
+    let target = format!("{HOST}:{}", tls_origin.port());
+    let mut t = tls_via(
+        proxy.addr(),
+        &target,
+        HOST,
+        client_trusting(&ca_pem(&proxy)),
+    )
+    .await
+    .unwrap();
+    // Keep-alive through the chain: two requests on one browser connection.
+    for p in ["/one", "/two"] {
+        t.write_all(format!("GET {p} HTTP/1.1\r\nHost: {target}\r\n\r\n").as_bytes())
+            .await
+            .unwrap();
+        let (h, rest) = read_head(&mut t).await;
+        assert_eq!(status_of(&h), 200, "{h}");
+        assert!(!has_header(&h, "connection"), "kept alive: {h}");
+        let n: usize = header_of(&h, "content-length").unwrap().parse().unwrap();
+        let mut body = rest;
+        while body.len() < n {
+            let mut tmp = [0u8; 256];
+            let k = t.read(&mut tmp).await.unwrap();
+            assert!(k > 0);
+            body.extend_from_slice(&tmp[..k]);
+        }
+    }
+    // A proxy-made 502: Connection: close, then EOF.
+    t.write_all(format!("GET /junk HTTP/1.1\r\nHost: {target}\r\n\r\n").as_bytes())
+        .await
+        .unwrap();
+    let (h, rest) = read_head(&mut t).await;
+    assert_eq!(status_of(&h), 502, "{h}");
+    assert_eq!(header_of(&h, "connection").as_deref(), Some("close"), "{h}");
+    let _ = read_to_end(&mut t, rest).await;
+    let _ = t
+        .write_all(format!("GET /three HTTP/1.1\r\nHost: {target}\r\n\r\n").as_bytes())
+        .await;
+    let mut tmp = [0u8; 64];
+    let r = tokio::time::timeout(Duration::from_secs(5), t.read(&mut tmp)).await;
+    assert!(
+        matches!(r, Ok(Ok(0)) | Ok(Err(_))),
+        "the browser connection must be closed: {r:?}"
+    );
 }
