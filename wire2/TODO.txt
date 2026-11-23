@@ -87,7 +87,7 @@ tunnels are copied with small fixed buffers and backpressure, never whole.
       and after `101` switch that connection to plain byte copy. Frame
       parsing waits for W2-F.
 
-- [ ] W2-F Filters, as the spec defines them: external HTTP/1.1 servers on
+- [WIP] W2-F Filters, as the spec defines them: external HTTP/1.1 servers on
       Unix sockets, chained, with the Proxy-Id handshake, lazy decryption and
       the `pass` reference filter. This replaces the earlier embedded-language
       scripting idea. Every step above must leave room for it: one place every

@@ -490,3 +490,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Merged #675 P-COOKIES 127f926. Filed P-COOKIES-2 (needs user). Launched C-BGNET (Sonnet; host-cef, C3 is in web/shell).
 - 2026-11-23 USER: bump C-INSTALL -> next free slot (3/3 busy: C3, W2-3, C-BGNET).
 - 2026-11-23 Merged #676 W2-3 b888097 (wss in decrypted tunnels; flush bug fixed). wire2 reinstalled. Launched C-INSTALL (Sonnet, bumped by user). wire2 next: W2-F (filters) after C-INSTALL/C-BGNET free a slot.
+- 2026-11-23 Merged #678 C-INSTALL 3bce370. Installed web for the user: ~/.local/bin/web -> lib/web/20261123-143308-3bce370f (14:33). Launched W2-F (Opus).
