@@ -67,6 +67,25 @@ one log line per request or tunnel).
   own window with `CEF_CTT_NONE` (no toolbar). Chrome-style keyboard shortcuts (Ctrl+T,
   Ctrl+N, Ctrl+F, Ctrl+L, ...) would open Chrome UI; a `CommandHandler` blocks every
   Chrome command, since the shell owns keys.
+- **No new tab or window by any user gesture (C-NOTAB, `src/newtab.rs`).** `OnBeforePopup`
+  and `OnOpenURLFromTab` decide by disposition (`popup_action`, unit-tested): foreground
+  tab (`target=_blank`, `window.open`) and popup load in place; background tab (Ctrl+click,
+  middle-click, Ctrl+Enter), new window (Shift+click), off-the-record, save-to-disk,
+  split view, PiP and the rest are dropped (nothing opens, the page is not navigated).
+  Ctrl+Shift+click has the same disposition as `target=_blank`, so the renderer
+  cancels that click on links (`CTRL_SHIFT_JS`, `preventDefault` only). The context menu
+  (`OnBeforeContextMenu`) loses `newtab::MENU_REMOVE`: open link in new tab / window /
+  incognito / profile / split view, open image/video/audio in new tab, search the web
+  (for text, image, video frame, Lens), view page source, Inspect and DevTools, in the
+  menu and its submenus; the host log prints `context menu: removed [...]; remaining [...]`
+  per menu. Chrome keyboard commands (Ctrl+T, Ctrl+N, Ctrl+Shift+N, ...) stay blocked by
+  the `CommandHandler`. Other paths: dropping a dragged link on the page navigates the
+  page itself (no new tab); the PDF viewer's buttons and the DevTools shortcuts
+  (F12, Ctrl+Shift+I) go through Chrome commands, which the `CommandHandler` blocks
+  (not checked live: owed); no `KeyboardHandler` (on Wayland CEF's
+  `os_event` is not an `XEvent`, the crate's wrapper crashed the host).
+  Live check: `test/notab.py` (real input through `web/tools/inject`; written, not yet run
+  green: the nested compositor had no display, live check owed).
 - **Popups load in place.** `OnBeforePopup` cancels every popup and loads its URL in
   the page (PROTOCOL.md "One page per host").
 - **Find.** A new CEF find session counts matches but activates none; the host steps

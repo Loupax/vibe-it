@@ -10,6 +10,13 @@ wrap_render_process_handler! {
     pub struct HostRenderProcessHandler {}
 
     impl RenderProcessHandler {
+        // C-NOTAB: see newtab::CTRL_SHIFT_JS.
+        fn on_context_created(&self, _browser: Option<&mut Browser>, frame: Option<&mut Frame>, _context: Option<&mut V8Context>) {
+            if let Some(f) = frame {
+                f.execute_java_script(Some(&CefString::from(crate::newtab::CTRL_SHIFT_JS)), None, 0);
+            }
+        }
+
         fn on_focused_node_changed(&self, browser: Option<&mut Browser>, frame: Option<&mut Frame>, node: Option<&mut Domnode>) {
             // node is None when focus left the page's elements (document or nothing focused).
             let editable = node.map(|n| n.is_editable() != 0).unwrap_or(false);

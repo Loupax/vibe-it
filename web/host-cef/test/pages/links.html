@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>C-NOTAB links</title>
+<style>
+  body { margin: 0; font: 24px sans-serif; }
+  .box { position: absolute; left: 100px; width: 400px; height: 80px; line-height: 80px; text-align: center; border: 2px solid #345; }
+  #plain { top: 100px; }
+  #blank { top: 220px; }
+  #img   { top: 340px; width: 200px; height: 120px; background: #c33; display: block; }
+  #txt   { top: 500px; border: 0; }
+  #form  { position: absolute; left: 100px; top: 620px; }
+</style>
+</head>
+<body>
+<a id="plain" class="box" href="b.html?via=plain">plain link to B</a>
+<a id="blank" class="box" href="b.html?via=blank" target="_blank">target=_blank link to B</a>
+<img id="img" class="box" alt="red" src="data:image/svg+xml;utf8,&lt;svg xmlns='http://www.w3.org/2000/svg' width='200' height='120'&gt;&lt;rect width='200' height='120' fill='%23c33'/&gt;&lt;/svg&gt;">
+<div id="txt" class="box">selectable words here</div>
+<form id="form" action="b.html" method="get" target="_blank"><input id="q" name="via" value="form"><input type="submit" value="go"></form>
+<script>
+// Diagnostics for the C-NOTAB check: the last pointer/key event shows in the title (the host logs title events).
+for (const t of ['mousedown', 'auxclick', 'contextmenu', 'keydown'])
+  addEventListener(t, e => { document.title = `ev:${t}:${e.clientX},${e.clientY}:${e.ctrlKey ? 'c' : ''}${e.shiftKey ? 's' : ''}:${e.button}`; }, true);
+</script>
+</body>
+</html>

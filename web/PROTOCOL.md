@@ -17,6 +17,11 @@ interface, undecided), so v0 has no `new-tab` / `close-tab`.
   popup's `window.opener` / a handle to the popup (OAuth and payment login popups,
   "open in a small window" flows) do not work. Popups without a URL
   (`window.open()` then `document.write`) show nothing.
+- **No user gesture opens a second tab or window** (user, 2026-11-23, C-NOTAB). Ctrl+click,
+  middle-click, Shift+click, Ctrl+Shift+click on a link and Ctrl+Enter in a form do
+  nothing at all: nothing opens and the page is not navigated. The context menu has
+  no item that opens a tab, window, profile, view-source or DevTools. Script
+  `window.open` and plain `target=_blank` still load in place (above).
 - Events still carry the page's id (`tab`), so a later multi-page design needs no
   protocol change. Today it is always the same number. `tab-created` and
   `tab-closed` stay: `tab-created` is how the shell pairs the host with the window

@@ -193,3 +193,12 @@ Later, relayed by the coordinator: "two small protocol additions that C3's statu
 navigation need ... (1) `reload hard` ... (2) A network-level load failure must reach the
 shell: add `load-error <id> <code> <text>`". `reload hard` was already in; `load-error`
 added (sent before the `load end` that carries the same error), and both are in the check.
+
+## C-NOTAB no new tabs or windows (2026-11-23)
+
+> can we remove tab opening functionality in general, like from context menus and such?
+
+**What changed:** `web/host-cef/src/newtab.rs` (disposition decision, context-menu removal
+list, Ctrl+Shift cancel script), handlers in `page.rs` and `renderer.rs`; `test/notab.py`
+and `test/pages/links.html` (live check); `web/tools/inject` (copy of scratchy's, plus
+`hold:`/`release`); PROTOCOL.md and README notes.
