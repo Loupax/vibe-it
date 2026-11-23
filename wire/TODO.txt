@@ -107,7 +107,7 @@ the commit it came up during.
       scratchy either way — worth a real measurement before relying on
       it, not before using it.
 
-- [ ] **Duplicate request headers collapse to one.** `execute` calls
+- [WIP] **W-HDR1 [S] Duplicate request headers collapse to one.** `execute` calls
       `req.set(name, value)` per parsed header, which *replaces* any
       prior value for that name rather than appending a second value —
       correct for the overwhelmingly common case (each header name

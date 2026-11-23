@@ -447,3 +447,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Final reinstall: ~/.cargo/bin/scratchy 08:00 from main 4432661 (all drain PRs). scratchy idle.
 - 2026-11-23 USER: W-POOL4 keep it safe (no retry after clean close). Closed to wire/TODO-DONE.txt, recorded in scratchy/DECISIONS.md (Network). Nothing waiting on the user.
 - 2026-11-23 Session start (user's machine). web spike started: launched W1 (Opus, bare CEF window). wire: launched W-MEDIA2 (Sonnet; truncated vs complete body, matters for the spike's downloads/video, W5).
+- 2026-11-23 Named wire's duplicate-header gap W-HDR1 and launched it (Sonnet; Chromium as a client makes it reachable). 3/3 slots.
