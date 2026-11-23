@@ -2,6 +2,15 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-23 H.264: build CEF ourselves; :openExternal as the escape hatch
+
+User, after C-WEBEX (#718) showed Webex needs WebRTC H.264, which the prebuilt CEF lacks: "Let's do both.
+Create :openExternal but let's also build chromium". C-EXTERNAL hands a page to another browser.
+C-H264-BUILD builds CEF 156 with proprietary codecs (H.264/AAC, OpenH264) on this machine: the build may use
+up to 20G of RAM (an exception to the 6G cap, for this build only; the machine has 31G), runs under nice/ionice
+outside the repo (~/.cache/web-cef-build), and its output is never committed or published (codec patents).
+C-H264 is unparked into C-H264-BUILD; DRM (C-DRM) stays parked.
+
 ## 2026-11-23 Modifiers reach the page on clicks in NORMAL
 
 User: "we should pass the modifier keys on normal mod unless that breaks functionality". In NORMAL a

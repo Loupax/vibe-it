@@ -127,10 +127,11 @@ stop early on a hard failure.
 - [x] C-WEBEX [S] (DONE 2026-11-23, 71ef452, #718: both messages come from Webex's H.264 check,
       RTCRtpReceiver.getCapabilities('video') without video/H264; our CEF build has no proprietary codecs.
       UA/client hints are not the issue; getDisplayMedia reaches the portal. Report: web/notes/C-WEBEX.md)
-- [ ] C-H264-BUILD [L] NEEDS USER (from #718) Build CEF 156 with proprietary_codecs=true ffmpeg_branding=Chrome (WebRTC
+- [WIP] C-H264-BUILD [L] (user, 2026-11-23: "Let's do both. Create :openExternal but let's also build chromium";
+      memory cap 20G for this build only) (from #718) Build CEF 156 with proprietary_codecs=true ffmpeg_branding=Chrome (WebRTC
       H.264 on), variant A2 linking system libopenh264 + FFmpeg. ~100+ GB disk, hours of build, link needs well over
       the 6G cap (user approval), a rebuild per Chromium security release, H.264/AAC patents: never publish it.
-- [ ] C-EXTERNAL [S] NEEDS USER (from #718) `:openExternal [url]` hands the page to another browser ($BROWSER or
+- [WIP] C-EXTERNAL [S] (user, 2026-11-23, same words) (from #718) `:openExternal [url]` hands the page to another browser ($BROWSER or
       xdg-open): a cheap workaround for Webex now and DRM sites (C-DRM).
 - [ ] C-SHARE-CHECK [XS] USER (from #718) Share a screen/window via the webrtc getDisplayMedia sample page on the real
       desktop (2 min).
@@ -341,7 +342,7 @@ stop early on a hard failure.
       pressed within ms of navigating could take it as its answer. Tag find requests/results.
 - [ ] C-DRM PARKED (user, 2026-11-23) (from #680) Widevine DRM (Netflix, Spotify web player): CEF ships no CDM, so DRM never
       worked. Getting it needs a CDM path plus the component updater back on (Google traffic again).
-- [ ] C-H264 PARKED (user, 2026-11-23; Webex needs it, see C-H264-BUILD / web/notes/C-WEBEX.md) (from #680) This CEF build cannot play H.264 (canPlayType avc1 = ""); VP9/WebM work.
+- [ ] C-H264 UNPARKED -> C-H264-BUILD (user, 2026-11-23; Webex needs it, see C-H264-BUILD / web/notes/C-WEBEX.md) (from #680) This CEF build cannot play H.264 (canPlayType avc1 = ""); VP9/WebM work.
       A proprietary-codecs CEF build would be needed.
 - [x] C6-LIVE [S] (DONE 2026-11-23, 006e846, #695: the test, not the bridge: it read the pre-tiling window size
       and hid a missed click with `i`; now waits for the settled size and requires editable-focused) (from #690) c6_live.py fails 4/8 on main in an agent's headless nest (copy takes more than the
