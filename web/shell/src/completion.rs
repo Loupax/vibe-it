@@ -346,6 +346,15 @@ pub fn complete_refresh_args(ctx: &CompleteCtx) -> Vec<String> {
         .collect()
 }
 
+/// The built-in source of `:set`'s argument (`config::SET_ARGS`).
+pub fn complete_set_args(ctx: &CompleteCtx) -> Vec<String> {
+    crate::config::SET_ARGS
+        .iter()
+        .filter(|a| a.starts_with(ctx.word))
+        .map(|a| a.to_string())
+        .collect()
+}
+
 /// T45/T46: the ghost for `text` with the cursor at byte offset `cursor`, or `None` (cursor not
 /// at the end, empty word, a command without a `COMPLETERS` row, no match).
 pub fn compute_ghost(text: &str, cursor: usize, cache: &CompleteCache) -> Option<Ghost> {

@@ -35,7 +35,7 @@ what they always do with it (text fields, <code>Tab</code>, arrows and
 <b>NORMAL</b>. The first <code>Esc</code> reaches the page as usual (it may
 close a dialog or leave a text field); the second one never does.</li>
 <li><b>NORMAL</b> (the mode at start): keys are web's and the page gets no
-key events. Press <code>i</code> to go back to INPUT. Any text field gaining focus (a click, <code>Tab</code>, the page focusing it itself)
+key events, except <code>Enter</code>. Press <code>i</code> to go back to INPUT. Any text field gaining focus (a click, <code>Tab</code>, the page focusing it itself)
 switches to INPUT, and so does opening a select's menu (or a context menu) with the mouse, also
 switches to INPUT; when that menu closes (an option picked, <code>Esc</code>, a click outside)
 web goes back to the mode you were in, unless the click focused a text field. The mouse always goes to the page.</li>
@@ -59,7 +59,8 @@ switch back; press <code>Esc</code> twice.</li>
 <tr><td><code>i</code></td><td>Switch to INPUT mode</td></tr>
 <tr><td><code>/</code></td><td>Search: type the text in the status bar, <code>Enter</code> finds it (all matches are highlighted), <code>Esc</code> cancels</td></tr>
 <tr><td><code>n</code> / <code>N</code></td><td>Next / previous match (the bar shows <code>[i/N]</code> and says when the search wrapped; <code>Pattern not found: ...</code> when there is none)</td></tr>
-<tr><td><code>Esc</code></td><td>Clear the highlights (the search text is kept for <code>n</code>)</td></tr>
+<tr><td><code>Esc</code></td><td>Clear the highlights (the search text is kept for <code>n</code>). The current match stays selected, and a link or button holding it gets the focus</td></tr>
+<tr><td><code>Enter</code></td><td>Goes to the page, which acts on what has focus. After a search it first clears the highlights (as <code>Esc</code>), so it follows the link (or presses the button) holding the current match; a match in a text field focuses the field and switches to INPUT. With nothing focused it does nothing</td></tr>
 <tr><td><code>y</code> <code>y</code></td><td>Copy the page URL to the clipboard (same as <code>:let @+ = @%</code>)</td></tr>
 </table>
 <p>Scrolling is done by giving the page a real key press (<code>Down</code>,
@@ -74,8 +75,8 @@ to run it. <code>Esc</code> cancels. <code>Left</code>, <code>Right</code>,
 <code>Home</code>, <code>End</code>, <code>Backspace</code>,
 <code>Ctrl</code>+<code>w</code> (delete a word) and <code>Ctrl</code>+<code>u</code>
 (delete to the start) edit the line.</p>
-<p>While you type a command name, a <code>:go</code> address or a
-<code>:refresh</code> argument, the rest of the best match shows dimmed after
+<p>While you type a command name, a <code>:go</code> address, a
+<code>:refresh</code> or a <code>:set</code> argument, the rest of the best match shows dimmed after
 the cursor (a ghost suggestion; only when the cursor is at the end of the line).
 <code>Enter</code> runs what you typed plus the ghost. <code>Tab</code> and
 <code>Shift</code>+<code>Tab</code> show the next and previous match; with a
@@ -95,6 +96,8 @@ videos), then single pages. <code>https://</code>, <code>http://</code> and
 <tr><td><code>:historyBack</code></td><td>Go back one page (same as <code>h</code>)</td></tr>
 <tr><td><code>:historyFront</code></td><td>Go forward one page (same as <code>l</code>)</td></tr>
 <tr><td><code>:let @&lt;dst&gt; = @&lt;src&gt;</code></td><td>Copy a register into another (vim's <code>:let @+ = @%</code>). <code>%</code> is the page URL as the status bar shows it (read-only), <code>+</code> is the system clipboard (<code>:let @+ = @%</code> copies the URL)</td></tr>
+<tr><td><code>:set caret</code>, <code>:set nocaret</code></td><td>Turn Chromium's caret browsing on or off (an experiment; off at every start). With it on, a text caret sits in the page and the keys that scroll move it instead: <code>j</code>/<code>k</code> and the arrows move it by line or character (the page follows), <code>g</code> <code>g</code> and <code>G</code> go to the start and end of its line. <code>Ctrl</code>+<code>d</code>/<code>u</code> and <code>Space</code> still scroll. <code>/word</code> then <code>Esc</code> puts the caret on the word; on a link, <code>Enter</code> follows it</td></tr>
+<tr><td><code>:set caret?</code></td><td>Show whether caret browsing is on (<code>caret</code>) or off (<code>nocaret</code>)</td></tr>
 <tr><td><code>:help</code></td><td>Show this page</td></tr>
 <tr><td><code>:q</code> or <code>:quit</code></td><td>On this help page, go back to the page before it; otherwise close web</td></tr>
 </table>

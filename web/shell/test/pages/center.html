@@ -1,0 +1,43 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>ce start</title>
+<style>
+body { margin: 0; font: 20px/30px sans-serif; }
+p, div { margin: 0; padding: 0 10px; }
+input { font: 20px sans-serif; margin: 0 10px; }
+</style>
+</head>
+<body>
+<!-- C-ENTER / C-CARETCMD live check (c_enter_live.py). The title reports what the test reads:
+     scrollY, the selection's anchor (element id:offset, "none"), the focused element, the
+     Enters the page saw and whether the button was pressed. -->
+<p id="p1">first caret paragraph with plain words</p>
+<p id="p2"><a id="lnk" href="second.html">alpha target link</a> and more words after it</p>
+<p id="p3"><button id="btn" onclick="pressed++">press me button</button></p>
+<p id="p4">fourth line before the field</p>
+<p id="p5"><input id="fld" value="fieldword inside"></p>
+<p id="p6">sixth line after the field</p>
+<div style="height: 3000px"></div>
+<p id="end">the end</p>
+<script>
+let enters = 0, pressed = 0;
+addEventListener("keydown", (e) => { if (e.key === "Enter") enters++; }, true);
+function desc(n) {
+  if (!n) return "none";
+  const el = n.nodeType === 3 ? n.parentElement : n;
+  return (el.id || el.tagName.toLowerCase());
+}
+function report() {
+  const s = getSelection();
+  const sel = s.anchorNode ? `${desc(s.anchorNode)}:${s.anchorOffset}` : "none";
+  const act = document.activeElement ? (document.activeElement.id || document.activeElement.tagName.toLowerCase()) : "none";
+  const t = `ce y=${Math.round(scrollY)} sel=${sel} act=${act} enter=${enters} btn=${pressed}`;
+  if (document.title !== t) document.title = t;
+}
+setInterval(report, 100);
+report();
+</script>
+</body>
+</html>

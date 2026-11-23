@@ -31,6 +31,8 @@ pub enum Mods {
     Ctrl,
     /// Fires only while Shift is held.
     Shift,
+    /// Fires only with no modifier held (no Ctrl, Alt, Super or Shift).
+    None,
 }
 
 /// One NORMAL-mode key binding: key, modifier condition, resulting action.
@@ -53,6 +55,7 @@ impl Binding {
                 Mods::Any => true,
                 Mods::Ctrl => key.ctrl,
                 Mods::Shift => key.shift,
+                Mods::None => !key.ctrl && !key.alt && !key.logo && !key.shift,
             }
     }
 }
@@ -91,6 +94,11 @@ pub const BINDINGS: &[Binding] = &[
     bind(Sym(Keysym::Page_Up), Mods::Any, A::Scroll(PAGE_UP)),
     bind(Sym(Keysym::Home), Mods::Any, A::Scroll(TOP)),
     bind(Sym(Keysym::End), Mods::Any, A::Scroll(BOTTOM)),
+    // Enter goes to the page (T18, user 2026-11-23): the engine acts on what has focus. With a
+    // `/` search open the shell ends it first (T7), which focuses the match's link, so Enter
+    // follows it. A modified Enter does nothing (T21).
+    bind(Sym(Keysym::Return), Mods::None, A::ToPage),
+    bind(Sym(Keysym::KP_Enter), Mods::None, A::ToPage),
 ];
 
 /// A two-key NORMAL sequence: `first` arms, `second` fires `action` (KEYS.md T10-T12,
@@ -142,6 +150,7 @@ pub mod evdev {
     pub const KEY_END: u32 = 107;
     pub const KEY_DOWN: u32 = 108;
     pub const KEY_PAGEDOWN: u32 = 109;
+    pub const KEY_ENTER: u32 = 28;
 }
 
 pub const DOWN: usize = 0;
@@ -183,6 +192,10 @@ pub const START_MODE: KeyMode = KeyMode::Normal;
 /// after a mouse button press; later it was the page's own script and changes nothing.
 pub const CLICK_FOCUS_MS: u64 = 1000;
 
+/// T18: Enter in NORMAL with a find open ends the find (Chromium then focuses the match's link
+/// or control) and gives the page the Enter this many ms later, so it lands on that focus.
+pub const ENTER_AFTER_FIND_CLEAR_MS: u64 = 50;
+
 // ---------- status bar ----------
 
 /// Height of the status bar at the bottom of the window, px. The page is the window minus this.
@@ -209,6 +222,11 @@ pub const GHOST_FG: (u8, u8, u8) = (120, 120, 120);
 /// Arguments `:refresh` completes (`hard` bypasses the cache).
 pub const REFRESH_ARGS: &[&str] = &["hard"];
 
+/// Arguments `:set` completes (C-CARETCMD): `caret` turns Chromium's caret browsing on,
+/// `nocaret` off, `caret?` shows which. An exact word comes before its longer forms, so the
+/// ghost of a typed `caret` is empty and Enter runs `:set caret`.
+pub const SET_ARGS: &[&str] = &["caret", "caret?", "nocaret"];
+
 /// Where a command's arguments complete from (KEYS.md "Completion").
 #[derive(Clone, Copy)]
 pub enum Source {
@@ -232,6 +250,7 @@ pub enum Source {
 pub const COMPLETERS: &[(&str, Source)] = &[
     ("go", Source::Builtin(crate::completion::complete_history_urls)),
     ("refresh", Source::Builtin(crate::completion::complete_refresh_args)),
+    ("set", Source::Builtin(crate::completion::complete_set_args)),
     // ("go", Source::Cmd(&["my-url-source"])),
 ];
 
@@ -243,7 +262,7 @@ pub const SOURCE_MAX_OUTPUT: usize = 1 << 20;
 
 /// Commands whose argument, once selected with Tab (a single match), is followed by a
 /// space (T53). The command name itself always gets one; a URL never.
-pub const SPACE_AFTER_ARG: &[&str] = &[];
+pub const SPACE_AFTER_ARG: &[&str] = &["set"];
 
 // ---------- history (STASH.md "History") ----------
 

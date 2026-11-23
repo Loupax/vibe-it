@@ -69,7 +69,7 @@ host-cef it is in CI (it needs only libxkbcommon to link).
   it, `find-result` gives `[i/N]` and the wrap messages (derived from the indices),
   `Pattern not found: <q>`, `No previous search`; Esc in NORMAL sends `find-clear` (the
   query stays); a cross-document load start forgets the session (T31). Tests
-  `src/tests/search_tests.rs`, live check `test/c5_live.py`. Enter on a match is a later item.
+  `src/tests/search_tests.rs`, live check `test/c5_live.py`.
 - **The clipboard** (C6, `src/clipboard.rs` the desktop's side, `src/selection.rs` the page's):
   the shell bridges the page's wl_data_device / zwp_primary_selection (on its own seat) and
   the desktop's clipboard and primary selection (copypasta: smithay-clipboard on the shell
@@ -81,6 +81,11 @@ host-cef it is in CI (it needs only libxkbcommon to link).
   paste (Ctrl-v, Ctrl-Shift-v, Shift-Insert) into the `:` and `/` lines use the desktop's
   clipboard directly. Text only. Tests `src/tests/c6_tests.rs`, live check
   `test/c6_live.py` (Wayland and `--x11`).
+- **Enter in NORMAL** (C-ENTER, KEYS.md T18-T20): goes to the page; with a find open the shell
+  sends `find-clear` first (Chromium then focuses the match's link) and the Enter 50 ms later
+  (`Effect::Pause`, `input.rs`). **`:set caret|nocaret|caret?`** (C-CARETCMD): the host's
+  `caret` command, Chromium's caret browsing, off at start. Tests `src/tests/c_enter_tests.rs`,
+  live check `test/c_enter_live.py`.
 
 Not in C2/C3/C5/C6 (later items): HiDPI and
 fractional scale, frame pacing, dmabuf, IME, the desktop's keyboard layout (the shell uses

@@ -150,11 +150,13 @@ pub enum Action {
     HistoryForward,
     /// `yy` (T55): `:let @+ = @%`.
     YankUrl,
+    /// The key press (and its release) goes to the page (T19: Enter; T18 ends an open find first).
+    ToPage,
 }
 
 /// Whether `action` ignores OS key repeat (T14 `h`/`l` "not a repeat", T55).
 pub fn action_ignores_repeat(action: Action) -> bool {
-    !matches!(action, Action::Scroll(_))
+    !matches!(action, Action::Scroll(_) | Action::ToPage)
 }
 
 /// The one place a key press becomes a NORMAL `Action` (the `config::BINDINGS` table).
@@ -195,7 +197,10 @@ pub fn mode_name(mode: KeyMode) -> &'static str {
 
 /// Every name `dispatch_command` knows as the first word (what the first word completes
 /// from). Keep it in step with `dispatch_command`'s `match` by hand.
-pub const COMMAND_NAMES: &[&str] = &["go", "help", "historyBack", "historyFront", "let", "q", "quit", "refresh"];
+pub const COMMAND_NAMES: &[&str] = &["go", "help", "historyBack", "historyFront", "let", "q", "quit", "refresh", "set"];
+
+/// `:set`'s usage line (C-CARETCMD).
+pub const SET_USAGE: &str = "web: usage: :set caret | nocaret | caret?";
 
 /// KEYS.md "Paste": Ctrl-v, Ctrl-Shift-v, Shift-Insert.
 pub fn is_paste_chord(key: &KeyInput) -> bool {
@@ -280,6 +285,9 @@ pub enum Effect {
     KeyUp(u32),
     /// Wheel steps at the pointer (positive = down).
     Wheel(i32),
+    /// Wait this many ms before carrying out the effects queued after it (T18: the Enter
+    /// after a `find-clear`); effects queued meanwhile wait too, in order.
+    Pause(u64),
     /// Quit web (`:q`).
     Quit,
 }
@@ -402,6 +410,9 @@ pub struct Keys {
     popup_return: Option<KeyMode>,
     /// The desktop's clipboard (register `+`, paste; C6). None: there is none.
     pub clipboard: Option<Box<dyn crate::clipboard::SystemClipboard>>,
+    /// `:set caret` (C-CARETCMD): Chromium's caret browsing, as last asked of the host. Off at
+    /// start, not kept between runs (the host also turns it off at its start).
+    pub caret: bool,
 }
 
 impl Keys {
@@ -413,6 +424,7 @@ impl Keys {
             pending_seq: None,
             open_popups: 0,
             popup_return: None,
+            caret: false,
             line: TextEditBuffer::default(),
             ghost: None,
             cache: CompleteCache::new(state_dir.clone()),
@@ -462,7 +474,7 @@ impl Keys {
                 match self.vim_mode {
                     VimMode::Command => self.command_line_key(key),
                     VimMode::Search => self.search_line_key(key),
-                    VimMode::Normal => self.normal_key(code, key, repeat),
+                    VimMode::Normal => return self.normal_key(code, key, repeat),
                 }
                 false
             }
@@ -478,8 +490,9 @@ impl Keys {
         }
     }
 
-    /// A key press in NORMAL (T6-T21): a pending sequence first, then the bindings.
-    fn normal_key(&mut self, code: u32, key: &KeyInput, repeat: bool) {
+    /// A key press in NORMAL (T6-T21): a pending sequence first, then the bindings. Returns
+    /// whether the page gets the press (only an `Action::ToPage` binding, T19).
+    fn normal_key(&mut self, code: u32, key: &KeyInput, repeat: bool) -> bool {
         let (seq_action, pending, consumed) = resolve_sequence(self.pending_seq, key);
         self.pending_seq = pending;
         let action = if consumed {
@@ -487,15 +500,34 @@ impl Keys {
         } else {
             resolve_binding(key, self.vim_mode)
         };
-        if let Some(action) = action {
-            if !(repeat && action_ignores_repeat(action)) {
-                self.perform(code, action, repeat);
+        match action {
+            // T18: with a find session open, end it first, as T7 does: Chromium then focuses the
+            // link or control holding the active match (or selects it), so the Enter acts on it.
+            // The Enter goes to the page `ENTER_AFTER_FIND_CLEAR_MS` after the `find-clear` (an
+            // evdev Enter held until the real key is released): sent at once, it sometimes
+            // reached the page before Chromium had moved the focus (1 in 4 live runs).
+            Some(Action::ToPage) if self.search.session && !repeat => {
+                self.clear_search();
+                self.effects.push(Effect::Pause(crate::config::ENTER_AFTER_FIND_CLEAR_MS));
+                self.effects.push(Effect::KeyDown(crate::config::evdev::KEY_ENTER));
+                self.held.push((code, crate::config::evdev::KEY_ENTER));
+                false
             }
+            Some(Action::ToPage) => !self.held.iter().any(|h| h.0 == code),
+            Some(action) => {
+                if !(repeat && action_ignores_repeat(action)) {
+                    self.perform(code, action, repeat);
+                }
+                false
+            }
+            None => false,
         }
     }
 
     fn perform(&mut self, code: u32, action: Action, repeat: bool) {
         match action {
+            // Handled by `normal_key`: the press itself is forwarded.
+            Action::ToPage => {}
             Action::Scroll(i) => match SCROLL_INPUTS.get(i) {
                 Some(ScrollInput::Key(k)) => {
                     // Held until the binding's key is released: the engine repeats it.
@@ -849,6 +881,8 @@ impl Keys {
                 let url = self.help_url.clone();
                 send(self, Command::Open { url })
             }
+            ("set", [opt]) => self.set_option(opt),
+            ("set", _) => self.message = SET_USAGE.to_string(),
             ("q", []) | ("quit", []) => {
                 if !self.help_url.is_empty() && self.url == self.help_url {
                     send(self, Command::Back)
@@ -861,6 +895,30 @@ impl Keys {
                 self.message = format!("web: unknown command: :{name}{}{rest}", if rest.is_empty() { "" } else { " " });
             }
         }
+    }
+
+    /// `:set <opt>` (C-CARETCMD): `caret` / `nocaret` switch Chromium's caret browsing,
+    /// `caret?` says which is on (vim's `:set opt?`).
+    fn set_option(&mut self, opt: &str) {
+        let on = match opt {
+            "caret" => true,
+            "nocaret" => false,
+            "caret?" => {
+                self.message = if self.caret { "caret" } else { "nocaret" }.to_string();
+                return;
+            }
+            _ => {
+                self.message = format!("web: unknown option: {opt} ({})", SET_USAGE.trim_start_matches("web: "));
+                return;
+            }
+        };
+        self.caret = on;
+        self.effects.push(Effect::Send(Command::Caret { on }));
+        self.message = if on {
+            "caret browsing on (:set nocaret turns it off)".to_string()
+        } else {
+            "caret browsing off".to_string()
+        };
     }
 
     /// What the status bar shows now.
