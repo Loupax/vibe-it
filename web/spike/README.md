@@ -3,8 +3,9 @@
 Throwaway spike code for `web/TODO.txt` (W1..W7). Its own workspace root: it joins
 no other build and is not in CI.
 
-W1 state: one CEF window (Views, Chrome runtime style) loads one URL. No request
-interception, no network namespace yet (direct network).
+State: one CEF window (Views, Chrome runtime style) loads one URL. No request
+interception yet. Since W2 the whole process tree runs in an empty network namespace
+(`run.sh --net` opts out), so no page loads until W3 answers requests from wire.
 
 ## Versions
 
@@ -38,7 +39,7 @@ Unit test (URL normalisation only): `cargo test` (same `CEF_PATH`).
 
 ## Run
 
-    web/spike/run.sh [--x11] [URL] [extra Chromium switches]
+    web/spike/run.sh [--x11] [--net] [URL] [extra Chromium switches]
 
 - Runs the binary in `systemd-run --user --scope -p MemoryMax=6G -p MemorySwapMax=0`
   as unit `$WEB_SPIKE_UNIT` (default `web-spike-<pid>`). Stop the whole process tree
@@ -48,6 +49,9 @@ Unit test (URL normalisation only): `cargo test` (same `CEF_PATH`).
   CEF's own log goes to `<profile>/cef.log`; the spike's lines go to stderr as
   `[web-spike +<ms>ms] ...` (title, main-frame load end with HTTP status, load
   errors, console messages).
+- Network: by default the binary runs as `systemd-run --scope ... unshare -n
+  --map-user=<uid> --map-group=<gid> env ... web-spike` (see W2 below). `--net` runs it
+  on the host network instead, for debugging only.
 - Wayland by default (`--ozone-platform=wayland`, needs `WAYLAND_DISPLAY`);
   `--x11` passes `--ozone-platform=x11` (needs `DISPLAY`).
 
@@ -94,3 +98,43 @@ In the nested compositor (never the user's display):
 - **Wayland noise:** `'--ozone-platform=wayland' is not compatible with Vulkan` and
   one `ContextResult::kTransientFailure` from the GPU process on start; harmless,
   the page renders.
+
+## What W2 learned (empty network namespace)
+
+Done-when met: both sites fail to load, nothing else in CEF crashes.
+
+- **Command.** `systemd-run --user --scope ... unshare -n --map-user=$(id -u)
+  --map-group=$(id -g) env ... web-spike`. The scope wraps the namespace, so the 6G cap
+  and `systemctl --user stop` cover everything.
+- **Not `unshare -rn`.** `-r` maps us to uid 0 inside the user namespace; Chromium then
+  exits at startup with "Running as root without --no-sandbox is not supported". Mapping
+  our own uid to itself keeps the new user namespace (which is what lets an unprivileged
+  user create the network namespace) without becoming root. The Chromium sandbox stays
+  ON: its nested user/pid/net namespaces for renderers work under this (sandboxed zygotes
+  sit in a further net namespace of their own). `WEB_SPIKE_NO_SANDBOX` was not needed.
+- **Evidence (Wayland, example.com; host net ns `net:[4026531833]`).** All 10 processes in
+  the scope: browser, the `--no-zygote-sandbox` zygote, GPU (forked from it) and the network
+  service (`--type=utility --utility-sub-type=network.mojom.NetworkService`) are in
+  `net:[4026535244]`; the sandboxed zygotes and renderers/utilities are in
+  `net:[4026535386]`. None is in the host's. `/proc/<pid>/net/dev` of every one lists
+  only `lo` (down). Same on X11.
+- **Scope.** All processes stay in `web-spike-w2.scope` (cgroup of each PID, `systemctl
+  --user status`); `FLATPAK_SANDBOX_DIR` still stops Chromium's D-Bus move into
+  `app-org.chromium.Chromium-<pid>.scope`; `systemctl --user list-units
+  'app-org.chromium*'` stays empty. The session D-Bus, Wayland and X11 sockets are paths and
+  work unchanged.
+- **Failure.** `load error: https://example.com/ ERR_INTERNET_DISCONNECTED` ~100 ms after
+  the browser was created (+239 ms after start; same for en.wikipedia.org at +194 ms):
+  immediate, no timeout, because there is no interface up and no resolver. The window
+  shows Chromium's "No internet" page in the nested dwl (grim), on Wayland and via Xwayland.
+  No crash dumps, no "exited" lines in `chrome_debug.log`, no GPU restart, window stayed up
+  (scope still active after 10 s). Only new noise: `Fontconfig error: Cannot load default
+  config file` (harmless).
+- **lo is down.** Nothing needed it. W3 must not rely on loopback inside the namespace:
+  reach wire by its Unix socket path. If something later wants `127.0.0.1`, add
+  `ip link set lo up` inside the namespace (not needed so far).
+- **bubblewrap** (bubblewrap 0.12.0) is installed (`/usr/bin/bwrap`). `--unshare-net` would give the same
+  empty namespace; it would add the ability to hide the filesystem (bind only the profile,
+  sockets, no `~`), a stronger confinement than W2 asks for. Not used: `unshare` is
+  enough, and bwrap's own user namespace would also hit the root/uid mapping question.
+  Worth considering later for filesystem isolation.
