@@ -1284,6 +1284,21 @@ fn execute_network(agent: &ureq::Agent, shared: &Shared, request: &ParsedRequest
 ///
 /// Residual: a peer that read the whole request and then aborted with an RST
 /// (linger 0, crash) looks the same and is retried.
+///
+/// W-FLK1, the second case (`junk_on_reused`): an idempotent request without
+/// a body (GET, HEAD, OPTIONS, TRACE) whose answer on a REUSED connection
+/// does not start with a status line (`BadStatus`) is also sent once more on a
+/// fresh connection. ureq 2 pools a connection as soon as a response it
+/// treats as bodiless ends (HEAD, 204, 304, `Content-Length: 0`, or the
+/// declared length) without checking that its read buffer is empty, and its
+/// liveness check on reuse peeks only the socket, not that buffer. A server
+/// that sends a body anyway (WPT's `status.py?code=204&content=...` does on
+/// purpose) leaves those bytes in front of the NEXT response on that
+/// connection, which fails as `HTTP version did not start with HTTP/`: a
+/// random later request got a 502 (`TypeError: Failed to fetch`, or a page
+/// whose testharness.js never loaded). The server did read that request, so
+/// a POST is not retried (W-POOL4); ureq's own rule for automatic retries
+/// (idempotent, no body) is the limit.
 #[allow(clippy::result_large_err)] // ureq's own Result type
 fn call_with_stale_retry(
     agent: &ureq::Agent,
@@ -1294,14 +1309,35 @@ fn call_with_stale_retry(
 ) -> Result<ureq::Response, ureq::Error> {
     let hops_before = TRACKER.with(|t| t.borrow().hops.len());
     let send = |req: ureq::Request| if body.is_empty() { req.call() } else { req.send_bytes(body) };
-    let result = send(build(agent));
+    let req = build(agent);
+    let idempotent = body.is_empty() && ["GET", "HEAD", "OPTIONS", "TRACE"].iter().any(|m| m.eq_ignore_ascii_case(req.method()));
+    let result = send(req);
     match &result {
         Err(e) if stale_pooled_failure(e, first_url, hops_before) => {
             eprintln!("wire: retrying {} once on a fresh connection (stale pooled connection: {e})", first_url);
             send(build(&fresh_agent()))
         }
+        Err(e) if idempotent && junk_on_reused(e, first_url, hops_before) => {
+            eprintln!("wire: retrying {} once on a fresh connection (pooled connection held stray bytes: {e})", first_url);
+            send(build(&fresh_agent()))
+        }
         _ => result,
     }
+}
+
+/// W-FLK1: a garbled status line on a reused connection (see `call_with_stale_retry`).
+fn junk_on_reused(err: &ureq::Error, first_url: &Url, hops_before: usize) -> bool {
+    let ureq::Error::Transport(t) = err else { return false };
+    t.kind() == ureq::ErrorKind::BadStatus && t.url() == Some(first_url) && reused_connection(hops_before)
+}
+
+/// The resolver was not called since `hops_before` (so the connection was a
+/// pooled one) and the policy resolver refused nothing.
+fn reused_connection(hops_before: usize) -> bool {
+    TRACKER.with(|tr| {
+        let tr = tr.borrow();
+        tr.hops.len() == hops_before && tr.blocked.is_none()
+    })
 }
 
 fn stale_pooled_failure(err: &ureq::Error, first_url: &Url, hops_before: usize) -> bool {
@@ -1316,10 +1352,7 @@ fn stale_pooled_failure(err: &ureq::Error, first_url: &Url, hops_before: usize) 
             std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::BrokenPipe
         )
     });
-    reset && TRACKER.with(|tr| {
-        let tr = tr.borrow();
-        tr.hops.len() == hops_before && tr.blocked.is_none()
-    })
+    reset && reused_connection(hops_before)
 }
 
 /// The upstream request itself (jar path or not), after the cache decided.
@@ -3094,3 +3127,5 @@ mod pool_tests;
 mod w_hdr1_tests;
 #[cfg(test)]
 mod no_follow_tests;
+#[cfg(test)]
+mod w_flk1_tests;
