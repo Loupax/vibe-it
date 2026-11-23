@@ -68,7 +68,7 @@ fn keys_t45_an_edit_shows_the_first_match_as_the_ghost() {
 fn keys_t46_no_match_empty_word_or_cursor_not_at_the_end_means_no_ghost() {
     assert!(ghost("").is_none());
     assert!(ghost("refresh ").is_none(), "empty word");
-    assert!(ghost("o").is_none(), "prefix, not substring");
+    assert!(ghost("x").is_none(), "prefix, not substring");
     assert!(ghost("refresh x").is_none());
     assert!(ghost("help x").is_none(), "a command without a COMPLETERS row");
     assert!(ghost("go ht").is_none(), "`:go` with no history file");

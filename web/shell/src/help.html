@@ -91,6 +91,7 @@ videos), then single pages. <code>https://</code>, <code>http://</code> and
 <table>
 <tr><th>Command</th><th>Effect</th></tr>
 <tr><td><code>:go &lt;url&gt;</code></td><td>Go to a URL. Without a scheme <code>https://</code> is assumed (<code>:go example.com</code>); <code>/x</code>, <code>./x</code>, <code>../x</code>, <code>#x</code>, <code>?x</code> are relative to the page on screen</td></tr>
+<tr><td><code>:openExternal [url]</code></td><td>Open the page (or <code>url</code>, normalised as for <code>:go</code>) in another browser: <code>$BROWSER</code> (first entry that exists), else <code>xdg-open</code>; <code>EXTERNAL_BROWSER</code> in <code>config.rs</code> overrides. Only http, https and file URLs. For sites web cannot show (Webex needs H.264; user, 2026-11-23: &ldquo;Let&rsquo;s do both. Create :openExternal but let&rsquo;s also build chromium&rdquo;)</td></tr>
 <tr><td><code>:refresh</code></td><td>Reload the page</td></tr>
 <tr><td><code>:refresh hard</code></td><td>Reload the page and everything on it, bypassing the cache</td></tr>
 <tr><td><code>:historyBack</code></td><td>Go back one page (same as <code>h</code>)</td></tr>

@@ -266,11 +266,17 @@ pub enum Source {
 /// `("go", Source::Cmd(&["my-url-source", "--flag"]))`.
 pub const COMPLETERS: &[(&str, Source)] = &[
     ("go", Source::Builtin(crate::completion::complete_history_urls)),
+    ("openExternal", Source::Builtin(crate::completion::complete_history_urls)),
     ("bookmarkDelete", Source::Builtin(crate::completion::complete_bookmark_urls)),
     ("refresh", Source::Builtin(crate::completion::complete_refresh_args)),
     ("set", Source::Builtin(crate::completion::complete_set_args)),
     // ("go", Source::Cmd(&["my-url-source"])),
 ];
+
+/// C-EXTERNAL: the program `:openExternal` runs, as an argv with no shell (`&["firefox", "--new-tab", "%s"]`;
+/// `%s` becomes the URL, else the URL is appended as the last argument). Empty = `$BROWSER` (entries
+/// separated by `:`, the first whose program exists; an entry may carry arguments and `%s`), else `xdg-open`.
+pub const EXTERNAL_BROWSER: &[&str] = &[];
 
 /// An external completion source still running after this many milliseconds is killed and
 /// gives no candidates.
