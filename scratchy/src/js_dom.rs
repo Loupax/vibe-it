@@ -2817,6 +2817,13 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
     }
     return true;
   }, function (v) { __d_setattr(this.__id, 'spellcheck', v ? 'true' : 'false'); });
+  // QEDIT-B: `draggable`, the enumerated true/false/auto attribute; auto (missing or invalid) is true for img and a[href].
+  defs(HTMLElement.prototype, 'draggable', function () {
+    var v = __d_attr(this.__id, 'draggable');
+    if (v != null) { v = asciiLower(v); if (v === 'true') return true; if (v === 'false') return false; }
+    if (this.namespaceURI !== 'http://www.w3.org/1999/xhtml') return false;
+    return this.localName === 'img' || (this.localName === 'a' && __d_attr(this.__id, 'href') != null);
+  }, function (v) { __d_setattr(this.__id, 'draggable', v ? 'true' : 'false'); });
   // writingSuggestions: enumerated "true"/"" -> "true", "false" -> "false"; missing/invalid inherits, root "true".
   defs(HTMLElement.prototype, 'writingSuggestions', function () {
     for (var n = this; n && n.nodeType === 1; n = n.parentNode) {

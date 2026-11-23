@@ -13,7 +13,7 @@ resize-observer                  36     36        19       106      64   60.4   
 intersection-observer           150    150        22       253      72   28.5   17.4
 html/semantics/scripting-1      419    400       131      2863    1333   46.6   35.5
 html/dom                        180    180        49      4053    1284   31.7   40.9
-html/editing                     48     48        15       626     205   32.7   41.2
+html/editing                     48     48        27       626     573   91.5   65.9
 html/canvas/element            1281   1277       707      2827     773   27.3   55.8
 html/canvas/offscreen          1074   1074       672      1388     721   51.9   62.9
 html/canvas/other                 4      4         4        18      18  100.0  100.0
@@ -31,4 +31,4 @@ shadow-dom                      263    263        60      2650     843   31.8   
 fetch/api                       145    144        42      1364     857   62.8   44.4
 fetch/other                      68     64         6       759     293   38.6   27.3
 xhr                             299    298       120      1091     748   68.6   48.8
-TOTAL                          6263   6229      2726    105202   76790   73.0   49.8
+TOTAL                          6263   6229      2738    105202   77158   73.3   50.0
