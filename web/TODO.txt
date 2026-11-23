@@ -131,7 +131,12 @@ stop early on a hard failure.
       PipeWire and CEF's media-stream picker, RTCRtpSender.getCapabilities('video') listing H264, WebCodecs)
       and what each fix costs (H.264 needs a proprietary-codecs / OpenH264 CEF build: C-H264, parked by the
       user). Report + proposed items; no login to the user's account (use Webex's public test pages if any).
-- [WIP] C-FLICKER [M] (user, 2026-11-23: "there some flickering regarding absolutely positioned elements and
+- [x] C-FLICKER [M] (DONE 2026-11-23, ac82479, #716: the shell drew dmabufs before the GPU finished them; now waits for
+      the acquire point (wp_linux_drm_syncobj_v1) or the implicit fence and releases after its own read. 698/740
+      frames missing the header -> 0. Needs the user's check on the real desktop.)
+- [ ] C-VIDEOPACE [S] ONLY IF NEEDED (from #716) Video frame intervals less regular with fence waits (sd 6.3 -> 11 ms on
+      the GPU nest): draw a held commit as soon as it is released if still within the current frame.
+      (was: user, 2026-11-23: "there some flickering regarding absolutely positioned elements and
       scrolling. For example when I scoll through youtube the static UI flickers") Reproduce (YouTube scroll),
       find the cause (suspects: wl_subsurface sync/commit handling for Chromium's delegated layers; buffer
       release timing, esp. with dmabuf since #706; frame-callback pacing #699/#712), fix, add a regression check.
