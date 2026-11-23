@@ -9709,3 +9709,9 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- (no header)
 - [x] QCNV12 DONE fee8f36 #647 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Opus; in order after the items above) Shadows. 99 files.
+
+=== from TODO.txt: --- (no header)
+- [x] QDET1 DONE 5cd4f11 #649 [S] (P2, from QEDIT-C #645; Sonnet; layout/default.css, input_host.rs) `<details>`/`<summary>` behave:
+      a closed details renders only its summary (with the disclosure marker), clicking or Enter/Space on the summary
+      toggles `open` and fires `toggle` (also for setAttribute('open')), `beforetoggle` where specified, the `name`
+      attribute's exclusive accordion; keyboard focus on summary. Real-site check: FAQ pages collapse.

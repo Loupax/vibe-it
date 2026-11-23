@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-23 · main 8e09b15 · 172 PRs merged since 2026-11-21 morning (#475–#647) · installed 04:58 (28257b1)· 5 agents running (QEL2b, QANIMHLc, QCSS-A hover check, QAPI6c, QDOM5b)</div>
+  <div class="meta" id="updated">Updated 2026-11-23 · main 8e09b15 · 173 PRs merged since 2026-11-21 morning (#475–#649) · installed 04:58 (28257b1)· 5 agents running (QEL2b, QANIMHLc, QCSS-A hover check, QAPI6c, QDOM5b)</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -112,6 +112,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-23</td><td class="n">#649</td><td>QDET1</td><td><code>&lt;details&gt;</code> collapses to its summary with a marker; click/Enter/Space toggle; <code>toggle</code> event; <code>name</code> accordion</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#647</td><td>QCNV11+12</td><td>Canvas <code>globalCompositeOperation</code> (all 27 operators) and shadows; canvas element 55.8&rarr;60.8, offscreen 62.9&rarr;68.6; TOTAL 49.8&rarr;52.0</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#645</td><td>QEDIT-C</td><td><code>hidden=until-found</code>, <code>beforematch</code>; <code>/</code> search and #fragments reveal hidden content and open <code>&lt;details&gt;</code>; 10 more files pass</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#646</td><td>QWPTFLK6</td><td>performance.timeOrigin stays consistent with Date.now() under load (the hr-time flake)</td></tr>
@@ -306,6 +307,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 <section>
   <h2>Waiting on you</h2>
   <ul id="waiting">
+    <li><b>Measure the &lt;details&gt; and &lt;dialog&gt; tests? (QWPT-INT)</b> WPT&rsquo;s <span class="mono">html/semantics/interactive-elements</span> directory is not in our test subset, so details/dialog behaviour is never scored. Adding it (like html/editing in QWPT6d) adds files to CI and changes its cache key. I recommend yes.</li>
     <li><b>wire: retry a POST after a clean close? (W-POOL4)</b> W-POOL3 (#634) makes wire retry a request once when a reused connection was reset before the server read it (safe: never duplicates). Left: a clean close (FIN) on a reused connection before any response, ~1 in 1000 POSTs in a stress test; it looks the same as "server read the body and hung up". (1) keep it safe: rare failed POST, never a duplicate (current), or (2) retry like Chromium: fixes the rare failure, rare duplicate POST. Recommendation: (1) for now.</li>
                         <li>Skim <span class="mono">scratchy/DECISIONS.md</span> once and correct anything I misstated.</li>
           </ul>

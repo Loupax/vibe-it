@@ -435,3 +435,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 #647 QCNV11+QCNV12 READY (compositing + shadows; total 49.8 -> 52.0), merging; #644 closed after. Launched QCNV13 (waits for #647 on main).
 - 2026-11-23 Merged #647 QCNV11+QCNV12 fee8f36 (TOTAL 52.0); #644 closed as superseded.
 - 2026-11-23 #649 QDET1 READY (details/summary), merging. Filed QWPT-INT (needs user approval: new WPT area) and QDET2. Launched QWPT7e.
+- 2026-11-23 Merged #649 QDET1 5cd4f11. QWPT-INT added to Waiting on you.
