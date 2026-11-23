@@ -426,3 +426,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Merged #642 QINC2b 34fcc48.
 - 2026-11-23 Merged #643 QDOM5e 54de567. Reinstalling.
 - 2026-11-23 Reinstalled ~/.cargo/bin/scratchy 04:58 from main 28257b1.
+- 2026-11-23 #644 QCNV11 DRAFT (compositing; element 58.2, offscreen 65.6) with 4 shadow subtests pass->fail (passed only because xor was ignored). Not asking the user: hold #644, QCNV12 stacked on it, merge together. Launched QCNV12 (Opus).

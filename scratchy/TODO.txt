@@ -177,7 +177,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       2d.gradient.colormix / relativecolor expect a different interpolation than plain sRGB (find out which).
 - [ ] [WIP] QCNV11 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Opus; in order after the items above) globalCompositeOperation. 97 files.
-- [ ] QCNV12 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+- [ ] [WIP] QCNV12 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Opus; in order after the items above) Shadows. 99 files.
 - [ ] QCNV13 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Sonnet; in order after the items above) drawImage from canvas sources, imageSmoothing. 38 files.
