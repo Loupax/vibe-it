@@ -1420,6 +1420,81 @@ where
     }
 }
 
+/// Bodies worth a second task (W2-2b): a small request costs more to hand over than to copy.
+fn pipelines(f: Framing) -> bool {
+    match f {
+        Framing::Length(n) => n >= 256 * 1024,
+        Framing::Chunked => true,
+        _ => false,
+    }
+}
+
+/// The request-side twin of [`pipelined_body`]: this task reads (for a decrypted flow: decrypts) the
+/// browser's body and frames it, a spawned task owning the write half writes (encrypts) to the next
+/// hop, joined by a channel of [`PIPE_DEPTH`] buffers (memory stays flat). Returns the copy's result
+/// (a write failure is a `Dst` error, as in the single-task copy) and the write half.
+async fn pipelined_upload<BR, UW>(
+    br: &mut BR,
+    mut uw: UW,
+    head: &[u8],
+    framing: Framing,
+    leftover: &[u8],
+    up: &AtomicU64,
+) -> (Result<Vec<u8>, CopyError>, UW)
+where
+    BR: AsyncRead + Unpin,
+    UW: AsyncWrite + Unpin + Send + 'static,
+{
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(PIPE_DEPTH);
+    let spare: Spare = Arc::default();
+    let spare_w = spare.clone();
+    let writer = tokio::spawn(async move {
+        while let Some(chunk) = rx.recv().await {
+            if let Err(e) = uw.write_all(&chunk).await {
+                return (Err(e), uw);
+            }
+            if let Ok(mut v) = spare_w.lock()
+                && v.len() <= PIPE_DEPTH
+            {
+                v.push(chunk);
+            }
+        }
+        let r = uw.flush().await;
+        (r, uw)
+    });
+    let _guard = AbortOnDrop(writer.abort_handle());
+    let mut w = ChanWriter {
+        tx: tokio_util::sync::PollSender::new(tx),
+        yielded: false,
+        spare,
+    };
+    let mut r = Coalesce {
+        inner: &mut *br,
+        err: None,
+    };
+    let copied = async {
+        put(&mut w, head, up).await?;
+        let rest = copy_body(&mut r, &mut w, framing, leftover, up).await?;
+        flush(&mut w).await?;
+        Ok::<_, CopyError>(rest)
+    }
+    .await;
+    let _ = w.shutdown().await;
+    drop(w);
+    match writer.await {
+        Ok((Ok(()), uw)) => (copied, uw),
+        Ok((Err(e), uw)) => (
+            match copied {
+                Err(CopyError::Dst(_)) | Ok(_) => Err(CopyError::Dst(e)),
+                other => other,
+            },
+            uw,
+        ),
+        // Only a panic in the writer task (a bug): its half is gone.
+        Err(e) => panic!("upload writer task failed: {e}"),
+    }
+}
+
 enum Response {
     Final(http::ResponseHead, Vec<u8>),
     Upgrade(http::ResponseHead, Vec<u8>),
@@ -1462,23 +1537,33 @@ where
     BR: AsyncRead + Unpin,
     BW: AsyncWrite + Unpin,
     UR: AsyncRead + Unpin + Send + 'static,
-    UW: AsyncWrite + Unpin,
+    UW: AsyncWrite + Unpin + Send + 'static,
 {
-    let (mut ur, mut uw, rpre) = up;
+    let (mut ur, uw, rpre) = up;
     // Request: head + body, streamed, concurrently with waiting for the response (a server may answer
-    // before it has read the whole body).
+    // before it has read the whole body). The future owns the write half and hands it back with the
+    // result (W2-2b: a big body is pipelined, the write half then lives in a task of its own).
     let mut send = Box::pin(async {
-        put(&mut uw, up_head, ctr.up).await?;
-        let rest = if req.upgrade && req.framing == Framing::None {
-            put(&mut uw, leftover, ctr.up).await?;
-            Vec::new()
-        } else {
-            copy_body(&mut *br, &mut uw, req.framing, leftover, ctr.up).await?
-        };
-        flush(&mut uw).await?;
-        Ok::<_, CopyError>(rest)
+        let mut uw = uw;
+        if req.framing != Framing::None && !req.upgrade && pipelines(req.framing) {
+            return pipelined_upload(br, uw, up_head, req.framing, leftover, ctr.up).await;
+        }
+        let r = async {
+            put(&mut uw, up_head, ctr.up).await?;
+            let rest = if req.upgrade && req.framing == Framing::None {
+                put(&mut uw, leftover, ctr.up).await?;
+                Vec::new()
+            } else {
+                copy_body(&mut *br, &mut uw, req.framing, leftover, ctr.up).await?
+            };
+            flush(&mut uw).await?;
+            Ok::<_, CopyError>(rest)
+        }
+        .await;
+        (r, uw)
     });
     let mut sent: Option<Result<Vec<u8>, CopyError>> = None;
+    let mut uw: Option<UW> = None;
 
     let resp = {
         let hop = &hop;
@@ -1522,6 +1607,8 @@ where
         loop {
             tokio::select! {
                 r = &mut send, if sent.is_none() => {
+                    let (r, w) = r;
+                    uw = Some(w);
                     match r {
                         Err(CopyError::Dst(e)) => {
                             // The next hop stopped reading; it may still have answered.
@@ -1619,7 +1706,21 @@ where
             return Next::Abort;
         }
         status.store(101, Ordering::Relaxed);
+        // The upgrade request has no body: its write half is back as soon as `send` finishes.
+        if uw.is_none() {
+            let r = tokio::select! {
+                r = &mut send => r,
+                _ = flow.cancel.cancelled() => return Next::Abort,
+            };
+            match r {
+                (Ok(_), w) => uw = Some(w),
+                _ => return Next::Abort,
+            }
+        }
         drop(send);
+        let Some(mut uw) = uw else {
+            return Next::Abort;
+        };
         let r = tokio::select! {
             r = crate::splice::both_ways(
                 copy_until_eof(br, &mut uw, &[], ctr.up),
@@ -1656,7 +1757,14 @@ where
         }
     };
     // The browser connection survives only if this response's end is visible without a close.
-    let ka = keep_alive && !req.close && rframing != Framing::UntilClose;
+    // W2-HUBCLOSE: a filter leg that says `Connection: close` (the hub does when it made the response
+    // itself, a 502/503/504 on the far side) ends the browser connection too: the proxy has given up
+    // on it, so the browser must not reuse it.
+    let leg_closes = matches!(hop, Hop::Filter { .. })
+        && http::tokens(&rh.headers, "connection")
+            .iter()
+            .any(|t| t == "close");
+    let ka = keep_alive && !req.close && rframing != Framing::UntilClose && !leg_closes;
     // The origin connection survives only if the origin did not close it and the response's end is
     // visible from its framing (RFC 9112 9.3: HTTP/1.1 persists unless `Connection: close`).
     let origin_ok = matches!(hop, Hop::Origin { pool: true, .. })
@@ -1682,6 +1790,8 @@ where
         loop {
             tokio::select! {
                 r = &mut send, if sent.is_none() => {
+                    let (r, w) = r;
+                    uw = Some(w);
                     if let Err(e @ (CopyError::Src(_) | CopyError::Framing(_))) = &r {
                         crate::debug!("flow={} request body failed: {e}", flow.id);
                         return Next::Abort;
@@ -1710,12 +1820,18 @@ where
     let sent = match sent {
         Some(r) => r,
         None => match tokio::time::timeout(Duration::ZERO, &mut send).await {
-            Ok(r) => r,
+            Ok((r, w)) => {
+                uw = Some(w);
+                r
+            }
             Err(_) => return Next::Close,
         },
     };
     drop(send);
-    if origin_ok && sent.is_ok() {
+    if origin_ok
+        && sent.is_ok()
+        && let Some(uw) = uw
+    {
         *keep = Some((ur, uw));
     }
     match sent {

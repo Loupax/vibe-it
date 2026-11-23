@@ -156,3 +156,14 @@ tests/w2_2a_reuse.rs.
 > visible; make the test wait (bounded). Run the w2_f_filters suite 20 times in a row.
 
 Result: one PR. Periodic re-handshake (`--filter-check`, default 2s); `filter.rs` `watch_up`. NOTES.md "W2-F1".
+
+## W2-HUBCLOSE + W2-2b: browser close after proxy-made errors through filters; pipelined uploads (2026-11-23)
+
+> W2-HUBCLOSE: with a filter in the chain, a proxy-made error response (502/503/504 made on the far side of the
+> hub) reaches the browser as keep-alive because the hub leg's close does not propagate. Close the browser
+> connection (Connection: close + actual close) whenever the response was proxy-made or its upstream leg closed.
+> W2-2b: request bodies inside decrypted tunnels decrypt and re-encrypt in one task; pipeline them like W2-2 did
+> for responses (two tasks, small bounded channel, flat memory). Test a 2 GiB generated upload through
+> pass-decrypt; measure upload throughput vs direct before/after under the perf lock.
+
+Result: one PR. proxy.rs (`pipelined_upload`, leg-close rule), hub.rs; NOTES.md "W2-HUBCLOSE + W2-2b".

@@ -679,3 +679,34 @@ before and after fixing stage_timeout_504, which failed once in between), full s
 
 - Flag row: `--filter-check` | 2s | How often an up filter is re-handshaken, so a restart or changed capabilities are noticed without traffic. New capabilities apply to new flows only.
 - Failure-handling row: Filter goes away while idle | Noticed by the periodic handshake (`--filter-check`): marked down and redialled as above, with no request failing. A changed answer replaces the capabilities for new flows only.
+
+## W2-HUBCLOSE + W2-2b (2026-11-23)
+
+W2-HUBCLOSE. The hub served a filter's request with `keep_alive = false`, so every response on a filter leg said
+`Connection: close`, and the stage before it (which strips hop-by-hop headers) could not tell a proxy-made 502 from an
+ordinary answer; the browser got keep-alive either way. Now the hub passes `keep_alive = true`: the leg's response says
+`Connection: close` only when the proxy made it (`answer`: 502/503/504/...) or its framing needs a close (read until
+EOF, request said close). `exchange` on a filter hop reads that token: a filter leg that closes ends the browser
+connection too (`Connection: close` to the browser, then the close). A filter that answers itself with
+`Connection: close` (as the fake does) also closes the browser connection, which is its right. Without a filter in
+the chain nothing changed (`answer` already closed). Test: `proxy_made_error_through_a_filter_closes_the_browser_connection`
+(keep-alive through the chain twice, then a 502 from an origin sending garbage: `Connection: close`, EOF; fails on
+the old code, checked). `w2_2a_reuse::stale_reused_connection_retries_get_never_post` used to expect the browser
+connection to survive a proxy-made 502; it now expects the close and a new connection (the new rule).
+
+W2-2b. `exchange` owns the upstream write half in its `send` future and hands it back with the result. A request
+body that is chunked or Content-Length >= 256 KiB (`pipelines`) goes through `pipelined_upload`: this task reads
+(for a decrypted flow: decrypts) the browser's body and frames it, a spawned task owning the write half writes
+(encrypts) to the origin, joined by the same `ChanWriter` / `PIPE_DEPTH` channel as responses (memory flat; the
+writer is aborted if the exchange ends first, in which case the origin connection is not reused). A write failure
+is a `Dst` error as before. Small bodies keep the single-task copy (a spawn costs more than it saves).
+Tests: tests/w2_2b_upload.rs: `uploads_arrive_intact_length_and_chunked` (10 B, 100 KB, 5 MiB+7, 300 KB and a 3 MiB
+chunked body on one browser connection, every byte checked at the origin, connection still usable),
+`large_upload_decrypted_flat_memory` (2 GiB generated, every byte checked; proxy RSS 6428 -> 8436 KiB, test process
+incl. pass-decrypt 7128 -> 10336 KiB, ~650 MiB/s), ignored `perf_upload_throughput_vs_direct`.
+Measured (flock perf lock, 2 GiB x 5 runs, medians, load average ~3-4 from other work, 16:03 and 16:04):
+before (origin/main) direct 813 MiB/s, decrypted 781 MiB/s = 96.1 %; after direct 764, decrypted 706 = 92.4 %.
+No measurable gain: the uploader (one TLS-encrypting client task in the same test process) is the bottleneck for
+both legs, so the proxy was already keeping up; the ratio difference is within the run-to-run noise of the direct
+baseline. The benefit is structural (decrypt and encrypt overlap on two cores, so a faster uploader than this test
+client is no longer capped by one proxy core) and is not shown by this harness; a client in its own process would.

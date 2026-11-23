@@ -235,7 +235,10 @@ async fn http_hop(
         flow,
         Ctr { up: &u, down: &d },
         &status,
-        false,
+        // The filter leg carries one request, but its response says `Connection: close` only when the
+        // proxy made it or the response needs a close to end (W2-HUBCLOSE): the stage before
+        // propagates that to the browser.
+        true,
         stage + 1,
     )
     .await;
