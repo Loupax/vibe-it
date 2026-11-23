@@ -325,3 +325,13 @@ Result: ureq's `brotli` feature on (wire decodes br and asks `Accept-Encoding: g
 `Content-Encoding` is no longer stripped by wire (ureq removes it itself when it decodes), so an
 encoding nobody undid passes through; the client's `Accept-Encoding` is not forwarded. Tests in
 `src/w_enc1_tests.rs`, NOTES "gzip and br decompression".
+
+## W-MEDIA1 — `file:` Range and media types (agent task)
+
+> W-MEDIA1 (coordinator launch of wire/TODO.txt W-MEDIA1)
+
+Result: `serve_file` streams the file (no `std::fs::read`), sends `Accept-Ranges: bytes` and
+`Content-Length`, answers one `bytes=a-b`/`a-`/`-n` range with `206` + `Content-Range` (seek + bounded
+copy), `416` + `Content-Range: bytes */total` when nothing is covered, and the full `200` for
+multi-range or malformed values; mp4/webm/ogg/mp3/m4a/opus/wav get media types. Tests in
+`src/w_media1_tests.rs`, NOTES "file: Range".

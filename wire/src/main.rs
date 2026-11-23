@@ -1551,8 +1551,57 @@ fn content_type_for_path(path: &std::path::Path) -> &'static str {
         Some("gif") => "image/gif",
         Some("webp") => "image/webp",
         Some("svg") => "image/svg+xml",
+        Some("mp4") => "video/mp4",
+        Some("webm") => "video/webm",
+        Some("ogg") => "audio/ogg",
+        Some("mp3") => "audio/mpeg",
+        Some("m4a") => "audio/mp4",
+        Some("opus") => "audio/opus",
+        Some("wav") => "audio/wav",
         _ => "application/octet-stream",
     }
+}
+
+/// What a `Range` request header asks of a file of `len` bytes (RFC 9110 14).
+#[derive(Debug, PartialEq, Eq)]
+enum FileRange {
+    /// No usable single range: answer the whole file with `200`.
+    Full,
+    /// An inclusive byte range, already clamped to the file: `206`.
+    Part(u64, u64),
+    /// Nothing of the file is covered: `416`.
+    Unsatisfiable,
+}
+
+/// Parses one `bytes=a-b`, `bytes=a-` or `bytes=-n`. A multi-range request, another
+/// unit or a malformed value is ignored (`Full`), which RFC 9110 allows.
+fn parse_file_range(value: Option<&str>, len: u64) -> FileRange {
+    let Some(spec) = value.map(str::trim).and_then(|v| v.strip_prefix("bytes=")) else { return FileRange::Full };
+    if spec.contains(',') {
+        return FileRange::Full;
+    }
+    let Some((a, b)) = spec.trim().split_once('-') else { return FileRange::Full };
+    let (a, b) = (a.trim(), b.trim());
+    if a.is_empty() {
+        let Ok(n) = b.parse::<u64>() else { return FileRange::Full };
+        if n == 0 || len == 0 {
+            return FileRange::Unsatisfiable;
+        }
+        return FileRange::Part(len.saturating_sub(n), len - 1);
+    }
+    let Ok(first) = a.parse::<u64>() else { return FileRange::Full };
+    let last = if b.is_empty() {
+        u64::MAX
+    } else {
+        match b.parse::<u64>() {
+            Ok(l) if l >= first => l,
+            _ => return FileRange::Full,
+        }
+    };
+    if first >= len {
+        return FileRange::Unsatisfiable;
+    }
+    FileRange::Part(first, last.min(len - 1))
 }
 
 /// Serves a `file://` URL by reading the file: `200` with a guessed
@@ -1567,24 +1616,44 @@ fn serve_file(request: &ParsedRequest, caps: &Caps, w: &mut impl Write) -> std::
         w.write_all(b"wire: file:// URLs only support GET")?;
         405
     } else {
-        let read = request.url.to_file_path().map_err(|_| "not a local file path".to_string()).and_then(|p| {
-            let data = std::fs::read(&p).map_err(|e| e.to_string())?;
-            Ok((p, data))
+        let opened = request.url.to_file_path().map_err(|_| "not a local file path".to_string()).and_then(|p| {
+            let f = std::fs::File::open(&p).map_err(|e| e.to_string())?;
+            let meta = f.metadata().map_err(|e| e.to_string())?;
+            if !meta.is_file() {
+                return Err("not a regular file".to_string());
+            }
+            Ok((p, f, meta.len()))
         });
-        match read {
-            Ok((path, data)) => {
-                write_status_and_headers(
-                    w,
-                    200,
-                    "OK",
-                    &[
-                        ("Content-Type".to_string(), content_type_for_path(&path).to_string()),
-                        ("X-Wire-Target-Class".to_string(), "file".to_string()),
-                        ("X-Wire-Final-Url".to_string(), request.url.to_string()),
-                    ],
-                )?;
-                w.write_all(&data)?;
-                200
+        match opened {
+            Ok((path, mut file, total)) => {
+                let range_header = request.headers.iter().find(|(n, _)| n.eq_ignore_ascii_case("range")).map(|(_, v)| v.as_str());
+                let mut headers = vec![
+                    ("Content-Type".to_string(), content_type_for_path(&path).to_string()),
+                    ("Accept-Ranges".to_string(), "bytes".to_string()),
+                    ("X-Wire-Target-Class".to_string(), "file".to_string()),
+                    ("X-Wire-Final-Url".to_string(), request.url.to_string()),
+                ];
+                match parse_file_range(range_header, total) {
+                    FileRange::Unsatisfiable => {
+                        headers.push(("Content-Range".to_string(), format!("bytes */{total}")));
+                        write_status_and_headers(w, 416, "Range Not Satisfiable", &headers)?;
+                        416
+                    }
+                    FileRange::Part(first, last) => {
+                        headers.push(("Content-Range".to_string(), format!("bytes {first}-{last}/{total}")));
+                        headers.push(("Content-Length".to_string(), (last - first + 1).to_string()));
+                        write_status_and_headers(w, 206, "Partial Content", &headers)?;
+                        std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(first))?;
+                        std::io::copy(&mut std::io::Read::take(&mut file, last - first + 1), w)?;
+                        206
+                    }
+                    FileRange::Full => {
+                        headers.push(("Content-Length".to_string(), total.to_string()));
+                        write_status_and_headers(w, 200, "OK", &headers)?;
+                        std::io::copy(&mut file, w)?;
+                        200
+                    }
+                }
             }
             Err(e) => {
                 write_status_and_headers(w, 404, "Not Found", &text_plain())?;
@@ -3137,3 +3206,5 @@ mod no_follow_tests;
 mod w_flk1_tests;
 #[cfg(test)]
 mod w_enc1_tests;
+#[cfg(test)]
+mod w_media1_tests;

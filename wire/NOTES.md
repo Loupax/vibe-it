@@ -407,3 +407,11 @@ connection to a mapped host lives in whichever pool the request used, keyed by h
 `execute_with` answers a `--mount-override` PATH for a mapped host (`Mounts::serve_override_only`) before the network. wire
 is started by `tools/wptserve.sh` (in scratchy), never by scratchy itself: scratchy's QNET1 seccomp filter is inherited by
 its children, so nothing it spawns can open a TCP socket.
+
+## `file:` Range and media types (W-MEDIA1)
+
+`file:` responses carry `Accept-Ranges: bytes` and an exact `Content-Length`; the body is streamed from
+the open file, never read whole. One `Range: bytes=a-b`, `a-` or `-n` gets `206` with `Content-Range:
+bytes a-b/total` (end clamped to the file); a range that covers nothing (`a >= total`, `-0`) gets `416`
+with `Content-Range: bytes */total`. Multi-range, other units and malformed values are ignored (full
+`200`, allowed by RFC 9110). No protocol change.
