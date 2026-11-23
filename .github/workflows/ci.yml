@@ -19,8 +19,9 @@ env:
 
 jobs:
   # Path filter (user 2026-11-23): run only the jobs for crates the change touches. scratchy's tests and the WPT
-  # shards run wire, so a wire change runs them too; wire2/ runs only the wire2 job (W2-1); a .github/ change runs
-  # everything; web/, coordinator/ and root docs run nothing but this job. Base: the PR's merge base, or the
+  # shards run wire, so a wire change runs them too; wire2/ runs only the wire2 job (W2-1); web/shell/ runs only the
+  # web/shell job (C2); a .github/ change runs everything; the rest of web/ (host-cef needs a ~380 MB CEF download),
+  # coordinator/ and root docs run nothing but this job. Base: the PR's merge base, or the
   # previous main commit on a push (an unknown base, e.g. a new branch or a force push, runs everything). Skipped jobs show as "skipped" checks;
   # coordinator/merge_pr.sh accepts those and requires this job to have succeeded.
   changes:
@@ -53,6 +54,7 @@ jobs:
           has '^wire/' && crates+=('"wire"')
           has '^snag/' && crates+=('"snag"')
           has '^wire2/' && crates+=('"wire2"')
+          has '^web/shell/' && crates+=('"web/shell"')
           list="[$(IFS=,; echo "${crates[*]-}")]"
           echo "crates=$list" | tee -a "$GITHUB_OUTPUT"
           echo "scratchy=$sc" | tee -a "$GITHUB_OUTPUT"
@@ -90,6 +92,12 @@ jobs:
             pkg-config clang libfontconfig1-dev libfreetype-dev \
             libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev \
             fonts-liberation weston
+      - name: System packages (web/shell)
+        if: matrix.crate == 'web/shell'
+        # smithay links libxkbcommon; Wayland, X11 and EGL libraries are loaded at run time.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libxkbcommon-dev
       - name: Rust toolchain (pinned, the clippy count depends on the version)
         run: |
           rustup toolchain install 1.96.1 --profile minimal --component clippy
@@ -162,8 +170,8 @@ jobs:
       - name: Test
         if: matrix.crate != 'scratchy'
         run: cargo test --release --locked
-      - name: Clippy, no warnings (wire2)
-        if: matrix.crate == 'wire2'
+      - name: Clippy, no warnings (wire2, web/shell)
+        if: matrix.crate == 'wire2' || matrix.crate == 'web/shell'
         run: cargo clippy --release --locked --all-targets -- -D warnings
       - name: Clippy warning count vs baseline (default config, V8 + media)
         if: matrix.crate == 'scratchy'

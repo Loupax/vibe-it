@@ -10,8 +10,8 @@ use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::renderer::utils::{on_commit_buffer_handler, with_renderer_surface_state};
 use smithay::backend::winit::WinitGraphicsBackend;
 use smithay::desktop::{
-    find_popup_root_surface, get_popup_toplevel_coords, PopupKeyboardGrab, PopupKind, PopupManager, PopupPointerGrab,
-    PopupUngrabStrategy, Space, Window,
+    find_popup_root_surface, get_popup_toplevel_coords, PopupKeyboardGrab, PopupKind, PopupManager, PopupPointerGrab, PopupUngrabStrategy,
+    Space, Window,
 };
 use smithay::input::pointer::{CursorIcon, CursorImageStatus, Focus};
 use smithay::input::{Seat, SeatHandler, SeatState};
@@ -25,25 +25,19 @@ use smithay::reexports::wayland_server::{Client, DisplayHandle, Resource};
 use smithay::reexports::winit::window::Fullscreen;
 use smithay::utils::{Logical, Point, Serial, Size};
 use smithay::wayland::buffer::BufferHandler;
-use smithay::wayland::compositor::{
-    get_parent, is_sync_subsurface, CompositorClientState, CompositorHandler, CompositorState,
-};
+use smithay::wayland::compositor::{get_parent, is_sync_subsurface, CompositorClientState, CompositorHandler, CompositorState};
 use smithay::wayland::cursor_shape::CursorShapeManagerState;
 use smithay::wayland::output::{OutputHandler, OutputManagerState};
-use smithay::wayland::selection::data_device::{
-    ClientDndGrabHandler, DataDeviceHandler, DataDeviceState, ServerDndGrabHandler,
-};
+use smithay::wayland::selection::data_device::{ClientDndGrabHandler, DataDeviceHandler, DataDeviceState, ServerDndGrabHandler};
 use smithay::wayland::selection::SelectionHandler;
 use smithay::wayland::shell::xdg::decoration::{XdgDecorationHandler, XdgDecorationState};
-use smithay::wayland::shell::xdg::{
-    PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState,
-};
+use smithay::wayland::shell::xdg::{PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState};
 use smithay::wayland::shm::{ShmHandler, ShmState};
 use smithay::wayland::tablet_manager::TabletSeatHandler;
 use smithay::wayland::viewporter::ViewporterState;
 use smithay::{
-    delegate_compositor, delegate_cursor_shape, delegate_data_device, delegate_output, delegate_seat, delegate_shm,
-    delegate_viewporter, delegate_xdg_decoration, delegate_xdg_shell,
+    delegate_compositor, delegate_cursor_shape, delegate_data_device, delegate_output, delegate_seat, delegate_shm, delegate_viewporter,
+    delegate_xdg_decoration, delegate_xdg_shell,
 };
 
 use crate::layout::Layout;
@@ -76,6 +70,8 @@ pub struct State {
     /// the client has set its parent).
     pub pending_toplevels: Vec<ToplevelSurface>,
     pub page: Option<Window>,
+    /// The page window's size as last committed (logged when it changes).
+    pub page_size: Size<i32, Logical>,
     pub dialogs: Vec<Window>,
     /// The shell window has the host desktop's keyboard focus.
     pub window_focused: bool,
@@ -167,8 +163,16 @@ impl State {
                 set_state(s, ToplevelState::Activated, activated);
                 set_state(s, ToplevelState::Fullscreen, fullscreen);
                 s.fullscreen_output = if fullscreen { wl_output.clone() } else { None };
+                // Maximized: the client must take the configured size (a plain toplevel
+                // may treat it as a hint; Chromium then keeps its preferred height).
                 // Tiled on every side: no shadow, no rounded corners, no resize border.
-                for e in [ToplevelState::TiledLeft, ToplevelState::TiledRight, ToplevelState::TiledTop, ToplevelState::TiledBottom] {
+                for e in [
+                    ToplevelState::Maximized,
+                    ToplevelState::TiledLeft,
+                    ToplevelState::TiledRight,
+                    ToplevelState::TiledTop,
+                    ToplevelState::TiledBottom,
+                ] {
                     set_state(s, e, !fullscreen);
                 }
             });
@@ -192,7 +196,10 @@ impl State {
     /// The shell window was resized (physical pixels; scale 1 until C6).
     pub fn resized(&mut self, size: Size<i32, Logical>) {
         use smithay::output::Mode;
-        let mode = Mode { size: (size.w, size.h).into(), refresh: 60_000 };
+        let mode = Mode {
+            size: (size.w, size.h).into(),
+            refresh: 60_000,
+        };
         self.output.change_current_state(Some(mode), None, None, None);
         self.output.set_preferred(mode);
         self.layout.window = size;
@@ -209,7 +216,11 @@ impl State {
         if self.layout.fullscreen == on {
             return;
         }
-        self.log(if on { "fullscreen on (page asked)" } else { "fullscreen off (page asked)" });
+        self.log(if on {
+            "fullscreen on (page asked)"
+        } else {
+            "fullscreen off (page asked)"
+        });
         self.layout.fullscreen = on;
         self.backend.window().set_fullscreen(on.then_some(Fullscreen::Borderless(None)));
         self.relayout();
@@ -291,7 +302,11 @@ impl State {
         match child.try_wait() {
             Ok(Some(status)) => {
                 self.log(&format!("engine host exited: {status}"));
-                self.exit_code = if self.quit_deadline.is_some() { 0 } else { status.code().unwrap_or(1).max(1) };
+                self.exit_code = if self.quit_deadline.is_some() {
+                    0
+                } else {
+                    status.code().unwrap_or(1).max(1)
+                };
                 self.host = None;
                 self.loop_signal.stop();
             }
@@ -313,7 +328,11 @@ impl State {
     // ---- cursor ----
 
     pub fn apply_cursor(&mut self) {
-        let status = if self.over_bar { CursorImageStatus::Named(CursorIcon::Default) } else { self.cursor.clone() };
+        let status = if self.over_bar {
+            CursorImageStatus::Named(CursorIcon::Default)
+        } else {
+            self.cursor.clone()
+        };
         let w = self.backend.window();
         let desc = match &status {
             CursorImageStatus::Named(icon) => {
@@ -405,7 +424,22 @@ impl CompositorHandler for State {
         if let Some(i) = self.pending_toplevels.iter().position(|t| t.wl_surface() == surface) {
             let t = self.pending_toplevels.remove(i);
             self.classify(t);
-        } else if let Some(w) = self.dialogs.iter().find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == surface)).cloned() {
+        } else if self
+            .page
+            .as_ref()
+            .is_some_and(|w| w.toplevel().is_some_and(|t| t.wl_surface() == surface))
+        {
+            let size = self.page.as_ref().unwrap().geometry().size;
+            if size != self.page_size {
+                self.page_size = size;
+                self.log(&format!("page window is {}x{}", size.w, size.h));
+            }
+        } else if let Some(w) = self
+            .dialogs
+            .iter()
+            .find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == surface))
+            .cloned()
+        {
             // Its size is known only now; keep it centred.
             let loc = self.layout.dialog_loc(w.geometry().size);
             self.space.map_element(w, loc, false);
@@ -442,6 +476,11 @@ impl XdgShellHandler for State {
 
     fn new_popup(&mut self, surface: PopupSurface, _positioner: PositionerState) {
         self.unconstrain_popup(&surface);
+        let g = surface.with_pending_state(|s| s.geometry);
+        self.log(&format!(
+            "popup at {},{} {}x{} (parent coordinates)",
+            g.loc.x, g.loc.y, g.size.w, g.size.h
+        ));
         if let Err(e) = self.popups.track_popup(PopupKind::Xdg(surface)) {
             self.log(&format!("popup: {e:?}"));
         }
@@ -456,13 +495,16 @@ impl XdgShellHandler for State {
     fn grab(&mut self, surface: PopupSurface, seat: wl_seat::WlSeat, serial: Serial) {
         let Some(seat) = Seat::<State>::from_resource(&seat) else { return };
         let kind = PopupKind::Xdg(surface);
-        let Some(root) = find_popup_root_surface(&kind).ok().and_then(|r| self.window_of(&r)) else { return };
+        let Some(root) = find_popup_root_surface(&kind).ok().and_then(|r| self.window_of(&r)) else {
+            return;
+        };
         let root = root.toplevel().unwrap().wl_surface().clone();
-        let Ok(mut grab) = self.popups.grab_popup(root, kind, &seat, serial) else { return };
+        let Ok(mut grab) = self.popups.grab_popup(root, kind, &seat, serial) else {
+            return;
+        };
+        self.log("popup grab (keyboard and pointer)");
         if let Some(keyboard) = seat.get_keyboard() {
-            if keyboard.is_grabbed()
-                && !(keyboard.has_grab(serial) || keyboard.has_grab(grab.previous_serial().unwrap_or(serial)))
-            {
+            if keyboard.is_grabbed() && !(keyboard.has_grab(serial) || keyboard.has_grab(grab.previous_serial().unwrap_or(serial))) {
                 grab.ungrab(PopupUngrabStrategy::All);
                 return;
             }
@@ -520,6 +562,7 @@ impl XdgShellHandler for State {
     }
 
     fn popup_destroyed(&mut self, _surface: PopupSurface) {
+        self.log("popup closed");
         self.redraw();
     }
 }
@@ -528,7 +571,9 @@ impl State {
     /// Keeps a popup inside the shell window (xdg_positioner constraint adjustment).
     fn unconstrain_popup(&self, popup: &PopupSurface) {
         let kind = PopupKind::Xdg(popup.clone());
-        let Some(window) = find_popup_root_surface(&kind).ok().and_then(|r| self.window_of(&r)) else { return };
+        let Some(window) = find_popup_root_surface(&kind).ok().and_then(|r| self.window_of(&r)) else {
+            return;
+        };
         let root_loc = self.space.element_location(&window).unwrap_or_default() - window.geometry().loc;
         let target = self.layout.popup_target(root_loc, get_popup_toplevel_coords(&kind));
         popup.with_pending_state(|s| s.geometry = s.positioner.get_unconstrained_geometry(target));

@@ -128,13 +128,25 @@ mod tests {
         let e = env_of(&[("WEB_HOST_CEF", "/env/host")]);
         assert_eq!(host_bin(&args(&["--host-bin", "/x"]), &e, None), PathBuf::from("/x"));
         assert_eq!(host_bin(&args(&[]), &e, None), PathBuf::from("/env/host"));
-        assert_eq!(host_bin(&args(&[]), &env_of(&[]), Some(Path::new("/nonexistent/web"))), PathBuf::from("web-host-cef"));
+        assert_eq!(
+            host_bin(&args(&[]), &env_of(&[]), Some(Path::new("/nonexistent/web"))),
+            PathBuf::from("web-host-cef")
+        );
     }
 
     #[test]
     fn command_without_proxy() {
-        let c = host_command(&args(&[]), "h".into(), Path::new("/s/engines/cef"), Path::new("/r/control.sock"), "wayland-3");
-        assert_eq!(c.args, vec!["--profile=/s/engines/cef", "--control=/r/control.sock", "--ozone-platform=wayland"]);
+        let c = host_command(
+            &args(&[]),
+            "h".into(),
+            Path::new("/s/engines/cef"),
+            Path::new("/r/control.sock"),
+            "wayland-3",
+        );
+        assert_eq!(
+            c.args,
+            vec!["--profile=/s/engines/cef", "--control=/r/control.sock", "--ozone-platform=wayland"]
+        );
         assert!(!c.args.iter().any(|a| a.contains("proxy")), "no --proxy: direct, never an error");
         assert!(c.env.contains(&("WAYLAND_DISPLAY".into(), "wayland-3".into())));
         assert!(c.env_remove.contains(&"DISPLAY".to_string()));
@@ -144,6 +156,9 @@ mod tests {
     fn command_passes_proxy_url_and_host_args() {
         let a = args(&["--proxy", "127.0.0.1:3128", "example.com", "--", "--proxy-bypass-list=<-loopback>"]);
         let c = host_command(&a, "h".into(), Path::new("/p"), Path::new("/c"), "wayland-1");
-        assert_eq!(&c.args[3..], ["--proxy=127.0.0.1:3128", "--url=example.com", "--proxy-bypass-list=<-loopback>"]);
+        assert_eq!(
+            &c.args[3..],
+            ["--proxy=127.0.0.1:3128", "--url=example.com", "--proxy-bypass-list=<-loopback>"]
+        );
     }
 }

@@ -5,7 +5,9 @@ default; `--proxy <host:port>` (optional, any HTTP forward proxy) sends everythi
 through a proxy instead. Keeping it off the network except through that proxy is left to
 a separate wrapper (DECISIONS.md).
 
-Status: **C1 (engine host) done, no shell yet.** The CEF spike (`spike/`, TODO.txt
+Status: **C1 (engine host) and C2 (the shell's compositor) done**: `web` shows one
+page with mouse and keyboard, on a Wayland or an X11 desktop; no keys or status bar
+contents of its own yet (C3). The CEF spike (`spike/`, TODO.txt
 W1-W7) proved Chromium can run with no network of its own; the plan now is
 Architecture C (DECISIONS.md, TODO.txt C1-C8):
 
@@ -25,6 +27,9 @@ Architecture C (DECISIONS.md, TODO.txt C1-C8):
   forget-site, cookies (from scratchy).
 - `PROTOCOL.md`: the shell <-> engine-host control protocol (v0).
 - `host-cef/`: web-host-cef, its run script and the C1 check (`host-cef/README.md`).
+- `shell/`: web-shell, the `web` binary: the compositor and the C2 check (`shell/README.md`).
+- `tools/`: `nest.sh` (the nested dwl for live tests, also its Xwayland) and `inject`
+  (virtual keyboard and pointer), copied from scratchy.
 - `DECISIONS.md`: what has been decided and why.
 - `TODO.txt`: the plan (C1-C8, E1) and the spike record (W1-W7), each step with a check that ends it.
 - `PROMPTS.md`: the exact prompts that produced this project, in order.

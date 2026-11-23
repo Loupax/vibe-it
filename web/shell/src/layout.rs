@@ -27,7 +27,10 @@ pub enum Region {
 
 impl Layout {
     pub fn new(w: i32, h: i32) -> Layout {
-        Layout { window: Size::from((w, h)), fullscreen: false }
+        Layout {
+            window: Size::from((w, h)),
+            fullscreen: false,
+        }
     }
 
     fn bar_h(&self) -> i32 {
@@ -55,10 +58,7 @@ impl Layout {
 
     pub fn region(&self, p: Point<f64, Logical>) -> Region {
         let inside = |r: Rectangle<i32, Logical>| {
-            p.x >= r.loc.x as f64
-                && p.y >= r.loc.y as f64
-                && p.x < (r.loc.x + r.size.w) as f64
-                && p.y < (r.loc.y + r.size.h) as f64
+            p.x >= r.loc.x as f64 && p.y >= r.loc.y as f64 && p.x < (r.loc.x + r.size.w) as f64 && p.y < (r.loc.y + r.size.h) as f64
         };
         if inside(self.page()) {
             Region::Page
@@ -94,8 +94,8 @@ impl Layout {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use smithay::wayland::shell::xdg::PositionerState;
     use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_positioner::{Anchor, ConstraintAdjustment, Gravity};
+    use smithay::wayland::shell::xdg::PositionerState;
 
     #[test]
     fn page_is_window_minus_bar() {
@@ -106,7 +106,10 @@ mod tests {
 
     #[test]
     fn fullscreen_page_fills_the_window() {
-        let l = Layout { fullscreen: true, ..Layout::new(1920, 1080) };
+        let l = Layout {
+            fullscreen: true,
+            ..Layout::new(1920, 1080)
+        };
         assert_eq!(l.page(), Rectangle::new((0, 0).into(), (1920, 1080).into()));
         assert_eq!(l.bar(), None);
         assert_eq!(l.region((5.0, 1079.0).into()), Region::Page);

@@ -20,7 +20,11 @@ pub struct Pairing<T> {
 
 impl<T: PartialEq> Default for Pairing<T> {
     fn default() -> Self {
-        Pairing { page: None, tab: None, closed: false }
+        Pairing {
+            page: None,
+            tab: None,
+            closed: false,
+        }
     }
 }
 

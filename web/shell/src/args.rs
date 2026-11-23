@@ -116,9 +116,17 @@ mod tests {
 
     #[test]
     fn all_options_both_spellings() {
-        let a = p(&["--engine", "cef", "--proxy=127.0.0.1:3128", "--state-dir", "/s", "--host-bin=/h", "example.com"])
-            .unwrap()
-            .unwrap();
+        let a = p(&[
+            "--engine",
+            "cef",
+            "--proxy=127.0.0.1:3128",
+            "--state-dir",
+            "/s",
+            "--host-bin=/h",
+            "example.com",
+        ])
+        .unwrap()
+        .unwrap();
         assert_eq!(a.proxy.as_deref(), Some("127.0.0.1:3128"));
         assert_eq!(a.state_dir, Some(PathBuf::from("/s")));
         assert_eq!(a.host_bin, Some(PathBuf::from("/h")));

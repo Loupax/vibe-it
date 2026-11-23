@@ -118,30 +118,83 @@ mod tests {
     #[test]
     fn every_v0_event_from_protocol_md() {
         let cases = [
-            (r#"{"event":"hello","protocol":0,"engine":"cef"}"#, Event::Hello { protocol: 0, engine: "cef".into() }),
+            (
+                r#"{"event":"hello","protocol":0,"engine":"cef"}"#,
+                Event::Hello {
+                    protocol: 0,
+                    engine: "cef".into(),
+                },
+            ),
             (r#"{"event":"tab-created","tab":1}"#, Event::TabCreated { tab: 1 }),
             (r#"{"event":"tab-closed","tab":1}"#, Event::TabClosed { tab: 1 }),
-            (r#"{"event":"url","tab":1,"url":"https://example.com/"}"#, Event::Url { tab: 1, url: "https://example.com/".into() }),
-            (r#"{"event":"title","tab":1,"title":"Example Domain"}"#, Event::Title { tab: 1, title: "Example Domain".into() }),
+            (
+                r#"{"event":"url","tab":1,"url":"https://example.com/"}"#,
+                Event::Url {
+                    tab: 1,
+                    url: "https://example.com/".into(),
+                },
+            ),
+            (
+                r#"{"event":"title","tab":1,"title":"Example Domain"}"#,
+                Event::Title {
+                    tab: 1,
+                    title: "Example Domain".into(),
+                },
+            ),
             (
                 r#"{"event":"load","tab":1,"phase":"end","status":200,"kind":"new"}"#,
-                Event::Load { tab: 1, phase: "end".into(), status: 200, kind: "new".into(), error: None },
+                Event::Load {
+                    tab: 1,
+                    phase: "end".into(),
+                    status: 200,
+                    kind: "new".into(),
+                    error: None,
+                },
             ),
             (
                 r#"{"event":"load","tab":1,"phase":"end","status":0,"kind":"new","error":"ERR_ABORTED"}"#,
-                Event::Load { tab: 1, phase: "end".into(), status: 0, kind: "new".into(), error: Some("ERR_ABORTED".into()) },
+                Event::Load {
+                    tab: 1,
+                    phase: "end".into(),
+                    status: 0,
+                    kind: "new".into(),
+                    error: Some("ERR_ABORTED".into()),
+                },
             ),
             (
                 r#"{"event":"load-error","tab":1,"code":-105,"name":"ERR_NAME_NOT_RESOLVED","text":"ERR_NAME_NOT_RESOLVED"}"#,
-                Event::LoadError { tab: 1, code: -105, name: "ERR_NAME_NOT_RESOLVED".into(), text: "ERR_NAME_NOT_RESOLVED".into() },
+                Event::LoadError {
+                    tab: 1,
+                    code: -105,
+                    name: "ERR_NAME_NOT_RESOLVED".into(),
+                    text: "ERR_NAME_NOT_RESOLVED".into(),
+                },
             ),
-            (r#"{"event":"editable-focused","tab":1,"focused":true}"#, Event::EditableFocused { tab: 1, focused: true }),
-            (r#"{"event":"find-result","tab":1,"index":2,"count":5}"#, Event::FindResult { tab: 1, index: 2, count: 5 }),
+            (
+                r#"{"event":"editable-focused","tab":1,"focused":true}"#,
+                Event::EditableFocused { tab: 1, focused: true },
+            ),
+            (
+                r#"{"event":"find-result","tab":1,"index":2,"count":5}"#,
+                Event::FindResult {
+                    tab: 1,
+                    index: 2,
+                    count: 5,
+                },
+            ),
             (
                 r#"{"event":"crashed","tab":1,"reason":"TS_PROCESS_CRASHED (exit code 139)"}"#,
-                Event::Crashed { tab: 1, reason: "TS_PROCESS_CRASHED (exit code 139)".into() },
+                Event::Crashed {
+                    tab: 1,
+                    reason: "TS_PROCESS_CRASHED (exit code 139)".into(),
+                },
             ),
-            (r#"{"event":"error","message":"unknown cmd"}"#, Event::Error { message: "unknown cmd".into() }),
+            (
+                r#"{"event":"error","message":"unknown cmd"}"#,
+                Event::Error {
+                    message: "unknown cmd".into(),
+                },
+            ),
         ];
         for (line, want) in cases {
             assert_eq!(Event::parse(line).unwrap(), want, "{line}");
@@ -150,7 +203,10 @@ mod tests {
 
     #[test]
     fn unknown_fields_and_events_are_ignored() {
-        assert_eq!(Event::parse(r#"{"event":"tab-created","tab":3,"later":"field"}"#).unwrap(), Event::TabCreated { tab: 3 });
+        assert_eq!(
+            Event::parse(r#"{"event":"tab-created","tab":3,"later":"field"}"#).unwrap(),
+            Event::TabCreated { tab: 3 }
+        );
         assert_eq!(Event::parse(r#"{"event":"forgot","site":"example.com"}"#).unwrap(), Event::Unknown);
     }
 

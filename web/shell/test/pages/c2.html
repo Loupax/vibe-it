@@ -11,15 +11,22 @@
   #link { left: 40px; top: 240px; display: block; line-height: 60px; background: #ffd; text-align: center; }
   #sel { left: 40px; top: 340px; }
   #fs { left: 40px; top: 440px; }
+  #alert { left: 40px; top: 540px; }
+  #perm { left: 40px; top: 640px; }
   #custom { left: 500px; top: 40px; height: 160px; background: #dfd; cursor: crosshair; }
+  #img { left: 500px; top: 240px; height: 160px; background: #fdd;
+         cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32'><circle cx='16' cy='16' r='14' fill='red'/></svg>") 16 16, auto; }
   #status { position: fixed; right: 10px; bottom: 10px; font: 14px monospace; background: #fff; padding: 4px; }
 </style>
 <button id="count" class="box">clicked 0</button>
-<form action="/typed" method="get"><input id="q" name="q" class="box" placeholder="type here" autocomplete="off"></form>
+<form action="/second.html" method="get"><input id="q" name="q" class="box" placeholder="type here" autocomplete="off"></form>
 <a id="link" class="box" href="/second.html">a link to the second page</a>
 <select id="sel" class="box"><option value="a">option a</option><option value="b">option b</option><option value="c">option c</option></select>
 <button id="fs" class="box">fullscreen</button>
+<button id="alert" class="box">alert</button>
+<button id="perm" class="box">ask for notifications</button>
 <div id="custom" class="box">crosshair cursor here</div>
+<div id="img" class="box">image cursor here</div>
 <div id="status">-</div>
 <script>
   const say = (t) => { document.title = t; document.getElementById('status').textContent = t; };
@@ -29,6 +36,8 @@
   document.getElementById('sel').onchange = (e) => say('select:' + e.target.value);
   document.getElementById('fs').onclick = () => document.documentElement.requestFullscreen();
   document.onfullscreenchange = () => say('fullscreen:' + !!document.fullscreenElement + ':' + innerWidth + 'x' + innerHeight);
+  document.getElementById('alert').onclick = () => { alert('c2 alert'); say('alert:closed'); };
+  document.getElementById('perm').onclick = () => Notification.requestPermission().then((p) => say('permission:' + p));
   let scrollTimer;
   onscroll = () => { clearTimeout(scrollTimer); scrollTimer = setTimeout(() => say('scrolled:' + Math.round(scrollY)), 150); };
   addEventListener('keydown', (e) => { if (e.target === document.body) say('key:' + e.key); });

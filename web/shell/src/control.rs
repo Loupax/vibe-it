@@ -34,23 +34,26 @@ impl Control {
     pub fn register(self, handle: &LoopHandle<'static, State>) -> std::io::Result<()> {
         let h = handle.clone();
         handle
-            .insert_source(Generic::new(self.listener, Interest::READ, Mode::Level), move |_, listener, state| {
-                let stream = match listener.accept() {
-                    Ok((s, _)) => s,
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => return Ok(PostAction::Continue),
-                    Err(e) => return Err(e),
-                };
-                state.log("engine host connected to the control socket");
-                stream.set_nonblocking(true)?;
-                state.control = Some(stream.try_clone()?);
-                let mut lines = LineBuffer::default();
-                h.insert_source(Generic::new(stream, Interest::READ, Mode::Level), move |_, stream, state| {
-                    read_events(stream, &mut lines, state)
-                })
-                .map_err(|e| std::io::Error::other(e.to_string()))?;
-                // One host, one connection.
-                Ok(PostAction::Remove)
-            })
+            .insert_source(
+                Generic::new(self.listener, Interest::READ, Mode::Level),
+                move |_, listener, state| {
+                    let stream = match listener.accept() {
+                        Ok((s, _)) => s,
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => return Ok(PostAction::Continue),
+                        Err(e) => return Err(e),
+                    };
+                    state.log("engine host connected to the control socket");
+                    stream.set_nonblocking(true)?;
+                    state.control = Some(stream.try_clone()?);
+                    let mut lines = LineBuffer::default();
+                    h.insert_source(Generic::new(stream, Interest::READ, Mode::Level), move |_, stream, state| {
+                        read_events(stream, &mut lines, state)
+                    })
+                    .map_err(|e| std::io::Error::other(e.to_string()))?;
+                    // One host, one connection.
+                    Ok(PostAction::Remove)
+                },
+            )
             .map_err(|e| std::io::Error::other(e.to_string()))?;
         Ok(())
     }

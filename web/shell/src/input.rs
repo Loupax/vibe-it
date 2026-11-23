@@ -4,8 +4,8 @@
 //! holds a grab). C3 hooks its modes into the keyboard filter below.
 
 use smithay::backend::input::{
-    AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, InputBackend, InputEvent, KeyboardKeyEvent,
-    PointerAxisEvent, PointerButtonEvent,
+    AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, InputBackend, InputEvent, KeyboardKeyEvent, PointerAxisEvent,
+    PointerButtonEvent,
 };
 use smithay::desktop::WindowSurfaceType;
 use smithay::input::keyboard::FilterResult;
@@ -34,9 +34,7 @@ impl State {
                 let time = Event::time_msec(&event);
                 let keyboard = self.seat.get_keyboard().unwrap();
                 // C3: modes (KEYS.md) decide here what the page gets.
-                keyboard.input::<(), _>(self, event.key_code(), event.state(), serial, time, |_, _, _| {
-                    FilterResult::Forward
-                });
+                keyboard.input::<(), _>(self, event.key_code(), event.state(), serial, time, |_, _, _| FilterResult::Forward);
             }
             InputEvent::PointerMotionAbsolute { event } => {
                 let pos = event.position_transformed(self.layout.window);
@@ -62,14 +60,21 @@ impl State {
                 }
                 pointer.button(
                     self,
-                    &ButtonEvent { button: event.button_code(), state, serial, time: Event::time_msec(&event) },
+                    &ButtonEvent {
+                        button: event.button_code(),
+                        state,
+                        serial,
+                        time: Event::time_msec(&event),
+                    },
                 );
                 pointer.frame(self);
             }
             InputEvent::PointerAxis { event } => {
                 let source = event.source();
                 let amount = |axis| {
-                    event.amount(axis).unwrap_or_else(|| event.amount_v120(axis).unwrap_or(0.0) * 15.0 / 120.0)
+                    event
+                        .amount(axis)
+                        .unwrap_or_else(|| event.amount_v120(axis).unwrap_or(0.0) * 15.0 / 120.0)
                 };
                 let mut frame = AxisFrame::new(Event::time_msec(&event)).source(source);
                 for axis in [Axis::Horizontal, Axis::Vertical] {
@@ -101,7 +106,15 @@ impl State {
         }
         let pointer = self.seat.get_pointer().unwrap();
         let serial = SERIAL_COUNTER.next_serial();
-        pointer.motion(self, under, &MotionEvent { location: pos, serial, time });
+        pointer.motion(
+            self,
+            under,
+            &MotionEvent {
+                location: pos,
+                serial,
+                time,
+            },
+        );
         pointer.frame(self);
         // A surface cursor follows the pointer.
         if matches!(self.cursor, smithay::input::pointer::CursorImageStatus::Surface(_)) {

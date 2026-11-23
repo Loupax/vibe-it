@@ -18,9 +18,9 @@ mod state;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::backend::renderer::element::solid::SolidColorBuffer;
 use smithay::backend::renderer::gles::GlesRenderer;
-use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::backend::winit::{self, WinitEvent};
 use smithay::desktop::{PopupManager, Space};
 use smithay::input::pointer::CursorImageStatus;
@@ -64,6 +64,8 @@ fn main() {
     };
     let env = |k: &str| std::env::var(k).ok();
     let state_dir = host::state_dir(&args, &env).unwrap_or_else(|e| fail(e));
+    // The engine needs an absolute profile path (CEF falls back to in-memory storage).
+    let state_dir = std::path::absolute(&state_dir).unwrap_or_else(|e| fail(format!("{}: {e}", state_dir.display())));
     let profile = host::profile_dir(&state_dir, args.engine);
     create_private_dir(&profile).unwrap_or_else(|e| fail(format!("state directory {}: {e}", profile.display())));
     let exe = std::env::current_exe().ok();
@@ -82,6 +84,18 @@ fn main() {
     let (backend, winit_loop) =
         winit::init_from_attributes::<GlesRenderer>(attrs).unwrap_or_else(|e| fail(format!("cannot open the window: {e}")));
     let window_size = backend.window_size();
+    let desktop = {
+        use smithay::reexports::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        match backend.window().window_handle().map(|h| h.as_raw()) {
+            Ok(RawWindowHandle::Wayland(_)) => "a Wayland",
+            Ok(RawWindowHandle::Xlib(_)) | Ok(RawWindowHandle::Xcb(_)) => "an X11",
+            _ => "an unknown",
+        }
+    };
+    eprintln!(
+        "[web +{}ms] the shell is {desktop} window on the desktop",
+        start.elapsed().as_millis()
+    );
 
     // Our own Wayland socket for the engine host.
     let socket = ListeningSocketSource::new_auto().unwrap_or_else(|e| fail(format!("wayland socket: {e}")));
@@ -105,16 +119,25 @@ fn main() {
 
     let output = Output::new(
         "web".into(),
-        PhysicalProperties { size: (0, 0).into(), subpixel: Subpixel::Unknown, make: "web".into(), model: "shell".into() },
+        PhysicalProperties {
+            size: (0, 0).into(),
+            subpixel: Subpixel::Unknown,
+            make: "web".into(),
+            model: "shell".into(),
+        },
     );
     let _global = output.create_global::<State>(&dh);
-    let mode = Mode { size: window_size, refresh: 60_000 };
+    let mode = Mode {
+        size: window_size,
+        refresh: 60_000,
+    };
     output.change_current_state(Some(mode), Some(Transform::Flipped180), None, Some((0, 0).into()));
     output.set_preferred(mode);
 
     let mut seat_state = SeatState::new();
     let mut seat = seat_state.new_wl_seat(&dh, "web");
-    seat.add_keyboard(Default::default(), 400, 30).unwrap_or_else(|e| fail(format!("keyboard: {e:?}")));
+    seat.add_keyboard(Default::default(), 400, 30)
+        .unwrap_or_else(|e| fail(format!("keyboard: {e:?}")));
     seat.add_pointer();
 
     let mut space = Space::default();
@@ -158,6 +181,7 @@ fn main() {
         pairing: Default::default(),
         pending_toplevels: Vec::new(),
         page: None,
+        page_size: (0, 0).into(),
         dialogs: Vec::new(),
         window_focused: true,
         pointer_loc: (0.0, 0.0).into(),
@@ -176,7 +200,9 @@ fn main() {
     };
     state.damage_tracker = Some(OutputDamageTracker::from_output(&state.output));
 
-    control.register(&event_loop.handle()).unwrap_or_else(|e| fail(format!("control socket: {e}")));
+    control
+        .register(&event_loop.handle())
+        .unwrap_or_else(|e| fail(format!("control socket: {e}")));
     match cmd.spawn() {
         Ok(child) => {
             state.log(&format!("engine host pid {}", child.id()));
@@ -184,6 +210,13 @@ fn main() {
         }
         Err(e) => fail(format!("cannot start the engine host {}: {e}", cmd.program.display())),
     }
+    // After the spawn: Signals blocks these signals, and a child would inherit the mask.
+    let signals = calloop::signals::Signals::new(&[calloop::signals::Signal::SIGTERM, calloop::signals::Signal::SIGINT])
+        .unwrap_or_else(|e| fail(format!("signals: {e}")));
+    event_loop
+        .handle()
+        .insert_source(signals, |ev, _, state| state.quit(&format!("{:?}", ev.signal())))
+        .unwrap();
 
     event_loop
         .handle()
