@@ -486,3 +486,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 #673 NEST-HEADLESS READY (headless dwl via a small patch built from ~/src/dotfiles/dwl, inject motion time 0 fix; drive.py + notab.py PASS headless = C-NOTAB's owed live check). Merge CONFLICT nest.sh/PROMPTS.md with C2 -> sent back to the agent.
 - 2026-11-23 Merged #674 W2-2 c8a5f49 (TLS interception machinery, lazy CA, W2-1a included). wire2 reinstalled 14:02. Filed W2-2a/b/c, W2-2d (user: CA dir name). Launched C3 (Opus) and W2-3 (Sonnet).
 - 2026-11-23 Merged #673 NEST-HEADLESS 5864476 (rebased with C2's --x11-display). C-NOTAB live check done (notab.py PASS headless). Filed NEST-WINKEYMAP; scratchy/tools/inject has the same motion-time bug (fix when scratchy resumes). Running: C3, W2-3.
+- 2026-11-23 Launched P-COOKIES (Sonnet). Progress page republished after #671/#673/#674.
