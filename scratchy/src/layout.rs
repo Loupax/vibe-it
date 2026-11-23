@@ -2277,6 +2277,23 @@ pub(crate) fn width_from_aspect_ratio(s: &ComputedStyle) -> Option<f32> {
     })
 }
 
+#[cfg(test)]
+thread_local! {
+    /// QINC2b test seam: when set, the per-paragraph deadline check counts down this many paragraphs
+    /// instead of reading the wall clock, so a test's tick boundaries do not move with machine load.
+    pub(crate) static TEST_PARA_BUDGET: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
+/// Whether paragraphs may still be shaped: the wall-clock `deadline` (or, in tests, `TEST_PARA_BUDGET`).
+fn in_time(deadline: std::time::Instant) -> bool {
+    #[cfg(test)]
+    if let Some(n) = TEST_PARA_BUDGET.with(|b| b.get()) {
+        TEST_PARA_BUDGET.with(|b| b.set(Some(n.saturating_sub(1))));
+        return n > 0;
+    }
+    std::time::Instant::now() < deadline
+}
+
 /// Lays out `b`, shaping text as it goes — but only until `deadline` passes.
 /// Each paragraph gets a stable id (assigned in document order, so it's the
 /// same id across repeated calls on the same tree) and its shaped result is
@@ -2753,7 +2770,7 @@ fn measure_inner_body<'a>(
                 let h = hit.lock().unwrap().1;
                 cache.insert(id, hit);
                 h
-            } else if std::time::Instant::now() < deadline {
+            } else if in_time(deadline) {
                 let pre = matches!(s.white_space, WhiteSpace::Pre | WhiteSpace::Nowrap);
                 let mut shaped = shape_spans(font_system, items, content_w, pre, s.text_align.to_cosmic(s.direction));
                 let ellipsized;
@@ -3626,7 +3643,7 @@ pub(crate) fn measure_mixed_inline<'a>(
     // the buffer's nominal width.
     const WORD_MEASURE_WIDTH: f32 = 1_000_000.0;
     // QY53o3b: the layout deadline is checked once per paragraph, not once per word/chunk.
-    let in_time = std::time::Instant::now() < deadline;
+    let in_time = in_time(deadline);
 
     /// Where a word's measured width/height came from — see this
     /// function's own docs for why most words share one buffer per
