@@ -431,3 +431,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Merged #646 QWPTFLK6 9f404ad.
 - 2026-11-23 #645 QEDIT-C READY (until-found, beforematch, details reveal), merging. Filed + launched QDET1 (closed <details> renders its body today).
 - 2026-11-23 #645 merge FAILED (GitHub rejected the rebased push, EXIT=3); my cleanup then deleted the branch, closing the PR. Restored the branch at cfdb665, reopened #645, retrying. Cleanup now runs only after a MERGED line.
+- 2026-11-23 Merged #645 QEDIT-C 3055227 (retry succeeded).

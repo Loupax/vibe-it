@@ -164,7 +164,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QEDIT-F [S] (P3, from QEDIT-A #585; Sonnet; js_dom.rs) `document.queryCommandSupported/Enabled/State/Value`
       stubs (designMode-aware, no editing) for the html/editing designMode files; SVG/XML designMode variants ERROR
       because those pages are not parsed as XML/SVG documents (say whether that is a separate item).
-- [ ] [WIP] QEDIT-C [S] (P3, from QWPT6d #581; Sonnet) `hidden=until-found`, the `beforematch` event, details auto-open (5 ERROR).
 - [ ] [WIP] QEDIT-D [S] (P3, from QWPT6d #581; Sonnet) Why focus-blur, focused-area-removal, focusing-focused-noop TIMEOUT.
 - [ ] [WIP] QDET1 [S] (P2, from QEDIT-C #645; Sonnet; layout/default.css, input_host.rs) `<details>`/`<summary>` behave:
       a closed details renders only its summary (with the disclosure marker), clicking or Enter/Space on the summary

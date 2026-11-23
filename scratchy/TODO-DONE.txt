@@ -9698,3 +9698,6 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- (no header)
 - [x] QWPTFLK6 DONE 9f404ad #646 [S] (P3, from QEDIT-B #641; Sonnet) hr-time/timeOrigin.html fails under heavy local load (load 40+), passes on CI
       and alone: find whether the runner's clock or the test's tolerance is the cause; fix or flaky-list with the reason.
+
+=== from TODO.txt: --- (no header)
+- [x] QEDIT-C DONE 3055227 #645 [S] (P3, from QWPT6d #581; Sonnet) `hidden=until-found`, the `beforematch` event, details auto-open (5 ERROR).
