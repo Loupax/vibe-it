@@ -2,6 +2,13 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-23 Modifiers reach the page on clicks in NORMAL
+
+User: "we should pass the modifier keys on normal mod unless that breaks functionality". In NORMAL a
+click carries the held modifiers (Ctrl/Shift-click behave as in INPUT: the host's no-new-tab rules apply),
+while NORMAL's own bindings stay unaffected (the scroll keys it sends, e.g. G as End, must not arrive as
+Shift+End). Item C-NORMALMODS.
+
 ## 2026-11-23 The picker's, bookmarks' and buffers' defaults are kept
 
 User, on the choices agents made without asking ("they all look good right now"): the picker (C-PICK, KEYS.md

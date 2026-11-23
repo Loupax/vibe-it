@@ -120,7 +120,8 @@ stop early on a hard failure.
       optional `tab` on commands, tab-created opener/cause/req, popup-blocked). Shell: pair several announced
       pages; a Chrome-style popup window (no parent) is a page, not a dialog. Host: `quit` closes every browser
       and exits when the last is gone (today it closes only the first).
-- [ ] C-NORMALMODS [XS] NEEDS USER (from #715) In NORMAL the page gets no modifier keys, so Ctrl/Shift-click act as
+- [WIP] C-NORMALMODS [XS] (user, 2026-11-23: "we should pass the modifier keys on normal mod unless that breaks
+      functionality") (from #715) In NORMAL the page gets no modifier keys, so Ctrl/Shift-click act as
       plain clicks (a Ctrl-click on a target=_blank link opens a popup buffer); in INPUT they open nothing.
       Same in both modes? (send modifiers on clicks in NORMAL, or drop those clicks)
 - [WIP] C-WEBEX [S] (user, 2026-11-23, investigation) On Webex in web: banner "Your browser doesn't support shared

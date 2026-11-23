@@ -540,3 +540,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 USER A/B: flicker gone with WEB_NO_DMABUF=1 (dmabuf path, NVIDIA). Sent to C-FLICKER (explicit sync / release timing).
 - 2026-11-23 USER: Webex says shared content/video unsupported and needs OpenH264. Filed C-WEBEX (investigation).
 - 2026-11-23 Merged #714 C-FMT 634925a and #715 C-POPUPS 2d48e31 (PROMPTS conflict by hand); web reinstalled 19:56. The #704 plan is complete. Filed C-NORMALMODS (user). Launched C-WEBEX (Opus).
+- 2026-11-23 USER: pass modifiers to the page on clicks in NORMAL unless it breaks things. web/DECISIONS.md; launched C-NORMALMODS (Sonnet).
