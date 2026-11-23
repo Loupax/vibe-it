@@ -9718,3 +9718,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 
 === from TODO.txt: --- (no header)
 - [x] QEDIT-D DONE 6f86b74 #648 [S] (P3, from QWPT6d #581; Sonnet) Why focus-blur, focused-area-removal, focusing-focused-noop TIMEOUT.
+
+=== from TODO.txt: --- (no header)
+- [x] QTYPE1 DONE a353c05 #651 [S] (P1, from QEDIT-D #648; Sonnet; app.rs, input_host.rs, text editing) In the App, typing into a
+      SECOND text field after Tab or a click drops characters (only the first one appears); also on main. Reproduce in a
+      nested window, find the cause (focus/caret state, input-mode handoff, incremental repaint?), fix, regression test.
