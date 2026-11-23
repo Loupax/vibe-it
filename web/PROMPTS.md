@@ -141,3 +141,11 @@ STASH.md's last section records the drop instead of listing options.
 domain, what is removed, who runs it (the running host, or one started with
 `--no-window`, since an engine locks its profile), and how CEF and WebKitGTK would do it.
 TODO.txt P-FORGET gets a done-when; C1's protocol notes the command.
+
+## Blink first; PR (2026-11-23, docs only)
+
+> open a PR for the web plan, let's begin with Blink so we can have something working as soon as possible. We can switch to a more lightweight engine later
+
+**What changed:** DECISIONS.md "Blink first"; TODO.txt: C1b (web-host-webkit) moves
+after C8 as E1, C2/C3/C8 checks use web-host-cef only; README.md. The plan goes up as a
+pull request.

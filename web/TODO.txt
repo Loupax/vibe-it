@@ -3,14 +3,15 @@ web — TODO
 Architecture C (user, 2026-11-23; DECISIONS.md "Architecture C"): web-shell is a small
 Wayland compositor (smithay) that draws the shell (status bar, command line, later tabs
 and hints) and owns all input; the page is drawn by an engine host, a separate program
-with no browser UI of its own (web-host-cef first, web-host-webkit second) that the shell
+with no browser UI of its own (Blink through CEF, web-host-cef; a lighter engine later) that the shell
 drives over a control socket in our own protocol. The engine host runs in an empty
 network namespace and reaches the network only through a web proxy: any HTTP forward
 proxy (plain requests and CONNECT) on a Unix socket, given with `--proxy <socket path>`.
 No browser extension, no automation protocol (CDP, BiDi).
 
-Order: C1 and C1b can run before any compositor code (inside the
-nested dwl from ../scratchy/tools/nest.sh). Each step ends with a check, so the plan can
+Order (user, 2026-11-23): Blink first, to have something working as soon as possible;
+a lighter engine (web-host-webkit, E1) only after C8. C1 can run before any compositor
+code (inside the nested dwl from ../scratchy/tools/nest.sh). Each step ends with a check, so the plan can
 stop early on a hard failure.
 
 - [ ] C0 Launcher. `web/run.sh` (from spike/run.sh): the systemd scope and the empty
@@ -40,18 +41,13 @@ stop early on a hard failure.
       open, back/forward, two tabs, a window.open popup announced before it maps, all
       events above seen; Wayland.
 
-- [ ] C1b web-host-webkit. GTK4 + WebKitGTK 6, the same protocol v0, the same check.
-      Also check that WebKitGTK's own bubblewrap sandbox for its web processes works
-      nested inside C0's `unshare -n --map-user` (if not: what it needs).
-      Done when: C1's check passes with the WebKit host, unchanged script.
-
 - [ ] C2 web-shell, the compositor minimum. smithay, winit backend (the shell is one
-      window on the user's desktop). Starts one engine host (`--engine cef|webkit`) with
+      window on the user's desktop). Starts the engine host (`--engine cef`, the only one for now) with
       WAYLAND_DISPLAY = its own socket; shows the current tab's window filling the shell
       window minus the status bar; forwards keyboard and pointer; places popups
       (xdg_popup: menus, selects, permission bubbles); passes cursor shapes to the host
       desktop; makes the shell window fullscreen when the page asks for it.
-      Done when: browsing a site with mouse and typing works with both engine hosts, on a
+      Done when: browsing a site with mouse and typing works with web-host-cef, on a
       Wayland desktop AND an X11 desktop (winit opens an X11 window there; the engine
       hosts still speak Wayland to the shell, so nothing else changes).
 
@@ -61,7 +57,7 @@ stop early on a hard failure.
       `:q`, `:let` with `@%`; history (STASH.md) written from C1's load events; scroll
       bindings as real input to the host window. `@+` and `yy` need C6's clipboard.
       Done when: every KEYS.md row C3 covers has a test (named after the row, as in
-      scratchy) and works by hand in both hosts.
+      scratchy) and works by hand.
 
 - [ ] C4 Tabs. WAITING FOR USER (design first): scratchy had one page per window, so
       tab keys, commands and their status-bar display need a design. The mechanism (one
@@ -81,7 +77,14 @@ stop early on a hard failure.
       links' rectangles, the shell draws the labels itself, a chosen hint is a real
       pointer click from the compositor.
 
-- [ ] C8 A day of browsing: W7's list below, with both engine hosts.
+- [ ] C8 A day of browsing: W7's list below, with web-host-cef.
+
+- [ ] E1 web-host-webkit (after C8; the lighter engine). GTK4 + WebKitGTK 6, the same
+      control protocol as C1, nothing in the shell changes but `--engine webkit`. Also
+      check that WebKitGTK's own bubblewrap sandbox for its web processes works nested
+      inside C0's `unshare -n --map-user` (if not: what it needs).
+      Done when: C1's check passes with the WebKit host, unchanged script, and C8's day
+      of browsing is repeated with it.
 
 - [ ] P-FORGET Forget a site (scratchy's `--forget-site`, STASH.md "Forget site"): a
       `forget-site` command in the engine-host interface, implemented by each host with
@@ -91,7 +94,7 @@ stop early on a hard failure.
       IndexedDB on it and a subdomain, forget-site leaves no cookie or storage for it
       (checked from a fresh load) and leaves another site's login intact.
 
-- [ ] P-COOKIES Third-party cookies off in both hosts (STASH.md "Cookies"), the closest
+- [ ] P-COOKIES Third-party cookies off in each host (STASH.md "Cookies"), the closest
       the engines get to scratchy's per-top-level-site jar.
 
 - [-] P-STASH DROPPED (user, 2026-11-23): the engine owns localStorage; scratchy's

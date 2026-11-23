@@ -2,6 +2,13 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-23 Blink first
+
+User: "let's begin with Blink so we can have something working as soon as possible. We
+can switch to a more lightweight engine later". web-host-cef is the only engine host
+through C8; web-host-webkit (or another lighter engine) is E1, after C8. The control
+protocol stays engine-neutral so E1 needs no shell change.
+
 ## 2026-11-23 The engine owns localStorage; scratchy's stash store is dropped
 
 User: "drop it and record the decision. Have the engine deal with localStorage unless we

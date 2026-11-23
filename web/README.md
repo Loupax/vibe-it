@@ -10,8 +10,8 @@ with no network of its own; the plan now is Architecture C (DECISIONS.md, TODO.t
 - `web-shell`: a small Wayland compositor that draws the status bar and command line and
   owns all input (scratchy's keys, KEYS.md). It runs as one window on a Wayland or X11
   desktop.
-- an engine host, picked at start: `web-host-cef` (Chromium) or `web-host-webkit`
-  (WebKitGTK). It shows the page only, one window per tab, and is driven by the shell
+- an engine host, picked at start: `web-host-cef` (Chromium) first; a lighter one
+  (`web-host-webkit`, WebKitGTK) later. It shows the page only, one window per tab, and is driven by the shell
   over a control socket.
 
 `web` succeeds [`scratchy`](../scratchy/), which is paused (see
