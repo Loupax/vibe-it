@@ -1,3 +1,16 @@
+- [x] **W-FLK1 DONE 9b103f6 #660 [S] Intermittent transport failures in the wptserve WPT shard** (2026-11-23, seen on
+      #655 and main 0104f79). `fetch/api/basic/request-forbidden-headers.any.html`: a random subtest (Via,
+      Sec-Test) gets `TypeError: Failed to fetch`, ~1 in 5 shard runs; reproduced locally with MAIN's wire
+      (1/5 capped runs of `--area 'fetch/*,xhr' --server wptserve`), so not W-HDR1. Also once
+      `xhr/responseText-status.html: OK -> CRASH` on main (passed on re-run). Suspect: a pooled connection
+      to wptserve failing under the shard's load (W-POOL3/W-POOL4 area: no retry after a clean close, by
+      decision). Do: capture wire's error for the failing request (X-Wire-Error, log), find the cause, fix in
+      wire if it is wire; otherwise flaky-list with the reason. Matters for web/: Chromium will hit the same
+      path under real-page load.
+      DONE: cause was ureq 2 pooling a connection that still held a body sent after a 204/304/HEAD
+      (response-null-body.any.html), so the next request on it got BadStatus -> 502. wire now resends an
+      idempotent body-less request once on a fresh connection in that case (never a POST). 5/30 -> 0/100.
+
 - [x] **W-HDR1 DONE 0104f79 #655 [S] Duplicate request headers collapse to one.** `execute` calls
       `req.set(name, value)` per parsed header, which *replaces* any
       prior value for that name rather than appending a second value —

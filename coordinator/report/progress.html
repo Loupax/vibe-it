@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-23 09:00 · main a35f6ad · web spike: W4 waits on you (#659), W5 running · wire reinstalled 09:46 (a35f6ad; restart your wire to use it) · W-FLK1 running · scratchy paused</div>
+  <div class="meta" id="updated">Updated 2026-11-23 09:00 · main 9b103f6 · web spike: W4 waits on you (#659), W5 running · wire reinstalled 10:11 (9b103f6; restart your wire to use it) · W-ENC1 running · scratchy paused</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -71,7 +71,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
     <tr><td>W6</td><td>Paths that bypass the handler</td><td><span class="pill todo">later</span></td><td></td></tr>
     <tr><td>W7</td><td>A day of browsing (yours)</td><td><span class="pill todo">later</span></td><td></td></tr>
   </table></div>
-  <p class="note">wire items for the spike: W-MEDIA2 done (#654); W-HDR1 done (#655). W-FLK1 running: intermittent “Failed to fetch” through wire under WPT load (also on main's wire), which Chromium would hit too.</p>
+  <p class="note">wire items for the spike: W-MEDIA2 done (#654); W-HDR1 done (#655). W-FLK1 done (#660): the intermittent “Failed to fetch” was a stray-bytes bug in ureq's connection pool. W-ENC1 running: brotli decoding in wire.</p>
 </section>
 
 <section>
@@ -128,6 +128,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-23</td><td class="n">#660</td><td>W-FLK1</td><td>wire: a server that sends a body after a 204/304/HEAD left bytes on a pooled connection and broke the next request (the random WPT “Failed to fetch”); safe requests are now resent once on a fresh connection. 5/30 failing runs → 0/100</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#658</td><td>W3</td><td>web: CEF answers every http(s) request from wire, streamed; wire reuses connections for no-redirect requests (was a new TLS handshake each)</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#655</td><td>W-HDR1</td><td>wire: a repeated request header (several <code>Cookie</code> lines) now reaches the server with every value instead of only the last</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#657</td><td>W2</td><td>web: the whole CEF process tree runs in an empty network namespace by default (<code>run.sh --net</code> opts out)</td></tr>
@@ -333,6 +334,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 <section>
   <h2>Waiting on you</h2>
   <ul id="waiting">
+    <li><b>W-POOL5: how to fix ureq's pool for good?</b> #660 works around the stray-bytes bug only for GET/HEAD/OPTIONS; a POST on such a connection still fails once. Options: (a) patch ureq 2.12.1 (vendored via <code>[patch.crates-io]</code>, a few lines in <code>Stream::return_to_pool</code>), (b) move wire to ureq 3, (c) keep the workaround. My suggestion: (a), small and testable. Not urgent.</li>
     <li><b>W4: log in to real sites in the spike (draft PR #659).</b> The checklist is in the PR body and in <span class="mono">web/spike/README.md</span> (“W4 checklist for the user”). In short: restart your wire (it has the latest install), build the spike, start it with <code>web/spike/run.sh --persistent</code> (profile in <span class="mono">~/.local/share/web-spike/profile</span>, outside the repo), log in to one password site and one 2FA site, restart the spike, check you are still logged in and wire's jar is empty, and tell me the result. W5 continues meanwhile, stacked on #659.</li>
     <li><b>scratchy is paused (#650, 2026-11-23).</b> Drain finished: QTYPE1 (#651), QCNV13 (#652) and QWPT7e (#653) merged; no scratchy agents run. Development moves to <span class="mono">web/</span>.</li>
                         <li>Skim <span class="mono">scratchy/DECISIONS.md</span> once and correct anything I misstated.</li>
