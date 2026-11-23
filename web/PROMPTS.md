@@ -640,3 +640,25 @@ blocked and opened by hand with `:popupOpen` / `:popupSearch`).
 **What changed:** docs only. TODO.txt: C-PICK, C-BOOKMARKS, C4-SPIKE, C4 Buffers (replacing the
 deferred Tabs), C-POPUPS and a "later" list. DECISIONS.md, KEYS.md ("Picker", "Buffers", decision
 log), STASH.md ("Bookmarks"), PROTOCOL.md (note that buffers will change "One page per host").
+
+## 2026-11-23 C6d (dmabuf)
+
+Task (coordinator): the shell offered no linux-dmabuf, so CEF handed wl_shm buffers and every
+frame went through the CPU. Measure today's cost (video, css, a new fast-scroll mode; shell CPU
+and the engine's GPU-process CPU), offer zwp_linux_dmabuf_v1 with smithay's DmabufState and
+feedback, import into the GlesRenderer, keep wl_shm as the fallback, re-measure; say what the
+headless nest can and cannot exercise and leave a one-command check for the real desktop.
+Found: the headless dwl nest renders with pixman (the user's wlroots has GLES/Vulkan disabled at
+compile time), offers no dmabuf, and the shell's winit EGL there is llvmpipe; KWin's virtual
+backend (`kwin_wayland --virtual`, own D-Bus session) renders on the RTX 3060 and offers
+linux-dmabuf v5 like the user's Plasma desktop, so it became `web/tools/gpu-nest.sh`. CEF needs no
+flags: with the global offered its GPU process composites on the GPU and creates dmabufs by itself.
+Done: `src/dmabuf.rs` (decide: GPU renderer with importable formats and a DRM node -> v5 global
+with one feedback tranche; software / no formats / no node / `WEB_NO_DMABUF=1` -> wl_shm only,
+logged with the reason), DmabufHandler (import into the renderer; a failed import is logged and
+disables the global for later clients). Bench: `scroll` mode, engine CPU by process kind (zygote
+children are told apart by thread names), `--wayland`, `--wayland-debug` (counts wl_shm pools and
+dmabufs from WAYLAND_DEBUG=server). `test/c6d_desktop_check.sh` for the real desktop.
+Measured (GPU nest, release, perf lock, load 1.5-5, % of one core, 2 runs averaged): scroll shell
+7.5 -> 3.0, engine GPU process 27.5 -> 3.5, engine total 36.5 -> 8.0; video and css about the same
+(small damage; css engine +2 points with GPU compositing). dwl nest unchanged (shm, as before).
