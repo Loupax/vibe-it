@@ -3426,6 +3426,23 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
     v = Number(v);
     if (isFinite(v) && v >= 0 && v <= 1) g.__cv_set_num(c, 0, v);
   });
+  // QCNV11: the values in canvas.rs `OPS` order; anything else (other case, `darker`, a NUL suffix) is ignored.
+  var CV_OPS = ['source-over', 'source-in', 'source-out', 'source-atop', 'destination-over', 'destination-in',
+    'destination-out', 'destination-atop', 'lighter', 'copy', 'xor', 'clear', 'multiply', 'screen', 'overlay',
+    'darken', 'lighten', 'color-dodge', 'color-burn', 'hard-light', 'soft-light', 'difference', 'exclusion', 'hue',
+    'saturation', 'color', 'luminosity'];
+  defs(CtxProto, 'globalCompositeOperation', function () { return CV_OPS[g.__cv_get_ls(cv(this), 4)]; }, function (v) {
+    var c = cv(this), i = CV_OPS.indexOf(String(v));
+    if (i >= 0) g.__cv_set_ls(c, 4, i);
+  });
+  // QCNV12: shadowBlur (non-finite or negative ignored), shadowOffsetX/Y (non-finite ignored); unrestricted double.
+  ['shadowBlur', 'shadowOffsetX', 'shadowOffsetY'].forEach(function (name, i) {
+    defs(CtxProto, name, function () { return g.__cv_get_ls(cv(this), 5 + i); }, function (v) {
+      var c = cv(this);
+      v = Number(v);
+      if (isFinite(v) && (i > 0 || v >= 0)) g.__cv_set_ls(c, 5 + i, v);
+    });
+  });
   defs(CtxProto, 'lineWidth', function () { return g.__cv_get_num(cv(this), 1); }, function (v) {
     var c = cv(this);
     v = Number(v);

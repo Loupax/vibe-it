@@ -71,6 +71,11 @@ struct DrawState {
     /// QCNV8: the dash list as set (already even length), and the offset.
     dash: Vec<f64>,
     dash_offset: f64,
+    /// QCNV12: shadowBlur (>= 0) and (shadowOffsetX, shadowOffsetY), in device pixels (the CTM does not apply).
+    shadow_blur: f64,
+    shadow_off: (f64, f64),
+    /// QCNV11: `globalCompositeOperation` as an index into `OPS` (0 = source-over).
+    op: u8,
     /// QCNV5: the current transformation matrix as (a, b, c, d, e, f): x' = a x + c y + e, y' = b x + d y + f.
     ctm: [f64; 6],
     /// QCNV6: the clipping region (coverage 0..255 per pixel); `None` = no clip. Shared between saved copies.
@@ -532,7 +537,7 @@ fn stroke_of(st: &DrawState) -> Stroke {
 
 impl Default for DrawState {
     fn default() -> DrawState {
-        DrawState { fill: Style::new([0, 0, 0, 255]), stroke: Style::new([0, 0, 0, 255]), shadow: Style::new([0, 0, 0, 0]), alpha: 1.0, line_width: 1.0, cap: 0, join: 0, miter_limit: 10.0, dash: Vec::new(), dash_offset: 0.0, ctm: IDENTITY, clip: None }
+        DrawState { fill: Style::new([0, 0, 0, 255]), stroke: Style::new([0, 0, 0, 255]), shadow: Style::new([0, 0, 0, 0]), alpha: 1.0, line_width: 1.0, cap: 0, join: 0, miter_limit: 10.0, dash: Vec::new(), dash_offset: 0.0, shadow_blur: 0.0, shadow_off: (0.0, 0.0), op: 0, ctm: IDENTITY, clip: None }
     }
 }
 
@@ -872,6 +877,290 @@ fn fill_gradient(px: &mut Pixmap, g: &Gradient, ctm: &[f64; 6], bb: (f64, f64, f
     draw(px, &p);
 }
 
+
+// ------------------------------------------------------------ compositing (QCNV11)
+
+/// The `globalCompositeOperation` values in the order the JS side numbers them (js_dom.rs `CV_OPS` is the same list).
+/// `clear` is a `<composite-mode>` the setter accepts (WPT 2d.composite.operation.clear); it paints with
+/// DestinationOut and an opaque source.
+pub(crate) const OPS: [BlendMode; 27] = [
+    BlendMode::SourceOver,
+    BlendMode::SourceIn,
+    BlendMode::SourceOut,
+    BlendMode::SourceAtop,
+    BlendMode::DestinationOver,
+    BlendMode::DestinationIn,
+    BlendMode::DestinationOut,
+    BlendMode::DestinationAtop,
+    BlendMode::Plus,
+    BlendMode::Source,
+    BlendMode::Xor,
+    BlendMode::Clear,
+    BlendMode::Multiply,
+    BlendMode::Screen,
+    BlendMode::Overlay,
+    BlendMode::Darken,
+    BlendMode::Lighten,
+    BlendMode::ColorDodge,
+    BlendMode::ColorBurn,
+    BlendMode::HardLight,
+    BlendMode::SoftLight,
+    BlendMode::Difference,
+    BlendMode::Exclusion,
+    BlendMode::Hue,
+    BlendMode::Saturation,
+    BlendMode::Color,
+    BlendMode::Luminosity,
+];
+
+/// The operators whose result for a transparent source is not the destination (source-in, source-out,
+/// destination-in, destination-atop, copy): they change pixels OUTSIDE the shape too (within the clip), so the shape
+/// is drawn into a canvas-sized layer first and the whole layer is composited.
+fn unbounded(m: BlendMode) -> bool {
+    matches!(m, BlendMode::SourceIn | BlendMode::SourceOut | BlendMode::DestinationIn | BlendMode::DestinationAtop | BlendMode::Source)
+}
+
+/// tiny-skia 0.12's non-separable modes skip ClipColor's `min < 0` step (highp `clip_color` tests `mx >= 0`), so
+/// hue/saturation/color/luminosity are composited here with the W3C Compositing formulas.
+fn non_separable(m: BlendMode) -> bool {
+    matches!(m, BlendMode::Hue | BlendMode::Saturation | BlendMode::Color | BlendMode::Luminosity)
+}
+
+fn lum(c: [f32; 3]) -> f32 {
+    0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2]
+}
+
+fn clip_color(c: [f32; 3]) -> [f32; 3] {
+    let l = lum(c);
+    let n = c[0].min(c[1]).min(c[2]);
+    let x = c[0].max(c[1]).max(c[2]);
+    let mut c = c;
+    if n < 0.0 {
+        c = c.map(|v| l + (v - l) * l / (l - n));
+    }
+    if x > 1.0 {
+        c = c.map(|v| l + (v - l) * (1.0 - l) / (x - l));
+    }
+    c.map(|v| v.clamp(0.0, 1.0))
+}
+
+fn set_lum(c: [f32; 3], l: f32) -> [f32; 3] {
+    let d = l - lum(c);
+    clip_color(c.map(|v| v + d))
+}
+
+fn sat(c: [f32; 3]) -> f32 {
+    c[0].max(c[1]).max(c[2]) - c[0].min(c[1]).min(c[2])
+}
+
+fn set_sat(c: [f32; 3], s: f32) -> [f32; 3] {
+    let mut idx = [0usize, 1, 2];
+    idx.sort_by(|a, b| c[*a].total_cmp(&c[*b]));
+    let [mn, md, mx] = idx;
+    let mut out = [0.0; 3];
+    if c[mx] > c[mn] {
+        out[md] = (c[md] - c[mn]) * s / (c[mx] - c[mn]);
+        out[mx] = s;
+    }
+    out
+}
+
+/// Composites `layer` (the shape, already scaled by coverage and globalAlpha) onto `px` with a non-separable blend
+/// mode, then source-over, within `mask`. A transparent layer pixel leaves the destination alone (bounded).
+fn blend_non_separable(px: &mut Pixmap, layer: &Pixmap, mode: BlendMode, mask: Option<&Mask>) {
+    let m = mask.map(Mask::data);
+    for (i, (d, s)) in px.pixels_mut().iter_mut().zip(layer.pixels()).enumerate() {
+        let cov = m.map_or(1.0, |m| f32::from(m[i]) / 255.0);
+        if s.alpha() == 0 || cov == 0.0 {
+            continue;
+        }
+        let f = |v: u8| f32::from(v) / 255.0;
+        let (sa, da) = (f(s.alpha()), f(d.alpha()));
+        let sp = [f(s.red()), f(s.green()), f(s.blue())];
+        let dp = [f(d.red()), f(d.green()), f(d.blue())];
+        let cs = sp.map(|v| (v / sa).min(1.0));
+        let cb = if da > 0.0 { dp.map(|v| (v / da).min(1.0)) } else { [0.0; 3] };
+        let b = match mode {
+            BlendMode::Hue => set_lum(set_sat(cs, sat(cb)), lum(cb)),
+            BlendMode::Saturation => set_lum(set_sat(cb, sat(cs)), lum(cb)),
+            BlendMode::Color => set_lum(cs, lum(cb)),
+            _ => set_lum(cb, lum(cs)),
+        };
+        // Premultiplied: co = cs (1 - ab) + cb (1 - as) + as ab B; ao = as + ab - as ab; then the clip coverage.
+        let ao = sa + da - sa * da;
+        let co: [f32; 3] = std::array::from_fn(|k| sp[k] * (1.0 - da) + dp[k] * (1.0 - sa) + sa * da * b[k]);
+        let mix = |new: f32, old: f32| old + (new - old) * cov;
+        let a = mix(ao, da).clamp(0.0, 1.0);
+        let q = |v: f32| (v.clamp(0.0, a) * 255.0).round() as u8;
+        let a8 = (a * 255.0).round() as u8;
+        if let Some(c) = tiny_skia::PremultipliedColorU8::from_rgba(q(mix(co[0], dp[0])).min(a8), q(mix(co[1], dp[1])).min(a8), q(mix(co[2], dp[2])).min(a8), a8) {
+            *d = c;
+        }
+    }
+}
+
+/// What a draw call covers, in the form tiny-skia paints it.
+enum Shape<'a> {
+    /// fillRect: a user-space rect and the CTM.
+    Rect(Rect, Transform),
+    /// fill: a device-space path (the transform is the identity, or a QCNV12 shadow-layer shift).
+    Fill(&'a tiny_skia::Path, FillRule, Transform),
+    /// stroke/strokeRect: a user-space path, the pen and the CTM.
+    Stroke(&'a tiny_skia::Path, &'a Stroke, Transform),
+}
+
+impl<'a> Shape<'a> {
+    fn put(&self, px: &mut Pixmap, p: &Paint, mask: Option<&Mask>) {
+        match self {
+            Shape::Rect(r, ts) => px.fill_rect(*r, p, *ts, mask),
+            Shape::Fill(path, rule, ts) => px.fill_path(path, p, *rule, *ts, mask),
+            Shape::Stroke(path, stroke, ts) => px.stroke_path(path, p, stroke, *ts, mask),
+        }
+    }
+
+    /// The transform `put` applies to the geometry (the gradient pattern compensates for it).
+    fn ts(&self) -> Transform {
+        match self {
+            Shape::Rect(_, ts) | Shape::Stroke(_, _, ts) | Shape::Fill(_, _, ts) => *ts,
+        }
+    }
+
+    /// QCNV12: the same shape moved by (dx, dy) device pixels.
+    fn shifted(&self, dx: f32, dy: f32) -> Shape<'a> {
+        match self {
+            Shape::Rect(r, ts) => Shape::Rect(*r, ts.post_translate(dx, dy)),
+            Shape::Fill(path, rule, ts) => Shape::Fill(path, *rule, ts.post_translate(dx, dy)),
+            Shape::Stroke(path, stroke, ts) => Shape::Stroke(path, stroke, ts.post_translate(dx, dy)),
+        }
+    }
+
+    /// The device rect the shape can touch (a gradient layer's extent).
+    fn bounds(&self, st: &DrawState) -> (f64, f64, f64, f64) {
+        let pts = |m: &[f64; 6], b: Rect| {
+            let c = [(b.left(), b.top()), (b.right(), b.top()), (b.right(), b.bottom()), (b.left(), b.bottom())].map(|(x, y)| PathData::map(m, f64::from(x), f64::from(y)));
+            c.iter().fold((f64::MAX, f64::MAX, f64::MIN, f64::MIN), |b, p| (b.0.min(p.0), b.1.min(p.1), b.2.max(p.0), b.3.max(p.1)))
+        };
+        match self {
+            Shape::Rect(r, _) => pts(&st.ctm, *r),
+            Shape::Fill(path, _, ts) => pts(&[ts.sx, ts.ky, ts.kx, ts.sy, ts.tx, ts.ty].map(f64::from), path.bounds()),
+            Shape::Stroke(path, _, _) => stroke_bounds(path, &st.ctm, st),
+        }
+    }
+}
+
+/// Paints `shape` with `style` (colour or gradient), globalAlpha, the clip and the composite operator of `st`.
+/// Source-over and the other bounded operators go straight to tiny-skia with the operator as the paint's blend mode:
+/// each of them is linear in the source, so applying the anti-aliasing coverage after the blend (tiny-skia) equals
+/// scaling the source by it first (the canvas model). The unbounded and the non-separable ones go through a layer.
+/// QCNV12: the shadow (when it is drawn) is composited first with the same operator, then the shape.
+fn paint_shape(px: &mut Pixmap, st: &DrawState, style: &Style, shape: &Shape) {
+    if shadow_visible(st) {
+        paint_shadow(px, st, style, shape);
+    }
+    composite_shape(px, st, style, shape);
+}
+
+/// QCNV12: shadows are drawn when the colour is not fully transparent and the blur or an offset is non-zero.
+fn shadow_visible(st: &DrawState) -> bool {
+    st.shadow.rgba[3] > 0 && (st.shadow_blur > 0.0 || st.shadow_off.0 != 0.0 || st.shadow_off.1 != 0.0)
+}
+
+/// QCNV12: the spec's shadow model. Image A = the shape in its style with no globalAlpha and no clip, rendered into
+/// a layer that covers the part of the device plane the shadow lands on canvas from (the canvas moved back by the
+/// offset, plus 3 sigma of blur margin, so shapes outside the canvas still cast shadows into it). B = A's alpha
+/// (Gaussian-blurred with sigma = shadowBlur / 2) times shadowColor and globalAlpha, moved by the offset (device
+/// pixels: the CTM does not apply to offsets or blur). B is composited within the clip with the current operator.
+fn paint_shadow(px: &mut Pixmap, st: &DrawState, style: &Style, shape: &Shape) {
+    let (w, h) = (px.width(), px.height());
+    let sigma = (st.shadow_blur / 2.0) as f32;
+    // A blur wider than the canvas has spread the shape out to nearly nothing: cap the margin (and the layer).
+    let m = (f64::from(sigma) * 3.0).ceil().min(f64::from(w.max(h)) * 2.0) as u32 + 1;
+    let (lw, lh) = (w + 2 * m, h + 2 * m);
+    if u64::from(lw) * u64::from(lh) > MAX_PIXELS {
+        return;
+    }
+    let Some(mut a) = Pixmap::new(lw, lh) else { return };
+    let (dx, dy) = (f64::from(m) + st.shadow_off.0, f64::from(m) + st.shadow_off.1);
+    let mut sa = st.clone();
+    sa.alpha = 1.0;
+    sa.clip = None;
+    sa.ctm[4] += dx;
+    sa.ctm[5] += dy;
+    paint_source(&mut a, &sa, style, &shape.shifted(dx as f32, dy as f32), BlendMode::SourceOver, None);
+    let mut plane: Vec<f32> = a.pixels().iter().map(|p| f32::from(p.alpha()) / 255.0).collect();
+    if sigma > 0.0 {
+        crate::fx::blur_plane(&mut plane, lw as usize, lh as usize, sigma);
+    }
+    let Some(mut b) = Pixmap::new(w, h) else { return };
+    let c = st.shadow.rgba;
+    let k = f32::from(c[3]) / 255.0 * st.alpha;
+    for (y, row) in b.pixels_mut().chunks_mut(w as usize).enumerate() {
+        let src = &plane[(y + m as usize) * lw as usize + m as usize..][..w as usize];
+        for (d, s) in row.iter_mut().zip(src) {
+            let av = (s * k).clamp(0.0, 1.0);
+            if av <= 0.0 {
+                continue;
+            }
+            let a8 = (av * 255.0).round() as u8;
+            let pm = |v: u8| ((f32::from(v) * av).round() as u8).min(a8);
+            if let Some(p) = tiny_skia::PremultipliedColorU8::from_rgba(pm(c[0]), pm(c[1]), pm(c[2]), a8) {
+                *d = p;
+            }
+        }
+    }
+    let mask = st.clip.as_deref();
+    let mode = OPS[usize::from(st.op).min(OPS.len() - 1)];
+    if non_separable(mode) {
+        blend_non_separable(px, &b, mode, mask);
+        return;
+    }
+    // `clear` composites as DestinationOut of the shadow's own alpha.
+    let mode = if mode == BlendMode::Clear { BlendMode::DestinationOut } else { mode };
+    let pp = tiny_skia::PixmapPaint { opacity: 1.0, blend_mode: mode, quality: FilterQuality::Nearest };
+    px.draw_pixmap(0, 0, b.as_ref(), &pp, Transform::identity(), mask);
+}
+
+/// The shape alone (no shadow): see `paint_shape`.
+fn composite_shape(px: &mut Pixmap, st: &DrawState, style: &Style, shape: &Shape) {
+    let mask = st.clip.as_deref();
+    let mode = OPS[usize::from(st.op).min(OPS.len() - 1)];
+    if mode == BlendMode::Clear {
+        // Clear within the shape's coverage, whatever the colour; tiny-skia's Clear ignores the mask (QCNV6).
+        let p = Paint { blend_mode: BlendMode::DestinationOut, anti_alias: true, ..Paint::default() };
+        shape.put(px, &p, mask);
+        return;
+    }
+    if non_separable(mode) {
+        let Some(mut layer) = Pixmap::new(px.width(), px.height()) else { return };
+        paint_source(&mut layer, st, style, shape, BlendMode::SourceOver, None);
+        blend_non_separable(px, &layer, mode, mask);
+        return;
+    }
+    if unbounded(mode) {
+        let Some(mut layer) = Pixmap::new(px.width(), px.height()) else { return };
+        paint_source(&mut layer, st, style, shape, BlendMode::SourceOver, None);
+        let pp = tiny_skia::PixmapPaint { opacity: 1.0, blend_mode: mode, quality: FilterQuality::Nearest };
+        px.draw_pixmap(0, 0, layer.as_ref(), &pp, Transform::identity(), mask);
+        return;
+    }
+    paint_source(px, st, style, shape, mode, mask);
+}
+
+/// One tiny-skia draw of `shape` in `style` with blend mode `mode`.
+fn paint_source(px: &mut Pixmap, st: &DrawState, style: &Style, shape: &Shape, mode: BlendMode, mask: Option<&Mask>) {
+    if let Some(g) = style_grad(style) {
+        fill_gradient(px, &g, &st.ctm, shape.bounds(st), st.alpha, shape.ts(), |px, p| {
+            let mut p = p.clone();
+            p.blend_mode = mode;
+            shape.put(px, &p, mask);
+        });
+    } else {
+        let mut p = paint_of(style.rgba, st.alpha);
+        p.blend_mode = mode;
+        shape.put(px, &p, mask);
+    }
+}
+
 // ------------------------------------------------------------ drawing
 
 fn rect_of(x: f64, y: f64, w: f64, h: f64) -> Option<Rect> {
@@ -916,25 +1205,18 @@ fn set_ctm(c: &mut Canvas, op: i32, m: &[f64]) {
 fn draw(c: &mut Canvas, op: i32, a: &[f64]) {
     let (Some(px), [x, y, w, h]) = (c.pixmap.as_mut(), a) else { return };
     let ts = transform_of(&c.state.ctm);
-    let mask = c.state.clip.as_deref();
     match op {
         0 => {
             if let Some(r) = rect_of(*x, *y, *w, *h) {
-                if let Some(g) = style_grad(&c.state.fill) {
-                    let m = c.state.ctm;
-                    let pts = [(r.left(), r.top()), (r.right(), r.top()), (r.right(), r.bottom()), (r.left(), r.bottom())].map(|(x, y)| PathData::map(&m, f64::from(x), f64::from(y)));
-                    let bb = pts.iter().fold((f64::MAX, f64::MAX, f64::MIN, f64::MIN), |b, p| (b.0.min(p.0), b.1.min(p.1), b.2.max(p.0), b.3.max(p.1)));
-                    fill_gradient(px, &g, &m, bb, c.state.alpha, ts, |px, p| px.fill_rect(r, p, ts, mask));
-                } else {
-                    px.fill_rect(r, &paint_of(c.state.fill.rgba, c.state.alpha), ts, mask);
-                }
+                paint_shape(px, &c.state, &c.state.fill, &Shape::Rect(r, ts));
             }
         }
         1 => {
             if let Some(r) = rect_of(*x, *y, *w, *h) {
                 // DestinationOut with an opaque source clears and, unlike Clear, honours the clip mask (QCNV6).
+                // clearRect ignores globalCompositeOperation and globalAlpha (QCNV11).
                 let p = Paint { blend_mode: BlendMode::DestinationOut, anti_alias: true, ..Paint::default() };
-                px.fill_rect(r, &p, ts, mask);
+                px.fill_rect(r, &p, ts, c.state.clip.as_deref());
             }
         }
         _ => {
@@ -950,13 +1232,7 @@ fn draw(c: &mut Canvas, op: i32, a: &[f64]) {
             pb.close();
             if let Some(path) = pb.finish() {
                 let stroke = stroke_of(&c.state);
-                if let Some(g) = style_grad(&c.state.stroke) {
-                    let m = c.state.ctm;
-                    let bb = stroke_bounds(&path, &m, &c.state);
-                    fill_gradient(px, &g, &m, bb, c.state.alpha, ts, |px, p| px.stroke_path(&path, p, &stroke, ts, mask));
-                } else {
-                    px.stroke_path(&path, &paint_of(c.state.stroke.rgba, c.state.alpha), &stroke, ts, mask);
-                }
+                paint_shape(px, &c.state, &c.state.stroke, &Shape::Stroke(&path, &stroke, ts));
             }
         }
     }
@@ -1012,28 +1288,14 @@ fn paint_path(c: &mut Canvas, op: i32, evenodd: bool, over: Option<&PathData>) {
         return;
     }
     let (Some(px), Some(path)) = (c.pixmap.as_mut(), path) else { return };
-    let mask = c.state.clip.as_deref();
     if op == 0 {
-        if let Some(g) = style_grad(&c.state.fill) {
-            let b = path.bounds();
-            let bb = (f64::from(b.left()), f64::from(b.top()), f64::from(b.right()), f64::from(b.bottom()));
-            let id = Transform::identity();
-            fill_gradient(px, &g, &c.state.ctm, bb, c.state.alpha, id, |px, p| px.fill_path(&path, p, rule, id, mask));
-        } else {
-            px.fill_path(&path, &paint_of(c.state.fill.rgba, c.state.alpha), rule, Transform::identity(), mask);
-        }
+        paint_shape(px, &c.state, &c.state.fill, &Shape::Fill(&path, rule, Transform::identity()));
     } else {
         // The path is in device space; the pen is in user space, so stroke the user-space path through the CTM.
         let Some(inv) = invert(&c.state.ctm) else { return };
         let Some(user) = path.transform(transform_of(&inv)) else { return };
         let stroke = stroke_of(&c.state);
-        let ts = transform_of(&c.state.ctm);
-        if let Some(g) = style_grad(&c.state.stroke) {
-            let bb = stroke_bounds(&user, &c.state.ctm, &c.state);
-            fill_gradient(px, &g, &c.state.ctm, bb, c.state.alpha, ts, |px, p| px.stroke_path(&user, p, &stroke, ts, mask));
-        } else {
-            px.stroke_path(&user, &paint_of(c.state.stroke.rgba, c.state.alpha), &stroke, ts, mask);
-        }
+        paint_shape(px, &c.state, &c.state.stroke, &Shape::Stroke(&user, &stroke, transform_of(&c.state.ctm)));
     }
 }
 
@@ -1313,14 +1575,19 @@ pub(crate) fn register(ctx: &Ctx<'_>, table: Rc<RefCell<DomTable>>) {
         })
     });
     // QCNV5: transform/setTransform/resetTransform (see `set_ctm`); the JS side has already dropped non-finite input.
-    // QCNV8: which 0 lineCap, 1 lineJoin, 2 miterLimit, 3 lineDashOffset (the JS side validated the value).
+    // QCNV8: which 0 lineCap, 1 lineJoin, 2 miterLimit, 3 lineDashOffset, QCNV11: 4 globalCompositeOperation (index into
+    // `OPS`), QCNV12: 5 shadowBlur, 6 shadowOffsetX, 7 shadowOffsetY (the JS side validated the value).
     native!(ctx, "__cv_set_ls", move |cid: i32, which: i32, v: f64| {
         if let Some(c) = map().get_mut(cid as u32) {
             match which {
                 0 => c.state.cap = v as u8,
                 1 => c.state.join = v as u8,
                 2 => c.state.miter_limit = v as f32,
-                _ => c.state.dash_offset = v,
+                3 => c.state.dash_offset = v,
+                4 => c.state.op = (v as usize).min(OPS.len() - 1) as u8,
+                5 => c.state.shadow_blur = v,
+                6 => c.state.shadow_off.0 = v,
+                _ => c.state.shadow_off.1 = v,
             }
         }
     });
@@ -1329,7 +1596,11 @@ pub(crate) fn register(ctx: &Ctx<'_>, table: Rc<RefCell<DomTable>>) {
             0 => f64::from(c.state.cap),
             1 => f64::from(c.state.join),
             2 => f64::from(c.state.miter_limit),
-            _ => c.state.dash_offset,
+            3 => c.state.dash_offset,
+            4 => f64::from(c.state.op),
+            5 => c.state.shadow_blur,
+            6 => c.state.shadow_off.0,
+            _ => c.state.shadow_off.1,
         })
     });
     // setLineDash/getLineDash: the list travels as a comma-separated string (the JS side validated and doubled it).

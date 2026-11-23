@@ -24,11 +24,7 @@ OK           1/1  html/canvas/offscreen/canvas-context/2d.canvas.context.unique.
 OK           0/1  html/canvas/offscreen/canvas-context/2d.getContext.options.any.html
   FAIL      2d
 OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.initial.color.html
-OK          8/12  html/canvas/offscreen/canvas-host/2d.canvas.host.initial.reset.2dstate.html
-  FAIL      Resetting the canvas state resets shadowOffsetX
-  FAIL      Resetting the canvas state resets shadowOffsetY
-  FAIL      Resetting the canvas state resets shadowBlur
-  FAIL      Resetting the canvas state resets globalCompositeOperation
+OK         12/12  html/canvas/offscreen/canvas-host/2d.canvas.host.initial.reset.2dstate.html
 OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.initial.reset.clip.html
 OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.initial.reset.different.html
 OK           1/1  html/canvas/offscreen/canvas-host/2d.canvas.host.initial.reset.gradient.html
@@ -143,73 +139,43 @@ OK           0/1  html/canvas/offscreen/compositing/2d.composite.image.source-ov
   FAIL      OffscreenCanvas test: 2d.composite.image.source-over
 OK           0/1  html/canvas/offscreen/compositing/2d.composite.image.xor.html
   FAIL      OffscreenCanvas test: 2d.composite.image.xor
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.operation.casesensitive.html
-  FAIL      OffscreenCanvas test: 2d.composite.operation.casesensitive
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.operation.casesensitive.html
 OK           1/1  html/canvas/offscreen/compositing/2d.composite.operation.clear.html
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.operation.darker.html
-  FAIL      OffscreenCanvas test: 2d.composite.operation.darker
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.operation.default.html
-  FAIL      OffscreenCanvas test: 2d.composite.operation.default
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.operation.darker.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.operation.default.html
 OK           1/1  html/canvas/offscreen/compositing/2d.composite.operation.get.html
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.operation.highlight.html
-  FAIL      OffscreenCanvas test: 2d.composite.operation.highlight
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.operation.nullsuffix.html
-  FAIL      OffscreenCanvas test: 2d.composite.operation.nullsuffix
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.operation.over.html
-  FAIL      OffscreenCanvas test: 2d.composite.operation.over
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.operation.unrecognised.html
-  FAIL      OffscreenCanvas test: 2d.composite.operation.unrecognised
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.solid.clear.html
-  FAIL      OffscreenCanvas test: 2d.composite.solid.clear
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.operation.highlight.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.operation.nullsuffix.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.operation.over.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.operation.unrecognised.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.solid.clear.html
 OK           1/1  html/canvas/offscreen/compositing/2d.composite.solid.copy.html
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.solid.destination-atop.html
-  FAIL      OffscreenCanvas test: 2d.composite.solid.destination-atop
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.solid.destination-in.html
-  FAIL      OffscreenCanvas test: 2d.composite.solid.destination-in
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.solid.destination-out.html
-  FAIL      OffscreenCanvas test: 2d.composite.solid.destination-out
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.solid.destination-over.html
-  FAIL      OffscreenCanvas test: 2d.composite.solid.destination-over
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.solid.lighter.html
-  FAIL      OffscreenCanvas test: 2d.composite.solid.lighter
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.solid.destination-atop.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.solid.destination-in.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.solid.destination-out.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.solid.destination-over.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.solid.lighter.html
 OK           1/1  html/canvas/offscreen/compositing/2d.composite.solid.source-atop.html
 OK           1/1  html/canvas/offscreen/compositing/2d.composite.solid.source-in.html
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.solid.source-out.html
-  FAIL      OffscreenCanvas test: 2d.composite.solid.source-out
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.solid.source-out.html
 OK           1/1  html/canvas/offscreen/compositing/2d.composite.solid.source-over.html
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.solid.xor.html
-  FAIL      OffscreenCanvas test: 2d.composite.solid.xor
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.transparent.clear.html
-  FAIL      OffscreenCanvas test: 2d.composite.transparent.clear
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.transparent.copy.html
-  FAIL      OffscreenCanvas test: 2d.composite.transparent.copy
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.transparent.destination-atop.html
-  FAIL      OffscreenCanvas test: 2d.composite.transparent.destination-atop
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.transparent.destination-in.html
-  FAIL      OffscreenCanvas test: 2d.composite.transparent.destination-in
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.transparent.destination-out.html
-  FAIL      OffscreenCanvas test: 2d.composite.transparent.destination-out
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.transparent.destination-over.html
-  FAIL      OffscreenCanvas test: 2d.composite.transparent.destination-over
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.transparent.lighter.html
-  FAIL      OffscreenCanvas test: 2d.composite.transparent.lighter
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.transparent.source-atop.html
-  FAIL      OffscreenCanvas test: 2d.composite.transparent.source-atop
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.transparent.source-in.html
-  FAIL      OffscreenCanvas test: 2d.composite.transparent.source-in
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.transparent.source-out.html
-  FAIL      OffscreenCanvas test: 2d.composite.transparent.source-out
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.solid.xor.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.transparent.clear.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.transparent.copy.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.transparent.destination-atop.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.transparent.destination-in.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.transparent.destination-out.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.transparent.destination-over.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.transparent.lighter.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.transparent.source-atop.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.transparent.source-in.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.transparent.source-out.html
 OK           1/1  html/canvas/offscreen/compositing/2d.composite.transparent.source-over.html
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.transparent.xor.html
-  FAIL      OffscreenCanvas test: 2d.composite.transparent.xor
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.uncovered.fill.copy.html
-  FAIL      fill() draws pixels not covered by the source object as (0,0,0,0), and does not leave the pixels unchanged.
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.uncovered.fill.destination-atop.html
-  FAIL      fill() draws pixels not covered by the source object as (0,0,0,0), and does not leave the pixels unchanged.
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.uncovered.fill.source-in.html
-  FAIL      fill() draws pixels not covered by the source object as (0,0,0,0), and does not leave the pixels unchanged.
-OK           0/1  html/canvas/offscreen/compositing/2d.composite.uncovered.fill.source-out.html
-  FAIL      fill() draws pixels not covered by the source object as (0,0,0,0), and does not leave the pixels unchanged.
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.transparent.xor.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.uncovered.fill.copy.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.uncovered.fill.destination-atop.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.uncovered.fill.source-in.html
+OK           1/1  html/canvas/offscreen/compositing/2d.composite.uncovered.fill.source-out.html
 OK           0/1  html/canvas/offscreen/compositing/2d.composite.uncovered.image.copy.html
   FAIL      drawImage() draws pixels not covered by the source object as (0,0,0,0), and does not leave the pixels unchanged.
 OK           0/1  html/canvas/offscreen/compositing/2d.composite.uncovered.image.destination-atop.html
@@ -312,20 +278,17 @@ OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.fill
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.fillRect.negative.html
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.fillRect.nonfinite.html
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.fillRect.path.html
-OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.fillRect.shadow.html
-  FAIL      fillRect draws shadows
+OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.fillRect.shadow.html
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.fillRect.transform.html
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.fillRect.zero.html
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.basic.html
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.clip.html
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.globalalpha.html
-OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.globalcomposite.html
-  FAIL      strokeRect is not affected by globalCompositeOperation
+OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.globalcomposite.html
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.negative.html
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.nonfinite.html
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.path.html
-OK           0/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.shadow.html
-  FAIL      strokeRect draws shadows
+OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.shadow.html
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.transform.html
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.zero.1.html
 OK           1/1  html/canvas/offscreen/drawing-rectangles-to-the-canvas/2d.strokeRect.zero.2.html
@@ -1195,26 +1158,18 @@ OK           0/1  html/canvas/offscreen/reset/2d.reset.state.transformation_matr
 OK           0/1  html/canvas/offscreen/reset/2d.reset.state.word_spacing.html
   FAIL      check that the state is reset
 OK           1/1  html/canvas/offscreen/shadows/2d.shadow.alpha.1.html
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.alpha.2.html
-  FAIL      Shadow color alpha components are used
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.alpha.3.html
-  FAIL      Shadows are affected by globalAlpha
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.alpha.4.html
-  FAIL      Shadows with alpha components are correctly affected by globalAlpha
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.alpha.5.html
-  FAIL      Shadows of shapes with alpha components are drawn correctly
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.attributes.shadowBlur.initial.html
-  FAIL      OffscreenCanvas test: 2d.shadow.attributes.shadowBlur.initial
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.attributes.shadowBlur.invalid.html
-  FAIL      OffscreenCanvas test: 2d.shadow.attributes.shadowBlur.invalid
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.alpha.2.html
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.alpha.3.html
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.alpha.4.html
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.alpha.5.html
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.attributes.shadowBlur.initial.html
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.attributes.shadowBlur.invalid.html
 OK           1/1  html/canvas/offscreen/shadows/2d.shadow.attributes.shadowBlur.valid.html
 OK           1/1  html/canvas/offscreen/shadows/2d.shadow.attributes.shadowColor.initial.html
 OK           1/1  html/canvas/offscreen/shadows/2d.shadow.attributes.shadowColor.invalid.html
 OK           1/1  html/canvas/offscreen/shadows/2d.shadow.attributes.shadowColor.valid.html
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.attributes.shadowOffset.initial.html
-  FAIL      OffscreenCanvas test: 2d.shadow.attributes.shadowOffset.initial
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.attributes.shadowOffset.invalid.html
-  FAIL      OffscreenCanvas test: 2d.shadow.attributes.shadowOffset.invalid
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.attributes.shadowOffset.initial.html
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.attributes.shadowOffset.invalid.html
 OK           1/1  html/canvas/offscreen/shadows/2d.shadow.attributes.shadowOffset.valid.html
 OK           0/1  html/canvas/offscreen/shadows/2d.shadow.canvas.alpha.html
   FAIL      Shadows are drawn correctly for partially-transparent canvases
@@ -1224,29 +1179,21 @@ OK           0/1  html/canvas/offscreen/shadows/2d.shadow.canvas.transparent.1.h
   FAIL      Shadows are not drawn for transparent canvases
 OK           0/1  html/canvas/offscreen/shadows/2d.shadow.canvas.transparent.2.html
   FAIL      Shadows are not drawn for transparent parts of canvases
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.clip.1.html
-  FAIL      Shadows of clipped shapes are still drawn within the clipping region
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.clip.1.html
 OK           1/1  html/canvas/offscreen/shadows/2d.shadow.clip.2.html
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.clip.3.html
-  FAIL      Shadows of clipped shapes are still drawn within the clipping region
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.clip.3.html
 OK           1/1  html/canvas/offscreen/shadows/2d.shadow.composite.1.html
 OK           1/1  html/canvas/offscreen/shadows/2d.shadow.composite.2.html
 OK           1/1  html/canvas/offscreen/shadows/2d.shadow.composite.3.html
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.enable.blur.html
-  FAIL      Shadows are drawn if shadowBlur is set
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.enable.blur.html
 OK           1/1  html/canvas/offscreen/shadows/2d.shadow.enable.off.1.html
 OK           1/1  html/canvas/offscreen/shadows/2d.shadow.enable.off.2.html
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.enable.x.html
-  FAIL      Shadows are drawn if shadowOffsetX is set
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.enable.y.html
-  FAIL      Shadows are drawn if shadowOffsetY is set
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.gradient.alpha.html
-  FAIL      Shadows are drawn correctly for partially-transparent gradient fills
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.gradient.basic.html
-  FAIL      Shadows are drawn for gradient fills
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.enable.x.html
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.enable.y.html
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.gradient.alpha.html
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.gradient.basic.html
 OK           1/1  html/canvas/offscreen/shadows/2d.shadow.gradient.transparent.1.html
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.gradient.transparent.2.html
-  FAIL      Shadows are not drawn for transparent parts of gradient fills
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.gradient.transparent.2.html
 OK           0/1  html/canvas/offscreen/shadows/2d.shadow.image.alpha.html
   FAIL      Shadows are drawn correctly for partially-transparent images
 OK           0/1  html/canvas/offscreen/shadows/2d.shadow.image.basic.html
@@ -1259,16 +1206,11 @@ OK           0/1  html/canvas/offscreen/shadows/2d.shadow.image.transparent.1.ht
   FAIL      Shadows are not drawn for transparent images
 OK           0/1  html/canvas/offscreen/shadows/2d.shadow.image.transparent.2.html
   FAIL      Shadows are not drawn for transparent parts of images
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.offset.negativeX.html
-  FAIL      Shadows can be offset with negative x
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.offset.negativeY.html
-  FAIL      Shadows can be offset with negative y
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.offset.positiveX.html
-  FAIL      Shadows can be offset with positive x
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.offset.positiveY.html
-  FAIL      Shadows can be offset with positive y
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.outside.html
-  FAIL      Shadows of shapes outside the visible area can be offset onto the visible area
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.offset.negativeX.html
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.offset.negativeY.html
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.offset.positiveX.html
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.offset.positiveY.html
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.outside.html
 OK           0/1  html/canvas/offscreen/shadows/2d.shadow.pattern.alpha.html
   FAIL      Shadows are drawn correctly for partially-transparent fill patterns
 OK           0/1  html/canvas/offscreen/shadows/2d.shadow.pattern.basic.html
@@ -1277,19 +1219,14 @@ OK           0/1  html/canvas/offscreen/shadows/2d.shadow.pattern.transparent.1.
   FAIL      Shadows are not drawn for transparent fill patterns
 OK           0/1  html/canvas/offscreen/shadows/2d.shadow.pattern.transparent.2.html
   FAIL      Shadows are not drawn for transparent parts of fill patterns
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.stroke.basic.html
-  FAIL      Shadows are drawn for strokes
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.stroke.basic.html
 OK           1/1  html/canvas/offscreen/shadows/2d.shadow.stroke.cap.1.html
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.stroke.cap.2.html
-  FAIL      Shadows are drawn for stroke caps
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.stroke.cap.2.html
 OK           1/1  html/canvas/offscreen/shadows/2d.shadow.stroke.join.1.html
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.stroke.join.2.html
-  FAIL      Shadows are drawn for stroke joins
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.stroke.join.2.html
 OK           1/1  html/canvas/offscreen/shadows/2d.shadow.stroke.join.3.html
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.transform.1.html
-  FAIL      Shadows take account of transformations
-OK           0/1  html/canvas/offscreen/shadows/2d.shadow.transform.2.html
-  FAIL      Shadow offsets are not affected by transformations
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.transform.1.html
+OK           1/1  html/canvas/offscreen/shadows/2d.shadow.transform.2.html
 OK           0/1  html/canvas/offscreen/text/2d.text.align.default.html
   FAIL      OffscreenCanvas test: 2d.text.align.default
 OK           0/1  html/canvas/offscreen/text/2d.text.align.invalid.html
@@ -1684,24 +1621,16 @@ OK           1/1  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.cl
 OK           1/1  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.clip.html
 OK           4/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.fillStyle.html
 OK           4/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.globalAlpha.html
-OK           2/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.globalCompositeOperation.html
-  FAIL      save()/restore() restores globalCompositeOperation, for a canvas of size (300, 150).
-  FAIL      save()/restore() restores globalCompositeOperation, for a canvas of size (0, 0).
+OK           4/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.globalCompositeOperation.html
 OK           4/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.lineCap.html
 OK           4/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.lineJoin.html
 OK           4/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.lineWidth.html
 OK           4/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.miterLimit.html
 OK           1/1  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.path.html
-OK           2/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.shadowBlur.html
-  FAIL      save()/restore() restores shadowBlur, for a canvas of size (300, 150).
-  FAIL      save()/restore() restores shadowBlur, for a canvas of size (0, 0).
+OK           4/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.shadowBlur.html
 OK           4/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.shadowColor.html
-OK           2/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.shadowOffsetX.html
-  FAIL      save()/restore() restores shadowOffsetX, for a canvas of size (300, 150).
-  FAIL      save()/restore() restores shadowOffsetX, for a canvas of size (0, 0).
-OK           2/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.shadowOffsetY.html
-  FAIL      save()/restore() restores shadowOffsetY, for a canvas of size (300, 150).
-  FAIL      save()/restore() restores shadowOffsetY, for a canvas of size (0, 0).
+OK           4/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.shadowOffsetX.html
+OK           4/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.shadowOffsetY.html
 OK           1/1  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.stack.html
 OK           1/1  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.stackdepth.html
 OK           4/4  html/canvas/offscreen/the-canvas-state/2d.state.saverestore.strokeStyle.html
