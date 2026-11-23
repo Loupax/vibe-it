@@ -157,7 +157,7 @@ stop early on a hard failure.
 - [ ] C-FOCUSKEYS [S] (from C2 #671; from reading code, untested) smithay's winit backend drops winit's synthetic
       key releases: a modifier held when the shell loses focus (Alt of Alt+Tab) can stay down. Release every
       pressed key on focus-out. Done when Alt+Tab away and back leaves no stuck modifier (keydown logger page).
-- [WIP] C-SOCKDIR [XS] (from C2 #671) A hard-killed shell leaves $XDG_RUNTIME_DIR/web-<pid>/ behind: clean stale
+- [ ] C-SOCKDIR [XS] (from C2 #671) A hard-killed shell leaves $XDG_RUNTIME_DIR/web-<pid>/ behind: clean stale
       dirs at start.
 - [x] C-INSTALL [S] (DONE 2026-11-23, 3bce370, #678: web/install.sh -> ~/.local/lib/web/<ver> + ~/.local/bin/web;
       `ci_then_push.sh --install web`; installed for the user 14:33; ~1.5 GB per version, 2 kept) (user bumped it 2026-11-23) (coordinator, 2026-11-23) Make web installable for daily use: `cargo install` copies only
@@ -167,7 +167,7 @@ stop early on a hard failure.
       works from a fresh shell after the install.
 - [ ] NEST-WINKEYMAP [XS] (from #673) Windowed nest: a client started after an inject run ended gets no keymap
       and Chromium crashes on the first modifiers event (the headless patch handles it; windowed does not).
-- [WIP] C3-GOHTTP [XS] (bundled with C-SOCKDIR) (from #677) A `:go` ghost taken from an http:// history entry typed without its scheme
+- [ ] C3-GOHTTP [XS] (bundle with C-SOCKDIR) (from #677) A `:go` ghost taken from an http:// history entry typed without its scheme
       (`:go 127` Tab Enter) runs as https://. When the completed word matches a history URL with its scheme
       stripped, use that URL's own scheme.
 - [ ] C3-SHIFTSYNC [S] (from #677; with C-FOCUSKEYS) The shell learns held modifiers only from key events: a
@@ -182,6 +182,12 @@ stop early on a hard failure.
       reported `editable-focused true` for that click (a field got focus: stay INPUT). Add the row to
       KEYS.md's transition table, a test named after it, and a live check (right-click -> Copy link
       address -> back in NORMAL; select an option -> back in NORMAL; right-click in a field -> stays INPUT).
+- [WIP] C-ENTER [XS] (user, 2026-11-23: "Enter in NORMAL forwards to the page.") Enter in NORMAL is delivered to
+      the page (rewrite KEYS.md T18-T20: no shell-side click; the engine decides, e.g. after a find the
+      matched link is focused and Enter follows it). Bundled with C-CARETCMD.
+- [WIP] C-CARETCMD [S] (user, 2026-11-23: "Expose caret browsing from a command mode command, so I can
+      experiment with it but don't change the defaults.") `:set caret` / `:set nocaret` turn Chromium's
+      caret browsing on/off at runtime (default off; not persisted unless the user asks later).
 - [ ] C5-ENTER [S] PARKED (user 2026-11-23: "park everything related to caret mode, I want to think about it
       more"; options discussed: own caret, or Chromium's caret drawn by the shell, spike CARET-1). WAITING FOR USER (2026-11-23: user unsure about moving the real pointer, prefers caret
       browsing, a text cursor in the page; design with QCURSOR-D first; NOT Chromium's built-in caret browsing:

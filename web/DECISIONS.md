@@ -2,6 +2,13 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-23 Enter in NORMAL goes to the page; caret browsing as an experiment
+
+User: "do this. Enter in NORMAL forwards to the page. Expose caret browsing from a command mode command,
+so I can experiment with it but don't change the defaults." Enter in NORMAL is delivered to the page
+(after a find, Chromium focuses the matched link, so Enter follows it). `:set caret` / `:set nocaret`
+toggle Chromium's caret browsing; off by default. The rest of caret mode stays parked.
+
 ## 2026-11-23 Search places the pointer, Enter clicks
 
 User: "On Search Mode n/N moves the cursor at the beginning of the match. Enter sends a click event to
