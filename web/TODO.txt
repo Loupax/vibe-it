@@ -165,7 +165,9 @@ stop early on a hard failure.
       run-dir socket) and asks it to open the URL (status-bar message), then exits 0; if the lock is held by
       something else (stale lock, a host without a shell), a clear error naming the profile and the pid,
       never a panic. The host itself: turn the initialize failure into a clean error exit.
-- [WIP] LIVE-GEOM [XS] (+ cargo fmt drift in host-cef/src/protocol.rs) (from #695) live.py, c3_live, c3_rclick_live and c_enter_live read the window size before
+- [x] LIVE-GEOM [XS] (DONE 2026-11-23, e698ca6, #701: web/shell/test/livelib.py settle(); all 9 checks 3x green)
+- [WIP] LIVE-GEOM2 [XS] (from #701) focuskeys_live.py and c_keymap_live.py (written in parallel) don't use livelib's
+      settle() yet. Bundled with NEST-WINKEYMAP. (from #695) live.py, c3_live, c3_rclick_live and c_enter_live read the window size before
       dwl tiles the shell, like c6_live did: move c6_live's settled-size wait into a shared helper and use it in
       every live check.
 - [ ] C6g [XS] ONLY IF THE USER WANTS IT (from #695) A middle click on the status bar in COMMAND/SEARCH inserts the
@@ -182,9 +184,9 @@ stop early on a hard failure.
       target) that puts web, web-host-cef and the CEF runtime in one prefix (e.g. ~/.local/lib/web +
       ~/.local/bin/web), and ci_then_push.sh `--install web` calling it. Done when `web https://example.com`
       works from a fresh shell after the install.
-- [ ] NEST-WINKEYMAP [XS] (from #673) Windowed nest: a client started after an inject run ended gets no keymap
+- [WIP] NEST-WINKEYMAP [XS] (from #673) Windowed nest: a client started after an inject run ended gets no keymap
       and Chromium crashes on the first modifiers event (the headless patch handles it; windowed does not).
-- [WIP] C3-GOHTTP [XS] (bundle with C-SOCKDIR) (from #677) A `:go` ghost taken from an http:// history entry typed without its scheme
+- [x] C3-GOHTTP [XS] (DONE 2026-11-23, bdb9efd, #702: the matching history entry's scheme, host as typed) (bundle with C-SOCKDIR) (from #677) A `:go` ghost taken from an http:// history entry typed without its scheme
       (`:go 127` Tab Enter) runs as https://. When the completed word matches a history URL with its scheme
       stripped, use that URL's own scheme.
 - [x] C3-SHIFTSYNC [S] (DONE #700: desktop modifier masks drive keys.rs; X11 modifier-only path untested live) (from #677; with C-FOCUSKEYS) The shell learns held modifiers only from key events: a
@@ -222,7 +224,7 @@ stop early on a hard failure.
       mouse clicks there.
 - [x] C3-LIVE-REFRESH [XS] (DONE 2026-11-23, 95fc985, #684; c3_live 19/19) (from #681) web/shell/test/c3_live.py is stale since C5 (`/` opens SEARCH): steps
       from "T7 T8" on fail. Update it so its 19 steps pass again.
-- [ ] C5b [S] (from #679; shares the rectangle mechanism with C7 and S7) Exact T23: first current match = first
+- [WIP] C5b [S] (from #679; shares the rectangle mechanism with C7 and S7) Exact T23: first current match = first
       whose top is at/below the top of the screen (CEF picks its own, e.g. one above the screen). Needs a
       host `find-matches` event (one rect per match + scroll offset) or a way to start CEF's find at the
       viewport top.
