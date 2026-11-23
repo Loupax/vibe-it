@@ -179,6 +179,26 @@ header is skipped in `is_request_header_to_skip`):
   always are; the jar path follows redirects itself and is exact). The
   `public-only` check is not affected: its pool only has checked connections.
 
+  **Stale pooled connections (W-POOL3):** ureq peeks at a pooled TCP stream
+  when it takes it and drops one the peer already FIN-closed, and retries by
+  itself an idempotent request WITHOUT a body whose reused connection dies.
+  What is left is a POST (or a PUT/DELETE with a body) that is written to a
+  connection the server closes between that check and the write: it used to
+  fail with a transport error (502, a fetch() TypeError in scratchy), once per
+  stale connection (measured: 150 of 300 POSTs against a server that closes
+  after each answer). `call_with_stale_retry` (jar and non-jar path) now sends
+  such a request once more on a fresh one-off agent when ALL hold: the error
+  is an io ConnectionReset/BrokenPipe, the resolver was not called (so the
+  connection was reused), the failing hop is the request's own URL, and the
+  policy resolver refused nothing. A clean EOF is not retried (ureq reports it
+  as ConnectionAborted): a server that read the body and then closed looks the
+  same, so a retry could duplicate the POST. Residual: an EOF-only stale close
+  (FIN arrives before the RST) still fails once, as does a server that reads
+  the body and then aborts with an RST, which IS retried. Responses without a
+  Content-Length are never pooled by ureq, so the "closes after each answer
+  without Content-Length" suspect in QWPTFLK5 does not produce stale
+  connections. Tests: `pool_tests.rs`.
+
 Response headers wire ALWAYS adds (upstream copies of `X-Wire-*` are dropped so
 a server cannot spoof them):
 
