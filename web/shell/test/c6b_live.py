@@ -122,21 +122,38 @@ def main():
                 args.append(f"move:{int(mm[1]) + geo['bx']},{int(mm[2]) + geo['by']}" if mm else c)
             subprocess.run([a.inject, str(geo["ow"]), str(geo["oh"])] + args, env=nest_env, check=True)
 
-        def dpr(since=0):
+        def dpr(since=0, timeout=10):
+            # The page sets its title on load, before the shell window is configured (release builds
+            # show 1200x800 first) and again on every resize. Wait for the latest title to match the
+            # settled page window (livelib.settle gave ww x wh); fail with the latest one seen.
             S = geo["S"]
-            t = title(r"c6b dpr:([\d.]+) css:(\d+)x(\d+)", since)
-            if abs(float(t[1]) - S) > 1e-6:
-                raise Fail(f"devicePixelRatio {t[1]}, the shell's scale is {S}")
             pw, ph = ww, wh - BAR_H
-            if (int(t[2]), int(t[3])) != (pw, ph):
-                raise Fail(f"CSS viewport {t[2]}x{t[3]}, the page window is {pw}x{ph} logical px")
+            rx = re.compile(r'host event: \{"event":"title","tab":\d+,"title":"c6b dpr:([\d.]+) css:(\d+)x(\d+)')
+            end = time.monotonic() + timeout
+            t = None
+            while True:
+                with log.cv:
+                    seen = [m for m in (rx.search(l) for l in log.lines[since:]) if m]
+                t = seen[-1] if seen else None
+                if t and abs(float(t[1]) - S) <= 1e-6 and (int(t[2]), int(t[3])) == (pw, ph):
+                    break
+                if time.monotonic() > end:
+                    if not t:
+                        raise Fail("no c6b title")
+                    raise Fail(f"latest title: devicePixelRatio {t[1]} CSS {t[2]}x{t[3]}; "
+                               f"the shell's scale is {S}, the page window {pw}x{ph} logical px")
+                time.sleep(0.1)
             return f"devicePixelRatio {t[1]} = the shell's scale; CSS viewport {t[2]}x{t[3]} = the page window"
 
         step("devicePixelRatio is the output's scale", dpr)
 
         def click():
             k = log.mark()
-            inject(f"move:{BOX[0]},{BOX[1]}", "wait:150", "click", "wait:300")
+            # The nest's virtual pointer keeps its position across runs. On a reused nest it can already
+            # sit exactly on BOX (the last run's click), under a window that is new to it: moving to
+            # the same point is no motion, the compositor never gives the new window pointer focus, and
+            # the click goes nowhere. So arrive from elsewhere, as a real pointer does.
+            inject("move:1,1", "wait:100", f"move:{BOX[0]},{BOX[1]}", "wait:150", "click", "wait:300")
             t = title(r"c6b click:(\d+),(\d+)", k)
             x, y = int(t[1]), int(t[2])
             if abs(x - BOX[0]) > 1 or abs(y - BOX[1]) > 1:

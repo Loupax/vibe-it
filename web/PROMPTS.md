@@ -676,3 +676,16 @@ Tests: `shell/src/tests/c5b_tests.rs` (screen_top only on `/` Enter, the wrap fl
 > (coordinator) C-PICK: implement the picker exactly as web/TODO.txt and KEYS.md "Picker" specify (the shell draws a list over the page above the status bar, fuzzy-filtered as you type, its own PICK mode, opened only by dedicated commands). Build the generic picker plus the source(s) the TODO assigns to C-PICK (e.g. `:historySearch`); leave a clean source interface for bookmarks, buffers and popups (later items). Respect the KEYS.md rows (add the PICK mode's rows/transitions to KEYS.md if the plan left them for the implementer, with the user's words from the decision), drawing at the window's scale, keyboard only, status-bar integration, and no change to `:go`'s ghost completion.
 
 New `shell/src/picker.rs`: rows (label, dimmed detail, fields to match, `PickAction`), fzf-style fuzzy scoring (terms in any field, word-start and run bonuses, gap costs, smartcase), ranking best first with ties in the source's order, the selection (no wrap, scrolling), the overlay's geometry and painting (the bar's `Painter`, at the scale), and the PICK keys as an `impl Keys`. `keys.rs` gets `VimMode::Pick`, the `picker` field, the `:historySearch` command and the `>` prompt; `input.rs` closes the picker on a mouse press (kept from the page over the list); `render.rs` adds the overlay element. KEYS.md "Picker" now has rows T58-T68 (T29/T33 include PICK) and the implementer's choices in the decision log; `:go`'s ghost is unchanged apart from `historySearch` joining the command names. Tests `tests/c_pick_tests.rs` (25, named after the rows plus matching, ranking, scroll and scale); live check `test/c_pick_live.py` in the headless nest (6/6: open on a seeded history, the list drawn above the bar at scale 1 and 2 checked in grim shots, filter, Down/Ctrl-p/Ctrl-n, Enter loads the chosen URL, Esc loads nothing).
+
+## 2026-11-23 C3-LIVE-GOHTTP + C6b-LIVE-DPR (web/live-fix-gohttp-dpr, Sonnet 5.5)
+Prompt: fix c3_live (T45/T47/T50 and the history step expect https:// for an http history ghost; #702 keeps
+http, the host as typed; keep a step for a scheme-less word with no history match -> https://) and c6b_live
+(dpr() read the first, pre-configure 1200x800 title in release builds; the click step flaked on a reused
+nest). Test scripts only; 3 runs in a row each, debug + release, fresh + reused headless nest.
+Done: c3_live's ghost step opens http://127... and the history file now has that visit; new step
+"T50: :go with no history match assumes https://". c6b_live's dpr() waits for the latest title that matches
+the settled page window and scale. Click flake cause: the nest's virtual pointer keeps its position between
+runs; on a reused nest it already sat on the box (the last run's click), a new shell window appeared under
+it, "move" to the same point is no motion, so dwl never gave the window pointer focus and the click went
+nowhere (title never changed, 10 s timeout, then the rescale step failed the same way). Fix: arrive from
+another point (move 1,1 first). No shell change: a real pointer is never perfectly still across a window map.
