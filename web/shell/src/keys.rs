@@ -758,6 +758,7 @@ impl Keys {
     /// `0/0` at a load start, an answer to a find that a navigation or Esc dropped) is
     /// ignored; the requests older than the answered one will never be answered (the host
     /// answers only the latest) and are dropped with it.
+    #[cfg(test)]
     pub fn find_result(&mut self, id: u64, index: u32, count: u32) {
         self.find_result_wrapped(id, index, count, false);
     }
