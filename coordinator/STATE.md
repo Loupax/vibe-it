@@ -519,3 +519,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Merged #694 P-FORGET-SHELL+C-SOCKDIR 424db43 (revert-to-fail check skipped by the agent; live check covers it); web reinstalled. Launched C-KEYMAP (Sonnet).
 - 2026-11-23 USER hit: second web with the same profile -> Chromium singleton lock -> host panic (their first web, pid 4129359, still running since 16:44). Filed C-SINGLE (next web slot).
 - 2026-11-23 Merged #695 C6-LIVE 006e846 (test bug); web reinstalled. Corrected my web/DECISIONS.md error (middle-click paste in : and / lines was never built). Filed LIVE-GEOM, C6g (user's call). Launched C-SINGLE (Sonnet).
+- 2026-11-23 Merged #696 C6b 79e8a9d; web reinstalled. Filed C6b-X11, C6b-CURSOR. Launched C6c frame pacing (Sonnet).

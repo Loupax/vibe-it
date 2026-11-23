@@ -235,10 +235,14 @@ stop early on a hard failure.
       and hid a missed click with `i`; now waits for the settled size and requires editable-focused) (from #690) c6_live.py fails 4/8 on main in an agent's headless nest (copy takes more than the
       field, Ctrl-v into the page, page -> `:` line, primary selection), though #686 reported 8/8. Find out
       whether the test or the bridge is wrong, and fix it.
-- [WIP] C6b [M] (from #686) HiDPI and fractional scale: output is always scale 1; use winit's scale factor, set
+- [x] C6b [M] (DONE 2026-11-23, 79e8a9d, #696: winit scale -> output scale + fractional-scale-v1; CEF draws at
+      1.5/2 exactly; bar at scale; changes while running; c6b_live 7/7 at 1, 1.5, 2) (from #686) HiDPI and fractional scale: output is always scale 1; use winit's scale factor, set
       the output's (fractional) scale, add fractional-scale-v1. Done when scales 1.5 and 2 in the nest give
       crisp page text and a correctly sized bar.
-- [ ] C6c [S] (from #686) Frame pacing: frame callbacks after every shell render, unthrottled; pace them to the
+- [ ] C6b-X11 [S] (from #696) On X11 the shell takes winit's X11 scale (Xft.dpi / WINIT_X11_SCALE_FACTOR); under
+      the nest's Xwayland that is 1 and the window is upscaled (blurry). Check on a real X11 HiDPI desktop, document.
+- [ ] C6b-CURSOR [XS] (from #696) Check a CSS `cursor: url()` image is sent and drawn at the right size at 1.5 and 2.
+- [WIP] C6c [S] (from #686) Frame pacing: frame callbacks after every shell render, unthrottled; pace them to the
       outer window's frames; measure rAF cadence before/after under the perf lock.
 - [ ] C6d [M] (from #686) dmabuf: no linux-dmabuf offered, CEF hands shm buffers, every frame is CPU-copied.
       Measure today's CPU cost (video, fast scroll), then import dmabufs with an shm fallback.
