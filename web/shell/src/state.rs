@@ -221,8 +221,28 @@ impl State {
     }
 
     /// C4: `tab-created`: the page joins its buffer (shown if that buffer is current) and its window,
-    /// if it came first.
-    fn tab_created(&mut self, tab: u64, req: Option<u64>) {
+    /// if it came first. C-POPUPS: a popup (`popup`: its opener and cause) gets a new buffer, shown.
+    fn tab_created(&mut self, tab: u64, req: Option<u64>, popup: Option<(u64, String)>) {
+        if let Some((opener, cause)) = popup {
+            let num = self.keys.popup_created(tab, opener, &cause);
+            self.log(&format!("tab {tab} is a popup ({cause}) of tab {opener}: buffer {num}"));
+            self.apply_key_effects(0);
+        } else {
+            self.page_created(tab, req);
+        }
+        if let Some(s) = self.pairing.tab_created(tab) {
+            if let Some(i) = self.dialogs.iter().position(|w| w.toplevel().is_some_and(|t| t.wl_surface() == &s)) {
+                let w = self.dialogs.remove(i);
+                self.space.unmap_elem(&w);
+                self.pages.push((tab, w));
+            }
+            self.log(&format!("page window paired with tab {tab}"));
+        }
+        self.sync_page();
+    }
+
+    /// A page that is not a popup: the first one, `new-tab`'s answer, or one nobody asked for.
+    fn page_created(&mut self, tab: u64, req: Option<u64>) {
         use crate::buffers::TabCreated;
         match self.keys.buffers.tab_created(tab, req) {
             TabCreated::Buffer(n) => {
@@ -237,15 +257,6 @@ impl State {
                 self.send(Command::CloseTab { tab });
             }
         }
-        if let Some(s) = self.pairing.tab_created(tab) {
-            if let Some(i) = self.dialogs.iter().position(|w| w.toplevel().is_some_and(|t| t.wl_surface() == &s)) {
-                let w = self.dialogs.remove(i);
-                self.space.unmap_elem(&w);
-                self.pages.push((tab, w));
-            }
-            self.log(&format!("page window paired with tab {tab}"));
-        }
-        self.sync_page();
     }
 
     /// C4: a page event's effect on its buffer (`Keys::page_event`). True: not the current buffer's,
@@ -492,7 +503,33 @@ impl State {
                     self.log(&format!("host speaks protocol {protocol} ({engine}); this shell knows 1"));
                 }
             }
-            Event::TabCreated { tab, req } => self.tab_created(tab, req),
+            Event::TabCreated {
+                tab,
+                req,
+                opener,
+                ref cause,
+            } => {
+                let popup = opener.map(|o| (o, cause.clone().unwrap_or_else(|| "popup".into())));
+                self.tab_created(tab, req, popup)
+            }
+            Event::PopupBlocked {
+                tab,
+                popup,
+                ref url,
+                ref name,
+                ref frame,
+                ..
+            } => {
+                let b = crate::popups::BlockedPopup {
+                    popup,
+                    url: url.clone(),
+                    name: name.clone(),
+                    in_frame: frame == "sub",
+                };
+                if let Some(m) = self.keys.popup_blocked(tab, b) {
+                    self.keys.message = m;
+                }
+            }
             Event::TabClosed { tab } => {
                 self.pairing.tab_closed(tab);
                 self.visits.remove(&tab);

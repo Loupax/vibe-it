@@ -217,6 +217,8 @@ pub const COMMAND_NAMES: &[&str] = &[
     "historyFront",
     "historySearch",
     "let",
+    "popupOpen",
+    "popupSearch",
     "q",
     "quit",
     "refresh",
@@ -1010,6 +1012,9 @@ impl Keys {
             ("bufferPrev", []) | ("bp", []) => self.buffer_step(-1),
             ("bufferKill", rest) | ("bd", rest) => self.buffer_kill(rest),
             ("bufferDescribe", rest) => self.buffer_describe(rest),
+            // C-POPUPS (KEYS.md "Popups").
+            ("popupOpen", rest) => self.popup_open(rest),
+            ("popupSearch", rest) => self.popup_search(&rest.join(" ")),
             ("set", [opt]) => self.set_option(opt),
             ("set", _) => self.message = SET_USAGE.to_string(),
             ("q", []) | ("quit", []) => {

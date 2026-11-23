@@ -1,0 +1,14 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>pf</title>
+<style>html, body { margin: 0; font: 16px sans-serif; background: #ddd; }</style>
+<p>an iframe that opens a popup from a timer</p>
+<script>
+  // C-POPUPS: a gesture-less window.open from an iframe (blocked; :popupOpen re-runs it here, so the
+  // popup's window.opener is this frame). What the frame hears goes up to the page.
+  setTimeout(() => {
+    const w = window.open('popchild.html?n=frame', 'fkid');
+    parent.postMessage('frame open=' + (w ? 'win' : 'null'), '*');
+  }, 1500);
+  addEventListener('message', e => { if (e.source !== parent) parent.postMessage('frame got ' + e.data, '*'); });
+</script>

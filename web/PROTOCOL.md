@@ -3,13 +3,15 @@
 How the shell (web-shell, C2/C3) drives an engine host (web-host-cef, C1; later
 web-host-webkit, E1). Engine-neutral: nothing here names a CEF or WebKit type.
 Implemented in `host-cef/src/protocol.rs` (encoding, unit tested) and
-`host-cef/src/page.rs` (meaning); checked end to end by `host-cef/test/drive.py`.
+`host-cef/src/page.rs` (meaning); checked end to end by `host-cef/test/drive.py` (popups with real
+clicks: `shell/test/c_popups_live.py`).
 
 ## Several pages (protocol 1, C4)
 
 A host holds **any number of pages** (the shell's buffers, KEYS.md "Buffers"); v0 had one. Protocol 1
 is v0 plus `new-tab`, `show-tab`, `close-tab`, an optional `tab` on page commands and `req` on
-`tab-created`; every v0 field keeps its meaning. (Measured by C4-SPIKE, `notes/C4-SPIKE.md`.)
+`tab-created`; every v0 field keeps its meaning. C-POPUPS added `popup-open`, `popup-blocked` and
+`tab-created`'s `opener`/`cause` (compatible additions, still protocol 1). (Measured by C4-SPIKE, `notes/C4-SPIKE.md`.)
 
 - **One window per page.** Each page is a browser with its own top-level window, the page only (no
   toolbar, tab strip or menus): CEF 156 cannot put two Chrome-style browsers in one window.
@@ -32,14 +34,12 @@ is v0 plus `new-tab`, `show-tab`, `close-tab`, an optional `tab` on page command
 - **Closing.** `close-tab` closes one page; closing the last page does **not** end the host (the shell
   opens an `about:blank` page first, KEYS.md T82). `quit` closes every page and the host exits when
   the last is gone. Without `--control` (standalone) the host exits when its last page closes.
-- **Popups still load in place** (until C-POPUPS, proposal below): `window.open(...)` and
-  `target=_blank` links go through the host (CEF: `OnBeforePopup`), which cancels the popup and loads
-  its URL **in the page that asked**. `window.open` returns `null` to the page. **Known loss:** pages
-  that rely on the popup's `window.opener` / a handle to the popup (OAuth and payment login popups,
-  "open in a small window" flows) do not work. Popups without a URL (`window.open()` then
-  `document.write`) show nothing.
-- **No user gesture opens a page** (user, 2026-11-23, C-NOTAB). Ctrl+click,
-  middle-click, Shift+click, Ctrl+Shift+click on a link and Ctrl+Enter in a form do
+- **Popups are pages** (C-POPUPS, "Popups" below): a `window.open` or `target=_blank` with a user
+  gesture becomes a new page (`tab-created` with `opener`); one without a gesture is blocked and
+  reported (`popup-blocked`), and `popup-open` opens it later.
+- **No new-tab gesture opens a page** (user, 2026-11-23, C-NOTAB; kept by DECISIONS.md "A picker,
+  bookmarks, buffers as tabs, popups like Chrome": "Ctrl/middle-click on links still open nothing").
+  Ctrl+click, middle-click, Shift+click, Ctrl+Shift+click on a link and Ctrl+Enter in a form do
   nothing at all: nothing opens and the page is not navigated. There is no context
   menu at all (C-NOMENU): the host suppresses Chrome's menu for every context, the right-click
   still reaches the page as a normal `contextmenu` event.
@@ -84,6 +84,8 @@ is v0 plus `new-tab`, `show-tab`, `close-tab`, an optional `tab` on page command
 - `--allow-third-party-cookies`: keep the engine's default cookie policy instead of
   blocking third-party cookies (testing only; "Third-party cookies off" below).
 - Anything else starting with `--` is passed to Chromium unchanged.
+- web-host-cef always runs Chromium with `--disable-popup-blocking`: the host is the popup blocker
+  ("Popups"); Chromium's own blocker would cancel popups without telling CEF.
 
 ## Commands (shell -> host)
 
@@ -102,6 +104,7 @@ is v0 plus `new-tab`, `show-tab`, `close-tab`, an optional `tab` on page command
 | `new-tab <req> [url]` | `{"cmd":"new-tab","req":3,"url":"example.com"}` | create a page (default `about:blank`; no scheme means `https://`), hidden; answered by `tab-created` with the same `req`. While quitting: an `error` |
 | `show-tab <id>` | `{"cmd":"show-tab","tab":4}` | show page `id` (visible, keyboard focus), hide every other page; unknown id: `error` |
 | `close-tab <id>` | `{"cmd":"close-tab","tab":4}` | close page `id` (no `beforeunload` prompt); answered by `tab-closed`; unknown id: `error`. Closing the last page does NOT end the host |
+| `popup-open <id> <n>` | `{"cmd":"popup-open","tab":1,"popup":7}` | open blocked popup `n` of page `id` ("Popups"); answered by a `tab-created` with `opener` (`cause` `popup-open` or `popup-fresh`); an unknown page or popup (already opened, or forgotten at a new document): `error` |
 | `quit` | `{"cmd":"quit"}` | close **every** page (no `beforeunload` prompt) and exit when the last is gone |
 
 **`tab` on page commands.** `open`, `back`, `forward`, `reload`, `stop`, `find`, `find-clear` and
@@ -117,7 +120,7 @@ unknown `cmd`, missing field, zoom out of range) gets an `error` event.
 | text form | JSON |
 |---|---|
 | `hello` | `{"event":"hello","protocol":1,"engine":"cef"}` |
-| `tab-created <id>` | `{"event":"tab-created","tab":1}`; the answer to `new-tab`: `{"event":"tab-created","tab":4,"req":3}` |
+| `tab-created <id>` | `{"event":"tab-created","tab":1}`; the answer to `new-tab`: `{"event":"tab-created","tab":4,"req":3}`; a popup: `{"event":"tab-created","tab":5,"opener":4,"cause":"popup"}` |
 | `tab-closed <id>` | `{"event":"tab-closed","tab":1}` |
 | `url <id> <url>` | `{"event":"url","tab":1,"url":"https://example.com/"}` |
 | `title <id> <text>` | `{"event":"title","tab":1,"title":"Example Domain"}` |
@@ -126,21 +129,30 @@ unknown `cmd`, missing field, zoom out of range) gets an `error` event.
 | `editable-focused <id> true\|false` | `{"event":"editable-focused","tab":1,"focused":true}` |
 | `find-result <tab> <id> <i> <n>` | `{"event":"find-result","tab":1,"id":7,"index":2,"count":5}`, optional `"wrapped":true` (only after `screen_top`: no match at or below the top of the screen, `index` is the first match) |
 | `crashed <id>` | `{"event":"crashed","tab":1,"reason":"TS_PROCESS_CRASHED (exit code 139)"}` |
+| `popup-blocked <id> <n> <url>` | `{"event":"popup-blocked","tab":1,"popup":7,"url":"https://idp.example/auth","name":"login","frame":"sub","features":"popup,width=400,height=300"}` |
 | `forgot <site> ok`, `forgot <site> partial <what failed>` | `{"event":"forgot","site":"https://mail.example.com/","domain":"example.com","result":"ok","cookies":3,"origins":["http://example.com","https://example.com","https://mail.example.com"]}`, with `"result":"partial","failed":["storage https://x.example.com (timeout)"]` |
 | (error) | `{"event":"error","message":"..."}` |
 
 - `tab-created`: once per page, **before the page's window is mapped**. The window's Wayland
   app_id (X11 WM_CLASS) is `web-host-cef`. `req` echoes the `new-tab` it answers (none for the
-  first page).
+  first page). A page the host created for a popup has `opener` (the page it came from) and `cause`:
+  `popup` (the page opened it with a user gesture), `popup-open` (`popup-open` re-ran a blocked
+  one) or `popup-fresh` (`popup-open` loaded it fresh); it starts hidden like a `new-tab` page, and the
+  shell shows it with `show-tab` (the shell switches to every popup).
+- `popup-blocked`: a popup without a user gesture was cancelled ("Popups"). `popup` numbers the
+  page's blocked popups (from 1, never reused in the page); `url` is `""` when the popup had none;
+  `name` the target name the page gave; `frame` `main` or `sub` (an iframe asked); `features` the
+  window features as `window.open` takes them, rebuilt by the host (`popup`, then `left`, `top`,
+  `width`, `height` as given).
 - `tab-closed`: once per page, when its browser has closed (`close-tab`, `quit`).
 - Every page event (`url`, `title`, `load`, `load-error`, `editable-focused`, `find-result`,
-  `crashed`) carries the page's `tab`; hidden pages send theirs too.
+  `crashed`, `popup-blocked`) carries the page's `tab`; hidden pages send theirs too.
 - `url`: the main frame's URL, sent when it changes (also for same-document
   navigations). For every load, the new `url` comes **before** its `load end`.
 - `title`: sent when the title changes (not repeated for the same text).
 - `load`: main-frame loads only; every `start` is followed by one `end` of the same
   kind.
-  - `kind`: `new` (open, link, form, script navigation, popup loaded in place),
+  - `kind`: `new` (open, link, form, script navigation),
     `reload`, `traverse` (back/forward, also restores from the back-forward cache),
     `same-document` (fragment change, `history.pushState`/`replaceState`, back/forward
     between such entries).
@@ -310,49 +322,44 @@ Chromium's own way for a frame to ask; not checked here.
 - Storage the site has as a third party inside other sites' pages (partitioned
   storage keys) is not reached.
 
-## Proposal: popups as pages (C-POPUPS) — NOT BUILT
+## Popups (C-POPUPS)
 
-**Proposal from C4-SPIKE (`notes/C4-SPIKE.md`).** C4 built the several-pages part ("Several pages"
-above: the model, pairing, page ids, `new-tab`, `show-tab`, `close-tab`, `tab` on page commands,
-`tab-created`'s `req`, `quit` closing every page); what follows below that is not built yet is the
-popup part: `popup-open`, `popup-blocked`, `tab-created`'s `opener`/`cause`, `tab-closed`'s `by`, and
-the host as the popup blocker. The tables repeat the built rows for context.
+Built by C-POPUPS from C4-SPIKE's proposal (`notes/C4-SPIKE.md`); DECISIONS.md "A picker, bookmarks,
+buffers as tabs, popups like Chrome" ("Popups follow Chrome"). The shell's side is KEYS.md "Popups".
 
-### Commands (new)
+**The host is the popup blocker.** web-host-cef runs Chromium with `--disable-popup-blocking`, so every
+`window.open` and `target=_blank` reaches the host (CEF `OnBeforePopup`, with the frame that asked, the
+URL, the target name, the disposition, the window features and whether the page had a user gesture).
+Chromium's own blocker would cancel gesture-less popups before CEF hears of them (no callback, C4-SPIKE).
+By disposition (`host-cef/src/newtab.rs`) and gesture:
 
-| text form | JSON | what it does |
-|---|---|---|
-| `popup-open <id> <n>` | `{"cmd":"popup-open","tab":1,"popup":7}` | open blocked popup `n` of page `id` (below); the result is a `tab-created` with `"opener"` or an `error` |
+- **foreground tab and popup** (`window.open` with or without features, a `target=_blank` link or form)
+  **with** a user gesture: a new page in a window of its own (`tab-created` with `opener`, `cause`
+  `popup`). `window.opener` works in it, so login and payment popups can post back to their opener;
+  `window.close()` in it closes only it (`tab-closed`, the shell kills its buffer). `target=_blank`
+  links get no `window.opener` (Chromium's implicit `noopener`, as in Chrome); the engine does not
+  tell a `target=_blank` click from a `window.open` call. Size and position features are ignored (the
+  shell sizes every page).
+- the same **without** a gesture: cancelled (the page's `window.open` returns `null`, as with Chrome's
+  blocker), recorded in its page and reported as `popup-blocked`. A page forgets its blocked popups when
+  it starts a cross-document load (reload included); the shell clears its list on the same `load start`.
+- background tab, new window and the rest (Ctrl/Shift/middle click, C-NOTAB): dropped, nothing opens.
+- this tab (`CURRENT_TAB`, ...): loaded in the page that asked.
 
-### Events (new and changed)
+**`popup-open <id> <n>`** takes blocked popup `n` out of the page's record and:
+- runs `window.open(url, name, features)` again **in the frame that asked** (main frame or iframe;
+  web-host-cef: `CefFrame::ExecuteJavaScript` in that frame) with a one-shot allow for that frame and
+  URL, so the host lets that one call through without a gesture: the new page (`cause` `popup-open`)
+  has `window.opener` = that frame. The allow is used up by that popup; if no popup comes within 1 s
+  (the page replaced `window.open`, the frame went meanwhile) the host loads the URL fresh instead;
+- if the frame is gone (an iframe removed): loads the URL in a new page (`cause` `popup-fresh`, no
+  opener).
 
-| text form | JSON |
-|---|---|
-| `tab-created <id>` | `{"event":"tab-created","tab":5,"opener":4,"cause":"popup"}` (`cause`: `new-tab`, `popup` for `window.open`, `link` for `target=_blank`; `opener` the page it came from; for popups the shell switches to it with `show-tab`) |
-| `tab-closed <id>` | `{"event":"tab-closed","tab":5}`, optional `"by":"page"` when the page closed itself (`window.close()`) |
-| `popup-blocked <id> <n> <url>` | `{"event":"popup-blocked","tab":1,"popup":7,"url":"https://idp.example/auth","name":"login","frame":"sub"}`; `url` `""` when the popup had no URL (status bar `popup blocked (no URL)`) |
-
-Pairing (above) already covers popup windows: a Chrome-style popup window has no parent, and it is
-announced by `tab-created` like any page.
-
-### Popups
-
-The host is the popup blocker (web-host-cef runs Chromium with `--disable-popup-blocking`, so every
-popup reaches it; CEF `OnBeforePopup` says whether the page had a user gesture). By disposition
-(newtab.rs) and gesture:
-- background tab, new window, and the rest that C-NOTAB drops (Ctrl/Shift/middle click): still
-  dropped, nothing opens.
-- `window.open` / `target=_blank` **with** a user gesture: a new page (`tab-created`, `cause`
-  `popup`/`link`, `opener`). `window.opener` works in it (`target=_blank` links get none: Chromium's
-  implicit `noopener`, as in Chrome). Size and position features are ignored.
-- **without** a gesture: cancelled (the page's `window.open` returns `null`, as with Chrome's
-  blocker), recorded and reported as `popup-blocked`. `n` numbers the page's blocked popups. The
-  host forgets a page's records when that page starts a cross-document load (the shell clears its
-  list on the same `load start`).
-- `popup-open <id> <n>`: the host runs `window.open(url, name, features)` again **in the frame that
-  asked** (main frame or iframe) and lets that one call through, so the new page's `window.opener`
-  is that frame. If the frame is gone, it loads the URL in a new page (no opener). The page's
-  original call already returned `null`; only the popup side of the relation comes back.
+Limits of the re-run: the page's original call already returned `null`, so the page never gets a
+handle to the popup (flows that only need `window.opener` in the popup work; a page that polls
+`w.closed` does not); it calls the page's current `window.open` (a page that replaced it gets its own
+function called); a popup that had no URL (`window.open()` then `document.write`) opens blank. Not now
+(DECISIONS.md): a per-site "always allow popups" list.
 
 ## Not in the protocol (engine default for now)
 

@@ -24,6 +24,7 @@ mod lock;
 mod pacing;
 mod pairing;
 mod picker;
+mod popups;
 mod protocol;
 mod registers;
 mod render;

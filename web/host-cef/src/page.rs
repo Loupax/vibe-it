@@ -9,6 +9,13 @@
 //! (`BrowserView::SetVisible(false)`: a background page, rAF stopped, timers throttled), since
 //! a window the compositor merely does not draw keeps running at full speed.
 //!
+//! Popups (C-POPUPS, PROTOCOL.md "Popups"): the host is the popup blocker (Chromium runs with
+//! `--disable-popup-blocking`, main.rs). A `window.open` / `target=_blank` with a user gesture
+//! becomes a page of its own (`on_popup_browser_view_created` gives it a window of ours;
+//! `tab-created` with `opener`); one without is cancelled, recorded in its page (`Page::blocked`)
+//! and reported (`popup-blocked`). `popup-open` re-runs a recorded `window.open` in the frame that
+//! asked, let through once (`Pages::allow`), or loads its URL in a new page when the frame is gone.
+//!
 //! Load events: CEF calls `on_load_start` when a cross-document navigation commits
 //! (with its transition type) and `on_load_end` when it finished. Same-document
 //! navigations (fragment, pushState) get no load callbacks, only `on_address_change`;
@@ -20,11 +27,12 @@
 
 use crate::control::emit;
 use crate::newtab;
-use crate::protocol::{self, kind_from_transition, kind_name, Command, Event, FindDir, LoadKind, LoadPhase, TabId};
+use crate::protocol::{self, kind_from_transition, kind_name, Cause, Command, Event, FindDir, FrameKind, LoadKind, LoadPhase, TabId};
 use cef::*;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 pub static START_URL: OnceLock<String> = OnceLock::new();
 /// `--no-window`: no page at all (the host only runs `--forget-site`).
@@ -74,7 +82,48 @@ struct Page {
     find_wrapped: bool,
     /// The shell sent `stop` and no load has started since.
     stop_requested: bool,
+    /// C-POPUPS: the popups blocked since the page's last cross-document load start, oldest first.
+    blocked: Vec<Blocked>,
+    /// The number of the last blocked popup (`popup-blocked`'s `popup`; never reused in the page).
+    last_popup: u32,
 }
+
+/// C-POPUPS: a blocked popup, as `popup-open` needs it.
+#[derive(Debug, Clone, Default)]
+struct Blocked {
+    popup: u32,
+    /// The frame that called `window.open` (CEF's frame identifier).
+    frame: String,
+    url: String,
+    name: String,
+    features: String,
+}
+
+/// How a page came to be, for its `tab-created`.
+#[derive(Debug, Clone, Copy)]
+enum Origin {
+    /// `new-tab` with this `req`.
+    NewTab(u64),
+    /// Opened from page `opener` (a popup, `popup-open`).
+    Popup(TabId, Cause),
+}
+
+/// C-POPUPS: `popup-open`'s one-shot allow: the next gesture-less popup from this frame of this
+/// page to this URL goes through (as `popup-open`). Used up by that popup, or after
+/// `REOPEN_WAIT_MS` (then the URL is loaded fresh in a new page).
+#[derive(Debug, Clone)]
+struct Allow {
+    tab: TabId,
+    frame: String,
+    url: String,
+    /// Tells a later allow from this one (the timeout task's check).
+    seq: u64,
+    at: Instant,
+}
+
+/// How long `popup-open` waits for the re-run `window.open` to reach the host before it loads the
+/// URL fresh instead (the spike saw it come after 1 ms).
+const REOPEN_WAIT_MS: i64 = 1000;
 
 /// The kind of the navigation entry the page shows (or is about to show).
 fn entry_kind(browser: Option<&Browser>) -> LoadKind {
@@ -97,10 +146,17 @@ struct Pages {
     shown: Option<TabId>,
     /// `quit` was asked: the host exits when the last page has closed.
     quitting: bool,
-    /// `new-tab`s whose browser is not announced yet: its view and the shell's `req`.
-    pending: Vec<(BrowserView, u64)>,
+    /// Pages created by the host whose browser is not announced yet: the view and how it came
+    /// (`new-tab`'s `req`, or the opener of a popup).
+    pending: Vec<(BrowserView, Origin)>,
     /// Pages announced so far (the first one is shown, later ones start hidden).
     announced: u32,
+    /// C-POPUPS: popups let through by `on_before_popup` whose view has not been created yet:
+    /// (opener, CEF's popup id, cause), oldest first.
+    opening: Vec<(TabId, i32, Cause)>,
+    /// `popup-open`'s one-shot allow.
+    allow: Option<Allow>,
+    allow_seq: u64,
 }
 
 thread_local! {
@@ -148,7 +204,7 @@ fn announce_and_show(browser: &Browser, window: &Window) {
         if ps.pages.contains_key(&id) {
             return None;
         }
-        let req = view.as_ref().and_then(|v| {
+        let origin = view.as_ref().and_then(|v| {
             let i = ps.pending.iter().position(|(pv, _)| pv.is_same(Some(&mut View::from(v))) != 0)?;
             Some(ps.pending.remove(i).1)
         });
@@ -166,15 +222,25 @@ fn announce_and_show(browser: &Browser, window: &Window) {
                 ..Default::default()
             },
         );
-        Some((req, first))
+        Some((origin, first))
     });
-    let Some((req, first)) = announce else {
+    let Some((origin, first)) = announce else {
         if window.is_visible() == 0 {
             window.show();
         }
         return;
     };
-    emit(Event::TabCreated { tab: id, req });
+    let (req, opener, cause) = match origin {
+        Some(Origin::NewTab(r)) => (Some(r), None, None),
+        Some(Origin::Popup(o, c)) => (None, Some(o), Some(c)),
+        None => (None, None, None),
+    };
+    emit(Event::TabCreated {
+        tab: id,
+        req,
+        opener,
+        cause,
+    });
     if window.is_visible() == 0 {
         window.show();
         log!("window of tab {id} shown");
@@ -232,8 +298,12 @@ fn show_tab(id: TabId) -> Result<(), String> {
 }
 
 /// `new-tab`: a new page in a window of its own, hidden until `show-tab`; `tab-created`
-/// with `req` answers when its browser exists.
-fn new_tab(req: u64, url: &str) {
+/// with `req` answers when its browser exists. Also `popup-open`'s fresh load (`Origin::Popup`).
+fn new_tab(origin: Origin, url: &str) {
+    let what = match origin {
+        Origin::NewTab(req) => format!("new-tab {req}"),
+        Origin::Popup(o, c) => format!("{} from tab {o}", protocol::cause_name(c)),
+    };
     let url = protocol::normalize_url(url);
     let mut client = Some(HostClient::new());
     let bv = browser_view_create(
@@ -246,11 +316,11 @@ fn new_tab(req: u64, url: &str) {
     );
     let Some(bv) = bv else {
         return emit(Event::Error {
-            message: format!("new-tab {req}: the engine could not create a page"),
+            message: format!("{what}: the engine could not create a page"),
         });
     };
-    log!("new-tab {req}: {url}");
-    with_pages(|ps| ps.pending.push((bv.clone(), req)));
+    log!("{what}: {url}");
+    with_pages(|ps| ps.pending.push((bv.clone(), origin)));
     let mut d = HostWindowDelegate::new(RefCell::new(Some(bv)));
     window_create_top_level(Some(&mut d));
 }
@@ -324,9 +394,38 @@ wrap_browser_view_delegate! {
             ChromeToolbarType::from(sys::cef_chrome_toolbar_type_t::CEF_CTT_NONE)
         }
 
-        fn on_popup_browser_view_created(&self, _bv: Option<&mut BrowserView>, _popup: Option<&mut BrowserView>, is_devtools: i32) -> i32 {
-            // on_before_popup cancels every popup, so this is never reached for pages.
-            log!("unexpected popup browser view (devtools {is_devtools}); not shown");
+        // C-POPUPS: a popup's view gets this delegate too (no Chrome toolbar; its own popups come
+        // here). The cef crate's default gives it none.
+        fn delegate_for_popup_browser_view(
+            &self,
+            _browser_view: Option<&mut BrowserView>,
+            _settings: Option<&BrowserSettings>,
+            _client: Option<&mut Client>,
+            _is_devtools: i32,
+        ) -> Option<BrowserViewDelegate> {
+            Some(HostBrowserViewDelegate::new())
+        }
+
+        // C-POPUPS: a popup on_before_popup let through. It becomes a page in a window of its own
+        // (as `new-tab`'s), announced with its opener; CEF would otherwise give it a Chrome window.
+        fn on_popup_browser_view_created(&self, bv: Option<&mut BrowserView>, popup: Option<&mut BrowserView>, is_devtools: i32) -> i32 {
+            let (0, Some(popup)) = (is_devtools, popup) else {
+                log!("unexpected popup browser view (devtools {is_devtools}); not shown");
+                return 1;
+            };
+            let opener = bv.and_then(|v| v.browser()).map(|b| b.identifier()).unwrap_or(0);
+            let origin = with_pages(|ps| {
+                let cause = match ps.opening.iter().position(|(o, _, _)| *o == opener) {
+                    Some(i) => ps.opening.remove(i).2,
+                    None => Cause::Popup,
+                };
+                let origin = Origin::Popup(opener, cause);
+                ps.pending.push((popup.clone(), origin));
+                origin
+            });
+            log!("popup view created: {origin:?}");
+            let mut d = HostWindowDelegate::new(RefCell::new(Some(popup.clone())));
+            window_create_top_level(Some(&mut d));
             1
         }
     }
@@ -471,6 +570,160 @@ wrap_display_handler! {
     }
 }
 
+/// C-POPUPS: `on_before_popup`'s decision for page `id`. Returns 1 to cancel the popup.
+#[allow(clippy::too_many_arguments)]
+fn before_popup(
+    browser: Option<&mut Browser>,
+    frame: Option<&mut Frame>,
+    popup_id: i32,
+    url: String,
+    name: String,
+    disp: sys::cef_window_open_disposition_t,
+    user_gesture: i32,
+    features: Option<&PopupFeatures>,
+) -> i32 {
+    let Some(id) = page_of(&browser) else {
+        log!("popup Drop: {url} (not from a page)");
+        return 1;
+    };
+    if with_pages(|ps| ps.quitting) {
+        log!("popup Drop: {url} (quitting)");
+        return 1;
+    }
+    let (frame_id, main) = frame
+        .as_ref()
+        .map(|f| (CefString::from(&f.identifier()).to_string(), f.is_main() != 0))
+        .unwrap_or_default();
+    // popup-open's one-shot allow: this frame, this URL, not too old. Used up here either way.
+    let allowed = user_gesture == 0
+        && with_pages(|ps| {
+            let ok = ps.allow.as_ref().is_some_and(|a| {
+                a.tab == id
+                    && a.frame == frame_id
+                    && newtab::same_popup_url(&a.url, &url)
+                    && a.at.elapsed() < Duration::from_millis(2 * REOPEN_WAIT_MS as u64)
+            });
+            if ok {
+                ps.allow = None;
+            }
+            ok
+        });
+    let action = newtab::popup_action(disp, user_gesture != 0, allowed);
+    log!(
+        "popup {action:?}: {url} (disposition {disp:?}, user gesture {user_gesture}{}, frame {})",
+        if allowed { ", popup-open's allow" } else { "" },
+        if main { "main" } else { "sub" }
+    );
+    match action {
+        newtab::PopupAction::Open => {
+            let cause = if allowed { Cause::PopupOpen } else { Cause::Popup };
+            with_pages(|ps| ps.opening.push((id, popup_id, cause)));
+            0
+        }
+        newtab::PopupAction::Block => {
+            let f = features.cloned().unwrap_or_default();
+            let set = |v: i32, s: i32| (s != 0).then_some(v);
+            let features = newtab::features_text(
+                f.is_popup != 0,
+                set(f.x, f.x_set),
+                set(f.y, f.y_set),
+                set(f.width, f.width_set),
+                set(f.height, f.height_set),
+            );
+            let popup = with_page(id, |p| {
+                p.last_popup += 1;
+                p.blocked.push(Blocked {
+                    popup: p.last_popup,
+                    frame: frame_id,
+                    url: url.clone(),
+                    name: name.clone(),
+                    features: features.clone(),
+                });
+                p.last_popup
+            })
+            .unwrap_or(0);
+            emit(Event::PopupBlocked {
+                tab: id,
+                popup,
+                url,
+                name,
+                frame: if main { FrameKind::Main } else { FrameKind::Sub },
+                features,
+            });
+            1
+        }
+        newtab::PopupAction::LoadInPlace => {
+            load_in_place(browser, url);
+            1
+        }
+        newtab::PopupAction::Drop => 1,
+    }
+}
+
+/// C-POPUPS `popup-open <tab> <n>`: blocked popup `n` of page `tab`, taken out of its record. Its
+/// `window.open` runs again in the frame that asked with a one-shot allow (`window.opener` kept);
+/// with the frame gone, its URL loads in a new page. A re-run that never reaches the host within
+/// `REOPEN_WAIT_MS` (the page replaced `window.open`, the frame went meanwhile) loads it fresh too.
+fn popup_open(tab: TabId, n: u32) -> Result<(), String> {
+    if with_pages(|ps| ps.quitting) {
+        return Err(format!("popup-open {tab} {n}: the host is quitting"));
+    }
+    let (browser, b) = with_page(tab, |p| {
+        let i = p.blocked.iter().position(|b| b.popup == n)?;
+        Some((p.browser.clone(), p.blocked.remove(i)))
+    })
+    .ok_or_else(|| format!("popup-open: no tab {tab}"))?
+    .ok_or_else(|| format!("popup-open: tab {tab} has no blocked popup {n}"))?;
+    let frame = browser
+        .and_then(|br| br.frame_by_identifier(Some(&CefString::from(b.frame.as_str()))))
+        .filter(|f| f.is_valid() != 0);
+    let Some(frame) = frame else {
+        log!("popup-open {tab} {n}: its frame is gone: {} in a new page", b.url);
+        new_tab(Origin::Popup(tab, Cause::PopupFresh), &b.url);
+        return Ok(());
+    };
+    let seq = with_pages(|ps| {
+        ps.allow_seq += 1;
+        ps.allow = Some(Allow {
+            tab,
+            frame: b.frame.clone(),
+            url: b.url.clone(),
+            seq: ps.allow_seq,
+            at: Instant::now(),
+        });
+        ps.allow_seq
+    });
+    let js = newtab::reopen_js(&b.url, &b.name, &b.features);
+    log!("popup-open {tab} {n}: {js} in frame {}", b.frame);
+    frame.execute_java_script(Some(&CefString::from(js.as_str())), None, 0);
+    post_delayed_task(ThreadId::UI, Some(&mut ReopenCheck::new(seq, tab, b.url)), REOPEN_WAIT_MS);
+    Ok(())
+}
+
+wrap_task! {
+    struct ReopenCheck {
+        seq: u64,
+        tab: TabId,
+        url: String,
+    }
+
+    impl Task {
+        fn execute(&self) {
+            let unused = with_pages(|ps| {
+                let mine = ps.allow.as_ref().is_some_and(|a| a.seq == self.seq);
+                if mine {
+                    ps.allow = None;
+                }
+                mine && !ps.quitting
+            });
+            if unused {
+                log!("popup-open: the re-run never reached the host: {} in a new page", self.url);
+                new_tab(Origin::Popup(self.tab, Cause::PopupFresh), &self.url);
+            }
+        }
+    }
+}
+
 /// Loads `url` in the page, from a task (callers are inside a CEF popup request).
 fn load_in_place(browser: Option<&mut Browser>, url: String) {
     if !url.is_empty() && url != "about:blank" {
@@ -489,33 +742,35 @@ wrap_life_span_handler! {
     struct HostLifeSpanHandler {}
 
     impl LifeSpanHandler {
+        // C-POPUPS (newtab.rs): with a user gesture a new page, without one blocked and reported;
+        // user new-tab gestures (Ctrl/Shift/middle click) do nothing.
         fn on_before_popup(
             &self,
             browser: Option<&mut Browser>,
-            _frame: Option<&mut Frame>,
-            _popup_id: i32,
+            frame: Option<&mut Frame>,
+            popup_id: i32,
             target_url: Option<&CefString>,
-            _target_frame_name: Option<&CefString>,
+            target_frame_name: Option<&CefString>,
             target_disposition: WindowOpenDisposition,
             user_gesture: i32,
-            _popup_features: Option<&PopupFeatures>,
+            popup_features: Option<&PopupFeatures>,
             _window_info: Option<&mut WindowInfo>,
             _client: Option<&mut Option<Client>>,
             _settings: Option<&mut BrowserSettings>,
             _extra_info: Option<&mut Option<DictionaryValue>>,
             _no_javascript_access: Option<&mut i32>,
         ) -> i32 {
-            // One page per host (newtab.rs): window.open and plain target=_blank load in
-            // this page, user new-tab gestures (Ctrl/Shift/middle click) do nothing;
-            // the popup is always cancelled (the opener gets null from window.open).
             let url = target_url.map(|u| u.to_string()).unwrap_or_default();
+            let name = target_frame_name.map(|u| u.to_string()).unwrap_or_default();
             let disp = sys::cef_window_open_disposition_t::from(target_disposition);
-            let action = newtab::popup_action(disp);
-            log!("popup {action:?}: {url} (disposition {disp:?}, user gesture {user_gesture})");
-            if action == newtab::PopupAction::LoadInPlace {
-                load_in_place(browser, url);
-            }
-            1
+            before_popup(browser, frame, popup_id, url, name, disp, user_gesture, popup_features)
+        }
+
+        // A popup let through and then not created after all: forget its opening record.
+        fn on_before_popup_aborted(&self, browser: Option<&mut Browser>, popup_id: i32) {
+            let opener = browser.map(|b| b.identifier()).unwrap_or(0);
+            with_pages(|ps| ps.opening.retain(|(o, p, _)| !(*o == opener && *p == popup_id)));
+            log!("popup {popup_id} of tab {opener} aborted");
         }
 
         fn on_after_created(&self, browser: Option<&mut Browser>) {
@@ -609,6 +864,8 @@ wrap_load_handler! {
                 p.find_step = None;
                 p.find_pending = None;
                 p.find_start = None;
+                // C-POPUPS: another document: its blocked popups go (the shell's list too).
+                p.blocked.clear();
                 p.editable
             });
             load_event(id, LoadPhase::Start, 0, kind, None);
@@ -725,7 +982,7 @@ wrap_request_handler! {
         ) -> i32 {
             let url = target_url.map(|u| u.to_string()).unwrap_or_default();
             let disp = sys::cef_window_open_disposition_t::from(target_disposition);
-            let action = newtab::popup_action(disp);
+            let action = newtab::open_url_action(disp);
             log!("open-url-from-tab {action:?}: {url} (disposition {disp:?}, user gesture {user_gesture})");
             if action == newtab::PopupAction::LoadInPlace {
                 load_in_place(browser, url);
@@ -1008,7 +1265,13 @@ pub fn run_command(line: &str) {
                 message: format!("new-tab {req}: the host is quitting"),
             });
         }
-        Command::NewTab { req, url } => return new_tab(req, url.as_deref().unwrap_or("about:blank")),
+        Command::NewTab { req, url } => return new_tab(Origin::NewTab(req), url.as_deref().unwrap_or("about:blank")),
+        Command::PopupOpen { tab, popup } => {
+            if let Err(message) = popup_open(tab, popup) {
+                emit(Event::Error { message });
+            }
+            return;
+        }
         Command::ShowTab { tab } => {
             if let Err(message) = show_tab(tab) {
                 emit(Event::Error { message });
@@ -1112,7 +1375,8 @@ pub fn run_command(line: &str) {
         | Command::Caret { .. }
         | Command::NewTab { .. }
         | Command::ShowTab { .. }
-        | Command::CloseTab { .. } => unreachable!(),
+        | Command::CloseTab { .. }
+        | Command::PopupOpen { .. } => unreachable!(),
     }
 }
 

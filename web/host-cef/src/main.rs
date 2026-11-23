@@ -1,5 +1,5 @@
 //! web-host-cef: the CEF (Chromium) engine host. It shows one page in one window
-//! (no browser UI) and is driven by the shell over a control socket in protocol v0
+//! (no browser UI) and is driven by the shell over a control socket in protocol v1
 //! (web/PROTOCOL.md; encoding in protocol.rs).
 //!
 //! The same binary is the browser process and every CEF helper process
@@ -65,6 +65,9 @@ wrap_app! {
             if let Some(p) = &self.proxy {
                 cmd.append_switch_with_value(Some(&CefString::from("proxy-server")), Some(&CefString::from(p.as_str())));
             }
+            // C-POPUPS: the host is the popup blocker (page.rs `before_popup`): Chromium's own
+            // blocker would cancel gesture-less popups before CEF hears of them (C4-SPIKE).
+            cmd.append_switch(Some(&CefString::from("disable-popup-blocking")));
             // C-BGNET: keep Chromium from talking to Google by itself (README).
             if self.quiet {
                 let name = |n: &str| CefString::from(n);

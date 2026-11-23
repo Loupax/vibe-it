@@ -93,6 +93,13 @@ host-cef it is in CI (it needs only libxkbcommon to link).
   click closes. Painted with the bar's `Painter` at the window's scale into its own memory buffer
   (`picker::Overlay`). Other lists (bookmarks, buffers, popups) add a source: rows + a
   `PickAction`. Tests `src/tests/c_pick_tests.rs`, live check `test/c_pick_live.py`.
+- **Popups** (C-POPUPS, `src/popups.rs`, KEYS.md "Popups", T93-T98): a `tab-created` with
+  `opener` (a page's popup, or a blocked one opened) becomes a new buffer, shown at once
+  (`Keys::popup_created`); `popup-blocked` joins its buffer's `blocked` list (cleared at the
+  page's next cross-document `load start`) and, for the current buffer, the bar says `popup
+  blocked: <url>`; `:popupOpen` / `:popupSearch` (picker, `PickAction::Popup`) send `popup-open`.
+  A popup's `window.close()` is a page the host closed: `Keys::tab_gone`. Tests
+  `src/tests/c_popups_tests.rs`, live check `test/c_popups_live.py` (real clicks).
 - **Buffers** (C4, `src/buffers.rs`, KEYS.md "Buffers", T77-T92): every buffer is a page of the
   host (PROTOCOL.md "Several pages"); `Keys::buffers` holds them, `Keys` keeps the current one's
   URL, title, search and popup return and swaps them on a switch. The compositor keeps every page
