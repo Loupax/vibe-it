@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-23 09:00 · main 0fb2e2e · web: Architecture C planned (#664), spike done · wire2 planned (#663) · wire reinstalled 10:42 (0b4f6e5; restart your wire to use it) · scratchy paused</div>
+  <div class="meta" id="updated">Updated 2026-11-23 09:00 · main 0fb2e2e · web: Architecture C planned (#664), spike done (#659/#662 closed by you) · wire2 planned (#663) · wire reinstalled 10:42 (0b4f6e5; restart your wire to use it) · scratchy paused</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -339,7 +339,6 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Waiting on you</h2>
   <ul id="waiting">
     <li><b>W-POOL5: how to fix ureq's pool for good?</b> #660 works around the stray-bytes bug only for GET/HEAD/OPTIONS; a POST on such a connection still fails once. Options: (a) patch ureq 2.12.1 (vendored via <code>[patch.crates-io]</code>, a few lines in <code>Stream::return_to_pool</code>), (b) move wire to ureq 3, (c) keep the workaround. My suggestion: (a), small and testable. Not urgent.</li>
-    <li><b>#659 (W4) and #662 (W5): merge as the spike record, or close?</b> Both were written for the request path through wire, which Architecture C drops. #662 carries a CEF range fix (video seeking) and a download handler that C1 may want either way.</li>
     <li><b>scratchy is paused (#650, 2026-11-23).</b> Drain finished: QTYPE1 (#651), QCNV13 (#652) and QWPT7e (#653) merged; no scratchy agents run. Development moves to <span class="mono">web/</span>.</li>
                         <li>Skim <span class="mono">scratchy/DECISIONS.md</span> once and correct anything I misstated.</li>
           </ul>
