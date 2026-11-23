@@ -1,0 +1,8 @@
+<!doctype html>
+<meta charset="utf-8">
+<body style="background:#dfd;font:16px sans-serif">iframe
+<script>
+const log = (m) => console.log('frame: ' + m);
+setTimeout(() => { const w = window.open('child.html?n=frametimer', 'fkid', ''); log('frametimer window.open -> ' + (w ? 'window' : 'null')); }, 2500);
+addEventListener('message', (e) => log(`message from ${e.origin}: ${e.data}`));
+</script>

@@ -18,6 +18,8 @@ use cef::*;
 use std::cell::RefCell;
 use std::sync::OnceLock;
 
+mod spike;
+
 pub static START_URL: OnceLock<String> = OnceLock::new();
 /// `--no-window`: no page at all (the host only runs `--forget-site`).
 pub static NO_WINDOW: OnceLock<bool> = OnceLock::new();
@@ -113,6 +115,9 @@ fn load_event(id: TabId, phase: LoadPhase, status: i32, kind: LoadKind, error: O
 /// before `show()`, so the shell can pair it with the window that appears.
 fn announce_and_show(browser: &Browser, window: &Window) {
     let id = browser.identifier();
+    if spike::enabled() && with_page(|p| p.announced && p.id != id) {
+        return spike::announce_other(browser, window);
+    }
     let first = with_page(|p| {
         if p.announced {
             return false;
@@ -123,6 +128,7 @@ fn announce_and_show(browser: &Browser, window: &Window) {
         true
     });
     if first {
+        spike::register_first(browser, window);
         emit(Event::TabCreated { tab: id });
     }
     if window.is_visible() == 0 {
@@ -200,7 +206,10 @@ wrap_browser_view_delegate! {
             ChromeToolbarType::from(sys::cef_chrome_toolbar_type_t::CEF_CTT_NONE)
         }
 
-        fn on_popup_browser_view_created(&self, _bv: Option<&mut BrowserView>, _popup: Option<&mut BrowserView>, is_devtools: i32) -> i32 {
+        fn on_popup_browser_view_created(&self, _bv: Option<&mut BrowserView>, popup: Option<&mut BrowserView>, is_devtools: i32) -> i32 {
+            if spike::enabled() && is_devtools == 0 {
+                return spike::on_popup_view(popup);
+            }
             // on_before_popup cancels every popup, so this is never reached for pages.
             log!("unexpected popup browser view (devtools {is_devtools}); not shown");
             1
@@ -315,6 +324,9 @@ wrap_display_handler! {
             _line: ::std::os::raw::c_int,
         ) -> ::std::os::raw::c_int {
             let m = message.map(|m| m.to_string()).unwrap_or_default();
+            if spike::enabled() {
+                spike::console(&browser, &m);
+            }
             let Some(wrapped) = m.strip_prefix("web-host.find-start:") else { return 0 };
             if !is_page(&browser) {
                 return 0;
@@ -328,6 +340,9 @@ wrap_display_handler! {
         }
 
         fn on_title_change(&self, browser: Option<&mut Browser>, title: Option<&CefString>) {
+            if spike::enabled() {
+                spike::title(&browser, &title.map(|t| t.to_string()).unwrap_or_default());
+            }
             if !is_page(&browser) {
                 return;
             }
@@ -368,19 +383,25 @@ wrap_life_span_handler! {
         fn on_before_popup(
             &self,
             browser: Option<&mut Browser>,
-            _frame: Option<&mut Frame>,
+            frame: Option<&mut Frame>,
             _popup_id: i32,
             target_url: Option<&CefString>,
-            _target_frame_name: Option<&CefString>,
+            target_frame_name: Option<&CefString>,
             target_disposition: WindowOpenDisposition,
             user_gesture: i32,
-            _popup_features: Option<&PopupFeatures>,
+            popup_features: Option<&PopupFeatures>,
             _window_info: Option<&mut WindowInfo>,
             _client: Option<&mut Option<Client>>,
             _settings: Option<&mut BrowserSettings>,
             _extra_info: Option<&mut Option<DictionaryValue>>,
-            _no_javascript_access: Option<&mut i32>,
+            no_javascript_access: Option<&mut i32>,
         ) -> i32 {
+            if spike::enabled() {
+                let url = target_url.map(|u| u.to_string()).unwrap_or_default();
+                let name = target_frame_name.map(|u| u.to_string()).unwrap_or_default();
+                let disp = sys::cef_window_open_disposition_t::from(target_disposition);
+                return spike::before_popup(browser, frame, &url, &name, disp, user_gesture, popup_features, no_javascript_access);
+            }
             // One page per host (newtab.rs): window.open and plain target=_blank load in
             // this page, user new-tab gestures (Ctrl/Shift/middle click) do nothing;
             // the popup is always cancelled (the opener gets null from window.open).
@@ -405,6 +426,9 @@ wrap_life_span_handler! {
 
         fn on_before_close(&self, browser: Option<&mut Browser>) {
             if !is_page(&browser) {
+                if let (true, Some(b)) = (spike::enabled(), browser.as_ref()) {
+                    spike::closed(b);
+                }
                 return;
             }
             let id = with_page(|p| {
@@ -847,6 +871,9 @@ fn start_find(h: &BrowserHost, query: &str, forward: i32, match_case: i32, again
 
 /// Runs one command line from the shell (UI thread).
 pub fn run_command(line: &str) {
+    if let Some(rest) = line.strip_prefix("c4 ") {
+        return spike::command(rest);
+    }
     let cmd = match protocol::parse_command(line) {
         Ok(c) => c,
         Err(message) => return emit(Event::Error { message }),

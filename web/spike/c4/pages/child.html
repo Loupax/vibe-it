@@ -1,0 +1,12 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>child</title>
+<body style="margin:0;font:20px sans-serif;background:#fdd">
+<button id="close" style="position:absolute;left:20px;top:20px;width:360px;height:70px;font:20px sans-serif">window.close()</button>
+<script>
+const n = new URLSearchParams(location.search).get('n');
+document.title = 'child ' + n;
+console.log(`child ${n}: opener=${window.opener ? 'yes' : 'null'} name=${JSON.stringify(window.name)}`);
+if (window.opener) window.opener.postMessage('hello from child ' + n, '*');
+document.getElementById('close').onclick = () => { console.log(`child ${n}: closing`); window.close(); };
+</script>

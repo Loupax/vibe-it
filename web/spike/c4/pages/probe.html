@@ -1,0 +1,32 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>probe</title>
+<body style="margin:0;font:20px sans-serif;background:#cde">
+<h1 id="h">probe</h1>
+<script>
+// C4-SPIKE: what a page does while it is not the shown buffer. Logs once a second (console ->
+// host log): visibility, focus, rAF and 100 ms interval rates over the real elapsed time, audio.
+const q = new URLSearchParams(location.search);
+const tag = q.get('tag') || 'p';
+document.title = 'probe ' + tag;
+document.getElementById('h').textContent = 'probe ' + tag;
+let raf = 0, ticks = 0, last = performance.now();
+const f = () => { raf++; requestAnimationFrame(f); };
+requestAnimationFrame(f);
+setInterval(() => ticks++, 100);
+let ac = null;
+if (q.get('audio')) {
+  ac = new AudioContext();
+  const o = ac.createOscillator(); const g = ac.createGain(); g.gain.value = 0.01;
+  o.connect(g); g.connect(ac.destination); o.start();
+}
+addEventListener('visibilitychange', () => console.log(`probe ${tag} visibilitychange -> ${document.visibilityState}`));
+addEventListener('focus', () => console.log(`probe ${tag} focus`));
+addEventListener('blur', () => console.log(`probe ${tag} blur`));
+setInterval(() => {
+  const now = performance.now(), dt = (now - last) / 1000; last = now;
+  console.log(`probe ${tag} vis=${document.visibilityState} focus=${document.hasFocus()} dt=${dt.toFixed(2)} raf/s=${(raf / dt).toFixed(1)} ticks/s=${(ticks / dt).toFixed(1)}` +
+    (ac ? ` audio=${ac.state} t=${ac.currentTime.toFixed(2)}` : ''));
+  raf = 0; ticks = 0;
+}, 1000);
+</script>
