@@ -9635,3 +9635,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- (no header)
 - [x] QHOV2 DONE 35114c3 #631 [S] (P3, from QHOV1 #604; Sonnet; app.rs damage paint) Damage-rect repaint for pages without :hover/:active
       rules (JS class-toggle hovers); avoid the 4 MB kept-page copy by tracking buffer age.
+
+=== from TODO.txt: --- (no header)
+- [x] QGEOM1 DONE 4cf20ec #630 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+      (QCNV2)"); Sonnet; in order after the items above) DOMMatrix/DOMPoint/DOMRect (platform, not canvas). 50 files.

@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-23 · main 8e09b15 · 156 PRs merged since 2026-11-21 morning (#475–#631) · installed 23:57 (1b48efd)· 5 agents running (QEL2b, QANIMHLc, QCSS-A hover check, QAPI6c, QDOM5b)</div>
+  <div class="meta" id="updated">Updated 2026-11-23 · main 8e09b15 · 157 PRs merged since 2026-11-21 morning (#475–#631) · installed 23:57 (1b48efd)· 5 agents running (QEL2b, QANIMHLc, QCSS-A hover check, QAPI6c, QDOM5b)</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -74,7 +74,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Measurements</h2>
   <div class="stats">
     <div class="stat"><span class="v">351 / 626</span><span class="l">WPT visual CSS tests passing (reftests), now checked in CI</span></div>
-    <div class="stat"><span class="v">45.6</span><span class="l">WPT JavaScript tests, mean score per file (0–100). 40.4 over the 3,254 non-canvas files (25 areas); 29.6 with html/canvas in the total (canvas element area 23.5 since QCNV1 #613; offscreen still 0). 70.2% of 89,681 subtests pass. Score changes from subset composition (dom long files, html/editing, test_driver pages out, canvas in) are not engine progress</span></div>
+    <div class="stat"><span class="v">46.2</span><span class="l">WPT JavaScript tests, mean score per file (0–100). 40.4 over the 3,254 non-canvas files (25 areas); 29.6 with html/canvas in the total (canvas element area 23.5 since QCNV1 #613; offscreen still 0). 70.2% of 89,681 subtests pass. Score changes from subset composition (dom long files, html/editing, test_driver pages out, canvas in) are not engine progress</span></div>
     <div class="stat"><span class="v">1852 / 1852</span><span class="l">Unit and integration tests passing, engine on and off (CI runs both)</span></div>
     <div class="stat"><span class="v">0</span><span class="l">Engine mismatches on the 7 test pages (check mode)</span></div>
   </div>
@@ -112,6 +112,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-23</td><td class="n">#630</td><td>QGEOM1</td><td>DOMPoint, DOMRect, DOMQuad, DOMMatrix; css/geometry joins the gate (23/28 files fully pass); canvas getTransform returns a DOMMatrix</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#631</td><td>QHOV2</td><td>Damage-rect repaint on every page (JS hovers, DOM writes, animation frames), no 4 MB page copy; ytr paint 12.9 → 8.6 ms/redraw; verify mode 0 diffs</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#629</td><td>QCNV7</td><td>Canvas arcs, curves, ellipse, roundRect; canvas element 46.2, offscreen 51.8</td></tr>
     <tr><td class="n">2026-11-22</td><td class="n">#625</td><td>QEL7b</td><td>Scroll events in iframes, scroll clamped at the end, smooth <code>behavior</code> and <code>scroll-behavior</code> (eased scrollIntoView)</td></tr>
