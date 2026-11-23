@@ -62,6 +62,10 @@ export CEF_ARCHIVE_FORMAT=tar.bz2
 # depot_tools: never self-update in the middle of a build, no metrics.
 export DEPOT_TOOLS_UPDATE=0 DEPOT_TOOLS_METRICS=0 DEPOT_TOOLS_REPORT_BUILD=0
 export PATH="$DT:$PATH"
+# siso (Chromium's builder) writes its glog files to $TMPDIR: ~200 MB per half hour of
+# build, and /tmp is RAM here. Keep them, and every tool's temp files, on disk.
+export TMPDIR=$ROOT/tmp
+mkdir -p "$TMPDIR"
 
 # run STEP CMD...: capped, niced, logged; prints the log path.
 run() {
