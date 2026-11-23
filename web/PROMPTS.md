@@ -554,3 +554,21 @@ desktop's keymap (it used to send us, which flipped the seat's keymap on every i
 Live `shell/test/c_keymap_live.py`: de 3/3, fr 3/3 (physical Y/Z, A/Q swap in the page's field,
 `:` and `/` open the lines), layout groups 4/4 (us -> de -> us), X11 6/6 (setxkbmap de, fr, us on the
 nested Xwayland, keys by XTEST); de and x11 fail with the keymap not given to the seat. c3_live 19/19.
+
+## 2026-11-23 C6c (frame pacing)
+
+Task (coordinator): pace the inner clients' frame callbacks to the outer window's frames, measure
+rAF cadence / a CSS animation / a video and shell CPU (idle, animating) before and after under
+the perf lock; say what the headless nest's refresh is.
+Found: the shell already sent callbacks only after a render, and on Wayland winit already gates
+`RedrawRequested` on the desktop's frame callback (smithay's submit calls pre_present_notify;
+vsync is off, swap never blocks), so Wayland was paced (30 Hz nest -> 30 Hz rAF, before and
+after). The unthrottled case is an X11 shell window: nothing gates, the page's commit rate
+drove the shell (CSS animation 59-70 fps, sd 3 ms). Done: `src/pacing.rs` (a Pacer: on X11 a
+timer spaces renders by one refresh interval; on Wayland it never waits, a timer there could
+miss the desktop's frame callback and cost a whole frame); the inner output's wl_output mode
+refresh is the outer monitor's (winit), not a constant 60; `WEB_FRAME_STATS=1`.
+Tools: `test/c6c_bench.py` + `test/pages/c6c.html` (modes idle/raf/css/video, ffmpeg makes a
+WebM), `NEST_REFRESH` for nest.sh (dwl-headless.patch takes NEST_HEADLESS_REFRESH).
+Found, not fixed: at a 120 Hz output Chromium's rAF stays at 60 Hz (before and after; the shell
+reports 120 in wl_output; the page commits at 60, so CEF caps its own rate).

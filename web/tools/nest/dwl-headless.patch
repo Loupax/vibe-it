@@ -24,7 +24,7 @@
  				XKB_KEYMAP_COMPILE_NO_FLAGS)))
  		die("failed to compile keymap");
  
-@@ -1114,6 +1122,16 @@
+@@ -1114,6 +1122,18 @@
  	 * monitor's preferred mode; a more sophisticated compositor would let
  	 * the user configure it. */
  	wlr_output_state_set_mode(&state, wlr_output_preferred_mode(wlr_output));
@@ -33,8 +33,10 @@
 +	if (wlr_output_is_headless(wlr_output) && getenv("NEST_HEADLESS_SIZE")) {
 +		int nw = 0, nh = 0;
 +		float ns = 0;
++		int nr = 0; /* C6c: NEST_HEADLESS_REFRESH, Hz; 0 = wlroots' default (60) */
++		if (getenv("NEST_HEADLESS_REFRESH") && sscanf(getenv("NEST_HEADLESS_REFRESH"), "%d", &nr) == 1 && nr > 0) nr *= 1000; else nr = 0;
 +		if (sscanf(getenv("NEST_HEADLESS_SIZE"), "%dx%d", &nw, &nh) == 2 && nw > 0 && nh > 0)
-+			wlr_output_state_set_custom_mode(&state, nw, nh, 0);
++			wlr_output_state_set_custom_mode(&state, nw, nh, nr);
 +		if (getenv("NEST_HEADLESS_SCALE") && sscanf(getenv("NEST_HEADLESS_SCALE"), "%f", &ns) == 1 && ns > 0)
 +			wlr_output_state_set_scale(&state, ns);
 +	}

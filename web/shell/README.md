@@ -201,3 +201,17 @@ logical; screenshot checks multiply by the nest's scale).
     NEST_SCALE=1.5 web/shell/test/c6b_live.py --out .qwork/c6b-1.5 --inject .qwork/inject/release/inject
     NEST_SCALE=2 web/shell/test/c6b_live.py --out .qwork/c6b-2 --inject .qwork/inject/release/inject
     NEST_SCALE=2 web/shell/test/live.py --out .qwork/c2-s2 --inject .qwork/inject/release/inject
+
+## C6c: frame pacing
+
+The page's frame callbacks (`wl_surface.frame` done) are sent only right after a shell render,
+and a render happens at most once per outer frame (`src/pacing.rs`): on a Wayland desktop
+winit holds `RedrawRequested` back until the desktop's frame callback for the window
+(smithay's `submit` calls `pre_present_notify`; the EGL swap interval is 0, so swapping never
+blocks), so the page runs at the desktop's rate (a 30 Hz output gives a 30 Hz
+requestAnimationFrame); on X11 nothing holds a redraw back, so a timer spaces renders by one
+interval of the monitor's refresh rate. The inner output reports the outer monitor's refresh
+rate (winit; 60 Hz if unknown). An idle page costs nothing: no dirty flag, no timer.
+`WEB_FRAME_STATS=1` logs `frames: N renders in 5 s`. `test/c6c_bench.py` measures cadence and
+CPU (run it under `flock /tmp/scratchy-perf.lock`); `NEST_REFRESH=Hz` for web/tools/nest.sh sets
+the headless output's refresh (default 60).
