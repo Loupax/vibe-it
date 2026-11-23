@@ -3,6 +3,10 @@
 //! tick) over ONE shape cache keyed by paragraph ids; the last, complete tick is what the engine adopts.
 use super::*;
 
+/// Paragraph deadline checks the first tick may pass before it stops; tick N gets N times this, since a
+/// tick re-measures the unshaped words of the earlier ones (a full pass takes ~5500 checks).
+const PARAS_PER_TICK: usize = 500;
+
 /// The worker's ticks over one cache (each one stops at its deadline, until one ends complete) number the
 /// paragraphs like a single complete pass, and the last one lays out the same page. A natural-width cache
 /// hit (stored only by a tick that is still complete) used to skip the ids its computation consumes, so an
@@ -24,14 +28,17 @@ fn qinc2_ticks_number_paragraphs_like_a_single_complete_pass() {
     let mut ticks = 0;
     let ticked = loop {
         let (mut id, mut inc) = (0usize, false);
-        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(40);
+        // A paragraph budget instead of a wall-clock deadline: tick boundaries do not depend on machine load.
+        crate::layout::TEST_PARA_BUDGET.with(|b| b.set(Some(PARAS_PER_TICK * (ticks + 1))));
+        let deadline = far;
         let laid = crate::incr_layout::tick_for_test(&tree, &mut fs, 956.0, 700.0, &mut id, &mut cache, deadline, &mut inc);
         ticks += 1;
+        crate::layout::TEST_PARA_BUDGET.with(|b| b.set(None));
         assert_eq!(id, id3, "tick {ticks} (incomplete: {inc}) numbers the paragraphs like a single pass");
         if !inc {
             break laid;
         }
-        assert!(ticks < 200, "ticks finish");
+        assert!(ticks < 200, "ticks finish (id {id} vs {id3})");
     };
     assert!(ticks > 1, "the page takes more than one tick ({ticks})");
     if let Err(m) = crate::incr_cmp::cmp_laid(&crate::incr_cmp::Names::default(), "root", &fresh, &fresh_cache, &ticked, &cache) {
