@@ -143,7 +143,7 @@ stop early on a hard failure.
       the page's own contextmenu handlers still work; notab.py pixel check PASS) (user, 2026-11-23: "maybe we could disable it completely, and expose it via the command
       mode" ... "yes, go ahead") No context menu at all; right-click still reaches the page. Replaces
       C-NOTAB-ALLOW (same agent, repurposed).
-- [ ] C-CMDS [S] (HOLD: target may become the caret, see C5-ENTER; :yank parts after C6; allow-list of useful
+- [ ] C-CMDS [S] (PARKED with caret mode: target may become the caret, see C5-ENTER; :yank parts after C6; allow-list of useful
       actions is in #683's history, MENU_ALLOW) Context-menu actions as `:` commands acting on the element
       under the mouse pointer (later: picked by C7 hints): `:save` (page), `:save link`, `:save image`,
       `:yank link`, `:yank image` (copy to the system clipboard, needs C6). Host: hit-test at the pointer
@@ -182,7 +182,8 @@ stop early on a hard failure.
       reported `editable-focused true` for that click (a field got focus: stay INPUT). Add the row to
       KEYS.md's transition table, a test named after it, and a live check (right-click -> Copy link
       address -> back in NORMAL; select an option -> back in NORMAL; right-click in a field -> stays INPUT).
-- [ ] C5-ENTER [S] WAITING FOR USER (2026-11-23: user unsure about moving the real pointer, prefers caret
+- [ ] C5-ENTER [S] PARKED (user 2026-11-23: "park everything related to caret mode, I want to think about it
+      more"; options discussed: own caret, or Chromium's caret drawn by the shell, spike CARET-1). WAITING FOR USER (2026-11-23: user unsure about moving the real pointer, prefers caret
       browsing, a text cursor in the page; design with QCURSOR-D first; NOT Chromium's built-in caret browsing:
       the user tried it in Chrome, "it was pretty bad" -> our own caret). Was: (user 2026-11-23, DECISIONS "Search places the pointer, Enter clicks")
       `/`+Enter, `n` and `N` move the mouse pointer (a real pointer motion from the compositor) to the start
