@@ -77,36 +77,10 @@ OK           8/8  css/geometry/DOMQuad-nan.html
 OK         30/30  css/geometry/DOMRect-001.html
 OK         32/32  css/geometry/DOMRect-002.html
 OK           8/8  css/geometry/DOMRect-nan.html
-OK           3/5  css/geometry/DOMRectList.html
-  FAIL      DOMRectList is exposed
-  FAIL      DOMRectList is not [LegacyArrayClass]
+OK           5/5  css/geometry/DOMRectList.html
 OK           3/3  css/geometry/WebKitCSSMatrix.html
 OK         39/39  css/geometry/historical.html
 OK           0/1  css/geometry/idlharness.any.html
   FAIL      idl_test setup
 OK           7/7  css/geometry/spec-examples.html
-OK          7/31  css/geometry/structured-serialization.html
-  FAIL      DOMPointReadOnly clone: basic
-  FAIL      DOMPointReadOnly clone: custom property
-  FAIL      DOMPointReadOnly clone: non-initial values
-  FAIL      DOMPoint clone: basic
-  FAIL      DOMPoint clone: custom property
-  FAIL      DOMPoint clone: non-initial values
-  FAIL      DOMRectReadOnly clone: basic
-  FAIL      DOMRectReadOnly clone: custom property
-  FAIL      DOMRectReadOnly clone: non-initial values
-  FAIL      DOMRect clone: basic
-  FAIL      DOMRect clone: custom property
-  FAIL      DOMRect clone: non-initial values
-  FAIL      DOMQuad clone: basic
-  FAIL      DOMQuad clone: custom property
-  FAIL      DOMQuad clone: non-initial values
-  FAIL      DOMMatrixReadOnly clone: basic
-  FAIL      DOMMatrixReadOnly clone: custom property
-  FAIL      DOMMatrixReadOnly clone: non-initial values (2d)
-  FAIL      DOMMatrixReadOnly clone: non-initial values (3d)
-  FAIL      DOMMatrix clone: basic
-  FAIL      DOMMatrix clone: custom property
-  FAIL      DOMMatrix clone: non-initial values (2d)
-  FAIL      DOMMatrix clone: non-initial values (3d)
-  FAIL      DOMRectList clone
+OK         31/31  css/geometry/structured-serialization.html
