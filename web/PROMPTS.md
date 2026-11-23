@@ -429,3 +429,9 @@ clearing the model alone is NOT enough on CEF 156 Chrome style (a popup still op
 12k pixels changed); `run_context_menu` returning handled is what stops it. CEF's
 `sub_menu_at` returns Some for ordinary items, so submenu detection must use `type_at`.
 Negative runs (menu back on) fail the check as intended.
+
+## C5-FIXES: same-document find clear, stale find-result, c3_live refresh (2026-11-23)
+
+> C5-FRAG: same-document navigations (#fragment, pushState) must clear the find session (T31). C5-STALE: tag find requests and results so a stale `find-result 0 0` is never taken as an answer. C3-LIVE-REFRESH: bring c3_live.py back to passing after C5 made `/` a search. (coordinator bundle)
+
+**What changed:** the host already sent `load ... same-document`, so no new event: the shell now sends `find-clear` on it (`Keys::navigated_same_document`; the effect is applied from `host_event`, which the live run showed was missing: effects queued outside a key were never sent). `find` carries an id, `find-result` echoes it; the host keeps `find_pending` and drops results when none is pending (cleared by load start and find-clear); the shell ignores results whose id it is not waiting for and drops older waiting requests when the latest is answered. Unit tests `keys_t16_c5_stale_*`, `keys_t15_c5_stale_*`, `keys_t31_a_same_document_*`. PROTOCOL.md and KEYS.md T31 updated. Live: c3_live.py 19/19 (the `/` step now checks the search line; `#` added to the typed shifted keys; page-window wait 30 s in the three live scripts), c5_live.py 13/13 with a new fragment step, c3_rclick_live.py 8/8, all in the headless nest.

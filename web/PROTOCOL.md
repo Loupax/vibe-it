@@ -79,7 +79,7 @@ interface, undecided), so v0 has no `new-tab` / `close-tab`.
 | `forward` | `{"cmd":"forward"}` | history forward |
 | `reload`, `reload hard` | `{"cmd":"reload"}`, `{"cmd":"reload","hard":true}` | reload; `hard` bypasses the cache (`:refresh hard`; CEF ReloadIgnoreCache) |
 | `stop` | `{"cmd":"stop"}` | stop the current load |
-| `find <query> next\|prev [match_case]` | `{"cmd":"find","query":"needle","dir":"next"}`, optional `"match_case":true` (default false: case-insensitive; the shell's smartcase sets it when the query has a capital) | find in page; the same query again steps to the next/previous match; a new query starts at the match the engine picks from where the page is scrolled (C5 measured: from the top, the first match; scrolled down, the one nearest above the screen; not exactly "first at or below the top of the screen") |
+| `find <id> <query> next\|prev [match_case]` | `{"cmd":"find","id":1,"query":"needle","dir":"next"}`, `id` (optional, default 0) is echoed in the answering `find-result`, optional `"match_case":true` (default false: case-insensitive; the shell's smartcase sets it when the query has a capital) | find in page; the same query again steps to the next/previous match; a new query starts at the match the engine picks from where the page is scrolled (C5 measured: from the top, the first match; scrolled down, the one nearest above the screen; not exactly "first at or below the top of the screen") |
 | `find-clear` | `{"cmd":"find-clear"}` | end the find: highlights go, the active match stays selected |
 | `zoom <n>` | `{"cmd":"zoom","factor":1.25}` | page zoom as a factor, 1.0 = 100 %, 0.25..5 |
 | `forget-site <site>` | `{"cmd":"forget-site","site":"https://mail.example.com/"}` | forget a site: cookies and storage (below); answered by `forgot` |
@@ -100,7 +100,7 @@ unknown `cmd`, missing field, zoom out of range) gets an `error` event.
 | `load <id> start\|end <status> <kind>` | `{"event":"load","tab":1,"phase":"end","status":200,"kind":"new"}`, optional `"error":"ERR_ABORTED"` |
 | `load-error <id> <code> <text>` | `{"event":"load-error","tab":1,"code":-105,"name":"ERR_NAME_NOT_RESOLVED","text":"ERR_NAME_NOT_RESOLVED"}` |
 | `editable-focused <id> true\|false` | `{"event":"editable-focused","tab":1,"focused":true}` |
-| `find-result <id> <i> <n>` | `{"event":"find-result","tab":1,"index":2,"count":5}` |
+| `find-result <tab> <id> <i> <n>` | `{"event":"find-result","tab":1,"id":7,"index":2,"count":5}` |
 | `crashed <id>` | `{"event":"crashed","tab":1,"reason":"TS_PROCESS_CRASHED (exit code 139)"}` |
 | `forgot <site> ok`, `forgot <site> partial <what failed>` | `{"event":"forgot","site":"https://mail.example.com/","domain":"example.com","result":"ok","cookies":3,"origins":["http://example.com","https://example.com","https://mail.example.com"]}`, with `"result":"partial","failed":["storage https://x.example.com (timeout)"]` |
 | (error) | `{"event":"error","message":"..."}` |
@@ -139,8 +139,14 @@ unknown `cmd`, missing field, zoom out of range) gets an `error` event.
   editable element (text inputs, textareas, contenteditable) in any frame of the
   page. A new document starts with `false`. The shell uses it for INPUT mode
   (KEYS.md).
-- `find-result`: one per `find` command, when the engine's count is final. `index`
-  is the 1-based active match (0 when there are no matches), `count` the matches.
+- `find-result`: one per `find` command (the latest, if several are pending), when the
+  engine's count is final. `id` echoes the `find` it answers. `index` is the 1-based
+  active match (0 when there are no matches), `count` the matches. The host sends no
+  `find-result` when no `find` is pending (CEF reports `0 0` at a cross-document load
+  start; `load start` and `find-clear` also end the pending request), and a shell
+  ignores one whose `id` it is not waiting for.
+- Find after a same-document navigation: no new event; the shell reacts to
+  `load ... same-document` by sending `find-clear` (C5-FRAG).
 - `crashed`: the page's renderer process died (crash, killed, out of memory). The
   page stays; `open` or `reload` loads it again in a new renderer.
 

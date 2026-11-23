@@ -33,6 +33,9 @@ pub enum Command {
     },
     Stop,
     Find {
+        /// Request id, echoed in the `find-result` that answers (C5-STALE); 0 when absent.
+        #[serde(default)]
+        id: u64,
         query: String,
         dir: FindDir,
         /// Match upper and lower case apart (the shell's smartcase decides, C5).
@@ -131,6 +134,8 @@ pub enum Event {
     /// `index`: 1-based active match (0 when there is none), `count`: matches.
     FindResult {
         tab: TabId,
+        /// The `find` request this answers.
+        id: u64,
         index: i32,
         count: i32,
     },
@@ -195,7 +200,7 @@ pub fn event_text(ev: &Event) -> String {
         }
         Event::LoadError { tab, code, name, text } => format!("load-error {tab} {code} {name} {text}"),
         Event::EditableFocused { tab, focused } => format!("editable-focused {tab} {focused}"),
-        Event::FindResult { tab, index, count } => format!("find-result {tab} {index} {count}"),
+        Event::FindResult { tab, id, index, count } => format!("find-result {tab} {id} {index} {count}"),
         Event::Crashed { tab, reason } => format!("crashed {tab} ({reason})"),
         Event::Forgot { site, result, failed, .. } => match result {
             ForgetResult::Ok => format!("forgot {site} ok"),
@@ -559,16 +564,18 @@ mod tests {
             (r#"{"cmd":"reload","hard":true}"#, Command::Reload { hard: true }),
             (r#"{"cmd":"stop"}"#, Command::Stop),
             (
-                r#"{"cmd":"find","query":"needle","dir":"next"}"#,
+                r#"{"cmd":"find","id":1,"query":"needle","dir":"next"}"#,
                 Command::Find {
+                    id: 1,
                     query: "needle".into(),
                     dir: FindDir::Next,
                     match_case: false,
                 },
             ),
             (
-                r#"{"cmd":"find","query":"Needle","dir":"next","match_case":true}"#,
+                r#"{"cmd":"find","id":2,"query":"Needle","dir":"next","match_case":true}"#,
                 Command::Find {
+                    id: 2,
                     query: "Needle".into(),
                     dir: FindDir::Next,
                     match_case: true,
@@ -577,6 +584,7 @@ mod tests {
             (
                 r#"{"cmd":"find","query":"n","dir":"prev"}"#,
                 Command::Find {
+                    id: 0,
                     query: "n".into(),
                     dir: FindDir::Prev,
                     match_case: false,
@@ -669,10 +677,11 @@ mod tests {
             (
                 Event::FindResult {
                     tab: 1,
+                    id: 5,
                     index: 2,
                     count: 3,
                 },
-                r#"{"event":"find-result","tab":1,"index":2,"count":3}"#,
+                r#"{"event":"find-result","tab":1,"id":5,"index":2,"count":3}"#,
             ),
             (
                 Event::Crashed {
@@ -723,10 +732,11 @@ mod tests {
         assert_eq!(
             event_text(&Event::FindResult {
                 tab: 1,
+                id: 4,
                 index: 1,
                 count: 3
             }),
-            "find-result 1 1 3"
+            "find-result 1 4 1 3"
         );
     }
 

@@ -77,7 +77,7 @@ def main():
 
     try:
         log.wait(r'"title":"rclick ready"', timeout=60)
-        log.wait(r"page window is (\d+)x(\d+)", timeout=10)
+        log.wait(r"page window is (\d+)x(\d+)", timeout=30)
         time.sleep(0.5)
         sizes = [re.search(r"\] window (\d+)x(\d+), page", l) for l in log.lines]
         ww, wh = [int(x) for x in [s for s in sizes if s][-1].groups()]

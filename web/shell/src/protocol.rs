@@ -53,6 +53,9 @@ pub enum Event {
     },
     FindResult {
         tab: u64,
+        /// The `find` request this answers (0: a host that does not echo ids).
+        #[serde(default)]
+        id: u64,
         index: u32,
         count: u32,
     },
@@ -91,6 +94,8 @@ pub enum Command {
     },
     /// Find in the page (`dir` as in PROTOCOL.md; the same query again steps).
     Find {
+        /// Request id (C5-STALE): the host echoes it in the `find-result` that answers.
+        id: u64,
         query: String,
         dir: FindDir,
         #[serde(skip_serializing_if = "std::ops::Not::not")]
@@ -202,9 +207,10 @@ mod tests {
                 Event::EditableFocused { tab: 1, focused: true },
             ),
             (
-                r#"{"event":"find-result","tab":1,"index":2,"count":5}"#,
+                r#"{"event":"find-result","tab":1,"id":7,"index":2,"count":5}"#,
                 Event::FindResult {
                     tab: 1,
+                    id: 7,
                     index: 2,
                     count: 5,
                 },
@@ -267,19 +273,21 @@ mod tests {
             (Command::Reload { hard: true }, r#"{"cmd":"reload","hard":true}"#),
             (
                 Command::Find {
+                    id: 1,
                     query: "needle".into(),
                     dir: FindDir::Next,
                     match_case: false,
                 },
-                r#"{"cmd":"find","query":"needle","dir":"next"}"#,
+                r#"{"cmd":"find","id":1,"query":"needle","dir":"next"}"#,
             ),
             (
                 Command::Find {
+                    id: 2,
                     query: "Needle".into(),
                     dir: FindDir::Prev,
                     match_case: true,
                 },
-                r#"{"cmd":"find","query":"Needle","dir":"prev","match_case":true}"#,
+                r#"{"cmd":"find","id":2,"query":"Needle","dir":"prev","match_case":true}"#,
             ),
             (Command::FindClear, r#"{"cmd":"find-clear"}"#),
             (Command::Quit, r#"{"cmd":"quit"}"#),

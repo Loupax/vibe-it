@@ -310,7 +310,17 @@ pub struct SearchState {
     pub count: u32,
     /// One entry per `find` sent whose `find-result` has not arrived (the host answers each
     /// command once, in order). `true` = it started a session (no wrap can be derived).
-    waiting: std::collections::VecDeque<(FindDir, bool)>,
+    waiting: std::collections::VecDeque<(u64, FindDir, bool)>,
+    /// The id of the last `find` sent (C5-STALE: the host echoes it in its `find-result`).
+    last_id: u64,
+}
+
+impl SearchState {
+    /// The id of the oldest `find` still waiting for its result.
+    #[cfg(test)]
+    pub fn pending_id(&self) -> Option<u64> {
+        self.waiting.front().map(|w| w.0)
+    }
 }
 pub const NOT_YET_PASTE: &str = "web: paste needs the clipboard, not built yet (web/TODO.txt C6)";
 
@@ -609,8 +619,11 @@ impl Keys {
 
     fn send_find(&mut self, query: &str, dir: FindDir, fresh: bool) {
         self.search.session = true;
-        self.search.waiting.push_back((dir, fresh));
+        self.search.last_id += 1;
+        let id = self.search.last_id;
+        self.search.waiting.push_back((id, dir, fresh));
         self.effects.push(Effect::Send(Command::Find {
+            id,
             query: query.to_string(),
             dir,
             match_case: smartcase_match_case(query),
@@ -646,6 +659,12 @@ impl Keys {
         }
     }
 
+    /// T31, C5-FRAG: a same-document navigation. The host still has its session (no load
+    /// callbacks): end it so its highlights go; the query stays.
+    pub fn navigated_same_document(&mut self) {
+        self.clear_search();
+    }
+
     fn forget_session(&mut self) {
         self.search.session = false;
         self.search.index = 0;
@@ -656,8 +675,19 @@ impl Keys {
     /// The host's `find-result` for the oldest `find` still waiting (T15, T16, T23): the
     /// status bar gets `Pattern not found: <q>`, or `[i/N]` with a wrap message when the
     /// index went the wrong way (next: not higher than before; previous: not lower).
-    pub fn find_result(&mut self, index: u32, count: u32) {
-        let Some((dir, fresh)) = self.search.waiting.pop_front() else {
+    ///
+    /// C5-STALE: `id` is the request it answers. A result whose id is not waiting (CEF's
+    /// `0/0` at a load start, an answer to a find that a navigation or Esc dropped) is
+    /// ignored; the requests older than the answered one will never be answered (the host
+    /// answers only the latest) and are dropped with it.
+    pub fn find_result(&mut self, id: u64, index: u32, count: u32) {
+        if !self.search.waiting.iter().any(|w| w.0 == id) {
+            return;
+        }
+        while self.search.waiting.front().is_some_and(|w| w.0 != id) {
+            self.search.waiting.pop_front();
+        }
+        let Some((_, dir, fresh)) = self.search.waiting.pop_front() else {
             return;
         };
         let old = self.search.index;
