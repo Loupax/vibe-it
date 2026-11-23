@@ -233,6 +233,24 @@ pub(crate) struct CheckLive {
 
 thread_local! {
     static CHECK_LIVE: RefCell<HashMap<usize, CheckLive>> = RefCell::new(HashMap::new());
+    /// QTYPE1: controls whose live state (text, caret, selection, checked) changed since the last paint.
+    static CTL_DIRTY: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+}
+
+/// QTYPE1: the live state of control `node` changed without a tree change, so the paint's damage must
+/// include its box (the engine's own damage is empty for it).
+pub(crate) fn mark_ctl_dirty(node: usize) {
+    CTL_DIRTY.with(|d| {
+        let mut d = d.borrow_mut();
+        if !d.contains(&node) {
+            d.push(node);
+        }
+    });
+}
+
+/// QTYPE1: the controls changed since the last call (each once).
+pub(crate) fn take_ctl_dirty() -> Vec<usize> {
+    CTL_DIRTY.with(|d| std::mem::take(&mut *d.borrow_mut()))
 }
 
 pub(crate) fn clear_check_state() {
@@ -340,10 +358,12 @@ pub(crate) fn set_checked(h: &Handle, v: bool) -> bool {
     }
     let radio = checkable_kind(h) == Some(true);
     let mut changed = live_checked(h) != v;
+    mark_ctl_dirty(node_id(h));
     CHECK_LIVE.with(|m| m.borrow_mut().entry(node_id(h)).or_default().checked = Some(v));
     if radio && v {
         for o in radio_peers(h) {
             if live_checked(&o) {
+                mark_ctl_dirty(node_id(&o));
                 CHECK_LIVE.with(|m| m.borrow_mut().entry(node_id(&o)).or_default().checked = Some(false));
                 changed = true;
             }
@@ -354,6 +374,7 @@ pub(crate) fn set_checked(h: &Handle, v: bool) -> bool {
 
 pub(crate) fn set_indeterminate(h: &Handle, v: bool) {
     if element_tag(h) == "input" {
+        mark_ctl_dirty(node_id(h));
         CHECK_LIVE.with(|m| m.borrow_mut().entry(node_id(h)).or_default().indeterminate = v);
     }
 }
@@ -368,6 +389,7 @@ pub(crate) fn reset_form_state(form: &Handle) -> bool {
     any |= reset_select_state(form);
     for c in all {
         if element_tag(&c) == "input" && form_owner(&c).is_some_and(|f| Rc::ptr_eq(&f, form)) {
+            mark_ctl_dirty(node_id(&c));
             any |= CHECK_LIVE.with(|m| m.borrow_mut().remove(&node_id(&c))).is_some();
         }
     }
