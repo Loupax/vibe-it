@@ -96,6 +96,10 @@ step_sync() {
   [ -d "$DT/.git" ] && upd=--no-depot-tools-update
   run sync python3 "$TOOLS/automate-git.py" --download-dir="$DL" --branch="$CEF_BRANCH" \
     --checkout="$CEF_COMMIT" --x64-build --no-chromium-history $upd --no-build --no-distrib
+  # gn/autoninja wrappers need depot_tools' own python (python3_bin_reldir.txt), which a
+  # checkout with DEPOT_TOOLS_UPDATE=0 never bootstraps. Its luci-auth error is harmless.
+  [ -f "$DT/python3_bin_reldir.txt" ] || run bootstrap "$DT/ensure_bootstrap" || true
+  [ -f "$DT/python3_bin_reldir.txt" ] || { echo "build.sh: depot_tools bootstrap failed" >&2; exit 1; }
 }
 
 step_gen() {
