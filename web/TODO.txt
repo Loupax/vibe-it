@@ -154,7 +154,8 @@ stop early on a hard failure.
       status-bar messages. Done when each works on a test page in the headless nest.
 - [-] C-NOTAB-ALLOW (REPLACED by C-NOMENU, user 2026-11-23) (from #672; #673's live run: Print…, Cast…, Create QR Code still remain and open Chrome UI) Context menu by allow-list
       instead of deny-list, so a new Chrome item that opens a tab can't slip in.
-- [WIP] C-KEYMAP [S] (from C2 #671) The page gets xkbcommon's default keymap (XKB_DEFAULT_*, else us), not the
+- [x] C-KEYMAP [S] (DONE 2026-11-23, 79478fd, #698: desktop keymap + layout groups to the seat on Wayland and X11;
+      nest patch no longer touches the user's /tmp/dwl-keyboard-layout or someblocks) (from C2 #671) The page gets xkbcommon's default keymap (XKB_DEFAULT_*, else us), not the
       desktop's layout (winit does not expose it). Read it (X11: xkbcommon-x11; Wayland: wl_keyboard.keymap)
       and give it to the shell's seat. Done when a non-us desktop layout types the same characters in the page.
 - [x] C-SINGLE [S] (DONE 2026-11-23, d83f8fe, #697: `web URL` hands the URL to the running instance; no URL ->
@@ -169,7 +170,8 @@ stop early on a hard failure.
       every live check.
 - [ ] C6g [XS] ONLY IF THE USER WANTS IT (from #695) A middle click on the status bar in COMMAND/SEARCH inserts the
       desktop's primary selection (KEYS.md Paste row first).
-- [ ] C-FOCUSKEYS [S] (from C2 #671; from reading code, untested) smithay's winit backend drops winit's synthetic
+- [ ] C-KEYMAP-NAMES [XS] ONLY IF WANTED (from #698) Show the active keyboard layout name in the status bar.
+- [WIP] C-FOCUSKEYS [S] (bundled with C3-SHIFTSYNC) (from C2 #671; from reading code, untested) smithay's winit backend drops winit's synthetic
       key releases: a modifier held when the shell loses focus (Alt of Alt+Tab) can stay down. Release every
       pressed key on focus-out. Done when Alt+Tab away and back leaves no stuck modifier (keydown logger page).
 - [x] C-SOCKDIR [XS] (DONE #694) (from C2 #671) A hard-killed shell leaves $XDG_RUNTIME_DIR/web-<pid>/ behind: clean stale
@@ -185,7 +187,7 @@ stop early on a hard failure.
 - [ ] C3-GOHTTP [XS] (bundle with C-SOCKDIR) (from #677) A `:go` ghost taken from an http:// history entry typed without its scheme
       (`:go 127` Tab Enter) runs as https://. When the completed word matches a history URL with its scheme
       stripped, use that URL's own scheme.
-- [ ] C3-SHIFTSYNC [S] (from #677; with C-FOCUSKEYS) The shell learns held modifiers only from key events: a
+- [WIP] C3-SHIFTSYNC [S] (from #677; with C-FOCUSKEYS) The shell learns held modifiers only from key events: a
       modifier held when the window gains focus, or set by wl_keyboard.modifiers alone, is not seen. Done
       when Shift held across a focus change, or set by modifiers alone, still types `:` and `G`.
 - [x] C3-RCLICK [XS] (DONE 2026-11-23, 1068028, #681: T57 popups return to the previous mode; T29/T32 rewritten:

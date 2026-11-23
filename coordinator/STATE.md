@@ -521,3 +521,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Merged #695 C6-LIVE 006e846 (test bug); web reinstalled. Corrected my web/DECISIONS.md error (middle-click paste in : and / lines was never built). Filed LIVE-GEOM, C6g (user's call). Launched C-SINGLE (Sonnet).
 - 2026-11-23 Merged #696 C6b 79e8a9d; web reinstalled. Filed C6b-X11, C6b-CURSOR. Launched C6c frame pacing (Sonnet).
 - 2026-11-23 Merged #697 C-SINGLE d83f8fe; web reinstalled. Launched LIVE-GEOM + host-cef fmt (Sonnet).
+- 2026-11-23 Merged #698 C-KEYMAP 79478fd; web reinstalled. Found: the old nest dwl patch wrote the user's /tmp/dwl-keyboard-layout and signalled their someblocks on every agent nest run (fixed in #698). Filed C-KEYMAP-NAMES (optional). Launched C-FOCUSKEYS + C3-SHIFTSYNC (Sonnet).
