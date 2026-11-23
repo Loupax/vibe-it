@@ -74,3 +74,27 @@ roots via rustls-native-certs, failures 502), `--no-decrypt` and `--ca-dir`, the
 `--test-decrypt` and `--test-resolve` (W2-1a, included). Response bodies are pipelined across two
 tasks, with a per-chunk yield so tokio's LIFO slot does not pin both to one core: decrypted throughput
 went from 47 % to 52-54 % of direct TLS. Tests in tests/w2_2_*.rs, a headless Chrome check, NOTES.md.
+
+---
+
+## W2-3 WebSockets inside decrypted tunnels (2026-11-23, agent run by the coordinator)
+
+> You are the agent for item W2-3 in the vibe-it repository (project `wire2/`). [...] W2-3: WebSockets
+> inside decrypted tunnels. Forward the upgrade request through the single `proxy::forward` path, and
+> after `101` switch that connection to a plain byte copy both ways (no frame parsing; that waits for
+> W2-F / message-level filtering). The W2-2 agent reported that decrypted tunnels use the same upgrade
+> code as plain http and "should work, but untested there", so first prove it with tests, then fix what
+> fails. Cases: ws:// through plain http, wss:// through an opaque tunnel (keep green), wss:// through a
+> decrypted tunnel [...] handshake headers pass, echo of text and binary frames, a large message (several
+> MiB) with flat memory, close from either side ends the flow and the access log records it (status 101,
+> bytes each way), a non-101 answer to an upgrade stays a normal response, and the decrypted keep-alive
+> connection is not reused after the upgrade. Also a headless Chrome check with a throwaway profile [...]
+
+Result: tests/w2_3_websocket.rs (six tests, all through `--test-decrypt`). The tests found one real bug:
+`copy_body` in `UntilClose` mode (the upgraded pipe, and until-close response bodies) never flushed, so
+with TLS on the browser or origin side the encrypted tail of a write that did not fit the socket buffer
+stayed pending, and a 32 MiB WebSocket message stalled short (about 1 run in 8; with the fix removed it
+fails again, with it 70+ runs pass). It now flushes after every chunk. The shared test helper `ws_write`
+also flushes now (its TLS tail had the same problem on the test side). Headless Chrome check (throwaway
+HOME/profile/NSS db with only the proxy CA): a wss page sent a text and a 2 MiB binary message, got both
+echoed, closed cleanly. NOTES.md updated.

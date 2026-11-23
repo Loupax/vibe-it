@@ -751,6 +751,11 @@ where
                     break Vec::new();
                 }
                 put(w, &buf[..got], ctr).await?;
+                // Flush every chunk: with TLS on `w` (decrypted tunnels) the encrypted tail of a write
+                // that did not fit in the socket buffer stays pending until a flush, and an upgraded
+                // connection may send nothing more for a long time (found by W2-3: a 32 MiB WebSocket
+                // message stalled ~16 KiB short).
+                flush(w).await?;
             }
         }
     };
