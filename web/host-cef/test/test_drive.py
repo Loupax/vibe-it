@@ -9,6 +9,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import drive  # noqa: E402
+import forget  # noqa: E402
 import fwd_proxy  # noqa: E402
 
 
@@ -54,6 +55,39 @@ class ProxyTargets(unittest.TestCase):
         for m, t in [("CONNECT", "example.com"), ("GET", "/a.html"), ("GET", "https://a.test/")]:
             with self.assertRaises(ValueError):
                 fwd_proxy.split_target(m, t)
+
+
+class ForgetChecks(unittest.TestCase):
+    FULL = {"server_cookie": "sid=a-secret; hsid=1; js=1", "cookie": "sid=a-secret; js=1", "ls": "v", "ss": "v",
+            "idb": ["db"], "caches": ["c"], "sw": 1, "http_cached": True}
+    EMPTY = {"server_cookie": "", "cookie": "", "ls": None, "ss": None, "idb": [], "caches": [], "sw": 0,
+             "http_cached": False}
+
+    def test_full(self):
+        self.assertEqual(forget.stored_everything(self.FULL, "a"), [])
+        self.assertEqual(len(forget.stored_nothing(self.FULL, "a")), 8)
+
+    def test_empty(self):
+        self.assertEqual(forget.stored_nothing(self.EMPTY, "a"), [])
+        self.assertEqual(len(forget.stored_everything(self.EMPTY, "a")), 9)
+
+    def test_http_cache_optional(self):
+        r = dict(self.FULL, http_cached=False)
+        self.assertEqual(forget.stored_everything(r, "a"), ["a: HTTP cache entry missing"])
+        self.assertEqual(forget.stored_everything(r, "a", http=False), [])
+        self.assertEqual(forget.stored_nothing(dict(self.EMPTY, http_cached=True), "a"), ["a: HTTP cache entry still there"])
+
+    def test_session_optional(self):
+        r = dict(self.EMPTY, ss="v")
+        self.assertEqual(forget.stored_nothing(r, "a"), ["a: sessionStorage still there"])
+        self.assertEqual(forget.stored_nothing(r, "a", session=False), [])
+        r = dict(self.FULL, ss=None)
+        self.assertEqual(forget.stored_everything(r, "a", session=False), [])
+
+    def test_switches(self):
+        s = forget.chromium_switches(4242)
+        self.assertIn("--host-resolver-rules=MAP *.test 127.0.0.1:4242", s)
+        self.assertIn("http://sub.site-a.test", s[1])
 
 
 if __name__ == "__main__":

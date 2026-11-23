@@ -41,6 +41,11 @@ pub enum Command {
     Zoom {
         factor: f64,
     },
+    /// Forget a site (STASH.md "Forget site"): `site` is a site, host or URL; its
+    /// registrable domain and every host under it are forgotten. Answered by `forgot`.
+    ForgetSite {
+        site: String,
+    },
     Quit,
 }
 
@@ -62,6 +67,13 @@ pub enum LoadKind {
     Reload,
     Traverse,
     SameDocument,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ForgetResult {
+    Ok,
+    Partial,
 }
 
 /// host -> shell.
@@ -123,6 +135,19 @@ pub enum Event {
         tab: TabId,
         reason: String,
     },
+    /// The answer to `forget-site`. `site`: the argument as the shell sent it;
+    /// `domain`: the registrable domain that was forgotten (with every host under it);
+    /// `result`: `ok`, or `partial` with `failed` naming what could not be cleared;
+    /// `cookies`: cookies deleted; `origins`: origins whose storage was cleared.
+    Forgot {
+        site: String,
+        domain: String,
+        result: ForgetResult,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        failed: Vec<String>,
+        cookies: u32,
+        origins: Vec<String>,
+    },
     /// A command line the host could not use (not JSON, unknown command, bad value).
     Error {
         message: String,
@@ -169,6 +194,10 @@ pub fn event_text(ev: &Event) -> String {
         Event::EditableFocused { tab, focused } => format!("editable-focused {tab} {focused}"),
         Event::FindResult { tab, index, count } => format!("find-result {tab} {index} {count}"),
         Event::Crashed { tab, reason } => format!("crashed {tab} ({reason})"),
+        Event::Forgot { site, result, failed, .. } => match result {
+            ForgetResult::Ok => format!("forgot {site} ok"),
+            ForgetResult::Partial => format!("forgot {site} partial {}", failed.join(",")),
+        },
         Event::Error { message } => format!("error {message}"),
     }
 }
@@ -223,9 +252,13 @@ pub struct HostOptions {
     pub profile: Option<String>,
     pub url: Option<String>,
     pub downloads: Option<String>,
+    /// `--forget-site <site>`: forget it at start (with `--no-window`: and exit).
+    pub forget_site: Option<String>,
+    /// `--no-window`: show no page; only with `--forget-site`.
+    pub no_window: bool,
 }
 
-const HOST_OPTS: [&str; 5] = ["control", "proxy", "profile", "url", "downloads"];
+const HOST_OPTS: [&str; 6] = ["control", "proxy", "profile", "url", "downloads", "forget-site"];
 
 /// Rewrites `--opt value` to `--opt=value` for the host's own options, so Chromium's
 /// command-line parser (which only knows `--opt=value`) does not see `value` as a
@@ -256,6 +289,10 @@ pub fn normalize_argv(argv: &[String]) -> Result<Vec<String>, String> {
 pub fn host_options(argv: &[String]) -> Result<HostOptions, String> {
     let mut o = HostOptions::default();
     for a in argv.iter().skip(1) {
+        if a == "--no-window" {
+            o.no_window = true;
+            continue;
+        }
         let Some((name, value)) = a.strip_prefix("--").and_then(|s| s.split_once('=')) else {
             continue;
         };
@@ -265,6 +302,7 @@ pub fn host_options(argv: &[String]) -> Result<HostOptions, String> {
             "profile" => &mut o.profile,
             "url" => &mut o.url,
             "downloads" => &mut o.downloads,
+            "forget-site" => &mut o.forget_site,
             _ => continue,
         };
         if value.is_empty() {
@@ -274,6 +312,12 @@ pub fn host_options(argv: &[String]) -> Result<HostOptions, String> {
     }
     if let Some(p) = &o.proxy {
         o.proxy = Some(check_proxy(p)?);
+    }
+    if let Some(site) = &o.forget_site {
+        forget_domain(site).map_err(|e| format!("--forget-site: {e}"))?;
+    }
+    if o.no_window && o.forget_site.is_none() {
+        return Err("--no-window needs --forget-site (there is nothing else to do without a window)".into());
     }
     Ok(o)
 }
@@ -292,6 +336,138 @@ pub fn check_proxy(p: &str) -> Result<String, String> {
         return Err(bad());
     }
     Ok(hp.to_string())
+}
+
+// ---- forget-site: which hosts and origins a site covers (STASH.md "Forget site").
+
+/// Common multi-label public suffixes. COPY of scratchy's `MULTI_SUFFIXES`
+/// (scratchy/src/net_policy.rs, itself a copy of wire's). Not the full Public Suffix
+/// List: a missing suffix makes `forget-site` coarser (every sibling site under that
+/// suffix is forgotten too), never finer.
+#[rustfmt::skip]
+const MULTI_SUFFIXES: &[&str] = &[
+    "co.uk", "org.uk", "ac.uk", "gov.uk", "me.uk", "ltd.uk", "plc.uk", "net.uk", "sch.uk", "com.au", "net.au", "org.au",
+    "edu.au", "gov.au", "asn.au", "id.au", "co.nz", "org.nz", "net.nz", "govt.nz", "ac.nz", "co.jp", "ne.jp", "or.jp",
+    "ac.jp", "go.jp", "com.br", "net.br", "org.br", "gov.br", "com.cn", "net.cn", "org.cn", "gov.cn", "edu.cn", "co.in",
+    "net.in", "org.in", "ac.in", "gov.in", "co.za", "org.za", "com.mx", "com.ar", "com.tr", "com.tw", "com.hk", "com.sg",
+    "co.kr", "or.kr", "co.il", "com.ua", "com.pl", "co.id", "com.my", "com.ph", "com.vn", "com.co", "com.pe", "com.ng",
+    "co.th", "com.eg", "com.sa", "github.io", "gitlab.io", "herokuapp.com", "blogspot.com", "appspot.com", "netlify.app",
+    "vercel.app", "pages.dev", "workers.dev", "cloudfront.net", "s3.amazonaws.com", "azurewebsites.net", "web.app",
+    "firebaseapp.com", "myshopify.com", "wordpress.com", "fly.dev", "onrender.com",
+];
+
+/// eTLD+1 of a lowercase host, as scratchy's `registrable_domain`. An IP address or a
+/// single-label host is its own site.
+pub fn registrable_domain(host: &str) -> String {
+    if host.parse::<std::net::IpAddr>().is_ok() || !host.contains('.') {
+        return host.to_string();
+    }
+    let labels: Vec<&str> = host.split('.').collect();
+    for i in 0..labels.len() {
+        let suffix = labels[i..].join(".");
+        if !suffix.contains('.') || MULTI_SUFFIXES.contains(&suffix.as_str()) {
+            return if i == 0 { host.to_string() } else { labels[i - 1..].join(".") };
+        }
+    }
+    host.to_string()
+}
+
+/// The authority part of `scheme://authority/...` (or of a bare `host[:port]/...`),
+/// lowercased, without userinfo. Err for a scheme other than http(s).
+fn authority_of(input: &str) -> Result<String, String> {
+    let s = input.trim();
+    let rest = match s.split_once("://") {
+        Some((scheme, rest)) => {
+            let scheme = scheme.to_ascii_lowercase();
+            if scheme != "http" && scheme != "https" {
+                return Err(format!("{s:?}: only http and https sites can be forgotten"));
+            }
+            rest
+        }
+        None => s,
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let authority = authority.rsplit_once('@').map(|(_, h)| h).unwrap_or(authority);
+    Ok(authority.to_ascii_lowercase())
+}
+
+/// The host of an authority (`host`, `host:port`, `[v6]:port`), checked.
+fn host_of_authority(authority: &str) -> Option<String> {
+    let host = if let Some(v6) = authority.strip_prefix('[') {
+        v6.split(']').next().unwrap_or("").to_string()
+    } else {
+        authority.split(':').next().unwrap_or("").to_string()
+    };
+    let host = host.trim_end_matches('.').to_string();
+    let ok_char = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_' | ':');
+    if host.is_empty() || !host.chars().all(ok_char) || host.starts_with('.') || host.contains("..") {
+        return None;
+    }
+    Some(host)
+}
+
+/// The registrable domain `forget-site <arg>` forgets: `https://mail.example.co.uk/x`
+/// -> `example.co.uk`; `example.com` -> `example.com`. Both schemes go (cookies do not
+/// keep the scheme apart either).
+pub fn forget_domain(arg: &str) -> Result<String, String> {
+    let host = host_of_authority(&authority_of(arg)?).ok_or_else(|| format!("{:?} is not a site, host or http(s) URL", arg.trim()))?;
+    if MULTI_SUFFIXES.contains(&host.as_str()) || (!host.contains('.') && host.parse::<std::net::IpAddr>().is_err() && host != "localhost")
+    {
+        return Err(format!("{:?} is a top-level domain or public suffix, not a site", arg.trim()));
+    }
+    Ok(registrable_domain(&host))
+}
+
+/// `host` is `domain` or a host under it. A cookie domain may start with a dot.
+pub fn host_in_site(host: &str, domain: &str) -> bool {
+    let h = host.trim_start_matches('.').trim_end_matches('.').to_ascii_lowercase();
+    h == domain || h.strip_suffix(domain).map(|p| p.ends_with('.')).unwrap_or(false)
+}
+
+/// The origin (`scheme://host[:port]`, default port left out) and host of an http(s)
+/// URL; None for other schemes.
+pub fn origin_of(url: &str) -> Option<(String, String)> {
+    let (scheme, _) = url.split_once("://")?;
+    let scheme = scheme.to_ascii_lowercase();
+    let authority = authority_of(url).ok()?;
+    let host = host_of_authority(&authority)?;
+    let default_port = if scheme == "http" { ":80" } else { ":443" };
+    let authority = authority.strip_suffix(default_port).unwrap_or(&authority);
+    Some((format!("{scheme}://{authority}"), host))
+}
+
+/// The origins whose storage `forget-site` clears for `domain`: the origins the host
+/// recorded (frames it loaded) that are under the site, plus http and https of the
+/// domain itself, its `www.` and every host a cookie of the site names. Sorted.
+pub fn forget_origins<'a>(
+    domain: &str,
+    recorded: impl IntoIterator<Item = &'a String>,
+    cookie_hosts: impl IntoIterator<Item = &'a String>,
+) -> Vec<String> {
+    let mut out = std::collections::BTreeSet::new();
+    for o in recorded {
+        if let Some((origin, host)) = origin_of(o) {
+            if host_in_site(&host, domain) {
+                out.insert(origin);
+            }
+        }
+    }
+    let mut hosts = vec![domain.to_string()];
+    if domain.parse::<std::net::IpAddr>().is_err() {
+        hosts.push(format!("www.{domain}"));
+    }
+    hosts.extend(
+        cookie_hosts
+            .into_iter()
+            .map(|h| h.trim_start_matches('.').to_ascii_lowercase())
+            .filter(|h| host_in_site(h, domain)),
+    );
+    for h in hosts {
+        let h = if h.contains(':') { format!("[{h}]") } else { h };
+        out.insert(format!("http://{h}"));
+        out.insert(format!("https://{h}"));
+    }
+    out.into_iter().collect()
 }
 
 #[cfg(test)]
@@ -562,5 +738,143 @@ mod tests {
         for bad in ["proxy.test", ":80", "a:0", "a:99999", "socks5://a:1080", "a:1;b:2", "a:1,b:2"] {
             assert!(check_proxy(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn forget_site_command_and_event() {
+        assert_eq!(
+            parse_command(r#"{"cmd":"forget-site","site":"https://mail.example.com/x"}"#).unwrap(),
+            Command::ForgetSite {
+                site: "https://mail.example.com/x".into()
+            }
+        );
+        assert!(parse_command(r#"{"cmd":"forget-site"}"#).is_err());
+        let ok = Event::Forgot {
+            site: "example.com".into(),
+            domain: "example.com".into(),
+            result: ForgetResult::Ok,
+            failed: vec![],
+            cookies: 2,
+            origins: vec!["http://example.com".into(), "https://example.com".into()],
+        };
+        let line = encode_event(&ok);
+        assert_eq!(
+            line,
+            r#"{"event":"forgot","site":"example.com","domain":"example.com","result":"ok","cookies":2,"origins":["http://example.com","https://example.com"]}"#
+        );
+        assert_eq!(serde_json::from_str::<Event>(&line).unwrap(), ok);
+        assert_eq!(event_text(&ok), "forgot example.com ok");
+        let partial = Event::Forgot {
+            site: "https://a.test/".into(),
+            domain: "a.test".into(),
+            result: ForgetResult::Partial,
+            failed: vec!["storage https://a.test (timeout)".into(), "http-cache".into()],
+            cookies: 0,
+            origins: vec![],
+        };
+        let line = encode_event(&partial);
+        assert!(
+            line.contains(r#""result":"partial","failed":["storage https://a.test (timeout)","http-cache"]"#),
+            "{line}"
+        );
+        assert_eq!(serde_json::from_str::<Event>(&line).unwrap(), partial);
+        assert_eq!(
+            event_text(&partial),
+            "forgot https://a.test/ partial storage https://a.test (timeout),http-cache"
+        );
+    }
+
+    #[test]
+    fn forget_domains() {
+        for (arg, want) in [
+            ("example.com", "example.com"),
+            ("https://mail.example.co.uk/x?y#z", "example.co.uk"),
+            ("HTTP://User@Sub.Example.COM:8080/", "example.com"),
+            ("sub.site-a.test", "site-a.test"),
+            ("site-a.test.", "site-a.test"),
+            ("me.github.io", "me.github.io"),
+            ("x.me.github.io/a", "me.github.io"),
+            ("127.0.0.1:8000", "127.0.0.1"),
+            ("http://[::1]:80/", "::1"),
+            ("localhost", "localhost"),
+        ] {
+            assert_eq!(forget_domain(arg).as_deref(), Ok(want), "{arg}");
+        }
+        for bad in [
+            "",
+            "com",
+            "co.uk",
+            "github.io",
+            "ftp://example.com",
+            "file:///etc",
+            "exa mple.com",
+            ".com",
+            "a..b",
+            "https:///x",
+        ] {
+            assert!(forget_domain(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn hosts_in_site() {
+        assert!(host_in_site("example.com", "example.com"));
+        assert!(host_in_site(".example.com", "example.com"));
+        assert!(host_in_site("a.b.EXAMPLE.com", "example.com"));
+        assert!(!host_in_site("badexample.com", "example.com"));
+        assert!(!host_in_site("example.com.evil.test", "example.com"));
+        assert!(!host_in_site("com", "example.com"));
+    }
+
+    #[test]
+    fn origins() {
+        assert_eq!(origin_of("https://a.test/x"), Some(("https://a.test".into(), "a.test".into())));
+        assert_eq!(origin_of("https://a.test:443/x"), Some(("https://a.test".into(), "a.test".into())));
+        assert_eq!(
+            origin_of("http://A.test:8080/#f"),
+            Some(("http://a.test:8080".into(), "a.test".into()))
+        );
+        assert_eq!(origin_of("http://[::1]:80/"), Some(("http://[::1]".into(), "::1".into())));
+        assert_eq!(origin_of("about:blank"), None);
+        assert_eq!(origin_of("data:text/html,x"), None);
+        assert_eq!(origin_of("chrome://version"), None);
+
+        let rec: Vec<String> = [
+            "https://sub.site-a.test",
+            "http://site-a.test:8080",
+            "https://site-b.test",
+            "https://xsite-a.test",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let cookies: Vec<String> = [".login.site-a.test", "site-b.test"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(
+            forget_origins("site-a.test", &rec, &cookies),
+            vec![
+                "http://login.site-a.test",
+                "http://site-a.test",
+                "http://site-a.test:8080",
+                "http://www.site-a.test",
+                "https://login.site-a.test",
+                "https://site-a.test",
+                "https://sub.site-a.test",
+                "https://www.site-a.test",
+            ]
+        );
+        assert_eq!(forget_origins("127.0.0.1", &[], &[]), vec!["http://127.0.0.1", "https://127.0.0.1"]);
+    }
+
+    #[test]
+    fn forget_options() {
+        let n = normalize_argv(&s(&["h", "--profile", "/p", "--forget-site", "a.test", "--no-window"])).unwrap();
+        assert_eq!(n, s(&["h", "--profile=/p", "--forget-site=a.test", "--no-window"]));
+        let o = host_options(&n).unwrap();
+        assert_eq!(o.forget_site.as_deref(), Some("a.test"));
+        assert!(o.no_window);
+        assert!(host_options(&s(&["h", "--no-window"])).is_err());
+        assert!(host_options(&s(&["h", "--forget-site=com"])).is_err());
+        assert!(normalize_argv(&s(&["h", "--forget-site"])).is_err());
+        assert!(!host_options(&s(&["h", "--forget-site=a.test"])).unwrap().no_window);
     }
 }

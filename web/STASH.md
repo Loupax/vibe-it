@@ -47,28 +47,32 @@ Neither is exactly scratchy's partitioning; the item is P-COOKIES in TODO.txt.
 part of the engine-host interface, so every engine host implements it and the shell
 does not know how.
 
-- **Site** = scheme + registrable domain (eTLD+1) of the argument, as scratchy's
-  `site_of`: `https://mail.example.co.uk/x` forgets `https://example.co.uk` and all its
-  subdomains.
+- **Site** = registrable domain (eTLD+1) of the argument, as scratchy's `site_of`:
+  `https://mail.example.co.uk/x` forgets `example.co.uk` and all its subdomains.
+  **web:** both http and https (P-FORGET; cookies do not keep the schemes apart
+  either), so the scheme of the argument does not matter.
 - **What goes:** every cookie whose domain is the site or under it, and the storage of
   every origin under it: localStorage, sessionStorage, IndexedDB, Cache Storage, service
   workers, the HTTP cache entries. History is not touched (as in scratchy).
 - **Protocol** (C1's control socket): shell->host `forget-site <site>`; host->shell
   `forgot <site> ok`, or `forgot <site> partial <what failed>` (one line, logged and
   shown in the status bar). Open tabs of that site are reloaded afterwards by the shell.
+  Details and limits: PROTOCOL.md "forget-site".
 - **Who runs it:** an engine locks its profile, so a second host on the same profile
   cannot start. If a web instance runs, `web --forget-site` sends the command to its host
   (through the shell's socket); if none runs, it starts the host with
   `--no-window` for that one command and exits.
-- **Per engine** (to check in the item):
-  - CEF has no per-site wipe in its API. Cookies: `CefCookieManager::VisitAllCookies`,
-    delete those whose domain matches. Storage: `Storage.clearDataForOrigin` through
-    `ExecuteDevToolsMethod` for each origin under the site; the origins come from the
-    host's own list of origins it has loaded (kept in its profile directory), since the
-    API cannot list them. Check that `ExecuteDevToolsMethod` sets no automation flag.
+- **Per engine:**
+  - CEF (P-FORGET, done; user 2026-11-23: "use Storage.clearDataForOrigin"):
+    - Cookies: `CefCookieManager::VisitAllCookies`, deleting those under the site.
+    - Storage: `Storage.clearDataForOrigin` (`all`) through `ExecuteDevToolsMethod`,
+      in process, on a hidden browser, for each origin. The origins come from the
+      host's record of the origins it loaded plus the cookie hosts.
+    - HTTP cache: cleared whole; no per-site removal is reachable.
+    - Details: PROTOCOL.md "What every engine host implements".
   - WebKitGTK: `webkit_website_data_manager_fetch` returns records grouped by
     registrable domain; `webkit_website_data_manager_remove` those of the site, all
-    data types.
+    data types (the same `SiteForgetter` contract, PROTOCOL.md).
 
 ## History
 
