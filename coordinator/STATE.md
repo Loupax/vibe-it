@@ -406,3 +406,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Launched QWPT7b.
 - 2026-11-23 Merged #634 W-POOL3 0542efc.
 - 2026-11-23 #635 QWPT7b READY (App pointer/click/dblclick/auxclick/contextmenu/keypress; no native context menu), merging. Launched QGEOM2.
+- 2026-11-23 Merged #635 QWPT7b 52a3995. Reinstalling.

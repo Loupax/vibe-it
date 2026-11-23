@@ -39,8 +39,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       pointer-events on inline spans, SVG-only pointer-events values (bounding-box, visibleFill), accesskey in shadow trees.
 - [ ] QWPT7d [S] (P3, from QWPT7a #617; Sonnet) `document.activeElement` is `body` during a blur handler (today already
       the new element); `change` on a text control fires before the script-fired blur (today at the App's later catch-up).
-- [ ] [WIP] QWPT7b [S] (P3, from QWPT7 #611; Sonnet; app.rs) The App fires what the headless driver fires: pointerdown/pointerup,
-      `detail` click counts, dblclick, auxclick, contextmenu, keypress outside text controls.
 - [ ] QWPT9 [S] (P3; Sonnet; wire; user Q8 2026-11-21: LATER, with fetch, after QWPT8; never for any other host) https tests: wire trusts WPT's test CA for
       *.web-platform.test only; add .https. tests.
 - [ ] QEL1a [S] (P2, from QEL1 #510; Sonnet; perf.rs --perf-report) Explain the YouTube results-page headless cost

@@ -9648,3 +9648,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QWPTFLK5 DONE cb6c9b0 #632 [S] (P3, from QCNV5 #624; Sonnet; wptserve shard) fetch/api/basic/request-upload.any.html failed once on CI
       ("subtest was passing") and passed on a job re-run with no change. Find the cause (upload timing through wire?
       wptserve?) and fix it, or flaky-list it with the reason.
+
+=== from TODO.txt: --- (no header)
+- [x] QWPT7b DONE 52a3995 #635 [S] (P3, from QWPT7 #611; Sonnet; app.rs) The App fires what the headless driver fires: pointerdown/pointerup,
+      `detail` click counts, dblclick, auxclick, contextmenu, keypress outside text controls.
