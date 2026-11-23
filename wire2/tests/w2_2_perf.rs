@@ -29,7 +29,10 @@ async fn drain<R: AsyncRead + Unpin>(r: &mut R, pre: usize) -> u64 {
     }
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+/// The origin runs on its own thread and runtime and the client on the test's single-threaded runtime,
+/// so "direct" always has origin and client on two cores (with both in one multi-threaded runtime,
+/// tokio sometimes ran them on one worker and the baseline jumped between ~1.7 and ~3.1 GiB/s).
+#[tokio::test(flavor = "current_thread")]
 #[ignore]
 async fn perf_decrypted_throughput_vs_direct() {
     let n: u64 = std::env::var("W2_PERF_BYTES")
@@ -39,7 +42,23 @@ async fn perf_decrypted_throughput_vs_direct() {
     let pki = pki();
     let roots = root_file(&pki);
     let acceptor = tokio_rustls::TlsAcceptor::from(pki.server.clone());
-    let origin = serve("127.0.0.1:0", move |s| {
+    let (addr_tx, addr_rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async move {
+            addr_tx.send(origin_server(acceptor, n).await).unwrap();
+            std::future::pending::<()>().await
+        });
+    });
+    let origin = addr_rx.recv().unwrap();
+    measure(n, &pki, roots.path(), origin).await;
+}
+
+async fn origin_server(acceptor: tokio_rustls::TlsAcceptor, n: u64) -> std::net::SocketAddr {
+    serve("127.0.0.1:0", move |s| {
         let acceptor = acceptor.clone();
         async move {
             let Ok(mut s) = acceptor.accept(s).await else {
@@ -61,7 +80,10 @@ async fn perf_decrypted_throughput_vs_direct() {
             let _ = s.shutdown().await;
         }
     })
-    .await;
+    .await
+}
+
+async fn measure(n: u64, pki: &Pki, roots: &std::path::Path, origin: std::net::SocketAddr) {
     let proxy = Proxy::start_env(
         &[
             "--test-resolve",
@@ -69,7 +91,7 @@ async fn perf_decrypted_throughput_vs_direct() {
             "--test-decrypt",
             HOST,
         ],
-        &[("SSL_CERT_FILE", roots.path())],
+        &[("SSL_CERT_FILE", roots)],
     );
     let browser = client_trusting(&ca_pem(&proxy));
     let target = format!("{HOST}:{}", origin.port());

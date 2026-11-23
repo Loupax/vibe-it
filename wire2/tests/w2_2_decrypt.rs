@@ -334,7 +334,11 @@ async fn bad_upstream_certificate_is_502() {
     let browser = client_trusting(&ca_pem(&proxy));
     for (host, port, why) in [
         (HOST, untrusted.port(), "invalid peer certificate"),
-        ("other.example.test", wrong_name.port(), "not valid for name"),
+        (
+            "other.example.test",
+            wrong_name.port(),
+            "not valid for name",
+        ),
     ] {
         let target = format!("{host}:{port}");
         let mut tls = tls_via(proxy.addr(), &target, host, browser.clone())

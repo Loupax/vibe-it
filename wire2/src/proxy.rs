@@ -769,6 +769,171 @@ where
     w.shutdown().await.map_err(CopyError::Dst)
 }
 
+/// Buffers in flight between the two halves of [`pipelined_body`] (at most this many x [`COPY_BUF`]).
+const PIPE_DEPTH: usize = 4;
+
+/// An `AsyncWrite` that hands each write to a bounded channel (backpressure: it waits for a slot).
+///
+/// Before each chunk it yields once (wakes itself and returns `Pending`). Why: the receiving task,
+/// woken by our send, sits in tokio's per-worker LIFO slot, which other workers cannot steal, so the
+/// two halves of [`pipelined_body`] would ping-pong on one thread (measured: every sample of a
+/// decrypted transfer on one worker). A self-woken task is requeued on the stealable local queue and
+/// an idle worker is notified, so the halves end up on two cores. (`disable_lifo_slot` would do this
+/// globally but needs `tokio_unstable`.)
+struct ChanWriter {
+    tx: tokio_util::sync::PollSender<Vec<u8>>,
+    yielded: bool,
+    /// Buffers the writing half has finished with, reused instead of allocating per chunk.
+    spare: Spare,
+}
+
+/// At most `PIPE_DEPTH` + 1 recycled chunk buffers; the lock is held only to push or pop.
+type Spare = Arc<std::sync::Mutex<Vec<Vec<u8>>>>;
+
+impl AsyncWrite for ChanWriter {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<io::Result<usize>> {
+        let me = self.get_mut();
+        if !me.yielded {
+            me.yielded = true;
+            cx.waker().wake_by_ref();
+            return std::task::Poll::Pending;
+        }
+        let closed = || io::Error::from(io::ErrorKind::BrokenPipe);
+        std::task::ready!(me.tx.poll_reserve(cx)).map_err(|_| closed())?;
+        let mut chunk = me
+            .spare
+            .lock()
+            .ok()
+            .and_then(|mut v| v.pop())
+            .unwrap_or_default();
+        chunk.clear();
+        chunk.extend_from_slice(buf);
+        me.tx.send_item(chunk).map_err(|_| closed())?;
+        me.yielded = false;
+        std::task::Poll::Ready(Ok(buf.len()))
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        self.get_mut().tx.close();
+        std::task::Poll::Ready(Ok(()))
+    }
+}
+
+/// A reader that, once it has data, keeps reading while more is immediately available, up to the
+/// caller's buffer. tokio-rustls hands out one TLS record (<= 16 KiB) per read; coalescing makes each
+/// hop of [`pipelined_body`] carry up to [`COPY_BUF`] for one cross-thread wakeup. An error after some
+/// data is kept for the next call.
+struct Coalesce<R> {
+    inner: R,
+    err: Option<io::Error>,
+}
+
+impl<R: AsyncRead + Unpin> AsyncRead for Coalesce<R> {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        use std::task::Poll;
+        let me = self.get_mut();
+        if let Some(e) = me.err.take() {
+            return Poll::Ready(Err(e));
+        }
+        let start = buf.filled().len();
+        std::task::ready!(std::pin::Pin::new(&mut me.inner).poll_read(cx, buf))?;
+        loop {
+            let before = buf.filled().len();
+            if before == start || buf.remaining() == 0 {
+                break;
+            }
+            match std::pin::Pin::new(&mut me.inner).poll_read(cx, buf) {
+                Poll::Ready(Ok(())) if buf.filled().len() > before => {}
+                Poll::Ready(Err(e)) => {
+                    me.err = Some(e);
+                    break;
+                }
+                // Pending (the waker stays registered; a spurious wake-up later is harmless) or EOF,
+                // which the next call reports again.
+                _ => break,
+            }
+        }
+        Poll::Ready(Ok(()))
+    }
+}
+
+/// Aborts a spawned task when dropped (the flow ended or was cancelled first).
+struct AbortOnDrop(tokio::task::AbortHandle);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+/// Copy a response body in two halves that run on different worker threads: a spawned task reads (for
+/// TLS: decrypts) and frames it, this task writes (for TLS: encrypts) to the browser. With one task
+/// doing both, a decrypted transfer is bounded by decrypt + encrypt on one core (measured 47 % of
+/// direct TLS); split, the two overlap. At most [`PIPE_DEPTH`] buffers are in flight, so memory
+/// stays flat.
+async fn pipelined_body<UR, BW>(
+    ur: UR,
+    bw: &mut BW,
+    framing: Framing,
+    pre: Vec<u8>,
+    down: &AtomicU64,
+) -> Result<(), CopyError>
+where
+    UR: AsyncRead + Unpin + Send + 'static,
+    BW: AsyncWrite + Unpin,
+{
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(PIPE_DEPTH);
+    let spare: Spare = Arc::default();
+    let spare_w = spare.clone();
+    let reader = tokio::spawn(async move {
+        let mut ur = Coalesce {
+            inner: ur,
+            err: None,
+        };
+        let mut w = ChanWriter {
+            tx: tokio_util::sync::PollSender::new(tx),
+            yielded: false,
+            spare: spare_w,
+        };
+        let ctr = AtomicU64::new(0);
+        copy_body(&mut ur, &mut w, framing, &pre, &ctr)
+            .await
+            .map(drop)
+    });
+    let _guard = AbortOnDrop(reader.abort_handle());
+    while let Some(chunk) = rx.recv().await {
+        put(bw, &chunk, down).await?;
+        if let Ok(mut v) = spare.lock()
+            && v.len() <= PIPE_DEPTH
+        {
+            v.push(chunk);
+        }
+    }
+    flush(bw).await?;
+    match reader.await {
+        Ok(r) => r,
+        Err(e) => Err(CopyError::Src(io::Error::other(e.to_string()))),
+    }
+}
+
 enum Response {
     Final(http::ResponseHead, Vec<u8>),
     Upgrade(http::ResponseHead, Vec<u8>),
@@ -790,7 +955,7 @@ async fn exchange<BR, BW, UR, UW>(
 where
     BR: AsyncRead + Unpin,
     BW: AsyncWrite + Unpin,
-    UR: AsyncRead + Unpin,
+    UR: AsyncRead + Unpin + Send + 'static,
     UW: AsyncWrite + Unpin,
 {
     let up_head = http::write_request_head(&req.method, &req.path, &req.headers);
@@ -925,7 +1090,7 @@ where
     crate::debug!("flow={} <- {} (body {rframing:?})", flow.id, rh.code);
 
     let r = {
-        let mut body = pin!(copy_body(&mut ur, bw, rframing, &rbuf, &flow.down));
+        let mut body = pin!(pipelined_body(ur, bw, rframing, rbuf, &flow.down));
         loop {
             tokio::select! {
                 r = &mut send, if sent.is_none() => {
