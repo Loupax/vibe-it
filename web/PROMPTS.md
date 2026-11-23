@@ -44,3 +44,15 @@ Views window and loads `--url`; `run.sh` starts it in a 6G memory-capped systemd
 with a throwaway profile; README.md has the fetch/build/run commands and what W1
 learned (process model, sandbox, Chromium moving itself out of the scope, startup, RSS).
 example.com and en.wikipedia.org load on Wayland and X11 (nested dwl and its Xwayland).
+
+## W2 Empty network namespace (2026-11-23)
+
+> W2 Empty network namespace (coordinator launch of web/TODO.txt W2)
+
+**What changed:** `web/spike/run.sh` now starts the binary as `systemd-run ... unshare -n
+--map-user=$UID --map-group=$GID env ... web-spike` (the scope wraps the namespace), so the
+whole CEF tree runs with only a down `lo`; `--net` opts out. Plain `unshare -rn` maps us to
+uid 0 and Chromium then refuses to start without `--no-sandbox`, hence the uid-preserving map.
+Chromium's sandbox stays ON. example.com and en.wikipedia.org fail with
+`ERR_INTERNET_DISCONNECTED` ~100-200 ms after the browser is created, nothing crashes, the
+window shows (Wayland and X11, nested dwl). README.md has the evidence and findings.
