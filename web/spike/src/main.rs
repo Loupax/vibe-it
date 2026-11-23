@@ -34,9 +34,14 @@ macro_rules! log {
     ($($a:tt)*) => { eprintln!("[web-spike +{}ms] {}", crate::ms(), format!($($a)*)) };
 }
 
+mod bypass;
 mod download;
 mod handler;
+mod proxy;
 mod wire;
+
+/// W6: the loopback proxy's port and the SPKI hash of its TLS key (None: no proxy).
+static PROXY: OnceLock<Option<(u16, Option<String>)>> = OnceLock::new();
 
 /// Turns what the user typed into a URL CEF can load: no scheme means https.
 fn normalize_url(input: &str) -> String {
@@ -267,13 +272,26 @@ wrap_browser_process_handler! {
             let cmd = command_line_get_global().expect("no global command line");
             let url = normalize_url(&switch(&cmd, "url"));
             log!("context initialized, opening {url}");
+            if bypass::enabled() {
+                bypass::set_prefs();
+            }
+            // W6: a request context sharing the global one's storage (cookies, cache) but
+            // with a handler, so requests that have no browser (service workers) are also
+            // answered from wire.
+            let mut ctx = if std::env::var("WEB_SPIKE_CTX").is_ok_and(|v| v == "0") {
+                None
+            } else {
+                request_context_get_global_context()
+                    .and_then(|mut g| request_context_cef_create_context_shared(Some(&mut g), Some(&mut handler::SpikeContextHandler::new())))
+            };
+            log!("request context with handler: {}", ctx.is_some());
             let mut client = Some(SpikeClient::new());
             let browser_view = browser_view_create(
                 client.as_mut(),
                 Some(&CefString::from(url.as_str())),
                 Some(&BrowserSettings::default()),
                 None,
-                None,
+                ctx.as_mut(),
                 Some(&mut SpikeBrowserViewDelegate::new()),
             );
             let mut d = SpikeWindowDelegate::new(RefCell::new(browser_view));
@@ -286,6 +304,14 @@ wrap_app! {
     struct SpikeApp {}
 
     impl App {
+        fn on_before_command_line_processing(&self, process_type: Option<&CefString>, command_line: Option<&mut CommandLine>) {
+            // Browser process only (helpers get what they need from it).
+            let browser = process_type.map(|t| t.to_string().is_empty()).unwrap_or(true);
+            if let (true, true, Some(cmd)) = (browser, bypass::enabled(), command_line) {
+                bypass::add_switches(cmd, PROXY.get().cloned().flatten());
+            }
+        }
+
         fn browser_process_handler(&self) -> Option<BrowserProcessHandler> {
             Some(SpikeBrowserProcessHandler::new())
         }
@@ -318,7 +344,32 @@ fn main() {
         Some(s) => log!("answering http(s) from wire at {s}"),
         None => log!("WEB_SPIKE_WIRE unset: no interception (requests fail inside the namespace)"),
     }
-    handler::WIRE_SOCKET.get_or_init(|| wire);
+    handler::WIRE_SOCKET.get_or_init(|| wire.clone());
+    // W6: WebSockets (and anything else Chromium's network stack tries itself) go to a
+    // proxy on the namespace's loopback, which hands WebSockets to wire.
+    PROXY.get_or_init(|| {
+        if !bypass::enabled() || std::env::var("WEB_SPIKE_PROXY").is_ok_and(|v| v == "0") {
+            return None;
+        }
+        let tls = match proxy::Tls::new() {
+            Ok(t) => Some(std::sync::Arc::new(t)),
+            Err(e) => {
+                log!("proxy: no TLS identity ({e}); wss: will be refused");
+                None
+            }
+        };
+        let spki = tls.as_ref().map(|t| t.spki_sha256.clone());
+        match proxy::start(wire.clone(), tls) {
+            Ok(port) => {
+                log!("proxy on 127.0.0.1:{port} (WebSockets -> wire), TLS key spki {}", spki.as_deref().unwrap_or("-"));
+                Some((port, spki))
+            }
+            Err(e) => {
+                log!("proxy: cannot listen on 127.0.0.1 ({e}); is lo up in the namespace? WebSockets will fail");
+                None
+            }
+        }
+    });
     if let Some(ms) = std::env::var("WEB_SPIKE_REPORT_MS").ok().and_then(|v| v.parse::<u64>().ok()) {
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(ms));

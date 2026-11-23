@@ -12,3 +12,9 @@ cef = { version = "=156.7.0", default-features = false }
 # Direct dependency only so build.rs gets DEP_CEF_DLL_WRAPPER_CEF_DIR and runs
 # after cef-dll-sys's build script (which downloads CEF).
 cef-dll-sys = "=156.7.0"
+# W6: the loopback proxy inside the namespace terminates Chromium's TLS for wss://
+# (one ephemeral key, per-host self-signed certs, trusted via its SPKI hash) and hands
+# the WebSocket handshake to wire's upgrade pipe, so wire keeps doing the real TLS.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rcgen = { version = "0.13", default-features = false, features = ["ring", "crypto"] }
+ring = "0.17"

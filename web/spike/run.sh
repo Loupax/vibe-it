@@ -44,7 +44,21 @@ WRAP=()
 # unshare -r maps us to root in a new user namespace (needed to create the net namespace
 # unprivileged); -n gives an empty one (only a DOWN `lo`). File-path sockets (D-Bus session
 # bus, Wayland, X11) still work across network namespaces.
-[ "$NETNS" = 1 ] && WRAP=(unshare -n --map-user="$(id -u)" --map-group="$(id -g)")
+# W6: inside the namespace, before the binary starts (still with the namespace's caps,
+# --keep-caps), a small shell
+# - brings `lo` up: the spike's WebSocket proxy listens on 127.0.0.1 there (only the CEF
+#   tree can reach it; it talks to wire over the Unix socket);
+# - hides the host's name-resolution sockets in a private mount namespace (-m):
+#   systemd-resolved's varlink socket (glibc's nss-resolve reaches it by path, so
+#   getaddrinfo() inside an EMPTY network namespace still resolved names, i.e. DNS
+#   queries left through the host) and avahi's (mDNS for .local);
+# - drops every capability (setpriv) and execs the rest as our own uid.
+NSINIT='ip link set lo up || exit 1
+for d in ${W6_NOMOUNT:+/nonexistent} ${W6_NOMOUNT:-/run/systemd/resolve /run/avahi-daemon /var/run/nscd}; do
+  [ -d "$d" ] && { mount -t tmpfs -o size=4k,mode=0755 none "$d" || exit 1; }
+done
+exec setpriv --inh-caps=-all --ambient-caps=-all -- "$@"'
+[ "$NETNS" = 1 ] && WRAP=(unshare -n -m --map-user="$(id -u)" --map-group="$(id -g)" --keep-caps sh -c "$NSINIT" nsinit)
 # FLATPAK_SANDBOX_DIR: without it Chromium's xdg-portal setup asks systemd (D-Bus
 # StartTransientUnit) to move the browser process into its own
 # app-org.chromium.Chromium-<pid>.scope, i.e. OUT of this memory-capped scope.

@@ -30,6 +30,15 @@ fn main() {
     let cef_dir = std::env::var("DEP_CEF_DLL_WRAPPER_CEF_DIR").expect("cef-dll-sys gave no CEF_DIR");
     let cef_dir = Path::new(&cef_dir);
     println!("cargo::rerun-if-changed={}", cef_dir.display());
+    // libcef.so must come before libc.so.6 in the binary's DT_NEEDED list: Chromium
+    // wraps close() and finds the real one with dlsym(RTLD_NEXT, "close"), which only
+    // searches libraries loaded AFTER libcef. Since W6 pulls in the `libc` crate (via
+    // ring), its `-lc` landed before cef-dll-sys's `-lcef` and every start died at once
+    // ("close symbol missing", SIGTRAP in ContentMainRunnerImpl::Initialize). This
+    // crate's own native libraries are linked before any dependency's, so naming libcef
+    // here puts it first.
+    println!("cargo::rustc-link-search=native={}", cef_dir.display());
+    println!("cargo::rustc-link-lib=dylib=cef");
 
     // target/<profile>/ is the parent of the "build" dir that holds OUT_DIR.
     let out = std::env::var("OUT_DIR").unwrap();

@@ -28,18 +28,22 @@ pub static SENT: AtomicU64 = AtomicU64::new(0); // requests written to wire's so
 pub static ANSWERED: AtomicU64 = AtomicU64::new(0); // wire answered with a head
 pub static FAILED: AtomicU64 = AtomicU64::new(0); // wire unreachable / wire-made error / cut body
 pub static BYTES: AtomicU64 = AtomicU64::new(0); // body bytes passed to CEF
+pub static SEEN_NO_BROWSER: AtomicU64 = AtomicU64::new(0); // asked via the request context, no browser (W6)
 
 pub fn counters() -> String {
     let g = |a: &AtomicU64| a.load(Ordering::Relaxed);
     format!(
-        "requests: http(s) seen {} (other schemes {}), handlers {}, sent to wire {}, answered {}, failed {}, body bytes {}",
+        "requests: http(s) seen {} (other schemes {}), handlers {}, sent to wire {}, answered {}, failed {}, body bytes {}; no-browser {}; proxy: websockets {}, refused {}",
         g(&SEEN_HTTP),
         g(&SEEN_OTHER),
         g(&OPENED),
         g(&SENT),
         g(&ANSWERED),
         g(&FAILED),
-        g(&BYTES)
+        g(&BYTES),
+        g(&SEEN_NO_BROWSER),
+        g(&crate::proxy::WS_OPENED),
+        g(&crate::proxy::REFUSED)
     )
 }
 
@@ -426,6 +430,64 @@ wrap_resource_request_handler! {
     }
 }
 
+/// The same decision for both entry points: a wire handler for http(s), None (CEF
+/// handles it) for everything else.
+fn wire_handler_for(request: Option<&mut Request>, is_navigation: i32, is_download: i32) -> Option<ResourceRequestHandler> {
+    let request = request?;
+    let url = CefString::from(&request.url()).to_string();
+    if !is_http(&url) {
+        SEEN_OTHER.fetch_add(1, Ordering::Relaxed);
+        log!("not http(s), left to CEF: {}", url.get(..80).unwrap_or(&url));
+        return None;
+    }
+    SEEN_HTTP.fetch_add(1, Ordering::Relaxed);
+    if is_download != 0 || std::env::var_os("WEB_SPIKE_LOG_REQUESTS").is_some() {
+        log!(
+            "request {} {url} (navigation {is_navigation}, download {is_download}, type {:?})",
+            CefString::from(&request.method()),
+            sys::cef_resource_type_t::from(request.resource_type())
+        );
+    }
+    WIRE_SOCKET.get().cloned().flatten()?;
+    Some(WireRequestHandler::new())
+}
+
+// W6: requests that belong to no browser (service-worker script loads and the
+// worker's own fetches) are not offered to the client's RequestHandler; CEF asks the
+// request context's handler instead. Without this they bypass wire.
+wrap_request_context_handler! {
+    pub struct SpikeContextHandler {}
+
+    impl RequestContextHandler {
+        fn resource_request_handler(
+            &self,
+            browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            request: Option<&mut Request>,
+            is_navigation: i32,
+            is_download: i32,
+            _request_initiator: Option<&CefString>,
+            _disable_default_handling: Option<&mut i32>,
+        ) -> Option<ResourceRequestHandler> {
+            if browser.is_some() {
+                // A browser's request: CEF asks the client's RequestHandler first and
+                // uses its answer; this is only the fallback.
+                return wire_handler_for(request, is_navigation, is_download);
+            }
+            SEEN_NO_BROWSER.fetch_add(1, Ordering::Relaxed);
+            if let Some(r) = request.as_deref() {
+                log!(
+                    "no-browser request {} {} (type {:?})",
+                    CefString::from(&r.method()),
+                    CefString::from(&r.url()),
+                    sys::cef_resource_type_t::from(r.resource_type())
+                );
+            }
+            wire_handler_for(request, is_navigation, is_download)
+        }
+    }
+}
+
 wrap_request_handler! {
     pub struct SpikeRequestHandler {}
 
@@ -440,23 +502,7 @@ wrap_request_handler! {
             _request_initiator: Option<&CefString>,
             _disable_default_handling: Option<&mut i32>,
         ) -> Option<ResourceRequestHandler> {
-            let request = request?;
-            let url = CefString::from(&request.url()).to_string();
-            if !is_http(&url) {
-                SEEN_OTHER.fetch_add(1, Ordering::Relaxed);
-                log!("not http(s), left to CEF: {}", url.get(..80).unwrap_or(&url));
-                return None;
-            }
-            SEEN_HTTP.fetch_add(1, Ordering::Relaxed);
-            if is_download != 0 || std::env::var_os("WEB_SPIKE_LOG_REQUESTS").is_some() {
-                log!(
-                    "request {} {url} (navigation {is_navigation}, download {is_download}, type {:?})",
-                    CefString::from(&request.method()),
-                    sys::cef_resource_type_t::from(request.resource_type())
-                );
-            }
-            WIRE_SOCKET.get().cloned().flatten()?;
-            Some(WireRequestHandler::new())
+            wire_handler_for(request, is_navigation, is_download)
         }
     }
 }
