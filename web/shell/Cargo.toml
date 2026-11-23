@@ -13,7 +13,7 @@ name = "web"
 path = "src/main.rs"
 
 [dependencies]
-smithay = { version = "0.7", default-features = false, features = ["backend_winit", "desktop", "wayland_frontend", "renderer_gl"] }
+smithay = { version = "0.7", default-features = false, features = ["backend_winit", "backend_drm", "desktop", "wayland_frontend", "renderer_gl"] }
 # The same calloop as smithay's, with signals (SIGTERM/SIGINT quit the host cleanly).
 calloop = { version = "0.14", features = ["signals"] }
 serde = { version = "1", features = ["derive"] }

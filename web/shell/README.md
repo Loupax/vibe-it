@@ -268,3 +268,43 @@ Measured 2026-11-23 on the GPU nest (960x1006, release, % of one core, 2 runs av
 | scroll |          7.5 |          3.0 |                      27.5 |    3.5 |                36.5 |    8.0 |
 | video  |          2.7 |          1.6 |                       3.0 |    2.5 |                 8.8 |    6.6 |
 | css    |          4.2 |          3.2 |                       2.4 |    3.8 |                 8.7 |    8.9 |
+
+### C-FLICKER: buffer sync for dmabufs
+
+User bug (2026-11-23, NVIDIA desktop): scrolling YouTube made its fixed header and sidebar flicker,
+only with dmabuf (`WEB_NO_DMABUF=1` cured it). Cause: the engine commits a dmabuf as soon as its
+drawing is *queued* on the GPU, and the shell sampled it straight away, before the GPU had finished:
+the layers drawn last (fixed and absolutely positioned elements, on top of the scrolled content)
+were missing from such frames. Nothing to do with subsurfaces (CEF 156 creates none here: one
+surface, three dmabufs in rotation, full damage). Fix (`src/sync.rs`, `src/syncobj.rs`):
+
+- **Acquire**: a commit attaching a dmabuf is held (smithay commit blocker) until the buffer is
+  ready: its explicit acquire point when the client uses `wp_linux_drm_syncobj_manager_v1`
+  (offered on the dmabuf's render node when the kernel driver has syncobj eventfds; CEF 156 uses it:
+  `set_acquire_point`/`set_release_point` on every commit), else its implicit fence (the dmabuf fd
+  polls readable).
+- **Release**: the dmabufs a render read stay referenced (`sync::Held`) until that render's GPU
+  fence is reached, so wl_buffer.release (or the explicit release point) never lets the engine draw
+  into a buffer the shell's GPU is still reading; a 1 ms timer polls while renders are pending.
+
+Start log: `explicit sync: offered (linux-drm-syncobj-v1 on /dev/dri/renderD128)` or `explicit
+sync: not offered: <why>`. `WEB_NO_SYNCOBJ=1` keeps only the implicit fence; `WEB_NO_BUFFER_SYNC=1`
+turns both guards (and explicit sync) off, i.e. the shell before C-FLICKER (A/B checks).
+
+`WEB_PROBE=x,y,w,h[;...]` (logical shell-window rectangles, `src/probe.rs`) makes the shell read
+those pixels back from every frame it renders (glReadPixels in a frame of its own; checks only) and
+log `probe: frame N | min r,g,b max r,g,b | ...`. The live check `test/c_flicker_live.py` runs
+`test/pages/flicker.html` (magenta fixed header and sidebar under 24 full-window backdrop-blur
+layers, so each engine frame costs the GPU milliseconds) on the GPU nest, wheel-scrolls it over
+Chromium's DevTools protocol (`--remote-debugging-port`, the GPU nest has no input injection) and
+requires every probed frame to show both fixed parts; `--compare` also runs it with
+`WEB_NO_BUFFER_SYNC=1` and expects torn frames. Measured 2026-11-23 (GPU nest 960x1006, 20 s):
+383 frames / 0 torn with explicit sync, 392 / 0 with the implicit fence only; without the guards 270 of 379
+frames had no header. Cost (c6c_bench, release, 2 runs): shell CPU +0.2-0.4 % of a core in scroll,
+video and raf; rAF cadence unchanged (sd ~1 ms); the 30 fps test video's frame intervals got less
+regular (vsd 6.3 -> 11 ms, mean 33.4 unchanged): a frame whose GPU work is not finished at the
+shell's render is now shown one outer frame later instead of half drawn.
+
+    web/tools/gpu-nest.sh                       # the check starts it itself when --wayland is not given
+    web/shell/test/c_flicker_live.py --out .qwork/c-flicker --compare
+    web/tools/gpu-nest.sh --stop

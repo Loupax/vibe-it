@@ -100,6 +100,8 @@ pub fn feedback(dev: u64, formats: impl IntoIterator<Item = Format>) -> std::io:
 pub struct Dmabuf {
     pub state: DmabufState,
     pub _global: Option<DmabufGlobal>,
+    /// C-FLICKER: the DRM node offered (explicit sync goes on the same one).
+    pub device: Option<PathBuf>,
 }
 
 pub fn setup(renderer: &GlesRenderer, dh: &DisplayHandle, env_value: Option<&str>) -> (Dmabuf, String) {
@@ -114,6 +116,7 @@ pub fn setup(renderer: &GlesRenderer, dh: &DisplayHandle, env_value: Option<&str
                     Dmabuf {
                         state,
                         _global: Some(global),
+                        device: Some(device.clone()),
                     },
                     format!("dmabuf: offered ({} formats on {})", r.formats, device.display()),
                 );
@@ -121,5 +124,12 @@ pub fn setup(renderer: &GlesRenderer, dh: &DisplayHandle, env_value: Option<&str
             Err(e) => format!("dmabuf: not offered, wl_shm only: feedback: {e}"),
         },
     };
-    (Dmabuf { state, _global: None }, line)
+    (
+        Dmabuf {
+            state,
+            _global: None,
+            device: None,
+        },
+        line,
+    )
 }

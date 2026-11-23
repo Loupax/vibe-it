@@ -1,0 +1,55 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>flicker loaded</title>
+<style>
+  /* C-FLICKER: a fixed header, a fixed sidebar and an absolutely positioned overlay (inside a
+     fixed box) over a long page scrolled every frame. The fixed parts are pure magenta, a colour
+     the scrolling content never has, so a frame where one is missing or torn shows. */
+  html, body { margin: 0; background: #fff; font: 16px sans-serif; }
+  #head { position: fixed; left: 0; top: 0; right: 0; height: 56px; background: #f0f; z-index: 10; }
+  #side { position: fixed; left: 0; top: 56px; bottom: 0; width: 72px; background: #f0f; z-index: 10; }
+  #holder { position: fixed; right: 0; bottom: 0; width: 240px; height: 120px; z-index: 10; }
+  #over { position: absolute; right: 16px; bottom: 16px; width: 160px; height: 64px; background: #f0f; }
+  #long { margin-left: 72px; padding-top: 56px; }
+  #long p { margin: 0; height: 40px; line-height: 40px; padding: 0 16px; white-space: nowrap; overflow: hidden; }
+  #long p:nth-child(3n) { background: #3a6; }
+  #long p:nth-child(3n+1) { background: #36c; color: #fff; }
+  #long p:nth-child(3n+2) { background: #fc3; }
+</style>
+<div id="head"></div>
+<div id="side"></div>
+<div id="holder"><div id="over"></div></div>
+<div id="long"></div>
+<script>
+// flicker.html#SECS[,blur]: `blur` gives the fixed parts a backdrop-filter (GPU work drawn last,
+// like YouTube's frosted header). After 1 s the page scrolls 37 px every frame for SECS seconds (default 20),
+// wrapping at the end; the title says "flicker scrolling" then "flicker done n=FRAMES".
+const [secs, ...opts] = location.hash.slice(1).split(","), SECS = +secs || 20;
+const has = o => opts.some(x => x.startsWith(o)), num = (o, d) => +(opts.find(x => x.startsWith(o)) || "").slice(o.length) || d;
+if (has("blur")) for (const id of ["head", "side", "over"]) {
+  const e = document.getElementById(id);
+  e.style.backdropFilter = "blur(24px) saturate(3)";
+  e.style.background = "rgba(255, 0, 255, 0.92)";
+}
+// `heavy`: also full-window layers with a backdrop blur under the fixed parts, so every frame
+// costs the engine's GPU several milliseconds (a frame sampled before it is drawn shows).
+if (has("heavy")) for (let i = 0; i < num("heavy", 6); i++) {
+  const e = document.createElement("div");
+  e.style.cssText = "position:fixed;inset:0;z-index:5;pointer-events:none;backdrop-filter:blur(40px) contrast(1.01)";
+  document.body.appendChild(e);
+}
+const long = document.getElementById("long"), words = "the quick brown fox jumps over the lazy dog ".repeat(4);
+for (let i = 0; i < 3000; i++) { const p = document.createElement("p"); p.textContent = i + " " + words; long.appendChild(p); }
+setTimeout(() => {
+  document.title = "flicker scrolling";
+  let n = 0, over = false;
+  (function tick() {
+    n++;
+    if (has("wheel")) {}  // scrolled from outside (input), not by script
+    else if (window.scrollY + innerHeight + 37 >= document.documentElement.scrollHeight) window.scrollTo(0, 0);
+    else window.scrollBy(0, 37);
+    if (!over) requestAnimationFrame(tick);
+  })();
+  setTimeout(() => { over = true; document.title = "flicker done n=" + n; }, SECS * 1000);
+}, 1000);
+</script>
