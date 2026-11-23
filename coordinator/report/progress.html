@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-23 14:56 · main 67e38c0 · web INSTALLED with keys, command line and search (~/.local/bin/web, 14:55) · web: C1, C2, C3, C5, C-NOTAB, P-FORGET, NEST-HEADLESS, P-COOKIES, C-INSTALL merged; C3-RCLICK and C-BGNET running · wire2: W2-1..W2-3 merged (reinstalled 14:27), W2-F running · wire2: W2-1, W2-2 merged (wire2 reinstalled 14:02), W2-3 running · agents' live tests need no display any more · wire2: W2-1 merged (#669, ~/.cargo/bin/wire2 installed 13:11), W2-2 running · wire PARKED · scratchy paused</div>
+  <div class="meta" id="updated">Updated 2026-11-23 15:02 · main 4b813c7 · web INSTALLED (~/.local/bin/web, 15:01: keys, command line, search, no Google background traffic) · web: C1, C2, C3, C5, C-NOTAB, P-FORGET, NEST-HEADLESS, P-COOKIES, C-INSTALL, C-BGNET merged; C3-RCLICK and C-NOTAB-ALLOW running · wire2: W2-1..W2-3 merged (reinstalled 14:27), W2-F running · wire2: W2-1, W2-2 merged (wire2 reinstalled 14:02), W2-3 running · agents' live tests need no display any more · wire2: W2-1 merged (#669, ~/.cargo/bin/wire2 installed 13:11), W2-2 running · wire PARKED · scratchy paused</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -77,7 +77,8 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
     <tr><td>NEST-HEADLESS</td><td>Agents' live tests without a display (your monitor moves to the laptop)</td><td><span class="pill done">done #673</span></td><td>Headless dwl by default (small patch built from your dwl source into the worktree, nothing installed), input injection fixed (clicks landed at the old pointer position), Xwayland works headless</td></tr>
     <tr><td>P-COOKIES</td><td>Third-party cookies off</td><td><span class="pill done">done #675</span></td><td>Chromium's “block third-party cookies” mode on by default; partitioned (CHIPS) cookies and partitioned storage still work in embedded frames. Embedded login/payment/comment widgets that need a third-party cookie will break (P-COOKIES-2, only if you want it)</td></tr>
     <tr><td>C-INSTALL</td><td><code>web</code> as an installed command (you bumped it)</td><td><span class="pill done">done #678</span></td><td><code>web/install.sh</code>: web, web-host-cef and CEF's runtime into <code>~/.local/lib/web/&lt;version&gt;</code>, <code>~/.local/bin/web</code> symlinked; reinstalled after every web merge; ~1.5 GB per version, newest two kept. Installed for you at 14:33</td></tr>
-    <tr><td>C-BGNET</td><td>Stop Chromium's background calls to Google (updates, time, autofill)</td><td><span class="pill wip">running</span></td><td></td></tr>
+    <tr><td>C-BGNET</td><td>Stop Chromium's background calls to Google (updates, time, autofill)</td><td><span class="pill done">done #680</span></td><td>8 switches; through a proxy only the page's own hosts appear, and nothing in 150 s idle. Lost: spellcheck, Safe Browsing, Google time sync, autofill prediction, AI Mode. DRM was never there (CEF ships no Widevine), H.264 does not play in this CEF build</td></tr>
+    <tr><td>C-NOTAB-ALLOW</td><td>Context menu by allow-list (Print, Cast, QR out)</td><td><span class="pill wip">running</span></td><td></tr>
   </table></div>
   <p class="note">Filed from C1: C-BGNET (switch off Chromium's background traffic to Google update/time/autofill hosts), C-DL (downloads, dialogs, permission prompts), C1-INPUT, C-PENDING. The CEF + wire spike (W1–W7, #656–#662) is kept as a record in web/spike/README.md.</p>
 </section>
@@ -142,6 +143,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-23</td><td class="n">#680</td><td>C-BGNET</td><td>web: Chromium's background traffic to Google switched off (update checks, Safe Browsing, time, spellcheck dictionary, autofill, AI Mode, search preconnect); a check fails on any non-page host</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#679</td><td>C5</td><td>web: <code>/</code> search, <code>n</code>/<code>N</code> with wrap messages, through the engine's find; installed</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#677</td><td>C3</td><td>web: scratchy's keys, modes, status bar, <code>:</code> line with ghost completion and history, ported to the compositor shell; installed</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#678</td><td>C-INSTALL</td><td>web: install script; <code>web https://example.com</code> works as an installed command (your request)</td></tr>
@@ -365,6 +367,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Waiting on you</h2>
   <ul id="waiting">
     <li><b>W2-1 by hand:</b> browse in your real Chromium and Firefox through <code>wire2 --listen 127.0.0.1:8080</code> (installed): video seeking, a large download while watching its memory, a WebSocket chat. Agents only ran headless browsers.</li>
+    <li><b>C-DRM / C-H264 (only if you want them):</b> DRM streaming (Netflix, Spotify web) never worked: CEF ships no Widevine; adding it means Google's component updater back on. H.264 video does not play in this CEF build (VP9/WebM, as YouTube mostly uses, does); fixing it needs a CEF build with proprietary codecs.</li>
     <li><b>W2-2d:</b> wire2's CA directory defaults to <code>$XDG_DATA_HOME/proxy</code> as your spec says, but the binary is called <code>wire2</code>. Keep <code>proxy</code> or use <code>wire2</code>?</li>
     <li><b>W2-1c:</b> should the access log's byte counts include request/response heads (today) or payload only?</li>
     <li><b>C7 link hints:</b> you are thinking it over (questions: alphabet, label style, text filtering, which elements, extra modes like <code>yf</code>, relation to QCURSOR-D).</li>
