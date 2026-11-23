@@ -674,3 +674,8 @@ changed_handshake_applies_to_new_flows (the first two fail with the check at 1h,
 W2-FLK1: `malformed_and_closed_filter_502` and `stage_timeout_504` (same race, it flaked once in a full run) now
 `wait_log` (5 s bound) instead of reading the log once after the response. w2_f_filters x20: 20/20 green (twice,
 before and after fixing stage_timeout_504, which failed once in between), full suite x3 green.
+
+### W2-F1: additions beyond SPEC.md (SPEC.md is the user's document and is not edited)
+
+- Flag row: `--filter-check` | 2s | How often an up filter is re-handshaken, so a restart or changed capabilities are noticed without traffic. New capabilities apply to new flows only.
+- Failure-handling row: Filter goes away while idle | Noticed by the periodic handshake (`--filter-check`): marked down and redialled as above, with no request failing. A changed answer replaces the capabilities for new flows only.
