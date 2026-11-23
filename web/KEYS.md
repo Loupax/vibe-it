@@ -16,7 +16,8 @@ after a click (T29, T32), and find-in-page (Search).
 Status: **built in web by C3** (`shell/src/keys.rs`, `config.rs`, `completion.rs`,
 `registers.rs`, `statusbar.rs`; tests named after the rows in `shell/src/tests/`, live
 check `shell/test/c3_live.py`), Search built by C5 (`shell/src/tests/search_tests.rs`, live
-check `shell/test/c5_live.py`; Enter on a match, S7, is a later item), clipboard (`@+`, `yy`, paste) built by C6 (`shell/src/tests/c6_tests.rs`, live check `shell/test/c6_live.py`). **This file is the source of truth** for web's keys: when web/TODO.txt and this
+check `shell/test/c5_live.py`), clipboard (`@+`, `yy`, paste) built by C6 (`shell/src/tests/c6_tests.rs`, live check `shell/test/c6_live.py`), Enter in NORMAL by C-ENTER (`shell/src/tests/c_enter_tests.rs`, live
+check `shell/test/c_enter_live.py`). **This file is the source of truth** for web's keys: when web/TODO.txt and this
 file disagree, this file wins. Rows marked *(proposed)* are Claude's
 proposals that the user has not confirmed yet; they are built as written unless the
 user changes them before the item starts.
@@ -111,10 +112,10 @@ key; a press of a key already down is treated as a repeat (`Keys::key`).
 | T15 | NORMAL | `n` / `N` | a query exists, it has matches on this page | NORMAL | next / previous match in document order, wrapping with "search hit BOTTOM, continuing at TOP" (or TOP/BOTTOM); bring the screen to it (S4). **web:** `find <query> next|prev` (`n` = next, `N` = prev), the same query so the host steps; the wrap is derived from the `find-result` indices (next: new index not above the old one; previous: not below), and the bar shows `[i/N]`, after the wrap message when there is one (`search hit BOTTOM, continuing at TOP  [1/5]`). One match: every press wraps. Replies are matched to presses in order. No session on this page yet (after Esc or a navigation): the engine starts a new one, no wrap is told |
 | T16 | NORMAL | `n` / `N` | a query exists, no matches here | NORMAL | status bar: `Pattern not found: <query>`. **web:** `find-result` with count 0 |
 | T17 | NORMAL | `n` / `N` | no query yet | NORMAL | status bar: `No previous search` |
-| T18 | NORMAL | Enter | a current match whose text runs are inside 0 or 1 links | NORMAL | click (S7) |
-| T19 | NORMAL | Enter | the current match's runs are inside 2+ different links | NORMAL | status bar: `Match spans N links`; nothing else |
-| T20 | NORMAL | Enter | no current match | NORMAL | nothing |
-| T21 | NORMAL | any other key | none | NORMAL | nothing. Not delivered to the page *(proposed, P2)*; that includes Tab and Space, and keys for a focused text field or video |
+| T18 | NORMAL | Enter (no modifier; keypad Enter too) | a find session is open (after `/`, `n`, `N`; also when the last search found nothing) | NORMAL | end the find as T7 does (`find-clear`: the highlights and `[i/N]` go, the query is kept), then give the page an Enter `ENTER_AFTER_FIND_CLEAR_MS` (50) later, held until the real key is released. No shell-side click: the engine decides. Ending the find is what makes Chromium focus the link or control holding the active match (or select the match's text), so the Enter follows that link or presses that button. A match in a text field: the field gets focus, T29 switches to INPUT (C-ENTER live check) |
+| T19 | NORMAL | Enter | no find session | NORMAL | the press and its release are delivered to the page, as in INPUT; the engine acts on whatever has focus (a link or button focused by an earlier find + Esc, by Tab in INPUT, by the page, or by caret browsing's caret). Nothing focused: the page gets a `keydown` and nothing happens |
+| T20 | NORMAL | Ctrl/Alt/Super/Shift + Enter | none | NORMAL | nothing (T21) |
+| T21 | NORMAL | any other key | none | NORMAL | nothing. Not delivered to the page *(proposed, P2)*; that includes Tab and Space, and keys for a focused text field or video. Enter is the exception (T18/T19, user 2026-11-23) |
 
 ### SEARCH and COMMAND
 
@@ -184,9 +185,9 @@ messages (T15-T25). Built by C5 (smartcase: the shell sends `match_case` when th
 capital; CEF paints all matches and the active one in its own colours and scrolls the match
 into view itself, S4, but how it centres is the engine's). What carries over unchanged: smartcase, no regex, the wrap messages,
 `[i/N]`. What depends on the engine: what counts as a match (rendered text, inline
-boundaries, iframes) and how a match is scrolled into view (S4). Enter on a match (S7,
-T18-T19) needs the host to report the match's element and click it with a real click; it
-is its own item after the find basics.
+boundaries, iframes) and how a match is scrolled into view (S4). **web:** Enter on a match
+is T18: the shell ends the find and the page gets the Enter; S7 below is scratchy's and is
+not built.
 
 - **What is searched:** the rendered text of the laid-out top-level document (the
   layout's text runs), not DOM text. Hidden text never matches; every match already has
@@ -200,7 +201,7 @@ is its own item after the find basics.
   visible the page scrolls so it is vertically centred (clamped at the page ends); if it
   is fully visible nothing scrolls. A match inside a scrollable box scrolls that box
   first, then the page.
-- **Click (S7, T18):** a real click, through the same path as a mouse click (page click
+- **Click (S7; scratchy only, replaced in web by T18, C-ENTER):** a real click, through the same path as a mouse click (page click
   handlers, then the default action), never a direct navigation to an `href`, so a site's
   own router (YouTube, GitHub) handles its links. Target: let L be the set of distinct
   nearest `a[href]` / `area[href]` ancestors of the match's text runs. L empty: click the
@@ -217,7 +218,7 @@ Always visible at the bottom, and it takes its own height: the page's viewport (
 height, `innerHeight`, maximum scroll, hit-testing, the JS thread's viewport) is the
 window minus the bar. **web:** the compositor sizes the host window to the shell window
 minus the bar; the page never overlaps it. It shows the mode (or the SEARCH/COMMAND line being typed), the
-current URL and the last message (`[i/N]`, wrap messages, T16/T17/T19 messages,
+current URL and the last message (`[i/N]`, wrap messages, T16/T17 messages,
 errors). Other fields (load progress, hovered link target, pending `g`) only on request.
 
 ## Completion
@@ -238,9 +239,11 @@ set per command, like bash's `complete`:
       // ("go", Source::Cmd(&["my-url-source"])),
   ];
   ```
-  **web:** there is no `:set` (its `js`/`motion` arguments were engine settings, dropped);
-  the rows are `go` (the history) and `refresh` (`hard`). The commands are `:go`,
-  `:refresh [hard]`, `:historyBack`, `:historyFront`, `:help`, `:let`, `:q`/`:quit`.
+  **web:** scratchy's `:set js`/`motion` (engine settings) are dropped; `:set` has
+  `caret`, `nocaret` and `caret?` (C-CARETCMD, below). The rows are `go` (the history),
+  `refresh` (`hard`) and `set` (`config::SET_ARGS`; a selected `:set` argument gets a space,
+  T53). The commands are `:go`, `:refresh [hard]`, `:historyBack`, `:historyFront`, `:help`,
+  `:let`, `:set`, `:q`/`:quit`.
   `:go` without a scheme means `https://` (scratchy's QCOMP6); the ghost still continues
   exactly what was typed, so a ghost taken from an `http://` history entry typed without
   its scheme runs as `https://`.
@@ -333,6 +336,29 @@ refactoring item (QCONF1, no behaviour change) and comes first; every later item
 its knobs there. Exception (user, 2026-11-20): the tracker block/allow lists stay in
 QCFG1's separate runtime file, updated independently of the code.
 
+## Caret browsing (experiment, C-CARETCMD)
+
+User, 2026-11-23: "Expose caret browsing from a command mode command, so I can experiment
+with it but don't change the defaults." `:set caret` turns on Chromium's own caret browsing
+(F7 in Chrome; host command `caret on`, PROTOCOL.md), `:set nocaret` turns it off, `:set
+caret?` says `caret` or `nocaret`. Off at every start, not kept between runs (the host turns
+the engine preference off when it starts). It takes effect at once, no reload. The NORMAL
+bindings are unchanged, so with caret on they move the caret instead of scrolling, because
+they send real keys (measured with `c_enter_live.py`):
+
+- `j`/`k`, Down/Up: caret one line down/up; the page scrolls only when the caret leaves the
+  screen. A caret moved into a link focuses the link (Enter then follows it, T19).
+- Left/Right: caret one character.
+- `gg`/Home and `G`/End: start/end of the caret's LINE, not of the page (no scrolling).
+- Ctrl-d/Ctrl-u, Space, PageDown/PageUp: scroll the page; the caret stays where it was.
+- `/word` then Esc (T7) puts the caret at the match; `/word` then Enter (T18) also does, but
+  gives the page an Enter.
+- A text field: `j` moves the caret past an `<input>` without focusing it (no
+  `editable-focused`, the mode stays NORMAL). A click into a field still focuses it (T29).
+- Nothing in the shell draws the caret; Chromium draws it as a text caret.
+
+The rest of caret mode (our own caret, C5-ENTER) is parked.
+
 ## What went away in scratchy (QKEYS3)
 
 `:set vim` / `:set novim` (`App::vim_enabled`), the SIGUSR1 toggle
@@ -340,6 +366,15 @@ QCFG1's separate runtime file, updated independently of the code.
 Esc Esc, so there is nothing left to switch off, and Esc Esc cannot be locked out (T2).
 
 ## Decision log
+
+- 2026-11-23 (user, C-ENTER + C-CARETCMD): "Enter in NORMAL forwards to the page. Expose caret
+  browsing from a command mode command, so I can experiment with it but don't change the
+  defaults." T18-T20 rewritten: no shell-side click and no `Match spans N links`; the engine
+  decides. Found live (C-ENTER): Chromium moves focus to the match's link only when the find
+  ENDS (CEF `StopFinding` keeping the selection, what `find-clear` does), not while the find is
+  open, so T18 ends the find before the Enter; sent at once, the Enter overtook the focus change
+  in 1 of 4 runs, so it goes 50 ms later (10/10 runs). `:set caret` / `nocaret` / `caret?`
+  added ("Caret browsing").
 
 - 2026-11-23 (user, C3-RCLICK): "when input elements gain focus, we should automatically switch to Input
   Mode. No auto-return on blur since the exit of the form context isn't that clear." This reverses T32

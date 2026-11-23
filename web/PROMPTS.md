@@ -468,3 +468,10 @@ live check `test/c6_live.py` (8 steps, Wayland via wl-copy/wl-paste on the neste
 `--x11` via xsel on its Xwayland); c3_live.py's `:let`/`yy` stub step updated; inject
 learned `key:ins`. Not working: middle-click paste inside the page (CEF does none, even of its
 own selection).
+
+## C-ENTER + C-CARETCMD: Enter in NORMAL goes to the page; `:set caret` (2026-11-23)
+
+> (user) "do this. Enter in NORMAL forwards to the page. Expose caret browsing from a command mode command, so I can experiment with it but don't change the defaults."
+> (coordinator) Enter press and release delivered to the page in NORMAL; rewrite KEYS.md T18-T20 (no shell-side click, no "Match spans N links"; the engine decides). `:set caret` / `:set nocaret` / `:set caret?` through a new protocol command, default off, not persisted; leave j/k/gg/G as they are and describe how they behave with caret on.
+
+**What changed:** shell: a `ToPage` action bound to Enter / keypad Enter with no modifier (`config::BINDINGS`, `Mods::None`); with no find open the real press and release reach the page (T19). Live, Chromium did NOT focus the matched link while the find was open (`act=body`); it does when the find ends (CEF `StopFinding` keeping the selection = our `find-clear`). So with a find open Enter sends `find-clear` (as T7) and then gives the page a synthesized Enter, held until the real key is released (T18). Sent at once, the Enter beat the focus change in 1 of 4 runs; a new `Effect::Pause` (ordered effect queue in `input.rs`, one-shot calloop timer) puts `ENTER_AFTER_FIND_CLEAR_MS` = 50 between them: 10/10. `:set caret|nocaret|caret?` (`Keys::set_option`, `COMPLETERS` row `set` from `SET_ARGS`), protocol `caret` command; host: `settings.a11y.caretbrowsing.enabled` via `SetPreference` on the global context, also set false at start (the preference is saved in the profile). Takes effect without a reload. KEYS.md T18-T21, "Caret browsing", decision log; PROTOCOL.md; help.html. Tests `tests/c_enter_tests.rs` (they fail with the Enter rows removed); live check `test/c_enter_live.py` 11/11; c3_live 19/19, c5_live 13/13, c3_rclick_live 8/8.

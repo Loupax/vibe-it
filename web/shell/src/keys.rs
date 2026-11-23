@@ -150,7 +150,7 @@ pub enum Action {
     HistoryForward,
     /// `yy` (T55): `:let @+ = @%`.
     YankUrl,
-    /// The key press (and its release) goes to the page (T18: Enter).
+    /// The key press (and its release) goes to the page (T19: Enter; T18 ends an open find first).
     ToPage,
 }
 
@@ -491,7 +491,7 @@ impl Keys {
     }
 
     /// A key press in NORMAL (T6-T21): a pending sequence first, then the bindings. Returns
-    /// whether the page gets the press (only an `Action::ToPage` binding, T18).
+    /// whether the page gets the press (only an `Action::ToPage` binding, T19).
     fn normal_key(&mut self, code: u32, key: &KeyInput, repeat: bool) -> bool {
         let (seq_action, pending, consumed) = resolve_sequence(self.pending_seq, key);
         self.pending_seq = pending;

@@ -1,4 +1,4 @@
-//! C-ENTER (KEYS.md T18-T20: Enter in NORMAL goes to the page) and C-CARETCMD (`:set caret`,
+//! C-ENTER (KEYS.md T18-T20: Enter in NORMAL goes to the page, after ending an open find) and C-CARETCMD (`:set caret`,
 //! `:set nocaret`, `:set caret?`, their completion). Each test names its row or command.
 
 use std::time::Instant;
@@ -55,7 +55,7 @@ fn run(k: &mut Keys, line: &str) {
 // ---------- C-ENTER: T18-T20 ----------
 
 #[test]
-fn keys_t18_enter_in_normal_goes_to_the_page() {
+fn keys_t19_enter_in_normal_goes_to_the_page() {
     let mut k = keys();
     assert_eq!(tap(&mut k, enter()), (true, true), "press and release reach the page");
     assert_eq!(tap(&mut k, KeyInput::sym(Keysym::KP_Enter)), (true, true), "keypad Enter too");
@@ -89,7 +89,11 @@ fn keys_t18_after_a_search_enter_ends_the_find_then_goes_to_the_page() {
     assert!(!press(&mut k, enter()), "the real press is replaced by the synthesized one");
     assert_eq!(
         effects(&mut k),
-        vec![Effect::Send(Command::FindClear), PAUSE, Effect::KeyDown(crate::config::evdev::KEY_ENTER)],
+        vec![
+            Effect::Send(Command::FindClear),
+            PAUSE,
+            Effect::KeyDown(crate::config::evdev::KEY_ENTER)
+        ],
         "find-clear first, then the Enter"
     );
     assert!(!press(&mut k, enter()), "a repeat: the engine repeats the held Enter");
@@ -105,7 +109,7 @@ fn keys_t18_after_a_search_enter_ends_the_find_then_goes_to_the_page() {
 }
 
 #[test]
-fn keys_t18_t07_after_esc_enter_goes_straight_to_the_page() {
+fn keys_t07_t19_after_esc_enter_goes_straight_to_the_page() {
     let mut k = keys();
     searched(&mut k, "x", 2);
     tap(&mut k, KeyInput::sym(Keysym::Escape));
@@ -115,8 +119,8 @@ fn keys_t18_t07_after_esc_enter_goes_straight_to_the_page() {
 }
 
 #[test]
-fn keys_t19_no_match_spans_n_links_message() {
-    // T19 is gone: whatever the match covers, Enter is the page's.
+fn keys_t18_no_match_spans_n_links_message() {
+    // The old T19 (`Match spans N links`) is gone: whatever the match covers, Enter is the page's.
     let mut k = keys();
     searched(&mut k, "two links", 1);
     press(&mut k, enter());
@@ -138,12 +142,16 @@ fn keys_t18_no_matches_still_ends_the_session() {
     assert!(!press(&mut k, enter()));
     assert_eq!(
         effects(&mut k),
-        vec![Effect::Send(Command::FindClear), PAUSE, Effect::KeyDown(crate::config::evdev::KEY_ENTER)]
+        vec![
+            Effect::Send(Command::FindClear),
+            PAUSE,
+            Effect::KeyDown(crate::config::evdev::KEY_ENTER)
+        ]
     );
 }
 
 #[test]
-fn keys_t20_enter_with_no_match_still_goes_to_the_page() {
+fn keys_t19_enter_with_no_find_goes_to_the_page() {
     // No search at all: the page gets Enter (with nothing focused Chromium does nothing).
     let mut k = keys();
     assert!(k.search.query.is_none());
@@ -152,9 +160,14 @@ fn keys_t20_enter_with_no_match_still_goes_to_the_page() {
 }
 
 #[test]
-fn keys_t18_t21_a_modified_enter_does_nothing() {
+fn keys_t20_t21_a_modified_enter_does_nothing() {
     let mut k = keys();
-    for key in [enter().ctrl(), enter().shift(), enter().alt(), KeyInput::sym(Keysym::KP_Enter).ctrl()] {
+    for key in [
+        enter().ctrl(),
+        enter().shift(),
+        enter().alt(),
+        KeyInput::sym(Keysym::KP_Enter).ctrl(),
+    ] {
         assert_eq!(tap(&mut k, key), (false, false), "{key:?}");
     }
     let mut super_enter = enter();
@@ -164,7 +177,7 @@ fn keys_t18_t21_a_modified_enter_does_nothing() {
 }
 
 #[test]
-fn keys_t12_t18_pending_g_then_enter_goes_to_the_page_and_clears_g() {
+fn keys_t12_t19_pending_g_then_enter_goes_to_the_page_and_clears_g() {
     let mut k = keys();
     tap(&mut k, KeyInput::ch('g'));
     assert_eq!(tap(&mut k, enter()), (true, true));
@@ -173,7 +186,7 @@ fn keys_t12_t18_pending_g_then_enter_goes_to_the_page_and_clears_g() {
 }
 
 #[test]
-fn keys_t18_held_enter_repeats_reach_the_page() {
+fn keys_t19_held_enter_repeats_reach_the_page() {
     let mut k = keys();
     assert!(press(&mut k, enter()));
     assert!(press(&mut k, enter()), "a repeat (key already down) is forwarded too");

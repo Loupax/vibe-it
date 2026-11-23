@@ -148,7 +148,7 @@ def main():
             if p["btn"] != "0":
                 raise Fail(f"button pressed: {p}")
             return f"the page got the Enter (keydown seen, act={p['act']}); no load, no command, mode {bar_now()!r}"
-        step("T20: Enter with nothing focused reaches the page and does nothing", t20)
+        step("T19: Enter with nothing focused reaches the page and does nothing", t20)
 
         def t7_then_enter():
             m = search("alpha")

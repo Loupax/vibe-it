@@ -94,8 +94,9 @@ pub const BINDINGS: &[Binding] = &[
     bind(Sym(Keysym::Page_Up), Mods::Any, A::Scroll(PAGE_UP)),
     bind(Sym(Keysym::Home), Mods::Any, A::Scroll(TOP)),
     bind(Sym(Keysym::End), Mods::Any, A::Scroll(BOTTOM)),
-    // Enter goes to the page (T18, user 2026-11-23): the engine acts on what has focus, e.g.
-    // follows the link a `/` search focused. A modified Enter does nothing (T21).
+    // Enter goes to the page (T18, user 2026-11-23): the engine acts on what has focus. With a
+    // `/` search open the shell ends it first (T7), which focuses the match's link, so Enter
+    // follows it. A modified Enter does nothing (T21).
     bind(Sym(Keysym::Return), Mods::None, A::ToPage),
     bind(Sym(Keysym::KP_Enter), Mods::None, A::ToPage),
 ];
