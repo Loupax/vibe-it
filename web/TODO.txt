@@ -105,7 +105,7 @@ stop early on a hard failure.
 - [ ] C-DL (from C1 #668) Downloads, JS dialogs and permission prompts as protocol events (today:
       downloads save without asking to <profile>/downloads; dialogs/prompts are the engine default).
       One item each when picked up; download directory and UI need the user's say.
-- [ ] C1-INPUT [S] (after C2; from C1 #668) Real-input version of the C1 check: click target=_blank
+- [WIP] C1-INPUT [S] (after C2; from C1 #668) Real-input version of the C1 check: click target=_blank
       and window.open with a user gesture (tools/inject), without --disable-popup-blocking.
 - [ ] C-PENDING [S] (only if C3 wants it; from C1 #668) `load start` is sent at commit, not on the
       click; add a `pending` load phase if the status bar needs a spinner from the click.
@@ -166,7 +166,7 @@ stop early on a hard failure.
       something else (stale lock, a host without a shell), a clear error naming the profile and the pid,
       never a panic. The host itself: turn the initialize failure into a clean error exit.
 - [x] LIVE-GEOM [XS] (DONE 2026-11-23, e698ca6, #701: web/shell/test/livelib.py settle(); all 9 checks 3x green)
-- [WIP] LIVE-GEOM2 [XS] (from #701) focuskeys_live.py and c_keymap_live.py (written in parallel) don't use livelib's
+- [x] LIVE-GEOM2 [XS] (DONE 2026-11-23, 4479f3a, #703) (from #701) focuskeys_live.py and c_keymap_live.py (written in parallel) don't use livelib's
       settle() yet. Bundled with NEST-WINKEYMAP. (from #695) live.py, c3_live, c3_rclick_live and c_enter_live read the window size before
       dwl tiles the shell, like c6_live did: move c6_live's settled-size wait into a shared helper and use it in
       every live check.
@@ -184,7 +184,8 @@ stop early on a hard failure.
       target) that puts web, web-host-cef and the CEF runtime in one prefix (e.g. ~/.local/lib/web +
       ~/.local/bin/web), and ci_then_push.sh `--install web` calling it. Done when `web https://example.com`
       works from a fresh shell after the install.
-- [WIP] NEST-WINKEYMAP [XS] (from #673) Windowed nest: a client started after an inject run ended gets no keymap
+- [x] NEST-WINKEYMAP [XS] (DONE #703: keymap fallback in every nest mode; --windowed now runs the patched dwl
+      built from DWL_SRC; windowed path untested) (from #673) Windowed nest: a client started after an inject run ended gets no keymap
       and Chromium crashes on the first modifiers event (the headless patch handles it; windowed does not).
 - [x] C3-GOHTTP [XS] (DONE 2026-11-23, bdb9efd, #702: the matching history entry's scheme, host as typed) (bundle with C-SOCKDIR) (from #677) A `:go` ghost taken from an http:// history entry typed without its scheme
       (`:go 127` Tab Enter) runs as https://. When the completed word matches a history URL with its scheme

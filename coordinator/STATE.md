@@ -525,3 +525,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Merged #699 C6c 4767dbe; web reinstalled. Filed C6h (120 Hz rAF; renamed from the agent's C6g, taken). Launched C6d dmabuf (Opus).
 - 2026-11-23 Merged #700 C-FOCUSKEYS+C3-SHIFTSYNC ec4c966 (PROMPTS-only conflict resolved by hand); web reinstalled. Launched C3-GOHTTP (Sonnet).
 - 2026-11-23 Merged #701 LIVE-GEOM e698ca6 and #702 C3-GOHTTP bdb9efd (PROMPTS-only conflict by hand); web reinstalled. Filed LIVE-GEOM2. Launched C5b (Sonnet) and LIVE-GEOM2+NEST-WINKEYMAP (Sonnet).
+- 2026-11-23 Merged #703 LIVE-GEOM2+NEST-WINKEYMAP 4479f3a (tools/tests; install none). Launched C1-INPUT (Sonnet).
