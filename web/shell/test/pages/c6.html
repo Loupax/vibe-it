@@ -13,7 +13,5 @@
   const t = document.getElementById("t");
   const show = () => { document.title = "c6 v=" + t.value.replace(/\n/g, "|"); };
   t.addEventListener("input", show);
-  // A middle click reaches the page (the primary-selection step tells this from a paste).
-  addEventListener("auxclick", e => { if (e.button === 1) document.title = "c6 middle click v=" + t.value; });
   show();
 </script>

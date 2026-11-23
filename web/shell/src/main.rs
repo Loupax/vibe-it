@@ -302,6 +302,8 @@ fn main() {
             WinitEvent::Resized { size, .. } => state.resized((size.w, size.h).into()),
             WinitEvent::Focus(focused) => {
                 state.window_focused = focused;
+                // Live checks wait for this before the first click (c6_live.py).
+                state.log(&format!("shell window focused: {focused}"));
                 if focused {
                     // C6: a copy made on the desktop meanwhile is offered to the page.
                     state.sync_from_desktop(clipboard::Which::Clipboard);
