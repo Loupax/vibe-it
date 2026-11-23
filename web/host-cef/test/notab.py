@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """C-NOTAB check: no way to open a second tab or window from the page. Run it inside a
-nested compositor (scratchy/tools/nest.sh), never on the user's display:
+nested compositor (web/tools/nest.sh), never on the user's display:
 
     (cd web/tools/inject && cargo build --release)
     WAYLAND_DISPLAY=wayland-1 web/host-cef/test/notab.py --out .qwork/notab
@@ -42,6 +42,12 @@ FORBIDDEN = [
     "inspect", "search google", "search the web", "search with google", "search image", "lens",
     "open link", "open image", "open video", "open audio", "open in",
 ]
+
+
+# The host's line for a dropped new-tab/window request: `popup Drop: ...` (on_before_popup)
+# or `open-url-from-tab Drop: ...` (on_open_url_from_tab; what real Ctrl/middle/Shift
+# clicks on a link go through, NEST-HEADLESS live run).
+DROP = " Drop: "
 
 
 def forbidden_labels(remaining):
@@ -141,8 +147,9 @@ def steps(sh, conn, base, a, host_log_path):
     time.sleep(1.0)
     inject(move("page"), "click", "wait:300")  # focus the page
 
-    def quiet(what, *cmds, log_has=None):
-        """Runs input that must open nothing: no event at all afterwards."""
+    def quiet(what, *cmds, log_has=None, saw=None):
+        """Runs input that must open nothing: no event afterwards but the page's input
+        diagnostics (ev: titles) and focus changes (clicking the form's input focuses it)."""
         n = len(sh.events)
         lines = len(read_log(host_log_path))
         inject(*cmds)
@@ -151,38 +158,49 @@ def steps(sh, conn, base, a, host_log_path):
             got = [ev for _, ev in sh.events[n:]]
         # The page reports the input it saw in its title (links.html): not a navigation.
         seen = [ev["title"] for ev in got if ev.get("event") == "title" and ev["title"].startswith("ev:")]
-        extra = [ev for ev in got if not (ev.get("event") == "title" and ev["title"].startswith("ev:"))]
+        extra = [ev for ev in got if not (ev.get("event") == "title" and ev["title"].startswith("ev:"))
+                 and ev.get("event") != "editable-focused"]
         if extra:
             raise Fail(f"{what}: events after the input: {extra}")
+        if saw and saw not in seen:
+            raise Fail(f"{what}: the page never saw '{saw}' (saw {seen}): the input did not arrive")
         new = read_log(host_log_path)[lines:]
-        if log_has and not any(log_has in l for l in new):
+        hit = [l.split("] ", 1)[-1] for l in new if log_has and log_has in l]
+        if log_has and not hit:
             raise Fail(f"{what}: host log has no '{log_has}' line since the input; new lines: {new[-6:]}")
-        sh.note(f"ok: {what} (page saw {seen}): nothing opened, the page was not navigated ({log_has or 'no log check'})")
+        sh.note(f"ok: {what} (page saw {seen}): nothing opened, the page was not navigated ({hit[0] if hit else 'no log check'})")
 
     sh.note("step: user new-tab gestures on a link open nothing and do not navigate")
-    quiet("ctrl+click", "hold:c", move("plain"), "click", "wait:200", "release", log_has="popup Drop")
-    quiet("middle-click", move("plain"), "mclick", "wait:200", log_has="popup Drop")
-    quiet("shift+click", "hold:s", move("plain"), "click", "wait:200", "release", log_has="popup Drop")
+    quiet("ctrl+click", "hold:c", move("plain"), "click", "wait:200", "release", log_has=DROP)
+    quiet("middle-click", move("plain"), "mclick", "wait:200", log_has=DROP)
+    quiet("shift+click", "hold:s", move("plain"), "click", "wait:200", "release", log_has=DROP)
     quiet("ctrl+shift+click", "hold:cs", move("plain"), "click", "wait:200", "release")
     quiet("ctrl+shift+click on a target=_blank link", "hold:cs", move("blank"), "click", "wait:200", "release")
-    quiet("ctrl+click on a target=_blank link", "hold:c", move("blank"), "click", "wait:200", "release", log_has="popup Drop")
-    quiet("middle-click on a target=_blank link", move("blank"), "mclick", "wait:200", log_has="popup Drop")
+    quiet("ctrl+click on a target=_blank link", "hold:c", move("blank"), "click", "wait:200", "release", log_has=DROP)
+    quiet("middle-click on a target=_blank link", move("blank"), "mclick", "wait:200", log_has=DROP)
 
     sh.note("step: Ctrl+Enter in a form that targets _blank opens nothing")
-    quiet("ctrl+enter in the form", move("input"), "click", "wait:200", "key:c-ret", "wait:200", log_has="popup Drop")
+    # Chromium dispatches no keypress for Ctrl+Enter, so there is no implicit submission
+    # and nothing for the host to drop (NEST-HEADLESS live run); check the key arrived.
+    quiet("ctrl+enter in the form", move("input"), "click", "wait:200", "key:c-ret", "wait:200",
+          saw="ev:keydown:Enter:c")
 
     sh.note("step: plain target=_blank click still loads in the same page")
+    # The url event comes before its load end (drive.py nav()): look back from the load end.
+    mark = sh.cursor
     inject(move("blank"), "click", "wait:200")
     sh.expect("load end new via=blank", is_ev("load", phase="end", kind="new"), 20)
-    sh.expect("url via=blank", is_ev("url", url=base + "b.html?via=blank"), 5)
+    sh.seen_since(mark, "url via=blank", is_ev("url", url=base + "b.html?via=blank"), before=sh.cursor)
     send({"cmd": "back"})
     sh.expect("load end traverse", is_ev("load", phase="end", kind="traverse"), 20)
     time.sleep(0.5)
 
     sh.note("step: plain Enter in the form still loads in the same page")
+    mark = sh.cursor
     inject(move("input"), "click", "wait:200", "key:ret", "wait:200")
     sh.expect("load end new via=form", is_ev("load", phase="end", kind="new"), 20)
-    sh.expect("url via=form", is_ev("url", url=lambda u: (u or "").startswith(base + "b.html?via=form")), 5)
+    sh.seen_since(mark, "url via=form", is_ev("url", url=lambda u: (u or "").startswith(base + "b.html?via=form")),
+                  before=sh.cursor)
     send({"cmd": "back"})
     sh.expect("load end traverse", is_ev("load", phase="end", kind="traverse"), 20)
     time.sleep(0.5)
@@ -225,7 +243,7 @@ def main():
     a = ap.parse_args()
     a.size = tuple(int(v) for v in a.size.split("x"))
     if not os.environ.get("WAYLAND_DISPLAY"):
-        sys.exit("notab.py: set WAYLAND_DISPLAY to a nested compositor (scratchy/tools/nest.sh)")
+        sys.exit("notab.py: set WAYLAND_DISPLAY to a nested compositor (web/tools/nest.sh)")
     return run(a)
 
 

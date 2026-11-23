@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """C1 check: drive web-host-cef over its control socket (protocol v0, web/PROTOCOL.md)
-and check every event. Run it inside a nested compositor (scratchy/tools/nest.sh), never
+and check every event. Run it inside a nested compositor (web/tools/nest.sh), never
 on the user's display:
 
     WAYLAND_DISPLAY=wayland-1 web/host-cef/test/drive.py --out .qwork/c1-direct
@@ -440,7 +440,7 @@ def main():
     ap.add_argument("--external", default="https://example.com/", help="a public page to load")
     a = ap.parse_args()
     if not a.x11 and not os.environ.get("WAYLAND_DISPLAY"):
-        sys.exit("drive.py: set WAYLAND_DISPLAY to a nested compositor (scratchy/tools/nest.sh)")
+        sys.exit("drive.py: set WAYLAND_DISPLAY to a nested compositor (web/tools/nest.sh)")
     return run(a)
 
 

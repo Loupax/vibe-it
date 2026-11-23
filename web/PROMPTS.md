@@ -266,3 +266,27 @@ SIGTERM/SIGINT; unit tests and `test/live.py` (the C2 check, Wayland and X11, wi
 without `--proxy`). `web/tools/nest.sh` (also records the nested Xwayland's DISPLAY) and
 `web/tools/inject` copied from scratchy. host-cef: the window is now resizable (the cef
 crate's default pinned it at 1200x800). CI: a `web/shell` leg (build, test, clippy).
+
+## NEST-HEADLESS live tests with no display (2026-11-23)
+
+> (user, relayed by the coordinator) the monitor moves to the work laptop. Live tests
+> must run with no display: a nested compositor that needs no display and shows no
+> window, yet takes injected input and grim screenshots and lets CEF render. Smallest
+> working option; headless by default, the windowed mode behind a flag. Also: notab.py's
+> injected Ctrl never reaches the page; fix it if it is in inject.
+
+**What changed:** `web/tools/nest.sh` (a superset of scratchy/tools/nest.sh) runs dwl on
+the wlroots headless backend by default; `--windowed` keeps the old mode. Only dwl is
+installed (no sway/cage/labwc), and stock headless dwl advertises no seat capabilities
+(no backend input device), so `web/tools/nest/dwl-headless.patch` (env-gated by
+`NEST_HEADLESS_SIZE`) makes the seat advertise pointer+keyboard, gives it a keyboard so
+clients always get a keymap (Chromium segfaults on `wl_keyboard.modifiers` without one),
+falls back to that keyboard when inject's virtual keyboard goes away, and sets the
+output size. nest.sh builds it from the user's dwl source into `.qwork/nest-dwl/`.
+`web/tools/nest-test.sh` checks it. The "Ctrl never arrives" bug was not Ctrl: inject
+sent pointer motions with a non-zero time, and dwl then reports the position from
+before the move, so `move` + `click` clicked where the pointer had been; motions now
+carry time 0. notab.py: dropped clicks log `open-url-from-tab Drop:`, Ctrl+Enter is
+checked by the key reaching the page (Chromium never submits on it), focus events are
+allowed, url-before-load-end lookups; links.html shows key names. AGENT_RULES "Nested
+compositor helper" points agents at web/tools/nest.sh.
