@@ -780,6 +780,9 @@ pub(crate) struct App {
     /// see `is_click`'s own docs). Cleared back to `None` on release
     /// regardless of outcome.
     pub(crate) mouse_down_pos: Option<(f32, f32)>,
+    /// QWPT7b: the mouse's button and click-count state for the page's pointer events
+    /// (`input_host::pointer_press` / `pointer_release`).
+    pub(crate) ptr: crate::input_host::PointerState,
     /// QCUR1: position of the last `mousemove` handed to the page (for `movementX/Y`).
     pub(crate) last_move_dispatched: Option<(f32, f32)>,
     pub(crate) last_move_dispatch_at: Option<std::time::Instant>,
@@ -1497,6 +1500,7 @@ impl App {
             last_input: None,
             pointer_moves_processed: 0,
             mouse_down_pos: None,
+            ptr: Default::default(),
             last_move_dispatched: None,
             last_move_dispatch_at: None,
             move_dispatch_gap: MOVE_DISPATCH_INTERVAL,
@@ -1620,6 +1624,7 @@ impl App {
             last_input: None,
             pointer_moves_processed: 0,
             mouse_down_pos: None,
+            ptr: Default::default(),
             last_move_dispatched: None,
             last_move_dispatch_at: None,
             move_dispatch_gap: MOVE_DISPATCH_INTERVAL,
@@ -3199,22 +3204,57 @@ impl App {
     /// Q33d: a `click` at window position `pos` on `target`; true if the
     /// default action (following a link) may proceed.
     pub(crate) fn js_click(&mut self, target: Option<&Handle>, pos: (f32, f32)) -> bool {
-        self.js_mouse("click", target, pos)
+        crate::input_host::click_event(self, target, pos)
     }
 
-    /// Q33d1: `mousedown`/`mouseup` at the element under `pos`.
-    fn js_mouse_at(&mut self, kind: &str, pos: (f32, f32)) {
+    /// QWPT7b: ms on a monotonic clock, for click counting.
+    fn click_clock_ms() -> f64 {
+        static EPOCH: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+        EPOCH.get_or_init(std::time::Instant::now).elapsed().as_secs_f64() * 1000.0
+    }
+
+    /// QWPT7b: DOM button number of a winit button the page sees (`None` = not reported).
+    fn dom_button(b: MouseButton) -> Option<i16> {
+        match b {
+            MouseButton::Left => Some(0),
+            MouseButton::Middle => Some(1),
+            MouseButton::Right => Some(2),
+            MouseButton::Back => Some(3),
+            MouseButton::Forward => Some(4),
+            MouseButton::Other(_) => None,
+        }
+    }
+
+    /// QWPT7b: button `b` went down at `pos`: the page's `pointerdown`, `mousedown`, `contextmenu`
+    /// (shared with the headless driver). Scratchy does nothing else for a non-left button: no menu
+    /// (after `contextmenu` nothing happens), no middle-click action.
+    fn page_press(&mut self, pos: (f32, f32), b: i16) {
         if self.js.is_none() {
             return;
         }
         let node = self.element_at(pos);
         let target = if node == 0 { None } else { find_node_by_id(&self.document, node) };
-        self.js_mouse(kind, target.as_ref(), pos);
+        crate::input_host::pointer_press(self, target.as_ref(), pos, b, Self::click_clock_ms());
     }
 
-    fn js_mouse(&mut self, kind: &str, target: Option<&Handle>, pos: (f32, f32)) -> bool {
-        let init = crate::input_host::mouse_init(pos, self.modifiers);
-        self.js_dispatch(target, kind, &init)
+    /// QWPT7b: button `b` went up at `pos`: `pointerup`, `mouseup`, and for a non-main button
+    /// `auxclick` at the common ancestor of the press and release targets. Returns the element
+    /// under the pointer (the main button's click is the caller's, it follows links).
+    fn page_release(&mut self, pos: (f32, f32), b: i16) {
+        if self.js.is_none() || !self.ptr.is_down(b) {
+            self.ptr.forget(b);
+            return;
+        }
+        let node = self.element_at(pos);
+        let target = if node == 0 { None } else { find_node_by_id(&self.document, node) };
+        let down = crate::input_host::pointer_release(self, target.as_ref(), pos, b, Self::click_clock_ms());
+        if b != 0
+            && let (Some(Some(d)), Some(u)) = (down, target)
+            && let Some(common) = crate::input_host::common_ancestor(&d, &u)
+        {
+            let count = self.ptr.count_for(Some(&common), Self::click_clock_ms());
+            crate::input_host::auxclick(self, &common, pos, b, count);
+        }
     }
 
     /// Q33d: `keydown`/`keyup` at the focused element (else `<body>`) is `js_key_codes`;
@@ -3736,7 +3776,7 @@ impl App {
     /// Init dict shared by the pointer-motion events (QCUR1): client/page/screen
     /// coordinates, modifiers, `buttons`, and for `pointer*` types the PointerEvent fields.
     fn pointer_init(&self, pos: (f32, f32), related: &Option<Handle>, bubbles: bool, pointer: bool) -> Vec<(&'static str, EventField)> {
-        let buttons = if self.mouse_down_pos.is_some() { 1.0 } else { 0.0 };
+        let buttons = f64::from(self.ptr.buttons);
         crate::input_host::pointer_init(pos, (self.scroll_x, self.scroll_offset), buttons, self.modifiers, related, bubbles, pointer)
     }
 
@@ -4665,9 +4705,20 @@ impl App {
             {
                 self.click_activate(Some(&h), (0.0, 0.0));
             }
-            Key::Named(NamedKey::Enter) if self.interaction.focus.is_some() => self.activate_focus(),
+            Key::Named(NamedKey::Enter) if self.interaction.focus.is_some() => {
+                // QWPT7b: a link's Enter activates it (the click); any other focused element gets `keypress`.
+                let link = self.interaction.focus.and_then(|f| find_node_by_id(&self.document, f)).is_some_and(|h| matches!(element_tag(&h), "a" | "area"));
+                if link || crate::input_host::keypress(self, key, repeat) {
+                    self.activate_focus();
+                }
+            }
             // QKEYS4 (P6): the UA default scroll keys, after the page and every focused control declined.
-            _ => self.ua_scroll_key(key),
+            // QWPT7b: `keypress` first (Enter, printable keys); a page that cancels it stops the scroll.
+            _ => {
+                if crate::input_host::keypress(self, key, repeat) {
+                    self.ua_scroll_key(key);
+                }
+            }
         }
     }
 
@@ -5936,6 +5987,13 @@ impl ApplicationHandler<AppEvent> for App {
                 // just above, stands in for both the press and release
                 // point.
                 if button != MouseButton::Left {
+                    // QWPT7b: middle/right/other buttons reach the page's events only.
+                    if let (Some(b), Some(pos)) = (Self::dom_button(button), self.last_mouse_pos) {
+                        match state {
+                            ElementState::Pressed => self.page_press(pos, b),
+                            ElementState::Released => self.page_release(pos, b),
+                        }
+                    }
                     return;
                 }
                 match state {
@@ -5961,7 +6019,7 @@ impl ApplicationHandler<AppEvent> for App {
                         self.mouse_down_pos = self.last_mouse_pos;
                         if let Some(pos) = self.last_mouse_pos {
                             self.press_switches_to_input(pos);
-                            self.js_mouse_at("mousedown", pos);
+                            self.page_press(pos, 0);
                             self.press_state(pos);
                             self.text_mouse_press(pos);
                         }
@@ -5982,12 +6040,13 @@ impl ApplicationHandler<AppEvent> for App {
                             return;
                         }
                         if std::mem::take(&mut self.swallow_release) {
+                            self.ptr.forget(0);
                             self.mouse_down_pos = None;
                             return;
                         }
                         self.text_mouse_release();
                         if let Some(pos) = self.last_mouse_pos {
-                            self.js_mouse_at("mouseup", pos);
+                            self.page_release(pos, 0);
                         }
                         self.release_state();
                         // Computed into a plain, owned `Option<&'static
@@ -6021,12 +6080,19 @@ impl ApplicationHandler<AppEvent> for App {
                                     in_control = true;
                                     false
                                 } else {
+                                    // QWPT7b: the click count (`detail`) and `dblclick`.
+                                    let count = target.as_ref().map_or(1, |t| self.ptr.note_click(t, Self::click_clock_ms()));
                                     let ok = self.click_activate(target.as_ref(), up);
                                     if ok
                                         && control.is_none()
                                         && let Some(label) = target.as_ref().and_then(enclosing_label)
                                     {
                                         in_control = self.forward_label_click(&label, up);
+                                    }
+                                    if count == 2
+                                        && let Some(t) = &target
+                                    {
+                                        crate::input_host::dblclick(self, t, up);
                                     }
                                     ok
                                 }
@@ -6398,5 +6464,11 @@ impl crate::input_host::InputHost for App {
     }
     fn ih_key(&mut self, kind: &str, key: &Key, repeat: bool) -> bool {
         self.js_key_for(kind, key, repeat)
+    }
+    fn ih_ptr(&mut self) -> &mut crate::input_host::PointerState {
+        &mut self.ptr
+    }
+    fn ih_page_offset(&self) -> (f32, f32) {
+        (self.scroll_x, self.scroll_offset)
     }
 }

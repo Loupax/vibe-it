@@ -15,26 +15,14 @@
 //! compatibility mouse events), `detail` click counts, `dblclick`, `auxclick`, `contextmenu`, and
 //! `keypress` for printable keys outside text controls.
 use super::*;
-use crate::input_host::{self, InputHost};
-
-/// How close in time (virtual ms) two clicks on the same element must be to count as one
-/// multi-click (`detail` 2, `dblclick`).
-const MULTI_CLICK_MS: f64 = 500.0;
+use crate::input_host::{self, ancestors_incl, common_ancestor, InputHost, PointerState};
 
 /// Input state that lives across ticks (the "input source" state of WebDriver).
 #[derive(Default)]
 pub(crate) struct InputState {
     pos: (f32, f32),
     hover: Option<Handle>,
-    /// DOM `buttons` mask.
-    buttons: u16,
-    /// The pointerdown of the current press was cancelled: no compatibility mouse events until all
-    /// buttons are up.
-    suppress_mouse: bool,
-    /// Where each button went down (DOM button number -> target).
-    down: Vec<(i16, Option<Handle>)>,
-    /// (target, virtual time, count) of the last click.
-    last_click: Option<(Handle, f64, u32)>,
+    ptr: PointerState,
     mods: ModifiersState,
     focus: Option<Handle>,
     interaction: InteractionState,
@@ -47,17 +35,6 @@ pub(crate) struct Driver<'a> {
     pub(crate) st: &'a mut InputState,
     /// The virtual clock (ms), for click counting.
     pub(crate) now: f64,
-}
-
-/// WebDriver's `button` -> the DOM `buttons` bit.
-fn button_bit(b: i16) -> u16 {
-    match b {
-        0 => 1,
-        1 => 4,
-        2 => 2,
-        n if (0..16).contains(&n) => 1 << n,
-        _ => 0,
-    }
 }
 
 impl InputHost for Driver<'_> {
@@ -79,9 +56,14 @@ impl InputHost for Driver<'_> {
         self.js.dispatch_event(Some(form), "submit", &init);
     }
     fn ih_click(&mut self, target: Option<&Handle>, pos: (f32, f32)) -> bool {
-        let detail = self.st.last_click.as_ref().map_or(1, |c| c.2);
-        let init = self.mouse_fields(pos, 0, detail, true, false, &None);
-        self.js.dispatch_event(target, "click", &init)
+        input_host::click_event(self, target, pos)
+    }
+    fn ih_ptr(&mut self) -> &mut PointerState {
+        &mut self.st.ptr
+    }
+    fn ih_page_offset(&self) -> (f32, f32) {
+        let scroll = self.js.eval_value::<Vec<f64>>("testdriver", "[scrollX, scrollY]").unwrap_or_default();
+        (scroll.first().copied().unwrap_or(0.0) as f32, scroll.get(1).copied().unwrap_or(0.0) as f32)
     }
     fn ih_key(&mut self, kind: &str, key: &Key, repeat: bool) -> bool {
         let init = input_host::key_init(kind, key, None, repeat, self.st.mods);
@@ -100,16 +82,8 @@ impl Driver<'_> {
     }
 
     /// Mouse/pointer event fields at `pos` (window space) with the window's current scroll.
-    fn mouse_fields(&self, pos: (f32, f32), button: i16, detail: u32, bubbles: bool, pointer: bool, related: &Option<Handle>) -> Vec<(&'static str, EventField)> {
-        let scroll = self.js.eval_value::<Vec<f64>>("testdriver", "[scrollX, scrollY]").unwrap_or_default();
-        let page = (scroll.first().copied().unwrap_or(0.0) as f32, scroll.get(1).copied().unwrap_or(0.0) as f32);
-        let mut v = input_host::pointer_init(pos, page, f64::from(self.st.buttons), self.st.mods, related, bubbles, pointer);
-        v.push(("button", EventField::Num(f64::from(button))));
-        v.push(("detail", EventField::Num(f64::from(detail))));
-        if pointer {
-            v.retain(|(k, _)| *k != "detail");
-        }
-        v
+    fn mouse_fields(&mut self, pos: (f32, f32), button: i16, detail: u32, bubbles: bool, pointer: bool, related: &Option<Handle>) -> Vec<(&'static str, EventField)> {
+        input_host::mouse_fields(self, pos, button, detail, bubbles, pointer, related)
     }
 
     fn hit(&self, pos: (f32, f32)) -> Option<Handle> {
@@ -137,7 +111,7 @@ impl Driver<'_> {
                 for l in &left {
                     self.js.dispatch_event(Some(l), "pointerleave", &f);
                 }
-                if !self.st.suppress_mouse {
+                if !self.st.ptr.suppress_mouse {
                     let f = self.mouse_fields(pos, 0, 0, true, false, &target);
                     self.js.dispatch_event(Some(o), "mouseout", &f);
                     let f = self.mouse_fields(pos, 0, 0, false, false, &target);
@@ -153,7 +127,7 @@ impl Driver<'_> {
                 for e in &entered {
                     self.js.dispatch_event(Some(e), "pointerenter", &f);
                 }
-                if !self.st.suppress_mouse {
+                if !self.st.ptr.suppress_mouse {
                     let f = self.mouse_fields(pos, 0, 0, true, false, &old);
                     self.js.dispatch_event(Some(n), "mouseover", &f);
                     let f = self.mouse_fields(pos, 0, 0, false, false, &old);
@@ -176,34 +150,19 @@ impl Driver<'_> {
         };
         let f = mv(self.mouse_fields(pos, -1, 0, true, true, &None));
         self.js.dispatch_event(target.as_ref(), "pointermove", &f);
-        if !self.st.suppress_mouse {
+        if !self.st.ptr.suppress_mouse {
             let f = mv(self.mouse_fields(pos, 0, 0, true, false, &None));
             self.js.dispatch_event(target.as_ref(), "mousemove", &f);
         }
     }
 
-    /// Button `b` goes down at the pointer: `pointerdown` (first button only), `mousedown`, then
-    /// the App's press default action (focus the nearest click-focusable ancestor, `:active`).
+    /// Button `b` goes down at the pointer: the shared `pointer_press` (`pointerdown`, `mousedown`,
+    /// `contextmenu`), then the App's press default action (focus the nearest click-focusable
+    /// ancestor, `:active`).
     pub(crate) fn pointer_down(&mut self, b: i16) {
         let pos = self.st.pos;
         let target = self.hit(pos);
-        let first = self.st.buttons == 0;
-        self.st.buttons |= button_bit(b);
-        self.st.down.retain(|(x, _)| *x != b);
-        self.st.down.push((b, target.clone()));
-        let detail = match &self.st.last_click {
-            Some((h, t, n)) if target.as_ref().is_some_and(|x| Rc::ptr_eq(x, h)) && self.now - t <= MULTI_CLICK_MS => n + 1,
-            _ => 1,
-        };
-        if first {
-            let f = self.mouse_fields(pos, b, 0, true, true, &None);
-            self.st.suppress_mouse = !self.js.dispatch_event(target.as_ref(), "pointerdown", &f);
-        }
-        let mut ok = true;
-        if !self.st.suppress_mouse {
-            let f = self.mouse_fields(pos, b, detail, true, false, &None);
-            ok = self.js.dispatch_event(target.as_ref(), "mousedown", &f);
-        }
+        let ok = input_host::pointer_press(self, target.as_ref(), pos, b, self.now);
         if b == 0 {
             let mut st = self.st.interaction.clone();
             st.active = target.as_ref().map(|h| ancestor_ids(h).into_iter().collect()).unwrap_or_default();
@@ -211,10 +170,6 @@ impl Driver<'_> {
             if ok {
                 self.press_focus(target.as_ref());
             }
-        }
-        if b == 2 && ok {
-            let f = self.mouse_fields(pos, b, 0, true, false, &None);
-            self.js.dispatch_event(target.as_ref(), "contextmenu", &f);
         }
     }
 
@@ -237,24 +192,13 @@ impl Driver<'_> {
         self.ih_set_focus(focus.as_ref(), visible);
     }
 
-    /// Button `b` goes up: `pointerup` (last button), `mouseup`, then the click on the nearest common
-    /// ancestor of the press and release targets with the App's activation behaviour (main button),
-    /// `dblclick` on the second click, `auxclick` for the other buttons.
+    /// Button `b` goes up: the shared `pointer_release` (`pointerup`, `mouseup`), then the click on the
+    /// nearest common ancestor of the press and release targets with the App's activation behaviour
+    /// (main button), `dblclick` on the second click, `auxclick` for the other buttons.
     pub(crate) fn pointer_up(&mut self, b: i16) {
         let pos = self.st.pos;
         let target = self.hit(pos);
-        self.st.buttons &= !button_bit(b);
-        let down = self.st.down.iter().position(|(x, _)| *x == b).map(|i| self.st.down.remove(i).1);
-        let suppressed = self.st.suppress_mouse;
-        if self.st.buttons == 0 {
-            let f = self.mouse_fields(pos, b, 0, true, true, &None);
-            self.js.dispatch_event(target.as_ref(), "pointerup", &f);
-            self.st.suppress_mouse = false;
-        }
-        if !suppressed {
-            let f = self.mouse_fields(pos, b, 0, true, false, &None);
-            self.js.dispatch_event(target.as_ref(), "mouseup", &f);
-        }
+        let down = input_host::pointer_release(self, target.as_ref(), pos, b, self.now);
         if b == 0 {
             let mut st = self.st.interaction.clone();
             st.active.clear();
@@ -263,16 +207,12 @@ impl Driver<'_> {
         let Some(Some(down)) = down else { return };
         let Some(up) = target else { return };
         let Some(common) = common_ancestor(&down, &up) else { return };
-        let count = match &self.st.last_click {
-            Some((h, t, n)) if Rc::ptr_eq(h, &common) && self.now - t <= MULTI_CLICK_MS => n + 1,
-            _ => 1,
-        };
         if b != 0 {
-            let f = self.mouse_fields(pos, b, count, true, false, &None);
-            self.js.dispatch_event(Some(&common), "auxclick", &f);
+            let count = self.st.ptr.count_for(Some(&common), self.now);
+            input_host::auxclick(self, &common, pos, b, count);
             return;
         }
-        self.st.last_click = Some((common.clone(), self.now, count));
+        let count = self.st.ptr.note_click(&common, self.now);
         // App MouseInput: a click inside a disabled control does nothing; else activation, then a
         // label forwards to its control (only when the click was not inside a control).
         let control = enclosing_control(&common);
@@ -285,8 +225,7 @@ impl Driver<'_> {
             input_host::forward_label_click(self, &doc, &label, pos);
         }
         if count == 2 {
-            let f = self.mouse_fields(pos, 0, 2, true, false, &None);
-            self.js.dispatch_event(Some(&common), "dblclick", &f);
+            input_host::dblclick(self, &common, pos);
         }
     }
 
@@ -358,13 +297,7 @@ impl Driver<'_> {
                 self.ih_click(focus.as_ref(), (0.0, 0.0));
             }
             k => {
-                if !m.control_key()
-                    && !m.alt_key()
-                    && !m.super_key()
-                    && (matches!(k, Key::Named(NamedKey::Enter)) || key_insertion_text(k).is_some_and(|t| !t.chars().all(char::is_control)))
-                {
-                    self.ih_key("keypress", k, false);
-                }
+                input_host::keypress(self, k, false);
             }
         }
     }
@@ -489,25 +422,6 @@ impl Driver<'_> {
             }
         }
     }
-}
-
-/// `h` and its element ancestors, innermost first.
-fn ancestors_incl(h: &Handle) -> Vec<Handle> {
-    let mut out = Vec::new();
-    let mut cur = Some(h.clone());
-    while let Some(n) = cur {
-        if matches!(n.data, NodeData::Element { .. }) {
-            out.push(n.clone());
-        }
-        cur = parent_handle(&n);
-    }
-    out
-}
-
-/// The nearest inclusive ancestor element of both `a` and `b`.
-fn common_ancestor(a: &Handle, b: &Handle) -> Option<Handle> {
-    let bs = ancestors_incl(b);
-    ancestors_incl(a).into_iter().find(|x| bs.iter().any(|y| Rc::ptr_eq(x, y)))
 }
 
 fn modifier_of(key: &Key) -> Option<ModifiersState> {

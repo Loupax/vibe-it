@@ -4085,7 +4085,7 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
     if (!t) return true;
     var PE = g.PointerEvent;
     var C = { mousemove: MouseEvent, mouseenter: MouseEvent, mouseleave: MouseEvent, pointermove: PE, pointerover: PE, pointerout: PE,
-      pointerenter: PE, pointerleave: PE, click: MouseEvent, mousedown: MouseEvent, mouseup: MouseEvent, keydown: KeyboardEvent, keypress: KeyboardEvent,
+      pointerenter: PE, pointerleave: PE, pointerdown: PE, pointerup: PE, dblclick: MouseEvent, auxclick: MouseEvent, contextmenu: MouseEvent, click: MouseEvent, mousedown: MouseEvent, mouseup: MouseEvent, keydown: KeyboardEvent, keypress: KeyboardEvent,
       keyup: KeyboardEvent, mouseover: MouseEvent, mouseout: MouseEvent, focus: FocusEvent, blur: FocusEvent, focusin: FocusEvent, focusout: FocusEvent,
       animationstart: AnimationEvent, animationend: AnimationEvent, animationiteration: AnimationEvent, animationcancel: AnimationEvent,
       transitionrun: g.TransitionEvent, transitionstart: g.TransitionEvent, transitionend: g.TransitionEvent, transitioncancel: g.TransitionEvent,
