@@ -47,7 +47,9 @@ Not yet in this build: --filter, --hub, --connect-timeout, --stage-timeout (W2-F
 /// Parse `10s`, `500ms`, `2m`, `1h` or a bare number of seconds.
 pub fn parse_duration(s: &str) -> Result<Duration, String> {
     let s = s.trim();
-    let split = s.find(|c: char| !c.is_ascii_digit() && c != '.').unwrap_or(s.len());
+    let split = s
+        .find(|c: char| !c.is_ascii_digit() && c != '.')
+        .unwrap_or(s.len());
     let (num, unit) = s.split_at(split);
     let n: f64 = num.parse().map_err(|_| format!("bad duration {s:?}"))?;
     let secs = match unit {
@@ -74,10 +76,17 @@ pub fn parse_listen(s: &str) -> Result<Listen, String> {
         return Ok(Listen::Tcp(addr));
     }
     if let Some(port) = s.strip_prefix("localhost:") {
-        let port: u16 = port.parse().map_err(|_| format!("bad port in --listen {s:?}"))?;
-        return Ok(Listen::Tcp(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port)));
+        let port: u16 = port
+            .parse()
+            .map_err(|_| format!("bad port in --listen {s:?}"))?;
+        return Ok(Listen::Tcp(SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            port,
+        )));
     }
-    Err(format!("bad --listen {s:?}: expected IP:port, [IPv6]:port, localhost:port or unix:<path>"))
+    Err(format!(
+        "bad --listen {s:?}: expected IP:port, [IPv6]:port, localhost:port or unix:<path>"
+    ))
 }
 
 fn is_loopback(ip: IpAddr) -> bool {
@@ -117,10 +126,14 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Parsed, Str
                 log_level = Level::parse(&v).ok_or_else(|| format!("bad --log-level {v:?}"))?;
             }
             "--filter" | "--hub" | "--connect-timeout" | "--stage-timeout" => {
-                return Err(format!("{flag} is not supported yet (filters arrive with step W2-F)"));
+                return Err(format!(
+                    "{flag} is not supported yet (filters arrive with step W2-F)"
+                ));
             }
             "--no-decrypt" | "--ca-dir" => {
-                return Err(format!("{flag} is not supported yet (decryption arrives with step W2-2)"));
+                return Err(format!(
+                    "{flag} is not supported yet (decryption arrives with step W2-2)"
+                ));
             }
             _ => return Err(format!("unknown argument {arg:?}")),
         }
@@ -133,7 +146,12 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Parsed, Str
             "--listen {addr} is not a loopback address; that would be an open proxy. Add --allow-remote if you mean it"
         ));
     }
-    Ok(Parsed::Run(Config { listen, allow_remote, dial_timeout, log_level }))
+    Ok(Parsed::Run(Config {
+        listen,
+        allow_remote,
+        dial_timeout,
+        log_level,
+    }))
 }
 
 #[cfg(test)]
@@ -157,23 +175,52 @@ mod tests {
 
     #[test]
     fn flags() {
-        let c = run(&["--listen", "[::1]:3128", "--dial-timeout=250ms", "--log-level", "debug"]).unwrap();
+        let c = run(&[
+            "--listen",
+            "[::1]:3128",
+            "--dial-timeout=250ms",
+            "--log-level",
+            "debug",
+        ])
+        .unwrap();
         assert_eq!(c.listen, Listen::Tcp("[::1]:3128".parse().unwrap()));
         assert_eq!(c.dial_timeout, Duration::from_millis(250));
         assert_eq!(c.log_level, Level::Debug);
-        assert_eq!(run(&["--listen=unix:/run/x.sock"]).unwrap().listen, Listen::Unix("/run/x.sock".into()));
-        assert_eq!(run(&["--listen", "localhost:9"]).unwrap().listen, Listen::Tcp("127.0.0.1:9".parse().unwrap()));
+        assert_eq!(
+            run(&["--listen=unix:/run/x.sock"]).unwrap().listen,
+            Listen::Unix("/run/x.sock".into())
+        );
+        assert_eq!(
+            run(&["--listen", "localhost:9"]).unwrap().listen,
+            Listen::Tcp("127.0.0.1:9".parse().unwrap())
+        );
     }
 
     #[test]
     fn refusals() {
         assert!(run(&["--bogus"]).unwrap_err().contains("unknown"));
         assert!(run(&["positional"]).unwrap_err().contains("unknown"));
-        assert!(run(&["--filter", "unix:/x"]).unwrap_err().contains("not supported yet"));
-        assert!(run(&["--no-decrypt", "*.bank"]).unwrap_err().contains("not supported yet"));
+        assert!(
+            run(&["--filter", "unix:/x"])
+                .unwrap_err()
+                .contains("not supported yet")
+        );
+        assert!(
+            run(&["--no-decrypt", "*.bank"])
+                .unwrap_err()
+                .contains("not supported yet")
+        );
         assert!(run(&["--listen"]).unwrap_err().contains("needs a value"));
-        assert!(run(&["--listen", "0.0.0.0:8080"]).unwrap_err().contains("--allow-remote"));
-        assert!(run(&["--listen", "[::]:8080"]).unwrap_err().contains("--allow-remote"));
+        assert!(
+            run(&["--listen", "0.0.0.0:8080"])
+                .unwrap_err()
+                .contains("--allow-remote")
+        );
+        assert!(
+            run(&["--listen", "[::]:8080"])
+                .unwrap_err()
+                .contains("--allow-remote")
+        );
         assert!(run(&["--listen", "0.0.0.0:8080", "--allow-remote"]).is_ok());
         assert!(run(&["--listen", "example.com:80"]).is_err());
         assert!(run(&["--dial-timeout", "0"]).is_err());

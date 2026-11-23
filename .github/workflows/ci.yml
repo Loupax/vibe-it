@@ -19,9 +19,9 @@ env:
 
 jobs:
   # Path filter (user 2026-11-23): run only the jobs for crates the change touches. scratchy's tests and the WPT
-  # shards run wire, so a wire change runs them too; a .github/ change runs everything; web/, wire2/, coordinator/
-  # and root docs run nothing but this job. Base: the PR's merge base, or the previous main commit on a push (an
-  # unknown base, e.g. a new branch or a force push, runs everything). Skipped jobs show as "skipped" checks;
+  # shards run wire, so a wire change runs them too; wire2/ runs only the wire2 job (W2-1); a .github/ change runs
+  # everything; web/, coordinator/ and root docs run nothing but this job. Base: the PR's merge base, or the
+  # previous main commit on a push (an unknown base, e.g. a new branch or a force push, runs everything). Skipped jobs show as "skipped" checks;
   # coordinator/merge_pr.sh accepts those and requires this job to have succeeded.
   changes:
     name: changes
@@ -52,6 +52,7 @@ jobs:
           [ $sc = true ] && crates+=('"scratchy"')
           has '^wire/' && crates+=('"wire"')
           has '^snag/' && crates+=('"snag"')
+          has '^wire2/' && crates+=('"wire2"')
           list="[$(IFS=,; echo "${crates[*]-}")]"
           echo "crates=$list" | tee -a "$GITHUB_OUTPUT"
           echo "scratchy=$sc" | tee -a "$GITHUB_OUTPUT"
@@ -161,6 +162,9 @@ jobs:
       - name: Test
         if: matrix.crate != 'scratchy'
         run: cargo test --release --locked
+      - name: Clippy, no warnings (wire2)
+        if: matrix.crate == 'wire2'
+        run: cargo clippy --release --locked --all-targets -- -D warnings
       - name: Clippy warning count vs baseline (default config, V8 + media)
         if: matrix.crate == 'scratchy'
         run: |
@@ -191,7 +195,7 @@ jobs:
   # 127.0.0.1 only) which also starts its own wire with `--map-host '*.web-platform.test=127.0.0.1'`; the runner is called
   # with `--server wptserve` and starts neither (it runs under the QNET1 seccomp filter, so it cannot open TCP). The
   # server and wire are stopped by PID in an always() step. The other shards never run those areas (a mount run skips them).
-  # Check names: changes, scratchy, snag, wire, scratchy-wpt-dom, scratchy-wpt-html, scratchy-wpt-canvas-element,
+  # Check names: changes, scratchy, snag, wire, wire2, scratchy-wpt-dom, scratchy-wpt-html, scratchy-wpt-canvas-element,
   # scratchy-wpt-canvas-other, scratchy-wpt-wptserve, scratchy-wpt-rest; the path filter (`changes`) skips the ones
   # a change does not touch.
   wpt:

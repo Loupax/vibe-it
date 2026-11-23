@@ -23,7 +23,11 @@ impl Conn {
     }
 
     /// Run a non-blocking syscall on the fd; a WouldBlock result clears tokio's readiness flag.
-    pub fn try_io<R>(&self, interest: Interest, f: impl FnOnce() -> io::Result<R>) -> io::Result<R> {
+    pub fn try_io<R>(
+        &self,
+        interest: Interest,
+        f: impl FnOnce() -> io::Result<R>,
+    ) -> io::Result<R> {
         match self {
             Conn::Tcp(s) => s.try_io(interest, f),
             Conn::Unix(s) => s.try_io(interest, f),
@@ -53,7 +57,11 @@ impl AsRawFd for Conn {
 }
 
 impl AsyncRead for Conn {
-    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
         match self.get_mut() {
             Conn::Tcp(s) => Pin::new(s).poll_read(cx, buf),
             Conn::Unix(s) => Pin::new(s).poll_read(cx, buf),
@@ -62,7 +70,11 @@ impl AsyncRead for Conn {
 }
 
 impl AsyncWrite for Conn {
-    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
         match self.get_mut() {
             Conn::Tcp(s) => Pin::new(s).poll_write(cx, buf),
             Conn::Unix(s) => Pin::new(s).poll_write(cx, buf),

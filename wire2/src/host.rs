@@ -21,14 +21,18 @@ pub fn normalise_host(raw: &str) -> Result<String, HostError> {
         return Err(bad("empty"));
     }
     if let Some(inner) = raw.strip_prefix('[') {
-        let inner = inner.strip_suffix(']').ok_or_else(|| bad("unterminated IPv6 literal"))?;
+        let inner = inner
+            .strip_suffix(']')
+            .ok_or_else(|| bad("unterminated IPv6 literal"))?;
         // A zone id (fe80::1%eth0) is meaningless across hosts; reject rather than guess.
         let ip: Ipv6Addr = inner.parse().map_err(|_| bad("not an IPv6 address"))?;
         return Ok(ip.to_string());
     }
     if raw.contains(':') {
         // Only reachable for a bare IPv6 literal (authorities are split before this).
-        let ip: Ipv6Addr = raw.parse().map_err(|_| bad("':' outside an IPv6 literal"))?;
+        let ip: Ipv6Addr = raw
+            .parse()
+            .map_err(|_| bad("':' outside an IPv6 literal"))?;
         return Ok(ip.to_string());
     }
     let name = raw.strip_suffix('.').unwrap_or(raw);
@@ -42,7 +46,9 @@ pub fn normalise_host(raw: &str) -> Result<String, HostError> {
     let ascii = idna::domain_to_ascii(name).map_err(|_| bad("not a valid domain name"))?;
     if ascii.is_empty()
         || ascii.split('.').any(str::is_empty)
-        || !ascii.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'.' || b == b'_')
+        || !ascii.bytes().all(|b| {
+            b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'.' || b == b'_'
+        })
     {
         return Err(bad("not a valid domain name"));
     }
@@ -53,11 +59,19 @@ pub fn normalise_host(raw: &str) -> Result<String, HostError> {
 pub fn split_authority(auth: &str) -> Result<(&str, Option<u16>), HostError> {
     let bad = |why: &str| HostError(format!("bad authority {auth:?}: {why}"));
     let (host, port) = if auth.starts_with('[') {
-        let end = auth.find(']').ok_or_else(|| bad("unterminated IPv6 literal"))?;
+        let end = auth
+            .find(']')
+            .ok_or_else(|| bad("unterminated IPv6 literal"))?;
         let (h, rest) = auth.split_at(end + 1);
         match rest {
             "" => (h, None),
-            _ => (h, Some(rest.strip_prefix(':').ok_or_else(|| bad("junk after IPv6 literal"))?)),
+            _ => (
+                h,
+                Some(
+                    rest.strip_prefix(':')
+                        .ok_or_else(|| bad("junk after IPv6 literal"))?,
+                ),
+            ),
         }
     } else {
         match auth.rsplit_once(':') {
@@ -86,7 +100,11 @@ pub fn split_authority(auth: &str) -> Result<(&str, Option<u16>), HostError> {
 
 /// Host as written back into an authority or a Host header: IPv6 literals get their brackets again.
 pub fn authority_host(host: &str) -> String {
-    if host.contains(':') { format!("[{host}]") } else { host.to_string() }
+    if host.contains(':') {
+        format!("[{host}]")
+    } else {
+        host.to_string()
+    }
 }
 
 #[cfg(test)]
@@ -95,14 +113,34 @@ mod tests {
 
     #[test]
     fn normalises_names() {
-        for raw in ["www.example.test", "WWW.Example.Test", "www.example.test.", "WWW.EXAMPLE.TEST."] {
+        for raw in [
+            "www.example.test",
+            "WWW.Example.Test",
+            "www.example.test.",
+            "WWW.EXAMPLE.TEST.",
+        ] {
             assert_eq!(normalise_host(raw).unwrap(), "www.example.test", "{raw}");
         }
-        assert_eq!(normalise_host("bücher.example").unwrap(), "xn--bcher-kva.example");
-        assert_eq!(normalise_host("BÜCHER.example.").unwrap(), "xn--bcher-kva.example");
-        assert_eq!(normalise_host("xn--bcher-kva.example").unwrap(), "xn--bcher-kva.example");
-        assert_eq!(normalise_host("例え.テスト").unwrap(), "xn--r8jz45g.xn--zckzah");
-        assert_eq!(normalise_host("_dmarc.example.test").unwrap(), "_dmarc.example.test");
+        assert_eq!(
+            normalise_host("bücher.example").unwrap(),
+            "xn--bcher-kva.example"
+        );
+        assert_eq!(
+            normalise_host("BÜCHER.example.").unwrap(),
+            "xn--bcher-kva.example"
+        );
+        assert_eq!(
+            normalise_host("xn--bcher-kva.example").unwrap(),
+            "xn--bcher-kva.example"
+        );
+        assert_eq!(
+            normalise_host("例え.テスト").unwrap(),
+            "xn--r8jz45g.xn--zckzah"
+        );
+        assert_eq!(
+            normalise_host("_dmarc.example.test").unwrap(),
+            "_dmarc.example.test"
+        );
     }
 
     #[test]
@@ -116,7 +154,9 @@ mod tests {
 
     #[test]
     fn rejects_garbage() {
-        for raw in ["", ".", "a..b", "[::1", "[nope]", "a b", "a/b", "a@b", "::1x"] {
+        for raw in [
+            "", ".", "a..b", "[::1", "[nope]", "a b", "a/b", "a@b", "::1x",
+        ] {
             assert!(normalise_host(raw).is_err(), "{raw:?}");
         }
     }
@@ -125,9 +165,17 @@ mod tests {
     fn splits_authorities() {
         assert_eq!(split_authority("[::1]:443").unwrap(), ("[::1]", Some(443)));
         assert_eq!(split_authority("[::1]").unwrap(), ("[::1]", None));
-        assert_eq!(split_authority("Example.COM:8080").unwrap(), ("Example.COM", Some(8080)));
-        assert_eq!(split_authority("example.com").unwrap(), ("example.com", None));
-        for bad in ["::1:443", "[::1]443", "a:", "a:0", "a:65536", "a:+1", ":80", "[::1]:x"] {
+        assert_eq!(
+            split_authority("Example.COM:8080").unwrap(),
+            ("Example.COM", Some(8080))
+        );
+        assert_eq!(
+            split_authority("example.com").unwrap(),
+            ("example.com", None)
+        );
+        for bad in [
+            "::1:443", "[::1]443", "a:", "a:0", "a:65536", "a:+1", ":80", "[::1]:x",
+        ] {
             assert!(split_authority(bad).is_err(), "{bad}");
         }
         // CONNECT [::1]:443 parses as host ::1, port 443 (SPEC acceptance criterion).

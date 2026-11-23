@@ -67,7 +67,9 @@ pub fn write(l: Level, args: fmt::Arguments) {
 
 /// `2026-11-23T12:34:56.789Z`
 fn timestamp() -> String {
-    let d = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    let d = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
     let secs = d.as_secs() as i64;
     let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
     let (y, m, dd) = civil_from_days(days);

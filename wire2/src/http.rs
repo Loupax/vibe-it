@@ -85,7 +85,11 @@ where
         };
         buf.truncate(old + n);
         if n == 0 {
-            return Err(if old == 0 { HeadError::Eof } else { HeadError::Truncated });
+            return Err(if old == 0 {
+                HeadError::Eof
+            } else {
+                HeadError::Truncated
+            });
         }
     }
 }
@@ -139,20 +143,30 @@ pub fn parse_response(buf: &[u8]) -> Result<Option<(ResponseHead, usize)>, Strin
     }
 }
 
-pub async fn read_request<R: AsyncRead + Unpin>(r: &mut R, buf: &mut Vec<u8>) -> Result<RequestHead, HeadError> {
+pub async fn read_request<R: AsyncRead + Unpin>(
+    r: &mut R,
+    buf: &mut Vec<u8>,
+) -> Result<RequestHead, HeadError> {
     read_head(r, buf, parse_request).await
 }
 
-pub async fn read_response<R: AsyncRead + Unpin>(r: &mut R, buf: &mut Vec<u8>) -> Result<ResponseHead, HeadError> {
+pub async fn read_response<R: AsyncRead + Unpin>(
+    r: &mut R,
+    buf: &mut Vec<u8>,
+) -> Result<ResponseHead, HeadError> {
     read_head(r, buf, parse_response).await
 }
 
 pub fn header<'a>(hs: &'a Headers, name: &str) -> Option<&'a [u8]> {
-    hs.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_slice())
+    hs.iter()
+        .find(|(n, _)| n.eq_ignore_ascii_case(name))
+        .map(|(_, v)| v.as_slice())
 }
 
 fn all_values<'a>(hs: &'a Headers, name: &'a str) -> impl Iterator<Item = &'a [u8]> + 'a {
-    hs.iter().filter(move |(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_slice())
+    hs.iter()
+        .filter(move |(n, _)| n.eq_ignore_ascii_case(name))
+        .map(|(_, v)| v.as_slice())
 }
 
 /// Comma-separated tokens of every `name` header, trimmed and lowercased.
@@ -185,7 +199,7 @@ pub fn strip_hop_by_hop(hs: &Headers, keep_upgrade: bool) -> Headers {
                 || l == "te"
                 || l == "trailer"
                 || l.starts_with("proxy-")
-                || named.iter().any(|t| *t == l))
+                || named.contains(&l))
         })
         .cloned()
         .collect()
@@ -205,7 +219,9 @@ fn content_length(hs: &Headers) -> Result<Option<u64>, String> {
     let mut found: Option<u64> = None;
     for v in all_values(hs, "content-length") {
         for part in v.split(|&b| b == b',') {
-            let s = std::str::from_utf8(part).map_err(|_| "bad Content-Length")?.trim();
+            let s = std::str::from_utf8(part)
+                .map_err(|_| "bad Content-Length")?
+                .trim();
             if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
                 return Err("bad Content-Length".into());
             }
@@ -237,7 +253,11 @@ pub fn request_framing(hs: &Headers) -> Result<Framing, String> {
 
 /// Framing of a response body to a request with method `method`.
 pub fn response_framing(method: &str, code: u16, hs: &Headers) -> Result<Framing, String> {
-    if method.eq_ignore_ascii_case("HEAD") || (100..200).contains(&code) || code == 204 || code == 304 {
+    if method.eq_ignore_ascii_case("HEAD")
+        || (100..200).contains(&code)
+        || code == 204
+        || code == 304
+    {
         return Ok(Framing::None);
     }
     let te = tokens(hs, "transfer-encoding");
@@ -383,14 +403,22 @@ impl ChunkScanner {
                     if b != b'\n' {
                         return Err("chunk size line without LF".into());
                     }
-                    self.st = if self.size == 0 { TrailerStart } else { Data(self.size) };
+                    self.st = if self.size == 0 {
+                        TrailerStart
+                    } else {
+                        Data(self.size)
+                    };
                     self.size = 0;
                     self.digits = false;
                 }
                 Data(left) => {
                     let take = left.min((data.len() - i) as u64);
                     i += take as usize;
-                    self.st = if take == left { DataCr } else { Data(left - take) };
+                    self.st = if take == left {
+                        DataCr
+                    } else {
+                        Data(left - take)
+                    };
                     continue;
                 }
                 DataCr => {
@@ -437,7 +465,10 @@ mod tests {
     use super::*;
 
     fn hs(pairs: &[(&str, &str)]) -> Headers {
-        pairs.iter().map(|(n, v)| (n.to_string(), v.as_bytes().to_vec())).collect()
+        pairs
+            .iter()
+            .map(|(n, v)| (n.to_string(), v.as_bytes().to_vec()))
+            .collect()
     }
 
     fn names(h: &Headers) -> Vec<String> {
@@ -465,31 +496,65 @@ mod tests {
             ("Content-Encoding", "gzip"),
             ("X-Keep", "1"),
         ]);
-        assert_eq!(names(&strip_hop_by_hop(&h, false)), ["host", "transfer-encoding", "content-encoding", "x-keep"]);
+        assert_eq!(
+            names(&strip_hop_by_hop(&h, false)),
+            ["host", "transfer-encoding", "content-encoding", "x-keep"]
+        );
         assert!(names(&strip_hop_by_hop(&h, true)).contains(&"upgrade".to_string()));
     }
 
     #[test]
     fn upgrade_detection() {
-        assert!(is_upgrade_request(&hs(&[("Connection", "keep-alive, Upgrade"), ("Upgrade", "websocket")])));
+        assert!(is_upgrade_request(&hs(&[
+            ("Connection", "keep-alive, Upgrade"),
+            ("Upgrade", "websocket")
+        ])));
         assert!(!is_upgrade_request(&hs(&[("Upgrade", "websocket")])));
     }
 
     #[test]
     fn framing() {
         assert_eq!(request_framing(&hs(&[])).unwrap(), Framing::None);
-        assert_eq!(request_framing(&hs(&[("Content-Length", "10")])).unwrap(), Framing::Length(10));
-        assert_eq!(request_framing(&hs(&[("Content-Length", "10, 10")])).unwrap(), Framing::Length(10));
-        assert!(request_framing(&hs(&[("Content-Length", "10"), ("content-length", "11")])).is_err());
-        assert!(request_framing(&hs(&[("Content-Length", "-1")])).is_err());
-        assert_eq!(request_framing(&hs(&[("Transfer-Encoding", "gzip, chunked")])).unwrap(), Framing::Chunked);
-        assert!(request_framing(&hs(&[("Transfer-Encoding", "gzip")])).is_err());
-        assert_eq!(response_framing("HEAD", 200, &hs(&[("Content-Length", "5")])).unwrap(), Framing::None);
-        assert_eq!(response_framing("GET", 304, &hs(&[])).unwrap(), Framing::None);
-        assert_eq!(response_framing("GET", 200, &hs(&[])).unwrap(), Framing::UntilClose);
-        assert_eq!(response_framing("GET", 200, &hs(&[("Transfer-Encoding", "gzip")])).unwrap(), Framing::UntilClose);
         assert_eq!(
-            response_framing("GET", 200, &hs(&[("Transfer-Encoding", "chunked"), ("Content-Length", "3")])).unwrap(),
+            request_framing(&hs(&[("Content-Length", "10")])).unwrap(),
+            Framing::Length(10)
+        );
+        assert_eq!(
+            request_framing(&hs(&[("Content-Length", "10, 10")])).unwrap(),
+            Framing::Length(10)
+        );
+        assert!(
+            request_framing(&hs(&[("Content-Length", "10"), ("content-length", "11")])).is_err()
+        );
+        assert!(request_framing(&hs(&[("Content-Length", "-1")])).is_err());
+        assert_eq!(
+            request_framing(&hs(&[("Transfer-Encoding", "gzip, chunked")])).unwrap(),
+            Framing::Chunked
+        );
+        assert!(request_framing(&hs(&[("Transfer-Encoding", "gzip")])).is_err());
+        assert_eq!(
+            response_framing("HEAD", 200, &hs(&[("Content-Length", "5")])).unwrap(),
+            Framing::None
+        );
+        assert_eq!(
+            response_framing("GET", 304, &hs(&[])).unwrap(),
+            Framing::None
+        );
+        assert_eq!(
+            response_framing("GET", 200, &hs(&[])).unwrap(),
+            Framing::UntilClose
+        );
+        assert_eq!(
+            response_framing("GET", 200, &hs(&[("Transfer-Encoding", "gzip")])).unwrap(),
+            Framing::UntilClose
+        );
+        assert_eq!(
+            response_framing(
+                "GET",
+                200,
+                &hs(&[("Transfer-Encoding", "chunked"), ("Content-Length", "3")])
+            )
+            .unwrap(),
             Framing::Chunked
         );
     }
@@ -519,18 +584,36 @@ mod tests {
     #[test]
     fn chunk_scanner_rejects_garbage() {
         for bad in [&b"x\r\n"[..], b"\r\n", b"5\r\nhelloX", b"5\nhello"] {
-            assert!(ChunkScanner::new().feed(bad).is_err(), "{:?}", String::from_utf8_lossy(bad));
+            assert!(
+                ChunkScanner::new().feed(bad).is_err(),
+                "{:?}",
+                String::from_utf8_lossy(bad)
+            );
         }
         assert!(ChunkScanner::new().feed(b"fffffffffffffffff\r\n").is_err());
     }
 
     #[test]
     fn parses_heads() {
-        let (r, n) = parse_request(b"CONNECT [::1]:443 HTTP/1.1\r\nHost: [::1]:443\r\n\r\nTLS").unwrap().unwrap();
-        assert_eq!((r.method.as_str(), r.target.as_str(), n), ("CONNECT", "[::1]:443", 47));
-        assert!(parse_request(b"GET http://a/ HTTP/1.1\r\nHost: a\r\n").unwrap().is_none());
-        let (r, _) = parse_response(b"HTTP/1.1 302 Found\r\nLocation: /x\r\n\r\n").unwrap().unwrap();
-        assert_eq!((r.code, header(&r.headers, "location")), (302, Some(&b"/x"[..])));
+        let (r, n) = parse_request(b"CONNECT [::1]:443 HTTP/1.1\r\nHost: [::1]:443\r\n\r\nTLS")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (r.method.as_str(), r.target.as_str(), n),
+            ("CONNECT", "[::1]:443", 47)
+        );
+        assert!(
+            parse_request(b"GET http://a/ HTTP/1.1\r\nHost: a\r\n")
+                .unwrap()
+                .is_none()
+        );
+        let (r, _) = parse_response(b"HTTP/1.1 302 Found\r\nLocation: /x\r\n\r\n")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (r.code, header(&r.headers, "location")),
+            (302, Some(&b"/x"[..]))
+        );
     }
 
     #[test]

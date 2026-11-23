@@ -36,29 +36,33 @@ pub struct Ctx {
 /// Handle one browser connection from accept to close.
 pub async fn handle(mut conn: Conn, peer: String, ctx: Arc<Ctx>) {
     let mut buf = Vec::new();
-    let head = match tokio::time::timeout(HEAD_TIMEOUT, http::read_request(&mut conn, &mut buf)).await {
-        Err(_) => {
-            crate::debug!("peer={peer} no request head within {}s", HEAD_TIMEOUT.as_secs());
-            refuse(&mut conn, 408, "wire2: request head timeout").await;
-            return;
-        }
-        Ok(Err(HeadError::Eof)) => return,
-        Ok(Err(HeadError::Io(e))) => {
-            crate::debug!("peer={peer} read error before request head: {e}");
-            return;
-        }
-        Ok(Err(HeadError::TooLarge)) => {
-            crate::warn!("peer={peer} request head too large");
-            refuse(&mut conn, 431, "wire2: request head too large").await;
-            return;
-        }
-        Ok(Err(e)) => {
-            crate::warn!("peer={peer} bad request: {e}");
-            refuse(&mut conn, 400, "wire2: malformed request").await;
-            return;
-        }
-        Ok(Ok(h)) => h,
-    };
+    let head =
+        match tokio::time::timeout(HEAD_TIMEOUT, http::read_request(&mut conn, &mut buf)).await {
+            Err(_) => {
+                crate::debug!(
+                    "peer={peer} no request head within {}s",
+                    HEAD_TIMEOUT.as_secs()
+                );
+                refuse(&mut conn, 408, "wire2: request head timeout").await;
+                return;
+            }
+            Ok(Err(HeadError::Eof)) => return,
+            Ok(Err(HeadError::Io(e))) => {
+                crate::debug!("peer={peer} read error before request head: {e}");
+                return;
+            }
+            Ok(Err(HeadError::TooLarge)) => {
+                crate::warn!("peer={peer} request head too large");
+                refuse(&mut conn, 431, "wire2: request head too large").await;
+                return;
+            }
+            Ok(Err(e)) => {
+                crate::warn!("peer={peer} bad request: {e}");
+                refuse(&mut conn, 400, "wire2: malformed request").await;
+                return;
+            }
+            Ok(Ok(h)) => h,
+        };
     crate::debug!("peer={peer} {} {}", head.method, head.target);
     if head.method.eq_ignore_ascii_case("CONNECT") {
         tunnel(conn, head, buf, &ctx).await;
@@ -145,7 +149,13 @@ async fn tunnel(mut conn: Conn, head: RequestHead, leftover: Vec<u8>, ctx: &Ctx)
         Ok(s) => Conn::Tcp(s),
         Err(e) => {
             log_upstream_error(&flow, &e);
-            refuse_flow(&mut conn, &flow, e.status(), &format!("wire2: {host}:{port}: {e}")).await;
+            refuse_flow(
+                &mut conn,
+                &flow,
+                e.status(),
+                &format!("wire2: {host}:{port}: {e}"),
+            )
+            .await;
             return;
         }
     };
@@ -163,6 +173,9 @@ async fn tunnel(mut conn: Conn, head: RequestHead, leftover: Vec<u8>, ctx: &Ctx)
         }
         flow.up.fetch_add(leftover.len() as u64, Ordering::Relaxed);
     }
+    // The head buffer is not needed for the rest of a possibly long-lived tunnel.
+    drop(leftover);
+    drop(head);
     let r = tokio::select! {
         r = crate::splice::splice_bidi(&conn, &up, &flow.up, &flow.down) => r,
         _ = flow.cancel.cancelled() => Ok(()),
@@ -213,7 +226,11 @@ impl std::fmt::Display for CopyError {
     }
 }
 
-async fn put<W: AsyncWrite + Unpin>(w: &mut W, data: &[u8], ctr: &AtomicU64) -> Result<(), CopyError> {
+async fn put<W: AsyncWrite + Unpin>(
+    w: &mut W,
+    data: &[u8],
+    ctr: &AtomicU64,
+) -> Result<(), CopyError> {
     if data.is_empty() {
         return Ok(());
     }
@@ -224,12 +241,23 @@ async fn put<W: AsyncWrite + Unpin>(w: &mut W, data: &[u8], ctr: &AtomicU64) -> 
 
 /// Stream one message body from `r` to `w` exactly as framed (bytes unchanged, chunked included).
 /// `pre` holds body bytes already read together with the head.
-async fn copy_body<R, W>(r: &mut R, w: &mut W, framing: Framing, pre: &[u8], ctr: &AtomicU64) -> Result<(), CopyError>
+async fn copy_body<R, W>(
+    r: &mut R,
+    w: &mut W,
+    framing: Framing,
+    pre: &[u8],
+    ctr: &AtomicU64,
+) -> Result<(), CopyError>
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
-    let eof = || CopyError::Src(io::Error::new(io::ErrorKind::UnexpectedEof, "body ended early"));
+    let eof = || {
+        CopyError::Src(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "body ended early",
+        ))
+    };
     match framing {
         Framing::None => {}
         Framing::Length(n) => {
@@ -288,7 +316,12 @@ async fn flush<W: AsyncWrite + Unpin>(w: &mut W) -> Result<(), CopyError> {
 }
 
 /// Plain byte copy until EOF, then half-close `w` (the two directions of an upgraded connection).
-async fn copy_until_eof<R, W>(r: &mut R, w: &mut W, pre: &[u8], ctr: &AtomicU64) -> Result<(), CopyError>
+async fn copy_until_eof<R, W>(
+    r: &mut R,
+    w: &mut W,
+    pre: &[u8],
+    ctr: &AtomicU64,
+) -> Result<(), CopyError>
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
@@ -345,10 +378,18 @@ async fn plain(mut conn: Conn, head: RequestHead, leftover: Vec<u8>, ctx: &Ctx) 
         p => format!("{}:{p}", authority_host(&host)),
     };
     hs.insert(0, ("Host".into(), host_hdr.into_bytes()));
-    hs.push(("Connection".into(), if upgrade { &b"upgrade"[..] } else { b"close" }.to_vec()));
+    hs.push((
+        "Connection".into(),
+        if upgrade { &b"upgrade"[..] } else { b"close" }.to_vec(),
+    ));
     http::drop_length_if_chunked(&mut hs);
     let up_head = http::write_request_head(&head.method, &path, &hs);
-    crate::debug!("flow={} -> {} {} (host {host}:{port}, body {framing:?})", flow.id, head.method, path);
+    crate::debug!(
+        "flow={} -> {} {} (host {host}:{port}, body {framing:?})",
+        flow.id,
+        head.method,
+        path
+    );
 
     // W2-F: the http filter chain runs here, before the upstream connector.
     let up = tokio::select! {
@@ -359,7 +400,13 @@ async fn plain(mut conn: Conn, head: RequestHead, leftover: Vec<u8>, ctx: &Ctx) 
         Ok(s) => s,
         Err(e) => {
             log_upstream_error(&flow, &e);
-            refuse_flow(&mut conn, &flow, e.status(), &format!("wire2: {host}:{port}: {e}")).await;
+            refuse_flow(
+                &mut conn,
+                &flow,
+                e.status(),
+                &format!("wire2: {host}:{port}: {e}"),
+            )
+            .await;
             return;
         }
     };
@@ -383,14 +430,22 @@ async fn plain(mut conn: Conn, head: RequestHead, leftover: Vec<u8>, ctx: &Ctx) 
         let mut recv = pin!(async {
             let mut rbuf = Vec::new();
             loop {
-                let rh = http::read_response(&mut ur, &mut rbuf).await.map_err(|e| e.to_string())?;
+                let rh = http::read_response(&mut ur, &mut rbuf)
+                    .await
+                    .map_err(|e| e.to_string())?;
                 match rh.code {
                     101 if upgrade => return Ok(Response::Upgrade(rh, rbuf)),
                     101 => return Err("101 to a request that did not ask to upgrade".to_string()),
                     100..=199 => {
                         // Interim responses (100 Continue, 103 Early Hints) are relayed, minus hop-by-hop.
-                        let ih = http::write_response_head(rh.code, &rh.reason, &http::strip_hop_by_hop(&rh.headers, false));
-                        bw.write_all(&ih).await.map_err(|e| format!("browser: {e}"))?;
+                        let ih = http::write_response_head(
+                            rh.code,
+                            &rh.reason,
+                            &http::strip_hop_by_hop(&rh.headers, false),
+                        );
+                        bw.write_all(&ih)
+                            .await
+                            .map_err(|e| format!("browser: {e}"))?;
                         flow.down.fetch_add(ih.len() as u64, Ordering::Relaxed);
                     }
                     _ => return Ok(Response::Final(rh, rbuf)),
@@ -423,10 +478,19 @@ async fn plain(mut conn: Conn, head: RequestHead, leftover: Vec<u8>, ctx: &Ctx) 
         Ok(Response::Final(rh, rbuf)) => (rh, rbuf, false),
         Ok(Response::Upgrade(rh, rbuf)) => (rh, rbuf, true),
         Err(e) => {
-            crate::warn!("flow={} host={host} port={port} bad upstream response, answering 502: {e}", flow.id);
+            crate::warn!(
+                "flow={} host={host} port={port} bad upstream response, answering 502: {e}",
+                flow.id
+            );
             drop(send);
             let mut conn = br.unsplit(bw);
-            refuse_flow(&mut conn, &flow, 502, &format!("wire2: {host}:{port}: bad upstream response")).await;
+            refuse_flow(
+                &mut conn,
+                &flow,
+                502,
+                &format!("wire2: {host}:{port}: bad upstream response"),
+            )
+            .await;
             return;
         }
     };
@@ -441,12 +505,10 @@ async fn plain(mut conn: Conn, head: RequestHead, leftover: Vec<u8>, ctx: &Ctx) 
         flow.set_status(101);
         drop(send);
         let r = tokio::select! {
-            r = async {
-                tokio::try_join!(
-                    copy_until_eof(&mut br, &mut uw, &[], &flow.up),
-                    copy_until_eof(&mut ur, &mut bw, &rbuf, &flow.down),
-                )
-            } => r.map(|_| ()),
+            r = crate::splice::both_ways(
+                copy_until_eof(&mut br, &mut uw, &[], &flow.up),
+                copy_until_eof(&mut ur, &mut bw, &rbuf, &flow.down),
+            ) => r,
             _ = flow.cancel.cancelled() => Ok(()),
         };
         if let Err(e) = r {
@@ -458,10 +520,19 @@ async fn plain(mut conn: Conn, head: RequestHead, leftover: Vec<u8>, ctx: &Ctx) 
     let rframing = match http::response_framing(&head.method, rh.code, &rh.headers) {
         Ok(f) => f,
         Err(e) => {
-            crate::warn!("flow={} host={host} port={port} bad upstream framing, answering 502: {e}", flow.id);
+            crate::warn!(
+                "flow={} host={host} port={port} bad upstream framing, answering 502: {e}",
+                flow.id
+            );
             drop(send);
             let mut conn = br.unsplit(bw);
-            refuse_flow(&mut conn, &flow, 502, &format!("wire2: {host}:{port}: bad upstream response")).await;
+            refuse_flow(
+                &mut conn,
+                &flow,
+                502,
+                &format!("wire2: {host}:{port}: bad upstream response"),
+            )
+            .await;
             return;
         }
     };
@@ -506,10 +577,22 @@ mod tests {
 
     #[test]
     fn http_urls() {
-        assert_eq!(split_http_url("http://a.test/x?y#z"), Some(("a.test", "/x?y".to_string())));
-        assert_eq!(split_http_url("HTTP://A.test:81"), Some(("A.test:81", "/".to_string())));
-        assert_eq!(split_http_url("http://[::1]:8080?q"), Some(("[::1]:8080", "/?q".to_string())));
-        assert_eq!(split_http_url("http://a#frag"), Some(("a", "/".to_string())));
+        assert_eq!(
+            split_http_url("http://a.test/x?y#z"),
+            Some(("a.test", "/x?y".to_string()))
+        );
+        assert_eq!(
+            split_http_url("HTTP://A.test:81"),
+            Some(("A.test:81", "/".to_string()))
+        );
+        assert_eq!(
+            split_http_url("http://[::1]:8080?q"),
+            Some(("[::1]:8080", "/?q".to_string()))
+        );
+        assert_eq!(
+            split_http_url("http://a#frag"),
+            Some(("a", "/".to_string()))
+        );
         assert_eq!(split_http_url("https://a/"), None);
         assert_eq!(split_http_url("/relative"), None);
     }
@@ -519,13 +602,17 @@ mod tests {
         let ctr = AtomicU64::new(0);
         let mut out = Vec::new();
         let mut src: &[u8] = b"lo\r\n0\r\n\r\nGARBAGE";
-        copy_body(&mut src, &mut out, Framing::Chunked, b"5\r\nhel", &ctr).await.unwrap();
+        copy_body(&mut src, &mut out, Framing::Chunked, b"5\r\nhel", &ctr)
+            .await
+            .unwrap();
         assert_eq!(out, b"5\r\nhello\r\n0\r\n\r\n");
         assert_eq!(ctr.load(Ordering::Relaxed), out.len() as u64);
 
         let mut out = Vec::new();
         let mut src: &[u8] = b"defgh";
-        copy_body(&mut src, &mut out, Framing::Length(6), b"abc", &ctr).await.unwrap();
+        copy_body(&mut src, &mut out, Framing::Length(6), b"abc", &ctr)
+            .await
+            .unwrap();
         assert_eq!(out, b"abcdef");
 
         let mut out = Vec::new();

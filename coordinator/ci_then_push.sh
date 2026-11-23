@@ -1,6 +1,6 @@
 #!/bin/bash
 # Wait for the newest main CI run; push local tracking commits and reinstall ONLY if it succeeded.
-# usage: ci_then_push.sh [--install <crate dir>|none]   (default: scratchy; e.g. --install wire, --install none)
+# usage: ci_then_push.sh [--install <crate dir>|none]   (default: scratchy; e.g. --install wire, --install wire2, --install none)
 INSTALL=scratchy
 [ "$1" = --install ] && INSTALL=$2
 cd "$(dirname "$0")/.." || exit 2

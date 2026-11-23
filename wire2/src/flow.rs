@@ -49,7 +49,11 @@ impl FlowInfo {
     }
 
     fn chain_str(&self) -> String {
-        if self.chain.is_empty() { "-".into() } else { self.chain.join(",") }
+        if self.chain.is_empty() {
+            "-".into()
+        } else {
+            self.chain.join(",")
+        }
     }
 }
 
@@ -82,7 +86,10 @@ impl Registry {
         });
         self.lock().insert(id, info.clone());
         crate::debug!("flow={id} open {method} host={host} port={port}");
-        Flow { reg: self.clone(), info }
+        Flow {
+            reg: self.clone(),
+            info,
+        }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<u64, Arc<FlowInfo>>> {
@@ -102,7 +109,11 @@ impl Registry {
     /// SIGUSR1: one summary line, then one line per open flow.
     pub fn dump(&self) {
         let flows = self.snapshot();
-        crate::info!("registry: {} open flow(s), {} pooled pipe(s)", flows.len(), crate::splice::pooled_pipes());
+        crate::info!(
+            "registry: {} open flow(s), {} pooled pipe(s)",
+            flows.len(),
+            crate::splice::pooled_pipes()
+        );
         for f in flows {
             crate::info!(
                 "registry flow={} {} host={} port={} decrypted={} chain={} age={} up={} down={}",

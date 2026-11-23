@@ -49,7 +49,10 @@ fn main() -> ExitCode {
         return ExitCode::from(1);
     }
     raise_fd_limit();
-    let rt = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+    let rt = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
         Ok(rt) => rt,
         Err(e) => {
             error!("cannot start the runtime: {e}");
@@ -67,7 +70,10 @@ fn main() -> ExitCode {
 
 /// Thousands of flows need two fds each: lift the soft RLIMIT_NOFILE to the hard limit.
 fn raise_fd_limit() {
-    let mut lim = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    let mut lim = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
     // SAFETY: getrlimit/setrlimit with a valid struct.
     unsafe {
         if libc::getrlimit(libc::RLIMIT_NOFILE, &mut lim) == 0 && lim.rlim_cur < lim.rlim_max {
@@ -83,7 +89,9 @@ fn proxy_id() -> String {
     // SAFETY: getrandom fills our buffer.
     let n = unsafe { libc::getrandom(b.as_mut_ptr().cast(), b.len(), 0) };
     if n != b.len() as isize {
-        let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
         b.copy_from_slice(&(t.as_nanos() as u64 ^ std::process::id() as u64).to_le_bytes()[..6]);
     }
     b.iter().map(|x| format!("{x:02x}")).collect()
@@ -97,14 +105,22 @@ enum Listener {
 fn bind_unix(path: &Path) -> Result<UnixListener, String> {
     if let Ok(meta) = std::fs::symlink_metadata(path) {
         if !meta.file_type().is_socket() {
-            return Err(format!("--listen unix:{}: exists and is not a socket", path.display()));
+            return Err(format!(
+                "--listen unix:{}: exists and is not a socket",
+                path.display()
+            ));
         }
         if std::os::unix::net::UnixStream::connect(path).is_ok() {
-            return Err(format!("--listen unix:{}: another process is listening there", path.display()));
+            return Err(format!(
+                "--listen unix:{}: another process is listening there",
+                path.display()
+            ));
         }
-        std::fs::remove_file(path).map_err(|e| format!("removing stale socket {}: {e}", path.display()))?;
+        std::fs::remove_file(path)
+            .map_err(|e| format!("removing stale socket {}: {e}", path.display()))?;
     }
-    let l = UnixListener::bind(path).map_err(|e| format!("--listen unix:{}: {e}", path.display()))?;
+    let l =
+        UnixListener::bind(path).map_err(|e| format!("--listen unix:{}: {e}", path.display()))?;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
         .map_err(|e| format!("chmod 0600 {}: {e}", path.display()))?;
     Ok(l)
@@ -112,7 +128,11 @@ fn bind_unix(path: &Path) -> Result<UnixListener, String> {
 
 async fn run(cfg: Config) -> Result<(), String> {
     let listener = match &cfg.listen {
-        Listen::Tcp(addr) => Listener::Tcp(TcpListener::bind(addr).await.map_err(|e| format!("--listen {addr}: {e}"))?),
+        Listen::Tcp(addr) => Listener::Tcp(
+            TcpListener::bind(addr)
+                .await
+                .map_err(|e| format!("--listen {addr}: {e}"))?,
+        ),
         Listen::Unix(path) => Listener::Unix(bind_unix(path)?),
     };
     let shown = match &listener {
@@ -122,7 +142,10 @@ async fn run(cfg: Config) -> Result<(), String> {
             Listen::Tcp(_) => unreachable!(),
         },
     };
-    let ctx = Arc::new(Ctx { cfg: cfg.clone(), reg: Registry::new() });
+    let ctx = Arc::new(Ctx {
+        cfg: cfg.clone(),
+        reg: Registry::new(),
+    });
     info!(
         "wire2 {} proxy-id={} listening on {shown} (no filters: CONNECT is an opaque tunnel, nothing is decrypted, no CA)",
         env!("CARGO_PKG_VERSION"),
@@ -132,7 +155,8 @@ async fn run(cfg: Config) -> Result<(), String> {
         warn!("--allow-remote: anyone who can reach {shown} can use this proxy");
     }
 
-    let mut usr1 = signal(SignalKind::user_defined1()).map_err(|e| format!("SIGUSR1 handler: {e}"))?;
+    let mut usr1 =
+        signal(SignalKind::user_defined1()).map_err(|e| format!("SIGUSR1 handler: {e}"))?;
     let mut term = signal(SignalKind::terminate()).map_err(|e| format!("SIGTERM handler: {e}"))?;
     let mut int = signal(SignalKind::interrupt()).map_err(|e| format!("SIGINT handler: {e}"))?;
     loop {

@@ -74,5 +74,9 @@ async fn dial_inner(host: &str, port: u16) -> Result<TcpStream, DialError> {
         }
     }
     let e = last.map(|e| e.to_string()).unwrap_or_default();
-    Err(DialError::Connect(if addrs.len() > 1 { format!("{e} (all {} addresses)", addrs.len()) } else { e }))
+    Err(DialError::Connect(if addrs.len() > 1 {
+        format!("{e} (all {} addresses)", addrs.len())
+    } else {
+        e
+    }))
 }

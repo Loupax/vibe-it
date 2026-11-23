@@ -8,8 +8,10 @@
 
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::pin::pin;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use tokio::io::Interest;
 
@@ -17,8 +19,8 @@ use crate::conn::Conn;
 
 /// Requested pipe capacity. Larger pipes mean fewer syscalls per byte; the kernel may refuse (then the
 /// default 64 KiB stays).
-const PIPE_SIZE: libc::c_int = 256 * 1024;
-const POOL_MAX: usize = 128;
+const PIPE_SIZE: libc::c_int = 1024 * 1024;
+const POOL_MAX: usize = 32;
 
 struct Pipe {
     r: OwnedFd,
@@ -42,7 +44,11 @@ impl Pipe {
             libc::fcntl(w.as_raw_fd(), libc::F_SETPIPE_SZ, PIPE_SIZE);
             libc::fcntl(w.as_raw_fd(), libc::F_GETPIPE_SZ)
         };
-        Ok(Pipe { r, w, cap: if cap > 0 { cap as usize } else { 64 * 1024 } })
+        Ok(Pipe {
+            r,
+            w,
+            cap: if cap > 0 { cap as usize } else { 64 * 1024 },
+        })
     }
 
     fn take() -> io::Result<Pipe> {
@@ -74,7 +80,11 @@ fn splice(from: RawFd, to: RawFd, len: usize) -> io::Result<usize> {
             libc::SPLICE_F_MOVE | libc::SPLICE_F_NONBLOCK,
         )
     };
-    if n < 0 { Err(io::Error::last_os_error()) } else { Ok(n as usize) }
+    if n < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(n as usize)
+    }
 }
 
 /// Copy `src` -> `dst` until `src` reaches EOF, then shut down `dst`'s write side (half-close).
@@ -83,7 +93,9 @@ async fn pump(src: &Conn, dst: &Conn, counter: &AtomicU64) -> io::Result<()> {
         src.ready(Interest::READABLE).await?;
         let pipe = Pipe::take()?;
         // The pipe is empty, so EAGAIN here can only come from the socket (correctly clearing readiness).
-        let n = match src.try_io(Interest::READABLE, || splice(src.as_raw_fd(), pipe.w.as_raw_fd(), pipe.cap)) {
+        let n = match src.try_io(Interest::READABLE, || {
+            splice(src.as_raw_fd(), pipe.w.as_raw_fd(), pipe.cap)
+        }) {
             Ok(n) => n,
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                 pipe.give();
@@ -100,7 +112,9 @@ async fn pump(src: &Conn, dst: &Conn, counter: &AtomicU64) -> io::Result<()> {
         while left > 0 {
             dst.ready(Interest::WRITABLE).await?;
             // The pipe holds `left` bytes, so EAGAIN here can only come from the socket.
-            match dst.try_io(Interest::WRITABLE, || splice(pipe.r.as_raw_fd(), dst.as_raw_fd(), left)) {
+            match dst.try_io(Interest::WRITABLE, || {
+                splice(pipe.r.as_raw_fd(), dst.as_raw_fd(), left)
+            }) {
                 Ok(m) => {
                     left -= m;
                     counter.fetch_add(m as u64, Ordering::Relaxed);
@@ -113,10 +127,28 @@ async fn pump(src: &Conn, dst: &Conn, counter: &AtomicU64) -> io::Result<()> {
     }
 }
 
-/// Pipe bytes both ways between the browser side `a` and the upstream side `b` until both directions
-/// have seen EOF, or either fails. `up` counts a -> b bytes, `down` counts b -> a bytes.
+/// Pipe bytes both ways between the browser side `a` and the upstream side `b`. `up` counts a -> b
+/// bytes, `down` counts b -> a bytes. Ends as described in [`both_ways`].
 pub async fn splice_bidi(a: &Conn, b: &Conn, up: &AtomicU64, down: &AtomicU64) -> io::Result<()> {
-    tokio::try_join!(pump(a, b, up), pump(b, a, down)).map(|_| ())
+    both_ways(pump(a, b, up), pump(b, a, down)).await
+}
+
+/// After one side closes, how long the other direction may still deliver what it has in flight.
+pub const HALF_CLOSE_GRACE: Duration = Duration::from_secs(5);
+
+/// Run the two directions of a byte pipe. An error in either ends both. When one side closes (EOF), its
+/// FIN is passed on and the other direction gets [`HALF_CLOSE_GRACE`] to finish, then the flow is closed
+/// (SPEC: "when any stage or either end closes, the proxy closes the rest of the flow"). The grace keeps
+/// bytes already in flight from being cut off by a reset.
+pub async fn both_ways<E>(
+    x: impl Future<Output = Result<(), E>>,
+    y: impl Future<Output = Result<(), E>>,
+) -> Result<(), E> {
+    let (mut x, mut y) = (pin!(x), pin!(y));
+    tokio::select! {
+        r = &mut x => { r?; tokio::time::timeout(HALF_CLOSE_GRACE, y).await.unwrap_or(Ok(())) }
+        r = &mut y => { r?; tokio::time::timeout(HALF_CLOSE_GRACE, x).await.unwrap_or(Ok(())) }
+    }
 }
 
 /// Number of pipes currently pooled (tests / debug dumps).
