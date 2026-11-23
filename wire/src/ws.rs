@@ -21,7 +21,7 @@ use url::Url;
 
 use crate::{
     COOKIES_HDR, Caps, DEFAULT_TIMEOUT, DEFAULT_UA, JAR_NAME, ParsedRequest, Shared, TRACKER, Tracker, TrackingResolver, class_rank, cookies, header,
-    is_request_header_to_skip, now_unix, parse_caps, resolve_user_agent, timing_enabled, write_bad_ua_response, write_policy_response,
+    forwardable_request_headers, now_unix, parse_caps, resolve_user_agent, timing_enabled, write_bad_ua_response, write_policy_response,
     write_status_and_headers, write_synthetic_error_response,
 };
 
@@ -307,14 +307,11 @@ pub fn handle(shared: &Shared, request: &ParsedRequest, client_reader: BufReader
         "GET {target} HTTP/1.1\r\nHost: {host_hdr}\r\nUser-Agent: {}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n",
         ua.as_deref().unwrap_or(DEFAULT_UA)
     );
-    for (name, value) in h {
-        let drop = is_request_header_to_skip(name)
-            || name.eq_ignore_ascii_case("upgrade")
-            || name.eq_ignore_ascii_case("transfer-encoding")
-            || (use_jar && name.eq_ignore_ascii_case("cookie"));
-        if !drop {
-            req.push_str(&format!("{name}: {value}\r\n"));
-        }
+    let drop = |n: &str| {
+        n.eq_ignore_ascii_case("upgrade") || n.eq_ignore_ascii_case("transfer-encoding") || (use_jar && n.eq_ignore_ascii_case("cookie"))
+    };
+    for (name, value) in forwardable_request_headers(h, drop) {
+        req.push_str(&format!("{name}: {value}\r\n"));
     }
     if let Some(c) = &cookie {
         req.push_str(&format!("Cookie: {c}\r\n"));
