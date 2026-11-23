@@ -545,3 +545,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Merged #716 C-FLICKER ac82479 (explicit/implicit sync for dmabufs); web reinstalled. Filed C-VIDEOPACE (only if needed). User to check YouTube on the real desktop.
 - 2026-11-23 Merged #718 C-WEBEX 71ef452 (report). Filed C-H264-BUILD, C-EXTERNAL (user), C-SHARE-CHECK (user), C-SHARE-TAB (optional).
 - 2026-11-23 USER: do both: :openExternal (C-EXTERNAL) and build CEF with proprietary codecs (C-H264-BUILD; 20G cap for that build only, outside the repo, never published). web/DECISIONS.md. Launched both.
+- 2026-11-23 Merged #719 C-EXTERNAL 5e6c5f4; web reinstalled. C-H264-BUILD running (hours).

@@ -131,7 +131,8 @@ stop early on a hard failure.
       memory cap 20G for this build only) (from #718) Build CEF 156 with proprietary_codecs=true ffmpeg_branding=Chrome (WebRTC
       H.264 on), variant A2 linking system libopenh264 + FFmpeg. ~100+ GB disk, hours of build, link needs well over
       the 6G cap (user approval), a rebuild per Chromium security release, H.264/AAC patents: never publish it.
-- [WIP] C-EXTERNAL [S] (user, 2026-11-23, same words) (from #718) `:openExternal [url]` hands the page to another browser ($BROWSER or
+- [x] C-EXTERNAL [S] (DONE 2026-11-23, 5e6c5f4, #719: :openExternal [url], $BROWSER/xdg-open, detached, no shell,
+      http/https/file only; scheme-less words get https:// (no history-scheme lookup yet)) (user, 2026-11-23) (from #718) `:openExternal [url]` hands the page to another browser ($BROWSER or
       xdg-open): a cheap workaround for Webex now and DRM sites (C-DRM).
 - [ ] C-SHARE-CHECK [XS] USER (from #718) Share a screen/window via the webrtc getDisplayMedia sample page on the real
       desktop (2 min).
