@@ -12,6 +12,7 @@
 //! shell's `stop`, the host sends the start/end pair itself.
 
 use crate::control::emit;
+use crate::newtab;
 use crate::protocol::{self, kind_from_transition, kind_name, Command, Event, FindDir, LoadKind, LoadPhase, TabId};
 use cef::*;
 use std::cell::RefCell;
@@ -195,6 +196,9 @@ wrap_client! {
         fn find_handler(&self) -> Option<FindHandler> {
             Some(HostFindHandler::new())
         }
+        fn context_menu_handler(&self) -> Option<ContextMenuHandler> {
+            Some(HostContextMenuHandler::new())
+        }
         fn download_handler(&self) -> Option<DownloadHandler> {
             Some(crate::download::HostDownloadHandler::new())
         }
@@ -289,6 +293,15 @@ wrap_display_handler! {
     }
 }
 
+/// Loads `url` in the page, from a task (callers are inside a CEF popup request).
+fn load_in_place(browser: Option<&mut Browser>, url: String) {
+    if !url.is_empty() && url != "about:blank" {
+        if let Some(f) = browser.and_then(|b| b.main_frame()) {
+            post_task(ThreadId::UI, Some(&mut LoadTask::new(f, url)));
+        }
+    }
+}
+
 fn same_document(id: TabId) {
     load_event(id, LoadPhase::Start, 0, LoadKind::SameDocument, None);
     load_event(id, LoadPhase::End, 0, LoadKind::SameDocument, None);
@@ -314,18 +327,15 @@ wrap_life_span_handler! {
             _extra_info: Option<&mut Option<DictionaryValue>>,
             _no_javascript_access: Option<&mut i32>,
         ) -> i32 {
-            // One page per host: window.open and target=_blank load in this page and
-            // the popup is cancelled (the opener gets null from window.open).
+            // One page per host (newtab.rs): window.open and plain target=_blank load in
+            // this page, user new-tab gestures (Ctrl/Shift/middle click) do nothing;
+            // the popup is always cancelled (the opener gets null from window.open).
             let url = target_url.map(|u| u.to_string()).unwrap_or_default();
-            log!(
-                "popup -> same page: {url} (disposition {:?}, user gesture {user_gesture})",
-                sys::cef_window_open_disposition_t::from(target_disposition)
-            );
-            if !url.is_empty() && url != "about:blank" {
-                if let Some(f) = browser.and_then(|b| b.main_frame()) {
-                    // Not from inside this callback: CEF is in the middle of the popup request.
-                    post_task(ThreadId::UI, Some(&mut LoadTask::new(f, url)));
-                }
+            let disp = sys::cef_window_open_disposition_t::from(target_disposition);
+            let action = newtab::popup_action(disp);
+            log!("popup {action:?}: {url} (disposition {disp:?}, user gesture {user_gesture})");
+            if action == newtab::PopupAction::LoadInPlace {
+                load_in_place(browser, url);
             }
             1
         }
@@ -509,6 +519,27 @@ wrap_request_handler! {
     struct HostRequestHandler {}
 
     impl RequestHandler {
+        // A navigation CEF wants to open in another tab or window (outside the popup
+        // path, e.g. a context-menu or Chrome command): always cancelled, loaded here
+        // only when newtab::popup_action says so.
+        fn on_open_urlfrom_tab(
+            &self,
+            browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            target_url: Option<&CefString>,
+            target_disposition: WindowOpenDisposition,
+            user_gesture: i32,
+        ) -> i32 {
+            let url = target_url.map(|u| u.to_string()).unwrap_or_default();
+            let disp = sys::cef_window_open_disposition_t::from(target_disposition);
+            let action = newtab::popup_action(disp);
+            log!("open-url-from-tab {action:?}: {url} (disposition {disp:?}, user gesture {user_gesture})");
+            if action == newtab::PopupAction::LoadInPlace {
+                load_in_place(browser, url);
+            }
+            1
+        }
+
         fn on_render_process_terminated(
             &self,
             browser: Option<&mut Browser>,
@@ -563,6 +594,66 @@ wrap_find_handler! {
             if final_update != 0 && !skip {
                 emit(Event::FindResult { tab: id, index: if count == 0 { 0 } else { index }, count });
             }
+        }
+    }
+}
+
+/// Removes the new-tab/window items (newtab::MENU_REMOVE) from `model` and its
+/// submenus, then the separators left useless. Collects what was removed.
+fn clean_menu(model: &MenuModel, removed: &mut Vec<String>) {
+    for i in (0..model.count()).rev() {
+        let id = model.command_id_at(i);
+        if let Some(name) = newtab::menu_name_to_remove(id) {
+            removed.push(format!("{name}({id})"));
+            model.remove_at(i);
+        } else if let Some(sub) = model.sub_menu_at(i) {
+            clean_menu(&sub, removed);
+        }
+    }
+    let items: Vec<newtab::Item> = (0..model.count())
+        .map(|i| {
+            let t = sys::cef_menu_item_type_t::from(model.type_at(i));
+            if t == sys::cef_menu_item_type_t::MENUITEMTYPE_SEPARATOR {
+                newtab::Item::Separator
+            } else {
+                newtab::Item::Other
+            }
+        })
+        .collect();
+    for i in newtab::useless_separators(&items) {
+        model.remove_at(i);
+    }
+}
+
+fn menu_items(model: &MenuModel) -> Vec<String> {
+    (0..model.count())
+        .map(|i| {
+            let label = CefString::from(&model.label_at(i)).to_string();
+            match model.sub_menu_at(i) {
+                Some(sub) => format!("{label}[{}]", menu_items(&sub).join(", ")),
+                None => format!("{}:{label}", model.command_id_at(i)),
+            }
+        })
+        .collect()
+}
+
+wrap_context_menu_handler! {
+    struct HostContextMenuHandler {}
+
+    impl ContextMenuHandler {
+        // No way to open a second tab or window (newtab.rs). What stays acts on the
+        // page itself (back/forward/reload, copy/paste, save as, print, ...).
+        fn on_before_context_menu(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _params: Option<&mut ContextMenuParams>,
+            model: Option<&mut MenuModel>,
+        ) {
+            let Some(model) = model else { return };
+            let mut removed = Vec::new();
+            clean_menu(model, &mut removed);
+            log!("context menu: removed [{}]; remaining [{}]", removed.join(", "), menu_items(model).join(", "));
         }
     }
 }

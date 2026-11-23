@@ -36,6 +36,7 @@ static TRACE: OnceLock<bool> = OnceLock::new();
 
 mod control;
 mod download;
+mod newtab;
 mod page;
 mod protocol;
 mod renderer;
