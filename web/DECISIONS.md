@@ -2,6 +2,15 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-23 forget-site uses DevTools Storage.clearDataForOrigin
+
+User (on #670): "no need for hacks, use Storage.clearDataForOrigin. Make sure that's done in an
+extendable manner for other engines." An in-process DevTools method call from the engine host
+(CefBrowserHost::ExecuteDevToolsMethod) is allowed for forget-site; this is not the automation
+protocol that "No browser extension, no automation protocol" excludes (no remote-debugging port,
+no CDP socket, nothing outside the host). The forget contract sits behind an engine-neutral
+interface so E1 (WebKit) implements it with its own API.
+
 ## 2026-11-23 No tabs yet
 
 User: "Do not bother with tabs for now. Do not expose tab functionality yet. Maybe we'll mimic

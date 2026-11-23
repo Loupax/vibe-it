@@ -110,7 +110,8 @@ stop early on a hard failure.
       Done when: C1's check passes with the WebKit host, unchanged script, and C8's day
       of browsing is repeated with it.
 
-- [WIP] P-FORGET (READY #670, held: question for the user in the PR) Forget a site (scratchy's `--forget-site`, STASH.md "Forget site"): a
+- [WIP] P-FORGET (#670 reworking: user 2026-11-23 chose DevTools Storage.clearDataForOrigin behind an
+      engine-neutral interface; agent also checks per-origin HTTP cache clearing) Forget a site (scratchy's `--forget-site`, STASH.md "Forget site"): a
       `forget-site` command in the engine-host interface, implemented by each host with
       its engine's API; `web --forget-site` sends it to the running host or starts one
       with `--no-window`.

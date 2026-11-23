@@ -478,3 +478,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 #670 P-FORGET READY but HELD: asks the user whether the hidden-page storage clearing counts as "not an automation protocol" (alternative: DevTools Storage.clearDataForOrigin) and notes every forget clears the whole HTTP cache. Filed P-FORGET-SHELL, P-FORGET-CACHE.
 - 2026-11-23 USER: remove tab opening in general (context menus etc.). Filed C-NOTAB and launched it (Sonnet). Launched W2-2 (Opus).
 - 2026-11-23 Progress page republished after #669 (+ #670 held, C-NOTAB, W2-2).
+- 2026-11-23 USER on #670: use Storage.clearDataForOrigin (in-process DevTools call allowed for forget-site), engine-neutral interface; asked why the whole HTTP cache is cleared. Recorded in web/DECISIONS.md; P-FORGET agent resumed to rework #670 and verify per-origin HTTP cache clearing.
