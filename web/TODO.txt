@@ -69,7 +69,9 @@ stop early on a hard failure.
       Done when: every KEYS.md row C3 covers has a test (named after the row, as in
       scratchy) and works by hand.
 
-- [WIP] C-PICK [M] (user, 2026-11-23, DECISIONS.md "A picker, bookmarks, buffers as tabs, popups like Chrome")
+- [x] C-PICK [M] (DONE 2026-11-23, 60f7b98 #707 + restore 0ddeafa #708: picker.rs, PICK mode, KEYS.md T58-T68,
+      :historySearch; six *(proposed)* choices for the user to confirm, see the progress page)
+      (was: (user, 2026-11-23, DECISIONS.md "A picker, bookmarks, buffers as tabs, popups like Chrome")
       The picker and its first source, `:historySearch`. The shell draws a list over the page above the
       status bar (no page resize; HiDPI like the bar). New mode PICK with its own KEYS.md rows (KEYS.md
       "Picker"): typing filters (fuzzy, best first, the same matcher in every list), Ctrl-n/Ctrl-p and
@@ -79,7 +81,9 @@ stop early on a hard failure.
       matched on URL and title; Enter opens the URL in the current page. Done when the KEYS.md rows have
       tests named after them and a live check opens a history entry through the picker.
 
-- [ ] C-BOOKMARKS [S] (after C-PICK; same decision) Bookmarks: `DIR/bookmarks` (STASH.md "Bookmarks"),
+- [ ] C-PICK-PAGE [XS] (from #707) PageUp/PageDown move the picker selection by a screenful.
+
+- [WIP] C-BOOKMARKS [S] (after C-PICK; same decision) Bookmarks: `DIR/bookmarks` (STASH.md "Bookmarks"),
       `:bookmarkAdd` (current page, title from the host; adding a URL twice updates its title),
       `:bookmarkDelete [url]` (current page; the argument completes from the bookmarks), `:bookmarkSearch`
       (picker over URL and title; Enter opens). `:go`'s ghost source ranks bookmarks before history.

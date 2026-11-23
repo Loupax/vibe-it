@@ -170,3 +170,10 @@ These rules apply to every project. For a web/ (or wire/) item, read "scratchy" 
 wire2/SPEC.md is the user's own design document, copied verbatim. Never edit it. Additions or deviations
 (new flags, extra rows) go in the project's NOTES.md / README.md, marked as beyond the spec, and the PR
 says so. The same holds for any file a TODO item calls the user's spec.
+
+## Squash only onto your own base (2026-11-23: #707's merge reverted #705 and #706)
+Never squash with `git reset --soft origin/main` (or onto any main newer than your branch's base): your
+commit then carries your OLD copies of every file other PRs changed since, and merging it silently reverts
+their work. To squash, `git reset --soft $(git merge-base HEAD origin/main)` and commit, then rebase onto
+origin/main normally. Before pushing, `git diff --stat origin/main...HEAD` (three dots) must list ONLY files
+of your item; if anything else shows up, stop and fix it.
