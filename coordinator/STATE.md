@@ -407,3 +407,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Merged #634 W-POOL3 0542efc.
 - 2026-11-23 #635 QWPT7b READY (App pointer/click/dblclick/auxclick/contextmenu/keypress; no native context menu), merging. Launched QGEOM2.
 - 2026-11-23 Merged #635 QWPT7b 52a3995. Reinstalling.
+- 2026-11-23 Reinstalled ~/.cargo/bin/scratchy 02:44 from main 5b9cfd9 (App pointer events, damage repaint everywhere, canvas line styles, DOMMatrix).
