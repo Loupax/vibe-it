@@ -363,7 +363,7 @@ def main():
     ap.add_argument("--x11", action="store_true", help="show the page on DISPLAY")
     a = ap.parse_args()
     if a.wayland and not os.environ.get("WAYLAND_DISPLAY"):
-        sys.exit("forget.py: --wayland needs WAYLAND_DISPLAY (a nested compositor, scratchy/tools/nest.sh)")
+        sys.exit("forget.py: --wayland needs WAYLAND_DISPLAY (a nested compositor, web/tools/nest.sh)")
     return run(a)
 
 

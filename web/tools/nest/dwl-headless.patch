@@ -1,0 +1,58 @@
+--- a/dwl.c
++++ b/dwl.c
+@@ -13,6 +13,7 @@
+ #include <unistd.h>
+ #include <wayland-server-core.h>
+ #include <wlr/backend.h>
++#include <wlr/backend/headless.h>
+ #include <wlr/backend/libinput.h>
+ #include <wlr/render/allocator.h>
+ #include <wlr/render/wlr_renderer.h>
+@@ -1114,6 +1115,12 @@
+ 	 * monitor's preferred mode; a more sophisticated compositor would let
+ 	 * the user configure it. */
+ 	wlr_output_state_set_mode(&state, wlr_output_preferred_mode(wlr_output));
++	/* NEST-HEADLESS: a headless output has no modes; NEST_HEADLESS_SIZE=WxH sets one. */
++	if (wlr_output_is_headless(wlr_output) && getenv("NEST_HEADLESS_SIZE")) {
++		int nw = 0, nh = 0;
++		if (sscanf(getenv("NEST_HEADLESS_SIZE"), "%dx%d", &nw, &nh) == 2 && nw > 0 && nh > 0)
++			wlr_output_state_set_custom_mode(&state, nw, nh, 0);
++	}
+ 
+ 	/* Set up event listeners */
+ 	LISTEN(&wlr_output->events.frame, &m->frame, rendermon);
+@@ -1416,12 +1423,18 @@
+ destroykeyboardgroup(struct wl_listener *listener, void *data)
+ {
+ 	KeyboardGroup *group = wl_container_of(listener, group, destroy);
++	int virtual = group != kb_group;
+ 	wl_event_source_remove(group->key_repeat_source);
+ 	wl_list_remove(&group->key.link);
+ 	wl_list_remove(&group->modifiers.link);
+ 	wl_list_remove(&group->destroy.link);
+ 	wlr_keyboard_group_destroy(group->wlr_group);
+ 	free(group);
++	/* NEST-HEADLESS: a gone virtual keyboard (tools/inject exited) leaves the seat with
++	 * no keyboard; clients that bind wl_keyboard then get no keymap. Fall back to the
++	 * keyboard group again. */
++	if (virtual && getenv("NEST_HEADLESS_SIZE") && !wlr_seat_get_keyboard(seat))
++		wlr_seat_set_keyboard(seat, &kb_group->wlr_group->keyboard);
+ }
+ 
+ Monitor *
+@@ -2716,6 +2729,15 @@
+ 
+ 	kb_group = createkeyboardgroup();
+ 	wl_list_init(&kb_group->destroy.link);
++	/* NEST-HEADLESS: the headless backend has no input devices, so inputdevice() never
++	 * runs and the seat would advertise nothing; clients then never bind wl_pointer or
++	 * wl_keyboard and injected (virtual) input reaches nobody. Advertise both, and give
++	 * the seat the (deviceless) keyboard group so clients get a real keymap before any
++	 * modifiers event (Chromium crashes on wl_keyboard.modifiers without a keymap). */
++	if (getenv("NEST_HEADLESS_SIZE")) {
++		wlr_seat_set_keyboard(seat, &kb_group->wlr_group->keyboard);
++		wlr_seat_set_capabilities(seat, WL_SEAT_CAPABILITY_POINTER | WL_SEAT_CAPABILITY_KEYBOARD);
++	}
+ 
+ 	output_mgr = wlr_output_manager_v1_create(dpy);
+ 	wl_signal_add(&output_mgr->events.apply, &output_mgr_apply);

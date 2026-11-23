@@ -104,6 +104,11 @@ fn main() {
         vk.key(ms(), code, 0);
         vk.modifiers(0, 0, 0, 0);
     };
+    // NEST-HEADLESS: motions carry time 0. dwl's motionabsolute() warps the cursor only
+    // when the event time is 0 ("this is 0 with virtual pointers"); with any other time
+    // motionnotify() picks the surface and position under the cursor BEFORE moving it, so
+    // the client got the previous position and a `move` then `click` clicked where the
+    // pointer had been (C-NOTAB's ctrl+click landed on the page, not the link).
     let mut last_move: Option<(u32, u32)> = None;
     let mut held = String::new();
     // Nested dwl delivers a pointer motion to the client only when the next
@@ -111,7 +116,7 @@ fn main() {
     // otherwise lost: QB3b). Repeating the position once pushes it out.
     let flush_move = |m: &mut Option<(u32, u32)>| {
         if let Some((x, y)) = m.take() {
-            vp.motion_absolute(ms(), x, y, w, h);
+            vp.motion_absolute(0, x, y, w, h);
             vp.frame();
         }
     };
@@ -120,7 +125,7 @@ fn main() {
         match op {
             "move" => {
                 let (x, y) = arg.split_once(',').unwrap();
-                vp.motion_absolute(ms(), x.parse().unwrap(), y.parse().unwrap(), w, h);
+                vp.motion_absolute(0, x.parse().unwrap(), y.parse().unwrap(), w, h);
                 vp.frame();
                 last_move = Some((x.parse::<u32>().unwrap(), y.parse::<u32>().unwrap()));
             }

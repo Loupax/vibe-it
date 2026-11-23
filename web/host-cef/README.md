@@ -35,9 +35,10 @@ to stderr as `[web-host-cef +<ms>ms] ...`, including every event and command;
 
 In the nested compositor (never the user's display):
 
-    scratchy/tools/nest.sh                      # prints e.g. wayland-1
+    web/tools/nest.sh                           # headless dwl, prints e.g. wayland-1
     WAYLAND_DISPLAY=wayland-1 web/host-cef/run.sh --url https://example.com/
-    scratchy/tools/nest.sh --stop
+    WAYLAND_DISPLAY=wayland-1 grim shot.png     # see it
+    web/tools/nest.sh --stop
 
 ## The C1 check
 
@@ -92,6 +93,9 @@ compositor:
   tab (`target=_blank`, `window.open`) and popup load in place; background tab (Ctrl+click,
   middle-click, Ctrl+Enter), new window (Shift+click), off-the-record, save-to-disk,
   split view, PiP and the rest are dropped (nothing opens, the page is not navigated).
+  Live (NEST-HEADLESS): real Ctrl/middle/Shift clicks arrive through `OnOpenURLFromTab`
+  (`open-url-from-tab Drop:` in the log), and Chromium does not submit a form on
+  Ctrl+Enter at all (no keypress), so nothing reaches the host there.
   Ctrl+Shift+click has the same disposition as `target=_blank`, so the renderer
   cancels that click on links (`CTRL_SHIFT_JS`, `preventDefault` only). The context menu
   (`OnBeforeContextMenu`) loses `newtab::MENU_REMOVE`: open link in new tab / window /

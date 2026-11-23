@@ -120,9 +120,16 @@ Not the same thing: a command refused as "too complex to analyse" (long heredocs
 plainer commands that do the same thing; that check is about readability, not permission. A permission or
 sandbox DENIAL of what the command does stays denied.
 
-## Nested compositor helper (QNEST1 #603)
-tools/nest.sh reuses the worktree's live dwl (registry `.qwork/nest`). Call `tools/nest.sh --stop` before your final
-reply instead of hunting PIDs; `--new` forces a fresh one. Never start dwl any other way.
+## Nested compositor helper (QNEST1 #603, NEST-HEADLESS)
+Use `web/tools/nest.sh` (every project; scratchy/tools/nest.sh is the old windowed-only copy). By default it runs a
+HEADLESS dwl: no display needed, no window on the user's desktop, frames keep coming at 60 Hz, grim screenshots
+and web/tools/inject (virtual keyboard + pointer) work. It builds a patched dwl once into `.qwork/nest-dwl/`
+(web/tools/nest/dwl-headless.patch on the user's dwl source). Output size `NEST_SIZE` (default 960x1006, what
+inject callers assume; recorded in `.qwork/nest/size`). `--windowed` is the old mode (a window inside the user's
+session): only when the user asks to watch. X11 runs need no windowed mode: the headless dwl has Xwayland,
+`web/tools/nest.sh --x11-display` prints its DISPLAY (e.g. :1). It reuses the worktree's live dwl (registry `.qwork/nest`). Call
+`web/tools/nest.sh --stop` before your final reply instead of hunting PIDs; `--new` forces a fresh one. Never start
+dwl any other way.
 
 ## A failed CI check is information
 If a CI check fails for a reason that looks unrelated to your change (a flaky test), do not re-run the job until
@@ -152,7 +159,7 @@ These rules apply to every project. For a web/ (or wire/) item, read "scratchy" 
   (your own, on your own port, killed by PID at the end). Kill only PIDs you recorded;
   CEF spawns helper processes, so kill the whole scope you started (`systemctl --user stop <your unit>`).
 - Use your own wire (own socket, `--cache-dir /tmp/wire-cache-<worktree> --cache-size 256M`), never the user's.
-- Live windows: tools/nest.sh (nested dwl, Wayland). If a step needs X11 and the nested session has no Xwayland,
+- Live windows: web/tools/nest.sh (headless nested dwl, Wayland; see "Nested compositor helper"). If a step needs X11 and the nested session has no Xwayland,
   say so in the PR instead of using the user's display.
 - Never log in to real accounts, type credentials or use the user's browser profiles/cookies. Steps that need a
   login (W4) or a day of real use (W7): prepare everything (a build, a run script, what to check) and stop with a

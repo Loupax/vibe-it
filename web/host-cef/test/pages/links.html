@@ -22,7 +22,11 @@
 <script>
 // Diagnostics for the C-NOTAB check: the last pointer/key event shows in the title (the host logs title events).
 for (const t of ['mousedown', 'auxclick', 'contextmenu', 'keydown'])
-  addEventListener(t, e => { document.title = `ev:${t}:${e.clientX},${e.clientY}:${e.ctrlKey ? 'c' : ''}${e.shiftKey ? 's' : ''}:${e.button}`; }, true);
+  addEventListener(t, e => {
+    const mods = `${e.ctrlKey ? 'c' : ''}${e.shiftKey ? 's' : ''}`;
+    // Keys: the key name (no coordinates or button); pointer events: position and button.
+    document.title = t === 'keydown' ? `ev:keydown:${e.key}:${mods}` : `ev:${t}:${e.clientX},${e.clientY}:${mods}:${e.button}`;
+  }, true);
 </script>
 </body>
 </html>
