@@ -271,3 +271,18 @@ Result: `Cache::clear_partition`/`clear_origin`, `Jar::clear_host`, `apply_clear
 > Item: implement W-POOL3 exactly as written in wire/TODO.txt (confirm the suspect with a loopback server, then retry once on a fresh connection when the request cannot have reached the server application; never once the server could have read the body).
 
 Result: `call_with_stale_retry` / `stale_pooled_failure` in `src/main.rs` (jar and non-jar path), tests in `src/pool_tests.rs`, NOTES "Stale pooled connections".
+
+---
+
+## W-MEDIA2 — truncated bodies are detectable
+
+> W-MEDIA2 (coordinator launch of wire/TODO.txt W-MEDIA2, for the web spike)
+
+A body cut short upstream was indistinguishable from a complete one because
+wire strips `Content-Length`. wire now forwards the upstream's length as
+`X-Wire-Upstream-Length` (feature `upstream-length`, protocol version stays 4)
+when it passed the body through unmodified, and answers 502 +
+`X-Wire-Error: truncated` on the buffered `X-Wire-Max-Bytes` path. The streamed
+path cannot signal an error after the headers are out (Unix-socket close is
+the same either way), so the header is the client's check; README documents
+this and that `X-Wire-Timeout-Ms` raises the 20 s total timeout.

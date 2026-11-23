@@ -313,7 +313,11 @@ const WIRE_VERSION: &str = "4";
 /// `token`: every cookie control request must carry `X-Wire-Control-Token`
 /// (read from `<socket>.token`). `cache`: the HTTP cache (W-CACHE1, protocol
 /// version 4): `X-Wire-Cache` on every response while it is on.
-const WIRE_FEATURES: &str = "ua,ws,jarfile,token,cache";
+/// `upstream-length` (W-MEDIA2, protocol version 4): `X-Wire-Upstream-Length: N`
+/// on a streamed response whose upstream sent `Content-Length` and whose body
+/// was passed through unmodified; `X-Wire-Error: truncated` (502) on the
+/// buffered `X-Wire-Max-Bytes` path when the upstream body was cut short.
+const WIRE_FEATURES: &str = "ua,ws,jarfile,token,cache,upstream-length";
 
 /// The one jar name scratchy may select with `X-Wire-Jar` (QF-D2a: ONE shared
 /// jar; a later `--profile NAME` changes this single value).
@@ -1587,6 +1591,13 @@ fn stream_response(resp: ureq::Response, caps: &Caps, w: &mut impl Write, final_
     BODY_INFO.with(|b| b.set(BodyInfo { announced, truncated: false }));
     let mut reader = resp.into_reader();
     let Some(max) = caps.max_bytes else {
+        // W-MEDIA2: wire sends no Content-Length of its own, so a body cut
+        // short upstream looks like a clean end. Pass the upstream's length
+        // on (only when it is the length of the bytes wire forwards: ureq
+        // already dropped it if it undid gzip) so the client can compare.
+        if let Some(n) = announced.filter(|_| !matches!(status, 204 | 304)) {
+            headers.push(("X-Wire-Upstream-Length".to_string(), n.to_string()));
+        }
         write_status_and_headers(w, status, &reason, &headers)?;
         return copy_body(reader, w);
     };
@@ -1600,8 +1611,27 @@ fn stream_response(resp: ureq::Response, caps: &Caps, w: &mut impl Write, final_
     if buf.len() > max {
         return write_too_large(w, max);
     }
+    // W-MEDIA2: the whole body is in hand before any header is written, so a
+    // read error can still be reported as an error instead of a short 2xx.
+    if BODY_INFO.with(|b| b.get().truncated) {
+        return write_truncated(w, buf.len());
+    }
     write_status_and_headers(w, status, &reason, &headers)?;
     w.write_all(&buf)
+}
+
+/// 502 + `X-Wire-Error: truncated` (the upstream body ended in a read error
+/// or timeout before its end; only possible to say on the buffered path).
+fn write_truncated(w: &mut (impl Write + ?Sized), got: usize) -> std::io::Result<()> {
+    let body = format!("wire: upstream body truncated after {got} bytes");
+    write_status_and_headers(
+        w,
+        502,
+        "Bad Gateway",
+        &[("Content-Type".to_string(), "text/plain".to_string()), ("X-Wire-Error".to_string(), "truncated".to_string())],
+    )?;
+    w.write_all(body.as_bytes())?;
+    w.flush()
 }
 
 /// 502 + `X-Wire-Error: too-large` (over `X-Wire-Max-Bytes`).
@@ -2117,6 +2147,47 @@ mod tests {
         assert_eq!(hdr(&r, "X-Wire-Error"), None);
         // No header: no cap at all.
         assert_eq!(execute_for_test(&agent, &get_request(addr, "/")).body, body.as_bytes());
+    }
+
+    /// Fixture: announces 1000 bytes, sends 10, closes.
+    fn truncating_fixture() -> SocketAddr {
+        spawn_fixture(b"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 1000\r\nConnection: close\r\n\r\n0123456789")
+    }
+
+    #[test]
+    fn truncated_body_on_the_buffered_path_is_502_truncated() {
+        let addr = truncating_fixture();
+        let r = execute_for_test(&build_agent(), &with_headers(get_request(addr, "/"), &[("X-Wire-Max-Bytes", "100000")]));
+        assert_eq!(r.status, 502);
+        assert_eq!(hdr(&r, "X-Wire-Error"), Some("truncated"));
+        assert!(hdr(&r, "X-Wire-Features").unwrap().split(',').any(|f| f == "upstream-length"));
+    }
+
+    #[test]
+    fn truncated_streamed_body_carries_the_announced_upstream_length() {
+        let addr = truncating_fixture();
+        let r = execute_for_test(&build_agent(), &get_request(addr, "/"));
+        assert_eq!(r.status, 200);
+        assert_eq!(r.body, b"0123456789");
+        assert_eq!(hdr(&r, "X-Wire-Upstream-Length"), Some("1000"));
+    }
+
+    #[test]
+    fn complete_body_has_upstream_length_and_gzip_undone_has_none() {
+        let addr = spawn_fixture(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+        let r = execute_for_test(&build_agent(), &get_request(addr, "/"));
+        assert_eq!(hdr(&r, "X-Wire-Upstream-Length"), Some("2"));
+        assert_eq!(r.body, b"ok");
+        let gz: &[u8] = &[
+            0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xcb, 0x48, 0xcd, 0xc9, 0xc9, 0x57, 0x48,
+            0xaf, 0xca, 0x2c, 0x00, 0x00, 0x19, 0x6a, 0xd2, 0xdf, 0x0a, 0x00, 0x00, 0x00,
+        ];
+        let mut raw = format!("HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", gz.len()).into_bytes();
+        raw.extend_from_slice(gz);
+        let addr = spawn_fixture(raw.leak());
+        let r = execute_for_test(&build_agent(), &get_request(addr, "/"));
+        assert_eq!(r.body, b"hello gzip");
+        assert_eq!(hdr(&r, "X-Wire-Upstream-Length"), None);
     }
 
     #[test]
@@ -2946,11 +3017,11 @@ mod tests {
     #[test]
     fn every_response_advertises_the_ua_feature() {
         let (addr, _rx) = ua_server();
-        assert_eq!(hdr(&execute_for_test(&build_agent(), &get_request(addr, "/")), "X-Wire-Features"), Some("ua,ws,jarfile,token,cache"));
+        assert_eq!(hdr(&execute_for_test(&build_agent(), &get_request(addr, "/")), "X-Wire-Features"), Some("ua,ws,jarfile,token,cache,upstream-length"));
         let down = get_request("127.0.0.1:1".parse().unwrap(), "/");
-        assert_eq!(hdr(&execute_for_test(&build_agent(), &down), "X-Wire-Features"), Some("ua,ws,jarfile,token,cache"));
+        assert_eq!(hdr(&execute_for_test(&build_agent(), &down), "X-Wire-Features"), Some("ua,ws,jarfile,token,cache,upstream-length"));
         let bad = with_headers(get_request(addr, "/"), &[("X-Wire-User-Agent", "a\r\nb")]);
-        assert_eq!(hdr(&execute_for_test(&build_agent(), &bad), "X-Wire-Features"), Some("ua,ws,jarfile,token,cache"));
+        assert_eq!(hdr(&execute_for_test(&build_agent(), &bad), "X-Wire-Features"), Some("ua,ws,jarfile,token,cache,upstream-length"));
     }
 }
 
