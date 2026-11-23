@@ -9643,3 +9643,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- (no header)
 - [x] QCNV8 DONE adac85d #633 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Sonnet; in order after the items above) Line caps/joins/miter limit, dashes. 91 files.
+
+=== from TODO.txt: --- (no header)
+- [x] QWPTFLK5 DONE cb6c9b0 #632 [S] (P3, from QCNV5 #624; Sonnet; wptserve shard) fetch/api/basic/request-upload.any.html failed once on CI
+      ("subtest was passing") and passed on a job re-run with no change. Find the cause (upload timing through wire?
+      wptserve?) and fix it, or flaky-list it with the reason.
