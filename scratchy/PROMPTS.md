@@ -9454,3 +9454,9 @@ Task: navigating an iframe's initial about:blank window creates a NEW Document i
 **Not done:** promise-job-incumbent needs the incumbent settings object tracked through V8 promise jobs (HostMakeJobCallback) and `postMessage` `source` taken from it; scratchy has no incumbent concept, so it is not cheap. `insertion-removing-steps-iframe` stays 3/4: its failing subtest is the insertion-step `load` timing, not removal.
 
 **Tests:** src/tests/qdom5e_tests.rs (5).
+## QWPTFLK6: hr-time/timeOrigin.html fails under machine load (agent item)
+
+Task: find why "Window timeOrigin is close to Date.now()" failed at load 8-40 and fix it.
+
+**Cause:** `performance.now()` is the runner's virtual clock (stands still while the page runs), `Date.now()` is the real clock, and `timeOrigin` was `Date.now()` taken at env apply (page setup). Real time between page setup and the test script (tens of ms under load) pushed `Date.now()` past `timeOrigin + now() + 30`.
+**What changed:** js.rs: `performance.timeOrigin` is an accessor anchored on first read as `Date.now() - performance.now()` (reset by `__scratchy_apply_env`), so `timeOrigin + now()` tracks `Date.now()` for any manual clock. Tests: src/tests/qwptflk6_tests.rs. The Range-insertNode/surroundContents timeouts under load are CPU-budget issues, unrelated.
