@@ -1,8 +1,8 @@
 //! Upstream connector: resolves the host itself (browsers send names to a proxy) and dials it.
 //!
-//! In W2-F this becomes the place that first sends `CONNECT host:port` through the tunnel filters that
-//! claim the host. For decrypted hosts [`dial_tls`] also opens TLS, verified against the system roots.
-//! Callers only see [`dial`], [`dial_tls`] and [`DialError`].
+//! [`dial`] is the last step of `proxy::connect_from`, which first sends `CONNECT host:port` through the
+//! tunnel filters that claim the host. For decrypted hosts [`tls`] then opens TLS over whatever
+//! connection that produced, verified against the system roots.
 
 use std::fmt;
 use std::io;
@@ -63,14 +63,13 @@ fn test_resolved(host: &str) -> Option<IpAddr> {
         .map(|(_, ip)| *ip)
 }
 
-/// [`dial`], then TLS to `host` verified against the system roots (`decrypt::upstream_config`), with
-/// SNI and ALPN `http/1.1`. The handshake gets its own `timeout`.
-pub async fn dial_tls(
-    host: &str,
-    port: u16,
-    timeout: Duration,
-) -> Result<TlsStream<TcpStream>, DialError> {
-    let tcp = dial(host, port, timeout).await?;
+/// TLS to `host` over an open connection (straight to the server, or through tunnel filters), verified
+/// against the system roots (`decrypt::upstream_config`), with SNI and ALPN `http/1.1`. The handshake
+/// gets its own `timeout`.
+pub async fn tls<S>(tcp: S, host: &str, timeout: Duration) -> Result<TlsStream<S>, DialError>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
     let cfg = crate::decrypt::upstream_config().map_err(DialError::Tls)?;
     let name = match host.parse::<IpAddr>() {
         Ok(ip) => ServerName::IpAddress(ip.into()),

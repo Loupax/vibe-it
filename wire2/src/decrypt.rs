@@ -3,10 +3,10 @@
 //!
 //! One question per CONNECT, answered by [`Policy::decide`]: does a connected http-layer filter claim
 //! this host, and is the host not on `--no-decrypt`? Claims are registered with
-//! [`Policy::add_http_claim`], which W2-F calls when an http filter completes its handshake; that call
-//! is also what creates the CA (never earlier). Until W2-F nothing registers a claim, so every CONNECT
-//! stays an opaque tunnel and no key material exists. The TEST-ONLY `--test-decrypt GLOB` flag
-//! registers a stand-in claim at startup (see NOTES.md).
+//! [`Policy::add_http_claim`] when an http filter completes its handshake ([`crate::filter`]); that call
+//! is also what creates the CA (never earlier), and [`Policy::remove_http_claim`] withdraws the claim
+//! when the filter goes down. With no http filter connected every CONNECT stays an opaque tunnel and no
+//! key material exists.
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
@@ -71,6 +71,21 @@ impl Policy {
             hosts,
         });
         Ok(())
+    }
+
+    /// The http filter `filter` went down: its hosts are no longer decrypted for new tunnels.
+    pub fn remove_http_claim(&self, filter: &str) {
+        let mut claims = self.claims.write().unwrap_or_else(|e| e.into_inner());
+        let before = claims.len();
+        claims.retain(|c| c.filter != filter);
+        if claims.len() != before {
+            crate::info!("http-layer claim by {filter} withdrawn (filter down)");
+        }
+    }
+
+    /// Is `host` on `--no-decrypt`?
+    pub fn never_decrypt(&self, host: &str) -> bool {
+        self.no_decrypt.iter().any(|g| glob_match(g, host))
     }
 
     /// The one decrypt decision per CONNECT, on the normalised host (no port).
@@ -170,9 +185,13 @@ mod tests {
         assert_eq!(p.decide("example.test"), Decision::Tunnel);
         assert_eq!(p.decide("other.test"), Decision::Tunnel);
         // --no-decrypt wins over the claim.
+        assert!(p.never_decrypt("bank.example.test"));
+        assert!(!p.never_decrypt("www.example.test"));
         assert_eq!(p.decide("bank.example.test"), Decision::Tunnel);
         assert_eq!(p.decide("app.pinned.example.test"), Decision::Tunnel);
         // ... but `*.pinned.example.test` does not cover pinned.example.test.
         assert_eq!(p.decide("pinned.example.test"), yes);
+        p.remove_http_claim("pass-decrypt");
+        assert_eq!(p.decide("www.example.test"), Decision::Tunnel);
     }
 }

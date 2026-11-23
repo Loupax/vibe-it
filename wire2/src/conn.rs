@@ -94,6 +94,105 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for Prefixed<S> {
     }
 }
 
+/// Owned read half of a [`Conn`] (no lock between the halves, unlike `tokio::io::split`).
+pub enum ConnRead {
+    Tcp(tokio::net::tcp::OwnedReadHalf),
+    Unix(tokio::net::unix::OwnedReadHalf),
+}
+
+/// Owned write half of a [`Conn`]; dropping it shuts down the write side.
+pub enum ConnWrite {
+    Tcp(tokio::net::tcp::OwnedWriteHalf),
+    Unix(tokio::net::unix::OwnedWriteHalf),
+}
+
+impl Conn {
+    pub fn into_split(self) -> (ConnRead, ConnWrite) {
+        match self {
+            Conn::Tcp(s) => {
+                let (r, w) = s.into_split();
+                (ConnRead::Tcp(r), ConnWrite::Tcp(w))
+            }
+            Conn::Unix(s) => {
+                let (r, w) = s.into_split();
+                (ConnRead::Unix(r), ConnWrite::Unix(w))
+            }
+        }
+    }
+}
+
+impl AsyncRead for ConnRead {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            ConnRead::Tcp(s) => Pin::new(s).poll_read(cx, buf),
+            ConnRead::Unix(s) => Pin::new(s).poll_read(cx, buf),
+        }
+    }
+}
+
+impl AsyncWrite for ConnWrite {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        match self.get_mut() {
+            ConnWrite::Tcp(s) => Pin::new(s).poll_write(cx, buf),
+            ConnWrite::Unix(s) => Pin::new(s).poll_write(cx, buf),
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            ConnWrite::Tcp(s) => Pin::new(s).poll_flush(cx),
+            ConnWrite::Unix(s) => Pin::new(s).poll_flush(cx),
+        }
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            ConnWrite::Tcp(s) => Pin::new(s).poll_shutdown(cx),
+            ConnWrite::Unix(s) => Pin::new(s).poll_shutdown(cx),
+        }
+    }
+}
+
+/// Bind a Unix listening socket readable and writable only by us (mode 0600; created under umask 0177
+/// so it is never briefly wider). A stale socket file is replaced; a live one (another process is
+/// listening) is an error, as is a non-socket file at `path`. `what` names the flag in messages.
+pub fn bind_unix(what: &str, path: &std::path::Path) -> Result<tokio::net::UnixListener, String> {
+    use std::os::unix::fs::{FileTypeExt, PermissionsExt};
+    if let Ok(meta) = std::fs::symlink_metadata(path) {
+        if !meta.file_type().is_socket() {
+            return Err(format!(
+                "{what} {}: exists and is not a socket",
+                path.display()
+            ));
+        }
+        if std::os::unix::net::UnixStream::connect(path).is_ok() {
+            return Err(format!(
+                "{what} {}: another process is listening there",
+                path.display()
+            ));
+        }
+        std::fs::remove_file(path)
+            .map_err(|e| format!("removing stale socket {}: {e}", path.display()))?;
+    }
+    // SAFETY: umask(2) only swaps the process's file-creation mask.
+    let old = unsafe { libc::umask(0o177) };
+    let l = tokio::net::UnixListener::bind(path);
+    // SAFETY: as above, restoring the previous mask.
+    unsafe { libc::umask(old) };
+    let l = l.map_err(|e| format!("{what} {}: {e}", path.display()))?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+        .map_err(|e| format!("chmod 0600 {}: {e}", path.display()))?;
+    Ok(l)
+}
+
 impl From<TcpStream> for Conn {
     fn from(s: TcpStream) -> Self {
         Conn::Tcp(s)

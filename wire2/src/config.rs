@@ -1,5 +1,5 @@
-//! Command-line flags (SPEC "CLI and configuration"). No config file. Unknown flags are errors; flags
-//! of later steps are recognised and refused with a clear "not yet".
+//! Command-line flags (SPEC "CLI and configuration"). No config file. Unknown flags are errors, and so
+//! are filter addresses in any scheme but `unix:`.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
@@ -26,30 +26,40 @@ pub struct Config {
     /// TEST-ONLY `--test-resolve GLOB=IP` (W2-1a): names the upstream connector maps to an address
     /// instead of asking DNS, so tests can use `www.example.test`. Not in `--help`.
     pub test_resolve: Vec<(String, IpAddr)>,
-    /// TEST-ONLY `--test-decrypt GLOB`: a stand-in for an http-layer filter claiming these hosts, so the
-    /// decrypted path can be exercised before filters exist (W2-F brings the spec's pass-decrypt). Not
-    /// in `--help`.
-    pub test_decrypt: Vec<String>,
+    /// `--filter unix:<path>`, in chain order.
+    pub filters: Vec<PathBuf>,
+    /// `--hub`; `None` means the spec default `$XDG_RUNTIME_DIR/proxy-hub.sock`.
+    pub hub: Option<PathBuf>,
+    pub connect_timeout: Duration,
+    pub stage_timeout: Duration,
 }
 
 pub enum Parsed {
-    Run(Config),
+    Run(Box<Config>),
     Help,
     Version,
 }
 
 pub const USAGE: &str = "\
 usage: wire2 [--listen 127.0.0.1:8080 | --listen unix:<path>] [--allow-remote]
+             [--filter unix:<path>]... [--hub <path>] [--connect-timeout 5s] [--stage-timeout 30s]
              [--dial-timeout 10s] [--log-level error|warn|info|debug]
              [--no-decrypt GLOB]... [--ca-dir DIR]
 
-Local forward proxy (wire2/SPEC.md), steps W2-1 and W2-2: CONNECT tunnels and plain http:// requests
-are forwarded. TLS is decrypted only for hosts an http-layer filter claims; filters arrive with W2-F,
-so this build decrypts nothing and creates no CA.
+Local forward proxy (wire2/SPEC.md): CONNECT tunnels and plain http:// requests stream through a chain
+of external filters, each an HTTP/1.1 server on its own Unix socket. TLS is decrypted only for hosts an
+http-layer filter claims; with no filters every CONNECT is an opaque tunnel and no CA exists.
 
   --listen ADDR        host:port for the browser's HTTP proxy setting (default 127.0.0.1:8080; port 0
                        picks a free one), or unix:<path> for a forwarder inside a network namespace.
   --allow-remote       allow a non-loopback --listen address (otherwise refused: an open proxy).
+  --filter unix:PATH   a filter's socket (repeatable; command-line order is chain order). Only unix:
+                       addresses are accepted. The proxy never starts filters (use systemd sockets).
+  --hub PATH           the proxy's own socket that filters forward requests to (default
+                       $XDG_RUNTIME_DIR/proxy-hub.sock; created only when there are filters).
+  --connect-timeout D  how long to retry a filter's socket and handshake at startup before treating
+                       it as down (default 5s); it is redialled in the background after that.
+  --stage-timeout D    how long a filter may take to send response headers (default 30s).
   --dial-timeout DUR   upstream TCP connect timeout, e.g. 10s, 500ms, 2m (default 10s).
   --log-level LEVEL    error, warn, info (default) or debug.
   --no-decrypt GLOB    host never decrypted, even when an http filter claims it (repeatable). `*` matches
@@ -57,8 +67,6 @@ so this build decrypts nothing and creates no CA.
   --ca-dir DIR         where the CA is created on first need (default $XDG_DATA_HOME/proxy). ca.pem is
                        what the browser imports; ca-key.pem (mode 0600) never leaves this directory.
   --help, --version
-
-Not yet in this build: --filter, --hub, --connect-timeout, --stage-timeout (W2-F).
 ";
 
 /// Parse `10s`, `500ms`, `2m`, `1h` or a bare number of seconds.
@@ -118,7 +126,10 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Parsed, Str
     let mut no_decrypt = Vec::new();
     let mut ca_dir = None;
     let mut test_resolve = Vec::new();
-    let mut test_decrypt = Vec::new();
+    let mut filters = Vec::new();
+    let mut hub = None;
+    let mut connect_timeout = Duration::from_secs(5);
+    let mut stage_timeout = Duration::from_secs(30);
     let mut it = args.into_iter();
     while let Some(arg) = it.next() {
         let (flag, inline) = match arg.split_once('=') {
@@ -146,11 +157,17 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Parsed, Str
                 let v = value(&mut it)?;
                 log_level = Level::parse(&v).ok_or_else(|| format!("bad --log-level {v:?}"))?;
             }
-            "--filter" | "--hub" | "--connect-timeout" | "--stage-timeout" => {
-                return Err(format!(
-                    "{flag} is not supported yet (filters arrive with step W2-F)"
-                ));
+            "--filter" => filters.push(parse_filter(&value(&mut it)?)?),
+            "--hub" => {
+                let v = value(&mut it)?;
+                let p = v.strip_prefix("unix:").unwrap_or(&v);
+                if p.is_empty() {
+                    return Err("--hub needs a socket path".into());
+                }
+                hub = Some(PathBuf::from(p));
             }
+            "--connect-timeout" => connect_timeout = parse_duration(&value(&mut it)?)?,
+            "--stage-timeout" => stage_timeout = parse_duration(&value(&mut it)?)?,
             "--no-decrypt" => no_decrypt.push(parse_glob(&value(&mut it)?)?),
             "--ca-dir" => {
                 let v = value(&mut it)?;
@@ -173,7 +190,6 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Parsed, Str
                     .map_err(|_| format!("--test-resolve {v:?}: bad IP address"))?;
                 test_resolve.push((parse_glob(name)?, ip));
             }
-            "--test-decrypt" => test_decrypt.push(parse_glob(&value(&mut it)?)?),
             _ => return Err(format!("unknown argument {arg:?}")),
         }
     }
@@ -185,7 +201,7 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Parsed, Str
             "--listen {addr} is not a loopback address; that would be an open proxy. Add --allow-remote if you mean it"
         ));
     }
-    Ok(Parsed::Run(Config {
+    Ok(Parsed::Run(Box::new(Config {
         listen,
         allow_remote,
         dial_timeout,
@@ -193,8 +209,22 @@ pub fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Parsed, Str
         no_decrypt,
         ca_dir,
         test_resolve,
-        test_decrypt,
-    }))
+        filters,
+        hub,
+        connect_timeout,
+        stage_timeout,
+    })))
+}
+
+/// `--filter` value: v1 accepts only `unix:<path>` (SPEC: other schemes are a startup error).
+fn parse_filter(s: &str) -> Result<PathBuf, String> {
+    match s.strip_prefix("unix:") {
+        Some("") => Err("--filter unix: needs a socket path".into()),
+        Some(p) => Ok(PathBuf::from(p)),
+        None => Err(format!(
+            "--filter {s:?}: only unix:<path> filter addresses are supported"
+        )),
+    }
 }
 
 /// A host glob as written on the command line, normalised like hosts are (lowercase, no trailing dot,
@@ -209,7 +239,7 @@ mod tests {
 
     fn run(args: &[&str]) -> Result<Config, String> {
         match parse_args(args.iter().map(|s| s.to_string()))? {
-            Parsed::Run(c) => Ok(c),
+            Parsed::Run(c) => Ok(*c),
             _ => Err("not run".into()),
         }
     }
@@ -250,10 +280,14 @@ mod tests {
         assert!(run(&["--bogus"]).unwrap_err().contains("unknown"));
         assert!(run(&["positional"]).unwrap_err().contains("unknown"));
         assert!(
-            run(&["--filter", "unix:/x"])
+            run(&["--filter", "tcp:127.0.0.1:9"])
                 .unwrap_err()
-                .contains("not supported yet")
+                .contains("only unix:")
         );
+        assert!(run(&["--filter", "/run/x.sock"]).is_err());
+        assert!(run(&["--filter", "unix:"]).is_err());
+        assert!(run(&["--test-decrypt", "*.example.test"]).is_err());
+        assert!(run(&["--stage-timeout", "soon"]).is_err());
         assert!(run(&["--no-decrypt", "a..b"]).is_err());
         assert!(
             run(&["--no-decrypt"])
@@ -291,8 +325,6 @@ mod tests {
             "WWW.example.test=127.0.0.1",
             "--test-resolve",
             "*.v6.test=[::1]",
-            "--test-decrypt",
-            "*.example.test",
         ])
         .unwrap();
         assert_eq!(c.no_decrypt, vec!["*.bank.example", "xn--bcher-kva.de"]);
@@ -304,9 +336,38 @@ mod tests {
                 ("*.v6.test".to_string(), "::1".parse().unwrap())
             ]
         );
-        assert_eq!(c.test_decrypt, vec!["*.example.test"]);
         let d = run(&[]).unwrap();
-        assert!(d.no_decrypt.is_empty() && d.ca_dir.is_none() && d.test_decrypt.is_empty());
+        assert!(d.no_decrypt.is_empty() && d.ca_dir.is_none());
+    }
+
+    #[test]
+    fn filter_flags() {
+        let c = run(&[
+            "--filter",
+            "unix:/run/a.sock",
+            "--filter=unix:/run/b.sock",
+            "--hub",
+            "unix:/run/hub.sock",
+            "--connect-timeout",
+            "200ms",
+            "--stage-timeout=2s",
+        ])
+        .unwrap();
+        assert_eq!(
+            c.filters,
+            vec![PathBuf::from("/run/a.sock"), PathBuf::from("/run/b.sock")]
+        );
+        assert_eq!(c.hub, Some(PathBuf::from("/run/hub.sock")));
+        assert_eq!(c.connect_timeout, Duration::from_millis(200));
+        assert_eq!(c.stage_timeout, Duration::from_secs(2));
+        assert_eq!(
+            run(&["--hub", "/x/h.sock"]).unwrap().hub,
+            Some(PathBuf::from("/x/h.sock"))
+        );
+        let d = run(&[]).unwrap();
+        assert!(d.filters.is_empty() && d.hub.is_none());
+        assert_eq!(d.connect_timeout, Duration::from_secs(5));
+        assert_eq!(d.stage_timeout, Duration::from_secs(30));
     }
 
     #[test]
