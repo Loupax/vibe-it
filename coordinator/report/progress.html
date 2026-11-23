@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-23 14:40 · main c074263 · web INSTALLED with keys and command line (~/.local/bin/web, 14:39) · web: C1, C2, C3, C-NOTAB, P-FORGET, NEST-HEADLESS, P-COOKIES, C-INSTALL merged; C5 and C-BGNET running · wire2: W2-1..W2-3 merged (reinstalled 14:27), W2-F running · wire2: W2-1, W2-2 merged (wire2 reinstalled 14:02), W2-3 running · agents' live tests need no display any more · wire2: W2-1 merged (#669, ~/.cargo/bin/wire2 installed 13:11), W2-2 running · wire PARKED · scratchy paused</div>
+  <div class="meta" id="updated">Updated 2026-11-23 14:56 · main 67e38c0 · web INSTALLED with keys, command line and search (~/.local/bin/web, 14:55) · web: C1, C2, C3, C5, C-NOTAB, P-FORGET, NEST-HEADLESS, P-COOKIES, C-INSTALL merged; C3-RCLICK and C-BGNET running · wire2: W2-1..W2-3 merged (reinstalled 14:27), W2-F running · wire2: W2-1, W2-2 merged (wire2 reinstalled 14:02), W2-3 running · agents' live tests need no display any more · wire2: W2-1 merged (#669, ~/.cargo/bin/wire2 installed 13:11), W2-2 running · wire PARKED · scratchy paused</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -67,7 +67,8 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
     <tr><td>C2</td><td>Compositor minimum (smithay)</td><td><span class="pill done">done #671</span></td><td><code>web</code>: one window (Wayland or X11) showing the CEF page minus a 24 px bar strip; mouse, typing, wheel, popups, cursors, fullscreen, dialogs. Live test 16/16 on Wayland, X11 and with <code>--proxy</code>; typed, scrolled and clicked on Wikipedia. Not installable yet (C-INSTALL: CEF runtime files)</td></tr>
     <tr><td>C3</td><td>Keys, status bar, command line, history from scratchy</td><td><span class="pill done">done #677</span></td><td>Starts in NORMAL; Esc Esc / <code>i</code>; <code>h</code>/<code>l</code>, <code>j</code>/<code>k</code>, <code>gg</code>/<code>G</code>, Ctrl-d/u as real keys; status bar with mode, URL, messages and load errors; <code>:go</code> (with history ghost completion), <code>:refresh [hard]</code>, <code>:help</code>, <code>:let</code>, <code>:q</code>. 89 tests named after KEYS.md rows, live check 19/19. Search and clipboard say “not built yet”</td></tr>
     <tr><td>C4</td><td>Tabs</td><td><span class="pill todo">deferred (no tabs for now)</span></td><td></td></tr>
-    <tr><td>C5</td><td>Search: <code>/</code>, <code>n</code>/<code>N</code>, wrap messages</td><td><span class="pill wip">running</span></td><td></td></tr>
+    <tr><td>C5</td><td>Search: <code>/</code>, <code>n</code>/<code>N</code>, wrap messages</td><td><span class="pill done">done #679</span></td><td><code>/</code> with smartcase, <code>n</code>/<code>N</code>, “search hit BOTTOM, continuing at TOP”, <code>Pattern not found</code>, <code>[i/N]</code>, Esc rules; live check 12/12. The first match is Chromium's choice, not “first below the top of the screen” (C5b)</td></tr>
+    <tr><td>C3-RCLICK</td><td>Popups return to the previous mode (your rule)</td><td><span class="pill wip">running</span></td><td></td></tr>
     <tr><td>C6</td><td>Desktop integration (clipboard, HiDPI, dmabuf)</td><td><span class="pill todo">after C5</span></td><td></td></tr>
     <tr><td>C7</td><td>Link hints</td><td><span class="pill wait">you are thinking it over</span></td><td></td></tr>
     <tr><td>C8</td><td>A day of browsing (yours)</td><td><span class="pill todo">later</span></td><td></td></tr>
@@ -141,6 +142,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-23</td><td class="n">#679</td><td>C5</td><td>web: <code>/</code> search, <code>n</code>/<code>N</code> with wrap messages, through the engine's find; installed</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#677</td><td>C3</td><td>web: scratchy's keys, modes, status bar, <code>:</code> line with ghost completion and history, ported to the compositor shell; installed</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#678</td><td>C-INSTALL</td><td>web: install script; <code>web https://example.com</code> works as an installed command (your request)</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#676</td><td>W2-3</td><td>wire2: WebSockets inside decrypted tunnels proven (6 tests, headless Chrome); fixed a missing flush that stalled large messages through TLS</td></tr>
