@@ -389,7 +389,9 @@ impl State {
                 // The find-clear it queued is not a key's effect: send it now.
                 self.apply_key_effects(0);
             }
-            Event::FindResult { id, index, count, .. } => self.keys.find_result(id, index, count),
+            Event::FindResult {
+                id, index, count, wrapped, ..
+            } => self.keys.find_result_wrapped(id, index, count, wrapped),
             // A page that loaded clears the last message (a failed load keeps its error).
             Event::Load {
                 ref phase,
