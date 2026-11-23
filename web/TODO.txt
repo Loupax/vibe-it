@@ -59,7 +59,9 @@ stop early on a hard failure.
       Wayland desktop AND an X11 desktop (winit opens an X11 window there; the engine
       hosts still speak Wayland to the shell, so nothing else changes).
 
-- [WIP] C3 Keys and command line, ported from scratchy (see "From scratchy" below):
+- [x] C3 (DONE 2026-11-23, f5e329c, #677: modes, Esc Esc, status bar, `:` line with ghost completion, :go/:refresh
+      [hard]/:help/:let/:q, history, scroll as real keys; 89 unit tests named after KEYS.md rows; c3_live.py
+      19/19 headless; / n N and clipboard say "not built yet") Keys and command line, ported from scratchy (see "From scratchy" below):
       KEYS.md modes INPUT/NORMAL/SEARCH/COMMAND, Esc Esc, the status bar, T1-T34 and the
       ghost completion T45-T53; commands `:go`, `:refresh`, `:refresh hard`, `:help`,
       `:q`, `:let` with `@%`; history (STASH.md) written from C1's load events; scroll
@@ -72,7 +74,7 @@ stop early on a hard failure.
       tab keys, commands and their status-bar display need a design. The mechanism (one
       host window per tab, the shell shows one) is C1/C2.
 
-- [ ] C5 Search (KEYS.md "Search", web notes): `/`, `n`/`N`, Esc, the messages, through
+- [WIP] C5 Search (KEYS.md "Search", web notes): `/`, `n`/`N`, Esc, the messages, through
       the host's `find`. Enter on a match (S7, T18-T19) is its own item after this one.
 
 - [ ] C6 Desktop integration: clipboard and primary selection bridged between the engine
@@ -152,6 +154,14 @@ stop early on a hard failure.
       works from a fresh shell after the install.
 - [ ] NEST-WINKEYMAP [XS] (from #673) Windowed nest: a client started after an inject run ended gets no keymap
       and Chromium crashes on the first modifiers event (the headless patch handles it; windowed does not).
+- [ ] C3-GOHTTP [XS] (from #677) A `:go` ghost taken from an http:// history entry typed without its scheme
+      (`:go 127` Tab Enter) runs as https://. When the completed word matches a history URL with its scheme
+      stripped, use that URL's own scheme.
+- [ ] C3-SHIFTSYNC [S] (from #677; with C-FOCUSKEYS) The shell learns held modifiers only from key events: a
+      modifier held when the window gains focus, or set by wl_keyboard.modifiers alone, is not seen. Done
+      when Shift held across a focus change, or set by modifiers alone, still types `:` and `G`.
+- [ ] C3-RCLICK [XS] NEEDS USER (from #677) A right-click context menu also switches to INPUT (T29's popup
+      rule). Keep, or only selects/fields?
 - [ ] C-KEYH [S] (from #672) The cef crate's KeyboardHandler wrapper treats `os_event` as an XEvent and
       segfaults the host on Wayland. Needed if C3 wants key events from the host; fix or work around
       upstream/in a local patch when that comes up.
