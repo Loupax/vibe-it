@@ -13,7 +13,10 @@ sees it. No engine API is needed for that. What the compositor cannot know by it
 comes from the host over the control socket (web/TODO.txt C1): which element has focus
 after a click (T29, T32), and find-in-page (Search).
 
-Status: design, not built in web. **This file is the source of truth** for web's keys: when web/TODO.txt and this
+Status: **built in web by C3** (`shell/src/keys.rs`, `config.rs`, `completion.rs`,
+`registers.rs`, `statusbar.rs`; tests named after the rows in `shell/src/tests/`, live
+check `shell/test/c3_live.py`), except Search (C5: `/`, `n`, `N` only say "not yet") and
+what needs the clipboard (C6: `@+`, `yy`, paste say so). **This file is the source of truth** for web's keys: when web/TODO.txt and this
 file disagree, this file wins. Rows marked *(proposed)* are Claude's
 proposals that the user has not confirmed yet; they are built as written unless the
 user changes them before the item starts.
@@ -85,6 +88,8 @@ meant to become at least one test; tests name the row (`keys_t07_...`).
 
 The ESC1 timeout is checked lazily, from the time stamp, when the next key arrives; no
 timer is needed. The pure function is `resolve_esc_esc(state, key, repeat, now)`.
+**web:** smithay's winit backend drops the OS key repeats, so the shell sees one press per
+key; a press of a key already down is treated as a repeat (`Keys::key`).
 
 ### NORMAL and G
 
@@ -92,15 +97,15 @@ timer is needed. The pure function is `resolve_esc_esc(state, key, repeat, now)`
 |---|---|---|---|---|---|
 | T6 | NORMAL | `i` | none | INPUT | nothing else |
 | T7 | NORMAL | Esc | none | NORMAL | clear search highlights (the query is kept). Never changes mode |
-| T8 | NORMAL | `/` | none | SEARCH | empty search line |
+| T8 | NORMAL | `/` | none | SEARCH | empty search line. **web:** until C5 the status bar says `web: search is not built yet (web/TODO.txt C5)` and the mode stays NORMAL (also for `n`/`N`, T15-T17) |
 | T9 | NORMAL | `:` | none | COMMAND | empty command line |
 | T10 | NORMAL | `g` | none | G | nothing |
 | T11 | G | `g` | none | NORMAL | scroll to the top |
 | T12 | G | any other key | none | NORMAL | handle that key as in NORMAL (it may itself be `:`, `/`, `i`, ...) |
 | T54 | NORMAL | `y` | none | Y | nothing |
-| T55 | Y | `y` | not a repeat | NORMAL | copy the URL to the system clipboard, same as `:let @+ = @%` (see "Registers") |
+| T55 | Y | `y` | not a repeat | NORMAL | copy the URL to the system clipboard, same as `:let @+ = @%` (see "Registers"). **web:** until C6 the status bar says the clipboard is not built yet |
 | T56 | G or Y | a key that is not the sequence's second key | none | NORMAL | as T12: handled as in NORMAL, so `g` `y` leaves Y pending and `y` `g` leaves G pending |
-| T13 | NORMAL | `j` `k` Ctrl-d Ctrl-u `G` Home End | none | NORMAL | scroll (repeats keep scrolling). **web:** done by sending the host window real input (arrow/PageDown/Home/End keys or wheel steps), not through a page API; which event each binding becomes is a `config.rs` table |
+| T13 | NORMAL | `j` `k` Ctrl-d Ctrl-u `G` Home End | none | NORMAL | scroll (repeats keep scrolling). **web:** done by sending the host window real input (arrow/PageDown/Home/End keys or wheel steps), not through a page API; which event each binding becomes is a `config.rs` table. Built (C3): `SCROLL_INPUTS`; a key row (`ScrollInput::Key`) is pressed in the page window while the bound key is held and released with it, so the engine's own key repeat keeps scrolling; a `ScrollInput::Wheel(n)` row sends wheel steps at the pointer (only over the page). Defaults: `j`/`k`/arrows -> arrow keys, Ctrl-d/Space/PageDown -> PageDown, Ctrl-u/Shift-Space/PageUp -> PageUp (Chromium has no half-page key), `gg`/Home -> Home, `G`/End -> End. A key goes to whatever the page focused (T32), so `j` moves the caret of a field the page focused itself |
 | T14 | NORMAL | `h` `l` | not a repeat | NORMAL | history back / forward (**web:** `back` / `forward` on the control socket) |
 | T15 | NORMAL | `n` / `N` | a query exists, it has matches on this page | NORMAL | next / previous match in document order, wrapping with "search hit BOTTOM, continuing at TOP" (or TOP/BOTTOM); bring the screen to it (S4) |
 | T16 | NORMAL | `n` / `N` | a query exists, no matches here | NORMAL | status bar: `Pattern not found: <query>` |
@@ -118,7 +123,7 @@ timer is needed. The pure function is `resolve_esc_esc(state, key, repeat, now)`
 | T23 | SEARCH | Enter | query not empty | NORMAL | the query becomes the kept query; find matches; current = the first match whose top is at or below the top of the screen, in document order (none below: wrap to the first match, with the wrap message); bring the screen to it (S4); `[i/N]` in the status bar. No matches: T16's message |
 | T24 | SEARCH | Enter | query empty | NORMAL | same as Esc (T25) |
 | T25 | SEARCH | Esc | none | NORMAL | cancel: highlights and the kept query as they were before `/` |
-| T26 | COMMAND | text editing keys, paste | none | COMMAND | as today; paste as in "Paste" below (a paste is an edit for T45) |
+| T26 | COMMAND | text editing keys, paste | none | COMMAND | as today; paste as in "Paste" below (a paste is an edit for T45). **web:** Left, Right, Home, End, Backspace, Ctrl-w (delete the word before the cursor), Ctrl-u (delete to the start); Ctrl/Alt/Super chords type nothing |
 | T27 | COMMAND | Enter | none | NORMAL | run the command (`:q` may quit) |
 | T28 | COMMAND | Esc | none | NORMAL | cancel |
 
@@ -149,11 +154,11 @@ Numbers are not reused.
 
 | # | From | Event | Guard | To | Effect |
 |---|---|---|---|---|---|
-| T29 | NORMAL, G, SEARCH, COMMAND | user click into a text field or select | none | INPUT | the click goes to the page as usual; an open SEARCH/COMMAND line is cancelled first. **web:** the host reports `editable-focused` after the engine moved focus; the shell switches only if a user click went to that window just before (else it is T32) |
+| T29 | NORMAL, G, SEARCH, COMMAND | user click into a text field or select | none | INPUT | the click goes to the page as usual; an open SEARCH/COMMAND line is cancelled first. **web:** the host reports `editable-focused` after the engine moved focus; the shell switches only if a user click went to that window just before (else it is T32). Built: within `CLICK_FOCUS_MS` (1000) of a mouse press on a window; a `<select>` is not editable, so a new popup (xdg_popup) within that time of a press also switches (it is the select's menu, or a context menu, whose keys must reach the page) |
 | T30 | any | other mouse input | none | same | goes to the page as today |
 | T31 | any | navigation (any cause: `:go`, `h`/`l`, a followed link or click, page script) | none | same | highlights and the current match cleared; the kept query stays (`n` on the new page searches again); an open SEARCH/COMMAND line stays open |
 | T32 | any | page script focuses an element (`el.focus()`, `autofocus`) | none | same | the mode does NOT change: a page cannot pull the user out of NORMAL. In NORMAL the focused field gets no keys until the user presses `i` or clicks it (**web:** the compositor simply forwards nothing) |
-| T33 | NORMAL, G, SEARCH, COMMAND | key release | none | same | not delivered to the page *(proposed, P2)* |
+| T33 | NORMAL, G, SEARCH, COMMAND | key release | none | same | not delivered to the page *(proposed, P2)*. **web:** a release goes to the page exactly when its press did: a key pressed in INPUT and released after Esc Esc is released in the page too (no stuck keys); a press in NORMAL is never followed by a release in the page (T34) |
 | T34 | INPUT | release of a key whose press was NOT delivered to the page (the `i` of T6, the second Esc of T2) | none | INPUT | not delivered either, so the page never sees a `keyup` without its `keydown` |
 
 ## Accesskey (QWPT7c)
@@ -230,6 +235,12 @@ set per command, like bash's `complete`:
       // ("go", Source::Cmd(&["my-url-source"])),
   ];
   ```
+  **web:** there is no `:set` (its `js`/`motion` arguments were engine settings, dropped);
+  the rows are `go` (the history) and `refresh` (`hard`). The commands are `:go`,
+  `:refresh [hard]`, `:historyBack`, `:historyFront`, `:help`, `:let`, `:q`/`:quit`.
+  `:go` without a scheme means `https://` (scratchy's QCOMP6); the ghost still continues
+  exactly what was typed, so a ghost taken from an `http://` history entry typed without
+  its scheme runs as `https://`.
 - **An external source** is run with no shell (argv as written) and gets the context
   in its environment, like bash's `COMP_LINE`: `SCRATCHY_LINE` (the whole line),
   `SCRATCHY_WORD` (the word being completed), `SCRATCHY_ARG` (its index, 1 = first
@@ -261,6 +272,9 @@ set per command, like bash's `complete`:
 
 ## Paste
 
+**web:** not built until C6 (the shell has no clipboard bridge yet): Ctrl-v, Ctrl-Shift-v
+and Shift-Insert in the `:` line say `web: paste needs the clipboard, not built yet`.
+
 Every status-bar mode you type into (today COMMAND and SEARCH; user, 2026-11-20) takes a
 paste: Ctrl-v, Ctrl-Shift-v (terminal habit) and Shift-Insert insert the system
 clipboard's text at the cursor. Newlines, tabs and other control characters in the
@@ -281,6 +295,11 @@ system clipboard is the register `+`.
 |---|---|---|
 | `%` | the current URL, exactly what the status bar shows (never asks the page, so it works with JS off) | no: `scratchy: register @% is read-only` |
 | `+` | the system clipboard (Wayland, as in "Paste") | yes |
+
+**web (C3):** `%` is the URL of the host's last `url` event. `+` needs C6: until then
+`:let @+ = @%` and `yy` check their arguments as below and then say `web: @+ (and yy) need
+the clipboard, not built yet (web/TODO.txt C6)`. Messages start with `web:` instead of
+`scratchy:`. `:let @+ = <JS expression>` (QREG2) is not carried (usage line).
 
 - `:let @<dst> = @<src>` copies a register into another (spaces optional), as vim's
   `:let @+ = @%` copies the file name. The status bar says `Copied to clipboard`, or
@@ -310,6 +329,11 @@ QCFG1's separate runtime file, updated independently of the code.
 Esc Esc, so there is nothing left to switch off, and Esc Esc cannot be locked out (T2).
 
 ## Decision log
+
+- 2026-11-23 (C3): built in web as described in the **web:** notes. The shell's own
+  choices (not asked): Ctrl-d/Ctrl-u scroll a page; a popup right after a click switches to
+  INPUT (T29 for selects); releases follow their presses (T33); `:help` is a file the shell
+  writes next to its control socket and the host loads; `:q` on it goes back.
 
 - 2026-11-23 (user): web adopts this file from scratchy for the compositor shell
   (DECISIONS.md "Architecture C"). The **web:** notes above are the only changes.

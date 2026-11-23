@@ -227,6 +227,7 @@ fn main() {
         history: history::History::open(Some(state_dir.clone())),
         visits: history::Visits::default(),
         last_click: None,
+        bar_log: String::new(),
         damage_tracker: None,
     };
     state.damage_tracker = Some(OutputDamageTracker::from_output(&state.output));

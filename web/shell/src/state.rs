@@ -95,6 +95,8 @@ pub struct State {
     pub visits: crate::history::Visits,
     /// The last mouse press on a window (T29: a focus change soon after it is the user's).
     pub last_click: Option<Instant>,
+    /// The status bar as last logged.
+    pub bar_log: String,
     pub damage_tracker: Option<smithay::backend::renderer::damage::OutputDamageTracker>,
 }
 
@@ -115,6 +117,16 @@ impl State {
 
     pub fn redraw(&mut self) {
         self.dirty = true;
+        // The status bar's state, logged when it changes (what the live check reads).
+        let v = self.keys.bar_view();
+        let desc = match &v.line {
+            Some((p, text, _)) => format!("{p}{text}|{}", v.ghost),
+            None => format!("{} | {}", v.mode, v.message),
+        };
+        if desc != self.bar_log {
+            self.log(&format!("bar: {desc}"));
+            self.bar_log = desc;
+        }
     }
 
     fn window_of(&self, surface: &WlSurface) -> Option<Window> {
