@@ -3319,20 +3319,87 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
     return GEOM.matrix2d(m[0], m[1], m[2], m[3], m[4], m[5]);
   });
   defs(CtxProto, 'canvas', function () { cv(this); return this.__el; });
-  // fillStyle/strokeStyle/shadowColor: ToString of the value (a throwing toString propagates; gradients and patterns
-  // are QCNV2-era work), parsed as a CSS colour; an unparsable string leaves the attribute alone. `currentcolor`
-  // is the element's computed colour at set time (black when it is not in a document).
+  // fillStyle/strokeStyle/shadowColor: ToString of the value (a throwing toString propagates), parsed as a CSS colour;
+  // an unparsable string leaves the attribute alone. `currentcolor` is the element's computed colour at set time
+  // (black when it is not in a document). QCNV10: a CanvasGradient is accepted for fillStyle/strokeStyle (canvas.rs
+  // keeps its id in the state; the getter returns the object, kept in `this.__gm`, pruned against the ids in use).
+  var curColor = function (ctx, str) {
+    if (!/current/i.test(str)) return '#000';
+    var cur = '';
+    try { cur = ctx.__el && ctx.__el.isConnected ? g.getComputedStyle(ctx.__el).color : ''; } catch (e) { cur = ''; }
+    return cur || '#000';
+  };
+  var grBrand = new WeakSet();
   ['fillStyle', 'strokeStyle', 'shadowColor'].forEach(function (name, which) {
-    defs(CtxProto, name, function () { return g.__cv_get_style(cv(this), which); }, function (v) {
+    defs(CtxProto, name, function () {
       var c = cv(this);
-      var str = String(v);
-      var cur = '';
-      if (/current/i.test(str)) {
-        try { cur = this.__el.isConnected ? g.getComputedStyle(this.__el).color : ''; } catch (e) { cur = ''; }
+      if (which < 2) {
+        var gid = g.__cv_grad_of(c, which);
+        if (gid && this.__gm) { var o = this.__gm.get(gid); if (o) return o; }
       }
-      g.__cv_set_style(c, which, str, cur || '#000');
+      return g.__cv_get_style(c, which);
+    }, function (v) {
+      var c = cv(this);
+      if (which < 2 && v !== null && typeof v === 'object' && grBrand.has(v)) {
+        if (!this.__gm) Object.defineProperty(this, '__gm', { value: new Map() });
+        this.__gm.set(v.__gid, v);
+        g.__cv_set_grad(c, which, v.__gid);
+        if (this.__gm.size > 16) {
+          var used = {};
+          g.__cv_grads_in_use(c).split(',').forEach(function (k) { used[k] = 1; });
+          var m = this.__gm;
+          m.forEach(function (o, k) { if (!used[k]) m.delete(k); });
+        }
+        return;
+      }
+      var str = String(v);
+      g.__cv_set_style(c, which, str, curColor(this, str));
     });
   });
+  // QCNV10: CanvasGradient. The stops and geometry live in canvas.rs by id (freed when the object is collected).
+  var GProto = {};
+  var CanvasGradient = function CanvasGradient() { throw new TypeError('Illegal constructor'); };
+  Object.defineProperty(CanvasGradient, 'prototype', { value: GProto, writable: false, enumerable: false, configurable: false });
+  Object.defineProperty(GProto, 'constructor', { value: CanvasGradient, writable: true, configurable: true });
+  Object.defineProperty(GProto, Symbol.toStringTag, { value: 'CanvasGradient', configurable: true });
+  g.CanvasGradient = CanvasGradient;
+  var grFree = typeof FinalizationRegistry === 'function' ? new FinalizationRegistry(function (id) { g.__gr_free(id); }) : null;
+  var mkGrad = function (ctx, kind, a) {
+    var o = Object.create(GProto);
+    var id = g.__gr_new(kind, a);
+    Object.defineProperty(o, '__gid', { value: id });
+    Object.defineProperty(o, '__ctx', { value: ctx });
+    grBrand.add(o);
+    if (grFree) grFree.register(o, id);
+    return o;
+  };
+  var gfinite = function (name, a) {
+    for (var i = 0; i < a.length; i++) if (!isFinite(a[i])) throw new TypeError("Failed to execute '" + name + "' on 'CanvasRenderingContext2D': The provided double value is non-finite.");
+  };
+  meth('createLinearGradient', function () {
+    var c = cv(this), a = cvArgs('createLinearGradient', 4, arguments);
+    gfinite('createLinearGradient', a);
+    return mkGrad(this, 0, a);
+  });
+  meth('createRadialGradient', function () {
+    var c = cv(this), a = cvArgs('createRadialGradient', 6, arguments);
+    gfinite('createRadialGradient', a);
+    if (a[2] < 0 || a[5] < 0) throw domErr("Failed to execute 'createRadialGradient' on 'CanvasRenderingContext2D': The radius provided (" + (a[2] < 0 ? a[2] : a[5]) + ') is negative.', 'IndexSizeError');
+    return mkGrad(this, 1, a);
+  });
+  meth('createConicGradient', function () {
+    var c = cv(this), a = cvArgs('createConicGradient', 3, arguments);
+    gfinite('createConicGradient', a);
+    return mkGrad(this, 2, a);
+  });
+  Object.defineProperty(GProto, 'addColorStop', { value: function addColorStop(offset, color) {
+    if (this === null || typeof this !== 'object' || !grBrand.has(this)) throw new TypeError('Illegal invocation');
+    if (arguments.length < 2) throw new TypeError("Failed to execute 'addColorStop' on 'CanvasGradient': 2 arguments required, but only " + arguments.length + ' present.');
+    var o = Number(offset), s = String(color);
+    if (!isFinite(o)) throw new TypeError("Failed to execute 'addColorStop' on 'CanvasGradient': The provided double value is non-finite.");
+    if (o < 0 || o > 1) throw domErr("Failed to execute 'addColorStop' on 'CanvasGradient': The provided value (" + o + ") is outside the range (0.0, 1.0).", 'IndexSizeError');
+    if (!g.__gr_stop(this.__gid, o, s, curColor(this.__ctx, s))) throw domErr("Failed to execute 'addColorStop' on 'CanvasGradient': The value provided ('" + s + "') could not be parsed as a color.", 'SyntaxError');
+  }, writable: true, enumerable: true, configurable: true });
   defs(CtxProto, 'globalAlpha', function () { return g.__cv_get_num(cv(this), 0); }, function (v) {
     var c = cv(this);
     v = Number(v);
