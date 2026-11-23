@@ -73,6 +73,9 @@ their section with the date.
 
 ## Network and privacy (wire)
 
+- **2026-11-23 W-POOL4: wire never retries a non-idempotent request after a clean close (EOF) on a reused
+  connection.** A rare failed POST (~1 in 1000 on a stale pooled connection) is preferred over a possible
+  duplicate. Retries stay limited to W-POOL3's RST/EPIPE case, where the server provably never read the request.
 - **scratchy opens no network sockets itself.** All bytes, media included, go
   through wire.
 - **Cookies (QF-D2a, final):** a jar in wire, on by default, used only for requests

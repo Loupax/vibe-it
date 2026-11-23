@@ -119,3 +119,11 @@
       have received the body. Test with a loopback server that closes after each response: 1000 POSTs, 0 failures; and
       a test that a POST whose body was read by the server is NOT retried.
 
+
+=== closed by user decision 2026-11-23: keep it safe (no retry after a clean close); no code change
+- [x] **W-POOL4 [S] NEEDS THE USER'S DECISION: retry a non-idempotent request after a clean close (EOF) on a reused
+      connection?** (from W-POOL3 #634). W-POOL3 retries only on RST/EPIPE (the server never read the request). A
+      clean FIN before any response is indistinguishable from "server read the whole body, then closed", so retrying
+      it could send a POST twice; W-POOL3 measured ~1 failure per 1000 POSTs left from that case. Chromium retries it
+      (reused socket, no response bytes yet). Options: keep it safe (rare failed POST, never a duplicate) or retry like
+      Chromium (rare duplicate). Do nothing until the user decides.

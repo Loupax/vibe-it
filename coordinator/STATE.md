@@ -445,3 +445,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Reinstalled scratchy 07:45 from 1d5a317 (has #651). Merged #652 QCNV13 b608fa4 (drain). Filed QIMGERR1 (not scheduled). Coordinator prompt/rules/scripts now cover web/ and wire/ (d1409917). Draining: QWPT7e only.
 - 2026-11-23 Merged #653 QWPT7e 4432661. DRAIN COMPLETE: no scratchy agents running, nothing scheduled. Filed QWPT7f (not scheduled). Final reinstall.
 - 2026-11-23 Final reinstall: ~/.cargo/bin/scratchy 08:00 from main 4432661 (all drain PRs). scratchy idle.
+- 2026-11-23 USER: W-POOL4 keep it safe (no retry after clean close). Closed to wire/TODO-DONE.txt, recorded in scratchy/DECISIONS.md (Network). Nothing waiting on the user.
