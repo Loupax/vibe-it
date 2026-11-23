@@ -688,11 +688,13 @@ impl Keys {
         self.search.waiting.clear();
         self.search.index = 0;
         self.search.count = 0;
-        self.send_find(&query, FindDir::Next, true);
+        self.send_find(&query, FindDir::Next, true, true);
         self.search.query = Some(query);
     }
 
-    fn send_find(&mut self, query: &str, dir: FindDir, fresh: bool) {
+    /// `screen_top`: T23's start (the first match at or below the top of the screen) rather
+    /// than where the engine picks.
+    fn send_find(&mut self, query: &str, dir: FindDir, fresh: bool, screen_top: bool) {
         self.search.session = true;
         self.search.last_id += 1;
         let id = self.search.last_id;
@@ -702,6 +704,7 @@ impl Keys {
             query: query.to_string(),
             dir,
             match_case: smartcase_match_case(query),
+            screen_top,
         }));
     }
 
@@ -714,7 +717,7 @@ impl Keys {
         // No host session (Esc, a navigation, or the page changed): the host starts a new
         // one, at its first (n) or last (N) match, so no wrap can be told.
         let fresh = !self.search.session;
-        self.send_find(&query, dir, fresh);
+        self.send_find(&query, dir, fresh, false);
     }
 
     /// T7: highlights go, the query stays.
@@ -756,6 +759,12 @@ impl Keys {
     /// ignored; the requests older than the answered one will never be answered (the host
     /// answers only the latest) and are dropped with it.
     pub fn find_result(&mut self, id: u64, index: u32, count: u32) {
+        self.find_result_wrapped(id, index, count, false);
+    }
+
+    /// `wrapped` (C5b, T23): the host found no match at or below the top of the screen and
+    /// went to the first one: the BOTTOM wrap message.
+    pub fn find_result_wrapped(&mut self, id: u64, index: u32, count: u32, wrapped: bool) {
         if !self.search.waiting.iter().any(|w| w.0 == id) {
             return;
         }
@@ -773,12 +782,13 @@ impl Keys {
             self.message = pattern_not_found(&query);
             return;
         }
-        let wrapped = !fresh
-            && old > 0
-            && match dir {
-                FindDir::Next => index <= old,
-                FindDir::Prev => index >= old,
-            };
+        let wrapped = wrapped
+            || (!fresh
+                && old > 0
+                && match dir {
+                    FindDir::Next => index <= old,
+                    FindDir::Prev => index >= old,
+                });
         let wrap = match (wrapped, dir) {
             (false, _) => "",
             (true, FindDir::Next) => SEARCH_WRAP_BOTTOM,
