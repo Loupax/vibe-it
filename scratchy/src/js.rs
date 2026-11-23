@@ -2143,6 +2143,13 @@ impl JsEngine {
         self.eval_value::<bool>("history", &code).unwrap_or(false)
     }
 
+    /// QEDIT-C: the ancestor revealing algorithm for `h` (find-in-page match, fragment target): fires
+    /// `beforematch`, removes `hidden=until-found`, opens `<details>`. Returns how many things changed.
+    pub(crate) fn reveal_node(&self, h: &Handle) -> usize {
+        let id = self.table.borrow_mut().intern(h);
+        self.eval_value::<f64>("reveal", &format!("__scratchy_reveal_id({id})")).map_or(0, |v| v as usize)
+    }
+
     pub(crate) fn take_requests(&self) -> js_dom::JsRequests {
         std::mem::take(&mut *self.reqs.borrow_mut())
     }

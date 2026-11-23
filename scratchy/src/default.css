@@ -55,6 +55,11 @@ dialog:not([open]) { display: none; }
    remaining always-hidden elements. UA origin, so an author `display:` on
    the same element still wins, as in browsers. */
 [hidden]:not([hidden=until-found i]) { display: none; }
+/* QEDIT-C: hidden=until-found is `content-visibility: hidden` (not supported as a property). Approximation: the box keeps
+   its border and padding but has no content height and clips its contents (size containment + skipped contents), while
+   its subtree is still laid out, so find-in-page can match inside it and reveal it. An author `height` still applies.
+   Inline elements are unaffected, as for content-visibility. */
+[hidden=until-found i] { height: 0; overflow: hidden; }
 area, basefont, datalist, noembed, noframes, param, rp, script, style { display: none; }
 /* QB4: dialog[open] is out of flow and centred horizontally; a modal one
    (showModal sets data-scratchy-modal, since :modal isn't supported) is

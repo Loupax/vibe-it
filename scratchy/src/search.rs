@@ -432,6 +432,8 @@ pub(crate) struct SearchState {
     pub matches: Vec<SearchMatch>,
     pub current: Option<usize>,
     pub highlight: bool,
+    /// QEDIT-C: the match whose reveal (beforematch, attribute removal) is waiting for the next layout.
+    pub reveal_pending: Option<usize>,
 }
 
 impl SearchState {

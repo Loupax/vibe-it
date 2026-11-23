@@ -388,6 +388,7 @@
     if (replace) entries[idx] = { state: entries[idx].state, href: href };
     else { entries.length = idx + 1; entries.push({ state: null, href: href }); idx++; pend = idx; }
     apply(href);
+    if (g.__scratchy_frag_nav) g.__scratchy_frag_nav(href); // QEDIT-C: beforematch / details reveal + scroll, synchronously
     if (old !== href) tm(function () { g.dispatchEvent(new g.HashChangeEvent('hashchange', { oldURL: old, newURL: href })); });
   } });
   // `notify`: tell the App the entry moved (page-initiated go/back/forward);

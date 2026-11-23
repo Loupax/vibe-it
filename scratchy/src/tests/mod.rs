@@ -1035,6 +1035,7 @@ mod qapi8_tests;
 mod qcss_b_tests;
 mod qedit_a_tests;
 mod qedit_b_tests;
+mod qedit_c_tests;
 mod qapi6c_tests;
 mod qcss_a_tests;
 mod qff1b_tests;
