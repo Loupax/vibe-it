@@ -64,7 +64,8 @@ tunnels are copied with small fixed buffers and backpressure, never whole.
 - [x] W2-2 TLS interception. (DONE 2026-11-23, c8a5f49, #674: lazy CA in --ca-dir, Policy::decide per CONNECT
       with add_http_claim for W2-F, --no-decrypt, decrypted keep-alive tunnels, one forward() for every
       request; decrypted 52-54 % of direct (target 50 %); hidden test-only --test-decrypt/--test-resolve.)
-- [WIP] W2-2a [S] (from #674) Reuse upstream connections inside decrypted tunnels (today: fresh TCP+TLS per
+- [x] W2-2a [S] (DONE 2026-11-23, ae12729, #685: one parked origin connection per decrypted flow; stale GET
+      retried once, POST 502 never resent; 50 requests 2097 -> 113 ms, origin connections 750 -> 15) (from #674) Reuse upstream connections inside decrypted tunnels (today: fresh TCP+TLS per
       request, Connection: close); on a stale connection retry only idempotent requests with no body.
 - [ ] W2-2b [XS] (from #674) Pipeline request bodies (uploads) like response bodies (two tasks).
 - [ ] W2-2c [XS] (after W2-F) Remove the test-only --test-decrypt once pass-decrypt exists; keep --test-resolve.
@@ -94,7 +95,13 @@ tunnels are copied with small fixed buffers and backpressure, never whole.
       filters may not change a request's destination (502), plain http also goes through tunnel filters.)
       Was: Filters, as the spec defines them: external HTTP/1.1 servers on Unix sockets, chained, with the
       Proxy-Id handshake, lazy decryption and the `pass` reference filter.
-- [ ] W2-F1 [S] (from #682) Notice filter restarts without traffic: today the first request after a filter
+- [ ] W2-2e [S] (from #685) Parked origin connections: an idle expiry of their own, and a pool shared across
+      the browser's (up to 6) connections per host.
+- [ ] W2-HUBCLOSE [XS] (from #685) With a filter in the chain, a proxy-made 502 reaches the browser as a
+      keep-alive response: the hub leg's close does not propagate. Make it close the browser connection.
+- [WIP] W2-FLK1 [XS] (from #685) `w2_f_filters::malformed_and_closed_filter_502` failed once in a full run
+      (proxy log line not yet visible); passed 3 reruns. Make the test wait for the log line properly.
+- [WIP] W2-F1 [S] (from #682) Notice filter restarts without traffic: today the first request after a filter
       restart gets 502 while the proxy re-handshakes. Periodic re-handshake / health check.
 - [ ] W2-F2 [XS] USER, manual (from #682) Install wire2's systemd units and check an execve from the proxy is
       denied under wire2.service (SystemCallFilter).

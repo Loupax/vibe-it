@@ -506,3 +506,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 USER: park everything caret-related (C5-ENTER, C-CMDS, CARET-1 idea). Discussed: Chromium caret drawn by the shell as a spike.
 - 2026-11-23 Merged #684 C5-FIXES 95fc985; web reinstalled 15:33. Launched bundle C3-GOHTTP + C-SOCKDIR + cargo fmt drift (Sonnet). Waiting on the user re: Enter in NORMAL / caret always on (discussion, no changes).
 - 2026-11-23 USER: Enter in NORMAL forwards to the page; :set caret/nocaret toggles Chromium caret browsing (default off). Filed C-ENTER + C-CARETCMD, launched (Opus: CEF caret pref unknown). Bundle C3-GOHTTP/C-SOCKDIR back to queue.
+- 2026-11-23 Merged #685 W2-2a ae12729; wire2 reinstalled 15:44. Filed W2-2e, W2-HUBCLOSE, W2-FLK1. Launched W2-F1 + W2-FLK1 (Sonnet).
