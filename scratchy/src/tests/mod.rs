@@ -1070,3 +1070,4 @@ mod qcnv8_tests;
 mod qwptflk5_tests;
 mod qcnv9_tests;
 mod qcnv10_tests;
+mod qwptflk6_tests;

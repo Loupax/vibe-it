@@ -1311,7 +1311,7 @@ const PRELUDE: &str = r#"
       timing[k] = (k === 'unloadEventStart' || k === 'unloadEventEnd' || k === 'redirectStart' || k === 'redirectEnd') ? 0 : t0;
     });
   var perf = {
-    timing: timing, timeOrigin: t0,
+    timing: timing,
     navigation: { type: 0, redirectCount: 0 },
     now: function () { return __scratchy_now(); },
     getEntries: function () { return []; },
@@ -1319,8 +1319,17 @@ const PRELUDE: &str = r#"
     getEntriesByName: function () { return []; },
     mark: function () {}, measure: function () {},
     clearMarks: function () {}, clearMeasures: function () {},
-    toJSON: function () { return { timeOrigin: t0, timing: timing }; },
+    toJSON: function () { return { timeOrigin: perf.timeOrigin, timing: timing }; },
   };
+  // QWPTFLK6: `timeOrigin` is anchored on first read as `Date.now() - performance.now()`, so
+  // `timeOrigin + now()` tracks `Date.now()` even when `now()` is a manual clock (the WPT runner's
+  // virtual clock stands still while the real one runs on: page setup under machine load used to
+  // push `Date.now()` past `timeOrigin + now() + 30`). Reset by `__scratchy_apply_env`.
+  var originAnchor = null;
+  Object.defineProperty(perf, 'timeOrigin', { get: function () {
+    if (originAnchor === null) originAnchor = Date.now() - __scratchy_now();
+    return originAnchor;
+  }, configurable: true, enumerable: true });
   Object.defineProperty(g, 'performance', { value: perf, writable: true, configurable: true, enumerable: true });
   // QV8-4: everything above that came from the page (`env`) or the clock, as one function. The V8
   // startup snapshot bakes this prelude over an about:blank env; a page engine then calls
@@ -1344,7 +1353,7 @@ const PRELUDE: &str = r#"
     Object.keys(timing).forEach(function (k) {
       timing[k] = (k === 'unloadEventStart' || k === 'unloadEventEnd' || k === 'redirectStart' || k === 'redirectEnd') ? 0 : t0;
     });
-    perf.timeOrigin = t0;
+    originAnchor = null;
     envHooks.forEach(function (h) { h(); });
   }, configurable: true });
   // QPT1a (R53 D2/D5): binds a fresh iframe realm (made by `__scratchy_realm_new` from the startup
