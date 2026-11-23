@@ -303,7 +303,14 @@ stop early on a hard failure.
       outer window's frames; measure rAF cadence before/after under the perf lock.
 - [ ] C6h [M] (from #699) Chromium's rAF stays 60 Hz on a 120 Hz output although it reads the refresh: find what
       drives its BeginFrame interval (wl_output/xdg-output, a CEF switch) in web-host-cef.
-- [WIP] C6d [M] (from #686) dmabuf: no linux-dmabuf offered, CEF hands shm buffers, every frame is CPU-copied.
+- [x] C6d [M] (DONE 2026-11-23, 985f223, #706: linux-dmabuf v5 offered when the renderer is on a GPU, shm fallback;
+      scroll engine CPU 36 -> 8 % of a core on a GPU nest (kwin --virtual, web/tools/gpu-nest.sh))
+- [ ] C6d-DESKTOP [XS] NEEDS USER (from #706) Run web/shell/test/c6d_desktop_check.sh on your real desktop (release
+      builds): PASS/FAIL, the CPU table, and whether pages look right and scroll smoothly; once also as an X11 window.
+- [WIP] C3-LIVE-GOHTTP [XS] (from #706) c3_live's T45/T47/T50 and history steps still expect https:// for an http
+      history ghost; update them to #702's behaviour. Bundled with C6b-LIVE-DPR.
+- [WIP] C6b-LIVE-DPR [XS] (from #706) Release builds: c6b_live's dpr() reads the first (pre-configure 1200x800)
+      title; wait for the title matching the page window. Its click step flakes on a reused nest. (from #686) dmabuf: no linux-dmabuf offered, CEF hands shm buffers, every frame is CPU-copied.
       Measure today's CPU cost (video, fast scroll), then import dmabufs with an shm fallback.
 - [ ] C6e [M] (from #686) IME (text-input-v3): shell as IME client of the desktop and text-input server for
       the page, INPUT only. Done when fcitx5 in the nest types composed text into a page field.
