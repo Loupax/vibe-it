@@ -161,6 +161,29 @@ impl AsyncWrite for ConnWrite {
     }
 }
 
+/// Socket buffer size asked for on the Unix sockets between the proxy and its filters (the kernel caps
+/// it at net.core.wmem_max / rmem_max). The default (net.core.wmem_default, typically 208 KiB) makes
+/// every splice through a filter hop move at most that much per wakeup; loopback TCP autotunes far
+/// higher, so without this a tunnel through a filter falls behind a direct one.
+const UNIX_BUF: libc::c_int = 1024 * 1024;
+
+/// Raise SO_SNDBUF/SO_RCVBUF of a filter or hub connection (errors ignored: it is only a speed-up).
+pub fn tune_unix(s: &tokio::net::UnixStream) {
+    use std::os::fd::AsRawFd;
+    for opt in [libc::SO_SNDBUF, libc::SO_RCVBUF] {
+        // SAFETY: setsockopt on a socket we own with a valid int.
+        unsafe {
+            libc::setsockopt(
+                s.as_raw_fd(),
+                libc::SOL_SOCKET,
+                opt,
+                (&UNIX_BUF as *const libc::c_int).cast(),
+                std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+            );
+        }
+    }
+}
+
 /// Bind a Unix listening socket readable and writable only by us (mode 0600; created under umask 0177
 /// so it is never briefly wider). A stale socket file is replaced; a live one (another process is
 /// listening) is an error, as is a non-socket file at `path`. `what` names the flag in messages.

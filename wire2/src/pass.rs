@@ -82,6 +82,7 @@ pub async fn serve(l: UnixListener, hello: Hello, verbose: bool) -> std::io::Res
             }
             Err(e) => return Err(e),
         };
+        crate::conn::tune_unix(&s);
         tokio::spawn(conn(s, json.clone(), hubs.clone(), verbose));
     }
 }
@@ -189,7 +190,10 @@ async fn conn(s: UnixStream, json: Arc<str>, hubs: Hubs, verbose: bool) {
         crate::info!("flow {flow}: {} {}", head.method, head.target);
     }
     let up = match UnixStream::connect(&hub).await {
-        Ok(u) => Conn::Unix(u),
+        Ok(u) => {
+            crate::conn::tune_unix(&u);
+            Conn::Unix(u)
+        }
         Err(e) => {
             // The proxy is gone (or restarted elsewhere): close; a live proxy re-handshakes.
             crate::warn!("hub unix:{}: {e}", hub.display());

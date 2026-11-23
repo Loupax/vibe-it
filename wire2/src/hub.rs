@@ -40,6 +40,7 @@ pub async fn serve(l: UnixListener, ctx: Arc<Ctx>) {
                     crate::warn!("hub: refusing a connection: {e}");
                     continue;
                 }
+                crate::conn::tune_unix(&s);
                 tokio::spawn(handle(s, ctx.clone()));
             }
             Err(e) => {
@@ -217,7 +218,8 @@ async fn http_hop(
             return;
         }
     };
-    let (mut br, bw) = tokio::io::split(conn);
+    // Owned halves: no lock between reading the request body and writing the response.
+    let (mut br, bw) = conn.into_split();
     let mut bw = Signal {
         inner: bw,
         tx: Some(tx),
@@ -243,8 +245,7 @@ async fn http_hop(
         status.load(Ordering::Relaxed)
     );
     if !matches!(next, Next::Abort) {
-        let mut conn = br.unsplit(bw.inner);
-        proxy::finish(&mut conn).await;
+        proxy::finish_halves(br, bw.inner).await;
     }
 }
 

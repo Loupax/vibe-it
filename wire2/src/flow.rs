@@ -172,6 +172,9 @@ impl std::ops::Deref for Flow {
 impl Drop for Flow {
     fn drop(&mut self) {
         self.reg.lock().remove(&self.info.id);
+        // The browser side is done: whatever the hub still runs for this flow (filter hops, tunnel
+        // pipes) ends too (SPEC: "when any stage or either end closes, the proxy closes the rest").
+        self.info.cancel.cancel();
         let f = &self.info;
         let status = match (f.kind, f.status.load(Ordering::Relaxed)) {
             (_, STATUS_NONE) => "-".to_string(),

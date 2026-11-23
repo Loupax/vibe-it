@@ -148,12 +148,18 @@ pub async fn refuse(conn: &mut Conn, code: u16, body: &str) -> usize {
 /// Half-close and give the browser a moment to read the response before the socket goes away, so
 /// unread request bytes on our side do not turn the close into a reset that eats the response.
 pub async fn finish<S: AsyncRead + AsyncWrite + Unpin>(conn: &mut S) {
-    let _ = conn.shutdown().await;
+    let (r, w) = tokio::io::split(conn);
+    finish_halves(r, w).await;
+}
+
+/// [`finish`] for a connection already split into its two halves.
+pub async fn finish_halves<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(mut r: R, mut w: W) {
+    let _ = w.shutdown().await;
     let mut sink = [0u8; 4096];
     let _ = tokio::time::timeout(Duration::from_secs(1), async {
         let mut total = 0usize;
         while total < 1 << 20 {
-            match conn.read(&mut sink).await {
+            match r.read(&mut sink).await {
                 Ok(0) | Err(_) => break,
                 Ok(n) => total += n,
             }

@@ -101,15 +101,21 @@ async fn large_download_decrypted_flat_memory() {
         "origin finished before the first bytes arrived"
     );
     let base = proxy.rss_kb();
+    // pass-decrypt runs inside this test process (with the origin and the client): its memory is
+    // part of this process's RSS.
+    let me = std::process::id() as i32;
+    let base_self = rss_kb(me);
     go.notify_one();
     let max_rss = Arc::new(AtomicU64::new(base));
+    let max_self = Arc::new(AtomicU64::new(base_self));
     let stop = Arc::new(AtomicBool::new(false));
     let pid = proxy.pid();
     let sampler = {
-        let (max_rss, stop) = (max_rss.clone(), stop.clone());
+        let (max_rss, max_self, stop) = (max_rss.clone(), max_self.clone(), stop.clone());
         tokio::spawn(async move {
             while !stop.load(Ordering::Relaxed) {
                 max_rss.fetch_max(rss_kb(pid), Ordering::Relaxed);
+                max_self.fetch_max(rss_kb(me), Ordering::Relaxed);
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
         })
@@ -129,11 +135,17 @@ async fn large_download_decrypted_flat_memory() {
     stop.store(true, Ordering::Relaxed);
     sampler.await.unwrap();
     let max = max_rss.load(Ordering::Relaxed);
+    let max_s = max_self.load(Ordering::Relaxed);
     assert_eq!(got, total);
     eprintln!(
-        "decrypted: {} MiB, proxy RSS {base} KiB -> max {max} KiB, {:.0} MiB/s",
+        "decrypted through pass-decrypt: {} MiB, proxy RSS {base} KiB -> max {max} KiB, test process \
+         (pass-decrypt, origin, client) {base_self} KiB -> max {max_s} KiB, {:.0} MiB/s",
         total / MIB,
         got as f64 / MIB as f64 / secs
+    );
+    assert!(
+        max_s.saturating_sub(base_self) < MAX_GROWTH_KB,
+        "filter (test process) RSS grew {base_self} -> {max_s} KiB"
     );
     assert!(
         max.saturating_sub(base) < MAX_GROWTH_KB,

@@ -153,6 +153,7 @@ impl Filter {
     pub async fn connect(&self) -> io::Result<UnixStream> {
         check_socket_dir(&self.path).map_err(io::Error::other)?;
         let s = UnixStream::connect(&self.path).await?;
+        crate::conn::tune_unix(&s);
         check_peer(&s).map_err(io::Error::other)?;
         Ok(s)
     }
