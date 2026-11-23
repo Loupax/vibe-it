@@ -526,3 +526,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Merged #700 C-FOCUSKEYS+C3-SHIFTSYNC ec4c966 (PROMPTS-only conflict resolved by hand); web reinstalled. Launched C3-GOHTTP (Sonnet).
 - 2026-11-23 Merged #701 LIVE-GEOM e698ca6 and #702 C3-GOHTTP bdb9efd (PROMPTS-only conflict by hand); web reinstalled. Filed LIVE-GEOM2. Launched C5b (Sonnet) and LIVE-GEOM2+NEST-WINKEYMAP (Sonnet).
 - 2026-11-23 Merged #703 LIVE-GEOM2+NEST-WINKEYMAP 4479f3a (tools/tests; install none). Launched C1-INPUT (Sonnet).
+- 2026-11-23 USER: merge #704 (their plan: picker, bookmarks, buffers as tabs, popups like Chrome). PROMPTS-only conflict resolved by hand; merged dd9fbb1 (docs-only fast path). C1-INPUT stopped (moot), WIP on web/c1-input, findings attached to C-POPUPS. COORDINATOR_PROMPT: plan order C-PICK -> C-BOOKMARKS -> C4 -> C-POPUPS, C4-SPIKE beside C-PICK. Launched C-PICK (Opus).

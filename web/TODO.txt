@@ -69,7 +69,7 @@ stop early on a hard failure.
       Done when: every KEYS.md row C3 covers has a test (named after the row, as in
       scratchy) and works by hand.
 
-- [ ] C-PICK [M] (user, 2026-11-23, DECISIONS.md "A picker, bookmarks, buffers as tabs, popups like Chrome")
+- [WIP] C-PICK [M] (user, 2026-11-23, DECISIONS.md "A picker, bookmarks, buffers as tabs, popups like Chrome")
       The picker and its first source, `:historySearch`. The shell draws a list over the page above the
       status bar (no page resize; HiDPI like the bar). New mode PICK with its own KEYS.md rows (KEYS.md
       "Picker"): typing filters (fuzzy, best first, the same matcher in every list), Ctrl-n/Ctrl-p and
@@ -117,6 +117,12 @@ stop early on a hard failure.
 - Later, not scheduled (same decision): searching buffer contents; buffers restored after a restart;
   a per-site "always allow popups" list (if a login breaks); C-CMDS actions as a picker source.
 
+      Findings from the parked C1-INPUT run (branch web/c1-input, popup_live.py, 6/6 with today's rules): real
+      clicks give OnBeforePopup with user_gesture 1; a gesture-less timer window.open is blocked by Chromium
+      before the host sees anything (no OnBeforePopup), so "blocked + status-bar message" needs another hook;
+      through the shell in NORMAL, ctrl/shift-click reach the page WITHOUT the modifiers (a plain click that
+      navigates in place) and middle-click is dropped by the host — decide those cases here.
+      host-cef/README.md and drive.py still claim --disable-popup-blocking is needed: revisit.
 - [x] C5 (DONE 2026-11-23, f7a5cba, #679: / Enter n N, wrap messages, not-found, Esc rules, [i/N], smartcase;
       host find sessions fixed; c5_live.py 12/12) Search (KEYS.md "Search", web notes): `/`, `n`/`N`, Esc, the messages, through
       the host's `find`. Enter on a match (S7, T18-T19) is its own item after this one.
@@ -148,7 +154,8 @@ stop early on a hard failure.
 - [ ] C-DL (from C1 #668) Downloads, JS dialogs and permission prompts as protocol events (today:
       downloads save without asking to <profile>/downloads; dialogs/prompts are the engine default).
       One item each when picked up; download directory and UI need the user's say.
-- [WIP] C1-INPUT [S] (after C2; from C1 #668) Real-input version of the C1 check: click target=_blank
+- [-] C1-INPUT [S] SUPERSEDED (2026-11-23: #704 reverses the same-page popup rule; C-POPUPS re-tests popups
+      with real clicks) (after C2; from C1 #668) Real-input version of the C1 check: click target=_blank
       and window.open with a user gesture (tools/inject), without --disable-popup-blocking.
 - [ ] C-PENDING [S] (only if C3 wants it; from C1 #668) `load start` is sent at commit, not on the
       click; add a `pending` load phase if the status bar needs a spinner from the click.

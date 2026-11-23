@@ -90,8 +90,9 @@ items. Ask me in chat only when I ask for a status report.
 - C1..C3 are a chain: run them in order, one agent at a time on it. Use Opus for C1 (the engine
   host and control protocol) and C2 (the compositor); C3 (porting keys and the command line
   from scratchy) may use Sonnet. C5 and C6 follow C3. P-FORGET and P-COOKIES may run beside the
-  chain once C1 is merged. C4 (tabs) is DEFERRED (no tabs for now) and C7 (link hints) says WAITING FOR USER: never
-  schedule them.
+  chain once C1 is merged. C7 (link hints) says WAITING FOR USER: never schedule it. The #704 plan
+  (2026-11-23) adds C-PICK -> C-BOOKMARKS -> C4 Buffers -> C-POPUPS in that order; C4-SPIKE may run
+  beside C-PICK.
 - Network: the engine host takes an optional `--proxy <host:port>`; a missing flag is never an
   error. web itself enforces nothing; keeping it off the network is a wrapper outside web.
 - When web gets an installable crate or a CI job, add its path rule to the `changes` job in
