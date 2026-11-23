@@ -110,13 +110,26 @@ stop early on a hard failure.
       Done when: C1's check passes with the WebKit host, unchanged script, and C8's day
       of browsing is repeated with it.
 
-- [WIP] P-FORGET Forget a site (scratchy's `--forget-site`, STASH.md "Forget site"): a
+- [WIP] P-FORGET (READY #670, held: question for the user in the PR) Forget a site (scratchy's `--forget-site`, STASH.md "Forget site"): a
       `forget-site` command in the engine-host interface, implemented by each host with
       its engine's API; `web --forget-site` sends it to the running host or starts one
       with `--no-window`.
       Done when: for each host, after logging in to a site and storing localStorage and
       IndexedDB on it and a subdomain, forget-site leaves no cookie or storage for it
       (checked from a fresh load) and leaves another site's login intact.
+
+- [ ] P-FORGET-SHELL [S] (after C2 and #670) `web --forget-site <site>` in web/shell: a running web sends
+      `forget-site` to its host; otherwise run `web-host-cef --profile <state>/engines/cef --no-window
+      --forget-site <site>` and use its exit code and stdout `forgot` line. Status bar shows `forgot ...`;
+      reload the page if it shows the site. Done when both paths work against test/forget.py's sites.
+- [ ] P-FORGET-CACHE (optional, ask the user first) Clear only the site's HTTP cache entries instead of
+      the whole cache (needs DevTools or another mechanism).
+
+- [WIP] C-NOTAB [S] (user, 2026-11-23: "can we remove tab opening functionality in general, like from
+      context menus and such?") No way to open a second tab or window from the page: remove the
+      context-menu items (open link in new tab/window, incognito, etc.), and make Ctrl/Shift/middle-
+      click on links open nothing new. Script window.open / target=_blank keep loading in the same page
+      (DECISIONS "No tabs yet").
 
 - [ ] P-COOKIES Third-party cookies off in each host (STASH.md "Cookies"), the closest
       the engines get to scratchy's per-top-level-site jar.

@@ -474,3 +474,6 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Status bar/navigation check vs KEYS.md: C1 protocol lacked `reload hard` (:refresh hard) and a network load-error event. Sent both to C1; noted in web/TODO.txt.
 - 2026-11-23 Merged #668 C1 9b16bbe (web/host-cef, protocol v0 in web/PROTOCOL.md, one page, reload hard, load-error; drive.py passes with/without --proxy). Install: none. Filed C-BGNET, C-DL, C1-INPUT, C-PENDING. Parked wire worktrees removed (branches kept). Launched C2 (Opus) and P-FORGET (Opus; host side only, `web --forget-site` wiring waits for the shell).
 - 2026-11-23 Progress page republished after #668 (web section is now Architecture C C1..C8 + P items; wire2 section added; waiting-on-you refreshed).
+- 2026-11-23 Merged #669 W2-1 200820f (wire2 plain forwarding proxy). ~/.cargo/bin/wire2 installed 13:11. Filed W2-1a/b/c. Manual Chromium/Firefox browsing check -> Waiting on you.
+- 2026-11-23 #670 P-FORGET READY but HELD: asks the user whether the hidden-page storage clearing counts as "not an automation protocol" (alternative: DevTools Storage.clearDataForOrigin) and notes every forget clears the whole HTTP cache. Filed P-FORGET-SHELL, P-FORGET-CACHE.
+- 2026-11-23 USER: remove tab opening in general (context menus etc.). Filed C-NOTAB and launched it (Sonnet). Launched W2-2 (Opus).
