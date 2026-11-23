@@ -179,9 +179,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QCNV3b [S] (P3, from QCNV3 #619; Sonnet) Canvas/colour leftovers: `calc()` inside relative colours; reset.2dstate
       for lineCap/shadowBlur and similar state; missing-argument TypeErrors for the remaining context methods
       (2d.conformance.requirements.missingargs, from QCNV9 #636); colour objects (CSSRGB/CSSHSL) wait for Typed OM.
-- [ ] [WIP] QGEOM2 [S] (P3, from QGEOM1 #630; Sonnet) DOMRectList (getClientRects returns an Array today; DOMRectList.html 2
-      subtests), structured clone of the geometry classes (structured-serialization.html, 24 subtests), css/geometry
-      idlharness setup.
 - [ ] [WIP] QCNV10 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Sonnet; in order after the items above) Linear, radial and conic gradients. 107 files.
 - [ ] QCNV11 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
