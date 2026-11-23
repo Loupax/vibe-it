@@ -4,7 +4,9 @@
 //! "Status bar": the page never overlaps it). In page fullscreen the page gets the whole
 //! window and the bar is hidden.
 
+use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_positioner::ConstraintAdjustment;
 use smithay::utils::{Logical, Point, Rectangle, Size};
+use smithay::wayland::shell::xdg::PositionerState;
 
 /// The status bar's height (`config::STATUS_BAR_H`).
 pub const BAR_H: i32 = crate::config::STATUS_BAR_H;
@@ -87,13 +89,22 @@ impl Layout {
         r.loc -= parent_offset;
         r
     }
+
+    /// Returns `positioner` with SlideX|SlideY|FlipY added to its constraint adjustment. Chromium's
+    /// select popups request none, which leaves smithay's `get_unconstrained_geometry` a no-op and
+    /// the dropdown outside the window. Slide keeps it inside at the right/left/top/bottom edges;
+    /// FlipY puts it above the anchor when it does not fit below (a select at the bottom edge), and
+    /// the slide that follows catches what is still out.
+    pub fn constrain_popup(&self, mut positioner: PositionerState, target: Rectangle<i32, Logical>) -> Rectangle<i32, Logical> {
+        positioner.constraint_adjustment |= ConstraintAdjustment::SlideX | ConstraintAdjustment::SlideY | ConstraintAdjustment::FlipY;
+        positioner.get_unconstrained_geometry(target)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_positioner::{Anchor, ConstraintAdjustment, Gravity};
-    use smithay::wayland::shell::xdg::PositionerState;
 
     #[test]
     fn page_is_window_minus_bar() {
@@ -172,6 +183,24 @@ mod tests {
         let pos = positioner(Rectangle::new((950, 100).into(), (1, 1).into()), (220, 300));
         let g = pos.get_unconstrained_geometry(l.popup_target(l.page().loc, (0, 0).into()));
         assert_eq!(g.loc.x + g.size.w, 1000);
+    }
+
+    #[test]
+    fn popup_without_constraint_adjustment_is_kept_inside() {
+        let l = Layout::new(956, 800);
+        let target = l.popup_target(l.page().loc, (0, 0).into());
+        let mut pos = positioner(Rectangle::new((880, 100).into(), (68, 24).into()), (410, 120));
+        pos.constraint_adjustment = ConstraintAdjustment::None;
+        // The positioner alone leaves it outside (the bug) ...
+        assert!(pos.get_unconstrained_geometry(target).loc.x + 410 > 956);
+        let g = l.constrain_popup(pos, target);
+        assert!(g.loc.x >= 0 && g.loc.x + g.size.w <= 956, "{g:?}");
+        // Bottom edge: a dropdown that does not fit below stays inside the window.
+        let mut pos = positioner(Rectangle::new((880, 770).into(), (68, 24).into()), (410, 200));
+        pos.constraint_adjustment = ConstraintAdjustment::None;
+        let g = l.constrain_popup(pos, target);
+        assert!(g.loc.y >= 0 && g.loc.y + g.size.h <= 800, "{g:?}");
+        assert!(g.loc.x + g.size.w <= 956, "{g:?}");
     }
 
     #[test]

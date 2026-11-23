@@ -10,6 +10,8 @@
   #q { left: 40px; top: 140px; width: 400px; }
   #link { left: 40px; top: 240px; display: block; line-height: 60px; background: #ffd; text-align: center; }
   #sel { left: 40px; top: 340px; }
+  /* Flush with the right edge, with options wider than the select: its dropdown must be slid left to stay in the window. */
+  #sel2 { right: 8px; top: 740px; }
   #fs { left: 40px; top: 440px; }
   #alert { left: 40px; top: 540px; }
   #perm { left: 40px; top: 640px; }
@@ -22,6 +24,7 @@
 <form action="/second.html" method="get"><input id="q" name="q" class="box" placeholder="type here" autocomplete="off"></form>
 <a id="link" class="box" href="/second.html">a link to the second page</a>
 <select id="sel" class="box"><option value="a">option a</option><option value="b">option b</option><option value="c">option c</option></select>
+<select id="sel2" class="box"><option value="r1">a long option label that is wider than its select</option><option value="r2">another long option label for the right edge</option></select>
 <button id="fs" class="box">fullscreen</button>
 <button id="alert" class="box">alert</button>
 <button id="perm" class="box">ask for notifications</button>
@@ -34,6 +37,7 @@
   document.getElementById('count').onclick = () => { n++; document.getElementById('count').textContent = 'clicked ' + n; say('clicked:' + n); };
   document.getElementById('q').oninput = (e) => say('typed:' + e.target.value);
   document.getElementById('sel').onchange = (e) => say('select:' + e.target.value);
+  document.getElementById('sel2').onchange = (e) => say('select2:' + e.target.value);
   document.getElementById('fs').onclick = () => document.documentElement.requestFullscreen();
   document.onfullscreenchange = () => say('fullscreen:' + !!document.fullscreenElement + ':' + innerWidth + 'x' + innerHeight);
   document.getElementById('alert').onclick = () => { alert('c2 alert'); say('alert:closed'); };
