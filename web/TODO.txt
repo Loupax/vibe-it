@@ -110,8 +110,9 @@ stop early on a hard failure.
       Done when: C1's check passes with the WebKit host, unchanged script, and C8's day
       of browsing is repeated with it.
 
-- [WIP] P-FORGET (#670 reworking: user 2026-11-23 chose DevTools Storage.clearDataForOrigin behind an
-      engine-neutral interface; agent also checks per-origin HTTP cache clearing) Forget a site (scratchy's `--forget-site`, STASH.md "Forget site"): a
+- [x] P-FORGET (DONE 2026-11-23, fcc0eb5, #670: Storage.clearDataForOrigin in process + CookieManager pass,
+      SiteForgetter trait; per-origin HTTP cache clear does not exist in CEF/DevTools, so the whole cache is
+      cleared, PROTOCOL.md says why) Forget a site (scratchy's `--forget-site`, STASH.md "Forget site"): a
       `forget-site` command in the engine-host interface, implemented by each host with
       its engine's API; `web --forget-site` sends it to the running host or starts one
       with `--no-window`.
@@ -123,7 +124,7 @@ stop early on a hard failure.
       `forget-site` to its host; otherwise run `web-host-cef --profile <state>/engines/cef --no-window
       --forget-site <site>` and use its exit code and stdout `forgot` line. Status bar shows `forgot ...`;
       reload the page if it shows the site. Done when both paths work against test/forget.py's sites.
-- [ ] P-FORGET-CACHE (optional, ask the user first) Clear only the site's HTTP cache entries instead of
+- [-] P-FORGET-CACHE (MOOT: #670 found no per-origin HTTP cache clear in CEF or DevTools; was: optional) Clear only the site's HTTP cache entries instead of
       the whole cache (needs DevTools or another mechanism).
 
 - [x] C-NOTAB [S] (DONE 2026-11-23, 866ea8b, #672; LIVE CHECK OWED: re-run web/host-cef/test/notab.py after
@@ -139,7 +140,7 @@ stop early on a hard failure.
       segfaults the host on Wayland. Needed if C3 wants key events from the host; fix or work around
       upstream/in a local patch when that comes up.
 
-- [ ] NEST-HEADLESS [S] (user, 2026-11-23: the monitor moves to the work laptop; NEXT free slot) Live tests
+- [WIP] NEST-HEADLESS [S] (user, 2026-11-23: the monitor moves to the work laptop; NEXT free slot) Live tests
       must run with no display connected. Today tools/nest.sh runs dwl on the wayland backend (a window
       on the user's desktop) because headless dwl offers no input; with no output it stops getting
       frame callbacks and live runs stall. Make a nested compositor that needs no display AND accepts
