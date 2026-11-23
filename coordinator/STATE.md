@@ -412,3 +412,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Merged #636 QCNV9 981b8bf.
 - 2026-11-23 #637 QINC2 READY (paragraph-id numbering across shaping ticks: NAT cache hits now consume ids; check mode 10/10 clean), merging. AGENT_RULES: never /home/loupax/src/wpt. Launched QDOM5e.
 - 2026-11-23 Merged #637 QINC2 442162f.
+- 2026-11-23 #638 QGEOM2 READY (DOMRectList, structured clone of geometry), merging. Filed + launched QWPT-IDL.
