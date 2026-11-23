@@ -1250,6 +1250,23 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         let w = Rc::downgrade(&cache);
         crate::perf::register_probe("style_cache", move || w.upgrade().and_then(|c| c.try_borrow().ok().map(|c| c.mem_estimate())).unwrap_or((0, 0)));
     }
+    // QWPT7e: SVG hit testing reads the computed `pointer-events` of an svg child (stylesheets) through the page's style cache.
+    {
+        let (tw, gw, cw) = (Rc::downgrade(&table), wgen.clone(), Rc::downgrade(&cache));
+        crate::svg_geom::set_pe_hook(Some(Rc::new(move |h: &Handle| {
+            let (table, cache) = (tw.upgrade()?, cw.upgrade()?);
+            let page = table.try_borrow().ok()?.get(0)?;
+            let mut top = h.clone();
+            while let Some(p) = parent_handle(&top) {
+                top = p;
+            }
+            if !Rc::ptr_eq(&top, &page) {
+                return None;
+            }
+            let mut c = cache.try_borrow_mut().ok()?;
+            c.style_of(&page, gw.get(), h, None, true).map(|s| s.pointer_events_kw)
+        })));
+    }
     native!(ctx, "__d_cs", move |id: i32, pseudo: String, prop: String| -> String {
         let (page, h) = {
             let t = t.borrow();
@@ -1426,6 +1443,21 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             Some(h) => t_hit.borrow_mut().intern(&h),
             None => -1,
         }
+    });
+    // QWPT7e: `__d_hit` for elementsFromPoint: every element of an svg under the point (topmost first), else the one hit.
+    let (t_hits, geom_hits) = (table.clone(), geom.clone());
+    native!(ctx, "__d_hits", move |x: f64, y: f64, vw: f64, vh: f64, offs: Vec<f64>| -> Vec<f64> {
+        let Some(page) = t_hits.borrow().get(0) else { return Vec::new() };
+        let (sx, sy) = (offs.first().copied().unwrap_or(0.0), offs.get(1).copied().unwrap_or(0.0));
+        let mut scrolls: HashMap<usize, f32> = HashMap::new();
+        let mut i = 2;
+        while i + 2 < offs.len() {
+            let id = offs[i] as usize;
+            scrolls.insert(if offs[i + 2] != 0.0 { crate::layout::xk(id) } else { id }, offs[i + 1] as f32);
+            i += 3;
+        }
+        let ids = geom_hits.borrow_mut().hit_all(&page, geom_gen(), x as f32, y as f32, vw as f32, vh as f32, sx as f32, sy as f32, &scrolls);
+        ids.into_iter().filter_map(|n| find_node_by_id(&page, n)).map(|h| t_hits.borrow_mut().intern(&h) as f64).collect()
     });
     native!(ctx, "__d_rect", move |c: Ctx<'_>, id: i32, vw: f64, vh: f64| -> Vec<f64> {
         let (page, h) = {
@@ -4950,6 +4982,19 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
     var de = scope.nodeType === 9 ? scope.documentElement : null;
     if (!all) return top || de;
     var out = [];
+    // QWPT7e: inside an svg every shape under the point is listed (topmost first), then the svg's ancestors.
+    if (top && g.SVGElement && top instanceof g.SVGElement) {
+      var vw = Number(g.innerWidth) || 0, vh = Number(g.innerHeight) || 0;
+      var offs = [Number(g.scrollX) || 0, Number(g.scrollY) || 0];
+      gElScroll.forEach(function (v, k) { offs.push(k, v, 0); });
+      gElScrollX.forEach(function (v, k) { offs.push(k, v, 1); });
+      var ids = __d_hits(x, y, vw, vh, offs);
+      for (var i = 0; i < ids.length; i++) {
+        var e = hitRetarget(wrap(ids[i]), scope);
+        if (e && e.nodeType === 1 && out.indexOf(e) < 0) out.push(e);
+      }
+      top = out.length ? out[out.length - 1].parentNode : null;
+    }
     for (var n = top; n; n = n.parentNode) {
       if (n.nodeType !== 1) { if (n instanceof g.ShadowRoot) { n = n.host; if (!n) break; } else continue; }
       if (n !== top && n !== de) {

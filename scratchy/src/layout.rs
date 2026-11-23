@@ -3676,7 +3676,7 @@ pub(crate) fn measure_mixed_inline<'a>(
         Word { source: WordSource, width: f32, height: f32 },
         /// A forced line break (`<br>`): ends the current line.
         Break { height: f32 },
-        Image { laid_style: ComputedStyle, background_image: Option<Arc<DecodedImage>>, image: Arc<DecodedImage>, advance_w: f32, img_w: f32, img_h: f32 },
+        Image { laid_style: ComputedStyle, background_image: Option<Arc<DecodedImage>>, image: Arc<DecodedImage>, advance_w: f32, img_w: f32, img_h: f32, mt: f32, bh: f32 },
         /// `laid`/`own_pending` are `None`/empty in `trial` mode (see
         /// this function's own `trial` parameter docs) — no real
         /// `measure()` call happens there at all, only the width
@@ -3827,6 +3827,8 @@ pub(crate) fn measure_mixed_inline<'a>(
                     advance_w: finalized_style.margin.left.px() + img_w + finalized_style.margin.right.px(),
                     img_w,
                     img_h,
+                    mt: finalized_style.margin.top.px(),
+                    bh: img_h + finalized_style.margin.top.px() + finalized_style.margin.bottom.px(),
                 });
             }
             InlineItem::Embedded(embedded_box) => {
@@ -3898,7 +3900,7 @@ pub(crate) fn measure_mixed_inline<'a>(
                         deadline, incomplete, &mut own_pending, &embedded_floats, auto_override,
                     );
                     drop(zskip);
-                    let h = laid.h;
+                    let h = laid.h + laid.style.margin.top.px() + laid.style.margin.bottom.px();
                     let advance_w = laid.style.margin.left.px() + laid.w + laid.style.margin.right.px();
                     let style = laid.style;
                     measured.push(Measured::Embedded { laid: Some(laid), own_pending, advance_w, h, style });
@@ -3959,7 +3961,7 @@ pub(crate) fn measure_mixed_inline<'a>(
                 .iter()
                 .map(|&(i, _)| match &measured[i] {
                     Measured::Word { height, .. } | Measured::Break { height } => *height,
-                    Measured::Image { img_h, .. } => *img_h,
+                    Measured::Image { bh, .. } => *bh,
                     Measured::Embedded { h, .. } => *h,
                     Measured::Spacer { .. } => 0.0,
                 })
@@ -3981,7 +3983,7 @@ pub(crate) fn measure_mixed_inline<'a>(
                 .iter()
                 .map(|&(i, _)| match &measured[i] {
                     Measured::Word { height, .. } | Measured::Break { height } => *height,
-                    Measured::Image { img_h, .. } => *img_h,
+                    Measured::Image { bh, .. } => *bh,
                     Measured::Embedded { h, .. } => *h,
                     Measured::Spacer { .. } => 0.0,
                 })
@@ -4028,7 +4030,7 @@ pub(crate) fn measure_mixed_inline<'a>(
             .iter()
             .map(|&(i, _)| match &measured[i] {
                 Measured::Word { height, .. } | Measured::Break { height } => *height,
-                Measured::Image { img_h, .. } => *img_h,
+                Measured::Image { bh, .. } => *bh,
                 Measured::Embedded { h, .. } => *h,
                 Measured::Spacer { .. } => 0.0,
             })
@@ -4069,7 +4071,7 @@ pub(crate) fn measure_mixed_inline<'a>(
                     Some(mut laid) => {
                         let own_pending = std::mem::take(own_pending);
                         let target_x = final_x + laid.style.margin.left.px();
-                        let target_y = content_y + cursor_y + laid.style.vertical_align.inline_box_dy(line_height, laid.h);
+                        let target_y = content_y + cursor_y + laid.style.margin.top.px() + laid.style.vertical_align.inline_box_dy(line_height, laid.h + laid.style.margin.top.px() + laid.style.margin.bottom.px());
                         let dx = target_x - laid.x;
                         let dy = target_y - laid.y;
                         shift_laid_tree(&mut laid, dx, dy);
@@ -4197,11 +4199,11 @@ pub(crate) fn measure_mixed_inline<'a>(
                     positioned.push(MixedPositioned::Word { id: *id, x: final_x, y: content_y + cursor_y, w: *width, h: *height });
                     idx += 1;
                 }
-                Measured::Image { laid_style, background_image, image, img_w, img_h, .. } => {
+                Measured::Image { laid_style, background_image, image, img_w, img_h, mt, bh, .. } => {
                     positioned.push(MixedPositioned::Embedded(Box::new(Laid {
                         style: *laid_style,
                         x: final_x + laid_style.margin.left.px(),
-                        y: content_y + cursor_y + laid_style.vertical_align.inline_box_dy(line_height, *img_h),
+                        y: content_y + cursor_y + mt + laid_style.vertical_align.inline_box_dy(line_height, *bh),
                         w: *img_w,
                         h: *img_h,
                         background_image: background_image.clone(),

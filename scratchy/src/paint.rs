@@ -2701,6 +2701,17 @@ fn paint_inner_body(
     });
 }
 
+thread_local! {
+    /// QWPT7e: the point of the last image-box hit in the frame that box is laid out in (document space,
+    /// less the scroll of its scroll containers, viewport space in a fixed subtree).
+    static HIT_PT: std::cell::Cell<(f32, f32)> = const { std::cell::Cell::new((0.0, 0.0)) };
+}
+
+/// QWPT7e: see `HIT_PT`; read right after a hit test that returned an image box.
+pub(crate) fn last_image_hit_point() -> (f32, f32) {
+    HIT_PT.with(std::cell::Cell::get)
+}
+
 /// Finds the `CursorStyle` that should show at document-space `(x, y)` —
 /// `y` already has any scroll offset added in (document space, same
 /// space `Laid.x`/`.y` themselves are in, *not* the screen space mouse
@@ -2941,7 +2952,13 @@ fn hit_test_inner_body(
         // own box — see `SpanStyle::href`'s own docs; a deliberate,
         // narrow scope cut, same spirit as other "images don't carry
         // the per-span machinery text does" gaps already in TODO.txt.)
-        LaidContent::Image(_) => (inside && !pe_none).then_some(own),
+        LaidContent::Image(_) => {
+            // QWPT7e: the point in this box's own frame (scrolled, or inside a fixed box), for the SVG child under it.
+            if inside && !pe_none {
+                HIT_PT.with(|c| c.set((x, y)));
+            }
+            (inside && !pe_none).then_some(own)
+        }
         LaidContent::MixedInline(positioned) => {
             for item in positioned {
                 match item {

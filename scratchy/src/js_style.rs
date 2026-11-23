@@ -496,7 +496,7 @@ pub(crate) fn serialize(s: &ComputedStyle, prop: &str) -> String {
         "text-align" => s.text_align.keyword().into(),
         // QCSS-E.
         "direction" => s.direction.keyword().into(),
-        "pointer-events" => (if s.pointer_events_none { "none" } else { "auto" }).into(),
+        "pointer-events" => ["auto", "none", "bounding-box", "visibleFill", "visibleStroke", "visible", "painted", "fill", "stroke", "all"][(s.pointer_events_kw as usize).min(9)].into(),
         "letter-spacing" if s.letter_spacing == 0.0 => "normal".into(),
         "letter-spacing" => px(s.letter_spacing),
         "scroll-behavior" => (if s.scroll_smooth { "smooth" } else { "auto" }).into(),

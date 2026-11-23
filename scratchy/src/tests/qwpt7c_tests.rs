@@ -69,7 +69,7 @@ const SVG: &str = "<html><head><style>body{margin:0}</style></head><body>\
       <g id=g transform='translate(10 10)'><circle id=c cx=30 cy=30 r=20></circle></g>\
       <rect id=none x=0 y=150 width=40 height=40 pointer-events=none></rect>\
       <text id=t x=20 y=190><tspan id=ts>abcd</tspan></text>\
-    </svg><button id=btn style='margin-top:200px'>b</button></body></html>";
+    </svg><div style='margin-top:200px'><button id=btn>b</button></div></body></html>";
 
 #[test]
 fn svg_children_are_hit_and_have_their_own_rects() {

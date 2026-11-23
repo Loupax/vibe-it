@@ -1424,7 +1424,7 @@ pub(crate) struct Declarations {
     /// QCSS-E: `direction`.
     pub(crate) direction: Option<Direction>,
     /// QWPT7c: `pointer-events` (inherited): `true` = `none`; every other keyword is `auto`.
-    pub(crate) pointer_events_none: Option<bool>,
+    pub(crate) pointer_events_none: Option<u8>,
     /// `overflow` (shorthand) and `overflow-x` both land here: the x axis.
     pub(crate) overflow: Option<Overflow>,
     /// `overflow-y` (Q21); the `overflow` shorthand sets it as well.
@@ -5869,9 +5869,11 @@ impl DeclParser<'_> {
                 self.decls.letter_spacing = Some(v);
             }
         } else if name.eq_ignore_ascii_case("pointer-events") {
-            // SVG values map to auto (the fill/stroke/painted variants) or none; the rest is auto.
-            if let Ok(ident) = input.expect_ident() {
-                self.decls.pointer_events_none = Some(ident.eq_ignore_ascii_case("none"));
+            // QWPT7e: the keyword's code (`style::pointer_events_code`), 1 = none; unknown keywords are ignored.
+            if let Ok(ident) = input.expect_ident()
+                && let Some(c) = crate::style::pointer_events_code(ident)
+            {
+                self.decls.pointer_events_none = Some(c);
             }
         } else if name.eq_ignore_ascii_case("direction") {
             if let Ok(ident) = input.expect_ident() {

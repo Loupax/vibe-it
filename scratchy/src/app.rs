@@ -3730,7 +3730,7 @@ impl App {
                     hit_test_element(laid, dx, dy, &self.shape_cache, &self.scroll_offsets, self.scroll_offset, self.page_size().1 as f32)
                 });
                 // QWPT7c: an inline svg's child under the pointer (the same refinement as elementFromPoint).
-                crate::js_geom::refine_svg_hit(&self.document, n, dx, dy, |id| crate::js_geom::laid_box_of(laid, id))
+                crate::js_geom::refine_svg_hit(&self.document, n, |id| crate::js_geom::laid_box_of(laid, id))
             }
             None => 0,
         }
