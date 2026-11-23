@@ -89,7 +89,8 @@ stop early on a hard failure.
       (picker over URL and title; Enter opens). `:go`'s ghost source ranks bookmarks before history.
       Status-bar messages for each. Done when each command has a test and works live.
 
-- [WIP] C4-SPIKE [S] (before C4; can run beside C-PICK) In web-host-cef: (1) several CEF browsers in one
+- [x] C4-SPIKE [S] (DONE 2026-11-23, 9229c23, #710: web/notes/C4-SPIKE.md + PROTOCOL.md proposal v1; experiment code on
+      branch web/c4-spike-exp, not for merge) (before C4; can run beside C-PICK) In web-host-cef: (1) several CEF browsers in one
       host, each its own window paired by `tab-created`, the shell showing one; what a hidden page does
       (frame callbacks, timers, audio); (2) `OnBeforePopup` letting a gesture popup become a second page of
       the same host with `window.opener` working (a test page that posts to its opener); whether CEF says
@@ -109,6 +110,13 @@ stop early on a hard failure.
       Done when every new KEYS.md row has a test and a live check walks two buffers through
       open, switch, describe, search, kill.
 
+      From C4-SPIKE #710 (web/notes/C4-SPIKE.md): one CEF window per page (CEF 156 refuses several Chrome-style
+      BrowserViews in one window); the HOST hides pages (BrowserView::SetVisible(false): rAF 0, timers 1/s, audio
+      continues) — a window the compositor just doesn't draw keeps running at full speed; ~11-19 MiB per extra
+      page, hiding frees nothing. Protocol v1 proposal in PROTOCOL.md (new-tab/show-tab/close-tab/popup-open,
+      optional `tab` on commands, tab-created opener/cause/req, popup-blocked). Shell: pair several announced
+      pages; a Chrome-style popup window (no parent) is a page, not a dialog. Host: `quit` closes every browser
+      and exits when the last is gone (today it closes only the first).
 - [ ] C-POPUPS [M] (after C4; same decision; reverses C-NOTAB for script popups and target=_blank)
       `window.open` with a user gesture: a new buffer, switched to, `window.opener` kept; `window.close()`
       from it kills that buffer. Without a gesture: blocked, status bar `popup blocked: <url>` (or `popup
@@ -127,6 +135,10 @@ stop early on a hard failure.
       through the shell in NORMAL, ctrl/shift-click reach the page WITHOUT the modifiers (a plain click that
       navigates in place) and middle-click is dropped by the host — decide those cases here.
       host-cef/README.md and drive.py still claim --disable-popup-blocking is needed: revisit.
+      From C4-SPIKE #710: Chromium's blocker tells CEF nothing; make the host the blocker (--disable-popup-blocking,
+      cancel user_gesture 0 in OnBeforePopup and report `popup-blocked` with frame, url, name, features);
+      `:popupOpen` re-runs the original window.open in the recorded frame with a one-shot allow (opener kept,
+      also in iframes); frame gone -> load the URL fresh in a new page.
 - [x] C5 (DONE 2026-11-23, f7a5cba, #679: / Enter n N, wrap messages, not-found, Esc rules, [i/N], smartcase;
       host find sessions fixed; c5_live.py 12/12) Search (KEYS.md "Search", web notes): `/`, `n`/`N`, Esc, the messages, through
       the host's `find`. Enter on a match (S7, T18-T19) is its own item after this one.
@@ -315,9 +327,9 @@ stop early on a hard failure.
       scroll engine CPU 36 -> 8 % of a core on a GPU nest (kwin --virtual, web/tools/gpu-nest.sh))
 - [ ] C6d-DESKTOP [XS] NEEDS USER (from #706) Run web/shell/test/c6d_desktop_check.sh on your real desktop (release
       builds): PASS/FAIL, the CPU table, and whether pages look right and scroll smoothly; once also as an X11 window.
-- [WIP] C3-LIVE-GOHTTP [XS] (from #706) c3_live's T45/T47/T50 and history steps still expect https:// for an http
+- [x] C3-LIVE-GOHTTP [XS] (DONE 2026-11-23, 6610f91, #709) (from #706) c3_live's T45/T47/T50 and history steps still expect https:// for an http
       history ghost; update them to #702's behaviour. Bundled with C6b-LIVE-DPR.
-- [WIP] C6b-LIVE-DPR [XS] (from #706) Release builds: c6b_live's dpr() reads the first (pre-configure 1200x800)
+- [x] C6b-LIVE-DPR [XS] (DONE #709: settled-title wait; click flake = virtual pointer already on the target, test moves away first) (from #706) Release builds: c6b_live's dpr() reads the first (pre-configure 1200x800)
       title; wait for the title matching the page window. Its click step flakes on a reused nest. (from #686) dmabuf: no linux-dmabuf offered, CEF hands shm buffers, every frame is CPU-copied.
       Measure today's CPU cost (video, fast scroll), then import dmabufs with an shm fallback.
 - [ ] C6e [M] (from #686) IME (text-input-v3): shell as IME client of the desktop and text-input server for
