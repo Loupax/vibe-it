@@ -437,3 +437,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 #649 QDET1 READY (details/summary), merging. Filed QWPT-INT (needs user approval: new WPT area) and QDET2. Launched QWPT7e.
 - 2026-11-23 Merged #649 QDET1 5cd4f11. QWPT-INT added to Waiting on you.
 - 2026-11-23 #648 QEDIT-D READY (tabIndex + focus fixup, 7 files), merging. Filed QTYPE1 (P1: typing into 2nd field drops chars, on main too; launched) and QEDIT-F.
+- 2026-11-23 Merged #648 QEDIT-D 6f86b74. Reinstalling.

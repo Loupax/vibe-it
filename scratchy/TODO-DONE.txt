@@ -9715,3 +9715,6 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       a closed details renders only its summary (with the disclosure marker), clicking or Enter/Space on the summary
       toggles `open` and fires `toggle` (also for setAttribute('open')), `beforetoggle` where specified, the `name`
       attribute's exclusive accordion; keyboard focus on summary. Real-site check: FAQ pages collapse.
+
+=== from TODO.txt: --- (no header)
+- [x] QEDIT-D DONE 6f86b74 #648 [S] (P3, from QWPT6d #581; Sonnet) Why focus-blur, focused-area-removal, focusing-focused-noop TIMEOUT.
