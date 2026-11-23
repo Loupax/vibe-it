@@ -186,7 +186,7 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
 - [ ] QGEOM2 [S] (P3, from QGEOM1 #630; Sonnet) DOMRectList (getClientRects returns an Array today; DOMRectList.html 2
       subtests), structured clone of the geometry classes (structured-serialization.html, 24 subtests), css/geometry
       idlharness setup.
-- [ ] QCNV9 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+- [ ] [WIP] QCNV9 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Sonnet; in order after the items above) Path2D, isPointInPath/isPointInStroke. 64 files.
 - [ ] QCNV10 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Sonnet; in order after the items above) Linear, radial and conic gradients. 107 files.
