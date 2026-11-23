@@ -508,3 +508,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 USER: Enter in NORMAL forwards to the page; :set caret/nocaret toggles Chromium caret browsing (default off). Filed C-ENTER + C-CARETCMD, launched (Opus: CEF caret pref unknown). Bundle C3-GOHTTP/C-SOCKDIR back to queue.
 - 2026-11-23 Merged #685 W2-2a ae12729; wire2 reinstalled 15:44. Filed W2-2e, W2-HUBCLOSE, W2-FLK1. Launched W2-F1 + W2-FLK1 (Sonnet).
 - 2026-11-23 #687 W2-F1+W2-FLK1 READY but edited wire2/SPEC.md: sent back to move the additions to NOTES/README. AGENT_RULES: user specs are read-only.
+- 2026-11-23 Merged #686 C6 part 1 60d5aa0 (web reinstalled 15:55) and #687 W2-F1+W2-FLK1 390a956 (wire2 reinstalled 15:57). Filed C6b-C6f, C2-LIVE-REFRESH. Launched C6f+C2-LIVE-REFRESH (Sonnet) and W2-HUBCLOSE+W2-2b (Sonnet).
