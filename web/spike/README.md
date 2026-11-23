@@ -3,9 +3,10 @@
 Throwaway spike code for `web/TODO.txt` (W1..W7). Its own workspace root: it joins
 no other build and is not in CI.
 
-State: one CEF window (Views, Chrome runtime style) loads one URL. No request
-interception yet. Since W2 the whole process tree runs in an empty network namespace
-(`run.sh --net` opts out), so no page loads until W3 answers requests from wire.
+State: one CEF window (Views, Chrome runtime style) loads one URL. Since W2 the whole
+process tree runs in an empty network namespace (`run.sh --net` opts out); since W3
+every http(s) request is answered from wire's Unix socket (`WEB_SPIKE_WIRE`), so
+pages load again inside the namespace.
 
 ## Versions
 
@@ -35,7 +36,8 @@ build.rs works around two things in `cef-dll-sys` 156.7.0:
   for that, which also orders the build scripts) to `target/debug/`.
 - it sets no rpath; build.rs adds `$ORIGIN`.
 
-Unit test (URL normalisation only): `cargo test` (same `CEF_PATH`).
+Unit tests (URL normalisation; W3's request encoding, wire head parsing, error
+mapping): `cargo test` (same `CEF_PATH`).
 
 ## Run
 
@@ -54,6 +56,16 @@ Unit test (URL normalisation only): `cargo test` (same `CEF_PATH`).
   on the host network instead, for debugging only.
 - Wayland by default (`--ozone-platform=wayland`, needs `WAYLAND_DISPLAY`);
   `--x11` passes `--ozone-platform=x11` (needs `DISPLAY`).
+- wire (W3): `WEB_SPIKE_WIRE=<socket path>` answers every http(s) request from that
+  wire. Run your OWN wire outside the namespace (never the user's socket), e.g.
+  `WIRE_TIMING=1 wire --socket $PWD/.qwork/wire.sock --cache-dir /tmp/wire-cache-<you>
+  --cache-size 256M`; `WIRE_TIMING=1` makes wire log one `TIMING` line per request.
+  Unset: no interception, so nothing loads inside the namespace.
+- Debug env (optional): `WEB_SPIKE_LOG_REQUESTS=1` (every request CEF asks about),
+  `WEB_SPIKE_LOG_HEADERS=1` (header names sent to wire), `WEB_SPIKE_DUMP=1` (main-frame
+  URL, `document.cookie` and text on load end), `WEB_SPIKE_JS=<code>` (run in the main
+  frame on every load end), `WEB_SPIKE_REPORT_MS=<ms>` (request counters that long after
+  start).
 
 In the nested compositor (never the user's display):
 
@@ -138,3 +150,126 @@ Done-when met: both sites fail to load, nothing else in CEF crashes.
   sockets, no `~`), a stronger confinement than W2 asks for. Not used: `unshare` is
   enough, and bwrap's own user namespace would also hit the root/uid mapping question.
   Worth considering later for filesystem isolation.
+
+## What W3 learned (answering requests from wire)
+
+Done-when met: example.com and en.wikipedia.org load and render inside the empty
+namespace, and wire's log (`WIRE_TIMING=1`: one `TIMING` line per request) has every
+request the handler sent, URL for URL.
+
+- **Code.** `src/handler.rs` (CEF glue), `src/wire.rs` (the protocol without CEF
+  objects; unit tested). The client's `RequestHandler::resource_request_handler` returns
+  a `ResourceRequestHandler` for http(s) only (other schemes: `None`, CEF handles them);
+  its `resource_handler` returns one `ResourceHandler` per request. `open` copies method,
+  URL, all headers and the upload, sets `handle_request = 0` and starts one thread per
+  request: connect to wire's socket, write the request, read the head, then
+  `callback.cont()`. `response_headers` maps the head. `read` is async (returns 1 with 0
+  bytes); the same thread reads from the socket straight into CEF's buffer and calls
+  `ResourceReadCallback::cont(n)`. Nothing is buffered beyond one read (<= 256 KiB);
+  `cancel` shuts the socket down. No blocking IO on CEF's IO thread.
+- **cef crate trap.** `ResourceRequestHandler::on_before_resource_load` defaults to
+  `ReturnValue::default()` = `RV_CANCEL` in the Rust crate (CEF's C++ default is
+  `RV_CONTINUE`). Without an override every request ends `ERR_ABORTED` before
+  `resource_handler` is ever called. Check every crate default that returns an enum.
+- **Request.** `METHOD absolute-url HTTP/1.1`, CEF's header map, `Content-Length` for a
+  body, plus `X-Wire-Max-Redirects: 0` and `X-Wire-Timeout-Ms: 3600000` (wire's 20 s
+  default covers the body too). Not forwarded: `Host` / `Content-Length` / `Connection`
+  (wire's leg), `X-Wire-*` (ours), and `Accept-Encoding`: wire strips
+  `Content-Encoding` from every answer and ureq only decodes gzip, so Chromium's
+  `gzip, deflate, br, zstd` would bring back undecodable br/zstd bytes. Without it ureq
+  asks for gzip and decodes it (checked: httpbin.org/gzip gives `gzipped: true`). No
+  `X-Wire-Jar`.
+- **What CEF's header map has:** Accept, Accept-Language, User-Agent (Chrome's,
+  `Chrome/156.0.0.0`), sec-ch-ua*, Upgrade-Insecure-Requests, Origin (CORS), Cookie
+  (from Chromium's jar), Content-Type. **Not in it:** `Referer` (CEF keeps it as
+  `referrer_url()`, already reduced by the referrer policy; the handler adds it) and
+  `Sec-Fetch-*` (the network service adds those after interception, so they are not
+  sent at all: a fidelity loss for sites that check them; W7 will tell).
+- **Response.** Status, reason, all headers except `X-Wire-*` (as a multimap, so several
+  `Set-Cookie` stay separate), mime type and charset from `Content-Type`. Length =
+  `X-Wire-Upstream-Length` when present (0 for HEAD/1xx/204/304), else -1 (read to EOF);
+  a body that ends short of it fails with `ERR_CONTENT_LENGTH_MISMATCH`.
+- **Errors, not fake 200s.** `X-Wire-Error` answers become network errors
+  (`wire::error_for`): `1` + ureq's text -> `ERR_NAME_NOT_RESOLVED` / `CONNECTION_REFUSED`
+  / `TIMED_OUT` / `CERT_*` / `SSL_PROTOCOL_ERROR` / else `CONNECTION_FAILED`; `policy` ->
+  `BLOCKED_BY_CLIENT`; `truncated` -> `CONTENT_LENGTH_MISMATCH`; `only-if-cached` ->
+  `CACHE_MISS`. wire not reachable -> `ERR_PROXY_CONNECTION_FAILED` (Chromium's "something
+  is wrong with the proxy server" page). Checked: a main frame on `nx-w3-check.invalid`
+  ends in `ERR_NAME_NOT_RESOLVED`; `fetch()` of it rejects with `TypeError: Failed to
+  fetch`, as in stock Chrome.
+- **Redirects: Chromium follows them, wire does not.** The handler sends
+  `X-Wire-Max-Redirects: 0`, so wire answers the 3xx itself and CEF follows `Location`
+  with a new request through the handler (`on_resource_redirect` fires). Why: the page
+  URL, origin and `location.href` are then the final URL; Chromium applies CORS and
+  mixed-content checks per hop, turns POST into GET where it should, sends the jar's
+  cookies to each hop and stores each hop's `Set-Cookie`. If wire followed, CEF would
+  believe the first URL answered (wrong origin for relative URLs, CORS and cookies; wire
+  reports the final URL only in `X-Wire-Final-Url`) and intermediate `Set-Cookie` lines
+  would be lost (no wire jar for this client). Checked: `http://en.wikipedia.org/wiki/Rust`
+  -> 301 -> loads at the https URL; `https://httpbin.org/cookies/set?w3=hello` -> 302 ->
+  `/cookies` shows `{"cookies":{"w3":"hello"}}` and `document.cookie` is `w3=hello`: the
+  cookie set on the redirect hop is in Chromium's jar and was sent on the next hop.
+- **wire change (in this PR, 4 lines).** Before, any `X-Wire-Max-Redirects` other than 5
+  built a one-off ureq agent per request, i.e. a new TCP+TLS connection for every
+  request. `0` now uses wire's shared no-follow agents (`manual_agent` /
+  `public_manual_agent`, already there for the jar path), so connections are reused.
+  Test `wire/src/no_follow_tests.rs` (5 requests, 1 connection; 5 connections before).
+- **Cookies.** Chromium owns them (DECISIONS.md): `Set-Cookie` passes through wire
+  untouched (no jar header), CEF stores it, `document.cookie` reads it, later requests
+  carry `Cookie` in the header map. Persistence across restarts and real logins: W4.
+- **Uploads.** `PDE_TYPE_BYTES` and `PDE_TYPE_FILE` elements are sent. Checked against
+  httpbin.org/post: `fetch` with a string, ArrayBuffer and URLSearchParams body,
+  `sendBeacon`, and a form POST navigation all arrive with the right body and
+  `Content-Length`. **Blob, File (also inside FormData) and ReadableStream bodies are not
+  exposed by CEF:** Chromium keeps them as data pipes and `CefPostData` gives an `EMPTY`
+  element for each (`has_excluded_elements()` still says 0). Sending the rest would
+  upload a silently broken body (a multipart form whose file part is empty), so the
+  handler fails such a request with `ERR_NOT_IMPLEMENTED` (`fetch` rejects). This breaks
+  file uploads (mail attachments, avatars, `<input type=file>` forms) and any
+  `fetch(blob)`: a real gap for a daily driver (proposed item below).
+- **Which requests reach the handler.** Main frame, subframes, scripts, styles, images,
+  XHR/fetch, beacons/pings (`RT_PING`), favicons, and fetches from a dedicated worker
+  (still through the browser's handler). **Not:** `blob:` and `data:` URLs (never asked;
+  CEF serves them), WebSockets (`new WebSocket('wss://...')` fails at once with close code
+  1006 and never reaches the handler; W6), service workers (not tested; W6), downloads
+  (`is_download` is logged; not tested, W5). A Chromium net log (`--log-net-log=FILE`,
+  a run.sh extra switch) lists what the network service tried itself, i.e. what
+  bypassed the handler; all of it failed in the namespace (`-106
+  ERR_INTERNET_DISCONNECTED`, `-105`, `-109`, ...): the component updater
+  (`update.googleapis.com`, `clients2.google.com/time`), the spell-check dictionary
+  download (`redirector.gvt1.com`), autofill (`content-autofill.googleapis.com`),
+  `www.google.com` (search prefetch), and preconnects to `https://en.wikipedia.org/` and
+  `https://thumb.wikimedia.org/`. None reached the network. W6: switch these off rather
+  than route them.
+- **Chromium's HTTP cache does not store handler-served responses** (TODO.txt open
+  question). A second Wikipedia load with the same profile sent all 38 requests to wire
+  again (wire's cache answered 24 hits and 8 revalidations), and the profile's
+  `Default/Cache` stayed at 16 KB (an empty index). wire's cache does all the HTTP
+  caching for this browser; Chromium only keeps its memory cache / bfcache.
+- **Counts (fresh profile, empty wire cache, Wayland in the nested dwl).** example.com:
+  CEF asked about 2 http(s) requests, the handler sent 2, wire logged 2 (the same URLs).
+  en.wikipedia.org: 48 / 48 / 48 (the 301, the page, CSS/JS/images from two hosts, two
+  POST beacons, the CentralAutoLogin 302), 2.4 MB of bodies. No other scheme reached the
+  handler.
+- **Load time** (process start to main-frame load end, debug build, median of 5 runs,
+  each with an empty wire cache; uptime load 0.2-0.7). en.wikipedia.org: direct on the
+  host network (`--net`, no wire) 498 ms; through wire with this PR's pooled no-follow
+  agent 524 ms; through the old wire (one agent, so one TLS handshake, per request)
+  793 ms (540-1067). example.com (median of 3): direct 209 ms, wire 237 ms, old wire
+  253 ms. W1's direct numbers were ~600-750 ms (Wikipedia) and ~200-570 ms
+  (example.com). Going through wire costs ~30 ms per page here.
+- **Known limits.** A server that sends br without being asked (httpbin.org/brotli)
+  arrives as garbage, because wire drops a `Content-Encoding` it did not undo (wire item
+  below; real servers honour `Accept-Encoding: gzip`). X11 was not re-checked (no
+  display code changed). https pages carry no certificate info in CEF (wire did the TLS;
+  `SSLInfo` is empty), so the security indicator cannot show the real certificate.
+
+### Proposed follow-ups
+
+- web: uploads with Blob/File/stream bodies. `CefPostData` cannot carry them. Options:
+  route only such requests through Chromium's own network stack via a proxy inside the
+  namespace that forwards to wire (related to W6's CONNECT idea), find a CEF API that
+  exposes the data pipe, or patch CEF. Needs a decision before W7: file uploads are
+  daily-driver basics.
+- wire: keep `Content-Encoding` when ureq did not undo it (today wire always strips it,
+  so br/zstd bodies arrive undecodable), or enable ureq's `brotli` feature.
