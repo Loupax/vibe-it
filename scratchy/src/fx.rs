@@ -899,7 +899,7 @@ fn gauss_blur(plane: &mut [f32], w: usize, h: usize, sigma: f32) {
 
 /// Gaussian blur of one plane. A large sigma is blurred on a plane shrunk by 2, 4 or 8 (box
 /// average down, bilinear back up), so the cost stays bounded whatever the radius.
-fn blur_plane(plane: &mut [f32], w: usize, h: usize, sigma: f32) {
+pub(crate) fn blur_plane(plane: &mut [f32], w: usize, h: usize, sigma: f32) {
     if sigma < 0.3 || w == 0 || h == 0 {
         return;
     }

@@ -1073,3 +1073,4 @@ mod qcnv9_tests;
 mod qcnv10_tests;
 mod qwptflk6_tests;
 mod qcnv11_tests;
+mod qcnv12_tests;

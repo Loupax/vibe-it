@@ -3435,6 +3435,14 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
     var c = cv(this), i = CV_OPS.indexOf(String(v));
     if (i >= 0) g.__cv_set_ls(c, 4, i);
   });
+  // QCNV12: shadowBlur (non-finite or negative ignored), shadowOffsetX/Y (non-finite ignored); unrestricted double.
+  ['shadowBlur', 'shadowOffsetX', 'shadowOffsetY'].forEach(function (name, i) {
+    defs(CtxProto, name, function () { return g.__cv_get_ls(cv(this), 5 + i); }, function (v) {
+      var c = cv(this);
+      v = Number(v);
+      if (isFinite(v) && (i > 0 || v >= 0)) g.__cv_set_ls(c, 5 + i, v);
+    });
+  });
   defs(CtxProto, 'lineWidth', function () { return g.__cv_get_num(cv(this), 1); }, function (v) {
     var c = cv(this);
     v = Number(v);

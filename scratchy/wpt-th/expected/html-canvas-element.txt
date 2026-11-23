@@ -29,10 +29,7 @@ OK           1/1  html/canvas/element/canvas-context/2d.canvas.context.type.prot
 OK           1/1  html/canvas/element/canvas-context/2d.canvas.context.type.replace.html
 OK           1/1  html/canvas/element/canvas-context/2d.canvas.context.unique.html
 OK           1/1  html/canvas/element/canvas-host/2d.canvas.host.initial.color.html
-OK          9/15  html/canvas/element/canvas-host/2d.canvas.host.initial.reset.2dstate.html
-  FAIL      Resetting the canvas state resets shadowOffsetX
-  FAIL      Resetting the canvas state resets shadowOffsetY
-  FAIL      Resetting the canvas state resets shadowBlur
+OK         12/15  html/canvas/element/canvas-host/2d.canvas.host.initial.reset.2dstate.html
   FAIL      Resetting the canvas state resets font
   FAIL      Resetting the canvas state resets textAlign
   FAIL      Resetting the canvas state resets textBaseline
@@ -327,8 +324,7 @@ OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.fillRe
 OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.fillRect.negative.html
 OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.fillRect.nonfinite.html
 OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.fillRect.path.html
-OK           0/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.fillRect.shadow.html
-  FAIL      fillRect draws shadows
+OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.fillRect.shadow.html
 OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.fillRect.transform.html
 OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.fillRect.zero.html
 OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.strokeRect.basic.html
@@ -338,8 +334,7 @@ OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.stroke
 OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.strokeRect.negative.html
 OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.strokeRect.nonfinite.html
 OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.strokeRect.path.html
-OK           0/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.strokeRect.shadow.html
-  FAIL      strokeRect draws shadows
+OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.strokeRect.shadow.html
 OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.strokeRect.transform.html
 OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.strokeRect.zero.1.html
 OK           1/1  html/canvas/element/drawing-rectangles-to-the-canvas/2d.strokeRect.zero.2.html
@@ -1246,13 +1241,8 @@ TIMEOUT      0/8  html/canvas/element/manual/imagebitmap/imagebitmap-replication
   NOTRUN    ImageBitmap from file with EXIF rotation, duplicated via worker transfer round-trip
   NOTRUN    ImageBitmap from file with EXIF rotation, duplicated via worker transfer round-trip, while referenced by a CanvasPattern
 OK           2/2  html/canvas/element/manual/line-styles/setLineDash.html
-OK           0/1  html/canvas/element/manual/shadows/canvas_shadows_001.htm
-  FAIL      linear gradient fillRect draws shadow (black rectange)
-OK           0/4  html/canvas/element/manual/shadows/shadowBlur_gaussian_tolerance.1.html
-  FAIL      shadowBlur Gaussian pixel values for no blur
-  FAIL      shadowBlur Gaussian pixel values for small blur
-  FAIL      shadowBlur Gaussian pixel values for large blur
-  FAIL      shadowBlur Gaussian pixel values for very large blur
+OK           1/1  html/canvas/element/manual/shadows/canvas_shadows_001.htm
+OK           4/4  html/canvas/element/manual/shadows/shadowBlur_gaussian_tolerance.1.html
 OK           1/3  html/canvas/element/manual/the-canvas-state/2d.state.saverestore.imageSmoothingEnabled.html
   FAIL      Test that restore() undoes any modifications to imageSmoothingEnabled.
   FAIL      Test that restoring actually changes smoothing and not just the attribute value.
@@ -2704,18 +2694,12 @@ OK           0/1  html/canvas/element/reset/2d.reset.state.transformation_matrix
 OK           0/1  html/canvas/element/reset/2d.reset.state.word_spacing.html
   FAIL      check that the state is reset
 OK           1/1  html/canvas/element/shadows/2d.shadow.alpha.1.html
-OK           0/1  html/canvas/element/shadows/2d.shadow.alpha.2.html
-  FAIL      Shadow color alpha components are used
-OK           0/1  html/canvas/element/shadows/2d.shadow.alpha.3.html
-  FAIL      Shadows are affected by globalAlpha
-OK           0/1  html/canvas/element/shadows/2d.shadow.alpha.4.html
-  FAIL      Shadows with alpha components are correctly affected by globalAlpha
-OK           0/1  html/canvas/element/shadows/2d.shadow.alpha.5.html
-  FAIL      Shadows of shapes with alpha components are drawn correctly
-OK           0/1  html/canvas/element/shadows/2d.shadow.attributes.shadowBlur.initial.html
-  FAIL      Canvas test: 2d.shadow.attributes.shadowBlur.initial
-OK           0/1  html/canvas/element/shadows/2d.shadow.attributes.shadowBlur.invalid.html
-  FAIL      Canvas test: 2d.shadow.attributes.shadowBlur.invalid
+OK           1/1  html/canvas/element/shadows/2d.shadow.alpha.2.html
+OK           1/1  html/canvas/element/shadows/2d.shadow.alpha.3.html
+OK           1/1  html/canvas/element/shadows/2d.shadow.alpha.4.html
+OK           1/1  html/canvas/element/shadows/2d.shadow.alpha.5.html
+OK           1/1  html/canvas/element/shadows/2d.shadow.attributes.shadowBlur.initial.html
+OK           1/1  html/canvas/element/shadows/2d.shadow.attributes.shadowBlur.invalid.html
 OK           1/1  html/canvas/element/shadows/2d.shadow.attributes.shadowBlur.valid.html
 OK           1/1  html/canvas/element/shadows/2d.shadow.attributes.shadowColor.current.basic.html
 OK           1/1  html/canvas/element/shadows/2d.shadow.attributes.shadowColor.current.changed.html
@@ -2723,10 +2707,8 @@ OK           1/1  html/canvas/element/shadows/2d.shadow.attributes.shadowColor.c
 OK           1/1  html/canvas/element/shadows/2d.shadow.attributes.shadowColor.initial.html
 OK           1/1  html/canvas/element/shadows/2d.shadow.attributes.shadowColor.invalid.html
 OK           1/1  html/canvas/element/shadows/2d.shadow.attributes.shadowColor.valid.html
-OK           0/1  html/canvas/element/shadows/2d.shadow.attributes.shadowOffset.initial.html
-  FAIL      Canvas test: 2d.shadow.attributes.shadowOffset.initial
-OK           0/1  html/canvas/element/shadows/2d.shadow.attributes.shadowOffset.invalid.html
-  FAIL      Canvas test: 2d.shadow.attributes.shadowOffset.invalid
+OK           1/1  html/canvas/element/shadows/2d.shadow.attributes.shadowOffset.initial.html
+OK           1/1  html/canvas/element/shadows/2d.shadow.attributes.shadowOffset.invalid.html
 OK           1/1  html/canvas/element/shadows/2d.shadow.attributes.shadowOffset.valid.html
 OK           0/1  html/canvas/element/shadows/2d.shadow.canvas.alpha.html
   FAIL      Shadows are drawn correctly for partially-transparent canvases
@@ -2736,31 +2718,21 @@ OK           0/1  html/canvas/element/shadows/2d.shadow.canvas.transparent.1.htm
   FAIL      Shadows are not drawn for transparent canvases
 OK           0/1  html/canvas/element/shadows/2d.shadow.canvas.transparent.2.html
   FAIL      Shadows are not drawn for transparent parts of canvases
-OK           0/1  html/canvas/element/shadows/2d.shadow.clip.1.html
-  FAIL      Shadows of clipped shapes are still drawn within the clipping region
+OK           1/1  html/canvas/element/shadows/2d.shadow.clip.1.html
 OK           1/1  html/canvas/element/shadows/2d.shadow.clip.2.html
-OK           0/1  html/canvas/element/shadows/2d.shadow.clip.3.html
-  FAIL      Shadows of clipped shapes are still drawn within the clipping region
-OK           0/1  html/canvas/element/shadows/2d.shadow.composite.1.html
-  FAIL      Shadows are drawn using globalCompositeOperation
-OK           0/1  html/canvas/element/shadows/2d.shadow.composite.2.html
-  FAIL      Shadows are drawn using globalCompositeOperation
+OK           1/1  html/canvas/element/shadows/2d.shadow.clip.3.html
+OK           1/1  html/canvas/element/shadows/2d.shadow.composite.1.html
+OK           1/1  html/canvas/element/shadows/2d.shadow.composite.2.html
 OK           1/1  html/canvas/element/shadows/2d.shadow.composite.3.html
-OK           0/1  html/canvas/element/shadows/2d.shadow.enable.blur.html
-  FAIL      Shadows are drawn if shadowBlur is set
+OK           1/1  html/canvas/element/shadows/2d.shadow.enable.blur.html
 OK           1/1  html/canvas/element/shadows/2d.shadow.enable.off.1.html
 OK           1/1  html/canvas/element/shadows/2d.shadow.enable.off.2.html
-OK           0/1  html/canvas/element/shadows/2d.shadow.enable.x.html
-  FAIL      Shadows are drawn if shadowOffsetX is set
-OK           0/1  html/canvas/element/shadows/2d.shadow.enable.y.html
-  FAIL      Shadows are drawn if shadowOffsetY is set
-OK           0/1  html/canvas/element/shadows/2d.shadow.gradient.alpha.html
-  FAIL      Shadows are drawn correctly for partially-transparent gradient fills
-OK           0/1  html/canvas/element/shadows/2d.shadow.gradient.basic.html
-  FAIL      Shadows are drawn for gradient fills
+OK           1/1  html/canvas/element/shadows/2d.shadow.enable.x.html
+OK           1/1  html/canvas/element/shadows/2d.shadow.enable.y.html
+OK           1/1  html/canvas/element/shadows/2d.shadow.gradient.alpha.html
+OK           1/1  html/canvas/element/shadows/2d.shadow.gradient.basic.html
 OK           1/1  html/canvas/element/shadows/2d.shadow.gradient.transparent.1.html
-OK           0/1  html/canvas/element/shadows/2d.shadow.gradient.transparent.2.html
-  FAIL      Shadows are not drawn for transparent parts of gradient fills
+OK           1/1  html/canvas/element/shadows/2d.shadow.gradient.transparent.2.html
 OK           0/1  html/canvas/element/shadows/2d.shadow.image.alpha.html
   FAIL      Shadows are drawn correctly for partially-transparent images
 OK           0/1  html/canvas/element/shadows/2d.shadow.image.basic.html
@@ -2773,16 +2745,11 @@ OK           0/1  html/canvas/element/shadows/2d.shadow.image.transparent.1.html
   FAIL      Shadows are not drawn for transparent images
 OK           0/1  html/canvas/element/shadows/2d.shadow.image.transparent.2.html
   FAIL      Shadows are not drawn for transparent parts of images
-OK           0/1  html/canvas/element/shadows/2d.shadow.offset.negativeX.html
-  FAIL      Shadows can be offset with negative x
-OK           0/1  html/canvas/element/shadows/2d.shadow.offset.negativeY.html
-  FAIL      Shadows can be offset with negative y
-OK           0/1  html/canvas/element/shadows/2d.shadow.offset.positiveX.html
-  FAIL      Shadows can be offset with positive x
-OK           0/1  html/canvas/element/shadows/2d.shadow.offset.positiveY.html
-  FAIL      Shadows can be offset with positive y
-OK           0/1  html/canvas/element/shadows/2d.shadow.outside.html
-  FAIL      Shadows of shapes outside the visible area can be offset onto the visible area
+OK           1/1  html/canvas/element/shadows/2d.shadow.offset.negativeX.html
+OK           1/1  html/canvas/element/shadows/2d.shadow.offset.negativeY.html
+OK           1/1  html/canvas/element/shadows/2d.shadow.offset.positiveX.html
+OK           1/1  html/canvas/element/shadows/2d.shadow.offset.positiveY.html
+OK           1/1  html/canvas/element/shadows/2d.shadow.outside.html
 OK           0/1  html/canvas/element/shadows/2d.shadow.pattern.alpha.html
   FAIL      Shadows are drawn correctly for partially-transparent fill patterns
 OK           0/1  html/canvas/element/shadows/2d.shadow.pattern.basic.html
@@ -2791,19 +2758,14 @@ OK           0/1  html/canvas/element/shadows/2d.shadow.pattern.transparent.1.ht
   FAIL      Shadows are not drawn for transparent fill patterns
 OK           0/1  html/canvas/element/shadows/2d.shadow.pattern.transparent.2.html
   FAIL      Shadows are not drawn for transparent parts of fill patterns
-OK           0/1  html/canvas/element/shadows/2d.shadow.stroke.basic.html
-  FAIL      Shadows are drawn for strokes
+OK           1/1  html/canvas/element/shadows/2d.shadow.stroke.basic.html
 OK           1/1  html/canvas/element/shadows/2d.shadow.stroke.cap.1.html
-OK           0/1  html/canvas/element/shadows/2d.shadow.stroke.cap.2.html
-  FAIL      Shadows are drawn for stroke caps
+OK           1/1  html/canvas/element/shadows/2d.shadow.stroke.cap.2.html
 OK           1/1  html/canvas/element/shadows/2d.shadow.stroke.join.1.html
-OK           0/1  html/canvas/element/shadows/2d.shadow.stroke.join.2.html
-  FAIL      Shadows are drawn for stroke joins
+OK           1/1  html/canvas/element/shadows/2d.shadow.stroke.join.2.html
 OK           1/1  html/canvas/element/shadows/2d.shadow.stroke.join.3.html
-OK           0/1  html/canvas/element/shadows/2d.shadow.transform.1.html
-  FAIL      Shadows take account of transformations
-OK           0/1  html/canvas/element/shadows/2d.shadow.transform.2.html
-  FAIL      Shadow offsets are not affected by transformations
+OK           1/1  html/canvas/element/shadows/2d.shadow.transform.1.html
+OK           1/1  html/canvas/element/shadows/2d.shadow.transform.2.html
 OK           0/1  html/canvas/element/text/2d.text.align.default.html
   FAIL      Canvas test: 2d.text.align.default
 OK           0/1  html/canvas/element/text/2d.text.align.invalid.html
@@ -3221,16 +3183,10 @@ OK           4/4  html/canvas/element/the-canvas-state/2d.state.saverestore.line
 OK           4/4  html/canvas/element/the-canvas-state/2d.state.saverestore.lineWidth.html
 OK           4/4  html/canvas/element/the-canvas-state/2d.state.saverestore.miterLimit.html
 OK           1/1  html/canvas/element/the-canvas-state/2d.state.saverestore.path.html
-OK           2/4  html/canvas/element/the-canvas-state/2d.state.saverestore.shadowBlur.html
-  FAIL      save()/restore() restores shadowBlur, for a canvas of size (300, 150).
-  FAIL      save()/restore() restores shadowBlur, for a canvas of size (0, 0).
+OK           4/4  html/canvas/element/the-canvas-state/2d.state.saverestore.shadowBlur.html
 OK           4/4  html/canvas/element/the-canvas-state/2d.state.saverestore.shadowColor.html
-OK           2/4  html/canvas/element/the-canvas-state/2d.state.saverestore.shadowOffsetX.html
-  FAIL      save()/restore() restores shadowOffsetX, for a canvas of size (300, 150).
-  FAIL      save()/restore() restores shadowOffsetX, for a canvas of size (0, 0).
-OK           2/4  html/canvas/element/the-canvas-state/2d.state.saverestore.shadowOffsetY.html
-  FAIL      save()/restore() restores shadowOffsetY, for a canvas of size (300, 150).
-  FAIL      save()/restore() restores shadowOffsetY, for a canvas of size (0, 0).
+OK           4/4  html/canvas/element/the-canvas-state/2d.state.saverestore.shadowOffsetX.html
+OK           4/4  html/canvas/element/the-canvas-state/2d.state.saverestore.shadowOffsetY.html
 OK           1/1  html/canvas/element/the-canvas-state/2d.state.saverestore.stack.html
 OK           1/1  html/canvas/element/the-canvas-state/2d.state.saverestore.stackdepth.html
 OK           4/4  html/canvas/element/the-canvas-state/2d.state.saverestore.strokeStyle.html
