@@ -443,9 +443,18 @@ fn keys_t31_navigation_keeps_the_mode() {
 }
 
 #[test]
-fn keys_t32_page_focus_without_a_click_keeps_the_mode() {
+fn keys_t32_a_page_focus_enters_input_and_a_blur_changes_nothing() {
+    // T32 (user, 2026-11-23): `editable-focused true` is `user_focused_control` whatever caused it, so
+    // the decision does not depend on a click. A blur has no key-model call: the mode stays.
+    let mut k = keys();
+    k.set_key_mode(KeyMode::Normal);
+    k.user_focused_control();
+    assert_eq!(k.key_mode, KeyMode::Input);
+    k.set_key_mode(KeyMode::Normal); // the user left the field with Esc Esc; a later blur leaves NORMAL alone
+    assert_eq!(k.key_mode, KeyMode::Normal);
+    // The popup half still depends on a click: an old one is the page's own popup.
     let t = Instant::now();
-    assert!(!click_recent(None, t), "no click: the page's own focus()");
+    assert!(!click_recent(None, t));
     assert!(!click_recent(Some(t), ms(t, crate::config::CLICK_FOCUS_MS + 1)), "an old click");
 }
 

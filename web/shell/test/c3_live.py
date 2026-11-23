@@ -233,7 +233,7 @@ def main():
         def click_field():
             k = log.mark()
             inject("move:190,60", "wait:150", "click", "wait:600")
-            log.wait(r"editable focused after a click: INPUT", k)
+            log.wait(r"editable focused: INPUT", k)
             bar(r"INPUT \|", k)
             inject("type:ab", "wait:300")
             inject("key:esc", "wait:80", "key:esc", "wait:400")
@@ -246,11 +246,12 @@ def main():
             k = log.mark()
             inject("move:550,60", "wait:100", "click", "wait:2500")
             log.wait(r'"editable-focused","tab":\d+,"focused":true', k)
-            if any("bar: INPUT" in l for l in log.lines[k:]):
-                raise Fail("the page's own focus() switched to INPUT")
+            bar(r"INPUT \|", k)
+            inject("key:esc", "wait:80", "key:esc", "wait:400")
+            bar(r"NORMAL \|", k)
             inject("move:600,400", "wait:100", "click", "wait:400")
-            return "the page focused the field 1.5 s after a button click: still NORMAL"
-        step("T32: the page's own focus() keeps NORMAL", script_focus)
+            return "the page focused the field 1.5 s after a button click: INPUT (T32, user 2026-11-23)"
+        step("T32: the page's own focus() enters INPUT", script_focus)
 
         def go():
             k = log.mark()
