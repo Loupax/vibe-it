@@ -1,0 +1,36 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>c2 ready</title>
+<style>
+  html, body { margin: 0; font: 16px sans-serif; }
+  body { height: 3000px; background: linear-gradient(#f8f8ff, #d8e0ff 1000px, #ffe0d8 3000px); }
+  /* Fixed boxes at known CSS-pixel places, so the check can click them (test/live.py). */
+  .box { position: absolute; width: 260px; height: 60px; box-sizing: border-box; font-size: 20px; }
+  #count { left: 40px; top: 40px; }
+  #q { left: 40px; top: 140px; width: 400px; }
+  #link { left: 40px; top: 240px; display: block; line-height: 60px; background: #ffd; text-align: center; }
+  #sel { left: 40px; top: 340px; }
+  #fs { left: 40px; top: 440px; }
+  #custom { left: 500px; top: 40px; height: 160px; background: #dfd; cursor: crosshair; }
+  #status { position: fixed; right: 10px; bottom: 10px; font: 14px monospace; background: #fff; padding: 4px; }
+</style>
+<button id="count" class="box">clicked 0</button>
+<form action="/typed" method="get"><input id="q" name="q" class="box" placeholder="type here" autocomplete="off"></form>
+<a id="link" class="box" href="/second.html">a link to the second page</a>
+<select id="sel" class="box"><option value="a">option a</option><option value="b">option b</option><option value="c">option c</option></select>
+<button id="fs" class="box">fullscreen</button>
+<div id="custom" class="box">crosshair cursor here</div>
+<div id="status">-</div>
+<script>
+  const say = (t) => { document.title = t; document.getElementById('status').textContent = t; };
+  let n = 0;
+  document.getElementById('count').onclick = () => { n++; document.getElementById('count').textContent = 'clicked ' + n; say('clicked:' + n); };
+  document.getElementById('q').oninput = (e) => say('typed:' + e.target.value);
+  document.getElementById('sel').onchange = (e) => say('select:' + e.target.value);
+  document.getElementById('fs').onclick = () => document.documentElement.requestFullscreen();
+  document.onfullscreenchange = () => say('fullscreen:' + !!document.fullscreenElement + ':' + innerWidth + 'x' + innerHeight);
+  let scrollTimer;
+  onscroll = () => { clearTimeout(scrollTimer); scrollTimer = setTimeout(() => say('scrolled:' + Math.round(scrollY)), 150); };
+  addEventListener('keydown', (e) => { if (e.target === document.body) say('key:' + e.key); });
+  addEventListener('load', () => say('c2 ready:' + innerWidth + 'x' + innerHeight));
+</script>
