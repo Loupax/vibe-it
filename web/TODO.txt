@@ -78,8 +78,9 @@ stop early on a hard failure.
 
 - [ ] E1 web-host-webkit (after C8; the lighter engine). GTK4 + WebKitGTK 6, the same
       control protocol as C1, nothing in the shell changes but `--engine webkit`. Also
-      check that WebKitGTK's own bubblewrap sandbox for its web processes works nested
-      inside C0's `unshare -n --map-user` (if not: what it needs).
+      check that WebKitGTK's own bubblewrap sandbox for its web processes still works
+      when the separate namespace wrapper (DECISIONS.md "No enforcement in web") is put
+      around web (if not: what it needs).
       Done when: C1's check passes with the WebKit host, unchanged script, and C8's day
       of browsing is repeated with it.
 
