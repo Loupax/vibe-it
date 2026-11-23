@@ -12,8 +12,8 @@ It plays the shell like drive.py (control socket, memory-capped host, test pages
     navigated either), and the host log says the popup was dropped;
   - a plain click on a target=_blank link and a plain Enter in that form still load in
     the same page;
-  - right-click on a link, an image, selected text and the page: the host log lists the
-    menu (what was removed, what remains) and no remaining item opens a tab or window.
+  - right-click on a link, an image, selected text, the page and an editable field: the host log lists the
+    menu (what was removed, what remains) and every remaining item is on the allow-list (newtab.rs MENU_ALLOW).
 Writes events.jsonl, host.log, fixture.log into --out. Exit 0 when every step passed."""
 
 import argparse
@@ -36,7 +36,14 @@ HOST_DIR = os.path.dirname(HERE)
 REPO = os.path.dirname(os.path.dirname(HOST_DIR))
 INJECT = os.path.join(REPO, "web", "tools", "inject", "target", "release", "inject")
 
-# Menu labels that must not remain (lowercase substrings); see newtab.rs MENU_REMOVE.
+# Command ids that may remain in a menu: newtab.rs MENU_ALLOW (allow-list, C-NOTAB-ALLOW).
+ALLOWED_IDS = {
+    100, 101, 102, 110, 111, 112, 113, 114, 115, 116, 117, 200, 201, 202, 203, 204,
+    33000, 33001, 33002, 35004, 50103, 50104, 50107, 50120, 50121, 50122, 50150, 50151,
+    50152, 50154, 50155, 50156, 50157, 50158, 50167,
+}
+
+# Menu labels that must not remain (lowercase substrings), a second check by label.
 FORBIDDEN = [
     "new tab", "new window", "incognito", "in profile", "view page source", "view source",
     "inspect", "search google", "search the web", "search with google", "search image", "lens",
@@ -55,6 +62,11 @@ def forbidden_labels(remaining):
     `remaining` is the host's text: `id:label, id:label, Sub[id:label, ...]`."""
     labels = re.findall(r"(?:^|[\[,]\s*)(?:\d+:)?([^\[\],]+)", remaining)
     return [l.strip() for l in labels if any(f in l.lower() for f in FORBIDDEN)]
+
+
+def disallowed_ids(remaining):
+    """The command ids in a logged remaining-items list that are not on the allow-list."""
+    return [i for i in (int(x) for x in re.findall(r"(?:^|[\[,]\s*)(-?\d+):", remaining)) if i not in ALLOWED_IDS]
 
 
 def context_menus(host_log_lines):
@@ -209,19 +221,20 @@ def steps(sh, conn, base, a, host_log_path):
     n_before = len(context_menus(read_log(host_log_path)))
     for what, pre in (("link", [move("plain")]), ("target=_blank link", [move("blank")]), ("image", [move("img")]),
                       ("selected text", [move("txt"), "click", "wait:100", "key:c-a"]),
-                      ("page", [move("page")])):
+                      ("page", [move("page")]),
+                      ("editable field", [move("input"), "click", "wait:200"])):
         lines = len(read_log(host_log_path))
         inject(*pre, "rclick", "wait:1200", "key:esc", "wait:400")
         menus = context_menus(read_log(host_log_path)[lines:])
         if len(menus) != 1:
             raise Fail(f"context menu on {what}: expected one menu line in the host log, got {len(menus)}")
         removed, remaining = menus[0]
-        bad = forbidden_labels(remaining)
+        bad = forbidden_labels(remaining) + [f"id {i}" for i in disallowed_ids(remaining)]
         sh.note(f"context menu on {what}: removed [{removed}]")
         sh.note(f"context menu on {what}: remaining [{remaining}]")
         if bad:
             raise Fail(f"context menu on {what} still has {bad}")
-    if len(context_menus(read_log(host_log_path))) - n_before != 5:
+    if len(context_menus(read_log(host_log_path))) - n_before != 6:
         raise Fail("not every right-click gave a context menu")
     if sum(1 for _, e in sh.events if e.get("event") == "tab-created") != 1:
         raise Fail("a second page was created")

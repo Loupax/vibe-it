@@ -634,29 +634,39 @@ wrap_find_handler! {
     }
 }
 
-/// Removes the new-tab/window items (newtab::MENU_REMOVE) from `model` and its
-/// submenus, then the separators left useless. Collects what was removed.
+/// Cleans `model` and its submenus by the allow-list (newtab::MENU_ALLOW): every command
+/// not on it is removed, then the submenus and separators left useless. Collects what was
+/// removed as `id:label`.
 fn clean_menu(model: &MenuModel, removed: &mut Vec<String>) {
-    for i in (0..model.count()).rev() {
-        let id = model.command_id_at(i);
-        if let Some(name) = newtab::menu_name_to_remove(id) {
-            removed.push(format!("{name}({id})"));
-            model.remove_at(i);
-        } else if let Some(sub) = model.sub_menu_at(i) {
+    // Submenus first, so "empty" is known when this level is judged.
+    for i in 0..model.count() {
+        if let Some(sub) = model.sub_menu_at(i) {
             clean_menu(&sub, removed);
         }
     }
     let items: Vec<newtab::Item> = (0..model.count())
         .map(|i| {
+            if let Some(sub) = model.sub_menu_at(i) {
+                return newtab::Item::Sub { empty: sub.count() == 0 };
+            }
             let t = sys::cef_menu_item_type_t::from(model.type_at(i));
             if t == sys::cef_menu_item_type_t::MENUITEMTYPE_SEPARATOR {
                 newtab::Item::Separator
             } else {
-                newtab::Item::Other
+                newtab::Item::Command(model.command_id_at(i))
             }
         })
         .collect();
-    for i in newtab::useless_separators(&items) {
+    for i in newtab::menu_removals(&items) {
+        match items[i] {
+            newtab::Item::Separator => {}
+            newtab::Item::Command(id) => {
+                removed.push(format!("{id}:{}", CefString::from(&model.label_at(i)).to_string()));
+            }
+            newtab::Item::Sub { .. } => {
+                removed.push(format!("submenu:{}", CefString::from(&model.label_at(i)).to_string()));
+            }
+        }
         model.remove_at(i);
     }
 }
@@ -677,8 +687,8 @@ wrap_context_menu_handler! {
     struct HostContextMenuHandler {}
 
     impl ContextMenuHandler {
-        // No way to open a second tab or window (newtab.rs). What stays acts on the
-        // page itself (back/forward/reload, copy/paste, save as, print, ...).
+        // Allow-list (newtab.rs MENU_ALLOW): what stays acts on the page itself or the
+        // clipboard/disk; nothing that opens a tab, a window or Chrome UI.
         fn on_before_context_menu(
             &self,
             _browser: Option<&mut Browser>,

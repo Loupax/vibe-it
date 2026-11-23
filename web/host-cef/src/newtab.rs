@@ -2,8 +2,8 @@
 //! The decisions, as pure functions (unit-tested without CEF):
 //!
 //! - `popup_action`: what to do with a popup / new-tab request, by disposition.
-//! - `MENU_REMOVE`: the Chrome-style context menu commands that open a tab, a window
-//!   or another UI, removed in `on_before_context_menu`.
+//! - `MENU_ALLOW`: the only Chrome-style context menu commands that stay (allow-list),
+//!   applied in `on_before_context_menu`; every other item is removed.
 
 use cef::sys::cef_window_open_disposition_t as D;
 
@@ -43,79 +43,96 @@ pub fn popup_action(disposition: D) -> PopupAction {
 /// tell from a target=_blank click.
 pub const CTRL_SHIFT_JS: &str = "addEventListener('click',function(e){if(e.ctrlKey&&e.shiftKey&&e.target&&e.target.closest&&e.target.closest('a[href],area[href]'))e.preventDefault();},true);";
 
-/// Context-menu command ids (Chrome style: `IDC_*` of cef_command_ids.h, plus CEF's
-/// own `MENU_ID_*`) whose item opens a new tab, window or profile, a search in one,
-/// the view-source tab or DevTools. Removed from every menu, submenus included.
-pub const MENU_REMOVE: &[(i32, &str)] = &[
-    (34000, "IDC_NEW_WINDOW"),
-    (34001, "IDC_NEW_INCOGNITO_WINDOW"),
-    (34014, "IDC_NEW_TAB"),
-    (34056, "IDC_MOVE_TAB_TO_NEW_WINDOW"),
-    (34057, "IDC_NEW_SPLIT_TAB"),
-    (35002, "IDC_VIEW_SOURCE"),
-    (132, "MENU_ID_VIEW_SOURCE"),
-    (35024, "IDC_NEW_TAB_TO_RIGHT"),
-    (35356, "IDC_OPEN_GUEST_PROFILE"),
-    (40004, "IDC_DEV_TOOLS"),
-    (40005, "IDC_DEV_TOOLS_CONSOLE"),
-    (40023, "IDC_DEV_TOOLS_INSPECT"),
-    (40237, "IDC_DEV_TOOLS_TOGGLE"),
-    (40282, "IDC_SHOW_GOOGLE_LENS_SHORTCUT"),
-    (40301, "IDC_CONTENT_CONTEXT_INSPECTELEMENT_WITH_DEVTOOLS"),
-    (50100, "IDC_CONTENT_CONTEXT_OPENLINKNEWTAB"),
-    (50101, "IDC_CONTENT_CONTEXT_OPENLINKNEWWINDOW"),
-    (50102, "IDC_CONTENT_CONTEXT_OPENLINKOFFTHERECORD"),
-    (50108, "IDC_CONTENT_CONTEXT_OPENLINKINPROFILE"),
-    (50109, "IDC_CONTENT_CONTEXT_OPENLINKBOOKMARKAPP"),
-    (50111, "IDC_CONTENT_CONTEXT_OPENLINKSPLITVIEW"),
-    (50113, "IDC_CONTENT_CONTEXT_OPENLINK_ISOLATED"),
-    (50123, "IDC_CONTENT_CONTEXT_OPENIMAGENEWTAB"),
-    (50124, "IDC_CONTENT_CONTEXT_SEARCHWEBFORIMAGE"),
-    (50125, "IDC_CONTENT_CONTEXT_OPEN_ORIGINAL_IMAGE_NEW_TAB"),
-    (50127, "IDC_CONTENT_CONTEXT_SEARCHLENSFORIMAGE"),
-    (50134, "IDC_CONTENT_CONTEXT_SEARCHLENSFORVIDEOFRAME"),
-    (50135, "IDC_CONTENT_CONTEXT_SEARCHWEBFORVIDEOFRAME"),
-    (50136, "IDC_CONTENT_CONTEXT_OPENAVNEWTAB"),
-    (50162, "IDC_CONTENT_CONTEXT_INSPECTELEMENT"),
-    (50171, "IDC_CONTENT_CONTEXT_INSPECTBACKGROUNDPAGE"),
-    (50174, "IDC_CONTENT_CONTEXT_LENS_REGION_SEARCH"),
-    (50191, "IDC_CONTENT_CONTEXT_SEARCHWEBFOR"),
-    (50192, "IDC_CONTENT_CONTEXT_SEARCHWEBFORNEWTAB"),
-    (50193, "IDC_CONTENT_CONTEXT_LENS_OVERLAY"),
-    (57316, "IDC_CONTENT_CONTEXT_OPENLINKWITH"),
+/// Context-menu allow-list (C-NOTAB-ALLOW): the only commands that stay in a menu. Chrome
+/// style ids (`IDC_*` of cef_command_ids.h) and CEF's own `MENU_ID_*`. Everything else is
+/// removed, so a new Chrome item that opens a tab, a window or Chrome UI (Print, Cast, QR
+/// code, ...) cannot slip in. Only items that act on the page itself or on the
+/// clipboard/disk stay.
+pub const MENU_ALLOW: &[(i32, &str)] = &[
+    (100, "MENU_ID_BACK"),
+    (101, "MENU_ID_FORWARD"),
+    (102, "MENU_ID_RELOAD"),
+    (110, "MENU_ID_UNDO"),
+    (111, "MENU_ID_REDO"),
+    (112, "MENU_ID_CUT"),
+    (113, "MENU_ID_COPY"),
+    (114, "MENU_ID_PASTE"),
+    (115, "MENU_ID_PASTE_MATCH_STYLE"),
+    (116, "MENU_ID_DELETE"),
+    (117, "MENU_ID_SELECT_ALL"),
+    (200, "MENU_ID_SPELLCHECK_SUGGESTION_0"),
+    (201, "MENU_ID_SPELLCHECK_SUGGESTION_1"),
+    (202, "MENU_ID_SPELLCHECK_SUGGESTION_2"),
+    (203, "MENU_ID_SPELLCHECK_SUGGESTION_3"),
+    (204, "MENU_ID_SPELLCHECK_SUGGESTION_4"),
+    (33000, "IDC_BACK"),
+    (33001, "IDC_FORWARD"),
+    (33002, "IDC_RELOAD"),
+    (35004, "IDC_SAVE_PAGE"),
+    (50103, "IDC_CONTENT_CONTEXT_SAVELINKAS"),
+    (50104, "IDC_CONTENT_CONTEXT_COPYLINKLOCATION"),
+    (50107, "IDC_CONTENT_CONTEXT_COPYLINKTEXT"),
+    (50120, "IDC_CONTENT_CONTEXT_SAVEIMAGEAS"),
+    (50121, "IDC_CONTENT_CONTEXT_COPYIMAGELOCATION"),
+    (50122, "IDC_CONTENT_CONTEXT_COPYIMAGE"),
+    (50150, "IDC_CONTENT_CONTEXT_COPY"),
+    (50151, "IDC_CONTENT_CONTEXT_CUT"),
+    (50152, "IDC_CONTENT_CONTEXT_PASTE"),
+    (50154, "IDC_CONTENT_CONTEXT_UNDO"),
+    (50155, "IDC_CONTENT_CONTEXT_REDO"),
+    (50156, "IDC_CONTENT_CONTEXT_SELECTALL"),
+    (50157, "IDC_CONTENT_CONTEXT_PASTE_AND_MATCH_STYLE"),
+    (50158, "IDC_CONTENT_CONTEXT_COPYLINKTOTEXT"),
+    (50167, "IDC_CONTENT_CONTEXT_SPELLING_SUGGESTION"),
 ];
 
-pub fn menu_name_to_remove(command_id: i32) -> Option<&'static str> {
-    MENU_REMOVE.iter().find(|(id, _)| *id == command_id).map(|(_, n)| *n)
+pub fn menu_allows(command_id: i32) -> bool {
+    MENU_ALLOW.iter().any(|(id, _)| *id == command_id)
 }
 
-/// One item of a menu as the cleanup sees it: a separator, or anything else.
+/// One item of a menu as the cleanup sees it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Item {
     Separator,
-    Other,
+    /// A submenu; `empty` when nothing is left in it after its own cleanup.
+    Sub {
+        empty: bool,
+    },
+    /// A command item with its command id.
+    Command(i32),
 }
 
-/// Indexes (descending, so they can be removed in order) of the separators that are
-/// useless once items were removed: leading, trailing and doubled ones.
-pub fn useless_separators(items: &[Item]) -> Vec<usize> {
-    let mut out = Vec::new();
+/// Indexes (descending, so they can be removed in order) to remove from one menu level:
+/// commands not on the allow-list, submenus left empty, then the separators that are
+/// useless once those are gone (leading, trailing and doubled ones). A submenu with
+/// content stays (its own items were cleaned by the caller first).
+pub fn menu_removals(items: &[Item]) -> Vec<usize> {
+    let mut gone: Vec<bool> = items
+        .iter()
+        .map(|it| match it {
+            Item::Separator => false,
+            Item::Sub { empty } => *empty,
+            Item::Command(id) => !menu_allows(*id),
+        })
+        .collect();
     let mut prev_sep = true; // a separator at the start is useless
     for (i, it) in items.iter().enumerate() {
+        if gone[i] {
+            continue;
+        }
         match it {
-            Item::Separator if prev_sep => out.push(i),
+            Item::Separator if prev_sep => gone[i] = true,
             Item::Separator => prev_sep = true,
-            Item::Other => prev_sep = false,
+            _ => prev_sep = false,
         }
     }
-    // A trailing separator: the last item not already marked.
-    if let Some(last) = (0..items.len()).rev().find(|i| !out.contains(i)) {
+    // A trailing separator: the last item left.
+    if let Some(last) = (0..items.len()).rev().find(|i| !gone[*i]) {
         if items[last] == Item::Separator {
-            out.push(last);
+            gone[last] = true;
         }
     }
-    out.sort_unstable_by(|a, b| b.cmp(a));
-    out
+    (0..items.len()).rev().filter(|i| gone[*i]).collect()
 }
 
 #[cfg(test)]
@@ -164,28 +181,56 @@ mod tests {
     }
 
     #[test]
-    fn menu_remove_list() {
-        assert_eq!(menu_name_to_remove(50100), Some("IDC_CONTENT_CONTEXT_OPENLINKNEWTAB"));
-        assert_eq!(menu_name_to_remove(50192), Some("IDC_CONTENT_CONTEXT_SEARCHWEBFORNEWTAB"));
-        assert_eq!(menu_name_to_remove(132), Some("MENU_ID_VIEW_SOURCE"));
-        // Back, forward, reload, copy, paste, select all, print stay.
-        for id in [100, 101, 102, 113, 114, 117, 131] {
-            assert_eq!(menu_name_to_remove(id), None, "{id}");
+    fn menu_allow_list() {
+        // Back, forward, reload, copy, paste, select all, save as, spellcheck stay.
+        for id in [
+            100, 101, 102, 113, 114, 117, 33000, 33001, 33002, 35004, 50103, 50120, 50122, 50150, 50152, 50157, 50158,
+        ] {
+            assert!(menu_allows(id), "{id}");
         }
-        let mut ids: Vec<i32> = MENU_REMOVE.iter().map(|(i, _)| *i).collect();
+        // Print, Cast, QR code, new tab/window, view source, inspect, search, Lens: out.
+        for id in [131, 132, 130, 35003, 34014, 34000, 35002, 40004, 50100, 50162, 50191, 50193, 50124] {
+            assert!(!menu_allows(id), "{id}");
+        }
+        // Unknown ids (any future Chrome item) are out.
+        for id in [0, -1, 1, 99, 99999, 123456, 220, 26500, i32::MAX] {
+            assert!(!menu_allows(id), "{id}");
+        }
+        let mut ids: Vec<i32> = MENU_ALLOW.iter().map(|(i, _)| *i).collect();
         ids.sort_unstable();
         ids.dedup();
-        assert_eq!(ids.len(), MENU_REMOVE.len(), "duplicate id");
+        assert_eq!(ids.len(), MENU_ALLOW.len(), "duplicate id");
     }
 
     #[test]
-    fn separators_cleanup() {
+    fn removals_filter_commands() {
         use Item::*;
-        assert_eq!(useless_separators(&[Other, Separator, Other]), Vec::<usize>::new());
-        assert_eq!(useless_separators(&[Separator, Other]), vec![0]);
-        assert_eq!(useless_separators(&[Other, Separator]), vec![1]);
-        assert_eq!(useless_separators(&[Other, Separator, Separator, Other]), vec![2]);
-        assert_eq!(useless_separators(&[Separator, Separator]), vec![1, 0]);
-        assert_eq!(useless_separators(&[]), Vec::<usize>::new());
+        // Back kept, Print removed, unknown removed; descending indexes.
+        assert_eq!(menu_removals(&[Command(100), Command(131), Command(99999)]), vec![2, 1]);
+        assert_eq!(menu_removals(&[Command(100), Command(113)]), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn removals_clean_separators() {
+        use Item::*;
+        // A separator between kept items stays; ones left leading, trailing or doubled go.
+        assert_eq!(menu_removals(&[Command(100), Separator, Command(113)]), Vec::<usize>::new());
+        assert_eq!(menu_removals(&[Command(131), Separator, Command(113)]), vec![1, 0]);
+        assert_eq!(menu_removals(&[Command(113), Separator, Command(131)]), vec![2, 1]);
+        assert_eq!(
+            menu_removals(&[Command(100), Separator, Command(131), Separator, Command(113)]),
+            vec![3, 2]
+        );
+        assert_eq!(menu_removals(&[Separator, Command(100)]), vec![0]);
+        assert_eq!(menu_removals(&[Separator, Separator]), vec![1, 0]);
+        assert_eq!(menu_removals(&[]), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn removals_submenus() {
+        use Item::*;
+        // An empty submenu goes (and the separator it leaves behind); one with content stays.
+        assert_eq!(menu_removals(&[Command(113), Separator, Sub { empty: true }]), vec![2, 1]);
+        assert_eq!(menu_removals(&[Command(113), Separator, Sub { empty: false }]), Vec::<usize>::new());
     }
 }
