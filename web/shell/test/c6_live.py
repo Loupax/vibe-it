@@ -9,7 +9,14 @@ nested WAYLAND_DISPLAY (data-control, so they take no focus), or with xsel on th
 Xwayland with --x11 (the shell is then an X11 window). The page (pages/c6.html) has a
 textarea and reports its value in its title. What happened is read from the shell's log (the
 status bar as `bar: ...`, the bridge as `clipboard: ...`, every host event). Each step names
-the KEYS.md rows it shows. Exit 0 when every step passed. Needs what c3_live.py needs."""
+the KEYS.md rows it shows. Exit 0 when every step passed. Needs what c3_live.py needs.
+
+C6-LIVE: the steps that type into the textarea first make sure the page really focused it (the
+host's `editable-focused true` after the click). They used to press `i` when the bar was not
+INPUT after the click, which put the shell in INPUT with nothing focused, so a click that missed
+the field showed up as four unrelated failures (a whole-page Ctrl-A copy, nothing pasted, nothing
+typed). Middle-click paste into the page is not supported (web/DECISIONS.md 2026-11-23), so the
+primary step checks only that a selection in the page becomes the desktop's primary."""
 
 import argparse
 import functools
@@ -154,10 +161,37 @@ def main():
     try:
         log.wait(r'"title":"c6 v=copied in the page 7"', timeout=60)
         log.wait(r"page window is (\d+)x(\d+)", timeout=10)
+        # The first click must find the shell window focused on the desktop (else the page
+        # window is not activated and the click may not focus the field).
+        log.wait(r"shell window focused: true", timeout=10)
         time.sleep(0.5)
-        sizes = [re.search(r"\] window (\d+)x(\d+), page", l) for l in log.lines]
-        ww, wh = [int(x) for x in [s for s in sizes if s][-1].groups()]
         ow, oh = live.png_size(shot("start.png"))
+
+        def settled():
+            """The shell window's size once dwl has tiled it: the latest `window WxH` fits the
+            output and the page window has taken the page size that goes with it. The shell
+            starts at 1280x800 and the first `page window is` can be that size's page, so a
+            size read too early puts every click 160 px left and 103 px low (C6-LIVE: the
+            textarea clicks then hit the paragraph, and four steps fail)."""
+            win = page = None
+            for l in log.lines:
+                m = re.search(r"\] window (\d+)x(\d+), page .*width: (\d+), height: (\d+)", l)
+                if m:
+                    win = [int(x) for x in m.groups()]
+                m = re.search(r"\] page window is (\d+)x(\d+)", l)
+                if m:
+                    page = [int(x) for x in m.groups()]
+            if win and page and win[0] <= ow and win[1] <= oh and win[2:] == page:
+                return win[0], win[1]
+            return None
+
+        end = time.monotonic() + 10
+        while not settled() and time.monotonic() < end:
+            time.sleep(0.1)
+        if not settled():
+            raise Fail(f"the shell window never settled to the {ow}x{oh} output: "
+                       f"{[l for l in log.lines if '] window ' in l or 'page window is' in l]}")
+        ww, wh = settled()
         bx, by = (ow - ww) // 2, (oh - wh) // 2
 
         def inject(*cmds):
@@ -189,13 +223,20 @@ def main():
                 raise Fail(f"Esc Esc left the bar at {bar_now()!r}")
 
         def into_field():
-            # From NORMAL, a click on the textarea: the page focuses it, the shell switches to
-            # INPUT (T29); a field already focused gets `i`.
+            # From NORMAL, a click on the page's empty area (blurs the textarea if it kept the
+            # focus), then a click on the textarea: the page focuses it (the host reports
+            # `editable-focused true`) and the shell switches to INPUT (T29). No `i` fallback:
+            # INPUT with nothing focused would send Ctrl-A to the whole page.
             to_normal()
+            inject("move:600,500", "wait:150", "click", "wait:300")
             k = log.mark()
-            inject("move:200,80", "wait:150", "click", "wait:600")
-            if not bar_now().startswith("INPUT | "):
-                inject("key:i", "wait:300")
+            inject("move:200,80", "wait:150", "click", "wait:300")
+            try:
+                log.wait(r'"editable-focused","tab":\d+,"focused":true', k, timeout=3)
+            except Fail:
+                shot("into-field-miss.png")
+                raise Fail(f"a click on the textarea (window {ww}x{wh} at {bx},{by} on a {ow}x{oh} output) "
+                           "did not focus it: no editable-focused (into-field-miss.png)")
             bar(r"INPUT \| ", k)
 
         def page_to_desktop():
@@ -288,25 +329,16 @@ def main():
         step("Registers: :let @+ = @%, @+ readable", let_plus)
 
         def primary():
-            # The primary selection: a selection in the page reaches the desktop's primary; the
-            # desktop's primary is offered to the page on a middle click. The paste itself is
-            # Chromium's: this CEF build does no middle-click paste at all (not even of its own
-            # selection), so it is reported, not required.
+            # A selection in the page reaches the desktop's primary selection. Middle-click
+            # paste into the page is not supported (DECISIONS.md 2026-11-23), so not checked.
+            desk.set("old primary", primary=True)
             into_field()
             k = log.mark()
             inject(*chord("c", "a"), *keys_for("prim one"), "wait:200", *chord("c", "a"), "wait:400")
             log.wait(r"clipboard: page primary selection \(\d+ bytes\) to the desktop", k, timeout=6)
             desk.wait_for("prim one", primary=True)
-            desk.set("from primary", primary=True)
-            k = log.mark()
-            inject("key:end", "wait:100", "move:300,100", "wait:150", "mclick", "wait:800")
-            log.wait(r"clipboard: desktop primary selection \(\d+ bytes\) offered to the page", k)
-            log.wait(r'"title":"c6 middle click v=', k)
-            pasted = any('"title":"c6 v=prim onefrom primary"' in l for l in log.lines[k:])
-            read = any("the page reads the primary selection" in l for l in log.lines[k:])
-            return ("select-all in the page set the desktop's primary (wl-paste -p); a middle click offered the "
-                    f"desktop's primary to the page and reached it; Chromium read it: {read}, pasted: {pasted}")
-        step("primary selection both ways", primary)
+            return "select-all in the page set the desktop's primary selection (wl-paste -p / xsel -p)"
+        step("primary selection: page -> desktop", primary)
 
     except Fail as e:
         results.append(("start", False, str(e)))
