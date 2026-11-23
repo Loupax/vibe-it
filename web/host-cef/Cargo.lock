@@ -1169,11 +1169,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "web-spike"
+name = "web-host-cef"
 version = "0.0.0"
 dependencies = [
  "cef",
  "cef-dll-sys",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

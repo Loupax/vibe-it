@@ -1,10 +1,10 @@
 [package]
-name = "web-spike"
+name = "web-host-cef"
 version = "0.0.0"
 edition = "2021"
 publish = false
 
-# Own workspace root: the spike joins no other build and is not in CI.
+# Own workspace root: joins no other build and is not in CI (CEF is a ~380 MB download).
 [workspace]
 
 [dependencies]
@@ -12,3 +12,5 @@ cef = { version = "=156.7.0", default-features = false }
 # Direct dependency only so build.rs gets DEP_CEF_DLL_WRAPPER_CEF_DIR and runs
 # after cef-dll-sys's build script (which downloads CEF).
 cef-dll-sys = "=156.7.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

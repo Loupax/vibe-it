@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>C1 page A</title>
+</head>
+<body>
+<h1>C1 page A</h1>
+<p>needle one, needle two, needle three.</p>
+<p><input id="q" type="text" placeholder="editable"></p>
+<p><a id="tob" href="b.html">to B</a></p>
+<p><a id="blank" href="b.html?via=blank" target="_blank">B in a new window (target=_blank)</a></p>
+<script>
+// ?do=<action>: what the C1 driver (drive.py) asks this page to do once it loaded.
+// The control protocol has no "run script" command, so the page acts on itself.
+const act = new URLSearchParams(location.search).get('do');
+const later = (f, ms) => setTimeout(f, ms || 200);
+const q = document.getElementById('q');
+if (act === 'popup') later(() => window.open('b.html?via=open', 'w', 'width=400,height=300'));
+if (act === 'blank') later(() => document.getElementById('blank').click());
+if (act === 'focus') later(() => { q.focus(); later(() => q.blur(), 400); });
+if (act === 'hash') later(() => { location.hash = 'frag'; });
+if (act === 'push') later(() => history.pushState({}, '', 'a.html?pushed=1'));
+</script>
+</body>
+</html>
