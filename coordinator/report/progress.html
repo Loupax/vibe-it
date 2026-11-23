@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-23 · main c87dda0 · web: C1, C2, C-NOTAB, P-FORGET, NEST-HEADLESS, P-COOKIES merged; C3 and C-BGNET running · wire2: W2-1, W2-2 merged (wire2 reinstalled 14:02), W2-3 running · agents' live tests need no display any more · wire2: W2-1 merged (#669, ~/.cargo/bin/wire2 installed 13:11), W2-2 running · wire PARKED · scratchy paused</div>
+  <div class="meta" id="updated">Updated 2026-11-23 14:30 · main eb5e558 · web: C1, C2, C-NOTAB, P-FORGET, NEST-HEADLESS, P-COOKIES merged; C3, C-BGNET, C-INSTALL running · wire2: W2-1..W2-3 merged (reinstalled 14:27), W2-F next · wire2: W2-1, W2-2 merged (wire2 reinstalled 14:02), W2-3 running · agents' live tests need no display any more · wire2: W2-1 merged (#669, ~/.cargo/bin/wire2 installed 13:11), W2-2 running · wire PARKED · scratchy paused</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -74,6 +74,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
     <tr><td>C-NOTAB</td><td>No way to open a tab or window (context menu, Ctrl/middle-click)</td><td><span class="pill done">done #672</span></td><td>Your request. Context-menu items that open tabs/windows removed; Ctrl/middle/Shift-click open nothing; page script popups still load in place. Live check done in #673: all click kinds open nothing; menus keep Save/Copy/Print/Back/Forward/Reload (Print, Cast, QR still open Chrome UI: C-NOTAB-ALLOW)</td></tr>
     <tr><td>NEST-HEADLESS</td><td>Agents' live tests without a display (your monitor moves to the laptop)</td><td><span class="pill done">done #673</span></td><td>Headless dwl by default (small patch built from your dwl source into the worktree, nothing installed), input injection fixed (clicks landed at the old pointer position), Xwayland works headless</td></tr>
     <tr><td>P-COOKIES</td><td>Third-party cookies off</td><td><span class="pill done">done #675</span></td><td>Chromium's “block third-party cookies” mode on by default; partitioned (CHIPS) cookies and partitioned storage still work in embedded frames. Embedded login/payment/comment widgets that need a third-party cookie will break (P-COOKIES-2, only if you want it)</td></tr>
+    <tr><td>C-INSTALL</td><td><code>web</code> as an installed command (you bumped it)</td><td><span class="pill wip">running</span></td><td></td></tr>
     <tr><td>C-BGNET</td><td>Stop Chromium's background calls to Google (updates, time, autofill)</td><td><span class="pill wip">running</span></td><td></td></tr>
   </table></div>
   <p class="note">Filed from C1: C-BGNET (switch off Chromium's background traffic to Google update/time/autofill hosts), C-DL (downloads, dialogs, permission prompts), C1-INPUT, C-PENDING. The CEF + wire spike (W1–W7, #656–#662) is kept as a record in web/spike/README.md.</p>
@@ -81,7 +82,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <section id="wire2">
   <h2>wire2: streaming filtering proxy (active)</h2>
-  <p>Your spec is in <span class="mono">wire2/SPEC.md</span>. Steps run one after another: W2-1 plain forwarding proxy (<span class="pill done">done #669</span>: spliced tunnels at 87–96 % of direct, 17.8 MB at 2,000 tunnels, 2 GiB with flat memory; headless Chrome and Firefox browse through it) · W2-2 TLS interception (<span class="pill done">done #674</span>: CA created only when a filter claims a host, decrypted path at 52–54 % of direct vs the 50 % target, 2 GiB with flat memory) · W2-3 WebSockets in decrypted tunnels (<span class="pill wip">running</span>) · W2-2 TLS interception · W2-3 WebSockets in decrypted tunnels · W2-F filters (handshake, hub, <code>pass</code>).</p>
+  <p>Your spec is in <span class="mono">wire2/SPEC.md</span>. Steps run one after another: W2-1 plain forwarding proxy (<span class="pill done">done #669</span>: spliced tunnels at 87–96 % of direct, 17.8 MB at 2,000 tunnels, 2 GiB with flat memory; headless Chrome and Firefox browse through it) · W2-2 TLS interception (<span class="pill done">done #674</span>: CA created only when a filter claims a host, decrypted path at 52–54 % of direct vs the 50 % target, 2 GiB with flat memory) · W2-3 WebSockets in decrypted tunnels (<span class="pill done">done #676</span>: wss echo incl. 32 MiB messages with flat memory, headless Chrome; fixed a stall on large messages) · W2-F filters (<span class="pill todo">next</span>) · W2-2 TLS interception · W2-3 WebSockets in decrypted tunnels · W2-F filters (handshake, hub, <code>pass</code>).</p>
   <p class="note">wire (wire 1) is parked: W-MEDIA1 is draft #667 (done, CI unfinished) and W-POOL2 is on branch wire/w-pool2-redirects.</p>
 </section>
 
@@ -139,6 +140,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-23</td><td class="n">#676</td><td>W2-3</td><td>wire2: WebSockets inside decrypted tunnels proven (6 tests, headless Chrome); fixed a missing flush that stalled large messages through TLS</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#675</td><td>P-COOKIES</td><td>web: third-party cookies blocked by default in web-host-cef (closest to scratchy's per-site jar); test with three local https sites</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#673</td><td>NEST-HEADLESS</td><td>Agents' test compositor runs headless (no window on your desktop, no display needed) with injected input and screenshots; C-NOTAB's live check passes</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#674</td><td>W2-2</td><td>wire2: TLS interception machinery: lazy CA, per-host decrypt decision ready for filters, <code>--no-decrypt</code>, decrypted keep-alive tunnels; off until W2-F adds filters</td></tr>
