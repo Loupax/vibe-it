@@ -19,6 +19,8 @@ stop early on a hard failure.
 - [WIP] C1 web-host-cef. The spike binary becomes the CEF engine host:
       (2026-11-23 "No tabs yet": one page only; no new-tab/close-tab; popups load in the same page;
       this overrides the tab parts below.)
+      (2026-11-23, for C3: also `reload hard` (bypass the cache, `:refresh hard`) and
+      `load-error <id> <code> <text>` for network failures the status bar must show.)
       - take the CEF DownloadHandler from branch web/w5-streaming (closed #662, src/download.rs):
         CEF refuses every download without one. (W5's Range `skip` fix belonged to W3's handler and
         goes with it. If C1 keeps any ResourceRequestHandler, keep the `on_before_resource_load`
