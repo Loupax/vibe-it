@@ -26,6 +26,34 @@ use crate::state::State;
 /// evdev's middle button.
 const BTN_MIDDLE: u32 = 0x112;
 
+/// C-NORMALMODS (KEYS.md T92): what to do with the page's modifier state around a pointer button.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum ClickMods {
+    /// Nothing: in INPUT the page already has the desktop's modifiers; in NORMAL none are held.
+    Nothing,
+    /// NORMAL press with a modifier held: tell the page the held modifiers just before the press.
+    Send,
+    /// The release of a button whose press sent them: put the page's modifiers back
+    /// (unmodified in NORMAL, the desktop's in INPUT).
+    Restore,
+}
+
+/// Pure decision for a button event. `input`: the key mode is INPUT; `held`: the seat has a modifier held;
+/// `outstanding`: buttons pressed with `Send` and not yet released.
+pub fn click_mods(input: bool, pressed: bool, held: bool, outstanding: u32) -> ClickMods {
+    if pressed {
+        if !input && held {
+            ClickMods::Send
+        } else {
+            ClickMods::Nothing
+        }
+    } else if outstanding > 0 {
+        ClickMods::Restore
+    } else {
+        ClickMods::Nothing
+    }
+}
+
 impl State {
     /// The surface under a point of the shell window, and that surface's origin.
     /// Popups and dialogs come before the page; the bar strip has no surface.
@@ -35,6 +63,17 @@ impl State {
                 .surface_under(pos - loc.to_f64(), WindowSurfaceType::ALL)
                 .map(|(s, p)| (s, (p + loc).to_f64()))
         })
+    }
+
+    /// Tells the page (the keyboard focus) a modifier state; the seat's own state is untouched.
+    fn page_modifiers(&mut self, mods: smithay::input::keyboard::ModifiersState) {
+        use smithay::input::keyboard::KeyboardTarget;
+        let Some(keyboard) = self.seat.get_keyboard() else { return };
+        if let Some(focus) = keyboard.current_focus() {
+            let serial = SERIAL_COUNTER.next_serial();
+            let seat = self.seat.clone();
+            focus.modifiers(&seat, self, mods, serial);
+        }
     }
 
     pub fn process_input<B: InputBackend>(&mut self, event: InputEvent<B>) {
@@ -109,6 +148,20 @@ impl State {
                         keyboard.set_focus(self, w.toplevel().map(|t| t.wl_surface().clone()), serial);
                     }
                 }
+                // C-NORMALMODS (T92): a click in NORMAL carries the modifiers held; NORMAL's keys stay unmodified.
+                let keyboard = self.seat.get_keyboard().unwrap();
+                let ms = keyboard.modifier_state();
+                let held = ms.ctrl || ms.shift || ms.alt || ms.logo;
+                let input = self.keys.key_mode == crate::keys::KeyMode::Input;
+                let action = click_mods(input, state == ButtonState::Pressed, held, self.click_mods_out);
+                match action {
+                    ClickMods::Send => self.click_mods_out += 1,
+                    ClickMods::Restore => self.click_mods_out -= 1,
+                    ClickMods::Nothing => {}
+                }
+                if action == ClickMods::Send {
+                    self.page_modifiers(ms);
+                }
                 pointer.button(
                     self,
                     &ButtonEvent {
@@ -119,6 +172,14 @@ impl State {
                     },
                 );
                 pointer.frame(self);
+                if action == ClickMods::Restore {
+                    let restore = if self.keys.key_mode == crate::keys::KeyMode::Input {
+                        keyboard.modifier_state()
+                    } else {
+                        smithay::input::keyboard::ModifiersState::default()
+                    };
+                    self.page_modifiers(restore);
+                }
             }
             InputEvent::PointerAxis { event } => {
                 let source = event.source();

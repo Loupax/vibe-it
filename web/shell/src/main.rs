@@ -319,6 +319,7 @@ fn main() {
         bar: statusbar::Bar::new(),
         pick_overlay: picker::Overlay::new(),
         swallowed_button: None,
+        click_mods_out: 0,
         keys: keys::Keys::new(Some(state_dir.clone()), help_url, Some(sink)),
         history: history::History::open(Some(state_dir.clone())),
         visits: Default::default(),
