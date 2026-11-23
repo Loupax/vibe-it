@@ -109,7 +109,7 @@ never forwarded upstream. Without them wire behaves as a plain proxy.
 | Header | Direction | Meaning |
 | --- | --- | --- |
 | `X-Wire-Policy: public-only` | request | refuse non-public targets and `file:` (403) |
-| `X-Wire-Max-Bytes`, `X-Wire-Timeout-Ms`, `X-Wire-Max-Redirects` | request | per-request caps |
+| `X-Wire-Max-Bytes`, `X-Wire-Timeout-Ms`, `X-Wire-Max-Redirects` | request | per-request caps; `X-Wire-Max-Redirects: 0` answers a 3xx as it is (the client follows it) on the shared, pooled no-follow agent (W3) |
 | `X-Wire-Jar: scratchy` | request | use the cookie jar |
 | `X-Wire-Top-Site`, `X-Wire-Nav`, `X-Wire-Initiator-Site` | request | cookie partition and SameSite context |
 | `X-Wire-Cookie-Op`, `X-Wire-Cookie-Url` | request | the `document.cookie` control channel |

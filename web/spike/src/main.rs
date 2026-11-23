@@ -1,10 +1,17 @@
-//! web spike W1: one CEF window that loads one URL. No request interception yet.
+//! web spike: one CEF window that loads one URL. Since W3 every http(s) request
+//! is answered from wire's Unix socket (`WEB_SPIKE_WIRE`, see handler.rs).
 //!
 //! The same binary is the browser process and every CEF helper process
 //! (renderer, GPU, network, ...): CEF re-executes it with `--type=<kind>` and
 //! `execute_process` runs the helper and returns its exit code.
 //!
 //! Usage: web-spike --url=<url> (run it through run.sh; it needs WEB_SPIKE_PROFILE).
+//! Env: WEB_SPIKE_WIRE=<wire socket path> answers http(s) from wire;
+//! WEB_SPIKE_DUMP=1 logs the main frame's URL, document.cookie and text on load end;
+//! WEB_SPIKE_REPORT_MS=<ms> logs the request counters that long after start;
+//! WEB_SPIKE_JS=<code> runs in the main frame on every load end (spike checks);
+//! WEB_SPIKE_LOG_REQUESTS=1 logs every request CEF asks about; WEB_SPIKE_LOG_HEADERS=1
+//! the header names (no values) of every request sent to wire.
 
 use cef::*;
 use std::cell::RefCell;
@@ -23,8 +30,11 @@ fn ms() -> u128 {
 }
 
 macro_rules! log {
-    ($($a:tt)*) => { eprintln!("[web-spike +{}ms] {}", ms(), format!($($a)*)) };
+    ($($a:tt)*) => { eprintln!("[web-spike +{}ms] {}", crate::ms(), format!($($a)*)) };
 }
+
+mod handler;
+mod wire;
 
 /// Turns what the user typed into a URL CEF can load: no scheme means https.
 fn normalize_url(input: &str) -> String {
@@ -111,6 +121,9 @@ wrap_client! {
         fn load_handler(&self) -> Option<LoadHandler> {
             Some(SpikeLoadHandler::new())
         }
+        fn request_handler(&self) -> Option<RequestHandler> {
+            Some(handler::SpikeRequestHandler::new())
+        }
     }
 }
 
@@ -170,6 +183,14 @@ wrap_load_handler! {
             let Some(frame) = frame else { return };
             if frame.is_main() != 0 {
                 log!("load end: {} (HTTP {status})", CefString::from(&frame.url()));
+                log!("{}", handler::counters());
+                if std::env::var_os("WEB_SPIKE_DUMP").is_some() {
+                    let js = "console.log('DUMP url=' + location.href + ' cookie=' + JSON.stringify(document.cookie) + ' text=' + JSON.stringify((document.body ? document.body.innerText : '').slice(0, 600)))";
+                    frame.execute_java_script(Some(&CefString::from(js)), None, 0);
+                }
+                if let Ok(js) = std::env::var("WEB_SPIKE_JS") {
+                    frame.execute_java_script(Some(&CefString::from(js.as_str())), None, 0);
+                }
             }
         }
 
@@ -247,6 +268,18 @@ fn main() {
         std::process::exit(2)
     });
     log!("browser process pid {}, profile {profile}", std::process::id());
+    let wire = std::env::var("WEB_SPIKE_WIRE").ok().filter(|s| !s.is_empty());
+    match &wire {
+        Some(s) => log!("answering http(s) from wire at {s}"),
+        None => log!("WEB_SPIKE_WIRE unset: no interception (requests fail inside the namespace)"),
+    }
+    handler::WIRE_SOCKET.get_or_init(|| wire);
+    if let Some(ms) = std::env::var("WEB_SPIKE_REPORT_MS").ok().and_then(|v| v.parse::<u64>().ok()) {
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(ms));
+            log!("report: {}", handler::counters());
+        });
+    }
 
     let settings = Settings {
         // Chromium's own Linux sandbox (user namespaces); the `sandbox` cargo
@@ -267,7 +300,7 @@ fn main() {
     assert_eq!(ok, 1, "cef initialize failed");
     run_message_loop();
     shutdown();
-    log!("shutdown");
+    log!("shutdown; {}", handler::counters());
 }
 
 #[cfg(test)]

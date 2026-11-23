@@ -56,3 +56,18 @@ uid 0 and Chromium then refuses to start without `--no-sandbox`, hence the uid-p
 Chromium's sandbox stays ON. example.com and en.wikipedia.org fail with
 `ERR_INTERNET_DISCONNECTED` ~100-200 ms after the browser is created, nothing crashes, the
 window shows (Wayland and X11, nested dwl). README.md has the evidence and findings.
+
+## W3 Answer requests from wire (2026-11-23)
+
+> W3 Answer requests from wire (coordinator launch of web/TODO.txt W3)
+
+**What changed:** the spike's client now has a `RequestHandler`: every http(s) request
+gets a `ResourceHandler` that sends it to wire's Unix socket (`WEB_SPIKE_WIRE`, passed by
+`run.sh`) and streams the answer back (one thread per request, async `read`).
+Chromium follows redirects itself (`X-Wire-Max-Redirects: 0`) and owns cookies (no
+`X-Wire-Jar`); wire errors map to Chromium network errors; Blob/File/stream uploads,
+which CEF does not expose, fail instead of being sent empty. wire: `X-Wire-Max-Redirects: 0`
+uses the shared no-follow agents, so connections are reused (was one TLS handshake per
+request). example.com and en.wikipedia.org load inside the namespace; wire's log has every
+request (2/2 and 48/48). Findings (Chromium's HTTP cache stores nothing, bypass paths in
+a net log, load times, upload gap) in spike/README.md.

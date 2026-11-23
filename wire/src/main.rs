@@ -1333,6 +1333,10 @@ fn send_upstream(agent: &ureq::Agent, shared: &Shared, request: &ParsedRequest, 
     // non-default limit pays for its own agent (and loses connection reuse).
     let own_agent;
     let agent = match caps.max_redirects {
+        // A client that follows redirects itself (web's CEF handler, W3) sends 0
+        // on every request: the shared no-follow agents keep connection reuse.
+        Some(0) if caps.public_only => &shared.public_manual_agent,
+        Some(0) => &shared.manual_agent,
         Some(n) if n != DEFAULT_REDIRECTS => {
             own_agent = agent_builder().redirects(n).build();
             &own_agent
@@ -3088,3 +3092,5 @@ mod cache_tests;
 mod pool_tests;
 #[cfg(test)]
 mod w_hdr1_tests;
+#[cfg(test)]
+mod no_follow_tests;
