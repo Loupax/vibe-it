@@ -309,12 +309,12 @@ impl State {
                 }
             }
             Event::EditableFocused { focused: true, .. } => {
-                // T29 (a click into a text field) switches to INPUT; T32 (the page's own
-                // focus(), autofocus) does not.
-                if crate::keys::click_recent(self.last_click, Instant::now()) {
-                    self.log("editable focused after a click: INPUT");
-                    self.keys.user_focused_control();
+                // T29/T32 (user, 2026-11-23): an editable element gaining focus, whatever caused
+                // it, switches to INPUT. A blur (`focused: false`) never changes the mode.
+                if self.keys.key_mode != crate::keys::KeyMode::Input {
+                    self.log("editable focused: INPUT");
                 }
+                self.keys.user_focused_control();
             }
             Event::Crashed { ref reason, .. } => {
                 self.keys.message = format!("web: the page crashed ({reason}); :refresh loads it again");
@@ -532,9 +532,11 @@ impl XdgShellHandler for State {
     fn new_popup(&mut self, surface: PopupSurface, _positioner: PositionerState) {
         // T29: a popup right after a click is a <select>'s menu (or a context menu): its
         // keys must reach the page, so INPUT.
-        if crate::keys::click_recent(self.last_click, Instant::now()) && self.keys.key_mode != crate::keys::KeyMode::Input {
+        let after_click = crate::keys::click_recent(self.last_click, Instant::now());
+        let was = self.keys.key_mode;
+        self.keys.popup_opened(after_click);
+        if self.keys.key_mode != was {
             self.log("popup after a click: INPUT");
-            self.keys.user_focused_control();
         }
         self.unconstrain_popup(&surface);
         let g = surface.with_pending_state(|s| s.geometry);
@@ -624,6 +626,11 @@ impl XdgShellHandler for State {
 
     fn popup_destroyed(&mut self, _surface: PopupSurface) {
         self.log("popup closed");
+        let was = self.keys.key_mode;
+        self.keys.popup_closed();
+        if self.keys.key_mode != was {
+            self.log("popup closed: back to the mode before the click");
+        }
         self.redraw();
     }
 }

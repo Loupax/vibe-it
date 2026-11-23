@@ -315,7 +315,7 @@ pub struct SearchState {
 pub const NOT_YET_PASTE: &str = "web: paste needs the clipboard, not built yet (web/TODO.txt C6)";
 
 /// Whether a mouse press at `click` was recent enough at `now` for a focus change to count
-/// as the user's (T29) rather than the page's own (T32).
+/// as the user's click: a popup after it is the click's (T29, T57), later ones are the page's own.
 pub fn click_recent(click: Option<Instant>, now: Instant) -> bool {
     click.is_some_and(|t| now.saturating_duration_since(t) <= Duration::from_millis(CLICK_FOCUS_MS))
 }
@@ -381,6 +381,11 @@ pub struct Keys {
     held: Vec<(u32, u32)>,
     /// What the compositor must do next (drained by it).
     pub effects: Vec<Effect>,
+    /// xdg_popups currently open (a submenu counts too): a popup session ends when the last closes.
+    open_popups: usize,
+    /// T57: the mode the user's click left behind when its popup switched to INPUT; restored when the
+    /// popup session ends, unless the click focused a field (`user_focused_control`).
+    popup_return: Option<KeyMode>,
 }
 
 impl Keys {
@@ -390,6 +395,8 @@ impl Keys {
             vim_mode: VimMode::Normal,
             esc: EscState::Idle,
             pending_seq: None,
+            open_popups: 0,
+            popup_return: None,
             line: TextEditBuffer::default(),
             ghost: None,
             cache: CompleteCache::new(state_dir.clone()),
@@ -507,8 +514,40 @@ impl Keys {
 
     /// T29: the user clicked into a text field or select: INPUT (an open line is cancelled).
     pub fn user_focused_control(&mut self) {
+        // The click focused a field: the popup (a context menu on it) no longer returns the mode.
+        self.popup_return = None;
         if self.key_mode != KeyMode::Input {
             self.set_key_mode(KeyMode::Input);
+        }
+    }
+
+    /// A new xdg_popup. `after_click`: a user mouse press just before it. T29 + T57: the first
+    /// popup of a session opened by a click switches to INPUT and remembers the mode to return to.
+    /// Nested popups (submenus) join the running session; a popup without a click changes nothing.
+    pub fn popup_opened(&mut self, after_click: bool) {
+        if self.open_popups == 0 && after_click && self.key_mode != KeyMode::Input {
+            self.popup_return = Some(self.key_mode);
+            self.user_focused_control_keep_return();
+        }
+        self.open_popups += 1;
+    }
+
+    fn user_focused_control_keep_return(&mut self) {
+        let keep = self.popup_return;
+        self.user_focused_control();
+        self.popup_return = keep;
+    }
+
+    /// An xdg_popup closed (picked, Esc, click outside). T57: the last one of a session returns to the
+    /// mode from before the click, if still in INPUT.
+    pub fn popup_closed(&mut self) {
+        self.open_popups = self.open_popups.saturating_sub(1);
+        if self.open_popups == 0 {
+            if let Some(mode) = self.popup_return.take() {
+                if self.key_mode == KeyMode::Input {
+                    self.set_key_mode(mode);
+                }
+            }
         }
     }
 

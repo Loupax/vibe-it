@@ -399,3 +399,10 @@ says no for `com.widevine.alpha` even after 130 s with all background traffic on
 was already off; the switches lose nothing there. drive.py: host-list check, `--idle`,
 `--host-arg`, `--headless`; fwd_proxy.py logs tunnel opens (unit tests for the log parser
 caught a field-offset bug in my first version).
+## C3-RCLICK popups return to the previous mode (2026-11-23)
+
+> C3-RCLICK: a popup opened by a user click (context menu, select dropdown) switches to INPUT as today; when that popup closes the shell returns to the mode it had before the click, unless the host reported `editable-focused true` for that click. Nested popups count as one session. New KEYS.md row, unit test, help.html, live check in the headless nest.
+> Scope addition (user, via coordinator): "when input elements gain focus, we should automatically switch to Input Mode. No auto-return on blur since the exit of the form context isn't that clear." So `editable-focused true` always switches to INPUT (reverses T32); a blur never changes the mode.
+> Later note (coordinator): the user is removing the context menu (C-NOMENU), so the live check uses <select> popups.
+
+**What changed:** web/shell: `Keys::popup_opened`/`popup_closed` (T57, `popup_return`, an open-popup counter for nested sessions) called from `new_popup`/`popup_destroyed`; `editable-focused true` always calls `user_focused_control` (T29/T32, no click window; it also cancels a pending return); KEYS.md T29/T32 rewritten, T57 and decision-log entry added; help.html updated; tests in `tests/c3_rclick_tests.rs` and a rewritten T32 test; live check `test/c3_rclick_live.py` (select Esc / outside / option, page popup without a click, autofocus, timer focus(), blur; 8 steps, plus right-click link menu and field menu cases seen passing before C-NOMENU). `c3_live.py`: T29/T32 steps updated; its steps after "T7 T8" were already stale on main (C5 made `/` a search) and are not fixed here.

@@ -1,0 +1,20 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>rclick ready</title>
+<style>
+  body { margin: 0; font: 20px sans-serif; background: #eef; }
+  .box { position: absolute; left: 40px; width: 300px; height: 40px; font-size: 20px; }
+  #lnk { top: 40px; } #f { top: 120px; } #sel { top: 200px; } #later { top: 280px; }
+</style>
+<a id="lnk" class="box" href="/second.html">a link</a>
+<input id="f" class="box" value="text field">
+<select id="sel" class="box"><option>option a</option><option>option b</option><option>option c</option></select>
+<a id="go" class="box" style="top:360px" href="/focus.html">go to the autofocus page</a>
+<button id="later" class="box">open the select from a script in 1.5 s</button>
+<script>
+  // T32: a popup the page opens without a click of its own (the click was 1.5 s ago).
+  document.getElementById("later").addEventListener("click", () => setTimeout(() => {
+    try { document.getElementById("sel").showPicker(); } catch (e) { document.title = "rclick showPicker failed " + e; }
+  }, 1500));
+  document.getElementById("sel").onchange = e => { document.title = "rclick select:" + e.target.selectedIndex; };
+</script>

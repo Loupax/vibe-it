@@ -1,0 +1,17 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>focus ready</title>
+<style>
+  body { margin: 0; font: 20px sans-serif; background: #efe; }
+  .box { position: absolute; left: 40px; width: 300px; height: 40px; font-size: 20px; }
+  #a { top: 40px; } #b { top: 120px; } #later { top: 200px; } #blur { top: 280px; }
+</style>
+<input id="a" class="box" autofocus value="autofocus field">
+<input id="b" class="box" value="second field">
+<button id="later" class="box">focus the second field in 2 s</button>
+<button id="blur" class="box">blur the field now</button>
+<script>
+  // T32: focus by the page itself (autofocus, focus() from a timer) switches to INPUT; a blur does not switch back.
+  document.getElementById("later").addEventListener("click", () => setTimeout(() => document.getElementById("b").focus(), 2000));
+  document.getElementById("blur").addEventListener("click", () => { document.activeElement.blur(); document.title = "focus blurred"; });
+</script>

@@ -157,7 +157,7 @@ pub const RIGHT: usize = 7;
 /// Ctrl-d / Ctrl-u scroll a page (`PAGE_DOWN`/`PAGE_UP`); for half a page put e.g.
 /// `ScrollInput::Wheel(5)` in a row of its own and bind Ctrl-d to it.
 /// Note: a key goes to whatever has focus in the page, so `j` in NORMAL moves the caret
-/// of a text field the page focused itself (T32); `Wheel` rows do not.
+/// of a text field (T29/T32: focus switches to INPUT, so rarely); `Wheel` rows do not.
 pub const SCROLL_INPUTS: &[ScrollInput] = &[
     ScrollInput::Key(evdev::KEY_DOWN),     // DOWN
     ScrollInput::Key(evdev::KEY_UP),       // UP
@@ -179,8 +179,8 @@ pub const ESC_ESC_MS: u64 = 300;
 /// Navigations keep the current mode; a click into a text control still switches to INPUT.
 pub const START_MODE: KeyMode = KeyMode::Normal;
 
-/// T29: the host's `editable-focused true` (or a new popup: a `<select>` menu) switches to
-/// INPUT only this many ms after a mouse button press; later it was the page's own script (T32).
+/// T29: a new popup (a `<select>` menu, a context menu) switches to INPUT only this many ms
+/// after a mouse button press; later it was the page's own script and changes nothing.
 pub const CLICK_FOCUS_MS: u64 = 1000;
 
 // ---------- status bar ----------
