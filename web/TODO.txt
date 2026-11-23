@@ -1,0 +1,59 @@
+web — TODO
+
+The CEF + wire spike. A throwaway Rust program: one CEF window, every http(s)
+request answered through wire, the whole CEF process tree in an empty network
+namespace. Proposed time box: two weeks. Each step ends with a check, so the
+spike can stop early on a hard failure. Decisions: DECISIONS.md.
+
+- [ ] W1 Bare CEF window. A Rust binary with the `cef` crate opens one window and
+      loads a URL, no interception yet.
+      Done when: a site loads on Linux (X11 and Wayland).
+- [ ] W2 Empty network namespace. Launch under `unshare -rn` (or bubblewrap
+      `--unshare-net`).
+      Done when: the same site fails to load and nothing else in CEF crashes.
+- [ ] W3 Answer requests from wire. A `CefResourceRequestHandler` sends each
+      http(s) request to wire's socket and streams the response back through
+      `CefResourceHandler`.
+      Done when: the site loads again inside the namespace and wire's log shows
+      every request.
+- [ ] W4 Cookies in Chromium. Requests go without `X-Wire-Jar`; `Set-Cookie`
+      reaches CEF.
+      Done when: logging in to a real site works and survives a restart of the
+      spike, with wire's jar unused.
+- [ ] W5 Streaming and large bodies: video byte ranges (`Range`/`206` passed
+      through), a download over 100 MB, a long-poll request.
+      Done when: a video seeks without stalling and the download finishes without
+      hitting wire's body caps.
+- [ ] W6 Paths that bypass the handler. Switches for QUIC, DNS prefetch,
+      preconnect; check WebSockets (try an HTTP proxy setting that forwards
+      CONNECT to wire's upgrade pipe) and service-worker fetches.
+      Done when: each path is routed, switched off, or listed as a known loss.
+- [ ] W7 A day of browsing. Use the spike as the only browser for one working day
+      and compare against stock Chrome: mail/calendar/docs, banking with 2FA,
+      video (play, seek, quality, fullscreen), chat over WebSockets, video calls
+      (expected to fail), code hosting with a passkey, heavy news/shop pages.
+      For each problem record: URL and what broke, whether stock Chrome breaks too,
+      wire's log for that load and any request that never reached wire, and the
+      cause (engine, interception gap, wire, or namespace).
+
+Open questions (answer during the spike):
+- [ ] Does Chromium's HTTP cache store handler-served responses, or does wire's
+      cache do all the work?
+- [ ] Which wire policy checks still make sense when Chromium enforces CORS and
+      mixed content?
+- [ ] Does wire's body cap need a per-request off switch for downloads and video?
+
+Go if: every test-plan site works as in stock Chrome apart from listed known
+losses; no request reached the network except through wire; WebSockets work
+through wire or have a concrete plan; the wire changes fit its design
+(transport, policy, cache; no engine-specific code).
+No-go if a daily-use site breaks only because of the namespace or the
+interception, with no fix in sight; then loosen the contract (e.g. allow WebRTC
+outside wire) and decide again.
+
+After a go:
+- [ ] Archive scratchy's engine on a branch (do not delete it).
+- [ ] Port the shell from scratchy: keys (KEYS.md), command line and completion,
+      history, stash, forget, config, help.
+- [ ] Document the browser's wire contract (cookies in Chromium, namespace
+      enforcement) in a NETWORKING.md here.

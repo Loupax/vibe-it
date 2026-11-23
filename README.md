@@ -9,7 +9,10 @@ verbatim in that project's `PROMPTS.md`, in order.
 
 ## Projects
 
-- [`scratchy/`](scratchy/) — a web browser built from composed, focused Rust
+- [`web/`](web/) — a keyboard-driven daily-driver browser on Chromium (CEF) that
+  keeps wire as its only network path. Planning only so far; see
+  [`web/TODO.txt`](web/TODO.txt) for the spike.
+- [`scratchy/`](scratchy/) — **paused 2026-11-23 in favour of `web/`.** A web browser built from composed, focused Rust
   crates (own HTML/CSS parsing, layout, and rendering) rather than an existing
   browser engine. It runs page JavaScript (V8) with a DOM, timers, ES
   modules, and `fetch`/XHR/`sendBeacon`. Video/audio play through libmpv when it is installed.
