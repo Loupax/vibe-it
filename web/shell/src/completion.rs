@@ -206,7 +206,7 @@ impl CompleteCache {
 }
 
 /// `url` without `https://`/`http://` and then `www.`: what typed words are compared with.
-fn strip_scheme_www(url: &str) -> &str {
+pub fn strip_scheme_www(url: &str) -> &str {
     let rest = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://")).unwrap_or(url);
     rest.strip_prefix("www.").unwrap_or(rest)
 }
@@ -274,6 +274,19 @@ pub fn complete_history_urls(ctx: &CompleteCtx) -> Vec<String> {
         }
     }
     out
+}
+
+/// C3-GOHTTP: the history URL (first in ghost order) that `word` equals once both lose their
+/// scheme and `www.`: that entry's scheme (`http://` or `https://`) for `:go` to put before the
+/// word, instead of assuming `https://`. The host is the word's own (typed `google`, visited
+/// `https://www.google.com/`: `https://google.com/`, as before).
+pub fn history_scheme_for(cache: &CompleteCache, word: &str) -> Option<&'static str> {
+    let typed = strip_scheme_www(word);
+    cache
+        .history()
+        .iter()
+        .find(|e| strip_scheme_www(&e.url) == typed)
+        .map(|e| if e.url.starts_with("http://") { "http://" } else { "https://" })
 }
 
 /// A live ghost: the candidates for the word that starts at `word_start` (each one a full word

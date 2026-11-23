@@ -245,8 +245,11 @@ set per command, like bash's `complete`:
   T53). The commands are `:go`, `:refresh [hard]`, `:historyBack`, `:historyFront`, `:help`,
   `:let`, `:set`, `:q`/`:quit`.
   `:go` without a scheme means `https://` (scratchy's QCOMP6); the ghost still continues
-  exactly what was typed, so a ghost taken from an `http://` history entry typed without
-  its scheme runs as `https://`.
+  exactly what was typed. C3-GOHTTP: when the run line's URL (typed + accepted ghost) equals
+  a history entry's URL with `https://`/`http://` and `www.` stripped, `:go` puts that
+  entry's own scheme before the word, so a ghost taken from an `http://` entry typed without its scheme stays
+  `http://` (`:go 127` Tab Enter -> `http://127.0.0.1:8000/`). A typed `http://`/`https://`
+  always wins; with no history match `https://` is assumed.
 - **An external source** is run with no shell (argv as written) and gets the context
   in its environment, like bash's `COMP_LINE`: `SCRATCHY_LINE` (the whole line),
   `SCRATCHY_WORD` (the word being completed), `SCRATCHY_ARG` (its index, 1 = first

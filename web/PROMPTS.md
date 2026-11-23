@@ -582,3 +582,9 @@ Mechanism: `Keys::release_all` (focus-out) returns the keys the page has pressed
 > (coordinator, from #695) live.py, c3_live, c3_rclick_live and c_enter_live read the window size 0.5 s after the first `page window is` line, before dwl had tiled the shell, as c6_live did before its fix: move c6_live's settled-size wait into a shared helper and use it in every live check. Also `cargo fmt` on web/host-cef/src/protocol.rs (separate commit).
 
 New `shell/test/livelib.py`: `settle(log, shot)` waits for the first page window, `shell window focused: true`, then until the latest `window WxH, page ..width/height` fits the output and equals the latest `page window is`, and that the size holds 0.2 s; it returns `Geo(ww, wh, ow, oh, bx, by, scale)` (logical; the output size is the grim shot over the nest's scale) or fails naming the window lines seen. Used by live.py, c3_live, c3_rclick_live, c5_live, c_enter_live, c6_live, c6b_live and forget_live (single_live reads no size and clicks nothing). The only `i` presses left are c3_live's T6 tests of `i` itself; no fallback hides a missed click (c6_live's into_field fails with a screenshot path).
+
+
+## 2026-11-23 C3-GOHTTP (`:go` ghost from an http:// history entry keeps http)
+> (coordinator) A `:go` ghost taken from an http:// history entry typed without its scheme (`:go 127` Tab Enter) runs as https://, which fails on plain-http sites. Fix: when the run line's URL equals a history candidate's URL with scheme and www. stripped, run that candidate's own URL; otherwise assume https://. Typed schemes win.
+
+Done in `keys.rs` (`:go` dispatch) with `completion::history_scheme_for` (first history entry in ghost order whose stripped URL equals the stripped word). Tests in `tests/completion_tests.rs` (`keys_t50_t53_go_http_...`, `keys_t50_go_https...`, `..._typed_scheme_wins`, `..._assumes_https`). KEYS.md note updated. No live check (pure logic).

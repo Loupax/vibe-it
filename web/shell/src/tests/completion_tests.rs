@@ -463,3 +463,64 @@ fn external_source_runs_once_per_line_and_position_and_is_killed_when_too_slow()
     assert!(t0.elapsed() < Duration::from_secs(5));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ---------- C3-GOHTTP: `:go` runs a history URL with its own scheme ----------
+
+fn go_run(lines: &[(u64, &str)], tag: &str, typed: &str, tab: bool) -> Option<String> {
+    let dir = history_dir(tag, lines);
+    let mut k = line_with(Some(dir.clone()));
+    type_line(&mut k, typed);
+    if tab {
+        named(&mut k, Keysym::Tab);
+    }
+    named(&mut k, Keysym::Return);
+    let r = opened(&mut k);
+    let _ = std::fs::remove_dir_all(&dir);
+    r
+}
+
+#[test]
+fn keys_t50_t53_go_http_history_entry_completed_and_run_keeps_http() {
+    let h = [(1, "http://127.0.0.1:8000/")];
+    assert_eq!(go_run(&h, "gh1", "go 127", true).as_deref(), Some("http://127.0.0.1:8000/"), "Tab, Enter");
+    assert_eq!(go_run(&h, "gh2", "go 127", false).as_deref(), Some("http://127.0.0.1:8000/"), "Enter with the ghost");
+    assert_eq!(
+        go_run(&[(1, "http://www.plain.test/")], "gh3", "go plain", false).as_deref(),
+        Some("http://plain.test/")
+    );
+}
+
+#[test]
+fn keys_t50_go_https_history_entry_keeps_https() {
+    let h = [(1, "https://www.google.com/")];
+    assert_eq!(go_run(&h, "gh4", "go goo", true).as_deref(), Some("https://google.com/"));
+}
+
+#[test]
+fn keys_t50_go_a_typed_scheme_wins() {
+    let h = [(1, "http://127.0.0.1:8000/"), (2, "https://127.0.0.1:8000/")];
+    assert_eq!(go_run(&h, "gh5", "go http://127", false).as_deref(), Some("http://127.0.0.1:8000/"));
+    assert_eq!(go_run(&h, "gh6", "go https://127", false).as_deref(), Some("https://127.0.0.1:8000/"));
+    // Ghost deleted: what was typed runs, scheme-less words included.
+    let dir = history_dir("gh7", &h);
+    let mut k = line_with(Some(dir.clone()));
+    type_line(&mut k, "go http://x");
+    named(&mut k, Keysym::Delete);
+    named(&mut k, Keysym::Return);
+    assert_eq!(opened(&mut k).as_deref(), Some("http://x"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn keys_t50_go_without_a_history_match_assumes_https() {
+    assert_eq!(go_run(&[], "gh8", "go example.com", false).as_deref(), Some("https://example.com"));
+    let h = [(1, "http://127.0.0.1:8000/")];
+    // typed word is not the whole stripped URL (ghost deleted): no history match, https
+    let dir = history_dir("gh9", &h);
+    let mut k = line_with(Some(dir.clone()));
+    type_line(&mut k, "go 127");
+    named(&mut k, Keysym::Delete);
+    named(&mut k, Keysym::Return);
+    assert_eq!(opened(&mut k).as_deref(), Some("https://127"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
