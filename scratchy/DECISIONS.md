@@ -24,6 +24,9 @@ their section with the date.
 - **2026-11-22 No GitHub Support purge of the cached PR refs.** The scratch files still reachable
   through PR #496/#498 refs were checked: test logs, a throwaway wire binary and its dead
   socket token, logged-out screenshots of public pages. Nothing personal; leave them.
+- **2026-11-23 CI runs only what a change touches** (user): a `changes` job picks the jobs by path
+  (wire changes also run scratchy and its WPT shards; `.github/` runs everything; web/, wire2/,
+  coordinator/ and root docs run nothing). Skipped checks count as passing for merge_pr.sh.
 - **2026-11-23 merge_pr.sh docs-only fast path** (user): a PR whose whole diff touches only `*.md` and
   `TODO*.txt` files merges right after the rebase push, without waiting for CI. Main's CI still runs on
   the merge commit.
