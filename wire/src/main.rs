@@ -1613,7 +1613,12 @@ fn stream_response(resp: ureq::Response, caps: &Caps, w: &mut impl Write, final_
     }
     // W-MEDIA2: the whole body is in hand before any header is written, so a
     // read error can still be reported as an error instead of a short 2xx.
-    if BODY_INFO.with(|b| b.get().truncated) {
+    // Only when the cut is certain: a read error with fewer bytes than the
+    // upstream's Content-Length. A read error without a known length (bad
+    // gzip, a chunked trailer that fails after the data) keeps passing what
+    // arrived through, as before: scratchy's WPT fetch/xhr tests rely on it.
+    let info = BODY_INFO.with(Cell::get);
+    if info.truncated && info.announced.is_some_and(|n| (buf.len() as u64) < n) {
         return write_truncated(w, buf.len());
     }
     write_status_and_headers(w, status, &reason, &headers)?;

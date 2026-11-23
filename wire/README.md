@@ -146,8 +146,11 @@ end. What a client can rely on:
   fewer than N bytes got a truncated body. If it is absent (chunked upstream,
   gzip undone, no `Content-Length`) a truncation cannot be detected.
 - Buffered path (`X-Wire-Max-Bytes`): the whole body is read before any header
-  is written, so a read error is answered `502` + `X-Wire-Error: truncated`
-  instead of a short 2xx.
+  is written, so a read error that leaves fewer bytes than the upstream's
+  `Content-Length` is answered `502` + `X-Wire-Error: truncated` instead of a
+  short 2xx. A read error with no known length (gzip undone, chunked) still
+  passes the bytes that arrived, as before (scratchy's WPT fetch/xhr tests
+  depend on it).
 - Timeout: the default is 20 s for the whole request including the body, so a
   long download is cut at 20 s. A client raises it per request with
   `X-Wire-Timeout-Ms: <ms>` (it replaces the default for that request; a
