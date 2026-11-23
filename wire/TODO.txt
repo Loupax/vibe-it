@@ -208,6 +208,13 @@ the commit it came up during.
       have received the body. Test with a loopback server that closes after each response: 1000 POSTs, 0 failures; and
       a test that a POST whose body was read by the server is NOT retried.
 
+- [ ] **W-POOL4 [S] NEEDS THE USER'S DECISION: retry a non-idempotent request after a clean close (EOF) on a reused
+      connection?** (from W-POOL3 #634). W-POOL3 retries only on RST/EPIPE (the server never read the request). A
+      clean FIN before any response is indistinguishable from "server read the whole body, then closed", so retrying
+      it could send a POST twice; W-POOL3 measured ~1 failure per 1000 POSTs left from that case. Chromium retries it
+      (reused socket, no response bytes yet). Options: keep it safe (rare failed POST, never a duplicate) or retry like
+      Chromium (rare duplicate). Do nothing until the user decides.
+
 - [ ] **W-CACHE3 [S] wire cache v1 gaps** (from W-CACHE1 #605): store redirect/3xx answers (after W-POOL2),
       keep several `Vary` variants per URL, serve stale on upstream errors (`stale-if-error`), update an entry
       from a HEAD or from a 304 answering the client's own conditional, honour `If-Range`.

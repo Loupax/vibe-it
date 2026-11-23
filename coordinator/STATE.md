@@ -402,3 +402,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Merged #633 QCNV8 adac85d.
 - 2026-11-23 #632 QWPTFLK5 READY (not reproducible; flaky-listed; gate lines carry failure messages), merging. Filed + launched W-POOL3 (POST on stale pooled connection).
 - 2026-11-23 Merged #632 QWPTFLK5 cb6c9b0.
+- 2026-11-23 #634 W-POOL3 READY (stale pooled POST retried on RST/EPIPE only; 0/1000 failures), merging. Filed W-POOL4 needing the user's decision (retry on clean EOF?) — on the progress page. request-upload stays flaky (not proven).

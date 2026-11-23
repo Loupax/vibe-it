@@ -293,6 +293,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 <section>
   <h2>Waiting on you</h2>
   <ul id="waiting">
+    <li><b>wire: retry a POST after a clean close? (W-POOL4)</b> W-POOL3 (#634) makes wire retry a request once when a reused connection was reset before the server read it (safe: never duplicates). Left: a clean close (FIN) on a reused connection before any response, ~1 in 1000 POSTs in a stress test; it looks the same as "server read the body and hung up". (1) keep it safe: rare failed POST, never a duplicate (current), or (2) retry like Chromium: fixes the rare failure, rare duplicate POST. Recommendation: (1) for now.</li>
                         <li>Skim <span class="mono">scratchy/DECISIONS.md</span> once and correct anything I misstated.</li>
           </ul>
 </section>
