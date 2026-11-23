@@ -2,6 +2,34 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-23 A picker, bookmarks, buffers as tabs, popups like Chrome
+
+User, in a planning session (no code; PROMPTS.md "Picker, bookmarks, buffers, popups"). Overrides
+"No tabs yet" and, for script popups and target=_blank, C-NOTAB.
+
+- **Picker.** A list the shell draws over the page, above the status bar (the page is not resized),
+  with fuzzy filtering, the same keys in every list (move, Enter runs the row, Esc closes) and a mode
+  of its own. Each source gives rows of a label plus an action. It is for dedicated commands
+  (`:historySearch`, `:bookmarkSearch`, `:bufferList`, `:popupSearch`; context-menu actions are a
+  possible later source, C-CMDS stays parked). It never shows Tab candidates: "No menu" (KEYS.md,
+  2026-11-20) was about `:go`'s completion and stays as it is.
+- **Bookmarks.** A plain file `DIR/bookmarks` (`url<TAB>title`, editable by hand); `:bookmarkAdd`,
+  `:bookmarkDelete [url]`, `:bookmarkSearch`; bookmarks also feed `:go`'s ghost, above history.
+- **Buffers are the tabs.** One engine host holds several pages (the profile lock allows one host).
+  Commands are camelCase with vim aliases (user: "go with b"): `:bufferList`/`:ls`,
+  `:buffer`/`:b` (N or a partial name), `:bufferNext`/`:bn`, `:bufferPrev`/`:bp`, `:bufferKill`/`:bd`,
+  `:bufferDescribe [text]` (no alias); Ctrl-^ for the previous buffer. Ghost completion offers the long
+  names only. A buffer is searched and listed by title, hostname and an optional description the user
+  sets ("keep it minimal": no page content, no snippets). The description stays across navigation and
+  goes with the buffer. Killing the last buffer leaves an empty `about:blank` buffer ("The user doesn't
+  know if the buffer they just killed is the last one"). Ctrl/middle-click on links still open nothing.
+  Not now: searching page contents (maybe a separate feature), restoring buffers after a restart.
+- **Popups follow Chrome** (user: "go with your suggestions"): a `window.open` from a user gesture opens
+  a new buffer with `window.opener` kept (OAuth/payment logins work); one without a gesture is blocked,
+  the status bar says `popup blocked: <url>` (or that it had no URL), and `:popupOpen` (latest) /
+  `:popupSearch` (the buffer's list, cleared when it navigates away) open it in a new buffer. A
+  `target=_blank` link opens a new buffer. Not now: a per-site "always allow popups" list.
+
 ## 2026-11-23 No middle-click paste in the page; GTK stays
 
 User: "didn't know I hade gtk dependencies in the first place. it's ok tho, Drop middle-click paste in the

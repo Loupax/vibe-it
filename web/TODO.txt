@@ -69,10 +69,53 @@ stop early on a hard failure.
       Done when: every KEYS.md row C3 covers has a test (named after the row, as in
       scratchy) and works by hand.
 
-- [ ] C4 Tabs. DEFERRED (user, 2026-11-23: no tabs for now, do not expose tab functionality; maybe
-      later as a vim-style buffers interface, undecided; DECISIONS.md "No tabs yet"). Was: scratchy had one page per window, so
-      tab keys, commands and their status-bar display need a design. The mechanism (one
-      host window per tab, the shell shows one) is C1/C2.
+- [ ] C-PICK [M] (user, 2026-11-23, DECISIONS.md "A picker, bookmarks, buffers as tabs, popups like Chrome")
+      The picker and its first source, `:historySearch`. The shell draws a list over the page above the
+      status bar (no page resize; HiDPI like the bar). New mode PICK with its own KEYS.md rows (KEYS.md
+      "Picker"): typing filters (fuzzy, best first, the same matcher in every list), Ctrl-n/Ctrl-p and
+      Down/Up move, Enter runs the selected row's action and closes, Esc closes; the page gets no keys;
+      a click into the page or an editable focus closes it as T29 does the `:` line. A source gives rows
+      (label, dimmed detail, action). `:historySearch` lists the history (STASH.md) by its ranking,
+      matched on URL and title; Enter opens the URL in the current page. Done when the KEYS.md rows have
+      tests named after them and a live check opens a history entry through the picker.
+
+- [ ] C-BOOKMARKS [S] (after C-PICK; same decision) Bookmarks: `DIR/bookmarks` (STASH.md "Bookmarks"),
+      `:bookmarkAdd` (current page, title from the host; adding a URL twice updates its title),
+      `:bookmarkDelete [url]` (current page; the argument completes from the bookmarks), `:bookmarkSearch`
+      (picker over URL and title; Enter opens). `:go`'s ghost source ranks bookmarks before history.
+      Status-bar messages for each. Done when each command has a test and works live.
+
+- [ ] C4-SPIKE [S] (before C4; can run beside C-PICK) In web-host-cef: (1) several CEF browsers in one
+      host, each its own window paired by `tab-created`, the shell showing one; what a hidden page does
+      (frame callbacks, timers, audio); (2) `OnBeforePopup` letting a gesture popup become a second page of
+      the same host with `window.opener` working (a test page that posts to its opener); whether CEF says
+      if the popup had a user gesture; (3) whether `:popupOpen` can re-run the page's original
+      `window.open(url, name, features)` in the frame that asked (keeping the opener) despite Chromium's own
+      blocker, else it loads the URL fresh. Report only; PROTOCOL.md proposal for C4.
+
+- [ ] C4 Buffers [L] (after C4-SPIKE and C-PICK; replaces the deferred "Tabs", same decision) Several pages
+      in one host; protocol `new-tab [url]`, `close-tab <id>`, `show-tab <id>` (or what C4-SPIKE proposes).
+      Commands (KEYS.md "Buffers"): `:bufferList`/`:ls` (picker: number, title, hostname, description;
+      fuzzy over title, hostname, description), `:buffer N|<partial>`/`:b`, `:bufferNext`/`:bn`,
+      `:bufferPrev`/`:bp`, `:bufferKill`/`:bd`, `:bufferDescribe [text]` (empty clears), Ctrl-^. The ghost
+      offers long names only. The status bar shows the buffer number. Killing the last buffer leaves
+      `about:blank`. Per buffer: URL, title, load state, find session, mode return, description.
+      Which buffer: a second `web <url>` (C-SINGLE) opens a new buffer; `:forget-site` reloads every
+      buffer on the site; `crashed` kills that buffer only. Ctrl/middle-click still open nothing.
+      Done when every new KEYS.md row has a test and a live check walks two buffers through
+      open, switch, describe, search, kill.
+
+- [ ] C-POPUPS [M] (after C4; same decision; reverses C-NOTAB for script popups and target=_blank)
+      `window.open` with a user gesture: a new buffer, switched to, `window.opener` kept; `window.close()`
+      from it kills that buffer. Without a gesture: blocked, status bar `popup blocked: <url>` (or `popup
+      blocked (no URL)`), kept in the buffer's blocked list (cleared when it navigates to another
+      document); `:popupOpen` opens the latest in a new buffer (opener kept if C4-SPIKE (3) works),
+      `:popupSearch` picks from the list. `target=_blank`: a new buffer. Size/position features ignored.
+      Done when a test page's gesture popup posts to its opener, a timer popup is blocked and opens with
+      `:popupOpen`, and a target=_blank link opens a buffer.
+
+- Later, not scheduled (same decision): searching buffer contents; buffers restored after a restart;
+  a per-site "always allow popups" list (if a login breaks); C-CMDS actions as a picker source.
 
 - [x] C5 (DONE 2026-11-23, f7a5cba, #679: / Enter n N, wrap messages, not-found, Esc rules, [i/N], smartcase;
       host find sessions fixed; c5_live.py 12/12) Search (KEYS.md "Search", web notes): `/`, `n`/`N`, Esc, the messages, through
