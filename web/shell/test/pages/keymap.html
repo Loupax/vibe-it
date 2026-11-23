@@ -1,0 +1,19 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>km loading</title>
+<style>
+  body { margin: 0; font: 20px sans-serif; }
+  #t { position: absolute; left: 40px; top: 40px; width: 500px; height: 80px; font-size: 20px; }
+  p { position: absolute; left: 40px; top: 160px; }
+</style>
+<textarea id="t" autofocus>copied in the page 7</textarea>
+<p>web C-KEYMAP live check: the title reports the field's value and the keys the page saw.</p>
+<script>
+  // The title: "km v=<the field's value> keys=<keydown key/code, the last 8>".
+  const t = document.getElementById("t");
+  const keys = [];
+  const show = () => { document.title = "km v=" + t.value.replace(/\n/g, "|") + " keys=" + keys.join(","); };
+  t.addEventListener("input", show);
+  addEventListener("keydown", e => { keys.push(e.key + "/" + e.code); if (keys.length > 8) keys.shift(); show(); }, true);
+  show();
+</script>

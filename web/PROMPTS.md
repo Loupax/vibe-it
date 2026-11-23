@@ -536,3 +536,21 @@ checks times the nest's scale), live.py --x11 16/16 at 1 and 2.
 > (coordinator) With one `web` running, a second `web` with the same state dir started a second web-host-cef on the profile; Chromium's singleton printed "Opening in existing browser session", CEF initialize returned 0 and the host panicked at the assert. `web [URL]` should find the running instance and open the URL there; a stale or foreign lock should be a clear error, never a panic; the host should exit cleanly.
 
 Mechanism: `forget.sock` became the instance's command socket (`open <url>` next to `forget-site`); `forget::run_second` is the second `web`'s end (URL: opens and exits 0; no URL: says "already running (pid)" and exits 0, no raise); `lock.rs` reads `<profile>/SingletonLock` (`<host>-<pid>`): dead pid removed by name with a log line, live/foreign/odd lock is an exit-2 error that names the profile and the pid; the host exits 3 with a message instead of the assert. Tests: `lock.rs`, `forget.rs` (request parsing, answers); live `shell/test/single_live.py` 5/5 in the headless nest (state under .qwork, nothing of the user's touched).
+
+## 2026-11-23 C-KEYMAP (the shell follows the desktop's keyboard layout)
+Agent task from the coordinator: the page got xkbcommon's default keymap, not the desktop's layout
+(winit does not expose it). New `shell/src/keymap.rs`: a worker thread reads the desktop keymap and
+sends it to the main loop, which gives it to the seat (`set_keymap_from_string`; smithay forwards it to
+the page). Wayland: a second `wl_keyboard` on winit's own connection (as smithay-clipboard does),
+`keymap` on start and on each change, and the `modifiers` group (Alt+Shift between the layouts of
+one keymap, e.g. dwl's us,de,gr) applied with `set_layout`. X11: XKB extension on a connection of
+its own, libxkbcommon-x11 (dlopen) for the core keyboard's keymap, `NewKeyboardNotify` / `MapNotify`
+(debounced) and group `StateNotify`. keys.rs matches keysyms (`modified_sym`), so the bindings follow
+the layout once the seat has it (a repeated identical keymap is ignored so it cannot reset modifiers).
+Test tooling: the nest dwl patch honours `NEST_XKB_LAYOUT` / `NEST_XKB_OPTIONS` (headless only) and no
+longer writes the user's /tmp/dwl-keyboard-layout or signals their someblocks on a layout change;
+inject gets `ev:CODE` (raw evdev key), `group:N`, `chord:A,B`, and its virtual keyboard now uses the
+desktop's keymap (it used to send us, which flipped the seat's keymap on every inject run).
+Live `shell/test/c_keymap_live.py`: de 3/3, fr 3/3 (physical Y/Z, A/Q swap in the page's field,
+`:` and `/` open the lines), layout groups 4/4 (us -> de -> us), X11 6/6 (setxkbmap de, fr, us on the
+nested Xwayland, keys by XTEST); de and x11 fail with the keymap not given to the seat. c3_live 19/19.
