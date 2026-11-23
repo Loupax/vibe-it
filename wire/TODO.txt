@@ -5,6 +5,10 @@ deliberately-deferred, not a speculative feature backlog. See NOTES.md
 for the fuller story behind any item; a commit hash in parens points at
 the commit it came up during.
 
+- [ ] **W-IDLE1 [S, optional] Idle timeout instead of a hard total ceiling** (from web W5 #662).
+      `X-Wire-Timeout-Ms` caps the whole response: 20 s cuts a slow download, and any finite ceiling cuts
+      a live SSE/streaming response. Add a per-read idle timeout (no bytes for N s) as the browser's choice.
+
 - [ ] **W-POOL5 [S] NEEDS USER DECISION (dependency): stray bytes on a pooled connection, real fix** (from
       W-FLK1 #660). ureq 2 returns a connection to its pool without checking its read buffer is empty;
       #660 works around it for idempotent requests only, so a POST landing on such a connection still
@@ -39,20 +43,6 @@ the commit it came up during.
       framing, just not the real Internet) — not a literal end-to-end
       check against a real remote server. Worth doing for real the next
       time a session's sandbox allows it.
-
-- [WIP] **W-ENC1 [S] Content-Encoding beyond gzip** (from web W3 #658): wire always strips
-      `Content-Encoding`, and ureq only decodes gzip, so a br/zstd body would reach the client as garbage.
-      The web spike therefore does not forward Chromium's `Accept-Encoding` (wire asks for gzip). Either keep
-      `Content-Encoding` when wire did not undo it, or enable ureq's `brotli` feature. Original note:
-      **`brotli` decompression isn't supported**, only `gzip` (`ureq`'s
-      `gzip` Cargo feature) — a response with `Content-Encoding: br`
-      would be forwarded still-compressed with its `Content-Encoding`
-      header stripped (since `normalize_response` always strips it,
-      regardless of whether it could actually decompress the body),
-      which would hand scratchy raw brotli bytes it has no way to know
-      are still encoded. `gzip` is the dominant real-world encoding by a
-      wide margin and nothing real has hit a brotli-only server yet —
-      revisit if one does.
 
 - [x] (DONE in scratchy QF6: `X-Wire-Timeout-Ms` per request, with `X-Wire-Max-Bytes`/
       `-Max-Redirects`/`-Policy`; the text below is the original note) **No request timeout tuning, no per-request override** — every

@@ -20,11 +20,11 @@ spike can stop early on a hard failure. Decisions: DECISIONS.md.
       reaches CEF.
       Done when: logging in to a real site works and survives a restart of the
       spike, with wire's jar unused.
-- [WIP] W5 Streaming and large bodies: video byte ranges (`Range`/`206` passed
+- [WIP] W5 (READY #662, stacked on #659: merges after W4) Streaming and large bodies: video byte ranges (`Range`/`206` passed
       through), a download over 100 MB, a long-poll request.
       Done when: a video seeks without stalling and the download finishes without
       hitting wire's body caps.
-- [ ] W6 Paths that bypass the handler. Switches for QUIC, DNS prefetch,
+- [WIP] W6 Paths that bypass the handler. Switches for QUIC, DNS prefetch,
       preconnect; check WebSockets (try an HTTP proxy setting that forwards
       CONNECT to wire's upgrade pipe) and service-worker fetches.
       Done when: each path is routed, switched off, or listed as a known loss.
@@ -46,7 +46,8 @@ Open questions (answer during the spike):
       cache do all the work? (W3 #658: Chromium stores nothing; wire's cache does all of it.)
 - [ ] Which wire policy checks still make sense when Chromium enforces CORS and
       mixed content?
-- [ ] Does wire's body cap need a per-request off switch for downloads and video?
+- [x] Does wire's body cap need a per-request off switch for downloads and video? (W5 #662: no; the
+      cap is only on the X-Wire-Max-Bytes path the spike never uses. X-Wire-Timeout-Ms is needed.)
 
 Go if: every test-plan site works as in stock Chrome apart from listed known
 losses; no request reached the network except through wire; WebSockets work

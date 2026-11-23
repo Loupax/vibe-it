@@ -1,3 +1,19 @@
+- [x] **W-ENC1 DONE 0b4f6e5 #661 [S] Content-Encoding beyond gzip** (from web W3 #658): wire always strips
+      `Content-Encoding`, and ureq only decodes gzip, so a br/zstd body would reach the client as garbage.
+      The web spike therefore does not forward Chromium's `Accept-Encoding` (wire asks for gzip). Either keep
+      `Content-Encoding` when wire did not undo it, or enable ureq's `brotli` feature. Original note:
+      **`brotli` decompression isn't supported**, only `gzip` (`ureq`'s
+      `gzip` Cargo feature) — a response with `Content-Encoding: br`
+      would be forwarded still-compressed with its `Content-Encoding`
+      header stripped (since `normalize_response` always strips it,
+      regardless of whether it could actually decompress the body),
+      which would hand scratchy raw brotli bytes it has no way to know
+      are still encoded. `gzip` is the dominant real-world encoding by a
+      wide margin and nothing real has hit a brotli-only server yet —
+      revisit if one does.
+      DONE: ureq brotli feature (brotli-decompressor 4.0.3, +215 KB); wire sends only `gzip, br`, drops the
+      client's Accept-Encoding, passes through any Content-Encoding it did not undo (zstd, x-custom).
+
 - [x] **W-FLK1 DONE 9b103f6 #660 [S] Intermittent transport failures in the wptserve WPT shard** (2026-11-23, seen on
       #655 and main 0104f79). `fetch/api/basic/request-forbidden-headers.any.html`: a random subtest (Via,
       Sec-Test) gets `TypeError: Failed to fetch`, ~1 in 5 shard runs; reproduced locally with MAIN's wire
