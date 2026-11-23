@@ -418,3 +418,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Merged #640 QWPT-IDL 49c8316.
 - 2026-11-23 #639 QCNV10 READY (gradients; element 55.8, offscreen 62.9, TOTAL 49.7), merging. Filed QCNV10b. AGENT_RULES trailer = own model. Launched QCNV11 (Opus).
 - 2026-11-23 Merged #639 QCNV10 423be6a.
+- 2026-11-23 #641 QEDIT-B READY (draggable + DataTransfer; 8/9 dnd files), merging. Filed QINC2b (qinc2 test is wall-clock sensitive; launched), QWPTFLK6, QEDIT-B2.
