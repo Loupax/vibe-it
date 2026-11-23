@@ -193,7 +193,7 @@ mod tests {
         pos.constraint_adjustment = ConstraintAdjustment::None;
         // The positioner alone leaves it outside (the bug) ...
         assert!(pos.get_unconstrained_geometry(target).loc.x + 410 > 956);
-        let g = l.constrain_popup(pos.clone(), target);
+        let g = l.constrain_popup(pos, target);
         assert!(g.loc.x >= 0 && g.loc.x + g.size.w <= 956, "{g:?}");
         // Bottom edge: a dropdown that does not fit below stays inside the window.
         let mut pos = positioner(Rectangle::new((880, 770).into(), (68, 24).into()), (410, 200));

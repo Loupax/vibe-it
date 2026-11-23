@@ -659,7 +659,7 @@ impl State {
         };
         let root_loc = self.space.element_location(&window).unwrap_or_default() - window.geometry().loc;
         let target = self.layout.popup_target(root_loc, get_popup_toplevel_coords(&kind));
-        popup.with_pending_state(|s| s.geometry = self.layout.constrain_popup(s.positioner.clone(), target));
+        popup.with_pending_state(|s| s.geometry = self.layout.constrain_popup(s.positioner, target));
     }
 }
 
