@@ -85,6 +85,9 @@ brings scratchy's visits along. **web: where a visit comes from:** the shell wri
 line; the engine host reports a main-frame load that ended with a response, its final
 URL after redirects, its kind (new, reload, traverse, same-document) and the title at
 load end (TODO.txt C1 `load` / `title` events). The rules below decide what is recorded.
+Built in C3 (`shell/src/history.rs`, `Visits`): a `load end` of kind `new` with a status
+and no `error` records the last `url` with the title seen since that load's `start`; a
+title that is only the URL (Chromium's stand-in for a page without one) is recorded empty.
 
 The first reader is `:go` completion (KEYS.md "Completion", QCOMP-D). Settings
 (`HISTORY`, on/off, and `HISTORY_MAX_LINES`) are constants in `src/config.rs`.

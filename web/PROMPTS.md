@@ -325,3 +325,41 @@ CEF runtime) and switches `lib/web/current` and `bin/web` (a symlink) atomically
 --install web` and COORDINATOR_PROMPT.md updated. Checked: drive.py against the installed host
 passes (19/19 events), and `web https://example.com` from PATH in the headless nest loads the page
 (load end 200, grim screenshot).
+
+## C3 keys and command line (2026-11-23)
+
+> You are the agent for item C3 in the vibe-it repository (project `web/`). ... C3: port the
+> keyboard model and command line from scratchy into web/shell: KEYS.md modes
+> INPUT/NORMAL/SEARCH/COMMAND, Esc Esc (ESC_ESC_MS), the status bar (mode or the line being
+> typed, current URL from the host's `url` event, last message; drawn by the shell with
+> cosmic-text + tiny-skia as a shell surface in C2's reserved strip), T1-T34 and ghost
+> completion T45-T53; commands `:go` (assumes https:// per scratchy QCOMP6), `:refresh`,
+> `:refresh hard` (protocol `reload hard`), `:help` (scratchy's help.html rewritten for web,
+> served by the host from a file), `:q`, `:let` with `@%` (`@+`/`yy` need C6's clipboard:
+> leave them out or stub with a clear message); history (STASH.md file format) written from
+> the host's load/url/title events, with the built-in `:go` source and ranking; scroll
+> bindings as real input to the host window (a config.rs table mapping
+> j/k/Ctrl-d/Ctrl-u/G/gg/Home/End to keys or wheel steps); `h`/`l` -> back/forward; load
+> errors (`load-error`) shown in the status bar. Port from scratchy's src/config.rs,
+> completion.rs, history.rs, registers.rs and the listed parts of app.rs as web/TODO.txt
+> says; keep scratchy's code untouched (scratchy is paused). The dwm config.h rule:
+> settings live in web/shell/src/config.rs. Search (C5) is a later item: `/`, n/N may be
+> left unbound or show "search: not yet" -- say which.
+> Done when (web/TODO.txt): every KEYS.md row C3 covers has a test named after the row (as
+> in scratchy) and works by hand. Live checks: use web/tools/nest.sh ... NEVER open windows
+> on the user's desktop ...
+
+(coordinator launch of web/TODO.txt C3; the full prompt also carries the agent rules.)
+
+**What changed:** web/shell: `keys.rs` (the key model: modes, Esc Esc, bindings and the
+`gg`/`yy` sequences, the `:` line editor, the commands), `config.rs` (dwm config.h:
+`BINDINGS`, `KEY_SEQUENCES`, `SCROLL_INPUTS`, `ESC_ESC_MS`, `START_MODE`,
+`CLICK_FOCUS_MS`, status bar sizes and colours, `COMPLETERS`, history knobs),
+`completion.rs`, `history.rs` and `registers.rs` ported from scratchy, `statusbar.rs` (the
+bar drawn with cosmic-text + tiny-skia into a memory buffer in C2's strip), `help.html`
+(`:help`, written next to the control socket, loaded by the host). The compositor's
+keyboard filter asks the key model for every key; scroll bindings press a real key in the
+page window while held; T29 from `editable-focused` or a popup soon after a click. `/`,
+`n`, `N` say "search is not built yet" (C5); `@+`, `yy` and paste say they need the
+clipboard (C6). Tests named after the KEYS.md rows in `shell/src/tests/`; live check
+`shell/test/c3_live.py` (19 steps in the headless nest).

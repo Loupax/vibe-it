@@ -1,13 +1,12 @@
 //! Drawing the shell window: the page and its dialogs and popups (smithay's Space), the
-//! status bar strip (a plain colour until C3), and a cursor the page gave as a surface.
+//! status bar (C3: `statusbar.rs` draws its pixels), and a cursor the page gave as a surface.
 
 use std::time::Duration;
 
-use smithay::backend::renderer::element::solid::SolidColorRenderElement;
+use smithay::backend::renderer::element::memory::MemoryRenderBufferRenderElement;
 use smithay::backend::renderer::element::surface::{render_elements_from_surface_tree, WaylandSurfaceRenderElement};
 use smithay::backend::renderer::element::Kind;
 use smithay::backend::renderer::gles::GlesRenderer;
-use smithay::backend::renderer::{ImportAll, ImportMem};
 use smithay::desktop::utils::send_frames_surface_tree;
 use smithay::input::pointer::{CursorImageStatus, CursorImageSurfaceData};
 use smithay::utils::IsAlive;
@@ -16,14 +15,14 @@ use smithay::wayland::compositor::with_states;
 use crate::state::State;
 
 smithay::backend::renderer::element::render_elements! {
-    pub ShellElement<R> where R: ImportAll + ImportMem;
-    Surface=WaylandSurfaceRenderElement<R>,
-    Solid=SolidColorRenderElement,
+    pub ShellElement<=GlesRenderer>;
+    Surface=WaylandSurfaceRenderElement<GlesRenderer>,
+    Bar=MemoryRenderBufferRenderElement<GlesRenderer>,
 }
 
 impl State {
     pub fn render(&mut self) {
-        let mut elements: Vec<ShellElement<GlesRenderer>> = Vec::new();
+        let mut elements: Vec<ShellElement> = Vec::new();
         let age = self.backend.buffer_age().unwrap_or(0);
         let damage = {
             let Ok((renderer, mut framebuffer)) = self.backend.bind() else {
@@ -47,14 +46,19 @@ impl State {
                 }
             }
             if let Some(bar) = self.layout.bar() {
-                self.bar.resize(bar.size);
-                elements.push(ShellElement::Solid(SolidColorRenderElement::from_buffer(
-                    &self.bar,
-                    bar.loc.to_physical(1),
-                    1.0,
-                    1.0,
+                self.bar.update(&self.keys.bar_view(), bar.size.w as u32, bar.size.h as u32);
+                match MemoryRenderBufferRenderElement::from_buffer(
+                    renderer,
+                    bar.loc.to_physical(1).to_f64(),
+                    &self.bar.buffer,
+                    None,
+                    None,
+                    None,
                     Kind::Unspecified,
-                )));
+                ) {
+                    Ok(e) => elements.push(ShellElement::Bar(e)),
+                    Err(e) => eprintln!("[web] status bar: {e:?}"),
+                }
             }
             let tracker = self.damage_tracker.as_mut().unwrap();
             match smithay::desktop::space::render_output(

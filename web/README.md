@@ -5,9 +5,10 @@ default; `--proxy <host:port>` (optional, any HTTP forward proxy) sends everythi
 through a proxy instead. Keeping it off the network except through that proxy is left to
 a separate wrapper (DECISIONS.md).
 
-Status: **C1 (engine host) and C2 (the shell's compositor) done**: `web` shows one
-page with mouse and keyboard, on a Wayland or an X11 desktop; no keys or status bar
-contents of its own yet (C3). The CEF spike (`spike/`, TODO.txt
+Status: **C1 (engine host), C2 (the shell's compositor) and C3 (keys and command line)
+done**: `web` shows one page with mouse and keyboard, on a Wayland or an X11 desktop,
+with scratchy's modes, status bar, `:` command line, ghost completion and history
+(KEYS.md); search (C5) and the clipboard (C6) are next. The CEF spike (`spike/`, TODO.txt
 W1-W7) proved Chromium can run with no network of its own; the plan now is
 Architecture C (DECISIONS.md, TODO.txt C1-C8):
 

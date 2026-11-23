@@ -6,10 +6,8 @@
 
 use smithay::utils::{Logical, Point, Rectangle, Size};
 
-/// The status bar's height (scratchy's STATUS_BAR_H; C3 draws its contents).
-pub const BAR_H: i32 = 24;
-/// The status bar's colour until C3 draws it (scratchy's STATUS_BAR_BG).
-pub const BAR_BG: [f32; 4] = [24.0 / 255.0, 24.0 / 255.0, 24.0 / 255.0, 1.0];
+/// The status bar's height (`config::STATUS_BAR_H`).
+pub const BAR_H: i32 = crate::config::STATUS_BAR_H;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Layout {

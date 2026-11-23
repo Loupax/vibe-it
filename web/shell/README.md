@@ -1,6 +1,6 @@
 # web-shell (`web`)
 
-The browser's shell (web/TODO.txt C2; Architecture C in `../DECISIONS.md`): a small
+The browser's shell (web/TODO.txt C2, C3; Architecture C in `../DECISIONS.md`): a small
 Wayland compositor built on smithay, shown as **one window** on the user's desktop
 through winit (a Wayland window on a Wayland desktop, an X11 window on an X11 one). It
 starts the engine host (`web-host-cef`, the only one for now) with `WAYLAND_DISPLAY` set
@@ -17,11 +17,11 @@ host-cef it is in CI (it needs only libxkbcommon to link).
   come first; `src/pairing.rs`). One page only (DECISIONS.md "No tabs yet"): the first
   parentless toplevel is the page; any other toplevel is shown centred over it as a
   dialog. The page is configured to the shell window minus the 24 px status bar at the
-  bottom (KEYS.md "Status bar"), maximized and tiled (`src/layout.rs`). C2 draws the bar
-  as a plain strip; C3 draws its contents. The window title is the page title.
-- **Input**: every key goes to the focused window (the page, a dialog, or a popup that
-  grabbed), every pointer event to the surface under it (`src/input.rs`). C3's modes
-  hook into the keyboard filter there. When the shell window loses the desktop's
+  bottom (KEYS.md "Status bar"), maximized and tiled (`src/layout.rs`). The window
+  title is the page title.
+- **Input**: a key goes to the focused window (the page, a dialog, or a popup that
+  grabbed) when the key model lets it (C3, below); every pointer event goes to the
+  surface under it (`src/input.rs`). When the shell window loses the desktop's
   focus, the page loses keyboard focus and its activated state.
 - **Popups** (xdg_popup: `<select>` menus, context menus, tooltips) are placed by their
   positioner, constrained to the whole shell window (a menu may cover the bar).
@@ -39,7 +39,34 @@ host-cef it is in CI (it needs only libxkbcommon to link).
   the shell exits when the host has (killing it after 5 s). If the host exits on its
   own, the shell exits too.
 
-Not in C2 (later items): the status bar's contents and keys (C3), clipboard, HiDPI and
+## What C3 adds (KEYS.md)
+
+- **The key model** (`src/keys.rs`, pure, no Wayland): INPUT / NORMAL / COMMAND, Esc Esc,
+  the NORMAL bindings and the `gg`/`yy` sequences, the `:` line with its ghost completion
+  (`src/completion.rs`), the commands `:go`, `:refresh [hard]`, `:historyBack`,
+  `:historyFront`, `:help`, `:let`, `:q`. The compositor's keyboard filter asks it about
+  every key event (modifiers included) and forwards only what it allows; a release goes
+  to the page exactly when its press did. Starts in NORMAL.
+- **Settings** in `src/config.rs` (dwm `config.h`: edit and rebuild): `BINDINGS`,
+  `KEY_SEQUENCES`, `SCROLL_INPUTS` (what each scroll binding sends the page: a key held
+  while the binding is held, or wheel steps), `ESC_ESC_MS`, `START_MODE`,
+  `CLICK_FOCUS_MS`, the bar's sizes and colours, `COMPLETERS`, history.
+- **Scrolling** is real input: `j` presses Down in the page window until `j` is released
+  (the engine repeats it), `G` End, `gg` Home, Ctrl-d PageDown, ...
+- **INPUT by click** (T29): the host's `editable-focused true`, or a new popup (a select's
+  menu), within `CLICK_FOCUS_MS` of a mouse press; later it was the page's own focus()
+  (T32) and the mode stays.
+- **The status bar** (`src/statusbar.rs`): mode, URL (from `url`), last message (load
+  errors from `load-error`, crashes, command answers) or the `:` line with caret and
+  ghost; cosmic-text + tiny-skia into a memory buffer drawn in the bar strip. Every
+  change is logged as `bar: ...`.
+- **History** (`src/history.rs`, STASH.md): `DIR/history`, one line per visit, decided
+  from the host's `url`/`title`/`load` events; `:go` completes from it (ranked).
+- **`:help`**: `src/help.html`, built in, written next to the control socket at start
+  and loaded by the host as a `file://` URL; `:q` there goes back.
+- Not yet: search (`/`, `n`, `N` say so; C5), the clipboard (`@+`, `yy`, paste say so; C6).
+
+Not in C2/C3 (later items): search (C5), clipboard, HiDPI and
 fractional scale, dmabuf, IME (C6), the desktop's keyboard layout (the shell uses
 xkbcommon's default, i.e. `XKB_DEFAULT_*` or us).
 
@@ -47,7 +74,7 @@ xkbcommon's default, i.e. `XKB_DEFAULT_*` or us).
 
     cd web/shell
     CARGO_BUILD_JOBS=4 nice -n 19 ionice -c3 cargo build
-    cargo test            # args, protocol events, layout and popup placement, pairing, host command line
+    cargo test            # args, protocol, layout and popups, pairing, host command line; C3: src/tests/ (KEYS.md rows)
 
 ## Run
 
@@ -60,8 +87,8 @@ xkbcommon's default, i.e. `XKB_DEFAULT_*` or us).
 - `--proxy` is optional and passed to the host; without it the engine connects directly.
 - After `--`: passed to the host unchanged (Chromium switches).
 - The control socket is `$XDG_RUNTIME_DIR/web-<pid>/control.sock`, removed at exit.
-- Log lines go to stderr as `[web +<ms>ms] ...` (every host event, cursor changes,
-  popups, fullscreen, the page window's size).
+- Log lines go to stderr as `[web +<ms>ms] ...` (every host event and command, cursor
+  changes, popups, fullscreen, the page window's size, the status bar).
 
 For development run it in a memory-capped scope (it starts CEF) and in the nested
 compositor, never on the user's display:
@@ -92,3 +119,17 @@ land in `--out` (never commit them).
 
 `--x11` runs the shell on the nested dwl's Xwayland (`web/tools/nest.sh --x11-display`),
 so winit opens an X11 window while the engine host still speaks Wayland to the shell.
+
+## The C3 check
+
+`test/c3_live.py` drives the keys for real in the headless nest (19 steps, each naming
+its KEYS.md rows): starts in NORMAL with the bar drawn; `j`/`k`/`G`/`gg`/Ctrl-d/Home
+scroll by real keys while the page never sees the bound keys; `/` says not yet; `i`,
+typing, Esc Esc (the page sees exactly the first Esc), a slow Esc Esc; a click into a
+field enters INPUT, the page's own focus() does not; `:go`, `h`/`l`, the `:go` ghost from
+history with Tab and Enter, `:refresh [hard]`, `:help` and `:q` on it, `:let`/`yy` stubs,
+Esc cancelling the line, a load error in the bar, the history file, `:q` quitting.
+Shifted characters are typed with a held Shift key (`hold:s`): inject's `type:` sends
+modifier state alone, which the shell (smithay's winit backend) does not see.
+
+    web/shell/test/c3_live.py --out .qwork/c3 --inject .qwork/inject/release/inject

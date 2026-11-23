@@ -87,7 +87,16 @@ pub struct State {
     pub host: Option<Child>,
     pub quit_deadline: Option<Instant>,
     pub exit_code: i32,
-    pub bar: smithay::backend::renderer::element::solid::SolidColorBuffer,
+    /// The status bar's pixels (C3).
+    pub bar: crate::statusbar::Bar,
+    /// The key model: modes, the `:` line, the status bar's text (C3).
+    pub keys: crate::keys::Keys,
+    pub history: crate::history::History,
+    pub visits: crate::history::Visits,
+    /// The last mouse press on a window (T29: a focus change soon after it is the user's).
+    pub last_click: Option<Instant>,
+    /// The status bar as last logged.
+    pub bar_log: String,
     pub damage_tracker: Option<smithay::backend::renderer::damage::OutputDamageTracker>,
 }
 
@@ -108,6 +117,16 @@ impl State {
 
     pub fn redraw(&mut self) {
         self.dirty = true;
+        // The status bar's state, logged when it changes (what the live check reads).
+        let v = self.keys.bar_view();
+        let desc = match &v.line {
+            Some((p, text, _)) => format!("{p}{text}|{}", v.ghost),
+            None => format!("{} | {}", v.mode, v.message),
+        };
+        if desc != self.bar_log {
+            self.log(&format!("bar: {desc}"));
+            self.bar_log = desc;
+        }
     }
 
     fn window_of(&self, surface: &WlSurface) -> Option<Window> {
@@ -247,6 +266,9 @@ impl State {
             }
         };
         self.log(&format!("host event: {line}"));
+        if let Some((url, title)) = self.visits.event(&ev) {
+            self.history.record(&url, &title);
+        }
         match ev {
             Event::Hello { protocol, engine } => {
                 if protocol != 0 {
@@ -262,19 +284,49 @@ impl State {
                 self.pairing.tab_closed(tab);
             }
             Event::Url { url, .. } => {
-                self.url = url;
+                self.url = url.clone();
+                self.keys.url = url;
                 self.update_window_title();
             }
             Event::Title { title, .. } => {
                 self.title = title;
                 self.update_window_title();
             }
+            // A page that loaded clears the last message (a failed load keeps its error).
+            Event::Load {
+                ref phase,
+                ref kind,
+                ref error,
+                ..
+            } if phase == "end" && kind == "new" && error.is_none() => self.keys.message.clear(),
+            Event::LoadError { code, ref name, .. } => {
+                // ERR_ABORTED is a stopped load (or a download), not a failure to report.
+                if code != -3 {
+                    self.keys.message = format!("web: load failed: {name} ({code})");
+                }
+            }
+            Event::EditableFocused { focused: true, .. } => {
+                // T29 (a click into a text field) switches to INPUT; T32 (the page's own
+                // focus(), autofocus) does not.
+                if crate::keys::click_recent(self.last_click, Instant::now()) {
+                    self.log("editable focused after a click: INPUT");
+                    self.keys.user_focused_control();
+                }
+            }
+            Event::Crashed { ref reason, .. } => {
+                self.keys.message = format!("web: the page crashed ({reason}); :refresh loads it again");
+            }
+            Event::Error { ref message } => self.keys.message = format!("web: host: {message}"),
             _ => {}
         }
+        self.redraw();
     }
 
     pub fn send(&mut self, cmd: Command) {
         use std::io::Write;
+        if cmd != Command::Quit {
+            self.log(&format!("command: {}", cmd.line().trim_end()));
+        }
         if let Some(c) = &mut self.control {
             if let Err(e) = c.write_all(cmd.line().as_bytes()) {
                 self.log(&format!("control socket: {e}"));
@@ -475,6 +527,12 @@ impl XdgShellHandler for State {
     }
 
     fn new_popup(&mut self, surface: PopupSurface, _positioner: PositionerState) {
+        // T29: a popup right after a click is a <select>'s menu (or a context menu): its
+        // keys must reach the page, so INPUT.
+        if crate::keys::click_recent(self.last_click, Instant::now()) && self.keys.key_mode != crate::keys::KeyMode::Input {
+            self.log("popup after a click: INPUT");
+            self.keys.user_focused_control();
+        }
         self.unconstrain_popup(&surface);
         let g = surface.with_pending_state(|s| s.geometry);
         self.log(&format!(

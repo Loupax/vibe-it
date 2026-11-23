@@ -2,7 +2,7 @@
 //! events tagged by "event", commands by "cmd". Unknown fields and unknown events are
 //! ignored (both sides ignore what they do not know).
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// An event from the engine host. Fields the shell does not use yet are still parsed, so a
 /// malformed event is caught here and C3 can use them without touching the parser.
@@ -75,18 +75,29 @@ impl Event {
     }
 }
 
-/// A command to the engine host. C2 only needs `quit`; C3 adds the rest of v0.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A command to the engine host (the ones the shell sends so far; `find`, `zoom` and
+/// `forget-site` come with their items).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "cmd", rename_all = "kebab-case")]
 pub enum Command {
+    Open {
+        url: String,
+    },
+    Back,
+    Forward,
+    Reload {
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        hard: bool,
+    },
     Quit,
 }
 
 impl Command {
     /// One JSON line, `\n`-terminated.
-    pub fn line(self) -> String {
-        match self {
-            Command::Quit => "{\"cmd\":\"quit\"}\n".to_string(),
-        }
+    pub fn line(&self) -> String {
+        let mut s = serde_json::to_string(self).expect("a command always serializes");
+        s.push('\n');
+        s
     }
 }
 
@@ -223,6 +234,26 @@ mod tests {
         assert!(l.ends_with('\n'));
         let v: serde_json::Value = serde_json::from_str(l.trim()).unwrap();
         assert_eq!(v["cmd"], "quit");
+    }
+
+    #[test]
+    fn c3_commands_match_protocol_md() {
+        let cases = [
+            (
+                Command::Open {
+                    url: "https://example.com/".into(),
+                },
+                r#"{"cmd":"open","url":"https://example.com/"}"#,
+            ),
+            (Command::Back, r#"{"cmd":"back"}"#),
+            (Command::Forward, r#"{"cmd":"forward"}"#),
+            (Command::Reload { hard: false }, r#"{"cmd":"reload"}"#),
+            (Command::Reload { hard: true }, r#"{"cmd":"reload","hard":true}"#),
+            (Command::Quit, r#"{"cmd":"quit"}"#),
+        ];
+        for (cmd, want) in cases {
+            assert_eq!(cmd.line(), format!("{want}\n"));
+        }
     }
 
     #[test]

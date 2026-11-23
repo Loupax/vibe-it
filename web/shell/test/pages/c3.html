@@ -1,0 +1,25 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>c3 loading</title>
+<style>
+  body { margin: 0; font: 20px sans-serif; height: 6000px; background: linear-gradient(#eef, #fee); }
+  #f { position: absolute; left: 40px; top: 40px; width: 300px; height: 40px; font-size: 20px; }
+  #later { position: absolute; left: 400px; top: 40px; width: 300px; height: 40px; }
+  p { position: absolute; left: 40px; top: 120px; }
+</style>
+<input id="f" placeholder="a text field">
+<button id="later">focus the field in 1.5 s</button>
+<p>web C3 live check: the title reports scrollY and the keys the page saw.</p>
+<script>
+  // The title: "c3 y=<scrollY> down=<keydown keys> up=<keyup keys>" (the last 16 of each).
+  const down = [], up = [];
+  const push = (list, k) => { list.push(k === " " ? "Space" : k); if (list.length > 16) list.shift(); };
+  const show = () => { document.title = `c3 y=${Math.round(scrollY)} down=${down.join(",")} up=${up.join(",")}`; };
+  addEventListener("keydown", e => { push(down, e.key); show(); }, true);
+  addEventListener("keyup", e => { push(up, e.key); show(); }, true);
+  let t = 0;
+  addEventListener("scroll", () => { clearTimeout(t); t = setTimeout(show, 150); });
+  // T32: the page's own focus() (no click right before it) must not switch to INPUT.
+  document.getElementById("later").addEventListener("click", () => setTimeout(() => document.getElementById("f").focus(), 1500));
+  show();
+</script>

@@ -11,6 +11,20 @@ use smithay::reexports::calloop::{Interest, LoopHandle, Mode, PostAction};
 use crate::protocol::LineBuffer;
 use crate::state::State;
 
+/// `:help`'s page, written next to the socket at start (C3).
+pub const HELP_FILE: &str = "help.html";
+
+/// Writes `:help`'s page (built into the binary) into the shell's private run directory;
+/// returns its `file://` URL for the host to load.
+pub fn write_help(control_path: &Path) -> std::io::Result<String> {
+    let dir = control_path.parent().ok_or_else(|| std::io::Error::other("no run directory"))?;
+    let path = dir.join(HELP_FILE);
+    std::fs::write(&path, include_str!("help.html"))?;
+    url::Url::from_file_path(&path)
+        .map(String::from)
+        .map_err(|_| std::io::Error::other(format!("{}: not an absolute path", path.display())))
+}
+
 pub struct Control {
     pub path: PathBuf,
     listener: UnixListener,
@@ -85,10 +99,11 @@ fn read_events(stream: &UnixStream, lines: &mut LineBuffer, state: &mut State) -
     }
 }
 
-/// Removes the socket and its directory.
+/// Removes the socket, `:help`'s page and their directory.
 pub fn cleanup(path: &Path) {
     let _ = std::fs::remove_file(path);
     if let Some(dir) = path.parent() {
+        let _ = std::fs::remove_file(dir.join(HELP_FILE));
         let _ = std::fs::remove_dir(dir);
     }
 }
