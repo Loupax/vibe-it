@@ -137,3 +137,22 @@ bogus 404/CRASH results. Always make your own pinned checkout under your worktre
 Every scratchy process runs under the systemd-run 6G memory cap, including extra copies you start only to load the
 machine for a stability test (2026-11-23, QWPTFLK6 #646 ran 4 uncapped). And a new regression test must be shown to
 FAIL on the old code (revert the fix locally, run it, restore) before you claim it covers the bug.
+
+## web/ agents (2026-11-23, the CEF + wire spike)
+These rules apply to every project. For a web/ (or wire/) item, read "scratchy" in the rules above as your project:
+- Branch `web/<item-lowercase>-<slug>` (wire: `wire/<item>-<slug>`). Never edit web/TODO.txt or wire/TODO.txt
+  (the coordinator owns every TODO.txt). Read web/README.md, web/DECISIONS.md and web/TODO.txt first; your step's
+  "Done when" line is the acceptance test, so show it met with evidence (logs, screenshots, wire's request log).
+- Spike code goes in `web/spike/` (a crate of its own, not in CI yet). CEF's binary distribution is downloaded to
+  a cache under `$HOME/.cache/` (never /tmp, never inside the repo, never committed); delete `web/spike/target`
+  at the end like any build dir.
+- Every CEF run goes under the systemd-run memory cap (the scope covers CEF's child processes), and from W2 on
+  inside an empty network namespace (`unshare -rn` or bubblewrap `--unshare-net`). Kill only PIDs you recorded;
+  CEF spawns helper processes, so kill the whole scope you started (`systemctl --user stop <your unit>`).
+- Use your own wire (own socket, `--cache-dir /tmp/wire-cache-<worktree> --cache-size 256M`), never the user's.
+- Live windows: tools/nest.sh (nested dwl, Wayland). If a step needs X11 and the nested session has no Xwayland,
+  say so in the PR instead of using the user's display.
+- Never log in to real accounts, type credentials or use the user's browser profiles/cookies. Steps that need a
+  login (W4) or a day of real use (W7): prepare everything (a build, a run script, what to check) and stop with a
+  DRAFT PR saying exactly what the user should do.
+- Never commit cookies, login state, wire logs or screenshots of real browsing; this repository is public.

@@ -1,13 +1,20 @@
-"""Move a finished item from scratchy/TODO.txt to scratchy/TODO-DONE.txt.
-usage: python3 -I done.py <repo> <ITEM> <hash> [<note>]
+"""Move a finished item from <project>/TODO.txt to <project>/TODO-DONE.txt (project: scratchy by default).
+usage: python3 -I done.py [--project=<dir>] <repo> <ITEM> <hash> [<note>]   e.g. --project=web, --project=wire
 Removes the detail entry (the `- [ ]` line and its continuation lines), appends it
 ticked to TODO-DONE.txt under `=== from TODO.txt: <block header>`, and moves the
 PERFORMANCE QUEUE list line along with it.
 """
 import re, sys
-repo, item, h = sys.argv[1:4]
-note = sys.argv[4] if len(sys.argv) > 4 else ""
-tp, dp = f"{repo}/scratchy/TODO.txt", f"{repo}/scratchy/TODO-DONE.txt"
+proj = "scratchy"
+args = []
+for a in sys.argv[1:]:
+    if a.startswith("--project="):
+        proj = a.split("=", 1)[1].strip("/")
+    else:
+        args.append(a)
+repo, item, h = args[0:3]
+note = args[3] if len(args) > 3 else ""
+tp, dp = f"{repo}/{proj}/TODO.txt", f"{repo}/{proj}/TODO-DONE.txt"
 L = open(tp).read().split("\n")
 start = None
 for i, l in enumerate(L):
