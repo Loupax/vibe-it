@@ -477,3 +477,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Merged #669 W2-1 200820f (wire2 plain forwarding proxy). ~/.cargo/bin/wire2 installed 13:11. Filed W2-1a/b/c. Manual Chromium/Firefox browsing check -> Waiting on you.
 - 2026-11-23 #670 P-FORGET READY but HELD: asks the user whether the hidden-page storage clearing counts as "not an automation protocol" (alternative: DevTools Storage.clearDataForOrigin) and notes every forget clears the whole HTTP cache. Filed P-FORGET-SHELL, P-FORGET-CACHE.
 - 2026-11-23 USER: remove tab opening in general (context menus etc.). Filed C-NOTAB and launched it (Sonnet). Launched W2-2 (Opus).
+- 2026-11-23 Progress page republished after #669 (+ #670 held, C-NOTAB, W2-2).

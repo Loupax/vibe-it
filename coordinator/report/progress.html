@@ -53,7 +53,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <main>
 <header style="display:flex;flex-direction:column;gap:8px">
-  <div class="meta" id="updated">Updated 2026-11-23 · main 9b16bbe · web: C1 engine host merged (#668); C2 compositor and P-FORGET running · wire2 ACTIVE (spec in wire2/SPEC.md; W2-1 running) · wire PARKED · scratchy paused</div>
+  <div class="meta" id="updated">Updated 2026-11-23 13:15 · main 65f7e8a · web: C1 merged (#668), C2 and C-NOTAB running, P-FORGET ready (#670, held for your answer) · wire2: W2-1 merged (#669, ~/.cargo/bin/wire2 installed 13:11), W2-2 running · wire PARKED · scratchy paused</div>
   <h1>scratchy: the new way of working</h1>
   <p>Since the 2026-11-21 architecture discussion, scratchy stops fixing individual sites. The plan is to measure conformance per spec area with WPT, work through areas in dependency order, and hold speed to permanent budgets. This page is updated after every merged PR.</p>
 </header>
@@ -70,7 +70,8 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
     <tr><td>C5 · C6</td><td>Search · desktop integration (clipboard, HiDPI, dmabuf)</td><td><span class="pill todo">after C3</span></td><td></td></tr>
     <tr><td>C7</td><td>Link hints</td><td><span class="pill wait">you are thinking it over</span></td><td></td></tr>
     <tr><td>C8</td><td>A day of browsing (yours)</td><td><span class="pill todo">later</span></td><td></td></tr>
-    <tr><td>P-FORGET</td><td>Forget a site through the engine</td><td><span class="pill wip">running</span></td><td></td></tr>
+    <tr><td>P-FORGET</td><td>Forget a site through the engine</td><td><span class="pill wait">ready #670, waiting on you</span></td><td><code>forget-site</code> command and <code>web-host-cef --no-window --forget-site</code>: cookies via CEF's cookie manager; storage (localStorage, IndexedDB, Cache Storage, service workers) cleared by a hidden page the host serves on the site's origin; no DevTools. Every forget clears the whole HTTP cache. Tested on 3 local sites</td></tr>
+    <tr><td>C-NOTAB</td><td>No way to open a tab or window (context menu, Ctrl/middle-click)</td><td><span class="pill wip">running</span></td><td>Your request</td></tr>
     <tr><td>P-COOKIES</td><td>Third-party cookies off</td><td><span class="pill todo">next free slot</span></td><td></td></tr>
   </table></div>
   <p class="note">Filed from C1: C-BGNET (switch off Chromium's background traffic to Google update/time/autofill hosts), C-DL (downloads, dialogs, permission prompts), C1-INPUT, C-PENDING. The CEF + wire spike (W1–W7, #656–#662) is kept as a record in web/spike/README.md.</p>
@@ -78,7 +79,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 
 <section id="wire2">
   <h2>wire2: streaming filtering proxy (active)</h2>
-  <p>Your spec is in <span class="mono">wire2/SPEC.md</span>. Steps run one after another: W2-1 plain forwarding proxy (<span class="pill wip">running</span>) · W2-2 TLS interception · W2-3 WebSockets in decrypted tunnels · W2-F filters (handshake, hub, <code>pass</code>).</p>
+  <p>Your spec is in <span class="mono">wire2/SPEC.md</span>. Steps run one after another: W2-1 plain forwarding proxy (<span class="pill done">done #669</span>: spliced tunnels at 87–96 % of direct, 17.8 MB at 2,000 tunnels, 2 GiB with flat memory; headless Chrome and Firefox browse through it) · W2-2 TLS interception, lazy and per host (<span class="pill wip">running</span>) · W2-2 TLS interception · W2-3 WebSockets in decrypted tunnels · W2-F filters (handshake, hub, <code>pass</code>).</p>
   <p class="note">wire (wire 1) is parked: W-MEDIA1 is draft #667 (done, CI unfinished) and W-POOL2 is on branch wire/w-pool2-redirects.</p>
 </section>
 
@@ -136,6 +137,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
   <h2>Merged PRs since the new direction</h2>
   <div class="scroll"><table id="prlog">
     <tr><th>Date</th><th>PR</th><th>Item</th><th>What changed</th></tr>
+    <tr><td class="n">2026-11-23</td><td class="n">#669</td><td>W2-1</td><td>wire2: first code. A forwarding proxy (<code>wire2 --listen 127.0.0.1:8080</code>): CONNECT tunnels copied with splice(2), plain http streamed with hop-by-hop and <code>Proxy-*</code> headers removed, parallel dialing, access log, no filters and no CA yet; its own CI job</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#668</td><td>C1</td><td>web: the CEF engine host (web/host-cef/) and control protocol v0 (web/PROTOCOL.md): one page, optional <code>--proxy</code>, popups in the same page, <code>reload hard</code>, <code>load-error</code>; scripted check passes with and without a proxy</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#665</td><td>CI</td><td>Your request: CI runs only the jobs for the crates a change touches (wire changes also run scratchy and its WPT shards); a web/ or docs change takes ~11 s instead of ~8 min. Docs-only PRs also merge without waiting</td></tr>
     <tr><td class="n">2026-11-23</td><td class="n">#664</td><td>(user)</td><td>web: Architecture C plan (compositor shell, engine hosts, optional web proxy), Blink first; KEYS.md and STASH.md carried from scratchy (docs only)</td></tr>
@@ -347,6 +349,9 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 <section>
   <h2>Waiting on you</h2>
   <ul id="waiting">
+    <li><b>#670 P-FORGET, two questions:</b> (1) is clearing a site's storage with a hidden page the host loads on that site OK as “not an automation protocol”? The alternative is Chromium's in-process DevTools call <code>Storage.clearDataForOrigin</code>. (2) Every forget clears the whole HTTP cache (CEF has no per-site way); acceptable? The PR stays unmerged until you answer.</li>
+    <li><b>W2-1 by hand:</b> browse in your real Chromium and Firefox through <code>wire2 --listen 127.0.0.1:8080</code> (installed): video seeking, a large download while watching its memory, a WebSocket chat. Agents only ran headless browsers.</li>
+    <li><b>W2-1c:</b> should the access log's byte counts include request/response heads (today) or payload only?</li>
     <li><b>C7 link hints:</b> you are thinking it over (questions: alphabet, label style, text filtering, which elements, extra modes like <code>yf</code>, relation to QCURSOR-D).</li>
     <li><b>Small cleanups, yes/no each:</b> W-FS1 (hide files from CEF) keep or drop; rewrite or drop the planned NETWORKING.md; close the spike's “which wire policy checks” question; archive scratchy's engine on a branch; delete the <code>wire-v1</code> branch.</li>
     <li><b>W-POOL5</b> (wire's POST-on-stale-connection fix): parked with wire.</li>
