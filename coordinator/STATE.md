@@ -537,3 +537,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Merged #713 C4 Buffers 335f5fe (31 web files, 2-dot = 3-dot); web reinstalled. Launched C-POPUPS (Opus) and C-FMT + test_notab fix (Sonnet).
 - 2026-11-23 USER: all pending default choices kept (picker, bookmarks, wire2 W2-1c/W2-2d/W2-F calls). Recorded in web/ and wire2/ DECISIONS.md; C-FMT removes the (proposed) marks in KEYS.md.
 - 2026-11-23 USER bug: flicker of fixed/absolute elements while scrolling (YouTube). Filed + launched C-FLICKER (Opus). Asked the user for A/B: WEB_NO_DMABUF=1 and Chromium's overlay delegation off.
+- 2026-11-23 USER A/B: flicker gone with WEB_NO_DMABUF=1 (dmabuf path, NVIDIA). Sent to C-FLICKER (explicit sync / release timing).

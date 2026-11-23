@@ -124,6 +124,7 @@ stop early on a hard failure.
       scrolling. For example when I scoll through youtube the static UI flickers") Reproduce (YouTube scroll),
       find the cause (suspects: wl_subsurface sync/commit handling for Chromium's delegated layers; buffer
       release timing, esp. with dmabuf since #706; frame-callback pacing #699/#712), fix, add a regression check.
+      User's A/B 2026-11-23: gone with WEB_NO_DMABUF=1 -> the dmabuf path (#706) on their NVIDIA desktop (sync/release).
 - [WIP] C-POPUPS [M] (after C4; same decision; reverses C-NOTAB for script popups and target=_blank)
       `window.open` with a user gesture: a new buffer, switched to, `window.opener` kept; `window.close()`
       from it kills that buffer. Without a gesture: blocked, status bar `popup blocked: <url>` (or `popup
