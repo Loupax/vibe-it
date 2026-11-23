@@ -120,6 +120,10 @@ stop early on a hard failure.
       optional `tab` on commands, tab-created opener/cause/req, popup-blocked). Shell: pair several announced
       pages; a Chrome-style popup window (no parent) is a page, not a dialog. Host: `quit` closes every browser
       and exits when the last is gone (today it closes only the first).
+- [WIP] C-FLICKER [M] (user, 2026-11-23: "there some flickering regarding absolutely positioned elements and
+      scrolling. For example when I scoll through youtube the static UI flickers") Reproduce (YouTube scroll),
+      find the cause (suspects: wl_subsurface sync/commit handling for Chromium's delegated layers; buffer
+      release timing, esp. with dmabuf since #706; frame-callback pacing #699/#712), fix, add a regression check.
 - [WIP] C-POPUPS [M] (after C4; same decision; reverses C-NOTAB for script popups and target=_blank)
       `window.open` with a user gesture: a new buffer, switched to, `window.opener` kept; `window.close()`
       from it kills that buffer. Without a gesture: blocked, status bar `popup blocked: <url>` (or `popup
