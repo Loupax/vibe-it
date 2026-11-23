@@ -7,6 +7,8 @@ their section with the date.
 
 ## Direction and process
 
+- **2026-11-23 Drain before the pause (user, with #650):** the three agents already running (QCNV13, QWPT7e,
+  QTYPE1) finish, and the coordinator merges their PRs. No new item starts after them.
 - **2026-11-23 scratchy is PAUSED.** No new scratchy work is scheduled, to save tokens: no agents,
   no merges of new items. Development moves to `web/` (a CEF-based browser; see `../web/DECISIONS.md`).
   Code, TODO.txt and open PRs stay as they are. Only the user un-pauses it.

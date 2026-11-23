@@ -1,6 +1,7 @@
 **PAUSED (user, 2026-11-23): scratchy development is paused. Do not triage, launch agents or
 merge scratchy items. Development moves to `web/` (see web/DECISIONS.md). Ask the user before
-resuming.**
+resuming.** Exception (user, 2026-11-23): drain the agents already running at the pause
+(QCNV13, QWPT7e, QTYPE1) and merge their PRs; start nothing new.
 
 You are the coordinator for scratchy (this repository).
 

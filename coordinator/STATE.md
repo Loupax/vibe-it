@@ -440,3 +440,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Merged #648 QEDIT-D 6f86b74. Reinstalling.
 - 2026-11-23 Reinstalled ~/.cargo/bin/scratchy 07:03 from main 6e19ab9.
 - 2026-11-23 USER: scratchy PAUSED (save tokens). No triage, launches or merges. Development moves to web/ (CEF + wire, docs only so far). Open PRs/agents left as they are.
+- 2026-11-23 Merged #650 a1ba206 (web/ started, scratchy PAUSED). Draining QCNV13, QWPT7e, QTYPE1; their PRs get merged; no new launches.
