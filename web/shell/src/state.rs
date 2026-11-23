@@ -61,6 +61,14 @@ pub struct State {
     pub shm_state: ShmState,
     /// C6d: zwp_linux_dmabuf_v1, when the shell's renderer can import (`dmabuf.rs`).
     pub dmabuf: crate::dmabuf::Dmabuf,
+    /// C-FLICKER: linux-drm-syncobj-v1 (`syncobj.rs`), when offered.
+    pub syncobj: Option<smithay::wayland::drm_syncobj::DrmSyncobjState>,
+    /// C-FLICKER: buffers held until the GPU finished the renders that read them (`sync.rs`),
+    /// and whether a timer is already polling for that.
+    pub held: crate::sync::Held,
+    pub held_timer: bool,
+    /// C-FLICKER: the acquire and release guards are on (not `WEB_NO_BUFFER_SYNC`).
+    pub buffer_sync: bool,
     pub _output_manager_state: OutputManagerState,
     pub seat_state: SeatState<State>,
     pub data_device_state: DataDeviceState,
@@ -107,6 +115,8 @@ pub struct State {
     pub pace_timer: bool,
     /// C6c: renders counted since the last `frames:` line (only with WEB_FRAME_STATS=1).
     pub frame_stats: Option<(Instant, u32)>,
+    /// C-FLICKER: `WEB_PROBE` rectangles read back after every render (`probe.rs`), and the frame count.
+    pub probe: Option<(Vec<crate::probe::Rect>, u64)>,
 
     pub control: Option<UnixStream>,
     /// `web --forget-site` clients waiting for their `forgot` (site as sent, the client's socket).
@@ -801,6 +811,11 @@ impl CompositorHandler for State {
 
     fn client_compositor_state<'a>(&self, client: &'a Client) -> &'a CompositorClientState {
         &client.get_data::<ClientState>().unwrap().compositor_state
+    }
+
+    fn new_surface(&mut self, surface: &WlSurface) {
+        // C-FLICKER: a commit with a dmabuf waits until the buffer is drawn.
+        crate::sync::guard_surface(surface);
     }
 
     fn commit(&mut self, surface: &WlSurface) {

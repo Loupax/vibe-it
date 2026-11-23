@@ -25,12 +25,15 @@ mod pacing;
 mod pairing;
 mod picker;
 mod popups;
+mod probe;
 mod protocol;
 mod registers;
 mod render;
 mod selection;
 mod state;
 mod statusbar;
+mod sync;
+mod syncobj;
 #[cfg(test)]
 mod tests;
 
@@ -266,6 +269,15 @@ fn main() {
     let mut backend = backend;
     let (dmabuf, dmabuf_line) = dmabuf::setup(backend.renderer(), &dh, std::env::var(dmabuf::DISABLE_ENV).ok().as_deref());
     eprintln!("[web +{}ms] {dmabuf_line}", start.elapsed().as_millis());
+    // C-FLICKER: explicit sync on the dmabuf's device.
+    // Without the guards (WEB_NO_BUFFER_SYNC) nothing would wait for an acquire point either.
+    let buffer_sync = !dmabuf::disabled_by(std::env::var(sync::DISABLE_ENV).ok().as_deref());
+    let (syncobj, syncobj_line) = syncobj::setup(
+        &dh,
+        dmabuf.device.as_deref(),
+        !buffer_sync || dmabuf::disabled_by(std::env::var(syncobj::DISABLE_ENV).ok().as_deref()),
+    );
+    eprintln!("[web +{}ms] {syncobj_line}", start.elapsed().as_millis());
     let mut state = State {
         start,
         display_handle: dh.clone(),
@@ -280,6 +292,10 @@ fn main() {
         _xdg_decoration_state: XdgDecorationState::new::<State>(&dh),
         shm_state: ShmState::new::<State>(&dh, vec![]),
         dmabuf,
+        syncobj,
+        held: sync::Held::default(),
+        held_timer: false,
+        buffer_sync,
         _output_manager_state: OutputManagerState::new_with_xdg_output::<State>(&dh),
         seat_state,
         data_device_state: DataDeviceState::new::<State>(&dh),
@@ -311,6 +327,7 @@ fn main() {
         pacer: pacing::Pacer::new(pacing::DEFAULT_REFRESH_MHZ, desktop == "an X11"),
         pace_timer: false,
         frame_stats: std::env::var_os("WEB_FRAME_STATS").map(|_| (Instant::now(), 0)),
+        probe: std::env::var(probe::ENV).ok().and_then(|v| probe::parse(&v)).map(|r| (r, 0)),
         control: None,
         forget_clients: Vec::new(),
         host: None,
