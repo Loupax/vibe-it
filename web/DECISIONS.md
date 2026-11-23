@@ -2,6 +2,17 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-23 No enforcement in web
+
+User: "don't enforce that. It's something we can do separately". web passes a proxy to
+the engine (`--proxy <host:port>`, handed to the engine host; without it the engine
+connects directly) and does nothing else about the network. Keeping a program off the
+network except through a proxy (an empty network namespace plus a forwarder to the
+proxy's socket, as the spike's W2 did) is a separate, engine-neutral wrapper that can be
+put around web, or any other program, from outside. Overrides "Enforcement: an empty
+network namespace" below and the namespace parts of "Architecture C". Paths that ignore
+a proxy setting (WebRTC's UDP, for one) are not web's concern.
+
 ## 2026-11-23 Blink first
 
 User: "let's begin with Blink so we can have something working as soon as possible. We

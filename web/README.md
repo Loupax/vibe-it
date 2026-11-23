@@ -1,11 +1,11 @@
 # web
 
-A keyboard-driven browser meant to be a daily driver. It keeps the vibe-it networking
-contract: the browser runs in an empty network namespace and reaches the network only
-through a web proxy (any HTTP forward proxy on a Unix socket).
+A keyboard-driven browser meant to be a daily driver. Its network setting is one
+`--proxy <host:port>` (any HTTP forward proxy) handed to the engine. Keeping it off the
+network except through that proxy is left to a separate wrapper (DECISIONS.md).
 
 Status: **planning.** The CEF spike (`spike/`, TODO.txt W1-W7) proved Chromium can run
-with no network of its own; the plan now is Architecture C (DECISIONS.md, TODO.txt C0-C8):
+with no network of its own; the plan now is Architecture C (DECISIONS.md, TODO.txt C1-C8):
 
 - `web-shell`: a small Wayland compositor that draws the status bar and command line and
   owns all input (scratchy's keys, KEYS.md). It runs as one window on a Wayland or X11

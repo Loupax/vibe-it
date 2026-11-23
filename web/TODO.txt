@@ -4,9 +4,11 @@ Architecture C (user, 2026-11-23; DECISIONS.md "Architecture C"): web-shell is a
 Wayland compositor (smithay) that draws the shell (status bar, command line, later tabs
 and hints) and owns all input; the page is drawn by an engine host, a separate program
 with no browser UI of its own (Blink through CEF, web-host-cef; a lighter engine later) that the shell
-drives over a control socket in our own protocol. The engine host runs in an empty
-network namespace and reaches the network only through a web proxy: any HTTP forward
-proxy (plain requests and CONNECT) on a Unix socket, given with `--proxy <socket path>`.
+drives over a control socket in our own protocol. Network: `--proxy <host:port>` (any
+HTTP forward proxy, plain requests and CONNECT) is handed to the engine host; without it
+the engine connects directly. web does not enforce that nothing bypasses the proxy:
+running it in an empty network namespace is a separate, engine-neutral wrapper, not
+part of web (DECISIONS.md "No enforcement in web").
 No browser extension, no automation protocol (CDP, BiDi).
 
 Order (user, 2026-11-23): Blink first, to have something working as soon as possible;
@@ -14,17 +16,11 @@ a lighter engine (web-host-webkit, E1) only after C8. C1 can run before any comp
 code (inside the nested dwl from ../scratchy/tools/nest.sh). Each step ends with a check, so the plan can
 stop early on a hard failure.
 
-- [ ] C0 Launcher. `web/run.sh` (from spike/run.sh): the systemd scope and the empty
-      network namespace (W2, unchanged) plus a forwarder inside it from
-      127.0.0.1:<port> (lo brought up) to the proxy's Unix socket. Engine-neutral: it
-      takes the program to start.
-      Done when: stock Chromium with `--proxy-server=127.0.0.1:<port>` loads https and a
-      WebSocket page through it and the proxy's log has every request and tunnel; with the
-      forwarder stopped, nothing loads.
-
 - [ ] C1 web-host-cef. The spike binary becomes the CEF engine host:
-      - drop W3's resource handler and the spike's wire client; set the proxy to C0's
-        forwarder. Chromium owns cookies, cache and uploads (W-UPLOAD1 goes away).
+      - drop W3's resource handler, the spike's wire client and run.sh's network
+        namespace (run.sh keeps the memory-capped scope for development); pass
+        `--proxy` on as `--proxy-server`. Chromium owns cookies, cache and uploads
+        (W-UPLOAD1 goes away).
       - one window per tab, the page only (no Chrome toolbar, tab strip or menus);
         `window.open` and target=_blank go through the host (OnBeforePopup), which
         announces `tab-created <id>` before the window maps, so the shell can pair them.
@@ -37,7 +33,8 @@ stop early on a hard failure.
         traverse, same-document), `editable-focused <id> true|false`,
         `find-result <id> <i> <n>`, `crashed <id>`. Downloads, permission prompts and JS
         dialogs: the engine's default for now, each its own item later.
-      Done when: a script drives it inside nested dwl, in C0's namespace through the proxy:
+      Done when: a script drives it inside nested dwl, with `--proxy` set to a local proxy
+      whose log shows the page's requests and tunnels:
       open, back/forward, two tabs, a window.open popup announced before it maps, all
       events above seen; Wayland.
 

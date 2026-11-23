@@ -149,3 +149,16 @@ TODO.txt P-FORGET gets a done-when; C1's protocol notes the command.
 **What changed:** DECISIONS.md "Blink first"; TODO.txt: C1b (web-host-webkit) moves
 after C8 as E1, C2/C3/C8 checks use web-host-cef only; README.md. The plan goes up as a
 pull request.
+
+## No enforcement in web (2026-11-23, docs only)
+
+> C0: launcher (namespace plus forwarder to the proxy).
+>
+> What's namespace on this context?
+
+> don't enforce that. It's something we can do separately, right?
+
+**What changed:** DECISIONS.md "No enforcement in web": web takes `--proxy <host:port>`
+and hands it to the engine; the empty network namespace and the forwarder to a proxy's
+Unix socket become a separate wrapper outside web. TODO.txt: C0 removed, C1 drops the
+namespace from run.sh and checks against a local proxy; README.md and the root README.
