@@ -1732,8 +1732,7 @@ OK           7/7  dom/nodes/Node-nodeValue.html
 OK           2/2  dom/nodes/Node-normalize-2.html
 OK           4/4  dom/nodes/Node-normalize.html
 OK         12/12  dom/nodes/Node-parentElement.html
-OK           4/5  dom/nodes/Node-parentNode.html
-  FAIL      Removed iframe
+OK           5/5  dom/nodes/Node-parentNode.html
 OK       726/726  dom/nodes/Node-properties.html
 OK         28/28  dom/nodes/Node-removeChild.html
 OK         28/29  dom/nodes/Node-replaceChild.html

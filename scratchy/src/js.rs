@@ -1337,8 +1337,8 @@ const PRELUDE: &str = r#"
     g.outerWidth = g.innerWidth; g.outerHeight = g.innerHeight;
     Object.keys(locSt).forEach(function (k) { locSt[k] = e[k]; });
     [['title', e.title || ''], ['URL', e.href], ['documentURI', e.href], ['baseURI', e.href]].forEach(function (p) {
-      var d = Object.getOwnPropertyDescriptor(doc, p[0]);
-      if (d && 'value' in d) d.value = p[1], Object.defineProperty(doc, p[0], d); // data properties only (baseURI became an accessor)
+      var d = Object.getOwnPropertyDescriptor(g.document, p[0]);
+      if (d && 'value' in d) d.value = p[1], Object.defineProperty(g.document, p[0], d); // data properties only (baseURI became an accessor)
     });
     t0 = Date.now();
     Object.keys(timing).forEach(function (k) {
@@ -1365,7 +1365,7 @@ const PRELUDE: &str = r#"
     g.__scratchy_q7_attach(p);  // QEL7b: scroll / MediaQueryList work is run by the parent's rendering update
     // QSTASH2: a same-origin frame shares its parent's localStorage/sessionStorage; an opaque one keeps its own.
     if (!o.opaque) g.__scratchy_ls_share(p);
-    doc.readyState = 'complete';
+    g.document.readyState = 'complete';
     // QPT1-D1: an opaque-origin (data:) frame sees cross-origin views of its parent and top, has no
     // frameElement, and tells the cross-origin proxy what its real parent/top are.
     if (o.opaque) {
@@ -1400,15 +1400,15 @@ const PRELUDE: &str = r#"
     p.__scratchy_rej_sub(g.__scratchy_rej_flush);
     // QDOM5c: the initial about:blank window navigates in place to a same-origin URL (the Window object stays): the
     // location parts and the document URL change, the about:blank base fallback goes.
-    Object.defineProperty(g, '__scratchy_realm_nav', { value: function (href) {
+    Object.defineProperty(g, '__scratchy_realm_nav', { value: function (href, keepBase) {
       var n = new g.URL(href);
       var e = { href: n.href, protocol: n.protocol, host: n.host, hostname: n.hostname, port: n.port, pathname: n.pathname, search: n.search, hash: n.hash };
       Object.keys(e).forEach(function (k) { locSt[k] = e[k]; });
       ['URL', 'documentURI'].forEach(function (k) {
-        var d = Object.getOwnPropertyDescriptor(doc, k);
-        if (d && 'value' in d) { d.value = n.href; Object.defineProperty(doc, k, d); }
+        var d = Object.getOwnPropertyDescriptor(g.document, k);
+        if (d && 'value' in d) { d.value = n.href; Object.defineProperty(g.document, k, d); }
       });
-      g.__scratchy_frame_base_clear();
+      if (!keepBase) g.__scratchy_frame_base_clear();
     }, configurable: true });
     // QPT1b (R53 D6): the parent calls this when it drops the realm.
     Object.defineProperty(g, '__scratchy_realm_release', { value: function () {

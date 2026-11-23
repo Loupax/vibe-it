@@ -553,11 +553,10 @@ OK           0/9  css/cssom-view/scrollIntoView-horizontal-tb-writing-mode.html
   FAIL      scrollIntoView({"block":"end","inline":"start"})
   FAIL      scrollIntoView({"block":"end","inline":"center"})
   FAIL      scrollIntoView({"block":"end","inline":"end"})
-TIMEOUT      0/4  css/cssom-view/scrollIntoView-iframes.html
+OK           1/4  css/cssom-view/scrollIntoView-iframes.html
   FAIL      scrollIntoView in same-origin iframe can scroll in inner window
   FAIL      scrollIntoView in same-origin iframe can scroll in parent window
-  TIMEOUT   scrollIntoView in cross-origin iframe can scroll in inner window
-  NOTRUN    scrollIntoView in cross-origin iframe can't scroll in parent window
+  FAIL      scrollIntoView in cross-origin iframe can scroll in inner window
 OK           1/1  css/cssom-view/scrollIntoView-inline-image.html
 OK           4/4  css/cssom-view/scrollIntoView-multiple-nested.html
 OK           4/4  css/cssom-view/scrollIntoView-multiple.html

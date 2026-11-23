@@ -1,6 +1,6 @@
 # wpt-th areas at WPT ac78b567f5404b6f2dc0418ea380af3946a47fca; score = mean over files of passed/total subtests (files that ran; flaky.txt files and NOT-RUN/CRASH excluded)
 # area                        files    ran  all-pass  subtests    pass  pass%  score
-dom/nodes                       406    406       257     15889   13198   83.1   75.4
+dom/nodes                       406    406       258     15889   13199   83.1   75.4
 dom/events                      201    200        88       848     605   71.3   50.7
 dom/ranges                       69     68        30     41902   39313   93.8   59.2
 dom/observable                   29     29         0       286       2    0.7    0.2
@@ -8,7 +8,7 @@ dom/other                        51     51        33      3952    3115   78.8   
 domparsing                       93     93        15      3458     403   11.7   26.0
 webidl                           44     44        10       505     322   63.8   49.0
 uievents                         70     70        38       238     147   61.8   59.9
-html/webappapis                 307    307       103      1627    1082   66.5   39.4
+html/webappapis                 307    307       103      1627    1083   66.6   39.5
 resize-observer                  36     36        19       106      64   60.4   63.6
 intersection-observer           150    150        22       253      72   28.5   17.4
 html/semantics/scripting-1      419    400       131      2863    1333   46.6   35.5
@@ -18,7 +18,7 @@ html/canvas/element            1281   1277       707      2827     773   27.3   
 html/canvas/offscreen          1074   1074       672      1388     721   51.9   62.9
 html/canvas/other                 4      4         4        18      18  100.0  100.0
 css/cssom                       271    270        68      3939    2183   55.4   39.0
-css/cssom-view                  220    220        80      1625     891   54.8   45.4
+css/cssom-view                  220    220        80      1625     892   54.9   45.5
 css/geometry                     28     28        27      1203    1199   99.7  100.0
 encoding                         41     41         7       704     316   44.9   35.4
 url                              44     42        17      7329    5671   77.4   82.5
@@ -31,4 +31,4 @@ shadow-dom                      263    263        60      2650     843   31.8   
 fetch/api                       145    144        42      1364     857   62.8   44.4
 fetch/other                      68     64         6       759     293   38.6   27.3
 xhr                             299    298       120      1091     748   68.6   48.8
-TOTAL                          6263   6229      2738    105202   77158   73.3   50.0
+TOTAL                          6263   6229      2739    105202   77161   73.3   50.0

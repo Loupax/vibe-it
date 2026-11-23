@@ -349,7 +349,7 @@
     if (!href) return; // no page URL (fixtures): nothing to mirror
     var u = new g.URL(href);
     g.__loc_set(u); // QF11: the private path (the public `location` setters navigate)
-    try { doc.URL = u.href; doc.documentURI = u.href; } catch (e) {}
+    try { g.document.URL = u.href; g.document.documentURI = u.href; } catch (e) {}  // QDOM5e: the CURRENT document (an iframe window gets a new one)
   }
   function target(url) {
     if (url === undefined || url === null) return loc.href;
