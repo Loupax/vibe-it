@@ -100,7 +100,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends libxkbcommon-dev
       - name: Rust toolchain (pinned, the clippy count depends on the version)
         run: |
-          rustup toolchain install 1.96.1 --profile minimal --component clippy
+          rustup toolchain install 1.96.1 --profile minimal --component clippy --component rustfmt
           rustup default 1.96.1
           rustc --version
           cargo clippy --version
@@ -128,6 +128,9 @@ jobs:
           workspaces: |
             ${{ matrix.crate }}
             wire
+      - name: Format (web/shell)
+        if: matrix.crate == 'web/shell'
+        run: cargo fmt --check
       - name: Build
         run: cargo build --release --locked --all-targets
       - name: Build wire for the WPT testharness runner (QWPT5)

@@ -483,8 +483,16 @@ fn go_run(lines: &[(u64, &str)], tag: &str, typed: &str, tab: bool) -> Option<St
 #[test]
 fn keys_t50_t53_go_http_history_entry_completed_and_run_keeps_http() {
     let h = [(1, "http://127.0.0.1:8000/")];
-    assert_eq!(go_run(&h, "gh1", "go 127", true).as_deref(), Some("http://127.0.0.1:8000/"), "Tab, Enter");
-    assert_eq!(go_run(&h, "gh2", "go 127", false).as_deref(), Some("http://127.0.0.1:8000/"), "Enter with the ghost");
+    assert_eq!(
+        go_run(&h, "gh1", "go 127", true).as_deref(),
+        Some("http://127.0.0.1:8000/"),
+        "Tab, Enter"
+    );
+    assert_eq!(
+        go_run(&h, "gh2", "go 127", false).as_deref(),
+        Some("http://127.0.0.1:8000/"),
+        "Enter with the ghost"
+    );
     assert_eq!(
         go_run(&[(1, "http://www.plain.test/")], "gh3", "go plain", false).as_deref(),
         Some("http://plain.test/")
@@ -501,7 +509,10 @@ fn keys_t50_go_https_history_entry_keeps_https() {
 fn keys_t50_go_a_typed_scheme_wins() {
     let h = [(1, "http://127.0.0.1:8000/"), (2, "https://127.0.0.1:8000/")];
     assert_eq!(go_run(&h, "gh5", "go http://127", false).as_deref(), Some("http://127.0.0.1:8000/"));
-    assert_eq!(go_run(&h, "gh6", "go https://127", false).as_deref(), Some("https://127.0.0.1:8000/"));
+    assert_eq!(
+        go_run(&h, "gh6", "go https://127", false).as_deref(),
+        Some("https://127.0.0.1:8000/")
+    );
     // Ghost deleted: what was typed runs, scheme-less words included.
     let dir = history_dir("gh7", &h);
     let mut k = line_with(Some(dir.clone()));
