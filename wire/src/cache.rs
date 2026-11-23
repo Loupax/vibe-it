@@ -6,7 +6,7 @@
 //
 //   `WIRECACHE1 <body length, 20 digits>\n` (32 bytes)
 //   one JSON line of metadata (status, headers, times, Vary values, classes)
-//   the body, uncompressed (wire has already undone gzip)
+//   the body as wire emitted it: uncompressed when wire undid gzip/br, else as sent
 //
 // Bodies are streamed into `.tmp-<pid>-<n>` in the partition directory while
 // they are copied to the client and renamed into place only once complete, so

@@ -316,3 +316,12 @@ body (GET/HEAD/OPTIONS/TRACE) once on a fresh connection when a REUSED
 connection answered with a garbled status line (`junk_on_reused`). A POST is
 not resent (the server did read it; W-POOL4). Tests in `src/w_flk1_tests.rs`,
 NOTES "Stray bytes on a pooled connection".
+
+## W-ENC1 — Content-Encoding beyond gzip (agent task)
+
+> W-ENC1 (coordinator launch of wire/TODO.txt W-ENC1)
+
+Result: ureq's `brotli` feature on (wire decodes br and asks `Accept-Encoding: gzip, br`);
+`Content-Encoding` is no longer stripped by wire (ureq removes it itself when it decodes), so an
+encoding nobody undid passes through; the client's `Accept-Encoding` is not forwarded. Tests in
+`src/w_enc1_tests.rs`, NOTES "gzip and br decompression".

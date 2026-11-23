@@ -118,7 +118,7 @@ never forwarded upstream. Without them wire behaves as a plain proxy.
 | `X-Wire-Upgrade: websocket` | request | with `Connection: Upgrade` + `Upgrade: websocket`: the WebSocket pipe (below); without it an Upgrade request is an ordinary request |
 | `X-Wire-Cache: hit/miss/revalidated/stale/bypass` | response | how the HTTP cache answered (only while it is on) |
 | `X-Wire-Features: ua,ws,jarfile,token,cache,upstream-length` | response | comma-separated optional features, on every response (absent on an older wire); `ua` = the User-Agent override above, `ws` = the WebSocket pipe, `token` = cookie control requests need the control token (below), `jarfile` = `--cookie-file` and the `X-Wire-Cookie-Op: clear-site` control op (with `X-Wire-Top-Site` and `X-Wire-Jar: scratchy`; removes every cookie of that top-level site's partition, first-party and embedded third-party, answers 204, saves at once; with the cache on it also removes that partition's cache directory, W-CACHE2), `cache` = the HTTP cache (protocol version 4), `upstream-length` = `X-Wire-Upstream-Length` and `X-Wire-Error: truncated` (below) |
-| `X-Wire-Upstream-Length: N` | response | the upstream's `Content-Length`, when it sent one and wire passed the body through unmodified (absent when wire undid gzip, on 204/304, or when the upstream sent none); see "Truncated bodies" below |
+| `X-Wire-Upstream-Length: N` | response | the upstream's `Content-Length`, when it sent one and wire passed the body through unmodified (absent when wire undid gzip or br, on 204/304, or when the upstream sent none); see "Truncated bodies" below |
 | `X-Wire-Version` | response | protocol version (currently 4), on every response |
 | `X-Wire-Final-Url`, `X-Wire-Target-Class`, `X-Wire-Hop-Classes` | response | URL after redirects, address classes |
 | `X-Wire-Error` | response | on wire-made errors (`1`, `too-large`, `policy`, `cookie-control`, `bad-user-agent`, `only-if-cached`, `truncated`) |
@@ -133,6 +133,21 @@ sent. It is applied on every redirect hop, on the jar path and on the
 connection can never skip the check; class headers are remembered per
 host:port so reused connections still report them.
 
+## Content-Encoding (W-ENC1)
+
+wire decodes `gzip` and `br` (ureq's `gzip` and `brotli` features) and asks
+the origin for exactly `Accept-Encoding: gzip, br`; a client's own
+`Accept-Encoding` is never forwarded (so a browser may send its usual
+`gzip, deflate, br, zstd`, wire ignores it). A request with a `Range` header
+asks for no encoding at all, so a partial answer is identity. When wire
+decoded a body, the response has no `Content-Encoding`, no `Content-Length`
+and no `X-Wire-Upstream-Length`, and the cache stores the decoded body.
+Any `Content-Encoding` wire did NOT undo (an origin that sends `zstd` or
+`x-custom` unasked, a stacked `gzip, br`, an upper-case `GZIP`) passes through
+unchanged with its header, and the body as sent (`X-Wire-Upstream-Length`
+still applies), so the client can see it. zstd is not requested: ureq 2 has no
+zstd support.
+
 ## Truncated bodies (W-MEDIA2)
 
 wire streams a body until it closes the connection and never sends its own
@@ -144,11 +159,11 @@ end. What a client can rely on:
   wire can only stop and close. A Unix-socket close is the same for a clean and
   a cut body. If `X-Wire-Upstream-Length: N` is present, a client that received
   fewer than N bytes got a truncated body. If it is absent (chunked upstream,
-  gzip undone, no `Content-Length`) a truncation cannot be detected.
+  gzip or br undone, no `Content-Length`) a truncation cannot be detected.
 - Buffered path (`X-Wire-Max-Bytes`): the whole body is read before any header
   is written, so a read error that leaves fewer bytes than the upstream's
   `Content-Length` is answered `502` + `X-Wire-Error: truncated` instead of a
-  short 2xx. A read error with no known length (gzip undone, chunked) still
+  short 2xx. A read error with no known length (gzip or br undone, chunked) still
   passes the bytes that arrived, as before (scratchy's WPT fetch/xhr tests
   depend on it).
 - Timeout: the default is 20 s for the whole request including the body, so a
