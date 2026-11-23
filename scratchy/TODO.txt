@@ -72,9 +72,6 @@ crates/files); then QEL1 and the area triage items in the R64 3.2 order. Details
       size and compare every listed page (today only page 1 is rendered).
 - [ ] QCSS1b [S] (P2, from QCSS1 #527; Sonnet; css.rs, dom.rs stylesheet collection) Honour `media` on `<link rel=stylesheet>`,
       `<style media>` and `@import url(...) media` with `media_query_string_matches` (today ignored: always applied).
-- [ ] [WIP] QINC2 [S] (P2, from QHOV2 #631; Sonnet; incr engine) Engine check-mode mismatch "laid at root: h" (~48 px) at
-      update 2 on tools/incr-gate/hover-big-js.html (page `hoverjs`), 1 in 2-3 runs, also on main: build a deterministic
-      repro, find which update path leaves the root height stale, fix it; 0 mismatches in 10 check-mode runs.
 - [ ] QHOV3 [S] (P3, from QHOV2 #631; Sonnet; app.rs) Scroll frames paint whole (scroll offset is in PaintKey): blit-scroll
       the buffer and damage-repaint only the exposed strip; also paint damage rects straight into the buffer (drop the
       scratch page) once paint's clip is proven to never write outside it.

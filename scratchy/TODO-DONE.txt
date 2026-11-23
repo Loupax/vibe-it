@@ -9656,3 +9656,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- (no header)
 - [x] QCNV9 DONE 981b8bf #636 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Sonnet; in order after the items above) Path2D, isPointInPath/isPointInStroke. 64 files.
+
+=== from TODO.txt: --- (no header)
+- [x] QINC2 DONE 442162f #637 [S] (P2, from QHOV2 #631; Sonnet; incr engine) Engine check-mode mismatch "laid at root: h" (~48 px) at
+      update 2 on tools/incr-gate/hover-big-js.html (page `hoverjs`), 1 in 2-3 runs, also on main: build a deterministic
+      repro, find which update path leaves the root height stale, fix it; 0 mismatches in 10 check-mode runs.
