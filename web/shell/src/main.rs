@@ -10,6 +10,7 @@ mod clipboard;
 mod completion;
 mod config;
 mod control;
+mod forget;
 mod history;
 mod host;
 mod input;
@@ -80,6 +81,16 @@ fn main() {
     create_private_dir(&profile).unwrap_or_else(|e| fail(format!("state directory {}: {e}", profile.display())));
     let exe = std::env::current_exe().ok();
     let host_bin = host::host_bin(&args, &env, exe.as_deref());
+    // P-FORGET-SHELL: no window, no shell: forget the site and exit with the host's code.
+    if let Some(site) = &args.forget_site {
+        std::process::exit(forget::run_cli(site, &state_dir, &profile, host_bin, &args.host_args));
+    }
+    // C-SOCKDIR: run directories of shells that were killed hard.
+    if let Some(runtime) = env("XDG_RUNTIME_DIR").filter(|v| !v.is_empty()) {
+        for d in forget::clean_stale_run_dirs(std::path::Path::new(&runtime)) {
+            eprintln!("[web] removed the stale run directory {}", d.display());
+        }
+    }
 
     let mut event_loop: EventLoop<State> = EventLoop::try_new().unwrap_or_else(|e| fail(e));
     let display: Display<State> = Display::new().unwrap_or_else(|e| fail(e));
@@ -174,6 +185,12 @@ fn main() {
 
     let control = control::Control::listen().unwrap_or_else(|e| fail(format!("control socket: {e}")));
     let control_path = control.path.clone();
+    if let Err(e) = forget::write_pid_file(&state_dir) {
+        eprintln!(
+            "web: cannot write {}: {e} (web --forget-site will not find this instance)",
+            state_dir.join(forget::PID_FILE).display()
+        );
+    }
 
     let cmd = host::host_command(&args, host_bin, &profile, &control_path, &socket_name);
     eprintln!(
@@ -243,6 +260,7 @@ fn main() {
         title: String::new(),
         dirty: true,
         control: None,
+        forget_clients: Vec::new(),
         host: None,
         quit_deadline: None,
         exit_code: 0,
@@ -328,6 +346,7 @@ fn main() {
     }
     drop(state);
     control::cleanup(&control_path);
+    forget::remove_pid_file(&state_dir);
     std::process::exit(code);
 }
 

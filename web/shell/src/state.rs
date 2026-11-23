@@ -87,6 +87,8 @@ pub struct State {
     pub dirty: bool,
 
     pub control: Option<UnixStream>,
+    /// `web --forget-site` clients waiting for their `forgot` (site as sent, the client's socket).
+    pub forget_clients: Vec<(String, UnixStream)>,
     pub host: Option<Child>,
     pub quit_deadline: Option<Instant>,
     pub exit_code: i32,
@@ -334,10 +336,53 @@ impl State {
             Event::Crashed { ref reason, .. } => {
                 self.keys.message = format!("web: the page crashed ({reason}); :refresh loads it again");
             }
-            Event::Error { ref message } => self.keys.message = format!("web: host: {message}"),
+            Event::Error { ref message } => {
+                self.keys.message = format!("web: host: {message}");
+                // A refused `forget-site` has no `forgot`: the oldest waiting client gets the error.
+                if !self.forget_clients.is_empty() {
+                    let (_, c) = self.forget_clients.remove(0);
+                    reply_to(c, line);
+                }
+            }
+            Event::Forgot {
+                ref site,
+                ref domain,
+                ref result,
+                ref failed,
+                cookies,
+            } => {
+                self.keys.message = if result == "ok" {
+                    format!("forgot {site} ok ({cookies} cookies)")
+                } else {
+                    format!("forgot {site} {result} {}", failed.join(","))
+                };
+                if let Some(i) = self.forget_clients.iter().position(|(s, _)| s == site) {
+                    let (_, c) = self.forget_clients.remove(i);
+                    reply_to(c, line);
+                }
+                // The page shows the forgotten site (or a host under it): load it again.
+                let host = url::Url::parse(&self.url)
+                    .ok()
+                    .and_then(|u| u.host_str().map(str::to_ascii_lowercase));
+                if let Some(h) = host.filter(|h| !domain.is_empty() && (*h == *domain || h.ends_with(&format!(".{domain}")))) {
+                    self.log(&format!("reloading {h}: its site {domain} was forgotten"));
+                    self.send(Command::Reload { hard: false });
+                }
+            }
             _ => {}
         }
         self.redraw();
+    }
+
+    /// A `web --forget-site` client asked (forget.rs): pass it to the host, answer when it has.
+    pub fn forget_requested(&mut self, site: String, client: UnixStream) {
+        self.log(&format!("forget-site {site} (from web --forget-site)"));
+        if self.control.is_none() {
+            reply_to(client, r#"{"event":"error","message":"the engine host is not connected"}"#);
+            return;
+        }
+        self.forget_clients.push((site.clone(), client));
+        self.send(Command::ForgetSite { site });
     }
 
     pub fn send(&mut self, cmd: Command) {
@@ -715,3 +760,9 @@ delegate_seat!(State);
 delegate_output!(State);
 delegate_viewporter!(State);
 delegate_cursor_shape!(State);
+
+/// Writes one line to a `web --forget-site` client and closes the connection.
+fn reply_to(mut client: UnixStream, line: &str) {
+    use std::io::Write;
+    let _ = client.write_all(format!("{}\n", line.trim_end()).as_bytes());
+}

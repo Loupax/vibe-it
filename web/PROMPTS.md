@@ -487,3 +487,16 @@ edge, no adjustment). live.py's stale context-menu step (C2-LIVE-REFRESH) became
 `<select id="sel2">` flush right in pages/c2.html, taken from #689's branch (live.py and c2.html
 only; main's permission Block coordinate kept). live.py 16/16 on Wayland and `--x11`; the
 step fails (15/16, 673..1083) with the fix reverted.
+
+## 2026-11-23 P-FORGET-SHELL + C-SOCKDIR (`web --forget-site`, `:forget-site`, stale run directories)
+Agent task from the coordinator: `web --forget-site <site>` through a running web for the same
+state dir, else `web-host-cef --no-window --forget-site`; exit with the host's code; a
+`:forget-site` command; remove stale `$XDG_RUNTIME_DIR/web-<pid>` dirs at start.
+Mechanism: the shell writes `DIR/web.pid` and listens on `web-<pid>/forget.sock` (short path
+whatever the state dir; pid checked through `/proc/<pid>/comm == web`, so a stale file or a
+recycled pid falls back to the standalone host). The client gets the host's `forgot` JSON line
+(or the `error` event for a refusal); the shell shows `forgot ... ok (N cookies)` and reloads
+a page on the forgotten domain. `:forget-site` kept (same plumbing, no extra cost). Tests:
+args, `forget.rs` (stale dirs, pid file, client/socket), `tests/p_forget_shell_tests.rs`; live
+`shell/test/forget_live.py` 7/7 in the headless nest (running instance, `:forget-site`,
+no instance, SIGKILL then next start; other sessions' live shells were left alone).

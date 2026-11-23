@@ -28,15 +28,20 @@ pub struct Args {
     pub state_dir: Option<PathBuf>,
     pub host_bin: Option<PathBuf>,
     pub url: Option<String>,
+    /// `--forget-site <site>` (P-FORGET-SHELL): forget the site and exit, no window.
+    pub forget_site: Option<String>,
     pub host_args: Vec<String>,
 }
 
 pub const USAGE: &str = "usage: web [--engine cef] [--proxy HOST:PORT] [--state-dir DIR] [--host-bin PATH] [URL] [-- HOST-ARGS...]
+       web [--state-dir DIR] [--host-bin PATH] --forget-site SITE
   --engine cef       the engine host (cef is the only one for now)
   --proxy HOST:PORT  send every request through this HTTP forward proxy (default: direct)
   --state-dir DIR    state directory (default $WEB_STATE_DIR, else $XDG_STATE_HOME/web)
   --host-bin PATH    the engine host binary (default $WEB_HOST_CEF, else web-host-cef next to
                      this binary, else on PATH)
+  --forget-site SITE forget SITE's cookies and storage (through the running web on the same state
+                     directory, else with no window) and exit: 0 ok, 1 partial, 2 refused
   -- HOST-ARGS       passed to the engine host unchanged (e.g. Chromium switches)";
 
 /// Parses the arguments after the program name. `Ok(None)` means `--help`.
@@ -47,6 +52,7 @@ pub fn parse<I: IntoIterator<Item = String>>(argv: I) -> Result<Option<Args>, St
         state_dir: None,
         host_bin: None,
         url: None,
+        forget_site: None,
         host_args: Vec::new(),
     };
     let mut it = argv.into_iter();
@@ -86,6 +92,13 @@ pub fn parse<I: IntoIterator<Item = String>>(argv: I) -> Result<Option<Args>, St
                 }
                 "state-dir" => a.state_dir = Some(PathBuf::from(value()?)),
                 "host-bin" => a.host_bin = Some(PathBuf::from(value()?)),
+                "forget-site" => {
+                    let v = value()?;
+                    if v.trim().is_empty() {
+                        return Err("--forget-site needs a site".into());
+                    }
+                    a.forget_site = Some(v)
+                }
                 _ => return Err(format!("unknown option --{name}")),
             }
         } else if a.url.is_none() {
@@ -93,6 +106,9 @@ pub fn parse<I: IntoIterator<Item = String>>(argv: I) -> Result<Option<Args>, St
         } else {
             return Err(format!("unexpected argument {arg:?} (one URL only)"));
         }
+    }
+    if a.forget_site.is_some() && a.url.is_some() {
+        return Err("--forget-site opens no page: give a site or a URL, not both".into());
     }
     Ok(Some(a))
 }
@@ -139,6 +155,19 @@ mod tests {
         assert_eq!(a.url.as_deref(), Some("x.org"));
         assert_eq!(a.host_args, vec!["--proxy-bypass-list=<-loopback>", "--foo"]);
         assert_eq!(a.proxy, None);
+    }
+
+    #[test]
+    fn forget_site_both_spellings_and_conflicts() {
+        let a = p(&["--forget-site", "example.com", "--state-dir=/s"]).unwrap().unwrap();
+        assert_eq!(a.forget_site.as_deref(), Some("example.com"));
+        assert_eq!(a.state_dir, Some(PathBuf::from("/s")));
+        let a = p(&["--forget-site=https://a.b/x"]).unwrap().unwrap();
+        assert_eq!(a.forget_site.as_deref(), Some("https://a.b/x"));
+        assert_eq!(p(&[]).unwrap().unwrap().forget_site, None);
+        assert!(p(&["--forget-site"]).is_err());
+        assert!(p(&["--forget-site="]).is_err());
+        assert!(p(&["--forget-site", "a.test", "b.test"]).is_err());
     }
 
     #[test]

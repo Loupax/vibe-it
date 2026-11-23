@@ -64,8 +64,24 @@ does not know how.
   Details and limits: PROTOCOL.md "forget-site".
 - **Who runs it:** an engine locks its profile, so a second host on the same profile
   cannot start. If a web instance runs, `web --forget-site` sends the command to its host
-  (through the shell's socket); if none runs, it starts the host with
-  `--no-window` for that one command and exits.
+  (through the shell); if none runs, it starts the host with `--no-window` for that one
+  command and exits. Exit status 0 `ok`, 1 `partial`, 2 refused; stdout is the host's
+  `forgot` event (one JSON line) on both paths.
+- **Finding the running instance (P-FORGET-SHELL):** the shell writes its pid to
+  `DIR/web.pid` and listens on `$XDG_RUNTIME_DIR/web-<pid>/forget.sock`, next to its control
+  socket. `web --forget-site` reads the pid file, checks that the pid is a live `web`
+  (`/proc/<pid>/comm`), connects, sends `forget-site <site>` and reads the host's answer.
+  Chosen over a socket inside the state dir (socket paths are limited to ~107 bytes and
+  state dirs can be deep) and over a lock file (a pid file is stale-checkable without
+  holding anything). A stale pid file, a recycled pid or a refused connection mean "no
+  instance": the command runs the host itself. The running shell shows `forgot ...` in its
+  status bar and reloads the page if it is on the site.
+- **`:forget-site [site]`** in the shell does the same for the page's own site (or the
+  site given); it exists because the status line and the reload come for free.
+- **Run directories (C-SOCKDIR):** `$XDG_RUNTIME_DIR/web-<pid>/` holds the control and
+  forget sockets and the help page. At start the shell removes the `web-<pid>`
+  directories whose pid is not a running `web` (a hard-killed shell leaves one); it
+  deletes the files it makes by name, then the directory, never a glob.
 - **Per engine:**
   - CEF (P-FORGET, done; user 2026-11-23: "use Storage.clearDataForOrigin"):
     - Cookies: `CefCookieManager::VisitAllCookies`, deleting those under the site.

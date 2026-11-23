@@ -197,7 +197,18 @@ pub fn mode_name(mode: KeyMode) -> &'static str {
 
 /// Every name `dispatch_command` knows as the first word (what the first word completes
 /// from). Keep it in step with `dispatch_command`'s `match` by hand.
-pub const COMMAND_NAMES: &[&str] = &["go", "help", "historyBack", "historyFront", "let", "q", "quit", "refresh", "set"];
+pub const COMMAND_NAMES: &[&str] = &[
+    "forget-site",
+    "go",
+    "help",
+    "historyBack",
+    "historyFront",
+    "let",
+    "q",
+    "quit",
+    "refresh",
+    "set",
+];
 
 /// `:set`'s usage line (C-CARETCMD).
 pub const SET_USAGE: &str = "web: usage: :set caret | nocaret | caret?";
@@ -877,6 +888,16 @@ impl Keys {
             ("historyFront", []) => send(self, Command::Forward),
             ("refresh", []) => send(self, Command::Reload { hard: false }),
             ("refresh", ["hard"]) => send(self, Command::Reload { hard: true }),
+            // `:forget-site [site]`: the site is the page's own when omitted.
+            ("forget-site", rest) if rest.len() <= 1 => {
+                let site = rest.first().map(|s| s.to_string()).unwrap_or_else(|| self.url.clone());
+                if site.is_empty() || (rest.is_empty() && !site.starts_with("http")) {
+                    self.message = "web: :forget-site: no http(s) page to forget; give a site".to_string();
+                } else {
+                    send(self, Command::ForgetSite { site })
+                }
+            }
+            ("forget-site", _) => self.message = "web: usage: :forget-site [site or URL]".to_string(),
             ("help", []) => {
                 let url = self.help_url.clone();
                 send(self, Command::Open { url })
