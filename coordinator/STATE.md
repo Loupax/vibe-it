@@ -448,3 +448,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 USER: W-POOL4 keep it safe (no retry after clean close). Closed to wire/TODO-DONE.txt, recorded in scratchy/DECISIONS.md (Network). Nothing waiting on the user.
 - 2026-11-23 Session start (user's machine). web spike started: launched W1 (Opus, bare CEF window). wire: launched W-MEDIA2 (Sonnet; truncated vs complete body, matters for the spike's downloads/video, W5).
 - 2026-11-23 Named wire's duplicate-header gap W-HDR1 and launched it (Sonnet; Chromium as a client makes it reachable). 3/3 slots.
+- 2026-11-23 #655 W-HDR1 READY (repeated request headers merged: Cookie '; ', others ', '; all Set-Cookie lines already reached the client). wptserve shard failed once (request-forbidden-headers Via subtest), passed on re-run: flake, not filed (scratchy paused). merge_pr.sh green() now judges only the latest run per check (close/reopen left CANCELLED runs). Merging.

@@ -18,7 +18,9 @@ HEAD=origin/$BR
 BASE=$(git merge-base "$HEAD" origin/main)
 CODE=$(git diff --name-only "$BASE" origin/main | grep -Ev '^(PROMPTS\.md|README\.md)$|^scratchy/(TODO\.txt|TODO-DONE\.txt|PROMPTS\.md|REGRESSIONS\.md|PERF\.md|NOTES\.md|AGENTS\.md|QUESTIONS\.md|HANDOFF\.md)$' | head -1)
 # all checks SUCCESS (4 jobs today; 3 after QV8-6 drops scratchy-quickjs)
-green() { [ "$(gh pr view "$N" --json statusCheckRollup -q '([.statusCheckRollup[]|select(.conclusion=="SUCCESS")]|length) as $ok | (.statusCheckRollup|length) as $all | if $all>=9 and $ok==$all then "y" else "n" end')" = y ]; }
+green() { [ "$(gh pr view "$N" --json statusCheckRollup -q '[.statusCheckRollup|group_by(.name)[]|max_by(.startedAt)] as $l | ([$l[]|select(.conclusion=="SUCCESS")]|length) as $ok | ($l|length) as $all | if $all>=9 and $ok==$all then "y" else "n" end')" = y ]; }
+# green(): judge only the LATEST run of each check name (a close/reopen or a re-run leaves older CANCELLED/FAILED
+# runs in the rollup: #655 2026-11-23).
 # Wait until CI has registered checks for the PR's CURRENT head commit (under load this took > 40 s and
 # `gh pr checks --watch` then returned at once with no checks: false "CI NOT green", #580 2026-11-22), then watch.
 waitci() {
