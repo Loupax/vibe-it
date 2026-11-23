@@ -117,10 +117,11 @@ never forwarded upstream. Without them wire behaves as a plain proxy.
 | `User-Agent` | request | forwarded upstream when no `X-Wire-User-Agent` is given; with neither, wire sends its honest default `wire/0.1 (+https://github.com/Loupax/vibe-it) ...` |
 | `X-Wire-Upgrade: websocket` | request | with `Connection: Upgrade` + `Upgrade: websocket`: the WebSocket pipe (below); without it an Upgrade request is an ordinary request |
 | `X-Wire-Cache: hit/miss/revalidated/stale/bypass` | response | how the HTTP cache answered (only while it is on) |
-| `X-Wire-Features: ua,ws,jarfile,token,cache` | response | comma-separated optional features, on every response (absent on an older wire); `ua` = the User-Agent override above, `ws` = the WebSocket pipe, `token` = cookie control requests need the control token (below), `jarfile` = `--cookie-file` and the `X-Wire-Cookie-Op: clear-site` control op (with `X-Wire-Top-Site` and `X-Wire-Jar: scratchy`; removes every cookie of that top-level site's partition, first-party and embedded third-party, answers 204, saves at once; with the cache on it also removes that partition's cache directory, W-CACHE2), `cache` = the HTTP cache (protocol version 4) |
+| `X-Wire-Features: ua,ws,jarfile,token,cache,upstream-length` | response | comma-separated optional features, on every response (absent on an older wire); `ua` = the User-Agent override above, `ws` = the WebSocket pipe, `token` = cookie control requests need the control token (below), `jarfile` = `--cookie-file` and the `X-Wire-Cookie-Op: clear-site` control op (with `X-Wire-Top-Site` and `X-Wire-Jar: scratchy`; removes every cookie of that top-level site's partition, first-party and embedded third-party, answers 204, saves at once; with the cache on it also removes that partition's cache directory, W-CACHE2), `cache` = the HTTP cache (protocol version 4), `upstream-length` = `X-Wire-Upstream-Length` and `X-Wire-Error: truncated` (below) |
+| `X-Wire-Upstream-Length: N` | response | the upstream's `Content-Length`, when it sent one and wire passed the body through unmodified (absent when wire undid gzip, on 204/304, or when the upstream sent none); see "Truncated bodies" below |
 | `X-Wire-Version` | response | protocol version (currently 4), on every response |
 | `X-Wire-Final-Url`, `X-Wire-Target-Class`, `X-Wire-Hop-Classes` | response | URL after redirects, address classes |
-| `X-Wire-Error` | response | on wire-made errors (`1`, `too-large`, `policy`, `cookie-control`, `bad-user-agent`, `only-if-cached`) |
+| `X-Wire-Error` | response | on wire-made errors (`1`, `too-large`, `policy`, `cookie-control`, `bad-user-agent`, `only-if-cached`, `truncated`) |
 | `X-Wire-Cookies: on/off` | response | jar used / disabled |
 
 The chosen User-Agent must be printable ASCII (space allowed), at most 512
@@ -131,6 +132,30 @@ sent. It is applied on every redirect hop, on the jar path and on the
 `public-only` requests use their own connection pool, so reusing a pooled
 connection can never skip the check; class headers are remembered per
 host:port so reused connections still report them.
+
+## Truncated bodies (W-MEDIA2)
+
+wire streams a body until it closes the connection and never sends its own
+`Content-Length`, so by itself a body cut short upstream (connection dropped,
+or ureq's total timeout, which includes reading the body) looks like a clean
+end. What a client can rely on:
+
+- Streamed path (no `X-Wire-Max-Bytes`): headers are out before the body, so
+  wire can only stop and close. A Unix-socket close is the same for a clean and
+  a cut body. If `X-Wire-Upstream-Length: N` is present, a client that received
+  fewer than N bytes got a truncated body. If it is absent (chunked upstream,
+  gzip undone, no `Content-Length`) a truncation cannot be detected.
+- Buffered path (`X-Wire-Max-Bytes`): the whole body is read before any header
+  is written, so a read error that leaves fewer bytes than the upstream's
+  `Content-Length` is answered `502` + `X-Wire-Error: truncated` instead of a
+  short 2xx. A read error with no known length (gzip undone, chunked) still
+  passes the bytes that arrived, as before (scratchy's WPT fetch/xhr tests
+  depend on it).
+- Timeout: the default is 20 s for the whole request including the body, so a
+  long download is cut at 20 s. A client raises it per request with
+  `X-Wire-Timeout-Ms: <ms>` (it replaces the default for that request; a
+  browser backend should send a large value for downloads and media). The
+  default is unchanged.
 
 ## WebSocket pipe (`X-Wire-Upgrade: websocket`)
 
