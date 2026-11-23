@@ -53,7 +53,7 @@ tunnels are copied with small fixed buffers and backpressure, never whole.
         normally (pages, video seek, a large download, a WebSocket chat),
         and memory stays flat during a multi-GB download.
 
-- [ ] W2-1a [S] (from #669) Test-only name mapping (hosts file via env in test builds, or a hidden
+- [x] W2-1a [S] (DONE in W2-2 #674: hidden `--test-resolve GLOB=IP`) (from #669) Test-only name mapping (hosts file via env in test builds, or a hidden
       `--resolve host=ip`) so tests can use `www.example.test` as the spec does. W2-2/W2-F routing
       tests need it.
 - [ ] W2-1b [S] (from #669) Re-measure tunnel throughput on a quiet machine or with `perf`; decide
@@ -61,7 +61,15 @@ tunnels are copied with small fixed buffers and backpressure, never whole.
 - [ ] W2-1c [XS] (from #669, needs the user's say) Access-log up/down byte counts: include heads
       (today) or payload only?
 
-- [WIP] W2-2 TLS interception.
+- [x] W2-2 TLS interception. (DONE 2026-11-23, c8a5f49, #674: lazy CA in --ca-dir, Policy::decide per CONNECT
+      with add_http_claim for W2-F, --no-decrypt, decrypted keep-alive tunnels, one forward() for every
+      request; decrypted 52-54 % of direct (target 50 %); hidden test-only --test-decrypt/--test-resolve.)
+- [ ] W2-2a [S] (from #674) Reuse upstream connections inside decrypted tunnels (today: fresh TCP+TLS per
+      request, Connection: close); on a stale connection retry only idempotent requests with no body.
+- [ ] W2-2b [XS] (from #674) Pipeline request bodies (uploads) like response bodies (two tasks).
+- [ ] W2-2c [XS] (after W2-F) Remove the test-only --test-decrypt once pass-decrypt exists; keep --test-resolve.
+- [ ] W2-2d [XS] NEEDS USER (from #674) CA dir default: spec says $XDG_DATA_HOME/proxy, binary is wire2; keep or
+      use .../wire2?
       - Generate a local CA on first run (stored with 0600 permissions,
         never committed); mint and cache a leaf certificate per host.
       - Inside a CONNECT tunnel: terminate TLS toward the browser, open TLS
@@ -74,7 +82,7 @@ tunnels are copied with small fixed buffers and backpressure, never whole.
       - Done when: the W2-1 check passes with decryption on, and the log
         shows full URLs for https requests.
 
-- [ ] W2-3 WebSockets inside decrypted tunnels: forward the upgrade request,
+- [WIP] W2-3 WebSockets inside decrypted tunnels: forward the upgrade request,
       and after `101` switch that connection to plain byte copy. Frame
       parsing waits for W2-F.
 

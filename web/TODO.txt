@@ -48,7 +48,8 @@ stop early on a hard failure.
       open, back/forward, two tabs, a window.open popup announced before it maps, all
       events above seen; Wayland.
 
-- [WIP] C2 web-shell, the compositor minimum. smithay, winit backend (the shell is one
+- [x] C2 web-shell, the compositor minimum. (DONE 2026-11-23, 4e20d8b, #671: web/shell/, binary `web`; live.py 16/16
+      on Wayland, X11 and with --proxy.) smithay, winit backend (the shell is one
       window on the user's desktop). Starts the engine host (`--engine cef`, the only one for now) with
       WAYLAND_DISPLAY = its own socket; shows the current tab's window filling the shell
       window minus the status bar; forwards keyboard and pointer; places popups
@@ -58,7 +59,7 @@ stop early on a hard failure.
       Wayland desktop AND an X11 desktop (winit opens an X11 window there; the engine
       hosts still speak Wayland to the shell, so nothing else changes).
 
-- [ ] C3 Keys and command line, ported from scratchy (see "From scratchy" below):
+- [WIP] C3 Keys and command line, ported from scratchy (see "From scratchy" below):
       KEYS.md modes INPUT/NORMAL/SEARCH/COMMAND, Esc Esc, the status bar, T1-T34 and the
       ghost completion T45-T53; commands `:go`, `:refresh`, `:refresh hard`, `:help`,
       `:q`, `:let` with `@%`; history (STASH.md) written from C1's load events; scroll
@@ -134,8 +135,21 @@ stop early on a hard failure.
       click on links open nothing new. Script window.open / target=_blank keep loading in the same page
       (DECISIONS "No tabs yet").
 
-- [ ] C-NOTAB-ALLOW [S] (from #672, after the owed live run dumps the real menu) Context menu by allow-list
+- [ ] C-NOTAB-ALLOW [S] (from #672; #673's live run: Print…, Cast…, Create QR Code still remain and open Chrome UI) Context menu by allow-list
       instead of deny-list, so a new Chrome item that opens a tab can't slip in.
+- [ ] C-KEYMAP [S] (from C2 #671) The page gets xkbcommon's default keymap (XKB_DEFAULT_*, else us), not the
+      desktop's layout (winit does not expose it). Read it (X11: xkbcommon-x11; Wayland: wl_keyboard.keymap)
+      and give it to the shell's seat. Done when a non-us desktop layout types the same characters in the page.
+- [ ] C-FOCUSKEYS [S] (from C2 #671; from reading code, untested) smithay's winit backend drops winit's synthetic
+      key releases: a modifier held when the shell loses focus (Alt of Alt+Tab) can stay down. Release every
+      pressed key on focus-out. Done when Alt+Tab away and back leaves no stuck modifier (keydown logger page).
+- [ ] C-SOCKDIR [XS] (from C2 #671) A hard-killed shell leaves $XDG_RUNTIME_DIR/web-<pid>/ behind: clean stale
+      dirs at start.
+- [ ] C-INSTALL [S] (coordinator, 2026-11-23) Make web installable for daily use: `cargo install` copies only
+      the binary, but web-host-cef needs CEF's runtime files beside it. An install script (or Makefile
+      target) that puts web, web-host-cef and the CEF runtime in one prefix (e.g. ~/.local/lib/web +
+      ~/.local/bin/web), and ci_then_push.sh `--install web` calling it. Done when `web https://example.com`
+      works from a fresh shell after the install.
 - [ ] C-KEYH [S] (from #672) The cef crate's KeyboardHandler wrapper treats `os_event` as an XEvent and
       segfaults the host on Wayland. Needed if C3 wants key events from the host; fix or work around
       upstream/in a local patch when that comes up.
