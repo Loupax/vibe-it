@@ -46,11 +46,20 @@ pub(crate) struct Style {
     ser: String,
     /// QCNV10: the id of the `CanvasGradient` this style is (the colour fields are then transparent and unused).
     grad: Option<u32>,
+    /// QCNV13: a drawImage source (the colour fields are then unused); never stored in the drawing state.
+    img: Option<Arc<ImgPaint>>,
+}
+
+/// QCNV13: the cropped source bitmap of one drawImage, the matrix taking its pixels to user space and the sampling.
+struct ImgPaint {
+    pm: Pixmap,
+    ts: Transform,
+    q: FilterQuality,
 }
 
 impl Style {
     fn new(rgba: [u8; 4]) -> Style {
-        Style { rgba, ser: serialize_color(rgba), grad: None }
+        Style { rgba, ser: serialize_color(rgba), grad: None, img: None }
     }
 }
 
@@ -76,6 +85,9 @@ struct DrawState {
     shadow_off: (f64, f64),
     /// QCNV11: `globalCompositeOperation` as an index into `OPS` (0 = source-over).
     op: u8,
+    /// QCNV13: imageSmoothingEnabled and imageSmoothingQuality (0 low, 1 medium, 2 high).
+    smooth: bool,
+    smooth_q: u8,
     /// QCNV5: the current transformation matrix as (a, b, c, d, e, f): x' = a x + c y + e, y' = b x + d y + f.
     ctm: [f64; 6],
     /// QCNV6: the clipping region (coverage 0..255 per pixel); `None` = no clip. Shared between saved copies.
@@ -537,7 +549,7 @@ fn stroke_of(st: &DrawState) -> Stroke {
 
 impl Default for DrawState {
     fn default() -> DrawState {
-        DrawState { fill: Style::new([0, 0, 0, 255]), stroke: Style::new([0, 0, 0, 255]), shadow: Style::new([0, 0, 0, 0]), alpha: 1.0, line_width: 1.0, cap: 0, join: 0, miter_limit: 10.0, dash: Vec::new(), dash_offset: 0.0, shadow_blur: 0.0, shadow_off: (0.0, 0.0), op: 0, ctm: IDENTITY, clip: None }
+        DrawState { fill: Style::new([0, 0, 0, 255]), stroke: Style::new([0, 0, 0, 255]), shadow: Style::new([0, 0, 0, 0]), alpha: 1.0, line_width: 1.0, cap: 0, join: 0, miter_limit: 10.0, dash: Vec::new(), dash_offset: 0.0, shadow_blur: 0.0, shadow_off: (0.0, 0.0), op: 0, smooth: true, smooth_q: 0, ctm: IDENTITY, clip: None }
     }
 }
 
@@ -703,7 +715,7 @@ pub(crate) fn parse_color(s: &str, cur: [u8; 4]) -> Option<Style> {
     if matches!(c, cssparser_color::Color::Rgba(_) | cssparser_color::Color::Hsl(_) | cssparser_color::Color::Hwb(_)) {
         Some(Style::new(rgba))
     } else {
-        Some(Style { rgba, ser: c.to_css_string(), grad: None })
+        Some(Style { rgba, ser: c.to_css_string(), grad: None, img: None })
     }
 }
 
@@ -1148,6 +1160,11 @@ fn composite_shape(px: &mut Pixmap, st: &DrawState, style: &Style, shape: &Shape
 
 /// One tiny-skia draw of `shape` in `style` with blend mode `mode`.
 fn paint_source(px: &mut Pixmap, st: &DrawState, style: &Style, shape: &Shape, mode: BlendMode, mask: Option<&Mask>) {
+    if let Some(im) = &style.img {
+        let p = Paint { shader: Pattern::new(im.pm.as_ref(), SpreadMode::Pad, im.q, st.alpha, im.ts), blend_mode: mode, anti_alias: true, ..Paint::default() };
+        shape.put(px, &p, mask);
+        return;
+    }
     if let Some(g) = style_grad(style) {
         fill_gradient(px, &g, &st.ctm, shape.bounds(st), st.alpha, shape.ts(), |px, p| {
             let mut p = p.clone();
@@ -1236,6 +1253,63 @@ fn draw(c: &mut Canvas, op: i32, a: &[f64]) {
             }
         }
     }
+}
+
+/// QCNV13: `drawImage` from a canvas bitmap. `a` = (sx, sy, sw, sh, dx, dy, dw, dh), all finite, in the source's pixels and
+/// user space. Both rects are normalised (negative sizes), the source rect is clipped to the bitmap and the destination
+/// rect clipped in the same proportion; the cropped source is painted through the usual `paint_shape` as a pattern on
+/// the destination rect, so the CTM, clip, globalAlpha, composite operator and shadow all apply as for fillRect.
+/// `src` is the source canvas id (-1: an element without a context: a transparent `sw_img` x `sh_img` bitmap).
+fn draw_image(m: &mut Registry, cid: u32, src: i32, sw_img: u32, sh_img: u32, a: &[f64]) {
+    let [mut sx, mut sy, mut sw, mut sh, mut dx, mut dy, mut dw, mut dh] = a[..] else { return };
+    let norm = |p: &mut f64, l: &mut f64| {
+        if *l < 0.0 {
+            *p += *l;
+            *l = -*l;
+        }
+    };
+    norm(&mut sx, &mut sw);
+    norm(&mut sy, &mut sh);
+    norm(&mut dx, &mut dw);
+    norm(&mut dy, &mut dh);
+    if sw == 0.0 || sh == 0.0 || dw == 0.0 || dh == 0.0 {
+        return;
+    }
+    let (iw, ih) = (f64::from(sw_img), f64::from(sh_img));
+    let (x0, y0, x1, y1) = (sx.max(0.0), sy.max(0.0), (sx + sw).min(iw), (sy + sh).min(ih));
+    if !(x1 > x0 && y1 > y0) {
+        return;
+    }
+    let (fx, fy) = (dw / sw, dh / sh);
+    let (rx, ry, rw, rh) = (dx + (x0 - sx) * fx, dy + (y0 - sy) * fy, (x1 - x0) * fx, (y1 - y0) * fy);
+    let (ix0, iy0) = (x0.floor() as i32, y0.floor() as i32);
+    let (ix1, iy1) = (x1.ceil() as i32, y1.ceil() as i32);
+    let Some(irect) = tiny_skia::IntRect::from_xywh(ix0, iy0, (ix1 - ix0) as u32, (iy1 - iy0) as u32) else { return };
+    let pm = if src >= 0 {
+        let Some(sc) = m.get(src as u32) else { return };
+        let Some(spm) = sc.pixmap.as_ref() else { return };
+        match spm.clone_rect(irect) {
+            Some(p) => p,
+            None => return,
+        }
+    } else {
+        let Some(p) = Pixmap::new(irect.width(), irect.height()) else { return };
+        p
+    };
+    let Some(c) = m.get_mut(cid) else { return };
+    let Some(px) = c.pixmap.as_mut() else { return };
+    let Some(r) = rect_of(rx, ry, rw, rh) else { return };
+    let q = match (c.state.smooth, c.state.smooth_q) {
+        (false, _) => FilterQuality::Nearest,
+        (true, 2) => FilterQuality::Bicubic,
+        (true, _) => FilterQuality::Bilinear,
+    };
+    let ts = Transform::from_row(fx as f32, 0.0, 0.0, fy as f32, (rx + (f64::from(ix0) - x0) * fx) as f32, (ry + (f64::from(iy0) - y0) * fy) as f32);
+    let style = Style { rgba: [0; 4], ser: String::new(), grad: None, img: Some(Arc::new(ImgPaint { pm, ts, q })) };
+    let ctm = transform_of(&c.state.ctm);
+    paint_shape(px, &c.state, &style, &Shape::Rect(r, ctm));
+    c.image = None;
+    mark(c.node);
 }
 
 /// QCNV6: `op` 0 beginPath, 1 moveTo, 2 lineTo, 3 closePath, 4 rect (`a` = the arguments, all finite).
@@ -1431,6 +1505,10 @@ pub(crate) fn register(ctx: &Ctx<'_>, table: Rc<RefCell<DomTable>>) {
             mark(c.node);
         }
     });
+    // QCNV13: drawImage from a canvas/OffscreenCanvas bitmap (see `draw_image`; the JS side validated the arguments).
+    native!(ctx, "__cv_draw_image", move |cid: i32, src: i32, w: f64, h: f64, a: Vec<f64>| {
+        draw_image(&mut map(), cid as u32, src, w as u32, h as u32, &a);
+    });
     // QCNV6: path building (see `path_op`; the JS side drops non-finite arguments) and fill/stroke/clip (`paint_path`).
     native!(ctx, "__cv_path", move |cid: i32, op: i32, a: Vec<f64>| {
         if let Some(c) = map().get_mut(cid as u32) {
@@ -1530,7 +1608,7 @@ pub(crate) fn register(ctx: &Ctx<'_>, table: Rc<RefCell<DomTable>>) {
     });
     native!(ctx, "__cv_set_grad", move |cid: i32, which: i32, gid: i32| {
         if let Some(c) = map().get_mut(cid as u32) {
-            let st = Style { rgba: [0, 0, 0, 0], ser: String::new(), grad: Some(gid as u32) };
+            let st = Style { rgba: [0, 0, 0, 0], ser: String::new(), grad: Some(gid as u32), img: None };
             if which == 0 {
                 c.state.fill = st;
             } else {
@@ -1587,7 +1665,9 @@ pub(crate) fn register(ctx: &Ctx<'_>, table: Rc<RefCell<DomTable>>) {
                 4 => c.state.op = (v as usize).min(OPS.len() - 1) as u8,
                 5 => c.state.shadow_blur = v,
                 6 => c.state.shadow_off.0 = v,
-                _ => c.state.shadow_off.1 = v,
+                7 => c.state.shadow_off.1 = v,
+                8 => c.state.smooth = v != 0.0,
+                _ => c.state.smooth_q = v as u8,
             }
         }
     });
@@ -1600,7 +1680,9 @@ pub(crate) fn register(ctx: &Ctx<'_>, table: Rc<RefCell<DomTable>>) {
             4 => f64::from(c.state.op),
             5 => c.state.shadow_blur,
             6 => c.state.shadow_off.0,
-            _ => c.state.shadow_off.1,
+            7 => c.state.shadow_off.1,
+            8 => f64::from(u8::from(c.state.smooth)),
+            _ => f64::from(c.state.smooth_q),
         })
     });
     // setLineDash/getLineDash: the list travels as a comma-separated string (the JS side validated and doubled it).
