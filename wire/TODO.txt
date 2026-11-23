@@ -5,6 +5,16 @@ deliberately-deferred, not a speculative feature backlog. See NOTES.md
 for the fuller story behind any item; a commit hash in parens points at
 the commit it came up during.
 
+- [WIP] **W-FLK1 [S] Intermittent transport failures in the wptserve WPT shard** (2026-11-23, seen on
+      #655 and main 0104f79). `fetch/api/basic/request-forbidden-headers.any.html`: a random subtest (Via,
+      Sec-Test) gets `TypeError: Failed to fetch`, ~1 in 5 shard runs; reproduced locally with MAIN's wire
+      (1/5 capped runs of `--area 'fetch/*,xhr' --server wptserve`), so not W-HDR1. Also once
+      `xhr/responseText-status.html: OK -> CRASH` on main (passed on re-run). Suspect: a pooled connection
+      to wptserve failing under the shard's load (W-POOL3/W-POOL4 area: no retry after a clean close, by
+      decision). Do: capture wire's error for the failing request (X-Wire-Error, log), find the cause, fix in
+      wire if it is wire; otherwise flaky-list with the reason. Matters for web/: Chromium will hit the same
+      path under real-page load.
+
 - [x] **`scratchy` talks to `wire` now** (`scratchy` v66/v67, a separate
       session — see `scratchy/PROMPTS.md`). Link-click navigation and
       a live-navigated page's own sub-resources (external stylesheets,
@@ -106,14 +116,6 @@ the commit it came up during.
       called this out as the daemon's own business, invisible to
       scratchy either way — worth a real measurement before relying on
       it, not before using it.
-
-- [WIP] **W-HDR1 [S] Duplicate request headers collapse to one.** `execute` calls
-      `req.set(name, value)` per parsed header, which *replaces* any
-      prior value for that name rather than appending a second value —
-      correct for the overwhelmingly common case (each header name
-      appears once), wrong for a request that deliberately repeats one
-      (e.g. multiple `Cookie` headers, rare but legal). Nothing real has
-      sent one of these yet.
 
 - [x] `file://` URLs are served (scratchy Q22). Open: no directory listings, no HEAD.
 

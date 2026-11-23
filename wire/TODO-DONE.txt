@@ -1,3 +1,13 @@
+- [x] **W-HDR1 DONE 0104f79 #655 [S] Duplicate request headers collapse to one.** `execute` calls
+      `req.set(name, value)` per parsed header, which *replaces* any
+      prior value for that name rather than appending a second value —
+      correct for the overwhelmingly common case (each header name
+      appears once), wrong for a request that deliberately repeats one
+      (e.g. multiple `Cookie` headers, rare but legal). Nothing real has
+      sent one of these yet.
+      DONE: forwardable_request_headers merges repeats (Cookie "; ", others ", ") on the shared, jar and WS
+      paths; every Set-Cookie already reached the client (now tested).
+
 - [x] **W-MEDIA2 DONE c5b85e6 #654 [S] A truncated body is indistinguishable from a complete one.**
       `copy_body` returns `Ok` on an upstream read error, and the
       `X-Wire-Max-Bytes` path ignores `read_to_end`'s error (`let _ =`); since wire
