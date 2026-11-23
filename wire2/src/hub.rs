@@ -18,13 +18,14 @@ use std::time::Duration;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::watch;
+use tokio_util::sync::CancellationToken;
 
 use crate::conn::{self, Conn};
 use crate::filter::{Layer, StageState, check_peer, check_socket_dir};
 use crate::flow::FlowInfo;
 use crate::host::{normalise_host, split_authority};
 use crate::http::{self, HeadError, RequestHead};
-use crate::proxy::{self, Ctr, Ctx, HEAD_TIMEOUT, Next};
+use crate::proxy::{self, Ctr, Ctx, Dialed, HEAD_TIMEOUT, Next};
 
 /// Create the hub socket (mode 0600) after the socket-trust check of its directory.
 pub fn bind(path: &Path) -> Result<UnixListener, String> {
@@ -108,7 +109,7 @@ async fn handle(s: UnixStream, ctx: Arc<Ctx>) {
             return;
         }
     };
-    let Some((stage, tx)) = flow.route.take(layer) else {
+    let Some((stage, tx, kill)) = flow.route.take(layer) else {
         let why = format!(
             "flow {} is not waiting for a request from a filter at this layer",
             flow.id
@@ -130,11 +131,12 @@ async fn handle(s: UnixStream, ctx: Arc<Ctx>) {
         head.target
     );
     match layer {
-        Layer::Tunnel => tunnel(conn, head, buf, &ctx, &flow, stage, tx).await,
+        Layer::Tunnel => tunnel(conn, head, buf, &ctx, &flow, stage, tx, kill).await,
         Layer::Http => http_hop(conn, head, buf, &ctx, &flow, stage, tx).await,
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn tunnel(
     mut conn: Conn,
     head: RequestHead,
@@ -143,6 +145,7 @@ async fn tunnel(
     flow: &FlowInfo,
     stage: usize,
     tx: Arc<watch::Sender<StageState>>,
+    kill: CancellationToken,
 ) {
     let same = split_authority(&head.target)
         .and_then(|(h, p)| Ok((normalise_host(h)?, p)))
@@ -169,7 +172,13 @@ async fn tunnel(
         _ = flow.cancel.cancelled() => return,
     };
     tx.send_replace(StageState::Answered);
-    let (mut up, pre) = match r {
+    // `_guard` ends the next stage's pipe when this one ends.
+    let Dialed {
+        conn: mut up,
+        pre,
+        guard: _guard,
+        ..
+    } = match r {
         Ok(x) => x,
         Err(e) => {
             proxy::refuse(&mut conn, e.status, &e.body()).await;
@@ -188,7 +197,9 @@ async fn tunnel(
     let (a, b) = (AtomicU64::new(0), AtomicU64::new(0));
     let r = tokio::select! {
         r = crate::splice::splice_bidi(&conn, &up, &a, &b) => r,
-        _ = flow.cancel.cancelled() => Ok(()),
+        // W2-2e: not the flow's token: the connection may be parked and used by another flow after the
+        // flow that dialled it has ended. Its owner cancels this one when it drops the connection.
+        _ = kill.cancelled() => Ok(()),
     };
     if let Err(e) = r {
         crate::debug!("flow={} hub tunnel ended: {e}", flow.id);

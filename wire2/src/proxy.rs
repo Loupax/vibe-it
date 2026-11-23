@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::watch;
+use tokio_util::sync::DropGuard;
 
 use crate::config::Config;
 use crate::conn::{Conn, Prefixed};
@@ -44,6 +45,17 @@ pub struct Ctx {
     pub reg: Arc<Registry>,
     pub policy: Arc<Policy>,
     pub filters: Arc<Filters>,
+    /// W2-2e: idle upstream connections shared by the decrypted flows.
+    pub pool: Arc<crate::pool::UpPool>,
+}
+
+/// An upstream connection as `connect_from` returns it.
+pub struct Dialed {
+    pub conn: Conn,
+    /// Bytes that arrived behind the last tunnel filter's 2xx.
+    pub pre: Vec<u8>,
+    /// Dropping it ends the hub's pipe for this connection (W2-2e).
+    pub guard: Option<DropGuard>,
 }
 
 /// Byte counters a hop adds to: the flow's own for the browser-facing hop (the access log counts what
@@ -245,7 +257,12 @@ async fn tunnel(mut conn: Conn, head: RequestHead, leftover: Vec<u8>, ctx: &Ctx)
         r = connect_from(ctx, &flow, 0) => r,
         _ = flow.cancel.cancelled() => return,
     };
-    let (up, pre) = match up {
+    let Dialed {
+        conn: up,
+        pre,
+        guard: _guard,
+        ..
+    } = match up {
         Ok(x) => x,
         Err(e) => {
             refuse_flow(&mut conn, &flow, e.status, &e.body()).await;
@@ -446,7 +463,6 @@ async fn decrypted(
             Next::Abort | Next::Stale => return,
         }
     }
-    flow.pool.lock().unwrap_or_else(|e| e.into_inner()).take();
     let mut tls = br.unsplit(bw);
     finish(&mut tls).await;
 }
@@ -840,7 +856,7 @@ where
                 continue;
             }
         };
-        let (_expect, rx) = flow.route.expect(Layer::Http, stage);
+        let (_expect, rx, _) = flow.route.expect(Layer::Http, stage);
         let mut hs = req.headers.clone();
         hs.push(("Proxy-Flow".into(), flow_token(ctx, flow).into_bytes()));
         let head = http::write_request_head(&req.method, &req.url, &hs);
@@ -869,51 +885,60 @@ where
         .await;
     }
     let head = http::write_request_head(&req.method, &req.path, &req.headers);
-    // W2-2a: a decrypted flow keeps its origin connection between requests (one slot: the requests of a
-    // browser connection are sequential). A tunnel filter saw one CONNECT for it and keeps its power to
-    // close it; once closed, the next request dials again, through the filters again.
+    // W2-2a / W2-2e: a decrypted flow's origin connection is parked after its response and taken by the
+    // next request of any decrypted flow with the same key (host, port, tunnel chain). A tunnel filter
+    // saw one CONNECT for it and keeps its power to close it; once closed, the next request dials
+    // again, through the filters again.
     let pool = flow.decrypted && !req.upgrade;
+    let key = crate::pool::Key {
+        host: flow.host.clone(),
+        port: flow.port,
+        chain: flow.route.tunnel.iter().map(|(_, n)| n.clone()).collect(),
+    };
     if pool {
-        let parked = flow.pool.lock().unwrap_or_else(|e| e.into_inner()).take();
-        if let Some(mut p) = parked {
-            if still_open(&mut p).await {
-                crate::debug!("flow={} reusing the upstream connection", flow.id);
-                let mut keep = None;
-                let (ur, uw) = p;
-                let next = exchange(
-                    br,
-                    bw,
-                    &leftover,
-                    &head,
-                    req,
-                    (ur, uw, Vec::new()),
-                    flow,
-                    ctr,
-                    status,
-                    keep_alive,
-                    Hop::Origin { pool, reused: true },
-                    &mut keep,
-                )
-                .await;
-                if let Some(k) = keep {
-                    *flow.pool.lock().unwrap_or_else(|e| e.into_inner()) = Some(k);
-                }
-                if !matches!(next, Next::Stale) {
-                    return next;
-                }
-            } else {
+        while let Some(mut e) = ctx.pool.take(&key) {
+            if !still_open(&mut e.conn).await {
                 crate::debug!(
-                    "flow={} the origin closed the kept upstream connection; dialing a new one",
+                    "flow={} the origin closed a kept upstream connection; trying another",
                     flow.id
                 );
+                continue;
             }
+            crate::debug!("flow={} reusing a kept upstream connection", flow.id);
+            let mut keep = None;
+            let guard = e.guard.take();
+            let (ur, uw) = e.conn;
+            let next = exchange(
+                br,
+                bw,
+                &leftover,
+                &head,
+                req,
+                (ur, uw, Vec::new()),
+                flow,
+                ctr,
+                status,
+                keep_alive,
+                Hop::Origin { pool, reused: true },
+                &mut keep,
+            )
+            .await;
+            if let Some(k) = keep {
+                ctx.pool.put(key.clone(), crate::pool::Entry::new(k, guard));
+            }
+            if !matches!(next, Next::Stale) {
+                return next;
+            }
+            // Stale: the kept connection was dead; one more attempt on a fresh one (never another kept
+            // one: it may be as stale).
+            break;
         }
     }
     let up = tokio::select! {
         r = connect_from(ctx, flow, 0) => r,
         _ = flow.cancel.cancelled() => return Next::Abort,
     };
-    let (conn, pre) = match up {
+    let Dialed { conn, pre, guard } = match up {
         Ok(x) => x,
         Err(e) => return answer(bw, ctr.down, status, e.status, &e.body()).await,
     };
@@ -945,8 +970,10 @@ where
                     &mut keep,
                 )
                 .await;
-                if let Some(k) = keep {
-                    *flow.pool.lock().unwrap_or_else(|e| e.into_inner()) = Some(k);
+                if let Some(k) = keep
+                    && !flow.skipped.load(Ordering::Relaxed)
+                {
+                    ctx.pool.put(key, crate::pool::Entry::new(k, guard));
                 }
                 next
             }
@@ -981,12 +1008,11 @@ where
 /// through its tunnel filters from `stage` on, each sent `CONNECT host:port` (a 2xx turns that filter
 /// connection into the byte pipe; the filter forwards to the hub, which continues with the next stage),
 /// then dial the server. Returns the connection and any bytes that arrived behind the last 2xx.
-pub async fn connect_from(
-    ctx: &Ctx,
-    flow: &FlowInfo,
-    mut stage: usize,
-) -> Result<(Conn, Vec<u8>), HopErr> {
+pub async fn connect_from(ctx: &Ctx, flow: &FlowInfo, mut stage: usize) -> Result<Dialed, HopErr> {
     let chain = &flow.route.tunnel;
+    if stage == 0 {
+        flow.skipped.store(false, Ordering::Relaxed);
+    }
     let auth = format!("{}:{}", authority_host(&flow.host), flow.port);
     let mut redials = 0;
     while stage < chain.len() {
@@ -997,6 +1023,8 @@ pub async fn connect_from(
                     "flow={} skipping tunnel filter {name}: down, fails open",
                     flow.id
                 );
+                // W2-2e: such a connection did not go through the chain the pool key names.
+                flow.skipped.store(true, Ordering::Relaxed);
                 stage += 1;
                 continue;
             }
@@ -1017,7 +1045,7 @@ pub async fn connect_from(
                 continue;
             }
         };
-        let (_expect, rx) = flow.route.expect(Layer::Tunnel, stage);
+        let (_expect, rx, kill) = flow.route.expect(Layer::Tunnel, stage);
         let req = format!(
             "CONNECT {auth} HTTP/1.1\r\nHost: {auth}\r\nProxy-Flow: {}\r\n\r\n",
             flow_token(ctx, flow)
@@ -1037,7 +1065,11 @@ pub async fn connect_from(
                 Err(lost(flow, name, "closed before response headers"))
             }
             Some(Err(e)) => Err(malformed(flow, name, &e.to_string())),
-            Some(Ok(rh)) if (200..300).contains(&rh.code) => Ok((Conn::Unix(s), buf)),
+            Some(Ok(rh)) if (200..300).contains(&rh.code) => Ok(Dialed {
+                conn: Conn::Unix(s),
+                pre: buf,
+                guard: Some(kill.drop_guard()),
+            }),
             Some(Ok(rh)) => {
                 crate::info!(
                     "flow={} CONNECT {auth} refused at tunnel filter {name}: {} {}",
@@ -1053,7 +1085,11 @@ pub async fn connect_from(
         };
     }
     match upstream::dial(&flow.host, flow.port, ctx.cfg.dial_timeout).await {
-        Ok(s) => Ok((Conn::Tcp(s), Vec::new())),
+        Ok(s) => Ok(Dialed {
+            conn: Conn::Tcp(s),
+            pre: Vec::new(),
+            guard: None,
+        }),
         Err(e) => {
             log_upstream_error(flow, &e);
             Err(HopErr {
