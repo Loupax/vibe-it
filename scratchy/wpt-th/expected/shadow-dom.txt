@@ -1086,10 +1086,8 @@ OK           0/1  shadow-dom/focus-navigation/tentative/focus-scroller-layout-up
   FAIL      When checking that element is a scroller, layout information should be up to date.
 OK           0/1  shadow-dom/focus-within-shadow.html
   FAIL      Don't clear focus within shadow root if light DOM children are cleared
-OK           0/6  shadow-dom/focus/DocumentOrShadowRoot-activeElement.html
+OK           2/6  shadow-dom/focus/DocumentOrShadowRoot-activeElement.html
   FAIL      activeElement on document & shadow root when focused element is in the shadow tree
-  FAIL      activeElement on document & shadow root when focused element is in the document
-  FAIL      activeElement on document & shadow root when focused element is slotted
   FAIL      activeElement on a neighboring host when focused element is in another shadow tree
   FAIL      activeElement when focused element is in a nested shadow tree
   FAIL      activeElement when focused element is in a parent shadow tree
@@ -1132,11 +1130,10 @@ OK          2/15  shadow-dom/focus/focus-method-delegatesFocus.html
   FAIL      focus() on host with delegatesFocus with another host with no delegatesFocus and a focusable child
   FAIL      focus() on host with delegatesFocus with another host with delegatesFocus and a focusable child
   FAIL      focus() on host with delegatesFocus and slotted focusable children
-OK           4/8  shadow-dom/focus/focus-method-with-delegatesFocus.html
+OK           5/8  shadow-dom/focus/focus-method-with-delegatesFocus.html
   FAIL      on focus(), focusable xshadow2 with delegatesFocus=true delegates focus into its inner element.
   FAIL      if an element within shadow is focused, focusing on shadow host should not slide focus to its inner element.
   FAIL      xshadow2.focus() shouldn't move focus to #one when its inner element is already focused.
-  FAIL      If no element is focusable within a delegatesFocus shadow root, the host can't get focus regardless of host's tabIndex.
 OK           1/1  shadow-dom/focus/focus-preserved-on-slot-reorder.html
 TIMEOUT     0/20  shadow-dom/focus/focus-pseudo-matches-on-shadow-host.html
   TIMEOUT   :focus must not match a shadow host with {mode:open, delegatesFocus:false} shadow root that does not contain the focused element
@@ -1161,17 +1158,14 @@ TIMEOUT     0/20  shadow-dom/focus/focus-pseudo-matches-on-shadow-host.html
   NOTRUN    :focus behavior on tree structure changes; {mode:closed, delegatesFocus:true}
 TIMEOUT      0/1  shadow-dom/focus/focus-scroll-under-delegatesFocus.html
   TIMEOUT   delegatesFocus shouldn't cause extra focus steps
-OK          4/12  shadow-dom/focus/focus-selector-delegatesFocus.html
+OK          6/12  shadow-dom/focus/focus-selector-delegatesFocus.html
   FAIL      :focus applies to host with delegatesFocus=true when the shadow root's descendant has focus
-  FAIL      :focus does not apply to host with delegatesFocus=true when slotted element has focus
   FAIL      :focus applies to host with delegatesFocus=true when an element in a nested shadow tree with delegatesFocus=true is focused
   FAIL      :focus applies to host with delegatesFocus=true when an element in a nested shadow tree with delegatesFocus=false is focused
   FAIL      :focus applies to host with delegatesFocus=false when the shadow root's descendant has focus
-  FAIL      :focus does not apply to host with delegatesFocus=false when slotted element has focus
   FAIL      :focus applies to host with delegatesFocus=false when an element in a nested shadow tree with delegatesFocus=true is focused
   FAIL      :focus applies to host with delegatesFocus=false when an element in a nested shadow tree with delegatesFocus=false is focused
-OK           0/2  shadow-dom/focus/focus-shadowhost-display-none.html
-  FAIL      when shadow host itself is focused, it should match display:none, lose focus then becomes display:block again.
+OK           1/2  shadow-dom/focus/focus-shadowhost-display-none.html
   FAIL      when shadow host with delegatesFocus=true has focused element inside the shadow, it should also match display:none, then lose focus and become display:block again.
 OK           0/1  shadow-dom/focus/focus-slot-box-generated-tabindex-0.html
   FAIL      slot with tabindex=0 that generates a box should be focusable
@@ -1179,8 +1173,7 @@ OK           0/1  shadow-dom/focus/focus-tab-on-shadow-host.html
   FAIL      :focus should be applied to the host and :focus-visible should be applied to the child node when the focus is moved by <tab>
 OK           0/1  shadow-dom/focus/focus-tabindex-order-shadow-negative-delegatesFocus.html
   FAIL      Order when all tabindex=-1 is and delegatesFocus = true
-OK           0/1  shadow-dom/focus/focus-tabindex-order-shadow-negative.html
-  FAIL      Order when all elements in shadow tree has negative tabindex
+OK           1/1  shadow-dom/focus/focus-tabindex-order-shadow-negative.html
 OK           0/1  shadow-dom/focus/focus-tabindex-order-shadow-slot-one.html
   FAIL      Order when all tabindex=0, except for one slot that has tabindex=1
 OK           0/1  shadow-dom/focus/focus-tabindex-order-shadow-varying-delegatesFocus.html

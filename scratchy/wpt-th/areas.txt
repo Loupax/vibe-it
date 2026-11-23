@@ -12,8 +12,8 @@ html/webappapis                 307    307       104      1627    1085   66.7   
 resize-observer                  36     36        19       106      64   60.4   63.6
 intersection-observer           150    150        22       253      72   28.5   17.4
 html/semantics/scripting-1      419    400       131      2863    1333   46.6   35.5
-html/dom                        180    180        49      4053    1284   31.7   40.9
-html/editing                     48     48        37       626     599   95.7   84.5
+html/dom                        180    180        49      4053    1311   32.3   40.9
+html/editing                     48     48        38       626     600   95.8   85.2
 html/canvas/element            1281   1277       773      2827     850   30.1   60.8
 html/canvas/offscreen          1074   1074       736      1388     792   57.1   68.6
 html/canvas/other                 4      4         4        18      18  100.0  100.0
@@ -27,8 +27,8 @@ hr-time                           9      9         0        20       7   35.0   
 webmessaging                    115    115        73       205     138   67.3   67.5
 requestidlecallback               9      9         6        45      28   62.2   81.3
 custom-elements                 204    204        24      2217     712   32.1   22.7
-shadow-dom                      263    263        60      2650     843   31.8   29.7
+shadow-dom                      263    263        61      2650     850   32.1   30.5
 fetch/api                       145    144        42      1364     857   62.8   44.4
 fetch/other                      68     64         6       759     293   38.6   27.3
 xhr                             299    298       120      1091     748   68.6   48.8
-TOTAL                          6263   6229      2880    105202   77348   73.5   52.2
+TOTAL                          6263   6229      2882    105202   77383   73.6   52.2

@@ -9484,3 +9484,12 @@ Task (coordinator, after QCNV11 #644 was held for its 4 shadow pass -> fail subt
 Task: closed `<details>` renders only its first `<summary>` (or a default "Details" one) with a disclosure marker; clicking or Enter/Space on the summary toggles `open`; `toggle` for every `open` write (coalesced); the `name` accordion; summary focusable; engine check mode clean.
 
 **What changed:** default.css rules for details/summary; `ListStyleType::DisclosureClosed/Open`; images.rs (closed `<details>` text skipped, default summary); dom.rs `is_details_summary` (focusable); input_host.rs `ih_summary_activate` (App and headless driver), app.rs / wpt_input.rs Enter/Space arm; js_dom.rs open wrappers on `__d_setattr/__d_setq/__d_rmattr/__d_rmq`, `__scratchy_summary_activate`, `click()` on a summary. No `beforetoggle` for details (HTML specifies it for popover/dialog only). Tests: src/tests/qdet1_tests.rs. See NOTES.md "details / summary (QDET1)".
+
+## QEDIT-D: html/editing focus timeouts (agent item)
+
+Task: find why focus-blur, focused-area-removal and focusing-focused-noop TIMEOUT in html/editing.
+
+**Finding:** all three already pass since QWPT7a (#617); the TODO text was stale. The one open file in that directory, `active-element.html` (2/3), failed because `HTMLElement.tabIndex` did not exist at all (an expando in the test, so `el.focus()` did nothing), not because of the removal fixup.
+**What changed (js_dom.rs):** `tabIndex` reflection (attribute as integer; default 0 for a/area-with-href/button/input/select/textarea/iframe/frame/object/summary, else -1; the setter writes the attribute). Focus fixup (`focus_fixup`): a focused element whose tree root is no longer a Document is dropped as the active element before any insertion (`__d_insert`/`__d_move`) and on `activeElement` reads, so re-inserting a removed focused element does not re-activate it. Making `tabIndex` real made two passing shadow-dom subtests fail honestly, so: `focus()` on a `delegatesFocus` shadow host delegates to the first focusable element of its shadow tree (none = nothing focused), and a focused element that computes `display: none` (`:focus { display: none }`) is blurred (blur/focusout) after a microtask (one check per batch).
+**Not done:** `document.hasFocus()` is still always true and there are no window focus/blur events; `document.activeElement` is not retargeted out of shadow trees; blur is not fired when a focused element is removed (browsers differ; the spec's fixup fires nothing).
+**Tests:** src/tests/qedit_d_tests.rs (7).
