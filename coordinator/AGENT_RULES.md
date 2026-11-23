@@ -146,8 +146,10 @@ These rules apply to every project. For a web/ (or wire/) item, read "scratchy" 
 - Spike code goes in `web/spike/` (a crate of its own, not in CI yet). CEF's binary distribution is downloaded to
   a cache under `$HOME/.cache/` (never /tmp, never inside the repo, never committed); delete `web/spike/target`
   at the end like any build dir.
-- Every CEF run goes under the systemd-run memory cap (the scope covers CEF's child processes), and from W2 on
-  inside an empty network namespace (`unshare -rn` or bubblewrap `--unshare-net`). Kill only PIDs you recorded;
+- Every CEF run goes under the systemd-run memory cap (the scope covers CEF's child processes).
+  Architecture C (2026-11-23) supersedes the spike's network rules: web enforces nothing, no empty network
+  namespace and no wire is needed; the engine host's optional `--proxy` points at a proxy you start yourself
+  (your own, on your own port, killed by PID at the end). Kill only PIDs you recorded;
   CEF spawns helper processes, so kill the whole scope you started (`systemctl --user stop <your unit>`).
 - Use your own wire (own socket, `--cache-dir /tmp/wire-cache-<worktree> --cache-size 256M`), never the user's.
 - Live windows: tools/nest.sh (nested dwl, Wayland). If a step needs X11 and the nested session has no Xwayland,
