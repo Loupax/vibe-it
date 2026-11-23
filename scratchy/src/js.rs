@@ -584,7 +584,11 @@ const PRELUDE: &str = r#"
     tiltX: 0, tiltY: 0, twist: 0, pointerType: '', isPrimary: false });
   PE.prototype.getCoalescedEvents = PE.prototype.getPredictedEvents = function () { return []; };
   evt('WheelEvent', MouseEvent, { deltaX: 0, deltaY: 0, deltaZ: 0, deltaMode: 0 }, { deltaX: toDbl, deltaY: toDbl, deltaZ: toDbl, deltaMode: toULong });
-  evt('DragEvent', MouseEvent, { dataTransfer: null });
+  evt('DragEvent', MouseEvent, { dataTransfer: null }, { dataTransfer: function (v) {
+    if (v === null) return null;
+    if (typeof g.DataTransfer !== 'function' || !(v instanceof g.DataTransfer)) throw new TypeError("Failed to construct 'DragEvent': Failed to read the 'dataTransfer' property from 'DragEventInit': The provided value is not of type 'DataTransfer'.");
+    return v;
+  } });
   evt('TouchEvent', UIEvent, { touches: [], targetTouches: [], changedTouches: [], ctrlKey: false, shiftKey: false, altKey: false, metaKey: false });
   evt('CompositionEvent', UIEvent, { data: '' }, { data: toStr });
   // QDOM15: legacy `createEvent` interfaces.
@@ -2774,7 +2778,7 @@ const FONTS_PRELUDE: &str = include_str!("fonts_prelude.js");
 
 /// QF2: Blob, File, FileReader, blob: URL store (`__blob_lookup`); the
 /// home of the fetch/XHR data classes (QF memo in TODO.txt).
-const FETCH_PRELUDE: &str = include_str!("fetch_prelude.js");
+const FETCH_PRELUDE: &str = concat!(include_str!("fetch_prelude.js"), "\n", include_str!("data_transfer_prelude.js"));
 
 /// QF19w2: `WebSocket` (the class; connection and framing are js_ws.rs).
 const WS_PRELUDE: &str = include_str!("ws_prelude.js");
