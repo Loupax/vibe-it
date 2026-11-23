@@ -2150,6 +2150,12 @@ impl JsEngine {
         self.eval_value::<f64>("reveal", &format!("__scratchy_reveal_id({id})")).map_or(0, |v| v as usize)
     }
 
+    /// QDET1: the activation behaviour of a `<summary>`.
+    pub(crate) fn summary_activate(&self, h: &Handle) {
+        let id = self.table.borrow_mut().intern(h);
+        let _ = self.eval_value::<f64>("summary", &format!("__scratchy_summary_activate_id({id})"));
+    }
+
     pub(crate) fn take_requests(&self) -> js_dom::JsRequests {
         std::mem::take(&mut *self.reqs.borrow_mut())
     }

@@ -535,7 +535,21 @@ pub(crate) fn is_focusable(h: &Handle) -> bool {
     if let Some(n) = element_attr(h, "tabindex").and_then(|t| t.trim().parse::<i32>().ok()) {
         return n >= 0;
     }
-    is_media_controls(h) || (matches!(element_tag(h), "a" | "area") && element_attr(h, "href").is_some())
+    is_media_controls(h) || (matches!(element_tag(h), "a" | "area") && element_attr(h, "href").is_some()) || is_details_summary(h)
+}
+
+/// QDET1: the `<summary>` that is the first summary child of its parent `<details>` (the one that renders,
+/// is focusable and toggles `open` on activation).
+pub(crate) fn is_details_summary(h: &Handle) -> bool {
+    if element_tag(h) != "summary" {
+        return false;
+    }
+    let Some(p) = parent_handle(h) else { return false };
+    if element_tag(&p) != "details" {
+        return false;
+    }
+    let first = p.children.borrow().iter().find(|c| element_tag(c) == "summary").cloned();
+    first.is_some_and(|f| Rc::ptr_eq(&f, h))
 }
 
 /// QM1g2d: a `<video controls>` / `<audio controls>` (scratchy paints its bar; focusable for D6 keys).
@@ -1009,6 +1023,8 @@ pub(crate) fn list_marker(handle: &Handle, style_type: ListStyleType) -> String 
         ListStyleType::Disc => "\u{2022} ".to_string(),
         ListStyleType::Circle => "\u{25E6} ".to_string(),
         ListStyleType::Square => "\u{25AA} ".to_string(),
+        ListStyleType::DisclosureClosed => "\u{25B8} ".to_string(),
+        ListStyleType::DisclosureOpen => "\u{25BE} ".to_string(),
         ListStyleType::None => String::new(),
         numbered => {
             let style = numbered.counter_style().unwrap_or("decimal");

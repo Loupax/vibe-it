@@ -9478,3 +9478,9 @@ Task: all Porter-Duff operators and the separable + non-separable blend modes fo
 Task (coordinator, after QCNV11 #644 was held for its 4 shadow pass -> fail subtests): shadowBlur, shadowOffsetX/Y with spec validation; shadows drawn for fillRect/strokeRect/fill/stroke/Path2D/gradients with the current globalCompositeOperation and globalAlpha (shadow first, then the shape), Gaussian blur sigma = blur/2, only when the shadow colour alpha > 0 and blur or offset non-zero; clipped; canvas + OffscreenCanvas; the 4 shadow.composite subtests pass again.
 
 **What changed:** canvas.rs `paint_shadow` / `shadow_visible` / `composite_shape`, `Shape::shifted` (and a transform on `Shape::Fill`), `DrawState.shadow_blur`/`shadow_off`; fx.rs `blur_plane` is `pub(crate)`; js_dom.rs the three accessors. Tests: src/tests/qcnv12_tests.rs. wpt-th expectations for html/canvas/element and offscreen.
+
+## QDET1: details/summary rendering and activation (agent item)
+
+Task: closed `<details>` renders only its first `<summary>` (or a default "Details" one) with a disclosure marker; clicking or Enter/Space on the summary toggles `open`; `toggle` for every `open` write (coalesced); the `name` accordion; summary focusable; engine check mode clean.
+
+**What changed:** default.css rules for details/summary; `ListStyleType::DisclosureClosed/Open`; images.rs (closed `<details>` text skipped, default summary); dom.rs `is_details_summary` (focusable); input_host.rs `ih_summary_activate` (App and headless driver), app.rs / wpt_input.rs Enter/Space arm; js_dom.rs open wrappers on `__d_setattr/__d_setq/__d_rmattr/__d_rmq`, `__scratchy_summary_activate`, `click()` on a summary. No `beforetoggle` for details (HTML specifies it for popover/dialog only). Tests: src/tests/qdet1_tests.rs. See NOTES.md "details / summary (QDET1)".

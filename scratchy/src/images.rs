@@ -1814,6 +1814,11 @@ pub(crate) fn collect_children(
         }
         return;
     }
+    // QDET1: a <details> without a <summary> child shows the UA's default summary, "Details", with its marker.
+    if element_tag(handle) == "details" && !handle.children.borrow().iter().any(|c| element_tag(c) == "summary") {
+        let marker = if element_attr(handle, "open").is_some() { "\u{25BE} Details" } else { "\u{25B8} Details" };
+        push_generated((anonymous_style(inherited), GenContent::Text(marker.to_string())), inherited, bg, decoration, href, valign, pending, result);
+    }
     let gen_before = generated_content(handle, rules, inherited, "before", viewport_width, image_cache);
     if let Some(g) = gen_before {
         push_generated(g, inherited, bg, decoration, href, valign, pending, result);
@@ -1988,9 +1993,13 @@ pub(crate) fn collect_real_nodes(
     viewport_width: f32,
     image_cache: &HashMap<String, Arc<DecodedImage>>,
 ) {
+    // QDET1: a closed <details> renders only its summary: the text directly in it is hidden too (its element
+    // children are `display: none` by default.css).
+    let closed_details = element_tag(handle) == "details" && element_attr(handle, "open").is_none();
     let mut iter = kids.iter().peekable();
     while let Some(child) = iter.next() {
         match &child.data {
+            NodeData::Text { .. } if closed_details => {}
             NodeData::Text { contents } => {
                 let mut span: SpanStyle = inherited.into();
                 span.background_color = bg;
