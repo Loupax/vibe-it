@@ -567,7 +567,7 @@ fn leaf_geo(el: &Handle, tag: &str) -> Option<Geo> {
         }
         "polyline" | "polygon" => {
             let p = numbers(&element_attr(el, "points")?);
-            let pts: Vec<(f32, f32)> = p.chunks_exact(2).map(|c| (c[0], c[1])).collect();
+            let pts: Vec<(f32, f32)> = p.windows(2).step_by(2).map(|c| (c[0], c[1])).collect();
             let subs = vec![(pts, tag == "polygon")];
             let bbox = subs_bbox(&subs)?;
             Some(Geo::Poly { subs, bbox, evenodd: prop(el, "fill-rule").is_some_and(|v| v == "evenodd") })

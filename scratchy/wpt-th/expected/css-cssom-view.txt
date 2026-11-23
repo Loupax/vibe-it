@@ -348,12 +348,7 @@ OK           0/4  css/cssom-view/elementsFromPoint-svg-text.html
   FAIL      elementsFromPoint for a point inside a <tspan> nested in a <text> without content
   FAIL      elementsFromPoint for a point inside a <textPath> nested in a <text> without content
   FAIL      elementsFromPoint for a point inside an overlapping <tspan> nested in a <text>
-OK           0/6  css/cssom-view/elementsFromPoint-svg.html
-  FAIL      elementsFromPoint for a point inside two rects
-  FAIL      elementsFromPoint for a point inside two rects that are inside an svg element with pointer-events: bounding-box
-  FAIL      elementsFromPoint for a point inside two rects that are inside a <g>
-  FAIL      elementsFromPoint for a point inside two images
-  FAIL      elementsFromPoint for a point inside transformed rects and <g>
+OK           5/6  css/cssom-view/elementsFromPoint-svg.html
   FAIL      elementsFromPoint for a point inside a foreignObject
 OK           0/4  css/cssom-view/elementsFromPoint-table.html
   FAIL      elementsFromPoint for points inside table cells
@@ -626,8 +621,7 @@ OK           0/4  css/cssom-view/scrollIntoView-smooth.html
   FAIL      Smooth scrollIntoView should scroll the element to the 'end' position
 OK           0/1  css/cssom-view/scrollIntoView-stuck.tentative.html
   FAIL      CSSOM View - scrollIntoView doesn't consider scroll-padding when target is stuck
-OK           7/8  css/cssom-view/scrollIntoView-svg-container.html
-  FAIL      , use, nearest on a fully visible element
+OK           8/8  css/cssom-view/scrollIntoView-svg-container.html
 OK           3/3  css/cssom-view/scrollIntoView-svg-shape.html
 OK           0/1  css/cssom-view/scrollIntoView-then-scrollBy.html
   FAIL      scrollIntoView() followed by a deferred scrollBy() preserves the scroll correction

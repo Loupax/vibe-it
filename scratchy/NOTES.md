@@ -3878,6 +3878,13 @@ the App/driver catches its own state up with.
 QWPT7c: hit testing honours `pointer-events: none` (`ComputedStyle::pointer_events_none`, inherited; in `paint::hit_test_element`, so
 the App and the driver share it), element scroll offsets (the script-side `scrollTop` map goes to `__d_hit`; `js_geom::regions_by_node`
 maps node ids to region ids) and inline-svg children (`svg_geom.rs`, `js_geom::refine_svg_hit`, also the rect of an svg child).
+QWPT7e: svg hits use exact fill/stroke geometry (`svg_geom::Geo`), nested svg viewBox + clip, `use`, and the SVG pointer-events keywords
+(`ComputedStyle::pointer_events_kw`, codes in `style::pointer_events_code`; svg_geom reads the computed value through `set_pe_hook`, which
+js_dom registers with the page's style cache, falling back to the attribute/`style`). The svg point comes from `paint::last_image_hit_point`
+(the point in the image box's own frame, so scrolled/fixed boxes work). `elementsFromPoint` inside an svg lists every shape under the
+point (`__d_hits` -> `GeomCache::hit_all` -> `svg_geom::hit_all`), then the ancestors. Inline-level boxes include their vertical margins in
+the line height (layout.rs `Measured::Image.bh`, `Measured::Embedded.h`). Not done: svg text advances (0.55 em estimate), foreignObject
+content as a target, `fill`/`stroke` from stylesheets.
 `offsetX/Y` are computed on read for pointing-device events. Accesskey is Alt+Shift+key (`input_host::accesskey_activate`).
 QWPT7b: the pointer sequences live in `input_host` (`PointerState`: buttons mask, suppress-mouse flag, press targets, last click for counts;
 `pointer_press` / `pointer_release` / `auxclick` / `dblclick` / `click_event` / `keypress`), used by both the Driver and the App
