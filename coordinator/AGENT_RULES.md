@@ -132,3 +132,8 @@ it. (2026-11-22, QCNV5 #624.)
 ## WPT checkout
 Never use /home/loupax/src/wpt: it is a stale sparse checkout (no dom/, url/, html/canvas, ...) and gives thousands of
 bogus 404/CRASH results. Always make your own pinned checkout under your worktree with tools/wpt-checkout.sh.
+
+## Memory cap: load generators too
+Every scratchy process runs under the systemd-run 6G memory cap, including extra copies you start only to load the
+machine for a stability test (2026-11-23, QWPTFLK6 #646 ran 4 uncapped). And a new regression test must be shown to
+FAIL on the old code (revert the fix locally, run it, restore) before you claim it covers the bug.
