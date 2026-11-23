@@ -10,6 +10,7 @@ mod clipboard;
 mod completion;
 mod config;
 mod control;
+mod dmabuf;
 mod forget;
 mod history;
 mod host;
@@ -258,6 +259,10 @@ fn main() {
         })
         .unwrap();
 
+    // C6d: dmabuf when the shell's renderer can import them on a GPU, else wl_shm only.
+    let mut backend = backend;
+    let (dmabuf, dmabuf_line) = dmabuf::setup(backend.renderer(), &dh, std::env::var(dmabuf::DISABLE_ENV).ok().as_deref());
+    eprintln!("[web +{}ms] {dmabuf_line}", start.elapsed().as_millis());
     let mut state = State {
         start,
         display_handle: dh.clone(),
@@ -271,6 +276,7 @@ fn main() {
         xdg_shell_state: XdgShellState::new::<State>(&dh),
         _xdg_decoration_state: XdgDecorationState::new::<State>(&dh),
         shm_state: ShmState::new::<State>(&dh, vec![]),
+        dmabuf,
         _output_manager_state: OutputManagerState::new_with_xdg_output::<State>(&dh),
         seat_state,
         data_device_state: DataDeviceState::new::<State>(&dh),
@@ -293,6 +299,7 @@ fn main() {
         url: String::new(),
         title: String::new(),
         dirty: true,
+        dmabuf_seen: false,
         pacer: pacing::Pacer::new(pacing::DEFAULT_REFRESH_MHZ, desktop == "an X11"),
         pace_timer: false,
         frame_stats: std::env::var_os("WEB_FRAME_STATS").map(|_| (Instant::now(), 0)),
