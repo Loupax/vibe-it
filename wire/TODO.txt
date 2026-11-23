@@ -199,15 +199,6 @@ the commit it came up during.
       scratchy side (QF19w2); idle/keepalive limits (none by design); the wss pipe
       polls at 10 ms instead of using readiness.
 
-- [ ] [WIP] **W-POOL3 [S] A POST on a stale pooled connection fails once** (from QWPTFLK5 #632, suspect for the
-      one-off fetch/api/basic/request-upload CI failure): ureq 2.12 retries on a pooled connection only for idempotent
-      methods (`Unit::is_retryable`), and servers that close after a response without Content-Length (wptserve, many
-      real ones) leave a dead pooled connection; a POST on it then fails as a transport error -> fetch TypeError. Fix:
-      when the failure happened before any request bytes reached the server (write error / immediate EOF on a reused
-      connection), retry the request once on a fresh connection, for every method; never retry once the server could
-      have received the body. Test with a loopback server that closes after each response: 1000 POSTs, 0 failures; and
-      a test that a POST whose body was read by the server is NOT retried.
-
 - [ ] **W-POOL4 [S] NEEDS THE USER'S DECISION: retry a non-idempotent request after a clean close (EOF) on a reused
       connection?** (from W-POOL3 #634). W-POOL3 retries only on RST/EPIPE (the server never read the request). A
       clean FIN before any response is indistinguishable from "server read the whole body, then closed", so retrying

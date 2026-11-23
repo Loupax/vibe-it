@@ -110,3 +110,12 @@
       Tests: clear-site removes only that partition's entries and cookies; a
       `Clear-Site-Data: "cache"` response makes the next request a miss; without
       the token -> 403.
+- [x] **W-POOL3 DONE 0542efc #634 [S] A POST on a stale pooled connection fails once** (from QWPTFLK5 #632, suspect for the
+      one-off fetch/api/basic/request-upload CI failure): ureq 2.12 retries on a pooled connection only for idempotent
+      methods (`Unit::is_retryable`), and servers that close after a response without Content-Length (wptserve, many
+      real ones) leave a dead pooled connection; a POST on it then fails as a transport error -> fetch TypeError. Fix:
+      when the failure happened before any request bytes reached the server (write error / immediate EOF on a reused
+      connection), retry the request once on a fresh connection, for every method; never retry once the server could
+      have received the body. Test with a loopback server that closes after each response: 1000 POSTs, 0 failures; and
+      a test that a POST whose body was read by the server is NOT retried.
+
