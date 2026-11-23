@@ -9639,3 +9639,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- (no header)
 - [x] QGEOM1 DONE 4cf20ec #630 [M] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
       (QCNV2)"); Sonnet; in order after the items above) DOMMatrix/DOMPoint/DOMRect (platform, not canvas). 50 files.
+
+=== from TODO.txt: --- (no header)
+- [x] QCNV8 DONE adac85d #633 [S] (P2, (from QCNV2 #614; plan, files, subtests and test plan: NOTES.md "Canvas 2D triage after QCNV1
+      (QCNV2)"); Sonnet; in order after the items above) Line caps/joins/miter limit, dashes. 91 files.
