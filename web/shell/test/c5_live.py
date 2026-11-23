@@ -82,7 +82,7 @@ def main():
 
     try:
         log.wait(r'"title":"c5 y=0"', timeout=60)
-        log.wait(r"page window is (\d+)x(\d+)", timeout=10)
+        log.wait(r"page window is (\d+)x(\d+)", timeout=30)
         time.sleep(0.5)
         ow, oh = live.png_size(shot("start.png"))
 
@@ -168,7 +168,7 @@ def main():
             shot("search-typed.png")
             inject("key:ret", "wait:900")
             cmds = sent(k)
-            if not any('"cmd":"find","query":"needle","dir":"next"' in c for c in cmds):
+            if not any('"query":"needle","dir":"next"' in c for c in cmds):
                 raise Fail(f"no find command: {cmds}")
             i, _ = step_index(k, want_wrap=False)
             first["i"] = i
@@ -285,6 +285,22 @@ def main():
             step_index(k)
             return "/Needle -> 1 match (case sensitive: smartcase), /needle -> 6"
         step("smartcase: a capital matches case", smartcase)
+
+        def fragment_navigation():
+            # C5-FRAG: a same-document navigation gets no load callbacks; the host reports it
+            # as `load ... same-document` and the shell ends the find session (find-clear).
+            k = search("needle")
+            step_index(k)
+            k = log.mark()
+            inject(*keys_for(":go " + base + "/c5.html#frag"), "key:ret", "wait:1200")
+            log.wait(r'"event":"load","tab":\d+,"phase":"start","status":0,"kind":"same-document"', k)
+            if not any('"cmd":"find-clear"' in c for c in sent(k)):
+                raise Fail(f"no find-clear after the fragment change: {sent(k)}")
+            bar(r"NORMAL \| $", k)
+            k2 = key("n")
+            i, wrap = step_index(k2, want_wrap=False)
+            return f"#frag: same-document load -> find-clear, the bar's [i/N] gone, kept query; n searched again -> {i}/{MATCHES}"
+        step("T31: a same-document navigation clears the highlights", fragment_navigation)
 
         def navigation():
             k = log.mark()

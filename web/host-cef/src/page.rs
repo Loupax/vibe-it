@@ -53,6 +53,10 @@ struct Page {
     /// A new find session still to step once it has counted matches (see Command::Find):
     /// the query, `forward` and `match_case` for `CefBrowserHost::Find`.
     find_step: Option<(String, i32, i32)>,
+    /// The id of the `find` whose `find-result` is still owed (C5-STALE). CEF also reports
+    /// results nobody asked for (a stale `0 0` at a load start): with no request pending
+    /// they are dropped, and a result carries the id of the request it answers.
+    find_pending: Option<u64>,
     /// The shell sent `stop` and no load has started since.
     stop_requested: bool,
 }
@@ -447,6 +451,7 @@ wrap_load_handler! {
                 p.addr_pending = false;
                 p.find_query = None;
                 p.find_step = None;
+                p.find_pending = None;
                 (p.id, p.editable)
             });
             load_event(id, LoadPhase::Start, 0, kind, None);
@@ -608,7 +613,10 @@ wrap_find_handler! {
                 return;
             }
             trace!("on_find_result count {count} active {active_match_ordinal} final {final_update}");
-            let (id, index, step) = with_page(|p| {
+            let (id, find_id, index, step) = with_page(|p| {
+                if p.find_pending.is_none() {
+                    return (p.id, None, 0, None);
+                }
                 if active_match_ordinal > 0 {
                     p.find_index = active_match_ordinal;
                 }
@@ -618,8 +626,12 @@ wrap_find_handler! {
                 if final_update != 0 {
                     p.find_step = None;
                 }
-                (p.id, p.find_index, step)
+                (p.id, p.find_pending, p.find_index, step)
             });
+            let Some(find_id) = find_id else {
+                trace!("on_find_result dropped: no find pending");
+                return;
+            };
             if let Some((query, forward, match_case)) = step {
                 if let Some(h) = browser.as_ref().and_then(|b| b.host()) {
                     h.find(Some(&CefString::from(query.as_str())), forward, match_case, 1);
@@ -628,7 +640,8 @@ wrap_find_handler! {
             }
             // Intermediate updates carry partial counts; the shell gets the final one.
             if final_update != 0 {
-                emit(Event::FindResult { tab: id, index: if count == 0 { 0 } else { index }, count });
+                with_page(|p| p.find_pending = None);
+                emit(Event::FindResult { tab: id, id: find_id, index: if count == 0 { 0 } else { index }, count });
             }
         }
     }
@@ -786,8 +799,14 @@ pub fn run_command(line: &str) {
             with_page(|p| p.stop_requested = true);
             browser.stop_load()
         }
-        Command::Find { query, dir, match_case } => {
+        Command::Find {
+            id: find_id,
+            query,
+            dir,
+            match_case,
+        } => {
             let Some(h) = host else { return };
+            with_page(|p| p.find_pending = Some(find_id));
             let again = with_page(|p| {
                 let again = p.find_query.as_deref() == Some(query.as_str());
                 if !again {
@@ -814,6 +833,7 @@ pub fn run_command(line: &str) {
             with_page(|p| {
                 p.find_query = None;
                 p.find_index = 0;
+                p.find_pending = None;
             });
             // Keep the active match selected (C5: Enter on a match acts on it).
             if let Some(h) = host {

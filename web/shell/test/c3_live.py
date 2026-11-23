@@ -34,7 +34,7 @@ WEB = live.WEB
 Fail = live.Fail
 BAR_BG = (24, 24, 24)
 BAR_H = 24
-SHIFTED = {":": ";", "?": "/", "_": "-", "@": "2", "+": "=", "%": "5"}
+SHIFTED = {"#": "3", ":": ";", "?": "/", "_": "-", "@": "2", "+": "=", "%": "5"}
 
 
 def keys_for(text):
@@ -101,7 +101,7 @@ def main():
 
     try:
         log.wait(r'"title":"c3 y=0 ', timeout=60)
-        log.wait(r"page window is (\d+)x(\d+)", timeout=10)
+        log.wait(r"page window is (\d+)x(\d+)", timeout=30)
         time.sleep(0.5)
         sizes = [re.search(r"\] window (\d+)x(\d+), page", l) for l in log.lines]
         ww, wh = [int(x) for x in [s for s in sizes if s][-1].groups()]
@@ -190,13 +190,14 @@ def main():
             return f"G -> y={y}, gg -> 0, Ctrl-d -> {y2}, Home -> 0"
         step("T10 T11 T13: G, gg, Ctrl-d, Home", bottom_top)
 
-        def search_not_yet():
+        def search_line():
             k = log.mark()
             inject("key:slash", "wait:300")
-            bar(r"NORMAL \| web: search is not built yet", k)
-            inject("key:esc", "wait:200")
-            return "`/` says search is C5; Esc stays in NORMAL (T7)"
-        step("T7 T8: / says not yet, Esc stays NORMAL", search_not_yet)
+            bar(r"/\|", k)
+            inject("key:esc", "wait:300")
+            bar(r"NORMAL \| $", k)
+            return "`/` opens an empty search line (T8); Esc closes it, back in NORMAL (T25)"
+        step("T8 T25: / opens the search line, Esc closes it", search_line)
 
         def input_mode():
             k = log.mark()

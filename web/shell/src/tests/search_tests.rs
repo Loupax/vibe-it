@@ -28,12 +28,27 @@ fn type_str(k: &mut Keys, s: &str) {
     }
 }
 
+/// The queued effects, with the `find` request ids zeroed (the id tests read `k.effects`).
 fn effects(k: &mut Keys) -> Vec<Effect> {
-    std::mem::take(&mut k.effects)
+    let mut v = std::mem::take(&mut k.effects);
+    for e in &mut v {
+        if let Effect::Send(Command::Find { id, .. }) = e {
+            *id = 0;
+        }
+    }
+    v
+}
+
+/// The host answers the oldest `find` waiting (its id echoed); with none waiting the
+/// result carries an id nobody asked for.
+fn answer(k: &mut Keys, index: u32, count: u32) {
+    let id = k.search.pending_id().unwrap_or(0);
+    k.find_result(id, index, count);
 }
 
 fn find(query: &str, dir: FindDir, match_case: bool) -> Effect {
     Effect::Send(Command::Find {
+        id: 0,
         query: query.into(),
         dir,
         match_case,
@@ -46,7 +61,7 @@ fn search(k: &mut Keys, query: &str, index: u32, count: u32) {
     type_str(k, query);
     tap(k, KeyInput::sym(Keysym::Return));
     effects(k);
-    k.find_result(index, count);
+    answer(k, index, count);
 }
 
 #[test]
@@ -93,7 +108,7 @@ fn keys_t23_enter_runs_the_query_and_shows_the_index() {
     assert_eq!(k.vim_mode, VimMode::Normal);
     assert_eq!(effects(&mut k), vec![find("needle", FindDir::Next, false)]);
     assert_eq!(k.search.query.as_deref(), Some("needle"), "the kept query");
-    k.find_result(3, 7);
+    answer(&mut k, 3, 7);
     assert_eq!(k.message, "[3/7]");
 }
 
@@ -109,7 +124,7 @@ fn keys_t23_a_new_search_starts_a_fresh_host_session() {
         effects(&mut k),
         vec![Effect::Send(Command::FindClear), find("needle", FindDir::Next, false)]
     );
-    k.find_result(2, 4);
+    answer(&mut k, 2, 4);
     assert_eq!(k.message, "[2/4]", "a fresh session never reports a wrap");
 }
 
@@ -156,11 +171,11 @@ fn keys_t15_n_and_capital_n_step_and_show_the_index() {
     search(&mut k, "x", 2, 5);
     tap(&mut k, KeyInput::ch('n'));
     assert_eq!(effects(&mut k), vec![find("x", FindDir::Next, false)]);
-    k.find_result(3, 5);
+    answer(&mut k, 3, 5);
     assert_eq!(k.message, "[3/5]");
     tap(&mut k, KeyInput::ch('N'));
     assert_eq!(effects(&mut k), vec![find("x", FindDir::Prev, false)]);
-    k.find_result(2, 5);
+    answer(&mut k, 2, 5);
     assert_eq!(k.message, "[2/5]");
     assert_eq!(k.vim_mode, VimMode::Normal);
 }
@@ -171,22 +186,22 @@ fn keys_t15_wrap_messages_come_from_the_indices() {
     search(&mut k, "x", 5, 5);
     tap(&mut k, KeyInput::ch('n'));
     effects(&mut k);
-    k.find_result(1, 5);
+    answer(&mut k, 1, 5);
     assert_eq!(k.message, "search hit BOTTOM, continuing at TOP  [1/5]");
     tap(&mut k, KeyInput::ch('N'));
     effects(&mut k);
-    k.find_result(5, 5);
+    answer(&mut k, 5, 5);
     assert_eq!(k.message, "search hit TOP, continuing at BOTTOM  [5/5]");
     // One match: n and N both wrap onto it.
     let mut k = keys();
     search(&mut k, "x", 1, 1);
     tap(&mut k, KeyInput::ch('n'));
     effects(&mut k);
-    k.find_result(1, 1);
+    answer(&mut k, 1, 1);
     assert_eq!(k.message, "search hit BOTTOM, continuing at TOP  [1/1]");
     tap(&mut k, KeyInput::ch('N'));
     effects(&mut k);
-    k.find_result(1, 1);
+    answer(&mut k, 1, 1);
     assert_eq!(k.message, "search hit TOP, continuing at BOTTOM  [1/1]");
 }
 
@@ -197,9 +212,9 @@ fn keys_t15_fast_presses_are_answered_in_order() {
     tap(&mut k, KeyInput::ch('n'));
     tap(&mut k, KeyInput::ch('n'));
     assert_eq!(effects(&mut k).len(), 2);
-    k.find_result(5, 5);
+    answer(&mut k, 5, 5);
     assert_eq!(k.message, "[5/5]");
-    k.find_result(1, 5);
+    answer(&mut k, 1, 5);
     assert_eq!(k.message, "search hit BOTTOM, continuing at TOP  [1/5]");
 }
 
@@ -210,11 +225,11 @@ fn keys_t16_n_with_no_match_here_says_pattern_not_found() {
     k.navigated();
     tap(&mut k, KeyInput::ch('n'));
     assert_eq!(effects(&mut k), vec![find("gone", FindDir::Next, false)]);
-    k.find_result(0, 0);
+    answer(&mut k, 0, 0);
     assert_eq!(k.message, "Pattern not found: gone");
     tap(&mut k, KeyInput::ch('N'));
     effects(&mut k);
-    k.find_result(0, 0);
+    answer(&mut k, 0, 0);
     assert_eq!(k.message, "Pattern not found: gone");
 }
 
@@ -244,7 +259,7 @@ fn keys_t07_esc_in_normal_clears_the_highlights_and_keeps_the_query() {
     // `n` searches again from the host's first match: a fresh session, no wrap message.
     tap(&mut k, KeyInput::ch('n'));
     assert_eq!(effects(&mut k), vec![find("keep", FindDir::Next, false)]);
-    k.find_result(1, 5);
+    answer(&mut k, 1, 5);
     assert_eq!(k.message, "[1/5]");
 }
 
@@ -266,7 +281,7 @@ fn keys_t31_navigation_clears_the_highlights_and_keeps_the_query() {
     assert_eq!(k.message, "", "the [i/N] of the old page is gone");
     assert!(effects(&mut k).is_empty(), "the host dropped its session itself");
     // A result that arrives late (for the old page) is ignored.
-    k.find_result(3, 5);
+    answer(&mut k, 3, 5);
     assert_eq!(k.message, "");
     // Esc after a navigation has nothing to clear; `n` searches the new page.
     tap(&mut k, KeyInput::sym(Keysym::Escape));
@@ -304,7 +319,7 @@ fn keys_smartcase_a_capital_makes_the_search_case_sensitive() {
     type_str(&mut k, "Foo");
     tap(&mut k, KeyInput::sym(Keysym::Return));
     assert_eq!(effects(&mut k), vec![find("Foo", FindDir::Next, true)]);
-    k.find_result(1, 1);
+    answer(&mut k, 1, 1);
     tap(&mut k, KeyInput::ch('n'));
     assert_eq!(effects(&mut k), vec![find("Foo", FindDir::Next, true)], "n keeps the case flag");
 }
@@ -317,4 +332,73 @@ fn keys_s7_enter_in_normal_is_left_alone() {
     tap(&mut k, KeyInput::sym(Keysym::Return));
     assert!(effects(&mut k).is_empty());
     assert_eq!(k.message, "[1/2]");
+}
+
+fn sent_find_ids(k: &mut Keys) -> Vec<u64> {
+    std::mem::take(&mut k.effects)
+        .into_iter()
+        .filter_map(|e| match e {
+            Effect::Send(Command::Find { id, .. }) => Some(id),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn keys_t16_c5_stale_a_result_nobody_asked_for_is_never_taken_as_the_answer() {
+    // CEF's stale `0 0` at a load start: the session is gone, the result has no request.
+    let mut k = keys();
+    search(&mut k, "gone", 1, 3);
+    k.navigated();
+    k.find_result(1, 0, 0);
+    assert_eq!(k.message, "");
+    // `n` right after: the stale result (old id, or none) must not answer it.
+    tap(&mut k, KeyInput::ch('n'));
+    let ids = sent_find_ids(&mut k);
+    assert_eq!(ids.len(), 1);
+    k.find_result(1, 0, 0);
+    k.find_result(0, 0, 0);
+    assert_eq!(k.message, "", "still waiting for its own answer");
+    k.find_result(ids[0], 2, 3);
+    assert_eq!(k.message, "[2/3]");
+}
+
+#[test]
+fn keys_t15_c5_stale_ids_are_per_request_and_the_latest_wins() {
+    let mut k = keys();
+    search(&mut k, "x", 1, 5);
+    tap(&mut k, KeyInput::ch('n'));
+    tap(&mut k, KeyInput::ch('n'));
+    let ids = sent_find_ids(&mut k);
+    assert_eq!(ids.len(), 2);
+    assert_ne!(ids[0], ids[1]);
+    // The host answers only the latest request: the older one is dropped with it.
+    k.find_result(ids[1], 3, 5);
+    assert_eq!(k.message, "[3/5]");
+    assert_eq!(k.search.pending_id(), None);
+    // An answer to the older one afterwards changes nothing.
+    k.find_result(ids[0], 2, 5);
+    assert_eq!(k.message, "[3/5]");
+}
+
+#[test]
+fn keys_t31_a_same_document_navigation_clears_the_find_session_and_keeps_the_query() {
+    let mut k = keys();
+    search(&mut k, "keep", 2, 5);
+    k.navigated_same_document();
+    assert_eq!(
+        effects(&mut k),
+        vec![Effect::Send(Command::FindClear)],
+        "the host still has its session"
+    );
+    assert_eq!(k.search.query.as_deref(), Some("keep"));
+    assert!(!k.search.session);
+    assert_eq!((k.search.index, k.search.count), (0, 0));
+    assert_eq!(k.message, "", "the [i/N] is gone");
+    // No session: nothing to clear a second time.
+    k.navigated_same_document();
+    assert!(effects(&mut k).is_empty());
+    // `n` searches again.
+    tap(&mut k, KeyInput::ch('n'));
+    assert_eq!(effects(&mut k), vec![find("keep", FindDir::Next, false)]);
 }
