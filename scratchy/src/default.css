@@ -88,7 +88,7 @@ dialog[data-scratchy-modal] {
 /* ---- blocks ---- */
 
 html, body,
-address, article, aside, blockquote, center, dialog, div, dt,
+address, article, aside, blockquote, center, details, dialog, div, dt,
 figcaption, figure, footer, form, header, hgroup, hr, legend, listing,
 main, nav, p, plaintext, pre, search, section, summary, xmp {
   display: block;
