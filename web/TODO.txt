@@ -1,9 +1,122 @@
 web — TODO
 
-The CEF + wire spike. A throwaway Rust program: one CEF window, every http(s)
-request answered through wire, the whole CEF process tree in an empty network
-namespace. Proposed time box: two weeks. Each step ends with a check, so the
-spike can stop early on a hard failure. Decisions: DECISIONS.md.
+Architecture C (user, 2026-11-23; DECISIONS.md "Architecture C"): web-shell is a small
+Wayland compositor (smithay) that draws the shell (status bar, command line, later tabs
+and hints) and owns all input; the page is drawn by an engine host, a separate program
+with no browser UI of its own (web-host-cef first, web-host-webkit second) that the shell
+drives over a control socket in our own protocol. The engine host runs in an empty
+network namespace and reaches the network only through wire2 (forward proxy, ../wire2 on
+its branch until merged). No browser extension, no automation protocol (CDP, BiDi).
+
+Order: C0 needs wire2's W2-1. C1 and C1b can run before any compositor code (inside the
+nested dwl from ../scratchy/tools/nest.sh). Each step ends with a check, so the plan can
+stop early on a hard failure.
+
+- [ ] C0 Launcher. `web/run.sh` (from spike/run.sh): the systemd scope and the empty
+      network namespace (W2, unchanged) plus a forwarder inside it from
+      127.0.0.1:<port> (lo brought up) to wire2's Unix socket. Engine-neutral: it takes
+      the program to start. Needs wire2 W2-1 (plain forwarding, CONNECT tunnels).
+      Done when: stock Chromium with `--proxy-server=127.0.0.1:<port>` loads https and a
+      WebSocket page through it and wire2's log has every request and tunnel; with the
+      forwarder stopped, nothing loads.
+
+- [ ] C1 web-host-cef. The spike binary becomes the CEF engine host:
+      - drop W3's resource handler and the wire (wire 1) client; set the proxy to C0's
+        forwarder. Chromium owns cookies, cache and uploads (W-UPLOAD1 goes away).
+      - one window per tab, the page only (no Chrome toolbar, tab strip or menus);
+        `window.open` and target=_blank go through the host (OnBeforePopup), which
+        announces `tab-created <id>` before the window maps, so the shell can pair them.
+      - control socket (Unix, path given by the shell), protocol v0 (JSON lines):
+        shell->host `open <url>`, `back`, `forward`, `reload`, `stop`, `new-tab [url]`,
+        `close-tab <id>`, `find <query> next|prev`, `find-clear`, `zoom <n>`, `quit`;
+        host->shell `tab-created <id>`, `tab-closed <id>`, `url <id> <url>`,
+        `title <id> <text>`, `load <id> start|end <status> <kind>` (kind: new, reload,
+        traverse, same-document), `editable-focused <id> true|false`,
+        `find-result <id> <i> <n>`, `crashed <id>`. Downloads, permission prompts and JS
+        dialogs: the engine's default for now, each its own item later.
+      Done when: a script drives it inside nested dwl, in C0's namespace through wire2:
+      open, back/forward, two tabs, a window.open popup announced before it maps, all
+      events above seen; Wayland.
+
+- [ ] C1b web-host-webkit. GTK4 + WebKitGTK 6, the same protocol v0, the same check.
+      Also check that WebKitGTK's own bubblewrap sandbox for its web processes works
+      nested inside C0's `unshare -n --map-user` (if not: what it needs).
+      Done when: C1's check passes with the WebKit host, unchanged script.
+
+- [ ] C2 web-shell, the compositor minimum. smithay, winit backend (the shell is one
+      window on the user's desktop). Starts one engine host (`--engine cef|webkit`) with
+      WAYLAND_DISPLAY = its own socket; shows the current tab's window filling the shell
+      window minus the status bar; forwards keyboard and pointer; places popups
+      (xdg_popup: menus, selects, permission bubbles); passes cursor shapes to the host
+      desktop; makes the shell window fullscreen when the page asks for it.
+      Done when: browsing a site with mouse and typing works with both engine hosts, on a
+      Wayland desktop AND an X11 desktop (winit opens an X11 window there; the engine
+      hosts still speak Wayland to the shell, so nothing else changes).
+
+- [ ] C3 Keys and command line, ported from scratchy (see "From scratchy" below):
+      KEYS.md modes INPUT/NORMAL/SEARCH/COMMAND, Esc Esc, the status bar, T1-T34 and the
+      ghost completion T45-T53; commands `:go`, `:refresh`, `:refresh hard`, `:help`,
+      `:q`, `:let` with `@%`; history (HISTORY.md) written from C1's load events; scroll
+      bindings as real input to the host window. `@+` and `yy` need C6's clipboard.
+      Done when: every KEYS.md row C3 covers has a test (named after the row, as in
+      scratchy) and works by hand in both hosts.
+
+- [ ] C4 Tabs. WAITING FOR USER (design first): scratchy had one page per window, so
+      tab keys, commands and their status-bar display need a design. The mechanism (one
+      host window per tab, the shell shows one) is C1/C2.
+
+- [ ] C5 Search (KEYS.md "Search", web notes): `/`, `n`/`N`, Esc, the messages, through
+      the host's `find`. Enter on a match (S7, T18-T19) is its own item after this one.
+
+- [ ] C6 Desktop integration: clipboard and primary selection bridged between the engine
+      host and the host desktop (then `@+`, `yy`, paste into the page); HiDPI and
+      fractional scale; frame timing (video and scrolling smooth); dmabuf so frames are
+      not copied through the CPU; text input methods (IME) if needed. Drag and drop from
+      the host desktop is a known loss until asked for.
+
+- [ ] C7 Link hints. WAITING FOR USER (design first; scratchy's QCURSOR-D is the open
+      design for a keyboard page cursor). Mechanism agreed: the host returns the visible
+      links' rectangles, the shell draws the labels itself, a chosen hint is a real
+      pointer click from the compositor.
+
+- [ ] C8 A day of browsing: W7's list below, with both engine hosts.
+
+- [ ] P-FORGET Forget a site (scratchy's `--forget-site`): an engine-host command that
+      clears the site's cookies and storage (CEF and WebKit each have their own API).
+
+## From scratchy (user, 2026-11-23: carry over everything that can be carried)
+
+Docs, carried in this commit:
+- KEYS.md -> web/KEYS.md (modes, rows, completion, paste, registers, config rule; **web:**
+  notes mark what the compositor changes).
+- STASH.md "History" + "Ranking" -> web/HISTORY.md (same file format; scratchy's history
+  file can be copied over).
+
+Code, ported in C3 (shell crate, `web/shell/`; scratchy file -> what is kept):
+- `src/config.rs`: the dwm config.h rule, `BINDINGS`, `KEY_SEQUENCES`, `ESC_ESC_MS`,
+  `START_MODE`, status bar sizes/colours, `COMPLETERS`, `SOURCE_TIMEOUT_MS`,
+  `SOURCE_MAX_OUTPUT`, `SPACE_AFTER_ARG`, `GHOST_FG`, `HISTORY`, `HISTORY_MAX_LINES`.
+  Dropped: scroll px, scrollbar, search highlight colours, engine check, localStorage
+  quota, `SET_ARGS` js/motion (engine settings, redo when asked).
+- `src/completion.rs` (pure; plus `token_start_before` from app.rs).
+- `src/history.rs` (the writer; its dom/images uses go, the host reports URL and title).
+- `src/registers.rs` (needs `TextEditBuffer` from app.rs, the status-bar line editor).
+- From `src/app.rs`: `KeyMode`/`VimMode`, `EscState` + `resolve_esc_esc`, `Action`,
+  `resolve_binding`, `TextEditBuffer`, `run_command_line`'s command table.
+- `src/help.html` -> `:help`, rewritten for web (served by the host from a file).
+- The status-bar drawing (cosmic-text + tiny-skia), drawn as a shell surface.
+- Tools: `tools/nest.sh` and `tools/inject` (nested dwl, virtual keyboard/pointer) for
+  testing; copied to web/tools/ when C2 starts.
+
+Not carried (the engine owns it, or wire 1 only): the HTML/CSS/layout/paint/V8 engine,
+`stash.rs` (localStorage), `forget.rs` (wire 1 cookie op), `user_agent.rs` (wire 1
+header), `input_host.rs`, `search.rs` (layout-based), the net policy, media, WPT tooling.
+
+## The CEF + wire spike (record; stopped 2026-11-23, judged a success)
+
+The spike below proved CEF in an empty network namespace with every request answered by
+wire 1. Architecture C replaces its request path with wire2; its findings
+(spike/README.md) still hold for the CEF host.
 
 - [x] W1 Bare CEF window (DONE 2026-11-23, 4cb0793, #656; see web/spike/README.md). A Rust binary with the `cef` crate opens one window and
       loads a URL, no interception yet.
@@ -36,7 +149,7 @@ spike can stop early on a hard failure. Decisions: DECISIONS.md.
       wire's log for that load and any request that never reached wire, and the
       cause (engine, interception gap, wire, or namespace).
 
-- [ ] W-UPLOAD1 Uploads with Blob, File (also inside FormData) or ReadableStream bodies (from W3 #658).
+- [-] W-UPLOAD1 (MOOT under Architecture C: with wire2 as a proxy Chromium sends upload bodies itself) Uploads with Blob, File (also inside FormData) or ReadableStream bodies (from W3 #658).
       CEF's CefPostData hands these over as empty elements, so file uploads and fetch(blob) fail with
       ERR_NOT_IMPLEMENTED today. Options: a proxy inside the namespace forwarding to wire (ties in with
       W6's CONNECT idea), a CEF API that exposes the body, or patching CEF. Decide before W7.
@@ -57,11 +170,10 @@ No-go if a daily-use site breaks only because of the namespace or the
 interception, with no fix in sight; then loosen the contract (e.g. allow WebRTC
 outside wire) and decide again.
 
-After a go:
+After a go (superseded in part by Architecture C above):
 - [ ] Archive scratchy's engine on a branch (do not delete it).
-- [ ] Port the shell from scratchy: keys (KEYS.md), command line and completion,
-      history, stash, forget, config, help.
+- [-] Port the shell from scratchy: now "From scratchy" above and C3.
 - [ ] W-FS1 (optional hardening, from W2 #657) Hide $HOME and the rest of the filesystem from the CEF
       tree with a bubblewrap bind-only profile (plus the D-Bus, Wayland/X11 and wire sockets).
-- [ ] Document the browser's wire contract (cookies in Chromium, namespace
-      enforcement) in a NETWORKING.md here.
+- [ ] Document the browser's network contract (wire2 as the only way out, cookies and
+      cache in the engine, namespace enforcement) in a NETWORKING.md here.

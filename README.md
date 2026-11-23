@@ -9,9 +9,10 @@ verbatim in that project's `PROMPTS.md`, in order.
 
 ## Projects
 
-- [`web/`](web/) — a keyboard-driven daily-driver browser on Chromium (CEF) that
-  keeps wire as its only network path. Planning only so far; see
-  [`web/TODO.txt`](web/TODO.txt) for the spike.
+- [`web/`](web/) — a keyboard-driven daily-driver browser: a small Wayland
+  compositor shell (scratchy's keys) around an engine host (Chromium via CEF, or
+  WebKitGTK) that runs with no network of its own and goes out only through `wire2`,
+  a forward proxy. Planning only so far; see [`web/TODO.txt`](web/TODO.txt).
 - [`scratchy/`](scratchy/) — **paused 2026-11-23 in favour of `web/`.** A web browser built from composed, focused Rust
   crates (own HTML/CSS parsing, layout, and rendering) rather than an existing
   browser engine. It runs page JavaScript (V8) with a DOM, timers, ES

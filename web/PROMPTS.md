@@ -71,3 +71,32 @@ uses the shared no-follow agents, so connections are reused (was one TLS handsha
 request). example.com and en.wikipedia.org load inside the namespace; wire's log has every
 request (2/2 and 48/48). Findings (Chromium's HTTP cache stores nothing, bypass paths in
 a net log, load times, upload gap) in spike/README.md.
+
+## Architecture C (2026-11-23, docs only)
+
+> I'm happy with how wire2 is going so it looks like we have no reason to enforce the connectivity layer to a single app on the application level. Which enables me to pick whatever engine I want for web. we might as well pick webkit or blink but what options do we have in general? Can we make the engine hot swappable?
+
+> wire2 is a web proxy, the documentation is not merged yet
+
+> I can do that? how would that look? the browser and the shell being two different processes?
+
+> I don't want to use an extension because I don't want to rely on the extension API. C looks closest to what I like, can you give me a more detailed view on this?
+
+> Nothing stops us to "make" our own kiosk mode by implementing a bare-bones engine-only browser, right?
+
+> Yes, let's go with C and carry over everything that can be carried from scratchy. I guess KEYS and CRATE?
+
+> Let's say I want to compile an X version of this, would that still be possible? or are we stuck with wayland?
+
+Outcome: wire2 (a forward proxy) plus the empty network namespace makes the network
+path engine-neutral. Options weighed for the shell: an extension (rejected: no reliance
+on the extension API), remote control over CDP/BiDi (automation flags), a compositor
+shell driving a stock browser, and finally a compositor shell driving our own engine
+hosts. Chosen: Architecture C with own engine hosts (CEF first, WebKitGTK second), the
+engine picked at start. X11: the shell runs on an X11 desktop as a winit window; the
+engine hosts speak Wayland to the shell either way.
+
+**What changed:** DECISIONS.md "Architecture C"; TODO.txt rewritten around C0-C8 and a
+"From scratchy" carry-over list (W1-W7 kept as the spike record, W-UPLOAD1 moot);
+KEYS.md copied from scratchy with **web:** notes; HISTORY.md from scratchy's STASH.md
+history and ranking sections; README.md. No code.
