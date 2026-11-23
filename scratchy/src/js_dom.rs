@@ -2144,8 +2144,9 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
 
 /// Wrappers over the natives; runs after the base prelude (which defines
 /// `document`). Element event listeners are stored but never fired yet.
-pub(crate) const DOM_PRELUDE: &str = r#"
+pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js"), r#"
 (function (g) {
+  var GEOM = g.__scratchy_geom; delete g.__scratchy_geom;
   var doc = g.document, cache = {}, tagProto = Object.create(null);
   // QY6e: the mutation natives the custom-element hooks rebind (once, at the
   // first `customElements.define`); until then nothing is wrapped (zero cost).
@@ -3221,8 +3222,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   meth('save', function () { g.__cv_save(cv(this)); });
   meth('restore', function () { g.__cv_restore(cv(this)); });
   // QCNV5: transforms. The CTM lives in canvas.rs; every method converts all arguments first (ToNumber), then ignores
-  // the call when one is NaN/infinite. getTransform returns a plain DOMMatrix-like object (QGEOM1 has not landed:
-  // no DOMMatrix class); setTransform's dictionary overload takes any object with a-f / m11..m42 members.
+  // the call when one is NaN/infinite. getTransform returns a DOMMatrix (QGEOM1); setTransform's dictionary overload is a DOMMatrix2DInit.
   var xfArgs = function (name, n, a) { return cvArgs(name, n, a); };
   var xfApply = function (c, op, m) {
     for (var i = 0; i < m.length; i++) if (!isFinite(m[i])) return;
@@ -3240,26 +3240,15 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   meth('setTransform', function () {
     var c = cv(this), n = arguments.length;
     if (n >= 2) { xfApply(c, 1, xfArgs('setTransform', 6, arguments)); return; }
-    var d = arguments[0];
-    if (d !== undefined && d !== null && typeof d !== 'object' && typeof d !== 'function') throw new TypeError("Failed to execute 'setTransform' on 'CanvasRenderingContext2D': parameter 1 ('transform') is not an object.");
-    var get = function (k) { var v = d == null ? undefined : d[k]; return v === undefined ? undefined : Number(v); };
-    var pick = function (k1, k2, dflt) {
-      var x = get(k1), y = get(k2);
-      if (x !== undefined && y !== undefined && !Object.is(x, y)) throw new TypeError("Failed to execute 'setTransform' on 'CanvasRenderingContext2D': The '" + k1 + "' and '" + k2 + "' members must be equal.");
-      return x !== undefined ? x : (y !== undefined ? y : dflt);
-    };
-    var m = [pick('a', 'm11', 1), pick('b', 'm12', 0), pick('c', 'm21', 0), pick('d', 'm22', 1), pick('e', 'm41', 0), pick('f', 'm42', 0)];
-    xfApply(c, 1, m);
+    var d = GEOM.dict(arguments[0], 'DOMMatrix2DInit');
+    var o = GEOM.fixup2D(d);
+    xfApply(c, 1, [o.m11, o.m12, o.m21, o.m22, o.m41, o.m42]);
   });
   meth('resetTransform', function () { g.__cv_xf(cv(this), 2, []); });
   meth('getTransform', function () {
     var c = cv(this), m = [];
     for (var i = 0; i < 6; i++) m.push(g.__cv_get_num(c, 2 + i));
-    var o = { a: m[0], b: m[1], c: m[2], d: m[3], e: m[4], f: m[5],
-      m11: m[0], m12: m[1], m13: 0, m14: 0, m21: m[2], m22: m[3], m23: 0, m24: 0,
-      m31: 0, m32: 0, m33: 1, m34: 0, m41: m[4], m42: m[5], m43: 0, m44: 1, is2D: true };
-    o.isIdentity = m[0] === 1 && m[1] === 0 && m[2] === 0 && m[3] === 1 && m[4] === 0 && m[5] === 0;
-    return o;
+    return GEOM.matrix2d(m[0], m[1], m[2], m[3], m[4], m[5]);
   });
   defs(CtxProto, 'canvas', function () { cv(this); return this.__el; });
   // fillStyle/strokeStyle/shadowColor: ToString of the value (a throwing toString propagates; gradients and patterns
@@ -6676,36 +6665,9 @@ pub(crate) const DOM_PRELUDE: &str = r#"
   // changes; re-checks follow scrolling, DOM writes and viewport resizes.
   // RO (QEL2) reports the real boxes from that layout, in the rendering step. No hooks or state
   // exist until the first `observe()`.
-  var ROD = Symbol('DOMRectReadOnly');
-  var rectProps = ['x', 'y', 'width', 'height'];
-  var DRO = g.DOMRectReadOnly = function DOMRectReadOnly(x, y, w, h) {
-    if (!new.target) throw new TypeError("Failed to construct 'DOMRectReadOnly': Please use the 'new' operator, this DOM object constructor cannot be called as a function.");
-    this[ROD] = { x: +x || 0, y: +y || 0, width: +w || 0, height: +h || 0 };
-  };
-  DRO.fromRect = function (o) { o = o || {}; return new DRO(o.x, o.y, o.width, o.height); };
-  rectProps.forEach(function (k) {
-    Object.defineProperty(DRO.prototype, k, { get: function () {
-      var d = this[ROD]; if (!d) throw new TypeError('Illegal invocation'); return d[k];
-    }, configurable: true, enumerable: true });
-  });
-  var rdef = function (name, f) { Object.defineProperty(DRO.prototype, name, { get: function () { var d = this[ROD]; if (!d) throw new TypeError('Illegal invocation'); return f(d); }, configurable: true, enumerable: true }); };
-  rdef('top', function (d) { return Math.min(d.y, d.y + d.height); });
-  rdef('bottom', function (d) { return Math.max(d.y, d.y + d.height); });
-  rdef('left', function (d) { return Math.min(d.x, d.x + d.width); });
-  rdef('right', function (d) { return Math.max(d.x, d.x + d.width); });
-  DRO.prototype.toJSON = function () { var o = {}; rectProps.concat(['top', 'right', 'bottom', 'left']).forEach(function (k) { o[k] = this[k]; }, this); return o; };
-  Object.defineProperty(DRO.prototype, Symbol.toStringTag, { value: 'DOMRectReadOnly', configurable: true });
-  var DR = g.DOMRect = function DOMRect(x, y, w, h) {
-    if (!new.target) throw new TypeError("Failed to construct 'DOMRect': Please use the 'new' operator, this DOM object constructor cannot be called as a function.");
-    this[ROD] = { x: +x || 0, y: +y || 0, width: +w || 0, height: +h || 0 };
-  };
-  DR.prototype = Object.create(DRO.prototype, { constructor: { value: DR, writable: true, configurable: true } });
-  DR.fromRect = function (o) { o = o || {}; return new DR(o.x, o.y, o.width, o.height); };
-  rectProps.forEach(function (k) {
-    Object.defineProperty(DR.prototype, k, { get: function () { return this[ROD][k]; }, set: function (v) { this[ROD][k] = +v || 0; }, configurable: true, enumerable: true });
-  });
-  Object.defineProperty(DR.prototype, Symbol.toStringTag, { value: 'DOMRect', configurable: true });
-  var roRect = function (x, y, w, h) { return new DRO(x, y, w, h); };
+  var DRO = function (x, y, w, h) { return GEOM.rectRO(x, y, w, h); };
+  var DR = function (x, y, w, h) { return GEOM.rect(x, y, w, h); };
+  var roRect = function (x, y, w, h) { return GEOM.rectRO(x, y, w, h); };
   var attrPx = function (el, a) { var v = parseFloat(el.getAttribute(a)); return v >= 0 && isFinite(v) ? v : 0; };
   // Connected and no `display:none` on the element or an ancestor.
   var ioShown = function (el) {
@@ -6754,9 +6716,9 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     // element has actually been scrolled, so pages that never scroll pay nothing).
     var dy = gElScroll.size ? gAncestorScroll(el, null, 1) : 0;
     var dx = gElScrollX.size ? gAncestorScroll(el, null, 0) : 0;
-    return new DR(r[0] - dx - (r[4] ? 0 : (g.scrollX || 0)), r[1] - dy - (r[4] ? 0 : (g.scrollY || 0)), r[2], r[3]);
+    return DR(r[0] - dx - (r[4] ? 0 : (g.scrollX || 0)), r[1] - dy - (r[4] ? 0 : (g.scrollY || 0)), r[2], r[3]);
   };
-  ElementProto.getBoundingClientRect = function () { return gViewRect(this) || new DR(0, 0, 0, 0); };
+  ElementProto.getBoundingClientRect = function () { return gViewRect(this) || DR(0, 0, 0, 0); };
   ElementProto.getClientRects = function () {
     var v = gViewRect(this), l = v ? [v] : [];
     Object.defineProperty(l, 'item', { value: function (i) { return this[i] || null; } });
@@ -7013,7 +6975,7 @@ pub(crate) const DOM_PRELUDE: &str = r#"
           else { cur = { x: x, y: y, r: x + w, h: h }; out.push(cur); }
         }
       });
-      return out.map(function (c) { return new DR(c.x - sx, c.y - sy, c.r - c.x, c.h); });
+      return out.map(function (c) { return DR(c.x - sx, c.y - sy, c.r - c.x, c.h); });
     };
     meth('getClientRects', 0, function () {
       var l = rectsOf(st(this));
@@ -7022,10 +6984,10 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     });
     meth('getBoundingClientRect', 0, function () {
       var l = rectsOf(st(this));
-      if (!l.length) return new DR(0, 0, 0, 0);
+      if (!l.length) return DR(0, 0, 0, 0);
       var x = Infinity, y = Infinity, r = -Infinity, b = -Infinity;
       l.forEach(function (q) { x = Math.min(x, q.left); y = Math.min(y, q.top); r = Math.max(r, q.right); b = Math.max(b, q.bottom); });
-      return new DR(x, y, r - x, b - y);
+      return DR(x, y, r - x, b - y);
     });
     // QDOM3: live ranges, updated by moveBefore (removal fix at the old place, then the insertion fix).
     // QDOM5b: the list is page-wide (`xr.rl`, WeakRefs of the range STATES), so a mutation made through one realm's
@@ -7614,8 +7576,8 @@ pub(crate) const DOM_PRELUDE: &str = r#"
       st.prev.set(t, { idx: idx, int: isInt });
       var e = Object.create(IE.prototype);
       e[IE_S] = { time: now, target: t, isIntersecting: isInt, intersectionRatio: ratio,
-        boundingClientRect: roRect(l, tp, r - l, b - tp), intersectionRect: new DRO(il, it, ir - il, ib - it),
-        rootBounds: rb ? new DRO(rb[0], rb[1], rb[2] - rb[0], rb[3] - rb[1]) : null };
+        boundingClientRect: roRect(l, tp, r - l, b - tp), intersectionRect: DRO(il, it, ir - il, ib - it),
+        rootBounds: rb ? DRO(rb[0], rb[1], rb[2] - rb[0], rb[3] - rb[1]) : null };
       st.q.push(e);
     }
   };
@@ -7950,4 +7912,4 @@ pub(crate) const DOM_PRELUDE: &str = r#"
     return r >= 0 && srMode[r] === 'open' ? wrap(r) : null;
   });
 })(globalThis);
-"#;
+"#);

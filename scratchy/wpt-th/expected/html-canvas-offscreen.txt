@@ -930,8 +930,7 @@ OK           0/6  html/canvas/offscreen/manual/the-offscreen-canvas/offscreencan
   FAIL      Test that transfer an OffscreenCanvas twice throws exception in a worker.
   FAIL      Test that calling getContext('2d') on a detached OffscreenCanvas throws exception in a worker.
   FAIL      Test that calling getContext('webgl') on a detached OffscreenCanvas throws exception in a worker.
-OK           0/1  html/canvas/offscreen/manual/transformations/2d.transformation.getTransform.html
-  FAIL      This test ensures that getTransform works correctly.
+OK           1/1  html/canvas/offscreen/manual/transformations/2d.transformation.getTransform.html
 OK           0/1  html/canvas/offscreen/manual/wide-gamut-canvas/2d.color.space.p3.convertToBlobp3.canvas.html
   FAIL      test if toblob returns p3 data from p3 color space canvas
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.arc.angle.1.html
@@ -1106,48 +1105,37 @@ OK           1/1  html/canvas/offscreen/path-objects/2d.path.rect.zero.3.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.rect.zero.4.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.rect.zero.5.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.rect.zero.6.html
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.roundrect.1.radius.dompoint.html
-  FAIL      Verify that when one radius is given to roundRect(), specified as a DOMPoint, it applies to all corners.
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.roundrect.1.radius.dompoint.single.argument.html
-  FAIL      Verify that when one radius is given to roundRect() as a non-array argument, specified as a DOMPoint, it applies to all corners.
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.1.radius.dompoint.html
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.1.radius.dompoint.single.argument.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.1.radius.dompointinit.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.1.radius.dompointinit.single.argument.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.1.radius.double.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.1.radius.double.single.argument.html
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.roundrect.2.radii.1.dompoint.html
-  FAIL      Verify that when two radii are given to roundRect(), the first radius, specified as a DOMPoint, applies to the top-left and bottom-right corners.
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.2.radii.1.dompoint.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.2.radii.1.dompointinit.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.2.radii.1.double.html
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.roundrect.2.radii.2.dompoint.html
-  FAIL      Verify that when two radii are given to roundRect(), the second radius, specified as a DOMPoint, applies to the top-right and bottom-left corners.
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.2.radii.2.dompoint.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.2.radii.2.dompointinit.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.2.radii.2.double.html
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.roundrect.3.radii.1.dompoint.html
-  FAIL      Verify that when three radii are given to roundRect(), the first radius, specified as a DOMPoint, applies to the top-left corner.
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.3.radii.1.dompoint.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.3.radii.1.dompointinit.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.3.radii.1.double.html
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.roundrect.3.radii.2.dompoint.html
-  FAIL      Verify that when three radii are given to roundRect(), the second radius, specified as a DOMPoint, applies to the top-right and bottom-left corners.
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.3.radii.2.dompoint.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.3.radii.2.dompointinit.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.3.radii.2.double.html
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.roundrect.3.radii.3.dompoint.html
-  FAIL      Verify that when three radii are given to roundRect(), the third radius, specified as a DOMPoint, applies to the bottom-right corner.
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.3.radii.3.dompoint.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.3.radii.3.dompointinit.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.3.radii.3.double.html
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.roundrect.4.radii.1.dompoint.html
-  FAIL      Verify that when four radii are given to roundRect(), the first radius, specified as a DOMPoint, applies to the top-left corner.
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.4.radii.1.dompoint.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.4.radii.1.dompointinit.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.4.radii.1.double.html
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.roundrect.4.radii.2.dompoint.html
-  FAIL      Verify that when four radii are given to roundRect(), the second radius, specified as a DOMPoint, applies to the top-right corner.
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.4.radii.2.dompoint.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.4.radii.2.dompointinit.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.4.radii.2.double.html
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.roundrect.4.radii.3.dompoint.html
-  FAIL      Verify that when four radii are given to roundRect(), the third radius, specified as a DOMPoint, applies to the bottom-right corner.
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.4.radii.3.dompoint.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.4.radii.3.dompointinit.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.4.radii.3.double.html
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.roundrect.4.radii.4.dompoint.html
-  FAIL      Verify that when four radii are given to roundRect(), the fourth radius, specified as a DOMPoint, applies to the bottom-left corner.
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.4.radii.4.dompoint.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.4.radii.4.dompointinit.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.4.radii.4.double.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.badinput.html
@@ -1158,12 +1146,10 @@ OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.end.3.htm
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.end.4.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.negative.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.newsubpath.html
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.roundrect.nonfinite.html
-  FAIL      roundRect() with Infinity/NaN is ignored
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.nonfinite.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.radius.intersecting.1.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.radius.intersecting.2.html
-OK           0/1  html/canvas/offscreen/path-objects/2d.path.roundrect.radius.negative.html
-  FAIL      roundRect() with negative radius throws an exception
+OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.radius.negative.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.radius.noargument.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.radius.none.html
 OK           1/1  html/canvas/offscreen/path-objects/2d.path.roundrect.radius.toomany.html
