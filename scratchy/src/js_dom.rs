@@ -1259,6 +1259,11 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             _ => None,
         };
         match cache.borrow_mut().style_of(&root, gn.get(), &h, p, is_page) {
+            // QEDIT-C: `content-visibility` is not a cascaded property; the UA's `hidden=until-found` is the only source.
+            Some(_) if prop == "content-visibility" => {
+                let uf = element_attr(&h, "hidden").is_some_and(|v| v.eq_ignore_ascii_case("until-found"));
+                if uf { "hidden" } else { "visible" }.to_string()
+            }
             Some(s) => js_style::serialize(&s, &prop),
             None => String::new(),
         }
@@ -2774,8 +2779,17 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
       function (v) { if (v === null) __d_rmattr(this.__id, attr); else __d_setattr(this.__id, attr, String(v)); });
   });
   reflect('lang', 'lang'); reflect('dir', 'dir');
-  defs(ElementProto, 'hidden', function () { return __d_attr(this.__id, 'hidden') != null; },
-    function (v) { if (v) __d_setattr(this.__id, 'hidden', ''); else __d_rmattr(this.__id, 'hidden'); });
+  // QEDIT-C: `hidden` is `boolean or unrestricted double or DOMString`: "until-found" (ASCII case-insensitive) reads back
+  // as the string and is stored lowercase; '' / false / 0 / NaN / null / undefined remove it; anything else is `hidden`.
+  defs(ElementProto, 'hidden', function () {
+      var a = __d_attr(this.__id, 'hidden');
+      return a == null ? false : (a.toLowerCase() === 'until-found' ? 'until-found' : true);
+    },
+    function (v) {
+      if (typeof v === 'string' && v.toLowerCase() === 'until-found') __d_setattr(this.__id, 'hidden', 'until-found');
+      else if (typeof v === 'string' ? v !== '' : v) __d_setattr(this.__id, 'hidden', '');
+      else __d_rmattr(this.__id, 'hidden');
+    });
   // QAPI7 + QEDIT-A: contentEditable / isContentEditable / designMode and the spellcheck, autocapitalize, autocorrect and
   // writingSuggestions reflections. Reflection only: no editing behaviour and no checking. Keyword matching is ASCII
   // case-insensitive (never toLowerCase: it folds U+212A KELVIN SIGN to `k`).
@@ -6225,6 +6239,83 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
   g.__scratchy_install_handlers(g.HTMLBodyElement.prototype, 'body');
   g.__scratchy_install_handlers(g.HTMLFrameSetElement.prototype, 'body');
   rBool(g.HTMLStyleElement.prototype, 'disabled', 'disabled');
+  // QEDIT-C: <details>.open (with the `toggle` event) and the ancestor revealing algorithm (HTML "ancestor revealing
+  // algorithm"): `hidden=until-found` content and closed <details> are opened when find-in-page or a fragment navigation
+  // lands inside them. Closed <details> still render their content here (no summary toggle yet); `open` is state + event.
+  var DetP = g.HTMLDetailsElement.prototype;
+  var toggleQ = new WeakMap();
+  var queueToggle = function (el, oldState) {
+    if (toggleQ.has(el)) return;
+    toggleQ.set(el, oldState);
+    g.setTimeout(function () {
+      var o = toggleQ.get(el);
+      toggleQ.delete(el);
+      var n = el.hasAttribute('open') ? 'open' : 'closed';
+      if (o === n) return;
+      var C = g.ToggleEvent || g.Event, e = new C('toggle', { oldState: o, newState: n });
+      if (!g.ToggleEvent) { e.oldState = o; e.newState = n; }
+      el.dispatchEvent(e);
+    }, 0);
+  };
+  defs(DetP, 'open', function () { return __d_attr(this.__id, 'open') != null; },
+    function (v) {
+      var had = __d_attr(this.__id, 'open') != null;
+      if (v) __d_setattr(this.__id, 'open', ''); else __d_rmattr(this.__id, 'open');
+      if (had !== !!v) queueToggle(this, had ? 'open' : 'closed');
+    });
+  var isUntilFound = function (el) { var a = el.getAttribute('hidden'); return a !== null && a.toLowerCase() === 'until-found'; };
+  var flatParent = function (n) { var p = n.parentNode; return p && p.nodeType === 11 && p.host ? p.host : p; };
+  // Opens/reveals what hides `target` (inclusive ancestors, nearest first). The list is collected first; each
+  // beforematch handler may mutate the tree, and a removed element or a hidden attribute that became plain `hidden`
+  // aborts the rest. Returns the number of changes made (0 = nothing was hidden).
+  g.__scratchy_reveal_node = function (target) {
+    var list = [], prev = null, a;
+    for (a = target; a && a.nodeType === 1; prev = a, a = flatParent(a)) {
+      if (a.localName === 'details' && a.namespaceURI === 'http://www.w3.org/1999/xhtml' && !a.hasAttribute('open')) {
+        var sum = null;
+        for (var c = a.firstElementChild; c; c = c.nextElementSibling) if (c.localName === 'summary') { sum = c; break; }
+        if (!(prev && prev === sum)) list.push([a, 0]);
+      }
+      if (isUntilFound(a)) list.push([a, 1]);
+    }
+    var n = 0;
+    for (var i = 0; i < list.length; i++) {
+      var el = list[i][0];
+      if (!el.isConnected) return n;
+      if (list[i][1] === 0) {
+        if (!el.hasAttribute('open')) { el.open = true; n++; }
+      } else {
+        if (!isUntilFound(el)) continue;
+        el.dispatchEvent(new g.Event('beforematch', { bubbles: true }));
+        if (!el.isConnected) return n;
+        var h = el.getAttribute('hidden');
+        if (h !== null && h.toLowerCase() !== 'until-found') return n;
+        if (h !== null) { el.removeAttribute('hidden'); n++; }
+      }
+    }
+    return n;
+  };
+  g.__scratchy_reveal_id = function (id) { var e = wrap(id); return e ? g.__scratchy_reveal_node(e) : 0; };
+  // Script-initiated fragment navigation (`location.hash = '#id'`): synchronous reveal, then scroll to the target
+  // unless a beforematch handler detached it. (The App scrolls again when it processes the navigation.)
+  g.__scratchy_frag_nav = function (href) {
+    var i = String(href).indexOf('#');
+    if (i < 0) return;
+    var f = href.slice(i + 1), t = null;
+    if (f === '') return;
+    var find = function (x) {
+      var e = doc.getElementById(x);
+      if (e) return e;
+      var as = doc.getElementsByName ? doc.getElementsByName(x) : [];
+      for (var k = 0; k < as.length; k++) if (as[k].localName === 'a') return as[k];
+      return null;
+    };
+    t = find(f);
+    if (!t) { try { t = find(decodeURIComponent(f)); } catch (e) {} }
+    if (!t) return;
+    g.__scratchy_reveal_node(t);
+    if (t.isConnected) t.scrollIntoView();
+  };
   // QY6f: `template.content` is a DocumentFragment owned by ONE inert document (created
   // lazily): it never renders, never upgrades custom elements, never runs scripts.
   var inertDoc = null;

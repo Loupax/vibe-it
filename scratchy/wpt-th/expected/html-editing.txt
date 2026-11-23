@@ -64,39 +64,13 @@ OK           1/1  html/editing/focus/focus-management/focus-on-all-elements.html
 OK           1/1  html/editing/focus/focus-management/focused-area-removal.html
 OK           1/1  html/editing/focus/focus-management/focusing-disconnected-noop.html
 OK           1/1  html/editing/focus/focus-management/focusing-focused-noop.html
-ERROR        0/1  html/editing/the-hidden-attribute/beforematch-attribute-removal-001.html
-  NOTRUN    hidden=until-found and details revealing algorithm should abort if attribute states are mutated on beforematch events.
-ERROR        0/1  html/editing/the-hidden-attribute/beforematch-attribute-removal-002.html
-  NOTRUN    hidden=until-found and details revealing algorithm should abort if attribute states are mutated on beforematch events.
-OK          1/10  html/editing/the-hidden-attribute/beforematch-element-fragment-navigation.html
-  FAIL      Verifies that fragment navigation reveals hidden=until-found elements.
-  FAIL      Verifies that fragment navigation reveals all parent hidden=until-found elements.
-  FAIL      Verifies that the beforematch event is fired synchronously and bubbles after fragment navigation.
-  FAIL      Verifies that when a beforematch event handler moves a matching element, we scroll to its final location.
-  FAIL      Verifies that the beforematch event is fired on the right element when there are multiple hidden=until-found elements.
-  FAIL      Verifies that no scrolling occurs when an element selected by the fragment identifier is detached by the beforematch event handler.
-  FAIL      No scrolling should occur when the beforematch event handler sets the target element's style to display: none.
-  FAIL      Scrolling should still occur when beforematch sets visiblity:hidden on the target element.
-  FAIL      The hidden attribute should still be set inside the beforematch event handler.
-ERROR        0/1  html/editing/the-hidden-attribute/beforematch-element-removal-001.html
-  NOTRUN    hidden=until-found and details revealing algorithm should abort if revealed node is removed.
-ERROR        0/1  html/editing/the-hidden-attribute/beforematch-element-removal-002.html
-  NOTRUN    hidden=until-found and details revealing algorithm should abort if attribute states are mutated on beforematch events.
-OK           0/1  html/editing/the-hidden-attribute/beforematch-infinite-loop.html
-  FAIL      hidden=until-found revealing algorithm should collect elements to reveal before revealing them.
-OK         14/17  html/editing/the-hidden-attribute/hidden-idl.html
-  FAIL      div.hidden = "until-found"
-  FAIL      div.hidden = "UNTIL-FOUND"
-  FAIL      div.hidden = "UnTiL-FoUnD"
-OK           1/8  html/editing/the-hidden-attribute/hidden-ua-stylesheet.html
-  FAIL      div.removeAttribute('hidden')
-  FAIL      div.setAttribute('hidden', '')
-  FAIL      div.setAttribute('hidden', 'asdf')
-  FAIL      div.setAttribute('hidden', 'until-found')
-  FAIL      div.setAttribute('hidden', 'UNTIL-FOUND')
-  FAIL      div.setAttribute('hidden', 'UnTiL-FoUnD')
-  FAIL      div.setAttribute('hidden', '0')
-ERROR        0/1  html/editing/the-hidden-attribute/hidden-until-found-and-details.html
-  NOTRUN    hidden=until-found and details revealing algorithm should reveal elements in a certain order.
-OK           0/1  html/editing/the-hidden-attribute/hidden-until-found-idl.html
-  FAIL      element.hidden should return "until-found" regardless of uppercase letters.
+OK           1/1  html/editing/the-hidden-attribute/beforematch-attribute-removal-001.html
+OK           1/1  html/editing/the-hidden-attribute/beforematch-attribute-removal-002.html
+OK         10/10  html/editing/the-hidden-attribute/beforematch-element-fragment-navigation.html
+OK           1/1  html/editing/the-hidden-attribute/beforematch-element-removal-001.html
+OK           1/1  html/editing/the-hidden-attribute/beforematch-element-removal-002.html
+OK           1/1  html/editing/the-hidden-attribute/beforematch-infinite-loop.html
+OK         17/17  html/editing/the-hidden-attribute/hidden-idl.html
+OK           8/8  html/editing/the-hidden-attribute/hidden-ua-stylesheet.html
+OK           1/1  html/editing/the-hidden-attribute/hidden-until-found-and-details.html
+OK           1/1  html/editing/the-hidden-attribute/hidden-until-found-idl.html

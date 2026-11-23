@@ -2886,6 +2886,12 @@ impl App {
         if let Some(l) = &self.cached {
             self.search.relayout(l, &self.shape_cache);
         }
+        // QEDIT-C: the relayout that follows a reveal: the match list is the same, so the match that
+        // caused it is current again, and the screen goes to its (now real) rectangles.
+        if let Some(i) = self.search.reveal_pending.take() && i < self.search.matches.len() {
+            self.search.current = Some(i);
+            self.reveal_current_match();
+        }
         self.restore_node_scroll();
         self.refresh_cursor();
         // Q31b: a fragment from a cross-page navigation waits for
@@ -3144,6 +3150,23 @@ impl App {
         let ok = js.dispatch_event(target, kind, init);
         self.js_sync();
         ok
+    }
+
+    /// QEDIT-C: runs the ancestor revealing algorithm for `h` in the page (beforematch, `hidden=until-found`
+    /// removal, `<details>` opening) and syncs what the handlers did. True when something was revealed (the
+    /// layout is stale until the rebuild the sync requests).
+    pub(crate) fn js_reveal_node(&mut self, h: &Handle) -> bool {
+        let els = self.sync_node_scroll();
+        let Some(js) = &self.js else { return false };
+        js.set_scroll(self.scroll_x, self.scroll_offset, els);
+        let n = js.reveal_node(h);
+        self.js_sync();
+        if n > 0 {
+            self.layout_dirty = true;
+            self.restyle_requested = true;
+            self.keep_scroll_on_rebuild = true;
+        }
+        n > 0
     }
 
     /// QANIMHLb: no CSS animation and no CSS transition needs the clock.
@@ -4119,6 +4142,11 @@ impl App {
             }
             return true;
         };
+        // QEDIT-C: reveal what hides the target first; the scroll waits for the layout that shows it.
+        if self.js_reveal_node(&target) {
+            self.pending_fragment = Some(frag);
+            return false;
+        }
         let Some(laid) = &self.cached else { return false };
         // An inline element without its own box falls back to its ancestors.
         let mut cur = Some(target);
@@ -5219,6 +5247,15 @@ impl App {
     /// QSEARCH2 (S4): bring the screen to the current match: every scroll region it sits in
     /// (innermost first), then the page. Nothing scrolls where the match is already fully visible.
     pub(crate) fn reveal_current_match(&mut self) {
+        // QEDIT-C: a match inside hidden=until-found content (or a closed <details>) reveals it first
+        // (beforematch, attribute removed); the scroll follows the relayout (`search.reveal_pending`).
+        if let Some(m) = self.search.current.and_then(|i| self.search.matches.get(i)) {
+            let h = m.nodes.iter().copied().find(|&n| n != 0).and_then(|n| find_node_by_id(&self.document, n));
+            if let Some(h) = h && self.js_reveal_node(&h) {
+                self.search.reveal_pending = self.search.current;
+                return;
+            }
+        }
         let Some(m) = self.search.current.and_then(|i| self.search.matches.get(i)) else { return };
         let page_h = self.cached.as_ref().map_or(0.0, |l| l.h);
         let (changes, page) = m.reveal(&self.scroll_offsets, self.scroll_offset, self.page_size().1 as f32, page_h);

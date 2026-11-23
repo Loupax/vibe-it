@@ -266,6 +266,8 @@ pub(crate) const PROPS: &[&str] = &[
     // QCSS-E.
     "direction", "pointer-events", "scroll-behavior", "letter-spacing", "outline-offset", "border-spacing", "transform-origin", "border-radius",
     "border-top-left-radius", "border-top-right-radius", "border-bottom-right-radius", "border-bottom-left-radius",
+    // QEDIT-C: only the UA's `hidden=until-found` value is modelled (see `__d_cs`).
+    "content-visibility",
 ];
 
 fn kebab(s: &str) -> String {
