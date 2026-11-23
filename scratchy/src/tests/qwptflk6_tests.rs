@@ -10,8 +10,8 @@ fn run(js: &str) -> String {
     let scripts = vec![src(js)];
     let clock = Rc::new(std::cell::Cell::new(0.0));
     start_scripts_clocked(&doc, &scripts, Rc::new(move |_l, t| o.borrow_mut().push(t.to_string())), Some(clock)).unwrap();
-    let r = out.borrow().join("\n");
-    r
+    let lines = out.borrow();
+    lines.join("\n")
 }
 
 #[test]
