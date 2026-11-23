@@ -78,6 +78,8 @@ impl Latest {
 pub enum Update {
     Keymap(String),
     Group(u32),
+    /// C3-SHIFTSYNC: the desktop's modifier masks (depressed, latched, locked), in the keymap's bits.
+    Mods(u32, u32, u32),
 }
 
 /// Starts the watcher thread; each keymap (the first, then every change) arrives on `tx`.
@@ -137,6 +139,86 @@ impl crate::state::State {
     }
 }
 
+/// C3-SHIFTSYNC: the shell's modifier state for the desktop's masks (pure: tests use it).
+pub fn mods_for_masks(
+    keymap: &smithay::input::keyboard::xkb::Keymap,
+    depressed: u32,
+    latched: u32,
+    locked: u32,
+) -> smithay::input::keyboard::ModifiersState {
+    let mut st = smithay::input::keyboard::xkb::State::new(keymap);
+    st.update_mask(depressed, latched, locked, 0, 0, 0);
+    let mut m = smithay::input::keyboard::ModifiersState::default();
+    m.update_with(&st);
+    m
+}
+
+/// The modifiers the bindings and the page look at.
+pub fn same_mods(a: &smithay::input::keyboard::ModifiersState, b: &smithay::input::keyboard::ModifiersState) -> bool {
+    (a.ctrl, a.alt, a.shift, a.caps_lock, a.logo, a.num_lock, a.iso_level3_shift)
+        == (b.ctrl, b.alt, b.shift, b.caps_lock, b.logo, b.num_lock, b.iso_level3_shift)
+}
+
+impl crate::state::State {
+    /// C3-SHIFTSYNC: the desktop's modifier state is the truth for the bindings (`KeyInput` reads the
+    /// seat's modifiers): a modifier held when the window gained focus, or set by `wl_keyboard.modifiers`
+    /// alone, never came as a key event. Applied only while no key is down: with keys down the key events
+    /// (which this message may overtake or trail by a moment) are the better source. The page is told too.
+    pub fn set_desktop_mods(&mut self, depressed: u32, latched: u32, locked: u32) {
+        if !self.keys.idle() {
+            return;
+        }
+        let Some(keyboard) = self.seat.get_keyboard() else { return };
+        let want = keyboard.with_xkb_state(self, |ctx| {
+            let xkb = ctx.xkb().lock().unwrap();
+            // Safety: a read-only look at the seat's current keymap.
+            mods_for_masks(unsafe { xkb.keymap() }, depressed, latched, locked)
+        });
+        if same_mods(&keyboard.modifier_state(), &want) {
+            return;
+        }
+        keyboard.set_modifier_state(want);
+        // NORMAL keeps the page's idea of the modifiers as it was (a scroll key given to it is unmodified, KEYS.md).
+        let focus = if self.keys.key_mode == crate::keys::KeyMode::Input {
+            keyboard.current_focus()
+        } else {
+            None
+        };
+        if let Some(focus) = focus {
+            use smithay::input::keyboard::KeyboardTarget;
+            let serial = smithay::utils::SERIAL_COUNTER.next_serial();
+            let seat = self.seat.clone();
+            focus.modifiers(&seat, self, keyboard.modifier_state(), serial);
+        }
+        self.log(&format!(
+            "desktop modifiers: shift={} ctrl={} alt={} logo={}",
+            want.shift, want.ctrl, want.alt, want.logo
+        ));
+    }
+
+    /// C-FOCUSKEYS: releases, in the page, every key it still has pressed (see `Keys::release_all`).
+    pub fn release_pressed_keys(&mut self) {
+        use smithay::backend::input::KeyState;
+        use smithay::input::keyboard::{FilterResult, Keycode};
+        let (codes, ours) = self.keys.release_all();
+        let Some(keyboard) = self.seat.get_keyboard() else { return };
+        let time = self.log_ms() as u32;
+        for code in &codes {
+            let serial = smithay::utils::SERIAL_COUNTER.next_serial();
+            keyboard.input::<(), _>(self, Keycode::new(*code), KeyState::Released, serial, time, |_, _, _| {
+                FilterResult::Forward
+            });
+        }
+        for code in &ours {
+            keyboard.input_intercept(self, Keycode::new(*code), KeyState::Released, |_, _, _| ());
+        }
+        if !codes.is_empty() {
+            self.log(&format!("focus lost: released {} key(s) in the page", codes.len()));
+        }
+        self.apply_key_effects(time);
+    }
+}
+
 /// The `xkb_symbols "..."` name of a keymap, for the log (what the live check reads).
 pub fn keymap_name(text: &str) -> String {
     text.lines()
@@ -187,7 +269,15 @@ mod wayland {
 
     impl Dispatch<WlKeyboard, ()> for Watch {
         fn event(w: &mut Self, _: &WlKeyboard, event: wl_keyboard::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
-            if let wl_keyboard::Event::Modifiers { group, .. } = event {
+            if let wl_keyboard::Event::Modifiers {
+                mods_depressed,
+                mods_latched,
+                mods_locked,
+                group,
+                ..
+            } = event
+            {
+                let _ = w.tx.send(Update::Mods(mods_depressed, mods_latched, mods_locked));
                 let _ = w.tx.send(Update::Group(group));
                 return;
             }
@@ -306,8 +396,8 @@ mod x11 {
             parts,
             parts,
             &xkb::SelectEventsAux::new().state_notify(xkb::SelectEventsAuxStateNotify {
-                affect_state: xkb::StatePart::GROUP_STATE,
-                state_details: xkb::StatePart::GROUP_STATE,
+                affect_state: xkb::StatePart::GROUP_STATE | xkb::StatePart::MODIFIER_STATE,
+                state_details: xkb::StatePart::GROUP_STATE | xkb::StatePart::MODIFIER_STATE,
             }),
         )
         .map_err(|e| e.to_string())?
@@ -323,6 +413,13 @@ mod x11 {
         loop {
             let ev = conn.wait_for_event().map_err(|e| format!("X11: {e}"))?;
             if let Event::XkbStateNotify(s) = &ev {
+                if s.changed.intersects(xkb::StatePart::MODIFIER_STATE) {
+                    let _ = tx.send(Update::Mods(
+                        u16::from(s.base_mods) as u32,
+                        u16::from(s.latched_mods) as u32,
+                        u16::from(s.locked_mods) as u32,
+                    ));
+                }
                 if s.changed.contains(xkb::StatePart::GROUP_STATE) {
                     let _ = tx.send(Update::Group(u8::from(s.group) as u32));
                 }

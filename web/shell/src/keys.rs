@@ -479,6 +479,31 @@ impl Keys {
         forward
     }
 
+    /// C-FOCUSKEYS: the shell window lost the desktop's keyboard focus. Returns the key codes the
+    /// page has pressed (their releases were not seen yet and winit's synthetic ones never
+    /// arrive), in order, for the compositor to release in the page. Everything held is forgotten
+    /// and the scroll keys held for bindings are released, so refocusing starts clean.
+    /// The second list is the keys the shell itself consumed (down, never given to the page): the seat's
+    /// key state forgets them too, quietly.
+    pub fn release_all(&mut self) -> (Vec<u32>, Vec<u32>) {
+        let mut pressed: Vec<u32> = self.forwarded.drain().collect();
+        pressed.sort_unstable();
+        let mut ours: Vec<u32> = self.down.drain().filter(|c| !pressed.contains(c)).collect();
+        ours.sort_unstable();
+        for (_, synth) in self.held.drain(..) {
+            self.effects.push(Effect::KeyUp(synth));
+        }
+        self.esc = EscState::Idle;
+        self.pending_seq = None;
+        (pressed, ours)
+    }
+
+    /// C3-SHIFTSYNC: no key is physically down (as far as the shell saw), so the desktop's
+    /// modifier state is not racing the key events still being handled.
+    pub fn idle(&self) -> bool {
+        self.down.is_empty()
+    }
+
     fn press(&mut self, code: u32, key: &KeyInput, repeat: bool, now: Instant) -> bool {
         match self.key_mode {
             KeyMode::Normal => {
