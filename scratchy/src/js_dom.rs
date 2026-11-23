@@ -3492,6 +3492,39 @@ pub(crate) const DOM_PRELUDE: &str = concat!(include_str!("geometry_prelude.js")
     var c = cv(this), i = CV_OPS.indexOf(String(v));
     if (i >= 0) g.__cv_set_ls(c, 4, i);
   });
+  // QCNV13: imageSmoothingEnabled / imageSmoothingQuality (saved and restored with the state; canvas.rs `DrawState`).
+  defs(CtxProto, 'imageSmoothingEnabled', function () { return g.__cv_get_ls(cv(this), 8) !== 0; }, function (v) {
+    var c = cv(this);
+    g.__cv_set_ls(c, 8, v ? 1 : 0);
+  });
+  var CV_SMOOTHQ = ['low', 'medium', 'high'];
+  defs(CtxProto, 'imageSmoothingQuality', function () { return CV_SMOOTHQ[g.__cv_get_ls(cv(this), 9)]; }, function (v) {
+    var c = cv(this), i = CV_SMOOTHQ.indexOf(String(v));
+    if (i >= 0) g.__cv_set_ls(c, 9, i);
+  });
+  // QCNV13: drawImage(image, dx, dy) / (image, dx, dy, dw, dh) / (image, sx, sy, sw, sh, dx, dy, dw, dh). Sources: an
+  // HTMLCanvasElement or an OffscreenCanvas (their canvas.rs bitmap, read at the call). Image elements wait for QCNV14
+  // (decoded pixels on the JS thread) and ImageBitmap for QIMGBMP1: they are a TypeError here, like any other value.
+  meth('drawImage', function drawImage(image, dx, dy) {
+    var c = cv(this), n = arguments.length;
+    var fail = function (m) { return new TypeError("Failed to execute 'drawImage' on 'CanvasRenderingContext2D': " + m); };
+    if (n < 3) throw fail('3 arguments required, but only ' + n + ' present.');
+    if (n !== 3 && n !== 5 && n !== 9) throw fail('Valid arities are: [ 3, 5, 9 ], but ' + n + ' arguments provided.');
+    var w, h, scid = -1;
+    if (image instanceof g.HTMLCanvasElement) {
+      w = image.width; h = image.height;
+      if (image.__ctx2d) scid = image.__ctx2d.__cid;
+    } else if (image !== null && typeof image === 'object' && offBrand.has(image)) {
+      w = image.__w; h = image.__h;
+      if (image.__ctx) scid = image.__ctx.__cid;
+    } else throw fail("The provided value is not of type '(CSSImageValue or HTMLImageElement or SVGImageElement or HTMLVideoElement or HTMLCanvasElement or ImageBitmap or OffscreenCanvas or VideoFrame)'.");
+    var a = [];
+    for (var i = 1; i < n; i++) a.push(Number(arguments[i]));
+    for (i = 0; i < a.length; i++) if (!isFinite(a[i])) return;
+    if (w === 0 || h === 0) throw domErr("Failed to execute 'drawImage' on 'CanvasRenderingContext2D': The image argument is a canvas element with a width or height of 0.", 'InvalidStateError');
+    var r = n === 3 ? [0, 0, w, h, a[0], a[1], w, h] : n === 5 ? [0, 0, w, h, a[0], a[1], a[2], a[3]] : a;
+    g.__cv_draw_image(c, scid, w, h, r);
+  });
   // QCNV12: shadowBlur (non-finite or negative ignored), shadowOffsetX/Y (non-finite ignored); unrestricted double.
   ['shadowBlur', 'shadowOffsetX', 'shadowOffsetY'].forEach(function (name, i) {
     defs(CtxProto, name, function () { return g.__cv_get_ls(cv(this), 5 + i); }, function (v) {
