@@ -430,3 +430,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 #646 QWPTFLK6 READY (timeOrigin anchored on first read; 20/20 under load), merging. AGENT_RULES: cap load generators; prove tests fail on old code. Launched QEDIT-D.
 - 2026-11-23 Merged #646 QWPTFLK6 9f404ad.
 - 2026-11-23 #645 QEDIT-C READY (until-found, beforematch, details reveal), merging. Filed + launched QDET1 (closed <details> renders its body today).
+- 2026-11-23 Merged #645 QEDIT-C .
