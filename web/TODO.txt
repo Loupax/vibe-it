@@ -245,9 +245,12 @@ stop early on a hard failure.
 - [ ] C6b-X11 [S] (from #696) On X11 the shell takes winit's X11 scale (Xft.dpi / WINIT_X11_SCALE_FACTOR); under
       the nest's Xwayland that is 1 and the window is upscaled (blurry). Check on a real X11 HiDPI desktop, document.
 - [ ] C6b-CURSOR [XS] (from #696) Check a CSS `cursor: url()` image is sent and drawn at the right size at 1.5 and 2.
-- [WIP] C6c [S] (from #686) Frame pacing: frame callbacks after every shell render, unthrottled; pace them to the
+- [x] C6c [S] (DONE 2026-11-23, 4767dbe, #699: Wayland was already paced; X11 renders now spaced to the outer
+      refresh; outer refresh passed to the page; c6c_bench.py; NEST_REFRESH) (from #686) Frame pacing: frame callbacks after every shell render, unthrottled; pace them to the
       outer window's frames; measure rAF cadence before/after under the perf lock.
-- [ ] C6d [M] (from #686) dmabuf: no linux-dmabuf offered, CEF hands shm buffers, every frame is CPU-copied.
+- [ ] C6h [M] (from #699) Chromium's rAF stays 60 Hz on a 120 Hz output although it reads the refresh: find what
+      drives its BeginFrame interval (wl_output/xdg-output, a CEF switch) in web-host-cef.
+- [WIP] C6d [M] (from #686) dmabuf: no linux-dmabuf offered, CEF hands shm buffers, every frame is CPU-copied.
       Measure today's CPU cost (video, fast scroll), then import dmabufs with an shm fallback.
 - [ ] C6e [M] (from #686) IME (text-input-v3): shell as IME client of the desktop and text-input server for
       the page, INPUT only. Done when fcitx5 in the nest types composed text into a page field.
