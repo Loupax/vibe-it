@@ -9666,3 +9666,10 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QGEOM2 DONE 253a2f2 #638 [S] (P3, from QGEOM1 #630; Sonnet) DOMRectList (getClientRects returns an Array today; DOMRectList.html 2
       subtests), structured clone of the geometry classes (structured-serialization.html, 24 subtests), css/geometry
       idlharness setup.
+
+=== from TODO.txt: --- (no header)
+- [x] QWPT-IDL DONE 49c8316 #640 [S] (P3, from QGEOM2 #638; Sonnet; tools/wpt-dirs.txt, wpt-th) Add `interfaces` (WPT's .idl files)
+      to tools/wpt-dirs.txt so the idlharness files really run (~2 800 new subtests across dom, webidl, encoding, url,
+      observers, event-handler-all-global-events; no regressions in a trial run). Full `--wpt-th`, record, `--areas-only`,
+      5 stability runs of the idlharness files (big ones like dom/idlharness may be slow or flaky: budgets.txt or flaky.txt
+      with reasons); report the CI shard times.
