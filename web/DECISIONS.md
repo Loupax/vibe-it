@@ -2,6 +2,14 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-23 No middle-click paste in the page; GTK stays
+
+User: "didn't know I hade gtk dependencies in the first place. it's ok tho, Drop middle-click paste in the
+page and keep GTK as it is." Chromium (libcef) loads GTK at run time for desktop integration: theme, dark
+mode via prefers-color-scheme, and GTK settings such as gtk-enable-primary-paste, which GNOME ships off and
+which gates middle-click paste into pages. web keeps GTK; middle-click paste works only in the `:` and `/`
+lines (C6), not in the page. #689 closed.
+
 ## 2026-11-23 Enter in NORMAL goes to the page; caret browsing as an experiment
 
 User: "do this. Enter in NORMAL forwards to the page. Expose caret browsing from a command mode command,

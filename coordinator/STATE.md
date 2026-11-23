@@ -511,3 +511,4 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Merged #686 C6 part 1 60d5aa0 (web reinstalled 15:55) and #687 W2-F1+W2-FLK1 390a956 (wire2 reinstalled 15:57). Filed C6b-C6f, C2-LIVE-REFRESH. Launched C6f+C2-LIVE-REFRESH (Sonnet) and W2-HUBCLOSE+W2-2b (Sonnet).
 - 2026-11-23 Merged #688 W2-HUBCLOSE+W2-2b; wire2 reinstalled. Launched W2-2e (Sonnet).
 - 2026-11-23 #689 C6f+C2-LIVE-REFRESH DRAFT: C6f fix (--ui-toolkit=fallback) drops GTK theming (dark mode to pages) -> asked user (a/b/c, recommend b). Shell popup-constraint bug found; agent's src edit was refused by the permission layer (out of the tests-only scope I gave), not worked around. Filed + launched C2-POPUP (Sonnet) with live.py refresh.
+- 2026-11-23 USER: drop middle-click paste in the page, keep GTK. #689 closed (branch kept for C2-POPUP's cherry-pick). C6f dropped; web/DECISIONS.md.

@@ -226,9 +226,8 @@ stop early on a hard failure.
       Measure today's CPU cost (video, fast scroll), then import dmabufs with an shm fallback.
 - [ ] C6e [M] (from #686) IME (text-input-v3): shell as IME client of the desktop and text-input server for
       the page, INPUT only. Done when fcitx5 in the nest types composed text into a page field.
-- [ ] C6f [XS] (DRAFT #689, WAITING FOR USER: the fix --ui-toolkit=fallback drops GTK theming, so the desktop's
-      dark theme no longer reaches pages; options (a) accept, (b) accept + our own colour-scheme setting,
-      (c) drop middle-click paste in the page) (from #686) Middle-click paste in the page does nothing (CEF never pastes primary); find the
+- [-] C6f DROPPED (user, 2026-11-23: "Drop middle-click paste in the page and keep GTK as it is."; #689 closed;
+      the fix needed --ui-toolkit=fallback, which loses GTK theming) (from #686) Middle-click paste in the page does nothing (CEF never pastes primary); find the
       Blink/CEF setting and turn it on in web-host-cef; c6_live's primary step checks the paste.
 - [WIP] C2-POPUP [S] (from #689) Bug: Chromium's select popups request no constraint adjustment, so the
       shell's unconstrain_popup does nothing and a <select> at the right edge opens outside the window. Force
