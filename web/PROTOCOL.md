@@ -392,7 +392,9 @@ A page's Web Notifications go to the shell as `notify` events and never to the d
 granted notification itself over D-Bus). web-host-cef:
 
 - replaces, in every script context of every frame before any page script runs, `Notification`
-  (a non-configurable global, so Blink's own cannot replace it), `ServiceWorkerRegistration
+  (once Blink has installed its own: C-BELL-CRASH; a frame's window taken in the same turn that
+  created it, other than through `iframe.contentWindow`, still has Chromium's, which is `denied`
+  and blocked), `ServiceWorkerRegistration
   .prototype.showNotification`/`getNotifications` and `permissions.query({name:'notifications'})`.
   An allowed site (every site, or `--notify-sites`) sees permission `granted` without a prompt;
   `new Notification(...)` fires `show` and `showNotification` resolves, and each one becomes a
@@ -403,8 +405,9 @@ granted notification itself over D-Bus). web-host-cef:
   and nothing Chromium could show itself. Notifications from inside a worker (a service worker's own
   `self.registration.showNotification`, push) are not reached by the replacement: they fail
   (`denied`) and are lost silently.
-- Pages that look can tell (`Notification.toString()` is not native code, the property is
-  non-configurable, `navigator` has an own `serviceWorker`), and "granted" everywhere differs from
+- Pages that look can tell (`Notification.toString()` and the `HTMLIFrameElement.prototype
+  .contentWindow` getter are not native code, `navigator` has an own `serviceWorker`), and
+  "granted" everywhere differs from
   a typical Chrome profile.
 
 ## Not in the protocol (engine default for now)

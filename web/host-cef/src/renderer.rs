@@ -89,8 +89,10 @@ wrap_render_process_handler! {
         // one step each. A new one (C-AUTOFOCUS) goes at the end, preferably through `call_with`.
         fn on_context_created(&self, _browser: Option<&mut Browser>, frame: Option<&mut Frame>, context: Option<&mut V8Context>) {
             let Some(context) = context else { return };
-            // 1. C-BELL: the notification shim (notify.rs). First: it must define `Notification`
-            //    before Blink installs its own.
+            // 1. C-BELL: the notification shim (notify.rs). It replaces `Notification` from a
+            //    microtask, after Blink's own install (C-BELL-CRASH). Nothing here may define a
+            //    global Blink installs later (Window's [SecureContext] / conditional interfaces):
+            //    a non-configurable one aborts the renderer.
             crate::notify::install_shim(context);
             // 2. C-NOTAB: newtab::CTRL_SHIFT_JS (queued; it only adds a listener).
             if let Some(f) = &frame {

@@ -1,0 +1,77 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>notify-iframes</title>
+<!-- C-BELL-CRASH repro: Gmail-like dynamic iframes from STRICT-mode page code, on 127.0.0.1 (a secure
+     context). Inserting an iframe with no src (or about:blank) commits about:blank synchronously and
+     creates the frame's script context while the page's strict function is still on the stack; with
+     a non-configurable `Notification` defined at OnContextCreated, Blink's later install of the real
+     one then throws (strict caller) and its FromJust aborts the renderer. Run with
+     `PROBE_PAGE=iframes.html web/tools/notify-probe/run.sh OUT TAG`. Findings: console lines
+     `notify-iframes: <key> = <json>` and OUT/<tag>.json (no json = the renderer died). -->
+<body style="font: 14px sans-serif">
+<pre id="out"></pre>
+<script>
+'use strict';
+const q = new URLSearchParams(location.search);
+const tag = q.get('tag') || 'iframes';
+const res = {tag};
+const out = document.getElementById('out');
+function note(k, v) {
+  res[k] = v;
+  const line = 'notify-iframes: ' + k + ' = ' + JSON.stringify(v);
+  console.log(line);
+  out.textContent += line + '\n';
+}
+const timeout = (p, ms) => Promise.race([p, new Promise(r => setTimeout(() => r('TIMEOUT ' + ms + 'ms'), ms))]);
+const perm = w => { try { return typeof w.Notification === 'function' ? w.Notification.permission : typeof w.Notification; } catch (e) { return 'throw ' + e; } };
+const frames = [];
+// One iframe, inserted from strict code. how: '' (no src), 'blank' (src=about:blank), 'srcdoc'.
+// where: 'before' (insertBefore the first child, as Gmail does) or 'append'.
+function add(name, how, where, doc) {
+  doc = doc || document;
+  const f = doc.createElement('iframe');
+  f.style.cssText = 'width: 60px; height: 20px';
+  if (how === 'blank') f.src = 'about:blank';
+  if (how === 'srcdoc') f.srcdoc = '<p>srcdoc</p>';
+  if (where === 'before') doc.body.insertBefore(f, doc.body.firstChild);
+  else doc.body.appendChild(f);
+  // A look in the same turn (a loader poking its fresh frame at once).
+  frames.push({name, f, sync: f.contentWindow ? perm(f.contentWindow) : 'no window'});
+  return f;
+}
+note('main_sync', perm(window));
+// At parse time, before the load.
+add('parse-insertBefore-nosrc', '', 'before');
+add('parse-append-srcdoc', 'srcdoc', 'append');
+const outer = add('parse-append-blank', 'blank', 'append');
+add('parse-nested-in-blank', '', 'append', outer.contentDocument);
+document.addEventListener('DOMContentLoaded', () => add('dcl-insertBefore-blank', 'blank', 'before'));
+// Later, from a timer and from a promise job.
+setTimeout(() => {
+  const o = add('timer-insertBefore-nosrc', '', 'before');
+  add('timer-nested-insertBefore', '', 'before', o.contentDocument);
+  Promise.resolve().then(() => add('microtask-append-nosrc', '', 'append'));
+  setTimeout(check, 1500);
+}, 300);
+function show(N, title) {
+  return timeout(new Promise(r => {
+    try {
+      const n = new N(title, {body: 'iframes body', tag: title});
+      n.onshow = () => r('show');
+      n.onerror = () => r('error event');
+    } catch (e) { r('throw ' + e); }
+  }), 3000);
+}
+async function check() {
+  note('main_permission', perm(window));
+  note('main_ctor', await show(Notification, 'main'));
+  for (const {name, f, sync} of frames) {
+    const w = f.contentWindow;
+    if (!w) { note(name, 'no window'); continue; }
+    note(name, {sync, permission: perm(w), ctor: await show(w.Notification, name), same_api: w.Notification === Notification});
+  }
+  note('frames', frames.length);
+  note('done', true);
+  fetch('/result?tag=' + encodeURIComponent(tag), {method: 'POST', body: JSON.stringify(res)}).catch(() => {});
+}
+</script>

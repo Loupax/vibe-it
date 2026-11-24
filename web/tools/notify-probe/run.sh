@@ -5,7 +5,8 @@
 # Usage: WAYLAND_DISPLAY=wayland-N web/tools/notify-probe/run.sh OUT_DIR TAG [SECONDS] [host args...]
 #   (start the nested compositor first: web/tools/nest.sh). The host's own options go after
 #   SECONDS (default 25), e.g. `--notify-sites=127.0.0.1` (C-BELL). Env PROBE_QUERY is appended to the
-#   page's query (`&burst=8`, `&delay=3000`). Results: OUT_DIR/TAG.json (the
+#   page's query (`&burst=8`, `&delay=3000`); PROBE_PAGE picks the page (default probe.html;
+#   iframes.html is the C-BELL-CRASH repro). Results: OUT_DIR/TAG.json (the
 #   page's findings), OUT_DIR/TAG.host.log, OUT_DIR/TAG.notifyd.log, OUT_DIR/TAG.http.log.
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -26,7 +27,7 @@ sleep 1
 UNIT=web-host-cef-notify-$$
 PROFILE=${WEB_HOST_PROFILE:-$OUT/profile-$TAG}
 WEB_HOST_UNIT=$UNIT WEB_HOST_PROFILE=$PROFILE "$HERE/../../host-cef/run.sh" \
-  --url "http://127.0.0.1:$PORT/probe.html?tag=$TAG${PROBE_QUERY:-}" "$@" > "$OUT/$TAG.host.log" 2>&1 & HPID=$!
+  --url "http://127.0.0.1:$PORT/${PROBE_PAGE:-probe.html}?tag=$TAG${PROBE_QUERY:-}" "$@" > "$OUT/$TAG.host.log" 2>&1 & HPID=$!
 sleep $((SECS / 2))
 grim "$OUT/$TAG.png" 2>/dev/null || true   # what the nested output shows mid-run (a prompt?)
 sleep $((SECS - SECS / 2))

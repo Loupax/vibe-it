@@ -84,13 +84,67 @@ queued from there `Notification` exists and `ServiceWorkerRegistration` still do
 `setTimeout 0` both exist. Blink installs `[SecureContext]` interfaces after the context-created
 hook and they overwrite what we put there. What works:
 
-- `Notification`: define ours on the global first as a **non-configurable, non-writable** property;
+- ~~`Notification`: define ours on the global first as a **non-configurable, non-writable** property;
   Blink's later define of the real interface object then fails silently (no crash, no CHECK, page
-  and iframe both get ours).
+  and iframe both get ours).~~ **WRONG, see the correction below (C-BELL-CRASH): it aborts the
+  renderer on Gmail.**
 - `ServiceWorkerRegistration`: a window page can only reach a registration through
   `navigator.serviceWorker`, so the shim puts an own getter `serviceWorker` on that `navigator`
   object that patches `ServiceWorkerRegistration.prototype` on first use and returns the real
   container (`Navigator.prototype`'s getter).
+
+### Correction (2026-11-24, C-BELL-CRASH): the non-configurable `Notification` crashes renderers
+
+"Fails silently" holds only when no strict-mode script is on the stack. The user's Gmail tab died
+with `FATAL ... v8_initializer.cc:932] V8 error: Maybe value is Nothing (v8::FromJust)` in
+`IDLMemberInstaller::InstallExposedConstructs`. Why (Chromium 156 source):
+
+- `LocalWindowProxy::Initialize` calls `DidCreateScriptContext` (CEF's OnContextCreated, our shim)
+  and *then* `InstallConditionalFeatures`, which installs `[SecureContext]` interface objects on the
+  window with `SetLazyDataProperty(...).ToChecked()`.
+- V8 (`JSObject::SetAccessor` -> `CheckIfCanDefineAsConfigurable`) refuses to redefine a
+  non-configurable property; whether that refusal returns `false` or *throws* is `GetShouldThrow`:
+  the language mode of the innermost JavaScript frame on the stack. No JS on the stack (a navigation
+  commit, the case the spike saw) = sloppy = `Just(false)`, silent. Strict page code on the stack =
+  throw = `Nothing` -> `ToChecked()` aborts the renderer.
+- Strict page code on the stack while a context is created: inserting an `<iframe>` with no `src`
+  (or `about:blank`) from script commits about:blank synchronously
+  (`SynchronouslyCommitAboutBlankForBug778318`), and the extensions frame helper's
+  `DidClearWindowObject` initializes the new frame's window proxy right there. Gmail does this.
+
+Repro: `web/tools/notify-probe/iframes.html` (strict-mode page inserting iframes with
+insertBefore/appendChild, no src / about:blank / srcdoc, nested, at parse time, DOMContentLoaded, a
+timer and a microtask): `PROBE_PAGE=iframes.html web/tools/notify-probe/run.sh OUT TAG 14` on main
+112d406b -> the same FATAL 300 ms after load, `crashed 1 (exit code 133)`, no result.
+
+The fix (notify.rs, C-BELL-CRASH): **nothing is defined before Blink's install.** The shim queues
+a microtask that defines our `Notification` as a *configurable* property (like Blink's own):
+- page code on the stack (a frame created by a script): the microtask runs when that script's turn
+  ends, after the install;
+- no script on the stack (a navigation commit): microtasks run as soon as the shim's eval returns,
+  i.e. *before* the install (seen: the main frame kept Chromium's `Notification`); then the shim
+  waits for the document's first node with a MutationObserver, whose callback runs at the parser's
+  microtask checkpoint (Blink's HTMLParserScriptRunner takes one before every parser-inserted
+  script), so before any page script;
+- insecure contexts never get Blink's `Notification`: defined in the microtask at once.
+- A same-origin iframe's window read through `iframe.contentWindow` in the same turn that created
+  it (probe.html's "pristine API" check) gets ours from a wrapped `HTMLIFrameElement.prototype
+  .contentWindow` getter (installed after the install too). **Lost:** other ways to such a
+  window within that turn (`frames[i]`, `contentDocument.defaultView`, `window.open`, an iframe
+  created from a document whose own shim has not run yet, e.g. a nested iframe made in the same
+  turn as its parent): they see Chromium's own `Notification`, permission "denied" (natively
+  BLOCKed), so nothing is shown and nothing reaches the bar. Fixed run of iframes.html: no abort,
+  main frame and all 8 frames "granted" + `show` after the turn; the same-turn look is "granted"
+  for 6, "denied" for the 2 nested ones.
+
+Detectable now: `Notification`'s descriptor is configurable (as Blink's), `toString()` is not
+native, and `HTMLIFrameElement.prototype.contentWindow`'s getter is not native.
+Other context-creation scripts checked for the same class (a define on window/navigator of a
+name Blink installs later): CTRL_SHIFT_JS, MIDDLE_JS and field.js only add listeners (MIDDLE_JS's
+temporary global `__webHostMiddleClick` is configurable, not a Blink name, deleted at once); the
+`navigator.serviceWorker` own getter is configurable and Blink installs `serviceWorker` on
+`Navigator.prototype` only (generated v8_navigator.cc: `kPrototype`); `Permissions.prototype.query`
+is a plain assignment to an unconditional interface. None changed.
 
 ## What it costs
 
@@ -101,7 +155,7 @@ hook and they overwrite what we put there. What works:
   after (debug build, not under the perf lock; release will be less). Nothing per frame or per
   event.
 - Detectable: `Notification.toString()` is not `[native code]`,
-  `Object.getOwnPropertyDescriptor(window,'Notification').configurable === false`, `navigator` has
+  (before C-BELL-CRASH) `Object.getOwnPropertyDescriptor(window,'Notification').configurable === false`, `navigator` has
   an own `serviceWorker` property. Pages that replace `window.Notification` themselves (rare,
   mostly polyfills) cannot.
 - Not covered:
