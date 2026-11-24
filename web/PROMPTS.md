@@ -822,3 +822,23 @@ C-NOTIFLIST: `:notifications`, a picker over the session's notifications (Sonnet
 > (coordinator) URGENT C-BELL-CRASH: the installed web aborts the renderer on Gmail (FATAL "Maybe value is Nothing (v8::FromJust)" in IDLMemberInstaller::InstallExposedConstructs after a script-inserted iframe's synchronous about:blank commit). Reproduce on a local secure page that inserts iframes like Gmail; fix with no non-configurable global (or any trick that makes Blink's own install fail), keeping `new Notification` and showNotification caught in the main frame and same-origin iframes (crash-safety wins; say what is lost); audit the other context-creation scripts; repro page, notify-probe, c_bell_live, c4_live, c_autofocus_live, unit tests, fmt, clippy; correction note in notes/C-BELL-SPIKE.md.
 
 Cause (Chromium source): Blink installs `[SecureContext]` interfaces after OnContextCreated with `SetLazyDataProperty(...).ToChecked()`; V8 refuses to redefine our non-configurable `Notification` and *throws* when the innermost JS frame is strict (silent only with no JS on the stack). A strict script inserting an iframe without src initializes the frame's context synchronously, so the throw aborts the renderer. Repro `tools/notify-probe/iframes.html` (`PROBE_PAGE=iframes.html tools/notify-probe/run.sh`): main = the same FATAL. Fix (`host-cef/src/notify.rs`): nothing defined before Blink's install; a microtask defines a configurable `Notification` (when a script created the frame, it runs after the install), else (a navigation commit: the microtask runs before the install) a MutationObserver defines it at the parser's checkpoint before the first script; a wrapped `HTMLIFrameElement.prototype.contentWindow` gives a fresh same-origin frame ours in the creating turn. Lost: other same-turn paths to a new frame's window (`frames[i]`, `defaultView`, nested frames made in that turn) see Chromium's denied, blocked one. Other context scripts audited, none risky. Evidence: iframes.html no abort, main + 8 frames `show`; notify-probe 3 notify events (page, sw, iframe); c_bell_live 7/7, c4_live 12/12, c_autofocus_live 9/9; host-cef 44 tests, fmt, clippy (1 pre-existing warning).
+
+## 2026-11-24 C-SCRIPT design (user scripts, init.js per profile; claude/loving-dirac-1hbuvx)
+
+> Let's discuss a big feature for web: Scripting. I want to be able to expose configuration similar to how nvim does it. I'm thinking using javascript since we have that already. Baseline would be to expose methods for:
+>
+> Setting hotkeys to :commands
+> Defining :commands
+> Attaching functions to hotkeys
+>
+> That way I can set my default buffers for example. I think we should have one init script file per profile, and maybe a global. What do you think?
+
+> 1. It reverses a decision you recorded.
+>
+> I'm ok with that, because that's basically for setting user profiles, not for configuring the app itsef.
+>
+> 2. No problem. Let's keep everything split from the engine. The smallest the better. Go with QuickJS
+> 3. I agree with the interface you suggest.  The smallest the better, and do not expose anything until explicitly said. We'll decide what the event is going to contain as we use it.
+> 4. Do not do session restore. My goal is to replace that, and if we need it we might need to find a "web" way to do it.
+
+Docs only: SCRIPTING.md (the spec), DECISIONS.md "User scripts", a KEYS.md "Configuration" note, README.md, TODO.txt items C-SCRIPT, C-SCRIPT-MAP, C-PROFILE. Getters and `unmap` were proposed in the discussion and left out (nothing exposed until asked).

@@ -2,6 +2,27 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-24 User scripts: init.js per profile plus a global one, QuickJS in the shell
+
+User: "I want to be able to expose configuration similar to how nvim does it. I'm thinking using
+javascript"; "Setting hotkeys to :commands, Defining :commands, Attaching functions to hotkeys. That way I
+can set my default buffers for example. I think we should have one init script file per profile, and maybe a
+global." Spec: SCRIPTING.md.
+
+- **Scripts set up a profile, not the app.** This narrows "no runtime config file" (KEYS.md "Configuration",
+  2026-11-20) rather than reversing it: config.rs stays where web's own defaults and knobs live, edited and
+  rebuilt; a profile's commands, keys and start buffers live in its script. User: "that's basically for
+  setting user profiles, not for configuring the app itself."
+- **QuickJS, in web-shell, nothing in the engine host.** User: "Let's keep everything split from the engine.
+  The smallest the better. Go with QuickJS." V8 (scratchy's) was too large for a config file; running the
+  script in the CEF host would put it in the pages' process and tie it to one engine.
+- **The smallest API, and nothing exposed until the user asks for it:** `web.cmd`, `web.command`,
+  `web.map`, `web.on("ready")`. Scripts act only through `:commands`. Getters (current URL, buffers, mode)
+  and `unmap` were proposed and left out until needed. What `ready` passes is decided as it gets used.
+- **`--profile NAME`**: the profile's script and its own state directory. Without it, the global script only.
+- **No session restore.** User: "My goal is to replace that, and if we need it we might need to find a 'web'
+  way to do it." A profile's `ready` handler opens its buffers at every start.
+
 ## 2026-11-24 Web Notifications go to the status bar, from every site by default
 
 User: "We should plan a discreet notification feedback. Maybe a visual bell that causes the status bar to
