@@ -9,6 +9,7 @@ mod c6c_tests;
 mod c6d_tests;
 mod c6e_tests;
 mod c6h_tests;
+mod c_autofocus_tests;
 mod c_barrepeat_tests;
 mod c_bell_tests;
 mod c_bookmarks_tests;

@@ -516,6 +516,28 @@ impl State {
             self.notified(tab, crate::notify::Note { title, body, tag, origin });
             return;
         }
+        // C-AUTOFOCUS (KEYS.md T29, T32; user, 2026-11-24): a field focus the user caused switches to
+        // INPUT; the page's own (or a background buffer's) leaves the mode and parks the field. A blur
+        // (`focused: false`) never changes the mode.
+        if let Event::EditableFocused { tab, focused: true } = ev {
+            let now = Instant::now();
+            let after_click = crate::keys::click_recent(self.last_click, now);
+            let outcome = match self.keys.editable_focused(tab, after_click, now) {
+                crate::keys::FocusOutcome::Input => "INPUT",
+                crate::keys::FocusOutcome::AlreadyInput => "already INPUT",
+                crate::keys::FocusOutcome::Parked => "the page's own: parked (blur-field), mode stays",
+                crate::keys::FocusOutcome::Kept => "the page's own again: kept (refocus guard), mode stays",
+                crate::keys::FocusOutcome::Ignored => "no buffer has the page: ignored",
+            };
+            self.log(&format!("editable focused: {outcome} (tab {tab})"));
+            self.apply_key_effects(0);
+            return;
+        }
+        if let Event::FieldResult { tab, ref op, ok } = ev {
+            self.keys.field_result(tab, op, ok);
+            self.apply_key_effects(0);
+            return;
+        }
         // C4: page events of every page keep their buffer up to date; only the current buffer's
         // reach the status bar, the search and the mode below.
         if let Some(tab) = ev.page_tab() {
@@ -593,7 +615,11 @@ impl State {
                 self.update_window_title();
             }
             // T31: a navigation ends the find session (the host dropped it); the query stays.
-            Event::Load { ref phase, ref kind, .. } if phase == "start" && kind != "same-document" => self.keys.navigated(),
+            // C-AUTOFOCUS: a field the new document focuses is not the click's (nor a popup it opens).
+            Event::Load { ref phase, ref kind, .. } if phase == "start" && kind != "same-document" => {
+                self.last_click = None;
+                self.keys.navigated()
+            }
             // C5-FRAG: a same-document navigation (#fragment, pushState) gets no cross-document
             // load, so the host's session is still there: end it (find-clear) like T7 does.
             Event::Load { ref phase, ref kind, .. } if phase == "start" && kind == "same-document" => {
@@ -616,14 +642,6 @@ impl State {
                 if code != -3 {
                     self.keys.message = format!("web: load failed: {name} ({code})");
                 }
-            }
-            Event::EditableFocused { focused: true, .. } => {
-                // T29/T32 (user, 2026-11-23): an editable element gaining focus, whatever caused
-                // it, switches to INPUT. A blur (`focused: false`) never changes the mode.
-                if self.keys.key_mode != crate::keys::KeyMode::Input {
-                    self.log("editable focused: INPUT");
-                }
-                self.keys.user_focused_control();
             }
             Event::Crashed { ref reason, .. } => {
                 self.keys.message = format!("web: the page crashed ({reason}); :refresh loads it again");

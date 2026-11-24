@@ -122,6 +122,12 @@ pub const KEY_SEQUENCES: &[KeySeq] = &[
         second: 'g',
         action: Action::Scroll(TOP),
     },
+    // `gi` (C-AUTOFOCUS, as Vimium): focus the last text field, else the first visible one; INPUT.
+    KeySeq {
+        first: 'g',
+        second: 'i',
+        action: Action::FocusField,
+    },
     // `yy`: copy the URL (`:let @+ = @%`); needs the clipboard (C6), says so until then.
     KeySeq {
         first: 'y',

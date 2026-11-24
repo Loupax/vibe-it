@@ -87,8 +87,58 @@ pub enum Command {
         tab: TabId,
         popup: u32,
     },
+    /// C-AUTOFOCUS: blur the page's focused field (in the frame of the last `editable-focused true`,
+    /// else the main frame); the page keeps it as its last field. Answered by `field-result` `blur`.
+    BlurField,
+    /// C-AUTOFOCUS: focus the page's last text field (`last`: that frame's, if still connected and
+    /// rendered) or its first visible one (`first`: the main frame's, in the viewport first).
+    /// Answered by `field-result`.
+    FocusField {
+        which: FieldWhich,
+    },
     /// Closes every page, then the host exits.
     Quit,
+}
+
+/// `focus-field`'s field (C-AUTOFOCUS).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FieldWhich {
+    Last,
+    First,
+}
+
+/// What a `field-result` answers (C-AUTOFOCUS): `blur-field`, `focus-field last`, `focus-field first`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FieldOp {
+    Blur,
+    Last,
+    First,
+}
+
+impl FieldOp {
+    /// The name field.js and the renderer messages use (the same as in JSON).
+    pub fn name(self) -> &'static str {
+        match self {
+            FieldOp::Blur => "blur",
+            FieldOp::Last => "last",
+            FieldOp::First => "first",
+        }
+    }
+
+    pub fn from_name(s: &str) -> Option<FieldOp> {
+        [FieldOp::Blur, FieldOp::Last, FieldOp::First].into_iter().find(|op| op.name() == s)
+    }
+}
+
+impl From<FieldWhich> for FieldOp {
+    fn from(w: FieldWhich) -> FieldOp {
+        match w {
+            FieldWhich::Last => FieldOp::Last,
+            FieldWhich::First => FieldOp::First,
+        }
+    }
 }
 
 fn is_false(b: &bool) -> bool {
@@ -204,6 +254,13 @@ pub enum Event {
     EditableFocused {
         tab: TabId,
         focused: bool,
+    },
+    /// C-AUTOFOCUS: the answer to `blur-field` / `focus-field`: `ok` = a field was blurred / has the
+    /// focus now.
+    FieldResult {
+        tab: TabId,
+        op: FieldOp,
+        ok: bool,
     },
     /// `index`: 1-based active match (0 when there is none), `count`: matches.
     FindResult {
@@ -338,6 +395,7 @@ pub fn event_text(ev: &Event) -> String {
         }
         Event::LoadError { tab, code, name, text } => format!("load-error {tab} {code} {name} {text}"),
         Event::EditableFocused { tab, focused } => format!("editable-focused {tab} {focused}"),
+        Event::FieldResult { tab, op, ok } => format!("field-result {tab} {} {ok}", op.name()),
         Event::FindResult { tab, id, index, count, .. } => format!("find-result {tab} {id} {index} {count}"),
         Event::Crashed { tab, reason } => format!("crashed {tab} ({reason})"),
         Event::Forgot { site, result, failed, .. } => match result {
@@ -754,6 +812,16 @@ mod tests {
                 },
             ),
             (r#"{"cmd":"find-clear"}"#, Command::FindClear),
+            // C-AUTOFOCUS.
+            (r#"{"cmd":"blur-field"}"#, Command::BlurField),
+            (
+                r#"{"cmd":"focus-field","which":"last"}"#,
+                Command::FocusField { which: FieldWhich::Last },
+            ),
+            (
+                r#"{"cmd":"focus-field","which":"first"}"#,
+                Command::FocusField { which: FieldWhich::First },
+            ),
             (r#"{"cmd":"zoom","factor":1.5}"#, Command::Zoom { factor: 1.5 }),
             (r#"{"cmd":"caret","on":true}"#, Command::Caret { on: true }),
             (r#"{"cmd":"caret","on":false}"#, Command::Caret { on: false }),
@@ -795,6 +863,7 @@ mod tests {
                 Some(2),
             ),
             (r#"{"cmd":"find-clear","tab":2}"#, Command::FindClear, Some(2)),
+            (r#"{"cmd":"blur-field","tab":3}"#, Command::BlurField, Some(3)),
             (r#"{"cmd":"back"}"#, Command::Back, None),
         ];
         for (line, want, tab) in cases {
@@ -935,6 +1004,14 @@ mod tests {
                 r#"{"event":"editable-focused","tab":1,"focused":true}"#,
             ),
             (
+                Event::FieldResult {
+                    tab: 2,
+                    op: FieldOp::First,
+                    ok: false,
+                },
+                r#"{"event":"field-result","tab":2,"op":"first","ok":false}"#,
+            ),
+            (
                 Event::FindResult {
                     tab: 1,
                     id: 5,
@@ -1021,6 +1098,24 @@ mod tests {
             }),
             "find-result 1 4 1 3"
         );
+        assert_eq!(
+            event_text(&Event::FieldResult {
+                tab: 2,
+                op: FieldOp::Last,
+                ok: true
+            }),
+            "field-result 2 last true"
+        );
+    }
+
+    #[test]
+    fn field_ops_by_name() {
+        for op in [FieldOp::Blur, FieldOp::Last, FieldOp::First] {
+            assert_eq!(FieldOp::from_name(op.name()), Some(op));
+            assert_eq!(serde_json::to_string(&op).unwrap(), format!("\"{}\"", op.name()));
+        }
+        assert_eq!(FieldOp::from_name("focus"), None);
+        assert_eq!(FieldOp::from(FieldWhich::First), FieldOp::First);
     }
 
     #[test]

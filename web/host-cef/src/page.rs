@@ -65,6 +65,9 @@ struct Page {
     url: String,
     title: String,
     editable: bool,
+    /// C-AUTOFOCUS: the frame (CEF's identifier) of the last `editable-focused true`: where
+    /// `blur-field` and `focus-field last` run.
+    focus_frame: Option<String>,
     find_query: Option<String>,
     find_index: i32,
     /// A new find session still to step once it has counted matches (see Command::Find):
@@ -467,12 +470,12 @@ wrap_client! {
         fn on_process_message_received(
             &self,
             browser: Option<&mut Browser>,
-            _frame: Option<&mut Frame>,
+            frame: Option<&mut Frame>,
             _source_process: ProcessId,
             message: Option<&mut ProcessMessage>,
         ) -> i32 {
             let Some(msg) = message else { return 0 };
-            if crate::notify::handle_message(page_of(&browser), msg) {
+            if crate::notify::handle_message(page_of(&browser), msg) || crate::field::result_message(page_of(&browser), msg) {
                 return 1;
             }
             let name = CefString::from(&msg.name()).to_string();
@@ -493,19 +496,26 @@ wrap_client! {
             }
             let Some(id) = page_of(&browser) else { return 1 };
             let editable = msg.argument_list().map(|a| a.bool(0) != 0).unwrap_or(false);
-            set_editable(id, editable);
+            let frame = frame.map(|f| CefString::from(&f.identifier()).to_string());
+            set_editable(id, editable, frame);
             1
         }
     }
 }
 
-fn set_editable(id: TabId, editable: bool) {
+/// `editable-focused`: `false` on a change only; `true` for every focus that lands in an editable
+/// (C-AUTOFOCUS: also from one field straight to another, so a click into a second field after
+/// Esc Esc still switches to INPUT, and a page moving its own focus is parked again).
+fn set_editable(id: TabId, editable: bool, frame: Option<String>) {
     let changed = with_page(id, |p| {
         let c = p.editable != editable;
         p.editable = editable;
+        if editable && frame.is_some() {
+            p.focus_frame = frame;
+        }
         c
     });
-    if changed == Some(true) {
+    if changed == Some(true) || (editable && changed.is_some()) {
         emit(Event::EditableFocused {
             tab: id,
             focused: editable,
@@ -887,12 +897,13 @@ wrap_load_handler! {
                 p.find_start = None;
                 // C-POPUPS: another document: its blocked popups go (the shell's list too).
                 p.blocked.clear();
+                p.focus_frame = None;
                 p.editable
             });
             load_event(id, LoadPhase::Start, 0, kind, None);
             // The new document starts with nothing focused.
             if was_editable == Some(true) {
-                set_editable(id, false);
+                set_editable(id, false, None);
             }
         }
 
@@ -1390,6 +1401,19 @@ pub fn run_command(line: &str) {
             if let Some(h) = host {
                 h.stop_finding(0);
             }
+        }
+        // C-AUTOFOCUS: the frame of the last editable focus (else the main frame) for `blur` and
+        // `last`; `first` looks in the main frame.
+        Command::BlurField | Command::FocusField { .. } => {
+            let op = match cmd {
+                Command::FocusField { which } => which.into(),
+                _ => protocol::FieldOp::Blur,
+            };
+            let frame = match op {
+                protocol::FieldOp::First => None,
+                _ => with_page(id, |p| p.focus_frame.clone()).flatten(),
+            };
+            crate::field::request(id, &browser, frame.as_deref(), op);
         }
         Command::Zoom { factor } => match protocol::zoom_level(factor) {
             Ok(level) => {

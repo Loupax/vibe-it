@@ -107,11 +107,13 @@ is v0 plus `new-tab`, `show-tab`, `close-tab`, an optional `tab` on page command
 | `new-tab <req> [url]` | `{"cmd":"new-tab","req":3,"url":"example.com"}` | create a page (default `about:blank`; no scheme means `https://`), hidden; answered by `tab-created` with the same `req`. While quitting: an `error` |
 | `show-tab <id>` | `{"cmd":"show-tab","tab":4}` | show page `id` (visible, keyboard focus), hide every other page; unknown id: `error` |
 | `close-tab <id>` | `{"cmd":"close-tab","tab":4}` | close page `id` (no `beforeunload` prompt); answered by `tab-closed`; unknown id: `error`. Closing the last page does NOT end the host |
+| `blur-field` | `{"cmd":"blur-field","tab":4}` | C-AUTOFOCUS: blur the page's focused text field (in the frame of the last `editable-focused true`, else the main frame); the page keeps it as its last field. Answered by `field-result` (`op` `blur`; `ok` false when no field had the focus). The page's blur handlers run |
+| `focus-field last\|first` | `{"cmd":"focus-field","which":"last"}` | C-AUTOFOCUS: focus the last text field focused in the document (`last`: in the frame of the last `editable-focused true`, else the main frame; only if still connected, rendered, not disabled or read-only) or the first visible one (`first`: main frame; input text/search/url/tel/email/password/number, textarea, contenteditable; the first in the viewport, else the first in the document). Answered by `field-result` (`ok`: a field has the focus now) |
 | `popup-open <id> <n>` | `{"cmd":"popup-open","tab":1,"popup":7}` | open blocked popup `n` of page `id` ("Popups"); answered by a `tab-created` with `opener` (`cause` `popup-open` or `popup-fresh`); an unknown page or popup (already opened, or forgotten at a new document): `error` |
 | `quit` | `{"cmd":"quit"}` | close **every** page (no `beforeunload` prompt) and exit when the last is gone |
 
-**`tab` on page commands.** `open`, `back`, `forward`, `reload`, `stop`, `find`, `find-clear` and
-`zoom` take an optional `"tab":<id>` (`{"cmd":"reload","tab":4}`): they act on that page, shown or
+**`tab` on page commands.** `open`, `back`, `forward`, `reload`, `stop`, `find`, `find-clear`,
+`blur-field`, `focus-field` and `zoom` take an optional `"tab":<id>` (`{"cmd":"reload","tab":4}`): they act on that page, shown or
 hidden; without it on the shown page. An unknown `tab` is an `error`. `forget-site` and `caret` are
 host-wide.
 
@@ -130,6 +132,7 @@ unknown `cmd`, missing field, zoom out of range) gets an `error` event.
 | `load <id> start\|end <status> <kind>` | `{"event":"load","tab":1,"phase":"end","status":200,"kind":"new"}`, optional `"error":"ERR_ABORTED"` |
 | `load-error <id> <code> <text>` | `{"event":"load-error","tab":1,"code":-105,"name":"ERR_NAME_NOT_RESOLVED","text":"ERR_NAME_NOT_RESOLVED"}` |
 | `editable-focused <id> true\|false` | `{"event":"editable-focused","tab":1,"focused":true}` |
+| `field-result <id> <op> <ok>` | `{"event":"field-result","tab":1,"op":"last","ok":true}` |
 | `find-result <tab> <id> <i> <n>` | `{"event":"find-result","tab":1,"id":7,"index":2,"count":5}`, optional `"wrapped":true` (only after `screen_top`: no match at or below the top of the screen, `index` is the first match) |
 | `crashed <id>` | `{"event":"crashed","tab":1,"reason":"TS_PROCESS_CRASHED (exit code 139)"}` |
 | `popup-blocked <id> <n> <url>` | `{"event":"popup-blocked","tab":1,"popup":7,"url":"https://idp.example/auth","name":"login","frame":"sub","features":"popup,width=400,height=300"}` |
@@ -188,10 +191,17 @@ unknown `cmd`, missing field, zoom out of range) gets an `error` event.
   engine's own silent retries, nor for a load aborted because another navigation
   replaced it (that one has its own events). Through a proxy, an unresolvable host is
   the proxy's answer: e.g. a 502, failed as -379 ERR_HTTP_RESPONSE_CODE_FAILURE.
-- `editable-focused`: on change, when keyboard focus moves into or out of an
-  editable element (text inputs, textareas, contenteditable) in any frame of the
-  page. A new document starts with `false`. The shell uses it for INPUT mode
-  (KEYS.md).
+- `editable-focused`: when keyboard focus moves into or out of an editable element
+  (text inputs, textareas, contenteditable) in any frame of the page: `false` on a
+  change only, `true` for every focus that lands in an editable, also straight from
+  another one (C-AUTOFOCUS). A new document starts with `false`. The shell uses it for
+  INPUT mode (KEYS.md T29, T32).
+- `field-result` (C-AUTOFOCUS): the answer to `blur-field` (`op` `blur`) or `focus-field`
+  (`op` `last` / `first`); `ok` whether a field was blurred / has the focus now. web-host-cef:
+  a script installed in every frame's main world before any page script (`field.js`) keeps the
+  document's last focused text field and returns the function the renderer runs; it is never on
+  `window`, so pages cannot call it or forge the answer (a renderer process message, not a
+  console line).
 - `find-result`: one per `find` command (the latest, if several are pending), when the
   engine's count is final. `id` echoes the `find` it answers. `index` is the 1-based
   active match (0 when there are no matches), `count` the matches. The host sends no

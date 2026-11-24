@@ -95,6 +95,13 @@ pub enum Event {
         tab: u64,
         url: String,
     },
+    /// C-AUTOFOCUS: the answer to `blur-field` (`op` `blur`) or `focus-field` (`op` `last`/`first`):
+    /// `ok` = a field was blurred / has the focus now.
+    FieldResult {
+        tab: u64,
+        op: String,
+        ok: bool,
+    },
     /// C-BELL: page `tab` showed a Web Notification (lengths capped and rate-limited by the host).
     Notify {
         tab: u64,
@@ -131,7 +138,7 @@ impl Event {
     }
 
     /// The page a page event is about (`url`, `title`, `load`, `load-error`, `editable-focused`,
-    /// `find-result`, `crashed`, `popup-blocked`); None for the others, `tab-created`/`tab-closed` included.
+    /// `find-result`, `crashed`, `popup-blocked`, `field-result`); None for the others, `tab-created`/`tab-closed` included.
     pub fn page_tab(&self) -> Option<u64> {
         match self {
             Event::Url { tab, .. }
@@ -141,7 +148,8 @@ impl Event {
             | Event::EditableFocused { tab, .. }
             | Event::FindResult { tab, .. }
             | Event::Crashed { tab, .. }
-            | Event::PopupBlocked { tab, .. } => Some(*tab),
+            | Event::PopupBlocked { tab, .. }
+            | Event::FieldResult { tab, .. } => Some(*tab),
             _ => None,
         }
     }
@@ -202,7 +210,23 @@ pub enum Command {
         tab: u64,
         popup: u32,
     },
+    /// C-AUTOFOCUS: blur the focused field (the page keeps it as its last field); `field-result`.
+    BlurField,
+    /// C-AUTOFOCUS: focus the page's last text field or its first visible one; `field-result`.
+    FocusField {
+        which: FieldWhich,
+    },
     Quit,
+}
+
+/// Which field `focus-field` focuses (C-AUTOFOCUS).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FieldWhich {
+    /// The last text field focused in the document (a parked one too), if still there and rendered.
+    Last,
+    /// The first visible text field: in the viewport first, else the first in the document.
+    First,
 }
 
 /// Which way a `find` steps.
@@ -369,6 +393,14 @@ mod tests {
                 },
             ),
             (
+                r#"{"event":"field-result","tab":2,"op":"last","ok":true}"#,
+                Event::FieldResult {
+                    tab: 2,
+                    op: "last".into(),
+                    ok: true,
+                },
+            ),
+            (
                 r#"{"event":"load-error","tab":1,"code":-105,"name":"ERR_NAME_NOT_RESOLVED","text":"ERR_NAME_NOT_RESOLVED"}"#,
                 Event::LoadError {
                     tab: 1,
@@ -506,6 +538,16 @@ mod tests {
                 r#"{"cmd":"find","id":3,"query":"x","dir":"next","screen_top":true}"#,
             ),
             (Command::FindClear, r#"{"cmd":"find-clear"}"#),
+            // C-AUTOFOCUS.
+            (Command::BlurField, r#"{"cmd":"blur-field"}"#),
+            (
+                Command::FocusField { which: FieldWhich::Last },
+                r#"{"cmd":"focus-field","which":"last"}"#,
+            ),
+            (
+                Command::FocusField { which: FieldWhich::First },
+                r#"{"cmd":"focus-field","which":"first"}"#,
+            ),
             (Command::Caret { on: true }, r#"{"cmd":"caret","on":true}"#),
             (Command::Caret { on: false }, r#"{"cmd":"caret","on":false}"#),
             (

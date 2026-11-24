@@ -1,0 +1,28 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>af loading</title>
+<style>
+  body { margin: 0; font: 20px sans-serif; height: 6000px; background: linear-gradient(#efe, #eef); }
+  .box { position: absolute; left: 40px; width: 300px; height: 40px; font-size: 20px; }
+  #a { top: 40px; } #b { top: 120px; } #msg { position: absolute; left: 360px; top: 40px; color: #a00; }
+</style>
+<input id="a" class="box" autofocus required placeholder="autofocus field">
+<textarea id="b" class="box" placeholder="second field"></textarea>
+<span id="msg"></span>
+<script>
+  // C-AUTOFOCUS live page: the title reports scrollY, both fields' values, how often the autofocus
+  // field was blurred and what has the focus. Its blur handler shows a validation message, as login
+  // forms do (the risk: blurring a parked field runs the page's blur handlers).
+  const a = document.getElementById("a"), b = document.getElementById("b"), msg = document.getElementById("msg");
+  let blurs = 0, downs = 0;
+  addEventListener("mousedown", () => { downs++; setTimeout(show, 0); }, true);
+  const show = () => {
+    const f = document.activeElement && document.activeElement.id || "none";
+    document.title = `af y=${Math.round(scrollY)} a=[${a.value}] b=[${b.value}] blurs=${blurs} focus=${f} msg=[${msg.textContent}] md=${downs}`;
+  };
+  a.addEventListener("blur", () => { blurs++; msg.textContent = a.value ? "" : "required"; setTimeout(show, 0); });
+  for (const e of ["input", "focusin", "focusout"]) addEventListener(e, () => setTimeout(show, 0), true);
+  let t = 0;
+  addEventListener("scroll", () => { clearTimeout(t); t = setTimeout(show, 150); });
+  show();
+</script>

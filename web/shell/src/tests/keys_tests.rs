@@ -196,9 +196,10 @@ fn keys_t10_t11_gg_scrolls_to_the_top() {
 fn keys_t12_g_then_another_key_is_handled_as_in_normal() {
     let t = Instant::now();
     let mut k = keys();
+    // (`g` `i` is `gi` since C-AUTOFOCUS: c_autofocus_tests.rs.)
     tap(&mut k, KeyInput::ch('g'), t);
-    tap(&mut k, KeyInput::ch('i'), t);
-    assert_eq!(k.key_mode, KeyMode::Input);
+    tap(&mut k, KeyInput::ch('/'), t);
+    assert_eq!(k.vim_mode, VimMode::Search);
     let mut k = keys();
     tap(&mut k, KeyInput::ch('g'), t);
     tap(&mut k, KeyInput::ch(':'), t);
@@ -435,12 +436,21 @@ fn keys_t31_navigation_keeps_the_mode() {
 }
 
 #[test]
-fn keys_t32_a_page_focus_enters_input_and_a_blur_changes_nothing() {
-    // T32 (user, 2026-11-23): `editable-focused true` is `user_focused_control` whatever caused it, so
-    // the decision does not depend on a click. A blur has no key-model call: the mode stays.
+fn keys_t32_a_page_focus_keeps_normal_and_a_blur_changes_nothing() {
+    // T32 (user, 2026-11-24, C-AUTOFOCUS): only a focus the user caused switches to INPUT; the page's
+    // own (no click, no key given to it, no gi) leaves NORMAL and the host blurs the field.
+    // A blur has no key-model call: the mode stays. (More: c_autofocus_tests.rs.)
     let mut k = keys();
-    k.set_key_mode(KeyMode::Normal);
-    k.user_focused_control();
+    k.buffers.tab_created(1, None);
+    let t = Instant::now();
+    assert_eq!(k.editable_focused(1, false, t), FocusOutcome::Parked);
+    assert_eq!(k.key_mode, KeyMode::Normal);
+    assert_eq!(effects(&mut k), vec![Effect::SendTo(1, Command::BlurField)]);
+    // A click within CLICK_FOCUS_MS is the user's: INPUT (T29).
+    assert_eq!(
+        k.editable_focused(1, true, ms(t, 2 * crate::config::CLICK_FOCUS_MS)),
+        FocusOutcome::Input
+    );
     assert_eq!(k.key_mode, KeyMode::Input);
     k.set_key_mode(KeyMode::Normal); // the user left the field with Esc Esc; a later blur leaves NORMAL alone
     assert_eq!(k.key_mode, KeyMode::Normal);
