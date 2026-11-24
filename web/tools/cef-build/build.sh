@@ -47,8 +47,8 @@ TOOLS=$ROOT/tools
 mkdir -p "$DL" "$LOGS" "$TOOLS" "$DIST_OUT"
 
 # Release-only, no symbols, sysroot (Debian bullseye from Chromium's hooks: no Fedora -devel
-# packages needed), codecs on. Not an official build: official means ThinLTO + CFI, whose
-# libcef link does not fit the 20G cap with room to spare; see README.md "Choices".
+# packages needed), codecs on. Not an official build: official means ThinLTO + CFI + PGO, whose
+# libcef link is not expected to fit the 20G cap with room to spare; see README.md "Choices".
 GN_DEFINES="is_official_build=false is_debug=false dcheck_always_on=false \
 symbol_level=0 blink_symbol_level=0 v8_symbol_level=0 \
 proprietary_codecs=true ffmpeg_branding=\"Chrome\" rtc_use_h264=true \
@@ -66,6 +66,8 @@ export PATH="$DT:$PATH"
 # build, and /tmp is RAM here. Keep them, and every tool's temp files, on disk.
 export TMPDIR=$ROOT/tmp
 mkdir -p "$TMPDIR"
+# depot_tools' vpython puts its virtualenvs (~1.3 GB) in ~/.cache/vpython-root.<uid> by default.
+export VPYTHON_VIRTUALENV_ROOT=$ROOT/vpython-root
 
 # run STEP CMD...: capped, niced, logged; prints the log path.
 run() {
@@ -157,7 +159,7 @@ for s in "$@"; do
     distrib) step_distrib ;;
     install) step_install ;;
     clean-out) step_clean_out ;;
-    -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "build.sh: unknown step $s" >&2; exit 2 ;;
   esac
 done
