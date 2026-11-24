@@ -10,7 +10,7 @@ title says whether the host shows the page or hides it, `<name> visible|hidden`)
 `web <url>` opens buffer 2 and shows it (the host hides buffer 1); the status bar shows `[N]`;
 `:buffer 1`, `:bufferNext`, `:bp`, Ctrl-^ switch; `:bufferDescribe` sets a description that `:ls`
 lists and filters and `:b <partial>` finds; a search in one buffer is kept apart from the other's;
-middle-click and Ctrl-click on a link open nothing; `:bd` kills buffer 2 (its page closes, buffer 1
+Ctrl-click and Shift-click on a link open nothing, a middle-click opens it as `:new` (T105); `:bd` kills buffer 2 (its page closes, buffer 1
 shown), `:bd` on the last buffer leaves an `about:blank` buffer; `:q` closes the page and the host
 exits. Exit 0 when every step passed. Needs what test/live.py needs, and PIL."""
 
@@ -242,17 +242,17 @@ def main():
             lx, ly = g.bx + 180, g.by + 52
             # In INPUT, so the page gets the Ctrl key too (NORMAL keeps modifiers from the page).
             k = log.mark()
-            inject("key:i", "wait:200", f"move:{lx},{ly}", "wait:100", "mclick", "wait:400", "hold:c", "click", "release",
-                   "wait:800", "key:esc", "wait:50", "key:esc", "wait:300")
+            inject("key:i", "wait:200", f"move:{lx},{ly}", "wait:100", "hold:c", "click", "release",
+                   "wait:800", "hold:s", "click", "release", "wait:800", "key:esc", "wait:50", "key:esc", "wait:300")
             time.sleep(1.0)
             created = [l for l in log.lines[k:] if "host event:" in l and ('"tab-created"' in l or "n=linked" in l)]
             if created:
                 raise Fail(f"a click opened something: {created}")
             bar(k, r"NORMAL \|")
             shows(RED, "b1-after-clicks.png")
-            return "in INPUT, middle-click and Ctrl-click on the link: no tab-created, no load in any page"
+            return "in INPUT, Ctrl-click and Shift-click on the link: no tab-created, no load in any page"
 
-        step("T92 Ctrl/middle-click open nothing", no_new_tab)
+        step("T92 Ctrl/Shift-click open nothing", no_new_tab)
 
         def forget():
             # Both buffers are on 127.0.0.1: forgetting it reloads both (the shown one and the hidden one).
@@ -329,6 +329,37 @@ def main():
 
         step("T103/T104 :new opens a buffer (with the :go prompt, or a URL)", new_buffer)
 
+        def middle_click():
+            # C-MIDCLICK (T105): buffer 4 (red) is current; its link is on the first line of the page.
+            lx, ly = g.bx + 180, g.by + 52
+            mid = lambda: inject(f"move:{lx + 30},{ly + 200}", "wait:100", f"move:{lx},{ly}", "wait:100", "mclick", "wait:300")  # noqa: E731
+            k = log.mark()
+            mid()
+            log.wait(r'host event: \{"event":"open-link","tab":\d+,"url":"' + re.escape(base) + r'/c4.html\?c=yellow&n=linked"', k, 10)
+            log.wait(r"buffer 6 of 4 is current", k, 5)
+            log.wait(r'"title":"linked visible"', k, 30)
+            shows((255, 255, 0), "b6-middle-click.png")
+            if any('"event":"url"' in l and "n=linked" in l for l in log.lines[k:] if "tab\":" + str(tabs["one"]) in l):
+                raise Fail("the clicked page navigated itself")
+            inject("hold:cs", "key:6", "release", "wait:200")  # Ctrl-^: the old buffer is the alternate
+            log.wait(r"buffer 4 of 4 is current", k, 5)
+            shows(RED, "b4-after-middle.png")
+            command("b 6")
+            command("bd", r"NORMAL \| buffer 6 killed")
+            log.wait(r"buffer 4 of 3 is current", k, 5)
+            # In INPUT too.
+            k = log.mark()
+            inject("key:i", "wait:200")
+            mid()
+            log.wait(r"buffer 7 of 4 is current", k, 5)
+            log.wait(r'"title":"linked visible"', k, 30)
+            shows((255, 255, 0), "b7-middle-click-input.png")
+            inject("key:esc", "wait:200")
+            command("bd", r"NORMAL \| buffer 7 killed")
+            return "middle-click on the link in NORMAL and in INPUT: open-link, a new current yellow buffer, Ctrl-^ returns to the red one; killed again"
+
+        step("T105 middle-click on a link opens it as :new", middle_click)
+
         def quit_all():
             k = log.mark()
             r = subprocess.run([a.web, "--state-dir", state, "--host-bin", a.host_bin, two], capture_output=True, text=True,
@@ -336,7 +367,7 @@ def main():
             if r.returncode != 0:
                 raise Fail(f"second web: exit {r.returncode}")
             log.wait(r'"title":"two visible"', k, 30)
-            log.wait(r"buffer 6 of 4 is current", k, 5)
+            log.wait(r"buffer 8 of 4 is current", k, 5)
             k = command("q")
             code = proc.wait(timeout=30)
             if code != 0:

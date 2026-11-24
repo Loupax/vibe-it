@@ -234,6 +234,13 @@ pub enum Event {
         frame: FrameKind,
         features: String,
     },
+    /// C-MIDCLICK: the user middle-clicked a link in page `tab` (no modifier held); `url` is its
+    /// absolute target. The click's own navigation was cancelled in the renderer; the shell opens
+    /// the URL as `:new <url>` does.
+    OpenLink {
+        tab: TabId,
+        url: String,
+    },
     /// The answer to `forget-site`. `site`: the argument as the shell sent it;
     /// `domain`: the registrable domain that was forgotten (with every host under it);
     /// `result`: `ok`, or `partial` with `failed` naming what could not be cleared;
@@ -303,6 +310,7 @@ pub fn event_text(ev: &Event) -> String {
             s
         }
         Event::PopupBlocked { tab, popup, url, .. } => format!("popup-blocked {tab} {popup} {url}"),
+        Event::OpenLink { tab, url } => format!("open-link {tab} {url}"),
         Event::TabClosed { tab } => format!("tab-closed {tab}"),
         Event::Url { tab, url } => format!("url {tab} {url}"),
         Event::Title { tab, title } => format!("title {tab} {title}"),
@@ -860,6 +868,13 @@ mod tests {
                     cause: None,
                 },
                 r#"{"event":"tab-created","tab":5,"req":3}"#,
+            ),
+            (
+                Event::OpenLink {
+                    tab: 2,
+                    url: "https://a.test/x".into(),
+                },
+                r#"{"event":"open-link","tab":2,"url":"https://a.test/x"}"#,
             ),
             (Event::TabClosed { tab: 3 }, r#"{"event":"tab-closed","tab":3}"#),
             (

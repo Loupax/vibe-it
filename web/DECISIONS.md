@@ -53,13 +53,27 @@ User, in a planning session (no code; PROMPTS.md "Picker, bookmarks, buffers, po
   names only. A buffer is searched and listed by title, hostname and an optional description the user
   sets ("keep it minimal": no page content, no snippets). The description stays across navigation and
   goes with the buffer. Killing the last buffer leaves an empty `about:blank` buffer ("The user doesn't
-  know if the buffer they just killed is the last one"). Ctrl/middle-click on links still open nothing.
+  know if the buffer they just killed is the last one"). Ctrl/middle-click on links still open nothing
+  (middle-click amended 2026-11-24, see "Middle-click on a link opens a new buffer").
   Not now: searching page contents (maybe a separate feature), restoring buffers after a restart.
 - **Popups follow Chrome** (user: "go with your suggestions"): a `window.open` from a user gesture opens
   a new buffer with `window.opener` kept (OAuth/payment logins work); one without a gesture is blocked,
   the status bar says `popup blocked: <url>` (or that it had no URL), and `:popupOpen` (latest) /
   `:popupSearch` (the buffer's list, cleared when it navigates away) open it in a new buffer. A
   `target=_blank` link opens a new buffer. Not now: a per-site "always allow popups" list.
+
+## 2026-11-24 Middle-click on a link opens a new buffer (amends "Ctrl/middle-click on links still open nothing")
+
+User (C-MIDCLICK): "Middle click on links should basically do a :new". A middle-click on a link now opens its URL in a
+new buffer that becomes current, exactly as `:new <url>` does (T103: the old buffer is the alternate, Ctrl-^ returns),
+in NORMAL and in INPUT (the new buffer starts in NORMAL). This reverses C-NOTAB for the middle button only: Ctrl-click,
+Shift-click and Ctrl+Shift-click still open nothing, and middle-click on anything that is not a link is unchanged (no
+paste, see below; no autoscroll). How the host tells a middle-click from Ctrl+click: Chromium gives both the same
+disposition (NEW_BACKGROUND_TAB, no modifiers in `OnOpenURLFromTab`), so the host cannot there; the renderer's DOM can:
+a middle-click is an `auxclick` with `button` 1 (Ctrl+click is a `click` with `button` 0 and `ctrlKey`). A script run
+in every frame (`newtab::MIDDLE_JS`) cancels an unmodified middle-click on `a[href]`/`area[href]`, sends the link's
+absolute URL to the host through a V8 function the script closes over (the page never sees it), and the host tells the
+shell with `open-link`. The shell opens it like `:new` (no `window.opener`, no popup blocking: not a popup).
 
 ## 2026-11-23 No middle-click paste in the page; GTK stays
 

@@ -39,8 +39,8 @@ is v0 plus `new-tab`, `show-tab`, `close-tab`, an optional `tab` on page command
   reported (`popup-blocked`), and `popup-open` opens it later.
 - **No new-tab gesture opens a page** (user, 2026-11-23, C-NOTAB; kept by DECISIONS.md "A picker,
   bookmarks, buffers as tabs, popups like Chrome": "Ctrl/middle-click on links still open nothing").
-  Ctrl+click, middle-click, Shift+click, Ctrl+Shift+click on a link and Ctrl+Enter in a form do
-  nothing at all: nothing opens and the page is not navigated. There is no context
+  Ctrl+click, Shift+click, Ctrl+Shift+click on a link and Ctrl+Enter in a form do
+  nothing at all (middle-click: amended 2026-11-24, `open-link`, DECISIONS.md): nothing opens and the page is not navigated. There is no context
   menu at all (C-NOMENU): the host suppresses Chrome's menu for every context, the right-click
   still reaches the page as a normal `contextmenu` event.
 
@@ -130,6 +130,7 @@ unknown `cmd`, missing field, zoom out of range) gets an `error` event.
 | `find-result <tab> <id> <i> <n>` | `{"event":"find-result","tab":1,"id":7,"index":2,"count":5}`, optional `"wrapped":true` (only after `screen_top`: no match at or below the top of the screen, `index` is the first match) |
 | `crashed <id>` | `{"event":"crashed","tab":1,"reason":"TS_PROCESS_CRASHED (exit code 139)"}` |
 | `popup-blocked <id> <n> <url>` | `{"event":"popup-blocked","tab":1,"popup":7,"url":"https://idp.example/auth","name":"login","frame":"sub","features":"popup,width=400,height=300"}` |
+| `open-link <id> <url>` | `{"event":"open-link","tab":1,"url":"https://a.example/x"}` |
 | `forgot <site> ok`, `forgot <site> partial <what failed>` | `{"event":"forgot","site":"https://mail.example.com/","domain":"example.com","result":"ok","cookies":3,"origins":["http://example.com","https://example.com","https://mail.example.com"]}`, with `"result":"partial","failed":["storage https://x.example.com (timeout)"]` |
 | (error) | `{"event":"error","message":"..."}` |
 
@@ -144,6 +145,9 @@ unknown `cmd`, missing field, zoom out of range) gets an `error` event.
   `name` the target name the page gave; `frame` `main` or `sub` (an iframe asked); `features` the
   window features as `window.open` takes them, rebuilt by the host (`popup`, then `left`, `top`,
   `width`, `height` as given).
+- `open-link` (C-MIDCLICK): the user middle-clicked a link (no modifier held) in page `tab`; `url` is its absolute
+  `http:`/`https:`/`file:` target. The click's own navigation was cancelled in the renderer; the shell opens the URL as `:new <url>`
+  (KEYS.md T105). Pages cannot send it: the renderer script holds the only reference to the function that does.
 - `tab-closed`: once per page, when its browser has closed (`close-tab`, `quit`).
 - Every page event (`url`, `title`, `load`, `load-error`, `editable-focused`, `find-result`,
   `crashed`, `popup-blocked`) carries the page's `tab`; hidden pages send theirs too.
@@ -343,7 +347,8 @@ By disposition (`host-cef/src/newtab.rs`) and gesture:
 - the same **without** a gesture: cancelled (the page's `window.open` returns `null`, as with Chrome's
   blocker), recorded in its page and reported as `popup-blocked`. A page forgets its blocked popups when
   it starts a cross-document load (reload included); the shell clears its list on the same `load start`.
-- background tab, new window and the rest (Ctrl/Shift/middle click, C-NOTAB): dropped, nothing opens.
+- background tab, new window and the rest (Ctrl/Shift click, C-NOTAB): dropped, nothing opens. A middle-click is told apart in the
+  renderer (`auxclick` button 1) and becomes `open-link` (C-MIDCLICK), never a popup.
 - this tab (`CURRENT_TAB`, ...): loaded in the page that asked.
 
 **`popup-open <id> <n>`** takes blocked popup `n` out of the page's record and:

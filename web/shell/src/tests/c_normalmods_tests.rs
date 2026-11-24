@@ -9,8 +9,8 @@ fn keys_t92_a_normal_press_with_a_modifier_sends_it_and_the_release_restores() {
 }
 
 #[test]
-fn keys_t92_a_plain_click_in_normal_touches_nothing() {
-    assert_eq!(click_mods(false, true, false, 0), ClickMods::Nothing);
+fn keys_t92_a_plain_click_in_normal_tells_the_page_no_modifier_is_held() {
+    assert_eq!(click_mods(false, true, false, 0), ClickMods::Clear);
     assert_eq!(click_mods(false, false, false, 0), ClickMods::Nothing);
 }
 

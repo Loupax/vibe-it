@@ -484,8 +484,9 @@ contents, restoring buffers after a restart.
 | T89 | any | `crashed` | none | same | only that buffer's page is gone (the others keep running); the buffer stays. Current: as before, `web: the page crashed; :refresh loads it again`; in the background: `web: the page of buffer N crashed (the other buffers are fine)`, and switching to it shows the first message |
 | T90 | COMMAND | typing a command name | none | COMMAND | the ghost offers `bufferList`, `buffer`, `bufferNext`, ... but never `ls`, `b`, `bn`, `bp`, `bd`; a word that is an alias in full has no ghost text, so Enter runs it as typed (`:b` stays `:b`, not the first `b...` name); Tab still cycles the long names |
 | T91 | COMMAND | Enter on `:q` / `:quit` | not on `:help` | (exit) | the host closes every page (`quit`) and exits when the last one is gone; the shell opens no page meanwhile |
-| T92 | any | Ctrl-click, middle-click, Shift-click on a link | none | same | nothing opens (C-NOTAB stays): no buffer, no page, no navigation, in NORMAL as in INPUT. **C-NORMALMODS** (user 2026-11-23): in NORMAL a pointer click carries the modifiers actually held (the shell tells the page the held modifiers just before the press and puts them back, unmodified, after the release), so the host's rules apply there too; NORMAL's own keys still reach the page unmodified (`G` is End, T21). A middle-click opens nothing in either mode. C-POPUPS kept this, see "Popups" |
+| T92 | any | Ctrl-click, Shift-click, Ctrl+Shift-click on a link | none | same | nothing opens (C-NOTAB stays): no buffer, no page, no navigation, in NORMAL as in INPUT. **Amended 2026-11-24 (C-MIDCLICK, user: "Middle click on links should basically do a :new")**: the middle-click is no longer in this row, see T105. In NORMAL a click with no modifier held also tells the page "none held" first, since a buffer switch (Ctrl-^) left the new page believing Ctrl+Shift was down. **C-NORMALMODS** (user 2026-11-23): in NORMAL a pointer click carries the modifiers actually held (the shell tells the page the held modifiers just before the press and puts them back, unmodified, after the release), so the host's rules apply there too; NORMAL's own keys still reach the page unmodified (`G` is End, T21). A middle-click: see T105. C-POPUPS kept this, see "Popups" |
 | T103 | COMMAND | Enter on `:new <url>` / `:bufferNew <url>` | one word | NORMAL | a new buffer (`new-tab` with the URL, as `:go` would resolve it: `https://` assumed, `/x` `./x` `#x` `?x` relative to the page on screen, a history URL minus its scheme keeps that scheme) becomes current (`show-tab` when its page exists); the buffer left becomes the alternate (Ctrl-^ returns). A word `:go` refuses (relative with no page): its message, no buffer. Two or more words: `web: usage: :new [url]`. The argument completes as `:go`'s |
+| T105 | NORMAL, INPUT | middle-click on a link (`a[href]`, `area[href]`; no modifier held) | the pointer is over the link | NORMAL | as `:new <url>` (T103) with the link's absolute URL: a new buffer, current at once, the old one the alternate (Ctrl-^ returns); the clicked page does not navigate; the new page has no `window.opener` and no popup blocking applies. From INPUT too: the new buffer starts in NORMAL. A middle-click on anything else does nothing (no paste, DECISIONS.md "No middle-click paste"); a middle-click with Ctrl/Shift/Alt held, a `javascript:` link, or a URL that is not `http:`/`https:`/`file:` opens nothing. The host tells Ctrl+click from middle-click by the DOM event (`auxclick` button 1), not by Chromium's disposition (the same for both) |
 | T104 | COMMAND | Enter on `:new` / `:bufferNew` | no argument | COMMAND | as T103 with an empty `about:blank` page, then the `:` line opens again with `go ` already typed (cursor after it), so typing the address and Enter navigates the new buffer (Esc leaves an empty buffer). |
 
 ## Popups (C-POPUPS)
@@ -515,8 +516,8 @@ gesture.
 Modifier clicks (C1-INPUT's open case, decided here by the user's words "Ctrl/middle-click on links still
 open nothing", DECISIONS.md): in INPUT the page gets the modifiers with the keys; in NORMAL (user
 2026-11-23, C-NORMALMODS) a click carries the modifiers held (the page is told just before the press and
-unmodified again after the release), so Ctrl/Shift/Ctrl+Shift-click and middle-click are dropped by the
-host in both modes (T92). NORMAL's keys are unaffected: the page's modifiers are never changed by a key
+unmodified again after the release), so Ctrl/Shift/Ctrl+Shift-click are dropped by the
+host in both modes (T92); a middle-click on a link opens it as `:new` (T105, amended 2026-11-24). NORMAL's keys are unaffected: the page's modifiers are never changed by a key
 there. Not now (DECISIONS.md): a per-site "always allow popups" list.
 
 ## Opening a page in another browser (C-EXTERNAL)
@@ -542,7 +543,7 @@ Esc Esc, so there is nothing left to switch off, and Esc Esc cannot be locked ou
 - 2026-11-23 (C-NORMALMODS, the user's words in DECISIONS.md): a pointer click in NORMAL carries the held
   modifiers: the shell sends the page `wl_keyboard.modifiers` with the held state just before a press and
   the unmodified state after the release (INPUT: the desktop's); the seat's own state and NORMAL's keys are
-  untouched, so `G` is still End. Ctrl/Shift/Ctrl+Shift-click open nothing in either mode (T92).
+  untouched, so `G` is still End. Ctrl/Shift/Ctrl+Shift-click open nothing in either mode (T92); middle-click on a link is `:new` (T105).
 
 - 2026-11-23 (C-POPUPS): popups built as "Popups" says (T93-T98). The implementer's choices, not asked:
   the shell switches to every popup, also one a background buffer opened; a blocked popup that is

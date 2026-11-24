@@ -29,8 +29,12 @@ const BTN_MIDDLE: u32 = 0x112;
 /// C-NORMALMODS (KEYS.md T92): what to do with the page's modifier state around a pointer button.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ClickMods {
-    /// Nothing: in INPUT the page already has the desktop's modifiers; in NORMAL none are held.
+    /// Nothing: in INPUT the page already has the desktop's modifiers; a release with nothing to restore.
     Nothing,
+    /// NORMAL press with no modifier held: tell the page "none held" first (C-MIDCLICK: a chord that
+    /// switches buffers, Ctrl-^, leaves the newly focused page with the chord's Ctrl+Shift, which
+    /// NORMAL never lets the key releases correct; the click then read as a Ctrl+Shift-click).
+    Clear,
     /// NORMAL press with a modifier held: tell the page the held modifiers just before the press.
     Send,
     /// The release of a button whose press sent them: put the page's modifiers back
@@ -42,10 +46,10 @@ pub enum ClickMods {
 /// `outstanding`: buttons pressed with `Send` and not yet released.
 pub fn click_mods(input: bool, pressed: bool, held: bool, outstanding: u32) -> ClickMods {
     if pressed {
-        if !input && held {
-            ClickMods::Send
-        } else {
-            ClickMods::Nothing
+        match (input, held) {
+            (false, true) => ClickMods::Send,
+            (false, false) => ClickMods::Clear,
+            (true, _) => ClickMods::Nothing,
         }
     } else if outstanding > 0 {
         ClickMods::Restore
@@ -158,10 +162,12 @@ impl State {
                 match action {
                     ClickMods::Send => self.click_mods_out += 1,
                     ClickMods::Restore => self.click_mods_out -= 1,
-                    ClickMods::Nothing => {}
+                    ClickMods::Nothing | ClickMods::Clear => {}
                 }
-                if action == ClickMods::Send {
-                    self.page_modifiers(ms);
+                match action {
+                    ClickMods::Send => self.page_modifiers(ms),
+                    ClickMods::Clear => self.page_modifiers(smithay::input::keyboard::ModifiersState::default()),
+                    _ => {}
                 }
                 pointer.button(
                     self,
