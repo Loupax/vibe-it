@@ -206,10 +206,10 @@ stop early on a hard failure.
       anyway; SCRIPT_BUDGET_MS via the interrupt handler; a web.cmd depth limit. Expose nothing else. Report the
       binary size and start time added. Unit tests (a script opening buffers in ready, a throwing script, a
       runaway loop), a live step with a test init.js under a temporary XDG_CONFIG_HOME (never the user's).
-- [ ] C-SCRIPT-MEM [S] optional (from #736) SCRIPT_MEMORY_MAX via Runtime::set_memory_limit; today an allocation loop
+- [ ] [WIP] C-SCRIPT-MEM [S] optional (from #736) SCRIPT_MEMORY_MAX via Runtime::set_memory_limit; today an allocation loop
       can take a few hundred MB before the 100 ms budget stops it. Also report unhandled promise rejections from
       scripts in the bar (dropped silently today).
-- [ ] [WIP] C-SCRIPT-MAP [M] (after C-SCRIPT) `web.map("n", keys, rhs)`: rhs a `:` line string or a function. A string
+- [x] C-SCRIPT-MAP [M] (DONE 2026-11-24, 7b7ae52, #739: MAP_TIMEOUT_MS 1000; no mappings = old path; KEYS T118-T124; hook Keys::open_line_with for C-EDITURL) (after C-SCRIPT) `web.map("n", keys, rhs)`: rhs a `:` line string or a function. A string
       runs when it ends in `<CR>` (`<Enter>`, `<Return>`) and otherwise opens the `:` line with its text typed
       (vim's contract; SCRIPTING.md "web.map", user 2026-11-24); any other `<...>` in it, or `<CR>` before the
       end, is an error at map time; `<lt>` is `<`. A
@@ -222,7 +222,7 @@ stop early on a hard failure.
       `$XDG_CONFIG_HOME/web/profiles/NAME/init.js` after the global one; state directory defaults to
       `$XDG_STATE_HOME/web/profiles/NAME/` (`--state-dir` still wins), so C-SINGLE and --forget-site find that
       profile's instance. USAGE, STASH.md, args tests, a live step with two profiles side by side.
-- [ ] C-CMDHIST [S] (user, 2026-11-24: "When I'm entering a command I should be able to use up or down keys to
+- [ ] [WIP] C-CMDHIST [S] (user, 2026-11-24: "When I'm entering a command I should be able to use up or down keys to
       navigate history. If already typed something, that should be used as filtering.") A history of the `:`
       lines run, browsed with Up/Down in the `:` line, as vim's cmdline history. Found (2026-11-24): there is
       none today; history.rs is the URL visit history (STASH.md), not commands, and Up/Down in the `:` line
