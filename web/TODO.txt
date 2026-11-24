@@ -218,7 +218,7 @@ stop early on a hard failure.
       mappings before BINDINGS/KEY_SEQUENCES. Notation: characters, `<C-x>`, `<lt>`. KEYS.md rows, unit tests
       (prefix waits, timeout replay, override of `j` and of `gg`, `:x<CR>` runs, `:go ` opens the line and gets
       C-EDITURL's fill-in once both exist, a bad rhs refused), a live step.
-- [ ] [WIP] C-PROFILE [S] (after C-SCRIPT) `--profile NAME` (`[A-Za-z0-9_-]+`): runs
+- [x] C-PROFILE [S] (DONE 2026-11-24, 5975635, #738: WEB_STATE_DIR stays a base, profiles/NAME appended; --state-dir exact) (after C-SCRIPT) `--profile NAME` (`[A-Za-z0-9_-]+`): runs
       `$XDG_CONFIG_HOME/web/profiles/NAME/init.js` after the global one; state directory defaults to
       `$XDG_STATE_HOME/web/profiles/NAME/` (`--state-dir` still wins), so C-SINGLE and --forget-site find that
       profile's instance. USAGE, STASH.md, args tests, a live step with two profiles side by side.

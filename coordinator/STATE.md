@@ -600,3 +600,5 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 ## 2026-11-24 C-SCRIPT merged (#736, 403988e); web reinstalled. Filed optional C-SCRIPT-MEM. Next: C-SCRIPT-MAP / C-PROFILE await the user's word.
 
 ## 2026-11-24 Merged #737 (user's PR, docs: C-CMDHIST, C-REPEAT, C-EDITURL; web.map rhs <CR> rule) abe9242 after a rebase (TODO conflict with C-SCRIPT-MEM, kept both). Started C-SCRIPT-MAP (Opus) and C-PROFILE (Sonnet). C-CMDHIST/C-EDITURL wait (both touch keys.rs/the : line like C-SCRIPT-MAP); C-REPEAT after C-CMDHIST.
+
+## 2026-11-24 C-PROFILE merged (#738, 5975635); web reinstalled. C-SCRIPT-MAP still running; C-CMDHIST/C-EDITURL wait for it (keys.rs).
