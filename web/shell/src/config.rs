@@ -200,6 +200,13 @@ pub const CLICK_FOCUS_MS: u64 = 1000;
 /// or control) and gives the page the Enter this many ms later, so it lands on that focus.
 pub const ENTER_AFTER_FIND_CLEAR_MS: u64 = 50;
 
+/// C-BARREPEAT: winit (smithay's backend) drops the OS's key repeats, so the shell repeats a held key
+/// in its own `:` and `/` lines and the picker's filter itself. These are the rate (keys per second;
+/// 0 = no repeat) and delay (ms before the first repeat) used until the desktop tells its own
+/// (wl_keyboard.repeat_info on Wayland, XKB controls on X11).
+pub const KEY_REPEAT_RATE: u32 = 25;
+pub const KEY_REPEAT_DELAY_MS: u32 = 600;
+
 // ---------- status bar ----------
 
 /// Height of the status bar at the bottom of the window, px. The page is the window minus this.

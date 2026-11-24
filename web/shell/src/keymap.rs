@@ -17,6 +17,8 @@
 use std::os::fd::OwnedFd;
 use std::os::unix::fs::FileExt;
 
+use std::time::Instant;
+
 use crate::clipboard::DesktopKind;
 
 /// A keymap's text as the desktop sent it: Wayland's is NUL-terminated and may be padded; cut it at
@@ -80,6 +82,8 @@ pub enum Update {
     Group(u32),
     /// C3-SHIFTSYNC: the desktop's modifier masks (depressed, latched, locked), in the keymap's bits.
     Mods(u32, u32, u32),
+    /// C-BARREPEAT: the desktop's key repeat: keys per second (0 = none) and the delay in ms.
+    Repeat(u32, u32),
 }
 
 /// Starts the watcher thread; each keymap (the first, then every change) arrives on `tx`.
@@ -121,6 +125,40 @@ impl crate::state::State {
 }
 
 impl crate::state::State {
+    /// C-BARREPEAT: the desktop's repeat rate and delay for the shell's own lines.
+    pub fn set_desktop_repeat(&mut self, rate: u32, delay_ms: u32) {
+        self.keys.repeat_rate = rate;
+        self.keys.repeat_delay_ms = delay_ms;
+        self.log(&format!("desktop key repeat: {rate}/s after {delay_ms} ms"));
+    }
+
+    /// C-BARREPEAT: after a key event, starts the timer that repeats a held key of a shell line
+    /// (winit gives no OS repeats). One timer at a time; it ends itself when nothing repeats.
+    pub fn arm_key_repeat(&mut self) {
+        use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
+        if self.keys.repeat_armed {
+            return;
+        }
+        let Some(wait) = self.keys.repeat_wait(Instant::now()) else {
+            return;
+        };
+        let armed = self.loop_handle.insert_source(Timer::from_duration(wait), |_, _, state| {
+            match state.keys.repeat_tick(Instant::now()) {
+                Some(wait) => {
+                    let time = state.log_ms() as u32;
+                    state.apply_key_effects(time);
+                    TimeoutAction::ToDuration(wait)
+                }
+                None => {
+                    state.keys.repeat_armed = false;
+                    state.redraw();
+                    TimeoutAction::Drop
+                }
+            }
+        });
+        self.keys.repeat_armed = armed.is_ok();
+    }
+
     /// The desktop's active layout group (index into the keymap's layouts) goes to the seat.
     pub fn set_desktop_group(&mut self, group: u32) {
         use smithay::input::keyboard::Layout;
@@ -281,6 +319,10 @@ mod wayland {
                 let _ = w.tx.send(Update::Group(group));
                 return;
             }
+            if let wl_keyboard::Event::RepeatInfo { rate, delay } = event {
+                let _ = w.tx.send(Update::Repeat(rate.max(0) as u32, delay.max(0) as u32));
+                return;
+            }
             if let wl_keyboard::Event::Keymap { format, fd, size } = event {
                 if format != WEnum::Value(wl_keyboard::KeymapFormat::XkbV1) {
                     return;
@@ -410,6 +452,16 @@ mod x11 {
             Err(e) => eprintln!("web: desktop keymap: {e}"),
         };
         send(&conn);
+        if let Ok(reply) = conn
+            .xkb_get_controls(xkb::ID::USE_CORE_KBD.into())
+            .map_err(|e| e.to_string())
+            .and_then(|c| c.reply().map_err(|e| e.to_string()))
+        {
+            let _ = tx.send(Update::Repeat(
+                1000 / u32::from(reply.repeat_interval).max(1),
+                u32::from(reply.repeat_delay),
+            ));
+        }
         loop {
             let ev = conn.wait_for_event().map_err(|e| format!("X11: {e}"))?;
             if let Event::XkbStateNotify(s) = &ev {

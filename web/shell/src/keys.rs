@@ -13,8 +13,17 @@ use std::time::{Duration, Instant};
 use smithay::input::keyboard::{Keysym, ModifiersState};
 
 use crate::completion::{compute_ghost, CompleteCache, ExtResult, ExtSink, Ghost};
-use crate::config::{ScrollInput, BINDINGS, CLICK_FOCUS_MS, ESC_ESC_MS, KEY_SEQUENCES, SCROLL_INPUTS, START_MODE};
+use crate::config::{
+    ScrollInput, BINDINGS, CLICK_FOCUS_MS, ESC_ESC_MS, KEY_REPEAT_DELAY_MS, KEY_REPEAT_RATE, KEY_SEQUENCES, SCROLL_INPUTS, START_MODE,
+};
 use crate::protocol::{Command, FindDir};
+
+/// C-BARREPEAT: the key the shell repeats in a line, and when it repeats next.
+struct Repeating {
+    code: u32,
+    key: KeyInput,
+    next: Instant,
+}
 
 /// A key press as the bindings see it: the keysym with Shift (and the layout) applied, the
 /// character it types (none for Escape, arrows, ...), and the modifiers held.
@@ -443,6 +452,13 @@ pub struct Keys {
     sink: Option<ExtSink>,
     /// Key codes held down (a press of one already down is an OS repeat).
     down: HashSet<u32>,
+    /// C-BARREPEAT: the desktop's repeat rate (per second, 0 = off) and delay (ms).
+    pub repeat_rate: u32,
+    pub repeat_delay_ms: u32,
+    /// The key the shell repeats itself (winit delivers no OS repeats) and when it repeats next.
+    repeating: Option<Repeating>,
+    /// A repeat timer is running (set by the compositor, `State::arm_key_repeat`).
+    pub repeat_armed: bool,
     /// Key codes whose press reached the page: exactly those get their release (T33, T34).
     forwarded: HashSet<u32>,
     /// Scroll keys given to the page, by the key code of the binding holding them.
@@ -489,6 +505,10 @@ impl Keys {
             state_dir,
             sink,
             down: HashSet::new(),
+            repeat_rate: KEY_REPEAT_RATE,
+            repeat_delay_ms: KEY_REPEAT_DELAY_MS,
+            repeating: None,
+            repeat_armed: false,
             forwarded: HashSet::new(),
             held: Vec::new(),
             effects: Vec::new(),
@@ -501,6 +521,9 @@ impl Keys {
     pub fn key(&mut self, code: u32, pressed: bool, key: &KeyInput, now: Instant) -> bool {
         if !pressed {
             self.down.remove(&code);
+            if self.repeating.as_ref().is_some_and(|r| r.code == code) {
+                self.repeating = None;
+            }
             let mut i = 0;
             while i < self.held.len() {
                 if self.held[i].0 == code {
@@ -515,7 +538,11 @@ impl Keys {
             return self.forwarded.remove(&code);
         }
         let repeat = !self.down.insert(code);
+        let was_line = self.in_line_mode();
         let forward = self.press(code, key, repeat, now);
+        if !repeat && was_line {
+            self.arm_repeat(code, key, now);
+        }
         if forward {
             self.forwarded.insert(code);
         }
@@ -538,7 +565,60 @@ impl Keys {
         }
         self.esc = EscState::Idle;
         self.pending_seq = None;
+        self.repeating = None;
         (pressed, ours)
+    }
+
+    /// The shell consumes keys itself: the `:` and `/` lines and the picker (NORMAL key mode).
+    fn in_line_mode(&self) -> bool {
+        self.key_mode == KeyMode::Normal && matches!(self.vim_mode, VimMode::Command | VimMode::Search | VimMode::Pick)
+    }
+
+    /// C-BARREPEAT: a first press of an editing key in a line starts the shell's own repeat of it.
+    /// Modifiers, Enter and Escape never repeat; a mode change ends it.
+    fn arm_repeat(&mut self, code: u32, key: &KeyInput, now: Instant) {
+        let raw = key.sym.raw();
+        let modifier = (0xffe1..=0xffee).contains(&raw) || (0xfe01..=0xfe13).contains(&raw);
+        if modifier {
+            return;
+        }
+        if !self.in_line_mode() || self.repeat_rate == 0 || matches!(key.sym, Keysym::Return | Keysym::KP_Enter | Keysym::Escape) {
+            self.repeating = None;
+            return;
+        }
+        self.repeating = Some(Repeating {
+            code,
+            key: *key,
+            next: now + Duration::from_millis(self.repeat_delay_ms as u64),
+        });
+    }
+
+    /// Whether a key is waiting to repeat, and after how long (the compositor's timer).
+    pub fn repeat_wait(&self, now: Instant) -> Option<Duration> {
+        self.repeating.as_ref().map(|r| r.next.saturating_duration_since(now))
+    }
+
+    /// C-BARREPEAT: repeats the held key when its time has come. Returns the wait until the next
+    /// repeat, None when nothing repeats any more (released, mode changed, focus lost).
+    pub fn repeat_tick(&mut self, now: Instant) -> Option<Duration> {
+        if !self.in_line_mode() {
+            self.repeating = None;
+            return None;
+        }
+        let (code, key, next) = self.repeating.as_ref().map(|r| (r.code, r.key, r.next))?;
+        if now < next {
+            return Some(next - now);
+        }
+        self.press(code, &key, true, now);
+        let interval = Duration::from_millis(1000 / self.repeat_rate.max(1) as u64);
+        if !self.in_line_mode() {
+            self.repeating = None;
+            return None;
+        }
+        if let Some(r) = &mut self.repeating {
+            r.next = now + interval;
+        }
+        Some(interval)
     }
 
     /// C3-SHIFTSYNC: no key is physically down (as far as the shell saw), so the desktop's

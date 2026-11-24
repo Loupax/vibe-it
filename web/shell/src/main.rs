@@ -163,6 +163,7 @@ fn main() {
                 }
                 calloop::channel::Event::Msg(keymap::Update::Group(g)) => state.set_desktop_group(g),
                 calloop::channel::Event::Msg(keymap::Update::Mods(d, l, k)) => state.set_desktop_mods(d, l, k),
+                calloop::channel::Event::Msg(keymap::Update::Repeat(rate, delay)) => state.set_desktop_repeat(rate, delay),
                 calloop::channel::Event::Closed => {}
             })
             .unwrap();
